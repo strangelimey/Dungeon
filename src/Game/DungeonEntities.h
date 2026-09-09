@@ -37,6 +37,11 @@ public:
 	// the file banner).
 	DungeonEntities(const std::string& path, const DungeonMap& map);
 
+	// The same parse, from TEXT that was never a file — the dynamic half of a
+	// generated random encounter (docs/world-map.md).
+	static DungeonEntities FromText(std::string_view text, const DungeonMap& map,
+									const std::string& where);
+
 	const std::vector<Entity>& All() const { return m_entities; }
 	// Appends an editor-authored record (remote-level placement), assigning the
 	// next stable id above every existing one (ids are file-record order and
@@ -65,6 +70,10 @@ public:
 					  const std::string* newId);
 
 private:
+	DungeonEntities() = default; // FromText builds one and fills it in
+	void Parse(const std::vector<u8>& bytes, const DungeonMap& map,
+			   const std::string& path);
+
 	std::vector<Entity> m_entities; // sorted by (z * map width + x)
 	int m_width = 0;
 };

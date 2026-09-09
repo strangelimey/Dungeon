@@ -213,6 +213,12 @@ public:
 	// `fixtures` routes fixture records by catalog id (see FixtureTypes).
 	explicit DungeonMap(const std::string& path, FixtureTypes fixtures = {});
 
+	// The same parse, from TEXT that was never a file — a generated random
+	// encounter, which must never touch disk (docs/world-map.md). `where`
+	// names the source in error messages, since there is no path to quote.
+	static DungeonMap FromText(std::string_view text, FixtureTypes fixtures,
+							   const std::string& where);
+
 	int Width() const { return m_width; }
 	int Height() const { return m_height; }
 
@@ -525,6 +531,9 @@ public:
 					  const std::string* newId);
 
 private:
+	DungeonMap() = default; // FromText builds one and fills it in
+	void Parse(const std::vector<u8>& bytes, FixtureTypes fixtures,
+			   const std::string& path);
 	void ParsePaletteRecord(const std::string& record, const std::string& path);
 	void ParseStairRecord(const std::string& record, const std::string& path);
 	void ParseVariantRecord(const std::string& record, const std::string& path);

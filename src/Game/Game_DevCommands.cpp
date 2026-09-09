@@ -267,8 +267,8 @@ void Game::RegisterDevCommands() {
 						   }
 						   std::string name = JoinArgs(args);
 						   if (name.empty()) name = "quicksave";
-						   SaveGame(name);
-						   m_console.Print("saved: " + name);
+						   if (SaveGame(name)) m_console.Print("saved: " + name);
+						   else m_console.Refuse("not saved (see log)");
 					   });
 	m_console.Register("load", "load a save by name (no arg lists saves)",
 					   [this](const std::vector<std::string>& args) {
@@ -368,6 +368,42 @@ void Game::RegisterDevCommands() {
 				"travelled {} of {} to {},{} - {:.2f}h elapsed{}", moved, count,
 				m_worldState.x, m_worldState.z, m_worldState.time,
 				moved < count ? " (blocked)" : ""));
+		});
+	m_console.Register(
+		"encounter", "force a random encounter here: encounter [difficulty]",
+		[this](const std::vector<std::string>& args) {
+			if (!m_worldMap) {
+				m_console.Print("no world map loaded");
+				return;
+			}
+			const WorldMap::Terrain& t =
+				m_worldMap->TerrainAt(m_worldState.x, m_worldState.z);
+			const float d = args.empty()
+								? m_worldMap->Difficulty(m_worldState.x, m_worldState.z)
+								: static_cast<float>(std::atof(args[0].c_str()));
+			m_console.Print(StartEncounter(d, t.tags, m_world.Rng()())
+								? std::format("encounter on {} at difficulty {:.2f}",
+											  t.id, d)
+								: "no encounter (see log)");
+		});
+	m_console.Register(
+		"encounters", "encounter rolls: encounters [on|off|<rate>]",
+		[this](const std::vector<std::string>& args) {
+			if (!args.empty()) {
+				if (args[0] == "off") m_encountersOff = true;
+				else if (args[0] == "on") m_encountersOff = false;
+				else {
+					m_encounterRate = static_cast<float>(std::atof(args[0].c_str()));
+					m_encountersOff = false;
+				}
+			}
+			// Reports the RATE and the switch separately, because a rate of zero
+			// and "switched off" are different states and a reader has to be
+			// able to tell which one they are looking at.
+			m_console.Print(std::format("encounters {} rate {:.3f} (chance = "
+										"difficulty x hours x rate)",
+										m_encountersOff ? "off" : "on",
+										m_encounterRate));
 		});
 	m_console.Register(
 		"enter", "enter a world location's dungeon: enter [id] (default: here)",

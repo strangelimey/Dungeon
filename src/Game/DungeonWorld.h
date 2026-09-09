@@ -267,6 +267,11 @@ public:
 	// constant-seeded, which makes a run perfectly reproducible AND makes every
 	// run the same run. An eval needs a SAMPLE, so it varies this per encounter.
 	void SeedCombat(u32 seed) { m_combatRng.seed(seed); }
+	// The same stream the fighting draws from, for the things OUTSIDE combat
+	// that must still be reproducible from a seed — a travel encounter roll.
+	// Deliberately not a second generator: `seed` in a script has to mean the
+	// whole run, and two streams would make it mean half of one.
+	std::mt19937& Rng() { return m_combatRng; }
 
 	// THE ARENA (DungeonWorld_Arena.cpp): carve a controlled space into the
 	// LOADED map — no files written — and empty the world of everything the
@@ -868,6 +873,11 @@ public:
 	// to know how to write the text.
 	bool InstallLevelFromFiles(const std::string& stem, const std::string& mapPath,
 							   const std::string& entPath);
+	// The same install, from TEXT that was never a file: a generated random
+	// encounter (docs/world-map.md). `stem` names it for error messages and
+	// for CurrentLevel; it is never a path and never written.
+	bool InstallLevelFromText(const std::string& stem, std::string_view mapText,
+							  std::string_view entText);
 
 	// --- validation (the editor's playability check) --------------------------
 	// Runs Game/Validate.h over EVERY level in the project — the active one from
@@ -2742,6 +2752,12 @@ private:
 
 	// Captures the ACTIVE level's live dynamic state (revealed cells + monster
 	// diff) as a SaveData::LevelState. Shared by StashActive and CaptureState.
+
+	// The shared tail of both installs: replace a stashed level, or the ACTIVE
+	// one in place (Party holds a reference to m_map, so the object persists
+	// and only its data changes).
+	bool InstallLevel(const std::string& stem, DungeonMap&& map,
+					  DungeonEntities&& ents);
 	SaveData::LevelState SnapshotActive() const;
 	// Stashes the active level's live state into m_levelStates[m_currentLevel],
 	// so a later return (or a save) can restore it.

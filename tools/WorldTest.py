@@ -2,7 +2,7 @@
 #
 # Run:  python tools\WorldTest.py      (needs a debug build)
 #
-# Six phases, all built on one principle: a check that never fires reports
+# Seven phases, all built on one principle: a check that never fires reports
 # "clean" just as loudly as one that works, so every expectation here is paired
 # with something that makes it fail.
 #
@@ -20,6 +20,8 @@
 #      the world map.
 #   6. TWO DOORS — a dungeon with a front gate and a back way, which land in
 #      different parts of it and surface in different parts of the world.
+#   7. RANDOM ENCOUNTERS — built from text, scaled by the area, thrown away,
+#      and refusing to be saved.
 #   4. TRAVEL — a journey costs the time its terrain says and the supplies that
 #      span buys, refuses an impassable square instead of clamping, and reveals
 #      what walking past a place should reveal. The times are read off
@@ -268,6 +270,48 @@ try:
     # from the inside. One discovered going in, two coming out.
     check("discovered 2" in log,
           "and coming out of a door discovers it")
+    # --- phase 7: random encounters -----------------------------------------
+    print("\n7 - a random encounter is built, and thrown away")
+    log = run("worldencounter.eval")
+    maps = [l for l in log.splitlines() if "map, start" in l]
+    party = party_lines(log)
+
+    # Built from TEXT, never from a file: the load lines name the reserved
+    # stem rather than a path, which is what "never touches disk" looks like
+    # from outside.
+    check("Loaded map ~encounter" in log,
+          "the encounter level is parsed from memory, not read from a file")
+    # THE AREA DECIDES. The moor (difficulty 0.45) gets a bigger space than
+    # the road (0.12) - the sizes are the evidence that difficulty reached the
+    # generator at all, and two different grounds are the control.
+    check(any("13x13 map" in m for m in maps) and any("16x16 map" in m for m in maps),
+          "the road and the moor produce differently sized encounters",
+          " / ".join(m.strip()[-60:] for m in maps))
+    # And there is ALWAYS something in it. The generator's density is tuned
+    # for dungeons and will happily place none in a small space.
+    check(all("0 monsters" not in m for m in maps),
+          "and neither is empty - an ambush with nothing in it is not one",
+          " / ".join(m.strip()[-60:] for m in maps))
+
+    # Leaving returns to open ground, NOT to a doorway: 6,6 and 5,3 are where
+    # the party stood when each encounter began.
+    check(any("6,6 (on the world map)" in l for l in party) and
+          any("5,3 (on the world map)" in l for l in party),
+          "leaving an encounter puts the party back where it stood",
+          " / ".join(l[-46:] for l in party))
+
+    # --- and a save inside one is refused, not written ----------------------
+    trip = os.path.join(os.path.dirname(SAVE), "encountertrip.dsav")
+    try:
+        os.remove(trip)
+    except OSError:
+        pass
+    log = run("worldnosave.eval")
+    check("refusing to save inside a random encounter" in log,
+          "a save inside an encounter is refused, and says why")
+    # THE CHECK THAT MATTERS: the file is not there. A refusal that still
+    # wrote something would read exactly the same in the log.
+    check(not os.path.exists(trip), "and no save file was written", trip)
 finally:
     for p, s in originals.items():
         write(p, s)

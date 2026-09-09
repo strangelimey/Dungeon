@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <format>
+#include <random>
 
 namespace dungeon::game {
 
@@ -235,6 +236,26 @@ bool Game::TravelStep(int dx, int dz) {
 	m_worldState.time += hours;
 	SettleJourney(hours);
 	RevealAround(nx, nz);
+
+	// AND SOMETHING MAY BE WAITING. The roll is against the square ENTERED, and
+	// scales with BOTH its danger and how long it took to cross — an hour in the
+	// hills is more chances to be found than half an hour on the road, and the
+	// road is safer per hour as well. So terrain gets to matter twice, which is
+	// the whole reason it carries two numbers.
+	//
+	// Rolled AFTER the step is complete: the party is somewhere, its supplies
+	// are paid for and the ground is revealed, so an encounter is something that
+	// happens to a party that has arrived rather than one caught mid-stride.
+	const float danger = m_worldMap->Difficulty(nx, nz);
+	if (danger > 0.0f && !m_encountersOff) {
+		const float chance =
+			std::clamp(danger * hours * m_encounterRate, 0.0f, 0.9f);
+		std::uniform_real_distribution<float> d(0.0f, 1.0f);
+		if (d(m_world.Rng()) < chance) {
+			const WorldMap::Terrain& t = m_worldMap->TerrainAt(nx, nz);
+			StartEncounter(danger, t.tags, m_world.Rng()());
+		}
+	}
 	return true;
 }
 

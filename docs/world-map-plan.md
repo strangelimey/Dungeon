@@ -132,7 +132,7 @@ its entry level; leaving the dungeon returns the party to the world map at that
 location. This replaces "a new game starts on a level" as the game's opening,
 which is the moment several other things notice (see Risks).
 
-**P5 — random encounters.** Travel rolls against the area; an encounter builds a
+**P5 — random encounters.** DONE (2026-09-09). Travel rolls against the area; an encounter builds a
 throwaway space from that area's difficulty and tags. Almost all of it exists:
 `generate::Run` is pure and deterministic and emits ORDINARY content with no
 "generated" flag, `Game_Generate`'s `BuildLevelText` already renders a generated

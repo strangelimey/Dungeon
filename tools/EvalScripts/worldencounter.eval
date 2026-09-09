@@ -1,0 +1,37 @@
+; worldencounter.eval — a random encounter is built, fought in, and thrown away.
+;
+; What it is really watching:
+;   - the encounter level exists ONLY IN MEMORY. `mapinfo` proves it is a real
+;     level with real monsters; no file is ever written, and `savemap` must not
+;     invent one.
+;   - the AREA decides. A moor (undead, difficulty 0.45) and a road (0.05) are
+;     asked separately, and the sizes differ because difficulty scales them.
+;   - saving inside one is REFUSED rather than written, which is its own
+;     script (worldnosave.eval) because the runner counts a refused command as
+;     a script failure — and rightly: asking for the impossible is a fault
+;     everywhere except where it is the measurement.
+;   - leaving puts the party back on the world map WHERE IT STOOD, not at a
+;     doorway: it came from open ground.
+logecho on
+reset
+seed 4
+leave
+
+; --- on the road: a small, mild encounter ------------------------------------
+worldpos 6 6
+encounter
+state
+mapinfo
+monsters
+
+; --- back out to exactly where we were ---------------------------------------
+leave
+world
+
+; --- on the moor: harder ground, a bigger space ------------------------------
+worldpos 5 3
+encounter
+mapinfo
+monsters
+leave
+world

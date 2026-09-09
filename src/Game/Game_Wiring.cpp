@@ -54,6 +54,9 @@ void Game::WireModuleCallbacks() {
 		}
 	};
 	m_ui.onSaveSlot = [this](const std::string& name) {
+		// Resume EITHER WAY: a refused save (inside a random encounter) must
+		// not also strand the player on the save page with no explanation —
+		// SaveGame has already said why through the message log.
 		SaveGame(name);
 		m_state = m_resumeState; // resume after saving from the pause menu
 	};

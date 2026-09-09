@@ -331,11 +331,45 @@ PATH only. A level that must never touch disk needs from-text construction —
 which is the same "writes no files" property `DungeonWorld_Arena` already
 depends on, and the reason that file exists.
 
-**Parked:** what happens if the player saves mid-encounter. Michael's answer
-was that it needs handling differently, and he chose not to decide. Recorded
-here only so it is not accidentally designed around: determinism means a seed
-plus params WOULD reproduce the space exactly, if that ever turns out to be
-the answer.
+**Built (P5).** Travel rolls against the square ENTERED, and the chance is
+`difficulty x hours x rate` — so terrain matters TWICE, which is the whole
+reason it carries two numbers: an hour in the hills is more chances to be found
+than half an hour on the road, and the road is safer per hour as well. The roll
+happens after the step is complete, so an encounter is something that happens to
+a party that has ARRIVED rather than one caught mid-stride.
+
+The space is `generate::Run` with the area's difficulty for density and the
+terrain's tags for the pool, rendered to `.map`/`.ent` TEXT by the same
+`BuildLevelText` the editor's generator uses, and parsed by `DungeonMap::
+FromText` / `DungeonEntities::FromText`. It carries the reserved stem
+`~encounter` — no file has that name, and the leading `~` makes that structural
+rather than a convention. It is installed as the ACTIVE level always: the stash
+branch creates a level's slot by READING IT FROM DISK, which for a level with no
+file is an abort, and an encounter has nowhere to be stashed to in any case.
+
+**There is always something in it.** The generator's density is tuned for a
+DUNGEON, where an empty room is breathing space between fights; asked for a
+13-square encounter at low density it quite reasonably placed none at all. So
+density has a floor, and if the roll still produced no one, a monster goes at
+the far end. The road's safety is that an encounter is RARE — the roll already
+said so — not that the one you get is empty.
+
+The way out is an **exit stair** authored onto the arrival cell, so an encounter
+is left exactly the way a dungeon is rather than by a second mechanism that
+would need its own rules. Leaving returns the party to open ground, where it
+stood: it came from no doorway, so `atLocation` is empty and the fallback is
+already right.
+
+Dev: `encounter [difficulty]`, `encounters [on|off|<rate>]` — which reports the
+rate and the switch SEPARATELY, because a rate of zero and "switched off" are
+different states and a reader has to be able to tell which they are looking at.
+
+**Still parked:** what a mid-encounter save should DO. Saving is now REFUSED,
+and that is not an answer — it is the guard that stops the absence of an answer
+becoming a corrupt file, since a save naming `~encounter` would reload into a
+level that no longer exists and cannot be rebuilt. Refusing is recoverable;
+writing it is not. Determinism means a seed plus params WOULD reproduce the
+space exactly, if that ever turns out to be the answer.
 
 ### Quests
 

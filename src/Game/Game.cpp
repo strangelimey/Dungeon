@@ -606,10 +606,22 @@ void Game::StartNewGame() {
 	log::Info("New game started");
 }
 
-void Game::SaveGame(const std::string& name) {
+bool Game::SaveGame(const std::string& name) {
 	if (!m_gameLoaded) {
 		log::Warn("SaveGame: no game loaded");
-		return;
+		return false;
+	}
+	// NOT INSIDE AN ENCOUNTER. What to do about a save mid-encounter is a
+	// question Michael parked (docs/world-map.md), and this is not an answer to
+	// it — it is the guard that stops the absence of an answer becoming a
+	// corrupt file. An encounter level exists only in memory; a save naming it
+	// would reload into a level that no longer exists and cannot be rebuilt.
+	// Refusing is recoverable. Writing it is not.
+	if (InEncounter()) {
+		log::Warn("SaveGame: refusing to save inside a random encounter — the "
+				  "level exists only in memory (docs/world-map.md)");
+		if (m_world.onMessage) m_world.onMessage(loc::View("world.nosave"));
+		return false;
 	}
 	SaveData data;
 	data.name = name;
@@ -685,7 +697,7 @@ void Game::SaveGame(const std::string& name) {
 		c.water = member.water;
 		data.characters.push_back(std::move(c));
 	}
-	WriteSave(data, SaveSlotPath(name));
+	return WriteSave(data, SaveSlotPath(name));
 }
 
 bool Game::LoadGame(const std::string& path) {

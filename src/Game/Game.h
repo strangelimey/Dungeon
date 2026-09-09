@@ -340,6 +340,16 @@ private:
 	// manifest), returning its stem or "" on failure. The knobs' content pools
 	// are resolved HERE from the project's catalogs by theme tag — the generator
 	// itself never sees a catalog (Game/Generate.h).
+	// --- random encounters (Game_Generate.cpp, docs/world-map.md) ----------
+	// Builds a throwaway space from the area's difficulty and its terrain's
+	// tags and drops the party into it. It NEVER touches disk: generated to
+	// text, parsed from text, discarded on the way out.
+	bool StartEncounter(float difficulty, const std::vector<std::string>& tags,
+						u32 seed);
+	// Is the party in one right now? Keyed on the reserved level stem, so
+	// there is no second flag to fall out of step with where the party is.
+	bool InEncounter() const;
+
 	std::string GenerateLevel(generate::Params params,
 							  const std::vector<std::string>& theme);
 	// Regenerate the VIEWED level in place, as ONE undo step. Destructive by
@@ -440,7 +450,11 @@ private:
 	void ResetRoster();
 	// Captures the live world + roster to a named slot under SaveDir. Requires
 	// the dungeon to be loaded (m_gameLoaded); no-op otherwise.
-	void SaveGame(const std::string& name);
+	// False when nothing was written — no game loaded, inside a random
+	// encounter, or the file could not be created. The CALLER has to say so:
+	// a console that prints "saved" whatever happened is worse than silence,
+	// because it is the only thing anyone checks.
+	bool SaveGame(const std::string& name);
 	// Loads a save file: rebuilds the level baseline, applies the save on top,
 	// and enters Playing. Requires the dungeon already loaded (the deferred
 	// first-load path is wired by the menu, step 2). Returns false on failure.
@@ -573,6 +587,12 @@ private:
 	// DungeonWorld, for the same reason the map is (docs/world-map.md). Saved
 	// whole as the save's global tier — it IS SaveData::world's type.
 	WorldState m_worldState;
+	// The encounter knobs, dev-facing rather than authored: `encounters` on the
+	// console. The RATE multiplies difficulty x hours into a probability, so
+	// zero is not the way to turn them off — a separate flag is, because a rate
+	// of zero and "switched off" should not be the same state to read back.
+	float m_encounterRate = 0.25f;
+	bool m_encountersOff = false;
 	SoundBank m_sounds;
 	// Party roster (up to four). Filled once in the constructor and never
 	// resized — the party-bar panels and the sheet hold pointers into it, so

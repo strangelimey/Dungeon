@@ -15,6 +15,23 @@ namespace dungeon::game {
 DungeonMap::DungeonMap(const std::string& path, FixtureTypes fixtures) {
 	auto bytes = assets::ReadBinaryFile(path);
 	DN_ASSERT(bytes.has_value(), bytes.error());
+	Parse(*bytes, std::move(fixtures), path);
+}
+
+DungeonMap DungeonMap::FromText(std::string_view text, FixtureTypes fixtures,
+								const std::string& where) {
+	DungeonMap m;
+	m.Parse(std::vector<u8>(text.begin(), text.end()), std::move(fixtures), where);
+	return m;
+}
+
+// The parse, shared by both ways in. `where` names the source in every error
+// message — a path for a file, and for generated content something that says so,
+// because "unknown glyph in encounter:moor" has to be findable when the only
+// copy of the level is in memory and already gone.
+void DungeonMap::Parse(const std::vector<u8>& bytesIn, FixtureTypes fixtures,
+					   const std::string& path) {
+	const std::vector<u8>* bytes = &bytesIn;
 
 	// Grid rows vs. entity records: records start with a lowercase letter
 	// (grid glyphs never do — keep new glyphs out of 'a'..'z').

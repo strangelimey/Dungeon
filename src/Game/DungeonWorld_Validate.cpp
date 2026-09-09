@@ -27,7 +27,34 @@ bool DungeonWorld::InstallLevelFromFiles(const std::string& stem,
 										 const std::string& entPath) {
 	DungeonMap map(mapPath, FixtureTypesOf(m_project));
 	DungeonEntities ents(entPath, map);
+	return InstallLevel(stem, std::move(map), std::move(ents));
+}
 
+bool DungeonWorld::InstallLevelFromText(const std::string& stem,
+										std::string_view mapText,
+										std::string_view entText) {
+	// A RANDOM ENCOUNTER, which exists only in memory (docs/world-map.md). It
+	// takes the same install as a level read from disk, deliberately: an
+	// encounter is ORDINARY CONTENT and the moment it needed its own path
+	// through the world it would start behaving differently from the dungeons
+	// it is pretending to be.
+	DungeonMap map = DungeonMap::FromText(mapText, FixtureTypesOf(m_project), stem);
+	DungeonEntities ents = DungeonEntities::FromText(entText, map, stem);
+	// ALWAYS THE ACTIVE LEVEL, never a stash. The stash branch below loads the
+	// level FROM FILE to create its slot, which for a level that has no file is
+	// an abort — and it aborted, on the first run. An encounter has nowhere to
+	// be stashed TO in any case: it is thrown away, not returned to.
+	//
+	// Naming it current BEFORE the install is what selects that branch, and it
+	// is also true: the moment the map is swapped, this is where the party is.
+	// Nothing is stashed on the way out, so the level being left simply ends,
+	// which is what a throwaway space deserves.
+	m_currentLevel = stem;
+	return InstallLevel(stem, std::move(map), std::move(ents));
+}
+
+bool DungeonWorld::InstallLevel(const std::string& stem, DungeonMap&& map,
+								DungeonEntities&& ents) {
 	if (stem != m_currentLevel) {
 		// An inactive level is just its stash — the ordinary remote-edit path.
 		EnsureMapStash(stem); // create the slots before taking references

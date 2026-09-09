@@ -13,6 +13,21 @@ DungeonEntities::DungeonEntities(const std::string& path, const DungeonMap& map)
 	: m_width(map.Width()) {
 	auto bytes = assets::ReadBinaryFile(path);
 	DN_ASSERT(bytes.has_value(), bytes.error());
+	Parse(*bytes, map, path);
+}
+
+DungeonEntities DungeonEntities::FromText(std::string_view text,
+										  const DungeonMap& map,
+										  const std::string& where) {
+	DungeonEntities e;
+	e.m_width = map.Width();
+	e.Parse(std::vector<u8>(text.begin(), text.end()), map, where);
+	return e;
+}
+
+void DungeonEntities::Parse(const std::vector<u8>& bytesIn, const DungeonMap& map,
+							const std::string& path) {
+	const std::vector<u8>* bytes = &bytesIn;
 
 	size_t counts[5] = {}; // indexed by EntityKind, for the load log
 	int fileOrder = 0;     // record index in the file, skipped records included

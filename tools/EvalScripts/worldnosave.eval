@@ -1,0 +1,20 @@
+; worldnosave.eval — saving inside a random encounter is REFUSED.
+;
+; EXPECTED TO FAIL, like selftest-bad.eval: the runner counts a refused command
+; as a script failure, and this script's whole content is a command that must be
+; refused. Its verdict is therefore meaningless on its own — tools/WorldTest.py
+; reads the LOG, and checks the save file was not created either.
+;
+; What is being guarded: an encounter level exists only in memory, so a save
+; naming it would reload into a level that no longer exists and cannot be
+; rebuilt. Refusing is recoverable; writing it is not. This is NOT an answer to
+; the parked question of what a mid-encounter save should DO
+; (docs/world-map.md) — it is the guard that stops the absence of an answer
+; becoming a corrupt file.
+logecho on
+reset
+seed 4
+leave
+worldpos 6 6
+encounter
+save encountertrip

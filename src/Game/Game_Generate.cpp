@@ -26,6 +26,7 @@
 #include "Game/Serialize.h"
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <format>
 #include <system_error>
@@ -93,6 +94,80 @@ void BuildLevelText(const std::string& stem, const generate::Level& lv,
 }
 
 } // namespace
+
+// The reserved stem a random encounter carries. It is NOT a level: no file has
+// this name, nothing writes it, and the '~' makes that structural rather than a
+// convention — a stem beginning with it cannot be confused with a project level
+// however it is passed around.
+const char* const kEncounterStem = "~encounter";
+
+bool Game::InEncounter() const { return m_world.CurrentLevel() == kEncounterStem; }
+
+bool Game::StartEncounter(float difficulty, const std::vector<std::string>& tags,
+						  u32 seed) {
+	// THE AREA DECIDES WHAT YOU MEET. Difficulty scales the density and the
+	// size; the terrain's tags pick the pool, so a moor throws undead and a
+	// forest throws beasts without either being named here.
+	generate::Params p;
+	p.seed = seed;
+	// Small: an encounter is a fight, not a dungeon. It grows a little with the
+	// danger of the ground, which is the only thing that should make one longer.
+	p.width = p.height = 12 + static_cast<int>(std::lround(difficulty * 8.0f));
+	p.rooms = 2 + static_cast<int>(std::lround(difficulty * 3.0f));
+	p.branching = 0.25f; // strung out rather than a warren: you came to fight
+	p.locks = 0;         // nothing to unlock and nowhere to come back to
+	// AN AMBUSH WITH NOTHING IN IT IS NOT AN AMBUSH. Density has a floor even
+	// on the safest ground, because the road's safety is that an encounter is
+	// RARE — the roll already said so — and not that the one you get is empty.
+	// A level generated with nothing to meet would read as a bug, and rightly.
+	p.difficulty = std::max(difficulty, 0.25f);
+	p.reward = difficulty * 0.5f;
+	FillPools(p, tags);
+	if (p.monsterIds.empty()) {
+		log::Warn("encounter: no monsters match {} — nothing to meet",
+				  tags.empty() ? std::string("(no tags)") : tags.front());
+		return false;
+	}
+
+	generate::Level lv = generate::Run(p);
+	// AND THERE IS ALWAYS SOMETHING. The generator's density is tuned for a
+	// DUNGEON, where an empty room is breathing space between fights; asked for
+	// a 13-square encounter at low density it can quite reasonably place none at
+	// all, and it did. An encounter is not a place, it is the fight — so if the
+	// roll produced no one, put one at the far end. The floor above makes this
+	// rare; this makes it impossible.
+	if (std::ranges::none_of(lv.entities, [](const Entity& e) {
+			return e.kind == EntityKind::Monster;
+		})) {
+		Entity m;
+		m.kind = EntityKind::Monster;
+		m.type = p.monsterIds.front();
+		m.x = lv.exitX;
+		m.z = lv.exitZ;
+		lv.entities.push_back(std::move(m));
+	}
+
+	std::string map, ent;
+	BuildLevelText(kEncounterStem, lv, p, m_world.Map(), tags, map, ent);
+	// THE WAY OUT, authored onto the arrival cell. An encounter is left the same
+	// way a dungeon is — by an exit stair — rather than by some second mechanism
+	// that would then need its own rules about when it is allowed.
+	map += std::format("stairs stairs_exit {} {} south dest=- destx=0 destz=0\n",
+					   lv.startX, lv.startZ);
+
+	if (!m_world.InstallLevelFromText(kEncounterStem, map, ent)) {
+		log::Warn("encounter: could not install the generated level");
+		return false;
+	}
+	m_worldState.onWorldMap = false;
+	m_worldState.atLocation.clear(); // came from open ground, not a doorway
+	m_state = AppState::Playing;
+	m_ui.ResetHudStatus();
+	if (m_world.onMessage) m_world.onMessage(loc::View("world.ambush"));
+	log::Info("encounter: {}x{}, difficulty {:.2f}, seed {}, {} monster kinds",
+			  p.width, p.height, difficulty, seed, p.monsterIds.size());
+	return true;
+}
 
 void Game::FillPools(generate::Params& params,
 					 const std::vector<std::string>& theme) {
