@@ -51,6 +51,13 @@ struct Project {
 	// the combat maths is written in, so C++ names none of its entries and
 	// resists elsewhere are authored against its ids.
 	Catalog damagetypes;
+	// The WORLD tier (docs/world-map.md). `terrain` is what a world-map cell IS
+	// — the exact analogue of the wall/floor/ceiling surface catalogs, except
+	// that with one world per project a kind declares its own grid `glyph`
+	// instead of taking a per-level palette slot. `dungeons` is the container
+	// that did not exist before: a named group of level stems with an entry
+	// level, which `levels` below still lists flat.
+	Catalog terrain, dungeons;
 	Catalog wallfeatures; // recessed wall niches (Phase 2)
 	// The same idea laid flat, pointing down or up: a tile stamped IN PLACE OF a
 	// cell's FLOOR or CEILING block, carrying a recess sunk into it or a vault
@@ -106,6 +113,10 @@ struct Project {
 	static Project Load(const std::string& folder);
 	// Writes the manifest and every catalog back to `folder`.
 	bool Save() const;
+
+	// The world map (world/world.map). One per project, and optional — a
+	// project without one simply has no overworld yet.
+	std::string WorldMapPath() const;
 
 	// Level file paths under the project (levels/<stem>.map / .ent).
 	std::string LevelMapPath(const std::string& stem) const;

@@ -1,0 +1,5 @@
+; P1 smoke: the world map loaded, reports itself, and the checker sees it.
+logecho on
+reset
+world
+validate

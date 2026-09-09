@@ -90,16 +90,30 @@ records, lowercase records above an uppercase grid), because the parser
 primitives already exist and a second dialect would be a second thing to learn:
 
     ; the overworld.
-    palette terrain moor forest road
+    start 6 6
+    area lowlands 2 5 20 11 difficulty=0.12
+    location dungeon waystation 10 10
     ;
-    area lowlands difficulty=0.2
-    location dungeon crypt 14 9
-    location dungeon barrow 3 21
-    ;
-    MMMFFF...
+    ~~~AAAAAAAAA^^^^AAAAAAAA
+    ~~~^^^^^^MMMM^^^^AAAAAAA
+    ...
 
 A location record names a **dungeon id**, not a level stem — that is the tier
 boundary made syntactic.
+
+**There is no terrain palette record**, and that is the one place the world
+deliberately does NOT copy a level (settled while building P1). A level's
+`variant` records store the palette INDEX, which makes the palette append-only
+forever: insert an entry and every cell above it silently repaints. That trap
+only exists because a level needs its own ordered subset of a shared catalog.
+The world does not — there is exactly one per project — so a terrain kind
+declares its own `glyph` in terrain.cat and the grid is read through that.
+Glyphs carry no ordering, so terrain can be renamed or reordered freely.
+
+An **area** is a rectangle: `area <id> <x> <z> <w> <h> [difficulty=]`. Areas are
+tested in file order and the LAST match wins, so a broad region can be authored
+first and exceptions carved out of it afterwards. `start <x> <z>` is where a new
+game puts the party.
 
 ### Where the party is
 

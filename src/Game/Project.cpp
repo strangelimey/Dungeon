@@ -39,6 +39,8 @@ const CatalogSlot kCatalogs[] = {
 	{"balance.cat", &Project::balance, "Balance: the attack-formula knob sheet ([formula] block; docs/combat.md)."},
 	{"damagetypes.cat", &Project::damagetypes, "Damage types: the vocabulary the combat maths is written in (physical flag + school); C++ names none of them."},
 	{"effects.cat", &Project::effects, "Status effects: display name/icon/stacking per effect id; identity and behaviour are C++ (Game/Effect/)."},
+	{"terrain.cat", &Project::terrain, "Terrain kinds: what a world-map cell is (glyph + travel/difficulty/tags)."},
+	{"dungeons.cat", &Project::dungeons, "Dungeons: a named group of level stems with an entry level, reached through a world-map location."},
 	{"wallfeatures.cat", &Project::wallfeatures, "Wall features: recessed niches carved into a wall panel."},
 	{"surfacefeatures.cat", &Project::surfacefeatures, "Surface features: a tile stamped in place of a cell's floor or ceiling block (the wall-niche idea, laid flat). `surface` picks which."},
 	{"imports.cat", &Project::imports,
@@ -112,6 +114,8 @@ bool Project::Save() const {
 }
 
 Catalog* Project::CatalogForKey(const std::string& key) {
+	if (key == "terrain") return &terrain;
+	if (key == "dungeons") return &dungeons;
 	if (key == "walls") return &walls;
 	if (key == "floors") return &floors;
 	if (key == "ceilings") return &ceilings;
@@ -140,7 +144,8 @@ std::vector<const Catalog*> Project::AllCatalogs() const {
 	return {&walls,  &floors,  &ceilings, &decorations,  &fixtures,
 			&monsters, &doors, &stairs,   &buttons,      &items,
 			&weapons, &armor,  &spells,   &effects,      &attacks,
-			&balance, &damagetypes, &wallfeatures, &surfacefeatures};
+			&balance, &damagetypes, &wallfeatures, &surfacefeatures,
+			&terrain, &dungeons};
 }
 
 const CatalogEntry* Project::FindItem(std::string_view id) const {
@@ -154,6 +159,10 @@ std::vector<const CatalogEntry*> Project::AllItems() const {
 	for (const Catalog* c : {&items, &weapons, &armor})
 		for (const CatalogEntry& e : c->Entries()) out.push_back(&e);
 	return out;
+}
+
+std::string Project::WorldMapPath() const {
+	return std::format("{}\\world\\world.map", folder);
 }
 
 std::string Project::LevelMapPath(const std::string& stem) const {

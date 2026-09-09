@@ -4,6 +4,7 @@
 #include "Game/Validate.h"
 
 #include <algorithm>
+#include <format>
 #include <queue>
 #include <unordered_map>
 
@@ -42,10 +43,87 @@ bool DoorPassable(const Doorway& d, const std::unordered_set<std::string>& held)
 	return held.count(d.key) > 0;
 }
 
+// The world-tier checks (docs/world-map.md). Separate from the reachability
+// fixpoint because they answer a different question: the fixpoint asks whether
+// a dungeon can be FINISHED, this asks whether the tiers agree about what
+// exists. Findings carry no level or cell — see the note on Run in the header.
+void CheckWorld(const WorldView& world, const std::vector<LevelView>& levels,
+				std::vector<Issue>& issues) {
+	if (!world.map) return; // no overworld authored: nothing to disagree about
+
+	std::unordered_set<std::string> stems;
+	for (const LevelView& l : levels) stems.insert(l.stem);
+
+	// A level may belong to at most one dungeon: two owners means the same
+	// rooms are reachable from two places, and the save's per-dungeon state
+	// would have to be in two places at once.
+	std::unordered_map<std::string, std::string> ownerOf;
+	for (const DungeonView& d : world.dungeons) {
+		for (const std::string& stem : d.levels) {
+			if (!stems.count(stem))
+				issues.push_back({Severity::Error, "", -1, -1,
+								  "map.check.dungeonnolevel", d.id, stem});
+			else if (const auto it = ownerOf.find(stem); it != ownerOf.end())
+				issues.push_back({Severity::Error, "", -1, -1,
+								  "map.check.levelshared", stem, it->second});
+			else ownerOf[stem] = d.id;
+		}
+		const std::string entry = d.entry.empty()
+									  ? (d.levels.empty() ? std::string() : d.levels.front())
+									  : d.entry;
+		if (d.levels.empty())
+			issues.push_back({Severity::Error, "", -1, -1,
+							  "map.check.dungeonnolevels", d.id});
+		else if (std::find(d.levels.begin(), d.levels.end(), entry) == d.levels.end())
+			issues.push_back({Severity::Error, "", -1, -1, "map.check.dungeonentry",
+							  d.id, entry});
+	}
+
+	// Locations, and what they point at.
+	std::unordered_set<std::string> reached;
+	for (const WorldMap::Location& l : world.map->Locations()) {
+		const std::string where = std::format("{},{}", l.x, l.z);
+		if (l.kind == "dungeon") {
+			const auto it = std::find_if(
+				world.dungeons.begin(), world.dungeons.end(),
+				[&](const DungeonView& d) { return d.id == l.id; });
+			if (it == world.dungeons.end())
+				issues.push_back({Severity::Error, "", -1, -1,
+								  "map.check.worldnodungeon", l.id, where});
+			else reached.insert(l.id);
+		}
+		// A location the party can never stand on is unreachable however sound
+		// the dungeon behind it is.
+		if (!world.map->Passable(l.x, l.z))
+			issues.push_back({Severity::Error, "", -1, -1, "map.check.worldblocked",
+							  l.id, world.map->TerrainAt(l.x, l.z).id});
+	}
+
+	for (const DungeonView& d : world.dungeons)
+		if (!reached.count(d.id))
+			issues.push_back({Severity::Warning, "", -1, -1,
+							  "map.check.dungeonunreached", d.id});
+
+	// A level no dungeon claims is not an error — the editor's gallery levels
+	// are exactly that — but it is worth saying once, because the usual cause
+	// is a level added to the manifest and never wired into its dungeon.
+	for (const LevelView& l : levels)
+		if (!ownerOf.count(l.stem))
+			issues.push_back({Severity::Warning, "", -1, -1,
+							  "map.check.levelorphan", l.stem});
+
+	// The party has to be able to stand where a new game puts it.
+	if (!world.map->Passable(world.map->StartX(), world.map->StartZ()))
+		issues.push_back(
+			{Severity::Error, "", -1, -1, "map.check.worldstart",
+			 std::format("{},{}", world.map->StartX(), world.map->StartZ())});
+}
+
 } // namespace
 
 std::vector<Issue> Run(const std::vector<LevelView>& levels,
-					   const std::string& startLevel, const Rules& rules) {
+					   const std::string& startLevel, const Rules& rules,
+					   const WorldView& world) {
 	std::vector<Issue> issues;
 	if (levels.empty()) {
 		issues.push_back({Severity::Error, "", -1, -1, "map.check.nolevels"});
@@ -261,6 +339,8 @@ std::vector<Issue> Run(const std::vector<LevelView>& levels,
 			issues.push_back({Severity::Warning, stem, lx, lz, "map.check.itemslost",
 							  std::to_string(lost)});
 	}
+
+	CheckWorld(world, levels, issues);
 
 	std::stable_sort(issues.begin(), issues.end(),
 					 [](const Issue& a, const Issue& b) {

@@ -47,6 +47,7 @@ add_library(Game STATIC
 	Game_Generate.cpp
 	Game_Inspect.cpp
 	Game_Wiring.cpp
+	Game_World.cpp
 	GameSettings.cpp
 	GameUI.cpp
 	InspectPicker.cpp
@@ -65,6 +66,7 @@ add_library(Game STATIC
 	GenerateDialog.cpp
 	Validate.cpp
 	ValidateDialog.cpp
+	WorldMap.cpp
 	Placement.cpp
 	PartyHudDraw.cpp
 	Roll.cpp

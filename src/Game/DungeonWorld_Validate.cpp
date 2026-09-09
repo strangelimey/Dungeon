@@ -79,7 +79,7 @@ bool DungeonWorld::InstallLevelFromFiles(const std::string& stem,
 	return true;
 }
 
-std::vector<validate::Issue> DungeonWorld::Validate() {
+std::vector<validate::Issue> DungeonWorld::Validate(const validate::WorldView& world) {
 	// The catalog half of the rules. Both are id SETS rather than lookups so the
 	// inner flood never touches a Catalog.
 	validate::Rules rules;
@@ -113,7 +113,7 @@ std::vector<validate::Issue> DungeonWorld::Validate() {
 	// so it is where the flood has to start for the answer to mean anything.
 	const std::string start =
 		m_project.levels.empty() ? m_currentLevel : m_project.levels.front();
-	return validate::Run(views, start, rules);
+	return validate::Run(views, start, rules, world);
 }
 
 } // namespace dungeon::game

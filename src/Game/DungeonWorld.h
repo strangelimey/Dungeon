@@ -866,7 +866,11 @@ public:
 	// NOT const: reaching a level that is not in memory parses and stashes it.
 	// That is the same lazy load the map overlay does to browse one, and it is
 	// cheaper than keeping every level resident to keep a checker const.
-	std::vector<validate::Issue> Validate();
+	// `world` is the OPTIONAL world tier, passed in rather than held: the world
+	// sits ABOVE this class (docs/world-map.md) and DungeonWorld is the
+	// simulation of one level, so it gathers the world's view for the checker
+	// without owning it. Default = a project with no overworld.
+	std::vector<validate::Issue> Validate(const validate::WorldView& world = {});
 
 	// Rebuilds the live dynamic objects from the current records — the tail of
 	// an undo restore, reused after a type rename retypes those records.

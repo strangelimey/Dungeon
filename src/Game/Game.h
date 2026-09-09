@@ -59,6 +59,7 @@
 #include "Game/Generate.h"
 #include "Game/GenerateDialog.h"
 #include "Game/ValidateDialog.h"
+#include "Game/WorldMap.h"
 #include "Game/MonsterConfigDialog.h"
 #include "Game/ButtonInspector.h"
 #include "Game/DoorInspector.h"
@@ -287,6 +288,19 @@ private:
 	// The editor toolbar's [+] button: writes a minimal .map/.ent pair next to
 	// the project's other levels, appends the stem to the manifest, and returns
 	// it ("" on failure) so the map view can jump straight onto the new canvas.
+	// --- the world tier (Game_World.cpp) -----------------------------------
+	// Resolves terrain.cat into rules and loads the project's world map. Called
+	// once from the constructor; leaves m_worldMap empty when the project has
+	// no world/world.map.
+	void LoadWorldMap();
+	// The playability check, with the world tier included. Every caller goes
+	// through here rather than DungeonWorld::Validate directly, so no route can
+	// quietly check the dungeons and skip the world.
+	std::vector<validate::Issue> ValidateProject();
+	// The `world` dev command's report: size, terrain, areas and locations, one
+	// line each. Empty-world-safe.
+	std::vector<std::string> WorldReport() const;
+
 	std::string CreateNewLevel();
 	// Rough out a whole level from knobs and write it as a NEW level (files +
 	// manifest), returning its stem or "" on failure. The knobs' content pools
@@ -499,6 +513,12 @@ private:
 	// Loaded before the world (which reads it for level paths and catalogs);
 	// the editor will read and write it.
 	Project m_project;
+	// The overworld above the dungeons (docs/world-map.md), loaded from the
+	// project once at construction. EMPTY IS LEGAL: a project need not have a
+	// world authored yet, so everything that reads this must cope with nullopt
+	// rather than assume it. Deliberately NOT inside DungeonWorld, which is the
+	// simulation of one LEVEL — the world sits a tier above it.
+	std::optional<WorldMap> m_worldMap;
 	SoundBank m_sounds;
 	// Party roster (up to four). Filled once in the constructor and never
 	// resized — the party-bar panels and the sheet hold pointers into it, so

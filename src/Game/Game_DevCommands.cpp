@@ -318,6 +318,12 @@ void Game::RegisterDevCommands() {
 							   walkable, m_world.MonsterCount(),
 							   map.Sconces().size(), map.Braziers().size()));
 					   });
+	m_console.Register("world",
+					   "print the world map: terrain, areas and locations",
+					   [this](const std::vector<std::string>&) {
+						   for (const std::string& line : WorldReport())
+							   m_console.Print(line);
+					   });
 	m_console.Register("groups", "list monster groups (id: count [kinds] @ cell#slot)",
 					   [this](const std::vector<std::string>&) {
 						   for (const std::string& line : m_world.GroupsReport())
@@ -685,7 +691,7 @@ void Game::RegisterDevCommands() {
 						   // reason the lock ordering is built by construction is
 						   // so this passes, and saying so is how you find out it
 						   // stopped.
-						   const std::vector<validate::Issue> issues = m_world.Validate();
+						   const std::vector<validate::Issue> issues = ValidateProject();
 						   int errors = 0;
 						   for (const validate::Issue& i : issues)
 							   if (i.severity == validate::Severity::Error) ++errors;
@@ -707,7 +713,7 @@ void Game::RegisterDevCommands() {
 							   m_console.Print("validate only works in-game");
 							   return;
 						   }
-						   const std::vector<validate::Issue> issues = m_world.Validate();
+						   const std::vector<validate::Issue> issues = ValidateProject();
 						   if (issues.empty()) {
 							   m_console.Print("validate: clean - no faults found");
 							   return;

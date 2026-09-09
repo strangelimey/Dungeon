@@ -494,6 +494,17 @@ map.check.stairblocked=Termina en roca maciza en '{}'
 map.check.stairunpaired=No hay escalera de vuelta desde '{}'
 map.check.stairoffset=Lleva a la casilla equivocada en '{}' — una escalera debe llevar a sus propias coordenadas
 map.check.itemslost={} objeto(s) aquí son inalcanzables
+
+; --- el nivel del mundo (docs/world-map.md) ---
+map.check.worldnodungeon=El lugar '{}' en {} no nombra ninguna mazmorra de este proyecto
+map.check.worldblocked=El lugar '{}' está sobre {} intransitable — el grupo nunca podrá llegar
+map.check.worldstart=El inicio del mundo {} está en terreno intransitable
+map.check.dungeonnolevel=La mazmorra '{}' nombra el nivel '{}', que no está en este proyecto
+map.check.dungeonnolevels=La mazmorra '{}' no tiene niveles
+map.check.dungeonentry=La mazmorra '{}' entra por '{}', que no es uno de sus propios niveles
+map.check.levelshared=El nivel '{}' ya pertenece a la mazmorra '{}'
+map.check.dungeonunreached=La mazmorra '{}' no tiene lugar en el mapa del mundo
+map.check.levelorphan=El nivel '{}' no pertenece a ninguna mazmorra
 map.level.applied=Ajustes aplicados a '{}' — guarda el mapa para conservarlos.
 map.level.created=Nivel '{}' creado — guarda el mapa para conservar sus celdas.
 map.level.renamed=Nivel '{}' renombrado a '{}' — las partidas guardadas conservan el nombre antiguo.

@@ -494,6 +494,17 @@ map.check.stairblocked=Finisce nella roccia in '{}'
 map.check.stairunpaired=Nessuna scala di ritorno da '{}'
 map.check.stairoffset=Porta alla casella sbagliata in '{}' — una scala deve portare alle proprie coordinate
 map.check.itemslost={} oggetto/i qui sono irraggiungibili
+
+; --- il livello del mondo (docs/world-map.md) ---
+map.check.worldnodungeon=Il luogo '{}' a {} non nomina alcun sotterraneo di questo progetto
+map.check.worldblocked=Il luogo '{}' sorge su {} impraticabile — il gruppo non potrà mai raggiungerlo
+map.check.worldstart=L'inizio del mondo {} è su terreno impraticabile
+map.check.dungeonnolevel=Il sotterraneo '{}' nomina il livello '{}', che non è in questo progetto
+map.check.dungeonnolevels=Il sotterraneo '{}' non ha livelli
+map.check.dungeonentry=Il sotterraneo '{}' entra da '{}', che non è uno dei suoi livelli
+map.check.levelshared=Il livello '{}' appartiene già al sotterraneo '{}'
+map.check.dungeonunreached=Il sotterraneo '{}' non ha alcun luogo sulla mappa del mondo
+map.check.levelorphan=Il livello '{}' non appartiene ad alcun sotterraneo
 map.level.applied=Impostazioni applicate a '{}' — salva la mappa per conservarle.
 map.level.created=Livello '{}' creato — salva la mappa per conservarne le celle.
 map.level.renamed=Livello '{}' rinominato in '{}' — i salvataggi esistenti mantengono il vecchio nome.

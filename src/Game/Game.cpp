@@ -151,7 +151,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	// The Check toolbar button: run the whole-project playability check and show
 	// what it found. Reads live state, so it answers for unsaved edits too —
 	// which is exactly when you want to hear that a door just became unopenable.
-	m_mapView.onValidate = [this] { m_validateDialog.Open(m_world.Validate()); };
+	m_mapView.onValidate = [this] { m_validateDialog.Open(ValidateProject()); };
 	// The Generate toolbar button + its knobs. A reroll replaces the VIEWED
 	// level as one undo step, then the check runs immediately — the whole reason
 	// the lock ordering is built by construction is so that comes back clean, and
@@ -162,7 +162,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		if (m_world.onMessage)
 			m_world.onMessage(loc::FormatLine("map.gen.done", m_mapView.ViewedLevel(),
 											  p.seed));
-		m_validateDialog.Open(m_world.Validate());
+		m_validateDialog.Open(ValidateProject());
 	};
 	// Clicking a finding shows it: browse to its level, and select the cell so
 	// the highlight says which square. A finding about a level as a whole
@@ -214,6 +214,11 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_ui.SetItemCategories(&m_itemCategories); // stable; LoadItemIcons fills it in
 	m_ui.SetSlotIcons(&m_slotIcons);     // stable; LoadItemIcons fills it in
 	m_ui.SetHeldItem(&m_heldItem);    // cursor icon reads the held catalog id
+
+	// The world tier (docs/world-map.md). Text-only and tiny, so it loads here
+	// rather than as a staged task — nothing on the loading screen waits for it,
+	// and an absent world is legal.
+	LoadWorldMap();
 
 	WireModuleCallbacks();
 	RegisterDevCommands();

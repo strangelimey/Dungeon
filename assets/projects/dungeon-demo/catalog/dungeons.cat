@@ -1,0 +1,26 @@
+; Dungeons: a named group of levels reached through a world-map location.
+;
+; The tier that did not exist before the world map (docs/world-map.md). Until
+; now a "dungeon" was only an accident of which level stems' stairs happened to
+; point at each other, and project.ini's flat `levels` list was the whole
+; hierarchy. That list STAYS — it is the editor's universe — and a dungeon
+; simply names which of those levels belong to it.
+;
+; A DUNGEON IS NOT A PLACE. The world-map LOCATION is the place; this is the
+; content behind it. That is what lets a found map reveal a location without
+; touching the dungeon, and what would let two locations share one dungeon.
+;
+; Fields:
+;   levels   space-separated level stems, in depth order. Every stem must exist
+;            in project.ini.
+;   entry    the level a party arriving from the world map lands on. Must be one
+;            of `levels`; defaults to the first.
+;   tags     flavour, for later content matching (Catalog.h tags).
+
+[waystation]
+display = The Waystation
+; The demo's composed level, and the two gallery floors beneath it. `showcase`
+; leads because that is where a new game has always opened.
+levels = showcase start level2
+entry = showcase
+tags = stone

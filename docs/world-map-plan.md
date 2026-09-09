@@ -97,11 +97,11 @@ Phases
 
 Each lands on its own, builds clean and is checkable. Order is dependency order.
 
-**P0 — the design doc.** `docs/world-map.md` in the house style, pinning the
+**P0 — the design doc.** DONE (2026-09-09). `docs/world-map.md` in the house style, pinning the
 file layouts above and the vocabulary (world / dungeon / level / area /
 location). No code. Cheap, and every later phase is checked against it.
 
-**P1 — the world data layer.** `WorldMap` (grid, terrain palette, locations,
+**P1 — the world data layer.** DONE (2026-09-09). `WorldMap` (grid, terrain palette, locations,
 areas), `dungeons.cat`, `terrain.cat`, `Project` loading them. No view, no
 travel. Authored by hand for now. Checked by a dev command (`world`) that prints
 the grid, the locations and each area's difficulty, and by the existing

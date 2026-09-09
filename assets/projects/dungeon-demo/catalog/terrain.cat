@@ -1,0 +1,68 @@
+; Terrain kinds: what a WORLD MAP cell is (docs/world-map.md).
+;
+; There is exactly one world per project, so terrain needs no per-level palette
+; record the way surfaces do: each kind declares its own `glyph` and the world
+; grid is read through that. Glyphs carry no ordering, so renaming or reordering
+; terrain cannot silently repaint the world the way a level's palette INDEX
+; would.
+;
+; Fields:
+;   glyph       the grid character for this kind. Must be unique, and must not
+;               be lowercase — records are lowercase and grid rows are not.
+;   passable    0 = the party cannot enter (sea, cliff). Default 1.
+;   travel      hours to cross one cell. Default 1.
+;   difficulty  0..1 danger, what an encounter is generated from. An `area`
+;               record in world.map overrides it for a region. Default 0.
+;   tags        the content pool an encounter here draws from (Catalog.h tags).
+;               Absent means "fits anywhere", never "fits nothing".
+
+[road]
+display = Road
+glyph = -
+travel = 0.5
+difficulty = 0.05
+tags = outdoor
+
+[grass]
+display = Grassland
+glyph = .
+travel = 1.0
+difficulty = 0.1
+tags = outdoor
+
+[forest]
+display = Forest
+glyph = F
+travel = 1.6
+difficulty = 0.3
+tags = outdoor beast
+
+[moor]
+display = Moor
+glyph = M
+travel = 1.4
+difficulty = 0.35
+tags = outdoor undead
+
+[hills]
+display = Hills
+glyph = ^
+travel = 2.2
+difficulty = 0.4
+tags = outdoor stone
+
+; Impassable, and the reason `passable` exists at all: a world grid needs edges
+; that are not just the array bounds, or every coastline is a rectangle.
+[water]
+display = Water
+glyph = ~
+passable = 0
+travel = 0
+difficulty = 0
+
+[mountain]
+display = Mountains
+glyph = A
+passable = 0
+travel = 0
+difficulty = 0

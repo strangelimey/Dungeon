@@ -32,6 +32,7 @@
 #include "Core/Types.h"
 #include "Game/DungeonEntities.h"
 #include "Game/DungeonMap.h"
+#include "Game/WorldMap.h"
 
 #include <string>
 #include <unordered_set>
@@ -59,6 +60,24 @@ struct Rules {
 	std::unordered_set<std::string> traversableStairs;
 };
 
+// One dungeon, as the checker needs to see it: the level stems it claims and
+// the one a party arriving from the world map lands on. Resolved from
+// dungeons.cat by the caller, like Rules above.
+struct DungeonView {
+	std::string id;
+	std::vector<std::string> levels;
+	std::string entry; // empty = the first of `levels`
+};
+
+// The WORLD tier, when the project has one (docs/world-map.md). Non-owning, and
+// OPTIONAL: `map` stays null for a project with no world, and every world check
+// is then skipped rather than reporting a project-wide fault — a game that is
+// all dungeon and no overworld is a legitimate shape, not an unfinished one.
+struct WorldView {
+	const WorldMap* map = nullptr;
+	std::vector<DungeonView> dungeons;
+};
+
 enum class Severity : u8 { Error, Warning };
 
 // One finding. `level` + `x`/`z` locate it so the report can jump there;
@@ -72,8 +91,16 @@ struct Issue {
 };
 
 // Runs every check over the project. `startLevel` is where play begins (the
-// manifest's first level); its start cell seeds the flood.
+// manifest's first level); its start cell seeds the flood. `world` adds the
+// world-tier checks when the project has an overworld.
+//
+// A WORLD finding carries NO level and NO cell (level "", x -1) even when it is
+// about a location standing on a known world square. The report's coordinates
+// are what the editor JUMPS to, and they are read as a LEVEL cell — sending it
+// to 10,10 of whatever level happens to be open would be worse than sending it
+// nowhere. The world coordinates go in the message text instead.
 std::vector<Issue> Run(const std::vector<LevelView>& levels,
-					   const std::string& startLevel, const Rules& rules);
+					   const std::string& startLevel, const Rules& rules,
+					   const WorldView& world = {});
 
 } // namespace dungeon::game::validate

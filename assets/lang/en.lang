@@ -516,6 +516,17 @@ map.check.stairblocked=Lands on solid rock in '{}'
 map.check.stairunpaired=No matching stair back from '{}'
 map.check.stairoffset=Leads to the wrong square in '{}' — a stair must lead to its own coordinates
 map.check.itemslost={} item(s) here cannot be reached
+
+; --- the world tier (docs/world-map.md) ---
+map.check.worldnodungeon=Location '{}' at {} names no dungeon in this project
+map.check.worldblocked=Location '{}' stands on impassable {} — the party can never reach it
+map.check.worldstart=The world start {} is on impassable ground
+map.check.dungeonnolevel=Dungeon '{}' names level '{}', which is not in this project
+map.check.dungeonnolevels=Dungeon '{}' has no levels
+map.check.dungeonentry=Dungeon '{}' enters at '{}', which is not one of its own levels
+map.check.levelshared=Level '{}' is already claimed by dungeon '{}'
+map.check.dungeonunreached=Dungeon '{}' has no location on the world map
+map.check.levelorphan=Level '{}' belongs to no dungeon
 map.level.applied=Level settings applied to '{}' — Save the map to persist.
 map.level.created=Level '{}' created — Save the map to persist its cells.
 map.level.renamed=Level '{}' renamed to '{}' — existing saves keep the old name.
