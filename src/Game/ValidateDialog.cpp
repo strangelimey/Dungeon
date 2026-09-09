@@ -64,7 +64,7 @@ void ValidateDialog::BuildUI() {
 	rows->fitContent = true;
 
 	for (const validate::Issue& is : m_issues) {
-		// "ERR  showcase 13,19   This door can never be opened — ..."
+		// "ERR  crypt1 13,19   This door can never be opened — ..."
 		// The severity leads because it is what you triage on; the location
 		// follows because it is what you act on.
 		std::string where = is.level;

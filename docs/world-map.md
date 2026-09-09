@@ -73,7 +73,7 @@ share one dungeon.
 ### Files
 
     assets/projects/<name>/
-      project.ini              unchanged; levels = <every stem>
+      project.ini              levels = <every stem>, and where the game begins
       world/world.map          the authored world
       catalog/terrain.cat      terrain kinds (the world's palette)
       catalog/dungeons.cat     dungeons: their levels and entry
@@ -383,6 +383,28 @@ that can no longer exist is just weight.
 both versions, rather than half-loaded. A refused save then vanishes from the
 load list, since `ListSaves` keeps only what `ReadSave` returns: an entry that
 cannot be loaded is worse than no entry, and the log is where the reason lives.
+
+## The content, and the harness's ground
+
+The demo project is now a small **starter dungeon** — `crypt`, two floors,
+reached by a gate at 10,10 and a back way at 5,13 — plus one level that is not
+content at all.
+
+**`eval_arena` is the HARNESS's ground.** 28x24 and open, because that is what
+the suites were written against: `arena.eval` carves its shapes centred on
+14,12 and hardcodes those coordinates, and `smoke.eval` stands at 12,8 and
+takes twenty seconds of whatever is nearby. An open room means every `tp` lands
+and every carve has room, so a test never fails for a reason belonging to the
+scenery.
+
+It exists because a hand-authored SHOWCASE level used to serve that purpose,
+which meant content could not be redecorated without moving measurements. The
+suites' numbers came out identical across the swap, which is the evidence that
+the substrate was all they ever needed. Harness levels are named `eval_*`,
+belong to the `eval` dungeon (so the checker has a coherent world rather than a
+permanent orphan warning), and `project.ini`'s `eval_level` names the one the
+harness opens in — not "whichever is first", so the suites do not move when the
+level list is reordered, and so more can join.
 
 ## What this does not cover
 

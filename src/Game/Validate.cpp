@@ -172,6 +172,26 @@ std::vector<Issue> Run(const std::vector<LevelView>& levels,
 		return issues;
 	}
 
+	// EVERY WAY IN IS A WAY IN. The flood used to start only at the first
+	// level's own start cell, because a stair was the only way between levels.
+	// The world map is another: a level a doorway opens onto is reached by
+	// WALKING THERE, and the checker calling it unreachable would be reporting a
+	// fault that only exists inside its own model — which is worse than no check
+	// at all, since the report is what people act on.
+	std::vector<std::pair<int, int>> seeds{
+		{startIdx, CellKey(startMap->StartX(), startMap->StartZ())}};
+	if (world.map)
+		for (const WorldMap::Location& l : world.map->Locations()) {
+			const auto d = byStem.find(l.level);
+			if (d == byStem.end() || !lv[d->second].view->map) continue;
+			const DungeonMap* dm = lv[d->second].view->map;
+			// An unauthored cell means the level's own start, the same fallback
+			// the game applies when it opens the door.
+			const int cx = l.entryX >= 0 ? l.entryX : dm->StartX();
+			const int cz = l.entryZ >= 0 ? l.entryZ : dm->StartZ();
+			seeds.push_back({d->second, CellKey(cx, cz)});
+		}
+
 	// --- the fixpoint --------------------------------------------------------
 	// Flood with what is currently held, pick up whatever that reaches, and go
 	// again. A round that opens nothing new is the answer. Re-flooding from
@@ -189,7 +209,7 @@ std::vector<Issue> Run(const std::vector<LevelView>& levels,
 
 		for (auto& s : seen) s.clear();
 		std::queue<std::pair<int, int>> q; // (level index, cell key)
-		q.push({startIdx, CellKey(startMap->StartX(), startMap->StartZ())});
+		for (const auto& seed : seeds) q.push(seed);
 
 		while (!q.empty()) {
 			const std::pair<int, int> cur = q.front();

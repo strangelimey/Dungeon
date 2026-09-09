@@ -778,7 +778,7 @@ void Game::RegisterDevCommands() {
 							   m_mapView.Open(MapView::Mode::Editor);
 						   m_console.Print("map: editor mode");
 					   });
-	m_console.Register("goto", "load another level by stem (e.g. goto level2)",
+	m_console.Register("goto", "load another level by stem (e.g. goto crypt2)",
 					   [this](const std::vector<std::string>& args) {
 						   if (!Need(m_console, args, 1, "usage: goto <level-stem>"))
 							   return;

@@ -427,6 +427,9 @@ private:
 	void LoadItemIcons();      // rune + placeholder item cursor/inventory icons (load task)
 
 	// --- state transitions --------------------------------------------------
+	// Puts the party in a level, staging a LOAD only when it is not the one
+	// already held. True = a load is in flight and the caller is done.
+	bool OpenInLevel(const std::string& level, int x, int z);
 	void StartNewGame();
 	// Resets the roster to a fresh default party in place, keeping each slot's
 	// loaded portrait. The HUD/sheet widgets address members by (roster, index)

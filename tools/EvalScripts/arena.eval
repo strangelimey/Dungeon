@@ -1,6 +1,7 @@
 ; arena.eval — the controlled space, exercised.
 ;
-; The showcase level fought every attempt to measure anything in it (a monster
+; A hand-authored CONTENT level fought every attempt to measure anything in it
+; (a monster
 ; already adjacent, an unwalkable target cell, one that would not engage). This
 ; builds its own room instead, and everything in it was put there on purpose.
 ;

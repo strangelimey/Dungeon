@@ -17,7 +17,7 @@
 ;
 ; DELIBERATELY NOT COVERED, and said out loud rather than left to be discovered:
 ; a PIT FALL. It is the one collision that needs a pit to fall down, arenas carve
-; no stairs, and teleporting onto the showcase's pit mid-suite would take the
+; no stairs, and teleporting onto a content level's pit mid-suite would take the
 ; party to another level and end the run. OnFallImpact shares CollideParty with
 ; the wall bump, which IS covered below, so the pipeline seam is exercised even
 ; though that entry point is not.
@@ -37,7 +37,8 @@ pipelineguard reset
 
 ; --- 1. THE DUNGEON AS A TARGET -------------------------------------------
 ; First, because it is the only section that needs the AUTHORED level: `reset`
-; leaves showcase intact, and an arena strips every prop, door and fixture out of
+; leaves the harness ground intact, and an arena strips every prop, door and
+; fixture out of
 ; the map. All three breakable kinds are here, which is the point — the ledger
 ; watches decorations, doors and fixtures separately and each has its own adapter
 ; call to account for.

@@ -1,0 +1,20 @@
+; crypt1 - the starter dungeon (docs/world-map.md).
+; Small by design: one ring corridor, one chamber, a way out at the
+; entrance and a stair down at the north-west corner.
+;
+palette wall wall_temple_ancient wall_marble wall_brick_old wall_cobble_mossy
+palette floor floor_temple floor_ancient_stone floor_slabs floor_cobble_mossy
+palette ceiling ceiling_rock_layered ceiling_stone ceiling_cracked ceiling_rock_porous
+stairs stairs_exit 7 7 south dest=crypt_gate destx=0 destz=0
+stairs stairs_down 1 1 south dest=crypt2 destx=1 destz=1 destfacing=south
+atmosphere dust=0.06 haze=0.7 ambient=1.4
+;
+##############
+#....T.......#
+#.##########.#
+#.#........#.#
+#.#.T....F.#.#
+#.#........#.#
+#.##########.#
+#......P.....#
+##############

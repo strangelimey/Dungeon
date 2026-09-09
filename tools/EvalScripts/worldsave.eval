@@ -10,7 +10,7 @@ reset
 
 ; --- off the defaults (new game leaves the party at the world start, 6,6) ---
 worldpos 3 12
-discover waystation
+discover crypt_gate
 world
 
 ; --- round trip -------------------------------------------------------------

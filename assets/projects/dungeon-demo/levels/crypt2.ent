@@ -1,0 +1,3 @@
+; crypt2 - dynamic layer.
+monster skel_swarm 5 3 south
+monster skel_swarm 6 4 south

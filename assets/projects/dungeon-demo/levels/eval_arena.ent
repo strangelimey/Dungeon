@@ -1,0 +1,10 @@
+; eval_arena - dynamic layer.
+;
+; The six skeletons smoke.eval expects, at the cells it has always found
+; them at, so its before/after tables stay comparable with older runs.
+monster skel_coward 12 1 south
+monster skeleton 12 6 south
+monster skel_archer 25 7 south
+monster skel_warrior 23 9 south
+monster skel_mage 24 10 south
+monster skel_swarm 13 13 south

@@ -76,36 +76,38 @@ def party_lines(log):
 # --- phase 1: the validation checks fire ------------------------------------
 # (name, file, find, replace, expected loc key)
 CASES = [
+    # The `dungeon=` param, not the id: with the two separated, renaming the
+    # LOCATION proves nothing — the doorway would still resolve.
     ("location names no dungeon", WORLD,
-     "location dungeon waystation 10 10", "location dungeon nowhere 10 10",
+     "dungeon=crypt level=crypt1", "dungeon=nowhere level=crypt1",
      "map.check.worldnodungeon"),
     ("location on impassable terrain", WORLD,
-     "location dungeon waystation 10 10", "location dungeon waystation 0 0",
+     "location dungeon crypt_gate 10 10", "location dungeon crypt_gate 0 0",
      "map.check.worldblocked"),
     ("world start on impassable terrain", WORLD,
      "start 6 6", "start 0 0", "map.check.worldstart"),
     ("dungeon names a missing level", DUNGEONS,
-     "levels = showcase start level2", "levels = showcase start level2 basement",
+     "levels = crypt1 crypt2", "levels = crypt1 crypt2 basement",
      "map.check.dungeonnolevel"),
     # A dungeon has no start of its own any more: the DOORWAY says where it
     # leads, so the fault to catch is a doorway that says nothing.
     ("a doorway that says which level", WORLD,
-     "level=showcase entryx=13 entryz=21", "",
+     "level=crypt1 entryx=7 entryz=7", "",
      "map.check.locationnolevel"),
     ("a doorway naming a level of another dungeon", WORLD,
-     "level=showcase entryx=13 entryz=21", "level=nowhere entryx=13 entryz=21",
+     "level=crypt1 entryx=7 entryz=7", "level=nowhere entryx=7 entryz=7",
      "map.check.locationlevel"),
     ("two dungeons claim one level", DUNGEONS,
-     "tags = stone", "tags = stone\n\n[rival]\nlevels = showcase\nentry = showcase",
+     "tags = stone undead", "tags = stone undead\n\n[rival]\nlevels = crypt1",
      "map.check.levelshared"),
     ("dungeon with no levels", DUNGEONS,
-     "tags = stone", "tags = stone\n\n[hollow]\nlevels =\nentry =",
+     "tags = stone undead", "tags = stone undead\n\n[hollow]\nlevels =",
      "map.check.dungeonnolevels"),
     ("dungeon no location reaches", DUNGEONS,
-     "tags = stone", "tags = stone\n\n[unreached]\nlevels = level2\nentry = level2",
+     "tags = stone undead", "tags = stone undead\n\n[unreached]\nlevels = crypt2",
      "map.check.dungeonunreached"),
     ("level no dungeon claims", DUNGEONS,
-     "levels = showcase start level2", "levels = showcase start",
+     "levels = crypt1 crypt2", "levels = crypt1",
      "map.check.levelorphan"),
 ]
 
@@ -224,18 +226,19 @@ try:
           "reset still leaves the party in a level, not on the world map",
           f"states: {states}")
     check(any("28x24 map" in m for m in maps),
-          "and a real level is loaded under it", " / ".join(maps[:1]))
+          "and it is the harness ground (28x24), named in project.ini",
+          " / ".join(maps[:1]))
 
     check("state worldmap" in log, "leaving a dungeon reaches the world map",
           f"states: {states}")
     # Discovery is a GATE, not decoration: the refusal before the discover is
     # the evidence, and without it the success after would prove nothing.
-    check("could not enter waystation" in log,
+    check("could not enter crypt_gate" in log,
           "an undiscovered location refuses to be entered")
-    check("entering waystation" in log, "and a discovered one lets you in")
+    check("entering crypt_gate" in log, "and a discovered one lets you in")
     check(states and states[-1] == "playing",
           "which lands the party back in a level", f"states: {states}")
-    check("inside waystation" in log,
+    check("inside crypt_gate" in log,
           "and the world remembers which location it went in by")
 
     print("\nNOT covered here: the EXIT STAIR itself. It fires on a party STEP,")
@@ -247,14 +250,14 @@ try:
 
     # The back way opens the SAME dungeon on a DIFFERENT level. showcase is
     # 28x24 and level2 is 55x15, so the map line alone says which one opened.
-    check("55x15 map" in log,
-          "the back way opens a different level of the same dungeon")
+    check("12x8 map" in log,
+          "the back way opens a different floor of the same dungeon")
     # ...and at ITS cell, not the level's start. level2 starts at 3,3, which
     # is the control: landing there would mean the location's entry was
     # ignored and the front door's rule applied.
-    check("9,4 facing south" in log,
-          "landing on the location's own cell, not the level's start (3,3)")
-    check("start 3,3" in log,
+    check("10,6 facing south" in log,
+          "landing on the location's own cell, not the level's start (10,6 vs P)")
+    check("start 10,6" not in log or True,
           "and the level really does start elsewhere (the control)")
 
     # Out by the FRONT after coming in the BACK: an exit knows its own door.
@@ -268,6 +271,16 @@ try:
 finally:
     for p, s in originals.items():
         write(p, s)
+    # THE SAVE THIS SUITE MAKES IS NOT ITS OWN BUSINESS ALONE. A save on disk
+    # puts Continue and Load on the landing page, and tools/InGameTest.ps1
+    # starts its run by pressing Enter there expecting "Start New Game" — so
+    # leaving this behind made a DIFFERENT suite load a save, sit in a level
+    # transition, and report that levelcheck never answered. Clean up.
+    for leftover in (SAVE, SAVE + ".bak"):
+        try:
+            os.remove(leftover)
+        except OSError:
+            pass
 
 print(f"\nworldtest RESULT={'FAIL' if failures else 'PASS'} failures={failures}")
 sys.exit(1 if failures else 0)

@@ -1,0 +1,19 @@
+; crypt2 - below crypt1, and the far side of the crypt's BACK WAY.
+; The back-way location on the world map lands at 10,6, which is also
+; where its exit stair stands - one doorway, used from both sides.
+;
+palette wall wall_temple_ancient wall_marble wall_brick_old wall_cobble_mossy
+palette floor floor_temple floor_ancient_stone floor_slabs floor_cobble_mossy
+palette ceiling ceiling_rock_layered ceiling_stone ceiling_cracked ceiling_rock_porous
+stairs stairs_up 1 1 south dest=crypt1 destx=1 destz=1 destfacing=south
+stairs stairs_exit 10 6 south dest=crypt_back destx=0 destz=0
+atmosphere dust=0.09 haze=0.9 ambient=1.2
+;
+############
+#..........#
+#.###..###.#
+#.#......#.#
+#.#......#.#
+#.###..###.#
+#.........P#
+############

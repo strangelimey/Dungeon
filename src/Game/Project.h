@@ -47,6 +47,12 @@ struct Project {
 	std::string startLevel;
 	int startX = -1, startZ = -1; // -1,-1 = the level's own start cell
 
+	// Where the EVAL HARNESS puts the party when it asks for a level rather
+	// than the world map. Named here rather than "whichever level is first",
+	// because the suites must not move when the level list is reordered — and
+	// because there will be several harness levels, not one.
+	std::string evalLevel;
+
 	// The content catalogs (see Catalog.h). Walls/floors/ceilings define the
 	// surface palette; the rest define placeable content. attacks/balance are
 	// the combat model's data (Balance.h): per-attack numbers + the knob sheet.

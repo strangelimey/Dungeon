@@ -148,7 +148,19 @@ try {
 	Start-Sleep -Seconds 2
 
 	Open-Console
-	Run-Cmd 'levelcheck'
+	# RETRIED UNTIL IT ANSWERS, because the console is GATED OFF while a level
+	# load is in flight and this is the first command of the run. Pressing Enter
+	# on the landing page does not always mean "Start New Game": the eval suites
+	# leave loadable saves behind, which put Continue at the top of the list, and
+	# a save naming a different level than the one already loaded stages a
+	# transition. The suite used to pass only because those two levels happened
+	# to be the same, and reported "levelcheck never reported" the moment they
+	# were not.
+	$answered = $false
+	for ($try = 1; $try -le 10 -and -not $answered; $try++) {
+		Run-Cmd 'levelcheck'
+		$answered = [bool](Select-String -Path $log -Pattern 'levelcheck RESULT=' -EA SilentlyContinue)
+	}
 
 	# Invariant across the loop: the console is OPEN on entry and on exit.
 	foreach ($s in $screens) {

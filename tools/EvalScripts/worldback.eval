@@ -1,12 +1,12 @@
 ; worldback.eval — a dungeon with TWO ways in (Michael, 2026-09-09).
 ;
-; The front gate and the back way open the SAME dungeon from different places
-; on the world map, and land in different parts of it. What this is really
-; checking is that the two are not secretly one:
+; The crypt's front gate and its back way open the SAME dungeon from different
+; places on the world map, and land on different floors of it. What this is
+; really checking is that the two are not secretly one:
 ;
-;   - the back way lands on level2 at 9,4, NOT on showcase's start cell;
-;   - walking out of the FRONT exit surfaces at the front location even though
-;     the party came in by the back — an exit knows its own door;
+;   - the back way lands on crypt2 at 10,6, NOT on crypt1 where the gate leads;
+;   - walking out of the FRONT gate surfaces at the gate even though the party
+;     came in by the back — an exit knows its own door;
 ;   - coming out of a door DISCOVERS it, which is how a back way is found from
 ;     the inside.
 logecho on
@@ -14,13 +14,13 @@ reset
 leave
 
 ; --- in by the BACK way: a different level, a different cell -----------------
-discover waystation_back
-enter waystation_back
+discover crypt_back
+enter crypt_back
 state
 mapinfo
 pos
 world
 
 ; --- out by the FRONT: a different door than the one we came in by -----------
-leave waystation
+leave crypt_gate
 world

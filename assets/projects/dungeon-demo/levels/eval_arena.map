@@ -1,0 +1,42 @@
+; eval_arena - THE HARNESS'S GROUND, not game content (tools/Eval.ps1).
+;
+; 28x24 and open, because that is what the suites were written against:
+; arena.eval carves its shapes centred on 14,12 and hardcodes those
+; coordinates, and smoke.eval stands at 12,8 and takes twenty seconds of
+; whatever is nearby. An open room means every `tp` lands and every carve
+; has room, so a test never fails for a reason belonging to the scenery.
+;
+; IT IS DELIBERATELY DULL. A hand-authored showcase level used to serve
+; this purpose, which meant content could not be redecorated without
+; breaking measurements. Harness levels are named eval_* and are the
+; harness's own; more will join this one.
+;
+palette wall wall_temple_ancient wall_marble wall_brick_old wall_cobble_mossy
+palette floor floor_temple floor_ancient_stone floor_slabs floor_cobble_mossy
+palette ceiling ceiling_rock_layered ceiling_stone ceiling_cracked ceiling_rock_porous
+atmosphere dust=0.05 haze=0.6 ambient=1.5
+;
+############################
+#..........................#
+#..........................#
+#..........................#
+#..........................#
+#..........................#
+#..........................#
+#..........................#
+#..........................#
+#..........................#
+#..........................#
+#..........................#
+#.............P............#
+#..........................#
+#..........................#
+#..........................#
+#..........................#
+#..........................#
+#..........................#
+#..........................#
+#..........................#
+#..........................#
+#..........................#
+############################

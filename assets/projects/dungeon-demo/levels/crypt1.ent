@@ -1,0 +1,4 @@
+; crypt1 - dynamic layer.
+;
+; One skeleton in the chamber, so the starter dungeon has something in it.
+monster skeleton 7 4 south

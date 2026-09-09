@@ -82,6 +82,7 @@ Project Project::Load(const std::string& folder) {
 			// row it was never sent to.
 			p.startX = std::atoi(b.Get("start_x", "-1").c_str());
 			p.startZ = std::atoi(b.Get("start_z", "-1").c_str());
+			p.evalLevel = b.Get("eval_level", "");
 		}
 	} else {
 		log::Warn("project has no project.ini: {}", folder);
@@ -108,6 +109,7 @@ bool Project::Save() const {
 	m.Set("levels", levelList);
 	m.Set("default_sconce", defaultSconce);
 	m.Set("default_brazier", defaultBrazier);
+	if (!evalLevel.empty()) m.Set("eval_level", evalLevel);
 	// Only written when the game starts in a dungeon: an absent block is the
 	// ordinary "begin on the world map", and writing it out as empties would
 	// make every project look like it had made a choice it had not.

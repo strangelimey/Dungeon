@@ -515,6 +515,30 @@ void Game::ApplyMemberColors() {
 		m_characters[i].portraitColor = m_settings.memberColors[i];
 }
 
+// Puts the party in `level` at `x,z` (-1,-1 = the level's own start cell).
+//
+// Returns TRUE when a level LOAD was staged, which the caller must treat as
+// "we are done here — the LoadingLevel done-handler finishes the job". False
+// means the world already held that level and the party was simply placed, so
+// the caller carries on and finishes the new game itself.
+//
+// THE DISTINCTION MATTERS MORE THAN IT LOOKS. Staging a load that was not
+// needed leaves the game in LoadingLevel for a beat, and the dev console is
+// GATED OFF during a load — which silently broke the in-game test suite, whose
+// `levelcheck` arrived while the redundant load was still in flight and was
+// answered by nothing at all.
+bool Game::OpenInLevel(const std::string& level, int x, int z) {
+	if (m_world.CurrentLevel() != level) {
+		BeginLevelTransition(level, x, z, Direction::South,
+							 /*stashCurrent=*/false);
+		return true;
+	}
+	const DungeonMap& map = m_world.Map();
+	m_world.PlacePartyAt(x >= 0 ? x : map.StartX(), z >= 0 ? z : map.StartZ(),
+						 Direction::South);
+	return false;
+}
+
 void Game::StartNewGame() {
 	m_world.ResetForNewGame();
 	ResetWorldState();
@@ -522,38 +546,41 @@ void Game::StartNewGame() {
 	m_ui.RefreshSheet();
 	ApplyPartySpeed();
 
-	// WHERE THE GAME BEGINS is the manifest's business (docs/world-map.md).
-	// A STARTER DUNGEON, named there with its level and cell, starts the party
-	// underground — the game's own way in, carrying its destination exactly as
-	// a world-map doorway does, because a dungeon has no start of its own.
-	if (!m_project.startDungeon.empty()) {
+	// WHERE THE GAME BEGINS (docs/world-map.md), in three cases:
+	//
+	//   1. THE HARNESS asks for a level, and the manifest says which one — not
+	//      "whichever is first", so the suites do not move when the level list
+	//      is reordered, and so more harness levels can join the one there is.
+	//   2. A STARTER DUNGEON named in the manifest, with its level and cell.
+	//      The game's opening is just another way IN, carrying its own
+	//      destination exactly as a world-map doorway does, because a dungeon
+	//      has no start of its own.
+	//   3. Otherwise the WORLD MAP, out in the open, looking for a way down.
+	//
+	// A project with no world and no starter falls through to the first level,
+	// which is what keeps the world an OPTIONAL tier rather than a requirement.
+	m_worldState.atLocation.clear(); // begun here, not entered from anywhere
+	m_worldState.onWorldMap = false;
+
+	if (m_harnessOpensInLevel && !m_project.evalLevel.empty()) {
+		if (OpenInLevel(m_project.evalLevel, -1, -1)) return;
+		log::Info("New game started on the harness ground ({})",
+				  m_project.evalLevel);
+	} else if (!m_project.startDungeon.empty() && !m_harnessOpensInLevel) {
 		const std::string level =
 			m_project.startLevel.empty()
 				? (m_project.levels.empty() ? std::string("level1")
 											: m_project.levels.front())
 				: m_project.startLevel;
-		m_worldState.atLocation.clear(); // begun here, not entered from anywhere
-		m_worldState.onWorldMap = false;
-		BeginLevelTransition(level, m_project.startX, m_project.startZ,
-							 Direction::South, /*stashCurrent=*/false);
+		if (OpenInLevel(level, m_project.startX, m_project.startZ)) return;
 		log::Info("New game started in {} ({} at {},{})", m_project.startDungeon,
 				  level, m_project.startX, m_project.startZ);
-		return; // the LoadingLevel done-handler resumes play
-	}
-
-	// Otherwise the party begins ON THE WORLD MAP, out in the open, and goes
-	// looking for a way down.
-	//
-	// A project with NO world still opens on a level exactly as before. That is
-	// not a courtesy — it is what keeps a world an optional tier rather than a
-	// requirement — and the EVAL HARNESS asks for that same path explicitly
-	// (m_harnessOpensInLevel), because `reset` has to keep meaning a level.
-	if (m_worldMap && !m_harnessOpensInLevel) {
-		// Reveal what the party can see from where it stands — which discovers a
-		// location only if one is right there. Everything else has to be FOUND,
-		// and that is the design, not an oversight: a new game opens on a map
-		// that is mostly fog with nowhere marked on it, and walking is how you
-		// learn where the dungeons are.
+	} else if (m_worldMap && !m_harnessOpensInLevel) {
+		// Reveal what the party can see from where it stands — which discovers
+		// a location only if one is right there. Everything else has to be
+		// FOUND, and that is the design, not an oversight: a new game opens on
+		// a map that is mostly fog with nowhere marked on it, and walking is
+		// how you learn where the dungeons are.
 		RevealAround(m_worldState.x, m_worldState.z);
 		SetOnWorldMap(true);
 		m_ui.ClearLog();
@@ -561,16 +588,12 @@ void Game::StartNewGame() {
 		log::Info("New game started on the world map at {},{}", m_worldState.x,
 				  m_worldState.z);
 		return;
-	}
-
-	// A new game always begins on the first level; if a prior game left the world
-	// on a deeper level, load the first one fresh (the loading screen handles it).
-	const std::string first =
-		m_project.levels.empty() ? std::string("level1") : m_project.levels.front();
-	if (m_world.CurrentLevel() != first) {
-		BeginLevelTransition(first, -1, -1, Direction::South, /*stashCurrent=*/false);
-		log::Info("New game started (loading {})", first);
-		return; // the LoadingLevel done-handler resumes play
+	} else {
+		const std::string first = m_project.levels.empty()
+									  ? std::string("level1")
+									  : m_project.levels.front();
+		if (OpenInLevel(first, -1, -1)) return;
+		log::Info("New game started (already on {})", first);
 	}
 
 	m_ui.ClearLog();
