@@ -754,6 +754,14 @@ private:
 	// The map overlay's panel in the given surface's pixel space (window pixels
 	// for input, device pixels for drawing): full-screen in Editor mode (it
 	// covers everything), else an 80%-centered rect for the player map.
+	// The WORLD map owns the whole window: it is a STATE drawn alone, with no
+	// scene or HUD behind it to show around the edges, so the inset that makes
+	// the player's dungeon-map overlay read as an overlay would here just be
+	// wasted screen with nothing under it.
+	static gfx::Rect WorldPanel(float surfaceW, float surfaceH) {
+		return {0.0f, 0.0f, surfaceW, surfaceH};
+	}
+
 	gfx::Rect MapPanel(float surfaceW, float surfaceH) const {
 		if (m_mapView.CurrentMode() == MapView::Mode::Editor)
 			return {0.0f, 0.0f, surfaceW, surfaceH};

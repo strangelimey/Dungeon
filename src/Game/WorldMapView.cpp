@@ -150,10 +150,13 @@ void WorldMapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		batch.DrawRect({r.x + r.w, r.y, bw, r.h}, kHover);
 	}
 
-	// The party last, so it is never hidden by what it is standing on.
+	// The party last, so it is never hidden by what it is standing on — and
+	// SMALLER than the location diamond, so the reverse cannot happen either.
+	// A party parked on a dungeon entrance is the single most likely thing to
+	// be looking at, and at 0.30 the square covered the diamond almost exactly.
 	{
 		const Vec2 c = cellCenter(state.x, state.z);
-		const float h = t.cell * 0.30f;
+		const float h = t.cell * 0.18f;
 		batch.DrawRect({c.x - h, c.y - h, h * 2, h * 2}, kParty);
 	}
 

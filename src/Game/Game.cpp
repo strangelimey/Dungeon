@@ -1249,8 +1249,8 @@ void Game::Update(float dt) {
 		}
 		if (m_worldMap) {
 			m_worldMapView.Update(input, *m_worldMap,
-								  MapPanel(static_cast<float>(m_window.Width()),
-										   static_cast<float>(m_window.Height())));
+								  WorldPanel(static_cast<float>(m_window.Width()),
+											 static_cast<float>(m_window.Height())));
 			// The BOUND movement keys, read as compass directions: there is no
 			// facing out here, so forward/back/strafe are north/south/west/east
 			// and the turn keys mean nothing. Using the bindings rather than
@@ -1736,8 +1736,8 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		if (m_worldMap)
 			m_worldMapView.Render(m_spriteBatch, m_settings.theme, *m_worldMap,
 								  m_worldState,
-								  MapPanel(static_cast<float>(m_device.Width()),
-										   static_cast<float>(m_device.Height())));
+								  WorldPanel(static_cast<float>(m_device.Width()),
+											 static_cast<float>(m_device.Height())));
 		break;
 	case AppState::Paused:      m_ui.RenderPauseOverlay(); break;
 	case AppState::CharacterSheet: m_ui.RenderCharacterSheetOverlay(); break;
