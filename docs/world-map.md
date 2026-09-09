@@ -109,20 +109,35 @@ coordinates, with no level loaded. `Game::Render` already has the precedent
 for a full-screen 2D screen that skips the shadow and scene passes (the
 `editorMap` flag).
 
-**This is what costs the most work**, and it is worth stating plainly because
-it is invisible from the feature description: supplies, effects, regen and the
-exhaustion latch all tick inside `DungeonWorld::Update`, and travel costs time
-— so a travelling party would silently stop eating, stop burning and stop
-healing. The party tick has to come OUT of the dungeon and become something
-both callers run. It is the honest fix rather than keeping a level loaded to
-nurse a timer, and it is cheap only because `DungeonWorld` already holds the
-roster by POINTER rather than owning it.
+### Time, and what a journey costs
 
-Time itself needs nothing new. `Game::Update` scales it in exactly one place —
-`wdt = dt * m_timeScale * m_world.RestTimeScale()` — and REST already proved
-the pattern: multiply time at a single seam and every rate, timer and cooldown
-moves together, so no second set of travel rates can drift out of step with
-the dungeon's.
+**Two cost models, deliberately** (Michael, 2026-09-09). In a DUNGEON time runs
+continuously and everything ticks off it, exactly as now. On the WORLD MAP a
+journey has a DURATION: the party commits to a move, the world works out how
+long that takes, and the costs are settled for that span rather than accrued
+frame by frame. So travel is **not** another multiplier on `Game::Update`'s
+time seam — it does not run the dungeon's clock fast, it settles a bill.
+
+That keeps the party tick where it is. An earlier draft of the plan called for
+lifting it out of `DungeonWorld::Update` so a travelling party would keep
+eating; that is NOT needed, because nothing ticks on the world map — a journey
+is RESOLVED, not simulated.
+
+**What must not drift is the arithmetic.** Two cost models are two chances to
+disagree about what an hour of walking costs, and rest already taught the
+lesson: rates stay coherent because exactly one place owns them. Most of that
+is already true here — the drain maths lives in the PURE `resource::` TU
+(`DrainPerSec(rules, practice)`, which includes only `Core/Types.h` and
+`Curve.h`), and `TickSupplies` is merely its per-frame caller. A journey can
+ask the same function for a large span and get an answer that CANNOT disagree
+with the dungeon's. Lifting the rest of the cost loop out of `DungeonWorld` is
+deferred — his call — and is cheaper than it looks for the same reason.
+
+**OPEN:** what a journey does with the things that have a state machine inside
+them rather than a rate — a DoT that would kill someone partway, a downed
+member's stabilize clock, a ward expiring. Settling those in one lump is not
+the same as ticking them, and the difference can be a death. Not decided
+here.
 
 ### The grid
 

@@ -177,3 +177,8 @@ Later decisions (after the plan)
   harness its own explicit entry rather than inheriting whatever a new game
   starts as.
 - REFUSE old saves on the version bump. "Early saves are WIP only."
+- SUPPLIES ON TRAVEL: don't worry about consuming food etc. continuously while
+  travelling. In a dungeon it stays a continual tick as now; on the world map we
+  determine JOURNEY DURATION and then move and tick differently. The costs
+  portion of the tick may need refactoring out of where it is now, but THAT CAN
+  WAIT. (2026-09-09 — supersedes the plan's original party-tick extraction.)

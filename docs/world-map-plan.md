@@ -70,20 +70,27 @@ world, at coordinates x,y"). The precedent for a full-screen 2D screen with no
 3D scene is already in `Game::Render`'s `editorMap` flag, which skips the shadow
 and scene passes entirely.
 
-**The consequence that costs the most work:** while the party is on the world
-map, no level is loaded — but supplies, effects, regen and the exhaustion latch
-all tick inside `DungeonWorld::Update`, and travel costs time (his answer 5). So
-the party tick must come OUT of the dungeon and become something both callers
-run. This is the one real refactor in the plan and it is the honest fix rather
-than keeping a level loaded to nurse a timer. It is also cheap in coupling
-terms: `DungeonWorld` already holds the roster by POINTER (`m_roster`), so the
-tick does not belong to it in the first place.
+**Two cost models, and no extraction** (revised 2026-09-09 on his instruction).
+An earlier draft of this plan had the party tick coming OUT of
+`DungeonWorld::Update`, on the grounds that supplies, effects and regen all tick
+in there and travel costs time. That is not the design. In a DUNGEON the tick
+stays continuous, exactly as now; on the WORLD MAP a journey has a DURATION —
+the party commits to a move, the world works out how long it takes, and the
+costs are SETTLED for that span rather than accrued frame by frame. Nothing
+ticks on the world map, so nothing needs lifting out of the dungeon to keep
+ticking there.
 
-Time itself needs no new machinery. `Game::Update` scales it in ONE place —
-`wdt = dt * m_timeScale * m_world.RestTimeScale()` — and rest already proves the
-pattern: multiply time at a single seam and every rate, timer and cooldown moves
-together, so no second set of rates can drift. Travel is another multiplier on
-that same line.
+So travel is NOT another multiplier on `Game::Update`'s
+`wdt = dt * m_timeScale * m_world.RestTimeScale()` seam. Rest runs the dungeon's
+clock fast; a journey settles a bill.
+
+What must not drift is the ARITHMETIC — two cost models are two chances to
+disagree about what an hour of walking costs. Most of that is already safe: the
+drain maths lives in the PURE `resource::` TU (`DrainPerSec(rules, practice)`,
+including only `Core/Types.h` and `Curve.h`), and `TickSupplies` is merely its
+per-frame caller, so a journey can ask the same function for a large span.
+Lifting the REST of the cost loop out of `DungeonWorld` is deferred — his call,
+"that can wait" — and is cheaper than it looks for the same reason.
 
 Phases
 ------
@@ -111,11 +118,14 @@ saves are WIP only". So the read path gains a floor rather than another rung,
 and the version comment block records where the ladder was cut.
 
 **P3 — the view and travel.** `AppState::WorldMap`, a `WorldMapView` built on
-what MapView already does (pan/zoom, cell render, baked model icons, fog),
-cell-to-cell movement with terrain travel cost feeding the time seam, and the
-party tick extracted so supplies and effects run while travelling. Discovery
-marks locations seen as the party moves. This is the biggest phase; the
-extraction should land as its own commit before the view.
+what MapView already does (pan/zoom, cell render, baked model icons, fog), and
+movement as a JOURNEY: terrain travel costs give the move a duration, and the
+costs are settled over that span through the same pure `resource::` arithmetic
+the dungeon tick uses. Discovery marks locations seen as the party moves. No
+party-tick extraction (see above) — which makes this phase markedly smaller
+than the first draft had it. Left OPEN by the design doc: what a journey does
+with the things that have a state machine inside them rather than a rate — a
+DoT that would kill someone partway, a downed member's stabilize clock.
 
 **P4 — entering and leaving.** A location on the world map opens its dungeon at
 its entry level; leaving the dungeon returns the party to the world map at that
@@ -150,12 +160,14 @@ money and trade (his answer 7 — a "to do").
 Risks and traps
 ---------------
 
-1. **The party-tick extraction is the risky change.** It moves live code out of
-   the middle of `DungeonWorld::Update`, and the ordering there is load-bearing
-   and commented as such (supplies BEFORE effects, so an emptied meter bites on
-   the same frame). Move it whole, keep the order, and lean on the eval suites
-   and the pipeline ledger, which exist precisely to catch a health path that
-   changed shape.
+1. **The two cost models can drift.** This replaces the party-tick extraction as
+   the plan's main hazard, and it is the subtler of the two: a journey that
+   computes drain its own way will disagree with the dungeon about what an hour
+   costs, and nothing will report it. Route both through the pure `resource::`
+   functions and give the journey path its own check. If the deferred cost-loop
+   extraction ever happens, note that the ordering inside `DungeonWorld::Update`
+   is load-bearing and commented as such (supplies BEFORE effects, so an emptied
+   meter bites on the same frame) — move it whole and keep the order.
 2. **The eval harness assumes a loaded level — and keeps doing so.** Ten suites
    run against a world the harness `reset`s to "where a new game would leave
    it", and P4 changes where a new game leaves it. DECIDED (2026-09-09):
