@@ -523,10 +523,10 @@ map.check.worldblocked=Location '{}' stands on impassable {} — the party can n
 map.check.worldstart=The world start {} is on impassable ground
 map.check.dungeonnolevel=Dungeon '{}' names level '{}', which is not in this project
 map.check.dungeonnolevels=Dungeon '{}' has no levels
-map.check.dungeonentry=Dungeon '{}' enters at '{}', which is not one of its own levels
 map.check.levelshared=Level '{}' is already claimed by dungeon '{}'
 map.check.dungeonunreached=Dungeon '{}' has no location on the world map
 map.check.levelorphan=Level '{}' belongs to no dungeon
+map.check.locationnolevel=Location '{}' does not say which level it opens onto
 map.check.locationlevel=Location '{}' lands on level '{}', which is not one of its dungeon's
 map.check.exitnolocation=This way out surfaces at '{}', which is not a place on the world map
 

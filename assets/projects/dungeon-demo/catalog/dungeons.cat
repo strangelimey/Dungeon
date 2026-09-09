@@ -10,11 +10,15 @@
 ; content behind it. That is what lets a found map reveal a location without
 ; touching the dungeon, and what would let two locations share one dungeon.
 ;
+; A DUNGEON HAS NO START OF ITS OWN (Michael, 2026-09-09). It is a named group
+; of levels, and nothing more: every way IN carries its own destination — a
+; world-map location says which level and cell it opens onto, and the game's
+; opening says the same in project.ini. So there is no `entry` field to drift
+; out of step with the doors that actually lead here.
+;
 ; Fields:
 ;   levels   space-separated level stems, in depth order. Every stem must exist
 ;            in project.ini.
-;   entry    the level a party arriving from the world map lands on. Must be one
-;            of `levels`; defaults to the first.
 ;   tags     flavour, for later content matching (Catalog.h tags).
 
 [waystation]
@@ -22,5 +26,4 @@ display = The Waystation
 ; The demo's composed level, and the two gallery floors beneath it. `showcase`
 ; leads because that is where a new game has always opened.
 levels = showcase start level2
-entry = showcase
 tags = stone

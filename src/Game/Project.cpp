@@ -7,6 +7,7 @@
 #include "Core/Log.h"
 #include "Game/Serialize.h"
 
+#include <cstdlib>
 #include <format>
 #include <sstream>
 
@@ -74,6 +75,13 @@ Project Project::Load(const std::string& folder) {
 			p.levels = SplitWords(b.Get("levels"));
 			p.defaultSconce = b.Get("default_sconce", "sconce");
 			p.defaultBrazier = b.Get("default_brazier", "brazier");
+			p.startDungeon = b.Get("start_dungeon", "");
+			p.startLevel = b.Get("start_level", "");
+			// -1 when unset OR unparseable: an entry cell is either authored in
+			// full or not at all, and a half-read one would land the party on a
+			// row it was never sent to.
+			p.startX = std::atoi(b.Get("start_x", "-1").c_str());
+			p.startZ = std::atoi(b.Get("start_z", "-1").c_str());
 		}
 	} else {
 		log::Warn("project has no project.ini: {}", folder);
@@ -100,6 +108,17 @@ bool Project::Save() const {
 	m.Set("levels", levelList);
 	m.Set("default_sconce", defaultSconce);
 	m.Set("default_brazier", defaultBrazier);
+	// Only written when the game starts in a dungeon: an absent block is the
+	// ordinary "begin on the world map", and writing it out as empties would
+	// make every project look like it had made a choice it had not.
+	if (!startDungeon.empty()) {
+		m.Set("start_dungeon", startDungeon);
+		m.Set("start_level", startLevel);
+		if (startX >= 0) {
+			m.Set("start_x", std::to_string(startX));
+			m.Set("start_z", std::to_string(startZ));
+		}
+	}
 
 	const std::string text = std::format("; {} — project manifest.{}{}", name,
 										 serialize::kEol, serialize::kEol) +

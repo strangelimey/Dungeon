@@ -35,6 +35,18 @@ struct Project {
 	std::string defaultSconce = "sconce";   // 'T' glyph → this fixture id
 	std::string defaultBrazier = "brazier"; // 'F' glyph → this fixture id
 
+	// WHERE THE GAME BEGINS (docs/world-map.md). Empty `startDungeon` means the
+	// world map — the ordinary opening. Naming a dungeon instead starts the
+	// party inside it, at the level and cell given here.
+	//
+	// THE COORDINATES ARE HERE AND NOT IN THE DUNGEON, because a dungeon has no
+	// start of its own any more (Michael, 2026-09-09): every way in says where
+	// it leads, and the game's opening is just another way in — one that
+	// belongs to the GAME rather than to a door on the map.
+	std::string startDungeon; // empty = begin on the world map
+	std::string startLevel;
+	int startX = -1, startZ = -1; // -1,-1 = the level's own start cell
+
 	// The content catalogs (see Catalog.h). Walls/floors/ceilings define the
 	// surface palette; the rest define placeable content. attacks/balance are
 	// the combat model's data (Balance.h): per-attack numbers + the knob sheet.

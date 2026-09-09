@@ -501,10 +501,10 @@ map.check.worldblocked=El lugar '{}' está sobre {} intransitable — el grupo n
 map.check.worldstart=El inicio del mundo {} está en terreno intransitable
 map.check.dungeonnolevel=La mazmorra '{}' nombra el nivel '{}', que no está en este proyecto
 map.check.dungeonnolevels=La mazmorra '{}' no tiene niveles
-map.check.dungeonentry=La mazmorra '{}' entra por '{}', que no es uno de sus propios niveles
 map.check.levelshared=El nivel '{}' ya pertenece a la mazmorra '{}'
 map.check.dungeonunreached=La mazmorra '{}' no tiene lugar en el mapa del mundo
 map.check.levelorphan=El nivel '{}' no pertenece a ninguna mazmorra
+map.check.locationnolevel=El lugar '{}' no dice a qué nivel conduce
 map.check.locationlevel=El lugar '{}' llega al nivel '{}', que no es de su mazmorra
 map.check.exitnolocation=Esta salida emerge en '{}', que no existe en el mapa del mundo
 

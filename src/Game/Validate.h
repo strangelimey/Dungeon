@@ -68,10 +68,12 @@ struct Rules {
 // One dungeon, as the checker needs to see it: the level stems it claims and
 // the one a party arriving from the world map lands on. Resolved from
 // dungeons.cat by the caller, like Rules above.
+// A dungeon is a NAMED GROUP OF LEVELS and nothing more — it has no start of
+// its own, because every way in (a world-map location, or the game's own
+// opening) carries its own destination.
 struct DungeonView {
 	std::string id;
 	std::vector<std::string> levels;
-	std::string entry; // empty = the first of `levels`
 };
 
 // The WORLD tier, when the project has one (docs/world-map.md). Non-owning, and

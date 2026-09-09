@@ -68,15 +68,9 @@ void CheckWorld(const WorldView& world, const std::vector<LevelView>& levels,
 								  "map.check.levelshared", stem, it->second});
 			else ownerOf[stem] = d.id;
 		}
-		const std::string entry = d.entry.empty()
-									  ? (d.levels.empty() ? std::string() : d.levels.front())
-									  : d.entry;
 		if (d.levels.empty())
 			issues.push_back({Severity::Error, "", -1, -1,
 							  "map.check.dungeonnolevels", d.id});
-		else if (std::find(d.levels.begin(), d.levels.end(), entry) == d.levels.end())
-			issues.push_back({Severity::Error, "", -1, -1, "map.check.dungeonentry",
-							  d.id, entry});
 	}
 
 	// Locations, and what they point at.
@@ -92,12 +86,15 @@ void CheckWorld(const WorldView& world, const std::vector<LevelView>& levels,
 								  "map.check.worldnodungeon", l.Dungeon(), where});
 			else {
 				reached.insert(it->id);
-				// A doorway that names a level must name one of ITS dungeon's:
-				// a back way into the wrong dungeon's third floor is a fault no
-				// amount of play would explain.
-				if (!l.level.empty() &&
-					std::find(it->levels.begin(), it->levels.end(), l.level) ==
-						it->levels.end())
+				// A DOORWAY MUST SAY WHERE IT LEADS. Since a dungeon has no
+				// start of its own, an unauthored `level` is not a default any
+				// more — it is a hole, and the party would arrive wherever the
+				// first level happens to be.
+				if (l.level.empty())
+					issues.push_back({Severity::Error, "", -1, -1,
+									  "map.check.locationnolevel", l.id});
+				else if (std::find(it->levels.begin(), it->levels.end(), l.level) ==
+						 it->levels.end())
 					issues.push_back({Severity::Error, "", -1, -1,
 									  "map.check.locationlevel", l.id, l.level});
 			}

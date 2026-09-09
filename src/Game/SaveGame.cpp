@@ -546,19 +546,6 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			e.id = IntOf(tok[1]);
 			e.activated = IntOf(tok[2]) != 0;
 			currentBlock().entities.push_back(e);
-		} else if (kw == "floor" && tok.size() >= 4) {
-			// v6 compat: a whole floor snapshot (type x z per uncollected item).
-			// Land it as an Item spawn and flag the block so apply REPLACES the
-			// floor wholesale (v6 had no per-item diff).
-			SaveData::EntityState e;
-			e.kind = EntityKind::Item;
-			e.id = -1;
-			e.x = IntOf(tok[1]);
-			e.z = IntOf(tok[2]);
-			e.type = std::string(tok[3]);
-			SaveData::LevelState& lvl = currentBlock();
-			lvl.entities.push_back(e);
-			lvl.fullFloorSnapshot = true;
 		} else if (kw == "niche" && tok.size() >= 5) {
 			// v20: a wall-niche reveal-state diff: <x> <z> <wall> <open>.
 			SaveData::NicheOpen n;

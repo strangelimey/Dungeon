@@ -522,9 +522,27 @@ void Game::StartNewGame() {
 	m_ui.RefreshSheet();
 	ApplyPartySpeed();
 
-	// A NEW GAME OPENS ON THE WORLD MAP when the project has one (P4): the party
-	// starts out in the world and goes looking for a way down, rather than
-	// beginning underground with no idea how it got there.
+	// WHERE THE GAME BEGINS is the manifest's business (docs/world-map.md).
+	// A STARTER DUNGEON, named there with its level and cell, starts the party
+	// underground — the game's own way in, carrying its destination exactly as
+	// a world-map doorway does, because a dungeon has no start of its own.
+	if (!m_project.startDungeon.empty()) {
+		const std::string level =
+			m_project.startLevel.empty()
+				? (m_project.levels.empty() ? std::string("level1")
+											: m_project.levels.front())
+				: m_project.startLevel;
+		m_worldState.atLocation.clear(); // begun here, not entered from anywhere
+		m_worldState.onWorldMap = false;
+		BeginLevelTransition(level, m_project.startX, m_project.startZ,
+							 Direction::South, /*stashCurrent=*/false);
+		log::Info("New game started in {} ({} at {},{})", m_project.startDungeon,
+				  level, m_project.startX, m_project.startZ);
+		return; // the LoadingLevel done-handler resumes play
+	}
+
+	// Otherwise the party begins ON THE WORLD MAP, out in the open, and goes
+	// looking for a way down.
 	//
 	// A project with NO world still opens on a level exactly as before. That is
 	// not a courtesy — it is what keeps a world an optional tier rather than a

@@ -225,6 +225,20 @@ positions is one class rather than a sweep.
 
 ### In and out
 
+**A DUNGEON HAS NO START OF ITS OWN** (Michael, 2026-09-09). It is a named
+group of levels and nothing more. EVERY WAY IN CARRIES ITS OWN DESTINATION —
+a world-map location says which level and cell it opens onto, and the game's
+opening says the same in `project.ini`:
+
+    start_dungeon = crypt      ; absent = the game begins on the world map
+    start_level   = crypt1
+    start_x       = 6
+    start_z       = 9
+
+There is therefore no `entry` field on a dungeon to drift out of step with the
+doors that actually lead there, and a doorway that says nothing is a CHECKED
+fault rather than a silent fallback.
+
 **A LOCATION IS A DOORWAY, NOT A DUNGEON.** One dungeon may have several ways
 in — a front gate and a back way that stands somewhere else entirely on the map
 and comes out somewhere else inside it (Michael, 2026-09-09). So a location
@@ -233,15 +247,16 @@ names its dungeon rather than being one, and it names where it LANDS:
     location dungeon waystation      10 10
     location dungeon waystation_back  5 13 dungeon=waystation level=level2 entryx=9 entryz=4
 
-`dungeon` absent means "the same as my id", `level` absent falls back to the
-dungeon's `entry`, and an absent cell to that level's own start — so a
-single-entrance dungeon authors none of it and reads exactly as it did before.
-Naming one of `entryx`/`entryz` without the other is refused rather than
-half-applied: it would silently land on the level's start row or column and
-read as "the entrance moved" instead of as the slip it is.
+`dungeon` absent means "the same as my id", so a single-entrance dungeon still
+authors only its own name. `level` and the cell are not optional in the same
+way: the checker names a doorway that omits them, because there is no longer
+anything sensible for them to fall back TO. Naming one of `entryx`/`entryz`
+without the other is refused outright — it would land on the level's start row
+or column and read as "the entrance moved" instead of as the slip it is.
 
-A back way names its cell because **a level has one start** and should keep
-having one — there is no second `P` glyph to be the other entrance.
+The level `.map` `P` glyph still exists and still means what it always did:
+where the EDITOR drops you, and the arrival for anything that names no cell. It
+is a level-authoring detail now, not a tier the world reaches for.
 
 **An undiscovered location cannot be entered.** Discovery is a gate, not
 decoration — a location the party has no idea exists should not be walkable
@@ -355,12 +370,19 @@ save record. A parallel pair would need conversion at two points, and
 conversion code between two structs with the same fields is exactly where a
 field gets added to one side and forgotten on the other.
 
-Old saves are **refused** at the version bump, with a log line naming both
-versions, rather than half-loaded — "early saves are WIP only" (Michael,
-2026-09-09). The read path gained a FLOOR (`kMinReadableVersion`) rather than
-another compat rung. A refused save then vanishes from the load list, since
-`ListSaves` keeps only what `ReadSave` returns: an entry that cannot be loaded
-is worse than no entry, and the log is where the reason lives.
+**The version starts again at 1** (Michael, 2026-09-09). A ladder of v1..v26
+migration notes used to stand in `SaveGame.h`, each rung explaining how to read
+the rung below — and none of it can be read any more, because the world tier
+re-cut what a save IS. Keeping twenty-six comments about migrating files that
+cannot exist would be a museum, not documentation; the notes are in the git
+history if a format question ever needs archaeology. The v6 floor-snapshot
+compat path went with them, field and both branches: dead code kept for saves
+that can no longer exist is just weight.
+
+`kMinReadableVersion` is 1 and anything else is refused, with a log line naming
+both versions, rather than half-loaded. A refused save then vanishes from the
+load list, since `ListSaves` keeps only what `ReadSave` returns: an entry that
+cannot be loaded is worse than no entry, and the log is where the reason lives.
 
 ## What this does not cover
 

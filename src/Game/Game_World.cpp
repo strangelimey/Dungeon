@@ -106,7 +106,6 @@ std::vector<validate::Issue> Game::ValidateProject() {
 		validate::DungeonView d;
 		d.id = e.id;
 		d.levels = ParseTags(e.Get("levels", "")); // space-split + lowercased
-		d.entry = e.Get("entry", "");
 		view.dungeons.push_back(std::move(d));
 	}
 	return m_world.Validate(view);
@@ -165,21 +164,21 @@ bool Game::EnterLocation(const std::string& id) {
 		log::Warn("enter: dungeon '{}' has no levels", loc->Dungeon());
 		return false;
 	}
-	// WHERE THIS DOORWAY LANDS. The location's own `level`, else the dungeon's
-	// `entry`, else the first level — narrowing from the most specific to the
-	// most general, because a back way arrives somewhere the front door does
-	// not and only the location knows where.
+	// WHERE THIS DOORWAY LANDS — the LOCATION says, and nothing else does. A
+	// dungeon has no start of its own (Michael, 2026-09-09): it is a named group
+	// of levels, and every way in carries its own destination. An unauthored
+	// `level` falls back to the first only so a half-written location still
+	// opens something rather than aborting; the checker calls it out.
 	std::string entry = loc->level;
-	if (entry.empty()) entry = d->Get("entry", "");
 	if (entry.empty() ||
-		std::find(levels.begin(), levels.end(), entry) == levels.end())
+		std::find(levels.begin(), levels.end(), entry) == levels.end()) {
+		log::Warn("enter: location '{}' names no level of dungeon '{}' — using {}",
+				  id, loc->Dungeon(), levels.front());
 		entry = levels.front();
+	}
 
 	m_worldState.onWorldMap = false;
 	m_worldState.atLocation = id; // the fallback for an exit that names none
-	// -1,-1 means "the level's own start cell" — the arrival a front door gets.
-	// A back way names its cell, because there is no second 'P' glyph to be the
-	// other entrance and there should not be: a level has one start.
 	BeginLevelTransition(entry, loc->entryX, loc->entryZ, Direction::South,
 						 /*stashCurrent=*/false);
 	if (m_world.onMessage)
@@ -345,13 +344,14 @@ std::vector<std::string> Game::WorldReport() const {
 	for (const WorldMap::Location& l : w.Locations()) {
 		// Report the location against the DUNGEON it names, since a location
 		// pointing at nothing is the fault most worth seeing here.
-		const CatalogEntry* d = m_project.dungeons.Find(l.id);
+		const CatalogEntry* d = m_project.dungeons.Find(l.Dungeon());
 		out.push_back(std::format(
-			"  {:<7} {:<10} {},{}  on {}  difficulty {:.2f}  -> {}", l.kind, l.id,
+			"  {:<7} {:<12} {},{}  on {}  difficulty {:.2f}  -> {}", l.kind, l.id,
 			l.x, l.z, w.TerrainAt(l.x, l.z).id, w.Difficulty(l.x, l.z),
-			d ? std::format("{} level(s), entry {}",
+			d ? std::format("{} ({} level(s)) at {} {},{}", l.Dungeon(),
 							WordCount(d->Get("levels", "")),
-							d->Get("entry", "(first)"))
+							l.level.empty() ? std::string("(unset!)") : l.level,
+							l.entryX, l.entryZ)
 			  : std::string("NO SUCH DUNGEON")));
 	}
 	return out;

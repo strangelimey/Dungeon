@@ -33,81 +33,24 @@ namespace dungeon::game {
 
 // The serializable dynamic state of one in-progress game.
 struct SaveData {
-	// v23: per-member OFFENSE SHARE ("share <i> <value>", the 0..N stance —
-	//      docs/damage-system.md). Written only when it is off 1.0, since an
-	//      all-out party is the overwhelming case and a line per member per
-	//      save would be noise. Absent = attacking with everything, which is
-	//      what every pre-v23 save meant.
-	// v22: per-MONSTER status effects ("enteffect <id> <school> <time>
-	//      <duration> <magnitude> <source>" lines, each attaching to the entity
-	//      line just above it) — a monster carries the same effect list a member
-	//      does (docs/effects.md), so a burn or a poison survives a save now.
-	//      Older saves simply load their monsters unafflicted.
-	// v21: a DROPPED item that landed in a wall niche carries its wall as a 6th
-	//      token on the "drop" line ("drop <type> <x> <z> <slot> <niche>");
-	//      absent/-1 = an ordinary floor item. Editor-authored niche items ride
-	//      their .ent `niche=` param, so only runtime drops need this.
-	// v20: per-level wall-niche OPEN state ("niche <x> <z> <wall> <open>" line,
-	//      one per niche whose runtime open differs from its authored default —
-	//      a secret niche a button revealed). Absent = every niche at its default.
-	// v18: per-member DEAD flag ("dead" line, written only when set) — the
-	//      unconscious/dead split (docs/combat.md Phase 5). Absent = alive or
-	//      merely unconscious (health 0 self-stabilizes once safe).
-	// v17: per-member resource BASES ("base" line: health/stamina/mana) — the
-	//      maxima are DERIVED now (docs/combat.md "The resource formula":
-	//      max = base + k × statAvg), so the base is the stored truth. A
-	//      pre-v17 save back-solves bases from its stored maxima under the
-	//      live balance knobs (the maxima reproduce exactly).
-	// v16: default uses and the spell MRU are per member AND per hand — the
-	//      "usedef"/"mru" lines gain a hand token (0 = left, 1 = right), one
-	//      line per hand. A pre-v16 flat line seeds BOTH hands.
-	// v15: per-member skills ("skill" line: id/xp pairs), stat-creep pools
-	//      ("statxp" line: stat/progress pairs), and the five attributes
-	//      ("attr" line — they GROW now, so the archetype defaults no longer
-	//      suffice) — docs/skills.md. Absent in older saves (skills start
-	//      fresh, attributes stay the archetype's).
-	// v14: per-member status effects ("effect" lines: kind token, school,
-	//      time left, starting duration, magnitude, display-name loc key) —
-	//      the unified Character::effects list; replaces the v13 "shield"
-	//      line (still read, loaded as a ward effect).
-	// v19: per-monster THREAT (four member scores + the lock index appended to
-	//      the ent/monster tokens) — the aggro system; older saves load zeroes.
-	// v13: per-member active ward ("shield" line: school symbol id, seconds
-	//      left, magnitude) — the Protect form rune's shields.
-	// v12: per-member spell MRU ("mru" line, order = newest first) — the hand
-	//      menu's Magic quick-cast list.
-	// v11: per-member LEARNED SPELLS ("learned" line) — earned on first
-	//      successful cast; the Magic quick-cast list and "cast:" defaults
-	//      only offer learned spells.
-	// v10: per-member default uses ("usedef" line) — the item-type → command
-	//      map behind the hand slots' left-click default action.
-	// v9: per-pack contents — the backpack became a row of containers (packs),
-	//     each with its own contents; replaces the single "pack" line with
-	//     "packs" (the container row + selection) + "packc" (per-pack contents).
-	// v8: cursor-held item ("held" line) — the tablet floating on the mouse
-	//     pointer, party-level state (was previously hacked into a backpack slot).
-	// v7: one generic per-entity record (EntityState) covers monsters, items, and
-	//     buttons as a diff (keyed by .ent id) or a whole spawn (no baseline);
-	//     replaces the v6 split of "ent"/"monster" rows + a whole "floor" item
-	//     snapshot. v6: free-look offset ("look" line); v5 folded hands into equip[].
-	// v26: THE WORLD TIER (docs/world-map.md). A "world" line (on-map flag, cell,
-	//      elapsed hours) plus "worldseen" / "discovered" / "flag" lines — the
-	//      GLOBAL half of the save, above the per-level diffs.
+	// THE VERSION STARTS AGAIN AT 1 (Michael, 2026-09-09). The ladder that used
+	// to stand here ran v1..v26, each rung a note on how to read the rung below
+	// — and none of it can be read any more: the world tier re-cut what a save
+	// IS, and no save written before it will ever load. Keeping twenty-six
+	// comments explaining how to migrate files that cannot exist would be a
+	// museum, not documentation. The old notes are in the git history if a
+	// format question ever needs archaeology.
 	//
-	//      THE COMPAT LADDER IS CUT HERE. Every rung above reads an older save
-	//      forward; v26 does not. Michael's call (2026-09-09): the world tier
-	//      re-cuts what a save even IS, existing content need not survive, and
-	//      "early saves are WIP only". So the read path gained a FLOOR
-	//      (kMinReadableVersion) rather than another rung, and an older file is
-	//      REFUSED with a log line naming both versions rather than half-loaded
-	//      into a game whose shape it predates.
-	int version = 26;
+	// So this is version 1 of the save format as it now stands, and
+	// kMinReadableVersion is 1: anything else is refused outright rather than
+	// half-understood. The next real format change starts a new ladder, and
+	// that ladder will be worth keeping.
+	int version = 1;
 
 	// ONE active status effect, as it survives a save. Shared by both sides —
-	// a party member's list and (v22) a monster's — because the effects system
+	// a party member's list and a monster's — because the effects system
 	// is symmetric and the record has no reason not to be. `id` names the
-	// effect kind; older character saves put a CATEGORY token there instead
-	// ("ward"), which EffectBook::FindLegacy maps forward. `nameKey` is written
+	// effect kind; `nameKey` is written
 	// for readability only (a kind names itself on load); `source` is the
 	// roster index credited with a DoT's ticks, or -1.
 	struct EffectState {
@@ -136,7 +79,7 @@ struct SaveData {
 	// Right-mouse free-look offset (radians) layered on the grid facing, so a
 	// save mid-look returns to the EXACT camera angle — and, with looking=false,
 	// replays the in-flight ease back to orthogonal. Defaults (0/0/false) =
-	// orthogonal, so pre-v6 saves load square-on.
+	// orthogonal, so older saves load square-on.
 	float lookYaw = 0.0f, lookPitch = 0.0f;
 	bool looking = false;
 
@@ -163,42 +106,42 @@ struct SaveData {
 		int selectedPack = 0;
 		// Remembered default use PER HAND (0 = left, 1 = right) per item type
 		// (Character::useDefaults), as (item id, command id) pairs. Absent in
-		// pre-v10 saves (defaults reset); a pre-v16 flat "usedef" line loads
+		// older saves (defaults reset); a a flat "usedef" line loads
 		// into BOTH hands.
 		std::array<std::vector<std::pair<std::string, std::string>>, 2> useDefaults;
 		// Spells learned by first successful cast (Character::learnedSpells),
-		// spells.cat ids. Absent in pre-v11 saves (re-learn by casting).
+		// spells.cat ids. Absent in older saves (re-learn by casting).
 		std::vector<std::string> learnedSpells;
 		// Most-recently-cast spells PER HAND, newest first
 		// (Character::spellMru) — each hand's Magic quick-cast list. Absent
-		// in pre-v12 saves (rebuilds by casting); a pre-v16 flat "mru" line
+		// in older saves (rebuilds by casting); a a flat "mru" line
 		// loads into BOTH hands.
 		std::array<std::vector<std::string>, 2> mruSpells;
 		// The offense share (Character::offenseShare) — how much of the
 		// character's skill goes into attacking, the rest held back to guard
-		// with. 1.0 = all-out (the default, and what every pre-v23 save
+		// with. 1.0 = all-out (the default, and what every an older save
 		// means). NOT clamped to 1: over-exertion goes past it.
 		float offenseShare = 1.0f;
 		// Active status effects (Character::effects) — one "effect" line each
-		// (v14). A v13 "shield" line loads as the matching ward (duration =
-		// time left, name derived from the school); pre-v13 saves carry none.
+		//. A v13 "shield" line loads as the matching ward (duration =
+		// time left, name derived from the school); older saves carry none.
 		std::vector<EffectState> effects;
 		// Skill XP by skill id (Character::skillXp) and the stat-creep pools
 		// by stat id (Character::statProgress) — docs/skills.md. Flat pairs,
-		// one "skill"/"statxp" line each (v15). Absent in pre-v15 saves.
+		// one "skill"/"statxp" line each. Absent in older saves.
 		std::vector<std::pair<std::string, float>> skills;
 		std::vector<std::pair<std::string, float>> statProgress;
-		// The five attributes ("attr" line, v15) — stat creep grows them, so
+		// The five attributes ("attr" line) — stat creep grows them, so
 		// they round-trip. hasAttrs=false (older save) keeps the archetype's.
 		bool hasAttrs = false;
 		int strength = 0, dexterity = 0, vitality = 0, willpower = 0,
 			intelligence = 0;
-		// The resource BASES ("base" line, v17) — the authored half of the
+		// The resource BASES ("base" line) — the authored half of the
 		// derived maxima. hasBases=false (older save) back-solves them from
 		// the stored maxima at apply time.
 		bool hasBases = false;
 		float baseHealth = 0, baseStamina = 0, baseMana = 0;
-		// FOOD and WATER ("supply" line, v25). hasSupplies=false (an older save)
+		// FOOD and WATER ("supply" line). hasSupplies=false (an older save)
 		// arrives FULL rather than empty — a party loaded from a v24 save has
 		// not been starving off-screen, and defaulting a new meter to zero would
 		// have every existing save open onto four members taking damage.
@@ -211,7 +154,7 @@ struct SaveData {
 	};
 	std::vector<CharState> characters;
 
-	// One generic per-entity record — the unified save primitive (v7). Every
+	// One generic per-entity record — the unified save primitive. Every
 	// dynamic entity kind (monster, item, button) round-trips through this, in
 	// one of two modes decided by `id`:
 	//   - DIFF (id >= 0): references a .ent baseline entity by its stable id, and
@@ -239,9 +182,9 @@ struct SaveData {
 												// or monster slot on its size's grid
 		int niche = -1;                         // item: wall niche it sits in (-1 = floor)
 		bool activated = false;                 // button: pressed / toggled on
-		std::array<float, 4> threat{};          // monster: per-member aggro (v19)
-		int threatLock = -1;                    // monster: locked member (v19)
-		// monster: what it is currently afflicted by (v22) — the same record a
+		std::array<float, 4> threat{};          // monster: per-member aggro
+		int threatLock = -1;                    // monster: locked member
+		// monster: what it is currently afflicted by — the same record a
 		// member's effects use, written as "enteffect" lines under its own.
 		std::vector<EffectState> effects;
 	};
@@ -258,7 +201,7 @@ struct SaveData {
 		bool open = true;
 	};
 
-	// A piece of DUNGEON that has been broken (v24). Doors ride `entities` like
+	// A piece of DUNGEON that has been broken. Doors ride `entities` like
 	// every other .ent record, so this is for the pieces that do NOT: decorations
 	// are STATIC .map records, and their destroyed state is dynamic — the same
 	// split `seen` makes.
@@ -282,14 +225,8 @@ struct SaveData {
 		std::string stem;
 		std::vector<std::pair<int, int>> seen;
 		std::vector<EntityState> entities; // all kinds, diffs + spawns
-		std::vector<NicheOpen> niches;     // v20: reveal-state diffs
-		std::vector<BrokenProp> broken;    // v24: smashed props
-		// v6 read compat: a v6 save stored every floor item as a whole "floor"
-		// snapshot (no per-item diff). When loaded, those rows land in `entities`
-		// as Item spawns and this flag is set, so ApplyActiveSnapshot REPLACES the
-		// floor wholesale (v6 semantics) instead of applying item diffs. v7 saves
-		// never set it.
-		bool fullFloorSnapshot = false;
+		std::vector<NicheOpen> niches;     // reveal-state diffs
+		std::vector<BrokenProp> broken;    // smashed props
 	};
 	// One entry per VISITED level, keyed by STEM.
 	//
@@ -303,8 +240,8 @@ struct SaveData {
 };
 
 // The oldest save this build will read. Below it ReadSave refuses rather than
-// half-loading — see the v26 note above.
-inline constexpr int kMinReadableVersion = 26;
+// half-loading — see the note on `version` above.
+inline constexpr int kMinReadableVersion = 1;
 
 // One save file's header, for the slot browser (cheap: parsed from the file).
 struct SaveSlot {

@@ -501,10 +501,10 @@ map.check.worldblocked=Ort '{}' steht auf unpassierbarem {} — die Gruppe kann 
 map.check.worldstart=Der Weltstart {} liegt auf unpassierbarem Grund
 map.check.dungeonnolevel=Verlies '{}' nennt Ebene '{}', die es in diesem Projekt nicht gibt
 map.check.dungeonnolevels=Verlies '{}' hat keine Ebenen
-map.check.dungeonentry=Verlies '{}' beginnt bei '{}', was keine seiner eigenen Ebenen ist
 map.check.levelshared=Ebene '{}' gehört bereits zum Verlies '{}'
 map.check.dungeonunreached=Verlies '{}' hat keinen Ort auf der Weltkarte
 map.check.levelorphan=Ebene '{}' gehört zu keinem Verlies
+map.check.locationnolevel=Ort '{}' sagt nicht, auf welche Ebene er führt
 map.check.locationlevel=Ort '{}' führt auf Ebene '{}', die nicht zu seinem Verlies gehört
 map.check.exitnolocation=Dieser Ausgang mündet bei '{}', das es auf der Weltkarte nicht gibt
 

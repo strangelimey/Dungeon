@@ -501,10 +501,10 @@ map.check.worldblocked=Il luogo '{}' sorge su {} impraticabile — il gruppo non
 map.check.worldstart=L'inizio del mondo {} è su terreno impraticabile
 map.check.dungeonnolevel=Il sotterraneo '{}' nomina il livello '{}', che non è in questo progetto
 map.check.dungeonnolevels=Il sotterraneo '{}' non ha livelli
-map.check.dungeonentry=Il sotterraneo '{}' entra da '{}', che non è uno dei suoi livelli
 map.check.levelshared=Il livello '{}' appartiene già al sotterraneo '{}'
 map.check.dungeonunreached=Il sotterraneo '{}' non ha alcun luogo sulla mappa del mondo
 map.check.levelorphan=Il livello '{}' non appartiene ad alcun sotterraneo
+map.check.locationnolevel=Il luogo '{}' non dice a quale livello conduce
 map.check.locationlevel=Il luogo '{}' porta al livello '{}', che non è del suo sotterraneo
 map.check.exitnolocation=Questa uscita sbuca a '{}', che non esiste sulla mappa del mondo
 

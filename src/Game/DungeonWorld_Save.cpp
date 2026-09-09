@@ -282,15 +282,6 @@ void DungeonWorld::ApplyActiveSnapshot() {
 	// baseline instances by id.
 	std::erase_if(m_monsters, [](const Monster& m) { return m.id < 0; });
 	std::erase_if(m_items, [](const Item& i) { return i.id < 0; });
-	// v6 migration: that save stored a whole floor snapshot (no per-item diff).
-	// Mark every baseline rune collected up front; the Item rows below revive the
-	// ones actually on the floor — matched by cell + type, so an untouched baseline
-	// keeps its .ent id (and won't re-serialize as a drop that later duplicates
-	// it). A rune absent from the snapshot (picked up in the v6 save) stays gone.
-	if (ls.fullFloorSnapshot)
-		for (Item& item : m_items)
-			if (item.id >= 0) item.collected = true;
-
 	// Rebuild a monster's afflictions from the snapshot (v22). An id the project's
 	// effect classes don't know — an older or newer save — is skipped, never
 	// misread; the plume follows automatically, since it is derived from the list.
@@ -347,24 +338,7 @@ void DungeonWorld::ApplyActiveSnapshot() {
 			}
 			break;
 		case EntityKind::Item:
-			if (ls.fullFloorSnapshot) {
-				// v6 floor row: revive the collected baseline rune of this type at
-				// this cell (keeping its id), else lay a non-baseline tablet down.
-				bool revived = false;
-				for (Item& item : m_items)
-					if (item.id >= 0 && item.collected && item.x == e.x &&
-						item.z == e.z && item.kind && item.kind->id == e.type) {
-						item.collected = false;
-						revived = true;
-						break;
-					}
-				if (!revived) {
-					ItemKind& kind = ItemKindFor(e.type);
-					const Vec3 c = m_map.CellCenter(e.x, e.z); // v6 had no slot
-					const int slot = FreeItemSlotNear(e.x, e.z, c.x, c.z, -1);
-					m_items.push_back({&kind, m_nextDropId--, e.x, e.z, false, slot});
-				}
-			} else if (e.id < 0) {
+			if (e.id < 0) {
 				// Dropped tablet — lay it back with a fresh runtime id, at its saved
 				// quarter slot (or piled in its wall niche, e.niche >= 0).
 				ItemKind& kind = ItemKindFor(e.type);

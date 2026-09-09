@@ -87,8 +87,14 @@ CASES = [
     ("dungeon names a missing level", DUNGEONS,
      "levels = showcase start level2", "levels = showcase start level2 basement",
      "map.check.dungeonnolevel"),
-    ("dungeon entry is not its own level", DUNGEONS,
-     "entry = showcase", "entry = level9", "map.check.dungeonentry"),
+    # A dungeon has no start of its own any more: the DOORWAY says where it
+    # leads, so the fault to catch is a doorway that says nothing.
+    ("a doorway that says which level", WORLD,
+     "level=showcase entryx=13 entryz=21", "",
+     "map.check.locationnolevel"),
+    ("a doorway naming a level of another dungeon", WORLD,
+     "level=showcase entryx=13 entryz=21", "level=nowhere entryx=13 entryz=21",
+     "map.check.locationlevel"),
     ("two dungeons claim one level", DUNGEONS,
      "tags = stone", "tags = stone\n\n[rival]\nlevels = showcase\nentry = showcase",
      "map.check.levelshared"),
@@ -157,7 +163,7 @@ try:
     else:
         shutil.copy(SAVE, SAVE + ".bak")
         try:
-            write(SAVE, read(SAVE).replace("save version=26", "save version=25", 1))
+            write(SAVE, read(SAVE).replace("save version=1", "save version=0", 1))
             log = run("worldload.eval")
             check("older than the minimum" in log,
                   "the log says which version was refused and what the floor is")
