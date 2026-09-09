@@ -61,7 +61,7 @@ ceilingfeature vault 12 11
 ceilingfeature vault 13 11
 ceilingfeature vault 14 11
 stairs stairs_down 11 2 south dest=start destx=11 destz=2 destfacing=south
-stairs stairs_exit 13 21 south dest=- destx=0 destz=0
+stairs stairs_exit 13 21 south dest=waystation destx=0 destz=0
 variant wall 10 0 1
 variant wall 11 0 1
 variant wall 12 0 1

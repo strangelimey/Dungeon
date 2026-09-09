@@ -505,6 +505,8 @@ map.check.dungeonentry=La mazmorra '{}' entra por '{}', que no es uno de sus pro
 map.check.levelshared=El nivel '{}' ya pertenece a la mazmorra '{}'
 map.check.dungeonunreached=La mazmorra '{}' no tiene lugar en el mapa del mundo
 map.check.levelorphan=El nivel '{}' no pertenece a ninguna mazmorra
+map.check.locationlevel=El lugar '{}' llega al nivel '{}', que no es de su mazmorra
+map.check.exitnolocation=Esta salida emerge en '{}', que no existe en el mapa del mundo
 
 ; --- el mapa del mundo (docs/world-map.md) ---
 world.caption.here={} en {} — {} horas de viaje

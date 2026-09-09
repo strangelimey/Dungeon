@@ -20,6 +20,10 @@ area lowlands 2 5 20 11 difficulty=0.12
 area moors 2 1 12 4 difficulty=0.45
 
 location dungeon waystation 10 10
+; THE BACK WAY: the same dungeon, a different door. It stands somewhere
+; else on the map and comes out somewhere else inside — which is why a
+; location names its dungeon and its landing spot rather than being one.
+location dungeon waystation_back 5 13 dungeon=waystation level=level2 entryx=9 entryz=4
 
 ~~~AAAAAAAAA^^^^AAAAAAAA
 ~~~^^^^^^MMMM^^^^AAAAAAA

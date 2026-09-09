@@ -527,6 +527,8 @@ map.check.dungeonentry=Dungeon '{}' enters at '{}', which is not one of its own 
 map.check.levelshared=Level '{}' is already claimed by dungeon '{}'
 map.check.dungeonunreached=Dungeon '{}' has no location on the world map
 map.check.levelorphan=Level '{}' belongs to no dungeon
+map.check.locationlevel=Location '{}' lands on level '{}', which is not one of its dungeon's
+map.check.exitnolocation=This way out surfaces at '{}', which is not a place on the world map
 
 ; --- the world map (docs/world-map.md) ---
 world.caption.here={} at {} — {} hours travelled

@@ -225,24 +225,41 @@ positions is one class rather than a sweep.
 
 ### In and out
 
-A **location** is entered from the world map (Enter, or the `enter` dev
-command) and opens its dungeon at the dungeon's `entry` level — or the first of
-its levels, the same fallback the checker validates against. The party arrives
-at the level's own start cell: a dungeon entrance is not a stair with a
-matching cell on the far side, so there is nowhere else it could sensibly mean.
+**A LOCATION IS A DOORWAY, NOT A DUNGEON.** One dungeon may have several ways
+in — a front gate and a back way that stands somewhere else entirely on the map
+and comes out somewhere else inside it (Michael, 2026-09-09). So a location
+names its dungeon rather than being one, and it names where it LANDS:
+
+    location dungeon waystation      10 10
+    location dungeon waystation_back  5 13 dungeon=waystation level=level2 entryx=9 entryz=4
+
+`dungeon` absent means "the same as my id", `level` absent falls back to the
+dungeon's `entry`, and an absent cell to that level's own start — so a
+single-entrance dungeon authors none of it and reads exactly as it did before.
+Naming one of `entryx`/`entryz` without the other is refused rather than
+half-applied: it would silently land on the level's start row or column and
+read as "the entrance moved" instead of as the slip it is.
+
+A back way names its cell because **a level has one start** and should keep
+having one — there is no second `P` glyph to be the other entrance.
 
 **An undiscovered location cannot be entered.** Discovery is a gate, not
 decoration — a location the party has no idea exists should not be walkable
 into, or finding it would mean nothing.
 
 Coming back out is an **exit stair**: `stairs.cat` `exit = 1`, which makes a
-stair step LEAVE rather than change level. It authors no `dest` and takes no
-`pair`, because there is nothing on the far side to pair with, and the
-validator skips the destination checks for it rather than reading its empty one
-as a broken link. The party lands at the LOCATION it came in by — recorded in
-`WorldState::atLocation`, the location and not the dungeon, because two
-locations could open one dungeon and coming out of the wrong one would be a
-teleport.
+stair step LEAVE rather than change level. **Its `dest` names the world
+LOCATION it surfaces at**, not a level — reusing the record's existing field
+rather than inventing a second one, because on an exit the destination simply
+IS a location. An exit that names none surfaces wherever the party came in,
+which is what a single-exit dungeon wants and needs no authoring.
+
+That is what makes the back way work in both directions: go in by the back and
+climb out of the front, and you emerge at the front gate. **Coming out of a
+door discovers it**, which is how a back way is found from the inside.
+
+`WorldState::atLocation` remains as the fallback — the location and not the
+dungeon, for the same reason the two are separate everywhere else.
 
 A NEW GAME opens on the world map when the project has one. A project with no
 world still opens on a level exactly as before — that is what keeps the world

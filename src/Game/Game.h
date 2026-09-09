@@ -321,9 +321,11 @@ private:
 	// (with a reason said or logged) when the location is unknown, undiscovered,
 	// not a dungeon, or names one with no levels.
 	bool EnterLocation(const std::string& id);
-	// Leave the dungeon for the world map, landing at the location the party
-	// came in by.
-	bool LeaveDungeon();
+	// Leave the dungeon for the world map. `viaLocation` is the doorway being
+	// used — an exit stair names its own, since a dungeon may have several and
+	// the back way does not surface at the front gate. Empty falls back to the
+	// location the party came IN by.
+	bool LeaveDungeon(const std::string& viaLocation = {});
 
 	// The playability check, with the world tier included. Every caller goes
 	// through here rather than DungeonWorld::Validate directly, so no route can

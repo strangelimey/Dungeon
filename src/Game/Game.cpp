@@ -1492,8 +1492,9 @@ void Game::Update(float dt) {
 			m_world.Update(typingFilter ? kNoInput : input, wdt, m_time);
 			if (auto t = m_world.ConsumeLevelTransition()) {
 				m_mapView.Close(); // a stair step starts a new level load
-				// An EXIT stair leaves the dungeon rather than changing level.
-				if (t->toWorld) LeaveDungeon();
+				// An EXIT stair leaves the dungeon rather than changing level,
+				// surfacing at the location its `dest` names.
+				if (t->toWorld) LeaveDungeon(t->level);
 				else BeginLevelTransition(t->level, t->x, t->z, t->facing);
 				return;
 			}
@@ -1580,7 +1581,7 @@ void Game::Update(float dt) {
 	}
 	m_world.Update(input, wdt, m_time);
 	if (auto t = m_world.ConsumeLevelTransition()) {
-		if (t->toWorld) LeaveDungeon(); // an exit stair, not a level change
+		if (t->toWorld) LeaveDungeon(t->level); // an exit stair, not a level change
 		else BeginLevelTransition(t->level, t->x, t->z, t->facing);
 		return;
 	}

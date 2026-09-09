@@ -181,8 +181,20 @@ void WorldMap::ParseLocationRecord(const std::string& record,
 		DN_ASSERT(SplitParam(tok[i], k, v),
 				  std::format("stray token \"{}\" in location record \"{}\" in {}",
 							  tok[i], record, path));
-		l.params.emplace_back(std::move(k), std::move(v));
+		// The typed ones are lifted out; anything else stays a free param, the
+		// same way an entity record carries its wiring.
+		if (k == "dungeon") l.dungeon = v;
+		else if (k == "level") l.level = v;
+		else if (k == "entryx") l.entryX = ParseCoord(v, record, path);
+		else if (k == "entryz") l.entryZ = ParseCoord(v, record, path);
+		else l.params.emplace_back(std::move(k), std::move(v));
 	}
+	// Half a cell is not a cell: an entry that names one coordinate and not the
+	// other would silently land on the level's start row or column, which reads
+	// as "the entrance moved" rather than as the authoring slip it is.
+	DN_ASSERT((l.entryX < 0) == (l.entryZ < 0),
+			  std::format("location {} names entryx or entryz but not both: "
+						  "\"{}\" in {}", l.id, record, path));
 	m_locations.push_back(std::move(l));
 }
 

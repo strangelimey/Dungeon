@@ -154,45 +154,67 @@ bool Game::EnterLocation(const std::string& id) {
 		return false;
 	}
 
-	const CatalogEntry* d = m_project.dungeons.Find(loc->id);
+	const CatalogEntry* d = m_project.dungeons.Find(loc->Dungeon());
 	if (!d) {
-		log::Warn("enter: location '{}' names no dungeon", id);
+		log::Warn("enter: location '{}' names no dungeon ('{}')", id,
+				  loc->Dungeon());
 		return false;
 	}
-	// The entry level, or the first of its levels — the same fallback the
-	// checker validates against, stated in one place.
 	const std::vector<std::string> levels = ParseTags(d->Get("levels", ""));
 	if (levels.empty()) {
-		log::Warn("enter: dungeon '{}' has no levels", loc->id);
+		log::Warn("enter: dungeon '{}' has no levels", loc->Dungeon());
 		return false;
 	}
-	std::string entry = d->Get("entry", "");
+	// WHERE THIS DOORWAY LANDS. The location's own `level`, else the dungeon's
+	// `entry`, else the first level — narrowing from the most specific to the
+	// most general, because a back way arrives somewhere the front door does
+	// not and only the location knows where.
+	std::string entry = loc->level;
+	if (entry.empty()) entry = d->Get("entry", "");
 	if (entry.empty() ||
 		std::find(levels.begin(), levels.end(), entry) == levels.end())
 		entry = levels.front();
 
 	m_worldState.onWorldMap = false;
-	m_worldState.atLocation = id; // where LeaveDungeon puts the party back
-	// -1,-1 means "the level's own start cell", the same arrival a new game
-	// gets. A dungeon entrance is not a stair with a matching cell on the far
-	// side, so there is nowhere else it could sensibly mean.
-	BeginLevelTransition(entry, -1, -1, Direction::South, /*stashCurrent=*/false);
+	m_worldState.atLocation = id; // the fallback for an exit that names none
+	// -1,-1 means "the level's own start cell" — the arrival a front door gets.
+	// A back way names its cell, because there is no second 'P' glyph to be the
+	// other entrance and there should not be: a level has one start.
+	BeginLevelTransition(entry, loc->entryX, loc->entryZ, Direction::South,
+						 /*stashCurrent=*/false);
 	if (m_world.onMessage)
 		m_world.onMessage(loc::FormatLine("world.entered", d->Display()));
 	return true;
 }
 
-bool Game::LeaveDungeon() {
+bool Game::LeaveDungeon(const std::string& viaLocation) {
 	if (!m_worldMap) return false;
-	// Back to the location the party came in by, and if that is somehow unknown
-	// (a save from before it was recorded, a dungeon entered by dev command),
-	// to where it stands on the world rather than nowhere.
-	if (!m_worldState.atLocation.empty()) {
+	// WHICH DOORWAY THIS IS. An exit stair names the location it surfaces at,
+	// because a dungeon may have several ways out and coming out of the front
+	// door after climbing the back stairs would be a teleport. An exit that
+	// names none — a single-entrance dungeon, or the `leave` dev command —
+	// falls back to the way the party came IN.
+	std::string where = viaLocation.empty() ? m_worldState.atLocation : viaLocation;
+	if (!where.empty()) {
+		bool found = false;
 		for (const WorldMap::Location& l : m_worldMap->Locations())
-			if (l.id == m_worldState.atLocation) {
+			if (l.id == where) {
 				m_worldState.x = l.x;
 				m_worldState.z = l.z;
+				found = true;
 			}
+		if (!found)
+			// Say so rather than silently surfacing wherever the party last
+			// stood: a stair pointing at a location that is not there is
+			// exactly the drift the stair-pair check exists to name.
+			log::Warn("leave: exit names location '{}', which is not on the "
+					  "world map — surfacing where the party stood",
+					  where);
+		// COMING OUT IS FINDING IT. You now know where this door is, even if
+		// you have never approached it from the outside — which is the whole
+		// point of a back way.
+		else if (m_worldState.Discover(where) && m_world.onMessage)
+			m_world.onMessage(loc::FormatLine("world.discovered", where));
 	}
 	m_worldState.atLocation.clear();
 	SetOnWorldMap(true);

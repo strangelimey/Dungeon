@@ -103,11 +103,12 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 					m_fallT = -1.0f; // wait for the step glide to finish
 					m_party.ClearBufferedAction();
 				} else if (CatalogBool(e, "exit", false)) {
-					// The way OUT of the dungeon: no destination level, and the
-					// host decides where the party lands (the world-map
-					// location it came in by).
+					// The way OUT: `dest` names the WORLD LOCATION this exit
+					// surfaces at rather than a level ("-" is the record's
+					// nothing-here token), and the host does the rest.
 					m_pendingTransition = LevelTransition{
-						{}, 0, 0, static_cast<Direction>(m_party.Facing()), true};
+						s.destLevel == "-" ? std::string() : s.destLevel, 0, 0,
+						static_cast<Direction>(m_party.Facing()), true};
 				} else {
 					m_pendingTransition =
 						LevelTransition{s.destLevel, s.destX, s.destZ, s.destFacing};

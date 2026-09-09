@@ -509,6 +509,8 @@ map.check.dungeonentry=Подземелье «{}» входит через «{}�
 map.check.levelshared=Уровень «{}» уже принадлежит подземелью «{}»
 map.check.dungeonunreached=У подземелья «{}» нет места на карте мира
 map.check.levelorphan=Уровень «{}» не принадлежит ни одному подземелью
+map.check.locationlevel=Место «{}» ведёт на уровень «{}», которого нет в его подземелье
+map.check.exitnolocation=Этот выход ведёт к «{}», которого нет на карте мира
 
 ; --- карта мира (docs/world-map.md) ---
 world.caption.here={} в {} — в пути {} ч

@@ -128,6 +128,7 @@ fixture sconce 31 11 north
 fixture sconce 39 11 north
 fixture sconce 47 11 north
 stairs stairs_up 49 9 south dest=start destx=49 destz=9 destfacing=south
+stairs stairs_exit 9 4 south dest=waystation_back destx=0 destz=0
 variant wall 0 0 0
 variant wall 1 0 0
 variant wall 2 0 0

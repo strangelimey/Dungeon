@@ -735,10 +735,17 @@ public:
 		int x = 0, z = 0;
 		Direction facing = Direction::South;
 		// This stair leaves the DUNGEON rather than changing level
-		// (stairs.cat `exit = 1`). `level` is then meaningless and the host
-		// puts the party back on the world map. A flag rather than a reserved
-		// level name like "world": a name in the same namespace as real stems
-		// is one rename away from colliding with a level someone authored.
+		// (stairs.cat `exit = 1`). A flag rather than a reserved level name
+		// like "world": a name in the same namespace as real stems is one
+		// rename away from colliding with a level someone authored.
+		//
+		// `level` then carries the WORLD LOCATION this exit surfaces at, since
+		// a dungeon may have several ways out and the back stairs do not come
+		// up at the front gate. It reuses the record's existing `dest=` field
+		// rather than inventing a second one: on an exit stair, the
+		// destination simply is a location instead of a level. Empty means
+		// "wherever the party came in", which is what a single-exit dungeon
+		// wants and what needs no authoring at all.
 		bool toWorld = false;
 	};
 	// A pit fall is in progress (the step glide onto the pit, then the camera

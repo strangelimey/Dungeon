@@ -120,16 +120,32 @@ public:
 	using TerrainRules = std::vector<Terrain>;
 
 	// Something standing on a world cell that the party can reach. `kind` is
-	// "dungeon" today ("town" later); `id` names the entry in that kind's
-	// catalog — a DUNGEON id, never a level stem, which is the tier boundary
-	// made syntactic.
+	// "dungeon" today ("town" later).
+	//
+	// A LOCATION IS A DOORWAY, NOT A DUNGEON. `id` names the location itself
+	// and `dungeon` names what is behind it, and they are separate because ONE
+	// DUNGEON MAY HAVE SEVERAL WAYS IN — a front gate and a back way that comes
+	// out somewhere else entirely on the map, landing in a different part of the
+	// dungeon (Michael, 2026-09-09). An absent `dungeon` means "the same as my
+	// id", which is what a single-entrance dungeon looks like and what every
+	// location authored before this said.
+	//
+	// WHERE IT LANDS belongs to the location too, for the same reason: the back
+	// way does not arrive where the front door does. An absent `level` falls
+	// back to the dungeon's own `entry`, and an absent cell to that level's
+	// start cell.
 	struct Location {
 		std::string kind;
 		std::string id;
 		int x = 0, z = 0;
+		std::string dungeon;      // empty = same as id
+		std::string level;        // empty = the dungeon's entry level
+		int entryX = -1, entryZ = -1; // -1 = that level's own start cell
 		std::vector<std::pair<std::string, std::string>> params;
 
 		const std::string* Param(std::string_view key) const;
+		// What is behind this doorway (`dungeon`, or the id itself).
+		const std::string& Dungeon() const { return dungeon.empty() ? id : dungeon; }
 	};
 
 	// A named rectangle that overrides its terrain's difficulty. Optional —

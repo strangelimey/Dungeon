@@ -86,11 +86,21 @@ void CheckWorld(const WorldView& world, const std::vector<LevelView>& levels,
 		if (l.kind == "dungeon") {
 			const auto it = std::find_if(
 				world.dungeons.begin(), world.dungeons.end(),
-				[&](const DungeonView& d) { return d.id == l.id; });
+				[&](const DungeonView& d) { return d.id == l.Dungeon(); });
 			if (it == world.dungeons.end())
 				issues.push_back({Severity::Error, "", -1, -1,
-								  "map.check.worldnodungeon", l.id, where});
-			else reached.insert(l.id);
+								  "map.check.worldnodungeon", l.Dungeon(), where});
+			else {
+				reached.insert(it->id);
+				// A doorway that names a level must name one of ITS dungeon's:
+				// a back way into the wrong dungeon's third floor is a fault no
+				// amount of play would explain.
+				if (!l.level.empty() &&
+					std::find(it->levels.begin(), it->levels.end(), l.level) ==
+						it->levels.end())
+					issues.push_back({Severity::Error, "", -1, -1,
+									  "map.check.locationlevel", l.id, l.level});
+			}
 		}
 		// A location the party can never stand on is unreachable however sound
 		// the dungeon behind it is.
@@ -286,7 +296,20 @@ std::vector<Issue> Run(const std::vector<LevelView>& levels,
 		// pair is auto-authored on placement, so a broken one means a hand edit,
 		// a rename or a cross-level delete rather than a design choice.
 		for (const StairLink& s : L.view->map->Stairs()) {
-			if (rules.exitStairs.count(s.type)) continue; // leaves the dungeon
+			if (rules.exitStairs.count(s.type)) {
+				// An exit's `dest` names a world LOCATION, not a level. Empty
+				// is fine (it surfaces wherever the party came in); a name that
+				// matches nothing is the same drift the pair check catches.
+				if (!s.destLevel.empty() && s.destLevel != "-" && world.map) {
+					bool found = false;
+					for (const WorldMap::Location& l : world.map->Locations())
+						if (l.id == s.destLevel) found = true;
+					if (!found)
+						issues.push_back({Severity::Error, stem, s.x, s.z,
+										  "map.check.exitnolocation", s.destLevel});
+				}
+				continue;
+			}
 			const auto d = byStem.find(s.destLevel);
 			if (d == byStem.end()) {
 				issues.push_back({Severity::Error, stem, s.x, s.z,

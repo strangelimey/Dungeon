@@ -392,11 +392,18 @@ void Game::RegisterDevCommands() {
 								: std::format("could not enter {}", id));
 		});
 	m_console.Register(
-		"leave", "leave the dungeon for the world map",
-		[this](const std::vector<std::string>&) {
-			m_console.Print(LeaveDungeon() ? std::format("back on the world at {},{}",
-														 m_worldState.x, m_worldState.z)
-										   : "no world map to leave to");
+		"leave", "leave the dungeon: leave [location] (default: the way you came)",
+		[this](const std::vector<std::string>& args) {
+			// The optional argument is what an EXIT STAIR supplies — which door
+			// this is. The console can reach it and a script cannot reach the
+			// stair itself (a stair fires on a party STEP, and `tp` sets the
+			// cell without stepping), so this is how the two-doors rule is
+			// exercised unattended.
+			const std::string via = args.empty() ? std::string() : args[0];
+			m_console.Print(LeaveDungeon(via)
+								? std::format("back on the world at {},{}",
+											  m_worldState.x, m_worldState.z)
+								: "no world map to leave to");
 		});
 	m_console.Register(
 		"worldpos", "move the party's world cell: worldpos <x> <z>",

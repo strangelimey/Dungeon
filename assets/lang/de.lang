@@ -505,6 +505,8 @@ map.check.dungeonentry=Verlies '{}' beginnt bei '{}', was keine seiner eigenen E
 map.check.levelshared=Ebene '{}' gehört bereits zum Verlies '{}'
 map.check.dungeonunreached=Verlies '{}' hat keinen Ort auf der Weltkarte
 map.check.levelorphan=Ebene '{}' gehört zu keinem Verlies
+map.check.locationlevel=Ort '{}' führt auf Ebene '{}', die nicht zu seinem Verlies gehört
+map.check.exitnolocation=Dieser Ausgang mündet bei '{}', das es auf der Weltkarte nicht gibt
 
 ; --- die Weltkarte (docs/world-map.md) ---
 world.caption.here={} bei {} — {} Stunden gereist

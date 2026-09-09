@@ -2,7 +2,7 @@
 #
 # Run:  python tools\WorldTest.py      (needs a debug build)
 #
-# Five phases, all built on one principle: a check that never fires reports
+# Six phases, all built on one principle: a check that never fires reports
 # "clean" just as loudly as one that works, so every expectation here is paired
 # with something that makes it fail.
 #
@@ -18,6 +18,8 @@
 #   5. ENTERING AND LEAVING — the round trip through a location, and the
 #      obligation that `reset` still means a LEVEL now that a new game opens on
 #      the world map.
+#   6. TWO DOORS — a dungeon with a front gate and a back way, which land in
+#      different parts of it and surface in different parts of the world.
 #   4. TRAVEL — a journey costs the time its terrain says and the supplies that
 #      span buys, refuses an impassable square instead of clamping, and reveals
 #      what walking past a place should reveal. The times are read off
@@ -233,6 +235,30 @@ try:
     print("\nNOT covered here: the EXIT STAIR itself. It fires on a party STEP,")
     print("and the console can only teleport (`tp` sets the cell without")
     print("stepping), so walking onto it is checked by driving the real game.")
+    # --- phase 6: a dungeon with two ways in --------------------------------
+    print("\n6 - two doors into one dungeon")
+    log = run("worldback.eval")
+
+    # The back way opens the SAME dungeon on a DIFFERENT level. showcase is
+    # 28x24 and level2 is 55x15, so the map line alone says which one opened.
+    check("55x15 map" in log,
+          "the back way opens a different level of the same dungeon")
+    # ...and at ITS cell, not the level's start. level2 starts at 3,3, which
+    # is the control: landing there would mean the location's entry was
+    # ignored and the front door's rule applied.
+    check("9,4 facing south" in log,
+          "landing on the location's own cell, not the level's start (3,3)")
+    check("start 3,3" in log,
+          "and the level really does start elsewhere (the control)")
+
+    # Out by the FRONT after coming in the BACK: an exit knows its own door.
+    # 10,10 is the front location, 5,13 the back one.
+    check("back on the world at 10,10" in log,
+          "leaving by the front surfaces at the front, not where you came in")
+    # Coming out of a door finds it - which is how a back way is discovered
+    # from the inside. One discovered going in, two coming out.
+    check("discovered 2" in log,
+          "and coming out of a door discovers it")
 finally:
     for p, s in originals.items():
         write(p, s)
