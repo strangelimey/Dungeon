@@ -167,12 +167,17 @@ void Game::SettleJourney(float hours) {
 							   0.0f, rules.max);
 		}
 	}
-	// DELIBERATELY NOT SETTLED HERE: effects, regeneration and the stabilize
-	// clock. Those are not rates — they are state machines whose ORDER matters
-	// (a DoT that would kill someone partway, an unconscious member who would
-	// come round mid-journey), and collapsing them into one lump is not the same
-	// as ticking them. docs/world-map.md leaves that open; until it is answered
-	// a journey must not pretend to have resolved them.
+	// NOT SETTLED HERE YET, and no longer by choice. Michael decided
+	// (2026-09-09) that DoTs MUST bite on the road and that travel may kill —
+	// but the party's effect tick lives INSIDE DungeonWorld::UpdateMonsters,
+	// interleaved with the monster loop, so calling it would run the AI.
+	// Honouring the decision needs the party-tick extraction P3 dropped, and it
+	// must be settled in SLICES: a DoT that would kill someone three hours into
+	// a six-hour march has to kill them there, not at the end. See
+	// docs/world-map.md "Time, and what a journey costs" (P3.5).
+	//
+	// Until then a journey does not pretend to have resolved them — a poisoned
+	// party travels for free, visibly rather than silently.
 }
 
 void Game::RevealAround(int x, int z) {
