@@ -7,6 +7,7 @@
 #include "Core/Assert.h"
 #include "Game/Entity.h" // ReadLevelLines, SplitRecordTokens
 
+#include <algorithm>
 #include <charconv>
 #include <format>
 
@@ -49,6 +50,26 @@ bool SplitParam(std::string_view tok, std::string& key, std::string& value) {
 }
 
 } // namespace
+
+bool WorldState::Discovered(std::string_view id) const {
+	return std::find(discovered.begin(), discovered.end(), id) != discovered.end();
+}
+
+bool WorldState::Discover(std::string id) {
+	if (Discovered(id)) return false;
+	discovered.push_back(std::move(id));
+	return true;
+}
+
+bool WorldState::Seen(int cx, int cz) const {
+	return std::find(seen.begin(), seen.end(), std::pair{cx, cz}) != seen.end();
+}
+
+bool WorldState::MarkSeen(int cx, int cz) {
+	if (Seen(cx, cz)) return false;
+	seen.emplace_back(cx, cz);
+	return true;
+}
 
 const std::string* WorldMap::Location::Param(std::string_view key) const {
 	for (const auto& [k, v] : params)

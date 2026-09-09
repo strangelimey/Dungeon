@@ -21,6 +21,7 @@
 
 #include "Core/Types.h"
 #include "Game/Entity.h" // EntityKind, Direction
+#include "Game/WorldMap.h" // WorldState (the save's GLOBAL tier)
 
 #include <array>
 #include <optional>
@@ -89,7 +90,18 @@ struct SaveData {
 	//     buttons as a diff (keyed by .ent id) or a whole spawn (no baseline);
 	//     replaces the v6 split of "ent"/"monster" rows + a whole "floor" item
 	//     snapshot. v6: free-look offset ("look" line); v5 folded hands into equip[].
-	int version = 25; // v25: food and water ("supply" line)
+	// v26: THE WORLD TIER (docs/world-map.md). A "world" line (on-map flag, cell,
+	//      elapsed hours) plus "worldseen" / "discovered" / "flag" lines — the
+	//      GLOBAL half of the save, above the per-level diffs.
+	//
+	//      THE COMPAT LADDER IS CUT HERE. Every rung above reads an older save
+	//      forward; v26 does not. Michael's call (2026-09-09): the world tier
+	//      re-cuts what a save even IS, existing content need not survive, and
+	//      "early saves are WIP only". So the read path gained a FLOOR
+	//      (kMinReadableVersion) rather than another rung, and an older file is
+	//      REFUSED with a log line naming both versions rather than half-loaded
+	//      into a game whose shape it predates.
+	int version = 26;
 
 	// ONE active status effect, as it survives a save. Shared by both sides —
 	// a party member's list and (v22) a monster's — because the effects system
@@ -107,6 +119,12 @@ struct SaveData {
 		int source = -1;
 		std::string nameKey;
 	};
+
+	// The GLOBAL tier: what is true of the game rather than of one dungeon —
+	// where the party is in the world, elapsed time, what it has discovered, the
+	// quest flags. WorldState is the same type Game holds at runtime (see
+	// WorldMap.h), so there is no conversion step to keep in step.
+	WorldState world;
 
 	std::string name;         // display name (free text; may contain spaces)
 	std::string currentLevel; // the level stem the party is on (where to resume)
@@ -273,8 +291,20 @@ struct SaveData {
 		// never set it.
 		bool fullFloorSnapshot = false;
 	};
+	// One entry per VISITED level, keyed by STEM.
+	//
+	// The plan called for these to become per-dungeon-per-level, and building it
+	// said not to: a stem already names a level uniquely across the project, and
+	// P1's checker refuses a level claimed by two dungeons — so which dungeon a
+	// state belongs to is DERIVABLE. Storing it too would be a second source of
+	// truth that can disagree with the first, and the global/local split the
+	// design asks for is about WHAT IS SAVED WHERE, not about nesting.
 	std::vector<LevelState> levels;
 };
+
+// The oldest save this build will read. Below it ReadSave refuses rather than
+// half-loading — see the v26 note above.
+inline constexpr int kMinReadableVersion = 26;
 
 // One save file's header, for the slot browser (cheap: parsed from the file).
 struct SaveSlot {

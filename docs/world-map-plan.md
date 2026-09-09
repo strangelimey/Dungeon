@@ -108,7 +108,7 @@ the grid, the locations and each area's difficulty, and by the existing
 validation pass learning the new records (a location naming no dungeon, a
 dungeon naming a missing level, a terrain not in the palette).
 
-**P2 — the save split.** `SaveData` grows a WORLD section — party world x,y,
+**P2 — the save split.** DONE (2026-09-09). `SaveData` grows a WORLD section — party world x,y,
 world time, discovered locations, quest state — and the per-level states become
 per-dungeon-per-level. Round-tripped like every other save field. His answer 8
 ("we won't need to keep existing content") frees this from the compat ladder,

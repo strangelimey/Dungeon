@@ -163,6 +163,27 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 			t += std::format("share {} {:.3f}\n", i, c.offenseShare);
 	}
 
+	// --- the GLOBAL tier (v26, docs/world-map.md) ---------------------------
+	// Written BEFORE the level blocks, because a "level <stem>" header captures
+	// every following ent/seen line: anything global must be stated while no
+	// level block is open, or it would be read as part of one.
+	t += std::format("world {} {} {} {:.3f}\n", data.world.onWorldMap ? 1 : 0,
+					 data.world.x, data.world.z, data.world.time);
+	if (!data.world.seen.empty()) {
+		t += "worldseen";
+		for (const auto& [x, z] : data.world.seen) t += std::format(" {},{}", x, z);
+		t += '\n';
+	}
+	if (!data.world.discovered.empty()) {
+		t += "discovered";
+		for (const std::string& id : data.world.discovered) t += " " + id;
+		t += '\n';
+	}
+	// One line per flag: values are token-safe by contract (no spaces), which is
+	// what lets the whole file stay whitespace-tokenised.
+	for (const auto& [key, value] : data.world.flags)
+		t += std::format("flag {} {}\n", key, EnTok(value));
+
 	// One block per visited level: a "level <stem>" header, then its entity
 	// diff/spawn list and revealed cells. Each EntityState serializes by kind +
 	// mode (see SaveData::EntityState): a baseline diff is keyed by id; a spawn
@@ -282,6 +303,23 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			data.heldItem = std::string(tok[1]);
 		} else if (kw == "torch" && tok.size() >= 2) {
 			data.torchPalette = IntOf(tok[1]);
+		} else if (kw == "world" && tok.size() >= 5) {
+			data.world.onWorldMap = IntOf(tok[1]) != 0;
+			data.world.x = IntOf(tok[2]);
+			data.world.z = IntOf(tok[3]);
+			data.world.time = FloatOf(tok[4]);
+		} else if (kw == "worldseen") {
+			for (size_t i = 1; i < tok.size(); ++i) {
+				const size_t comma = tok[i].find(',');
+				if (comma == std::string_view::npos) continue;
+				data.world.seen.emplace_back(IntOf(tok[i].substr(0, comma)),
+											 IntOf(tok[i].substr(comma + 1)));
+			}
+		} else if (kw == "discovered") {
+			for (size_t i = 1; i < tok.size(); ++i)
+				data.world.discovered.emplace_back(tok[i]);
+		} else if (kw == "flag" && tok.size() >= 3) {
+			data.world.flags.emplace_back(std::string(tok[1]), DeTok(tok[2]));
 		} else if (kw == "char" && tok.size() >= 8) {
 			SaveData::CharState& c = CharAt(data, tok[1]);
 			c.health = FloatOf(tok[2]);    c.maxHealth = FloatOf(tok[3]);
@@ -542,6 +580,22 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 									  IntOf(tok[i].substr(comma + 1)));
 			}
 		}
+	}
+
+	// THE FLOOR (v26). Checked AFTER the parse rather than before it, so the
+	// message can name the version the file actually claims — a save with no
+	// version line at all reads as 0 and is refused with the rest.
+	//
+	// A refused save then vanishes from the load list, because ListSaves keeps
+	// only what ReadSave returns. That is deliberate: an entry that cannot be
+	// loaded is worse than no entry, and the log line below is where the reason
+	// lives.
+	if (data.version < kMinReadableVersion) {
+		log::Warn("Save {} is version {}, older than the minimum this build "
+				  "reads ({}) — refusing rather than loading it half-understood. "
+				  "The world tier re-cut what a save is (docs/world-map.md).",
+				  path, data.version, kMinReadableVersion);
+		return std::nullopt;
 	}
 	return data;
 }

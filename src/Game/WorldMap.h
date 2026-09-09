@@ -48,6 +48,49 @@
 
 namespace dungeon::game {
 
+// The DYNAMIC half of the world — the save-side twin of the WorldMap below,
+// and the same split every level already makes: the map is authored and never
+// changes, this is everything play does to it.
+//
+// ONE TYPE, used as both the runtime truth (Game holds one) and the save record
+// (SaveData holds one). A parallel pair would need conversion code at two
+// points, and conversion code between two structs with the same fields is
+// exactly where a field gets added to one side and forgotten on the other.
+//
+// It is the GLOBAL tier of the save (docs/world-map.md "The save"): what is true
+// of the whole game rather than of one dungeon. Per-level diffs stay where they
+// are, keyed by level stem.
+struct WorldState {
+	// Is the party ON the world map rather than inside a dungeon? An explicit
+	// flag rather than "currentLevel is empty", because an implicit encoding of
+	// where the party is would be read wrongly exactly once.
+	bool onWorldMap = false;
+	int x = 0, z = 0;   // the party's world cell
+	float time = 0.0f;  // hours elapsed in the world
+
+	// Revealed world cells — the world's fog of war, the same shape a level's
+	// `seen` set has.
+	std::vector<std::pair<int, int>> seen;
+	// Location ids the party knows about. SEPARATE from `seen` on purpose: a
+	// found map or clue reveals a location without revealing the ground around
+	// it, and exploring reveals ground without necessarily naming what is on it
+	// (docs/world-map.md "Discovery").
+	std::vector<std::string> discovered;
+	// Global flags: quest state and anything else true of the game rather than
+	// of a place. Opaque key/value here — P6 gives the keys meaning. It exists
+	// NOW because the save version is being bumped now, and adding a field
+	// later costs another version rung.
+	std::vector<std::pair<std::string, std::string>> flags;
+
+	bool Discovered(std::string_view id) const;
+	// Marks a location known. Returns false when it already was — callers
+	// announce a discovery, and announcing it twice is the bug this prevents.
+	bool Discover(std::string id);
+	bool Seen(int cx, int cz) const;
+	// Reveals a cell. Returns false when it was already revealed.
+	bool MarkSeen(int cx, int cz);
+};
+
 class WorldMap {
 public:
 	// One terrain kind, resolved from terrain.cat by the caller. `glyph` is

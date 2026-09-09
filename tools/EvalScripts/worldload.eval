@@ -1,0 +1,6 @@
+; worldload.eval — load a save the harness has just downgraded on disk.
+; Paired with WorldTest.py, which rewrites the version line between runs.
+logecho on
+reset
+load worldtrip
+world

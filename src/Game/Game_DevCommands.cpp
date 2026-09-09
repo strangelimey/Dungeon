@@ -324,6 +324,59 @@ void Game::RegisterDevCommands() {
 						   for (const std::string& line : WorldReport())
 							   m_console.Print(line);
 					   });
+	m_console.Register(
+		"worldpos", "move the party's world cell: worldpos <x> <z>",
+		[this](const std::vector<std::string>& args) {
+			if (!m_worldMap) {
+				m_console.Print("no world map loaded");
+				return;
+			}
+			if (args.size() < 2) {
+				m_console.Print("usage: worldpos <x> <z>");
+				return;
+			}
+			const int x = std::atoi(args[0].c_str());
+			const int z = std::atoi(args[1].c_str());
+			// Refuse rather than clamp: a silently corrected coordinate makes a
+			// test that asked for the wrong cell look like it passed.
+			if (!m_worldMap->InBounds(x, z)) {
+				m_console.Print(std::format("{},{} is off the world grid", x, z));
+				return;
+			}
+			m_worldState.x = x;
+			m_worldState.z = z;
+			m_worldState.MarkSeen(x, z);
+			m_console.Print(std::format("world position {},{} on {} ({})", x, z,
+										m_worldMap->TerrainAt(x, z).id,
+										m_worldMap->Passable(x, z) ? "passable"
+																   : "impassable"));
+		});
+	m_console.Register(
+		"discover", "mark a world location discovered: discover <id>",
+		[this](const std::vector<std::string>& args) {
+			if (!m_worldMap) {
+				m_console.Print("no world map loaded");
+				return;
+			}
+			if (args.empty()) {
+				for (const WorldMap::Location& l : m_worldMap->Locations())
+					m_console.Print(std::format(
+						"{} {} at {},{}{}", l.kind, l.id, l.x, l.z,
+						m_worldState.Discovered(l.id) ? "  (discovered)" : ""));
+				return;
+			}
+			const WorldMap::Location* found = nullptr;
+			for (const WorldMap::Location& l : m_worldMap->Locations())
+				if (l.id == args[0]) found = &l;
+			if (!found) {
+				m_console.Print(std::format("no location '{}' on the world map",
+											args[0]));
+				return;
+			}
+			m_console.Print(m_worldState.Discover(args[0])
+								? std::format("discovered {}", args[0])
+								: std::format("{} was already discovered", args[0]));
+		});
 	m_console.Register("groups", "list monster groups (id: count [kinds] @ cell#slot)",
 					   [this](const std::vector<std::string>&) {
 						   for (const std::string& line : m_world.GroupsReport())

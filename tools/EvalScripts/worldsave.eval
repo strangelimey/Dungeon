@@ -1,0 +1,19 @@
+; worldsave.eval — the world tier survives a save/load round trip (P2).
+;
+; The global tier is the half of the save that is NOT about any one dungeon:
+; where the party is in the world, elapsed time, what it has discovered. This
+; moves all three off their new-game values FIRST, because a round trip that
+; starts from the defaults proves nothing — a save that wrote nothing at all
+; would reproduce them exactly.
+logecho on
+reset
+
+; --- off the defaults (new game leaves the party at the world start, 6,6) ---
+worldpos 3 12
+discover waystation
+world
+
+; --- round trip -------------------------------------------------------------
+save worldtrip
+load worldtrip
+world

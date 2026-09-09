@@ -2,14 +2,26 @@
 #
 # Run:  python tools\WorldTest.py      (needs a debug build)
 #
-# Mutation check for the world-tier validation.
+# Three phases, all built on one principle: a check that never fires reports
+# "clean" just as loudly as one that works, so every expectation here is paired
+# with something that makes it fail.
 #
-# A clean baseline proves nothing on its own: a check that never fires reports
-# "clean" just as loudly as one that works. So break the world data one way at
-# a time and demand the matching check fires. The harness restores every file
-# it touches, and asserts the baseline is clean first so a mutation's finding
-# cannot be something that was already there.
-import io, os, shutil, subprocess, sys
+#   1. VALIDATION — break the world data nine ways, one at a time, and demand
+#      the matching check fire. The baseline is asserted clean first, so a
+#      finding cannot be something that was already there.
+#   2. THE SAVE ROUND TRIP — move all three parts of the global tier OFF their
+#      new-game values before saving, because a round trip that starts from the
+#      defaults would be reproduced exactly by a save that wrote nothing. The
+#      new-game values are read first and used as the control.
+#   3. THE VERSION FLOOR — downgrade a save on disk and demand the load is
+#      REFUSED rather than half-understood.
+#
+# Every file this touches is restored, including the save it downgrades.
+import io
+import os
+import shutil
+import subprocess
+import sys
 
 ROOT = r"C:\Dev\Dungeon-world-map"
 PROJ = os.path.join(ROOT, r"assets\projects\dungeon-demo")
@@ -17,7 +29,11 @@ WORLD = os.path.join(PROJ, r"world\world.map")
 DUNGEONS = os.path.join(PROJ, r"catalog\dungeons.cat")
 EXE = os.path.join(ROOT, r"build\debug\bin\Dungeon.exe")
 LOG = os.path.join(ROOT, r"build\debug\bin\dungeon.log")
-SCRIPT = os.path.join(ROOT, r"tools\EvalScripts\worldcheck.eval")
+SCRIPTS = os.path.join(ROOT, r"tools\EvalScripts")
+SAVE = os.path.join(os.environ["USERPROFILE"],
+                    r"OneDrive\Documents\DungeonSaves\worldtrip.dsav")
+
+failures = 0
 
 
 def read(p):
@@ -28,12 +44,27 @@ def write(p, s):
     io.open(p, "w", encoding="utf-8", newline="").write(s)
 
 
-def run():
-    subprocess.run([EXE, "-headless", "-eval", SCRIPT], cwd=ROOT,
-                   capture_output=True, timeout=600)
-    return read(LOG)
+def run(script):
+    subprocess.run([EXE, "-headless", "-eval", os.path.join(SCRIPTS, script)],
+                   cwd=ROOT, capture_output=True, timeout=600)
+    return io.open(LOG, encoding="utf-8", errors="replace").read()
 
 
+def check(ok, label, detail=""):
+    global failures
+    print(f"  {'[ok  ]' if ok else '[FAIL]'} {label}")
+    if not ok:
+        failures += 1
+        if detail:
+            print(f"         {detail}")
+
+
+def party_lines(log):
+    """Every 'party  x,z ...' line the `world` command printed, in order."""
+    return [l.strip() for l in log.splitlines() if "console:   party" in l]
+
+
+# --- phase 1: the validation checks fire ------------------------------------
 # (name, file, find, replace, expected loc key)
 CASES = [
     ("location names no dungeon", WORLD,
@@ -65,31 +96,69 @@ CASES = [
 
 originals = {p: read(p) for p in (WORLD, DUNGEONS)}
 try:
-    log = run()
-    tail = log[log.rfind("> validate"):]
-    if "clean - no faults found" not in tail:
-        print("BASELINE NOT CLEAN — a mutation's finding would be ambiguous:")
-        print(tail)
+    print("1 - the world checks fire when the world is broken")
+    log = run("worldcheck.eval")
+    baseline = log[log.rfind("> validate"):]
+    if "clean - no faults found" not in baseline:
+        print("BASELINE NOT CLEAN - a mutation's finding would be ambiguous:")
+        print(baseline[:600])
         sys.exit(2)
-    print("baseline           clean")
+    check(True, "baseline is clean, so a finding below is the mutation's")
 
-    failures = 0
+    # The new-game world state, kept as phase 2's control.
+    newgame = party_lines(log)
+    if not newgame:
+        print("the `world` command printed no party line - cannot continue")
+        sys.exit(2)
+    control = newgame[-1]
+
     for name, path, find, repl, key in CASES:
         s = originals[path]
         assert s.count(find) == 1, f"{name}: anchor not unique in {path}"
         write(path, s.replace(find, repl, 1))
         try:
-            log = run()
+            log = run("worldcheck.eval")
             tail = log[log.rfind("> validate"):]
-            ok = key in tail
         finally:
             write(path, originals[path])
-        print(f"{'PASS' if ok else 'FAIL'}  {name:<34} -> {key}")
-        if not ok:
-            failures += 1
-            print("      " + " / ".join(l.strip() for l in tail.splitlines()[:6]))
-    print(f"\n{len(CASES) - failures}/{len(CASES)} checks fired")
-    sys.exit(1 if failures else 0)
+        check(key in tail, f"{name} -> {key}",
+              " / ".join(l.strip() for l in tail.splitlines()[:4]))
+
+    # --- phase 2: the global tier survives a save/load round trip -----------
+    print("\n2 - the global tier survives a save and load")
+    log = run("worldsave.eval")
+    lines = party_lines(log)
+    check(len(lines) >= 2, f"the script reported before and after (got {len(lines)})")
+    if len(lines) >= 2:
+        before, after = lines[0], lines[-1]
+        # The control: the values being round-tripped are NOT the ones a new
+        # game starts with, so a save that wrote nothing could not reproduce them.
+        check(before != control,
+              "the state was moved off its new-game values before saving",
+              f"new game: {control}")
+        check(after == before, "and came back identical after the load",
+              f"before: {before}\n         after:  {after}")
+        for want in ("3,12", "seen 2", "discovered 1"):
+            check(want in after, f"round-tripped {want}", after)
+
+    # --- phase 3: an older save is refused, not half-read -------------------
+    print("\n3 - a save older than the floor is refused")
+    if not os.path.exists(SAVE):
+        check(False, "phase 2 left a save to downgrade", SAVE)
+    else:
+        shutil.copy(SAVE, SAVE + ".bak")
+        try:
+            write(SAVE, read(SAVE).replace("save version=26", "save version=25", 1))
+            log = run("worldload.eval")
+            check("older than the minimum" in log,
+                  "the log says which version was refused and what the floor is")
+            check("LoadGame: could not read" in log, "and the load did not happen")
+            check("eval RESULT=PASS" in log, "while the game itself kept running")
+        finally:
+            shutil.move(SAVE + ".bak", SAVE)
 finally:
     for p, s in originals.items():
         write(p, s)
+
+print(f"\nworldtest RESULT={'FAIL' if failures else 'PASS'} failures={failures}")
+sys.exit(1 if failures else 0)

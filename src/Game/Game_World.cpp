@@ -78,6 +78,20 @@ void Game::LoadWorldMap() {
 			  m_worldMap->Locations().size());
 }
 
+void Game::ResetWorldState() {
+	m_worldState = {};
+	if (!m_worldMap) return;
+	m_worldState.x = m_worldMap->StartX();
+	m_worldState.z = m_worldMap->StartZ();
+	// The party can see where it is standing. One cell, not a radius: what a
+	// step reveals is P3's business, and guessing it here would be a rule in two
+	// places before either is written.
+	m_worldState.MarkSeen(m_worldState.x, m_worldState.z);
+	// onWorldMap stays FALSE: a new game still begins inside a dungeon until P4
+	// moves the opening. The party has a world position regardless — it is where
+	// it came in from.
+}
+
 std::vector<validate::Issue> Game::ValidateProject() {
 	// The world tier's half of the snapshot. Gathered HERE because Game is the
 	// only thing that holds both the world map and the catalogs; the checker
@@ -121,6 +135,15 @@ std::vector<std::string> Game::WorldReport() const {
 	out.push_back(std::format("{}x{} world, start {},{}, {} of {} cells passable",
 							  w.Width(), w.Height(), w.StartX(), w.StartZ(),
 							  passable, w.Width() * w.Height()));
+	// The DYNAMIC half, which is what a save round-trip has to reproduce. Named
+	// "party/state" rather than folded into the line above so the two halves
+	// read apart: everything above is authored, everything here is play.
+	out.push_back(std::format(
+		"  party   {},{} ({})  time {:.2f}h  seen {}  discovered {}  flags {}",
+		m_worldState.x, m_worldState.z,
+		m_worldState.onWorldMap ? "on the world map" : "in a dungeon",
+		m_worldState.time, m_worldState.seen.size(),
+		m_worldState.discovered.size(), m_worldState.flags.size()));
 	for (size_t i = 0; i < w.Terrains().size(); ++i) {
 		const WorldMap::Terrain& t = w.Terrains()[i];
 		out.push_back(std::format(

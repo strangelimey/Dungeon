@@ -516,6 +516,7 @@ void Game::ApplyMemberColors() {
 
 void Game::StartNewGame() {
 	m_world.ResetForNewGame();
+	ResetWorldState();
 	ResetRoster(); // fresh members carry empty inventories + no known symbols
 	m_ui.RefreshSheet();
 	ApplyPartySpeed();
@@ -554,6 +555,7 @@ void Game::SaveGame(const std::string& name) {
 	// live session's held item untouched (restored to the cursor on load).
 	if (m_heldItem) data.heldItem = *m_heldItem;
 
+	data.world = m_worldState; // the global tier (docs/world-map.md)
 	m_world.CaptureState(data);
 	for (const Character& member : m_characters) {
 		SaveData::CharState c{member.health, member.maxHealth, member.stamina,
@@ -636,6 +638,11 @@ bool Game::LoadGame(const std::string& path) {
 	// reset), then lay the save on top.
 	m_world.ResetForNewGame();
 	ResetRoster();
+	// The global tier is stored WHOLE rather than as a diff, so it is simply
+	// taken (a fresh baseline first, so a save that predates a field gets the
+	// new-game value for it rather than the last session's).
+	ResetWorldState();
+	m_worldState = data->world;
 	// Restore the cursor-held tablet (empty = nothing carried).
 	if (!data->heldItem.empty()) m_heldItem = data->heldItem;
 	else m_heldItem.reset();

@@ -293,6 +293,10 @@ private:
 	// once from the constructor; leaves m_worldMap empty when the project has
 	// no world/world.map.
 	void LoadWorldMap();
+	// Puts the world state where a NEW GAME starts it: the world map's own start
+	// cell, revealed, nothing discovered, no time elapsed. A project with no
+	// world leaves it blank.
+	void ResetWorldState();
 	// The playability check, with the world tier included. Every caller goes
 	// through here rather than DungeonWorld::Validate directly, so no route can
 	// quietly check the dungeons and skip the world.
@@ -519,6 +523,11 @@ private:
 	// rather than assume it. Deliberately NOT inside DungeonWorld, which is the
 	// simulation of one LEVEL — the world sits a tier above it.
 	std::optional<WorldMap> m_worldMap;
+	// The DYNAMIC half: where the party is in the world, elapsed hours, what it
+	// has discovered, the global flags. Beside the map rather than inside
+	// DungeonWorld, for the same reason the map is (docs/world-map.md). Saved
+	// whole as the save's global tier — it IS SaveData::world's type.
+	WorldState m_worldState;
 	SoundBank m_sounds;
 	// Party roster (up to four). Filled once in the constructor and never
 	// resized — the party-bar panels and the sheet hold pointers into it, so

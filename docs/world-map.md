@@ -209,15 +209,36 @@ and the discovery-by-clue hook is the same write discovery already uses.
 
 ### The save
 
-One file still, with a WORLD section above the per-dungeon, per-level states:
+One file still (v26), with a GLOBAL section above the per-level states:
 
-    world      party x,y; world time; discovered locations; quest state
-    dungeons   per dungeon, per level: the diffs that exist today
+    world 0 3 12 0.000        on-world-map flag, cell, elapsed hours
+    worldseen 6,6 3,12        revealed world cells - the world's fog
+    discovered waystation     location ids the party knows
+    flag <key> <value>        global/quest state (P6 gives the keys meaning)
+    level showcase            ...then the per-level blocks, unchanged
 
-Old saves are **refused** at the version bump, with a clear message, rather
-than half-loaded — "early saves are WIP only" (Michael, 2026-09-09). So the
-read path gains a FLOOR rather than another compat rung; the version comment
-block records where the ladder was cut and why.
+The global lines are written BEFORE the level blocks because a `level <stem>`
+header captures every following line: anything global has to be stated while
+no level block is open.
+
+**The per-level states stay keyed by STEM.** The plan called for them to become
+per-dungeon-per-level and building it said not to: a stem already names a level
+uniquely, and the checker refuses a level claimed by two dungeons, so which
+dungeon a state belongs to is DERIVABLE. Storing it as well would be a second
+source of truth that can disagree with the first. The global/local split the
+design asks for is about WHAT IS SAVED WHERE, not about nesting.
+
+`WorldState` (WorldMap.h) is ONE type used as both the runtime truth and the
+save record. A parallel pair would need conversion at two points, and
+conversion code between two structs with the same fields is exactly where a
+field gets added to one side and forgotten on the other.
+
+Old saves are **refused** at the version bump, with a log line naming both
+versions, rather than half-loaded — "early saves are WIP only" (Michael,
+2026-09-09). The read path gained a FLOOR (`kMinReadableVersion`) rather than
+another compat rung. A refused save then vanishes from the load list, since
+`ListSaves` keeps only what `ReadSave` returns: an entry that cannot be loaded
+is worse than no entry, and the log is where the reason lives.
 
 ## What this does not cover
 
