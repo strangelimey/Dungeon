@@ -135,3 +135,32 @@ holdable = 1
 command = drink
 nutrition = 0
 hydration = 45
+
+; --- quest content (docs/world-map.md "Quests") ------------------------------
+; The three hooks an item can carry, all applied the moment it is LIFTED:
+;   quest    = <id>:<stage>   move a quest to a named stage
+;   flag     = <key>=<value>  set a global flag (or a bare name = "1")
+;   reveals  = <location>     put a world-map location on the party's map
+; They are independent: one item may do all three, or any one of them.
+
+; THE CLUE. It reveals the crypt's back way — the "you might find a map or a
+; clue that will add them" case, straight out of the design notes. Note that it
+; reveals a PLACE without revealing the ground around it, which is exactly why
+; discovery and the fog are separate fields.
+[crypt_token]
+name = item.crypt_token
+category = key
+weight = 0.1
+holdable = 1
+quest = sunken_relic:heard
+reveals = crypt_back
+
+; THE QUEST ITEM. Found in the dungeon, it moves the quest on for the whole
+; world — the case the notes open with.
+[sunken_relic]
+name = item.sunken_relic
+category = key
+weight = 2.0
+holdable = 1
+quest = sunken_relic:found
+flag = relic_lifted=1

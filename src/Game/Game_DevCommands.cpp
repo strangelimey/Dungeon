@@ -370,6 +370,34 @@ void Game::RegisterDevCommands() {
 				moved < count ? " (blocked)" : ""));
 		});
 	m_console.Register(
+		"quest", "quests: quest (list) | quest <id> <stage> (set) | quest flags",
+		[this](const std::vector<std::string>& args) {
+			if (!args.empty() && args[0] == "flags") {
+				if (m_worldState.flags.empty()) m_console.Print("no flags set");
+				for (const auto& [k, v] : m_worldState.flags)
+					m_console.Print(std::format("  {} = {}", k, v));
+				return;
+			}
+			if (args.size() >= 2) {
+				m_console.Print(m_worldState.SetQuestStage(args[0], args[1])
+									? std::format("{} -> {}", args[0], args[1])
+									: std::format("{} was already at {}", args[0],
+												  args[1]));
+				return;
+			}
+			// The LIST shows every authored quest, not only the started ones:
+			// "which quests exist and where am I in each" is the question, and
+			// a list of only what you have touched cannot answer the first half.
+			for (const CatalogEntry& e : m_project.quests.Entries()) {
+				const std::string* at = m_worldState.QuestStage(e.id);
+				m_console.Print(std::format(
+					"  {:<16} {:<22} {}", e.id, e.Display(),
+					at ? std::format("at '{}' of [{}]", *at, e.Get("stages", ""))
+					   : std::format("not started [{}]", e.Get("stages", ""))));
+			}
+			if (m_project.quests.Empty()) m_console.Print("no quests authored");
+		});
+	m_console.Register(
 		"camp", "camp on the world map until rest ends by itself",
 		[this](const std::vector<std::string>&) {
 			if (!m_worldState.onWorldMap) {
@@ -1163,11 +1191,17 @@ void Game::RegisterDevCommands() {
 							   m_console.Print(std::format("no item '{}' in items/weapons/armor", args[0]));
 							   return;
 						   }
-						   if (!m_characters[m].inventory.Stow(args[0]))
+						   if (!m_characters[m].inventory.Stow(args[0])) {
 							   m_console.Print("pack full");
-						   else
-							   m_console.Print(std::format("{} pack += {}",
-														   m_characters[m].name, args[0]));
+							   return;
+						   }
+						   // AND ITS HOOKS FIRE, exactly as if it had been lifted
+						   // off a floor. A dev command that hands you a quest
+						   // item without moving the quest would be a trap laid
+						   // in the one tool you would use to test quest content.
+						   OnItemFound(args[0]);
+						   m_console.Print(std::format("{} pack += {}",
+													   m_characters[m].name, args[0]));
 					   });
 	// The offense/defense split before its slider exists
 	// (docs/damage-system.md). Worth keeping once the UI lands: setting an

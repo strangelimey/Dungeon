@@ -2,7 +2,7 @@
 #
 # Run:  python tools\WorldTest.py      (needs a debug build)
 #
-# Eight phases, all built on one principle: a check that never fires reports
+# Nine phases, all built on one principle: a check that never fires reports
 # "clean" just as loudly as one that works, so every expectation here is paired
 # with something that makes it fail.
 #
@@ -24,6 +24,8 @@
 #      and refusing to be saved.
 #   8. THE ROAD HURTS — DoTs bite while travelling, settled in slices, and
 #      camp is what heals you.
+#   9. QUESTS — named stages that move by finding things, a clue that reveals
+#      a place, and both riding the save.
 #   4. TRAVEL — a journey costs the time its terrain says and the supplies that
 #      span buys, refuses an impassable square instead of clamping, and reveals
 #      what walking past a place should reveal. The times are read off
@@ -342,6 +344,36 @@ try:
     check(brand and "44.7/44.7" in brand[-1],
           "and camping restores it to full", " / ".join(brand[-2:]))
     check("camped 0.0" in log, "camp reports the hours it actually took")
+    # --- phase 9: quests ----------------------------------------------------
+    print("\n9 - a quest moves, and a clue puts a place on the map")
+    log = run("worldquest.eval")
+    q = [l.split("console:")[-1].strip()
+         for l in log.splitlines() if "console:   sunken_relic" in l]
+    party = party_lines(log)
+
+    # The CONTROL is the first reading: not started. Without it, "at found"
+    # would prove only that the quest exists somewhere in that state.
+    check(q and "not started" in q[0],
+          "the quest starts unstarted - the control", " / ".join(q[:1]))
+    # STAGES ARE NAMED. The save carries the name, so this checks the NAME
+    # comes back - which an index could not tell apart from a reordering.
+    check(any("at 'heard'" in x for x in q),
+          "the clue moves it to the named stage 'heard'", " / ".join(q))
+    check(any("at 'found'" in x for x in q),
+          "and the relic to 'found'", " / ".join(q))
+
+    # THE CLUE REVEALED A PLACE WITHOUT GOING THERE. The party is in a
+    # dungeon throughout, so discovery here cannot have come from walking -
+    # which is exactly why `seen` and `discovered` are separate fields.
+    check(any("discovered 0" in l for l in party) and
+          any("discovered 1" in l for l in party),
+          "a found clue reveals a location without the party walking to it",
+          " / ".join(l[-40:] for l in party[:2]))
+
+    check("relic_lifted = 1" in log, "an item can set a plain flag too")
+    # And all of it survives a save. The last readings come AFTER the load.
+    check(len(q) >= 4 and "at 'found'" in q[-1],
+          "quest stage and flags ride the save", " / ".join(q[-2:]))
 finally:
     for p, s in originals.items():
         write(p, s)

@@ -80,9 +80,26 @@ struct DungeonView {
 // OPTIONAL: `map` stays null for a project with no world, and every world check
 // is then skipped rather than reporting a project-wide fault — a game that is
 // all dungeon and no overworld is a legitimate shape, not an unfinished one.
+// One item's QUEST HOOKS, as the checker needs to see them: which quest and
+// stage it moves, and which location it reveals. Resolved from the item
+// catalogs by the caller, like everything else here.
+struct ItemHookView {
+	std::string item;
+	std::string quest, stage; // empty = the item moves no quest
+	std::string reveals;      // empty = it reveals nothing
+};
+
+// One quest DEFINITION: its ordered stage names.
+struct QuestView {
+	std::string id;
+	std::vector<std::string> stages;
+};
+
 struct WorldView {
 	const WorldMap* map = nullptr;
 	std::vector<DungeonView> dungeons;
+	std::vector<QuestView> quests;
+	std::vector<ItemHookView> itemHooks;
 };
 
 enum class Severity : u8 { Error, Warning };

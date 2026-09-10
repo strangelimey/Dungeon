@@ -109,6 +109,25 @@ std::vector<validate::Issue> Game::ValidateProject() {
 		d.levels = ParseTags(e.Get("levels", "")); // space-split + lowercased
 		view.dungeons.push_back(std::move(d));
 	}
+	for (const CatalogEntry& e : m_project.quests.Entries()) {
+		validate::QuestView q;
+		q.id = e.id;
+		q.stages = ParseTags(e.Get("stages", ""));
+		view.quests.push_back(std::move(q));
+	}
+	for (const CatalogEntry* e : m_project.AllItems()) {
+		if (!e) continue;
+		validate::ItemHookView h;
+		h.item = e->id;
+		const std::string q = e->Get("quest", "");
+		if (const size_t colon = q.find(':'); colon != std::string::npos) {
+			h.quest = q.substr(0, colon);
+			h.stage = q.substr(colon + 1);
+		}
+		h.reveals = e->Get("reveals", "");
+		if (!h.quest.empty() || !h.reveals.empty())
+			view.itemHooks.push_back(std::move(h));
+	}
 	return m_world.Validate(view);
 }
 
@@ -306,6 +325,53 @@ void Game::SettleJourney(float hours) {
 		// has already fired onPartyWipe by now; carrying on would go on
 		// charging supplies to four corpses.
 		if (m_world.PartyWiped()) break;
+	}
+}
+
+void Game::OnItemFound(const std::string& itemId) {
+	// THE TWO HOOKS THE DUMP NAMED, and no more: an item that moves a quest on,
+	// and a map or clue that reveals a place (docs/world-map.md "Quests").
+	// Applied where the item is actually LIFTED, so nothing has to be told
+	// twice and an item still on the floor has changed nothing.
+	const CatalogEntry* e = m_project.FindItem(itemId);
+	if (!e) return;
+
+	// "quest = <id>:<stage>" — the quest reaches that stage. Named, not
+	// numbered, so inserting a stage cannot silently move everyone along.
+	const std::string q = e->Get("quest", "");
+	if (const size_t colon = q.find(':'); colon != std::string::npos) {
+		const std::string id = q.substr(0, colon), stage = q.substr(colon + 1);
+		if (m_worldState.SetQuestStage(id, stage)) {
+			const CatalogEntry* def = m_project.quests.Find(id);
+			if (m_world.onMessage)
+				m_world.onMessage(loc::FormatLine(
+					"world.quest_stage", def ? def->Display() : id,
+					def ? def->Get("text_" + stage, stage) : stage));
+		}
+	} else if (!q.empty()) {
+		log::Warn("item '{}' has quest = '{}' — expected <id>:<stage>", itemId, q);
+	}
+
+	// "flag = <key>=<value>" — global state that is not a quest's progress.
+	const std::string f = e->Get("flag", "");
+	if (const size_t eq = f.find('='); eq != std::string::npos)
+		m_worldState.SetFlag(f.substr(0, eq), f.substr(eq + 1));
+	else if (!f.empty())
+		m_worldState.SetFlag(f, "1"); // a bare name is a flag that is simply set
+
+	// "reveals = <location>" — the map-or-clue path, which writes the SAME list
+	// exploring writes. That is the whole reason discovery and `seen` are
+	// separate fields: this reveals a place without revealing the ground.
+	const std::string r = e->Get("reveals", "");
+	if (!r.empty() && m_worldMap) {
+		bool exists = false;
+		for (const WorldMap::Location& l : m_worldMap->Locations())
+			if (l.id == r) exists = true;
+		if (!exists)
+			log::Warn("item '{}' reveals '{}', which is not on the world map",
+					  itemId, r);
+		else if (m_worldState.Discover(r) && m_world.onMessage)
+			m_world.onMessage(loc::FormatLine("world.revealed", r));
 	}
 }
 

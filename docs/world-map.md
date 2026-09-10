@@ -417,10 +417,42 @@ space exactly, if that ever turns out to be the answer.
 
 ### Quests
 
-Quest **definitions** are a catalog; quest **state** is global save state.
-Thin on purpose — the dump asks for flags a found item can set, and for
-quests "tracked globally with their own state". No journal UI was asked for,
-and the discovery-by-clue hook is the same write discovery already uses.
+Quest **definitions** are a catalog (`quests.cat`: a display name and an
+ORDERED stage list); quest **state** is global save state. A catalog says what
+a quest IS and never where anyone has got to in it.
+
+**STAGES ARE NAMED, NOT NUMBERED**, and the save carries the name (Michael's
+choice, 2026-09-09). An index is a promise never to reorder, and a quest's
+stages are exactly the kind of thing that gets one inserted in the middle — the
+same lesson a level's append-only palette taught. A name that no longer exists
+is a CHECKED fault; an index that silently means something else is not.
+
+**A quest absent from the save has not started.** That is why there is no "not
+started" stage to author and forget.
+
+FLAGS SURVIVE ALONGSIDE, for what is true of the game but is not a quest's
+progress — a rumour heard, a relic lifted. Things that do not deserve a quest's
+structure should not have to pretend to it.
+
+An ITEM carries the hooks, applied the moment it is LIFTED:
+
+    quest   = <id>:<stage>    move a quest to a named stage
+    flag    = <key>=<value>   set a global flag (a bare name means "1")
+    reveals = <location>      put a place on the party's map
+
+Those are the two sentences the dump actually asked for — *"you might find a
+quest item in a dungeon. This will update some quest flags for the overall
+world"* and *"you might find a map or a clue that will add them"* — and no
+more. There is no journal screen, because none was asked for.
+
+`reveals` writes the SAME list exploring writes, which is the whole reason
+discovery and `seen` are separate fields: a clue reveals a PLACE without
+revealing the ground around it, and the harness checks exactly that by finding
+one while the party is underground.
+
+CHECKED: an item naming a quest, a stage or a place that does not exist is an
+error (it would silently do nothing, and picking it up is the only way anyone
+would find out), and a quest no item can reach is a warning.
 
 ### The save
 

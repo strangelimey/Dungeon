@@ -1598,6 +1598,7 @@ void Game::Update(float dt) {
 				m_world.DropItemAt(*m_heldItem, mx, my, w, h);
 				m_heldItem.reset();
 			} else if (auto picked = m_world.TryPickItem(mx, my, w, h)) {
+				OnItemFound(*picked); // quest / flag / reveal hooks
 				m_heldItem = std::move(picked);
 			} else if (!m_world.ToggleDoorAhead(mx, my, w, h)) {
 				// No tablet, and nothing on the door ahead that the click

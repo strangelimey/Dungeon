@@ -51,6 +51,46 @@ bool SplitParam(std::string_view tok, std::string& key, std::string& value) {
 
 } // namespace
 
+namespace {
+// The shared shape of `quests` and `flags`: a small ordered id -> value list.
+// Ordered rather than a map so a save reads in the order things happened, which
+// is the only ordering a human reading one actually wants.
+const std::string* FindPair(
+	const std::vector<std::pair<std::string, std::string>>& list,
+	std::string_view key) {
+	for (const auto& [k, v] : list)
+		if (k == key) return &v;
+	return nullptr;
+}
+bool SetPair(std::vector<std::pair<std::string, std::string>>& list,
+			 std::string key, std::string value) {
+	for (auto& [k, v] : list)
+		if (k == key) {
+			if (v == value) return false; // already there; nothing to announce
+			v = std::move(value);
+			return true;
+		}
+	list.emplace_back(std::move(key), std::move(value));
+	return true;
+}
+} // namespace
+
+const std::string* WorldState::QuestStage(std::string_view id) const {
+	return FindPair(quests, id);
+}
+
+bool WorldState::SetQuestStage(std::string id, std::string stage) {
+	return SetPair(quests, std::move(id), std::move(stage));
+}
+
+const std::string* WorldState::Flag(std::string_view key) const {
+	return FindPair(flags, key);
+}
+
+bool WorldState::SetFlag(std::string key, std::string value) {
+	return SetPair(flags, std::move(key), std::move(value));
+}
+
 bool WorldState::Discovered(std::string_view id) const {
 	return std::find(discovered.begin(), discovered.end(), id) != discovered.end();
 }

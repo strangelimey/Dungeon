@@ -119,6 +119,43 @@ void CheckWorld(const WorldView& world, const std::vector<LevelView>& levels,
 			issues.push_back({Severity::Warning, "", -1, -1,
 							  "map.check.levelorphan", l.stem});
 
+	// QUEST HOOKS. An item naming a quest, a stage or a place that does not
+	// exist is content that will silently do nothing when it is picked up —
+	// and picking it up is the only way anyone would ever find out.
+	for (const ItemHookView& h : world.itemHooks) {
+		if (!h.quest.empty()) {
+			const auto q = std::find_if(
+				world.quests.begin(), world.quests.end(),
+				[&](const QuestView& v) { return v.id == h.quest; });
+			if (q == world.quests.end())
+				issues.push_back({Severity::Error, "", -1, -1,
+								  "map.check.itemnoquest", h.item, h.quest});
+			else if (std::find(q->stages.begin(), q->stages.end(), h.stage) ==
+					 q->stages.end())
+				issues.push_back({Severity::Error, "", -1, -1,
+								  "map.check.itemnostage", h.item, h.stage});
+		}
+		if (!h.reveals.empty()) {
+			bool found = false;
+			for (const WorldMap::Location& l : world.map->Locations())
+				if (l.id == h.reveals) found = true;
+			if (!found)
+				issues.push_back({Severity::Error, "", -1, -1,
+								  "map.check.itemnoplace", h.item, h.reveals});
+		}
+	}
+	// A quest nothing can reach is content that cannot happen. A WARNING, not
+	// an error: a quest may legitimately be moved by something other than an
+	// item once there is anything else to move it.
+	for (const QuestView& q : world.quests) {
+		bool reachable = false;
+		for (const ItemHookView& h : world.itemHooks)
+			if (h.quest == q.id) reachable = true;
+		if (!reachable)
+			issues.push_back({Severity::Warning, "", -1, -1,
+							  "map.check.questunreachable", q.id});
+	}
+
 	// The party has to be able to stand where a new game puts it.
 	if (!world.map->Passable(world.map->StartX(), world.map->StartZ()))
 		issues.push_back(

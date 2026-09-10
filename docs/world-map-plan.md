@@ -152,7 +152,7 @@ DoT kills at the hour it would, plus a CAMP button as the recovery counterweight
 Ordered before P6 but after P4/P5 unless he says otherwise; P4 must in any case
 cope with a party that wipes while travelling.
 
-**P6 — quests.** `quests.cat` for definitions, global state in the save, and the
+**P6 — quests.** DONE (2026-09-09). `quests.cat` for definitions, global state in the save, and the
 two content hooks the dump actually names: an item that sets a flag when found,
 and a found map/clue that reveals a location. Deliberately thin — no journal UI
 was asked for.

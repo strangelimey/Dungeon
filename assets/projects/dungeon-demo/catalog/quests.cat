@@ -1,0 +1,21 @@
+; Quests: what a quest IS. Where the party has got to is SAVE state
+; (WorldState::quests), never here — a catalog describes the world, and a
+; catalog that also remembered your progress could not be shared between saves.
+;
+; Fields:
+;   display   the quest's name.
+;   stages    ORDERED stage ids, earliest first. A quest ABSENT from the save
+;             has not started, which is why there is no "not started" stage to
+;             author and forget.
+;   text_<stage>   one line describing that stage. Read by whatever asks what
+;             a quest wants next; there is no journal screen yet.
+;
+; Content reaches a quest through an ITEM (items.cat `quest = <id>:<stage>`),
+; which is the hook the design actually asked for: "you might find a quest item
+; in a dungeon. This will update some quest flags for the overall world."
+
+[sunken_relic]
+display = The Sunken Relic
+stages = heard found
+text_heard = A carved token names a relic somewhere below the crypt.
+text_found = The relic is in your hands.

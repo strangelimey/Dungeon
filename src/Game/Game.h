@@ -315,6 +315,9 @@ private:
 	// the same slices a journey uses and stopped by the same rules rest already
 	// has. Returns the hours it lasted (0 = it never started).
 	float Camp();
+	// An item has been LIFTED. Applies its quest/flag/reveal hooks — the two
+	// content hooks the design asked for, plus the flag escape hatch.
+	void OnItemFound(const std::string& itemId);
 	// Reveals a world cell and its eight neighbours, discovering any location
 	// standing on them.
 	void RevealAround(int x, int z);

@@ -76,6 +76,10 @@ struct Project {
 	// that did not exist before: a named group of level stems with an entry
 	// level, which `levels` below still lists flat.
 	Catalog terrain, dungeons;
+	// Quest DEFINITIONS: a display name and an ordered stage list. The party's
+	// progress is save state (WorldState::quests), not content — a catalog says
+	// what a quest IS, never where anyone has got to in it.
+	Catalog quests;
 	Catalog wallfeatures; // recessed wall niches (Phase 2)
 	// The same idea laid flat, pointing down or up: a tile stamped IN PLACE OF a
 	// cell's FLOOR or CEILING block, carrying a recess sunk into it or a vault

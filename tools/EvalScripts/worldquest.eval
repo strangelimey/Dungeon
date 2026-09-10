@@ -1,0 +1,33 @@
+; worldquest.eval — a quest moves, and a clue puts a place on the map (P6).
+;
+; The design's own two sentences, made testable:
+;   "you might find a quest item in a dungeon. This will update some quest flags
+;    for the overall world."
+;   "you might find a map or a clue that will add them."
+;
+; STAGES ARE NAMED, NOT NUMBERED, and the save carries the name — so this checks
+; the NAME comes back, which an index could not distinguish from a reordering.
+logecho on
+reset
+encounters off
+
+; --- nothing found yet -------------------------------------------------------
+quest
+world
+
+; --- the clue: moves the quest to `heard` AND reveals the back way -----------
+give crypt_token
+quest
+world
+
+; --- the relic: moves it to `found`, and sets a plain flag too ---------------
+give sunken_relic
+quest
+quest flags
+
+; --- and all of it rides the save -------------------------------------------
+save questtrip
+load questtrip
+quest
+quest flags
+world

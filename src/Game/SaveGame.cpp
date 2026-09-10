@@ -184,6 +184,10 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 		for (const std::string& id : data.world.discovered) t += " " + id;
 		t += '\n';
 	}
+	// One line per quest: id + the STAGE it has reached. Absent = not started,
+	// which is why an unstarted quest writes nothing at all.
+	for (const auto& [id, stage] : data.world.quests)
+		t += std::format("quest {} {}\n", id, EnTok(stage));
 	// One line per flag: values are token-safe by contract (no spaces), which is
 	// what lets the whole file stay whitespace-tokenised.
 	for (const auto& [key, value] : data.world.flags)
@@ -325,6 +329,8 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 		} else if (kw == "discovered") {
 			for (size_t i = 1; i < tok.size(); ++i)
 				data.world.discovered.emplace_back(tok[i]);
+		} else if (kw == "quest" && tok.size() >= 3) {
+			data.world.quests.emplace_back(std::string(tok[1]), DeTok(tok[2]));
 		} else if (kw == "flag" && tok.size() >= 3) {
 			data.world.flags.emplace_back(std::string(tok[1]), DeTok(tok[2]));
 		} else if (kw == "char" && tok.size() >= 8) {

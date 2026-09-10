@@ -85,11 +85,33 @@ struct WorldState {
 	// it, and exploring reveals ground without necessarily naming what is on it
 	// (docs/world-map.md "Discovery").
 	std::vector<std::string> discovered;
-	// Global flags: quest state and anything else true of the game rather than
-	// of a place. Opaque key/value here — P6 gives the keys meaning. It exists
-	// NOW because the save version is being bumped now, and adding a field
-	// later costs another version rung.
+	// WHERE EACH QUEST HAS GOT TO: quest id -> the STAGE it is at, by NAME.
+	//
+	// By name and not by index, for the reason a level's palette taught the
+	// hard way: an index is a promise never to reorder, and a quest's stages
+	// are exactly the kind of thing that gets one inserted in the middle. A
+	// name that no longer exists is a CHECKED fault; an index that silently
+	// means something else is not.
+	//
+	// A quest absent from this list has not started. That is why there is no
+	// "not started" stage to author and forget.
+	std::vector<std::pair<std::string, std::string>> quests;
+
+	// Global flags: anything true of the GAME rather than of a place, that is
+	// not a quest's progress — a rumour heard, a door bribed. Opaque key/value
+	// on purpose: the things that do not deserve a quest's structure should
+	// not have to pretend to it.
 	std::vector<std::pair<std::string, std::string>> flags;
+
+	// The stage a quest has reached, or null when it has not started.
+	const std::string* QuestStage(std::string_view id) const;
+	// Puts a quest at a stage. False when it was already there — callers
+	// announce a step forward, and announcing it twice is the bug this stops.
+	bool SetQuestStage(std::string id, std::string stage);
+	// A global flag's value, or null. Absent and empty are different: a flag
+	// set to "" was set.
+	const std::string* Flag(std::string_view key) const;
+	bool SetFlag(std::string key, std::string value);
 
 	bool Discovered(std::string_view id) const;
 	// Marks a location known. Returns false when it already was — callers
