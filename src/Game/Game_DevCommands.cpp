@@ -950,6 +950,43 @@ void Game::RegisterDevCommands() {
 						   }
 					   });
 	m_console.Register(
+		"newtype", "create a pure-data type: newtype <dungeons|terrain|quests>",
+		[this](const std::vector<std::string>& args) {
+			// The palette's "+ New..." for these categories, reachable without a
+			// mouse — the harness cannot click, and this is the path W2 adds.
+			if (args.empty()) {
+				m_console.Print("usage: newtype <dungeons|terrain|quests>");
+				return;
+			}
+			const MapEditor::PaletteCat cat = MapEditor::CatForCatalogKey(args[0]);
+			if (cat == MapEditor::PaletteCat::Count ||
+				!MapEditor::CategoryAuthorable(cat)) {
+				m_console.Print(std::format(
+					"'{}' is not a pure-data category (dungeons/terrain/quests)",
+					args[0]));
+				return;
+			}
+			const std::string id = CreateAuthoredType(cat);
+			m_console.Print(id.empty() ? "could not create"
+									   : std::format("created {} '{}'", args[0], id));
+		});
+	m_console.Register(
+		"typerefs", "count what references a type: typerefs <category> <id>",
+		[this](const std::vector<std::string>& args) {
+			if (args.size() < 2) {
+				m_console.Print("usage: typerefs <category> <id>");
+				return;
+			}
+			// BOTH HALVES, reported separately, because they answer different
+			// questions: levels are where a placement lives, and the catalog +
+			// WORLD half is where a doorway or a hook does.
+			const DungeonWorld::TypeUsage lv = m_world.SweepTypeRefs(args[0], args[1]);
+			const int other = SweepCatalogRefs(args[0], args[1], nullptr);
+			m_console.Print(std::format("{} '{}': {} level record(s), {} other "
+										"reference(s)",
+										args[0], args[1], lv.count, other));
+		});
+	m_console.Register(
 		"saveworld", "write world/world.map alone (savemap writes the levels too)",
 		[this](const std::vector<std::string>&) {
 			// SEPARATE FROM `savemap` because savemap rewrites every level file

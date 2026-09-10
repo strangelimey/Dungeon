@@ -248,6 +248,10 @@ private:
 	// Opens the type editor for a catalog id (the palette's right-click), or
 	// does nothing when the catalog/entry is unknown.
 	void OpenTypeEditor(MapEditor::PaletteCat cat, const std::string& id);
+	// Creates an entry in a pure-data catalog (dungeons/terrain/quests) with a
+	// free id and the schema's defaults; the caller opens the type editor on it
+	// so the id can be renamed there. "" if the category has no catalog.
+	std::string CreateAuthoredType(MapEditor::PaletteCat cat);
 	// Renames a catalog type EVERYWHERE: the entry, every level record that
 	// names it (DungeonWorld::SweepTypeRefs), the cross-catalog references
 	// (stairs `pair`, doors `key`) and the project's default fixture ids. False

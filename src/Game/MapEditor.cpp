@@ -39,6 +39,9 @@ struct CatInfo {
 	// the type editor instead of arming a brush, and they offer no "+ New..."
 	// (an effect needs a CLASS behind it, docs/effects.md).
 	bool placeable = true;
+	// Created from the palette with nothing but a NAME — no asset dialog,
+	// because there is no asset. The world tier's catalogs are pure data.
+	bool authorable = false;
 };
 constexpr CatInfo kCategoryInfo[] = {
 	{"map.cat.walls", "walls", true},       {"map.cat.floors", "floors", true},
@@ -51,6 +54,9 @@ constexpr CatInfo kCategoryInfo[] = {
 	{"map.cat.wallfeatures", "wallfeatures", false},
 	{"map.cat.surfacefeatures", "surfacefeatures", false},
 	{"map.cat.effects", "effects", false, /*placeable*/ false},
+	{"map.cat.dungeons", "dungeons", false, /*placeable*/ false, /*authorable*/ true},
+	{"map.cat.terrain", "terrain", false, /*placeable*/ false, /*authorable*/ true},
+	{"map.cat.quests", "quests", false, /*placeable*/ false, /*authorable*/ true},
 };
 static_assert(sizeof(kCategoryInfo) / sizeof(kCategoryInfo[0]) ==
 				  static_cast<size_t>(MapEditor::PaletteCat::Count),
@@ -70,6 +76,7 @@ const char* MapEditor::CategoryNameKey(PaletteCat cat) { return CatInfoFor(cat).
 const char* MapEditor::CategoryCatalogKey(PaletteCat cat) { return CatInfoFor(cat).catalogKey; }
 bool MapEditor::CategoryTextureSet(PaletteCat cat) { return CatInfoFor(cat).textureSet; }
 bool MapEditor::CategoryPlaceable(PaletteCat cat) { return CatInfoFor(cat).placeable; }
+bool MapEditor::CategoryAuthorable(PaletteCat cat) { return CatInfoFor(cat).authorable; }
 
 MapEditor::PaletteCat MapEditor::CatForCatalogKey(std::string_view catalogKey) {
 	for (size_t i = 0; i < static_cast<size_t>(PaletteCat::Count); ++i)

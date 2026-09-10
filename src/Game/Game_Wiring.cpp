@@ -165,6 +165,17 @@ void Game::WireModuleCallbacks() {
 	// Editor: a palette "+ New" opens the asset-creation dialog for that category
 	// (Walls/Floors/Ceilings import a texture folder; the rest import a model).
 	m_mapEditor.onNewAsset = [this](MapEditor::PaletteCat cat) {
+		// PURE-DATA CATEGORIES SKIP THE ASSET DIALOG. A dungeon has no texture
+		// to import and no model to bind, so offering "Import new / Use
+		// installed / Duplicate" would be three answers to a question nobody
+		// asked. They get an entry with a fresh id and the TYPE EDITOR open on
+		// it — where the title is already a click-to-rename affordance, with
+		// the reference sweep behind it. One naming mechanism, not two.
+		if (MapEditor::CategoryAuthorable(cat)) {
+			if (const std::string id = CreateAuthoredType(cat); !id.empty())
+				OpenTypeEditor(cat, id);
+			return;
+		}
 		OpenCreateDialog(cat, AssetDialog::Source::Import);
 	};
 	// The type editor's Duplicate: the same create dialog, opened on a copy of

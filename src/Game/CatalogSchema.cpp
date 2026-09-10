@@ -586,7 +586,60 @@ constexpr FieldSpec kSurfaceFeatureFields[] = {
 };
 } // namespace
 
+// --- the WORLD tier (docs/world-editor-plan.md W2) ---------------------------
+// Pure data, no assets: a dungeon is a name and a list of levels, a terrain is
+// a glyph and some numbers, a quest is a name and its stages. That is why these
+// three are creatable from the palette by NAME while everything asset-backed
+// goes through the asset dialog.
+
+constexpr FieldSpec kDungeonFields[] = {
+	{.key = "display", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,
+	 .help = "The dungeon's name, as a player would hear it."},
+	{.key = "levels", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,
+	 .help = "Space-separated level stems, in depth order. Each must exist in "
+			 "project.ini. A dungeon has NO start of its own - every way in "
+			 "says where it lands."},
+	{.key = "tags", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,
+	 .help = "Flavour words for content matching; absent means 'fits anywhere'."},
+};
+
+constexpr FieldSpec kTerrainFields[] = {
+	{.key = "display", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,
+	 .help = "The terrain's name."},
+	{.key = "glyph", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,
+	 .help = "The ONE character standing for it in world.map. Must be unique "
+			 "and must not be lowercase (records are lowercase, grid rows are "
+			 "not)."},
+	{.key = "tags", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,
+	 .help = "The content pool an encounter here draws from."},
+	{.key = "color", .kind = FieldKind::Text, .sectionKey = kSectionLook,
+	 .help = "The world map's ink for this kind, 'r,g,b' in 0..1."},
+	{.key = "passable", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
+	 .help = "Can the party enter it at all? 0 for sea, cliffs, and the edges "
+			 "a rectangular grid would otherwise have.",
+	 .def = "1"},
+	{.key = "travel", .kind = FieldKind::Float, .sectionKey = kSectionRules,
+	 .help = "Hours to cross one square. Also multiplies the encounter chance, "
+			 "so slow ground is dangerous twice over.",
+	 .lo = 0.0f, .hi = 6.0f, .step = 0.1f, .def = "1"},
+	{.key = "difficulty", .kind = FieldKind::Float, .sectionKey = kSectionRules,
+	 .help = "0..1 danger: what an encounter here is generated from, unless an "
+			 "`area` record overrides it.",
+	 .lo = 0.0f, .hi = 1.0f, .step = 0.05f, .def = "0"},
+};
+
+constexpr FieldSpec kQuestFields[] = {
+	{.key = "display", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,
+	 .help = "The quest's name."},
+	{.key = "stages", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,
+	 .help = "ORDERED stage ids, earliest first. The save records a stage by "
+			 "NAME, so these may be renamed but a rename must be swept."},
+};
+
 std::span<const FieldSpec> SchemaFor(std::string_view catalogKey) {
+	if (catalogKey == "dungeons") return kDungeonFields;
+	if (catalogKey == "terrain") return kTerrainFields;
+	if (catalogKey == "quests") return kQuestFields;
 	if (catalogKey == "walls") return kWallFields;
 	if (catalogKey == "floors") return kFloorFields;
 	if (catalogKey == "ceilings") return kCeilingFields;

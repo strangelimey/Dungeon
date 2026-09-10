@@ -57,6 +57,11 @@ public:
 		Decorations, Fixtures, Monsters, Buttons, Doors, Stairs,
 		Items, Weapons, Armor, WallFeatures, SurfaceFeatures,
 		Effects, // authored + tuned, never placed (see CategoryPlaceable)
+		// The WORLD tier's catalogs (docs/world-editor-plan.md W2). Like
+		// Effects they are never placed in a level — but unlike Effects they
+		// are pure data, so they DO offer "+ New...": there is no class behind
+		// a dungeon to write first.
+		Dungeons, Terrain, Quests,
 		Count
 	};
 
@@ -109,6 +114,11 @@ public:
 	// only author and tune (Effects): their rows open the type editor rather
 	// than arming a brush, and they offer no "+ New...".
 	static bool CategoryPlaceable(PaletteCat cat);
+	// Can a type of this category be created from the palette with nothing but
+	// a name? True for the world tier's pure-data catalogs; false for anything
+	// asset-backed (which goes through the asset dialog) and for Effects (which
+	// needs a class written first).
+	static bool CategoryAuthorable(PaletteCat cat);
 	// The reverse lookup, for code that starts from a catalog key (the asset
 	// dialog's request); Count when no category owns it.
 	static PaletteCat CatForCatalogKey(std::string_view catalogKey);
@@ -284,7 +294,11 @@ private:
 	// "+ New..." appears only where the editor can actually author a new type.
 	// An effect can't be created from data alone — it needs a C++ class — so
 	// its category offers browse-and-edit only.
-	static bool Creatable(PaletteCat cat) { return CategoryPlaceable(cat); }
+	// Which categories offer "+ New...": the placeable ones (through the asset
+	// dialog) and the pure-data ones (directly, by name).
+	static bool Creatable(PaletteCat cat) {
+		return CategoryPlaceable(cat) || CategoryAuthorable(cat);
+	}
 
 	// The items of a category, resolved from the project's catalogs / the
 	// level palette (Walls/Floors/Ceilings/entities).

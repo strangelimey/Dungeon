@@ -2,7 +2,7 @@
 #
 # Run:  python tools\WorldTest.py      (needs a debug build)
 #
-# Ten phases, all built on one principle: a check that never fires reports
+# Eleven phases, all built on one principle: a check that never fires reports
 # "clean" just as loudly as one that works, so every expectation here is paired
 # with something that makes it fail.
 #
@@ -28,6 +28,8 @@
 #      a place, and both riding the save.
 #  10. THE WRITER — world.map can be written, and what comes back is what
 #      went in.
+#  11. THE WORLD TIER AS CONTENT — dungeons/terrain/quests authored from the
+#      palette, and a reference sweep that can see the world.
 #   4. TRAVEL — a journey costs the time its terrain says and the supplies that
 #      span buys, refuses an impassable square instead of clamping, and reveals
 #      what walking past a place should reveal. The times are read off
@@ -412,6 +414,26 @@ try:
             check(record in after, f"kept: {record}")
     finally:
         write(WORLD, world_before)
+    # --- phase 11: the world tier is editable content -----------------------
+    print("\n11 - dungeons, terrain and quests are types you can author")
+    log = run("worldtypes.eval")
+
+    # THE SWEEP SEES THE WORLD. The crypt is referenced by its two doorways
+    # and by NOTHING in any level - so the "0 level record(s)" half is the
+    # control: a sweep that only walked levels would have called it safe to
+    # delete, which is the exact hole W2 had to close.
+    check("crypt': 0 level record(s), 2 other reference(s)" in log,
+          "a dungeon's two doorways are found, and they are not in any level")
+    check("eval': 0 level record(s), 1 other reference(s)" in log,
+          "and a one-door dungeon reports one")
+
+    # Created by NAME, with the id stepping past collisions rather than
+    # replacing (Catalog::Add replaces by id, so a clash would overwrite).
+    for made in ("dungeons 'dungeon1'", "terrain 'terrain1'",
+                 "quests 'quest1'", "dungeons 'dungeon2'"):
+        check("created " + made in log, f"created {made}")
+    check("dungeon1': 0 level record(s), 0 other reference(s)" in log,
+          "and a fresh type is referenced by nothing")
 finally:
     for p, s in originals.items():
         write(p, s)

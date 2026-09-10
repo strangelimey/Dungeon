@@ -66,7 +66,29 @@ session. A writer in the shape of the `.map` writer (records, then grid), and
 DO THIS FIRST even though it is the least visible: editing without saving is a
 demo, and a demo is what gets built when persistence is left till last.
 
-**W2 — dungeons, terrain and quests become catalog categories.** One
+**W2 — dungeons, terrain and quests become catalog categories.** DONE
+(2026-09-09), except the DELETE half, which needs W3's mutable world (see
+below). Three palette rows, three schema tables, and a third category property:
+`authorable`. `placeable` was not enough of a distinction — Effects is
+non-placeable AND uncreatable (it needs a class), while these are non-placeable
+but pure DATA, so they get "+ New..." and skip the asset dialog entirely. A
+dungeon has no texture to import.
+
+Creating one generates an id and opens the TYPE EDITOR, whose title is already a
+click-to-rename affordance with the sweep behind it — one naming mechanism
+rather than two.
+
+THE SWEEP NOW SEES THE WORLD, and the measurement says why it had to: the crypt
+has TWO references and ZERO of them are in any level. A sweep that only walked
+levels would have called it safe to delete.
+
+Two things it does NOT do yet, both honest rather than overlooked. RENAMING a
+dungeon a location names is REPORTED and refused rather than applied — the
+loaded world is const and W3 is what makes it mutable. And TERRAIN is not swept
+at all, which is a property of the format: the grid names a terrain by its
+GLYPH, so renaming the id cannot orphan a cell. That is what the glyph is for.
+
+The original entry: One
 `kCategoryInfo` row and one `CatalogSchema` table each, following `effects`.
 That buys create, edit, rename and delete through machinery that already exists
 and is already checked.

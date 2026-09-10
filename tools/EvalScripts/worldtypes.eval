@@ -1,0 +1,26 @@
+; worldtypes.eval — the world tier's catalogs are editable types (W2).
+;
+; Dungeons, terrain and quests are now palette CATEGORIES: never placed in a
+; level, but created from a name because they are pure data (no texture to
+; import, no model to bind). This exercises the same paths the palette's
+; "+ New..." and the type editor's delete use, without a mouse.
+;
+; The sweep is the half that was NOT free. A location names a DUNGEON, and the
+; level sweep cannot see the world at all — so without teaching it, deleting a
+; dungeon two doorways point at would have looked perfectly safe.
+logecho on
+reset
+
+; --- the crypt is referenced by its two doorways ----------------------------
+typerefs dungeons crypt
+; --- and by nothing in any level: the reference lives in the WORLD ---------
+typerefs dungeons eval
+
+; --- a brand new type of each kind ------------------------------------------
+newtype dungeons
+newtype terrain
+newtype quests
+newtype dungeons
+
+; --- a fresh one is referenced by nothing -----------------------------------
+typerefs dungeons dungeon1

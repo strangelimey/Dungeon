@@ -309,6 +309,41 @@ void Game::CreateCatalogEntry(const AssetDialog::CreateRequest& req) {
 // needs nothing but the entry itself; Monsters additionally get the button
 // through to their animation/behaviour dialog, which owns the rows the schema
 // leaves out.
+// A new entry in a pure-data catalog: a free id, the schema's defaults, and
+// nothing else. Returns the id, or "" if the category has no catalog.
+//
+// THE ID IS GENERATED rather than asked for, and then renamed in the type
+// editor. That is one naming mechanism instead of two, and the rename it reuses
+// already carries the reference sweep — so a type named properly a minute after
+// it was made is indistinguishable from one named at birth.
+std::string Game::CreateAuthoredType(MapEditor::PaletteCat cat) {
+	const std::string key = MapEditor::CategoryCatalogKey(cat);
+	Catalog* catalog = m_project.CatalogForKey(key);
+	if (!catalog) {
+		log::Warn("new type: unknown catalog '{}'", key);
+		return {};
+	}
+	// "<key minus its plural s><n>" — dungeon1, terrain1, quest1 — stepping
+	// until one is free. Collision is checked rather than assumed: Catalog::Add
+	// REPLACES by id, so a clash would silently overwrite a type.
+	std::string stem(key);
+	if (stem.size() > 1 && stem.back() == 's') stem.pop_back();
+	std::string id;
+	for (int n = 1;; ++n) {
+		id = stem + std::to_string(n);
+		if (!catalog->Contains(id)) break;
+	}
+
+	CatalogEntry e;
+	e.id = id;
+	for (const FieldSpec& f : SchemaFor(key))
+		if (f.def && f.def[0]) e.Set(f.key, f.def);
+	e.Set("display", id); // something readable until it is renamed
+	catalog->Add(std::move(e));
+	log::Info("new {} type '{}'", key, id);
+	return id;
+}
+
 void Game::OpenTypeEditor(MapEditor::PaletteCat cat, const std::string& id) {
 	const std::string key = MapEditor::CategoryCatalogKey(cat);
 	const Catalog* catalog = m_project.CatalogForKey(key);
@@ -424,6 +459,47 @@ int Game::SweepCatalogRefs(const std::string& catalogKey, const std::string& id,
 				if (newId) *slot = *newId;
 			}
 	}
+	// AN ITEM'S QUEST HOOK names a quest, and a quest's stages are named too —
+	// but a STAGE rename is not a type rename and does not come through here.
+	if (catalogKey == "quests")
+		for (Catalog* c : {&m_project.items, &m_project.weapons, &m_project.armor})
+			for (const CatalogEntry& e : c->Entries()) {
+				const std::string q = e.Get("quest", "");
+				const size_t colon = q.find(':');
+				if (colon == std::string::npos || q.substr(0, colon) != id) continue;
+				++hits;
+				if (newId) {
+					CatalogEntry copy = e;
+					copy.Set("quest", *newId + q.substr(colon));
+					c->Add(std::move(copy));
+				}
+			}
+
+	// THE WORLD TIER, which the level sweep cannot see: a location names a
+	// DUNGEON and a LEVEL, and an item may reveal a location. Without this the
+	// sweep's promise — "a delete REFUSES while anything still references the
+	// type" — stopped being true at exactly the tier where a dangling
+	// reference is worst, because a broken doorway is not visible from any
+	// level.
+	if (m_worldMap && catalogKey == "dungeons") {
+		for (const WorldMap::Location& l : m_worldMap->Locations())
+			// Dungeon(), NOT the raw field: an absent `dungeon` means "the same
+			// as my id", so a location named after its dungeon references it
+			// just as surely as one that says so. Checking the field alone
+			// would have missed exactly the locations authored the short way.
+			if (l.Dungeon() == id) {
+				++hits;
+				// NOT RENAMED HERE. The loaded world is const and its records
+				// are rewritten wholesale by the writer; W3 gives the editor a
+				// mutable world. Until then a rename that would touch a
+				// location is REPORTED and refused — the safe half of the
+				// promise, and better than a rename that half-lands.
+				(void)newId;
+			}
+	}
+	// TERRAIN IS NOT SWEPT, and that is a property of the format rather than an
+	// omission: the world grid names a terrain by its GLYPH, so renaming the
+	// id cannot orphan a cell. It is why terrain declares a glyph at all.
 	return hits;
 }
 
