@@ -521,9 +521,15 @@ level list is reordered, and so more can join.
 - **Towns and shops.** They need money and trade, none of which exist. A
   location kind is reserved for them and nothing else — a known to-do, out of
   scope here.
-- **A world editor.** Undecided. If it happens it is the existing editor one
-  tier up (paint terrain, place locations, reusing the palette, brushes and
-  undo snapshot), and it is worth deciding only once the data has settled.
+- **A world editor.** DEFERRED (Michael, 2026-09-09), not rejected. The world
+  is hand-authored in `world/world.map` and that has been comfortable at one
+  small map — records are few, the dialect is the level dialect, and the
+  checker catches what hand-authoring gets wrong (it found a sealed chamber
+  during P6). What would change the calculation: more world than fits one file,
+  or anyone but Michael needing to place a location. If it happens it is the
+  existing editor one tier up — paint terrain, place locations, reusing the
+  palette, brushes and undo snapshot — and the data it would edit has now
+  settled, which is what was wanted before deciding.
 
 ## Obligations on later phases
 

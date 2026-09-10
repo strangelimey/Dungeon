@@ -157,8 +157,14 @@ two content hooks the dump actually names: an item that sets a flag when found,
 and a found map/clue that reveals a location. Deliberately thin — no journal UI
 was asked for.
 
-**P7 — the world editor.** OPEN (his answer 6). If it happens it is the editor's
-existing shape one tier up: a mode that paints terrain and places locations,
+**P7 — the world editor.** DEFERRED (Michael, 2026-09-09: "let's leave P7 for
+now"). Still his open question from the brain dump's answer 6, now with the
+benefit of the world existing: `world/world.map` is hand-authored and has been
+perfectly workable at one small map, and the checker catches what hand-authoring
+gets wrong (it caught a sealed chamber during P6). The pressure to build this
+arrives when there is more world than one file, or when someone other than
+Michael has to place a location. If it happens it is the editor's existing shape
+one tier up: a mode that paints terrain and places locations,
 reusing the palette, brushes, undo snapshot and remote-level machinery. Worth
 deciding only once P1–P4 have settled what the data actually is.
 
