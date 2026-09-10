@@ -91,6 +91,31 @@ void WorldMapView::Update(const Input& input, const WorldMap& world,
 		}
 	}
 
+	// --- painting (Editor mode) ---------------------------------------------
+	// LEFT paints the armed terrain, and a DRAG keeps painting — the owner
+	// brackets the whole stroke as one undo step, the same bargain the dungeon
+	// editor makes. Nothing armed means a click does nothing, rather than
+	// meaning "paint the first terrain".
+	if (Editing() && !m_armed.empty() && onPaint) {
+		if (over && input.WasMousePressed(MouseButton::Left)) m_painting = true;
+		if (!input.IsMouseDown(MouseButton::Left)) m_painting = false;
+		if (m_painting && m_hoverX >= 0) onPaint(m_hoverX, m_hoverZ, m_armed);
+	} else {
+		m_painting = false;
+	}
+	// RIGHT-CLICK INSPECTS rather than pans, in Editor mode — a stationary
+	// click, so a right-DRAG still pans. The same gesture split the dungeon
+	// editor uses, and for the same reason: panning is too useful to give up.
+	if (Editing() && over && input.WasMousePressed(MouseButton::Right)) {
+		m_rightFrom = {mx, my};
+		m_rightDown = true;
+	}
+	if (m_rightDown && !input.IsMouseDown(MouseButton::Right)) {
+		m_rightDown = false;
+		const float moved = std::abs(mx - m_rightFrom.x) + std::abs(my - m_rightFrom.y);
+		if (moved <= 3.0f && m_hoverX >= 0 && onInspect) onInspect(m_hoverX, m_hoverZ);
+	}
+
 	if (over && input.WasMousePressed(MouseButton::Right)) {
 		m_dragging = true;
 		m_dragFrom = {mx, my};
@@ -124,9 +149,13 @@ void WorldMapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		return {t.ox + (x + 0.5f) * t.cell, t.oy + (z + 0.5f) * t.cell};
 	};
 
+	// FOG IS THE MODE'S DIFFERENCE. Editing draws the whole world: you cannot
+	// place what you cannot see, and an editor that hid ground behind the
+	// party's ignorance would be unusable for the one job it has.
+	const bool showAll = Editing();
 	for (int z = 0; z < world.Height(); ++z)
 		for (int x = 0; x < world.Width(); ++x) {
-			const bool seen = state.Seen(x, z);
+			const bool seen = showAll || state.Seen(x, z);
 			batch.DrawRect(cellRect(x, z),
 						   seen ? world.TerrainAt(x, z).color : kUnknown);
 		}
@@ -134,7 +163,7 @@ void WorldMapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	// Locations, over the ground: a discovered one is a diamond, and an
 	// undiscovered one is nothing at all — that is what discovery MEANS.
 	for (const WorldMap::Location& l : world.Locations()) {
-		if (!state.Discovered(l.id)) continue;
+		if (!showAll && !state.Discovered(l.id)) continue;
 		const Vec2 c = cellCenter(l.x, l.z);
 		const float h = t.cell * 0.34f;
 		batch.DrawTriangle({c.x, c.y - h}, {c.x + h, c.y}, {c.x - h, c.y}, kLocation);

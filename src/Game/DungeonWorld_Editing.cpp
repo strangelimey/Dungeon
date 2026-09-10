@@ -2070,9 +2070,13 @@ bool DungeonWorld::RenameLevel(const std::string& oldStem,
 // Editor undo/redo. Snapshot-based — see the header for the design rationale.
 // ============================================================================
 DungeonWorld::EditorSnapshot DungeonWorld::CaptureEditorState() const {
-	EditorSnapshot s{m_currentLevel, m_map,           m_entities,
-					 m_entsDirty,    SnapshotActive(), {},
-					 {}};
+	// Still AGGREGATE-INITIALIZED, and it has to be: DungeonMap's default
+	// constructor is private (it exists for FromText alone), so the snapshot
+	// cannot be default-built and filled in field by field.
+	std::optional<WorldMap> worldCopy;
+	if (m_worldForUndo) worldCopy = *m_worldForUndo;
+	EditorSnapshot s{std::move(worldCopy), m_currentLevel,   m_map, m_entities,
+					 m_entsDirty,          SnapshotActive(), {},    {}};
 	// The map copy carries the live decoration placements as records, so the
 	// restore's LoadDecorations rebuilds them (AddDecoration only appends a
 	// live instance — same sync a level-swap stash does).
@@ -2085,6 +2089,11 @@ DungeonWorld::EditorSnapshot DungeonWorld::CaptureEditorState() const {
 }
 
 void DungeonWorld::RestoreEditorState(EditorSnapshot snap) {
+	// THE WORLD, restored alongside the levels because an editor step may have
+	// spanned both (adding a level to a dungeon touches the manifest, the
+	// catalog and a doorway). One history means one restore.
+	if (m_worldForUndo && snap.world) *m_worldForUndo = std::move(snap.world);
+
 	// Cheap in editor mode (only sprite work is queued — the scene passes are
 	// skipped while the full-screen editor is up), and still required: the
 	// turbidity texture below is replaced, and an in-flight frame must not

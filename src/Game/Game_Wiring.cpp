@@ -164,6 +164,38 @@ void Game::WireModuleCallbacks() {
 
 	// Editor: a palette "+ New" opens the asset-creation dialog for that category
 	// (Walls/Floors/Ceilings import a texture folder; the rest import a model).
+	// --- the world editor (W3, docs/world-editor-plan.md) -------------------
+	// The VIEW decides what and where; the OWNER decides whether it is allowed
+	// and what it costs. That split is why painting goes through a callback
+	// rather than the view holding a world it could write to.
+	m_worldMapView.onPaint = [this](int x, int z, const std::string& terrainId) {
+		if (!m_worldMap) return;
+		// Already that terrain? Then this is a drag passing back over a cell it
+		// painted, and neither the undo history nor the dirty flag should hear
+		// about it.
+		if (m_worldMap->TerrainAt(x, z).id == terrainId) return;
+		// ONE STEP PER STROKE: the first changed cell opens it, the mouse
+		// release closes it (below). The dungeon editor makes the same bargain
+		// and for the same reason — a drag that left forty undo steps would be
+		// forty presses of Ctrl+Z to take back one gesture.
+		if (!m_worldStroke) {
+			m_world.BeginUndoStep();
+			m_worldStroke = true;
+		}
+		m_worldMap->SetTerrainAt(x, z, terrainId);
+	};
+	m_worldMapView.onInspect = [this](int x, int z) {
+		if (!m_worldMap) return;
+		// Right-click reports what is here. The per-location dialog is W4's;
+		// until then this is the readout, and it is the same information that
+		// dialog will show.
+		const WorldMap::Terrain& t = m_worldMap->TerrainAt(x, z);
+		const WorldMap::Location* l = m_worldMap->LocationAt(x, z);
+		m_ui.AddLogLine(loc::FormatLine(
+			"world.inspect", std::format("{},{}", x, z),
+			l ? std::format("{} ({})", l->id, t.id) : t.id));
+	};
+
 	m_mapEditor.onNewAsset = [this](MapEditor::PaletteCat cat) {
 		// PURE-DATA CATEGORIES SKIP THE ASSET DIALOG. A dungeon has no texture
 		// to import and no model to bind, so offering "Import new / Use

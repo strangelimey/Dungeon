@@ -1,0 +1,32 @@
+; worldedit.eval — the world can be painted, and taken back (W3).
+;
+; The mode, the brush, the paint, and the ONE undo history the world now shares
+; with the levels — which is the part worth checking, because it is the claim
+; that a step spanning tiers undoes as one thing.
+;
+; A cell is painted, undone, and redone, and the terrain is read back at each
+; point. Reading it back is the whole test: an undo that reported success and
+; changed nothing would look identical from the console otherwise.
+logecho on
+reset
+worldedit
+worldedit on
+
+; --- arm, and refuse what does not exist ------------------------------------
+terrainbrush nonsense
+terrainbrush moor
+terrainbrush
+
+; --- 6,6 is road; paint it moor ---------------------------------------------
+world
+paint 6 6
+world
+
+; --- painting it again changes nothing --------------------------------------
+paint 6 6
+
+; --- and the editor's history takes it back ---------------------------------
+undo
+world
+redo
+world

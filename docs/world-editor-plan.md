@@ -100,7 +100,26 @@ stair — a location. Renaming or deleting a dungeon has to reach them, or the
 sweep's promise ("a delete REFUSES while anything still references the type")
 quietly stops being true at the tier that matters most.
 
-**W3 — the world screen gets an edit mode.** `WorldMapView` already draws the
+**W3 — the world screen gets an edit mode.** DONE (2026-09-09) for the MODE,
+the TERRAIN BRUSH and the UNDO. Locations and areas move to W4: areas are a
+LIST (his answer), which is dialog work rather than brush work, and a location
+wants the same dialog to edit what it points at.
+
+The world joins the editor's ONE history by the same borrowing `m_roster` does
+— `DungeonWorld::SetWorldForUndo` takes a pointer, the snapshot copies it, the
+restore puts it back — so the world stays Game's and a step spanning tiers
+undoes as one thing. Nothing else in DungeonWorld reads it, and the comment at
+the setter says that a second use is the moment to ask a harder question.
+
+TWO THINGS THE BUILDING TAUGHT. `SetTerrainAt` returns "I found that terrain and
+set it", NOT "something changed" — so trusting it put NO-OP UNDO STEPS on the
+stack, and the next Ctrl+Z spent itself taking back nothing. The mouse path had
+the guard and the console path did not, which is exactly the shape of bug two
+paths to one action produce. And the snapshot still has to be AGGREGATE
+INITIALIZED: DungeonMap's default constructor is private (it exists for
+FromText), so it cannot be default-built and filled in field by field.
+
+The original entry: `WorldMapView` already draws the
 world; this gives it brushes, on the MapView/MapEditor pattern: a terrain paint
 (the palette's Terrain category arms it), location place/move/delete, and area
 rectangles. Undo through the existing snapshot idiom.

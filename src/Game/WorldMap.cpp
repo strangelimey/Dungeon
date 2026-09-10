@@ -278,6 +278,52 @@ void WorldMap::ParseStartRecord(const std::string& record,
 	m_startZ = ParseCoord(tok[2], record, path);
 }
 
+bool WorldMap::SetTerrainAt(int x, int z, std::string_view terrainId) {
+	if (!InBounds(x, z)) return false;
+	for (size_t i = 0; i < m_terrain.size(); ++i)
+		if (m_terrain[i].id == terrainId) {
+			m_cells[static_cast<size_t>(z) * m_width + x] = static_cast<u8>(i);
+			return true;
+		}
+	return false; // an unknown terrain would author a world Load aborts on
+}
+
+bool WorldMap::AddLocation(Location l) {
+	if (!InBounds(l.x, l.z)) return false;
+	for (const Location& e : m_locations)
+		if (e.id == l.id || (e.x == l.x && e.z == l.z)) return false;
+	m_locations.push_back(std::move(l));
+	return true;
+}
+
+bool WorldMap::RemoveLocation(std::string_view id) {
+	const size_t before = m_locations.size();
+	std::erase_if(m_locations, [&](const Location& l) { return l.id == id; });
+	return m_locations.size() != before;
+}
+
+bool WorldMap::MoveLocation(std::string_view id, int x, int z) {
+	if (!InBounds(x, z)) return false;
+	Location* moving = nullptr;
+	for (Location& l : m_locations) {
+		if (l.id == id) moving = &l;
+		// Checked BEFORE the move, and against every OTHER location: a move
+		// onto an occupied cell has to fail whole rather than leave two
+		// doorways sharing a square, which LocationAt cannot represent.
+		else if (l.x == x && l.z == z) return false;
+	}
+	if (!moving) return false;
+	moving->x = x;
+	moving->z = z;
+	return true;
+}
+
+WorldMap::Location* WorldMap::MutableLocation(std::string_view id) {
+	for (Location& l : m_locations)
+		if (l.id == id) return &l;
+	return nullptr;
+}
+
 std::string WorldMap::Serialize() const {
 	std::string m = "; The overworld - written by the in-game editor.\n\n";
 	m += std::format("start {} {}\n", m_startX, m_startZ);

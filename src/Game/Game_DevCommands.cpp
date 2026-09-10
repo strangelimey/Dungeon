@@ -950,6 +950,110 @@ void Game::RegisterDevCommands() {
 						   }
 					   });
 	m_console.Register(
+		"undo", "undo one editor step (the toolbar's < / Ctrl+Z)",
+		[this](const std::vector<std::string>&) {
+			// The editor's history, reachable without a keyboard shortcut. It
+			// is ONE history across the tiers now (a world paint and a level
+			// paint land in the same stack), so this takes back whichever came
+			// last — which is the behaviour worth being able to test.
+			if (!m_world.CanUndo()) {
+				m_console.Print("nothing to undo");
+				return;
+			}
+			m_world.Undo();
+			m_console.Print("undone");
+		});
+	m_console.Register(
+		"redo", "redo one editor step (the toolbar's > / Ctrl+Y)",
+		[this](const std::vector<std::string>&) {
+			if (!m_world.CanRedo()) {
+				m_console.Print("nothing to redo");
+				return;
+			}
+			m_world.Redo();
+			m_console.Print("redone");
+		});
+	m_console.Register(
+		"worldedit", "world map edit mode: worldedit [on|off]",
+		[this](const std::vector<std::string>& args) {
+			if (!m_worldMap) {
+				m_console.Print("no world map loaded");
+				return;
+			}
+			if (!args.empty())
+				m_worldMapView.SetMode(args[0] == "off" ? WorldMapView::Mode::Play
+														: WorldMapView::Mode::Editor);
+			// REPORTS when bare, like `rest` and `encounters`: a mode command
+			// whose meaning depends on a state you cannot see is a coin flip.
+			m_console.Print(m_worldMapView.Editing() ? "world editing (fog off)"
+													 : "world playing (fog on)");
+		});
+	m_console.Register(
+		"terrainbrush", "arm the world terrain brush: terrainbrush [id|off]",
+		[this](const std::vector<std::string>& args) {
+			if (!m_worldMap) {
+				m_console.Print("no world map loaded");
+				return;
+			}
+			if (!args.empty()) {
+				if (args[0] == "off") m_worldMapView.ArmTerrain({});
+				else {
+					// Refuse an unknown id rather than arming a brush that
+					// would paint nothing: SetTerrainAt would decline every
+					// cell and the click would look broken.
+					bool known = false;
+					for (const WorldMap::Terrain& t : m_worldMap->Terrains())
+						if (t.id == args[0]) known = true;
+					if (!known) {
+						m_console.Print(std::format("no terrain '{}'", args[0]));
+						return;
+					}
+					m_worldMapView.ArmTerrain(args[0]);
+				}
+			}
+			m_console.Print(m_worldMapView.ArmedTerrain().empty()
+								? "no terrain armed"
+								: "armed: " + m_worldMapView.ArmedTerrain());
+		});
+	m_console.Register(
+		"paint", "paint the armed terrain on a world cell: paint <x> <z>",
+		[this](const std::vector<std::string>& args) {
+			// The mouse path's rules, reachable without a mouse: same armed
+			// brush, same undo bracketing, same refusal to repaint a cell that
+			// is already that terrain.
+			if (!m_worldMap || args.size() < 2) {
+				m_console.Print("usage: paint <x> <z> (arm with terrainbrush)");
+				return;
+			}
+			if (m_worldMapView.ArmedTerrain().empty()) {
+				m_console.Print("no terrain armed");
+				return;
+			}
+			const int x = std::atoi(args[0].c_str());
+			const int z = std::atoi(args[1].c_str());
+			if (!m_worldMap->InBounds(x, z)) {
+				m_console.Print(std::format("{},{} is off the world grid", x, z));
+				return;
+			}
+			const std::string was = m_worldMap->TerrainAt(x, z).id;
+			// A CELL ALREADY THAT TERRAIN IS NOT AN EDIT, and must not push an
+			// undo step. SetTerrainAt returns true for "I found the terrain and
+			// set it", not "something changed" — so trusting it put a no-op
+			// step on the stack, and the next Ctrl+Z spent itself taking back
+			// nothing. The mouse path had this right; the console did not.
+			if (was == m_worldMapView.ArmedTerrain()) {
+				m_console.Print(std::format("{},{} is already {}", x, z, was));
+				return;
+			}
+			m_world.BeginUndoStep();
+			const bool changed =
+				m_worldMap->SetTerrainAt(x, z, m_worldMapView.ArmedTerrain());
+			m_world.CommitUndoStep(changed);
+			m_console.Print(changed ? std::format("{},{} {} -> {}", x, z, was,
+												  m_worldMapView.ArmedTerrain())
+									: std::format("{},{} unchanged", x, z));
+		});
+	m_console.Register(
 		"newtype", "create a pure-data type: newtype <dungeons|terrain|quests>",
 		[this](const std::vector<std::string>& args) {
 			// The palette's "+ New..." for these categories, reachable without a

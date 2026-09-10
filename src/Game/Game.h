@@ -676,6 +676,9 @@ private:
 	// MapView mode: MapView is built around a DungeonMap and its docks,
 	// palette and brushes, none of which mean anything on the world.
 	WorldMapView m_worldMapView;
+	// A paint STROKE is open: the first changed cell began an undo step and the
+	// mouse release closes it, so one drag is one Ctrl+Z.
+	bool m_worldStroke = false;
 	MapView m_mapView;
 	// The Editor-mode brush palette + tools, driven by m_mapView while it is in
 	// Editor mode (see MapEditor.h). Declared after m_mapView so it can take a

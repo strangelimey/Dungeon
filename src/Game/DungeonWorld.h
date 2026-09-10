@@ -26,6 +26,7 @@
 #include "Game/DungeonEntities.h"
 #include "Game/Validate.h"
 #include "Game/DungeonMap.h"
+#include "Game/WorldMap.h"
 #include "Game/DungeonMeshBuilder.h" // WallPanels (the worn wall block's variants)
 #include "Game/FireEffect.h"
 #include "Game/GameSettings.h"
@@ -172,6 +173,15 @@ public:
 	// so monster melee can drain member health and party melee can read each
 	// member's derived stats. Must be set before play; null = no combat.
 	void SetRoster(std::vector<Character>* roster) { m_roster = roster; }
+	// The WORLD, by pointer, for the undo history ALONE (Michael's answer:
+	// one history, so a step spanning tiers undoes as one thing). The world is
+	// Game's and stays Game's — this is the same borrowing m_roster does, and
+	// for the same reason: the snapshot has to be able to copy and restore it.
+	//
+	// NOTHING ELSE HERE READS IT. If a second use appears, that is the moment
+	// to ask whether the world belongs somewhere both can see rather than
+	// letting the level simulation grow a second opinion about the overworld.
+	void SetWorldForUndo(std::optional<WorldMap>* world) { m_worldForUndo = world; }
 	// A hand-slot click: the given roster member swings the given hand (0 = left,
 	// 1 = right) at the monster in the cell directly ahead of the party.
 	// Resolves a strike when the member is up, that hand is off cooldown, and a
@@ -2951,6 +2961,7 @@ private:
 	// Combat: the Game's roster (not owned) + the strike RNG. UpdateMonsters
 	// ticks cooldowns and runs monster melee; PartyAttack runs the party's.
 	std::vector<Character>* m_roster = nullptr;
+	std::optional<WorldMap>* m_worldForUndo = nullptr; // borrowed; see SetWorldForUndo
 	std::mt19937 m_combatRng{0xC0FFEEu};
 	bool m_partyWiped = false; // latches onPartyWipe so it fires once
 	// The attack formula's tuning (docs/combat.md): balance.cat knobs +
@@ -3125,6 +3136,10 @@ private:
 	// records synced, .ent records, dynamic-state diffs) + every stash. Levels
 	// are a few KB, so a copy per edit is nothing.
 	struct EditorSnapshot {
+		// The WORLD as it was, when the editor is holding one. Copied per step
+		// like everything else here: a world is a small grid and a few dozen
+		// records, which is less than any one level.
+		std::optional<WorldMap> world;
 		std::string stem;            // active level at capture
 		DungeonMap map;              // live decoration records synced in
 		DungeonEntities ents;

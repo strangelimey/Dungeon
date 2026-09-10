@@ -30,13 +30,45 @@
 #include "UI/Font.h"
 #include "UI/UIContext.h" // ui::Theme
 
+#include <functional>
 #include <string>
 
 namespace dungeon::game {
 
 class WorldMapView {
 public:
+	// Two modes of one view, the shape MapView already arrived at for the
+	// dungeon map (Michael, 2026-09-09: the world screen is BOTH). FOG is the
+	// difference, exactly as it is below ground — Play draws undiscovered
+	// ground as unknown and hides the locations the party has not found;
+	// Editor draws the whole world, because you cannot place what you cannot
+	// see.
+	//
+	// Unlike MapView there is no "the world keeps simulating behind it"
+	// problem to solve: the world map is an app state that simulates nothing,
+	// so this is a mode of that state rather than an overlay over a game.
+	enum class Mode { Play, Editor };
+
 	WorldMapView(ui::FontLibrary& fonts) : m_fonts(fonts) {}
+
+	Mode CurrentMode() const { return m_mode; }
+	void SetMode(Mode m) { m_mode = m; }
+	bool Editing() const { return m_mode == Mode::Editor; }
+
+	// The terrain the paint brush will lay down, by id. Empty = nothing armed,
+	// and a click paints nothing — the same "nothing armed until you pick a
+	// row" rule the dungeon palette has.
+	void ArmTerrain(std::string id) { m_armed = std::move(id); }
+	const std::string& ArmedTerrain() const { return m_armed; }
+
+	// Fired when the editor paints a cell, so the owner can bracket it as ONE
+	// undo step and mark the world dirty. The view never mutates the world
+	// itself: it decides WHAT and WHERE, and the owner decides whether that is
+	// allowed and what it costs.
+	std::function<void(int x, int z, const std::string& terrainId)> onPaint;
+	// A cell was right-clicked in Editor mode: the owner opens whatever
+	// inspects that square (a location, or the cell itself).
+	std::function<void(int x, int z)> onInspect;
 
 	// Re-bakes at the window's font height, like every other screen.
 	void SetFontHeight(float pixelHeight) {
@@ -78,6 +110,11 @@ private:
 	ui::FontLibrary& m_fonts;
 	const ui::Font* m_font = nullptr;
 
+	Mode m_mode = Mode::Play;
+	std::string m_armed; // terrain id the brush lays down; empty = none
+	bool m_painting = false; // a drag in progress: one undo step, many cells
+	bool m_rightDown = false; // right press seen; a stationary release inspects
+	Vec2 m_rightFrom{0.0f, 0.0f};
 	float m_zoom = 1.0f;
 	Vec2 m_pan{0.0f, 0.0f};
 	bool m_dragging = false;

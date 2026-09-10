@@ -550,6 +550,7 @@ world.discovered=You have found {}.
 world.quest_stage={} — {}
 world.revealed=Your map now shows {}.
 world.ambush=Something has found you.
+world.inspect={} — {}
 world.camped=You break camp after {} hours.
 world.nosave=Not here — there is no telling this place to stay.
 world.begin=You set out into the world.

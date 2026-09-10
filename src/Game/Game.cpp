@@ -220,6 +220,9 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	// rather than as a staged task — nothing on the loading screen waits for it,
 	// and an absent world is legal.
 	LoadWorldMap();
+	// The world joins the editor's ONE undo history (his answer: a step that
+	// spans tiers undoes as one thing). Borrowed by pointer, like the roster.
+	m_world.SetWorldForUndo(&m_worldMap);
 
 	WireModuleCallbacks();
 	RegisterDevCommands();
@@ -1327,6 +1330,13 @@ void Game::Update(float dt) {
 			m_worldMapView.Update(input, *m_worldMap,
 								  WorldPanel(static_cast<float>(m_window.Width()),
 											 static_cast<float>(m_window.Height())));
+			// The stroke closes when the button comes up, wherever the cursor
+			// ended — including outside the grid, which is exactly where a drag
+			// that ran off the edge would otherwise leave it open forever.
+			if (m_worldStroke && !input.IsMouseDown(MouseButton::Left)) {
+				m_worldStroke = false;
+				m_world.CommitUndoStep(/*changed=*/true);
+			}
 			// The BOUND movement keys, read as compass directions: there is no
 			// facing out here, so forward/back/strafe are north/south/west/east
 			// and the turn keys mean nothing. Using the bindings rather than

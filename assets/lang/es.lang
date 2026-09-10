@@ -528,6 +528,7 @@ world.discovered=Habéis encontrado {}.
 world.quest_stage={} — {}
 world.revealed=Vuestro mapa muestra ahora {}.
 world.ambush=Algo os ha encontrado.
+world.inspect={} — {}
 world.camped=Levantáis el campamento tras {} horas.
 world.nosave=Aquí no — este lugar no se deja retener.
 world.begin=Partís hacia el mundo.

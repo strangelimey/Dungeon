@@ -2,7 +2,7 @@
 #
 # Run:  python tools\WorldTest.py      (needs a debug build)
 #
-# Eleven phases, all built on one principle: a check that never fires reports
+# Twelve phases, all built on one principle: a check that never fires reports
 # "clean" just as loudly as one that works, so every expectation here is paired
 # with something that makes it fail.
 #
@@ -30,6 +30,8 @@
 #      went in.
 #  11. THE WORLD TIER AS CONTENT — dungeons/terrain/quests authored from the
 #      palette, and a reference sweep that can see the world.
+#  12. THE WORLD EDITOR — two modes, a terrain brush, and the world sharing
+#      the editor's single undo history.
 #   4. TRAVEL — a journey costs the time its terrain says and the supplies that
 #      span buys, refuses an impassable square instead of clamping, and reveals
 #      what walking past a place should reveal. The times are read off
@@ -434,6 +436,27 @@ try:
         check("created " + made in log, f"created {made}")
     check("dungeon1': 0 level record(s), 0 other reference(s)" in log,
           "and a fresh type is referenced by nothing")
+    # --- phase 12: the world can be edited ----------------------------------
+    print("\n12 - the world can be painted, and taken back")
+    log = run("worldedit.eval")
+    roads = [l.split("'-'")[-1].split("cells")[0].strip()
+             for l in log.splitlines() if "terrain road" in l]
+
+    check("world playing (fog on)" in log and "world editing (fog off)" in log,
+          "the world screen has both modes, and says which it is in")
+    check("no terrain 'nonsense'" in log,
+          "an unknown terrain refuses to arm, rather than painting nothing")
+    check("6,6 road -> moor" in log, "a cell paints")
+    check("6,6 is already moor" in log,
+          "and painting it again is not an edit - so it pushes no undo step")
+
+    # THE COUNT IS THE EVIDENCE: 41 road, 40 after the paint, 41 after the
+    # undo, 40 after the redo. Reading the world back at each point is the
+    # whole test - an undo that said "undone" and changed nothing would look
+    # identical from the console otherwise.
+    check(roads == ["41", "40", "41", "40"],
+          "and the editor's ONE history takes it back and puts it again",
+          f"road cell counts: {roads}")
 finally:
     for p, s in originals.items():
         write(p, s)

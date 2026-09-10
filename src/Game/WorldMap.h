@@ -218,6 +218,28 @@ public:
 	int StartX() const { return m_startX; }
 	int StartZ() const { return m_startZ; }
 
+	// --- editing (W3, docs/world-editor-plan.md) ----------------------------
+	// Every mutator names a terrain / location by ID and validates: an editor
+	// that could write a cell to a terrain that does not exist would author a
+	// world its own loader aborts on.
+	//
+	// The grid stores an INDEX into m_terrain, so a terrain must be found
+	// before a cell can be painted — which is also why there is no SetTerrain
+	// taking an index: the caller would have to know the ordering, and the
+	// whole point of glyphs was that nothing outside has to.
+	bool SetTerrainAt(int x, int z, std::string_view terrainId);
+	// Adds a location, refusing a duplicate id or an occupied cell — the two
+	// things Load asserts on, checked here so the editor cannot author a world
+	// that will not load.
+	bool AddLocation(Location l);
+	bool RemoveLocation(std::string_view id);
+	// Moves one to another cell. False if the id is unknown, the cell is off
+	// the grid, or another location already stands there.
+	bool MoveLocation(std::string_view id, int x, int z);
+	Location* MutableLocation(std::string_view id);
+	void SetStart(int x, int z) { m_startX = x; m_startZ = z; }
+	std::vector<Area>& MutableAreas() { return m_areas; }
+
 	// --- writing (W1, docs/world-editor-plan.md) ----------------------------
 	// The world as it would be written: records, then the grid, in the dialect
 	// Load reads. Pure — it returns TEXT and touches no file, so a caller can
