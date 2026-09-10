@@ -802,23 +802,22 @@ void DungeonWorld::UpdateLights(float time) {
 	m_shadows.AssignSlots(m_lights.points, eye, m_shadowsEnabled);
 }
 
-void DungeonWorld::UpdateMonsters(float dt) {
-	const Vec3 partyPos = m_party.EyePosition();
-
-	// Danger gate for the unconscious (docs/combat.md Phase 5): any live
-	// monster within its own aggro range of the party resets every downed
-	// member's stabilize clock — nobody comes to mid-melee.
-	bool danger = false;
-	{
-		const int px = m_party.GridX(), pz = m_party.GridZ();
-		for (const Monster& m : m_monsters)
-			if (m.Alive() && std::abs(m.x - px) + std::abs(m.z - pz) <=
-								 static_cast<int>(m.kind->aggroRange)) {
-				danger = true;
-				break;
-			}
-	}
-
+void DungeonWorld::TickParty(float dt, bool danger) {
+	// THE PARTY HALF OF A TICK, lifted out of UpdateMonsters whole and in
+	// order (Michael, 2026-09-09: DoTs must bite on the road).
+	//
+	// IT MOVED BECAUSE A JOURNEY NEEDS IT. Travel on the world map settles
+	// hours at a time with no level loaded and no monsters to update, and
+	// calling UpdateMonsters for it would have run the AI over a dungeon
+	// the party is nowhere near.
+	//
+	// THE ORDER IS LOAD-BEARING and is why this is a MOVE and not a rewrite:
+	// the stabilize clock reads `danger` before anything else can down
+	// someone, supplies drain BEFORE the effect tick so an emptied meter
+	// bites on the same frame it empties, and the wipe check comes after the
+	// DoTs because a tick can finish the last member standing. Every health
+	// write in here is bracketed by the damage ledger, which is what makes
+	// the one-pipeline rule checkable at all.
 	// Tick down each member's per-hand swing cooldowns so hands free up over
 	// time, fade out the hit-feedback splat, regenerate mana (scaled by
 	// intelligence) so spent spell points recover between casts, age any
@@ -961,6 +960,32 @@ void DungeonWorld::UpdateMonsters(float dt) {
 	// After the supply and regen ticks, so it judges this frame's state rather
 	// than the last one's.
 	UpdateRest();
+}
+
+void DungeonWorld::UpdateMonsters(float dt) {
+	const Vec3 partyPos = m_party.EyePosition();
+
+	// Danger gate for the unconscious (docs/combat.md Phase 5): any live
+	// monster within its own aggro range of the party resets every downed
+	// member's stabilize clock — nobody comes to mid-melee.
+	//
+	// COMPUTED HERE rather than inside TickParty, because it is a fact about
+	// THE LEVEL and a travelling party is not in one. Leaving it in there had a
+	// stale dungeon's monsters gating the recovery of a party three days' walk
+	// away, which is precisely the kind of wrong nobody would ever think to
+	// look for.
+	bool danger = false;
+	{
+		const int px = m_party.GridX(), pz = m_party.GridZ();
+		for (const Monster& m : m_monsters)
+			if (m.Alive() && std::abs(m.x - px) + std::abs(m.z - pz) <=
+								 static_cast<int>(m.kind->aggroRange)) {
+				danger = true;
+				break;
+			}
+	}
+
+	TickParty(dt, danger);
 
 	// Re-derive groups from current co-location (monsters sharing a cell are one
 	// group — merge/split as they converge/spread), then assign formation targets

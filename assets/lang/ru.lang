@@ -521,6 +521,7 @@ world.caption.help=Двигайтесь клавишами движения. П�
 world.blocked=Путь непроходим.
 world.discovered=Вы нашли: {}.
 world.ambush=Вас нашли.
+world.camped=Вы сворачиваете лагерь через {} ч.
 world.nosave=Не здесь — это место не удержать.
 world.begin=Вы отправляетесь в путь.
 world.entered=Вы спускаетесь в {}.

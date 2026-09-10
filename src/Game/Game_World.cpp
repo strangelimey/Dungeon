@@ -260,35 +260,92 @@ bool Game::TravelStep(int dx, int dz) {
 }
 
 void Game::SettleJourney(float hours) {
-	// A JOURNEY SETTLES A BILL; it does not run the dungeon's clock fast
-	// (docs/world-map.md "Time, and what a journey costs"). The arithmetic is
-	// the SAME pure function the per-frame tick calls — asked for a large span
-	// instead of a frame — so the two cost models cannot disagree about what an
-	// hour of walking costs.
+	// A JOURNEY SETTLES A BILL, and since 2026-09-09 that bill includes the
+	// things that were never rates: DoTs bite on the road, wounds close, and an
+	// unconscious member comes round somewhere along the way (Michael — "DoT
+	// should still affect the party members. Travelling on the world map COULD
+	// easily kill affected members").
+	//
+	// IN SLICES, because those are state machines and not rates. A poison that
+	// would finish someone three hours into a six-hour march has to finish them
+	// THERE — settling the whole span in one call would apply six hours of burn
+	// to a member who should not have survived the third, and then heal what was
+	// left of them.
+	//
+	// It calls the SAME TickParty the dungeon's own update calls, so the two
+	// cost models cannot disagree about what an hour costs. This is why the
+	// party tick had to come out of UpdateMonsters: travel has no monsters to
+	// update and no level worth updating them in.
 	const float seconds = hours * 3600.0f;
 	if (seconds <= 0.0f) return;
-	for (Character& member : m_characters) {
-		if (!member.IsAlive()) continue;
-		const float practice = member.PracticeLevel(resource::Kind::Stamina);
-		for (const resource::Supply which :
-			 {resource::Supply::Food, resource::Supply::Water}) {
-			const resource::SupplyRules rules = m_world.GetBalance().SupplyOf(which);
-			float& level = member.SupplyLevel(which);
-			level = std::clamp(level - resource::DrainPerSec(rules, practice) * seconds,
-							   0.0f, rules.max);
-		}
+
+	// A minute at a time. Fine enough that a death lands within a minute of
+	// when it should, coarse enough that a day's march is a few hundred
+	// iterations rather than a hundred thousand. Nothing in here is per-frame
+	// work — the rates are all dt-scaled, so a slice is arithmetic, not a
+	// simulation step.
+	constexpr float kSlice = 60.0f;
+	for (float t = 0.0f; t < seconds; t += kSlice) {
+		const float dt = std::min(kSlice, seconds - t);
+		// WALKING IS EXERTION, and this one line is what makes travel dangerous
+		// rather than restorative. Health regen is gated on the exertion signal
+		// the resources model already has (`staminaHoldoff`, docs/health-and-
+		// healing.md), and without it half an hour of road regenerated ~400
+		// health — enough to out-heal any DoT that was not lethal within the
+		// minute, so a poisoned party arrived FULLER than it set out.
+		//
+		// That made "travelling could easily kill affected members" true only
+		// of doses that kill instantly, and made camp pointless. You heal in
+		// CAMP, not on the road.
+		for (Character& member : m_characters)
+			if (member.IsAlive()) member.staminaHoldoff = dt;
+		// No monsters can be near a party that is out on the world map, so the
+		// stabilize clock runs: the road is where you come round.
+		m_world.TickParty(dt, /*danger=*/false);
+		// A wipe on the road ends the journey — and the game. CheckPartyWipe
+		// has already fired onPartyWipe by now; carrying on would go on
+		// charging supplies to four corpses.
+		if (m_world.PartyWiped()) break;
 	}
-	// NOT SETTLED HERE YET, and no longer by choice. Michael decided
-	// (2026-09-09) that DoTs MUST bite on the road and that travel may kill —
-	// but the party's effect tick lives INSIDE DungeonWorld::UpdateMonsters,
-	// interleaved with the monster loop, so calling it would run the AI.
-	// Honouring the decision needs the party-tick extraction P3 dropped, and it
-	// must be settled in SLICES: a DoT that would kill someone three hours into
-	// a six-hour march has to kill them there, not at the end. See
-	// docs/world-map.md "Time, and what a journey costs" (P3.5).
+}
+
+float Game::Camp() {
+	// THE COUNTERWEIGHT to travel that can kill (docs/world-map.md). Camping is
+	// REST, reached from the world map — not a second recovery model. It turns
+	// the same state on and settles time until the same rules turn it off:
+	// deprivation stops it, being fully recovered stops it, and the supplies it
+	// burns are the ones TickParty was always going to charge.
 	//
-	// Until then a journey does not pretend to have resolved them — a poisoned
-	// party travels for free, visibly rather than silently.
+	// It does NOT use rest's 60x time multiplier. That exists to make waiting
+	// bearable in real time inside a dungeon; out here world time is advanced
+	// directly, so an hour camped IS an hour, and there is nothing to speed up.
+	if (!m_worldState.onWorldMap) return 0.0f;
+	if (m_world.Resting()) return 0.0f;
+
+	m_world.SetResting(true);
+	if (!m_world.Resting()) {
+		// Refused before it began — starving or parched, and rest would only
+		// spend health to pass time you are already losing health for. The
+		// world has said why.
+		return 0.0f;
+	}
+
+	constexpr float kSlice = 60.0f;
+	constexpr float kMaxHours = 24.0f; // a day is long enough to be a decision
+	float seconds = 0.0f;
+	while (m_world.Resting() && seconds < kMaxHours * 3600.0f) {
+		m_world.TickParty(kSlice, /*danger=*/false);
+		seconds += kSlice;
+		m_worldState.time += kSlice / 3600.0f;
+		if (m_world.PartyWiped()) break;
+	}
+	m_world.SetResting(false);
+
+	const float hours = seconds / 3600.0f;
+	if (m_world.onMessage)
+		m_world.onMessage(loc::FormatLine("world.camped",
+										  std::format("{:.1f}", hours)));
+	return hours;
 }
 
 void Game::RevealAround(int x, int z) {

@@ -1339,10 +1339,12 @@ void Game::Update(float dt) {
 			else if (input.WasKeyPressed(k.strafeRight)) dx = 1;
 			if ((dx || dz) && !m_console.IsOpen() && !TravelStep(dx, dz))
 				m_ui.AddLogLine(loc::View("world.blocked"));
-			// Enter goes IN, at whatever the party is standing on. No key
-			// binding of its own: the world map has one verb beyond moving,
-			// and inventing a bindable action for it before there are several
-			// would be guessing at a control scheme.
+			// C makes camp. Like Enter below it has no binding of its own —
+			// the world map's verbs are few enough to name, and inventing a
+			// bindable action per verb before there are several would be
+			// guessing at a control scheme.
+			if (input.WasKeyPressed('C') && !m_console.IsOpen()) Camp();
+			// Enter goes IN, at whatever the party is standing on.
 			if (input.WasKeyPressed(VK_RETURN) && !m_console.IsOpen()) {
 				if (const WorldMap::Location* l =
 						m_worldMap->LocationAt(m_worldState.x, m_worldState.z))

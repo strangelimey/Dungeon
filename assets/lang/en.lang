@@ -539,6 +539,7 @@ world.caption.help=Move with your movement keys. Drag to pan, wheel to zoom.
 world.blocked=The way is impassable.
 world.discovered=You have found {}.
 world.ambush=Something has found you.
+world.camped=You break camp after {} hours.
 world.nosave=Not here — there is no telling this place to stay.
 world.begin=You set out into the world.
 world.entered=You descend into {}.

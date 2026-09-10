@@ -2,7 +2,7 @@
 #
 # Run:  python tools\WorldTest.py      (needs a debug build)
 #
-# Seven phases, all built on one principle: a check that never fires reports
+# Eight phases, all built on one principle: a check that never fires reports
 # "clean" just as loudly as one that works, so every expectation here is paired
 # with something that makes it fail.
 #
@@ -22,6 +22,8 @@
 #      different parts of it and surface in different parts of the world.
 #   7. RANDOM ENCOUNTERS — built from text, scaled by the area, thrown away,
 #      and refusing to be saved.
+#   8. THE ROAD HURTS — DoTs bite while travelling, settled in slices, and
+#      camp is what heals you.
 #   4. TRAVEL — a journey costs the time its terrain says and the supplies that
 #      span buys, refuses an impassable square instead of clamping, and reveals
 #      what walking past a place should reveal. The times are read off
@@ -312,6 +314,34 @@ try:
     # THE CHECK THAT MATTERS: the file is not there. A refusal that still
     # wrote something would read exactly the same in the log.
     check(not os.path.exists(trip), "and no save file was written", trip)
+    # --- phase 8: the road hurts, camp answers ------------------------------
+    print("\n8 - DoTs bite on the road, and camp answers them")
+    log = run("worldroad.eval")
+    brand = [l.split("console:")[-1].strip()
+             for l in log.splitlines() if "console:   [0] Brand  hp" in l]
+
+    # THE EXACT NUMBER IS THE POINT. A bleed of magnitude 6 for 4 SECONDS is
+    # 24 damage, so a 42-health member arrives at exactly 18.0 - however long
+    # the journey was, and whatever slice size settles it.
+    #
+    # It is a regression test for a real bug this phase uncovered: TickEffects
+    # bit for the whole dt rather than for the time the effect had left, which
+    # at 60-second slices turned a 4-second bleed into 60 seconds of damage.
+    # Invisible at frame dt, lethal here.
+    check(any("hp 18.0/42.0" in b for b in brand),
+          "a 4s bleed of 6 costs exactly 24 health, not one slice of it",
+          " / ".join(brand))
+
+    # And a heavier dose very nearly finishes the job - the road is dangerous
+    # now, which it was not while walking regenerated ~400 health an hour.
+    check(any(b.startswith("[0] Brand  hp 0.") for b in brand),
+          "a poisoned party arrives all but dead", " / ".join(brand))
+
+    # CAMP is the counterweight: back to full, and the last reading is the
+    # highest one, so recovery happened AFTER the wounding rather than before.
+    check(brand and "44.7/44.7" in brand[-1],
+          "and camping restores it to full", " / ".join(brand[-2:]))
+    check("camped 0.0" in log, "camp reports the hours it actually took")
 finally:
     for p, s in originals.items():
         write(p, s)

@@ -1,0 +1,43 @@
+; worldroad.eval — the road hurts, and camp is how you answer it (P3.5).
+;
+; Michael, 2026-09-09: "DoT should still affect the party members. Travelling on
+; the world map COULD easily kill affected members." Before P3.5 a journey
+; settled SUPPLIES only, so a poisoned party travelled for free.
+;
+; THE DOSE IS THE HARD PART, and both extremes measure nothing:
+;   - a small DoT is out-healed. Health regen runs while walking (nothing about
+;     travel sets the exertion gate), and at ~0.23/s it beats any poison that
+;     does not also kill outright. So "arrives with less health" is not a
+;     measurable claim over an hour of road.
+;   - a huge one kills inside the FIRST slice, which proves the tick happens and
+;     nothing else — and then `camp` reports "recovered" over four corpses,
+;     because rest excludes the dead by design.
+; So this measures the thing that is unambiguous: a party ALREADY on the floor
+; is finished by its DoT ON THE ROAD, where before it would have arrived intact.
+logecho on
+reset
+encounters off
+leave
+
+; --- wounded to the floor, then poisoned, then made to walk ------------------
+; bleed downs them; poison is what finishes a downed member (the overkill rule).
+effect bleed 0 6 4
+effect bleed 1 6 4
+effect bleed 2 6 4
+effect bleed 3 6 4
+effect poison 0 0.5 600
+party
+travel e 1
+party
+
+; --- a healthy party camps: hours pass, supplies pay, health returns ---------
+reset
+leave
+effect bleed 0 6 4
+travel e 1
+party
+supplies
+camp
+party
+supplies
+world

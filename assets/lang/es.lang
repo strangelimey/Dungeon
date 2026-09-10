@@ -517,6 +517,7 @@ world.caption.help=Muévete con tus teclas de movimiento. Arrastra para desplaza
 world.blocked=El camino es intransitable.
 world.discovered=Habéis encontrado {}.
 world.ambush=Algo os ha encontrado.
+world.camped=Levantáis el campamento tras {} horas.
 world.nosave=Aquí no — este lugar no se deja retener.
 world.begin=Partís hacia el mundo.
 world.entered=Descendéis a {}.

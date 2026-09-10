@@ -370,6 +370,21 @@ void Game::RegisterDevCommands() {
 				moved < count ? " (blocked)" : ""));
 		});
 	m_console.Register(
+		"camp", "camp on the world map until rest ends by itself",
+		[this](const std::vector<std::string>&) {
+			if (!m_worldState.onWorldMap) {
+				m_console.Print("camping is a world-map action (you are in a level)");
+				return;
+			}
+			const float hours = Camp();
+			// Reports the REASON as well as the hours, because "camped 0.0h" on
+			// its own reads as a bug and is usually a party too hungry to rest.
+			m_console.Print(std::format("camped {:.2f}h — {}", hours,
+										m_world.RestEndReason()[0]
+											? m_world.RestEndReason()
+											: "did not start"));
+		});
+	m_console.Register(
 		"encounter", "force a random encounter here: encounter [difficulty]",
 		[this](const std::vector<std::string>& args) {
 			if (!m_worldMap) {

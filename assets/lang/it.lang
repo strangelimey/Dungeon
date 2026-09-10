@@ -517,6 +517,7 @@ world.caption.help=Muoviti con i tasti di movimento. Trascina per spostare, rote
 world.blocked=La via è impraticabile.
 world.discovered=Avete trovato {}.
 world.ambush=Qualcosa vi ha trovati.
+world.camped=Levate il campo dopo {} ore.
 world.nosave=Non qui — questo luogo non si lascia trattenere.
 world.begin=Partite verso il mondo.
 world.entered=Scendete in {}.

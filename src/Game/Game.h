@@ -311,6 +311,10 @@ private:
 	// Charges `hours` of travel against the party. Supplies only — see the
 	// comment at the definition for what is deliberately NOT settled.
 	void SettleJourney(float hours);
+	// Camp where the party stands: rest, reached from the world map, settled in
+	// the same slices a journey uses and stopped by the same rules rest already
+	// has. Returns the hours it lasted (0 = it never started).
+	float Camp();
 	// Reveals a world cell and its eight neighbours, discovering any location
 	// standing on them.
 	void RevealAround(int x, int z);

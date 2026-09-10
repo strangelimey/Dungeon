@@ -266,6 +266,25 @@ public:
 	// attacks, fumble chances, blast jitter, proc chances — and it is otherwise
 	// constant-seeded, which makes a run perfectly reproducible AND makes every
 	// run the same run. An eval needs a SAMPLE, so it varies this per encounter.
+	// The PARTY half of a tick: the stabilize clock, cooldowns, regeneration,
+	// supplies, status effects, the wipe check and the rest state. Public
+	// because a world-map JOURNEY settles hours of it with no level to update
+	// and no monsters to think (docs/world-map.md) — the dungeon's own update
+	// calls exactly the same thing, so the two cannot drift.
+	//
+	// SLICE IT for a long span rather than passing the whole thing: the things
+	// in here are state machines, and a DoT that would kill someone three hours
+	// into a march has to kill them there.
+	// `danger` is "a live monster is within aggro of the party", which holds
+	// the unconscious back from self-stabilizing. It is a fact about A LEVEL, so
+	// the caller supplies it: a travelling party is not in one, and false is not
+	// a simplification there but the truth.
+	void TickParty(float dt, bool danger);
+	// Has the wipe latch fired? A settled JOURNEY reads it between slices, so a
+	// party that dies three hours into a march stops being charged for the
+	// other three.
+	bool PartyWiped() const { return m_partyWiped; }
+
 	void SeedCombat(u32 seed) { m_combatRng.seed(seed); }
 	// The same stream the fighting draws from, for the things OUTSIDE combat
 	// that must still be reproducible from a seed — a travel encounter roll.
@@ -2511,10 +2530,21 @@ private:
 		// per-frame path, so it must have a compile-time size.
 		std::array<float, kMaxDamageTypes> bite{};
 		for (fx::Inst& e : effects) {
+			// AN EFFECT BITES FOR THE TIME IT ACTUALLY HAD, not for the whole
+			// step. At frame dt the two are the same to within a rounding error
+			// and this went unnoticed for the life of the system; at the
+			// SIXTY-SECOND slices a world-map journey settles in, a four-second
+			// bleed was dealing sixty seconds of damage and killing outright.
+			//
+			// The bug was always here — a DoT with 0.2s left on a 0.5s frame
+			// over-applied by more than half — and it took a caller with a
+			// coarse dt to make it visible. That is worth remembering about
+			// anything else that multiplies a rate by dt without asking how
+			// much of dt it was entitled to.
+			const float had = std::min(dt, std::max(0.0f, e.timeLeft));
 			e.timeLeft -= dt;
 			if (e.IsDot())
-				bite[e.kind->DamageTypeOf(e).index] +=
-					e.magnitude * dt;
+				bite[e.kind->DamageTypeOf(e).index] += e.magnitude * had;
 			if (e.timeLeft <= 0.0f) onExpire(e);
 		}
 		std::erase_if(effects,

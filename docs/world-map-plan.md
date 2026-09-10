@@ -144,7 +144,7 @@ encounter never touches disk — the same "writes no files" property
 answer 4); note only that determinism means a seed plus params would reproduce
 the space exactly, if that is ever the answer chosen.
 
-**P3.5 — effects while travelling, and camp.** NEW, from Michael's answer of
+**P3.5 — effects while travelling, and camp.** DONE (2026-09-09). NEW, from Michael's answer of
 2026-09-09 (docs/world-map.md "Time, and what a journey costs"): DoTs must bite
 on the road and travel may kill. That needs the PARTY-TICK EXTRACTION this plan
 dropped at P3 — the same work, for the opposite reason — settled in SLICES so a

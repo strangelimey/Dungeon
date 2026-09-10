@@ -171,7 +171,51 @@ ask the same function for a large span and get an answer that CANNOT disagree
 with the dungeon's. Lifting the rest of the cost loop out of `DungeonWorld` is
 deferred — his call — and is cheaper than it looks for the same reason.
 
-**DECIDED, NOT YET BUILT** (Michael, 2026-09-09): *"DoT should still affect the
+**BUILT (P3.5).** A journey now settles effects, regeneration and the stabilize
+clock as well as supplies, IN SLICES of a simulated minute, through the SAME
+`DungeonWorld::TickParty` the dungeon's own update calls — which is why the
+party tick had to come out of `UpdateMonsters` after all. The extraction was a
+MOVE, not a rewrite: the eval suites' numbers came out byte-identical, which is
+what says the order inside it survived.
+
+Two things fell out of doing it that were not in the plan:
+
+**THE DANGER GATE BELONGED TO THE CALLER.** "A monster is within aggro" is a
+fact about A LEVEL, and a travelling party is not in one — left inside the tick,
+a stale dungeon's monsters were gating the recovery of a party days away.
+
+**A DoT WAS BITING FOR THE WHOLE STEP.** `TickEffects` multiplied magnitude by
+`dt` without asking how much of `dt` the effect was entitled to. At frame dt the
+error is a rounding error and it went unnoticed for the life of the system; at
+sixty-second slices a FOUR-SECOND bleed dealt sixty seconds of damage and killed
+outright. Fixed where it was wrong rather than worked around here, and the
+harness pins the exact number (a bleed of 6 for 4s costs 24 health, whatever
+settles it).
+
+**WALKING IS EXERTION**, and that one line is what makes travel dangerous rather
+than restorative. Health regen is gated on the exertion signal the resources
+model already has, and without it half an hour of road regenerated ~400 health —
+enough to out-heal any DoT that was not lethal within the minute, so a poisoned
+party arrived FULLER than it set out. You heal in CAMP, not on the road.
+
+### Camp
+
+**CAMP IS REST, reached from the world map** — not a second recovery model. It
+turns the same state on and settles time until the same rules turn it off:
+deprivation stops it, being fully recovered stops it, and the supplies it burns
+are the ones the tick was always going to charge. It does NOT use rest's 60x
+multiplier: that exists to make waiting bearable in real time inside a dungeon,
+and out here world time is advanced directly, so an hour camped IS an hour.
+
+`C` on the world map, or the `camp` dev command — which reports the REASON as
+well as the hours, because "camped 0.0h" alone reads as a bug and is usually a
+party too hungry to rest.
+
+**A wipe on the road** ends the journey through the existing `onPartyWipe`
+latch, and the slice loop stops rather than going on charging supplies to four
+corpses.
+
+The original note, kept because it is what was decided (Michael, 2026-09-09): *"DoT should still affect the
 party members. Travelling on the world map COULD easily kill affected members."*
 So a journey must tick effects — and regeneration and the stabilize clock with
 them, since they are the same kind of state and a journey that burns you but
