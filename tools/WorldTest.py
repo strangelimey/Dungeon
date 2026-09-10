@@ -2,7 +2,7 @@
 #
 # Run:  python tools\WorldTest.py      (needs a debug build)
 #
-# Nine phases, all built on one principle: a check that never fires reports
+# Ten phases, all built on one principle: a check that never fires reports
 # "clean" just as loudly as one that works, so every expectation here is paired
 # with something that makes it fail.
 #
@@ -26,6 +26,8 @@
 #      camp is what heals you.
 #   9. QUESTS — named stages that move by finding things, a clue that reveals
 #      a place, and both riding the save.
+#  10. THE WRITER — world.map can be written, and what comes back is what
+#      went in.
 #   4. TRAVEL — a journey costs the time its terrain says and the supplies that
 #      span buys, refuses an impassable square instead of clamping, and reveals
 #      what walking past a place should reveal. The times are read off
@@ -374,6 +376,42 @@ try:
     # And all of it survives a save. The last readings come AFTER the load.
     check(len(q) >= 4 and "at 'found'" in q[-1],
           "quest stage and flags ride the save", " / ".join(q[-2:]))
+    # --- phase 10: the world can be written --------------------------------
+    print("\n10 - the world survives being written and read back")
+    world_before = read(WORLD)
+    try:
+        log = run("worldwrite.eval")
+        # The `world` command prints the whole world. Two identical readouts
+        # either side of a savemap is the writer's only real claim: what it
+        # wrote is what it had.
+        blocks = log.split("console: > world")
+        check(len(blocks) >= 3,
+              f"the script printed the world before and after saving (got {len(blocks) - 1})")
+        if len(blocks) >= 3:
+            def readout(b):
+                return [l.strip() for l in b.splitlines()
+                        if "console:   " in l and "party" not in l]
+            check(readout(blocks[1]) == readout(blocks[2]),
+                  "and the two readouts are identical")
+        # savemap re-reads the file it wrote; this is that check firing or not.
+        check("did not read back identically" not in log,
+              "savemap's own re-read found nothing wrong")
+        # THE GRID SURVIVED. Comments are lost by design (a level file is data
+        # and the editor regenerates its header), so the records and the grid
+        # are what has to come through - and the grid is the easy thing to get
+        # wrong, being the only part not made of key/value pairs.
+        after = read(WORLD)
+        rows_before = [l for l in world_before.splitlines()
+                       if l[:1] in ("~", "A", "M", "F", "^", ".", "-")]
+        rows_after = [l for l in after.splitlines()
+                      if l[:1] in ("~", "A", "M", "F", "^", ".", "-")]
+        check(rows_before == rows_after and len(rows_after) > 0,
+              f"the terrain grid came through unchanged ({len(rows_after)} rows)")
+        for record in ("start 6 6", "area lowlands", "dungeon=crypt level=crypt1",
+                       "entryx=7 entryz=7"):
+            check(record in after, f"kept: {record}")
+    finally:
+        write(WORLD, world_before)
 finally:
     for p, s in originals.items():
         write(p, s)

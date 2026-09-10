@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <charconv>
 #include <format>
+#include <string>
 
 namespace dungeon::game {
 
@@ -277,6 +278,44 @@ void WorldMap::ParseStartRecord(const std::string& record,
 	m_startZ = ParseCoord(tok[2], record, path);
 }
 
+std::string WorldMap::Serialize() const {
+	std::string m = "; The overworld - written by the in-game editor.\n\n";
+	m += std::format("start {} {}\n", m_startX, m_startZ);
+
+	// AREAS IN FILE ORDER, because the order IS the rule: they may overlap and
+	// the LAST match wins. Writing them sorted, or grouped, would silently
+	// change which area owns a cell.
+	for (const Area& a : m_areas) {
+		m += std::format("area {} {} {} {} {}", a.id, a.x, a.z, a.w, a.h);
+		if (a.difficulty >= 0.0f) m += std::format(" difficulty={:g}", a.difficulty);
+		m += '\n';
+	}
+
+	for (const Location& l : m_locations) {
+		m += std::format("location {} {} {} {}", l.kind, l.id, l.x, l.z);
+		// Only what was AUTHORED: `dungeon` absent means "same as my id", and
+		// writing it out anyway would turn every location into one that had made
+		// a choice it had not.
+		if (!l.dungeon.empty()) m += " dungeon=" + l.dungeon;
+		if (!l.level.empty()) m += " level=" + l.level;
+		if (l.entryX >= 0)
+			m += std::format(" entryx={} entryz={}", l.entryX, l.entryZ);
+		for (const auto& [k, v] : l.params) m += std::format(" {}={}", k, v);
+		m += '\n';
+	}
+
+	m += ";\n";
+	// The grid, through each cell's terrain GLYPH - which is why a terrain
+	// declares one: the writer needs no palette-index bookkeeping, and a
+	// reordered terrain.cat cannot repaint the world.
+	for (int z = 0; z < m_height; ++z) {
+		std::string row;
+		row.reserve(static_cast<size_t>(m_width));
+		for (int x = 0; x < m_width; ++x) row += TerrainAt(x, z).glyph;
+		m += row + "\n";
+	}
+	return m;
+}
 const WorldMap::Terrain& WorldMap::TerrainAt(int x, int z) const {
 	if (!InBounds(x, z)) return kNowhere;
 	return m_terrain[m_cells[static_cast<size_t>(z) * m_width + x]];

@@ -949,7 +949,22 @@ void Game::RegisterDevCommands() {
 								   where, i.messageKey, i.a));
 						   }
 					   });
-	m_console.Register("savemap", "write every edited level's .map/.ent to the project",
+	m_console.Register(
+		"saveworld", "write world/world.map alone (savemap writes the levels too)",
+		[this](const std::vector<std::string>&) {
+			// SEPARATE FROM `savemap` because savemap rewrites every level file
+			// as well, and a level writer regenerates headers — so using it to
+			// test the WORLD writer quietly stripped the authoring notes off
+			// eval_arena. A command that does one thing can be used to check
+			// that one thing.
+			if (!m_worldMap) {
+				m_console.Print("no world map loaded");
+				return;
+			}
+			m_console.Print(SaveWorld() ? "saved world" : "world save failed");
+		});
+	m_console.Register("savemap",
+					   "write every edited level's .map/.ent, and the world, to the project",
 					   [this](const std::vector<std::string>&) {
 						   if (!m_gameLoaded || (m_state != AppState::Playing &&
 												 m_state != AppState::Paused)) {
@@ -968,6 +983,13 @@ void Game::RegisterDevCommands() {
 						   } else {
 							   m_console.Print("save failed (see log)");
 						   }
+						   // AND THE WORLD, which is a level's peer now rather
+						   // than a hand-authored file the editor never touched.
+						   // Reported separately: "saved levels" answering for
+						   // the world too would hide a world that failed.
+						   if (m_worldMap)
+							   m_console.Print(SaveWorld() ? "saved world"
+														   : "world save failed");
 					   });
 	m_console.Register("synctosource",
 					   "copy the active project (edits) into the repo source tree",

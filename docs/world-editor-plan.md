@@ -47,7 +47,18 @@ screen, and a NAVIGATION change from a flat level list to dungeon-then-level.
 Phases
 ------
 
-**W1 — the world can be written.** `world/world.map` has no writer: it is
+**W1 — the world can be written.** DONE (2026-09-09). `WorldMap::Serialize`
+returns TEXT and touches no file, so it can be diffed and round-trip-checked
+without a disk; `Game::SaveWorld` writes it and READS IT BACK, warning if the
+two differ — because the failure mode is the nastiest kind, an in-memory world
+that stays correct all session with the damage only showing on next launch.
+
+`saveworld` writes the world ALONE, and it exists because using `savemap` to
+test the world writer rewrote every level too and stripped the authoring notes
+off eval_arena. A command that does one thing can be used to check that one
+thing.
+
+The original entry: `world/world.map` has no writer: it is
 hand-authored, and every phase below is pointless until an edit can survive the
 session. A writer in the shape of the `.map` writer (records, then grid), and
 `savemap` learns to include it. `project.ini` already round-trips.

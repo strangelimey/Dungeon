@@ -1,0 +1,19 @@
+; worldwrite.eval — the world survives being written and read back (W1).
+;
+; A writer's only real claim is that the thing it wrote is the thing it had. So
+; this prints the world, saves it, and prints it again — and WorldTest.py
+; compares the two readouts. `saveworld` re-reads the file it just wrote and warns
+; if it did not round-trip, which is the same check made where it is cheapest.
+;
+; It matters because the failure mode is the nastiest kind: a bad write leaves
+; the in-memory world correct for the rest of the session, and the damage only
+; appears on the next launch.
+;
+; `saveworld` and not `savemap`: savemap rewrites every LEVEL file too, and a
+; level writer regenerates headers — so testing the world writer with it
+; silently stripped the authoring notes off eval_arena.
+logecho on
+reset
+world
+saveworld
+world

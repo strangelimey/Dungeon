@@ -218,6 +218,16 @@ public:
 	int StartX() const { return m_startX; }
 	int StartZ() const { return m_startZ; }
 
+	// --- writing (W1, docs/world-editor-plan.md) ----------------------------
+	// The world as it would be written: records, then the grid, in the dialect
+	// Load reads. Pure — it returns TEXT and touches no file, so a caller can
+	// diff it, and so the round-trip check can compare without a disk.
+	//
+	// AUTHORING COMMENTS ARE NOT PRESERVED, the same rule the level writer
+	// follows: the editor regenerates a header and notes belong in docs or code
+	// (that is a standing project decision, not a limitation of this function).
+	std::string Serialize() const;
+
 private:
 	WorldMap() = default;
 

@@ -12,9 +12,11 @@
 // ============================================================================
 #include "Game/Game.h"
 
+#include "Assets/File.h"
 #include "Core/Loc.h"
 #include "Core/Log.h"
 #include "Game/Resource.h"
+#include "Game/Serialize.h"
 
 #include <algorithm>
 #include <format>
@@ -95,6 +97,34 @@ void Game::ResetWorldState() {
 	// onWorldMap stays FALSE: a new game still begins inside a dungeon until P4
 	// moves the opening. The party has a world position regardless — it is where
 	// it came in from.
+}
+
+bool Game::SaveWorld() {
+	if (!m_worldMap) return false;
+	// NORMALIZED like every other file the editor writes: the project is CRLF
+	// on disk and the serializer emits bare newlines, so one call keeps a
+	// savemap from showing up in git as a whole-file line-ending rewrite.
+	const std::string text = serialize::NormalizeEol(m_worldMap->Serialize());
+	if (!assets::WriteBinaryFile(m_project.WorldMapPath(), text.data(),
+								 text.size())) {
+		log::Warn("savemap: could not write {}", m_project.WorldMapPath());
+		return false;
+	}
+	// RE-READ WHAT WAS WRITTEN, and keep it. Anything that can be written can
+	// be written wrong, and the failure mode here is the worst kind — the
+	// in-memory world stays right for the rest of the session and the damage
+	// only shows on the next launch. Parsing it back costs microseconds and
+	// turns that into a warning now.
+	WorldMap::TerrainRules rules;
+	for (const WorldMap::Terrain& t : m_worldMap->Terrains()) rules.push_back(t);
+	if (std::optional<WorldMap> reread =
+			WorldMap::Load(m_project.WorldMapPath(), std::move(rules))) {
+		if (reread->Serialize() != m_worldMap->Serialize())
+			log::Warn("savemap: the world was written but did not read back "
+					  "identically — something in it does not round-trip");
+	}
+	log::Info("Wrote {}", m_project.WorldMapPath());
+	return true;
 }
 
 std::vector<validate::Issue> Game::ValidateProject() {

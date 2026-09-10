@@ -298,6 +298,10 @@ private:
 	// once from the constructor; leaves m_worldMap empty when the project has
 	// no world/world.map.
 	void LoadWorldMap();
+	// Writes world/world.map from the loaded world, and READS IT BACK to check
+	// it round-trips. Part of `savemap`. False when there is no world, or the
+	// write failed.
+	bool SaveWorld();
 	// Puts the world state where a NEW GAME starts it: the world map's own start
 	// cell, revealed, nothing discovered, no time elapsed. A project with no
 	// world leaves it blank.

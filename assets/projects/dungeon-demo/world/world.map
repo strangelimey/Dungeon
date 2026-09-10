@@ -1,32 +1,12 @@
-; The overworld (docs/world-map.md). One per project.
-;
-; Records are lowercase; the grid below is not. One glyph per terrain kind, as
-; declared by catalog/terrain.cat — there is no palette record here, because
-; there is only one world and terrain needs no per-level ordering.
-;
-; start      where a new game puts the party.
-; area       a rectangle overriding its terrain's difficulty. Tested in FILE
-;            ORDER, last match wins — author broad regions first and carve
-;            exceptions after them.
-; location   something the party can enter. Names a DUNGEON (dungeons.cat),
-;            never a level stem.
+; The overworld - written by the in-game editor.
 
 start 6 6
-
-; The settled south: the road and the farmland either side of it.
 area lowlands 2 5 20 11 difficulty=0.12
-; The moors north of the hills, where the barrows are. Authored AFTER lowlands
-; and overlapping nothing — the ordering rule matters the day they do.
 area moors 2 1 12 4 difficulty=0.45
-
 location dungeon crypt_gate 10 10 dungeon=crypt level=crypt1 entryx=7 entryz=7
-; THE BACK WAY: the same dungeon, a different door. It stands somewhere
-; else on the map and comes out somewhere else inside — which is why a
-; location names its dungeon and its landing spot rather than being one.
 location dungeon crypt_back 5 13 dungeon=crypt level=crypt2 entryx=10 entryz=6
-; The harness's ground, reachable so it can be walked into by hand.
 location dungeon proving_ground 18 6 dungeon=eval level=eval_arena entryx=14 entryz=12
-
+;
 ~~~AAAAAAAAA^^^^AAAAAAAA
 ~~~^^^^^^MMMM^^^^AAAAAAA
 ~~^^^^MMMMMM^^^^AAAAAAAA
