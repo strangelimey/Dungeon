@@ -2,7 +2,7 @@
 #
 # Run:  python tools\WorldTest.py      (needs a debug build)
 #
-# Twelve phases, all built on one principle: a check that never fires reports
+# Thirteen phases, all built on one principle: a check that never fires reports
 # "clean" just as loudly as one that works, so every expectation here is paired
 # with something that makes it fail.
 #
@@ -32,6 +32,8 @@
 #      palette, and a reference sweep that can see the world.
 #  12. THE WORLD EDITOR — two modes, a terrain brush, and the world sharing
 #      the editor's single undo history.
+#  13. PROPERTIES, AREAS AND DOORWAYS — the world's own settings, the area
+#      ordering rule made visible, and locations validated as the loader would.
 #   4. TRAVEL — a journey costs the time its terrain says and the supplies that
 #      span buys, refuses an impassable square instead of clamping, and reveals
 #      what walking past a place should reveal. The times are read off
@@ -457,6 +459,36 @@ try:
     check(roads == ["41", "40", "41", "40"],
           "and the editor's ONE history takes it back and puts it again",
           f"road cell counts: {roads}")
+    # --- phase 13: properties, areas and doorways ---------------------------
+    print("\n13 - the world's properties, its areas and its doorways")
+    log = run("worldprops.eval")
+    owners = [l.split("console:")[-1].strip()
+              for l in log.splitlines() if "difficulty" in l and " from " in l]
+
+    # Refusals are the LOADER's rules enforced early: an editor must not be
+    # able to author a world the checker rejects a moment later.
+    check("0,0 is impassable (water)" in log,
+          "the world start refuses impassable ground")
+    check(log.count("refused: duplicate id, occupied cell, or off the grid") >= 2,
+          "a duplicate id and an occupied cell are both refused")
+    check("refused: unknown id, occupied cell, or off the grid" in log,
+          "and so is a move onto another doorway")
+
+    # THE ORDER RULE, made visible. A list can show the order; only this shows
+    # that the order DID something: the same cell, three times, changing hands
+    # as a row is added and then moved to the front.
+    check(owners[:3] == ["6,6 difficulty 0.12 from lowlands",
+                         "6,6 difficulty 0.90 from tiny",
+                         "6,6 difficulty 0.12 from lowlands"],
+          "a later area wins the cell, and moving it first hands it back",
+          " | ".join(owners[:3]))
+
+    # The world start and the game's OPENING are different facts in different
+    # files, and the readout says both - which is the only place that
+    # distinction is visible at all.
+    check("world start 7,6" in log, "the world start moves")
+    check("opening: crypt / crypt1 at 7,7" in log,
+          "and the game's opening is reported beside it, from the manifest")
 finally:
     for p, s in originals.items():
         write(p, s)

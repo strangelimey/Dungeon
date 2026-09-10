@@ -130,7 +130,28 @@ level browsing are all level concepts — and P3 kept the two apart deliberately
 Bending it to a grid whose cells are terrain kinds would cost more than the
 drawing code it would save.
 
-**W4 — the world's own properties.** A `WorldSettingsDialog`, the LevelSettings
+**W4 — the world's own properties.** The MODEL and its rules are DONE
+(2026-09-09): the world start, the game's opening, the harness level, areas
+(add/delete/REORDER) and locations (add/delete/move/retarget), each bracketed
+as its own undo step and each refusing what the LOADER would refuse — a
+duplicate id, an occupied cell, impassable ground. An editor must not be able
+to author a world the checker rejects a moment later.
+
+`worldarea at <x> <z>` reports which area OWNS a cell. That readout exists
+because the ordering rule was otherwise unobservable: a list can show the
+order, but only this shows that the order DID something — the same cell reading
+0.12 from lowlands, then 0.90 from a newer overlapping row, then 0.12 again
+once that row is moved to the front.
+
+THE MANIFEST IS NOT UNDOABLE and the command says so rather than pretending.
+The editor's history snapshots the world and the levels, not project.ini, and a
+half-undoable dialog would be worse than an honest one.
+
+STILL TO DO here: the DIALOG itself. The rules are settled and checked, which
+is the half that can be got wrong invisibly; the UI is the half Michael can see
+and judge, and it should be built where he can look at it.
+
+The original entry: A `WorldSettingsDialog`, the LevelSettings
 one tier up, holding what belongs to the world rather than to any square: the
 `start` cell, and the manifest's game-opening fields (`start_dungeon`,
 `start_level`, `start_x`, `start_z`) plus `eval_level`.

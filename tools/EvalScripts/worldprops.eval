@@ -1,0 +1,54 @@
+; worldprops.eval — the world's properties, its areas and its doorways (W4).
+;
+; Everything here was hand-edited in world.map or project.ini until now. Three
+; things are worth watching:
+;
+;   - AREA ORDER IS A RULE, not a presentation detail: they may overlap and the
+;     LAST row wins. So a new area APPENDS (an exception carved out of a broad
+;     region wins, which is what carving one means), and reordering is an
+;     operation rather than a sort.
+;   - The world's START and the GAME'S OPENING are different facts in different
+;     files. The party's start is where it stands when it begins on the map;
+;     the opening may be a dungeon instead.
+;   - Refusals are the rules the LOADER asserts on, enforced early: a duplicate
+;     id, an occupied cell, impassable ground.
+logecho on
+reset
+worldedit on
+
+; --- the properties, as they stand ------------------------------------------
+worldprops
+
+; --- the start refuses impassable ground (0,0 is water) ---------------------
+worldprops start 0 0
+worldprops start 7 6
+worldprops
+
+; --- locations: add, refuse a duplicate, move, retarget, delete -------------
+worldloc
+worldloc add dungeon outpost 12 6
+worldloc add dungeon outpost 13 6
+worldloc add dungeon crypt_gate 12 7
+worldloc set outpost dungeon crypt
+worldloc set outpost level crypt2
+worldloc move outpost 10 10
+worldloc move outpost 12 7
+worldloc
+
+; --- areas: the order rule ---------------------------------------------------
+worldarea
+worldarea at 6 6
+worldarea add tiny 6 6 2 2 0.9
+worldarea
+; the newest row wins where it overlaps...
+worldarea at 6 6
+worldarea order tiny 0
+worldarea
+; ...and moving it FIRST hands the cell back to the broad region above it.
+worldarea at 6 6
+worldarea del tiny
+worldarea
+
+; --- and all of it is one history -------------------------------------------
+undo
+worldarea

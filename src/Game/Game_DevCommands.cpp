@@ -1054,6 +1054,232 @@ void Game::RegisterDevCommands() {
 									: std::format("{},{} unchanged", x, z));
 		});
 	m_console.Register(
+		"worldprops",
+		"the world's own properties: worldprops | start <x> <z> | "
+		"opening <dungeon> <level> <x> <z> | opening world | eval <level>",
+		[this](const std::vector<std::string>& a) {
+			if (!m_worldMap) {
+				m_console.Print("no world map loaded");
+				return;
+			}
+			if (a.empty()) {
+				m_console.Print(std::format("world start {},{}",
+											m_worldMap->StartX(), m_worldMap->StartZ()));
+				// WHERE THE GAME BEGINS is the manifest's, not the world map's
+				// — the world's start is where a party STANDS when it begins on
+				// the map, and the opening may be a dungeon instead. They are
+				// printed together because that distinction is invisible from
+				// either file alone.
+				m_console.Print(m_project.startDungeon.empty()
+									? "opening: the world map"
+									: std::format("opening: {} / {} at {},{}",
+												  m_project.startDungeon,
+												  m_project.startLevel,
+												  m_project.startX, m_project.startZ));
+				m_console.Print("harness level: " +
+								(m_project.evalLevel.empty() ? std::string("(unset)")
+															 : m_project.evalLevel));
+				return;
+			}
+			if (a[0] == "start" && a.size() >= 3) {
+				const int x = std::atoi(a[1].c_str()), z = std::atoi(a[2].c_str());
+				if (!m_worldMap->InBounds(x, z)) {
+					m_console.Print("off the world grid");
+					return;
+				}
+				// Refused on IMPASSABLE ground, because the checker calls that
+				// an error and an editor should not author what the checker
+				// will reject a moment later.
+				if (!m_worldMap->Passable(x, z)) {
+					m_console.Print(std::format("{},{} is impassable ({})", x, z,
+												m_worldMap->TerrainAt(x, z).id));
+					return;
+				}
+				m_world.BeginUndoStep();
+				m_worldMap->SetStart(x, z);
+				m_world.CommitUndoStep(true);
+				m_console.Print(std::format("world start {},{}", x, z));
+			} else if (a[0] == "opening" && a.size() >= 2 && a[1] == "world") {
+				m_project.startDungeon.clear();
+				m_project.startLevel.clear();
+				m_project.startX = m_project.startZ = -1;
+				m_console.Print("opening: the world map");
+			} else if (a[0] == "opening" && a.size() >= 5) {
+				m_project.startDungeon = a[1];
+				m_project.startLevel = a[2];
+				m_project.startX = std::atoi(a[3].c_str());
+				m_project.startZ = std::atoi(a[4].c_str());
+				m_console.Print(std::format("opening: {} / {} at {},{}", a[1], a[2],
+											a[3], a[4]));
+			} else if (a[0] == "eval" && a.size() >= 2) {
+				m_project.evalLevel = a[1];
+				m_console.Print("harness level: " + a[1]);
+			} else {
+				m_console.Print("usage: worldprops [start|opening|eval] ...");
+			}
+			// THE MANIFEST IS NOT UNDOABLE and says so rather than pretending:
+			// the editor's history snapshots the world and the levels, not
+			// project.ini, and a half-undoable dialog would be worse than an
+			// honest one. It is written by the project save, not by savemap.
+			if (!a.empty() && (a[0] == "opening" || a[0] == "eval"))
+				m_console.Print("(manifest change - not undoable; project.ini is "
+								"written by a project save)");
+		});
+	m_console.Register(
+		"worldloc",
+		"world locations: worldloc | add <kind> <id> <x> <z> | del <id> | "
+		"move <id> <x> <z> | set <id> <field> <value>",
+		[this](const std::vector<std::string>& a) {
+			if (!m_worldMap) {
+				m_console.Print("no world map loaded");
+				return;
+			}
+			WorldMap& w = *m_worldMap;
+			if (a.empty()) {
+				for (const WorldMap::Location& l : w.Locations())
+					m_console.Print(std::format(
+						"  {:<8} {:<16} {},{}  -> {} {} {},{}", l.kind, l.id, l.x,
+						l.z, l.Dungeon(),
+						l.level.empty() ? std::string("(unset)") : l.level,
+						l.entryX, l.entryZ));
+				if (w.Locations().empty()) m_console.Print("no locations");
+				return;
+			}
+			// EVERY BRANCH BRACKETS ITS OWN UNDO STEP and reports what it did.
+			// A world edit that silently did nothing is the failure mode here:
+			// the refusals (duplicate id, occupied cell, off the grid) are the
+			// rules Load asserts on, enforced early so the editor cannot author
+			// a world its own loader rejects.
+			const std::string& verb = a[0];
+			if (verb == "add" && a.size() >= 5) {
+				WorldMap::Location l;
+				l.kind = a[1];
+				l.id = a[2];
+				l.x = std::atoi(a[3].c_str());
+				l.z = std::atoi(a[4].c_str());
+				m_world.BeginUndoStep();
+				const bool ok = w.AddLocation(std::move(l));
+				m_world.CommitUndoStep(ok);
+				m_console.Print(ok ? std::format("added {} at {},{}", a[2], a[3], a[4])
+								   : "refused: duplicate id, occupied cell, or off "
+									 "the grid");
+			} else if (verb == "del" && a.size() >= 2) {
+				m_world.BeginUndoStep();
+				const bool ok = w.RemoveLocation(a[1]);
+				m_world.CommitUndoStep(ok);
+				m_console.Print(ok ? "removed " + a[1] : "no such location");
+			} else if (verb == "move" && a.size() >= 4) {
+				m_world.BeginUndoStep();
+				const bool ok = w.MoveLocation(a[1], std::atoi(a[2].c_str()),
+											   std::atoi(a[3].c_str()));
+				m_world.CommitUndoStep(ok);
+				m_console.Print(ok ? std::format("{} -> {},{}", a[1], a[2], a[3])
+								   : "refused: unknown id, occupied cell, or off "
+									 "the grid");
+			} else if (verb == "set" && a.size() >= 4) {
+				WorldMap::Location* l = w.MutableLocation(a[1]);
+				if (!l) {
+					m_console.Print("no such location");
+					return;
+				}
+				m_world.BeginUndoStep();
+				bool ok = true;
+				if (a[2] == "dungeon") l->dungeon = a[3];
+				else if (a[2] == "level") l->level = a[3];
+				else if (a[2] == "entryx") l->entryX = std::atoi(a[3].c_str());
+				else if (a[2] == "entryz") l->entryZ = std::atoi(a[3].c_str());
+				else if (a[2] == "kind") l->kind = a[3];
+				else ok = false;
+				m_world.CommitUndoStep(ok);
+				m_console.Print(ok ? std::format("{}.{} = {}", a[1], a[2], a[3])
+								   : "field must be kind/dungeon/level/entryx/entryz");
+			} else {
+				m_console.Print("usage: worldloc [add|del|move|set] ...");
+			}
+		});
+	m_console.Register(
+		"worldarea",
+		"world areas: worldarea | add <id> <x> <z> <w> <h> [difficulty] | "
+		"del <id> | order <id> <index>",
+		[this](const std::vector<std::string>& a) {
+			if (!m_worldMap) {
+				m_console.Print("no world map loaded");
+				return;
+			}
+			std::vector<WorldMap::Area>& areas = m_worldMap->MutableAreas();
+			if (a.empty()) {
+				// IN FILE ORDER, numbered, because the order IS the rule: areas
+				// may overlap and the LAST match wins. A list that sorted them
+				// would hide the only thing that decides which one owns a cell.
+				for (size_t i = 0; i < areas.size(); ++i)
+					m_console.Print(std::format(
+						"  [{}] {:<12} {},{} {}x{}  difficulty {}", i, areas[i].id,
+						areas[i].x, areas[i].z, areas[i].w, areas[i].h,
+						areas[i].difficulty >= 0.0f
+							? std::format("{:.2f}", areas[i].difficulty)
+							: std::string("(terrain's own)")));
+				if (areas.empty()) m_console.Print("no areas");
+				m_console.Print("later rows win where they overlap");
+				return;
+			}
+			const std::string& verb = a[0];
+			if (verb == "add" && a.size() >= 6) {
+				WorldMap::Area ar;
+				ar.id = a[1];
+				ar.x = std::atoi(a[2].c_str());
+				ar.z = std::atoi(a[3].c_str());
+				ar.w = std::atoi(a[4].c_str());
+				ar.h = std::atoi(a[5].c_str());
+				if (a.size() >= 7) ar.difficulty = static_cast<float>(std::atof(a[6].c_str()));
+				if (ar.w <= 0 || ar.h <= 0) {
+					m_console.Print("an area needs a positive extent");
+					return;
+				}
+				m_world.BeginUndoStep();
+				areas.push_back(std::move(ar));
+				m_world.CommitUndoStep(true);
+				// APPENDED, and that is not arbitrary: the newest area wins
+				// where it overlaps, which is what someone carving an exception
+				// out of a broad region means.
+				m_console.Print(std::format("added {} (row {}, wins over earlier)",
+											a[1], areas.size() - 1));
+			} else if (verb == "del" && a.size() >= 2) {
+				const size_t before = areas.size();
+				m_world.BeginUndoStep();
+				std::erase_if(areas, [&](const WorldMap::Area& x) { return x.id == a[1]; });
+				const bool ok = areas.size() != before;
+				m_world.CommitUndoStep(ok);
+				m_console.Print(ok ? "removed " + a[1] : "no such area");
+			} else if (verb == "order" && a.size() >= 3) {
+				const int to = std::atoi(a[2].c_str());
+				auto it = std::find_if(areas.begin(), areas.end(),
+									   [&](const WorldMap::Area& x) { return x.id == a[1]; });
+				if (it == areas.end() || to < 0 || to >= static_cast<int>(areas.size())) {
+					m_console.Print("no such area, or index out of range");
+					return;
+				}
+				m_world.BeginUndoStep();
+				WorldMap::Area moved = std::move(*it);
+				areas.erase(it);
+				areas.insert(areas.begin() + to, std::move(moved));
+				m_world.CommitUndoStep(true);
+				m_console.Print(std::format("{} is now row {}", a[1], to));
+			} else if (verb == "at" && a.size() >= 3) {
+				// WHICH AREA OWNS THIS CELL, and what that makes it. The
+				// ordering rule is otherwise invisible: a list can show the
+				// order, but only this can show that the order DID something.
+				const int x = std::atoi(a[1].c_str()), z = std::atoi(a[2].c_str());
+				const WorldMap::Area* owner = m_worldMap->AreaAt(x, z);
+				m_console.Print(std::format(
+					"{},{} difficulty {:.2f} from {}", x, z,
+					m_worldMap->Difficulty(x, z),
+					owner ? owner->id : m_worldMap->TerrainAt(x, z).id +
+											 std::string(" (no area)")));
+			} else {
+				m_console.Print("usage: worldarea [add|del|order|at] ...");
+			}
+		});
+	m_console.Register(
 		"newtype", "create a pure-data type: newtype <dungeons|terrain|quests>",
 		[this](const std::vector<std::string>& args) {
 			// The palette's "+ New..." for these categories, reachable without a
