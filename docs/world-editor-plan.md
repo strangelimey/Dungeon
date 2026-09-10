@@ -107,18 +107,48 @@ that is a sign the seam is in the wrong place.
 Open questions
 --------------
 
-1. **Deleting a dungeon: what happens to its levels?** Delete the `.map`/`.ent`
-   files too, or leave the stems in the manifest as orphans (which the checker
-   already warns about)? Deleting content is the one editor action with no undo
-   at the file level.
-2. **Is the world screen reachable in play, or editor-only?** Today
-   `AppState::WorldMap` is where the party travels. An edit mode on it needs a
-   way in that does not collide with playing — the dungeon map solved this with
-   two modes of one view and a console command.
-3. **Areas: painted, or a list of rectangles?** They are rectangles in the file.
-   Painting them means a fifth brush and an implied "which area owns this cell";
-   a list means a small table UI and no new brush. The file format does not
-   care.
+1. **Deleting a dungeon: what happens to its levels?** ANSWERED (Michael,
+   2026-09-09): **delete the levels too, after a confirmation dialog.**
+
+   Two consequences to build in rather than discover. First, this is the one
+   editor action with NO UNDO — the snapshot history is in memory and the files
+   are not — so the confirmation has to say what it is about to destroy by
+   NAME and by count, not ask "are you sure?". Second, the REFERENCE SWEEP runs
+   first and can refuse: a level of this dungeon may be the far side of a stair
+   from a level in another one, and deleting it would leave that stair pointing
+   at nothing. Refusing with the reason beats deleting and reporting the
+   wreckage afterwards.
+2. **Is the world screen reachable in play, or editor-only?** ANSWERED
+   (Michael, 2026-09-09): **both.** So `WorldMapView` takes the same shape
+   `MapView` did — one view, two MODES — which is the answer the dungeon map
+   already arrived at and is worth copying rather than re-deriving.
+
+   Three things follow. FOG is the mode's main difference, exactly as it is
+   below ground: Player mode draws undiscovered ground as unknown, Editor mode
+   draws the whole world and every location whether the party knows of it or
+   not. The WAY IN mirrors it too — the `editor` console command, and Esc backs
+   out. And unlike the dungeon map there is no "while it is open the world
+   keeps simulating" problem to solve: the world map is an app state that
+   simulates nothing, so an edit mode on it is a mode of that state and not an
+   overlay over a running game.
+3. **Areas: painted, or a list of rectangles?** ANSWERED (Michael,
+   2026-09-09): **a list.** So no fifth brush, and no implied "which area owns
+   this cell" — a small table of rows (id, x, z, w, h, difficulty) that edits
+   the records as they already are.
+
+   Worth keeping honest in the UI: areas OVERLAP legally and the LAST match
+   wins, which is a fact about file order. So the table must show them IN ORDER
+   and let that order be changed, or the one rule the format has becomes
+   invisible in the only place anyone would edit it.
 4. **Does the world need its own undo stack**, or does it join the editor's
-   existing snapshot history? The existing one snapshots every level's editable
-   state; adding the world to it is cheap but makes each step bigger.
+   existing snapshot history? ANSWERED (Michael, 2026-09-09): **join the
+   editor's.** One history, one Ctrl+Z, and a step that spans tiers undoes as
+   one thing — which matters because some edits genuinely do span them (adding
+   a level to a dungeon touches the manifest, the catalog and the files).
+
+   The cost is that every snapshot grows by the world's records, and the
+   existing history already copies every level's editable state per step. That
+   is worth watching but not worth pre-solving: the world is a few dozen
+   records against maps of hundreds of cells.
+
+All four answered. Nothing above is blocking W1, which is the writer.
