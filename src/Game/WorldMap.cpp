@@ -324,6 +324,54 @@ WorldMap::Location* WorldMap::MutableLocation(std::string_view id) {
 	return nullptr;
 }
 
+bool WorldMap::SetStart(int x, int z) {
+	// IMPASSABLE GROUND IS REFUSED, not clamped or corrected: the checker
+	// reports a start the party cannot stand on, and an editor that could
+	// author one would be handing its own checker a fault to find.
+	if (!InBounds(x, z) || !Passable(x, z)) return false;
+	m_startX = x;
+	m_startZ = z;
+	return true;
+}
+
+bool WorldMap::AddArea(Area a) {
+	if (a.w <= 0 || a.h <= 0) return false; // Load asserts on a zero extent
+	for (const Area& e : m_areas)
+		if (e.id == a.id) return false; // see the header: the editor addresses by id
+	m_areas.push_back(std::move(a)); // APPENDED — the newest row wins
+	return true;
+}
+
+bool WorldMap::RemoveArea(std::string_view id) {
+	for (auto it = m_areas.begin(); it != m_areas.end(); ++it)
+		if (it->id == id) {
+			m_areas.erase(it);
+			return true;
+		}
+	return false;
+}
+
+bool WorldMap::MoveArea(std::string_view id, int index) {
+	if (index < 0 || index >= static_cast<int>(m_areas.size())) return false;
+	auto it = std::find_if(m_areas.begin(), m_areas.end(),
+						   [&](const Area& a) { return a.id == id; });
+	if (it == m_areas.end()) return false;
+	// A MOVE TO WHERE IT ALREADY IS CHANGES NOTHING, and says so, so a caller
+	// bracketing this as an undo step does not put an empty one on the stack
+	// (the SetTerrainAt lesson: "I found it" is not "something changed").
+	if (it - m_areas.begin() == index) return false;
+	Area moved = std::move(*it);
+	m_areas.erase(it);
+	m_areas.insert(m_areas.begin() + index, std::move(moved));
+	return true;
+}
+
+WorldMap::Area* WorldMap::MutableArea(std::string_view id) {
+	for (Area& a : m_areas)
+		if (a.id == id) return &a;
+	return nullptr;
+}
+
 std::string WorldMap::Serialize() const {
 	std::string m = "; The overworld - written by the in-game editor.\n\n";
 	m += std::format("start {} {}\n", m_startX, m_startZ);

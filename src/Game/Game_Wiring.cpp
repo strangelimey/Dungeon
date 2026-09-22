@@ -186,15 +186,38 @@ void Game::WireModuleCallbacks() {
 	};
 	m_worldMapView.onInspect = [this](int x, int z) {
 		if (!m_worldMap) return;
-		// Right-click reports what is here. The per-location dialog is W4's;
-		// until then this is the readout, and it is the same information that
-		// dialog will show.
+		// Right-click on a DOORWAY opens the settings dialog on that doorway —
+		// the same gesture the dungeon editor's right-click makes, one tier up.
+		// Right-click on bare ground has nothing to inspect, so it reports what
+		// is there instead (the world has no per-cell object to open).
 		const WorldMap::Terrain& t = m_worldMap->TerrainAt(x, z);
 		const WorldMap::Location* l = m_worldMap->LocationAt(x, z);
-		m_ui.AddLogLine(loc::FormatLine(
-			"world.inspect", std::format("{},{}", x, z),
-			l ? std::format("{} ({})", l->id, t.id) : t.id));
+		if (l) {
+			OpenWorldSettings(l->id);
+			return;
+		}
+		m_ui.AddLogLine(
+			loc::FormatLine("world.inspect", std::format("{},{}", x, z), t.id));
 	};
+	m_worldMapView.canUndo = [this](bool redo) {
+		return redo ? m_world.CanRedo() : m_world.CanUndo();
+	};
+	m_worldMapView.onTool = [this](WorldMapView::Tool tool) {
+		switch (tool) {
+		case WorldMapView::Tool::Settings: OpenWorldSettings({}); break;
+		case WorldMapView::Tool::Save:
+			// The WORLD alone, not savemap: the band is the world screen's, and
+			// a Save there that also rewrote every level would be doing three
+			// things one of which you asked for.
+			m_ui.AddLogLine(loc::View(SaveWorld() ? "map.world.saved"
+												  : "map.world.savefailed"));
+			break;
+		case WorldMapView::Tool::Undo: m_world.Undo(); break;
+		case WorldMapView::Tool::Redo: m_world.Redo(); break;
+		case WorldMapView::Tool::None: break;
+		}
+	};
+	WireWorldSettingsDialog();
 
 	m_mapEditor.onNewAsset = [this](MapEditor::PaletteCat cat) {
 		// PURE-DATA CATEGORIES SKIP THE ASSET DIALOG. A dungeon has no texture

@@ -61,6 +61,7 @@
 #include "Game/ValidateDialog.h"
 #include "Game/WorldMap.h"
 #include "Game/WorldMapView.h"
+#include "Game/WorldSettingsDialog.h"
 #include "Game/MonsterConfigDialog.h"
 #include "Game/ButtonInspector.h"
 #include "Game/DoorInspector.h"
@@ -306,6 +307,15 @@ private:
 	// it round-trips. Part of `savemap`. False when there is no world, or the
 	// write failed.
 	bool SaveWorld();
+	// Opens the world settings dialog (W4) on the loaded world, gathering the
+	// catalog dungeons and the manifest fields it edits alongside it. A
+	// non-empty `selectLocation` opens it ON that doorway — what a right-click
+	// on the world map wants.
+	void OpenWorldSettings(const std::string& selectLocation);
+	// Its callbacks, split out of the wiring file because every one of them is
+	// the same sentence: open an undo step, let WorldMap decide, close the step
+	// with whether anything changed.
+	void WireWorldSettingsDialog();
 	// Puts the world state where a NEW GAME starts it: the world map's own start
 	// cell, revealed, nothing discovered, no time elapsed. A project with no
 	// world leaves it blank.
@@ -708,6 +718,10 @@ private:
 	// Per-level atmosphere dialog (the .map `atmosphere` record front-end),
 	// opened by the editor toolbar's Level button for the VIEWED level.
 	LevelSettingsDialog m_levelSettingsDialog;
+	// The WORLD's own settings (W4): its start cell, the game's opening, the
+	// harness level, its areas and its doorways. Opened by the world screen's
+	// toolbar, and by a right-click on a doorway (which opens it ON that one).
+	WorldSettingsDialog m_worldSettingsDialog;
 	ValidateDialog m_validateDialog;
 	GenerateDialog m_generateDialog;
 	// Per-TYPE catalog editor, opened by right-clicking any palette row: a form

@@ -210,6 +210,26 @@ void SpriteBatch::SetScissor(const Rect* rect) {
 void SpriteBatch::Flush() {
 	if (m_pending.empty() || !m_list) return;
 
+	D3D12_RECT scissor;
+	if (m_scissorActive) {
+		scissor = {static_cast<LONG>(m_scissor.x), static_cast<LONG>(m_scissor.y),
+				   static_cast<LONG>(m_scissor.x + m_scissor.w),
+				   static_cast<LONG>(m_scissor.y + m_scissor.h)};
+	} else {
+		scissor = {0, 0, static_cast<LONG>(m_screenWidth),
+				   static_cast<LONG>(m_screenHeight)};
+	}
+	// A BATCH THAT IS ENTIRELY SCISSORED OUT IS DROPPED, not submitted. It can
+	// write nothing by definition, so this is a no-op for the image — but D3D12
+	// warns on every such DrawInstanced, and a widget just below a scrolling
+	// page's view produces one PER FRAME: a dialog left open wrote ten thousand
+	// identical validation warnings into dungeon.log, which is the file you open
+	// after a crash. The clipping itself is correct; submitting the work was not.
+	if (scissor.right <= scissor.left || scissor.bottom <= scissor.top) {
+		m_pending.clear();
+		return;
+	}
+
 	const u64 size = m_pending.size() * sizeof(SpriteVertex);
 	UploadAllocation alloc = m_frameAllocators[m_frameIndex]->Allocate(size, 16);
 	std::memcpy(alloc.cpu, m_pending.data(), size);
@@ -220,15 +240,6 @@ void SpriteBatch::Flush() {
 	vbv.StrideInBytes = sizeof(SpriteVertex);
 	m_list->IASetVertexBuffers(0, 1, &vbv);
 
-	D3D12_RECT scissor;
-	if (m_scissorActive) {
-		scissor = {static_cast<LONG>(m_scissor.x), static_cast<LONG>(m_scissor.y),
-				   static_cast<LONG>(m_scissor.x + m_scissor.w),
-				   static_cast<LONG>(m_scissor.y + m_scissor.h)};
-	} else {
-		scissor = {0, 0, static_cast<LONG>(m_screenWidth),
-				   static_cast<LONG>(m_screenHeight)};
-	}
 	m_list->RSSetScissorRects(1, &scissor);
 
 	m_list->SetGraphicsRootDescriptorTable(1, m_pendingTexture);

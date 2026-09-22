@@ -56,6 +56,14 @@ std::unique_ptr<gfx::Texture> LoadTextureFile(gfx::GraphicsDevice& device,
 // AddCloseButton then falls back to a text "x".
 const gfx::Texture* CloseIcon(gfx::GraphicsDevice& device);
 
+// An editor TOOLBAR icon disc by name (assets/ui/icon_tb_<name>), owned here
+// for the same reason the close box is: TWO toolbars draw from this set now —
+// the level editor's and the world screen's — and a per-view copy would spend
+// a second SRV slot on a byte-identical image. Tried once per name, null when
+// the art is missing (the caller falls back to the label).
+const gfx::Texture* ToolbarIcon(gfx::GraphicsDevice& device,
+								const std::string& name);
+
 // Loads the glyphs the control library draws itself with (assets/ui/
 // icon_dropdown — the drop-down's expander box) and installs them in
 // ui::SetControlIcons. Owned here for the same reason as the close box: ONE

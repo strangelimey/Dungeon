@@ -489,6 +489,31 @@ try:
     check("world start 7,6" in log, "the world start moves")
     check("opening: crypt / crypt1 at 7,7" in log,
           "and the game's opening is reported beside it, from the manifest")
+
+    # W4's DIALOG edits through the same WorldMap calls these commands make -
+    # that is why the refusals moved out of the console and into the map. So
+    # these three prove them for BOTH faces of the one editor, and the control
+    # for each is the accepted edit that stands beside it in the same run.
+    # TWO rules, checked SEPARATELY - and they had to be made to report
+    # separately first. With one sentence for both, this check passed with the
+    # duplicate rule deleted: the no-extent case beside it printed the same
+    # words, and the check could not tell which one had spoken.
+    check("refused: an area named 'lowlands' already exists" in log,
+          "an area whose id is already taken is refused")
+    check("refused: an area needs a positive extent" in log,
+          "and so is one with no extent")
+    check("tiny is now row 0" in log, "...while a real reorder is not")
+    check("no such area, index out of range, or already there" in log,
+          "and a reorder to where the row already is changes nothing, and says so")
+
+    # The dialog is modal over the WORLD screen. Opened anywhere else it would
+    # draw over a dungeon with nothing routing input to it - a modal you could
+    # not close. The refusal and the success are read from ONE run, so a
+    # command that had simply stopped working would fail the second half.
+    check("world settings need the world map" in log,
+          "the settings dialog refuses to open off the world screen")
+    check("world settings open" in log and "world settings closed" in log,
+          "...and opens, and closes, on it")
 finally:
     for p, s in originals.items():
         write(p, s)

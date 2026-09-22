@@ -147,9 +147,54 @@ THE MANIFEST IS NOT UNDOABLE and the command says so rather than pretending.
 The editor's history snapshots the world and the levels, not project.ini, and a
 half-undoable dialog would be worse than an honest one.
 
-STILL TO DO here: the DIALOG itself. The rules are settled and checked, which
-is the half that can be got wrong invisibly; the UI is the half Michael can see
-and judge, and it should be built where he can look at it.
+THE DIALOG IS DONE TOO (2026-09-22). `WorldSettingsDialog` is three tabs, and
+they are the three console command families wearing a face: World (the start
+cell, the game's opening, the harness level), Areas (the table, in FILE ORDER,
+with arrows that reorder it) and Doorways (the list, and a form for the selected
+one). It is opened by the world screen's new toolbar band — Settings / Undo /
+Redo / Save, the level editor's one-list idiom with four tools instead of ten —
+and by RIGHT-CLICKING a doorway, which opens it on that doorway.
+
+THE DIALOG PROPOSES AND THE OWNER DISPOSES, the split WorldMapView's onPaint
+already made: it holds a borrowed `const WorldMap*` and re-reads it on every
+rebuild, and every change leaves through a callback that returns whether it was
+allowed. A refused edit is therefore one the table visibly does not show, and no
+working copy exists that could disagree with the world about what happened.
+
+THE REFUSALS MOVED INTO `WorldMap` to make that true — `SetStart`, `AddArea`,
+`RemoveArea`, `MoveArea` — because the dialog is a SECOND way in and a rule
+living in only one of them would be two editors wearing one name. The console
+commands now report those decisions rather than making them.
+
+FOUR THINGS THE BUILDING TAUGHT, none of them foreseen:
+
+- A TOOLTIP POINTED INTO A TEMPORARY. `for (const ToolButton& b :
+  ToolbarButtons(panel))` keeps the returned vector alive only to the end of the
+  loop, and the hovered entry was read after it — the first hover faulted. The
+  level editor's band holds the list in a named local, which is why it never
+  did.
+- A REBUILD TAKES THE FOCUS WITH IT. Showing the status note by rebuilding the
+  form meant the field being typed in stopped existing after its first digit, so
+  a two-digit cell could not be entered — and worse, the digits were judged
+  separately, so typing 12 offered 1 first and a refusal bounced the field back
+  before the 2 arrived. The note is written into its Label in place now, and
+  nothing mid-edit is corrected.
+- AN ID THAT EDITS ITSELF CANNOT BE CAPTURED BY VALUE. Every callback in an area
+  row looked the row up by the id it was built with; renaming "a" to "moors" is
+  five renames, and the second looked up a name that no longer existed. The row
+  shares one `shared_ptr<std::string>` that each accepted rename updates.
+- ONE SENTENCE FOR TWO REFUSALS HID ONE OF THEM. `worldarea add` printed
+  "refused: duplicate id, or no extent" for both rules, and the harness check
+  for the duplicate rule PASSED with that rule deleted — the case beside it
+  printed the same words. Each refusal names its own rule now. The reporting is
+  the decision's alibi, so it has to be as specific as the decision.
+
+Also found and fixed here, both older than this phase: a batch scissored out to
+nothing was still submitted, so a dialog left open wrote ten thousand identical
+D3D12 warnings into `dungeon.log` (`SpriteBatch::Flush` drops it now — it can
+write nothing by definition); and `worldmap on` answered from the TITLE SCREEN,
+where the way back out set Playing and the first frame dereferenced a HUD that
+was never built.
 
 The original entry: A `WorldSettingsDialog`, the LevelSettings
 one tier up, holding what belongs to the world rather than to any square: the

@@ -15,6 +15,7 @@
 #include <cstring>
 #include <filesystem>
 #include <functional>
+#include <map>
 
 namespace dungeon::game {
 
@@ -56,6 +57,10 @@ bool g_closeIconTried = false;
 // there. Same explicit lifetime: ReleaseSharedIcons clears the registry BEFORE
 // dropping the texture, so no widget can name a freed SRV slot.
 std::unique_ptr<gfx::Texture> g_dropDownIcon;
+// The toolbar discs, by name. A null ENTRY is a name that was tried and whose
+// art is missing — kept, so a missing icon costs one failed load rather than
+// one per frame the toolbar draws.
+std::map<std::string, std::unique_ptr<gfx::Texture>> g_toolbarIcons;
 } // namespace
 
 const gfx::Texture* CloseIcon(gfx::GraphicsDevice& device) {
@@ -70,6 +75,18 @@ const gfx::Texture* CloseIcon(gfx::GraphicsDevice& device) {
 		if (!g_closeIcon) log::Warn("close icon missing: {}(.dds|.png)", stem);
 	}
 	return g_closeIcon.get();
+}
+
+const gfx::Texture* ToolbarIcon(gfx::GraphicsDevice& device,
+								const std::string& name) {
+	auto it = g_toolbarIcons.find(name);
+	if (it == g_toolbarIcons.end()) {
+		const std::string stem = paths::Asset("ui\\icon_tb_" + name);
+		std::unique_ptr<gfx::Texture> tex = TryLoadTextureFile(device, stem);
+		if (!tex) log::Warn("toolbar icon missing: {}(.dds|.png)", stem);
+		it = g_toolbarIcons.emplace(name, std::move(tex)).first;
+	}
+	return it->second.get();
 }
 
 void LoadSharedControlIcons(gfx::GraphicsDevice& device) {
@@ -87,6 +104,7 @@ void ReleaseSharedIcons() {
 	ui::SetControlIcons({}); // before the textures die — the registry borrows
 	g_dropDownIcon.reset();
 	g_closeIcon.reset();
+	g_toolbarIcons.clear(); // borrowed by both toolbars; they are gone by now
 	// Re-arm: a later device (the adapter-change relaunch builds a fresh one)
 	// must reload rather than be handed the dead texture.
 	g_closeIconTried = false;

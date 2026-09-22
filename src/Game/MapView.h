@@ -262,10 +262,15 @@ private:
 
 	// Toolbar icon discs (Wenrexa house style, baked by the icon factory —
 	// see the editor-polish thread notes). A missing file leaves the pointer
-	// null and that button falls back to its text face.
-	std::unique_ptr<gfx::Texture> m_icoCheck, m_icoGen;
-	std::unique_ptr<gfx::Texture> m_icoLevel, m_icoBalance, m_icoUndo,
-		m_icoRedo, m_icoSave, m_icoSource, m_icoNew, m_icoPlay, m_icoPause;
+	// null and that button falls back to its text face. BORROWED from the
+	// shared cache (AssetUtil's ToolbarIcon), which the world screen's toolbar
+	// draws from too — one texture, one SRV slot, whichever asks first.
+	const gfx::Texture *m_icoCheck = nullptr, *m_icoGen = nullptr;
+	const gfx::Texture *m_icoLevel = nullptr, *m_icoBalance = nullptr,
+					   *m_icoUndo = nullptr, *m_icoRedo = nullptr,
+					   *m_icoSave = nullptr, *m_icoSource = nullptr,
+					   *m_icoNew = nullptr, *m_icoPlay = nullptr,
+					   *m_icoPause = nullptr;
 	bool m_editorPaused = false; // pause/play toolbar toggle (see EditorPaused)
 
 	bool m_open = false;

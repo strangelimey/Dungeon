@@ -4,7 +4,9 @@
 #include "Game/WorldMapView.h"
 
 #include "Core/Loc.h"
+#include "Game/AssetUtil.h" // ToolbarIcon — the shared disc cache
 #include "Game/MapColors.h"
+#include "UI/Controls.h" // DrawButtonFace, DrawBorder
 
 #include <algorithm>
 #include <cmath>
@@ -25,12 +27,56 @@ const Vec4 kHover{0.95f, 0.95f, 1.0f, 0.35f};
 // How far a caption sits above the panel's bottom edge, in line heights.
 constexpr float kCaptionLines = 2.4f;
 
+// The toolbar band, sized off the panel exactly as the dungeon editor's is: a
+// square icon disc with air around it.
+float ToolPad(const gfx::Rect& p) { return std::clamp(p.h * 0.010f, 3.0f, 9.0f); }
+float ToolSide(const gfx::Rect& p) { return std::clamp(p.h * 0.042f, 16.0f, 40.0f); }
+
 } // namespace
+
+WorldMapView::WorldMapView(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)
+	: m_fonts(fonts) {
+	m_icoSettings = ToolbarIcon(device, "level"); // the world's own settings
+	m_icoSave = ToolbarIcon(device, "save");
+	m_icoUndo = ToolbarIcon(device, "undo");
+	m_icoRedo = ToolbarIcon(device, "redo");
+}
+
+gfx::Rect WorldMapView::ToolbarRect(const gfx::Rect& panel) const {
+	if (m_mode != Mode::Editor) return {panel.x, panel.y, panel.w, 0.0f};
+	return {panel.x, panel.y, panel.w, ToolSide(panel) + ToolPad(panel) * 4};
+}
+
+std::vector<WorldMapView::ToolButton> WorldMapView::ToolbarButtons(
+	const gfx::Rect& panel) const {
+	std::vector<ToolButton> btns;
+	if (m_mode != Mode::Editor) return btns;
+	const gfx::Rect tb = ToolbarRect(panel);
+	const float pad = ToolPad(panel), s = ToolSide(panel);
+	// Built right-to-left from the band's right edge, like the level editor's,
+	// so the two bands read as the same furniture one tier apart.
+	float right = tb.x + tb.w - pad * 2;
+	auto add = [&](Tool id, std::string label, const gfx::Texture* icon,
+				   bool enabled) {
+		right -= s;
+		btns.push_back({id, {right, tb.y + pad * 2, s, s}, std::move(label), icon,
+						enabled});
+		right -= pad;
+	};
+	add(Tool::Save, loc::Tr("map.btn.save"), m_icoSave, true);
+	add(Tool::Redo, loc::Tr("map.btn.redo"), m_icoRedo,
+		canUndo && canUndo(/*redo*/ true));
+	add(Tool::Undo, loc::Tr("map.btn.undo"), m_icoUndo,
+		canUndo && canUndo(/*redo*/ false));
+	add(Tool::Settings, loc::Tr("map.btn.world"), m_icoSettings, true);
+	return btns;
+}
 
 gfx::Rect WorldMapView::GridArea(const gfx::Rect& panel) const {
 	const float line = m_font ? m_font->Height() : 16.0f;
 	const float caption = line * kCaptionLines;
-	return {panel.x, panel.y, panel.w, panel.h - caption};
+	const float top = ToolbarRect(panel).h;
+	return {panel.x, panel.y + top, panel.w, panel.h - caption - top};
 }
 
 WorldMapView::Transform WorldMapView::ComputeTransform(const WorldMap& world,
@@ -65,8 +111,30 @@ void WorldMapView::Update(const Input& input, const WorldMap& world,
 	// Render that ran first would lay the grid out against a stale one.
 	SetFontHeight(std::clamp(panel.h * 0.030f, 11.0f, 30.0f));
 	const float mx = input.MouseX(), my = input.MouseY();
-	const bool over = mx >= panel.x && my >= panel.y && mx < panel.x + panel.w &&
-					  my < panel.y + panel.h;
+	const bool inPanel = mx >= panel.x && my >= panel.y &&
+						 mx < panel.x + panel.w && my < panel.y + panel.h;
+
+	// THE BAND CLAIMS ITS OWN PIXELS FIRST. A zoomed-in grid runs under the
+	// toolbar, so a point in the band still maps to a cell — and a click that
+	// both pressed a tool and painted the square behind it would be one
+	// gesture doing two things.
+	m_hoverTool = Tool::None;
+	const gfx::Rect band = ToolbarRect(panel);
+	const bool inBand = band.h > 0.0f && band.Contains(mx, my);
+	if (inBand) {
+		for (const ToolButton& b : ToolbarButtons(panel))
+			if (b.enabled && b.rect.Contains(mx, my)) m_hoverTool = b.id;
+		if (input.WasMousePressed(MouseButton::Left) && m_hoverTool != Tool::None &&
+			onTool) {
+			const Tool clicked = m_hoverTool;
+			// Drop the hover BEFORE firing. A tool that opens a modal takes the
+			// input with it, so this Update stops running — and the tooltip,
+			// which is only ever cleared here, would hang over the dialog.
+			m_hoverTool = Tool::None;
+			onTool(clicked);
+		}
+	}
+	const bool over = inPanel && !inBand;
 
 	m_hoverX = m_hoverZ = -1;
 	if (over) {
@@ -192,6 +260,58 @@ void WorldMapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	batch.SetScissor(nullptr);
 
 	if (!m_font) return;
+	// The Editor band, across the panel top: a subtle lift over the base plus a
+	// 1px seam, so it reads as fixed chrome the grid scrolls under — the same
+	// treatment (and the same drawing) the level editor's toolbar has.
+	if (Editing()) {
+		const gfx::Rect tb = ToolbarRect(panel);
+		const float pad = ToolPad(panel);
+		batch.DrawRect(tb, {1.0f, 1.0f, 1.0f, 0.045f});
+		batch.DrawRect({tb.x, tb.y + tb.h - 1.0f, tb.w, 1.0f}, theme.panelBorder);
+
+		// The list is held in a NAMED local, not iterated as a temporary: the
+		// tooltip below points INTO it, and a range-for over the returned
+		// vector keeps it alive only until the loop ends — after which `tip`
+		// named freed memory and the first hover faulted in MeasureWidth.
+		const std::vector<ToolButton> btns = ToolbarButtons(panel);
+		const ToolButton* tip = nullptr;
+		for (const ToolButton& b : btns) {
+			// Hover is matched by IDENTITY (Update tracked which tool, not
+			// where): Update runs in window pixels and this in device pixels,
+			// and a coordinate carried across that split is a bug waiting for
+			// a scaled display.
+			const bool hot = b.enabled && m_hoverTool == b.id;
+			if (hot) tip = &b;
+			if (b.icon) {
+				const float d = std::min(b.rect.w, b.rect.h);
+				const float f = !b.enabled ? 0.32f : hot ? 1.15f : 0.85f;
+				batch.DrawSpriteRotated(
+					{b.rect.x + b.rect.w * 0.5f, b.rect.y + b.rect.h * 0.5f},
+					{d, d}, 0.0f, {0.0f, 0.0f, 1.0f, 1.0f}, *b.icon, {f, f, f, 1.0f});
+			} else {
+				// No art: the LABEL is written for the tooltip and is far wider
+				// than a disc, so trim it to what the button can hold — the
+				// full name is still one hover away.
+				std::string fit = b.label;
+				while (fit.size() > 1 && m_font->MeasureWidth(fit) > b.rect.w - pad)
+					fit.pop_back();
+				ui::DrawButtonFace(batch, *m_font, b.rect, fit, theme, hot,
+								   /*held*/ false, b.enabled);
+			}
+		}
+		if (tip) { // the hovered tool's name, just under the band
+			const float tw = m_font->MeasureWidth(tip->label);
+			const float pad2 = pad * 1.5f;
+			gfx::Rect tr{tip->rect.x + tip->rect.w * 0.5f - tw * 0.5f - pad2,
+						 tb.y + tb.h + 2.0f, tw + pad2 * 2, m_font->Height() + pad2};
+			tr.x = std::clamp(tr.x, panel.x + 2.0f, panel.x + panel.w - tr.w - 2.0f);
+			batch.DrawRect(tr, kMapBg);
+			ui::DrawBorder(batch, tr, theme.panelBorder);
+			m_font->Draw(batch, tip->label, tr.x + pad2, tr.y + pad2 * 0.5f,
+						 theme.text);
+		}
+	}
+
 	const float line = m_font->Height();
 	const float pad = line * 0.4f;
 	float y = panel.y + panel.h - line * kCaptionLines + pad * 0.5f;

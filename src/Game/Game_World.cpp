@@ -167,6 +167,15 @@ void Game::SetOnWorldMap(bool on) {
 			log::Warn("world map: the project has none to travel");
 			return;
 		}
+		// NOT BEFORE THERE IS A GAME. `worldmap on` answers from the MENU too —
+		// dev commands reach the world tier as soon as it is loaded, which is
+		// the trap StateName() warns about — and the way back out sets Playing,
+		// where the first frame dereferences a HUD that was never built. Two
+		// console commands from the title screen crashed the process.
+		if (!m_gameLoaded) {
+			log::Warn("world map: no game in progress to travel in");
+			return;
+		}
 		// Reveal where the party is standing before the first frame draws, or
 		// it appears in the middle of unexplored ground it has plainly reached.
 		RevealAround(m_worldState.x, m_worldState.z);
@@ -529,6 +538,119 @@ std::vector<std::string> Game::WorldReport() const {
 			  : std::string("NO SUCH DUNGEON")));
 	}
 	return out;
+}
+
+// ---------------------------------------------------------------------------
+// The world settings dialog (W4, docs/world-editor-plan.md).
+//
+// The DIALOG PROPOSES AND THIS DISPOSES: every callback here brackets its own
+// undo step and hands the decision to WorldMap, whose refusals are the ones the
+// LOADER and the checker make. That is what stops the dialog and the `worldloc`
+// / `worldarea` / `worldprops` commands being two editors with one name.
+// ---------------------------------------------------------------------------
+void Game::OpenWorldSettings(const std::string& selectLocation) {
+	if (!m_worldMap) {
+		log::Warn("world settings: the project has no world");
+		return;
+	}
+	// The dungeons and their levels, so the dialog's dungeon/level fields can
+	// be DROPDOWNS of what exists. A location naming a level its dungeon does
+	// not have is a checker error; offering only real pairs refuses it by
+	// construction rather than reporting it afterwards.
+	std::vector<WorldSettingsDialog::DungeonInfo> dungeons;
+	for (const CatalogEntry& e : m_project.dungeons.Entries())
+		dungeons.push_back({e.id, ParseTags(e.Get("levels", ""))});
+
+	WorldSettingsDialog::Manifest m;
+	m.startDungeon = m_project.startDungeon;
+	m.startLevel = m_project.startLevel;
+	m.startX = m_project.startX;
+	m.startZ = m_project.startZ;
+	m.evalLevel = m_project.evalLevel;
+	m_worldSettingsDialog.Open(&*m_worldMap, std::move(dungeons), m_project.levels,
+							   std::move(m), selectLocation);
+}
+
+void Game::WireWorldSettingsDialog() {
+	WorldSettingsDialog& d = m_worldSettingsDialog;
+	// One shape for every world edit: open a step, let the map decide, close
+	// the step with whether anything actually changed. CommitUndoStep(false)
+	// is what keeps a refused edit from spending a Ctrl+Z on nothing.
+	auto step = [this](auto&& apply) {
+		m_world.BeginUndoStep();
+		const bool ok = apply();
+		m_world.CommitUndoStep(ok);
+		return ok;
+	};
+	d.onSetStart = [this, step](int x, int z) {
+		return step([&] { return m_worldMap->SetStart(x, z); });
+	};
+	d.onAddArea = [this, step](const WorldMap::Area& a) {
+		return step([&] { return m_worldMap->AddArea(a); });
+	};
+	d.onDeleteArea = [this, step](const std::string& id) {
+		return step([&] { return m_worldMap->RemoveArea(id); });
+	};
+	d.onOrderArea = [this, step](const std::string& id, int index) {
+		return step([&] { return m_worldMap->MoveArea(id, index); });
+	};
+	d.onEditArea = [this, step](const std::string& id, const WorldMap::Area& next) {
+		return step([&] {
+			WorldMap::Area* live = m_worldMap->MutableArea(id);
+			if (!live) return false;
+			// A RENAME IS REFUSED WHEN IT COLLIDES, for the reason AddArea
+			// refuses one: this dialog addresses an area by its id, and two
+			// rows answering to one name is not something it can represent.
+			if (next.id != id && m_worldMap->MutableArea(next.id)) return false;
+			if (next.w <= 0 || next.h <= 0) return false; // Load asserts on it
+			*live = next;
+			return true;
+		});
+	};
+	d.onAddLocation = [this, step](WorldMap::Location l) {
+		return step([&] { return m_worldMap->AddLocation(std::move(l)); });
+	};
+	d.onDeleteLocation = [this, step](const std::string& id) {
+		return step([&] { return m_worldMap->RemoveLocation(id); });
+	};
+	d.onMoveLocation = [this, step](const std::string& id, int x, int z) {
+		return step([&] { return m_worldMap->MoveLocation(id, x, z); });
+	};
+	d.onEditLocation = [this, step](const std::string& id,
+									const WorldMap::Location& next) {
+		return step([&] {
+			WorldMap::Location* live = m_worldMap->MutableLocation(id);
+			if (!live) return false;
+			// Everything but WHERE IT STANDS and WHAT IT IS CALLED: the cell
+			// has an occupancy rule of its own (onMoveLocation), and the id is
+			// named by exit stairs and by saves, so renaming needs the sweep.
+			live->kind = next.kind;
+			live->dungeon = next.dungeon;
+			live->level = next.level;
+			live->entryX = next.entryX;
+			live->entryZ = next.entryZ;
+			return true;
+		});
+	};
+	// THE MANIFEST IS NOT UNDOABLE and the dialog says so in its own words:
+	// the editor's history snapshots the world and the levels, not project.ini.
+	d.onManifest = [this](const WorldSettingsDialog::Manifest& m) {
+		m_project.startDungeon = m.startDungeon;
+		m_project.startLevel = m.startLevel;
+		m_project.startX = m.startX;
+		m_project.startZ = m.startZ;
+		m_project.evalLevel = m.evalLevel;
+	};
+	// Save means WRITE WHAT I CHANGED, both halves of it — the world to
+	// world.map and the manifest to project.ini. A dialog that wrote one of
+	// the two would lose the other on the next launch, silently, which is the
+	// failure the world writer's read-back check exists to avoid elsewhere.
+	d.onSave = [this] {
+		const bool world = SaveWorld();
+		const bool proj = m_project.Save();
+		m_ui.AddLogLine(loc::View(world && proj ? "map.world.saved"
+												: "map.world.savefailed"));
+	};
 }
 
 } // namespace dungeon::game

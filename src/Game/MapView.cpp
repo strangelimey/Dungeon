@@ -74,17 +74,20 @@ MapView::MapView(gfx::GraphicsDevice& device, DungeonWorld& world,
 	: m_device(device), m_world(world), m_settings(settings), m_fonts(fonts),
 	  m_font(&fonts.Get(ui::FontRole::Body, kFontH)) {
 	// Toolbar icon discs; a missing file leaves that button on its text face.
-	m_icoLevel = TryLoadTextureFile(device, paths::Asset("ui\\icon_tb_level"));
-	m_icoBalance = TryLoadTextureFile(device, paths::Asset("ui\\icon_tb_balance"));
-	m_icoCheck = TryLoadTextureFile(device, paths::Asset("ui\\icon_tb_check"));
-	m_icoGen = TryLoadTextureFile(device, paths::Asset("ui\\icon_tb_generate"));
-	m_icoUndo = TryLoadTextureFile(device, paths::Asset("ui\\icon_tb_undo"));
-	m_icoRedo = TryLoadTextureFile(device, paths::Asset("ui\\icon_tb_redo"));
-	m_icoSave = TryLoadTextureFile(device, paths::Asset("ui\\icon_tb_save"));
-	m_icoSource = TryLoadTextureFile(device, paths::Asset("ui\\icon_tb_source"));
-	m_icoNew = TryLoadTextureFile(device, paths::Asset("ui\\icon_tb_new"));
-	m_icoPlay = TryLoadTextureFile(device, paths::Asset("ui\\icon_tb_play"));
-	m_icoPause = TryLoadTextureFile(device, paths::Asset("ui\\icon_tb_pause"));
+	// BORROWED from the shared cache (Game/AssetUtil.h), not owned: the world
+	// screen's toolbar draws from the same set, and a texture per view would
+	// spend a second SRV slot on a byte-identical image.
+	m_icoLevel = ToolbarIcon(device, "level");
+	m_icoBalance = ToolbarIcon(device, "balance");
+	m_icoCheck = ToolbarIcon(device, "check");
+	m_icoGen = ToolbarIcon(device, "generate");
+	m_icoUndo = ToolbarIcon(device, "undo");
+	m_icoRedo = ToolbarIcon(device, "redo");
+	m_icoSave = ToolbarIcon(device, "save");
+	m_icoSource = ToolbarIcon(device, "source");
+	m_icoNew = ToolbarIcon(device, "new");
+	m_icoPlay = ToolbarIcon(device, "play");
+	m_icoPause = ToolbarIcon(device, "pause");
 }
 
 const DungeonMap& MapView::ViewedMap() const {
@@ -166,27 +169,27 @@ std::vector<MapView::ToolButton> MapView::ToolbarButtons(const gfx::Rect& panel)
 						icon, /*visible*/ true, enabled});
 		right -= pad;
 	};
-	add(HoverBtn::SaveSource, loc::Tr("map.btn.source"), m_icoSource.get(), true);
-	add(HoverBtn::Save, loc::Tr("map.btn.save"), m_icoSave.get(), true);
-	add(HoverBtn::Redo, loc::Tr("map.btn.redo"), m_icoRedo.get(),
+	add(HoverBtn::SaveSource, loc::Tr("map.btn.source"), m_icoSource, true);
+	add(HoverBtn::Save, loc::Tr("map.btn.save"), m_icoSave, true);
+	add(HoverBtn::Redo, loc::Tr("map.btn.redo"), m_icoRedo,
 		m_world.CanRedo() && !busy);
-	add(HoverBtn::Undo, loc::Tr("map.btn.undo"), m_icoUndo.get(),
+	add(HoverBtn::Undo, loc::Tr("map.btn.undo"), m_icoUndo,
 		m_world.CanUndo() && !busy);
-	add(HoverBtn::Check, loc::Tr("map.btn.check"), m_icoCheck.get(), true);
-	add(HoverBtn::Generate, loc::Tr("map.btn.generate"), m_icoGen.get(), true);
-	add(HoverBtn::Balance, loc::Tr("map.btn.balance"), m_icoBalance.get(), true);
-	add(HoverBtn::LevelSettings, loc::Tr("map.btn.level"), m_icoLevel.get(), true);
+	add(HoverBtn::Check, loc::Tr("map.btn.check"), m_icoCheck, true);
+	add(HoverBtn::Generate, loc::Tr("map.btn.generate"), m_icoGen, true);
+	add(HoverBtn::Balance, loc::Tr("map.btn.balance"), m_icoBalance, true);
+	add(HoverBtn::LevelSettings, loc::Tr("map.btn.level"), m_icoLevel, true);
 	// Pause/play: the button shows the ACTION available — a pause glyph while
 	// the world runs, a play glyph (+ "resume" tooltip) while frozen.
 	add(HoverBtn::PlayPause,
 		loc::Tr(m_editorPaused ? "map.btn.play" : "map.btn.pause"),
-		(m_editorPaused ? m_icoPlay : m_icoPause).get(), true);
+		m_editorPaused ? m_icoPlay : m_icoPause, true);
 	// The level cluster pins the band's LEFT end (dropdown + [+]); routing it
 	// through the same list keeps hover/click/render single-pass.
 	btns.push_back({HoverBtn::LevelPick, LevelPickRect(panel), ViewedLevel(),
 					nullptr, true, true});
 	btns.push_back({HoverBtn::NewLevel, NewLevelButton(panel),
-					loc::Tr("map.btn.newlevel"), m_icoNew.get(), true, true});
+					loc::Tr("map.btn.newlevel"), m_icoNew, true, true});
 	return btns;
 }
 

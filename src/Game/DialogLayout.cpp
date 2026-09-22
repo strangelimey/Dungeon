@@ -85,6 +85,51 @@ ui::Stack* TabStack(ui::TabControl& tabs, size_t tab) {
 	return stack;
 }
 
+void DrawHelpOverlay(gfx::SpriteBatch& batch, const ui::Theme& theme,
+					 const ui::Font& font, float w, float h,
+					 std::string_view title,
+					 std::span<const std::string_view> paragraphs) {
+	batch.DrawRect({0, 0, w, h}, {0, 0, 0, 0.55f});
+	const gfx::Rect help{0.30f * w, 0.14f * h, 0.40f * w, 0.72f * h};
+	batch.DrawRect(help, theme.panel);
+	ui::DrawBorder(batch, help, theme.panelBorder);
+	const float pad = help.w * 0.05f;
+	const float lineH = font.Height() * 1.25f;
+	float y = help.y + pad;
+	font.Draw(batch, title, help.x + pad, y, theme.text);
+	y += lineH * 1.6f;
+	for (std::string_view text : paragraphs) {
+		// Greedy word wrap to the panel width, a blank line between paragraphs.
+		// `line` is the only string built here — the words are views into the
+		// string table, so an overlay held open for a hundred frames does its
+		// allocating in the first one.
+		std::string line;
+		size_t start = 0;
+		while (start <= text.size()) {
+			const size_t sp = text.find(' ', start);
+			const std::string_view word = text.substr(
+				start, sp == std::string_view::npos ? std::string_view::npos
+												   : sp - start);
+			const size_t keep = line.size();
+			if (!line.empty()) line += ' ';
+			line += word;
+			if (keep > 0 && font.MeasureWidth(line) > help.w - pad * 2) {
+				line.resize(keep); // it did not fit: flush the line without it
+				font.Draw(batch, line, help.x + pad, y, theme.textDim);
+				y += lineH;
+				line.assign(word);
+			}
+			if (sp == std::string_view::npos) break;
+			start = sp + 1;
+		}
+		if (!line.empty()) {
+			font.Draw(batch, line, help.x + pad, y, theme.textDim);
+			y += lineH;
+		}
+		y += lineH * 0.5f; // paragraph gap
+	}
+}
+
 DialogChrome BuildDialogChrome(ui::UIContext& ui, const gfx::Rect& panel,
 							   const std::string& title,
 							   const gfx::Texture* closeIcon,

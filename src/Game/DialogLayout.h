@@ -30,7 +30,9 @@
 #include "UI/UIContext.h"
 
 #include <functional>
+#include <span>
 #include <string>
+#include <string_view>
 
 namespace dungeon::game {
 
@@ -120,5 +122,19 @@ ui::Len FooterButton(float widths = 1.0f);
 // schema-driven form no longer steps a y cursor by a guessed row pitch, and a
 // row that needs two lines just says so.
 ui::Stack* TabStack(ui::TabControl& tabs, size_t tab);
+
+// The "?" explainer a dialog puts over itself: a second dim wash (so the dialog
+// beneath visibly freezes), a panel, a title, and word-wrapped paragraphs. The
+// owner holds the open/closed flag and dismisses on any click or Esc — the
+// drawing is all that is shared, and it is shared because two dialogs hand-
+// rolling the same word-wrap is two places for it to be subtly different.
+//
+// TEXT ARRIVES AS VIEWS, not strings: callers pass loc::View(key), which
+// borrows from the string table, so an overlay that is up for a hundred frames
+// allocates on none of them.
+void DrawHelpOverlay(gfx::SpriteBatch& batch, const ui::Theme& theme,
+					 const ui::Font& font, float width, float height,
+					 std::string_view title,
+					 std::span<const std::string_view> paragraphs);
 
 } // namespace dungeon::game

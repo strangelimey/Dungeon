@@ -238,49 +238,16 @@ void BalanceDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th, float w
 
 	// The "?" overlay: title + word-wrapped paragraphs (one lang key each),
 	// drawn over a second dim wash so the dialog visibly freezes beneath it.
+	// The DRAWING is shared (Game/DialogLayout.h) - two dialogs hand-rolling
+	// one word-wrap is two places for it to come out subtly different.
 	if (m_helpOpen) {
-		batch.DrawRect({0, 0, w, h}, {0, 0, 0, 0.55f});
-		const gfx::Rect help{0.30f * w, 0.14f * h, 0.40f * w, 0.72f * h};
-		batch.DrawRect(help, th.panel);
-		ui::DrawBorder(batch, help, th.panelBorder);
-		const float pad = help.w * 0.05f;
-		const float lineH = m_ui.GetFont().Height() * 1.25f;
-		float y = help.y + pad;
-		m_ui.GetFont().Draw(batch, loc::Tr("map.balance.help.title"), help.x + pad, y,
-					th.text);
-		y += lineH * 1.6f;
-		// Word-wrap each paragraph to the panel width; a blank line between.
-		for (const char* key :
-			 {"map.balance.help.damage", "map.balance.help.accuracy",
-			  "map.balance.help.speed", "map.balance.help.stamina",
-			  "map.balance.help.notes"}) {
-			const std::string text = loc::Tr(key);
-			std::string line;
-			size_t start = 0;
-			while (start <= text.size()) {
-				const size_t sp = text.find(' ', start);
-				const std::string word =
-					text.substr(start, sp == std::string::npos ? std::string::npos
-															   : sp - start);
-				const std::string tryLine =
-					line.empty() ? word : line + " " + word;
-				if (!line.empty() &&
-					m_ui.GetFont().MeasureWidth(tryLine) > help.w - pad * 2) {
-					m_ui.GetFont().Draw(batch, line, help.x + pad, y, th.textDim);
-					y += lineH;
-					line = word;
-				} else {
-					line = tryLine;
-				}
-				if (sp == std::string::npos) break;
-				start = sp + 1;
-			}
-			if (!line.empty()) {
-				m_ui.GetFont().Draw(batch, line, help.x + pad, y, th.textDim);
-				y += lineH;
-			}
-			y += lineH * 0.5f; // paragraph gap
-		}
+		const std::string_view paras[] = {loc::View("map.balance.help.damage"),
+										  loc::View("map.balance.help.accuracy"),
+										  loc::View("map.balance.help.speed"),
+										  loc::View("map.balance.help.stamina"),
+										  loc::View("map.balance.help.notes")};
+		DrawHelpOverlay(batch, th, m_ui.GetFont(), w, h,
+						loc::View("map.balance.help.title"), paras);
 	}
 }
 

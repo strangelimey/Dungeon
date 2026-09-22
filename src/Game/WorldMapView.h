@@ -25,6 +25,7 @@
 
 #include "Game/GameSettings.h"
 #include "Game/WorldMap.h"
+#include "Graphics/GraphicsDevice.h"
 #include "Graphics/SpriteBatch.h"
 #include "Platform/Input.h"
 #include "UI/Font.h"
@@ -32,6 +33,7 @@
 
 #include <functional>
 #include <string>
+#include <vector>
 
 namespace dungeon::game {
 
@@ -49,7 +51,14 @@ public:
 	// so this is a mode of that state rather than an overlay over a game.
 	enum class Mode { Play, Editor };
 
-	WorldMapView(ui::FontLibrary& fonts) : m_fonts(fonts) {}
+	// The Editor band's tools. A deliberately short list — the world screen has
+	// four verbs where the level editor has ten — but the SAME one-list idiom
+	// MapView uses: geometry, hover, click dispatch and drawing all walk
+	// ToolbarButtons(), so adding a tool (W5's dungeon picker) is one line and
+	// cannot land in three of the four places.
+	enum class Tool { None, Settings, Save, Undo, Redo };
+
+	WorldMapView(gfx::GraphicsDevice& device, ui::FontLibrary& fonts);
 
 	Mode CurrentMode() const { return m_mode; }
 	void SetMode(Mode m) { m_mode = m; }
@@ -69,6 +78,14 @@ public:
 	// A cell was right-clicked in Editor mode: the owner opens whatever
 	// inspects that square (a location, or the cell itself).
 	std::function<void(int x, int z)> onInspect;
+	// A toolbar tool was clicked. ONE callback rather than four, because the
+	// view has no opinion about any of them — it knows a disc was pressed and
+	// which one, and the owner knows what that means.
+	std::function<void(Tool)> onTool;
+	// Whether undo/redo have anything to take back. Asked every frame the band
+	// draws, so a dimmed arrow is the history's live state and not a flag this
+	// view has to be told to update.
+	std::function<bool(bool redo)> canUndo;
 
 	// Re-bakes at the window's font height, like every other screen.
 	void SetFontHeight(float pixelHeight) {
@@ -102,13 +119,33 @@ private:
 		float ox = 0.0f, oy = 0.0f;
 	};
 	Transform ComputeTransform(const WorldMap& world, const gfx::Rect& panel) const;
-	// The map area: the panel minus the caption band along the bottom.
+	// The map area: the panel minus the toolbar band on top (Editor mode only)
+	// and the caption band along the bottom.
 	gfx::Rect GridArea(const gfx::Rect& panel) const;
+	// The toolbar band. Zero-height in Play mode, which is what keeps the grid
+	// in the same place whether or not the band is there to push it down.
+	gfx::Rect ToolbarRect(const gfx::Rect& panel) const;
 	bool CellAt(float px, float py, const WorldMap& world, const gfx::Rect& panel,
 				int& outX, int& outZ) const;
 
+	struct ToolButton {
+		Tool id = Tool::None;
+		gfx::Rect rect{};
+		std::string label; // the tooltip, and the face when the art is missing
+		const gfx::Texture* icon = nullptr;
+		bool enabled = true;
+	};
+	std::vector<ToolButton> ToolbarButtons(const gfx::Rect& panel) const;
+
 	ui::FontLibrary& m_fonts;
 	const ui::Font* m_font = nullptr;
+	// Borrowed from the shared cache (AssetUtil's ToolbarIcon) — the level
+	// editor's band draws from the same textures.
+	const gfx::Texture *m_icoSettings = nullptr, *m_icoSave = nullptr,
+					   *m_icoUndo = nullptr, *m_icoRedo = nullptr;
+	Tool m_hoverTool = Tool::None; // tracked by Update in WINDOW pixels; the
+								   // render re-derives its own geometry and
+								   // matches by IDENTITY, never by coordinate
 
 	Mode m_mode = Mode::Play;
 	std::string m_armed; // terrain id the brush lays down; empty = none

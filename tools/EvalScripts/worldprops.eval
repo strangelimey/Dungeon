@@ -52,3 +52,24 @@ worldarea
 ; --- and all of it is one history -------------------------------------------
 undo
 worldarea
+
+; --- the rules the DIALOG sits on are the same ones ---------------------------
+; W4's settings dialog edits through WorldMap::SetStart / AddArea / RemoveArea /
+; MoveArea, the same calls these commands make. That is the point of moving the
+; refusals into the map: there is one editor wearing two faces, so a rule proved
+; here is proved for the dialog too. Three that were only in the console before:
+worldarea add lowlands 0 0 4 4
+worldarea add flat 3 3 0 4
+; (the undo above put tiny back at row 0, so this asks for where it is)
+worldarea order tiny 0
+worldarea
+
+; --- and the dialog itself opens where its button is, and nowhere else --------
+; It is modal over the WORLD screen, the one state whose Update routes input to
+; it; opened over a dungeon it would be a modal nothing could close.
+worldmap off
+worldsettings
+worldmap on
+worldsettings
+worldsettings off
+worldmap off

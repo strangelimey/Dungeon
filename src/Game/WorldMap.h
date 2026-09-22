@@ -237,7 +237,32 @@ public:
 	// the grid, or another location already stands there.
 	bool MoveLocation(std::string_view id, int x, int z);
 	Location* MutableLocation(std::string_view id);
-	void SetStart(int x, int z) { m_startX = x; m_startZ = z; }
+	// Moves where a new game puts the party. Refuses off the grid, and refuses
+	// IMPASSABLE ground — the checker calls that an error, and an editor must
+	// not be able to author a world the checker rejects a moment later.
+	//
+	// THE RULE LIVES HERE AND NOT IN ITS CALLERS. It sat in the `worldprops`
+	// command, which was fine while the console was the only way in; the
+	// settings dialog is a second way, and two paths to one action with the
+	// rule in only one of them is the exact shape of the no-op undo step W3
+	// spent an afternoon on.
+	bool SetStart(int x, int z);
+
+	// Areas, addressed BY ID like everything else the editor edits. The list
+	// stays ordered — the order IS the rule, last match wins — so MoveArea is
+	// an operation rather than a sort, and AddArea APPENDS: a newly carved
+	// exception wins over the broad region it was carved out of, which is what
+	// carving one means.
+	//
+	// A DUPLICATE ID IS REFUSED, for a different reason from a location's: the
+	// loader tolerates two areas sharing a name, but the editor addresses one
+	// BY id, and two rows answering to one name is not something it can
+	// represent. Hand-authored duplicates still load; Remove and Move act on
+	// the FIRST match.
+	bool AddArea(Area a);
+	bool RemoveArea(std::string_view id);
+	bool MoveArea(std::string_view id, int index);
+	Area* MutableArea(std::string_view id);
 	std::vector<Area>& MutableAreas() { return m_areas; }
 
 	// --- writing (W1, docs/world-editor-plan.md) ----------------------------

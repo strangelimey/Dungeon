@@ -1083,22 +1083,19 @@ void Game::RegisterDevCommands() {
 			}
 			if (a[0] == "start" && a.size() >= 3) {
 				const int x = std::atoi(a[1].c_str()), z = std::atoi(a[2].c_str());
-				if (!m_worldMap->InBounds(x, z)) {
+				// THE RULE IS THE MAP'S (WorldMap::SetStart) and what is left
+				// here is the reporting — the settings dialog is a second way
+				// in, and a refusal that lived in one of them would not be the
+				// same editor from the other.
+				m_world.BeginUndoStep();
+				const bool ok = m_worldMap->SetStart(x, z);
+				m_world.CommitUndoStep(ok);
+				if (ok) m_console.Print(std::format("world start {},{}", x, z));
+				else if (!m_worldMap->InBounds(x, z))
 					m_console.Print("off the world grid");
-					return;
-				}
-				// Refused on IMPASSABLE ground, because the checker calls that
-				// an error and an editor should not author what the checker
-				// will reject a moment later.
-				if (!m_worldMap->Passable(x, z)) {
+				else
 					m_console.Print(std::format("{},{} is impassable ({})", x, z,
 												m_worldMap->TerrainAt(x, z).id));
-					return;
-				}
-				m_world.BeginUndoStep();
-				m_worldMap->SetStart(x, z);
-				m_world.CommitUndoStep(true);
-				m_console.Print(std::format("world start {},{}", x, z));
 			} else if (a[0] == "opening" && a.size() >= 2 && a[1] == "world") {
 				m_project.startDungeon.clear();
 				m_project.startLevel.clear();
@@ -1222,6 +1219,10 @@ void Game::RegisterDevCommands() {
 				m_console.Print("later rows win where they overlap");
 				return;
 			}
+			// Every verb below goes through the MAP's rules (WorldMap::AddArea
+			// and friends), not through the vector: the settings dialog is a
+			// second way in, and a refusal only one of them made would be two
+			// editors wearing one name.
 			const std::string& verb = a[0];
 			if (verb == "add" && a.size() >= 6) {
 				WorldMap::Area ar;
@@ -1231,39 +1232,41 @@ void Game::RegisterDevCommands() {
 				ar.w = std::atoi(a[4].c_str());
 				ar.h = std::atoi(a[5].c_str());
 				if (a.size() >= 7) ar.difficulty = static_cast<float>(std::atof(a[6].c_str()));
-				if (ar.w <= 0 || ar.h <= 0) {
-					m_console.Print("an area needs a positive extent");
-					return;
-				}
+				const int w = ar.w, h = ar.h;
 				m_world.BeginUndoStep();
-				areas.push_back(std::move(ar));
-				m_world.CommitUndoStep(true);
+				const bool ok = m_worldMap->AddArea(std::move(ar));
+				m_world.CommitUndoStep(ok);
 				// APPENDED, and that is not arbitrary: the newest area wins
 				// where it overlaps, which is what someone carving an exception
 				// out of a broad region means.
-				m_console.Print(std::format("added {} (row {}, wins over earlier)",
-											a[1], areas.size() - 1));
+				//
+				// EACH REFUSAL SAYS WHICH RULE REFUSED. One sentence for both read
+				// the same whichever fired, which is not only worse to read: the
+				// harness check for the duplicate rule PASSED with that rule
+				// deleted, because the extent case beside it printed the very same
+				// words. The reporting is the decision's alibi, so it has to be as
+				// specific as the decision.
+				if (ok)
+					m_console.Print(std::format("added {} (row {}, wins over earlier)",
+												a[1], areas.size() - 1));
+				else if (w <= 0 || h <= 0)
+					m_console.Print("refused: an area needs a positive extent");
+				else
+					m_console.Print(std::format(
+						"refused: an area named '{}' already exists", a[1]));
 			} else if (verb == "del" && a.size() >= 2) {
-				const size_t before = areas.size();
 				m_world.BeginUndoStep();
-				std::erase_if(areas, [&](const WorldMap::Area& x) { return x.id == a[1]; });
-				const bool ok = areas.size() != before;
+				const bool ok = m_worldMap->RemoveArea(a[1]);
 				m_world.CommitUndoStep(ok);
 				m_console.Print(ok ? "removed " + a[1] : "no such area");
 			} else if (verb == "order" && a.size() >= 3) {
 				const int to = std::atoi(a[2].c_str());
-				auto it = std::find_if(areas.begin(), areas.end(),
-									   [&](const WorldMap::Area& x) { return x.id == a[1]; });
-				if (it == areas.end() || to < 0 || to >= static_cast<int>(areas.size())) {
-					m_console.Print("no such area, or index out of range");
-					return;
-				}
 				m_world.BeginUndoStep();
-				WorldMap::Area moved = std::move(*it);
-				areas.erase(it);
-				areas.insert(areas.begin() + to, std::move(moved));
-				m_world.CommitUndoStep(true);
-				m_console.Print(std::format("{} is now row {}", a[1], to));
+				const bool ok = m_worldMap->MoveArea(a[1], to);
+				m_world.CommitUndoStep(ok);
+				m_console.Print(ok ? std::format("{} is now row {}", a[1], to)
+								   : "no such area, index out of range, or already "
+									 "there");
 			} else if (verb == "at" && a.size() >= 3) {
 				// WHICH AREA OWNS THIS CELL, and what that makes it. The
 				// ordering rule is otherwise invisible: a list can show the
@@ -1278,6 +1281,37 @@ void Game::RegisterDevCommands() {
 			} else {
 				m_console.Print("usage: worldarea [add|del|order|at] ...");
 			}
+		});
+	m_console.Register(
+		"worldsettings",
+		"open the world settings dialog: worldsettings [location] | off",
+		[this](const std::vector<std::string>& a) {
+			// The toolbar's Settings disc, reachable without a mouse. It does
+			// NOT duplicate the rules — the dialog's callbacks are the same
+			// WorldMap calls `worldprops`/`worldloc`/`worldarea` make — so this
+			// exists to open and close the thing, which is all a harness can
+			// check about a dialog anyway.
+			if (!a.empty() && a[0] == "off") {
+				m_worldSettingsDialog.Close();
+				m_console.Print("world settings closed");
+				return;
+			}
+			if (!m_worldMap) {
+				m_console.Print("no world map loaded");
+				return;
+			}
+			// ON THE WORLD SCREEN ONLY, because that is the one state whose
+			// Update routes input to it. Opened over a dungeon it would draw a
+			// modal nothing could type into or close - a console command
+			// reaching further than the button it stands for.
+			if (m_state != AppState::WorldMap) {
+				m_console.Print("world settings need the world map "
+								"(try `worldmap on`)");
+				return;
+			}
+			OpenWorldSettings(a.empty() ? std::string() : a[0]);
+			m_console.Print(m_worldSettingsDialog.IsOpen() ? "world settings open"
+														   : "could not open");
 		});
 	m_console.Register(
 		"newtype", "create a pure-data type: newtype <dungeons|terrain|quests>",

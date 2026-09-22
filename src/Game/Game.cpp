@@ -75,14 +75,16 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_fonts(MakeFontLibrary(device)),
 	  m_ui(window, device, spriteBatch, audio, m_sounds, m_settings,
 		   m_characters, m_fonts),
-	  m_worldMapView(m_fonts),
+	  m_worldMapView(device, m_fonts),
 	  m_mapView(device, m_world, m_settings, m_fonts),
 	  m_mapEditor(m_mapView, m_world, m_settings),
 	  m_console(m_fonts, m_threads),
 	  m_modelPreview(device, 512),
 	  m_assetDialog(device, window),
 	  m_monsterDialog(device, m_fonts), m_balanceDialog(device, m_fonts),
-	  m_levelSettingsDialog(device, m_fonts), m_validateDialog(device, m_fonts),
+	  m_levelSettingsDialog(device, m_fonts),
+	  m_worldSettingsDialog(device, m_fonts),
+	  m_validateDialog(device, m_fonts),
 	  m_generateDialog(device, m_fonts),
 	  m_typeDialog(device, m_fonts),
 	  m_assetPicker(device, m_fonts),
@@ -1318,6 +1320,15 @@ void Game::Update(float dt) {
 		// Travelling. The world simulates nothing — a journey is RESOLVED, not
 		// simulated (docs/world-map.md) — so this state only reads input and
 		// draws. Esc opens the pause menu, which resumes back HERE.
+		//
+		// The world settings dialog is MODAL over this screen, like every
+		// editor dialog over the dungeon map: while it is up it owns the input,
+		// so a key meant for one of its fields cannot also walk the party.
+		if (m_worldSettingsDialog.IsOpen()) {
+			m_worldSettingsDialog.Update(input, static_cast<float>(m_window.Width()),
+										 static_cast<float>(m_window.Height()));
+			return;
+		}
 		if (input.WasKeyPressed(VK_ESCAPE) && !m_console.IsOpen()) {
 			m_audio.Play(m_sounds.click, 0.5f);
 			m_ui.ResetToMainPage();
@@ -1872,6 +1883,11 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		m_balanceDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	if (m_levelSettingsDialog.IsOpen())
 		m_levelSettingsDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
+	// Modal over the WORLD screen rather than the editor map, but drawn in the
+	// same place as every other dialog: after the state switch, so whichever
+	// screen is up is already behind it.
+	if (m_worldSettingsDialog.IsOpen())
+		m_worldSettingsDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	if (m_generateDialog.IsOpen())
 		m_generateDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	if (m_validateDialog.IsOpen())
