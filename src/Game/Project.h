@@ -53,6 +53,16 @@ struct Project {
 	// because there will be several harness levels, not one.
 	std::string evalLevel;
 
+	// THE MANIFEST AS IT WAS READ, comments and all. Save updates the fields
+	// above INSIDE it rather than building a fresh block, for the reason the
+	// catalogs keep their lead comments: project.ini is hand-authored
+	// documentation — what the level list is, why eval_arena is on it, what
+	// removing the four opening lines does — and an editor write used to delete
+	// every word of it. (Found the day the [+] button started saving the
+	// project routinely; before that it happened rarely enough to go unnoticed.)
+	// Unknown keys survive for the same reason they do in a catalog.
+	serialize::Block manifest;
+
 	// The content catalogs (see Catalog.h). Walls/floors/ceilings define the
 	// surface palette; the rest define placeable content. attacks/balance are
 	// the combat model's data (Balance.h): per-attack numbers + the knob sheet.
@@ -121,6 +131,17 @@ struct Project {
 	// CatalogForKey.
 	std::vector<const Catalog*> AllCatalogs() const;
 
+	// The catalog FILES this project is made of: the filename, the catalog it
+	// loads into, and the header comment its writer prepends. The SAME table
+	// Load and Save walk, exposed so a check can walk it too — a second list
+	// would be a second chance to forget a file.
+	struct CatalogFile {
+		const char* file;
+		const Catalog* catalog;
+		const char* header;
+	};
+	std::vector<CatalogFile> CatalogFiles() const;
+
 	// --- item resolution across the three item catalogs ----------------------
 	// An item id may live in items, weapons OR armor. These resolve/iterate
 	// across all three (items first) so a placed weapon or worn armor loads the
@@ -129,10 +150,36 @@ struct Project {
 	bool HasItem(std::string_view id) const { return FindItem(id) != nullptr; }
 	std::vector<const CatalogEntry*> AllItems() const;
 
+	// --- the dungeon tier (docs/world-map.md, W5) ----------------------------
+	// `levels` above stays the FLAT UNIVERSE — every stem the editor can open
+	// and the checker walks. These are how that universe is PRESENTED: a
+	// dungeon claims a set of stems in its `levels` field, and the editor shows
+	// them grouped by it. They live here rather than being worked out at each
+	// call site because the level picker, the world-settings dialog and the
+	// checker adapter all ask the same question, and three answers could
+	// disagree about which dungeon a level belongs to.
+	//
+	// The levels a dungeon claims, IN ITS OWN ORDER (the author's), filtered to
+	// the stems that actually exist — a dungeon naming a deleted level is a
+	// checker finding, not a row the picker should offer to open.
+	std::vector<std::string> DungeonLevels(std::string_view dungeonId) const;
+	// The dungeon claiming `stem`, or null. FIRST claim wins: two dungeons
+	// naming one level is a checker error, and answering it twice here would
+	// list the level twice.
+	const CatalogEntry* DungeonOfLevel(std::string_view stem) const;
+	// Stems NO dungeon claims, in manifest order. The checker warns about them,
+	// and the editor must still be able to REACH them — a level that became
+	// uneditable by being forgotten is a worse outcome than an untidy list.
+	std::vector<std::string> OrphanLevels() const;
+
 	// Loads the project rooted at `folder` (reads project.ini + catalog/*.cat).
 	// A missing manifest or catalog is tolerated (empty), so a brand-new project
 	// folder loads cleanly; the caller validates what it needs.
 	static Project Load(const std::string& folder);
+	// project.ini as it would be WRITTEN, touching no file — the pure half of
+	// Save, so the writer's fidelity can be DIFFED against what is on disk
+	// (`catround`) instead of trusted. Catalog::Serialize is its twin.
+	std::string ManifestText() const;
 	// Writes the manifest and every catalog back to `folder`.
 	bool Save() const;
 

@@ -50,6 +50,7 @@ ROOT = r"C:\Dev\Dungeon-world-map"
 PROJ = os.path.join(ROOT, r"assets\projects\dungeon-demo")
 WORLD = os.path.join(PROJ, r"world\world.map")
 DUNGEONS = os.path.join(PROJ, r"catalog\dungeons.cat")
+MANIFEST = os.path.join(PROJ, "project.ini")
 EXE = os.path.join(ROOT, r"build\debug\bin\Dungeon.exe")
 LOG = os.path.join(ROOT, r"build\debug\bin\dungeon.log")
 SCRIPTS = os.path.join(ROOT, r"tools\EvalScripts")
@@ -125,7 +126,9 @@ CASES = [
      "map.check.levelorphan"),
 ]
 
-originals = {p: read(p) for p in (WORLD, DUNGEONS)}
+# project.ini joins the backup list because phase 13 now CREATES a level,
+# which saves the whole project. Its files are removed in the finally block.
+originals = {p: read(p) for p in (WORLD, DUNGEONS, MANIFEST)}
 try:
     print("1 - the world checks fire when the world is broken")
     log = run("worldcheck.eval")
@@ -514,6 +517,27 @@ try:
           "the settings dialog refuses to open off the world screen")
     check("world settings open" in log and "world settings closed" in log,
           "...and opens, and closes, on it")
+
+    # --- W5: a level belongs to a dungeon -----------------------------------
+    # The toolbar's picker is two-tier now; this is the same grouping read
+    # through the same Project helpers, which is the half a screenshot cannot
+    # assert. THE ORPHAN ROW IS THE CONTROL: it reads 0 both times, so the
+    # grouping accounts for every stem the manifest holds — a helper that
+    # simply failed to match would pile them all up there instead.
+    groups = [l.split("console:")[-1].strip()
+              for l in log.splitlines() if "(no dungeon)" in l]
+    check(groups[:2] == ["(no dungeon) (0)", "(no dungeon) (0)"],
+          "every level belongs to a dungeon, before and after",
+          " | ".join(groups[:2]))
+    check("crypt      (2) crypt1 crypt2" in log and
+          "crypt      (3) crypt1 crypt2 crypt3" in log,
+          "and a new level lands INSIDE the dungeon, named after it")
+    check("created crypt3 in crypt" in log, "which is what creating one says")
+
+    # THE WRITERS' FIDELITY. `levels new` saves the whole project, and that
+    # used to rewrite four files and delete every comment in project.ini.
+    check("catround 24 of 24 file(s) round-trip, 0 absent" in log,
+          "and saving the project leaves every file it did not change alone")
 finally:
     for p, s in originals.items():
         write(p, s)
@@ -522,7 +546,11 @@ finally:
     # starts its run by pressing Enter there expecting "Start New Game" — so
     # leaving this behind made a DIFFERENT suite load a save, sit in a level
     # transition, and report that levelcheck never answered. Clean up.
-    for leftover in (SAVE, SAVE + ".bak"):
+    # The level phase 13 makes, and the save. A level file left behind would
+    # make the NEXT run's "created crypt3" land on crypt4 and the check miss.
+    for leftover in (SAVE, SAVE + ".bak",
+                     os.path.join(PROJ, r"levels\crypt3.map"),
+                     os.path.join(PROJ, r"levels\crypt3.ent")):
         try:
             os.remove(leftover)
         except OSError:

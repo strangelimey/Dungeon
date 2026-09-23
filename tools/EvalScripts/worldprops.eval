@@ -73,3 +73,20 @@ worldmap on
 worldsettings
 worldsettings off
 worldmap off
+
+; --- W5: the picker's two tiers, and where a new level lands ----------------
+; The toolbar dropdown is what W5 built; `levels` prints the same grouping
+; through the same Project helpers, which is the part a screenshot cannot
+; assert. Three facts: every level belongs to a dungeon (the orphan row is the
+; control — it reads 0, so the grouping accounts for the whole manifest), a new
+; level lands INSIDE the dungeon being viewed, and its stem is named after it.
+; --- every project file survives being written, FIRST ------------------------
+; BEFORE anything saves, so the writers are diffed against the files as they
+; were hand-authored. Run AFTER a save it would be comparing the writer with
+; its own output, which agrees with itself however much it drops -- and did:
+; deleting the blank-line rule was invisible from here until this moved up.
+catround
+
+levels
+levels new crypt
+levels

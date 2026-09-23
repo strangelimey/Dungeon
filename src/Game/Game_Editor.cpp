@@ -142,14 +142,19 @@ bool Game::SyncProjectToSource() {
 // appends the stem to the manifest. Everything downstream (browse, remote
 // edits, stair dests, savemap) reads Project::levels or lazy-parses the files,
 // so no other state needs touching. Returns the stem, or "" on failure.
-std::string Game::CreateNewLevel() {
-	// Next free levelN stem (numeric suffixes only; foreign stems just don't
-	// bump the counter, and the find() guard keeps the pick collision-free).
+std::string Game::CreateNewLevel(const std::string& dungeonId) {
+	// THE STEM IS NAMED AFTER ITS DUNGEON when it has one — crypt1, crypt2,
+	// crypt3 — so the grouping the picker shows is legible in the filename too,
+	// which is how the demo's levels were already hand-named. A level with no
+	// dungeon falls back to the old "levelN".
+	const std::string base = dungeonId.empty() ? "level" : dungeonId;
+	// Next free <base>N (numeric suffixes only; foreign stems just don't bump
+	// the counter, and the find() guard keeps the pick collision-free).
 	int maxN = 0;
 	for (const std::string& s : m_project.levels)
-		if (s.starts_with("level"))
-			if (int n = std::atoi(s.c_str() + 5); n > maxN) maxN = n;
-	const std::string stem = "level" + std::to_string(maxN + 1);
+		if (s.starts_with(base))
+			if (int n = std::atoi(s.c_str() + base.size()); n > maxN) maxN = n;
+	const std::string stem = base + std::to_string(maxN + 1);
 	if (std::find(m_project.levels.begin(), m_project.levels.end(), stem) !=
 		m_project.levels.end()) {
 		log::Warn("new level: stem {} already exists", stem);
@@ -186,9 +191,19 @@ std::string Game::CreateNewLevel() {
 		return {};
 	}
 	m_project.levels.push_back(stem);
+	// AND INTO ITS DUNGEON (W5). `levels` above stays the flat universe every
+	// route walks; this is the level joining a GROUP, which is what stops an
+	// editor-made level arriving as an orphan the checker then reports.
+	if (CatalogEntry* d = m_project.dungeons.Find(dungeonId)) {
+		const std::string was = d->Get("levels", "");
+		d->Set("levels", was.empty() ? stem : was + " " + stem);
+	}
 	m_project.Save();
 	if (m_world.onMessage)
-		m_world.onMessage(loc::FormatLine("map.level.created", stem));
+		m_world.onMessage(dungeonId.empty()
+							  ? loc::FormatLine("map.level.created", stem)
+							  : loc::FormatLine("map.level.createdin", stem,
+												dungeonId));
 	return stem;
 }
 

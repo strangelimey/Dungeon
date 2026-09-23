@@ -188,9 +188,12 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 			m_world.onMessage(loc::FormatLine("map.level.applied",
 											  m_levelSettingsDialog.Level()));
 	};
-	// The editor toolbar's [+] button: mint a fresh level (files + manifest)
-	// and hand the stem back so the view jumps onto the new canvas.
-	m_mapView.onNewLevel = [this] { return CreateNewLevel(); };
+	// The editor toolbar's [+] button: mint a fresh level (files + manifest +
+	// the viewed dungeon's level list) and hand the stem back so the view jumps
+	// onto the new canvas.
+	m_mapView.onNewLevel = [this](const std::string& dungeonId) {
+		return CreateNewLevel(dungeonId);
+	};
 	// The Level dialog's inline name edit → the full rename flow.
 	m_levelSettingsDialog.onRename = [this](const std::string& oldStem,
 											const std::string& newStem) {

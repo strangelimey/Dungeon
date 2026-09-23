@@ -82,7 +82,12 @@ public:
 	// The toolbar's [+] button: the owner (Game) creates a fresh level on disk
 	// (minimal .map/.ent + a manifest append) and returns its stem so the view
 	// can jump straight to it — or "" if creation failed.
-	std::function<std::string()> onNewLevel;
+	//
+	// IT LANDS IN THE DUNGEON BEING VIEWED (W5): the argument is that dungeon's
+	// id, so the new level joins its `levels` list instead of arriving loose in
+	// the manifest. Empty when the viewed level belongs to no dungeon — an
+	// orphan begets an orphan, which is honest rather than guessing a home.
+	std::function<std::string(const std::string& dungeonId)> onNewLevel;
 
 	bool IsOpen() const { return m_open; }
 	Mode CurrentMode() const { return m_mode; }
@@ -168,6 +173,10 @@ public:
 	// remote seam).
 	bool Browsing() const { return m_browse != nullptr; }
 	const std::string& ViewedLevel() const;
+	// The dungeon whose `levels` list claims the viewed level, or "" when
+	// nothing does (W5). What the [+] button hands the owner, and what the
+	// picker opens expanded.
+	std::string ViewedDungeon() const;
 	const DungeonMap& ViewedMap() const;
 	// The left dock's scrollable body rectangle (below the collapse button +
 	// "Brushes" header), where MapEditor lays out and draws the accordion.
@@ -332,14 +341,35 @@ private:
 	// (Player mode keeps the floating browse arrows instead).
 	gfx::Rect ToolbarRect(const gfx::Rect& panel) const;
 	// The level DROPDOWN (left end of the band): the closed box shows the
-	// viewed level's stem; open, it lists every level in the project's order.
-	// Hand-rolled like the rest of MapView's chrome (the toolbar is not a
-	// UIContext widget tree).
+	// viewed level's stem; open, it lists the project's levels GROUPED BY THE
+	// DUNGEON that claims them (W5). Hand-rolled like the rest of MapView's
+	// chrome (the toolbar is not a UIContext widget tree).
 	gfx::Rect LevelPickRect(const gfx::Rect& panel) const;
 	gfx::Rect LevelItemRect(int index, const gfx::Rect& panel) const;
 	gfx::Rect NewLevelButton(const gfx::Rect& panel) const; // [+], right of it
+
+	// ONE ROW LIST that hover, click and render all walk — the toolbar's own
+	// idiom, applied to the popup. Before W5 the popup was a flat vector of
+	// stems and each of the three walked it separately; a two-tier list with
+	// three copies of the tier logic would be three chances to disagree about
+	// which row is which.
+	struct LevelRow {
+		bool header = false;  // a dungeon (click expands), else a level (opens)
+		std::string id;       // dungeon id, or level stem; "" = the orphan group
+		std::string label;    // what is drawn
+		bool expanded = false; // headers only
+	};
+	std::vector<LevelRow> LevelRows() const;
+	// Opens the popup, expanding ONLY the group holding the viewed level — so
+	// it opens on where you are rather than wherever it was left, the same
+	// bargain Open() makes about pan and zoom.
+	void OpenLevelList();
+
 	bool m_levelsOpen = false; // dropdown popup showing
 	int m_levelsHover = -1;    // hovered popup row (Update-tracked, like m_hoverBtn)
+	// Which groups are expanded, by dungeon id ("" = the orphans). Reseeded
+	// every time the popup opens, so it never accumulates.
+	std::vector<std::string> m_groupsOpen;
 
 	// Read-only snapshot of the browsed level (see the level-browsing section
 	// above); null = the viewport shows the active level's live state.

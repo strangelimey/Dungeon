@@ -7,6 +7,7 @@
 #include "Core/Log.h"
 #include "Game/Serialize.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <format>
 #include <sstream>
@@ -72,6 +73,7 @@ Project Project::Load(const std::string& folder) {
 		const std::vector<serialize::Block> blocks = serialize::ParseBlocks(text);
 		for (const serialize::Block& b : blocks) {
 			if (!b.id.empty()) continue; // manifest lives in the unnamed block
+			p.manifest = b; // kept whole — see the member's comment
 			p.name = b.Get("name", "Untitled");
 			p.levels = SplitWords(b.Get("levels"));
 			p.defaultSconce = b.Get("default_sconce", "sconce");
@@ -100,9 +102,15 @@ Project Project::Load(const std::string& folder) {
 	return p;
 }
 
-bool Project::Save() const {
-	std::vector<serialize::Block> manifest(1); // one unnamed block
-	serialize::Block& m = manifest.front();
+std::string Project::ManifestText() const {
+	// THE BLOCK THAT WAS READ, updated — not a fresh one. Rebuilding it dropped
+	// every comment in project.ini, and those comments are the only place the
+	// level list, the harness level and the opening are explained. Keys the
+	// manifest carries and this struct does not survive for the same reason a
+	// catalog's unknown fields do.
+	std::vector<serialize::Block> blocks(1, manifest);
+	serialize::Block& m = blocks.front();
+	m.id.clear(); // the manifest is the unnamed block, whatever was parsed
 	m.Set("name", name);
 	std::string levelList;
 	for (size_t i = 0; i < levels.size(); ++i)
@@ -111,21 +119,41 @@ bool Project::Save() const {
 	m.Set("default_sconce", defaultSconce);
 	m.Set("default_brazier", defaultBrazier);
 	if (!evalLevel.empty()) m.Set("eval_level", evalLevel);
+	else serialize::Remove(m.fields, "eval_level");
 	// Only written when the game starts in a dungeon: an absent block is the
 	// ordinary "begin on the world map", and writing it out as empties would
-	// make every project look like it had made a choice it had not.
+	// make every project look like it had made a choice it had not. REMOVED
+	// rather than blanked when the choice is taken back, because absent and
+	// empty read differently — `start_x = ` is 0, not "unset".
 	if (!startDungeon.empty()) {
 		m.Set("start_dungeon", startDungeon);
 		m.Set("start_level", startLevel);
 		if (startX >= 0) {
 			m.Set("start_x", std::to_string(startX));
 			m.Set("start_z", std::to_string(startZ));
+		} else {
+			serialize::Remove(m.fields, "start_x");
+			serialize::Remove(m.fields, "start_z");
 		}
+	} else {
+		for (const char* key : {"start_dungeon", "start_level", "start_x", "start_z"})
+			serialize::Remove(m.fields, key);
 	}
 
-	const std::string text = std::format("; {} — project manifest.{}{}", name,
-										 serialize::kEol, serialize::kEol) +
-							 serialize::WriteBlocks(manifest);
+	// THE GENERATED HEADER IS ONLY FOR A MANIFEST THAT HAD NONE. The unnamed
+	// block has no "[id]" line, so the file's opening comment rides the FIRST
+	// FIELD's lead — and it survives the round trip now. Emitting the generated
+	// line as well would stack a second header on the first, one per save.
+	const std::string header =
+		manifest.fields.empty()
+			? std::format("; {} — project manifest.{}{}", name, serialize::kEol,
+						  serialize::kEol)
+			: std::string();
+	return header + serialize::WriteBlocks(blocks);
+}
+
+bool Project::Save() const {
+	const std::string text = ManifestText();
 	bool ok = assets::WriteBinaryFile(folder + "\\project.ini", text.data(),
 									  text.size());
 	if (!ok) log::Warn("Could not write project.ini in {}", folder);
@@ -181,6 +209,41 @@ std::vector<const CatalogEntry*> Project::AllItems() const {
 	std::vector<const CatalogEntry*> out;
 	for (const Catalog* c : {&items, &weapons, &armor})
 		for (const CatalogEntry& e : c->Entries()) out.push_back(&e);
+	return out;
+}
+
+std::vector<Project::CatalogFile> Project::CatalogFiles() const {
+	std::vector<CatalogFile> out;
+	out.reserve(std::size(kCatalogs));
+	for (const CatalogSlot& slot : kCatalogs)
+		out.push_back({slot.file, &(this->*(slot.member)), slot.header});
+	return out;
+}
+
+std::vector<std::string> Project::DungeonLevels(std::string_view dungeonId) const {
+	std::vector<std::string> out;
+	const CatalogEntry* d = dungeons.Find(dungeonId);
+	if (!d) return out;
+	// SplitWords, not ParseTags: a stem is a FILENAME, and it is about to be
+	// drawn and opened, so it keeps the case it was authored in. (ParseTags
+	// lowercases — right for tags, wrong for anything that names a file.)
+	for (const std::string& stem : SplitWords(d->Get("levels", "")))
+		if (std::find(levels.begin(), levels.end(), stem) != levels.end())
+			out.push_back(stem);
+	return out;
+}
+
+const CatalogEntry* Project::DungeonOfLevel(std::string_view stem) const {
+	for (const CatalogEntry& d : dungeons.Entries())
+		for (const std::string& s : SplitWords(d.Get("levels", "")))
+			if (s == stem) return &d;
+	return nullptr;
+}
+
+std::vector<std::string> Project::OrphanLevels() const {
+	std::vector<std::string> out;
+	for (const std::string& stem : levels)
+		if (!DungeonOfLevel(stem)) out.push_back(stem);
 	return out;
 }
 

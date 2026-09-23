@@ -5,6 +5,7 @@
 #include "Game/Game.h"
 
 #include "Assets/File.h"
+#include "Game/Serialize.h"
 #include "Core/AllocTrack.h"
 #include "Core/Assert.h"
 #include "Core/Diagnostics.h"
@@ -573,6 +574,96 @@ void Game::RegisterDevCommands() {
 				},
 				{"demo.wedged", 1.0f, /*watchdogMs=*/200});
 			m_console.Print(std::format("spawned WEDGED worker #{} (use kill)", id));
+		});
+	m_console.Register(
+		"catround",
+		"check every project file survives being written back unchanged",
+		[this](const std::vector<std::string>&) {
+			// THE WRITERS' FIDELITY, CHECKED. Every editor action that touches a
+			// type saves the WHOLE project, so a writer that quietly drops a
+			// comment or a blank line rewrites files nobody edited — and it did:
+			// project.ini lost every word of its documentation on each save, and
+			// the balance sheet lost the blank lines between its groups. Neither
+			// was noticed by eye, because the damage lands in the files the
+			// change was not about.
+			//
+			// It asks the REAL WRITERS (Project::ManifestText,
+			// Catalog::Serialize) for the text they would write and diffs it
+			// against what is on disk. Checking the serialize:: primitive
+			// instead would be checking the wrong thing — the header line each
+			// writer prepends is part of the file and not part of the primitive,
+			// and the first version of this reported an empty catalog as broken
+			// for exactly that reason. Nothing is written: a check that repaired
+			// what it measured could not fail twice.
+			int checked = 0, bad = 0, missing = 0;
+			const auto same = [&](const std::string& path, const std::string& text) {
+				auto bytes = assets::ReadBinaryFile(path);
+				if (!bytes) {
+					// COUNTED AND NAMED, never silently skipped. An absent file
+					// is legitimate (a project need not define every category)
+					// — but so is a MISTYPED PATH, and the two are the same
+					// event here. Passing over it quietly is how this check
+					// reported 23 of 23 while never once looking at
+					// project.ini: the path had lost a backslash, the read
+					// failed, and the count said nothing.
+					++missing;
+					m_console.Print("  absent: " + path);
+					return;
+				}
+				++checked;
+				const std::string before(bytes->begin(), bytes->end());
+				if (serialize::NormalizeEol(before) == serialize::NormalizeEol(text))
+					return;
+				++bad;
+				m_console.Print("  differs: " + path);
+			};
+			same(m_project.folder + "\\project.ini", m_project.ManifestText());
+			for (const auto& [file, cat, header] : m_project.CatalogFiles())
+				same(m_project.CatalogPath(file), cat->Serialize(header));
+			m_console.Print(std::format(
+				"catround {} of {} file(s) round-trip, {} absent",
+				checked - bad, checked, missing));
+		});
+	m_console.Register(
+		"levels",
+		"the project's levels, grouped by the dungeon that claims them: "
+		"levels | new [dungeon]",
+		[this](const std::vector<std::string>& a) {
+			// THE PICKER'S LIST, WITHOUT A MOUSE. The toolbar dropdown is what
+			// W5 actually built; this prints the same grouping (through the same
+			// Project helpers) so a harness can see that a level is in the
+			// dungeon it was made in, which no screenshot can assert.
+			if (!a.empty() && a[0] == "new") {
+				// The [+] button's path. With no argument it lands in the
+				// dungeon of the level being VIEWED, exactly as the button does.
+				const std::string dungeon =
+					a.size() >= 2 ? a[1] : m_mapView.ViewedDungeon();
+				const std::string stem = CreateNewLevel(dungeon);
+				m_console.Print(stem.empty()
+									? "could not create"
+									: std::format("created {} in {}", stem,
+												  dungeon.empty() ? "no dungeon"
+																  : dungeon));
+				return;
+			}
+			for (const CatalogEntry& d : m_project.dungeons.Entries()) {
+				const std::vector<std::string> lv = m_project.DungeonLevels(d.id);
+				std::string list;
+				for (const std::string& s : lv) list += (list.empty() ? "" : " ") + s;
+				m_console.Print(std::format("  {:<10} ({}) {}", d.id, lv.size(), list));
+			}
+			const std::vector<std::string> orphans = m_project.OrphanLevels();
+			std::string list;
+			for (const std::string& s : orphans) list += (list.empty() ? "" : " ") + s;
+			// PRINTED EVEN WHEN EMPTY, because "no orphans" is the interesting
+			// answer: it is what says the grouping accounts for every level the
+			// manifest holds.
+			m_console.Print(std::format("  {:<10} ({}) {}", "(no dungeon)",
+										orphans.size(), list));
+			m_console.Print(std::format("viewing {} in {}", m_mapView.ViewedLevel(),
+										m_mapView.ViewedDungeon().empty()
+											? "no dungeon"
+											: m_mapView.ViewedDungeon()));
 		});
 	m_console.Register(
 		"levelcheck",

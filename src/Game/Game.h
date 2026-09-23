@@ -360,7 +360,12 @@ private:
 	// line each. Empty-world-safe.
 	std::vector<std::string> WorldReport() const;
 
-	std::string CreateNewLevel();
+	// Creates a level on disk (minimal .map/.ent), appends it to the manifest
+	// and — when `dungeonId` names one — to THAT DUNGEON'S level list, so a
+	// level made from the editor is not born an orphan (W5). An empty id
+	// creates it loose, which is what the manifest did for every level before
+	// the world tier existed. Returns the stem, or "" on failure.
+	std::string CreateNewLevel(const std::string& dungeonId = {});
 	// Rough out a whole level from knobs and write it as a NEW level (files +
 	// manifest), returning its stem or "" on failure. The knobs' content pools
 	// are resolved HERE from the project's catalogs by theme tag — the generator

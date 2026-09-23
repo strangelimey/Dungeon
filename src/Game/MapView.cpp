@@ -152,6 +152,49 @@ gfx::Rect MapView::NewLevelButton(const gfx::Rect& panel) const {
 	return {pick.x + pick.w + DockPad(panel), pick.y, pick.h, pick.h};
 }
 
+std::string MapView::ViewedDungeon() const {
+	const CatalogEntry* d = m_world.GetProject().DungeonOfLevel(ViewedLevel());
+	return d ? d->id : std::string();
+}
+
+std::vector<MapView::LevelRow> MapView::LevelRows() const {
+	const Project& project = m_world.GetProject();
+	std::vector<LevelRow> rows;
+	const auto expanded = [this](const std::string& id) {
+		return std::find(m_groupsOpen.begin(), m_groupsOpen.end(), id) !=
+			   m_groupsOpen.end();
+	};
+	const auto group = [&](const std::string& id, const std::string& name,
+						   const std::vector<std::string>& levels) {
+		// A dungeon claiming nothing has nothing to open, so it is not a row —
+		// the picker is for GETTING somewhere, and a header that expands to
+		// emptiness is a dead end you can click twice.
+		if (levels.empty()) return;
+		const bool open = expanded(id);
+		rows.push_back({true, id,
+						std::format("{} {} ({})", open ? "-" : "+", name,
+									levels.size()),
+						open});
+		if (!open) return;
+		for (const std::string& stem : levels) rows.push_back({false, stem, stem});
+	};
+	for (const CatalogEntry& d : project.dungeons.Entries())
+		group(d.id, d.id, project.DungeonLevels(d.id));
+	// THE ORPHANS LAST, and listed at all because `levels` is still the editor's
+	// universe: a stem no dungeon claims is a checker WARNING, not a level that
+	// should become unreachable by being forgotten.
+	group({}, loc::Tr("map.level.orphans"), project.OrphanLevels());
+	return rows;
+}
+
+void MapView::OpenLevelList() {
+	m_levelsOpen = true;
+	// Expanded on the group holding the VIEWED level and nothing else, so the
+	// list opens on where you are rather than wherever it was left — the same
+	// bargain Open() makes about pan and zoom.
+	m_groupsOpen.assign(1, ViewedDungeon());
+}
+
 std::vector<MapView::ToolButton> MapView::ToolbarButtons(const gfx::Rect& panel) const {
 	std::vector<ToolButton> btns;
 	if (m_mode != Mode::Editor) return btns;
@@ -410,8 +453,8 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 	m_hoverBtn = HoverBtn::None;
 	m_levelsHover = -1;
 	if (editor && m_levelsOpen) {
-		const auto& levels = m_world.GetProject().levels;
-		for (int i = 0; i < static_cast<int>(levels.size()); ++i)
+		const std::vector<LevelRow> rows = LevelRows();
+		for (int i = 0; i < static_cast<int>(rows.size()); ++i)
 			if (LevelItemRect(i, panel).Contains(mx, my)) {
 				m_levelsHover = i;
 				break;
@@ -466,13 +509,25 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 		// that level, anywhere else just closes (either way the popup drops,
 		// and the closing click never falls through to the grid).
 		if (editor && m_levelsOpen) {
-			m_levelsOpen = false;
-			const auto& levels = m_world.GetProject().levels;
-			for (int i = 0; i < static_cast<int>(levels.size()); ++i)
-				if (LevelItemRect(i, panel).Contains(mx, my)) {
-					SetViewLevel(levels[i]);
-					break;
+			const std::vector<LevelRow> rows = LevelRows();
+			for (int i = 0; i < static_cast<int>(rows.size()); ++i) {
+				if (!LevelItemRect(i, panel).Contains(mx, my)) continue;
+				// A HEADER EXPANDS, A LEVEL OPENS. Only the second closes the
+				// popup: expanding is how you FIND the level you came for, and
+				// a list that shut on the way there would take two openings to
+				// reach anything not already in front of you.
+				if (rows[i].header) {
+					const auto it = std::find(m_groupsOpen.begin(),
+											  m_groupsOpen.end(), rows[i].id);
+					if (it == m_groupsOpen.end()) m_groupsOpen.push_back(rows[i].id);
+					else m_groupsOpen.erase(it);
+					return true;
 				}
+				m_levelsOpen = false;
+				SetViewLevel(rows[i].id);
+				return true;
+			}
+			m_levelsOpen = false; // a click anywhere else just closes it
 			return true;
 		}
 		// Level-browse arrows (Player mode; the editor's dropdown replaced
@@ -501,12 +556,13 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 				case HoverBtn::LevelSettings: if (onLevelSettings) onLevelSettings(); break;
 				case HoverBtn::Check: if (onValidate) onValidate(); break;
 				case HoverBtn::Generate: if (onGenerate) onGenerate(); break;
-				case HoverBtn::LevelPick:     m_levelsOpen = true; break;
+				case HoverBtn::LevelPick:     OpenLevelList(); break;
 				case HoverBtn::PlayPause:     m_editorPaused = !m_editorPaused; break;
 				case HoverBtn::NewLevel:
-					// Game creates the level (files + manifest) and returns
-					// the stem; jump the view straight onto the new canvas.
-					if (onNewLevel) SetViewLevel(onNewLevel());
+					// Game creates the level (files + manifest + the viewed
+					// dungeon's level list) and returns the stem; jump the view
+					// straight onto the new canvas.
+					if (onNewLevel) SetViewLevel(onNewLevel(ViewedDungeon()));
 					break;
 				case HoverBtn::Undo:
 					if (m_pendingHistory == 0) m_pendingHistory = -1;
@@ -1344,9 +1400,8 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			// project's order. The viewed row washes active; the party's live
 			// level draws accented (same flag the Player header uses).
 			if (m_levelsOpen) {
-				const std::vector<std::string>& levels =
-					m_world.GetProject().levels;
-				const int n = static_cast<int>(levels.size());
+				const std::vector<LevelRow> rows = LevelRows();
+				const int n = static_cast<int>(rows.size());
 				if (n > 0) {
 					const gfx::Rect first = LevelItemRect(0, panel);
 					const gfx::Rect bg{first.x, first.y, first.w,
@@ -1354,8 +1409,9 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 					batch.DrawRect(bg, kMapBg);
 					ui::DrawBorder(batch, bg, theme.panelBorder);
 					for (int i = 0; i < n; ++i) {
+						const LevelRow& row = rows[i];
 						const gfx::Rect r = LevelItemRect(i, panel);
-						if (levels[i] == ViewedLevel()) {
+						if (!row.header && row.id == ViewedLevel()) {
 							Vec4 wash = theme.controlActive;
 							wash.w = 0.55f;
 							batch.DrawRect(r, wash);
@@ -1364,10 +1420,18 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 							wash.w = 0.45f;
 							batch.DrawRect(r, wash);
 						}
-						const bool live = levels[i] == m_world.CurrentLevel();
-						m_font->Draw(batch, levels[i], r.x + dpad * 2,
+						// A level is INDENTED under its dungeon, and the
+						// party's live level draws accented (the same flag the
+						// Player header uses). A header is dim: it is a way
+						// through the list, not a place you can go.
+						const bool live = !row.header &&
+										  row.id == m_world.CurrentLevel();
+						const float indent = row.header ? dpad * 2 : dpad * 5;
+						m_font->Draw(batch, row.label, r.x + indent,
 									r.y + (r.h - m_font->Height()) * 0.5f,
-									live ? theme.accent : theme.text);
+									live	   ? theme.accent
+									: row.header ? theme.textDim
+												 : theme.text);
 					}
 				}
 			}

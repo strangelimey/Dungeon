@@ -205,14 +205,57 @@ That dialog is where "where does a new game begin" becomes editable rather than
 a hand-edited ini — and it is the natural home for the answer to a question the
 world tier raised and never surfaced in a UI.
 
-**W5 — pick a dungeon, then a level.** The toolbar's level dropdown becomes
-two-tier: dungeons, each expanding to its levels. The `[+]` new-level button
-creates the level INSIDE the dungeon being viewed rather than loose in the
-manifest, which is the moment the flat `levels` list stops being the thing an
-author thinks in.
+**W5 — pick a dungeon, then a level.** DONE (2026-09-22). The toolbar's level
+dropdown is two-tier: a row per dungeon, expanding to its levels, and the `[+]`
+button creates the new level INSIDE the dungeon being viewed — named after it
+too (crypt1, crypt2, crypt3), so the grouping is legible in the filename the
+way the demo's levels were already hand-named.
 
 `project.levels` still holds every stem — it is the editor's universe and the
-checker's — but it stops being the thing the UI presents.
+checker's — but it has stopped being the thing the UI presents. The grouping is
+`Project::DungeonLevels` / `DungeonOfLevel` / `OrphanLevels`, one home, because
+the picker, the world-settings dialog and the checker adapter all ask the same
+question and three answers could disagree.
+
+THE ORPHANS ARE LISTED, last, under a group called "no dungeon". A stem no
+dungeon claims is a checker WARNING, not a level that should become unreachable
+by being forgotten — and the picker is the only way to open one.
+
+The popup is ONE ROW LIST that hover, click and render all walk, which is the
+toolbar's own idiom brought inside it: before this each of the three walked the
+flat stem vector separately, and a two-tier list with three copies of the tier
+logic would be three chances to disagree about which row is which.
+
+### What it cost, which was not the picker
+
+The `[+]` button saves the project, and that made an old defect routine: the
+manifest WRITER rebuilt project.ini from scratch, so **every comment in it was
+deleted on every save** — what the level list is, why eval_arena is on it, what
+removing the four opening lines does. The catalogs had been fixed for this long
+ago (`serialize::Block::lead`); the manifest never was, and CLAUDE.md's
+"project.ini already round-trips" was simply untrue. Project now keeps the block
+it parsed and updates fields inside it, `serialize::Remove` exists so a field can
+be UNSET rather than blanked (an absent `start_x` is -1; a blank one is 0, which
+would land a new game on a row it was never sent to), and blank lines between
+field groups survive the trip.
+
+THE FIX IS CHECKED, and the check is the interesting part. `catround` asks the
+REAL WRITERS — `Project::ManifestText`, `Catalog::Serialize`, both split out as
+pure text (the `WorldMap::Serialize` shape W1 established) — for what they would
+write, and diffs it against what is on disk. Three things it taught while being
+built, each of which had made it report a clean run it had not earned:
+
+- CHECKING THE PRIMITIVE IS NOT CHECKING THE WRITER. The first version diffed
+  ParseBlocks→WriteBlocks, which does not include the header line each writer
+  prepends — so it called an empty catalog broken and would have missed a
+  writer-level bug entirely.
+- A SKIPPED FILE IS NOT A PASSED FILE. `project.ini`'s path had lost a
+  backslash, the read failed, and the early return said nothing: it reported
+  "23 of 23" while never once looking at the file the whole fix was about.
+  Absences are counted and named now.
+- A FIDELITY CHECK MUST RUN BEFORE A SAVE, not after. Placed after `levels new`
+  it compared the writer with its own output, which agrees with itself however
+  much it drops — deleting the blank-line rule was invisible from there.
 
 What this does not change
 -------------------------

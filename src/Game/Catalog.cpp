@@ -98,7 +98,7 @@ void Catalog::Load(const std::string& path) {
 	}
 }
 
-bool Catalog::Save(const std::string& path, std::string_view headerComment) const {
+std::string Catalog::Serialize(std::string_view headerComment) const {
 	std::vector<serialize::Block> blocks;
 	blocks.reserve(m_entries.size());
 	for (const CatalogEntry& e : m_entries)
@@ -109,10 +109,23 @@ bool Catalog::Save(const std::string& path, std::string_view headerComment) cons
 	// it is hand-written documentation of that category's fields, and prepending
 	// the generic line as well would duplicate it a little more on every write.
 	const bool hasOwnHeader = !m_entries.empty() && !m_entries.front().lead.empty();
-	if (!headerComment.empty() && !hasOwnHeader)
-		text += std::format("; {}{}{}", headerComment, serialize::kEol, serialize::kEol);
+	if (!headerComment.empty() && !hasOwnHeader) {
+		text += std::format("; {}{}", headerComment, serialize::kEol);
+		// The blank BELOW the header separates it from the first entry, so an
+		// EMPTY catalog does not get one — a file whose whole content is one
+		// comment line should not grow a trailing blank the first time anything
+		// saves the project. (An empty catalog also cannot keep a hand-written
+		// header of its own: with no entry to attach to, the comment is dropped
+		// at parse. The generated line stands in for it, which is why the two
+		// have to come out identical.)
+		if (!blocks.empty()) text += serialize::kEol;
+	}
 	text += serialize::WriteBlocks(blocks);
+	return text;
+}
 
+bool Catalog::Save(const std::string& path, std::string_view headerComment) const {
+	const std::string text = Serialize(headerComment);
 	if (!assets::WriteBinaryFile(path, text.data(), text.size())) {
 		log::Warn("Could not write catalog {}", path);
 		return false;

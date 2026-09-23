@@ -3,8 +3,10 @@
 // ============================================================================
 #include "Game/Serialize.h"
 
+#include <algorithm>
 #include <charconv>
 #include <format>
+#include <iterator>
 
 namespace dungeon::game::serialize {
 
@@ -54,6 +56,12 @@ void Set(std::vector<Field>& fields, std::string key, std::string value) {
 	fields.push_back({std::move(key), std::move(value)});
 }
 
+void Remove(std::vector<Field>& fields, std::string_view key) {
+	// The field's own lead comments go with it — they describe the field, and
+	// left behind they would attach to whatever happened to follow.
+	std::erase_if(fields, [&](const Field& f) { return f.key == key; });
+}
+
 std::string NormalizeEol(std::string text) {
 	// Strip every '\r' that belongs to a "\r\n", then expand every '\n' — so any
 	// mix lands on kEol exactly once and a second pass changes nothing. A lone
@@ -77,6 +85,7 @@ std::vector<Block> ParseBlocks(std::string_view text) {
 
 	size_t pos = 0;
 	std::vector<std::string> pendingComments; // attach to the next block header
+	int pendingBlanks = 0; // blank lines seen since the last field/header
 	while (pos < text.size()) {
 		size_t end = text.find('\n', pos);
 		if (end == std::string_view::npos) end = text.size();
@@ -84,23 +93,45 @@ std::vector<Block> ParseBlocks(std::string_view text) {
 		pos = end + 1;
 
 		if (line.empty()) {
-			// A blank INSIDE a comment run is part of its shape (a header
-			// paragraph, then a gap, then the entry) — keep it so the file reads
-			// the same after a write. Blanks elsewhere are the writer's own.
+			// BLANK LINES ARE PART OF THE FILE'S SHAPE and are kept. They are
+			// what separates one group of settings from the next — a paragraph
+			// break in a hand-authored sheet — and rebuilding the file without
+			// them ran the balance knobs and the manifest's sections together a
+			// little more on every editor save.
+			//
+			// Inside a comment run they go straight in; otherwise they are HELD
+			// until whatever follows says what they belong to (below).
 			if (!pendingComments.empty()) pendingComments.emplace_back();
+			else ++pendingBlanks;
 			continue;
 		}
 		if (line.front() == ';') { // a comment belongs to the block it introduces
+			for (int i = 0; i < pendingBlanks; ++i) pendingComments.emplace_back();
+			pendingBlanks = 0;
 			pendingComments.emplace_back(line);
 			continue;
 		}
+		// The held blanks belong to whatever this line is. A comment run already
+		// swallowed them above, so this is the no-comment case: N blank lines
+		// then a field, or then a header.
+		std::vector<std::string> lead;
+		lead.reserve(static_cast<size_t>(pendingBlanks) + pendingComments.size());
+		for (int i = 0; i < pendingBlanks; ++i) lead.emplace_back();
+		lead.insert(lead.end(), std::make_move_iterator(pendingComments.begin()),
+					std::make_move_iterator(pendingComments.end()));
+		pendingBlanks = 0;
+		pendingComments.clear();
+
 		if (line.front() == '[') {
 			const size_t close = line.find(']');
 			if (close == std::string_view::npos) continue; // malformed header
 			Block b;
 			b.id = std::string(Trim(line.substr(1, close - 1)));
-			b.lead = std::move(pendingComments);
-			pendingComments.clear();
+			b.lead = std::move(lead);
+			// WriteBlocks already separates blocks with one blank line, so a
+			// leading blank here would grow the gap by one on every save.
+			while (!b.lead.empty() && b.lead.front().empty())
+				b.lead.erase(b.lead.begin());
 			blocks.push_back(std::move(b));
 			continue;
 		}
@@ -109,8 +140,7 @@ std::vector<Block> ParseBlocks(std::string_view text) {
 		// Append verbatim (don't dedupe) so a load → save round-trip is faithful.
 		blocks.back().fields.push_back({std::string(Trim(line.substr(0, eq))),
 										std::string(Trim(line.substr(eq + 1))),
-										std::move(pendingComments)});
-		pendingComments.clear();
+										std::move(lead)});
 	}
 
 	// Drop the leading unnamed block when it carried nothing, so catalogs (which

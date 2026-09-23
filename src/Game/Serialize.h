@@ -45,6 +45,12 @@ float GetFloat(const std::vector<Field>& fields, std::string_view key, float fal
 bool GetBool(const std::vector<Field>& fields, std::string_view key, bool fallback);
 // Replaces the field's value if `key` exists, else appends it.
 void Set(std::vector<Field>& fields, std::string key, std::string value);
+// Drops the field if it is there. ABSENT AND EMPTY ARE DIFFERENT: a
+// manifest's `start_x` read with atoi is -1 when the key is missing and 0
+// when it is present and blank, which would land a new game on a row it was
+// never sent to. So a writer that preserves a parsed block needs a way to
+// take a key OUT, not just to blank it.
+void Remove(std::vector<Field>& fields, std::string_view key);
 
 struct Block {
 	std::string id; // "" for the leading unnamed block (the manifest)

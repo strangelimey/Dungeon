@@ -20,6 +20,7 @@
 
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace dungeon::game {
@@ -107,11 +108,23 @@ public:
 	// Reads the .cat file at `path`; a missing file leaves the catalog empty
 	// (not an error — categories are optional). Malformed entries are skipped.
 	void Load(const std::string& path);
+	// The catalog as it would be WRITTEN, touching no file. Pure, so a caller
+	// can diff it against what is on disk — which is how the writer's fidelity
+	// is checked (the dev console's `catround`) rather than trusted. The same
+	// shape WorldMap::Serialize takes, and for the same reason.
+	std::string Serialize(std::string_view headerComment = {}) const;
 	// Writes the catalog back to `path` (creates parent dirs). The header
 	// comment names the category for hand-editors.
 	bool Save(const std::string& path, std::string_view headerComment = {}) const;
 
 	const CatalogEntry* Find(std::string_view id) const;
+	// Mutable overload, for an editor path that changes ONE field of an entry
+	// that already exists (a new level joining its dungeon's `levels` list).
+	// Delegates, so the lookup itself stays in one place. Like Add's return, it
+	// is valid only until the next Add/Remove.
+	CatalogEntry* Find(std::string_view id) {
+		return const_cast<CatalogEntry*>(std::as_const(*this).Find(id));
+	}
 	bool Contains(std::string_view id) const { return Find(id) != nullptr; }
 
 	const std::vector<CatalogEntry>& Entries() const { return m_entries; }
