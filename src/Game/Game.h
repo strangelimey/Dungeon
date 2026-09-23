@@ -840,6 +840,32 @@ private:
 		return {0.0f, 0.0f, surfaceW, surfaceH};
 	}
 
+	// --- the player map's two pages (W6) -------------------------------------
+	// The M-map can show the DUNGEON the party is in or the WORLD it is in.
+	// `m_mapView.IsOpen()` stays the flag for "the overlay is up" — it IS the
+	// overlay — and this says which view fills it.
+	//
+	// THE WORLD PAGE IS PLAYER-MODE ONLY. The editor map has its own world
+	// editor on its own screen, and a page flip in the middle of an editing
+	// session would take the brushes away with it.
+	enum class MapPage { Dungeon, World };
+	// DERIVED, never latched — it asks whether the overlay is up, not whether
+	// anything remembered to say so. A stair fired while the world page was
+	// showing closes the map from somewhere that knows nothing about pages,
+	// and a latched flag would have left the TRAVEL screen offering a way back
+	// to a dungeon the party had left.
+	bool ShowingWorldPage() const {
+		return m_mapPage == MapPage::World && m_mapView.IsOpen() && m_worldMap &&
+			   m_mapView.CurrentMode() == MapView::Mode::Player;
+	}
+	// Flips the page. Arriving on the world page refits it, the same bargain
+	// MapView::Open makes: predictable, rather than wherever it was left.
+	void ShowMapPage(MapPage page) {
+		if (page == MapPage::World && m_mapPage != page) m_worldMapView.Reset();
+		m_mapPage = page;
+	}
+	MapPage m_mapPage = MapPage::Dungeon;
+
 	gfx::Rect MapPanel(float surfaceW, float surfaceH) const {
 		if (m_mapView.CurrentMode() == MapView::Mode::Editor)
 			return {0.0f, 0.0f, surfaceW, surfaceH};

@@ -538,6 +538,23 @@ try:
     # used to rewrite four files and delete every comment in project.ini.
     check("catround 24 of 24 file(s) round-trip, 0 absent" in log,
           "and saving the project leaves every file it did not change alone")
+
+    # --- W6: the player's map has two pages ---------------------------------
+    # The drawing is not checkable from here; the STATE MACHINE is, and it is
+    # the half that breaks silently. The whole sequence is read in order, so a
+    # command that had stopped doing anything would show up as a run of
+    # identical lines rather than as a pass.
+    pages = [l.split("console:")[-1].strip()
+             for l in log.splitlines() if "map page:" in l]
+    check(pages == ["map page: dungeon (toggle offered, map closed)",
+                    "map page: dungeon (toggle offered, map closed)",
+                    "map page: dungeon (toggle offered, map open)",
+                    "map page: world (toggle offered, map open)",
+                    "map page: dungeon (toggle offered, map open)",
+                    "map page: dungeon (toggle offered, map closed)",
+                    "map page: dungeon (toggle offered, map closed)"],
+          "the map's page follows the overlay and cannot outlive it",
+          " | ".join(pages))
 finally:
     for p, s in originals.items():
         write(p, s)

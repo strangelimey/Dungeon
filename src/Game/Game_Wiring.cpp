@@ -217,6 +217,13 @@ void Game::WireModuleCallbacks() {
 		case WorldMapView::Tool::None: break;
 		}
 	};
+	// --- the player map's two pages (W6) ------------------------------------
+	// Each view offers the way ACROSS and Game does the flip, so neither has to
+	// know how to draw the other's grid. `hasWorld` hides the toggle in a
+	// project that is all dungeon rather than dimming it.
+	m_mapView.hasWorld = m_worldMap.has_value();
+	m_mapView.onShowWorld = [this] { ShowMapPage(MapPage::World); };
+	m_worldMapView.onShowDungeon = [this] { ShowMapPage(MapPage::Dungeon); };
 	WireWorldSettingsDialog();
 
 	m_mapEditor.onNewAsset = [this](MapEditor::PaletteCat cat) {

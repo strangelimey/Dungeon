@@ -78,6 +78,16 @@ public:
 	// A cell was right-clicked in Editor mode: the owner opens whatever
 	// inspects that square (a location, or the cell itself).
 	std::function<void(int x, int z)> onInspect;
+
+	// --- shown as the PLAYER'S map, rather than as the travel screen (W6) ---
+	// The same view, drawn into the map overlay's panel while the party is
+	// inside a dungeon. The only difference is a button back to the dungeon
+	// map — and that is exactly why it is a flag and not a mode: OUTSIDE there
+	// is no dungeon map to go back to, so the travel screen must not offer one.
+	void SetOverlay(bool on) { m_overlay = on; }
+	bool IsOverlay() const { return m_overlay; }
+	// That button. Null (or not an overlay) hides it.
+	std::function<void()> onShowDungeon;
 	// A toolbar tool was clicked. ONE callback rather than four, because the
 	// view has no opinion about any of them — it knows a disc was pressed and
 	// which one, and the owner knows what that means.
@@ -136,6 +146,11 @@ private:
 		bool enabled = true;
 	};
 	std::vector<ToolButton> ToolbarButtons(const gfx::Rect& panel) const;
+	// The overlay's way back to the dungeon map, top-right of the grid — the
+	// SAME corner MapView puts its way here, so the pair reads as one control
+	// that stays put rather than two buttons that swap places.
+	gfx::Rect DungeonButton(const gfx::Rect& panel) const;
+	bool ShowDungeonButton() const { return m_overlay && onShowDungeon != nullptr; }
 
 	ui::FontLibrary& m_fonts;
 	const ui::Font* m_font = nullptr;
@@ -146,6 +161,8 @@ private:
 	Tool m_hoverTool = Tool::None; // tracked by Update in WINDOW pixels; the
 								   // render re-derives its own geometry and
 								   // matches by IDENTITY, never by coordinate
+	bool m_overlay = false;     // drawn as the player's map, not the travel screen
+	bool m_hoverDungeon = false; // that button's hover, tracked the same way
 
 	Mode m_mode = Mode::Play;
 	std::string m_armed; // terrain id the brush lays down; empty = none

@@ -576,6 +576,36 @@ void Game::RegisterDevCommands() {
 			m_console.Print(std::format("spawned WEDGED worker #{} (use kill)", id));
 		});
 	m_console.Register(
+		"mappage",
+		"the player map, without a keyboard: mappage | open | close | dungeon | world",
+		[this](const std::vector<std::string>& a) {
+			// The M key and the toggle button, reachable by a harness. It
+			// reports the page, whether the toggle is even OFFERED, and whether
+			// the map is open — three different facts: a project with no
+			// overworld has no second page and must not advertise one, and the
+			// page is DERIVED from the overlay being up, so it cannot outlive
+			// it.
+			if (!a.empty()) {
+				if (a[0] == "world" && !m_worldMap) {
+					m_console.Print("this project has no world map");
+					return;
+				}
+				// open/close are exactly what M does, page reset included.
+				if (a[0] == "open" || a[0] == "close") {
+					if (a[0] == "open") m_mapView.Open(MapView::Mode::Player);
+					else m_mapView.Close();
+					ShowMapPage(MapPage::Dungeon);
+				} else {
+					ShowMapPage(a[0] == "world" ? MapPage::World : MapPage::Dungeon);
+				}
+			}
+			m_console.Print(std::format(
+				"map page: {} (toggle {}, map {})",
+				ShowingWorldPage() ? "world" : "dungeon",
+				m_mapView.hasWorld ? "offered" : "hidden",
+				m_mapView.IsOpen() ? "open" : "closed"));
+		});
+	m_console.Register(
 		"catround",
 		"check every project file survives being written back unchanged",
 		[this](const std::vector<std::string>&) {

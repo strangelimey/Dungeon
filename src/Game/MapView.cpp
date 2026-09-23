@@ -121,12 +121,27 @@ gfx::Rect MapView::LevelUpButton(const gfx::Rect& panel) const {
 	const gfx::Rect g = GridArea(panel);
 	const float pad = DockPad(panel);
 	const float s = ToolBtnS(panel);
-	return {g.x + pad * 2, panel.y + pad * 2, s, s};
+	// After the page toggle when there is one — it owns the corner, and the
+	// browse arrows step aside rather than being placed on top of it.
+	const gfx::Rect w = WorldButton(panel);
+	const float x = ShowWorldButton() ? w.x + w.w + pad : g.x + pad * 2;
+	return {x, panel.y + pad * 2, s, s};
 }
 
 gfx::Rect MapView::LevelDownButton(const gfx::Rect& panel) const {
 	const gfx::Rect up = LevelUpButton(panel);
 	return {up.x + up.w + DockPad(panel), up.y, up.w, up.h};
+}
+
+gfx::Rect MapView::WorldButton(const gfx::Rect& panel) const {
+	// TOP-LEFT, and that is the whole point: WorldMapView puts the way back at
+	// its own top-left, and in Player mode neither view has a left dock — so
+	// the two land on the SAME PIXELS and the pair reads as one control that
+	// stays put. (The right edge cannot do that: this view's key dock sits
+	// there, and its width changes with a persisted collapse flag.)
+	const gfx::Rect g = GridArea(panel);
+	const float pad = DockPad(panel), s = ToolBtnS(panel);
+	return {g.x + pad * 2, panel.y + pad * 2, s * 3.0f, s};
 }
 
 gfx::Rect MapView::ToolbarRect(const gfx::Rect& panel) const {
@@ -258,11 +273,14 @@ MapView::Transform MapView::ComputeTransform(const gfx::Rect& panel) const {
 }
 
 gfx::Rect MapView::GridArea(const gfx::Rect& panel) const {
-	// The right key dock is present in both modes; the left brush dock is
-	// Editor-only. In Editor mode everything sits below the toolbar band.
+	// BOTH DOCKS ARE EDITOR-ONLY (Michael, 2026-09-23: the key is for building,
+	// not for playing). The player's map is the map — the whole panel is grid,
+	// and the symbols it can show are few enough to read without a table.
+	// In Editor mode everything sits below the toolbar band.
 	const float t = ToolbarRect(panel).h;
-	const float l = m_mode == Mode::Editor ? LeftDockRect(panel).w : 0.0f;
-	const float r = RightDockRect(panel).w;
+	const bool editor = m_mode == Mode::Editor;
+	const float l = editor ? LeftDockRect(panel).w : 0.0f;
+	const float r = editor ? RightDockRect(panel).w : 0.0f;
 	return {panel.x + l, panel.y + t, panel.w - l - r, panel.h - t};
 }
 
@@ -280,15 +298,14 @@ gfx::Rect MapView::RightDockRect(const gfx::Rect& panel) const {
 	return {panel.x + panel.w - w, panel.y + t, w, panel.h - t};
 }
 
-bool MapView::LegendCollapsed() const {
-	return m_mode == Mode::Editor ? m_settings.mapLegendCollapsed
-								  : m_settings.mapPlayerKeyCollapsed;
-}
+// The key dock is Editor-only now, so there is one flag rather than one per
+// mode — and `mapPlayerKeyCollapsed` went with the dock it described. A setting
+// nothing reads is worse than no setting: it stays in everyone's settings.ini
+// looking like it still does something.
+bool MapView::LegendCollapsed() const { return m_settings.mapLegendCollapsed; }
 
 void MapView::ToggleLegend() {
-	bool& flag = m_mode == Mode::Editor ? m_settings.mapLegendCollapsed
-										: m_settings.mapPlayerKeyCollapsed;
-	flag = !flag;
+	m_settings.mapLegendCollapsed = !m_settings.mapLegendCollapsed;
 	m_settings.Save();
 }
 
@@ -460,7 +477,9 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 				break;
 			}
 	}
-	if (!editor && !LevelNeighbor(-1).empty() &&
+	if (ShowWorldButton() && WorldButton(panel).Contains(mx, my))
+		m_hoverBtn = HoverBtn::ShowWorld;
+	else if (!editor && !LevelNeighbor(-1).empty() &&
 		LevelUpButton(panel).Contains(mx, my))
 		m_hoverBtn = HoverBtn::LevelUp;
 	else if (!editor && !LevelNeighbor(+1).empty() &&
@@ -468,7 +487,7 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 		m_hoverBtn = HoverBtn::LevelDown;
 	else if (editor && LeftCollapseButton(panel).Contains(mx, my))
 		m_hoverBtn = HoverBtn::CollapseL;
-	else if (RightCollapseButton(panel).Contains(mx, my))
+	else if (editor && RightCollapseButton(panel).Contains(mx, my))
 		m_hoverBtn = HoverBtn::CollapseR;
 	if (m_hoverBtn == HoverBtn::None) // the toolbar band (editor only)
 		for (const ToolButton& b : ToolbarButtons(panel))
@@ -530,6 +549,13 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 			m_levelsOpen = false; // a click anywhere else just closes it
 			return true;
 		}
+		// The way to the WORLD page (Player mode, and only when the project
+		// has an overworld). It claims the click so the grid under it never
+		// also pans.
+		if (ShowWorldButton() && WorldButton(panel).Contains(mx, my)) {
+			onShowWorld();
+			return true;
+		}
 		// Level-browse arrows (Player mode; the editor's dropdown replaced
 		// them). A hidden arrow (edge level) is not hit-tested either, so a
 		// click there falls through to the grid.
@@ -577,8 +603,8 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 			// A click on the band's empty run is the band's, not the grid's.
 			if (ToolbarRect(panel).Contains(mx, my)) return true;
 		}
-		// Right key dock collapse — both modes (flips the mode's own flag).
-		if (RightCollapseButton(panel).Contains(mx, my)) {
+		// Right key dock collapse (Editor only, like the dock itself).
+		if (editor && RightCollapseButton(panel).Contains(mx, my)) {
 			ToggleLegend();
 			return true;
 		}
@@ -1254,41 +1280,41 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		}
 	}
 
-	// --- Right key dock (BOTH modes; collapsed -> only the "<<" button). The
-	// Player key is a trimmed subset (the obvious wall/floor rows are dropped).
-	{
+	// --- Right key dock (EDITOR ONLY; collapsed -> only the "<<" button) ------
+	if (m_mode == Mode::Editor) {
 		const gfx::Rect rd = RightDockRect(panel);
 		drawDockFrame(rd, RightCollapseButton(panel),
 					  LegendCollapsed() ? "<<" : ">>", HoverBtn::CollapseR);
 		if (!LegendCollapsed()) {
 			m_font->Draw(batch, loc::Tr("map.key"), rd.x + dpad,
 						rd.y + dpad + btnH + dpad, theme.textDim);
-			// A swatch (filled / outlined / triangle) + label per symbol; the
-			// `player` flag drops a row from the Player key. Party and start use
-			// the live theme accent, so the table is built here.
+			// A swatch (filled / outlined / triangle) + label per symbol. Party
+			// and start use the live theme accent, so the table is built here
+			// rather than being a constant. (It used to carry a `player` flag
+			// that dropped rows from a trimmed Player key; the key is the
+			// EDITOR's alone now, so every row shows.)
 			enum class Sym { Filled, Outline, Triangle };
-			struct Row { Sym sym; Vec4 color; const char* key; bool player; };
+			struct Row { Sym sym; Vec4 color; const char* key; };
 			const Row rows[] = {
-				{Sym::Triangle, theme.accent, "map.key.party", true},
-				{Sym::Outline, theme.accent, "map.key.start", true},
-				{Sym::Filled, kWall, "map.key.wall", false},
-				{Sym::Filled, kFloor, "map.key.floor", false},
-				{Sym::Filled, kTorch, "map.key.torch", true},
-				{Sym::Filled, kBrazier, "map.key.brazier", true},
-				{Sym::Filled, kMonster, "map.key.monster", true},
-				{Sym::Filled, kItem, "map.key.item", true},
-				{Sym::Filled, kButton, "map.key.button", true},
-				{Sym::Filled, kDecoration, "map.key.decoration", true},
-				{Sym::Filled, kDoor, "map.key.door", true},
-				{Sym::Filled, kStair, "map.key.stairs", true},
-				{Sym::Triangle, kProjParty, "map.key.projectile", true},
+				{Sym::Triangle, theme.accent, "map.key.party"},
+				{Sym::Outline, theme.accent, "map.key.start"},
+				{Sym::Filled, kWall, "map.key.wall"},
+				{Sym::Filled, kFloor, "map.key.floor"},
+				{Sym::Filled, kTorch, "map.key.torch"},
+				{Sym::Filled, kBrazier, "map.key.brazier"},
+				{Sym::Filled, kMonster, "map.key.monster"},
+				{Sym::Filled, kItem, "map.key.item"},
+				{Sym::Filled, kButton, "map.key.button"},
+				{Sym::Filled, kDecoration, "map.key.decoration"},
+				{Sym::Filled, kDoor, "map.key.door"},
+				{Sym::Filled, kStair, "map.key.stairs"},
+				{Sym::Triangle, kProjParty, "map.key.projectile"},
 			};
 			const gfx::Rect rclip{rd.x + 2, rd.y + 2, rd.w - 4, rd.h - 4};
 			batch.SetScissor(&rclip);
 			const float rowH = std::clamp(panel.h * 0.05f, 22.0f, 44.0f);
 			float y = DockBodyTop(rd, panel);
 			for (const Row& row : rows) {
-				if (m_mode == Mode::Player && !row.player) continue;
 				const float sw = rowH - dpad * 2;
 				const gfx::Rect box{rd.x + dpad, y + dpad, sw, sw};
 				switch (row.sym) {
@@ -1332,6 +1358,10 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			m_font->Draw(batch, ViewedLevel(), dnR.x + dnR.w + dpad * 2,
 						upR.y + (upR.h - m_font->Height()) * 0.5f,
 						m_browse ? theme.accent : theme.text);
+			// ...and the way to the world map, at the grid's far end.
+			if (ShowWorldButton())
+				face(WorldButton(panel), loc::Tr("map.btn.showworld"),
+					 HoverBtn::ShowWorld);
 		} else {
 			// The band: a subtle lift over the panel base + a 1px seam, so it
 			// reads as fixed chrome the grid scrolls under.

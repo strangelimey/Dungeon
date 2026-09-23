@@ -72,6 +72,15 @@ std::vector<WorldMapView::ToolButton> WorldMapView::ToolbarButtons(
 	return btns;
 }
 
+gfx::Rect WorldMapView::DungeonButton(const gfx::Rect& panel) const {
+	// The SAME PIXELS MapView's way here occupies — neither view has a left
+	// dock in the player's map, so top-left is the one corner both can agree
+	// on, and the toggle stays put instead of jumping across the panel.
+	const gfx::Rect g = GridArea(panel);
+	const float pad = ToolPad(panel), s = ToolSide(panel);
+	return {g.x + pad * 2, g.y + pad * 2, s * 3.0f, s};
+}
+
 gfx::Rect WorldMapView::GridArea(const gfx::Rect& panel) const {
 	const float line = m_font ? m_font->Height() : 16.0f;
 	const float caption = line * kCaptionLines;
@@ -134,7 +143,20 @@ void WorldMapView::Update(const Input& input, const WorldMap& world,
 			onTool(clicked);
 		}
 	}
-	const bool over = inPanel && !inBand;
+	// The overlay's way back to the dungeon map claims its own pixels too, for
+	// the reason the band does: the grid runs under it.
+	m_hoverDungeon = false;
+	bool onDungeonBtn = false;
+	if (ShowDungeonButton() && DungeonButton(panel).Contains(mx, my)) {
+		m_hoverDungeon = true;
+		onDungeonBtn = true;
+		if (input.WasMousePressed(MouseButton::Left)) {
+			m_hoverDungeon = false; // it is about to be replaced by another view
+			onShowDungeon();
+			return;
+		}
+	}
+	const bool over = inPanel && !inBand && !onDungeonBtn;
 
 	m_hoverX = m_hoverZ = -1;
 	if (over) {
@@ -205,6 +227,10 @@ void WorldMapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	const gfx::Rect grid = GridArea(panel);
 
 	batch.DrawRect(panel, kMapBg);
+	// As the player's OVERLAY it needs the frame the dungeon map has, or the
+	// two pages of one control read as two different kinds of screen. The
+	// travel screen owns the whole window and has no edge to draw.
+	if (m_overlay) ui::DrawBorder(batch, panel, theme.panelBorder);
 	const gfx::Rect clip{grid.x + 2, grid.y + 2, grid.w - 4, grid.h - 4};
 	batch.SetScissor(&clip);
 
@@ -260,6 +286,14 @@ void WorldMapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	batch.SetScissor(nullptr);
 
 	if (!m_font) return;
+	// The overlay's way back to the dungeon map. Drawn before the band so the
+	// Editor's toolbar wins the corner if both were ever up at once — they
+	// cannot be today (the overlay is Play mode), and a silent overlap would
+	// be worse than a stated precedence.
+	if (ShowDungeonButton())
+		ui::DrawButtonFace(batch, *m_font, DungeonButton(panel),
+						   loc::Tr("map.btn.showdungeon"), theme, m_hoverDungeon,
+						   /*held*/ false, /*enabled*/ true);
 	// The Editor band, across the panel top: a subtle lift over the base plus a
 	// 1px seam, so it reads as fixed chrome the grid scrolls under — the same
 	// treatment (and the same drawing) the level editor's toolbar has.
@@ -344,7 +378,13 @@ void WorldMapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 						 : loc::Format("world.caption.blocked", over.id),
 					 panel.x + pad, y, theme.textDim);
 	} else {
-		m_font->Draw(batch, loc::View("world.caption.help"), panel.x + pad, y,
+		// The travel screen's hint says you can WALK; the overlay's must not,
+		// because out of it you cannot — the movement keys are the party's,
+		// down in the dungeon, and a hint that promises otherwise is a lie the
+		// player has to try before disbelieving.
+		m_font->Draw(batch,
+					 loc::View(m_overlay ? "map.hint" : "world.caption.help"),
+					 panel.x + pad, y,
 					 theme.textDim);
 	}
 }

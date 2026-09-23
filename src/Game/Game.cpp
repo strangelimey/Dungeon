@@ -1505,7 +1505,8 @@ void Game::Update(float dt) {
 							  m_mapEditor.KeyboardCaptured();
 	if (!typingFilter && input.WasKeyPressed('M')) {
 		m_mapView.Toggle();
-		OverlayOpenedThisFrame(); // as the console toggle above
+		ShowMapPage(MapPage::Dungeon); // a fresh open shows where you ARE
+		OverlayOpenedThisFrame();      // as the console toggle above
 	}
 
 	// The editor's pause/play button freezes the world so the level can be
@@ -1532,6 +1533,11 @@ void Game::Update(float dt) {
 			m_geomNoticeLatched = true;
 		}
 	}
+	// Which of its two lives the world view is leading, recomputed every frame
+	// rather than set at the transitions: as the player's OVERLAY it offers a
+	// way back to the dungeon map, and as the travel screen it must not (there
+	// is no dungeon to go back to out there).
+	m_worldMapView.SetOverlay(ShowingWorldPage());
 	if (m_mapView.IsOpen()) {
 		// While laying a patrol route (grid clicks lay waypoints), keys finish/undo
 		// it — ahead of the overlay's own Esc-to-close.
@@ -1550,12 +1556,19 @@ void Game::Update(float dt) {
 		}
 		if (!typingFilter && input.WasKeyPressed(VK_ESCAPE)) {
 			m_mapView.Close();
-			return;
+			ShowMapPage(MapPage::Dungeon); // the world view goes back to being
+			return;                        // the travel screen
 		}
 		{
 			DN_PROFILE_ZONE_L(prof::kLevelSystem, "map");
-			m_mapView.Update(input, MapPanel(static_cast<float>(m_window.Width()),
-											 static_cast<float>(m_window.Height())));
+			// THE OVERLAY IS OPEN; the PAGE says which view fills it (W6).
+			// m_mapView stays the open/closed flag either way — it is the
+			// overlay — and only one of the two is updated, so the world page
+			// cannot also pan the dungeon grid under it.
+			const gfx::Rect panel = MapPanel(static_cast<float>(m_window.Width()),
+											 static_cast<float>(m_window.Height()));
+			if (ShowingWorldPage()) m_worldMapView.Update(input, *m_worldMap, panel);
+			else m_mapView.Update(input, panel);
 		}
 		// The world keeps simulating while the map is open (the party still
 		// walks on the keyboard) — EXCEPT while the editor is PAUSED, where the
@@ -1842,7 +1855,12 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 			if (m_mapView.IsOpen()) {
 				// Player map: dim the scene behind the 80% panel, over the HUD.
 				m_spriteBatch.DrawRect({0, 0, dw, dh}, {0, 0, 0, 0.45f});
-				m_mapView.Render(m_spriteBatch, m_settings.theme, MapPanel(dw, dh));
+				if (ShowingWorldPage())
+					m_worldMapView.Render(m_spriteBatch, m_settings.theme,
+										  *m_worldMap, m_worldState,
+										  MapPanel(dw, dh));
+				else
+					m_mapView.Render(m_spriteBatch, m_settings.theme, MapPanel(dw, dh));
 			}
 		}
 		// The deferred-rebake notice (see Update): the frame the blocking

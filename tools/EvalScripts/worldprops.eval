@@ -1,4 +1,11 @@
-; worldprops.eval — the world's properties, its areas and its doorways (W4).
+; worldprops.eval - the world's properties, areas and doorways (W4-W6).
+;
+; RUN IT THROUGH tools\WorldTest.py, NOT ON ITS OWN. It WRITES to the
+; project - `levels new` creates a level and saves the manifest - and the
+; restore lives in WorldTest's finally block, not here. Run bare, it leaves
+; the manifest naming a level whose files are then cleaned up from under it,
+; and the next check reports a project that cannot reach it. (Which is how
+; this note came to be written.)
 ;
 ; Everything here was hand-edited in world.map or project.ini until now. Three
 ; things are worth watching:
@@ -90,3 +97,25 @@ catround
 levels
 levels new crypt
 levels
+
+; --- W6: the player's map has two pages --------------------------------------
+; The M-map can show the overworld while the party is in a dungeon. The state
+; machine is the checkable half (the drawing is not): a fresh open starts on
+; the DUNGEON, the toggle is only offered when the project has a world, and the
+; page cannot outlive the overlay — a stair fires Close() from somewhere that
+; knows nothing about pages, and a latched page would leave the TRAVEL screen
+; offering a way back to a dungeon the party had left.
+; closed, the page is dungeon and the toggle is offered (there IS a world)...
+mappage
+; ...and setting it to world while the map is shut changes nothing, because the
+; page is DERIVED from the overlay being up rather than remembered beside it.
+mappage world
+; opening resets the page, exactly as pressing M does: a fresh map shows
+; where you ARE.
+mappage open
+; and NOW the toggle takes.
+mappage world
+mappage dungeon
+mappage close
+; shut again -> dungeon, whatever it was showing.
+mappage

@@ -180,6 +180,7 @@ void Game::SetOnWorldMap(bool on) {
 		// it appears in the middle of unexplored ground it has plainly reached.
 		RevealAround(m_worldState.x, m_worldState.z);
 		m_worldState.onWorldMap = true;
+		m_worldMapView.SetOverlay(false); // the travel screen, not the map overlay
 		m_worldMapView.Reset(); // fit the whole world, like opening any map
 		m_state = AppState::WorldMap;
 		return;

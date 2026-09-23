@@ -89,6 +89,19 @@ public:
 	// orphan begets an orphan, which is honest rather than guessing a home.
 	std::function<std::string(const std::string& dungeonId)> onNewLevel;
 
+	// --- the player map's WORLD page (W6) ------------------------------
+	// The M-map can show the overworld instead of this level. MapView does
+	// not draw it — WorldMapView does, into the same panel — so all this
+	// side needs is the way ACROSS. (That split is the one MapView's own
+	// header already argues for: this class is built around a DungeonMap,
+	// and bending it to a grid of terrain kinds would cost more than the
+	// drawing code it saved.)
+	std::function<void()> onShowWorld;
+	// Whether the project HAS an overworld. False hides the toggle rather
+	// than dimming it: a game that is all dungeon should not advertise a
+	// map it does not have.
+	bool hasWorld = false;
+
 	bool IsOpen() const { return m_open; }
 	Mode CurrentMode() const { return m_mode; }
 
@@ -314,7 +327,8 @@ private:
 	// ui::DrawButtonFace hover styling on the hand-drawn buttons.
 	enum class HoverBtn {
 		None, LevelUp, LevelDown, Undo, Redo, Save, SaveSource, Balance,
-		LevelSettings, Check, Generate, NewLevel, LevelPick, PlayPause, CollapseL, CollapseR
+		LevelSettings, Check, Generate, NewLevel, LevelPick, PlayPause, CollapseL,
+		CollapseR, ShowWorld
 	};
 	HoverBtn m_hoverBtn = HoverBtn::None;
 
@@ -347,6 +361,13 @@ private:
 	gfx::Rect LevelPickRect(const gfx::Rect& panel) const;
 	gfx::Rect LevelItemRect(int index, const gfx::Rect& panel) const;
 	gfx::Rect NewLevelButton(const gfx::Rect& panel) const; // [+], right of it
+	// The player map's way to the WORLD page, top-right of the grid — the
+	// same corner WorldMapView puts the way back, so the pair reads as one
+	// control that stays put rather than two that swap places.
+	gfx::Rect WorldButton(const gfx::Rect& panel) const;
+	bool ShowWorldButton() const {
+		return m_mode == Mode::Player && hasWorld && onShowWorld != nullptr;
+	}
 
 	// ONE ROW LIST that hover, click and render all walk — the toolbar's own
 	// idiom, applied to the popup. Before W5 the popup was a flat vector of

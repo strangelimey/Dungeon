@@ -257,6 +257,44 @@ built, each of which had made it report a clean run it had not earned:
   it compared the writer with its own output, which agrees with itself however
   much it drops — deleting the blank-line rule was invisible from there.
 
+**W6 — the player's map gets the world too.** DONE (2026-09-23), and it is the
+first of these phases that is not about the editor at all. Michael: *"when the
+player brings up the regular map (in a dungeon), there needs to be a button to
+toggle between world map and dungeon map."*
+
+So the M-map has two PAGES. A fresh open shows the dungeon — where you are —
+and one button flips to the overworld with its fog, the party's world position
+and the locations it has found. Outside there is no second page and no toggle:
+the world map is already the whole screen out there, which is what his "that
+only makes sense when they are in a dungeon" amounts to once the travel screen
+is the thing you are standing on.
+
+NEITHER VIEW LEARNED TO DRAW THE OTHER. Each offers the way ACROSS and Game
+does the flip — MapView's own header already argues for that split ("bending it
+to a grid whose cells are terrain kinds would cost more than the drawing code
+it would save"), and this is that argument cashed. The two buttons sit on the
+SAME PIXELS, top-left of the grid, so the pair reads as one control that stays
+put rather than two that swap places; the right edge could not do it, because
+the key dock lives there and its width follows a persisted collapse flag.
+
+THE PAGE IS DERIVED, NOT LATCHED — `ShowingWorldPage()` asks whether the
+overlay is up rather than trusting something to have said so. A stair fires
+`Close()` from code that knows nothing about pages, and a remembered page would
+have left the TRAVEL screen offering a way back to a dungeon the party had
+already left.
+
+TWO THINGS THAT WOULD HAVE BEEN LIES. The world page's hint still read "move
+with your movement keys" — which from inside a dungeon you cannot; it takes the
+dungeon map's "drag to pan" instead. And the same pass removed the KEY dock
+from the player's map (Michael, same session: it is for building, not for
+playing), which gave the grid the whole panel and took `mapPlayerKeyCollapsed`
+with it — a setting nothing reads is worse than no setting, because it sits in
+everyone's settings.ini looking like it still does something.
+
+Dev: `mappage | open | close | dungeon | world` — the M key and the toggle
+without a keyboard, reporting the page, whether the toggle is OFFERED, and
+whether the map is open, because those are three different facts.
+
 What this does not change
 -------------------------
 
