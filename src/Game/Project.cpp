@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <filesystem>
 #include <format>
 #include <sstream>
 
@@ -61,6 +62,29 @@ std::vector<std::string> SplitWords(const std::string& s) {
 }
 
 } // namespace
+
+std::string Project::FolderFor(const std::string& root, const std::string& name) {
+	return root + "\\" + name;
+}
+
+std::string Project::FolderName() const {
+	return std::filesystem::path(folder).filename().string();
+}
+
+std::vector<std::string> Project::List(const std::string& root) {
+	std::vector<std::string> out;
+	std::error_code ec; // no throwing: a missing projects folder is "none yet"
+	for (const auto& entry : std::filesystem::directory_iterator(root, ec)) {
+		if (!entry.is_directory()) continue;
+		// A PROJECT IS A FOLDER WITH A MANIFEST. Anything else under here is
+		// some other thing that happens to live there, and listing it would
+		// offer the player a world that cannot be opened.
+		if (!std::filesystem::exists(entry.path() / "project.ini")) continue;
+		out.push_back(entry.path().filename().string());
+	}
+	std::sort(out.begin(), out.end());
+	return out;
+}
 
 Project Project::Load(const std::string& folder) {
 	Project p;

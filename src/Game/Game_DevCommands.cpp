@@ -576,6 +576,42 @@ void Game::RegisterDevCommands() {
 			m_console.Print(std::format("spawned WEDGED worker #{} (use kill)", id));
 		});
 	m_console.Register(
+		"worlds", "the worlds beside this one: worlds | new <name> | load <name>",
+		[this](const std::vector<std::string>& a) {
+			// A WORLD IS A PROJECT FOLDER (assets/projects/<name>): its own
+			// overworld, dungeons, levels and content. Switching RELAUNCHES,
+			// because the choice is read before any of that exists — so this
+			// says so rather than appearing to hang.
+			const std::string root = paths::Asset("projects");
+			if (a.empty()) {
+				for (const std::string& name : Project::List(root))
+					m_console.Print(std::format(
+						"  {}{}", name,
+						name == m_project.FolderName() ? "  (open)" : ""));
+				m_console.Print("switching relaunches the game");
+				return;
+			}
+			if (a[0] == "new" && a.size() >= 2) {
+				const std::string made = CreateWorld(a[1]);
+				m_console.Print(made.empty()
+									? "could not create (see the log)"
+									: std::format("created world '{}' - "
+												  "`worlds load {}` to open it",
+												  made, made));
+				return;
+			}
+			if (a[0] == "load" && a.size() >= 2) {
+				if (a[1] == m_project.FolderName()) {
+					m_console.Print("already in '" + a[1] + "'");
+					return;
+				}
+				m_console.Print(SwitchWorld(a[1]) ? "relaunching into " + a[1]
+												  : "no such world");
+				return;
+			}
+			m_console.Print("usage: worlds [new|load] <name>");
+		});
+	m_console.Register(
 		"mappage",
 		"the player map, without a keyboard: mappage | open | close | dungeon | world",
 		[this](const std::vector<std::string>& a) {

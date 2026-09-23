@@ -68,9 +68,14 @@ def write(p, s):
     io.open(p, "w", encoding="utf-8", newline="").write(s)
 
 
-def run(script):
-    subprocess.run([EXE, "-headless", "-eval", os.path.join(SCRIPTS, script)],
-                   cwd=ROOT, capture_output=True, timeout=600)
+def run(script, project=None):
+    # `project` is the -project flag: which WORLD to open, for one run, leaving
+    # settings.ini alone. It is how a test scenario gets a world of its own.
+    args = [EXE, "-headless"]
+    if project:
+        args += ["-project", project]
+    args += ["-eval", os.path.join(SCRIPTS, script)]
+    subprocess.run(args, cwd=ROOT, capture_output=True, timeout=600)
     return io.open(LOG, encoding="utf-8", errors="replace").read()
 
 
@@ -555,6 +560,30 @@ try:
                     "map page: dungeon (toggle offered, map closed)"],
           "the map's page follows the overlay and cannot outlive it",
           " | ".join(pages))
+    # --- phase 14: a world of its own ---------------------------------------
+    print("\n14 - a world can be made, opened by name, and checked")
+    log = run("worldnew.eval")
+    check("created world 'wt_scratch'" in log, "a new world is created")
+    # THE CONTROL: it is listed beside the one that made it, and the one that
+    # made it is still the one that is OPEN. Creating a world must not move you
+    # into it — switching relaunches, and a script that relaunched would end
+    # here rather than carry on.
+    check("dungeon-demo  (open)" in log and "wt_scratch" in log,
+          "...listed beside the world that made it, which is still the open one")
+
+    # Opened BY NAME on the command line, which is the scenario interface.
+    log = run("worldscratch.eval", project="wt_scratch")
+    check("wt_scratch  (open)" in log,
+          "-project opens it, without touching settings.ini")
+    check("keep       (1) room1" in log,
+          "and it has its starter room, in its starter dungeon")
+    # CONTENT CAME ACROSS AND PLACES DID NOT, and this is the check that says
+    # the difference was made cleanly: the copied items carry quest and reveals
+    # hooks naming a quest and a location the new world never had, and the very
+    # first run of this reported three errors for exactly that.
+    check("validate: clean" in log,
+          "a world made this way passes the checker as it stands")
+
 finally:
     for p, s in originals.items():
         write(p, s)
@@ -565,6 +594,8 @@ finally:
     # transition, and report that levelcheck never answered. Clean up.
     # The level phase 13 makes, and the save. A level file left behind would
     # make the NEXT run's "created crypt3" land on crypt4 and the check miss.
+    shutil.rmtree(os.path.join(ROOT, r"assets\projects\wt_scratch"),
+                  ignore_errors=True)
     for leftover in (SAVE, SAVE + ".bak",
                      os.path.join(PROJ, r"levels\crypt3.map"),
                      os.path.join(PROJ, r"levels\crypt3.ent")):

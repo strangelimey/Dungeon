@@ -8,8 +8,10 @@
 #include "Core/Loc.h"
 #include "Core/Log.h"
 #include "Core/Paths.h"
+#include "Game/Serialize.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <filesystem>
 #include <format>
@@ -142,6 +144,187 @@ bool Game::SyncProjectToSource() {
 // appends the stem to the manifest. Everything downstream (browse, remote
 // edits, stair dests, savemap) reads Project::levels or lazy-parses the files,
 // so no other state needs touching. Returns the stem, or "" on failure.
+namespace {
+
+// The first few ids of a catalog, space-joined — a fresh level's surface
+// palette. The ACTIVE level is the donor when there is one (CreateNewLevel),
+// but a brand-new world has no level to copy from, so the catalogs are.
+std::string FirstIds(const Catalog& catalog, size_t count) {
+	std::string out;
+	for (const CatalogEntry& e : catalog.Entries()) {
+		if (out.size() && count-- == 0) break;
+		out += (out.empty() ? "" : " ") + e.id;
+	}
+	return out;
+}
+
+// A new world's first room: the same minimal 16x16 box CreateNewLevel writes,
+// with its palette taken from the CATALOGS rather than from a level, because
+// there is not one yet.
+bool WriteStarterLevel(const Project& p, const std::string& stem) {
+	std::string map = "; " + stem + " - the first room of a new world.\n";
+	map += "palette wall " + FirstIds(p.walls, 4) + "\n";
+	map += "palette floor " + FirstIds(p.floors, 4) + "\n";
+	map += "palette ceiling " + FirstIds(p.ceilings, 4) + "\n\n";
+	constexpr int kSize = 16;
+	for (int z = 0; z < kSize; ++z) {
+		for (int x = 0; x < kSize; ++x) {
+			const bool room = x >= 7 && x <= 9 && z >= 7 && z <= 9;
+			map += !room ? '#' : (x == 8 && z == 8) ? 'P' : '.';
+		}
+		map += '\n';
+	}
+	const std::string ent = "; " + stem + " - dynamic layer (empty).\n";
+	const std::string mapOut = serialize::NormalizeEol(map);
+	const std::string entOut = serialize::NormalizeEol(ent);
+	if (assets::WriteBinaryFile(p.LevelMapPath(stem), mapOut.data(), mapOut.size()) &&
+		assets::WriteBinaryFile(p.LevelEntPath(stem), entOut.data(), entOut.size()))
+		return true;
+	log::Warn("new world: could not write the starter level {}", stem);
+	return false;
+}
+
+// And its overworld: one passable terrain everywhere, a start cell, and one
+// doorway onto the starter room. BLANK ON PURPOSE — the point of a new world is
+// to paint your own; what it must not be is unopenable.
+bool WriteStarterWorld(const Project& p) {
+	// The first PASSABLE terrain is the ground. A world of water would load and
+	// then refuse every step, which reads as a broken game rather than as an
+	// authoring choice nobody made.
+	const CatalogEntry* ground = nullptr;
+	for (const CatalogEntry& t : p.terrain.Entries())
+		if (t.GetBool("passable", true)) {
+			ground = &t;
+			break;
+		}
+	if (!ground) {
+		log::Warn("new world: terrain.cat has no passable kind to build on");
+		return false;
+	}
+	const std::string glyph = ground->Get("glyph", "?");
+	constexpr int kW = 16, kH = 12;
+	std::string w = "; The overworld of a new world - paint it.\n";
+	w += "start 4 6\n";
+	w += "location dungeon keep_gate 8 6 dungeon=keep level=room1\n;\n";
+	for (int z = 0; z < kH; ++z) {
+		for (int x = 0; x < kW; ++x) w += glyph;
+		w += '\n';
+	}
+	const std::string out = serialize::NormalizeEol(w);
+	if (assets::WriteBinaryFile(p.WorldMapPath(), out.data(), out.size())) return true;
+	log::Warn("new world: could not write {}", p.WorldMapPath());
+	return false;
+}
+
+} // namespace
+
+// --- worlds (W7, docs/world-editor-plan.md) ---------------------------------
+// A world IS a project folder (Michael's word for one), and creating a new one
+// is a file operation rather than a live edit: nothing about the running game
+// changes until it is opened, which is what makes switching a relaunch.
+
+bool Game::SwitchWorld(const std::string& name) {
+	const std::string root = paths::Asset("projects");
+	const std::vector<std::string> found = Project::List(root);
+	if (std::find(found.begin(), found.end(), name) == found.end()) {
+		log::Warn("no world '{}' under {}", name, root);
+		return false;
+	}
+	if (name == m_settings.projectName) return true; // already there
+	m_settings.projectName = name;
+	m_settings.Save();
+	RestartApp(); // the choice is read before anything exists — see the header
+	return true;
+}
+
+std::string Game::CreateWorld(const std::string& name) {
+	// Names are FOLDER names and are typed by hand, so they are filtered the
+	// way every other authored id is (the DoorInspector rule) rather than
+	// trusted — a stray slash here is a path, not a name.
+	std::string id = name;
+	std::erase_if(id, [](char ch) {
+		const unsigned char u = static_cast<unsigned char>(ch);
+		return !(std::isalnum(u) || ch == '_' || ch == '-');
+	});
+	if (id.empty()) {
+		log::Warn("new world: a name is required");
+		return {};
+	}
+	const std::string root = paths::Asset("projects");
+	const std::vector<std::string> found = Project::List(root);
+	if (std::find(found.begin(), found.end(), id) != found.end()) {
+		// REFUSED, never merged into: creating over a world would quietly
+		// rewrite catalogs somebody else's levels reference.
+		log::Warn("new world: '{}' already exists", id);
+		return {};
+	}
+	const std::string folder = Project::FolderFor(root, id);
+
+	// THE CONTENT COMES ACROSS, THE PLACES DO NOT. Start from this project so
+	// the new world has surfaces to build with and monsters to place, then
+	// clear what makes it a particular game: its levels, its dungeons, its
+	// quests and where it begins.
+	Project made = m_project;
+	made.folder = folder;
+	made.name = id;
+	made.levels.clear();
+	made.startDungeon.clear();
+	made.startLevel.clear();
+	made.startX = made.startZ = -1;
+	made.evalLevel.clear();
+	// The manifest's COMMENTS are this project's, about this project's level
+	// list and opening — carrying them into a world they no longer describe
+	// would be worse than having none.
+	made.manifest = {};
+	made.dungeons = {};
+	made.quests = {};
+	// AND THE HOOKS THAT NAME THEM. An item's `quest` points at a quest stage
+	// and its `reveals` at a world location — progress and places, both of
+	// which just went. Copying the items without stripping these left the new
+	// world naming a quest and a location it had never heard of, which the
+	// checker reported on its first run. Content comes across; what content
+	// POINTS AT does not.
+	for (Catalog* c : {&made.items, &made.weapons, &made.armor}) {
+		// Over a SNAPSHOT: Add replaces by id, and writing into the very
+		// element a range-for is holding is the kind of thing that is fine
+		// today and a debugging session after the next change.
+		const std::vector<CatalogEntry> entries = c->Entries();
+		for (CatalogEntry copy : entries) {
+			serialize::Remove(copy.fields, "quest");
+			serialize::Remove(copy.fields, "reveals");
+			c->Add(std::move(copy));
+		}
+	}
+
+	// One room, in one dungeon, behind one doorway. The engine loads a level in
+	// DungeonWorld's constructor, so a world with nowhere in it cannot stand
+	// up; this is the smallest starter that both loads and passes the checker
+	// (an unclaimed level is an orphan warning, and a dungeon nothing reaches
+	// is another).
+	const std::string stem = "room1";
+	made.levels.push_back(stem);
+	// AND IT IS THE HARNESS'S GROUND. A test scenario in its own world is the
+	// point of worlds existing (Michael, 2026-09-23), and a world with no
+	// `eval_level` opens the harness on the WORLD MAP — where half the dev
+	// commands refuse, because the party is not in a level. Naming it here
+	// means a new world is usable as a scenario the moment it exists.
+	made.evalLevel = stem;
+	CatalogEntry dungeon;
+	dungeon.id = "keep";
+	dungeon.lead.push_back("; The starter: one room, so the world has ground to stand on.");
+	dungeon.Set("display", "The Keep");
+	dungeon.Set("levels", stem);
+	made.dungeons.Add(std::move(dungeon));
+
+	if (!made.Save()) {
+		log::Warn("new world: could not write {}", folder);
+		return {};
+	}
+	if (!WriteStarterLevel(made, stem) || !WriteStarterWorld(made)) return {};
+	log::Info("Created world '{}' at {}", id, folder);
+	return id;
+}
+
 std::string Game::CreateNewLevel(const std::string& dungeonId) {
 	// THE STEM IS NAMED AFTER ITS DUNGEON when it has one — crypt1, crypt2,
 	// crypt3 — so the grouping the picker shows is legible in the filename too,

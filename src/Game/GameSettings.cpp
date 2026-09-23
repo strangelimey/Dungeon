@@ -74,6 +74,23 @@ void ParseIniInt(const std::string& text, const std::string& key, T& value) {
 		value = parsed;
 }
 
+// Reads key=<word> from the ini text — a NAME, not free text: it runs to the
+// first character a folder name or a language code may not carry, so a trailing
+// '\r' or the next line never ends up inside the value. A missing key keeps the
+// caller's default.
+void ParseIniString(const std::string& text, const std::string& key,
+					std::string& value) {
+	const size_t pos = text.find(key);
+	if (pos == std::string::npos) return;
+	const size_t start = pos + key.size();
+	size_t end = start;
+	while (end < text.size() &&
+		   (std::isalnum(static_cast<unsigned char>(text[end])) ||
+			text[end] == '-' || text[end] == '_'))
+		++end;
+	if (end > start) value = text.substr(start, end - start);
+}
+
 // Reads key=<0/1> from the ini text. A missing value keeps the caller's
 // default; any non-'0' character reads as true.
 void ParseIniBool(const std::string& text, const std::string& key, bool& value) {
@@ -146,6 +163,7 @@ void GameSettings::Load() {
 	ParseIniBool(text, "usemenu_execute=", useMenuExecutes);
 	ParseIniInt(text, "spell_mru=", spellMruCount);
 	spellMruCount = std::clamp(spellMruCount, 1, 10);
+	ParseIniString(text, "project=", projectName);
 	ParseIniBool(text, "map_palette_collapsed=", mapPaletteCollapsed);
 	ParseIniBool(text, "map_legend_collapsed=", mapLegendCollapsed);
 	ParseIniBool(text, "map_show_catalog=", mapShowCatalog);
@@ -210,6 +228,7 @@ void GameSettings::Save() const {
 	text += std::format("headbob={}\n", headBob ? 1 : 0);
 	text += std::format("usemenu_execute={}\n", useMenuExecutes ? 1 : 0);
 	text += std::format("spell_mru={}\n", spellMruCount);
+	text += std::format("project={}\n", projectName);
 	text += std::format(
 		"map_palette_collapsed={}\nmap_legend_collapsed={}\nmap_show_catalog={}\n",
 		mapPaletteCollapsed ? 1 : 0, mapLegendCollapsed ? 1 : 0,

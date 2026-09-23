@@ -295,6 +295,53 @@ Dev: `mappage | open | close | dungeon | world` — the M key and the toggle
 without a keyboard, reporting the page, whether the toggle is OFFERED, and
 whether the map is open, because those are three different facts.
 
+**W7 — several worlds, and a way between them.** DONE (2026-09-23). Michael:
+*"the reason I wanted to add this world map stuff is so I can create a whole
+new world, add dungeons, etc., and then switch back and forth between them.
+This will be used in future for the test harnesses so we can have specific
+scenarios for the test."*
+
+A WORLD IS A PROJECT (his answer, asked because the two readings led to very
+different work): a self-contained game under `assets/projects/<name>` with its
+own overworld, dungeons, levels, catalogs and opening. The alternative — several
+world maps sharing one project's content — was rejected because scenarios would
+share a content pool: every scenario's levels piling into one manifest, two
+worlds fighting over "where the game begins", and a dungeon reachable only from
+world B reading as unreachable while world A is loaded.
+
+SWITCHING RELAUNCHES, which is the adapter change's bargain for the adapter
+change's reason: the level meshes, the surface textures, the catalogs and the
+world are all built from the choice at startup, and tearing that down in place
+would be a long tail of stale caches for a saving of ten seconds. The choice
+comes from three places, each answering a different question — `-project <name>`
+for ONE run (the scenario interface: the harness opens a world without touching
+your settings), `settings.ini project=` for the one you switched to, and
+`dungeon-demo` otherwise. A name that no longer resolves falls back rather than
+aborting: a settings file naming a deleted world must not make the game
+unlaunchable.
+
+A NEW WORLD COPIES CONTENT AND NOT PLACES (his answer again): every catalog
+comes across, so you can build in it at once, while dungeons and quests start
+empty and the overworld is blank. Three things that only showed up in the doing:
+
+- IT NEEDS SOMEWHERE, because `DungeonWorld`'s constructor loads a level. A
+  world with nowhere at all in it cannot stand up, so a new one gets one room,
+  in one dungeon, behind one doorway — the smallest starter that both loads and
+  passes the checker.
+- AND IT NEEDS A HARNESS LEVEL. A world with no `eval_level` opens the harness
+  on the WORLD MAP, where half the dev commands refuse because the party is not
+  in a level. Creating one names its starter room, so a new world is usable as
+  a scenario the moment it exists.
+- THE CHECKER CAUGHT THE COPY ON ITS FIRST RUN. Copied items carry `quest` and
+  `reveals` hooks, which name a quest stage and a world location — progress and
+  places, both of which had just been cleared. Three errors, in a world that had
+  existed for four seconds. Content comes across; what content POINTS AT does
+  not.
+
+Dev: `worlds | new <name> | load <name>`. Note that `worlds load` must not
+appear in an eval script — it relaunches, which would end the run mid-script;
+opening a world for a test is the `-project` flag's job.
+
 What this does not change
 -------------------------
 

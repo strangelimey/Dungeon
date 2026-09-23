@@ -365,6 +365,29 @@ private:
 	// level made from the editor is not born an orphan (W5). An empty id
 	// creates it loose, which is what the manifest did for every level before
 	// the world tier existed. Returns the stem, or "" on failure.
+	// --- worlds (W7) ---------------------------------------------------------
+	// Michael's word for a project. Each is a self-contained game under
+	// assets/projects/<name>: its own overworld, dungeons, levels and content.
+	//
+	// Which one to open is decided before anything else exists, so SWITCHING
+	// RELAUNCHES — the adapter change's bargain, for the adapter change's
+	// reason: the level meshes, the surface textures, the catalogs and the
+	// world are all built from the choice at startup, and tearing that down in
+	// place would be a long tail of stale caches for a saving of ten seconds.
+	static std::string ChooseProjectFolder();
+	// Persists the choice and relaunches into it. False when no such world
+	// exists — the caller reports it rather than the game restarting into
+	// nothing.
+	bool SwitchWorld(const std::string& name);
+	// Writes a NEW world beside this one and returns its name ("" on failure).
+	// CONTENT IS COPIED, PLACES ARE NOT (Michael, 2026-09-23): every catalog
+	// comes across — surfaces, monsters, items, terrain — so you can build in
+	// it at once, while dungeons and quests start empty and the overworld is
+	// blank. It does get ONE room in one dungeon behind one doorway, because
+	// the engine loads a level in DungeonWorld's constructor and a world with
+	// nowhere at all in it could not stand up; that starter is the smallest
+	// thing that both loads and passes the checker.
+	std::string CreateWorld(const std::string& name);
 	std::string CreateNewLevel(const std::string& dungeonId = {});
 	// Rough out a whole level from knobs and write it as a NEW level (files +
 	// manifest), returning its stem or "" on failure. The knobs' content pools

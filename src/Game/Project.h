@@ -172,6 +172,25 @@ struct Project {
 	// uneditable by being forgotten is a worse outcome than an untidy list.
 	std::vector<std::string> OrphanLevels() const;
 
+	// --- one project per WORLD (W7) -------------------------------------
+	// Michael's word for a project is a WORLD, and after W6 that is what one
+	// is: a self-contained game — its own overworld, dungeons, levels and
+	// content. Several can sit side by side under assets/projects/ and the
+	// game opens one of them, which is what lets a test scenario be a world
+	// of its own rather than a corner of the demo.
+	//
+	// Every project folder under `root` that carries a project.ini, by
+	// folder name, sorted. A folder without one is not a project — it is
+	// some other thing that happens to live there.
+	static std::vector<std::string> List(const std::string& root);
+	// The folder a project name lives in (no trailing slash).
+	static std::string FolderFor(const std::string& root, const std::string& name);
+	// The name of the folder this project was LOADED from — what `List`
+	// returns and what settings.ini stores. Read it rather than the setting
+	// when reporting which world is open: a `-project` run deliberately
+	// leaves the setting alone, so the two disagree by design.
+	std::string FolderName() const;
+
 	// Loads the project rooted at `folder` (reads project.ini + catalog/*.cat).
 	// A missing manifest or catalog is tolerated (empty), so a brand-new project
 	// folder loads cleanly; the caller validates what it needs.

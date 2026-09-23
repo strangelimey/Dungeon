@@ -169,6 +169,14 @@ struct GameSettings {
 	// list shows (per member, below the Spellbook entry). Controls → Hands
 	// dropdown, 1..10; ini spell_mru=.
 	int spellMruCount = 5;
+	// THE WORLD THE GAME OPENS (W7): a project folder name under
+	// assets/projects. Persisted rather than passed, because switching one
+	// RELAUNCHES — the same bargain the adapter change makes, and for the
+	// same reason: everything downstream of the choice is built at startup.
+	// `-project <name>` on the command line overrides it for one run, which
+	// is how a test scenario gets its own world without touching the ini.
+	std::string projectName = "dungeon-demo";
+
 	bool mapPaletteCollapsed = false;  // map editor: left brush dock collapsed
 	bool mapLegendCollapsed = false;   // map editor: right key dock collapsed
 	bool mapShowCatalog = false;       // map editor: surfaces show the whole catalog

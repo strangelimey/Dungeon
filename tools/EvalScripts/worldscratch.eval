@@ -1,0 +1,17 @@
+; worldscratch.eval — run INSIDE a freshly created world (W7).
+;
+; Launched with `-project wt_scratch`, which is how a test scenario gets its own
+; world without touching settings.ini. Two things are worth reading: the world
+; that is open is the one named on the command line, and a world made by
+; `worlds new` passes the checker as it stands — content copied across, places
+; and the hooks that name them left behind.
+logecho on
+; `reset` opens the game where a new one would - which for a world made
+; by `worlds new` is its starter room, because creating one names it as
+; the harness level. Without this the run sits at the title screen and
+; `validate` answers "only works in-game", which is what the first
+; version of this script did.
+reset
+worlds
+levels
+validate

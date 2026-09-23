@@ -14,6 +14,7 @@
 #include "Graphics/DisplayEnum.h"
 #include "Graphics/Texture.h"
 #include "Platform/PerfMonitor.h"
+#include <shellapi.h> // CommandLineToArgvW - the `-project` flag
 #include "UI/TreeInspector.h" // the frame hook for the `uioverlap` audit
 
 #include <algorithm>
@@ -62,6 +63,45 @@ ui::FontLibrary MakeFontLibrary(gfx::GraphicsDevice& device) {
 
 } // namespace
 
+// THE WORLD THE GAME OPENS (W7), decided before anything else exists. Three
+// sources, in order, because each answers a different question:
+//   1. `-project <name>` on the command line — ONE RUN, touching no settings.
+//      This is how a test scenario gets its own world: the harness launches
+//      into it and the developer's own choice is left alone.
+//   2. settings.ini `project=` — the world you last switched to. Persisted
+//      rather than passed because switching RELAUNCHES (see SwitchWorld), the
+//      same bargain the adapter change makes.
+//   3. dungeon-demo, the one that ships.
+// A name that does not resolve falls back rather than aborting: a settings file
+// naming a world since deleted must not make the game unlaunchable.
+std::string Game::ChooseProjectFolder() {
+	const std::string root = paths::Asset("projects");
+	std::string name;
+	int argc = 0;
+	if (LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc)) {
+		for (int i = 1; i + 1 < argc; ++i)
+			if (std::wstring_view(argv[i]) == L"-project") {
+				const std::wstring wide(argv[i + 1]);
+				name.assign(wide.begin(), wide.end()); // world names are ASCII
+				break;
+			}
+		LocalFree(argv);
+	}
+	if (name.empty()) {
+		GameSettings probe; // the same file Game re-loads, read before it exists
+		probe.Load();
+		name = probe.projectName;
+	}
+	const std::vector<std::string> found = Project::List(root);
+	if (std::find(found.begin(), found.end(), name) == found.end()) {
+		if (!name.empty() && name != "dungeon-demo")
+			log::Warn("no world '{}' under {} - opening dungeon-demo", name, root);
+		name = "dungeon-demo";
+	}
+	log::Info("Opening world '{}'", name);
+	return Project::FolderFor(root, name);
+}
+
 // ============================================================================
 // Construction — cheap setup only; the heavy asset work is queued as load
 // tasks that run one per frame behind the loading screen (see Update).
@@ -70,7 +110,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		   gfx::SpriteBatch& spriteBatch, audio::AudioEngine& audio)
 	: m_window(window), m_device(device), m_renderer(renderer),
 	  m_spriteBatch(spriteBatch), m_audio(audio), m_postProcess(device),
-	  m_project(Project::Load(paths::Asset("projects\\dungeon-demo"))),
+	  m_project(Project::Load(ChooseProjectFolder())),
 	  m_world(device, renderer, audio, m_sounds, m_settings, m_project, m_threads),
 	  m_fonts(MakeFontLibrary(device)),
 	  m_ui(window, device, spriteBatch, audio, m_sounds, m_settings,

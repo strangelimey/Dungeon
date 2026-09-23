@@ -1,0 +1,14 @@
+; worldnew.eval — a world of its own (W7).
+;
+; A world IS a project folder: its own overworld, dungeons, levels and content.
+; This makes one and reads back what it contains. It does NOT open it — `worlds
+; load` RELAUNCHES the game, which would end the run mid-script; opening one is
+; the `-project <name>` flag's job, and tools/WorldTest.py drives that as a
+; second run.
+;
+; The scratch world is removed by WorldTest's cleanup, not here.
+logecho on
+reset
+worlds
+worlds new wt_scratch
+worlds
