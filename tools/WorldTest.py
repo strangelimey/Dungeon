@@ -2,7 +2,7 @@
 #
 # Run:  python tools\WorldTest.py      (needs a debug build)
 #
-# Thirteen phases, all built on one principle: a check that never fires reports
+# Seventeen phases, all built on one principle: a check that never fires reports
 # "clean" just as loudly as one that works, so every expectation here is paired
 # with something that makes it fail.
 #
@@ -43,6 +43,10 @@
 #      words, and ARMS an Open rather than relaunching on one click.
 #  16. DELETING A WORLD — only by typing its name exactly; never the running
 #      world or the fallback; and a harness run ignores the developer's world.
+#  17. DELETING A DUNGEON — its levels go with it, but only once every rule is
+#      met: each obstacle is put in place and must be named, then lifted and
+#      the delete must be allowed again. Then the typed confirmation, and the
+#      one failure no message shows: savemap writing a deleted level back.
 #
 # Every file this touches is restored, including the save it downgrades.
 import io
@@ -691,6 +695,110 @@ try:
     check(os.path.isfile(os.path.join(PROJ, "project.ini")),
           "...and dungeon-demo is, of course, still there")
 
+    # --- phase 17: deleting a dungeon ----------------------------------------
+    print("\n17 - a dungeon is deleted with its levels, and only when nothing leads in")
+    DNG = os.path.join(ROOT, r"assets\projects\wt_dng")
+    shutil.rmtree(DNG, ignore_errors=True)  # a previous run's, if it died
+    log = run("dungeonrefuse.eval")
+    con = [l.split("console: ", 1)[1] for l in log.splitlines() if "console: " in l]
+    # THE REAL CONTENT, asked and never touched: each demo dungeon meets a
+    # different rule first, and the crypt's doorways only once the opening that
+    # stood in front of them has moved.
+    check("delete 'crypt': refused - The game begins in crypt1 - change the "
+          "opening in World settings first." in con,
+          "the crypt is refused as the game's opening")
+    check("delete 'eval': refused - The party is in eval_arena - go to another "
+          "dungeon first." in con,
+          "the proving ground is refused while the party stands in it")
+    check(any(l.startswith("delete 'crypt': refused - 2 doorway(s)") and
+              "crypt_gate" in l and "crypt_back" in l for l in con),
+          "with the opening moved, the crypt's two doorways are named")
+    # BY NAME AND BY COUNT, and the two must agree — read as a block, since an
+    # earlier phase leaves the crypt a third level until the cleanup.
+    head = next((i for i, l in enumerate(con) if "(crypt) goes, and its" in l), -1)
+    named = []
+    for l in con[head + 1:] if head >= 0 else []:
+        if not l.startswith("  - "):
+            break
+        named.append(l[4:])
+    stated = con[head].split("its ", 1)[1].split(" ")[0] if head >= 0 else ""
+    check(head >= 0 and stated == str(len(named)) and
+          {"crypt1", "crypt2"} <= set(named),
+          "the account names the levels by name AND by count, and they agree",
+          f"stated {stated}, named {named}")
+    check("delete 'nosuch': refused - There is no dungeon named 'nosuch'." in con,
+          "a dungeon that does not exist says so")
+    check(os.path.isfile(os.path.join(PROJ, r"levels\crypt1.map")),
+          "...and asking deleted nothing")
+
+    log = run("dungeondelete.eval", project="wt_dng")
+    con = [l.split("console: ", 1)[1] for l in log.splitlines() if "console: " in l]
+    # Every `dungeons what dungeon1` answer, in order: allowed, then each
+    # obstacle and its control. A rule reported out of place would shift this
+    # sequence, so it is compared whole.
+    whats = [l.split(" - ", 1)[1].split(" ")[0] if "refused" in l else "allowed"
+             for l in con if l.startswith("delete 'dungeon1':")]
+    want = ["allowed", "A", "allowed", "1", "allowed", "dungeon11", "allowed",
+            "The", "allowed"]
+    check(whats == want,
+          "each rule refuses with its own sentence and lifts cleanly: "
+          "stair, doorway, harness level, opening", f"{whats}")
+    check(any("A stair in room1 at 7,7 leads into dungeon11" in l for l in con),
+          "the stair refusal names the stair's level, cell and destination")
+    check(any("refused - The party is in room1" in l for l in con),
+          "the starter dungeon is refused while the party stands in it")
+    mism = [l for l in con if "confirming - That is not the name" in l]
+    listings = [i for i, l in enumerate(con) if l == "> dungeons"]
+    def listed_after(i):
+        out = []
+        for l in con[i + 1:]:
+            if l.startswith(">"):
+                break
+            if l.startswith("  "):
+                out.append(l.split()[0])
+        return out
+    after = [listed_after(i) for i in listings]
+    check(len(mism) == 2 and len(after) >= 5 and "dungeon1" in after[2] and
+          "dungeon1" in after[3],
+          "wrong case and a prefix are refused - the dungeon is still there",
+          f"refusals {len(mism)}, listings {after}")
+    check("dungeons dialog: closed '' - " in con and "dungeon1" not in after[4],
+          "the exact id deletes it and closes the dialog")
+    saved = [l for l in con if l.startswith("saved levels:")]
+    # THE ONE FAILURE NO MESSAGE SHOWS. dungeon11 was pulled into a stash on
+    # purpose before it was deleted; a stash left behind is written straight
+    # back by savemap. Mutation-tested: without the stash erase this reads
+    # "room1, dungeon11".
+    check(saved == ["saved levels: room1"],
+          "savemap after the delete does not write the deleted level back",
+          f"{saved}")
+    check("usage: dungeons delete <id> <id again> (exact, case-sensitive)" in con
+          and "deleted 'dungeon1'" in con,
+          "the console's form wants the id twice, exactly")
+    levels_dir = os.listdir(os.path.join(DNG, "levels"))
+    dcat = read(os.path.join(DNG, r"catalog\dungeons.cat"))
+    manifest = read(os.path.join(DNG, "project.ini"))
+    check(sorted(levels_dir) == ["room1.ent", "room1.map"] and
+          "[dungeon1]" not in dcat and "dungeon11" not in manifest,
+          "on disk: the files, the catalog entry and the manifest entry are all gone",
+          f"{levels_dir}")
+
+    # THE RULE NO COMMAND CAN SET UP: a level two dungeons claim. Written by
+    # hand — the checker calls it an error, which is why nothing authors it.
+    for ext in (".map", ".ent"):
+        shutil.copyfile(os.path.join(DNG, "levels", "room1" + ext),
+                        os.path.join(DNG, "levels", "room2" + ext))
+    write(os.path.join(DNG, r"catalog\dungeons.cat"),
+          dcat + "\n[twin_a]\nlevels = room2\n\n[twin_b]\nlevels = room2\n")
+    write(os.path.join(DNG, "project.ini"),
+          manifest.replace("levels = room1", "levels = room1 room2"))
+    log = run("dungeonshared.eval", project="wt_dng")
+    con = [l.split("console: ", 1)[1] for l in log.splitlines() if "console: " in l]
+    check("delete 'twin_a': refused - room2 also belongs to dungeon 'twin_b' - "
+          "deleting would take it from that one too." in con,
+          "a level another dungeon also claims is refused, naming the other",
+          " | ".join(l for l in con if "twin" in l))
+
 finally:
     if settings_before is not None:
         write(SETTINGS, settings_before)
@@ -703,7 +811,7 @@ finally:
     # transition, and report that levelcheck never answered. Clean up.
     # The level phase 13 makes, and the save. A level file left behind would
     # make the NEXT run's "created crypt3" land on crypt4 and the check miss.
-    for scratch in ("wt_scratch", "wt_dlg", "wt_del", "wt_del2"):
+    for scratch in ("wt_scratch", "wt_dlg", "wt_del", "wt_del2", "wt_dng"):
         shutil.rmtree(os.path.join(ROOT, "assets", "projects", scratch),
                       ignore_errors=True)
     for leftover in (SAVE, SAVE + ".bak",

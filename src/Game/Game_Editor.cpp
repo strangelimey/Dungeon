@@ -639,6 +639,11 @@ void Game::OpenTypeEditor(MapEditor::PaletteCat cat, const std::string& id) {
 	m_typeDialog.duplicateLabel = MapEditor::CategoryPlaceable(cat)
 									  ? loc::Tr("map.type.duplicate")
 									  : std::string();
+	// A DUNGEON's delete takes its levels with it, so it confirms by typing the
+	// id (W10); everything else keeps the two-click arm. The label is looked up
+	// per open so a language switch reaches it.
+	m_typeDialog.typedDelete = key == "dungeons";
+	m_typeDialog.typedDeleteLabel = loc::Tr("map.dungeon.delete.confirm");
 	m_typeDialog.Open(std::move(cfg), SchemaFor(key));
 }
 
@@ -853,6 +858,15 @@ bool Game::DeleteType(const std::string& catalogKey, const std::string& id,
 		problem = loc::Tr("map.type.classbacked");
 		return false;
 	}
+	// A DUNGEON TAKES ITS LEVELS WITH IT (W10), so it is not a catalog delete
+	// with a bigger sweep — it has rules of its own and files to remove.
+	if (catalogKey == "dungeons") {
+		problem = DungeonDeleteRefusal(id);
+		if (!problem.empty()) return false;
+		if (DeleteDungeon(id)) return true;
+		problem = loc::Format("map.dungeon.delete.failed", id);
+		return false;
+	}
 	const DungeonWorld::TypeUsage used = m_world.SweepTypeRefs(catalogKey, id);
 	if (used.Any()) {
 		std::string levels;
@@ -871,6 +885,142 @@ bool Game::DeleteType(const std::string& catalogKey, const std::string& id,
 	if (m_world.onMessage) m_world.onMessage(loc::FormatLine("map.type.deleted", id));
 	WarnStaleSaves(id); // a save's spawn rows are outside the level sweep
 	return true;
+}
+
+// --- deleting a dungeon (W10) ------------------------------------------------
+// Michael's answer (2026-09-09): delete its LEVELS too, after a confirmation
+// that names them. It is the one editor action no undo reaches — the history is
+// in memory and the files are not — so the rules run BEFORE the confirmation
+// opens, and each refusal is its own sentence naming what is in the way (W4's
+// lesson: one sentence for two refusals hid one of them).
+
+std::string Game::DungeonDeleteRefusal(const std::string& id) {
+	if (!m_project.dungeons.Contains(id))
+		return loc::Format("map.dungeon.missing", id);
+	const std::vector<std::string> levels = m_project.DungeonLevels(id);
+	const auto dying = [&](const std::string& stem) {
+		return std::find(levels.begin(), levels.end(), stem) != levels.end();
+	};
+	// THE PARTY'S LEVEL is on screen and is the world's live state, not a file
+	// — the world-delete rule one tier down.
+	if (dying(m_world.CurrentLevel()))
+		return loc::Format("map.dungeon.delete.party", m_world.CurrentLevel());
+	// THE GAME'S OPENING and THE HARNESS'S GROUND are references in the
+	// manifest that no level or location shows. A new game landing in a
+	// deleted level would abort; so would every eval suite.
+	if (m_project.startDungeon == id || dying(m_project.startLevel))
+		return loc::Format("map.dungeon.delete.opening",
+						   m_project.startLevel.empty() ? id : m_project.startLevel);
+	if (dying(m_project.evalLevel))
+		return loc::Format("map.dungeon.delete.eval", m_project.evalLevel);
+	// A DOORWAY that leads here — by its dungeon, or by naming one of these
+	// levels outright. Deleting behind it would leave a location on the world
+	// map that opens onto nothing. The doorway is the WORLD's to remove.
+	if (m_worldMap) {
+		std::string doors;
+		int count = 0;
+		for (const WorldMap::Location& l : m_worldMap->Locations())
+			if (l.Dungeon() == id || dying(l.level)) {
+				doors += (doors.empty() ? "" : ", ") + l.id;
+				++count;
+			}
+		if (count > 0) return loc::Format("map.dungeon.delete.doorway", count, doors);
+	}
+	// A LEVEL TWO DUNGEONS CLAIM would go from the other one too. The checker
+	// already reports it as an error; the delete is not the place to settle it.
+	for (const std::string& stem : levels)
+		for (const CatalogEntry& other : m_project.dungeons.Entries())
+			if (other.id != id) {
+				const std::vector<std::string> theirs = m_project.DungeonLevels(other.id);
+				if (std::find(theirs.begin(), theirs.end(), stem) != theirs.end())
+					return loc::Format("map.dungeon.delete.shared", stem, other.id);
+			}
+	// A STAIR FROM OUTSIDE leading in. The plan's refusal: better than
+	// deleting and reporting the wreckage afterwards.
+	const std::vector<DungeonWorld::StairInto> stairs = m_world.StairsInto(levels);
+	if (!stairs.empty()) {
+		const DungeonWorld::StairInto& s = stairs.front();
+		return loc::Format("map.dungeon.delete.stair", s.fromLevel, s.x, s.z,
+						   s.destLevel, stairs.size());
+	}
+	return {};
+}
+
+std::vector<std::string> Game::DescribeDungeon(const std::string& id) const {
+	const CatalogEntry* e = m_project.dungeons.Find(id);
+	if (!e) return {};
+	const std::string display = CatalogGet(e, "display", id);
+	const std::vector<std::string> levels = m_project.DungeonLevels(id);
+	// BY NAME AND BY COUNT — the plan's words. "Are you sure?" asks you to
+	// remember what is in it; this tells you.
+	std::vector<std::string> lines;
+	lines.push_back(levels.empty()
+						? loc::Format("map.dungeon.delete.what0", display, id)
+						: loc::Format("map.dungeon.delete.what", display, id,
+									  levels.size()));
+	for (const std::string& stem : levels)
+		lines.push_back(loc::Format("map.dungeon.delete.level", stem));
+	return lines;
+}
+
+bool Game::DeleteDungeon(const std::string& id) {
+	// Re-asked here, not trusted from the dialog: the console reaches this
+	// too, and the world may have changed since the confirmation opened.
+	if (const std::string why = DungeonDeleteRefusal(id); !why.empty()) {
+		log::Warn("delete dungeon '{}' refused: {}", id, why);
+		return false;
+	}
+	const std::vector<std::string> levels = m_project.DungeonLevels(id);
+
+	// THE MANIFEST AND THE CATALOG FIRST, the files after. A failure between
+	// the two then leaves stray files nothing names (harmless, logged) rather
+	// than a manifest naming files that are gone (a level that aborts on load).
+	std::erase_if(m_project.levels, [&](const std::string& stem) {
+		return std::find(levels.begin(), levels.end(), stem) != levels.end();
+	});
+	m_project.dungeons.Remove(id);
+	if (!m_project.Save()) {
+		log::Warn("delete dungeon '{}': the project did not save - files kept", id);
+		return false;
+	}
+	bool filesOk = true;
+	for (const std::string& stem : levels) filesOk &= m_world.DeleteLevel(stem);
+
+	// The history holds copies of these levels: an undo would put them back
+	// in memory, and the next savemap would write them back to disk.
+	m_world.ClearUndoHistory();
+	// A viewport browsing one of them would be showing a level that is gone.
+	if (std::find(levels.begin(), levels.end(), m_mapView.ViewedLevel()) !=
+		levels.end())
+		m_mapView.SetViewLevel(m_world.CurrentLevel());
+
+	log::Info("Deleted dungeon '{}' and {} level(s){}", id, levels.size(),
+			  filesOk ? "" : " (some files could not be removed - see above)");
+	if (m_world.onMessage)
+		m_world.onMessage(loc::FormatLine("map.dungeon.deleted", id, levels.size()));
+	WarnSavesInLevels(levels);
+	return filesOk;
+}
+
+// Saves are not swept (the rename rule): say which ones stand in, or carry
+// state for, a level that is gone, so the surprise is here and not at a load.
+void Game::WarnSavesInLevels(const std::vector<std::string>& stems) {
+	const auto gone = [&](const std::string& stem) {
+		return std::find(stems.begin(), stems.end(), stem) != stems.end();
+	};
+	std::string list;
+	for (const SaveSlot& slot : ListSaves()) {
+		const std::optional<SaveData> data = ReadSave(slot.path);
+		if (!data) continue;
+		bool hit = gone(data->currentLevel);
+		for (const SaveData::LevelState& level : data->levels)
+			hit = hit || gone(level.stem);
+		if (hit) list += (list.empty() ? "" : ", ") + slot.name;
+	}
+	if (list.empty()) return;
+	log::Warn("Save file(s) still reference deleted level(s): {}", list);
+	if (m_world.onMessage)
+		m_world.onMessage(loc::FormatLine("map.dungeon.stalesaves", list));
 }
 
 // Type editor Save: merge the dialog's working fields into the catalog entry.

@@ -118,7 +118,13 @@ $screens = @(
 	# whatever worlds happen to be on this machine.
 	@{ label = 'sweep_worlddelete'; viaConsole = $true
 	   open = { Run-Cmd 'worldmap on'; Run-Cmd 'worlds new wt_sweep'; Run-Cmd 'worlds dialog delete wt_sweep' }
-	   close = { Run-Cmd 'worlds dialog off'; Run-Cmd 'worlds delete wt_sweep wt_sweep'; Run-Cmd 'worldmap off' } }
+	   close = { Run-Cmd 'worlds dialog off'; Run-Cmd 'worlds delete wt_sweep wt_sweep'; Run-Cmd 'worldmap off' } },
+	# A DUNGEON's delete confirmation (W10), inside the type editor. The demo's
+	# own dungeons are both refused (the opening, the party), so it makes an
+	# empty one of its own and deletes it on the way out, through the same rule.
+	@{ label = 'sweep_dungeondelete'; viaConsole = $true
+	   open = { Run-Cmd 'editor'; Run-Cmd 'newtype dungeons'; Run-Cmd 'dungeons dialog dungeon1'; Run-Cmd 'dungeons dialog delete' }
+	   close = { Run-Cmd 'dungeons dialog off'; Run-Cmd 'dungeons delete dungeon1 dungeon1'; Run-Cmd 'editor off' } }
 )
 # NOT swept, and named rather than left to be assumed. The settings page is
 # reached by menu navigation whose entry order shifts with whether a save

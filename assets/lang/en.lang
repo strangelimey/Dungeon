@@ -584,6 +584,22 @@ map.worlds.deleted=Deleted '{}'.
 map.worlds.delete.failed='{}' could not be deleted - see the log.
 map.worlds.delete.running=You are in '{}' - open another world to delete this one.
 map.worlds.delete.fallback='{}' is where a launch lands when its world is missing - it stays.
+; Deleting a dungeon (W10): the type editor's Delete on a dungeon, which takes
+; its levels with it. Each refusal names its own rule.
+map.dungeon.missing=There is no dungeon named '{}'.
+map.dungeon.delete.party=The party is in {} - go to another dungeon first.
+map.dungeon.delete.opening=The game begins in {} - change the opening in World settings first.
+map.dungeon.delete.eval={} is the eval harness's level (eval_level) - it stays.
+map.dungeon.delete.doorway={} doorway(s) on the world map lead here: {} - remove them in World settings first.
+map.dungeon.delete.shared={} also belongs to dungeon '{}' - deleting would take it from that one too.
+map.dungeon.delete.stair=A stair in {} at {},{} leads into {} ({} such stair(s) in all) - remove it first.
+map.dungeon.delete.what='{}' ({}) goes, and its {} level(s) with it, files and all:
+map.dungeon.delete.what0='{}' ({}) goes. It has no levels.
+map.dungeon.delete.level=- {}
+map.dungeon.delete.confirm=Delete this dungeon
+map.dungeon.delete.failed='{}' could not be fully deleted - see the log.
+map.dungeon.deleted=Deleted dungeon '{}' and {} level(s).
+map.dungeon.stalesaves=Save file(s) still stand in or remember a deleted level: {}
 map.world.help.title=How the world's settings work
 map.world.help.start=THE START CELL is where a party stands when a new game begins on the world map. It refuses impassable ground, because a party that cannot stand on its own start is a fault the check would report.
 map.world.help.opening=WHERE THE GAME BEGINS is a different fact, and it lives in the manifest rather than in the world: a game may open inside a dungeon and never see the map until it climbs out. The party still has a world position either way — it is where it came in from.

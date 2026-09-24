@@ -38,6 +38,8 @@
 #include <vector>
 
 namespace dungeon::ui {
+class Button;
+class Label;
 class TabControl;
 class TextField;
 } // namespace dungeon::ui
@@ -118,6 +120,26 @@ public:
 	// the type. Two clicks — the first arms the button, so a stray click on a
 	// destructive action can't land.
 	std::function<bool(const std::string& id, std::string& problem)> onDelete;
+	// A delete that takes FILES with it — a dungeon's levels (W10) — confirms by
+	// TYPING THE ID instead (W9's GitHub rule, the shared BuildTypedConfirm): the
+	// form gives way to what goes, the id to type, and a Delete that wakes only
+	// on an exact match. The owner sets it per Open, like extraLabel. Both
+	// questions are asked BEFORE the view opens, so it never asks you to type
+	// out a name it will then refuse; onDelete still does the deleting.
+	bool typedDelete = false;
+	std::string typedDeleteLabel; // the confirm button ("Delete this dungeon")
+	std::function<std::string(const std::string& id)> canDelete; // "" = allowed
+	std::function<std::vector<std::string>(const std::string& id)> onDescribe;
+
+	// The footer Delete's click, and the confirmation's typed answer — public so
+	// the console can drive exactly the path the mouse does (a harness cannot
+	// click). ApplyPending runs a rebuild the click deferred, for an audit that
+	// must see the view the click produced rather than the one before it.
+	void ClickDelete();
+	void ConfirmDelete(const std::string& typed);
+	void ApplyPending();
+	bool Confirming() const { return m_confirming; }
+	const std::string& Notice() const { return m_notice; }
 
 	// A refusal (or any note) to show under the form until the next edit.
 	void SetNotice(std::string text) { m_notice = std::move(text); }
@@ -150,6 +172,19 @@ private:
 	bool m_editName = false;   // the title's id is an edit field right now
 	bool m_deleteArmed = false; // the Delete button is one click from firing
 	ui::TextField* m_nameField = nullptr; // valid until the next Clear
+	ui::Label* m_noticeLabel = nullptr;   // ditto; a note changes IN PLACE
+	int m_lastTab = 0; // the tab to come back to from the confirmation
+
+	// --- the typed confirmation (typedDelete) ----------------------------------
+	bool m_confirming = false;
+	std::vector<std::string> m_deleteWhat; // the owner's account, one line each
+	std::string m_typed;
+	ui::Button* m_deleteBtn = nullptr; // valid until the next Clear
+	void BuildConfirm();
+	void LeaveConfirm();
+	// Writes the note into its label without a rebuild — a rebuild would take
+	// the typing field's focus with it (the W4 lesson).
+	void SetNoteInPlace(std::string text);
 };
 
 } // namespace dungeon::game

@@ -26,6 +26,7 @@ add_library(Game STATIC
 	DungeonWorld_Combat.cpp
 	DungeonWorld_Editing.cpp
 	DungeonWorld_Ledger.cpp
+	DungeonWorld_Levels.cpp
 	DungeonWorld_Load.cpp
 	DungeonWorld_Render.cpp
 	DungeonWorld_Save.cpp
@@ -42,6 +43,7 @@ add_library(Game STATIC
 	FixtureInspector.cpp
 	Game.cpp
 	Game_DevCommands.cpp
+	Game_DevDungeons.cpp
 	Game_Editor.cpp
 	Game_Eval.cpp
 	Game_Generate.cpp

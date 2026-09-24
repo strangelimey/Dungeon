@@ -4,6 +4,7 @@
 #include "Game/TypeEditorDialog.h"
 
 #include "Core/Loc.h"
+#include "Core/Log.h"
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
 #include "Game/DialogLayout.h"
@@ -61,9 +62,13 @@ void TypeEditorDialog::Open(Config cfg, std::span<const FieldSpec> schema) {
 	m_notice.clear();
 	m_editName = false;
 	m_deleteArmed = false;
+	m_confirming = false;
+	m_deleteWhat.clear();
+	m_typed.clear();
 	// A fresh open starts on the first tab: null the (now stale) control so
 	// BuildUI's tab-preservation reads 0, not the previously-closed dialog's tab.
 	m_tabs = nullptr;
+	m_lastTab = 0;
 
 	// Tab order = the order the sections first appear in the schema table.
 	m_sections.clear();
@@ -90,11 +95,19 @@ void TypeEditorDialog::SetValue(const FieldSpec& spec, std::string value) {
 }
 
 void TypeEditorDialog::BuildUI() {
-	// Read the open tab BEFORE Clear frees the control (a rebuild keeps the tab).
-	const int activeTab = m_tabs ? m_tabs->ActiveTab() : 0;
+	// Read the open tab BEFORE Clear frees the control (a rebuild keeps the tab,
+	// and so does a trip through the confirmation, which has no tabs).
+	const int activeTab = m_tabs ? m_tabs->ActiveTab() : m_lastTab;
+	m_lastTab = activeTab;
 	m_ui.Clear();
 	m_tabs = nullptr; // the Clear just freed it; don't read it again below
 	m_nameField = nullptr;
+	m_noticeLabel = nullptr;
+	m_deleteBtn = nullptr;
+	if (m_confirming) {
+		BuildConfirm();
+		return;
+	}
 	DialogChrome chrome = BuildDialogChrome(m_ui, kPanel, /*title*/ "", m_closeIcon,
 											[this] { Close(); });
 	if (m_editName) {
@@ -291,7 +304,8 @@ void TypeEditorDialog::BuildUI() {
 	// A refusal (a rename collision, a type still in use) or the delete arming
 	// note, in a band of its own between the form and the footer — it used to be
 	// drawn at a hand-picked y, which is a row nothing else knew about.
-	chrome.body->Row<ui::Label>(FormRow(0.9f), m_notice)->accent = true;
+	m_noticeLabel = chrome.body->Row<ui::Label>(FormRow(0.9f), m_notice);
+	m_noticeLabel->accent = true;
 
 	chrome.footer->Row<ui::Button>(FooterButton(), loc::Tr("map.cfg.save"), [this] {
 		// A touched field that invalidates baked geometry tells the owner to
@@ -317,30 +331,114 @@ void TypeEditorDialog::BuildUI() {
 			Close();
 			if (onExtra) onExtra(cfg);
 		});
-	// Delete is two clicks: the first arms it (the label switches to the
-	// confirm), so a destructive action never fires on a stray click.
 	chrome.footer->Row<ui::Button>(
 		FooterButton(), loc::Tr(m_deleteArmed ? "map.type.delete.confirm"
 											  : "map.type.delete"),
-		[this] {
-			if (!m_deleteArmed) {
-				m_deleteArmed = true;
-				m_notice = loc::Tr("map.type.delete.arm");
-				m_uiRebuild = true; // the label changes
-				return;
-			}
-			std::string problem;
-			if (onDelete && onDelete(m_cfg.id, problem)) {
-				Close();
-				return;
-			}
-			m_deleteArmed = false;
-			m_notice = problem; // refused: it says which levels still use it
-			m_uiRebuild = true;
-		});
+		[this] { ClickDelete(); });
 	chrome.footer->Space(ui::Len::Fill()); // the "?" sits at the far edge
 	chrome.footer->Row<ui::Button>(FooterButton(0.4f), "?",
 								   [this] { m_helpOpen = true; });
+}
+
+// --- deleting ----------------------------------------------------------------
+
+void TypeEditorDialog::ClickDelete() {
+	if (typedDelete) {
+		// ASKED BEFORE THE CONFIRMATION OPENS (the Worlds dialog's rule): a
+		// refusal after you have typed the id out wastes a deliberate act.
+		const std::string why = canDelete ? canDelete(m_cfg.id) : std::string();
+		if (!why.empty()) {
+			m_notice = why;
+			m_uiRebuild = true;
+			return;
+		}
+		m_confirming = true;
+		m_deleteWhat = onDescribe ? onDescribe(m_cfg.id) : std::vector<std::string>{};
+		// Said in the LOG, because a sweep of this view has to be able to show
+		// it audited the confirmation and not the form before the click.
+		log::Info("type editor: confirming the delete of {} '{}'", m_cfg.catalogKey,
+				  m_cfg.id);
+		m_typed.clear();
+		m_notice = loc::Tr("map.worlds.delete.casenote");
+		m_uiRebuild = true; // deferred — this fires inside the tree walk
+		return;
+	}
+	// Otherwise two clicks: the first arms it (the label switches to the
+	// confirm), so a destructive action never fires on a stray click.
+	if (!m_deleteArmed) {
+		m_deleteArmed = true;
+		m_notice = loc::Tr("map.type.delete.arm");
+		m_uiRebuild = true; // the label changes
+		return;
+	}
+	std::string problem;
+	if (onDelete && onDelete(m_cfg.id, problem)) {
+		Close();
+		return;
+	}
+	m_deleteArmed = false;
+	m_notice = problem; // refused: it says which levels still use it
+	m_uiRebuild = true;
+}
+
+void TypeEditorDialog::ConfirmDelete(const std::string& typed) {
+	if (!m_confirming) return;
+	m_typed = typed;
+	if (m_deleteBtn) m_deleteBtn->enabled = m_typed == m_cfg.id;
+	// EXACT, CASE AND ALL — the same rule, from the same builder, as a world.
+	if (m_typed != m_cfg.id) {
+		SetNoteInPlace(loc::Tr("map.worlds.delete.mismatch"));
+		return;
+	}
+	std::string problem;
+	if (onDelete && onDelete(m_cfg.id, problem)) {
+		Close(); // the entry is gone; there is nothing left to edit
+		return;
+	}
+	// Refused at the last moment (the world changed under the confirmation) or
+	// failed part-way: back to the form, saying which.
+	m_confirming = false;
+	m_notice = problem;
+	m_uiRebuild = true;
+}
+
+void TypeEditorDialog::ApplyPending() {
+	if (!m_uiRebuild) return;
+	m_uiRebuild = false;
+	BuildUI();
+}
+
+void TypeEditorDialog::LeaveConfirm() {
+	m_confirming = false;
+	m_typed.clear();
+	m_notice.clear();
+	m_uiRebuild = true;
+}
+
+void TypeEditorDialog::SetNoteInPlace(std::string text) {
+	m_notice = std::move(text);
+	if (m_noticeLabel) m_noticeLabel->text = m_notice;
+}
+
+void TypeEditorDialog::BuildConfirm() {
+	// The title says what is being asked; the id is not a rename affordance
+	// here — renaming the thing you are deleting is not a question this view asks.
+	DialogChrome chrome = BuildDialogChrome(
+		m_ui, kPanel, loc::Format("map.worlds.delete.head", m_cfg.id), m_closeIcon,
+		[this] { Close(); }, /*withFooter*/ false);
+	// The world delete's wording, shared on purpose: the undo line, the
+	// prompt and the case note say nothing world-specific.
+	m_deleteBtn = BuildTypedConfirm(
+		*chrome.body, m_deleteWhat,
+		{loc::Tr("map.worlds.delete.undo"),
+		 loc::Format("map.worlds.delete.type", m_cfg.id),
+		 loc::Tr("map.worlds.cancel"), typedDeleteLabel},
+		m_cfg.id, m_typed,
+		[this] { SetNoteInPlace(loc::Tr("map.worlds.delete.casenote")); },
+		[this] { LeaveConfirm(); }, [this] { ConfirmDelete(m_typed); });
+	ui::Label* note = chrome.body->Row<ui::Label>(FormRow(0.9f), m_notice);
+	note->dim = true;
+	m_noticeLabel = note;
 }
 
 void TypeEditorDialog::Update(const Input& input, float w, float h) {
@@ -365,6 +463,10 @@ void TypeEditorDialog::Update(const Input& input, float w, float h) {
 		return;
 	}
 	if (input.WasKeyPressed(VK_ESCAPE)) {
+		if (m_confirming) { // Esc is "no": back to the form, not out of the dialog
+			LeaveConfirm();
+			return;
+		}
 		if (m_editName) { // first Esc only cancels the rename
 			m_editName = false;
 			m_uiRebuild = true;

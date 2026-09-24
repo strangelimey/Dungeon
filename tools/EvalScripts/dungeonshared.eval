@@ -1,0 +1,6 @@
+; dungeonshared.eval — the one dungeon-delete rule no console command can set
+; up: a level TWO dungeons claim. WorldTest writes that into the scratch world's
+; dungeons.cat (twin_a and twin_b both claiming room2) before this run.
+logecho on
+reset
+dungeons what twin_a

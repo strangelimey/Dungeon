@@ -123,6 +123,31 @@ ui::Len FooterButton(float widths = 1.0f);
 // row that needs two lines just says so.
 ui::Stack* TabStack(ui::TabControl& tabs, size_t tab);
 
+// The GitHub-style confirmation for a delete NOTHING brings back — a world
+// (W9), a dungeon and its levels (W10). What goes, one line each (scrolled,
+// since a dungeon's level list has no fixed length), that it cannot be undone,
+// the name to type, Cancel, and a Delete button that wakes ONLY once the typed
+// text equals `name` exactly — not trimmed, not case-folded.
+//
+// ONE BUILDER FOR BOTH, because the rule is the part worth sharing: two copies
+// of "enabled when it matches" are two places for one of them to start
+// trimming. `typed` is the OWNER's member (it outlives the tree and survives a
+// rebuild); `onEdit` fires after each keystroke, for the owner's note;
+// `onConfirm` fires from Enter and from the button alike, match or not — the
+// owner re-checks, since Enter is not gated by `enabled`. Returns the Delete
+// button, which dies with the tree on the next Clear.
+struct TypedConfirmText {
+	std::string undo;    // "This cannot be undone."
+	std::string prompt;  // "Type crypt to confirm:"
+	std::string cancel;  // an ANSWER, not a dismiss (the Yes/No exemption)
+	std::string confirm; // "Delete this world"
+};
+ui::Button* BuildTypedConfirm(ui::Stack& body, std::span<const std::string> what,
+							  const TypedConfirmText& text, const std::string& name,
+							  std::string& typed, std::function<void()> onEdit,
+							  std::function<void()> onCancel,
+							  std::function<void()> onConfirm);
+
 // The "?" explainer a dialog puts over itself: a second dim wash (so the dialog
 // beneath visibly freezes), a panel, a title, and word-wrapped paragraphs. The
 // owner holds the open/closed flag and dismisses on any click or Esc — the

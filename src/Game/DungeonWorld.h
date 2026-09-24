@@ -1210,6 +1210,29 @@ public:
 	// Existing save files keep the old stem and won't load — dev-cycle cost.
 	bool RenameLevel(const std::string& oldStem, const std::string& newStem);
 
+	// --- deleting a dungeon's levels (W10) -------------------------------------
+	// A stair on a level that SURVIVES, leading into one that would not. The
+	// reason a dungeon delete refuses: the stair would be left pointing at
+	// nothing, and a stair is the one reference no world-map view shows.
+	struct StairInto {
+		std::string fromLevel;
+		int x = 0, z = 0;
+		std::string destLevel;
+	};
+	// Walks every level NOT in `dying` (the live one, the stashes, and any not
+	// yet in memory — parsed on demand, like the type sweep) for a traversable
+	// stair whose dest names a level in `dying`. EXIT stairs are skipped: their
+	// dest is a world LOCATION, and a location that shares a stem's spelling is
+	// not a way into that level.
+	std::vector<StairInto> StairsInto(const std::vector<std::string>& dying);
+	// Forgets a level: every in-memory trace (its map/ent stashes and its
+	// dynamic state, so the next savemap cannot write it back) and then its two
+	// files. NEVER the active level — its truth is on screen. The MANIFEST and
+	// the dungeon's `levels` are the owner's (Game::DeleteDungeon), as for a
+	// rename, and so is dropping the undo history, which holds these levels.
+	// False (logged) when a file could not be removed.
+	bool DeleteLevel(const std::string& stem);
+
 	// --- editor undo/redo (snapshot-based) ------------------------------------
 	// One undo step = a full copy of every level's editor-visible state: the
 	// active level's map (live decoration placements synced into records), its

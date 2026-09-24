@@ -413,6 +413,68 @@ Dev: `worlds dialog delete <name>` (a row's Delete) and `worlds dialog confirm
 <text>` (type it and press the button). WorldTest phase 16; InGameTest sweeps the
 confirmation with a scratch world it makes and deletes itself.
 
+**W10 — deleting a dungeon, and its levels with it.** DONE (2026-09-24). The
+original plan item, answered on day one (open question 1 below): *delete the
+levels too, after a confirmation dialog.* It is the type editor's own Delete on a
+dungeon — right-click the dungeon's palette row, as for any type — but where every
+other category keeps its two-click arm, a dungeon's gives way to W9's TYPED
+confirmation: what goes, BY NAME AND BY COUNT (the dungeon, then one line per
+level), that it cannot be undone, and a Delete that wakes only when the id is typed
+exactly. The builder is now SHARED (`game::BuildTypedConfirm`, DialogLayout.h) and
+the Worlds dialog uses it too — two copies of "enabled when it matches" are two
+places for one of them to start trimming.
+
+THE RULES, each its own sentence and all asked BEFORE the confirmation opens
+(`Game::DungeonDeleteRefusal`): the dungeon holds the PARTY's level; it is the
+game's OPENING (`start_dungeon`, or `start_level` is one of its levels); one of
+its levels is the HARNESS's (`eval_level`); a DOORWAY on the world map leads in
+(by its dungeon, or by naming one of these levels outright); a level ANOTHER
+dungeon also claims; a STAIR from a surviving level leads in (exits skipped —
+their dest is a location). The last is the refusal the plan asked for in so many
+words: better than deleting and reporting the wreckage afterwards. Run against
+the demo it says something true of each dungeon: the crypt is the opening, the
+proving ground holds the party, and once the opening moves, the crypt's two
+doorways stand in the way.
+
+THE DELETE (`Game::DeleteDungeon`) writes the manifest and the catalog FIRST and
+removes files after, so a failure between them leaves stray files nothing names
+rather than a manifest naming files that are gone. `DungeonWorld::DeleteLevel`
+forgets the level's stashes and dynamic state BEFORE its files — and that order
+is the one failure no message would show: a stash left behind is written straight
+back to disk by the next `savemap`. The undo history is dropped (it holds copies
+of these levels), a viewport browsing one snaps back to the party's level, and
+saves that stand in or remember a deleted level are named, as a type delete names
+the saves that use a type.
+
+WHAT BUILDING IT TURNED UP:
+
+- **THE STASH CHECK WAS VACUOUS ON ITS FIRST RUN.** With the stash erase deleted
+  from `DeleteLevel`, the scenario still passed — because nothing had ever pulled
+  the doomed level into memory, so there was no stash to leave behind. The
+  scenario now runs a type sweep first (it parses every level), and the mutant
+  then reads `saved levels: room1, dungeon11`. The check is that line, not the
+  directory: the script's second delete cycle removes the file again anyway.
+- A control per rule: every obstacle is put in place, must be named, and is then
+  lifted, and the delete must read `allowed` again — the whole sequence of answers
+  is compared at once, so a rule firing in another's place shifts it.
+- The sweep of the confirmation LOGS that the confirmation opened, because a
+  sweep's label alone cannot say which view it audited (W9's lesson); it was then
+  shown to catch a planted overlap inside it.
+
+Two things met on the way and left for W11, since they are RENAMES, not deletes:
+renaming a dungeon a location names is NOT refused as this doc and W2 said it was
+(`RenameType` ignores the location count, so the doorways dangle), and renaming a
+LEVEL updates stairs but not `dungeons.cat levels`, `start_level`, `eval_level`
+or a location's `level=`.
+
+Level-file operations (save-all, rename, delete) moved to their own file,
+`DungeonWorld_Levels.cpp` — `_Editing.cpp` was past 2,200 lines. The dungeon
+tier's console commands start one too, `Game_DevDungeons.cpp`. Dev: `dungeons`
+(list) / `what <id>` (the answer and the account, doing nothing) / `delete <id>
+<id>` / `dialog [<id>|delete|confirm <text>|off]`, and `stairadd <type> <x> <z>
+[level]` (a stair pair as one undo step — the only way a script can author the
+stair case). WorldTest phase 17 (15 checks); InGameTest sweeps the confirmation.
+
 What this does not change
 -------------------------
 

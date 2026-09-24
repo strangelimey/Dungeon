@@ -168,4 +168,52 @@ DialogChrome BuildDialogChrome(ui::UIContext& ui, const gfx::Rect& panel,
 	return c;
 }
 
+ui::Button* BuildTypedConfirm(ui::Stack& body, std::span<const std::string> what,
+							  const TypedConfirmText& text, const std::string& name,
+							  std::string& typed, std::function<void()> onEdit,
+							  std::function<void()> onCancel,
+							  std::function<void()> onConfirm) {
+	auto line = [](ui::Stack& into, std::string s, bool dim) {
+		ui::Label* l = into.Row<ui::Label>(FormRow(), std::move(s));
+		l->centerV = true;
+		l->dim = dim;
+		// At the NOTE's size: a Label does not wrap, and these are sentences.
+		l->fontScale = 1.1f;
+		return l;
+	};
+	// WHAT GOES takes the room that is left, and scrolls: a world is one line,
+	// a dungeon is a line per level, and a long one must not push the button
+	// row off the card.
+	ui::ScrollArea* scroll = body.Row<ui::ScrollArea>(ui::Len::Fill());
+	ui::Stack* rows = scroll->Add<ui::Stack>(gfx::Rect{0, 0, 1, 1});
+	rows->fitContent = true;
+	rows->gapRem = 0.3f;
+	for (const std::string& s : what) line(*rows, s, false);
+	line(body, text.undo, false);
+	body.Row<ui::Separator>(ui::Len::Fixed(0.5f));
+	line(body, text.prompt, true);
+
+	auto* field = body.Row<ui::TextField>(FormRow(), typed);
+	field->maxLength = 48;
+	field->SetFocused(true); // the only thing to do here is type
+
+	ui::Stack* row = body.Row<ui::Stack>(FormRow(), true);
+	row->gapRem = 0.5f;
+	row->Row<ui::Button>(FooterButton(1.6f), text.cancel, std::move(onCancel));
+	row->Space(ui::Len::Fill());
+	ui::Button* del = row->Row<ui::Button>(FooterButton(2.6f), text.confirm, onConfirm);
+	del->enabled = typed == name;
+
+	// The field is built before the button it gates, so it learns the button
+	// after the fact — both belong to one tree and die together.
+	ui::TextField* raw = field;
+	raw->onChange = [raw, del, &typed, name, onEdit = std::move(onEdit)] {
+		typed = raw->text;
+		del->enabled = typed == name;
+		if (onEdit) onEdit();
+	};
+	raw->onSubmit = std::move(onConfirm);
+	return del;
+}
+
 } // namespace dungeon::game

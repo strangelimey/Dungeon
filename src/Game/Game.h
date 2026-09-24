@@ -211,6 +211,7 @@ private:
 	// --- construction (called once from the ctor; see Game.cpp) -----------
 	void WireModuleCallbacks(); // the world↔UI/editor callback graph
 	void RegisterDevCommands(); // the dev-console command table
+	void RegisterDungeonCommands(); // the dungeon tier's (Game_DevDungeons.cpp)
 
 	// --- loading (one task per frame while a loading screen shows) ---------
 	void BuildBootLoadTasks(); // menu essentials, run before the landing page
@@ -402,6 +403,18 @@ private:
 	// What deleting it destroys, read off disk, for the confirmation to name.
 	std::string DescribeWorld(const std::string& name) const;
 	bool DeleteWorld(const std::string& name);
+	// Deleting a DUNGEON (W10) takes its levels with it — files, manifest
+	// entries, stashes — and no undo reaches it. So, as for a world: the rules
+	// here, the typed confirmation in the dialog (the type editor's Delete on a
+	// dungeon). The refusal is "" when allowed, else what is in the way: the
+	// party's level, the game's opening, the harness level, a doorway, a level
+	// another dungeon also claims, or a stair from outside leading in. Not
+	// const: the stair walk parses levels not yet in memory.
+	std::string DungeonDeleteRefusal(const std::string& id);
+	// The confirmation's account of what goes: the dungeon, then each level.
+	std::vector<std::string> DescribeDungeon(const std::string& id) const;
+	bool DeleteDungeon(const std::string& id);
+	void WarnSavesInLevels(const std::vector<std::string>& stems);
 	std::string CreateNewLevel(const std::string& dungeonId = {});
 	// Rough out a whole level from knobs and write it as a NEW level (files +
 	// manifest), returning its stem or "" on failure. The knobs' content pools

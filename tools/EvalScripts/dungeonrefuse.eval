@@ -1,0 +1,19 @@
+; dungeonrefuse.eval — deleting a dungeon (W10), asked of the REAL content.
+;
+; Nothing here deletes anything: `dungeons what` answers whether a delete would
+; be allowed and what it would take, without doing it. The demo's two dungeons
+; each meet a different rule first — the crypt is where the game begins, the
+; proving ground is where `reset` puts the party — and once the opening is
+; moved to the world map, the crypt's two DOORWAYS are what stand in the way.
+;
+; It also makes the scratch world the next run opens (WorldTest removes it).
+logecho on
+reset
+dungeons
+dungeons what crypt
+dungeons what eval
+dungeons what nosuch
+worlds new wt_dng
+; In memory only, and restored by WorldTest besides: nothing here saves.
+worldprops opening world
+dungeons what crypt

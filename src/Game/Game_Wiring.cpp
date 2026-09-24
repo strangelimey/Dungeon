@@ -414,6 +414,16 @@ void Game::WireModuleCallbacks() {
 	m_typeDialog.onDelete = [this](const std::string& id, std::string& problem) {
 		return DeleteType(m_typeDialog.CatalogKey(), id, problem);
 	};
+	// The typed confirmation's two questions — asked only where typedDelete is
+	// set (a dungeon: OpenTypeEditor decides), so every other category keeps its
+	// two-click delete and its sweep.
+	m_typeDialog.canDelete = [this](const std::string& id) {
+		return m_typeDialog.CatalogKey() == "dungeons" ? DungeonDeleteRefusal(id)
+													   : std::string();
+	};
+	m_typeDialog.onDescribe = [this](const std::string& id) {
+		return DescribeDungeon(id);
+	};
 
 	// Live-apply on every edit; persist on Save.
 	m_monsterDialog.onApply = [this](const MonsterConfigDialog::Config& c) {

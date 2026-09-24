@@ -187,47 +187,21 @@ void WorldsDialog::BuildUI() {
 	m_noteLabel = note;
 }
 
-// The confirmation, laid out the way GitHub lays out a repository delete: what
-// goes, that it cannot come back, the name to type, and a button that wakes up
-// only once the name is right.
+// The confirmation — the shared GitHub-style one (DialogLayout.h), which the
+// dungeon delete in the type editor uses too.
 void WorldsDialog::BuildConfirm(DialogChrome& chrome) {
-	auto line = [&](std::string text, bool dim) {
-		ui::Label* l = chrome.body->Row<ui::Label>(FormRow(), std::move(text));
-		l->centerV = true;
-		l->dim = dim;
-		// At the NOTE's size: a Label does not wrap, and these are sentences.
-		l->fontScale = 1.1f;
-		return l;
-	};
-	line(m_deleteWhat, false);
-	line(loc::Tr("map.worlds.delete.undo"), false);
-	chrome.body->Row<ui::Separator>(ui::Len::Fixed(0.5f));
-	line(loc::Format("map.worlds.delete.type", m_deleting), true);
-
-	auto* field = chrome.body->Row<ui::TextField>(FormRow(), m_typed);
-	field->maxLength = 48;
-	field->SetFocused(true); // the only thing to do here is type
-	ui::TextField* raw = field;
-	raw->onChange = [this, raw] {
-		m_typed = raw->text;
-		if (m_deleteBtn) m_deleteBtn->enabled = m_typed == m_deleting;
-		// A stale "does not match" must not sit under a name that now does.
-		if (m_noteLabel) SetNote(loc::Tr("map.worlds.delete.casenote"));
-	};
-	raw->onSubmit = [this] { ConfirmDelete(m_typed); };
-
-	chrome.body->Space(ui::Len::Fill());
-	ui::Stack* row = chrome.body->Row<ui::Stack>(FormRow(), true);
-	row->gapRem = 0.5f;
-	// Cancel is an ANSWER to the question the view asks, not a way to close
-	// the dialog (the close box does that) — the Yes/No modal's exemption.
-	row->Row<ui::Button>(FooterButton(1.6f), loc::Tr("map.worlds.cancel"),
-						 [this] { LeaveConfirm(); });
-	row->Space(ui::Len::Fill());
-	m_deleteBtn = row->Row<ui::Button>(FooterButton(2.6f),
-									   loc::Tr("map.worlds.delete.confirm"),
-									   [this] { ConfirmDelete(m_typed); });
-	m_deleteBtn->enabled = m_typed == m_deleting;
+	const std::string what[] = {m_deleteWhat};
+	m_deleteBtn = BuildTypedConfirm(
+		*chrome.body, what,
+		{loc::Tr("map.worlds.delete.undo"),
+		 loc::Format("map.worlds.delete.type", m_deleting),
+		 loc::Tr("map.worlds.cancel"), loc::Tr("map.worlds.delete.confirm")},
+		m_deleting, m_typed,
+		[this] {
+			// A stale "does not match" must not sit under a name that now does.
+			if (m_noteLabel) SetNote(loc::Tr("map.worlds.delete.casenote"));
+		},
+		[this] { LeaveConfirm(); }, [this] { ConfirmDelete(m_typed); });
 }
 
 void WorldsDialog::BuildList(DialogChrome& chrome) {

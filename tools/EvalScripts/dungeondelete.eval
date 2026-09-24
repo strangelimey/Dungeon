@@ -1,0 +1,63 @@
+; dungeondelete.eval — deleting a dungeon and its levels (W10), in a scratch
+; world of its own (run with -project wt_dng; WorldTest makes and removes it).
+;
+; EACH RULE, ONE AT A TIME, with its CONTROL: put the obstacle in place and
+; demand the refusal naming it, then lift it and demand the delete is allowed
+; again — so a refusal cannot be passing because something else refused.
+; Then the dialog's typed confirmation (wrong case and a prefix must do
+; nothing), and the console's form. WorldTest reads the files afterwards: a
+; deleted level that `savemap` wrote back would be the stash rule failing.
+logecho on
+reset
+dungeons
+; The starter dungeon holds the party's level.
+dungeons what keep
+newtype dungeons
+levels new dungeon1
+dungeons
+dungeons what dungeon1
+; A stair from OUTSIDE leading in (room1 -> dungeon11, the next level).
+stairadd stairs_down 7 7
+dungeons what dungeon1
+undo
+dungeons what dungeon1
+; A doorway on the world map leading in.
+worldloc add dungeon door2 2 2
+worldloc set door2 dungeon dungeon1
+dungeons what dungeon1
+worldloc del door2
+dungeons what dungeon1
+; The harness's level.
+worldprops eval dungeon11
+dungeons what dungeon1
+worldprops eval room1
+dungeons what dungeon1
+; The game's opening.
+worldprops opening dungeon1 dungeon11 8 8
+dungeons what dungeon1
+worldprops opening world
+dungeons what dungeon1
+; PULL dungeon11 INTO MEMORY before deleting it. The type sweep parses every
+; level into a stash, and a stash left behind is exactly what `savemap` would
+; write back below. Without this line that check was VACUOUS — measured: with
+; the stash-forgetting line deleted from DeleteLevel, the file stayed gone,
+; because nothing had ever held it.
+typerefs decorations nosuch
+; The type editor's Delete: the typed confirmation.
+dungeons dialog dungeon1
+dungeons dialog delete
+dungeons dialog confirm DUNGEON1
+dungeons
+dungeons dialog confirm dungeon
+dungeons
+dungeons dialog confirm dungeon1
+dungeons
+levels
+; Must NOT write the deleted level back.
+savemap
+; The console's form: the id twice, exactly.
+newtype dungeons
+levels new dungeon1
+dungeons delete dungeon1 Dungeon1
+dungeons delete dungeon1 dungeon1
+dungeons
