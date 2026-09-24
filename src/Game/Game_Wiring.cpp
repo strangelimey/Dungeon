@@ -69,6 +69,14 @@ void Game::WireModuleCallbacks() {
 	m_ui.onStartNewGameIn = [this](const std::string& folder) { StartNewGameIn(folder); };
 	m_ui.onQuit = [this] { m_quitRequested = true; };
 	m_ui.onResume = [this] { m_state = m_resumeState; };
+	// The pause menu's Return to Main Menu: the trip a party wipe makes, taken
+	// on purpose. The dungeon stays resident (m_gameLoaded), so the title's
+	// Continue / Load / Start New Game reset it in place like any other.
+	m_ui.onReturnToMain = [this] {
+		m_mapView.Close();
+		m_state = AppState::Menu;
+		m_ui.ResetToMainPage();
+	};
 	m_ui.onLoadSave = [this](const std::string& path) {
 		if (m_gameLoaded) {
 			LoadGame(path); // dungeon resident (pause-menu Load): apply now

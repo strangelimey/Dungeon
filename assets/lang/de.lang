@@ -27,6 +27,9 @@ menu.load=Laden
 menu.save=Speichern
 menu.settings=Einstellungen
 menu.exit=Beenden
+menu.return_main=Zum Hauptmenü
+menu.return_main.ask=Zum Hauptmenü zurückkehren?
+menu.return_main.lost=Alles nicht Gespeicherte geht verloren.
 menu.back=Zurück
 
 ; --- save / load browser ----------------------------------------------------
@@ -633,6 +636,12 @@ world.begin=Ihr brecht in die Welt auf.
 world.entered=Ihr steigt hinab in {}.
 world.undiscovered=Ihr kennt keinen solchen Ort.
 world.nothing_here=Hier gibt es nichts zu betreten.
+world.ask.enter={} betreten?
+world.ask.leave={} verlassen?
+world.ask.leavehere=Diesen Ort verlassen?
+world.ask.keys=Eingabe oder Y: ja      Esc oder N: nein
+world.ask.yes=Ja
+world.ask.no=Nein
 map.level.applied=Ebenen-Einstellungen auf '{}' angewendet — Karte speichern, um sie zu behalten.
 map.level.created=Ebene '{}' erstellt — Karte speichern, um die Zellen zu behalten.
 map.level.orphans=kein Verlies

@@ -1420,6 +1420,12 @@ void Game::Update(float dt) {
 								  static_cast<float>(m_window.Height()));
 			return;
 		}
+		// A doorway's question owns the input while it is up — its Esc is a
+		// No, not the pause menu, and its Enter is a Yes, not a second "go in".
+		if (m_ui.PromptActive()) {
+			if (!m_console.IsOpen()) m_ui.UpdatePrompt(input);
+			return;
+		}
 		if (input.WasKeyPressed(VK_ESCAPE) && !m_console.IsOpen()) {
 			m_audio.Play(m_sounds.click, 0.5f);
 			m_ui.ResetToMainPage();
@@ -1449,8 +1455,13 @@ void Game::Update(float dt) {
 			else if (input.WasKeyPressed(k.back)) dz = 1;
 			else if (input.WasKeyPressed(k.strafeLeft)) dx = -1;
 			else if (input.WasKeyPressed(k.strafeRight)) dx = 1;
-			if ((dx || dz) && !m_console.IsOpen() && !TravelStep(dx, dz))
-				m_ui.AddLogLine(loc::View("world.blocked"));
+			if ((dx || dz) && !m_console.IsOpen()) {
+				if (!TravelStep(dx, dz)) m_ui.AddLogLine(loc::View("world.blocked"));
+				// WALKING ONTO A DOORWAY ASKS (Michael, 2026-09-24). Asked only
+				// if the step left the party on the world map — an encounter
+				// rolled on that square has already taken it somewhere else.
+				else if (m_state == AppState::WorldMap) OfferEntrance();
+			}
 			// C makes camp. Like Enter below it has no binding of its own —
 			// the world map's verbs are few enough to name, and inventing a
 			// bindable action per verb before there are several would be
@@ -1473,6 +1484,13 @@ void Game::Update(float dt) {
 	}
 
 	// --- Playing -------------------------------------------------------------
+	// An exit's question FREEZES THE WORLD while it is up, the way the pause
+	// menu does: nothing may walk up and hit a party that is being asked
+	// whether it wants to leave. Its Esc is a No, not the pause menu.
+	if (m_ui.PromptActive()) {
+		if (!m_console.IsOpen()) m_ui.UpdatePrompt(input);
+		return;
+	}
 	// The asset-creation dialog is modal over the editor: while it is up it owns
 	// input and the world/overlay are frozen.
 	// The asset picker sits ABOVE every dialog that opens it (the type editor and
@@ -1674,8 +1692,10 @@ void Game::Update(float dt) {
 				m_mapView.Close(); // a stair step starts a new level load
 				// An EXIT stair leaves the dungeon rather than changing level,
 				// surfacing at the location its `dest` names.
-				if (t->toWorld) LeaveDungeon(t->level);
-				else BeginLevelTransition(t->level, t->x, t->z, t->facing);
+				if (t->toWorld) {
+					m_ui.SetHudStatus(m_world.GetParty()); // see the play path
+					OfferExit(t->level);
+				} else BeginLevelTransition(t->level, t->x, t->z, t->facing);
 				return;
 			}
 			Party& party = m_world.GetParty();
@@ -1762,7 +1782,12 @@ void Game::Update(float dt) {
 	}
 	m_world.Update(input, wdt, m_time);
 	if (auto t = m_world.ConsumeLevelTransition()) {
-		if (t->toWorld) LeaveDungeon(t->level); // an exit stair, not a level change
+		if (t->toWorld) {
+			// The panel first: the step onto the stair has landed, and the
+			// question freezes the frame before the usual refresh below.
+			m_ui.SetHudStatus(m_world.GetParty());
+			OfferExit(t->level); // an exit stair: ASKED, then left
+		}
 		else BeginLevelTransition(t->level, t->x, t->z, t->facing);
 		return;
 	}
@@ -1954,6 +1979,7 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		// The deferred-rebake notice (see Update): the frame the blocking
 		// FlushGeometry freezes on, so the pause reads as work, not a hang.
 		if (m_geomNoticeLatched) DrawBusyNotice(loc::Tr("map.rebuilding"), dw, dh);
+		m_ui.RenderConfirmOverlay(); // "Leave the Crypt?", when an exit asks
 		break;
 	}
 	case AppState::WorldMap:
@@ -1962,6 +1988,7 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 								  m_worldState,
 								  WorldPanel(static_cast<float>(m_device.Width()),
 											 static_cast<float>(m_device.Height())));
+		m_ui.RenderConfirmOverlay(); // "Enter the Crypt?", when a step asks
 		break;
 	case AppState::Paused:      m_ui.RenderPauseOverlay(); break;
 	case AppState::CharacterSheet: m_ui.RenderCharacterSheetOverlay(); break;

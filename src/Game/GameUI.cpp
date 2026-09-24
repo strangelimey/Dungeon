@@ -1039,10 +1039,10 @@ void GameUI::BuildSettings() {
 void GameUI::BuildPauseMenu() {
 	m_pauseUi.Clear(); // the list is this context's only content
 	// Load only appears when at least one save exists; the list is sized to the
-	// entries actually present (five with Load, four without).
+	// entries actually present (six with Load, five without).
 	const bool hasSaves = !ListSaves().empty();
 	m_menuHasSaves = hasSaves;
-	const int itemCount = hasSaves ? 5 : 4;
+	const int itemCount = hasSaves ? 6 : 5;
 	constexpr float kMenuW = 0.26f;
 	constexpr float kItemH = 0.064f;
 	const float menuH = kItemH * static_cast<float>(itemCount);
@@ -1061,6 +1061,15 @@ void GameUI::BuildPauseMenu() {
 	menu->AddItem(loc::Tr("menu.settings"), [this] {
 		Click();
 		m_menuPage = MenuPage::Settings;
+	});
+	// Out of THIS game and back to the title (Michael, 2026-09-24) — just above
+	// Exit, the other way out. The game stays loaded, as after a party wipe, so
+	// Continue / Load / Start New Game from there cost no reload. ASKED FIRST:
+	// whatever has not been saved goes with it, and nothing brings it back.
+	menu->AddItem(loc::Tr("menu.return_main"), [this] {
+		Click();
+		AskYesNo(loc::Tr("menu.return_main.ask"), loc::Tr("menu.return_main.lost"),
+				 [this] { onReturnToMain(); });
 	});
 	menu->AddItem(loc::Tr("menu.exit"), [this] {
 		Click();
@@ -1469,7 +1478,11 @@ void GameUI::OnVideoApply() {
 }
 
 void GameUI::OpenConfirm(const std::string& title, const std::string& body,
-						 std::function<void()> onYes) {
+						 std::function<void()> onYes, std::function<void()> onNo,
+						 const char* yesKey, const char* noKey) {
+	m_confirmYes = std::move(onYes);
+	m_confirmNo = std::move(onNo);
+	m_confirmAnswer = 0;
 	m_confirmUi.Clear();
 	// Centered panel as window fractions.
 	constexpr float kPW = 0.34f, kPH = 0.24f;
@@ -1482,19 +1495,43 @@ void GameUI::OpenConfirm(const std::string& title, const std::string& body,
 
 	constexpr float kBW = 0.125f, kBH = 0.05f;
 	const float by = kPY + kPH - kBH - 0.025f;
-	m_confirmUi.Add<ui::Button>(gfx::Rect{kPX + kIn, by, kBW, kBH}, loc::Tr("confirm.yes"),
-								[this, onYes = std::move(onYes)] {
-									Click();
-									m_confirmActive = false;
-									onYes();
-								});
-	m_confirmUi.Add<ui::Button>(gfx::Rect{kPX + kPW - kBW - kIn, by, kBW, kBH}, loc::Tr("confirm.no"), [this] {
-			Click();
-			m_confirmActive = false;
-		});
+	// The buttons RECORD the answer; ResolveConfirm runs it after the update.
+	m_confirmUi.Add<ui::Button>(gfx::Rect{kPX + kIn, by, kBW, kBH}, loc::Tr(yesKey),
+								[this] { m_confirmAnswer = 1; });
+	m_confirmUi.Add<ui::Button>(gfx::Rect{kPX + kPW - kBW - kIn, by, kBW, kBH},
+								loc::Tr(noKey), [this] { m_confirmAnswer = 2; });
 
 	m_confirmUi.SetTheme(m_settings.theme);
 	m_confirmActive = true;
+}
+
+void GameUI::ResolveConfirm() {
+	if (!m_confirmAnswer) return;
+	const bool yes = m_confirmAnswer == 1;
+	m_confirmAnswer = 0;
+	m_confirmActive = false;
+	// Moved out before it runs: the answer may itself ask the next question.
+	std::function<void()> answer = std::move(yes ? m_confirmYes : m_confirmNo);
+	m_confirmYes = {};
+	m_confirmNo = {};
+	Click();
+	if (answer) answer();
+}
+
+void GameUI::AskYesNo(const std::string& title, const std::string& body,
+					  std::function<void()> onYes, std::function<void()> onNo) {
+	OpenConfirm(title, body, std::move(onYes), std::move(onNo), "world.ask.yes",
+				"world.ask.no");
+}
+
+void GameUI::UpdatePrompt(const Input& input) {
+	if (!m_confirmActive) return;
+	// The keyboard answers too: Enter is how the world map already says "go
+	// in", so it is the natural yes, and Esc is every screen's "back out".
+	if (input.WasKeyPressed(VK_RETURN) || input.WasKeyPressed('Y')) m_confirmAnswer = 1;
+	else if (input.WasKeyPressed(VK_ESCAPE) || input.WasKeyPressed('N')) m_confirmAnswer = 2;
+	else m_confirmUi.Update(input, WindowW(), WindowH());
+	ResolveConfirm();
 }
 
 void GameUI::ApplyPendingVideoRebuild() {
@@ -1795,6 +1832,7 @@ void GameUI::UpdateMenu(const Input& input) {
 	RefreshMenuEntriesIfDirty();
 	if (m_confirmActive) { // modal: freeze the page beneath it
 		m_confirmUi.Update(input, WindowW(), WindowH());
+		ResolveConfirm();
 		return;
 	}
 	MenuContext().Update(input, WindowW(), WindowH());
@@ -1804,7 +1842,9 @@ void GameUI::UpdatePause(const Input& input) {
 	RefreshSavesIfDirty();
 	RefreshMenuEntriesIfDirty();
 	if (m_confirmActive) {
-		m_confirmUi.Update(input, WindowW(), WindowH());
+		// The keyboard answers here too (Enter/Y, N) — Esc has already been
+		// taken by Game as a No, through CloseSettingsPage.
+		UpdatePrompt(input);
 		return;
 	}
 	PauseContext().Update(input, WindowW(), WindowH());
@@ -1867,7 +1907,8 @@ void GameUI::ResetHudStatus() { m_lastFacing = m_lastGridX = m_lastGridZ = -1; }
 // the Esc (quit / resume).
 bool GameUI::CloseSettingsPage() {
 	if (m_confirmActive) { // Esc cancels the restart confirm first
-		m_confirmActive = false;
+		m_confirmAnswer = 2; // a No — its callback runs, if it has one
+		ResolveConfirm();
 		return true;
 	}
 	if (m_menuPage == MenuPage::Main) return false;

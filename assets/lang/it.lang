@@ -27,6 +27,9 @@ menu.load=Carica
 menu.save=Salva
 menu.settings=Impostazioni
 menu.exit=Esci
+menu.return_main=Torna al menu principale
+menu.return_main.ask=Tornare al menu principale?
+menu.return_main.lost=Tutto ciò che non è salvato andrà perso.
 menu.back=Indietro
 
 ; --- save / load browser ----------------------------------------------------
@@ -633,6 +636,12 @@ world.begin=Partite verso il mondo.
 world.entered=Scendete in {}.
 world.undiscovered=Non conoscete un luogo simile.
 world.nothing_here=Qui non c'è nulla in cui entrare.
+world.ask.enter=Entrare in {}?
+world.ask.leave=Lasciare {}?
+world.ask.leavehere=Lasciare questo luogo?
+world.ask.keys=Invio o Y: sì      Esc o N: no
+world.ask.yes=Sì
+world.ask.no=No
 map.level.applied=Impostazioni applicate a '{}' — salva la mappa per conservarle.
 map.level.created=Livello '{}' creato — salva la mappa per conservarne le celle.
 map.level.orphans=nessun sotterraneo

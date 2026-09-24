@@ -359,6 +359,13 @@ private:
 	// the back way does not surface at the front gate. Empty falls back to the
 	// location the party came IN by.
 	bool LeaveDungeon(const std::string& viaLocation = {});
+	// The two QUESTIONS in front of those (Michael, 2026-09-24): walking onto a
+	// doorway on the world map asks before going in, and stepping onto an exit
+	// stair asks before leaving. Only the WALK asks — Enter on a doorway and the
+	// `enter` / `leave` commands are already the deliberate act, and the eval
+	// harness steps the world itself, so no script ever meets a question.
+	void OfferEntrance(); // at the party's world square, if it holds a doorway
+	void OfferExit(const std::string& viaLocation);
 
 	// The playability check, with the world tier included. Every caller goes
 	// through here rather than DungeonWorld::Validate directly, so no route can

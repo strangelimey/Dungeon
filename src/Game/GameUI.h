@@ -156,6 +156,18 @@ public:
 	void RenderPauseOverlay(); // dark wash + pause menu over the frozen scene
 	void RenderCharacterSheetOverlay(); // dark wash + the details page
 	void RenderConfirmOverlay();        // dark wash + the Yes/No restart modal
+
+	// A Yes/No QUESTION over whatever is on screen — walking onto a doorway on
+	// the world map, onto a dungeon's exit (Michael, 2026-09-24). The same modal
+	// the adapter restart uses. While PromptActive() the owner freezes what is
+	// beneath it and routes input to UpdatePrompt; Enter/Y answer yes, Esc/N no,
+	// and either button. The answer's callback runs AFTER the modal's update,
+	// never inside it, so a Yes that starts a level load cannot pull the tree
+	// out from under the button that fired it.
+	void AskYesNo(const std::string& title, const std::string& body,
+				  std::function<void()> onYes, std::function<void()> onNo = {});
+	bool PromptActive() const { return m_confirmActive; }
+	void UpdatePrompt(const Input& input);
 	void RenderHud();
 
 	// --- callbacks into the app state machine -------------------------------------
@@ -174,6 +186,7 @@ public:
 	std::function<void()> onQuit;               // landing + pause "Exit" (the ONLY
 												// click that quits — Esc does not)
 	std::function<void()> onResume;             // pause/sheet "Back"
+	std::function<void()> onReturnToMain;       // pause "Return to Main Menu"
 	// A save slot was chosen to load (landing Continue/Load, pause Load). The
 	// receiver loads it — from the landing page that may first stage the
 	// dungeon load. Argument is the full .dsav path.
@@ -259,8 +272,13 @@ private:
 	// the restart-confirm dialog when the adapter changed.
 	void OnVideoApply();
 	// Builds the centered Yes/No modal (m_confirmUi) and arms it.
+	// The button labels default to the adapter restart's own ("Restart" /
+	// "Cancel"); a question passes plain Yes / No.
 	void OpenConfirm(const std::string& title, const std::string& body,
-					 std::function<void()> onYes);
+					 std::function<void()> onYes, std::function<void()> onNo = {},
+					 const char* yesKey = "confirm.yes", const char* noKey = "confirm.no");
+	// Runs the recorded answer, once, outside any widget walk.
+	void ResolveConfirm();
 	// Rebuilds the (dynamic) save-slot browser from the files on disk and
 	// switches to the Saves page in the given mode. Shared by the landing/pause
 	// Load entries and the pause Save entry; widgets live in m_savesUi.
@@ -485,7 +503,9 @@ private:
 	int m_selRes = 0;
 	gfx::FullscreenMode m_selMode = gfx::FullscreenMode::Windowed;
 	bool m_videoRebuildPending = false; // adapter/monitor changed; rebuild next frame
-	bool m_confirmActive = false;       // the restart-confirm modal is up
+	bool m_confirmActive = false;       // the Yes/No modal is up
+	std::function<void()> m_confirmYes, m_confirmNo; // its two answers
+	int m_confirmAnswer = 0;            // 1 yes / 2 no, set by a button, run by ResolveConfirm
 
 	// Installed languages (assets/lang scan), in the Game tab dropdown's
 	// order; maps the selection index back to a language code.

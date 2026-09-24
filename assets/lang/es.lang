@@ -27,6 +27,9 @@ menu.load=Cargar
 menu.save=Guardar
 menu.settings=Ajustes
 menu.exit=Salir
+menu.return_main=Volver al menú principal
+menu.return_main.ask=¿Volver al menú principal?
+menu.return_main.lost=Se perderá todo lo que no esté guardado.
 menu.back=Atrás
 
 ; --- save / load browser ----------------------------------------------------
@@ -633,6 +636,12 @@ world.begin=Partís hacia el mundo.
 world.entered=Descendéis a {}.
 world.undiscovered=No conocéis tal lugar.
 world.nothing_here=Aquí no hay nada en lo que entrar.
+world.ask.enter=¿Entrar en {}?
+world.ask.leave=¿Salir de {}?
+world.ask.leavehere=¿Salir de este lugar?
+world.ask.keys=Intro o Y: sí      Esc o N: no
+world.ask.yes=Sí
+world.ask.no=No
 map.level.applied=Ajustes aplicados a '{}' — guarda el mapa para conservarlos.
 map.level.created=Nivel '{}' creado — guarda el mapa para conservar sus celdas.
 map.level.orphans=sin mazmorra

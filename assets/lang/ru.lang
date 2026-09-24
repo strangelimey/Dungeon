@@ -31,6 +31,9 @@ menu.load=Загрузить
 menu.save=Сохранить
 menu.settings=Настройки
 menu.exit=Выход
+menu.return_main=В главное меню
+menu.return_main.ask=Вернуться в главное меню?
+menu.return_main.lost=Всё несохранённое будет потеряно.
 menu.back=Назад
 
 ; --- save / load browser ----------------------------------------------------
@@ -637,6 +640,12 @@ world.begin=Вы отправляетесь в путь.
 world.entered=Вы спускаетесь в {}.
 world.undiscovered=Вам неизвестно такое место.
 world.nothing_here=Сюда нечего входить.
+world.ask.enter=Войти в {}?
+world.ask.leave=Покинуть {}?
+world.ask.leavehere=Покинуть это место?
+world.ask.keys=Enter или Y: да      Esc или N: нет
+world.ask.yes=Да
+world.ask.no=Нет
 map.level.applied=Настройки уровня '{}' применены — сохраните карту, чтобы они остались.
 map.level.created=Уровень '{}' создан — сохраните карту, чтобы его клетки остались.
 map.level.orphans=без подземелья

@@ -26,6 +26,9 @@ menu.load=Load
 menu.save=Save
 menu.settings=Settings
 menu.exit=Exit
+menu.return_main=Return to Main Menu
+menu.return_main.ask=Return to the main menu?
+menu.return_main.lost=Anything not saved will be lost.
 menu.back=Back
 
 ; --- save / load browser ----------------------------------------------------
@@ -656,6 +659,12 @@ world.begin=You set out into the world.
 world.entered=You descend into {}.
 world.undiscovered=You know of no such place.
 world.nothing_here=There is nothing here to enter.
+world.ask.enter=Enter {}?
+world.ask.leave=Leave {}?
+world.ask.leavehere=Leave this place?
+world.ask.keys=Enter or Y: yes      Esc or N: no
+world.ask.yes=Yes
+world.ask.no=No
 map.level.applied=Level settings applied to '{}' — Save the map to persist.
 map.level.created=Level '{}' created — Save the map to persist its cells.
 map.level.orphans=no dungeon

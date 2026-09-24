@@ -280,6 +280,28 @@ bool Game::LeaveDungeon(const std::string& viaLocation) {
 	return true;
 }
 
+void Game::OfferEntrance() {
+	if (!m_worldMap) return;
+	const WorldMap::Location* l = m_worldMap->LocationAt(m_worldState.x, m_worldState.z);
+	// Only a door that can actually be opened asks: an undiscovered one is not
+	// known to be there (the step that reached it has just revealed it, if it
+	// reveals at all), and a town has nothing behind it yet.
+	if (!l || l->kind != "dungeon" || !m_worldState.Discovered(l->id)) return;
+	const CatalogEntry* d = m_project.dungeons.Find(l->Dungeon());
+	m_ui.AskYesNo(loc::Format("world.ask.enter", d ? d->Display() : l->id),
+				  loc::Tr("world.ask.keys"), [this, id = l->id] { EnterLocation(id); });
+}
+
+void Game::OfferExit(const std::string& viaLocation) {
+	// Named by the DUNGEON the party is in; a level no dungeon claims (a random
+	// encounter's throwaway ground) is just "this place".
+	const CatalogEntry* d = m_project.DungeonOfLevel(m_world.CurrentLevel());
+	m_ui.AskYesNo(d ? loc::Format("world.ask.leave", d->Display())
+					: loc::Tr("world.ask.leavehere"),
+				  loc::Tr("world.ask.keys"),
+				  [this, viaLocation] { LeaveDungeon(viaLocation); });
+}
+
 bool Game::TravelStep(int dx, int dz) {
 	if (!m_worldMap) return false;
 	const int nx = m_worldState.x + dx, nz = m_worldState.z + dz;
