@@ -2,7 +2,7 @@
 #
 # Run:  python tools\WorldTest.py      (needs a debug build)
 #
-# Eighteen phases, all built on one principle: a check that never fires reports
+# Nineteen phases, all built on one principle: a check that never fires reports
 # "clean" just as loudly as one that works, so every expectation here is paired
 # with something that makes it fail.
 #
@@ -51,10 +51,14 @@
 #      them (doorways, the opening, the harness level, the dungeon's list,
 #      other levels' stairs), on disk at once; and an exit stair's LOCATION
 #      is not mistaken for the level it happens to be spelled like.
+#  19. A WORLD WHEN A GAME STARTS — none on the title screen; switched in the
+#      process, A -> B -> A, and the GPU's descriptor count comes back to
+#      where the first visit left it (docs/world-on-demand.md).
 #
 # Every file this touches is restored, including the save it downgrades.
 import io
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -235,12 +239,44 @@ try:
     else:
         shutil.copy(SAVE, SAVE + ".bak")
         try:
-            write(SAVE, read(SAVE).replace("save version=1", "save version=0", 1))
+            # WHATEVER VERSION THE FILE CARRIES goes one below the floor. This
+            # used to replace the literal "version=1", which silently did
+            # nothing the day the format became v2 - and the check below it
+            # still passed, because OTHER old saves in the folder logged the
+            # same refusal. So the version is read off the file, the result is
+            # asserted to have changed, and the refusal must name THIS save.
+            text = read(SAVE)
+            m = re.search(r"save version=(\d+)", text)
+            floor_minus_one = (int(m.group(1)) - 1) if m else 0
+            downgraded = re.sub(r"save version=\d+",
+                                f"save version={floor_minus_one}", text, count=1)
+            check(m is not None and downgraded != text,
+                  f"the save was downgraded (version {m.group(1) if m else '?'} "
+                  f"-> {floor_minus_one})")
+            write(SAVE, downgraded)
             log = run("worldload.eval")
-            check("older than the minimum" in log,
-                  "the log says which version was refused and what the floor is")
+            check(f"worldtrip.dsav is version {floor_minus_one}, older than the "
+                  f"minimum" in log,
+                  "the log says THIS save was refused, and what the floor is")
             check("LoadGame: could not read" in log, "and the load did not happen")
             check("eval RESULT=PASS" in log, "while the game itself kept running")
+        finally:
+            shutil.move(SAVE + ".bak", SAVE)
+
+        # A SAVE KNOWS ITS WORLD (docs/world-on-demand.md): Continue and Load
+        # choose the world from the file before reading anything else in it,
+        # so one that names none is refused - the control being the untouched
+        # save's own line, read first.
+        text = read(SAVE)
+        check("save world=dungeon-demo" in text,
+              "a save names the world it belongs to")
+        shutil.copy(SAVE, SAVE + ".bak")
+        try:
+            write(SAVE, re.sub(r"save world=[^\r\n]*\r?\n", "", text, count=1))
+            log = run("worldload.eval")
+            check("worldtrip.dsav names no world - refusing it" in log and
+                  "LoadGame: could not read" in log,
+                  "one that names no world is refused, not loaded into this one")
         finally:
             shutil.move(SAVE + ".bak", SAVE)
 
@@ -617,8 +653,7 @@ try:
     check("created world 'wt_scratch'" in log, "a new world is created")
     # THE CONTROL: it is listed beside the one that made it, and the one that
     # made it is still the one that is OPEN. Creating a world must not move you
-    # into it — switching relaunches, and a script that relaunched would end
-    # here rather than carry on.
+    # into it — that is a separate, deliberate switch (`worlds load`).
     check("dungeon-demo  (open)" in log and "wt_scratch" in log,
           "...listed beside the world that made it, which is still the open one")
 
@@ -673,7 +708,7 @@ try:
     reopen = [i for i, (s, w, a, _) in enumerate(rows)
               if s == "open" and "wt_dlg" in w and a == ""]
     armed = [i for i, (_, _, a, n) in enumerate(rows)
-             if a == "wt_dlg" and "Click Relaunch to open 'wt_dlg'" in n]
+             if a == "wt_dlg" and "Click Switch to start a new game in 'wt_dlg'" in n]
     check(bool(reopen) and bool(armed) and armed[0] > reopen[-1],
           "reopened it arms nothing; one click on Open arms that row and says "
           "what the second will do", " | ".join(dlg))
@@ -918,6 +953,39 @@ try:
           not os.path.isfile(os.path.join(REN, r"levels\room1.map")),
           "and the files themselves moved")
 
+    # --- phase 19: a world is loaded when a game starts ----------------------
+    print("\n19 - no world until a game starts, and a switch that leaks nothing")
+    shutil.rmtree(os.path.join(ROOT, r"assets\projects\wt_swap"), ignore_errors=True)
+    log = run("worldswap.eval")
+    status = [l.split("console: ", 1)[1] for l in log.splitlines()
+              if "console: world " in l]
+    def srv(line):
+        return int(line.split(" srv ", 1)[1].split(" ", 1)[0]) if " srv " in line else -1
+    check(len(status) == 5, f"the script reported five times (got {len(status)})",
+          " | ".join(status))
+    if len(status) == 5:
+        check(status[0].startswith("world none  game not loaded"),
+              "the title screen has NO world - the world loads when a game starts",
+              status[0])
+        check(status[1].startswith("world dungeon-demo  game loaded") and
+              status[2].startswith("world wt_swap  game loaded") and
+              status[3].startswith("world dungeon-demo  game loaded"),
+              "A -> B -> A switches in the process, no relaunch", " | ".join(status[1:4]))
+        # THE LEAK CHECK. Descriptor slots are the one GPU resource with a
+        # visible gauge; a world's textures are most of them. Coming back to A
+        # must land exactly where the first visit did - and B, a different
+        # world, must differ, or the count is not measuring the world at all.
+        check(srv(status[3]) == srv(status[1]) and srv(status[2]) != srv(status[1]),
+              f"coming back to A frees what B took: srv {srv(status[1])} -> "
+              f"{srv(status[2])} -> {srv(status[3])}")
+        check(srv(status[0]) < srv(status[1]),
+              f"and the title screen holds less than a world ({srv(status[0])})")
+    check("already in 'dungeon-demo'" in log and len(status) == 5 and
+          srv(status[4]) == srv(status[3]),
+          "loading the world already open reloads nothing")
+    check("World unloaded" in log and "eval RESULT=PASS script=worldswap.eval" in log,
+          "and the run ended in play, having unloaded along the way")
+
 finally:
     if settings_before is not None:
         write(SETTINGS, settings_before)
@@ -930,7 +998,7 @@ finally:
     # transition, and report that levelcheck never answered. Clean up.
     # The level phase 13 makes, and the save. A level file left behind would
     # make the NEXT run's "created crypt3" land on crypt4 and the check miss.
-    for scratch in ("wt_scratch", "wt_dlg", "wt_del", "wt_del2", "wt_dng", "wt_ren"):
+    for scratch in ("wt_scratch", "wt_dlg", "wt_del", "wt_del2", "wt_dng", "wt_ren", "wt_swap"):
         shutil.rmtree(os.path.join(ROOT, "assets", "projects", scratch),
                       ignore_errors=True)
     for leftover in (SAVE, SAVE + ".bak",

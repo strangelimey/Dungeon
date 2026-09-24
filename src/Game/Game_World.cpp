@@ -158,7 +158,7 @@ std::vector<validate::Issue> Game::ValidateProject() {
 		if (!h.quest.empty() || !h.reveals.empty())
 			view.itemHooks.push_back(std::move(h));
 	}
-	return m_world.Validate(view);
+	return m_world->Validate(view);
 }
 
 void Game::SetOnWorldMap(bool on) {
@@ -202,14 +202,14 @@ bool Game::EnterLocation(const std::string& id) {
 	// decoration: an undiscovered location is one the party has no idea exists,
 	// and being able to walk into it would make finding it meaningless.
 	if (!m_worldState.Discovered(id)) {
-		if (m_world.onMessage) m_world.onMessage(loc::View("world.undiscovered"));
+		if (m_world->onMessage) m_world->onMessage(loc::View("world.undiscovered"));
 		return false;
 	}
 	if (loc->kind != "dungeon") {
 		// Towns are a location KIND with no content behind them yet (they need
 		// money and trade — see docs/world-map.md). Saying so is better than
 		// silently doing nothing at a place the map draws.
-		if (m_world.onMessage) m_world.onMessage(loc::View("world.nothing_here"));
+		if (m_world->onMessage) m_world->onMessage(loc::View("world.nothing_here"));
 		return false;
 	}
 
@@ -241,8 +241,8 @@ bool Game::EnterLocation(const std::string& id) {
 	m_worldState.atLocation = id; // the fallback for an exit that names none
 	BeginLevelTransition(entry, loc->entryX, loc->entryZ, Direction::South,
 						 /*stashCurrent=*/false);
-	if (m_world.onMessage)
-		m_world.onMessage(loc::FormatLine("world.entered", d->Display()));
+	if (m_world->onMessage)
+		m_world->onMessage(loc::FormatLine("world.entered", d->Display()));
 	return true;
 }
 
@@ -272,8 +272,8 @@ bool Game::LeaveDungeon(const std::string& viaLocation) {
 		// COMING OUT IS FINDING IT. You now know where this door is, even if
 		// you have never approached it from the outside — which is the whole
 		// point of a back way.
-		else if (m_worldState.Discover(where) && m_world.onMessage)
-			m_world.onMessage(loc::FormatLine("world.discovered", where));
+		else if (m_worldState.Discover(where) && m_world->onMessage)
+			m_world->onMessage(loc::FormatLine("world.discovered", where));
 	}
 	m_worldState.atLocation.clear();
 	SetOnWorldMap(true);
@@ -295,7 +295,7 @@ void Game::OfferEntrance() {
 void Game::OfferExit(const std::string& viaLocation) {
 	// Named by the DUNGEON the party is in; a level no dungeon claims (a random
 	// encounter's throwaway ground) is just "this place".
-	const CatalogEntry* d = m_project.DungeonOfLevel(m_world.CurrentLevel());
+	const CatalogEntry* d = m_project.DungeonOfLevel(m_world->CurrentLevel());
 	m_ui.AskYesNo(d ? loc::Format("world.ask.leave", d->Display())
 					: loc::Tr("world.ask.leavehere"),
 				  loc::Tr("world.ask.keys"),
@@ -332,9 +332,9 @@ bool Game::TravelStep(int dx, int dz) {
 		const float chance =
 			std::clamp(danger * hours * m_encounterRate, 0.0f, 0.9f);
 		std::uniform_real_distribution<float> d(0.0f, 1.0f);
-		if (d(m_world.Rng()) < chance) {
+		if (d(m_world->Rng()) < chance) {
 			const WorldMap::Terrain& t = m_worldMap->TerrainAt(nx, nz);
-			StartEncounter(danger, t.tags, m_world.Rng()());
+			StartEncounter(danger, t.tags, m_world->Rng()());
 		}
 	}
 	return true;
@@ -382,11 +382,11 @@ void Game::SettleJourney(float hours) {
 			if (member.IsAlive()) member.staminaHoldoff = dt;
 		// No monsters can be near a party that is out on the world map, so the
 		// stabilize clock runs: the road is where you come round.
-		m_world.TickParty(dt, /*danger=*/false);
+		m_world->TickParty(dt, /*danger=*/false);
 		// A wipe on the road ends the journey — and the game. CheckPartyWipe
 		// has already fired onPartyWipe by now; carrying on would go on
 		// charging supplies to four corpses.
-		if (m_world.PartyWiped()) break;
+		if (m_world->PartyWiped()) break;
 	}
 }
 
@@ -405,8 +405,8 @@ void Game::OnItemFound(const std::string& itemId) {
 		const std::string id = q.substr(0, colon), stage = q.substr(colon + 1);
 		if (m_worldState.SetQuestStage(id, stage)) {
 			const CatalogEntry* def = m_project.quests.Find(id);
-			if (m_world.onMessage)
-				m_world.onMessage(loc::FormatLine(
+			if (m_world->onMessage)
+				m_world->onMessage(loc::FormatLine(
 					"world.quest_stage", def ? def->Display() : id,
 					def ? def->Get("text_" + stage, stage) : stage));
 		}
@@ -432,8 +432,8 @@ void Game::OnItemFound(const std::string& itemId) {
 		if (!exists)
 			log::Warn("item '{}' reveals '{}', which is not on the world map",
 					  itemId, r);
-		else if (m_worldState.Discover(r) && m_world.onMessage)
-			m_world.onMessage(loc::FormatLine("world.revealed", r));
+		else if (m_worldState.Discover(r) && m_world->onMessage)
+			m_world->onMessage(loc::FormatLine("world.revealed", r));
 	}
 }
 
@@ -448,10 +448,10 @@ float Game::Camp() {
 	// bearable in real time inside a dungeon; out here world time is advanced
 	// directly, so an hour camped IS an hour, and there is nothing to speed up.
 	if (!m_worldState.onWorldMap) return 0.0f;
-	if (m_world.Resting()) return 0.0f;
+	if (m_world->Resting()) return 0.0f;
 
-	m_world.SetResting(true);
-	if (!m_world.Resting()) {
+	m_world->SetResting(true);
+	if (!m_world->Resting()) {
 		// Refused before it began — starving or parched, and rest would only
 		// spend health to pass time you are already losing health for. The
 		// world has said why.
@@ -461,17 +461,17 @@ float Game::Camp() {
 	constexpr float kSlice = 60.0f;
 	constexpr float kMaxHours = 24.0f; // a day is long enough to be a decision
 	float seconds = 0.0f;
-	while (m_world.Resting() && seconds < kMaxHours * 3600.0f) {
-		m_world.TickParty(kSlice, /*danger=*/false);
+	while (m_world->Resting() && seconds < kMaxHours * 3600.0f) {
+		m_world->TickParty(kSlice, /*danger=*/false);
 		seconds += kSlice;
 		m_worldState.time += kSlice / 3600.0f;
-		if (m_world.PartyWiped()) break;
+		if (m_world->PartyWiped()) break;
 	}
-	m_world.SetResting(false);
+	m_world->SetResting(false);
 
 	const float hours = seconds / 3600.0f;
-	if (m_world.onMessage)
-		m_world.onMessage(loc::FormatLine("world.camped",
+	if (m_world->onMessage)
+		m_world->onMessage(loc::FormatLine("world.camped",
 										  std::format("{:.1f}", hours)));
 	return hours;
 }
@@ -490,8 +490,8 @@ void Game::RevealAround(int x, int z) {
 			// same list without touching `seen`, which is why the two are
 			// separate fields.
 			if (const WorldMap::Location* l = m_worldMap->LocationAt(cx, cz))
-				if (m_worldState.Discover(l->id) && m_world.onMessage)
-					m_world.onMessage(loc::FormatLine("world.discovered", l->id));
+				if (m_worldState.Discover(l->id) && m_world->onMessage)
+					m_world->onMessage(loc::FormatLine("world.discovered", l->id));
 		}
 }
 
@@ -600,9 +600,9 @@ void Game::WireWorldSettingsDialog() {
 	// the step with whether anything actually changed. CommitUndoStep(false)
 	// is what keeps a refused edit from spending a Ctrl+Z on nothing.
 	auto step = [this](auto&& apply) {
-		m_world.BeginUndoStep();
+		m_world->BeginUndoStep();
 		const bool ok = apply();
-		m_world.CommitUndoStep(ok);
+		m_world->CommitUndoStep(ok);
 		return ok;
 	};
 	d.onSetStart = [this, step](int x, int z) {

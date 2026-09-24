@@ -91,6 +91,12 @@ public:
 	// would touch objects a later load task creates. A gated Enter prints a
 	// notice and keeps the line in history for an easy re-run after the load.
 	void SetCommandsEnabled(bool enabled) { m_commandsEnabled = enabled; }
+	// A PER-COMMAND gate, asked before every command runs — typed or scripted
+	// (docs/world-on-demand.md: the title screen has no world, and most
+	// commands reach into one). Returns "" to allow, else the refusal to print;
+	// a refusal counts as one (Refuse), so a script that runs a world command
+	// before starting a game fails rather than measuring nothing.
+	std::function<std::string(std::string_view name)> gate;
 	bool CommandsEnabled() const { return m_commandsEnabled; }
 
 	// MIRROR EVERY CONSOLE LINE TO dungeon.log (the eval harness; `logecho`).

@@ -132,11 +132,11 @@ void Game::RegisterDungeonCommands() {
 				m_console.Print("usage: stairadd <type> <x> <z> [level]");
 				return;
 			}
-			const std::string stem = a.size() >= 4 ? a[3] : m_world.CurrentLevel();
+			const std::string stem = a.size() >= 4 ? a[3] : m_world->CurrentLevel();
 			const int x = std::atoi(a[1].c_str()), z = std::atoi(a[2].c_str());
-			m_world.BeginUndoStep();
-			const bool ok = m_world.AddStairAt(stem, a[0], x, z);
-			m_world.CommitUndoStep(ok);
+			m_world->BeginUndoStep();
+			const bool ok = m_world->AddStairAt(stem, a[0], x, z);
+			m_world->CommitUndoStep(ok);
 			m_console.Print(ok ? std::format("stair {} placed on {} at {},{}", a[0], stem, x, z)
 							   : std::format("stair {} NOT placed on {} at {},{}", a[0],
 											 stem, x, z));

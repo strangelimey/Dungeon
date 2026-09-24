@@ -60,6 +60,7 @@ std::string SaveSlotPath(const std::string& name) {
 bool WriteSave(const SaveData& data, const std::string& path) {
 	std::string t = "; Dungeon save — dynamic level state (see SaveGame.h)\n";
 	t += std::format("save version={}\n", data.version);
+	t += std::format("save world={}\n", data.worldName);
 	t += std::format("save name={}\n", data.name);
 	t += std::format("save current={}\n", data.currentLevel);
 	t += std::format("save time={}\n", data.timestamp);
@@ -289,6 +290,7 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			const std::string key = line.substr(5, eq - 5);
 			const std::string val = line.substr(eq + 1);
 			if (key == "version")      data.version = std::atoi(val.c_str());
+			else if (key == "world")   data.worldName = val;
 			else if (key == "name")    data.name = val;
 			else if (key == "current") data.currentLevel = val;
 			else if (key == "level")   data.currentLevel = val; // v1 legacy key
@@ -597,8 +599,20 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 				  path, data.version, kMinReadableVersion);
 		return std::nullopt;
 	}
+	// A save that does not say which world it belongs to cannot be loaded:
+	// the world is chosen from it before anything else in it is read.
+	if (data.worldName.empty()) {
+		log::Warn("Save {} names no world - refusing it", path);
+		return std::nullopt;
+	}
 	return data;
 }
+
+namespace {
+std::string g_saveWorldFilter; // see SetSaveWorldFilter
+} // namespace
+
+void SetSaveWorldFilter(std::string world) { g_saveWorldFilter = std::move(world); }
 
 std::vector<SaveSlot> ListSaves() {
 	std::vector<SaveSlot> slots;
@@ -611,8 +625,12 @@ std::vector<SaveSlot> ListSaves() {
 		if (!entry.is_regular_file() || entry.path().extension() != ".dsav")
 			continue;
 		const std::string path = entry.path().string();
-		if (auto data = ReadSave(path))
-			slots.push_back({data->name, data->currentLevel, data->timestamp, path});
+		if (auto data = ReadSave(path)) {
+			if (!g_saveWorldFilter.empty() && data->worldName != g_saveWorldFilter)
+				continue;
+			slots.push_back(
+				{data->worldName, data->name, data->currentLevel, data->timestamp, path});
+		}
 	}
 	// Newest first — the timestamp strings sort lexicographically by time.
 	std::ranges::sort(slots, std::ranges::greater{}, &SaveSlot::timestamp);

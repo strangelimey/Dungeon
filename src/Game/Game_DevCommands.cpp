@@ -83,7 +83,7 @@ void Game::RegisterDevCommands() {
 						   if (!Need(m_console, args, 2, "usage: tp <x> <z>")) return;
 						   const int x = std::atoi(args[0].c_str());
 						   const int z = std::atoi(args[1].c_str());
-						   if (m_world.GetParty().SetGridPosition(x, z))
+						   if (m_world->GetParty().SetGridPosition(x, z))
 							   m_console.Print(std::format("teleported to {},{}", x, z));
 						   else
 							   m_console.Refuse(
@@ -125,7 +125,7 @@ void Game::RegisterDevCommands() {
 	// --- diagnostics (read-only) ---
 	m_console.Register("pos", "print party position and facing",
 					   [this](const std::vector<std::string>&) {
-						   const Party& p = m_world.GetParty();
+						   const Party& p = m_world->GetParty();
 						   static const char* kDirs[] = {"north", "east", "south", "west"};
 						   m_console.Print(std::format("{},{} facing {}", p.GridX(),
 													   p.GridZ(), kDirs[p.Facing() & 3]));
@@ -138,7 +138,7 @@ void Game::RegisterDevCommands() {
 	// a map that never came back shows up here and nowhere else.
 	m_console.Register("mapinfo", "print dungeon size and a static-layer fingerprint",
 					   [this](const std::vector<std::string>&) {
-						   const DungeonMap& map = m_world.Map();
+						   const DungeonMap& map = m_world->Map();
 						   int walkable = 0;
 						   for (int z = 0; z < map.Height(); ++z)
 							   for (int x = 0; x < map.Width(); ++x)
@@ -147,12 +147,12 @@ void Game::RegisterDevCommands() {
 							   "{}x{} map, start {},{}, {} walkable, {} monsters, "
 							   "{} torches, {} braziers",
 							   map.Width(), map.Height(), map.StartX(), map.StartZ(),
-							   walkable, m_world.MonsterCount(),
+							   walkable, m_world->MonsterCount(),
 							   map.Sconces().size(), map.Braziers().size()));
 					   });
 	m_console.Register("groups", "list monster groups (id: count [kinds] @ cell#slot)",
 					   [this](const std::vector<std::string>&) {
-						   for (const std::string& line : m_world.GroupsReport())
+						   for (const std::string& line : m_world->GroupsReport())
 							   m_console.Print(line);
 					   });
 	m_console.Register("editor", "open the map in editor mode (off = player map)",
@@ -267,21 +267,21 @@ void Game::RegisterDevCommands() {
 			// is ONE history across the tiers now (a world paint and a level
 			// paint land in the same stack), so this takes back whichever came
 			// last — which is the behaviour worth being able to test.
-			if (!m_world.CanUndo()) {
+			if (!m_world->CanUndo()) {
 				m_console.Print("nothing to undo");
 				return;
 			}
-			m_world.Undo();
+			m_world->Undo();
 			m_console.Print("undone");
 		});
 	m_console.Register(
 		"redo", "redo one editor step (the toolbar's > / Ctrl+Y)",
 		[this](const std::vector<std::string>&) {
-			if (!m_world.CanRedo()) {
+			if (!m_world->CanRedo()) {
 				m_console.Print("nothing to redo");
 				return;
 			}
-			m_world.Redo();
+			m_world->Redo();
 			m_console.Print("redone");
 		});
 	m_console.Register("savemap",
@@ -295,7 +295,7 @@ void Game::RegisterDevCommands() {
 						   // The active level plus every level whose stash holds
 						   // in-memory edits — remote map edits included.
 						   const std::vector<std::string> saved =
-							   m_world.SaveAllLevels();
+							   m_world->SaveAllLevels();
 						   if (!saved.empty()) {
 							   std::string list;
 							   for (const std::string& s : saved)
@@ -349,7 +349,7 @@ void Game::RegisterDevCommands() {
 					   });
 	m_console.Register("monsters", "list monsters and their cells",
 					   [this](const std::vector<std::string>&) {
-						   const std::vector<std::string> list = m_world.MonsterList();
+						   const std::vector<std::string> list = m_world->MonsterList();
 						   if (list.empty()) {
 							   m_console.Print("no monsters");
 							   return;
@@ -358,7 +358,7 @@ void Game::RegisterDevCommands() {
 					   });
 	m_console.Register("buttons", "list buttons (id, cell, state)",
 					   [this](const std::vector<std::string>&) {
-						   const std::vector<std::string> list = m_world.ButtonList();
+						   const std::vector<std::string> list = m_world->ButtonList();
 						   if (list.empty()) {
 							   m_console.Print("no buttons");
 							   return;
@@ -376,7 +376,7 @@ void Game::RegisterDevCommands() {
 						   const float amount =
 							   args.size() > 2 ? std::strtof(args[2].c_str(), nullptr)
 											   : 100.0f;
-						   const int n = m_world.SmashAt(x, z, amount);
+						   const int n = m_world->SmashAt(x, z, amount);
 						   m_console.Print(
 							   n > 0 ? std::format("struck {} breakable(s) at {},{}", n,
 												   x, z)
@@ -388,7 +388,7 @@ void Game::RegisterDevCommands() {
 						   const int x = std::atoi(args[0].c_str());
 						   const int z = std::atoi(args[1].c_str());
 						   bool on = false;
-						   if (m_world.ToggleButtonAt(x, z, on))
+						   if (m_world->ToggleButtonAt(x, z, on))
 							   m_console.Print(std::format("button {},{} -> {}", x, z,
 														   on ? "on" : "off"));
 						   else
@@ -397,7 +397,7 @@ void Game::RegisterDevCommands() {
 	m_console.Register("lights", "print active point-light count",
 					   [this](const std::vector<std::string>&) {
 						   m_console.Print(std::format("{} active point lights",
-													   m_world.ActiveLightCount()));
+													   m_world->ActiveLightCount()));
 					   });
 	m_console.Register("ver", "print build and GPU info",
 					   [this](const std::vector<std::string>&) {
@@ -425,13 +425,13 @@ void Game::RegisterDevCommands() {
 							   m_console.Refuse("direction must be n/e/s/w");
 							   return;
 						   }
-						   m_world.GetParty().SetFacing(facing);
+						   m_world->GetParty().SetFacing(facing);
 						   m_console.Print("facing set");
 					   });
 	m_console.Register("home", "teleport the party to the start cell",
 					   [this](const std::vector<std::string>&) {
-						   const DungeonMap& map = m_world.Map();
-						   m_world.GetParty().SetGridPosition(map.StartX(), map.StartZ());
+						   const DungeonMap& map = m_world->Map();
+						   m_world->GetParty().SetGridPosition(map.StartX(), map.StartZ());
 						   m_console.Print(std::format("home at {},{}", map.StartX(),
 													   map.StartZ()));
 					   });
@@ -443,13 +443,13 @@ void Game::RegisterDevCommands() {
 							   m_console.Refuse("speed must be > 0");
 							   return;
 						   }
-						   m_world.GetParty().SetSpeed(v);
+						   m_world->GetParty().SetSpeed(v);
 						   m_console.Print(std::format("speed x{:.2f}", v));
 					   });
 
 	m_console.Register("noclip", "toggle walking through walls",
 					   [this](const std::vector<std::string>&) {
-						   Party& p = m_world.GetParty();
+						   Party& p = m_world->GetParty();
 						   p.SetNoclip(!p.Noclip());
 						   m_console.Print(p.Noclip() ? "noclip on" : "noclip off");
 					   });
@@ -485,8 +485,8 @@ void Game::RegisterDevCommands() {
 	// --- render debug ---
 	m_console.Register("shadows", "toggle shadow rendering (on/off)",
 					   [this](const std::vector<std::string>& args) {
-						   if (!args.empty()) m_world.SetShadowsEnabled(ArgOn(args[0]));
-						   m_console.Print(m_world.ShadowsEnabled() ? "shadows on"
+						   if (!args.empty()) m_world->SetShadowsEnabled(ArgOn(args[0]));
+						   m_console.Print(m_world->ShadowsEnabled() ? "shadows on"
 																	: "shadows off");
 					   });
 	m_console.Register("shadowrate",
@@ -496,49 +496,49 @@ void Game::RegisterDevCommands() {
 						const float hz = std::strtof(args[0].c_str(), nullptr);
 						const int budget =
 							args.size() > 1 ? std::atoi(args[1].c_str()) : -1;
-						m_world.SetShadowFlicker(hz, budget);
+						m_world->SetShadowFlicker(hz, budget);
 					}
 					m_console.Print(std::format(
 						"fire shadows re-render at {:.1f} Hz, at most {} cube(s)/frame",
-						m_world.ShadowFlickerHz(), m_world.ShadowFlickerBudget()));
+						m_world->ShadowFlickerHz(), m_world->ShadowFlickerBudget()));
 				});
 	m_console.Register("dust", "volumetric dust: on/off, or a density (default 0.075)",
 					   [this](const std::vector<std::string>& args) {
 						   if (!args.empty()) {
 							   if (args[0] == "on" || args[0] == "off") {
-								   m_world.SetDustEnabled(ArgOn(args[0]));
+								   m_world->SetDustEnabled(ArgOn(args[0]));
 							   } else {
-								   m_world.SetDustDensity(
+								   m_world->SetDustDensity(
 									   static_cast<float>(std::atof(args[0].c_str())));
-								   m_world.SetDustEnabled(true);
+								   m_world->SetDustEnabled(true);
 							   }
 						   }
-						   m_console.Print(m_world.DustEnabled()
+						   m_console.Print(m_world->DustEnabled()
 											   ? std::format("dust on, density {:.3f}",
-															 m_world.DustDensity())
+															 m_world->DustDensity())
 											   : "dust off");
 					   });
 	m_console.Register("haze", "dust ambient pickup (mood tuning, default 0.9)",
 					   [this](const std::vector<std::string>& args) {
 						   if (!args.empty())
-							   m_world.SetHazeAmbient(
+							   m_world->SetHazeAmbient(
 								   static_cast<float>(std::atof(args[0].c_str())));
 						   m_console.Print(
-							   std::format("haze ambient {:.2f}", m_world.HazeAmbient()));
+							   std::format("haze ambient {:.2f}", m_world->HazeAmbient()));
 					   });
 	m_console.Register("ambient", "scale the ambient fill (mood tuning, default 1.0)",
 					   [this](const std::vector<std::string>& args) {
 						   if (!args.empty())
-							   m_world.SetAmbientScale(
+							   m_world->SetAmbientScale(
 								   static_cast<float>(std::atof(args[0].c_str())));
 						   m_console.Print(
-							   std::format("ambient x{:.2f}", m_world.AmbientScale()));
+							   std::format("ambient x{:.2f}", m_world->AmbientScale()));
 					   });
 	m_console.Register("fov", "set camera field of view in degrees (default 70)",
 					   [this](const std::vector<std::string>& args) {
 						   if (!args.empty())
-							   m_world.SetFov(static_cast<float>(std::atof(args[0].c_str())));
-						   m_console.Print(std::format("fov {:.0f}", m_world.Fov()));
+							   m_world->SetFov(static_cast<float>(std::atof(args[0].c_str())));
+						   m_console.Print(std::format("fov {:.0f}", m_world->Fov()));
 					   });
 }
 

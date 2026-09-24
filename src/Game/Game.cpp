@@ -119,7 +119,8 @@ std::string Game::ChooseProjectFolder() {
 			log::Warn("no world '{}' under {} - opening {}", name, root, kDefaultProject);
 		name = kDefaultProject;
 	}
-	log::Info("Opening world '{}'", name);
+	// Only the DEFAULT: nothing is opened until a game starts (LoadWorld).
+	log::Info("Default world '{}'", name);
 	return Project::FolderFor(root, name);
 }
 
@@ -131,14 +132,12 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		   gfx::SpriteBatch& spriteBatch, audio::AudioEngine& audio)
 	: m_window(window), m_device(device), m_renderer(renderer),
 	  m_spriteBatch(spriteBatch), m_audio(audio), m_postProcess(device),
-	  m_project(Project::Load(ChooseProjectFolder())),
-	  m_world(device, renderer, audio, m_sounds, m_settings, m_project, m_threads),
 	  m_fonts(MakeFontLibrary(device)),
 	  m_ui(window, device, spriteBatch, audio, m_sounds, m_settings,
 		   m_characters, m_fonts),
 	  m_worldMapView(device, m_fonts),
-	  m_mapView(device, m_world, m_settings, m_fonts),
-	  m_mapEditor(m_mapView, m_world, m_settings),
+	  m_mapView(device, m_settings, m_fonts),
+	  m_mapEditor(m_mapView, m_settings),
 	  m_console(m_fonts, m_threads),
 	  m_modelPreview(device, 512),
 	  m_assetDialog(device, window),
@@ -161,31 +160,31 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	// repo tree. Feedback goes through the world's message channel.
 	m_mapView.onSave = [this](bool toSource) {
 		if (!m_gameLoaded) return; // no world to save yet
-		const std::vector<std::string> saved = m_world.SaveAllLevels();
+		const std::vector<std::string> saved = m_world->SaveAllLevels();
 		bool ok = !saved.empty();
 		if (ok && toSource) ok = SyncProjectToSource();
-		if (!m_world.onMessage) return;
+		if (!m_world->onMessage) return;
 		if (!ok) {
-			m_world.onMessage(loc::View("map.save.failed"));
+			m_world->onMessage(loc::View("map.save.failed"));
 			return;
 		}
 		std::string list;
 		for (const std::string& s : saved) list += (list.empty() ? "" : ", ") + s;
-		m_world.onMessage(
+		m_world->onMessage(
 			loc::FormatLine(toSource ? "map.save.synced" : "map.save.done", list));
 	};
 	// The editor's Balance header button → the combat-tuning dialog. Edits
 	// apply LIVE (the world's Balance is the one every formula reads, and the
 	// derived resource maxima follow); Save also writes the two catalogs back
 	// to the project (the asset copy — To source syncs them to the repo).
-	m_mapView.onBalance = [this] { m_balanceDialog.Open(m_world.GetBalance()); };
+	m_mapView.onBalance = [this] { m_balanceDialog.Open(m_world->GetBalance()); };
 	m_balanceDialog.onApply = [this](const Balance& b) {
-		m_world.GetBalance() = b;
-		m_world.RecomputePartyMaxima();
+		m_world->GetBalance() = b;
+		m_world->RecomputePartyMaxima();
 	};
 	m_balanceDialog.onSave = [this](const Balance& b) {
-		m_world.GetBalance() = b;
-		m_world.RecomputePartyMaxima();
+		m_world->GetBalance() = b;
+		m_world->RecomputePartyMaxima();
 		b.Save(m_project.balance, m_project.attacks);
 		const bool ok =
 			m_project.balance.Save(m_project.CatalogPath("balance.cat"),
@@ -195,8 +194,8 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 								   "Attacks: per-melee-verb numbers "
 								   "(damage/accuracy/speed multipliers); "
 								   "identity (damage type) is C++ (Balance.h).");
-		if (m_world.onMessage)
-			m_world.onMessage(loc::View(ok ? "map.balance.saved" : "map.save.failed"));
+		if (m_world->onMessage)
+			m_world->onMessage(loc::View(ok ? "map.balance.saved" : "map.save.failed"));
 	};
 	// The editor toolbar's Level button → the per-level atmosphere dialog,
 	// opened on the VIEWED level's effective values (a browsed level's come
@@ -224,8 +223,8 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_mapView.onGenerate = [this] { m_generateDialog.Open(m_mapView.ViewedLevel()); };
 	m_generateDialog.onGenerate = [this](const generate::Params& p) {
 		if (!RegenerateViewedLevel(p)) return;
-		if (m_world.onMessage)
-			m_world.onMessage(loc::FormatLine("map.gen.done", m_mapView.ViewedLevel(),
+		if (m_world->onMessage)
+			m_world->onMessage(loc::FormatLine("map.gen.done", m_mapView.ViewedLevel(),
 											  p.seed));
 		m_validateDialog.Open(ValidateProject());
 	};
@@ -237,17 +236,17 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		if (x >= 0) m_mapEditor.SelectCell(x, z);
 	};
 	m_levelSettingsDialog.onApply = [this](float dust, float haze, float ambient) {
-		if (m_levelSettingsDialog.Level() != m_world.CurrentLevel()) return;
-		m_world.SetDustDensity(dust);
-		m_world.SetHazeAmbient(haze);
-		m_world.SetAmbientScale(ambient);
+		if (m_levelSettingsDialog.Level() != m_world->CurrentLevel()) return;
+		m_world->SetDustDensity(dust);
+		m_world->SetHazeAmbient(haze);
+		m_world->SetAmbientScale(ambient);
 	};
 	m_levelSettingsDialog.onSave = [this](float dust, float haze, float ambient,
 										 const std::string& theme) {
-		m_world.SetLevelAtmosphere(m_levelSettingsDialog.Level(), dust, haze, ambient);
-		m_world.SetLevelTheme(m_levelSettingsDialog.Level(), ParseTags(theme));
-		if (m_world.onMessage)
-			m_world.onMessage(loc::FormatLine("map.level.applied",
+		m_world->SetLevelAtmosphere(m_levelSettingsDialog.Level(), dust, haze, ambient);
+		m_world->SetLevelTheme(m_levelSettingsDialog.Level(), ParseTags(theme));
+		if (m_world->onMessage)
+			m_world->onMessage(loc::FormatLine("map.level.applied",
 											  m_levelSettingsDialog.Level()));
 	};
 	// The editor toolbar's [+] button: mint a fresh level (files + manifest +
@@ -265,17 +264,11 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	ApplyLanguage(false); // strings must exist before any UI builds
 	m_audio.SetMasterVolume(m_settings.volume);
 	m_device.SetPresentInterval(m_settings.presentInterval);
-	m_world.GetParty().SetKeys(m_settings.moveKeys);
-	m_world.GetParty().SetLook(m_settings.look);
-	m_world.GetParty().SetHeadBob(m_settings.headBob);
 
 	m_characters = CreateDefaultParty();
 	ApplyMemberColors(); // the settings palette wins over the authored defaults
-	m_world.SetRoster(&m_characters); // combat drains these; reset in place
-	// AFTER SetRoster, not before: the pace rule reads the roster through the
-	// world now (conditioning feeds it), so it has nothing to average until the
-	// world has been handed the members.
-	ApplyPartySpeed();
+	// (The world takes the roster, the keys and the look settings when it is
+	// BUILT — LoadWorld — since there is none yet.)
 	m_ui.SetHitSplats(&m_hitSplats);  // stable address; LoadHitSplats fills it in
 	m_ui.SetItemIcons(&m_itemIcons);    // stable; LoadItemIcons fills it in
 	m_ui.SetItemWeights(&m_itemWeights); // stable; LoadItemIcons fills it in
@@ -283,19 +276,16 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_ui.SetSlotIcons(&m_slotIcons);     // stable; LoadItemIcons fills it in
 	m_ui.SetHeldItem(&m_heldItem);    // cursor icon reads the held catalog id
 
-	// The world tier (docs/world-map.md). Text-only and tiny, so it loads here
-	// rather than as a staged task — nothing on the loading screen waits for it,
-	// and an absent world is legal.
-	LoadWorldMap();
-	// The world joins the editor's ONE undo history (his answer: a step that
-	// spans tiers undoes as one thing). Borrowed by pointer, like the roster.
-	m_world.SetWorldForUndo(&m_worldMap);
+	// NO WORLD IS LOADED HERE (docs/world-on-demand.md): the title screen runs
+	// without one, and LoadWorld builds it when a game starts. What is decided
+	// now is only which world a start with nothing else to go on would open.
+	m_defaultWorld = std::filesystem::path(ChooseProjectFolder()).filename().string();
 
-	// Read once: a `-project` launch has its world decided already (so the
-	// new-game list does not ask), and `-newgame` is the relaunch that list
-	// makes when the pick is another world.
+	// Read once: a `-project` launch has its world decided already, so the
+	// new-game list does not ask...
 	m_worldFromCommandLine = CommandLineHas(L"-project");
-	m_newGameOnBoot = CommandLineHas(L"-newgame");
+	// ...and its saves are that world's alone (SaveGame.h SetSaveWorldFilter).
+	if (m_worldFromCommandLine) SetSaveWorldFilter(m_defaultWorld);
 
 	WireModuleCallbacks();
 	RegisterDevCommands();
@@ -304,6 +294,26 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	RegisterDiagnosticCommands();
 	RegisterPartyCommands();
 	RegisterEvalCommands();
+	// THE TITLE SCREEN HAS NO WORLD (docs/world-on-demand.md), and most
+	// commands reach into one. Rather than a guard in each of a hundred and
+	// twenty handlers, ONE gate: with no world loaded, only the commands listed
+	// here run — the global ones, plus the two the harness starts a game with.
+	// A new command is gated by default, which is the safe way round: it can
+	// only fail to run on the title screen, never crash there.
+	m_console.gate = [this](std::string_view name) -> std::string {
+		if (m_world) return {};
+		static constexpr std::string_view kNoWorldNeeded[] = {
+			"help", "clear", "echo", "profile", "quit", "exit", "fps", "framecap",
+			"lang", "quality", "fonts", "font", "ver", "loadstats", "allocguard",
+			"allocpoke", "crashpoke", "health", "throttle", "governor",
+			"threadspawn", "threadwedge", "threadprio", "threadaffinity",
+			"threadreap", "uitree", "uioverlap", "logecho", "timescale", "state",
+			"worlds", "newgame", "reset",
+		};
+		for (std::string_view n : kNoWorldNeeded)
+			if (n == name) return {};
+		return "no world is loaded - start or continue a game first";
+	};
 
 	m_ui.BuildStaticUi();
 	BuildBootLoadTasks();
@@ -331,6 +341,105 @@ Game::~Game() {
 // command table, split out of the constructor (which is otherwise just member
 // init) so each is browsable on its own.
 // ============================================================================
+// --- the world's lifetime (docs/world-on-demand.md) --------------------------
+
+bool Game::LoadWorld(const std::string& folder) {
+	const std::string root = paths::Asset("projects");
+	const std::vector<std::string> found = Project::List(root);
+	if (std::find(found.begin(), found.end(), folder) == found.end()) {
+		log::Warn("load world: no world '{}' under {}", folder, root);
+		return false;
+	}
+	UnloadWorld();
+	m_project = Project::Load(Project::FolderFor(root, folder));
+	log::Info("Opening world '{}'", folder);
+	// The world tier: text-only and tiny, so it loads here rather than as a
+	// staged task, and an absent world map is legal (docs/world-map.md).
+	LoadWorldMap();
+	m_world = std::make_unique<DungeonWorld>(m_device, m_renderer, m_audio, m_sounds,
+											 m_settings, m_project, m_threads);
+	m_mapView.SetWorld(m_world.get());
+	m_mapEditor.SetWorld(m_world.get());
+	// `hasWorld` hides the player map's world-page toggle in a project that is
+	// all dungeon, rather than dimming it.
+	m_mapView.hasWorld = m_worldMap.has_value();
+	WireWorldCallbacks();
+	// The world joins the editor's ONE undo history (his answer: a step that
+	// spans tiers undoes as one thing). Borrowed by pointer, like the roster.
+	m_world->SetWorldForUndo(&m_worldMap);
+	m_world->GetParty().SetKeys(m_settings.moveKeys);
+	m_world->GetParty().SetLook(m_settings.look);
+	m_world->GetParty().SetHeadBob(m_settings.headBob);
+	m_world->SetRoster(&m_characters); // combat drains these; reset in place
+	// AFTER SetRoster, not before: the pace rule reads the roster through the
+	// world (conditioning feeds it), so it has nothing to average until then.
+	ApplyPartySpeed();
+	return true;
+}
+
+void Game::ApplyPendingWorld() {
+	if (!m_pendingWorld) return;
+	const PendingWorld p = std::exchange(m_pendingWorld, std::nullopt).value();
+	if (!LoadWorld(p.folder)) {
+		// The world went while the ask was pending (deleted in another window):
+		// stay where we are, which is the title if the old one was unloaded.
+		m_state = AppState::Menu;
+		m_ui.ResetToMainPage();
+		return;
+	}
+	if (p.savePath.empty()) m_ui.onStartNewGame();
+	else m_ui.onLoadSave(p.savePath);
+}
+
+void Game::UnloadWorld() {
+	if (!m_world) return;
+	// In-flight frames still reference the world's meshes and textures, and
+	// the icon banks below point into its baked thumbnails.
+	m_device.WaitIdle();
+	// Everything that borrows from the world or its project goes first.
+	m_mapView.Close();
+	m_typeDialog.Close();
+	m_assetDialog.Close();
+	m_assetPicker.Close();
+	m_monsterDialog.Close();
+	m_balanceDialog.Close();
+	m_levelSettingsDialog.Close();
+	m_worldSettingsDialog.Close();
+	m_worldsDialog.Close();
+	m_validateDialog.Close();
+	m_generateDialog.Close();
+	m_entityInspector.Close();
+	m_fixtureInspector.Close();
+	m_propInspector.Close();
+	m_doorInspector.Close();
+	m_buttonInspector.Close();
+	m_nicheInspector.Close();
+	m_projectileInspector.Close();
+	m_inspectPicker.Close();
+	// Borrowed GPU pointers into the world's kind caches.
+	m_previewMonMesh = nullptr;
+	m_previewType.clear();
+	m_previewClip.clear();
+	m_inspectPreview = {};
+	// Keyed by the old world's catalog ids — a new world made from this one
+	// shares them, so a stale entry would show the wrong icon, not a gap.
+	m_itemIcons.byType.clear();
+	m_slotIcons.byType.clear();
+	m_itemIconPlaceholders.clear();
+	m_slotIconTextures.clear();
+	m_heldItem.reset();
+	// A member's effects point at the old world's effect kinds.
+	for (Character& c : m_characters) c.effects.clear();
+	m_mapView.SetWorld(nullptr);
+	m_mapEditor.SetWorld(nullptr);
+	m_world.reset(); // its AI workers stop with it
+	m_worldMap.reset();
+	m_worldState = {};
+	m_project = Project{};
+	m_gameLoaded = false;
+	log::Info("World unloaded");
+}
+
 void Game::BuildBootLoadTasks() {
 	m_loadQueue.Clear();
 	m_loadQueue.SetDoneLabel(loc::Tr("load.done"));
@@ -341,7 +450,7 @@ void Game::BuildBootLoadTasks() {
 void Game::BuildGameLoadTasks() {
 	m_loadQueue.Clear();
 	m_loadQueue.SetDoneLabel(loc::Tr("load.done"));
-	m_world.AppendLoadTasks(m_loadQueue);
+	m_world->AppendLoadTasks(m_loadQueue);
 	m_loadQueue.Add(loc::Tr("load.portraits"), [this] { LoadPortraits(); }, "portraits");
 	m_loadQueue.Add(loc::Tr("load.portraits"), [this] { LoadHitSplats(); }, "hit splats");
 	m_loadQueue.Add(loc::Tr("load.portraits"), [this] { LoadItemIcons(); }, "item icons");
@@ -350,18 +459,18 @@ void Game::BuildGameLoadTasks() {
 		[this] {
 			m_ui.BuildHud();
 			log::Info("Game loaded: {}x{} dungeon, {} torches, {} monsters",
-					  m_world.Map().Width(), m_world.Map().Height(),
-					  m_world.Map().Sconces().size(), m_world.MonsterCount());
+					  m_world->Map().Width(), m_world->Map().Height(),
+					  m_world->Map().Sconces().size(), m_world->MonsterCount());
 		},
 		"hud");
 }
 
 void Game::BeginLevelTransition(const std::string& stem, int x, int z,
 								Direction facing, bool stashCurrent) {
-	m_world.BeginLevelLoad(stem, stashCurrent); // swap + reset per-level state now
+	m_world->BeginLevelLoad(stem, stashCurrent); // swap + reset per-level state now
 	m_loadQueue.Clear();          // re-stage only the world rebuild (portraits /
 	m_loadQueue.SetDoneLabel(loc::Tr("load.done")); // HUD persist across levels)
-	m_world.AppendLoadTasks(m_loadQueue);
+	m_world->AppendLoadTasks(m_loadQueue);
 	m_pendingLevelX = x;
 	m_pendingLevelZ = z;
 	m_pendingLevelFacing = facing;
@@ -498,7 +607,7 @@ void Game::LoadItemIcons() {
 		const CatalogEntry& def = *defp;
 		const std::string category = def.Get("category", "misc");
 		if (category == "rune") continue; // runes use their element PNG above
-		if (const gfx::Texture* model = m_world.ItemIconFor(def.id)) {
+		if (const gfx::Texture* model = m_world->ItemIconFor(def.id)) {
 			m_itemIcons.byType[def.id] = model;
 			continue;
 		}
@@ -569,12 +678,12 @@ void Game::ResetRoster() {
 	}
 	// CreateDefaultParty seeds the derived maxima at k=1; re-derive under the
 	// project's live balance knobs (fresh members are at full, so top them up).
-	m_world.RecomputePartyMaxima();
+	m_world->RecomputePartyMaxima();
 	// Fresh members carry an EMPTY skill map, so the first step of the run would
 	// insert "conditioning" into it — a steady-state allocation. Seed the whole
 	// trainable set now, while allocating is free.
-	m_world.SeedPartySkills();
-	const Balance& bal = m_world.GetBalance();
+	m_world->SeedPartySkills();
+	const Balance& bal = m_world->GetBalance();
 	for (Character& member : m_characters) {
 		member.health = member.maxHealth;
 		member.stamina = member.maxStamina;
@@ -588,7 +697,7 @@ void Game::ResetRoster() {
 	ApplyMemberColors(); // the settings palette wins over the authored defaults
 	// The roster these are is not the roster the one-pipeline check was watching
 	// (Game/DamageLedger.h) — same storage, replaced contents.
-	m_world.RebaseDamageLedger();
+	m_world->RebaseDamageLedger();
 }
 
 void Game::ApplyMemberColors() {
@@ -609,19 +718,19 @@ void Game::ApplyMemberColors() {
 // `levelcheck` arrived while the redundant load was still in flight and was
 // answered by nothing at all.
 bool Game::OpenInLevel(const std::string& level, int x, int z) {
-	if (m_world.CurrentLevel() != level) {
+	if (m_world->CurrentLevel() != level) {
 		BeginLevelTransition(level, x, z, Direction::South,
 							 /*stashCurrent=*/false);
 		return true;
 	}
-	const DungeonMap& map = m_world.Map();
-	m_world.PlacePartyAt(x >= 0 ? x : map.StartX(), z >= 0 ? z : map.StartZ(),
+	const DungeonMap& map = m_world->Map();
+	m_world->PlacePartyAt(x >= 0 ? x : map.StartX(), z >= 0 ? z : map.StartZ(),
 						 Direction::South);
 	return false;
 }
 
 void Game::StartNewGame() {
-	m_world.ResetForNewGame();
+	m_world->ResetForNewGame();
 	ResetWorldState();
 	ResetRoster(); // fresh members carry empty inventories + no known symbols
 	m_ui.RefreshSheet();
@@ -701,10 +810,11 @@ bool Game::SaveGame(const std::string& name) {
 	if (InEncounter()) {
 		log::Warn("SaveGame: refusing to save inside a random encounter — the "
 				  "level exists only in memory (docs/world-map.md)");
-		if (m_world.onMessage) m_world.onMessage(loc::View("world.nosave"));
+		if (m_world->onMessage) m_world->onMessage(loc::View("world.nosave"));
 		return false;
 	}
 	SaveData data;
+	data.worldName = m_project.FolderName();
 	data.name = name;
 	data.timestamp = std::format("{:%Y-%m-%d %H:%M:%S}",
 								 std::chrono::floor<std::chrono::seconds>(
@@ -714,7 +824,7 @@ bool Game::SaveGame(const std::string& name) {
 	if (m_heldItem) data.heldItem = *m_heldItem;
 
 	data.world = m_worldState; // the global tier (docs/world-map.md)
-	m_world.CaptureState(data);
+	m_world->CaptureState(data);
 	for (const Character& member : m_characters) {
 		SaveData::CharState c{member.health, member.maxHealth, member.stamina,
 							  member.maxStamina, member.mana, member.maxMana,
@@ -794,7 +904,7 @@ bool Game::LoadGame(const std::string& path) {
 
 	// Rebuild the baseline (party home, fog cleared, monsters at spawn, palette
 	// reset), then lay the save on top.
-	m_world.ResetForNewGame();
+	m_world->ResetForNewGame();
 	ResetRoster();
 	// The global tier is stored WHOLE rather than as a diff, so it is simply
 	// taken (a fresh baseline first, so a save that predates a field gets the
@@ -843,7 +953,7 @@ bool Game::LoadGame(const std::string& path) {
 		for (const SaveData::EffectState& e : c.effects) {
 			SpellSymbol school = SpellSymbol::Fire;
 			ParseSymbol(e.school, school);
-			const fx::EffectKind* kind = m_world.Effects().FindLegacy(e.id, school);
+			const fx::EffectKind* kind = m_world->Effects().FindLegacy(e.id, school);
 			if (!kind || e.time <= 0.0f) continue;
 			m_characters[i].effects.push_back({kind, school, e.magnitude, e.time,
 											   std::max(e.duration, e.time),
@@ -870,7 +980,7 @@ bool Game::LoadGame(const std::string& path) {
 		// them from the saved maxima (a pre-v17 save reproduces its maxima
 		// exactly under unchanged knobs). RecomputeMaxima then re-derives —
 		// current values arrived above and clamp/carry as usual.
-		const Balance& bal = m_world.GetBalance();
+		const Balance& bal = m_world->GetBalance();
 		const resource::PoolRules pools = bal.Resources();
 		Character& member = m_characters[i];
 		// The offense stance (v23). A pre-v23 save leaves the CharState at its
@@ -911,10 +1021,10 @@ bool Game::LoadGame(const std::string& path) {
 		member.dead = c.dead;
 		member.stabilize = 0.0f;
 	}
-	m_world.ApplyState(*data); // fills the per-level store + party pose/torch
+	m_world->ApplyState(*data); // fills the per-level store + party pose/torch
 	// Restored hit points are not writes to explain (Game/DamageLedger.h): the
 	// values they replaced belong to a session that is over.
-	m_world.RebaseDamageLedger();
+	m_world->RebaseDamageLedger();
 
 	m_ui.RefreshSheet();
 	ApplyPartySpeed();
@@ -922,7 +1032,7 @@ bool Game::LoadGame(const std::string& path) {
 	// Route to the saved level. If it is the one already active, restore its
 	// live state inline; otherwise load it (arriving at the saved pose, without
 	// stashing the throwaway baseline) and let the loader finish the restore.
-	if (m_world.CurrentLevel() != data->currentLevel) {
+	if (m_world->CurrentLevel() != data->currentLevel) {
 		m_ui.ClearLog();
 		BeginLevelTransition(data->currentLevel, data->partyX, data->partyZ,
 							 static_cast<Direction>(data->partyFacing),
@@ -939,11 +1049,11 @@ bool Game::LoadGame(const std::string& path) {
 	// Same level: ApplyState already re-layered the look offset (parked at the
 	// saved angle); mirror its looking flag into the RMB tracker so it clears
 	// cleanly if the button isn't actually held.
-	m_looking = m_world.GetParty().IsLooking();
-	m_world.ApplyActiveSnapshot(); // restore the active level's fog + entity diff
+	m_looking = m_world->GetParty().IsLooking();
+	m_world->ApplyActiveSnapshot(); // restore the active level's fog + entity diff
 	m_ui.ClearLog(); // SetTorchPalette logged a line during ApplyState
 	m_ui.AddLogLine(loc::View("log.descend"));
-	const Party& party = m_world.GetParty();
+	const Party& party = m_world->GetParty();
 	m_ui.ResetHudStatus();
 	m_ui.SetHudStatus(party);
 	m_state = AppState::Playing;
@@ -974,7 +1084,7 @@ void Game::OpenCharacterSheet(size_t index) {
 // DungeonWorld::ApplyPartyPace, because conditioning feeds the pace and levels
 // deep inside the combat tick — where Game is not in the call chain. This
 // forwards for the load / new-game / startup paths that always drove it.
-void Game::ApplyPartySpeed() { m_world.ApplyPartyPace(); }
+void Game::ApplyPartySpeed() { m_world->ApplyPartyPace(); }
 
 void Game::ApplyLanguage(bool rebuild) {
 	if (!m_pendingLanguage.empty()) {
@@ -1012,7 +1122,9 @@ void Game::SetQuality(Quality quality) {
 	m_settings.maxPointLights = GameSettings::QualityLightBudget(quality);
 	m_ui.SyncMaxLights();
 	m_settings.Save();
-	m_world.ApplyQuality(textureResChanged);
+	// With no world loaded there is nothing to swap: the next one loads at
+	// the tier just chosen.
+	if (m_world) m_world->ApplyQuality(textureResChanged);
 }
 
 void Game::ApplyDisplaySettings() {
@@ -1193,8 +1305,11 @@ void Game::Update(float dt) {
 	// and not just of the doc. Health, supplies, effect timers, monster
 	// cooldowns and the AI's own cadence all accelerate together because they
 	// all read this number.
-	const float wdt = dt * m_timeScale * m_world.RestTimeScale();
+	// (No world on the title screen: time runs at the plain rate there.)
+	const float wdt = dt * m_timeScale * (m_world ? m_world->RestTimeScale() : 1.0f);
 	m_time += wdt;
+
+	ApplyPendingWorld(); // a world switch asked for last frame (see Game.h)
 
 	// A language picked last frame applies now, before any widget updates —
 	// the rebuild destroys every widget, so none may be mid-callback.
@@ -1237,12 +1352,14 @@ void Game::Update(float dt) {
 				m_assetDialog.SetBusy(false);
 			}
 		} else if (m_restyleBake) {
-			// Surface restyle rebake done: swap the new worn geometry in live.
-			m_world.ReloadDungeonBlocks();
+			// Surface restyle rebake done: swap the new worn geometry in live
+			// (if the world that asked for it is still the one loaded).
+			if (m_world) m_world->ReloadDungeonBlocks();
 			m_restyleBake = false;
 			m_baking = false;
 			m_typeDialog.Close();
-			if (m_world.onMessage) m_world.onMessage(loc::View("map.wallstyle.applied"));
+			if (m_world && m_world->onMessage)
+				m_world->onMessage(loc::View("map.wallstyle.applied"));
 		} else {
 			FinishBake();
 			m_baking = false;
@@ -1293,8 +1410,8 @@ void Game::Update(float dt) {
 	const bool consoleOwnsInput = m_console.IsOpen() || consoleWasOpen;
 	if (consoleOwnsInput && !loading) {
 		if (m_state == AppState::Playing) {
-			m_world.Update(input, wdt, m_time, /*acceptInput=*/false);
-			Party& party = m_world.GetParty();
+			m_world->Update(input, wdt, m_time, /*acceptInput=*/false);
+			Party& party = m_world->GetParty();
 			m_ui.SetHudStatus(party);
 		}
 		return;
@@ -1312,15 +1429,6 @@ void Game::Update(float dt) {
 		return;
 
 	case AppState::Menu:
-		// A relaunch INTO A NEW GAME: the player picked another world from the
-		// new-game list, and the only way into a world is a fresh process. It
-		// lands here like any launch and goes on to the game it was started
-		// for, through the same callback the menu entry uses.
-		if (m_newGameOnBoot) {
-			m_newGameOnBoot = false;
-			m_ui.onStartNewGame();
-			return;
-		}
 		// The menu sits on baked title art; nothing in the world simulates.
 		// Esc backs out of settings — and does NOTHING on the landing list, where
 		// it used to QUIT (Michael, 2026-08-11). ESC NEVER QUITS, IN ANY STATE:
@@ -1360,18 +1468,18 @@ void Game::Update(float dt) {
 		if (RunLoadTasks()) {
 			// Restore this level's saved fog/progress (if visited before — the
 			// monsters now exist for the entity diff), then place the party.
-			m_world.ApplyActiveSnapshot();
+			m_world->ApplyActiveSnapshot();
 			int px = m_pendingLevelX, pz = m_pendingLevelZ;
 			if (px < 0) { // sentinel: arrive at the new level's start cell
-				px = m_world.Map().StartX();
-				pz = m_world.Map().StartZ();
+				px = m_world->Map().StartX();
+				pz = m_world->Map().StartZ();
 			}
-			m_world.PlacePartyAt(px, pz, m_pendingLevelFacing);
+			m_world->PlacePartyAt(px, pz, m_pendingLevelFacing);
 			// Re-layer the saved free-look offset on the placed party (a save load
 			// onto a different level; orthogonal for ordinary transitions). The
 			// offset parks at the saved angle; mirror the looking flag into the RMB
 			// tracker so it clears cleanly if the button isn't actually held.
-			m_world.GetParty().SetLookState(m_pendingLookYaw, m_pendingLookPitch,
+			m_world->GetParty().SetLookState(m_pendingLookYaw, m_pendingLookPitch,
 											m_pendingLooking);
 			m_looking = m_pendingLooking;
 			m_ui.ClearLog();
@@ -1443,7 +1551,7 @@ void Game::Update(float dt) {
 			// that ran off the edge would otherwise leave it open forever.
 			if (m_worldStroke && !input.IsMouseDown(MouseButton::Left)) {
 				m_worldStroke = false;
-				m_world.CommitUndoStep(/*changed=*/true);
+				m_world->CommitUndoStep(/*changed=*/true);
 			}
 			// The BOUND movement keys, read as compass directions: there is no
 			// facing out here, so forward/back/strafe are north/south/west/east
@@ -1551,7 +1659,7 @@ void Game::Update(float dt) {
 		} else if (type != m_previewType) {
 			// New type: (re)build the Animator over its skeleton/clips + cache the
 			// mesh/material/scale/yaw. A same-type clip switch is just a Play (below).
-			const auto d = m_world.MonsterPreviewFor(type);
+			const auto d = m_world->MonsterPreviewFor(type);
 			m_previewMonMesh = d.mesh;
 			m_previewMonMat = d.material;
 			m_previewMonSubs = d.subs; // multi-material rigs preview every piece
@@ -1631,9 +1739,9 @@ void Game::Update(float dt) {
 								 m_mapView.CurrentMode() == MapView::Mode::Editor;
 	if (editorMapActive) {
 		m_geomNoticeLatched = false;
-	} else if (m_world.GeometryDirty()) {
+	} else if (m_world->GeometryDirty()) {
 		if (m_geomNoticeLatched) {
-			m_world.FlushGeometry();
+			m_world->FlushGeometry();
 			m_geomNoticeLatched = false;
 		} else {
 			m_geomNoticeLatched = true;
@@ -1649,13 +1757,13 @@ void Game::Update(float dt) {
 		// it — ahead of the overlay's own Esc-to-close.
 		if (!typingFilter && m_mapEditor.LayingRoute()) {
 			if (input.WasKeyPressed(VK_BACK))
-				m_world.RemoveLastPatrolWaypoint(m_mapEditor.RouteId());
+				m_world->RemoveLastPatrolWaypoint(m_mapEditor.RouteId());
 			if (input.WasKeyPressed(VK_RETURN) || input.WasKeyPressed(VK_ESCAPE)) {
 				const u32 id = m_mapEditor.RouteId();
 				m_mapEditor.EndRoute();
-				if (const auto* r = m_world.MonsterPatrol(id))
+				if (const auto* r = m_world->MonsterPatrol(id))
 					m_inspectCfg.patrolCount = static_cast<int>(r->size());
-				m_entityInspector.Open(m_inspectCfg, m_world.SpellIds(),
+				m_entityInspector.Open(m_inspectCfg, m_world->SpellIds(),
 									   m_inspectPreview); // back to the inspector (with preview)
 				return;
 			}
@@ -1687,18 +1795,18 @@ void Game::Update(float dt) {
 		// The filter box eats the keyboard when it holds focus (blank Input).
 		if (!worldFrozen) {
 			static const Input kNoInput;
-			m_world.Update(typingFilter ? kNoInput : input, wdt, m_time);
-			if (auto t = m_world.ConsumeLevelTransition()) {
+			m_world->Update(typingFilter ? kNoInput : input, wdt, m_time);
+			if (auto t = m_world->ConsumeLevelTransition()) {
 				m_mapView.Close(); // a stair step starts a new level load
 				// An EXIT stair leaves the dungeon rather than changing level,
 				// surfacing at the location its `dest` names.
 				if (t->toWorld) {
-					m_ui.SetHudStatus(m_world.GetParty()); // see the play path
+					m_ui.SetHudStatus(m_world->GetParty()); // see the play path
 					OfferExit(t->level);
 				} else BeginLevelTransition(t->level, t->x, t->z, t->facing);
 				return;
 			}
-			Party& party = m_world.GetParty();
+			Party& party = m_world->GetParty();
 			m_ui.SetHudStatus(party);
 		}
 		return;
@@ -1740,16 +1848,16 @@ void Game::Update(float dt) {
 		const float h = static_cast<float>(m_window.Height());
 		if (input.WasMousePressed(MouseButton::Left)) {
 			if (m_heldItem) {
-				m_world.DropItemAt(*m_heldItem, mx, my, w, h);
+				m_world->DropItemAt(*m_heldItem, mx, my, w, h);
 				m_heldItem.reset();
-			} else if (auto picked = m_world.TryPickItem(mx, my, w, h)) {
+			} else if (auto picked = m_world->TryPickItem(mx, my, w, h)) {
 				OnItemFound(*picked); // quest / flag / reveal hooks
 				m_heldItem = std::move(picked);
-			} else if (!m_world.ToggleDoorAhead(mx, my, w, h)) {
+			} else if (!m_world->ToggleDoorAhead(mx, my, w, h)) {
 				// No tablet, and nothing on the door ahead that the click
 				// actually landed on: try the button on the wall the party
 				// faces (a lever in the party's own cell).
-				m_world.PressButtonFacing();
+				m_world->PressButtonFacing();
 			}
 		}
 		// Right-mouse free-look: hold RMB and drag to swing the view. Begin on a
@@ -1761,7 +1869,7 @@ void Game::Update(float dt) {
 			m_looking = true;
 			m_lookPrevX = mx;
 			m_lookPrevY = my;
-			m_world.GetParty().BeginLook();
+			m_world->GetParty().BeginLook();
 		}
 	}
 	// Free-look drag/release is tracked outside the HUD-consumed gate so a drag
@@ -1775,29 +1883,29 @@ void Game::Update(float dt) {
 		m_lookPrevX = input.MouseX();
 		m_lookPrevY = input.MouseY();
 		// Drag right -> view swings right (clockwise); drag down -> look down.
-		m_world.GetParty().AddLook(-dx * k, -dy * k);
+		m_world->GetParty().AddLook(-dx * k, -dy * k);
 	} else if (m_looking) {
 		m_looking = false;
-		m_world.GetParty().EndLook(); // RMB up: the offset eases back to orthogonal
+		m_world->GetParty().EndLook(); // RMB up: the offset eases back to orthogonal
 	}
-	m_world.Update(input, wdt, m_time);
-	if (auto t = m_world.ConsumeLevelTransition()) {
+	m_world->Update(input, wdt, m_time);
+	if (auto t = m_world->ConsumeLevelTransition()) {
 		if (t->toWorld) {
 			// The panel first: the step onto the stair has landed, and the
 			// question freezes the frame before the usual refresh below.
-			m_ui.SetHudStatus(m_world.GetParty());
+			m_ui.SetHudStatus(m_world->GetParty());
 			OfferExit(t->level); // an exit stair: ASKED, then left
 		}
 		else BeginLevelTransition(t->level, t->x, t->z, t->facing);
 		return;
 	}
 
-	Party& party = m_world.GetParty();
+	Party& party = m_world->GetParty();
 	m_ui.SetHudStatus(party);
 	// The Rest button's face, from the world rather than from its own callback:
 	// rest ends by itself as often as by a click, so the label has to follow the
 	// state and not the input that usually causes it.
-	m_ui.SetResting(m_world.Resting());
+	m_ui.SetResting(m_world->Resting());
 }
 
 // ============================================================================
@@ -1808,7 +1916,7 @@ void Game::Update(float dt) {
 void Game::Render(ID3D12GraphicsCommandList* list) {
 	m_renderer.NewFrame(m_device.FrameIndex());
 	m_spriteBatch.NewFrame(m_device.FrameIndex());
-	m_world.NewFrame(m_device.FrameIndex());
+	if (m_world) m_world->NewFrame(m_device.FrameIndex()); // none on the title screen
 
 	// The full-screen editor map covers everything, so skip the 3D scene (and
 	// the HUD below) while it is up — nothing else needs drawing behind it.
@@ -1899,13 +2007,13 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 			 !editorMap) {
 		{
 			DN_PROFILE_ZONE_L(prof::kLevelSystem, "icons");
-			m_world.UpdateItemIcons(list, m_spriteBatch); // 3D item icons (static + spin)
-			m_world.UpdateMapIcons(list, m_spriteBatch);  // map marker icons (one-shot)
+			m_world->UpdateItemIcons(list, m_spriteBatch); // 3D item icons (static + spin)
+			m_world->UpdateMapIcons(list, m_spriteBatch);  // map marker icons (one-shot)
 		}
 		{
 			DN_PROFILE_ZONE_L(prof::kLevelSystem, "shadows");
 			DN_GPU_ZONE(m_device.Gpu(), list, "gpu.shadows");
-			m_world.RenderShadowMaps(list);
+			m_world->RenderShadowMaps(list);
 		}
 		// The scene renders linear HDR into the post target; Resolve runs the
 		// bloom chain + ACES composite and leaves the back buffer bound for
@@ -1914,7 +2022,7 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 			DN_PROFILE_ZONE_L(prof::kLevelSystem, "scene");
 			DN_GPU_ZONE(m_device.Gpu(), list, "gpu.scene");
 			m_postProcess.BeginScene(list);
-			m_world.RenderScene(list);
+			m_world->RenderScene(list);
 		}
 		{
 			DN_PROFILE_ZONE_L(prof::kLevelSystem, "post");
@@ -1926,8 +2034,8 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		// marker icons — keep the bakes running (a kind placed from the palette
 		// bakes on the next frame; item icons also feed the map's item markers).
 		// The bakes rebind the back buffer themselves when they ran.
-		m_world.UpdateItemIcons(list, m_spriteBatch);
-		m_world.UpdateMapIcons(list, m_spriteBatch);
+		m_world->UpdateItemIcons(list, m_spriteBatch);
+		m_world->UpdateMapIcons(list, m_spriteBatch);
 	}
 	// The asset picker's model tiles bake in the same phase (they need the
 	// command list). Only the DRAW is recorded here — the picker made the mesh
@@ -1936,7 +2044,7 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	if (m_assetPicker.IsOpen()) {
 		bool baked = false;
 		for (const AssetPicker::PendingBake& bake : m_assetPicker.PendingBakes(2)) {
-			m_world.BakeIconFor(list, m_spriteBatch, *bake.mesh, bake.lo, bake.hi,
+			m_world->BakeIconFor(list, m_spriteBatch, *bake.mesh, bake.lo, bake.hi,
 								*bake.target);
 			m_assetPicker.MarkBaked(bake.name);
 			baked = true;

@@ -146,7 +146,7 @@ void Game::RegisterPartyCommands() {
 						   // still on cooldown, rear rank without a polearm), which
 						   // is a different thing from a swing that missed and
 						   // otherwise looks identical from a script.
-						   m_console.Print(m_world.PartyAttack(m, hand, verb)
+						   m_console.Print(m_world->PartyAttack(m, hand, verb)
 											   ? "swung"
 											   : "that hand cannot swing now");
 					   });
@@ -256,7 +256,7 @@ void Game::RegisterPartyCommands() {
 						   // and the way to watch one tick without a weapon that
 						   // procs it (docs/effects.md P3).
 						   if (args.size() > 1 && args[1] == "ahead") {
-							   if (m_world.ApplyEffectAhead(args[0], mag, secs))
+							   if (m_world->ApplyEffectAhead(args[0], mag, secs))
 								   m_console.Print(std::format(
 									   "monster ahead gains {}", args[0]));
 							   else
@@ -270,7 +270,7 @@ void Game::RegisterPartyCommands() {
 							   m_console.Refuse("no such member");
 							   return;
 						   }
-						   const fx::EffectKind* kind = m_world.Effects().Find(args[0]);
+						   const fx::EffectKind* kind = m_world->Effects().Find(args[0]);
 						   if (!kind) {
 							   m_console.Print(std::format("no effect '{}'", args[0]));
 							   return;
@@ -297,7 +297,7 @@ void Game::RegisterPartyCommands() {
 	m_console.Register("threat",
 					   "list per-member threat for every monster holding a grudge (dev)",
 					   [this](const std::vector<std::string>&) {
-						   const std::vector<std::string> lines = m_world.ThreatReport();
+						   const std::vector<std::string> lines = m_world->ThreatReport();
 						   if (lines.empty()) {
 							   m_console.Print("no threat anywhere");
 							   return;
@@ -329,7 +329,7 @@ void Game::RegisterPartyCommands() {
 							   if (!ParseSymbolArg(m_console, args[i], s)) return;
 							   seq.push_back(s);
 						   }
-						   const bool ok = m_world.CastSpell(m, seq, hand);
+						   const bool ok = m_world->CastSpell(m, seq, hand);
 						   m_console.Print(ok ? "cast away" : "no cast (fizzle / no mana / unknown)");
 					   });
 
@@ -372,7 +372,7 @@ void Game::RegisterPartyCommands() {
 	// what to do about it is Michael's.
 	m_console.Register("regen", "health/stamina/mana per second, and the ordering (dev)",
 					   [this](const std::vector<std::string>&) {
-						   const Balance& bal = m_world.GetBalance();
+						   const Balance& bal = m_world->GetBalance();
 						   const resource::PoolRules pools = bal.Resources();
 						   const CurveRules statCurve = bal.StatCurve();
 						   const CurveRules paceCurve = bal.PaceCurve();
@@ -395,7 +395,7 @@ void Game::RegisterPartyCommands() {
 						   // training hard and the number not moving at all.
 						   m_console.Print(std::format(
 							   "  party pace {:.2f} (the slowest member's)",
-							   m_world.GetParty().Speed()));
+							   m_world->GetParty().Speed()));
 						   // The reference rows. Each pool is sized at the same
 						   // investment it is being rated at, so the per-max term
 						   // is honest rather than borrowed from someone else's
@@ -426,7 +426,7 @@ void Game::RegisterPartyCommands() {
 	// because a supply run is a question about hours and not about seconds.
 	m_console.Register("supplies", "each member's food and water, and hours left (dev)",
 					   [this](const std::vector<std::string>&) {
-						   const Balance& bal = m_world.GetBalance();
+						   const Balance& bal = m_world->GetBalance();
 						   const resource::SupplyRules food =
 							   bal.SupplyOf(resource::Supply::Food);
 						   const resource::SupplyRules water =
@@ -509,7 +509,7 @@ void Game::RegisterPartyCommands() {
 								   args.size() > 1
 									   ? static_cast<float>(std::atof(args[1].c_str()))
 									   : 3600.0f;
-							   m_world.SetResting(true);
+							   m_world->SetResting(true);
 							   // A cap is an upper BOUND, not a claim about elapsed time, so
 								   // unlike `step` this does not refuse when it is
 								   // wider than one call can run.
@@ -518,18 +518,18 @@ void Game::RegisterPartyCommands() {
 							   m_console.Print(std::format(
 								   "rested {:.2f}s — {}",
 								   static_cast<float>(ran) / 60.0f,
-								   m_world.Resting() ? "still resting (hit the cap)"
-													 : m_world.RestEndReason()));
+								   m_world->Resting() ? "still resting (hit the cap)"
+													 : m_world->RestEndReason()));
 							   return;
 						   }
-						   if (!args.empty()) m_world.SetResting(args[0] != "off");
-						   const char* why = m_world.RestEndReason();
+						   if (!args.empty()) m_world->SetResting(args[0] != "off");
+						   const char* why = m_world->RestEndReason();
 						   m_console.Print(std::format(
 							   "rest {} (world x{:.0f}){}{}",
-							   m_world.Resting() ? "on" : "off",
-							   m_world.RestTimeScale(),
-							   *why && !m_world.Resting() ? "  last ended: " : "",
-							   *why && !m_world.Resting() ? why : ""));
+							   m_world->Resting() ? "on" : "off",
+							   m_world->RestTimeScale(),
+							   *why && !m_world->Resting() ? "  last ended: " : "",
+							   *why && !m_world->Resting() ? why : ""));
 					   });
 
 	// Eat or drink a catalog item outright — no inventory, no hand slot. The UI
@@ -550,7 +550,7 @@ void Game::RegisterPartyCommands() {
 							   return;
 						   }
 						   const resource::Refill got =
-							   m_world.ConsumeItem(m_characters[m], args[0]);
+							   m_world->ConsumeItem(m_characters[m], args[0]);
 						   m_console.Print(
 							   got.Any()
 								   ? std::format("{} consumes {}: food +{:.1f} water +{:.1f}",
@@ -585,7 +585,7 @@ void Game::RegisterPartyCommands() {
 							   return;
 						   }
 						   const float max =
-							   m_world.GetBalance().SupplyOf(which).max;
+							   m_world->GetBalance().SupplyOf(which).max;
 						   const float v = std::clamp(
 							   static_cast<float>(std::atof(args[2].c_str())), 0.0f,
 							   max);
@@ -630,7 +630,7 @@ void Game::RegisterPartyCommands() {
 						   // (Character::RecomputeMaxima), so a stat set without
 						   // this leaves a level-20 fighter with a novice's hit
 						   // points and every number after it measured wrong.
-						   m_world.RecomputePartyMaxima();
+						   m_world->RecomputePartyMaxima();
 						   m_console.Print(std::format("{} {} = {}", c.name, s, n));
 					   });
 
@@ -664,7 +664,7 @@ void Game::RegisterPartyCommands() {
 						   // this leaves a conditioned member carrying a novice's
 						   // stamina bar and the party walking at the old speed —
 						   // and everything measured afterwards is quietly wrong.
-						   m_world.RecomputePartyMaxima();
+						   m_world->RecomputePartyMaxima();
 						   m_console.Print(std::format("{} {} = level {} ({:.0f} xp)",
 													   c.name, args[1],
 													   c.SkillLevel(args[1]), xp));
@@ -708,13 +708,13 @@ void Game::RegisterPartyCommands() {
 							   // can do heals like this, so it is REBASED rather
 							   // than sanctioned — there is no route worth naming
 							   // (Game/DamageLedger.h).
-							   m_world.RebaseDamageLedger();
+							   m_world->RebaseDamageLedger();
 							   m_console.Print(
 								   std::format("healed {}", m_characters[m].name));
 							   return;
 						   }
 						   for (Character& c : m_characters) restore(c);
-						   m_world.RebaseDamageLedger();
+						   m_world->RebaseDamageLedger();
 						   // A wipe left the app on the title screen; put it back
 						   // in play, or the heal fixes the party and the next
 						   // `step` still refuses.
@@ -723,7 +723,7 @@ void Game::RegisterPartyCommands() {
 						   // monster attack. Without it the party stands up and
 						   // nothing ever swings at them again — a whole sweep
 						   // of rungs reporting forty-five seconds of nothing.
-						   m_world.ClearWipeLatch();
+						   m_world->ClearWipeLatch();
 						   ResumeAfterHeal();
 						   m_console.Print(std::format("healed the party ({})",
 													   StateName()));

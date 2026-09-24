@@ -101,7 +101,7 @@ void BuildLevelText(const std::string& stem, const generate::Level& lv,
 // however it is passed around.
 const char* const kEncounterStem = "~encounter";
 
-bool Game::InEncounter() const { return m_world.CurrentLevel() == kEncounterStem; }
+bool Game::InEncounter() const { return m_world->CurrentLevel() == kEncounterStem; }
 
 bool Game::StartEncounter(float difficulty, const std::vector<std::string>& tags,
 						  u32 seed) {
@@ -148,14 +148,14 @@ bool Game::StartEncounter(float difficulty, const std::vector<std::string>& tags
 	}
 
 	std::string map, ent;
-	BuildLevelText(kEncounterStem, lv, p, m_world.Map(), tags, map, ent);
+	BuildLevelText(kEncounterStem, lv, p, m_world->Map(), tags, map, ent);
 	// THE WAY OUT, authored onto the arrival cell. An encounter is left the same
 	// way a dungeon is — by an exit stair — rather than by some second mechanism
 	// that would then need its own rules about when it is allowed.
 	map += std::format("stairs stairs_exit {} {} south dest=- destx=0 destz=0\n",
 					   lv.startX, lv.startZ);
 
-	if (!m_world.InstallLevelFromText(kEncounterStem, map, ent)) {
+	if (!m_world->InstallLevelFromText(kEncounterStem, map, ent)) {
 		log::Warn("encounter: could not install the generated level");
 		return false;
 	}
@@ -163,7 +163,7 @@ bool Game::StartEncounter(float difficulty, const std::vector<std::string>& tags
 	m_worldState.atLocation.clear(); // came from open ground, not a doorway
 	m_state = AppState::Playing;
 	m_ui.ResetHudStatus();
-	if (m_world.onMessage) m_world.onMessage(loc::View("world.ambush"));
+	if (m_world->onMessage) m_world->onMessage(loc::View("world.ambush"));
 	log::Info("encounter: {}x{}, difficulty {:.2f}, seed {}, {} monster kinds",
 			  p.width, p.height, difficulty, seed, p.monsterIds.size());
 	return true;
@@ -205,7 +205,7 @@ std::string Game::GenerateLevel(generate::Params params,
 	}
 
 	std::string map, ent;
-	BuildLevelText(stem, lv, params, m_world.Map(), theme, map, ent);
+	BuildLevelText(stem, lv, params, m_world->Map(), theme, map, ent);
 	const std::string mapOut = serialize::NormalizeEol(map);
 	const std::string entOut = serialize::NormalizeEol(ent);
 	if (!assets::WriteBinaryFile(m_project.LevelMapPath(stem), mapOut.data(),
@@ -244,9 +244,9 @@ std::string Game::GenerateLevel(generate::Params params,
 		bool linked = false;
 		if (!downType.empty())
 			for (const auto& [x, z] : tries)
-				if (m_world.CellFreeForStair(prev, x, z) &&
-					m_world.CellFreeForStair(stem, x, z)) {
-					linked = m_world.AddStairAt(prev, downType, x, z);
+				if (m_world->CellFreeForStair(prev, x, z) &&
+					m_world->CellFreeForStair(stem, x, z)) {
+					linked = m_world->AddStairAt(prev, downType, x, z);
 					if (linked) break;
 				}
 		if (!linked)
@@ -263,7 +263,7 @@ bool Game::BuildAndInstall(const std::string& stem, const generate::Params& para
 	const generate::Level lv = generate::Run(p);
 
 	std::string map, ent;
-	BuildLevelText(stem, lv, p, m_world.Map(), theme, map, ent);
+	BuildLevelText(stem, lv, p, m_world->Map(), theme, map, ent);
 
 	// Parsed through a TEMP file rather than the level's own, so the real files
 	// stay untouched until `savemap` — which is how every other editor edit
@@ -284,7 +284,7 @@ bool Game::BuildAndInstall(const std::string& stem, const generate::Params& para
 		log::Warn("generate: could not stage {} for parsing", stem);
 		return false;
 	}
-	const bool ok = m_world.InstallLevelFromFiles(stem, mapPath, entPath);
+	const bool ok = m_world->InstallLevelFromFiles(stem, mapPath, entPath);
 	fs::remove(mapPath, ec);
 	fs::remove(entPath, ec);
 	return ok;
@@ -294,9 +294,9 @@ bool Game::RegenerateViewedLevel(generate::Params params) {
 	const std::string stem = m_mapView.ViewedLevel();
 	if (stem.empty()) return false;
 	// ONE undo step, and no level transition — see the declaration in Game.h.
-	m_world.BeginUndoStep();
+	m_world->BeginUndoStep();
 	const bool ok = BuildAndInstall(stem, params, m_mapView.ViewedMap().Theme());
-	m_world.CommitUndoStep(ok);
+	m_world->CommitUndoStep(ok);
 	return ok;
 }
 

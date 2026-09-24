@@ -45,7 +45,13 @@ struct SaveData {
 	// kMinReadableVersion is 1: anything else is refused outright rather than
 	// half-understood. The next real format change starts a new ladder, and
 	// that ladder will be worth keeping.
-	int version = 1;
+	//
+	// v2 (2026-09-24, docs/world-on-demand.md): a save names the WORLD it
+	// belongs to (`save world=`). Worlds are loaded when a game starts now, so
+	// Continue and Load have to know which world to load before they can read
+	// anything else in the file. A v1 save cannot say, and guessing would load
+	// it into the wrong world — Michael's call: it is REFUSED (the floor is 2).
+	int version = 2;
 
 	// ONE active status effect, as it survives a save. Shared by both sides —
 	// a party member's list and a monster's — because the effects system
@@ -69,6 +75,7 @@ struct SaveData {
 	// WorldMap.h), so there is no conversion step to keep in step.
 	WorldState world;
 
+	std::string worldName;    // the world's FOLDER name (what -project names)
 	std::string name;         // display name (free text; may contain spaces)
 	std::string currentLevel; // the level stem the party is on (where to resume)
 	std::string timestamp;    // human-readable local time, for the slot list
@@ -241,10 +248,11 @@ struct SaveData {
 
 // The oldest save this build will read. Below it ReadSave refuses rather than
 // half-loading — see the note on `version` above.
-inline constexpr int kMinReadableVersion = 1;
+inline constexpr int kMinReadableVersion = 2;
 
 // One save file's header, for the slot browser (cheap: parsed from the file).
 struct SaveSlot {
+	std::string world; // the folder of the world it belongs to
 	std::string name;
 	std::string level;
 	std::string timestamp;
@@ -265,5 +273,9 @@ std::optional<SaveData> ReadSave(const std::string& path);
 // Every "*.dsav" in SaveDir, newest first (by timestamp string). Files that
 // fail to parse are skipped. Empty if the folder doesn't exist yet.
 std::vector<SaveSlot> ListSaves();
+// Limits ListSaves to one world's saves, for the whole process ("" = every
+// world). A `-project` run sets it: that flag is how a harness or a test
+// scenario opens a world, and a Continue must not carry it off into another.
+void SetSaveWorldFilter(std::string world);
 
 } // namespace dungeon::game

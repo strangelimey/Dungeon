@@ -65,7 +65,9 @@ public:
 		Count
 	};
 
-	MapEditor(MapView& view, DungeonWorld& world, GameSettings& settings);
+	MapEditor(MapView& view, GameSettings& settings);
+	// Rebound with the view's world (see MapView::SetWorld).
+	void SetWorld(DungeonWorld* world) { m_world = world; }
 
 	// Fired when a category's "+ New..." row is clicked (the owner opens the
 	// asset-creation dialog for that category).
@@ -350,7 +352,7 @@ private:
 	int m_lastX = -1, m_lastZ = -1; // rect anchor: the last painted cell
 
 	MapView& m_view;          // the viewport (layout helpers, shared font)
-	DungeonWorld& m_world;
+	DungeonWorld* m_world = nullptr; // see SetWorld
 	GameSettings& m_settings; // owns the palette-collapse flag (read for layout)
 
 	Selection m_sel; // armed palette entry

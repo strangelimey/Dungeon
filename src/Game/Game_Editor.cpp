@@ -223,35 +223,39 @@ bool WriteStarterWorld(const Project& p) {
 // is a file operation rather than a live edit: nothing about the running game
 // changes until it is opened, which is what makes switching a relaunch.
 
-bool Game::SwitchWorld(const std::string& name, const std::string& relaunchArgs) {
+bool Game::SwitchWorld(const std::string& name) {
 	const std::string root = paths::Asset("projects");
 	const std::vector<std::string> found = Project::List(root);
 	if (std::find(found.begin(), found.end(), name) == found.end()) {
 		log::Warn("no world '{}' under {}", name, root);
 		return false;
 	}
-	// ALREADY THERE means the world RUNNING, not the one the setting names —
+	// ALREADY THERE means the world LOADED, not the one the setting names —
 	// a `-project` run leaves the setting alone, so comparing against it
 	// refused to leave a scenario for the world settings.ini already held.
-	if (name == m_project.FolderName()) return true;
-	m_settings.projectName = name;
-	m_settings.Save();
-	RestartApp(relaunchArgs); // the choice is read before anything exists — see the header
+	if (m_world && name == m_project.FolderName()) return true;
+	// Remembered as the last world played (the next launch's default), unless
+	// this run's world was named on the command line — a scenario must not
+	// rewrite the developer's choice.
+	if (!m_worldFromCommandLine) {
+		m_settings.projectName = name;
+		m_settings.Save();
+	}
+	// IN THE PROCESS (docs/world-on-demand.md) — it used to relaunch. Deferred
+	// to the next frame's top: the asks come from inside widget callbacks.
+	m_pendingWorld = PendingWorld{name, {}};
 	return true;
 }
 
-// The new-game world list's pick. The running world starts at once; any other
-// is the ordinary switch (persisted, so Continue and the next launch follow
-// it) plus `-newgame`, so the fresh process goes on to the game it was
-// relaunched for instead of stopping at the title.
+// The new-game world list's pick: a new game in the loaded world at once, or
+// the switch to another (a new game there, next frame).
 void Game::StartNewGameIn(const std::string& folder) {
-	if (folder == m_project.FolderName()) {
+	if (m_world && folder == m_project.FolderName()) {
 		m_ui.onStartNewGame();
 		return;
 	}
-	if (!SwitchWorld(folder, "-newgame"))
-		log::Warn("new game: world '{}' is gone - staying in '{}'", folder,
-				  m_project.FolderName());
+	if (!SwitchWorld(folder))
+		log::Warn("new game: world '{}' is gone", folder);
 }
 
 // --- deleting a world (W9) ---------------------------------------------------
@@ -351,7 +355,10 @@ std::string Game::CreateWorld(const std::string& name) {
 	// the new world has surfaces to build with and monsters to place, then
 	// clear what makes it a particular game: its levels, its dungeons, its
 	// quests and where it begins.
-	Project made = m_project;
+	// CONTENT IS COPIED from the world loaded — or, on the title screen where
+	// none is, from the default world (docs/world-on-demand.md).
+	Project made = m_world ? m_project
+						   : Project::Load(Project::FolderFor(root, m_defaultWorld));
 	made.folder = folder;
 	made.name = id;
 	made.levels.clear();
@@ -436,7 +443,7 @@ std::string Game::CreateNewLevel(const std::string& dungeonId) {
 		for (const std::string& id : ids) out += (out.empty() ? "" : " ") + id;
 		return out;
 	};
-	const DungeonMap& live = m_world.Map(); // active level: the palette donor
+	const DungeonMap& live = m_world->Map(); // active level: the palette donor
 	std::string map = "; " + stem + " - created in the editor.\n";
 	map += "palette wall " + join(live.WallPalette()) + "\n";
 	map += "palette floor " + join(live.FloorPalette()) + "\n";
@@ -469,8 +476,8 @@ std::string Game::CreateNewLevel(const std::string& dungeonId) {
 		d->Set("levels", was.empty() ? stem : was + " " + stem);
 	}
 	m_project.Save();
-	if (m_world.onMessage)
-		m_world.onMessage(dungeonId.empty()
+	if (m_world->onMessage)
+		m_world->onMessage(dungeonId.empty()
 							  ? loc::FormatLine("map.level.created", stem)
 							  : loc::FormatLine("map.level.createdin", stem,
 												dungeonId));
@@ -501,11 +508,11 @@ bool Game::RenameLevel(const std::string& oldStem, const std::string& newStem,
 		}))
 		return refuse(loc::Format("map.level.badstem", newStem));
 	if (std::find(levels.begin(), levels.end(), newStem) != levels.end()) {
-		if (m_world.onMessage)
-			m_world.onMessage(loc::FormatLine("map.level.dupname", newStem));
+		if (m_world->onMessage)
+			m_world->onMessage(loc::FormatLine("map.level.dupname", newStem));
 		return refuse(loc::Format("map.level.dupname", newStem));
 	}
-	if (!m_world.RenameLevel(oldStem, newStem))
+	if (!m_world->RenameLevel(oldStem, newStem))
 		return refuse(loc::Format("map.level.movefailed", oldStem));
 	*it = newStem;
 
@@ -555,8 +562,8 @@ bool Game::RenameLevel(const std::string& oldStem, const std::string& newStem,
 		if (!doors.empty()) SaveWorld();
 	}
 	m_mapView.OnLevelRenamed(oldStem, newStem);
-	if (m_world.onMessage)
-		m_world.onMessage(loc::FormatLine("map.level.renamed", oldStem, newStem));
+	if (m_world->onMessage)
+		m_world->onMessage(loc::FormatLine("map.level.renamed", oldStem, newStem));
 	return true;
 }
 
@@ -646,8 +653,8 @@ void Game::CreateCatalogEntry(const AssetDialog::CreateRequest& req) {
 	// the catalog and leave the brush unable to touch it.
 	const MapEditor::PaletteCat pcat = MapEditor::CatForCatalogKey(req.catalogKey);
 	if (MapEditor::SurfaceCat(pcat)) m_mapEditor.AddToPalette(pcat, req.name);
-	else if (m_world.onMessage)
-		m_world.onMessage(loc::FormatLine("newasset.created", req.name));
+	else if (m_world->onMessage)
+		m_world->onMessage(loc::FormatLine("newasset.created", req.name));
 }
 
 // Opens the per-type catalog editor for a palette row. The dialog edits a COPY
@@ -698,7 +705,7 @@ void Game::OpenTypeEditor(MapEditor::PaletteCat cat, const std::string& id) {
 		// A level palette can name an id its catalog doesn't define (hand-edited
 		// map, or a foreign project) — there is nothing to edit.
 		log::Warn("type editor: '{}' is not in {}.cat", id, key);
-		if (m_world.onMessage) m_world.onMessage(loc::FormatLine("map.type.unknown", id));
+		if (m_world->onMessage) m_world->onMessage(loc::FormatLine("map.type.unknown", id));
 		return;
 	}
 	TypeEditorDialog::Config cfg;
@@ -728,7 +735,7 @@ void Game::OpenTypeEditor(MapEditor::PaletteCat cat, const std::string& id) {
 void Game::OpenMonsterConfig(const std::string& id) {
 	// Guard the force-load: a catalog id whose <model>.gltf is missing would
 	// abort in LoadModelOrDie. Warn and skip instead of crashing the editor.
-	if (!m_world.MonsterModelAvailable(id)) {
+	if (!m_world->MonsterModelAvailable(id)) {
 		log::Warn("monster config: '{}' has no loadable model — skipped", id);
 		return;
 	}
@@ -736,14 +743,14 @@ void Game::OpenMonsterConfig(const std::string& id) {
 	const std::string display = e ? e->Display() : id;
 	DungeonWorld::AnimSupport supported;
 	DungeonWorld::AnimClips clips;
-	m_world.MonsterAnimConfig(id, supported, clips);
+	m_world->MonsterAnimConfig(id, supported, clips);
 	ai::Archetype archetype;
 	float keepRange, fleeBelow;
 	std::string spell;
 	ThreatTuning threat;
-	m_world.MonsterBehaviorConfig(id, archetype, keepRange, fleeBelow, spell, threat);
+	m_world->MonsterBehaviorConfig(id, archetype, keepRange, fleeBelow, spell, threat);
 	m_monsterDialog.Open(id, display, supported, clips, archetype, keepRange, fleeBelow,
-						 spell, threat, m_world.MonsterClipNames(id), m_world.SpellIds());
+						 spell, threat, m_world->MonsterClipNames(id), m_world->SpellIds());
 	m_previewType.clear(); // force the preview animator to (re)build on first frame
 	m_previewClip.clear();
 	m_previewMonMesh = nullptr;
@@ -867,6 +874,7 @@ int Game::SweepCatalogRefs(const std::string& catalogKey, const std::string& id,
 std::vector<std::string> Game::SavesReferencingType(const std::string& id) const {
 	std::vector<std::string> names;
 	for (const SaveSlot& slot : ListSaves()) {
+		if (slot.world != m_project.FolderName()) continue; // another world's ids
 		const std::optional<SaveData> data = ReadSave(slot.path);
 		if (!data) continue;
 		bool hit = false;
@@ -907,17 +915,17 @@ bool Game::RenameType(const std::string& catalogKey, const std::string& id,
 	if (m_worldMap && m_worldMap->Serialize() != worldBefore && !SaveWorld())
 		log::Warn("rename type: failed to save the world");
 
-	const DungeonWorld::TypeUsage used = m_world.SweepTypeRefs(catalogKey, id, &newId);
+	const DungeonWorld::TypeUsage used = m_world->SweepTypeRefs(catalogKey, id, &newId);
 	// Live objects still point at kinds cached under the old id (and monsters
 	// hold their type by name), so rebuild them from the records we just wrote.
-	m_world.RespawnFromRecords(catalogKey == "wallfeatures");
+	m_world->RespawnFromRecords(catalogKey == "wallfeatures");
 	// The undo stack holds level snapshots taken BEFORE the rename; restoring
 	// one would bring back records naming a type that no longer exists.
-	m_world.ClearUndoHistory();
+	m_world->ClearUndoHistory();
 	log::Info("Renamed type '{}' -> '{}' ({} record(s) in {} level(s))", id, newId,
 			  used.count, used.levels.size());
-	if (m_world.onMessage)
-		m_world.onMessage(loc::FormatLine("map.type.renamed", id, newId, used.count));
+	if (m_world->onMessage)
+		m_world->onMessage(loc::FormatLine("map.type.renamed", id, newId, used.count));
 	WarnStaleSaves(id);
 	return true;
 }
@@ -931,8 +939,8 @@ void Game::WarnStaleSaves(const std::string& id) {
 	for (const std::string& name : saves)
 		list += (list.empty() ? "" : ", ") + name;
 	log::Warn("Save file(s) still reference type '{}': {}", id, list);
-	if (m_world.onMessage)
-		m_world.onMessage(loc::FormatLine("map.type.stalesaves", id, list));
+	if (m_world->onMessage)
+		m_world->onMessage(loc::FormatLine("map.type.stalesaves", id, list));
 }
 
 // Deletes a type — but only an UNUSED one. A record naming a missing type is
@@ -959,7 +967,7 @@ bool Game::DeleteType(const std::string& catalogKey, const std::string& id,
 		problem = loc::Format("map.dungeon.delete.failed", id);
 		return false;
 	}
-	const DungeonWorld::TypeUsage used = m_world.SweepTypeRefs(catalogKey, id);
+	const DungeonWorld::TypeUsage used = m_world->SweepTypeRefs(catalogKey, id);
 	if (used.Any()) {
 		std::string levels;
 		for (const std::string& stem : used.levels)
@@ -974,7 +982,7 @@ bool Game::DeleteType(const std::string& catalogKey, const std::string& id,
 	cat->Remove(id);
 	if (!m_project.Save()) log::Warn("delete type: failed to save catalogs");
 	log::Info("Deleted type '{}' from {}", id, catalogKey);
-	if (m_world.onMessage) m_world.onMessage(loc::FormatLine("map.type.deleted", id));
+	if (m_world->onMessage) m_world->onMessage(loc::FormatLine("map.type.deleted", id));
 	WarnStaleSaves(id); // a save's spawn rows are outside the level sweep
 	return true;
 }
@@ -995,8 +1003,8 @@ std::string Game::DungeonDeleteRefusal(const std::string& id) {
 	};
 	// THE PARTY'S LEVEL is on screen and is the world's live state, not a file
 	// — the world-delete rule one tier down.
-	if (dying(m_world.CurrentLevel()))
-		return loc::Format("map.dungeon.delete.party", m_world.CurrentLevel());
+	if (dying(m_world->CurrentLevel()))
+		return loc::Format("map.dungeon.delete.party", m_world->CurrentLevel());
 	// THE GAME'S OPENING and THE HARNESS'S GROUND are references in the
 	// manifest that no level or location shows. A new game landing in a
 	// deleted level would abort; so would every eval suite.
@@ -1029,7 +1037,7 @@ std::string Game::DungeonDeleteRefusal(const std::string& id) {
 			}
 	// A STAIR FROM OUTSIDE leading in. The plan's refusal: better than
 	// deleting and reporting the wreckage afterwards.
-	const std::vector<DungeonWorld::StairInto> stairs = m_world.StairsInto(levels);
+	const std::vector<DungeonWorld::StairInto> stairs = m_world->StairsInto(levels);
 	if (!stairs.empty()) {
 		const DungeonWorld::StairInto& s = stairs.front();
 		return loc::Format("map.dungeon.delete.stair", s.fromLevel, s.x, s.z,
@@ -1076,20 +1084,20 @@ bool Game::DeleteDungeon(const std::string& id) {
 		return false;
 	}
 	bool filesOk = true;
-	for (const std::string& stem : levels) filesOk &= m_world.DeleteLevel(stem);
+	for (const std::string& stem : levels) filesOk &= m_world->DeleteLevel(stem);
 
 	// The history holds copies of these levels: an undo would put them back
 	// in memory, and the next savemap would write them back to disk.
-	m_world.ClearUndoHistory();
+	m_world->ClearUndoHistory();
 	// A viewport browsing one of them would be showing a level that is gone.
 	if (std::find(levels.begin(), levels.end(), m_mapView.ViewedLevel()) !=
 		levels.end())
-		m_mapView.SetViewLevel(m_world.CurrentLevel());
+		m_mapView.SetViewLevel(m_world->CurrentLevel());
 
 	log::Info("Deleted dungeon '{}' and {} level(s){}", id, levels.size(),
 			  filesOk ? "" : " (some files could not be removed - see above)");
-	if (m_world.onMessage)
-		m_world.onMessage(loc::FormatLine("map.dungeon.deleted", id, levels.size()));
+	if (m_world->onMessage)
+		m_world->onMessage(loc::FormatLine("map.dungeon.deleted", id, levels.size()));
 	WarnSavesInLevels(levels);
 	return filesOk;
 }
@@ -1102,6 +1110,7 @@ void Game::WarnSavesInLevels(const std::vector<std::string>& stems) {
 	};
 	std::string list;
 	for (const SaveSlot& slot : ListSaves()) {
+		if (slot.world != m_project.FolderName()) continue; // another world's levels
 		const std::optional<SaveData> data = ReadSave(slot.path);
 		if (!data) continue;
 		bool hit = gone(data->currentLevel);
@@ -1111,8 +1120,8 @@ void Game::WarnSavesInLevels(const std::vector<std::string>& stems) {
 	}
 	if (list.empty()) return;
 	log::Warn("Save file(s) still reference deleted level(s): {}", list);
-	if (m_world.onMessage)
-		m_world.onMessage(loc::FormatLine("map.dungeon.stalesaves", list));
+	if (m_world->onMessage)
+		m_world->onMessage(loc::FormatLine("map.dungeon.stalesaves", list));
 }
 
 // Type editor Save: merge the dialog's working fields into the catalog entry.
@@ -1221,8 +1230,8 @@ void Game::WriteMonsterAnim(const MonsterConfigDialog::Config& cfg) {
 	m_project.monsters.Add(std::move(entry)); // add-or-replace by id
 	if (!m_project.Save())
 		log::Warn("monster config: failed to save project catalogs");
-	else if (m_world.onMessage)
-		m_world.onMessage(loc::FormatLine("map.cfg.saved", cfg.type));
+	else if (m_world->onMessage)
+		m_world->onMessage(loc::FormatLine("map.cfg.saved", cfg.type));
 }
 
 // Runs one queued task per rendered frame (never before the current loading

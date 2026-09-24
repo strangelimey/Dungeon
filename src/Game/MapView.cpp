@@ -69,9 +69,9 @@ float DockBodyTop(const gfx::Rect& dock, const gfx::Rect& panel) {
 
 float MapView::DockPad(const gfx::Rect& p) { return std::clamp(p.h * 0.010f, 3.0f, 9.0f); }
 
-MapView::MapView(gfx::GraphicsDevice& device, DungeonWorld& world,
-				 GameSettings& settings, ui::FontLibrary& fonts)
-	: m_device(device), m_world(world), m_settings(settings), m_fonts(fonts),
+MapView::MapView(gfx::GraphicsDevice& device, GameSettings& settings,
+				 ui::FontLibrary& fonts)
+	: m_device(device), m_settings(settings), m_fonts(fonts),
 	  m_font(&fonts.Get(ui::FontRole::Body, kFontH)) {
 	// Toolbar icon discs; a missing file leaves that button on its text face.
 	// BORROWED from the shared cache (Game/AssetUtil.h), not owned: the world
@@ -91,15 +91,15 @@ MapView::MapView(gfx::GraphicsDevice& device, DungeonWorld& world,
 }
 
 const DungeonMap& MapView::ViewedMap() const {
-	return m_browse ? m_browse->map : m_world.Map();
+	return m_browse ? m_browse->map : m_world->Map();
 }
 
 const std::string& MapView::ViewedLevel() const {
-	return m_browse ? m_browse->stem : m_world.CurrentLevel();
+	return m_browse ? m_browse->stem : m_world->CurrentLevel();
 }
 
 std::string MapView::LevelNeighbor(int step) const {
-	const std::vector<std::string>& levels = m_world.GetProject().levels;
+	const std::vector<std::string>& levels = m_world->GetProject().levels;
 	const auto it = std::find(levels.begin(), levels.end(), ViewedLevel());
 	if (it == levels.end()) return {};
 	const ptrdiff_t i = (it - levels.begin()) + step;
@@ -109,8 +109,8 @@ std::string MapView::LevelNeighbor(int step) const {
 
 void MapView::SetViewLevel(const std::string& stem) {
 	if (stem.empty() || stem == ViewedLevel()) return;
-	if (stem == m_world.CurrentLevel()) m_browse.reset(); // back on live state
-	else m_browse = m_world.BrowseLevel(stem);
+	if (stem == m_world->CurrentLevel()) m_browse.reset(); // back on live state
+	else m_browse = m_world->BrowseLevel(stem);
 	m_zoom = 1.0f; // refit: levels differ in size
 	m_pan = {0.0f, 0.0f};
 }
@@ -168,12 +168,12 @@ gfx::Rect MapView::NewLevelButton(const gfx::Rect& panel) const {
 }
 
 std::string MapView::ViewedDungeon() const {
-	const CatalogEntry* d = m_world.GetProject().DungeonOfLevel(ViewedLevel());
+	const CatalogEntry* d = m_world->GetProject().DungeonOfLevel(ViewedLevel());
 	return d ? d->id : std::string();
 }
 
 std::vector<MapView::LevelRow> MapView::LevelRows() const {
-	const Project& project = m_world.GetProject();
+	const Project& project = m_world->GetProject();
 	std::vector<LevelRow> rows;
 	const auto expanded = [this](const std::string& id) {
 		return std::find(m_groupsOpen.begin(), m_groupsOpen.end(), id) !=
@@ -230,9 +230,9 @@ std::vector<MapView::ToolButton> MapView::ToolbarButtons(const gfx::Rect& panel)
 	add(HoverBtn::SaveSource, loc::Tr("map.btn.source"), m_icoSource, true);
 	add(HoverBtn::Save, loc::Tr("map.btn.save"), m_icoSave, true);
 	add(HoverBtn::Redo, loc::Tr("map.btn.redo"), m_icoRedo,
-		m_world.CanRedo() && !busy);
+		m_world->CanRedo() && !busy);
 	add(HoverBtn::Undo, loc::Tr("map.btn.undo"), m_icoUndo,
-		m_world.CanUndo() && !busy);
+		m_world->CanUndo() && !busy);
 	add(HoverBtn::Check, loc::Tr("map.btn.check"), m_icoCheck, true);
 	add(HoverBtn::Generate, loc::Tr("map.btn.generate"), m_icoGen, true);
 	add(HoverBtn::Balance, loc::Tr("map.btn.balance"), m_icoBalance, true);
@@ -252,11 +252,11 @@ std::vector<MapView::ToolButton> MapView::ToolbarButtons(const gfx::Rect& panel)
 }
 
 void MapView::DoUndoRedo(bool redo) {
-	if (redo) m_world.Redo();
-	else m_world.Undo();
+	if (redo) m_world->Redo();
+	else m_world->Undo();
 	// A restored stash must show immediately on a browsed level (the snapshot
 	// is a copy, like the after-paint rebuild in Update).
-	if (m_browse) m_browse = m_world.BrowseLevel(m_browse->stem);
+	if (m_browse) m_browse = m_world->BrowseLevel(m_browse->stem);
 }
 
 MapView::Transform MapView::ComputeTransform(const gfx::Rect& panel) const {
@@ -330,7 +330,7 @@ gfx::Rect MapView::PaletteBody(const gfx::Rect& panel) const {
 
 bool MapView::CellVisible(int x, int z) const {
 	if (m_mode == Mode::Editor) return true;
-	if (!m_browse) return m_world.IsSeen(x, z);
+	if (!m_browse) return m_world->IsSeen(x, z);
 	// Browsed level: the fog stashed when the party last left it (a
 	// never-visited level has no stash — nothing is revealed).
 	const DungeonMap& map = m_browse->map;
@@ -409,7 +409,7 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 
 	// If the party arrived on the level being browsed (the world keeps
 	// simulating under the open map), snap to the live view of it.
-	if (m_browse && m_browse->stem == m_world.CurrentLevel()) m_browse.reset();
+	if (m_browse && m_browse->stem == m_world->CurrentLevel()) m_browse.reset();
 
 	// A latched undo/redo executes one frame AFTER its trigger, so the busy
 	// button state rendered last frame is what the (long, blocking) restore
@@ -669,7 +669,7 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 			// wall brush is armed), so pointing at a wall face erases THAT niche.
 			m_editor->EraseAt(cx, cz, FaceAt(mx, my, panel));
 			// A remote erase edits the browsed level's stash — refresh the view.
-			if (m_browse) m_browse = m_world.BrowseLevel(m_browse->stem);
+			if (m_browse) m_browse = m_world->BrowseLevel(m_browse->stem);
 			return true;
 		}
 	}
@@ -708,7 +708,7 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 			m_editor->Paint(cx, cz, /*dragging*/ true, m_hoverFace, &m_hoverPlace);
 			painted = true;
 		}
-		if (painted && m_browse) m_browse = m_world.BrowseLevel(m_browse->stem);
+		if (painted && m_browse) m_browse = m_world->BrowseLevel(m_browse->stem);
 	}
 
 	return panel.Contains(mx, my);
@@ -789,7 +789,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	// baked HUD icon there; placeholder items keep the small green square.
 	auto itemMarker = [&](int x, int z, const std::string& type) {
 		const Vec2 ctr = cellCenter(x, z);
-		const gfx::Texture* icon = m_world.ItemIconLookup(type);
+		const gfx::Texture* icon = m_world->ItemIconLookup(type);
 		const float h = t.cell * (icon ? 0.17f : 0.11f); // half-size
 		const float gap = t.cell * 0.05f;                // inset from the edges
 		const float px = ctr.x - (t.cell * 0.5f - h - gap);
@@ -851,7 +851,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	std::vector<const gfx::Texture*> fillTex;
 	if (m_mode == Mode::Editor)
 		for (const std::string& id : fillPal)
-			fillTex.push_back(m_world.SurfaceAlbedoForId(fillSel, id));
+			fillTex.push_back(m_world->SurfaceAlbedoForId(fillSel, id));
 	const int fillCount = static_cast<int>(fillTex.size());
 	const u32 fillSalt = fillSel == SurfaceSel::Wall    ? 3u
 						 : fillSel == SurfaceSel::Floor ? 1u : 2u;
@@ -973,14 +973,14 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		if (!CellVisible(s.x, s.z)) continue;
 		const Vec2 dir{static_cast<float>(DirDX(s.wall)),
 					   static_cast<float>(DirDZ(s.wall))};
-		if (const gfx::Texture* icon = m_world.FixtureIcon(s.type))
+		if (const gfx::Texture* icon = m_world->FixtureIcon(s.type))
 			edgeIcon(s.x, s.z, 0.34f, *icon, dir);
 		else
 			edgeMarker(s.x, s.z, 0.16f, kTorch, dir);
 	}
 	for (const FloorBrazier& b : map.Braziers()) {
 		if (!CellVisible(b.x, b.z)) continue;
-		if (const gfx::Texture* icon = m_world.FixtureIcon(b.type))
+		if (const gfx::Texture* icon = m_world->FixtureIcon(b.type))
 			iconMarker(b.x, b.z, 0.62f, *icon);
 		else
 			marker(b.x, b.z, 0.46f, kBrazier);
@@ -1038,12 +1038,12 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	// placements/removals show), the map's records for a browsed one.
 	std::vector<DungeonWorld::MapMarker> decos;
 	if (!m_browse) {
-		decos = m_world.DecorationMarkers();
+		decos = m_world->DecorationMarkers();
 	} else {
 		for (const Entity& e : m_browse->map.Decorations())
 			decos.push_back({e.x, e.z, e.type, e.facing,
-							 m_world.DecorationIconFor(e.type),
-							 m_world.DecorationShowsFacing(e.type)});
+							 m_world->DecorationIconFor(e.type),
+							 m_world->DecorationShowsFacing(e.type)});
 	}
 	for (const auto& m : decos) {
 		if (!CellVisible(m.x, m.z)) continue;
@@ -1060,7 +1060,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	// Stairs (over the decoration marker they also occupy) — a distinct color,
 	// with a dark arrow for which way they lead (up/down from stairs.cat's `up`
 	// field; both modes — the player map wants it as much as the editor).
-	const Catalog& stairCat = m_world.GetProject().stairs;
+	const Catalog& stairCat = m_world->GetProject().stairs;
 	for (const StairLink& s : map.Stairs()) {
 		if (!CellVisible(s.x, s.z)) continue;
 		marker(s.x, s.z, 0.44f, kStair);
@@ -1080,7 +1080,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	{
 		std::vector<DungeonWorld::DoorMarker> doors;
 		if (!m_browse) {
-			doors = m_world.DoorMarkers();
+			doors = m_world->DoorMarkers();
 		} else {
 			for (const Entity& e : m_browse->entities.All())
 				if (e.kind == EntityKind::Door) {
@@ -1110,13 +1110,13 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	// (they have moved since — stale markers would only mislead).
 	std::vector<DungeonWorld::MapMarker> mons;
 	if (!m_browse) {
-		mons = m_world.MonsterMarkers();
+		mons = m_world->MonsterMarkers();
 	} else if (m_mode == Mode::Editor) {
 		for (const Entity& e : m_browse->entities.All())
 			if (e.kind == EntityKind::Monster)
 				mons.push_back({e.x, e.z, e.type, e.facing,
-								m_world.MonsterIconFor(e.type),
-								m_world.MonsterShowsFacing(e.type)});
+								m_world->MonsterIconFor(e.type),
+								m_world->MonsterShowsFacing(e.type)});
 	}
 	for (size_t i = 0; i < mons.size(); ++i) {
 		bool firstInCell = true;
@@ -1139,7 +1139,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			facingArrow(mons[i].x, mons[i].z, mons[i].facing);
 	}
 	const std::vector<Entity>& ents =
-		m_browse ? m_browse->entities.All() : m_world.Entities().All();
+		m_browse ? m_browse->entities.All() : m_world->Entities().All();
 	for (const Entity& e : ents) {
 		if (!CellVisible(e.x, e.z)) continue;
 		switch (e.kind) {
@@ -1147,7 +1147,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		case EntityKind::Button:
 			// The lever's baked icon (buttons share the decoration kind cache),
 			// else the blue square for a legacy/unknown type.
-			if (const gfx::Texture* icon = m_world.DecorationIconFor(e.type))
+			if (const gfx::Texture* icon = m_world->DecorationIconFor(e.type))
 				iconMarker(e.x, e.z, 0.5f, *icon);
 			else
 				marker(e.x, e.z, 0.3f, kButton);
@@ -1175,7 +1175,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	if (m_editor && m_editor->HasSelection() && !m_browse) {
 		selOutline(m_editor->SelX(), m_editor->SelZ(), kSel); // opaque selection ring
 
-		const std::vector<ai::Cell>* route = m_world.MonsterPatrol(m_editor->SelectedMonster());
+		const std::vector<ai::Cell>* route = m_world->MonsterPatrol(m_editor->SelectedMonster());
 		if (route && !route->empty()) {
 			const float th = std::clamp(t.cell * 0.10f, 2.0f, 6.0f);
 			auto arrow = [&](Vec2 a, Vec2 b, const Vec4& col, float thick) {
@@ -1209,7 +1209,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	// from north-up; screen Y is down so the rotation matches the compass).
 	// Only on its own level: a browsed level doesn't hold the party.
 	if (!m_browse) {
-		const Party& party = m_world.GetParty();
+		const Party& party = m_world->GetParty();
 		const Vec2 c = cellCenter(party.GridX(), party.GridZ());
 		const float r = t.cell * 0.36f;
 		const float a = party.Facing() * (kPi * 0.5f);
@@ -1230,7 +1230,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		auto worldToScreen = [&](float wx, float wz) -> Vec2 {
 			return {t.ox + (wx / kCellSize) * t.cell, t.oy + (wz / kCellSize) * t.cell};
 		};
-		for (const ProjectileInfo& p : m_world.LiveProjectiles()) {
+		for (const ProjectileInfo& p : m_world->LiveProjectiles()) {
 			const int cx = static_cast<int>(p.pos.x / kCellSize);
 			const int cz = static_cast<int>(p.pos.z / kCellSize);
 			if (!CellVisible(cx, cz)) continue;
@@ -1455,7 +1455,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 						// Player header uses). A header is dim: it is a way
 						// through the list, not a place you can go.
 						const bool live = !row.header &&
-										  row.id == m_world.CurrentLevel();
+										  row.id == m_world->CurrentLevel();
 						const float indent = row.header ? dpad * 2 : dpad * 5;
 						m_font->Draw(batch, row.label, r.x + indent,
 									r.y + (r.h - m_font->Height()) * 0.5f,
@@ -1483,7 +1483,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		const float footY = panel.y + panel.h - m_font->Height() - pad;
 		m_font->Draw(batch, loc::Tr("map.hint"), grid.x + pad, footY, theme.textDim);
 
-		const Party& party = m_world.GetParty();
+		const Party& party = m_world->GetParty();
 		const std::string pos =
 			loc::Format("map.position", party.GridX(), party.GridZ());
 		m_font->Draw(batch, pos, grid.x + grid.w - m_font->MeasureWidth(pos) - pad,

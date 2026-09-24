@@ -56,8 +56,18 @@ public:
 	// console's `editor` command.
 	enum class Mode { Player, Editor };
 
-	MapView(gfx::GraphicsDevice& device, DungeonWorld& world,
-			GameSettings& settings, ui::FontLibrary& fonts);
+	MapView(gfx::GraphicsDevice& device, GameSettings& settings,
+			ui::FontLibrary& fonts);
+
+	// The world it draws — REBOUND, not fixed (docs/world-on-demand.md): a
+	// world is built when a game starts and destroyed when another is chosen,
+	// so the view is handed each new one and told when it is gone (null). No
+	// view drawing or picking happens without one; the owner never opens the
+	// map with no world loaded.
+	void SetWorld(DungeonWorld* world) {
+		m_world = world;
+		m_browse.reset(); // a snapshot of the old world's level
+	}
 
 	// Wires the Editor-mode collaborator (Game owns both; see file banner). Until
 	// set, Editor mode shows an empty left dock.
@@ -153,7 +163,7 @@ public:
 	// and the dropdown label stay truthful.
 	void OnLevelRenamed(const std::string& oldStem, const std::string& newStem) {
 		if (m_browse && m_browse->stem == oldStem)
-			m_browse = m_world.BrowseLevel(newStem);
+			m_browse = m_world->BrowseLevel(newStem);
 	}
 
 	// Re-bakes the icon font when the window height changes (the overlay text
@@ -274,7 +284,7 @@ private:
 	int m_pendingHistory = 0;
 
 	gfx::GraphicsDevice& m_device;
-	DungeonWorld& m_world;
+	DungeonWorld* m_world = nullptr; // see SetWorld
 	GameSettings& m_settings; // owns the persisted dock-collapse flags
 	MapEditor* m_editor = nullptr; // Editor-mode brush palette + tools (not owned)
 	ui::FontLibrary& m_fonts;

@@ -66,8 +66,8 @@ const CatInfo& CatInfoFor(MapEditor::PaletteCat cat) {
 }
 } // namespace
 
-MapEditor::MapEditor(MapView& view, DungeonWorld& world, GameSettings& settings)
-	: m_view(view), m_world(world), m_settings(settings) {
+MapEditor::MapEditor(MapView& view, GameSettings& settings)
+	: m_view(view), m_settings(settings) {
 	// Open the most-used category by default; the rest start collapsed.
 	m_catOpen[static_cast<size_t>(PaletteCat::Walls)] = true;
 }
@@ -92,7 +92,7 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 	// Surface palettes come from the VIEWED level (level browsing edits any
 	// level, and each declares its own palette ids).
 	const DungeonMap& map = m_view.ViewedMap();
-	const Project& proj = m_world.GetProject();
+	const Project& proj = m_world->GetProject();
 	// The theme lens, from the VIEWED level for the same reason: browsing a
 	// level should rank its palette by ITS theme, not by the party's.
 	const std::vector<std::string>& theme = map.Theme();
@@ -123,7 +123,7 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 			const CatalogEntry* e = catalog.Find(id);
 			items.push_back({e ? e->Display() : id, swatch, id,
 							 e ? e->Get("category", "") : std::string(),
-							 m_world.SurfaceAlbedoForId(sel, id),
+							 m_world->SurfaceAlbedoForId(sel, id),
 							 CatalogMatchesTags(e, theme)});
 		}
 		return items;
@@ -182,16 +182,16 @@ DungeonWorld::SurfaceSel SelFor(MapEditor::PaletteCat cat) {
 void MapEditor::AddToPalette(PaletteCat cat, const std::string& id) {
 	if (!SurfaceCat(cat)) return;
 	auto log = [&](const std::string& s) {
-		if (m_world.onMessage) m_world.onMessage(s);
+		if (m_world->onMessage) m_world->onMessage(s);
 	};
 	const DungeonWorld::SurfaceSel sel = SelFor(cat);
 	// The palette lives on the map, which the undo snapshot copies wholesale —
 	// so bracketing here is all an undoable palette add needs.
-	m_world.BeginUndoStep();
+	m_world->BeginUndoStep();
 	const bool ok = m_view.Browsing()
-						? m_world.AddPaletteEntryRemote(m_view.ViewedLevel(), sel, id)
-						: m_world.AddPaletteEntry(sel, id);
-	m_world.CommitUndoStep(ok);
+						? m_world->AddPaletteEntryRemote(m_view.ViewedLevel(), sel, id)
+						: m_world->AddPaletteEntry(sel, id);
+	m_world->CommitUndoStep(ok);
 	if (!ok) {
 		log(loc::Format("map.palette.failed", id));
 		return;
@@ -511,7 +511,7 @@ Mount MapEditor::BrushMount() const {
 	const std::vector<PaletteItem> items = CategoryItems(m_sel.cat);
 	if (m_sel.index >= static_cast<int>(items.size())) return Mount::Floor;
 	const char* key = CategoryCatalogKey(m_sel.cat);
-	const Catalog* cat = m_world.GetProject().CatalogForKey(key);
+	const Catalog* cat = m_world->GetProject().CatalogForKey(key);
 	return MountFor(key, cat ? cat->Find(items[m_sel.index].id) : nullptr);
 }
 
@@ -529,7 +529,7 @@ Placement MapEditor::ResolveBrush(int cx, int cz, const WallFace& face, float fx
 	// a stash with no live instances to consult, so any answer here would be a
 	// guess, and the placement falls back to the loader's fill order.
 	if (p.valid && p.mount == Mount::FloorSlot && !m_view.Browsing())
-		p.slot = m_world.FreeItemSlotNear(p.x, p.z, p.subX, p.subZ, -1);
+		p.slot = m_world->FreeItemSlotNear(p.x, p.z, p.subX, p.subZ, -1);
 	return p;
 }
 
@@ -551,7 +551,7 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face,
 	if (m_sel.index < 0) return; // nothing armed yet
 	using SS = DungeonWorld::SurfaceSel;
 	auto log = [&](const std::string& s) {
-		if (m_world.onMessage) m_world.onMessage(s);
+		if (m_world->onMessage) m_world->onMessage(s);
 	};
 
 	// Undo bracketing: everything below mutates. A drag stroke is ONE undo
@@ -561,8 +561,8 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face,
 	// report success, and remote edits are conservatively treated as changed
 	// (a same-value remote paint costs one no-op undo step at worst).
 	const bool strokeStart = !dragging;
-	if (strokeStart) m_world.BeginUndoStep();
-	const u32 rev0 = m_world.Map().Revision();
+	if (strokeStart) m_world->BeginUndoStep();
+	const u32 rev0 = m_world->Map().Revision();
 	bool changed = false;
 
 	switch (m_sel.cat) {
@@ -571,7 +571,7 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face,
 	case PaletteCat::Ceilings: {
 		PaintCell(cx, cz, remote, stem);
 		// Remote edits are conservatively "changed" (see the bracket note).
-		changed = remote || m_world.Map().Revision() != rev0;
+		changed = remote || m_world->Map().Revision() != rev0;
 		m_lastX = cx; // the shift-rectangle gesture anchors on the last paint
 		m_lastZ = cz;
 		break;
@@ -604,39 +604,39 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face,
 		const int px = place.x;
 		const int pz = place.z;
 		if (m_sel.cat == PaletteCat::Monsters)
-			ok = remote ? m_world.AddMonsterRemote(stem, id, cx, cz)
-						: m_world.AddMonster(id, cx, cz, Direction::South);
+			ok = remote ? m_world->AddMonsterRemote(stem, id, cx, cz)
+						: m_world->AddMonster(id, cx, cz, Direction::South);
 		else if (m_sel.cat == PaletteCat::Fixtures)
 			ok = wallBrush
-					 ? (remote ? m_world.AddFixtureRemote(stem, id, px, pz, face.wall)
-							   : m_world.AddFixture(id, px, pz, face.wall))
-					 : (remote ? m_world.AddFixtureRemote(stem, id, cx, cz)
-							   : m_world.AddFixture(id, cx, cz));
+					 ? (remote ? m_world->AddFixtureRemote(stem, id, px, pz, face.wall)
+							   : m_world->AddFixture(id, px, pz, face.wall))
+					 : (remote ? m_world->AddFixtureRemote(stem, id, cx, cz)
+							   : m_world->AddFixture(id, cx, cz));
 		else if (m_sel.cat == PaletteCat::WallFeatures) {
 			// A `bore` (see-through window) tunnels THROUGH the solid block behind
 			// the picked face, and that face names the axis it runs along — so a
 			// free-standing block can be bored either way instead of always X.
 			// Pointing from either side works, as the block is derived from the face.
-			if (CatalogBool(m_world.GetProject().wallfeatures.Find(id), "bore", false)) {
+			if (CatalogBool(m_world->GetProject().wallfeatures.Find(id), "bore", false)) {
 				const int bx = face.x + DirDX(face.wall), bz = face.z + DirDZ(face.wall);
 				const int axis = (face.wall == Direction::North ||
 								  face.wall == Direction::South)
 									 ? 1  // through a N/S face -> the bore runs along Z
 									 : 0; // through an E/W face -> along X
-				ok = m_world.AddBore(id, bx, bz, axis); // active level only for now
+				ok = m_world->AddBore(id, bx, bz, axis); // active level only for now
 			} else
-				ok = remote ? m_world.AddNicheRemote(stem, id, px, pz, face.wall)
-							: m_world.AddNiche(id, px, pz, face.wall);
+				ok = remote ? m_world->AddNicheRemote(stem, id, px, pz, face.wall)
+							: m_world->AddNiche(id, px, pz, face.wall);
 		}
 		else if (m_sel.cat == PaletteCat::SurfaceFeatures)
 			// The plain cell under the pointer — neither surface has a face to
 			// pick, and the TYPE decides whether it lands on the floor or the
 			// ceiling, so one brush serves both.
-			ok = remote ? m_world.AddSurfaceFeatureRemote(stem, id, cx, cz)
-						: m_world.AddSurfaceFeature(id, cx, cz);
+			ok = remote ? m_world->AddSurfaceFeatureRemote(stem, id, cx, cz)
+						: m_world->AddSurfaceFeature(id, cx, cz);
 		else if (m_sel.cat == PaletteCat::Buttons)
-			ok = remote ? m_world.AddButtonRemote(stem, id, cx, cz)
-						: m_world.AddButton(id, cx, cz);
+			ok = remote ? m_world->AddButtonRemote(stem, id, cx, cz)
+						: m_world->AddButton(id, cx, cz);
 		else if (m_sel.cat == PaletteCat::Items ||
 				 m_sel.cat == PaletteCat::Weapons ||
 				 m_sel.cat == PaletteCat::Armor) {
@@ -644,8 +644,8 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face,
 			// A niche on the clicked WALL takes the item (piled in its pocket);
 			// a floor cell places on the floor as usual.
 			if (!remote)
-				if (auto faces = m_world.NicheFacesAt(cx, cz); !faces.empty()) {
-					ok = m_world.AddNicheItem(id, faces[0].x, faces[0].z, faces[0].wall);
+				if (auto faces = m_world->NicheFacesAt(cx, cz); !faces.empty()) {
+					ok = m_world->AddNicheItem(id, faces[0].x, faces[0].z, faces[0].wall);
 					log(loc::Format(ok ? "map.place.done" : "map.place.blocked",
 									items[m_sel.index].label));
 					changed = ok;
@@ -655,15 +655,15 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face,
 			// pick a free quarter against, so it authors none and the loader
 			// fills in order — which is why ResolveBrush leaves `slot` at -1
 			// there rather than inventing one.
-			ok = remote ? m_world.AddItemRemote(stem, id, cx, cz)
-						: m_world.AddItem(id, cx, cz, place.slot);
+			ok = remote ? m_world->AddItemRemote(stem, id, cx, cz)
+						: m_world->AddItem(id, cx, cz, place.slot);
 		}
 		else if (wallBrush) // a `mount = wall` decoration hangs on the picked face
-			ok = remote ? m_world.AddDecorationRemote(stem, id, px, pz, face.wall)
-						: m_world.AddWallDecoration(id, px, pz, face.wall);
+			ok = remote ? m_world->AddDecorationRemote(stem, id, px, pz, face.wall)
+						: m_world->AddWallDecoration(id, px, pz, face.wall);
 		else
-			ok = remote ? m_world.AddDecorationRemote(stem, id, cx, cz)
-						: m_world.AddDecoration(id, cx, cz, Direction::South);
+			ok = remote ? m_world->AddDecorationRemote(stem, id, cx, cz)
+						: m_world->AddDecoration(id, cx, cz, Direction::South);
 		log(loc::Format(ok ? "map.place.done" : "map.place.blocked",
 						items[m_sel.index].label));
 		changed = ok;
@@ -676,7 +676,7 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face,
 		// One entry for any viewed level (each side lands live or in a stash);
 		// it does all the messaging itself (success names the paired level;
 		// each failure mode has its own specific line).
-		changed = m_world.AddStairAt(stem, items[m_sel.index].id, cx, cz);
+		changed = m_world->AddStairAt(stem, items[m_sel.index].id, cx, cz);
 		break;
 	}
 	case PaletteCat::Doors: {
@@ -697,8 +697,8 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face,
 							items[m_sel.index].label));
 			break;
 		}
-		const bool ok = remote ? m_world.AddDoorRemote(stem, id, place.x, place.z)
-							   : m_world.AddDoor(id, place.x, place.z, place.facing);
+		const bool ok = remote ? m_world->AddDoorRemote(stem, id, place.x, place.z)
+							   : m_world->AddDoor(id, place.x, place.z, place.facing);
 		if (ok)
 			log(loc::Format("map.place.done", items[m_sel.index].label));
 		changed = ok;
@@ -708,7 +708,7 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face,
 		break;
 	}
 
-	if (strokeStart) m_world.CommitUndoStep(changed);
+	if (strokeStart) m_world->CommitUndoStep(changed);
 }
 
 void MapEditor::PaintCell(int cx, int cz, bool remote, const std::string& stem) {
@@ -724,7 +724,7 @@ void MapEditor::PaintCell(int cx, int cz, bool remote, const std::string& stem) 
 	// already present keeps its index). -1 = its baked assets are missing.
 	const std::vector<PaletteItem> items = CategoryItems(m_sel.cat);
 	if (m_sel.index < 0 || m_sel.index >= static_cast<int>(items.size())) return;
-	const int variant = m_world.EnsureSurfaceVariant(stem, sel, items[m_sel.index].id);
+	const int variant = m_world->EnsureSurfaceVariant(stem, sel, items[m_sel.index].id);
 	if (variant < 0) return;
 	// The texture brush owns the CELL TYPE too: painting a wall texture on a
 	// floor square raises the wall, a floor/ceiling texture carves solid rock
@@ -732,17 +732,17 @@ void MapEditor::PaintCell(int cx, int cz, bool remote, const std::string& stem) 
 	// the structural brushes (the old Structure Wall/Floor rows folded in).
 	const Cell want = sel == SS::Wall ? Cell::Wall : Cell::Floor;
 	if (remote) {
-		m_world.EditCellRemote(stem, cx, cz, want); // no-op when already right
-		m_world.EditVariantRemote(stem, cx, cz, sel, variant);
+		m_world->EditCellRemote(stem, cx, cz, want); // no-op when already right
+		m_world->EditVariantRemote(stem, cx, cz, sel, variant);
 		return;
 	}
-	if (m_world.Map().At(cx, cz) != want) {
-		const Party& party = m_world.GetParty();
+	if (m_world->Map().At(cx, cz) != want) {
+		const Party& party = m_world->GetParty();
 		if (want == Cell::Wall && cx == party.GridX() && cz == party.GridZ())
 			return; // never wall the party in (skip; a fill keeps going)
-		m_world.EditCell(cx, cz, want);
+		m_world->EditCell(cx, cz, want);
 	}
-	m_world.EditVariant(cx, cz, sel, variant);
+	m_world->EditVariant(cx, cz, sel, variant);
 }
 
 void MapEditor::PaintRect(int cx, int cz) {
@@ -756,15 +756,15 @@ void MapEditor::PaintRect(int cx, int cz) {
 	const std::string& stem = m_view.ViewedLevel();
 	const int x0 = std::min(m_lastX, cx), x1 = std::max(m_lastX, cx);
 	const int z0 = std::min(m_lastZ, cz), z1 = std::max(m_lastZ, cz);
-	m_world.BeginUndoStep();
-	const u32 rev0 = m_world.Map().Revision();
+	m_world->BeginUndoStep();
+	const u32 rev0 = m_world->Map().Revision();
 	for (int z = z0; z <= z1; ++z)
 		for (int x = x0; x <= x1; ++x) PaintCell(x, z, remote, stem);
-	m_world.CommitUndoStep(remote || m_world.Map().Revision() != rev0);
+	m_world->CommitUndoStep(remote || m_world->Map().Revision() != rev0);
 	m_lastX = cx; // chainable: the far corner anchors the next rectangle
 	m_lastZ = cz;
-	if (m_world.onMessage)
-		m_world.onMessage(loc::FormatLine("map.fill.done",
+	if (m_world->onMessage)
+		m_world->onMessage(loc::FormatLine("map.fill.done",
 										  (x1 - x0 + 1) * (z1 - z0 + 1)));
 }
 
@@ -815,14 +815,14 @@ void MapEditor::FloodFill(int cx, int cz) {
 	}
 	const bool remote = m_view.Browsing();
 	const std::string& stem = m_view.ViewedLevel();
-	m_world.BeginUndoStep();
-	const u32 rev0 = m_world.Map().Revision();
+	m_world->BeginUndoStep();
+	const u32 rev0 = m_world->Map().Revision();
 	for (const auto& [x, z] : region) PaintCell(x, z, remote, stem);
-	m_world.CommitUndoStep(remote || m_world.Map().Revision() != rev0);
+	m_world->CommitUndoStep(remote || m_world->Map().Revision() != rev0);
 	m_lastX = cx;
 	m_lastZ = cz;
-	if (m_world.onMessage)
-		m_world.onMessage(loc::FormatLine("map.fill.done", region.size()));
+	if (m_world->onMessage)
+		m_world->onMessage(loc::FormatLine("map.fill.done", region.size()));
 }
 
 void MapEditor::PickAt(int cx, int cz) {
@@ -854,8 +854,8 @@ void MapEditor::PickAt(int cx, int cz) {
 	for (int i = 0; i < static_cast<int>(items.size()); ++i)
 		if (items[i].id == id) {
 			m_sel = {cat, i};
-			if (m_world.onMessage)
-				m_world.onMessage(loc::FormatLine("map.pick.done", items[i].label));
+			if (m_world->onMessage)
+				m_world->onMessage(loc::FormatLine("map.pick.done", items[i].label));
 			return;
 		}
 }
@@ -885,7 +885,7 @@ void MapEditor::InspectAt(int cx, int cz) {
 	const bool remote = m_view.Browsing();
 	const DungeonMap& map = m_view.ViewedMap();
 	auto log = [&](const std::string& s) {
-		if (m_world.onMessage) m_world.onMessage(s);
+		if (m_world->onMessage) m_world->onMessage(s);
 	};
 	if (remote) {
 		// No live instances on a browsed level — report the static base only;
@@ -896,10 +896,10 @@ void MapEditor::InspectAt(int cx, int cz) {
 	}
 	const char* base = map.At(cx, cz) == Cell::Wall ? "wall" : "floor";
 	int props = 0;
-	for (const auto& m : m_world.DecorationMarkers())
+	for (const auto& m : m_world->DecorationMarkers())
 		if (m.x == cx && m.z == cz) ++props;
 	int mons = 0;
-	for (const auto& m : m_world.MonsterMarkers())
+	for (const auto& m : m_world->MonsterMarkers())
 		if (m.x == cx && m.z == cz) ++mons;
 	std::string details = base;
 	if (mons) details += std::format(", {} monster{}", mons, mons == 1 ? "" : "s");
@@ -910,8 +910,8 @@ void MapEditor::InspectAt(int cx, int cz) {
 	// (onInspect) picks the dialog, via the chooser when several share it.
 	m_selX = cx;
 	m_selZ = cz;
-	m_selMonster = m_world.MonsterRuntimeIdAt(cx, cz);
-	if (m_world.AnyInspectableAt(cx, cz) && onInspect) onInspect(cx, cz);
+	m_selMonster = m_world->MonsterRuntimeIdAt(cx, cz);
+	if (m_world->AnyInspectableAt(cx, cz) && onInspect) onInspect(cx, cz);
 }
 
 void MapEditor::EraseAt(int cx, int cz, const WallFace& face) {
@@ -919,34 +919,34 @@ void MapEditor::EraseAt(int cx, int cz, const WallFace& face) {
 	const bool remote = m_view.Browsing();
 	const std::string& stem = m_view.ViewedLevel();
 	auto log = [&](const std::string& s) {
-		if (m_world.onMessage) m_world.onMessage(s);
+		if (m_world->onMessage) m_world->onMessage(s);
 	};
-	m_world.BeginUndoStep();
+	m_world->BeginUndoStep();
 	if (remote) { // the stash-side ladder messages for itself
-		m_world.EraseRemote(stem, cx, cz);
-	} else if (m_world.RemoveStairAt(cx, cz)) {
+		m_world->EraseRemote(stem, cx, cz);
+	} else if (m_world->RemoveStairAt(cx, cz)) {
 		// stairs message themselves (they name the paired level's cleanup)
 	} else if (face.valid &&
-			   (m_world.RemoveFixtureAtFace(face.x, face.z, face.wall) ||
-				m_world.RemoveNicheAtFace(face.x, face.z, face.wall))) {
+			   (m_world->RemoveFixtureAtFace(face.x, face.z, face.wall) ||
+				m_world->RemoveNicheAtFace(face.x, face.z, face.wall))) {
 		// Wall things are placed per FACE, so one cell/block can carry several:
 		// erase the one being POINTED at before the cell-wide rungs below (which
 		// take whichever they find first). Sconce before niche, matching the
 		// order of the cell-wide ladder.
 		log(loc::Tr("map.erase.removed"));
-	} else if (m_world.RemoveEntityAt(cx, cz) || m_world.RemoveFixtureAt(cx, cz) ||
-			   m_world.RemoveNicheAtWall(cx, cz) || m_world.RemoveBoreAt(cx, cz) ||
+	} else if (m_world->RemoveEntityAt(cx, cz) || m_world->RemoveFixtureAt(cx, cz) ||
+			   m_world->RemoveNicheAtWall(cx, cz) || m_world->RemoveBoreAt(cx, cz) ||
 			   // Below the wall rungs: a floor recess is the cell's own floor, so
 			   // erasing it should not beat anything STANDING on that floor.
-			   m_world.RemoveFeatureAt(cx, cz)) {
+			   m_world->RemoveFeatureAt(cx, cz)) {
 		log(loc::Tr("map.erase.removed"));
 	} else {
-		m_world.EditVariant(cx, cz, SS::Wall, -1);
-		m_world.EditVariant(cx, cz, SS::Floor, -1);
-		m_world.EditVariant(cx, cz, SS::Ceiling, -1);
+		m_world->EditVariant(cx, cz, SS::Wall, -1);
+		m_world->EditVariant(cx, cz, SS::Floor, -1);
+		m_world->EditVariant(cx, cz, SS::Ceiling, -1);
 		log(loc::Format("map.erase.reset", cx, cz));
 	}
-	m_world.CommitUndoStep(true); // the ladder always acts (last rung resets)
+	m_world->CommitUndoStep(true); // the ladder always acts (last rung resets)
 }
 
 void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,

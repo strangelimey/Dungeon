@@ -16,22 +16,34 @@
 #include <utility>
 
 namespace dungeon::game {
-void Game::WireModuleCallbacks() {
-	// Wire the modules together: world feedback goes to the HUD log, UI
-	// actions drive the state machine.
-	m_world.onMessage = [this](std::string_view line) { m_ui.AddLogLine(line); };
+// The callbacks that live ON the world object, so they are wired each time a
+// world is built (LoadWorld) rather than once: world feedback goes to the HUD.
+void Game::WireWorldCallbacks() {
+	m_world->onMessage = [this](std::string_view line) { m_ui.AddLogLine(line); };
 	// Lines about a specific member arrive with their identity color; the log
 	// tints them so each character's doings read at a glance.
-	m_world.onMemberMessage = [this](std::string_view line, const Vec4& color) {
+	m_world->onMemberMessage = [this](std::string_view line, const Vec4& color) {
 		m_ui.AddLogLine(line, color);
 	};
 	// The party fell: end the run back at the title (Start New Game resets the
 	// roster + monsters in place).
-	m_world.onPartyWipe = [this] {
+	m_world->onPartyWipe = [this] {
 		m_state = AppState::Menu;
 		m_ui.ResetToMainPage();
 	};
+}
+
+void Game::WireModuleCallbacks() {
+	// Wire the modules together: UI actions drive the state machine. (The
+	// world's own callbacks: WireWorldCallbacks.)
 	m_ui.onStartNewGame = [this] {
+		// A new game in the RESIDENT world — or, with none loaded (the title
+		// screen, or the harness's cold `reset`), in the default world.
+		if (!m_world && !LoadWorld(m_defaultWorld)) {
+			log::Warn("new game: the default world '{}' could not be opened",
+					  m_defaultWorld);
+			return;
+		}
 		if (m_gameLoaded) {
 			StartNewGame();
 		} else {
@@ -78,6 +90,15 @@ void Game::WireModuleCallbacks() {
 		m_ui.ResetToMainPage();
 	};
 	m_ui.onLoadSave = [this](const std::string& path) {
+		// A SAVE BELONGS TO A WORLD (SaveGame.h): load that world first when it
+		// is not the one resident — deferred, since this fires from inside a
+		// menu's widget walk and the switch destroys the world.
+		const std::optional<SaveData> head = ReadSave(path);
+		if (!head) return; // unreadable: ReadSave logged why
+		if (!m_world || head->worldName != m_project.FolderName()) {
+			m_pendingWorld = PendingWorld{head->worldName, path};
+			return;
+		}
 		if (m_gameLoaded) {
 			LoadGame(path); // dungeon resident (pause-menu Load): apply now
 		} else {
@@ -129,12 +150,14 @@ void Game::WireModuleCallbacks() {
 		m_settings.Save();
 		RestartApp();
 	};
-	m_ui.onTorchPalette = [this](int index) { m_world.SetTorchPalette(index); };
+	m_ui.onTorchPalette = [this](int index) {
+		if (m_world) m_world->SetTorchPalette(index);
+	};
 	// The sheet's defense breakdown: only the world can resolve worn items,
 	// balance knobs and the live evasion formula.
-	m_ui.defenseFor = [this](const Character& c) { return m_world.DefenseFor(c); };
+	m_ui.defenseFor = [this](const Character& c) { return m_world->DefenseFor(c); };
 	m_ui.defenseWith = [this](const Character& c, const std::string& id) {
-		return m_world.DefenseWith(c, id);
+		return m_world->DefenseWith(c, id);
 	};
 	// The stance slider under a member's hands (docs/damage-system.md). Its
 	// travel runs PAST 1, as far as exert_max: over-exertion costs something now
@@ -146,27 +169,27 @@ void Game::WireModuleCallbacks() {
 	m_ui.onGuardChange = [this](size_t member, float share) {
 		if (member < m_characters.size())
 			m_characters[member].offenseShare =
-				std::clamp(share, 0.0f, m_world.GetBalance().exertMax);
+				std::clamp(share, 0.0f, m_world->GetBalance().exertMax);
 	};
 	m_ui.onMoveAction = [this](MoveAction action) {
 		// A pit fall swallows movement (the keyboard path gates in
 		// DungeonWorld::Update; this is the HUD arrow-button path).
-		if (!m_world.Falling()) m_world.GetParty().Act(action);
+		if (!m_world->Falling()) m_world->GetParty().Act(action);
 	};
 	m_ui.onHandAttack = [this](size_t member, size_t hand, const std::string& verb) {
-		m_world.PartyAttack(member, hand, verb);
+		m_world->PartyAttack(member, hand, verb);
 	};
 	// The hand right-click menu reads an item's commands from the world's item
 	// kinds (single source — ItemKindFor parses category/command + rune defaults).
 	m_ui.itemCommands = [this](const std::string& id) {
-		return m_world.ItemCommands(id);
+		return m_world->ItemCommands(id);
 	};
 	// The hand menu's Magic group enumerates the recipe table (filtered by the
 	// member's vocabulary in GameUI); a picked "cast:<id>" default casts through
 	// the world's façade — the same vocab/mana gates as the dev `cast` command.
-	m_ui.spellDefs = [this] { return m_world.SpellDefs(); };
+	m_ui.spellDefs = [this] { return m_world->SpellDefs(); };
 	m_ui.onCastSpell = [this](size_t member, const std::string& id, size_t hand) {
-		m_world.CastSpellById(member, id, static_cast<int>(hand));
+		m_world->CastSpellById(member, id, static_cast<int>(hand));
 	};
 	// The spellbook panel casts a HAND-BUILT symbol sequence: an exact recipe
 	// match casts (vocab/mana gated), anything else fizzles with its log line.
@@ -174,23 +197,25 @@ void Game::WireModuleCallbacks() {
 	// kBookHands so the cast credits both hands' quick-cast MRU.
 	m_ui.onCastSequence = [this](size_t member, size_t hand,
 								 const std::vector<SpellSymbol>& seq) {
-		m_world.CastSpell(member, seq, static_cast<int>(hand));
+		m_world->CastSpell(member, seq, static_cast<int>(hand));
 	};
 	// Eating and drinking: the world owns the catalogs and the two supply
 	// meters, so it does the arithmetic and reports what it actually restored.
 	m_ui.onConsume = [this](size_t member, const std::string& id) {
 		if (member >= m_characters.size()) return resource::Refill{};
-		return m_world.ConsumeItem(m_characters[member], id);
+		return m_world->ConsumeItem(m_characters[member], id);
 	};
-	m_ui.onToggleRest = [this] { m_world.SetResting(!m_world.Resting()); };
+	m_ui.onToggleRest = [this] { m_world->SetResting(!m_world->Resting()); };
 	m_ui.onKeysChanged = [this] {
-		m_world.GetParty().SetKeys(m_settings.moveKeys);
+		if (m_world) m_world->GetParty().SetKeys(m_settings.moveKeys);
 	};
+	// (With no world loaded these are only settings; LoadWorld hands them to
+	// the party the world builds.)
 	m_ui.onLookChanged = [this] {
-		m_world.GetParty().SetLook(m_settings.look);
+		if (m_world) m_world->GetParty().SetLook(m_settings.look);
 	};
 	m_ui.onHeadBobChanged = [this] {
-		m_world.GetParty().SetHeadBob(m_settings.headBob);
+		if (m_world) m_world->GetParty().SetHeadBob(m_settings.headBob);
 	};
 	// Recorded only — the rebuild would destroy the dropdown mid-callback;
 	// Update applies it first thing next frame.
@@ -215,7 +240,7 @@ void Game::WireModuleCallbacks() {
 		// and for the same reason — a drag that left forty undo steps would be
 		// forty presses of Ctrl+Z to take back one gesture.
 		if (!m_worldStroke) {
-			m_world.BeginUndoStep();
+			m_world->BeginUndoStep();
 			m_worldStroke = true;
 		}
 		m_worldMap->SetTerrainAt(x, z, terrainId);
@@ -236,7 +261,7 @@ void Game::WireModuleCallbacks() {
 			loc::FormatLine("world.inspect", std::format("{},{}", x, z), t.id));
 	};
 	m_worldMapView.canUndo = [this](bool redo) {
-		return redo ? m_world.CanRedo() : m_world.CanUndo();
+		return redo ? m_world->CanRedo() : m_world->CanUndo();
 	};
 	m_worldMapView.onTool = [this](WorldMapView::Tool tool) {
 		switch (tool) {
@@ -251,8 +276,8 @@ void Game::WireModuleCallbacks() {
 			m_ui.AddLogLine(loc::View(SaveWorld() ? "map.world.saved"
 												  : "map.world.savefailed"));
 			break;
-		case WorldMapView::Tool::Undo: m_world.Undo(); break;
-		case WorldMapView::Tool::Redo: m_world.Redo(); break;
+		case WorldMapView::Tool::Undo: m_world->Undo(); break;
+		case WorldMapView::Tool::Redo: m_world->Redo(); break;
 		case WorldMapView::Tool::None: break;
 		}
 	};
@@ -260,7 +285,7 @@ void Game::WireModuleCallbacks() {
 	// Each view offers the way ACROSS and Game does the flip, so neither has to
 	// know how to draw the other's grid. `hasWorld` hides the toggle in a
 	// project that is all dungeon rather than dimming it.
-	m_mapView.hasWorld = m_worldMap.has_value();
+	// (m_mapView.hasWorld is set per world, in LoadWorld.)
 	m_mapView.onShowWorld = [this] { ShowMapPage(MapPage::World); };
 	m_worldMapView.onShowDungeon = [this] { ShowMapPage(MapPage::Dungeon); };
 	WireWorldSettingsDialog();
@@ -345,7 +370,7 @@ void Game::WireModuleCallbacks() {
 			// accepts it — so a project type appears here the moment it is
 			// authored, and a removed one stops being offered.
 			std::vector<std::string> ids;
-			for (const DamageTypeBook::Entry& e : m_world.DamageTypes().Entries())
+			for (const DamageTypeBook::Entry& e : m_world->DamageTypes().Entries())
 				ids.push_back(e.id);
 			return ids;
 		}
@@ -368,11 +393,11 @@ void Game::WireModuleCallbacks() {
 			// straight at the live scene; a prop's are baked into its cached
 			// KIND at load, so that kind is dropped and its instances re-spawned.
 			if (MapEditor::SurfaceCat(MapEditor::CatForCatalogKey(cfg.catalogKey)))
-				m_world.RefreshSurfaceMaterials();
+				m_world->RefreshSurfaceMaterials();
 			else
-				m_world.ReloadTypeKind(cfg.catalogKey, cfg.id);
-			if (m_world.onMessage)
-				m_world.onMessage(loc::FormatLine("map.type.saved", cfg.id));
+				m_world->ReloadTypeKind(cfg.catalogKey, cfg.id);
+			if (m_world->onMessage)
+				m_world->onMessage(loc::FormatLine("map.type.saved", cfg.id));
 			return;
 		}
 		const CatalogEntry* e = m_project.CatalogForKey(cfg.catalogKey)
@@ -462,13 +487,13 @@ void Game::WireModuleCallbacks() {
 
 	// Live-apply on every edit; persist on Save.
 	m_monsterDialog.onApply = [this](const MonsterConfigDialog::Config& c) {
-		m_world.ApplyMonsterAnimConfig(c.type, c.supported, c.clips);
-		m_world.ApplyMonsterBehavior(c.type, c.archetype, c.keepRange, c.fleeBelow, c.spell,
+		m_world->ApplyMonsterAnimConfig(c.type, c.supported, c.clips);
+		m_world->ApplyMonsterBehavior(c.type, c.archetype, c.keepRange, c.fleeBelow, c.spell,
 									 c.threat);
 	};
 	m_monsterDialog.onSave = [this](const MonsterConfigDialog::Config& c) {
-		m_world.ApplyMonsterAnimConfig(c.type, c.supported, c.clips);
-		m_world.ApplyMonsterBehavior(c.type, c.archetype, c.keepRange, c.fleeBelow, c.spell,
+		m_world->ApplyMonsterAnimConfig(c.type, c.supported, c.clips);
+		m_world->ApplyMonsterBehavior(c.type, c.archetype, c.keepRange, c.fleeBelow, c.spell,
 									 c.threat);
 		WriteMonsterAnim(c);
 	};
@@ -484,32 +509,32 @@ void Game::WireModuleCallbacks() {
 		auto display = [](const CatalogEntry* e, const std::string& id) {
 			return e ? e->Display() : id;
 		};
-		for (const auto& [id, type] : m_world.MonstersAt(cx, cz)) {
+		for (const auto& [id, type] : m_world->MonstersAt(cx, cz)) {
 			InspectTarget t{InspectTarget::Kind::Monster};
 			t.runtimeId = id;
 			m_inspectTargets.push_back(t);
 			labels.push_back(display(m_project.monsters.Find(type), type));
 		}
-		for (Direction wall : m_world.SconcesAt(cx, cz)) {
+		for (Direction wall : m_world->SconcesAt(cx, cz)) {
 			InspectTarget t{InspectTarget::Kind::Sconce};
 			t.wall = wall;
 			m_inspectTargets.push_back(t);
 			labels.push_back(loc::Format("map.fix.torchwall", loc::Tr(FacingLocKey(wall))));
 		}
-		if (m_world.BrazierAt(cx, cz)) {
+		if (m_world->BrazierAt(cx, cz)) {
 			m_inspectTargets.push_back(InspectTarget{InspectTarget::Kind::Brazier});
 			labels.push_back(loc::Tr("map.key.brazier"));
 		}
 		{
 			DungeonWorld::DoorEdit door; // presence check only
-			if (m_world.DoorSettings(cx, cz, door)) {
+			if (m_world->DoorSettings(cx, cz, door)) {
 				m_inspectTargets.push_back(InspectTarget{InspectTarget::Kind::Door});
 				labels.push_back(loc::Tr("map.key.door"));
 			}
 		}
 		{
 			std::string target;
-			if (m_world.ButtonSettings(cx, cz, target)) {
+			if (m_world->ButtonSettings(cx, cz, target)) {
 				m_inspectTargets.push_back(InspectTarget{InspectTarget::Kind::Button});
 				labels.push_back(loc::Tr("map.key.button"));
 			}
@@ -517,7 +542,7 @@ void Game::WireModuleCallbacks() {
 		// Niche faces touching this cell — its own walls, or (clicking the wall
 		// block) the niches carved into it from adjacent floor cells. One labeled
 		// target per face, so a dead-end's several niches each pick individually.
-		for (const DungeonWorld::NicheFace& f : m_world.NicheFacesAt(cx, cz)) {
+		for (const DungeonWorld::NicheFace& f : m_world->NicheFacesAt(cx, cz)) {
 			InspectTarget t{InspectTarget::Kind::Niche};
 			t.nicheX = f.x;
 			t.nicheZ = f.z;
@@ -525,14 +550,14 @@ void Game::WireModuleCallbacks() {
 			m_inspectTargets.push_back(t);
 			labels.push_back(loc::Format("map.niche.atwall", loc::Tr(FacingLocKey(f.wall))));
 		}
-		for (const auto& [index, type] : m_world.DecorationsAt(cx, cz)) {
+		for (const auto& [index, type] : m_world->DecorationsAt(cx, cz)) {
 			InspectTarget t{InspectTarget::Kind::Decoration};
 			t.handle = index;
 			t.type = display(m_project.decorations.Find(type), type);
 			m_inspectTargets.push_back(t);
 			labels.push_back(t.type);
 		}
-		for (const auto& [id, type] : m_world.ItemsAt(cx, cz)) {
+		for (const auto& [id, type] : m_world->ItemsAt(cx, cz)) {
 			InspectTarget t{InspectTarget::Kind::Item};
 			t.handle = id;
 			t.type = display(m_project.FindItem(type), type);
@@ -541,7 +566,7 @@ void Game::WireModuleCallbacks() {
 		}
 		// In-flight projectiles passing through the cell (transient combat
 		// content — freeze the world with the pause button to catch a fast one).
-		for (const ProjectileInfo& p : m_world.ProjectilesAt(cx, cz)) {
+		for (const ProjectileInfo& p : m_world->ProjectilesAt(cx, cz)) {
 			InspectTarget t{InspectTarget::Kind::Projectile};
 			t.runtimeId = p.id;
 			m_inspectTargets.push_back(t);
@@ -563,38 +588,38 @@ void Game::WireModuleCallbacks() {
 	// each grid click appends a waypoint; Clear wipes the route.
 	m_entityInspector.onEditRoute = [this](u32 id) {
 		m_mapEditor.BeginRoute(id);
-		if (m_world.onMessage) m_world.onMessage(loc::View("map.route.hint"));
+		if (m_world->onMessage) m_world->onMessage(loc::View("map.route.hint"));
 	};
-	m_entityInspector.onClearRoute = [this](u32 id) { m_world.ClearPatrol(id); };
+	m_entityInspector.onClearRoute = [this](u32 id) { m_world->ClearPatrol(id); };
 	m_mapEditor.onRouteWaypoint = [this](u32 id, int cx, int cz) {
-		m_world.AddPatrolWaypoint(id, cx, cz);
+		m_world->AddPatrolWaypoint(id, cx, cz);
 	};
 	m_entityInspector.onApply = [this](const EntityInspector::Config& c) {
-		m_world.ApplyMonsterInstance(c.runtimeId, c.asleep, c.leashRange, c.archetype,
+		m_world->ApplyMonsterInstance(c.runtimeId, c.asleep, c.leashRange, c.archetype,
 									 c.keepRange, c.fleeBelow, c.spell, c.facing);
 	};
 	m_entityInspector.onSave = [this](const EntityInspector::Config& c) {
-		m_world.ApplyMonsterInstance(c.runtimeId, c.asleep, c.leashRange, c.archetype,
+		m_world->ApplyMonsterInstance(c.runtimeId, c.asleep, c.leashRange, c.archetype,
 									 c.keepRange, c.fleeBelow, c.spell, c.facing);
-		if (!m_world.SaveLevel())
+		if (!m_world->SaveLevel())
 			log::Warn("entity inspector: failed to save level .ent");
-		else if (m_world.onMessage)
-			m_world.onMessage(loc::FormatLine("map.insp.saved", c.type));
+		else if (m_world->onMessage)
+			m_world->onMessage(loc::FormatLine("map.insp.saved", c.type));
 	};
 
 	// Torch (sconce) inspector: the Facing dropdown re-mounts it live, the body
 	// edits its light/smoke settings live; Save persists.
 	m_fixtureInspector.onRemount = [this](int x, int z, Direction from, Direction to) {
-		return m_world.RemountSconce(x, z, from, to);
+		return m_world->RemountSconce(x, z, from, to);
 	};
 	m_fixtureInspector.onSettings = [this](int x, int z, Direction wall, bool brazier, bool lit,
 										   float brightness, float turbidity) {
-		if (brazier) m_world.SetBrazierSettings(x, z, lit, brightness, turbidity);
-		else m_world.SetTorchSettings(x, z, wall, lit, brightness, turbidity);
+		if (brazier) m_world->SetBrazierSettings(x, z, lit, brightness, turbidity);
+		else m_world->SetTorchSettings(x, z, wall, lit, brightness, turbidity);
 		// (the dialog flips its own preview spec's showFire on the Lit toggle)
 	};
 	m_fixtureInspector.onSave = [this] {
-		if (!m_world.SaveLevel()) log::Warn("fixture inspector: failed to save level");
+		if (!m_world->SaveLevel()) log::Warn("fixture inspector: failed to save level");
 	};
 
 	// Door inspector: Open flips the live panel + the record's authored state;
@@ -618,43 +643,43 @@ void Game::WireModuleCallbacks() {
 		// other field here. Half a hundredth, because SetDoorSettings writes two
 		// decimals and anything finer could not survive the round trip anyway.
 		e.seconds = std::fabs(c.seconds - c.typeSeconds) < 0.005f ? 0.0f : c.seconds;
-		m_world.SetDoorSettings(c.x, c.z, e);
+		m_world->SetDoorSettings(c.x, c.z, e);
 	};
 	m_doorInspector.onSave = [this] {
-		if (!m_world.SaveLevel()) log::Warn("door inspector: failed to save level");
+		if (!m_world->SaveLevel()) log::Warn("door inspector: failed to save level");
 	};
 
 	// Button inspector: the Target dropdown wires the lever to a door name.
 	m_buttonInspector.onApply = [this](const ButtonInspector::Config& c) {
-		m_world.SetButtonSettings(c.x, c.z, c.target);
+		m_world->SetButtonSettings(c.x, c.z, c.target);
 	};
 	m_buttonInspector.onSave = [this] {
-		if (!m_world.SaveLevel()) log::Warn("button inspector: failed to save level");
+		if (!m_world->SaveLevel()) log::Warn("button inspector: failed to save level");
 	};
 
 	// Niche inspector: apply the shape/secret/name live, then persist (a niche is
 	// STATIC .map data, so Save writes the map layer, not the .ent).
 	m_nicheInspector.onApply = [this](const NicheInspector::Config& c) {
-		m_world.SetNichePropsAt(c.x, c.z, c.wall, c.name, c.hidden, c.type);
+		m_world->SetNichePropsAt(c.x, c.z, c.wall, c.name, c.hidden, c.type);
 	};
 	// The Face dropdown moves it to another wall of the same cell, treasure and all.
 	m_nicheInspector.onRemount = [this](int x, int z, Direction from, Direction to) {
-		return m_world.RemountNiche(x, z, from, to);
+		return m_world->RemountNiche(x, z, from, to);
 	};
 	m_nicheInspector.onSave = [this] {
-		if (m_world.SaveAllLevels().empty())
+		if (m_world->SaveAllLevels().empty())
 			log::Warn("niche inspector: failed to save map");
 	};
 
 	// Item/decoration inspector: apply the facing edit to the right live object.
 	m_propInspector.onApply = [this](const PropInspector::Config& c) {
 		if (c.kind == PropInspector::Config::Kind::Decoration)
-			m_world.SetDecorationFacing(c.handle, c.facing);
+			m_world->SetDecorationFacing(c.handle, c.facing);
 		else
-			m_world.SetItemFacing(c.handle, c.facing);
+			m_world->SetItemFacing(c.handle, c.facing);
 	};
 	m_propInspector.onSave = [this] {
-		if (!m_world.SaveLevel()) log::Warn("prop inspector: failed to save level");
+		if (!m_world->SaveLevel()) log::Warn("prop inspector: failed to save level");
 	};
 }
 

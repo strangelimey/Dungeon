@@ -1,0 +1,22 @@
+; worldswap.eval — a world is loaded when a game starts, and switched in the
+; process (docs/world-on-demand.md). WorldTest reads the `worlds status` lines.
+;
+; The FIRST status is taken before any game has started: the title screen must
+; have no world at all. Then A -> B -> A, with a status after each, so the SRV
+; count after coming back to A can be compared with the first visit's — a
+; switch that leaks textures (or anything else holding a descriptor slot)
+; shows up there, not in whether the switch "worked".
+;
+; wt_swap is made from the title screen, where no world is loaded: its catalogs
+; come from the default world (CreateWorld's template). WorldTest removes it.
+logecho on
+worlds status
+worlds new wt_swap
+reset
+worlds status
+worlds load wt_swap
+worlds status
+worlds load dungeon-demo
+worlds status
+worlds load dungeon-demo
+worlds status

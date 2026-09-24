@@ -118,8 +118,8 @@ void Game::RegisterWorldCommands() {
 			// Reports the REASON as well as the hours, because "camped 0.0h" on
 			// its own reads as a bug and is usually a party too hungry to rest.
 			m_console.Print(std::format("camped {:.2f}h — {}", hours,
-										m_world.RestEndReason()[0]
-											? m_world.RestEndReason()
+										m_world->RestEndReason()[0]
+											? m_world->RestEndReason()
 											: "did not start"));
 		});
 	m_console.Register(
@@ -134,7 +134,7 @@ void Game::RegisterWorldCommands() {
 			const float d = args.empty()
 								? m_worldMap->Difficulty(m_worldState.x, m_worldState.z)
 								: static_cast<float>(std::atof(args[0].c_str()));
-			m_console.Print(StartEncounter(d, t.tags, m_world.Rng()())
+			m_console.Print(StartEncounter(d, t.tags, m_world->Rng()())
 								? std::format("encounter on {} at difficulty {:.2f}",
 											  t.id, d)
 								: "no encounter (see log)");
@@ -251,20 +251,30 @@ void Game::RegisterWorldCommands() {
 	// --- worlds, the map's pages, and the project's files -----------------
 	m_console.Register(
 		"worlds",
-		"the worlds beside this one: worlds | new <name> | load <name> | "
+		"the worlds on disk: worlds | status | new <name> | load <name> | "
 		"delete <name> <name again> | dialog",
 		[this](const std::vector<std::string>& a) {
 			// A WORLD IS A PROJECT FOLDER (assets/projects/<name>): its own
-			// overworld, dungeons, levels and content. Switching RELAUNCHES,
-			// because the choice is read before any of that exists — so this
-			// says so rather than appearing to hang.
+			// overworld, dungeons, levels and content. Loaded when a game starts
+			// and switched in the process (docs/world-on-demand.md) — it used to
+			// relaunch.
 			const std::string root = paths::Asset("projects");
 			if (a.empty()) {
 				for (const std::string& name : Project::List(root))
 					m_console.Print(std::format(
 						"  {}{}", name,
-						name == m_project.FolderName() ? "  (open)" : ""));
-				m_console.Print("switching relaunches the game");
+						m_world && name == m_project.FolderName() ? "  (open)" : ""));
+				return;
+			}
+			// WHAT IS RESIDENT, and what it holds on the GPU: a switch that
+			// leaks is the failure this design invites, and the SRV count is the
+			// gauge that shows it (a world's textures are most of it).
+			if (a[0] == "status") {
+				m_console.Print(std::format(
+					"world {}  game {}  srv {} / {} (peak {})",
+					m_world ? m_project.FolderName() : std::string("none"),
+					m_gameLoaded ? "loaded" : "not loaded", m_device.SrvLive(),
+					gfx::GraphicsDevice::SrvCapacity(), m_device.SrvHighWater()));
 				return;
 			}
 			if (a[0] == "new" && a.size() >= 2) {
@@ -277,11 +287,13 @@ void Game::RegisterWorldCommands() {
 				return;
 			}
 			if (a[0] == "load" && a.size() >= 2) {
-				if (a[1] == m_project.FolderName()) {
+				if (m_world && a[1] == m_project.FolderName()) {
 					m_console.Print("already in '" + a[1] + "'");
 					return;
 				}
-				m_console.Print(SwitchWorld(a[1]) ? "relaunching into " + a[1]
+				// A new game there, from the next frame: the switch destroys this
+				// world, and a console command is running inside it.
+				m_console.Print(SwitchWorld(a[1]) ? "switching to " + a[1]
 												  : "no such world");
 				return;
 			}
@@ -585,10 +597,10 @@ void Game::RegisterWorldCommands() {
 				m_console.Print(std::format("{},{} is already {}", x, z, was));
 				return;
 			}
-			m_world.BeginUndoStep();
+			m_world->BeginUndoStep();
 			const bool changed =
 				m_worldMap->SetTerrainAt(x, z, m_worldMapView.ArmedTerrain());
-			m_world.CommitUndoStep(changed);
+			m_world->CommitUndoStep(changed);
 			m_console.Print(changed ? std::format("{},{} {} -> {}", x, z, was,
 												  m_worldMapView.ArmedTerrain())
 									: std::format("{},{} unchanged", x, z));
@@ -627,9 +639,9 @@ void Game::RegisterWorldCommands() {
 				// here is the reporting — the settings dialog is a second way
 				// in, and a refusal that lived in one of them would not be the
 				// same editor from the other.
-				m_world.BeginUndoStep();
+				m_world->BeginUndoStep();
 				const bool ok = m_worldMap->SetStart(x, z);
-				m_world.CommitUndoStep(ok);
+				m_world->CommitUndoStep(ok);
 				if (ok) m_console.Print(std::format("world start {},{}", x, z));
 				else if (!m_worldMap->InBounds(x, z))
 					m_console.Print("off the world grid");
@@ -694,22 +706,22 @@ void Game::RegisterWorldCommands() {
 				l.id = a[2];
 				l.x = std::atoi(a[3].c_str());
 				l.z = std::atoi(a[4].c_str());
-				m_world.BeginUndoStep();
+				m_world->BeginUndoStep();
 				const bool ok = w.AddLocation(std::move(l));
-				m_world.CommitUndoStep(ok);
+				m_world->CommitUndoStep(ok);
 				m_console.Print(ok ? std::format("added {} at {},{}", a[2], a[3], a[4])
 								   : "refused: duplicate id, occupied cell, or off "
 									 "the grid");
 			} else if (verb == "del" && a.size() >= 2) {
-				m_world.BeginUndoStep();
+				m_world->BeginUndoStep();
 				const bool ok = w.RemoveLocation(a[1]);
-				m_world.CommitUndoStep(ok);
+				m_world->CommitUndoStep(ok);
 				m_console.Print(ok ? "removed " + a[1] : "no such location");
 			} else if (verb == "move" && a.size() >= 4) {
-				m_world.BeginUndoStep();
+				m_world->BeginUndoStep();
 				const bool ok = w.MoveLocation(a[1], std::atoi(a[2].c_str()),
 											   std::atoi(a[3].c_str()));
-				m_world.CommitUndoStep(ok);
+				m_world->CommitUndoStep(ok);
 				m_console.Print(ok ? std::format("{} -> {},{}", a[1], a[2], a[3])
 								   : "refused: unknown id, occupied cell, or off "
 									 "the grid");
@@ -719,7 +731,7 @@ void Game::RegisterWorldCommands() {
 					m_console.Print("no such location");
 					return;
 				}
-				m_world.BeginUndoStep();
+				m_world->BeginUndoStep();
 				bool ok = true;
 				if (a[2] == "dungeon") l->dungeon = a[3];
 				else if (a[2] == "level") l->level = a[3];
@@ -727,7 +739,7 @@ void Game::RegisterWorldCommands() {
 				else if (a[2] == "entryz") l->entryZ = std::atoi(a[3].c_str());
 				else if (a[2] == "kind") l->kind = a[3];
 				else ok = false;
-				m_world.CommitUndoStep(ok);
+				m_world->CommitUndoStep(ok);
 				m_console.Print(ok ? std::format("{}.{} = {}", a[1], a[2], a[3])
 								   : "field must be kind/dungeon/level/entryx/entryz");
 			} else {
@@ -773,9 +785,9 @@ void Game::RegisterWorldCommands() {
 				ar.h = std::atoi(a[5].c_str());
 				if (a.size() >= 7) ar.difficulty = static_cast<float>(std::atof(a[6].c_str()));
 				const int w = ar.w, h = ar.h;
-				m_world.BeginUndoStep();
+				m_world->BeginUndoStep();
 				const bool ok = m_worldMap->AddArea(std::move(ar));
-				m_world.CommitUndoStep(ok);
+				m_world->CommitUndoStep(ok);
 				// APPENDED, and that is not arbitrary: the newest area wins
 				// where it overlaps, which is what someone carving an exception
 				// out of a broad region means.
@@ -795,15 +807,15 @@ void Game::RegisterWorldCommands() {
 					m_console.Print(std::format(
 						"refused: an area named '{}' already exists", a[1]));
 			} else if (verb == "del" && a.size() >= 2) {
-				m_world.BeginUndoStep();
+				m_world->BeginUndoStep();
 				const bool ok = m_worldMap->RemoveArea(a[1]);
-				m_world.CommitUndoStep(ok);
+				m_world->CommitUndoStep(ok);
 				m_console.Print(ok ? "removed " + a[1] : "no such area");
 			} else if (verb == "order" && a.size() >= 3) {
 				const int to = std::atoi(a[2].c_str());
-				m_world.BeginUndoStep();
+				m_world->BeginUndoStep();
 				const bool ok = m_worldMap->MoveArea(a[1], to);
-				m_world.CommitUndoStep(ok);
+				m_world->CommitUndoStep(ok);
 				m_console.Print(ok ? std::format("{} is now row {}", a[1], to)
 								   : "no such area, index out of range, or already "
 									 "there");
@@ -884,7 +896,7 @@ void Game::RegisterWorldCommands() {
 			// BOTH HALVES, reported separately, because they answer different
 			// questions: levels are where a placement lives, and the catalog +
 			// WORLD half is where a doorway or a hook does.
-			const DungeonWorld::TypeUsage lv = m_world.SweepTypeRefs(args[0], args[1]);
+			const DungeonWorld::TypeUsage lv = m_world->SweepTypeRefs(args[0], args[1]);
 			const int other = SweepCatalogRefs(args[0], args[1], nullptr);
 			m_console.Print(std::format("{} '{}': {} level record(s), {} other "
 										"reference(s)",

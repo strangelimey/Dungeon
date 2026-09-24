@@ -138,7 +138,7 @@ void Game::RegisterEvalCommands() {
 			const int w = args.size() > 1 ? std::atoi(args[1].c_str()) : 9;
 			const int h = args.size() > 2 ? std::atoi(args[2].c_str()) : w;
 			DungeonWorld::ArenaInfo info;
-			if (!m_world.BuildArena(shape, w, h, info)) {
+			if (!m_world->BuildArena(shape, w, h, info)) {
 				m_console.Refuse("arena: refused (see the log)");
 				return;
 			}
@@ -171,7 +171,7 @@ void Game::RegisterEvalCommands() {
 							   m_console.Refuse("forward needs a positive count");
 							   return;
 						   }
-						   m_world.GetHarness().pendingSteps += n;
+						   m_world->GetHarness().pendingSteps += n;
 						   m_console.Print(std::format("forward x{}", n));
 					   });
 
@@ -182,11 +182,11 @@ void Game::RegisterEvalCommands() {
 						   if (args.empty()) {
 							   m_console.Print(std::format(
 								   "freeze {}",
-								   m_world.GetHarness().frozen ? "on" : "off"));
+								   m_world->GetHarness().frozen ? "on" : "off"));
 							   return;
 						   }
 						   const bool on = args[0] == "on" || args[0] == "1";
-						   m_world.GetHarness().frozen = on;
+						   m_world->GetHarness().frozen = on;
 						   m_console.Print(std::format("freeze {}", on ? "on" : "off"));
 					   });
 
@@ -203,7 +203,7 @@ void Game::RegisterEvalCommands() {
 							   return;
 						   const int x = std::atoi(args[1].c_str());
 						   const int z = std::atoi(args[2].c_str());
-						   if (!m_world.DetonateSpell(args[0], x, z)) {
+						   if (!m_world->DetonateSpell(args[0], x, z)) {
 							   m_console.Refuse(std::format(
 								   "blast: refused '{}' (unknown spell, or it has "
 								   "no blast_force)",
@@ -243,7 +243,7 @@ void Game::RegisterEvalCommands() {
 							   args.size() > 4
 								   ? static_cast<float>(std::atof(args[4].c_str()))
 								   : 1.0f;
-						   if (!m_world.AddMonster(args[0], x, z, facing)) {
+						   if (!m_world->AddMonster(args[0], x, z, facing)) {
 							   m_console.Refuse(std::format(
 								   "spawn: refused '{}' at {},{} (unknown type, "
 								   "not walkable, or cell taken)",
@@ -251,7 +251,7 @@ void Game::RegisterEvalCommands() {
 							   return;
 						   }
 						   if (strength > 0.0f && strength != 1.0f)
-						   m_world.ScaleLastMonster(strength);
+						   m_world->ScaleLastMonster(strength);
 					   m_console.Print(std::format("spawned {} at {},{} x{:.2f}",
 											   args[0], x, z, strength));
 					   });
@@ -266,11 +266,11 @@ void Game::RegisterEvalCommands() {
 						   if (args.empty()) {
 							   m_console.Print(std::format(
 								   "autoattack {}",
-								   m_world.GetHarness().autoAttack ? "on" : "off"));
+								   m_world->GetHarness().autoAttack ? "on" : "off"));
 							   return;
 						   }
 						   const bool on = args[0] == "on" || args[0] == "1";
-						   m_world.GetHarness().autoAttack = on;
+						   m_world->GetHarness().autoAttack = on;
 						   m_console.Print(std::format("autoattack {}", on ? "on" : "off"));
 					   });
 
@@ -279,11 +279,11 @@ void Game::RegisterEvalCommands() {
 	m_console.Register("tally", "encounter counters (dev): tally [reset]",
 					   [this](const std::vector<std::string>& args) {
 						   if (!args.empty() && args[0] == "reset") {
-							   m_world.GetHarness().tally = {};
+							   m_world->GetHarness().tally = {};
 							   m_console.Print("tally reset");
 							   return;
 						   }
-						   const DungeonWorld::Tally& t = m_world.GetHarness().tally;
+						   const DungeonWorld::Tally& t = m_world->GetHarness().tally;
 						   // WHAT THE FIELDS MEAN, because two of them were
 						   // guessed wrong by the audit that checked them
 						   // (docs/eval-audit.md):
@@ -340,7 +340,7 @@ void Game::RegisterEvalCommands() {
 						   if (!Need(m_console, args, 1, "usage: seed <n>")) return;
 						   const auto n = static_cast<u32>(
 							   std::strtoul(args[0].c_str(), nullptr, 10));
-						   m_world.SeedCombat(n);
+						   m_world->SeedCombat(n);
 						   m_console.Print(std::format("combat seed {}", n));
 					   });
 
@@ -351,11 +351,11 @@ void Game::RegisterEvalCommands() {
 					   [this](const std::vector<std::string>& args) {
 						   if (args.empty()) {
 							   m_console.Print(std::format(
-								   "lockstep {}", m_world.LockstepAI() ? "on" : "off"));
+								   "lockstep {}", m_world->LockstepAI() ? "on" : "off"));
 							   return;
 						   }
 						   const bool on = args[0] == "on" || args[0] == "1";
-						   m_world.SetLockstepAI(on);
+						   m_world->SetLockstepAI(on);
 						   m_console.Print(std::format("lockstep {}", on ? "on" : "off"));
 					   });
 
@@ -388,10 +388,10 @@ void Game::RegisterEvalCommands() {
 						   // Warned, not refused: stepping without lockstep is
 						   // still useful for eyeballing, and silently producing
 						   // a meaningless number is the thing to avoid.
-						   if (!m_world.LockstepAI())
+						   if (!m_world->LockstepAI())
 							   m_console.Print("warning: lockstep is OFF — monsters "
 											   "will barely think during this step");
-						   const bool wasResting = m_world.Resting();
+						   const bool wasResting = m_world->Resting();
 						   StepStop why = StepStop::Complete;
 						   const int ran = StepWorld(secs, why);
 						   const float got = static_cast<float>(ran) /
@@ -400,9 +400,9 @@ void Game::RegisterEvalCommands() {
 						   // seconds it ran ARE the length of the rest, which is
 						   // the number a supply measurement is after.
 						   std::string tail;
-						   if (wasResting && !m_world.Resting())
+						   if (wasResting && !m_world->Resting())
 							   tail = std::format(" — rest ended: {}",
-												  m_world.RestEndReason());
+												  m_world->RestEndReason());
 						   else if (why == StepStop::LevelChange)
 							   tail = " — stopped: the party changed level";
 						   m_console.Print(std::format("stepped {} ticks ({:.2f}s){}",

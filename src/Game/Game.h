@@ -210,6 +210,18 @@ private:
 
 	// --- construction (called once from the ctor; see Game.cpp) -----------
 	void WireModuleCallbacks(); // the world↔UI/editor callback graph
+	// The callbacks set ON the world object — wired each time one is built.
+	void WireWorldCallbacks();
+	// --- the world's lifetime (docs/world-on-demand.md) ----------------------
+	// LoadWorld reads a world's project and builds its DungeonWorld (which
+	// loads a level of its own), unloading any other first; its game assets
+	// then arrive through BuildGameLoadTasks like a first start. False, and
+	// nothing changed, if no such world exists. UnloadWorld drains the GPU —
+	// in-flight frames still reference the world's buffers — closes everything
+	// borrowing from it, and destroys it; the title screen has none.
+	bool LoadWorld(const std::string& folder);
+	void UnloadWorld();
+	bool WorldLoaded() const { return m_world != nullptr; }
 	// The dev-console command table, one Register*Commands per file by concern
 	// (arg helpers shared through Game/DevCommandArgs.h).
 	void RegisterDevCommands(); // the general ones (Game_DevCommands.cpp)
@@ -393,10 +405,11 @@ private:
 	// The world a launch falls back on when the one it asked for is missing —
 	// which is why it is also the one world that cannot be deleted.
 	static constexpr const char* kDefaultProject = "dungeon-demo";
-	// Persists the choice and relaunches into it. False when no such world
-	// exists — the caller reports it rather than the game restarting into
-	// nothing. `relaunchArgs` ride the new process's command line.
-	bool SwitchWorld(const std::string& name, const std::string& relaunchArgs = {});
+	// Opens `name` and starts a new game in it — in the process, next frame
+	// (m_pendingWorld), no relaunch since docs/world-on-demand.md. Remembered as
+	// the last world played unless -project named this run's. False when no
+	// such world exists.
+	bool SwitchWorld(const std::string& name);
 	// Writes a NEW world beside this one and returns its name ("" on failure).
 	// CONTENT IS COPIED, PLACES ARE NOT (Michael, 2026-09-23): every catalog
 	// comes across — surfaces, monsters, items, terrain — so you can build in
@@ -617,12 +630,25 @@ private:
 	// and StartNewGame honours it, instead of the two silently tracking each
 	// other. Never set outside the harness.
 	LoadQueue m_loadQueue;
-	bool m_gameLoaded = false; // dungeon assets resident (first start done)
+	bool m_gameLoaded = false; // the loaded world's game assets are resident
+	// The world a start with nothing else to go on opens: `-project`, else
+	// settings.ini's last world, else dungeon-demo (ChooseProjectFolder). The
+	// harness's `reset` on a cold start and a one-world Start New Game use it.
+	std::string m_defaultWorld;
 	// From the command line, read once in the constructor. A `-project` run has
-	// its world chosen (the new-game list does not ask); `-newgame` is that
-	// list's relaunch into another world, started as soon as the menu is up.
+	// its world chosen (the new-game list does not ask).
 	bool m_worldFromCommandLine = false;
-	bool m_newGameOnBoot = false;
+	// A WORLD SWITCH ASKED FOR MID-FRAME, applied at the top of the next Update
+	// (ApplyPendingWorld). A switch destroys the world, and the asks come from
+	// inside widget callbacks and dialog updates whose callers carry on after
+	// they return — the m_pendingLanguage rule, for the same reason. With a
+	// save path it continues that save; without, it starts a new game.
+	struct PendingWorld {
+		std::string folder;
+		std::string savePath;
+	};
+	std::optional<PendingWorld> m_pendingWorld;
+	void ApplyPendingWorld();
 	u32 m_framesRendered = 0;
 	// Consecutive frames that have been quietly Playing — the allocation guard's
 	// warm-up counter (see SteadyStateFrame).
@@ -751,7 +777,11 @@ private:
 	bool m_governorAuto = false;
 	float m_governorScale = 1.0f;
 	float m_governorTargetMs = 1000.0f / 60.0f;
-	DungeonWorld m_world;
+	// THE WORLD, built when a game starts and destroyed when another world is
+	// chosen (docs/world-on-demand.md) — null on the title screen until then.
+	// Rebuilt rather than reset: a new object has none of the old world's
+	// caches to forget, and a world made from another shares its catalog ids.
+	std::unique_ptr<DungeonWorld> m_world;
 	// Typefaces, addressed by role (UI/FontLibrary.h). Declared BEFORE m_ui
 	// because every UIContext there borrows a Font from it, and configured from
 	// assets/fonts/fonts.cat before those contexts first resolve a role — see

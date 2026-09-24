@@ -6,6 +6,7 @@
 #include "Core/Loc.h"
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
+#include "Game/Project.h"
 #include "Game/SaveGame.h"
 #include "Game/Spell/Spell.h"
 #include "Graphics/DisplayEnum.h"
@@ -18,6 +19,13 @@
 namespace dungeon::game {
 
 namespace {
+// A world's title as the player reads it (its manifest `name`), from its
+// folder name; the folder itself when the manifest names nothing.
+std::string WorldTitle(const std::string& folder) {
+	const std::string title =
+		Project::ReadName(Project::FolderFor(paths::Asset("projects"), folder));
+	return title.empty() ? folder : title;
+}
 
 // Font pixel heights at the 900px-tall design window (the layouts in
 // BuildMenu/BuildHud are authored against the same design size). UpdateFonts
@@ -577,14 +585,18 @@ void GameUI::BuildMenuList() {
 		// WHICH WORLD first, when there is a choice to make. Asked at the
 		// click, not at build: a world made in the editor since the list was
 		// built must be offered.
-		const size_t worlds = onListWorlds ? onListWorlds().size() : 0;
-		if (worlds > 1) {
+		const std::vector<WorldChoice> worlds =
+			onListWorlds ? onListWorlds() : std::vector<WorldChoice>{};
+		if (worlds.size() > 1) {
 			Click();
 			OpenWorldsPage();
 			return;
 		}
 		Click(0.6f);
-		onStartNewGame();
+		// One world: straight into THAT one — which is not necessarily the
+		// default a harness start would open.
+		if (worlds.size() == 1 && onStartNewGameIn) onStartNewGameIn(worlds.front().folder);
+		else onStartNewGame();
 	});
 	menu->AddItem(loc::Tr("menu.settings"), [this] {
 		Click();
@@ -1113,7 +1125,9 @@ void GameUI::OpenSavesPage(SavesMode mode) {
 		for (const SaveSlot& slot : slots) {
 			ui::SlotList::Row row;
 			row.primary = slot.name;
-			row.secondary = slot.timestamp;
+			// WHICH WORLD, beside when: the list holds every world's saves, and
+			// loading one from another world switches to it.
+			row.secondary = WorldTitle(slot.world) + "  ·  " + slot.timestamp;
 			if (mode == SavesMode::Save)
 				row.onActivate = [this, name = slot.name] {
 					if (m_saveField) {
@@ -1574,6 +1588,10 @@ std::string GameUI::UiTreeNames() {
 // UIContext owns all widgets.
 // ============================================================================
 void GameUI::BuildHud() {
+	// CLEARED FIRST: a game load builds the HUD, and a second world's load
+	// builds it again (docs/world-on-demand.md) — it used to append a second
+	// copy on top. Every cached HUD pointer is reassigned below.
+	m_hudUi.Clear();
 	// All HUD bounds are fractions of the window. Party-bar slots start empty
 	// and are sized by ApplyPartyBarScale (scale slider); everything below the
 	// bar is authored at scale 1 and shifted when the bar grows.

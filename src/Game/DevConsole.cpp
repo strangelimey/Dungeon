@@ -635,6 +635,12 @@ bool DevConsole::Execute(const std::string& line) {
 
 	for (const Command& cmd : m_commands) {
 		if (cmd.name == name) {
+			if (gate) {
+				if (std::string why = gate(name); !why.empty()) {
+					Refuse(std::move(why));
+					return true;
+				}
+			}
 			cmd.fn(args);
 			return true;
 		}

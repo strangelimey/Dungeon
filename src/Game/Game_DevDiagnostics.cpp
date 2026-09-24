@@ -71,13 +71,13 @@ void Game::RegisterDiagnosticCommands() {
 	m_console.Register(
 		"pipeline", "one-pipeline check: what moved health, and whether anything went around it",
 		[this](const std::vector<std::string>&) {
-			for (const std::string& line : m_world.DamageLedgerReport())
+			for (const std::string& line : m_world->DamageLedgerReport())
 				m_console.Print(line);
 		});
 	m_console.Register(
 		"pipelineguard", "arm the one-pipeline check: pipelineguard [on|off|strict on|strict off|reset]",
 		[this](const std::vector<std::string>& args) {
-			ledger::Ledger& led = m_world.DamageLedger();
+			ledger::Ledger& led = m_world->DamageLedger();
 			if (!args.empty()) {
 				const std::string& a = args[0];
 				if (a == "on" || a == "off") {
@@ -85,12 +85,12 @@ void Game::RegisterDiagnosticCommands() {
 					// An arming takes a FRESH baseline: whatever moved while it was
 					// off is not a violation, it is simply unobserved, and reporting
 					// it would make turning the check on look like finding a bug.
-					m_world.RebaseDamageLedger();
+					m_world->RebaseDamageLedger();
 				} else if (a == "strict") {
 					led.SetStrict(args.size() < 2 || args[1] == "on");
 				} else if (a == "reset") {
 					led.ResetStats();
-					m_world.RebaseDamageLedger();
+					m_world->RebaseDamageLedger();
 				} else {
 					m_console.Print("usage: pipelineguard [on|off|strict on|strict off|reset]");
 					return;

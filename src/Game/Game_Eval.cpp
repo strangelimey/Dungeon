@@ -57,7 +57,7 @@ bool Game::ResetForEval() {
 		m_ui.onStartNewGame();
 		return true;
 	}
-	m_world.ResetForEval();
+	m_world->ResetForEval();
 	ResetRoster();  // fresh members, keeping each slot's loaded portrait
 	m_ui.RefreshSheet();
 	m_ui.ClearLog();
@@ -101,18 +101,18 @@ int Game::StepWorld(float seconds, StepStop& why) {
 	//
 	// Only when it STARTS resting: an ordinary step must not acquire a new way
 	// to end early, or every other measurement in the harness changes meaning.
-	const bool restingStep = m_world.Resting();
+	const bool restingStep = m_world->Resting();
 	int ran = 0;
 	for (; ran < steps; ++ran) {
-		m_world.Update(kNoInput, kTick, m_time, /*acceptInput=*/false);
+		m_world->Update(kNoInput, kTick, m_time, /*acceptInput=*/false);
 		m_time += kTick; // lights, flicker and rune pulses ride sim time too
 		// Followed nowhere: see the header. Reported by the caller as a short run.
-		if (m_world.ConsumeLevelTransition()) {
+		if (m_world->ConsumeLevelTransition()) {
 			++ran;
 			why = StepStop::LevelChange;
 			break;
 		}
-		if (restingStep && !m_world.Resting()) {
+		if (restingStep && !m_world->Resting()) {
 			++ran;
 			why = StepStop::RestEnded;
 			break;
