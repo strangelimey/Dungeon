@@ -30,7 +30,7 @@ The `[FAIL]` line prints the exact pattern that was missing. Then look at
   exe. Report plus dump missing usually means `crash::Install()` is not running.
 - **`throw` failing on the stack pattern** — the throw-time capture is the
   fragile part. A stack naming `Main.cpp` (the catch site) instead of
-  `Game_DevCommands.cpp` (the throw) means the vectored handler did not fire.
+  `Game_DevDiagnostics.cpp` (the throw) means the vectored handler did not fire.
 - **`stall` / `restart` failing** — stall detection must not ride the reboot
   path; a worker with no `autoRestart` still has to be recorded.
 - **A case timing out at startup** — that is the harness, not the product. It

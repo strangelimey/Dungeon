@@ -70,8 +70,36 @@ MANIFEST = os.path.join(PROJ, "project.ini")
 EXE = os.path.join(ROOT, r"build\debug\bin\Dungeon.exe")
 LOG = os.path.join(ROOT, r"build\debug\bin\dungeon.log")
 SCRIPTS = os.path.join(ROOT, r"tools\EvalScripts")
-SAVE = os.path.join(os.environ["USERPROFILE"],
-                    r"OneDrive\Documents\DungeonSaves\worldtrip.dsav")
+
+
+def documents_dir():
+    # The GAME'S rule, asked the same way (Core/Paths.cpp SaveDir): the
+    # Documents KNOWN FOLDER. It was hardcoded as %USERPROFILE%\OneDrive\
+    # Documents, which is right only where OneDrive has redirected Documents -
+    # anywhere else the game saves to one folder and this reads another.
+    # Refuses rather than guessing, since a wrong guess reads as "no save".
+    import ctypes
+    import uuid
+    from ctypes import wintypes
+
+    class GUID(ctypes.Structure):
+        _fields_ = [("Data1", wintypes.DWORD), ("Data2", wintypes.WORD),
+                    ("Data3", wintypes.WORD), ("Data4", ctypes.c_ubyte * 8)]
+
+    folder = GUID.from_buffer_copy(
+        uuid.UUID("{FDD39AD0-238F-46AF-ADB4-6C85480369C7}").bytes_le)  # FOLDERID_Documents
+    path = ctypes.c_wchar_p()
+    hr = ctypes.windll.shell32.SHGetKnownFolderPath(
+        ctypes.byref(folder), 0, None, ctypes.byref(path))
+    try:
+        if hr != 0 or not path.value:
+            raise OSError("SHGetKnownFolderPath(Documents) failed: 0x%08X" % (hr & 0xFFFFFFFF))
+        return path.value
+    finally:
+        ctypes.windll.ole32.CoTaskMemFree(path)
+
+
+SAVE = os.path.join(documents_dir(), r"DungeonSaves\worldtrip.dsav")
 
 failures = 0
 

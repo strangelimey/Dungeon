@@ -70,7 +70,7 @@ $cases = @(
 		survives = $true
 		expect = @(
 			"exception on 'main': crashpoke: a deliberate main-thread throw",
-			'Game_DevCommands\.cpp:\d+'   # the THROW site, not the catch site
+			'Game_DevDiagnostics\.cpp:\d+'   # the THROW site, not the catch site
 		)
 		dump = $false
 	},
@@ -83,7 +83,7 @@ $cases = @(
 		expect = @(
 			"exception on 'demo\.thrower' \(worker \d+, tick 0\)",
 			"exception on 'demo\.thrower' \(worker \d+, tick [1-9]\d*\)",  # more than one
-			'Game_DevCommands\.cpp:\d+'
+			'Game_DevDiagnostics\.cpp:\d+'
 		)
 		dump = $false
 	},
@@ -105,7 +105,7 @@ $cases = @(
 		expect = @(
 			"probe 'demo\.wedged' #\d+ \[stalled\]",
 			'DelayExecution',              # the OS frame IS the diagnosis here
-			'Game_DevCommands\.cpp:\d+'    # and the line it is stuck on
+			'Game_DevDiagnostics\.cpp:\d+'    # and the line it is stuck on
 		)
 		dump = $false
 	},
@@ -132,7 +132,7 @@ $cases = @(
 			"fault on 'main': access violation writing 0x0",
 			'CRASH: access violation',
 			'faulting stack:',
-			'Game_DevCommands\.cpp:\d+'    # walked from the CONTEXT record
+			'Game_DevDiagnostics\.cpp:\d+'    # walked from the CONTEXT record
 		)
 		dump = $true
 	},

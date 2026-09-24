@@ -183,11 +183,11 @@ nothing is built untested.
      chain records the stack of every C++ throw (`0xE06D7363`) on the throwing
      thread, before any unwinding. Catch sites read it back through
      `ThrowFrames`. Measured: a `crashpoke throw` now names
-     `Game_DevCommands.cpp:275` — the `throw` itself — where the catch site is
+     `Game_DevDiagnostics.cpp:208` — the `throw` itself — where the catch site is
      `Main.cpp:131`.
    - **Fault-context walk.** `StackWalk64` over the `CONTEXT_RECORD`, since a
      filter's own stack says only that a filter ran. Measured: a null write
-     names `Game_DevCommands.cpp:299`, the faulting line. Run LAST on the crash
+     names `Game_DevDiagnostics.cpp:232`, the faulting line. Run LAST on the crash
      path, after the record and the dump, because it is the riskiest step there.
 
    `AllocTrack`'s private symbolizer is gone (~45 lines) and it now shares this
@@ -202,7 +202,7 @@ nothing is built untested.
    ```
    probe 'demo.wedged' #6 [stalled] tick 0, beat 5159 ms ago:
      ZwDelayExecution → SleepEx → sleep_for
-     Game_DevCommands.cpp:260        <- the line it is stuck on
+     Game_DevDiagnostics.cpp:192     <- the line it is stuck on
    ```
 
    The walk uses `RtlLookupFunctionEntry` + `RtlVirtualUnwind`, **not**
