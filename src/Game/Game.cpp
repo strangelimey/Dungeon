@@ -82,7 +82,9 @@ std::string Game::ChooseProjectFolder() {
 		for (int i = 1; i + 1 < argc; ++i)
 			if (std::wstring_view(argv[i]) == L"-project") {
 				const std::wstring wide(argv[i + 1]);
-				name.assign(wide.begin(), wide.end()); // world names are ASCII
+				// World names are ASCII (CreateWorld filters them), so a
+				// narrowing per character loses nothing.
+				for (const wchar_t ch : wide) name += static_cast<char>(ch);
 				break;
 			}
 		LocalFree(argv);
@@ -124,6 +126,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_monsterDialog(device, m_fonts), m_balanceDialog(device, m_fonts),
 	  m_levelSettingsDialog(device, m_fonts),
 	  m_worldSettingsDialog(device, m_fonts),
+	  m_worldsDialog(device, m_fonts),
 	  m_validateDialog(device, m_fonts),
 	  m_generateDialog(device, m_fonts),
 	  m_typeDialog(device, m_fonts),
@@ -1372,6 +1375,11 @@ void Game::Update(float dt) {
 										 static_cast<float>(m_window.Height()));
 			return;
 		}
+		if (m_worldsDialog.IsOpen()) {
+			m_worldsDialog.Update(input, static_cast<float>(m_window.Width()),
+								  static_cast<float>(m_window.Height()));
+			return;
+		}
 		if (input.WasKeyPressed(VK_ESCAPE) && !m_console.IsOpen()) {
 			m_audio.Play(m_sounds.click, 0.5f);
 			m_ui.ResetToMainPage();
@@ -1949,6 +1957,8 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	// screen is up is already behind it.
 	if (m_worldSettingsDialog.IsOpen())
 		m_worldSettingsDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
+	if (m_worldsDialog.IsOpen())
+		m_worldsDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	if (m_generateDialog.IsOpen())
 		m_generateDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	if (m_validateDialog.IsOpen())

@@ -62,6 +62,7 @@
 #include "Game/WorldMap.h"
 #include "Game/WorldMapView.h"
 #include "Game/WorldSettingsDialog.h"
+#include "Game/WorldsDialog.h"
 #include "Game/MonsterConfigDialog.h"
 #include "Game/ButtonInspector.h"
 #include "Game/DoorInspector.h"
@@ -750,6 +751,9 @@ private:
 	// harness level, its areas and its doorways. Opened by the world screen's
 	// toolbar, and by a right-click on a doorway (which opens it ON that one).
 	WorldSettingsDialog m_worldSettingsDialog;
+	// The worlds BESIDE this one (W8): list, open (relaunches), create. The
+	// world toolbar's leftmost disc; `worlds` is the same thing typed.
+	WorldsDialog m_worldsDialog;
 	ValidateDialog m_validateDialog;
 	GenerateDialog m_generateDialog;
 	// Per-TYPE catalog editor, opened by right-clicking any palette row: a form

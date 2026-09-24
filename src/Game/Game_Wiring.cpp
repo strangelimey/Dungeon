@@ -6,6 +6,7 @@
 
 #include "Core/Loc.h"
 #include "Core/Log.h"
+#include "Core/Paths.h"
 #include "Game/AssetUtil.h"
 
 #include <cmath> // fabs — "is this slider still on the type's value?"
@@ -204,6 +205,9 @@ void Game::WireModuleCallbacks() {
 	};
 	m_worldMapView.onTool = [this](WorldMapView::Tool tool) {
 		switch (tool) {
+		case WorldMapView::Tool::Worlds:
+			m_worldsDialog.Open(m_project.FolderName());
+			break;
 		case WorldMapView::Tool::Settings: OpenWorldSettings({}); break;
 		case WorldMapView::Tool::Save:
 			// The WORLD alone, not savemap: the band is the world screen's, and
@@ -225,6 +229,12 @@ void Game::WireModuleCallbacks() {
 	m_mapView.onShowWorld = [this] { ShowMapPage(MapPage::World); };
 	m_worldMapView.onShowDungeon = [this] { ShowMapPage(MapPage::Dungeon); };
 	WireWorldSettingsDialog();
+	// The worlds dialog is the `worlds` command's three verbs with a face, and
+	// calls the SAME two functions — so the console and the dialog cannot
+	// disagree about what a name is allowed to be or what switching does.
+	m_worldsDialog.onList = [] { return Project::List(paths::Asset("projects")); };
+	m_worldsDialog.onCreate = [this](const std::string& n) { return CreateWorld(n); };
+	m_worldsDialog.onSwitch = [this](const std::string& n) { return SwitchWorld(n); };
 
 	m_mapEditor.onNewAsset = [this](MapEditor::PaletteCat cat) {
 		// PURE-DATA CATEGORIES SKIP THE ASSET DIALOG. A dungeon has no texture

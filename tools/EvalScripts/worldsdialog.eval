@@ -1,0 +1,26 @@
+; worldsdialog.eval — the worlds dialog (W8), driven through the calls its rows make.
+;
+; `worlds dialog open <name>` is ONE click on that row's Open. A SECOND one on
+; the same row relaunches the game and ends the run, so this script never makes
+; one: it checks the ARM, which is the half that can be wrong without anyone
+; noticing, and leaves the relaunch to `-project`, the scenario path.
+;
+; The world it creates is removed by WorldTest's cleanup, not here.
+logecho on
+reset
+; Refused in a level: the world screen is the one state that routes input to it.
+worlds dialog
+worldmap on
+worlds dialog
+; Three refusals, each with its own sentence — a name that filters to nothing,
+; and (after the create) a duplicate.
+worlds dialog create !!!
+worlds dialog create wt_dlg
+worlds dialog create wt_dlg
+; The running world offers no Open, so a click on it arms nothing new.
+worlds dialog open dungeon-demo
+worlds dialog off
+; Reopened: nothing armed carries over from the last time.
+worlds dialog
+worlds dialog open wt_dlg
+worlds dialog off

@@ -230,7 +230,10 @@ bool Game::SwitchWorld(const std::string& name) {
 		log::Warn("no world '{}' under {}", name, root);
 		return false;
 	}
-	if (name == m_settings.projectName) return true; // already there
+	// ALREADY THERE means the world RUNNING, not the one the setting names —
+	// a `-project` run leaves the setting alone, so comparing against it
+	// refused to leave a scenario for the world settings.ini already held.
+	if (name == m_project.FolderName()) return true;
 	m_settings.projectName = name;
 	m_settings.Save();
 	RestartApp(); // the choice is read before anything exists — see the header

@@ -38,6 +38,9 @@
 #      span buys, refuses an impassable square instead of clamping, and reveals
 #      what walking past a place should reveal. The times are read off
 #      terrain.cat, never off the run.
+#  14. A WORLD OF ITS OWN — made, opened by name with -project, and clean.
+#  15. THE WORLDS DIALOG — lists, creates, refuses each mistake in its own
+#      words, and ARMS an Open rather than relaunching on one click.
 #
 # Every file this touches is restored, including the save it downgrades.
 import io
@@ -584,6 +587,49 @@ try:
     check("validate: clean" in log,
           "a world made this way passes the checker as it stands")
 
+    # --- phase 15: the worlds dialog ----------------------------------------
+    print("\n15 - the worlds dialog lists, creates and arms")
+    log = run("worldsdialog.eval")
+    dlg = [l.split("console: ", 1)[1] for l in log.splitlines()
+           if "console: worlds dialog" in l or "console: the worlds dialog" in l]
+    check(any("needs the world map" in l for l in dlg),
+          "it refuses to open inside a level, where nothing would route input to it")
+    # "worlds dialog open: [a b c] armed 'x' - note" -> (state, {worlds}, x, note).
+    # The LIST is parsed rather than matched whole: phase 14's scratch world is
+    # still on disk here (cleanup runs at the end), and a check that spelled
+    # the list out would be testing the order phases run in.
+    def parse(l):
+        if not l.startswith("worlds dialog "):
+            return None
+        state = l.split(":", 1)[0].split()[-1]
+        worlds = set(l.split("[", 1)[1].split("]", 1)[0].split())
+        armed = l.split("armed '", 1)[1].split("'", 1)[0]
+        return state, worlds, armed, l.split(" - ", 1)[1]
+    rows = [r for r in map(parse, dlg) if r]
+    check(bool(rows) and rows[0][0] == "open" and "dungeon-demo" in rows[0][1]
+          and "wt_dlg" not in rows[0][1] and rows[0][2] == "",
+          "on the world screen it opens, listing the worlds on disk, nothing armed")
+    # EACH REFUSAL NAMES ITS OWN RULE (W4's lesson): a check for the duplicate
+    # rule would pass with that rule deleted if both refusals said one thing.
+    check(any("armed '' - Type a name first" in l for l in dlg),
+          "a name that filters to nothing is refused, and says so")
+    check(any("wt_dlg" in w and a == "wt_dlg" and n.startswith("Created 'wt_dlg'")
+              for _, w, a, n in rows),
+          "a create lists the new world and ARMS it - one click from going there")
+    check(any("already exists" in l for l in dlg),
+          "a second create of that name is refused with its own sentence")
+    check(os.path.isfile(os.path.join(ROOT, r"assets\projects\wt_dlg\project.ini")),
+          "...and the world is on disk, which is what the list was re-read from")
+    # THE CONTROL for the arm: reopening starts with NOTHING armed, so the
+    # armed row after the next click is that click's doing, not a leftover.
+    reopen = [i for i, (s, w, a, _) in enumerate(rows)
+              if s == "open" and "wt_dlg" in w and a == ""]
+    armed = [i for i, (_, _, a, n) in enumerate(rows)
+             if a == "wt_dlg" and "Click Relaunch to open 'wt_dlg'" in n]
+    check(bool(reopen) and bool(armed) and armed[0] > reopen[-1],
+          "reopened it arms nothing; one click on Open arms that row and says "
+          "what the second will do", " | ".join(dlg))
+
 finally:
     for p, s in originals.items():
         write(p, s)
@@ -594,8 +640,9 @@ finally:
     # transition, and report that levelcheck never answered. Clean up.
     # The level phase 13 makes, and the save. A level file left behind would
     # make the NEXT run's "created crypt3" land on crypt4 and the check miss.
-    shutil.rmtree(os.path.join(ROOT, r"assets\projects\wt_scratch"),
-                  ignore_errors=True)
+    for scratch in ("wt_scratch", "wt_dlg"):
+        shutil.rmtree(os.path.join(ROOT, "assets", "projects", scratch),
+                      ignore_errors=True)
     for leftover in (SAVE, SAVE + ".bak",
                      os.path.join(PROJ, r"levels\crypt3.map"),
                      os.path.join(PROJ, r"levels\crypt3.ent")):

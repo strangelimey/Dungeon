@@ -342,6 +342,36 @@ Dev: `worlds | new <name> | load <name>`. Note that `worlds load` must not
 appear in an eval script — it relaunches, which would end the run mid-script;
 opening a world for a test is the `-project` flag's job.
 
+**W8 — the worlds have a face.** DONE (2026-09-23). W7's three verbs were
+console-only; they are now the world toolbar's LEFTMOST disc (a globe — apart
+from the other four in meaning, since every other disc acts on THIS world and
+this one is the way to the others). `WorldsDialog` lists the worlds on disk, the
+running one marked and offering no button, with a name field and Create below.
+
+It calls the SAME `CreateWorld` / `SwitchWorld` the console does, so the two
+cannot disagree about what a name may be or what switching means. Two things
+were decided rather than inherited:
+
+- OPEN IS ARMED. The first click on a row's Open turns it into Relaunch and says
+  what the second click will do (and that anything unsaved is lost); a click on
+  a different row moves the arm instead of switching; Esc disarms before it
+  closes. It is one of only two buttons in the editor undo cannot reach — the
+  type editor's Delete makes the same bargain.
+- A CREATE ARMS THE NEW WORLD. Making one is nearly always the first half of
+  going there, so its row comes back as Relaunch. The duplicate and the empty
+  name are refused by the dialog with their OWN sentences before the owner is
+  asked (the owner's single "" would have been one sentence for two mistakes —
+  W4's lesson).
+
+It also fixed a W7 defect the dialog made reachable: `SwitchWorld`'s "already
+there" compared against the SETTING, not the world RUNNING, so a `-project`
+scenario could not switch to the world settings.ini already named — it returned
+success and did nothing.
+
+Dev: `worlds dialog [open|create <name>|off]` — the rows' own calls, for a
+harness. The same rule as `worlds load` applies: a SECOND `open` of one row
+relaunches, so a script checks the arm and never makes it. WorldTest phase 15.
+
 What this does not change
 -------------------------
 

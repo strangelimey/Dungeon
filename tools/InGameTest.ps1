@@ -103,7 +103,16 @@ $screens = @(
 	# than any other screen, so being the one nobody audited was exactly
 	# backwards; the `sheet` dev command opens it through the same entry point
 	# the click uses, and it is swept like everything else now.
-	@{ label = 'sweep_sheet';  viaConsole = $true;  open = { Run-Cmd 'sheet 0' }; close = { Run-Cmd 'sheet off' } }
+	@{ label = 'sweep_sheet';  viaConsole = $true;  open = { Run-Cmd 'sheet 0' }; close = { Run-Cmd 'sheet off' } },
+	# The WORLD screen's two dialogs, LAST because reaching them leaves the
+	# dungeon: each one opens only on the world map (the one state that routes
+	# input to it), so the sweep goes there and comes back.
+	@{ label = 'sweep_worldsettings'; viaConsole = $true
+	   open = { Run-Cmd 'worldmap on'; Run-Cmd 'worldsettings' }
+	   close = { Run-Cmd 'worldsettings off'; Run-Cmd 'worldmap off' } },
+	@{ label = 'sweep_worlds'; viaConsole = $true
+	   open = { Run-Cmd 'worldmap on'; Run-Cmd 'worlds dialog' }
+	   close = { Run-Cmd 'worlds dialog off'; Run-Cmd 'worldmap off' } }
 )
 # NOT swept, and named rather than left to be assumed. The settings page is
 # reached by menu navigation whose entry order shifts with whether a save

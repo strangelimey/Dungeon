@@ -576,7 +576,8 @@ void Game::RegisterDevCommands() {
 			m_console.Print(std::format("spawned WEDGED worker #{} (use kill)", id));
 		});
 	m_console.Register(
-		"worlds", "the worlds beside this one: worlds | new <name> | load <name>",
+		"worlds",
+		"the worlds beside this one: worlds | new <name> | load <name> | dialog",
 		[this](const std::vector<std::string>& a) {
 			// A WORLD IS A PROJECT FOLDER (assets/projects/<name>): its own
 			// overworld, dungeons, levels and content. Switching RELAUNCHES,
@@ -609,7 +610,36 @@ void Game::RegisterDevCommands() {
 												  : "no such world");
 				return;
 			}
-			m_console.Print("usage: worlds [new|load] <name>");
+			if (a[0] == "dialog") {
+				// The toolbar's Worlds disc and its rows, for a harness. The
+				// dialog's clicks are the SAME calls (ClickOpen / Create), so
+				// what this reports is what a mouse would have got. ON THE
+				// WORLD SCREEN ONLY, the `worldsettings` rule: that is the one
+				// state whose Update routes input to it.
+				if (a.size() >= 2 && a[1] == "off") {
+					m_worldsDialog.Close();
+				} else if (m_state != AppState::WorldMap) {
+					m_console.Print("the worlds dialog needs the world map "
+									"(try `worldmap on`)");
+					return;
+				} else if (!m_worldsDialog.IsOpen()) {
+					m_worldsDialog.Open(m_project.FolderName());
+				}
+				if (m_worldsDialog.IsOpen() && a.size() >= 3) {
+					if (a[1] == "open") m_worldsDialog.ClickOpen(a[2]);
+					else if (a[1] == "create") m_worldsDialog.Create(a[2]);
+				}
+				std::string list;
+				for (const std::string& w : m_worldsDialog.Worlds())
+					list += (list.empty() ? "" : " ") + w;
+				m_console.Print(std::format(
+					"worlds dialog {}: [{}] armed '{}' - {}",
+					m_worldsDialog.IsOpen() ? "open" : "closed", list,
+					m_worldsDialog.Armed(), m_worldsDialog.Note()));
+				return;
+			}
+			m_console.Print("usage: worlds [new|load] <name> | dialog "
+							"[open|create <name>|off]");
 		});
 	m_console.Register(
 		"mappage",

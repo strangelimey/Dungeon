@@ -55,8 +55,9 @@ public:
 	// four verbs where the level editor has ten — but the SAME one-list idiom
 	// MapView uses: geometry, hover, click dispatch and drawing all walk
 	// ToolbarButtons(), so adding a tool (W5's dungeon picker) is one line and
-	// cannot land in three of the four places.
-	enum class Tool { None, Settings, Save, Undo, Redo };
+	// cannot land in three of the four places. `Worlds` is the one tool about
+	// something ABOVE this world — the other worlds beside it (W8).
+	enum class Tool { None, Worlds, Settings, Save, Undo, Redo };
 
 	WorldMapView(gfx::GraphicsDevice& device, ui::FontLibrary& fonts);
 
@@ -157,7 +158,8 @@ private:
 	// Borrowed from the shared cache (AssetUtil's ToolbarIcon) — the level
 	// editor's band draws from the same textures.
 	const gfx::Texture *m_icoSettings = nullptr, *m_icoSave = nullptr,
-					   *m_icoUndo = nullptr, *m_icoRedo = nullptr;
+					   *m_icoUndo = nullptr, *m_icoRedo = nullptr,
+					   *m_icoWorlds = nullptr;
 	Tool m_hoverTool = Tool::None; // tracked by Update in WINDOW pixels; the
 								   // render re-derives its own geometry and
 								   // matches by IDENTITY, never by coordinate

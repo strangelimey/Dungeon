@@ -69,6 +69,7 @@ add_library(Game STATIC
 	WorldMap.cpp
 	WorldMapView.cpp
 	WorldSettingsDialog.cpp
+	WorldsDialog.cpp
 	Placement.cpp
 	PartyHudDraw.cpp
 	Roll.cpp
