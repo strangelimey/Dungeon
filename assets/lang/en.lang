@@ -15,6 +15,7 @@ pause.title=PAUSED
 menu.subtitle=an old-school crawler
 menu.subtitle_settings=settings
 menu.subtitle_load=choose a saved game
+menu.subtitle_worlds=choose a world for the new game
 menu.subtitle_save=name your save
 loading.descending=descending...
 

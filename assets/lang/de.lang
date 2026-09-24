@@ -16,6 +16,7 @@ pause.title=PAUSE
 menu.subtitle=ein Dungeon-Crawler der alten Schule
 menu.subtitle_settings=Einstellungen
 menu.subtitle_load=einen Spielstand wählen
+menu.subtitle_worlds=eine Welt für das neue Spiel wählen
 menu.subtitle_save=Spielstand benennen
 loading.descending=Abstieg...
 

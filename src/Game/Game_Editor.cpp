@@ -223,7 +223,7 @@ bool WriteStarterWorld(const Project& p) {
 // is a file operation rather than a live edit: nothing about the running game
 // changes until it is opened, which is what makes switching a relaunch.
 
-bool Game::SwitchWorld(const std::string& name) {
+bool Game::SwitchWorld(const std::string& name, const std::string& relaunchArgs) {
 	const std::string root = paths::Asset("projects");
 	const std::vector<std::string> found = Project::List(root);
 	if (std::find(found.begin(), found.end(), name) == found.end()) {
@@ -236,8 +236,22 @@ bool Game::SwitchWorld(const std::string& name) {
 	if (name == m_project.FolderName()) return true;
 	m_settings.projectName = name;
 	m_settings.Save();
-	RestartApp(); // the choice is read before anything exists — see the header
+	RestartApp(relaunchArgs); // the choice is read before anything exists — see the header
 	return true;
+}
+
+// The new-game world list's pick. The running world starts at once; any other
+// is the ordinary switch (persisted, so Continue and the next launch follow
+// it) plus `-newgame`, so the fresh process goes on to the game it was
+// relaunched for instead of stopping at the title.
+void Game::StartNewGameIn(const std::string& folder) {
+	if (folder == m_project.FolderName()) {
+		m_ui.onStartNewGame();
+		return;
+	}
+	if (!SwitchWorld(folder, "-newgame"))
+		log::Warn("new game: world '{}' is gone - staying in '{}'", folder,
+				  m_project.FolderName());
 }
 
 // --- deleting a world (W9) ---------------------------------------------------

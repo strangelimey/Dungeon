@@ -185,6 +185,11 @@ struct Project {
 	static std::vector<std::string> List(const std::string& root);
 	// The folder a project name lives in (no trailing slash).
 	static std::string FolderFor(const std::string& root, const std::string& name);
+	// The manifest's `name` (what a player sees: "Dungeon Demo"), read from
+	// project.ini ALONE — the new-game world list asks it of every world on
+	// disk, and a full Load would parse every catalog of every one to show a
+	// title. Empty when the file is missing or names nothing.
+	static std::string ReadName(const std::string& folder);
 	// The name of the folder this project was LOADED from — what `List`
 	// returns and what settings.ini stores. Read it rather than the setting
 	// when reporting which world is open: a `-project` run deliberately

@@ -9,6 +9,8 @@
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
 
+#include <algorithm>
+#include <cctype>
 #include <cmath> // fabs — "is this slider still on the type's value?"
 #include <string>
 #include <utility>
@@ -40,6 +42,31 @@ void Game::WireModuleCallbacks() {
 			m_stateFrameMark = m_framesRendered;
 		}
 	};
+	// The worlds "Start New Game" offers. A `-project` launch offers only its
+	// own: the world is already chosen for that run (it is how a harness or a
+	// test scenario opens one), so the list must not stand between it and the
+	// game — the keystroke harnesses press Enter there and expect to be playing.
+	m_ui.onListWorlds = [this] {
+		std::vector<GameUI::WorldChoice> worlds;
+		const std::string root = paths::Asset("projects");
+		for (const std::string& folder : Project::List(root)) {
+			if (m_worldFromCommandLine && folder != m_project.FolderName()) continue;
+			worlds.push_back({folder, Project::ReadName(Project::FolderFor(root, folder))});
+		}
+		// BY TITLE, ignoring case: the folder sort is byte order, which put
+		// "Test-World" above "Dungeon Demo" because capitals sort first.
+		const auto key = [](const GameUI::WorldChoice& w) {
+			std::string k = w.display.empty() ? w.folder : w.display;
+			for (char& ch : k) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+			return k;
+		};
+		std::sort(worlds.begin(), worlds.end(),
+				  [&](const GameUI::WorldChoice& a, const GameUI::WorldChoice& b) {
+					  return key(a) < key(b);
+				  });
+		return worlds;
+	};
+	m_ui.onStartNewGameIn = [this](const std::string& folder) { StartNewGameIn(folder); };
 	m_ui.onQuit = [this] { m_quitRequested = true; };
 	m_ui.onResume = [this] { m_state = m_resumeState; };
 	m_ui.onLoadSave = [this](const std::string& path) {

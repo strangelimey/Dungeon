@@ -388,8 +388,8 @@ private:
 	static constexpr const char* kDefaultProject = "dungeon-demo";
 	// Persists the choice and relaunches into it. False when no such world
 	// exists — the caller reports it rather than the game restarting into
-	// nothing.
-	bool SwitchWorld(const std::string& name);
+	// nothing. `relaunchArgs` ride the new process's command line.
+	bool SwitchWorld(const std::string& name, const std::string& relaunchArgs = {});
 	// Writes a NEW world beside this one and returns its name ("" on failure).
 	// CONTENT IS COPIED, PLACES ARE NOT (Michael, 2026-09-23): every catalog
 	// comes across — surfaces, monsters, items, terrain — so you can build in
@@ -558,8 +558,12 @@ private:
 	// the Video tab's Apply button for non-adapter changes.
 	void ApplyDisplaySettings();
 	// Relaunches the executable (a fresh process picks up the new adapter, the
-	// only way to switch GPUs) and flags this instance to quit.
-	void RestartApp();
+	// only way to switch GPUs, or a new world) and flags this instance to quit.
+	// `extraArgs` go on the new command line (`-newgame` for the world list).
+	void RestartApp(const std::string& extraArgs = {});
+	// The new-game world list's pick: a new game now if it is the world
+	// running, else remember it and relaunch into a new game there.
+	void StartNewGameIn(const std::string& folder);
 	// Loads the settings' language file (falling back to English when it is
 	// missing); rebuild=true also re-creates every UI page in the new
 	// language. The language dropdown only records m_pendingLanguage —
@@ -607,6 +611,11 @@ private:
 	// other. Never set outside the harness.
 	LoadQueue m_loadQueue;
 	bool m_gameLoaded = false; // dungeon assets resident (first start done)
+	// From the command line, read once in the constructor. A `-project` run has
+	// its world chosen (the new-game list does not ask); `-newgame` is that
+	// list's relaunch into another world, started as soon as the menu is up.
+	bool m_worldFromCommandLine = false;
+	bool m_newGameOnBoot = false;
 	u32 m_framesRendered = 0;
 	// Consecutive frames that have been quietly Playing — the allocation guard's
 	// warm-up counter (see SteadyStateFrame).

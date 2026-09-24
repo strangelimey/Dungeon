@@ -574,6 +574,15 @@ void GameUI::BuildMenuList() {
 		});
 	}
 	menu->AddItem(loc::Tr("menu.start"), [this] {
+		// WHICH WORLD first, when there is a choice to make. Asked at the
+		// click, not at build: a world made in the editor since the list was
+		// built must be offered.
+		const size_t worlds = onListWorlds ? onListWorlds().size() : 0;
+		if (worlds > 1) {
+			Click();
+			OpenWorldsPage();
+			return;
+		}
 		Click(0.6f);
 		onStartNewGame();
 	});
@@ -1176,6 +1185,43 @@ void GameUI::OpenSavesPage(SavesMode mode) {
 	m_menuPage = MenuPage::Saves;
 }
 
+// The new-game world list: one row per world, its title and (dim) its folder,
+// the Load page's own list control so the two pages read as one family. No
+// delete here — that is the editor's Worlds dialog, behind a typed name.
+void GameUI::OpenWorldsPage() {
+	m_savesUi.Clear();
+	m_saveField = nullptr; // the Save page's pointers die with this context too
+	m_saveButton = nullptr;
+	const std::vector<WorldChoice> worlds =
+		onListWorlds ? onListWorlds() : std::vector<WorldChoice>{};
+
+	constexpr float kColW = 0.45f;
+	constexpr float kColX = (1.0f - kColW) * 0.5f;
+	constexpr float kRowH = 0.05f;
+	constexpr float kBackW = 0.14f;
+	auto* list = m_savesUi.Add<ui::SlotList>(
+		gfx::Rect{kColX, kMenuContentY, kColW, kSavesBackY - 0.02f - kMenuContentY});
+	for (const WorldChoice& w : worlds) {
+		ui::SlotList::Row row;
+		row.primary = w.display.empty() ? w.folder : w.display;
+		// The folder, dim at the right — but only when it says something the
+		// title does not (a world made in the editor is titled by its folder).
+		row.secondary = row.primary == w.folder ? std::string() : w.folder;
+		row.onActivate = [this, folder = w.folder] {
+			Click(0.6f);
+			m_menuPage = MenuPage::Main;
+			onStartNewGameIn(folder);
+		};
+		list->AddRow(std::move(row)); // onDelete left null: no delete icon
+	}
+	m_savesUi.Add<ui::Button>(gfx::Rect{(1.0f - kBackW) * 0.5f, kSavesBackY, kBackW, kRowH},
+							  loc::Tr("menu.back"), [this] {
+								  Click();
+								  m_menuPage = MenuPage::Main;
+							  });
+	m_menuPage = MenuPage::Worlds;
+}
+
 // Save page: write the named slot, arming a one-shot overwrite confirm first
 // if a save of that name already exists (the button label flips; a second
 // click — or editing the name — clears it). Empty names fall back to a
@@ -1306,6 +1352,7 @@ void GameUI::RebuildForLanguage() {
 	// The saves page is built on demand; repopulate it in the new language if
 	// it happens to be open (OpenSavesPage leaves m_menuPage on Saves).
 	if (m_menuPage == MenuPage::Saves) OpenSavesPage(m_savesMode);
+	if (m_menuPage == MenuPage::Worlds) OpenWorldsPage();
 	if (!m_characters.empty()) {
 		m_sheetIndex = std::min(m_sheetIndex, m_characters.size() - 1);
 		m_sheet->SetCharacter(m_sheetIndex);
@@ -1957,6 +2004,7 @@ void GameUI::RenderMenuOverlay() {
 
 	const char* subKey = "menu.subtitle";
 	if (m_menuPage == MenuPage::Settings) subKey = "menu.subtitle_settings";
+	else if (m_menuPage == MenuPage::Worlds) subKey = "menu.subtitle_worlds";
 	else if (m_menuPage == MenuPage::Saves)
 		subKey = m_savesMode == SavesMode::Save ? "menu.subtitle_save"
 												: "menu.subtitle_load";

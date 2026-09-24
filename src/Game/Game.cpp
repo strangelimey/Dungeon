@@ -30,6 +30,17 @@ namespace dungeon::game {
 
 namespace {
 
+// Whether this launch was given `flag` on its command line.
+bool CommandLineHas(std::wstring_view flag) {
+	int argc = 0;
+	bool found = false;
+	if (LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc)) {
+		for (int i = 1; i < argc && !found; ++i) found = std::wstring_view(argv[i]) == flag;
+		LocalFree(argv);
+	}
+	return found;
+}
+
 // Builds the font library with assets/fonts/fonts.cat already applied.
 //
 // It is a function rather than two statements in the constructor body because
@@ -279,6 +290,12 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	// The world joins the editor's ONE undo history (his answer: a step that
 	// spans tiers undoes as one thing). Borrowed by pointer, like the roster.
 	m_world.SetWorldForUndo(&m_worldMap);
+
+	// Read once: a `-project` launch has its world decided already (so the
+	// new-game list does not ask), and `-newgame` is the relaunch that list
+	// makes when the pick is another world.
+	m_worldFromCommandLine = CommandLineHas(L"-project");
+	m_newGameOnBoot = CommandLineHas(L"-newgame");
 
 	WireModuleCallbacks();
 	RegisterDevCommands();
@@ -1046,11 +1063,12 @@ void Game::ApplyDisplaySettings() {
 	}
 }
 
-void Game::RestartApp() {
+void Game::RestartApp(const std::string& extraArgs) {
 	// Leave any exclusive full-screen so the new process can claim the display.
 	m_device.SetFullscreen(false, 0, 0, 0);
-	if (!m_restart.Start("\"" + paths::ExecutableDir() + "\\Dungeon.exe\""))
-		log::Warn("Could not relaunch the game for the adapter change");
+	std::string cmd = "\"" + paths::ExecutableDir() + "\\Dungeon.exe\"";
+	if (!extraArgs.empty()) cmd += " " + extraArgs;
+	if (!m_restart.Start(cmd)) log::Warn("Could not relaunch the game ({})", cmd);
 	m_quitRequested = true;
 }
 
@@ -1294,6 +1312,15 @@ void Game::Update(float dt) {
 		return;
 
 	case AppState::Menu:
+		// A relaunch INTO A NEW GAME: the player picked another world from the
+		// new-game list, and the only way into a world is a fresh process. It
+		// lands here like any launch and goes on to the game it was started
+		// for, through the same callback the menu entry uses.
+		if (m_newGameOnBoot) {
+			m_newGameOnBoot = false;
+			m_ui.onStartNewGame();
+			return;
+		}
 		// The menu sits on baked title art; nothing in the world simulates.
 		// Esc backs out of settings — and does NOTHING on the landing list, where
 		// it used to QUIT (Michael, 2026-08-11). ESC NEVER QUITS, IN ANY STATE:

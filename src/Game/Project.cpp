@@ -67,6 +67,15 @@ std::string Project::FolderFor(const std::string& root, const std::string& name)
 	return root + "\\" + name;
 }
 
+std::string Project::ReadName(const std::string& folder) {
+	const auto bytes = assets::ReadBinaryFile(folder + "\\project.ini");
+	if (!bytes) return {};
+	const std::string text(bytes->begin(), bytes->end());
+	for (const serialize::Block& b : serialize::ParseBlocks(text))
+		if (b.id.empty()) return b.Get("name", ""); // the unnamed block, as Load reads it
+	return {};
+}
+
 std::string Project::FolderName() const {
 	return std::filesystem::path(folder).filename().string();
 }

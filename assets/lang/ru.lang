@@ -20,6 +20,7 @@ pause.title=ПАУЗА
 menu.subtitle=олдскульный данжен-кроулер
 menu.subtitle_settings=настройки
 menu.subtitle_load=выберите сохранение
+menu.subtitle_worlds=выберите мир для новой игры
 menu.subtitle_save=назовите сохранение
 loading.descending=спуск...
 

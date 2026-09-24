@@ -512,6 +512,29 @@ exit reads `dest=hall` and the checker reports it. Phase 11's reference count
 for the crypt went from 2 to 3 — the opening is a reference, and now counted.
 Dev: `dungeons rename <id> <new>`, `levelrename <old> <new>`.
 
+**W12 — a new game asks which world.** DONE (2026-09-24). Michael: *"Start New
+Game should show a list of worlds that the user can pick from. If there is only
+one, just go straight into that."* The landing page's Start New Game counts the
+worlds on disk AT THE CLICK (a world made in the editor since the menu was built
+must be offered): one, and it starts as it always has; more, and a world page
+opens — the Load page's own list control, a row per world by its manifest
+`name`, the folder beside it only when it says something the title does not,
+sorted by title ignoring case, Back and Esc to the menu. No delete: that is the
+Worlds dialog's, behind a typed name.
+
+A PICK OF THE RUNNING WORLD starts at once. ANY OTHER is the W7 switch — the
+choice persisted, so Continue and the next launch follow it — plus `-newgame` on
+the relaunch, which the fresh process honours on its first menu frame through the
+same callback the entry uses, so it goes on to the game it was started for
+instead of stopping at the title. Verified by driving the real menu both ways
+(the relaunch arrived in the crypt; the in-place pick kept its process id).
+
+A `-project` LAUNCH OFFERS ONLY ITS OWN WORLD, so the page never appears: the
+world is chosen for that run already, and the four keystroke harnesses press
+Enter on Start New Game expecting to be playing — a page between them and the
+game would have broken every one, and the first world the developer made would
+have been the day it happened.
+
 What this does not change
 -------------------------
 

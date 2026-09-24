@@ -159,7 +159,18 @@ public:
 	void RenderHud();
 
 	// --- callbacks into the app state machine -------------------------------------
-	std::function<void()> onStartNewGame;       // landing "Start New Game"
+	std::function<void()> onStartNewGame;       // a new game in the RUNNING world
+	// "Start New Game" asks WHICH WORLD first when there is more than one to
+	// choose from (Michael, 2026-09-24): onListWorlds names them, and a pick
+	// goes to onStartNewGameIn — which starts at once in the running world and
+	// relaunches into any other (the W7 bargain: a world is chosen before
+	// anything is built). One world, or none listed, skips the page entirely.
+	struct WorldChoice {
+		std::string folder;  // what settings.ini stores and -project names
+		std::string display; // the manifest's `name`, what the player reads
+	};
+	std::function<std::vector<WorldChoice>()> onListWorlds;
+	std::function<void(const std::string& folder)> onStartNewGameIn;
 	std::function<void()> onQuit;               // landing + pause "Exit" (the ONLY
 												// click that quits — Esc does not)
 	std::function<void()> onResume;             // pause/sheet "Back"
@@ -228,7 +239,9 @@ public:
 	static std::string UiTreeNames();
 
 private:
-	enum class MenuPage { Main, Settings, Saves };
+	// Worlds: the new-game world list. It borrows m_savesUi (both are one-list
+	// pages rebuilt on open, and only one sub-page is ever showing).
+	enum class MenuPage { Main, Settings, Saves, Worlds };
 	// The Saves sub-page serves two jobs: Load (a list of slots to load) and
 	// Save (a name field + existing slots to overwrite). m_savesMode picks.
 	enum class SavesMode { Load, Save };
@@ -252,6 +265,8 @@ private:
 	// switches to the Saves page in the given mode. Shared by the landing/pause
 	// Load entries and the pause Save entry; widgets live in m_savesUi.
 	void OpenSavesPage(SavesMode mode);
+	// The new-game world list (MenuPage::Worlds), built into m_savesUi.
+	void OpenWorldsPage();
 	// Save page helpers: commit the named save (arming an overwrite confirm
 	// first if the name collides), and clear that armed confirm.
 	void CommitSave();
@@ -358,6 +373,7 @@ private:
 		switch (m_menuPage) {
 		case MenuPage::Settings: return m_settingsUi;
 		case MenuPage::Saves:    return m_savesUi;
+		case MenuPage::Worlds:   return m_savesUi; // the list page it borrows
 		default:                 return m_menuUi;
 		}
 	}
