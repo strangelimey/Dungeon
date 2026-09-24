@@ -59,7 +59,10 @@ import shutil
 import subprocess
 import sys
 
-ROOT = r"C:\Dev\Dungeon-world-map"
+# The checkout this script lives in (tools\..), NOT a fixed path: a hardcoded
+# worktree meant a run from any other checkout drove THAT tree's exe and
+# mutated THAT tree's project files, underneath whoever was working there.
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJ = os.path.join(ROOT, r"assets\projects\dungeon-demo")
 WORLD = os.path.join(PROJ, r"world\world.map")
 DUNGEONS = os.path.join(PROJ, r"catalog\dungeons.cat")
