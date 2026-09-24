@@ -71,15 +71,32 @@ bool DungeonWorld::RenameLevel(const std::string& oldStem,
 
 	// Repoint every stair dest= that names the old stem: the active map is
 	// fixed live, every other level via its stash — EnsureMapStash lazily
-	// parses disk-only levels, so their fix persists on the next savemap.
-	// (The caller updates Project::levels after this returns, so the walk
-	// still sees the OLD stem in the list — map it to the new one.)
-	m_map.RenameStairDest(oldStem, newStem);
+	// parses disk-only levels. (The caller updates Project::levels after this
+	// returns, so the walk still sees the OLD stem in the list — map it to the
+	// new one.) EXITS ARE SKIPPED: their dest is a world location, and one
+	// spelled like the old stem is not the thing being renamed (W11).
+	std::vector<std::string> exits;
+	for (const CatalogEntry& e : m_project.stairs.Entries())
+		if (CatalogBool(&e, "exit", false)) exits.push_back(e.id);
+	// AND WRITTEN NOW, not on the next savemap (W11). The files above have
+	// already moved and the owner saves the manifest straight after, so a
+	// session ended before a savemap used to leave every other level's stairs
+	// on disk naming a level that no longer existed — a stair that aborts the
+	// game when taken. Only the levels a stair actually changed in are
+	// written.
+	std::vector<std::string> touched;
+	if (m_map.RenameStairDest(oldStem, newStem, exits) > 0) {
+		if (SaveLevel()) touched.push_back(m_currentLevel);
+	}
 	for (const std::string& stem : m_project.levels) {
 		const std::string& actual = stem == oldStem ? newStem : stem;
 		if (actual == m_currentLevel) continue;
-		EnsureMapStash(actual).RenameStairDest(oldStem, newStem);
+		if (EnsureMapStash(actual).RenameStairDest(oldStem, newStem, exits) > 0 &&
+			WriteStashedLevel(actual))
+			touched.push_back(actual);
 	}
+	for (const std::string& stem : touched)
+		log::Info("rename level: repointed stairs written in {}", stem);
 
 	// Undo snapshots hold whole stash sets keyed by the old stem (and the old
 	// file paths' contents); restoring one across a rename would resurrect the

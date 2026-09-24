@@ -2,7 +2,7 @@
 #
 # Run:  python tools\WorldTest.py      (needs a debug build)
 #
-# Seventeen phases, all built on one principle: a check that never fires reports
+# Eighteen phases, all built on one principle: a check that never fires reports
 # "clean" just as loudly as one that works, so every expectation here is paired
 # with something that makes it fail.
 #
@@ -47,6 +47,10 @@
 #      met: each obstacle is put in place and must be named, then lifted and
 #      the delete must be allowed again. Then the typed confirmation, and the
 #      one failure no message shows: savemap writing a deleted level back.
+#  18. RENAMING — a dungeon and a level renamed reach EVERYTHING that names
+#      them (doorways, the opening, the harness level, the dungeon's list,
+#      other levels' stairs), on disk at once; and an exit stair's LOCATION
+#      is not mistaken for the level it happens to be spelled like.
 #
 # Every file this touches is restored, including the save it downgrades.
 import io
@@ -446,9 +450,12 @@ try:
     # THE SWEEP SEES THE WORLD. The crypt is referenced by its two doorways
     # and by NOTHING in any level - so the "0 level record(s)" half is the
     # control: a sweep that only walked levels would have called it safe to
-    # delete, which is the exact hole W2 had to close.
-    check("crypt': 0 level record(s), 2 other reference(s)" in log,
-          "a dungeon's two doorways are found, and they are not in any level")
+    # delete, which is the exact hole W2 had to close. THREE since W11: the
+    # game's opening (start_dungeon = crypt) is a reference too, and the sweep
+    # that renames the doorways renames it.
+    check("crypt': 0 level record(s), 3 other reference(s)" in log,
+          "a dungeon's two doorways and the opening are found, and none is in "
+          "any level")
     check("eval': 0 level record(s), 1 other reference(s)" in log,
           "and a one-door dungeon reports one")
 
@@ -799,6 +806,87 @@ try:
           "a level another dungeon also claims is refused, naming the other",
           " | ".join(l for l in con if "twin" in l))
 
+    # --- phase 18: renaming a dungeon and a level ------------------------------
+    print("\n18 - a rename reaches everything that names the dungeon or the level")
+    REN = os.path.join(ROOT, r"assets\projects\wt_ren")
+    shutil.rmtree(REN, ignore_errors=True)
+    run("renameworld.eval")
+    log = run("renamesetup.eval", project="wt_ren")
+    con = [l.split("console: ", 1)[1] for l in log.splitlines() if "console: " in l]
+    check("saved levels: room1, keep1" in con,
+          "the scenario is built: two levels, a stair between them, three doorways",
+          " | ".join(con[-4:]))
+    # AN EXIT NO COMMAND CAN AUTHOR, written by hand: on keep1, leading out to
+    # the world LOCATION named room1 — spelled exactly like the level about to
+    # be renamed, which is the whole point of it.
+    k1 = os.path.join(REN, r"levels\keep1.map")
+    write(k1, read(k1) + "stairs stairs_exit 9 9 south dest=room1 destx=0 destz=0 "
+          "destfacing=south\r\n")
+
+    log = run("rename.eval", project="wt_ren")
+    con = [l.split("console: ", 1)[1] for l in log.splitlines() if "console: " in l]
+    def block(cmd, n):
+        """The lines the n-th `cmd` printed."""
+        idx = [i for i, l in enumerate(con) if l == "> " + cmd]
+        if len(idx) <= n:
+            return []
+        out = []
+        for l in con[idx[n] + 1:]:
+            if l.startswith(">"):
+                break
+            out.append(l.strip())
+        return out
+    clean = [l for l in con if l == "validate: clean - no faults found"]
+    check(len(clean) == 3,
+          "the checker is clean before, after the dungeon rename, and after the "
+          "level rename", " | ".join(l for l in con if l.startswith("validate")))
+    locs = [l.split() for l in block("worldloc", 0)]
+    check(len(locs) == 3 and all(l[4] == "castle" for l in locs),
+          "the dungeon rename reaches EVERY doorway - including the one named "
+          "the short way, with no dungeon= of its own", f"{locs}")
+    check("opening: castle / room1 at 8,8" in block("worldprops", 0),
+          "...and the game's opening")
+    check("castle 'The Keep': hall keep1" in block("dungeons", 1),
+          "the level rename keeps the level in its dungeon, in its place")
+    locs = {l.split()[1]: l.split()[4:6] for l in block("worldloc", 1)}
+    check(locs.get("keep_gate") == ["castle", "hall"] and
+          locs.get("keep") == ["castle", "hall"] and
+          locs.get("room1") == ["castle", "keep1"],
+          "doorways naming the level follow it; the one naming another level "
+          "does not", f"{locs}")
+    check("opening: castle / hall at 8,8" in block("worldprops", 1) and
+          "harness level: hall" in block("worldprops", 1),
+          "the opening and the harness level follow it")
+    refusals = [l.split(" - ", 1)[1] if " - " in l else l
+                for l in con if l.startswith("rename level")]
+    check(len(refusals) == 3 and "not a level name" in refusals[0] and
+          "There is no level named 'nosuch'" in refusals[1] and
+          "already exists" in refusals[2],
+          "each refusal says its own rule: not a stem, no such level, taken",
+          f"{refusals}")
+    # ON DISK, with no savemap in the script: a rename moves files at once, so
+    # whatever points at them has to be written at once too.
+    dcat = read(os.path.join(REN, r"catalog\dungeons.cat"))
+    man = read(os.path.join(REN, "project.ini"))
+    world = read(os.path.join(REN, r"world\world.map"))
+    k1 = read(k1)
+    check("[castle]" in dcat and "[keep]" not in dcat and
+          "levels = hall keep1" in dcat,
+          "on disk: the dungeon's entry renamed, its level list following")
+    check("start_dungeon = castle" in man and "start_level = hall" in man and
+          "eval_level = hall" in man,
+          "on disk: the manifest's opening and harness level")
+    check("location dungeon keep 3 3 dungeon=castle level=hall" in world,
+          "on disk: the short-way doorway now names its dungeon outright")
+    check("stairs stairs_up 7 7 south dest=hall" in k1,
+          "on disk: another level's stair repointed WITHOUT a savemap")
+    check("stairs stairs_exit 9 9 south dest=room1" in k1,
+          "an exit stair's location is left alone, though it is spelled like "
+          "the old level")
+    check(os.path.isfile(os.path.join(REN, r"levels\hall.map")) and
+          not os.path.isfile(os.path.join(REN, r"levels\room1.map")),
+          "and the files themselves moved")
+
 finally:
     if settings_before is not None:
         write(SETTINGS, settings_before)
@@ -811,7 +899,7 @@ finally:
     # transition, and report that levelcheck never answered. Clean up.
     # The level phase 13 makes, and the save. A level file left behind would
     # make the NEXT run's "created crypt3" land on crypt4 and the check miss.
-    for scratch in ("wt_scratch", "wt_dlg", "wt_del", "wt_del2", "wt_dng"):
+    for scratch in ("wt_scratch", "wt_dlg", "wt_del", "wt_del2", "wt_dng", "wt_ren"):
         shutil.rmtree(os.path.join(ROOT, "assets", "projects", scratch),
                       ignore_errors=True)
     for leftover in (SAVE, SAVE + ".bak",

@@ -1,0 +1,23 @@
+; renamesetup.eval — the scratch world the rename checks run in (W11), run with
+; -project wt_ren after WorldTest has made it. It authors EVERY kind of
+; reference to a dungeon and a level that lives outside the level being
+; renamed, so the rename has something to miss:
+;   - a doorway named the SHORT way (id = the dungeon's, no dungeon= field)
+;   - a doorway with an explicit level=, and the starter's own (keep_gate)
+;   - the game's opening, and the harness level (the starter's eval_level)
+;   - a stair on ANOTHER level leading into the one renamed
+;   - a location whose id is spelled like the level (room1), which an EXIT
+;     stair names — WorldTest writes that stair in by hand, since no command
+;     can author an exit
+; The opening is set BEFORE `levels new`, whose project save is what writes it.
+logecho on
+reset
+worldloc add dungeon keep 3 3
+worldloc set keep level room1
+worldprops opening keep room1 8 8
+levels new keep
+stairadd stairs_down 7 7
+worldloc add dungeon room1 4 4
+worldloc set room1 dungeon keep
+worldloc set room1 level keep1
+savemap

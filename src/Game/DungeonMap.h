@@ -491,8 +491,12 @@ public:
 	bool RemoveStair(int x, int z, StairLink* removed = nullptr);
 	// Repoints every stair whose dest names `oldStem` (a level rename — the
 	// dest strings are the cross-level references that would go stale).
-	// Returns the number touched.
-	size_t RenameStairDest(const std::string& oldStem, const std::string& newStem);
+	// Stairs whose TYPE is in `skipTypes` are left alone: an EXIT's dest names
+	// a world location, not a level, and a location that happens to share the
+	// old stem's spelling is not being renamed (the map has no catalog access,
+	// so the caller says which types those are). Returns the number touched.
+	size_t RenameStairDest(const std::string& oldStem, const std::string& newStem,
+						   const std::vector<std::string>& skipTypes = {});
 
 	// Surface palettes from the level's "palette" records — lists of CATALOG
 	// IDs (project catalog/walls.cat, floors.cat, ceilings.cat). Order defines

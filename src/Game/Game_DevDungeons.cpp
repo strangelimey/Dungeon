@@ -21,7 +21,7 @@ void Game::RegisterDungeonCommands() {
 	m_console.Register(
 		"dungeons",
 		"the dungeon tier: dungeons | what <id> | delete <id> <id again> | "
-		"dialog [<id>|delete|confirm <text>|off]",
+		"rename <id> <new> | dialog [<id>|delete|confirm <text>|off]",
 		[this](const std::vector<std::string>& a) {
 			if (a.empty()) {
 				for (const CatalogEntry& e : m_project.dungeons.Entries()) {
@@ -65,6 +65,16 @@ void Game::RegisterDungeonCommands() {
 									: std::format("delete '{}': FAILED - see the log", a[1]));
 				return;
 			}
+			// The type editor's title rename, which is where a dungeon is renamed
+			// (W11) — the same RenameType, doorways and opening included.
+			if (a[0] == "rename" && a.size() >= 3) {
+				std::string problem;
+				const bool ok = RenameType("dungeons", a[1], a[2], problem);
+				m_console.Print(ok ? std::format("renamed dungeon '{}' -> '{}'", a[1], a[2])
+								   : std::format("rename '{}': refused{}{}", a[1],
+												 problem.empty() ? "" : " - ", problem));
+				return;
+			}
 			// The type editor's own path, step by step: open it on a dungeon,
 			// click its Delete, type into the confirmation. Each step reports
 			// where the dialog stands, which is what a harness reads.
@@ -92,7 +102,22 @@ void Game::RegisterDungeonCommands() {
 				return;
 			}
 			m_console.Print("usage: dungeons | what <id> | delete <id> <id again> | "
-							"dialog [<id>|delete|confirm <text>|off]");
+							"rename <id> <new> | dialog [<id>|delete|confirm <text>|off]");
+		});
+
+	// The Level dialog's inline rename, from the console (W11): files, stairs,
+	// the dungeon's list, the opening, the harness level and every doorway.
+	m_console.Register(
+		"levelrename", "rename a level everywhere it is named: levelrename <old> <new>",
+		[this](const std::vector<std::string>& a) {
+			if (a.size() < 2) {
+				m_console.Print("usage: levelrename <old> <new>");
+				return;
+			}
+			std::string why;
+			m_console.Print(RenameLevel(a[0], a[1], &why)
+								? std::format("renamed level '{}' -> '{}'", a[0], a[1])
+								: std::format("rename level '{}': refused - {}", a[0], why));
 		});
 
 	// A stair placed from the console, as the Stairs brush places it (both

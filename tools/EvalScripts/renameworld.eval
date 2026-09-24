@@ -1,0 +1,4 @@
+; renameworld.eval — makes the scratch world the rename checks run in (W11).
+; WorldTest removes it afterwards.
+logecho on
+worlds new wt_ren

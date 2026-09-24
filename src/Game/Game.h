@@ -453,7 +453,9 @@ private:
 	// The Level dialog's inline rename: validates (unique stem), drives
 	// DungeonWorld::RenameLevel (files, stashes, stair dests), then updates
 	// the manifest and the map view's browse snapshot. False = refused.
-	bool RenameLevel(const std::string& oldStem, const std::string& newStem);
+	// `why`, when given, receives the refusal - each rule its own sentence.
+	bool RenameLevel(const std::string& oldStem, const std::string& newStem,
+					 std::string* why = nullptr);
 
 	// Persists a monster type's edited animation config (the right-click dialog's
 	// Save): rewrites the `states` + `anim_<state>` rows of its monsters-catalog

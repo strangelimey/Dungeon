@@ -467,18 +467,79 @@ std::string Game::CreateNewLevel(const std::string& dungeonId) {
 // move files / rekey stashes / repoint stair dests, then commit the manifest
 // and keep the map view's browse snapshot truthful. (The dialog adopts the
 // new stem itself on true.)
-bool Game::RenameLevel(const std::string& oldStem, const std::string& newStem) {
+bool Game::RenameLevel(const std::string& oldStem, const std::string& newStem,
+						std::string* why) {
+	// Each refusal its own sentence (W4's lesson), handed back for a caller
+	// that shows it and logged for one that does not.
+	const auto refuse = [&](std::string reason) {
+		log::Warn("rename level '{}' -> '{}' refused: {}", oldStem, newStem, reason);
+		if (why) *why = std::move(reason);
+		return false;
+	};
 	std::vector<std::string>& levels = m_project.levels;
 	const auto it = std::find(levels.begin(), levels.end(), oldStem);
-	if (it == levels.end()) return false;
+	if (it == levels.end()) return refuse(loc::Format("map.level.unknown", oldStem));
+	// A stem is a FILE NAME and a record word. The dialog filters what is
+	// typed, but the console reaches this too — the rule lives here as well.
+	if (newStem.empty() || !std::all_of(newStem.begin(), newStem.end(), [](char ch) {
+			const unsigned char u = static_cast<unsigned char>(ch);
+			return std::isalnum(u) || ch == '_' || ch == '-';
+		}))
+		return refuse(loc::Format("map.level.badstem", newStem));
 	if (std::find(levels.begin(), levels.end(), newStem) != levels.end()) {
 		if (m_world.onMessage)
 			m_world.onMessage(loc::FormatLine("map.level.dupname", newStem));
-		return false;
+		return refuse(loc::Format("map.level.dupname", newStem));
 	}
-	if (!m_world.RenameLevel(oldStem, newStem)) return false;
+	if (!m_world.RenameLevel(oldStem, newStem))
+		return refuse(loc::Format("map.level.movefailed", oldStem));
 	*it = newStem;
+
+	// EVERYTHING ELSE THAT NAMES A LEVEL BY ITS STEM (W11). The world half
+	// only ever fixed stairs, so a renamed level fell out of its dungeon (an
+	// orphan warning, and gone from the two-tier picker), and a new game, the
+	// eval harness or a doorway naming it opened onto a file that was no
+	// longer there. The list is closed — these are every stem reference
+	// outside the level files — which is what makes it worth writing out.
+	// Collected before any write, the SweepCatalogRefs rule: Add writes into
+	// the vector being walked.
+	std::vector<CatalogEntry> retyped;
+	for (const CatalogEntry& e : m_project.dungeons.Entries()) {
+		std::string words = e.Get("levels", "");
+		std::string out;
+		bool hit = false;
+		size_t i = 0;
+		while (i < words.size()) {
+			while (i < words.size() && words[i] == ' ') ++i;
+			const size_t start = i;
+			while (i < words.size() && words[i] != ' ') ++i;
+			if (i == start) break;
+			std::string w = words.substr(start, i - start);
+			if (w == oldStem) {
+				w = newStem;
+				hit = true;
+			}
+			out += (out.empty() ? "" : " ") + w;
+		}
+		if (!hit) continue;
+		CatalogEntry copy = e;
+		copy.Set("levels", out);
+		retyped.push_back(std::move(copy));
+	}
+	for (CatalogEntry& e : retyped)
+		m_project.dungeons.Add(std::move(e)); // replaces in place, by id
+	if (m_project.startLevel == oldStem) m_project.startLevel = newStem;
+	if (m_project.evalLevel == oldStem) m_project.evalLevel = newStem;
 	m_project.Save();
+	// A doorway's `level=`. The world is written straight away like the
+	// manifest above, since the files it points at have already moved.
+	if (m_worldMap) {
+		std::vector<std::string> doors;
+		for (const WorldMap::Location& l : m_worldMap->Locations())
+			if (l.level == oldStem) doors.push_back(l.id);
+		for (const std::string& id : doors) m_worldMap->MutableLocation(id)->level = newStem;
+		if (!doors.empty()) SaveWorld();
+	}
 	m_mapView.OnLevelRenamed(oldStem, newStem);
 	if (m_world.onMessage)
 		m_world.onMessage(loc::FormatLine("map.level.renamed", oldStem, newStem));
@@ -758,20 +819,30 @@ int Game::SweepCatalogRefs(const std::string& catalogKey, const std::string& id,
 	// reference is worst, because a broken doorway is not visible from any
 	// level.
 	if (m_worldMap && catalogKey == "dungeons") {
+		// Dungeon(), NOT the raw field: an absent `dungeon` means "the same as
+		// my id", so a location named after its dungeon references it just as
+		// surely as one that says so. Checking the field alone would have
+		// missed exactly the locations authored the short way.
+		std::vector<std::string> doors;
 		for (const WorldMap::Location& l : m_worldMap->Locations())
-			// Dungeon(), NOT the raw field: an absent `dungeon` means "the same
-			// as my id", so a location named after its dungeon references it
-			// just as surely as one that says so. Checking the field alone
-			// would have missed exactly the locations authored the short way.
-			if (l.Dungeon() == id) {
-				++hits;
-				// NOT RENAMED HERE. The loaded world is const and its records
-				// are rewritten wholesale by the writer; W3 gives the editor a
-				// mutable world. Until then a rename that would touch a
-				// location is REPORTED and refused — the safe half of the
-				// promise, and better than a rename that half-lands.
-				(void)newId;
-			}
+			if (l.Dungeon() == id) doors.push_back(l.id);
+		hits += static_cast<int>(doors.size());
+		// RENAMED, since W11. This used to say the rename was "reported and
+		// refused" while the world was const — and RenameType never looked at
+		// the count, so the rename WENT THROUGH and every doorway to the
+		// dungeon was left naming one that did not exist. The world has been
+		// mutable since W3. A location that named its dungeon the short way
+		// (by sharing its id) gets the field written out: the location keeps
+		// its own id, which is a different thing's name.
+		if (newId)
+			for (const std::string& door : doors)
+				m_worldMap->MutableLocation(door)->dungeon = *newId;
+	}
+	// THE GAME'S OPENING names a dungeon too, in the manifest (saved with the
+	// catalogs by the caller).
+	if (catalogKey == "dungeons" && m_project.startDungeon == id) {
+		++hits;
+		if (newId) m_project.startDungeon = *newId;
 	}
 	// TERRAIN IS NOT SWEPT, and that is a property of the format rather than an
 	// omission: the world grid names a terrain by its GLYPH, so renaming the
@@ -812,8 +883,15 @@ bool Game::RenameType(const std::string& catalogKey, const std::string& id,
 	// at the end of the file and take its lead comments (the first entry's are
 	// the file's header) with it.
 	if (!cat->Rename(id, newId)) return false;
+	// The world is compared whole rather than trusting a count: it is written
+	// only when the sweep actually changed it, and then NOW, with the catalogs —
+	// a renamed dungeon whose doorways still named the old id on disk would
+	// open onto nothing at the next launch.
+	const std::string worldBefore = m_worldMap ? m_worldMap->Serialize() : std::string();
 	SweepCatalogRefs(catalogKey, id, &newId);
 	if (!m_project.Save()) log::Warn("rename type: failed to save catalogs");
+	if (m_worldMap && m_worldMap->Serialize() != worldBefore && !SaveWorld())
+		log::Warn("rename type: failed to save the world");
 
 	const DungeonWorld::TypeUsage used = m_world.SweepTypeRefs(catalogKey, id, &newId);
 	// Live objects still point at kinds cached under the old id (and monsters

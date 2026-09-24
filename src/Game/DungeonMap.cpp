@@ -982,10 +982,12 @@ bool DungeonMap::RemoveStair(int x, int z, StairLink* removed) {
 }
 
 size_t DungeonMap::RenameStairDest(const std::string& oldStem,
-								   const std::string& newStem) {
+								   const std::string& newStem,
+								   const std::vector<std::string>& skipTypes) {
 	size_t n = 0;
 	for (StairLink& s : m_stairs)
-		if (s.destLevel == oldStem) {
+		if (s.destLevel == oldStem &&
+			std::find(skipTypes.begin(), skipTypes.end(), s.type) == skipTypes.end()) {
 			s.destLevel = newStem;
 			++n;
 		}

@@ -84,7 +84,9 @@ levels would have called it safe to delete.
 
 Two things it does NOT do yet, both honest rather than overlooked. RENAMING a
 dungeon a location names is REPORTED and refused rather than applied — the
-loaded world is const and W3 is what makes it mutable. And TERRAIN is not swept
+loaded world is const and W3 is what makes it mutable. (UNTRUE, found in W10:
+nothing ever refused it — `RenameType` ignored the count, so the rename went
+through and the doorways dangled. W11 applies it.) And TERRAIN is not swept
 at all, which is a property of the format: the grid names a terrain by its
 GLYPH, so renaming the id cannot orphan a cell. That is what the glyph is for.
 
@@ -474,6 +476,41 @@ tier's console commands start one too, `Game_DevDungeons.cpp`. Dev: `dungeons`
 <id>` / `dialog [<id>|delete|confirm <text>|off]`, and `stairadd <type> <x> <z>
 [level]` (a stair pair as one undo step — the only way a script can author the
 stair case). WorldTest phase 17 (15 checks); InGameTest sweeps the confirmation.
+
+**W11 — a rename reaches everything that names it.** DONE (2026-09-24). The two
+defects W10 turned up, both the same shape: a rename that fixed the references it
+knew about and left the rest pointing at a name that no longer existed.
+
+- A DUNGEON rename (`RenameType`, through `SweepCatalogRefs`) now rewrites every
+  doorway to it and the game's opening (`start_dungeon`). A doorway named the
+  SHORT way — its id is the dungeon's and it has no `dungeon=` — gets the field
+  written out, since the location keeps its own id, which names a different
+  thing. The world is written at once when the sweep changed it (compared whole,
+  not by count).
+- A LEVEL rename (`Game::RenameLevel`) now follows the level into its dungeon's
+  `levels` (in its place), `start_level`, `eval_level` and every doorway's
+  `level=`, and the WORLD is written at once.
+- Two more of the same kind, found building the check. OTHER LEVELS' STAIRS were
+  repointed only in memory and reached disk at the next `savemap` — but the files
+  had already moved, so a session ended in between left every stair into the
+  level naming a file that was gone (measured: a fresh launch then reports
+  `stairnolevel`). The levels a stair changed in are written now. And an EXIT
+  stair's dest is a world LOCATION, not a level, yet the stair rename treated it
+  as one: a location spelled like the old stem was silently retargeted to a
+  location that did not exist. `RenameStairDest` takes the exit types to skip.
+- Each level-rename refusal has its own sentence now (not a stem / no such level
+  / taken / the move failed) — the first console form printed one sentence for
+  three rules, the W4 mistake.
+
+Checked by WorldTest phase 18 (14 checks) in a scratch world, `wt_ren`, built to
+hold one of EVERY kind of reference — a short-way doorway, an explicit `level=`,
+the opening, the harness level, a stair from another level, and an exit naming a
+location spelled like the level. It reads the files straight after, with no
+`savemap` in the script. Both subtle halves were mutation-tested: without the
+immediate write the stair on disk still names `room1`; without the exit skip the
+exit reads `dest=hall` and the checker reports it. Phase 11's reference count
+for the crypt went from 2 to 3 — the opening is a reference, and now counted.
+Dev: `dungeons rename <id> <new>`, `levelrename <old> <new>`.
 
 What this does not change
 -------------------------

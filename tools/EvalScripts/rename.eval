@@ -1,0 +1,22 @@
+; rename.eval — renaming a dungeon and a level reaches everything that names
+; them (W11), in the world renamesetup.eval built. NO savemap here on purpose:
+; WorldTest reads the files straight after, because a rename moves files on
+; disk at once, and everything pointing at them has to be on disk at once too.
+logecho on
+reset
+validate
+dungeons rename keep castle
+dungeons
+worldloc
+worldprops
+validate
+levelrename room1 hall
+dungeons
+worldloc
+worldprops
+validate
+; Refusals: a stem that is not a file name, a level that does not exist, and
+; one already taken.
+levelrename hall ha/ll
+levelrename nosuch other
+levelrename hall keep1
