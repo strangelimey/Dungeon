@@ -99,7 +99,7 @@ $snapNames = @('lowcap', 'ultracap', 'uncapped', 'capped')
 
 Remove-Item $log -ErrorAction SilentlyContinue
 Write-Host "launching $exe"
-$proc = Start-Process -FilePath $exe -WorkingDirectory $bin -PassThru
+$proc = Start-Process -FilePath $exe -WorkingDirectory $bin -ArgumentList '-project', 'dungeon-demo' -PassThru
 $hwnd = [IntPtr]::Zero
 try {
 	Wait-ForLog '--- load: ' $LoadTimeoutSec 'the boot load' | Out-Null

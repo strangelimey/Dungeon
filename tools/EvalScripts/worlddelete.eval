@@ -1,0 +1,31 @@
+; worlddelete.eval — deleting a world (W9), GitHub's way: type the name.
+;
+; The confirmation's Delete stays disabled until the typed name matches EXACTLY,
+; case and all. `worlds dialog confirm <text>` types into that field and presses
+; the button, so a wrong name here is a press that must do nothing — and the
+; `worlds` listing after each one is the evidence, read off disk.
+;
+; Leftovers are removed by WorldTest's cleanup, not here.
+logecho on
+reset
+worldmap on
+worlds new wt_del
+worlds dialog
+; The running world is refused before any confirmation opens.
+worlds dialog delete dungeon-demo
+worlds dialog delete wt_del
+; Wrong case, then a prefix: both refused, the world still on disk after each.
+worlds dialog confirm WT_DEL
+worlds
+worlds dialog confirm wt_de
+worlds
+; The exact name.
+worlds dialog confirm wt_del
+worlds
+worlds dialog off
+; The console's form: the name twice, exactly.
+worlds new wt_del2
+worlds delete wt_del2 WT_DEL2
+worlds delete wt_del2 wt_del2
+worlds
+worlds delete wt_del2 wt_del2

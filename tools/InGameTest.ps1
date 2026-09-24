@@ -112,7 +112,13 @@ $screens = @(
 	   close = { Run-Cmd 'worldsettings off'; Run-Cmd 'worldmap off' } },
 	@{ label = 'sweep_worlds'; viaConsole = $true
 	   open = { Run-Cmd 'worldmap on'; Run-Cmd 'worlds dialog' }
-	   close = { Run-Cmd 'worlds dialog off'; Run-Cmd 'worldmap off' } }
+	   close = { Run-Cmd 'worlds dialog off'; Run-Cmd 'worldmap off' } },
+	# The delete CONFIRMATION, which needs a world that may be deleted - so it
+	# makes its own and deletes it on the way out, rather than depending on
+	# whatever worlds happen to be on this machine.
+	@{ label = 'sweep_worlddelete'; viaConsole = $true
+	   open = { Run-Cmd 'worldmap on'; Run-Cmd 'worlds new wt_sweep'; Run-Cmd 'worlds dialog delete wt_sweep' }
+	   close = { Run-Cmd 'worlds dialog off'; Run-Cmd 'worlds delete wt_sweep wt_sweep'; Run-Cmd 'worldmap off' } }
 )
 # NOT swept, and named rather than left to be assumed. The settings page is
 # reached by menu navigation whose entry order shifts with whether a save
@@ -127,7 +133,7 @@ $notSwept = 'settings page (needs a mouse click); the sheet''s hand-drawn bars (
 
 Remove-Item $log -ErrorAction SilentlyContinue
 Write-Host "launching $exe"
-$proc = Start-Process -FilePath $exe -WorkingDirectory $bin -PassThru
+$proc = Start-Process -FilePath $exe -WorkingDirectory $bin -ArgumentList '-project', 'dungeon-demo' -PassThru
 $hwnd = [IntPtr]::Zero
 try {
 	Wait-ForLog '--- load: ' $LoadTimeoutSec 'the boot load' | Out-Null

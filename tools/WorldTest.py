@@ -41,6 +41,8 @@
 #  14. A WORLD OF ITS OWN — made, opened by name with -project, and clean.
 #  15. THE WORLDS DIALOG — lists, creates, refuses each mistake in its own
 #      words, and ARMS an Open rather than relaunching on one click.
+#  16. DELETING A WORLD — only by typing its name exactly; never the running
+#      world or the fallback; and a harness run ignores the developer's world.
 #
 # Every file this touches is restored, including the save it downgrades.
 import io
@@ -137,6 +139,10 @@ CASES = [
 # project.ini joins the backup list because phase 13 now CREATES a level,
 # which saves the whole project. Its files are removed in the finally block.
 originals = {p: read(p) for p in (WORLD, DUNGEONS, MANIFEST)}
+# settings.ini is the DEVELOPER'S, not the project's: phase 16 points it at a
+# scratch world on purpose, and it must come back exactly as it was.
+SETTINGS = os.path.join(ROOT, r"build\debug\bin\settings.ini")
+settings_before = read(SETTINGS) if os.path.isfile(SETTINGS) else None
 try:
     print("1 - the world checks fire when the world is broken")
     log = run("worldcheck.eval")
@@ -611,7 +617,7 @@ try:
           "on the world screen it opens, listing the worlds on disk, nothing armed")
     # EACH REFUSAL NAMES ITS OWN RULE (W4's lesson): a check for the duplicate
     # rule would pass with that rule deleted if both refusals said one thing.
-    check(any("armed '' - Type a name first" in l for l in dlg),
+    check(any(a == "" and n.startswith("Type a name first") for _, _, a, n in rows),
           "a name that filters to nothing is refused, and says so")
     check(any("wt_dlg" in w and a == "wt_dlg" and n.startswith("Created 'wt_dlg'")
               for _, w, a, n in rows),
@@ -630,7 +636,64 @@ try:
           "reopened it arms nothing; one click on Open arms that row and says "
           "what the second will do", " | ".join(dlg))
 
+    # --- phase 16: deleting a world ----------------------------------------
+    print("\n16 - a world is deleted only by typing its name")
+    # THE CONTROL FIRST, for the harness rule this phase needed: point the
+    # developer's settings at a scratch world, and a harness run must STILL
+    # open dungeon-demo. Before the rule, a world Michael switched into became
+    # every suite's ground.
+    if settings_before is not None:
+        lines = [l for l in settings_before.splitlines()
+                 if not l.startswith("project=")]
+        write(SETTINGS, "\n".join(lines + ["project=wt_scratch"]) + "\n")
+    log = run("worlddelete.eval")
+    con = [l.split("console: ", 1)[1] for l in log.splitlines() if "console: " in l]
+    check("  dungeon-demo  (open)" in con,
+          "a harness run opens dungeon-demo even when settings.ini names another world")
+    check(any("deleting ''" in l and "open another world" in l for l in con),
+          "the RUNNING world is refused before any confirmation opens")
+    check(any("deleting 'wt_del'" in l and "case-sensitive" in l for l in con),
+          "a row's Delete opens the confirmation, saying the name is case-sensitive")
+    # The listings are the evidence: each wrong name is followed by a `worlds`
+    # listing that must still contain the world.
+    listings, cur = [], None
+    for l in con:
+        if l == "> worlds":
+            cur = []
+            listings.append(cur)
+        elif cur is not None and l.startswith("  "):
+            cur.append(l.split()[0])
+        elif l.startswith(">"):
+            cur = None
+    mism = [l for l in con if "not the name" in l]
+    check(len(mism) == 2 and len(listings) >= 2 and "wt_del" in listings[0]
+          and "wt_del" in listings[1],
+          "wrong case and a prefix are both refused - the world is still on disk",
+          f"refusals {len(mism)}, listings {listings}")
+    check(any("Deleted 'wt_del'" in l for l in con) and len(listings) >= 3
+          and "wt_del" not in listings[2]
+          and not os.path.isdir(os.path.join(ROOT, "assets", "projects", "wt_del")),
+          "the exact name deletes it: gone from the list AND from disk")
+    check("to delete, type the name twice: worlds delete wt_del2 wt_del2 "
+          "(case-sensitive)" in con and "deleted world 'wt_del2'" in con,
+          "the console's form wants the name twice, exactly")
+    check("'wt_del2' is not there any more." in con,
+          "and deleting it again says it is gone, rather than succeeding")
+
+    # Inside another world, the two refusals about WHICH world separate:
+    # dungeon-demo is not running there, so refusing it is the fallback rule.
+    log = run("worldfallback.eval", project="wt_dlg")
+    con = [l.split("console: ", 1)[1] for l in log.splitlines() if "console: " in l]
+    check(any("'dungeon-demo' is where a launch lands" in l for l in con),
+          "dungeon-demo is refused as the fallback, even when it is not running")
+    check(any("You are in 'wt_dlg'" in l for l in con),
+          "and the world you are in is refused as the running one")
+    check(os.path.isfile(os.path.join(PROJ, "project.ini")),
+          "...and dungeon-demo is, of course, still there")
+
 finally:
+    if settings_before is not None:
+        write(SETTINGS, settings_before)
     for p, s in originals.items():
         write(p, s)
     # THE SAVE THIS SUITE MAKES IS NOT ITS OWN BUSINESS ALONE. A save on disk
@@ -640,7 +703,7 @@ finally:
     # transition, and report that levelcheck never answered. Clean up.
     # The level phase 13 makes, and the save. A level file left behind would
     # make the NEXT run's "created crypt3" land on crypt4 and the check miss.
-    for scratch in ("wt_scratch", "wt_dlg"):
+    for scratch in ("wt_scratch", "wt_dlg", "wt_del", "wt_del2"):
         shutil.rmtree(os.path.join(ROOT, "assets", "projects", scratch),
                       ignore_errors=True)
     for leftover in (SAVE, SAVE + ".bak",

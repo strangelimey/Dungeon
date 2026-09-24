@@ -194,7 +194,7 @@ function Invoke-Case($case) {
 	Remove-Item $log -ErrorAction SilentlyContinue
 	Get-ChildItem $bin -Filter *.dmp -ErrorAction SilentlyContinue | Remove-Item -Force
 
-	$script:proc = Start-Process -FilePath $exe -WorkingDirectory $bin -PassThru
+	$script:proc = Start-Process -FilePath $exe -WorkingDirectory $bin -ArgumentList '-project', 'dungeon-demo' -PassThru
 	$script:hwnd = [IntPtr]::Zero
 	try {
 		Wait-ForLog '--- load: ' $LoadTimeoutSec 'the boot load' | Out-Null

@@ -577,7 +577,8 @@ void Game::RegisterDevCommands() {
 		});
 	m_console.Register(
 		"worlds",
-		"the worlds beside this one: worlds | new <name> | load <name> | dialog",
+		"the worlds beside this one: worlds | new <name> | load <name> | "
+		"delete <name> <name again> | dialog",
 		[this](const std::vector<std::string>& a) {
 			// A WORLD IS A PROJECT FOLDER (assets/projects/<name>): its own
 			// overworld, dungeons, levels and content. Switching RELAUNCHES,
@@ -610,6 +611,22 @@ void Game::RegisterDevCommands() {
 												  : "no such world");
 				return;
 			}
+			if (a[0] == "delete" && a.size() >= 2) {
+				// The console's form of the typed confirmation: the name TWICE,
+				// matched exactly. The rules are DeleteWorld's either way.
+				if (a.size() < 3 || a[2] != a[1]) {
+					m_console.Print("to delete, type the name twice: worlds delete " +
+									a[1] + " " + a[1] + " (case-sensitive)");
+					return;
+				}
+				if (const std::string why = WorldDeleteRefusal(a[1]); !why.empty()) {
+					m_console.Print(why);
+					return;
+				}
+				m_console.Print(DeleteWorld(a[1]) ? "deleted world '" + a[1] + "'"
+												  : "could not delete (see the log)");
+				return;
+			}
 			if (a[0] == "dialog") {
 				// The toolbar's Worlds disc and its rows, for a harness. The
 				// dialog's clicks are the SAME calls (ClickOpen / Create), so
@@ -628,18 +645,22 @@ void Game::RegisterDevCommands() {
 				if (m_worldsDialog.IsOpen() && a.size() >= 3) {
 					if (a[1] == "open") m_worldsDialog.ClickOpen(a[2]);
 					else if (a[1] == "create") m_worldsDialog.Create(a[2]);
+					else if (a[1] == "delete") m_worldsDialog.ClickDelete(a[2]);
+					else if (a[1] == "confirm") m_worldsDialog.ConfirmDelete(a[2]);
+					m_worldsDialog.ApplyPending(); // not inside a tree walk here
 				}
 				std::string list;
 				for (const std::string& w : m_worldsDialog.Worlds())
 					list += (list.empty() ? "" : " ") + w;
 				m_console.Print(std::format(
-					"worlds dialog {}: [{}] armed '{}' - {}",
+					"worlds dialog {}: [{}] armed '{}' deleting '{}' - {}",
 					m_worldsDialog.IsOpen() ? "open" : "closed", list,
-					m_worldsDialog.Armed(), m_worldsDialog.Note()));
+					m_worldsDialog.Armed(), m_worldsDialog.Deleting(),
+					m_worldsDialog.Note()));
 				return;
 			}
-			m_console.Print("usage: worlds [new|load] <name> | dialog "
-							"[open|create <name>|off]");
+			m_console.Print("usage: worlds [new|load] <name> | delete <name> <name> | "
+							"dialog [open|create|delete|confirm <name>|off]");
 		});
 	m_console.Register(
 		"mappage",

@@ -123,6 +123,11 @@ public:
 	// Draw as selected (controlActive fill) regardless of hover — for a row that
 	// represents the current selection in a list (the config dialog's state/clip rows).
 	bool active = false;
+	// A disabled button still PAINTS its pixels, so it still claims the mouse
+	// there (nothing underneath may take a click through it) — it just does
+	// nothing with it, and draws flattened. For an action waiting on a
+	// condition the user can watch being met, like a delete confirmation's name.
+	bool enabled = true;
 	// Optional icon face drawn centered INSTEAD of the label (the text stays
 	// the fallback when the texture is missing). `iconTurns` rotates it in
 	// quarter turns clockwise, so one chevron asset serves every direction

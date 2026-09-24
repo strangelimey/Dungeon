@@ -372,6 +372,47 @@ Dev: `worlds dialog [open|create <name>|off]` — the rows' own calls, for a
 harness. The same rule as `worlds load` applies: a SECOND `open` of one row
 relaunches, so a script checks the arm and never makes it. WorldTest phase 15.
 
+**W9 — deleting a world.** DONE (2026-09-23). Michael: it should work *"like
+deleting a repo in GitHub: you have to enter the name of the world (case
+sensitive) as confirmation."* A row's Delete opens a CONFIRMATION VIEW inside the
+Worlds dialog: what goes (read off DISK — its levels, its dungeons, the
+overworld, every catalog), that it cannot be undone, the name to type, and a
+Delete button that stays DISABLED until the typed text equals the name exactly —
+not trimmed, not case-folded. Esc / Cancel go back to the list. `ui::Button`
+gained `enabled` for it (a disabled button still claims the pixels it paints).
+
+The RULES live in `Game` (`WorldDeleteRefusal`), not the dialog, because the
+console reaches them too (`worlds delete <name> <name>` — the typed confirmation
+in its console form). Two refusals, each its own sentence, and asked BEFORE the
+confirmation opens so it never asks you to type out a name it will then refuse:
+the world RUNNING (its files are the ones on screen), and `dungeon-demo`, THE
+FALLBACK — a launch whose world is missing lands there, so without it a launch
+cannot stand up. The fallback row offers a space, not a dead button. The delete
+itself checks the path it is about to `remove_all` (directly under the projects
+root, holding a project.ini) rather than trusting how the path was built, and a
+settings.ini naming the deleted world is pointed back at the fallback.
+
+**WHAT THIS PHASE FOUND THAT WAS NOT DELETION.** Michael made a world in W8 and
+switched into it, so settings.ini named it — and every harness launched without
+`-project` then measured HIS world. Its `eval_level` is its starter room, so the
+eval suites would have run somewhere other than eval_arena and could have passed
+doing it. Now a `-eval` run skips settings.ini (a harness measures a scenario,
+not the developer's last choice; one that wants another world says `-project`),
+and the four keystroke-driven harnesses (Alloc/Health/InGame/Profile) pass
+`-project dungeon-demo`. WorldTest phase 16 carries the CONTROL: it points
+settings.ini at a scratch world and demands a harness run still opens
+dungeon-demo, restoring the file after.
+
+And the sweep lied once on the way: `uioverlap` after a scripted `delete` click
+audited the LIST, because the dialog defers its rebuild (a button fires inside
+the tree walk) and its Update does not run while the console is up.
+`ApplyPending()` is the console's way to apply it. The same sweep then found a
+real overlap — the new Delete column squeezed a world's name under Open.
+
+Dev: `worlds dialog delete <name>` (a row's Delete) and `worlds dialog confirm
+<text>` (type it and press the button). WorldTest phase 16; InGameTest sweeps the
+confirmation with a scratch world it makes and deletes itself.
+
 What this does not change
 -------------------------
 

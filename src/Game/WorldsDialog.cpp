@@ -16,7 +16,10 @@ namespace dungeon::game {
 namespace {
 // A short list and one form row: narrower and shorter than the settings card.
 // The list scrolls, so the card is sized for a handful of worlds, not all.
-constexpr gfx::Rect kPanel{0.28f, 0.22f, 0.44f, 0.54f};
+constexpr gfx::Rect kPanel{0.25f, 0.22f, 0.50f, 0.54f};
+// The two button columns, in FooterButton widths. NARROW ON PURPOSE: the name
+// takes what is left, and at 1.6 + 1.2 a twelve-letter name ran under Open.
+constexpr float kOpenW = 1.0f, kDeleteW = 0.9f;
 
 // A world's name is a FOLDER name — the id filter every authored name gets,
 // applied as it is typed so the field never shows a name that will not be the
@@ -41,6 +44,8 @@ void WorldsDialog::Open(std::string openName) {
 	m_worlds = onList ? onList() : std::vector<std::string>{};
 	m_armed.clear();
 	m_newName.clear();
+	m_deleting.clear();
+	m_typed.clear();
 	m_note = loc::Tr("map.worlds.note");
 	m_uiRebuild = false;
 	BuildUI();
@@ -105,12 +110,127 @@ void WorldsDialog::Create(const std::string& typed) {
 	m_uiRebuild = true;
 }
 
+// --- deleting ----------------------------------------------------------------
+
+void WorldsDialog::ClickDelete(const std::string& name) {
+	// ASKED BEFORE THE CONFIRMATION OPENS: a refusal after you have typed the
+	// name out would be the dialog wasting a deliberate act.
+	const std::string why = canDelete ? canDelete(name) : std::string();
+	if (!why.empty()) {
+		m_armed.clear();
+		m_note = why;
+		m_uiRebuild = true;
+		return;
+	}
+	m_armed.clear(); // one question at a time
+	m_deleting = name;
+	m_deleteWhat = onDescribe ? onDescribe(name) : std::string();
+	m_typed.clear();
+	m_note = loc::Tr("map.worlds.delete.casenote");
+	m_uiRebuild = true;
+}
+
+void WorldsDialog::ConfirmDelete(const std::string& typed) {
+	if (m_deleting.empty()) return;
+	m_typed = typed;
+	if (m_deleteBtn) m_deleteBtn->enabled = m_typed == m_deleting;
+	// EXACT, CASE AND ALL — GitHub's rule. Not trimmed, not folded: a name typed
+	// nearly right is a name typed without reading it.
+	if (m_typed != m_deleting) {
+		SetNote(loc::Tr("map.worlds.delete.mismatch"));
+		return;
+	}
+	const std::string name = m_deleting;
+	if (onDelete && onDelete(name)) {
+		m_note = loc::Format("map.worlds.deleted", name);
+	} else {
+		m_note = loc::Format("map.worlds.delete.failed", name);
+	}
+	m_deleting.clear();
+	m_typed.clear();
+	// RE-READ FROM DISK either way: after a failed delete the folder may be
+	// half there, and the list should say what is, not what was meant.
+	if (onList) m_worlds = onList();
+	m_uiRebuild = true;
+}
+
+void WorldsDialog::ApplyPending() {
+	if (!m_uiRebuild) return;
+	m_uiRebuild = false;
+	BuildUI();
+}
+
+void WorldsDialog::LeaveConfirm() {
+	m_deleting.clear();
+	m_typed.clear();
+	m_note = loc::Tr("map.worlds.note");
+	m_uiRebuild = true;
+}
+
 void WorldsDialog::BuildUI() {
 	m_ui.Clear();
 	m_noteLabel = nullptr; // dies with the tree
-	DialogChrome chrome = BuildDialogChrome(m_ui, kPanel, loc::Tr("map.worlds.title"),
-											m_closeIcon, [this] { Close(); });
+	m_deleteBtn = nullptr;
+	DialogChrome chrome = BuildDialogChrome(
+		m_ui, kPanel,
+		m_deleting.empty() ? loc::Tr("map.worlds.title")
+						   : loc::Format("map.worlds.delete.head", m_deleting),
+		m_closeIcon, [this] { Close(); });
+	if (m_deleting.empty()) BuildList(chrome);
+	else BuildConfirm(chrome);
+	// What the last click did, or what the next one will. One line, fine print
+	// (the WorldSettingsDialog note), and held so it can change in place.
+	ui::Label* note = chrome.body->Row<ui::Label>(ui::Len::Fixed(2.0f), m_note);
+	note->dim = true;
+	note->centerV = true;
+	note->fontScale = 1.1f;
+	m_noteLabel = note;
+}
 
+// The confirmation, laid out the way GitHub lays out a repository delete: what
+// goes, that it cannot come back, the name to type, and a button that wakes up
+// only once the name is right.
+void WorldsDialog::BuildConfirm(DialogChrome& chrome) {
+	auto line = [&](std::string text, bool dim) {
+		ui::Label* l = chrome.body->Row<ui::Label>(FormRow(), std::move(text));
+		l->centerV = true;
+		l->dim = dim;
+		// At the NOTE's size: a Label does not wrap, and these are sentences.
+		l->fontScale = 1.1f;
+		return l;
+	};
+	line(m_deleteWhat, false);
+	line(loc::Tr("map.worlds.delete.undo"), false);
+	chrome.body->Row<ui::Separator>(ui::Len::Fixed(0.5f));
+	line(loc::Format("map.worlds.delete.type", m_deleting), true);
+
+	auto* field = chrome.body->Row<ui::TextField>(FormRow(), m_typed);
+	field->maxLength = 48;
+	field->SetFocused(true); // the only thing to do here is type
+	ui::TextField* raw = field;
+	raw->onChange = [this, raw] {
+		m_typed = raw->text;
+		if (m_deleteBtn) m_deleteBtn->enabled = m_typed == m_deleting;
+		// A stale "does not match" must not sit under a name that now does.
+		if (m_noteLabel) SetNote(loc::Tr("map.worlds.delete.casenote"));
+	};
+	raw->onSubmit = [this] { ConfirmDelete(m_typed); };
+
+	chrome.body->Space(ui::Len::Fill());
+	ui::Stack* row = chrome.body->Row<ui::Stack>(FormRow(), true);
+	row->gapRem = 0.5f;
+	// Cancel is an ANSWER to the question the view asks, not a way to close
+	// the dialog (the close box does that) — the Yes/No modal's exemption.
+	row->Row<ui::Button>(FooterButton(1.6f), loc::Tr("map.worlds.cancel"),
+						 [this] { LeaveConfirm(); });
+	row->Space(ui::Len::Fill());
+	m_deleteBtn = row->Row<ui::Button>(FooterButton(2.6f),
+									   loc::Tr("map.worlds.delete.confirm"),
+									   [this] { ConfirmDelete(m_typed); });
+	m_deleteBtn->enabled = m_typed == m_deleting;
+}
+
+void WorldsDialog::BuildList(DialogChrome& chrome) {
 	// The worlds, one row each: the name, then either the way there or a word
 	// saying you are already in it. The running world has NO button — opening
 	// the world you are in would relaunch into exactly where you are.
@@ -124,18 +244,27 @@ void WorldsDialog::BuildUI() {
 		row->gapRem = 0.5f;
 		row->Row<ui::Label>(ui::Len::Fill(), name)->centerV = true;
 		if (name == m_openName) {
-			ui::Label* here = row->Row<ui::Label>(FooterButton(1.6f),
+			ui::Label* here = row->Row<ui::Label>(FooterButton(kOpenW),
 												  loc::Tr("map.worlds.here"));
 			here->centerV = true;
 			here->dim = true;
+			row->Space(FooterButton(kDeleteW));
 			continue;
 		}
 		const bool armed = name == m_armed;
 		auto* btn = row->Row<ui::Button>(
-			FooterButton(1.6f),
+			FooterButton(kOpenW),
 			loc::Tr(armed ? "map.worlds.relaunch" : "map.worlds.open"),
 			[this, name] { ClickOpen(name); });
 		btn->active = armed;
+		// A world that may not be deleted (the fallback) gets a SPACE, not a
+		// dead button — the Areas tab's rule: nothing offers a move that cannot
+		// happen, and the columns still line up.
+		if (!canDelete || canDelete(name).empty())
+			row->Row<ui::Button>(FooterButton(kDeleteW), loc::Tr("map.worlds.delete"),
+								 [this, name] { ClickDelete(name); });
+		else
+			row->Space(FooterButton(kDeleteW));
 	}
 
 	chrome.body->Row<ui::Separator>(ui::Len::Fixed(0.5f));
@@ -151,17 +280,9 @@ void WorldsDialog::BuildUI() {
 			m_newName = raw->text;
 		};
 		raw->onSubmit = [this] { Create(m_newName); };
-		row->Row<ui::Button>(FooterButton(1.6f), loc::Tr("map.worlds.create"),
+		row->Row<ui::Button>(FooterButton(kOpenW), loc::Tr("map.worlds.create"),
 							 [this] { Create(m_newName); });
-	}
-	// What the last click did, or what the next one will. One line, fine print
-	// (the WorldSettingsDialog note), and held so it can change in place.
-	{
-		ui::Label* note = chrome.body->Row<ui::Label>(ui::Len::Fixed(2.0f), m_note);
-		note->dim = true;
-		note->centerV = true;
-		note->fontScale = 1.1f;
-		m_noteLabel = note;
+		row->Space(FooterButton(kDeleteW)); // Create sits under the Open column
 	}
 }
 
@@ -173,6 +294,14 @@ void WorldsDialog::Update(const Input& input, float w, float h) {
 	if (m_uiRebuild) {
 		m_uiRebuild = false;
 		BuildUI();
+	}
+	if (input.WasKeyPressed(VK_ESCAPE) && !m_deleting.empty()) {
+		// Out of the confirmation and back to the list — Esc is "no", and a
+		// no should not also throw away the dialog you were in.
+		LeaveConfirm();
+		BuildUI();
+		m_uiRebuild = false;
+		return;
 	}
 	if (input.WasKeyPressed(VK_ESCAPE)) {
 		// Esc DISARMS before it closes: an armed Open is a question the dialog

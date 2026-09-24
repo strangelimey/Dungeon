@@ -240,6 +240,76 @@ bool Game::SwitchWorld(const std::string& name) {
 	return true;
 }
 
+// --- deleting a world (W9) ---------------------------------------------------
+// The one file operation in the editor that nothing brings back: the undo
+// history is in memory and describes THIS world, and a world made in the editor
+// was never in git. So the rules are strict and live HERE rather than in the
+// dialog — the console reaches this too, and a rule held by only one of two
+// ways in is not a rule.
+
+std::string Game::WorldDeleteRefusal(const std::string& name) const {
+	const std::string root = paths::Asset("projects");
+	const std::vector<std::string> found = Project::List(root);
+	if (std::find(found.begin(), found.end(), name) == found.end())
+		return loc::Format("map.worlds.missing", name);
+	// The RUNNING world's files are open in front of you — its levels, its
+	// catalogs, the world being drawn. Leave it first.
+	if (name == m_project.FolderName())
+		return loc::Format("map.worlds.delete.running", name);
+	// THE FALLBACK. ChooseProjectFolder lands here whenever the world a launch
+	// asks for is missing — including the one being deleted, if settings.ini
+	// names it — and a launch with no world to fall back on cannot stand up.
+	if (name == kDefaultProject) return loc::Format("map.worlds.delete.fallback", name);
+	return {};
+}
+
+std::string Game::DescribeWorld(const std::string& name) const {
+	// Read from DISK, not from anything in memory: it is not the running
+	// world, so the only true account of what deleting it destroys is the
+	// folder itself.
+	const Project p = Project::Load(Project::FolderFor(paths::Asset("projects"), name));
+	return loc::Format("map.worlds.delete.what", p.levels.size(),
+					   p.dungeons.Entries().size());
+}
+
+bool Game::DeleteWorld(const std::string& name) {
+	if (const std::string why = WorldDeleteRefusal(name); !why.empty()) {
+		log::Warn("delete world '{}' refused: {}", name, why);
+		return false;
+	}
+	namespace fs = std::filesystem;
+	std::error_code ec;
+	const fs::path root = fs::weakly_canonical(paths::Asset("projects"), ec);
+	const fs::path folder =
+		fs::weakly_canonical(Project::FolderFor(paths::Asset("projects"), name), ec);
+	// BELT AND BRACES before a remove_all: the folder must sit DIRECTLY under
+	// the projects root and look like a world. A name is filtered to an id
+	// everywhere it is typed, but this is the line that deletes, so it checks
+	// the path it is about to delete rather than trusting how it was built.
+	if (ec || folder.parent_path() != root ||
+		!fs::exists(folder / "project.ini")) {
+		log::Warn("delete world '{}': {} is not a world folder under {} - refused",
+				  name, folder.string(), root.string());
+		return false;
+	}
+	const std::uintmax_t removed = fs::remove_all(folder, ec);
+	if (ec) {
+		// Partial is possible (a file held open elsewhere) — say so, since the
+		// folder may now be a world with pieces missing.
+		log::Warn("delete world '{}': {} ({} files removed before it stopped)", name,
+				  ec.message(), removed);
+		return false;
+	}
+	// A setting naming a world that is gone would fall back with a warning on
+	// every launch; point it at the fallback instead.
+	if (m_settings.projectName == name) {
+		m_settings.projectName = kDefaultProject;
+		m_settings.Save();
+	}
+	log::Info("Deleted world '{}' ({} files) from {}", name, removed, folder.string());
+	return true;
+}
+
 std::string Game::CreateWorld(const std::string& name) {
 	// Names are FOLDER names and are typed by hand, so they are filtered the
 	// way every other authored id is (the DoorInspector rule) rather than

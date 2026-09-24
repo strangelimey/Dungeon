@@ -72,13 +72,21 @@ ui::FontLibrary MakeFontLibrary(gfx::GraphicsDevice& device) {
 //      rather than passed because switching RELAUNCHES (see SwitchWorld), the
 //      same bargain the adapter change makes.
 //   3. dungeon-demo, the one that ships.
+// A HARNESS RUN (`-eval`) SKIPS 2. It measures a scenario, and the scenario must
+// not be whichever world the developer last switched into — the first time
+// Michael switched to a world of his own, every eval suite started measuring
+// ITS starter room instead of eval_arena, and would have passed doing it. A
+// harness that wants another world says so with `-project`.
 // A name that does not resolve falls back rather than aborting: a settings file
 // naming a world since deleted must not make the game unlaunchable.
 std::string Game::ChooseProjectFolder() {
 	const std::string root = paths::Asset("projects");
 	std::string name;
+	bool harness = false;
 	int argc = 0;
 	if (LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc)) {
+		for (int i = 1; i < argc; ++i)
+			if (std::wstring_view(argv[i]) == L"-eval") harness = true;
 		for (int i = 1; i + 1 < argc; ++i)
 			if (std::wstring_view(argv[i]) == L"-project") {
 				const std::wstring wide(argv[i + 1]);
@@ -89,16 +97,16 @@ std::string Game::ChooseProjectFolder() {
 			}
 		LocalFree(argv);
 	}
-	if (name.empty()) {
+	if (name.empty() && !harness) {
 		GameSettings probe; // the same file Game re-loads, read before it exists
 		probe.Load();
 		name = probe.projectName;
 	}
 	const std::vector<std::string> found = Project::List(root);
 	if (std::find(found.begin(), found.end(), name) == found.end()) {
-		if (!name.empty() && name != "dungeon-demo")
-			log::Warn("no world '{}' under {} - opening dungeon-demo", name, root);
-		name = "dungeon-demo";
+		if (!name.empty() && name != kDefaultProject)
+			log::Warn("no world '{}' under {} - opening {}", name, root, kDefaultProject);
+		name = kDefaultProject;
 	}
 	log::Info("Opening world '{}'", name);
 	return Project::FolderFor(root, name);

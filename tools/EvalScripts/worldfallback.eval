@@ -1,0 +1,8 @@
+; worldfallback.eval — run INSIDE a scratch world (-project wt_dlg), so the two
+; refusals that are about WHICH world can be told apart: dungeon-demo is not
+; running here, so refusing it can only be the fallback rule; and wt_dlg is.
+logecho on
+reset
+worlds delete dungeon-demo dungeon-demo
+worlds delete wt_dlg wt_dlg
+worlds

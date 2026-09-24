@@ -376,6 +376,9 @@ private:
 	// world are all built from the choice at startup, and tearing that down in
 	// place would be a long tail of stale caches for a saving of ten seconds.
 	static std::string ChooseProjectFolder();
+	// The world a launch falls back on when the one it asked for is missing —
+	// which is why it is also the one world that cannot be deleted.
+	static constexpr const char* kDefaultProject = "dungeon-demo";
 	// Persists the choice and relaunches into it. False when no such world
 	// exists — the caller reports it rather than the game restarting into
 	// nothing.
@@ -389,6 +392,16 @@ private:
 	// nowhere at all in it could not stand up; that starter is the smallest
 	// thing that both loads and passes the checker.
 	std::string CreateWorld(const std::string& name);
+	// Deleting one (W9). NOTHING BRINGS IT BACK — the undo history is in memory
+	// and about THIS world, and a world made in the editor was never in git — so
+	// the confirmation lives in the dialog (type the name, case-sensitive) and
+	// the RULES live here, where the console reaches them too. The refusal is
+	// "" when allowed, else the sentence saying why: no such world, the one
+	// running, or the fallback every launch lands on.
+	std::string WorldDeleteRefusal(const std::string& name) const;
+	// What deleting it destroys, read off disk, for the confirmation to name.
+	std::string DescribeWorld(const std::string& name) const;
+	bool DeleteWorld(const std::string& name);
 	std::string CreateNewLevel(const std::string& dungeonId = {});
 	// Rough out a whole level from knobs and write it as a NEW level (files +
 	// manifest), returning its stem or "" on failure. The knobs' content pools

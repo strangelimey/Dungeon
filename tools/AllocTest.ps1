@@ -104,7 +104,7 @@ function Send-Text([string]$text) {
 
 Remove-Item $log -ErrorAction SilentlyContinue
 Write-Host "launching $exe"
-$proc = Start-Process -FilePath $exe -WorkingDirectory $bin -PassThru
+$proc = Start-Process -FilePath $exe -WorkingDirectory $bin -ArgumentList '-project', 'dungeon-demo' -PassThru
 $hwnd = [IntPtr]::Zero
 $code = 1
 try {

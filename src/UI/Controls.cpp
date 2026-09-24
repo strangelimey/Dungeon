@@ -123,9 +123,10 @@ void Button::UpdateSelf(UIContext& ctx) {
 	if (!input) return;
 	m_hot = !ctx.IsMouseConsumed() && Pixel().Contains(input->MouseX(), input->MouseY());
 	if (m_hot) {
-		if (input->WasMousePressed(MouseButton::Left)) m_held = true;
+		if (enabled && input->WasMousePressed(MouseButton::Left)) m_held = true;
 		ctx.ConsumeMouse();
 	}
+	if (!enabled) m_held = false; // disabled mid-press: the release does nothing
 	if (m_held && input->WasMouseReleased(MouseButton::Left)) {
 		if (m_hot && onClick) onClick();
 		m_held = false;
@@ -146,8 +147,8 @@ void Button::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 								{0, 0, 1, 1}, *icon, {f, f, f, 1.0f});
 		return;
 	}
-	DrawButtonFace(batch, TextFont(), px, text, ctx.GetTheme(), m_hot,
-				   m_held || active, true, ctx.GetSkin());
+	DrawButtonFace(batch, TextFont(), px, text, ctx.GetTheme(), m_hot && enabled,
+				   m_held || active, enabled, ctx.GetSkin());
 }
 
 void DrawButtonFace(gfx::SpriteBatch& batch, const Font& font,

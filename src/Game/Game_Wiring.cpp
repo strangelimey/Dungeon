@@ -235,6 +235,11 @@ void Game::WireModuleCallbacks() {
 	m_worldsDialog.onList = [] { return Project::List(paths::Asset("projects")); };
 	m_worldsDialog.onCreate = [this](const std::string& n) { return CreateWorld(n); };
 	m_worldsDialog.onSwitch = [this](const std::string& n) { return SwitchWorld(n); };
+	m_worldsDialog.canDelete = [this](const std::string& n) {
+		return WorldDeleteRefusal(n);
+	};
+	m_worldsDialog.onDescribe = [this](const std::string& n) { return DescribeWorld(n); };
+	m_worldsDialog.onDelete = [this](const std::string& n) { return DeleteWorld(n); };
 
 	m_mapEditor.onNewAsset = [this](MapEditor::PaletteCat cat) {
 		// PURE-DATA CATEGORIES SKIP THE ASSET DIALOG. A dungeon has no texture
