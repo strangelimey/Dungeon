@@ -283,6 +283,10 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	WireModuleCallbacks();
 	RegisterDevCommands();
 	RegisterDungeonCommands();
+	RegisterWorldCommands();
+	RegisterDiagnosticCommands();
+	RegisterPartyCommands();
+	RegisterEvalCommands();
 
 	m_ui.BuildStaticUi();
 	BuildBootLoadTasks();

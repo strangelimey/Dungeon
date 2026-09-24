@@ -210,8 +210,14 @@ private:
 
 	// --- construction (called once from the ctor; see Game.cpp) -----------
 	void WireModuleCallbacks(); // the world↔UI/editor callback graph
-	void RegisterDevCommands(); // the dev-console command table
+	// The dev-console command table, one Register*Commands per file by concern
+	// (arg helpers shared through Game/DevCommandArgs.h).
+	void RegisterDevCommands(); // the general ones (Game_DevCommands.cpp)
 	void RegisterDungeonCommands(); // the dungeon tier's (Game_DevDungeons.cpp)
+	void RegisterWorldCommands(); // the world tier's (Game_DevWorld.cpp)
+	void RegisterDiagnosticCommands(); // guards, threads, health (Game_DevDiagnostics.cpp)
+	void RegisterPartyCommands(); // members, gear, pools (Game_DevParty.cpp)
+	void RegisterEvalCommands(); // the eval harness's (Game_DevEval.cpp)
 
 	// --- loading (one task per frame while a loading screen shows) ---------
 	void BuildBootLoadTasks(); // menu essentials, run before the landing page

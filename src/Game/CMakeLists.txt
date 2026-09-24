@@ -43,7 +43,11 @@ add_library(Game STATIC
 	FixtureInspector.cpp
 	Game.cpp
 	Game_DevCommands.cpp
+	Game_DevDiagnostics.cpp
 	Game_DevDungeons.cpp
+	Game_DevEval.cpp
+	Game_DevParty.cpp
+	Game_DevWorld.cpp
 	Game_Editor.cpp
 	Game_Eval.cpp
 	Game_Generate.cpp
