@@ -210,31 +210,37 @@ function Invoke-Case($case) {
 		}
 		if ($hwnd -eq [IntPtr]::Zero) { throw 'the game never showed a main window' }
 
-		# With no save present the first landing-page entry is Start New Game.
-		# RETRIED, because a single PostMessage keystroke is not reliable enough
-		# to hang a seven-minute run on: one case failed twice on a dropped Enter
-		# at startup, having nothing to do with what it was testing. Pressing
-		# Enter again on an already-loading game is harmless.
-		$loaded = $false
-		for ($try = 1; $try -le 3 -and -not $loaded; $try++) {
-			Send-Key 0x0D
-			$deadline = (Get-Date).AddSeconds(60)
-			while ((Get-Date) -lt $deadline) {
-				if ($proc.HasExited) { throw "the game exited during the dungeon load" }
-				if ((Test-Path $log) -and
-					(Select-String -Path $log -Pattern 'Game loaded: ' -ErrorAction SilentlyContinue)) {
-					$loaded = $true
-					break
-				}
-				Start-Sleep -Milliseconds 400
-			}
-			if (-not $loaded) { Write-Host "  (retrying Start New Game, attempt $($try + 1))" }
-		}
-		if (-not $loaded) { throw 'the dungeon never loaded' }
-		Start-Sleep -Seconds 2
-
+		# START NEW GAME BY COMMAND, NOT BY THE MENU. This used to press Enter on
+		# the landing page, trusting the first entry to be Start New Game - which
+		# is only true with NO SAVE in Documents. With one, the first entry is
+		# Continue: the run loaded the newest save instead (a WorldTest leftover),
+		# that save's level load was still in flight when the commands were typed,
+		# the console refuses commands during a load, and all seven cases failed
+		# without injecting anything. `newgame` runs the menu entry's own callback
+		# (onStartNewGame), so it is Start New Game whatever the menu lists and
+		# wherever its highlight sits.
+		#
+		# The console opens in EVERY state and owns the input while open, so the
+		# Enters below cannot reach the menu - provided it really opened. That is
+		# checked, not assumed: `framecap` with no argument is a pure readout that
+		# log::Info's its own line (never written at boot), so seeing it proves the
+		# console is open and taking commands. NOT retried: if the backtick was
+		# dropped, that Enter went to the menu and did whatever its highlighted
+		# entry does, and a second backtick could as easily close the console as
+		# open it. A dropped key fails this ONE case, saying which step it was.
 		Send-Key 0xC0                    # ` opens the console
 		Start-Sleep -Milliseconds 600
+		Send-Text 'framecap'
+		Send-Key 0x0D
+		Wait-ForLog 'framecap enabled=' 15 'the console to answer (was the backtick dropped?)' | Out-Null
+
+		Send-Text 'newgame'
+		Send-Key 0x0D
+		Wait-ForLog 'Game loaded: ' $LoadTimeoutSec 'the dungeon load after `newgame`' | Out-Null
+		Start-Sleep -Seconds 2
+
+		# The console is still open (a command never closes it), so the case's
+		# lines go straight in - toggling it here would CLOSE it.
 		if ($SelfTest) {
 			# The injection is SKIPPED on purpose. Everything below still runs,
 			# so an expectation that is met anyway is an expectation that was
