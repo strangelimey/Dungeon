@@ -37,13 +37,14 @@ namespace dungeon::game::generate {
 // reproducible from this struct — see the determinism note above.
 struct Params {
 	int width = 32, height = 32;
-	// Roughly how many rooms to aim for. The carver may fall short on a small
-	// map: rooms are placed by rejection, and it stops trying rather than
-	// shrinking them into cupboards.
-	int rooms = 8;
-	// 0 = the rooms chain nearly straight through; 1 = the tree branches hard,
-	// so most rooms hang off side passages rather than sitting on the way.
-	float branching = 0.5f;
+	// THE SHAPE IS A MAIN PATH WITH SIDE BRANCHES (docs/level-building.md P2).
+	// `path` rooms from the start to the exit, counting both; then `branches`
+	// side branches off the path's rooms, each branchMin..branchMax rooms deep.
+	// Exact counts, not tendencies — what does not fit on the map is reported
+	// (Level::report), never forced or silently dropped.
+	int path = 6;
+	int branches = 3;
+	int branchMin = 1, branchMax = 3;
 	// How many locked doors to author. Each takes a key, placed where it is
 	// reachable before its own door (see the header note).
 	int locks = 1;
@@ -68,6 +69,18 @@ struct Params {
 	std::vector<std::string> keyIds; // door/key pairs draw from these, in order
 };
 
+// What was asked for beside what was BUILT. A knob you cannot measure is a knob
+// you cannot tune — and the generator stops short rather than forcing a room
+// into a map with no space for it, so the shortfall has to be said, or a
+// "3 branches" setting that built 2 reads as a bug in the knob.
+struct Report {
+	int pathWanted = 0, pathGot = 0;
+	int branchesWanted = 0, branchesGot = 0;
+	std::vector<int> branchRooms; // rooms in each branch built, in order
+	int locksWanted = 0, locksGot = 0;
+	int monsters = 0, loot = 0;
+};
+
 // A generated level, in the two layers the project already speaks: a grid, and
 // a list of entity records.
 struct Level {
@@ -80,6 +93,7 @@ struct Level {
 	// about the project rather than about this level.
 	int exitX = 0, exitZ = 0;
 	std::vector<Entity> entities; // monsters, items, doors
+	Report report;
 
 	bool At(int x, int z) const {
 		if (x < 0 || z < 0 || x >= width || z >= height) return false;

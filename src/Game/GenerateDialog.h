@@ -34,6 +34,7 @@
 #include "UI/Font.h"
 #include "UI/UIContext.h"
 
+#include <array>
 #include <functional>
 #include <string>
 
@@ -59,6 +60,18 @@ public:
 	// The knobs, as last set. Seeded by the owner at startup from settings.ini.
 	const generate::Params& Knobs() const { return m_params; }
 	void SetKnobs(const generate::Params& params) { m_params = params; }
+
+	// The last generate's asked-vs-built line, shown under the knobs so the
+	// effect of a knob is READ, not guessed. The owner sets it after each run,
+	// naming the level it is about: reopening the dialog on THAT level shows it
+	// again, and on any other level clears it, since a report about another
+	// level would read as one about this one.
+	void SetReport(std::array<std::string, 2> lines, const std::string& levelStem) {
+		m_report = std::move(lines);
+		m_reportLevel = levelStem;
+		for (size_t i = 0; i < m_report.size(); ++i)
+			if (m_reportLabels[i]) m_reportLabels[i]->text = m_report[i];
+	}
 
 	void Update(const Input& input, float width, float height);
 	void Render(gfx::SpriteBatch& batch, const ui::Theme& theme, float width,
@@ -90,6 +103,9 @@ private:
 	generate::Params m_params;
 	ui::TabControl* m_tabs = nullptr;   // this tree's; dies on Clear
 	ui::TextField* m_seedField = nullptr; // ditto — Roll writes into it
+	std::array<ui::Label*, 2> m_reportLabels{}; // ditto — SetReport writes into them
+	std::array<std::string, 2> m_report;        // shape, then contents
+	std::string m_reportLevel; // the level m_report is about
 	int m_activeTab = 0;      // survives a rebuild (the create->regenerate flip)
 	bool m_uiRebuild = false; // deferred BuildUI (a callback cannot Clear itself)
 };

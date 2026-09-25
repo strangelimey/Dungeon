@@ -52,7 +52,7 @@ std::span<const char* const> KnobTabs();
 // Clamp and round `v` to what knob `k` accepts, then store it.
 void SetKnob(const Knob& k, Params& p, double v);
 
-// "rooms:8 branching:0.5 ..." — every knob, in table order. Space-separated
+// "path:6 branches:3 ..." — every knob, in table order. Space-separated
 // key:value pairs so the line survives an ini file and a catalog field alike.
 std::string Encode(const Params& p);
 

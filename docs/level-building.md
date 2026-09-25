@@ -85,6 +85,36 @@ opens, and nothing reports whether the result matches what was asked for.
 - It stays a TREE, which the lock construction depends on. Locks go on the
   spine first (they gate progress), optionally on branches (they gate treasure).
 
+**P2 LANDED (2026-09-24).**
+- Knobs `path`, `branches`, `branchmin`, `branchmax` replaced `rooms` and
+  `branching`. An old settings line naming those just has them ignored.
+- The shape is GROWN, not scattered. The root room goes first (around the
+  entry, when there is one). The main path is hung off it room by room,
+  growing away from the start, and its last room is the exit. Then each branch
+  sprouts from a path room other than the exit. Branches are spread along the
+  path: branch b prefers the anchor at its fair share of the way along. Each
+  child room hangs off its parent by a STRAIGHT corridor, and is kept only if
+  neither the corridor nor the room comes within a square of anything carved
+  except the parent (`Grower::Clear`). So the layout is a true tree: rooms
+  never fuse and corridors never graze, and the counts are exact.
+- Locks go on the main path's corridors first, so they gate progress and the
+  key is usually down a branch.
+- `generate::Report` gives asked vs BUILT for path, branches (and each one's
+  length), locks, monsters and loot. The console prints it in full. The dialog
+  shows two localized lines under the tabs, kept per level: reopening on the
+  same level shows it again. One line ran 162px past the dialog, so it became
+  two; the panel is taller now too.
+- A map too small stops short and SAYS so: 30/12 asked on 16x16 builds what fits.
+- Checks: `LevelBuildTest.py` phase 2 MEASURES each level from its .map file,
+  independent of the generator. Room squares are floor in a 2x2 block
+  (corridors are 1 wide). Branches = dead ends − the exit − the start (if the
+  start is a dead end). It demands the file match the knobs AND the report. The
+  control pair differs only in `branches` (0 → 4 measured 0 → 4). MUTATIONS: a
+  report claiming every asked-for branch fails the shortfall level; switching
+  off the clearance rule fails every shape check (rooms fuse).
+- Noticed for P4: a monster can stand right beside the arrival stair. The
+  difficulty ramp (entrance easier than exit) is the place to fix it.
+
 ### P3 — complexity: four separate knobs
 Each is its own setting, 0..1, and each shows up as its own line in the report:
 - **Loops**: extra corridors that close cycles. Cycles break "everything beyond

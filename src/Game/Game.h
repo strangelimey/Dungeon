@@ -491,6 +491,12 @@ private:
 	// Resolve the theme into the id pools the generator picks from.
 	void FillPools(generate::Params& params,
 				   const std::vector<std::string>& theme);
+	// The last generate's asked-vs-built, as the console prints it (English,
+	// one line, with every branch's length) — docs/level-building.md: a knob you
+	// cannot measure is a knob you cannot tune. The dialog's localized form is
+	// two lines (ShowGenReport), since one ran 162px past the dialog.
+	std::string GenReportText() const;
+	void ShowGenReport(const std::string& levelStem);
 
 	// The Level dialog's inline rename: validates (unique stem), drives
 	// DungeonWorld::RenameLevel (files, stashes, stair dests), then updates
@@ -861,6 +867,7 @@ private:
 	WorldsDialog m_worldsDialog;
 	ValidateDialog m_validateDialog;
 	GenerateDialog m_generateDialog;
+	generate::Report m_lastGenReport; // the most recent generate's, for the readouts
 	// Per-TYPE catalog editor, opened by right-clicking any palette row: a form
 	// rendered from CatalogSchema, so it serves every category. Save writes the
 	// .cat (and re-bakes the worn meshes when a surface's look changed).

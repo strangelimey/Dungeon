@@ -14,9 +14,9 @@
 logecho on
 reset
 levels
-generate crypt rooms:6 seed:7 locks:1
+generate crypt path:6 seed:7 locks:1
 generate again seed:8
-generate crypt rooms:6 seed:9 locks:1
+generate crypt path:6 seed:9 locks:1
 levels view crypt3
 generate again seed:10 width:12 height:12
 levels new crypt

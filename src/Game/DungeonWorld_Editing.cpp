@@ -1296,21 +1296,28 @@ bool DungeonWorld::AddStairAt(const std::string& stem, const std::string& type,
 	}
 
 	// The type's direction (stairs.cat `up`) picks the destination: the previous
-	// / next stem from `stem` in its DUNGEON's depth order (dungeons.cat
-	// `levels`) — the vertical stack. The project's flat list is only the
-	// fallback for a level no dungeon claims: it interleaves dungeons, so a
-	// stair down from a dungeon's last floor used to lead into whatever level
-	// the manifest listed next — another dungeon's, or the harness's arena.
+	// / next stem from `stem` — in its DUNGEON's depth order (dungeons.cat
+	// `levels`) first, the vertical stack, and only when the dungeon has no
+	// floor that way, in the project's flat list.
+	//
+	// The dungeon comes first because the flat list INTERLEAVES dungeons: a
+	// floor added to a dungeon is appended at the list's end, so crypt3 sat
+	// after eval_arena and a stair down from crypt2 led into the arena
+	// (docs/level-building.md P1). The flat fallback stays because a stair
+	// BETWEEN dungeons, off one's last floor, is legitimate content the brush
+	// has always been able to author — the W10 delete rule "a stair from
+	// outside leading in" exists for it, and WorldTest builds one this way.
 	const bool up = CatalogBool(entry, "up", false);
-	const CatalogEntry* dungeon = m_project.DungeonOfLevel(stem);
-	const std::vector<std::string> levels =
-		dungeon ? m_project.DungeonLevels(dungeon->id) : m_project.levels;
-	const auto cur = std::find(levels.begin(), levels.end(), stem);
+	auto neighbour = [&](const std::vector<std::string>& levels) -> std::string {
+		const auto cur = std::find(levels.begin(), levels.end(), stem);
+		if (cur == levels.end()) return {};
+		if (up) return cur != levels.begin() ? *(cur - 1) : std::string();
+		return cur + 1 != levels.end() ? *(cur + 1) : std::string();
+	};
 	std::string dest;
-	if (cur != levels.end()) {
-		if (up && cur != levels.begin()) dest = *(cur - 1);
-		if (!up && cur + 1 != levels.end()) dest = *(cur + 1);
-	}
+	if (const CatalogEntry* dungeon = m_project.DungeonOfLevel(stem))
+		dest = neighbour(m_project.DungeonLevels(dungeon->id));
+	if (dest.empty()) dest = neighbour(m_project.levels);
 	if (dest.empty()) {
 		say(loc::Tr(up ? "map.stairs.noup" : "map.stairs.nodown"));
 		return false;

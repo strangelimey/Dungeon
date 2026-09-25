@@ -18,7 +18,9 @@ namespace dungeon::game {
 
 namespace {
 
-constexpr gfx::Rect kPanel{0.30f, 0.14f, 0.40f, 0.72f};
+// Tall: the knob tabs scroll, but the report's two lines and the where-it-lands
+// line all take from the same height, and P1's 0.72 left two sliders visible.
+constexpr gfx::Rect kPanel{0.28f, 0.06f, 0.44f, 0.88f};
 constexpr float kLabelFill = 1.3f, kFieldFill = 1.0f;
 
 } // namespace
@@ -35,6 +37,7 @@ void GenerateDialog::OpenCreate(const std::string& dungeonId,
 	m_mode = Mode::Create;
 	m_dungeon = dungeonId;
 	m_where = where;
+	m_report = {}; // nothing made yet: no report can be about it
 	m_uiRebuild = false;
 	BuildUI();
 }
@@ -43,6 +46,7 @@ void GenerateDialog::OpenRegenerate(const std::string& levelStem) {
 	m_open = true;
 	m_mode = Mode::Regenerate;
 	m_level = levelStem;
+	if (levelStem != m_reportLevel) m_report = {};
 	m_uiRebuild = false;
 	BuildUI();
 }
@@ -52,6 +56,7 @@ void GenerateDialog::BuildUI() {
 	m_ui.Clear();
 	m_tabs = nullptr;
 	m_seedField = nullptr;
+	m_reportLabels = {};
 	// The title stays SHORT and the where-it-lands line goes in the body: a
 	// dungeon's display name has no length limit, and the title slot does (the
 	// uioverlap sweep caught "New level in The Crypt" running 18px past it).
@@ -124,6 +129,13 @@ void GenerateDialog::BuildUI() {
 			static_cast<float>(knob.hi), static_cast<float>(value),
 			[this, k](float v) { generate::SetKnob(*k, m_params, v); });
 		if (knob.kind == generate::KnobKind::Int) slider->SetDecimals(0);
+	}
+
+	// What the last run BUILT, against what it was asked for. Empty until
+	// something has been generated here (see SetReport).
+	for (size_t i = 0; i < m_report.size(); ++i) {
+		m_reportLabels[i] = chrome.body->Row<ui::Label>(FormRow(), m_report[i]);
+		m_reportLabels[i]->centerV = true;
 	}
 
 	chrome.footer->Space(ui::Len::Fill());

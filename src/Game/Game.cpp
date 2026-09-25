@@ -226,6 +226,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	};
 	m_generateDialog.onGenerate = [this](const generate::Params& p) {
 		if (!RegenerateViewedLevel(p)) return;
+		ShowGenReport(m_mapView.ViewedLevel());
 		if (m_world->onMessage)
 			m_world->onMessage(loc::FormatLine("map.gen.done", m_mapView.ViewedLevel(),
 											  p.seed));
@@ -273,6 +274,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 									   const generate::Params* p) {
 		const std::string stem = CreateNewLevel(dungeonId, p);
 		if (stem.empty()) return stem;
+		if (p) ShowGenReport(stem);
 		m_mapView.SetViewLevel(stem);
 		if (p) m_validateDialog.Open(ValidateProject());
 		return stem;

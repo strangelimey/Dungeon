@@ -4,6 +4,7 @@
 #include "Game/Generate.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <format>
 #include <queue>
 #include <random>
@@ -16,10 +17,6 @@ struct Room {
 	int x = 0, z = 0, w = 0, h = 0;
 	int cx() const { return x + w / 2; }
 	int cz() const { return z + h / 2; }
-	bool Overlaps(const Room& o, int pad) const {
-		return x - pad < o.x + o.w && x + w + pad > o.x && z - pad < o.z + o.h &&
-			   z + h + pad > o.z;
-	}
 };
 
 int Roll(std::mt19937& rng, int lo, int hi) { // inclusive
@@ -32,45 +29,153 @@ void Carve(Level& lv, int x, int z) {
 	lv.floor[static_cast<size_t>(z) * lv.width + x] = 1;
 }
 
-// --- rooms ------------------------------------------------------------------
-// Placed by REJECTION: try a random rect, keep it if it clears the others by a
-// one-cell margin, give up after a bounded number of tries. Bounded rather than
-// exhaustive because the failure mode of pushing harder is rooms shrinking into
-// cupboards, and "fewer, decent rooms" beats "the requested number, all tiny".
-//
-// With an ENTRY square the first room is placed around it before any rolling,
-// so it is room 0 — the tree's root and the start.
-std::vector<Room> PlaceRooms(const Params& p, int width, int height,
-							 std::mt19937& rng) {
-	std::vector<Room> rooms;
+// --- the root room ------------------------------------------------------------
+// With an ENTRY square the first room is built around it, so the entry is the
+// start and the root of the tree. Without one it goes somewhere random.
+Room RootRoom(const Params& p, int width, int height, std::mt19937& rng) {
+	Room r;
+	// Capped so the room fits inside the rim of even the smallest map.
+	r.w = std::min(Roll(rng, 3, 7), width - 2);
+	r.h = std::min(Roll(rng, 3, 7), height - 2);
 	if (p.entryX >= 0 && p.entryZ >= 0) {
-		Room r;
-		// Capped so the room fits inside the rim of even the smallest map.
-		r.w = std::min(Roll(rng, 3, 7), width - 2);
-		r.h = std::min(Roll(rng, 3, 7), height - 2);
 		// Anywhere that still covers the entry, inside the one-cell rock rim.
 		r.x = std::clamp(p.entryX - Roll(rng, 0, r.w - 1), 1, width - 1 - r.w);
 		r.z = std::clamp(p.entryZ - Roll(rng, 0, r.h - 1), 1, height - 1 - r.h);
-		rooms.push_back(r);
+	} else {
+		r.x = Roll(rng, 1, width - 1 - r.w);
+		r.z = Roll(rng, 1, height - 1 - r.h);
 	}
-	const int tries = std::max(40, p.rooms * 12);
-	for (int i = 0; i < tries && static_cast<int>(rooms.size()) < p.rooms; ++i) {
-		Room r;
-		r.w = Roll(rng, 3, 7);
-		r.h = Roll(rng, 3, 7);
-		r.x = Roll(rng, 1, std::max(1, width - r.w - 2));
-		r.z = Roll(rng, 1, std::max(1, height - r.h - 2));
-		bool clash = false;
-		for (const Room& o : rooms)
-			if (r.Overlaps(o, 1)) { clash = true; break; }
-		if (!clash) rooms.push_back(r);
-	}
-	return rooms;
+	return r;
 }
+
+// --- growing the tree ---------------------------------------------------------
+// Every room after the root hangs off one already placed, by a STRAIGHT
+// corridor leaving a side of its parent. A candidate is kept only if neither
+// its corridor nor its room comes within one square of anything already carved
+// (the parent excepted, which the corridor has to touch). That is what keeps
+// the layout a true TREE: two rooms never fuse, and a corridor never grazes a
+// neighbour and opens a shortcut. So "three branches" is three branches, not
+// three that happen to have run into each other.
+//
+// The old generator scattered rooms and then joined them with L-shaped
+// corridors, which crossed rooms and one another freely. Its `branching` could
+// only lean the shape one way or another, never promise a count.
+struct Grower {
+	Level& lv;
+	std::mt19937& rng;
+	std::vector<Room> rooms;
+	std::vector<int> spineCorridor; // cell indices of the main path's corridors
+
+	// The four ways out of a room, as unit steps.
+	static constexpr int kDx[4] = {0, 1, 0, -1};
+	static constexpr int kDz[4] = {-1, 0, 1, 0};
+
+	int Idx(int x, int z) const { return z * lv.width + x; }
+	bool Inside(int x, int z) const {
+		return x >= 1 && z >= 1 && x < lv.width - 1 && z < lv.height - 1;
+	}
+	static bool InRoom(const Room& r, int x, int z) {
+		return x >= r.x && x < r.x + r.w && z >= r.z && z < r.z + r.h;
+	}
+
+	void CarveRoom(const Room& r) {
+		for (int z = r.z; z < r.z + r.h; ++z)
+			for (int x = r.x; x < r.x + r.w; ++x) Carve(lv, x, z);
+	}
+
+	// Hang one room off `from`. `awayFrom` (a room index, or -1) biases the
+	// direction: the main path grows AWAY from the start so it is walked
+	// rather than wound on itself. Returns the new room's index, or -1 when
+	// nothing fits after a bounded number of tries.
+	int Attach(int from, int awayFrom, bool spine) {
+		const Room parent = rooms[static_cast<size_t>(from)];
+		constexpr int kTries = 40;
+		for (int t = 0; t < kTries; ++t) {
+			const int dir = Roll(rng, 0, 3);
+			const int len = Roll(rng, 2, 5);
+			Room c;
+			c.w = Roll(rng, 3, 7);
+			c.h = Roll(rng, 3, 7);
+			// The corridor leaves the parent's side at a random point along it,
+			// and the child is placed so the corridor enters its near side.
+			std::vector<std::pair<int, int>> corridor;
+			if (kDx[dir] != 0) {
+				const int z = Roll(rng, parent.z, parent.z + parent.h - 1);
+				const int x0 = kDx[dir] > 0 ? parent.x + parent.w : parent.x - 1;
+				for (int i = 0; i < len; ++i) corridor.push_back({x0 + kDx[dir] * i, z});
+				c.x = kDx[dir] > 0 ? x0 + len : x0 - len - c.w + 1;
+				c.z = z - Roll(rng, 0, c.h - 1);
+			} else {
+				const int x = Roll(rng, parent.x, parent.x + parent.w - 1);
+				const int z0 = kDz[dir] > 0 ? parent.z + parent.h : parent.z - 1;
+				for (int i = 0; i < len; ++i) corridor.push_back({x, z0 + kDz[dir] * i});
+				c.z = kDz[dir] > 0 ? z0 + len : z0 - len - c.h + 1;
+				c.x = x - Roll(rng, 0, c.w - 1);
+			}
+			// Outward, for the main path: for the first half of the tries only
+			// accept a child further from `awayFrom` than its parent is. The
+			// second half takes any direction, so a path boxed in by the map
+			// edge bends rather than stopping.
+			if (awayFrom >= 0 && t < kTries / 2) {
+				const Room& a = rooms[static_cast<size_t>(awayFrom)];
+				auto dist = [&](int x, int z) {
+					return std::abs(x - a.cx()) + std::abs(z - a.cz());
+				};
+				if (dist(c.cx(), c.cz()) <= dist(parent.cx(), parent.cz())) continue;
+			}
+			if (!Clear(parent, corridor, c)) continue;
+			for (const auto& [x, z] : corridor) {
+				Carve(lv, x, z);
+				if (spine) spineCorridor.push_back(Idx(x, z));
+			}
+			CarveRoom(c);
+			rooms.push_back(c);
+			return static_cast<int>(rooms.size()) - 1;
+		}
+		return -1;
+	}
+
+	// Would carving `corridor` + `room` touch anything already carved, other
+	// than `parent`? Every candidate square must be inside the rock rim, and
+	// every square around it rock, part of the candidate, or the parent.
+	bool Clear(const Room& parent, const std::vector<std::pair<int, int>>& corridor,
+			   const Room& room) const {
+		if (room.x < 1 || room.z < 1 || room.x + room.w > lv.width - 1 ||
+			room.z + room.h > lv.height - 1)
+			return false;
+		auto candidate = [&](int x, int z) {
+			if (InRoom(room, x, z)) return true;
+			return std::find(corridor.begin(), corridor.end(), std::pair{x, z}) !=
+				   corridor.end();
+		};
+		auto check = [&](int x, int z) {
+			// Rock itself, first: the neighbourhood test below waves candidate
+			// squares through, so an already-carved one would pass it.
+			if (!Inside(x, z) || lv.At(x, z)) return false;
+			for (int dz = -1; dz <= 1; ++dz)
+				for (int dx = -1; dx <= 1; ++dx) {
+					const int nx = x + dx, nz = z + dz;
+					if (!lv.At(nx, nz) || candidate(nx, nz) || InRoom(parent, nx, nz))
+						continue;
+					return false;
+				}
+			return true;
+		};
+		for (const auto& [x, z] : corridor)
+			if (!check(x, z)) return false;
+		for (int z = room.z; z < room.z + room.h; ++z)
+			for (int x = room.x; x < room.x + room.w; ++x)
+				if (!check(x, z)) return false;
+		return true;
+	}
+};
 
 // --- corridors ---------------------------------------------------------------
 // An L bend, axis order chosen by the caller so the two legs are not always the
-// same way round (which reads as a grid of identical elbows).
+// same way round (which reads as a grid of identical elbows). Only the kept-open
+// squares (a regenerated level's other stairs) are joined this way now: they
+// sit wherever the floor next door put them, so they cannot wait for a room to
+// happen to grow toward them.
 void CarveCorridor(Level& lv, int ax, int az, int bx, int bz, bool xFirst) {
 	if (xFirst) {
 		for (int x = std::min(ax, bx); x <= std::max(ax, bx); ++x) Carve(lv, x, az);
@@ -79,48 +184,6 @@ void CarveCorridor(Level& lv, int ax, int az, int bx, int bz, bool xFirst) {
 		for (int z = std::min(az, bz); z <= std::max(az, bz); ++z) Carve(lv, ax, z);
 		for (int x = std::min(ax, bx); x <= std::max(ax, bx); ++x) Carve(lv, x, bz);
 	}
-}
-
-int Dist2(const Room& a, const Room& b) {
-	const int dx = a.cx() - b.cx(), dz = a.cz() - b.cz();
-	return dx * dx + dz * dz;
-}
-
-// The connection TREE over rooms, grown nearest-first from room 0.
-//
-// `branching` reshapes it rather than adding edges: at 0 each new room attaches
-// to the one added most recently, which chains them into a line; at 1 it
-// attaches to the nearest room already in the tree, which fans out into side
-// passages. A tree (not a graph) is deliberate — it is what makes "everything
-// beyond this door" a well-defined set, which is what the lock placement needs.
-std::vector<std::pair<int, int>> BuildTree(const std::vector<Room>& rooms,
-										   const Params& p, std::mt19937& rng) {
-	std::vector<std::pair<int, int>> edges;
-	if (rooms.size() < 2) return edges;
-	std::vector<int> in{0};
-	std::vector<bool> used(rooms.size(), false);
-	used[0] = true;
-	for (size_t n = 1; n < rooms.size(); ++n) {
-		int best = -1, bestFrom = in.back(), bestD = 0;
-		for (size_t i = 0; i < rooms.size(); ++i) {
-			if (used[i]) continue;
-			const int d = Dist2(rooms[in.back()], rooms[i]);
-			if (best < 0 || d < bestD) { best = static_cast<int>(i); bestD = d; }
-		}
-		if (best < 0) break;
-		// Fan out: attach to the nearest tree member rather than the newest one.
-		if (std::uniform_real_distribution<float>(0.0f, 1.0f)(rng) < p.branching) {
-			int nd = 0;
-			for (const int cand : in) {
-				const int d = Dist2(rooms[cand], rooms[best]);
-				if (bestFrom == in.back() || d < nd) { bestFrom = cand; nd = d; }
-			}
-		}
-		edges.push_back({bestFrom, best});
-		in.push_back(best);
-		used[best] = true;
-	}
-	return edges;
 }
 
 // --- doorway hunting ---------------------------------------------------------
@@ -202,21 +265,58 @@ Level Run(const Params& p) {
 	std::mt19937 rng(p.seed);
 
 	// --- shape ---------------------------------------------------------------
-	std::vector<Room> rooms = PlaceRooms(q, lv.width, lv.height, rng);
-	if (rooms.empty()) { // a map too small for even one room still gets a cell
-		lv.startX = lv.exitX = lv.width / 2;
-		lv.startZ = lv.exitZ = lv.height / 2;
-		Carve(lv, lv.startX, lv.startZ);
-		return lv;
+	// THE MAIN PATH first: the root, then `path` rooms in all, each hung off the
+	// last and grown away from the start. Its last room is the exit, so the
+	// path IS the way through. Then the side BRANCHES, each hung off a room of
+	// the path (never the exit — a branch there is just a longer path) and
+	// grown `branchMin..branchMax` rooms deep. Anything that does not fit is
+	// not forced: the report says what was asked and what was built.
+	Grower g{lv, rng, {}, {}};
+	g.rooms.push_back(RootRoom(q, lv.width, lv.height, rng));
+	g.CarveRoom(g.rooms[0]);
+	std::vector<int> spine{0};
+	const int wantPath = std::max(1, p.path);
+	while (static_cast<int>(spine.size()) < wantPath) {
+		const int r = g.Attach(spine.back(), 0, true);
+		if (r < 0) break; // boxed in: the path ends here, and the report says so
+		spine.push_back(r);
 	}
-	for (const Room& r : rooms)
-		for (int z = r.z; z < r.z + r.h; ++z)
-			for (int x = r.x; x < r.x + r.w; ++x) Carve(lv, x, z);
+	lv.report.pathWanted = wantPath;
+	lv.report.pathGot = static_cast<int>(spine.size());
 
-	const std::vector<std::pair<int, int>> edges = BuildTree(rooms, p, rng);
-	for (const auto& [a, b] : edges)
-		CarveCorridor(lv, rooms[a].cx(), rooms[a].cz(), rooms[b].cx(), rooms[b].cz(),
-					  (rng() & 1) != 0);
+	const int bMin = std::max(1, std::min(p.branchMin, p.branchMax));
+	const int bMax = std::max(bMin, std::max(p.branchMin, p.branchMax));
+	lv.report.branchesWanted = std::max(0, p.branches);
+	// Where branches may leave: every room of the path but the exit — or the
+	// root alone, when the path is a single room.
+	const int anchors = std::max(1, static_cast<int>(spine.size()) - 1);
+	for (int b = 0; b < lv.report.branchesWanted; ++b) {
+		// SPREAD along the path — branch b prefers the anchor at its fair share
+		// of the way along, so three branches do not all sprout from the start
+		// — then any other anchor, nearest first, if that one is boxed in.
+		const int preferred = (b * anchors + anchors / 2) / std::max(1, p.branches);
+		std::vector<int> order(static_cast<size_t>(anchors));
+		for (int i = 0; i < anchors; ++i) order[static_cast<size_t>(i)] = i;
+		std::stable_sort(order.begin(), order.end(), [&](int a, int c) {
+			return std::abs(a - preferred) < std::abs(c - preferred);
+		});
+		const int depth = Roll(rng, bMin, bMax);
+		int head = -1;
+		for (const int a : order)
+			if ((head = g.Attach(spine[static_cast<size_t>(a)], -1, false)) >= 0) break;
+		if (head < 0) continue; // nowhere left to sprout: reported as missing
+		int built = 1;
+		while (built < depth) {
+			const int r = g.Attach(head, -1, false);
+			if (r < 0) break;
+			head = r;
+			++built;
+		}
+		lv.report.branchRooms.push_back(built);
+	}
+	lv.report.branchesGot = static_cast<int>(lv.report.branchRooms.size());
+	const std::vector<Room>& rooms = g.rooms;
+
 	// Each kept-open square joins the nearest room by a corridor of its own, so
 	// it is floor AND reachable whatever shape the rooms took around it.
 	for (const auto& [x, z] : q.keepOpen) {
@@ -233,17 +333,14 @@ Level Run(const Params& p) {
 	}
 
 	// --- ends ----------------------------------------------------------------
-	// Start in room 0 (the tree's root) — ON the entry square when there is one,
-	// which room 0 was built around; exit in whichever room is FURTHEST from it,
-	// so the dungeon is walked rather than stepped across.
+	// Start in the root — ON the entry square when there is one, which the root
+	// was built around; exit at the END OF THE MAIN PATH, so the dungeon is
+	// walked rather than stepped across and the branches are side trips.
 	lv.startX = entry ? q.entryX : rooms[0].cx();
 	lv.startZ = entry ? q.entryZ : rooms[0].cz();
-	size_t far = 0;
-	int farD = -1;
-	for (size_t i = 1; i < rooms.size(); ++i)
-		if (const int d = Dist2(rooms[0], rooms[i]); d > farD) { farD = d; far = i; }
-	lv.exitX = rooms[far].cx();
-	lv.exitZ = rooms[far].cz();
+	const Room& last = rooms[static_cast<size_t>(spine.back())];
+	lv.exitX = last.cx();
+	lv.exitZ = last.cz();
 
 	// --- locks, BY CONSTRUCTION ----------------------------------------------
 	// For each lock: find a doorway whose closure strands some floor but NOT the
@@ -255,6 +352,9 @@ Level Run(const Params& p) {
 	auto idx = [&](int x, int z) { return static_cast<int>(z) * lv.width + x; };
 	std::vector<int> shut; // cell indices of doors placed so far
 	const int wantLocks = std::min<int>(p.locks, static_cast<int>(p.keyIds.size()));
+	// WANTED is what was asked, not what the key pool allows: a project with one
+	// key asked for three locks should read 1/3, which says why.
+	lv.report.locksWanted = std::max(0, p.locks);
 	for (int lock = 0; lock < wantLocks; ++lock) {
 		// Candidate doorways, in a shuffled order so the choice is not always the
 		// same corner of the map for a given shape.
@@ -266,6 +366,14 @@ Level Run(const Params& p) {
 					std::find(shut.begin(), shut.end(), idx(x, z)) == shut.end())
 					cands.push_back(idx(x, z));
 		std::shuffle(cands.begin(), cands.end(), rng);
+		// The MAIN PATH's corridors first: a lock there gates PROGRESS, so the
+		// exit is behind it and its key is somewhere the path has not reached —
+		// usually down a branch, which is what gives a branch a reason to be
+		// walked. Only when the path offers nothing does a branch get the lock.
+		std::stable_partition(cands.begin(), cands.end(), [&](int c) {
+			return std::find(g.spineCorridor.begin(), g.spineCorridor.end(), c) !=
+				   g.spineCorridor.end();
+		});
 
 		for (const int cell : cands) {
 			std::vector<int> trial = shut;
@@ -318,6 +426,7 @@ Level Run(const Params& p) {
 			lv.entities.push_back(std::move(key));
 
 			shut.push_back(cell);
+			++lv.report.locksGot;
 			break;
 		}
 	}
@@ -353,6 +462,7 @@ Level Run(const Params& p) {
 			m.x = c % lv.width;
 			m.z = c / lv.width;
 			lv.entities.push_back(std::move(m));
+			++lv.report.monsters;
 		}
 	}
 	if (!p.lootIds.empty()) {
@@ -368,6 +478,7 @@ Level Run(const Params& p) {
 			it.x = c % lv.width;
 			it.z = c / lv.width;
 			lv.entities.push_back(std::move(it));
+			++lv.report.loot;
 		}
 	}
 	return lv;

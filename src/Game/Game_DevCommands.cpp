@@ -193,7 +193,7 @@ void Game::RegisterDevCommands() {
 					   "rough out a new level: generate [dungeon|again] [knob:value ...] | dialog [new|off] "
 					   "(a new floor of the viewed dungeon by default, and the view jumps "
 					   "to it; `again` rerolls the VIEWED level in place, as the dialog's "
-					   "Regenerate does; knobs as the dialog names them, e.g. rooms:12 "
+					   "Regenerate does; knobs as the dialog names them, e.g. path:8 "
 					   "seed:7 - unset ones keep the dialog's)",
 					   [this](const std::vector<std::string>& args) {
 						   if (!m_gameLoaded || (m_state != AppState::Playing &&
@@ -251,6 +251,11 @@ void Game::RegisterDevCommands() {
 						   }
 						   m_console.Print(std::format(
 							   "generate: wrote {} ({})", stem, generate::Encode(p)));
+						   m_console.Print("generate: built " + GenReportText());
+						   // The dialog shows the knobs that built what it reports
+						   // on, or its sliders would contradict its own report line.
+						   m_generateDialog.SetKnobs(p);
+						   ShowGenReport(stem);
 						   // A generated level is CHECKED immediately: the whole
 						   // reason the lock ordering is built by construction is
 						   // so this passes, and saying so is how you find out it

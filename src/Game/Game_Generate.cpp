@@ -127,8 +127,8 @@ bool Game::StartEncounter(float difficulty, const std::vector<std::string>& tags
 	// Small: an encounter is a fight, not a dungeon. It grows a little with the
 	// danger of the ground, which is the only thing that should make one longer.
 	p.width = p.height = 12 + static_cast<int>(std::lround(difficulty * 8.0f));
-	p.rooms = 2 + static_cast<int>(std::lround(difficulty * 3.0f));
-	p.branching = 0.25f; // strung out rather than a warren: you came to fight
+	p.path = 2 + static_cast<int>(std::lround(difficulty * 3.0f));
+	p.branches = 0; // strung out rather than a warren: you came to fight
 	p.locks = 0;         // nothing to unlock and nowhere to come back to
 	// AN AMBUSH WITH NOTHING IN IT IS NOT AN AMBUSH. Density has a floor even
 	// on the safest ground, because the road's safety is that an encounter is
@@ -207,6 +207,7 @@ Game::ComposeGeneratedLevel(const std::string& stem, generate::Params params,
 							std::string& ent) {
 	FillPools(params, theme);
 	const generate::Level lv = generate::Run(params);
+	m_lastGenReport = lv.report;
 	BuildLevelText(stem, lv, params, m_world->Map(), theme, {}, map, ent);
 	// (The caller sets params.entry to the floor above's stair square, so the
 	// start comes first below and the link lands there.)
@@ -218,6 +219,28 @@ Game::ComposeGeneratedLevel(const std::string& stem, generate::Params params,
 			if (lv.At(x, z) && (x != lv.startX || z != lv.startZ))
 				cells.push_back({x, z});
 	return cells;
+}
+
+void Game::ShowGenReport(const std::string& levelStem) {
+	const generate::Report& r = m_lastGenReport;
+	m_generateDialog.SetReport(
+		{loc::Format("map.gen.report.shape", r.pathGot, r.pathWanted, r.branchesGot,
+					 r.branchesWanted),
+		 loc::Format("map.gen.report.content", r.locksGot, r.locksWanted, r.monsters,
+					 r.loot)},
+		levelStem);
+}
+
+std::string Game::GenReportText() const {
+	const generate::Report& r = m_lastGenReport;
+	std::string lengths;
+	for (const int n : r.branchRooms)
+		lengths += (lengths.empty() ? "" : " ") + std::to_string(n);
+	return std::format("path {}/{} rooms, branches {}/{} (rooms: {}), locks {}/{}, "
+					   "{} monsters, {} loot",
+					   r.pathGot, r.pathWanted, r.branchesGot, r.branchesWanted,
+					   lengths.empty() ? "-" : lengths, r.locksGot, r.locksWanted,
+					   r.monsters, r.loot);
 }
 
 bool Game::LinkToFloorAbove(const std::string& stem,
@@ -262,6 +285,7 @@ bool Game::BuildAndInstall(const std::string& stem, const generate::Params& para
 	generate::Params p = params;
 	FillPools(p, theme);
 	const generate::Level lv = generate::Run(p);
+	m_lastGenReport = lv.report;
 
 	std::string map, ent;
 	BuildLevelText(stem, lv, p, donor, theme, stairs, map, ent);

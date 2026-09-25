@@ -1,0 +1,22 @@
+; levelshape.eval — the main path and its branches are COUNTS (docs/level-
+; building.md P2), in a scratch copy of the demo world (run with -project
+; lb_shape). LevelBuildTest.py measures every level this writes FROM THE FILE —
+; rooms, and branches from the dead ends — and demands it match both the knobs
+; and the generator's own report, so a report that lies fails as loudly as a
+; shape that is wrong.
+;
+; Every shape knob is given on every line: unset ones would fall back to the
+; dialog's remembered knobs, which a test must not depend on.
+logecho on
+reset
+; THE CONTROL PAIR: one seed and path, branches 0 then 4. Only the knob moves.
+generate crypt width:40 height:40 path:6 branches:0 branchmin:1 branchmax:3 seed:11 locks:0
+generate crypt width:40 height:40 path:6 branches:4 branchmin:1 branchmax:3 seed:11 locks:0
+; Fixed-length branches, on a map with room for them.
+generate crypt width:48 height:48 path:10 branches:2 branchmin:3 branchmax:3 seed:12 locks:0
+; THE SHORTFALL: far more than a 16x16 map holds. It must stop short and SAY so.
+generate crypt width:16 height:16 path:30 branches:12 branchmin:1 branchmax:3 seed:13 locks:1
+; A lock with a key to find: the path gets it first.
+generate crypt width:40 height:40 path:8 branches:3 branchmin:1 branchmax:3 seed:14 locks:1
+validate
+savemap

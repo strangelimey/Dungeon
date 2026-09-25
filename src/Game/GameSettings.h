@@ -181,7 +181,7 @@ struct GameSettings {
 	bool mapLegendCollapsed = false;   // map editor: right key dock collapsed
 	bool mapShowCatalog = false;       // map editor: surfaces show the whole catalog
 	// The level generator's last-USED knobs, encoded by Game/GenerateKnobs.h
-	// ("rooms:8 branching:0.5 ..."). Held as the opaque line so settings knows
+	// ("path:6 branches:3 ..."). Held as the opaque line so settings knows
 	// nothing of the generator; empty = its defaults. ini gen_knobs=.
 	std::string generatorKnobs;
 
