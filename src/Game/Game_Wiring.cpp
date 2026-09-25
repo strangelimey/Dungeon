@@ -27,10 +27,7 @@ void Game::WireWorldCallbacks() {
 	};
 	// The party fell: end the run back at the title (Start New Game resets the
 	// roster + monsters in place).
-	m_world->onPartyWipe = [this] {
-		m_state = AppState::Menu;
-		m_ui.ResetToMainPage();
-	};
+	m_world->onPartyWipe = [this] { ReturnToTitle("the party fell"); };
 }
 
 void Game::WireModuleCallbacks() {
@@ -84,11 +81,7 @@ void Game::WireModuleCallbacks() {
 	// The pause menu's Return to Main Menu: the trip a party wipe makes, taken
 	// on purpose. The dungeon stays resident (m_gameLoaded), so the title's
 	// Continue / Load / Start New Game reset it in place like any other.
-	m_ui.onReturnToMain = [this] {
-		m_mapView.Close();
-		m_state = AppState::Menu;
-		m_ui.ResetToMainPage();
-	};
+	m_ui.onReturnToMain = [this] { ReturnToTitle("return to main menu"); };
 	m_ui.onLoadSave = [this](const std::string& path) {
 		// A SAVE BELONGS TO A WORLD (SaveGame.h): load that world first when it
 		// is not the one resident — deferred, since this fires from inside a

@@ -1097,6 +1097,18 @@ void Game::OpenCharacterSheet(size_t index) {
 	m_state = AppState::CharacterSheet;
 }
 
+void Game::ReturnToTitle(const char* why) {
+	// A wipe lands inside the world update, often in a frame the guard armed,
+	// and the line below formats a string. Reporting excuses itself.
+	alloc::Excused excuse;
+	log::Info("back to the title: {} (was {}, level {})", why, StateName(),
+			  m_world ? m_world->CurrentLevel() : std::string("-"));
+	m_mapView.Close(); // the editor too: the title draws no overlay, so an open
+					   // one would only reappear over the next game
+	m_state = AppState::Menu;
+	m_ui.ResetToMainPage();
+}
+
 // The party moves as fast as its slowest member. The rule itself moved to
 // DungeonWorld::ApplyPartyPace, because conditioning feeds the pace and levels
 // deep inside the combat tick — where Game is not in the call chain. This
