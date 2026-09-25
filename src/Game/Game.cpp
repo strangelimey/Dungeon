@@ -452,6 +452,7 @@ void Game::ApplyPendingWorld() {
 		// stay where we are, which is the title if the old one was unloaded.
 		m_state = AppState::Menu;
 		m_ui.ResetToMainPage();
+		m_editorOnArrival = false; // the game it was waiting for is not coming
 		return;
 	}
 	if (p.savePath.empty()) m_ui.onStartNewGame();
@@ -1165,6 +1166,30 @@ void Game::OpenCharacterSheet(size_t index) {
 	m_state = AppState::CharacterSheet;
 }
 
+// The landing page's Editor entry (GameUI::onEditorOnArrival). The new game it
+// started gets there by any of several routes - a world switch, the first
+// dungeon load, a level transition, or straight onto the world map - and all of
+// them end by setting Playing or WorldMap. So rather than threading a flag
+// through each, this waits for the one thing they share: the game is up, and
+// nothing is still on its way (no world switch pending).
+void Game::OpenEditorOnArrival() {
+	if (!m_editorOnArrival || m_pendingWorld || !m_world) return;
+	if (m_state == AppState::Playing) {
+		m_editorOnArrival = false;
+		m_mapView.Open(MapView::Mode::Editor);
+		// PAUSED: monsters act off cooldowns, so a level opened for building
+		// must not be fighting the party while it is looked at.
+		m_mapView.SetEditorPaused(true);
+		log::Info("editor on arrival: {} (paused)", m_world->CurrentLevel());
+	} else if (m_state == AppState::WorldMap) {
+		// A world that begins in the open: its own editor. The world map
+		// simulates nothing, so there is nothing to pause.
+		m_editorOnArrival = false;
+		if (m_worldMap) m_worldMapView.SetMode(WorldMapView::Mode::Editor);
+		log::Info("editor on arrival: the world map");
+	}
+}
+
 void Game::ReturnToTitle(const char* why) {
 	// A wipe lands inside the world update, often in a frame the guard armed,
 	// and the line below formats a string. Reporting excuses itself.
@@ -1173,6 +1198,7 @@ void Game::ReturnToTitle(const char* why) {
 			  m_world ? m_world->CurrentLevel() : std::string("-"));
 	m_mapView.Close(); // the editor too: the title draws no overlay, so an open
 					   // one would only reappear over the next game
+	m_editorOnArrival = false;
 	m_state = AppState::Menu;
 	m_ui.ResetToMainPage();
 }
@@ -1407,6 +1433,7 @@ void Game::Update(float dt) {
 	m_time += wdt;
 
 	ApplyPendingWorld(); // a world switch asked for last frame (see Game.h)
+	OpenEditorOnArrival(); // the landing page's Editor entry, once the game is up
 
 	// A language picked last frame applies now, before any widget updates —
 	// the rebuild destroys every widget, so none may be mid-callback.

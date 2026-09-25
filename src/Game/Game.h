@@ -705,6 +705,10 @@ private:
 		std::string savePath;
 	};
 	std::optional<PendingWorld> m_pendingWorld;
+	// The landing page's Editor entry asked for the editor, paused, once the
+	// new game it started arrives (OpenEditorOnArrival).
+	bool m_editorOnArrival = false;
+	void OpenEditorOnArrival();
 	void ApplyPendingWorld();
 	u32 m_framesRendered = 0;
 	// Consecutive frames that have been quietly Playing — the allocation guard's

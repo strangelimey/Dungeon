@@ -76,6 +76,7 @@ void Game::WireModuleCallbacks() {
 		return worlds;
 	};
 	m_ui.onStartNewGameIn = [this](const std::string& folder) { StartNewGameIn(folder); };
+	m_ui.onEditorOnArrival = [this](bool on) { m_editorOnArrival = on; };
 	m_ui.onQuit = [this] { m_quitRequested = true; };
 	m_ui.onResume = [this] { m_state = m_resumeState; };
 	// The pause menu's Return to Main Menu: the trip a party wipe makes, taken

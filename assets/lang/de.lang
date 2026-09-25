@@ -23,6 +23,7 @@ loading.descending=Abstieg...
 ; --- landing + pause menus --------------------------------------------------
 menu.continue=Fortsetzen
 menu.start=Neues Spiel
+menu.editor=Editor
 menu.load=Laden
 menu.save=Speichern
 menu.settings=Einstellungen

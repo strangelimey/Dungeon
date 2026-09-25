@@ -27,6 +27,7 @@ loading.descending=спуск...
 ; --- landing + pause menus --------------------------------------------------
 menu.continue=Продолжить
 menu.start=Новая игра
+menu.editor=Редактор
 menu.load=Загрузить
 menu.save=Сохранить
 menu.settings=Настройки

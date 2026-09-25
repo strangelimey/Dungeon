@@ -183,7 +183,13 @@ public:
 	};
 	std::function<std::vector<WorldChoice>()> onListWorlds;
 	std::function<void(const std::string& folder)> onStartNewGameIn;
-	std::function<void()> onQuit;               // landing + pause "Exit" (the ONLY
+	// The landing page's "Editor" entry starts a new game exactly as Start New
+	// Game does (the same world question), then opens the editor, PAUSED, the
+	// moment the game arrives. Every landing entry says which it is, so the
+	// request cannot outlive the click that made it: Editor arms it, Start /
+	// Continue / Load disarm it.
+	std::function<void(bool)> onEditorOnArrival;
+	std::function<void()> onQuit;              // landing + pause "Exit" (the ONLY
 												// click that quits — Esc does not)
 	std::function<void()> onResume;             // pause/sheet "Back"
 	std::function<void()> onReturnToMain;       // pause "Return to Main Menu"
@@ -285,6 +291,8 @@ private:
 	void OpenSavesPage(SavesMode mode);
 	// The new-game world list (MenuPage::Worlds), built into m_savesUi.
 	void OpenWorldsPage();
+	// Start New Game and Editor share one flow; `editor` is which was clicked.
+	void BeginNewGame(bool editor);
 	// Save page helpers: commit the named save (arming an overwrite confirm
 	// first if the name collides), and clear that armed confirm.
 	void CommitSave();
@@ -443,6 +451,9 @@ private:
 	const gfx::Texture* m_closeIcon = nullptr; // shared, owned by AssetUtil
 
 	MenuPage m_menuPage = MenuPage::Main;
+	// Whether the world list was opened by Editor rather than Start New Game:
+	// the pick, not the page, is where the new game begins.
+	bool m_worldsForEditor = false;
 	SavesMode m_savesMode = SavesMode::Load;
 	// Save page widgets (live in m_savesUi, valid only while it is built): the
 	// name field and the Save button, plus whether a second click is needed to

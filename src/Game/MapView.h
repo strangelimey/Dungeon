@@ -153,6 +153,9 @@ public:
 	bool EditorPaused() const {
 		return m_mode == Mode::Editor && m_editorPaused;
 	}
+	// Press the pause button from outside (the landing page's Editor entry
+	// opens the editor paused). Editor mode only, like the button.
+	void SetEditorPaused(bool on) { m_editorPaused = on && m_mode == Mode::Editor; }
 
 	// Jump the viewport to a level by stem (the dropdown's pick; the arrows'
 	// StepViewLevel folds into this). Public because the check report navigates

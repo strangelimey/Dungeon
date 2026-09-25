@@ -559,7 +559,7 @@ void GameUI::BuildMenuList() {
 	m_menuHasSaves = hasSaves;
 	// +1 for Exit, which is always present: it is the ONLY pointer-driven way out
 	// of the title screen now that Esc no longer quits (see Game.cpp's Menu case).
-	const int itemCount = (hasSaves ? 4 : 2) + 1;
+	const int itemCount = (hasSaves ? 5 : 3) + 1; // Editor sits under Start
 	constexpr float kMenuW = 0.26f;   // ~420/1600
 	constexpr float kItemH = 0.064f;  // ~58/900
 	const float menuH = kItemH * static_cast<float>(itemCount);
@@ -574,30 +574,19 @@ void GameUI::BuildMenuList() {
 			if (slots.empty()) return; // raced with a deletion
 			Click(0.6f);
 			m_menuPage = MenuPage::Main;
+			if (onEditorOnArrival) onEditorOnArrival(false);
 			onLoadSave(slots.front().path); // ListSaves is newest-first
 		});
 		menu->AddItem(loc::Tr("menu.load"), [this] {
 			Click();
+			if (onEditorOnArrival) onEditorOnArrival(false);
 			OpenSavesPage(SavesMode::Load);
 		});
 	}
-	menu->AddItem(loc::Tr("menu.start"), [this] {
-		// WHICH WORLD first, when there is a choice to make. Asked at the
-		// click, not at build: a world made in the editor since the list was
-		// built must be offered.
-		const std::vector<WorldChoice> worlds =
-			onListWorlds ? onListWorlds() : std::vector<WorldChoice>{};
-		if (worlds.size() > 1) {
-			Click();
-			OpenWorldsPage();
-			return;
-		}
-		Click(0.6f);
-		// One world: straight into THAT one — which is not necessarily the
-		// default a harness start would open.
-		if (worlds.size() == 1 && onStartNewGameIn) onStartNewGameIn(worlds.front().folder);
-		else onStartNewGame();
-	});
+	menu->AddItem(loc::Tr("menu.start"), [this] { BeginNewGame(false); });
+	// A new game that opens straight into the editor, paused (Michael,
+	// 2026-09-25): the way in for building rather than playing.
+	menu->AddItem(loc::Tr("menu.editor"), [this] { BeginNewGame(true); });
 	menu->AddItem(loc::Tr("menu.settings"), [this] {
 		Click();
 		m_menuPage = MenuPage::Settings;
@@ -1208,6 +1197,26 @@ void GameUI::OpenSavesPage(SavesMode mode) {
 	m_menuPage = MenuPage::Saves;
 }
 
+void GameUI::BeginNewGame(bool editor) {
+	// WHICH WORLD first, when there is a choice to make. Asked at the click,
+	// not at build: a world made in the editor since the list was built must
+	// be offered.
+	const std::vector<WorldChoice> worlds =
+		onListWorlds ? onListWorlds() : std::vector<WorldChoice>{};
+	if (worlds.size() > 1) {
+		Click();
+		m_worldsForEditor = editor;
+		OpenWorldsPage();
+		return;
+	}
+	Click(0.6f);
+	if (onEditorOnArrival) onEditorOnArrival(editor);
+	// One world: straight into THAT one - which is not necessarily the default
+	// a harness start would open.
+	if (worlds.size() == 1 && onStartNewGameIn) onStartNewGameIn(worlds.front().folder);
+	else onStartNewGame();
+}
+
 // The new-game world list: one row per world, its title and (dim) its folder,
 // the Load page's own list control so the two pages read as one family. No
 // delete here — that is the editor's Worlds dialog, behind a typed name.
@@ -1233,6 +1242,7 @@ void GameUI::OpenWorldsPage() {
 		row.onActivate = [this, folder = w.folder] {
 			Click(0.6f);
 			m_menuPage = MenuPage::Main;
+			if (onEditorOnArrival) onEditorOnArrival(m_worldsForEditor);
 			onStartNewGameIn(folder);
 		};
 		list->AddRow(std::move(row)); // onDelete left null: no delete icon
