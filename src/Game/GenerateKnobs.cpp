@@ -13,9 +13,10 @@ namespace dungeon::game::generate {
 namespace {
 
 constexpr const char* kShape = "map.gen.tab.shape";
+constexpr const char* kComplexity = "map.gen.tab.complexity";
 constexpr const char* kPopulation = "map.gen.tab.population";
 
-constexpr const char* kTabs[] = {kShape, kPopulation};
+constexpr const char* kTabs[] = {kShape, kComplexity, kPopulation};
 
 // Captureless lambdas decay to the plain function pointers Knob holds, which
 // keeps the table a constant with no per-row allocation.
@@ -44,6 +45,19 @@ constexpr Knob kKnobs[] = {
 	{"seed", "map.gen.seed", kShape, KnobKind::Seed, 0, 4294967295.0,
 	 [](const Params& p) -> double { return p.seed; },
 	 [](Params& p, double v) { p.seed = static_cast<u32>(v); }},
+	// P3: complexity, one knob each (Michael: "a separate setting for each").
+	{"loops", "map.gen.loops", kComplexity, KnobKind::Int, 0, 10,
+	 [](const Params& p) -> double { return p.loops; },
+	 [](Params& p, double v) { p.loops = static_cast<int>(v); }},
+	{"winding", "map.gen.winding", kComplexity, KnobKind::Float, 0, 1,
+	 [](const Params& p) -> double { return p.winding; },
+	 [](Params& p, double v) { p.winding = static_cast<float>(v); }},
+	{"irregular", "map.gen.irregular", kComplexity, KnobKind::Float, 0, 1,
+	 [](const Params& p) -> double { return p.irregular; },
+	 [](Params& p, double v) { p.irregular = static_cast<float>(v); }},
+	{"deadends", "map.gen.deadends", kComplexity, KnobKind::Int, 0, 10,
+	 [](const Params& p) -> double { return p.deadEnds; },
+	 [](Params& p, double v) { p.deadEnds = static_cast<int>(v); }},
 	{"locks", "map.gen.locks", kPopulation, KnobKind::Int, 0, 8,
 	 [](const Params& p) -> double { return p.locks; },
 	 [](Params& p, double v) { p.locks = static_cast<int>(v); }},

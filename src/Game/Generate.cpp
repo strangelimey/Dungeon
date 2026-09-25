@@ -6,22 +6,83 @@
 #include <algorithm>
 #include <cstdlib>
 #include <format>
+#include <initializer_list>
 #include <queue>
 #include <random>
+#include <tuple>
 
 namespace dungeon::game::generate {
 
 namespace {
 
+// A room: its bounding box, and a SHAPE within it (docs/level-building.md P3).
+// Every shape keeps its floor at least two squares thick, so a room square is
+// always part of some 2x2 block of floor — the property that tells a room from a
+// corridor (which is one square wide), and that LevelBuildTest measures by.
+enum class Shape { Rect, L, Cross, Pillars };
+
 struct Room {
 	int x = 0, z = 0, w = 0, h = 0;
+	Shape shape = Shape::Rect;
+	int cut = 0; // L: which corner is missing (0..3); Cross: the arm inset
+	int cutW = 0, cutH = 0;
+
 	int cx() const { return x + w / 2; }
 	int cz() const { return z + h / 2; }
+
+	// Is (px,pz) floor of this room?
+	bool Has(int px, int pz) const {
+		const int lx = px - x, lz = pz - z;
+		if (lx < 0 || lz < 0 || lx >= w || lz >= h) return false;
+		switch (shape) {
+		case Shape::Rect: return true;
+		case Shape::L: {
+			// The missing corner: `cut` picks which, cutW x cutH of it.
+			const bool inX = (cut & 1) ? lx >= w - cutW : lx < cutW;
+			const bool inZ = (cut & 2) ? lz >= h - cutH : lz < cutH;
+			return !(inX && inZ);
+		}
+		case Shape::Cross: {
+			// All four corners missing, cutW x cutH each: a plus sign.
+			const bool edgeX = lx < cutW || lx >= w - cutW;
+			const bool edgeZ = lz < cutH || lz >= h - cutH;
+			return !(edgeX && edgeZ);
+		}
+		case Shape::Pillars:
+			// A pillar every third square, TWO squares in from each wall — so
+			// the floor between two pillars, and between a pillar and a wall, is
+			// two squares wide and still a room. (One square in left a one-wide
+			// strip along the wall: a corridor running round inside the room,
+			// which the measurement caught before anyone saw it.)
+			return !(lx >= 2 && lz >= 2 && lx <= w - 3 && lz <= h - 3 &&
+					 (lx - 2) % 3 == 0 && (lz - 2) % 3 == 0);
+		}
+		return true;
+	}
+
+	// A floor square as near the middle as the shape allows — where the exit
+	// goes, and what a kept-open square's corridor aims at. The centre of an L
+	// or a cross can be rock; a pillar can stand on it.
+	std::pair<int, int> Centre() const {
+		std::pair<int, int> best{x, z};
+		int bestD = -1;
+		for (int pz = z; pz < z + h; ++pz)
+			for (int px = x; px < x + w; ++px) {
+				if (!Has(px, pz)) continue;
+				const int d = std::abs(px - cx()) + std::abs(pz - cz());
+				if (bestD < 0 || d < bestD) bestD = d, best = {px, pz};
+			}
+		return best;
+	}
 };
 
 int Roll(std::mt19937& rng, int lo, int hi) { // inclusive
 	if (hi <= lo) return lo;
 	return std::uniform_int_distribution<int>(lo, hi)(rng);
+}
+
+bool Chance(std::mt19937& rng, float p) {
+	return p > 0.0f && std::uniform_real_distribution<float>(0.0f, 1.0f)(rng) < p;
 }
 
 void Carve(Level& lv, int x, int z) {
@@ -31,7 +92,8 @@ void Carve(Level& lv, int x, int z) {
 
 // --- the root room ------------------------------------------------------------
 // With an ENTRY square the first room is built around it, so the entry is the
-// start and the root of the tree. Without one it goes somewhere random.
+// start and the root of the tree. Without one it goes somewhere random. Always a
+// plain rectangle: the entry has to land on floor, not on a pillar or a cut.
 Room RootRoom(const Params& p, int width, int height, std::mt19937& rng) {
 	Room r;
 	// Capped so the room fits inside the rim of even the smallest map.
@@ -48,14 +110,45 @@ Room RootRoom(const Params& p, int width, int height, std::mt19937& rng) {
 	return r;
 }
 
+// Give a fresh room an irregular shape, with probability `irregular`. Each shape
+// has a minimum size that keeps every part of it two squares thick.
+void Reshape(Room& r, float irregular, std::mt19937& rng) {
+	if (!Chance(rng, irregular)) return;
+	switch (Roll(rng, 0, 2)) {
+	case 0: // L: a corner removed, leaving both arms at least two thick
+		if (r.w < 4 || r.h < 4) return;
+		r.shape = Shape::L;
+		r.cut = Roll(rng, 0, 3);
+		r.cutW = Roll(rng, 1, r.w - 2);
+		r.cutH = Roll(rng, 1, r.h - 2);
+		return;
+	case 1: // Cross: all four corners removed, arms at least two thick
+		if (r.w < 5 || r.h < 5) return;
+		r.shape = Shape::Cross;
+		r.cutW = Roll(rng, 1, (r.w - 2) / 2);
+		r.cutH = Roll(rng, 1, (r.h - 2) / 2);
+		return;
+	default: // A pillared hall: needs room for pillars with floor round them
+		if (r.w < 5 || r.h < 5) return;
+		r.shape = Shape::Pillars;
+		return;
+	}
+}
+
 // --- growing the tree ---------------------------------------------------------
-// Every room after the root hangs off one already placed, by a STRAIGHT
-// corridor leaving a side of its parent. A candidate is kept only if neither
-// its corridor nor its room comes within one square of anything already carved
-// (the parent excepted, which the corridor has to touch). That is what keeps
-// the layout a true TREE: two rooms never fuse, and a corridor never grazes a
-// neighbour and opens a shortcut. So "three branches" is three branches, not
-// three that happen to have run into each other.
+// Every room after the root hangs off one already placed, by a corridor leaving
+// a side of its parent. A candidate is kept only if neither its corridor nor its
+// room comes within one square of anything already carved (the parent excepted,
+// which the corridor has to touch). That is what keeps the layout a true TREE:
+// two rooms never fuse, and a corridor never grazes a neighbour and opens a
+// shortcut. So "three branches" is three branches, not three that happen to have
+// run into each other — and a LOOP is only ever one that was asked for.
+//
+// A corridor is straight, or with probability `winding` it JOGS: a staircase of
+// forward runs and sideways steps, always turning the same way. Always the same
+// way matters: a staircase that never doubles back can never put two of its own
+// squares side by side, so it stays one square wide and never forms a 2x2 block
+// — it cannot be mistaken for a room, by the player or by the measurement.
 //
 // The old generator scattered rooms and then joined them with L-shaped
 // corridors, which crossed rooms and one another freely. Its `branching` could
@@ -63,8 +156,11 @@ Room RootRoom(const Params& p, int width, int height, std::mt19937& rng) {
 struct Grower {
 	Level& lv;
 	std::mt19937& rng;
+	const Params& p;
 	std::vector<Room> rooms;
 	std::vector<int> spineCorridor; // cell indices of the main path's corridors
+	std::vector<int> treeCorridor;  // every tree corridor's cells: where locks may go
+	std::vector<int> stubCells;     // dead ends: no lock, no key
 
 	// The four ways out of a room, as unit steps.
 	static constexpr int kDx[4] = {0, 1, 0, -1};
@@ -74,13 +170,64 @@ struct Grower {
 	bool Inside(int x, int z) const {
 		return x >= 1 && z >= 1 && x < lv.width - 1 && z < lv.height - 1;
 	}
-	static bool InRoom(const Room& r, int x, int z) {
-		return x >= r.x && x < r.x + r.w && z >= r.z && z < r.z + r.h;
-	}
 
 	void CarveRoom(const Room& r) {
 		for (int z = r.z; z < r.z + r.h; ++z)
-			for (int x = r.x; x < r.x + r.w; ++x) Carve(lv, x, z);
+			for (int x = r.x; x < r.x + r.w; ++x)
+				if (r.Has(x, z)) Carve(lv, x, z);
+	}
+
+	// A corridor leaving `parent` in direction `dir`, `len` squares of forward
+	// travel in all: straight, or jogging sideways when the winding roll says
+	// so. Empty when the side square chosen is not floor of the parent (an L's
+	// cut or a cross's corner). `jogged` reports which it came out as.
+	std::vector<std::pair<int, int>> Corridor(const Room& parent, int dir, int len,
+											  bool& jogged) {
+		std::vector<std::pair<int, int>> out;
+		const int dx = kDx[dir], dz = kDz[dir];
+		// Leave from a random point along the side, from floor of the parent.
+		int x, z;
+		if (dx != 0) {
+			z = Roll(rng, parent.z, parent.z + parent.h - 1);
+			x = dx > 0 ? parent.x + parent.w : parent.x - 1;
+			if (!parent.Has(x - dx, z)) return out;
+		} else {
+			x = Roll(rng, parent.x, parent.x + parent.w - 1);
+			z = dz > 0 ? parent.z + parent.h : parent.z - 1;
+			if (!parent.Has(x, z - dz)) return out;
+		}
+		jogged = Chance(rng, p.winding);
+		// Jogs: 1, plus up to two more as winding rises. Forward runs between
+		// them are at least one square, so the corridor still arrives head-on —
+		// and the FIRST is at least two when it jogs: a sideways step one square
+		// out from the room would run along its wall and widen it into a notch.
+		const int jogs = jogged ? 1 + Roll(rng, 0, static_cast<int>(p.winding * 2.0f + 0.5f)) : 0;
+		const int firstRun = jogs > 0 ? 2 : 1;
+		len = std::max(len, jogs + firstRun);
+		const int side = Roll(rng, 0, 1) ? 1 : 3; // turn right or left, always the same
+		const int sx = kDx[(dir + side) % 4], sz = kDz[(dir + side) % 4];
+		// Split the forward length into jogs+1 runs of at least one square.
+		std::vector<int> runs(static_cast<size_t>(jogs + 1), 1);
+		runs[0] = firstRun;
+		for (int extra = len - (jogs + firstRun); extra > 0; --extra)
+			++runs[static_cast<size_t>(Roll(rng, 0, jogs))];
+		for (int j = 0; j <= jogs; ++j) {
+			for (int i = 0; i < runs[static_cast<size_t>(j)]; ++i) {
+				out.push_back({x, z});
+				x += dx, z += dz;
+			}
+			if (j == jogs) break;
+			// The sideways step. The square it leaves from was the run's last,
+			// so step off from there: back up one, then go sideways.
+			x -= dx, z -= dz;
+			const int steps = Roll(rng, 1, 1 + static_cast<int>(p.winding * 3.0f + 0.5f));
+			for (int i = 0; i < steps; ++i) {
+				x += sx, z += sz;
+				out.push_back({x, z});
+			}
+			x += dx, z += dz;
+		}
+		return out;
 	}
 
 	// Hang one room off `from`. `awayFrom` (a room index, or -1) biases the
@@ -92,26 +239,25 @@ struct Grower {
 		constexpr int kTries = 40;
 		for (int t = 0; t < kTries; ++t) {
 			const int dir = Roll(rng, 0, 3);
-			const int len = Roll(rng, 2, 5);
+			bool jogged = false;
+			const std::vector<std::pair<int, int>> corridor =
+				Corridor(parent, dir, Roll(rng, 2, 5), jogged);
+			if (corridor.empty()) continue;
+			// The child's near side meets the corridor's last square head-on.
+			const auto [ex, ez] = corridor.back();
 			Room c;
 			c.w = Roll(rng, 3, 7);
 			c.h = Roll(rng, 3, 7);
-			// The corridor leaves the parent's side at a random point along it,
-			// and the child is placed so the corridor enters its near side.
-			std::vector<std::pair<int, int>> corridor;
 			if (kDx[dir] != 0) {
-				const int z = Roll(rng, parent.z, parent.z + parent.h - 1);
-				const int x0 = kDx[dir] > 0 ? parent.x + parent.w : parent.x - 1;
-				for (int i = 0; i < len; ++i) corridor.push_back({x0 + kDx[dir] * i, z});
-				c.x = kDx[dir] > 0 ? x0 + len : x0 - len - c.w + 1;
-				c.z = z - Roll(rng, 0, c.h - 1);
+				c.x = kDx[dir] > 0 ? ex + 1 : ex - c.w;
+				c.z = ez - Roll(rng, 0, c.h - 1);
 			} else {
-				const int x = Roll(rng, parent.x, parent.x + parent.w - 1);
-				const int z0 = kDz[dir] > 0 ? parent.z + parent.h : parent.z - 1;
-				for (int i = 0; i < len; ++i) corridor.push_back({x, z0 + kDz[dir] * i});
-				c.z = kDz[dir] > 0 ? z0 + len : z0 - len - c.h + 1;
-				c.x = x - Roll(rng, 0, c.w - 1);
+				c.z = kDz[dir] > 0 ? ez + 1 : ez - c.h;
+				c.x = ex - Roll(rng, 0, c.w - 1);
 			}
+			Reshape(c, p.irregular, rng);
+			// ...and meets FLOOR there, not an L's cut or a cross's corner.
+			if (!c.Has(ex + kDx[dir], ez + kDz[dir])) continue;
 			// Outward, for the main path: for the first half of the tries only
 			// accept a child further from `awayFrom` than its parent is. The
 			// second half takes any direction, so a path boxed in by the map
@@ -123,30 +269,60 @@ struct Grower {
 				};
 				if (dist(c.cx(), c.cz()) <= dist(parent.cx(), parent.cz())) continue;
 			}
-			if (!Clear(parent, corridor, c)) continue;
+			if (!Clear({&parent}, corridor, &c)) continue;
 			for (const auto& [x, z] : corridor) {
 				Carve(lv, x, z);
+				treeCorridor.push_back(Idx(x, z));
 				if (spine) spineCorridor.push_back(Idx(x, z));
 			}
 			CarveRoom(c);
 			rooms.push_back(c);
+			if (jogged) ++lv.report.windingGot;
+			if (c.shape != Shape::Rect) ++lv.report.irregularGot;
+			++lv.report.corridors;
 			return static_cast<int>(rooms.size()) - 1;
 		}
 		return -1;
 	}
 
-	// Would carving `corridor` + `room` touch anything already carved, other
-	// than `parent`? Every candidate square must be inside the rock rim, and
-	// every square around it rock, part of the candidate, or the parent.
-	bool Clear(const Room& parent, const std::vector<std::pair<int, int>>& corridor,
-			   const Room& room) const {
-		if (room.x < 1 || room.z < 1 || room.x + room.w > lv.width - 1 ||
-			room.z + room.h > lv.height - 1)
+	// A DEAD END: a corridor off a room that leads nowhere. Same clearance as
+	// any other corridor, so it cannot become a shortcut by grazing its way into
+	// something. False when no room offers one after a bounded number of tries.
+	bool DeadEnd() {
+		for (int t = 0; t < 60; ++t) {
+			const Room& r = rooms[static_cast<size_t>(Roll(
+				rng, 0, static_cast<int>(rooms.size()) - 1))];
+			bool jogged = false;
+			const std::vector<std::pair<int, int>> stub =
+				Corridor(r, Roll(rng, 0, 3), Roll(rng, 2, 5), jogged);
+			if (stub.empty() || !Clear({&r}, stub, nullptr)) continue;
+			for (const auto& [x, z] : stub) {
+				Carve(lv, x, z);
+				stubCells.push_back(Idx(x, z));
+			}
+			return true;
+		}
+		return false;
+	}
+
+	// Would carving `corridor` (+ `room`, when there is one) touch anything
+	// already carved, other than the rooms in `allowed`? Every candidate square
+	// must be rock and inside the rim, and every square around it rock, part of
+	// the candidate, or floor of an allowed room.
+	bool Clear(std::initializer_list<const Room*> allowed,
+			   const std::vector<std::pair<int, int>>& corridor, const Room* room) const {
+		if (room && (room->x < 1 || room->z < 1 || room->x + room->w > lv.width - 1 ||
+					 room->z + room->h > lv.height - 1))
 			return false;
 		auto candidate = [&](int x, int z) {
-			if (InRoom(room, x, z)) return true;
+			if (room && room->Has(x, z)) return true;
 			return std::find(corridor.begin(), corridor.end(), std::pair{x, z}) !=
 				   corridor.end();
+		};
+		auto excused = [&](int x, int z) {
+			for (const Room* a : allowed)
+				if (a->Has(x, z)) return true;
+			return false;
 		};
 		auto check = [&](int x, int z) {
 			// Rock itself, first: the neighbourhood test below waves candidate
@@ -155,18 +331,84 @@ struct Grower {
 			for (int dz = -1; dz <= 1; ++dz)
 				for (int dx = -1; dx <= 1; ++dx) {
 					const int nx = x + dx, nz = z + dz;
-					if (!lv.At(nx, nz) || candidate(nx, nz) || InRoom(parent, nx, nz))
-						continue;
+					if (!lv.At(nx, nz) || candidate(nx, nz) || excused(nx, nz)) continue;
 					return false;
 				}
 			return true;
 		};
 		for (const auto& [x, z] : corridor)
 			if (!check(x, z)) return false;
-		for (int z = room.z; z < room.z + room.h; ++z)
-			for (int x = room.x; x < room.x + room.w; ++x)
-				if (!check(x, z)) return false;
+		if (room)
+			for (int z = room->z; z < room->z + room->h; ++z)
+				for (int x = room->x; x < room->x + room->w; ++x)
+					if (room->Has(x, z) && !check(x, z)) return false;
 		return true;
+	}
+
+	// A LOOP: a second corridor between two rooms that are already joined some
+	// other way, so there are two routes round. `region` labels every floor
+	// square by the lock region it falls in (doors shut); a loop only joins two
+	// rooms of the SAME region, so it can never be a way round a locked door —
+	// the lock/key construction stays proven. Tries each pair of rooms that
+	// are not already neighbours in the tree, nearest first, with a corridor
+	// leaving each room's facing side (the Corridor machinery aimed at a room
+	// instead of open rock). False when none fits.
+	bool Loop(const std::vector<int>& region, std::vector<std::pair<int, int>>& joined) {
+		struct Pair {
+			int a, b, d;
+		};
+		std::vector<Pair> pairs;
+		for (int a = 0; a < static_cast<int>(rooms.size()); ++a)
+			for (int b = a + 1; b < static_cast<int>(rooms.size()); ++b) {
+				const auto [ax, az] = rooms[static_cast<size_t>(a)].Centre();
+				const auto [bx, bz] = rooms[static_cast<size_t>(b)].Centre();
+				if (region[static_cast<size_t>(Idx(ax, az))] !=
+					region[static_cast<size_t>(Idx(bx, bz))])
+					continue;
+				if (std::find(joined.begin(), joined.end(), std::pair{a, b}) != joined.end())
+					continue;
+				pairs.push_back({a, b, std::abs(ax - bx) + std::abs(az - bz)});
+			}
+		std::shuffle(pairs.begin(), pairs.end(), rng);
+		std::stable_sort(pairs.begin(), pairs.end(),
+						 [](const Pair& l, const Pair& r) { return l.d < r.d; });
+		for (const Pair& pr : pairs) {
+			const Room& A = rooms[static_cast<size_t>(pr.a)];
+			const Room& B = rooms[static_cast<size_t>(pr.b)];
+			// A straight corridor needs the rooms to face each other across a
+			// gap: overlapping spans on one axis, a gap of two or more on the
+			// other. Try each shared coordinate until one is floor at both ends.
+			for (int axis = 0; axis < 2; ++axis) {
+				const bool alongX = axis == 0; // corridor runs along x
+				const int lo = alongX ? std::max(A.z, B.z) : std::max(A.x, B.x);
+				const int hi = alongX ? std::min(A.z + A.h, B.z + B.h) - 1
+									  : std::min(A.x + A.w, B.x + B.w) - 1;
+				if (lo > hi) continue;
+				const Room& L = alongX ? (A.x < B.x ? A : B) : (A.z < B.z ? A : B);
+				const Room& R = &L == &A ? B : A;
+				const int from = alongX ? L.x + L.w : L.z + L.h;
+				const int to = alongX ? R.x - 1 : R.z - 1;
+				if (to - from + 1 < 2) continue; // too close to need a corridor
+				std::vector<int> coords;
+				for (int c = lo; c <= hi; ++c) coords.push_back(c);
+				std::shuffle(coords.begin(), coords.end(), rng);
+				for (const int c : coords) {
+					std::vector<std::pair<int, int>> corridor;
+					for (int s = from; s <= to; ++s)
+						corridor.push_back(alongX ? std::pair{s, c} : std::pair{c, s});
+					const auto [fx, fz] = corridor.front();
+					const auto [tx, tz] = corridor.back();
+					const bool ends = alongX ? L.Has(fx - 1, fz) && R.Has(tx + 1, tz)
+											 : L.Has(fx, fz - 1) && R.Has(tx, tz + 1);
+					if (!ends || !Clear({&A, &B}, corridor, nullptr)) continue;
+					for (const auto& [x, z] : corridor) Carve(lv, x, z);
+					joined.push_back({pr.a, pr.b});
+					++lv.report.corridors;
+					return true;
+				}
+			}
+		}
+		return false;
 	}
 };
 
@@ -271,7 +513,7 @@ Level Run(const Params& p) {
 	// the path (never the exit — a branch there is just a longer path) and
 	// grown `branchMin..branchMax` rooms deep. Anything that does not fit is
 	// not forced: the report says what was asked and what was built.
-	Grower g{lv, rng, {}, {}};
+	Grower g{lv, rng, q, {}, {}, {}, {}};
 	g.rooms.push_back(RootRoom(q, lv.width, lv.height, rng));
 	g.CarveRoom(g.rooms[0]);
 	std::vector<int> spine{0};
@@ -317,19 +559,26 @@ Level Run(const Params& p) {
 	lv.report.branchesGot = static_cast<int>(lv.report.branchRooms.size());
 	const std::vector<Room>& rooms = g.rooms;
 
+	// DEAD ENDS: stubs off any room, leading nowhere. After the tree, so they
+	// fit around it rather than claiming room the path and branches needed.
+	lv.report.deadEndsWanted = std::max(0, p.deadEnds);
+	for (int i = 0; i < lv.report.deadEndsWanted; ++i)
+		if (g.DeadEnd()) ++lv.report.deadEndsGot;
+
 	// Each kept-open square joins the nearest room by a corridor of its own, so
 	// it is floor AND reachable whatever shape the rooms took around it.
 	for (const auto& [x, z] : q.keepOpen) {
-		const Room* nearest = &rooms[0];
+		std::pair<int, int> nearest = rooms[0].Centre();
 		int best = -1;
 		for (const Room& r : rooms) {
-			const int dx = r.cx() - x, dz = r.cz() - z;
+			const auto [rx, rz] = r.Centre(); // floor, whatever the room's shape
+			const int dx = rx - x, dz = rz - z;
 			if (const int d = dx * dx + dz * dz; best < 0 || d < best) {
 				best = d;
-				nearest = &r;
+				nearest = {rx, rz};
 			}
 		}
-		CarveCorridor(lv, x, z, nearest->cx(), nearest->cz(), (rng() & 1) != 0);
+		CarveCorridor(lv, x, z, nearest.first, nearest.second, (rng() & 1) != 0);
 	}
 
 	// --- ends ----------------------------------------------------------------
@@ -338,9 +587,8 @@ Level Run(const Params& p) {
 	// walked rather than stepped across and the branches are side trips.
 	lv.startX = entry ? q.entryX : rooms[0].cx();
 	lv.startZ = entry ? q.entryZ : rooms[0].cz();
-	const Room& last = rooms[static_cast<size_t>(spine.back())];
-	lv.exitX = last.cx();
-	lv.exitZ = last.cz();
+	// (The room's middle FLOOR square: an L or a cross can have rock there.)
+	std::tie(lv.exitX, lv.exitZ) = rooms[static_cast<size_t>(spine.back())].Centre();
 
 	// --- locks, BY CONSTRUCTION ----------------------------------------------
 	// For each lock: find a doorway whose closure strands some floor but NOT the
@@ -357,14 +605,16 @@ Level Run(const Params& p) {
 	lv.report.locksWanted = std::max(0, p.locks);
 	for (int lock = 0; lock < wantLocks; ++lock) {
 		// Candidate doorways, in a shuffled order so the choice is not always the
-		// same corner of the map for a given shape.
+		// same corner of the map for a given shape. Only squares of the TREE's
+		// corridors: the gap between two pillars is doorway-shaped too, and a
+		// door there shuts nothing off; a dead end's door guards nothing.
 		std::vector<int> cands;
-		for (int z = 1; z < lv.height - 1; ++z)
-			for (int x = 1; x < lv.width - 1; ++x)
-				if (IsDoorway(lv, x, z) && idx(x, z) != idx(lv.startX, lv.startZ) &&
-					!isReserved(x, z) &&
-					std::find(shut.begin(), shut.end(), idx(x, z)) == shut.end())
-					cands.push_back(idx(x, z));
+		for (const int cell : g.treeCorridor) {
+			const int x = cell % lv.width, z = cell / lv.width;
+			if (IsDoorway(lv, x, z) && cell != idx(lv.startX, lv.startZ) &&
+				!isReserved(x, z) && std::find(shut.begin(), shut.end(), cell) == shut.end())
+				cands.push_back(cell);
+		}
 		std::shuffle(cands.begin(), cands.end(), rng);
 		// The MAIN PATH's corridors first: a lock there gates PROGRESS, so the
 		// exit is behind it and its key is somewhere the path has not reached —
@@ -396,7 +646,12 @@ Level Run(const Params& p) {
 				// only ever consulted reachability.
 				const int kx = static_cast<int>(i) % lv.width;
 				const int kz = static_cast<int>(i) / lv.width;
-				bool taken = (kx == lv.startX && kz == lv.startZ) || isReserved(kx, kz);
+				// Nor down a dead end: a key hidden in a stub is a key at the
+				// end of a corridor built to lead nowhere, which reads as a
+				// trick rather than a find.
+				bool taken = (kx == lv.startX && kz == lv.startZ) || isReserved(kx, kz) ||
+							 std::find(g.stubCells.begin(), g.stubCells.end(),
+									   static_cast<int>(i)) != g.stubCells.end();
 				for (const Entity& e : lv.entities)
 					if (e.x == kx && e.z == kz) { taken = true; break; }
 				if (!taken) open.push_back(static_cast<int>(i));
@@ -429,6 +684,32 @@ Level Run(const Params& p) {
 			++lv.report.locksGot;
 			break;
 		}
+	}
+
+	// --- loops, AFTER the locks -----------------------------------------------
+	// A loop joins two rooms of the SAME lock region, so the doors are placed
+	// first and the regions read off them: flood from the start with every door
+	// shut, then from each floor square not yet reached. A loop can then never
+	// be a way round a locked door, and the construction proof the locks rest
+	// on is untouched — the checker has nothing new to find.
+	lv.report.loopsWanted = std::max(0, p.loops);
+	if (lv.report.loopsWanted > 0) {
+		std::vector<int> region(lv.floor.size(), -1);
+		int label = 0;
+		auto fill = [&](int sx, int sz) {
+			const std::vector<u8> reach = FloodFrom(lv, sx, sz, shut);
+			for (size_t i = 0; i < reach.size(); ++i)
+				if (reach[i] && region[i] < 0) region[i] = label;
+			++label;
+		};
+		fill(lv.startX, lv.startZ);
+		for (size_t i = 0; i < lv.floor.size(); ++i)
+			if (lv.floor[i] && region[i] < 0 &&
+				std::find(shut.begin(), shut.end(), static_cast<int>(i)) == shut.end())
+				fill(static_cast<int>(i) % lv.width, static_cast<int>(i) / lv.width);
+		std::vector<std::pair<int, int>> joined;
+		for (int i = 0; i < lv.report.loopsWanted; ++i)
+			if (g.Loop(region, joined)) ++lv.report.loopsGot;
 	}
 
 	// --- population ----------------------------------------------------------

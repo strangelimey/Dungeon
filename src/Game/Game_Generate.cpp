@@ -226,6 +226,9 @@ void Game::ShowGenReport(const std::string& levelStem) {
 	m_generateDialog.SetReport(
 		{loc::Format("map.gen.report.shape", r.pathGot, r.pathWanted, r.branchesGot,
 					 r.branchesWanted),
+		 loc::Format("map.gen.report.complexity", r.loopsGot, r.loopsWanted,
+					 r.deadEndsGot, r.deadEndsWanted, r.windingGot, r.corridors,
+					 r.irregularGot),
 		 loc::Format("map.gen.report.content", r.locksGot, r.locksWanted, r.monsters,
 					 r.loot)},
 		levelStem);
@@ -236,11 +239,13 @@ std::string Game::GenReportText() const {
 	std::string lengths;
 	for (const int n : r.branchRooms)
 		lengths += (lengths.empty() ? "" : " ") + std::to_string(n);
-	return std::format("path {}/{} rooms, branches {}/{} (rooms: {}), locks {}/{}, "
-					   "{} monsters, {} loot",
+	return std::format("path {}/{} rooms, branches {}/{} (rooms: {}), loops {}/{}, "
+					   "dead ends {}/{}, winding {}/{} corridors, irregular {} rooms, "
+					   "locks {}/{}, {} monsters, {} loot",
 					   r.pathGot, r.pathWanted, r.branchesGot, r.branchesWanted,
-					   lengths.empty() ? "-" : lengths, r.locksGot, r.locksWanted,
-					   r.monsters, r.loot);
+					   lengths.empty() ? "-" : lengths, r.loopsGot, r.loopsWanted,
+					   r.deadEndsGot, r.deadEndsWanted, r.windingGot, r.corridors,
+					   r.irregularGot, r.locksGot, r.locksWanted, r.monsters, r.loot);
 }
 
 bool Game::LinkToFloorAbove(const std::string& stem,

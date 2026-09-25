@@ -115,6 +115,20 @@ opens, and nothing reports whether the result matches what was asked for.
 - Noticed for P4: a monster can stand right beside the arrival stair. The
   difficulty ramp (entrance easier than exit) is the place to fix it.
 
+**P1 REGRESSIONS found by WorldTest (fixed in P2/P3).**
+- `AddStairAt` following ONLY the dungeon's order took away the stair brush's
+  ability to author a stair BETWEEN dungeons, off one's last floor. That is
+  legitimate content: the W10 delete rule "a stair from outside leading in"
+  exists for it. The dungeon's order wins now, and the flat list is the
+  fallback when the dungeon has no floor that way.
+- P1 also moved the EMPTY level's box to line up with the floor above, and
+  auto-stairs it. WorldTest's rename scenario builds on the room being at
+  7..9, so a hand-written stair landed in rock and loading hit a fatal assert
+  (a CRT dialog on screen). **The empty level is the old blank canvas again**:
+  fixed box, no stair. Only a GENERATED level is built around the stair square
+  and linked. The checker still reports an empty floor as unreachable until
+  you place a stair, as it always has.
+
 ### P3 — complexity: four separate knobs
 Each is its own setting, 0..1, and each shows up as its own line in the report:
 - **Loops**: extra corridors that close cycles. Cycles break "everything beyond
@@ -128,6 +142,42 @@ Each is its own setting, 0..1, and each shows up as its own line in the report:
   that the lock pass would mistake for doors.
 - **Dead ends**: stub corridors off rooms and corridors that lead nowhere. They
   never hold a key.
+
+**P3 LANDED (2026-09-24).** A Complexity tab with four knobs:
+- `loops` (count). After the locks, lock REGIONS are read off the doors (flood
+  from the start with every door shut, then from each square not yet reached).
+  A loop is a straight corridor between two rooms of the SAME region, facing
+  each other across a gap, and it passes the same clearance rule as the tree. It
+  can never be a way round a lock. This is proven by a check the project
+  checker CANNOT make: every door, shut on its own, must still strand floor.
+  With the region test removed (MUTATION), one door is bypassed and that check
+  fails, while `validate` stays clean. The checker verifies keys come before
+  their doors; it does not verify that a door still guards anything.
+- `winding` (fraction). A corridor jogs: a staircase of forward runs and
+  sideways steps, always turning the same way. So it never doubles back, never
+  puts two of its own squares side by side, and never forms a 2x2 block. The
+  first run is at least 2 when jogging, because a sideways step one square out
+  from a room runs along its wall and widens it into a notch.
+- `irregular` (fraction). A room can be an L, a cross, or a pillared hall, and
+  every shape stays two squares thick (`Room::Has`). Pillars sit TWO squares in
+  from the walls: one square in left a one-wide strip that read as a corridor
+  running round inside the room, which the measurement caught.
+- `deadends` (count). Stub corridors off rooms, with the same clearance. No
+  lock goes on one and no key is hidden down one.
+- Locks now only go on the TREE's corridors. The gap between two pillars is
+  doorway-shaped too, and a door there shuts nothing off.
+- The report gained a third line (loops, dead ends, winding corridors, odd
+  rooms). The panel is wider (0.50) because the line ran 11px over at 0.44.
+- Checks: `LevelBuildTest.py` phase 3 measures each complexity count from the
+  .map file: loops = links − (rooms − 1), dead ends = corridors touching one
+  room, winding = links that are not one row or column, irregular = rooms that
+  do not fill their bounding box. One base level has every knob at 0, and four
+  variants each raise ONE knob; each variant's own count must rise and no
+  other count may move. The uioverlap audit ran with a real report in ALL FIVE
+  languages. Each game was LAUNCHED in its language: the first attempt switched
+  with the console mid-game, and after the first switch every in-game command
+  was refused, so four "clean" audits looked at a stale dialog. That bug
+  predates this branch and is spun off as its own task.
 
 ### P4 — difficulty that means strength
 - A THREAT score per monster, DERIVED from its catalog stats (hp, damage,

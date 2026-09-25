@@ -152,33 +152,20 @@ std::string FirstIds(const Catalog& catalog, size_t count) {
 }
 
 // The minimal level both a new world and an empty new level start from: a
-// block of rock (16x16, or larger to reach the start) with a 3x3 room holding
-// the start. Appended as grid rows, after the caller's palette records.
-// Returns the room's squares, START FIRST — where a stair from the floor above
-// may land.
-//
-// The start defaults to the middle; an empty new FLOOR passes the square of the
-// stair coming down to it instead, because a stair needs the same (x,z) on both
-// levels and a fixed box in the middle rarely lines up with the floor above.
+// 16x16 block of rock with a 3x3 room in the middle and the start at its
+// centre. Appended as grid rows, after the caller's palette records. FIXED on
+// purpose: scenarios and habits build on the room being at 7..9 (see
+// CreateNewLevel).
 constexpr int kStarterSize = 16, kStarterCentre = 8;
-std::vector<std::pair<int, int>> AppendStarterRoom(std::string& map,
-												   int startX = kStarterCentre,
-												   int startZ = kStarterCentre) {
-	// The room's centre, pulled in so the room clears the rock rim (a start on
-	// the rim's inner edge sits in the room's edge instead of its middle).
-	const int cx = std::max(startX, 2), cz = std::max(startZ, 2);
-	const int w = std::max(kStarterSize, cx + 3), h = std::max(kStarterSize, cz + 3);
-	std::vector<std::pair<int, int>> room{{startX, startZ}};
-	for (int z = 0; z < h; ++z) {
-		for (int x = 0; x < w; ++x) {
-			const bool in = std::abs(x - cx) <= 1 && std::abs(z - cz) <= 1;
-			const bool start = x == startX && z == startZ;
-			map += !in ? '#' : start ? 'P' : '.';
-			if (in && !start) room.push_back({x, z});
+void AppendStarterRoom(std::string& map) {
+	for (int z = 0; z < kStarterSize; ++z) {
+		for (int x = 0; x < kStarterSize; ++x) {
+			const bool room = std::abs(x - kStarterCentre) <= 1 &&
+							 std::abs(z - kStarterCentre) <= 1;
+			map += !room ? '#' : (x == kStarterCentre && z == kStarterCentre) ? 'P' : '.';
 		}
 		map += '\n';
 	}
-	return room;
 }
 
 // A new world's first room: the same minimal 16x16 box CreateNewLevel writes,
@@ -472,8 +459,14 @@ std::string Game::CreateNewLevel(const std::string& dungeonId,
 	// for a square both happen to have free failed three times out of three on
 	// the first run (docs/level-building.md P1). {-1,-1} for a dungeon's first
 	// floor, which has nothing above it.
+	//
+	// A GENERATED level only. The EMPTY one is the blank canvas it always was —
+	// the fixed box in the middle, and no stair: WorldTest's rename scenario
+	// (and anyone who has used [+] before) builds on the room being at 7..9,
+	// and moving it put a hand-written stair in rock, which is a load-time
+	// abort. An empty floor is joined up with the stair brush, as before.
 	std::pair<int, int> entry{-1, -1};
-	if (dungeon)
+	if (dungeon && params)
 		if (const std::vector<std::string> floors = m_project.DungeonLevels(dungeonId);
 			!floors.empty())
 			entry = m_world->FarthestStairCell(floors.back());
@@ -499,8 +492,7 @@ std::string Game::CreateNewLevel(const std::string& dungeonId,
 		map += "palette wall " + join(live.WallPalette()) + "\n";
 		map += "palette floor " + join(live.FloorPalette()) + "\n";
 		map += "palette ceiling " + join(live.CeilingPalette()) + "\n\n";
-		linkCells = entry.first >= 0 ? AppendStarterRoom(map, entry.first, entry.second)
-									 : AppendStarterRoom(map);
+		AppendStarterRoom(map);
 		ent = "; " + stem + " - dynamic layer (empty).\n";
 	}
 	// Same boundary rule as the level writers: built with '\n', ended once here.
@@ -523,7 +515,8 @@ std::string Game::CreateNewLevel(const std::string& dungeonId,
 	}
 	m_project.Save();
 	// AFTER joining the dungeon: the floor above is found by dungeon order.
-	LinkToFloorAbove(stem, linkCells);
+	// (An empty level offers no cells, so it stays unlinked — see above.)
+	if (!linkCells.empty()) LinkToFloorAbove(stem, linkCells);
 	if (m_world->onMessage)
 		m_world->onMessage(dungeonId.empty()
 							  ? loc::FormatLine("map.level.created", stem)

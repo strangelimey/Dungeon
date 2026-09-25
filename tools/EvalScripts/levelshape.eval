@@ -10,13 +10,13 @@
 logecho on
 reset
 ; THE CONTROL PAIR: one seed and path, branches 0 then 4. Only the knob moves.
-generate crypt width:40 height:40 path:6 branches:0 branchmin:1 branchmax:3 seed:11 locks:0
-generate crypt width:40 height:40 path:6 branches:4 branchmin:1 branchmax:3 seed:11 locks:0
+generate crypt width:40 height:40 path:6 branches:0 branchmin:1 branchmax:3 loops:0 winding:0.3 irregular:0.3 deadends:2 seed:11 locks:0
+generate crypt width:40 height:40 path:6 branches:4 branchmin:1 branchmax:3 loops:0 winding:0.3 irregular:0.3 deadends:2 seed:11 locks:0
 ; Fixed-length branches, on a map with room for them.
-generate crypt width:48 height:48 path:10 branches:2 branchmin:3 branchmax:3 seed:12 locks:0
+generate crypt width:48 height:48 path:10 branches:2 branchmin:3 branchmax:3 loops:0 winding:0.3 irregular:0.3 deadends:2 seed:12 locks:0
 ; THE SHORTFALL: far more than a 16x16 map holds. It must stop short and SAY so.
-generate crypt width:16 height:16 path:30 branches:12 branchmin:1 branchmax:3 seed:13 locks:1
+generate crypt width:16 height:16 path:30 branches:12 branchmin:1 branchmax:3 loops:0 winding:0.3 irregular:0.3 deadends:2 seed:13 locks:1
 ; A lock with a key to find: the path gets it first.
-generate crypt width:40 height:40 path:8 branches:3 branchmin:1 branchmax:3 seed:14 locks:1
+generate crypt width:40 height:40 path:8 branches:3 branchmin:1 branchmax:3 loops:0 winding:0.3 irregular:0.3 deadends:2 seed:14 locks:1
 validate
 savemap

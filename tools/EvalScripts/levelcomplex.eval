@@ -1,0 +1,22 @@
+; levelcomplex.eval — complexity is four separate knobs (docs/level-building.md
+; P3), in a scratch copy of the demo world (run with -project lb_complex).
+; LevelBuildTest.py measures each level from its file.
+;
+; ONE BASE and FOUR VARIANTS, each flipping a single knob from zero, so a
+; measured difference can only be that knob's. Then a level with several loops
+; AND several locks: every door must still shut something off, which is the
+; proof that no loop was built round a lock.
+;
+; Every knob is given on every line: unset ones would fall back to the dialog's
+; remembered knobs, which a test must not depend on.
+logecho on
+reset
+generate crypt width:48 height:48 path:8 branches:3 branchmin:1 branchmax:3 loops:0 winding:0 irregular:0 deadends:0 seed:21 locks:0
+generate crypt width:48 height:48 path:8 branches:3 branchmin:1 branchmax:3 loops:3 winding:0 irregular:0 deadends:0 seed:21 locks:0
+generate crypt width:48 height:48 path:8 branches:3 branchmin:1 branchmax:3 loops:0 winding:1 irregular:0 deadends:0 seed:21 locks:0
+generate crypt width:48 height:48 path:8 branches:3 branchmin:1 branchmax:3 loops:0 winding:0 irregular:1 deadends:0 seed:21 locks:0
+generate crypt width:48 height:48 path:8 branches:3 branchmin:1 branchmax:3 loops:0 winding:0 irregular:0 deadends:4 seed:21 locks:0
+; Loops and locks together.
+generate crypt width:48 height:48 path:10 branches:4 branchmin:1 branchmax:3 loops:5 winding:0.5 irregular:0.5 deadends:3 seed:22 locks:2
+validate
+savemap

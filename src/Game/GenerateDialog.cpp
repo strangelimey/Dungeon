@@ -18,9 +18,11 @@ namespace dungeon::game {
 
 namespace {
 
-// Tall: the knob tabs scroll, but the report's two lines and the where-it-lands
-// line all take from the same height, and P1's 0.72 left two sliders visible.
-constexpr gfx::Rect kPanel{0.28f, 0.06f, 0.44f, 0.88f};
+// Tall: the knob tabs scroll, but the report's three lines and the where-it-
+// lands line all take from the same height, and P1's 0.72 left two sliders
+// visible. Wide enough for the longest report line in every language — the
+// uioverlap audit caught the complexity line 11px over at 0.44.
+constexpr gfx::Rect kPanel{0.25f, 0.06f, 0.50f, 0.88f};
 constexpr float kLabelFill = 1.3f, kFieldFill = 1.0f;
 
 } // namespace

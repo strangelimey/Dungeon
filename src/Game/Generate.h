@@ -45,6 +45,16 @@ struct Params {
 	int path = 6;
 	int branches = 3;
 	int branchMin = 1, branchMax = 3;
+	// COMPLEXITY, four separate knobs (P3). `loops` and `deadEnds` are COUNTS,
+	// reported like the path and branches; `winding` (the chance a corridor
+	// jogs, and how much) and `irregular` (the chance a room is an L, a cross
+	// or a pillared hall) are fractions, reported as how many came out that way.
+	// A loop only ever joins two rooms inside ONE lock region, so it is never a
+	// way round a locked door.
+	int loops = 1;
+	float winding = 0.3f;
+	float irregular = 0.3f;
+	int deadEnds = 2;
 	// How many locked doors to author. Each takes a key, placed where it is
 	// reachable before its own door (see the header note).
 	int locks = 1;
@@ -78,6 +88,11 @@ struct Report {
 	int branchesWanted = 0, branchesGot = 0;
 	std::vector<int> branchRooms; // rooms in each branch built, in order
 	int locksWanted = 0, locksGot = 0;
+	int loopsWanted = 0, loopsGot = 0;
+	int deadEndsWanted = 0, deadEndsGot = 0;
+	int corridors = 0;    // the tree's corridors, which winding may jog
+	int windingGot = 0;   // ...of which this many jog
+	int irregularGot = 0; // rooms that came out other than a rectangle
 	int monsters = 0, loot = 0;
 };
 
