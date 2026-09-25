@@ -1683,13 +1683,19 @@ void DungeonWorld::BeginLevelLoad(const std::string& stem, bool stashCurrent) {
 	// AND its unsaved edits (skip for a throwaway baseline being replaced by a
 	// save's level). The .ent records stash only when they diverged from disk
 	// (a prune/re-face edited them) — else the file re-parse is identical.
-	if (stashCurrent) {
+	// A PARKED level was stashed when the party walked out of it, so it is
+	// stashed whatever the caller asked: the callers that pass false believe
+	// they are replacing a throwaway baseline, and a parked level is not one.
+	// (Not stashed AGAIN: nothing has moved in it since — the party was away.)
+	if (stashCurrent && !m_parked) {
 		StashActive();
 		StashStaticMap();
 		if (m_entsDirty)
 			m_levelEnts.insert_or_assign(
 				m_currentLevel, std::make_unique<DungeonEntities>(m_entities));
 	}
+
+	m_parked = false;
 
 	// Move-assign the new level into the existing objects (Party holds a
 	// reference to m_map, so the object must persist — only its data changes).

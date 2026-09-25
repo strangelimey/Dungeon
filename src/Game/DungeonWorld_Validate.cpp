@@ -49,6 +49,10 @@ bool DungeonWorld::InstallLevelFromText(const std::string& stem,
 	// is also true: the moment the map is swapped, this is where the party is.
 	// Nothing is stashed on the way out, so the level being left simply ends,
 	// which is what a throwaway space deserves.
+	//
+	// EXCEPT A LEVEL THE PARTY WALKED OUT OF. An ambush on the road replaces the
+	// dungeon still loaded under the world map, and that one is returned to —
+	// so it was PARKED on the way out (ParkActive), and its stash stands.
 	m_currentLevel = stem;
 	return InstallLevel(stem, std::move(map), std::move(ents));
 }
@@ -70,6 +74,7 @@ bool DungeonWorld::InstallLevel(const std::string& stem, DungeonMap&& map,
 	// because any cell may differ and the full-screen editor hides the scene
 	// meanwhile (FlushGeometry pays for it once, on the way out).
 	m_device.WaitIdle();
+	m_parked = false; // whatever was parked here has been replaced
 	const bool paletteChanged = m_map.WallPalette() != map.WallPalette() ||
 								m_map.FloorPalette() != map.FloorPalette() ||
 								m_map.CeilingPalette() != map.CeilingPalette();

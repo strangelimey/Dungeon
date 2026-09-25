@@ -1,0 +1,64 @@
+; worldpersist.eval — a dungeon keeps what happened in it (Michael, 2026-09-24:
+; "killed the mummy, left, came back in — the mummy was back").
+;
+; The level walked out of stays loaded under the world map, and everything that
+; replaces it next — a doorway, an ambush on the road, a save loaded — does so
+; without stashing. So it is PARKED on the way out, and each of these is a way
+; back in that must find the skeleton still dead:
+;
+;   1. straight back through the gate;
+;   2. with a random encounter in between, which REPLACES the level under the
+;      world map with a generated one;
+;   3. through a save made on the world map, loaded twice: once over the same
+;      level (the inline branch) and once over another (the loading branch),
+;      because LoadGame finishes the job in two different places.
+;
+; Every `monsters` after the kill is a measurement; the one before it is the
+; control — "dead on re-entry" means nothing unless it was alive to begin with.
+logecho on
+reset
+seed 4
+freeze on
+leave
+discover crypt_gate
+enter crypt_gate
+echo --- persist: before the kill ---
+monsters
+blast fireburst 7 4
+blast fireburst 7 4
+blast fireburst 7 4
+blast fireburst 7 4
+blast fireburst 7 4
+step 1
+echo --- persist: killed ---
+monsters
+
+; --- 1. out and straight back in -------------------------------------------
+leave
+enter crypt_gate
+echo --- persist: back through the gate ---
+monsters
+
+; --- 2. an ambush on the road in between ------------------------------------
+leave
+worldpos 6 6
+encounter
+leave
+enter crypt_gate
+echo --- persist: after an encounter ---
+monsters
+
+; --- 3. a save made on the world map ----------------------------------------
+leave
+save worldpersist
+load worldpersist
+echo --- persist: loaded over the same level ---
+state
+enter crypt_gate
+monsters
+reset
+load worldpersist
+echo --- persist: loaded over another level ---
+state
+enter crypt_gate
+monsters

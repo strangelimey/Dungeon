@@ -478,6 +478,7 @@ void Game::BeginLevelTransition(const std::string& stem, int x, int z,
 	// after the call (the only path that carries a free-look offset across levels).
 	m_pendingLookYaw = m_pendingLookPitch = 0.0f;
 	m_pendingLooking = false;
+	m_pendingWorldMap = m_pendingWorldPark = false;
 	m_state = AppState::LoadingLevel;
 	m_stateFrameMark = m_framesRendered;
 }
@@ -824,7 +825,9 @@ bool Game::SaveGame(const std::string& name) {
 	if (m_heldItem) data.heldItem = *m_heldItem;
 
 	data.world = m_worldState; // the global tier (docs/world-map.md)
-	m_world->CaptureState(data);
+	// On the world map the level underneath is not where the party IS: a parked
+	// one is written from the store, and a baseline never entered has no state.
+	m_world->CaptureState(data, /*includeLive=*/!m_worldState.onWorldMap);
 	for (const Character& member : m_characters) {
 		SaveData::CharState c{member.health, member.maxHealth, member.stamina,
 							  member.maxStamina, member.mana, member.maxMana,
@@ -1029,6 +1032,17 @@ bool Game::LoadGame(const std::string& path) {
 	m_ui.RefreshSheet();
 	ApplyPartySpeed();
 
+	// A SAVE MADE ON THE WORLD MAP. The level under it was written only if the
+	// party had walked out of it (CaptureState leaves a never-entered baseline
+	// out), so its presence in the save is exactly "it was parked" — and it has
+	// to be parked again, or the next doorway reloads it from its file and the
+	// dead stand up. Read here, before the load consumes the entry.
+	const bool onWorld = m_worldState.onWorldMap && m_worldMap;
+	const bool parked =
+		onWorld && std::ranges::any_of(data->levels, [&](const auto& ls) {
+			return ls.stem == data->currentLevel;
+		});
+
 	// Route to the saved level. If it is the one already active, restore its
 	// live state inline; otherwise load it (arriving at the saved pose, without
 	// stashing the throwaway baseline) and let the loader finish the restore.
@@ -1042,6 +1056,8 @@ bool Game::LoadGame(const std::string& path) {
 		m_pendingLookYaw = data->lookYaw;
 		m_pendingLookPitch = data->lookPitch;
 		m_pendingLooking = data->looking;
+		m_pendingWorldMap = onWorld;
+		m_pendingWorldPark = parked;
 		log::Info("Loaded game from {} (loading {})", path, data->currentLevel);
 		return true;
 	}
@@ -1057,6 +1073,7 @@ bool Game::LoadGame(const std::string& path) {
 	m_ui.ResetHudStatus();
 	m_ui.SetHudStatus(party);
 	m_state = AppState::Playing;
+	if (onWorld) ResumeOnWorldMap(parked);
 	log::Info("Loaded game from {}", path);
 	return true;
 }
@@ -1484,6 +1501,8 @@ void Game::Update(float dt) {
 			m_looking = m_pendingLooking;
 			m_ui.ClearLog();
 			m_state = AppState::Playing;
+			if (m_pendingWorldMap) ResumeOnWorldMap(m_pendingWorldPark);
+			m_pendingWorldMap = m_pendingWorldPark = false;
 		}
 		return;
 

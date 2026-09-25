@@ -2,7 +2,7 @@
 #
 # Run:  python tools\WorldTest.py      (needs a debug build)
 #
-# Nineteen phases, all built on one principle: a check that never fires reports
+# Twenty phases, all built on one principle: a check that never fires reports
 # "clean" just as loudly as one that works, so every expectation here is paired
 # with something that makes it fail.
 #
@@ -54,6 +54,9 @@
 #  19. A WORLD WHEN A GAME STARTS — none on the title screen; switched in the
 #      process, A -> B -> A, and the GPU's descriptor count comes back to
 #      where the first visit left it (docs/world-on-demand.md).
+#  20. THE DEAD STAY DEAD — a monster killed in a dungeon is still dead after
+#      leaving and coming back: straight in, via an ambush on the road, and via
+#      a save made on the world map (which must also load ONTO the world map).
 #
 # Every file this touches is restored, including the save it downgrades.
 import io
@@ -986,6 +989,35 @@ try:
     check("World unloaded" in log and "eval RESULT=PASS script=worldswap.eval" in log,
           "and the run ended in play, having unloaded along the way")
 
+    # --- phase 20: a dungeon keeps what happened in it -----------------------
+    print("\n20 - the dead stay dead across the world map")
+    log = run("worldpersist.eval")
+    # Each section is the text between its echo marker and the next one, so a
+    # "dead" line can only be credited to the section that printed it.
+    sections = {}
+    for part in log.split("console: --- persist: ")[1:]:
+        name, _, body = part.partition(" ---")
+        sections[name] = body
+    def skeleton(name):
+        m = re.search(r"skeleton @ 7,4  hp ([\d.]+)", sections.get(name, ""))
+        return float(m.group(1)) if m else None
+    # THE CONTROL: alive before the kill, dead after it — otherwise "dead on
+    # the way back" would be satisfied by a skeleton that never lived.
+    check((skeleton("before the kill") or 0) > 0 and skeleton("killed") == 0,
+          "the skeleton was alive, then killed",
+          f"before {skeleton('before the kill')}, after {skeleton('killed')}")
+    for name, label in (("back through the gate", "straight back through the gate"),
+                        ("after an encounter", "with an ambush on the road in between"),
+                        ("loaded over the same level", "through a world-map save, loaded over its level"),
+                        ("loaded over another level", "and loaded over a different level")):
+        check(skeleton(name) == 0, f"still dead {label}", f"hp {skeleton(name)}")
+    for name in ("loaded over the same level", "loaded over another level"):
+        check("state worldmap" in sections.get(name, ""),
+              f"a save made on the world map loads ONTO the world map ({name})")
+    check("one-pipeline violation" not in log,
+          "and no monster's health moved outside the pipeline on the way")
+    check("eval RESULT=PASS script=worldpersist.eval" in log, "the script ran clean")
+
 finally:
     if settings_before is not None:
         write(SETTINGS, settings_before)
@@ -1001,7 +1033,7 @@ finally:
     for scratch in ("wt_scratch", "wt_dlg", "wt_del", "wt_del2", "wt_dng", "wt_ren", "wt_swap"):
         shutil.rmtree(os.path.join(ROOT, "assets", "projects", scratch),
                       ignore_errors=True)
-    for leftover in (SAVE, SAVE + ".bak",
+    for leftover in (SAVE, SAVE + ".bak", os.path.join(os.path.dirname(SAVE), "worldpersist.dsav"),
                      os.path.join(PROJ, r"levels\crypt3.map"),
                      os.path.join(PROJ, r"levels\crypt3.ent")):
         try:

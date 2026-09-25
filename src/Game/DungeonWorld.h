@@ -761,6 +761,14 @@ public:
 	// live state is now authoritative). Call after a level's load completes (the
 	// entity diffs need the monsters built). A no-op for a first visit.
 	void ApplyActiveSnapshot();
+	// PARKS the active level: the party has walked OUT of it (to the world map)
+	// while it stays loaded underneath. Its state is stashed NOW, exactly as a
+	// stair would stash it, because whatever replaces it next — a doorway, a
+	// random encounter, a load — does so without stashing (those paths replace
+	// a throwaway baseline, and cannot tell one from a level the party left).
+	// Idempotent; any level load or install ends it.
+	void ParkActive();
+	bool Parked() const { return m_parked; }
 
 	// A pending level transition: the destination level + arrival cell/facing,
 	// raised when the party steps onto a stair (see the .map "stairs" records).
@@ -809,7 +817,10 @@ public:
 	// fog of war (whole), and the per-level entity diff/spawn list (monsters,
 	// items, buttons — see SnapshotActive). The character roster is the Game's
 	// half, filled separately.
-	void CaptureState(SaveData& out) const;
+	// `includeLive` = false leaves the LIVE level out: the party is on the world
+	// map, so the level under it is either PARKED (already in the store, and
+	// written from there) or a baseline it never entered, which has no state.
+	void CaptureState(SaveData& out, bool includeLive = true) const;
 	// Applies a loaded save onto a freshly-built level (call after
 	// ResetForNewGame): snaps the party, restores fog + palette, and stages each
 	// level's entity diff/spawn list into the per-level store (the active level's
@@ -3125,6 +3136,8 @@ private:
 	// (a prune/re-face edited them); stash them on leave so the divergence
 	// survives the swap and savemap writes it.
 	bool m_entsDirty = false;
+	// The active level is PARKED (ParkActive): stashed, with the party outside it.
+	bool m_parked = false;
 	// Copies the active map into m_levelMaps, first syncing the live decoration
 	// placements back into its records (AddDecoration only appends a live
 	// instance; LoadDecorations rebuilds from records on return).

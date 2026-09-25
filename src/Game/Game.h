@@ -371,6 +371,11 @@ private:
 	// the back way does not surface at the front gate. Empty falls back to the
 	// location the party came IN by.
 	bool LeaveDungeon(const std::string& viaLocation = {});
+	// The tail of a load whose save was made ON THE WORLD MAP: back to the
+	// travel screen rather than into the level loaded underneath, with that
+	// level PARKED again when the party had walked out of it (`parked` — its
+	// state rode the save), so re-entering it keeps what happened there.
+	void ResumeOnWorldMap(bool parked);
 	// The two QUESTIONS in front of those (Michael, 2026-09-24): walking onto a
 	// doorway on the world map asks before going in, and stepping onto an exit
 	// stair asks before leaving. Only the WALK asks — Enter on a doorway and the
@@ -698,6 +703,9 @@ private:
 	// seeds it from the save so the exact look angle survives the level rebuild.
 	float m_pendingLookYaw = 0.0f, m_pendingLookPitch = 0.0f;
 	bool m_pendingLooking = false;
+	// A save made on the world map is loading onto a different level: when the
+	// load lands, ResumeOnWorldMap(m_pendingWorldPark) instead of playing on.
+	bool m_pendingWorldMap = false, m_pendingWorldPark = false;
 
 	// --- modules (construction order matters: settings load first, the world
 	// and UI reference settings/sounds/characters) -------------------------------

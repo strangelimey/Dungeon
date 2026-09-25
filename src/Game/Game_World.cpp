@@ -275,9 +275,21 @@ bool Game::LeaveDungeon(const std::string& viaLocation) {
 		else if (m_worldState.Discover(where) && m_world->onMessage)
 			m_world->onMessage(loc::FormatLine("world.discovered", where));
 	}
+	// THE DUNGEON KEEPS ITS STATE. The level stays loaded under the world map,
+	// but the next thing to replace it — this doorway again, another one, an
+	// ambush on the road — does so without stashing, so it is stashed HERE, the
+	// one moment the party is known to be walking out of somewhere it may come
+	// back to. Before this a slain monster stood up again on re-entry. An
+	// encounter is the exception: it is thrown away, never returned to.
+	if (!InEncounter()) m_world->ParkActive();
 	m_worldState.atLocation.clear();
 	SetOnWorldMap(true);
 	return true;
+}
+
+void Game::ResumeOnWorldMap(bool parked) {
+	if (parked) m_world->ParkActive();
+	SetOnWorldMap(true);
 }
 
 void Game::OfferEntrance() {

@@ -57,6 +57,7 @@ void DungeonWorld::ResetForNewGame() {
 	MarkSeen(m_party.GridX(), m_party.GridZ());
 	SetTorchPalette(0);
 	m_levelStates.clear(); // forget any explored levels
+	m_parked = false;
 	// Every monster is back at full and the world is a different world: the
 	// baselines the one-pipeline check was holding describe state that no longer
 	// exists (Game/DamageLedger.h). Take a fresh one rather than reporting the
@@ -266,9 +267,31 @@ void DungeonWorld::StashActive() {
 	m_levelStates[m_currentLevel] = SnapshotActive();
 }
 
+void DungeonWorld::ParkActive() {
+	if (m_parked) return;
+	// The same three layers a stair stashes (BeginLevelLoad): the dynamic state
+	// (the dead stay dead), the static map (unsaved editor work), and the .ent
+	// records when they have drifted from the file.
+	StashActive();
+	StashStaticMap();
+	if (m_entsDirty)
+		m_levelEnts.insert_or_assign(m_currentLevel,
+									 std::make_unique<DungeonEntities>(m_entities));
+	m_parked = true;
+}
+
 void DungeonWorld::ApplyActiveSnapshot() {
 	auto it = m_levelStates.find(m_currentLevel);
-	if (it == m_levelStates.end()) return; // first visit — nothing to restore
+	m_parked = false; // the live level is the authority again from here
+	if (it == m_levelStates.end()) {
+		// First visit — nothing to restore, but the level is still a NEW WORLD
+		// to the one-pipeline check. Its monsters were rebuilt in the storage
+		// the last level's used, and the ledger matches by ADDRESS, so without
+		// this a fresh skeleton read as the old level's monster healing +6 with
+		// nothing to explain it (every first entry through a world-map doorway).
+		RebaseDamageLedger();
+		return;
+	}
 	const SaveData::LevelState& ls = it->second;
 
 	std::fill(m_seen.begin(), m_seen.end(), static_cast<u8>(0));
@@ -413,7 +436,7 @@ void DungeonWorld::ApplyActiveSnapshot() {
 	RebaseDamageLedger();    // restored hit points are not writes to explain
 }
 
-void DungeonWorld::CaptureState(SaveData& out) const {
+void DungeonWorld::CaptureState(SaveData& out, bool includeLive) const {
 	out.currentLevel = m_currentLevel;
 	out.partyX = m_party.GridX();
 	out.partyZ = m_party.GridZ();
@@ -423,10 +446,11 @@ void DungeonWorld::CaptureState(SaveData& out) const {
 	out.looking = m_party.IsLooking();
 	out.torchPalette = m_torchPalette;
 
-	// Every inactive visited level, plus the live one.
+	// Every inactive visited level, plus the live one — unless it is parked,
+	// when the store already holds it and a second copy would be written.
 	out.levels.clear();
 	for (const auto& [stem, ls] : m_levelStates) out.levels.push_back(ls);
-	out.levels.push_back(SnapshotActive());
+	if (includeLive && !m_parked) out.levels.push_back(SnapshotActive());
 }
 
 void DungeonWorld::ApplyState(const SaveData& in) {
