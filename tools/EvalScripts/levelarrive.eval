@@ -1,0 +1,30 @@
+; levelarrive.eval - a reroll keeps EVERY way in, not only the stairs, in a
+; scratch copy of the demo world (run with -project lb_arrive). LevelBuildTest.py
+; phase 7 prepares that copy first: the game's opening moves to crypt1 12,1, and
+; a doorway crypt_side is added landing on crypt2 5,3 - squares no stair uses.
+;
+; crypt2 is entered down a stair at 1,1, through crypt_back (onto its exit stair
+; at 10,6) and through crypt_side. crypt1 is where the game opens. Each is
+; rerolled three times into a small map, where a square nothing holds open is
+; likely to come out rock; the checker runs after every reroll, and its
+; arrivalblocked finding is the fault this guards against.
+;
+; Every knob is given on every line: unset ones would fall back to the dialog's
+; remembered knobs, which a test must not depend on.
+logecho on
+reset
+levels view crypt2
+generate again width:14 height:14 roommin:3 roommax:4 path:3 branches:0 branchmin:1 branchmax:1 loops:0 winding:0 irregular:0 deadends:0 locks:0 difficulty:0 density:0 ramp:0 boss:0 reward:0 seed:11
+validate
+generate again width:14 height:14 roommin:3 roommax:4 path:3 branches:0 branchmin:1 branchmax:1 loops:0 winding:0 irregular:0 deadends:0 locks:0 difficulty:0 density:0 ramp:0 boss:0 reward:0 seed:12
+validate
+generate again width:14 height:14 roommin:3 roommax:4 path:3 branches:0 branchmin:1 branchmax:1 loops:0 winding:0 irregular:0 deadends:0 locks:0 difficulty:0 density:0 ramp:0 boss:0 reward:0 seed:13
+validate
+levels view crypt1
+generate again width:16 height:16 roommin:3 roommax:4 path:3 branches:0 branchmin:1 branchmax:1 loops:0 winding:0 irregular:0 deadends:0 locks:0 difficulty:0 density:0 ramp:0 boss:0 reward:0 seed:21
+validate
+generate again width:16 height:16 roommin:3 roommax:4 path:3 branches:0 branchmin:1 branchmax:1 loops:0 winding:0 irregular:0 deadends:0 locks:0 difficulty:0 density:0 ramp:0 boss:0 reward:0 seed:22
+validate
+generate again width:16 height:16 roommin:3 roommax:4 path:3 branches:0 branchmin:1 branchmax:1 loops:0 winding:0 irregular:0 deadends:0 locks:0 difficulty:0 density:0 ramp:0 boss:0 reward:0 seed:23
+validate
+savemap

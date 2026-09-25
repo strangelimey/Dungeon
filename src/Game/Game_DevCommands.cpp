@@ -208,10 +208,15 @@ void Game::RegisterDevCommands() {
 				return p.monsterThreat[a] < p.monsterThreat[b];
 			});
 			for (const size_t i : order) {
-				const threat::Parts t = threat::Of(*m_project.monsters.Find(p.monsterIds[i]));
+				const threat::Parts t = ThreatOf(*m_project.monsters.Find(p.monsterIds[i]));
+				// melee= and shot= are per second BEFORE the ranged edge; offence=
+				// is the better of the two with the edge applied, so a shot's
+				// weight in the ranking reads straight off the line.
 				m_console.Print(std::format(
-					"threat {} {:.2f} offence={:.2f} toughness={:.1f} hit={:.2f} behit={:.2f}",
-					p.monsterIds[i], t.threat, t.offence, t.toughness, t.hit, t.beHit));
+					"threat {} {:.2f} offence={:.2f} melee={:.2f} shot={:.2f} "
+					"toughness={:.1f} hit={:.2f} behit={:.2f}",
+					p.monsterIds[i], t.threat, t.offence, t.melee, t.shot, t.toughness,
+					t.hit, t.beHit));
 			}
 			m_console.Print(std::format("threat: {} kind(s){}", order.size(),
 										args.empty() ? "" : " in that theme's pool"));

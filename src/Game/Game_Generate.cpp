@@ -122,9 +122,9 @@ bool Game::InEncounter() const { return m_world->CurrentLevel() == kEncounterSte
 
 bool Game::StartEncounter(float difficulty, const std::vector<std::string>& tags,
 						  u32 seed) {
-	// THE AREA DECIDES WHAT YOU MEET. Difficulty scales the density and the
-	// size; the terrain's tags pick the pool, so a moor throws undead and a
-	// forest throws beasts without either being named here.
+	// THE AREA DECIDES WHAT YOU MEET. Difficulty scales the strength, the
+	// density and the size; the terrain's tags pick the pool, so a moor throws
+	// undead and a forest throws beasts without either being named here.
 	generate::Params p;
 	p.seed = seed;
 	// Small: an encounter is a fight, not a dungeon. It grows a little with the
@@ -137,7 +137,11 @@ bool Game::StartEncounter(float difficulty, const std::vector<std::string>& tags
 	// on the safest ground, because the road's safety is that an encounter is
 	// RARE — the roll already said so — and not that the one you get is empty.
 	// A level generated with nothing to meet would read as a bug, and rightly.
-	p.difficulty = std::max(difficulty, 0.25f);
+	// The floor is on the NUMBER only: safe ground still meets the weak end of
+	// the pool. (Before density was its own knob the floor had to go on
+	// difficulty, which pulled the strength up with it.)
+	p.difficulty = difficulty;
+	p.density = std::max(difficulty, 0.25f);
 	p.reward = difficulty * 0.5f;
 	FillPools(p, tags);
 	if (p.monsterIds.empty()) {
@@ -192,8 +196,7 @@ void Game::FillPools(generate::Params& params,
 	// Each one's threat, from its stats (Game/Threat.h): what difficulty ranks.
 	params.monsterThreat.clear();
 	for (const std::string& id : params.monsterIds)
-		params.monsterThreat.push_back(
-			threat::Of(*m_project.monsters.Find(id)).threat);
+		params.monsterThreat.push_back(ThreatOf(*m_project.monsters.Find(id)).threat);
 	params.lootIds = PoolFor(m_project.items, theme);
 	// Keys are the one pool that is NOT themed: a lock needs a key that exists,
 	// and which key it is matters far less than that the pair is coherent. An
@@ -207,6 +210,11 @@ void Game::FillPools(generate::Params& params,
 		return std::find(params.keyIds.begin(), params.keyIds.end(), id) !=
 			   params.keyIds.end();
 	});
+}
+
+threat::Parts Game::ThreatOf(const CatalogEntry& monster) const {
+	return threat::Of(monster, m_world ? m_world->ThreatProfile(monster)
+									   : threat::FromCatalog(monster));
 }
 
 std::vector<std::pair<int, int>>
@@ -432,6 +440,27 @@ bool Game::BuildAndInstall(const std::string& stem, const generate::Params& para
 	return ok;
 }
 
+std::vector<std::pair<int, int>> Game::ArrivalsOn(const std::string& stem) const {
+	std::vector<std::pair<int, int>> out;
+	// The game's opening: a named square on its start level.
+	if (m_project.startLevel == stem && m_project.startX >= 0 && m_project.startZ >= 0)
+		out.push_back({m_project.startX, m_project.startZ});
+	if (!m_worldMap) return out;
+	for (const WorldMap::Location& l : m_worldMap->Locations()) {
+		if (l.entryX < 0 || l.entryZ < 0) continue; // lands on the level's start
+		// Which level this doorway opens onto, resolved as entering it does
+		// (Game::EnterLocation): its `level` when that belongs to its dungeon,
+		// else the dungeon's first.
+		const CatalogEntry* d = m_project.dungeons.Find(l.Dungeon());
+		if (!d) continue;
+		const std::vector<std::string> levels = ParseTags(d->Get("levels", ""));
+		if (levels.empty()) continue;
+		const bool named = std::find(levels.begin(), levels.end(), l.level) != levels.end();
+		if ((named ? l.level : levels.front()) == stem) out.push_back({l.entryX, l.entryZ});
+	}
+	return out;
+}
+
 bool Game::RegenerateViewedLevel(generate::Params params) {
 	const std::string stem = m_mapView.ViewedLevel();
 	if (stem.empty()) return false;
@@ -453,15 +482,28 @@ bool Game::RegenerateViewedLevel(generate::Params params) {
 									[&](const StairLink& s) {
 										return !above.empty() && s.destLevel == above;
 									});
-	for (auto it = stairs.begin(); it != stairs.end(); ++it) {
-		const bool isEntry = entry != stairs.end() ? it == entry : it == stairs.begin();
-		if (isEntry) {
-			params.entryX = it->x;
-			params.entryZ = it->z;
-		} else {
-			params.keepOpen.push_back({it->x, it->z});
-		}
-	}
+	// AND ITS OTHER WAYS IN. A world-map doorway or the game's opening can land
+	// on a named square of this level too, and those are not stairs: a reroll
+	// that ignored them could leave the party arriving inside rock. They are kept
+	// the same way. When no stair leads up, the first of them is the ENTRY, since
+	// that is where a player walking in actually starts; only then does the
+	// first stair take the role, as before.
+	const std::vector<std::pair<int, int>> arrivals = ArrivalsOn(stem);
+	auto setEntry = [&](int x, int z) {
+		params.entryX = x;
+		params.entryZ = z;
+	};
+	auto keep = [&](int x, int z) {
+		if (x == params.entryX && z == params.entryZ) return;
+		for (const auto& [kx, kz] : params.keepOpen)
+			if (kx == x && kz == z) return;
+		params.keepOpen.push_back({x, z});
+	};
+	if (entry != stairs.end()) setEntry(entry->x, entry->z);
+	else if (!arrivals.empty()) setEntry(arrivals.front().first, arrivals.front().second);
+	else if (!stairs.empty()) setEntry(stairs.front().x, stairs.front().z);
+	for (const StairLink& s : stairs) keep(s.x, s.z);
+	for (const auto& [x, z] : arrivals) keep(x, z);
 	// ONE undo step, and no level transition — see the declaration in Game.h.
 	// The level is its own palette donor: a reroll changes the shape, not the
 	// look (it used to take the ACTIVE level's, so rerolling a browsed floor

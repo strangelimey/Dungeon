@@ -483,6 +483,10 @@ private:
 	// brings the old one back — which is why it must not go through a level
 	// transition, since that clears the history the promise rests on.
 	bool RegenerateViewedLevel(generate::Params params);
+	// The squares of `stem` that something OTHER than a stair lands the party
+	// on: the game's opening (project start_x/z) and every world-map doorway
+	// with an authored entryx/z. A regenerate keeps them open like stairs.
+	std::vector<std::pair<int, int>> ArrivalsOn(const std::string& stem) const;
 	// Build the level text (palette from `donor`, `stairs` carried across
 	// verbatim), parse it, and hand it to the world.
 	bool BuildAndInstall(const std::string& stem, const generate::Params& params,
@@ -491,6 +495,9 @@ private:
 	// Resolve the theme into the id pools the generator picks from.
 	void FillPools(generate::Params& params,
 				   const std::vector<std::string>& theme);
+	// One kind's threat (Game/Threat.h), its attacks resolved by the world when
+	// one is loaded (spells, powers, on-hit effects), else melee from the catalog.
+	threat::Parts ThreatOf(const CatalogEntry& monster) const;
 	// The last generate's asked-vs-built, as the console prints it (English,
 	// one line, with every branch's length) - docs/level-building.md: a knob you
 	// cannot measure is a knob you cannot tune. The dialog's localized form is

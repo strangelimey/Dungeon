@@ -727,7 +727,8 @@ Level Run(const Params& p) {
 	//     the catalog stats - Game/Threat.h), and a room picks near the rank
 	//     `difficulty + ramp x (progress - 0.5)` - so the entrance meets the
 	//     weaker end of the band and the far end the stronger;
-	//   * HOW MANY: a density per floor square that rises the same way.
+	//   * HOW MANY: `density` per floor square, rising the same way. Its own
+	//     knob: it was `difficulty` too until easy levels came out empty.
 	// The START ROOM gets nothing, and no monster stands within three steps of
 	// the start: arriving down a stair into a fight you could not see coming is
 	// a design fault, not a difficulty (P2 saw one standing beside the stair).
@@ -742,6 +743,7 @@ Level Run(const Params& p) {
 							: 1.0f;
 	};
 	const float difficulty = std::clamp(p.difficulty, 0.0f, 1.0f);
+	const float density = std::clamp(p.density, 0.0f, 2.0f);
 	const float ramp = std::clamp(p.ramp, 0.0f, 1.0f);
 	const float reward = std::clamp(p.reward, 0.0f, 1.0f);
 
@@ -814,9 +816,9 @@ Level Run(const Params& p) {
 		for (size_t r = 1; r < rooms.size(); ++r) {
 			const float pr = progress(r);
 			const float target = std::clamp(difficulty + ramp * (pr - 0.5f), 0.0f, 1.0f);
-			// About one monster per 25 floor squares at full difficulty, from
-			// half that at the entrance to half again at the far end (ramp 1).
-			const float perSquare = 0.04f * difficulty * (1.0f + ramp * (pr - 0.5f));
+			// One monster per 25 floor squares at density 1, from half that at
+			// the entrance to half again at the far end (ramp 1).
+			const float perSquare = 0.04f * density * (1.0f + ramp * (pr - 0.5f));
 			const int count = countOf(perSquare * static_cast<float>(area(rooms[r])));
 			for (int k = 0; k < count; ++k) {
 				const int cell = freeIn(rooms[r], true);

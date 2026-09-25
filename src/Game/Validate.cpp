@@ -226,6 +226,14 @@ std::vector<Issue> Run(const std::vector<LevelView>& levels,
 			// the game applies when it opens the door.
 			const int cx = l.entryX >= 0 ? l.entryX : dm->StartX();
 			const int cz = l.entryZ >= 0 ? l.entryZ : dm->StartZ();
+			// A doorway that opens onto rock: the stairblocked fault for the
+			// other way in. A level rerolled round its stairs but not its
+			// doorways used to do exactly this, and nothing here said so.
+			if (!dm->IsWalkable(cx, cz)) {
+				issues.push_back({Severity::Error, l.level, cx, cz,
+								  "map.check.arrivalblocked", l.id});
+				continue;
+			}
 			seeds.push_back({d->second, CellKey(cx, cz)});
 		}
 

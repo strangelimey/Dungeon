@@ -77,7 +77,8 @@ opens, and nothing reports whether the result matches what was asked for.
   `levels view <stem>`.
 - NOT covered yet: a world-map doorway or the game's opening that lands on a
   regenerated level. Those are not stairs, so a reroll can turn their square
-  into rock (the checker reports it). This predates P1.
+  into rock. This predates P1. **Fixed on `level-tuning` (below)**, and the
+  checker did NOT report it then; it does now (`arrivalblocked`).
 
 ### P2 - branches as a count (restructure the tree)
 - Build a SPINE first: start → exit, `path length` rooms long. Then grow
@@ -202,6 +203,7 @@ Each is its own setting, 0..1, and each shows up as its own line in the report:
   [tag...]` prints the ranking with its parts. Current order: coward 0, swarm
   3.9, mage 6.4 … mummy 13.8, warrior 14.3, berserker 15.2. KNOWN GAP: a
   caster's SPELL is not counted, only its melee, so casters rank low.
+  **Closed on `level-tuning` (below).**
 - The caller (the catalog seam) scores the pool; the generator stays pure.
   Rooms remember their PARENT, so each has a depth, and progress = depth /
   deepest. A room draws near the rank `difficulty + ramp × (progress − 0.5)`,
@@ -288,6 +290,63 @@ Each is its own setting, 0..1, and each shows up as its own line in the report:
   level the party is on brings it back to the start. MUTATION: writing the
   facing always fails both writer checks. The test takes phase numbers now
   (`LevelBuildTest.py 6`) and reports a game crash instead of dying on it.
+
+## Follow-ups: branch `level-tuning` (2026-09-25)
+
+The four known issues the handoff listed, fixed before Michael's first
+play-test. His calls: density is its own knob; a caster's spell counts, with a
+range bonus on top; the Generate button gets a die.
+
+- **Density is its own knob** (`density`, Population tab, 0..2, 1 = one
+  monster per 25 floor squares). `difficulty` now picks strength ONLY. It used
+  to set the number too (0.04 x difficulty per square), so an easy level was an
+  empty one: a 0.2 level came out with no monsters at all. Default 0.5, the old
+  number at the old default difficulty. The shipped presets carry
+  `density` = their old difficulty, except `first_floors` (0.25 -> 0.5): gentle
+  should mean weak, not deserted. A world-map ambush keeps its floor on the
+  NUMBER only (`density = max(difficulty, 0.25)`), so safe ground now meets the
+  weak end of the pool; the floor used to lift the strength with it.
+- **Threat counts what a monster actually does** (`Game/Threat.h`). A kind has
+  up to two attacks: melee and, for a skirmisher or caster, its SHOT - a
+  caster's spell bolt, anyone else's plain bolt. Offence is the better one, and
+  a shot gets `kRangedEdge` = 1.5 on top (a first cut; `threat` prints the shot
+  before the edge so a different value reads straight off). The attacks are
+  resolved by `DungeonWorld::ThreatProfile` from the catalog entry alone (no
+  model load), mirroring MonsterAttack / MonsterRangedAttack: `powers` applied,
+  the spell's own bolt via `Spell::MonsterBolt`, and on-hit DoTs. **A DoT counts
+  as a RATE x UPTIME, not its total per hit**, because every effect refreshes
+  rather than stacks: scored as a total, the blob's 20-second poison put it at
+  the top of the whole ranking (20.4). Measured, old -> new: mage 6.39 -> 13.74,
+  archer 7.08 -> 9.06, lurker 13.93 -> 15.74 (now the top, by its bleed), blob
+  10.89 -> 12.72, centipede 9.85 -> 11.57 and giant spider 11.75 -> 13.01 (their
+  poison); a kind with no shot, no `powers` and no on-hit effect is unchanged.
+- **A reroll keeps every way in.** `Game::ArrivalsOn(stem)` lists the squares
+  the game's opening (project `start_x/z`) and world-map doorways (`entryx/z`)
+  land on, and `RegenerateViewedLevel` keeps them open like stairs. When no
+  stair leads up, the first arrival becomes the ENTRY (the layout's root and the
+  start), since that is where a player walking in begins. The checker gained
+  `map.check.arrivalblocked`: a doorway opening onto rock. It had no such rule,
+  so a bad reroll passed it.
+- **The Generate icon is a die**, drawn onto the pack's blank disc like the
+  level, save and globe glyphs.
+- Checks: `LevelBuildTest.py` phase 4 now demands difficulty 0.2 -> 0.8 be 3+
+  stronger and about as many (within a quarter; not exact, since each new floor
+  is built round a different stair square), every easy level non-empty, density
+  0.2 -> 0.8 2.5x+ as many and no stronger, exactly the ranged kinds (by the
+  catalog FILE's archetype) scored with a shot, and a caster's shot 3x+ its
+  melee. Phase 7 (new): three rerolls each of crypt2 and crypt1 into small maps,
+  with the opening moved to a square no stair uses and a doorway added onto
+  another; the checker stays clean, the doorway square is floor joined to the
+  level, and crypt1 starts on its opening. MUTATIONS, each failing the check
+  meant for it: density read from difficulty (both control pairs), the spell
+  scored as a plain bolt (shot 1.6x melee), the ranged edge dropped, the
+  arrivals ignored (four checks). Phase 7's first version passed the arrivals
+  mutant, because both demo doorways land on exit stairs a reroll already kept;
+  the added doorway has no stair under it.
+- Noticed, not changed: every monster in monsters.cat has `defense = 0.1`, but
+  defense is in d100 POINTS (the evasion roll adds it as-is), so all of them
+  effectively guard with nothing. It reads like a leftover fraction.
+  Balance-pass material.
 
 ## Decisions (Michael, 2026-09-24)
 1. **Complexity** covers loops, winding, irregular rooms and dead ends, with **a

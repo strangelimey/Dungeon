@@ -41,6 +41,7 @@
 #include "Game/ShadowScheduler.h"
 #include "Game/SlotGrid.h"
 #include "Game/SoundBank.h"
+#include "Game/Threat.h"
 #include "Graphics/Camera.h"
 #include "Graphics/D3DUtil.h"
 #include "Graphics/ModelPreview.h" // gfx::PreviewSubmesh (editor instance previews)
@@ -470,6 +471,13 @@ public:
 	// The damage-type vocabulary, for anything that has to NAME a type it was
 	// handed (the projectile inspector, the type editor).
 	const DamageTypeBook& DamageTypes() const { return m_damageTypes; }
+	// What a monster kind can do to the party, resolved into plain numbers for
+	// the threat score (Game/Threat.h): its melee blow and, for a ranged
+	// archetype, the shot it throws - built the way MonsterAttack and
+	// MonsterRangedAttack build theirs (powers, the spell's bolt, on-hit
+	// effects), but from the catalog entry alone, so scoring a pool loads no
+	// models.
+	threat::Profile ThreatProfile(const CatalogEntry& monster) const;
 
 	// Armor (docs/damage-system.md): the class governing a member (the
 	// HEAVIEST piece worn) and what it costs them on the defense roll.

@@ -72,6 +72,11 @@ constexpr Knob kKnobs[] = {
 	{"difficulty", "map.gen.difficulty", kPopulation, KnobKind::Float, 0, 1,
 	 [](const Params& p) -> double { return p.difficulty; },
 	 [](Params& p, double v) { p.difficulty = static_cast<float>(v); }},
+	// How MANY, apart from how strong (it used to be difficulty too, so an easy
+	// level was an empty one). 1 = one monster per 25 floor squares; up to 2.
+	{"density", "map.gen.density", kPopulation, KnobKind::Float, 0, 2,
+	 [](const Params& p) -> double { return p.density; },
+	 [](Params& p, double v) { p.density = static_cast<float>(v); }},
 	// P4: difficulty ramps from the entrance to the far end, and can end in a
 	// boss.
 	{"ramp", "map.gen.ramp", kPopulation, KnobKind::Float, 0, 1,

@@ -432,6 +432,55 @@ void DungeonWorld::ParseOnHit(const CatalogEntry* def, std::vector<fx::Proc>& ou
 		fx::ParseProcs("burn " + line, out, where); // deprecated
 }
 
+// See the declaration. Every number here mirrors a line of MonsterAttack /
+// MonsterRangedAttack / the monster-bolt impact, and the defaults are
+// MonsterKindFor's, so a kind scores as it fights.
+threat::Profile DungeonWorld::ThreatProfile(const CatalogEntry& def) const {
+	const std::string where = "monsters.cat [" + def.id + "]";
+	ResistTable powers{};
+	ParseResists(CatalogGet(&def, "powers", ""), powers, where, m_damageTypes);
+	DamageType type = m_bashType;
+	if (const std::string t = CatalogGet(&def, "dmgtype", ""); !t.empty())
+		m_damageTypes.Find(t, type);
+	std::vector<fx::Proc> onHit;
+	ParseOnHit(&def, onHit, where);
+	// What a landed blow leaves behind; Threat.cpp turns each into a rate.
+	auto dotsOf = [](std::span<const fx::Proc> procs) {
+		std::vector<threat::Dot> out;
+		for (const fx::Proc& p : procs) out.push_back({p.magnitude, p.duration, p.chance});
+		return out;
+	};
+
+	const float damage = def.GetFloat("damage", 4.0f);
+	const float accuracy = def.GetFloat("accuracy", 60.0f);
+	const float offense = def.GetFloat("offense", 1.0f);
+	threat::Profile out;
+	// Melee: the stance takes its share of the accuracy (MonsterAttack).
+	out.melee.damage = m_balance.Potent(damage, powers, type);
+	out.melee.accuracy = accuracy * offense;
+	out.melee.dots = dotsOf(onHit);
+
+	const ai::Archetype arch = ParseArchetype(CatalogGet(&def, "archetype", "brute"));
+	if (arch != ai::Archetype::Skirmisher && arch != ai::Archetype::Caster) return out;
+	// A shot flies at the kind's FULL accuracy - no stance - and the impact
+	// applies the shooter's powers to whatever type it arrives as.
+	threat::Attack shot;
+	shot.accuracy = accuracy;
+	const std::string spellId = CatalogGet(&def, "spell", "");
+	const Spell* spell = spellId.empty() ? nullptr : m_magic.FindSpell(spellId);
+	std::optional<ProjectileSpec> bolt;
+	if (spell) bolt = spell->MonsterBolt(Vec3{}, Vec3{1.0f, 0.0f, 0.0f}, accuracy);
+	if (bolt) { // a caster's spell: its power, its school's type, its payload
+		shot.damage = m_balance.Potent(bolt->atk.damage, powers, bolt->atk.type);
+		shot.dots = dotsOf(bolt->payload.Procs());
+	} else { // a plain bolt carries the kind's melee numbers and on-hit effects
+		shot.damage = out.melee.damage;
+		shot.dots = out.melee.dots;
+	}
+	out.shot = shot;
+	return out;
+}
+
 // Loads each monster model once (shared per kind) and creates one animator
 // per spawn. The shared ModelData must stay alive for the animators' sake —
 // it lives in m_monsterKinds for the app's lifetime.

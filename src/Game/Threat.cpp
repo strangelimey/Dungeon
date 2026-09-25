@@ -38,11 +38,31 @@ double PhysicalResist(const std::string& field) {
 	return sum / 3.0;
 }
 
+double Offence(const Attack& a, double attackcd, double& hit) {
+	hit = Beats(kRefDefense - a.accuracy);
+	double dps = hit * std::max(0.0, a.damage) / attackcd;
+	// Each DoT runs for the share of the fight it is kept up: re-landed before
+	// it lapses, it is simply on (see the header).
+	for (const Dot& d : a.dots) {
+		const double uptime =
+			std::min(1.0, std::max(0.0, d.seconds) * hit * std::clamp(d.chance, 0.0, 1.0) / attackcd);
+		dps += std::max(0.0, d.rate) * uptime;
+	}
+	return dps;
+}
+
 } // namespace
 
-Parts Of(const CatalogEntry& m) {
+Profile FromCatalog(const CatalogEntry& m) {
+	Profile p;
+	p.melee.damage = std::max(0.0, static_cast<double>(m.GetFloat("damage", 3.0f)));
+	const double offense = std::clamp(static_cast<double>(m.GetFloat("offense", 1.0f)), 0.0, 1.0);
+	p.melee.accuracy = m.GetFloat("accuracy", 60.0f) * offense;
+	return p;
+}
+
+Parts Of(const CatalogEntry& m, const Profile& attacks) {
 	const double hp = std::max(1.0, static_cast<double>(m.GetFloat("hp", 10.0f)));
-	const double damage = std::max(0.0, static_cast<double>(m.GetFloat("damage", 3.0f)));
 	const double accuracy = m.GetFloat("accuracy", 60.0f);
 	const double defense = m.GetFloat("defense", 10.0f);
 	const double offense = std::clamp(static_cast<double>(m.GetFloat("offense", 1.0f)), 0.0, 1.0);
@@ -50,12 +70,23 @@ Parts Of(const CatalogEntry& m) {
 	const double attackcd = std::max(0.1, static_cast<double>(m.GetFloat("attackcd", 1.5f)));
 
 	Parts p;
-	// The stance: `offense` of the accuracy presses the attack, the rest guards.
-	const double press = accuracy * offense;
+	// The stance: `offense` of the accuracy presses the attack (already in the
+	// melee Attack's accuracy), the rest guards.
 	const double guard = defense + accuracy * (1.0 - offense);
-	p.hit = Beats(kRefDefense - press);
 	p.beHit = Beats(guard - kRefAccuracy);
-	p.offence = p.hit * damage / attackcd;
+	// Both attacks share the kind's one cooldown, as they do in play
+	// (MonsterRangedAttack and the melee swing both reset attackCd).
+	double meleeHit = 0, shotHit = 0;
+	p.melee = Offence(attacks.melee, attackcd, meleeHit);
+	p.offence = p.melee;
+	p.hit = meleeHit;
+	if (attacks.shot) {
+		p.shot = Offence(*attacks.shot, attackcd, shotHit);
+		if (p.shot * kRangedEdge > p.offence) {
+			p.offence = p.shot * kRangedEdge;
+			p.hit = shotHit;
+		}
+	}
 	// Flat soak takes `armor` off every blow; a resist takes its fraction of
 	// what is left. Both become "how many raw points does it take to kill".
 	const double soak = kRefBlow / std::max(1.0, kRefBlow - armor);

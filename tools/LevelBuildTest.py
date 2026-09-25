@@ -1,7 +1,7 @@
 # tools/LevelBuildTest.py - the level-building thread's checks (docs/level-building.md).
 #
 # Run:  python tools\LevelBuildTest.py [phase ...]   (needs a debug build;
-#       no phases = all six)
+#       no phases = all seven)
 #
 # The eval runner's own verdict only says every line matched a command, so it
 # reads PASS on a run that stranded every level it made. This reads what the
@@ -30,11 +30,14 @@
 #      built round a lock.
 #   4. DIFFICULTY IS STRENGTH (P4) - each level's monsters are joined to the
 #      game's own `threat` table (printed, never copied). Control pairs one knob
-#      apart: difficulty 0.2 -> 0.8 gives more AND stronger; ramp 0 -> 1 makes
-#      the far half out-threaten the near half by more; boss off -> on puts the
-#      pool's strongest kind, absent otherwise at that difficulty, in exactly
-#      one dead-end room. On every level: nothing in the start room or within
-#      three steps of the arrival square.
+#      apart: difficulty 0.2 -> 0.8 gives stronger and about as many (easy is
+#      never empty); density 0.2 -> 0.8 gives many more and no stronger; ramp
+#      0 -> 1 makes the far half out-threaten the near half by more; boss off ->
+#      on puts the pool's strongest kind, absent otherwise at that difficulty, in
+#      exactly one dead-end room. On every level: nothing in the start room or
+#      within three steps of the arrival square. And the table itself: exactly
+#      the ranged kinds (by the catalog FILE's archetype) are scored with a shot,
+#      and a caster's shot is its spell - 3x+ its melee.
 #   5. THE RECIPE (P4b) - room sizes 3..3 vs 8..10 on one seed, every room
 #      measured inside its range; theme ooze vs undead, every monster carrying
 #      that tag in monsters.cat and the level recording its theme; palette
@@ -48,6 +51,14 @@
 #      second run - its script written here, since the square to wander to comes
 #      from the first - plays the level the party is ALREADY on, from somewhere
 #      else on it, and must bring it back to the start.
+#   7. EVERY WAY IN SURVIVES A REROLL - the scratch world's opening moves to a
+#      square of crypt1 no stair uses, and a doorway is added landing on one of
+#      crypt2's. Each level is rerolled three times into a small map; the checker
+#      (its arrivalblocked rule) must stay clean after every one, the doorway's
+#      square must be floor joined to the level, and crypt1, with no floor above,
+#      must START on the opening. MUTATION: with the arrivals ignored, four
+#      checks fail - but only once the doorway has no stair under it, since the
+#      demo's own doorways land on exit stairs a reroll already kept.
 #
 # Checked by mutation (2026-09-24): with the reroll's stairs dropped, the
 # checker reported 5 errors (stairblocked, stairunpaired, three levellost) and
@@ -482,12 +493,53 @@ def main():
                     table[t.group(1)] = float(t.group(2))
             check(len(table) >= 5, "the threat table was printed", f"{len(table)} kinds")
             runs = parse_runs(con)
-            check(len(runs) == 28, "all 28 generates reported what they built", f"{len(runs)}")
+            check(len(runs) == 38, "all 38 generates reported what they built", f"{len(runs)}")
             levels = os.path.join(proj, "levels")
-            if len(runs) == 28 and table:
+
+            # RANGED KINDS ARE SCORED BY WHAT THEY THROW. Each `threat` line carries
+            # its melee and shot per second; the archetype comes from the catalog
+            # FILE, so the join does not trust the game's own reading of it.
+            parts = {}
+            for l in con:
+                t = re.match(r"threat (\S+) [\d.]+ offence=([\d.]+) melee=([\d.]+) shot=([\d.]+)", l)
+                if t:
+                    parts[t.group(1)] = tuple(float(t.group(i)) for i in (2, 3, 4))
+            arch, spell = {}, {}
+            cur = None
+            for l in io.open(os.path.join(proj, r"catalog\monsters.cat"), encoding="utf-8").read().splitlines():
+                h = re.match(r"\[(\S+)\]", l)
+                if h:
+                    cur = h.group(1)
+                    arch[cur] = "brute"
+                kv = re.match(r"(\w+)\s*=\s*(\S+)", l)
+                if cur and kv and kv.group(1) == "archetype":
+                    arch[cur] = kv.group(2)
+                if cur and kv and kv.group(1) == "spell":
+                    spell[cur] = kv.group(2)
+            ranged = {k for k, a in arch.items() if a in ("skirmisher", "caster")}
+            wrong = [k for k, (_, _, shot) in parts.items() if (shot > 0) != (k in ranged)]
+            check(parts and ranged and not wrong,
+                  f"exactly the ranged kinds ({', '.join(sorted(ranged))}) are scored with a shot",
+                  f"wrong: {wrong}, parts {parts}")
+            casters = [k for k in ranged if arch[k] == "caster" and k in spell and k in parts]
+            # The mage's staff is feeble and its flame bolt is not. Scoring the
+            # spell as a plain bolt (MUTATION) puts its shot at 1.6x its melee;
+            # the real bolt is 4.4x.
+            weak = [(k, parts[k]) for k in casters if parts[k][2] < 3.0 * parts[k][1]]
+            check(casters and not weak,
+                  "a caster's shot is its SPELL: 3x+ its melee (the flame bolt, not the staff)",
+                  f"casters {casters}, too weak {weak}")
+            # And the shot is what it is ranked by, the edge on top.
+            unused = [(k, parts[k]) for k in casters if parts[k][0] <= parts[k][2]]
+            check(casters and not unused,
+                  "a caster's offence is its shot with the ranged edge on top",
+                  f"{unused}")
+
+            if len(runs) == 38 and table:
                 easies, hards = runs[0:5], runs[5:10]
                 flats, rampeds = runs[10:18], runs[18:26]
                 noboss, boss = runs[26], runs[27]
+                sparse, dense = runs[28:33], runs[33:38]
                 info = {}
                 for r in runs:
                     m = measure(grid_of(levels, r["stem"]))
@@ -521,15 +573,31 @@ def main():
                 unknown = {t for st in info for (t, *_rest) in info[st][1] if t not in table}
                 check(not unknown, "every placed monster's kind has a threat in the table",
                       f"{unknown}")
-                # DIFFICULTY: more of them, and stronger - by a MARGIN, over five
-                # seeds a side (the real knob moves the mean ~+7 threat points).
+                # DIFFICULTY IS STRENGTH ONLY: stronger by a MARGIN over five seeds
+                # a side, and about as many (within a quarter). Not EXACTLY as many:
+                # each new floor is built round the stair square of the one above,
+                # so the two sides of a pair do not share a layout (29 vs 30 when
+                # measured). Difficulty used to set the number too - ~4x across
+                # this pair - and a 0.2 level came out with no monsters at all.
                 e = [x for r in easies for x in info[r["stem"]][1]]
                 h = [x for r in hards for x in info[r["stem"]][1]]
-                check(len(h) > len(e) and
+                check(abs(len(h) - len(e)) <= 0.25 * max(len(h), len(e), 1) and
                       mean([x[5] for x in h]) - mean([x[5] for x in e]) >= 3.0,
-                      "difficulty 0.2 -> 0.8 (five seeds a side): more monsters AND 3+ threat "
-                      f"stronger: {len(e)} at {mean([x[5] for x in e]):.2f} -> "
+                      "difficulty 0.2 -> 0.8 (five seeds a side): 3+ threat stronger, and "
+                      f"about as many: {len(e)} at {mean([x[5] for x in e]):.2f} -> "
                       f"{len(h)} at {mean([x[5] for x in h]):.2f}")
+                empty = [r["stem"] for r in easies if not info[r["stem"]][1]]
+                check(not empty, "easy is not empty: every difficulty 0.2 level has monsters",
+                      f"empty: {empty}")
+                # DENSITY IS NUMBER ONLY: many more at 0.8 than at 0.2 (the knob is
+                # linear, so ~4x), and no stronger - the same rank band.
+                s = [x for r in sparse for x in info[r["stem"]][1]]
+                d = [x for r in dense for x in info[r["stem"]][1]]
+                shift = mean([x[5] for x in d]) - mean([x[5] for x in s])
+                check(len(d) >= 2.5 * max(1, len(s)) and abs(shift) <= 1.5,
+                      "density 0.2 -> 0.8 (five seeds a side): 2.5x+ as many, and no "
+                      f"stronger (within 1.5): {len(s)} at {mean([x[5] for x in s]):.2f} -> "
+                      f"{len(d)} at {mean([x[5] for x in d]):.2f}")
                 # RAMP: the deep half is stronger than the shallow half, and more so
                 # than without the ramp.
                 def gap(group):
@@ -745,6 +813,82 @@ def main():
                   p2[2].startswith(f"{start[0]},{start[1]} "),
                   "playing the level the party is already on brings it back to the start",
                   f"away {away}, positions {p2}")
+        finally:
+            shutil.rmtree(proj, ignore_errors=True)
+
+    if phase_wanted(7):
+        print("\n7 - a reroll keeps every way in: world-map doorways and the game's opening")
+        proj = scratch("lb_arrive")
+        try:
+            # The opening moves OFF the exit stair it shares in the demo (7,7) onto
+            # a square nothing else holds open, or keeping stairs would keep it too.
+            ini = os.path.join(proj, "project.ini")
+            text = io.open(ini, encoding="utf-8", newline="").read()
+            text = text.replace("start_x = 7", "start_x = 12").replace("start_z = 7", "start_z = 1")
+            io.open(ini, "w", encoding="utf-8", newline="").write(text)
+            # And a doorway with NO stair under it. The demo's crypt_back lands on
+            # crypt2's exit stair, which a reroll already kept as a stair - so
+            # against it alone, a reroll that ignored doorways passed this phase
+            # (MUTATION, 2026-09-25). crypt_side lands on 5,3, which nothing holds.
+            wm = os.path.join(proj, r"world\world.map")
+            text = io.open(wm, encoding="utf-8", newline="").read()
+            eol = "\r\n" if "\r\n" in text else "\n"
+            anchor = "location dungeon crypt_back"
+            at = text.index(anchor)
+            text = (text[:at] + "location dungeon crypt_side 8 13 dungeon=crypt level=crypt2 "
+                    "entryx=5 entryz=3" + eol + text[at:])
+            io.open(wm, "w", encoding="utf-8", newline="").write(text)
+
+            code, con = run("levelarrive.eval", "lb_arrive")
+            check(code == 0, "the script ran to the end", f"exit {code}")
+            checks = [l for l in con if "check says" in l]
+            check(len(checks) == 6 and all("check says 0 error(s)" in l for l in checks),
+                  "all six rerolls checked clean at the moment they ran",
+                  "; ".join(checks) or "(no check lines)")
+            verdicts = [i for i, l in enumerate(con) if l.startswith("validate:")]
+            blocked = [l.strip() for l in con if "arrivalblocked" in l]
+            check(len(verdicts) == 6 and not blocked and
+                  all(con[i].startswith("validate: clean") for i in verdicts),
+                  "no reroll left a doorway opening onto rock, nor any other fault",
+                  f"{len(verdicts)} verdicts, blocked {blocked}, "
+                  f"{[con[i] for i in verdicts if not con[i].startswith('validate: clean')]}")
+
+            levels = os.path.join(proj, "levels")
+
+            def reached(grid, start):
+                """Floor squares joined to `start` (4-connected, '#' is rock)."""
+                seen, todo = set(), [start]
+                while todo:
+                    x, z = todo.pop()
+                    if (x, z) in seen or not (0 <= z < len(grid) and 0 <= x < len(grid[z])):
+                        continue
+                    if grid[z][x] == "#":
+                        continue
+                    seen.add((x, z))
+                    todo += [(x + 1, z), (x - 1, z), (x, z + 1), (x, z - 1)]
+                return seen
+
+            def start_of(grid):
+                return next(((x, z) for z, row in enumerate(grid) for x, ch in enumerate(row)
+                             if ch == "P"), None)
+
+            g2 = grid_of(levels, "crypt2")
+            s2 = start_of(g2)
+            joined = reached(g2, s2) if s2 else set()
+            check((5, 3) in joined,
+                  "crypt2: the doorway crypt_side's square 5,3 (no stair under it) is floor, "
+                  "joined to the level", f"start {s2}, rows {g2}")
+            check((10, 6) in joined,
+                  "crypt2: crypt_back's square 10,6 (its exit stair) is still joined on",
+                  f"start {s2}, rows {g2}")
+            g1 = grid_of(levels, "crypt1")
+            s1 = start_of(g1)
+            check(s1 == (12, 1),
+                  "crypt1: with no floor above, the game's OPENING is the entry - the level "
+                  "starts on it", f"start {s1}")
+            check(s1 is not None and (7, 7) in reached(g1, s1),
+                  "crypt1: the exit stair (and crypt_gate's landing) at 7,7 is still joined on",
+                  f"rows {g1}")
         finally:
             shutil.rmtree(proj, ignore_errors=True)
 

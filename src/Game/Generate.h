@@ -62,11 +62,15 @@ struct Params {
 	// How many locked doors to author. Each takes a key, placed where it is
 	// reachable before its own door (see the header note).
 	int locks = 1;
-	// DIFFICULTY picks WHICH monsters as well as how many (P4): the pool is
-	// ranked by threat and a room draws near the rank `difficulty`, leaning
-	// toward the weak end at the entrance and the strong end at the far end by
-	// `ramp` (0 = the same throughout). Density leans the same way.
+	// DIFFICULTY picks WHICH monsters (P4): the pool is ranked by threat and a
+	// room draws near the rank `difficulty`, leaning toward the weak end at the
+	// entrance and the strong end at the far end by `ramp` (0 = the same
+	// throughout). DENSITY is HOW MANY, its own knob: 1 = one monster per 25
+	// floor squares, leaning with `ramp` the same way. It used to be difficulty
+	// too, so an easy level was also an empty one (a 0.2 level came out with no
+	// monsters at all) - easy and quiet are different requests.
 	float difficulty = 0.5f;
+	float density = 0.5f;
 	float ramp = 0.5f;
 	bool boss = false;   // the pool's strongest kind in the exit room
 	float reward = 0.5f; // loot density, also deeper-is-richer

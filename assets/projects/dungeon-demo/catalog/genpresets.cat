@@ -2,16 +2,16 @@
 
 [first_floors]
 display = Gentle first floors
-knobs = width:32 height:32 roommin:3 roommax:6 path:5 branches:2 branchmin:1 branchmax:2 loops:0 winding:0.2 irregular:0.2 deadends:1 locks:0 difficulty:0.25 ramp:0.4 boss:0 reward:0.6 theme: palette:
+knobs = width:32 height:32 roommin:3 roommax:6 path:5 branches:2 branchmin:1 branchmax:2 loops:0 winding:0.2 irregular:0.2 deadends:1 locks:0 difficulty:0.25 density:0.5 ramp:0.4 boss:0 reward:0.6 theme: palette:
 
 [crypt_standard]
 display = A standard crypt floor
-knobs = width:40 height:40 roommin:3 roommax:7 path:7 branches:3 branchmin:1 branchmax:3 loops:1 winding:0.3 irregular:0.3 deadends:2 locks:1 difficulty:0.5 ramp:0.5 boss:0 reward:0.5 theme: palette:
+knobs = width:40 height:40 roommin:3 roommax:7 path:7 branches:3 branchmin:1 branchmax:3 loops:1 winding:0.3 irregular:0.3 deadends:2 locks:1 difficulty:0.5 density:0.5 ramp:0.5 boss:0 reward:0.5 theme: palette:
 
 [deep_and_deadly]
 display = Deep and deadly, with a boss
-knobs = width:56 height:56 roommin:4 roommax:9 path:10 branches:4 branchmin:2 branchmax:4 loops:2 winding:0.5 irregular:0.5 deadends:3 locks:2 difficulty:0.8 ramp:0.8 boss:1 reward:0.6 theme: palette:
+knobs = width:56 height:56 roommin:4 roommax:9 path:10 branches:4 branchmin:2 branchmax:4 loops:2 winding:0.5 irregular:0.5 deadends:3 locks:2 difficulty:0.8 density:0.8 ramp:0.8 boss:1 reward:0.6 theme: palette:
 
 [labyrinth]
 display = A winding labyrinth
-knobs = width:48 height:48 roommin:3 roommax:4 path:12 branches:6 branchmin:2 branchmax:4 loops:3 winding:0.9 irregular:0.1 deadends:6 locks:1 difficulty:0.5 ramp:0.5 boss:0 reward:0.4 theme: palette:
+knobs = width:48 height:48 roommin:3 roommax:4 path:12 branches:6 branchmin:2 branchmax:4 loops:3 winding:0.9 irregular:0.1 deadends:6 locks:1 difficulty:0.5 density:0.5 ramp:0.5 boss:0 reward:0.4 theme: palette:
