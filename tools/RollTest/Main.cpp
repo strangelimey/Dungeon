@@ -1117,14 +1117,14 @@ int main(int argc, char** argv) {
 		// The mild default is TEMPO and nothing else: at 5% of every swing, what
 		// happens on most fumbles has to be survivable enough to shrug at.
 		{
-			const std::vector<Entry> mild = DefaultFumble(2.2f);
+			const DefaultTable mild = DefaultFumble(2.2f);
 			Check("the default fumble is one consequence",
 				  static_cast<double>(mild.size()), 1.0, 0.0);
 			CheckTrue("...and it is tempo, not damage",
 					  !mild.empty() && mild[0].kind == Kind::Recover);
 			Check("...carrying the knob it was given",
 				  mild.empty() ? 0.0 : mild[0].value, 2.2, 0.001);
-			const std::vector<Entry> bad = DefaultSevere();
+			const DefaultTable bad = DefaultSevere();
 			CheckTrue("the severe default disarms you",
 					  bad.size() == 1 && bad[0].kind == Kind::Drop);
 		}

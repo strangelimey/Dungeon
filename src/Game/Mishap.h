@@ -35,6 +35,7 @@
 
 #include "Core/Types.h"
 
+#include <array>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -93,7 +94,11 @@ bool Severe(int face, int severeFace);
 //
 // A weapon or monster authoring its own list REPLACES the default outright
 // rather than adding to it: a table you cannot turn off is not a table.
-std::vector<Entry> DefaultFumble(float recoverMul);
-std::vector<Entry> DefaultSevere();
+//
+// INLINE, not a vector: a default is resolved on every fumble, mid-fight, and a
+// vector here was a heap allocation per fumble in a steady-state frame.
+using DefaultTable = std::array<Entry, 1>;
+DefaultTable DefaultFumble(float recoverMul);
+DefaultTable DefaultSevere();
 
 } // namespace dungeon::game::mishap

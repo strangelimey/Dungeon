@@ -190,7 +190,7 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_magic.SetBalance(&m_balance);
 	m_magic.SetCastServices(
 		{[this](const ProjectileSpec& bolt) { m_projectiles.Spawn(bolt); },
-		 [this](const Character& member, const std::string& line) {
+		 [this](const Character& member, std::string_view line) {
 			 MemberMessage(member, line);
 		 },
 		 [this](Character& target, std::string_view id, SpellSymbol school,
@@ -1028,7 +1028,7 @@ void DungeonWorld::UpdateMonsters(float dt) {
 			// Whether it was ALIGHT decides how its death reads — burning away
 			// to nothing, or simply slain by whatever else was eating at it.
 			const bool wasBurning = PlumeEffect(monster) != nullptr;
-			const std::string name = loc::Tr("monster." + monster.kind->name);
+			const loc::Line name = loc::ViewKey("monster.", monster.kind->name);
 			MonsterTarget afflicted{*this, monster};
 			TickEffects(afflicted, monster.effects, dt, [&](const fx::Inst& e) {
 				onMessage(e.Is("burn")
