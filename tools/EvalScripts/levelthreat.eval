@@ -1,0 +1,51 @@
+; levelthreat.eval — difficulty means STRENGTH (docs/level-building.md P4), in a
+; scratch copy of the demo world (run with -project lb_threat).
+; LevelBuildTest.py joins each level's monsters to the `threat` table this
+; prints (the game's own formula, never a copy of it) and measures from the
+; files.
+;
+; CONTROL PAIRS, one knob apart: difficulty 0.2 vs 0.8 (five seeds a side); ramp
+; 0 vs 1 on a long straight path, so depth is easy to read (eight seeds a side);
+; boss off vs on at low difficulty (where the strongest kind would never turn up
+; by itself). MANY SEEDS, POOLED, because a level holds a handful of monsters:
+; with three seeds a pick that IGNORED the ramp still cleared a 2.5-point bar on
+; noise alone (+2.59), since a random pick is far noisier than the real one.
+;
+; Every knob is given on every line: unset ones would fall back to the dialog's
+; remembered knobs, which a test must not depend on.
+logecho on
+reset
+threat
+; DIFFICULTY 0.2 vs 0.8, five seeds each
+generate crypt width:48 height:48 path:8 branches:3 branchmin:1 branchmax:3 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.2 ramp:0 boss:0 reward:0.5 seed:31 locks:0
+generate crypt width:48 height:48 path:8 branches:3 branchmin:1 branchmax:3 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.2 ramp:0 boss:0 reward:0.5 seed:36 locks:0
+generate crypt width:48 height:48 path:8 branches:3 branchmin:1 branchmax:3 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.2 ramp:0 boss:0 reward:0.5 seed:37 locks:0
+generate crypt width:48 height:48 path:8 branches:3 branchmin:1 branchmax:3 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.2 ramp:0 boss:0 reward:0.5 seed:38 locks:0
+generate crypt width:48 height:48 path:8 branches:3 branchmin:1 branchmax:3 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.2 ramp:0 boss:0 reward:0.5 seed:39 locks:0
+generate crypt width:48 height:48 path:8 branches:3 branchmin:1 branchmax:3 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.8 ramp:0 boss:0 reward:0.5 seed:31 locks:0
+generate crypt width:48 height:48 path:8 branches:3 branchmin:1 branchmax:3 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.8 ramp:0 boss:0 reward:0.5 seed:36 locks:0
+generate crypt width:48 height:48 path:8 branches:3 branchmin:1 branchmax:3 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.8 ramp:0 boss:0 reward:0.5 seed:37 locks:0
+generate crypt width:48 height:48 path:8 branches:3 branchmin:1 branchmax:3 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.8 ramp:0 boss:0 reward:0.5 seed:38 locks:0
+generate crypt width:48 height:48 path:8 branches:3 branchmin:1 branchmax:3 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.8 ramp:0 boss:0 reward:0.5 seed:39 locks:0
+; RAMP 0 vs 1 on a long straight path, eight seeds each
+generate crypt width:80 height:80 path:20 branches:0 branchmin:1 branchmax:1 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.7 ramp:0 boss:0 reward:0.5 seed:32 locks:0
+generate crypt width:80 height:80 path:20 branches:0 branchmin:1 branchmax:1 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.7 ramp:0 boss:0 reward:0.5 seed:34 locks:0
+generate crypt width:80 height:80 path:20 branches:0 branchmin:1 branchmax:1 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.7 ramp:0 boss:0 reward:0.5 seed:35 locks:0
+generate crypt width:80 height:80 path:20 branches:0 branchmin:1 branchmax:1 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.7 ramp:0 boss:0 reward:0.5 seed:40 locks:0
+generate crypt width:80 height:80 path:20 branches:0 branchmin:1 branchmax:1 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.7 ramp:0 boss:0 reward:0.5 seed:41 locks:0
+generate crypt width:80 height:80 path:20 branches:0 branchmin:1 branchmax:1 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.7 ramp:0 boss:0 reward:0.5 seed:42 locks:0
+generate crypt width:80 height:80 path:20 branches:0 branchmin:1 branchmax:1 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.7 ramp:0 boss:0 reward:0.5 seed:43 locks:0
+generate crypt width:80 height:80 path:20 branches:0 branchmin:1 branchmax:1 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.7 ramp:0 boss:0 reward:0.5 seed:44 locks:0
+generate crypt width:80 height:80 path:20 branches:0 branchmin:1 branchmax:1 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.7 ramp:1 boss:0 reward:0.5 seed:32 locks:0
+generate crypt width:80 height:80 path:20 branches:0 branchmin:1 branchmax:1 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.7 ramp:1 boss:0 reward:0.5 seed:34 locks:0
+generate crypt width:80 height:80 path:20 branches:0 branchmin:1 branchmax:1 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.7 ramp:1 boss:0 reward:0.5 seed:35 locks:0
+generate crypt width:80 height:80 path:20 branches:0 branchmin:1 branchmax:1 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.7 ramp:1 boss:0 reward:0.5 seed:40 locks:0
+generate crypt width:80 height:80 path:20 branches:0 branchmin:1 branchmax:1 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.7 ramp:1 boss:0 reward:0.5 seed:41 locks:0
+generate crypt width:80 height:80 path:20 branches:0 branchmin:1 branchmax:1 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.7 ramp:1 boss:0 reward:0.5 seed:42 locks:0
+generate crypt width:80 height:80 path:20 branches:0 branchmin:1 branchmax:1 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.7 ramp:1 boss:0 reward:0.5 seed:43 locks:0
+generate crypt width:80 height:80 path:20 branches:0 branchmin:1 branchmax:1 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.7 ramp:1 boss:0 reward:0.5 seed:44 locks:0
+; BOSS off vs on, at a difficulty where the strongest never turns up by itself
+generate crypt width:48 height:48 path:8 branches:2 branchmin:1 branchmax:2 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.2 ramp:0 boss:0 reward:0.5 seed:33 locks:0
+generate crypt width:48 height:48 path:8 branches:2 branchmin:1 branchmax:2 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.2 ramp:0 boss:1 reward:0.5 seed:33 locks:0
+validate
+savemap

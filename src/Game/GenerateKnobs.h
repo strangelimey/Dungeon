@@ -32,6 +32,7 @@ enum class KnobKind {
 	Int,   // a whole number on a slider
 	Float, // a 0..1-ish fraction on a slider
 	Seed,  // a u32 typed into a field (and rerolled by the dialog's Roll)
+	Bool,  // a checkbox; stored as 0 / 1
 };
 
 struct Knob {

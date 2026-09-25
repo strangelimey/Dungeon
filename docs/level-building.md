@@ -192,6 +192,44 @@ Each is its own setting, 0..1, and each shows up as its own line in the report:
 - Dev command `threat` lists the scores, so the ranking can be checked before
   anything is tuned against it.
 
+**P4 LANDED (2026-09-24).**
+- `Game/Threat.h`: threat = sqrt(offence × toughness) against a fixed
+  reference party. It uses the combat model's own opposed d100: the stance
+  splits accuracy into press and guard, armor is flat soak, and the resists
+  averaged are the physical ones. It is pure and has one home. `threat
+  [tag...]` prints the ranking with its parts. Current order: coward 0, swarm
+  3.9, mage 6.4 … mummy 13.8, warrior 14.3, berserker 15.2. KNOWN GAP: a
+  caster's SPELL is not counted, only its melee, so casters rank low.
+- The caller (the catalog seam) scores the pool; the generator stays pure.
+  Rooms remember their PARENT, so each has a depth, and progress = depth /
+  deepest. A room draws near the rank `difficulty + ramp × (progress − 0.5)`,
+  with ±1 of jitter, and its density leans the same way. So `ramp` (new, 0..1)
+  makes both the kinds and the numbers rise toward the far end.
+- SAFE START: the start room gets nothing, and no monster stands within 3
+  steps of the arrival square. P2 saw one beside the stair.
+- `boss` (new, a checkbox, the first Bool knob): the pool's strongest kind goes
+  in the exit room, and never in the start room.
+- Loot follows depth too, and every side branch's end room gets a find with
+  chance `reward`, which gives a branch its reason to be walked.
+- The report gained a fourth line (threat range, boss). `generate dialog tab
+  <n>` shows a tab, so the sweep audits the Population tab as well.
+- Checks: `LevelBuildTest.py` phase 4 joins each level's monsters to the
+  game's own printed `threat` table (never a copy of the formula). Control
+  pairs, MANY SEEDS POOLED: difficulty 0.2→0.8 over 5 seeds a side needs more
+  monsters and a mean 3+ higher (measured 5.8 → 14.0). Ramp 0→1 over 8 seeds
+  a side needs the far-half-minus-near-half gap to grow by 2.5+ (measured
+  +0.1 → +4.1). Boss off→on: the strongest kind goes from absent to exactly
+  one, in a dead-end room. Safe start on all 28 levels, and not vacuously: a
+  total count of monsters checked is required.
+- THE STATISTICS LESSON. The first ramp check ("far half stronger, and more so
+  than without the ramp", on ONE seed) passed a mutant that ignored the ramp.
+  On three seeds with a 2.5 margin it caught that mutant, but a fully RANDOM
+  pick still cleared the bar on noise (+2.59), because a random pick is far
+  noisier than the real one. A check about a tendency needs a margin AND a
+  sample size set against the noisiest plausible mutant, not the nearest one.
+  Both mutants (random pick; ramp ignored) now fail on exactly the check
+  meant for them.
+
 ### P4b — theme, rooms, presets
 - **Room size range**: min/max room width and height. Today it is fixed at 3-7.
 - **Theme / tileset**: pick the theme tags and the wall/floor/ceiling palette in

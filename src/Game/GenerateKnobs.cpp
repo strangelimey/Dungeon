@@ -64,6 +64,14 @@ constexpr Knob kKnobs[] = {
 	{"difficulty", "map.gen.difficulty", kPopulation, KnobKind::Float, 0, 1,
 	 [](const Params& p) -> double { return p.difficulty; },
 	 [](Params& p, double v) { p.difficulty = static_cast<float>(v); }},
+	// P4: difficulty ramps from the entrance to the far end, and can end in a
+	// boss.
+	{"ramp", "map.gen.ramp", kPopulation, KnobKind::Float, 0, 1,
+	 [](const Params& p) -> double { return p.ramp; },
+	 [](Params& p, double v) { p.ramp = static_cast<float>(v); }},
+	{"boss", "map.gen.boss", kPopulation, KnobKind::Bool, 0, 1,
+	 [](const Params& p) -> double { return p.boss ? 1.0 : 0.0; },
+	 [](Params& p, double v) { p.boss = v >= 0.5; }},
 	{"reward", "map.gen.reward", kPopulation, KnobKind::Float, 0, 1,
 	 [](const Params& p) -> double { return p.reward; },
 	 [](Params& p, double v) { p.reward = static_cast<float>(v); }},

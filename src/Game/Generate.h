@@ -58,8 +58,14 @@ struct Params {
 	// How many locked doors to author. Each takes a key, placed where it is
 	// reachable before its own door (see the header note).
 	int locks = 1;
-	float difficulty = 0.5f; // monster density
-	float reward = 0.5f;     // loot density
+	// DIFFICULTY picks WHICH monsters as well as how many (P4): the pool is
+	// ranked by threat and a room draws near the rank `difficulty`, leaning
+	// toward the weak end at the entrance and the strong end at the far end by
+	// `ramp` (0 = the same throughout). Density leans the same way.
+	float difficulty = 0.5f;
+	float ramp = 0.5f;
+	bool boss = false;   // the pool's strongest kind in the exit room
+	float reward = 0.5f; // loot density, also deeper-is-richer
 	u32 seed = 1;
 	// The square the level is ENTERED on, or -1 to let the generator choose.
 	// Not a knob: the caller sets it to the floor above's stair square, since a
@@ -75,6 +81,9 @@ struct Params {
 	// catalogs) and handed in as plain id lists. The generator picks from these
 	// and never looks a catalog up, which is what keeps it pure.
 	std::vector<std::string> monsterIds;
+	// Each monster's THREAT, parallel to monsterIds — derived by the caller from
+	// the catalog stats (Game/Threat.h), since this module reads no catalog.
+	std::vector<double> monsterThreat;
 	std::vector<std::string> lootIds;
 	std::vector<std::string> keyIds; // door/key pairs draw from these, in order
 };
@@ -94,6 +103,8 @@ struct Report {
 	int windingGot = 0;   // ...of which this many jog
 	int irregularGot = 0; // rooms that came out other than a rectangle
 	int monsters = 0, loot = 0;
+	double threatMin = 0, threatMax = 0; // of the monsters placed
+	bool bossPlaced = false;
 };
 
 // A generated level, in the two layers the project already speaks: a grid, and

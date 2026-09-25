@@ -56,6 +56,12 @@ public:
 	// doubt WHICH level the button is about to replace.
 	void OpenRegenerate(const std::string& levelStem);
 	void Close() { m_open = false; }
+	// Show tab `index` (in KnobTabs order). For the UI sweep, which otherwise
+	// only ever audits the first tab's widgets.
+	void ShowTab(int index) {
+		m_activeTab = index;
+		if (m_tabs) m_tabs->SetActiveTab(index);
+	}
 
 	// The knobs, as last set. Seeded by the owner at startup from settings.ini.
 	const generate::Params& Knobs() const { return m_params; }
@@ -66,7 +72,7 @@ public:
 	// naming the level it is about: reopening the dialog on THAT level shows it
 	// again, and on any other level clears it, since a report about another
 	// level would read as one about this one.
-	void SetReport(std::array<std::string, 3> lines, const std::string& levelStem) {
+	void SetReport(std::array<std::string, 4> lines, const std::string& levelStem) {
 		m_report = std::move(lines);
 		m_reportLevel = levelStem;
 		for (size_t i = 0; i < m_report.size(); ++i)
@@ -103,8 +109,8 @@ private:
 	generate::Params m_params;
 	ui::TabControl* m_tabs = nullptr;   // this tree's; dies on Clear
 	ui::TextField* m_seedField = nullptr; // ditto — Roll writes into it
-	std::array<ui::Label*, 3> m_reportLabels{}; // ditto — SetReport writes into them
-	std::array<std::string, 3> m_report;        // shape, complexity, contents
+	std::array<ui::Label*, 4> m_reportLabels{}; // ditto — SetReport writes into them
+	std::array<std::string, 4> m_report; // shape, complexity, contents, threat
 	std::string m_reportLevel; // the level m_report is about
 	int m_activeTab = 0;      // survives a rebuild (the create->regenerate flip)
 	bool m_uiRebuild = false; // deferred BuildUI (a callback cannot Clear itself)

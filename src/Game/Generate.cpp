@@ -161,6 +161,7 @@ struct Grower {
 	std::vector<int> spineCorridor; // cell indices of the main path's corridors
 	std::vector<int> treeCorridor;  // every tree corridor's cells: where locks may go
 	std::vector<int> stubCells;     // dead ends: no lock, no key
+	std::vector<int> parentOf;      // per room: the room it hangs off (-1 = root)
 
 	// The four ways out of a room, as unit steps.
 	static constexpr int kDx[4] = {0, 1, 0, -1};
@@ -277,6 +278,7 @@ struct Grower {
 			}
 			CarveRoom(c);
 			rooms.push_back(c);
+			parentOf.push_back(from);
 			if (jogged) ++lv.report.windingGot;
 			if (c.shape != Shape::Rect) ++lv.report.irregularGot;
 			++lv.report.corridors;
@@ -515,6 +517,7 @@ Level Run(const Params& p) {
 	// not forced: the report says what was asked and what was built.
 	Grower g{lv, rng, q, {}, {}, {}, {}};
 	g.rooms.push_back(RootRoom(q, lv.width, lv.height, rng));
+	g.parentOf.push_back(-1);
 	g.CarveRoom(g.rooms[0]);
 	std::vector<int> spine{0};
 	const int wantPath = std::max(1, p.path);
@@ -712,54 +715,142 @@ Level Run(const Params& p) {
 			if (g.Loop(region, joined)) ++lv.report.loopsGot;
 	}
 
-	// --- population ----------------------------------------------------------
-	// Density scales with the knobs against the FLOOR AREA, so a bigger dungeon
-	// is not automatically a harder one — difficulty is per square, not per level.
-	int floorCells = 0;
-	for (const u8 c : lv.floor) floorCells += c ? 1 : 0;
-	auto freeCell = [&](int tries) -> int {
-		for (int i = 0; i < tries; ++i) {
-			const int x = Roll(rng, 1, lv.width - 2), z = Roll(rng, 1, lv.height - 2);
-			if (!lv.At(x, z)) continue;
-			if ((x == lv.startX && z == lv.startZ) || isReserved(x, z)) continue;
-			bool taken = false;
-			for (const Entity& e : lv.entities)
-				if (e.x == x && e.z == z) { taken = true; break; }
-			if (!taken) return idx(x, z);
-		}
-		return -1;
+	// --- population, ROOM BY ROOM (P4) --------------------------------------
+	// Every room knows how DEEP it sits — tree steps from the start — and its
+	// PROGRESS is that depth over the deepest room's. Difficulty is then two
+	// things, both leaning on progress through `ramp`:
+	//   * WHICH monsters: the pool ranked by threat (the caller derives it from
+	//     the catalog stats — Game/Threat.h), and a room picks near the rank
+	//     `difficulty + ramp x (progress - 0.5)` — so the entrance meets the
+	//     weaker end of the band and the far end the stronger;
+	//   * HOW MANY: a density per floor square that rises the same way.
+	// The START ROOM gets nothing, and no monster stands within three steps of
+	// the start: arriving down a stair into a fight you could not see coming is
+	// a design fault, not a difficulty (P2 saw one standing beside the stair).
+	std::vector<int> depth(rooms.size(), 0);
+	int maxDepth = 0;
+	for (size_t i = 1; i < rooms.size(); ++i) { // parents always come first
+		depth[i] = depth[static_cast<size_t>(g.parentOf[i])] + 1;
+		maxDepth = std::max(maxDepth, depth[i]);
+	}
+	auto progress = [&](size_t room) {
+		return maxDepth > 0 ? static_cast<float>(depth[room]) / static_cast<float>(maxDepth)
+							: 1.0f;
+	};
+	const float difficulty = std::clamp(p.difficulty, 0.0f, 1.0f);
+	const float ramp = std::clamp(p.ramp, 0.0f, 1.0f);
+	const float reward = std::clamp(p.reward, 0.0f, 1.0f);
+
+	auto taken = [&](int x, int z) {
+		if ((x == lv.startX && z == lv.startZ) || isReserved(x, z)) return true;
+		for (const Entity& e : lv.entities)
+			if (e.x == x && e.z == z) return true;
+		return false;
+	};
+	// A free floor square of `room`, or -1. `safe` also keeps it three steps
+	// clear of the start.
+	auto freeIn = [&](const Room& room, bool safe) -> int {
+		std::vector<int> cells;
+		for (int z = room.z; z < room.z + room.h; ++z)
+			for (int x = room.x; x < room.x + room.w; ++x) {
+				if (!room.Has(x, z) || taken(x, z)) continue;
+				if (safe && std::abs(x - lv.startX) + std::abs(z - lv.startZ) <= 3) continue;
+				cells.push_back(idx(x, z));
+			}
+		if (cells.empty()) return -1;
+		return cells[static_cast<size_t>(Roll(rng, 0, static_cast<int>(cells.size()) - 1))];
+	};
+	auto area = [](const Room& r) {
+		int n = 0;
+		for (int z = r.z; z < r.z + r.h; ++z)
+			for (int x = r.x; x < r.x + r.w; ++x) n += r.Has(x, z) ? 1 : 0;
+		return n;
+	};
+	// A fractional count: the whole part always, the fraction by chance.
+	auto countOf = [&](float expected) {
+		const int whole = static_cast<int>(expected);
+		return whole + (Chance(rng, expected - static_cast<float>(whole)) ? 1 : 0);
 	};
 
-	if (!p.monsterIds.empty()) {
-		const int n = static_cast<int>(static_cast<float>(floorCells) * 0.02f *
-									   std::clamp(p.difficulty, 0.0f, 1.0f) * 2.0f);
-		for (int i = 0; i < n; ++i) {
-			const int c = freeCell(30);
-			if (c < 0) break;
-			Entity m;
-			m.kind = EntityKind::Monster;
-			m.type = p.monsterIds[static_cast<size_t>(
-				Roll(rng, 0, static_cast<int>(p.monsterIds.size()) - 1))];
-			m.x = c % lv.width;
-			m.z = c / lv.width;
-			lv.entities.push_back(std::move(m));
-			++lv.report.monsters;
+	// The pool, weakest first. A missing threat reads as 0 (the weakest) rather
+	// than refusing: an unscored monster is still a monster.
+	std::vector<size_t> ranked(p.monsterIds.size());
+	for (size_t i = 0; i < ranked.size(); ++i) ranked[i] = i;
+	auto threatOf = [&](size_t i) {
+		return i < p.monsterThreat.size() ? p.monsterThreat[i] : 0.0;
+	};
+	std::stable_sort(ranked.begin(), ranked.end(),
+					 [&](size_t l, size_t r) { return threatOf(l) < threatOf(r); });
+	auto place = [&](size_t pick, int cell) {
+		Entity m;
+		m.kind = EntityKind::Monster;
+		m.type = p.monsterIds[pick];
+		m.x = cell % lv.width;
+		m.z = cell / lv.width;
+		lv.entities.push_back(std::move(m));
+		const double t = threatOf(pick);
+		if (lv.report.monsters == 0 || t < lv.report.threatMin) lv.report.threatMin = t;
+		if (lv.report.monsters == 0 || t > lv.report.threatMax) lv.report.threatMax = t;
+		++lv.report.monsters;
+	};
+
+	const size_t exitRoom = static_cast<size_t>(spine.back());
+	if (!ranked.empty()) {
+		const int n = static_cast<int>(ranked.size());
+		// THE BOSS first, so the exit room's best square is its: the
+		// strongest kind in the pool. Never in the start room — a one-room
+		// level has nowhere safe to put it, so it goes without.
+		if (p.boss && exitRoom != 0) {
+			const int cell = freeIn(rooms[exitRoom], true);
+			if (cell >= 0) {
+				place(ranked.back(), cell);
+				lv.report.bossPlaced = true;
+			}
+		}
+		for (size_t r = 1; r < rooms.size(); ++r) {
+			const float pr = progress(r);
+			const float target = std::clamp(difficulty + ramp * (pr - 0.5f), 0.0f, 1.0f);
+			// About one monster per 25 floor squares at full difficulty, from
+			// half that at the entrance to half again at the far end (ramp 1).
+			const float perSquare = 0.04f * difficulty * (1.0f + ramp * (pr - 0.5f));
+			const int count = countOf(perSquare * static_cast<float>(area(rooms[r])));
+			for (int k = 0; k < count; ++k) {
+				const int cell = freeIn(rooms[r], true);
+				if (cell < 0) break;
+				// Near the target rank, with a step either way so one level
+				// is not a single kind throughout.
+				const int at = std::clamp(
+					static_cast<int>(std::lround(target * static_cast<float>(n - 1))) +
+						Roll(rng, -1, 1),
+					0, n - 1);
+				place(ranked[static_cast<size_t>(at)], cell);
+			}
 		}
 	}
+
+	// LOOT, the same way: more of it deeper in, and a find at the end of every
+	// side branch — the reason a branch is worth walking. (The start room gets
+	// none: a level should not open with its reward on the doormat.)
 	if (!p.lootIds.empty()) {
-		const int n = static_cast<int>(static_cast<float>(floorCells) * 0.015f *
-									   std::clamp(p.reward, 0.0f, 1.0f) * 2.0f);
-		for (int i = 0; i < n; ++i) {
-			const int c = freeCell(30);
-			if (c < 0) break;
+		std::vector<int> children(rooms.size(), 0);
+		for (size_t i = 1; i < rooms.size(); ++i) ++children[static_cast<size_t>(g.parentOf[i])];
+		auto drop = [&](size_t room) {
+			const int cell = freeIn(rooms[room], false);
+			if (cell < 0) return;
 			Entity it;
 			it.kind = EntityKind::Item;
 			it.type = p.lootIds[static_cast<size_t>(
 				Roll(rng, 0, static_cast<int>(p.lootIds.size()) - 1))];
-			it.x = c % lv.width;
-			it.z = c / lv.width;
+			it.x = cell % lv.width;
+			it.z = cell / lv.width;
 			lv.entities.push_back(std::move(it));
 			++lv.report.loot;
+		};
+		for (size_t r = 1; r < rooms.size(); ++r) {
+			const float perSquare = 0.03f * reward * (0.5f + progress(r));
+			const int count = countOf(perSquare * static_cast<float>(area(rooms[r])));
+			for (int k = 0; k < count; ++k) drop(r);
+			if (children[r] == 0 && r != exitRoom && Chance(rng, reward)) drop(r);
 		}
 	}
 	return lv;

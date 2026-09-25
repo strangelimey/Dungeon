@@ -26,6 +26,7 @@
 #include "Core/Log.h"
 #include "Game/Catalog.h"
 #include "Game/Serialize.h"
+#include "Game/Threat.h"
 
 #include <algorithm>
 #include <cmath>
@@ -186,6 +187,11 @@ bool Game::StartEncounter(float difficulty, const std::vector<std::string>& tags
 void Game::FillPools(generate::Params& params,
 					 const std::vector<std::string>& theme) {
 	params.monsterIds = PoolFor(m_project.monsters, theme);
+	// Each one's threat, from its stats (Game/Threat.h): what difficulty ranks.
+	params.monsterThreat.clear();
+	for (const std::string& id : params.monsterIds)
+		params.monsterThreat.push_back(
+			threat::Of(*m_project.monsters.Find(id)).threat);
 	params.lootIds = PoolFor(m_project.items, theme);
 	// Keys are the one pool that is NOT themed: a lock needs a key that exists,
 	// and which key it is matters far less than that the pair is coherent. An
@@ -230,7 +236,12 @@ void Game::ShowGenReport(const std::string& levelStem) {
 					 r.deadEndsGot, r.deadEndsWanted, r.windingGot, r.corridors,
 					 r.irregularGot),
 		 loc::Format("map.gen.report.content", r.locksGot, r.locksWanted, r.monsters,
-					 r.loot)},
+					 r.loot),
+		 r.monsters == 0
+			 ? std::string()
+			 : loc::Format("map.gen.report.threat", std::format("{:.1f}", r.threatMin),
+						   std::format("{:.1f}", r.threatMax),
+						   loc::Tr(r.bossPlaced ? "map.gen.report.boss" : "map.gen.report.noboss"))},
 		levelStem);
 }
 
@@ -241,11 +252,12 @@ std::string Game::GenReportText() const {
 		lengths += (lengths.empty() ? "" : " ") + std::to_string(n);
 	return std::format("path {}/{} rooms, branches {}/{} (rooms: {}), loops {}/{}, "
 					   "dead ends {}/{}, winding {}/{} corridors, irregular {} rooms, "
-					   "locks {}/{}, {} monsters, {} loot",
+					   "locks {}/{}, {} monsters, {} loot, threat {:.2f}-{:.2f}, boss {}",
 					   r.pathGot, r.pathWanted, r.branchesGot, r.branchesWanted,
 					   lengths.empty() ? "-" : lengths, r.loopsGot, r.loopsWanted,
 					   r.deadEndsGot, r.deadEndsWanted, r.windingGot, r.corridors,
-					   r.irregularGot, r.locksGot, r.locksWanted, r.monsters, r.loot);
+					   r.irregularGot, r.locksGot, r.locksWanted, r.monsters, r.loot,
+					   r.threatMin, r.threatMax, r.bossPlaced ? "yes" : "no");
 }
 
 bool Game::LinkToFloorAbove(const std::string& stem,

@@ -71,6 +71,7 @@ add_library(Game STATIC
 	Generate.cpp
 	GenerateDialog.cpp
 	GenerateKnobs.cpp
+	Threat.cpp
 	Validate.cpp
 	ValidateDialog.cpp
 	WorldMap.cpp

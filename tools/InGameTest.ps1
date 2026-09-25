@@ -113,6 +113,14 @@ $screens = @(
 	@{ label = 'sweep_genregen'; viaConsole = $true
 	   open = { Run-Cmd 'editor'; Run-Cmd 'generate dialog' }
 	   close = { Run-Cmd 'generate dialog off'; Run-Cmd 'editor off' } },
+	# ...and its OTHER tabs: a sweep only sees the tab that is showing, and the
+	# checkbox and ramp slider live on the last one.
+	@{ label = 'sweep_gencomplexity'; viaConsole = $true
+	   open = { Run-Cmd 'editor'; Run-Cmd 'generate dialog'; Run-Cmd 'generate dialog tab 1' }
+	   close = { Run-Cmd 'generate dialog off'; Run-Cmd 'editor off' } },
+	@{ label = 'sweep_genpopulation'; viaConsole = $true
+	   open = { Run-Cmd 'editor'; Run-Cmd 'generate dialog'; Run-Cmd 'generate dialog tab 2' }
+	   close = { Run-Cmd 'generate dialog off'; Run-Cmd 'editor off' } },
 	# The WORLD screen's two dialogs, LAST because reaching them leaves the
 	# dungeon: each one opens only on the world map (the one state that routes
 	# input to it), so the sweep goes there and comes back.

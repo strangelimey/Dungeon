@@ -27,6 +27,13 @@
 #      do not fill their bounding box. And a level with loops AND locks: every
 #      door, shut on its own, must still strand floor — the proof no loop was
 #      built round a lock.
+#   4. DIFFICULTY IS STRENGTH (P4) — each level's monsters are joined to the
+#      game's own `threat` table (printed, never copied). Control pairs one knob
+#      apart: difficulty 0.2 -> 0.8 gives more AND stronger; ramp 0 -> 1 makes
+#      the far half out-threaten the near half by more; boss off -> on puts the
+#      pool's strongest kind, absent otherwise at that difficulty, in exactly
+#      one dead-end room. On every level: nothing in the start room or within
+#      three steps of the arrival square.
 #
 # Checked by mutation (2026-09-24): with the reroll's stairs dropped, the
 # checker reported 5 errors (stairblocked, stairunpaired, three levellost) and
@@ -171,9 +178,15 @@ def measure(rows):
         zs = [z for _, z in sq]
         if len(sq) != (max(xs) - min(xs) + 1) * (max(zs) - min(zs) + 1):
             irregular += 1
+    adj = [set() for _ in range(rooms)]
+    for k in links:
+        a, b = sorted(touches[k])
+        adj[a].add(b)
+        adj[b].add(a)
     return {"rooms": rooms, "branches": branches, "tree": loops == 0 and stray == 0,
             "loops": loops, "deadends": len(stubs), "wound": wound,
-            "irregular": irregular, "stray": stray, "floor": floor, "start": start}
+            "irregular": irregular, "stray": stray, "floor": floor, "start": start,
+            "room_of": room_of, "adj": adj, "start_room": start_room}
 
 
 def doors_still_shut_something(levels_dir, stem, floor, start):
@@ -220,12 +233,40 @@ def parse_runs(con):
                          "loops": (n("lg"), n("lw")), "deadends": (n("dg"), n("dw")),
                          "wound": n("wg"), "corridors": n("wc"), "irregular": n("ir"),
                          "locks": (n("kg"), n("kw"))})
+            t = re.search(r"threat ([\d.]+)-([\d.]+), boss (yes|no)", con[i + 1])
+            runs[-1]["threat"] = (float(t.group(1)), float(t.group(2))) if t else (0.0, 0.0)
+            runs[-1]["boss"] = bool(t) and t.group(3) == "yes"
     return runs
 
 
 def show(m):
     """A measurement without the raw floor set, for a failure's detail line."""
-    return {k: v for k, v in m.items() if k not in ("floor", "start")}
+    return {k: v for k, v in m.items()
+            if k not in ("floor", "start", "room_of", "adj", "start_room")}
+
+
+def monsters_of(levels_dir, stem):
+    """(type, x, z) of every monster record in a level's .ent."""
+    out = []
+    p = os.path.join(levels_dir, stem + ".ent")
+    for line in io.open(p, encoding="utf-8").read().splitlines():
+        m = re.match(r"monster (\S+) (\d+) (\d+)", line)
+        if m:
+            out.append((m.group(1), int(m.group(2)), int(m.group(3))))
+    return out
+
+
+def room_depths(m):
+    """Tree steps from the start room to every room (BFS over the links)."""
+    depth = {m["start_room"]: 0}
+    queue = [m["start_room"]]
+    while queue:
+        r = queue.pop(0)
+        for n in m["adj"][r]:
+            if n not in depth:
+                depth[n] = depth[r] + 1
+                queue.append(n)
+    return depth
 
 
 def main():
@@ -391,6 +432,113 @@ def main():
                   f"doors {doors}, bypassed {bad}, loops {mixed['loops']}")
         check("validate: clean - no faults found" in con,
               "the checker finds nothing wrong: every key before its door, every floor reached",
+              next((l for l in con if l.startswith("validate:")), "(no validate line)"))
+    finally:
+        shutil.rmtree(proj, ignore_errors=True)
+
+    print("\n4 - difficulty means strength, ramps toward the exit, and never greets the party")
+    proj = scratch("lb_threat")
+    try:
+        code, con = run("levelthreat.eval", "lb_threat")
+        check(code == 0, "the script ran to the end", f"exit {code}")
+        # The game's own ranking, printed by `threat` - never a copy of it.
+        table = {}
+        for l in con:
+            t = re.match(r"threat (\S+) ([\d.]+) offence=", l)
+            if t:
+                table[t.group(1)] = float(t.group(2))
+        check(len(table) >= 5, "the threat table was printed", f"{len(table)} kinds")
+        runs = parse_runs(con)
+        check(len(runs) == 28, "all 28 generates reported what they built", f"{len(runs)}")
+        levels = os.path.join(proj, "levels")
+        if len(runs) == 28 and table:
+            easies, hards = runs[0:5], runs[5:10]
+            flats, rampeds = runs[10:18], runs[18:26]
+            noboss, boss = runs[26], runs[27]
+            info = {}
+            for r in runs:
+                m = measure(grid_of(levels, r["stem"]))
+                mons = monsters_of(levels, r["stem"])
+                depth = room_depths(m)
+                deepest = max(depth.values()) if depth else 0
+                rows = []
+                for (t, x, z) in mons:
+                    room = m["room_of"].get((x, z))
+                    rows.append((t, x, z, room, depth.get(room), table.get(t)))
+                info[r["stem"]] = (m, rows, deepest)
+            def mean(xs):
+                return sum(xs) / len(xs) if xs else 0.0
+            # SAFE START, on every level - and NOT VACUOUSLY: a level at low
+            # difficulty can hold no monsters at all, so the count checked across
+            # all of them has to be worth something too.
+            checked = 0
+            for r in runs:
+                m, rows, _ = info[r["stem"]]
+                sx, sz = m["start"]
+                checked += len(rows)
+                near = [(t, x, z) for (t, x, z, room, _, _) in rows
+                        if room == m["start_room"] or abs(x - sx) + abs(z - sz) <= 3]
+                check(not near,
+                      f"{r['stem']}: no monster in the start room or within 3 steps of it "
+                      f"({len(rows)} checked)",
+                      f"too near: {near}")
+            check(checked >= 20, "...across enough monsters to mean something",
+                  f"{checked} checked")
+            # Every placed kind is in the table (the join is sound).
+            unknown = {t for st in info for (t, *_rest) in info[st][1] if t not in table}
+            check(not unknown, "every placed monster's kind has a threat in the table",
+                  f"{unknown}")
+            # DIFFICULTY: more of them, and stronger - by a MARGIN, over five
+            # seeds a side (the real knob moves the mean ~+7 threat points).
+            e = [x for r in easies for x in info[r["stem"]][1]]
+            h = [x for r in hards for x in info[r["stem"]][1]]
+            check(len(h) > len(e) and
+                  mean([x[5] for x in h]) - mean([x[5] for x in e]) >= 3.0,
+                  "difficulty 0.2 -> 0.8 (five seeds a side): more monsters AND 3+ threat "
+                  f"stronger: {len(e)} at {mean([x[5] for x in e]):.2f} -> "
+                  f"{len(h)} at {mean([x[5] for x in h]):.2f}")
+            # RAMP: the deep half is stronger than the shallow half, and more so
+            # than without the ramp.
+            def gap(group):
+                """Deep-half minus near-half mean threat, pooled over the seeds."""
+                shallow, deep = [], []
+                for r in group:
+                    _, rows, deepest = info[r["stem"]]
+                    shallow += [x[5] for x in rows if x[4] is not None and x[4] * 2 <= deepest]
+                    deep += [x[5] for x in rows if x[4] is not None and x[4] * 2 > deepest]
+                return mean(deep) - mean(shallow), len(shallow), len(deep)
+            g0, g1 = gap(flats), gap(rampeds)
+            # A MARGIN, not merely "more", and MANY monsters: with the pick
+            # ignoring the ramp (MUTATION) noise gave -0.51 -> +0.23 and passed a
+            # bare comparison, and a fully RANDOM pick cleared 2.5 on three seeds
+            # (+2.59). The real ramp moves it ~+5.7; eight seeds a side puts the
+            # noise well under the bar.
+            check(g1[0] - g0[0] >= 2.5 and min(g1[1], g1[2]) >= 20,
+                  "ramp 0 -> 1: the far half's monsters out-threaten the near half's "
+                  f"by 2.5+ more than without it (eight seeds pooled, 20+ a half): "
+                  f"{g0[0]:+.2f} -> {g1[0]:+.2f}",
+                  f"gap {g0[0]:+.2f} (n {g0[1]}/{g0[2]}) -> {g1[0]:+.2f} (n {g1[1]}/{g1[2]})")
+            # BOSS: the strongest kind of the pool - absent at this difficulty
+            # without it, present with it, in a dead-end room.
+            top = max((t for st in info for (t, *_r) in info[st][1]), key=lambda t: table[t],
+                      default=None)
+            top = max(table, key=table.get) if top is None else top
+            pool_top = max((t for t in table if t in {x[0] for st in info for x in info[st][1]}),
+                           key=lambda t: table[t])
+            nb = [x for x in info[noboss["stem"]][1] if x[0] == pool_top]
+            m_b, rows_b, _ = info[boss["stem"]]
+            bb = [x for x in rows_b if x[0] == pool_top]
+            leaf = bb and len(m_b["adj"][bb[0][3]]) == 1 if bb and bb[0][3] is not None else False
+            check(not nb and len(bb) == 1 and leaf and boss["boss"] and not noboss["boss"],
+                  f"boss off -> on at difficulty 0.2: the pool's strongest ({pool_top}) goes "
+                  f"from absent to exactly one, in a dead-end room, and the report says so",
+                  f"off {len(nb)}, on {len(bb)} {bb}, leaf {leaf}, "
+                  f"report {noboss['boss']}/{boss['boss']}")
+            check(boss["threat"][1] == table.get(pool_top) or
+                  abs(boss["threat"][1] - table.get(pool_top, 0)) < 0.01,
+                  "the report's top threat is the boss's", f"{boss['threat']} vs {table.get(pool_top)}")
+        check("validate: clean - no faults found" in con,
+              "the checker finds nothing wrong",
               next((l for l in con if l.startswith("validate:")), "(no validate line)"))
     finally:
         shutil.rmtree(proj, ignore_errors=True)

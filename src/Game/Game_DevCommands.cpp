@@ -16,6 +16,7 @@
 #include "Game/AssetUtil.h"
 #include "Game/DevCommandArgs.h"
 #include "Game/GenerateKnobs.h"
+#include "Game/Threat.h"
 
 #include <algorithm>
 #include <cctype>
@@ -189,8 +190,33 @@ void Game::RegisterDevCommands() {
 						   BeginLevelTransition(stem, -1, -1, Direction::South);
 						   m_console.Print("loading " + stem + "...");
 					   });
+	// THE RANKING DIFFICULTY PICKS BY (docs/level-building.md P4), readable
+	// before anything is tuned against it. With tags, the pool exactly as the
+	// generator draws it for that theme; without, every kind. Machine-readable
+	// lines (`threat <id> <threat> ...`) so a harness can join them to a level's
+	// monsters.
+	m_console.Register(
+		"threat",
+		"monster kinds ranked by derived threat: threat [tag ...] (a theme's pool)",
+		[this](const std::vector<std::string>& args) {
+			generate::Params p;
+			FillPools(p, args);
+			std::vector<size_t> order(p.monsterIds.size());
+			for (size_t i = 0; i < order.size(); ++i) order[i] = i;
+			std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+				return p.monsterThreat[a] < p.monsterThreat[b];
+			});
+			for (const size_t i : order) {
+				const threat::Parts t = threat::Of(*m_project.monsters.Find(p.monsterIds[i]));
+				m_console.Print(std::format(
+					"threat {} {:.2f} offence={:.2f} toughness={:.1f} hit={:.2f} behit={:.2f}",
+					p.monsterIds[i], t.threat, t.offence, t.toughness, t.hit, t.beHit));
+			}
+			m_console.Print(std::format("threat: {} kind(s){}", order.size(),
+										args.empty() ? "" : " in that theme's pool"));
+		});
 	m_console.Register("generate",
-					   "rough out a new level: generate [dungeon|again] [knob:value ...] | dialog [new|off] "
+					   "rough out a new level: generate [dungeon|again] [knob:value ...] | dialog [new|off|tab <n>] "
 					   "(a new floor of the viewed dungeon by default, and the view jumps "
 					   "to it; `again` rerolls the VIEWED level in place, as the dialog's "
 					   "Regenerate does; knobs as the dialog names them, e.g. path:8 "
@@ -208,6 +234,8 @@ void Game::RegisterDevCommands() {
 							   const std::string mode = args.size() > 1 ? args[1] : "";
 							   if (mode == "off")
 								   m_generateDialog.Close();
+							   else if (mode == "tab" && args.size() > 2)
+								   m_generateDialog.ShowTab(std::atoi(args[2].c_str()));
 							   else if (mode == "new" && m_mapView.onNewLevel)
 								   m_mapView.onNewLevel(m_mapView.ViewedDungeon());
 							   else if (m_mapView.onGenerate)

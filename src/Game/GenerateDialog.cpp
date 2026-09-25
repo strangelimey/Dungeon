@@ -124,6 +124,14 @@ void GenerateDialog::BuildUI() {
 			continue;
 		}
 
+		if (knob.kind == generate::KnobKind::Bool) {
+			page.Row<ui::Checkbox>(FormRow(), label, value >= 0.5,
+								   [this, k](bool on) {
+									   generate::SetKnob(*k, m_params, on ? 1.0 : 0.0);
+								   });
+			continue;
+		}
+
 		// A Slider stacks its label OVER its track, so it asks for two lines.
 		ui::Stack* row = page.Row<ui::Stack>(FormRow(1.9f), true);
 		auto* slider = row->Row<ui::Slider>(
