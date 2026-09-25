@@ -679,6 +679,16 @@ def main():
         print("\n6 - generate, then play it from its start")
         proj = scratch("lb_play")
         try:
+            # A FLOATING SCONCE, planted: a 'T' in open floor with no wall on any
+            # side. crypt1 shipped one until 2026-09-25 (then moved to the north
+            # wall), and it is what exposed the writer bug checked below - so the
+            # scratch copy gets one back, or that check would pass vacuously.
+            c1p = os.path.join(proj, r"levels\crypt1.map")
+            rows = io.open(c1p, encoding="utf-8", newline="").read().split("\n")
+            grid_at = [i for i, l in enumerate(rows) if l[:1] in "#.PT"]
+            r4 = grid_at[4]
+            rows[r4] = rows[r4][:4] + "T" + rows[r4][5:]
+            io.open(c1p, "w", encoding="utf-8", newline="").write("\n".join(rows))
             code, con = run("levelplay.eval", "lb_play")
             check(code == 0, "the script ran to the end", f"exit {code}")
             runs = parse_runs(con)
