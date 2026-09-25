@@ -588,7 +588,7 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 					// Game creates the level (files + manifest + the viewed
 					// dungeon's level list) and returns the stem; jump the view
 					// straight onto the new canvas.
-					if (onNewLevel) SetViewLevel(onNewLevel(ViewedDungeon()));
+					if (onNewLevel) onNewLevel(ViewedDungeon());
 					break;
 				case HoverBtn::Undo:
 					if (m_pendingHistory == 0) m_pendingHistory = -1;

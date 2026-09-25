@@ -15,6 +15,7 @@
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
 #include "Game/DevCommandArgs.h"
+#include "Game/GenerateKnobs.h"
 
 #include <algorithm>
 #include <cctype>
@@ -189,28 +190,67 @@ void Game::RegisterDevCommands() {
 						   m_console.Print("loading " + stem + "...");
 					   });
 	m_console.Register("generate",
-					   "rough out a new level: generate [rooms] [branching] [locks] [seed]",
+					   "rough out a new level: generate [dungeon|again] [knob:value ...] | dialog [new|off] "
+					   "(a new floor of the viewed dungeon by default, and the view jumps "
+					   "to it; `again` rerolls the VIEWED level in place, as the dialog's "
+					   "Regenerate does; knobs as the dialog names them, e.g. rooms:12 "
+					   "seed:7 - unset ones keep the dialog's)",
 					   [this](const std::vector<std::string>& args) {
 						   if (!m_gameLoaded || (m_state != AppState::Playing &&
 												 m_state != AppState::Paused)) {
 							   m_console.Print("generate only works in-game");
 							   return;
 						   }
-						   generate::Params p;
-						   if (args.size() > 0) p.rooms = std::atoi(args[0].c_str());
-						   if (args.size() > 1) p.branching = std::stof(args[1]);
-						   if (args.size() > 2) p.locks = std::atoi(args[2].c_str());
-						   if (args.size() > 3)
-							   p.seed = static_cast<u32>(std::atoi(args[3].c_str()));
-						   const std::string stem =
-							   GenerateLevel(p, m_mapView.ViewedMap().Theme());
+						   // The DIALOG itself, through the same entry points as its
+						   // two toolbar buttons — so the UI sweep (InGameTest.ps1)
+						   // can audit both modes without a mouse.
+						   if (!args.empty() && args[0] == "dialog") {
+							   const std::string mode = args.size() > 1 ? args[1] : "";
+							   if (mode == "off")
+								   m_generateDialog.Close();
+							   else if (mode == "new" && m_mapView.onNewLevel)
+								   m_mapView.onNewLevel(m_mapView.ViewedDungeon());
+							   else if (m_mapView.onGenerate)
+								   m_mapView.onGenerate();
+							   m_console.Print(std::format(
+								   "generate dialog: {}",
+								   !m_generateDialog.IsOpen() ? "closed"
+								   : m_generateDialog.GetMode() ==
+										   GenerateDialog::Mode::Create
+									   ? "create"
+									   : "regenerate"));
+							   return;
+						   }
+						   // The same knobs the dialog holds, overridden by name
+						   // through the same table — so a scripted run and a
+						   // dialog run cannot disagree about what a knob means.
+						   generate::Params p = m_generateDialog.Knobs();
+						   std::string line, dungeon = m_mapView.ViewedDungeon();
+						   bool again = false;
+						   for (const std::string& a : args)
+							   if (a == "again")
+								   again = true;
+							   else if (a.find(':') == std::string::npos)
+								   dungeon = a; // a bare word names the dungeon
+							   else
+								   line += a + ' ';
+						   generate::Decode(line, p);
+						   // The dialog's two buttons, without a mouse: a new floor
+						   // (and the view follows it, as the dialog's does), or a
+						   // reroll of the one being viewed.
+						   std::string stem;
+						   if (again) {
+							   if (RegenerateViewedLevel(p)) stem = m_mapView.ViewedLevel();
+						   } else {
+							   stem = CreateNewLevel(dungeon, &p);
+							   if (!stem.empty()) m_mapView.SetViewLevel(stem);
+						   }
 						   if (stem.empty()) {
 							   m_console.Print("generate: failed");
 							   return;
 						   }
 						   m_console.Print(std::format(
-							   "generate: wrote {} ({}x{}, seed {})", stem, p.width,
-							   p.height, p.seed));
+							   "generate: wrote {} ({})", stem, generate::Encode(p)));
 						   // A generated level is CHECKED immediately: the whole
 						   // reason the lock ordering is built by construction is
 						   // so this passes, and saying so is how you find out it

@@ -22,6 +22,42 @@ bool DungeonWorld::CellFreeForStair(const std::string& stem, int x, int z) {
 	return m.IsWalkable(x, z) && !m.StairAt(x, z) && !m.BrazierAt(x, z);
 }
 
+std::pair<int, int> DungeonWorld::FarthestStairCell(const std::string& stem) {
+	const DungeonMap& m = stem == m_currentLevel ? m_map : EnsureMapStash(stem);
+	const int w = m.Width(), h = m.Height();
+	// Breadth-first over walkable squares (4-connected, the grid's only kind of
+	// step), keeping the LAST stair-worthy square reached: BFS visits in
+	// distance order, so that is the farthest one. From EVERY way in at once —
+	// the start and each stair already there — because on a lower floor the
+	// party arrives by the stair, not at `P`: measured from `P` alone, crypt2's
+	// way down landed one square from its own way up.
+	std::vector<u8> seen(static_cast<size_t>(w) * h, 0);
+	std::vector<std::pair<int, int>> queue;
+	auto source = [&](int x, int z) {
+		if (x < 0 || z < 0 || x >= w || z >= h || !m.IsWalkable(x, z)) return;
+		u8& s = seen[static_cast<size_t>(z) * w + x];
+		if (!s) s = 1, queue.push_back({x, z});
+	};
+	source(m.StartX(), m.StartZ());
+	for (const StairLink& st : m.Stairs()) source(st.x, st.z);
+	std::pair<int, int> best{-1, -1};
+	for (size_t head = 0; head < queue.size(); ++head) {
+		const auto [x, z] = queue[head];
+		if (!m.StairAt(x, z) && !m.BrazierAt(x, z)) best = {x, z};
+		constexpr int dx[4] = {0, 1, 0, -1};
+		constexpr int dz[4] = {-1, 0, 1, 0};
+		for (int i = 0; i < 4; ++i) {
+			const int nx = x + dx[i], nz = z + dz[i];
+			if (nx < 0 || nz < 0 || nx >= w || nz >= h) continue;
+			u8& s = seen[static_cast<size_t>(nz) * w + nx];
+			if (s || !m.IsWalkable(nx, nz)) continue;
+			s = 1;
+			queue.push_back({nx, nz});
+		}
+	}
+	return best;
+}
+
 bool DungeonWorld::InstallLevelFromFiles(const std::string& stem,
 										 const std::string& mapPath,
 										 const std::string& entPath) {

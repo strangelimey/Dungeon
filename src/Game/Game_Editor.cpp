@@ -137,13 +137,6 @@ bool Game::SyncProjectToSource() {
 	return true;
 }
 
-// Mints a fresh level for the editor's [+] toolbar button: writes a minimal
-// valid .map/.ent pair next to the project's other levels (all-rock 16x16
-// canvas with a 3x3 start room — the palette gate demands all three surface
-// records, copied from the ACTIVE level so the new one shares its look), then
-// appends the stem to the manifest. Everything downstream (browse, remote
-// edits, stair dests, savemap) reads Project::levels or lazy-parses the files,
-// so no other state needs touching. Returns the stem, or "" on failure.
 namespace {
 
 // The first few ids of a catalog, space-joined — a fresh level's surface
@@ -158,6 +151,36 @@ std::string FirstIds(const Catalog& catalog, size_t count) {
 	return out;
 }
 
+// The minimal level both a new world and an empty new level start from: a
+// block of rock (16x16, or larger to reach the start) with a 3x3 room holding
+// the start. Appended as grid rows, after the caller's palette records.
+// Returns the room's squares, START FIRST — where a stair from the floor above
+// may land.
+//
+// The start defaults to the middle; an empty new FLOOR passes the square of the
+// stair coming down to it instead, because a stair needs the same (x,z) on both
+// levels and a fixed box in the middle rarely lines up with the floor above.
+constexpr int kStarterSize = 16, kStarterCentre = 8;
+std::vector<std::pair<int, int>> AppendStarterRoom(std::string& map,
+												   int startX = kStarterCentre,
+												   int startZ = kStarterCentre) {
+	// The room's centre, pulled in so the room clears the rock rim (a start on
+	// the rim's inner edge sits in the room's edge instead of its middle).
+	const int cx = std::max(startX, 2), cz = std::max(startZ, 2);
+	const int w = std::max(kStarterSize, cx + 3), h = std::max(kStarterSize, cz + 3);
+	std::vector<std::pair<int, int>> room{{startX, startZ}};
+	for (int z = 0; z < h; ++z) {
+		for (int x = 0; x < w; ++x) {
+			const bool in = std::abs(x - cx) <= 1 && std::abs(z - cz) <= 1;
+			const bool start = x == startX && z == startZ;
+			map += !in ? '#' : start ? 'P' : '.';
+			if (in && !start) room.push_back({x, z});
+		}
+		map += '\n';
+	}
+	return room;
+}
+
 // A new world's first room: the same minimal 16x16 box CreateNewLevel writes,
 // with its palette taken from the CATALOGS rather than from a level, because
 // there is not one yet.
@@ -166,14 +189,7 @@ bool WriteStarterLevel(const Project& p, const std::string& stem) {
 	map += "palette wall " + FirstIds(p.walls, 4) + "\n";
 	map += "palette floor " + FirstIds(p.floors, 4) + "\n";
 	map += "palette ceiling " + FirstIds(p.ceilings, 4) + "\n\n";
-	constexpr int kSize = 16;
-	for (int z = 0; z < kSize; ++z) {
-		for (int x = 0; x < kSize; ++x) {
-			const bool room = x >= 7 && x <= 9 && z >= 7 && z <= 9;
-			map += !room ? '#' : (x == 8 && z == 8) ? 'P' : '.';
-		}
-		map += '\n';
-	}
+	AppendStarterRoom(map);
 	const std::string ent = "; " + stem + " - dynamic layer (empty).\n";
 	const std::string mapOut = serialize::NormalizeEol(map);
 	const std::string entOut = serialize::NormalizeEol(ent);
@@ -419,7 +435,15 @@ std::string Game::CreateWorld(const std::string& name) {
 	return id;
 }
 
-std::string Game::CreateNewLevel(const std::string& dungeonId) {
+// Mints a fresh level: writes a .map/.ent pair next to the project's other
+// levels — generated from the knobs, or the minimal empty box — appends the stem
+// to the manifest and its dungeon, and stairs it to the floor above. The palette
+// gate demands all three surface records; they are copied from the ACTIVE level
+// so the new one shares its look. Everything downstream (browse, remote edits,
+// stair dests, savemap) reads Project::levels or lazy-parses the files, so no
+// other state needs touching. Returns the stem, or "" on failure.
+std::string Game::CreateNewLevel(const std::string& dungeonId,
+								 const generate::Params* params) {
 	// THE STEM IS NAMED AFTER ITS DUNGEON when it has one — crypt1, crypt2,
 	// crypt3 — so the grouping the picker shows is legible in the filename too,
 	// which is how the demo's levels were already hand-named. A level with no
@@ -438,25 +462,47 @@ std::string Game::CreateNewLevel(const std::string& dungeonId) {
 		return {};
 	}
 
-	auto join = [](const std::vector<std::string>& ids) {
-		std::string out;
-		for (const std::string& id : ids) out += (out.empty() ? "" : " ") + id;
-		return out;
-	};
-	const DungeonMap& live = m_world->Map(); // active level: the palette donor
-	std::string map = "; " + stem + " - created in the editor.\n";
-	map += "palette wall " + join(live.WallPalette()) + "\n";
-	map += "palette floor " + join(live.FloorPalette()) + "\n";
-	map += "palette ceiling " + join(live.CeilingPalette()) + "\n\n";
-	constexpr int kSize = 16;
-	for (int z = 0; z < kSize; ++z) {
-		for (int x = 0; x < kSize; ++x) {
-			const bool room = x >= 7 && x <= 9 && z >= 7 && z <= 9;
-			map += !room ? '#' : (x == 8 && z == 8) ? 'P' : '.';
-		}
-		map += '\n';
+	std::string map, ent;
+	// Where the stair from the floor above may land, best first.
+	std::vector<std::pair<int, int>> linkCells;
+	CatalogEntry* dungeon = m_project.dungeons.Find(dungeonId);
+	// THE STAIR SQUARE IS CHOSEN FIRST and the new floor built around it: the
+	// far end of the floor above, where a stair can stand. A stair needs the
+	// same (x,z) on both levels, and searching two finished, unrelated layouts
+	// for a square both happen to have free failed three times out of three on
+	// the first run (docs/level-building.md P1). {-1,-1} for a dungeon's first
+	// floor, which has nothing above it.
+	std::pair<int, int> entry{-1, -1};
+	if (dungeon)
+		if (const std::vector<std::string> floors = m_project.DungeonLevels(dungeonId);
+			!floors.empty())
+			entry = m_world->FarthestStairCell(floors.back());
+	if (params) {
+		generate::Params p = *params;
+		p.entryX = entry.first;
+		p.entryZ = entry.second;
+		// The theme the content pools are drawn by: the viewed level's own,
+		// else the dungeon's flavour tags — a fresh dungeon's first generated
+		// floor has no level theme to inherit, and "undead crypt" should still
+		// fill with undead.
+		std::vector<std::string> theme = m_mapView.ViewedMap().Theme();
+		if (theme.empty() && dungeon) theme = ParseTags(dungeon->Get("tags", ""));
+		linkCells = ComposeGeneratedLevel(stem, p, theme, map, ent);
+	} else {
+		auto join = [](const std::vector<std::string>& ids) {
+			std::string out;
+			for (const std::string& id : ids) out += (out.empty() ? "" : " ") + id;
+			return out;
+		};
+		const DungeonMap& live = m_world->Map(); // active level: the palette donor
+		map = "; " + stem + " - created in the editor.\n";
+		map += "palette wall " + join(live.WallPalette()) + "\n";
+		map += "palette floor " + join(live.FloorPalette()) + "\n";
+		map += "palette ceiling " + join(live.CeilingPalette()) + "\n\n";
+		linkCells = entry.first >= 0 ? AppendStarterRoom(map, entry.first, entry.second)
+									 : AppendStarterRoom(map);
+		ent = "; " + stem + " - dynamic layer (empty).\n";
 	}
-	const std::string ent = "; " + stem + " - dynamic layer (empty).\n";
 	// Same boundary rule as the level writers: built with '\n', ended once here.
 	const std::string mapOut = serialize::NormalizeEol(map);
 	const std::string entOut = serialize::NormalizeEol(ent);
@@ -471,11 +517,13 @@ std::string Game::CreateNewLevel(const std::string& dungeonId) {
 	// AND INTO ITS DUNGEON (W5). `levels` above stays the flat universe every
 	// route walks; this is the level joining a GROUP, which is what stops an
 	// editor-made level arriving as an orphan the checker then reports.
-	if (CatalogEntry* d = m_project.dungeons.Find(dungeonId)) {
-		const std::string was = d->Get("levels", "");
-		d->Set("levels", was.empty() ? stem : was + " " + stem);
+	if (dungeon) {
+		const std::string was = dungeon->Get("levels", "");
+		dungeon->Set("levels", was.empty() ? stem : was + " " + stem);
 	}
 	m_project.Save();
+	// AFTER joining the dungeon: the floor above is found by dungeon order.
+	LinkToFloorAbove(stem, linkCells);
 	if (m_world->onMessage)
 		m_world->onMessage(dungeonId.empty()
 							  ? loc::FormatLine("map.level.created", stem)

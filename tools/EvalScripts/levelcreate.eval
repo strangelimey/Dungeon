@@ -1,0 +1,25 @@
+; levelcreate.eval — the one New Level writer (docs/level-building.md P1), in a
+; scratch copy of the demo world (run with -project lb_create).
+;
+; A new floor must land IN ITS DUNGEON and be stairs-linked to the floor above
+; IN THAT DUNGEON — not to whatever the manifest lists before it. The demo's
+; manifest is `crypt1 crypt2 eval_arena`, so a crypt3 appended to it has the
+; ARENA as its flat-list predecessor: exactly the control the old writer failed.
+;
+; And a REROLL keeps every stair the level has — the one up AND the one down —
+; because their far ends live on floors the reroll must not touch. crypt3 is
+; rerolled twice: alone (one stair), then with crypt4 below it (two), the
+; second time into a 12x12 map too small for its stairs, which must grow to
+; hold them rather than drop them.
+logecho on
+reset
+levels
+generate crypt rooms:6 seed:7 locks:1
+generate again seed:8
+generate crypt rooms:6 seed:9 locks:1
+levels view crypt3
+generate again seed:10 width:12 height:12
+levels new crypt
+levels
+validate
+savemap

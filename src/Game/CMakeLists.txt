@@ -70,6 +70,7 @@ add_library(Game STATIC
 	Party.cpp
 	Generate.cpp
 	GenerateDialog.cpp
+	GenerateKnobs.cpp
 	Validate.cpp
 	ValidateDialog.cpp
 	WorldMap.cpp

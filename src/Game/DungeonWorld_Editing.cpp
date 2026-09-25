@@ -1296,9 +1296,15 @@ bool DungeonWorld::AddStairAt(const std::string& stem, const std::string& type,
 	}
 
 	// The type's direction (stairs.cat `up`) picks the destination: the previous
-	// / next stem from `stem` in the project's level order (the vertical stack).
+	// / next stem from `stem` in its DUNGEON's depth order (dungeons.cat
+	// `levels`) — the vertical stack. The project's flat list is only the
+	// fallback for a level no dungeon claims: it interleaves dungeons, so a
+	// stair down from a dungeon's last floor used to lead into whatever level
+	// the manifest listed next — another dungeon's, or the harness's arena.
 	const bool up = CatalogBool(entry, "up", false);
-	const auto& levels = m_project.levels;
+	const CatalogEntry* dungeon = m_project.DungeonOfLevel(stem);
+	const std::vector<std::string> levels =
+		dungeon ? m_project.DungeonLevels(dungeon->id) : m_project.levels;
 	const auto cur = std::find(levels.begin(), levels.end(), stem);
 	std::string dest;
 	if (cur != levels.end()) {

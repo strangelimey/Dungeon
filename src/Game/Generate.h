@@ -50,6 +50,16 @@ struct Params {
 	float difficulty = 0.5f; // monster density
 	float reward = 0.5f;     // loot density
 	u32 seed = 1;
+	// The square the level is ENTERED on, or -1 to let the generator choose.
+	// Not a knob: the caller sets it to the floor above's stair square, since a
+	// stair needs the same (x,z) on both levels, and building the first room
+	// around it is far more reliable than hunting afterwards for a square two
+	// unrelated layouts happen to share. The map grows to contain it.
+	int entryX = -1, entryZ = -1;
+	// Further squares that must come out as floor, joined to the dungeon and
+	// left bare — a regenerated level's other stairs, whose far ends on the
+	// neighbouring floors are not the generator's to move. Also not a knob.
+	std::vector<std::pair<int, int>> keepOpen;
 	// Tag-matched content pools, resolved by the CALLER (which owns the
 	// catalogs) and handed in as plain id lists. The generator picks from these
 	// and never looks a catalog up, which is what keeps it pure.

@@ -83,6 +83,7 @@
 #include <array>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -446,11 +447,14 @@ private:
 	std::vector<std::string> DescribeDungeon(const std::string& id) const;
 	bool DeleteDungeon(const std::string& id);
 	void WarnSavesInLevels(const std::vector<std::string>& stems);
-	std::string CreateNewLevel(const std::string& dungeonId = {});
-	// Rough out a whole level from knobs and write it as a NEW level (files +
-	// manifest), returning its stem or "" on failure. The knobs' content pools
-	// are resolved HERE from the project's catalogs by theme tag — the generator
-	// itself never sees a catalog (Game/Generate.h).
+	// Mint a NEW level in `dungeonId` (files + manifest + the dungeon's level
+	// list + a stair from the floor above) and return its stem, "" on failure.
+	// Generated from `params` when given, else the minimal empty box. THE ONE
+	// WRITER of new levels: the [+] dialog, the `newlevel` and `generate`
+	// commands all come through here, so a generated level cannot be named,
+	// grouped or linked differently from an empty one.
+	std::string CreateNewLevel(const std::string& dungeonId = {},
+							   const generate::Params* params = nullptr);
 	// --- random encounters (Game_Generate.cpp, docs/world-map.md) ----------
 	// Builds a throwaway space from the area's difficulty and its terrain's
 	// tags and drops the party into it. It NEVER touches disk: generated to
@@ -461,16 +465,29 @@ private:
 	// there is no second flag to fall out of step with where the party is.
 	bool InEncounter() const;
 
-	std::string GenerateLevel(generate::Params params,
-							  const std::vector<std::string>& theme);
+	// A generated level's text for CreateNewLevel, plus the cells a stair from
+	// the floor above may land on, best first. The knobs' content pools are
+	// resolved HERE from the project's catalogs by theme tag — the generator
+	// itself never sees a catalog (Game/Generate.h).
+	std::vector<std::pair<int, int>>
+	ComposeGeneratedLevel(const std::string& stem, generate::Params params,
+						  const std::vector<std::string>& theme, std::string& map,
+						  std::string& ent);
+	// Author the stair pair joining `stem` to the floor above it IN ITS DUNGEON,
+	// on the first of `cells` that suits both levels. False (and a log line when
+	// it had a floor to try) if there is none.
+	bool LinkToFloorAbove(const std::string& stem,
+						  const std::vector<std::pair<int, int>>& cells);
 	// Regenerate the VIEWED level in place, as ONE undo step. Destructive by
 	// design (the decision on record): the reroll replaces the level and Ctrl+Z
 	// brings the old one back — which is why it must not go through a level
 	// transition, since that clears the history the promise rests on.
 	bool RegenerateViewedLevel(generate::Params params);
-	// Shared by both: build the level text, parse it, and hand it to the world.
+	// Build the level text (palette from `donor`, `stairs` carried across
+	// verbatim), parse it, and hand it to the world.
 	bool BuildAndInstall(const std::string& stem, const generate::Params& params,
-						 const std::vector<std::string>& theme);
+						 const std::vector<std::string>& theme,
+						 const DungeonMap& donor, std::span<const StairLink> stairs);
 	// Resolve the theme into the id pools the generator picks from.
 	void FillPools(generate::Params& params,
 				   const std::vector<std::string>& theme);

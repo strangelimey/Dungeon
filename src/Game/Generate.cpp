@@ -37,15 +37,29 @@ void Carve(Level& lv, int x, int z) {
 // one-cell margin, give up after a bounded number of tries. Bounded rather than
 // exhaustive because the failure mode of pushing harder is rooms shrinking into
 // cupboards, and "fewer, decent rooms" beats "the requested number, all tiny".
-std::vector<Room> PlaceRooms(const Params& p, std::mt19937& rng) {
+//
+// With an ENTRY square the first room is placed around it before any rolling,
+// so it is room 0 — the tree's root and the start.
+std::vector<Room> PlaceRooms(const Params& p, int width, int height,
+							 std::mt19937& rng) {
 	std::vector<Room> rooms;
+	if (p.entryX >= 0 && p.entryZ >= 0) {
+		Room r;
+		// Capped so the room fits inside the rim of even the smallest map.
+		r.w = std::min(Roll(rng, 3, 7), width - 2);
+		r.h = std::min(Roll(rng, 3, 7), height - 2);
+		// Anywhere that still covers the entry, inside the one-cell rock rim.
+		r.x = std::clamp(p.entryX - Roll(rng, 0, r.w - 1), 1, width - 1 - r.w);
+		r.z = std::clamp(p.entryZ - Roll(rng, 0, r.h - 1), 1, height - 1 - r.h);
+		rooms.push_back(r);
+	}
 	const int tries = std::max(40, p.rooms * 12);
 	for (int i = 0; i < tries && static_cast<int>(rooms.size()) < p.rooms; ++i) {
 		Room r;
 		r.w = Roll(rng, 3, 7);
 		r.h = Roll(rng, 3, 7);
-		r.x = Roll(rng, 1, std::max(1, p.width - r.w - 2));
-		r.z = Roll(rng, 1, std::max(1, p.height - r.h - 2));
+		r.x = Roll(rng, 1, std::max(1, width - r.w - 2));
+		r.z = Roll(rng, 1, std::max(1, height - r.h - 2));
 		bool clash = false;
 		for (const Room& o : rooms)
 			if (r.Overlaps(o, 1)) { clash = true; break; }
@@ -158,13 +172,37 @@ std::vector<u8> FloodFrom(const Level& lv, int sx, int sz,
 
 Level Run(const Params& p) {
 	Level lv;
-	lv.width = std::clamp(p.width, 8, 128);
-	lv.height = std::clamp(p.height, 8, 128);
+	// An entry square the map must contain (inside its rock rim) grows the map
+	// to fit, rather than being dropped: it is the floor above's stair.
+	Params q = p;
+	const bool entry = p.entryX >= 0 && p.entryZ >= 0;
+	if (entry) {
+		q.entryX = std::clamp(p.entryX, 1, 126);
+		q.entryZ = std::clamp(p.entryZ, 1, 126);
+	}
+	for (auto& [x, z] : q.keepOpen) {
+		x = std::clamp(x, 1, 126);
+		z = std::clamp(z, 1, 126);
+	}
+	int needW = p.width, needH = p.height;
+	if (entry) needW = std::max(needW, q.entryX + 2), needH = std::max(needH, q.entryZ + 2);
+	for (const auto& [x, z] : q.keepOpen)
+		needW = std::max(needW, x + 2), needH = std::max(needH, z + 2);
+	lv.width = std::clamp(needW, 8, 128);
+	lv.height = std::clamp(needH, 8, 128);
+	// Squares nothing may be placed on: the entry and the kept-open ones are
+	// stairs, and a door or a key on a stair is nonsense.
+	std::vector<std::pair<int, int>> reserved = q.keepOpen;
+	if (entry) reserved.push_back({q.entryX, q.entryZ});
+	auto isReserved = [&](int x, int z) {
+		return std::find(reserved.begin(), reserved.end(), std::pair{x, z}) !=
+			   reserved.end();
+	};
 	lv.floor.assign(static_cast<size_t>(lv.width) * lv.height, 0);
 	std::mt19937 rng(p.seed);
 
 	// --- shape ---------------------------------------------------------------
-	std::vector<Room> rooms = PlaceRooms(p, rng);
+	std::vector<Room> rooms = PlaceRooms(q, lv.width, lv.height, rng);
 	if (rooms.empty()) { // a map too small for even one room still gets a cell
 		lv.startX = lv.exitX = lv.width / 2;
 		lv.startZ = lv.exitZ = lv.height / 2;
@@ -179,12 +217,27 @@ Level Run(const Params& p) {
 	for (const auto& [a, b] : edges)
 		CarveCorridor(lv, rooms[a].cx(), rooms[a].cz(), rooms[b].cx(), rooms[b].cz(),
 					  (rng() & 1) != 0);
+	// Each kept-open square joins the nearest room by a corridor of its own, so
+	// it is floor AND reachable whatever shape the rooms took around it.
+	for (const auto& [x, z] : q.keepOpen) {
+		const Room* nearest = &rooms[0];
+		int best = -1;
+		for (const Room& r : rooms) {
+			const int dx = r.cx() - x, dz = r.cz() - z;
+			if (const int d = dx * dx + dz * dz; best < 0 || d < best) {
+				best = d;
+				nearest = &r;
+			}
+		}
+		CarveCorridor(lv, x, z, nearest->cx(), nearest->cz(), (rng() & 1) != 0);
+	}
 
 	// --- ends ----------------------------------------------------------------
-	// Start in room 0 (the tree's root); exit in whichever room is FURTHEST from
-	// it, so the dungeon is walked rather than stepped across.
-	lv.startX = rooms[0].cx();
-	lv.startZ = rooms[0].cz();
+	// Start in room 0 (the tree's root) — ON the entry square when there is one,
+	// which room 0 was built around; exit in whichever room is FURTHEST from it,
+	// so the dungeon is walked rather than stepped across.
+	lv.startX = entry ? q.entryX : rooms[0].cx();
+	lv.startZ = entry ? q.entryZ : rooms[0].cz();
 	size_t far = 0;
 	int farD = -1;
 	for (size_t i = 1; i < rooms.size(); ++i)
@@ -209,6 +262,7 @@ Level Run(const Params& p) {
 		for (int z = 1; z < lv.height - 1; ++z)
 			for (int x = 1; x < lv.width - 1; ++x)
 				if (IsDoorway(lv, x, z) && idx(x, z) != idx(lv.startX, lv.startZ) &&
+					!isReserved(x, z) &&
 					std::find(shut.begin(), shut.end(), idx(x, z)) == shut.end())
 					cands.push_back(idx(x, z));
 		std::shuffle(cands.begin(), cands.end(), rng);
@@ -234,7 +288,7 @@ Level Run(const Params& p) {
 				// only ever consulted reachability.
 				const int kx = static_cast<int>(i) % lv.width;
 				const int kz = static_cast<int>(i) / lv.width;
-				bool taken = (kx == lv.startX && kz == lv.startZ);
+				bool taken = (kx == lv.startX && kz == lv.startZ) || isReserved(kx, kz);
 				for (const Entity& e : lv.entities)
 					if (e.x == kx && e.z == kz) { taken = true; break; }
 				if (!taken) open.push_back(static_cast<int>(i));
@@ -277,7 +331,7 @@ Level Run(const Params& p) {
 		for (int i = 0; i < tries; ++i) {
 			const int x = Roll(rng, 1, lv.width - 2), z = Roll(rng, 1, lv.height - 2);
 			if (!lv.At(x, z)) continue;
-			if (x == lv.startX && z == lv.startZ) continue;
+			if ((x == lv.startX && z == lv.startZ) || isReserved(x, z)) continue;
 			bool taken = false;
 			for (const Entity& e : lv.entities)
 				if (e.x == x && e.z == z) { taken = true; break; }

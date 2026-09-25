@@ -104,6 +104,15 @@ $screens = @(
 	# backwards; the `sheet` dev command opens it through the same entry point
 	# the click uses, and it is swept like everything else now.
 	@{ label = 'sweep_sheet';  viaConsole = $true;  open = { Run-Cmd 'sheet 0' }; close = { Run-Cmd 'sheet off' } },
+	# The level generator's dialog in BOTH modes (docs/level-building.md P1):
+	# CREATE (the toolbar's [+]) and REGENERATE. Opened only - nothing is
+	# generated, so the sweep writes no level.
+	@{ label = 'sweep_gencreate'; viaConsole = $true
+	   open = { Run-Cmd 'editor'; Run-Cmd 'generate dialog new' }
+	   close = { Run-Cmd 'generate dialog off'; Run-Cmd 'editor off' } },
+	@{ label = 'sweep_genregen'; viaConsole = $true
+	   open = { Run-Cmd 'editor'; Run-Cmd 'generate dialog' }
+	   close = { Run-Cmd 'generate dialog off'; Run-Cmd 'editor off' } },
 	# The WORLD screen's two dialogs, LAST because reaching them leaves the
 	# dungeon: each one opens only on the world map (the one state that routes
 	# input to it), so the sweep goes there and comes back.

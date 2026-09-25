@@ -167,6 +167,15 @@ void GameSettings::Load() {
 	ParseIniBool(text, "map_palette_collapsed=", mapPaletteCollapsed);
 	ParseIniBool(text, "map_legend_collapsed=", mapLegendCollapsed);
 	ParseIniBool(text, "map_show_catalog=", mapShowCatalog);
+	// The rest of the line, verbatim: the encoding has spaces, colons and
+	// points, which ParseIniString's token rule would stop at.
+	if (const size_t g = text.find("gen_knobs="); g != std::string::npos) {
+		const size_t start = g + 10;
+		const size_t end = text.find_first_of("\r\n", start);
+		generatorKnobs = text.substr(start, end == std::string::npos
+												? std::string::npos
+												: end - start);
+	}
 
 	ParseIniInt(text, "adapter=", adapterLuid);
 	ParseIniInt(text, "output=", displayOutput);
@@ -233,6 +242,7 @@ void GameSettings::Save() const {
 		"map_palette_collapsed={}\nmap_legend_collapsed={}\nmap_show_catalog={}\n",
 		mapPaletteCollapsed ? 1 : 0, mapLegendCollapsed ? 1 : 0,
 		mapShowCatalog ? 1 : 0);
+	text += std::format("gen_knobs={}\n", generatorKnobs);
 	text += std::format(
 		"adapter={}\noutput={}\nreswidth={}\nresheight={}\nfullscreen={}\n",
 		adapterLuid, displayOutput, displayWidth, displayHeight,

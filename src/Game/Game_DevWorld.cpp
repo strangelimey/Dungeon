@@ -430,12 +430,19 @@ void Game::RegisterWorldCommands() {
 	m_console.Register(
 		"levels",
 		"the project's levels, grouped by the dungeon that claims them: "
-		"levels | new [dungeon]",
+		"levels | new [dungeon] | view <stem>",
 		[this](const std::vector<std::string>& a) {
 			// THE PICKER'S LIST, WITHOUT A MOUSE. The toolbar dropdown is what
 			// W5 actually built; this prints the same grouping (through the same
 			// Project helpers) so a harness can see that a level is in the
 			// dungeon it was made in, which no screenshot can assert.
+			if (a.size() >= 2 && a[0] == "view") {
+				// Picking a level in that dropdown: browse it, which is what
+				// the editor's Generate button (and `generate again`) acts on.
+				m_mapView.SetViewLevel(a[1]);
+				m_console.Print("viewing " + m_mapView.ViewedLevel());
+				return;
+			}
 			if (!a.empty() && a[0] == "new") {
 				// The [+] button's path. With no argument it lands in the
 				// dungeon of the level being VIEWED, exactly as the button does.

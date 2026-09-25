@@ -180,6 +180,12 @@ public:
 	}
 
 	float Value() const { return m_value; }
+	// Places shown after the point in the readout (default 2). 0 for a slider
+	// over whole numbers, which otherwise reads "Rooms: 8.00".
+	void SetDecimals(int places) {
+		m_decimals = places;
+		RefreshDisplay();
+	}
 	void UpdateSelf(UIContext& ctx) override;
 	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 
@@ -193,6 +199,7 @@ private:
 	void RefreshDisplay(); // caches the "label: value" text (not per-frame)
 
 	float m_min, m_max, m_value;
+	int m_decimals = 2;
 	std::string m_display;
 	bool m_dragging = false;
 };

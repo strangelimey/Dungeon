@@ -12,10 +12,12 @@
 // produces nothing teaches you to distrust the button, and "no monsters tagged
 // undead yet" is a content gap, not a reason to refuse.
 //
-// TWO ENTRY POINTS, one builder. GenerateLevel writes a NEW level (files,
-// manifest, and the stair that joins it to the project); RegenerateViewedLevel
-// replaces the level you are looking at, in place, as one undo step. They share
-// BuildLevelText so the same knobs cannot produce two different dungeons.
+// TWO ENTRY POINTS, one builder. A NEW level goes through CreateNewLevel
+// (Game_Editor.cpp) — the one writer of level files, generated or empty — which
+// asks ComposeGeneratedLevel for the text and LinkToFloorAbove for the stair;
+// RegenerateViewedLevel replaces the level you are looking at, in place, as one
+// undo step. They share BuildLevelText so the same knobs cannot produce two
+// different dungeons.
 // ============================================================================
 #include "Game/Game.h"
 
@@ -29,6 +31,7 @@
 #include <cmath>
 #include <filesystem>
 #include <format>
+#include <span>
 #include <system_error>
 
 namespace dungeon::game {
@@ -48,6 +51,10 @@ std::vector<std::string> PoolFor(const Catalog& cat,
 	return matched.empty() ? all : matched;
 }
 
+// Direction order, matching the parser's tokens. A file-local table like the
+// editor writer's — there is no shared DirName to call.
+constexpr const char* kDir[4] = {"north", "east", "south", "west"};
+
 // The .ent record line for a generated entity. Deliberately the same shape the
 // editor's own writer emits — a generated level has to be indistinguishable
 // from a hand-built one, or half the tooling stops applying to it.
@@ -56,9 +63,6 @@ std::string RecordLine(const Entity& e) {
 					   : e.kind == EntityKind::Item  ? "item"
 					   : e.kind == EntityKind::Door  ? "door"
 													 : "button";
-	// Direction order, matching the parser's tokens. A file-local table like the
-	// editor writer's — there is no shared DirName to call.
-	static const char* kDir[4] = {"north", "east", "south", "west"};
 	std::string line = std::format("{} {} {} {} {}", kind, e.type, e.x, e.z,
 								   kDir[static_cast<int>(e.facing)]);
 	for (const auto& [k, v] : e.params) line += std::format(" {}={}", k, v);
@@ -67,9 +71,14 @@ std::string RecordLine(const Entity& e) {
 
 // The generated level as the two files' TEXT. Shared by both entry points so
 // they cannot drift into producing different dungeons from the same knobs.
+//
+// `stairs` are carried across VERBATIM: a regenerated level keeps its links to
+// the floors around it (the generator was told to leave their squares open), so
+// rerolling a floor never strands the one above.
 void BuildLevelText(const std::string& stem, const generate::Level& lv,
 					const generate::Params& params, const DungeonMap& donor,
-					const std::vector<std::string>& theme, std::string& map,
+					const std::vector<std::string>& theme,
+					std::span<const StairLink> stairs, std::string& map,
 					std::string& ent) {
 	auto join = [](const std::vector<std::string>& ids) {
 		std::string out;
@@ -81,6 +90,11 @@ void BuildLevelText(const std::string& stem, const generate::Level& lv,
 	map += "palette floor " + join(donor.FloorPalette()) + "\n";
 	map += "palette ceiling " + join(donor.CeilingPalette()) + "\n";
 	if (!theme.empty()) map += "theme " + join(theme) + "\n";
+	for (const StairLink& st : stairs)
+		map += std::format("stairs {} {} {} {} dest={} destx={} destz={} destfacing={}\n",
+						   st.type, st.x, st.z, kDir[static_cast<int>(st.facing)],
+						   st.destLevel, st.destX, st.destZ,
+						   kDir[static_cast<int>(st.destFacing)]);
 	map += ";\n";
 	for (int z = 0; z < lv.height; ++z) {
 		for (int x = 0; x < lv.width; ++x)
@@ -148,7 +162,7 @@ bool Game::StartEncounter(float difficulty, const std::vector<std::string>& tags
 	}
 
 	std::string map, ent;
-	BuildLevelText(kEncounterStem, lv, p, m_world->Map(), tags, map, ent);
+	BuildLevelText(kEncounterStem, lv, p, m_world->Map(), tags, {}, map, ent);
 	// THE WAY OUT, authored onto the arrival cell. An encounter is left the same
 	// way a dungeon is — by an exit stair — rather than by some second mechanism
 	// that would then need its own rules about when it is allowed.
@@ -187,83 +201,70 @@ void Game::FillPools(generate::Params& params,
 	});
 }
 
-std::string Game::GenerateLevel(generate::Params params,
-								const std::vector<std::string>& theme) {
+std::vector<std::pair<int, int>>
+Game::ComposeGeneratedLevel(const std::string& stem, generate::Params params,
+							const std::vector<std::string>& theme, std::string& map,
+							std::string& ent) {
 	FillPools(params, theme);
 	const generate::Level lv = generate::Run(params);
+	BuildLevelText(stem, lv, params, m_world->Map(), theme, {}, map, ent);
+	// (The caller sets params.entry to the floor above's stair square, so the
+	// start comes first below and the link lands there.)
+	// Where the stair from the floor above may land, best first: the generated
+	// start (arriving there is what a player expects), then any floor cell.
+	std::vector<std::pair<int, int>> cells{{lv.startX, lv.startZ}};
+	for (int z = 1; z < lv.height - 1; ++z)
+		for (int x = 1; x < lv.width - 1; ++x)
+			if (lv.At(x, z) && (x != lv.startX || z != lv.startZ))
+				cells.push_back({x, z});
+	return cells;
+}
 
-	// --- next free stem ------------------------------------------------------
-	int maxN = 0;
-	for (const std::string& s : m_project.levels)
-		if (s.starts_with("level"))
-			if (const int n = std::atoi(s.c_str() + 5); n > maxN) maxN = n;
-	const std::string stem = "level" + std::to_string(maxN + 1);
-	if (std::find(m_project.levels.begin(), m_project.levels.end(), stem) !=
-		m_project.levels.end()) {
-		log::Warn("generate: stem {} already exists", stem);
-		return {};
-	}
-
-	std::string map, ent;
-	BuildLevelText(stem, lv, params, m_world->Map(), theme, map, ent);
-	const std::string mapOut = serialize::NormalizeEol(map);
-	const std::string entOut = serialize::NormalizeEol(ent);
-	if (!assets::WriteBinaryFile(m_project.LevelMapPath(stem), mapOut.data(),
-								 mapOut.size()) ||
-		!assets::WriteBinaryFile(m_project.LevelEntPath(stem), entOut.data(),
-								 entOut.size())) {
-		log::Warn("generate: failed to write {} files", stem);
-		return {};
-	}
-	m_project.levels.push_back(stem);
-	m_project.Save();
-
-	// --- join it to the project ----------------------------------------------
+bool Game::LinkToFloorAbove(const std::string& stem,
+							const std::vector<std::pair<int, int>>& cells) {
 	// Without a stair the new level is unreachable, and the checker rightly says
 	// so. The pair is authored through AddStairAt so it matches what the EDITOR
 	// would write — each side arriving on its counterpart. Phase 3 found five
 	// hand-made stairs that do not match that, and a generator is the last thing
 	// that should manufacture more of them.
 	//
+	// The floor above is the one before `stem` in its DUNGEON, not in the
+	// project's flat list: that list interleaves dungeons, and linking to its
+	// previous entry once joined a new crypt floor to the harness's arena.
+	const CatalogEntry* dungeon = m_project.DungeonOfLevel(stem);
+	if (!dungeon) return false; // an orphan level has no floor above
+	const std::vector<std::string> floors = m_project.DungeonLevels(dungeon->id);
+	const auto it = std::find(floors.begin(), floors.end(), stem);
+	if (it == floors.end() || it == floors.begin()) return false; // the top floor
+	const std::string& prev = *(it - 1);
+
+	std::string downType;
+	for (const CatalogEntry& e : m_project.stairs.Entries())
+		if (!CatalogBool(&e, "up", false) && CatalogBool(&e, "traverse", true)) {
+			downType = e.id;
+			break;
+		}
 	// AddStairAt puts both halves on the SAME cell, so the link needs a square
-	// that suits BOTH levels. The generated start is tried first (arriving there
-	// is what a player expects), then any other floor cell.
-	const std::vector<std::string>& lvls = m_project.levels;
-	if (lvls.size() >= 2) {
-		const std::string prev = lvls[lvls.size() - 2];
-		std::string downType;
-		for (const CatalogEntry& e : m_project.stairs.Entries())
-			if (!CatalogBool(&e, "up", false) && CatalogBool(&e, "traverse", true)) {
-				downType = e.id;
-				break;
-			}
-		std::vector<std::pair<int, int>> tries{{lv.startX, lv.startZ}};
-		for (int z = 1; z < lv.height - 1; ++z)
-			for (int x = 1; x < lv.width - 1; ++x)
-				if (lv.At(x, z)) tries.push_back({x, z});
-		bool linked = false;
-		if (!downType.empty())
-			for (const auto& [x, z] : tries)
-				if (m_world->CellFreeForStair(prev, x, z) &&
-					m_world->CellFreeForStair(stem, x, z)) {
-					linked = m_world->AddStairAt(prev, downType, x, z);
-					if (linked) break;
-				}
-		if (!linked)
-			log::Warn("generate: {} has no stair from {} - no cell suits both",
-					  stem, prev);
-	}
-	return stem;
+	// that suits BOTH levels.
+	if (!downType.empty())
+		for (const auto& [x, z] : cells)
+			if (m_world->CellFreeForStair(prev, x, z) &&
+				m_world->CellFreeForStair(stem, x, z) &&
+				m_world->AddStairAt(prev, downType, x, z))
+				return true;
+	log::Warn("new level: {} has no stair from {} - no cell suits both", stem, prev);
+	return false;
 }
 
 bool Game::BuildAndInstall(const std::string& stem, const generate::Params& params,
-						   const std::vector<std::string>& theme) {
+						   const std::vector<std::string>& theme,
+						   const DungeonMap& donor, std::span<const StairLink> stairs) {
 	generate::Params p = params;
 	FillPools(p, theme);
 	const generate::Level lv = generate::Run(p);
 
 	std::string map, ent;
-	BuildLevelText(stem, lv, p, m_world->Map(), theme, map, ent);
+	BuildLevelText(stem, lv, p, donor, theme, stairs, map, ent);
 
 	// Parsed through a TEMP file rather than the level's own, so the real files
 	// stay untouched until `savemap` — which is how every other editor edit
@@ -293,9 +294,39 @@ bool Game::BuildAndInstall(const std::string& stem, const generate::Params& para
 bool Game::RegenerateViewedLevel(generate::Params params) {
 	const std::string stem = m_mapView.ViewedLevel();
 	if (stem.empty()) return false;
+	const DungeonMap& viewed = m_mapView.ViewedMap();
+	// THE LEVEL KEEPS ITS STAIRS. Their far ends live on the neighbouring floors,
+	// which a reroll of this one has no business moving — so each stair's square
+	// is handed to the generator to keep open. The one leading UP to the floor
+	// above is the ENTRY (the start, and the root of the layout); every other is
+	// kept open and joined on. Without this, the create-then-regenerate loop
+	// stranded a fresh floor on its very first reroll.
+	const std::vector<StairLink> stairs = viewed.Stairs();
+	std::string above;
+	if (const CatalogEntry* d = m_project.DungeonOfLevel(stem)) {
+		const std::vector<std::string> floors = m_project.DungeonLevels(d->id);
+		const auto it = std::find(floors.begin(), floors.end(), stem);
+		if (it != floors.end() && it != floors.begin()) above = *(it - 1);
+	}
+	const auto entry = std::find_if(stairs.begin(), stairs.end(),
+									[&](const StairLink& s) {
+										return !above.empty() && s.destLevel == above;
+									});
+	for (auto it = stairs.begin(); it != stairs.end(); ++it) {
+		const bool isEntry = entry != stairs.end() ? it == entry : it == stairs.begin();
+		if (isEntry) {
+			params.entryX = it->x;
+			params.entryZ = it->z;
+		} else {
+			params.keepOpen.push_back({it->x, it->z});
+		}
+	}
 	// ONE undo step, and no level transition — see the declaration in Game.h.
+	// The level is its own palette donor: a reroll changes the shape, not the
+	// look (it used to take the ACTIVE level's, so rerolling a browsed floor
+	// quietly re-skinned it).
 	m_world->BeginUndoStep();
-	const bool ok = BuildAndInstall(stem, params, m_mapView.ViewedMap().Theme());
+	const bool ok = BuildAndInstall(stem, params, viewed.Theme(), viewed, stairs);
 	m_world->CommitUndoStep(ok);
 	return ok;
 }

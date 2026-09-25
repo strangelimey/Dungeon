@@ -1,0 +1,96 @@
+// ============================================================================
+// Game/GenerateKnobs.cpp — see GenerateKnobs.h.
+// ============================================================================
+#include "Game/GenerateKnobs.h"
+
+#include <algorithm>
+#include <charconv>
+#include <cmath>
+#include <format>
+
+namespace dungeon::game::generate {
+
+namespace {
+
+constexpr const char* kShape = "map.gen.tab.shape";
+constexpr const char* kPopulation = "map.gen.tab.population";
+
+constexpr const char* kTabs[] = {kShape, kPopulation};
+
+// Captureless lambdas decay to the plain function pointers Knob holds, which
+// keeps the table a constant with no per-row allocation.
+constexpr Knob kKnobs[] = {
+	{"width", "map.gen.width", kShape, KnobKind::Int, 8, 128,
+	 [](const Params& p) -> double { return p.width; },
+	 [](Params& p, double v) { p.width = static_cast<int>(v); }},
+	{"height", "map.gen.height", kShape, KnobKind::Int, 8, 128,
+	 [](const Params& p) -> double { return p.height; },
+	 [](Params& p, double v) { p.height = static_cast<int>(v); }},
+	{"rooms", "map.gen.rooms", kShape, KnobKind::Int, 1, 40,
+	 [](const Params& p) -> double { return p.rooms; },
+	 [](Params& p, double v) { p.rooms = static_cast<int>(v); }},
+	{"branching", "map.gen.branching", kShape, KnobKind::Float, 0, 1,
+	 [](const Params& p) -> double { return p.branching; },
+	 [](Params& p, double v) { p.branching = static_cast<float>(v); }},
+	{"seed", "map.gen.seed", kShape, KnobKind::Seed, 0, 4294967295.0,
+	 [](const Params& p) -> double { return p.seed; },
+	 [](Params& p, double v) { p.seed = static_cast<u32>(v); }},
+	{"locks", "map.gen.locks", kPopulation, KnobKind::Int, 0, 8,
+	 [](const Params& p) -> double { return p.locks; },
+	 [](Params& p, double v) { p.locks = static_cast<int>(v); }},
+	{"difficulty", "map.gen.difficulty", kPopulation, KnobKind::Float, 0, 1,
+	 [](const Params& p) -> double { return p.difficulty; },
+	 [](Params& p, double v) { p.difficulty = static_cast<float>(v); }},
+	{"reward", "map.gen.reward", kPopulation, KnobKind::Float, 0, 1,
+	 [](const Params& p) -> double { return p.reward; },
+	 [](Params& p, double v) { p.reward = static_cast<float>(v); }},
+};
+
+} // namespace
+
+std::span<const Knob> Knobs() { return kKnobs; }
+
+std::span<const char* const> KnobTabs() { return kTabs; }
+
+void SetKnob(const Knob& k, Params& p, double v) {
+	if (!std::isfinite(v)) return;
+	v = std::clamp(v, k.lo, k.hi);
+	// Fractions keep two places: the dialog shows two, and a value written to a
+	// file should read back as what the slider said, not 0.4999237.
+	v = k.kind == KnobKind::Float ? std::round(v * 100.0) / 100.0 : std::round(v);
+	k.set(p, v);
+}
+
+std::string Encode(const Params& p) {
+	std::string out;
+	for (const Knob& k : kKnobs) {
+		if (!out.empty()) out += ' ';
+		// Whole numbers print as integers: {:g} would put a large seed in
+		// exponent form, and a seed that does not round-trip is a lost level.
+		const double v = k.get(p);
+		out += k.kind == KnobKind::Float
+				   ? std::format("{}:{:g}", k.key, v)
+				   : std::format("{}:{}", k.key, static_cast<long long>(v));
+	}
+	return out;
+}
+
+void Decode(std::string_view text, Params& p) {
+	size_t pos = 0;
+	while (pos < text.size()) {
+		const size_t end = std::min(text.find(' ', pos), text.size());
+		const std::string_view pair = text.substr(pos, end - pos);
+		pos = end + 1;
+		const size_t colon = pair.find(':');
+		if (colon == std::string_view::npos) continue;
+		const std::string_view key = pair.substr(0, colon);
+		const std::string_view val = pair.substr(colon + 1);
+		double v = 0.0;
+		const auto [ptr, ec] = std::from_chars(val.data(), val.data() + val.size(), v);
+		if (ec != std::errc() || ptr != val.data() + val.size()) continue;
+		for (const Knob& k : kKnobs)
+			if (key == k.key) SetKnob(k, p, v);
+	}
+}
+
+} // namespace dungeon::game::generate

@@ -254,7 +254,7 @@ void Slider::UpdateSelf(UIContext& ctx) {
 }
 
 void Slider::RefreshDisplay() {
-	m_display = std::format("{}: {:.2f}", label, m_value);
+	m_display = std::format("{}: {:.{}f}", label, m_value, m_decimals);
 }
 
 void Slider::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {

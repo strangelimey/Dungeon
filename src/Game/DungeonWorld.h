@@ -899,6 +899,14 @@ public:
 	// seam can find a cell that suits BOTH levels of a link before authoring it.
 	// Loads the level on demand, like every other cross-level query here.
 	bool CellFreeForStair(const std::string& stem, int x, int z);
+	// Where on `stem` a stair DOWN to a new floor should go: a square a stair
+	// can stand on, as many steps from the level's start as its floor reaches
+	// — the way on is found at the far end, the generator's own rule for its
+	// exit. {-1,-1} when the level has no such square. The new floor is then
+	// BUILT AROUND this square rather than the square searched for afterwards,
+	// because a stair needs the same (x,z) on both levels and two independent
+	// layouts rarely share a free one (docs/level-building.md P1).
+	std::pair<int, int> FarthestStairCell(const std::string& stem);
 
 	// Replace a level's CONTENT wholesale — the generator's regenerate.
 	//

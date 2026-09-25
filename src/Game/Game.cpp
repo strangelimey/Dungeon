@@ -11,6 +11,7 @@
 #include "Core/Paths.h"
 #include "Core/Profile.h"
 #include "Game/AssetUtil.h"
+#include "Game/GenerateKnobs.h"
 #include "Graphics/DisplayEnum.h"
 #include "Graphics/Texture.h"
 #include "Platform/PerfMonitor.h"
@@ -220,7 +221,9 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	// level as one undo step, then the check runs immediately — the whole reason
 	// the lock ordering is built by construction is so that comes back clean, and
 	// showing it is how anyone finds out it stopped.
-	m_mapView.onGenerate = [this] { m_generateDialog.Open(m_mapView.ViewedLevel()); };
+	m_mapView.onGenerate = [this] {
+		m_generateDialog.OpenRegenerate(m_mapView.ViewedLevel());
+	};
 	m_generateDialog.onGenerate = [this](const generate::Params& p) {
 		if (!RegenerateViewedLevel(p)) return;
 		if (m_world->onMessage)
@@ -249,11 +252,36 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 			m_world->onMessage(loc::FormatLine("map.level.applied",
 											  m_levelSettingsDialog.Level()));
 	};
-	// The editor toolbar's [+] button: mint a fresh level (files + manifest +
-	// the viewed dungeon's level list) and hand the stem back so the view jumps
-	// onto the new canvas.
+	// The editor toolbar's [+] button: the generator dialog in CREATE mode,
+	// aimed at the viewed dungeon (docs/level-building.md P1). Its Create /
+	// Empty buttons mint the level (files + manifest + the dungeon's level list
+	// + the stair from the floor above) and the view jumps onto it. A generated
+	// one is CHECKED at once, like a regenerate.
 	m_mapView.onNewLevel = [this](const std::string& dungeonId) {
-		return CreateNewLevel(dungeonId);
+		// Said up front: which dungeon, and the floor the new one will stair
+		// down from (CreateNewLevel links to the dungeon's LAST floor).
+		std::string where = loc::Tr("map.gen.nodungeon");
+		if (const CatalogEntry* d = m_project.dungeons.Find(dungeonId)) {
+			const std::vector<std::string> floors = m_project.DungeonLevels(dungeonId);
+			where = floors.empty()
+						? loc::Format("map.gen.wherefirst", d->Display())
+						: loc::Format("map.gen.where", d->Display(), floors.back());
+		}
+		m_generateDialog.OpenCreate(dungeonId, where);
+	};
+	m_generateDialog.onCreate = [this](const std::string& dungeonId,
+									   const generate::Params* p) {
+		const std::string stem = CreateNewLevel(dungeonId, p);
+		if (stem.empty()) return stem;
+		m_mapView.SetViewLevel(stem);
+		if (p) m_validateDialog.Open(ValidateProject());
+		return stem;
+	};
+	// Persist the knobs when they are USED, so the next session's dialog opens
+	// on the level you were last rolling rather than on the defaults.
+	m_generateDialog.onKnobsUsed = [this](const generate::Params& p) {
+		m_settings.generatorKnobs = generate::Encode(p);
+		m_settings.Save();
 	};
 	// The Level dialog's inline name edit → the full rename flow.
 	m_levelSettingsDialog.onRename = [this](const std::string& oldStem,
@@ -261,6 +289,11 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		return RenameLevel(oldStem, newStem);
 	};
 	m_settings.Load();
+	{
+		generate::Params knobs;
+		generate::Decode(m_settings.generatorKnobs, knobs);
+		m_generateDialog.SetKnobs(knobs);
+	}
 	ApplyLanguage(false); // strings must exist before any UI builds
 	m_audio.SetMasterVolume(m_settings.volume);
 	m_device.SetPresentInterval(m_settings.presentInterval);

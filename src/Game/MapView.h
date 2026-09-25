@@ -89,15 +89,16 @@ public:
 	std::function<void()> onValidate;
 	// The toolbar's Generate button: open the generator knobs for this level.
 	std::function<void()> onGenerate;
-	// The toolbar's [+] button: the owner (Game) creates a fresh level on disk
-	// (minimal .map/.ent + a manifest append) and returns its stem so the view
-	// can jump straight to it — or "" if creation failed.
+	// The toolbar's [+] button: the owner (Game) opens the generator dialog in
+	// CREATE mode, and jumps the view (SetViewLevel) onto whatever it makes —
+	// the creation is the dialog's decision now, so there is no stem to return
+	// here.
 	//
 	// IT LANDS IN THE DUNGEON BEING VIEWED (W5): the argument is that dungeon's
 	// id, so the new level joins its `levels` list instead of arriving loose in
 	// the manifest. Empty when the viewed level belongs to no dungeon — an
 	// orphan begets an orphan, which is honest rather than guessing a home.
-	std::function<std::string(const std::string& dungeonId)> onNewLevel;
+	std::function<void(const std::string& dungeonId)> onNewLevel;
 
 	// --- the player map's WORLD page (W6) ------------------------------
 	// The M-map can show the overworld instead of this level. MapView does
