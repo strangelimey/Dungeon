@@ -971,6 +971,16 @@ const StairLink* DungeonMap::StairAt(int x, int z) const {
 	return nullptr;
 }
 
+bool DungeonMap::SetStairFacing(int x, int z, Direction facing, Direction destFacing) {
+	for (StairLink& s : m_stairs)
+		if (s.x == x && s.z == z) {
+			s.facing = facing;
+			s.destFacing = destFacing;
+			return true;
+		}
+	return false;
+}
+
 bool DungeonMap::RemoveStair(int x, int z, StairLink* removed) {
 	for (size_t i = 0; i < m_stairs.size(); ++i)
 		if (m_stairs[i].x == x && m_stairs[i].z == z) {

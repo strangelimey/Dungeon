@@ -66,6 +66,7 @@ add_library(Game STATIC
 	MonsterAI.cpp
 	MonsterConfigDialog.cpp
 	NicheInspector.cpp
+	StairInspector.cpp
 	MessageLog.cpp
 	Party.cpp
 	Generate.cpp

@@ -65,6 +65,7 @@
 #include "Game/WorldsDialog.h"
 #include "Game/MonsterConfigDialog.h"
 #include "Game/ButtonInspector.h"
+#include "Game/StairInspector.h"
 #include "Game/DoorInspector.h"
 #include "Game/NicheInspector.h"
 #include "Game/ProjectileInspector.h"
@@ -918,6 +919,8 @@ private:
 	ButtonInspector m_buttonInspector;
 	// Per-instance wall-niche editor (shape / secret start / name).
 	NicheInspector m_nicheInspector;
+	// Per-instance stair/pit editor (facing, arrival facing, go there, delete).
+	StairInspector m_stairInspector;
 	// In-flight projectile details (read-only + dismiss); transient content.
 	ProjectileInspector m_projectileInspector;
 	// Chooser shown when a Select-clicked cell holds >1 inspectable object; picking a
@@ -925,7 +928,8 @@ private:
 	InspectPicker m_inspectPicker;
 	struct InspectTarget {
 		enum class Kind {
-			Monster, Sconce, Brazier, Door, Button, Decoration, Item, Projectile, Niche
+			Monster, Sconce, Brazier, Door, Button, Decoration, Item, Projectile, Niche,
+			Stair
 		} kind = Kind::Monster;
 		u32 runtimeId = 0;        // Monster / Projectile: the stable id
 		Direction wall = Direction::North; // Sconce / Niche: the wall it is on
@@ -968,7 +972,7 @@ private:
 	// an inspector is one entry here rather than three hand-written `if` blocks
 	// that must be kept in step. They share a base (InstanceInspector), so
 	// nothing in those loops needs the concrete type.
-	std::array<InstanceInspector*, 6> InstanceInspectors();
+	std::array<InstanceInspector*, 7> InstanceInspectors();
 	InstanceInspector* ActiveInstanceInspector(); // the open per-instance dialog, or null
 	PreviewSpec m_inspectPreview;                 // cached spec (re-pass on route return)
 	gfx::ParticleBatch m_previewParticles;        // preview-only particle batch (torch)

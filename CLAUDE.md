@@ -1802,8 +1802,9 @@ Full per-phase history + gotchas live in the editor-overhaul memory.
   it captured a null and drew the "x" fallback forever. Load in BuildStaticUi,
   not in a load task. Footer keeps only ACTION buttons
   (Save/Delete/Remove/Animation/?), right-aligned to the panel's inner edge so
-  nothing overruns it. Covered: the InstanceInspector base (all 6 per-instance
-  inspectors), TypeEditorDialog, AssetDialog, BalanceDialog, MonsterConfigDialog,
+  nothing overruns it. Covered: the InstanceInspector base (all 7 per-instance
+  inspectors; the stair one joined 2026-09-25 - right-clicking a stair used to
+  open nothing, because AnyInspectableAt never listed stairs), TypeEditorDialog, AssetDialog, BalanceDialog, MonsterConfigDialog,
   LevelSettingsDialog, ProjectileInspector, InspectPicker, and the character
   sheet (GameUI). NOT touched: Yes/No confirm modals (their explicit choice
   buttons aren't a "Close") and the full-screen menu/settings/save PAGES (Back

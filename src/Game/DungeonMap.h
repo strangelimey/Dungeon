@@ -489,6 +489,9 @@ public:
 	// Removes the stair link at (x,z), copying it into `removed` first (so the
 	// caller can clean up its paired return stair). False if the cell has none.
 	bool RemoveStair(int x, int z, StairLink* removed = nullptr);
+	// Turns the stair at (x,z) (the stair inspector): which way its flight faces,
+	// and which way the party faces on arriving at the other end. False if none.
+	bool SetStairFacing(int x, int z, Direction facing, Direction destFacing);
 	// Repoints every stair whose dest names `oldStem` (a level rename — the
 	// dest strings are the cross-level references that would go stale).
 	// Stairs whose TYPE is in `skipTypes` are left alone: an EXIT's dest names

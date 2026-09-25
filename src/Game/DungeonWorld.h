@@ -1189,6 +1189,13 @@ public:
 	// RemovePairedStair). False if the cell has no stair. The remote-level
 	// counterpart is the stair rung of EraseRemote.
 	bool RemoveStairAt(int x, int z);
+	// The stair inspector's seam (active level): the stair on (x,z), false if
+	// none; and turning it - the record AND its prop, so the flight turns in
+	// the 3D view at once. The paired half on the other level is untouched.
+	bool StairSettings(int x, int z, StairLink& out) const;
+	bool SetStairFacing(int x, int z, Direction facing, Direction destFacing);
+	// The stair prop's mesh(es), for the inspector's preview pane.
+	std::vector<gfx::PreviewSubmesh> StairPreviewSubs(int x, int z) const;
 
 	// --- remote level editing (the map overlay edits ANY level) --------------
 	// Counterparts of the live editing seam for a NON-ACTIVE level `stem`:

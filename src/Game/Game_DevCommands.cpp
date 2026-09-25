@@ -157,11 +157,48 @@ void Game::RegisterDevCommands() {
 						   for (const std::string& line : m_world->GroupsReport())
 							   m_console.Print(line);
 					   });
-	m_console.Register("editor", "open the map in editor mode (off = player map)",
+	m_console.Register("editor",
+					   "open the map in editor mode (off = player map; inspect <x> <z> = "
+					   "what a right-click on that square does; inspect off closes it)",
 					   [this](const std::vector<std::string>& args) {
 						   if (!args.empty() && args[0] == "off") {
 							   m_mapView.SetMode(MapView::Mode::Player);
 							   m_console.Print("map: player mode");
+							   return;
+						   }
+						   // The right-click, for a harness: select the square and
+						   // open its inspector (or the chooser), then say which.
+						   if (!args.empty() && args[0] == "inspect") {
+							   if (args.size() >= 2 && args[1] == "off") {
+								   for (InstanceInspector* ii : InstanceInspectors()) ii->Close();
+								   m_inspectPicker.Close();
+								   m_console.Print("editor inspect: closed");
+								   return;
+							   }
+							   if (!Need(m_console, args, 3, "usage: editor inspect <x> <z> | off"))
+								   return;
+							   if (m_mapView.IsOpen())
+								   m_mapView.SetMode(MapView::Mode::Editor);
+							   else
+								   m_mapView.Open(MapView::Mode::Editor);
+							   // A real right-click cannot land while a dialog is up,
+							   // so none is: a leftover would read as this square's.
+							   for (InstanceInspector* ii : InstanceInspectors()) ii->Close();
+							   m_inspectPicker.Close();
+							   m_mapEditor.InspectAt(std::atoi(args[1].c_str()),
+													 std::atoi(args[2].c_str()));
+							   const InstanceInspector* open = ActiveInstanceInspector();
+							   const std::string what = std::format(
+								   "editor inspect: {}", open == &m_stairInspector ? "stair"
+													 : open						 ? "inspector"
+													 : m_inspectPicker.IsOpen() ? "chooser"
+																				 : "nothing");
+							   m_console.Print(what);
+							   // Logged too: InGameTest's sweep types this into a
+							   // console the log does not echo, and a sweep of a
+							   // dialog that never opened must not read as clean.
+							   log::Info("{} ({}, {} on {})", what, args[1], args[2],
+										 m_world->CurrentLevel());
 							   return;
 						   }
 						   if (m_mapView.IsOpen())

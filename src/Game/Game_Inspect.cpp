@@ -13,9 +13,10 @@
 #include <utility>
 
 namespace dungeon::game {
-std::array<InstanceInspector*, 6> Game::InstanceInspectors() {
+std::array<InstanceInspector*, 7> Game::InstanceInspectors() {
 	return {&m_entityInspector, &m_fixtureInspector, &m_propInspector,
-			&m_doorInspector,   &m_buttonInspector,  &m_nicheInspector};
+			&m_doorInspector,   &m_buttonInspector,  &m_nicheInspector,
+			&m_stairInspector};
 }
 
 InstanceInspector* Game::ActiveInstanceInspector() {
@@ -303,6 +304,32 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 			walls.push_back(d);
 		}
 		m_nicheInspector.Open(c, std::move(types), std::move(walls));
+		break;
+	}
+	case InspectTarget::Kind::Stair: {
+		StairLink s;
+		if (!m_world->StairSettings(cx, cz, s)) return; // gone since the picker listed it
+		StairInspector::Config c;
+		c.x = cx;
+		c.z = cz;
+		const CatalogEntry* type = m_project.stairs.Find(s.type);
+		c.typeName = type ? type->Display() : s.type;
+		c.dest = s.destLevel;
+		// An exit's dest names a world-map location, not a level.
+		c.destIsLevel = std::find(m_project.levels.begin(), m_project.levels.end(),
+								  s.destLevel) != m_project.levels.end();
+		c.destX = s.destX;
+		c.destZ = s.destZ;
+		c.facing = s.facing;
+		c.destFacing = s.destFacing;
+		PreviewSpec pv;
+		pv.subs = m_world->StairPreviewSubs(cx, cz);
+		// Delete takes BOTH halves, as the middle-click erase does.
+		m_stairInspector.onDelete = [this, cx, cz] {
+			m_world->BeginUndoStep();
+			m_world->CommitUndoStep(m_world->RemoveStairAt(cx, cz));
+		};
+		m_stairInspector.Open(c, std::move(pv));
 		break;
 	}
 	}

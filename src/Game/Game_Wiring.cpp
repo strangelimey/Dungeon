@@ -532,6 +532,13 @@ void Game::WireModuleCallbacks() {
 				labels.push_back(loc::Tr("map.key.button"));
 			}
 		}
+		{
+			StairLink stair;
+			if (m_world->StairSettings(cx, cz, stair)) {
+				m_inspectTargets.push_back(InspectTarget{InspectTarget::Kind::Stair});
+				labels.push_back(display(m_project.stairs.Find(stair.type), stair.type));
+			}
+		}
 		// Niche faces touching this cell — its own walls, or (clicking the wall
 		// block) the niches carved into it from adjacent floor cells. One labeled
 		// target per face, so a dead-end's several niches each pick individually.
@@ -662,6 +669,19 @@ void Game::WireModuleCallbacks() {
 	m_nicheInspector.onSave = [this] {
 		if (m_world->SaveAllLevels().empty())
 			log::Warn("niche inspector: failed to save map");
+	};
+
+	// Stair inspector: turn the flight / set the arrival facing live, persist
+	// the map (a stair is static .map data, like a niche), or go to the far end.
+	m_stairInspector.onApply = [this](const StairInspector::Config& c) {
+		m_world->SetStairFacing(c.x, c.z, c.facing, c.destFacing);
+	};
+	m_stairInspector.onSave = [this] {
+		if (m_world->SaveAllLevels().empty()) log::Warn("stair inspector: failed to save map");
+	};
+	m_stairInspector.onGoTo = [this](const StairInspector::Config& c) {
+		m_mapView.SetViewLevel(c.dest);
+		m_mapEditor.SelectCell(c.destX, c.destZ);
 	};
 
 	// Item/decoration inspector: apply the facing edit to the right live object.

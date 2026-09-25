@@ -1662,9 +1662,36 @@ void DungeonWorld::SetItemFacing(int entityId, Direction facing) {
 	if (Entity* e = m_entities.MutableById(entityId)) e->facing = facing;
 }
 
+bool DungeonWorld::StairSettings(int x, int z, StairLink& out) const {
+	const StairLink* s = m_map.StairAt(x, z);
+	if (!s) return false;
+	out = *s;
+	return true;
+}
+
+bool DungeonWorld::SetStairFacing(int x, int z, Direction facing, Direction destFacing) {
+	if (!m_map.SetStairFacing(x, z, facing, destFacing)) return false;
+	// The prop is a decoration flagged `stair` (PlaceStairProp); it turns the
+	// way any standing decoration does.
+	for (int i = 0; i < static_cast<int>(m_decorations.size()); ++i) {
+		const Decoration& d = m_decorations[static_cast<size_t>(i)];
+		if (d.stair && d.x == x && d.z == z) SetDecorationFacing(i, facing);
+	}
+	return true;
+}
+
+std::vector<gfx::PreviewSubmesh> DungeonWorld::StairPreviewSubs(int x, int z) const {
+	for (int i = 0; i < static_cast<int>(m_decorations.size()); ++i) {
+		const Decoration& d = m_decorations[static_cast<size_t>(i)];
+		if (d.stair && d.x == x && d.z == z) return DecorationPreviewSubs(i);
+	}
+	return {};
+}
+
 bool DungeonWorld::AnyInspectableAt(int cx, int cz) const {
 	std::string target;
 	return MonsterRuntimeIdAt(cx, cz) != 0 || SconceAt(cx, cz) || BrazierAt(cx, cz) ||
+		   m_map.StairAt(cx, cz) != nullptr ||
 		   DoorAt(cx, cz) != nullptr || ButtonSettings(cx, cz, target) ||
 		   !DecorationsAt(cx, cz).empty() || !ItemsAt(cx, cz).empty() ||
 		   !ProjectilesAt(cx, cz).empty() || !NicheFacesAt(cx, cz).empty();

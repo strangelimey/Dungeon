@@ -153,6 +153,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_entityInspector(device, m_fonts), m_fixtureInspector(device, m_fonts),
 	  m_propInspector(device, m_fonts), m_doorInspector(device, m_fonts),
 	  m_buttonInspector(device, m_fonts), m_nicheInspector(device, m_fonts),
+	  m_stairInspector(device, m_fonts),
 	  m_projectileInspector(device, m_fonts), m_inspectPicker(device, m_fonts),
 	  m_previewParticles(device) {
 	m_mapView.SetEditor(&m_mapEditor); // the view drives the editor in Editor mode
@@ -480,6 +481,7 @@ void Game::UnloadWorld() {
 	m_doorInspector.Close();
 	m_buttonInspector.Close();
 	m_nicheInspector.Close();
+	m_stairInspector.Close();
 	m_projectileInspector.Close();
 	m_inspectPicker.Close();
 	// Borrowed GPU pointers into the world's kind caches.
@@ -1781,8 +1783,8 @@ void Game::Update(float dt) {
 		return;
 	}
 	// The per-instance edit dialogs (monster / torch / item+decoration / door /
-	// button / niche) are likewise modal over the editor. They share a base, so
-	// one walk of InstanceInspectors() covers all six, and the preview
+	// button / niche / stair) are likewise modal over the editor. They share a
+	// base, so one walk of InstanceInspectors() covers all seven, and the preview
 	// simulation is driven off the open dialog's SPEC rather than off which
 	// dialog it is — the three flags are disjoint across the six (only a monster
 	// spec carries a skeleton, only a fixture's carries fire, only a loose

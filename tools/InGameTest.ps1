@@ -121,6 +121,22 @@ $screens = @(
 	@{ label = 'sweep_genpopulation'; viaConsole = $true
 	   open = { Run-Cmd 'editor'; Run-Cmd 'generate dialog'; Run-Cmd 'generate dialog tab 2' }
 	   close = { Run-Cmd 'generate dialog off'; Run-Cmd 'editor off' } },
+	# The STAIR inspector, both layouts: crypt1's stair down at 1,1 (destination,
+	# arrival facing, Go to) and its exit at 7,7 (one "leaves through" line).
+	# `editor inspect` is what a right-click on the square does. It goes to crypt1
+	# FIRST: Enter on the landing page can mean Continue, which loads whatever
+	# level the newest save names (an eval save puts it on eval_arena), and the
+	# first version of this swept two empty squares of the arena - clean, and
+	# vacuous. The verdict below demands the dialog really opened, both times.
+	# FROZEN, because crypt1 has a monster and the world simulates under the
+	# editor: unfrozen, it killed the party mid-sweep, and every screen after
+	# this one was reached from the title screen instead.
+	@{ label = 'sweep_stair'; viaConsole = $true
+	   open = { Run-Cmd 'freeze on'; Run-Cmd 'goto crypt1'; Run-Cmd 'editor inspect 1 1' }
+	   close = { Run-Cmd 'editor inspect off'; Run-Cmd 'editor off' } },
+	@{ label = 'sweep_stairexit'; viaConsole = $true
+	   open = { Run-Cmd 'editor inspect 7 7' }
+	   close = { Run-Cmd 'editor inspect off'; Run-Cmd 'editor off' } },
 	# The WORLD screen's two dialogs, LAST because reaching them leaves the
 	# dungeon: each one opens only on the world map (the one state that routes
 	# input to it), so the sweep goes there and comes back.
@@ -252,6 +268,17 @@ foreach ($s in $screens) {
 		Write-Host "  [FAIL] $($s.label) never reached the log - screen not audited" -ForegroundColor Red
 		$failures++
 	}
+}
+
+# A dialog screen counts only if the dialog OPENED: a sweep of the empty editor
+# behind it is clean for the wrong reason.
+$stairs = @($lines | Select-String 'editor inspect: stair')
+if ($stairs.Count -ge 2) {
+	Write-Host '  [ok  ] the stair inspector opened for both sweeps'
+} else {
+	Write-Host "  [FAIL] the stair inspector opened $($stairs.Count) of 2 times - its sweep audited an empty editor" -ForegroundColor Red
+	$lines | Select-String 'editor inspect: ' | ForEach-Object { Write-Host "     $($_.Line)" }
+	$failures++
 }
 
 # Then the findings themselves.
