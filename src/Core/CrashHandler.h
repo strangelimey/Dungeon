@@ -40,6 +40,16 @@ namespace dungeon::crash {
 // diag::Init() so the record exists to write into. Idempotent.
 void Install();
 
+// UNATTENDED: no dialog may wait for a person. Everything that RECORDS a crash
+// is untouched (ReportFatal's record, log line and minidump all land first, as
+// ever); this only stops the two things that then sit on the desktop waiting
+// to be clicked - the debug CRT's "abort() has been called" box and the
+// Windows crash box - so the process simply ENDS. `-headless` turns it on
+// (Main): a test run that tripped an assert used to hang on a modal dialog until
+// its timeout, on the screen of whoever was at the machine, looking exactly
+// like a real crash (docs/level-building.md P5).
+void SetUnattended();
+
 // Records a Fatal event, logs it, writes a dump and flushes — everything that
 // must happen while the process is still able to do it. Does NOT abort: the
 // caller decides, because DN_ASSERT wants abort() and a repeat-limit shutdown

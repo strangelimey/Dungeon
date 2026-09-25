@@ -1,6 +1,8 @@
 # Level building - generate-on-create for play testing
 
-Branch `level-building`, opened 2026-09-24. Draft plan. Nothing is built yet.
+Branch `level-building`, opened 2026-09-24. P1-P5 are built (each phase's
+"LANDED" note below says what, and what it found); the checks are
+`tools/LevelBuildTest.py`, six phases, all measured from the level files.
 
 ## The notes (Michael, 2026-09-24)
 
@@ -253,6 +255,39 @@ Each is its own setting, 0..1, and each shows up as its own line in the report:
 - Checks (the house method: break what is measured and see the number move):
   the same params give the same level; a seed sweep gives 0 checker errors; each
   knob moves its own number in the report.
+
+**P4b LANDED (2026-09-25).**
+- `roommin`/`roommax`; a Theme tab (a theme tag and "walls and floors like
+  <level>", both "(as before)" by default) on a new TEXT knob kind, `Choice`;
+  presets in the project's `catalog/genpresets.cat` (seedless recipes, the demo
+  ships four), so the catalog round-trip is 25 of 25. `LevelBuildTest.py`
+  phase 5; the palette check first makes crypt2 DISTINCT, since every demo
+  level shares one palette.
+
+**P5 LANDED (2026-09-25).**
+- `Game::PlayLevel(stem)`: closes the generator and the editor and puts the
+  party on the level at its start - a level transition, or, for the level the
+  party is already on (a reroll of the active one), a walk back to the start.
+  Create mode gains "Generate and play"; regenerate mode "Play this level";
+  the console `generate play [stem]`.
+- A BUG IT FOUND, older than this branch: crypt1 has a sconce glyph in open
+  floor, which loads with a default facing, but `savemap` wrote it back as an
+  explicit `fixture sconce 4 4 north` - a record the loader ASSERTS faces a
+  wall. One save of crypt1 made the demo world fatal to load. The writer now
+  omits a facing that names no wall, so the record takes the glyph's own path.
+  (The floating sconce itself is an authoring question for Michael.)
+- UNATTENDED CRASHES: `-headless` now calls `crash::SetUnattended()`, so a
+  fatal error records, dumps and EXITS instead of parking a modal "Debug
+  Error" dialog on the desktop until a test's timeout. Michael saw two of those
+  and took them for crashes. Checked on purpose: `crashpoke assert` headless
+  exits by itself in 12 s with code 3, the FATAL line and a minidump.
+- `LevelBuildTest.py` phase 6: the party lands on the level's start AS THE FILE
+  HAS IT, on that level (mapinfo's size, start and walkable count against the
+  file), still in play; an unknown level is refused; the writer round-trips
+  the floating sconce and a second run reloads the saved world; playing the
+  level the party is on brings it back to the start. MUTATION: writing the
+  facing always fails both writer checks. The test takes phase numbers now
+  (`LevelBuildTest.py 6`) and reports a game crash instead of dying on it.
 
 ## Decisions (Michael, 2026-09-24)
 1. **Complexity** covers loops, winding, irregular rooms and dead ends, with **a

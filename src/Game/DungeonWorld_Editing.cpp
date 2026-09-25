@@ -1855,7 +1855,16 @@ static std::string SerializeMapStatic(const std::string& stem,
 	// The kind token is the instance's fixtures.cat id (the parser fills the
 	// default for glyph shorthand, so it is never empty).
 	for (const WallSconce& s : map.Sconces()) {
-		m += std::format("fixture {} {} {} {}", s.type, s.x, s.z, DirName(s.wall));
+		// The facing only when it names a WALL. A sconce with no solid neighbour
+		// (a 'T' glyph in open floor - crypt1 has one) loads by the glyph rule,
+		// which defaults to north without complaint; written back as an explicit
+		// `... north` it met the record rule instead, which asserts the wall is
+		// there - so one `savemap` of crypt1 made the demo world fatal to load.
+		// Without a facing the record takes the glyph's own path, and the
+		// round trip is exact.
+		const bool walled = !map.IsWalkable(s.x + DirDX(s.wall), s.z + DirDZ(s.wall));
+		m += walled ? std::format("fixture {} {} {} {}", s.type, s.x, s.z, DirName(s.wall))
+					: std::format("fixture {} {} {}", s.type, s.x, s.z);
 		// Only non-default light/smoke settings are written (keeps the .map minimal).
 		if (!s.lit) m += " lit=0";
 		if (s.brightness != kSconceBrightness) m += std::format(" bright={:g}", s.brightness);

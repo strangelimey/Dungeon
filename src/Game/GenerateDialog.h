@@ -79,8 +79,13 @@ public:
 	void SetReport(std::array<std::string, 4> lines, const std::string& levelStem) {
 		m_report = std::move(lines);
 		m_reportLevel = levelStem;
-		for (size_t i = 0; i < m_report.size(); ++i)
+		// Rows exist only for lines that were non-empty when the form was
+		// built, so a line with no row yet means the form must be rebuilt -
+		// DEFERRED, since this is called from inside the tree's own callbacks.
+		for (size_t i = 0; i < m_report.size(); ++i) {
 			if (m_reportLabels[i]) m_reportLabels[i]->text = m_report[i];
+			else if (!m_report[i].empty()) m_uiRebuild = true;
+		}
 	}
 
 	void Update(const Input& input, float width, float height);
@@ -108,6 +113,9 @@ public:
 	std::function<bool(const std::string&, generate::Params&)> onPresetLoad;
 	std::function<std::string(const std::string&, const generate::Params&)> onPresetSave;
 	std::function<bool(const std::string&)> onPresetDelete;
+	// P5: play `stem` from its start (the owner closes this dialog and the
+	// editor as part of it).
+	std::function<void(const std::string& stem)> onPlay;
 
 private:
 	void BuildUI();

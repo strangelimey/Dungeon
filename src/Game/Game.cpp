@@ -299,6 +299,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		return out;
 	};
 	m_generateDialog.presetNames = [this] { return GenPresetNames(); };
+	m_generateDialog.onPlay = [this](const std::string& stem) { PlayLevel(stem); };
 	m_generateDialog.onPresetLoad = [this](const std::string& name, generate::Params& p) {
 		return LoadGenPreset(name, p);
 	};

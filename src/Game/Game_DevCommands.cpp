@@ -218,7 +218,7 @@ void Game::RegisterDevCommands() {
 		});
 	m_console.Register("generate",
 					   "rough out a new level: generate [dungeon|again] [knob:value ...] | dialog [new|off|tab <n>] | "
-					   "preset [list|save|load|delete] [name] "
+					   "preset [list|save|load|delete] [name] | play [stem] "
 					   "(a new floor of the viewed dungeon by default, and the view jumps "
 					   "to it; `again` rerolls the VIEWED level in place, as the dialog's "
 					   "Regenerate does; knobs as the dialog names them, e.g. path:8 "
@@ -254,6 +254,15 @@ void Game::RegisterDevCommands() {
 										   GenerateDialog::Mode::Create
 									   ? "create"
 									   : "regenerate"));
+							   return;
+						   }
+						   // PLAY (P5): the dialog's Play buttons, without a mouse.
+						   if (!args.empty() && args[0] == "play") {
+							   const std::string stem =
+								   args.size() > 1 ? args[1] : m_mapView.ViewedLevel();
+							   m_console.Print(PlayLevel(stem)
+												   ? "generate: playing " + stem
+												   : "generate: cannot play " + stem);
 							   return;
 						   }
 						   // PRESETS (P4b), through the same Game functions the

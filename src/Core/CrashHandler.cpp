@@ -16,7 +16,9 @@
 #include "Core/StackTrace.h"
 
 #include <atomic>
+#include <crtdbg.h>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <exception>
 
@@ -174,6 +176,18 @@ void Install() {
 	log::Info("crash handlers installed (fault filter, terminate handler, throw-time "
 			  "stack capture; up to {} minidumps per run)",
 			  kMaxDumps);
+}
+
+void SetUnattended() {
+	// abort()'s own message box, and its hand-off to Windows Error Reporting.
+	_set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+	// The debug CRT's report windows (its own asserts and errors) go to the
+	// debugger's output instead of a window. A no-op in release.
+	_CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_DEBUG);
+	_CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_DEBUG);
+	// And the system's own "stopped working" box for a fault the filter passes on.
+	::SetErrorMode(::GetErrorMode() | SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+	log::Info("crash: unattended - a fatal error records, dumps and EXITS; no dialog waits");
 }
 
 bool WriteDump(void* context, std::string_view tag) {

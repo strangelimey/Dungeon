@@ -505,6 +505,11 @@ private:
 	bool LoadGenPreset(const std::string& name, generate::Params& params) const;
 	std::string SaveGenPreset(std::string name, const generate::Params& params);
 	bool DeleteGenPreset(const std::string& name);
+	// P5, the play-test loop: close the generator and the editor and put the
+	// party on `stem` at its start - a level transition, or, when it is the
+	// level the party is already on (a reroll of the active one), a step to its
+	// start. False, and nothing done, outside play or for an unknown level.
+	bool PlayLevel(const std::string& stem);
 	static std::vector<std::string> SplitKnobs(const std::string& line);
 	void ShowGenReport(const std::string& levelStem);
 

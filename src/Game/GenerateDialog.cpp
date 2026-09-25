@@ -175,7 +175,12 @@ void GenerateDialog::BuildUI() {
 
 	// What the last run BUILT, against what it was asked for. Empty until
 	// something has been generated here (see SetReport).
+	// Only the lines there ARE: four empty rows reserved before anything has
+	// been generated squeezed the knob tabs down to a single visible slider
+	// above a blank band (seen in the P5 screenshot). SetReport rebuilds the
+	// form when a report arrives with no rows yet to hold it.
 	for (size_t i = 0; i < m_report.size(); ++i) {
+		if (m_report[i].empty()) continue;
 		m_reportLabels[i] = chrome.body->Row<ui::Label>(FormRow(), m_report[i]);
 		m_reportLabels[i]->centerV = true;
 	}
@@ -200,11 +205,24 @@ void GenerateDialog::BuildUI() {
 				m_level = stem;
 				m_uiRebuild = true;
 			});
+		// THE PLAY-TEST LOOP in one click (P5): make it, and walk into it.
+		chrome.footer->Row<ui::Button>(
+			FooterButton(1.6f), loc::Tr("map.gen.createplay"), [this] {
+				if (!onCreate) return;
+				if (onKnobsUsed) onKnobsUsed(m_params);
+				const std::string stem = onCreate(m_dungeon, &m_params);
+				if (!stem.empty() && onPlay) onPlay(stem);
+			});
 	} else {
 		chrome.footer->Row<ui::Button>(FooterButton(1.4f), loc::Tr("map.gen.go"),
 									   [this] {
 										   if (onKnobsUsed) onKnobsUsed(m_params);
 										   if (onGenerate) onGenerate(m_params);
+									   });
+		// ...and walk into what the rerolls made, when it looks right.
+		chrome.footer->Row<ui::Button>(FooterButton(1.4f), loc::Tr("map.gen.play"),
+									   [this] {
+										   if (onPlay) onPlay(m_level);
 									   });
 	}
 	chrome.footer->Space(ui::Len::Fill());

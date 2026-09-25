@@ -1,0 +1,18 @@
+; levelplay.eval - the play-test loop (docs/level-building.md P5), in a scratch
+; copy of the demo world (run with -project lb_play). LevelBuildTest.py checks
+; where the party ended up against the level FILE, then runs a second script it
+; writes itself (a square to stand on first can only be read from this run's
+; output) for the play-the-level-you-are-on path.
+logecho on
+reset
+editor
+generate crypt width:40 height:40 roommin:3 roommax:7 path:6 branches:2 branchmin:1 branchmax:2 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.6 ramp:0.5 boss:0 reward:0.5 theme: palette: seed:61 locks:0
+generate play
+pos
+mapinfo
+; In play: an in-game command answers rather than refusing.
+validate
+; An unknown level is refused, and nothing happens.
+generate play nosuchlevel
+pos
+savemap

@@ -81,6 +81,9 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 			if (std::wstring_view(argv[i]) == L"-headless") headless = true;
 		if (argv) LocalFree(argv);
 	}
+	// Nobody is watching a headless run, so a fatal error must END it rather
+	// than park it on a modal dialog on whoever's desktop (Core/CrashHandler.h).
+	if (headless) crash::SetUnattended();
 
 	WindowDesc desc;
 	desc.title = "Dungeon";

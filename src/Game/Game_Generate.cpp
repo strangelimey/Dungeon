@@ -304,6 +304,32 @@ bool Game::DeleteGenPreset(const std::string& name) {
 	return m_project.Save();
 }
 
+bool Game::PlayLevel(const std::string& stem) {
+	if (!m_gameLoaded || (m_state != AppState::Playing && m_state != AppState::Paused))
+		return false;
+	if (std::find(m_project.levels.begin(), m_project.levels.end(), stem) ==
+		m_project.levels.end())
+		return false;
+	m_generateDialog.Close();
+	if (m_mapView.IsOpen()) m_mapView.Close(); // also clears an editor pause
+	m_state = AppState::Playing;
+	if (stem == m_world->CurrentLevel()) {
+		// Already here (the reroll was of the level the party stands on): no
+		// load to wait for, just the walk back to the start. South, as the
+		// transition below arrives facing.
+		const DungeonMap& map = m_world->Map();
+		m_world->GetParty().SetGridPosition(map.StartX(), map.StartZ());
+		m_world->GetParty().SetFacing(static_cast<int>(Direction::South));
+	} else {
+		// -1,-1 = the level's own start cell, resolved after the load: for a
+		// generated floor that is the square the stair from above lands on.
+		BeginLevelTransition(stem, -1, -1, Direction::South);
+	}
+	if (m_world->onMessage) m_world->onMessage(loc::FormatLine("map.gen.playing", stem));
+	log::Info("play-test: {} from its start", stem);
+	return true;
+}
+
 std::vector<std::string> Game::SplitKnobs(const std::string& line) {
 	std::vector<std::string> out;
 	std::string word;
