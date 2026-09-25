@@ -606,6 +606,12 @@ private:
 	// first-load path is wired by the menu, step 2). Returns false on failure.
 	bool LoadGame(const std::string& path);
 	void OpenCharacterSheet(size_t index); // freezes the world, shows the page
+	// Out of this game to the title, the dungeon left resident. ONE trip for
+	// both ways it happens (a party wipe, and the pause menu's Return to Main
+	// Menu), and it LOGS which, because a wipe used to reach only the HUD: with
+	// the console open the world still simulates, and an idle party killed there
+	// read in dungeon.log as the game silently refusing in-game commands.
+	void ReturnToTitle(const char* why);
 	void SetQuality(Quality quality);      // persists + hot-swaps the world
 	// Centered "working..." box, drawn on the frame a blocking operation is
 	// about to stall on (see m_pendingQuality / m_geomNoticeLatched). Shared so

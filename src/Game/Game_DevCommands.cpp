@@ -175,7 +175,8 @@ void Game::RegisterDevCommands() {
 						   if (!Need(m_console, args, 1, "usage: goto <level-stem>"))
 							   return;
 						   if (m_state != AppState::Playing) {
-							   m_console.Print("goto only works in-game");
+							   m_console.Refuse(std::format(
+								   "goto only works in-game (state: {})", StateName()));
 							   return;
 						   }
 						   const std::string& stem = args[0];
@@ -225,7 +226,12 @@ void Game::RegisterDevCommands() {
 					   [this](const std::vector<std::string>& args) {
 						   if (!m_gameLoaded || (m_state != AppState::Playing &&
 												 m_state != AppState::Paused)) {
-							   m_console.Print("generate only works in-game");
+							   // A REFUSAL, naming the state: this answering "only
+							   // works in-game" to a party wiped with the console
+							   // open read as the game losing its state, and as a
+							   // Print a script carried on past it as if it ran.
+							   m_console.Refuse(std::format(
+								   "generate only works in-game (state: {})", StateName()));
 							   return;
 						   }
 						   // The DIALOG itself, through the same entry points as its
@@ -340,7 +346,8 @@ void Game::RegisterDevCommands() {
 					   [this](const std::vector<std::string>&) {
 						   if (!m_gameLoaded || (m_state != AppState::Playing &&
 												 m_state != AppState::Paused)) {
-							   m_console.Print("validate only works in-game");
+							   m_console.Refuse(std::format(
+								   "validate only works in-game (state: {})", StateName()));
 							   return;
 						   }
 						   const std::vector<validate::Issue> issues = ValidateProject();
@@ -395,7 +402,8 @@ void Game::RegisterDevCommands() {
 					   [this](const std::vector<std::string>&) {
 						   if (!m_gameLoaded || (m_state != AppState::Playing &&
 												 m_state != AppState::Paused)) {
-							   m_console.Print("savemap only works in-game");
+							   m_console.Refuse(std::format(
+								   "savemap only works in-game (state: {})", StateName()));
 							   return;
 						   }
 						   // The active level plus every level whose stash holds

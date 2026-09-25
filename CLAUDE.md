@@ -1575,6 +1575,25 @@ Full per-phase history + gotchas live in the editor-overhaul memory.
   regenerable (FetchTextures.ps1 / FetchModels.ps1) but un-merged commits are not.
 - NEVER rewrite UTF-8 files via PowerShell Get-Content/Set-Content — it
   mojibakes em-dashes (happened twice). Use the Write/Edit tools.
+- NEVER PATCH A FILE THROUGH A BASH HEREDOC (`python - <<'PY'`, `cat <<EOF >
+  file`, a heredoc'd sed/perl script). This environment strips ONE level of
+  backslash on the way in even from a quoted heredoc, so `"\\n"` lands as a
+  real newline and `"\\project.ini"` as `"\project.ini"` - and the script still
+  prints "ok". Five real bugs so far, every one silent. Every file change goes
+  through the Edit/Write tools. If a mechanical multi-site edit genuinely needs
+  a script, WRITE the script to a .py file in the scratchpad with the Write tool
+  and run it by path (no heredoc anywhere in the chain), splice by line index
+  rather than by escaped literal, and read back the changed region before
+  building. ENFORCED: `.claude/hooks/block_heredoc.py` (a PreToolUse hook in
+  `.claude/settings.json`) refuses any Bash command carrying a heredoc - an
+  operator naming a delimiter plus a later line that is that delimiter alone,
+  so a `<<` inside a grep pattern still passes. Commit messages go through a
+  Written file and `git commit -F`.
+- NO EM-DASHES in anything new - code comments, docs, commit messages, log or
+  lang strings. Use a plain ASCII hyphen `-` (or ` - ` as a separator). The
+  em-dash is the one non-ASCII character the codebase kept producing, and it is
+  what every code-page and encoding trap here mangles. Existing ones can stay;
+  just don't add more.
 - User prefs: concise replies, no emojis; permission prompts disabled.
 
 ## Known gaps / natural next steps

@@ -1,0 +1,49 @@
+; langswitch.eval - a console language switch mid-game leaves the game where it was.
+;
+; Run:  Dungeon.exe -headless -eval <path to this file>
+; Exit: 0 if every line ran, nothing was refused, and it ended playing.
+;
+; WHY IT EXISTS. On 2026-09-24 a scripted UI audit switched language with `lang`
+; while the map editor was open, and a few commands later every in-game command
+; answered "only works in-game". The switch was blamed. It was innocent: the
+; audit ran in a FRESH world, where Start New Game puts the party three squares
+; from crypt1's skeleton, and the world keeps simulating while the console is
+; open - the idle party was beaten down and the wipe sent the game to the title.
+; The wipe was silent in dungeon.log (its message reached only the HUD), so the
+; log read as the game losing its state on its own. Two things came out of it:
+; the wipe now logs "back to the title: the party fell", and the in-game guards
+; REFUSE rather than print - which is what gives this script teeth, since a
+; refused line fails the verdict.
+;
+; What it pins down: the language rebuild (GameUI::RebuildForLanguage, deferred
+; a frame by Game::m_pendingLanguage) touches no state. The `state` lines are
+; the record; the guarded commands after each switch are the check.
+;
+; NOTE `lang` persists to settings.ini (it is the Settings dropdown's path), so
+; this ends on `lang en`. A run that dies part way leaves the language switched.
+
+logecho on
+reset
+state
+
+; The shape of the original: the editor up when the switch lands.
+editor
+validate
+state
+
+lang de
+state
+validate
+state
+validate
+
+; A second switch, and one with the overlay back in player mode.
+editor off
+lang es
+state
+validate
+
+lang en
+state
+validate
+state
