@@ -327,8 +327,14 @@ bool Game::TravelStep(int dx, int dz) {
 	// Rolled AFTER the step is complete: the party is somewhere, its supplies
 	// are paid for and the ground is revealed, so an encounter is something that
 	// happens to a party that has arrived rather than one caught mid-stride.
+	//
+	// NEVER ON A DOORWAY (Michael, 2026-09-24). Walking onto an entrance asks
+	// "Enter the Crypt?" — and an ambush rolled on that same square took the
+	// party away first, into a generated level that looks exactly like a
+	// dungeon, so it read as going straight in without being asked. Arriving at
+	// a gate is arriving somewhere, not crossing open country.
 	const float danger = m_worldMap->Difficulty(nx, nz);
-	if (danger > 0.0f && !m_encountersOff) {
+	if (danger > 0.0f && !m_encountersOff && !m_worldMap->LocationAt(nx, nz)) {
 		const float chance =
 			std::clamp(danger * hours * m_encounterRate, 0.0f, 0.9f);
 		std::uniform_real_distribution<float> d(0.0f, 1.0f);
