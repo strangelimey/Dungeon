@@ -3,12 +3,12 @@
 //
 // TWO MODES, one form (docs/level-building.md, P1):
 //
-//   * CREATE — opened by the editor toolbar's [+]. Makes a NEW level in the
+//   * CREATE - opened by the editor toolbar's [+]. Makes a NEW level in the
 //     viewed dungeon: generated from the knobs, or the old empty box. A
 //     generated create then flips the dialog into REGENERATE on the level it
 //     just made, because the first roll is rarely the keeper and the loop is the
 //     point.
-//   * REGENERATE — opened by the Generate button. Rough out the level you are
+//   * REGENERATE - opened by the Generate button. Rough out the level you are
 //     LOOKING AT, tweak, roll again. Regenerate stays put rather than closing:
 //     the knobs are only useful if you can turn one and immediately see what it
 //     did.
@@ -18,7 +18,7 @@
 // edits, so the honest workflow is to settle the rough shape first and detail it
 // after.
 //
-// The form is built from Game/GenerateKnobs.h — tabs and rows alike — so a new
+// The form is built from Game/GenerateKnobs.h - tabs and rows alike - so a new
 // knob is a table row, not a block of layout. The SEED is a knob like any other,
 // and shown rather than hidden, because that is what makes a result you liked
 // reachable again instead of a dice roll you cannot get back. "Roll" just picks
@@ -31,11 +31,15 @@
 #include "Graphics/SpriteBatch.h"
 #include "Platform/Input.h"
 #include "UI/Controls.h"
+#include "UI/Layout.h"
 #include "UI/Font.h"
 #include "UI/UIContext.h"
 
 #include <array>
 #include <functional>
+#include <string_view>
+#include <utility>
+#include <vector>
 #include <string>
 
 namespace dungeon::game {
@@ -49,7 +53,7 @@ public:
 	bool IsOpen() const { return m_open; }
 	Mode GetMode() const { return m_mode; }
 	// A new level in `dungeonId` (empty = no dungeon). `where` is the line the
-	// form opens with — which dungeon, below which floor — so there is no doubt
+	// form opens with - which dungeon, below which floor - so there is no doubt
 	// WHERE the level will land or what its stair will join.
 	void OpenCreate(const std::string& dungeonId, const std::string& where);
 	// `levelStem` is the level being rerolled, shown in the title so there is no
@@ -91,12 +95,23 @@ public:
 	std::function<std::string(const std::string& dungeonId,
 							  const generate::Params* params)>
 		onCreate;
-	// The knobs were just USED (a create or a regenerate) — the moment worth
+	// The knobs were just USED (a create or a regenerate) - the moment worth
 	// persisting them, rather than on every slider tick.
 	std::function<void(const generate::Params&)> onKnobsUsed;
+	// The options a Choice knob offers, as (value, label) - "as before" first,
+	// value "". The owner knows the project; the dialog does not (P4b).
+	std::function<std::vector<std::pair<std::string, std::string>>(std::string_view key)>
+		choicesFor;
+	// Presets (P4b): names; load into `params` (true on success); save the
+	// knobs under a name, returning the id used ("" on failure); delete.
+	std::function<std::vector<std::string>()> presetNames;
+	std::function<bool(const std::string&, generate::Params&)> onPresetLoad;
+	std::function<std::string(const std::string&, const generate::Params&)> onPresetSave;
+	std::function<bool(const std::string&)> onPresetDelete;
 
 private:
 	void BuildUI();
+	void BuildPresetsPage(ui::Stack& page);
 
 	gfx::GraphicsDevice& m_device;
 	ui::UIContext m_ui;
@@ -108,10 +123,13 @@ private:
 	std::string m_where;        // CREATE: where it lands, said above the form
 	generate::Params m_params;
 	ui::TabControl* m_tabs = nullptr;   // this tree's; dies on Clear
-	ui::TextField* m_seedField = nullptr; // ditto — Roll writes into it
-	std::array<ui::Label*, 4> m_reportLabels{}; // ditto — SetReport writes into them
+	ui::TextField* m_seedField = nullptr; // ditto - Roll writes into it
+	std::array<ui::Label*, 4> m_reportLabels{}; // ditto - SetReport writes into them
 	std::array<std::string, 4> m_report; // shape, complexity, contents, threat
 	std::string m_reportLevel; // the level m_report is about
+	int m_presetPick = 0;      // the Presets tab's selection, kept across rebuilds
+	std::string m_presetName;  // its name field, ditto
+	std::string m_presetNote;  // what the last preset action did
 	int m_activeTab = 0;      // survives a rebuild (the create->regenerate flip)
 	bool m_uiRebuild = false; // deferred BuildUI (a callback cannot Clear itself)
 };

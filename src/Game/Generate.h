@@ -40,11 +40,15 @@ struct Params {
 	// THE SHAPE IS A MAIN PATH WITH SIDE BRANCHES (docs/level-building.md P2).
 	// `path` rooms from the start to the exit, counting both; then `branches`
 	// side branches off the path's rooms, each branchMin..branchMax rooms deep.
-	// Exact counts, not tendencies — what does not fit on the map is reported
+	// Exact counts, not tendencies - what does not fit on the map is reported
 	// (Level::report), never forced or silently dropped.
 	int path = 6;
 	int branches = 3;
 	int branchMin = 1, branchMax = 3;
+	// The range each side of a room is drawn from (P4b). Irregular shapes
+	// need room to be irregular in, so a range that tops out small keeps its
+	// rooms rectangular rather than squeezing an L into a cupboard.
+	int roomMin = 3, roomMax = 7;
 	// COMPLEXITY, four separate knobs (P3). `loops` and `deadEnds` are COUNTS,
 	// reported like the path and branches; `winding` (the chance a corridor
 	// jogs, and how much) and `irregular` (the chance a room is an L, a cross
@@ -66,6 +70,13 @@ struct Params {
 	float ramp = 0.5f;
 	bool boss = false;   // the pool's strongest kind in the exit room
 	float reward = 0.5f; // loot density, also deeper-is-richer
+	// THE CALLER'S, not the generator's (P4b): which theme tag the content
+	// pools are drawn by, and which level's surface palette the new one copies.
+	// Empty = as before (the viewed level's theme; the active level's palette).
+	// They ride Params so the knob table - and so the settings line and the
+	// presets - carry them with everything else.
+	std::string theme;
+	std::string palette;
 	u32 seed = 1;
 	// The square the level is ENTERED on, or -1 to let the generator choose.
 	// Not a knob: the caller sets it to the floor above's stair square, since a
@@ -74,14 +85,14 @@ struct Params {
 	// unrelated layouts happen to share. The map grows to contain it.
 	int entryX = -1, entryZ = -1;
 	// Further squares that must come out as floor, joined to the dungeon and
-	// left bare — a regenerated level's other stairs, whose far ends on the
+	// left bare - a regenerated level's other stairs, whose far ends on the
 	// neighbouring floors are not the generator's to move. Also not a knob.
 	std::vector<std::pair<int, int>> keepOpen;
 	// Tag-matched content pools, resolved by the CALLER (which owns the
 	// catalogs) and handed in as plain id lists. The generator picks from these
 	// and never looks a catalog up, which is what keeps it pure.
 	std::vector<std::string> monsterIds;
-	// Each monster's THREAT, parallel to monsterIds — derived by the caller from
+	// Each monster's THREAT, parallel to monsterIds - derived by the caller from
 	// the catalog stats (Game/Threat.h), since this module reads no catalog.
 	std::vector<double> monsterThreat;
 	std::vector<std::string> lootIds;
@@ -89,7 +100,7 @@ struct Params {
 };
 
 // What was asked for beside what was BUILT. A knob you cannot measure is a knob
-// you cannot tune — and the generator stops short rather than forcing a room
+// you cannot tune - and the generator stops short rather than forcing a room
 // into a map with no space for it, so the shortfall has to be said, or a
 // "3 branches" setting that built 2 reads as a bug in the knob.
 struct Report {

@@ -90,7 +90,7 @@ public:
 	// The toolbar's Generate button: open the generator knobs for this level.
 	std::function<void()> onGenerate;
 	// The toolbar's [+] button: the owner (Game) opens the generator dialog in
-	// CREATE mode, and jumps the view (SetViewLevel) onto whatever it makes —
+	// CREATE mode, and jumps the view (SetViewLevel) onto whatever it makes -
 	// the creation is the dialog's decision now, so there is no stem to return
 	// here.
 	//

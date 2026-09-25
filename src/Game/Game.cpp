@@ -279,6 +279,36 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		if (p) m_validateDialog.Open(ValidateProject());
 		return stem;
 	};
+	// P4b: the dialog's choices and presets, answered from the project.
+	m_generateDialog.choicesFor = [this](std::string_view key) {
+		std::vector<std::pair<std::string, std::string>> out{{"", loc::Tr("map.gen.asbefore")}};
+		if (key == "palette") {
+			for (const std::string& stem : m_project.levels) out.push_back({stem, stem});
+		} else if (key == "theme") {
+			// Every tag the pools could be drawn by: the content catalogs' and
+			// the dungeons' own flavour tags, each once, in order.
+			std::vector<std::string> tags;
+			for (const Catalog* c : {&m_project.monsters, &m_project.items, &m_project.dungeons})
+				for (const CatalogEntry& e : c->Entries())
+					for (const std::string& t : ParseTags(e.Get("tags", "")))
+						if (std::find(tags.begin(), tags.end(), t) == tags.end())
+							tags.push_back(t);
+			std::sort(tags.begin(), tags.end());
+			for (const std::string& t : tags) out.push_back({t, t});
+		}
+		return out;
+	};
+	m_generateDialog.presetNames = [this] { return GenPresetNames(); };
+	m_generateDialog.onPresetLoad = [this](const std::string& name, generate::Params& p) {
+		return LoadGenPreset(name, p);
+	};
+	m_generateDialog.onPresetSave = [this](const std::string& name,
+										   const generate::Params& p) {
+		return SaveGenPreset(name, p);
+	};
+	m_generateDialog.onPresetDelete = [this](const std::string& name) {
+		return DeleteGenPreset(name);
+	};
 	// Persist the knobs when they are USED, so the next session's dialog opens
 	// on the level you were last rolling rather than on the defaults.
 	m_generateDialog.onKnobsUsed = [this](const generate::Params& p) {

@@ -1,7 +1,7 @@
-; levelshape.eval — the main path and its branches are COUNTS (docs/level-
+; levelshape.eval - the main path and its branches are COUNTS (docs/level-
 ; building.md P2), in a scratch copy of the demo world (run with -project
-; lb_shape). LevelBuildTest.py measures every level this writes FROM THE FILE —
-; rooms, and branches from the dead ends — and demands it match both the knobs
+; lb_shape). LevelBuildTest.py measures every level this writes FROM THE FILE -
+; rooms, and branches from the dead ends - and demands it match both the knobs
 ; and the generator's own report, so a report that lies fails as loudly as a
 ; shape that is wrong.
 ;

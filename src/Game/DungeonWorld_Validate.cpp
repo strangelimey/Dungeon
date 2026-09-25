@@ -27,8 +27,8 @@ std::pair<int, int> DungeonWorld::FarthestStairCell(const std::string& stem) {
 	const int w = m.Width(), h = m.Height();
 	// Breadth-first over walkable squares (4-connected, the grid's only kind of
 	// step), keeping the LAST stair-worthy square reached: BFS visits in
-	// distance order, so that is the farthest one. From EVERY way in at once —
-	// the start and each stair already there — because on a lower floor the
+	// distance order, so that is the farthest one. From EVERY way in at once -
+	// the start and each stair already there - because on a lower floor the
 	// party arrives by the stair, not at `P`: measured from `P` alone, crypt2's
 	// way down landed one square from its own way up.
 	std::vector<u8> seen(static_cast<size_t>(w) * h, 0);

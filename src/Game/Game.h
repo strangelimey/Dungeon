@@ -467,7 +467,7 @@ private:
 
 	// A generated level's text for CreateNewLevel, plus the cells a stair from
 	// the floor above may land on, best first. The knobs' content pools are
-	// resolved HERE from the project's catalogs by theme tag — the generator
+	// resolved HERE from the project's catalogs by theme tag - the generator
 	// itself never sees a catalog (Game/Generate.h).
 	std::vector<std::pair<int, int>>
 	ComposeGeneratedLevel(const std::string& stem, generate::Params params,
@@ -492,10 +492,20 @@ private:
 	void FillPools(generate::Params& params,
 				   const std::vector<std::string>& theme);
 	// The last generate's asked-vs-built, as the console prints it (English,
-	// one line, with every branch's length) — docs/level-building.md: a knob you
+	// one line, with every branch's length) - docs/level-building.md: a knob you
 	// cannot measure is a knob you cannot tune. The dialog's localized form is
 	// two lines (ShowGenReport), since one ran 162px past the dialog.
 	std::string GenReportText() const;
+	// The level whose surface palette a generated one copies: `chosen` when the
+	// project knows it (P4b's dialog choice), else `fallback`.
+	const DungeonMap& PaletteDonor(const std::string& chosen, const DungeonMap& fallback);
+	// The generator's saved presets (P4b), in the project's genpresets.cat.
+	// Save returns the id actually used ("" on failure); a preset holds no seed.
+	std::vector<std::string> GenPresetNames() const;
+	bool LoadGenPreset(const std::string& name, generate::Params& params) const;
+	std::string SaveGenPreset(std::string name, const generate::Params& params);
+	bool DeleteGenPreset(const std::string& name);
+	static std::vector<std::string> SplitKnobs(const std::string& line);
 	void ShowGenReport(const std::string& levelStem);
 
 	// The Level dialog's inline rename: validates (unique stem), drives

@@ -50,6 +50,10 @@ const CatalogSlot kCatalogs[] = {
 	{"imports.cat", &Project::imports,
 	 "Imported assets: where each editor-imported texture set / model came from, "
 	 "so tools/ReplayImports.ps1 can rebuild it (the baked files are gitignored)."},
+	{"genpresets.cat", &Project::genpresets,
+	 "Generator presets: named recipes for the level generator (the [+] dialog's "
+	 "Presets tab). `knobs` is its settings line without the seed - a preset is a "
+	 "recipe, not a level. Saved from the dialog; hand-editable."},
 };
 
 // Splits a space-separated list (the manifest's "levels" field) into stems.

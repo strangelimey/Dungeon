@@ -1,5 +1,5 @@
 // ============================================================================
-// Game/GenerateKnobs.h — the generator's knobs as ONE table.
+// Game/GenerateKnobs.h - the generator's knobs as ONE table.
 //
 // Every knob the level generator takes is a row here: its stable key, its label,
 // the dialog tab it sits on, its range and granularity, and how to read and
@@ -12,7 +12,7 @@
 //     runs;
 //   * saved presets (docs/level-building.md, P4b) store the same encoding.
 //
-// So a new knob is a Params field plus ONE row — the kBalanceFields idiom —
+// So a new knob is a Params field plus ONE row - the kBalanceFields idiom -
 // and cannot be exposed in the dialog yet forgotten by the round-trip.
 //
 // The accessors go through DOUBLE, not float: the seed is a u32, and a float
@@ -33,6 +33,8 @@ enum class KnobKind {
 	Float, // a 0..1-ish fraction on a slider
 	Seed,  // a u32 typed into a field (and rerolled by the dialog's Roll)
 	Bool,  // a checkbox; stored as 0 / 1
+	Choice, // one of a list the OWNER supplies (a theme tag, a level); TEXT.
+			// The empty string is always an option: "inherit, as before".
 };
 
 struct Knob {
@@ -43,6 +45,11 @@ struct Knob {
 	double lo, hi; // the clamp Decode and the dialog both apply
 	double (*get)(const Params&);
 	void (*set)(Params&, double);
+	// Choice knobs only (null otherwise): their value is text. It is encoded
+	// as it stands, so it must hold no space or colon - a tag or a level stem,
+	// both whitespace-tokenised everywhere else in the project anyway.
+	std::string (*getText)(const Params&) = nullptr;
+	void (*setText)(Params&, std::string_view) = nullptr;
 };
 
 std::span<const Knob> Knobs();
@@ -53,12 +60,12 @@ std::span<const char* const> KnobTabs();
 // Clamp and round `v` to what knob `k` accepts, then store it.
 void SetKnob(const Knob& k, Params& p, double v);
 
-// "path:6 branches:3 ..." — every knob, in table order. Space-separated
+// "path:6 branches:3 ..." - every knob, in table order. Space-separated
 // key:value pairs so the line survives an ini file and a catalog field alike.
 std::string Encode(const Params& p);
 
 // The inverse. Unknown keys are ignored and absent ones keep `p`'s value, so a
-// line written before a knob existed still loads — and a knob that is later
+// line written before a knob existed still loads - and a knob that is later
 // retired simply stops being read.
 void Decode(std::string_view text, Params& p);
 

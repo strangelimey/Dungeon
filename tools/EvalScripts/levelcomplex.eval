@@ -1,4 +1,4 @@
-; levelcomplex.eval — complexity is four separate knobs (docs/level-building.md
+; levelcomplex.eval - complexity is four separate knobs (docs/level-building.md
 ; P3), in a scratch copy of the demo world (run with -project lb_complex).
 ; LevelBuildTest.py measures each level from its file.
 ;

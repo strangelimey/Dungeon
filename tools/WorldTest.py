@@ -631,7 +631,9 @@ try:
 
     # THE WRITERS' FIDELITY. `levels new` saves the whole project, and that
     # used to rewrite four files and delete every comment in project.ini.
-    check("catround 24 of 24 file(s) round-trip, 0 absent" in log,
+    # 25 = project.ini + 24 catalogs, genpresets.cat (the generator's presets,
+    # docs/level-building.md P4b) the newest.
+    check("catround 25 of 25 file(s) round-trip, 0 absent" in log,
           "and saving the project leaves every file it did not change alone")
 
     # --- W6: the player's map has two pages ---------------------------------

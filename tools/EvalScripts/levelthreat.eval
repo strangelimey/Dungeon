@@ -1,4 +1,4 @@
-; levelthreat.eval — difficulty means STRENGTH (docs/level-building.md P4), in a
+; levelthreat.eval - difficulty means STRENGTH (docs/level-building.md P4), in a
 ; scratch copy of the demo world (run with -project lb_threat).
 ; LevelBuildTest.py joins each level's monsters to the `threat` table this
 ; prints (the game's own formula, never a copy of it) and measures from the

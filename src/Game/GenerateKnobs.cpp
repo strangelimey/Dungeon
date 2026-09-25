@@ -1,5 +1,5 @@
 // ============================================================================
-// Game/GenerateKnobs.cpp — see GenerateKnobs.h.
+// Game/GenerateKnobs.cpp - see GenerateKnobs.h.
 // ============================================================================
 #include "Game/GenerateKnobs.h"
 
@@ -15,8 +15,9 @@ namespace {
 constexpr const char* kShape = "map.gen.tab.shape";
 constexpr const char* kComplexity = "map.gen.tab.complexity";
 constexpr const char* kPopulation = "map.gen.tab.population";
+constexpr const char* kTheme = "map.gen.tab.theme";
 
-constexpr const char* kTabs[] = {kShape, kComplexity, kPopulation};
+constexpr const char* kTabs[] = {kShape, kComplexity, kPopulation, kTheme};
 
 // Captureless lambdas decay to the plain function pointers Knob holds, which
 // keeps the table a constant with no per-row allocation.
@@ -27,6 +28,13 @@ constexpr Knob kKnobs[] = {
 	{"height", "map.gen.height", kShape, KnobKind::Int, 8, 128,
 	 [](const Params& p) -> double { return p.height; },
 	 [](Params& p, double v) { p.height = static_cast<int>(v); }},
+	// P4b: the range a room's sides are drawn from.
+	{"roommin", "map.gen.roommin", kShape, KnobKind::Int, 3, 12,
+	 [](const Params& p) -> double { return p.roomMin; },
+	 [](Params& p, double v) { p.roomMin = static_cast<int>(v); }},
+	{"roommax", "map.gen.roommax", kShape, KnobKind::Int, 3, 12,
+	 [](const Params& p) -> double { return p.roomMax; },
+	 [](Params& p, double v) { p.roomMax = static_cast<int>(v); }},
 	// P2: the main path and its side branches, as COUNTS. (These replaced
 	// `rooms` and `branching`; an old settings line still naming those just has
 	// them ignored by Decode, and the defaults stand in.)
@@ -75,6 +83,14 @@ constexpr Knob kKnobs[] = {
 	{"reward", "map.gen.reward", kPopulation, KnobKind::Float, 0, 1,
 	 [](const Params& p) -> double { return p.reward; },
 	 [](Params& p, double v) { p.reward = static_cast<float>(v); }},
+	// P4b: what the level is ABOUT and what it LOOKS like, both "as before"
+	// when empty (the viewed level's theme / the active level's palette).
+	{"theme", "map.gen.theme", kTheme, KnobKind::Choice, 0, 0, nullptr, nullptr,
+	 [](const Params& p) { return p.theme; },
+	 [](Params& p, std::string_view v) { p.theme = std::string(v); }},
+	{"palette", "map.gen.palette", kTheme, KnobKind::Choice, 0, 0, nullptr, nullptr,
+	 [](const Params& p) { return p.palette; },
+	 [](Params& p, std::string_view v) { p.palette = std::string(v); }},
 };
 
 } // namespace
@@ -84,7 +100,7 @@ std::span<const Knob> Knobs() { return kKnobs; }
 std::span<const char* const> KnobTabs() { return kTabs; }
 
 void SetKnob(const Knob& k, Params& p, double v) {
-	if (!std::isfinite(v)) return;
+	if (k.kind == KnobKind::Choice || !std::isfinite(v)) return;
 	v = std::clamp(v, k.lo, k.hi);
 	// Fractions keep two places: the dialog shows two, and a value written to a
 	// file should read back as what the slider said, not 0.4999237.
@@ -98,6 +114,10 @@ std::string Encode(const Params& p) {
 		if (!out.empty()) out += ' ';
 		// Whole numbers print as integers: {:g} would put a large seed in
 		// exponent form, and a seed that does not round-trip is a lost level.
+		if (k.kind == KnobKind::Choice) {
+			out += std::format("{}:{}", k.key, k.getText(p)); // "theme:" = inherit
+			continue;
+		}
 		const double v = k.get(p);
 		out += k.kind == KnobKind::Float
 				   ? std::format("{}:{:g}", k.key, v)
@@ -116,6 +136,13 @@ void Decode(std::string_view text, Params& p) {
 		if (colon == std::string_view::npos) continue;
 		const std::string_view key = pair.substr(0, colon);
 		const std::string_view val = pair.substr(colon + 1);
+		bool text = false;
+		for (const Knob& k : kKnobs)
+			if (key == k.key && k.kind == KnobKind::Choice) {
+				k.setText(p, val);
+				text = true;
+			}
+		if (text) continue;
 		double v = 0.0;
 		const auto [ptr, ec] = std::from_chars(val.data(), val.data() + val.size(), v);
 		if (ec != std::errc() || ptr != val.data() + val.size()) continue;

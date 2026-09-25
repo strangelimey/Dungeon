@@ -1,17 +1,17 @@
-# tools/LevelBuildTest.py — the level-building thread's checks (docs/level-building.md).
+# tools/LevelBuildTest.py - the level-building thread's checks (docs/level-building.md).
 #
 # Run:  python tools\LevelBuildTest.py      (needs a debug build)
 #
 # The eval runner's own verdict only says every line matched a command, so it
 # reads PASS on a run that stranded every level it made. This reads what the
-# run PRODUCED — the checker's answer and the level files — and judges that.
+# run PRODUCED - the checker's answer and the level files - and judges that.
 #
-#   1. CREATE AND REROLL — in a scratch copy of the demo world, make three new
+#   1. CREATE AND REROLL - in a scratch copy of the demo world, make three new
 #      crypt floors (generated, generated, empty) and reroll one twice, the
 #      second time into a map too small for its stairs. Demand: every floor in
-#      the crypt, the checker clean, and every stair on disk PAIRED — its
+#      the crypt, the checker clean, and every stair on disk PAIRED - its
 #      destination holds a stair leading straight back to the same square.
-#   2. THE SHAPE IS COUNTS (P2) — generate with the path and branch knobs set,
+#   2. THE SHAPE IS COUNTS (P2) - generate with the path and branch knobs set,
 #      then MEASURE each level from its .map, not from anything the generator
 #      says: rooms are the floor that lies in 2x2 blocks (corridors are one
 #      square wide), branches come from the dead ends. The measurement must
@@ -19,21 +19,27 @@
 #      fails as loudly as a shape that is wrong. The control pair differs only
 #      in `branches` (0 vs 4); the shortfall case asks for far more than a
 #      16x16 map holds and must stop short and say so.
-#   3. COMPLEXITY IS FOUR KNOBS (P3) — one base level with every complexity
+#   3. COMPLEXITY IS FOUR KNOBS (P3) - one base level with every complexity
 #      knob at zero, and four variants each raising ONE of them: its own
 #      measured count must rise from zero and no other may move. Loops are the
 #      link graph's cycles, dead ends the corridors touching one room, winding
 #      the links that are not a single row or column, irregular the rooms that
 #      do not fill their bounding box. And a level with loops AND locks: every
-#      door, shut on its own, must still strand floor — the proof no loop was
+#      door, shut on its own, must still strand floor - the proof no loop was
 #      built round a lock.
-#   4. DIFFICULTY IS STRENGTH (P4) — each level's monsters are joined to the
+#   4. DIFFICULTY IS STRENGTH (P4) - each level's monsters are joined to the
 #      game's own `threat` table (printed, never copied). Control pairs one knob
 #      apart: difficulty 0.2 -> 0.8 gives more AND stronger; ramp 0 -> 1 makes
 #      the far half out-threaten the near half by more; boss off -> on puts the
 #      pool's strongest kind, absent otherwise at that difficulty, in exactly
 #      one dead-end room. On every level: nothing in the start room or within
 #      three steps of the arrival square.
+#   5. THE RECIPE (P4b) - room sizes 3..3 vs 8..10 on one seed, every room
+#      measured inside its range; theme ooze vs undead, every monster carrying
+#      that tag in monsters.cat and the level recording its theme; palette
+#      copied from crypt2 (made DISTINCT first, since every demo level shares
+#      one) and not from the default; presets loaded, built with, saved (no
+#      seed in the recipe), listed and deleted, read back from genpresets.cat.
 #
 # Checked by mutation (2026-09-24): with the reroll's stairs dropped, the
 # checker reported 5 errors (stairblocked, stairunpaired, three levellost) and
@@ -105,7 +111,7 @@ def measure(rows):
     everything but their two ends, so no corridor square is ever in such a block.
     Rooms are the connected groups of room squares; corridors the rest. The
     room graph is a tree, and each branch ends in exactly one dead end, as does
-    the main path (the exit is never a branch's anchor) — so branches are the
+    the main path (the exit is never a branch's anchor) - so branches are the
     dead ends, less the exit's, less the start room's when it has only the path.
     """
     floor = {(x, z) for z, row in enumerate(rows) for x, ch in enumerate(row) if ch != "#"}
@@ -144,7 +150,7 @@ def measure(rows):
             if nb in room_of:
                 touches[k].add(room_of[nb])
     # A corridor touching TWO rooms is a link; ONE, a dead end (P3). Anything
-    # else — none, or three — is not something the generator makes.
+    # else - none, or three - is not something the generator makes.
     links = [k for k in range(corridors) if len(touches[k]) == 2]
     stubs = [k for k in range(corridors) if len(touches[k]) == 1]
     stray = corridors - len(links) - len(stubs)
@@ -190,7 +196,7 @@ def measure(rows):
 
 
 def doors_still_shut_something(levels_dir, stem, floor, start):
-    """Every door, shut on its own, must strand floor the start cannot reach —
+    """Every door, shut on its own, must strand floor the start cannot reach -
     the proof that no loop was built round it. Returns the doors that do not."""
     ent = os.path.join(levels_dir, stem + ".ent")
     doors = []
@@ -284,7 +290,7 @@ def main():
         check("crypt1 crypt2 crypt3 crypt4 crypt5" in crypt,
               "all three new floors are in the crypt, in order", crypt.strip())
         # EXACTLY ONE finding: the empty crypt5 has no stair (it is the blank
-        # canvas, joined up by hand), and the checker must SAY so — anything
+        # canvas, joined up by hand), and the checker must SAY so - anything
         # else it finds is a real fault.
         at = next((i for i, l in enumerate(con) if l.startswith("validate:")), -1)
         found = []
@@ -305,7 +311,7 @@ def main():
         floors = ("crypt1", "crypt2", "crypt3", "crypt4", "crypt5")
         for stem in floors:
             for (typ, x, z, dest, dx, dz) in stairs_of(levels, stem):
-                # A world exit names a LOCATION (crypt_gate), not a floor —
+                # A world exit names a LOCATION (crypt_gate), not a floor -
                 # spelled like one, which is why this asks for the set.
                 if dest not in floors:
                     continue
@@ -329,7 +335,7 @@ def main():
               "the EMPTY level is the old blank canvas: fixed box, room at 7..9, no stair",
               f"stairs {stairs_of(levels, 'crypt5')}, rows {c5[7:10] if len(c5) > 9 else c5}")
         # The reroll into 12x12 had to GROW to hold crypt3's stairs, not drop
-        # them — in whichever direction its stairs lie outside 12x12.
+        # them - in whichever direction its stairs lie outside 12x12.
         grid = grid_of(levels, "crypt3")
         width = max(len(l) for l in grid) if grid else 0
         height = len(grid)
@@ -537,6 +543,104 @@ def main():
             check(boss["threat"][1] == table.get(pool_top) or
                   abs(boss["threat"][1] - table.get(pool_top, 0)) < 0.01,
                   "the report's top threat is the boss's", f"{boss['threat']} vs {table.get(pool_top)}")
+        check("validate: clean - no faults found" in con,
+              "the checker finds nothing wrong",
+              next((l for l in con if l.startswith("validate:")), "(no validate line)"))
+    finally:
+        shutil.rmtree(proj, ignore_errors=True)
+
+    print("\n5 - room sizes, theme, palette and presets")
+    proj = scratch("lb_recipe")
+    try:
+        # crypt2 gets a palette OF ITS OWN (the same surface types, reversed),
+        # or copying it would be indistinguishable from the default.
+        c2 = os.path.join(proj, r"levels\crypt2.map")
+        text = io.open(c2, encoding="utf-8", newline="").read()
+        def reverse_palette(line):
+            parts = line.split(" ")
+            return " ".join(parts[:2] + parts[:1:-1])
+        text = "\n".join(reverse_palette(l) if l.startswith("palette ") else l
+                         for l in text.split("\n"))
+        io.open(c2, "w", encoding="utf-8", newline="").write(text)
+
+        code, con = run("levelrecipe.eval", "lb_recipe")
+        check(code == 0, "the script ran to the end", f"exit {code}")
+        runs = parse_runs(con)
+        check(len(runs) == 8, "all eight generates reported what they built", f"{len(runs)}")
+        levels = os.path.join(proj, "levels")
+        if len(runs) == 8:
+            small, big, ooze, undead, pal, default, before, recipe = runs
+            # ROOM SIZES, from the file: every room's box inside its range.
+            def sizes(stem):
+                m = measure(grid_of(levels, stem))
+                boxes = {}
+                for (x, z), r in m["room_of"].items():
+                    b = boxes.setdefault(r, [x, z, x, z])
+                    b[0], b[1] = min(b[0], x), min(b[1], z)
+                    b[2], b[3] = max(b[2], x), max(b[3], z)
+                return [(b[2] - b[0] + 1, b[3] - b[1] + 1) for b in boxes.values()]
+            s3, s8 = sizes(small["stem"]), sizes(big["stem"])
+            check(s3 and all(w == 3 and h == 3 for w, h in s3) and
+                  s8 and all(8 <= w <= 10 and 8 <= h <= 10 for w, h in s8),
+                  "room sizes 3..3 vs 8..10 on one seed: every room measured inside its range",
+                  f"small {sorted(set(s3))}, big {sorted(set(s8))}")
+            # THEME, joined to the scratch world's own catalog tags.
+            tags = {}
+            cat = io.open(os.path.join(proj, r"catalog\monsters.cat"), encoding="utf-8").read()
+            for block in re.split(r"\n(?=\[)", cat):
+                m = re.match(r"\[(\w+)\]", block)
+                t = re.search(r"^tags\s*=\s*(.*)$", block, re.M)
+                if m:
+                    tags[m.group(1)] = set(t.group(1).split()) if t else set()
+            def themed(stem, tag):
+                mons = monsters_of(levels, stem)
+                bad = [t for (t, _x, _z) in mons if tag not in tags.get(t, set())]
+                rec = any(l.strip() == f"theme {tag}" for l in
+                          io.open(os.path.join(levels, stem + ".map"), encoding="utf-8"))
+                return mons, bad, rec
+            mo, bo, ro = themed(ooze["stem"], "ooze")
+            mu, bu, ru = themed(undead["stem"], "undead")
+            check(mo and mu and not bo and not bu and ro and ru and
+                  {t for t, *_ in mo}.isdisjoint({t for t, *_ in mu}),
+                  "theme ooze vs undead on one seed: every monster carries its level's tag, "
+                  "the two share no kind, and each level records its theme",
+                  f"ooze {len(mo)} (off-theme {bo}), undead {len(mu)} (off-theme {bu}), "
+                  f"records {ro}/{ru}")
+            # PALETTE: crypt2's (now distinct) vs the default (the active level's).
+            def palette(stem):
+                return [l.strip() for l in io.open(os.path.join(levels, stem + ".map"),
+                                                   encoding="utf-8") if l.startswith("palette ")]
+            want = palette("crypt2")
+            arena = palette("eval_arena")
+            check(want != arena and palette(pal["stem"]) == want and
+                  palette(default["stem"]) == arena,
+                  "palette chosen from crypt2 copies crypt2's, and the default still copies "
+                  "the active level's (which differs)",
+                  f"chosen {palette(pal['stem'])[:1]}, default {palette(default['stem'])[:1]}")
+            # PRESETS: the loaded recipe built the level, the seed was kept.
+            lab = next((l for l in con if l.startswith("preset labyrinth ")), "")
+            recipe_line = next((l for l in con if l.startswith(f"generate: wrote {recipe['stem']} ")), "")
+            lab_knobs = lab.split(" ", 2)[2] if lab.count(" ") >= 2 else ""
+            check(lab_knobs and all(k in recipe_line for k in lab_knobs.split()) and
+                  "seed:54" in recipe_line and "seed" not in lab_knobs,
+                  "a loaded preset builds the level with its recipe, and keeps the seed "
+                  "you were on (a preset holds none)",
+                  f"preset '{lab_knobs[:60]}...', built '{recipe_line[:90]}...'")
+            saved = [l for l in con if l.startswith("preset my_recipe ")]
+            check(len(saved) == 1 and "seed" not in saved[0] and
+                  saved[0].split(" ", 2)[2] == lab_knobs,
+                  "saving stores the current knobs WITHOUT the seed, and it is listed",
+                  f"{saved}")
+            presets = io.open(os.path.join(proj, r"catalog\genpresets.cat"), encoding="utf-8").read()
+            lists = [i for i, l in enumerate(con) if l == "> generate preset list"]
+            after = con[lists[-1] + 1:] if lists else []
+            check("[my_recipe]" not in presets and "[labyrinth]" in presets and
+                  not any(l.startswith("preset my_recipe") for l in after),
+                  "deleting removes it from the list and from genpresets.cat, and only it",
+                  f"file has my_recipe: {'[my_recipe]' in presets}")
+        check(any(l.startswith("catround 25 of 25") for l in con),
+              "every catalog file round-trips, genpresets.cat included (25 of 25)",
+              next((l for l in con if l.startswith("catround")), "(no catround line)"))
         check("validate: clean - no faults found" in con,
               "the checker finds nothing wrong",
               next((l for l in con if l.startswith("validate:")), "(no validate line)"))

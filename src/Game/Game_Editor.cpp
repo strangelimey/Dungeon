@@ -423,7 +423,7 @@ std::string Game::CreateWorld(const std::string& name) {
 }
 
 // Mints a fresh level: writes a .map/.ent pair next to the project's other
-// levels — generated from the knobs, or the minimal empty box — appends the stem
+// levels - generated from the knobs, or the minimal empty box - appends the stem
 // to the manifest and its dungeon, and stairs it to the floor above. The palette
 // gate demands all three surface records; they are copied from the ACTIVE level
 // so the new one shares its look. Everything downstream (browse, remote edits,
@@ -460,7 +460,7 @@ std::string Game::CreateNewLevel(const std::string& dungeonId,
 	// the first run (docs/level-building.md P1). {-1,-1} for a dungeon's first
 	// floor, which has nothing above it.
 	//
-	// A GENERATED level only. The EMPTY one is the blank canvas it always was —
+	// A GENERATED level only. The EMPTY one is the blank canvas it always was -
 	// the fixed box in the middle, and no stair: WorldTest's rename scenario
 	// (and anyone who has used [+] before) builds on the room being at 7..9,
 	// and moving it put a hand-written stair in rock, which is a load-time
@@ -475,10 +475,13 @@ std::string Game::CreateNewLevel(const std::string& dungeonId,
 		p.entryX = entry.first;
 		p.entryZ = entry.second;
 		// The theme the content pools are drawn by: the viewed level's own,
-		// else the dungeon's flavour tags — a fresh dungeon's first generated
+		// else the dungeon's flavour tags - a fresh dungeon's first generated
 		// floor has no level theme to inherit, and "undead crypt" should still
 		// fill with undead.
-		std::vector<std::string> theme = m_mapView.ViewedMap().Theme();
+		// A theme CHOSEN in the dialog (P4b) wins over both.
+		std::vector<std::string> theme = !p.theme.empty()
+											 ? std::vector<std::string>{p.theme}
+											 : m_mapView.ViewedMap().Theme();
 		if (theme.empty() && dungeon) theme = ParseTags(dungeon->Get("tags", ""));
 		linkCells = ComposeGeneratedLevel(stem, p, theme, map, ent);
 	} else {
@@ -515,7 +518,7 @@ std::string Game::CreateNewLevel(const std::string& dungeonId,
 	}
 	m_project.Save();
 	// AFTER joining the dungeon: the floor above is found by dungeon order.
-	// (An empty level offers no cells, so it stays unlinked — see above.)
+	// (An empty level offers no cells, so it stays unlinked - see above.)
 	if (!linkCells.empty()) LinkToFloorAbove(stem, linkCells);
 	if (m_world->onMessage)
 		m_world->onMessage(dungeonId.empty()

@@ -1296,7 +1296,7 @@ bool DungeonWorld::AddStairAt(const std::string& stem, const std::string& type,
 	}
 
 	// The type's direction (stairs.cat `up`) picks the destination: the previous
-	// / next stem from `stem` — in its DUNGEON's depth order (dungeons.cat
+	// / next stem from `stem` - in its DUNGEON's depth order (dungeons.cat
 	// `levels`) first, the vertical stack, and only when the dungeon has no
 	// floor that way, in the project's flat list.
 	//
@@ -1305,7 +1305,7 @@ bool DungeonWorld::AddStairAt(const std::string& stem, const std::string& type,
 	// after eval_arena and a stair down from crypt2 led into the arena
 	// (docs/level-building.md P1). The flat fallback stays because a stair
 	// BETWEEN dungeons, off one's last floor, is legitimate content the brush
-	// has always been able to author — the W10 delete rule "a stair from
+	// has always been able to author - the W10 delete rule "a stair from
 	// outside leading in" exists for it, and WorldTest builds one this way.
 	const bool up = CatalogBool(entry, "up", false);
 	auto neighbour = [&](const std::vector<std::string>& levels) -> std::string {

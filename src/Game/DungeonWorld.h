@@ -901,12 +901,18 @@ public:
 	bool CellFreeForStair(const std::string& stem, int x, int z);
 	// Where on `stem` a stair DOWN to a new floor should go: a square a stair
 	// can stand on, as many steps from the level's start as its floor reaches
-	// — the way on is found at the far end, the generator's own rule for its
+	// - the way on is found at the far end, the generator's own rule for its
 	// exit. {-1,-1} when the level has no such square. The new floor is then
 	// BUILT AROUND this square rather than the square searched for afterwards,
 	// because a stair needs the same (x,z) on both levels and two independent
 	// layouts rarely share a free one (docs/level-building.md P1).
 	std::pair<int, int> FarthestStairCell(const std::string& stem);
+	// Any level's static map, for READING - the live one for the active level,
+	// else its stash (parsed on first use, as every cross-level query here
+	// does). The generator copies a chosen level's surface palette from it.
+	const DungeonMap& MapOf(const std::string& stem) {
+		return stem == m_currentLevel ? m_map : EnsureMapStash(stem);
+	}
 
 	// Replace a level's CONTENT wholesale — the generator's regenerate.
 	//

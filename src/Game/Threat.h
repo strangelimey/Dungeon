@@ -1,5 +1,5 @@
 // ============================================================================
-// Game/Threat.h — how dangerous a monster kind is, as one number, DERIVED from
+// Game/Threat.h - how dangerous a monster kind is, as one number, DERIVED from
 // its monsters.cat stats (docs/level-building.md P4; Michael chose derived over
 // an authored tier, so there is no field to keep in step with the stats).
 //

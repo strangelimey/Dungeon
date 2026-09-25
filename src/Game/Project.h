@@ -113,6 +113,11 @@ struct Project {
 	// asset a fresh clone cannot rebuild. tools/ReplayImports.ps1 re-runs them.
 	// Deliberately absent from CatalogForKey — it is not a content category.
 	Catalog imports;
+	// The level generator's SAVED PRESETS (docs/level-building.md P4b): one
+	// entry per named recipe, `knobs` = the GenerateKnobs encoding minus the
+	// seed (a preset is a recipe, not a level). Project data, not content - so,
+	// like `imports`, it stays out of CatalogForKey and the palette.
+	Catalog genpresets;
 
 	// The catalog for a kind key ("walls", "floors", "ceilings", "decorations",
 	// "fixtures", "monsters", "doors", "stairs", "buttons", "items", "weapons",

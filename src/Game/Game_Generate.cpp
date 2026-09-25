@@ -13,7 +13,7 @@
 // undead yet" is a content gap, not a reason to refuse.
 //
 // TWO ENTRY POINTS, one builder. A NEW level goes through CreateNewLevel
-// (Game_Editor.cpp) — the one writer of level files, generated or empty — which
+// (Game_Editor.cpp) - the one writer of level files, generated or empty - which
 // asks ComposeGeneratedLevel for the text and LinkToFloorAbove for the stair;
 // RegenerateViewedLevel replaces the level you are looking at, in place, as one
 // undo step. They share BuildLevelText so the same knobs cannot produce two
@@ -26,9 +26,11 @@
 #include "Core/Log.h"
 #include "Game/Catalog.h"
 #include "Game/Serialize.h"
+#include "Game/GenerateKnobs.h"
 #include "Game/Threat.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <filesystem>
 #include <format>
@@ -53,7 +55,7 @@ std::vector<std::string> PoolFor(const Catalog& cat,
 }
 
 // Direction order, matching the parser's tokens. A file-local table like the
-// editor writer's — there is no shared DirName to call.
+// editor writer's - there is no shared DirName to call.
 constexpr const char* kDir[4] = {"north", "east", "south", "west"};
 
 // The .ent record line for a generated entity. Deliberately the same shape the
@@ -214,7 +216,11 @@ Game::ComposeGeneratedLevel(const std::string& stem, generate::Params params,
 	FillPools(params, theme);
 	const generate::Level lv = generate::Run(params);
 	m_lastGenReport = lv.report;
-	BuildLevelText(stem, lv, params, m_world->Map(), theme, {}, map, ent);
+	// The palette: the level CHOSEN in the dialog (P4b), else the active one.
+	// Read at once - MapOf may parse a stash, and nothing else touches the
+	// stashes between here and the text being built.
+	BuildLevelText(stem, lv, params, PaletteDonor(params.palette, m_world->Map()), theme,
+				   {}, map, ent);
 	// (The caller sets params.entry to the floor above's stair square, so the
 	// start comes first below and the link lands there.)
 	// Where the stair from the floor above may land, best first: the generated
@@ -243,6 +249,74 @@ void Game::ShowGenReport(const std::string& levelStem) {
 						   std::format("{:.1f}", r.threatMax),
 						   loc::Tr(r.bossPlaced ? "map.gen.report.boss" : "map.gen.report.noboss"))},
 		levelStem);
+}
+
+const DungeonMap& Game::PaletteDonor(const std::string& chosen,
+									 const DungeonMap& fallback) {
+	// Only a level the project KNOWS: a stale choice (a renamed or deleted
+	// level still in a preset) falls back rather than aborting on a missing
+	// file, which is what parsing an unknown stem would do.
+	if (!chosen.empty() && std::find(m_project.levels.begin(), m_project.levels.end(),
+									 chosen) != m_project.levels.end())
+		return m_world->MapOf(chosen);
+	return fallback;
+}
+
+// --- presets (P4b) -------------------------------------------------------------
+// A PRESET IS A RECIPE, NOT A LEVEL: the settings line minus the seed, so
+// loading one keeps the seed you are on and "the labyrinth recipe" makes a new
+// labyrinth each roll. Stored in the project (catalog/genpresets.cat), since a
+// world is a project and its recipes should travel with it.
+std::vector<std::string> Game::GenPresetNames() const {
+	std::vector<std::string> out;
+	for (const CatalogEntry& e : m_project.genpresets.Entries()) out.push_back(e.id);
+	return out;
+}
+
+bool Game::LoadGenPreset(const std::string& name, generate::Params& params) const {
+	const CatalogEntry* e = m_project.genpresets.Find(name);
+	if (!e) return false;
+	generate::Decode(e->Get("knobs", ""), params);
+	return true;
+}
+
+std::string Game::SaveGenPreset(std::string name, const generate::Params& params) {
+	// Records are whitespace-tokenised and ids are [A-Za-z0-9_-] everywhere
+	// else in the project; anything else becomes an underscore rather than a
+	// refusal, since the name is only a label.
+	for (char& c : name)
+		if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_' && c != '-') c = '_';
+	if (name.empty()) return {};
+	std::string knobs;
+	for (const std::string& pair : SplitKnobs(generate::Encode(params)))
+		if (!pair.starts_with("seed:")) knobs += (knobs.empty() ? "" : " ") + pair;
+	CatalogEntry entry;
+	if (const CatalogEntry* old = m_project.genpresets.Find(name)) entry = *old; // keep display
+	entry.id = name;
+	entry.Set("knobs", knobs);
+	m_project.genpresets.Add(std::move(entry));
+	return m_project.Save() ? name : std::string();
+}
+
+bool Game::DeleteGenPreset(const std::string& name) {
+	if (!m_project.genpresets.Find(name)) return false;
+	m_project.genpresets.Remove(name);
+	return m_project.Save();
+}
+
+std::vector<std::string> Game::SplitKnobs(const std::string& line) {
+	std::vector<std::string> out;
+	std::string word;
+	for (const char c : line) {
+		if (c == ' ') {
+			if (!word.empty()) out.push_back(std::move(word));
+			word.clear();
+		} else {
+			word += c;
+		}
+	}
+	if (!word.empty()) out.push_back(std::move(word));
+	return out;
 }
 
 std::string Game::GenReportText() const {
@@ -337,7 +411,7 @@ bool Game::RegenerateViewedLevel(generate::Params params) {
 	if (stem.empty()) return false;
 	const DungeonMap& viewed = m_mapView.ViewedMap();
 	// THE LEVEL KEEPS ITS STAIRS. Their far ends live on the neighbouring floors,
-	// which a reroll of this one has no business moving — so each stair's square
+	// which a reroll of this one has no business moving - so each stair's square
 	// is handed to the generator to keep open. The one leading UP to the floor
 	// above is the ENTRY (the start, and the root of the layout); every other is
 	// kept open and joined on. Without this, the create-then-regenerate loop
@@ -367,7 +441,12 @@ bool Game::RegenerateViewedLevel(generate::Params params) {
 	// look (it used to take the ACTIVE level's, so rerolling a browsed floor
 	// quietly re-skinned it).
 	m_world->BeginUndoStep();
-	const bool ok = BuildAndInstall(stem, params, viewed.Theme(), viewed, stairs);
+	// A theme or palette CHOSEN in the dialog (P4b) replaces the level's own;
+	// empty keeps it, which is what a reroll did before there was a choice.
+	const std::vector<std::string> theme =
+		!params.theme.empty() ? std::vector<std::string>{params.theme} : viewed.Theme();
+	const bool ok = BuildAndInstall(stem, params, theme,
+									PaletteDonor(params.palette, viewed), stairs);
 	m_world->CommitUndoStep(ok);
 	return ok;
 }

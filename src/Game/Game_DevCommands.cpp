@@ -216,7 +216,8 @@ void Game::RegisterDevCommands() {
 										args.empty() ? "" : " in that theme's pool"));
 		});
 	m_console.Register("generate",
-					   "rough out a new level: generate [dungeon|again] [knob:value ...] | dialog [new|off|tab <n>] "
+					   "rough out a new level: generate [dungeon|again] [knob:value ...] | dialog [new|off|tab <n>] | "
+					   "preset [list|save|load|delete] [name] "
 					   "(a new floor of the viewed dungeon by default, and the view jumps "
 					   "to it; `again` rerolls the VIEWED level in place, as the dialog's "
 					   "Regenerate does; knobs as the dialog names them, e.g. path:8 "
@@ -228,7 +229,7 @@ void Game::RegisterDevCommands() {
 							   return;
 						   }
 						   // The DIALOG itself, through the same entry points as its
-						   // two toolbar buttons — so the UI sweep (InGameTest.ps1)
+						   // two toolbar buttons - so the UI sweep (InGameTest.ps1)
 						   // can audit both modes without a mouse.
 						   if (!args.empty() && args[0] == "dialog") {
 							   const std::string mode = args.size() > 1 ? args[1] : "";
@@ -249,8 +250,40 @@ void Game::RegisterDevCommands() {
 									   : "regenerate"));
 							   return;
 						   }
+						   // PRESETS (P4b), through the same Game functions the
+						   // dialog's Presets tab calls.
+						   if (!args.empty() && args[0] == "preset") {
+							   const std::string op = args.size() > 1 ? args[1] : "list";
+							   const std::string name = args.size() > 2 ? args[2] : "";
+							   if (op == "save") {
+								   const std::string id =
+									   SaveGenPreset(name, m_generateDialog.Knobs());
+								   m_console.Print(id.empty() ? "preset: not saved"
+															  : "preset: saved " + id);
+							   } else if (op == "load") {
+								   generate::Params p = m_generateDialog.Knobs();
+								   if (LoadGenPreset(name, p)) {
+									   m_generateDialog.SetKnobs(p);
+									   m_console.Print("preset: loaded " + name + " (" +
+													   generate::Encode(p) + ")");
+								   } else {
+									   m_console.Print("preset: no such preset " + name);
+								   }
+							   } else if (op == "delete") {
+								   m_console.Print(DeleteGenPreset(name)
+													   ? "preset: deleted " + name
+													   : "preset: no such preset " + name);
+							   } else {
+								   // Name AND recipe, so a harness can see exactly what
+								   // a save stored (no seed, by design).
+								   for (const std::string& n : GenPresetNames())
+									   m_console.Print("preset " + n + " " +
+													   m_project.genpresets.Find(n)->Get("knobs", ""));
+							   }
+							   return;
+						   }
 						   // The same knobs the dialog holds, overridden by name
-						   // through the same table — so a scripted run and a
+						   // through the same table - so a scripted run and a
 						   // dialog run cannot disagree about what a knob means.
 						   generate::Params p = m_generateDialog.Knobs();
 						   std::string line, dungeon = m_mapView.ViewedDungeon();

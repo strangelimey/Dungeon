@@ -17,7 +17,7 @@ namespace {
 
 // A room: its bounding box, and a SHAPE within it (docs/level-building.md P3).
 // Every shape keeps its floor at least two squares thick, so a room square is
-// always part of some 2x2 block of floor — the property that tells a room from a
+// always part of some 2x2 block of floor - the property that tells a room from a
 // corridor (which is one square wide), and that LevelBuildTest measures by.
 enum class Shape { Rect, L, Cross, Pillars };
 
@@ -49,7 +49,7 @@ struct Room {
 			return !(edgeX && edgeZ);
 		}
 		case Shape::Pillars:
-			// A pillar every third square, TWO squares in from each wall — so
+			// A pillar every third square, TWO squares in from each wall - so
 			// the floor between two pillars, and between a pillar and a wall, is
 			// two squares wide and still a room. (One square in left a one-wide
 			// strip along the wall: a corridor running round inside the room,
@@ -60,7 +60,7 @@ struct Room {
 		return true;
 	}
 
-	// A floor square as near the middle as the shape allows — where the exit
+	// A floor square as near the middle as the shape allows - where the exit
 	// goes, and what a kept-open square's corridor aims at. The centre of an L
 	// or a cross can be rock; a pillar can stand on it.
 	std::pair<int, int> Centre() const {
@@ -97,8 +97,8 @@ void Carve(Level& lv, int x, int z) {
 Room RootRoom(const Params& p, int width, int height, std::mt19937& rng) {
 	Room r;
 	// Capped so the room fits inside the rim of even the smallest map.
-	r.w = std::min(Roll(rng, 3, 7), width - 2);
-	r.h = std::min(Roll(rng, 3, 7), height - 2);
+	r.w = std::min(Roll(rng, p.roomMin, p.roomMax), width - 2);
+	r.h = std::min(Roll(rng, p.roomMin, p.roomMax), height - 2);
 	if (p.entryX >= 0 && p.entryZ >= 0) {
 		// Anywhere that still covers the entry, inside the one-cell rock rim.
 		r.x = std::clamp(p.entryX - Roll(rng, 0, r.w - 1), 1, width - 1 - r.w);
@@ -142,13 +142,13 @@ void Reshape(Room& r, float irregular, std::mt19937& rng) {
 // which the corridor has to touch). That is what keeps the layout a true TREE:
 // two rooms never fuse, and a corridor never grazes a neighbour and opens a
 // shortcut. So "three branches" is three branches, not three that happen to have
-// run into each other — and a LOOP is only ever one that was asked for.
+// run into each other - and a LOOP is only ever one that was asked for.
 //
 // A corridor is straight, or with probability `winding` it JOGS: a staircase of
 // forward runs and sideways steps, always turning the same way. Always the same
 // way matters: a staircase that never doubles back can never put two of its own
 // squares side by side, so it stays one square wide and never forms a 2x2 block
-// — it cannot be mistaken for a room, by the player or by the measurement.
+// - it cannot be mistaken for a room, by the player or by the measurement.
 //
 // The old generator scattered rooms and then joined them with L-shaped
 // corridors, which crossed rooms and one another freely. Its `branching` could
@@ -199,7 +199,7 @@ struct Grower {
 		}
 		jogged = Chance(rng, p.winding);
 		// Jogs: 1, plus up to two more as winding rises. Forward runs between
-		// them are at least one square, so the corridor still arrives head-on —
+		// them are at least one square, so the corridor still arrives head-on -
 		// and the FIRST is at least two when it jogs: a sideways step one square
 		// out from the room would run along its wall and widen it into a notch.
 		const int jogs = jogged ? 1 + Roll(rng, 0, static_cast<int>(p.winding * 2.0f + 0.5f)) : 0;
@@ -247,8 +247,8 @@ struct Grower {
 			// The child's near side meets the corridor's last square head-on.
 			const auto [ex, ez] = corridor.back();
 			Room c;
-			c.w = Roll(rng, 3, 7);
-			c.h = Roll(rng, 3, 7);
+			c.w = Roll(rng, p.roomMin, p.roomMax);
+			c.h = Roll(rng, p.roomMin, p.roomMax);
 			if (kDx[dir] != 0) {
 				c.x = kDx[dir] > 0 ? ex + 1 : ex - c.w;
 				c.z = ez - Roll(rng, 0, c.h - 1);
@@ -350,7 +350,7 @@ struct Grower {
 	// A LOOP: a second corridor between two rooms that are already joined some
 	// other way, so there are two routes round. `region` labels every floor
 	// square by the lock region it falls in (doors shut); a loop only joins two
-	// rooms of the SAME region, so it can never be a way round a locked door —
+	// rooms of the SAME region, so it can never be a way round a locked door -
 	// the lock/key construction stays proven. Tries each pair of rooms that
 	// are not already neighbours in the tree, nearest first, with a corridor
 	// leaving each room's facing side (the Corridor machinery aimed at a room
@@ -482,6 +482,10 @@ Level Run(const Params& p) {
 	// An entry square the map must contain (inside its rock rim) grows the map
 	// to fit, rather than being dropped: it is the floor above's stair.
 	Params q = p;
+	// A room is at least 3x3 (smaller and it is a corridor with ideas), and the
+	// range reads either way round.
+	q.roomMin = std::clamp(std::min(p.roomMin, p.roomMax), 3, 12);
+	q.roomMax = std::clamp(std::max(p.roomMin, p.roomMax), 3, 12);
 	const bool entry = p.entryX >= 0 && p.entryZ >= 0;
 	if (entry) {
 		q.entryX = std::clamp(p.entryX, 1, 126);
@@ -512,7 +516,7 @@ Level Run(const Params& p) {
 	// THE MAIN PATH first: the root, then `path` rooms in all, each hung off the
 	// last and grown away from the start. Its last room is the exit, so the
 	// path IS the way through. Then the side BRANCHES, each hung off a room of
-	// the path (never the exit — a branch there is just a longer path) and
+	// the path (never the exit - a branch there is just a longer path) and
 	// grown `branchMin..branchMax` rooms deep. Anything that does not fit is
 	// not forced: the report says what was asked and what was built.
 	Grower g{lv, rng, q, {}, {}, {}, {}};
@@ -532,13 +536,13 @@ Level Run(const Params& p) {
 	const int bMin = std::max(1, std::min(p.branchMin, p.branchMax));
 	const int bMax = std::max(bMin, std::max(p.branchMin, p.branchMax));
 	lv.report.branchesWanted = std::max(0, p.branches);
-	// Where branches may leave: every room of the path but the exit — or the
+	// Where branches may leave: every room of the path but the exit - or the
 	// root alone, when the path is a single room.
 	const int anchors = std::max(1, static_cast<int>(spine.size()) - 1);
 	for (int b = 0; b < lv.report.branchesWanted; ++b) {
-		// SPREAD along the path — branch b prefers the anchor at its fair share
+		// SPREAD along the path - branch b prefers the anchor at its fair share
 		// of the way along, so three branches do not all sprout from the start
-		// — then any other anchor, nearest first, if that one is boxed in.
+		// - then any other anchor, nearest first, if that one is boxed in.
 		const int preferred = (b * anchors + anchors / 2) / std::max(1, p.branches);
 		std::vector<int> order(static_cast<size_t>(anchors));
 		for (int i = 0; i < anchors; ++i) order[static_cast<size_t>(i)] = i;
@@ -585,7 +589,7 @@ Level Run(const Params& p) {
 	}
 
 	// --- ends ----------------------------------------------------------------
-	// Start in the root — ON the entry square when there is one, which the root
+	// Start in the root - ON the entry square when there is one, which the root
 	// was built around; exit at the END OF THE MAIN PATH, so the dungeon is
 	// walked rather than stepped across and the branches are side trips.
 	lv.startX = entry ? q.entryX : rooms[0].cx();
@@ -620,7 +624,7 @@ Level Run(const Params& p) {
 		}
 		std::shuffle(cands.begin(), cands.end(), rng);
 		// The MAIN PATH's corridors first: a lock there gates PROGRESS, so the
-		// exit is behind it and its key is somewhere the path has not reached —
+		// exit is behind it and its key is somewhere the path has not reached -
 		// usually down a branch, which is what gives a branch a reason to be
 		// walked. Only when the path offers nothing does a branch get the lock.
 		std::stable_partition(cands.begin(), cands.end(), [&](int c) {
@@ -694,7 +698,7 @@ Level Run(const Params& p) {
 	// first and the regions read off them: flood from the start with every door
 	// shut, then from each floor square not yet reached. A loop can then never
 	// be a way round a locked door, and the construction proof the locks rest
-	// on is untouched — the checker has nothing new to find.
+	// on is untouched - the checker has nothing new to find.
 	lv.report.loopsWanted = std::max(0, p.loops);
 	if (lv.report.loopsWanted > 0) {
 		std::vector<int> region(lv.floor.size(), -1);
@@ -716,12 +720,12 @@ Level Run(const Params& p) {
 	}
 
 	// --- population, ROOM BY ROOM (P4) --------------------------------------
-	// Every room knows how DEEP it sits — tree steps from the start — and its
+	// Every room knows how DEEP it sits - tree steps from the start - and its
 	// PROGRESS is that depth over the deepest room's. Difficulty is then two
 	// things, both leaning on progress through `ramp`:
 	//   * WHICH monsters: the pool ranked by threat (the caller derives it from
-	//     the catalog stats — Game/Threat.h), and a room picks near the rank
-	//     `difficulty + ramp x (progress - 0.5)` — so the entrance meets the
+	//     the catalog stats - Game/Threat.h), and a room picks near the rank
+	//     `difficulty + ramp x (progress - 0.5)` - so the entrance meets the
 	//     weaker end of the band and the far end the stronger;
 	//   * HOW MANY: a density per floor square that rises the same way.
 	// The START ROOM gets nothing, and no monster stands within three steps of
@@ -798,7 +802,7 @@ Level Run(const Params& p) {
 	if (!ranked.empty()) {
 		const int n = static_cast<int>(ranked.size());
 		// THE BOSS first, so the exit room's best square is its: the
-		// strongest kind in the pool. Never in the start room — a one-room
+		// strongest kind in the pool. Never in the start room - a one-room
 		// level has nowhere safe to put it, so it goes without.
 		if (p.boss && exitRoom != 0) {
 			const int cell = freeIn(rooms[exitRoom], true);
@@ -829,7 +833,7 @@ Level Run(const Params& p) {
 	}
 
 	// LOOT, the same way: more of it deeper in, and a find at the end of every
-	// side branch — the reason a branch is worth walking. (The start room gets
+	// side branch - the reason a branch is worth walking. (The start room gets
 	// none: a level should not open with its reward on the doormat.)
 	if (!p.lootIds.empty()) {
 		std::vector<int> children(rooms.size(), 0);

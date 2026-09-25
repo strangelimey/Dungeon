@@ -20,7 +20,7 @@ namespace {
 
 // Tall: the knob tabs scroll, but the report's three lines and the where-it-
 // lands line all take from the same height, and P1's 0.72 left two sliders
-// visible. Wide enough for the longest report line in every language — the
+// visible. Wide enough for the longest report line in every language - the
 // uioverlap audit caught the complexity line 11px over at 0.44.
 constexpr gfx::Rect kPanel{0.25f, 0.06f, 0.50f, 0.88f};
 constexpr float kLabelFill = 1.3f, kFieldFill = 1.0f;
@@ -64,17 +64,19 @@ void GenerateDialog::BuildUI() {
 	// uioverlap sweep caught "New level in The Crypt" running 18px past it).
 	const std::string title =
 		m_mode == Mode::Create ? loc::Tr("map.gen.newtitle")
-							   : std::format("{} — {}", loc::Tr("map.gen.title"), m_level);
+							   : std::format("{} - {}", loc::Tr("map.gen.title"), m_level);
 	DialogChrome chrome =
 		BuildDialogChrome(m_ui, kPanel, title, m_closeIcon, [this] { Close(); });
 	if (m_mode == Mode::Create)
 		chrome.body->Row<ui::Label>(FormRow(), m_where)->centerV = true;
 
-	// One tab per knob group, one row per knob — both walked off the table, so
+	// One tab per knob group, one row per knob - both walked off the table, so
 	// nothing here names a knob.
 	m_tabs = chrome.body->Row<ui::TabControl>(ui::Len::Fill(), 0.07f);
 	const auto tabs = generate::KnobTabs();
 	for (const char* tab : tabs) m_tabs->AddTab(loc::Tr(tab));
+	// ...and one that is not a knob group: saved recipes (P4b).
+	const size_t presetsTab = m_tabs->AddTab(loc::Tr("map.gen.tab.presets"));
 	m_tabs->SetActiveTab(m_activeTab);
 	std::vector<ui::Stack*> pages;
 	for (size_t i = 0; i < tabs.size(); ++i) pages.push_back(TabStack(*m_tabs, i));
@@ -88,6 +90,34 @@ void GenerateDialog::BuildUI() {
 		});
 		ui::Stack& page = *pages[static_cast<size_t>(it - tabs.begin())];
 		const std::string label = loc::Tr(knob.label);
+
+		if (knob.kind == generate::KnobKind::Choice) {
+			// A dropdown of what the OWNER offers (tags, levels), "as before"
+			// first. A value no longer on offer - a level since renamed, kept in
+			// a preset - stays listed as itself, so it is visible rather than
+			// silently swapped for something else.
+			std::vector<std::pair<std::string, std::string>> choices =
+				choicesFor ? choicesFor(knob.key)
+						   : std::vector<std::pair<std::string, std::string>>{};
+			const std::string current = knob.getText(m_params);
+			if (std::ranges::none_of(choices, [&](const auto& c) { return c.first == current; }))
+				choices.push_back({current, current});
+			std::vector<std::string> labels;
+			int selected = 0;
+			for (size_t i = 0; i < choices.size(); ++i) {
+				labels.push_back(choices[i].second);
+				if (choices[i].first == current) selected = static_cast<int>(i);
+			}
+			ui::Stack* row = page.Row<ui::Stack>(FormRow(), true);
+			row->gapRem = 0.5f;
+			row->Row<ui::Label>(ui::Len::Fill(kLabelFill), label)->centerV = true;
+			row->Row<ui::DropDown>(ui::Len::Fill(kFieldFill), std::move(labels), selected,
+								   [this, k, choices](int i) {
+									   if (i >= 0 && i < static_cast<int>(choices.size()))
+										   k->setText(m_params, choices[static_cast<size_t>(i)].first);
+								   });
+			continue;
+		}
 		const double value = knob.get(m_params);
 
 		if (knob.kind == generate::KnobKind::Seed) {
@@ -112,7 +142,7 @@ void GenerateDialog::BuildUI() {
 					generate::SetKnob(*k, m_params, v);
 			};
 			// A new seed, so "give me a different one" does not mean typing a
-			// number. Written straight into the field rather than rebuilding —
+			// number. Written straight into the field rather than rebuilding -
 			// the field is this tree's, and nothing is being cleared.
 			row->Row<ui::Button>(FooterButton(0.8f), loc::Tr("map.gen.roll"),
 								 [this, k] {
@@ -140,6 +170,8 @@ void GenerateDialog::BuildUI() {
 			[this, k](float v) { generate::SetKnob(*k, m_params, v); });
 		if (knob.kind == generate::KnobKind::Int) slider->SetDecimals(0);
 	}
+
+	BuildPresetsPage(*TabStack(*m_tabs, presetsTab));
 
 	// What the last run BUILT, against what it was asked for. Empty until
 	// something has been generated here (see SetReport).
@@ -176,6 +208,57 @@ void GenerateDialog::BuildUI() {
 									   });
 	}
 	chrome.footer->Space(ui::Len::Fill());
+}
+
+// The Presets tab: pick one and Load or Delete it; name the current knobs and
+// Save them. Every change REBUILDS the form (deferred - these fire from inside
+// the tree): a load moves every slider, and a save or delete changes the list.
+void GenerateDialog::BuildPresetsPage(ui::Stack& page) {
+	const std::vector<std::string> names =
+		presetNames ? presetNames() : std::vector<std::string>{};
+	m_presetPick = std::clamp(m_presetPick, 0, std::max(0, static_cast<int>(names.size()) - 1));
+	auto labelled = [&](const char* key) {
+		ui::Stack* row = page.Row<ui::Stack>(FormRow(), true);
+		row->gapRem = 0.5f;
+		row->Row<ui::Label>(ui::Len::Fill(kLabelFill), loc::Tr(key))->centerV = true;
+		return row;
+	};
+	if (names.empty()) {
+		page.Row<ui::Label>(FormRow(), loc::Tr("map.gen.preset.none"))->centerV = true;
+	} else {
+		labelled("map.gen.preset.pick")
+			->Row<ui::DropDown>(ui::Len::Fill(kFieldFill), names, m_presetPick,
+								[this](int i) { m_presetPick = i; });
+		ui::Stack* buttons = page.Row<ui::Stack>(FormRow(1.4f), true);
+		buttons->gapRem = 0.5f;
+		buttons->Space(ui::Len::Fill());
+		buttons->Row<ui::Button>(FooterButton(), loc::Tr("map.gen.preset.load"), [this, names] {
+			const std::string& name = names[static_cast<size_t>(m_presetPick)];
+			if (onPresetLoad && onPresetLoad(name, m_params))
+				m_presetNote = loc::Format("map.gen.preset.loaded", name);
+			m_uiRebuild = true;
+		});
+		buttons->Row<ui::Button>(FooterButton(), loc::Tr("map.gen.preset.delete"), [this, names] {
+			const std::string& name = names[static_cast<size_t>(m_presetPick)];
+			if (onPresetDelete && onPresetDelete(name))
+				m_presetNote = loc::Format("map.gen.preset.deleted", name);
+			m_uiRebuild = true;
+		});
+	}
+	ui::TextField* field =
+		labelled("map.gen.preset.name")->Row<ui::TextField>(ui::Len::Fill(kFieldFill), m_presetName);
+	field->maxLength = 32;
+	field->onChange = [this, field] { m_presetName = field->text; };
+	ui::Stack* save = page.Row<ui::Stack>(FormRow(1.4f), true);
+	save->Space(ui::Len::Fill());
+	save->Row<ui::Button>(FooterButton(), loc::Tr("map.gen.preset.save"), [this] {
+		if (!onPresetSave) return;
+		const std::string saved = onPresetSave(m_presetName, m_params);
+		m_presetNote = saved.empty() ? loc::Tr("map.gen.preset.failed")
+									 : loc::Format("map.gen.preset.saved", saved);
+		m_uiRebuild = true;
+	});
+	page.Row<ui::Label>(FormRow(), m_presetNote)->centerV = true;
 }
 
 void GenerateDialog::Update(const Input& input, float w, float h) {

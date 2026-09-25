@@ -1,4 +1,4 @@
-# Level building — generate-on-create for play testing
+# Level building - generate-on-create for play testing
 
 Branch `level-building`, opened 2026-09-24. Draft plan. Nothing is built yet.
 
@@ -30,7 +30,7 @@ opens, and nothing reports whether the result matches what was asked for.
 
 ## Plan
 
-### P1 — one New Level flow
+### P1 - one New Level flow
 - [+] opens the generator dialog in CREATE mode, aimed at the viewed dungeon.
   "Empty" stays as a choice (today's box), so nothing is lost.
 - Merge `GenerateLevel` into the `CreateNewLevel` path: dungeon-named stem
@@ -77,7 +77,7 @@ opens, and nothing reports whether the result matches what was asked for.
   regenerated level. Those are not stairs, so a reroll can turn their square
   into rock (the checker reports it). This predates P1.
 
-### P2 — branches as a count (restructure the tree)
+### P2 - branches as a count (restructure the tree)
 - Build a SPINE first: start → exit, `path length` rooms long. Then grow
   `branches` side branches off it, each `branch depth` rooms deep (a range).
   "How many branches a path has" becomes a number you get exactly (or the
@@ -129,7 +129,7 @@ opens, and nothing reports whether the result matches what was asked for.
   and linked. The checker still reports an empty floor as unreachable until
   you place a stair, as it always has.
 
-### P3 — complexity: four separate knobs
+### P3 - complexity: four separate knobs
 Each is its own setting, 0..1, and each shows up as its own line in the report:
 - **Loops**: extra corridors that close cycles. Cycles break "everything beyond
   this door", so a loop may only join two rooms in the SAME lock region. Carve
@@ -179,7 +179,7 @@ Each is its own setting, 0..1, and each shows up as its own line in the report:
   was refused, so four "clean" audits looked at a stale dialog. That bug
   predates this branch and is spun off as its own task.
 
-### P4 — difficulty that means strength
+### P4 - difficulty that means strength
 - A THREAT score per monster, DERIVED from its catalog stats (hp, damage,
   offense, defense, armor), so there's no field to maintain. It is computed at
   the catalog seam (`Game_Generate.cpp`) and handed to the generator as
@@ -230,7 +230,7 @@ Each is its own setting, 0..1, and each shows up as its own line in the report:
   Both mutants (random pick; ramp ignored) now fail on exactly the check
   meant for them.
 
-### P4b — theme, rooms, presets
+### P4b - theme, rooms, presets
 - **Room size range**: min/max room width and height. Today it is fixed at 3-7.
 - **Theme / tileset**: pick the theme tags and the wall/floor/ceiling palette in
   the dialog. The default is still the active level's, as today.
@@ -244,7 +244,7 @@ Each is its own setting, 0..1, and each shows up as its own line in the report:
   round-trip and the remembered-last-knobs round-trip. Adding a knob stays a
   one-row change.
 
-### P5 — the play-test loop and proving it
+### P5 - the play-test loop and proving it
 - "Generate & play": create the level and start the party at its start cell in
   one click.
 - A generator REPORT after every run, in the dialog and the log: asked vs got
