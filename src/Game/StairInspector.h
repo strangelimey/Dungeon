@@ -4,11 +4,10 @@
 // A concrete InstanceInspector (see that header), opened by right-clicking a
 // stair's square. A stair is STATIC .map data (a `stairs` record) with a paired
 // half on the level it leads to, so what this edits is deliberately narrow:
-//   * Facing (the common strip) - which way the flight is turned. Only this
-//     half: the pair on the other level is its own record.
-//   * Arrive facing - which way the party faces on landing at the other end
-//     (the record's destfacing). Not offered for an exit, whose far end is a
-//     world-map location rather than a square.
+// Facing (the common strip) - the way you face stepping off it into this level,
+// which is also the way anyone arriving on it faces (StairLink::facing); the
+// flight is turned to rise behind it. Only this half: the pair on the other
+// level is its own record, and says how you face arriving THERE.
 // The destination itself is SHOWN, not edited: a stair leads to its own square
 // on the next floor, where its pair stands, and retargeting one half would
 // break that pairing (docs/level-building.md, the stair lesson). "Go there"
@@ -33,8 +32,7 @@ public:
 		std::string dest;       // destination level stem, or an exit's location id
 		bool destIsLevel = true; // false = an exit to the world map
 		int destX = 0, destZ = 0;
-		Direction facing = Direction::South;
-		Direction destFacing = Direction::South;
+		Direction facing = Direction::North;
 	};
 
 	StairInspector(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)
@@ -42,7 +40,7 @@ public:
 
 	void Open(const Config& cfg, PreviewSpec preview = {});
 
-	std::function<void(const Config&)> onApply; // push facings to the live stair + record
+	std::function<void(const Config&)> onApply; // push the facing to the live stair + record
 	std::function<void()> onSave;               // persist the level (.map)
 	// Take the editor to the other end (the destination level, that square).
 	// The dialog closes KEEPING its edits live, like any edit left unsaved.

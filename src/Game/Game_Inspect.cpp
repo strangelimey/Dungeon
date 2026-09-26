@@ -321,7 +321,6 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		c.destX = s.destX;
 		c.destZ = s.destZ;
 		c.facing = s.facing;
-		c.destFacing = s.destFacing;
 		PreviewSpec pv;
 		pv.subs = m_world->StairPreviewSubs(cx, cz);
 		// Delete takes BOTH halves, as the middle-click erase does.

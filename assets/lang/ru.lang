@@ -766,7 +766,6 @@ map.stair.title={} - клетка {}, {}
 map.stair.leadsto=Ведёт на
 map.stair.cell={}, клетка {}, {}
 map.stair.leaves=Выход к
-map.stair.arrive=Направление по прибытии
 map.stair.goto=Перейти на {}
 map.btn.target=Целевая дверь
 map.btn.notarget=Нет

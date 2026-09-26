@@ -93,11 +93,11 @@ void BuildLevelText(const std::string& stem, const generate::Level& lv,
 	map += "palette floor " + join(donor.FloorPalette()) + "\n";
 	map += "palette ceiling " + join(donor.CeilingPalette()) + "\n";
 	if (!theme.empty()) map += "theme " + join(theme) + "\n";
+	map += "stairfacing arrive\n"; // the new stair-facing meaning (DungeonMap)
 	for (const StairLink& st : stairs)
-		map += std::format("stairs {} {} {} {} dest={} destx={} destz={} destfacing={}\n",
-						   st.type, st.x, st.z, kDir[static_cast<int>(st.facing)],
-						   st.destLevel, st.destX, st.destZ,
-						   kDir[static_cast<int>(st.destFacing)]);
+		map += std::format("stairs {} {} {} {} dest={} destx={} destz={}\n", st.type, st.x,
+						   st.z, kDir[static_cast<int>(st.facing)], st.destLevel, st.destX,
+						   st.destZ);
 	map += ";\n";
 	for (int z = 0; z < lv.height; ++z) {
 		for (int x = 0; x < lv.width; ++x)
@@ -173,7 +173,8 @@ bool Game::StartEncounter(float difficulty, const std::vector<std::string>& tags
 	// THE WAY OUT, authored onto the arrival cell. An encounter is left the same
 	// way a dungeon is — by an exit stair — rather than by some second mechanism
 	// that would then need its own rules about when it is allowed.
-	map += std::format("stairs stairs_exit {} {} south dest=- destx=0 destz=0\n",
+	// North: you arrived facing into the fight, the stair rising behind you.
+	map += std::format("stairs stairs_exit {} {} north dest=- destx=0 destz=0\n",
 					   lv.startX, lv.startZ);
 
 	if (!m_world->InstallLevelFromText(kEncounterStem, map, ent)) {
@@ -323,15 +324,17 @@ bool Game::PlayLevel(const std::string& stem) {
 	m_state = AppState::Playing;
 	if (stem == m_world->CurrentLevel()) {
 		// Already here (the reroll was of the level the party stands on): no
-		// load to wait for, just the walk back to the start. South, as the
-		// transition below arrives facing.
+		// load to wait for, just the walk back to the start, facing as the
+		// transition below arrives.
 		const DungeonMap& map = m_world->Map();
 		m_world->GetParty().SetGridPosition(map.StartX(), map.StartZ());
-		m_world->GetParty().SetFacing(static_cast<int>(Direction::South));
+		m_world->GetParty().SetFacing(
+			static_cast<int>(m_world->ArrivalFacingAt(map.StartX(), map.StartZ())));
 	} else {
 		// -1,-1 = the level's own start cell, resolved after the load: for a
-		// generated floor that is the square the stair from above lands on.
-		BeginLevelTransition(stem, -1, -1, Direction::South);
+		// generated floor that is the square the stair from above lands on,
+		// so the party faces off that stair into the level.
+		BeginLevelTransition(stem, -1, -1, std::nullopt);
 	}
 	if (m_world->onMessage) m_world->onMessage(loc::FormatLine("map.gen.playing", stem));
 	log::Info("play-test: {} from its start", stem);

@@ -364,8 +364,11 @@ try:
     # ...and at ITS cell, not the level's start. level2 starts at 3,3, which
     # is the control: landing there would mean the location's entry was
     # ignored and the front door's rule applied.
-    check("10,6 facing south" in log,
-          "landing on the location's own cell, not the level's start (10,6 vs P)")
+    # FACING NORTH: 10,6 holds crypt2's exit stair, and arriving on a stair
+    # faces the way it does (the way you step off it, 2026-09-25).
+    check("10,6 facing north" in log,
+          "landing on the location's own cell, not the level's start (10,6 vs P), "
+          "facing off the exit stair there")
     check("start 10,6" not in log or True,
           "and the level really does start elsewhere (the control)")
 
@@ -891,8 +894,7 @@ try:
     # the world LOCATION named room1 — spelled exactly like the level about to
     # be renamed, which is the whole point of it.
     k1 = os.path.join(REN, r"levels\keep1.map")
-    write(k1, read(k1) + "stairs stairs_exit 9 9 south dest=room1 destx=0 destz=0 "
-          "destfacing=south\r\n")
+    write(k1, read(k1) + "stairs stairs_exit 9 9 south dest=room1 destx=0 destz=0\r\n")
 
     log = run("rename.eval", project="wt_ren")
     con = [l.split("console: ", 1)[1] for l in log.splitlines() if "console: " in l]
@@ -949,7 +951,7 @@ try:
           "on disk: the manifest's opening and harness level")
     check("location dungeon keep 3 3 dungeon=castle level=hall" in world,
           "on disk: the short-way doorway now names its dungeon outright")
-    check("stairs stairs_up 7 7 south dest=hall" in k1,
+    check("stairs stairs_up 7 7 north dest=hall" in k1,
           "on disk: another level's stair repointed WITHOUT a savemap")
     check("stairs stairs_exit 9 9 south dest=room1" in k1,
           "an exit stair's location is left alone, though it is spelled like "

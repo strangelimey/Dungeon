@@ -16,7 +16,8 @@
 //   niche [<type>] <x> <z> [facing] [name=] [hidden=]
 //                                     recessed pocket on a solid wall
 //   bore [<type>] <x> <z> <axis>      see-through hole THROUGH a wall block
-//   stairs <type> <x> <z> [facing] dest= destx= destz= [destfacing=]
+//   stairs <type> <x> <z> [facing] dest= destx= destz=   (facing: StairLink)
+//   stairfacing arrive   (this file's stair facings are the new meaning)
 //   variant <wall|floor|ceiling> <x> <z> <index>   per-cell surface override
 //   atmosphere [dust=] [haze=] [ambient=]  the level's mood knobs
 //   theme <tag> <tag> ...             the level's content lens (Theme())
@@ -195,14 +196,22 @@ struct FixtureTypes {
 
 // A stair/portal on a floor cell that, when the party steps onto it, transitions
 // to another level (P6). `type` is a stairs.cat catalog id (the prop model);
-// dest* name the arrival level + cell + facing.
+// dest* name the arrival level + cell.
+//
+// `facing` is the way you face STEPPING OFF the stair into this level - not the
+// way the steps rise (Michael, 2026-09-25: crypt1's stairs up to the gate rise
+// south, and coming down them you face north, so they face north). It is also
+// where you face on ARRIVING by it: every way in that lands on a stair's square
+// takes that stair's facing (DungeonWorld::ArrivalFacingAt), which is why there
+// is no separate arrival facing on the record any more. The prop is turned the
+// opposite way (PlaceStairProp), so the flight rises behind you. North by
+// default: a new stair then looks as a new one always has.
 struct StairLink {
 	int x = 0, z = 0;
-	Direction facing = Direction::South;
+	Direction facing = Direction::North;
 	std::string type;
 	std::string destLevel;
 	int destX = 0, destZ = 0;
-	Direction destFacing = Direction::South;
 };
 
 // Grid-based dungeon. Coordinates: x = column, z = row; world position of a
@@ -489,9 +498,9 @@ public:
 	// Removes the stair link at (x,z), copying it into `removed` first (so the
 	// caller can clean up its paired return stair). False if the cell has none.
 	bool RemoveStair(int x, int z, StairLink* removed = nullptr);
-	// Turns the stair at (x,z) (the stair inspector): which way its flight faces,
-	// and which way the party faces on arriving at the other end. False if none.
-	bool SetStairFacing(int x, int z, Direction facing, Direction destFacing);
+	// Turns the stair at (x,z) (the stair inspector) - see StairLink::facing.
+	// False if there is none.
+	bool SetStairFacing(int x, int z, Direction facing);
 	// Repoints every stair whose dest names `oldStem` (a level rename — the
 	// dest strings are the cross-level references that would go stale).
 	// Stairs whose TYPE is in `skipTypes` are left alone: an EXIT's dest names

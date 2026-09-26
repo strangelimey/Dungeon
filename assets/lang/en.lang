@@ -785,7 +785,6 @@ map.stair.title={} - cell {}, {}
 map.stair.leadsto=Leads to
 map.stair.cell={}, cell {}, {}
 map.stair.leaves=Leads out to
-map.stair.arrive=Arrive facing
 map.stair.goto=Go to {}
 map.btn.target=Target door
 map.btn.notarget=None

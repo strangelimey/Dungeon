@@ -672,10 +672,10 @@ void Game::WireModuleCallbacks() {
 			log::Warn("niche inspector: failed to save map");
 	};
 
-	// Stair inspector: turn the flight / set the arrival facing live, persist
-	// the map (a stair is static .map data, like a niche), or go to the far end.
+	// Stair inspector: turn the stair live, persist the map (a stair is static
+	// .map data, like a niche), or go to the far end.
 	m_stairInspector.onApply = [this](const StairInspector::Config& c) {
-		m_world->SetStairFacing(c.x, c.z, c.facing, c.destFacing);
+		m_world->SetStairFacing(c.x, c.z, c.facing);
 	};
 	m_stairInspector.onSave = [this] {
 		if (m_world->SaveAllLevels().empty()) log::Warn("stair inspector: failed to save map");

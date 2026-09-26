@@ -783,7 +783,10 @@ public:
 	struct LevelTransition {
 		std::string level;
 		int x = 0, z = 0;
-		Direction facing = Direction::South;
+		// Unset for a stair: the party faces whatever the stair it lands on
+		// faces (ArrivalFacingAt), which is only known once that level is
+		// loaded. A pit fall sets it - you land looking the way you fell.
+		std::optional<Direction> facing;
 		// This stair leaves the DUNGEON rather than changing level
 		// (stairs.cat `exit = 1`). A flag rather than a reserved level name
 		// like "world": a name in the same namespace as real stems is one
@@ -1193,7 +1196,12 @@ public:
 	// none; and turning it - the record AND its prop, so the flight turns in
 	// the 3D view at once. The paired half on the other level is untouched.
 	bool StairSettings(int x, int z, StairLink& out) const;
-	bool SetStairFacing(int x, int z, Direction facing, Direction destFacing);
+	bool SetStairFacing(int x, int z, Direction facing);
+	// Where the party faces on ARRIVING at (x,z) of the active level by any way
+	// in - a stair, a doorway, the game's opening, `play`: the facing of the
+	// stair standing there (StairLink::facing), else south. A save load and a
+	// pit fall bring their own facing and do not ask.
+	Direction ArrivalFacingAt(int x, int z) const;
 	// The stair prop's mesh(es), for the inspector's preview pane.
 	std::vector<gfx::PreviewSubmesh> StairPreviewSubs(int x, int z) const;
 
@@ -2293,6 +2301,10 @@ private:
 	// Instantiates one stair link's prop (a non-solid decoration flagged stair).
 	// Shared by LoadStairs and the editor's live placement (AddStair).
 	void PlaceStairProp(const StairLink& link);
+	// A stair prop's transform: on its cell, turned OPPOSITE its facing (the
+	// meshes' +Z is the way you travel on them; the facing is the way you step
+	// off). Shared by placement and the stair inspector's turn.
+	Mat4 StairPropWorld(const DecorationKind& kind, int x, int z, Direction facing) const;
 	// Lazily loads (and caches) the shared assets for a monster / decoration
 	// type (model + mesh + PBR set), resolved through `catalog` (decorations.cat
 	// for props, stairs.cat for stair props). Shared by the initial load and live

@@ -33,22 +33,6 @@ void StairInspector::BuildContent(ui::Stack& c) {
 	c.Row<ui::Label>(FormRow(),
 					 loc::Format("map.stair.cell", m_cfg.dest, m_cfg.destX, m_cfg.destZ));
 
-	// Which way the party faces on landing.
-	c.Row<ui::Label>(FormRow(), loc::Tr("map.stair.arrive"));
-	static constexpr Direction kDirs[] = {Direction::North, Direction::East, Direction::South,
-										  Direction::West};
-	std::vector<std::string> names;
-	int sel = 0;
-	for (size_t i = 0; i < std::size(kDirs); ++i) {
-		names.push_back(loc::Tr(FacingLocKey(kDirs[i])));
-		if (kDirs[i] == m_cfg.destFacing) sel = static_cast<int>(i);
-	}
-	c.Row<ui::DropDown>(FormRow(), names, sel, [this](int i) {
-		if (i < 0 || i >= static_cast<int>(std::size(kDirs))) return;
-		m_cfg.destFacing = kDirs[static_cast<size_t>(i)];
-		if (onApply) onApply(m_cfg);
-	});
-
 	c.Row<ui::Button>(FormRow(), loc::Format("map.stair.goto", m_cfg.dest), [this] {
 		Close(); // keeping the edits: they are live, like any unsaved edit
 		if (onGoTo) onGoTo(m_cfg);

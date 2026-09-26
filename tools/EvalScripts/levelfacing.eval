@@ -1,0 +1,26 @@
+; levelfacing.eval - a stair faces the way you STEP OFF it (2026-09-25), in a
+; scratch copy of the demo world (run with -project lb_facing). LevelBuildTest.py
+; phase 8 first rewrites that copy's crypt levels in the OLD form - every stair
+; `south` (the way its steps rise), no `stairfacing arrive` marker, a
+; `destfacing=` on the stairs between floors - so this is also the migration.
+;
+; In through crypt_gate: it lands on crypt1's exit stair at 7,7, which rises
+; to the south, so the party must face NORTH. Then down crypt1's stair at 1,1
+; (walked onto from 1,2, heading north): the party lands on crypt2's stair up at
+; 1,1, and faces the way THAT stair faces - north too, since it was `south` in
+; the old form - not the `destfacing` the old record carried. savemap writes
+; both levels in the new form.
+logecho on
+reset
+leave
+discover crypt_gate
+enter crypt_gate
+state
+pos
+tp 1 2
+face n
+forward 1
+step 2
+mapinfo
+pos
+savemap

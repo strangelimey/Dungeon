@@ -239,7 +239,9 @@ bool Game::EnterLocation(const std::string& id) {
 
 	m_worldState.onWorldMap = false;
 	m_worldState.atLocation = id; // the fallback for an exit that names none
-	BeginLevelTransition(entry, loc->entryX, loc->entryZ, Direction::South,
+	// Facing: a doorway usually opens onto an exit stair (crypt_gate onto
+	// crypt1's), and you come down it facing the way that stair faces.
+	BeginLevelTransition(entry, loc->entryX, loc->entryZ, std::nullopt,
 						 /*stashCurrent=*/false);
 	if (m_world->onMessage)
 		m_world->onMessage(loc::FormatLine("world.entered", d->Display()));

@@ -1554,6 +1554,28 @@ void DungeonWorld::LoadStairs() {
 		log::Info("Placed {} stairs", m_map.Stairs().size());
 }
 
+// A stair's facing is the way you face stepping OFF it (StairLink::facing), and
+// the meshes are authored the other way round - their +Z is the way you travel
+// ON them, up a flight or down a shaft - so the prop turns to the opposite.
+Mat4 DungeonWorld::StairPropWorld(const DecorationKind& kind, int x, int z,
+								  Direction facing) const {
+	const Vec3 pos = m_map.CellCenter(x, z);
+	Mat4 world;
+	XMStoreFloat4x4(&world, UnitScale(kind.modelScale) *
+								XMMatrixRotationY(DirYaw(DirOpposite(facing))) *
+								XMMatrixTranslation(pos.x, 0, pos.z));
+	return world;
+}
+
+Direction DungeonWorld::ArrivalFacingAt(int x, int z) const {
+	const StairLink* s = m_map.StairAt(x, z);
+	// Scenery that only LOOKS like a stair (a pit's ceiling hole, traverse = 0)
+	// is not a way you came in by.
+	if (!s || !CatalogBool(m_project.stairs.Find(s->type), "traverse", true))
+		return Direction::South;
+	return s->facing;
+}
+
 void DungeonWorld::PlaceStairProp(const StairLink& s) {
 	DecorationKind& kind = DecorationKindFor(s.type, m_project.stairs);
 	Decoration deco;
@@ -1562,9 +1584,7 @@ void DungeonWorld::PlaceStairProp(const StairLink& s) {
 	deco.z = s.z;
 	deco.facing = s.facing;
 	deco.stair = true; // written as a stairs record, not a decoration
-	const Vec3 pos = m_map.CellCenter(s.x, s.z);
-	XMStoreFloat4x4(&deco.world, UnitScale(kind.modelScale) * XMMatrixRotationY(DirYaw(s.facing)) *
-									 XMMatrixTranslation(pos.x, 0, pos.z));
+	deco.world = StairPropWorld(kind, s.x, s.z, s.facing);
 	deco.solid = false; // the party walks onto a stair to use it
 	m_decorations.push_back(std::move(deco));
 }

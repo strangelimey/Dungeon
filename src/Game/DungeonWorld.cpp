@@ -111,7 +111,7 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 						static_cast<Direction>(m_party.Facing()), true};
 				} else {
 					m_pendingTransition =
-						LevelTransition{s.destLevel, s.destX, s.destZ, s.destFacing};
+						LevelTransition{s.destLevel, s.destX, s.destZ, std::nullopt};
 				}
 				break;
 			}
@@ -1669,14 +1669,15 @@ bool DungeonWorld::StairSettings(int x, int z, StairLink& out) const {
 	return true;
 }
 
-bool DungeonWorld::SetStairFacing(int x, int z, Direction facing, Direction destFacing) {
-	if (!m_map.SetStairFacing(x, z, facing, destFacing)) return false;
-	// The prop is a decoration flagged `stair` (PlaceStairProp); it turns the
-	// way any standing decoration does.
-	for (int i = 0; i < static_cast<int>(m_decorations.size()); ++i) {
-		const Decoration& d = m_decorations[static_cast<size_t>(i)];
-		if (d.stair && d.x == x && d.z == z) SetDecorationFacing(i, facing);
-	}
+bool DungeonWorld::SetStairFacing(int x, int z, Direction facing) {
+	if (!m_map.SetStairFacing(x, z, facing)) return false;
+	// The prop is a decoration flagged `stair` (PlaceStairProp), turned the
+	// opposite way to the facing - see StairPropWorld.
+	for (Decoration& d : m_decorations)
+		if (d.stair && d.x == x && d.z == z && d.kind) {
+			d.facing = facing;
+			d.world = StairPropWorld(*d.kind, x, z, facing);
+		}
 	return true;
 }
 

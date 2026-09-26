@@ -535,10 +535,13 @@ private:
 
 	// Starts a mid-game level transition (P6): swaps the world to `stem`, stages
 	// its load behind the loading screen, and arrives at (x,z,facing) when done
-	// (x<0 = the level's start cell). `stashCurrent` saves the level being left
+	// (x<0 = the level's start cell). An unset facing is a WAY IN - a stair, a
+	// doorway, the opening, `play` - and faces whatever stair stands on the
+	// landing square (DungeonWorld::ArrivalFacingAt); only a save load and a pit
+	// fall bring a facing of their own. `stashCurrent` saves the level being left
 	// for a later return; pass false when leaving a throwaway baseline (save load).
 	void BeginLevelTransition(const std::string& stem, int x, int z,
-							  Direction facing, bool stashCurrent = true);
+							  std::optional<Direction> facing, bool stashCurrent = true);
 	// True when the frame now starting is one the steady-state allocation rule
 	// covers (Core/AllocTrack). Stateful — it counts the warm-up.
 	bool SteadyStateFrame();
@@ -753,7 +756,7 @@ private:
 	// Pending level-transition arrival (set by BeginLevelTransition, applied when
 	// the LoadingLevel queue finishes): the cell + facing the party enters at.
 	int m_pendingLevelX = 0, m_pendingLevelZ = 0;
-	Direction m_pendingLevelFacing = Direction::South;
+	std::optional<Direction> m_pendingLevelFacing; // unset = ArrivalFacingAt
 	// Free-look offset to re-layer once the arriving party is placed. Orthogonal
 	// for ordinary transitions (stairs/new game); a save load on a DIFFERENT level
 	// seeds it from the save so the exact look angle survives the level rebuild.

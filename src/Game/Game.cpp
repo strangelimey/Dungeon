@@ -535,7 +535,7 @@ void Game::BuildGameLoadTasks() {
 }
 
 void Game::BeginLevelTransition(const std::string& stem, int x, int z,
-								Direction facing, bool stashCurrent) {
+								std::optional<Direction> facing, bool stashCurrent) {
 	m_world->BeginLevelLoad(stem, stashCurrent); // swap + reset per-level state now
 	m_loadQueue.Clear();          // re-stage only the world rebuild (portraits /
 	m_loadQueue.SetDoneLabel(loc::Tr("load.done")); // HUD persist across levels)
@@ -789,13 +789,12 @@ void Game::ApplyMemberColors() {
 // answered by nothing at all.
 bool Game::OpenInLevel(const std::string& level, int x, int z) {
 	if (m_world->CurrentLevel() != level) {
-		BeginLevelTransition(level, x, z, Direction::South,
-							 /*stashCurrent=*/false);
+		BeginLevelTransition(level, x, z, std::nullopt, /*stashCurrent=*/false);
 		return true;
 	}
 	const DungeonMap& map = m_world->Map();
-	m_world->PlacePartyAt(x >= 0 ? x : map.StartX(), z >= 0 ? z : map.StartZ(),
-						 Direction::South);
+	const int px = x >= 0 ? x : map.StartX(), pz = z >= 0 ? z : map.StartZ();
+	m_world->PlacePartyAt(px, pz, m_world->ArrivalFacingAt(px, pz));
 	return false;
 }
 
@@ -1598,7 +1597,9 @@ void Game::Update(float dt) {
 				px = m_world->Map().StartX();
 				pz = m_world->Map().StartZ();
 			}
-			m_world->PlacePartyAt(px, pz, m_pendingLevelFacing);
+			m_world->PlacePartyAt(px, pz,
+							  m_pendingLevelFacing ? *m_pendingLevelFacing
+												   : m_world->ArrivalFacingAt(px, pz));
 			// Re-layer the saved free-look offset on the placed party (a save load
 			// onto a different level; orthogonal for ordinary transitions). The
 			// offset parks at the saved angle; mirror the looking flag into the RMB

@@ -115,7 +115,16 @@ void DungeonMap::Parse(const std::vector<u8>& bytesIn, FixtureTypes fixtures,
 	DN_ASSERT(foundStart, "map has no 'P' start cell: " + path);
 
 	// Records: surface palettes and static decorations.
+	bool arrivalFacing = false; // `stairfacing arrive` seen (see below the loop)
 	for (const std::string& record : records) {
+		if (record.starts_with("stairfacing")) {
+			const std::vector<std::string_view> tok = SplitRecordTokens(record);
+			DN_ASSERT(tok.size() == 2 && tok[1] == "arrive",
+					  std::format("stairfacing takes one word, arrive: \"{}\" in {}", record,
+								  path));
+			arrivalFacing = true;
+			continue;
+		}
 		if (record.starts_with("palette")) {
 			ParsePaletteRecord(record, path);
 			continue;
@@ -377,6 +386,20 @@ void DungeonMap::Parse(const std::vector<u8>& bytesIn, FixtureTypes fixtures,
 			  "map must declare its surface palettes (palette <wall|floor|ceiling> "
 			  "<id> ...): " + path);
 
+	// A STAIR'S FACING changed meaning (Michael, 2026-09-25). It used to be the
+	// way you TRAVEL on it - the way the steps rise, or fall - and is now the
+	// way you face STEPPING OFF it into this level: crypt1's stairs up to the
+	// gate rise to the south, and coming down them you face north, so they
+	// face north. A file written since says so (`stairfacing arrive`, which
+	// the writer always emits); one without it is in the old meaning, and its
+	// stairs are turned round here so they look and behave as they always did.
+	// The next save writes them in the new form.
+	if (!arrivalFacing && !m_stairs.empty()) {
+		for (StairLink& s : m_stairs) s.facing = DirOpposite(s.facing);
+		log::Info("{}: {} stair(s) in the old travel-facing form, read as arrival facing",
+				  path, m_stairs.size());
+	}
+
 	// Resolve each sconce's mount wall now the whole grid is known: an explicit
 	// facing must point at solid rock; otherwise take the first solid neighbour
 	// (N, E, S, W), defaulting north.
@@ -431,9 +454,12 @@ void DungeonMap::ParsePaletteRecord(const std::string& record, const std::string
 	list->assign(tokens.begin() + 2, tokens.end());
 }
 
-// "stairs <type> <x> <z> [facing] dest=<level> destx=<n> destz=<n>
-// [destfacing=<dir>]" — a portal on a floor cell that transitions to another
-// level when the party steps onto it (P6). `type` is a stairs.cat id.
+// "stairs <type> <x> <z> [facing] dest=<level> destx=<n> destz=<n>" - a portal
+// on a floor cell that transitions to another level when the party steps onto
+// it (P6). `type` is a stairs.cat id; `facing` is the way you face stepping off
+// it (see the `stairfacing` note in the constructor). An old `destfacing=` is
+// accepted and ignored: where you face on arriving is the facing of the stair
+// you land on, so the far stair already says it.
 void DungeonMap::ParseStairRecord(const std::string& record, const std::string& path) {
 	const std::vector<std::string_view> tok = SplitRecordTokens(record);
 	DN_ASSERT(tok.size() >= 4,
@@ -470,10 +496,11 @@ void DungeonMap::ParseStairRecord(const std::string& record, const std::string& 
 		if (key == "dest") s.destLevel = std::string(val);
 		else if (key == "destx") s.destX = coord(val);
 		else if (key == "destz") s.destZ = coord(val);
-		else if (key == "destfacing")
-			DN_ASSERT(ParseDirection(val, s.destFacing),
+		else if (key == "destfacing") {
+			Direction ignored;
+			DN_ASSERT(ParseDirection(val, ignored),
 					  std::format("bad destfacing \"{}\": \"{}\" in {}", val, record, path));
-		else
+		} else
 			DN_ASSERT(false,
 					  std::format("unknown stairs param \"{}\": \"{}\" in {}", key, record, path));
 	}
@@ -971,11 +998,10 @@ const StairLink* DungeonMap::StairAt(int x, int z) const {
 	return nullptr;
 }
 
-bool DungeonMap::SetStairFacing(int x, int z, Direction facing, Direction destFacing) {
+bool DungeonMap::SetStairFacing(int x, int z, Direction facing) {
 	for (StairLink& s : m_stairs)
 		if (s.x == x && s.z == z) {
 			s.facing = facing;
-			s.destFacing = destFacing;
 			return true;
 		}
 	return false;

@@ -1,7 +1,7 @@
 # tools/LevelBuildTest.py - the level-building thread's checks (docs/level-building.md).
 #
 # Run:  python tools\LevelBuildTest.py [phase ...]   (needs a debug build;
-#       no phases = all seven)
+#       no phases = all eight)
 #
 # The eval runner's own verdict only says every line matched a command, so it
 # reads PASS on a run that stranded every level it made. This reads what the
@@ -59,6 +59,12 @@
 #      must START on the opening. MUTATION: with the arrivals ignored, four
 #      checks fail - but only once the doorway has no stair under it, since the
 #      demo's own doorways land on exit stairs a reroll already kept.
+#   8. A STAIR FACES THE WAY YOU STEP OFF IT - the scratch world's crypt levels
+#      are rewritten in the OLD form (facing = the way the steps rise, no
+#      marker, a destfacing of east). In through crypt_gate must face north off
+#      crypt1's exit stair; down crypt1's stair must land on crypt2's facing
+#      north (that stair's facing, not the old destfacing); savemap must write
+#      the new form.
 #
 # Checked by mutation (2026-09-24): with the reroll's stairs dropped, the
 # checker reported 5 errors (stairblocked, stairunpaired, three levellost) and
@@ -889,6 +895,59 @@ def main():
             check(s1 is not None and (7, 7) in reached(g1, s1),
                   "crypt1: the exit stair (and crypt_gate's landing) at 7,7 is still joined on",
                   f"rows {g1}")
+        finally:
+            shutil.rmtree(proj, ignore_errors=True)
+
+    if phase_wanted(8):
+        print("\n8 - a stair faces the way you step off it, and old files are read that way")
+        proj = scratch("lb_facing")
+        try:
+            # THE OLD FORM, as every file written before 2026-09-25 has it: the
+            # facing is the way the steps rise (all four demo stairs rise south),
+            # no marker line, and a destfacing on the stairs between floors -
+            # set to EAST, so a landing that still obeyed it would show it.
+            levels = os.path.join(proj, "levels")
+            for stem in ("crypt1", "crypt2"):
+                p = os.path.join(levels, stem + ".map")
+                text = io.open(p, encoding="utf-8", newline="").read()
+                eol = "\r\n" if "\r\n" in text else "\n"
+                out = []
+                for line in text.split(eol):
+                    if line == "stairfacing arrive":
+                        continue
+                    if line.startswith("stairs "):
+                        line = re.sub(r"^(stairs \S+ \d+ \d+) north", r"\1 south", line)
+                        if "dest=crypt" in line:
+                            line += " destfacing=east"
+                    out.append(line)
+                io.open(p, "w", encoding="utf-8", newline="").write(eol.join(out))
+            old1 = io.open(os.path.join(levels, "crypt1.map"), encoding="utf-8").read()
+            check("stairfacing" not in old1 and "stairs stairs_exit 7 7 south" in old1 and
+                  "destfacing=east" in old1,
+                  "the scratch crypt levels are in the OLD form (the control)")
+
+            code, con = run("levelfacing.eval", "lb_facing")
+            check(code == 0, "the script ran to the end", f"exit {code}")
+            poses = [l for l in con if re.match(r"-?\d+,-?\d+ facing ", l)]
+            check(len(poses) >= 2 and poses[0].startswith("7,7 facing north"),
+                  "in through crypt_gate onto crypt1's exit stair (steps rising south): "
+                  "facing NORTH, off the stair into the dungeon", f"{poses}")
+            maps = [l for l in con if re.search(r"\d+x\d+ map", l)]
+            check(len(poses) >= 2 and poses[1].startswith("1,1 facing north") and
+                  any("12x8" in l for l in maps),
+                  "down crypt1's stair: on crypt2's stair up at 1,1, facing the way THAT "
+                  "stair faces (north), not the old destfacing (east)",
+                  f"{poses}, {maps}")
+            new1 = io.open(os.path.join(levels, "crypt1.map"), encoding="utf-8").read()
+            new2 = io.open(os.path.join(levels, "crypt2.map"), encoding="utf-8").read()
+            check("stairfacing arrive" in new1 and "stairfacing arrive" in new2 and
+                  "stairs stairs_exit 7 7 north" in new1 and
+                  "stairs stairs_down 1 1 north" in new1 and
+                  "stairs stairs_up 1 1 north" in new2 and
+                  "destfacing" not in new1 + new2,
+                  "savemap writes the NEW form: the marker, every stair turned to "
+                  "north, no destfacing",
+                  f"{[l for l in (new1 + new2).splitlines() if l.startswith('stair')]}")
         finally:
             shutil.rmtree(proj, ignore_errors=True)
 

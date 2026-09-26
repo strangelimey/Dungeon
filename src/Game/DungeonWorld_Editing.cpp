@@ -1891,10 +1891,12 @@ static std::string SerializeMapStatic(const std::string& stem,
 		m += std::format("{} {} {} {}\n", f.ceiling ? "ceilingfeature" : "floorfeature",
 						 f.type, f.x, f.z);
 
+	// Always the new form, marked so (DungeonMap's constructor reads a file
+	// without the marker as the old travel-facing meaning and turns it round).
+	m += "stairfacing arrive\n";
 	for (const StairLink& s : map.Stairs())
-		m += std::format("stairs {} {} {} {} dest={} destx={} destz={} destfacing={}\n",
-						 s.type, s.x, s.z, DirName(s.facing), s.destLevel, s.destX,
-						 s.destZ, DirName(s.destFacing));
+		m += std::format("stairs {} {} {} {} dest={} destx={} destz={}\n", s.type, s.x, s.z,
+						 DirName(s.facing), s.destLevel, s.destX, s.destZ);
 
 	for (int z = 0; z < map.Height(); ++z)
 		for (int x = 0; x < map.Width(); ++x) {

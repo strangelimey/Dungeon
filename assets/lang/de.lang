@@ -762,7 +762,6 @@ map.stair.title={} - Zelle {}, {}
 map.stair.leadsto=Führt nach
 map.stair.cell={}, Zelle {}, {}
 map.stair.leaves=Führt hinaus nach
-map.stair.arrive=Blickrichtung bei Ankunft
 map.stair.goto=Gehe zu {}
 map.btn.target=Zieltür
 map.btn.notarget=Keine

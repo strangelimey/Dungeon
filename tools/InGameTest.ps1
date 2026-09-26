@@ -121,8 +121,8 @@ $screens = @(
 	@{ label = 'sweep_genpopulation'; viaConsole = $true
 	   open = { Run-Cmd 'editor'; Run-Cmd 'generate dialog'; Run-Cmd 'generate dialog tab 2' }
 	   close = { Run-Cmd 'generate dialog off'; Run-Cmd 'editor off' } },
-	# The STAIR inspector, both layouts: crypt1's stair down at 1,1 (destination,
-	# arrival facing, Go to) and its exit at 7,7 (one "leaves through" line).
+	# The STAIR inspector, both layouts: crypt1's stair down at 1,1 (destination
+	# and Go to) and its exit at 7,7 (one "leads out to" line).
 	# `editor inspect` is what a right-click on the square does. It goes to crypt1
 	# FIRST: Enter on the landing page can mean Continue, which loads whatever
 	# level the newest save names (an eval save puts it on eval_arena), and the

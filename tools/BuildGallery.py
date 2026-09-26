@@ -203,7 +203,9 @@ class Level:
 		lines += ["".join(row) for row in self.grid]
 		lines += [";"]
 		lines += self.fixtures
-		lines += self.stairs
+		# A stair's facing is the way you face stepping off it (DungeonMap);
+		# the marker says the file means that, as the editor's writer does.
+		lines += ["stairfacing arrive"] + self.stairs
 		lines += [f"variant {k} {x} {z} {i}" for (k, x, z, i) in self.variants]
 		return "\n".join(lines) + "\n"
 
@@ -249,10 +251,10 @@ def main():
 	a, b = levels
 	ax, az = a.rooms[-1][2], a.rooms[-1][3]
 	bx, bz = b.rooms[0][2], b.rooms[0][3]
-	a.stairs.append(f"stairs stairs_down {ax} {az} south dest={b.stem} "
-					f"destx={bx + 1} destz={bz} destfacing=south")
-	b.stairs.append(f"stairs stairs_up {bx} {bz} south dest={a.stem} "
-					f"destx={ax + 1} destz={az} destfacing=south")
+	a.stairs.append(f"stairs stairs_down {ax} {az} north dest={b.stem} "
+					f"destx={bx + 1} destz={bz}")
+	b.stairs.append(f"stairs stairs_up {bx} {bz} north dest={a.stem} "
+					f"destx={ax + 1} destz={az}")
 
 	# EVERY level needs a start cell, not just the one the party begins on:
 	# DungeonMap asserts on a map without a 'P' (DungeonMap.cpp), so a level

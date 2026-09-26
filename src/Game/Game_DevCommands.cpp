@@ -224,8 +224,9 @@ void Game::RegisterDevCommands() {
 							   m_console.Print("unknown level: " + stem);
 							   return;
 						   }
-						   // Arrive at the level's start cell (-1 = resolve after load).
-						   BeginLevelTransition(stem, -1, -1, Direction::South);
+						   // Arrive at the level's start cell (-1 = resolve after load),
+						   // facing as any way in does.
+						   BeginLevelTransition(stem, -1, -1, std::nullopt);
 						   m_console.Print("loading " + stem + "...");
 					   });
 	// THE RANKING DIFFICULTY PICKS BY (docs/level-building.md P4), readable

@@ -1475,7 +1475,14 @@ worn_*, lang, shaders — what AssetBaker emits):
   "+ New..." (an effect needs a class) — MapEditor's `placeable` flag.
 - `levels/<stem>.map` + `.ent` — the level layers. The .map's surface palette is
   a `palette <wall|floor|ceiling> <id>...` record (catalog ids), and it also
-  carries `stairs <type> <x> <z> [facing] dest= destx= destz= [destfacing=]`,
+  carries `stairs <type> <x> <z> [facing] dest= destx= destz=` (a stair's
+  FACING is the way you face STEPPING OFF it into its level, and so the way any
+  arrival on its square faces - Michael, 2026-09-25: crypt1's stairs up to the
+  gate rise south, so they face north. The prop is turned the opposite way. It
+  used to mean the way the steps rise, and a file written before carries no
+  `stairfacing arrive` line, which is how DungeonMap knows to turn its stairs
+  round at load; `destfacing=` is accepted and ignored, since the stair you
+  land on already says it),
   `variant <wall|floor|ceiling> <x> <z> <index>`, and `atmosphere [dust=…]
   [haze=…] [ambient=…]` (per-level mood knobs, authored by the editor's Level
   settings dialog) records. (The old `assets/maps/level1.*` with `textures`
