@@ -48,6 +48,7 @@
 #include "Graphics/Renderer.h"
 #include "Graphics/SpriteBatch.h"
 
+#include <algorithm>
 #include <array>
 #include <flat_map>
 #include <functional>
@@ -55,6 +56,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -1451,8 +1453,20 @@ private:
 		// the wall FEATURES, one shared mesh across all 54 surfaces, which can
 		// therefore only be corrected where it is stamped (DungeonMeshBuilder).
 		std::vector<float> uAspect;
+		// WHAT the texture arrays hold: the set names in variant order and the
+		// resolution tier they were asked for. A level change whose palette
+		// resolves to the same sets at the same tier keeps them instead of reading
+		// every map off disk again (AppendLoadTasks). LoadSurfaceMaterial is the
+		// only thing that appends and ResetTextures the only thing that clears, so
+		// the record cannot disagree with the arrays.
+		std::vector<std::string> loadedSets;
+		std::string loadedRes;
+		bool Holds(std::span<const std::string> sets, std::string_view res) const {
+			return !loadedSets.empty() && std::ranges::equal(loadedSets, sets) &&
+				   loadedRes == res;
+		}
 		// Drops the texture variants (keeps the chunks) before a (re)load of the
-		// set — the staged loader and the quality hot-swap both reuse the Surface.
+		// set - the staged loader and the quality hot-swap both reuse the Surface.
 		void ResetTextures() {
 			albedo.clear();
 			normal.clear();
@@ -1460,6 +1474,8 @@ private:
 			heightScale.clear();
 			factors.clear();
 			uAspect.clear();
+			loadedSets.clear();
+			loadedRes.clear();
 		}
 	};
 
@@ -2201,6 +2217,7 @@ private:
 	PbrMaps LoadPbrSet(const std::string& name, bool required);
 
 	void LoadDungeonBlocks();      // loads the worn block set for the quality tier
+	void LoadFeatureMeshes();      // wall/surface feature meshes (file-cached)
 	void LoadSurfaceMaterial(Surface& surface, const std::string& name,
 							 float heightScale);
 	void LoadTextureSet(const SurfaceDef& def); // resets, then loads the set
@@ -2943,20 +2960,36 @@ private:
 	// so a face whose neighbour is the same surface can be stamped unpinned.
 	std::vector<WallPanels> m_wallBlocks;
 	std::vector<assets::MeshData> m_floorBlocks, m_ceilingBlocks;
+	// WHICH worn blocks those are: the mesh tier and the three set lists they were
+	// loaded for. LoadDungeonBlocks skips the reload when a level change asks for
+	// exactly this again (the common case - levels share a palette). Unset =
+	// nothing loaded, or ReloadDungeonBlocks asked for a fresh read because the
+	// FILES may have changed under the same names (a restyle rebake).
+	struct BlockSetKey {
+		std::string tier;
+		std::vector<std::string> walls, floors, ceilings;
+		bool operator==(const BlockSetKey&) const = default;
+	};
+	std::optional<BlockSetKey> m_loadedBlocks;
+	// Feature meshes by MODEL FILE (a feature type's `model`.gltf). Features are
+	// project-wide, not per level, so each file is read once per world and the
+	// per-type maps below point into this. Node-based on purpose: the maps hold
+	// pointers, which a flat_map would invalidate on insert.
+	std::unordered_map<std::string, assets::MeshData> m_featureMeshCache;
 	// Niche panels by wallfeatures.cat type (each entry's `model`.gltf); the mesh
 	// builder stamps the one matching a niche's type. NicheMeshFor resolves it.
-	std::flat_map<std::string, assets::MeshData> m_nicheMeshes;
+	std::flat_map<std::string, const assets::MeshData*> m_nicheMeshes;
 	const assets::MeshData* NicheMeshFor(const std::string& type) const;
 	// See-through bore panels by wallfeatures.cat type (its `model`.gltf); stamped
 	// on the two flanking faces of a bored wall block. BoreMeshFor resolves it.
-	std::flat_map<std::string, assets::MeshData> m_boreMeshes;
+	std::flat_map<std::string, const assets::MeshData*> m_boreMeshes;
 	const assets::MeshData* BoreMeshFor(const std::string& type) const;
 	// Surface-feature tiles by surfacefeatures.cat type (its `model`.gltf), split
-	// by the type's `surface` so each resolver answers only for its own side —
+	// by the type's `surface` so each resolver answers only for its own side -
 	// which is what lets the builder ask "is there a floor feature here?" and
 	// "is there a ceiling one?" independently, without knowing the catalog.
-	std::flat_map<std::string, assets::MeshData> m_floorFeatureMeshes;
-	std::flat_map<std::string, assets::MeshData> m_ceilingFeatureMeshes;
+	std::flat_map<std::string, const assets::MeshData*> m_floorFeatureMeshes;
+	std::flat_map<std::string, const assets::MeshData*> m_ceilingFeatureMeshes;
 	const assets::MeshData* FloorFeatureMeshFor(const std::string& type) const;
 	const assets::MeshData* CeilingFeatureMeshFor(const std::string& type) const;
 	// True if the surfacefeatures.cat type mounts on the ceiling (`surface =

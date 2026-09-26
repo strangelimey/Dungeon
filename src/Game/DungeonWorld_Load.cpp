@@ -166,6 +166,17 @@ void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 	// material of each set resets the surface, exactly as LoadTextureSet does.
 	for (const SurfaceDef& def : SurfaceDefs()) {
 		Surface& surface = def.surface;
+		// A level change re-runs this whole list, and levels usually share a
+		// palette: if the surface already holds exactly these sets at this tier,
+		// keep them. Only the per-variant parallax depth can differ (two palette
+		// ids may name one texture with different height_scale / wear), so that
+		// is refreshed; the factors are re-applied by BuildDungeonMeshes anyway.
+		if (surface.Holds(def.names, m_settings.TextureSuffix())) {
+			surface.heightScale.assign(def.heights.begin(), def.heights.end());
+			log::Info("Surface textures kept: {} set(s) at {}", def.names.size(),
+					  surface.loadedRes);
+			continue;
+		}
 		for (size_t i = 0; i < def.names.size(); ++i) {
 			const std::string& name = def.names[i];
 			const float heightScale = def.heights[i]; // per-variant parallax depth
@@ -215,7 +226,20 @@ void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 }
 
 void DungeonWorld::LoadDungeonBlocks() {
-	// The old dungeon uses the worn, crumbling block set — one mesh per
+	LoadFeatureMeshes();
+
+	// A level change re-runs the load, and levels usually share a palette: the
+	// blocks already in memory are the right ones whenever the tier and all three
+	// set lists match what they were loaded for.
+	BlockSetKey want{m_settings.MeshSuffix(), m_wallSets, m_floorSets, m_ceilingSets};
+	if (m_loadedBlocks && *m_loadedBlocks == want) {
+		log::Info("Worn blocks kept: {} wall / {} floor / {} ceiling set(s) at {}",
+				  m_wallSets.size(), m_floorSets.size(), m_ceilingSets.size(), want.tier);
+		return;
+	}
+	m_loadedBlocks.reset(); // until the loads below have all landed
+
+	// The old dungeon uses the worn, crumbling block set - one mesh per
 	// texture variant, displaced at bake time by that texture's height map
 	// so geometry relief matches the painted bricks/slabs. The clean
 	// *_block.gltf models remain baked for newer areas of the game.
@@ -269,50 +293,65 @@ void DungeonWorld::LoadDungeonBlocks() {
 		}
 		m_wallBlocks.push_back(std::move(panels));
 	}
+	m_loadedBlocks = std::move(want);
+}
+
+// The feature meshes. The per-TYPE maps are rebuilt from the catalogs on every
+// call, so a type the editor created or re-pointed since the last load is
+// picked up exactly as before; only the FILE reads are cached, since the same
+// model file is the same mesh whichever level asks. ReloadDungeonBlocks empties
+// the cache when the files themselves may have changed.
+void DungeonWorld::LoadFeatureMeshes() {
+	const auto mesh = [this](const std::string& model) -> const assets::MeshData* {
+		auto it = m_featureMeshCache.find(model);
+		if (it == m_featureMeshCache.end())
+			it = m_featureMeshCache
+					 .emplace(model, std::move(LoadModelOrDie(model + ".gltf").meshes[0]))
+					 .first;
+		return &it->second;
+	};
 
 	// Wall-feature niche panels, one per wallfeatures.cat type (its `model`.gltf),
 	// stamped per niche edge into the wall's variant bucket so they take the wall
-	// texture (see DungeonMeshBuilder). Loaded once; a level references types.
+	// texture (see DungeonMeshBuilder). A level references types.
 	m_nicheMeshes.clear();
 	m_boreMeshes.clear();
-	for (const CatalogEntry& e : m_project.wallfeatures.Entries()) {
-		const std::string model = CatalogGet(&e, "model", e.id);
+	for (const CatalogEntry& e : m_project.wallfeatures.Entries())
 		// A `bore` feature is a see-through window (its own mesh map); everything
 		// else is a niche.
 		(e.GetBool("bore", false) ? m_boreMeshes : m_nicheMeshes)
-			.emplace(e.id, LoadModelOrDie(model + ".gltf").meshes[0]);
-	}
+			.emplace(e.id, mesh(CatalogGet(&e, "model", e.id)));
 
 	// Surface-feature tiles, one per surfacefeatures.cat type, filed by the
-	// type's `surface`. Same shape as the niches above — loaded once, referenced
-	// by a level's `floorfeature` / `ceilingfeature` records. Splitting the map
-	// here is what lets each resolver answer only for its own side.
+	// type's `surface`. Same shape as the niches above, referenced by a level's
+	// `floorfeature` / `ceilingfeature` records. Splitting the map here is what
+	// lets each resolver answer only for its own side.
 	m_floorFeatureMeshes.clear();
 	m_ceilingFeatureMeshes.clear();
 	for (const CatalogEntry& e : m_project.surfacefeatures.Entries())
 		(CatalogGet(&e, "surface", "floor") == "ceiling" ? m_ceilingFeatureMeshes
 														 : m_floorFeatureMeshes)
-			.emplace(e.id, LoadModelOrDie(CatalogGet(&e, "model", e.id) + ".gltf").meshes[0]);
+			.emplace(e.id, mesh(CatalogGet(&e, "model", e.id)));
 }
 
 const assets::MeshData* DungeonWorld::BoreMeshFor(const std::string& type) const {
 	const auto it = m_boreMeshes.find(type);
-	return it != m_boreMeshes.end() ? &it->second : nullptr;
+	return it != m_boreMeshes.end() ? it->second : nullptr;
 }
 
 const assets::MeshData* DungeonWorld::NicheMeshFor(const std::string& type) const {
 	const auto it = m_nicheMeshes.find(type);
-	return it != m_nicheMeshes.end() ? &it->second : nullptr;
+	return it != m_nicheMeshes.end() ? it->second : nullptr;
 }
 
 const assets::MeshData* DungeonWorld::FloorFeatureMeshFor(const std::string& type) const {
 	const auto it = m_floorFeatureMeshes.find(type);
-	return it != m_floorFeatureMeshes.end() ? &it->second : nullptr;
+	return it != m_floorFeatureMeshes.end() ? it->second : nullptr;
 }
 
 const assets::MeshData* DungeonWorld::CeilingFeatureMeshFor(const std::string& type) const {
 	const auto it = m_ceilingFeatureMeshes.find(type);
-	return it != m_ceilingFeatureMeshes.end() ? &it->second : nullptr;
+	return it != m_ceilingFeatureMeshes.end() ? it->second : nullptr;
 }
 
 bool DungeonWorld::FeatureIsCeiling(const std::string& type) const {
@@ -368,6 +407,8 @@ void DungeonWorld::LoadSurfaceMaterial(Surface& surface, const std::string& name
 	surface.normal.push_back(std::move(maps.normal));
 	surface.mr.push_back(std::move(maps.mr));
 	surface.heightScale.push_back(heightScale);
+	surface.loadedSets.push_back(name); // what the arrays hold (Surface::Holds)
+	surface.loadedRes = m_settings.TextureSuffix();
 }
 
 void DungeonWorld::LoadTextureSet(const SurfaceDef& def) {
@@ -1654,6 +1695,11 @@ void DungeonWorld::ReloadDungeonBlocks(bool textureResChanged) {
 	m_walls.chunks.clear();
 	m_floors.chunks.clear();
 	m_ceilings.chunks.clear();
+	// Always a fresh read here, never the level-change skip: the restyle rebake
+	// calls this precisely because a worn_*.gltf CHANGED under the same name, so
+	// "same names as last time" proves nothing about the contents.
+	m_loadedBlocks.reset();
+	m_featureMeshCache.clear(); // the per-type maps are rebuilt from it next
 	LoadDungeonBlocks();
 	if (textureResChanged || setsChanged)
 		LoadAllSurfaceTextures(); // re-pushes each variant's parallax depth
