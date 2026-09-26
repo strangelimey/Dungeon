@@ -1246,7 +1246,7 @@ void DungeonWorld::UpdateMonsters(float dt) {
 }
 
 float DungeonWorld::ClipDuration(const MonsterKind& kind, const std::string& name) const {
-	for (const auto& c : kind.model.clips)
+	for (const auto& c : kind.model->clips)
 		if (c.name == name) return c.duration;
 	return 0.0f;
 }

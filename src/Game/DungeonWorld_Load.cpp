@@ -484,21 +484,20 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 		const CatalogEntry* def = m_project.monsters.Find(type);
 		const auto [model, tex] = ModelAndTexture(def, type);
 		auto assets = std::make_unique<MonsterKind>();
-		assets->model = LoadModelOrDie(model + ".gltf");
+		assets->model = ModelFile(model + ".gltf"); // shared by every kind on the file
 		assets->name = type; // catalog id — drives the monster.<id> loc key
-		assets->mesh = std::make_unique<gfx::Mesh>(m_device, assets->model.meshes[0]);
+		assets->mesh = ModelMesh(model + ".gltf");
 		// A bound PBR set serves the single-mesh path; an authored
 		// multi-material rig carries its textures EMBEDDED and its entry
 		// usually names no set — don't warn-hunt one by the id (the skeleton
 		// kit's four kinds fired a bogus missing-set warning each) unless the
 		// catalog names one explicitly.
-		const bool multi = assets->model.meshes.size() > 1;
+		const bool multi = assets->model->meshes.size() > 1;
 		if (!multi || (def && def->Find("texture")))
 			assets->tex = LoadPropTextures(tex); // <tex>_<res> PBR set, if present
 		// Authored multi-material rig (bones/armor/weapons primitives, embedded
 		// textures): build the per-material submeshes the draw paths loop.
-		if (multi)
-			assets->multi = BuildMultiMaterialModel(m_device, assets->model);
+		if (multi) assets->multi = ModelMulti(model + ".gltf");
 		// Map head-shot icon RT; a fresh kind re-arms the one-shot bake pass.
 		assets->iconTarget = gfx::Texture::RenderTarget(m_device, kIconSize);
 		m_monsterIconsBaked = false;
@@ -589,9 +588,9 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 			std::vector<std::string> clips;
 			if (!spec.empty()) {
 				for (const std::string& c : SplitTokens(spec))
-					if (ModelHasClip(assets->model, c)) clips.push_back(c);
+					if (ModelHasClip(*assets->model,c)) clips.push_back(c);
 			} else if (const std::string dflt(anim::StateName(st));
-					   ModelHasClip(assets->model, dflt)) {
+					   ModelHasClip(*assets->model,dflt)) {
 				clips.push_back(dflt);
 			}
 			assets->animClips[i] = std::move(clips);
@@ -633,8 +632,8 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 std::vector<std::string> DungeonWorld::MonsterClipNames(const std::string& type) {
 	const MonsterKind& kind = MonsterKindFor(type);
 	std::vector<std::string> names;
-	names.reserve(kind.model.clips.size());
-	for (const auto& c : kind.model.clips) names.push_back(c.name);
+	names.reserve(kind.model->clips.size());
+	for (const auto& c : kind.model->clips) names.push_back(c.name);
 	return names;
 }
 
@@ -653,7 +652,7 @@ void DungeonWorld::ApplyMonsterAnimConfig(const std::string& type,
 	for (int i = 0; i < anim::kCreatureStateCount; ++i) {
 		std::vector<std::string> filtered;
 		for (const std::string& name : clips[i])
-			if (ModelHasClip(kind.model, name)) filtered.push_back(name);
+			if (ModelHasClip(*kind.model,name)) filtered.push_back(name);
 		kind.animClips[i] = std::move(filtered);
 	}
 }
@@ -700,11 +699,11 @@ DungeonWorld::MonsterPreviewData DungeonWorld::MonsterPreviewFor(const std::stri
 	const MonsterKind& kind = MonsterKindFor(type);
 	MonsterPreviewData d;
 	d.mesh = kind.mesh.get();
-	d.skeleton = &kind.model.skeleton;
-	d.clips = &kind.model.clips;
+	d.skeleton = &kind.model->skeleton;
+	d.clips = &kind.model->clips;
 	d.modelScale = kind.modelScale;
 	d.modelYaw = kind.modelYaw;
-	ApplyPropMaterial(d.material, kind.tex, kind.model.materials[0].baseColorFactor,
+	ApplyPropMaterial(d.material, kind.tex, kind.model->materials[0].baseColorFactor,
 					  kind.fallbackRoughness);
 	if (kind.multi) { // one drawable per primitive, each with its own material
 		for (const MultiMaterialModel::Sub& sub : kind.multi->subs)
@@ -800,7 +799,7 @@ DungeonWorld::Monster DungeonWorld::MakeMonster(MonsterKind& kind, int id, int x
 	// (the new monster isn't in m_monsters yet, so self=-1). -1 (full) → slot 0.
 	monster.slot = std::max(0, FreeSlotInCell(x, z, kind.size, -1));
 	monster.visualPos = SlotCenter(x, z, kind.size, monster.slot);
-	monster.animator = anim::Animator(&kind.model.skeleton, &kind.model.clips);
+	monster.animator = anim::Animator(&kind.model->skeleton, &kind.model->clips);
 	// Initial resting pose; DriveMonsterAnim takes over next frame (and plays the
 	// spawn clip first if the kind has one, via the default spawnReq).
 	const std::string idle = PickClip(kind, anim::CreatureState::Idle);
@@ -950,7 +949,10 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		// floor and its baked render becomes the icon/cursor. null = the tablet+tint
 		// placeholder. Items ship as embedded-texture multi-material .glb.
 		if (const std::string modelName = CatalogGet(def, "model", ""); !modelName.empty()) {
-			kind->model = BuildMultiMaterialModel(m_device, LoadModelOrDie(modelName + ".glb"));
+			// The file's meshes + textures are shared (an enchanted blade and its
+			// plain twin, five armours on one model); the materials are this
+			// kind's own copy, so its overrides touch nothing else.
+			kind->model = ModelMulti(modelName + ".glb");
 			BakeCatalogMaterial(*kind->model, def); // dialog material overrides
 		}
 		// Every item draws as the shared carved-stone tablet (loaded once) — runes
@@ -1417,23 +1419,23 @@ DungeonWorld::DecorationKind& DungeonWorld::DecorationKindFor(const std::string&
 		// own glTF textures per material from a single embedded-texture .glb,
 		// bypassing the single-mesh / one-bound-set path below.
 		if (CatalogBool(def, "multimaterial", false)) {
-			kind->model = LoadModelOrDie(model + ".glb");
-			kind->multi = BuildMultiMaterialModel(m_device, kind->model);
+			kind->model = ModelFile(model + ".glb");
+			kind->multi = ModelMulti(model + ".glb"); // shared GPU, own materials
 			BakeCatalogMaterial(*kind->multi, def); // overrides baked per submesh
 			kind->solidDefault = CatalogBool(def, "solid", true);
-			kind->cullRadius = ModelOriginRadius(kind->model) * kUnit * kind->modelScale;
+			kind->cullRadius = ModelOriginRadius(*kind->model) * kUnit * kind->modelScale;
 			it = m_decorationKinds.emplace(type, std::move(kind)).first;
 			return *it->second;
 		}
-		kind->model = LoadModelOrDie(model + ".gltf");
-		kind->mesh = std::make_unique<gfx::Mesh>(m_device, kind->model.meshes[0]);
-		kind->color = kind->model.materials[0].baseColorFactor;
+		kind->model = ModelFile(model + ".gltf"); // marble + stone columns share one
+		kind->mesh = ModelMesh(model + ".gltf");
+		kind->color = kind->model->materials[0].baseColorFactor;
 		kind->tex = LoadPropTextures(tex);
 		kind->solidDefault = CatalogBool(def, "solid", true);
 		// Optional alpha-test cutout (a masked set like wood planks renders its
 		// gaps); absent/0 = opaque, the usual case.
 		kind->alphaCutoff = def ? def->GetFloat("alpha_test", 0.0f) : 0.0f;
-		kind->cullRadius = ModelOriginRadius(kind->model) * kUnit * kind->modelScale;
+		kind->cullRadius = ModelOriginRadius(*kind->model) * kUnit * kind->modelScale;
 		it = m_decorationKinds.emplace(type, std::move(kind)).first;
 	}
 	return *it->second;
@@ -1463,9 +1465,9 @@ DungeonWorld::FixtureKind& DungeonWorld::FixtureKindFor(const std::string& type)
 			ParseResists(CatalogGet(def, "resists", ""), kind->resists,
 						 "fixtures.cat [" + type + "]", m_damageTypes);
 		}
-		kind->model = LoadModelOrDie(model + ".gltf");
-		kind->mesh = std::make_unique<gfx::Mesh>(m_device, kind->model.meshes[0]);
-		kind->color = kind->model.materials[0].baseColorFactor;
+		kind->model = ModelFile(model + ".gltf");
+		kind->mesh = ModelMesh(model + ".gltf");
+		kind->color = kind->model->materials[0].baseColorFactor;
 		kind->tex = LoadPropTextures(set);
 		// Flame attachment: catalog fields override the mount's defaults so an
 		// authored prop's fire burns where its bowl/basket actually is.
@@ -1482,9 +1484,8 @@ DungeonWorld::FixtureKind& DungeonWorld::FixtureKindFor(const std::string& type)
 			// (the two models were normalized TOGETHER at import, so their
 			// placements already align).
 			if (const std::string model2 = def->Get("part2_model"); !model2.empty()) {
-				const assets::ModelData data = LoadModelOrDie(model2 + ".gltf");
-				kind->mesh2 = std::make_unique<gfx::Mesh>(m_device, data.meshes[0]);
-				kind->color2 = data.materials[0].baseColorFactor;
+				kind->mesh2 = ModelMesh(model2 + ".gltf");
+				kind->color2 = ModelFile(model2 + ".gltf")->materials[0].baseColorFactor;
 				kind->tex2 = LoadPropTextures(def->Get("part2_texture", model2));
 			}
 		}

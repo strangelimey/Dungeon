@@ -1488,8 +1488,11 @@ private:
 	// Per-kind monster assets (shared) and per-instance state. Kinds are
 	// entity type names from the .ent file ("skeleton" loads skeleton.gltf).
 	struct MonsterKind {
-		assets::ModelData model; // must outlive the Animators pointing into it
-		std::unique_ptr<gfx::Mesh> mesh;
+		// Shared through the model cache (several kinds use one file - the six
+		// skeleton variants); holding it keeps it alive for the Animators that
+		// point into its skeleton and clips.
+		std::shared_ptr<const assets::ModelData> model;
+		std::shared_ptr<gfx::Mesh> mesh; // meshes[0], shared likewise
 		std::string name;
 		// PBR set bound by type name (skeleton_<res>, ...); null = flat material.
 		const PropTextures* tex = nullptr; // points into m_propTextures (stable)
@@ -1758,10 +1761,15 @@ private:
 	// MaterialParams holds raw Texture* into `textures`, which is built once and
 	// never resized, so those pointers stay valid for the model's lifetime. Shared
 	// by decorations, items (floor + icon), and the icon bake.
+	// COPYABLE ON PURPOSE: the GPU parts (textures, submesh geometry) are shared
+	// pointers and the materials are values, so the model cache builds a file's
+	// GPU resources once and every kind using that file gets its own COPY - the
+	// same meshes and textures, but materials it may override (BakeCatalogMaterial)
+	// without touching the other kinds' look.
 	struct MultiMaterialModel {
-		std::vector<std::unique_ptr<gfx::Texture>> textures; // one per model.images
+		std::vector<std::shared_ptr<gfx::Texture>> textures; // one per model.images
 		struct Sub {
-			std::unique_ptr<gfx::Mesh> mesh;
+			std::shared_ptr<gfx::Mesh> mesh;
 			gfx::MaterialParams material;
 		};
 		std::vector<Sub> subs; // one per model.meshes
@@ -2088,8 +2096,8 @@ private:
 		float heightScale = 0.0f;
 	};
 	struct DecorationKind {
-		assets::ModelData model; // kept alive for the shared mesh
-		std::unique_ptr<gfx::Mesh> mesh;
+		std::shared_ptr<const assets::ModelData> model; // via the model cache
+		std::shared_ptr<gfx::Mesh> mesh;                 // meshes[0], likewise
 		Vec4 color{1, 1, 1, 1};
 		const PropTextures* tex = nullptr; // points into m_propTextures (stable)
 		// Authored multi-material models render their own glTF textures instead of
@@ -2347,6 +2355,21 @@ private:
 	// ApplyPropMaterial overload).
 	static void BakeCatalogMaterial(MultiMaterialModel& model,
 									const CatalogEntry* def);
+	// THE MODEL CACHE (DungeonWorld_Models.cpp). The kind caches are keyed by
+	// CATALOG ID, and many ids share one file - six monster kinds on
+	// skeleton.gltf, five armours on leather_armor.glb, each enchanted blade on
+	// its plain twin's mesh - so every one of those used to parse the file and
+	// upload its own GPU copy. These key by FILE NAME ("skeleton.gltf") instead:
+	// the parse, meshes[0]'s GPU mesh and the multi-material GPU build each happen
+	// once per file, and a kind holds shared pointers into them.
+	std::shared_ptr<const assets::ModelData> ModelFile(const std::string& file);
+	std::shared_ptr<gfx::Mesh> ModelMesh(const std::string& file); // meshes[0]
+	// A per-kind COPY sharing the file's GPU meshes and textures, so the caller
+	// may bake its own material overrides into it.
+	std::unique_ptr<MultiMaterialModel> ModelMulti(const std::string& file);
+	// Drops a file so its next use reads it off disk again (a type the editor
+	// just saved). Kinds still holding the old copy keep it until they reload.
+	void ForgetModelFile(const std::string& file);
 	void BuildFires();
 	void BuildTurbidityMap();
 	void RebuildFiresAndDust(); // WaitIdle + rebuild fires + dust (live sconce edits)
@@ -3142,6 +3165,15 @@ private:
 	// unique_ptr so DecorationKind::tex stays valid as more sets are added
 	// (flat_map stores values contiguously and reallocates on insert).
 	std::flat_map<std::string, std::unique_ptr<PropTextures>> m_propTextures;
+	// The model cache's store, by file name (see ModelFile). Each part is built
+	// on first ask, so a file only ever drawn as a multi-material model never
+	// uploads a single-mesh copy it would not use, and vice versa.
+	struct CachedModel {
+		std::shared_ptr<const assets::ModelData> data;
+		std::shared_ptr<gfx::Mesh> mesh;                 // meshes[0]
+		std::shared_ptr<const MultiMaterialModel> multi; // the template ModelMulti copies
+	};
+	std::unordered_map<std::string, CachedModel> m_modelCache;
 	std::vector<Decoration> m_decorations;
 	std::optional<LevelTransition> m_pendingTransition; // raised by a stair step
 	// A pit fall in flight: the transition latched when the party stepped onto
@@ -3265,9 +3297,10 @@ private:
 		std::string id;
 		bool wallMount = false; // fixtures.cat mount = wall|floor
 		bool flameless = false; // fixtures.cat flame = 0: never lit (empty bowl)
-		std::unique_ptr<gfx::Mesh> mesh;
-		std::unique_ptr<gfx::Mesh> mesh2;
-		assets::ModelData model; // kept for the map-icon bake's bounds fit
+		std::shared_ptr<gfx::Mesh> mesh;  // via the model cache
+		std::shared_ptr<gfx::Mesh> mesh2;
+		// Kept for the map-icon bake's bounds fit (shared via the model cache).
+		std::shared_ptr<const assets::ModelData> model;
 		Vec4 color{1, 1, 1, 1};
 		Vec4 color2{1, 1, 1, 1};
 		const PropTextures* tex = nullptr;
