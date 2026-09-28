@@ -455,8 +455,22 @@ void Game::RegisterPartyCommands() {
 	// reports it as a screen it cannot sweep — so the one screen with the most
 	// hand-laid-out content in the game was also the one screen `uioverlap`
 	// never saw. `sheet <n>` then `uioverlap` closes half of that gap.
-	m_console.Register("sheet", "open the character sheet (dev): sheet <member|off>",
+	m_console.Register("sheet",
+					   "open the character sheet (dev): sheet <member|off|status>",
 					   [this](const std::vector<std::string>& args) {
+						   // What the sheet shows - for a harness driving it with
+						   // keys (the strafe keys page members, Tab the tabs).
+						   if (!args.empty() && args[0] == "status") {
+							   static constexpr const char* kModes[] = {
+								   "inventory", "stats", "skills", "spells", "effects"};
+							   const size_t m = m_ui.SheetIndex();
+							   m_console.Print(std::format(
+								   "sheet: {} member {} ({}) tab {}",
+								   m_state == AppState::CharacterSheet ? "open" : "closed",
+								   m, m < m_characters.size() ? m_characters[m].name : "?",
+								   kModes[static_cast<int>(m_ui.SheetMode())]));
+							   return;
+						   }
 						   if (!args.empty() && args[0] == "off") {
 							   // The close box's own path (GameUI's onResume), so this
 							   // closes the sheet exactly as a player does - back to

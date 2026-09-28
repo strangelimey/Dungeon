@@ -138,6 +138,11 @@ public:
 	// --- character sheet ---------------------------------------------------------
 	void ShowSheet(size_t index); // re-points the sheet at the member
 	void RefreshSheet();          // re-caches after the roster resets in place
+	// What the sheet shows (the `sheet status` readout).
+	size_t SheetIndex() const { return m_sheetIndex; }
+	CharacterSheet::Mode SheetMode() const {
+		return m_sheet ? m_sheet->CurrentMode() : CharacterSheet::Mode::Inventory;
+	}
 
 	// --- message log ---------------------------------------------------------------
 	// Borrows the line: it is copied once, into the log's own ring slot, so

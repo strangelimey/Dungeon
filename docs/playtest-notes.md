@@ -89,6 +89,10 @@ confirm, not a decision.
      while it is open, so these keys are free there.
    - Likely area: the sheet's input handling in GameUI, next to the < > buttons'
      prev/next callbacks.
+   - DONE with #5: GameUI::UpdateSheet reads the BOUND strafe keys and goes
+     through onOpenSheet, the < > buttons' own path. Not while the sheet's item
+     menu is open (it names a slot of the member it opened on). Driven with real
+     keystrokes; `sheet status` is the readout.
 
 5. **Character sheet: Tab / Shift+Tab cycle the sheet's tabs.** "When on a
    character sheet, hitting tab or shift-tab should go to the next and prev tabs
@@ -98,6 +102,9 @@ confirm, not a decision.
    - Likely area: the sheet's input handling in GameUI. Could live on
      ui::TabControl itself, so every tabbed page gets it (the Settings page and
      the editor dialogs are tabbed too).
+   - DONE on the sheet only: its tabs are the sheet's own mode strip, not a
+     ui::TabControl, so CharacterSheet::StepMode wraps through the five modes.
+     Tab on the other tabbed pages is NOT done (not asked for).
 
 6. **HUD: split Magic into its own bar, hidden until someone knows a symbol.**
    "On the right-hand control bar, split the 'magic' section out of the main bar

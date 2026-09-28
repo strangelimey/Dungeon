@@ -158,6 +158,10 @@ public:
 	// Opens the sheet on a specific tab (the party bar uses this: portrait ->
 	// Inventory, the stat bars -> Stats).
 	void SetMode(Mode m) { m_mode = m; }
+	// The next (+1) or previous (-1) tab, wrapping at either end - Tab and
+	// Shift+Tab (play-test #5). Goes through the same path as a mode button.
+	void StepMode(int delta);
+	Mode CurrentMode() const { return m_mode; }
 
 	// Fired when a held item is refused by the selected pack (item id, pack id) —
 	// Game wires it to a "won't fit" log line + sound.
@@ -188,6 +192,9 @@ private:
 	gfx::Rect PackRowRect(const gfx::Rect& px, int i) const;
 	// Builds the child widgets (portrait, mode strip, the three list tabs).
 	void BuildParts();
+	// Switches to tab `i` (a Mode as an index), scrolling the lists to the top
+	// when it changes. The mode strip's click and StepMode both land here.
+	void SelectMode(int i);
 	// The two bodies that neither scroll nor take a container of their own; they
 	// fill the sheet and draw against it directly.
 	// The armor tooltip (docs/damage-system.md). Hovering a WORN piece explains

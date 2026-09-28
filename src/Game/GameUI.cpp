@@ -1882,6 +1882,22 @@ void GameUI::UpdateSheet(const Input& input) {
 	m_sheetUi.Update(input, WindowW(), WindowH());
 	m_hudMouseX = input.MouseX(); // for the held-item cursor over the sheet
 	m_hudMouseY = input.MouseY();
+
+	// THE KEYBOARD PAGES THE SHEET (play-test #4 and #5, Michael 2026-09-28).
+	// The party does not move while the sheet is open, so the strafe keys are
+	// free: strafe-left / strafe-right step to the previous / next member, the
+	// same as the < and > buttons (the BOUND keys, so a rebind carries over), and
+	// Tab / Shift+Tab step through the tabs. Not while the item menu is open: it
+	// names a slot of the member it was opened on.
+	if (m_characters.empty() || (m_sheetMenu && m_sheetMenu->IsOpen())) return;
+	const MoveKeys& keys = m_settings.moveKeys;
+	const size_t count = m_characters.size();
+	if (input.WasKeyPressed(keys.strafeLeft) && onOpenSheet)
+		onOpenSheet((m_sheetIndex + count - 1) % count);
+	else if (input.WasKeyPressed(keys.strafeRight) && onOpenSheet)
+		onOpenSheet((m_sheetIndex + 1) % count);
+	if (input.WasKeyPressed(VK_TAB) && m_sheet)
+		m_sheet->StepMode(input.IsKeyDown(VK_SHIFT) ? -1 : +1);
 }
 
 void GameUI::UpdateHud(const Input& input, float dt) {

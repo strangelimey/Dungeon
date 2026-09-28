@@ -58,14 +58,7 @@ void CharacterSheet::BuildParts() {
 
 	const float stripW = kModeCount * kModeBtnW + (kModeCount - 1) * kModeBtnGap;
 	Add<ModeSelector>(gfx::Rect{kModeBtnX, kModeBtnY, stripW, kModeBtnH},
-					  kModeCount, &m_modeIndex, [this](int i) {
-						  const Mode next = static_cast<Mode>(i);
-						  if (next != m_mode)
-							  for (SheetList* list : m_lists)
-								  if (list) list->ScrollToTop();
-						  m_mode = next;
-						  m_modeIndex = i;
-					  });
+					  kModeCount, &m_modeIndex, [this](int i) { SelectMode(i); });
 
 	// One list per scrolling tab, filling the sheet; each positions its heading
 	// and scrolling band from the shared layout table.
@@ -136,6 +129,21 @@ void CharacterSheet::SetCharacter(size_t member) {
 	BakeSkills();
 	BakeSpells();
 	BakeEffects();
+}
+
+// A mode button, or Tab / Shift+Tab (StepMode): the lists start at the top
+// whenever the tab actually changes.
+void CharacterSheet::SelectMode(int i) {
+	const Mode next = static_cast<Mode>(i);
+	if (next != m_mode)
+		for (SheetList* list : m_lists)
+			if (list) list->ScrollToTop();
+	m_mode = next;
+	m_modeIndex = i;
+}
+
+void CharacterSheet::StepMode(int delta) {
+	SelectMode(((static_cast<int>(m_mode) + delta) % kModeCount + kModeCount) % kModeCount);
 }
 
 // Only the active tab's list takes part in the walk.
