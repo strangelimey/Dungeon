@@ -1022,16 +1022,24 @@ try:
           "and no monster's health moved outside the pipeline on the way")
     check("eval RESULT=PASS script=worldpersist.eval" in log, "the script ran clean")
 
-    # --- phase 21: the character sheet closes to where it was opened ----------
-    print("\n21 - paging the character sheet does not break its close box")
+    # --- phase 21: the character sheet ----------------------------------------
+    print("\n21 - the character sheet: not a pause, and paging keeps its close box")
     log = run("worldsheet.eval")
     states = re.findall(r"console: state (\S+)", log)
+    hp = [float(h) for h in re.findall(r"console:\s+\[0\] \S+\s+hp ([\d.]+)/", log)]
+    # NOT A PAUSE: poisoned Brand loses health over frames with his sheet open.
+    # The twenty filler `state` lines ran INSIDE the sheet, which they say. The
+    # size of the drop rides the headless frame time; that it moves at all is
+    # the claim - a frozen world prints the same figure twice (MUTATION-checked).
+    check(states[:20] == ["sheet"] * 20 and len(hp) >= 2 and hp[1] <= hp[0] - 0.2,
+          "the world goes on under an open sheet: a poisoned member keeps losing "
+          "health while it is up", f"hp {hp[:2]}, states {states[:20]}")
     # Paging re-entered OpenCharacterSheet, which recorded the SHEET as the state
     # to resume to, so the close box resumed into the sheet (MUTATION-checked:
     # without the guard both lines read "state sheet").
-    check(states[:2] == ["playing", "worldmap"],
+    check(states[20:22] == ["playing", "worldmap"],
           "after paging through members, closing returns to the level, and on the "
-          "world map to the world map", f"states {states}")
+          "world map to the world map", f"states {states[20:]}")
     check("eval RESULT=PASS script=worldsheet.eval" in log, "the script ran clean")
 
 finally:

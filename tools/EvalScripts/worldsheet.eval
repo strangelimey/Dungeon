@@ -1,13 +1,49 @@
-; worldsheet.eval - the character sheet closes back to where it was opened
-; from, even after paging through the party with < and > (Michael, 2026-09-28:
-; after > the close box did nothing). `sheet <n>` goes through the same
-; OpenCharacterSheet the portrait click and the < > buttons use, and `sheet off`
-; through the close box's own resume.
+; worldsheet.eval - the character sheet, two things about it (WorldTest phase 21).
 ;
-; In a level first, then out on the world map, where a wrong resume would drop
-; a travelling party into whatever level was last loaded.
+; IT IS NOT A PAUSE (Michael, 2026-09-28): only the pause menu and the editor's
+; pause button stop the game. Brand is poisoned, his sheet opened, and twenty
+; FRAMES pass with it open - plain `state` lines, one a frame, at 100x time.
+; `step` would not do: it advances the world directly, whatever the app state,
+; and so passes whether the sheet pauses or not. His health must fall while the
+; page is up. How far is not the point and depends on how long a headless frame
+; takes (under a millisecond); that it moves at all is, since a frozen world
+; prints the same number twice.
+;
+; IT CLOSES TO WHERE IT WAS OPENED FROM, even after paging through the party
+; with < and > (after > the close box used to do nothing). `sheet <n>` goes
+; through the same OpenCharacterSheet the portrait click and the < > buttons
+; use, and `sheet off` through the close box's own resume. In a level first,
+; then out on the world map, where a wrong resume would drop a travelling party
+; into whatever level was last loaded.
 logecho on
 reset
+effect poison 0 3 60
+party
+sheet 0
+timescale 100
+state
+state
+state
+state
+state
+state
+state
+state
+state
+state
+state
+state
+state
+state
+state
+state
+state
+state
+state
+state
+timescale 1
+party
+sheet off
 sheet 0
 sheet 1
 sheet 2

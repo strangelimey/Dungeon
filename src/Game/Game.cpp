@@ -1158,6 +1158,18 @@ bool Game::LoadGame(const std::string& path) {
 // Game_Eval.cpp — see its banner for why they are a separate TU and not an
 // #ifdef.)
 
+// A stair the world raised this frame, from play or from under the sheet.
+void Game::FollowLevelTransition(const DungeonWorld::LevelTransition& t) {
+	if (t.toWorld) {
+		// The panel first: the step onto the stair has landed, and the
+		// question freezes the frame before the usual refresh.
+		m_ui.SetHudStatus(m_world->GetParty());
+		OfferExit(t.level); // an exit stair: ASKED, then left
+	} else {
+		BeginLevelTransition(t.level, t.x, t.z, t.facing);
+	}
+}
+
 void Game::OpenCharacterSheet(size_t index) {
 	m_audio.Play(m_sounds.click, 0.5f);
 	m_ui.ShowSheet(index);
@@ -1640,14 +1652,34 @@ void Game::Update(float dt) {
 		return;
 
 	case AppState::CharacterSheet:
-		// Frozen like Paused; only the sheet page updates. Esc resumes — to
-		// wherever the sheet was opened FROM (see m_resumeState).
+		// Esc resumes - to wherever the sheet was opened FROM (m_resumeState).
 		if (input.WasKeyPressed(VK_ESCAPE)) {
 			m_audio.Play(m_sounds.click, 0.5f);
 			m_state = m_resumeState;
 			return;
 		}
 		m_ui.UpdateSheet(input);
+		// NOT A PAUSE (Michael, 2026-09-28: only the pause menu and the editor's
+		// pause button stop the game). Over a level the world goes on - monsters
+		// walk and strike, effects tick, a rest keeps resting - while the INPUT
+		// stays the sheet's: the party does not walk off under an open page.
+		// (The world map simulates nothing, so a sheet opened there has nothing
+		// to run.)
+		if (m_state == AppState::CharacterSheet && m_resumeState == AppState::Playing) {
+			static const Input kNoInput;
+			m_world->Update(kNoInput, wdt, m_time);
+			// Whatever the world did may end the sheet: a wipe returns to the
+			// title (the state is no longer ours), and a transition - a pit fall
+			// that was already under way - takes the party elsewhere.
+			if (m_state != AppState::CharacterSheet) return;
+			if (auto t = m_world->ConsumeLevelTransition()) {
+				m_state = AppState::Playing;
+				FollowLevelTransition(*t);
+				return;
+			}
+			m_ui.SetHudStatus(m_world->GetParty());
+			m_ui.SetResting(m_world->Resting());
+		}
 		return;
 
 	case AppState::WorldMap: {
@@ -2030,13 +2062,7 @@ void Game::Update(float dt) {
 	}
 	m_world->Update(input, wdt, m_time);
 	if (auto t = m_world->ConsumeLevelTransition()) {
-		if (t->toWorld) {
-			// The panel first: the step onto the stair has landed, and the
-			// question freezes the frame before the usual refresh below.
-			m_ui.SetHudStatus(m_world->GetParty());
-			OfferExit(t->level); // an exit stair: ASKED, then left
-		}
-		else BeginLevelTransition(t->level, t->x, t->z, t->facing);
+		FollowLevelTransition(*t);
 		return;
 	}
 
@@ -2139,8 +2165,8 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 							  pvPalette);
 		m_device.BindBackBuffer(list);
 	}
-	// The 3D scene draws during play and under the pause/character-sheet
-	// overlays (frozen); Loading and Menu are 2D-only. The full-screen dev
+	// The 3D scene draws during play and under the pause menu (frozen) and the
+	// character sheet (live); Loading and Menu are 2D-only. The full-screen dev
 	// preview replaces it; the editor map and dialog skip it too.
 	else if ((m_state == AppState::Playing || m_state == AppState::Paused ||
 			  m_state == AppState::CharacterSheet) &&

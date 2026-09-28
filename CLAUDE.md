@@ -945,8 +945,10 @@ The HUD's top bar shows the party — 1..4 members; planned party creation
 lets the player build fewer than 4, and the bar always reserves four slots
 so a short roster keeps its slot size (Character.h roster, widgets in
 PartyHud.h: portrait, name, health/stamina/mana bars); clicking a portrait
-freezes the world (AppState::CharacterSheet, like Paused) and opens the
-character details page (prev/next cycle members modulo the live roster
+opens the character details page (AppState::CharacterSheet). It is NOT a
+pause (Michael, 2026-09-28: only the pause menu and the editor's pause button
+stop the game): over a level the world keeps simulating under it, while the
+input stays the sheet's, so the party does not walk off under an open page (prev/next cycle members modulo the live roster
 size, Esc/Back resumes). The per-member widgets (CharacterPanel, HandSlot,
 CharacterSheet) hold NO Character* across frames: they address
 Game::m_characters by (roster, index) and re-resolve through PartyHud.h's

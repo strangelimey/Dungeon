@@ -385,6 +385,8 @@ private:
 	// harness steps the world itself, so no script ever meets a question.
 	void OfferEntrance(); // at the party's world square, if it holds a doorway
 	void OfferExit(const std::string& viaLocation);
+	// A stair the world raised: an exit asks (OfferExit), anything else loads.
+	void FollowLevelTransition(const DungeonWorld::LevelTransition& t);
 
 	// The playability check, with the world tier included. Every caller goes
 	// through here rather than DungeonWorld::Validate directly, so no route can
@@ -621,7 +623,7 @@ private:
 	// and enters Playing. Requires the dungeon already loaded (the deferred
 	// first-load path is wired by the menu, step 2). Returns false on failure.
 	bool LoadGame(const std::string& path);
-	void OpenCharacterSheet(size_t index); // freezes the world, shows the page
+	void OpenCharacterSheet(size_t index); // shows the page; the world runs on
 	// Out of this game to the title, the dungeon left resident. ONE trip for
 	// both ways it happens (a party wipe, and the pause menu's Return to Main
 	// Menu), and it LOGS which, because a wipe used to reach only the HUD: with
