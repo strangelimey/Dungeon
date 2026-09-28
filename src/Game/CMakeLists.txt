@@ -16,6 +16,10 @@ add_library(Game STATIC
 	DamageTypes.cpp
 	Defense.cpp
 	DevConsole.cpp
+	DevConsole_Health.cpp
+	DevConsole_Perf.cpp
+	DevConsole_Profile.cpp
+	DevConsole_Threads.cpp
 	DialogLayout.cpp
 	DoorInspector.cpp
 	DungeonEntities.cpp

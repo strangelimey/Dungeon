@@ -11,6 +11,11 @@
 // and freezes nothing. Esc closes it. Commands come from a small registry:
 // the console seeds the generic ones (help/clear/echo) and the Game registers
 // the gameplay-aware ones (quit/fps/quality/lang/tp).
+//
+// One class, five files: DevConsole.cpp is the frame (commands, input, the
+// scrollback, the panel's layout), and each section of the readout panel is
+// its own file - DevConsole_Perf / _Profile / _Health / _Threads.cpp - sharing
+// only what DevConsole_Panel.h declares.
 // ============================================================================
 #pragma once
 
@@ -30,6 +35,10 @@
 
 namespace dungeon::game {
 
+namespace devcon {
+struct ProfileFrame; // DevConsole_Panel.h
+}
+
 class DevConsole {
 public:
 	// No GraphicsDevice: the console draws with a font borrowed from the
@@ -45,7 +54,7 @@ public:
 	// Called every frame (the FPS sampler keeps ticking even when closed).
 	// While open, consumes typed characters and editing/history/scroll keys.
 	// The device is here only so the history the graph view draws keeps filling
-	// while the console is CLOSED — two of the five top gauges (VRAM, descriptor
+	// while the console is CLOSED — two of the top gauges (VRAM, descriptor
 	// slots) are the device's to answer, and a graph you have to open the console
 	// to start recording is no use for catching what already happened.
 	void Update(const Input& input, float dt, float windowW, float windowH,
@@ -487,6 +496,44 @@ private:
 	void SampleProfileSeries();
 	void CommitProfileSeries();
 
+	// --- the readout panel's sections ----------------------------------------
+	// Render lays the panel out top to bottom and hands every section the same
+	// PanelCtx (DevConsole_Panel.h). Each answers for its own height, drawing and
+	// clicks in its own file, so a new section is one file plus its lines here.
+	// Clicks and hovers take the mouse already in Render's space.
+	struct PanelCtx;
+	// Shared by the sections, so they live with the frame (DevConsole.cpp).
+	gfx::Rect DrawExpander(const PanelCtx& p, float y, bool expanded);
+	float DrawCheckbox(const PanelCtx& p, float x, float y, bool on, int perfLine, u32 tid,
+					   u32 node);
+
+	// PERFORMANCE (DevConsole_Perf.cpp)
+	void SamplePerfSeries(const gfx::GraphicsDevice& device);
+	void CommitPerfSeries();
+	float PerfSectionHeight(const PanelCtx& p) const;
+	void DrawPerfSection(const PanelCtx& p, float top);
+	void PerfClick(float mx, float my);
+
+	// PROFILE (DevConsole_Profile.cpp)
+	void RegisterProfileCommand();
+	void PrepareProfile(devcon::ProfileFrame& f) const;
+	float ProfileSectionHeight(const PanelCtx& p, const devcon::ProfileFrame& f) const;
+	void DrawProfileSection(const PanelCtx& p, float top, const devcon::ProfileFrame& f);
+	void ProfileHover(float mx, float my);
+	void ProfileClick(float mx, float my);
+
+	// HEALTH (DevConsole_Health.cpp)
+	float HealthSectionHeight(const PanelCtx& p) const;
+	void DrawHealthSection(const PanelCtx& p, float top);
+	void HealthClick(float mx, float my);
+
+	// THREADS (DevConsole_Threads.cpp)
+	float ThreadsSectionHeight(const PanelCtx& p,
+							   const std::vector<threads::WorkerInfo>& workers) const;
+	void DrawThreadsSection(const PanelCtx& p, float top,
+							const std::vector<threads::WorkerInfo>& workers);
+	void ThreadsClick(float mx, float my);
+
 	bool m_open = false;
 	bool m_commandsEnabled = true;   // false while a staged load is mid-flight
 	bool m_mirrorToLog = false;      // `logecho`: every console line also to dungeon.log
@@ -499,7 +546,7 @@ private:
 	bool m_threadsExpanded = false;
 
 	bool m_profileGraph = false; // list of current values, or scrolling graphs
-	bool m_perfGraph = false;    // the six top gauges, as bars or as graphs
+	bool m_perfGraph = false;    // the top gauges, as bars or as graphs
 
 	// All laid out by Render, hit-tested by the next Update.
 	gfx::Rect m_profViewBtn{};
