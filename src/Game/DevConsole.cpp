@@ -1652,9 +1652,10 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 		for (const PerfItem& it : items)
 			labelW = std::max(labelW, m_font->MeasureWidth(it.text));
 		const float labelRight = labelX + labelW;
-		const float barX = labelRight + pad * 2.0f;
-		// Out to the right edge, short of where the scroll thumb draws.
-		const float barW = std::max(width - pad * 2.0f - line * 0.35f - barX, 0.0f);
+		// A clear gap either side, in line heights so it tracks the font: enough
+		// that the bars read as their own column rather than running edge to edge.
+		const float barX = labelRight + line * 2.0f;
+		const float barW = std::max(width - line * 6.0f - barX, 0.0f);
 		for (int oi = 0; oi < kPerfLines; ++oi) {
 			const int i = kPerfOrder[oi];
 			const PerfItem& it = items[i];
