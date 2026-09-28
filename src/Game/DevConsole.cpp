@@ -1049,6 +1049,7 @@ void DevConsole::SampleHistory(float dt, const gfx::GraphicsDevice& device) {
 	bump(kRam, static_cast<float>(m.sysMemUsedMB));
 	bump(kVram, static_cast<float>(vram.usedBytes) / (1024.0f * 1024.0f));
 	bump(kSrv, static_cast<float>(device.SrvLive()));
+	bump(kProc, static_cast<float>(m.procMemMB));
 
 	{
 		DN_PROFILE_ZONE_L(prof::kLevelDetail, "snapshot");
@@ -1395,8 +1396,8 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 	const float graphGapY = line * 0.4f;
 
 	const std::vector<threads::WorkerInfo> workers = m_threadMgr.SnapshotAll();
-	// Header, then five gauges (or five graphs in three two-column rows), then
-	// the two plain text rows.
+	// Header, then seven gauges (or seven graphs in four two-column rows), then
+	// the one plain text row.
 	// A collapsed section is its header row and nothing else. Every section can
 	// be reduced to one line, so the panel can be cut down to just the thing
 	// being watched rather than scrolled past everything else.
@@ -1409,9 +1410,9 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 		!m_perfExpanded ? 0.0f
 		: m_perfGraph   ? static_cast<float>(perfGraphRows) * (graphH + graphGapY) +
 							  static_cast<float>(perfHiddenCount) * line
-						: line * 6.0f;
-	// The two plain text rows belong to the body, not the header.
-	const float perfTail = m_perfExpanded ? line * 2.0f : 0.0f;
+						: line * static_cast<float>(kPerfLines);
+	// The plain text row belongs to the body, not the header.
+	const float perfTail = m_perfExpanded ? line : 0.0f;
 	const float rowAdvance = line * 1.2f;
 
 	// PROFILE sits directly under the gauges; THREADS goes to the BOTTOM of the
@@ -1535,16 +1536,14 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 	};
 
 	const float labelX = pad * 2.0f;
-	const float gaugeX = width * 0.40f;
-	const float gaugeW = width * 0.28f;
 	float y = pad + sy;
 
-	auto gauge = [&](float gy, float frac, const Vec4& fill) {
+	auto gauge = [&](float gx, float gw, float gy, float frac, const Vec4& fill) {
 		const float gh = line * 0.7f;
 		const float oy = gy + (line - gh) * 0.5f;
-		batch.DrawRect({gaugeX, oy, gaugeW, gh}, kGaugeBg);
-		batch.DrawRect({gaugeX, oy, gaugeW * std::clamp(frac, 0.0f, 1.0f), gh}, fill);
-		ui::DrawBorder(batch, {gaugeX, oy, gaugeW, gh}, kBorder);
+		batch.DrawRect({gx, oy, gw, gh}, kGaugeBg);
+		batch.DrawRect({gx, oy, gw * std::clamp(frac, 0.0f, 1.0f), gh}, fill);
+		ui::DrawBorder(batch, {gx, oy, gw, gh}, kBorder);
 	};
 	auto row = [&](const std::string& text) {
 		m_font->Draw(batch, text, labelX, y, kText);
@@ -1572,7 +1571,7 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 	}
 	y += line;
 
-	// The five gauges as ONE table, so the bar view and the graph view cannot
+	// The seven gauges as ONE table, so the bar view and the graph view cannot
 	// disagree about what a measure is or what it is measured against. Each
 	// carries its own SCALE — a real ceiling in every case, which is why these
 	// graph against a fixed axis while a profile timing autoscales.
@@ -1622,6 +1621,14 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 		 std::format("SRV  {} / {} (peak {})", device.SrvLive(),
 					 gfx::GraphicsDevice::SrvCapacity(), device.SrvHighWater()),
 		 srvLive, srvCap, {0.60f, 0.75f, 0.90f, 1.0f}, srvLive / srvCap > 0.9f},
+		// This process's share of the machine, against the same installed-RAM
+		// ceiling as the system bar, so the two read directly against each other:
+		// the gap between them is everything else that is running.
+		{"WSET",
+		 std::format("Working set {:.2f} / {:.1f} GB", m.procMemMB / 1024.0,
+					 m.sysMemTotalMB / 1024.0),
+		 static_cast<float>(m.procMemMB), static_cast<float>(sysTotalMB),
+		 {0.90f, 0.55f, 0.35f, 1.0f}, false},
 	};
 
 	// ONE display order for both views, so nothing moves when you toggle between
@@ -1630,18 +1637,31 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 	// nothing next to each other. Read down the columns it is the two PROCESSORS
 	// side by side and the two MEMORIES side by side, with the frame rate and the
 	// descriptor ceiling — the only two with no natural partner — heading them.
-	constexpr PerfLine kPerfOrder[kPerfLines] = {kFps, kSrv, kGpu, kCpu, kVram, kRam};
+	// The working set comes last, directly under the system RAM it is a part of.
+	constexpr PerfLine kPerfOrder[kPerfLines] = {kFps, kSrv, kGpu, kCpu, kVram, kRam, kProc};
 
 	if (!m_perfExpanded) {
 		// nothing: the header above is the whole section
 	} else if (!m_perfGraph) {
+		// Labels are RIGHT-aligned against the bars, so each line of text ends
+		// beside the bar it describes instead of trailing off at a different
+		// length above a column of bars that all start at one x. The column is as
+		// wide as the widest label, but never narrower than the widest the SRV
+		// line can get, so it does not twitch as digits come and go.
+		float labelW = m_font->MeasureWidth("SRV  1024 / 1024 (peak 1024)");
+		for (const PerfItem& it : items)
+			labelW = std::max(labelW, m_font->MeasureWidth(it.text));
+		const float labelRight = labelX + labelW;
+		const float barX = labelRight + pad * 2.0f;
+		// Out to the right edge, short of where the scroll thumb draws.
+		const float barW = std::max(width - pad * 2.0f - line * 0.35f - barX, 0.0f);
 		for (int oi = 0; oi < kPerfLines; ++oi) {
 			const int i = kPerfOrder[oi];
 			const PerfItem& it = items[i];
-			m_font->Draw(batch, it.text, labelX, y,
+			m_font->Draw(batch, it.text, labelRight - m_font->MeasureWidth(it.text), y,
 						it.warn ? kWarn : (i == kGpu && m.gpuPercent < 0.0f) ? kDim : kText);
 			if (!(i == kGpu && m.gpuPercent < 0.0f))
-				gauge(y, it.value / it.scale, it.color);
+				gauge(barX, barW, y, it.value / it.scale, it.color);
 			y += line;
 		}
 	} else {
@@ -1675,10 +1695,7 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 		}
 	}
 
-	if (m_perfExpanded) {
-		row(std::format("Process working set: {:.0f} MB", m.procMemMB));
-		row("GPU: " + device.AdapterName());
-	}
+	if (m_perfExpanded) row("GPU: " + device.AdapterName());
 
 	// --- profile panel (below the gauges) -----------------------------------
 	// One tree per measured thread, deepest-first indentation, with a bar giving
