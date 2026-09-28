@@ -62,8 +62,6 @@
 
 namespace dungeon::game {
 
-struct GeometryChunk; // DungeonMeshBuilder.h (MakeSurfaceChunk takes one by ref)
-
 // Non-rune items reuse the rune tablet mesh as a placeholder, rendered at this
 // scale (bigger than a rune so they read on a dark floor) — see SubmitScene-
 // Geometry. Pickup is a floor-quarter click test (TryPickItem), independent of
@@ -2906,9 +2904,9 @@ private:
 	void RebuildChunksAround(int x, int z);
 	// Rebuilds the single chunk region (chunkX, chunkZ) in place.
 	void RebuildChunkRegion(int chunkX, int chunkZ);
-	// GeometryChunk -> SurfaceChunk (uploads the mesh). Shared by the full bake
-	// and the region rebuild.
-	SurfaceChunk MakeSurfaceChunk(GeometryChunk& gc);
+	// Uploads every chunk in `geo` as ONE batch (gfx::CreateMeshes) and appends
+	// them to the three surfaces. Shared by the full bake and the region rebuild.
+	void AppendSurfaceChunks(DungeonGeometry& geo);
 
 	// --- rendering / culling ----------------------------------------------------
 	// A rune's pulse multiplier (its emissive glow + the light it casts breathe in

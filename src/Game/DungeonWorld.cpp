@@ -278,14 +278,10 @@ void DungeonWorld::RebuildChunkRegion(int chunkX, int chunkZ) {
 		[this](const std::string& type) { return BoreMeshFor(type); },
 		[this](const std::string& type) { return FloorFeatureMeshFor(type); },
 		[this](const std::string& type) { return CeilingFeatureMeshFor(type); });
-	auto replace = [&](Surface& surface, std::vector<GeometryChunk>& fresh) {
-		std::erase_if(surface.chunks,
+	for (Surface* surface : {&m_walls, &m_floors, &m_ceilings})
+		std::erase_if(surface->chunks,
 					  [&](const SurfaceChunk& sc) { return sc.chunk == chunkIndex; });
-		for (GeometryChunk& gc : fresh) surface.chunks.push_back(MakeSurfaceChunk(gc));
-	};
-	replace(m_walls, r.walls);
-	replace(m_floors, r.floors);
-	replace(m_ceilings, r.ceilings);
+	AppendSurfaceChunks(r);
 }
 
 void DungeonWorld::RebuildChunksAround(int x, int z) {

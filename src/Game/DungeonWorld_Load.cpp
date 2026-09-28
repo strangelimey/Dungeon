@@ -421,14 +421,31 @@ void DungeonWorld::LoadAllSurfaceTextures() {
 	for (const SurfaceDef& def : SurfaceDefs()) LoadTextureSet(def);
 }
 
-DungeonWorld::SurfaceChunk DungeonWorld::MakeSurfaceChunk(GeometryChunk& gc) {
-	SurfaceChunk sc;
-	sc.variant = gc.variant;
-	sc.chunk = gc.chunk;
-	sc.boundsMin = gc.boundsMin;
-	sc.boundsMax = gc.boundsMax;
-	sc.mesh = std::make_unique<gfx::Mesh>(m_device, gc.mesh);
-	return sc;
+void DungeonWorld::AppendSurfaceChunks(DungeonGeometry& geo) {
+	// One batch for all three surfaces: a level is hundreds of chunks, and one
+	// upload each cost ~0.7 ms of resource creation, submission and a GPU wait
+	// (see Graphics/Mesh.h). The meshes come back parallel to the input.
+	std::vector<const assets::MeshData*> data;
+	data.reserve(geo.walls.size() + geo.floors.size() + geo.ceilings.size());
+	for (const auto* list : {&geo.walls, &geo.floors, &geo.ceilings})
+		for (const GeometryChunk& gc : *list) data.push_back(&gc.mesh);
+	std::vector<std::unique_ptr<gfx::Mesh>> meshes = gfx::CreateMeshes(m_device, data);
+
+	size_t next = 0;
+	const auto append = [&](Surface& surface, const std::vector<GeometryChunk>& chunks) {
+		for (const GeometryChunk& gc : chunks) {
+			SurfaceChunk sc;
+			sc.variant = gc.variant;
+			sc.chunk = gc.chunk;
+			sc.boundsMin = gc.boundsMin;
+			sc.boundsMax = gc.boundsMax;
+			sc.mesh = std::move(meshes[next++]);
+			surface.chunks.push_back(std::move(sc));
+		}
+	};
+	append(m_walls, geo.walls);
+	append(m_floors, geo.floors);
+	append(m_ceilings, geo.ceilings);
 }
 
 void DungeonWorld::BuildDungeonMeshes() {
@@ -447,13 +464,10 @@ void DungeonWorld::BuildDungeonMeshes() {
 		[this](const std::string& type) { return FloorFeatureMeshFor(type); },
 		[this](const std::string& type) { return CeilingFeatureMeshFor(type); });
 
-	auto upload = [&](Surface& surface, std::vector<GeometryChunk>& chunks) {
-		surface.chunks.clear();
-		for (GeometryChunk& gc : chunks) surface.chunks.push_back(MakeSurfaceChunk(gc));
-	};
-	upload(m_walls, geo.walls);
-	upload(m_floors, geo.floors);
-	upload(m_ceilings, geo.ceilings);
+	m_walls.chunks.clear();
+	m_floors.chunks.clear();
+	m_ceilings.chunks.clear();
+	AppendSurfaceChunks(geo);
 	m_geometryDirty = false; // any full bake pays the deferred-undo debt
 }
 
