@@ -2100,6 +2100,10 @@ DungeonWorld::EditorSnapshot DungeonWorld::CaptureEditorState() const {
 	// restore's LoadDecorations rebuilds them (AddDecoration only appends a
 	// live instance — same sync a level-swap stash does).
 	s.map.SetDecorationRecords(LiveDecorationRecords());
+	if (m_openX && m_openZ) {
+		s.openX = *m_openX;
+		s.openZ = *m_openZ;
+	}
 	for (const auto& [stem, map] : m_levelMaps)
 		s.stashMaps.emplace(stem, std::make_unique<DungeonMap>(*map));
 	for (const auto& [stem, ents] : m_levelEnts)
@@ -2112,6 +2116,14 @@ void DungeonWorld::RestoreEditorState(EditorSnapshot snap) {
 	// spanned both (adding a level to a dungeon touches the manifest, the
 	// catalog and a doorway). One history means one restore.
 	if (m_worldForUndo && snap.world) *m_worldForUndo = std::move(snap.world);
+	// The opening, likewise (a stair move can carry it). Flagged as moved so
+	// the next save writes project.ini back to whatever the undo left.
+	if (m_openX && m_openZ && snap.openX != -2 &&
+		(*m_openX != snap.openX || *m_openZ != snap.openZ)) {
+		*m_openX = snap.openX;
+		*m_openZ = snap.openZ;
+		m_openingMoved = true;
+	}
 
 	// Cheap in editor mode (only sprite work is queued — the scene passes are
 	// skipped while the full-screen editor is up), and still required: the

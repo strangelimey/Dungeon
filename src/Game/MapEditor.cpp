@@ -212,6 +212,43 @@ void MapEditor::AddToPalette(PaletteCat cat, const std::string& id) {
 		}
 }
 
+bool MapEditor::Disarm() {
+	if (m_sel.index < 0) return false;
+	m_sel.index = -1;
+	if (m_world && m_world->onMessage) m_world->onMessage(loc::View("map.brush.off"));
+	return true;
+}
+
+bool MapEditor::BeginMove(int cx, int cz) {
+	m_moving = false;
+	if (!m_world) return false;
+	auto say = [&](std::string_view line) {
+		if (m_world->onMessage) m_world->onMessage(line);
+	};
+	// A browsed level has records but no live instances, and every move changes
+	// the live instance first (the inspectors' rule, for the same reason).
+	if (m_view.Browsing()) {
+		say(loc::View("map.move.remote"));
+		return false;
+	}
+	m_move = m_world->TopMovableAt(cx, cz);
+	if (m_move.kind == DungeonWorld::MoveTarget::Kind::None) {
+		say(loc::View("map.move.none"));
+		return false;
+	}
+	m_moving = true;
+	say(loc::Format("map.move.pick", m_move.label));
+	return true;
+}
+
+void MapEditor::EndMove(int cx, int cz) {
+	if (!m_moving || !m_world) return;
+	m_moving = false;
+	if (cx == m_move.x && cz == m_move.z) return; // dropped where it was
+	m_world->BeginUndoStep();
+	m_world->CommitUndoStep(m_world->MoveObject(m_move, cx, cz));
+}
+
 bool MapEditor::Arm(PaletteCat cat, const std::string& id) {
 	const std::vector<PaletteItem> items = CategoryItems(cat);
 	for (int i = 0; i < static_cast<int>(items.size()); ++i)
@@ -480,7 +517,11 @@ bool MapEditor::OnClick(float mx, float my, const gfx::Rect& panel) {
 			// A placeable type arms the brush; a non-placeable one has nothing
 			// to arm, so a click opens its editor (what right-click does for
 			// every row) rather than silently doing nothing.
-			if (CategoryPlaceable(r.cat)) m_sel = {r.cat, r.index};
+			// Clicking the ARMED row again puts the brush down - the palette's
+			// half of "a way to disarm the brush" (Esc is the other).
+			if (CategoryPlaceable(r.cat) && m_sel.index == r.index && m_sel.cat == r.cat)
+				Disarm();
+			else if (CategoryPlaceable(r.cat)) m_sel = {r.cat, r.index};
 			else if (onConfigure) {
 				const std::vector<PaletteItem> items = CategoryItems(r.cat);
 				if (r.index >= 0 && r.index < static_cast<int>(items.size()))

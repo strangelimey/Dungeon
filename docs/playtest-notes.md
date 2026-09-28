@@ -64,6 +64,24 @@ confirm, not a decision.
    more than one thing on the square, just grab the top one and the user can keep
    doing it to dig through the square's contents."
    - Came out of #1: the goal there was to MOVE the stair, not place a second one.
+   - DECIDED (Michael, 2026-09-28): LEFT-DRAG with NO brush armed grabs the top
+     thing and drops it on release; with a brush armed, left paints as now -
+     "but we'll need a way to 'disarm' the brush". A dragged stair moves BOTH
+     halves (refused if the other floor's square is blocked), and a moved Way
+     Out takes the world-map doorway's arrival square with it (the #1 deferral).
+   - DONE (Game/DungeonWorld_Move.cpp): TopMovableAt picks monster > item >
+     decoration > lever > door > brazier > sconce > stair > floor/ceiling
+     feature; MoveObject moves it IN PLACE (patrol, door name, lever wiring,
+     sconce brightness all kept) under each kind's placement rule, one undo
+     step. A stair takes its pair, and any doorway arrival or the project
+     opening on it follows (world + opening ride the undo snapshot; toolbar Save
+     now also writes the world, and project.ini when the opening moved).
+     Disarm: Esc (a drag, then the brush, then the map) or clicking the armed
+     palette row again. Browsed levels refuse ("moving works on the party's
+     level"). Niches and windows do not move. Harness: `editor move x z tx tz`,
+     `editor disarm`. Checked by eval on the committed crypt1 (every kind, the
+     refusal, arrivals + opening following and coming back on undo); the mouse
+     gesture itself NOT scripted - for Michael's hands.
    - Needs deciding later: what "top" means on a square (the draw order? the
      middle-click erase ladder: stair pair, then entity, then fixture?), which
      mouse button drags (left paints, right-drag pans, middle erases), and
@@ -78,6 +96,9 @@ confirm, not a decision.
      to the same (x,z) on both floors, so a resize that shifts coordinates must
      move the paired stairs too. Remember the fog-mask crash: things sized to the
      cell grid assumed the size never changes.
+   - DECIDED (Michael, 2026-09-28): DRAG THE MAP'S EDGES in the editor. A shrink
+     that would cut off content is REFUSED, and the message line lists what is
+     in the way - nothing is ever silently deleted.
 
 4. **Character sheet: movement keys should page members.** "When on a character
    sheet, hitting the movement keys ('a' and 'd' in this configuration) should

@@ -1209,6 +1209,49 @@ public:
 	// The stair prop's mesh(es), for the inspector's preview pane.
 	std::vector<gfx::PreviewSubmesh> StairPreviewSubs(int x, int z) const;
 
+	// --- moving placed things (the editor's drag-and-drop; DungeonWorld_Move.cpp)
+	// Play-test #2 (Michael, 2026-09-28): with no brush armed, a left-drag picks
+	// up the TOP thing on a square and drops it on another; dragging again digs
+	// through what was under it. A move changes the object IN PLACE - its
+	// patrol, its door name, its lever wiring all come along - where an erase
+	// and a re-place would have lost them. Active level only: a browsed level
+	// has no live instances to move (the inspectors' rule).
+	struct MoveTarget {
+		// The stacking order, top first: what stands on a square before what is
+		// fixed to it, and the square's own fabric (a stair, a floor recess) last.
+		enum class Kind { None, Monster, Item, Decoration, Button, Door, Brazier,
+						  Sconce, Stair, Feature };
+		Kind kind = Kind::None;
+		int x = 0, z = 0;       // where it was picked up
+		u32 runtimeId = 0;      // Monster
+		int index = -1;         // Item / Decoration / Button: the live vector slot
+		int id = -1;            // Door: its .ent record id
+		Direction wall = Direction::North; // Sconce: the wall it hangs on
+		bool ceiling = false;   // Feature: a ceiling feature, not a floor one
+		std::string label;      // display name, for the message line
+	};
+	// What a drag starting on (x,z) would pick up; Kind::None when nothing on
+	// the square can move (a niche or a window is carved into the wall and stays).
+	MoveTarget TopMovableAt(int x, int z) const;
+	// Moves it to (tx,tz). Every kind applies the rules its placement does (a
+	// door needs a doorway, a lever a wall, a stair a free square on BOTH floors)
+	// and a refusal says why on the message line. A STAIR takes its paired half
+	// with it, and any way IN that landed on it - a world-map doorway's arrival
+	// square, the game's opening - follows it (both undoable: see
+	// SetOpeningForUndo). The caller brackets it as one undo step.
+	bool MoveObject(const MoveTarget& t, int tx, int tz);
+	// The project's OPENING (where a new game starts), borrowed like the world so
+	// a stair move that carries it along is undone with everything else. Null =
+	// no opening to keep in step.
+	void SetOpeningForUndo(std::string* level, int* x, int* z) {
+		m_openLevel = level;
+		m_openX = x;
+		m_openZ = z;
+	}
+	// True once a move has changed the opening since the last call - the owner
+	// then writes project.ini on the next save, which is where it lives.
+	bool ConsumeOpeningMoved() { return std::exchange(m_openingMoved, false); }
+
 	// --- remote level editing (the map overlay edits ANY level) --------------
 	// Counterparts of the live editing seam for a NON-ACTIVE level `stem`:
 	// they operate on the level's in-memory stashes (see m_levelMaps /
@@ -3098,6 +3141,15 @@ private:
 	// ticks cooldowns and runs monster melee; PartyAttack runs the party's.
 	std::vector<Character>* m_roster = nullptr;
 	std::optional<WorldMap>* m_worldForUndo = nullptr; // borrowed; see SetWorldForUndo
+	// The project's opening, borrowed (SetOpeningForUndo), and whether a move
+	// has changed it since the owner last saved.
+	std::string* m_openLevel = nullptr;
+	int* m_openX = nullptr;
+	int* m_openZ = nullptr;
+	bool m_openingMoved = false;
+	// MoveObject's stair half, and the ways in that follow a moved stair.
+	bool MoveStair(const MoveTarget& t, int tx, int tz);
+	void MoveArrivals(int fx, int fz, int tx, int tz);
 	std::mt19937 m_combatRng{0xC0FFEEu};
 	bool m_partyWiped = false; // latches onPartyWipe so it fires once
 	// The attack formula's tuning (docs/combat.md): balance.cat knobs +
@@ -3294,6 +3346,9 @@ private:
 		SaveData::LevelState state;  // live dynamic diffs (SnapshotActive)
 		std::flat_map<std::string, std::unique_ptr<DungeonMap>> stashMaps;
 		std::flat_map<std::string, std::unique_ptr<DungeonEntities>> stashEnts;
+		// The project's opening square (SetOpeningForUndo), which a stair move
+		// can carry along. -2 = not captured (no opening borrowed).
+		int openX = -2, openZ = -2;
 	};
 	EditorSnapshot CaptureEditorState() const;
 	// Restores a snapshot in place: static + records move-assigned, stashes

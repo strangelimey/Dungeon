@@ -173,6 +173,31 @@ void Game::RegisterDevCommands() {
 						   // click would do (a refusal, a dialog) happens here too.
 						   // The editor's report lands on its message line and in
 						   // dungeon.log ("editor: ..."), which is what to check.
+						   // The drag (MapEditor::BeginMove / EndMove - what a left
+						   // press and release do with no brush armed), and putting
+						   // the brush down.
+						   if (!args.empty() && args[0] == "disarm") {
+							   m_console.Print(m_mapEditor.Disarm() ? "editor: brush put down"
+																	: "editor: no brush armed");
+							   return;
+						   }
+						   if (!args.empty() && args[0] == "move") {
+							   if (!Need(m_console, args, 5,
+										 "usage: editor move <x> <z> <to x> <to z>"))
+								   return;
+							   if (m_mapView.IsOpen())
+								   m_mapView.SetMode(MapView::Mode::Editor);
+							   else
+								   m_mapView.Open(MapView::Mode::Editor);
+							   const int fx = std::atoi(args[1].c_str());
+							   const int fz = std::atoi(args[2].c_str());
+							   if (m_mapEditor.BeginMove(fx, fz))
+								   m_mapEditor.EndMove(std::atoi(args[3].c_str()),
+													   std::atoi(args[4].c_str()));
+							   m_console.Print(std::format("editor move: {},{} -> {},{}", fx, fz,
+														   args[3], args[4]));
+							   return;
+						   }
 						   if (!args.empty() && (args[0] == "place" || args[0] == "erase")) {
 							   const bool place = args[0] == "place";
 							   if (!Need(m_console, args, place ? 5 : 3,
@@ -516,6 +541,10 @@ void Game::RegisterDevCommands() {
 						   if (m_worldMap)
 							   m_console.Print(SaveWorld() ? "saved world"
 														   : "world save failed");
+						   // The opening, when a dragged stair carried it along.
+						   if (m_world->ConsumeOpeningMoved())
+							   m_console.Print(m_project.Save() ? "saved project opening"
+																: "project save failed");
 					   });
 	m_console.Register("synctosource",
 					   "copy the active project (edits) into the repo source tree",

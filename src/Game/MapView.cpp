@@ -684,12 +684,32 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 	// level the brush routes to the level's stash (MapEditor reads ViewedLevel);
 	// the snapshot is rebuilt after a paint so the edit draws next frame (pure
 	// in-memory copies — no file IO).
+	// DRAG-AND-DROP (play-test #2): with NO brush armed, a plain left press picks
+	// up the top thing on the square and the release drops it on the square
+	// under the pointer (off the grid = let go, nothing moves). An armed brush
+	// keeps the left button for painting, as it always had it. The release is
+	// read wherever the pointer is, so a drag never gets stuck held.
+	if (editor && m_editor && m_editor->Moving() && input.WasMouseReleased(MouseButton::Left)) {
+		if (int cx, cz; overGrid && CellAt(mx, my, panel, cx, cz))
+			m_editor->EndMove(cx, cz);
+		else
+			m_editor->CancelMove();
+		return true;
+	}
 	if (editor && m_editor && overGrid) {
 		const bool shift = input.IsKeyDown(0x10 /*VK_SHIFT*/);
 		const bool ctrl = input.IsKeyDown(0x11 /*VK_CONTROL*/);
 		const bool alt = input.IsKeyDown(0x12 /*VK_MENU*/);
 		int cx, cz;
 		bool painted = false;
+		if (!shift && !ctrl && !alt && !m_editor->LayingRoute() &&
+			m_editor->ArmedCat() == MapEditor::PaletteCat::Count &&
+			input.WasMousePressed(MouseButton::Left) && CellAt(mx, my, panel, cx, cz)) {
+			m_editor->DropFilterFocus();
+			m_editor->BeginMove(cx, cz);
+			return true;
+		}
+		if (m_editor->Moving()) return true; // mid-drag: nothing paints
 		if (input.WasMousePressed(MouseButton::Left) && CellAt(mx, my, panel, cx, cz)) {
 			m_editor->DropFilterFocus(); // painting reclaims the keyboard
 			if (alt) m_editor->PickAt(cx, cz); // never mutates — no refresh needed
@@ -944,6 +964,22 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		// preview and the placed result look alike because they ARE alike.
 		if (m_hoverPlace.valid && m_hoverPlace.facingDerived)
 			facingArrow(m_hoverPlace.x, m_hoverPlace.z, m_hoverPlace.facing);
+	}
+
+	// 2d) A DRAG in progress (play-test #2): the square it was picked up from, in
+	// the accent, and the square it would drop on, in the ghost's colour - so the
+	// move is visible before the release commits it. The rules (a door needs a
+	// doorway...) are the drop's to judge and say; this only shows where.
+	if (m_mode == Mode::Editor && m_editor && m_editor->Moving()) {
+		const gfx::Rect from = cellRect(m_editor->MoveFromX(), m_editor->MoveFromZ());
+		batch.DrawRect(from, {theme.accent.x, theme.accent.y, theme.accent.z, 0.25f});
+		ui::DrawBorder(batch, from, theme.accent);
+		if (m_hoverX >= 0 &&
+			(m_hoverX != m_editor->MoveFromX() || m_hoverZ != m_editor->MoveFromZ())) {
+			const gfx::Rect to = cellRect(m_hoverX, m_hoverZ);
+			batch.DrawRect(to, {kGhostOk.x, kGhostOk.y, kGhostOk.z, kGhostOk.w * 0.45f});
+			ui::DrawBorder(batch, to, kGhostOk);
+		}
 	}
 
 	// A baked-icon marker: the kind's own model rendered into a small RT

@@ -164,6 +164,12 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		if (!m_gameLoaded) return; // no world to save yet
 		const std::vector<std::string> saved = m_world->SaveAllLevels();
 		bool ok = !saved.empty();
+		// The world and the opening too, as `savemap` does: an editor step can
+		// reach both now (a dragged stair carries a doorway's arrival square and
+		// the opening), and a Save that left them behind would put the files out
+		// of step with each other.
+		if (m_worldMap) ok = SaveWorld() && ok;
+		if (m_world->ConsumeOpeningMoved()) ok = m_project.Save() && ok;
 		if (ok && toSource) ok = SyncProjectToSource();
 		if (!m_world->onMessage) return;
 		if (!ok) {
@@ -434,6 +440,9 @@ bool Game::LoadWorld(const std::string& folder) {
 	// The world joins the editor's ONE undo history (his answer: a step that
 	// spans tiers undoes as one thing). Borrowed by pointer, like the roster.
 	m_world->SetWorldForUndo(&m_worldMap);
+	// ...and so does the project's opening square, which dragging the stair it
+	// lands on carries along (DungeonWorld::MoveArrivals).
+	m_world->SetOpeningForUndo(&m_project.startLevel, &m_project.startX, &m_project.startZ);
 	m_world->GetParty().SetKeys(m_settings.moveKeys);
 	m_world->GetParty().SetLook(m_settings.look);
 	m_world->GetParty().SetHeadBob(m_settings.headBob);
@@ -1939,6 +1948,18 @@ void Game::Update(float dt) {
 									   m_inspectPreview); // back to the inspector (with preview)
 				return;
 			}
+		}
+		// Esc in the editor backs out one layer at a time (the rule for Esc
+		// everywhere): a drag in progress is let go, then an armed brush is put
+		// down (play-test #2: "we'll need a way to 'disarm' the brush"), and only
+		// then does the map close.
+		if (!typingFilter && input.WasKeyPressed(VK_ESCAPE) &&
+			m_mapView.CurrentMode() == MapView::Mode::Editor) {
+			if (m_mapEditor.Moving()) {
+				m_mapEditor.CancelMove();
+				return;
+			}
+			if (m_mapEditor.Disarm()) return;
 		}
 		if (!typingFilter && input.WasKeyPressed(VK_ESCAPE)) {
 			m_mapView.Close();

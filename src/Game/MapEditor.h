@@ -18,6 +18,7 @@
 #pragma once
 
 #include "Core/MathTypes.h"        // Vec4
+#include "Game/DungeonWorld.h"     // DungeonWorld::MoveTarget (the drag in progress)
 #include "Game/Entity.h"           // Direction, WallFace
 #include "Game/Placement.h"        // Mount, Placement
 #include "Graphics/SpriteBatch.h"  // gfx::Rect, gfx::SpriteBatch
@@ -239,6 +240,21 @@ public:
 	// `face` (when valid) is the wall face under the pointer, so a niche on a
 	// specific face erases precisely; invalid falls back to the cell-wide ladder.
 	void EraseAt(int cx, int cz, const WallFace& face = {});
+
+	// --- drag-and-drop move (play-test #2) -------------------------------------
+	// With NO brush armed, a left-drag moves the top thing on a square
+	// (DungeonWorld::TopMovableAt / MoveObject). BeginMove picks it up and says
+	// what it took (false = nothing to take, or a browsed level); EndMove drops it
+	// as one undo step; CancelMove lets go without moving anything.
+	bool BeginMove(int cx, int cz);
+	void EndMove(int cx, int cz);
+	void CancelMove() { m_moving = false; }
+	bool Moving() const { return m_moving; }
+	int MoveFromX() const { return m_move.x; }
+	int MoveFromZ() const { return m_move.z; }
+	// Puts the brush down ("but we'll need a way to 'disarm' the brush"): Esc,
+	// or clicking the armed palette row again. False when nothing was armed.
+	bool Disarm();
 	// Draws the accordion inside the left dock body. MapView draws the dock frame,
 	// collapse button and "Brushes" header around it; this scissors to the body.
 	void RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
@@ -372,6 +388,9 @@ private:
 	u32 m_routeId = 0;            // monster whose patrol route is being laid (0 = none)
 	int m_selX = -1, m_selZ = -1; // selected square (-1 = none)
 	u32 m_selMonster = 0;         // creature selected there (0 = none), for its route
+	// The drag in progress (BeginMove .. EndMove): what was picked up, and where.
+	DungeonWorld::MoveTarget m_move;
+	bool m_moving = false;
 };
 
 } // namespace dungeon::game
