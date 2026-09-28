@@ -264,49 +264,127 @@ std::expected<ModelData, std::string> LoadGltf(const std::string& path) {
 		}
 	}
 
-	// Animation clips. Both vectors are RESERVED before their loops: a growing
-	// vector of channels re-allocates ~13 times per clip, and in a DEBUG build
-	// each of those re-allocations COPIES every channel it holds rather than
-	// moving them (MSVC's _ITERATOR_DEBUG_LEVEL makes vector's move constructor
-	// allocate an iterator-debug proxy, so it is not noexcept, so
-	// move_if_noexcept picks the copy). Every copied channel re-allocates its
-	// times and values buffers. Reserving turns a rigged monster's clip load
-	// from 47.7k allocations into 8.5k in debug, and costs one line.
+	// Animation clips. Each clip's keys land in TWO pooled arrays (times, values)
+	// that its channels index into - see AnimationChannelData. A rigged Mixamo
+	// model is 40 clips x 33 joints x T/R/S = 3,960 channels, and when each owned
+	// two vectors its load cost ~8,000 allocations (~24,000 in debug, where MSVC's
+	// iterator debugging makes every vector move allocate a proxy). Pooled, it is
+	// a handful per clip, however many channels the clip has.
+	//
+	// Two things the files make cheap, both exact:
+	//  * SHARED KEY TIMES. An exporter writes one time accessor for every channel
+	//    sampled on the same frames (the Mixamo rigs: 3,960 channels, 74 distinct
+	//    inputs), so each distinct input is read into `times` once and every
+	//    channel using it points at the same range.
+	//  * CONSTANT CHANNELS. Exporters key every joint's T, R and S whether it
+	//    moves or not. A channel whose values never change is stored as ONE key,
+	//    and dropped outright when that key equals the joint's rest pose, since
+	//    the Animator starts every sample from the rest pose anyway. That also
+	//    spares the Animator sampling them every frame. "Never change" is
+	//    BITWISE here, and that catches few: the exporter's rounding wobbles most
+	//    idle channels in the last digits (the Mixamo rigs: 25 of 3,960 exactly
+	//    constant, 2,905 within 1e-6).
+	std::vector<std::pair<const cgltf_accessor*, u32>> timeRanges; // input -> first key
+	std::vector<Vec4> scratch; // one channel's values while it is classified
+	const auto wanted = [&](const cgltf_animation_channel& ch, ChannelPath& path) {
+		if (!ch.target_node || !nodeToJoint.contains(ch.target_node)) return false;
+		if (!ch.sampler->input->count || !ch.sampler->output->count) return false;
+		switch (ch.target_path) {
+		case cgltf_animation_path_type_translation: path = ChannelPath::Translation; return true;
+		case cgltf_animation_path_type_rotation:    path = ChannelPath::Rotation; return true;
+		case cgltf_animation_path_type_scale:       path = ChannelPath::Scale; return true;
+		default: return false;
+		}
+	};
+	const auto same = [](const Vec4& a, const Vec4& b, int comps) {
+		return std::memcmp(&a, &b, comps * sizeof(float)) == 0;
+	};
 	for (cgltf_size a = 0; a < data->animations_count; ++a) {
 		const cgltf_animation& src = data->animations[a];
 		AnimationClipData clip;
 		clip.name = src.name ? src.name : std::format("clip{}", a);
-		clip.channels.reserve(src.channels_count);
+
+		// Size the pools first, so neither grows: times EXACTLY (one range per
+		// distinct input), values to the most they could need (every channel
+		// kept whole), trimmed once the constant channels have been collapsed.
+		size_t timeKeys = 0, valueKeys = 0, channelCount = 0;
+		timeRanges.clear();
+		for (cgltf_size c = 0; c < src.channels_count; ++c) {
+			ChannelPath path;
+			if (!wanted(src.channels[c], path)) continue;
+			const cgltf_animation_sampler& s = *src.channels[c].sampler;
+			++channelCount;
+			valueKeys += s.output->count;
+			if (std::ranges::find(timeRanges, s.input, &std::pair<const cgltf_accessor*, u32>::first) ==
+				timeRanges.end()) {
+				timeRanges.push_back({s.input, 0});
+				timeKeys += s.input->count;
+			}
+		}
+		if (channelCount == 0) continue; // nothing this skeleton can play
+		clip.channels.reserve(channelCount);
+		clip.times.reserve(timeKeys);
+		clip.values.reserve(valueKeys);
+		timeRanges.clear();
+
 		for (cgltf_size c = 0; c < src.channels_count; ++c) {
 			const cgltf_animation_channel& ch = src.channels[c];
-			if (!ch.target_node || !nodeToJoint.contains(ch.target_node)) continue;
-
 			AnimationChannelData out;
+			if (!wanted(ch, out.path)) continue;
 			out.joint = nodeToJoint[ch.target_node];
-			switch (ch.target_path) {
-			case cgltf_animation_path_type_translation: out.path = ChannelPath::Translation; break;
-			case cgltf_animation_path_type_rotation:    out.path = ChannelPath::Rotation; break;
-			case cgltf_animation_path_type_scale:       out.path = ChannelPath::Scale; break;
-			default: continue;
-			}
-
 			const cgltf_accessor* input = ch.sampler->input;
 			const cgltf_accessor* output = ch.sampler->output;
-			out.times.resize(input->count);
-			out.values.resize(output->count);
-			for (cgltf_size i = 0; i < input->count; ++i) {
-				cgltf_accessor_read_float(input, i, &out.times[i], 1);
-				clip.duration = std::max(clip.duration, out.times[i]);
+
+			// Key times: read each distinct input once; the duration is the
+			// latest key of any of them, exactly as when every channel had a copy.
+			auto range = std::ranges::find(timeRanges, input,
+										   &std::pair<const cgltf_accessor*, u32>::first);
+			if (range == timeRanges.end()) {
+				const u32 first = static_cast<u32>(clip.times.size());
+				clip.times.resize(first + input->count);
+				for (cgltf_size i = 0; i < input->count; ++i) {
+					cgltf_accessor_read_float(input, i, &clip.times[first + i], 1);
+					clip.duration = std::max(clip.duration, clip.times[first + i]);
+				}
+				range = timeRanges.insert(timeRanges.end(), {input, first});
 			}
+
 			const int comps = (out.path == ChannelPath::Rotation) ? 4 : 3;
+			scratch.resize(output->count);
 			for (cgltf_size i = 0; i < output->count; ++i) {
 				float tmp[4] = {0, 0, 0, 1};
 				cgltf_accessor_read_float(output, i, tmp, comps);
-				out.values[i] = {tmp[0], tmp[1], tmp[2], tmp[3]};
+				scratch[i] = {tmp[0], tmp[1], tmp[2], tmp[3]};
 			}
-			clip.channels.push_back(std::move(out));
+			// Bitwise comparison, so only a TRULY constant channel collapses.
+			const bool constant = std::ranges::all_of(
+				scratch, [&](const Vec4& v) { return same(v, scratch[0], comps); });
+			if (constant) {
+				const JointData& j = model.skeleton.joints[out.joint];
+				const Vec4 rest = out.path == ChannelPath::Translation
+									  ? Vec4{j.restTranslation.x, j.restTranslation.y,
+											 j.restTranslation.z, 0}
+								  : out.path == ChannelPath::Scale
+									  ? Vec4{j.restScale.x, j.restScale.y, j.restScale.z, 0}
+									  : Vec4{j.restRotation.x, j.restRotation.y,
+											 j.restRotation.z, j.restRotation.w};
+				if (same(scratch[0], rest, comps)) continue; // the rest pose already says it
+			}
+			const u32 keys = constant ? 1u : static_cast<u32>(output->count);
+			out.timeFirst = range->second;
+			out.timeCount = constant ? 1u : static_cast<u32>(input->count);
+			out.valueFirst = static_cast<u32>(clip.values.size());
+			out.valueCount = keys;
+			clip.values.insert(clip.values.end(), scratch.begin(), scratch.begin() + keys);
+			clip.channels.push_back(out);
 		}
-		if (!clip.channels.empty()) model.clips.push_back(std::move(clip));
+		// The reserve assumed nothing collapsed; give back what it did not use.
+		// One reallocation per clip, against the clip's whole value set otherwise
+		// sitting there for the model's lifetime.
+		clip.values.shrink_to_fit();
+		// A clip whose every channel restates the rest pose is still a clip: it
+		// plays (as the rest pose), which is what it did before any were dropped.
+		model.clips.push_back(std::move(clip));
 	}
 
 	// Allocation cost rides the existing line: model loading is the heaviest

@@ -20,6 +20,7 @@
 #include "Core/Types.h"
 
 #include <expected>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -76,7 +77,22 @@ struct SkeletonData {
 
 enum class ChannelPath { Translation, Rotation, Scale };
 
+// One animated property (T, R or S) of one joint. Its keys are RANGES of the
+// owning clip's pooled arrays, not vectors of its own: a rigged Mixamo model
+// has ~4,000 channels, and two buffers each made its load cost ~8,000
+// allocations for what is, per clip, two arrays. Channels that share a key-time
+// accessor in the file share one range of `times`. Read keys through
+// AnimationClipData::Times / Values.
 struct AnimationChannelData {
+	int joint = -1;
+	ChannelPath path = ChannelPath::Translation;
+	u32 timeFirst = 0, timeCount = 0;   // range of AnimationClipData::times
+	u32 valueFirst = 0, valueCount = 0; // range of AnimationClipData::values
+};
+
+// A channel with key lists of its own - the AUTHORING form (the AssetBaker's
+// procedural rigs build these), appended into a clip with AnimationClipData::Add.
+struct ChannelKeys {
 	int joint = -1;
 	ChannelPath path = ChannelPath::Translation;
 	std::vector<float> times;
@@ -87,6 +103,31 @@ struct AnimationClipData {
 	std::string name;
 	float duration = 0.0f;
 	std::vector<AnimationChannelData> channels;
+	std::vector<float> times; // every channel's key times, pooled
+	std::vector<Vec4> values; // every channel's key values, pooled
+
+	std::span<const float> Times(const AnimationChannelData& ch) const {
+		return {times.data() + ch.timeFirst, ch.timeCount};
+	}
+	std::span<const Vec4> Values(const AnimationChannelData& ch) const {
+		return {values.data() + ch.valueFirst, ch.valueCount};
+	}
+	std::span<Vec4> Values(const AnimationChannelData& ch) {
+		return {values.data() + ch.valueFirst, ch.valueCount};
+	}
+	// Appends an authored channel, copying its keys into the pools.
+	void Add(const ChannelKeys& keys) {
+		AnimationChannelData ch;
+		ch.joint = keys.joint;
+		ch.path = keys.path;
+		ch.timeFirst = static_cast<u32>(times.size());
+		ch.timeCount = static_cast<u32>(keys.times.size());
+		ch.valueFirst = static_cast<u32>(values.size());
+		ch.valueCount = static_cast<u32>(keys.values.size());
+		times.insert(times.end(), keys.times.begin(), keys.times.end());
+		values.insert(values.end(), keys.values.begin(), keys.values.end());
+		channels.push_back(ch);
+	}
 };
 
 struct ModelData {

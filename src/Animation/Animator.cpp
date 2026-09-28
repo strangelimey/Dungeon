@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <span>
 
 using namespace DirectX;
 
@@ -102,7 +103,7 @@ struct KeyLerp {
 	float t;
 };
 
-KeyLerp FindKeys(const std::vector<float>& times, float time) {
+KeyLerp FindKeys(std::span<const float> times, float time) {
 	if (times.empty()) return {0, 0, 0.0f};
 	if (time <= times.front()) return {0, 0, 0.0f};
 	if (time >= times.back()) return {times.size() - 1, times.size() - 1, 0.0f};
@@ -137,10 +138,12 @@ void Animator::SampleClip(const assets::AnimationClipData* clip, float time,
 	if (clip) {
 		for (const auto& ch : clip->channels) {
 			if (ch.joint < 0 || ch.joint >= static_cast<int>(joints.size())) continue;
-			if (ch.times.empty() || ch.values.empty()) continue;
-			const KeyLerp k = FindKeys(ch.times, time);
-			const Vec4& va = ch.values[std::min(k.a, ch.values.size() - 1)];
-			const Vec4& vb = ch.values[std::min(k.b, ch.values.size() - 1)];
+			const std::span<const float> times = clip->Times(ch);
+			const std::span<const Vec4> values = clip->Values(ch);
+			if (times.empty() || values.empty()) continue;
+			const KeyLerp k = FindKeys(times, time);
+			const Vec4& va = values[std::min(k.a, values.size() - 1)];
+			const Vec4& vb = values[std::min(k.b, values.size() - 1)];
 
 			switch (ch.path) {
 			case assets::ChannelPath::Translation:

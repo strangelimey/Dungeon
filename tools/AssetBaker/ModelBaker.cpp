@@ -326,9 +326,9 @@ void ScaleModelToUnits(assets::ModelData& model) {
 		joint.inverseBind._43 = U(joint.inverseBind._43);
 	}
 	for (assets::AnimationClipData& clip : model.clips)
-		for (assets::AnimationChannelData& ch : clip.channels)
+		for (const assets::AnimationChannelData& ch : clip.channels)
 			if (ch.path == assets::ChannelPath::Translation)
-				for (Vec4& value : ch.values)
+				for (Vec4& value : clip.Values(ch))
 					value = {U(value.x), U(value.y), U(value.z), value.w};
 }
 
@@ -1609,7 +1609,7 @@ assets::ModelData BuildHumanoid(const HumanoidStyle& style) {
 	clip.name = "idle";
 	clip.duration = style.duration;
 	constexpr int kKeys = 25;
-	auto times = [&](assets::AnimationChannelData& ch) {
+	auto times = [&](assets::ChannelKeys& ch) {
 		for (int k = 0; k < kKeys; ++k)
 			ch.times.push_back(clip.duration * static_cast<float>(k) / (kKeys - 1));
 	};
@@ -1618,16 +1618,16 @@ assets::ModelData BuildHumanoid(const HumanoidStyle& style) {
 	};
 
 	{ // root bob (translation, around rest height 1.0)
-		assets::AnimationChannelData ch;
+		assets::ChannelKeys ch;
 		ch.joint = 0;
 		ch.path = assets::ChannelPath::Translation;
 		times(ch);
 		for (int k = 0; k < kKeys; ++k)
 			ch.values.push_back({0, 1.0f + 0.025f * std::sin(phase(k) * 2.0f), 0, 0});
-		clip.channels.push_back(std::move(ch));
+		clip.Add(ch);
 	}
 	{ // spine sway
-		assets::AnimationChannelData ch;
+		assets::ChannelKeys ch;
 		ch.joint = 1;
 		ch.path = assets::ChannelPath::Rotation;
 		times(ch);
@@ -1636,10 +1636,10 @@ assets::ModelData BuildHumanoid(const HumanoidStyle& style) {
 										 0.05f * std::sin(phase(k)));
 			ch.values.push_back({q.x, q.y, q.z, q.w});
 		}
-		clip.channels.push_back(std::move(ch));
+		clip.Add(ch);
 	}
 	{ // head scan
-		assets::AnimationChannelData ch;
+		assets::ChannelKeys ch;
 		ch.joint = 2;
 		ch.path = assets::ChannelPath::Rotation;
 		times(ch);
@@ -1647,12 +1647,12 @@ assets::ModelData BuildHumanoid(const HumanoidStyle& style) {
 			const Quat q = QuatFromEuler(0, 0.18f * std::sin(phase(k) + 0.7f), 0);
 			ch.values.push_back({q.x, q.y, q.z, q.w});
 		}
-		clip.channels.push_back(std::move(ch));
+		clip.Add(ch);
 	}
 	{ // shoulder sway (anti-phase) around the base raise
 		const int sh[2] = {J_SHL, J_SHR};
 		for (int s = 0; s < 2; ++s) {
-			assets::AnimationChannelData ch;
+			assets::ChannelKeys ch;
 			ch.joint = sh[s];
 			ch.path = assets::ChannelPath::Rotation;
 			times(ch);
@@ -1662,13 +1662,13 @@ assets::ModelData BuildHumanoid(const HumanoidStyle& style) {
 					-style.armRaise + sign * style.swing * std::sin(phase(k)), 0, 0);
 				ch.values.push_back({q.x, q.y, q.z, q.w});
 			}
-			clip.channels.push_back(std::move(ch));
+			clip.Add(ch);
 		}
 	}
 	{ // a constant slight elbow bend so the arms aren't ramrod straight
 		const int el[2] = {J_ELL, J_ELR};
 		for (int s = 0; s < 2; ++s) {
-			assets::AnimationChannelData ch;
+			assets::ChannelKeys ch;
 			ch.joint = el[s];
 			ch.path = assets::ChannelPath::Rotation;
 			times(ch);
@@ -1676,7 +1676,7 @@ assets::ModelData BuildHumanoid(const HumanoidStyle& style) {
 				const Quat q = QuatFromEuler(0.25f + 0.06f * std::sin(phase(k)), 0, 0);
 				ch.values.push_back({q.x, q.y, q.z, q.w});
 			}
-			clip.channels.push_back(std::move(ch));
+			clip.Add(ch);
 		}
 	}
 	model.clips.push_back(std::move(clip));
@@ -1686,7 +1686,7 @@ assets::ModelData BuildHumanoid(const HumanoidStyle& style) {
 	// glide; attack fires per swing; die plays once on slay, then the corpse
 	// vanishes). Two small builders sample a 0..1 phase across the clip.
 	auto rotChan = [](assets::AnimationClipData& c, int joint, int keys, auto&& f) {
-		assets::AnimationChannelData ch;
+		assets::ChannelKeys ch;
 		ch.joint = joint;
 		ch.path = assets::ChannelPath::Rotation;
 		for (int k = 0; k < keys; ++k) {
@@ -1695,10 +1695,10 @@ assets::ModelData BuildHumanoid(const HumanoidStyle& style) {
 			const Quat q = f(u);
 			ch.values.push_back({q.x, q.y, q.z, q.w});
 		}
-		c.channels.push_back(std::move(ch));
+		c.Add(ch);
 	};
 	auto rootY = [](assets::AnimationClipData& c, int keys, auto&& f) {
-		assets::AnimationChannelData ch;
+		assets::ChannelKeys ch;
 		ch.joint = 0;
 		ch.path = assets::ChannelPath::Translation;
 		for (int k = 0; k < keys; ++k) {
@@ -1706,7 +1706,7 @@ assets::ModelData BuildHumanoid(const HumanoidStyle& style) {
 			ch.times.push_back(c.duration * u);
 			ch.values.push_back({0, f(u), 0, 0});
 		}
-		c.channels.push_back(std::move(ch));
+		c.Add(ch);
 	};
 	const float raise = style.armRaise;
 
@@ -1758,7 +1758,7 @@ assets::ModelData BuildHumanoid(const HumanoidStyle& style) {
 		rotChan(atk, J_SPINE, K, [&](float u) { return QuatFromEuler(0.5f * std::sin(u * kPi), 0, 0); });
 		{ // root lunges forward into the strike — model +Z is the facing dir, so
 		  // the body steps toward the party as the arm comes down, then recovers.
-			assets::AnimationChannelData ch;
+			assets::ChannelKeys ch;
 			ch.joint = J_ROOT;
 			ch.path = assets::ChannelPath::Translation;
 			for (int k = 0; k < K; ++k) {
@@ -1770,7 +1770,7 @@ assets::ModelData BuildHumanoid(const HumanoidStyle& style) {
 				else                z = L(0.22f, 0.0f, (u - 0.55f) / 0.45f);   // recover
 				ch.values.push_back({0, 1.0f, z, 0});
 			}
-			atk.channels.push_back(std::move(ch));
+			atk.Add(ch);
 		}
 		model.clips.push_back(std::move(atk));
 	}
@@ -1860,7 +1860,7 @@ assets::ModelData BuildBlob() {
 	clip.duration = 2.8f;
 	constexpr int kKeys = 25;
 	for (int j = 0; j < 2; ++j) {
-		assets::AnimationChannelData ch;
+		assets::ChannelKeys ch;
 		ch.joint = j;
 		ch.path = assets::ChannelPath::Scale;
 		for (int k = 0; k < kKeys; ++k) {
@@ -1870,7 +1870,7 @@ assets::ModelData BuildBlob() {
 				std::sin(2.0f * kPi * t / clip.duration + (j == 0 ? 0.0f : 0.9f));
 			ch.values.push_back({1.0f + 0.09f * s, 1.0f - 0.11f * s, 1.0f + 0.09f * s, 0});
 		}
-		clip.channels.push_back(std::move(ch));
+		clip.Add(ch);
 	}
 	model.clips.push_back(std::move(clip));
 
@@ -1883,11 +1883,11 @@ assets::ModelData BuildBlob() {
 	// Explicit-keyframe channel (non-uniform times are fine; the sampler brackets).
 	auto chanKeys = [](assets::AnimationClipData& c, int joint, assets::ChannelPath path,
 					   std::initializer_list<std::pair<float, Vec4>> keys) {
-		assets::AnimationChannelData ch;
+		assets::ChannelKeys ch;
 		ch.joint = joint;
 		ch.path = path;
 		for (const auto& [t, v] : keys) { ch.times.push_back(c.duration * t); ch.values.push_back(v); }
-		c.channels.push_back(std::move(ch));
+		c.Add(ch);
 	};
 
 	{ // walk: a bouncing ooze — squashed + low, then tall + hopped up. Loops.
@@ -1896,7 +1896,7 @@ assets::ModelData BuildBlob() {
 		walk.duration = 0.6f;
 		constexpr int K = 21;
 		auto scaleCh = [&](int joint, float amp, float ph) {
-			assets::AnimationChannelData ch;
+			assets::ChannelKeys ch;
 			ch.joint = joint;
 			ch.path = assets::ChannelPath::Scale;
 			for (int k = 0; k < K; ++k) {
@@ -1904,12 +1904,12 @@ assets::ModelData BuildBlob() {
 				ch.times.push_back(walk.duration * u);
 				ch.values.push_back(squash(amp * std::cos(tau * u + ph)));
 			}
-			walk.channels.push_back(std::move(ch));
+			walk.Add(ch);
 		};
 		scaleCh(0, 0.20f, 0.0f);
 		scaleCh(1, 0.17f, -0.6f); // top lags the base -> jelly follow-through
 		{ // base hop around the 0.18 rest height; peaks when stretched (u=0.5)
-			assets::AnimationChannelData ch;
+			assets::ChannelKeys ch;
 			ch.joint = 0;
 			ch.path = assets::ChannelPath::Translation;
 			for (int k = 0; k < K; ++k) {
@@ -1917,7 +1917,7 @@ assets::ModelData BuildBlob() {
 				ch.times.push_back(walk.duration * u);
 				ch.values.push_back({0, 0.18f + 0.08f * (0.5f - 0.5f * std::cos(tau * u)), 0, 0});
 			}
-			walk.channels.push_back(std::move(ch));
+			walk.Add(ch);
 		}
 		model.clips.push_back(std::move(walk));
 	}
