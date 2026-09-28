@@ -764,6 +764,8 @@ void Game::ResetRoster() {
 	m_world->SeedPartySkills();
 	const Balance& bal = m_world->GetBalance();
 	for (Character& member : m_characters) {
+		// Likewise the hand-use defaults: a first pick lands in reserved room.
+		member.ReserveUseDefaults(16);
 		member.health = member.maxHealth;
 		member.stamina = member.maxStamina;
 		member.mana = member.maxMana;

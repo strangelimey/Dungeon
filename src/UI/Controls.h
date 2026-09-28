@@ -25,6 +25,7 @@
 #include "UI/UIContext.h"
 #include "UI/Widget.h"
 
+#include <array>
 #include <deque>
 #include <functional>
 #include <memory>
@@ -352,8 +353,17 @@ private:
 // as a CASCADING submenu beside the parent — the parent stays visible, so the
 // other groups remain in reach (clicking another group swaps the submenu, the
 // same group toggles it). One level deep. It is a persistent widget the owner
-// reuses — call Open() with the actions for whatever was right-clicked; an
-// empty list is a no-op.
+// reuses: Begin() at the click point, Add()/AddGroup() the rows for whatever
+// was right-clicked, then Show() (a menu with no rows does not open).
+//
+// ALLOCATION-FREE. A context menu opens mid-game from a click, in exactly the
+// settled frames the steady-state guard watches, so it owns a FIXED pool of
+// rows with inline labels, and a row carries an int id rather than a closure.
+// The owner sets `onPick` once and keeps what the ids mean itself. The old
+// shape - a vector of entries, each a std::string label plus a std::function
+// capturing strings - allocated dozens of times per open and again per pick.
+// Rows past kMaxRows are dropped and labels past kLabelCapacity are clipped,
+// rather than growing.
 //
 // SCREEN-ANCHORED, not parent-relative: it opens at an absolute pixel point and
 // draws in the OVERLAY pass, so `bounds` stays zero — a context menu must not be
@@ -361,38 +371,64 @@ private:
 // shows it as 0x0, which is correct rather than a missing rect.
 class ContextMenu : public Widget {
 public:
-	struct Entry {
-		std::string label;
-		std::function<void()> onSelect; // leaf action (unused on a group)
-		std::vector<Entry> children;    // non-empty = group with a submenu
-	};
+	static constexpr size_t kMaxRows = 40;       // top level + submenus together
+	static constexpr size_t kLabelCapacity = 63; // bytes of UTF-8 per label
+	static constexpr int kTopLevel = -1;         // Add()'s "in no group"
 
 	ContextMenu() = default;
 
-	// Opens at (x,y) device pixels with the given actions (clamped on screen in
-	// Update). No-op for an empty list.
-	void Open(float x, float y, std::vector<Entry> entries);
+	// Starts a new menu at (x,y) device pixels (clamped on screen in Update),
+	// discarding the previous rows; it stays closed until Show().
+	void Begin(float x, float y);
+	// A leaf row reporting `id` through onPick. `group` is a handle from
+	// AddGroup, placing the row in that group's submenu. False when full.
+	bool Add(std::string_view label, int id, int group = kTopLevel);
+	// A top-level group row; returns its handle, or kTopLevel when full.
+	int AddGroup(std::string_view label);
+	// Opens what Begin/Add built. No-op when nothing was added.
+	void Show();
 	void Close() {
 		m_open = false;
 		m_openChild = -1;
 	}
 	bool IsOpen() const { return m_open; }
 
+	// Fired with the picked leaf's id, after the menu has closed. Set once by
+	// the owner. Capture `this` alone so it fits std::function's small buffer:
+	// a pick COPIES it (the callback may rebuild the menu's owner).
+	std::function<void(int id)> onPick;
+
 	void UpdateSelf(UIContext& ctx) override;
 	void DrawSelf(UIContext&, gfx::SpriteBatch&) override {} // overlay-only
 	void DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 private:
+	struct Row {
+		char text[kLabelCapacity + 1] = {};
+		size_t len = 0;
+		int id = 0;
+		int group = kTopLevel; // the owning group's ROW index, or top level
+		bool isGroup = false;
+		std::string_view Label() const { return {text, len}; }
+	};
+
+	int Append(std::string_view label, int id, int group, bool isGroup);
+	// Visual position of top-level row `row` among the top-level rows.
+	size_t TopPosition(int row) const;
+	size_t TopCount() const;
+	size_t ChildCount(int group) const;
 	gfx::Rect EntryRect(size_t i) const;
 	gfx::Rect ChildRect(size_t i) const; // row i of the open group's submenu
+	void Pick(UIContext& ctx, int id);
 
 	bool m_open = false;
 	float m_x = 0.0f, m_y = 0.0f; // top-left, device pixels (clamped in Update)
 	float m_w = 0.0f, m_rowH = 0.0f; // sized from the font in Update
-	std::vector<Entry> m_entries;
-	int m_hover = -1;
-	// Cascading submenu state: which group's children are showing (-1 = none)
-	// and the submenu box, laid out beside the parent in Update.
+	std::array<Row, kMaxRows> m_rows;
+	size_t m_count = 0;
+	int m_hover = -1; // a ROW index into m_rows, not a visual position
+	// Cascading submenu state: which group row's children are showing (-1 =
+	// none) and the submenu box, laid out beside the parent in Update.
 	int m_openChild = -1;
 	int m_childHover = -1;
 	float m_childX = 0.0f, m_childY = 0.0f, m_childW = 0.0f;

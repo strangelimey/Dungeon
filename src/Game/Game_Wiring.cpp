@@ -181,19 +181,21 @@ void Game::WireModuleCallbacks() {
 		// DungeonWorld::Update; this is the HUD arrow-button path).
 		if (!m_world->Falling()) m_world->GetParty().Act(action);
 	};
-	m_ui.onHandAttack = [this](size_t member, size_t hand, const std::string& verb) {
+	m_ui.onHandAttack = [this](size_t member, size_t hand, std::string_view verb) {
 		m_world->PartyAttack(member, hand, verb);
 	};
 	// The hand right-click menu reads an item's commands from the world's item
 	// kinds (single source — ItemKindFor parses category/command + rune defaults).
-	m_ui.itemCommands = [this](const std::string& id) {
+	// The return type is spelled out: deduced, it would be a COPY, and the
+	// std::function's reference would dangle.
+	m_ui.itemCommands = [this](const std::string& id) -> const std::vector<std::string>& {
 		return m_world->ItemCommands(id);
 	};
 	// The hand menu's Magic group enumerates the recipe table (filtered by the
 	// member's vocabulary in GameUI); a picked "cast:<id>" default casts through
 	// the world's façade — the same vocab/mana gates as the dev `cast` command.
 	m_ui.spellDefs = [this] { return m_world->SpellDefs(); };
-	m_ui.onCastSpell = [this](size_t member, const std::string& id, size_t hand) {
+	m_ui.onCastSpell = [this](size_t member, std::string_view id, size_t hand) {
 		m_world->CastSpellById(member, id, static_cast<int>(hand));
 	};
 	// The spellbook panel casts a HAND-BUILT symbol sequence: an exact recipe

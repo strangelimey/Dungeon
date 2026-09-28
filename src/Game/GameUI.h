@@ -221,17 +221,20 @@ public:
 	std::function<DefenseReadout(const Character&, const std::string&)> defenseWith;
 	// HUD hand-slot click (member, hand 0=L/1=R, melee verb — the executed
 	// command id, e.g. "stab" = the ATTACK, Balance::FindAttack).
-	std::function<void(size_t, size_t, const std::string&)> onHandAttack;
+	std::function<void(size_t, size_t, std::string_view)> onHandAttack;
 	// The hand right-click menu's command list for an item id (ItemKind::commands),
 	// wired by Game to the world's item kinds — keeps the command source single.
-	std::function<std::vector<std::string>(const std::string&)> itemCommands;
+	// By REFERENCE: a copy per hand click was a steady-state allocation. The
+	// wiring lambda must spell out its `-> const std::vector<std::string>&`
+	// return type, or it deduces a value and the reference dangles.
+	std::function<const std::vector<std::string>&(const std::string&)> itemCommands;
 	// The project's whole spell registry (wired to DungeonWorld::SpellDefs);
 	// the hand-slot Magic submenu filters it by the member's known symbols.
 	std::function<std::span<const std::unique_ptr<Spell>>()> spellDefs;
 	// Member `i` casts the spell with this catalog id (a "cast:<id>" hand
 	// default) from hand `hand` (0 = L, 1 = R) — wired to DungeonWorld::
 	// CastSpellById (vocab/mana gates; the firing hand's MRU is credited).
-	std::function<void(size_t, const std::string&, size_t)> onCastSpell;
+	std::function<void(size_t, std::string_view, size_t)> onCastSpell;
 	// Member `i` casts a symbol sequence BUILT in the spellbook panel (the
 	// Magic area's member selector picks whose book) — wired to DungeonWorld::
 	// CastSpell (exact-recipe match; a miss fizzles). The hand argument is
@@ -359,21 +362,28 @@ private:
 	// ("unarmed" for a bare hand) and, per GameSettings::useMenuExecutes,
 	// performs it.
 	void OpenHandUseMenu(size_t i, size_t hand);
+	// The hand menu's onPick: decodes a row id (the kUse* ranges in GameUI.cpp)
+	// against what the menu was opened for (m_handMenuMember/Hand/Item).
+	void OnHandMenuPick(int id);
+	// The item's hand commands, or an empty list for a bare hand / no wiring.
+	const std::vector<std::string>& CommandsFor(const std::string& itemId) const;
 	// A use-menu entry was picked: record it as the default (menu-only commands
 	// like memorize are never recorded) and execute per the Controls setting.
-	void SelectUse(size_t i, size_t hand, const std::string& itemId,
-				   const std::string& cmd);
+	void SelectUse(size_t i, size_t hand, std::string_view itemId,
+				   std::string_view cmd);
 	// Performs one use command on member `i`'s hand `hand` (the dispatch behind
 	// both the left-click default and the menu): eat/memorize map to their
 	// handlers, the melee verbs to onHandAttack. Unknown/empty ids no-op.
-	void ExecuteUse(size_t i, size_t hand, const std::string& cmd);
+	void ExecuteUse(size_t i, size_t hand, std::string_view cmd);
 	// The command a left-click on `itemId` ("" = bare hand) in hand `hand`
 	// executes for this member: THAT hand's remembered useDefaults pick while
 	// it is still valid, else the item's first defaultable (non-menu-only)
 	// command, else "" — no default, so the left-click opens the use menu to
-	// pick one.
-	std::string DefaultUseFor(const Character& c, size_t hand,
-							  const std::string& itemId) const;
+	// pick one. A VIEW of the stored pick or the catalog command (a returned
+	// string was a steady-state allocation per swing): use it before anything
+	// records a new default.
+	std::string_view DefaultUseFor(const Character& c, size_t hand,
+								   const std::string& itemId) const;
 	// Whether a remembered default is still usable: an item command the item
 	// still offers, one of the bare-hand combat verbs, or a "cast:<id>" whose
 	// spell exists and whose symbols the member all knows.
@@ -499,9 +509,16 @@ private:
 	// HUD right-click context menu (hand-slot item actions, e.g. Memorize).
 	// Reused: GameUI opens it with the actions for whatever was right-clicked.
 	ui::ContextMenu* m_handMenu = nullptr;
+	// What the open hand menu is FOR, read back by OnHandMenuPick: a menu row
+	// carries only an int id (ui::ContextMenu is allocation-free). The item id
+	// is assign()ed, so it keeps its capacity across opens.
+	size_t m_handMenuMember = 0;
+	size_t m_handMenuHand = 0;
+	std::string m_handMenuItem;
 	// The SHEET's own context menu (backpack-slot actions — the sheet freezes
 	// the HUD, so m_handMenu can't serve it).
 	ui::ContextMenu* m_sheetMenu = nullptr;
+	int m_packMenuSlot = -1; // the pack slot the sheet menu was opened on
 	// Party inventory window (owned by m_hudUi); opened on right-click-while-holding.
 	InventoryWindow* m_inventory = nullptr;
 	// The Magic-area spellbook (owned by m_hudUi): opened from a hand's use
