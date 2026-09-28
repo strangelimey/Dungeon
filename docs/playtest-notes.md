@@ -145,4 +145,13 @@ confirm, not a decision.
    - LATER (not this pass): "we'll make each panel resizable and moveable with
      the mouse." Panel positions shouldn't depend on each other, so this is
      easy to add later. It also explains why minimizing doesn't reflow.
+   - #6, #7, #8 DONE together (Game/ControlBar.*): the column is three framed
+     HudDocks. Movement and Magic have a header (title + "-"/"+" button); the
+     flags are settings.ini hud_move_collapsed / hud_magic_collapsed, default
+     expanded. Every dock is placed at its EXPANDED position, so minimizing
+     never moves another. Magic shows only while some member's knownSymbols is
+     non-zero, derived every layout. Driven: hidden with no symbols, shown after
+     `learn 2 fire`, both minimized by clicking, both restored; uioverlap clean
+     in each state; AllocTest PASS.
+   - NOT DONE: drag / resize with the mouse (his "later").
 

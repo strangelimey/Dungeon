@@ -155,6 +155,7 @@ hud.rest=Отдых
 hud.wake=Подъём
 hud.help=Помощь
 hud.magic=Магия
+hud.movement=Движение
 hud.magic_none=Заклинаний нет.
 hud.log_show=Журнал
 torch.warm=Тёплое пламя

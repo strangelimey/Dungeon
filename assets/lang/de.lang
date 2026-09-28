@@ -151,6 +151,7 @@ hud.rest=Rasten
 hud.wake=Aufbrechen
 hud.help=Hilfe
 hud.magic=Magie
+hud.movement=Bewegung
 hud.magic_none=Keine Zauber bekannt.
 hud.log_show=Protokoll
 torch.warm=Warme Flamme

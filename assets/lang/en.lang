@@ -150,6 +150,7 @@ hud.rest=Rest
 hud.wake=Wake
 hud.help=Help
 hud.magic=Magic
+hud.movement=Movement
 hud.magic_none=No spells known.
 hud.log_show=Log
 torch.warm=Warm flame

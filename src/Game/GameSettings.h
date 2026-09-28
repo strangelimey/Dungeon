@@ -180,6 +180,10 @@ struct GameSettings {
 	bool mapPaletteCollapsed = false;  // map editor: left brush dock collapsed
 	bool mapLegendCollapsed = false;   // map editor: right key dock collapsed
 	bool mapShowCatalog = false;       // map editor: surfaces show the whole catalog
+	// The HUD's right-hand docks (Game/ControlBar.h): minimized to their header
+	// strip. Expanded by default (Michael: "leave it on screen by default").
+	bool hudMoveCollapsed = false;
+	bool hudMagicCollapsed = false;
 	// The level generator's last-USED knobs, encoded by Game/GenerateKnobs.h
 	// ("path:6 branches:3 ..."). Held as the opaque line so settings knows
 	// nothing of the generator; empty = its defaults. ini gen_knobs=.

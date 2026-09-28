@@ -1,5 +1,5 @@
 // ============================================================================
-// Game/ControlBar.cpp — see ControlBar.h.
+// Game/ControlBar.cpp - see ControlBar.h.
 // ============================================================================
 #include "Game/ControlBar.h"
 
@@ -11,43 +11,31 @@ namespace dungeon::game {
 
 namespace {
 
-// The panel's layout in the WINDOW fractions it was authored in. Nothing below
-// uses these directly as bounds — each child divides them through by its own
-// parent's span, so the tree reproduces the original pixel layout exactly while
-// every level measures against its parent. Keeping the source numbers here (and
-// the divisions visible) is what makes that correspondence checkable.
+// The panel's layout in the WINDOW fractions it was authored in, when it was
+// one framed box. Nothing below uses these directly as bounds: they survive as
+// RATIOS (a gap as a share of the interior width, say), which is what keeps the
+// movement cells and hand boxes the size they always were.
 constexpr float kBarW = 0.156f;
-constexpr float kBarH = 0.786f; // panel bottom (0.929) - the bar's top (0.143)
 constexpr float kPad = 0.009f;  // inset inside the bar
-constexpr float kTopPad = 0.013f; // the content starts a little lower than kPad
 constexpr float kInnerW = kBarW - 2 * kPad;
-constexpr float kInnerH = kBarH - kTopPad - kPad;
 
 // Movement pad.
 constexpr float kMoveGap = 0.005f;
-constexpr float kMoveW = (kInnerW - 2 * kMoveGap) / 3.0f;
-constexpr float kPadH = 2 * kMoveW + kMoveGap;
 
-// Hands. The original placed the hand grid 0.016 below the pad's LAST ROW plus
-// the row gap, so the clearance is that gap again on top of the 0.016.
-constexpr float kHandsClear = kMoveGap + 0.016f;
+// Hands.
 constexpr float kSetGap = 0.005f;
 constexpr float kSetW = (kInnerW - kSetGap) / 2.0f;
 constexpr float kHandGap = 0.0025f;
-constexpr float kHandW = (kSetW - kHandGap) / 2.0f;
-constexpr float kSetH = kHandW + 0.009f; // a pair's row pitch
 
-// Magic.
-constexpr float kMagicLabelTop = 0.009f;
-constexpr float kMagicLabelH = 0.022f;
-constexpr float kBookTop = 0.036f;
-
-// Spacing, in EMs of the bar's own type. Stated here rather than scattered
+// Spacing, in EMs of the column's own type. Stated here rather than scattered
 // through the layout code, because these are the numbers Michael tunes by eye
 // and they should be findable in one place.
 constexpr float kSideMargin = 0.5f;  // total, down both sides of a grid
 constexpr float kSliderGap = 0.25f;  // hand boxes -> the stance slider
 constexpr float kHandRowGap = 0.5f;  // between one member's row and the next
+constexpr float kDockGap = 0.5f;     // between one dock and the next
+constexpr float kHeaderH = 1.4f;     // a dock's title strip (and its button)
+constexpr float kHeaderGap = 0.25f;  // title strip -> content
 
 // Rows the hand grid needs for `count` members, two per row.
 size_t HandRows(size_t count) { return (std::min<size_t>(count, 4) + 1) / 2; }
@@ -74,7 +62,7 @@ MovementPad::MovementPad(const gfx::Rect& rect, const ControlBarDeps& deps) {
 		{"v", MoveAction::Back, false, 1},     {">", MoveAction::StrafeRight, false, 0},
 	};
 	// Placeholder bounds: LayoutSelf computes square cells once the pixel
-	// width is known (see HandPair — a square cannot be authored as a pair of
+	// width is known (see HandPair - a square cannot be authored as a pair of
 	// independent axis fractions).
 	for (size_t i = 0; i < std::size(moves); ++i) {
 		auto* btn = Add<ui::Button>(
@@ -135,7 +123,7 @@ HandPair::HandPair(const gfx::Rect& rect, size_t member,
 				onRight(member, static_cast<size_t>(hand));
 			});
 	}
-	// ONE stance for the character, spanning both boxes — the fighter decides
+	// ONE stance for the character, spanning both boxes - the fighter decides
 	// how hard to press, and the two hands then guard with whatever each holds.
 	m_guard = Add<GuardSlider>(gfx::Rect{0, 0.85f, 1.0f, 0.15f}, deps.roster,
 							   member, deps.onGuardChange);
@@ -143,15 +131,15 @@ HandPair::HandPair(const gfx::Rect& rect, size_t member,
 
 // How tall one pair must be for boxes of the largest square its width allows.
 // Static and public because ControlBar has to ask it BEFORE laying the grid
-// out — the grid's height is a consequence of the bar's width, and only this
-// function knows the shape of that consequence.
+// out - the grid's height is a consequence of the column's width, and only
+// this function knows the shape of that consequence.
 float HandPair::NeededHeight(float widthPx, float emPx) {
 	return SquareSide(widthPx, emPx) + emPx * kSliderGap + BandHeight(emPx);
 }
 
 float HandPair::SquareSide(float widthPx, float emPx) {
 	// kSideMargin of margin in total, the authored sliver between the boxes,
-	// and the rest split in two. WIDTH ALONE decides — the height then follows
+	// and the rest split in two. WIDTH ALONE decides - the height then follows
 	// from it, which is the whole point: a box clamped by the height it was
 	// given comes out tiny the moment the parent is short.
 	const float gap = widthPx * (kHandGap / kSetW);
@@ -180,7 +168,7 @@ void HandPair::LayoutSelf(ui::UIContext&) {
 			(em * kSideMargin * 0.5f + (side + gap) * static_cast<float>(hand)) / px.w,
 			0.0f, side / px.w, side / px.h};
 	}
-	// Spans both boxes and the gap between them — the visual claim that it
+	// Spans both boxes and the gap between them - the visual claim that it
 	// governs the pair rather than either hand.
 	if (m_guard)
 		m_guard->bounds = {em * kSideMargin * 0.5f / px.w,
@@ -208,8 +196,8 @@ float HandsArea::NeededHeight(float widthPx, float emPx, size_t rows) {
 	if (rows == 0) return 0.0f;
 	const float setW = widthPx * (kSetW / kInnerW);
 	const float rowH = HandPair::NeededHeight(setW, emPx);
-	// The gap goes BETWEEN rows, not after the last one — trailing space here
-	// would push the Magic panel down for nothing.
+	// The gap goes BETWEEN rows, not after the last one - trailing space here
+	// would leave the hands dock taller than its boxes for nothing.
 	return rowH * static_cast<float>(rows) +
 		   emPx * kHandRowGap * static_cast<float>(rows - 1);
 }
@@ -230,80 +218,126 @@ void HandsArea::LayoutSelf(ui::UIContext&) {
 	}
 }
 
-// --- MagicArea -------------------------------------------------------------
+// --- HudDock ---------------------------------------------------------------
 
-MagicArea::MagicArea(const gfx::Rect& rect, const ControlBarDeps& deps) {
-	bounds = rect;
-	debugName = "MagicArea";
-	// The area's own height in window fractions, so its children can divide by
-	// it (it depends on the hand-row count, which is why it isn't a constant).
-	const float areaH = rect.h * kInnerH;
-	Add<ui::Label>(gfx::Rect{0.0f, kMagicLabelTop / areaH, 1.0f,
-							 kMagicLabelH / areaH},
-				   deps.magicLabel);
-	m_bookBounds = {0.0f, kBookTop / areaH, 1.0f, 1.0f - kBookTop / areaH};
-	m_spellbook = Add<SpellbookPanel>(m_bookBounds, deps.roster, deps.icons);
+HudDock::HudDock(std::string title, bool* collapsed,
+				 std::function<void()> onCollapseChanged)
+	: m_collapsed(collapsed) {
+	debugName = "HudDock";
+	// Placeholder bounds throughout: the column places the dock, and LayoutSelf
+	// places the header and content once the dock's pixel rect is known.
+	if (!title.empty()) {
+		m_title = Add<ui::Label>(gfx::Rect{}, std::move(title));
+		m_title->centerV = true;
+	}
+	if (collapsed)
+		m_toggle = Add<ui::Button>(gfx::Rect{}, "-",
+			[this, onChanged = std::move(onCollapseChanged)] {
+				*m_collapsed = !*m_collapsed;
+				if (onChanged) onChanged();
+			});
 }
 
-void MagicArea::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
+float HudDock::Pad(float widthPx) { return widthPx * (kPad / kBarW); }
+float HudDock::HeaderHeight(float emPx) { return emPx * kHeaderH; }
+float HudDock::HeaderGap(float emPx) { return emPx * kHeaderGap; }
+
+gfx::Rect HudDock::ContentRect() const {
 	const gfx::Rect& px = Pixel();
-	ui::DrawPanelFace(ctx, batch,
-					  {px.x + m_bookBounds.x * px.w, px.y + m_bookBounds.y * px.h,
-					   m_bookBounds.w * px.w, m_bookBounds.h * px.h});
+	const float pad = Pad(px.w);
+	return {px.x + pad, px.y + pad, std::max(0.0f, px.w - 2 * pad),
+			std::max(0.0f, px.h - 2 * pad)};
+}
+
+void HudDock::LayoutSelf(ui::UIContext&) {
+	const gfx::Rect inner = ContentRect();
+	if (inner.w <= 0.0f || inner.h <= 0.0f) return;
+	const float em = Rem(1.0f);
+	const float head = HasHeader() ? HeaderHeight(em) : 0.0f;
+	const float gap = HasHeader() ? HeaderGap(em) : 0.0f;
+
+	// The header: the title, and the minimize button square at its right end.
+	// The button shows the ACTION (the editor's play-pause convention): "-"
+	// while there is something to minimize, "+" while there is not. A
+	// one-character assignment, so it never allocates in a guarded frame.
+	const float btn = m_toggle ? head : 0.0f;
+	if (m_title)
+		m_title->bounds = {0.0f, 0.0f, std::max(0.0f, inner.w - btn - em * 0.25f) / inner.w,
+						   head / inner.h};
+	if (m_toggle) {
+		m_toggle->bounds = {(inner.w - btn) / inner.w, 0.0f, btn / inner.w, head / inner.h};
+		m_toggle->text = Collapsed() ? "+" : "-";
+	}
+	// The content fills what is left, and is not there at all while minimized.
+	if (m_content) {
+		m_content->visible = !Collapsed();
+		m_content->bounds = {0.0f, (head + gap) / inner.h, 1.0f,
+							 std::max(0.0f, inner.h - head - gap) / inner.h};
+	}
+}
+
+void HudDock::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
+	ui::DrawPanelFace(ctx, batch, Pixel());
 }
 
 // --- ControlBar ------------------------------------------------------------
 
-ControlBar::ControlBar(const gfx::Rect& rect, const ControlBarDeps& deps) {
+ControlBar::ControlBar(const gfx::Rect& rect, const ControlBarDeps& deps)
+	: m_roster(deps.roster) {
 	bounds = rect;
 	debugName = "ControlBar";
-	// Each area's height as a fraction of the padded interior. The pad and the
-	// hand grid take what they need; magic fills the remainder.
-	const float padH = kPadH / kInnerH;
-	const float handsTop = (kPadH + kHandsClear) / kInnerH;
-	const float handsH =
-		kSetH * static_cast<float>(HandRows(MemberCount(deps))) / kInnerH;
-	const float magicTop = handsTop + handsH;
+	m_moveDock = Add<HudDock>(deps.moveLabel, deps.moveCollapsed, deps.onCollapseChanged);
+	m_moveDock->debugName = "MoveDock";
+	m_moveDock->SetContent<MovementPad>(gfx::Rect{0, 0, 1, 1}, deps);
 
-	m_pad = Add<MovementPad>(gfx::Rect{0.0f, 0.0f, 1.0f, padH}, deps);
-	// handsH here is only a starting guess; LayoutSelf replaces it with the
-	// height the square boxes actually need once the pixel width is known.
-	m_hands = Add<HandsArea>(gfx::Rect{0.0f, handsTop, 1.0f, handsH}, deps);
-	m_magic = Add<MagicArea>(gfx::Rect{0.0f, magicTop, 1.0f, 1.0f - magicTop}, deps);
+	m_handsDock = Add<HudDock>(std::string(), nullptr, nullptr);
+	m_handsDock->debugName = "HandsDock";
+	m_handsDock->SetContent<HandsArea>(gfx::Rect{0, 0, 1, 1}, deps);
+
+	m_magicDock = Add<HudDock>(deps.magicLabel, deps.magicCollapsed, deps.onCollapseChanged);
+	m_magicDock->debugName = "MagicDock";
+	m_spellbook = m_magicDock->SetContent<SpellbookPanel>(gfx::Rect{0, 0, 1, 1},
+														  deps.roster, deps.icons);
 	m_rows = HandRows(MemberCount(deps));
 }
 
 void ControlBar::LayoutSelf(ui::UIContext&) {
-	if (!m_hands || !m_magic) return;
-	const gfx::Rect inner = ContentRect();
-	if (inner.w <= 0.0f || inner.h <= 0.0f) return;
-
-	// Walk the same nesting the widgets do, in PIXELS, to find how tall one
-	// row of square boxes has to be: the interior splits into member sets, a
-	// set into two boxes plus the stance band beneath them.
-	const float em = Rem(1.0f);
-	const float padH = MovementPad::NeededHeight(inner.w, em);
-	const float handsH = HandsArea::NeededHeight(inner.w, em, m_rows);
-	const float clearPx = inner.w * (kHandsClear / kInnerW);
-
-	if (m_pad) m_pad->bounds.h = padH / inner.h;
-	m_hands->bounds.y = (padH + clearPx) / inner.h;
-	m_hands->bounds.h = handsH / inner.h;
-	m_magic->bounds.y = m_hands->bounds.y + m_hands->bounds.h;
-	m_magic->bounds.h = std::max(0.0f, 1.0f - m_magic->bounds.y);
-}
-
-// The interior every area resolves against: inset by the bar's padding, a
-// little more at the top, as fractions of the bar itself.
-gfx::Rect ControlBar::ContentRect() const {
 	const gfx::Rect& px = Pixel();
-	const float x = kPad / kBarW, w = kInnerW / kBarW;
-	const float y = kTopPad / kBarH, h = kInnerH / kBarH;
-	return {px.x + x * px.w, px.y + y * px.h, w * px.w, h * px.h};
-}
+	if (px.w <= 0.0f || px.h <= 0.0f) return;
 
-void ControlBar::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
-	ui::DrawPanelFace(ctx, batch, Pixel());
+	// Everything in PIXELS first, then fractions of this column. The docks share
+	// the column's width, so their padded interiors all have the same width, and
+	// that width is what sizes the square cells and boxes inside them.
+	const float em = Rem(1.0f);
+	const float pad = HudDock::Pad(px.w);
+	const float innerW = std::max(0.0f, px.w - 2 * pad);
+	const float head = HudDock::HeaderHeight(em);
+	const float headGap = HudDock::HeaderGap(em);
+	const float dockGap = em * kDockGap;
+	const float minimized = 2 * pad + head; // a header strip and its padding
+
+	const float moveH = 2 * pad + head + headGap + MovementPad::NeededHeight(innerW, em);
+	const float handsH = 2 * pad + HandsArea::NeededHeight(innerW, em, m_rows);
+
+	auto place = [&](HudDock* dock, float y, float h) {
+		dock->bounds = {0.0f, y / px.h, 1.0f, h / px.h};
+	};
+	// NO REFLOW: each dock's TOP comes from the others' EXPANDED heights, so
+	// minimizing one leaves a gap rather than pulling the next one up.
+	float y = 0.0f;
+	place(m_moveDock, y, m_moveDock->Collapsed() ? minimized : moveH);
+	y += moveH + dockGap;
+	place(m_handsDock, y, handsH);
+	y += handsH + dockGap;
+	place(m_magicDock, y,
+		  m_magicDock->Collapsed() ? minimized : std::max(minimized, px.h - y));
+
+	// Magic appears once ANY member knows a symbol - not before, and not by a
+	// flag set when one is learned, which a load or a roster change would miss.
+	bool anySymbols = false;
+	if (m_roster)
+		for (const Character& c : *m_roster) anySymbols = anySymbols || c.knownSymbols != 0;
+	m_magicDock->visible = anySymbols;
 }
 
 } // namespace dungeon::game

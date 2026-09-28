@@ -1,26 +1,34 @@
 // ============================================================================
-// Game/ControlBar.h — the right-hand HUD panel: movement pad, hands, magic.
+// Game/ControlBar.h - the right-hand HUD column: movement, hands, magic.
 //
-// The Dungeon Master control panel as a tree (docs/ui-hierarchy.md):
+// THREE PANELS, NOT ONE (play-test #6-#8, Michael 2026-09-28). The Dungeon
+// Master control panel was one framed box holding all three parts; it is now a
+// frameless column of three framed docks, one per part:
 //
-//   ControlBar          the framed panel; ContentRect is its padded interior
-//     MovementPad       3x2 grid of turn/step buttons
-//       Button x6
-//     HandsArea         2x2 grid, one cell per party member
-//       HandPair        that member's two hands
-//         HandSlot x2
-//     MagicArea         the "Magic" heading and the spellbook box
-//       Label
+//   ControlBar          the column; lays the docks out, draws nothing itself
+//     HudDock "move"    header (title + minimize) over the MovementPad
+//       MovementPad     3x2 grid of turn/step buttons
+//     HudDock "hands"   no header; the hand grid alone
+//       HandsArea       2x2 grid, one cell per party member
+//         HandPair      that member's two hands
+//     HudDock "magic"   header (title + minimize) over the spellbook
 //       SpellbookPanel
 //
-// Every bound is a fraction of its own parent, so the whole panel moves or
-// resizes by setting ControlBar::bounds — none of the areas know where the
-// panel sits, and GameUI no longer chains innerX / moveTop / handsTop /
-// magicTop arithmetic to place them.
+// His rules for the three, each of which is a line of LayoutSelf:
+//   - Movement and Magic can each be MINIMIZED to their header strip, and start
+//     expanded. The flags are the player's (settings.ini hud_move_collapsed /
+//     hud_magic_collapsed), so ControlBarDeps carries pointers to them.
+//   - Minimizing a panel DOES NOT MOVE THE OTHERS. Every dock is placed as if
+//     all were expanded, and a minimized one only draws shorter. That is also
+//     the first half of "later, each panel resizable and movable with the
+//     mouse": no dock's position is derived from another's CURRENT size.
+//   - Magic is not shown at all until some member KNOWS A SYMBOL (it appears the
+//     moment one is learned). Derived every layout from the roster, never
+//     latched, so a load or a roster change is right with no notification.
 //
-// The one size that still depends on content is the hand grid: a party of one
-// or two fills a single row, so HandsArea is shorter and MagicArea starts
-// higher. ControlBar takes the row count and works both out.
+// Every bound is a fraction of its own parent, so the whole column moves or
+// resizes by setting ControlBar::bounds. The one size that depends on content
+// is the hand grid: a party of one or two fills a single row.
 // ============================================================================
 #pragma once
 
@@ -32,11 +40,12 @@
 
 #include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace dungeon::game {
 
-// What the bar needs to build its parts. Grouped because it threads three
+// What the column needs to build its parts. Grouped because it threads three
 // levels down and a positional argument list that long is unreadable.
 struct ControlBarDeps {
 	const std::vector<Character>* roster = nullptr;
@@ -49,7 +58,13 @@ struct ControlBarDeps {
 	// The offense/defense stance slider under a member's hands: the widget
 	// mutates nothing itself, it reports where it was dragged to.
 	std::function<void(size_t member, float share)> onGuardChange;
+	std::string moveLabel;  // localized "Movement" heading
 	std::string magicLabel; // localized "Magic" heading
+	// The two minimize flags (GameSettings), and who to tell when a click flips
+	// one (GameUI saves the settings). Null = that dock cannot be minimized.
+	bool* moveCollapsed = nullptr;
+	bool* magicCollapsed = nullptr;
+	std::function<void()> onCollapseChanged;
 };
 
 // 3x2 grid of movement buttons: turn-left / forward / turn-right over
@@ -60,7 +75,7 @@ public:
 	MovementPad(const gfx::Rect& rect, const ControlBarDeps& deps);
 
 	// Square cells sized from the WIDTH, and the height that follows. Asked by
-	// ControlBar before it lays the areas out, for the same reason HandPair is.
+	// ControlBar before it lays the docks out, for the same reason HandPair is.
 	static float CellSide(float widthPx, float emPx);
 	static float NeededHeight(float widthPx, float emPx);
 
@@ -69,7 +84,7 @@ private:
 };
 
 // One member's two hand boxes side by side, with the stance slider spanning
-// the full width beneath BOTH of them — one decision for the character, not
+// the full width beneath BOTH of them - one decision for the character, not
 // one per hand.
 class HandPair : public ui::Widget {
 public:
@@ -77,7 +92,7 @@ public:
 
 	// The height a pair of this width needs, and the pieces it is made of.
 	// ControlBar asks BEFORE laying out, because the hand grid's height is a
-	// consequence of the bar's width and nothing else can know that.
+	// consequence of the column's width and nothing else can know that.
 	static float NeededHeight(float widthPx, float emPx);
 	static float SquareSide(float widthPx, float emPx);
 	static float BandHeight(float emPx);
@@ -85,11 +100,10 @@ public:
 private:
 	// The boxes are SQUARE, and squareness cannot be authored: `bounds` are
 	// fractions of the parent in each axis independently, so a w/h pair only
-	// comes out square when the parent's own pixel aspect happens to agree —
-	// which is exactly how these went rectangular when the tree moved to
-	// [0..1] bounds. The side is therefore COMPUTED here, once the pixel rect
-	// is known, which is what LayoutSelf is for (docs/ui-hierarchy.md: bounds
-	// may be derived when a child is aspect-locked).
+	// comes out square when the parent's own pixel aspect happens to agree.
+	// The side is therefore COMPUTED here, once the pixel rect is known, which
+	// is what LayoutSelf is for (docs/ui-hierarchy.md: bounds may be derived
+	// when a child is aspect-locked).
 	void LayoutSelf(ui::UIContext& ctx) override;
 
 	ui::Widget* m_slots[2]{nullptr, nullptr};
@@ -102,50 +116,69 @@ public:
 	HandsArea(const gfx::Rect& rect, const ControlBarDeps& deps);
 
 	// The height `rows` of pairs need at this width, gaps between them
-	// included. ControlBar asks before laying the areas out.
+	// included. ControlBar asks before laying the docks out.
 	static float NeededHeight(float widthPx, float emPx, size_t rows);
 
 private:
 	void LayoutSelf(ui::UIContext& ctx) override;
 };
 
-// The magic box: the heading, then the spellbook filling the rest.
-class MagicArea : public ui::Widget {
+// One framed panel of the column: an optional HEADER (title, and a minimize
+// button when it has a flag to flip) over one content widget. The column sets
+// its bounds; the dock lays out its own header and content inside its padding.
+// Minimized, the content is hidden and the dock is only as tall as its header
+// - the column decides that height too, so the dock just follows the flag.
+class HudDock : public ui::Widget {
 public:
-	MagicArea(const gfx::Rect& rect, const ControlBarDeps& deps);
+	// `title` empty = no header. `collapsed` null = cannot be minimized.
+	HudDock(std::string title, bool* collapsed, std::function<void()> onCollapseChanged);
 
-	SpellbookPanel* Spellbook() { return m_spellbook; }
+	// The content widget, added by the owner after construction so its bounds
+	// resolve against this dock.
+	template <typename T, typename... Args> T* SetContent(Args&&... args) {
+		T* w = Add<T>(std::forward<Args>(args)...);
+		m_content = w;
+		return w;
+	}
+
+	bool Collapsed() const { return m_collapsed && *m_collapsed; }
+	bool HasHeader() const { return m_title != nullptr; }
+	// The padding, header height and header-to-content gap, in pixels - asked by
+	// the column before it places anything. Padding follows the WIDTH (it is
+	// what the old single panel used, so the hand boxes keep their size).
+	static float Pad(float widthPx);
+	static float HeaderHeight(float emPx);
+	static float HeaderGap(float emPx);
+
+	gfx::Rect ContentRect() const override; // the padded interior
 
 private:
-	// The book's framed background (the spellbook draws its contents over it).
+	void LayoutSelf(ui::UIContext& ctx) override;
 	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 
-	SpellbookPanel* m_spellbook = nullptr;
-	gfx::Rect m_bookBounds{}; // fractions of this area, for the frame
+	ui::Label* m_title = nullptr;
+	ui::Button* m_toggle = nullptr;
+	ui::Widget* m_content = nullptr;
+	bool* m_collapsed = nullptr;
 };
 
 class ControlBar : public ui::Widget {
 public:
 	ControlBar(const gfx::Rect& rect, const ControlBarDeps& deps);
 
-	SpellbookPanel* Spellbook() { return m_magic->Spellbook(); }
-
-	// The padded interior every area resolves against.
-	gfx::Rect ContentRect() const override;
+	SpellbookPanel* Spellbook() { return m_spellbook; }
 
 private:
-	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
-	// The hand grid's height is DERIVED, not authored. The boxes are square
-	// and sized from the WIDTH, so how tall the grid must be depends on how
-	// wide the bar is — a fraction-of-height authored at build time cannot
-	// know that. (The old kSetH did exactly that, dividing a width-derived
-	// figure by the bar's height, which only ever came out right at one
-	// window aspect.) Magic takes whatever is left.
+	// Places the three docks, in PIXELS, then converts to fractions. The hand
+	// grid's height is DERIVED from the width (square boxes); Magic takes what
+	// is left below it. Positions are always the EXPANDED ones (see the header).
 	void LayoutSelf(ui::UIContext& ctx) override;
 
-	ui::Widget* m_pad = nullptr;
-	ui::Widget* m_hands = nullptr;
-	MagicArea* m_magic = nullptr;
+	const std::vector<Character>* m_roster = nullptr;
+	HudDock* m_moveDock = nullptr;
+	HudDock* m_handsDock = nullptr;
+	HudDock* m_magicDock = nullptr;
+	SpellbookPanel* m_spellbook = nullptr;
 	size_t m_rows = 1;
 };
 

@@ -1704,8 +1704,8 @@ void GameUI::BuildHud() {
 			m_log->AddLine(loc::View("log.scroll_hint"));
 		});
 
-	// Right control panel: movement, hands, magic — one container that lays its
-	// own parts out (Game/ControlBar.h). Stops above the log footer.
+	// Right control column: movement, hands and magic as three docks, laid out
+	// by one container (Game/ControlBar.h). Stops above the log footer.
 	constexpr float kPanelW = 0.156f; // ~250/1600
 	constexpr float kPanelX = 1.0f - kPanelW - 0.01f;
 	constexpr float panelH = kBelowSpan; // the column's whole height
@@ -1721,7 +1721,16 @@ void GameUI::BuildHud() {
 	deps.onGuardChange = [this](size_t i, float share) {
 		if (onGuardChange) onGuardChange(i, share);
 	};
+	deps.moveLabel = loc::Tr("hud.movement");
 	deps.magicLabel = loc::Tr("hud.magic");
+	// The minimize buttons flip the settings in place; the flip is saved at
+	// once, like the editor's dock collapse.
+	deps.moveCollapsed = &m_settings.hudMoveCollapsed;
+	deps.magicCollapsed = &m_settings.hudMagicCollapsed;
+	deps.onCollapseChanged = [this] {
+		Click();
+		m_settings.Save();
+	};
 	auto* controlBar = m_belowBar->Add<ControlBar>(
 		gfx::Rect{kPanelX, 0.0f, kPanelW, panelH / kBelowSpan}, deps);
 

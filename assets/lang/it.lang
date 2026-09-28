@@ -151,6 +151,7 @@ hud.rest=Riposa
 hud.wake=Sveglia
 hud.help=Aiuto
 hud.magic=Magia
+hud.movement=Movimento
 hud.magic_none=Nessun incantesimo noto.
 hud.log_show=Registro
 torch.warm=Fiamma calda
