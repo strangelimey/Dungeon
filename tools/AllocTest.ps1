@@ -119,6 +119,31 @@ try {
 	Send-Key 0x0D
 	Wait-ForLog 'Game loaded: ' $LoadTimeoutSec 'the dungeon load' | Out-Null
 
+	# WAIT UNTIL THE CONSOLE ANSWERS before relying on it. "Game loaded" does not
+	# mean commands are live: Enter on the landing page is Continue whenever a
+	# loadable save exists (the eval suites leave them behind), a save naming
+	# another level stages a transition, and the console refuses commands while
+	# a load is in flight. This run used to type `alloctest` straight after the
+	# load and, on a machine with saves, time out every time with the command
+	# silently dropped - which read as "keystrokes never reach the window".
+	# tools\InGameTest.ps1 learned the same thing; this is the same answer: open
+	# the console once, retry a harmless command until the log echoes it, then
+	# shut it so everything below starts from a closed console as before.
+	Start-Sleep -Seconds 2
+	Send-Key 0xC0
+	Start-Sleep -Milliseconds 500
+	$ready = $false
+	for ($try = 1; $try -le 10 -and -not $ready; $try++) {
+		Send-Text 'logecho on'; Send-Key 0x0D
+		Start-Sleep -Seconds 2
+		$ready = [bool](Select-String -Path $log -Pattern 'console: > logecho on' -EA SilentlyContinue)
+	}
+	if (-not $ready) { throw 'the console never accepted a command' }
+	Send-Text 'logecho off'; Send-Key 0x0D
+	Start-Sleep -Milliseconds 300
+	Send-Key 0xC0 # closed again: each path below opens it for itself
+	Start-Sleep -Milliseconds 400
+
 	if ($Wounded) {
 		Write-Host 'wounding the party so the regeneration path actually runs'
 		Send-Key 0xC0
