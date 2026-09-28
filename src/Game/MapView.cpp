@@ -264,12 +264,42 @@ MapView::Transform MapView::ComputeTransform(const gfx::Rect& panel) const {
 	const DungeonMap& map = ViewedMap();
 	const float mw = static_cast<float>(map.Width());
 	const float mh = static_cast<float>(map.Height());
-	const float fit = std::min(g.w / mw, g.h / mh); // whole map fits at zoom 1
+	// Whole map fits at zoom 1 - inside the edge handles' margin in Editor mode,
+	// so every edge can be grabbed without zooming out first.
+	const float m = m_mode == Mode::Editor ? EdgeBand(panel) * 2.0f : 0.0f;
+	const float fit = std::min(std::max(1.0f, g.w - m) / mw, std::max(1.0f, g.h - m) / mh);
 	const float cell = fit * m_zoom;
 	const float gridW = mw * cell, gridH = mh * cell;
 	const float ox = g.x + (g.w - gridW) * 0.5f + m_pan.x * g.w;
 	const float oy = g.y + (g.h - gridH) * 0.5f + m_pan.y * g.h;
 	return {cell, ox, oy};
+}
+
+float MapView::EdgeBand(const gfx::Rect& panel) const {
+	const gfx::Rect g = GridArea(panel);
+	return std::max(8.0f, std::min(g.w, g.h) * 0.025f);
+}
+
+gfx::Rect MapView::MapRect(const gfx::Rect& panel) const {
+	const Transform t = ComputeTransform(panel);
+	const DungeonMap& map = ViewedMap();
+	return {t.ox, t.oy, static_cast<float>(map.Width()) * t.cell,
+			static_cast<float>(map.Height()) * t.cell};
+}
+
+int MapView::EdgeAt(float mx, float my, const gfx::Rect& panel) const {
+	if (m_mode != Mode::Editor || !GridArea(panel).Contains(mx, my)) return 0;
+	const Transform t = ComputeTransform(panel);
+	const DungeonMap& map = ViewedMap();
+	const float l = t.ox, r = t.ox + static_cast<float>(map.Width()) * t.cell;
+	const float top = t.oy, b = t.oy + static_cast<float>(map.Height()) * t.cell;
+	const float band = EdgeBand(panel);
+	const bool alongX = mx >= l && mx <= r, alongZ = my >= top && my <= b;
+	if (alongZ && mx < l && mx >= l - band) return 1;
+	if (alongZ && mx > r && mx <= r + band) return 2;
+	if (alongX && my < top && my >= top - band) return 3;
+	if (alongX && my > b && my <= b + band) return 4;
+	return 0;
 }
 
 gfx::Rect MapView::GridArea(const gfx::Rect& panel) const {
@@ -684,6 +714,47 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 	// level the brush routes to the level's stash (MapEditor reads ViewedLevel);
 	// the snapshot is rebuilt after a paint so the edit draws next frame (pure
 	// in-memory copies — no file IO).
+	// RESIZE (play-test #3): a left press on an EDGE HANDLE (the margin outside
+	// the map, EdgeAt) drags that edge; the release applies it as one undo step,
+	// in whole cells. Handled before the move and the brush, and it can never
+	// collide with either: both need a cell under the pointer, and a handle is
+	// outside every cell.
+	if (editor && m_editor) {
+		if (m_edgeDrag == 0)
+			m_edgeHover = m_editor->Moving() ? 0 : EdgeAt(mx, my, panel);
+		if (m_edgeDrag == 0 && m_edgeHover != 0 && input.WasMousePressed(MouseButton::Left)) {
+			m_edgeDrag = m_edgeHover;
+			m_edgeStart = m_edgeDrag <= 2 ? mx : my;
+			m_edgeDelta = 0;
+			return true;
+		}
+		if (m_edgeDrag != 0) {
+			const Transform t = ComputeTransform(panel);
+			const float moved = (m_edgeDrag <= 2 ? mx : my) - m_edgeStart;
+			m_edgeDelta = static_cast<int>(std::lround(moved / std::max(1.0f, t.cell)));
+			if (input.WasMouseReleased(MouseButton::Left)) {
+				const int edge = m_edgeDrag, d = m_edgeDelta;
+				m_edgeDrag = 0;
+				m_edgeDelta = 0;
+				if (d != 0) {
+					const DungeonMap& vm = ViewedMap();
+					int x0 = 0, z0 = 0, x1 = vm.Width(), z1 = vm.Height();
+					switch (edge) {
+					case 1: x0 = d; break;  // left: dragged left (d < 0) grows
+					case 2: x1 += d; break; // right: dragged right grows
+					case 3: z0 = d; break;
+					default: z1 += d; break;
+					}
+					const std::string stem = ViewedLevel(); // a copy: the browse resets
+					m_world->BeginUndoStep();
+					m_world->CommitUndoStep(m_world->ResizeLevel(stem, x0, z0, x1, z1));
+					if (m_browse) m_browse = m_world->BrowseLevel(stem);
+				}
+			}
+			return true;
+		}
+	}
+
 	// DRAG-AND-DROP (play-test #2): with NO brush armed, a plain left press picks
 	// up the top thing on the square and the release drops it on the square
 	// under the pointer (off the grid = let go, nothing moves). An armed brush
@@ -979,6 +1050,44 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			const gfx::Rect to = cellRect(m_hoverX, m_hoverZ);
 			batch.DrawRect(to, {kGhostOk.x, kGhostOk.y, kGhostOk.z, kGhostOk.w * 0.45f});
 			ui::DrawBorder(batch, to, kGhostOk);
+		}
+	}
+
+	// 2e) The EDGE HANDLES (play-test #3). The edge under the pointer (or being
+	// dragged) gets a bar in the margin beside it; a drag in progress outlines
+	// the level it would become, with its size, so the release is never a guess.
+	if (m_mode == Mode::Editor) {
+		const float mw = static_cast<float>(map.Width()), mh = static_cast<float>(map.Height());
+		const gfx::Rect mr{t.ox, t.oy, mw * t.cell, mh * t.cell};
+		const float band = EdgeBand(panel);
+		const float bar = std::max(3.0f, band * 0.45f);
+		if (const int e = m_edgeDrag ? m_edgeDrag : m_edgeHover) {
+			gfx::Rect r;
+			switch (e) {
+			case 1: r = {mr.x - band * 0.5f - bar * 0.5f, mr.y, bar, mr.h}; break;
+			case 2: r = {mr.x + mr.w + band * 0.5f - bar * 0.5f, mr.y, bar, mr.h}; break;
+			case 3: r = {mr.x, mr.y - band * 0.5f - bar * 0.5f, mr.w, bar}; break;
+			default: r = {mr.x, mr.y + mr.h + band * 0.5f - bar * 0.5f, mr.w, bar}; break;
+			}
+			batch.DrawRect(r, theme.accent);
+		}
+		if (m_edgeDrag != 0 && m_edgeDelta != 0) {
+			const float d = static_cast<float>(m_edgeDelta) * t.cell;
+			gfx::Rect nr = mr;
+			int w = map.Width(), h = map.Height();
+			switch (m_edgeDrag) {
+			case 1: nr.x += d; nr.w -= d; w -= m_edgeDelta; break;
+			case 2: nr.w += d; w += m_edgeDelta; break;
+			case 3: nr.y += d; nr.h -= d; h -= m_edgeDelta; break;
+			default: nr.h += d; h += m_edgeDelta; break;
+			}
+			ui::DrawBorder(batch, nr, kGhostOk);
+			const std::string size = std::format("{} x {}", w, h);
+			const float tw = m_font->MeasureWidth(size);
+			const gfx::Rect lr{nr.x + (nr.w - tw) * 0.5f - 4.0f, nr.y + 4.0f, tw + 8.0f,
+							   m_font->Height() + 4.0f};
+			batch.DrawRect(lr, kMapBg);
+			m_font->Draw(batch, size, lr.x + 4.0f, lr.y + 2.0f, theme.text);
 		}
 	}
 

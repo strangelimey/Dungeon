@@ -5,6 +5,7 @@
 #include "Core/Log.h"
 
 #include <algorithm>
+#include <cstdlib> // atoi - the squares in leashfrom= / patrol=
 #include <format>
 
 namespace dungeon::game {
@@ -81,6 +82,43 @@ std::span<const Entity> DungeonEntities::At(int x, int z) const {
 			return e.z * m_width + e.x;
 		});
 	return {first, last};
+}
+
+void DungeonEntities::Reframe(int dx, int dz, int newWidth) {
+	// "x,z" -> shifted, or the text unchanged when it is not a pair of numbers
+	// (the loader decides what a malformed value means; this only moves squares).
+	auto shiftCell = [&](std::string_view cell) -> std::string {
+		const size_t comma = cell.find(',');
+		if (comma == std::string_view::npos) return std::string(cell);
+		const int x = std::atoi(std::string(cell.substr(0, comma)).c_str());
+		const int z = std::atoi(std::string(cell.substr(comma + 1)).c_str());
+		return std::format("{},{}", x + dx, z + dz);
+	};
+	for (Entity& e : m_entities) {
+		e.x += dx;
+		e.z += dz;
+		// The only params that name a square (DungeonWorld_Load's monster parse):
+		// leashfrom=x,z and patrol=x,z;x,z;...
+		for (auto& [key, value] : e.params) {
+			if (key == "leashfrom") {
+				value = shiftCell(value);
+			} else if (key == "patrol") {
+				std::string out;
+				size_t start = 0;
+				while (start <= value.size()) {
+					const size_t end = std::min(value.find(';', start), value.size());
+					if (!out.empty()) out += ';';
+					out += shiftCell(std::string_view(value).substr(start, end - start));
+					start = end + 1;
+				}
+				value = std::move(out);
+			}
+		}
+	}
+	m_width = newWidth;
+	std::ranges::stable_sort(m_entities, {}, [this](const Entity& e) {
+		return e.z * m_width + e.x;
+	});
 }
 
 int DungeonEntities::Add(Entity record) {

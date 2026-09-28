@@ -30,6 +30,7 @@ add_library(Game STATIC
 	DungeonWorld_Load.cpp
 	DungeonWorld_Models.cpp
 	DungeonWorld_Move.cpp
+	DungeonWorld_Resize.cpp
 	DungeonWorld_Render.cpp
 	DungeonWorld_Save.cpp
 	DungeonWorld_Validate.cpp

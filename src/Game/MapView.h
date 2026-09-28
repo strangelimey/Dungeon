@@ -258,6 +258,22 @@ private:
 	// override layered on top.
 	bool CellVisible(int x, int z) const;
 
+	// THE EDGE HANDLES (play-test #3: "drag the map's edges"). In Editor mode the
+	// map is fitted with a margin of EdgeBand() all round, and that margin is
+	// where the handles are - OUTSIDE every cell, so grabbing an edge can never be
+	// mistaken for painting or moving the square beside it. EdgeAt names the edge
+	// under the pointer: 0 none, 1 left, 2 right, 3 top, 4 bottom.
+	float EdgeBand(const gfx::Rect& panel) const;
+	int EdgeAt(float mx, float my, const gfx::Rect& panel) const;
+
+public:
+	// The drawn map's own rectangle (all of its cells) in `panel`'s pixel space,
+	// and the handle band around it - for the harness (`editor view`), which has
+	// to aim at an edge the way a hand does.
+	gfx::Rect MapRect(const gfx::Rect& panel) const;
+	float HandleBand(const gfx::Rect& panel) const { return EdgeBand(panel); }
+
+private:
 	// The grid-drawing area within the panel: the whole panel in Player mode,
 	// the panel minus BOTH docks in Editor mode. The transform and CellAt work
 	// in this rect so the map never draws under a dock.
@@ -323,6 +339,13 @@ private:
 					   *m_icoNew = nullptr, *m_icoPlay = nullptr,
 					   *m_icoPause = nullptr;
 	bool m_editorPaused = false; // pause/play toolbar toggle (see EditorPaused)
+	// The edge drag (EdgeAt): the edge under the pointer, the one being dragged,
+	// where the drag started (along its axis), and how many cells it has moved -
+	// negative is left/up, so dragging the left edge left grows the level.
+	int m_edgeHover = 0;
+	int m_edgeDrag = 0;
+	float m_edgeStart = 0.0f;
+	int m_edgeDelta = 0;
 	// The message line (ShowStatus): the text, its length, and when it arrived.
 	static constexpr float kStatusSeconds = 5.0f; // shown this long, the last 1 s fading
 	std::array<char, 256> m_status{};

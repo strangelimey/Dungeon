@@ -19,6 +19,7 @@
 #include "Core/Loc.h"
 
 #include <algorithm>
+#include <functional>
 
 using namespace DirectX;
 
@@ -419,6 +420,16 @@ bool DungeonWorld::MoveStair(const MoveTarget& t, int tx, int tz) {
 // an explicit square follows: a doorway or opening that says "the level's own
 // start" (-1) never named this one.
 void DungeonWorld::MoveArrivals(int fx, int fz, int tx, int tz) {
+	RemapArrivals(m_currentLevel, [&](int& x, int& z) {
+		if (x != fx || z != fz) return false;
+		x = tx;
+		z = tz;
+		return true;
+	});
+}
+
+void DungeonWorld::RemapArrivals(const std::string& stem,
+								 const std::function<bool(int&, int&)>& remap) {
 	auto say = [&](std::string_view line) {
 		if (onMessage) onMessage(line);
 	};
@@ -426,32 +437,28 @@ void DungeonWorld::MoveArrivals(int fx, int fz, int tx, int tz) {
 		WorldMap& world = **m_worldForUndo;
 		std::vector<std::string> follow;
 		for (const WorldMap::Location& l : world.Locations()) {
-			if (l.entryX != fx || l.entryZ != fz) continue;
+			if (l.entryX < 0 || l.entryZ < 0) continue; // lands on the level's start
 			// Which level the doorway opens onto, resolved as entering it does
 			// (Game::ArrivalsOn): its `level` when that belongs to its dungeon,
 			// else the dungeon's first.
 			const std::vector<std::string> levels = m_project.DungeonLevels(l.Dungeon());
 			if (levels.empty()) continue;
 			const bool named = std::find(levels.begin(), levels.end(), l.level) != levels.end();
-			if ((named ? l.level : levels.front()) == m_currentLevel) follow.push_back(l.id);
+			if ((named ? l.level : levels.front()) == stem) follow.push_back(l.id);
 		}
 		for (const std::string& id : follow)
-			if (WorldMap::Location* l = world.MutableLocation(id)) {
-				l->entryX = tx;
-				l->entryZ = tz;
-				say(loc::Format("map.move.arrival", id, tx, tz));
-			}
+			if (WorldMap::Location* l = world.MutableLocation(id);
+				l && remap(l->entryX, l->entryZ))
+				say(loc::Format("map.move.arrival", id, l->entryX, l->entryZ));
 	}
-	if (m_openLevel && m_openX && m_openZ && *m_openX == fx && *m_openZ == fz) {
+	if (m_openLevel && m_openX && m_openZ && *m_openX >= 0 && *m_openZ >= 0) {
 		const std::string level =
 			m_openLevel->empty()
 				? (m_project.levels.empty() ? std::string("level1") : m_project.levels.front())
 				: *m_openLevel;
-		if (level == m_currentLevel) {
-			*m_openX = tx;
-			*m_openZ = tz;
+		if (level == stem && remap(*m_openX, *m_openZ)) {
 			m_openingMoved = true;
-			say(loc::Format("map.move.opening", tx, tz));
+			say(loc::Format("map.move.opening", *m_openX, *m_openZ));
 		}
 	}
 }

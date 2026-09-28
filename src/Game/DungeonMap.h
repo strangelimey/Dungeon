@@ -365,6 +365,14 @@ public:
 	// grid, so the authored start would be inside rock); the loader owns it
 	// otherwise, and an editor placement re-paints the glyph instead.
 	void SetStart(int x, int z) { m_startX = x; m_startZ = z; }
+	// A level RESIZE (the editor's edge drag, DungeonWorld::ResizeLevel): the new
+	// grid is the w x h window whose top-left is (x0,z0) in the OLD coordinates -
+	// negative grows the level left/up, positive trims it. New squares are rock.
+	// Every per-cell grid is remapped and every record list shifted by (-x0,-z0);
+	// records left outside are dropped, which the caller prevents by refusing a
+	// shrink over anything (it checks first). A stair's DEST is left alone: it
+	// names a square on another level, which only the caller can know is a pair.
+	void Reframe(int x0, int z0, int w, int h);
 	const std::vector<WallSconce>& Sconces() const { return m_torches; }
 	const std::vector<FloorBrazier>& Braziers() const { return m_braziers; }
 
@@ -509,6 +517,9 @@ public:
 	// Repoints the stair at (x,z) at `dest` - an EXIT's world-map location (the
 	// stair inspector's "Leads out to"). False if there is none.
 	bool SetStairDest(int x, int z, const std::string& dest);
+	// Repoints the stair at (x,z) at another SQUARE of its destination level (a
+	// resize renumbered that level's squares). False if there is none.
+	bool SetStairDestCell(int x, int z, int destX, int destZ);
 	// Repoints every stair whose dest names `oldStem` (a level rename — the
 	// dest strings are the cross-level references that would go stale).
 	// Stairs whose TYPE is in `skipTypes` are left alone: an EXIT's dest names

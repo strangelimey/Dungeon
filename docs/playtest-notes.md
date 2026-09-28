@@ -99,6 +99,22 @@ confirm, not a decision.
    - DECIDED (Michael, 2026-09-28): DRAG THE MAP'S EDGES in the editor. A shrink
      that would cut off content is REFUSED, and the message line lists what is
      in the way - nothing is ever silently deleted.
+   - DONE (Game/DungeonWorld_Resize.cpp + MapView edge handles): in Editor mode
+     the map is fitted inside a margin, and that margin holds the four edge
+     handles (outside every cell, so never confused with painting or moving).
+     Hover shows an accent bar; a drag outlines the new extent with its size;
+     the release resizes in whole cells as one undo step. New squares are rock.
+     A trim over floor (so anything standing on it) or a bored window is refused
+     with the count. Dragging the left/top edge renumbers every square, so the
+     paired stair half on the other floor moves too (refused if it cannot land),
+     other stairs pointing in are renumbered, the doorways and the opening
+     follow, and the party and the fog shift with it (the undo step records the
+     party square). Works on a browsed level too. Only the levels that actually
+     change are stashed, so a Save does not rewrite every level. Harness:
+     `editor resize x0 z0 x1 z1`, `editor view`. Checked by eval (grow/trim
+     right, trim into floor refused, a shift crypt2 cannot follow refused, grow
+     left: everything +2, validate clean, undo/redo, crypt2's pair at 3,1) and a
+     real mouse drag with screenshots.
 
 4. **Character sheet: movement keys should page members.** "When on a character
    sheet, hitting the movement keys ('a' and 'd' in this configuration) should

@@ -181,6 +181,34 @@ void Game::RegisterDevCommands() {
 																	: "editor: no brush armed");
 							   return;
 						   }
+						   // The edge drag: the new window in the viewed level's
+						   // current squares (x1/z1 exclusive), as one undo step.
+						   if (!args.empty() && args[0] == "view") {
+							   const gfx::Rect panel =
+								   MapPanel(static_cast<float>(m_window.Width()),
+											static_cast<float>(m_window.Height()));
+							   const gfx::Rect r = m_mapView.MapRect(panel);
+							   const DungeonMap& vm = m_mapView.ViewedMap();
+							   m_console.Print(std::format(
+								   "editor view: {} {}x{} map {:.0f},{:.0f} {:.0f}x{:.0f} band {:.0f}",
+								   m_mapView.ViewedLevel(), vm.Width(), vm.Height(), r.x, r.y,
+								   r.w, r.h, m_mapView.HandleBand(panel)));
+							   return;
+						   }
+						   if (!args.empty() && args[0] == "resize") {
+							   if (!Need(m_console, args, 5,
+										 "usage: editor resize <x0> <z0> <x1> <z1>"))
+								   return;
+							   const std::string stem = m_mapView.ViewedLevel();
+							   m_world->BeginUndoStep();
+							   const bool ok = m_world->ResizeLevel(
+								   stem, std::atoi(args[1].c_str()), std::atoi(args[2].c_str()),
+								   std::atoi(args[3].c_str()), std::atoi(args[4].c_str()));
+							   m_world->CommitUndoStep(ok);
+							   m_console.Print(std::format("editor resize: {} {}", stem,
+														   ok ? "done" : "refused"));
+							   return;
+						   }
 						   if (!args.empty() && args[0] == "move") {
 							   if (!Need(m_console, args, 5,
 										 "usage: editor move <x> <z> <to x> <to z>"))

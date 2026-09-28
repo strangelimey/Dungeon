@@ -69,6 +69,12 @@ public:
 	int SweepTypeRefs(EntityKind kind, std::string_view id,
 					  const std::string* newId);
 
+	// A level resize (DungeonWorld::ResizeLevel): every record moves by (dx,dz)
+	// - its cell AND the squares its params name (a monster's leashfrom= and
+	// patrol=) - and the by-cell order is rebuilt for the new map width. The
+	// caller has already refused any resize that would leave a record outside.
+	void Reframe(int dx, int dz, int newWidth);
+
 private:
 	DungeonEntities() = default; // FromText builds one and fills it in
 	void Parse(const std::vector<u8>& bytes, const DungeonMap& map,

@@ -1252,6 +1252,20 @@ public:
 	// then writes project.ini on the next save, which is where it lives.
 	bool ConsumeOpeningMoved() { return std::exchange(m_openingMoved, false); }
 
+	// --- resizing a level (the editor's edge drag; DungeonWorld_Resize.cpp) ---
+	// Play-test #3 (Michael, 2026-09-28): drag the map's EDGES. The new level is
+	// the window [x0,x1) x [z0,z1) in the level's CURRENT coordinates: past the
+	// old edges grows (new squares are rock), inside trims. A trim that would cut
+	// off floor - and so anything standing on it - or a window bored through the
+	// rock is REFUSED, and the message line says what is in the way ("nothing is
+	// ever silently deleted"). Moving the left or top edge renumbers every
+	// square, so everything that names one follows: the paired half of each
+	// stair on the neighbouring floor (refused if it cannot), every other stair
+	// pointing in, the doorways that land here, the opening, and the party.
+	// Works on a browsed level too (it replaces the stash). The caller brackets
+	// it as one undo step.
+	bool ResizeLevel(const std::string& stem, int x0, int z0, int x1, int z1);
+
 	// --- remote level editing (the map overlay edits ANY level) --------------
 	// Counterparts of the live editing seam for a NON-ACTIVE level `stem`:
 	// they operate on the level's in-memory stashes (see m_levelMaps /
@@ -3150,6 +3164,12 @@ private:
 	// MoveObject's stair half, and the ways in that follow a moved stair.
 	bool MoveStair(const MoveTarget& t, int tx, int tz);
 	void MoveArrivals(int fx, int fz, int tx, int tz);
+	// Every way IN that lands on an explicit square of `stem` - a world-map
+	// doorway, the project's opening - handed to `remap`, which moves it and
+	// returns true when it did. Shared by a stair move and a level resize.
+	void RemapArrivals(const std::string& stem, const std::function<bool(int&, int&)>& remap);
+	// The active level's .ent text (live monsters + records); see SaveLevel.
+	std::string ActiveEntText() const;
 	std::mt19937 m_combatRng{0xC0FFEEu};
 	bool m_partyWiped = false; // latches onPartyWipe so it fires once
 	// The attack formula's tuning (docs/combat.md): balance.cat knobs +
@@ -3349,6 +3369,11 @@ private:
 		// The project's opening square (SetOpeningForUndo), which a stair move
 		// can carry along. -2 = not captured (no opening borrowed).
 		int openX = -2, openZ = -2;
+		// Where the PARTY stood, set only by a step that renumbers the squares (a
+		// level resize): undoing one must put the party back where it was, since
+		// its old coordinates name a different square now. -1 = not recorded, and
+		// then a restore leaves the party alone, as it always has.
+		int partyX = -1, partyZ = -1;
 	};
 	EditorSnapshot CaptureEditorState() const;
 	// Restores a snapshot in place: static + records move-assigned, stashes

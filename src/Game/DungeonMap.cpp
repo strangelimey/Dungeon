@@ -1010,11 +1010,69 @@ bool DungeonMap::SetStairFacing(int x, int z, Direction facing) {
 	return false;
 }
 
+void DungeonMap::Reframe(int x0, int z0, int w, int h) {
+	const int ow = m_width, oh = m_height;
+	// Every PER-CELL grid, remapped into the new window. The list is the member
+	// list in the header (m_cells .. m_ceilingVar); a grid added there later has
+	// to be added here too, or it keeps the old size and indexes out of range.
+	auto remap = [&](auto& grid, auto fill) {
+		std::remove_reference_t<decltype(grid)> out(static_cast<size_t>(w) * h, fill);
+		for (int z = 0; z < h; ++z)
+			for (int x = 0; x < w; ++x) {
+				const int sx = x + x0, sz = z + z0;
+				if (sx >= 0 && sz >= 0 && sx < ow && sz < oh)
+					out[static_cast<size_t>(z) * w + x] =
+						grid[static_cast<size_t>(sz) * ow + sx];
+			}
+		grid = std::move(out);
+	};
+	remap(m_cells, Cell::Wall); // new squares are rock
+	remap(m_turbidity, 0.0f);
+	remap(m_dusty, static_cast<u8>(0));
+	remap(m_wallVar, -1);
+	remap(m_floorVar, -1);
+	remap(m_ceilingVar, -1);
+	m_width = w;
+	m_height = h;
+
+	// Every RECORD list, shifted - and likewise the whole list of them.
+	auto shift = [&](auto& list) {
+		for (auto& r : list) {
+			r.x -= x0;
+			r.z -= z0;
+		}
+		std::erase_if(list, [&](const auto& r) {
+			return r.x < 0 || r.z < 0 || r.x >= w || r.z >= h;
+		});
+	};
+	shift(m_torches);
+	shift(m_braziers);
+	shift(m_niches);
+	shift(m_bores);
+	shift(m_features);
+	shift(m_decorations);
+	shift(m_stairs);
+	m_startX -= x0;
+	m_startZ -= z0;
+	RebuildTurbidity(); // fire smoke rides the moved fixtures; bumps Revision()
+	++m_revision;
+}
+
 Direction DungeonMap::OpenFacing(int x, int z) const {
 	for (const Direction d :
 		 {Direction::North, Direction::East, Direction::South, Direction::West})
 		if (IsWalkable(x + DirDX(d), z + DirDZ(d))) return d;
 	return Direction::North;
+}
+
+bool DungeonMap::SetStairDestCell(int x, int z, int destX, int destZ) {
+	for (StairLink& s : m_stairs)
+		if (s.x == x && s.z == z) {
+			s.destX = destX;
+			s.destZ = destZ;
+			return true;
+		}
+	return false;
 }
 
 bool DungeonMap::SetStairDest(int x, int z, const std::string& dest) {

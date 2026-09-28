@@ -2003,8 +2003,28 @@ bool DungeonWorld::SaveLevel() const {
 		deco += '\n';
 	}
 	std::string m = SerializeMapStatic(m_currentLevel, m_map, deco);
+	std::string e = ActiveEntText();
 
-	// --- dynamic layer (.ent) -----------------------------------------------
+	// Both serializers build with '\n'; the line ending is decided once, here at
+	// the boundary (serialize::NormalizeEol), so no append site has to know it.
+	const std::string mOut = serialize::NormalizeEol(m), eOut = serialize::NormalizeEol(e);
+	const bool okMap = assets::WriteBinaryFile(m_project.LevelMapPath(m_currentLevel),
+											   mOut.data(), mOut.size());
+	const bool okEnt = assets::WriteBinaryFile(m_project.LevelEntPath(m_currentLevel),
+											   eOut.data(), eOut.size());
+	if (okMap && okEnt)
+		log::Info("Saved level {}: {} decorations, {} monsters", m_currentLevel,
+				  m_decorations.size(), m_monsters.size());
+	else
+		log::Warn("Failed to write level {} files", m_currentLevel);
+	return okMap && okEnt;
+}
+
+// The active level's dynamic layer as .ent text: the monsters from the LIVE list
+// (an editor-placed one has no record, and patrols/overrides are edited live),
+// then the record-backed items, buttons and doors. SaveLevel writes it; a level
+// resize re-parses it, which is how it gets every monster as it stands.
+std::string DungeonWorld::ActiveEntText() const {
 	std::string e =
 		std::format("; {} — written by the in-game editor (dynamic layer).\n\n", m_currentLevel);
 	for (const Monster& mon : m_monsters) {
@@ -2038,20 +2058,7 @@ bool DungeonWorld::SaveLevel() const {
 			continue;
 		e += SerializeRecord(KindName(ent.kind), ent);
 	}
-
-	// Both serializers build with '\n'; the line ending is decided once, here at
-	// the boundary (serialize::NormalizeEol), so no append site has to know it.
-	const std::string mOut = serialize::NormalizeEol(m), eOut = serialize::NormalizeEol(e);
-	const bool okMap = assets::WriteBinaryFile(m_project.LevelMapPath(m_currentLevel),
-											   mOut.data(), mOut.size());
-	const bool okEnt = assets::WriteBinaryFile(m_project.LevelEntPath(m_currentLevel),
-											   eOut.data(), eOut.size());
-	if (okMap && okEnt)
-		log::Info("Saved level {}: {} decorations, {} monsters", m_currentLevel,
-				  m_decorations.size(), m_monsters.size());
-	else
-		log::Warn("Failed to write level {} files", m_currentLevel);
-	return okMap && okEnt;
+	return e;
 }
 
 bool DungeonWorld::WriteStashedLevel(const std::string& stem) const {
@@ -2177,7 +2184,13 @@ void DungeonWorld::RestoreEditorState(EditorSnapshot snap) {
 	// Same reason as the fog mask: the party is standing where the level it just
 	// left put them, which the restored one may not have made floor at all. Only
 	// moved when that is actually true, so an ordinary undo never teleports you.
-	if (!m_map.IsWalkable(m_party.GridX(), m_party.GridZ())) {
+	// A step that renumbered the squares (a resize) recorded where the party
+	// stood; anything else leaves it where it is.
+	if (snap.partyX >= 0 && snap.stem == m_currentLevel &&
+		m_map.IsWalkable(snap.partyX, snap.partyZ)) {
+		m_party.SetGridPosition(snap.partyX, snap.partyZ);
+		MarkSeen(snap.partyX, snap.partyZ);
+	} else if (!m_map.IsWalkable(m_party.GridX(), m_party.GridZ())) {
 		m_party.SetGridPosition(m_map.StartX(), m_map.StartZ());
 		MarkSeen(m_map.StartX(), m_map.StartZ());
 	}
@@ -2254,9 +2267,14 @@ void DungeonWorld::Undo() {
 		if (onMessage) onMessage(loc::View("map.undo.none"));
 		return;
 	}
-	m_redoStack.push_back(CaptureEditorState());
+	EditorSnapshot redo = CaptureEditorState();
 	EditorSnapshot snap = std::move(m_undoStack.back());
 	m_undoStack.pop_back();
+	if (snap.partyX >= 0) { // a resize: the way back has to know where it stood too
+		redo.partyX = m_party.GridX();
+		redo.partyZ = m_party.GridZ();
+	}
+	m_redoStack.push_back(std::move(redo));
 	RestoreEditorState(std::move(snap));
 	if (onMessage) onMessage(loc::View("map.undo.done"));
 }
@@ -2266,9 +2284,14 @@ void DungeonWorld::Redo() {
 		if (onMessage) onMessage(loc::View("map.redo.none"));
 		return;
 	}
-	m_undoStack.push_back(CaptureEditorState());
+	EditorSnapshot undo = CaptureEditorState();
 	EditorSnapshot snap = std::move(m_redoStack.back());
 	m_redoStack.pop_back();
+	if (snap.partyX >= 0) {
+		undo.partyX = m_party.GridX();
+		undo.partyZ = m_party.GridZ();
+	}
+	m_undoStack.push_back(std::move(undo));
 	RestoreEditorState(std::move(snap));
 	if (onMessage) onMessage(loc::View("map.redo.done"));
 }
