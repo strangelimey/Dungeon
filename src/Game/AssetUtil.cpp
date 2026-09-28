@@ -39,8 +39,16 @@ assets::SoundData LoadSound(const std::string& name) {
 
 std::unique_ptr<gfx::Texture> TryLoadTextureFile(gfx::GraphicsDevice& device,
 												 const std::string& stemPath, bool srgb) {
-	if (auto mips = assets::LoadDdsFile(stemPath + ".dds"))
-		return std::make_unique<gfx::Texture>(device, *mips, srgb);
+	const std::string dds = stemPath + ".dds";
+	auto mips = assets::LoadDdsFile(dds);
+	if (mips) return std::make_unique<gfx::Texture>(device, *mips, srgb);
+	// A MISSING .dds is ordinary (UI art ships as PNG only; a fresh checkout has
+	// not run the mip bake), so that falls back quietly. A .dds that EXISTS but
+	// was rejected is not: the PNG path still draws, so nothing looks wrong, and
+	// a reader bug hid that way for three and a half months while every texture
+	// was decoded from PNG, uncompressed, with its mips built at runtime.
+	if (std::filesystem::exists(dds))
+		log::Warn("{} - loading the PNG instead", mips.error());
 	if (auto image = assets::LoadImageFile(stemPath + ".png"))
 		return std::make_unique<gfx::Texture>(device, *image, srgb);
 	return nullptr;

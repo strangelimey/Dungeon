@@ -35,13 +35,19 @@ std::expected<MipChain, std::string> LoadDdsFile(const std::string& path) {
 		return std::unexpected(std::format("not a DDS file: {}", path));
 
 	// Header layout offsets (bytes from file start, after the 4-byte magic).
+	// DDS_PIXELFORMAT starts at header offset 72: dwSize 72, dwFlags 76,
+	// dwFourCC 80, dwRGBBitCount 84, dwRBitMask 88. These were once read 4 bytes
+	// late (flags from the FourCC, the FourCC from the bit count), which rejected
+	// EVERY baked file - 2026-06-11 to 2026-09-28 the game loaded no .dds at all
+	// and silently decoded the PNG beside it instead, so the BC7 pipeline had no
+	// effect in-game. TryLoadTextureFile now says so when a .dds is rejected.
 	const u32 height = ReadU32(*bytes, 4 + 8);
 	const u32 width = ReadU32(*bytes, 4 + 12);
 	const u32 mipCount = std::max(1u, ReadU32(*bytes, 4 + 24));
-	const u32 pfFlags = ReadU32(*bytes, 4 + 80);
-	const u32 pfFourCc = ReadU32(*bytes, 4 + 84);
-	const u32 pfBitCount = ReadU32(*bytes, 4 + 88);
-	const u32 pfRMask = ReadU32(*bytes, 4 + 92);
+	const u32 pfFlags = ReadU32(*bytes, 4 + 76);
+	const u32 pfFourCc = ReadU32(*bytes, 4 + 80);
+	const u32 pfBitCount = ReadU32(*bytes, 4 + 84);
+	const u32 pfRMask = ReadU32(*bytes, 4 + 88);
 	if (width == 0 || height == 0)
 		return std::unexpected(std::format("empty DDS: {}", path));
 

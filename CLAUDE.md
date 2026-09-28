@@ -668,6 +668,13 @@ buffer, reused across all ~25 submissions).
   headpiece per class) and their mip chains. Names must match the roster
   in src/Game/Character.cpp.
 - Textures: PNG = source, .dds = derived BC7 mip chains (gitignored).
+  The game loads the .dds and falls back to the PNG. TRAP, and why a rejected
+  .dds now WARNS (TryLoadTextureFile): from 2026-06-11 to 2026-09-28 the DDS
+  reader read the pixel-format fields 4 bytes late and rejected EVERY baked
+  file, and the silent PNG fallback made the game look fine - so the BC7
+  pipeline never reached the screen (uncompressed RGBA8 in VRAM, mips built on
+  the CPU, ~80 ms per surface set). Fixing it took the release game load from
+  2.2 s to 0.5 s. A fallback that hides its own firing is how this survived.
   Scanned sets are NOT in git: raw downloads live in
   OneDrive\DungeonAssets\<1k|2k|4k>\<category>\<material>\ — the res folder
   is the material's NATIVE resolution, categories mirror the FreePBR pack
@@ -1545,8 +1552,10 @@ Full per-phase history + gotchas live in the editor-overhaul memory.
   NO third step: the game reads `<worktree>\assets` directly, so nothing is
   mirrored into `build\<cfg>\bin` and a worktree costs one copy, not one per
   config:
-  - `assets\textures` — whole dir, BOTH `.dds` (BC7) and source `.png` (dds-only
-    still renders magenta; ~273 dds + ~261 png).
+  - `assets\textures` — whole dir, BOTH `.dds` (BC7) and source `.png`. The
+    `.dds` is what renders; the `.png` is the source a missing or rejected
+    `.dds` falls back to (the old "dds-only renders magenta" note was a symptom
+    of the reader bug below, not a rule).
   - `assets\models` gitignored files — the imported authored meshes (`.glb`) AND
     the bought rigged monsters gitignored BY NAME despite the `.gltf` extension
     (embedded-texture GLBs inside), each often with an `.anim.cat` sidecar.
