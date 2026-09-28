@@ -45,8 +45,8 @@ void DevConsole::CommitPerfSeries() {
 	}
 }
 
-// Header, then seven gauges (or seven graphs in four two-column rows), then the
-// one plain text row. A collapsed section is its header row and nothing else.
+// Header (titled with the GPU's name), then seven gauges (or seven graphs in
+// four two-column rows). A collapsed section is its header row and nothing else.
 // Every section can be reduced to one line, so the panel can be cut down to
 // just the thing being watched rather than scrolled past everything else.
 float DevConsole::PerfSectionHeight(const PanelCtx& p) const {
@@ -60,10 +60,11 @@ float DevConsole::PerfSectionHeight(const PanelCtx& p) const {
 		!m_perfExpanded ? 0.0f
 		: m_perfGraph   ? static_cast<float>(perfGraphRows) * (graphH + graphGapY) +
 							  static_cast<float>(perfHiddenCount) * line
-						: line * static_cast<float>(kPerfLines);
-	// The plain text row belongs to the body, not the header.
-	const float perfTail = m_perfExpanded ? line : 0.0f;
-	return line + perfBody + perfTail;
+						: p.rowAdvance * static_cast<float>(kPerfLines);
+	// Air between the header's buttons and the first row beneath them, the
+	// THREADS header's gap, so the two sections read alike.
+	const float headerGap = m_perfExpanded ? line * 0.4f : 0.0f;
+	return line + headerGap + perfBody;
 }
 
 // --- performance panel (top) ------------------------------------------------
@@ -92,12 +93,10 @@ void DevConsole::DrawPerfSection(const PanelCtx& p, float top) {
 		batch.DrawRect({gx, oy, gw * std::clamp(frac, 0.0f, 1.0f), gh}, fill);
 		ui::DrawBorder(batch, {gx, oy, gw, gh}, kBorder);
 	};
-	auto row = [&](const std::string& text) {
-		m_font->Draw(batch, text, labelX, y, kText);
-		y += line;
-	};
-
-	m_font->Draw(batch, "PERFORMANCE", labelX, y, kAccent);
+	// The section is titled with the GPU it is measuring - the one fact about
+	// the machine that changes how every number below it reads.
+	const std::string& title = device.AdapterName();
+	m_font->Draw(batch, title, labelX, y, kAccent);
 	m_perfExpandBtn = DrawExpander(p, y, m_perfExpanded);
 	m_perfViewBtn = {};
 	if (m_perfExpanded) {
@@ -110,13 +109,16 @@ void DevConsole::DrawPerfSection(const PanelCtx& p, float top) {
 		ui::DrawBorder(batch, m_perfViewBtn, kBorder);
 		m_font->Draw(batch, face, m_perfViewBtn.x, y, kAccent);
 	} else {
-		// Collapsed, the header still answers the headline question.
+		// Collapsed, the header still answers the headline question - after the
+		// title, which is a GPU name and so has no fixed length.
 		m_font->Draw(batch,
 					std::format("FPS {:.0f}   CPU {:.0f}%   GPU {:.0f}%", m.fps,
 								m.cpuPercent, m.gpuPercent >= 0.0f ? m.gpuPercent : 0.0f),
-					width * 0.25f, y, kDim);
+					std::max(width * 0.25f, labelX + m_font->MeasureWidth(title) + line * 2.0f),
+					y, kDim);
 	}
 	y += line;
+	if (m_perfExpanded) y += line * 0.4f; // the header gap PerfSectionHeight counts
 
 	// The seven gauges as ONE table, so the bar view and the graph view cannot
 	// disagree about what a measure is or what it is measured against. Each
@@ -210,7 +212,7 @@ void DevConsole::DrawPerfSection(const PanelCtx& p, float top) {
 						it.warn ? kWarn : (i == kGpu && m.gpuPercent < 0.0f) ? kDim : kText);
 			if (!(i == kGpu && m.gpuPercent < 0.0f))
 				gauge(barX, barW, y, it.value / it.scale, it.color);
-			y += line;
+			y += p.rowAdvance;
 		}
 	} else {
 		const float pgw = (width - pad * 6.0f) * 0.5f;
@@ -242,8 +244,6 @@ void DevConsole::DrawPerfSection(const PanelCtx& p, float top) {
 			y += line;
 		}
 	}
-
-	if (m_perfExpanded) row("GPU: " + device.AdapterName());
 }
 
 void DevConsole::PerfClick(float mx, float my) {
