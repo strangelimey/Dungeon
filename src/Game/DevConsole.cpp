@@ -3,7 +3,8 @@
 //
 // The frame of the console: commands, input, the scrollback, and the readout
 // panel's layout and scrolling. Each SECTION of that panel lives in its own
-// file (DevConsole_Perf / _Profile / _Health / _Threads.cpp, sharing
+// file (DevConsole_Perf / _Profile / _Health / _Threads.cpp, plus the
+// profile's _Snapshots.cpp, sharing
 // DevConsole_Panel.h); Render asks each for its height, fills the panel, then
 // has each draw itself in turn.
 // ============================================================================

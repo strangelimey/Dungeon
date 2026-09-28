@@ -12,10 +12,11 @@
 // the console seeds the generic ones (help/clear/echo) and the Game registers
 // the gameplay-aware ones (quit/fps/quality/lang/tp).
 //
-// One class, five files: DevConsole.cpp is the frame (commands, input, the
+// One class, six files: DevConsole.cpp is the frame (commands, input, the
 // scrollback, the panel's layout), and each section of the readout panel is
-// its own file - DevConsole_Perf / _Profile / _Health / _Threads.cpp - sharing
-// only what DevConsole_Panel.h declares.
+// its own file - DevConsole_Perf / _Profile / _Health / _Threads.cpp, with the
+// profile's snapshots in _Snapshots.cpp - sharing only what DevConsole_Panel.h
+// declares.
 // ============================================================================
 #pragma once
 
@@ -429,11 +430,16 @@ private:
 	int m_snapTarget = -1;
 	float m_snapLeft = 0.0f;
 
+	// All in DevConsole_Snapshots.cpp. SnapCommand is the `profile` command's
+	// snap / snaps / diff verbs, handed over whole so the command's snapshot
+	// half lives beside the code it drives.
+	void SnapCommand(const std::vector<std::string>& args);
 	int SnapSlot(std::string_view name) const; // existing slot, or -1
 	int SnapFreeSlot();                        // reuse by name, else a free one
 	// Walks the tree itself rather than borrowing the sampler's rows: the row
-	// type is a drawing detail private to the .cpp, and one extra tree walk for
-	// the few seconds a recording lasts is not worth leaking it into the header.
+	// type is a drawing detail private to the console's own files, and one extra
+	// tree walk for the few seconds a recording lasts is not worth leaking it into
+	// this header.
 	void SnapAccumulate(float dt);
 	void SnapFinish();
 	void SnapDiff(const Snapshot& a, const Snapshot& b);

@@ -19,6 +19,7 @@ add_library(Game STATIC
 	DevConsole_Health.cpp
 	DevConsole_Perf.cpp
 	DevConsole_Profile.cpp
+	DevConsole_Snapshots.cpp
 	DevConsole_Threads.cpp
 	DialogLayout.cpp
 	DoorInspector.cpp

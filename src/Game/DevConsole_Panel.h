@@ -1,18 +1,23 @@
 // ============================================================================
 // Game/DevConsole_Panel.h - what the developer console's SECTIONS share.
 //
-// The console is one class drawn by five files. DevConsole.cpp owns the frame:
+// The console is one class drawn by six files. DevConsole.cpp owns the frame:
 // commands, input, the scrollback, and the readout panel's layout and scroll.
 // Each section of that panel owns its own sampling, height, drawing and clicks
 // in its own file - DevConsole_Perf.cpp, _Profile.cpp, _Health.cpp and
-// _Threads.cpp. This header is the seam between them and is included by those
-// five files only: the palette, the one graph routine two sections draw with,
-// the per-frame layout every section is handed, and the profile tree's rows
-// (which the frame holds between measuring that section and drawing it).
+// _Threads.cpp - and the profile's snapshots are _Snapshots.cpp. This header is
+// the seam between them and is included by those six files only: the palette,
+// the one graph routine two sections draw with, the per-frame layout every
+// section is handed, and the profile tree - its rows (which the frame holds
+// between measuring that section and drawing it) and the frame budget read off
+// them, which the section and the snapshots both need.
 // ============================================================================
 #pragma once
 
+#include "Core/Profile.h"
 #include "Game/DevConsole.h"
+
+#include <cstring> // strcmp, matching zone landmarks by name
 
 namespace dungeon::game {
 
@@ -85,6 +90,114 @@ struct ProfileFrame {
 	int visible = 0; // zones whose graph is showing
 	int hidden = 0;  // zones collapsed to a one-line row in the graph view
 };
+
+// --- the profile tree, shared by the section and its snapshots ---------------
+// Both walk the same flattened tree and read the same frame budget off it, so
+// the rules for both live here rather than being copied into each file.
+
+// A zone's or thread's name into a fixed row buffer, truncated, never null.
+void CopyName(char (&dst)[32], const char* src);
+
+// Fills `out` with at most `cap` rows and, through `total`, says how many the
+// tree ACTUALLY has (DevConsole_Profile.cpp). Returns 0 rows without DN_PROFILE.
+int BuildProfileRows(ProfRow* out, int cap, int* total = nullptr);
+
+// ----------------------------------------------------------------------------
+// WHAT IS HOLDING THE FRAME RATE DOWN. The panel measured work but never WAITING,
+// and the CPU-versus-GPU question lives entirely in the waiting: a frame's wall
+// clock is CPU work plus two blocks, one on the frame fence and one in Present.
+// With those three separated (prof::kZoneWaitGpu / kZoneRecord / kZonePresent)
+// the answer is arithmetic rather than inference.
+struct FrameBudget {
+	bool valid = false;    // the main thread's landmarks were found
+	bool gpuKnown = false; // GPU timestamps exist (they do not on WARP)
+	// Whose `frame` row this describes. Carried so the stacked bar can be drawn
+	// on that row and no other: "frame" is not a reserved word, and a worker that
+	// one day names a zone the same would otherwise get the main thread's budget
+	// painted beside its own unrelated timings.
+	u32 tid = 0;
+	double frameMs = 0.0;
+	double waitGpuMs = 0.0; // stopped, because the GPU is frames behind
+	double presentMs = 0.0; // stopped, in Present
+	double capMs = 0.0;     // stopped, because WE said so (the frame cap)
+	double cpuMs = 0.0;     // the frame minus every block: work, by elimination
+	double gpuBusyMs = 0.0; // the GPU source's spans, summed
+
+	// Cap is its own verdict rather than being folded into Display. Both mean
+	// "not the hardware", but they call for opposite actions: display-bound is
+	// finished — the screen cannot show more — while cap-bound is a limit YOU
+	// set and can raise. Reporting a self-imposed ceiling as a hardware one
+	// would send someone hunting for a bottleneck that is a config line.
+	enum class Bound { Unknown, Cpu, Gpu, Display, Cap };
+	Bound bound = Bound::Unknown;
+};
+
+// Fractions of the frame at which a reading is called. Not tuned — chosen so the
+// verdict only speaks when one thing clearly dominates, because a confident wrong
+// answer here sends someone optimizing the wrong half of the engine for a day.
+constexpr double kGpuSaturated = 0.85; // GPU busy this much of the frame = the ceiling
+constexpr double kBarelyWaiting = 0.15; // blocked less than this = the CPU fills the frame
+
+template <typename ShownFn>
+FrameBudget MeasureFrameBudget(const ProfRow* rows, int count, ShownFn&& shownIncl) {
+	FrameBudget b;
+	auto is = [](const char* a, const char* lit) { return std::strcmp(a, lit) == 0; };
+
+	const char* thread = "";
+	for (int i = 0; i < count; ++i) {
+		const ProfRow& r = rows[i];
+		if (r.header) {
+			thread = r.name;
+			continue;
+		}
+		if (is(thread, prof::kThreadMain)) {
+			// By name, which is the only identity a zone has — see the landmark
+			// constants in Profile.h, which exist so this cannot drift.
+			if (is(r.name, prof::kZoneFrame) && r.depth == 0) {
+				b.frameMs = shownIncl(r);
+				b.tid = r.tid;
+				b.valid = true;
+			} else if (is(r.name, prof::kZoneWaitGpu)) {
+				b.waitGpuMs = shownIncl(r);
+			} else if (is(r.name, prof::kZonePresent)) {
+				b.presentMs = shownIncl(r);
+			} else if (is(r.name, prof::kZoneWaitCap)) {
+				b.capMs = shownIncl(r);
+			}
+		} else if (is(thread, prof::kSourceGpu) && r.depth == 0) {
+			// The GPU's spans are FLAT roots by construction (GpuProfiler.h), so
+			// summing the depth-0 rows is the frame's GPU busy time and double-
+			// counts nothing.
+			b.gpuBusyMs += shownIncl(r);
+			b.gpuKnown = true;
+		}
+	}
+	if (!b.valid) return b;
+
+	// Work by ELIMINATION rather than by reading `record`: whatever the frame did
+	// not spend blocked, it spent doing something, and that includes update and
+	// the parts of render that no zone happens to cover. Reading `record` alone
+	// would quietly under-count and make the CPU look cheaper than it is.
+	b.cpuMs = b.frameMs - b.waitGpuMs - b.presentMs - b.capMs;
+	if (b.cpuMs < 0.0) b.cpuMs = 0.0; // the waits are sampled inside the frame; clamp
+	if (b.frameMs <= 0.0) return b;
+
+	const double gpuFrac = b.gpuBusyMs / b.frameMs;
+	const double waitFrac = (b.waitGpuMs + b.presentMs + b.capMs) / b.frameMs;
+
+	// ORDER MATTERS, and GPU is tested first on purpose. A saturated GPU shows up
+	// as a long block in EITHER wait — on the fence, or in Present with no back
+	// buffer free — so asking "which wait was longest" cannot tell GPU-bound from
+	// display-bound. Asking the GPU how busy it was can.
+	if (b.gpuKnown && gpuFrac >= kGpuSaturated) b.bound = FrameBudget::Bound::Gpu;
+	else if (waitFrac < kBarelyWaiting) b.bound = FrameBudget::Bound::Cpu;
+	// Between the two kinds of doing-nothing, whichever consumed more of the
+	// frame names the reason. A capped frame still parks briefly in Present, so
+	// the presence of either wait proves nothing on its own.
+	else if (b.capMs > b.presentMs) b.bound = FrameBudget::Bound::Cap;
+	else b.bound = FrameBudget::Bound::Display;
+	return b;
+}
 
 // Draws one scrolling line graph: newest sample at the RIGHT, oldest at the left,
 // with `head` naming the next write slot (and therefore the oldest value).
