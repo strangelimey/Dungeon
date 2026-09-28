@@ -1022,6 +1022,18 @@ try:
           "and no monster's health moved outside the pipeline on the way")
     check("eval RESULT=PASS script=worldpersist.eval" in log, "the script ran clean")
 
+    # --- phase 21: the character sheet closes to where it was opened ----------
+    print("\n21 - paging the character sheet does not break its close box")
+    log = run("worldsheet.eval")
+    states = re.findall(r"console: state (\S+)", log)
+    # Paging re-entered OpenCharacterSheet, which recorded the SHEET as the state
+    # to resume to, so the close box resumed into the sheet (MUTATION-checked:
+    # without the guard both lines read "state sheet").
+    check(states[:2] == ["playing", "worldmap"],
+          "after paging through members, closing returns to the level, and on the "
+          "world map to the world map", f"states {states}")
+    check("eval RESULT=PASS script=worldsheet.eval" in log, "the script ran clean")
+
 finally:
     if settings_before is not None:
         write(SETTINGS, settings_before)

@@ -458,8 +458,13 @@ void Game::RegisterPartyCommands() {
 	m_console.Register("sheet", "open the character sheet (dev): sheet <member|off>",
 					   [this](const std::vector<std::string>& args) {
 						   if (!args.empty() && args[0] == "off") {
-							   if (m_state == AppState::CharacterSheet)
-								   m_state = AppState::Playing;
+							   // The close box's own path (GameUI's onResume), so this
+							   // closes the sheet exactly as a player does - back to
+							   // the level OR the world map it was opened from. It
+							   // used to set Playing outright, which could not see the
+							   // bug where paging with < > broke the close box.
+							   if (m_state == AppState::CharacterSheet && m_ui.onResume)
+								   m_ui.onResume();
 							   m_console.Print("sheet closed");
 							   return;
 						   }

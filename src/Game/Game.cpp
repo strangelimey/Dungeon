@@ -1161,7 +1161,10 @@ bool Game::LoadGame(const std::string& path) {
 void Game::OpenCharacterSheet(size_t index) {
 	m_audio.Play(m_sounds.click, 0.5f);
 	m_ui.ShowSheet(index);
-	m_resumeState = m_state; // the sheet opens from a dungeon or from the world
+	// The sheet opens from a dungeon or from the world - remember which. But the
+	// sheet's own < and > come through here too, and recording THEM would make
+	// "resume" mean the sheet itself: close box and Esc then did nothing.
+	if (m_state != AppState::CharacterSheet) m_resumeState = m_state;
 	m_state = AppState::CharacterSheet;
 }
 

@@ -1,0 +1,20 @@
+; worldsheet.eval - the character sheet closes back to where it was opened
+; from, even after paging through the party with < and > (Michael, 2026-09-28:
+; after > the close box did nothing). `sheet <n>` goes through the same
+; OpenCharacterSheet the portrait click and the < > buttons use, and `sheet off`
+; through the close box's own resume.
+;
+; In a level first, then out on the world map, where a wrong resume would drop
+; a travelling party into whatever level was last loaded.
+logecho on
+reset
+sheet 0
+sheet 1
+sheet 2
+sheet off
+state
+leave
+sheet 0
+sheet 1
+sheet off
+state
