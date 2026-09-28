@@ -1307,6 +1307,43 @@ bool DungeonWorld::AddStairAt(const std::string& stem, const std::string& type,
 		return false;
 	}
 
+	// A WAY OUT is one stair, not a pair: it leads to a world-map LOCATION, and
+	// nothing stands on the far side of it. Going on to the pair logic below
+	// asked for the level above, so on a dungeon's top floor - the one floor an
+	// exit belongs on - the brush always refused (play-test #1). It lands
+	// pointing where this level's existing exit points, else nowhere ("-", the
+	// generator's token); the editor then asks where it leads (the stair
+	// inspector's location list), which the world map, not this class, knows.
+	if (CatalogBool(entry, "exit", false)) {
+		const bool live = stem == m_currentLevel;
+		if (!live) EnsureMapStash(stem);
+		DungeonMap& map = live ? m_map : *m_levelMaps.find(stem)->second;
+		if (!map.IsWalkable(x, z) || map.StairAt(x, z) || map.BrazierAt(x, z)) {
+			say(loc::Format("map.place.blocked", entry->Display()));
+			return false;
+		}
+		StairLink link;
+		link.type = type;
+		link.x = x;
+		link.z = z;
+		link.facing = map.OpenFacing(x, z); // stepped off into the level, not rock
+		link.destLevel = "-";
+		for (const StairLink& s : map.Stairs())
+			if (CatalogBool(m_project.stairs.Find(s.type), "exit", false) &&
+				s.destLevel != "-") {
+				link.destLevel = s.destLevel;
+				break;
+			}
+		map.AddStair(link);
+		if (live) {
+			PlaceStairProp(link);
+			MarkSeen(x, z);
+			RebuildChunksAround(x, z);
+		}
+		say(loc::Format("map.stairs.exitplaced", entry->Display()));
+		return true;
+	}
+
 	// The type's direction (stairs.cat `up`) picks the destination: the previous
 	// / next stem from `stem` - in its DUNGEON's depth order (dungeons.cat
 	// `levels`) first, the vertical stack, and only when the dungeon has no
@@ -1378,9 +1415,11 @@ bool DungeonWorld::AddStairAt(const std::string& stem, const std::string& type,
 	link.destLevel = dest;
 	link.destX = x;
 	link.destZ = z; // each side arrives standing on its counterpart
+	link.facing = src.OpenFacing(x, z); // each half is stepped off into ITS level
 	StairLink pair = link;
 	pair.type = pairType;
 	pair.destLevel = stem;
+	pair.facing = dst.OpenFacing(x, z);
 
 	src.AddStair(link);
 	dst.AddStair(pair);
@@ -1408,6 +1447,17 @@ bool DungeonWorld::RemovePairedStair(const std::string& fromStem,
 		return s && s->destLevel == fromStem && s->destX == removed.x &&
 			   s->destZ == removed.z;
 	};
+	// An EXIT has no pair: its dest names a world-map LOCATION ("crypt_gate"),
+	// or "-" for nowhere yet, never a level. Treating that as a stem sent
+	// EnsureMapStash off to parse levels/crypt_gate.map, and the map loader's
+	// missing-file assert took the game down - on a middle-click erase, the
+	// inspector's Delete, or a wall painted over the exit (play-test #1). A
+	// hand-written one-way link to a level the project does not list is the
+	// same case, so ANY dest outside the level list ends here.
+	if (CatalogBool(m_project.stairs.Find(removed.type), "exit", false) ||
+		std::find(m_project.levels.begin(), m_project.levels.end(),
+				  removed.destLevel) == m_project.levels.end())
+		return false;
 	if (removed.destLevel == m_currentLevel) {
 		if (!matches(m_map.StairAt(removed.destX, removed.destZ))) return false;
 		m_map.RemoveStair(removed.destX, removed.destZ);

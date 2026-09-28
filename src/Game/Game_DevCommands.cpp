@@ -159,11 +159,50 @@ void Game::RegisterDevCommands() {
 					   });
 	m_console.Register("editor",
 					   "open the map in editor mode (off = player map; inspect <x> <z> = "
-					   "what a right-click on that square does; inspect off closes it)",
+					   "what a right-click on that square does; inspect off closes it; "
+					   "place <category> <id> <x> <z> = arm that palette row and left-click "
+					   "the square; erase <x> <z> = a middle-click on it)",
 					   [this](const std::vector<std::string>& args) {
 						   if (!args.empty() && args[0] == "off") {
 							   m_mapView.SetMode(MapView::Mode::Player);
 							   m_console.Print("map: player mode");
+							   return;
+						   }
+						   // The brush and the erase ladder, for a harness: the SAME
+						   // MapEditor calls a click makes, so what a play-tester's
+						   // click would do (a refusal, a dialog) happens here too.
+						   // The editor's report lands on its message line and in
+						   // dungeon.log ("editor: ..."), which is what to check.
+						   if (!args.empty() && (args[0] == "place" || args[0] == "erase")) {
+							   const bool place = args[0] == "place";
+							   if (!Need(m_console, args, place ? 5 : 3,
+										 "usage: editor place <category> <id> <x> <z> | "
+										 "erase <x> <z>"))
+								   return;
+							   if (m_mapView.IsOpen())
+								   m_mapView.SetMode(MapView::Mode::Editor);
+							   else
+								   m_mapView.Open(MapView::Mode::Editor);
+							   const size_t at = place ? 3 : 1;
+							   const int x = std::atoi(args[at].c_str());
+							   const int z = std::atoi(args[at + 1].c_str());
+							   if (!place) {
+								   m_mapEditor.EraseAt(x, z);
+								   m_console.Print(std::format("editor erase: {},{}", x, z));
+								   return;
+							   }
+							   const MapEditor::PaletteCat cat =
+								   MapEditor::CatForCatalogKey(args[1]);
+							   if (cat == MapEditor::PaletteCat::Count ||
+								   !m_mapEditor.Arm(cat, args[2])) {
+								   m_console.Print(std::format(
+									   "editor place: no palette row '{}' in '{}'", args[2],
+									   args[1]));
+								   return;
+							   }
+							   m_mapEditor.Paint(x, z, /*dragging*/ false);
+							   m_console.Print(std::format("editor place: {} at {},{}",
+														   args[2], x, z));
 							   return;
 						   }
 						   // The right-click, for a harness: select the square and

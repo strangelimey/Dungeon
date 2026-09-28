@@ -78,6 +78,11 @@ public:
 	// Fired when the Select tool clicks a cell holding a monster (the owner opens the
 	// per-INSTANCE entity inspector). The cell is passed; the owner finds the monster.
 	std::function<void(int cx, int cz)> onInspect;
+	// Fired when the Stairs brush has just placed a WAY OUT on the active level:
+	// the owner asks where it leads (the stair inspector, opened on it). An exit
+	// placed on a browsed level is not asked about - the inspectors need the
+	// level active - and keeps the dest it landed with.
+	std::function<void(int cx, int cz)> onExitPlaced;
 	// Fired for each grid cell clicked while LAYING a patrol route (grid-click route
 	// authoring). Carries the monster's runtimeId + the cell; the owner appends it.
 	std::function<void(u32 runtimeId, int cx, int cz)> onRouteWaypoint;
@@ -135,6 +140,10 @@ public:
 	// The "+ New" flow calls this so a freshly created surface type is paintable
 	// at once; the "Catalogue" view instead enrols a type lazily, on first paint.
 	void AddToPalette(PaletteCat cat, const std::string& id);
+	// Arms the palette row for `id` in `cat`, as clicking it would. False when
+	// the category does not list it. For the harness (`editor place`), which
+	// cannot click a palette row but must drive the real brush path.
+	bool Arm(PaletteCat cat, const std::string& id);
 
 	// --- palette controls row (filter box + clear + collapse-all) ------------
 	// A fixed strip at the top of the dock body, above the scrolled accordion.

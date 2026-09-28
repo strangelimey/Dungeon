@@ -951,7 +951,9 @@ try:
           "on disk: the manifest's opening and harness level")
     check("location dungeon keep 3 3 dungeon=castle level=hall" in world,
           "on disk: the short-way doorway now names its dungeon outright")
-    check("stairs stairs_up 7 7 north dest=hall" in k1,
+    # Any facing: a placed stair faces its first open side (DungeonMap::
+    # OpenFacing), and which side that is has nothing to do with the rename.
+    check(re.search(r"stairs stairs_up 7 7 (north|east|south|west) dest=hall\b", k1),
           "on disk: another level's stair repointed WITHOUT a savemap")
     check("stairs stairs_exit 9 9 south dest=room1" in k1,
           "an exit stair's location is left alone, though it is spelled like "

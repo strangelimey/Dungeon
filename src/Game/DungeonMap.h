@@ -203,9 +203,10 @@ struct FixtureTypes {
 // south, and coming down them you face north, so they face north). It is also
 // where you face on ARRIVING by it: every way in that lands on a stair's square
 // takes that stair's facing (DungeonWorld::ArrivalFacingAt), which is why there
-// is no separate arrival facing on the record any more. The prop is turned the
-// opposite way (PlaceStairProp), so the flight rises behind you. North by
-// default: a new stair then looks as a new one always has.
+// is no separate arrival facing on the record any more. The prop turns its foot
+// that way (DungeonWorld::StairPropWorld), so the flight rises behind you. A new
+// stair faces its first OPEN side (OpenFacing), since a stair stepped off into
+// rock is one nobody can use.
 struct StairLink {
 	int x = 0, z = 0;
 	Direction facing = Direction::North;
@@ -501,6 +502,13 @@ public:
 	// Turns the stair at (x,z) (the stair inspector) - see StairLink::facing.
 	// False if there is none.
 	bool SetStairFacing(int x, int z, Direction facing);
+	// The facing a NEW stair on (x,z) should take: the first of north, east,
+	// south, west whose neighbour is walkable - the way off it - or north when
+	// the cell is walled in on every side.
+	Direction OpenFacing(int x, int z) const;
+	// Repoints the stair at (x,z) at `dest` - an EXIT's world-map location (the
+	// stair inspector's "Leads out to"). False if there is none.
+	bool SetStairDest(int x, int z, const std::string& dest);
 	// Repoints every stair whose dest names `oldStem` (a level rename — the
 	// dest strings are the cross-level references that would go stale).
 	// Stairs whose TYPE is in `skipTypes` are left alone: an EXIT's dest names

@@ -19,7 +19,18 @@ namespace dungeon::game {
 // The callbacks that live ON the world object, so they are wired each time a
 // world is built (LoadWorld) rather than once: world feedback goes to the HUD.
 void Game::WireWorldCallbacks() {
-	m_world->onMessage = [this](std::string_view line) { m_ui.AddLogLine(line); };
+	m_world->onMessage = [this](std::string_view line) {
+		m_ui.AddLogLine(line);
+		// The full-screen editor draws no HUD, so its reports would otherwise go
+		// nowhere visible: show them on the editor's own message line, and put
+		// them in dungeon.log, where a harness (and a play-test) can read them.
+		// Editor frames are not guarded (SteadyStateFrame), so the log's
+		// formatting is free to allocate here.
+		if (m_mapView.IsOpen() && m_mapView.CurrentMode() == MapView::Mode::Editor) {
+			m_mapView.ShowStatus(line);
+			log::Info("editor: {}", line);
+		}
+	};
 	// Lines about a specific member arrive with their identity color; the log
 	// tints them so each character's doings read at a glance.
 	m_world->onMemberMessage = [this](std::string_view line, const Vec4& color) {
@@ -493,6 +504,40 @@ void Game::WireModuleCallbacks() {
 	};
 
 	// Per-instance inspector: Select-click a placed monster → edit its .ent overrides.
+	// A Way Out was just placed: ask where it leads (play-test #1, Michael's
+	// pick: a dialog). It opens already pointing at the likeliest answer - the
+	// doorway that lands on this level, else any doorway into this dungeon -
+	// when it landed pointing nowhere, so Save accepts the obvious and Esc
+	// keeps it too (the default is applied BEFORE the dialog snapshots).
+	m_mapEditor.onExitPlaced = [this](int cx, int cz) {
+		StairLink s;
+		if (!m_world->StairSettings(cx, cz, s)) return;
+		if (s.destLevel == "-" && m_worldMap) {
+			const std::string& level = m_world->CurrentLevel();
+			const CatalogEntry* dungeon = m_project.DungeonOfLevel(level);
+			std::string pick;
+			for (const WorldMap::Location& l : m_worldMap->Locations())
+				if (l.level == level) {
+					pick = l.id;
+					break;
+				}
+			if (pick.empty() && dungeon)
+				for (const WorldMap::Location& l : m_worldMap->Locations())
+					if (l.Dungeon() == dungeon->id) {
+						pick = l.id;
+						break;
+					}
+			if (!pick.empty()) m_world->SetExitDest(cx, cz, pick);
+		}
+		m_inspectTargets.clear();
+		m_inspectCellX = cx;
+		m_inspectCellZ = cz;
+		OpenInspectorFor(InspectTarget{InspectTarget::Kind::Stair});
+		// For the harness: that the question was ASKED, and what it defaulted to.
+		m_world->StairSettings(cx, cz, s);
+		log::Info("way out at {},{}: stair inspector {}, leads to '{}'", cx, cz,
+				  m_stairInspector.IsOpen() ? "open" : "NOT open", s.destLevel);
+	};
 	m_mapEditor.onInspect = [this](int cx, int cz) {
 		// Gather EVERY inspectable object on the cell: stacked monsters, then wall
 		// torches (each on its own wall). One target per object.
@@ -676,6 +721,7 @@ void Game::WireModuleCallbacks() {
 	// .map data, like a niche), or go to the far end.
 	m_stairInspector.onApply = [this](const StairInspector::Config& c) {
 		m_world->SetStairFacing(c.x, c.z, c.facing);
+		if (!c.destIsLevel) m_world->SetExitDest(c.x, c.z, c.dest);
 	};
 	m_stairInspector.onSave = [this] {
 		if (m_world->SaveAllLevels().empty()) log::Warn("stair inspector: failed to save map");

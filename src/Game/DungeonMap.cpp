@@ -392,8 +392,11 @@ void DungeonMap::Parse(const std::vector<u8>& bytesIn, FixtureTypes fixtures,
 	// gate rise to the south, and coming down them you face north, so they
 	// face north. A file written since says so (`stairfacing arrive`, which
 	// the writer always emits); one without it is in the old meaning, and its
-	// stairs are turned round here so they look and behave as they always did.
-	// The next save writes them in the new form.
+	// stairs are turned round here so they BEHAVE as they always did - you
+	// arrive facing the way you did. They do not LOOK as they did: the prop used
+	// to draw inverted (see DungeonWorld::StairPropWorld), so an old stair now
+	// shows the way its facing always claimed. The next save writes them in the
+	// new form.
 	if (!arrivalFacing && !m_stairs.empty()) {
 		for (StairLink& s : m_stairs) s.facing = DirOpposite(s.facing);
 		log::Info("{}: {} stair(s) in the old travel-facing form, read as arrival facing",
@@ -1002,6 +1005,22 @@ bool DungeonMap::SetStairFacing(int x, int z, Direction facing) {
 	for (StairLink& s : m_stairs)
 		if (s.x == x && s.z == z) {
 			s.facing = facing;
+			return true;
+		}
+	return false;
+}
+
+Direction DungeonMap::OpenFacing(int x, int z) const {
+	for (const Direction d :
+		 {Direction::North, Direction::East, Direction::South, Direction::West})
+		if (IsWalkable(x + DirDX(d), z + DirDZ(d))) return d;
+	return Direction::North;
+}
+
+bool DungeonMap::SetStairDest(int x, int z, const std::string& dest) {
+	for (StairLink& s : m_stairs)
+		if (s.x == x && s.z == z) {
+			s.destLevel = dest;
 			return true;
 		}
 	return false;

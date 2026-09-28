@@ -38,9 +38,12 @@
 #include "UI/Font.h"
 #include "UI/UIContext.h" // ui::Theme
 
+#include <array>
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace dungeon::game {
@@ -127,6 +130,7 @@ public:
 		m_browse.reset();
 		m_levelsOpen = false;
 		m_editorPaused = false; // closing/reopening always resumes the world
+		m_statusLen = 0;        // an old message does not greet a fresh open
 	}
 	void Close() {
 		m_open = false;
@@ -156,6 +160,17 @@ public:
 	// Press the pause button from outside (the landing page's Editor entry
 	// opens the editor paused). Editor mode only, like the button.
 	void SetEditorPaused(bool on) { m_editorPaused = on && m_mode == Mode::Editor; }
+
+	// The editor's MESSAGE LINE. Every editor report (a placement, a refusal,
+	// an erase) goes out through DungeonWorld::onMessage to the HUD's message
+	// log - which the full-screen editor does not draw, so a refused brush used
+	// to fail with no word at all (play-test #1: "nothing happens"). The owner
+	// forwards each line here while the editor is up, and Render shows the
+	// latest one over the bottom of the grid for a few seconds. A fixed buffer,
+	// so a message costs no allocation; an over-long line is cut.
+	void ShowStatus(std::string_view line);
+	// What the message line holds (empty once it has faded) - for the harness.
+	std::string_view Status() const;
 
 	// Jump the viewport to a level by stem (the dropdown's pick; the arrows'
 	// StepViewLevel folds into this). Public because the check report navigates
@@ -308,6 +323,12 @@ private:
 					   *m_icoNew = nullptr, *m_icoPlay = nullptr,
 					   *m_icoPause = nullptr;
 	bool m_editorPaused = false; // pause/play toolbar toggle (see EditorPaused)
+	// The message line (ShowStatus): the text, its length, and when it arrived.
+	static constexpr float kStatusSeconds = 5.0f; // shown this long, the last 1 s fading
+	std::array<char, 256> m_status{};
+	size_t m_statusLen = 0;
+	std::chrono::steady_clock::time_point m_statusAt{};
+	float StatusAge() const;
 
 	bool m_open = false;
 	Mode m_mode = Mode::Player;

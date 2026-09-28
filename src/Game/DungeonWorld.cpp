@@ -1677,6 +1677,12 @@ bool DungeonWorld::SetStairFacing(int x, int z, Direction facing) {
 	return true;
 }
 
+bool DungeonWorld::SetExitDest(int x, int z, const std::string& location) {
+	const StairLink* s = m_map.StairAt(x, z);
+	if (!s || !CatalogBool(m_project.stairs.Find(s->type), "exit", false)) return false;
+	return m_map.SetStairDest(x, z, location.empty() ? std::string("-") : location);
+}
+
 std::vector<gfx::PreviewSubmesh> DungeonWorld::StairPreviewSubs(int x, int z) const {
 	for (int i = 0; i < static_cast<int>(m_decorations.size()); ++i) {
 		const Decoration& d = m_decorations[static_cast<size_t>(i)];

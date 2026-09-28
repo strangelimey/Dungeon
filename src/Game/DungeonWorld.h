@@ -1197,6 +1197,10 @@ public:
 	// the 3D view at once. The paired half on the other level is untouched.
 	bool StairSettings(int x, int z, StairLink& out) const;
 	bool SetStairFacing(int x, int z, Direction facing);
+	// Repoints an EXIT at a world-map location ("-" = nowhere yet). Refuses a
+	// paired stair: its dest is a level and its pair's position, which the
+	// inspector deliberately does not let one half change.
+	bool SetExitDest(int x, int z, const std::string& location);
 	// Where the party faces on ARRIVING at (x,z) of the active level by any way
 	// in - a stair, a doorway, the game's opening, `play`: the facing of the
 	// stair standing there (StairLink::facing), else south. A save load and a

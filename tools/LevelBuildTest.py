@@ -61,10 +61,10 @@
 #      demo's own doorways land on exit stairs a reroll already kept.
 #   8. A STAIR FACES THE WAY YOU STEP OFF IT - the scratch world's crypt levels
 #      are rewritten in the OLD form (facing = the way the steps rise, no
-#      marker, a destfacing of east). In through crypt_gate must face north off
-#      crypt1's exit stair; down crypt1's stair must land on crypt2's facing
-#      north (that stair's facing, not the old destfacing); savemap must write
-#      the new form.
+#      marker, a destfacing of east). In through crypt_gate must face the way
+#      crypt1's exit stair faces; down crypt1's stair must land on crypt2's
+#      facing the way THAT stair faces (not the old destfacing); savemap must
+#      write the new form, each stair back at the demo's own facing.
 #
 # Checked by mutation (2026-09-24): with the reroll's stairs dropped, the
 # checker reported 5 errors (stairblocked, stairunpaired, three levellost) and
@@ -903,9 +903,17 @@ def main():
         proj = scratch("lb_facing")
         try:
             # THE OLD FORM, as every file written before 2026-09-25 has it: the
-            # facing is the way the steps rise (all four demo stairs rise south),
-            # no marker line, and a destfacing on the stairs between floors -
+            # facing is the way you travel on the stair, the opposite of the way
+            # you step off it, no marker line, and a destfacing on the stairs between floors -
             # set to EAST, so a landing that still obeyed it would show it.
+            # Each stair is turned to the OPPOSITE of what the demo says now - the
+            # exact inverse of the loader's flip - rather than "north becomes
+            # south", which was only the inverse while every stair faced north
+            # (the 1,1 pair face south since the stair prop stopped drawing
+            # inverted, 2026-09-28). `new_facing` keeps the demo's own facings
+            # so the round trip below is checked against them.
+            opposite = {"north": "south", "south": "north", "east": "west", "west": "east"}
+            new_facing = {}
             levels = os.path.join(proj, "levels")
             for stem in ("crypt1", "crypt2"):
                 p = os.path.join(levels, stem + ".map")
@@ -915,39 +923,55 @@ def main():
                 for line in text.split(eol):
                     if line == "stairfacing arrive":
                         continue
-                    if line.startswith("stairs "):
-                        line = re.sub(r"^(stairs \S+ \d+ \d+) north", r"\1 south", line)
+                    m = re.match(r"^(stairs \S+ \d+ \d+) (north|south|east|west)\b", line)
+                    if m:
+                        new_facing[(stem, m.group(1))] = m.group(2)
+                        line = m.group(1) + " " + opposite[m.group(2)] + line[m.end():]
                         if "dest=crypt" in line:
                             line += " destfacing=east"
                     out.append(line)
                 io.open(p, "w", encoding="utf-8", newline="").write(eol.join(out))
-            old1 = io.open(os.path.join(levels, "crypt1.map"), encoding="utf-8").read()
-            check("stairfacing" not in old1 and "stairs stairs_exit 7 7 south" in old1 and
-                  "destfacing=east" in old1,
-                  "the scratch crypt levels are in the OLD form (the control)")
+            old = {s: io.open(os.path.join(levels, s + ".map"), encoding="utf-8").read()
+                   for s in ("crypt1", "crypt2")}
+            check(len(new_facing) == 4 and
+                  all("stairfacing" not in t for t in old.values()) and
+                  all(f"{head} {opposite[f]}" in old[stem]
+                      for (stem, head), f in new_facing.items()) and
+                  "destfacing=east" in old["crypt1"],
+                  "the scratch crypt levels are in the OLD form (the control)",
+                  f"{new_facing}")
 
+            # Where each arrival must face: the facing of the stair it lands on.
+            # crypt_gate lands on crypt1's WAY OUT (world.map's entry cell), and
+            # the stair down lands on crypt2's stair up.
+            def facing_of(stem, typ):
+                for (s, head), f in new_facing.items():
+                    if s == stem and head.split()[1] == typ:
+                        x, z = head.split()[2:4]
+                        return f"{x},{z} facing {f}"
+                return "?"
+            gate = facing_of("crypt1", "stairs_exit")
+            below = facing_of("crypt2", "stairs_up")
             code, con = run("levelfacing.eval", "lb_facing")
             check(code == 0, "the script ran to the end", f"exit {code}")
             poses = [l for l in con if re.match(r"-?\d+,-?\d+ facing ", l)]
-            check(len(poses) >= 2 and poses[0].startswith("7,7 facing north"),
-                  "in through crypt_gate onto crypt1's exit stair (steps rising south): "
-                  "facing NORTH, off the stair into the dungeon", f"{poses}")
+            check(len(poses) >= 2 and poses[0].startswith(gate),
+                  f"in through crypt_gate onto crypt1's exit stair: {gate}, off the stair "
+                  "into the dungeon", f"{poses}")
             maps = [l for l in con if re.search(r"\d+x\d+ map", l)]
-            check(len(poses) >= 2 and poses[1].startswith("1,1 facing north") and
+            check(len(poses) >= 2 and poses[1].startswith(below) and
                   any("12x8" in l for l in maps),
-                  "down crypt1's stair: on crypt2's stair up at 1,1, facing the way THAT "
-                  "stair faces (north), not the old destfacing (east)",
+                  f"down crypt1's stair: on crypt2's stair up, {below} - the way THAT "
+                  "stair faces, not the old destfacing (east)",
                   f"{poses}, {maps}")
-            new1 = io.open(os.path.join(levels, "crypt1.map"), encoding="utf-8").read()
-            new2 = io.open(os.path.join(levels, "crypt2.map"), encoding="utf-8").read()
-            check("stairfacing arrive" in new1 and "stairfacing arrive" in new2 and
-                  "stairs stairs_exit 7 7 north" in new1 and
-                  "stairs stairs_down 1 1 north" in new1 and
-                  "stairs stairs_up 1 1 north" in new2 and
-                  "destfacing" not in new1 + new2,
-                  "savemap writes the NEW form: the marker, every stair turned to "
-                  "north, no destfacing",
-                  f"{[l for l in (new1 + new2).splitlines() if l.startswith('stair')]}")
+            new = {s: io.open(os.path.join(levels, s + ".map"), encoding="utf-8").read()
+                   for s in ("crypt1", "crypt2")}
+            check(all("stairfacing arrive" in t for t in new.values()) and
+                  all(f"{head} {f}" in new[stem] for (stem, head), f in new_facing.items()) and
+                  "destfacing" not in new["crypt1"] + new["crypt2"],
+                  "savemap writes the NEW form: the marker, every stair turned back to "
+                  "the demo's own facing, no destfacing",
+                  f"{[l for t in new.values() for l in t.splitlines() if l.startswith('stair')]}")
         finally:
             shutil.rmtree(proj, ignore_errors=True)
 

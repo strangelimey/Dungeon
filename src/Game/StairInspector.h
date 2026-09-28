@@ -8,11 +8,14 @@
 // which is also the way anyone arriving on it faces (StairLink::facing); the
 // flight is turned to rise behind it. Only this half: the pair on the other
 // level is its own record, and says how you face arriving THERE.
-// The destination itself is SHOWN, not edited: a stair leads to its own square
-// on the next floor, where its pair stands, and retargeting one half would
-// break that pairing (docs/level-building.md, the stair lesson). "Go there"
-// takes the editor to the other end instead, and Delete removes both halves
-// (DungeonWorld::RemoveStairAt), the same as a middle-click erase.
+// A paired stair's destination is SHOWN, not edited: a stair leads to its own
+// square on the next floor, where its pair stands, and retargeting one half
+// would break that pairing (docs/level-building.md, the stair lesson). "Go
+// there" takes the editor to the other end instead, and Delete removes both
+// halves (DungeonWorld::RemoveStairAt), the same as a middle-click erase.
+// A WAY OUT is the exception: it has no pair, so where it leads - a world-map
+// location - IS editable, as a dropdown of the world's locations plus "nowhere
+// yet". Placing one from the palette opens this dialog at once to ask.
 // Save persists the level (.map); Close/Esc reverts.
 // ============================================================================
 #pragma once
@@ -21,6 +24,7 @@
 
 #include <functional>
 #include <string>
+#include <vector>
 
 namespace dungeon::game {
 
@@ -38,9 +42,14 @@ public:
 	StairInspector(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)
 		: InstanceInspector(device, fonts) {}
 
-	void Open(const Config& cfg, PreviewSpec preview = {});
+	// `locations` = the world-map location ids an EXIT may lead to (ignored for
+	// a paired stair). An exit's current dest is kept selectable even when the
+	// world no longer lists it, so Save cannot silently drop it.
+	void Open(const Config& cfg, std::vector<std::string> locations = {},
+			  PreviewSpec preview = {});
 
-	std::function<void(const Config&)> onApply; // push the facing to the live stair + record
+	// Push the facing (and an exit's dest) to the live stair + record.
+	std::function<void(const Config&)> onApply;
 	std::function<void()> onSave;               // persist the level (.map)
 	// Take the editor to the other end (the destination level, that square).
 	// The dialog closes KEEPING its edits live, like any edit left unsaved.
@@ -59,6 +68,7 @@ protected:
 private:
 	Config m_cfg;
 	Config m_original; // snapshot for revert on Close/Esc
+	std::vector<std::string> m_locations; // an exit's choices (see Open)
 };
 
 } // namespace dungeon::game

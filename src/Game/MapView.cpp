@@ -1490,6 +1490,52 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 					footY, theme.textDim);
 	}
 
+	// The editor's message line (ShowStatus): the latest report, boxed over the
+	// bottom of the grid so it reads against any cell, fading out over its last
+	// second. It sits OVER the map rather than in a reserved row because the
+	// editor keeps its bottom row for cells (see the footer above).
+	if (m_mode == Mode::Editor && m_statusLen > 0) {
+		const float age = StatusAge();
+		if (age < kStatusSeconds) {
+			const float a = std::clamp(kStatusSeconds - age, 0.0f, 1.0f);
+			const std::string_view text(m_status.data(), m_statusLen);
+			const float pad2 = dpad * 1.5f;
+			const float tw = std::min(m_font->MeasureWidth(text), grid.w - pad2 * 4);
+			gfx::Rect r{grid.x + (grid.w - tw) * 0.5f - pad2,
+						grid.y + grid.h - m_font->Height() - pad2 * 3, tw + pad2 * 2,
+						m_font->Height() + pad2};
+			Vec4 bg = kMapBg;
+			bg.w *= a;
+			Vec4 border = theme.panelBorder;
+			border.w *= a;
+			Vec4 ink = theme.text;
+			ink.w *= a;
+			batch.DrawRect(r, bg);
+			ui::DrawBorder(batch, r, border);
+			m_font->Draw(batch, text, r.x + pad2, r.y + pad2 * 0.5f, ink);
+		}
+	}
+}
+
+void MapView::ShowStatus(std::string_view line) {
+	size_t n = std::min(line.size(), m_status.size());
+	// A cut must not split a UTF-8 sequence: if the first byte left out is a
+	// continuation byte, the character straddles the cut, so drop all of it.
+	if (n < line.size())
+		while (n > 0 && (static_cast<unsigned char>(line[n]) & 0xC0) == 0x80) --n;
+	m_statusLen = n;
+	std::copy_n(line.data(), m_statusLen, m_status.data());
+	m_statusAt = std::chrono::steady_clock::now();
+}
+
+float MapView::StatusAge() const {
+	return std::chrono::duration<float>(std::chrono::steady_clock::now() - m_statusAt)
+		.count();
+}
+
+std::string_view MapView::Status() const {
+	if (m_statusLen == 0 || StatusAge() >= kStatusSeconds) return {};
+	return {m_status.data(), m_statusLen};
 }
 
 } // namespace dungeon::game

@@ -328,7 +328,13 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 			m_world->BeginUndoStep();
 			m_world->CommitUndoStep(m_world->RemoveStairAt(cx, cz));
 		};
-		m_stairInspector.Open(c, std::move(pv));
+		// An exit's choices: every doorway on the world map, in file order. A
+		// project with no world yet offers only "nowhere yet".
+		std::vector<std::string> locations;
+		if (m_worldMap)
+			for (const WorldMap::Location& l : m_worldMap->Locations())
+				locations.push_back(l.id);
+		m_stairInspector.Open(c, std::move(locations), std::move(pv));
 		break;
 	}
 	}

@@ -212,6 +212,16 @@ void MapEditor::AddToPalette(PaletteCat cat, const std::string& id) {
 		}
 }
 
+bool MapEditor::Arm(PaletteCat cat, const std::string& id) {
+	const std::vector<PaletteItem> items = CategoryItems(cat);
+	for (int i = 0; i < static_cast<int>(items.size()); ++i)
+		if (items[i].id == id) {
+			m_sel = {cat, i};
+			return true;
+		}
+	return false;
+}
+
 // --- palette controls row (filter + clear + collapse-all) --------------------
 
 gfx::Rect MapEditor::ControlsRow(const gfx::Rect& panel) const {
@@ -677,6 +687,12 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face,
 		// it does all the messaging itself (success names the paired level;
 		// each failure mode has its own specific line).
 		changed = m_world->AddStairAt(stem, items[m_sel.index].id, cx, cz);
+		// A way out leads to a world-map location, which only the owner knows:
+		// ask now, while the placement is fresh (play-test #1).
+		if (changed && !remote && onExitPlaced &&
+			CatalogBool(m_world->GetProject().stairs.Find(items[m_sel.index].id), "exit",
+						false))
+			onExitPlaced(cx, cz);
 		break;
 	}
 	case PaletteCat::Doors: {

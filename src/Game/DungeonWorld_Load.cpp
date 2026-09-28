@@ -1616,14 +1616,24 @@ void DungeonWorld::LoadStairs() {
 }
 
 // A stair's facing is the way you face stepping OFF it (StairLink::facing), and
-// the meshes are authored the other way round - their +Z is the way you travel
-// ON them, up a flight or down a shaft - so the prop turns to the opposite.
+// every stair mesh has its FOOT - the end you step on and off at floor level -
+// at +Z: BuildStairs' lowest tread sits at the front and the flight climbs
+// toward -Z, and BuildStairsDown's shaft is entered at its front edge. So the
+// prop turns its +Z to the facing, like any other prop (DirYaw), and the flight
+// rises (or the shaft drops) BEHIND whoever steps off it.
+//
+// It used to turn to the OPPOSITE, on the belief that +Z was the way you travel
+// on the mesh. That inverted every stair: a way out facing north climbed north,
+// straight up in front of the party it had just delivered (play-test, Michael,
+// 2026-09-28: "the in-game object is the wrong way around"). It survived because
+// the facing's meaning had just been flipped and the opposite turn was chosen to
+// keep every stair looking as it did - and as it did was already wrong.
 Mat4 DungeonWorld::StairPropWorld(const DecorationKind& kind, int x, int z,
 								  Direction facing) const {
 	const Vec3 pos = m_map.CellCenter(x, z);
 	Mat4 world;
 	XMStoreFloat4x4(&world, UnitScale(kind.modelScale) *
-								XMMatrixRotationY(DirYaw(DirOpposite(facing))) *
+								XMMatrixRotationY(DirYaw(facing)) *
 								XMMatrixTranslation(pos.x, 0, pos.z));
 	return world;
 }
