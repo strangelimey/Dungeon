@@ -21,7 +21,7 @@ void SightSpell::Cast(CastContext& ctx) const {
 	// recast refreshes just its own entry, the rule the kind now owns.
 	ctx.services.applyEffect(ctx.caster, "sight", School(), ctx.power, m_duration);
 	ctx.services.message(ctx.caster,
-						 loc::Format("log.sight_up", ctx.caster.name));
+						 loc::FormatLine("log.sight_up", ctx.caster.name));
 }
 
 void SightSpell::ApplyOverrides(const CatalogEntry& e) {

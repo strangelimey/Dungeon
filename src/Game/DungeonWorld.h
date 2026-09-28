@@ -2594,8 +2594,11 @@ private:
 	// The consequence table a source actually uses: its own when it authored
 	// one, else the balance.cat default. Resolved per fumble so a Balance dialog
 	// change lands on the next swing rather than on the next level load.
-	std::vector<mishap::Entry> FumbleTable(const std::vector<mishap::Entry>& own,
-										   bool severe) const;
+	// A VIEW, copying nothing: onto `own`, or onto `fallback` (the caller's
+	// inline default table, filled here), since a fumble is a steady-state event.
+	std::span<const mishap::Entry> FumbleTable(const std::vector<mishap::Entry>& own,
+											   bool severe,
+											   mishap::DefaultTable& fallback) const;
 	// Lay an item on the floor of a cell as a RUNTIME drop (negative id, saved
 	// as a `drop` diff) — NOT an .ent record, which is what an editor placement
 	// authors. Shared by the cursor drop and by a fumbled weapon.
@@ -2742,7 +2745,7 @@ private:
 		std::vector<fx::Inst>& Effects() override { return m_member.effects; }
 		void Wound(float amount, fx::DamageEvent& ev) override;
 		void Absorb(float amount, fx::DamageEvent& ev) override;
-		std::string Name() const override { return m_member.name; }
+		loc::Line Name() const override { return loc::Line{m_member.name}; }
 		void Say(std::string_view line) const override;
 		void SayApplied(const fx::EffectKind& kind) const override;
 
@@ -2768,7 +2771,7 @@ private:
 		std::vector<fx::Inst>& Effects() override { return m_monster.effects; }
 		void Wound(float amount, fx::DamageEvent& ev) override;
 		void Absorb(float amount, fx::DamageEvent& ev) override;
-		std::string Name() const override;
+		loc::Line Name() const override;
 		void Say(std::string_view line) const override;
 		void SayApplied(const fx::EffectKind& kind) const override;
 
@@ -2811,7 +2814,7 @@ private:
 		std::vector<fx::Inst>& Effects() override { return m_brk.effects; }
 		void Wound(float amount, fx::DamageEvent& ev) override;
 		void Absorb(float amount, fx::DamageEvent& ev) override;
-		std::string Name() const override;
+		loc::Line Name() const override;
 		void Say(std::string_view line) const override;
 		void SayApplied(const fx::EffectKind& kind) const override;
 

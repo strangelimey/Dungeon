@@ -470,16 +470,17 @@ float DungeonWorld::SpendStamina(Character& member, float points) {
 // Fumble consequences (docs/damage-system.md "When it goes wrong").
 // ============================================================================
 
-std::vector<mishap::Entry>
-DungeonWorld::FumbleTable(const std::vector<mishap::Entry>& own,
-						  bool severe) const {
+std::span<const mishap::Entry>
+DungeonWorld::FumbleTable(const std::vector<mishap::Entry>& own, bool severe,
+						  mishap::DefaultTable& fallback) const {
 	// An authored table REPLACES the default rather than adding to it — a table
 	// you cannot turn off is not a table. So a weapon that authors only
 	// `fumble` still gets the default SEVERE one, which is the common case: most
 	// weapons want to say how they slip, not to redesign the disaster.
 	if (!own.empty()) return own;
-	return severe ? mishap::DefaultSevere()
-				  : mishap::DefaultFumble(m_balance.fumbleRecover);
+	fallback = severe ? mishap::DefaultSevere()
+					  : mishap::DefaultFumble(m_balance.fumbleRecover);
+	return fallback;
 }
 
 void DungeonWorld::DropItemInCell(const std::string& typeId, int cx, int cz) {
@@ -508,7 +509,7 @@ void DungeonWorld::PartyFumble(Character& attacker, size_t hand,
 		fx::ApplyProcs(self, weapon->onFumble, std::nullopt,
 					   /*source=*/-1, m_effects, m_combatRng);
 
-	const auto run = [&](const std::vector<mishap::Entry>& table) {
+	const auto run = [&](std::span<const mishap::Entry> table) {
 		for (const mishap::Entry& e : table) switch (e.kind) {
 			case mishap::Kind::Recover:
 				// Off balance: the hand takes longer to come back. The one
@@ -589,10 +590,11 @@ void DungeonWorld::PartyFumble(Character& attacker, size_t hand,
 			}
 			}
 	};
-	run(FumbleTable(weapon ? weapon->fumble : std::vector<mishap::Entry>{}, false));
+	static const std::vector<mishap::Entry> kNone; // bare hands author nothing
+	mishap::DefaultTable fallback;
+	run(FumbleTable(weapon ? weapon->fumble : kNone, false, fallback));
 	if (severe)
-		run(FumbleTable(weapon ? weapon->fumbleSevere : std::vector<mishap::Entry>{},
-						true));
+		run(FumbleTable(weapon ? weapon->fumbleSevere : kNone, true, fallback));
 }
 
 void DungeonWorld::MonsterFumble(Monster& monster, const AttackProfile& atk,
@@ -604,7 +606,7 @@ void DungeonWorld::MonsterFumble(Monster& monster, const AttackProfile& atk,
 		fx::ApplyProcs(self, monster.kind->onFumble, std::nullopt, -1, m_effects,
 					   m_combatRng);
 
-	const auto run = [&](const std::vector<mishap::Entry>& table) {
+	const auto run = [&](std::span<const mishap::Entry> table) {
 		for (const mishap::Entry& e : table) switch (e.kind) {
 			case mishap::Kind::Recover:
 				monster.attackCd *= std::max(1.0f, e.value);
@@ -655,8 +657,9 @@ void DungeonWorld::MonsterFumble(Monster& monster, const AttackProfile& atk,
 			}
 			}
 	};
-	run(FumbleTable(monster.kind->fumble, false));
-	if (severe) run(FumbleTable(monster.kind->fumbleSevere, true));
+	mishap::DefaultTable fallback;
+	run(FumbleTable(monster.kind->fumble, false, fallback));
+	if (severe) run(FumbleTable(monster.kind->fumbleSevere, true, fallback));
 }
 
 void DungeonWorld::TickAutoAttack() {
@@ -1086,8 +1089,8 @@ float DungeonWorld::MonsterTarget::Resist(DamageType type) const {
 	return m_world.m_balance.ClampResist(resist, nature);
 }
 
-std::string DungeonWorld::MonsterTarget::Name() const {
-	return loc::Tr("monster." + m_monster.kind->name);
+loc::Line DungeonWorld::MonsterTarget::Name() const {
+	return loc::ViewKey("monster.", m_monster.kind->name);
 }
 
 void DungeonWorld::MonsterTarget::Say(std::string_view line) const {
@@ -1328,7 +1331,7 @@ void DungeonWorld::MonsterAttack(Monster& monster) {
 	// empty, so nothing plays — the pre-clip look, as before.
 	monster.attackReq = true;
 
-	const std::string name = loc::Tr("monster." + monster.kind->name);
+	const loc::Line name = loc::ViewKey("monster.", monster.kind->name);
 	// One blow, through the one pipeline. The wind ward can't deflect it (it
 	// turns bolts), the water veil may soak it, and the fire shield answers it
 	// — all of that is the stages' business now, not this function's.
@@ -1771,7 +1774,7 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 		spec->type,
 		// `crit = pierce`: this edge finds the gap between the plates.
 		weapon && weapon->critPierce};
-	const std::string name = loc::Tr("monster." + target->kind->name);
+	const loc::Line name = loc::ViewKey("monster.", target->kind->name);
 	PartyTarget striker{*this, attacker};
 	MonsterTarget defender{*this, *target};
 	// The attacker's type axis: potency summed from THIS hand's weapon and every
@@ -2013,7 +2016,7 @@ bool DungeonWorld::ResolveSpellHit(const ProjectileImpact& impact) {
 	if (hitIndex < 0) return false; // open air (or only wrong-lane bodies) — flies on
 	Monster* hit = &m_monsters[static_cast<size_t>(hitIndex)];
 
-	const std::string name = loc::Tr("monster." + hit->kind->name);
+	const loc::Line name = loc::ViewKey("monster.", hit->kind->name);
 	MonsterTarget defender{*this, *hit};
 	// The launcher's type axis (docs/damage-system.md "Two axes") — applied here
 	// because this is the only place both the roster and the monster list are known.
@@ -2185,8 +2188,8 @@ void DungeonWorld::BreakableTarget::Absorb(float amount, fx::DamageEvent& ev) {
 					static_cast<int>(amount + 0.5f)));
 }
 
-std::string DungeonWorld::BreakableTarget::Name() const {
-	return loc::Tr(m_nameKey);
+loc::Line DungeonWorld::BreakableTarget::Name() const {
+	return loc::View(m_nameKey);
 }
 
 void DungeonWorld::BreakableTarget::Say(std::string_view line) const {
@@ -2402,7 +2405,7 @@ void DungeonWorld::ApplyBlastHit(const blast::Hit& c,
 		// MONSTERS in the cell — all of them, every lane. A blast has no lane.
 		for (Monster& m : m_monsters) {
 			if (!m.Alive() || m.x != c.x || m.z != c.z) continue;
-			const std::string name = loc::Tr("monster." + m.kind->name);
+			const loc::Line name = loc::ViewKey("monster.", m.kind->name);
 			MonsterTarget defender{*this, m};
 			fx::DamageEvent ev = fx::DamageEvent::Burst(type, dmg, attacker);
 			fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);

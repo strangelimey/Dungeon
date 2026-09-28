@@ -27,6 +27,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace dungeon::game {
@@ -39,8 +40,9 @@ struct CatalogEntry;
 struct CastServices {
 	// Spawn a bolt into the moving-item engine ("onto the map").
 	std::function<void(const ProjectileSpec&)> spawnBolt;
-	// A log line ABOUT a member, tinted with their identity color.
-	std::function<void(const Character&, const std::string&)> message;
+	// A log line ABOUT a member, tinted with their identity color. Borrows the
+	// line, like every sink on the message path (docs/message-allocation.md).
+	std::function<void(const Character&, std::string_view)> message;
 	// Land a status effect on a character (docs/effects.md): the id names the
 	// KIND, and the host resolves it through the registry and applies that
 	// kind's stacking rule. A spell that leaves something behind — a ward, the

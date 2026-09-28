@@ -23,6 +23,7 @@
 // ============================================================================
 #pragma once
 
+#include "Core/Loc.h"   // loc::Line (ITarget::Name)
 #include "Core/Types.h"
 #include "Game/Combat.h" // DamageType, StrikeRules, the strike resolver
 #include "Game/Spells.h" // SpellSymbol (an effect's school: tint + flavour)
@@ -226,8 +227,10 @@ public:
 	// announces itself — being fed by a blow is worth saying out loud.
 	virtual void Absorb(float amount, DamageEvent& ev) = 0;
 
-	// For the lines effects write about their bearer.
-	virtual std::string Name() const = 0;
+	// For the lines effects write about their bearer. An inline loc::Line, not a
+	// std::string: it is called on per-hit paths (a fire shield naming the
+	// monster it scorches), and a string here allocated on every swing.
+	virtual loc::Line Name() const = 0;
 	// Borrows the line — an effect builds it in a loc::Line on its own stack
 	// and it is copied only once, into the log's ring (docs/message-allocation.md).
 	virtual void Say(std::string_view line) const = 0;
