@@ -190,7 +190,7 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_magic.SetBalance(&m_balance);
 	m_magic.SetCastServices(
 		{[this](const ProjectileSpec& bolt) { m_projectiles.Spawn(bolt); },
-		 [this](const Character& member, const std::string& line) {
+		 [this](const Character& member, std::string_view line) {
 			 MemberMessage(member, line);
 		 },
 		 [this](Character& target, std::string_view id, SpellSymbol school,
@@ -278,14 +278,10 @@ void DungeonWorld::RebuildChunkRegion(int chunkX, int chunkZ) {
 		[this](const std::string& type) { return BoreMeshFor(type); },
 		[this](const std::string& type) { return FloorFeatureMeshFor(type); },
 		[this](const std::string& type) { return CeilingFeatureMeshFor(type); });
-	auto replace = [&](Surface& surface, std::vector<GeometryChunk>& fresh) {
-		std::erase_if(surface.chunks,
+	for (Surface* surface : {&m_walls, &m_floors, &m_ceilings})
+		std::erase_if(surface->chunks,
 					  [&](const SurfaceChunk& sc) { return sc.chunk == chunkIndex; });
-		for (GeometryChunk& gc : fresh) surface.chunks.push_back(MakeSurfaceChunk(gc));
-	};
-	replace(m_walls, r.walls);
-	replace(m_floors, r.floors);
-	replace(m_ceilings, r.ceilings);
+	AppendSurfaceChunks(r);
 }
 
 void DungeonWorld::RebuildChunksAround(int x, int z) {
@@ -1028,7 +1024,7 @@ void DungeonWorld::UpdateMonsters(float dt) {
 			// Whether it was ALIGHT decides how its death reads — burning away
 			// to nothing, or simply slain by whatever else was eating at it.
 			const bool wasBurning = PlumeEffect(monster) != nullptr;
-			const std::string name = loc::Tr("monster." + monster.kind->name);
+			const loc::Line name = loc::ViewKey("monster.", monster.kind->name);
 			MonsterTarget afflicted{*this, monster};
 			TickEffects(afflicted, monster.effects, dt, [&](const fx::Inst& e) {
 				onMessage(e.Is("burn")
@@ -1246,7 +1242,7 @@ void DungeonWorld::UpdateMonsters(float dt) {
 }
 
 float DungeonWorld::ClipDuration(const MonsterKind& kind, const std::string& name) const {
-	for (const auto& c : kind.model.clips)
+	for (const auto& c : kind.model->clips)
 		if (c.name == name) return c.duration;
 	return 0.0f;
 }

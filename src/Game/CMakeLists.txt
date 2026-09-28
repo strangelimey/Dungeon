@@ -28,6 +28,7 @@ add_library(Game STATIC
 	DungeonWorld_Ledger.cpp
 	DungeonWorld_Levels.cpp
 	DungeonWorld_Load.cpp
+	DungeonWorld_Models.cpp
 	DungeonWorld_Render.cpp
 	DungeonWorld_Save.cpp
 	DungeonWorld_Validate.cpp

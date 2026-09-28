@@ -166,6 +166,17 @@ void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 	// material of each set resets the surface, exactly as LoadTextureSet does.
 	for (const SurfaceDef& def : SurfaceDefs()) {
 		Surface& surface = def.surface;
+		// A level change re-runs this whole list, and levels usually share a
+		// palette: if the surface already holds exactly these sets at this tier,
+		// keep them. Only the per-variant parallax depth can differ (two palette
+		// ids may name one texture with different height_scale / wear), so that
+		// is refreshed; the factors are re-applied by BuildDungeonMeshes anyway.
+		if (surface.Holds(def.names, m_settings.TextureSuffix())) {
+			surface.heightScale.assign(def.heights.begin(), def.heights.end());
+			log::Info("Surface textures kept: {} set(s) at {}", def.names.size(),
+					  surface.loadedRes);
+			continue;
+		}
 		for (size_t i = 0; i < def.names.size(); ++i) {
 			const std::string& name = def.names[i];
 			const float heightScale = def.heights[i]; // per-variant parallax depth
@@ -215,7 +226,20 @@ void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 }
 
 void DungeonWorld::LoadDungeonBlocks() {
-	// The old dungeon uses the worn, crumbling block set — one mesh per
+	LoadFeatureMeshes();
+
+	// A level change re-runs the load, and levels usually share a palette: the
+	// blocks already in memory are the right ones whenever the tier and all three
+	// set lists match what they were loaded for.
+	BlockSetKey want{m_settings.MeshSuffix(), m_wallSets, m_floorSets, m_ceilingSets};
+	if (m_loadedBlocks && *m_loadedBlocks == want) {
+		log::Info("Worn blocks kept: {} wall / {} floor / {} ceiling set(s) at {}",
+				  m_wallSets.size(), m_floorSets.size(), m_ceilingSets.size(), want.tier);
+		return;
+	}
+	m_loadedBlocks.reset(); // until the loads below have all landed
+
+	// The old dungeon uses the worn, crumbling block set - one mesh per
 	// texture variant, displaced at bake time by that texture's height map
 	// so geometry relief matches the painted bricks/slabs. The clean
 	// *_block.gltf models remain baked for newer areas of the game.
@@ -269,50 +293,65 @@ void DungeonWorld::LoadDungeonBlocks() {
 		}
 		m_wallBlocks.push_back(std::move(panels));
 	}
+	m_loadedBlocks = std::move(want);
+}
+
+// The feature meshes. The per-TYPE maps are rebuilt from the catalogs on every
+// call, so a type the editor created or re-pointed since the last load is
+// picked up exactly as before; only the FILE reads are cached, since the same
+// model file is the same mesh whichever level asks. ReloadDungeonBlocks empties
+// the cache when the files themselves may have changed.
+void DungeonWorld::LoadFeatureMeshes() {
+	const auto mesh = [this](const std::string& model) -> const assets::MeshData* {
+		auto it = m_featureMeshCache.find(model);
+		if (it == m_featureMeshCache.end())
+			it = m_featureMeshCache
+					 .emplace(model, std::move(LoadModelOrDie(model + ".gltf").meshes[0]))
+					 .first;
+		return &it->second;
+	};
 
 	// Wall-feature niche panels, one per wallfeatures.cat type (its `model`.gltf),
 	// stamped per niche edge into the wall's variant bucket so they take the wall
-	// texture (see DungeonMeshBuilder). Loaded once; a level references types.
+	// texture (see DungeonMeshBuilder). A level references types.
 	m_nicheMeshes.clear();
 	m_boreMeshes.clear();
-	for (const CatalogEntry& e : m_project.wallfeatures.Entries()) {
-		const std::string model = CatalogGet(&e, "model", e.id);
+	for (const CatalogEntry& e : m_project.wallfeatures.Entries())
 		// A `bore` feature is a see-through window (its own mesh map); everything
 		// else is a niche.
 		(e.GetBool("bore", false) ? m_boreMeshes : m_nicheMeshes)
-			.emplace(e.id, LoadModelOrDie(model + ".gltf").meshes[0]);
-	}
+			.emplace(e.id, mesh(CatalogGet(&e, "model", e.id)));
 
 	// Surface-feature tiles, one per surfacefeatures.cat type, filed by the
-	// type's `surface`. Same shape as the niches above — loaded once, referenced
-	// by a level's `floorfeature` / `ceilingfeature` records. Splitting the map
-	// here is what lets each resolver answer only for its own side.
+	// type's `surface`. Same shape as the niches above, referenced by a level's
+	// `floorfeature` / `ceilingfeature` records. Splitting the map here is what
+	// lets each resolver answer only for its own side.
 	m_floorFeatureMeshes.clear();
 	m_ceilingFeatureMeshes.clear();
 	for (const CatalogEntry& e : m_project.surfacefeatures.Entries())
 		(CatalogGet(&e, "surface", "floor") == "ceiling" ? m_ceilingFeatureMeshes
 														 : m_floorFeatureMeshes)
-			.emplace(e.id, LoadModelOrDie(CatalogGet(&e, "model", e.id) + ".gltf").meshes[0]);
+			.emplace(e.id, mesh(CatalogGet(&e, "model", e.id)));
 }
 
 const assets::MeshData* DungeonWorld::BoreMeshFor(const std::string& type) const {
 	const auto it = m_boreMeshes.find(type);
-	return it != m_boreMeshes.end() ? &it->second : nullptr;
+	return it != m_boreMeshes.end() ? it->second : nullptr;
 }
 
 const assets::MeshData* DungeonWorld::NicheMeshFor(const std::string& type) const {
 	const auto it = m_nicheMeshes.find(type);
-	return it != m_nicheMeshes.end() ? &it->second : nullptr;
+	return it != m_nicheMeshes.end() ? it->second : nullptr;
 }
 
 const assets::MeshData* DungeonWorld::FloorFeatureMeshFor(const std::string& type) const {
 	const auto it = m_floorFeatureMeshes.find(type);
-	return it != m_floorFeatureMeshes.end() ? &it->second : nullptr;
+	return it != m_floorFeatureMeshes.end() ? it->second : nullptr;
 }
 
 const assets::MeshData* DungeonWorld::CeilingFeatureMeshFor(const std::string& type) const {
 	const auto it = m_ceilingFeatureMeshes.find(type);
-	return it != m_ceilingFeatureMeshes.end() ? &it->second : nullptr;
+	return it != m_ceilingFeatureMeshes.end() ? it->second : nullptr;
 }
 
 bool DungeonWorld::FeatureIsCeiling(const std::string& type) const {
@@ -368,6 +407,8 @@ void DungeonWorld::LoadSurfaceMaterial(Surface& surface, const std::string& name
 	surface.normal.push_back(std::move(maps.normal));
 	surface.mr.push_back(std::move(maps.mr));
 	surface.heightScale.push_back(heightScale);
+	surface.loadedSets.push_back(name); // what the arrays hold (Surface::Holds)
+	surface.loadedRes = m_settings.TextureSuffix();
 }
 
 void DungeonWorld::LoadTextureSet(const SurfaceDef& def) {
@@ -380,14 +421,31 @@ void DungeonWorld::LoadAllSurfaceTextures() {
 	for (const SurfaceDef& def : SurfaceDefs()) LoadTextureSet(def);
 }
 
-DungeonWorld::SurfaceChunk DungeonWorld::MakeSurfaceChunk(GeometryChunk& gc) {
-	SurfaceChunk sc;
-	sc.variant = gc.variant;
-	sc.chunk = gc.chunk;
-	sc.boundsMin = gc.boundsMin;
-	sc.boundsMax = gc.boundsMax;
-	sc.mesh = std::make_unique<gfx::Mesh>(m_device, gc.mesh);
-	return sc;
+void DungeonWorld::AppendSurfaceChunks(DungeonGeometry& geo) {
+	// One batch for all three surfaces: a level is hundreds of chunks, and one
+	// upload each cost ~0.7 ms of resource creation, submission and a GPU wait
+	// (see Graphics/Mesh.h). The meshes come back parallel to the input.
+	std::vector<const assets::MeshData*> data;
+	data.reserve(geo.walls.size() + geo.floors.size() + geo.ceilings.size());
+	for (const auto* list : {&geo.walls, &geo.floors, &geo.ceilings})
+		for (const GeometryChunk& gc : *list) data.push_back(&gc.mesh);
+	std::vector<std::unique_ptr<gfx::Mesh>> meshes = gfx::CreateMeshes(m_device, data);
+
+	size_t next = 0;
+	const auto append = [&](Surface& surface, const std::vector<GeometryChunk>& chunks) {
+		for (const GeometryChunk& gc : chunks) {
+			SurfaceChunk sc;
+			sc.variant = gc.variant;
+			sc.chunk = gc.chunk;
+			sc.boundsMin = gc.boundsMin;
+			sc.boundsMax = gc.boundsMax;
+			sc.mesh = std::move(meshes[next++]);
+			surface.chunks.push_back(std::move(sc));
+		}
+	};
+	append(m_walls, geo.walls);
+	append(m_floors, geo.floors);
+	append(m_ceilings, geo.ceilings);
 }
 
 void DungeonWorld::BuildDungeonMeshes() {
@@ -406,13 +464,10 @@ void DungeonWorld::BuildDungeonMeshes() {
 		[this](const std::string& type) { return FloorFeatureMeshFor(type); },
 		[this](const std::string& type) { return CeilingFeatureMeshFor(type); });
 
-	auto upload = [&](Surface& surface, std::vector<GeometryChunk>& chunks) {
-		surface.chunks.clear();
-		for (GeometryChunk& gc : chunks) surface.chunks.push_back(MakeSurfaceChunk(gc));
-	};
-	upload(m_walls, geo.walls);
-	upload(m_floors, geo.floors);
-	upload(m_ceilings, geo.ceilings);
+	m_walls.chunks.clear();
+	m_floors.chunks.clear();
+	m_ceilings.chunks.clear();
+	AppendSurfaceChunks(geo);
 	m_geometryDirty = false; // any full bake pays the deferred-undo debt
 }
 
@@ -492,21 +547,20 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 		const CatalogEntry* def = m_project.monsters.Find(type);
 		const auto [model, tex] = ModelAndTexture(def, type);
 		auto assets = std::make_unique<MonsterKind>();
-		assets->model = LoadModelOrDie(model + ".gltf");
+		assets->model = ModelFile(model + ".gltf"); // shared by every kind on the file
 		assets->name = type; // catalog id — drives the monster.<id> loc key
-		assets->mesh = std::make_unique<gfx::Mesh>(m_device, assets->model.meshes[0]);
+		assets->mesh = ModelMesh(model + ".gltf");
 		// A bound PBR set serves the single-mesh path; an authored
 		// multi-material rig carries its textures EMBEDDED and its entry
 		// usually names no set — don't warn-hunt one by the id (the skeleton
 		// kit's four kinds fired a bogus missing-set warning each) unless the
 		// catalog names one explicitly.
-		const bool multi = assets->model.meshes.size() > 1;
+		const bool multi = assets->model->meshes.size() > 1;
 		if (!multi || (def && def->Find("texture")))
 			assets->tex = LoadPropTextures(tex); // <tex>_<res> PBR set, if present
 		// Authored multi-material rig (bones/armor/weapons primitives, embedded
 		// textures): build the per-material submeshes the draw paths loop.
-		if (multi)
-			assets->multi = BuildMultiMaterialModel(m_device, assets->model);
+		if (multi) assets->multi = ModelMulti(model + ".gltf");
 		// Map head-shot icon RT; a fresh kind re-arms the one-shot bake pass.
 		assets->iconTarget = gfx::Texture::RenderTarget(m_device, kIconSize);
 		m_monsterIconsBaked = false;
@@ -597,9 +651,9 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 			std::vector<std::string> clips;
 			if (!spec.empty()) {
 				for (const std::string& c : SplitTokens(spec))
-					if (ModelHasClip(assets->model, c)) clips.push_back(c);
+					if (ModelHasClip(*assets->model,c)) clips.push_back(c);
 			} else if (const std::string dflt(anim::StateName(st));
-					   ModelHasClip(assets->model, dflt)) {
+					   ModelHasClip(*assets->model,dflt)) {
 				clips.push_back(dflt);
 			}
 			assets->animClips[i] = std::move(clips);
@@ -641,8 +695,8 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 std::vector<std::string> DungeonWorld::MonsterClipNames(const std::string& type) {
 	const MonsterKind& kind = MonsterKindFor(type);
 	std::vector<std::string> names;
-	names.reserve(kind.model.clips.size());
-	for (const auto& c : kind.model.clips) names.push_back(c.name);
+	names.reserve(kind.model->clips.size());
+	for (const auto& c : kind.model->clips) names.push_back(c.name);
 	return names;
 }
 
@@ -661,7 +715,7 @@ void DungeonWorld::ApplyMonsterAnimConfig(const std::string& type,
 	for (int i = 0; i < anim::kCreatureStateCount; ++i) {
 		std::vector<std::string> filtered;
 		for (const std::string& name : clips[i])
-			if (ModelHasClip(kind.model, name)) filtered.push_back(name);
+			if (ModelHasClip(*kind.model,name)) filtered.push_back(name);
 		kind.animClips[i] = std::move(filtered);
 	}
 }
@@ -708,11 +762,11 @@ DungeonWorld::MonsterPreviewData DungeonWorld::MonsterPreviewFor(const std::stri
 	const MonsterKind& kind = MonsterKindFor(type);
 	MonsterPreviewData d;
 	d.mesh = kind.mesh.get();
-	d.skeleton = &kind.model.skeleton;
-	d.clips = &kind.model.clips;
+	d.skeleton = &kind.model->skeleton;
+	d.clips = &kind.model->clips;
 	d.modelScale = kind.modelScale;
 	d.modelYaw = kind.modelYaw;
-	ApplyPropMaterial(d.material, kind.tex, kind.model.materials[0].baseColorFactor,
+	ApplyPropMaterial(d.material, kind.tex, kind.model->materials[0].baseColorFactor,
 					  kind.fallbackRoughness);
 	if (kind.multi) { // one drawable per primitive, each with its own material
 		for (const MultiMaterialModel::Sub& sub : kind.multi->subs)
@@ -808,7 +862,7 @@ DungeonWorld::Monster DungeonWorld::MakeMonster(MonsterKind& kind, int id, int x
 	// (the new monster isn't in m_monsters yet, so self=-1). -1 (full) → slot 0.
 	monster.slot = std::max(0, FreeSlotInCell(x, z, kind.size, -1));
 	monster.visualPos = SlotCenter(x, z, kind.size, monster.slot);
-	monster.animator = anim::Animator(&kind.model.skeleton, &kind.model.clips);
+	monster.animator = anim::Animator(&kind.model->skeleton, &kind.model->clips);
 	// Initial resting pose; DriveMonsterAnim takes over next frame (and plays the
 	// spawn clip first if the kind has one, via the default spawnReq).
 	const std::string idle = PickClip(kind, anim::CreatureState::Idle);
@@ -958,7 +1012,10 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		// floor and its baked render becomes the icon/cursor. null = the tablet+tint
 		// placeholder. Items ship as embedded-texture multi-material .glb.
 		if (const std::string modelName = CatalogGet(def, "model", ""); !modelName.empty()) {
-			kind->model = BuildMultiMaterialModel(m_device, LoadModelOrDie(modelName + ".glb"));
+			// The file's meshes + textures are shared (an enchanted blade and its
+			// plain twin, five armours on one model); the materials are this
+			// kind's own copy, so its overrides touch nothing else.
+			kind->model = ModelMulti(modelName + ".glb");
 			BakeCatalogMaterial(*kind->model, def); // dialog material overrides
 		}
 		// Every item draws as the shared carved-stone tablet (loaded once) — runes
@@ -1321,9 +1378,14 @@ std::unique_ptr<DungeonWorld::MultiMaterialModel> DungeonWorld::BuildMultiMateri
 	for (const assets::MaterialData& m : model.materials)
 		if (m.baseColorImage >= 0) srgb[m.baseColorImage] = true;
 	out->textures.reserve(model.images.size());
-	for (size_t i = 0; i < model.images.size(); ++i)
+	for (size_t i = 0; i < model.images.size(); ++i) {
+		// A baked BC7 chain (AssetBaker mips) uploads as it is; otherwise the
+		// decoded image gets its mips built here, as before the bake existed.
+		const bool baked = i < model.imageMips.size() && !model.imageMips[i].levels.empty();
 		out->textures.push_back(
-			std::make_unique<gfx::Texture>(device, model.images[i], srgb[i]));
+			baked ? std::make_unique<gfx::Texture>(device, model.imageMips[i], srgb[i])
+				  : std::make_unique<gfx::Texture>(device, model.images[i], srgb[i]));
+	}
 
 	auto texAt = [&](int img) -> const gfx::Texture* {
 		return img >= 0 ? out->textures[static_cast<size_t>(img)].get() : nullptr;
@@ -1425,23 +1487,23 @@ DungeonWorld::DecorationKind& DungeonWorld::DecorationKindFor(const std::string&
 		// own glTF textures per material from a single embedded-texture .glb,
 		// bypassing the single-mesh / one-bound-set path below.
 		if (CatalogBool(def, "multimaterial", false)) {
-			kind->model = LoadModelOrDie(model + ".glb");
-			kind->multi = BuildMultiMaterialModel(m_device, kind->model);
+			kind->model = ModelFile(model + ".glb");
+			kind->multi = ModelMulti(model + ".glb"); // shared GPU, own materials
 			BakeCatalogMaterial(*kind->multi, def); // overrides baked per submesh
 			kind->solidDefault = CatalogBool(def, "solid", true);
-			kind->cullRadius = ModelOriginRadius(kind->model) * kUnit * kind->modelScale;
+			kind->cullRadius = ModelOriginRadius(*kind->model) * kUnit * kind->modelScale;
 			it = m_decorationKinds.emplace(type, std::move(kind)).first;
 			return *it->second;
 		}
-		kind->model = LoadModelOrDie(model + ".gltf");
-		kind->mesh = std::make_unique<gfx::Mesh>(m_device, kind->model.meshes[0]);
-		kind->color = kind->model.materials[0].baseColorFactor;
+		kind->model = ModelFile(model + ".gltf"); // marble + stone columns share one
+		kind->mesh = ModelMesh(model + ".gltf");
+		kind->color = kind->model->materials[0].baseColorFactor;
 		kind->tex = LoadPropTextures(tex);
 		kind->solidDefault = CatalogBool(def, "solid", true);
 		// Optional alpha-test cutout (a masked set like wood planks renders its
 		// gaps); absent/0 = opaque, the usual case.
 		kind->alphaCutoff = def ? def->GetFloat("alpha_test", 0.0f) : 0.0f;
-		kind->cullRadius = ModelOriginRadius(kind->model) * kUnit * kind->modelScale;
+		kind->cullRadius = ModelOriginRadius(*kind->model) * kUnit * kind->modelScale;
 		it = m_decorationKinds.emplace(type, std::move(kind)).first;
 	}
 	return *it->second;
@@ -1471,9 +1533,9 @@ DungeonWorld::FixtureKind& DungeonWorld::FixtureKindFor(const std::string& type)
 			ParseResists(CatalogGet(def, "resists", ""), kind->resists,
 						 "fixtures.cat [" + type + "]", m_damageTypes);
 		}
-		kind->model = LoadModelOrDie(model + ".gltf");
-		kind->mesh = std::make_unique<gfx::Mesh>(m_device, kind->model.meshes[0]);
-		kind->color = kind->model.materials[0].baseColorFactor;
+		kind->model = ModelFile(model + ".gltf");
+		kind->mesh = ModelMesh(model + ".gltf");
+		kind->color = kind->model->materials[0].baseColorFactor;
 		kind->tex = LoadPropTextures(set);
 		// Flame attachment: catalog fields override the mount's defaults so an
 		// authored prop's fire burns where its bowl/basket actually is.
@@ -1490,9 +1552,8 @@ DungeonWorld::FixtureKind& DungeonWorld::FixtureKindFor(const std::string& type)
 			// (the two models were normalized TOGETHER at import, so their
 			// placements already align).
 			if (const std::string model2 = def->Get("part2_model"); !model2.empty()) {
-				const assets::ModelData data = LoadModelOrDie(model2 + ".gltf");
-				kind->mesh2 = std::make_unique<gfx::Mesh>(m_device, data.meshes[0]);
-				kind->color2 = data.materials[0].baseColorFactor;
+				kind->mesh2 = ModelMesh(model2 + ".gltf");
+				kind->color2 = ModelFile(model2 + ".gltf")->materials[0].baseColorFactor;
 				kind->tex2 = LoadPropTextures(def->Get("part2_texture", model2));
 			}
 		}
@@ -1723,6 +1784,11 @@ void DungeonWorld::ReloadDungeonBlocks(bool textureResChanged) {
 	m_walls.chunks.clear();
 	m_floors.chunks.clear();
 	m_ceilings.chunks.clear();
+	// Always a fresh read here, never the level-change skip: the restyle rebake
+	// calls this precisely because a worn_*.gltf CHANGED under the same name, so
+	// "same names as last time" proves nothing about the contents.
+	m_loadedBlocks.reset();
+	m_featureMeshCache.clear(); // the per-type maps are rebuilt from it next
 	LoadDungeonBlocks();
 	if (textureResChanged || setsChanged)
 		LoadAllSurfaceTextures(); // re-pushes each variant's parallax depth

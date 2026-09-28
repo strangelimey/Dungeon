@@ -190,22 +190,24 @@ bool WriteGltf(const assets::ModelData& model, const std::string& path) {
 		for (const auto& clip : model.clips) {
 			std::vector<std::string> samplers, channels;
 			for (const auto& ch : clip.channels) {
+				const std::span<const float> times = clip.Times(ch);
+				const std::span<const Vec4> values = clip.Values(ch);
 				const std::string inMinMax = std::format(
-					R"("min":[{}],"max":[{}])", ch.times.front(), ch.times.back());
-				const int accIn = buffer.Add(ch.times.data(), ch.times.size() * 4,
-											 5126, "SCALAR", ch.times.size(), inMinMax);
+					R"("min":[{}],"max":[{}])", times.front(), times.back());
+				const int accIn = buffer.Add(times.data(), times.size() * 4,
+											 5126, "SCALAR", times.size(), inMinMax);
 				int accOut;
 				const char* pathName;
 				if (ch.path == assets::ChannelPath::Rotation) {
-					accOut = buffer.Add(ch.values.data(), ch.values.size() * 16, 5126,
-										"VEC4", ch.values.size());
+					accOut = buffer.Add(values.data(), values.size() * 16, 5126,
+										"VEC4", values.size());
 					pathName = "rotation";
 				} else {
 					std::vector<float> v3;
-					for (const Vec4& v : ch.values)
+					for (const Vec4& v : values)
 						v3.insert(v3.end(), {v.x, v.y, v.z});
 					accOut = buffer.Add(v3.data(), v3.size() * 4, 5126, "VEC3",
-										ch.values.size());
+										values.size());
 					pathName = ch.path == assets::ChannelPath::Translation ? "translation"
 																		   : "scale";
 				}

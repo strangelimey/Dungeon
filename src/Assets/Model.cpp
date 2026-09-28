@@ -22,12 +22,14 @@
 // ============================================================================
 #include "Assets/Model.h"
 
+#include "Assets/Dds.h"
 #include "Core/AllocTrack.h"
 #include "Core/Log.h"
 
 #include <cgltf.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <memory>
@@ -44,15 +46,55 @@ Mat4 ToMat4(const float m[16]) {
 }
 
 // Maps a cgltf image to an index in ModelData::images, loading on first use.
+// With `bakedImages`, an image whose baked sidecar (EmbeddedImageSidecar) is at
+// least as new as the model file loads from THAT instead - a BC7 mip chain in
+// imageMips, images[i] left empty - and is never decoded. The index a sidecar
+// is named by is this same first-use order, which the baker gets by running
+// this same loader without the option, so the two cannot disagree.
 struct ImageCache {
 	const cgltf_data* data;
 	std::filesystem::path baseDir;
 	ModelData* model;
+	std::string modelPath;
+	bool bakedImages = false;
+	std::filesystem::file_time_type modelTime{};
 	std::unordered_map<const cgltf_image*, int> indices;
+
+	// The baked chain for the NEXT index, if there is a usable one.
+	std::optional<MipChain> Baked() {
+		const std::string sidecar = EmbeddedImageSidecar(modelPath, model->images.size());
+		std::error_code ec;
+		const auto time = std::filesystem::last_write_time(sidecar, ec);
+		if (ec) return std::nullopt; // not baked: decode, as before the bake existed
+		if (time < modelTime) {
+			// Said, not skipped: a stale sidecar is a model re-imported without a
+			// re-bake, and quietly decoding hides that the bake is out of date.
+			log::Warn("{} is older than its model - decoding instead; rerun "
+					  "AssetBaker mips", sidecar);
+			return std::nullopt;
+		}
+		auto chain = LoadDdsFile(sidecar);
+		if (!chain) {
+			log::Warn("{} - decoding the embedded image instead", chain.error());
+			return std::nullopt;
+		}
+		return std::move(*chain);
+	}
 
 	int Get(const cgltf_image* image) {
 		if (!image) return -1;
 		if (auto it = indices.find(image); it != indices.end()) return it->second;
+
+		if (bakedImages) {
+			if (std::optional<MipChain> chain = Baked()) {
+				const int index = static_cast<int>(model->images.size());
+				model->images.emplace_back(); // placeholder: imageMips carries it
+				model->imageMips.resize(model->images.size());
+				model->imageMips.back() = std::move(*chain);
+				indices[image] = index;
+				return index;
+			}
+		}
 
 		std::expected<ImageData, std::string> loaded =
 			std::unexpected(std::string("image has no data source"));
@@ -68,6 +110,7 @@ struct ImageCache {
 		if (loaded) {
 			index = static_cast<int>(model->images.size());
 			model->images.push_back(std::move(*loaded));
+			if (!model->imageMips.empty()) model->imageMips.resize(model->images.size());
 		} else {
 			log::Warn("glTF image skipped: {}", loaded.error());
 		}
@@ -194,7 +237,12 @@ void ReadPrimitive(const cgltf_primitive* prim, MeshData& mesh,
 
 } // namespace
 
-std::expected<ModelData, std::string> LoadGltf(const std::string& path) {
+std::string EmbeddedImageSidecar(const std::string& modelPath, size_t index) {
+	return std::format("{}.{}.dds", modelPath, index);
+}
+
+std::expected<ModelData, std::string> LoadGltf(const std::string& path,
+											   const LoadOptions& opts) {
 	const alloc::Counters before = alloc::ThisThread();
 	cgltf_options options{};
 	cgltf_data* data = nullptr;
@@ -208,7 +256,12 @@ std::expected<ModelData, std::string> LoadGltf(const std::string& path) {
 
 	ModelData model;
 	model.clips.reserve(data->animations_count); // see the clip loop below
-	ImageCache imageCache{data, std::filesystem::path(path).parent_path(), &model, {}};
+	ImageCache imageCache{data, std::filesystem::path(path).parent_path(), &model, path,
+						  opts.bakedImages};
+	if (opts.bakedImages) {
+		std::error_code ec;
+		imageCache.modelTime = std::filesystem::last_write_time(path, ec);
+	}
 
 	// Materials (indices must match cgltf's so primitives can look them up).
 	for (cgltf_size m = 0; m < data->materials_count; ++m) {
@@ -264,69 +317,161 @@ std::expected<ModelData, std::string> LoadGltf(const std::string& path) {
 		}
 	}
 
-	// Animation clips. Both vectors are RESERVED before their loops: a growing
-	// vector of channels re-allocates ~13 times per clip, and in a DEBUG build
-	// each of those re-allocations COPIES every channel it holds rather than
-	// moving them (MSVC's _ITERATOR_DEBUG_LEVEL makes vector's move constructor
-	// allocate an iterator-debug proxy, so it is not noexcept, so
-	// move_if_noexcept picks the copy). Every copied channel re-allocates its
-	// times and values buffers. Reserving turns a rigged monster's clip load
-	// from 47.7k allocations into 8.5k in debug, and costs one line.
+	// Animation clips. Each clip's keys land in TWO pooled arrays (times, values)
+	// that its channels index into - see AnimationChannelData. A rigged Mixamo
+	// model is 40 clips x 33 joints x T/R/S = 3,960 channels, and when each owned
+	// two vectors its load cost ~8,000 allocations (~24,000 in debug, where MSVC's
+	// iterator debugging makes every vector move allocate a proxy). Pooled, it is
+	// a handful per clip, however many channels the clip has.
+	//
+	// Two things the files make cheap:
+	//  * SHARED KEY TIMES. An exporter writes one time accessor for every channel
+	//    sampled on the same frames (the Mixamo rigs: 3,960 channels, 74 distinct
+	//    inputs), so each distinct input is read into `times` once and every
+	//    channel using it points at the same range. Exact.
+	//  * CONSTANT CHANNELS. Exporters key every joint's T, R and S whether it
+	//    moves or not, and most do not. A channel whose values never change is
+	//    stored as ONE key, and dropped outright when that key IS the joint's rest
+	//    pose, since the Animator starts every sample from the rest pose anyway -
+	//    which also spares the Animator sampling it every frame (the Mixamo rigs
+	//    sample ~1,100 channels a frame instead of ~3,900).
+	//    "Never change" and "is the rest pose" are within kConstantEpsilon, NOT
+	//    bitwise, and that is what makes it pay: the exporter's rounding wobbles
+	//    idle channels in the last digits (a scale of 0.99999994), so a bitwise
+	//    test caught 25 of the Mixamo rigs' 3,960 channels and this catches
+	//    ~2,900. It is LOSSY by at most that much in a joint's local T/R/S -
+	//    a millionth of a unit, ~2.5 um at kUnit - and tools/AnimTest measures
+	//    the resulting palette difference rather than assuming it.
+	constexpr float kConstantEpsilon = 1e-6f;
+	std::vector<std::pair<const cgltf_accessor*, u32>> timeRanges; // input -> first key
+	std::vector<Vec4> scratch; // one channel's values while it is classified
+	const auto wanted = [&](const cgltf_animation_channel& ch, ChannelPath& path) {
+		if (!ch.target_node || !nodeToJoint.contains(ch.target_node)) return false;
+		if (!ch.sampler->input->count || !ch.sampler->output->count) return false;
+		switch (ch.target_path) {
+		case cgltf_animation_path_type_translation: path = ChannelPath::Translation; return true;
+		case cgltf_animation_path_type_rotation:    path = ChannelPath::Rotation; return true;
+		case cgltf_animation_path_type_scale:       path = ChannelPath::Scale; return true;
+		default: return false;
+		}
+	};
+	// Component-wise, so a quaternion and its negation (the same rotation) count
+	// as different - which only ever keeps a channel that could have gone.
+	const auto same = [](const Vec4& a, const Vec4& b, int comps) {
+		const float d[4] = {a.x - b.x, a.y - b.y, a.z - b.z, a.w - b.w};
+		for (int i = 0; i < comps; ++i)
+			if (!(std::fabs(d[i]) <= kConstantEpsilon)) return false; // NaN: not same
+		return true;
+	};
 	for (cgltf_size a = 0; a < data->animations_count; ++a) {
 		const cgltf_animation& src = data->animations[a];
 		AnimationClipData clip;
 		clip.name = src.name ? src.name : std::format("clip{}", a);
-		clip.channels.reserve(src.channels_count);
+
+		// Size the pools first, so neither grows: times EXACTLY (one range per
+		// distinct input), values to the most they could need (every channel
+		// kept whole), trimmed once the constant channels have been collapsed.
+		size_t timeKeys = 0, valueKeys = 0, channelCount = 0;
+		timeRanges.clear();
+		for (cgltf_size c = 0; c < src.channels_count; ++c) {
+			ChannelPath path;
+			if (!wanted(src.channels[c], path)) continue;
+			const cgltf_animation_sampler& s = *src.channels[c].sampler;
+			++channelCount;
+			valueKeys += s.output->count;
+			if (std::ranges::find(timeRanges, s.input, &std::pair<const cgltf_accessor*, u32>::first) ==
+				timeRanges.end()) {
+				timeRanges.push_back({s.input, 0});
+				timeKeys += s.input->count;
+			}
+		}
+		if (channelCount == 0) continue; // nothing this skeleton can play
+		clip.channels.reserve(channelCount);
+		clip.times.reserve(timeKeys);
+		clip.values.reserve(valueKeys);
+		timeRanges.clear();
+
 		for (cgltf_size c = 0; c < src.channels_count; ++c) {
 			const cgltf_animation_channel& ch = src.channels[c];
-			if (!ch.target_node || !nodeToJoint.contains(ch.target_node)) continue;
-
 			AnimationChannelData out;
+			if (!wanted(ch, out.path)) continue;
 			out.joint = nodeToJoint[ch.target_node];
-			switch (ch.target_path) {
-			case cgltf_animation_path_type_translation: out.path = ChannelPath::Translation; break;
-			case cgltf_animation_path_type_rotation:    out.path = ChannelPath::Rotation; break;
-			case cgltf_animation_path_type_scale:       out.path = ChannelPath::Scale; break;
-			default: continue;
-			}
-
 			const cgltf_accessor* input = ch.sampler->input;
 			const cgltf_accessor* output = ch.sampler->output;
-			out.times.resize(input->count);
-			out.values.resize(output->count);
-			for (cgltf_size i = 0; i < input->count; ++i) {
-				cgltf_accessor_read_float(input, i, &out.times[i], 1);
-				clip.duration = std::max(clip.duration, out.times[i]);
+
+			// Key times: read each distinct input once; the duration is the
+			// latest key of any of them, exactly as when every channel had a copy.
+			auto range = std::ranges::find(timeRanges, input,
+										   &std::pair<const cgltf_accessor*, u32>::first);
+			if (range == timeRanges.end()) {
+				const u32 first = static_cast<u32>(clip.times.size());
+				clip.times.resize(first + input->count);
+				for (cgltf_size i = 0; i < input->count; ++i) {
+					cgltf_accessor_read_float(input, i, &clip.times[first + i], 1);
+					clip.duration = std::max(clip.duration, clip.times[first + i]);
+				}
+				range = timeRanges.insert(timeRanges.end(), {input, first});
 			}
+
 			const int comps = (out.path == ChannelPath::Rotation) ? 4 : 3;
+			scratch.resize(output->count);
 			for (cgltf_size i = 0; i < output->count; ++i) {
 				float tmp[4] = {0, 0, 0, 1};
 				cgltf_accessor_read_float(output, i, tmp, comps);
-				out.values[i] = {tmp[0], tmp[1], tmp[2], tmp[3]};
+				scratch[i] = {tmp[0], tmp[1], tmp[2], tmp[3]};
 			}
-			clip.channels.push_back(std::move(out));
+			// Every key within kConstantEpsilon of the first; the first is kept.
+			const bool constant = std::ranges::all_of(
+				scratch, [&](const Vec4& v) { return same(v, scratch[0], comps); });
+			if (constant) {
+				const JointData& j = model.skeleton.joints[out.joint];
+				const Vec4 rest = out.path == ChannelPath::Translation
+									  ? Vec4{j.restTranslation.x, j.restTranslation.y,
+											 j.restTranslation.z, 0}
+								  : out.path == ChannelPath::Scale
+									  ? Vec4{j.restScale.x, j.restScale.y, j.restScale.z, 0}
+									  : Vec4{j.restRotation.x, j.restRotation.y,
+											 j.restRotation.z, j.restRotation.w};
+				if (same(scratch[0], rest, comps)) continue; // the rest pose already says it
+			}
+			const u32 keys = constant ? 1u : static_cast<u32>(output->count);
+			out.timeFirst = range->second;
+			out.timeCount = constant ? 1u : static_cast<u32>(input->count);
+			out.valueFirst = static_cast<u32>(clip.values.size());
+			out.valueCount = keys;
+			clip.values.insert(clip.values.end(), scratch.begin(), scratch.begin() + keys);
+			clip.channels.push_back(out);
 		}
-		if (!clip.channels.empty()) model.clips.push_back(std::move(clip));
+		// The reserve assumed nothing collapsed; give back what it did not use.
+		// One reallocation per clip, against the clip's whole value set otherwise
+		// sitting there for the model's lifetime.
+		clip.values.shrink_to_fit();
+		// A clip whose every channel restates the rest pose is still a clip: it
+		// plays (as the rest pose), which is what it did before any were dropped.
+		model.clips.push_back(std::move(clip));
 	}
 
 	// Allocation cost rides the existing line: model loading is the heaviest
 	// allocator in the game and the per-model number is what turns "loading
 	// allocates a lot" into a name (see LoadQueue's table).
 	const alloc::Counters after = alloc::ThisThread();
-	log::Info("Loaded glTF '{}': {} meshes, {} materials, {} joints, {} clips "
-			  "[{} allocs, {:.1f} MB]",
+	const size_t baked = std::ranges::count_if(
+		model.imageMips, [](const MipChain& c) { return !c.levels.empty(); });
+	log::Info("Loaded glTF '{}': {} meshes, {} materials, {} joints, {} clips, "
+			  "{} images ({} baked) [{} allocs, {:.1f} MB]",
 			  path, model.meshes.size(), model.materials.size(),
-			  model.skeleton.joints.size(), model.clips.size(),
+			  model.skeleton.joints.size(), model.clips.size(), model.images.size(), baked,
 			  after.allocs - before.allocs,
 			  static_cast<double>(after.bytes - before.bytes) / (1024.0 * 1024.0));
 	return model;
 }
 
-std::expected<ModelData, std::string> LoadModel(const std::string& path) {
+std::expected<ModelData, std::string> LoadModel(const std::string& path,
+												const LoadOptions& opts) {
 	auto ext = std::filesystem::path(path).extension().string();
 	std::ranges::transform(ext, ext.begin(),
 						   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-	if (ext == ".gltf" || ext == ".glb") return LoadGltf(path);
+	if (ext == ".gltf" || ext == ".glb") return LoadGltf(path, opts);
 	if (ext == ".obj") return LoadObj(path);
 	return std::unexpected(std::format("unsupported model format: {}", path));
 }

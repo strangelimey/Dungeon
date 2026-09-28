@@ -194,6 +194,18 @@ void DungeonWorld::ReloadTypeKind(const std::string& catalogKey,
 	if (catalogKey == "monsters") m_monsterKinds.erase(id);
 	else if (catalogKey == "fixtures") m_fixtureKinds.erase(id);
 	else m_decorationKinds.erase(id); // decorations/doors/buttons/stairs/items
+	// The rebuilt kind reads its model file fresh, as it did when every kind
+	// parsed its own copy - so a file changed on disk shows on save. Other kinds
+	// sharing the file keep the copy they hold until they are reloaded themselves.
+	if (const Catalog* cat = m_project.CatalogForKey(catalogKey)) {
+		const CatalogEntry* def = cat->Find(id);
+		for (const std::string& model : {CatalogGet(def, "model", id),
+										 CatalogGet(def, "part2_model", "")})
+			if (!model.empty()) {
+				ForgetModelFile(model + ".gltf");
+				ForgetModelFile(model + ".glb");
+			}
+	}
 	// Fixtures are props AND light sources, so their rebuild goes through the
 	// fire/turbidity path; everything else just re-spawns.
 	RespawnFromRecords(catalogKey == "wallfeatures");

@@ -95,13 +95,13 @@ bool Severe(int face, int severeFace) {
 	return face > 0 && face <= severeFace;
 }
 
-std::vector<Entry> DefaultFumble(float recoverMul) {
+DefaultTable DefaultFumble(float recoverMul) {
 	// The tempo consequence, and only that: a fumble is a 5%-per-swing event,
 	// so what happens on MOST of them has to be survivable enough to shrug at.
 	return {Entry{Kind::Recover, recoverMul}};
 }
 
-std::vector<Entry> DefaultSevere() {
+DefaultTable DefaultSevere() {
 	// ...and the bottom of the band puts your weapon on the floor. A no-op for
 	// anything swinging bare hands or claws, which is what lets monsters and an
 	// unarmed member share this table harmlessly.

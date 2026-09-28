@@ -496,7 +496,7 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 		gfx::MaterialParams material;
 		const float fallbackRough = kind.fallbackRoughness;
 		ApplyPropMaterial(material, kind.tex,
-						  kind.model.materials[0].baseColorFactor, fallbackRough);
+						  kind.model->materials[0].baseColorFactor, fallbackRough);
 		m_renderer.DrawMesh(list, *kind.mesh, world, material,
 							monster.animator.Palette());
 	}
@@ -784,13 +784,13 @@ void DungeonWorld::UpdateMapIcons(ID3D12GraphicsCommandList* list,
 			if (kind->multi) { // authored multi-material prop: the item baker
 				BakeIcon(list, sprites, *kind->multi, *kind->iconTarget,
 						 /*animated*/ false, /*spin*/ 0.0f);
-			} else if (kind->mesh && !kind->model.meshes.empty()) {
+			} else if (kind->mesh && !kind->model->meshes.empty()) {
 				gfx::MaterialParams mat;
 				mat.doubleSided = !kind->authored;
 				ApplyPropMaterial(mat, *kind, 0.85f);
 				mat.alphaCutoff = kind->alphaCutoff;
 				Vec3 lo, hi;
-				meshBounds(kind->model.meshes[0], lo, hi);
+				meshBounds(kind->model->meshes[0], lo, hi);
 				BakeMeshIcon(list, sprites, *kind->mesh, mat, lo, hi,
 							 *kind->iconTarget);
 			} else {
@@ -805,13 +805,13 @@ void DungeonWorld::UpdateMapIcons(ID3D12GraphicsCommandList* list,
 	// a fresh kind re-arms this pass via m_fixtureIconsBaked).
 	if (!m_fixtureIconsBaked) {
 		for (auto&& [id, kind] : m_fixtureKinds) {
-			if (!kind->mesh || !kind->iconTarget || kind->model.meshes.empty())
+			if (!kind->mesh || !kind->iconTarget || kind->model->meshes.empty())
 				continue;
 			gfx::MaterialParams mat;
 			ApplyPropMaterial(mat, kind->tex, kind->color, 0.5f);
 			if (!mat.albedo) mat.metallic = 1.0f; // flat fallback reads as metal
 			Vec3 lo, hi;
-			meshBounds(kind->model.meshes[0], lo, hi);
+			meshBounds(kind->model->meshes[0], lo, hi);
 			BakeMeshIcon(list, sprites, *kind->mesh, mat, lo, hi,
 						 *kind->iconTarget);
 			any = true;
@@ -913,7 +913,7 @@ void DungeonWorld::BakeMonsterIcon(ID3D12GraphicsCommandList* list,
 	// multi-material rig's helmet may top the bones); the focus box is the top
 	// quarter of the height (the head, tight), centred on x/z.
 	Vec3 lo{1e9f, 1e9f, 1e9f}, hi{-1e9f, -1e9f, -1e9f};
-	for (const auto& meshData : kind.model.meshes) {
+	for (const auto& meshData : kind.model->meshes) {
 		for (const auto& v : meshData.vertices) {
 			lo = {std::min(lo.x, v.position.x), std::min(lo.y, v.position.y),
 				  std::min(lo.z, v.position.z)};
@@ -943,12 +943,12 @@ void DungeonWorld::BakeMonsterIcon(ID3D12GraphicsCommandList* list,
 
 	// Rest-pose palette from a throwaway animator (the mesh is skinned; DrawMesh
 	// copies the palette into the frame's upload arena, so a temp is safe).
-	anim::Animator rest(&kind.model.skeleton, &kind.model.clips);
+	anim::Animator rest(&kind.model->skeleton, &kind.model->clips);
 	rest.Update(0.0f);
 
 	gfx::MaterialParams mat;
 	mat.doubleSided = true;
-	ApplyPropMaterial(mat, kind.tex, kind.model.materials[0].baseColorFactor,
+	ApplyPropMaterial(mat, kind.tex, kind.model->materials[0].baseColorFactor,
 					  kind.fallbackRoughness);
 
 	m_renderer.BeginScene(list, cam, IconStudioLights()); // the shared studio rig

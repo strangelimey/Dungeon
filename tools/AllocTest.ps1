@@ -9,6 +9,7 @@
 #   .\tools\AllocTest.ps1                    # debug build, 10-second window
 #   .\tools\AllocTest.ps1 -Seconds 30
 #   .\tools\AllocTest.ps1 -Wounded           # the REGENERATING steady state
+#   .\tools\AllocTest.ps1 -Melee             # a monster swinging at the party
 #   .\tools\AllocTest.ps1 -Config release    # needs -DDN_TRACK_ALLOCS=ON
 #
 # The party stands still on purpose. Player-driven EVENTS (a bump message, a
@@ -32,6 +33,17 @@
 # an event that would allocate legitimately and muddy the verdict. At level 20 a
 # practice needs 41 more XP, which ten seconds of regeneration cannot reach.
 #
+# -Melee IS THE SAME TRAP AGAIN. No monster reaches a party standing at the
+# start inside the window, so MonsterAttack - its name lookup and its narration
+# - went unmeasured, and every swing allocated three times (a concatenated
+# "monster." key, loc::Tr's copy, the string local) while every run passed.
+# This spawns a weakened monster beside the party, waits for its first blow to
+# LAND (one-time warm-up - a sound's first voice of its format, a member's first
+# entry in a skill table - stays outside the window), then measures with it
+# still swinging, and refuses a PASS unless the tally shows the party was
+# actually hit INSIDE the window. Swings are events, and since the message path
+# stopped allocating (docs/message-allocation.md) events get no exemption.
+#
 # Every step is driven by what the log actually says rather than by sleeps, so
 # a slow cold-cache load stretches the wait instead of failing the run.
 #
@@ -46,6 +58,13 @@ param(
 	# Measures a WOUNDED party instead of a fresh one. See the note above: a
 	# full-health party never runs the regeneration path at all.
 	[switch]$Wounded,
+	# Measures a party IN MELEE: a monster beside it swinging through the whole
+	# window. See the note above - a party nobody attacks never runs the swing.
+	[switch]$Melee,
+	[string]$MeleeMonster = 'skeleton',
+	# Scales the spawned monster's hp AND damage (the `spawn` 5th argument), so
+	# it keeps swinging for the whole window without wiping the party.
+	[double]$MeleeStrength = 0.3,
 	# Checks the CHECKER: makes the game allocate every frame on purpose
 	# (`allocpoke`) and passes only if the run comes back FAIL.
 	[switch]$SelfTest
@@ -102,6 +121,25 @@ function Send-Text([string]$text) {
 	}
 }
 
+# Asks the console for the encounter tally and returns one numeric field of the
+# NEW line it prints (needs logecho on). Counting the lines first is what stops
+# it reading the previous answer back.
+function Get-TallyField([string]$field) {
+	$before = @(Select-String -Path $log -Pattern 'TALLY ').Count
+	Send-Text 'tally'; Send-Key 0x0D
+	$deadline = (Get-Date).AddSeconds(10)
+	while ((Get-Date) -lt $deadline) {
+		$lines = @(Select-String -Path $log -Pattern 'TALLY ')
+		if ($lines.Count -gt $before) {
+			$script:lastTally = $lines[-1].Line -replace '^.*TALLY ', 'TALLY '
+			if ($lines[-1].Line -match "\b$field=([0-9.]+)") { return [double]$Matches[1] }
+			throw "tally printed no '$field': $($lines[-1].Line)"
+		}
+		Start-Sleep -Milliseconds 200
+	}
+	throw 'the console never answered `tally` - is logecho on?'
+}
+
 Remove-Item $log -ErrorAction SilentlyContinue
 Write-Host "launching $exe"
 $proc = Start-Process -FilePath $exe -WorkingDirectory $bin -ArgumentList '-project', 'dungeon-demo' -PassThru
@@ -117,7 +155,38 @@ try {
 	# Landing page: with no save present the first entry is Start New Game.
 	Write-Host 'starting a new game'
 	Send-Key 0x0D
-	Wait-ForLog 'Game loaded: ' $LoadTimeoutSec 'the dungeon load' | Out-Null
+	# NOT 'Game loaded:' - since the world loads on demand that line comes from
+	# a load TASK, before the starting level's own load has begun, and every
+	# console command typed then is refused as "still loading". A level load
+	# ends with 'Level ready:'; a new game that lands without one (the world
+	# map, or a level already in memory) says 'New game started'.
+	$ready = Wait-ForLog '^\[info \] (Level ready: |New game started)' $LoadTimeoutSec 'the dungeon load'
+	Write-Host "  $($ready -replace '^\[info \] ', '')"
+	Start-Sleep -Milliseconds 500
+
+	# AND WAIT UNTIL THE CONSOLE ANSWERS before relying on it. The first level
+	# being ready still does not mean commands are live: Enter on the landing
+	# page is Continue whenever a loadable save exists (the eval suites leave
+	# them behind), a save naming another level stages a SECOND load after the
+	# first 'Level ready:', and the console refuses commands while it runs.
+	# tools\InGameTest.ps1 learned the same thing; this is the same answer: open
+	# the console once, retry a harmless command until the log echoes it, then
+	# shut it so everything below starts from a closed console as before.
+	# (`$answered`, not `$ready`: -Melee reads the party's cell off $ready.)
+	Start-Sleep -Seconds 2
+	Send-Key 0xC0
+	Start-Sleep -Milliseconds 500
+	$answered = $false
+	for ($try = 1; $try -le 10 -and -not $answered; $try++) {
+		Send-Text 'logecho on'; Send-Key 0x0D
+		Start-Sleep -Seconds 2
+		$answered = [bool](Select-String -Path $log -Pattern 'console: > logecho on' -EA SilentlyContinue)
+	}
+	if (-not $answered) { throw 'the console never accepted a command' }
+	Send-Text 'logecho off'; Send-Key 0x0D
+	Start-Sleep -Milliseconds 300
+	Send-Key 0xC0 # closed again: each path below opens it for itself
+	Start-Sleep -Milliseconds 400
 
 	if ($Wounded) {
 		Write-Host 'wounding the party so the regeneration path actually runs'
@@ -152,6 +221,47 @@ try {
 		Write-Host "  wounded: $((($hurt | Select-Object -Last 4).Line -replace '^.*console: ', '') -join '; ')"
 	}
 
+	if ($Melee) {
+		if ($ready -notmatch 'Level ready: \S+ at (\d+),(\d+)') {
+			throw 'the new game did not open in a level - there is no party cell to fight beside'
+		}
+		$px = [int]$Matches[1]; $pz = [int]$Matches[2]
+		Write-Host "putting a $MeleeMonster (x$MeleeStrength) beside the party at $px,$pz"
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		# The first orthogonal neighbour `spawn` accepts (it refuses a wall or a
+		# taken cell, and says so) - no cell of any one level is hardcoded. It is
+		# spawned FACING the party (+z is south), as arena.eval does.
+		$spawnedAt = $null
+		foreach ($d in @(@(1, 0, 'w'), @(-1, 0, 'e'), @(0, 1, 'n'), @(0, -1, 's'))) {
+			$x = $px + $d[0]; $z = $pz + $d[1]
+			Send-Text "spawn $MeleeMonster $x $z $($d[2]) $MeleeStrength"; Send-Key 0x0D
+			Start-Sleep -Milliseconds 400
+			if (Select-String -Path $log -Pattern "spawned $MeleeMonster at $x,$z" -Quiet) {
+				$spawnedAt = "$x,$z"; break
+			}
+		}
+		if (-not $spawnedAt) { throw "no cell beside $px,$pz would take a $MeleeMonster" }
+		Write-Host "  spawned at $spawnedAt; waiting for its first blow to land (warm-up)"
+		Send-Text 'tally reset'; Send-Key 0x0D
+		$deadline = (Get-Date).AddSeconds(60)
+		while ((Get-TallyField 'taken') -le 0) {
+			if ((Get-Date) -gt $deadline) {
+				Send-Text 'monsters'; Send-Key 0x0D # what it was doing, into the log
+				throw 'the monster never landed a blow (its state is in dungeon.log)'
+			}
+			Start-Sleep -Seconds 1
+		}
+		# A few more swings, so each outcome's first time (a miss line, a second
+		# member struck) is also warm-up rather than window.
+		Start-Sleep -Seconds 4
+		Send-Text 'tally reset'; Send-Key 0x0D
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0 # close the console again; alloctest reopens it below
+		Start-Sleep -Milliseconds 400
+	}
+
 	if ($SelfTest) {
 		Write-Host 'self-test: arming allocpoke, expecting the run to FAIL'
 		Send-Key 0xC0
@@ -174,6 +284,23 @@ try {
 	Write-Host ''
 	Write-Host $line.Substring($line.IndexOf('alloctest'))
 
+	# A melee PASS counts only if the swing path actually ran inside the window.
+	# Without this, a monster that wandered off, or a party knocked out before
+	# the window opened, would report exactly like a clean fight.
+	if ($Melee) {
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		$taken = Get-TallyField 'taken'
+		Write-Host "  in the window: $script:lastTally"
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 400
+		if ($taken -le 0 -and $result -eq 'PASS') {
+			Write-Host 'the monster landed no blow inside the window - the swing path was not measured' -ForegroundColor Yellow
+			$result = 'UNMEASURED'
+		}
+	}
+
 	# A self-test INVERTS the verdict: the guard is working only if the run it
 	# was asked to break comes back FAIL.
 	$want = if ($SelfTest) { 'FAIL' } else { 'PASS' }
@@ -193,6 +320,7 @@ try {
 				Select-String -Path $log -Pattern '^\[warn' | ForEach-Object { Write-Host "  $($_.Line)" }
 			}
 		}
+		'UNMEASURED' { } # already explained above
 		default {
 			Write-Host "$result - the game never reached a steady frame" -ForegroundColor Yellow
 		}

@@ -21,7 +21,7 @@ void WardSpell::Cast(CastContext& ctx) const {
 	// rule lives in the kind now, not in a RemoveWard call here.
 	ctx.services.applyEffect(ctx.caster, Id(), School(), ctx.power, m_duration);
 	ctx.services.message(ctx.caster,
-						 loc::Format("log.shield_up", ctx.caster.name));
+						 loc::FormatLine("log.shield_up", ctx.caster.name));
 }
 
 void WardSpell::ApplyOverrides(const CatalogEntry& e) {

@@ -139,9 +139,11 @@ void EffectIcon::DrawOverlaySelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	if (!m_hot || !effect) return;
 	const ui::Font& font = TextFont();
 	const gfx::Rect& r = Pixel();
-	const std::string label =
-		loc::Format("hud.effect_time", loc::Tr(effect->NameKey()),
-					static_cast<int>(effect->timeLeft + 0.5f));
+	// Drawn every frame the icon is hot, so it formats inline (a loc::Line)
+	// rather than into a std::string.
+	const loc::Line label =
+		loc::FormatLine("hud.effect_time", loc::View(effect->NameKey()),
+						static_cast<int>(effect->timeLeft + 0.5f));
 	const gfx::Rect tip{r.x, r.y + r.h + Rem(0.35f),
 						font.MeasureWidth(label) + Rem(0.7f),
 						font.LineAdvance() + Rem(0.35f)};

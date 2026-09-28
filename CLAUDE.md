@@ -627,7 +627,16 @@ buffer, reused across all ~25 submissions).
   clips). Humanoid Mixamo defaults (mesh +90 yaw to co-face the armature, finger
   bones excluded); non-humanoid rigs may need --mesh-yaw/--keep-fingers tuning.
 - `AssetBaker mips <assets>` — rebakes derived .dds (BC7 encoder in
-  tools/AssetBaker/Bc7Encoder.cpp; use the RELEASE baker). The encoder trials
+  tools/AssetBaker/Bc7Encoder.cpp; use the RELEASE baker), for the texture sets
+  AND for every image EMBEDDED in a model: `<model file>.<index>.dds` beside it
+  (skel_warrior.gltf.3.dds; assets::EmbeddedImageSidecar names it, the index is
+  ModelData::images order). The game's model loaders load those instead of
+  decoding the PNG/JPEG inside a bought .glb (2k PNG decode + CPU mips was ~50 ms
+  an image; skel_warrior's six cost ~320 ms of a level change, now ~50). A sidecar
+  OLDER than its model is stale: the game WARNS and decodes, so re-run
+  `AssetBaker model-images <assets>` (sidecars only, current ones skipped) after
+  importing or re-converting a model. Tools load models WITHOUT the option
+  (LoadOptions::bakedImages) because they want the real images. The encoder trials
   FOUR modes per 4x4 block and keeps the lowest error: mode 6 (one RGBA line, 16
   index steps — photographic albedo), modes 1 and 3 (two subsets with a colour
   line EACH, so a block straddling brick and mortar stops smearing one line
@@ -668,6 +677,13 @@ buffer, reused across all ~25 submissions).
   headpiece per class) and their mip chains. Names must match the roster
   in src/Game/Character.cpp.
 - Textures: PNG = source, .dds = derived BC7 mip chains (gitignored).
+  The game loads the .dds and falls back to the PNG. TRAP, and why a rejected
+  .dds now WARNS (TryLoadTextureFile): from 2026-06-11 to 2026-09-28 the DDS
+  reader read the pixel-format fields 4 bytes late and rejected EVERY baked
+  file, and the silent PNG fallback made the game look fine - so the BC7
+  pipeline never reached the screen (uncompressed RGBA8 in VRAM, mips built on
+  the CPU, ~80 ms per surface set). Fixing it took the release game load from
+  2.2 s to 0.5 s. A fallback that hides its own firing is how this survived.
   Scanned sets are NOT in git: raw downloads live in
   OneDrive\DungeonAssets\<1k|2k|4k>\<category>\<material>\ — the res folder
   is the material's NATIVE resolution, categories mirror the FreePBR pack
@@ -1552,8 +1568,10 @@ Full per-phase history + gotchas live in the editor-overhaul memory.
   NO third step: the game reads `<worktree>\assets` directly, so nothing is
   mirrored into `build\<cfg>\bin` and a worktree costs one copy, not one per
   config:
-  - `assets\textures` — whole dir, BOTH `.dds` (BC7) and source `.png` (dds-only
-    still renders magenta; ~273 dds + ~261 png).
+  - `assets\textures` — whole dir, BOTH `.dds` (BC7) and source `.png`. The
+    `.dds` is what renders; the `.png` is the source a missing or rejected
+    `.dds` falls back to (the old "dds-only renders magenta" note was a symptom
+    of the reader bug below, not a rule).
   - `assets\models` gitignored files — the imported authored meshes (`.glb`) AND
     the bought rigged monsters gitignored BY NAME despite the `.gltf` extension
     (embedded-texture GLBs inside), each often with an `.anim.cat` sidecar.
@@ -1564,7 +1582,9 @@ Full per-phase history + gotchas live in the editor-overhaul memory.
     DISCOVER the real set from a populated sibling and copy exactly those:
     `git -C <populated> status --ignored --porcelain assets/models | grep '^!!'`
     (or just robocopy the whole `assets\models` dir — the committed `.gltf` that
-    come with the checkout copy identically, so it's safe and future-proof).
+    come with the checkout copy identically, so it's safe and future-proof, and
+    it also brings the `<model>.<n>.dds` embedded-image sidecars; without them
+    the game decodes those images instead, slower but correct).
   Use BACKSLASH paths (robocopy rejects forward slashes → copies nothing) and
   VERIFY with a file count afterward — robocopy returns exit 0 when it copied
   NOTHING (exit 1 = files copied), so a "successful" run can leave you empty. The

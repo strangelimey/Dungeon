@@ -49,6 +49,7 @@
 #include "Graphics/Renderer.h"
 #include "Graphics/SpriteBatch.h"
 
+#include <algorithm>
 #include <array>
 #include <flat_map>
 #include <functional>
@@ -56,12 +57,11 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
 namespace dungeon::game {
-
-struct GeometryChunk; // DungeonMeshBuilder.h (MakeSurfaceChunk takes one by ref)
 
 // Non-rune items reuse the rune tablet mesh as a placeholder, rendered at this
 // scale (bigger than a rune so they read on a dark floor) — see SubmitScene-
@@ -1474,8 +1474,20 @@ private:
 		// the wall FEATURES, one shared mesh across all 54 surfaces, which can
 		// therefore only be corrected where it is stamped (DungeonMeshBuilder).
 		std::vector<float> uAspect;
+		// WHAT the texture arrays hold: the set names in variant order and the
+		// resolution tier they were asked for. A level change whose palette
+		// resolves to the same sets at the same tier keeps them instead of reading
+		// every map off disk again (AppendLoadTasks). LoadSurfaceMaterial is the
+		// only thing that appends and ResetTextures the only thing that clears, so
+		// the record cannot disagree with the arrays.
+		std::vector<std::string> loadedSets;
+		std::string loadedRes;
+		bool Holds(std::span<const std::string> sets, std::string_view res) const {
+			return !loadedSets.empty() && std::ranges::equal(loadedSets, sets) &&
+				   loadedRes == res;
+		}
 		// Drops the texture variants (keeps the chunks) before a (re)load of the
-		// set — the staged loader and the quality hot-swap both reuse the Surface.
+		// set - the staged loader and the quality hot-swap both reuse the Surface.
 		void ResetTextures() {
 			albedo.clear();
 			normal.clear();
@@ -1483,6 +1495,8 @@ private:
 			heightScale.clear();
 			factors.clear();
 			uAspect.clear();
+			loadedSets.clear();
+			loadedRes.clear();
 		}
 	};
 
@@ -1495,8 +1509,11 @@ private:
 	// Per-kind monster assets (shared) and per-instance state. Kinds are
 	// entity type names from the .ent file ("skeleton" loads skeleton.gltf).
 	struct MonsterKind {
-		assets::ModelData model; // must outlive the Animators pointing into it
-		std::unique_ptr<gfx::Mesh> mesh;
+		// Shared through the model cache (several kinds use one file - the six
+		// skeleton variants); holding it keeps it alive for the Animators that
+		// point into its skeleton and clips.
+		std::shared_ptr<const assets::ModelData> model;
+		std::shared_ptr<gfx::Mesh> mesh; // meshes[0], shared likewise
 		std::string name;
 		// PBR set bound by type name (skeleton_<res>, ...); null = flat material.
 		const PropTextures* tex = nullptr; // points into m_propTextures (stable)
@@ -1765,10 +1782,15 @@ private:
 	// MaterialParams holds raw Texture* into `textures`, which is built once and
 	// never resized, so those pointers stay valid for the model's lifetime. Shared
 	// by decorations, items (floor + icon), and the icon bake.
+	// COPYABLE ON PURPOSE: the GPU parts (textures, submesh geometry) are shared
+	// pointers and the materials are values, so the model cache builds a file's
+	// GPU resources once and every kind using that file gets its own COPY - the
+	// same meshes and textures, but materials it may override (BakeCatalogMaterial)
+	// without touching the other kinds' look.
 	struct MultiMaterialModel {
-		std::vector<std::unique_ptr<gfx::Texture>> textures; // one per model.images
+		std::vector<std::shared_ptr<gfx::Texture>> textures; // one per model.images
 		struct Sub {
-			std::unique_ptr<gfx::Mesh> mesh;
+			std::shared_ptr<gfx::Mesh> mesh;
 			gfx::MaterialParams material;
 		};
 		std::vector<Sub> subs; // one per model.meshes
@@ -2095,8 +2117,8 @@ private:
 		float heightScale = 0.0f;
 	};
 	struct DecorationKind {
-		assets::ModelData model; // kept alive for the shared mesh
-		std::unique_ptr<gfx::Mesh> mesh;
+		std::shared_ptr<const assets::ModelData> model; // via the model cache
+		std::shared_ptr<gfx::Mesh> mesh;                 // meshes[0], likewise
 		Vec4 color{1, 1, 1, 1};
 		const PropTextures* tex = nullptr; // points into m_propTextures (stable)
 		// Authored multi-material models render their own glTF textures instead of
@@ -2224,6 +2246,7 @@ private:
 	PbrMaps LoadPbrSet(const std::string& name, bool required);
 
 	void LoadDungeonBlocks();      // loads the worn block set for the quality tier
+	void LoadFeatureMeshes();      // wall/surface feature meshes (file-cached)
 	void LoadSurfaceMaterial(Surface& surface, const std::string& name,
 							 float heightScale);
 	void LoadTextureSet(const SurfaceDef& def); // resets, then loads the set
@@ -2357,6 +2380,21 @@ private:
 	// ApplyPropMaterial overload).
 	static void BakeCatalogMaterial(MultiMaterialModel& model,
 									const CatalogEntry* def);
+	// THE MODEL CACHE (DungeonWorld_Models.cpp). The kind caches are keyed by
+	// CATALOG ID, and many ids share one file - six monster kinds on
+	// skeleton.gltf, five armours on leather_armor.glb, each enchanted blade on
+	// its plain twin's mesh - so every one of those used to parse the file and
+	// upload its own GPU copy. These key by FILE NAME ("skeleton.gltf") instead:
+	// the parse, meshes[0]'s GPU mesh and the multi-material GPU build each happen
+	// once per file, and a kind holds shared pointers into them.
+	std::shared_ptr<const assets::ModelData> ModelFile(const std::string& file);
+	std::shared_ptr<gfx::Mesh> ModelMesh(const std::string& file); // meshes[0]
+	// A per-kind COPY sharing the file's GPU meshes and textures, so the caller
+	// may bake its own material overrides into it.
+	std::unique_ptr<MultiMaterialModel> ModelMulti(const std::string& file);
+	// Drops a file so its next use reads it off disk again (a type the editor
+	// just saved). Kinds still holding the old copy keep it until they reload.
+	void ForgetModelFile(const std::string& file);
 	void BuildFires();
 	void BuildTurbidityMap();
 	void RebuildFiresAndDust(); // WaitIdle + rebuild fires + dust (live sconce edits)
@@ -2583,8 +2621,11 @@ private:
 	// The consequence table a source actually uses: its own when it authored
 	// one, else the balance.cat default. Resolved per fumble so a Balance dialog
 	// change lands on the next swing rather than on the next level load.
-	std::vector<mishap::Entry> FumbleTable(const std::vector<mishap::Entry>& own,
-										   bool severe) const;
+	// A VIEW, copying nothing: onto `own`, or onto `fallback` (the caller's
+	// inline default table, filled here), since a fumble is a steady-state event.
+	std::span<const mishap::Entry> FumbleTable(const std::vector<mishap::Entry>& own,
+											   bool severe,
+											   mishap::DefaultTable& fallback) const;
 	// Lay an item on the floor of a cell as a RUNTIME drop (negative id, saved
 	// as a `drop` diff) — NOT an .ent record, which is what an editor placement
 	// authors. Shared by the cursor drop and by a fumbled weapon.
@@ -2731,7 +2772,7 @@ private:
 		std::vector<fx::Inst>& Effects() override { return m_member.effects; }
 		void Wound(float amount, fx::DamageEvent& ev) override;
 		void Absorb(float amount, fx::DamageEvent& ev) override;
-		std::string Name() const override { return m_member.name; }
+		loc::Line Name() const override { return loc::Line{m_member.name}; }
 		void Say(std::string_view line) const override;
 		void SayApplied(const fx::EffectKind& kind) const override;
 
@@ -2757,7 +2798,7 @@ private:
 		std::vector<fx::Inst>& Effects() override { return m_monster.effects; }
 		void Wound(float amount, fx::DamageEvent& ev) override;
 		void Absorb(float amount, fx::DamageEvent& ev) override;
-		std::string Name() const override;
+		loc::Line Name() const override;
 		void Say(std::string_view line) const override;
 		void SayApplied(const fx::EffectKind& kind) const override;
 
@@ -2800,7 +2841,7 @@ private:
 		std::vector<fx::Inst>& Effects() override { return m_brk.effects; }
 		void Wound(float amount, fx::DamageEvent& ev) override;
 		void Absorb(float amount, fx::DamageEvent& ev) override;
-		std::string Name() const override;
+		loc::Line Name() const override;
 		void Say(std::string_view line) const override;
 		void SayApplied(const fx::EffectKind& kind) const override;
 
@@ -2893,9 +2934,9 @@ private:
 	void RebuildChunksAround(int x, int z);
 	// Rebuilds the single chunk region (chunkX, chunkZ) in place.
 	void RebuildChunkRegion(int chunkX, int chunkZ);
-	// GeometryChunk -> SurfaceChunk (uploads the mesh). Shared by the full bake
-	// and the region rebuild.
-	SurfaceChunk MakeSurfaceChunk(GeometryChunk& gc);
+	// Uploads every chunk in `geo` as ONE batch (gfx::CreateMeshes) and appends
+	// them to the three surfaces. Shared by the full bake and the region rebuild.
+	void AppendSurfaceChunks(DungeonGeometry& geo);
 
 	// --- rendering / culling ----------------------------------------------------
 	// A rune's pulse multiplier (its emissive glow + the light it casts breathe in
@@ -2970,20 +3011,36 @@ private:
 	// so a face whose neighbour is the same surface can be stamped unpinned.
 	std::vector<WallPanels> m_wallBlocks;
 	std::vector<assets::MeshData> m_floorBlocks, m_ceilingBlocks;
+	// WHICH worn blocks those are: the mesh tier and the three set lists they were
+	// loaded for. LoadDungeonBlocks skips the reload when a level change asks for
+	// exactly this again (the common case - levels share a palette). Unset =
+	// nothing loaded, or ReloadDungeonBlocks asked for a fresh read because the
+	// FILES may have changed under the same names (a restyle rebake).
+	struct BlockSetKey {
+		std::string tier;
+		std::vector<std::string> walls, floors, ceilings;
+		bool operator==(const BlockSetKey&) const = default;
+	};
+	std::optional<BlockSetKey> m_loadedBlocks;
+	// Feature meshes by MODEL FILE (a feature type's `model`.gltf). Features are
+	// project-wide, not per level, so each file is read once per world and the
+	// per-type maps below point into this. Node-based on purpose: the maps hold
+	// pointers, which a flat_map would invalidate on insert.
+	std::unordered_map<std::string, assets::MeshData> m_featureMeshCache;
 	// Niche panels by wallfeatures.cat type (each entry's `model`.gltf); the mesh
 	// builder stamps the one matching a niche's type. NicheMeshFor resolves it.
-	std::flat_map<std::string, assets::MeshData> m_nicheMeshes;
+	std::flat_map<std::string, const assets::MeshData*> m_nicheMeshes;
 	const assets::MeshData* NicheMeshFor(const std::string& type) const;
 	// See-through bore panels by wallfeatures.cat type (its `model`.gltf); stamped
 	// on the two flanking faces of a bored wall block. BoreMeshFor resolves it.
-	std::flat_map<std::string, assets::MeshData> m_boreMeshes;
+	std::flat_map<std::string, const assets::MeshData*> m_boreMeshes;
 	const assets::MeshData* BoreMeshFor(const std::string& type) const;
 	// Surface-feature tiles by surfacefeatures.cat type (its `model`.gltf), split
-	// by the type's `surface` so each resolver answers only for its own side —
+	// by the type's `surface` so each resolver answers only for its own side -
 	// which is what lets the builder ask "is there a floor feature here?" and
 	// "is there a ceiling one?" independently, without knowing the catalog.
-	std::flat_map<std::string, assets::MeshData> m_floorFeatureMeshes;
-	std::flat_map<std::string, assets::MeshData> m_ceilingFeatureMeshes;
+	std::flat_map<std::string, const assets::MeshData*> m_floorFeatureMeshes;
+	std::flat_map<std::string, const assets::MeshData*> m_ceilingFeatureMeshes;
 	const assets::MeshData* FloorFeatureMeshFor(const std::string& type) const;
 	const assets::MeshData* CeilingFeatureMeshFor(const std::string& type) const;
 	// True if the surfacefeatures.cat type mounts on the ceiling (`surface =
@@ -3136,6 +3193,15 @@ private:
 	// unique_ptr so DecorationKind::tex stays valid as more sets are added
 	// (flat_map stores values contiguously and reallocates on insert).
 	std::flat_map<std::string, std::unique_ptr<PropTextures>> m_propTextures;
+	// The model cache's store, by file name (see ModelFile). Each part is built
+	// on first ask, so a file only ever drawn as a multi-material model never
+	// uploads a single-mesh copy it would not use, and vice versa.
+	struct CachedModel {
+		std::shared_ptr<const assets::ModelData> data;
+		std::shared_ptr<gfx::Mesh> mesh;                 // meshes[0]
+		std::shared_ptr<const MultiMaterialModel> multi; // the template ModelMulti copies
+	};
+	std::unordered_map<std::string, CachedModel> m_modelCache;
 	std::vector<Decoration> m_decorations;
 	std::optional<LevelTransition> m_pendingTransition; // raised by a stair step
 	// A pit fall in flight: the transition latched when the party stepped onto
@@ -3259,9 +3325,10 @@ private:
 		std::string id;
 		bool wallMount = false; // fixtures.cat mount = wall|floor
 		bool flameless = false; // fixtures.cat flame = 0: never lit (empty bowl)
-		std::unique_ptr<gfx::Mesh> mesh;
-		std::unique_ptr<gfx::Mesh> mesh2;
-		assets::ModelData model; // kept for the map-icon bake's bounds fit
+		std::shared_ptr<gfx::Mesh> mesh;  // via the model cache
+		std::shared_ptr<gfx::Mesh> mesh2;
+		// Kept for the map-icon bake's bounds fit (shared via the model cache).
+		std::shared_ptr<const assets::ModelData> model;
 		Vec4 color{1, 1, 1, 1};
 		Vec4 color2{1, 1, 1, 1};
 		const PropTextures* tex = nullptr;

@@ -1396,6 +1396,11 @@ void Game::UpdateAllocTest(float dt, bool steady) {
 	const u64 violations = now.violations - m_allocTestStart.violations;
 	const u64 badFrames = now.framesViolating - m_allocTestStart.framesViolating;
 	const bool timedOut = m_allocTestRemaining > 0.0f;
+	// Reporting from inside a guarded frame excuses ITSELF (docs/ARCHITECTURE.md
+	// "Checking the rule"). The verdict above is already taken, so this frame
+	// could not change it, but unexcused it logged the report's own formatting
+	// as a violation after every run.
+	const alloc::Excused excuse;
 	// One machine-readable line: tools\AllocTest.ps1 greps for it and nothing
 	// else, so the format is part of the contract.
 	const std::string line =
@@ -1609,6 +1614,11 @@ void Game::Update(float dt) {
 			m_looking = m_pendingLooking;
 			m_ui.ClearLog();
 			m_state = AppState::Playing;
+			// The moment a level is PLAYABLE. "Game loaded" is logged by a load
+			// task, so since the world loads on demand it lands before this level's
+			// own load has even begun; a script that waits on it types into a
+			// console whose commands are still gated off (tools\AllocTest.ps1).
+			log::Info("Level ready: {} at {},{}", m_world->CurrentLevel(), px, pz);
 			if (m_pendingWorldMap) ResumeOnWorldMap(m_pendingWorldPark);
 			m_pendingWorldMap = m_pendingWorldPark = false;
 		}

@@ -12,4 +12,10 @@ bool BakeMipChain(const std::string& pngPath, const std::string& ddsPath);
 // artifacts (gitignored); rerun after importing or rebaking textures.
 bool BakeAllMips(const std::string& texturesDir);
 
+// The same for the images EMBEDDED in every .gltf/.glb in <modelsDir>: one BC7
+// chain per image, beside the model as assets::EmbeddedImageSidecar names it,
+// which the game loads instead of decoding the PNG/JPEG inside the file.
+// Skips a sidecar already newer than its model. Rerun after importing a model.
+bool BakeModelImageMips(const std::string& modelsDir);
+
 } // namespace dungeon::baker
