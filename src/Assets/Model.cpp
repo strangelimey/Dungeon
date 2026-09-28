@@ -28,6 +28,7 @@
 #include <cgltf.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <memory>
@@ -271,19 +272,25 @@ std::expected<ModelData, std::string> LoadGltf(const std::string& path) {
 	// iterator debugging makes every vector move allocate a proxy). Pooled, it is
 	// a handful per clip, however many channels the clip has.
 	//
-	// Two things the files make cheap, both exact:
+	// Two things the files make cheap:
 	//  * SHARED KEY TIMES. An exporter writes one time accessor for every channel
 	//    sampled on the same frames (the Mixamo rigs: 3,960 channels, 74 distinct
 	//    inputs), so each distinct input is read into `times` once and every
-	//    channel using it points at the same range.
+	//    channel using it points at the same range. Exact.
 	//  * CONSTANT CHANNELS. Exporters key every joint's T, R and S whether it
-	//    moves or not. A channel whose values never change is stored as ONE key,
-	//    and dropped outright when that key equals the joint's rest pose, since
-	//    the Animator starts every sample from the rest pose anyway. That also
-	//    spares the Animator sampling them every frame. "Never change" is
-	//    BITWISE here, and that catches few: the exporter's rounding wobbles most
-	//    idle channels in the last digits (the Mixamo rigs: 25 of 3,960 exactly
-	//    constant, 2,905 within 1e-6).
+	//    moves or not, and most do not. A channel whose values never change is
+	//    stored as ONE key, and dropped outright when that key IS the joint's rest
+	//    pose, since the Animator starts every sample from the rest pose anyway -
+	//    which also spares the Animator sampling it every frame (the Mixamo rigs
+	//    sample ~1,100 channels a frame instead of ~3,900).
+	//    "Never change" and "is the rest pose" are within kConstantEpsilon, NOT
+	//    bitwise, and that is what makes it pay: the exporter's rounding wobbles
+	//    idle channels in the last digits (a scale of 0.99999994), so a bitwise
+	//    test caught 25 of the Mixamo rigs' 3,960 channels and this catches
+	//    ~2,900. It is LOSSY by at most that much in a joint's local T/R/S -
+	//    a millionth of a unit, ~2.5 um at kUnit - and tools/AnimTest measures
+	//    the resulting palette difference rather than assuming it.
+	constexpr float kConstantEpsilon = 1e-6f;
 	std::vector<std::pair<const cgltf_accessor*, u32>> timeRanges; // input -> first key
 	std::vector<Vec4> scratch; // one channel's values while it is classified
 	const auto wanted = [&](const cgltf_animation_channel& ch, ChannelPath& path) {
@@ -296,8 +303,13 @@ std::expected<ModelData, std::string> LoadGltf(const std::string& path) {
 		default: return false;
 		}
 	};
+	// Component-wise, so a quaternion and its negation (the same rotation) count
+	// as different - which only ever keeps a channel that could have gone.
 	const auto same = [](const Vec4& a, const Vec4& b, int comps) {
-		return std::memcmp(&a, &b, comps * sizeof(float)) == 0;
+		const float d[4] = {a.x - b.x, a.y - b.y, a.z - b.z, a.w - b.w};
+		for (int i = 0; i < comps; ++i)
+			if (!(std::fabs(d[i]) <= kConstantEpsilon)) return false; // NaN: not same
+		return true;
 	};
 	for (cgltf_size a = 0; a < data->animations_count; ++a) {
 		const cgltf_animation& src = data->animations[a];
@@ -356,7 +368,7 @@ std::expected<ModelData, std::string> LoadGltf(const std::string& path) {
 				cgltf_accessor_read_float(output, i, tmp, comps);
 				scratch[i] = {tmp[0], tmp[1], tmp[2], tmp[3]};
 			}
-			// Bitwise comparison, so only a TRULY constant channel collapses.
+			// Every key within kConstantEpsilon of the first; the first is kept.
 			const bool constant = std::ranges::all_of(
 				scratch, [&](const Vec4& v) { return same(v, scratch[0], comps); });
 			if (constant) {
