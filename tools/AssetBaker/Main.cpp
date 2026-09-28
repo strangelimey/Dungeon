@@ -14,7 +14,13 @@
 //
 //   AssetBaker mips <assets-dir>
 //       Regenerates the derived .dds mip chains (gitignored) for every PNG in
-//       assets/textures, so the game never filters mips at load time.
+//       assets/textures, so the game never filters mips at load time - and the
+//       same for every image EMBEDDED in a model in assets/models
+//       (<model>.<index>.dds beside it), so it never decodes those either.
+//
+//   AssetBaker model-images <assets-dir>
+//       Only the embedded-image sidecars; current ones are skipped. Run after
+//       importing or re-converting a model (the game warns on a stale one).
 //
 //   AssetBaker models <assets-dir>
 //       Regenerates only the .gltf models (fast — skips the texture, sound,
@@ -109,8 +115,18 @@ int main(int argc, char** argv) {
 		return ok ? 0 : 1;
 	}
 
-	if (argc >= 3 && std::string(argv[1]) == "mips")
-		return baker::BakeAllMips(std::string(argv[2]) + "\\textures") ? 0 : 1;
+	if (argc >= 3 && std::string(argv[1]) == "mips") {
+		// Texture sets AND the images embedded in bought models - both are BC7
+		// chains the game loads instead of decoding PNGs.
+		bool ok = baker::BakeAllMips(std::string(argv[2]) + "\\textures");
+		ok &= baker::BakeModelImageMips(std::string(argv[2]) + "\\models");
+		return ok ? 0 : 1;
+	}
+
+	if (argc >= 3 && std::string(argv[1]) == "model-images")
+		// Only the embedded-image sidecars (fast when nothing changed: current
+		// sidecars are skipped). Run after importing or re-converting a model.
+		return baker::BakeModelImageMips(std::string(argv[2]) + "\\models") ? 0 : 1;
 
 	if (argc >= 3 && std::string(argv[1]) == "models") {
 		const std::string assets = argv[2];
@@ -168,6 +184,7 @@ int main(int argc, char** argv) {
 	ok &= baker::BakeModels(assets + "\\models", assets + "\\textures");
 	ok &= baker::BakeRunes(assets); // tablet + carved per-element texture sets
 	ok &= baker::BakeAllMips(assets + "\\textures");
+	ok &= baker::BakeModelImageMips(assets + "\\models");
 	if (ok) log::Info("Asset bake complete.");
 	else log::Error("Asset bake FAILED.");
 	return ok ? 0 : 1;

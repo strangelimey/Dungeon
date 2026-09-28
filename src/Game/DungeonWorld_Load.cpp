@@ -1329,9 +1329,14 @@ std::unique_ptr<DungeonWorld::MultiMaterialModel> DungeonWorld::BuildMultiMateri
 	for (const assets::MaterialData& m : model.materials)
 		if (m.baseColorImage >= 0) srgb[m.baseColorImage] = true;
 	out->textures.reserve(model.images.size());
-	for (size_t i = 0; i < model.images.size(); ++i)
+	for (size_t i = 0; i < model.images.size(); ++i) {
+		// A baked BC7 chain (AssetBaker mips) uploads as it is; otherwise the
+		// decoded image gets its mips built here, as before the bake existed.
+		const bool baked = i < model.imageMips.size() && !model.imageMips[i].levels.empty();
 		out->textures.push_back(
-			std::make_unique<gfx::Texture>(device, model.images[i], srgb[i]));
+			baked ? std::make_unique<gfx::Texture>(device, model.imageMips[i], srgb[i])
+				  : std::make_unique<gfx::Texture>(device, model.images[i], srgb[i]));
+	}
 
 	auto texAt = [&](int img) -> const gfx::Texture* {
 		return img >= 0 ? out->textures[static_cast<size_t>(img)].get() : nullptr;

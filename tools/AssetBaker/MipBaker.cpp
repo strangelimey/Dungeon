@@ -12,6 +12,7 @@
 
 #include "Assets/File.h"
 #include "Assets/Image.h"
+#include "Assets/Model.h"
 #include "Bc7Encoder.h"
 #include "Core/Log.h"
 #include "Core/Types.h"
@@ -19,6 +20,7 @@
 #include <algorithm>
 #include <cstring>
 #include <filesystem>
+#include <format>
 #include <vector>
 
 namespace dungeon::baker {
@@ -58,22 +60,20 @@ bool WriteDdsBc7(const std::string& path, u32 width, u32 height,
 
 } // namespace
 
-bool BakeMipChain(const std::string& pngPath, const std::string& ddsPath) {
-	auto image = assets::LoadImageFile(pngPath);
-	if (!image) {
-		log::Error("{}", image.error());
-		return false;
-	}
-	if (image->width % 4 != 0 || image->height % 4 != 0) {
+// The chain for one decoded image: box-filtered levels, each BC7-encoded.
+// `source` names it in the log.
+static bool BakeImageChain(assets::ImageData image, const std::string& source,
+						   const std::string& ddsPath) {
+	if (image.width % 4 != 0 || image.height % 4 != 0) {
 		// D3D12 requires BC top-level dimensions to be multiples of 4.
 		log::Warn("{}: {}x{} is not block-aligned — skipped (PNG fallback applies)",
-				  pngPath, image->width, image->height);
+				  source, image.width, image.height);
 		return true;
 	}
 
-	const u32 width = image->width, height = image->height;
+	const u32 width = image.width, height = image.height;
 	std::vector<std::vector<u8>> levels;
-	assets::ImageData level = std::move(*image);
+	assets::ImageData level = std::move(image);
 	while (true) {
 		levels.push_back(EncodeBc7(level));
 		if (level.width == 1 && level.height == 1) break;
@@ -86,6 +86,54 @@ bool BakeMipChain(const std::string& pngPath, const std::string& ddsPath) {
 	}
 	log::Info("Wrote {} ({} BC7 mips)", ddsPath, levels.size());
 	return true;
+}
+
+bool BakeMipChain(const std::string& pngPath, const std::string& ddsPath) {
+	auto image = assets::LoadImageFile(pngPath);
+	if (!image) {
+		log::Error("{}", image.error());
+		return false;
+	}
+	return BakeImageChain(std::move(*image), pngPath, ddsPath);
+}
+
+bool BakeModelImageMips(const std::string& modelsDir) {
+	bool ok = true;
+	int models = 0, written = 0, fresh = 0;
+	for (const auto& entry : std::filesystem::directory_iterator(modelsDir)) {
+		const std::string ext = entry.path().extension().string();
+		if (!entry.is_regular_file() || (ext != ".gltf" && ext != ".glb")) continue;
+		const std::string path = entry.path().string();
+		// Loaded WITHOUT bakedImages: the bake wants the model's real images,
+		// and walks them in the loader's own order, which is what the sidecar
+		// index means.
+		auto model = assets::LoadModel(path);
+		if (!model) {
+			log::Error("{}", model.error());
+			ok = false;
+			continue;
+		}
+		if (model->images.empty()) continue;
+		++models;
+		const auto modelTime = entry.last_write_time();
+		for (size_t i = 0; i < model->images.size(); ++i) {
+			const std::string dds = assets::EmbeddedImageSidecar(path, i);
+			// Up to date: the same test the loader applies before using it. A
+			// 2k image costs seconds to encode, and most models never change.
+			std::error_code ec;
+			if (const auto t = std::filesystem::last_write_time(dds, ec);
+				!ec && t >= modelTime) {
+				++fresh;
+				continue;
+			}
+			ok &= BakeImageChain(std::move(model->images[i]),
+								 std::format("{} image {}", path, i), dds);
+			++written;
+		}
+	}
+	log::Info("Model image bake: {} models with embedded images, {} images baked, "
+			  "{} already current", models, written, fresh);
+	return ok;
 }
 
 bool BakeAllMips(const std::string& texturesDir) {

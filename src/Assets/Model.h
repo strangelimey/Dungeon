@@ -134,15 +134,37 @@ struct ModelData {
 	std::vector<MeshData> meshes;
 	std::vector<MaterialData> materials;
 	std::vector<ImageData> images;
+	// Baked BC7 mip chains for embedded images (LoadOptions::bakedImages).
+	// Parallel to `images` when non-empty; an entry WITH levels replaces
+	// images[i], which is then left empty. Empty = every image was decoded.
+	std::vector<MipChain> imageMips;
 	SkeletonData skeleton;                 // empty if not skinned
 	std::vector<AnimationClipData> clips;  // empty if no animations
 };
 
+struct LoadOptions {
+	// Use each embedded image's BAKED sidecar (EmbeddedImageSidecar - a BC7 mip
+	// chain written by `AssetBaker mips`) when it is at least as new as the
+	// model, instead of decoding the PNG/JPEG inside the file. The game asks for
+	// this; tools do not, since a tool reading a model wants its real images.
+	// Decoding a 2k PNG and building its mips on the CPU cost ~50 ms an image
+	// (skel_warrior: ~320 ms of a level change).
+	bool bakedImages = false;
+};
+
 // Loads .gltf / .glb (full features) or .obj (static geometry only).
-std::expected<ModelData, std::string> LoadModel(const std::string& path);
+std::expected<ModelData, std::string> LoadModel(const std::string& path,
+												const LoadOptions& opts = {});
+
+// Where the baked mip chain of a model's embedded image `index` lives: beside
+// the model, "<model file>.<index>.dds" (skel_warrior.gltf.3.dds). The index is
+// ModelData::images order. The baker writes it, the loader reads it; both call
+// this so the name cannot drift.
+std::string EmbeddedImageSidecar(const std::string& modelPath, size_t index);
 
 // Internal entry points, split by format.
-std::expected<ModelData, std::string> LoadGltf(const std::string& path);
+std::expected<ModelData, std::string> LoadGltf(const std::string& path,
+											   const LoadOptions& opts = {});
 std::expected<ModelData, std::string> LoadObj(const std::string& path);
 
 } // namespace dungeon::assets

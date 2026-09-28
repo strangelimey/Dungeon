@@ -19,14 +19,18 @@
 
 namespace dungeon::game {
 
+// The game draws models, so it takes their BAKED embedded images where the
+// mip bake has written them (assets::LoadOptions::bakedImages).
+static constexpr assets::LoadOptions kGameModel{.bakedImages = true};
+
 assets::ModelData LoadModelOrDie(const std::string& name) {
-	auto model = assets::LoadModel(paths::Asset("models\\" + name));
+	auto model = assets::LoadModel(paths::Asset("models\\" + name), kGameModel);
 	DN_ASSERT(model.has_value(), model.error() + " — run AssetBaker over assets/");
 	return std::move(*model);
 }
 
 std::optional<assets::ModelData> LoadModelIfPresent(const std::string& name) {
-	auto model = assets::LoadModel(paths::Asset("models\\" + name));
+	auto model = assets::LoadModel(paths::Asset("models\\" + name), kGameModel);
 	if (!model) return std::nullopt;
 	return std::move(*model);
 }

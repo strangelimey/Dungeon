@@ -627,7 +627,16 @@ buffer, reused across all ~25 submissions).
   clips). Humanoid Mixamo defaults (mesh +90 yaw to co-face the armature, finger
   bones excluded); non-humanoid rigs may need --mesh-yaw/--keep-fingers tuning.
 - `AssetBaker mips <assets>` — rebakes derived .dds (BC7 encoder in
-  tools/AssetBaker/Bc7Encoder.cpp; use the RELEASE baker). The encoder trials
+  tools/AssetBaker/Bc7Encoder.cpp; use the RELEASE baker), for the texture sets
+  AND for every image EMBEDDED in a model: `<model file>.<index>.dds` beside it
+  (skel_warrior.gltf.3.dds; assets::EmbeddedImageSidecar names it, the index is
+  ModelData::images order). The game's model loaders load those instead of
+  decoding the PNG/JPEG inside a bought .glb (2k PNG decode + CPU mips was ~50 ms
+  an image; skel_warrior's six cost ~320 ms of a level change, now ~50). A sidecar
+  OLDER than its model is stale: the game WARNS and decodes, so re-run
+  `AssetBaker model-images <assets>` (sidecars only, current ones skipped) after
+  importing or re-converting a model. Tools load models WITHOUT the option
+  (LoadOptions::bakedImages) because they want the real images. The encoder trials
   FOUR modes per 4x4 block and keeps the lowest error: mode 6 (one RGBA line, 16
   index steps — photographic albedo), modes 1 and 3 (two subsets with a colour
   line EACH, so a block straddling brick and mortar stops smearing one line
@@ -1566,7 +1575,9 @@ Full per-phase history + gotchas live in the editor-overhaul memory.
     DISCOVER the real set from a populated sibling and copy exactly those:
     `git -C <populated> status --ignored --porcelain assets/models | grep '^!!'`
     (or just robocopy the whole `assets\models` dir — the committed `.gltf` that
-    come with the checkout copy identically, so it's safe and future-proof).
+    come with the checkout copy identically, so it's safe and future-proof, and
+    it also brings the `<model>.<n>.dds` embedded-image sidecars; without them
+    the game decodes those images instead, slower but correct).
   Use BACKSLASH paths (robocopy rejects forward slashes → copies nothing) and
   VERIFY with a file count afterward — robocopy returns exit 0 when it copied
   NOTHING (exit 1 = files copied), so a "successful" run can leave you empty. The

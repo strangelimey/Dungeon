@@ -22,6 +22,7 @@
 // ============================================================================
 #include "Assets/Model.h"
 
+#include "Assets/Dds.h"
 #include "Core/AllocTrack.h"
 #include "Core/Log.h"
 
@@ -45,15 +46,55 @@ Mat4 ToMat4(const float m[16]) {
 }
 
 // Maps a cgltf image to an index in ModelData::images, loading on first use.
+// With `bakedImages`, an image whose baked sidecar (EmbeddedImageSidecar) is at
+// least as new as the model file loads from THAT instead - a BC7 mip chain in
+// imageMips, images[i] left empty - and is never decoded. The index a sidecar
+// is named by is this same first-use order, which the baker gets by running
+// this same loader without the option, so the two cannot disagree.
 struct ImageCache {
 	const cgltf_data* data;
 	std::filesystem::path baseDir;
 	ModelData* model;
+	std::string modelPath;
+	bool bakedImages = false;
+	std::filesystem::file_time_type modelTime{};
 	std::unordered_map<const cgltf_image*, int> indices;
+
+	// The baked chain for the NEXT index, if there is a usable one.
+	std::optional<MipChain> Baked() {
+		const std::string sidecar = EmbeddedImageSidecar(modelPath, model->images.size());
+		std::error_code ec;
+		const auto time = std::filesystem::last_write_time(sidecar, ec);
+		if (ec) return std::nullopt; // not baked: decode, as before the bake existed
+		if (time < modelTime) {
+			// Said, not skipped: a stale sidecar is a model re-imported without a
+			// re-bake, and quietly decoding hides that the bake is out of date.
+			log::Warn("{} is older than its model - decoding instead; rerun "
+					  "AssetBaker mips", sidecar);
+			return std::nullopt;
+		}
+		auto chain = LoadDdsFile(sidecar);
+		if (!chain) {
+			log::Warn("{} - decoding the embedded image instead", chain.error());
+			return std::nullopt;
+		}
+		return std::move(*chain);
+	}
 
 	int Get(const cgltf_image* image) {
 		if (!image) return -1;
 		if (auto it = indices.find(image); it != indices.end()) return it->second;
+
+		if (bakedImages) {
+			if (std::optional<MipChain> chain = Baked()) {
+				const int index = static_cast<int>(model->images.size());
+				model->images.emplace_back(); // placeholder: imageMips carries it
+				model->imageMips.resize(model->images.size());
+				model->imageMips.back() = std::move(*chain);
+				indices[image] = index;
+				return index;
+			}
+		}
 
 		std::expected<ImageData, std::string> loaded =
 			std::unexpected(std::string("image has no data source"));
@@ -69,6 +110,7 @@ struct ImageCache {
 		if (loaded) {
 			index = static_cast<int>(model->images.size());
 			model->images.push_back(std::move(*loaded));
+			if (!model->imageMips.empty()) model->imageMips.resize(model->images.size());
 		} else {
 			log::Warn("glTF image skipped: {}", loaded.error());
 		}
@@ -195,7 +237,12 @@ void ReadPrimitive(const cgltf_primitive* prim, MeshData& mesh,
 
 } // namespace
 
-std::expected<ModelData, std::string> LoadGltf(const std::string& path) {
+std::string EmbeddedImageSidecar(const std::string& modelPath, size_t index) {
+	return std::format("{}.{}.dds", modelPath, index);
+}
+
+std::expected<ModelData, std::string> LoadGltf(const std::string& path,
+											   const LoadOptions& opts) {
 	const alloc::Counters before = alloc::ThisThread();
 	cgltf_options options{};
 	cgltf_data* data = nullptr;
@@ -209,7 +256,12 @@ std::expected<ModelData, std::string> LoadGltf(const std::string& path) {
 
 	ModelData model;
 	model.clips.reserve(data->animations_count); // see the clip loop below
-	ImageCache imageCache{data, std::filesystem::path(path).parent_path(), &model, {}};
+	ImageCache imageCache{data, std::filesystem::path(path).parent_path(), &model, path,
+						  opts.bakedImages};
+	if (opts.bakedImages) {
+		std::error_code ec;
+		imageCache.modelTime = std::filesystem::last_write_time(path, ec);
+	}
 
 	// Materials (indices must match cgltf's so primitives can look them up).
 	for (cgltf_size m = 0; m < data->materials_count; ++m) {
@@ -403,20 +455,23 @@ std::expected<ModelData, std::string> LoadGltf(const std::string& path) {
 	// allocator in the game and the per-model number is what turns "loading
 	// allocates a lot" into a name (see LoadQueue's table).
 	const alloc::Counters after = alloc::ThisThread();
-	log::Info("Loaded glTF '{}': {} meshes, {} materials, {} joints, {} clips "
-			  "[{} allocs, {:.1f} MB]",
+	const size_t baked = std::ranges::count_if(
+		model.imageMips, [](const MipChain& c) { return !c.levels.empty(); });
+	log::Info("Loaded glTF '{}': {} meshes, {} materials, {} joints, {} clips, "
+			  "{} images ({} baked) [{} allocs, {:.1f} MB]",
 			  path, model.meshes.size(), model.materials.size(),
-			  model.skeleton.joints.size(), model.clips.size(),
+			  model.skeleton.joints.size(), model.clips.size(), model.images.size(), baked,
 			  after.allocs - before.allocs,
 			  static_cast<double>(after.bytes - before.bytes) / (1024.0 * 1024.0));
 	return model;
 }
 
-std::expected<ModelData, std::string> LoadModel(const std::string& path) {
+std::expected<ModelData, std::string> LoadModel(const std::string& path,
+												const LoadOptions& opts) {
 	auto ext = std::filesystem::path(path).extension().string();
 	std::ranges::transform(ext, ext.begin(),
 						   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-	if (ext == ".gltf" || ext == ".glb") return LoadGltf(path);
+	if (ext == ".gltf" || ext == ".glb") return LoadGltf(path, opts);
 	if (ext == ".obj") return LoadObj(path);
 	return std::unexpected(std::format("unsupported model format: {}", path));
 }
