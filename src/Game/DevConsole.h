@@ -11,6 +11,12 @@
 // and freezes nothing. Esc closes it. Commands come from a small registry:
 // the console seeds the generic ones (help/clear/echo) and the Game registers
 // the gameplay-aware ones (quit/fps/quality/lang/tp).
+//
+// One class, six files: DevConsole.cpp is the frame (commands, input, the
+// scrollback, the panel's layout), and each section of the readout panel is
+// its own file - DevConsole_Perf / _Profile / _Health / _Threads.cpp, with the
+// profile's snapshots in _Snapshots.cpp - sharing only what DevConsole_Panel.h
+// declares.
 // ============================================================================
 #pragma once
 
@@ -30,6 +36,10 @@
 
 namespace dungeon::game {
 
+namespace devcon {
+struct ProfileFrame; // DevConsole_Panel.h
+}
+
 class DevConsole {
 public:
 	// No GraphicsDevice: the console draws with a font borrowed from the
@@ -45,7 +55,7 @@ public:
 	// Called every frame (the FPS sampler keeps ticking even when closed).
 	// While open, consumes typed characters and editing/history/scroll keys.
 	// The device is here only so the history the graph view draws keeps filling
-	// while the console is CLOSED — two of the five top gauges (VRAM, descriptor
+	// while the console is CLOSED — two of the top gauges (VRAM, descriptor
 	// slots) are the device's to answer, and a graph you have to open the console
 	// to start recording is no use for catching what already happened.
 	void Update(const Input& input, float dt, float windowW, float windowH,
@@ -228,15 +238,16 @@ private:
 	// The committed values for a row, or null if it has none yet.
 	const ProfSmooth* SmoothFor(u32 tid, u32 node) const;
 
-	// The six gauges at the top of the panel, given the same treatment. These
+	// The seven gauges at the top of the panel, given the same treatment. These
 	// differ from the profile series in one way that matters: each has a NATURAL
-	// maximum (the display's refresh rate, 100%, installed RAM, the VRAM budget,
-	// the descriptor ceiling), so they are drawn against a fixed scale.
+	// maximum (the display's refresh rate, 100%, installed RAM - for the system
+	// AND for this process's working set - the VRAM budget, the descriptor
+	// ceiling), so they are drawn against a fixed scale.
 	// Autoscaling would redraw 3% CPU as a full graph and make idle look like a
 	// crisis. FPS is the interesting one: its ceiling is the MONITOR's refresh
 	// rate, which is the only number that makes "is this fast enough" answerable
 	// rather than just large.
-	enum PerfLine { kFps, kCpu, kGpu, kRam, kVram, kSrv, kPerfLines };
+	enum PerfLine { kFps, kCpu, kGpu, kRam, kVram, kSrv, kProc, kPerfLines };
 	struct PerfSeries {
 		float pending = 0.0f;
 		float samples[kProfHistory] = {};
@@ -419,11 +430,16 @@ private:
 	int m_snapTarget = -1;
 	float m_snapLeft = 0.0f;
 
+	// All in DevConsole_Snapshots.cpp. SnapCommand is the `profile` command's
+	// snap / snaps / diff verbs, handed over whole so the command's snapshot
+	// half lives beside the code it drives.
+	void SnapCommand(const std::vector<std::string>& args);
 	int SnapSlot(std::string_view name) const; // existing slot, or -1
 	int SnapFreeSlot();                        // reuse by name, else a free one
 	// Walks the tree itself rather than borrowing the sampler's rows: the row
-	// type is a drawing detail private to the .cpp, and one extra tree walk for
-	// the few seconds a recording lasts is not worth leaking it into the header.
+	// type is a drawing detail private to the console's own files, and one extra
+	// tree walk for the few seconds a recording lasts is not worth leaking it into
+	// this header.
 	void SnapAccumulate(float dt);
 	void SnapFinish();
 	void SnapDiff(const Snapshot& a, const Snapshot& b);
@@ -486,6 +502,44 @@ private:
 	void SampleProfileSeries();
 	void CommitProfileSeries();
 
+	// --- the readout panel's sections ----------------------------------------
+	// Render lays the panel out top to bottom and hands every section the same
+	// PanelCtx (DevConsole_Panel.h). Each answers for its own height, drawing and
+	// clicks in its own file, so a new section is one file plus its lines here.
+	// Clicks and hovers take the mouse already in Render's space.
+	struct PanelCtx;
+	// Shared by the sections, so they live with the frame (DevConsole.cpp).
+	gfx::Rect DrawExpander(const PanelCtx& p, float y, bool expanded);
+	float DrawCheckbox(const PanelCtx& p, float x, float y, bool on, int perfLine, u32 tid,
+					   u32 node);
+
+	// PERFORMANCE (DevConsole_Perf.cpp)
+	void SamplePerfSeries(const gfx::GraphicsDevice& device);
+	void CommitPerfSeries();
+	float PerfSectionHeight(const PanelCtx& p) const;
+	void DrawPerfSection(const PanelCtx& p, float top);
+	void PerfClick(float mx, float my);
+
+	// PROFILE (DevConsole_Profile.cpp)
+	void RegisterProfileCommand();
+	void PrepareProfile(devcon::ProfileFrame& f) const;
+	float ProfileSectionHeight(const PanelCtx& p, const devcon::ProfileFrame& f) const;
+	void DrawProfileSection(const PanelCtx& p, float top, const devcon::ProfileFrame& f);
+	void ProfileHover(float mx, float my);
+	void ProfileClick(float mx, float my);
+
+	// HEALTH (DevConsole_Health.cpp)
+	float HealthSectionHeight(const PanelCtx& p) const;
+	void DrawHealthSection(const PanelCtx& p, float top);
+	void HealthClick(float mx, float my);
+
+	// THREADS (DevConsole_Threads.cpp)
+	float ThreadsSectionHeight(const PanelCtx& p,
+							   const std::vector<threads::WorkerInfo>& workers) const;
+	void DrawThreadsSection(const PanelCtx& p, float top,
+							const std::vector<threads::WorkerInfo>& workers);
+	void ThreadsClick(float mx, float my);
+
 	bool m_open = false;
 	bool m_commandsEnabled = true;   // false while a staged load is mid-flight
 	bool m_mirrorToLog = false;      // `logecho`: every console line also to dungeon.log
@@ -498,7 +552,7 @@ private:
 	bool m_threadsExpanded = false;
 
 	bool m_profileGraph = false; // list of current values, or scrolling graphs
-	bool m_perfGraph = false;    // the six top gauges, as bars or as graphs
+	bool m_perfGraph = false;    // the top gauges, as bars or as graphs
 
 	// All laid out by Render, hit-tested by the next Update.
 	gfx::Rect m_profViewBtn{};
