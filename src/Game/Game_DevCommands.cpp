@@ -152,6 +152,17 @@ void Game::RegisterDevCommands() {
 							   walkable, m_world->MonsterCount(),
 							   map.Sconces().size(), map.Braziers().size()));
 					   });
+	m_console.Register("geomhash",
+					   "fingerprint the active level's surface geometry (one hash per "
+					   "surface; identical before/after = no vertex moved)",
+					   [this](const std::vector<std::string>&) {
+						   const DungeonWorld::GeometryPrint g = m_world->GeometryFingerprint();
+						   m_console.Print(std::format(
+							   "geomhash {} walls={:016x} floors={:016x} ceilings={:016x} "
+							   "verts={}",
+							   m_world->CurrentLevel(), g.walls, g.floors, g.ceilings,
+							   g.vertices));
+					   });
 	m_console.Register("groups", "list monster groups (id: count [kinds] @ cell#slot)",
 					   [this](const std::vector<std::string>&) {
 						   for (const std::string& line : m_world->GroupsReport())

@@ -855,6 +855,17 @@ public:
 	// One human-readable line per monster group (id, count, kinds, cells#slot) for
 	// the dev console `groups` command — the Phase-3 group model's reader.
 	std::vector<std::string> GroupsReport() const;
+	// A fingerprint of the active level's surface geometry, rebuilt from the map
+	// exactly as a full bake builds it: one FNV-1a hash per surface over every
+	// chunk's variant, chunk index and vertex/index bytes. For the `geomhash`
+	// command - a change that must not move a single vertex (a refactor of the
+	// variant resolve, a new cell state no cell uses yet) is checked by the hash
+	// coming out identical before and after.
+	struct GeometryPrint {
+		u64 walls = 0, floors = 0, ceilings = 0;
+		size_t vertices = 0;
+	};
+	GeometryPrint GeometryFingerprint() const;
 
 	// --- fog of war (dynamic/save-side state, not in DungeonMap) -------------
 	// Whether a cell has been revealed (the party has stood on it or an
