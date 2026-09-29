@@ -33,8 +33,9 @@
 #   7. PAINTING WITH A COMBINATION: an area fill with "marble hall" makes the
 #      room's floors and ceilings and the walls around it REFERENCE it, every
 #      one resolving to a member (including one the palette had to enrol);
-#      the eyedropper picks the combination up; and it survives a save and a
-#      reload with the geometry unchanged.
+#      the eyedropper picks the combination up; it survives a save and a
+#      reload with the geometry unchanged; and "+ New..." seeds a combination
+#      from the selected square's look.
 #   8. EDITING A COMBINATION reaches every square painted with it: a new floor
 #      shows at once on the level in hand and on a level NOT loaded, and the
 #      save that follows writes that level but not one that does not use it;
@@ -275,9 +276,22 @@ try:
     check(len(h) == 3 and h[1] != h[0] and h[2] == h[1],
           "painting changed the level, and a save and reload kept it exactly",
           str([x[2] for x in h]))
-    after = cells[6:]
+    after = cells[6:8]
     check(len(after) == 2 and after[0][6] == "mix:marble_hall" and
           after[1][4] == "mix:marble_hall", "the references came back from the file", str(after))
+    # "+ New..." seeds a combination from the SELECTED square: 1,5's floor and
+    # ceiling and its west wall, one member each - so what it paints must show
+    # exactly those.
+    seed = cells[8:]
+    if len(seed) != 3:
+        check(False, "three squares read for the new combination", str(len(seed)))
+    else:
+        src, room, wall = seed
+        check(room[6] == "mix:combo1" and room[7] == src[7] and room[9] == src[9],
+              "a new combination takes the selected square's floor and ceiling",
+              f"{src[7]}/{src[9]} -> {room[7]}/{room[9]}")
+        check(wall[4] == "mix:combo1" and wall[5] == "wall_marble",
+              "and the wall beside it", str(wall))
 finally:
     shutil.rmtree(PROJ)
     shutil.copytree(backup, PROJ)

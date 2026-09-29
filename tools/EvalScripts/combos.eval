@@ -36,3 +36,14 @@ goto eval_arena
 geomhash
 editor cell 3 3
 editor cell 0 5
+echo --- a new combination from the selected square ---
+; 1,5 is in room A beside the west wall: its floor, its ceiling and that
+; wall seed the new combination, one member each - so a square painted with it
+; must show exactly those.
+editor cell 1 5
+editor inspect 1 5
+editor inspect off
+newtype combos
+editor fill combos combo1 area 3 3
+editor cell 3 3
+editor cell 0 9

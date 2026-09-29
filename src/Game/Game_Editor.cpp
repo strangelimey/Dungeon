@@ -737,6 +737,31 @@ std::string Game::CreateAuthoredType(MapEditor::PaletteCat cat) {
 	for (const FieldSpec& f : SchemaFor(key))
 		if (f.def && f.def[0]) e.Set(f.key, f.def);
 	e.Set("display", id); // something readable until it is renamed
+	// A new COMBINATION starts as the look of the square selected on the map
+	// (right-click it first): its floor and ceiling as the square shows them,
+	// and the wall of its first solid neighbour. Picking a room you like and
+	// saying "that, as a combination" is the quickest way to author one; with
+	// nothing selected it starts empty and the tabs fill it.
+	if (key == "combos" && m_mapEditor.HasSelection()) {
+		const DungeonMap& map = m_mapView.ViewedMap();
+		const int x = m_mapEditor.SelX(), z = m_mapEditor.SelZ();
+		const auto shown = [&](Surface s, int cx, int cz) -> std::string {
+			const std::vector<std::string>& pal = map.Palette(s);
+			if (pal.empty()) return {};
+			return pal[ResolveSurfaceVariant(map, cx, cz, s, static_cast<u32>(pal.size()))];
+		};
+		if (map.IsWalkable(x, z)) {
+			e.Set("floor", shown(Surface::Floor, x, z));
+			e.Set("ceiling", shown(Surface::Ceiling, x, z));
+			for (const auto [dx, dz] : {std::pair{0, -1}, {1, 0}, {0, 1}, {-1, 0}})
+				if (!map.IsWalkable(x + dx, z + dz)) {
+					e.Set("wall", shown(Surface::Wall, x + dx, z + dz));
+					break;
+				}
+		} else {
+			e.Set("wall", shown(Surface::Wall, x, z));
+		}
+	}
 	catalog->Add(std::move(e));
 	log::Info("new {} type '{}'", key, id);
 	return id;
