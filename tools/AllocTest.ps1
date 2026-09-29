@@ -214,6 +214,23 @@ function Get-TallyField([string]$field) {
 	throw 'the console never answered `tally` - is logecho on?'
 }
 
+# Throws unless the party stands on x,z facing north (asks `pos`; needs logecho
+# on). -Impact's whole geometry hangs on it: a `tp` or `face` swallowed by a
+# busy console leaves the party firing somewhere else, and the barrage then
+# measures bolts expiring into a far wall.
+function Assert-PartyAt([int]$x, [int]$z) {
+	$want = "console: $x,$z facing north"
+	$before = @(Select-String -Path $log -Pattern $want -SimpleMatch).Count
+	Send-Text 'pos'; Send-Key 0x0D
+	$deadline = (Get-Date).AddSeconds(5)
+	while ((Get-Date) -lt $deadline) {
+		if (@(Select-String -Path $log -Pattern $want -SimpleMatch).Count -gt $before) { return }
+		Start-Sleep -Milliseconds 200
+	}
+	$got = Select-String -Path $log -Pattern 'console: \d+,\d+ facing ' | Select-Object -Last 1
+	throw "the party is not at $x,$z facing north (pos: $(if ($got) { $got.Line } else { 'no answer' }))"
+}
+
 # One numeric field of the tally line Get-TallyField last read.
 function Get-LastTallyField([string]$field) {
 	if ($script:lastTally -match "\b$field=([0-9.]+)") { return [double]$Matches[1] }
@@ -381,10 +398,21 @@ try {
 		Send-Key 0xC0
 		Start-Sleep -Milliseconds 500
 		Send-Text 'logecho on'; Send-Key 0x0D
+		# The console refuses commands while the level loads; a NEW "Level
+		# ready" line is the moment it will take them again. NEW, counted from
+		# before the goto: when the landing page Continues an eval save, the
+		# game has ALREADY printed one for eval_arena, the wait matched it at
+		# once, and `tp` and `face` were typed into the reload and refused - the
+		# party then fired the whole barrage the wrong way.
+		$readyPattern = '^\[info \] Level ready: eval_arena'
+		$readyBefore = @(Select-String -Path $log -Pattern $readyPattern).Count
 		Send-Text 'goto eval_arena'; Send-Key 0x0D
-		# The console refuses commands while the level loads; this line is the
-		# moment it will take them again.
-		Wait-ForLog '^\[info \] Level ready: eval_arena' $LoadTimeoutSec 'the arena load' | Out-Null
+		$deadline = (Get-Date).AddSeconds($LoadTimeoutSec)
+		while (@(Select-String -Path $log -Pattern $readyPattern).Count -le $readyBefore) {
+			if ($proc.HasExited) { throw "the game exited during the arena load (code $($proc.ExitCode))" }
+			if ((Get-Date) -gt $deadline) { throw 'timed out waiting for the arena load' }
+			Start-Sleep -Milliseconds 500
+		}
 		Start-Sleep -Milliseconds 800
 		# The room is open from 1,1 to 26,22 (28x24 with a solid border). The
 		# monster stands THREE squares north of the party: a bolt's `range` is
@@ -394,6 +422,7 @@ try {
 		$tx = 14; $tz = 14; $px = 14; $pz = 17
 		Send-Text "tp $px $pz"; Send-Key 0x0D
 		Send-Text 'face n'; Send-Key 0x0D
+		Assert-PartyAt $px $pz
 		Send-Text 'freeze on'; Send-Key 0x0D
 		Send-Text "spawn $ImpactMonster $tx $tz s $ImpactStrength"; Send-Key 0x0D
 		Start-Sleep -Milliseconds 500
@@ -443,6 +472,7 @@ try {
 		Start-Sleep -Seconds 1
 		$px -= 4; $tx -= 4
 		Send-Text "tp $px $pz"; Send-Key 0x0D
+		Assert-PartyAt $px $pz
 		Send-Text "spawn $ImpactMonster $tx $tz s $ImpactStrength"; Send-Key 0x0D
 		Start-Sleep -Milliseconds 300
 		if (-not (Select-String -Path $log -Pattern "spawned $ImpactMonster at $tx,$tz" -Quiet)) {
