@@ -8,6 +8,11 @@
 ; `vit_exertion` was RETIRED here: stamina spent now trains the conditioning
 ; skill instead of creeping vitality, and vitality feeds max stamina, so keeping
 ; both was a loop feeding itself.
+;
+; The stance's two ends (Game/Defense.h StanceRules): exert_attack_max is the
+; multiple of the attack's skill term at 100% over-exertion (a stance of
+; exert_max), guard_defense_max the multiple of the guard's at 0% attack. Both
+; curve in with the square of how far toward that end the stance is.
 
 [formula]
 unarmed_base = 4
@@ -97,6 +102,8 @@ exhaust_pace = 1.5
 exhaust_recover = 0.1
 exert_cost = 3
 exert_max = 2
+exert_attack_max = 5
+guard_defense_max = 2
 fumble_severe_face = 1
 fumble_recover = 2.2
 stabilize_time = 30

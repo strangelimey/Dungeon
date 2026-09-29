@@ -45,18 +45,35 @@ float HandGuard(float held, CurveRules skillCurve, float leftLevel,
 						   CurveValue(rightLevel, skillCurve));
 }
 
-float StanceAttack(float share, float skillLevel, CurveRules skillCurve) {
-	return share * CurveValue(skillLevel, skillCurve);
+float AttackWeight(float share, const StanceRules& rules) {
+	if (share <= 1.0f) return share; // the honest range: the plain trade
+	if (rules.exertMax <= 1.0f) return 1.0f; // no over-exertion configured
+	// NOT clamped at 1: the dev `guard` command may push a stance past exertMax,
+	// and the curve carries on rather than flattening there.
+	const float p = (share - 1.0f) / (rules.exertMax - 1.0f);
+	return 1.0f + (rules.exertAttackMax - 1.0f) * p * p;
 }
 
-float ExertionPoints(float share, float skillLevel, CurveRules skillCurve) {
+float GuardWeight(float share, const StanceRules& rules) {
+	const float held = 1.0f - share;
+	if (held <= 0.0f) return held; // all-out, or over-exerted: nothing, or less
+	return held * (1.0f + (rules.guardDefenseMax - 1.0f) * held * held);
+}
+
+float StanceAttack(float share, float skillLevel, CurveRules skillCurve,
+				   const StanceRules& rules) {
+	return AttackWeight(share, rules) * CurveValue(skillLevel, skillCurve);
+}
+
+float ExertionPoints(float share, float skillLevel, CurveRules skillCurve,
+					 const StanceRules& rules) {
 	if (share <= 1.0f) return 0.0f; // not over-exerting: nothing was borrowed
 	// The DIFFERENCE against a fully-committed honest swing, written as two calls
-	// to the same function the attack roll uses rather than as (share - 1) × curve.
-	// Identical arithmetic today, but it cannot drift from the attack side if the
-	// stance ever stops scaling the skill term linearly.
-	return StanceAttack(share, skillLevel, skillCurve) -
-		   StanceAttack(1.0f, skillLevel, skillCurve);
+	// to the same function the attack roll uses rather than as a separate
+	// formula - which is what keeps it right now that the stance no longer
+	// scales the skill term linearly past 1.
+	return StanceAttack(share, skillLevel, skillCurve, rules) -
+		   StanceAttack(1.0f, skillLevel, skillCurve, rules);
 }
 
 float Potent(float amount, const ResistTable& potency, DamageType type,

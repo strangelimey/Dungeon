@@ -108,17 +108,22 @@ void Game::RegisterPartyCommands() {
 						   }
 						   Character& c = m_characters[m];
 						   c.offenseShare = share;
-						   // The held-back share is reported UNCLAMPED, because a
-						   // negative one is the whole point past 1 — the guard
-						   // becomes a penalty, and a readout that floored it at
-						   // 0% would say an over-exerted stance and an all-out
-						   // one were the same thing.
-						   const float held = (1.0f - share) * 100.0f;
+						   // The two multiples the stance puts on the skill term
+						   // (defense::AttackWeight / GuardWeight - curved at both
+						   // ends, so the share alone no longer says it). The guard
+						   // is reported UNCLAMPED, because a negative one is the
+						   // whole point past 1 - it becomes a penalty, and a
+						   // readout that floored it at 0 would say an over-exerted
+						   // stance and an all-out one were the same thing.
+						   const defense::StanceRules rules =
+							   m_world ? m_world->GetBalance().Stance()
+									   : defense::StanceRules{};
 						   m_console.Print(std::format(
-							   "{} offense {:.2f} (guarding with {:.0f}% of hand "
-							   "skill{})",
-							   c.name, share, held,
-							   share > 1.0f ? " — OVER-EXERTED" : ""));
+							   "{} offense {:.2f}: attack x{:.2f}, guard x{:.2f} of "
+							   "skill{}",
+							   c.name, share, defense::AttackWeight(share, rules),
+							   defense::GuardWeight(share, rules),
+							   share > 1.0f ? " - OVER-EXERTED" : ""));
 					   });
 
 	// THE PARTY'S SWING, from the console. `equip` and `wear` exist because the

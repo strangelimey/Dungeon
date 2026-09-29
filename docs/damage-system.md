@@ -143,6 +143,28 @@ subtracted, so pressing the attack cost you your guard and bought nothing.
 The slider was a defense dial wearing a trade's clothes. Both sides now trade
 on the same terms.
 
+**The ends curve (2026-09-28, Michael).** The exact coupling above held until
+the stance was made to reward commitment to either extreme. A character's
+stance still trades one side for the other - more attack always means less
+guard - but both ends now curve, with most of the reward in the last stretch
+(`defense::AttackWeight` / `GuardWeight`):
+
+```
+attack skill term  ×  share                                   (honest range)
+                   ×  1 + (exert_attack_max − 1) × p²          (p = over-exertion 0..1)
+guard skill term   ×  h × (1 + (guard_defense_max − 1) × h²)   (h = 1 − share, held back)
+                   ×  1 − share                                (over-exerted: a penalty)
+```
+
+At the shipped knobs (`exert_attack_max = 5`, `guard_defense_max = 2`) 100%
+over-exertion swings at five times the skill term and 0% attack guards at
+twice it, so `attack + guard` is no longer constant: at 0% attack it is 2, at
+a full commitment 1, at full over-exertion 4. A multiple of 1 restores the
+plain line on that side. Monsters are untouched - their guard is still the
+linear `(1 − offense) × accuracy`, and their offense never passes 1. RollTest
+pins the shape (both ends reach their knobs, both steepen toward the
+extreme, the trade stays monotonic) rather than the old identity.
+
 ## Over-exertion
 
 The share is **0..exert_max, not 0..1**. Past 1 a fighter is spending skill
@@ -161,7 +183,10 @@ stamina, then health  ←  exert_cost × (StanceAttack(share) − StanceAttack(1
 ```
 
 `exert_cost` (3) and `exert_max` (2) are balance.cat knobs like everything
-else; 3 is a first cut and expected to move. Four properties are worth
+else; 3 is a first cut and expected to move. Because the bill is charged on
+the points BOUGHT, it follows the curved attack: at 100% over-exertion the
+default curve buys four skills' worth (it used to buy one), so the bill is four
+times what it was there - most of it in the last stretch. Four properties are worth
 knowing, each of which is a decision rather than an implementation detail:
 
 - **Every exit pays.** A whiff at air, a miss, a landed blow and a *fumbled
