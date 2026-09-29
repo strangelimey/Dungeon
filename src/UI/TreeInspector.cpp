@@ -183,10 +183,16 @@ bool Collides(const gfx::Rect& a, const gfx::Rect& b) {
 	return x > kSlack && y > kSlack;
 }
 
-bool Auditable(const Widget& w) {
-	if (!w.visible || w.overlapOk) return false;
-	const gfx::Rect& px = w.Pixel();
-	return px.w > 0.0f && px.h > 0.0f;
+// Empty INK, not an empty layout rect: a Stack's Fill row that got no room
+// resolves to zero height, and a Label in it still draws its whole line - over
+// the footer below. Gating on Pixel() skipped exactly the widget the audit
+// exists to catch; a popup with zero bounds still paints nothing in the tree.
+// Only a child its parent SHOWS: InkRect measures text in the widget's resolved
+// font, which a child skipped by ChildActive never had set.
+bool Auditable(const Widget& parent, const Widget& w) {
+	if (!parent.ChildShown(w) || w.overlapOk) return false;
+	const gfx::Rect ink = w.InkRect();
+	return ink.w > 0.0f && ink.h > 0.0f;
 }
 
 // How far `inner` sticks out of `outer`, in pixels, on its worst side. Slack
@@ -204,10 +210,10 @@ void AuditNode(const Widget& parent, const std::string& path,
 	const auto& kids = parent.Children();
 	const gfx::Rect content = parent.ContentRect();
 	for (size_t i = 0; i < kids.size(); ++i) {
-		if (!Auditable(*kids[i])) continue;
+		if (!Auditable(parent, *kids[i])) continue;
 		// Sibling collisions: two widgets in the same area.
 		for (size_t j = i + 1; j < kids.size(); ++j) {
-			if (!Auditable(*kids[j])) continue;
+			if (!Auditable(parent, *kids[j])) continue;
 			if (!Collides(kids[i]->InkRect(), kids[j]->InkRect())) continue;
 			std::string line =
 				std::format("  {} > {} [{}] overlaps {} [{}]", path,
@@ -235,7 +241,7 @@ void AuditNode(const Widget& parent, const std::string& path,
 		}
 	}
 	for (const auto& child : kids) {
-		if (!child->visible) continue;
+		if (!parent.ChildShown(*child)) continue;
 		AuditNode(*child, path + " > " + Name(*child), out);
 	}
 }

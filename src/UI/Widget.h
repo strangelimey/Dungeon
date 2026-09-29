@@ -165,7 +165,9 @@ public:
 	// where Pixel() is its area as the layout sees it. They differ whenever a
 	// widget draws text it was not given room for: a Label draws its whole
 	// string from its top-left corner however narrow its bounds, so a label too
-	// long for its row lands on whatever sits to the right of it. Overriding
+	// long for its row lands on whatever sits to the right of it, a row shorter
+	// than the font still gets the whole line, and a Button centres its label so
+	// a long one spills out of BOTH sides of the face. Overriding
 	// this is what lets the `uioverlap` audit (UI/TreeInspector.h) see that as
 	// the collision it is instead of passing the pair as disjoint.
 	//
@@ -177,6 +179,15 @@ public:
 	// children are then MEANT to run past its bounds — the excess paints on
 	// nothing — which is why the overlap audit does not count that as an escape.
 	bool ClipsChildren() const { return ChildClip() != nullptr; }
+
+	// True if the passes reach `child` at all: it is visible and this container
+	// has not skipped it (ChildActive - a row scrolled out of a ScrollArea). A
+	// skipped child is never laid out, so its rects are stale or zero and its
+	// font is UNSET. Anything walking the tree from outside - the overlap audit
+	// asking InkRect, which measures text - must walk it the way Layout does.
+	bool ChildShown(const Widget& child) const {
+		return child.visible && ChildActive(child);
+	}
 
 	// Opts this widget out of the overlap audit: it is deliberately UNDER (or
 	// over) its siblings — a Panel used as a backdrop for the rows added after

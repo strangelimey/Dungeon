@@ -62,7 +62,11 @@ void Label::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 }
 
 gfx::Rect Label::InkRect() const {
+	// The LINE, not the row: a label drawn into a row shorter than its font (a
+	// starved Stack Fill row gets zero) still paints the whole line. An empty
+	// label paints nothing, so it claims only what the layout gave it.
 	const gfx::Rect& px = Pixel();
+	if (text.empty()) return px;
 	const float h = TextFont().Height();
 	const float y = centerV ? px.y + (px.h - h) * 0.5f : px.y;
 	return {px.x, y, std::max(TextFont().MeasureWidth(text), px.w), h};
@@ -151,6 +155,19 @@ void Button::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 				   m_held || active, enabled, ctx.GetSkin());
 }
 
+gfx::Rect Button::InkRect() const {
+	// Mirrors DrawButtonFace: the face fills the bounds, the label is centred on
+	// them at its measured size. An icon face is drawn inside the bounds.
+	const gfx::Rect& px = Pixel();
+	if (icon || text.empty()) return px;
+	const Font& font = TextFont();
+	const float w = font.MeasureWidth(text);
+	const float h = font.Height();
+	return {std::min(px.x, px.x + (px.w - w) * 0.5f),
+			std::min(px.y, px.y + (px.h - h) * 0.5f), std::max(px.w, w),
+			std::max(px.h, h)};
+}
+
 void DrawButtonFace(gfx::SpriteBatch& batch, const Font& font,
 					const gfx::Rect& rect,
 					const std::string& label, const Theme& theme, bool hot,
@@ -223,8 +240,11 @@ gfx::Rect Checkbox::InkRect() const {
 	const gfx::Rect& px = Pixel();
 	const float box = std::min(px.h * 0.6f, Rem(0.65f));
 	const float textX = px.x + Rem(0.15f) + box + Rem(0.3f);
+	// Vertically the label is centred like a Button's, so a row shorter than the
+	// font spills the line out of both edges.
 	const float right = std::max(px.x + px.w, textX + TextFont().MeasureWidth(label));
-	return {px.x, px.y, right - px.x, px.h};
+	const float h = label.empty() ? px.h : std::max(px.h, TextFont().Height());
+	return {px.x, px.y + (px.h - h) * 0.5f, right - px.x, h};
 }
 
 // --- Slider --------------------------------------------------------------

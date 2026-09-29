@@ -59,8 +59,9 @@ std::string Name(const Widget& widget);
 // row that runs off the end of its container lands on something with a
 // different parent, which no sibling check would ever compare.
 //
-// Widgets marked `overlapOk` are skipped; so are empty rects, which is what a
-// screen-anchored popup has.
+// Widgets marked `overlapOk` are skipped; so are empty INK rects, which is what
+// a screen-anchored popup has. Ink, not layout: a label in a row squeezed to
+// zero height still paints its line, and must still be compared.
 //
 // Arm it, and the next frame's contexts report through `out`.
 void ArmOverlapAudit(std::function<void(const std::string&)> out);
