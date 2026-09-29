@@ -980,4 +980,7 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    import harness_audio
+    with harness_audio.muted(os.path.dirname(EXE)):
+        code = main()
+    sys.exit(code)

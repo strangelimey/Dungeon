@@ -37,6 +37,11 @@ $ErrorActionPreference = 'Continue'
 $root = Split-Path -Parent $PSScriptRoot
 $bin = Join-Path $root "build\$Config\bin"
 
+# Muted ONCE for the whole suite; every harness below finds the flag set and
+# leaves the volume to this one (tools\HarnessAudio.ps1).
+. (Join-Path $PSScriptRoot 'HarnessAudio.ps1')
+if (-not $List -and -not $env:DN_HARNESS_MUTED) { exit (Invoke-Muted $bin $PSCommandPath $PSBoundParameters) }
+
 # ---------------------------------------------------------------------------
 # THE SUITE. `tier` is quick or full; `selfTest` is how to ask this check to
 # fail on purpose (absent = it has no such mode, and is skipped under -SelfTest

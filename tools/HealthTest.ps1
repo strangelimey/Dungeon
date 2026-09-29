@@ -36,6 +36,11 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $bin = Join-Path $root "build\$Config\bin"
+
+# Muted for the whole run, restored however it ends (tools\HarnessAudio.ps1).
+. (Join-Path $PSScriptRoot 'HarnessAudio.ps1')
+if (-not $env:DN_HARNESS_MUTED) { exit (Invoke-Muted $bin $PSCommandPath $PSBoundParameters) }
+
 $exe = Join-Path $bin 'Dungeon.exe'
 $log = Join-Path $bin 'dungeon.log'
 
