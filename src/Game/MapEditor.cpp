@@ -921,21 +921,11 @@ int MapEditor::ResolvedVariant(int cx, int cz, int selRaw) const {
 	using SS = DungeonWorld::SurfaceSel;
 	const SS sel = static_cast<SS>(selRaw);
 	const DungeonMap& map = m_view.ViewedMap();
-	const std::vector<std::string>& pal =
-		sel == SS::Wall    ? map.WallPalette()
-		: sel == SS::Floor ? map.FloorPalette()
-						   : map.CeilingPalette();
-	const int count = static_cast<int>(pal.size());
+	const int count = static_cast<int>(map.Palette(sel).size());
 	if (count == 0) return -1;
-	// Override else the mesh builder's hash — StampCell's exact pick, the same
-	// resolution the map's textured fill uses.
-	const int over = sel == SS::Wall    ? map.WallVariant(cx, cz)
-					 : sel == SS::Floor ? map.FloorVariant(cx, cz)
-										: map.CeilingVariant(cx, cz);
-	if (over >= 0) return std::min(over, count - 1);
-	const u32 salt = sel == SS::Wall ? 3u : sel == SS::Floor ? 1u : 2u;
+	// StampCell's exact answer, the same one the map's textured fill draws.
 	return static_cast<int>(
-		SurfaceVariantFor(cx, cz, salt, static_cast<u32>(count)));
+		ResolveSurfaceVariant(map, cx, cz, sel, static_cast<u32>(count)));
 }
 
 void MapEditor::InspectAt(int cx, int cz) {

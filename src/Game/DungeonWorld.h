@@ -897,11 +897,12 @@ public:
 	// (PruneEntitiesForCell) — so live state always matches the new grid.
 	void EditCell(int x, int z, Cell cell);
 
-	// Which surface a variant edit targets.
-	enum class SurfaceSel { Wall, Floor, Ceiling };
-	// Pins a floor cell's wall/floor/ceiling texture variant to a palette index
+	// Which surface a variant edit targets (DungeonMap's Surface).
+	using SurfaceSel = Surface;
+	// Pins a cell's wall/floor/ceiling texture variant to a palette index
 	// (the variant index into the level's surface palette), then rebuilds like
-	// EditCell. No-op on solid cells (variants live on floor cells).
+	// EditCell. A wall variant lives on the SOLID cell, floor/ceiling on the
+	// walkable one; the wrong cell type is a no-op.
 	void EditVariant(int x, int z, SurfaceSel sel, int variant);
 	// The loaded albedo behind a surface-palette catalog id, for the editor
 	// map's textured cell fill. Only the ACTIVE level's palette sets are ever

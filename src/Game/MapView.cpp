@@ -933,29 +933,19 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		default: break;
 		}
 	}
-	const std::vector<std::string>& fillPal =
-		fillSel == SurfaceSel::Wall    ? map.WallPalette()
-		: fillSel == SurfaceSel::Floor ? map.FloorPalette()
-									   : map.CeilingPalette();
 	// Each palette id's loaded albedo, resolved once (null = flat fallback).
 	// Empty outside Editor mode, which keeps the whole loop on the flat path.
 	std::vector<const gfx::Texture*> fillTex;
 	if (m_mode == Mode::Editor)
-		for (const std::string& id : fillPal)
+		for (const std::string& id : map.Palette(fillSel))
 			fillTex.push_back(m_world->SurfaceAlbedoForId(fillSel, id));
 	const int fillCount = static_cast<int>(fillTex.size());
-	const u32 fillSalt = fillSel == SurfaceSel::Wall    ? 3u
-						 : fillSel == SurfaceSel::Floor ? 1u : 2u;
-	// The cell's resolved variant: override else hash — StampCell's exact pick,
-	// so the fill always matches the 3D scene.
+	// The cell's resolved variant: ResolveSurfaceVariant, the answer StampCell
+	// bakes, so the fill always matches the 3D scene.
 	auto fillVariant = [&](int x, int z) -> int {
 		if (fillCount == 0) return -1;
-		const int over = fillSel == SurfaceSel::Wall	? map.WallVariant(x, z)
-						 : fillSel == SurfaceSel::Floor ? map.FloorVariant(x, z)
-														: map.CeilingVariant(x, z);
-		if (over >= 0) return std::min(over, fillCount - 1);
 		return static_cast<int>(
-			SurfaceVariantFor(x, z, fillSalt, static_cast<u32>(fillCount)));
+			ResolveSurfaceVariant(map, x, z, fillSel, static_cast<u32>(fillCount)));
 	};
 	const Vec4 fillTint = fillArmed ? kTexFillLit : kTexFillDim;
 	std::vector<std::vector<gfx::Rect>> fillCells(static_cast<size_t>(fillCount));

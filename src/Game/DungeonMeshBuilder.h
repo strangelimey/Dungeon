@@ -51,6 +51,13 @@ inline constexpr int kChunkCells = 4;
 // resolves the exact variant StampCell bakes.
 u32 SurfaceVariantFor(int x, int z, u32 salt, u32 count);
 
+// THE answer to "which variant does surface `s` of cell (x,z) show", given
+// `count` loaded variants (the palette size): the editor override clamped to
+// count-1, else the hash above with the surface's salt. The mesh builder, the
+// map overlay's textured fill and the editor's flood/eyedropper all ask this,
+// so the scene and the map cannot disagree about a cell. 0 when count is 0.
+u32 ResolveSurfaceVariant(const DungeonMap& map, int x, int z, Surface s, u32 count);
+
 // Which of a cell's horizontal blocks are OPENINGS and must be skipped: the
 // floor under a down-stair/pit (its below-grade shaft mesh replaces it), the
 // ceiling under a pit's lower half on the level below (its rising shaft mesh

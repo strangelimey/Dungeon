@@ -85,6 +85,10 @@ inline DirectX::XMMATRIX UnitScale(float extra = 1.0f) {
 
 enum class Cell : u8 { Wall, Floor };
 
+// A cell's three surfaces. The variant grids, the palettes and the editor's
+// brushes are all addressed by it (DungeonWorld::SurfaceSel is this type).
+enum class Surface : u8 { Wall, Floor, Ceiling };
+
 // Per-torch light/smoke defaults (also the "don't write it" baseline for the
 // .map fixture record — only non-default values are serialized).
 // Turbidity defaults were halved in the lighting mood pass (0.28/0.55 →
@@ -265,6 +269,14 @@ public:
 	void SetWallVariant(int x, int z, int v) { SetVariant(m_wallVar, x, z, v); }
 	void SetFloorVariant(int x, int z, int v) { SetVariant(m_floorVar, x, z, v); }
 	void SetCeilingVariant(int x, int z, int v) { SetVariant(m_ceilingVar, x, z, v); }
+	// The same, addressed by surface. This is the RAW override; which variant a
+	// cell actually SHOWS is ResolveSurfaceVariant's answer (DungeonMeshBuilder).
+	int Variant(Surface s, int x, int z) const {
+		return VariantAt(s == Surface::Wall    ? m_wallVar
+						 : s == Surface::Floor ? m_floorVar
+											   : m_ceilingVar,
+						 x, z);
+	}
 
 	// Whether a cell was authored dusty (the 'D' glyph), for the .map writer —
 	// distinct from runtime Turbidity(), which also folds in nearby fires.
@@ -536,6 +548,11 @@ public:
 	const std::vector<std::string>& WallPalette() const { return m_wallPalette; }
 	const std::vector<std::string>& FloorPalette() const { return m_floorPalette; }
 	const std::vector<std::string>& CeilingPalette() const { return m_ceilingPalette; }
+	const std::vector<std::string>& Palette(Surface s) const {
+		return s == Surface::Wall    ? m_wallPalette
+			   : s == Surface::Floor ? m_floorPalette
+									 : m_ceilingPalette;
+	}
 	// Editor: APPEND a catalog id to a palette (false = already there). Append
 	// only — the `variant` records store the palette INDEX, so inserting or
 	// removing in the middle would silently repaint every cell above it. The
