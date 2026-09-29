@@ -11,10 +11,22 @@ Measure a window of genuinely steady frames in the running game (~2 min).
 
 ## What it is guarding
 
-ARCHITECTURE.md's memory strategy: a steady-state frame allocates nothing. The
-party stands still on purpose — player-driven **events** (a bump message, a
-level line) legitimately allocate, so the assertion is about frames where
-nothing happened, which is where zero is unambiguously right.
+ARCHITECTURE.md's memory strategy: a steady-state frame allocates nothing. An
+allocation in a settled frame is a bug, **events included** - a bump message, a
+level line and a monster's swing all print without allocating
+(docs/message-allocation.md), so the guard has no notion of an event and no
+exception list.
+
+The party stands still in this run because that is the **baseline**, not because
+events are excused: a still party keeps the event paths out of the window, and a
+path outside the window passes whether it allocates or not. The event paths are
+put inside the window by `AllocTest.ps1`'s modes, run by hand (this command runs
+only the default):
+
+- `.\tools\AllocTest.ps1 -Wounded` - the regeneration tick (a full-health party
+  never runs it)
+- `.\tools\AllocTest.ps1 -Melee` - a monster swinging at the party, and the
+  narration of each blow
 
 ## Reading a failure
 
@@ -23,12 +35,20 @@ also in `dungeon.log`. Each **unique** stack is reported once per session, so a
 standing violation cannot drown the log — a frame repeating a known stack stays
 silent.
 
-Two policies that look like bugs and are not:
+A violation during an event is a violation. There used to be a policy here that
+event frames were reported but not asserted on; it was a rationalisation of a
+defect (`loc::Tr` copying text the table already owned), and its real cost was
+that a guard firing during ordinary play teaches you to ignore it. If an event
+allocates, fix the event. Something firing events every frame is a separate,
+MESSAGE-RATE problem, visible in the log on its own terms.
 
-- **Event frames are reported but not asserted on.** Allocation proportional to
-  events is not what the rule forbids. They are deliberately *not* wrapped in
-  `alloc::Excused`, because that would also hide something allocating every
-  frame.
+`alloc::Excused` is not a way out for gameplay. It is for paths that are allowed
+to allocate inside an otherwise steady frame - a dev-console command, an editor
+dialog, a first-time bake - and for reporting code, which must excuse itself
+because `log::Write` formats a string.
+
+One thing that looks like a bug and is not:
+
 - **Debug allocation counts are not release counts.** MSVC iterator debugging
   makes `vector`'s move constructor allocate, so growth copies rather than
   moves. Do not compare a debug number against a release one.
