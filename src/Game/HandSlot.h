@@ -3,10 +3,12 @@
 //
 // A hand with a SET use shows it: the socket behind the item takes an accent
 // tint, and a spell use also spells out its runes (Michael, 2026-09-28 - the
-// runes are the first iteration; a per-spell icon may replace them).
+// runes are the first iteration; a per-spell icon may replace them). Hovering
+// a set hand names the use in a tooltip; an unset hand shows none.
 // ============================================================================
 #pragma once
 
+#include "Core/Loc.h"
 #include "Game/PartyHudTypes.h"
 #include "UI/Controls.h"
 
@@ -23,6 +25,7 @@ class Spell; // Spell/Spell.h
 struct HandSetUse {
 	bool set = false;             // a use is set for what this hand holds
 	const Spell* spell = nullptr; // that use casts this spell (else a verb)
+	loc::Line label;              // its display name - the hover tooltip
 };
 
 class HandSlot : public ui::Widget {
@@ -39,6 +42,8 @@ public:
 
 	void UpdateSelf(ui::UIContext& ctx) override;
 	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
+	// The hover tooltip, in the overlay pass so nothing paints over it.
+	void DrawOverlaySelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 	// The hand's set use, asked every frame (so a pick, a Clear, a swapped item
 	// or a load is right with no notification). Unwired = never shown as set.

@@ -493,7 +493,8 @@ std::string_view GameUI::SetUseFor(const Character& c, size_t hand,
 	return {};
 }
 
-// Every frame, per hand box: views and a registry scan only, nothing built.
+// Every frame, per hand box: views, a registry scan and an inline loc::Line -
+// nothing on the heap.
 HandSetUse GameUI::HandSetUseFor(size_t i, size_t hand) const {
 	if (i >= m_characters.size() || hand > 1) return {};
 	const Character& c = m_characters[i];
@@ -502,13 +503,19 @@ HandSetUse GameUI::HandSetUseFor(size_t i, size_t hand) const {
 	if (set.empty()) return {};
 	HandSetUse use;
 	use.set = true;
-	if (IsCastUse(set) && spellDefs) {
+	if (IsCastUse(set)) {
+		// SetUseFor only returns a cast whose spell is in the registry.
 		const std::string_view id = set.substr(kCastPrefix.size());
-		for (const auto& def : spellDefs())
-			if (def->Id() == id) {
-				use.spell = def.get();
-				break;
-			}
+		if (spellDefs)
+			for (const auto& def : spellDefs())
+				if (def->Id() == id) {
+					use.spell = def.get();
+					use.label = loc::View(def->NameKey());
+					break;
+				}
+	} else {
+		// The same text the use menu's row showed (use.<verb>).
+		use.label = loc::ViewKey("use.", set);
 	}
 	return use;
 }

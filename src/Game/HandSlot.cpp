@@ -107,6 +107,36 @@ void HandSlot::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		ui::DrawBorder(batch, px, theme.panelBorder);
 }
 
+// The hover tooltip: what a left click on this SET hand does. An unset hand
+// shows none (Michael, 2026-09-28) - its left click still acts, but nothing
+// was chosen, so there is nothing to name. One line, drawn every frame the
+// pointer rests here, from an inline loc::Line, so it builds no string.
+void HandSlot::DrawOverlaySelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
+	if (!m_hot || !m_character || !setUse) return;
+	const HandSetUse use = setUse();
+	if (!use.set || use.label.empty()) return;
+	const ui::Font& font = TextFont();
+	const ui::Theme& theme = ctx.GetTheme();
+	const float padX = Rem(0.6f), padY = Rem(0.35f), gapY = Rem(0.3f);
+	const float w = font.MeasureWidth(use.label) + 2.0f * padX;
+	const float h = font.Height() + 2.0f * padY;
+	// NEVER OVER THE HAND. Below it by preference, above when that would run
+	// off the screen, and pulled in from the right edge the column sits on (the
+	// sheet's armor tooltip and the dev console's follow the same rule).
+	const gfx::Rect& px = Pixel();
+	const float screenW = ctx.Width(), screenH = ctx.Height();
+	float tx = px.x + (px.w - w) * 0.5f;
+	if (tx + w > screenW - padX) tx = screenW - padX - w;
+	if (tx < padX) tx = padX;
+	float ty = px.y + px.h + gapY;
+	if (ty + h > screenH - padY) ty = px.y - h - gapY;
+	const gfx::Rect tip{tx, ty, w, h};
+	// Near-opaque: it sits over the other hands and the world view.
+	batch.DrawRect(tip, {0.10f, 0.10f, 0.13f, 0.97f});
+	ui::DrawBorder(batch, tip, theme.panelBorder);
+	font.Draw(batch, use.label, tip.x + padX, tip.y + padY, theme.text);
+}
+
 void HandSlot::DrawSpellRunes(gfx::SpriteBatch& batch, const gfx::Rect& area,
 							  const Spell& spell, bool overItem) const {
 	const std::span<const SpellSymbol> runes = spell.Sequence();
