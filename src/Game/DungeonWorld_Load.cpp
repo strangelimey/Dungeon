@@ -586,6 +586,8 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 						 "monsters.cat [" + type + "]", m_damageTypes);
 			// What its blows leave behind, named by effect id.
 			ParseOnHit(def, assets->onHit, "monsters.cat [" + type + "]");
+			assets->shotPayload =
+				PackPayload(assets->onHit, "monsters.cat [" + type + "]");
 			fx::ParseProcs(CatalogGet(def, "on_crit", ""), assets->onCrit,
 						   "monsters.cat [" + type + "]");
 			// What the dice's EXTREMES do. The fumble tables stay empty when

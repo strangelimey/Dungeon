@@ -1650,8 +1650,7 @@ void DungeonWorld::MonsterRangedAttack(Monster& monster) {
 	// attacks carry, and a venomous thing's dart is venomous too. (A CASTER's
 	// bolt above takes the SPELL's payload instead — the spell is the source
 	// there, not the creature.)
-	bolt.payload = PackPayload(monster.kind->onHit,
-							   "monsters.cat [" + monster.kind->name + "]");
+	bolt.payload = monster.kind->shotPayload; // packed at load
 	m_projectiles.Spawn(bolt);
 	m_audio.Play(m_sounds.monster, 0.5f); // soft launch cue (reuse the monster voice)
 }
