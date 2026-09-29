@@ -40,7 +40,11 @@ $exe = Join-Path $bin 'Dungeon.exe'
 $log = Join-Path $bin 'dungeon.log'
 
 if (-not (Test-Path $exe)) { throw "no build at $exe - run build.cmd $Config first" }
-if (Get-Process Dungeon -ErrorAction SilentlyContinue) {
+# THIS build's exe only: another worktree's game is a different process with its
+# own log, and everything below addresses the instance this script launched.
+# (ProfileTest keeps the global check on purpose - a second game on the GPU
+# would be part of what it measured.)
+if (Get-Process Dungeon -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe }) {
 	throw 'Dungeon.exe is already running - close it (this test drives its own instance)'
 }
 
@@ -309,6 +313,9 @@ function Invoke-Case($case) {
 $failures = 0
 foreach ($case in $cases) {
 	$script:diedEarly = $false
+	# Cleared per case so the catch below can never act on the PREVIOUS case's
+	# process object when this one failed before Start-Process returned.
+	$script:proc = $null
 	try {
 		if (-not (Invoke-Case $case)) { $failures++ }
 	} catch {
@@ -316,8 +323,12 @@ foreach ($case in $cases) {
 		# error: report it as a failed case and carry on to the next one.
 		Write-Host "  [FAIL] $($_.Exception.Message)" -ForegroundColor Red
 		$failures++
-		if (Get-Process Dungeon -ErrorAction SilentlyContinue) {
-			Get-Process Dungeon | Stop-Process -Force
+		# Only the process THIS script started. This used to be `Get-Process
+		# Dungeon | Stop-Process -Force`, which also killed every other game on
+		# the machine - another worktree's, another session's, Michael's own.
+		if ($script:proc -and -not $script:proc.HasExited) {
+			$script:proc.Kill()
+			$script:proc.WaitForExit(5000) | Out-Null
 		}
 	}
 	# Let the previous process release the log file before the next one truncates
