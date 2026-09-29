@@ -148,7 +148,10 @@ private:
 // for, and this readout exists to be tuned against.
 struct DefenseReadout {
 	ArmorClass armorClass = ArmorClass::None;
-	std::string armorName;   // the worn piece's display name (localized)
+	// The worn piece's display name: a VIEW of the language table's own text
+	// (loc::View), so a readout builds no string. Holds until a language
+	// switch - the sheet asks for a fresh readout every frame it draws.
+	std::string_view armorName;
 	float soak = 0.0f;       // flat damage the armor blunts
 	float base = 0.0f;       // the innate floor (defense_base)
 	float stat = 0.0f;       // the DEX curve
@@ -157,8 +160,7 @@ struct DefenseReadout {
 							   // strength shortfall); 0 unarmored
 	float total = 0.0f;      // what an incoming physical blow is rolled against
 	int strength = 0, strengthNeeded = 0; // short = both penalties bite
-	std::string skillKey;    // loc key of the skill that applies here
-	int skillLevel = 0;
+	int skillLevel = 0;      // of the skill that applies (avoidance or the armor's)
 	// What that skill is WORTH right now: the avoid curve's points when
 	// unarmored, and 0 when armored (there the skill's value is already
 	// inside `armorPenalty`, as the part of it training clawed back).

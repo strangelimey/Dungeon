@@ -702,6 +702,11 @@ public:
 	// capped by what the factory actually produced).
 	size_t LiveCount() const { return m_live; }
 
+	// Grows the pool to `n` children now (hidden until counted), so the first
+	// frame that needs them builds nothing. For a repeater that first shows in
+	// the middle of play, where growing is an allocation in a guarded frame.
+	void Warm(size_t n);
+
 private:
 	void LayoutSelf(UIContext& ctx) override;
 

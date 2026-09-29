@@ -18,6 +18,7 @@
 #include "Game/Inventory.h"
 #include "Game/Resource.h" // the aptitude/practice pool formulas
 #include "Game/Spells.h"
+#include "Game/UseDefaults.h"
 
 #include <array>
 #include <cmath>
@@ -168,22 +169,9 @@ struct Character {
 	// with one spell and the right with another (Michael's rule, 2026-07-07).
 	// Falls back to the type's first defaultable command when absent/stale
 	// (GameUI resolves). Saved per slot+hand ("usedef" v16 lines; a pre-v16
-	// flat line seeds BOTH hands). Transparent (std::less<>), so a lookup by
-	// string_view builds no key.
-	std::flat_map<std::string, std::string, std::less<>> useDefaults[2];
-	// Makes room for `n` picks per hand. A pick is made mid-game from the hand
-	// menu, in a settled frame, so the first one for a new item type must not
-	// grow the map there; ResetRoster reserves, as it seeds the skills. The
-	// ids themselves fit std::string's small buffer (item ids and "cast:<spell>"
-	// are all under 16 characters), so the strings do not allocate either.
-	void ReserveUseDefaults(size_t n) {
-		for (auto& hand : useDefaults) {
-			auto storage = std::move(hand).extract();
-			storage.keys.reserve(n);
-			storage.values.reserve(n);
-			hand.replace(std::move(storage.keys), std::move(storage.values));
-		}
-	}
+	// flat line seeds BOTH hands). Fixed inline slots, not a map of strings: a
+	// pick is recorded mid-game, in a settled frame (Game/UseDefaults.h).
+	UseDefaults useDefaults[2];
 
 	// --- spells -------------------------------------------------------------
 	// Spell symbols this member has committed to memory (bitmask of SymbolBit).

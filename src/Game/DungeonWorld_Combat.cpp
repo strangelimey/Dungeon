@@ -854,21 +854,19 @@ DefenseReadout DungeonWorld::DefenseFor(const Character& member) {
 		if (!slot.Empty()) r.soak += ItemKindFor(slot.typeId).armor;
 
 	if (r.armorClass == ArmorClass::None) {
-		r.skillKey = std::string("skill.") + kAvoidSkill;
 		r.skillLevel = member.SkillLevel(kAvoidSkill);
 		r.skillBonus =
 			CurveValue(static_cast<float>(r.skillLevel), b.AvoidCurve());
 	} else {
 		r.armorPenalty = ArmorPenalty(member, r.armorClass);
 		r.strengthNeeded = static_cast<int>(b.Armor(r.armorClass).strength);
-		r.skillKey = std::string("skill.") + ArmorSkillId(r.armorClass);
 		r.skillLevel = member.SkillLevel(ArmorSkillId(r.armorClass));
 		// Name the piece that decided the class, not merely the class.
 		for (const ItemSlot& slot : member.inventory.equipment) {
 			if (slot.Empty()) continue;
 			const ItemKind& k = ItemKindFor(slot.typeId);
 			if (k.armorClass == r.armorClass) {
-				r.armorName = loc::Tr(k.nameKey);
+				r.armorName = loc::View(k.nameKey);
 				break;
 			}
 		}
@@ -885,18 +883,30 @@ DefenseReadout DungeonWorld::DefenseFor(const Character& member) {
 
 DefenseReadout DungeonWorld::DefenseWith(const Character& member,
 										 const std::string& itemId) {
-	// A COPY with the piece put on. The alternative — deriving "what would this
-	// be worth" from its catalog fields — would be a second implementation of
-	// the defense formula, and the two would drift the first time a term was
+	// The member WITH the piece put on. The alternative - deriving "what would
+	// this be worth" from its catalog fields - would be a second implementation
+	// of the defense formula, and the two would drift the first time a term was
 	// added to one of them.
-	Character what = member;
+	//
+	// Put on IN PLACE and taken off again, rather than on a copy of the member:
+	// the sheet asks every frame it draws the tooltip, and copying a Character
+	// (inventory, skill map, effects) allocated all of it each time. Swapping
+	// strings moves their buffers and allocates nothing. The member is the live
+	// one for the length of DefenseFor only; nothing else runs in between.
+	Character& live = const_cast<Character&>(member);
 	const WearSlot wear = ItemKindFor(itemId).wearSlot;
+	ItemSlot* slot = nullptr;
 	for (int i = 0; i < kEquipCount; ++i) {
 		if (!WearSlotFits(wear, static_cast<EquipSlot>(i))) continue;
-		what.inventory.equipment[static_cast<size_t>(i)].typeId = itemId;
+		slot = &live.inventory.equipment[static_cast<size_t>(i)];
 		break;
 	}
-	return DefenseFor(what);
+	if (!slot) return DefenseFor(member);
+	m_defenseScratch.assign(itemId);
+	slot->typeId.swap(m_defenseScratch);
+	const DefenseReadout r = DefenseFor(live);
+	slot->typeId.swap(m_defenseScratch);
+	return r;
 }
 
 // THE ADAPTER, and only that: resolve this member and this damage type into the

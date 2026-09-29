@@ -1540,6 +1540,15 @@ void Repeater::LayoutSelf(UIContext&) {
 	}
 }
 
+void Repeater::Warm(size_t n) {
+	while (Children().size() < n) {
+		std::unique_ptr<Widget> child = m_factory(Children().size());
+		if (!child) break;
+		child->visible = false; // LayoutSelf reveals it once the count reaches it
+		AddChild(std::move(child));
+	}
+}
+
 // --- shared close button -------------------------------------------------
 
 gfx::Rect CloseButtonRect(const gfx::Rect& panel) {

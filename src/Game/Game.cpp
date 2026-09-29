@@ -73,6 +73,11 @@ ui::FontLibrary MakeFontLibrary(gfx::GraphicsDevice& device) {
 	return fonts;
 }
 
+// The world's input while the character sheet has the keyboard: nothing held.
+// At namespace scope, built at startup - as a function-local static it was
+// constructed (and allocated) on the first sheet frame, which is guarded.
+const Input kNoInput;
+
 } // namespace
 
 // THE WORLD THE GAME OPENS (W7), decided before anything else exists. Three
@@ -521,7 +526,24 @@ void Game::UnloadWorld() {
 void Game::BuildBootLoadTasks() {
 	m_loadQueue.Clear();
 	m_loadQueue.SetDoneLabel(loc::Tr("load.done"));
-	m_loadQueue.Add(loc::Tr("load.echoes"), [this] { m_sounds.Load(); }, "sounds");
+	m_loadQueue.Add(loc::Tr("load.echoes"), [this] {
+		m_sounds.Load();
+		// Build the voice pool now, split across the bank's formats, so the
+		// first sounds of a game reuse voices instead of creating them in a
+		// steady frame (AudioEngine::Reserve).
+		std::array<std::pair<u32, u32>, 9> formats{};
+		size_t formatCount = 0;
+		for (const assets::SoundData* s : m_sounds.All()) {
+			if (s->samples.empty()) continue;
+			const std::pair<u32, u32> f{s->channels, s->sampleRate};
+			if (std::find(formats.begin(), formats.begin() + formatCount, f) ==
+				formats.begin() + formatCount)
+				formats[formatCount++] = f;
+		}
+		for (size_t i = 0; i < formatCount; ++i)
+			m_audio.Reserve(formats[i].first, formats[i].second,
+							audio::AudioEngine::kMaxVoices / formatCount);
+	}, "sounds");
 	m_loadQueue.Add(loc::Tr("load.title_art"), [this] { m_ui.LoadTitleArt(); }, "title art");
 }
 
@@ -764,8 +786,6 @@ void Game::ResetRoster() {
 	m_world->SeedPartySkills();
 	const Balance& bal = m_world->GetBalance();
 	for (Character& member : m_characters) {
-		// Likewise the hand-use defaults: a first pick lands in reserved room.
-		member.ReserveUseDefaults(16);
 		member.health = member.maxHealth;
 		member.stamina = member.maxStamina;
 		member.mana = member.maxMana;
@@ -924,8 +944,9 @@ bool Game::SaveGame(const std::string& name) {
 		// The member's remembered per-hand, per-item default uses (hand
 		// left-click action) and each hand's cast-recency list.
 		for (size_t hand = 0; hand < 2; ++hand) {
-			for (const auto& [item, cmd] : member.useDefaults[hand])
-				c.useDefaults[hand].emplace_back(item, cmd);
+			member.useDefaults[hand].ForEach([&](std::string_view item, std::string_view cmd) {
+				c.useDefaults[hand].emplace_back(std::string(item), std::string(cmd));
+			});
 			c.mruSpells[hand] = member.spellMru[hand];
 		}
 		// Spells learned by first successful cast.
@@ -1021,7 +1042,7 @@ bool Game::LoadGame(const std::string& path) {
 		// maps empty) and each hand's cast-recency list.
 		for (size_t hand = 0; hand < 2; ++hand) {
 			for (const auto& [item, cmd] : c.useDefaults[hand])
-				m_characters[i].useDefaults[hand][item] = cmd;
+				m_characters[i].useDefaults[hand].Set(item, cmd);
 			m_characters[i].spellMru[hand] = c.mruSpells[hand];
 		}
 		// And the spells learned by casting (likewise reset to empty).
@@ -1365,9 +1386,18 @@ void Game::UpdateGovernor(float dt) {
 // flight — and it must have been that way for a WARM-UP, because the first
 // frames after a load or after an overlay closes are still settling (first-time
 // icon bakes, a shadow cube filling in, a widget tree laying out).
+//
+// The character sheet over a level counts too. It stopped being a pause
+// (2026-09-28): the world simulates under it, so its frames are gameplay
+// frames, and leaving them out meant the guard saw only the one frame that
+// opened it. Moving between Playing and the sheet keeps the warm-up running,
+// so opening and closing it are checked as well.
 bool Game::SteadyStateFrame() {
 	constexpr u32 kWarmupFrames = 120;
-	const bool quiet = m_state == AppState::Playing && !m_console.IsOpen() &&
+	const bool live = m_state == AppState::Playing ||
+					  (m_state == AppState::CharacterSheet &&
+					   m_resumeState == AppState::Playing);
+	const bool quiet = live && !m_console.IsOpen() &&
 					   !m_mapView.IsOpen() && !m_baking && m_pendingLanguage.empty() &&
 					   !m_pendingQuality;
 	m_steadyFrames = quiet ? m_steadyFrames + 1 : 0;
@@ -1677,7 +1707,6 @@ void Game::Update(float dt) {
 		// (The world map simulates nothing, so a sheet opened there has nothing
 		// to run.)
 		if (m_state == AppState::CharacterSheet && m_resumeState == AppState::Playing) {
-			static const Input kNoInput;
 			m_world->Update(kNoInput, wdt, m_time);
 			// Whatever the world did may end the sheet: a wipe returns to the
 			// title (the state is no longer ours), and a transition - a pit fall

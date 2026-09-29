@@ -388,7 +388,7 @@ private:
 	// still offers, one of the bare-hand combat verbs, or a "cast:<id>" whose
 	// spell exists and whose symbols the member all knows.
 	bool UseValidFor(const Character& c, const std::vector<std::string>& cmds,
-					 const std::string& cmd) const;
+					 std::string_view cmd) const;
 	// Commits the rune in member `i`'s hand to memory: the symbol is learned and
 	// the tablet consumed.
 	void MemorizeFromHand(size_t i, size_t hand);

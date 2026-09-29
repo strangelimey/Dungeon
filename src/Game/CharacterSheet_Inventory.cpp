@@ -8,8 +8,11 @@
 #include "Core/Loc.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstdlib>
 #include <format>
+#include <utility>
 
 namespace dungeon::game {
 
@@ -20,6 +23,30 @@ constexpr Vec4 kDefBad{0.85f, 0.25f, 0.20f, 1.0f};
 constexpr Vec4 kTipGood{0.45f, 0.80f, 0.40f, 1.0f};
 constexpr Vec4 kTipBad{0.85f, 0.30f, 0.25f, 1.0f};
 using namespace sheet;
+
+namespace {
+// What the armor tooltip names when nothing is worn in the compared slot.
+const std::string kNoItem;
+
+// One armor-tooltip value, formatted in place (the tooltip draws every frame
+// it is up). Callers use whole-number arithmetic only: MSVC's float-precision
+// path ("{:.1f}") allocates in the debug build.
+struct Cell {
+	char text[48] = {};
+	size_t len = 0;
+	std::string_view View() const { return {text, len}; }
+	void Set(std::string_view s) {
+		len = std::min(s.size(), sizeof(text));
+		std::copy_n(s.data(), len, text);
+	}
+	template <class... Args>
+	void Format(std::format_string<Args...> fmt, Args&&... args) {
+		len = static_cast<size_t>(
+			std::format_to_n(text, sizeof(text), fmt, std::forward<Args>(args)...).out -
+			text);
+	}
+};
+} // namespace
 
 gfx::Rect CharacterSheet::EquipRect(const gfx::Rect& px, int i) const {
 	const DollCell c = kDollCells[i];
@@ -269,37 +296,43 @@ void CharacterSheet::DrawArmorTip(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	if (!m_character || !defenseFor) return;
 	if (m_hoverDoll < 0 && m_hoverPack < 0) return;
 
+	// This draws EVERY FRAME the pointer rests on a piece, so nothing below
+	// builds a string: ids are referenced where they live, labels are loc
+	// views, and the numbers are formatted into fixed cells on the stack.
+	//
 	// What is being hovered, and is it armor at all? A tooltip about a rune or
 	// an empty slot would be noise.
-	std::string hoveredId;
+	const std::string* hovered = nullptr;
 	gfx::Rect anchor{};
 	bool comparing = false;
 	if (m_hoverDoll >= 0) {
 		const size_t slot = static_cast<size_t>(kDollCells[m_hoverDoll].slot);
-		hoveredId = m_character->inventory.equipment[slot].typeId;
+		hovered = &m_character->inventory.equipment[slot].typeId;
 		anchor = EquipRect(px, m_hoverDoll);
 	} else {
 		const auto& contents = m_character->inventory.SelectedContents();
 		if (m_hoverPack >= static_cast<int>(contents.size())) return;
-		hoveredId = contents[static_cast<size_t>(m_hoverPack)].typeId;
+		hovered = &contents[static_cast<size_t>(m_hoverPack)].typeId;
 		anchor = PackRect(px, m_hoverPack);
 		comparing = true;
 	}
+	const std::string& hoveredId = *hovered;
 	if (hoveredId.empty()) return;
 	if (!m_categories || m_categories->WornAt(hoveredId) == WearSlot::None) return;
 
 	// The piece currently in the SAME slot the hovered one would go to — that
 	// is what it is really being compared against, and its icon heads the left
 	// column.
-	std::string wornId;
+	const std::string* worn = &kNoItem;
 	if (m_categories) {
 		const WearSlot wear = m_categories->WornAt(hoveredId);
 		for (int i = 0; i < kEquipCount; ++i)
 			if (WearSlotFits(wear, static_cast<EquipSlot>(i))) {
-				wornId = m_character->inventory.equipment[static_cast<size_t>(i)].typeId;
+				worn = &m_character->inventory.equipment[static_cast<size_t>(i)].typeId;
 				break;
 			}
 	}
+	const std::string& wornId = *worn;
 
 	const DefenseReadout now = defenseFor(*m_character);
 	const DefenseReadout with =
@@ -314,7 +347,8 @@ void CharacterSheet::DrawArmorTip(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	const float pad = kTipPadRem * rem, row = kTipRowRem * rem;
 
 	struct Row {
-		std::string label, left, right;
+		std::string_view label;
+		Cell left, right;
 		float lv = 0.0f, rv = 0.0f;
 		bool higherBetter = true;
 		bool compare = true; // false = a fact, not a score
@@ -322,44 +356,79 @@ void CharacterSheet::DrawArmorTip(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	// Rounds toward zero BEFORE formatting, or a term of -0.4 prints "-0" —
 	// the same trap the sheet column had, reintroduced here because this is a
 	// second formatter and it did not inherit the fix.
-	const auto pts = [](float v) {
+	const auto pts = [](Cell& c, float v) {
 		const int n = static_cast<int>(v < 0.0f ? v - 0.5f : v + 0.5f);
-		return std::format("{}{}", n >= 0 ? "+" : "", n);
+		c.Format("{}{}", n >= 0 ? "+" : "", n);
 	};
-	std::vector<Row> rows;
-	const auto nameOf = [&](const DefenseReadout& d) {
-		return d.armorClass == ArmorClass::None ? loc::Tr("sheet.def.unarmored")
-												: (d.armorName.empty()
-													   ? std::string(ArmorClassId(d.armorClass))
-													   : d.armorName);
+	const auto tenths = [](Cell& c, float v) {
+		const long t = std::lround(v * 10.0f);
+		c.Format("{}{}.{}", t < 0 ? "-" : "", std::labs(t) / 10, std::labs(t) % 10);
 	};
-	rows.push_back({loc::Tr("sheet.def.armor"), nameOf(now), nameOf(with), 0, 0,
-					true, false});
-	rows.push_back({loc::Tr("sheet.def.soak"), std::format("{:.1f}", now.soak),
-					std::format("{:.1f}", with.soak), now.soak, with.soak, true});
-	rows.push_back({loc::Tr("sheet.def.roll"), std::format("{:.0f}", now.total),
-					std::format("{:.0f}", with.total), now.total, with.total, true});
-	rows.push_back({loc::Tr("sheet.def.base"), pts(now.base), pts(with.base),
-					now.base, with.base, true});
-	rows.push_back({loc::Tr("sheet.def.dex"), pts(now.stat), pts(with.stat),
-					now.stat, with.stat, true});
-	rows.push_back({loc::Tr("sheet.def.stance"), pts(now.stance), pts(with.stance),
-					now.stance, with.stance, true});
-	// The armor term is a COST: less of it is better, so its polarity flips.
-	rows.push_back({loc::Tr("sheet.def.armorpen"), pts(-now.armorPenalty),
-					pts(-with.armorPenalty), -now.armorPenalty, -with.armorPenalty,
-					true});
+	const auto whole = [](Cell& c, float v) { c.Format("{}", std::lround(v)); };
+	const auto nameOf = [](Cell& c, const DefenseReadout& d) {
+		c.Set(d.armorClass == ArmorClass::None
+				  ? loc::View("sheet.def.unarmored")
+				  : (d.armorName.empty() ? std::string_view(ArmorClassId(d.armorClass))
+										 : d.armorName));
+	};
+	std::array<Row, 8> rows{};
+	size_t rowCount = 0;
+	const auto add = [&](const char* labelKey, float lv, float rv, bool compare = true)
+		-> Row& {
+		Row& r = rows[rowCount++];
+		r.label = loc::View(labelKey);
+		r.lv = lv;
+		r.rv = rv;
+		r.compare = compare;
+		return r;
+	};
+	{
+		Row& r = add("sheet.def.armor", 0, 0, false);
+		nameOf(r.left, now);
+		nameOf(r.right, with);
+	}
+	{
+		Row& r = add("sheet.def.soak", now.soak, with.soak);
+		tenths(r.left, now.soak);
+		tenths(r.right, with.soak);
+	}
+	{
+		Row& r = add("sheet.def.roll", now.total, with.total);
+		whole(r.left, now.total);
+		whole(r.right, with.total);
+	}
+	{
+		Row& r = add("sheet.def.base", now.base, with.base);
+		pts(r.left, now.base);
+		pts(r.right, with.base);
+	}
+	{
+		Row& r = add("sheet.def.dex", now.stat, with.stat);
+		pts(r.left, now.stat);
+		pts(r.right, with.stat);
+	}
+	{
+		Row& r = add("sheet.def.stance", now.stance, with.stance);
+		pts(r.left, now.stance);
+		pts(r.right, with.stance);
+	}
+	{
+		// The armor term is a COST: less of it is better, so its polarity flips.
+		Row& r = add("sheet.def.armorpen", -now.armorPenalty, -with.armorPenalty);
+		pts(r.left, -now.armorPenalty);
+		pts(r.right, -with.armorPenalty);
+	}
 	if (now.strengthNeeded > 0 || with.strengthNeeded > 0) {
 		// Unarmored asks for no strength at all, and "16 / 0" reads as a
 		// requirement of zero rather than as no requirement.
-		const auto strOf = [](const DefenseReadout& d) {
-			return d.strengthNeeded > 0
-					   ? std::format("{} / {}", d.strength, d.strengthNeeded)
-					   : std::string("-");
+		const auto strOf = [](Cell& c, const DefenseReadout& d) {
+			if (d.strengthNeeded > 0) c.Format("{} / {}", d.strength, d.strengthNeeded);
+			else c.Set("-");
 		};
-		rows.push_back({loc::Tr("sheet.def.str"), strOf(now), strOf(with),
-						static_cast<float>(-now.strengthNeeded),
-						static_cast<float>(-with.strengthNeeded), true});
+		Row& r = add("sheet.def.str", static_cast<float>(-now.strengthNeeded),
+					 static_cast<float>(-with.strengthNeeded));
+		strOf(r.left, now);
+		strOf(r.right, with);
 	}
 
 	// Size from the content, then place. WIDTH: label + one or two values.
@@ -371,7 +440,7 @@ void CharacterSheet::DrawArmorTip(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	// is a faster answer to "which column is which" than a caption.
 	const float iconSize = kTipIconRem * rem;
 	const float headH = iconSize + rem * 0.25f;
-	const float h = pad * 2.0f + headH + row * static_cast<float>(rows.size());
+	const float h = pad * 2.0f + headH + row * static_cast<float>(rowCount);
 
 	// NEVER OVER THE ITEM. Below it by preference, above when that would run
 	// off the screen — the thing under the pointer is what the tooltip is
@@ -399,7 +468,7 @@ void CharacterSheet::DrawArmorTip(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	// Heading: the label column keeps its title, the value columns show the
 	// PIECES. An empty slot has no icon to show, which reads correctly as
 	// "nothing there" without needing to say so.
-	font.Draw(batch, loc::Tr("sheet.defense"), lx,
+	font.Draw(batch, loc::View("sheet.defense"), lx,
 			  y + (headH - font.Height()) * 0.5f, theme.accent);
 	const auto icon = [&](float x, const std::string& id) {
 		if (id.empty() || !m_icons) return;
@@ -415,9 +484,10 @@ void CharacterSheet::DrawArmorTip(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	}
 	y += headH;
 
-	for (const Row& r : rows) {
+	for (size_t k = 0; k < rowCount; ++k) {
+		const Row& r = rows[k];
 		font.Draw(batch, r.label, lx, y, theme.textDim);
-		font.Draw(batch, r.left, v1, y, theme.text);
+		font.Draw(batch, r.left.View(), v1, y, theme.text);
 		if (comparing) {
 			// Better green, worse red, identical ordinary — and a row that is
 			// a FACT rather than a score (the piece's name) never colours.
@@ -427,7 +497,7 @@ void CharacterSheet::DrawArmorTip(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 			Vec4 c = theme.text;
 			if (r.compare && std::fabs(r.rv - r.lv) >= 0.5f)
 				c = (r.rv > r.lv) == r.higherBetter ? kTipGood : kTipBad;
-			font.Draw(batch, r.right, v2, y, c);
+			font.Draw(batch, r.right.View(), v2, y, c);
 		}
 		y += row;
 	}

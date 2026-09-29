@@ -1,6 +1,7 @@
 #include "UI/Font.h"
 
 #include "Assets/File.h"
+#include "Core/AllocTrack.h"
 #include "Core/Assert.h"
 #include "Core/Log.h"
 
@@ -95,6 +96,8 @@ void Font::ResetAtlas(int size) const {
 }
 
 void Font::Rebake(float pixelHeight) {
+	// A new size (creation, or the window height changed): a whole-atlas bake.
+	const alloc::Excused excuse;
 	m_pixelHeight = pixelHeight;
 	m_scale = stbtt_ScaleForPixelHeight(m_info.get(), pixelHeight);
 
@@ -136,6 +139,11 @@ void Font::Grow() const {
 
 const Font::Glyph* Font::EnsureGlyph(u32 cp) const {
 	if (auto it = m_glyphs.find(cp); it != m_glyphs.end()) return &it->second;
+	// A MISS is a first-time bake - a character outside the pre-warmed Latin-1
+	// set (a dash in a description), drawn for the first time at this size.
+	// Core/AllocTrack.h names that case as allowed in a steady frame; the hit
+	// above is what every later frame takes, and it stays guarded.
+	const alloc::Excused excuse;
 
 	int advance = 0, lsb = 0;
 	stbtt_GetCodepointHMetrics(m_info.get(), static_cast<int>(cp), &advance, &lsb);
@@ -179,6 +187,11 @@ const Font::Glyph* Font::EnsureGlyph(u32 cp) const {
 }
 
 void Font::Commit() {
+	if (!m_growNeeded && !m_dirty) return; // the steady case: nothing new
+	// Uploading glyphs baked since the last commit (and growing the atlas they
+	// overflowed): the other half of EnsureGlyph's first-time bake, excused
+	// for the same reason.
+	const alloc::Excused excuse;
 	if (m_growNeeded) { m_growNeeded = false; Grow(); }
 	if (!m_dirty) return;
 

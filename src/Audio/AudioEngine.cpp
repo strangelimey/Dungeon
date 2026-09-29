@@ -11,10 +11,6 @@
 
 namespace dungeon::audio {
 
-namespace {
-constexpr size_t kMaxVoices = 32;
-} // namespace
-
 // A reusable XAudio2 source voice. The voice object (and its OS resources)
 // lives for the engine's lifetime and is restarted for each playback —
 // nothing is allocated per Play, and sample memory is referenced, not copied.
@@ -151,6 +147,18 @@ void AudioEngine::Play(const assets::SoundData& sound, float volume, float pan,
 		return;
 	}
 	(*slot)->Start(sound, volume, pan, pitch);
+}
+
+void AudioEngine::Reserve(u32 channels, u32 sampleRate, size_t count) {
+	if (!m_xaudio) return;
+	size_t have = static_cast<size_t>(std::ranges::count_if(
+		m_voices, [&](const auto& v) { return v->MatchesFormat(channels, sampleRate); }));
+	while (have < count && m_voices.size() < kMaxVoices) {
+		auto voice = std::make_unique<PooledVoice>(m_xaudio, channels, sampleRate);
+		if (!voice->IsValid()) return; // Play still creates one on demand
+		m_voices.push_back(std::move(voice));
+		++have;
+	}
 }
 
 void AudioEngine::SetMasterVolume(float volume) {

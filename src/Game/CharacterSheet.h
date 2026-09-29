@@ -99,6 +99,10 @@ public:
 			  Counter count, Measure measure, SheetRow::DrawFn drawRow);
 
 	void ScrollToTop();
+	// Room for `n` rows before the list first shows - the row widgets and the
+	// offset tables - so a tab opened mid-play builds nothing (the sheet's
+	// frames are steady-state frames; see Game::SteadyStateFrame).
+	void Warm(size_t n);
 
 	// Fractions of this widget: where the heading sits and where the scrolling
 	// band starts/stops. Set by the sheet from its shared layout table.
@@ -334,8 +338,8 @@ private:
 	};
 	RowPool<SpellRow> m_spellRows;
 	std::vector<const Spell*> m_spellOrder; // BakeSpells' sort scratch
-	// Effects-tab rows, likewise baked by SetCharacter. NOTE the sheet no longer
-	// freezes the world, so the time left shown is as of the bake: the HUD
+	// Effects-tab rows, likewise baked by SetCharacter and then again every
+	// frame in UpdateSelf (the world runs under the sheet): the HUD
 	// indicator's icon look (kind art + school tint + time sliver) plus the
 	// long form — name, a magnitude-formatted description (loc key =
 	// <nameKey>.desc), and the time left.

@@ -86,6 +86,12 @@ void SheetList::ScrollToTop() {
 	if (m_scroll) m_scroll->ScrollToTop();
 }
 
+void SheetList::Warm(size_t n) {
+	m_rowTop.reserve(n);
+	m_rowH.reserve(n);
+	if (m_rows) m_rows->Warm(n);
+}
+
 float SheetList::ViewHeight() const {
 	return std::max((bandBottom - m_bandTop) * Pixel().h, 0.0f);
 }

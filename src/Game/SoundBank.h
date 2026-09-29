@@ -11,6 +11,8 @@
 
 #include "Assets/Wav.h"
 
+#include <array>
+
 namespace dungeon::game {
 
 struct SoundBank {
@@ -27,6 +29,11 @@ struct SoundBank {
 	assets::SoundData spellFizzle; // no recipe / no mana / hits a wall
 
 	void Load();
+	// Every sound in the bank, for walks over all of them (the voice reserve).
+	std::array<const assets::SoundData*, 9> All() const {
+		return {&footstep, &bump, &turn, &click, &monster, &oof,
+				&spellCast, &spellImpact, &spellFizzle};
+	}
 };
 
 } // namespace dungeon::game

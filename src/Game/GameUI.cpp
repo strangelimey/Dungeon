@@ -89,8 +89,8 @@ bool IsExecutableUse(std::string_view cmd) {
 		   IsMeleeUse(cmd) || IsCastUse(cmd);
 }
 // The useDefaults key a hand's contents map to ("unarmed" for a bare hand —
-// item ids are catalog tokens, so the sentinel can never collide). A view:
-// useDefaults compares transparently, so a lookup builds no string.
+// item ids are catalog tokens, so the sentinel can never collide). A view, so
+// a lookup builds no string.
 std::string_view UseKey(std::string_view itemId) {
 	return itemId.empty() ? std::string_view("unarmed") : itemId;
 }
@@ -438,18 +438,8 @@ void GameUI::SelectUse(size_t i, size_t hand, std::string_view itemId,
 	// bare-hand pick records under the "unarmed" key) — the other hand keeps
 	// its own pick, so left can be one spell and right another. Menu-only
 	// commands are deliberate one-shots — never recorded.
-	//
-	// Found and ASSIGNED rather than subscripted: assign() reuses the stored
-	// string's capacity, and a first pick lands in the room ResetRoster
-	// reserved (Character::ReserveUseDefaults), so neither allocates.
-	if (!menuOnly) {
-		auto& defaults = m_characters[i].useDefaults[hand];
-		const std::string_view key = UseKey(itemId);
-		if (const auto it = defaults.find(key); it != defaults.end())
-			it->second.assign(cmd);
-		else
-			defaults.emplace(std::string(key), std::string(cmd));
-	}
+	// UseDefaults stores the text inline, so recording allocates nothing.
+	if (!menuOnly) m_characters[i].useDefaults[hand].Set(UseKey(itemId), cmd);
 	// Menu-only commands always perform; a defaultable pick performs per the
 	// Controls setting (off = the menu only arms the default).
 	if (menuOnly || m_settings.useMenuExecutes) ExecuteUse(i, hand, cmd);
@@ -488,9 +478,9 @@ std::string_view GameUI::DefaultUseFor(const Character& c, size_t hand,
 	// may have changed since the save was written, and a "cast:" default needs
 	// the member to know the spell (a loaded save's defaults must not outrun
 	// its vocabulary).
-	if (const auto it = c.useDefaults[hand].find(UseKey(itemId));
-		it != c.useDefaults[hand].end())
-		if (UseValidFor(c, cmds, it->second)) return it->second;
+	if (const std::string_view picked = c.useDefaults[hand].Find(UseKey(itemId));
+		!picked.empty() && UseValidFor(c, cmds, picked))
+		return picked;
 	// Else the item's first defaultable command (a rune's only command is the
 	// menu-only memorize, so it yields "" — a left-click can't eat a tablet).
 	for (const std::string& cmd : cmds)
@@ -499,10 +489,10 @@ std::string_view GameUI::DefaultUseFor(const Character& c, size_t hand,
 }
 
 bool GameUI::UseValidFor(const Character& c, const std::vector<std::string>& cmds,
-						 const std::string& cmd) const {
+						 std::string_view cmd) const {
 	if (IsMenuOnlyUse(cmd) || !IsExecutableUse(cmd)) return false;
 	if (IsCastUse(cmd)) {
-		const std::string_view id = std::string_view(cmd).substr(kCastPrefix.size());
+		const std::string_view id = cmd.substr(kCastPrefix.size());
 		if (!spellDefs) return false;
 		for (const auto& def : spellDefs())
 			if (def->Id() == id) return c.HasLearnedSpell(def->Id());

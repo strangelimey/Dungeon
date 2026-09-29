@@ -487,9 +487,11 @@ public:
 	// the world can resolve items, knobs and the live formula.
 	DefenseReadout DefenseFor(const Character& member);
 	// The same, AS IF `itemId` were worn in its own slot — what the backpack
-	// tooltip compares against. Computed by copying the member and swapping the
-	// piece in, so the answer comes from the live formula rather than a second
-	// implementation of it that could disagree.
+	// tooltip compares against. Computed by swapping the piece into the member's
+	// OWN slot for the length of the call and back, so the answer comes from
+	// the live formula rather than a second implementation of it that could
+	// disagree. (It used to copy the whole Character, every frame the tooltip
+	// was up; the swap goes through m_defenseScratch and allocates nothing.)
 	DefenseReadout DefenseWith(const Character& member, const std::string& itemId);
 
 	// Trains `avoid` on an evaded blow or the worn armor on a blunted one —
@@ -3217,6 +3219,13 @@ private:
 	// Monster group-id source: a per-frame counter ReconcileGroups stamps cells
 	// with; session-local, not saved (groups are re-derived from co-location).
 	u32 m_nextGroupId = 1;
+	// DefenseWith's swap partner: holds the hovered item id while it sits in
+	// the member's slot. Pre-sized so assigning an id never grows it.
+	std::string m_defenseScratch = [] {
+		std::string s;
+		s.reserve(64);
+		return s;
+	}();
 	// Last plan-batch sequence applied per bucket, so we adopt a batch only once.
 	uint64_t m_lastPlanSeq[ai::Scheduler::kBucketCount] = {};
 	// Per-bucket SIM-time accumulator for lockstep (TickLockstepAI). Unused

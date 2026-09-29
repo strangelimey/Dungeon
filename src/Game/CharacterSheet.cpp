@@ -48,10 +48,16 @@ CharacterSheet::CharacterSheet(const gfx::Rect& rect,
 	// Room for a member's rows before the first open (RowPool): skills are
 	// the schools + weapon classes + the three practices + two headings, and
 	// the spells are bounded by the registry (16 in the demo).
-	m_skillRows.Warm(24);
-	m_spellRows.Warm(32);
-	m_effectRows.Warm(16);
+	constexpr size_t kSkillRows = 24, kSpellRows = 32, kEffectRows = 16;
+	m_skillRows.Warm(kSkillRows);
+	m_spellRows.Warm(kSpellRows);
+	m_effectRows.Warm(kEffectRows);
 	m_spellOrder.reserve(64);
+	// And the list widgets that show them (m_lists is in Mode order after
+	// Stats: Skills, Spells, Effects).
+	const size_t listRows[] = {kSkillRows, kSpellRows, kEffectRows};
+	for (size_t n = 0; n < m_lists.size(); ++n)
+		if (m_lists[n]) m_lists[n]->Warm(listRows[n]);
 }
 
 // The sheet's children. The two non-scrolling bodies (Inventory, Stats) stay
@@ -165,6 +171,17 @@ void CharacterSheet::LayoutSelf(ui::UIContext&) {
 // children); this handles the inventory body and then swallows the rest.
 void CharacterSheet::UpdateSelf(ui::UIContext& ctx) {
 	m_character = RosterMember(m_roster, m_member);
+	// The world keeps running under the sheet (it is not a pause), so the
+	// tabs that change on their own are re-baked every frame: skills train
+	// (regeneration practises the resource skills while hurt) and effects tick
+	// down. Cheap and allocation-free - the RowPools only overwrite. Here
+	// rather than in a draw so the render pass lays out the fresh rows.
+	// Spells change only by learning, which happens through the sheet's own
+	// refreshes (RefreshSheet).
+	if (m_character) {
+		BakeSkills();
+		BakeEffects();
+	}
 	const Input* input = ctx.CurrentInput();
 	if (!input || ctx.IsMouseConsumed()) return;
 	const gfx::Rect& px = Pixel();

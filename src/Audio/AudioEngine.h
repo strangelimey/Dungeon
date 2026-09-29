@@ -42,6 +42,14 @@ public:
 	void Play(const assets::SoundData& sound, float volume = 1.0f, float pan = 0.0f,
 			  float pitch = 1.0f);
 
+	static constexpr size_t kMaxVoices = 32;
+
+	// Builds idle voices of one format up front (until `count` of that format
+	// exist, within kMaxVoices overall). Play creates a voice the first time it
+	// finds none free, and that first time is mid-game - a steady-state
+	// allocation - so the owner reserves once its sounds are loaded.
+	void Reserve(u32 channels, u32 sampleRate, size_t count);
+
 	// Destroys every source voice, silencing playback and dropping all
 	// references into caller-owned sample memory. Call before that memory is
 	// freed when the owner dies first (the engine outlives Game at shutdown —

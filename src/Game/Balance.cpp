@@ -330,21 +330,25 @@ void Balance::Save(Catalog& balanceCat, Catalog& attacksCat) const {
 
 std::span<const BalanceField> BalanceFields() { return kBalanceFields; }
 
+namespace {
+// Built at static initialization, NOT as function-local statics: those were
+// constructed on first call, which is the first punch or cast of a game - in
+// a frame the steady-state allocation guard watches.
+const std::vector<std::string> kIntStats{"intelligence"};
+const std::vector<std::string> kWilStats{"willpower"};
+const std::vector<std::string> kStrStats{"strength"};
+} // namespace
+
 const std::vector<std::string>& SchoolStats(SpellSymbol school) {
 	// docs/combat.md part 2: earth + fire → INT, air + water → WIL.
-	static const std::vector<std::string> kInt{"intelligence"};
-	static const std::vector<std::string> kWil{"willpower"};
 	switch (school) {
 	case SpellSymbol::Air:
-	case SpellSymbol::Water: return kWil;
-	default: return kInt;
+	case SpellSymbol::Water: return kWilStats;
+	default: return kIntStats;
 	}
 }
 
-const std::vector<std::string>& UnarmedStats() {
-	static const std::vector<std::string> kStr{"strength"};
-	return kStr;
-}
+const std::vector<std::string>& UnarmedStats() { return kStrStats; }
 
 std::vector<std::string> ParseStatList(std::string_view spec,
 									   std::string_view owner) {
