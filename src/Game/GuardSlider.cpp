@@ -44,6 +44,11 @@ Vec4 Mix(const Vec4& a, const Vec4& b, float t) {
 // over-exertion climbs, and the over-exerted stretch over it starts DARK red
 // and brightens to a full hot red at 100% (Michael, 2026-09-28: it read bright
 // red from the first percent, so a little over-exertion looked like a lot).
+// The honest range's fill is GRADED by the stance (Michael, 2026-09-28): green
+// at a full commitment, fading to a darker yellow as effort is pulled back
+// toward all-guard.
+constexpr Vec4 kEffortFull{0.30f, 0.72f, 0.24f, 1.0f};
+constexpr Vec4 kEffortLow{0.50f, 0.40f, 0.08f, 1.0f};
 constexpr Vec4 kAngryBody{0.45f, 0.08f, 0.06f, 1.0f};
 constexpr Vec4 kOverDark{0.40f, 0.04f, 0.03f, 1.0f};
 constexpr Vec4 kOverHot{1.00f, 0.10f, 0.06f, 1.0f};
@@ -205,10 +210,14 @@ void GuardSlider::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		// THE STANCE: the offense portion fills from the left, and what is left
 		// of the track is what the character guards with, so the split is
 		// legible without a number - the bar IS the stance.
-		const float fill = bar.w * std::clamp(share, 0.0f, 1.0f);
+		// Its colour says the same thing again: green at full effort, fading to a
+		// darker yellow as the stance is pulled back. (The lit band shows a drag
+		// in progress, so the fill no longer changes colour for it.)
+		const float effort = std::clamp(share, 0.0f, 1.0f);
+		const float fill = bar.w * effort;
 		if (fill > 0.0f)
 			batch.DrawRect({bar.x, bar.y, fill, bar.h},
-						   m_drag == Drag::Honest ? theme.controlActive : theme.accent);
+						   Mix(kEffortLow, kEffortFull, effort));
 	} else {
 		// OVER-EXERTED: every point is already in the swing, so the whole bar is
 		// the committed body, darkening toward blood; the over-exertion itself
@@ -216,7 +225,7 @@ void GuardSlider::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		// and reddening together are the "angrier" look.
 		// Mostly blood from the first percent, so a little over-exertion reads as
 		// DARK red rather than orange; the stretch below brings the brightness.
-		batch.DrawRect(bar, Mix(theme.accent, kAngryBody, 0.85f + 0.15f * over));
+		batch.DrawRect(bar, Mix(kEffortFull, kAngryBody, 0.85f + 0.15f * over));
 		batch.DrawRect({bar.x, bar.y, bar.w * over, bar.h},
 					   Mix(kOverDark, kOverHot, over));
 	}
