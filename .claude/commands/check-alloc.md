@@ -27,6 +27,8 @@ only the default):
   never runs it)
 - `.\tools\AllocTest.ps1 -Melee` - a monster swinging at the party, and the
   narration of each blow
+- `.\tools\AllocTest.ps1 -Cast` - a bolt frozen in flight and a spellbook held
+  open (the launch itself happens in the console's unguarded frame)
 
 ## Reading a failure
 
