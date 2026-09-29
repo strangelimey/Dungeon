@@ -1615,6 +1615,12 @@ void GameUI::ShowSheet(size_t index) {
 
 void GameUI::RefreshSheet() { m_sheet->SetCharacter(m_sheetIndex); }
 
+bool GameUI::OpenSpellbook(size_t i) { return m_spellbook && m_spellbook->Open(i); }
+
+void GameUI::CloseSpellbook() {
+	if (m_spellbook) m_spellbook->Close();
+}
+
 // --- dev: the widget trees by name (the console's `uitree dump`) -------------
 
 ui::UIContext* GameUI::UiTree(std::string_view name) {

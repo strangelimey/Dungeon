@@ -145,6 +145,13 @@ public:
 		return m_sheet ? m_sheet->CurrentMode() : CharacterSheet::Mode::Inventory;
 	}
 
+	// --- spellbook (the Magic area) ------------------------------------------------
+	// Opens member `i`'s book exactly as its selector button does, or refuses
+	// (false) where that button is disabled - absent, down, or no symbols. The
+	// dev `book` command's path, so a harness can hold a book open.
+	bool OpenSpellbook(size_t i);
+	void CloseSpellbook();
+
 	// --- message log ---------------------------------------------------------------
 	// Borrows the line: it is copied once, into the log's own ring slot, so
 	// printing a message allocates nothing (docs/message-allocation.md).

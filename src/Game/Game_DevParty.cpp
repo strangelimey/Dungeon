@@ -497,6 +497,34 @@ void Game::RegisterPartyCommands() {
 							   std::format("sheet open: {}", m_characters[m].name));
 					   });
 
+	// Open (or close) a member's spellbook in the Magic area - the selector
+	// button's own path. It exists for tools\AllocTest.ps1 -Cast: an open book
+	// redraws its rune grid every frame, and that grid allocated per frame for
+	// as long as no harness could reach it.
+	m_console.Register("book", "open a member's spellbook (dev): book <member|off>",
+					   [this](const std::vector<std::string>& args) {
+						   if (!args.empty() && args[0] == "off") {
+							   m_ui.CloseSpellbook();
+							   m_console.Print("book closed");
+							   return;
+						   }
+						   const size_t m =
+							   args.empty()
+								   ? 0
+								   : static_cast<size_t>(std::atoi(args[0].c_str()));
+						   if (m >= m_characters.size()) {
+							   m_console.Refuse("no such member");
+							   return;
+						   }
+						   if (!m_ui.OpenSpellbook(m)) {
+							   m_console.Refuse(std::format(
+								   "{} has no book to open (down, or knows no symbols)",
+								   m_characters[m].name));
+							   return;
+						   }
+						   m_console.Print(std::format("book open: {}", m_characters[m].name));
+					   });
+
 	// The rest STATE, for a script and for a quick look. It reports the world
 	// speed too, since that is the whole mechanism and the number a reader needs
 	// to interpret how much simulated time a `step` just covered.

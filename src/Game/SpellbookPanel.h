@@ -56,6 +56,13 @@ public:
 
 	// Shows this member's book (fresh sequence) — the selector row's click.
 	void SelectMember(size_t member);
+	// The same, from outside the row (the dev `book` command): refuses, false,
+	// for a member whose selector button is disabled.
+	bool Open(size_t member) {
+		if (!MemberEligible(member)) return false;
+		SelectMember(member);
+		return true;
+	}
 	void Close();
 	bool IsOpen() const { return m_member >= 0; }
 
