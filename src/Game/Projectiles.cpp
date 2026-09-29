@@ -16,7 +16,7 @@ ProjectilePayload PackPayload(std::span<const fx::Proc> procs,
 		if (!out.Add(p))
 			log::Warn("{} authors more than {} on-hit effects; '{}' and any "
 					  "after it are dropped",
-					  where, kMaxPayloadProcs, p.id);
+					  where, kMaxPayloadProcs, p.id.View());
 	return out;
 }
 

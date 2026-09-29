@@ -67,15 +67,45 @@ class ITarget;
 class EffectKind;
 class EffectBook;
 
+// An effect's authored id, stored INLINE. A Proc rides every projectile's
+// payload, which is built, copied and handed through the hit and expiry hooks
+// mid-fight - in the frames the steady-state allocation guard watches - so it
+// holds no std::string, not even a short one: the debug CRT allocates an
+// iterator proxy for every std::string it constructs, SSO or not, and a bolt's
+// four-proc payload cost four allocations per copy (UseDefaults.h hit the
+// same thing). Every effect id today is under 12 characters; ParseProcs
+// refuses one past kCapacity rather than cutting it, since a cut id would
+// name a different effect.
+class EffectId {
+public:
+	static constexpr size_t kCapacity = 23;
+
+	// Takes `s`, or refuses (leaving this empty) when it is longer than
+	// kCapacity.
+	bool Assign(std::string_view s) {
+		m_len = 0;
+		if (s.size() > kCapacity) return false;
+		for (size_t i = 0; i < s.size(); ++i) m_text[i] = s[i];
+		m_len = static_cast<u8>(s.size());
+		return true;
+	}
+	std::string_view View() const { return {m_text, m_len}; }
+	bool Empty() const { return m_len == 0; }
+
+private:
+	char m_text[kCapacity] = {};
+	u8 m_len = 0;
+};
+
 // An ON-HIT PROC as content authors it: an effect id plus the numbers to land
-// it with — "burn 3 6 0.5" is "burn at 3 a second for 6 seconds, half the
+// it with - "burn 3 6 0.5" is "burn at 3 a second for 6 seconds, half the
 // time". A landed blow rolls each of its source's procs (ApplyProcs).
 //
 // This is how a weapon or a monster names an effect: by ID, so a serrated
 // blade authors `on_hit = bleed` and a frost axe `element = water` +
 // `on_hit = burn` with no engine change at all.
 struct Proc {
-	std::string id;         // effects.cat / class id
+	EffectId id;            // effects.cat / class id (inline - see EffectId)
 	float magnitude = 0.0f; // a DoT's damage per second
 	float duration = 0.0f;  // seconds
 	float chance = 1.0f;    // 0..1 roll on a landed blow

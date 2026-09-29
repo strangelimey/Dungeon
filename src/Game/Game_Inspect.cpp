@@ -256,15 +256,17 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		const std::span<const fx::Proc> procs = p.payload.Procs();
 		if (procs.size() == 1) {
 			const fx::Proc& proc = procs.front();
-			c.payload = proc.id;
+			c.payload = proc.id.View();
 			if (proc.magnitude > 0.0f || proc.duration > 0.0f)
 				c.payload += std::format(" {:.1f}/s for {:.1f}s", proc.magnitude,
 										 proc.duration);
 			if (proc.chance < 1.0f)
 				c.payload += std::format(" ({:.0f}%)", proc.chance * 100.0f);
 		} else {
-			for (const fx::Proc& proc : procs)
-				c.payload += (c.payload.empty() ? "" : ", ") + proc.id;
+			for (const fx::Proc& proc : procs) {
+				if (!c.payload.empty()) c.payload += ", ";
+				c.payload += proc.id.View();
+			}
 		}
 		m_projectileInspector.onRemove = [this, id = p.id] {
 			if (m_world->RemoveProjectile(id) && m_world->onMessage)
