@@ -322,6 +322,7 @@ use.hack=Hieb
 use.bash=Prügeln
 use.swing=Schwingen
 use.melee=Zuschlagen
+use.clear=Zurücksetzen
 ; Hand-menu default-picker groups (bare hand / no defaultable item command).
 menu.combat=Kampf
 menu.magic=Magie

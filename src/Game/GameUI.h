@@ -346,8 +346,8 @@ private:
 	// on the cursor places it there (swapping any occupant onto the cursor; a
 	// non-holdable item is refused with a log line). Empty-cursor, the control-
 	// bar hand is an ACTION button: it executes the hand's default use (the
-	// remembered per-item-type pick, else the item's first defaultable command;
-	// an empty hand throws the unarmed punch). Picking an item OUT of a hand is
+	// remembered per-item-type pick; "unarmed" for an empty hand), and with NO
+	// default it opens the use menu instead. Picking an item OUT of a hand is
 	// the character sheet's job (its hand cells keep pick/swap semantics).
 	void OnHandLeftClick(size_t i, size_t hand);
 	// A right-click on member `i`'s hand `hand`: opens the USE menu (see
@@ -360,7 +360,8 @@ private:
 	// known spells (each submenu chains through the same ContextMenu).
 	// Selecting an entry records it as the member's default for that item type
 	// ("unarmed" for a bare hand) and, per GameSettings::useMenuExecutes,
-	// performs it.
+	// performs it. A last Clear row (only while the hand has a default) forgets
+	// the pick, so the hand is unset again.
 	void OpenHandUseMenu(size_t i, size_t hand);
 	// The hand menu's onPick: decodes a row id (the kUse* ranges in GameUI.cpp)
 	// against what the menu was opened for (m_handMenuMember/Hand/Item).
@@ -377,11 +378,11 @@ private:
 	void ExecuteUse(size_t i, size_t hand, std::string_view cmd);
 	// The command a left-click on `itemId` ("" = bare hand) in hand `hand`
 	// executes for this member: THAT hand's remembered useDefaults pick while
-	// it is still valid, else the item's first defaultable (non-menu-only)
-	// command, else "" — no default, so the left-click opens the use menu to
-	// pick one. A VIEW of the stored pick or the catalog command (a returned
-	// string was a steady-state allocation per swing): use it before anything
-	// records a new default.
+	// it is still valid, else "" - no default (never picked, cleared, or stale),
+	// so the left-click opens the use menu to pick one. There is deliberately
+	// no fallback to the item's first command. A VIEW of the stored pick (a
+	// returned string was a steady-state allocation per swing): use it before
+	// anything records a new default.
 	std::string_view DefaultUseFor(const Character& c, size_t hand,
 								   const std::string& itemId) const;
 	// Whether a remembered default is still usable: an item command the item

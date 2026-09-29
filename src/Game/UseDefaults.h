@@ -9,7 +9,7 @@
 // first pick for each item type cost six allocations there.
 //
 // Bounded on purpose. Past kSlots item types a hand forgets its OLDEST pick
-// (the item falls back to its first command, as a never-picked one does). An
+// (the item goes back to UNSET, as a never-picked one is). An
 // id longer than kTextCapacity is refused rather than cut, since a cut id
 // would name a different item; every catalog id today is under 16 characters.
 // ============================================================================
@@ -56,6 +56,20 @@ public:
 		}
 		m_slots[m_count++] = incoming;
 		return true;
+	}
+
+	// Forgets the pick for `item`, so that hand holding it is UNSET again (the
+	// hand menu's Clear). The survivors keep their order, which is the save's.
+	// False when there was nothing to forget.
+	bool Remove(std::string_view item) {
+		for (size_t i = 0; i < m_count; ++i)
+			if (m_slots[i].Item() == item) {
+				std::move(m_slots.begin() + i + 1, m_slots.begin() + m_count,
+						  m_slots.begin() + i);
+				--m_count;
+				return true;
+			}
+		return false;
 	}
 
 	void Clear() { m_count = 0; }

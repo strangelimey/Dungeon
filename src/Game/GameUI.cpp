@@ -102,6 +102,7 @@ const std::vector<std::string> kNoCommands;
 constexpr int kUseItemCmd = 0;    // + index into the item's commands
 constexpr int kUseUnarmed = 1000; // + index into kUnarmedUses
 constexpr int kUseSpell = 2000;   // + index into spellDefs()
+constexpr int kUseClear = 3000;   // forget this hand's pick (checked FIRST)
 // The most quick-cast spells the Magic group lists (spellMruCount's clamp).
 constexpr size_t kMaxMenuSpells = 10;
 
@@ -315,9 +316,9 @@ void GameUI::OnHandLeftClick(size_t i, size_t hand) {
 	// Empty cursor: the control-bar hand is an ACTION button — it executes the
 	// hand's default use. Picking the item UP is the character sheet's job (its
 	// hand cells keep the pick/swap semantics), so a swing can't be fumbled into
-	// an accidental unequip mid-fight. A hand with NO default yet (bare hand,
-	// rune, key — nothing defaultable on the item) opens the use menu instead,
-	// so the first click PICKS what future clicks will do.
+	// an accidental unequip mid-fight. A hand with NO default yet (nothing picked
+	// for what it holds, or the pick was cleared) opens the use menu instead, so
+	// the first click PICKS what future clicks will do.
 	const std::string_view cmd = DefaultUseFor(m_characters[i], hand, slot.typeId);
 	if (cmd.empty()) {
 		OpenHandUseMenu(i, hand);
@@ -401,13 +402,22 @@ void GameUI::OpenHandUseMenu(size_t i, size_t hand) {
 						 kUseSpell + static_cast<int>(spells[s]), magic);
 		}
 	}
+	// Clear, LAST: takes this hand back to unset. Offered only while the hand
+	// HAS a default to clear (Michael, 2026-09-28) - a stale pick already reads
+	// as unset, so it gets no row either.
+	if (!DefaultUseFor(c, hand, m_handMenuItem).empty())
+		menu.Add(loc::View("use.clear"), kUseClear);
 	menu.Show(); // nothing actionable = no rows, so no empty menu pops
 }
 
 void GameUI::OnHandMenuPick(int id) {
 	const size_t i = m_handMenuMember;
 	const size_t hand = m_handMenuHand;
-	if (id >= kUseSpell) {
+	if (id == kUseClear) {
+		if (i >= m_characters.size() || hand > 1) return;
+		m_characters[i].useDefaults[hand].Remove(UseKey(m_handMenuItem));
+		Click();
+	} else if (id >= kUseSpell) {
 		if (!spellDefs) return;
 		const auto defs = spellDefs();
 		const size_t k = static_cast<size_t>(id - kUseSpell);
@@ -473,19 +483,18 @@ void GameUI::ExecuteUse(size_t i, size_t hand, std::string_view cmd) {
 std::string_view GameUI::DefaultUseFor(const Character& c, size_t hand,
 								  const std::string& itemId) const {
 	if (hand > 1) return {};
-	const std::vector<std::string>& cmds = CommandsFor(itemId);
-	// THIS hand's remembered pick wins while it is still valid — the catalog
-	// may have changed since the save was written, and a "cast:" default needs
-	// the member to know the spell (a loaded save's defaults must not outrun
-	// its vocabulary).
-	if (const std::string_view picked = c.useDefaults[hand].Find(UseKey(itemId));
-		!picked.empty() && UseValidFor(c, cmds, picked))
-		return picked;
-	// Else the item's first defaultable command (a rune's only command is the
-	// menu-only memorize, so it yields "" — a left-click can't eat a tablet).
-	for (const std::string& cmd : cmds)
-		if (!IsMenuOnlyUse(cmd) && IsExecutableUse(cmd)) return cmd;
-	return {}; // no default — the left-click opens the use menu to pick one
+	// A default exists only once the player PICKED one (Michael, 2026-09-28):
+	// there is no fallback to the item's first command, so a sword nobody has
+	// chosen for is UNSET, and its first left-click opens the menu. That is what
+	// makes the menu's Clear mean something - with a fallback, clearing a sword
+	// would only have put it back on its first verb.
+	// The pick must still be valid - the catalog may have changed since the save
+	// was written, and a "cast:" default needs the member to know the spell (a
+	// loaded save's defaults must not outrun its vocabulary). A stale pick reads
+	// as unset.
+	const std::string_view picked = c.useDefaults[hand].Find(UseKey(itemId));
+	if (!picked.empty() && UseValidFor(c, CommandsFor(itemId), picked)) return picked;
+	return {}; // no default - the left-click opens the use menu to pick one
 }
 
 bool GameUI::UseValidFor(const Character& c, const std::vector<std::string>& cmds,
