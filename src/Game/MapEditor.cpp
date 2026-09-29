@@ -811,7 +811,11 @@ void MapEditor::PaintCell(int cx, int cz, bool remote, const std::string& stem) 
 		const Party& party = m_world->GetParty();
 		if (want == Cell::Wall && cx == party.GridX() && cz == party.GridZ())
 			return; // never wall the party in (skip; a fill keeps going)
+		m_world->BeginChunkBatch(); // the type change and the variant: one rebuild
 		m_world->EditCell(cx, cz, want);
+		m_world->EditVariant(cx, cz, sel, variant);
+		m_world->EndChunkBatch();
+		return;
 	}
 	m_world->EditVariant(cx, cz, sel, variant);
 }
@@ -829,8 +833,10 @@ void MapEditor::PaintRect(int cx, int cz) {
 	const int z0 = std::min(m_lastZ, cz), z1 = std::max(m_lastZ, cz);
 	m_world->BeginUndoStep();
 	const u32 rev0 = m_world->Map().Revision();
+	m_world->BeginChunkBatch(); // each touched chunk rebuilds once, at the end
 	for (int z = z0; z <= z1; ++z)
 		for (int x = x0; x <= x1; ++x) PaintCell(x, z, remote, stem);
+	m_world->EndChunkBatch();
 	m_world->CommitUndoStep(remote || m_world->Map().Revision() != rev0);
 	m_lastX = cx; // chainable: the far corner anchors the next rectangle
 	m_lastZ = cz;
@@ -888,7 +894,9 @@ void MapEditor::FloodFill(int cx, int cz) {
 	const std::string& stem = m_view.ViewedLevel();
 	m_world->BeginUndoStep();
 	const u32 rev0 = m_world->Map().Revision();
+	m_world->BeginChunkBatch(); // each touched chunk rebuilds once, at the end
 	for (const auto& [x, z] : region) PaintCell(x, z, remote, stem);
+	m_world->EndChunkBatch();
 	m_world->CommitUndoStep(remote || m_world->Map().Revision() != rev0);
 	m_lastX = cx;
 	m_lastZ = cz;

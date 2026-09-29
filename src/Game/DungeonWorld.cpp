@@ -283,7 +283,7 @@ void DungeonWorld::RebuildChunkRegion(int chunkX, int chunkZ) {
 
 void DungeonWorld::RebuildChunksAround(int x, int z) {
 	if (m_walls.chunks.empty()) return; // geometry not built yet
-	m_device.WaitIdle();                // old chunk meshes may still be in flight
+	const int chunksX = (m_map.Width() + kChunkCells - 1) / kChunkCells;
 
 	// The edit changes (x,z) plus the wall faces its orthogonal neighbours share
 	// with it, so rebuild every distinct chunk those cells fall in (≤ 5).
@@ -300,8 +300,25 @@ void DungeonWorld::RebuildChunksAround(int x, int z) {
 		doneX[count] = rx;
 		doneZ[count] = rz;
 		++count;
-		RebuildChunkRegion(rx, rz);
 	}
+	if (m_chunkBatch > 0) { // a multi-cell edit: rebuild each chunk once, at the end
+		for (int i = 0; i < count; ++i) m_batchedChunks.push_back(doneZ[i] * chunksX + doneX[i]);
+		return;
+	}
+	m_device.WaitIdle(); // old chunk meshes may still be in flight
+	for (int i = 0; i < count; ++i) RebuildChunkRegion(doneX[i], doneZ[i]);
+}
+
+void DungeonWorld::EndChunkBatch() {
+	if (m_chunkBatch <= 0 || --m_chunkBatch > 0) return;
+	std::vector<int> chunks = std::move(m_batchedChunks);
+	m_batchedChunks.clear();
+	if (chunks.empty() || m_walls.chunks.empty()) return;
+	std::sort(chunks.begin(), chunks.end());
+	chunks.erase(std::unique(chunks.begin(), chunks.end()), chunks.end());
+	const int chunksX = (m_map.Width() + kChunkCells - 1) / kChunkCells;
+	m_device.WaitIdle(); // once for the whole edit
+	for (const int c : chunks) RebuildChunkRegion(c % chunksX, c / chunksX);
 }
 
 void DungeonWorld::MarkSeen(int x, int z) {

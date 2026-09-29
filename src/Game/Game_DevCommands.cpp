@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstdlib>
 #include <format>
 #include <string>
@@ -162,6 +163,16 @@ void Game::RegisterDevCommands() {
 							   "verts={}",
 							   m_world->CurrentLevel(), g.walls, g.floors, g.ceilings,
 							   g.vertices));
+						   // Uploaded chunks vs a fresh bake: a chunk an edit forgot
+						   // to rebuild makes these two disagree. An undo restore
+						   // DEFERS its rebake to editor close on purpose, so a
+						   // mismatch then is the debt, not a defect: say which.
+						   const char* verdict = g.layout == g.liveLayout ? "match"
+												 : m_world->GeometryDirty() ? "deferred"
+																			: "STALE";
+						   m_console.Print(std::format("geomlayout {} fresh={:016x} live={:016x} {}",
+													   m_world->CurrentLevel(), g.layout,
+													   g.liveLayout, verdict));
 					   });
 	m_console.Register("groups", "list monster groups (id: count [kinds] @ cell#slot)",
 					   [this](const std::vector<std::string>&) {
@@ -244,6 +255,47 @@ void Game::RegisterDevCommands() {
 						   if (!args.empty() && args[0] == "rev") {
 							   m_console.Print(
 								   std::format("editor rev {}", m_world->EditRevision()));
+							   return;
+						   }
+						   // The modifier gestures, for a harness: `rect` is a click on
+						   // the first corner then a Shift+click on the second (the
+						   // rectangle anchors on the last painted square), `flood` a
+						   // Ctrl+click. Timed, since batching the chunk rebuilds is
+						   // what made a big fill cheap.
+						   if (!args.empty() && args[0] == "fill") {
+							   const bool rect = args.size() >= 4 && args[3] == "rect";
+							   const bool flood = args.size() >= 4 && args[3] == "flood";
+							   if ((!rect && !flood) || args.size() < (rect ? 8u : 6u)) {
+								   m_console.Print("usage: editor fill <category> <id> rect <x0> "
+												   "<z0> <x1> <z1> | flood <x> <z>");
+								   return;
+							   }
+							   if (m_mapView.IsOpen())
+								   m_mapView.SetMode(MapView::Mode::Editor);
+							   else
+								   m_mapView.Open(MapView::Mode::Editor);
+							   const MapEditor::PaletteCat cat =
+								   MapEditor::CatForCatalogKey(args[1]);
+							   if (cat == MapEditor::PaletteCat::Count ||
+								   !m_mapEditor.Arm(cat, args[2])) {
+								   m_console.Print(std::format(
+									   "editor fill: no palette row '{}' in '{}'", args[2],
+									   args[1]));
+								   return;
+							   }
+							   const auto num = [&](size_t i) { return std::atoi(args[i].c_str()); };
+							   const auto t0 = std::chrono::steady_clock::now();
+							   if (rect) {
+								   m_mapEditor.Paint(num(4), num(5), /*dragging*/ false);
+								   m_mapEditor.PaintRect(num(6), num(7));
+							   } else {
+								   m_mapEditor.FloodFill(num(4), num(5));
+							   }
+							   const double ms = std::chrono::duration<double, std::milli>(
+													 std::chrono::steady_clock::now() - t0)
+													 .count();
+							   m_console.Print(std::format("editor fill: {} {} in {:.1f} ms",
+														   args[3], args[2], ms));
 							   return;
 						   }
 						   // A left DRAG, for a harness: arm the row, then the press

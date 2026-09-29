@@ -861,8 +861,16 @@ public:
 	// command - a change that must not move a single vertex (a refactor of the
 	// variant resolve, a new cell state no cell uses yet) is checked by the hash
 	// coming out identical before and after.
+	//
+	// `layout` / `liveLayout` answer a different question: do the chunks
+	// actually UPLOADED match what a fresh bake would upload? Each hashes the
+	// sorted (surface, chunk, variant, index count) set - `layout` from the
+	// fresh build, `liveLayout` from the live chunks. The live meshes keep no
+	// CPU copy, so this is shape not bytes, but a chunk an edit forgot to
+	// rebuild keeps its old variant buckets and shows up as the two disagreeing.
 	struct GeometryPrint {
 		u64 walls = 0, floors = 0, ceilings = 0;
+		u64 layout = 0, liveLayout = 0;
 		size_t vertices = 0;
 	};
 	GeometryPrint GeometryFingerprint() const;
@@ -897,8 +905,9 @@ public:
 	// (PruneEntitiesForCell) — so live state always matches the new grid.
 	void EditCell(int x, int z, Cell cell);
 
-	// Which surface a variant edit targets (DungeonMap's Surface).
-	using SurfaceSel = Surface;
+	// Which surface a variant edit targets (DungeonMap's Surface - spelled out,
+	// since inside this class a bare `Surface` names the chunk-list struct).
+	using SurfaceSel = game::Surface;
 	// Pins a cell's wall/floor/ceiling texture variant to a palette index
 	// (the variant index into the level's surface palette), then rebuilds like
 	// EditCell. A wall variant lives on the SOLID cell, floor/ceiling on the
@@ -3072,6 +3081,18 @@ private:
 	void RebuildChunksAround(int x, int z);
 	// Rebuilds the single chunk region (chunkX, chunkZ) in place.
 	void RebuildChunkRegion(int chunkX, int chunkZ);
+	// While a chunk batch is open (m_chunkBatch > 0), RebuildChunksAround only
+	// RECORDS the chunks it would rebuild; EndChunkBatch rebuilds each once.
+	int m_chunkBatch = 0;
+	std::vector<int> m_batchedChunks; // chunk indices, deduplicated at the end
+public:
+	// Batches the chunk rebuilds of a multi-cell edit (a rectangle, a flood, an
+	// area fill): N painted cells used to cost N x (GPU drain + up to 5 chunk
+	// builds); inside a batch they cost one drain and one build per distinct
+	// chunk, at EndChunkBatch. Nests - only the outermost End rebuilds.
+	void BeginChunkBatch() { ++m_chunkBatch; }
+	void EndChunkBatch();
+private:
 	// Uploads every chunk in `geo` as ONE batch (gfx::CreateMeshes) and appends
 	// them to the three surfaces. Shared by the full bake and the region rebuild.
 	void AppendSurfaceChunks(DungeonGeometry& geo);

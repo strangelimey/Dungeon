@@ -479,6 +479,31 @@ DungeonWorld::GeometryPrint DungeonWorld::GeometryFingerprint() const {
 	out.walls = hashSurface(geo.walls);
 	out.floors = hashSurface(geo.floors);
 	out.ceilings = hashSurface(geo.ceilings);
+
+	// The layout pair: (surface, chunk, variant, index count), sorted so the
+	// order partial rebuilds leave the live lists in does not matter.
+	using Row = std::array<u32, 4>;
+	const auto layoutHash = [&](std::vector<Row> rows) {
+		std::sort(rows.begin(), rows.end());
+		return fnv(14695981039346656037ull, rows.data(), rows.size() * sizeof(Row));
+	};
+	std::vector<Row> fresh, live;
+	u32 s = 0;
+	for (const auto* list : {&geo.walls, &geo.floors, &geo.ceilings}) {
+		for (const GeometryChunk& c : *list)
+			fresh.push_back({s, static_cast<u32>(c.chunk), static_cast<u32>(c.variant),
+							 static_cast<u32>(c.mesh.indices.size())});
+		++s;
+	}
+	s = 0;
+	for (const Surface* surface : {&m_walls, &m_floors, &m_ceilings}) {
+		for (const SurfaceChunk& c : surface->chunks)
+			live.push_back({s, static_cast<u32>(c.chunk), static_cast<u32>(c.variant),
+							c.mesh ? c.mesh->IndexCount() : 0u});
+		++s;
+	}
+	out.layout = layoutHash(std::move(fresh));
+	out.liveLayout = layoutHash(std::move(live));
 	return out;
 }
 

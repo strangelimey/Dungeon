@@ -17,6 +17,10 @@
 #      and a stashed level is one savemap rewrites).
 #   3. THE EDIT COUNTER live validation keys on moves on a change and STAYS PUT
 #      on a no-op (a repaint of the same texture), and moves on undo.
+#   4. BATCHED FILLS LEAVE NO CHUNK STALE: after a rectangle recolour, a
+#      rectangle that raises walls across chunk edges, and a flood, the chunks
+#      actually uploaded match a fresh bake (`geomlayout`); undo restores the
+#      surfaces exactly.
 #
 # Every project file a phase writes is restored byte for byte afterwards.
 import io
@@ -111,6 +115,25 @@ else:
     check(r1 > r0, "a paint moves it", f"{r0} -> {r1}")
     check(r2 == r1, "repainting the same texture does not", f"{r1} -> {r2}")
     check(r3 > r2, "an undo moves it", f"{r2} -> {r3}")
+
+# --- phase 4: batched fills leave no chunk stale ------------------------------
+print("4 - a batched fill rebuilds every chunk it touched")
+log = run("chunkbatch.eval")
+check(passed(log), "the script ran clean")
+h = hashes(log)
+layouts = re.findall(r"console: geomlayout \S+ fresh=\w+ live=\w+ (\w+)", log)
+if len(h) != 5 or len(layouts) != 5:
+    check(False, "five readings", f"got {len(h)} hashes, {len(layouts)} layouts")
+else:
+    # Non-vacuous: each fill must have changed the geometry, or "no chunk is
+    # stale" would hold for fills that touched nothing.
+    for i, label in ((1, "the recolour"), (2, "the wall raise"), (3, "the flood")):
+        check(h[i] != h[i - 1], f"{label} changed the level")
+        check(layouts[i] == "match", f"after {label} the uploaded chunks match a fresh bake",
+              layouts[i])
+    check(h[4] == h[0], "undoing all of it restores the surfaces exactly")
+    fills = re.findall(r"console: editor fill: (\w+) \S+ in ([\d.]+) ms", log)
+    print("         fill times (ms): " + ", ".join(f"{k} {t}" for k, t in fills))
 
 print()
 print("PASS" if failures == 0 else f"FAIL - {failures} check(s) failed")

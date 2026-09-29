@@ -1,0 +1,31 @@
+; chunkbatch.eval - a multi-square fill rebuilds each touched chunk ONCE, at
+; the end, and still leaves no chunk stale (editor-updates P0).
+;
+; `geomlayout` (printed by geomhash) compares the chunks actually UPLOADED with
+; what a fresh bake would upload; a chunk the batch forgot shows as STALE. Each
+; fill is followed by one, and the fills cover the cases a batch has to get
+; right: a recolour, a type change (floor raised to wall, which moves the wall
+; faces of the NEIGHBOURING chunks too), a flood, and the undo of all of them.
+; The fills are timed - the whole point of the batch.
+
+logecho on
+reset
+geomhash
+echo --- recolour a 10x8 block of floor ---
+editor fill floors floor_slabs rect 3 3 12 10
+geomhash
+echo --- raise a 3x3 block to wall, straddling chunk edges ---
+editor fill walls wall_brick_old rect 15 7 17 9
+geomhash
+echo --- flood the recoloured block (it is one texture now, so it floods) ---
+editor fill floors floor_cobble_mossy flood 5 5
+geomhash
+echo --- undo all three (a rect is two steps: the corner click, then the fill) ---
+; An undo DEFERS its rebake to editor close, so the layout reads "deferred"
+; here by design; the surface hashes are what say the undo was complete.
+undo
+undo
+undo
+undo
+undo
+geomhash
