@@ -28,8 +28,9 @@
 # passes whether it allocates or not. That is what the modes below are for:
 # each one puts an event path INSIDE the window (-Wounded the regeneration tick,
 # -Melee a monster's swing and its narration, -Cast a bolt in flight and an open
-# spellbook). Anything that allocates is named
-# with a full call stack in dungeon.log, once per unique stack.
+# spellbook, -Impact bolts launching, striking a FRESH monster, expiring and
+# bursting). Anything that allocates is named with a full call stack in
+# dungeon.log, once per unique stack.
 #
 # WHY -Wounded EXISTS, and it is the same trap this project keeps meeting: a
 # FRESH party is at full health, and regeneration only runs BELOW maximum - so
