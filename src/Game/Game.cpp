@@ -1417,12 +1417,26 @@ void Game::UpdateGovernor(float dt) {
 // frames, and leaving them out meant the guard saw only the one frame that
 // opened it. Moving between Playing and the sheet keeps the warm-up running,
 // so opening and closing it are checked as well.
+//
+// A RUNNING EVAL SCRIPT IS A CONSOLE SESSION, and is left out on the same terms
+// as an open console. The runner executes one console line per frame, and the
+// line is typed input in every sense but the keyboard: it parses into strings,
+// prints, mirrors to the log, and `sweep`/`include` splice files into the queue.
+// A typed command only ever runs with the console open, which this never arms,
+// so a scripted one was being judged by a rule its typed twin is exempt from -
+// and only once a batch had run 120 lines, which is why ladder/blast/sweep/
+// resources reported it batched and never alone. Excusing the runner instead
+// would have to excuse the COMMAND too (DevConsole::Execute allocates before it
+// dispatches), leaving a frame that is armed but can report nothing; and the
+// `step` inside it runs thousands of simulated ticks in one frame, which is no
+// steady-state frame either. Simulation event paths are checked where the frame
+// really is steady: AllocTest.ps1 -Wounded / -Melee / -Cast.
 bool Game::SteadyStateFrame() {
 	constexpr u32 kWarmupFrames = 120;
 	const bool live = m_state == AppState::Playing ||
 					  (m_state == AppState::CharacterSheet &&
 					   m_resumeState == AppState::Playing);
-	const bool quiet = live && !m_console.IsOpen() &&
+	const bool quiet = live && !m_console.IsOpen() && !EvalRunning() &&
 					   !m_mapView.IsOpen() && !m_baking && m_pendingLanguage.empty() &&
 					   !m_pendingQuality;
 	m_steadyFrames = quiet ? m_steadyFrames + 1 : 0;

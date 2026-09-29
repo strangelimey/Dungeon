@@ -187,7 +187,7 @@ void Game::PumpEvalScript(float dt) {
 	// NOT `m_evalLines.empty()`: an empty script has to reach the completion
 	// branch below and hand the batch on, or one blank file stalls the whole run
 	// until the timeout.
-	if (m_evalFinished || m_evalName.empty()) return;
+	if (!EvalRunning()) return;
 	m_evalDeadline -= dt;
 
 	if (m_evalIndex >= m_evalLines.size()) {

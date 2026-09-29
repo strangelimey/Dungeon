@@ -184,8 +184,13 @@ public:
 	// wants a clean baseline, and a progression series deliberately does not
 	// (Michael's call). Queueing is therefore purely "run these in order".
 	void QueueEvalScript(const std::string& path) { m_evalPending.push_back(path); }
-	// True while a queued script still has lines to run.
-	bool EvalRunning() const { return m_evalIndex < m_evalLines.size(); }
+	// True from the moment a script is loaded until the batch is finished: every
+	// frame in between is the runner's, including the one that writes a script's
+	// verdict and loads the next. NOT "lines left to run", which is false on
+	// exactly that verdict frame. The pump's own early-out and the allocation
+	// guard (SteadyStateFrame) both ask this, so they cannot disagree about which
+	// frames belong to a scripted run.
+	bool EvalRunning() const { return !m_evalFinished && !m_evalName.empty(); }
 	// The process exit code a scripted run should return: 0 when every script
 	// finished with every line matching a command, 1 otherwise. An ordinary play
 	// session loaded no script and is always 0 — checked FIRST, because
