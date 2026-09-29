@@ -117,6 +117,10 @@ public:
 	// Equipment-slot outline silhouettes (slot type → texture), owned by Game; the
 	// sheet draws them behind empty doll slots. Stable address; set once.
 	void SetSlotIcons(const ItemIconBank* icons) { m_slotIcons = icons; }
+	// Hand-use pictures (verb → texture, ui/use_<verb>.png), owned by Game; an
+	// empty HUD hand set to that verb shows it. Stable address; set once, before
+	// any HUD is built.
+	void SetUseIcons(const ItemIconBank* icons) { m_useIcons = icons; }
 	// Item categories (catalog id → category), owned by Game; the sheet uses it to
 	// tell whether a held item is a pack (container). Stable address; set once.
 	void SetItemCategories(const ItemCategoryBank* cats) { m_itemCategories = cats; }
@@ -571,6 +575,7 @@ private:
 	const ItemIconBank* m_itemIcons = nullptr;  // item icons (Game-owned)
 	const ItemWeightBank* m_itemWeights = nullptr; // item carry weights (Game-owned)
 	const ItemIconBank* m_slotIcons = nullptr;  // equipment-slot outlines (Game-owned)
+	const ItemIconBank* m_useIcons = nullptr;   // hand-use pictures (Game-owned)
 	const ItemCategoryBank* m_itemCategories = nullptr; // item categories (Game-owned)
 	// Cursor-carried item (Game owns the storage; placement handlers mutate it)
 	// + the last HUD mouse position (stashed in UpdateHud so RenderHud can draw

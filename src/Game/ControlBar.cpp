@@ -126,6 +126,7 @@ HandPair::HandPair(const gfx::Rect& rect, size_t member,
 			slot->setUse = [setUse = deps.handSetUse, member, hand] {
 				return setUse(member, static_cast<size_t>(hand));
 			};
+		slot->useIcons = deps.useIcons;
 		m_slots[hand] = slot;
 	}
 	// ONE stance for the character, spanning both boxes - the fighter decides

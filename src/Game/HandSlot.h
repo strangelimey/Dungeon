@@ -3,7 +3,8 @@
 //
 // A hand with a SET use shows it: the socket behind the item takes an accent
 // tint, and a spell use also spells out its runes (Michael, 2026-09-28 - the
-// runes are the first iteration; a per-spell icon may replace them). Hovering
+// runes are the first iteration; a per-spell icon may replace them), and an
+// empty hand set to a verb with a picture (punch, kick) shows it. Hovering
 // a set hand names the use in a tooltip; an unset hand shows none.
 // ============================================================================
 #pragma once
@@ -26,6 +27,10 @@ struct HandSetUse {
 	bool set = false;             // a use is set for what this hand holds
 	const Spell* spell = nullptr; // that use casts this spell (else a verb)
 	loc::Line label;              // its display name - the hover tooltip
+	// The set verb ("punch", "slash"; empty for a spell), for its picture -
+	// ui/use_<verb>.png, drawn when the hand holds nothing. A view into the
+	// hand's UseDefaults, valid for the frame that asked.
+	std::string_view verb;
 };
 
 class HandSlot : public ui::Widget {
@@ -49,6 +54,9 @@ public:
 	// or a load is right with no notification). Unwired = never shown as set.
 	// Must not allocate: the HUD draws in every guarded frame.
 	std::function<HandSetUse()> setUse;
+	// Hand-use pictures by verb (Game-owned, ui/use_<verb>.png), for an empty
+	// hand set to that verb. Null, or no file for the verb = the tint alone.
+	const ItemIconBank* useIcons = nullptr;
 
 private:
 	// A spell's recipe, drawn as rune faces inside `area`: a grid filling it

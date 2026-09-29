@@ -96,6 +96,18 @@ void HandSlot::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 			drewItem = true;
 		}
 	}
+	// An empty hand set to a verb with a picture (punch, kick) shows the ACTION
+	// (Michael, 2026-09-28: the paper doll's hand and feet slots were tried
+	// first and read as body parts, not strikes). The pictures are drawn
+	// striking to the right, for the right hand; the left box mirrors them, as
+	// the doll mirrors its hand.
+	if (slot.Empty() && !use.verb.empty() && useIcons) {
+		if (const gfx::Texture* pic = useIcons->For(use.verb)) {
+			const bool flip = m_hand == 0;
+			batch.DrawSprite(inner, flip ? gfx::Rect{1, 0, -1, 1} : gfx::Rect{0, 0, 1, 1},
+							 *pic, {1, 1, 1, 1});
+		}
+	}
 	// A spell use spells out its recipe on top.
 	if (use.spell) DrawSpellRunes(batch, inner, *use.spell, drewItem);
 	// Identity stripe along the socket's bottom edge.

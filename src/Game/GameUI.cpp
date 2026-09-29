@@ -516,6 +516,8 @@ HandSetUse GameUI::HandSetUseFor(size_t i, size_t hand) const {
 	} else {
 		// The same text the use menu's row showed (use.<verb>).
 		use.label = loc::ViewKey("use.", set);
+		// Whether it has a picture is the hand box's lookup (ui/use_<verb>.png).
+		use.verb = set;
 	}
 	return use;
 }
@@ -1805,6 +1807,7 @@ void GameUI::BuildHud() {
 	deps.onHandLeft = [this](size_t i, size_t hand) { OnHandLeftClick(i, hand); };
 	deps.onHandRight = [this](size_t i, size_t hand) { OnHandRightClick(i, hand); };
 	deps.handSetUse = [this](size_t i, size_t hand) { return HandSetUseFor(i, hand); };
+	deps.useIcons = m_useIcons; // Game's stable bank, set before any HUD build
 	deps.onGuardChange = [this](size_t i, float share) {
 		if (onGuardChange) onGuardChange(i, share);
 	};

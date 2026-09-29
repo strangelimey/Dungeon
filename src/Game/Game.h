@@ -820,6 +820,12 @@ private:
 	// ghost behind an empty doll slot. Filled by LoadItemIcons from slot_*.png.
 	std::vector<std::unique_ptr<gfx::Texture>> m_slotIconTextures;
 	ItemIconBank m_slotIcons;
+	// Hand-use pictures (verb → texture): what an empty HUD hand SET to that
+	// verb shows (punch, kick). Filled by LoadItemIcons from every
+	// ui/use_<verb>.png (tools/gen_use_icons.ps1), so a verb gains a picture by
+	// gaining a file.
+	std::vector<std::unique_ptr<gfx::Texture>> m_useIconTextures;
+	ItemIconBank m_useIcons;
 	// The item currently carried on the cursor (its catalog id), or empty. Set by
 	// clicking a floor tablet; cleared by dropping it (world / portrait / hand /
 	// inventory). GameUI reads the address to draw the cursor icon.
