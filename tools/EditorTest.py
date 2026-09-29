@@ -42,6 +42,11 @@
 #      save that follows writes that level but not one that does not use it;
 #      a rename reaches the squares, a delete is refused while any use it, and
 #      renaming a member floor type keeps it resolving.
+#   9. MAKING A WORLD three ways: blank from the template, this world whole
+#      (its UNSAVED edit written into the copy, and this world's own file left
+#      alone), and one level (its stairs replaced by one exit). Each refusal
+#      says its own reason; a half-built `.building-*` folder is never listed;
+#      and each new world opens by name and passes the checker as it stands.
 #
 # Every project file a phase writes is restored byte for byte afterwards.
 import io
@@ -337,6 +342,66 @@ finally:
     shutil.rmtree(PROJ)
     shutil.copytree(backup, PROJ)
     shutil.rmtree(backup, ignore_errors=True)
+
+# --- phase 9: making a world ----------------------------------------------------
+print("9 - a new world three ways: blank, this world whole, one level")
+PROJECTS = os.path.join(ROOT, r"assets\projects")
+MADE = ("nw_blank", "nw_copy", "nw_level", "nw_bad")
+LEFTOVER = os.path.join(PROJECTS, ".building-nw_ghost")
+arena = os.path.join(PROJ, r"levels\eval_arena.map")
+arena_before = io.open(arena, "rb").read()
+try:
+    # An interrupted create leaves one of these; no world list may offer it.
+    os.makedirs(LEFTOVER, exist_ok=True)
+    io.open(os.path.join(LEFTOVER, "project.ini"), "w").write("name = ghost\n")
+    log = run("newworlds.eval")
+    check(passed(log), "the script ran clean")
+    for w in ("nw_blank", "nw_copy", "nw_level"):
+        check(f"console: created world '{w}'" in log, f"{w} was made")
+    refusals = log.split("--- refusals ---", 1)[-1]
+    check("could not create: A world named 'nw_blank' already exists." in refusals,
+          "a name in use is refused, in its own words")
+    check("could not create: Type a name first" in refusals,
+          "a name that filters to nothing is refused, in its own words")
+    check("could not create: 'nowhere' is not a level of this world." in refusals,
+          "a level the world does not have is refused, in its own words")
+    check("nw_ghost" not in refusals and ".building" not in refusals,
+          "a half-built .building folder is not listed as a world")
+    check(not os.path.isdir(os.path.join(PROJECTS, "nw_bad")),
+          "a refused create leaves nothing behind")
+
+    def read(world, rel):
+        p = os.path.join(PROJECTS, world, rel)
+        return io.open(p, encoding="utf-8").read() if os.path.isfile(p) else ""
+
+    # THE COPY CARRIES THE UNSAVED EDIT, AND THIS WORLD KEEPS ITS FILE. The 3x3
+    # at 3..5 was painted and never saved: the copy's eval_arena must hold it
+    # (variant records on those squares) and dungeon-demo's must not have moved.
+    copied = read("nw_copy", r"levels\eval_arena.map")
+    painted = sum(1 for x in range(3, 6) for z in range(3, 6)
+                  if re.search(rf"^variant floor {x} {z} \d+", copied, re.M))
+    check(painted == 9, "the copy carries the unsaved edit (9 painted squares)", str(painted))
+    check(io.open(arena, "rb").read() == arena_before,
+          "and the world it was copied from was NOT saved behind your back")
+    one = read("nw_level", r"levels\crypt1.map")
+    stairs = re.findall(r"^stairs (\S+) .*dest=(\S+)", one, re.M)
+    check(stairs == [("stairs_exit", "keep_gate")],
+          "the one-level world keeps no stair but an exit to its doorway", str(stairs))
+    blank = read("nw_blank", r"levels\room1.map")
+    check(re.search(r"^stairs stairs_exit 8 7 south dest=keep_gate", blank, re.M) is not None,
+          "the blank world's first room has a way out")
+    check("[marble_hall]" in read("nw_blank", r"catalog\combos.cat") and
+          "[crypt]" not in read("nw_blank", r"catalog\dungeons.cat"),
+          "and the template's content, without dungeon-demo's places")
+    # Each opens BY NAME (-project) and is clean as it stands.
+    for w in ("nw_blank", "nw_copy", "nw_level"):
+        wlog = run("worldcheck.eval", project=w)
+        check("validate: clean" in wlog, f"{w} opens and passes the checker",
+              next((l for l in wlog.splitlines() if "validate" in l), "no validate line"))
+finally:
+    for w in MADE:
+        shutil.rmtree(os.path.join(PROJECTS, w), ignore_errors=True)
+    shutil.rmtree(LEFTOVER, ignore_errors=True)
 
 print()
 print("PASS" if failures == 0 else f"FAIL - {failures} check(s) failed")

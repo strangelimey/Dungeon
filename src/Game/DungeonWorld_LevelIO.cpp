@@ -262,6 +262,55 @@ static std::string SerializeRecord(const char* kind, const Entity& e) {
 }
 
 bool DungeonWorld::SaveLevel() const {
+	const std::string m = ActiveMapText();
+	const std::string e = ActiveEntText();
+
+	// Both serializers build with '\n'; the line ending is decided once, here at
+	// the boundary (serialize::NormalizeEol), so no append site has to know it.
+	const std::string mOut = serialize::NormalizeEol(m), eOut = serialize::NormalizeEol(e);
+	const bool okMap = assets::WriteBinaryFile(m_project.LevelMapPath(m_currentLevel),
+											   mOut.data(), mOut.size());
+	const bool okEnt = assets::WriteBinaryFile(m_project.LevelEntPath(m_currentLevel),
+											   eOut.data(), eOut.size());
+	if (okMap && okEnt)
+		log::Info("Saved level {}: {} decorations, {} monsters", m_currentLevel,
+				  m_decorations.size(), m_monsters.size());
+	else
+		log::Warn("Failed to write level {} files", m_currentLevel);
+	return okMap && okEnt;
+}
+
+void DungeonWorld::LevelTextFor(const std::string& stem, std::string& mapText,
+								std::string& entText) const {
+	mapText.clear();
+	entText.clear();
+	if (stem == m_currentLevel) {
+		mapText = ActiveMapText();
+		entText = ActiveEntText();
+		return;
+	}
+	if (const auto ms = m_levelMaps.find(stem); ms != m_levelMaps.end())
+		mapText = StashedMapText(stem, *ms->second);
+	if (const auto es = m_levelEnts.find(stem); es != m_levelEnts.end())
+		entText = StashedEntText(stem, *es->second);
+}
+
+std::string DungeonWorld::StashedMapText(const std::string& stem, const DungeonMap& map) {
+	// A stash's decorations are already records (the live-instance sync happens
+	// when the map is stashed / remote edits author records directly).
+	std::string deco;
+	for (const Entity& e : map.Decorations()) deco += SerializeRecord("decoration", e);
+	return SerializeMapStatic(stem, map, deco);
+}
+
+std::string DungeonWorld::StashedEntText(const std::string& stem, const DungeonEntities& ents) {
+	std::string e =
+		std::format("; {} — written by the in-game editor (dynamic layer).\n\n", stem);
+	for (const Entity& ent : ents.All()) e += SerializeRecord(KindName(ent.kind), ent);
+	return e;
+}
+
+std::string DungeonWorld::ActiveMapText() const {
 	// Decorations reconstructed from the live instances (so editor placements /
 	// removals persist); stair props are skipped — they are stairs records.
 	std::string deco;
@@ -279,22 +328,7 @@ bool DungeonWorld::SaveLevel() const {
 		}
 		deco += '\n';
 	}
-	std::string m = SerializeMapStatic(m_currentLevel, m_map, deco);
-	std::string e = ActiveEntText();
-
-	// Both serializers build with '\n'; the line ending is decided once, here at
-	// the boundary (serialize::NormalizeEol), so no append site has to know it.
-	const std::string mOut = serialize::NormalizeEol(m), eOut = serialize::NormalizeEol(e);
-	const bool okMap = assets::WriteBinaryFile(m_project.LevelMapPath(m_currentLevel),
-											   mOut.data(), mOut.size());
-	const bool okEnt = assets::WriteBinaryFile(m_project.LevelEntPath(m_currentLevel),
-											   eOut.data(), eOut.size());
-	if (okMap && okEnt)
-		log::Info("Saved level {}: {} decorations, {} monsters", m_currentLevel,
-				  m_decorations.size(), m_monsters.size());
-	else
-		log::Warn("Failed to write level {} files", m_currentLevel);
-	return okMap && okEnt;
+	return SerializeMapStatic(m_currentLevel, m_map, deco);
 }
 
 // The active level's dynamic layer as .ent text: the monsters from the LIVE list
@@ -341,26 +375,14 @@ std::string DungeonWorld::ActiveEntText() const {
 bool DungeonWorld::WriteStashedLevel(const std::string& stem) const {
 	const auto ms = m_levelMaps.find(stem);
 	if (ms == m_levelMaps.end()) return false;
-	const DungeonMap& map = *ms->second;
-
-	// A stash's decorations are already records (the live-instance sync happens
-	// when the map is stashed / remote edits author records directly).
-	std::string deco;
-	for (const Entity& e : map.Decorations())
-		deco += SerializeRecord("decoration", e);
-
-	const std::string m = serialize::NormalizeEol(SerializeMapStatic(stem, map, deco));
+	const std::string m = serialize::NormalizeEol(StashedMapText(stem, *ms->second));
 	bool ok = assets::WriteBinaryFile(m_project.LevelMapPath(stem), m.data(),
 									  m.size());
 
 	// The .ent is rewritten only when its records were edited (a stash exists);
 	// an untouched dynamic layer keeps its file byte-identical.
 	if (const auto es = m_levelEnts.find(stem); es != m_levelEnts.end()) {
-		std::string e = std::format(
-			"; {} — written by the in-game editor (dynamic layer).\n\n", stem);
-		for (const Entity& ent : es->second->All())
-			e += SerializeRecord(KindName(ent.kind), ent);
-		e = serialize::NormalizeEol(std::move(e));
+		const std::string e = serialize::NormalizeEol(StashedEntText(stem, *es->second));
 		ok &= assets::WriteBinaryFile(m_project.LevelEntPath(stem), e.data(),
 									  e.size());
 	}

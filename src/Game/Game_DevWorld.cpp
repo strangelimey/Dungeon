@@ -278,9 +278,21 @@ void Game::RegisterWorldCommands() {
 				return;
 			}
 			if (a[0] == "new" && a.size() >= 2) {
-				const std::string made = CreateWorld(a[1]);
+				// How it starts (Game/NewWorld.h): blank from the template (the
+				// default), this world whole, or one of its levels.
+				NewWorldSpec spec;
+				if (a.size() >= 3 && a[2] == "copy") spec.source = NewWorldSpec::Source::CopyWorld;
+				else if (a.size() >= 4 && a[2] == "level") {
+					spec.source = NewWorldSpec::Source::CopyLevel;
+					spec.level = a[3];
+				} else if (a.size() >= 3 && a[2] != "blank") {
+					m_console.Print("usage: worlds new <name> [blank|copy|level <stem>]");
+					return;
+				}
+				std::string problem;
+				const std::string made = CreateWorld(a[1], spec, &problem);
 				m_console.Print(made.empty()
-									? "could not create (see the log)"
+									? "could not create: " + problem
 									: std::format("created world '{}' - "
 												  "`worlds load {}` to open it",
 												  made, made));

@@ -1392,6 +1392,13 @@ public:
 	// Saves every level with unsaved edits: the active one (SaveLevel) plus
 	// each stashed level (WriteStashedLevel). Returns the stems written.
 	std::vector<std::string> SaveAllLevels();
+	// The text `savemap` WOULD write for level `stem`, WITHOUT writing it - a
+	// world copy puts it in the new world's folder, so the unsaved edits come
+	// across and the world they were made in is not saved behind your back. A
+	// layer this world holds no edit of comes back EMPTY: its file on disk is
+	// the truth, and the caller copies that. '\n'-joined, like the writers.
+	void LevelTextFor(const std::string& stem, std::string& mapText,
+					  std::string& entText) const;
 
 	// Renames a level's world-side state: moves the .map/.ent files, rekeys
 	// the three per-level stashes (+ the active stem), and repoints every
@@ -2530,12 +2537,14 @@ private:
 	// routes through this so the overrides apply everywhere alike.
 	static void ApplyPropMaterial(gfx::MaterialParams& m, const DecorationKind& kind,
 								  float fallbackRoughness);
-	// Fixture routing info for DungeonMap's parser (see the declaration below).
+public:
 	// Routing info for DungeonMap's fixture-record parser, derived from the
 	// project's fixtures catalog (wall-mount ids + the glyph default ids) and,
 	// for `surfacemix` records, its combinations. Passed at every DungeonMap
-	// construction.
+	// construction - including Game's, when a new world parses a level of a
+	// project that is not the running one.
 	static FixtureTypes FixtureTypesOf(const Project& project);
+private:
 	// Builds an authored model's own GPU resources (one texture per embedded glTF
 	// image, one submesh per primitive with its material) for the multi-material
 	// decoration path.
@@ -3287,6 +3296,11 @@ private:
 	void RemapArrivals(const std::string& stem, const std::function<bool(int&, int&)>& remap);
 	// The active level's .ent text (live monsters + records); see SaveLevel.
 	std::string ActiveEntText() const;
+	// ...and its .map text (live decorations synced back into records).
+	std::string ActiveMapText() const;
+	// A STASHED level's .map / .ent text, as WriteStashedLevel writes them.
+	static std::string StashedMapText(const std::string& stem, const DungeonMap& map);
+	static std::string StashedEntText(const std::string& stem, const DungeonEntities& ents);
 	std::mt19937 m_combatRng{0xC0FFEEu};
 	bool m_partyWiped = false; // latches onPartyWipe so it fires once
 	// The attack formula's tuning (docs/combat.md): balance.cat knobs +

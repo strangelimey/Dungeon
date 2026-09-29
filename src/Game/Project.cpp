@@ -94,6 +94,10 @@ std::vector<std::string> Project::List(const std::string& root) {
 	std::error_code ec; // no throwing: a missing projects folder is "none yet"
 	for (const auto& entry : std::filesystem::directory_iterator(root, ec)) {
 		if (!entry.is_directory()) continue;
+		// A DOT-FOLDER IS WORK IN PROGRESS: Game::CreateWorld builds a world in
+		// `.building-<name>` and renames it into place only once complete, and
+		// one left behind by an interrupted create must not be offered.
+		if (entry.path().filename().string().starts_with('.')) continue;
 		// A PROJECT IS A FOLDER WITH A MANIFEST. Anything else under here is
 		// some other thing that happens to live there, and listing it would
 		// offer the player a world that cannot be opened.

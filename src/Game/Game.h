@@ -63,6 +63,7 @@
 #include "Game/WorldMapView.h"
 #include "Game/WorldSettingsDialog.h"
 #include "Game/WorldsDialog.h"
+#include "Game/NewWorld.h"
 #include "Game/MonsterConfigDialog.h"
 #include "Game/ButtonInspector.h"
 #include "Game/StairInspector.h"
@@ -438,15 +439,30 @@ private:
 	// the last world played unless -project named this run's. False when no
 	// such world exists.
 	bool SwitchWorld(const std::string& name);
-	// Writes a NEW world beside this one and returns its name ("" on failure).
-	// CONTENT IS COPIED, PLACES ARE NOT (Michael, 2026-09-23): every catalog
-	// comes across — surfaces, monsters, items, terrain — so you can build in
-	// it at once, while dungeons and quests start empty and the overworld is
-	// blank. It does get ONE room in one dungeon behind one doorway, because
-	// the engine loads a level in DungeonWorld's constructor and a world with
-	// nowhere at all in it could not stand up; that starter is the smallest
-	// thing that both loads and passes the checker.
-	std::string CreateWorld(const std::string& name);
+	// Writes a NEW world beside this one and returns its name ("" on failure,
+	// with the reason in `problem` when given). HOW is the spec's (NewWorld.h):
+	// blank from the template, this world whole, or one of its levels. Every
+	// kind is built in a hidden `.building-<name>` folder and renamed into
+	// place only once complete, so a failure part-way leaves nothing a world
+	// list would offer. A blank or one-level world gets ONE dungeon behind ONE
+	// doorway, because the engine loads a level in DungeonWorld's constructor -
+	// a world with nowhere in it could not stand up - and its level an exit
+	// stair out to that doorway, so a party that walks in can walk out.
+	// (Game_NewWorld.cpp.)
+	std::string CreateWorld(const std::string& name, const NewWorldSpec& spec = {},
+							std::string* problem = nullptr);
+	// The minimal 16x16 rock block with a 3x3 room at 7..9 and the start at its
+	// centre, as grid rows. A new world's first room and an empty new level
+	// both start from it; FIXED on purpose (scenarios build on the room's place).
+	static void AppendStarterRoom(std::string& map);
+	// CreateWorld's three builders, each writing a whole world into `folder`
+	// (the hidden build folder). False on failure, `problem` set when it knows.
+	bool BuildBlankWorld(const std::string& folder, const std::string& id,
+						 std::string* problem);
+	bool BuildCopiedWorld(const std::string& folder, const std::string& id,
+						  std::string* problem);
+	bool BuildLevelWorld(const std::string& folder, const std::string& id,
+						 const std::string& stem, std::string* problem);
 	// Deleting one (W9). NOTHING BRINGS IT BACK — the undo history is in memory
 	// and about THIS world, and a world made in the editor was never in git — so
 	// the confirmation lives in the dialog (type the name, case-sensitive) and

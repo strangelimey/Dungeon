@@ -65,6 +65,7 @@ add_library(Game STATIC
 	Game_Eval.cpp
 	Game_Generate.cpp
 	Game_Inspect.cpp
+	Game_NewWorld.cpp
 	Game_Wiring.cpp
 	Game_World.cpp
 	GameSettings.cpp

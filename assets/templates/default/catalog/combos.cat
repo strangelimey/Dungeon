@@ -1,0 +1,17 @@
+; Surface combinations: a named, world-wide mix per surface. Painting one
+; (the editor's Combinations brush) makes a square REFERENCE it, so editing
+; an entry here repaints every square that uses it (docs/editor-updates-plan.md).
+;
+; Fields:
+;   display   the name the palette shows.
+;   floor     the floors.cat ids its open squares vary between.
+;   wall      the walls.cat ids its wall blocks vary between.
+;   ceiling   the ceilings.cat ids its ceilings vary between.
+;   Each is a space-separated list; an empty or absent one leaves that
+;   surface exactly as it is.
+
+[marble_hall]
+display = Marble Hall
+floor = floor_slabs floor_temple
+wall = wall_marble
+ceiling = ceiling_stone
