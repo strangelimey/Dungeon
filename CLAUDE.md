@@ -1289,10 +1289,11 @@ its RESOLUTION-tagged name (`<set>_2k` — LoadPbrSet's universal fallback) whil
 the catalog's `texture` field names the BASE; the worn-block bake takes the base
 and finds the height map at any installed resolution. EXCEPT the three surface categories,
 whose rows come from the VIEWED LEVEL's `palette` record, not the catalog — a
-catalog type must JOIN that palette before the brush can reach it, which is what
-their extra "+ Catalog..." row does (a chooser of the types this level doesn't
-list yet → DungeonWorld::AddPaletteEntry, or ...Remote for a browsed level's
-stash; the row hides once the level uses them all). The append is UNDOABLE (the
+catalog type must JOIN that palette before the brush can reach it. The old
+"+ Catalog..." row is GONE: a persisted "Catalogue" checkbox (settings.ini
+`map_show_catalog`) lists the whole catalog instead, and painting a type the
+level lacks enrols it on the spot (DungeonWorld::EnsureSurfaceVariant →
+AddPaletteEntry, or ...Remote for a browsed level's stash). The append is UNDOABLE (the
 palette rides the map through the undo snapshot; RestoreEditorState flags
 m_surfacesDirty so FlushGeometry reloads the sets, not just the chunks) and
 reloads that surface's textures + worn meshes live (ReloadDungeonBlocks), gated
@@ -1630,6 +1631,63 @@ Full per-phase history + gotchas live in the editor-overhaul memory.
   what every code-page and encoding trap here mangles. Existing ones can stay;
   just don't add more.
 - User prefs: concise replies, no emojis; permission prompts disabled.
+
+## Editor updates (editor-updates branch; docs/editor-updates-plan.md)
+
+Built from Michael's notes after editing the crypt levels ("awkward and
+clunky"); the notes, his answers and the plan are in docs/editor-updates-*.md.
+The judge for all of it is `tools\EditorTest.py` (11 phases, each mutation-
+tested; the eval harness only REPORTS). What exists now, and the rules it rests on:
+- ONE SURFACE RESOLVER: `ResolveSurfaceVariant` (DungeonMeshBuilder) answers
+  "which texture does surface S of cell (x,z) show" for the mesh builder, the
+  map overlay and the editor. Never re-derive it at a call site - that is how
+  the scene and the map came to have three copies. `geomhash` (and its
+  `geomlayout` line: uploaded chunks vs a fresh bake, "deferred" after an undo)
+  checks a change that must not move a vertex.
+- STROKES are press-to-release (`MapEditor::BeginStroke/EndStroke`): one undo
+  step per drag, and the release is the "edit ended" moment. `DungeonWorld::
+  EditRevision()` is the "something changed" signal - bumped by kept undo
+  steps, undo/redo, history clears AND the unbracketed edits (inspector apply,
+  type writes); a new edit path that takes no undo step must `NoteEdit()`.
+- NEVER STASH TO READ. A stashed level is one `savemap` rewrites, so anything
+  that only READS other levels (Validate, `typerefs`/delete refusal counts,
+  RefreshCombo's "who uses this?") goes through `m_readOnlyLevels`
+  (ReadOnlyLevelOf, re-parsed when the file's write time moves). Both Check and
+  the type-usage count used to stash every level.
+- Multi-cell fills batch chunk rebuilds (`BeginChunkBatch/EndChunkBatch`,
+  nesting): ~10x on an 80-square fill.
+- TOOL STRIP (MapView_Tools.cpp): Paint / Rectangle (drag) / Flood / Area /
+  Eyedropper + Fill level, beside the palette; Shift/Ctrl/Alt borrow Rect/Flood/
+  Pick. AREA = `Game/Area.h` (pure): a walkable cell in any 2x2 walkable block
+  is OPEN, else NARROW; an area is the 4-connected run of the clicked class
+  (so a room stops at its doorways, a corridor turns its bends; a 2-wide
+  corridor counts as room). Icons are drawn by `tools/BuildToolIcons.py`.
+- LIVE VALIDATION: Game::RefreshLiveIssues re-runs the checker when the edit
+  counter moves and no button is held; MapView_Issues.cpp boxes findings
+  (red/amber), tooltips them, and badges Check with the cell-less count.
+  `validate::Issue::also` lists extra squares to box (a stair's far end, every
+  lost item). `editor issues` prints the boxes.
+- SURFACE COMBINATIONS: `combos.cat` (world-wide), a Combinations palette
+  brush that RECOLOURS (never changes a cell's type). A cell REFERENCES one: a
+  variant <= -2 is combination slot (-2 - v) in the level's list, written as
+  `surfacemix <surface> <x> <z> <id>` BY ID. Members resolve to palette INDICES
+  on the map (only palette entries have textures), so painting enrols them.
+  Editing one (`FieldKind::CatalogRefList` checkbox tabs) repaints every level
+  using it (RefreshCombo). Rename sweeps slots; delete refuses while SQUARES use
+  it; a member type's rename is swept into combos.cat and the maps.
+- WORLDS: `assets/templates/default` (built by `tools/BuildTemplate.py` from
+  dungeon-demo, minus places/provenance/quest hooks; outside projects/, so never
+  listed) is what a BLANK world starts from. `Game::CreateWorld(name,
+  NewWorldSpec)` (Game_NewWorld.cpp): blank / copy this world (unsaved edits
+  written into the COPY via `DungeonWorld::LevelTextFor`, never saved here) /
+  copy one level (stairs replaced by one exit) / WIZARD (template content + one
+  generated floor; `GenerateWizardLevel`, deterministic from its knobs). Built in
+  a hidden `.building-<id>` folder and renamed into place (Project::List skips
+  dot-folders). The NewWorldDialog opens from a disc on both toolbars and the
+  Worlds dialog's "New world...". A starter or wizard floor has an exit stair.
+- Console added: `editor drag|fill|rev|tool|issues|cell|pick`, `geomhash`,
+  `typeset [rename|delete]`, `worlds new <n> [blank|copy|level <s>|wizard ...]`,
+  `worlds themes`, `worlds newdialog ...`.
 
 ## Known gaps / natural next steps
 

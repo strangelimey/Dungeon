@@ -5,6 +5,30 @@ levels ("awkward and clunky"), plus his answers to the organize step. The raw
 notes and every answer are in `docs/editor-updates-notes.md`; this document is
 checked against them.
 
+## Status: BUILT (2026-09-29)
+
+Every phase below is built and committed, each checked by
+`tools\EditorTest.py` (11 phases, every check mutation-tested) on top of the
+quick tier:
+
+| Phase | What | Commits |
+|---|---|---|
+| P0 | foundations: file split, one resolver, strokes, edit counter, read-only gather, chunk batching | 8be13df..4cfe4d8 |
+| P1 | area fill + fill level, tool strip, icons | cdb0503, 05aae73 |
+| P2 | live validation | 72181c3 |
+| P3 | surface combinations, editing them, `typerefs` stash fix | ad9f0ff, f3d4432, a49c805, 44ed1cd |
+| P4 | template, three ways to make a world, New world dialog | e94dec0, 11c2144 |
+| P5 | the wizard | 2d150cf |
+
+Found along the way and fixed: pressing Check (and counting a type's uses)
+made the next save rewrite every level; a drag whose first square was
+unchanged lost its undo step; a new world could only be left with a dev
+command; a failed world create left a half-built folder the list offered; a
+small wizard floor could come out with no monsters. Not this branch: WorldTest
+phase 20 and LevelBuildTest's open-floor sconce read crypt1 content Michael's
+uncommitted crypt1 edit changed, and `uioverlap` cannot see text overrunning
+its widget (spun off as its own task).
+
 Five themes:
 
 - A. **Area fill.** Paint a connected room or corridor in one action; the fill
