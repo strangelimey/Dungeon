@@ -1783,8 +1783,7 @@ void GameUI::BuildHud() {
 		return spellDefs ? spellDefs()
 						 : std::span<const std::unique_ptr<Spell>>{};
 	};
-	m_spellbook->onCast = [this](size_t member,
-								 const std::vector<SpellSymbol>& seq) {
+	m_spellbook->onCast = [this](size_t member, std::span<const SpellSymbol> seq) {
 		Click();
 		if (onCastSequence) onCastSequence(member, kBookHands, seq);
 	};

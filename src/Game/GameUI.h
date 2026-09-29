@@ -34,6 +34,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -239,7 +240,7 @@ public:
 	// Magic area's member selector picks whose book) — wired to DungeonWorld::
 	// CastSpell (exact-recipe match; a miss fizzles). The hand argument is
 	// kBookHands: a book cast credits both hands' quick-cast MRU.
-	std::function<void(size_t, size_t, const std::vector<SpellSymbol>&)>
+	std::function<void(size_t, size_t, std::span<const SpellSymbol>)>
 		onCastSequence;
 	// Member `i` eats or drinks the item with this catalog id — wired to
 	// DungeonWorld::ConsumeItem, which owns the catalogs and the two meters.

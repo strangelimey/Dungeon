@@ -12,6 +12,11 @@ namespace {
 // Parallel to the SpellSymbol enum order.
 constexpr const char* kIds[kSymbolCount] = {"fire", "earth", "air", "water",
 											"project", "protect", "sight"};
+// The rune tablets' item ids, spelled out rather than composed so RuneItemId
+// can hand back a view (see Spells.h).
+constexpr std::string_view kRuneIds[kSymbolCount] = {
+	"rune_fire", "rune_earth", "rune_air", "rune_water",
+	"rune_project", "rune_protect", "rune_sight"};
 constexpr const char* kKeys[kSymbolCount] = {"symbol.fire", "symbol.earth",
 											 "symbol.air", "symbol.water",
 											 "symbol.project", "symbol.protect",
@@ -55,13 +60,21 @@ bool ParseSymbol(std::string_view token, SpellSymbol& out) {
 	return false;
 }
 
-std::string RuneItemId(SpellSymbol s) { return std::string("rune_") + SymbolId(s); }
+std::string_view RuneItemId(SpellSymbol s) { return kRuneIds[static_cast<u32>(s)]; }
 
 bool RuneSymbolFromItemId(std::string_view typeId, SpellSymbol& out) {
 	constexpr std::string_view kPrefix = "rune_";
 	if (!typeId.starts_with(kPrefix)) return false;
 	return ParseSymbol(typeId.substr(kPrefix.size()), out);
 }
+
+// The two tables above spell the same names; a mismatch would make a rune
+// tablet's id stop parsing back to its own symbol.
+static_assert([] {
+	for (u32 i = 0; i < kSymbolCount; ++i)
+		if (kRuneIds[i].substr(5) != std::string_view(kIds[i])) return false;
+	return true;
+}());
 
 Vec4 ElementColor(SpellSymbol s) {
 	switch (s) {

@@ -13,12 +13,6 @@
 namespace dungeon::game {
 
 namespace {
-// The most symbols a built sequence holds — recipes are 1-2 symbols today,
-// six slots leave room for deeper tiers without outgrowing the magic box.
-constexpr size_t kMaxSequence = 6;
-} // namespace
-
-namespace {
 // Horizontal / vertical pads as fractions of the panel.
 constexpr float kPadX = 0.045f;
 constexpr float kPadY = 0.035f;
@@ -54,12 +48,12 @@ SpellbookPanel::SpellbookPanel(const gfx::Rect& rect,
 
 void SpellbookPanel::SelectMember(size_t member) {
 	m_member = static_cast<int>(member);
-	m_sequence.clear();
+	m_seqLen = 0;
 }
 
 void SpellbookPanel::Close() {
 	m_member = -1;
-	m_sequence.clear();
+	m_seqLen = 0;
 }
 
 bool SpellbookPanel::MemberEligible(size_t i) const {
@@ -189,24 +183,26 @@ constexpr SpellSymbol kSchoolRow[] = {SpellSymbol::Earth, SpellSymbol::Air,
 									  SpellSymbol::Fire, SpellSymbol::Water};
 } // namespace
 
-std::vector<SpellbookPanel::RuneSlot>
-SpellbookPanel::RuneSlots(const Character& c) const {
-	std::vector<RuneSlot> slots;
+SpellbookPanel::RuneSlotList SpellbookPanel::RuneSlots(const Character& c) const {
+	RuneSlotList slots;
+	const auto add = [&slots](SpellSymbol s, bool known) {
+		if (slots.count < slots.slot.size()) slots.slot[slots.count++] = {s, known};
+	};
 	// The four school runes ALWAYS hold the top row — an unknown one keeps
 	// its place as an empty frame, so the row reads as the fixed school set.
-	for (SpellSymbol s : kSchoolRow) slots.push_back({s, c.Knows(s)});
+	for (SpellSymbol s : kSchoolRow) add(s, c.Knows(s));
 	// Everything else appears below only once memorized, in enum order.
 	for (u32 i = 0; i < kSymbolCount; ++i) {
 		const auto s = static_cast<SpellSymbol>(i);
-		if (!IsSchoolSymbol(s) && c.Knows(s)) slots.push_back({s, true});
+		if (!IsSchoolSymbol(s) && c.Knows(s)) add(s, true);
 	}
 	return slots;
 }
 
 const Spell* SpellbookPanel::Match() const {
-	if (!spells || m_sequence.empty()) return nullptr;
+	if (!spells || m_seqLen == 0) return nullptr;
 	for (const auto& def : spells())
-		if (std::ranges::equal(def->Sequence(), m_sequence)) return def.get();
+		if (std::ranges::equal(def->Sequence(), Sequence())) return def.get();
 	return nullptr;
 }
 
@@ -215,7 +211,7 @@ namespace {
 // runes are mutually exclusive — one picks the spell's school, then all four
 // go dark; a spell also STARTS with its school, so until one is down every
 // other symbol waits. Any symbol already spelled in is spent (no repeats).
-bool SymbolAvailable(SpellSymbol s, const std::vector<SpellSymbol>& sequence) {
+bool SymbolAvailable(SpellSymbol s, std::span<const SpellSymbol> sequence) {
 	if (std::ranges::find(sequence, s) != sequence.end()) return false;
 	const bool haveSchool =
 		!sequence.empty() && IsSchoolSymbol(sequence.front());
@@ -276,44 +272,47 @@ void SpellbookPanel::UpdateSelf(ui::UIContext& ctx) {
 	if (!c) return; // unreachable after the eligibility check; belt-and-braces
 	// Self-heal: a roster reset may have taken symbols back; the sequence must
 	// never show (or cast) anything the member no longer knows.
-	std::erase_if(m_sequence,
-				  [c](SpellSymbol s) { return !c->Knows(s); });
+	size_t kept = 0;
+	for (size_t i = 0; i < m_seqLen; ++i)
+		if (c->Knows(m_sequence[i])) m_sequence[kept++] = m_sequence[i];
+	m_seqLen = kept;
 
-	const std::vector<RuneSlot> slots = RuneSlots(*c);
+	const RuneSlotList list = RuneSlots(*c);
+	const std::span<const RuneSlot> slots = list.View();
 	for (size_t i = 0; i < slots.size(); ++i) {
 		if (!SymbolRect(px, i).Contains(mx, my)) continue;
 		// Unknown school frames and unavailable symbols (spent, or blocked by
 		// the school rule) are inert — no hover, no click.
-		if (!slots[i].known || !SymbolAvailable(slots[i].symbol, m_sequence))
+		if (!slots[i].known || !SymbolAvailable(slots[i].symbol, Sequence()))
 			break;
 		m_hotSymbol = static_cast<int>(i);
-		if (pressed && m_sequence.size() < kMaxSequence) {
-			m_sequence.push_back(slots[i].symbol);
+		if (pressed && m_seqLen < kMaxSequence) {
+			m_sequence[m_seqLen++] = slots[i].symbol;
 			if (onClick) onClick();
 		}
 	}
-	for (size_t i = 0; i < m_sequence.size(); ++i) {
+	for (size_t i = 0; i < m_seqLen; ++i) {
 		if (!SequenceRect(px, i).Contains(mx, my)) continue;
 		m_hotSeq = static_cast<int>(i);
 		if (pressed) {
 			// Remove this symbol AND everything spelled after it — the tail
 			// was built on top of it, so it goes too.
-			m_sequence.resize(i);
+			m_seqLen = i;
 			if (onClick) onClick();
 			break;
 		}
 	}
 	if (CastRect(px).Contains(mx, my)) {
 		m_hotCast = true;
-		if (pressed && !m_sequence.empty()) {
-			if (onCast) onCast(static_cast<size_t>(m_member), m_sequence);
-			m_sequence.clear(); // the slate empties either way (a fizzle is spent)
+		if (pressed && m_seqLen > 0) {
+			if (onCast) onCast(static_cast<size_t>(m_member), Sequence());
+			m_seqLen = 0; // the slate empties either way (a fizzle is spent)
 		}
 	}
 	if (ClearRect(px).Contains(mx, my)) {
 		m_hotClear = true;
-		if (pressed && !m_sequence.empty()) {
-			m_sequence.clear();
+		if (pressed && m_seqLen > 0) {
+			m_seqLen = 0;
 			if (onClick) onClick();
 		}
 	}
@@ -341,7 +340,8 @@ void SpellbookPanel::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	// as empty frames), learned runes below. A symbol the sequence can't take
 	// right now (spent, or blocked by the one-school rule) draws disabled
 	// until a sequence edit frees it.
-	const std::vector<RuneSlot> slots = RuneSlots(*c);
+	const RuneSlotList list = RuneSlots(*c);
+	const std::span<const RuneSlot> slots = list.View();
 	for (size_t i = 0; i < slots.size(); ++i) {
 		const gfx::Rect r = SymbolRect(px, i);
 		if (!slots[i].known) { // reserved school slot, not yet memorized
@@ -350,14 +350,14 @@ void SpellbookPanel::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 			continue;
 		}
 		DrawRune(batch, r, slots[i].symbol, static_cast<int>(i) == m_hotSymbol,
-				 !SymbolAvailable(slots[i].symbol, m_sequence));
+				 !SymbolAvailable(slots[i].symbol, Sequence()));
 	}
 
 	// The sequence spelled out so far — six slots at the bottom, just above
 	// Cast / Clear, filled left to right.
 	for (size_t i = 0; i < kMaxSequence; ++i) {
 		const gfx::Rect r = SequenceRect(px, i);
-		if (i < m_sequence.size()) {
+		if (i < m_seqLen) {
 			DrawRune(batch, r, m_sequence[i], static_cast<int>(i) == m_hotSeq);
 		} else {
 			batch.DrawRect(r, theme.control);
@@ -369,16 +369,24 @@ void SpellbookPanel::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	// but ONLY once this member has LEARNED it (first successful cast). An
 	// unlearned recipe stays anonymous so building a sequence is genuine
 	// EXPERIMENTATION: the book won't confirm a discovery before the cast does.
+	// Drawn in two pieces from views of the table's own text: the label shows
+	// every frame the sequence matches, and `"= " + loc::Tr(...)` made two
+	// strings a frame.
 	const gfx::Rect seq0 = SequenceRect(px, 0);
-	if (const Spell* def = Match(); def && c->HasLearnedSpell(def->Id()))
-		font.Draw(batch, "= " + loc::Tr(def->NameKey()), px.x + kPadX * px.w,
-				  seq0.y - 0.025f * px.h - font.Height(), theme.accent);
+	if (const Spell* def = Match(); def && c->HasLearnedSpell(def->Id())) {
+		constexpr std::string_view kPrefix = "= ";
+		const float x = px.x + kPadX * px.w;
+		const float y = seq0.y - 0.025f * px.h - font.Height();
+		font.Draw(batch, kPrefix, x, y, theme.accent);
+		font.Draw(batch, loc::View(def->NameKey()), x + font.MeasureWidth(kPrefix), y,
+				  theme.accent);
+	}
 
 	// Cast / Clear. With icon faces (round buttons with their own chrome +
 	// alpha) each draws centered at the rect's height — the WHOLE rect stays
 	// the hit target, so the small circles keep the generous click area.
 	// Without icons, the localized text buttons return.
-	const bool armed = !m_sequence.empty();
+	const bool armed = m_seqLen > 0;
 	auto iconButton = [&](const gfx::Rect& r, const gfx::Texture* icon,
 						  const std::string& label, bool hot) {
 		if (!icon) {

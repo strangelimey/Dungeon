@@ -48,7 +48,7 @@ void Game::RegisterPartyCommands() {
 							   return;
 						   SpellSymbol sym;
 						   if (!ParseSymbolArg(m_console, args[0], sym)) return;
-						   const std::string typeId = RuneItemId(sym);
+						   const std::string typeId(RuneItemId(sym));
 						   if (m_characters.empty() ||
 							   !m_characters[0].inventory.Stow(typeId))
 							   m_console.Print("pack full (or no party)");

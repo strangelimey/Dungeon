@@ -1047,7 +1047,7 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 				// additive emissive term (see SubmitSceneGeometry); the shared
 				// palette lives in Spells (ElementColor).
 				kind->glow = ElementColor(sym);
-				kind->tex = LoadPropTextures(RuneItemId(sym));
+				kind->tex = LoadPropTextures(std::string(RuneItemId(sym)));
 				// A rune is always memorizable, even if the catalog omits `command`.
 				if (std::find(kind->commands.begin(), kind->commands.end(),
 							  "memorize") == kind->commands.end())
