@@ -42,14 +42,14 @@ inline const Vec4 kGhostNo{1.0f, 0.35f, 0.35f, 0.45f};
 inline const Vec4 kIssueError{1.0f, 0.30f, 0.28f, 1.0f};
 inline const Vec4 kIssueWarning{1.0f, 0.72f, 0.20f, 1.0f};
 
-// Editor textured cell fill. The dim base view draws each cell's albedo with a
-// CURVE, not a pure multiply: the texture (alpha < 1) composites over a flat
-// lift ink underneath, so out = albedo * (rgb * a) + lift * (1 - a). The lift
-// raises the blacks of these dark scanned sets into visibility while the sub-1
-// scale keeps the highlights below the markers'. The armed view (painting that
-// surface) is a plain near-full multiply — the fill is the subject then.
-inline const Vec4 kTexFillLift{0.75f, 0.75f, 0.80f, 1.0f}; // under-rect
-inline const Vec4 kTexFillDim{0.62f, 0.62f, 0.68f, 0.85f}; // albedo over it
+// Editor cell fill. At rest the editor draws STRUCTURE: every wall one dark
+// ink, every floor one light ink (the reverse of the Player map's kWall/kFloor,
+// so a dungeon reads as rooms carved out of rock). A surface's textures show
+// only while its brush is armed, at a plain near-full multiply - the fill is
+// the subject then. (Textures at rest, dimmed, and then their average colours
+// were both tried and buried the layout.)
+inline const Vec4 kEditorWall{0.15f, 0.14f, 0.13f, 1.0f};
+inline const Vec4 kEditorFloor{0.52f, 0.50f, 0.46f, 1.0f};
 inline const Vec4 kTexFillLit{0.92f, 0.92f, 0.95f, 1.0f};
 
 } // namespace dungeon::game

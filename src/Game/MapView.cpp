@@ -833,7 +833,9 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	const gfx::Rect clip{grid.x + 2, grid.y + 2, grid.w - 4, grid.h - 4};
 	batch.SetScissor(&clip);
 
-	const float inset = std::clamp(t.cell * 0.08f, 0.5f, 2.0f); // grid gaps
+	// Grid gaps: a hairline between squares (at most 1px a side, so 2px),
+	// enough to count squares without breaking a room into tiles.
+	const float inset = std::clamp(t.cell * 0.03f, 0.5f, 1.0f);
 	auto cellRect = [&](int x, int z) -> gfx::Rect {
 		return {t.ox + x * t.cell + inset, t.oy + z * t.cell + inset,
 				t.cell - 2 * inset, t.cell - 2 * inset};
@@ -926,19 +928,19 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 					c.y + t.cell * 0.5f - m_font->Height(), theme.text);
 	};
 
-	// 1) Cell fill. Player mode keeps the stylized flat inks; Editor mode fills
-	// each floor cell with its RESOLVED floor texture (editor override or the
-	// mesh builder's position hash — the same albedo the 3D scene draws),
-	// dimmed so the markers stay primary. While a Walls/Floors/Ceilings brush
-	// is armed the fill flips to THAT surface at near-full brightness —
-	// ceilings become visible exactly when they are the subject, and wall
-	// paint shows on the solid squares themselves (the block owns its
-	// texture). Cells group by variant so the batch flushes once per texture,
-	// not per cell; an unloaded texture (a browsed level on a foreign palette)
-	// falls back to the flat ink.
+	// 1) Cell fill. Player mode keeps the stylized flat inks. Editor mode shows
+	// the STRUCTURE: every wall one dark ink, every floor one light ink, so the
+	// shape of the dungeon is what reads (Michael: textures everywhere, and
+	// then their average colours, both buried it). Only while a Walls/Floors/
+	// Ceilings brush is armed does THAT surface draw its RESOLVED textures
+	// (editor override, combination or the mesh builder's position hash - the
+	// same albedo the 3D scene draws): walls on the solid squares (the block
+	// owns its texture), floors or ceilings on the open ones. Cells group by
+	// variant so the batch flushes once per texture, not per cell; an unloaded
+	// texture (a browsed level on a foreign palette) falls back to the ink.
 	using SurfaceSel = DungeonWorld::SurfaceSel;
 	SurfaceSel fillSel = SurfaceSel::Floor;
-	bool fillArmed = false; // the armed brush IS the filled surface: brighten
+	bool fillArmed = false; // a surface brush is armed: show its textures
 	if (m_mode == Mode::Editor && m_editor) {
 		switch (m_editor->ArmedCat()) {
 		case MapEditor::PaletteCat::Walls:    fillSel = SurfaceSel::Wall;    fillArmed = true; break;
@@ -948,9 +950,9 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		}
 	}
 	// Each palette id's loaded albedo, resolved once (null = flat fallback).
-	// Empty outside Editor mode, which keeps the whole loop on the flat path.
+	// Empty unless a surface brush is armed, which keeps the loop on the inks.
 	std::vector<const gfx::Texture*> fillTex;
-	if (m_mode == Mode::Editor)
+	if (fillArmed)
 		for (const std::string& id : map.Palette(fillSel))
 			fillTex.push_back(m_world->SurfaceAlbedoForId(fillSel, id));
 	const int fillCount = static_cast<int>(fillTex.size());
@@ -961,8 +963,8 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		return static_cast<int>(
 			ResolveSurfaceVariant(map, x, z, fillSel, static_cast<u32>(fillCount)));
 	};
-	const Vec4 fillTint = fillArmed ? kTexFillLit : kTexFillDim;
 	std::vector<std::vector<gfx::Rect>> fillCells(static_cast<size_t>(fillCount));
+	const bool editor = m_mode == Mode::Editor;
 	for (int z = 0; z < map.Height(); ++z)
 		for (int x = 0; x < map.Width(); ++x) {
 			if (!CellVisible(x, z)) continue;
@@ -972,21 +974,17 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			// square (the block owns it), floor/ceiling on the floor square.
 			if ((fillSel == SurfaceSel::Wall) == solid) v = fillVariant(x, z);
 			if (v >= 0 && fillTex[static_cast<size_t>(v)]) {
-				// The dim view's curve: the texture draws at sub-1 alpha over
-				// this lift ink (see MapColors.h). Batch order is submission
-				// order, so the loop's rects all land under the grouped
-				// sprites below. The armed view draws opaque — no lift needed.
-				if (!fillArmed) batch.DrawRect(cellRect(x, z), kTexFillLift);
 				fillCells[static_cast<size_t>(v)].push_back(cellRect(x, z));
 				continue;
 			}
-			const Vec4 col = solid ? VariantTint(kWall, map.WallVariant(x, z))
-								   : VariantTint(kFloor, map.FloorVariant(x, z));
+			const Vec4 col = editor ? (solid ? kEditorWall : kEditorFloor)
+							 : solid ? VariantTint(kWall, map.WallVariant(x, z))
+									 : VariantTint(kFloor, map.FloorVariant(x, z));
 			batch.DrawRect(cellRect(x, z), col);
 		}
 	for (size_t v = 0; v < fillCells.size(); ++v)
 		for (const gfx::Rect& r : fillCells[v])
-			batch.DrawSprite(r, {0, 0, 1, 1}, *fillTex[v], fillTint);
+			batch.DrawSprite(r, {0, 0, 1, 1}, *fillTex[v], kTexFillLit);
 
 	// 2) Start cell — an accent outline.
 	if (CellVisible(map.StartX(), map.StartZ()))
@@ -1450,8 +1448,8 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			const Row rows[] = {
 				{Sym::Triangle, theme.accent, "map.key.party"},
 				{Sym::Outline, theme.accent, "map.key.start"},
-				{Sym::Filled, kWall, "map.key.wall"},
-				{Sym::Filled, kFloor, "map.key.floor"},
+				{Sym::Filled, kEditorWall, "map.key.wall"},
+				{Sym::Filled, kEditorFloor, "map.key.floor"},
 				{Sym::Filled, kTorch, "map.key.torch"},
 				{Sym::Filled, kBrazier, "map.key.brazier"},
 				{Sym::Filled, kMonster, "map.key.monster"},
