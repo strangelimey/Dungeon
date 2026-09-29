@@ -631,6 +631,18 @@ already prefixed and under one banner, so they self-label without a struct).
 
 **Headless is one branch** in Main's frame loop plus `Game::EndHeadlessFrame`.
 
+**The allocation guard stands down for a scripted run** (2026-09-28):
+`Game::SteadyStateFrame` treats `EvalRunning()` like an open console. A scripted
+line is a console command in every sense but the keyboard, and a typed one only
+ever runs with the console open, which the guard never arms. Before this, the
+runner's own work - `DevConsole::Execute` parsing a line, `Print` mirroring it,
+the verdict line, `sweep`/`include` splicing - was reported as steady-state
+violations, but only once a batch had run 120 quiet lines: `ladder`, `blast`,
+`sweep` and `resources` each showed "N warning/error line(s)" in the batched run
+and none alone. So **an eval run is not an allocation check** and does not
+pretend to be one; `AllocTest.ps1` (with `-Wounded`/`-Melee`/`-Cast` for the
+event paths) is, in frames that really are steady.
+
 **Three things that look like harness machinery and are not:**
 
 - **Lockstep AI.** `SetResting` turns it on, because rest runs the world at 60x

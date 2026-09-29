@@ -171,8 +171,8 @@ not raw `malloc`/`HeapAlloc` or anything a DLL allocates inside itself (D3D12,
 DXGI, XAudio2, PDH) — driver allocations are not ours to remove.
 
 Around that, a frame guard: `Main` brackets the whole frame, `Game::Update` arms
-it when the game is simply playing (no load, console, overlay or deferred
-rebuild, and has been so for 120 frames), and a violating frame gets its call
+it when the game is simply playing (no load, console, overlay, eval script or
+deferred rebuild, and has been so for 120 frames), and a violating frame gets its call
 stacks symbolized through DbgHelp into `dungeon.log`, each unique stack once per
 session. `alloctest [seconds]` measures a window of armed frames and prints one
 machine-readable verdict line; `tools\AllocTest.ps1` drives the whole run and
@@ -195,6 +195,17 @@ Two boundaries worth stating, because they are policy and not oversight:
   is measured and reported but not asserted on — and deliberately not wrapped in
   an `alloc::Excused` scope, since that would equally hide the bug where
   something starts logging every frame.
+- **A running eval script is a console session.** The runner executes one
+  console line per frame, and a typed command only ever runs with the console
+  open, which the guard never arms. A scripted line used to be held to the rule
+  its typed twin is exempt from, and only once a batch had run 120 quiet lines -
+  so `Eval.ps1` reported the runner's own parsing and printing as violations in
+  a long batch and never for a suite run alone. `Game::EvalRunning` (true from
+  load until the batch finishes, the verdict frames included) keeps those frames
+  unarmed. The eval simulation is not checked incidentally in their place: a
+  `step` runs thousands of ticks inside one frame, which is no steady-state
+  frame either. Simulation event paths are checked where the frame really is
+  steady - `AllocTest.ps1 -Wounded / -Melee / -Cast`.
 - **A test that cannot fail proves nothing.** `allocpoke` allocates every frame
   on purpose and `AllocTest.ps1 -SelfTest` inverts the expected verdict, so the
   harness must catch a real violation to pass.

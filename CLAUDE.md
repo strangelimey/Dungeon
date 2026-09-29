@@ -84,7 +84,8 @@ Key conventions (memorize, they bite):
   family and counts per THREAD (lock-free, constant-initialized slot; Debug,
   or -DDN_TRACK_ALLOCS=ON in Release). Main brackets each frame,
   Game::SteadyStateFrame arms it (Playing, no console/overlay/load/deferred
-  rebuild, 120-frame warm-up), and a violating frame's call stacks are
+  rebuild/running eval script, 120-frame warm-up; a scripted run is a console
+  session, so the eval harness is NOT an allocation check - AllocTest is), and a violating frame's call stacks are
   symbolized into dungeon.log once per unique site. Dev: `alloctest [secs]`
   (one machine-readable verdict line), `allocguard [status|strict on|off|
   reset]`, `allocpoke` (violate on purpose); `tools\AllocTest.ps1` is the
