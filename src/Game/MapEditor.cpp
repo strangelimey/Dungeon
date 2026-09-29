@@ -9,7 +9,8 @@
 #include "Game/MapEditor.h"
 
 #include "Core/Loc.h"
-#include "Game/DungeonMeshBuilder.h" // SurfaceVariantFor (eyedropper/flood key)
+#include "Game/Area.h"               // the area fill's room/corridor
+#include "Game/DungeonMeshBuilder.h" // ResolveSurfaceVariant (eyedropper/flood key)
 #include "Game/DungeonWorld.h"
 #include "Game/Entity.h"
 #include "Platform/Input.h" // the filter box consumes TypedChars/VK edges
@@ -902,6 +903,53 @@ void MapEditor::FloodFill(int cx, int cz) {
 	m_lastZ = cz;
 	if (m_world->onMessage)
 		m_world->onMessage(loc::FormatLine("map.fill.done", region.size()));
+}
+
+void MapEditor::PaintCells(std::span<const std::pair<int, int>> cells) {
+	const bool remote = m_view.Browsing();
+	const std::string stem = m_view.ViewedLevel(); // a copy: nothing here re-browses
+	m_world->BeginUndoStep();
+	const u32 rev0 = m_world->Map().Revision();
+	m_world->BeginChunkBatch(); // each touched chunk rebuilds once, at the end
+	for (const auto& [x, z] : cells) PaintCell(x, z, remote, stem);
+	m_world->EndChunkBatch();
+	m_world->CommitUndoStep(remote || m_world->Map().Revision() != rev0);
+}
+
+void MapEditor::AreaFill(int cx, int cz) {
+	if (m_sel.index < 0) return;
+	if (!PaintableCat(m_sel.cat)) { // placement acts as a plain click
+		ApplyBrush(cx, cz, /*dragging*/ false);
+		return;
+	}
+	const DungeonMap& map = m_view.ViewedMap();
+	std::vector<area::CellXZ> region = area::Region(map, cx, cz);
+	if (region.empty()) {
+		if (m_world->onMessage) m_world->onMessage(loc::View("map.area.solid"));
+		return;
+	}
+	// A wall brush paints the blocks the area SEES; floor and ceiling brushes
+	// the area itself. Either way PaintCell's type rule leaves the cell types
+	// alone, since each square already is the kind its brush wants.
+	if (m_sel.cat == PaletteCat::Walls) region = area::Walls(map, region);
+	PaintCells(region);
+	m_lastX = cx;
+	m_lastZ = cz;
+	if (m_world->onMessage)
+		m_world->onMessage(loc::FormatLine("map.area.done", region.size()));
+}
+
+void MapEditor::FillLevel() {
+	if (m_sel.index < 0 || !PaintableCat(m_sel.cat)) return;
+	const DungeonMap& map = m_view.ViewedMap();
+	const bool walls = m_sel.cat == PaletteCat::Walls;
+	std::vector<area::CellXZ> cells;
+	for (int z = 0; z < map.Height(); ++z)
+		for (int x = 0; x < map.Width(); ++x)
+			if (map.IsWalkable(x, z) != walls) cells.push_back({x, z});
+	PaintCells(cells);
+	if (m_world->onMessage)
+		m_world->onMessage(loc::FormatLine("map.level.filled", cells.size()));
 }
 
 void MapEditor::PickAt(int cx, int cz) {

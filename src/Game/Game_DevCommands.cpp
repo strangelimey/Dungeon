@@ -263,11 +263,14 @@ void Game::RegisterDevCommands() {
 						   // Ctrl+click. Timed, since batching the chunk rebuilds is
 						   // what made a big fill cheap.
 						   if (!args.empty() && args[0] == "fill") {
-							   const bool rect = args.size() >= 4 && args[3] == "rect";
-							   const bool flood = args.size() >= 4 && args[3] == "flood";
-							   if ((!rect && !flood) || args.size() < (rect ? 8u : 6u)) {
+							   const std::string how = args.size() >= 4 ? args[3] : "";
+							   const bool rect = how == "rect", flood = how == "flood",
+										  areaFill = how == "area", level = how == "level";
+							   const size_t need = rect ? 8u : level ? 4u : 6u;
+							   if ((!rect && !flood && !areaFill && !level) || args.size() < need) {
 								   m_console.Print("usage: editor fill <category> <id> rect <x0> "
-												   "<z0> <x1> <z1> | flood <x> <z>");
+												   "<z0> <x1> <z1> | flood <x> <z> | area <x> <z> "
+												   "| level");
 								   return;
 							   }
 							   if (m_mapView.IsOpen())
@@ -288,8 +291,12 @@ void Game::RegisterDevCommands() {
 							   if (rect) {
 								   m_mapEditor.Paint(num(4), num(5), /*dragging*/ false);
 								   m_mapEditor.PaintRect(num(6), num(7));
-							   } else {
+							   } else if (flood) {
 								   m_mapEditor.FloodFill(num(4), num(5));
+							   } else if (areaFill) {
+								   m_mapEditor.AreaFill(num(4), num(5));
+							   } else {
+								   m_mapEditor.FillLevel();
 							   }
 							   const double ms = std::chrono::duration<double, std::milli>(
 													 std::chrono::steady_clock::now() - t0)

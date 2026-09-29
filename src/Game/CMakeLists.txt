@@ -1,4 +1,5 @@
 add_library(Game STATIC
+	Area.cpp
 	AssetDialog.cpp
 	AssetPicker.cpp
 	AssetUtil.cpp

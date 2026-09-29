@@ -27,7 +27,9 @@
 #include <array>
 #include <functional>
 #include <map>
+#include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace dungeon {
@@ -227,6 +229,17 @@ public:
 	// same cell type, and for surface brushes the same RESOLVED variant
 	// (override-or-hash, so it matches what the 3D scene shows). One undo step.
 	void FloodFill(int cx, int cz);
+	// The AREA fill: paint the room or corridor holding walkable square (cx,cz)
+	// (Game/Area.h - it stops where narrow meets open). A floor or ceiling brush
+	// paints the area's squares, a wall brush the wall blocks around it. Unlike
+	// flood it ignores what the squares wear now, which is the point: it
+	// unifies a mixed corridor. A solid square has no area; says so. One undo
+	// step, one chunk rebuild each.
+	void AreaFill(int cx, int cz);
+	// Fill level: the armed surface brush on EVERY square of its kind on the
+	// viewed level (walls on every solid square, floors/ceilings on every
+	// walkable one). One undo step.
+	void FillLevel();
 	// Alt+click: eyedropper — arms the brush from the clicked square (a solid
 	// square arms its wall texture, a floor square its floor texture; ceilings
 	// are picked while the Ceilings brush is armed, since they share the floor
@@ -379,6 +392,9 @@ private:
 	// shared inner body of ApplyBrush/PaintRect/FloodFill. No undo bracketing
 	// or change detection (callers bracket a whole gesture as one step).
 	void PaintCell(int cx, int cz, bool remote, const std::string& stem);
+	// PaintCell over a whole set of squares on the viewed level as ONE undo
+	// step and one chunk batch - the body the area and level fills share.
+	void PaintCells(std::span<const std::pair<int, int>> cells);
 	// The viewed cell's RESOLVED surface variant (override else the mesh
 	// builder's hash — exactly what the scene shows): the flood fill's region
 	// key and the eyedropper's pick. -1 when the palette is empty.

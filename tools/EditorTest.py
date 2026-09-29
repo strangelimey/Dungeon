@@ -21,6 +21,11 @@
 #      rectangle that raises walls across chunk edges, and a flood, the chunks
 #      actually uploaded match a fresh bake (`geomlayout`); undo restores the
 #      surfaces exactly.
+#   5. THE AREA FILL paints the room or corridor, stopping where narrow meets
+#      open: on a carved layout with known answers (a 154-square room, a
+#      13-square corridor with a bend and a doorway, a 60-square room, the
+#      corridor's 25 wall blocks, 227 floor squares in all) every count must
+#      come out exact and every fill must leave the chunks current.
 #
 # Every project file a phase writes is restored byte for byte afterwards.
 import io
@@ -134,6 +139,32 @@ else:
     check(h[4] == h[0], "undoing all of it restores the surfaces exactly")
     fills = re.findall(r"console: editor fill: (\w+) \S+ in ([\d.]+) ms", log)
     print("         fill times (ms): " + ", ".join(f"{k} {t}" for k, t in fills))
+
+# --- phase 5: the area fill ---------------------------------------------------
+print("5 - the area fill paints the room or corridor, and stops there")
+log = run("areafill.eval")
+check(passed(log), "the script ran clean")
+areas = [int(n) for n in re.findall(r"editor: Filled the room or corridor \((\d+) cells\)", log)]
+# The corridor is the one that matters most: 13 only if the fill turned the
+# bend AND stopped at both of its ends (room A directly, room B at a doorway).
+expected = [("room A", 154), ("the bent corridor", 13), ("room B", 60),
+            ("the corridor's wall blocks", 25)]
+if len(areas) != len(expected):
+    check(False, "four area fills", f"got {areas}")
+else:
+    for (label, want), got in zip(expected, areas):
+        check(got == want, f"{label}: {want} squares", f"got {got}")
+check("editor: Click inside a room or corridor to fill it" in log,
+      "a solid square has no area, and says so")
+m = re.search(r"editor: Filled the whole level \((\d+) cells\)", log)
+check(m is not None and int(m.group(1)) == 227, "fill level: all 227 floor squares",
+      m.group(1) if m else "no report")
+layouts = re.findall(r"console: geomlayout \S+ fresh=\w+ live=\w+ (\w+)", log)
+check(len(layouts) == 6 and all(l == "match" for l in layouts),
+      "every fill left the uploaded chunks current", str(layouts))
+h = hashes(log)
+check(len(h) == 6 and all(h[i] != h[i - 1] for i in range(1, 6)),
+      "every fill changed the level")
 
 print()
 print("PASS" if failures == 0 else f"FAIL - {failures} check(s) failed")
