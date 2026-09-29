@@ -1215,6 +1215,31 @@ int DungeonMap::SweepTypeRefs(TypeRecords records, std::string_view id,
 	case TypeRecords::Stair:
 		for (StairLink& s : m_stairs) sweep(s.type);
 		break;
+	case TypeRecords::Combo:
+		// A slot is a REFERENCE only while a square uses it: an erased square
+		// leaves its slot behind until the next load, and a leftover must not
+		// block deleting the combination. So the squares are what is counted.
+		for (size_t slot = 0; slot < m_combos.size(); ++slot) {
+			if (m_combos[slot].id != id) continue;
+			const int v = ComboVariant(static_cast<int>(slot));
+			for (const std::vector<int>* g : {&m_wallVar, &m_floorVar, &m_ceilingVar})
+				hits += static_cast<int>(std::count(g->begin(), g->end(), v));
+			if (newId) m_combos[slot].id = *newId;
+		}
+		break;
+	}
+	// A surface type renamed is also a combination MEMBER renamed: the member
+	// lists this level holds follow it, so they keep resolving (the palette
+	// index does not move, being renamed in place). Not counted - the catalog's
+	// combos.cat entry is the reference, and Game's catalog sweep counts that.
+	const int surface = records == TypeRecords::WallPalette    ? 0
+						: records == TypeRecords::FloorPalette ? 1
+						: records == TypeRecords::CeilingPalette ? 2 : -1;
+	if (surface >= 0 && newId) {
+		for (Combo& c : m_combos)
+			for (std::string& member : c.ids[static_cast<size_t>(surface)])
+				if (member == id) member = *newId;
+		ResolveComboIndices();
 	}
 	// Nothing here moves a cell or changes the grid, so the revision stands —
 	// a rename is a relabelling, not an edit the mesh builder cares about.

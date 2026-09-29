@@ -234,6 +234,7 @@ DungeonWorld::TypeUsage DungeonWorld::SweepTypeRefs(const std::string& catalogKe
 	else if (catalogKey == "fixtures") statics = TR::Fixture;
 	else if (catalogKey == "wallfeatures") statics = TR::WallFeature;
 	else if (catalogKey == "stairs") statics = TR::Stair;
+	else if (catalogKey == "combos") statics = TR::Combo;
 	else if (catalogKey == "monsters") dynamics = EntityKind::Monster;
 	// Weapons and armor place as Item entities too, so a rename/delete of one
 	// sweeps the same .ent record family.
@@ -319,6 +320,31 @@ int DungeonWorld::EnsureComboVariant(const std::string& stem, const std::string&
 			EnsureSurfaceVariant(stem, static_cast<SurfaceSel>(s), member);
 	DungeonMap& map = stem == m_currentLevel ? m_map : EnsureMapStash(stem);
 	return DungeonMap::ComboVariant(map.ComboSlot(id, members));
+}
+
+void DungeonWorld::RefreshCombo(const std::string& id) {
+	const CatalogEntry* def = m_project.combos.Find(id);
+	const ComboMembers members = def ? ComboMembersOf(*def) : ComboMembers{};
+	const auto uses = [&](const DungeonMap& map) {
+		for (size_t i = 0; i < map.ComboCount(); ++i)
+			if (map.ComboId(static_cast<int>(i)) == id) return true;
+		return false;
+	};
+	for (const std::string& stem : m_project.levels) {
+		const bool active = stem == m_currentLevel;
+		const auto stash = m_levelMaps.find(stem);
+		const bool used = active                        ? uses(m_map)
+						  : stash != m_levelMaps.end() ? uses(*stash->second)
+													   : uses(*ReadOnlyLevelOf(stem).map);
+		if (!used) continue;
+		for (int s = 0; s < 3; ++s)
+			for (const std::string& member : members[static_cast<size_t>(s)])
+				EnsureSurfaceVariant(stem, static_cast<SurfaceSel>(s), member);
+		DungeonMap& map = active ? m_map : EnsureMapStash(stem);
+		map.SetComboMembers(id, members);
+		if (active) m_geometryDirty = true; // FlushGeometry, on the editor's close
+	}
+	NoteEdit();
 }
 
 bool DungeonWorld::AddDecoration(const std::string& type, int x, int z,

@@ -894,6 +894,52 @@ void Game::RegisterWorldCommands() {
 									   : std::format("created {} '{}'", args[0], id));
 		});
 	m_console.Register(
+		"typeset",
+		"the type editor's Save for one field: typeset <category> <id> <field> [value...] "
+		"(no value removes the field); typeset rename|delete <category> <id> [new]",
+		[this](const std::vector<std::string>& args) {
+			// The type editor's own paths, reachable without a mouse. Save goes
+			// through m_typeDialog.onSave, not WriteTypeFields alone: the Save
+			// also APPLIES the change (a surface's materials, a prop's kind, a
+			// combination's squares on every level), and that is what a harness
+			// needs to see. Rename and Delete are the title's and footer's.
+			if (args.size() >= 3 && (args[0] == "rename" || args[0] == "delete")) {
+				std::string problem;
+				const bool rename = args[0] == "rename";
+				if (rename && args.size() < 4) {
+					m_console.Print("usage: typeset rename <category> <id> <new>");
+					return;
+				}
+				const bool ok = rename ? RenameType(args[1], args[2], args[3], problem)
+									   : DeleteType(args[1], args[2], problem);
+				m_console.Print(std::format("typeset {} {} '{}': {}{}", args[0], args[1],
+											args[2], ok ? "done" : "refused",
+											problem.empty() ? "" : " - " + problem));
+				return;
+			}
+			if (args.size() < 3) {
+				m_console.Print("usage: typeset <category> <id> <field> [value...]");
+				return;
+			}
+			const Catalog* cat = m_project.CatalogForKey(args[0]);
+			if (!cat || !cat->Find(args[1])) {
+				m_console.Refuse(std::format("typeset: no {} '{}'", args[0], args[1]));
+				return;
+			}
+			TypeEditorDialog::Config cfg;
+			cfg.catalogKey = args[0];
+			cfg.id = args[1];
+			std::string value;
+			for (size_t i = 3; i < args.size(); ++i) value += (i > 3 ? " " : "") + args[i];
+			serialize::Field field;
+			field.key = args[2];
+			field.value = value;
+			cfg.fields.push_back(std::move(field));
+			if (m_typeDialog.onSave) m_typeDialog.onSave(cfg);
+			m_console.Print(std::format("typeset {} '{}': {} = {}", args[0], args[1], args[2],
+										value.empty() ? "(removed)" : value));
+		});
+	m_console.Register(
 		"typerefs", "count what references a type: typerefs <category> <id>",
 		[this](const std::vector<std::string>& args) {
 			if (args.size() < 2) {

@@ -620,7 +620,8 @@ public:
 	// catalog category that a .map record can name.
 	enum class TypeRecords {
 		WallPalette, FloorPalette, CeilingPalette,
-		Decoration, Fixture, WallFeature, Stair
+		Decoration, Fixture, WallFeature, Stair,
+		Combo // a surface combination's slot (counted by the squares using it)
 	};
 	// Editor type rename/delete: counts this level's references to catalog id
 	// `id` within one record family and, when `newId` is given, rewrites them.

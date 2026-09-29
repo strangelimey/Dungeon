@@ -1,0 +1,47 @@
+; comboedit.eval - EDITING a surface combination reaches every square painted
+; with it, on every level, by reference (editor-updates P3).
+;
+; tools/EditorTest.py writes, before this runs (and restores the project after):
+;   [marble_hall]  floor = floor_slabs floor_rubble   wall = wall_marble
+;                  ceiling = ceiling_stone
+;
+; 1. crypt2 is painted with it whole and saved; the party goes back to
+;    eval_arena, whose room A is painted with it too. crypt2 is now a level
+;    NOT loaded that uses the combination; crypt1 is one that does not.
+; 2. The type editor's Save (typeset) changes the floor to floor_temple:
+;    room A's squares show floor_temple at once, crypt2's do once visited,
+;    and the save that follows writes crypt2 (stashed, it uses it) but NOT
+;    crypt1 (asked through its read-only copy, and left alone).
+; 3. A rename reaches the squares; a delete is refused while any use it.
+; 4. Renaming a FLOOR TYPE that is a member keeps the combination resolving.
+
+logecho on
+reset
+echo --- 1: crypt2 painted whole ---
+goto crypt2
+editor fill combos marble_hall level
+editor cell 5 5
+savemap
+goto eval_arena
+editor fill walls wall_marble rect 8 1 26 22
+editor fill combos marble_hall area 3 3
+editor cell 3 3
+editor cell 7 22
+geomhash
+echo --- 2: the floor redefined ---
+typeset combos marble_hall floor floor_temple
+editor cell 3 3
+editor cell 7 22
+geomhash
+savemap
+goto crypt2
+editor cell 5 5
+goto eval_arena
+echo --- 3: renamed ---
+typeset rename combos marble_hall grand_hall
+editor cell 3 3
+typerefs combos grand_hall
+typeset delete combos grand_hall
+echo --- 4: a member type renamed ---
+typeset rename floors floor_temple floor_temple_b
+editor cell 3 3

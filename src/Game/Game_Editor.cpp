@@ -854,6 +854,32 @@ int Game::SweepCatalogRefs(const std::string& catalogKey, const std::string& id,
 	if (catalogKey == "stairs") sweepField(m_project.stairs, "pair");
 	// A door names the KEY ITEM that unlocks it.
 	if (catalogKey == "items") sweepField(m_project.doors, "key");
+	// A surface COMBINATION names surface types in a LIST (combos.cat), so the
+	// match is per token: a delete refuses while a combination still mixes the
+	// type in, and a rename rewrites it where it stands in the list.
+	if (catalogKey == "walls" || catalogKey == "floors" || catalogKey == "ceilings") {
+		const char* field = catalogKey == "walls"    ? "wall"
+							: catalogKey == "floors" ? "floor"
+													 : "ceiling";
+		std::vector<std::string> matches;
+		for (const CatalogEntry& e : m_project.combos.Entries()) {
+			const std::string list = " " + e.Get(field, "") + " ";
+			if (list.find(" " + id + " ") != std::string::npos) matches.push_back(e.id);
+		}
+		hits += static_cast<int>(matches.size());
+		if (newId)
+			for (const std::string& entryId : matches) {
+				CatalogEntry copy = *m_project.combos.Find(entryId);
+				std::string rewritten;
+				for (const std::string& member : DungeonWorld::ComboMembersOf(copy)[
+						 static_cast<size_t>(catalogKey == "walls"    ? Surface::Wall
+											 : catalogKey == "floors" ? Surface::Floor
+																	  : Surface::Ceiling)])
+					rewritten += (rewritten.empty() ? "" : " ") + (member == id ? *newId : member);
+				copy.Set(field, rewritten);
+				m_project.combos.Add(std::move(copy)); // add-or-replace by id
+			}
+	}
 	// The 'T'/'F' map glyphs resolve through the project's default fixtures.
 	if (catalogKey == "fixtures") {
 		for (std::string* slot : {&m_project.defaultSconce, &m_project.defaultBrazier})

@@ -384,10 +384,17 @@ void Game::WireModuleCallbacks() {
 				ids.push_back(e.id);
 			return ids;
 		}
-		case FieldKind::CatalogRef: {
+		case FieldKind::CatalogRef:
+		case FieldKind::CatalogRefList: {
 			std::vector<std::string> ids;
 			if (const Catalog* c = m_project.CatalogForKey(spec.options))
-				for (const CatalogEntry& e : c->Entries()) ids.push_back(e.id);
+				for (const CatalogEntry& e : c->Entries()) {
+					// A hidden entry is internal (the palette never offers it),
+					// so a list of things to paint with does not offer it either.
+					if (spec.kind == FieldKind::CatalogRefList && CatalogBool(&e, "hidden", false))
+						continue;
+					ids.push_back(e.id);
+				}
 			return ids;
 		}
 		default: return {};
@@ -404,6 +411,10 @@ void Game::WireModuleCallbacks() {
 			// KIND at load, so that kind is dropped and its instances re-spawned.
 			if (MapEditor::SurfaceCat(MapEditor::CatForCatalogKey(cfg.catalogKey)))
 				m_world->RefreshSurfaceMaterials();
+			// A combination is referenced, not copied: every square painted
+			// with it takes the new definition, on every level that has one.
+			else if (cfg.catalogKey == "combos")
+				m_world->RefreshCombo(cfg.id);
 			else
 				m_world->ReloadTypeKind(cfg.catalogKey, cfg.id);
 			if (m_world->onMessage)

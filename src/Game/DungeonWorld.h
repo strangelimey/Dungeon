@@ -952,6 +952,13 @@ public:
 	// the VARIANT a cell stores to reference it (DungeonMap::ComboVariant) - or
 	// -1 when the project defines no such combination.
 	int EnsureComboVariant(const std::string& stem, const std::string& id);
+	// After a combination's DEFINITION changed (the type editor's Save): every
+	// level whose squares use it takes the new members - each enrolled in that
+	// level's palette first - so it repaints with nothing re-painted. Levels not
+	// in memory are asked through their read-only copies, so only the ones that
+	// USE it get stashed (and rewritten by the next savemap). The active level's
+	// geometry is re-stamped when the editor closes, as after an undo.
+	void RefreshCombo(const std::string& id);
 	// True when the type's baked assets are on disk at the CURRENT quality tier
 	// (its texture set and worn_<set>_<tier>.gltf). Guards AddPaletteEntry: the
 	// worn-mesh load is a LoadModelOrDie, so an unbaked type would abort the

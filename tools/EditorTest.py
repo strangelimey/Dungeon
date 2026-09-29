@@ -35,6 +35,11 @@
 #      one resolving to a member (including one the palette had to enrol);
 #      the eyedropper picks the combination up; and it survives a save and a
 #      reload with the geometry unchanged.
+#   8. EDITING A COMBINATION reaches every square painted with it: a new floor
+#      shows at once on the level in hand and on a level NOT loaded, and the
+#      save that follows writes that level but not one that does not use it;
+#      a rename reaches the squares, a delete is refused while any use it, and
+#      renaming a member floor type keeps it resolving.
 #
 # Every project file a phase writes is restored byte for byte afterwards.
 import io
@@ -273,6 +278,46 @@ try:
     after = cells[6:]
     check(len(after) == 2 and after[0][6] == "mix:marble_hall" and
           after[1][4] == "mix:marble_hall", "the references came back from the file", str(after))
+finally:
+    shutil.rmtree(PROJ)
+    shutil.copytree(backup, PROJ)
+    shutil.rmtree(backup, ignore_errors=True)
+
+# --- phase 8: editing a combination -------------------------------------------
+print("8 - editing a combination repaints every square that uses it")
+backup = os.path.join(ROOT, r"build\editortest-backup")
+shutil.rmtree(backup, ignore_errors=True)
+shutil.copytree(PROJ, backup)
+try:
+    io.open(os.path.join(PROJ, r"catalog\combos.cat"), "w", encoding="utf-8", newline="").write(
+        "[marble_hall]\r\ndisplay = Marble Hall\r\nfloor = floor_slabs floor_rubble\r\n"
+        "wall = wall_marble\r\nceiling = ceiling_stone\r\n")
+    log = run("comboedit.eval")
+    check(passed(log), "the script ran clean")
+    s = {}
+    name = None
+    for line in log.splitlines():
+        m = re.search(r"console: --- (\d+):", line)
+        if m:
+            name = m.group(1)
+            s[name] = []
+        elif name and "console: " in line:
+            s[name].append(line.split("console: ", 1)[1])
+    two, three, four = s.get("2", []), s.get("3", []), s.get("4", [])
+    floors2 = [l for l in two if l.startswith("editor cell")]
+    check(len(floors2) == 3 and all("floor=mix:marble_hall/floor_temple" in l for l in floors2),
+          "the new floor shows on the level in hand AND on crypt2, not loaded",
+          str(floors2))
+    saved = [l for l in two if l.startswith("saved levels:")]
+    check(saved and "crypt2" in saved[0] and "crypt1" not in saved[0],
+          "the save wrote crypt2, which uses it, and not crypt1, which does not",
+          str(saved))
+    check(any("floor=mix:grand_hall/" in l for l in three), "a rename reaches the squares",
+          str(three))
+    check(any(l.startswith("typeset delete combos 'grand_hall': refused") for l in three),
+          "a delete is refused while squares use it", str(three))
+    check(any("floor=mix:grand_hall/floor_temple_b" in l for l in four),
+          "a member floor type renamed keeps the combination resolving", str(four))
 finally:
     shutil.rmtree(PROJ)
     shutil.copytree(backup, PROJ)
