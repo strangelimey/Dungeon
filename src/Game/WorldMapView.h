@@ -57,7 +57,7 @@ public:
 	// ToolbarButtons(), so adding a tool (W5's dungeon picker) is one line and
 	// cannot land in three of the four places. `Worlds` is the one tool about
 	// something ABOVE this world — the other worlds beside it (W8).
-	enum class Tool { None, Worlds, Settings, Save, Undo, Redo };
+	enum class Tool { None, Worlds, NewWorld, Settings, Save, Undo, Redo };
 
 	WorldMapView(gfx::GraphicsDevice& device, ui::FontLibrary& fonts);
 
@@ -159,7 +159,7 @@ private:
 	// editor's band draws from the same textures.
 	const gfx::Texture *m_icoSettings = nullptr, *m_icoSave = nullptr,
 					   *m_icoUndo = nullptr, *m_icoRedo = nullptr,
-					   *m_icoWorlds = nullptr;
+					   *m_icoWorlds = nullptr, *m_icoNewWorld = nullptr;
 	Tool m_hoverTool = Tool::None; // tracked by Update in WINDOW pixels; the
 								   // render re-derives its own geometry and
 								   // matches by IDENTITY, never by coordinate

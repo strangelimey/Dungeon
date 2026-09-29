@@ -357,8 +357,38 @@ void Game::RegisterWorldCommands() {
 					m_worldsDialog.Note()));
 				return;
 			}
+			if (a[0] == "newdialog") {
+				// The New world dialog (P4), for a harness: the same calls its
+				// buttons make. It is modal in a level and on the world screen
+				// alike, so unlike the Worlds dialog it opens from either.
+				if (a.size() >= 2 && a[1] == "off") {
+					m_newWorldDialog.Close();
+				} else {
+					if (!m_newWorldDialog.IsOpen()) m_newWorldDialog.Open();
+					using S = NewWorldSpec::Source;
+					if (a.size() >= 3 && a[1] == "source") {
+						if (a[2] == "copy") m_newWorldDialog.SetSource(S::CopyWorld);
+						else if (a[2] == "level")
+							m_newWorldDialog.SetSource(S::CopyLevel, a.size() >= 4 ? a[3] : "");
+						else m_newWorldDialog.SetSource(S::Blank);
+					} else if (a.size() >= 3 && a[1] == "create") {
+						m_newWorldDialog.Create(a[2]);
+					} else if (a.size() >= 2 && a[1] == "switch") {
+						m_newWorldDialog.SwitchNow();
+					}
+					m_newWorldDialog.ApplyPending(); // not inside a tree walk here
+				}
+				static constexpr const char* kSource[] = {"blank", "copy", "level"};
+				m_console.Print(std::format(
+					"new world dialog {}: source {} made '{}' - {}",
+					m_newWorldDialog.IsOpen() ? "open" : "closed",
+					kSource[static_cast<int>(m_newWorldDialog.Source())],
+					m_newWorldDialog.Made(), m_newWorldDialog.Note()));
+				return;
+			}
 			m_console.Print("usage: worlds [new|load] <name> | delete <name> <name> | "
-							"dialog [open|create|delete|confirm <name>|off]");
+							"dialog [open|create|delete|confirm <name>|off] | newdialog "
+							"[source blank|copy|level <stem> | create <name> | switch | off]");
 		});
 	m_console.Register(
 		"mappage",

@@ -278,6 +278,7 @@ void Game::WireModuleCallbacks() {
 		case WorldMapView::Tool::Worlds:
 			m_worldsDialog.Open(m_project.FolderName());
 			break;
+		case WorldMapView::Tool::NewWorld: m_newWorldDialog.Open(); break;
 		case WorldMapView::Tool::Settings: OpenWorldSettings({}); break;
 		case WorldMapView::Tool::Save:
 			// The WORLD alone, not savemap: the band is the world screen's, and
@@ -310,6 +311,22 @@ void Game::WireModuleCallbacks() {
 	};
 	m_worldsDialog.onDescribe = [this](const std::string& n) { return DescribeWorld(n); };
 	m_worldsDialog.onDelete = [this](const std::string& n) { return DeleteWorld(n); };
+	m_worldsDialog.onNewWorld = [this] { m_newWorldDialog.Open(); };
+
+	// The new-world dialog (P4): the same CreateWorld the console's `worlds new`
+	// calls, so the two cannot disagree about what a world starts with. A world
+	// made while the Worlds dialog is up below it lands in that list, armed.
+	m_newWorldDialog.onCreate = [this](const std::string& n, const NewWorldSpec& spec) {
+		std::string problem;
+		const std::string made = CreateWorld(n, spec, &problem);
+		if (!made.empty() && m_worldsDialog.IsOpen()) m_worldsDialog.Created(made);
+		return std::pair{made, problem};
+	};
+	m_newWorldDialog.onSwitch = [this](const std::string& n) {
+		m_worldsDialog.Close(); // the switch ends this world; nothing to go back to
+		return SwitchWorld(n);
+	};
+	m_newWorldDialog.onLevels = [this] { return m_project.levels; };
 
 	m_mapEditor.onNewAsset = [this](MapEditor::PaletteCat cat) {
 		// PURE-DATA CATEGORIES SKIP THE ASSET DIALOG. A dungeon has no texture

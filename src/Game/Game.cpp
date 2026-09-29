@@ -151,6 +151,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_levelSettingsDialog(device, m_fonts),
 	  m_worldSettingsDialog(device, m_fonts),
 	  m_worldsDialog(device, m_fonts),
+	  m_newWorldDialog(device, m_fonts),
 	  m_validateDialog(device, m_fonts),
 	  m_generateDialog(device, m_fonts),
 	  m_typeDialog(device, m_fonts),
@@ -270,6 +271,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	// Empty buttons mint the level (files + manifest + the dungeon's level list
 	// + the stair from the floor above) and the view jumps onto it. A generated
 	// one is CHECKED at once, like a regenerate.
+	m_mapView.onNewWorld = [this] { m_newWorldDialog.Open(); };
 	m_mapView.onNewLevel = [this](const std::string& dungeonId) {
 		// Said up front: which dungeon, and the floor the new one will stair
 		// down from (CreateNewLevel links to the dungeon's LAST floor).
@@ -493,6 +495,7 @@ void Game::UnloadWorld() {
 	m_levelSettingsDialog.Close();
 	m_worldSettingsDialog.Close();
 	m_worldsDialog.Close();
+	m_newWorldDialog.Close();
 	m_validateDialog.Close();
 	m_generateDialog.Close();
 	m_entityInspector.Close();
@@ -1819,6 +1822,12 @@ void Game::UpdateStates(float dt) {
 										 static_cast<float>(m_window.Height()));
 			return;
 		}
+		// The new-world dialog sits ABOVE the Worlds dialog that can open it.
+		if (m_newWorldDialog.IsOpen()) {
+			m_newWorldDialog.Update(input, static_cast<float>(m_window.Width()),
+									static_cast<float>(m_window.Height()));
+			return;
+		}
 		if (m_worldsDialog.IsOpen()) {
 			m_worldsDialog.Update(input, static_cast<float>(m_window.Width()),
 								  static_cast<float>(m_window.Height()));
@@ -1900,6 +1909,12 @@ void Game::UpdateStates(float dt) {
 	// The asset picker sits ABOVE every dialog that opens it (the type editor and
 	// the create dialog), so it comes first: while it is up it owns the mouse and
 	// the keyboard (its search box types).
+	// The new-world dialog, from the level editor's toolbar: modal like the rest.
+	if (m_newWorldDialog.IsOpen()) {
+		m_newWorldDialog.Update(input, static_cast<float>(m_window.Width()),
+								static_cast<float>(m_window.Height()));
+		return;
+	}
 	if (m_assetPicker.IsOpen()) {
 		m_assetPicker.Update(input, static_cast<float>(m_window.Width()),
 							 static_cast<float>(m_window.Height()), dt);
@@ -2442,6 +2457,8 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		m_worldSettingsDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	if (m_worldsDialog.IsOpen())
 		m_worldsDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
+	if (m_newWorldDialog.IsOpen()) // over the Worlds dialog that may have opened it
+		m_newWorldDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	if (m_generateDialog.IsOpen())
 		m_generateDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	if (m_validateDialog.IsOpen())

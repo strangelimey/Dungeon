@@ -47,6 +47,9 @@
 #      alone), and one level (its stairs replaced by one exit). Each refusal
 #      says its own reason; a half-built `.building-*` folder is never listed;
 #      and each new world opens by name and passes the checker as it stands.
+#  10. THE NEW WORLD DIALOG: its "Copy one level" makes a one-level world of
+#      the level picked; a name in use is refused in its own words; and a world
+#      made over the Worlds dialog lands in that list ARMED.
 #
 # Every project file a phase writes is restored byte for byte afterwards.
 import io
@@ -402,6 +405,29 @@ finally:
     for w in MADE:
         shutil.rmtree(os.path.join(PROJECTS, w), ignore_errors=True)
     shutil.rmtree(LEFTOVER, ignore_errors=True)
+
+# --- phase 10: the New world dialog ---------------------------------------------
+print("10 - the New world dialog makes a world, and hands it to the Worlds list")
+try:
+    log = run("newworlddialog.eval")
+    check(passed(log), "the script ran clean")
+    lines = [l.split("console: ", 1)[1] for l in log.splitlines()
+             if "console: new world dialog" in l or "console: worlds dialog" in l]
+    check(any(l.startswith("new world dialog open: source level made 'nwd_level'") for l in lines),
+          "Copy one level makes the world, and says so", " | ".join(lines))
+    check(any("already exists" in l for l in lines if l.startswith("new world dialog")),
+          "a name in use is refused, in its own words")
+    manifest = os.path.join(PROJECTS, "nwd_level", "project.ini")
+    text = io.open(manifest, encoding="utf-8").read() if os.path.isfile(manifest) else ""
+    check(re.search(r"^levels = crypt2\s*$", text, re.M) is not None,
+          "and it holds the level picked, alone", text[:200])
+    after = [l for l in lines if l.startswith("worlds dialog open")]
+    check(bool(after) and "nwd_blank" in after[-1] and "armed 'nwd_blank'" in after[-1],
+          "a world made over the Worlds dialog is listed there, armed",
+          after[-1] if after else "no worlds dialog line")
+finally:
+    for w in ("nwd_level", "nwd_blank"):
+        shutil.rmtree(os.path.join(PROJECTS, w), ignore_errors=True)
 
 print()
 print("PASS" if failures == 0 else f"FAIL - {failures} check(s) failed")

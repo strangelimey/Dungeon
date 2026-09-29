@@ -1,5 +1,7 @@
-# tools/BuildToolIcons.py - the map editor TOOL STRIP's icon discs
-# (docs/editor-updates-plan.md, P1): assets/ui/icon_tb_tool_<name>.png.
+# tools/BuildToolIcons.py - the map editor's script-drawn icon discs
+# (docs/editor-updates-plan.md): the TOOL STRIP's (P1,
+# assets/ui/icon_tb_tool_<name>.png) and the New world disc (P4,
+# icon_tb_newworld.png).
 #
 # Run:  python tools\BuildToolIcons.py [--montage <png>]
 #
@@ -155,13 +157,29 @@ def glyph_filllevel(d):
             d.rectangle([x * SS, y * SS, (x + 7.5) * SS, (y + 7.5) * SS], fill=GLYPH)
 
 
+def glyph_newworld(d):
+    # A globe - rim, equator, a meridian - with a plus at its shoulder: a new
+    # world, beside the Worlds disc's plain globe.
+    cx, cy, r = 38.5, 44.5, 13.0
+    w = int(2.6 * SS)
+    d.ellipse([(cx - r) * SS, (cy - r) * SS, (cx + r) * SS, (cy + r) * SS], outline=GLYPH, width=w)
+    d.ellipse([(cx - r * 0.45) * SS, (cy - r) * SS, (cx + r * 0.45) * SS, (cy + r) * SS],
+              outline=GLYPH, width=w)
+    d.line(S([(cx - r, cy), (cx + r, cy)]), fill=GLYPH, width=w)
+    px, py = 54.0, 30.0
+    d.rectangle([(px - 7) * SS, (py - 2) * SS, (px + 7) * SS, (py + 2) * SS], fill=GLYPH)
+    d.rectangle([(px - 2) * SS, (py - 7) * SS, (px + 2) * SS, (py + 7) * SS], fill=GLYPH)
+
+
+# Output name -> glyph; each writes assets/ui/icon_tb_<name>.png.
 GLYPHS = {
-    "paint": glyph_paint,
-    "rect": glyph_rect,
-    "flood": glyph_flood,
-    "area": glyph_area,
-    "pick": glyph_pick,
-    "filllevel": glyph_filllevel,
+    "tool_paint": glyph_paint,
+    "tool_rect": glyph_rect,
+    "tool_flood": glyph_flood,
+    "tool_area": glyph_area,
+    "tool_pick": glyph_pick,
+    "tool_filllevel": glyph_filllevel,
+    "newworld": glyph_newworld,
 }
 
 
@@ -186,7 +204,7 @@ def main():
     blank = blank_disc()
     made = []
     for name, draw in GLYPHS.items():
-        path = os.path.join(UI, f"icon_tb_tool_{name}.png")
+        path = os.path.join(UI, f"icon_tb_{name}.png")
         render(blank, draw).save(path)
         made.append(path)
         print("wrote", os.path.relpath(path, ROOT))

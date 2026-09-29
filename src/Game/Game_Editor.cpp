@@ -156,7 +156,8 @@ void Game::AppendStarterRoom(std::string& map) {
 // --- worlds (W7, docs/world-editor-plan.md) ---------------------------------
 // A world IS a project folder (Michael's word for one), and creating a new one
 // is a file operation rather than a live edit: nothing about the running game
-// changes until it is opened, which is what makes switching a relaunch.
+// changes until it is opened - in the process, since docs/world-on-demand.md
+// (it used to relaunch). Making one lives in Game_NewWorld.cpp.
 
 bool Game::SwitchWorld(const std::string& name) {
 	const std::string root = paths::Asset("projects");

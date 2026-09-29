@@ -1,0 +1,23 @@
+; newworlddialog.eval - the New world dialog (editor-updates P4), driven by the
+; same calls its buttons make (`worlds newdialog ...`).
+;
+; In a level: pick "Copy one level" with crypt2, create nwd_level, then try the
+; same name again (refused, in its own words). On the world screen, with the
+; Worlds dialog open BELOW it: create nwd_blank (a fresh Open is blank again),
+; and the Worlds dialog must list it and ARM it - one click from going there.
+; tools/EditorTest.py phase 10 judges it and removes both worlds.
+
+logecho on
+reset
+worlds newdialog
+worlds newdialog source level crypt2
+worlds newdialog create nwd_level
+worlds newdialog create nwd_level
+worlds newdialog off
+echo --- over the worlds dialog ---
+worldmap on
+worlds dialog
+worlds newdialog create nwd_blank
+worlds newdialog off
+worlds dialog
+worldmap off

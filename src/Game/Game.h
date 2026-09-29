@@ -64,6 +64,7 @@
 #include "Game/WorldSettingsDialog.h"
 #include "Game/WorldsDialog.h"
 #include "Game/NewWorld.h"
+#include "Game/NewWorldDialog.h"
 #include "Game/MonsterConfigDialog.h"
 #include "Game/ButtonInspector.h"
 #include "Game/StairInspector.h"
@@ -958,6 +959,10 @@ private:
 	// The worlds BESIDE this one (W8): list, open (relaunches), create. The
 	// world toolbar's leftmost disc; `worlds` is the same thing typed.
 	WorldsDialog m_worldsDialog;
+	// Making a world (P4): blank, this world whole, or one level. Opened from a
+	// disc on both editor toolbars and the Worlds dialog's "New world..."; it
+	// sits ABOVE the Worlds dialog when opened from it.
+	NewWorldDialog m_newWorldDialog;
 	ValidateDialog m_validateDialog;
 	GenerateDialog m_generateDialog;
 	generate::Report m_lastGenReport; // the most recent generate's, for the readouts

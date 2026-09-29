@@ -102,6 +102,9 @@ public:
 	// the manifest. Empty when the viewed level belongs to no dungeon — an
 	// orphan begets an orphan, which is honest rather than guessing a home.
 	std::function<void(const std::string& dungeonId)> onNewLevel;
+	// The toolbar's New world disc, right of [+]: the owner opens the
+	// NewWorldDialog (P4) - the world screen's toolbar has the same disc.
+	std::function<void()> onNewWorld;
 
 	// --- the player map's WORLD page (W6) ------------------------------
 	// The M-map can show the overworld instead of this level. MapView does
@@ -378,7 +381,7 @@ private:
 					   *m_icoUndo = nullptr, *m_icoRedo = nullptr,
 					   *m_icoSave = nullptr, *m_icoSource = nullptr,
 					   *m_icoNew = nullptr, *m_icoPlay = nullptr,
-					   *m_icoPause = nullptr;
+					   *m_icoPause = nullptr, *m_icoNewWorld = nullptr;
 	// The tool strip's discs, by MapEditor::Tool, then Fill level (icon_tb_tool_*).
 	std::array<const gfx::Texture*, 5> m_icoTools{};
 	const gfx::Texture* m_icoFillLevel = nullptr;
@@ -434,7 +437,7 @@ private:
 	enum class HoverBtn {
 		None, LevelUp, LevelDown, Undo, Redo, Save, SaveSource, Balance,
 		LevelSettings, Check, Generate, NewLevel, LevelPick, PlayPause, CollapseL,
-		CollapseR, ShowWorld,
+		CollapseR, ShowWorld, NewWorld,
 		// The tool strip, in MapEditor::Tool order, then its one action.
 		ToolPaint, ToolRect, ToolFlood, ToolArea, ToolPick, FillLevel
 	};

@@ -100,11 +100,15 @@ void WorldsDialog::Create(const std::string& typed) {
 		SetNote(loc::Tr("map.worlds.failed"));
 		return;
 	}
-	if (onList) m_worlds = onList();
 	m_newName.clear();
+	Created(made);
+}
+
+void WorldsDialog::Created(const std::string& made) {
+	if (onList) m_worlds = onList();
 	// The new row is ARMED already: making a world is nearly always the
 	// first half of going there, so the next click on its Open is the one
-	// that relaunches — and the note says so.
+	// that switches — and the note says so.
 	m_armed = made;
 	m_note = loc::Format("map.worlds.created", made);
 	m_uiRebuild = true;
@@ -243,20 +247,16 @@ void WorldsDialog::BuildList(DialogChrome& chrome) {
 
 	chrome.body->Row<ui::Separator>(ui::Len::Fixed(0.5f));
 	{
+		// MAKING a world happens in the NewWorldDialog, which asks HOW it starts
+		// (blank / this world / one level) - one place to make a world, however
+		// you got to it. (Create() stays: the console's way in, blank.)
 		ui::Stack* row = chrome.body->Row<ui::Stack>(FormRow(), true);
 		row->gapRem = 0.5f;
-		auto* field = row->Row<ui::TextField>(ui::Len::Fill(), m_newName);
-		field->placeholder = loc::Tr("map.worlds.newname");
-		field->maxLength = 32;
-		ui::TextField* raw = field;
-		raw->onChange = [this, raw] {
-			FilterId(raw->text);
-			m_newName = raw->text;
-		};
-		raw->onSubmit = [this] { Create(m_newName); };
-		row->Row<ui::Button>(FooterButton(kOpenW), loc::Tr("map.worlds.create"),
-							 [this] { Create(m_newName); });
-		row->Space(FooterButton(kDeleteW)); // Create sits under the Open column
+		row->Space(ui::Len::Fill());
+		row->Row<ui::Button>(FooterButton(kOpenW + kDeleteW), loc::Tr("map.worlds.newworld"),
+							 [this] {
+								 if (onNewWorld) onNewWorld();
+							 });
 	}
 }
 

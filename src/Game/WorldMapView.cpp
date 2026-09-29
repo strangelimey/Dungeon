@@ -41,6 +41,7 @@ WorldMapView::WorldMapView(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)
 	m_icoUndo = ToolbarIcon(device, "undo");
 	m_icoRedo = ToolbarIcon(device, "redo");
 	m_icoWorlds = ToolbarIcon(device, "worlds");
+	m_icoNewWorld = ToolbarIcon(device, "newworld");
 }
 
 gfx::Rect WorldMapView::ToolbarRect(const gfx::Rect& panel) const {
@@ -71,7 +72,9 @@ std::vector<WorldMapView::ToolButton> WorldMapView::ToolbarButtons(
 		canUndo && canUndo(/*redo*/ false));
 	add(Tool::Settings, loc::Tr("map.btn.world"), m_icoSettings, true);
 	// Leftmost, and apart from the rest in meaning: every other disc acts on
-	// THIS world, and this one is the way to the others.
+	// THIS world, and these two are about the others - making one, and the
+	// way to them.
+	add(Tool::NewWorld, loc::Tr("map.btn.newworld"), m_icoNewWorld, true);
 	add(Tool::Worlds, loc::Tr("map.btn.worlds"), m_icoWorlds, true);
 	return btns;
 }

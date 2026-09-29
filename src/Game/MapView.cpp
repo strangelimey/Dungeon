@@ -95,6 +95,7 @@ MapView::MapView(gfx::GraphicsDevice& device, GameSettings& settings,
 			device, std::string("tool_") +
 						MapEditor::ToolName(static_cast<MapEditor::Tool>(i)));
 	m_icoFillLevel = ToolbarIcon(device, "tool_filllevel");
+	m_icoNewWorld = ToolbarIcon(device, "newworld");
 }
 
 const DungeonMap& MapView::ViewedMap() const {
@@ -255,6 +256,13 @@ std::vector<MapView::ToolButton> MapView::ToolbarButtons(const gfx::Rect& panel)
 					nullptr, true, true});
 	btns.push_back({HoverBtn::NewLevel, NewLevelButton(panel),
 					loc::Tr("map.btn.newlevel"), m_icoNew, true, true});
+	// ...and a new WORLD right of the new level: the level cluster makes
+	// places, one tier and then the next up.
+	{
+		const gfx::Rect nl = NewLevelButton(panel);
+		btns.push_back({HoverBtn::NewWorld, {nl.x + nl.w + pad, nl.y, nl.w, nl.h},
+						loc::Tr("map.btn.newworld"), m_icoNewWorld, true, true});
+	}
 	AppendStripButtons(btns, panel); // the tool strip rides the same list
 	return btns;
 }
@@ -649,6 +657,9 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 					if (m_editor)
 						m_editor->SetTool(static_cast<MapEditor::Tool>(
 							static_cast<int>(b.id) - static_cast<int>(HoverBtn::ToolPaint)));
+					break;
+				case HoverBtn::NewWorld:
+					if (onNewWorld) onNewWorld();
 					break;
 				case HoverBtn::FillLevel:
 					if (m_editor) m_editor->FillLevel();

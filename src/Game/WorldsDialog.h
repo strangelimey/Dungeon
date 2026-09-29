@@ -60,6 +60,13 @@ public:
 	std::function<std::string(const std::string& name)> onCreate;
 	// Relaunches into `name`. False when it could not (no such world).
 	std::function<bool(const std::string& name)> onSwitch;
+	// The list's "New world..." button: the owner opens the NewWorldDialog
+	// (blank / copy / one level), which is where worlds are made in the UI.
+	std::function<void()> onNewWorld;
+	// A world was made (here or in the NewWorldDialog above it): re-read the
+	// list and ARM the new row - making a world is nearly always the first
+	// half of going there.
+	void Created(const std::string& name);
 
 	// --- deleting (W9) ------------------------------------------------------
 	// GitHub's repository delete, by Michael's instruction: a row's Delete
