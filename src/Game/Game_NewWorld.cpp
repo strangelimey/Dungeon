@@ -300,6 +300,7 @@ bool Game::BuildCopiedWorld(const std::string& folder, const std::string& id,
 
 bool Game::BuildLevelWorld(const std::string& folder, const std::string& id,
 						   const std::string& stem, std::string* problem) {
+	(void)problem;
 	Project made = m_project;
 	made.folder = folder;
 	made.name = id;
