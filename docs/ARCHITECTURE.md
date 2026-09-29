@@ -187,14 +187,15 @@ std::string&` bound to a ternary whose other arm was `""` (so it bound to a
 by value. After those, 21,338 armed frames with the party idle allocate nothing,
 and the AI workers total 8–50 allocations for a whole session.
 
-Two boundaries worth stating, because they are policy and not oversight:
+Three boundaries worth stating, because they are policy and not oversight:
 
-- **Event frames are not steady frames.** A bump message walks `loc::Tr` and
-  `MessageLog::AddLine`, both of which build strings. That is allocation
-  proportional to *events*, not to frames, and the rule is about the latter. It
-  is measured and reported but not asserted on — and deliberately not wrapped in
-  an `alloc::Excused` scope, since that would equally hide the bug where
-  something starts logging every frame.
+- **Event frames ARE steady frames.** This list used to say the opposite: a
+  bump message allocated (`loc::Tr` returned a copy, `MessageLog` kept a string
+  per line) and that was written up as "allocation proportional to events, not
+  frames". It was a rationalisation of a defect, retired 2026-08-18
+  (docs/message-allocation.md): printing a message now allocates nothing, so an
+  allocation in a settled frame is a bug whatever caused it. The one policy
+  left is that anything REPORTING from inside a guarded frame excuses itself.
 - **A running eval script is a console session.** The runner executes one
   console line per frame, and a typed command only ever runs with the console
   open, which the guard never arms. A scripted line used to be held to the rule
