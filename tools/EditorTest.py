@@ -12,9 +12,10 @@
 #   1. A PAINT DRAG IS ONE UNDO STEP, even when its first square already had
 #      the texture (the step used to be decided on the press and dropped, so
 #      Ctrl+Z skipped the drag and undid the edit before it).
-#   2. CHECKING DOES NOT CHANGE WHAT A SAVE WRITES: after a validate, savemap
-#      writes the active level alone (the checker used to stash every level,
-#      and a stashed level is one savemap rewrites).
+#   2. CHECKING DOES NOT CHANGE WHAT A SAVE WRITES: after a validate and two
+#      `typerefs`, savemap writes the active level alone (the checker and the
+#      type-usage count both used to stash every level, and a stashed level is
+#      one savemap rewrites).
 #   3. THE EDIT COUNTER live validation keys on moves on a change and STAYS PUT
 #      on a no-op (a repaint of the same texture), and moves on undo.
 #   4. BATCHED FILLS LEAVE NO CHUNK STALE: after a rectangle recolour, a

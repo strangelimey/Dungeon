@@ -254,16 +254,37 @@ DungeonWorld::TypeUsage DungeonWorld::SweepTypeRefs(const std::string& catalogKe
 	for (const std::string& stem : m_project.levels) {
 		const bool active = stem == m_currentLevel;
 		int hits = 0;
+		// A level not in memory is COUNTED on its read-only copy (m_readOnlyLevels)
+		// and stashed only when a rename is about to change it. It used to be
+		// stashed on sight - and a stashed level is one savemap rewrites, so
+		// merely ASKING whether a type was used (`typerefs`, the check behind a
+		// delete's refusal) made the next save rewrite every level: the same
+		// defect Validate had (editor-updates P0).
 		if (statics) {
-			// A level not in memory is parsed on demand — the same lazy stash
-			// the map overlay uses to edit a level it isn't standing on.
-			DungeonMap& map = active ? m_map : EnsureMapStash(stem);
-			hits += map.SweepTypeRefs(*statics, id, newId);
+			const auto stash = m_levelMaps.find(stem);
+			DungeonMap* map = active ? &m_map
+							  : stash != m_levelMaps.end() ? stash->second.get() : nullptr;
+			if (!map) {
+				const int n = ReadOnlyLevelOf(stem).map->SweepTypeRefs(*statics, id, nullptr);
+				if (n > 0 && newId) map = &EnsureMapStash(stem);
+				else hits += n;
+			}
+			if (map) hits += map->SweepTypeRefs(*statics, id, newId);
 		}
 		if (dynamics) {
-			DungeonEntities& ents = active ? m_entities : EnsureEntStash(stem);
-			const int n = ents.SweepTypeRefs(*dynamics, id, newId);
-			hits += n;
+			const auto stash = m_levelEnts.find(stem);
+			DungeonEntities* ents = active ? &m_entities
+									: stash != m_levelEnts.end() ? stash->second.get() : nullptr;
+			int n = 0;
+			if (!ents) {
+				n = ReadOnlyLevelOf(stem).ents->SweepTypeRefs(*dynamics, id, nullptr);
+				if (n > 0 && newId) ents = &EnsureEntStash(stem);
+				else hits += n;
+			}
+			if (ents) {
+				n = ents->SweepTypeRefs(*dynamics, id, newId);
+				hits += n;
+			}
 			// The active level's records diverge from its file once touched;
 			// the writer only rewrites a .ent it knows is dirty.
 			if (n > 0 && newId && active) m_entsDirty = true;

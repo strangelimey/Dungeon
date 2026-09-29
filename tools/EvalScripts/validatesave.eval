@@ -12,4 +12,10 @@
 logecho on
 reset
 validate
+; ...and the same for ASKING whether a type is used - the count behind
+; `typerefs` and behind a delete's refusal had the same defect. A surface
+; family (the .map side) and an entity family (the .ent side), both of which
+; crypt1 and crypt2 contain.
+typerefs walls wall_marble
+typerefs monsters skeleton
 savemap
