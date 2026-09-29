@@ -1914,7 +1914,7 @@ bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequenc
 											  loc::View(r.spell->NameKey())));
 		// A spell is LEARNED the first time it is successfully cast — the
 		// failed outcomes below (a Fumble included) teach nothing.
-		if (caster.learnedSpells.insert(r.spell->Id()).second)
+		if (caster.learnedSpells.Add(r.spell->Id()))
 			MemberMessage(caster, loc::FormatLine("log.spell_learned", caster.name,
 												  loc::View(r.spell->NameKey())));
 		// The freshest cast leads the FIRING hand's quick list (each hand keeps

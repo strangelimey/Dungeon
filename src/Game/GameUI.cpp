@@ -378,7 +378,9 @@ void GameUI::OpenHandUseMenu(size_t i, size_t hand) {
 			spellDefs ? spellDefs() : std::span<const std::unique_ptr<Spell>>{};
 		const size_t limit = std::min(
 			kMaxMenuSpells, static_cast<size_t>(std::max(0, m_settings.spellMruCount)));
-		for (const std::string& id : c.spellMru[hand]) {
+		const SpellIdList& mru = c.spellMru[hand];
+		for (size_t k = 0; k < mru.Size(); ++k) {
+			const std::string_view id = mru[k];
 			if (spellCount >= limit) break;
 			// Skip ids the registry no longer carries (the MRU is state,
 			// the spell classes are code — they can drift across edits).

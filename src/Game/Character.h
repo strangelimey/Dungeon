@@ -17,13 +17,13 @@
 #include "Game/Effect/Effect.h" // fx::Inst (the status-effect list)
 #include "Game/Inventory.h"
 #include "Game/Resource.h" // the aptitude/practice pool formulas
+#include "Game/SpellIdList.h"
 #include "Game/Spells.h"
 #include "Game/UseDefaults.h"
 
 #include <array>
 #include <cmath>
 #include <flat_map>
-#include <flat_set>
 #include <span>
 #include <string>
 #include <string_view>
@@ -184,25 +184,23 @@ struct Character {
 	// CAST the recipe (built in the spellbook; a failed cast teaches nothing,
 	// and higher-tier spells will fail without the skill for them). Only
 	// learned spells appear in the hand menu's Magic quick-cast list / can be
-	// armed as a hand default. Saved per slot ("learned" save lines).
-	// (Transparent comparator so string_view ids can query without a copy.)
-	std::flat_set<std::string, std::less<>> learnedSpells;
+	// armed as a hand default. Saved per slot ("learned" save lines). Inline
+	// (SpellIdList.h), because the learning cast is in a guarded frame.
+	SpellIdList learnedSpells;
 	bool HasLearnedSpell(std::string_view id) const {
-		return learnedSpells.contains(id);
+		return learnedSpells.Contains(id);
 	}
 	// Most-recently-CAST spells PER HAND (0 = left, 1 = right), front =
 	// newest, deduplicated — each hand's Magic quick-cast list shows its own
 	// first N (N = GameSettings::spellMruCount, the Controls → Hands
 	// setting), so the two hands develop independent repertoires. A cast
 	// credits the hand it was fired from (a hand-less cast — dev console —
-	// touches neither). Bounded by the number of distinct spells ever cast,
-	// so it stores whole and trims at display. Saved per slot+hand ("mru"
-	// v16 lines; a pre-v16 flat line seeds BOTH hands).
-	std::vector<std::string> spellMru[2];
-	void TouchSpellMru(size_t hand, const std::string& id) {
-		if (hand > 1) return;
-		std::erase(spellMru[hand], id);
-		spellMru[hand].insert(spellMru[hand].begin(), id);
+	// touches neither). Holds every spell there is (SpellIdList::kSlots), so
+	// it stores whole and trims at display. Saved per slot+hand ("mru" v16
+	// lines; a pre-v16 flat line seeds BOTH hands).
+	SpellIdList spellMru[2];
+	void TouchSpellMru(size_t hand, std::string_view id) {
+		if (hand <= 1) spellMru[hand].Touch(id);
 	}
 	// --- the three pools (docs/health-and-healing.md) -------------------------
 	// THE APTITUDE MAPPING LIVES HERE AND NOWHERE ELSE. Which stat drives which
