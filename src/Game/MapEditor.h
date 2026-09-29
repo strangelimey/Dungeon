@@ -22,6 +22,7 @@
 #include "Game/Entity.h"           // Direction, WallFace
 #include "Game/Placement.h"        // Mount, Placement
 #include "Graphics/SpriteBatch.h"  // gfx::Rect, gfx::SpriteBatch
+#include "UI/Controls.h"           // ui::Swatch
 #include "UI/UIContext.h"          // ui::Theme
 
 #include <array>
@@ -144,6 +145,44 @@ public:
 		return cat == PaletteCat::Walls || cat == PaletteCat::Floors ||
 			   cat == PaletteCat::Ceilings;
 	}
+
+	// One resolved palette item, for display and dispatch. `id` is the catalog id
+	// (entity categories) or surface-palette id; empty for built-in tools.
+	// `group` is the entry's free-form `category` field ("" = ungrouped): items
+	// sharing one collapse under a sub-accordion within their palette category,
+	// so a growing catalog stays navigable. Data-driven — any catalog groups
+	// the moment its entries carry the field (items.cat already does).
+	// `icon` (surface rows) is the entry's loaded albedo, drawn as the row
+	// swatch so the palette shows the same texture the map fill does; null
+	// falls back to the flat `swatch` color. Swatch() hands both to
+	// ui::DrawSwatch, which is how the palette draws a row's square.
+	// `onTheme` is the viewed level's theme lens (DungeonMap::Theme vs the
+	// entry's `tags`): on-theme items list FIRST in their run, off-theme ones
+	// after a divider. Ranking only — every type stays clickable, because the
+	// one-off that breaks a theme is usually the memorable thing in a dungeon.
+	// True for everything when the level has no theme.
+	struct PaletteItem {
+		std::string label;
+		Vec4 swatch{1, 1, 1, 1};
+		std::string id;
+		std::string group;
+		const gfx::Texture* icon = nullptr;
+		bool onTheme = true;
+		ui::Swatch Swatch() const { return {icon, swatch}; }
+	};
+	// One surface type (a Walls/Floors/Ceilings category) as the palette shows
+	// it: display name, group, the loaded albedo and the flat fallback colour.
+	// Public so a dialog listing surface types (a combination's members) shows
+	// them exactly as the palette does. The swatch is the level's loaded albedo,
+	// else a thumbnail LoadSurfaceSwatch made (DungeonWorld::SurfaceSwatchForId).
+	PaletteItem SurfaceItem(PaletteCat cat, const std::string& id) const;
+	// Loads the thumbnail swatch for a surface type this level has not loaded.
+	// Uploads, so from Update only: a list about to show catalogue types (the
+	// Catalogue view, a combination's member lists) asks for them first.
+	void LoadSurfaceSwatch(PaletteCat cat, const std::string& id);
+	// Per frame from MapView::Update: while the Catalogue view is on, loads up
+	// to `max` swatches the open surface sections are missing.
+	void LoadShownSwatches(size_t max);
 
 	// --- surface palette membership ------------------------------------------
 	// Appends `id` to the viewed level's palette (live world or browsed stash),
@@ -316,29 +355,6 @@ private:
 	struct Selection {
 		PaletteCat cat = PaletteCat::Walls;
 		int index = -1;
-	};
-
-	// One resolved palette item, for display and dispatch. `id` is the catalog id
-	// (entity categories) or surface-palette id; empty for built-in tools.
-	// `group` is the entry's free-form `category` field ("" = ungrouped): items
-	// sharing one collapse under a sub-accordion within their palette category,
-	// so a growing catalog stays navigable. Data-driven — any catalog groups
-	// the moment its entries carry the field (items.cat already does).
-	// `icon` (surface rows) is the entry's loaded albedo, drawn as the row
-	// swatch so the palette shows the same texture the map fill does; null
-	// falls back to the flat `swatch` color.
-	// `onTheme` is the viewed level's theme lens (DungeonMap::Theme vs the
-	// entry's `tags`): on-theme items list FIRST in their run, off-theme ones
-	// after a divider. Ranking only — every type stays clickable, because the
-	// one-off that breaks a theme is usually the memorable thing in a dungeon.
-	// True for everything when the level has no theme.
-	struct PaletteItem {
-		std::string label;
-		Vec4 swatch{1, 1, 1, 1};
-		std::string id;
-		std::string group;
-		const gfx::Texture* icon = nullptr;
-		bool onTheme = true;
 	};
 
 	// Accordion layout, shared by hit-test and draw: one row per category header,

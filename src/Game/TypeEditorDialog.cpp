@@ -303,14 +303,19 @@ void TypeEditorDialog::BuildUI() {
 			// it. A toggle rewrites the WHOLE list from the current value, in the
 			// catalog's order, so the field reads the same however it was built -
 			// and an id the catalog no longer has stays in the list rather than
-			// being dropped behind the author's back.
+			// being dropped behind the author's back. Each row shows the id's
+			// FACE when the owner has one (faceFor: a surface type's palette
+			// name and swatch), else the bare id.
 			const std::vector<std::string> offered =
 				optionsFor ? optionsFor(spec) : std::vector<std::string>{};
 			const std::vector<std::string> held = SplitOptions(value.c_str());
 			page.Row<ui::Label>(FormRow(), label)->accent = true;
 			for (const std::string& id : offered) {
 				const bool on = std::find(held.begin(), held.end(), id) != held.end();
-				page.Row<ui::Checkbox>(FormRow(), id, on, [this, s, offered, id](bool checked) {
+				RefFace face = faceFor ? faceFor(*s, id) : RefFace{};
+				if (face.label.empty()) face.label = id;
+				ui::Checkbox* row = page.Row<ui::Checkbox>(
+					FormRow(), face.label, on, [this, s, offered, id](bool checked) {
 					const std::string now = ValueOf(*s);
 					std::vector<std::string> list = SplitOptions(now.c_str());
 					std::erase(list, id);
@@ -324,6 +329,7 @@ void TypeEditorDialog::BuildUI() {
 							out += (out.empty() ? "" : " ") + o;
 					SetValue(*s, out); // empty = the writer REMOVES the field
 				});
+				row->swatch = face.swatch;
 			}
 			break;
 		}

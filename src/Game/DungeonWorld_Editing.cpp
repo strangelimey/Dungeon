@@ -15,6 +15,7 @@
 #include "Core/Loc.h"
 #include "Core/Log.h"
 #include "Core/Paths.h"
+#include "Game/AssetUtil.h" // LoadTextureThumb (surface swatches)
 
 #include <algorithm>
 #include <cstdlib> // atof — the .ent `seconds=` override
@@ -137,6 +138,30 @@ const gfx::Texture* DungeonWorld::SurfaceAlbedoForId(SurfaceSel sel,
 	for (size_t i = 0; i < pal.size() && i < surface.albedo.size(); ++i)
 		if (pal[i] == id) return surface.albedo[i].get();
 	return nullptr;
+}
+
+const gfx::Texture* DungeonWorld::SurfaceSwatchForId(SurfaceSel sel,
+													 const std::string& id) const {
+	if (const gfx::Texture* loaded = SurfaceAlbedoForId(sel, id)) return loaded;
+	const auto it =
+		m_surfaceThumbs.find(CatalogGet(SurfaceCatalog(sel).Find(id), "texture", id));
+	return it != m_surfaceThumbs.end() ? it->second.get() : nullptr;
+}
+
+bool DungeonWorld::LoadSurfaceThumb(SurfaceSel sel, const std::string& id) {
+	if (SurfaceAlbedoForId(sel, id)) return false; // the real thing is already here
+	// The catalog's `texture` names the SET (a type without one is its own).
+	const std::string set = CatalogGet(SurfaceCatalog(sel).Find(id), "texture", id);
+	if (m_surfaceThumbs.contains(set)) return false; // tried, found or not
+	// Swatches draw at a row's height, so 64px of the smallest installed set.
+	constexpr u32 kSwatchPx = 64;
+	std::unique_ptr<gfx::Texture> thumb;
+	for (const char* res : {"_1k", "_2k", "_4k"}) {
+		thumb = LoadTextureThumb(m_device, paths::Asset("textures\\" + set + res), kSwatchPx);
+		if (thumb) break;
+	}
+	m_surfaceThumbs.emplace(set, std::move(thumb));
+	return true;
 }
 
 // --- surface palette membership (editor) ------------------------------------

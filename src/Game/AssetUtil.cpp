@@ -58,6 +58,30 @@ std::unique_ptr<gfx::Texture> TryLoadTextureFile(gfx::GraphicsDevice& device,
 	return nullptr;
 }
 
+std::unique_ptr<gfx::Texture> LoadTextureThumb(gfx::GraphicsDevice& device,
+											   const std::string& stemPath, u32 maxPx) {
+	// The baked chain, with its big levels dropped: a thumbnail wants maxPx,
+	// not the 2048px the set installs at. Same file, a sliver of the memory.
+	if (auto chain = assets::LoadDdsFile(stemPath + ".dds")) {
+		assets::MipChain thumb;
+		thumb.format = chain->format;
+		for (const assets::TextureLevel& level : chain->levels) {
+			if (level.width > maxPx) continue; // the levels a thumbnail can't use
+			if (thumb.levels.empty()) {
+				thumb.width = level.width;
+				thumb.height = level.height;
+			}
+			thumb.levels.push_back(level);
+		}
+		if (!thumb.levels.empty())
+			return std::make_unique<gfx::Texture>(device, thumb, /*srgb*/ true);
+	}
+	// No baked chain (a source-only set): the PNG, at whatever size it is.
+	if (auto img = assets::LoadImageFile(stemPath + ".png"))
+		return std::make_unique<gfx::Texture>(device, *img, /*srgb*/ true);
+	return nullptr;
+}
+
 namespace {
 // The one close-box texture, shared by every dialog. A namespace-scope owner
 // rather than a function-local static so the lifetime is EXPLICIT:

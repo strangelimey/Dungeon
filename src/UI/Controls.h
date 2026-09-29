@@ -37,6 +37,15 @@ namespace dungeon::ui {
 struct Skin;
 class ScrollArea; // defined below; SlotList holds one
 
+// A small square of a texture, or of a flat colour when the texture is not
+// there (DrawSwatch, below). Empty - no texture and a clear colour - draws
+// nothing and takes no room.
+struct Swatch {
+	const gfx::Texture* icon = nullptr;
+	Vec4 color{0.0f, 0.0f, 0.0f, 0.0f};
+	bool Empty() const { return !icon && color.w <= 0.0f; }
+};
+
 // Framed background rectangle, and the plainest container there is: give it
 // `padX`/`padY` (fractions of its own width/height) and its children resolve
 // against the padded interior, so a plate of rows is authored as fractions of
@@ -145,6 +154,8 @@ private:
 // clicking anywhere in the row toggles it and fires onChange with the new state.
 // `highlight` draws the row selected (independent of the check) so it can double
 // as a list row. The owner reads Checked()/SetChecked() to sync external state.
+// A non-empty `swatch` draws between the box and the label, the height of the
+// row, for a list of things that have a look (textures).
 class Checkbox : public Widget {
 public:
 	Checkbox(const gfx::Rect& rect, std::string label, bool checked,
@@ -163,8 +174,13 @@ public:
 	std::string label;
 	std::function<void(bool)> onChange;
 	bool highlight = false; // draw the row highlighted (e.g. selected/previewed)
+	Swatch swatch;          // empty = none
 
 private:
+	// Where the label starts, past the box and any swatch (DrawSelf and
+	// InkRect both ask, so the measured ink matches the drawn row).
+	float TextX(const gfx::Rect& px) const;
+
 	bool m_checked = false;
 	bool m_hot = false;
 };
@@ -718,6 +734,11 @@ private:
 
 // Draws a 1px border around a rectangle.
 void DrawBorder(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Vec4& color);
+
+// Draws a Swatch filling the rect: the texture, else the flat colour. The
+// editor palette's rows and a Checkbox's swatch both draw through this, so a
+// type looks the same in the palette and in a dialog listing it.
+void DrawSwatch(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Swatch& swatch);
 
 // Draws the shared framed-background look: the context's skin panel part when
 // one is set (its frame is baked in; the theme's panel alpha rides the tint so

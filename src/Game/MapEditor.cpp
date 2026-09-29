@@ -123,9 +123,8 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 	// the entry's loaded albedo texture — the same one the map's cell fill
 	// draws — with the flat category color as the not-loaded fallback (a
 	// browsed level's foreign palette).
-	auto surfaceItems = [&](const std::vector<std::string>& palette,
-							const Catalog& catalog, const Vec4& swatch,
-							DungeonWorld::SurfaceSel sel) {
+	auto surfaceItems = [&](const std::vector<std::string>& palette, PaletteCat surface,
+							const Catalog& catalog) {
 		// The "Catalogue" toggle swaps the SOURCE of ids: the whole catalog
 		// (minus hidden), or just the level's palette. Everything downstream
 		// keys off the id, so the two views paint the same — a catalogue-view id
@@ -139,13 +138,7 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 		const std::vector<std::string>& source =
 			m_settings.mapShowCatalog ? ids : palette;
 		std::vector<PaletteItem> items;
-		for (const std::string& id : source) {
-			const CatalogEntry* e = catalog.Find(id);
-			items.push_back({e ? e->Display() : id, swatch, id,
-							 e ? e->Get("category", "") : std::string(),
-							 m_world->SurfaceAlbedoForId(sel, id),
-							 CatalogMatchesTags(e, theme)});
-		}
+		for (const std::string& id : source) items.push_back(SurfaceItem(surface, id));
 		return items;
 	};
 	// An entity catalog resolved to display name + swatch + id. `hidden = 1`
@@ -163,26 +156,19 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 	};
 
 	switch (cat) {
-	case PaletteCat::Walls:
-		return surfaceItems(map.WallPalette(), proj.walls, kWall,
-							DungeonWorld::SurfaceSel::Wall);
-	case PaletteCat::Floors:
-		return surfaceItems(map.FloorPalette(), proj.floors, kFloor,
-							DungeonWorld::SurfaceSel::Floor);
-	case PaletteCat::Ceilings:
-		return surfaceItems(map.CeilingPalette(), proj.ceilings, kCeiling,
-							DungeonWorld::SurfaceSel::Ceiling);
+	case PaletteCat::Walls:    return surfaceItems(map.WallPalette(), cat, proj.walls);
+	case PaletteCat::Floors:   return surfaceItems(map.FloorPalette(), cat, proj.floors);
+	case PaletteCat::Ceilings: return surfaceItems(map.CeilingPalette(), cat, proj.ceilings);
 	case PaletteCat::Combos: {
 		// World-wide, so every level lists every combination. The swatch is the
-		// first floor member's albedo where this level has it loaded.
+		// first floor member's, as the Floors section would show it.
 		std::vector<PaletteItem> items = catalogItems(proj.combos, kFloor);
 		for (PaletteItem& it : items)
 			if (const CatalogEntry* e = proj.combos.Find(it.id)) {
 				const ComboMembers m = DungeonWorld::ComboMembersOf(*e);
 				const auto& floors = m[static_cast<size_t>(Surface::Floor)];
 				if (!floors.empty())
-					it.icon = m_world->SurfaceAlbedoForId(DungeonWorld::SurfaceSel::Floor,
-														  floors.front());
+					it.icon = SurfaceItem(PaletteCat::Floors, floors.front()).icon;
 			}
 		return items;
 	}
@@ -212,6 +198,42 @@ DungeonWorld::SurfaceSel SelFor(MapEditor::PaletteCat cat) {
 												  : DungeonWorld::SurfaceSel::Ceiling;
 }
 } // namespace
+
+MapEditor::PaletteItem MapEditor::SurfaceItem(PaletteCat cat, const std::string& id) const {
+	// Display name + group from the surface catalog; the swatch is the entry's
+	// loaded albedo - the same one the map's cell fill draws - with the flat
+	// category colour as the not-loaded fallback (a browsed level's foreign
+	// palette, or a catalogue-view type this level does not use yet).
+	const DungeonWorld::SurfaceSel sel = SelFor(cat);
+	const CatalogEntry* e = m_world->SurfaceCatalog(sel).Find(id);
+	const Vec4& flat = cat == PaletteCat::Walls ? kWall
+					   : cat == PaletteCat::Floors ? kFloor
+												   : kCeiling;
+	return {e ? e->Display() : id, flat, id, e ? e->Get("category", "") : std::string(),
+			m_world->SurfaceSwatchForId(sel, id),
+			CatalogMatchesTags(e, m_view.ViewedMap().Theme())};
+}
+
+void MapEditor::LoadSurfaceSwatch(PaletteCat cat, const std::string& id) {
+	if (SurfaceCat(cat)) m_world->LoadSurfaceThumb(SelFor(cat), id);
+}
+
+void MapEditor::LoadShownSwatches(size_t max) {
+	// Only the Catalogue view lists types the level has not loaded; the level's
+	// own palette always has its real textures. Open surface sections only,
+	// and a few a frame (the asset picker's pacing: each is a disk read and an
+	// upload, and a screenful at once is a visible stall).
+	if (!m_settings.mapShowCatalog) return;
+	size_t loaded = 0;
+	for (const PaletteCat cat : {PaletteCat::Walls, PaletteCat::Floors, PaletteCat::Ceilings}) {
+		if (!m_catOpen[static_cast<size_t>(cat)]) continue;
+		for (const CatalogEntry& e : m_world->SurfaceCatalog(SelFor(cat)).Entries()) {
+			if (loaded >= max) return;
+			if (CatalogBool(&e, "hidden", false)) continue;
+			if (m_world->LoadSurfaceThumb(SelFor(cat), e.id)) ++loaded;
+		}
+	}
+}
 
 void MapEditor::AddToPalette(PaletteCat cat, const std::string& id) {
 	if (!SurfaceCat(cat)) return;
@@ -1297,12 +1319,8 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			// Grouped items indent one level past their sub-header.
 			const float indent = dpad * (r.group.empty() ? 3.0f : 5.0f);
 			const float sw = rc.h - dpad * 2;
-			const gfx::Rect swRect{rc.x + indent, rc.y + dpad, sw, sw};
-			if (items[r.index].icon)
-				batch.DrawSprite(swRect, {0, 0, 1, 1}, *items[r.index].icon,
-								 {1, 1, 1, 1});
-			else
-				batch.DrawRect(swRect, items[r.index].swatch);
+			ui::DrawSwatch(batch, {rc.x + indent, rc.y + dpad, sw, sw},
+						   items[r.index].Swatch());
 			font.Draw(batch, items[r.index].label, rc.x + indent + sw + dpad, ty,
 					  active ? theme.text : theme.textDim);
 			break;

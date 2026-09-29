@@ -418,6 +418,18 @@ void Game::WireModuleCallbacks() {
 		default: return {};
 		}
 	};
+	// A reference list of SURFACE types (a combination's members) shows each as
+	// the palette does - name and texture swatch - by asking the palette for it.
+	m_typeDialog.faceFor = [this](const FieldSpec& spec,
+								  const std::string& id) -> TypeEditorDialog::RefFace {
+		const MapEditor::PaletteCat cat = MapEditor::CatForCatalogKey(spec.options);
+		if (!MapEditor::SurfaceCat(cat)) return {};
+		// The list is the whole catalogue, most of it not loaded by this level:
+		// a thumbnail first (the dialog is built in Update, where that is safe).
+		m_mapEditor.LoadSurfaceSwatch(cat, id);
+		const MapEditor::PaletteItem item = m_mapEditor.SurfaceItem(cat, id);
+		return {item.label, item.Swatch()};
+	};
 	// Save: merge the touched fields into the catalog, then apply. A surface
 	// whose look changed needs its worn meshes re-baked before it shows.
 	m_typeDialog.onSave = [this](const TypeEditorDialog::Config& cfg) {

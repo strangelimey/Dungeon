@@ -42,6 +42,15 @@ std::unique_ptr<gfx::Texture> TryLoadTextureFile(gfx::GraphicsDevice& device,
 												 const std::string& stemPath,
 												 bool srgb = false);
 
+// A THUMBNAIL of a texture: the stem's baked .dds chain with every level wider
+// than `maxPx` dropped (a 128px tile of a 2k set is ~16 KB instead of
+// megabytes), else the source PNG at whatever size it is when no chain is
+// baked. sRGB (it is an albedo). Null if neither loads. It UPLOADS, which
+// drains the GPU: call it from Update, never while a frame is being recorded.
+// The asset picker's tiles and the editor's surface swatches both load here.
+std::unique_ptr<gfx::Texture> LoadTextureThumb(gfx::GraphicsDevice& device,
+											   const std::string& stemPath, u32 maxPx);
+
 // As TryLoadTextureFile, but the texture is required — missing aborts.
 std::unique_ptr<gfx::Texture> LoadTextureFile(gfx::GraphicsDevice& device,
 											  const std::string& stemPath,

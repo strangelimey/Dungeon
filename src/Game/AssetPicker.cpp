@@ -252,29 +252,11 @@ std::unique_ptr<gfx::Texture> AssetPicker::LoadThumb(const std::string& name) co
 	if (m_mode != Mode::Textures) return nullptr; // models are baked by the owner
 	const auto it = std::ranges::find(m_items, name, &AssetInfo::name);
 	if (it == m_items.end()) return nullptr;
-	const std::string stem =
-		paths::Asset("textures\\" + name + SmallestRes(it->resolutions));
-
-	// The baked chain, with its big levels dropped: a tile wants 128px, not the
-	// 2048px the set installs at. Same file, a four-hundredth of the memory.
-	if (auto chain = assets::LoadDdsFile(stem + ".dds")) {
-		assets::MipChain thumb;
-		thumb.format = chain->format;
-		for (const assets::TextureLevel& level : chain->levels) {
-			if (level.width > kThumbPx) continue; // the levels a tile can't use
-			if (thumb.levels.empty()) {
-				thumb.width = level.width;
-				thumb.height = level.height;
-			}
-			thumb.levels.push_back(level);
-		}
-		if (!thumb.levels.empty())
-			return std::make_unique<gfx::Texture>(m_device, thumb, /*srgb*/ true);
-	}
-	// No baked chain (a source-only set): the PNG, at whatever size it is.
-	if (auto img = assets::LoadImageFile(stem + ".png"))
-		return std::make_unique<gfx::Texture>(m_device, *img, /*srgb*/ true);
-	return nullptr;
+	// The smallest installed resolution, trimmed to a tile (AssetUtil's
+	// LoadTextureThumb, which the editor's surface swatches share).
+	return LoadTextureThumb(
+		m_device, paths::Asset("textures\\" + name + SmallestRes(it->resolutions)),
+		kThumbPx);
 }
 
 const gfx::Texture* AssetPicker::ThumbFor(const std::string& name) {

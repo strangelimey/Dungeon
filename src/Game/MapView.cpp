@@ -585,6 +585,7 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 	if (editor && m_editor && !m_settings.mapPaletteCollapsed) {
 		m_editor->HandleTyping(input);
 		m_editor->TrackMouse(mx, my, panel);
+		m_editor->LoadShownSwatches(2); // the Catalogue view's thumbnails, paced
 	}
 
 	// Dock interactions, each claiming the click so it never also pans/paints.

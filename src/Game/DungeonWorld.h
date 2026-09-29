@@ -924,6 +924,17 @@ public:
 	// level on a foreign palette) — the map falls back to its flat ink.
 	const gfx::Texture* SurfaceAlbedoForId(SurfaceSel sel,
 										   const std::string& id) const;
+	// A surface type's SWATCH for a list (the palette, a combination's member
+	// rows): the loaded albedo when the active level has it, else a small
+	// thumbnail LoadSurfaceThumb made earlier, else null (the flat colour).
+	// Draw-safe: it never loads.
+	const gfx::Texture* SurfaceSwatchForId(SurfaceSel sel, const std::string& id) const;
+	// Loads that thumbnail for a type the level has not loaded (once per set,
+	// found or not) - the asset picker's loader, trimmed to swatch size. It
+	// uploads, which drains the GPU: call from Update, never mid-frame. True
+	// when it went to disk (so a caller can pace itself), false when there was
+	// nothing to do.
+	bool LoadSurfaceThumb(SurfaceSel sel, const std::string& id);
 
 	// --- surface palette membership (editor) --------------------------------
 	// A level paints only the surface types its `palette` record lists (the
@@ -3184,6 +3195,11 @@ private:
 	Surface m_walls;
 	Surface m_floors;
 	Surface m_ceilings;
+	// Swatch thumbnails for surface types the active level has NOT loaded
+	// (LoadSurfaceThumb), by texture SET name - a set is a pool asset, so one
+	// survives level and world changes. A null entry was tried and missing.
+	// Bounded by the surface catalogs (~16 KB and one SRV slot apiece).
+	std::unordered_map<std::string, std::unique_ptr<gfx::Texture>> m_surfaceThumbs;
 	// Resolved surface palettes: texture set names parallel to the map's palette
 	// ids, plus the per-surface parallax height scale — filled by
 	// ResolveSurfacePalettes, read by SurfaceDefs and LoadDungeonBlocks.

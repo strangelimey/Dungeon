@@ -37,6 +37,13 @@ void DrawBorder(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Vec4& colo
 	batch.DrawRect({rect.x + rect.w - 1, rect.y, 1, rect.h}, color);
 }
 
+void DrawSwatch(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Swatch& swatch) {
+	if (swatch.icon)
+		batch.DrawSprite(rect, {0, 0, 1, 1}, *swatch.icon, {1, 1, 1, 1});
+	else if (swatch.color.w > 0.0f)
+		batch.DrawRect(rect, swatch.color);
+}
+
 // --- Panel -------------------------------------------------------------
 
 void Panel::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
@@ -213,17 +220,28 @@ void Checkbox::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 		const float in = box * 0.24f;
 		batch.DrawRect({b.x + in, b.y + in, b.w - 2 * in, b.h - 2 * in}, theme.accent);
 	}
-	font.Draw(batch, label, b.x + b.w + Rem(0.3f), px.y + (px.h - font.Height()) * 0.5f,
+	// The swatch: square, the row's height less a hairline inset, after the box.
+	if (!swatch.Empty()) {
+		const float side = px.h - 2.0f;
+		DrawSwatch(batch, {b.x + b.w + Rem(0.3f), px.y + 1.0f, side, side}, swatch);
+	}
+	font.Draw(batch, label, TextX(px), px.y + (px.h - font.Height()) * 0.5f,
 			  (m_checked || highlight) ? theme.text : theme.textDim);
 }
 
-gfx::Rect Checkbox::InkRect() const {
-	// Mirrors DrawSelf's geometry: the box is bounded, the label runs on past
-	// the bounds if it was not given the room.
-	const gfx::Rect& px = Pixel();
+float Checkbox::TextX(const gfx::Rect& px) const {
 	const float box = std::min(px.h * 0.6f, Rem(0.65f));
-	const float textX = px.x + Rem(0.15f) + box + Rem(0.3f);
-	const float right = std::max(px.x + px.w, textX + TextFont().MeasureWidth(label));
+	float x = px.x + Rem(0.15f) + box + Rem(0.3f);
+	if (!swatch.Empty()) x += (px.h - 2.0f) + Rem(0.3f);
+	return x;
+}
+
+gfx::Rect Checkbox::InkRect() const {
+	// Mirrors DrawSelf's geometry: the box (and swatch) are bounded, the label
+	// runs on past the bounds if it was not given the room.
+	const gfx::Rect& px = Pixel();
+	const float right =
+		std::max(px.x + px.w, TextX(px) + TextFont().MeasureWidth(label));
 	return {px.x, px.y, right - px.x, px.h};
 }
 
