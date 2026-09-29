@@ -432,6 +432,11 @@ symbol.protect=Protezione
 ; --- map overlay / editor --------------------------------------------------------
 map.title=Mappa
 map.position={}, {}
+map.status.square=Casella {}, {}
+map.status.wall=Muro: {}
+map.status.floor=Pavimento: {}
+map.status.ceiling=Soffitto: {}
+map.status.more=+{} altri
 map.hint=Trascina per spostare, rotellina per zoom
 map.brushes=Tavolozza
 map.filter.hint=Filtra...

@@ -323,26 +323,38 @@ gfx::Rect MapView::GridArea(const gfx::Rect& panel) const {
 	// BOTH DOCKS ARE EDITOR-ONLY (Michael, 2026-09-23: the key is for building,
 	// not for playing). The player's map is the map — the whole panel is grid,
 	// and the symbols it can show are few enough to read without a table.
-	// In Editor mode everything sits below the toolbar band.
+	// In Editor mode everything sits between the toolbar band and the status bar.
 	const float t = ToolbarRect(panel).h;
+	const float b = StatusBarRect(panel).h;
 	const bool editor = m_mode == Mode::Editor;
 	const float l = editor ? LeftDockRect(panel).w + ToolStripRect(panel).w : 0.0f;
 	const float r = editor ? RightDockRect(panel).w : 0.0f;
-	return {panel.x + l, panel.y + t, panel.w - l - r, panel.h - t};
+	return {panel.x + l, panel.y + t, panel.w - l - r, panel.h - t - b};
+}
+
+gfx::Rect MapView::StatusBarRect(const gfx::Rect& panel) const {
+	if (m_mode != Mode::Editor) return {panel.x, panel.y + panel.h, panel.w, 0.0f};
+	// One line of the map's own text plus a pad above and below. The font is
+	// re-baked to the panel's height, so derive from the panel too (Update asks
+	// for this before any draw has sized anything).
+	const float h = std::clamp(panel.h * 0.036f, 22.0f, 44.0f);
+	return {panel.x, panel.y + panel.h - h, panel.w, h};
 }
 
 gfx::Rect MapView::LeftDockRect(const gfx::Rect& panel) const {
 	const float t = ToolbarRect(panel).h;
+	const float b = StatusBarRect(panel).h;
 	const float w = m_settings.mapPaletteCollapsed ? CollapsedDockW(panel)
 												   : ExpandedLeftW(panel);
-	return {panel.x, panel.y + t, w, panel.h - t};
+	return {panel.x, panel.y + t, w, panel.h - t - b};
 }
 
 gfx::Rect MapView::RightDockRect(const gfx::Rect& panel) const {
 	const float t = ToolbarRect(panel).h;
+	const float b = StatusBarRect(panel).h;
 	const float w = LegendCollapsed() ? CollapsedDockW(panel)
 									  : ExpandedRightW(panel);
-	return {panel.x + panel.w - w, panel.y + t, w, panel.h - t};
+	return {panel.x + panel.w - w, panel.y + t, w, panel.h - t - b};
 }
 
 // The key dock is Editor-only now, so there is one flag rather than one per
@@ -1637,8 +1649,8 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	}
 
 	// Footer (kept within the grid area, clear of the docks): pan/zoom hint
-	// (left) + party cell (right). PLAYER mode only — the editor keeps its
-	// bottom row clear for map cells (its controls are discoverable enough).
+	// (left) + party cell (right). PLAYER mode only - the editor has its
+	// status bar (below).
 	if (m_mode == Mode::Player) {
 		const float footY = panel.y + panel.h - m_font->Height() - pad;
 		m_font->Draw(batch, loc::Tr("map.hint"), grid.x + pad, footY, theme.textDim);
@@ -1650,10 +1662,139 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 					footY, theme.textDim);
 	}
 
+	// The editor's STATUS BAR: the toolbar band's mirror (same lift, the seam
+	// on its top edge), reading out the hovered square - its coordinates, then
+	// what it is made of: the wall type on a solid square, the floor and
+	// ceiling types on an open one. Blank off the grid.
+	if (m_mode == Mode::Editor) {
+		const gfx::Rect sb = StatusBarRect(panel);
+		batch.DrawRect(sb, {1.0f, 1.0f, 1.0f, 0.045f});
+		batch.DrawRect({sb.x, sb.y, sb.w, 1.0f}, theme.panelBorder);
+		if (m_hoverX >= 0) {
+			using SurfaceSel = DungeonWorld::SurfaceSel;
+			const DungeonMap& vmap = ViewedMap();
+			const int hx = m_hoverX, hz = m_hoverZ;
+			// The RESOLVED type (override, combination or the hash mix - what
+			// the scene draws), by display name; a square painted with a
+			// combination names it too, since that is what repaints it.
+			auto surfaceName = [&](SurfaceSel s) -> std::string {
+				const std::vector<std::string>& pal = vmap.Palette(s);
+				if (pal.empty()) return "-";
+				const std::string& id =
+					pal[ResolveSurfaceVariant(vmap, hx, hz, s, static_cast<u32>(pal.size()))];
+				const CatalogEntry* e = m_world->SurfaceCatalog(s).Find(id);
+				std::string name = e ? e->Display() : id;
+				const int slot = DungeonMap::ComboSlotOf(vmap.Variant(s, hx, hz));
+				if (slot >= 0 && static_cast<size_t>(slot) < vmap.ComboCount()) {
+					const std::string& combo = vmap.ComboId(slot);
+					const CatalogEntry* c = m_world->GetProject().combos.Find(combo);
+					name += " (" + (c ? c->Display() : combo) + ")";
+				}
+				return name;
+			};
+			std::vector<std::string> parts{loc::Format("map.status.square", hx, hz)};
+			if (vmap.At(hx, hz) == Cell::Wall) {
+				parts.push_back(loc::Format("map.status.wall", surfaceName(SurfaceSel::Wall)));
+			} else {
+				parts.push_back(loc::Format("map.status.floor", surfaceName(SurfaceSel::Floor)));
+				parts.push_back(
+					loc::Format("map.status.ceiling", surfaceName(SurfaceSel::Ceiling)));
+			}
+			// Then what is ON the square, by display name (the palette's), from
+			// the same lists the markers above were drawn from - so the bar and
+			// the map cannot disagree. Repeats fold into "Skeleton x2".
+			const size_t firstThing = parts.size();
+			const Project& proj = m_world->GetProject();
+			auto thing = [&](const Catalog& cat, const std::string& id) {
+				const CatalogEntry* e = cat.Find(id);
+				const std::string name = e ? e->Display() : id;
+				parts.push_back(name);
+			};
+			for (const WallSconce& s : vmap.Sconces())
+				if (s.x == hx && s.z == hz) thing(proj.fixtures, s.type);
+			for (const FloorBrazier& b : vmap.Braziers())
+				if (b.x == hx && b.z == hz) thing(proj.fixtures, b.type);
+			for (const StairLink& s : vmap.Stairs())
+				if (s.x == hx && s.z == hz) thing(proj.stairs, s.type);
+			for (const WallNiche& n : vmap.Niches())
+				if (n.x == hx && n.z == hz) thing(proj.wallfeatures, n.type);
+			for (const SurfaceFeature& f : vmap.SurfaceFeatures())
+				if (f.x == hx && f.z == hz) thing(proj.surfacefeatures, f.type);
+			for (const auto& d : decos)
+				if (d.x == hx && d.z == hz) thing(proj.decorations, d.type);
+			for (const auto& m : mons)
+				if (m.x == hx && m.z == hz) thing(proj.monsters, m.type);
+			for (const Entity& e : ents) {
+				if (e.x != hx || e.z != hz) continue;
+				switch (e.kind) {
+				case EntityKind::Door:   thing(proj.doors, e.type); break;
+				case EntityKind::Button: thing(proj.buttons, e.type); break;
+				case EntityKind::Item: {
+					const CatalogEntry* it = proj.FindItem(e.type);
+					parts.push_back(it ? it->Display() : e.type);
+					break;
+				}
+				default: break; // monsters: the live list above; decorations: static
+				}
+			}
+			// Fold repeats, keeping first-appearance order.
+			{
+				std::vector<std::string> named;
+				std::vector<int> count;
+				for (size_t i = firstThing; i < parts.size(); ++i) {
+					const auto at = std::find(named.begin(), named.end(), parts[i]);
+					if (at == named.end()) {
+						named.push_back(parts[i]);
+						count.push_back(1);
+					} else {
+						++count[static_cast<size_t>(at - named.begin())];
+					}
+				}
+				parts.resize(firstThing);
+				for (size_t i = 0; i < named.size(); ++i)
+					parts.push_back(count[i] > 1 ? std::format("{} x{}", named[i], count[i])
+												 : named[i]);
+			}
+
+			// Left to right; whatever will not fit before the bar's right edge
+			// folds into "+N more" rather than running off the window.
+			const float sp = DockPad(panel);
+			const float gap = sp * 6;
+			const float avail = sb.w - sp * 4;
+			const size_t n = parts.size();
+			std::vector<float> w(n);
+			for (size_t i = 0; i < n; ++i) w[i] = m_font->MeasureWidth(parts[i]);
+			auto lineW = [&](size_t k) { // the first k parts, with their gaps
+				float sum = 0.0f;
+				for (size_t i = 0; i < k; ++i) sum += w[i] + (i > 0 ? gap : 0.0f);
+				return sum;
+			};
+			auto moreW = [&](size_t k) {
+				return gap + m_font->MeasureWidth(loc::Format("map.status.more", n - k));
+			};
+			size_t shown = n;
+			if (lineW(n) > avail) { // the coordinates always stay
+				shown = n - 1;
+				while (shown > 1 && lineW(shown) + moreW(shown) > avail) --shown;
+			}
+			const float ty = sb.y + (sb.h - m_font->Height()) * 0.5f;
+			float tx = sb.x + sp * 2;
+			for (size_t i = 0; i < shown; ++i) {
+				m_font->Draw(batch, parts[i], tx, ty,
+							 i == 0 ? theme.text
+							 : i < firstThing ? theme.textDim
+											  : theme.text);
+				tx += w[i] + gap;
+			}
+			if (shown < n)
+				m_font->Draw(batch, loc::Format("map.status.more", n - shown), tx, ty,
+							 theme.textDim);
+		}
+	}
+
 	// The editor's message line (ShowStatus): the latest report, boxed over the
 	// bottom of the grid so it reads against any cell, fading out over its last
-	// second. It sits OVER the map rather than in a reserved row because the
-	// editor keeps its bottom row for cells (see the footer above).
+	// second. It sits OVER the map, above the status bar.
 	if (m_mode == Mode::Editor && m_statusLen > 0) {
 		const float age = StatusAge();
 		if (age < kStatusSeconds) {

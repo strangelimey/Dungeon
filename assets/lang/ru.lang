@@ -436,6 +436,11 @@ symbol.protect=Защита
 ; --- map overlay / editor --------------------------------------------------------
 map.title=Карта
 map.position={}, {}
+map.status.square=Клетка {}, {}
+map.status.wall=Стена: {}
+map.status.floor=Пол: {}
+map.status.ceiling=Потолок: {}
+map.status.more=ещё {}
 map.hint=Тяните для перемещения, колесо для масштаба
 map.brushes=Палитра
 map.filter.hint=Фильтр...

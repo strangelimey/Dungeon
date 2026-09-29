@@ -432,6 +432,11 @@ symbol.protect=Schutz
 ; --- map overlay / editor --------------------------------------------------------
 map.title=Karte
 map.position={}, {}
+map.status.square=Feld {}, {}
+map.status.wall=Wand: {}
+map.status.floor=Boden: {}
+map.status.ceiling=Decke: {}
+map.status.more=+{} weitere
 map.hint=Ziehen zum Verschieben, Rad zum Zoomen
 map.brushes=Palette
 map.filter.hint=Filtern...

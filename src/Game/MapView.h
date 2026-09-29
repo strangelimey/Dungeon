@@ -299,6 +299,10 @@ private:
 	// eyedropper, then Fill level. Its own column rather than rows in the dock
 	// so it stays put when the palette collapses. GridArea gives it up.
 	gfx::Rect ToolStripRect(const gfx::Rect& panel) const;
+	// The STATUS BAR (Editor only): a full-width band fixed across the panel
+	// bottom, the toolbar's mirror - the docks and the grid end above it. It
+	// reads out the hovered square's coordinates.
+	gfx::Rect StatusBarRect(const gfx::Rect& panel) const;
 	// (AppendStripButtons is declared beside ToolbarButtons, after ToolButton.)
 	// The strip's frame, the picked tool's ring and the Rectangle tool's
 	// in-progress box, drawn before the buttons (Render calls it).

@@ -454,6 +454,11 @@ symbol.sight=Sight
 ; --- map overlay / editor --------------------------------------------------------
 map.title=Map
 map.position={}, {}
+map.status.square=Square {}, {}
+map.status.wall=Wall: {}
+map.status.floor=Floor: {}
+map.status.ceiling=Ceiling: {}
+map.status.more=+{} more
 map.hint=Drag to pan, wheel to zoom
 map.brushes=Palette
 map.filter.hint=Filter...
