@@ -316,9 +316,10 @@ void GameUI::OnHandLeftClick(size_t i, size_t hand) {
 	// Empty cursor: the control-bar hand is an ACTION button — it executes the
 	// hand's default use. Picking the item UP is the character sheet's job (its
 	// hand cells keep the pick/swap semantics), so a swing can't be fumbled into
-	// an accidental unequip mid-fight. A hand with NO default yet (nothing picked
-	// for what it holds, or the pick was cleared) opens the use menu instead, so
-	// the first click PICKS what future clicks will do.
+	// an accidental unequip mid-fight. An UNSET hand performs the item's own
+	// first command without recording it (DefaultUseFor); only a hand with
+	// nothing to do at all (bare hand, rune, key) opens the use menu, so that
+	// first click PICKS what future clicks will do.
 	const std::string_view cmd = DefaultUseFor(m_characters[i], hand, slot.typeId);
 	if (cmd.empty()) {
 		OpenHandUseMenu(i, hand);
@@ -403,9 +404,9 @@ void GameUI::OpenHandUseMenu(size_t i, size_t hand) {
 		}
 	}
 	// Clear, LAST: takes this hand back to unset. Offered only while the hand
-	// HAS a default to clear (Michael, 2026-09-28) - a stale pick already reads
-	// as unset, so it gets no row either.
-	if (!DefaultUseFor(c, hand, m_handMenuItem).empty())
+	// is SET (Michael, 2026-09-28) - the item's own first command is not a pick,
+	// and a stale pick already reads as unset, so neither gets the row.
+	if (!SetUseFor(c, hand, m_handMenuItem).empty())
 		menu.Add(loc::View("use.clear"), kUseClear);
 	menu.Show(); // nothing actionable = no rows, so no empty menu pops
 }
@@ -480,21 +481,31 @@ void GameUI::ExecuteUse(size_t i, size_t hand, std::string_view cmd) {
 	// default falls through DefaultUseFor instead. Nothing to do.
 }
 
-std::string_view GameUI::DefaultUseFor(const Character& c, size_t hand,
+std::string_view GameUI::SetUseFor(const Character& c, size_t hand,
 								  const std::string& itemId) const {
 	if (hand > 1) return {};
-	// A default exists only once the player PICKED one (Michael, 2026-09-28):
-	// there is no fallback to the item's first command, so a sword nobody has
-	// chosen for is UNSET, and its first left-click opens the menu. That is what
-	// makes the menu's Clear mean something - with a fallback, clearing a sword
-	// would only have put it back on its first verb.
 	// The pick must still be valid - the catalog may have changed since the save
 	// was written, and a "cast:" default needs the member to know the spell (a
 	// loaded save's defaults must not outrun its vocabulary). A stale pick reads
 	// as unset.
 	const std::string_view picked = c.useDefaults[hand].Find(UseKey(itemId));
 	if (!picked.empty() && UseValidFor(c, CommandsFor(itemId), picked)) return picked;
-	return {}; // no default - the left-click opens the use menu to pick one
+	return {};
+}
+
+std::string_view GameUI::DefaultUseFor(const Character& c, size_t hand,
+								  const std::string& itemId) const {
+	if (hand > 1) return {};
+	// SET and DEFAULT are two things (Michael, 2026-09-28). A hand is SET only
+	// once the player picks a use from its menu, and only a set hand is shown
+	// as set or can be cleared. An UNSET hand still does something on a left
+	// click: the item's own first defaultable command, performed WITHOUT being
+	// recorded, so the hand stays unset (a rune's only command is the
+	// menu-only memorize, so it yields "" - a left-click can't eat a tablet).
+	if (const std::string_view set = SetUseFor(c, hand, itemId); !set.empty()) return set;
+	for (const std::string& cmd : CommandsFor(itemId))
+		if (!IsMenuOnlyUse(cmd) && IsExecutableUse(cmd)) return cmd;
+	return {}; // nothing to do - the left-click opens the use menu to pick one
 }
 
 bool GameUI::UseValidFor(const Character& c, const std::vector<std::string>& cmds,

@@ -346,9 +346,11 @@ private:
 	// on the cursor places it there (swapping any occupant onto the cursor; a
 	// non-holdable item is refused with a log line). Empty-cursor, the control-
 	// bar hand is an ACTION button: it executes the hand's default use (the
-	// remembered per-item-type pick; "unarmed" for an empty hand), and with NO
-	// default it opens the use menu instead. Picking an item OUT of a hand is
-	// the character sheet's job (its hand cells keep pick/swap semantics).
+	// remembered per-item-type pick, else the item's first defaultable command,
+	// which is performed WITHOUT being recorded), and with nothing to do at all
+	// (bare hand, rune, key) it opens the use menu instead. Picking an item OUT
+	// of a hand is the character sheet's job (its hand cells keep pick/swap
+	// semantics).
 	void OnHandLeftClick(size_t i, size_t hand);
 	// A right-click on member `i`'s hand `hand`: opens the USE menu (see
 	// OpenHandUseMenu). A left-click on a hand with NO default yet opens the
@@ -360,8 +362,8 @@ private:
 	// known spells (each submenu chains through the same ContextMenu).
 	// Selecting an entry records it as the member's default for that item type
 	// ("unarmed" for a bare hand) and, per GameSettings::useMenuExecutes,
-	// performs it. A last Clear row (only while the hand has a default) forgets
-	// the pick, so the hand is unset again.
+	// performs it. A last Clear row (only while the hand is SET) forgets the
+	// pick, so the hand is unset again.
 	void OpenHandUseMenu(size_t i, size_t hand);
 	// The hand menu's onPick: decodes a row id (the kUse* ranges in GameUI.cpp)
 	// against what the menu was opened for (m_handMenuMember/Hand/Item).
@@ -377,14 +379,20 @@ private:
 	// handlers, the melee verbs to onHandAttack. Unknown/empty ids no-op.
 	void ExecuteUse(size_t i, size_t hand, std::string_view cmd);
 	// The command a left-click on `itemId` ("" = bare hand) in hand `hand`
-	// executes for this member: THAT hand's remembered useDefaults pick while
-	// it is still valid, else "" - no default (never picked, cleared, or stale),
-	// so the left-click opens the use menu to pick one. There is deliberately
-	// no fallback to the item's first command. A VIEW of the stored pick (a
-	// returned string was a steady-state allocation per swing): use it before
-	// anything records a new default.
+	// executes for this member: the hand's SET use (SetUseFor) when it has one,
+	// else the item's first defaultable (non-menu-only) command - performed, but
+	// never recorded, so the hand stays unset - else "": nothing to do, so the
+	// left-click opens the use menu to pick one. A VIEW of the stored pick or
+	// the catalog command (a returned string was a steady-state allocation per
+	// swing): use it before anything records a new default.
 	std::string_view DefaultUseFor(const Character& c, size_t hand,
 								   const std::string& itemId) const;
+	// The use the player explicitly SET for `itemId` in this hand from its menu,
+	// while it is still valid, else "" (never picked, cleared, or stale). SET is
+	// what the HUD shows and what Clear forgets; the item's own first command is
+	// a default but NOT a set use.
+	std::string_view SetUseFor(const Character& c, size_t hand,
+							   const std::string& itemId) const;
 	// Whether a remembered default is still usable: an item command the item
 	// still offers, one of the bare-hand combat verbs, or a "cast:<id>" whose
 	// spell exists and whose symbols the member all knows.

@@ -9,7 +9,8 @@
 // first pick for each item type cost six allocations there.
 //
 // Bounded on purpose. Past kSlots item types a hand forgets its OLDEST pick
-// (the item goes back to UNSET, as a never-picked one is). An
+// (the item goes back to UNSET, as a never-picked one is, and a left click
+// falls back to its first command). An
 // id longer than kTextCapacity is refused rather than cut, since a cut id
 // would name a different item; every catalog id today is under 16 characters.
 // ============================================================================

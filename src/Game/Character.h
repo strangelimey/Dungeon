@@ -167,8 +167,9 @@ struct Character {
 	// a hand's right-click menu records it for THAT hand, and a left-click on
 	// that hand holding that type executes it — so the left hand can be armed
 	// with one spell and the right with another (Michael's rule, 2026-07-07).
-	// Absent or stale = UNSET: no fallback to the type's first command, and the
-	// menu's Clear removes a pick (GameUI resolves). Saved per slot+hand ("usedef" v16 lines; a pre-v16
+	// Absent or stale = UNSET, which the menu's Clear returns a hand to; an unset
+	// hand's left click still performs the type's first command, unrecorded
+	// (GameUI resolves). Saved per slot+hand ("usedef" v16 lines; a pre-v16
 	// flat line seeds BOTH hands). Fixed inline slots, not a map of strings: a
 	// pick is recorded mid-game, in a settled frame (Game/UseDefaults.h).
 	UseDefaults useDefaults[2];
