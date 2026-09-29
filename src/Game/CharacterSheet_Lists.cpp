@@ -12,6 +12,7 @@
 #include "Game/Spell/Spell.h"
 
 #include "Core/Loc.h"
+#include "UI/TextWrap.h" // ui::WrapLines (shared with the editor map's tooltip)
 
 #include <algorithm>
 #include <format>
@@ -21,27 +22,7 @@ using namespace sheet;
 
 namespace {
 
-// Word-wraps `text` to `maxW`, handing each line and its index to `sink`, and
-// returns the line count. string_view slices only — no per-frame allocation.
-// Measuring a row and drawing it walk the same function, so a description can
-// never be measured one height and drawn another.
-template <typename Sink>
-int WrapLines(const ui::Font& font, std::string_view text, float maxW, Sink&& sink) {
-	int lines = 0;
-	while (!text.empty()) {
-		size_t end = text.size();
-		while (end > 0 && font.MeasureWidth(text.substr(0, end)) > maxW) {
-			const size_t space = text.rfind(' ', end - 1);
-			if (space == std::string_view::npos || space == 0) break;
-			end = space;
-		}
-		sink(text.substr(0, end), lines);
-		++lines;
-		const size_t next = text.find_first_not_of(' ', end);
-		text = next == std::string_view::npos ? std::string_view{} : text.substr(next);
-	}
-	return lines;
-}
+using ui::WrapLines;
 
 int CountLines(const ui::Font& font, std::string_view text, float maxW) {
 	return WrapLines(font, text, maxW, [](std::string_view, int) {});

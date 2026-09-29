@@ -439,6 +439,10 @@ bool Game::LoadWorld(const std::string& folder) {
 											 m_settings, m_project, m_threads);
 	m_mapView.SetWorld(m_world.get());
 	m_mapEditor.SetWorld(m_world.get());
+	// A new world's edit counter starts again at zero, so the cached live
+	// findings could match its revision by coincidence: force a fresh check.
+	m_liveValid = false;
+	m_liveIssues.clear();
 	// `hasWorld` hides the player map's world-page toggle in a project that is
 	// all dungeon, rather than dimming it.
 	m_mapView.hasWorld = m_worldMap.has_value();
@@ -2089,6 +2093,11 @@ void Game::UpdateStates(float dt) {
 			if (ShowingWorldPage()) m_worldMapView.Update(input, *m_worldMap, panel);
 			else m_mapView.Update(input, panel);
 		}
+		// After the overlay's Update, so a stroke that ENDED this frame (its undo
+		// step committed on the release) is checked this frame.
+		RefreshLiveIssues(input.IsMouseDown(MouseButton::Left) ||
+						  input.IsMouseDown(MouseButton::Right) ||
+						  input.IsMouseDown(MouseButton::Middle));
 		// The world keeps simulating while the map is open (the party still
 		// walks on the keyboard) — EXCEPT while the editor is PAUSED, where the
 		// whole world update is skipped so every persistent bit freezes:

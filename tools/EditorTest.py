@@ -26,6 +26,10 @@
 #      13-square corridor with a bend and a doorway, a 60-square room, the
 #      corridor's 25 wall blocks, 227 floor squares in all) every count must
 #      come out exact and every fill must leave the chunks current.
+#   6. LIVE VALIDATION'S BOXES: two items walled into a pocket are one finding
+#      but two boxes; a stair whose partner was deleted is boxed on its own
+#      level AND at the far end on the other; a finding with no square (a
+#      dungeon with no levels) is counted on the Check badge instead.
 #
 # Every project file a phase writes is restored byte for byte afterwards.
 import io
@@ -165,6 +169,65 @@ check(len(layouts) == 6 and all(l == "match" for l in layouts),
 h = hashes(log)
 check(len(h) == 6 and all(h[i] != h[i - 1] for i in range(1, 6)),
       "every fill changed the level")
+
+# --- phase 6: live validation's boxes -----------------------------------------
+print("6 - live validation boxes what it finds, where it is")
+
+
+def sections(log):
+    """The console output split on the script's '--- name ---' echoes."""
+    out, name = {}, None
+    for line in log.splitlines():
+        m = re.search(r"console: --- (.*) ---$", line)
+        if m:
+            name = m.group(1)
+            out[name] = []
+        elif name is not None and "console: editor " in line:
+            out[name].append(line.split("console: ", 1)[1])
+    return out
+
+
+backup = os.path.join(ROOT, r"build\editortest-backup")
+shutil.rmtree(backup, ignore_errors=True)
+shutil.copytree(PROJ, backup)
+try:
+    # The two breakages the eval script's PART B and the badge rely on.
+    crypt2 = os.path.join(PROJ, r"levels\crypt2.map")
+    text = io.open(crypt2, encoding="utf-8", newline="").read()
+    lines = [l for l in text.splitlines(True) if not l.startswith("stairs stairs_up 1 1")]
+    check(len(lines) == len(text.splitlines(True)) - 1, "removed crypt2's stair back up")
+    io.open(crypt2, "w", encoding="utf-8", newline="").write("".join(lines))
+    dungeons = os.path.join(PROJ, r"catalog\dungeons.cat")
+    d = io.open(dungeons, encoding="utf-8", newline="").read()
+    io.open(dungeons, "w", encoding="utf-8", newline="").write(
+        d + "\r\n[hollow]\r\nlevels =\r\n")
+
+    log = run("liveissues.eval")
+    check(passed(log), "the script ran clean")
+    s = sections(log)
+    base = s.get("A: baseline", [])
+    check(not any(l.startswith("editor box eval_arena") for l in base),
+          "eval_arena starts with nothing boxed", str(base))
+    # It is two world findings, not one (no levels, and so no way in either);
+    # without it the project's badge reads 0, so any count here is its.
+    badge = [int(m.group(1)) for l in base for m in [re.search(r"badge (\d+)", l)] if m]
+    check(bool(badge) and badge[0] >= 1,
+          "the dungeon with no levels is counted on the Check badge", str(base))
+    walled = s.get("A: two items walled in", [])
+    check("editor box eval_arena 3,3 warning map.check.itemslost" in walled,
+          "the first walled-in item is boxed amber", str(walled))
+    check("editor box eval_arena 4,3 warning map.check.itemslost (from eval_arena 3,3)" in walled,
+          "so is the second, from the same one finding", str(walled))
+    own = s.get("B: the stair's own end", [])
+    check("editor box crypt1 1,1 error map.check.stairunpaired" in own,
+          "the unpaired stair is boxed red where it stands", str(own))
+    far = s.get("B: the far end", [])
+    check("editor box crypt2 1,1 error map.check.stairunpaired (from crypt1 1,1)" in far,
+          "and at its far end, on the level it leads to", str(far))
+finally:
+    shutil.rmtree(PROJ)
+    shutil.copytree(backup, PROJ)
+    shutil.rmtree(backup, ignore_errors=True)
 
 print()
 print("PASS" if failures == 0 else f"FAIL - {failures} check(s) failed")

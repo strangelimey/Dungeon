@@ -270,6 +270,36 @@ void Game::RegisterDevCommands() {
 								   "editor tool: {}", MapEditor::ToolName(m_mapEditor.ActiveTool())));
 							   return;
 						   }
+						   // What the live check boxes on the VIEWED level, one line a
+						   // square (a stair's far end and every lost item included),
+						   // then the Check badge's count. Refreshes first - the
+						   // harness has no mouse, so nothing is ever mid-stroke.
+						   if (!args.empty() && args[0] == "issues") {
+							   if (m_mapView.IsOpen())
+								   m_mapView.SetMode(MapView::Mode::Editor);
+							   else
+								   m_mapView.Open(MapView::Mode::Editor);
+							   RefreshLiveIssues(/*pointerHeld*/ false);
+							   const std::string& here = m_mapView.ViewedLevel();
+							   int badge = 0;
+							   for (const validate::Issue& is : m_liveIssues) {
+								   const char* sev =
+									   is.severity == validate::Severity::Error ? "error" : "warning";
+								   if (is.x < 0) ++badge;
+								   if (is.level == here && is.x >= 0)
+									   m_console.Print(std::format("editor box {} {},{} {} {}", here,
+																   is.x, is.z, sev, is.messageKey));
+								   for (const validate::Spot& s : is.also)
+									   if (s.level == here)
+										   m_console.Print(std::format("editor box {} {},{} {} {} (from {} {},{})",
+																	   here, s.x, s.z, sev,
+																	   is.messageKey, is.level,
+																	   is.x, is.z));
+							   }
+							   m_console.Print(std::format("editor issues: {} finding(s), badge {}",
+														   m_liveIssues.size(), badge));
+							   return;
+						   }
 						   if (!args.empty() && args[0] == "rev") {
 							   m_console.Print(
 								   std::format("editor rev {}", m_world->EditRevision()));

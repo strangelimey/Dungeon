@@ -1,0 +1,32 @@
+; liveissues.eval - live validation's boxes (editor-updates P2).
+;
+; `editor issues` re-runs the live check and prints one "editor box" line per
+; square the map would box on the VIEWED level, then the Check badge's count.
+;
+; PART A - lost items, on eval_arena. Two items go on 3,3 and 4,3, then walls
+; seal that pair of squares off from the rest of the room: ONE finding (the
+; report counts lost items rather than listing them) but TWO boxes.
+;
+; PART B - a broken stair pair. tools/EditorTest.py deletes crypt2's stair
+; back up to crypt1 before this runs (and restores it after), so crypt1's
+; stair down at 1,1 is unpaired: boxed on crypt1 where it stands, AND on
+; crypt2 at 1,1 where its partner should be.
+
+logecho on
+reset
+echo --- A: baseline ---
+editor issues
+echo --- A: two items walled in ---
+editor place items crypt_token 3 3
+editor place items crypt_token 4 3
+editor fill walls wall_marble rect 2 2 5 2
+editor fill walls wall_marble rect 2 4 5 4
+editor fill walls wall_marble rect 2 3 2 3
+editor fill walls wall_marble rect 5 3 5 3
+editor issues
+echo --- B: the stair's own end ---
+goto crypt1
+editor issues
+echo --- B: the far end ---
+goto crypt2
+editor issues

@@ -400,6 +400,17 @@ private:
 	// through here rather than DungeonWorld::Validate directly, so no route can
 	// quietly check the dungeons and skip the world.
 	std::vector<validate::Issue> ValidateProject();
+	// LIVE VALIDATION (docs/editor-updates-plan.md, P2): while the level editor
+	// is open, re-run ValidateProject whenever DungeonWorld::EditRevision moves
+	// - but only once no mouse button is held, so a drag is checked once, when
+	// it ends, not per square. The map boxes what it finds (MapView::SetIssues).
+	// `m_liveRev` is the revision the cached findings answer for; `m_liveValid`
+	// false forces a run (the editor just opened, or a world was loaded).
+	void RefreshLiveIssues(bool pointerHeld);
+	std::vector<validate::Issue> m_liveIssues;
+	u64 m_liveRev = 0;
+	bool m_liveValid = false;
+	bool m_liveTimed = false; // the first run's cost has been logged
 	// The `world` dev command's report: size, terrain, areas and locations, one
 	// line each. Empty-world-safe.
 	std::vector<std::string> WorldReport() const;

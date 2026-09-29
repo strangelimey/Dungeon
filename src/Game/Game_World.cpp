@@ -19,6 +19,7 @@
 #include "Game/Serialize.h"
 
 #include <algorithm>
+#include <chrono>
 #include <format>
 #include <random>
 
@@ -159,6 +160,36 @@ std::vector<validate::Issue> Game::ValidateProject() {
 			view.itemHooks.push_back(std::move(h));
 	}
 	return m_world->Validate(view);
+}
+
+void Game::RefreshLiveIssues(bool pointerHeld) {
+	const bool editing = m_world && m_mapView.IsOpen() &&
+						 m_mapView.CurrentMode() == MapView::Mode::Editor;
+	if (!editing) {
+		// Closed: the next open re-checks from scratch, since nothing tracks
+		// what changed while the map was shut (a stair walked, a level loaded).
+		m_liveValid = false;
+		m_mapView.SetIssues(nullptr);
+		return;
+	}
+	m_mapView.SetIssues(&m_liveIssues);
+	if (m_liveValid && m_world->EditRevision() == m_liveRev) return;
+	// A held button is a stroke still going: its squares are checked once, as a
+	// whole, when it ends - which is the frame the button comes up.
+	if (pointerHeld) return;
+	const auto t0 = std::chrono::steady_clock::now();
+	m_liveIssues = ValidateProject();
+	const double ms =
+		std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+	m_liveRev = m_world->EditRevision();
+	m_liveValid = true;
+	// Said once per run of the game, and again whenever a check is slow enough
+	// to feel: the checker walks the WHOLE project, so a large world is where
+	// "after every edit" would start to cost, and that should be visible.
+	if (!m_liveTimed || ms > 20.0) {
+		log::Info("live check: {} finding(s) in {:.2f} ms", m_liveIssues.size(), ms);
+		m_liveTimed = true;
+	}
 }
 
 void Game::SetOnWorldMap(bool on) {

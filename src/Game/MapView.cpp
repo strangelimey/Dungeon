@@ -446,6 +446,7 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 		m_panning = false;
 		return false;
 	}
+	m_updatedSinceRender = true; // the hover below is this frame's (see RenderIssueTooltip)
 
 	// Keep the icon/label font sized to the panel (re-bakes only when the
 	// rounded height actually changes, i.e. on window resize — not on zoom).
@@ -1303,6 +1304,9 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	// the actual selection (which draws opaque below).
 	const bool selHere = m_editor && m_editor->HasSelection() &&
 						 m_editor->SelX() == m_hoverX && m_editor->SelZ() == m_hoverZ;
+	// Live validation's boxes (MapView_Issues.cpp), under the rings below so a
+	// boxed square still shows that it is hovered or selected.
+	RenderIssueBoxes(batch, panel);
 	// The hover ring previews the brush target on any viewed level; the
 	// SELECTION (and its route overlay) is a live-instance thing, so it only
 	// draws on the active level.
@@ -1536,6 +1540,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 						{b.rect.x + b.rect.w * 0.5f, b.rect.y + b.rect.h * 0.5f},
 						{d, d}, 0.0f, {0.0f, 0.0f, 1.0f, 1.0f}, *b.icon,
 						{f, f, f, 1.0f});
+					if (b.id == HoverBtn::Check) RenderCheckBadge(batch, b.rect);
 				} else {
 					// No icon art for this tool yet. The face falls back to the
 					// LABEL, which is written for the tooltip and is far wider
@@ -1661,6 +1666,9 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			m_font->Draw(batch, text, r.x + pad2, r.y + pad2 * 0.5f, ink);
 		}
 	}
+
+	// Last, over everything: what is wrong with the hovered square, if anything.
+	RenderIssueTooltip(batch, theme, panel);
 }
 
 void MapView::ShowStatus(std::string_view line) {

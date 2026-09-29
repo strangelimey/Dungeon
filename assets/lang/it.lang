@@ -655,6 +655,7 @@ map.check.stairnolevel=Porta a '{}', che non è un livello di questo progetto
 map.check.stairblocked=Finisce nella roccia in '{}'
 map.check.arrivalblocked=Il luogo '{}' si apre sulla roccia
 map.check.stairunpaired=Nessuna scala di ritorno da '{}'
+map.check.farend=La scala su {} in {}, {}:
 map.check.stairoffset=Porta alla casella sbagliata in '{}' — una scala deve portare alle proprie coordinate
 map.check.itemslost={} oggetto/i qui sono irraggiungibili
 

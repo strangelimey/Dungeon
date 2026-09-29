@@ -655,6 +655,7 @@ map.check.stairnolevel=Führt zu '{}', das keine Ebene dieses Projekts ist
 map.check.stairblocked=Endet im massiven Fels in '{}'
 map.check.arrivalblocked=Ort '{}' führt in massiven Fels
 map.check.stairunpaired=Keine passende Treppe zurück aus '{}'
+map.check.farend=Die Treppe auf {} bei {}, {}:
 map.check.stairoffset=Führt in '{}' auf das falsche Feld — eine Treppe muss auf ihre eigenen Koordinaten führen
 map.check.itemslost={} Gegenstand/Gegenstände hier sind unerreichbar
 

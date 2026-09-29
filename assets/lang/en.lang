@@ -679,6 +679,7 @@ map.check.stairnolevel=Leads to '{}', which is not a level in this project
 map.check.stairblocked=Lands on solid rock in '{}'
 map.check.arrivalblocked=Location '{}' opens onto solid rock
 map.check.stairunpaired=No matching stair back from '{}'
+map.check.farend=The stair on {} at {}, {}:
 map.check.stairoffset=Leads to the wrong square in '{}' — a stair must lead to its own coordinates
 map.check.itemslost={} item(s) here cannot be reached
 

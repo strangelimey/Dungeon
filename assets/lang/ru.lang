@@ -659,6 +659,7 @@ map.check.stairnolevel=Ведёт в «{}» — такого уровня в п�
 map.check.stairblocked=Упирается в скалу на «{}»
 map.check.arrivalblocked=Место «{}» ведёт в сплошную скалу
 map.check.stairunpaired=Нет обратной лестницы из «{}»
+map.check.farend=Лестница на {} в {}, {}:
 map.check.stairoffset=Ведёт не на ту клетку в «{}» — лестница должна вести на свои же координаты
 map.check.itemslost=Предметов здесь недостижимо: {}
 

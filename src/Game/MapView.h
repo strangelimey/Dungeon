@@ -149,6 +149,11 @@ public:
 		m_editorPaused = false; // leaving Editor mode resumes the world
 	}
 
+	// LIVE VALIDATION (docs/editor-updates-plan.md, P2): the findings to box on
+	// the grid - Game's cache (Game::RefreshLiveIssues), borrowed. Null when the
+	// editor is not up, which draws nothing.
+	void SetIssues(const std::vector<validate::Issue>* issues) { m_issues = issues; }
+
 	// The editor's pause/play toolbar button: while true, Game freezes the
 	// world simulation (monsters, party, particles) so the level can be
 	// edited against a still scene. Editor-mode only, and always cleared when
@@ -301,6 +306,27 @@ private:
 	// frame's input was consumed; `painted` says a browsed snapshot is stale.
 	bool UpdateBrush(const Input& input, const gfx::Rect& panel, float mx, float my,
 					 bool overGrid, bool& painted);
+
+	// --- live validation (MapView_Issues.cpp) ---------------------------------
+	// The findings on square (x,z) of the VIEWED level - where a finding stands,
+	// or one of the other squares it names (Issue::also: a stair's far end, a
+	// lost item beyond the first). Appends to `out`.
+	void IssuesAt(int x, int z, std::vector<const validate::Issue*>& out) const;
+	// A red (error) or amber (warning) box on every square of the viewed level a
+	// finding names; red wins where both land. Drawn under the hover and
+	// selection rings, inside the grid's scissor.
+	void RenderIssueBoxes(gfx::SpriteBatch& batch, const gfx::Rect& panel) const;
+	// The hovered boxed square's findings, word-wrapped, placed like the hand
+	// slot tooltips (below the square, above when that would run off). Only on
+	// a frame Update ran - a modal dialog stops Update, and the hovered square
+	// it last saw is stale under the dialog.
+	void RenderIssueTooltip(gfx::SpriteBatch& batch, const ui::Theme& theme,
+							const gfx::Rect& panel);
+	// The Check disc's badge: how many findings have NO square (a level or the
+	// world as a whole), red when any is an error. Clicking Check lists them.
+	void RenderCheckBadge(gfx::SpriteBatch& batch, const gfx::Rect& disc) const;
+	const std::vector<validate::Issue>* m_issues = nullptr; // Game's cache, borrowed
+	bool m_updatedSinceRender = false; // see RenderIssueTooltip
 	gfx::Rect LeftCollapseButton(const gfx::Rect& panel) const;
 	gfx::Rect RightCollapseButton(const gfx::Rect& panel) const;
 	bool LegendCollapsed() const; // the right key dock's collapse flag for the mode

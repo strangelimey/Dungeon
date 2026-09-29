@@ -378,10 +378,13 @@ std::vector<Issue> Run(const std::vector<LevelView>& levels,
 								  "map.check.stairnolevel", s.destLevel});
 				continue;
 			}
+			// The far END of a stair finding is boxed too (Issue::also): the fault
+			// is a pair, and the map shows one level at a time.
+			const Spot farEnd{s.destLevel, s.destX, s.destZ};
 			const DungeonMap* dm = lv[d->second].view->map;
 			if (!dm || !dm->IsWalkable(s.destX, s.destZ)) {
 				issues.push_back({Severity::Error, stem, s.x, s.z,
-								  "map.check.stairblocked", s.destLevel});
+								  "map.check.stairblocked", s.destLevel, {}, {farEnd}});
 				continue;
 			}
 			// THE RULE: a stair leads to its OWN coordinates on the other level,
@@ -395,7 +398,7 @@ std::vector<Issue> Run(const std::vector<LevelView>& levels,
 			// you looking for a missing record that may not be the problem.
 			if (s.destX != s.x || s.destZ != s.z) {
 				issues.push_back({Severity::Error, stem, s.x, s.z,
-								  "map.check.stairoffset", s.destLevel});
+								  "map.check.stairoffset", s.destLevel, {}, {farEnd}});
 				continue;
 			}
 			// And the counterpart has to actually be there. An ERROR now, not a
@@ -409,29 +412,44 @@ std::vector<Issue> Run(const std::vector<LevelView>& levels,
 				back->second->destLevel != stem || back->second->destX != s.x ||
 				back->second->destZ != s.z)
 				issues.push_back({Severity::Error, stem, s.x, s.z,
-								  "map.check.stairunpaired", s.destLevel});
+								  "map.check.stairunpaired", s.destLevel, {}, {farEnd}});
 		}
 
 		// Items nothing can reach, counted rather than listed: a walled-off wing
 		// would otherwise bury every other finding under one issue per square,
-		// and the COUNT is what says how big the hole is.
-		int lost = 0, lx = -1, lz = -1;
+		// and the COUNT is what says how big the hole is. The map boxes EVERY one
+		// (the first square locates the issue, the rest ride in `also`), in cell
+		// order - `items` is a hash map, so "the first" used to be arbitrary.
+		int lost = 0;
+		std::vector<int> lostCells;
 		for (const auto& [ck, ids] : (stranded ? decltype(L.items){} : L.items))
 			if (!seen[i].count(ck)) {
 				lost += static_cast<int>(ids.size());
-				if (lx < 0) { lx = KeyX(ck); lz = KeyZ(ck); }
+				lostCells.push_back(ck);
 			}
-		if (lost > 0)
-			issues.push_back({Severity::Warning, stem, lx, lz, "map.check.itemslost",
-							  std::to_string(lost)});
+		if (lost > 0) {
+			std::sort(lostCells.begin(), lostCells.end());
+			Issue issue{Severity::Warning, stem, KeyX(lostCells[0]), KeyZ(lostCells[0]),
+						"map.check.itemslost", std::to_string(lost)};
+			for (size_t k = 1; k < lostCells.size(); ++k)
+				issue.also.push_back({stem, KeyX(lostCells[k]), KeyZ(lostCells[k])});
+			issues.push_back(std::move(issue));
+		}
 	}
 
 	CheckWorld(world, levels, issues);
 
-	std::stable_sort(issues.begin(), issues.end(),
-					 [](const Issue& a, const Issue& b) {
-						 return a.severity < b.severity; // errors first
-					 });
+	// Errors first, then by place - a TOTAL order, so the report reads the same
+	// on every run (doors and buttons come out of hash maps, whose order is not
+	// stable) and the live map's boxes do not reshuffle on each re-check.
+	std::sort(issues.begin(), issues.end(), [](const Issue& a, const Issue& b) {
+		if (a.severity != b.severity) return a.severity < b.severity;
+		if (a.level != b.level) return a.level < b.level;
+		if (a.z != b.z) return a.z < b.z;
+		if (a.x != b.x) return a.x < b.x;
+		if (a.messageKey != b.messageKey) return a.messageKey < b.messageKey;
+		return a.a < b.a;
+	});
 	return issues;
 }
 
