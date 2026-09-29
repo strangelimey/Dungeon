@@ -21,8 +21,10 @@ constexpr float kDirectionRem = 0.2f;
 // quick at first, then HEAVIER - each further percent costs more effort the
 // nearer it is to 100%, which is the "weight" behind the gesture. Effort comes
 // from time held AND from rightward travel, so doing both is fastest.
-constexpr float kChargeSeconds = 1.75f; // held still: 0 -> 100% in this long
-constexpr float kChargeWidths = 1.0f;   // or drag right this many bar widths
+// Slowed from 1.75 s / 1 width (Michael, 2026-09-28: full over-exertion came
+// too quickly); the two stay in proportion so dragging speeds it up as before.
+constexpr float kChargeSeconds = 2.5f; // held still: 0 -> 100% in this long
+constexpr float kChargeWidths = 1.4f;  // or drag right this many bar widths
 // A frame hitch must not dump a lump of effort in at once.
 constexpr float kMaxChargeStep = 0.1f;
 
@@ -39,9 +41,11 @@ Vec4 Mix(const Vec4& a, const Vec4& b, float t) {
 			a.w + (b.w - a.w) * t};
 }
 // The angry palette: the committed bar's body darkens toward blood as the
-// over-exertion climbs, and the over-exerted stretch burns hotter over it.
+// over-exertion climbs, and the over-exerted stretch over it starts DARK red
+// and brightens to a full hot red at 100% (Michael, 2026-09-28: it read bright
+// red from the first percent, so a little over-exertion looked like a lot).
 constexpr Vec4 kAngryBody{0.45f, 0.08f, 0.06f, 1.0f};
-constexpr Vec4 kOverWarm{0.85f, 0.25f, 0.20f, 1.0f};
+constexpr Vec4 kOverDark{0.40f, 0.04f, 0.03f, 1.0f};
 constexpr Vec4 kOverHot{1.00f, 0.10f, 0.06f, 1.0f};
 } // namespace
 
@@ -210,9 +214,11 @@ void GuardSlider::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		// the committed body, darkening toward blood; the over-exertion itself
 		// burns across it from the left, hotter as it climbs. Swelling (BarRect)
 		// and reddening together are the "angrier" look.
-		batch.DrawRect(bar, Mix(theme.accent, kAngryBody, 0.4f + 0.6f * over));
+		// Mostly blood from the first percent, so a little over-exertion reads as
+		// DARK red rather than orange; the stretch below brings the brightness.
+		batch.DrawRect(bar, Mix(theme.accent, kAngryBody, 0.85f + 0.15f * over));
 		batch.DrawRect({bar.x, bar.y, bar.w * over, bar.h},
-					   Mix(kOverWarm, kOverHot, over));
+					   Mix(kOverDark, kOverHot, over));
 	}
 
 	// A hairline under the bar: 1px, the one place raw pixels are allowed

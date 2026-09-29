@@ -13,13 +13,14 @@
 //     crossing always takes a NEW press.
 //   - From a full bar, a new press that moves RIGHT starts a CHARGE. It climbs
 //     while held AND while the pointer moves right (both together is fastest),
-//     and it gets HEAVIER as it climbs: about 1.75 s held still takes it from
+//     and it gets HEAVIER as it climbs: about 2.5 s held still takes it from
 //     0 to 100% over-exertion. Releasing keeps what it reached; a later
 //     right-drag charges on from there.
 //   - From an over-exerted bar, ANY press that moves LEFT snaps back to 100%
 //     attack / 0% over-exertion, and that press is spent. A further left drag
 //     is the ordinary stance again.
-//   - An over-exerted bar is ANGRY: red, and swelling toward kAngryRem thick as
+//   - An over-exerted bar is ANGRY: red - dark at first, brightening to full
+//     red at 100% - and swelling toward kAngryRem thick as
 //     it nears 100%. The swell is inside this widget's own bounds - the band
 //     HandPair reserves includes the angry size, and the bar sits CENTRED in
 //     that room, swelling out both ways - so it never paints over the hands
