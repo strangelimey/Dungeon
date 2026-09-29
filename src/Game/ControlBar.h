@@ -63,6 +63,9 @@ struct ControlBarDeps {
 	// The offense/defense stance slider under a member's hands: the widget
 	// mutates nothing itself, it reports where it was dragged to.
 	std::function<void(size_t member, float share)> onGuardChange;
+	// The live Balance::exertMax - the share full over-exertion means. Asked
+	// every frame, since the Balance dialog edits it live.
+	std::function<float()> exertMax;
 	std::string moveLabel;  // localized "Movement" heading
 	std::string magicLabel; // localized "Magic" heading
 	// The two minimize flags (GameSettings), and who to tell when a click flips

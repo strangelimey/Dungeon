@@ -1811,6 +1811,7 @@ void GameUI::BuildHud() {
 	deps.onGuardChange = [this](size_t i, float share) {
 		if (onGuardChange) onGuardChange(i, share);
 	};
+	deps.exertMax = [this] { return exertMax ? exertMax() : 1.0f; };
 	deps.moveLabel = loc::Tr("hud.movement");
 	deps.magicLabel = loc::Tr("hud.magic");
 	// The minimize buttons flip the settings in place; the flip is saved at

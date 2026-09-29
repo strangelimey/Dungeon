@@ -185,10 +185,16 @@ path, so the armor-shortfall scale and the exhaustion latch apply to it too) —
 including the part paid in blood, because conditioning is what the body did,
 not what the bar could afford.
 
-**Reading the slider:** the track now runs to 2.0 with a hairline at the
-full-commit mark. Left of the mark the fill is the ordinary accent; right of
-it, its own alarm colour — a different *kind* of spending deserves a different
-colour, not more of the same bar.
+**Reading the slider** (reworked 2026-09-28, `Game/GuardSlider.h`): the whole
+bar is the HONEST range - full right is 100% attack, 0% defense - and 100% is a
+detent no drag crosses. Over-exertion is a separate gesture, because it is the
+one setting that can drop the character: from a full bar, a NEW press that
+moves right CHARGES it, climbing with time held and with rightward travel and
+getting heavier as it goes (about 1.75 s held still to reach `exert_max`).
+While over-exerted the bar is angry - redder and thicker toward 100% - and any
+press that moves left snaps it back to 100% / 0% over. A different *kind* of
+spending deserves a different look and a different hand movement, not more of
+the same bar.
 
 ## When it goes wrong (`Game/Mishap.h`)
 
@@ -825,7 +831,7 @@ which route, the arming switch, and a deliberate violation so the check can be
 seen to catch one.
 
 `guard <share> [member]` — set the stance; **no upper clamp at all**, unlike
-the slider (which stops at `exert_max`), so it is the way to try a stance past
+the slider (whose charge stops at `exert_max`), so it is the way to try a stance past
 what the UI will let a player reach.
 `wear <item|none> [member]` — put armor on the doll, where worn armor
 counts.

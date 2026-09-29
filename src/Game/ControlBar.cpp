@@ -132,7 +132,7 @@ HandPair::HandPair(const gfx::Rect& rect, size_t member,
 	// ONE stance for the character, spanning both boxes - the fighter decides
 	// how hard to press, and the two hands then guard with whatever each holds.
 	m_guard = Add<GuardSlider>(gfx::Rect{0, 0.85f, 1.0f, 0.15f}, deps.roster,
-							   member, deps.onGuardChange);
+							   member, deps.onGuardChange, deps.exertMax);
 }
 
 // How tall one pair must be for boxes of the largest square its width allows.
@@ -153,7 +153,11 @@ float HandPair::SquareSide(float widthPx, float emPx) {
 	return std::max(0.0f, avail * 0.5f);
 }
 
-float HandPair::BandHeight(float emPx) { return emPx * 0.25f; }
+// The ANGRY bar's thickness, not the resting one's: an over-exerted stance
+// swells toward it, and the swell must be the slider's own area rather than
+// paint over the hands above (Michael, 2026-09-28). At rest the bar is the
+// band's top strip and the rest of the band is the room it grows into.
+float HandPair::BandHeight(float emPx) { return emPx * GuardSlider::kAngryRem; }
 
 void HandPair::LayoutSelf(ui::UIContext&) {
 	const gfx::Rect& px = Pixel();

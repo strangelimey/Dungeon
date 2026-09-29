@@ -3,8 +3,26 @@
 //
 // One slider PER CHARACTER, spanning the full width of both hand boxes: how
 // much of their skill goes into attacking, and how much is held back to guard
-// with (docs/damage-system.md). Full right is all-out — every point in the
-// swing, nothing kept back.
+// with (docs/damage-system.md). The WHOLE bar is the honest range: full right
+// is 100% attack, 0% defense - every point in the swing, nothing kept back.
+//
+// OVER-EXERTION (a share past 1.0, bought with stamina and then health) is not
+// a place on the track but a separate, deliberate gesture (Michael,
+// 2026-09-28), because it is the one setting that can drop the character:
+//   - 100% is a DETENT. A drag stops there and cannot cross it either way;
+//     crossing always takes a NEW press.
+//   - From a full bar, a new press that moves RIGHT starts a CHARGE. It climbs
+//     while held AND while the pointer moves right (both together is fastest),
+//     and it gets HEAVIER as it climbs: about 1.75 s held still takes it from
+//     0 to 100% over-exertion. Releasing keeps what it reached; a later
+//     right-drag charges on from there.
+//   - From an over-exerted bar, ANY press that moves LEFT snaps back to 100%
+//     attack / 0% over-exertion, and that press is spent. A further left drag
+//     is the ordinary stance again.
+//   - An over-exerted bar is ANGRY: red, and swelling toward kAngryRem thick as
+//     it nears 100%. The swell is inside this widget's own bounds - the band
+//     HandPair reserves is the angry size, the resting bar is its top strip -
+//     so it never paints over the hands above it.
 //
 // Deliberately NOT ui::Slider: that control carries a label line above its
 // track and lays out by its own box, which is right on a settings page and far
@@ -21,26 +39,53 @@
 #include "Game/PartyHudTypes.h"
 #include "UI/Widget.h"
 
+#include <chrono>
 #include <functional>
 
 namespace dungeon::game {
 
 class GuardSlider : public ui::Widget {
 public:
+	// The resting bar's thickness and the angriest bar's, in rem. HandPair
+	// reserves kAngryRem for the band, so the swell has room of its own.
+	static constexpr float kRestRem = 0.25f;
+	static constexpr float kAngryRem = 0.6f;
+
+	// `exertMax` is the live Balance::exertMax (the share a full over-exertion
+	// means); asked every frame, because it is editable in the Balance dialog
+	// and a captured copy would go stale.
 	GuardSlider(const gfx::Rect& rect, const std::vector<Character>* roster,
-				size_t member, std::function<void(size_t, float)> onChange);
+				size_t member, std::function<void(size_t, float)> onChange,
+				std::function<float()> exertMax);
 
 	void UpdateSelf(ui::UIContext& ctx) override;
 	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 private:
-	// Where the live share sits along the track, and the inverse pick.
-	float ShareAt(float x) const;
+	// What a press is doing. PENDING is a press on a full or over-exerted bar
+	// that has not yet moved far enough to say which way it is going; HELD is
+	// a press that snapped back to 100% and is spent until release.
+	enum class Drag { None, Pending, Honest, Charge, Held };
+
+	float ExertMax() const;
+	// How far past 1.0 the share is, as 0..1 of the way to ExertMax().
+	float OverOf(float share) const;
+	// The honest share under a pointer x: 0..1 across the bar, never past it.
+	float HonestAt(float x) const;
+	// The rect the bar PAINTS for this share (the resting strip, or the angry
+	// swell) - also what the pointer must be over to grab it.
+	gfx::Rect BarRect(float share) const;
+	void Report(float share) const;
 
 	const std::vector<Character>* m_roster;
 	size_t m_member;
 	std::function<void(size_t, float)> m_onChange;
-	bool m_dragging = false;
+	std::function<float()> m_exertMax;
+	Drag m_drag = Drag::None;
+	float m_pressX = 0.0f;
+	float m_lastX = 0.0f;
+	float m_effort = 0.0f; // the charge's progress; over-exertion = f(effort)
+	std::chrono::steady_clock::time_point m_lastTick{};
 };
 
 } // namespace dungeon::game

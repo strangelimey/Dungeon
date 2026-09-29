@@ -165,17 +165,20 @@ void Game::WireModuleCallbacks() {
 		return m_world->DefenseWith(c, id);
 	};
 	// The stance slider under a member's hands (docs/damage-system.md). Its
-	// travel runs PAST 1, as far as exert_max: over-exertion costs something now
+	// stance runs PAST 1, as far as exert_max: over-exertion costs something now
 	// (a per-swing bill out of stamina and then health — DungeonWorld::
-	// SpendExertion), so dragging into it is a legitimate choice rather than a
+	// SpendExertion), so charging into it is a legitimate choice rather than a
 	// free win. The clamp lives here rather than in the widget so the balance
 	// knob stays the one authority on how far the stance goes; the dev `guard`
-	// command still has no clamp at all.
+	// command still has no clamp at all. The widget also READS the knob live
+	// (exertMax), because it shows over-exertion as a percentage of the way to
+	// it - a charge to 100% is a charge to exert_max.
 	m_ui.onGuardChange = [this](size_t member, float share) {
 		if (member < m_characters.size())
 			m_characters[member].offenseShare =
 				std::clamp(share, 0.0f, m_world->GetBalance().exertMax);
 	};
+	m_ui.exertMax = [this] { return m_world ? m_world->GetBalance().exertMax : 1.0f; };
 	m_ui.onMoveAction = [this](MoveAction action) {
 		// A pit fall swallows movement (the keyboard path gates in
 		// DungeonWorld::Update; this is the HUD arrow-button path).

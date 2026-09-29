@@ -219,6 +219,9 @@ public:
 	// share). The widget reports where it was dragged; Game owns the roster
 	// and does the writing.
 	std::function<void(size_t, float)> onGuardChange;
+	// The live Balance::exertMax, so the slider can show over-exertion as a
+	// percentage of the way to it (wired to the world's balance by Game).
+	std::function<float()> exertMax;
 	// The character sheet's defense breakdown, sourced from the world by the
 	// owner — the sheet cannot resolve worn items or balance knobs itself.
 	std::function<DefenseReadout(const Character&)> defenseFor;
