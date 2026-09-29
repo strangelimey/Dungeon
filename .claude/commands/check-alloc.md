@@ -34,6 +34,11 @@ only the default):
   monster pays once, so it must not fall in the warm-up), expiring past it, and
   a Fire Burst detonating. It refuses a PASS unless the window's own tally
   (logged by the verdict frame) shows a hit, an expiry and a blast
+- `.\tools\AllocTest.ps1 -Pause` - Esc into the pause menu and back, three
+  times inside the window. The frame that leaves Playing is a transition and is
+  disarmed (docs/ARCHITECTURE.md "Checking the rule"); this checks that rule
+  and the resumed frames after it, and refuses a PASS unless the verdict line
+  counts a transition (`transitions=`)
 
 ## Reading a failure
 

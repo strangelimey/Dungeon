@@ -46,6 +46,7 @@ void Game::RegisterDiagnosticCommands() {
 			// costs a console close plus the 120-frame warm-up.
 			m_allocTestDeadline = seconds * 3.0f + 15.0f;
 			m_allocTestFrames = 0;
+			m_allocTestTransitions = 0;
 			m_allocTestStart = alloc::Stats();
 			m_console.Print(std::format(
 				"alloctest: {:.0f}s of steady frames — closing the console (frames only "

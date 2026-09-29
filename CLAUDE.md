@@ -85,7 +85,10 @@ Key conventions (memorize, they bite):
   or -DDN_TRACK_ALLOCS=ON in Release). Main brackets each frame,
   Game::SteadyStateFrame arms it (Playing, no console/overlay/load/deferred
   rebuild/running eval script, 120-frame warm-up; a scripted run is a console
-  session, so the eval harness is NOT an allocation check - AllocTest is), and a violating frame's call stacks are
+  session, so the eval harness is NOT an allocation check - AllocTest is; and a
+  frame that ENDS outside Playing/sheet-over-level - Esc to pause, a stair load -
+  is a transition, disarmed at the end of Game::Update, `AllocTest.ps1 -Pause`),
+  and a violating frame's call stacks are
   symbolized into dungeon.log once per unique site. Dev: `alloctest [secs]`
   (one machine-readable verdict line), `allocguard [status|strict on|off|
   reset]`, `allocpoke` (violate on purpose); `tools\AllocTest.ps1` is the

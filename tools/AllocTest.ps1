@@ -12,6 +12,7 @@
 #   .\tools\AllocTest.ps1 -Melee             # a monster swinging at the party
 #   .\tools\AllocTest.ps1 -Cast              # a bolt in flight + an open spellbook
 #   .\tools\AllocTest.ps1 -Impact            # bolts landing, expiring, a blast
+#   .\tools\AllocTest.ps1 -Pause             # Esc to the pause menu and back
 #   .\tools\AllocTest.ps1 -Config release    # needs -DDN_TRACK_ALLOCS=ON
 #
 # THE RULE HAS NO EXCEPTIONS: an allocation in a settled frame is a bug, and
@@ -99,6 +100,18 @@
 # releases the barrage and restarts the tally; the verdict frame logs that
 # tally, which is what the refusal reads.
 #
+# -Pause IS THE OTHER HALF OF THE RULE: WHICH FRAMES IT COVERS. The guard judges
+# a frame on the state at its top, so the frame Esc is pressed in starts as
+# Playing and ends as Paused - and it rebuilds the pause menu (a widget tree, and
+# ListSaves parsing every save for the Load entry) inside a frame armed as
+# steady. That logged ~5000 allocations on every Esc (2026-09-28). A frame that
+# LEAVES the guarded states is a transition, and Game::Update now disarms it; this
+# run presses Esc during the window, resumes, and repeats, so a regression of
+# that rule - or a resume path that allocates in the frames after it - lands
+# inside the window. It refuses a PASS unless the verdict line counts at least
+# one such transition (`transitions=`), since a swallowed Esc would otherwise
+# report exactly like a clean run.
+#
 # Every step is driven by what the log actually says rather than by sleeps, so
 # a slow cold-cache load stretches the wait instead of failing the run.
 #
@@ -137,6 +150,8 @@ param(
 	[double]$ImpactStrength = 400,
 	# Seconds between casts, round-robin over the rotation below.
 	[double]$ImpactEvery = 0.4,
+	# Pauses (Esc) and resumes inside the window. See the note above.
+	[switch]$Pause,
 	# Checks the CHECKER: makes the game allocate every frame on purpose
 	# (`allocpoke`) and passes only if the run comes back FAIL.
 	[switch]$SelfTest
@@ -538,6 +553,20 @@ try {
 	Send-Text "alloctest $Seconds"
 	Send-Key 0x0D
 
+	# -Pause: Esc into the pause menu and Esc back out, a few times, while the
+	# window runs. Each wait clears the console close / resume plus the guard's
+	# 120-frame warm-up, so the Esc lands in an ARMED frame; paused frames and
+	# the warm-up after a resume are not armed and cost the window nothing.
+	if ($Pause) {
+		for ($cycle = 1; $cycle -le 3; $cycle++) {
+			Start-Sleep -Seconds 3
+			if (Select-String -Path $log -Pattern 'alloctest RESULT=' -Quiet) { break }
+			Send-Key 0x1B # pause
+			Start-Sleep -Seconds 1
+			Send-Key 0x1B # and resume
+		}
+	}
+
 	# The command closes the console itself, then spends its budget on armed
 	# frames only; its own deadline guarantees a line either way.
 	$line = Wait-ForLog 'alloctest RESULT=' ($Seconds * 4 + 60) 'the alloctest result'
@@ -575,6 +604,17 @@ try {
 		if ((Get-LastTallyField 'blasts') -le 0) { $missing += 'no blast went off' }
 		if ($missing.Count -gt 0 -and $result -eq 'PASS') {
 			Write-Host "$($missing -join ', ') inside the window - the impact path was not measured" -ForegroundColor Yellow
+			$result = 'UNMEASURED'
+		}
+	}
+
+	# And for -Pause: no transition counted means no Esc landed in an armed
+	# frame, and the run measured nothing it exists to measure.
+	if ($Pause) {
+		$transitions = if ($line -match '\btransitions=(\d+)') { [int]$Matches[1] } else { 0 }
+		Write-Host "  transitions inside the window: $transitions"
+		if ($transitions -le 0 -and $result -eq 'PASS') {
+			Write-Host 'no Esc landed in an armed frame - the pause transition was not measured' -ForegroundColor Yellow
 			$result = 'UNMEASURED'
 		}
 	}

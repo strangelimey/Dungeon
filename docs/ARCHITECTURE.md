@@ -187,7 +187,7 @@ std::string&` bound to a ternary whose other arm was `""` (so it bound to a
 by value. After those, 21,338 armed frames with the party idle allocate nothing,
 and the AI workers total 8–50 allocations for a whole session.
 
-Three boundaries worth stating, because they are policy and not oversight:
+Four boundaries worth stating, because they are policy and not oversight:
 
 - **Event frames ARE steady frames.** This list used to say the opposite: a
   bump message allocated (`loc::Tr` returned a copy, `MessageLog` kept a string
@@ -207,6 +207,20 @@ Three boundaries worth stating, because they are policy and not oversight:
   `step` runs thousands of ticks inside one frame, which is no steady-state
   frame either. Simulation event paths are checked where the frame really is
   steady - `AllocTest.ps1 -Wounded / -Melee / -Cast`.
+- **A frame that LEAVES the guarded states is a transition.** The guard is armed
+  at the top of `Update` on the state at that instant, so the frame Esc is
+  pressed in starts as Playing and ends as Paused - having rebuilt the pause
+  menu (a widget tree, plus `ListSaves` parsing every save for its Load entry),
+  which then draws in the same frame's Render. That was reported as ~5000
+  allocations on every Esc (2026-09-28). `Game::Update` now disarms any frame
+  that ends outside `GuardedState()` (Playing, or the character sheet over a
+  level), after every early return, so no transition site - Esc, a stair load, a
+  party wipe - has to remember to. It is the overlay rule
+  (`OverlayOpenedThisFrame`) one level up. The destination's frames were never
+  armed, so this excuses exactly one frame per transition; `AllocTest.ps1
+  -Pause` presses Esc inside the window and refuses a PASS unless the verdict
+  counts a transition (`transitions=`). Opening the SHEET is not a transition
+  out: it is a guarded state, and its opening frame stays checked.
 - **A test that cannot fail proves nothing.** `allocpoke` allocates every frame
   on purpose and `AllocTest.ps1 -SelfTest` inverts the expected verdict, so the
   harness must catch a real violation to pass.

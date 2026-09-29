@@ -555,9 +555,17 @@ private:
 	// True when the frame now starting is one the steady-state allocation rule
 	// covers (Core/AllocTrack). Stateful — it counts the warm-up.
 	bool SteadyStateFrame();
+	// The app states the steady-state rule covers at all: Playing, or the
+	// character sheet over a level. SteadyStateFrame adds the rest (no console,
+	// no bake, the warm-up), and Update disarms a frame that ends outside them.
+	bool GuardedState() const;
 	// Called when an overlay opens PART WAY THROUGH an already-armed frame:
 	// disarms the guard for it and restarts the warm-up. See the definition.
+	// Update also calls it for a frame that leaves the guarded states.
 	void OverlayOpenedThisFrame();
+	// Everything Update does per state, below the allocation guard's bookkeeping
+	// (which has to see the frame's END, past all of this function's returns).
+	void UpdateStates(float dt);
 	// Advances a running `alloctest` window and reports when it closes. The
 	// window is measured in ARMED frames, so time spent loading, warming up or
 	// with the console open does not spend it. Its first armed frame OPENS the
@@ -735,6 +743,10 @@ private:
 	float m_allocTestRemaining = 0.0f;
 	float m_allocTestDeadline = 0.0f;
 	u32 m_allocTestFrames = 0;
+	// Armed window frames that LEFT the guarded states (Esc to the pause menu, a
+	// stair load) and were disarmed for it - the evidence AllocTest.ps1 -Pause
+	// reads that a transition happened inside the window at all.
+	u32 m_allocTestTransitions = 0;
 	alloc::GuardStats m_allocTestStart;
 	// `allocpoke`: allocate deliberately, every frame, for this many seconds.
 	// It exists so the guard and tools\AllocTest.ps1 can be shown to FAIL — a

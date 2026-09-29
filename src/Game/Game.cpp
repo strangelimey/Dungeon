@@ -1433,14 +1433,20 @@ void Game::UpdateGovernor(float dt) {
 // really is steady: AllocTest.ps1 -Wounded / -Melee / -Cast.
 bool Game::SteadyStateFrame() {
 	constexpr u32 kWarmupFrames = 120;
-	const bool live = m_state == AppState::Playing ||
-					  (m_state == AppState::CharacterSheet &&
-					   m_resumeState == AppState::Playing);
-	const bool quiet = live && !m_console.IsOpen() && !EvalRunning() &&
+	const bool quiet = GuardedState() && !m_console.IsOpen() && !EvalRunning() &&
 					   !m_mapView.IsOpen() && !m_baking && m_pendingLanguage.empty() &&
 					   !m_pendingQuality;
 	m_steadyFrames = quiet ? m_steadyFrames + 1 : 0;
 	return m_steadyFrames > kWarmupFrames;
+}
+
+// The app states whose frames the rule covers at all: a level being played, or
+// the character sheet over one (see above). Everything else - the menus, the
+// pause menu, the loads, the world map - builds and rebuilds as a matter of
+// course, and is left out.
+bool Game::GuardedState() const {
+	return m_state == AppState::Playing ||
+		   (m_state == AppState::CharacterSheet && m_resumeState == AppState::Playing);
 }
 
 // An overlay just opened, PART WAY THROUGH the frame the guard already armed.
@@ -1510,9 +1516,10 @@ void Game::UpdateAllocTest(float dt, bool steady) {
 	// One machine-readable line: tools\AllocTest.ps1 greps for it and nothing
 	// else, so the format is part of the contract.
 	const std::string line =
-		std::format("alloctest RESULT={} frames={} violations={} violating_frames={}{}",
+		std::format("alloctest RESULT={} frames={} violations={} violating_frames={} "
+					"transitions={}{}",
 					timedOut ? "SKIP" : (violations == 0 ? "PASS" : "FAIL"),
-					m_allocTestFrames, violations, badFrames,
+					m_allocTestFrames, violations, badFrames, m_allocTestTransitions,
 					timedOut ? " reason=never_reached_a_steady_frame" : "");
 	log::Info("{}", line);
 	m_console.Print(line);
@@ -1533,6 +1540,27 @@ void Game::Update(float dt) {
 		m_pokeScratch = std::make_unique<u32>(m_framesRendered);
 	}
 
+	UpdateStates(dt);
+
+	// A frame that LEFT the guarded states is a transition, not a steady-state
+	// frame. SteadyStateFrame judged it on the state at the top, but pressing Esc
+	// rebuilds the pause menu (a fresh widget tree, and the save scan behind its
+	// Load entry), a stair step stages a level load, a party wipe returns to the
+	// title - and whatever the new state is then DRAWS in this frame's Render. The
+	// guard was reporting all of that as a violation of Playing: opening the pause
+	// menu logged ~5000 allocations against ListSaves (2026-09-28). The same
+	// reasoning as OverlayOpenedThisFrame, one level up, and checked HERE, after
+	// every early return in UpdateStates, so no transition site has to remember
+	// to call it. The destination's own frames are not armed anyway (they fail
+	// GuardedState), so only this one frame was ever at issue. Moving INTO the
+	// sheet over a level stays guarded: that is a guarded state too.
+	if (steady && !GuardedState()) {
+		OverlayOpenedThisFrame();
+		if (m_allocTestRemaining > 0.0f) ++m_allocTestTransitions;
+	}
+}
+
+void Game::UpdateStates(float dt) {
 	// World dt: the dev console's `timescale`, times the REST multiplier
 	// (docs/health-and-healing.md). Rest is folded in HERE, at the one place the
 	// world's clock is set, rather than into any particular rate — which is what
