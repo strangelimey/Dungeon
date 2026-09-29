@@ -250,6 +250,22 @@ struct SaveData {
 // half-loading — see the note on `version` above.
 inline constexpr int kMinReadableVersion = 2;
 
+// The file's HEADER: its leading "save key=value" lines, and the only part of a
+// save anything needs in order to LIST it or to choose which world to load it
+// into. The header is exactly those leading lines (blank and ';' lines
+// skipped); a "save" line after the first record is not part of it, in either
+// reader, so ReadSave and ReadSaveHeader cannot disagree about a file.
+//
+// version defaults to 0, NOT SaveData's current version: a file with no version
+// line is refused by the floor, as the note on `version` says it is.
+struct SaveHeader {
+	int version = 0;
+	std::string world;     // SaveData::worldName
+	std::string name;      // SaveData::name
+	std::string level;     // SaveData::currentLevel
+	std::string timestamp; // SaveData::timestamp
+};
+
 // One save file's header, for the slot browser (cheap: parsed from the file).
 struct SaveSlot {
 	std::string world; // the folder of the world it belongs to
@@ -269,9 +285,18 @@ std::string SaveSlotPath(const std::string& name);
 // unparseable file.
 bool WriteSave(const SaveData& data, const std::string& path);
 std::optional<SaveData> ReadSave(const std::string& path);
+// Reads ONLY the header, stopping at the first record, and applies the same
+// refusals ReadSave does (the version floor, a save naming no world) - so a
+// header this accepts is a save ReadSave will load, and vice versa. This is
+// what ListSaves runs on every menu build; the full parse is for loading.
+// A refusal is logged once per session per distinct message, not per call: the
+// menus ask on every Esc, and a stale save would otherwise add a warning each
+// time.
+std::optional<SaveHeader> ReadSaveHeader(const std::string& path);
 
 // Every "*.dsav" in SaveDir, newest first (by timestamp string). Files that
-// fail to parse are skipped. Empty if the folder doesn't exist yet.
+// are refused (see ReadSaveHeader) are skipped. Empty if the folder doesn't
+// exist yet. Header reads only, so it is cheap enough to ask on every menu build.
 std::vector<SaveSlot> ListSaves();
 // Limits ListSaves to one world's saves, for the whole process ("" = every
 // world). A `-project` run sets it: that flag is how a harness or a test

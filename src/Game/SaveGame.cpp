@@ -10,9 +10,12 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <format>
+#include <memory>
+#include <unordered_set>
 
 namespace dungeon::game {
 namespace {
@@ -40,6 +43,66 @@ SaveData::CharState& CharAt(SaveData& data, std::string_view indexTok) {
 	if (idx >= data.characters.size()) data.characters.resize(idx + 1);
 	return data.characters[idx];
 }
+
+// --- the header -------------------------------------------------------------
+
+// One "save key=value" header line into `h`; false if the line is not a header
+// line at all. The value may contain spaces, so it is not tokenized - it is
+// everything after '='. A "save" line with no '=' is still a header line, just
+// an empty one.
+bool ApplyHeaderLine(std::string_view line, SaveHeader& h) {
+	if (!line.starts_with("save ")) return false;
+	const size_t eq = line.find('=');
+	if (eq == std::string_view::npos) return true;
+	const std::string_view key = line.substr(5, eq - 5);
+	const std::string_view val = line.substr(eq + 1);
+	if (key == "version")      h.version = IntOf(val);
+	else if (key == "world")   h.world = val;
+	else if (key == "name")    h.name = val;
+	else if (key == "current") h.level = val;
+	else if (key == "level")   h.level = val; // v1 legacy key
+	else if (key == "time")    h.timestamp = val;
+	return true;
+}
+
+// Every refusal already written to the log this session, by its full text.
+// Keyed by the MESSAGE rather than the path, so a slot overwritten with a save
+// that is refused for a different reason still says so.
+std::unordered_set<std::string> g_refusalsLogged;
+
+void WarnRefusalOnce(std::string message) {
+	if (g_refusalsLogged.insert(message).second) log::Warn("{}", message);
+}
+
+// THE FLOOR (v26), and the world a save must name. The one place a save is
+// refused, which both readers go through - so the load list (header reads) and
+// a load (the full parse) cannot disagree about which files exist.
+//
+// A refused save then vanishes from the load list. That is deliberate: an entry
+// that cannot be loaded is worse than no entry, and the log line below is where
+// the reason lives. A save with no version line at all reads as 0 and is
+// refused with the rest.
+bool Refused(const SaveHeader& h, const std::string& path) {
+	if (h.version < kMinReadableVersion) {
+		WarnRefusalOnce(std::format(
+			"Save {} is version {}, older than the minimum this build reads ({}) - "
+			"refusing rather than loading it half-understood. The world tier "
+			"re-cut what a save is (docs/world-map.md).",
+			path, h.version, kMinReadableVersion));
+		return true;
+	}
+	// A save that does not say which world it belongs to cannot be loaded: the
+	// world is chosen from it before anything else in it is read.
+	if (h.world.empty()) {
+		WarnRefusalOnce(std::format("Save {} names no world - refusing it", path));
+		return true;
+	}
+	return false;
+}
+
+struct FileCloser {
+	void operator()(std::FILE* f) const { std::fclose(f); }
+};
 
 } // namespace
 
@@ -266,8 +329,21 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 std::optional<SaveData> ReadSave(const std::string& path) {
 	auto bytes = assets::ReadBinaryFile(path);
 	if (!bytes) return std::nullopt;
+	const std::vector<std::string> lines = ReadLevelLines(*bytes);
+
+	// The header first, and the refusals before the body: a refused save costs
+	// its header, not a parse. ReadSaveHeader walks the same lines the same way.
+	SaveHeader head;
+	size_t body = 0;
+	while (body < lines.size() && ApplyHeaderLine(lines[body], head)) ++body;
+	if (Refused(head, path)) return std::nullopt;
 
 	SaveData data;
+	data.version = head.version;
+	data.worldName = std::move(head.world);
+	data.name = std::move(head.name);
+	data.currentLevel = std::move(head.level);
+	data.timestamp = std::move(head.timestamp);
 	// The level block "ent"/"seen" lines attach to; created lazily so a legacy
 	// v1 save (top-level seen/ent, no "level" record) folds into one block named
 	// for the save's current level.
@@ -281,22 +357,11 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 		return *cur;
 	};
 
-	for (const std::string& line : ReadLevelLines(*bytes)) {
-		// "save key=value" header lines (value may contain spaces, so don't
-		// tokenize — take everything after '=').
-		if (line.starts_with("save ")) {
-			const size_t eq = line.find('=');
-			if (eq == std::string::npos) continue;
-			const std::string key = line.substr(5, eq - 5);
-			const std::string val = line.substr(eq + 1);
-			if (key == "version")      data.version = std::atoi(val.c_str());
-			else if (key == "world")   data.worldName = val;
-			else if (key == "name")    data.name = val;
-			else if (key == "current") data.currentLevel = val;
-			else if (key == "level")   data.currentLevel = val; // v1 legacy key
-			else if (key == "time")    data.timestamp = val;
-			continue;
-		}
+	for (size_t at = body; at < lines.size(); ++at) {
+		const std::string& line = lines[at];
+		// A "save" line past the first record is not header (see SaveHeader),
+		// and it is no record either.
+		if (line.starts_with("save ")) continue;
 
 		const std::vector<std::string_view> tok = SplitRecordTokens(line);
 		if (tok.empty()) continue;
@@ -584,28 +649,31 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 		}
 	}
 
-	// THE FLOOR (v26). Checked AFTER the parse rather than before it, so the
-	// message can name the version the file actually claims — a save with no
-	// version line at all reads as 0 and is refused with the rest.
-	//
-	// A refused save then vanishes from the load list, because ListSaves keeps
-	// only what ReadSave returns. That is deliberate: an entry that cannot be
-	// loaded is worse than no entry, and the log line below is where the reason
-	// lives.
-	if (data.version < kMinReadableVersion) {
-		log::Warn("Save {} is version {}, older than the minimum this build "
-				  "reads ({}) — refusing rather than loading it half-understood. "
-				  "The world tier re-cut what a save is (docs/world-map.md).",
-				  path, data.version, kMinReadableVersion);
-		return std::nullopt;
-	}
-	// A save that does not say which world it belongs to cannot be loaded:
-	// the world is chosen from it before anything else in it is read.
-	if (data.worldName.empty()) {
-		log::Warn("Save {} names no world - refusing it", path);
-		return std::nullopt;
-	}
 	return data;
+}
+
+std::optional<SaveHeader> ReadSaveHeader(const std::string& path) {
+	std::FILE* raw = nullptr;
+	if (fopen_s(&raw, path.c_str(), "rb") != 0 || !raw) return std::nullopt;
+	const std::unique_ptr<std::FILE, FileCloser> f(raw);
+
+	// ReadLevelLines' rules, a line at a time, stopping at the first record: a
+	// trailing '\r' is dropped, and blank and ';' lines are skipped. One buffer
+	// serves every line.
+	SaveHeader head;
+	std::string line;
+	for (bool more = true; more;) {
+		line.clear();
+		int c;
+		while ((c = std::fgetc(f.get())) != EOF && c != '\n')
+			line.push_back(static_cast<char>(c));
+		more = c != EOF;
+		if (!line.empty() && line.back() == '\r') line.pop_back();
+		if (line.empty() || line[0] == ';') continue;
+		if (!ApplyHeaderLine(line, head)) break; // the first record: header over
+	}
+	if (Refused(head, path)) return std::nullopt;
+	return head;
 }
 
 namespace {
@@ -625,11 +693,11 @@ std::vector<SaveSlot> ListSaves() {
 		if (!entry.is_regular_file() || entry.path().extension() != ".dsav")
 			continue;
 		const std::string path = entry.path().string();
-		if (auto data = ReadSave(path)) {
-			if (!g_saveWorldFilter.empty() && data->worldName != g_saveWorldFilter)
+		if (auto head = ReadSaveHeader(path)) {
+			if (!g_saveWorldFilter.empty() && head->world != g_saveWorldFilter)
 				continue;
-			slots.push_back(
-				{data->worldName, data->name, data->currentLevel, data->timestamp, path});
+			slots.push_back({std::move(head->world), std::move(head->name),
+							 std::move(head->level), std::move(head->timestamp), path});
 		}
 	}
 	// Newest first — the timestamp strings sort lexicographically by time.

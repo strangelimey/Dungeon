@@ -98,10 +98,10 @@ void Game::WireModuleCallbacks() {
 		// A SAVE BELONGS TO A WORLD (SaveGame.h): load that world first when it
 		// is not the one resident — deferred, since this fires from inside a
 		// menu's widget walk and the switch destroys the world.
-		const std::optional<SaveData> head = ReadSave(path);
-		if (!head) return; // unreadable: ReadSave logged why
-		if (!m_world || head->worldName != m_project.FolderName()) {
-			m_pendingWorld = PendingWorld{head->worldName, path};
+		const std::optional<SaveHeader> head = ReadSaveHeader(path);
+		if (!head) return; // missing, or refused (ReadSaveHeader logged why)
+		if (!m_world || head->world != m_project.FolderName()) {
+			m_pendingWorld = PendingWorld{head->world, path};
 			return;
 		}
 		if (m_gameLoaded) {
