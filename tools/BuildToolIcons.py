@@ -1,7 +1,8 @@
 # tools/BuildToolIcons.py - the map editor's script-drawn icon discs
 # (docs/editor-updates-plan.md): the TOOL STRIP's (P1,
-# assets/ui/icon_tb_tool_<name>.png) and the New world disc (P4,
-# icon_tb_newworld.png).
+# assets/ui/icon_tb_tool_<name>.png), the New world disc (P4,
+# icon_tb_newworld.png) and the toolbar's right-hand group (Level, Balance,
+# Generate, Check, Undo/Redo, Save, To source, Play/Pause).
 #
 # Run:  python tools\BuildToolIcons.py [--montage <png>]
 #
@@ -35,8 +36,24 @@ SHADOW = (8, 8, 6, 170)
 
 
 def blank_disc():
+    """The blank disc: icon_tb_blank.png, derived once from the Play disc.
+
+    The derivation reads a Wenrexa disc, and since this script now draws the
+    Play disc too, deriving on every run would read its own output. So the
+    first run keeps the blank beside the icons and every later run starts from
+    that; delete it to derive afresh (from a genuine Wenrexa Play disc)."""
+    path = os.path.join(UI, "icon_tb_blank.png")
+    if os.path.exists(path):
+        return Image.open(path).convert("RGBA")
+    blank = derive_blank(os.path.join(UI, "icon_tb_play.png"))
+    blank.save(path)
+    print("wrote", os.path.relpath(path, ROOT))
+    return blank
+
+
+def derive_blank(src):
     """The Play disc with its glyph removed: the face refilled per radius."""
-    im = Image.open(os.path.join(UI, "icon_tb_play.png")).convert("RGBA")
+    im = Image.open(src).convert("RGBA")
     px = im.load()
     # The face colour at each integer radius, from pixels too dark to be glyph.
     samples = {}
@@ -171,6 +188,112 @@ def glyph_newworld(d):
     d.rectangle([(px - 2) * SS, (py - 7) * SS, (px + 2) * SS, (py + 7) * SS], fill=GLYPH)
 
 
+# --- the toolbar's right-hand group ------------------------------------------
+# Level settings, Balance, Generate, Check, Undo/Redo, Save, To source and
+# Play/Pause. They were Wenrexa discs with stock glyphs (Check a square card
+# that matched nothing); drawing them here puts the whole toolbar in one hand.
+def glyph_level(d):
+    # The level's mood knobs: three slider tracks, their knobs set apart.
+    for y, k in ((31.5, 49), (41.5, 35), (51.5, 44)):
+        d.rectangle([27 * SS, (y - 1.2) * SS, 56 * SS, (y + 1.2) * SS], fill=GLYPH)
+        d.rounded_rectangle([(k - 3) * SS, (y - 4.5) * SS, (k + 3) * SS, (y + 4.5) * SS],
+                            radius=1.5 * SS, fill=GLYPH)
+
+
+def sword(d, tip, pommel):
+    # A straight sword from tip to pommel: blade, crossguard, grip, pommel.
+    tx, ty = tip
+    px, py = pommel
+    L = math.dist(tip, pommel)
+    ux, uy = (px - tx) / L, (py - ty) / L     # tip -> pommel
+    nx, ny = -uy, ux                          # across the blade
+
+    def at(t, s=0.0):
+        return (tx + ux * t + nx * s, ty + uy * t + ny * s)
+
+    # Heavy on purpose: at 1.9 half-width the pair read as scratches at 84 px.
+    guard = L * 0.64
+    d.polygon(S([at(0), at(5, 2.8), at(guard, 2.8), at(guard, -2.8), at(5, -2.8)]), fill=GLYPH)
+    line(d, at(guard, 7.5), at(guard, -7.5), 3.8)   # crossguard
+    line(d, at(guard), at(L - 2.5), 3.4)            # grip
+    r = 3.3
+    cx, cy = at(L - 1)
+    d.ellipse([(cx - r) * SS, (cy - r) * SS, (cx + r) * SS, (cy + r) * SS], fill=GLYPH)
+
+
+def glyph_balance(d):
+    # Combat tuning: two swords crossed, points up.
+    sword(d, (28, 27), (55, 56))
+    sword(d, (55, 27), (28, 56))
+
+
+def glyph_generate(d):
+    # A die showing five: the level generator's roll.
+    d.rounded_rectangle([27 * SS, 27 * SS, 56 * SS, 56 * SS], radius=5 * SS,
+                        outline=GLYPH, width=int(3 * SS))
+    for x, y in ((34.5, 34.5), (48.5, 34.5), (41.5, 41.5), (34.5, 48.5), (48.5, 48.5)):
+        r = 2.8
+        d.ellipse([(x - r) * SS, (y - r) * SS, (x + r) * SS, (y + r) * SS], fill=GLYPH)
+
+
+def glyph_check(d):
+    # The checker: a tick.
+    line(d, (29, 42), (38, 51.5), 5.5)
+    line(d, (38, 51.5), (55, 31), 5.5)
+
+
+def turn_arrow(d, mirror):
+    # A half-turn arrow over the top, head down at the end it turns toward:
+    # undo turns back to the left, redo on to the right.
+    cx, cy, r, w = 41.5, 45.0, 12.0, 4.0
+    box = [(cx - r) * SS, (cy - r) * SS, (cx + r) * SS, (cy + r) * SS]
+    if mirror:
+        d.arc(box, 160, 360, fill=GLYPH, width=int(w * SS))
+        hx = cx + r
+    else:
+        d.arc(box, 180, 380, fill=GLYPH, width=int(w * SS))
+        hx = cx - r
+    d.polygon(S([(hx - 6.5, cy - 1), (hx + 6.5, cy - 1), (hx, cy + 8)]), fill=GLYPH)
+
+
+def glyph_undo(d):
+    turn_arrow(d, False)
+
+
+def glyph_redo(d):
+    turn_arrow(d, True)
+
+
+def glyph_save(d):
+    # A floppy disk: chamfered body, the shutter and the label cut out of it.
+    d.polygon(S([(27, 27), (50, 27), (56, 33), (56, 56), (27, 56)]), fill=GLYPH)
+    clear = (0, 0, 0, 0)
+    d.rectangle([33 * SS, 30 * SS, 47 * SS, 38 * SS], fill=clear)   # shutter window
+    d.rectangle([43 * SS, 31.5 * SS, 45.5 * SS, 36.5 * SS], fill=GLYPH)  # its slide
+    d.rectangle([31 * SS, 43 * SS, 52 * SS, 53 * SS], fill=clear)   # label
+    d.rectangle([34 * SS, 46 * SS, 49 * SS, 47.5 * SS], fill=GLYPH)  # label lines
+    d.rectangle([34 * SS, 49.5 * SS, 45 * SS, 51 * SS], fill=GLYPH)
+
+
+def glyph_source(d):
+    # To source: an arrow down into a tray - the project copied home.
+    line(d, (41.5, 25), (41.5, 42), 4.0)
+    d.polygon(S([(33, 38), (50, 38), (41.5, 48)]), fill=GLYPH)
+    line(d, (27, 44), (27, 56), 3.5)
+    line(d, (27, 56), (56, 56), 3.5)
+    line(d, (56, 56), (56, 44), 3.5)
+
+
+def glyph_play(d):
+    # Resume: a play triangle, nudged right so it sits optically centred.
+    d.polygon(S([(35, 28.5), (35, 54.5), (56, 41.5)]), fill=GLYPH)
+
+
+def glyph_pause(d):
+    d.rounded_rectangle([31 * SS, 29 * SS, 38.5 * SS, 54 * SS], radius=1.5 * SS, fill=GLYPH)
+    d.rounded_rectangle([44.5 * SS, 29 * SS, 52 * SS, 54 * SS], radius=1.5 * SS, fill=GLYPH)
+
+
 # Output name -> glyph; each writes assets/ui/icon_tb_<name>.png.
 GLYPHS = {
     "tool_paint": glyph_paint,
@@ -180,6 +303,16 @@ GLYPHS = {
     "tool_pick": glyph_pick,
     "tool_filllevel": glyph_filllevel,
     "newworld": glyph_newworld,
+    "level": glyph_level,
+    "balance": glyph_balance,
+    "generate": glyph_generate,
+    "check": glyph_check,
+    "undo": glyph_undo,
+    "redo": glyph_redo,
+    "save": glyph_save,
+    "source": glyph_source,
+    "play": glyph_play,
+    "pause": glyph_pause,
 }
 
 
