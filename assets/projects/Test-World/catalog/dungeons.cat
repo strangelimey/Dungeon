@@ -1,0 +1,4 @@
+; The starter: one room, so the world has ground to stand on.
+[keep]
+display = The Keep
+levels = room1

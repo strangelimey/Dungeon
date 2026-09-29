@@ -1,0 +1,362 @@
+; Decoration props: model + texture set + solid/authored flags.
+; texture = none declares the model renders on its flat glTF material by
+; design (no missing-set warning).
+
+[column]
+display = Column
+tags = stone temple
+model = column
+texture = wall_stone
+solid = 1
+authored = 0
+category = architecture
+facing_arrow = 0
+
+; Octagonal turned pillar authored in Blender: plinth, tapered shaft, flared
+; capital. Exactly kWallH tall, so it meets the ceiling with no gap.
+; authored = 1 — a closed solid with correct normals, so it back-face culls.
+[pillar]
+display = Pillar
+tags = stone
+model = pillar
+texture = marble_pillar
+solid = 1
+authored = 1
+category = architecture
+facing_arrow = 0
+
+; The same mesh wearing the dungeon's wall stone instead of marble — a texture
+; set is just a binding for a decoration, so a variant costs an entry, not a
+; model. This is the comparison against the procedural [column] above.
+[pillar_stone]
+display = Pillar (Stone)
+tags = stone
+model = pillar
+texture = wall_stone
+solid = 1
+authored = 1
+category = architecture
+facing_arrow = 0
+
+[archway]
+display = Archway
+tags = stone
+model = archway
+texture = wall_stone
+solid = 0
+authored = 0
+category = architecture
+
+[wall_arch]
+display = Wall Arch
+tags = stone
+model = wall_arch
+texture = stacked_stone
+solid = 0
+category = architecture
+
+; The rustic variant: the same passage opening ringed with stacked voussoirs
+; (jambs to the floor, proud keystone at the crown). Rings out to z +/-0.11
+; because the stone band stands proud of the wall face.
+[wall_arch_rustic]
+display = Wall Arch (Rustic)
+tags = stone ruin
+model = wall_arch_rustic
+texture = stacked_stone
+solid = 0
+category = architecture
+
+; A moulded pedestal, waist height — script-authored (tools/BuildPlinth.py),
+; so its proportions are a profile table rather than a hand-modelled .blend.
+[plinth]
+display = Plinth
+tags = stone temple
+model = plinth
+texture = marble_pillar
+solid = 1
+category = architecture
+facing_arrow = 0
+
+; Weathered version of the rustic arch — same stones, tilted and surface-noised
+; by tools/RoughenArch.py. Kept as its own model so both looks stay available.
+[wall_arch_rough]
+display = Wall Arch (Rough)
+tags = stone ruin cave
+model = wall_arch_rough
+texture = stacked_stone
+solid = 0
+category = architecture
+
+; Script-authored (tools/BuildFountain.py) — one revolved profile each, so the
+; proportions are a table rather than modelled geometry.
+[fountain_round]
+display = Fountain (Round)
+tags = stone marble temple
+model = fountain_round
+texture = marble_pillar
+solid = 1
+category = architecture
+facing_arrow = 0
+
+; Authored wall-backed like the banner: its back face is at the wall and the
+; basin reaches into the room, so it hangs on a FACE and leaves the floor clear.
+[fountain_wall]
+display = Fountain (Wall)
+tags = stone temple
+model = fountain_wall
+texture = marble_pillar
+category = architecture
+mount = wall
+
+[fountain]
+display = Fountain
+tags = stone temple
+model = fountain
+texture = wall_stone
+solid = 1
+authored = 0
+category = architecture
+facing_arrow = 0
+
+[statue]
+display = Statue
+tags = stone temple
+model = statue
+texture = wall_stone
+solid = 1
+authored = 0
+category = statue
+
+[statue_sentinel]
+display = Statue - Hooded Sentinel
+tags = stone temple
+model = statue_sentinel
+texture = marble_white
+solid = 1
+authored = 1
+category = statue
+
+[wood_door]
+display = Wooden Door (prop)
+tags = wood
+model = door
+texture = wood_planks
+solid = 1
+authored = 0
+category = gate
+; A door PROP is a wall-plane object (0.28 deep), so it hangs on a face rather
+; than standing mid-cell — a sealed/false door. A door you can actually open is
+; the functional entity in doors.cat, not this.
+mount = wall
+
+[barrel]
+display = Barrel
+tags = wood
+model = barrel
+texture = wood_planks
+solid = 1
+authored = 0
+category = container
+facing_arrow = 0
+; Wooden and hollow: it smashes. `destructible` is the gate and is OFF for every
+; other prop — a statue or a pillar is scenery and stays scenery. Fire eats a
+; barrel (a negative resist is a WEAKNESS), a blade rather less.
+destructible = 1
+hp = 8
+resists = slash 0.3, fire -0.6
+
+[crate]
+display = Crate
+tags = wood
+model = crate
+texture = wood_planks
+solid = 1
+authored = 0
+category = container
+destructible = 1
+hp = 10
+resists = slash 0.3, fire -0.6
+
+[chest]
+display = Chest
+tags = wood
+model = chest
+texture = wood_planks
+solid = 1
+authored = 0
+category = container
+
+[ancient_pot]
+display = Ancient Pot
+tags = temple ruin
+model = ancient_pot
+texture = ancient_pot
+solid = 1
+authored = 1
+category = container
+facing_arrow = 0
+
+[banner]
+display = Banner
+model = banner
+texture = none
+solid = 1
+authored = 1
+category = clutter
+; The model is authored wall-backed, so it hangs on a wall FACE rather than
+; standing at the cell centre: the editor edge-picks the face, and it mounts
+; non-solid so the floor stays walkable.
+mount = wall
+
+[pot]
+display = Pot
+model = pot
+texture = pot
+solid = 1
+authored = 1
+category = container
+facing_arrow = 0
+
+[mossy_rock]
+display = Mossy Rock
+tags = rock cave outdoor
+model = mossy_rock
+texture = mossy_rock
+solid = 1
+authored = 1
+category = rock
+facing_arrow = 0
+
+[boulder]
+display = Boulder
+tags = rock cave outdoor
+model = boulder
+texture = boulder
+solid = 1
+authored = 1
+category = rock
+facing_arrow = 0
+
+[column_marble]
+display = Marble Column
+tags = marble temple
+model = column
+texture = marble_pillar
+solid = 1
+authored = 0
+category = architecture
+facing_arrow = 0
+
+[statue_marble]
+display = Marble Statue
+tags = marble temple
+model = statue
+texture = marble_white
+solid = 1
+authored = 0
+category = statue
+
+[iron_door]
+display = Iron Door
+tags = iron
+model = door
+texture = rusted_iron
+solid = 1
+authored = 0
+category = gate
+; Wall-plane prop, as wood_door.
+mount = wall
+
+[portcullis]
+display = Portcullis
+tags = iron
+model = portcullis
+texture = rusted_iron
+solid = 1
+authored = 0
+category = gate
+; A grate flat in the wall plane (0.15 deep).
+mount = wall
+
+[viking_dagger]
+display = Viking Dagger
+model = viking_dagger
+multimaterial = 1
+solid = 0
+authored = 1
+category = weapon
+
+[khukri]
+display = Khukri
+model = khukri
+multimaterial = 1
+solid = 0
+authored = 1
+category = weapon
+
+[snake_dagger]
+display = Snake Dagger
+model = snake_dagger
+multimaterial = 1
+solid = 0
+authored = 1
+category = weapon
+
+[french_dagger]
+display = French Dagger
+model = french_dagger
+multimaterial = 1
+solid = 0
+authored = 1
+category = weapon
+
+[rope]
+display = Coil of Rope
+model = rope
+texture = rope
+solid = 0
+authored = 0
+category = clutter
+facing_arrow = 0
+
+; Floor detail (tools/BuildFloorGrate.py): JUST THE IRON BARS, hanging below the
+; floor plane. The hole they cover is a FLOOR FEATURE — floorfeatures.cat
+; `recess` — which replaces the cell's floor block and so wears that cell's floor
+; texture. The bars cannot live in that mesh (it would draw them in stone), so a
+; grate is the two composed: place a recess on the cell, then this on top.
+; solid = 0 — the party walks over it.
+[floor_grate]
+display = Floor Grate
+tags = iron
+model = floor_grate
+texture = rusted_iron
+solid = 0
+authored = 1
+category = floor
+facing_arrow = 0
+
+; Ceiling detail. These are DECORATIONS, not surface features: a feature IS the
+; surface and so must wear the cell's texture, whereas timber and iron want their
+; own. They need no engine support either — a decoration's transform is just a
+; translation to the cell centre at y = 0, so the model's own geometry sets its
+; height, and these are authored up at the ceiling (tools/BuildCeilingBeam.py,
+; tools/BuildHangingChain.py). solid = 0: they are overhead, the floor is clear.
+[ceiling_beam]
+display = Ceiling Beam
+tags = wood
+model = ceiling_beam
+texture = wood_planks
+solid = 0
+authored = 1
+category = ceiling
+facing_arrow = 0
+
+[hanging_chain]
+display = Hanging Chain
+tags = iron
+model = hanging_chain
+texture = rusted_iron
+solid = 0
+authored = 1
+category = ceiling
+facing_arrow = 0

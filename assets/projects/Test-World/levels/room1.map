@@ -1,0 +1,21 @@
+; room1 - the first room of a new world.
+palette wall wall_brick wall_stone wall_moss wall_cobblestone wall_stacked_stone
+palette floor floor_slabs floor_cobble floor_cobblestone floor_broken_tile floor_rubble
+palette ceiling ceiling_rough ceiling_cracked ceiling_stone ceiling_rock ceiling_rock_layered
+
+################
+################
+################
+################
+################
+################
+################
+#######...######
+#######.P.######
+#######...######
+################
+################
+################
+################
+################
+################
