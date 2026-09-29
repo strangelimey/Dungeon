@@ -55,9 +55,17 @@ struct ControlBarDeps {
 	std::function<void(MoveAction)> onMove;
 	std::function<void(size_t member, size_t hand)> onHandLeft;
 	std::function<void(size_t member, size_t hand)> onHandRight;
+	// What a hand is SET to (HandSlot::setUse), asked every frame. Must not
+	// allocate.
+	std::function<HandSetUse(size_t member, size_t hand)> handSetUse;
+	// Hand-use pictures by verb (ui/use_<verb>.png), for an empty set hand.
+	const ItemIconBank* useIcons = nullptr;
 	// The offense/defense stance slider under a member's hands: the widget
 	// mutates nothing itself, it reports where it was dragged to.
 	std::function<void(size_t member, float share)> onGuardChange;
+	// The live Balance::exertMax - the share full over-exertion means. Asked
+	// every frame, since the Balance dialog edits it live.
+	std::function<float()> exertMax;
 	std::string moveLabel;  // localized "Movement" heading
 	std::string magicLabel; // localized "Magic" heading
 	// The two minimize flags (GameSettings), and who to tell when a click flips

@@ -19,6 +19,7 @@
 
 #include "Game/Combat.h"
 #include "Game/Curve.h"
+#include "Game/Defense.h" // defense::StanceRules
 #include "Game/Resource.h"
 #include "Game/Spells.h"
 
@@ -256,6 +257,12 @@ struct Balance {
 	// whole mechanic turns on; 3 is a first cut and expected to move.
 	float exertCost = 3.0f;
 	float exertMax = 2.0f;
+	// THE STANCE'S TWO ENDS (Game/Defense.h StanceRules, Michael 2026-09-28):
+	// the multiple of the skill term at 100% over-exertion (attack) and at 0%
+	// attack (guard). Both curve in with the square of how far toward the end
+	// the stance is, so most of the multiple lives in the last stretch.
+	float exertAttackMax = 5.0f;
+	float guardDefenseMax = 2.0f;
 	// FUMBLE CONSEQUENCES (docs/damage-system.md "When it goes wrong"). A fumble
 	// fires its source's mild table; at a first face of fumble_severe_face or
 	// LESS it fires the severe one as well. At the default thresholds (fumble on
@@ -340,6 +347,12 @@ struct Balance {
 	CurveRules PaceCurve() const {
 		return {static_cast<CurveForm>(static_cast<int>(skillCurve)), paceSlope,
 				paceCap, 0.0f};
+	}
+
+	// The stance's shape, assembled for Game/Defense.h (the pure TU cannot see
+	// Balance, the RollTest wall).
+	defense::StanceRules Stance() const {
+		return {exertMax, exertAttackMax, guardDefenseMax};
 	}
 
 	// The two contribution curves, assembled from the knobs above.

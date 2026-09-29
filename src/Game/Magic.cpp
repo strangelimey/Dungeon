@@ -46,7 +46,8 @@ MagicSystem::CastReport MagicSystem::Cast(Character& caster, int casterIndex,
 	const float exertion =
 		m_balance ? defense::ExertionPoints(caster.offenseShare,
 											static_cast<float>(level),
-											m_balance->SkillCurve())
+											m_balance->SkillCurve(),
+											m_balance->Stance())
 				  : 0.0f;
 	const float failChance =
 		std::clamp(0.35f * static_cast<float>(spell->Difficulty() - 1) -
@@ -80,7 +81,7 @@ MagicSystem::CastReport MagicSystem::Cast(Character& caster, int casterIndex,
 	if (m_balance) {
 		attackBonus =
 			defense::StanceAttack(caster.offenseShare, static_cast<float>(level),
-								  m_balance->SkillCurve()) +
+								  m_balance->SkillCurve(), m_balance->Stance()) +
 			CurveValue(caster.StatAvg(SchoolStats(spell->School())),
 					   m_balance->StatCurve());
 	}

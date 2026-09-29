@@ -28,4 +28,16 @@ void DrawPortrait(gfx::SpriteBatch& batch, const gfx::Rect& rect,
 				  const Character& character, const ui::Font& font,
 				  const ui::Theme& theme);
 
+struct ItemIconBank; // PartyHudTypes.h
+
+// One rune face: the rune-item icon when loaded, else an element-tinted
+// fallback square; element-coloured border. The spellbook's grid and sequence
+// and a hand box armed with a spell all draw runes through this, so a rune
+// reads the same everywhere. `disabled` washes it out under a dark overlay.
+// `background` = false skips the face's own black fill, so whatever is under
+// it shows through (a set hand's accent tint).
+void DrawRuneFace(gfx::SpriteBatch& batch, const gfx::Rect& r, SpellSymbol s,
+				  const ItemIconBank* icons, bool hot, bool disabled = false,
+				  bool background = true);
+
 } // namespace dungeon::game
