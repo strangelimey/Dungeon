@@ -188,6 +188,16 @@ struct ProjectileInfo {
 
 class ProjectileSystem {
 public:
+	// Reserves the item and spark pools up front. A launch and its impact burst
+	// happen mid-fight, in frames the steady-state allocation guard watches, and
+	// the first shot of a session used to grow both vectors from empty. Clear()
+	// and the per-frame erase keep capacity, so only a fight busier than the
+	// reserve ever grows them (once - the capacity then stays).
+	ProjectileSystem() {
+		m_items.reserve(kReservedItems);
+		m_sparks.reserve(kReservedSparks);
+	}
+
 	// Launches a moving item described by `spec` (adds it "to the map").
 	void Spawn(const ProjectileSpec& spec);
 
@@ -254,6 +264,11 @@ private:
 		float life = 0.35f;
 		float size = 0.1f;
 	};
+
+	// Room for a crowded fight: a burst is 6-14 sparks living under half a
+	// second, so 512 covers dozens of impacts landing together.
+	static constexpr size_t kReservedItems = 64;
+	static constexpr size_t kReservedSparks = 512;
 
 	void SpawnSparkBurst(const Vec3& pos, const Vec4& color, int count);
 	// Report a flight that ended without a strike, through onExpire.

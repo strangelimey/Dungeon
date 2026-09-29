@@ -380,7 +380,9 @@ void GameUI::OpenHandUseMenu(size_t i, size_t hand) {
 			spellDefs ? spellDefs() : std::span<const std::unique_ptr<Spell>>{};
 		const size_t limit = std::min(
 			kMaxMenuSpells, static_cast<size_t>(std::max(0, m_settings.spellMruCount)));
-		for (const std::string& id : c.spellMru[hand]) {
+		const SpellIdList& mru = c.spellMru[hand];
+		for (size_t k = 0; k < mru.Size(); ++k) {
+			const std::string_view id = mru[k];
 			if (spellCount >= limit) break;
 			// Skip ids the registry no longer carries (the MRU is state,
 			// the spell classes are code — they can drift across edits).
@@ -1662,6 +1664,12 @@ void GameUI::ShowSheet(size_t index) {
 
 void GameUI::RefreshSheet() { m_sheet->SetCharacter(m_sheetIndex); }
 
+bool GameUI::OpenSpellbook(size_t i) { return m_spellbook && m_spellbook->Open(i); }
+
+void GameUI::CloseSpellbook() {
+	if (m_spellbook) m_spellbook->Close();
+}
+
 // --- dev: the widget trees by name (the console's `uitree dump`) -------------
 
 ui::UIContext* GameUI::UiTree(std::string_view name) {
@@ -1833,8 +1841,7 @@ void GameUI::BuildHud() {
 		return spellDefs ? spellDefs()
 						 : std::span<const std::unique_ptr<Spell>>{};
 	};
-	m_spellbook->onCast = [this](size_t member,
-								 const std::vector<SpellSymbol>& seq) {
+	m_spellbook->onCast = [this](size_t member, std::span<const SpellSymbol> seq) {
 		Click();
 		if (onCastSequence) onCastSequence(member, kBookHands, seq);
 	};

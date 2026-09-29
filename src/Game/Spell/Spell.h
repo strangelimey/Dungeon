@@ -102,11 +102,12 @@ public:
 	// class-only — identity never comes from data.
 	virtual void ApplyOverrides(const CatalogEntry& e);
 
-	// The payload a cast hands its carrier: this spell's on-hit effects packed
-	// into the projectile's inline array. One place, so a bolt spell and any
-	// future thrown form fill it identically — and so the "more than
-	// kMaxPayloadProcs authored" warning has a single home.
-	ProjectilePayload MakePayload() const;
+	// The payload a cast hands its carrier: this spell's on-hit effects and blast,
+	// PACKED ONCE AT LOAD (ApplyOverrides) and copied from there. A cast happens
+	// in a frame the steady-state allocation guard watches, and packing per shot
+	// built a "spells.cat [<id>]" warning label every time whether or not it
+	// warned. Flavour is left unset; the carrier decides it.
+	const ProjectilePayload& MakePayload() const { return m_payload; }
 
 	// The damage-type book this spell resolved against (SpellBook::Build), so a
 	// bolt can ask what its school deals. Borrowed; DungeonWorld owns it and it
@@ -128,8 +129,8 @@ public:
 	// chosen cell. Exposed rather than letting the harness invent its own rules:
 	// a geometry measurement is only worth something if it describes the content
 	// that actually ships (docs/eval-harness.md).
-	const BlastSpec& Blast() const { return m_blast; }
-	std::span<const fx::Proc> Procs() const { return m_procs; }
+	const BlastSpec& Blast() const { return m_payload.blast; }
+	std::span<const fx::Proc> Procs() const { return m_payload.Procs(); }
 
 protected:
 	const DamageTypeBook* m_types = nullptr;
@@ -140,12 +141,11 @@ protected:
 	std::vector<SpellSymbol> m_sequence;
 	float m_power;
 	float m_mana;
-	// What a landed cast leaves behind (spells.cat `on_hit`), parsed once at
-	// load. Empty for most spells — a ward's business is the ward it applies.
-	std::vector<fx::Proc> m_procs;
-	// The area burst it sets off, if any (spells.cat `blast_force` and friends).
-	// Zero force for every spell that is a plain single-target bolt.
-	BlastSpec m_blast;
+	// What a landed cast leaves behind (spells.cat `on_hit`, packed into the
+	// carrier's inline array at load - empty for most spells, a ward's business
+	// is the ward it applies) and the area burst it sets off, if any
+	// (`blast_force` and friends; zero force for a plain single-target bolt).
+	ProjectilePayload m_payload;
 };
 
 // Every concrete spell, freshly constructed at class defaults — the registry

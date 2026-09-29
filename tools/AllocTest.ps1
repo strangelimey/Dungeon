@@ -10,13 +10,25 @@
 #   .\tools\AllocTest.ps1 -Seconds 30
 #   .\tools\AllocTest.ps1 -Wounded           # the REGENERATING steady state
 #   .\tools\AllocTest.ps1 -Melee             # a monster swinging at the party
+#   .\tools\AllocTest.ps1 -Cast              # a bolt in flight + an open spellbook
 #   .\tools\AllocTest.ps1 -Config release    # needs -DDN_TRACK_ALLOCS=ON
 #
-# The party stands still on purpose. Player-driven EVENTS (a bump message, a
-# level line) legitimately allocate - allocation proportional to events is not
-# what the rule forbids - so the assertion is about frames where nothing
-# happened, which is where zero is unambiguously the right answer. Anything
-# that does allocate is named with a full call stack in dungeon.log.
+# THE RULE HAS NO EXCEPTIONS: an allocation in a settled frame is a bug, and
+# that includes frames where something HAPPENED. A bump message, a level line, a
+# monster's swing - since docs/message-allocation.md printing any of them
+# allocates nothing, so the guard carries no notion of an event and no list of
+# things it forgives. (It used to: "allocation proportional to events is not
+# what the rule forbids" was written here as policy, and it was a
+# rationalisation of a defect - loc::Tr copying text the table already owned.)
+#
+# The party stands still in the default run because that is the BASELINE - the
+# least a steady state can be - not because events are excused. A still party
+# simply keeps the event paths OUT of the window, and a path outside the window
+# passes whether it allocates or not. That is what the modes below are for:
+# each one puts an event path INSIDE the window (-Wounded the regeneration tick,
+# -Melee a monster's swing and its narration, -Cast a bolt in flight and an open
+# spellbook). Anything that allocates is named
+# with a full call stack in dungeon.log, once per unique stack.
 #
 # WHY -Wounded EXISTS, and it is the same trap this project keeps meeting: a
 # FRESH party is at full health, and regeneration only runs BELOW maximum - so
@@ -27,10 +39,13 @@
 # needs its own run. Absent and correct report identically; give the check
 # something to be wrong about.
 #
-# It wounds with a SHORT bleed and lets it expire before measuring, so the DoT's
-# own event lines fall outside the window, and it sets the resource practices
-# high first - not to make the numbers big, but because a level-up mid-window is
-# an event that would allocate legitimately and muddy the verdict. At level 20 a
+# It wounds with a SHORT bleed and lets it expire before measuring, so the
+# window holds the regeneration tick and nothing else, and it sets the resource
+# practices high first - not to make the numbers big, but so a level-up (which
+# re-derives the maxima) cannot land mid-window and make the verdict depend on
+# how near a practice happened to be to its next level. That keeps the run
+# repeatable; it is NOT an excuse. A level-up that allocated would be a bug like
+# any other - this run is just not the one that looks for it. At level 20 a
 # practice needs 41 more XP, which ten seconds of regeneration cannot reach.
 #
 # -Melee IS THE SAME TRAP AGAIN. No monster reaches a party standing at the
@@ -43,6 +58,16 @@
 # still swinging, and refuses a PASS unless the tally shows the party was
 # actually hit INSIDE the window. Swings are events, and since the message path
 # stopped allocating (docs/message-allocation.md) events get no exemption.
+#
+# -Cast, AND AGAIN (2026-09-28). No run ever cast a spell or opened a book, so a
+# bolt copied its payload - four std::string effect ids, which the debug CRT
+# allocates for - on every frame of its flight, and an open spellbook rebuilt a
+# vector of rune slots twice a frame, while every run passed. This freezes the
+# world (timescale 0, so the bolt can neither land nor fizzle), has a caster
+# learn fire and cast it, and opens that member's book (`book`), so the window
+# holds a projectile in flight AND a book being redrawn. The LAUNCH itself is
+# an event in the console's own frame, which the guard never arms; it was
+# checked by hand from the hand use menu and the book's Cast button.
 #
 # Every step is driven by what the log actually says rather than by sleeps, so
 # a slow cold-cache load stretches the wait instead of failing the run.
@@ -65,6 +90,10 @@ param(
 	# Scales the spawned monster's hp AND damage (the `spawn` 5th argument), so
 	# it keeps swinging for the whole window without wiping the party.
 	[double]$MeleeStrength = 0.3,
+	# Measures a bolt IN FLIGHT and an OPEN SPELLBOOK. See the note above.
+	[switch]$Cast,
+	# The caster: Maren, a rear-rank caster, by default.
+	[int]$CastMember = 2,
 	# Checks the CHECKER: makes the game allocate every frame on purpose
 	# (`allocpoke`) and passes only if the run comes back FAIL.
 	[switch]$SelfTest
@@ -260,6 +289,30 @@ try {
 		Send-Text 'logecho off'; Send-Key 0x0D
 		Send-Key 0xC0 # close the console again; alloctest reopens it below
 		Start-Sleep -Milliseconds 400
+	}
+
+	if ($Cast) {
+		Write-Host "freezing the world, casting a bolt, and opening member $CastMember's book"
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		Send-Text 'timescale 0'; Send-Key 0x0D
+		Send-Text "learn $CastMember fire"; Send-Key 0x0D
+		Send-Text "cast $CastMember 0 fire"; Send-Key 0x0D
+		Send-Text "book $CastMember"; Send-Key 0x0D
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0 # close the console again; alloctest reopens it below
+		Start-Sleep -Milliseconds 400
+		# Refuse to measure unless both actually happened: a swallowed key or a
+		# fizzled cast would otherwise leave a run that looks exactly like a
+		# clean one. (A book refusal is printed as a Refuse, not 'book open'.)
+		if (-not (Select-String -Path $log -Pattern 'console: cast away' -Quiet)) {
+			throw 'the cast did not go off - no bolt is in flight to measure'
+		}
+		if (-not (Select-String -Path $log -Pattern 'console: book open: ' -Quiet)) {
+			throw 'the spellbook did not open'
+		}
 	}
 
 	if ($SelfTest) {

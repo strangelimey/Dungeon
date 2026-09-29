@@ -176,12 +176,7 @@ bool DungeonWorld::DetonateSpell(std::string_view spellId, int cx, int cz) {
 	// The spell's own payload, unchanged: its blast rules, its on-hit procs and
 	// its school's damage type. No caster (-1) — nothing here is credited with
 	// threat, and a blast has no side anyway.
-	ProjectilePayload payload;
-	payload.blast = spell->Blast();
-	for (const fx::Proc& p : spell->Procs()) {
-		if (payload.count >= payload.procs.size()) break;
-		payload.procs[payload.count++] = p;
-	}
+	ProjectilePayload payload = spell->MakePayload();
 	payload.flavour = spell->School(); // its burn arrives in the school's colours
 	Detonate(cx, cz, payload, m_damageTypes.ForSchool(spell->School()), -1);
 	return true;

@@ -65,8 +65,10 @@ bool ParseSymbol(std::string_view token, SpellSymbol& out);
 
 // The catalog/item id of a symbol's rune tablet ("fire" -> "rune_fire"). The one
 // place the rune-item naming convention lives — used by the icon loader, the dev
-// `rune` command, and the rune model binding. A view of a fixed table, so the
-// HUD can ask every frame without building a string.
+// `rune` command, and the rune model binding. A VIEW of a constant table: the
+// spellbook, the sheet and a HUD hand set to a spell look rune icons up by this
+// id every frame they are shown, and composing "rune_" + id built a string
+// each time.
 std::string_view RuneItemId(SpellSymbol s);
 // The inverse: "rune_fire" -> SpellSymbol::Fire. False for any non-rune id.
 bool RuneSymbolFromItemId(std::string_view typeId, SpellSymbol& out);

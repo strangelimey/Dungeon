@@ -12,17 +12,15 @@ namespace {
 // Parallel to the SpellSymbol enum order.
 constexpr const char* kIds[kSymbolCount] = {"fire", "earth", "air", "water",
 											"project", "protect", "sight"};
+// The rune tablets' item ids, spelled out rather than composed so RuneItemId
+// can hand back a view (see Spells.h).
+constexpr std::string_view kRuneIds[kSymbolCount] = {
+	"rune_fire", "rune_earth", "rune_air", "rune_water",
+	"rune_project", "rune_protect", "rune_sight"};
 constexpr const char* kKeys[kSymbolCount] = {"symbol.fire", "symbol.earth",
 											 "symbol.air", "symbol.water",
 											 "symbol.project", "symbol.protect",
 											 "symbol.sight"};
-// The rune tablets' catalog ids, spelled out rather than built, so RuneItemId
-// can hand back a view: the HUD asks for them every frame (the hand boxes and
-// the spellbook draw rune faces), and a built std::string is a steady-state
-// allocation in the debug CRT even when it fits the small buffer.
-constexpr std::string_view kRuneIds[kSymbolCount] = {
-	"rune_fire", "rune_earth", "rune_air", "rune_water",
-	"rune_project", "rune_protect", "rune_sight"};
 
 // Parses a comma-separated symbol list ("fire,air") into a sequence. Returns
 // false (and leaves `out` partial) on the first unknown token; an empty / blank
@@ -69,6 +67,14 @@ bool RuneSymbolFromItemId(std::string_view typeId, SpellSymbol& out) {
 	if (!typeId.starts_with(kPrefix)) return false;
 	return ParseSymbol(typeId.substr(kPrefix.size()), out);
 }
+
+// The two tables above spell the same names; a mismatch would make a rune
+// tablet's id stop parsing back to its own symbol.
+static_assert([] {
+	for (u32 i = 0; i < kSymbolCount; ++i)
+		if (kRuneIds[i].substr(5) != std::string_view(kIds[i])) return false;
+	return true;
+}());
 
 Vec4 ElementColor(SpellSymbol s) {
 	switch (s) {

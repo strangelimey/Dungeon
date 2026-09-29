@@ -1625,6 +1625,11 @@ private:
 		// landed by fx::ApplyProcs. The older one-per-line `poison =` /
 		// `bleed =` fields still load, appended as the same procs.
 		std::vector<fx::Proc> onHit;
+		// The same list packed into a carrier's inline payload, ONCE at load, for
+		// this kind's plain ranged shot (MonsterShoot): a shot fires mid-fight in
+		// a guarded frame, and packing it there built the warning label string
+		// per shot.
+		ProjectilePayload shotPayload;
 		// --- what the dice's extremes do (docs/damage-system.md) -------------
 		// `crit = pierce`: a critical goes under armour instead of through it.
 		bool critPierce = false;

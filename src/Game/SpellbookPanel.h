@@ -7,6 +7,7 @@
 #include "Game/Spells.h"
 #include "UI/Controls.h"
 
+#include <array>
 #include <functional>
 #include <memory>
 #include <span>
@@ -55,12 +56,19 @@ public:
 
 	// Shows this member's book (fresh sequence) — the selector row's click.
 	void SelectMember(size_t member);
+	// The same, from outside the row (the dev `book` command): refuses, false,
+	// for a member whose selector button is disabled.
+	bool Open(size_t member) {
+		if (!MemberEligible(member)) return false;
+		SelectMember(member);
+		return true;
+	}
 	void Close();
 	bool IsOpen() const { return m_member >= 0; }
 
 	// Cast pressed: (member, the built sequence) — wired to the world's cast
 	// façade. Fired only with a non-empty sequence.
-	std::function<void(size_t, const std::vector<SpellSymbol>&)> onCast;
+	std::function<void(size_t, std::span<const SpellSymbol>)> onCast;
 	// The spell registry, for the live "= <spell>" match label (GameUI's
 	// spellDefs source). Null-safe: no registry, no label.
 	std::function<std::span<const std::unique_ptr<Spell>>()> spells;
@@ -75,6 +83,10 @@ public:
 	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 private:
+	// The most symbols a built sequence holds - recipes are 1-2 symbols today,
+	// six slots leave room for deeper tiers without outgrowing the magic box.
+	static constexpr size_t kMaxSequence = 6;
+
 	// One cell of the rune-button grid: the four SCHOOL runes always hold the
 	// TOP ROW (schools-table order, drawn as empty frames until memorized);
 	// other runes appear in the rows below as the member learns them.
@@ -82,7 +94,19 @@ private:
 		SpellSymbol symbol;
 		bool known;
 	};
-	std::vector<RuneSlot> RuneSlots(const Character& c) const;
+	// A member's grid, INLINE. The panel rebuilds it in every Update and Draw
+	// while a book is open - every settled frame the steady-state allocation
+	// guard watches - so it is a fixed array rather than a returned vector.
+	// Each symbol appears at most once, so kSymbolCount cells always suffice.
+	struct RuneSlotList {
+		std::array<RuneSlot, kSymbolCount> slot{};
+		size_t count = 0;
+		std::span<const RuneSlot> View() const { return {slot.data(), count}; }
+	};
+	RuneSlotList RuneSlots(const Character& c) const;
+	// The sequence spelled so far (inline for the same reason: a rune click
+	// lands in a guarded frame).
+	std::span<const SpellSymbol> Sequence() const { return {m_sequence.data(), m_seqLen}; }
 	// Whether party slot i's selector button responds: the member exists and
 	// is standing (absent / unconscious / dead all disable).
 	bool MemberEligible(size_t i) const;
@@ -101,7 +125,8 @@ private:
 	const std::vector<Character>* m_roster;
 	const ItemIconBank* m_icons;
 	int m_member = -1;  // roster slot whose book is open (-1 = none selected)
-	std::vector<SpellSymbol> m_sequence;
+	std::array<SpellSymbol, kMaxSequence> m_sequence{};
+	size_t m_seqLen = 0; // how much of m_sequence is spelled
 	int m_hotSymbol = -1, m_hotSeq = -1;
 	bool m_hotCast = false, m_hotClear = false;
 	std::string m_placeholder, m_castLabel, m_clearLabel; // localized once

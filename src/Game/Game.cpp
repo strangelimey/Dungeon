@@ -968,11 +968,12 @@ bool Game::SaveGame(const std::string& name) {
 			member.useDefaults[hand].ForEach([&](std::string_view item, std::string_view cmd) {
 				c.useDefaults[hand].emplace_back(std::string(item), std::string(cmd));
 			});
-			c.mruSpells[hand] = member.spellMru[hand];
+			member.spellMru[hand].ForEach(
+				[&](std::string_view id) { c.mruSpells[hand].emplace_back(id); });
 		}
 		// Spells learned by first successful cast.
-		for (const std::string& id : member.learnedSpells)
-			c.learnedSpells.push_back(id);
+		member.learnedSpells.ForEach(
+			[&](std::string_view id) { c.learnedSpells.emplace_back(id); });
 		// Active status effects — the EFFECT ID names the kind now (older saves
 		// stored the category token; EffectBook::FindLegacy maps those forward
 		// on load). The name key still rides along for readability only: an
@@ -1064,11 +1065,14 @@ bool Game::LoadGame(const std::string& path) {
 		for (size_t hand = 0; hand < 2; ++hand) {
 			for (const auto& [item, cmd] : c.useDefaults[hand])
 				m_characters[i].useDefaults[hand].Set(item, cmd);
-			m_characters[i].spellMru[hand] = c.mruSpells[hand];
+			// Add appends, so the saved newest-first order is kept.
+			m_characters[i].spellMru[hand].Clear();
+			for (const std::string& id : c.mruSpells[hand])
+				m_characters[i].spellMru[hand].Add(id);
 		}
 		// And the spells learned by casting (likewise reset to empty).
 		for (const std::string& id : c.learnedSpells)
-			m_characters[i].learnedSpells.insert(id);
+			m_characters[i].learnedSpells.Add(id);
 		// Restore active status effects (pre-v13 saves carry none). The token
 		// is an effect id; FindLegacy also accepts the pre-effects-system
 		// category tokens ("ward" + school, "poison", ...). An unresolved one

@@ -34,6 +34,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -148,6 +149,13 @@ public:
 		return m_sheet ? m_sheet->CurrentMode() : CharacterSheet::Mode::Inventory;
 	}
 
+	// --- spellbook (the Magic area) ------------------------------------------------
+	// Opens member `i`'s book exactly as its selector button does, or refuses
+	// (false) where that button is disabled - absent, down, or no symbols. The
+	// dev `book` command's path, so a harness can hold a book open.
+	bool OpenSpellbook(size_t i);
+	void CloseSpellbook();
+
 	// --- message log ---------------------------------------------------------------
 	// Borrows the line: it is copied once, into the log's own ring slot, so
 	// printing a message allocates nothing (docs/message-allocation.md).
@@ -246,7 +254,7 @@ public:
 	// Magic area's member selector picks whose book) — wired to DungeonWorld::
 	// CastSpell (exact-recipe match; a miss fizzles). The hand argument is
 	// kBookHands: a book cast credits both hands' quick-cast MRU.
-	std::function<void(size_t, size_t, const std::vector<SpellSymbol>&)>
+	std::function<void(size_t, size_t, std::span<const SpellSymbol>)>
 		onCastSequence;
 	// Member `i` eats or drinks the item with this catalog id — wired to
 	// DungeonWorld::ConsumeItem, which owns the catalogs and the two meters.

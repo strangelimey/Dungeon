@@ -126,7 +126,11 @@ void ParseProcs(std::string_view spec, std::vector<Proc>& out,
 			continue;
 		}
 		Proc proc;
-		proc.id = std::string(token[0]);
+		if (!proc.id.Assign(token[0])) {
+			log::Warn("{}: on-hit effect id '{}' is longer than {} characters",
+					  where, token[0], EffectId::kCapacity);
+			continue;
+		}
 		proc.magnitude = std::strtof(std::string(token[1]).c_str(), nullptr);
 		proc.duration = std::strtof(std::string(token[2]).c_str(), nullptr);
 		if (n >= 4) proc.chance = std::strtof(std::string(token[3]).c_str(), nullptr);
@@ -141,9 +145,10 @@ void ApplyProcs(ITarget& target, std::span<const Proc> procs,
 	for (const Proc& proc : procs) {
 		if (proc.magnitude <= 0.0f || proc.duration <= 0.0f) continue;
 		if (roll(rng) > proc.chance) continue;
-		const EffectKind* kind = book.Find(proc.id);
+		const EffectKind* kind = book.Find(proc.id.View());
 		if (!kind) {
-			log::Warn("on-hit proc names effect '{}', which has no kind", proc.id);
+			log::Warn("on-hit proc names effect '{}', which has no kind",
+					  proc.id.View());
 			continue;
 		}
 		const SpellSymbol flavour = school.value_or(kind->DefaultSchool());
