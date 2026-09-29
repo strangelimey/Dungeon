@@ -172,7 +172,9 @@ void Game::RegisterDevCommands() {
 					   "open the map in editor mode (off = player map; inspect <x> <z> = "
 					   "what a right-click on that square does; inspect off closes it; "
 					   "place <category> <id> <x> <z> = arm that palette row and left-click "
-					   "the square; erase <x> <z> = a middle-click on it)",
+					   "the square; drag <category> <id> <x> <z> [<x> <z> ...] = the same "
+					   "row dragged over several squares as one stroke; erase <x> <z> = a "
+					   "middle-click on it)",
 					   [this](const std::vector<std::string>& args) {
 						   if (!args.empty() && args[0] == "off") {
 							   m_mapView.SetMode(MapView::Mode::Player);
@@ -235,6 +237,40 @@ void Game::RegisterDevCommands() {
 													   std::atoi(args[4].c_str()));
 							   m_console.Print(std::format("editor move: {},{} -> {},{}", fx, fz,
 														   args[3], args[4]));
+							   return;
+						   }
+						   // A left DRAG, for a harness: arm the row, then the press
+						   // on the first square and the held drag over the rest,
+						   // inside one stroke - exactly what MapView does between a
+						   // press and its release, so the stroke's undo step is the
+						   // one a mouse drag gets.
+						   if (!args.empty() && args[0] == "drag") {
+							   if (args.size() < 5 || (args.size() - 3) % 2 != 0) {
+								   m_console.Print("usage: editor drag <category> <id> <x> <z> "
+												   "[<x> <z> ...]");
+								   return;
+							   }
+							   if (m_mapView.IsOpen())
+								   m_mapView.SetMode(MapView::Mode::Editor);
+							   else
+								   m_mapView.Open(MapView::Mode::Editor);
+							   const MapEditor::PaletteCat cat =
+								   MapEditor::CatForCatalogKey(args[1]);
+							   if (cat == MapEditor::PaletteCat::Count ||
+								   !m_mapEditor.Arm(cat, args[2])) {
+								   m_console.Print(std::format(
+									   "editor drag: no palette row '{}' in '{}'", args[2],
+									   args[1]));
+								   return;
+							   }
+							   m_mapEditor.BeginStroke();
+							   for (size_t i = 3; i + 1 < args.size(); i += 2)
+								   m_mapEditor.Paint(std::atoi(args[i].c_str()),
+													 std::atoi(args[i + 1].c_str()),
+													 /*dragging*/ i > 3);
+							   m_mapEditor.EndStroke();
+							   m_console.Print(std::format("editor drag: {} over {} squares",
+														   args[2], (args.size() - 3) / 2));
 							   return;
 						   }
 						   if (!args.empty() && (args[0] == "place" || args[0] == "erase")) {

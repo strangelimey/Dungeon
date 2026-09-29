@@ -252,6 +252,7 @@ std::vector<MapView::ToolButton> MapView::ToolbarButtons(const gfx::Rect& panel)
 }
 
 void MapView::DoUndoRedo(bool redo) {
+	if (m_editor) m_editor->EndStroke(); // Ctrl+Z mid-drag: close the stroke first
 	if (redo) m_world->Redo();
 	else m_world->Undo();
 	// A restored stash must show immediately on a browsed level (the snapshot
@@ -428,6 +429,11 @@ WallFace MapView::FaceAt(float px, float py, const gfx::Rect& panel) const {
 }
 
 bool MapView::Update(const Input& input, const gfx::Rect& panel) {
+	// A paint stroke ends when the left button is up, wherever the pointer is -
+	// off the grid, over a dock, or on the frame after the overlay closed - so
+	// its undo step always lands and never stays open under a later edit.
+	if (m_editor && m_editor->StrokeOpen() && !input.IsMouseDown(MouseButton::Left))
+		m_editor->EndStroke();
 	if (!m_open) {
 		m_panning = false;
 		return false;
@@ -790,12 +796,16 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 			// pointer position earlier this frame, so the click commits the pose
 			// that was on screen — the ghost is handed over, not recomputed.
 			else {
+				m_editor->BeginStroke(); // press .. release = one undo step
 				m_editor->Paint(cx, cz, /*dragging*/ false, m_hoverFace, &m_hoverPlace);
 				painted = true;
 			}
 		} else if (!shift && !ctrl && !alt &&
 				   input.IsMouseDown(MouseButton::Left) &&
 				   CellAt(mx, my, panel, cx, cz)) {
+			// A drag can arrive without a plain press (a modifier let go
+			// mid-hold): it still gets a stroke, so it is still undoable.
+			m_editor->BeginStroke();
 			m_editor->Paint(cx, cz, /*dragging*/ true, m_hoverFace, &m_hoverPlace);
 			painted = true;
 		}

@@ -1,0 +1,31 @@
+; strokeundo.eval - a paint DRAG is one undo step, even when its first square
+; already had the texture (editor-updates P0).
+;
+; The defect this pins: the undo step used to be decided on the PRESS. When the
+; pressed square already wore the brush's texture nothing changed, the step was
+; dropped, and every square the drag went on to paint had no undo at all - so
+; Ctrl+Z skipped the drag and undid the edit BEFORE it instead.
+;
+; Read by geometry, not by message: `geomhash` fingerprints the level's surfaces,
+; so "undo put it back" is a hash matching the one taken before.
+;
+;   H0 = the untouched level
+;   H1 = after one square is painted (a plain place, its own step)
+;   H2 = after a drag that STARTS on that square and paints three more
+; then undo must give H1 (the drag alone came off), and undo again H0.
+
+logecho on
+reset
+geomhash
+echo --- place ---
+editor place floors floor_slabs 5 5
+geomhash
+echo --- drag ---
+editor drag floors floor_slabs 5 5 6 5 7 5 8 5
+geomhash
+echo --- undo the drag ---
+undo
+geomhash
+echo --- undo the place ---
+undo
+geomhash

@@ -605,14 +605,14 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face,
 		if (m_world->onMessage) m_world->onMessage(s);
 	};
 
-	// Undo bracketing: everything below mutates. A drag stroke is ONE undo
-	// step — the snapshot is taken before the stroke's first cell; later
-	// stroke cells fold into it. `changed` decides whether the pending
-	// snapshot is kept: live paints compare the map revision, entity edits
-	// report success, and remote edits are conservatively treated as changed
-	// (a same-value remote paint costs one no-op undo step at worst).
-	const bool strokeStart = !dragging;
-	if (strokeStart) m_world->BeginUndoStep();
+	// Undo bracketing: everything below mutates. Inside a stroke (BeginStroke ..
+	// EndStroke) the stroke owns the one undo step and this call only reports
+	// whether it changed anything; outside one, it brackets itself. `changed`:
+	// live paints compare the map revision, entity edits report success, and
+	// remote edits are conservatively treated as changed (a same-value remote
+	// paint costs one no-op undo step at worst).
+	const bool ownStep = !m_strokeOpen;
+	if (ownStep) m_world->BeginUndoStep();
 	const u32 rev0 = m_world->Map().Revision();
 	bool changed = false;
 
@@ -765,7 +765,21 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face,
 		break;
 	}
 
-	if (strokeStart) m_world->CommitUndoStep(changed);
+	if (ownStep) m_world->CommitUndoStep(changed);
+	else m_strokeChanged = m_strokeChanged || changed;
+}
+
+void MapEditor::BeginStroke() {
+	if (m_strokeOpen) return;
+	m_world->BeginUndoStep();
+	m_strokeOpen = true;
+	m_strokeChanged = false;
+}
+
+void MapEditor::EndStroke() {
+	if (!m_strokeOpen) return;
+	m_strokeOpen = false;
+	m_world->CommitUndoStep(m_strokeChanged);
 }
 
 void MapEditor::PaintCell(int cx, int cz, bool remote, const std::string& stem) {

@@ -184,6 +184,15 @@ public:
 			   const Placement* pre = nullptr) {
 		ApplyBrush(cx, cz, dragging, face, pre);
 	}
+	// A paint STROKE - the left press to its release - is ONE undo step. MapView
+	// opens it on the press and closes it on the release, so the step is decided
+	// by the WHOLE stroke: a drag whose first cell already had the texture used
+	// to drop its step on the press and leave every later cell unundoable. The
+	// release is also the "an edit just ended" moment the live checker waits for.
+	// A Paint outside a stroke (the console's `editor place`) brackets itself.
+	void BeginStroke();
+	void EndStroke();
+	bool StrokeOpen() const { return m_strokeOpen; }
 	// True when something is armed AND it is a thing that gets PLACED (not a
 	// surface paint, not a non-placeable category). The hover ghost keys off
 	// this: a wall-texture brush has no pose to preview, only a cell to fill.
@@ -375,6 +384,8 @@ private:
 	// key and the eyedropper's pick. -1 when the palette is empty.
 	int ResolvedVariant(int cx, int cz, int sel) const; // sel = SurfaceSel
 	int m_lastX = -1, m_lastZ = -1; // rect anchor: the last painted cell
+	bool m_strokeOpen = false;    // BeginStroke .. EndStroke
+	bool m_strokeChanged = false; // anything in the open stroke changed
 
 	MapView& m_view;          // the viewport (layout helpers, shared font)
 	DungeonWorld* m_world = nullptr; // see SetWorld
