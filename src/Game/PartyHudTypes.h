@@ -50,10 +50,13 @@ struct HitSplatIcons {
 // Item icons keyed by catalog id ("rune_fire" → its rune_icon_fire texture),
 // for the held cursor, the hand slots, and the inventory window. Owned by Game
 // (the textures live there); the HUD widgets read it live, so a missing id just
-// draws no icon. The address handed to GameUI is stable.
+// draws no icon. The address handed to GameUI is stable. Looked up by VIEW
+// (transparent compare): the sheet asks for its slot outlines by string
+// literal every frame, and a const std::string& parameter built a temporary
+// string per call.
 struct ItemIconBank {
-	std::flat_map<std::string, const gfx::Texture*> byType;
-	const gfx::Texture* For(const std::string& typeId) const {
+	std::flat_map<std::string, const gfx::Texture*, std::less<>> byType;
+	const gfx::Texture* For(std::string_view typeId) const {
 		const auto it = byType.find(typeId);
 		return it == byType.end() ? nullptr : it->second;
 	}

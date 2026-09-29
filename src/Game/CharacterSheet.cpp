@@ -45,6 +45,13 @@ CharacterSheet::CharacterSheet(const gfx::Rect& rect,
 					loc::Tr("attr.vitality"), loc::Tr("attr.willpower"),
 					loc::Tr("attr.intelligence")};
 	BuildParts();
+	// Room for a member's rows before the first open (RowPool): skills are
+	// the schools + weapon classes + the three practices + two headings, and
+	// the spells are bounded by the registry (16 in the demo).
+	m_skillRows.Warm(24);
+	m_spellRows.Warm(32);
+	m_effectRows.Warm(16);
+	m_spellOrder.reserve(64);
 }
 
 // The sheet's children. The two non-scrolling bodies (Inventory, Stats) stay

@@ -1,5 +1,6 @@
 #include "UI/FontLibrary.h"
 
+#include "Core/AllocTrack.h"
 #include "Core/Log.h"
 
 #include <algorithm>
@@ -48,6 +49,8 @@ const FaceSpec& FontLibrary::Face(FontRole role) const {
 
 FaceData FontLibrary::FaceFor(const std::string& path) {
 	if (auto it = m_faces.find(path); it != m_faces.end()) return it->second;
+	// A first-time load, allowed inside a steady frame (see Get below).
+	const alloc::Excused excuse;
 	// LoadFace falls back to a system face when `path` is empty or missing, so
 	// the result is never null and the miss is cached either way — a bad path
 	// is probed (and logged) once, not once per size.
@@ -71,6 +74,13 @@ Font& FontLibrary::Get(FontRole role, float pixelHeight) {
 	const Key key{face.get(), px};
 	if (auto it = m_fonts.find(key); it != m_fonts.end()) return *it->second;
 
+	// A MISS is a first-time bake: the atlas for a size nothing has drawn at yet
+	// (the character sheet's first open builds ~10 MB of them). That is the
+	// case Core/AllocTrack.h names as allowed inside a steady frame, so it
+	// excuses itself. Only the miss - the hit above allocates nothing and stays
+	// guarded, and a caller asking for a new size every frame still shows up as
+	// the live-font warning below.
+	const alloc::Excused excuse;
 	auto font = std::make_unique<Font>(m_device, face, static_cast<float>(px));
 	Font& ref = *font;
 	m_fonts.emplace(key, std::move(font));

@@ -8,6 +8,7 @@
 #include "Core/Loc.h"
 
 #include <algorithm>
+#include <cmath>
 #include <format>
 
 namespace dungeon::game {
@@ -203,8 +204,19 @@ void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	// --- backpack (right) — carry load stands in for a "Backpack" header ----
 	const float load = CarryLoad();
 	const float maxLoad = m_character->MaxCarryLoad();
-	const std::string loadText = loc::Format(
-		"sheet.load", std::format("{:.1f}", load), std::format("{:.0f}", maxLoad));
+	// Formatted on the stack: this draws every frame the tab is up. In whole
+	// numbers, because MSVC's float path for a precision ("{:.1f}") allocates
+	// in the debug build where the integer one does not. Loads are never
+	// negative, so tenths split cleanly.
+	char loadBuf[16], maxBuf[16];
+	const long tenths = std::lround(std::max(load, 0.0f) * 10.0f);
+	const auto loadEnd =
+		std::format_to_n(loadBuf, sizeof(loadBuf), "{}.{}", tenths / 10, tenths % 10).out;
+	const auto maxEnd =
+		std::format_to_n(maxBuf, sizeof(maxBuf), "{}", std::lround(maxLoad)).out;
+	const std::string_view loadStr(loadBuf, static_cast<size_t>(loadEnd - loadBuf));
+	const std::string_view maxStr(maxBuf, static_cast<size_t>(maxEnd - maxBuf));
+	const loc::Line loadText = loc::FormatLine("sheet.load", loadStr, maxStr);
 	const Vec4 loadColor = load > maxLoad ? Vec4{0.85f, 0.25f, 0.2f, 1.0f} : theme.accent;
 	font.Draw(batch, loadText, Ax(px, kPackX), Ay(px, kHeaderY), loadColor);
 

@@ -7,10 +7,12 @@
 // ============================================================================
 #pragma once
 
+#include "Core/Loc.h"
 #include "Game/PartyHudTypes.h"
 #include "Game/Spells.h"
 #include "UI/Controls.h"
 
+#include <algorithm>
 #include <array>
 #include <functional>
 #include <memory>
@@ -269,10 +271,34 @@ private:
 	// The three scrolling tabs, in Mode order after Stats (Skills, Spells,
 	// Effects); only the active one is visible. Owned as children.
 	std::array<SheetList*, 3> m_lists{nullptr, nullptr, nullptr};
-	std::string m_healthText, m_staminaText, m_manaText; // "42 / 42"
-	std::string m_foodText, m_waterText;                 // ditto, out of 100
-	std::array<std::string, 5> m_attrValues;             // per-attribute numbers
-	// Skills-tab rows, baked by SetCharacter like the attribute values: the
+	// The Stats tab's numbers ("42 / 42", the attribute values) are formatted
+	// at DRAW time into stack buffers, not baked: the world keeps running under
+	// the sheet, so a value baked at open went stale while it was on screen.
+
+	// A tab's rows, REUSED across bakes rather than rebuilt. Opening the sheet
+	// is a click in a settled frame, and clearing a vector of strings then
+	// pushing new ones allocated every row again (53 allocations a reopen).
+	// Reset() only rewinds the count: a row keeps its strings' capacity, so a
+	// re-bake assign()s into memory it already owns. Warm() builds the rows up
+	// front (with each row's Reserve()) so even the first open finds them;
+	// a member with more rows than that grows the pool once. Next() hands back
+	// a used row, so a bake must set EVERY field of it.
+	template <class Row> struct RowPool {
+		std::vector<Row> rows;
+		size_t count = 0;
+		void Reset() { count = 0; }
+		Row& Next() {
+			if (count == rows.size()) rows.emplace_back().Reserve();
+			return rows[count++];
+		}
+		void Truncate(size_t n) { count = std::min(count, n); }
+		void Warm(size_t n) {
+			while (rows.size() < n) rows.emplace_back().Reserve();
+		}
+		size_t size() const { return count; }
+		const Row& operator[](size_t i) const { return rows[i]; }
+	};
+	// Skills-tab rows, baked by SetCharacter: the
 	// localized skill name, the level number, the progress fraction toward
 	// the next level, and the bar tint (school colour; weapon classes use
 	// the theme accent via alpha 0 as the "no tint" flag).
@@ -288,8 +314,9 @@ private:
 		// than a second row type — the list walks one vector, and a heading is
 		// simply a row that draws less.
 		bool header = false;
+		void Reserve() { label.reserve(63); }
 	};
-	std::vector<SkillRow> m_skillRows;
+	RowPool<SkillRow> m_skillRows;
 	// Spells-tab rows, baked by SetCharacter: the member's LEARNED spells in
 	// school -> rune-count order, each with a school-tinted name and a
 	// description (the spell's <id>.desc, its base power formatted in).
@@ -298,10 +325,17 @@ private:
 		std::vector<SpellSymbol> symbols; // the recipe, drawn as rune icons first
 		std::string name, desc;
 		Vec4 tint{1, 1, 1, 1};
+		// A description is a loc::Line at most (loc::kCapacity), so it fits.
+		void Reserve() {
+			symbols.reserve(8);
+			name.reserve(63);
+			desc.reserve(loc::Line::kCapacity);
+		}
 	};
-	std::vector<SpellRow> m_spellRows;
-	// Effects-tab rows, likewise baked by SetCharacter (the world is frozen
-	// while the sheet is open, so effects can't change under it): the HUD
+	RowPool<SpellRow> m_spellRows;
+	std::vector<const Spell*> m_spellOrder; // BakeSpells' sort scratch
+	// Effects-tab rows, likewise baked by SetCharacter. NOTE the sheet no longer
+	// freezes the world, so the time left shown is as of the bake: the HUD
 	// indicator's icon look (kind art + school tint + time sliver) plus the
 	// long form — name, a magnitude-formatted description (loc key =
 	// <nameKey>.desc), and the time left.
@@ -312,8 +346,13 @@ private:
 		Vec4 tint{1, 1, 1, 1};
 		float frac = 0.0f; // timeLeft / duration, the icon's sliver
 		std::string name, desc, time;
+		void Reserve() {
+			name.reserve(63);
+			desc.reserve(loc::Line::kCapacity);
+			time.reserve(63);
+		}
 	};
-	std::vector<EffectRow> m_effectRows;
+	RowPool<EffectRow> m_effectRows;
 	// Static page text, localized once at construction (the sheet is rebuilt
 	// on a language change) so Draw stays allocation-free.
 	std::string m_healthLabel, m_staminaLabel, m_manaLabel;

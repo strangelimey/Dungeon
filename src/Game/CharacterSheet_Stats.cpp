@@ -9,29 +9,27 @@
 
 #include <algorithm>
 #include <format>
+#include <span>
 
 namespace dungeon::game {
 using namespace sheet;
 
-void CharacterSheet::BakeStats() {
-	if (!m_character) return;
-	const Character& character = *m_character;
-	m_healthText = std::format("{} / {}", static_cast<int>(character.health),
-							   static_cast<int>(character.maxHealth));
-	m_staminaText = std::format("{} / {}", static_cast<int>(character.stamina),
-								static_cast<int>(character.maxStamina));
-	m_manaText = std::format("{} / {}", static_cast<int>(character.mana),
-							 static_cast<int>(character.maxMana));
-	m_foodText = std::format("{} / {}", static_cast<int>(character.food),
-							 static_cast<int>(character.maxFood));
-	m_waterText = std::format("{} / {}", static_cast<int>(character.water),
-							  static_cast<int>(character.maxWater));
-	m_attrValues = {std::to_string(character.strength),
-					std::to_string(character.dexterity),
-					std::to_string(character.vitality),
-					std::to_string(character.willpower),
-					std::to_string(character.intelligence)};
+namespace {
+
+// "value / max" into `buf`, truncating the way the sheet always has.
+std::string_view FormatPool(std::span<char> buf, float value, float max) {
+	const auto end = std::format_to_n(buf.data(), static_cast<std::ptrdiff_t>(buf.size()),
+									  "{} / {}", static_cast<int>(value),
+									  static_cast<int>(max))
+						 .out;
+	return {buf.data(), static_cast<size_t>(end - buf.data())};
 }
+
+} // namespace
+
+// Nothing to bake any more: the numbers are formatted as they draw (see the
+// header). Kept so SetCharacter's list of bakes still names every tab.
+void CharacterSheet::BakeStats() {}
 
 void CharacterSheet::DrawStats(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 							   const gfx::Rect& px) {
@@ -51,11 +49,17 @@ void CharacterSheet::DrawStats(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	const float rowTop = Ay(px, kHeaderY) + font.LineAdvance() + Rem(0.4f);
 	const float rowStep = kStatRowH * px.h;
 
+	const int attrs[] = {m_character->strength, m_character->dexterity,
+						 m_character->vitality, m_character->willpower,
+						 m_character->intelligence};
 	for (size_t i = 0; i < m_attrLabels.size(); ++i) {
 		const float y = rowTop + static_cast<float>(i) * rowStep;
 		font.Draw(batch, m_attrLabels[i], Ax(px, kLabelX), y, theme.textDim);
-		const float vw = font.MeasureWidth(m_attrValues[i]);
-		font.Draw(batch, m_attrValues[i], Ax(px, kValueRight) - vw, y, theme.text);
+		char buf[16];
+		const auto end = std::format_to_n(buf, sizeof(buf), "{}", attrs[i]).out;
+		const std::string_view value(buf, static_cast<size_t>(end - buf));
+		const float vw = font.MeasureWidth(value);
+		font.Draw(batch, value, Ax(px, kValueRight) - vw, y, theme.text);
 	}
 
 	// --- health / stamina / mana bars (right column) ------------------------
@@ -63,21 +67,18 @@ void CharacterSheet::DrawStats(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 		const std::string& label;
 		float value, max;
 		const Vec4& color;
-		const std::string& text;
 	} bars[] = {
 		{m_healthLabel, m_character->health, m_character->maxHealth,
-		 m_barColors->health, m_healthText},
+		 m_barColors->health},
 		{m_staminaLabel, m_character->stamina, m_character->maxStamina,
-		 m_barColors->stamina, m_staminaText},
-		{m_manaLabel, m_character->mana, m_character->maxMana, m_barColors->mana,
-		 m_manaText},
+		 m_barColors->stamina},
+		{m_manaLabel, m_character->mana, m_character->maxMana, m_barColors->mana},
 		// The two SUPPLIES, below the three pools they pay for
 		// (docs/health-and-healing.md). Five bars against the five attributes in
 		// the left column, which is how the two halves of the tab now line up.
-		{m_foodLabel, m_character->food, m_character->maxFood, m_barColors->food,
-		 m_foodText},
+		{m_foodLabel, m_character->food, m_character->maxFood, m_barColors->food},
 		{m_waterLabel, m_character->water, m_character->maxWater,
-		 m_barColors->water, m_waterText},
+		 m_barColors->water},
 	};
 	for (size_t i = 0; i < std::size(bars); ++i) {
 		const auto& b = bars[i];
@@ -86,8 +87,10 @@ void CharacterSheet::DrawStats(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 		font.Draw(batch, b.label, Ax(px, kBarLabelX),
 				  bar.y + (bar.h - font.Height()) * 0.5f, theme.textDim);
 		DrawStatBar(batch, bar, b.value / std::max(b.max, 1.0f), b.color, theme);
-		const float tw = font.MeasureWidth(b.text);
-		font.Draw(batch, b.text, bar.x + (bar.w - tw) * 0.5f,
+		char buf[32];
+		const std::string_view text = FormatPool(buf, b.value, b.max);
+		const float tw = font.MeasureWidth(text);
+		font.Draw(batch, text, bar.x + (bar.w - tw) * 0.5f,
 				  bar.y + (bar.h - font.Height()) * 0.5f, theme.text);
 	}
 }

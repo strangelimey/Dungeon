@@ -143,8 +143,12 @@ void SheetList::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 
 // --- the bakes -------------------------------------------------------------
 
+// Each bake rewinds its RowPool and assign()s into the rows it hands back, so a
+// re-bake allocates nothing (CharacterSheet.h, RowPool): labels are loc views,
+// numbers and formatted lines go through stack buffers / loc::FormatLine.
+
 void CharacterSheet::BakeSkills() {
-	m_skillRows.clear();
+	m_skillRows.Reset();
 	if (!m_character) return;
 	const Character& character = *m_character;
 	// Skills-tab rows (docs/skills.md): the school skills first (symbol order,
@@ -155,16 +159,25 @@ void CharacterSheet::BakeSkills() {
 		const int level = Character::LevelForXp(xp);
 		const float base = static_cast<float>(level * level);
 		const float next = static_cast<float>((level + 1) * (level + 1));
-		m_skillRows.push_back({loc::Tr("skill." + std::string(id)),
-							   std::to_string(level),
-							   std::clamp((xp - base) / (next - base), 0.0f, 1.0f),
-							   tint});
+		SkillRow& row = m_skillRows.Next();
+		row.label.assign(loc::ViewKey("skill.", id).View());
+		char buf[16];
+		const auto end = std::format_to_n(buf, sizeof(buf), "{}", level).out;
+		row.level.assign(buf, end);
+		row.frac = std::clamp((xp - base) / (next - base), 0.0f, 1.0f);
+		row.tint = tint;
+		row.header = false;
 	};
 	// A heading, added only when its group turns out to have rows — so a member
 	// who has trained nothing gets the "No skills yet." line rather than two
 	// labels over empty space.
 	auto addHeader = [&](const char* key) {
-		m_skillRows.push_back({loc::Tr(key), {}, 0.0f, {0, 0, 0, 0}, true});
+		SkillRow& row = m_skillRows.Next();
+		row.label.assign(loc::View(key));
+		row.level.clear();
+		row.frac = 0.0f;
+		row.tint = {0, 0, 0, 0};
+		row.header = true;
 	};
 	// The RESOURCE practices are told apart from the rest by id, not by any flag
 	// on the row — resource::SkillId is the one place that mapping lives, and
@@ -193,7 +206,7 @@ void CharacterSheet::BakeSkills() {
 		if (ParseSymbol(id, sym)) continue; // schools already listed above
 		if (xp > 0.0f && !isPractice(id)) addRow(id, xp, {0, 0, 0, 0});
 	}
-	if (m_skillRows.size() == afterHeader) m_skillRows.resize(trainedStart);
+	if (m_skillRows.size() == afterHeader) m_skillRows.Truncate(trainedStart);
 
 	// --- and what your body did. Same shape, its own heading.
 	const size_t bodyStart = m_skillRows.size();
@@ -201,51 +214,60 @@ void CharacterSheet::BakeSkills() {
 	const size_t afterBody = m_skillRows.size();
 	for (const auto& [id, xp] : character.skillXp)
 		if (xp > 0.0f && isPractice(id)) addRow(id, xp, {0, 0, 0, 0});
-	if (m_skillRows.size() == afterBody) m_skillRows.resize(bodyStart);
+	if (m_skillRows.size() == afterBody) m_skillRows.Truncate(bodyStart);
 }
 
 void CharacterSheet::BakeEffects() {
-	m_effectRows.clear();
+	m_effectRows.Reset();
 	if (!m_character) return;
 	// Effects-tab rows: one per active effect, list order (= HUD icon order).
-	// Baked here because the sheet freezes the world — nothing ticks while open.
 	for (const fx::Inst& e : m_character->effects) {
 		const Vec4 c = ElementColor(e.school);
-		m_effectRows.push_back(
-			{e.kind,
-			 {c.x, c.y, c.z, 1.0f},
-			 e.duration > 0.0f ? std::clamp(e.timeLeft / e.duration, 0.0f, 1.0f)
-							   : 1.0f,
-			 loc::Tr(e.NameKey()),
-			 loc::Format(std::string(e.NameKey()) + ".desc",
-						 static_cast<int>(e.magnitude + 0.5f)),
-			 loc::Format("sheet.effect_time",
-						 static_cast<int>(e.timeLeft + 0.5f))});
+		EffectRow& row = m_effectRows.Next();
+		row.kind = e.kind;
+		row.tint = {c.x, c.y, c.z, 1.0f};
+		row.frac = e.duration > 0.0f ? std::clamp(e.timeLeft / e.duration, 0.0f, 1.0f)
+									 : 1.0f;
+		row.name.assign(loc::View(e.NameKey()));
+		// The description's key is <nameKey>.desc, assembled on the stack.
+		constexpr std::string_view kDesc = ".desc";
+		char key[96];
+		const std::string_view nameKey = e.NameKey();
+		const size_t n = std::min(nameKey.size(), sizeof(key) - kDesc.size());
+		std::copy_n(nameKey.data(), n, key);
+		std::copy(kDesc.begin(), kDesc.end(), key + n);
+		row.desc.assign(loc::FormatLine(std::string_view(key, n + kDesc.size()),
+										static_cast<int>(e.magnitude + 0.5f))
+							.View());
+		row.time.assign(
+			loc::FormatLine("sheet.effect_time", static_cast<int>(e.timeLeft + 0.5f))
+				.View());
 	}
 }
 
 void CharacterSheet::BakeSpells() {
-	m_spellRows.clear();
+	m_spellRows.Reset();
 	if (!m_character || !spells) return;
 	const Character& character = *m_character;
 	// Spells-tab rows: learned spells, school-first then rune count then id.
-	std::vector<const Spell*> defs;
+	m_spellOrder.clear();
 	for (const auto& def : spells())
-		if (character.HasLearnedSpell(def->Id())) defs.push_back(def.get());
-	std::ranges::sort(defs, [](const Spell* a, const Spell* b) {
+		if (character.HasLearnedSpell(def->Id())) m_spellOrder.push_back(def.get());
+	std::ranges::sort(m_spellOrder, [](const Spell* a, const Spell* b) {
 		const int sa = static_cast<int>(a->School()), sb = static_cast<int>(b->School());
 		if (sa != sb) return sa < sb;
 		const auto na = a->Sequence().size(), nb = b->Sequence().size();
 		if (na != nb) return na < nb;
 		return a->Id() < b->Id();
 	});
-	for (const Spell* def : defs) {
+	for (const Spell* def : m_spellOrder) {
 		const Vec4 c = ElementColor(def->School());
-		m_spellRows.push_back(
-			{{def->Sequence().begin(), def->Sequence().end()},
-			 loc::Tr(def->NameKey()),
-			 loc::Format(def->DescKey(), static_cast<int>(def->Power() + 0.5f)),
-			 {c.x, c.y, c.z, 1.0f}});
+		SpellRow& row = m_spellRows.Next();
+		row.symbols.assign(def->Sequence().begin(), def->Sequence().end());
+		row.name.assign(loc::View(def->NameKey()));
+		row.desc.assign(
+			loc::FormatLine(def->DescKey(), static_cast<int>(def->Power() + 0.5f)).View());
+		row.tint = {c.x, c.y, c.z, 1.0f};
 	}
 }
 
