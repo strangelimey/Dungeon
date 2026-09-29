@@ -68,6 +68,22 @@ static_assert(sizeof(kCategoryInfo) / sizeof(kCategoryInfo[0]) ==
 const CatInfo& CatInfoFor(MapEditor::PaletteCat cat) {
 	return kCategoryInfo[static_cast<size_t>(cat)];
 }
+
+// The order the palette LISTS its sections in, which is not enum order:
+// Combinations leads, above the three surfaces it sets at once (Michael's
+// call - a whole look is the first thing reached for). Every category
+// appears exactly once; the enum keeps its order so nothing indexed by it
+// moves.
+using PC = MapEditor::PaletteCat;
+constexpr PC kDisplayOrder[] = {
+	PC::Combos, PC::Walls, PC::Floors, PC::Ceilings,
+	PC::Decorations, PC::Fixtures, PC::Monsters, PC::Buttons, PC::Doors, PC::Stairs,
+	PC::Items, PC::Weapons, PC::Armor, PC::WallFeatures, PC::SurfaceFeatures,
+	PC::Effects, PC::Dungeons, PC::Terrain, PC::Quests,
+};
+static_assert(sizeof(kDisplayOrder) / sizeof(kDisplayOrder[0]) ==
+				  static_cast<size_t>(PC::Count),
+			  "kDisplayOrder must list every PaletteCat once");
 } // namespace
 
 MapEditor::MapEditor(MapView& view, GameSettings& settings)
@@ -369,8 +385,8 @@ void MapEditor::BuildPaletteRows(const gfx::Rect& panel, std::vector<PaletteRow>
 	const bool filtering = !m_filter.empty();
 
 	float y = body.y - m_paletteScroll;
-	for (int c = 0; c < static_cast<int>(PaletteCat::Count); ++c) {
-		const PaletteCat cat = static_cast<PaletteCat>(c);
+	for (const PaletteCat cat : kDisplayOrder) {
+		const int c = static_cast<int>(cat);
 		const std::vector<PaletteItem> items = CategoryItems(cat);
 		if (filtering) {
 			std::vector<int> matches;
