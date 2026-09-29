@@ -14,6 +14,7 @@
 #include <cctype>
 #include <chrono>
 #include <cstdlib>
+#include <cstring>
 #include <format>
 #include <string>
 #include <string_view>
@@ -274,6 +275,58 @@ void Game::RegisterEvalCommands() {
 						   m_console.Print(std::format("autoattack {}", on ? "on" : "off"));
 					   });
 
+	// CASTING ON A CLOCK (DungeonWorld::Harness::AutoCast). Each call adds one
+	// (member, spell) to a round-robin that fires one entry every `every`
+	// seconds of SIM time, so a frozen world casts nothing. The member is taught
+	// the spell's symbols here, and the harness pays the mana at each cast -
+	// the rotation measures what a cast DOES, not whether it can be afforded.
+	m_console.Register(
+		"autocast", "cast on a clock (dev): autocast <member> <spell> [every] | off",
+		[this](const std::vector<std::string>& args) {
+			DungeonWorld::Harness::AutoCast& ac = m_world->GetHarness().autoCast;
+			// "off" only - a bare "0" is member 0, the first caster.
+			if (!args.empty() && args[0] == "off") {
+				ac = {};
+				m_console.Print("autocast off");
+				return;
+			}
+			if (args.size() < 2) {
+				m_console.Print(std::format("autocast: {} entries every {:.2f}s",
+											ac.count, ac.every));
+				for (int i = 0; i < ac.count; ++i)
+					m_console.Print(std::format("  member {} casts {}",
+												ac.entries[static_cast<size_t>(i)].member,
+												ac.entries[static_cast<size_t>(i)].Spell()));
+				return;
+			}
+			const int m = std::atoi(args[0].c_str());
+			if (m < 0 || static_cast<size_t>(m) >= m_characters.size()) {
+				m_console.Refuse("autocast: no such member");
+				return;
+			}
+			const Spell* spell = m_world->FindSpell(args[1]);
+			if (!spell) {
+				m_console.Refuse("autocast: no spell '" + args[1] + "'");
+				return;
+			}
+			using Entry = DungeonWorld::Harness::AutoCast::Entry;
+			if (ac.count == DungeonWorld::Harness::AutoCast::kMaxEntries ||
+				args[1].size() >= sizeof(Entry::spell)) {
+				m_console.Refuse("autocast: rotation full (or id too long)");
+				return;
+			}
+			Entry& e = ac.entries[static_cast<size_t>(ac.count++)];
+			e.member = m;
+			std::memcpy(e.spell, args[1].data(), args[1].size());
+			e.len = static_cast<u8>(args[1].size());
+			for (const SpellSymbol s : spell->Sequence()) m_characters[m].Learn(s);
+			ac.every = args.size() > 2 ? static_cast<float>(std::atof(args[2].c_str()))
+									   : (ac.every > 0.0f ? ac.every : 0.5f);
+			ac.timer = 0.0f;
+			m_console.Print(std::format("autocast += member {} {} (every {:.2f}s, {} in rotation)",
+										m, args[1], ac.every, ac.count));
+		});
+
 	// The encounter's numbers, in one machine-readable line. `tally reset` marks
 	// the start of a rung; `tally` prints what has happened since.
 	m_console.Register("tally", "encounter counters (dev): tally [reset]",
@@ -320,13 +373,17 @@ void Game::RegisterEvalCommands() {
 								   ? std::format("{:.3f}", static_cast<float>(t.hits) /
 															   swings)
 								   : std::string("n/a");
+						   // The carrier counts go AFTER secs: Eval.ps1 parses the
+						   // fields before it as one fixed sequence.
 						   m_console.Print(std::format(
 							   "TALLY dealt={:.1f} taken={:.1f} swings={} hits={} "
 							   "misses={} hitrate={} crits={} fumbles={} "
-							   "slain={} downed={} secs={:.1f}",
+							   "slain={} downed={} secs={:.1f} bolthits={} "
+							   "boltmisses={} expired={} blasts={}",
 							   t.dealt, t.taken, swings, t.hits, t.misses, rate,
 							   t.crits, t.fumbles, t.monstersSlain, t.membersDowned,
-							   t.seconds));
+							   t.seconds, t.boltHits, t.boltMisses, t.expiries,
+							   t.blasts));
 					   });
 
 	// A script cannot otherwise tell whether it is measuring anything at all.

@@ -1001,6 +1001,7 @@ void DungeonWorld::UpdateMonsters(float dt) {
 		m_party.Act(MoveAction::Forward);
 	}
 	TickAutoAttack();
+	TickAutoCast(dt);
 
 	ReconcileGroups();
 	AssignFormation();

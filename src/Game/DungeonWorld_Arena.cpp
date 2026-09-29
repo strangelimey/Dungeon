@@ -182,6 +182,31 @@ bool DungeonWorld::DetonateSpell(std::string_view spellId, int cx, int cz) {
 	return true;
 }
 
+// ============================================================================
+// Casting on a clock (Harness::autoCast, the `autocast` command)
+// ============================================================================
+
+void DungeonWorld::TickAutoCast(float dt) {
+	Harness::AutoCast& ac = m_harness.autoCast;
+	if (ac.count == 0 || !m_roster || m_partyWiped) return;
+	ac.timer -= dt;
+	if (ac.timer > 0.0f) return;
+	// RESET, not `+= every`: a long frame (a rest's 60x, a `step`) would
+	// otherwise owe a burst of casts and fire them all on consecutive ticks.
+	ac.timer = ac.every;
+	const Harness::AutoCast::Entry& e = ac.entries[static_cast<size_t>(ac.next)];
+	ac.next = (ac.next + 1) % ac.count;
+	if (e.member < 0 || static_cast<size_t>(e.member) >= m_roster->size()) return;
+	// Looked up by id at every cast rather than held as a pointer: an editor
+	// catalog save rebuilds the spell book under a running rotation.
+	const Spell* spell = m_magic.FindSpell(e.Spell());
+	if (!spell) return;
+	Character& caster = (*m_roster)[static_cast<size_t>(e.member)];
+	caster.mana = caster.maxMana; // the harness pays; see Harness::AutoCast
+	// Hand-less, like the console's `cast`: it credits neither hand's MRU.
+	CastSpell(static_cast<size_t>(e.member), spell->Sequence(), -1);
+}
+
 bool DungeonWorld::ArenaShapeFromName(std::string_view name, ArenaShape& out) {
 	if (name == "open") { out = ArenaShape::Open; return true; }
 	if (name == "corridor") { out = ArenaShape::Corridor; return true; }

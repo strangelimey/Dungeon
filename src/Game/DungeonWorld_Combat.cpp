@@ -2036,6 +2036,7 @@ bool DungeonWorld::ResolveSpellHit(const ProjectileImpact& impact) {
 						 impact.atk.type),
 		impact.atk.attackBonus, impact.attacker);
 	fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
+	if (ev.hit) ++m_harness.tally.boltHits; else ++m_harness.tally.boltMisses;
 	if (ev.hit) {
 		if (ev.dealt >= 0.5f)
 			onMessage(loc::FormatLine("log.spell_hits", name,
@@ -2359,6 +2360,7 @@ void DungeonWorld::Detonate(int cx, int cz, const ProjectilePayload& payload,
 		log::Warn("a blast of force {} was clamped ({} squares / {} ticks max)",
 				  spec.rules.force, blast::kMaxCells, blast::kMaxTicks);
 	if (active.result.count == 0) return;
+	++m_harness.tally.blasts;
 
 	// The whole propagation is computed at once and PLAYED OUT over time: each
 	// tick's hits land `rate` seconds apart, which is the spell's expansion speed
@@ -2487,6 +2489,7 @@ void DungeonWorld::ApplyBlastHit(const blast::Hit& c,
 void DungeonWorld::ResolveProjectileExpiry(const ProjectileExpiry& expiry) {
 	const int bx = static_cast<int>(std::floor(expiry.pos.x / kCellSize));
 	const int bz = static_cast<int>(std::floor(expiry.pos.z / kCellSize));
+	++m_harness.tally.expiries;
 	// AN AREA CARRIER GOES OFF WHERE IT STOPS, which is the whole point of a
 	// thrown bomb: the wall it broke against is the centre. Detonate handles a
 	// centre inside stone (nothing stands there, and the room beyond is one step

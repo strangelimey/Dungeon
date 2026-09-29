@@ -335,6 +335,14 @@ public:
 		int membersDowned = 0;
 		u8 downedMask = 0;
 		float seconds = 0.0f; // SIM seconds since the last reset
+		// CARRIERS, apart from the party's swings (which are hits/misses above).
+		// A party bolt that reached a monster in its lane and was resolved as a
+		// hit or a miss; any carrier, either side's, that stopped WITHOUT
+		// striking (a wall, or out of reach - onExpire); and every detonation,
+		// whoever set it off. Counted
+		// because a run that means to measure an impact must be able to show one
+		// happened: `dealt` cannot tell a bolt from the burn it left behind.
+		int boltHits = 0, boltMisses = 0, expiries = 0, blasts = 0;
 	};
 
 	// ========================================================================
@@ -349,7 +357,7 @@ public:
 	// it". Behind `#ifdef` these fields would only exist in a build nobody
 	// ships, the suites and /check-pipeline would be measuring that build, and
 	// the project would carry a fourth configuration to rot unwatched beside
-	// release and release-profile. What it costs instead is four fields and a
+	// release and release-profile. What it costs instead is a few fields and a
 	// handful of predictable branches.
 	//
 	// The point of the struct is that a touch site in the simulation reads
@@ -380,6 +388,27 @@ public:
 		// drop eight — which reads as a party that will not advance. They are
 		// fed one at a time as each completes.
 		int pendingSteps = 0;
+		// Casting ON A CLOCK (`autocast`): a round-robin of (member, spell) that
+		// fires one entry every `every` sim seconds. The console's own frame is
+		// never a guarded one, so a cast typed there puts its LAUNCH, and with a
+		// short flight its IMPACT, outside any steady-state window; this is what
+		// lets tools\AllocTest.ps1 -Impact put both inside one. The harness PAYS
+		// the mana (the caster is topped up before each cast), so a measurement
+		// is never limited by the pool. Fixed capacity and the spell id held
+		// inline, so a tick allocates nothing of its own (the rule it measures).
+		struct AutoCast {
+			static constexpr int kMaxEntries = 4;
+			struct Entry {
+				int member = 0;
+				char spell[32] = {};
+				u8 len = 0;
+				std::string_view Spell() const { return {spell, len}; }
+			};
+			std::array<Entry, kMaxEntries> entries{};
+			int count = 0, next = 0;
+			float every = 0.0f; // seconds between casts
+			float timer = 0.0f; // until the next one
+		} autoCast;
 	};
 	Harness& GetHarness() { return m_harness; }
 	const Harness& GetHarness() const { return m_harness; }
@@ -523,6 +552,7 @@ public:
 	std::span<const std::unique_ptr<Spell>> SpellDefs() const {
 		return m_magic.Book().Defs();
 	}
+	const Spell* FindSpell(std::string_view id) const { return m_magic.FindSpell(id); }
 
 	// Fired once when the last standing member goes down (Game ends the run).
 	std::function<void()> onPartyWipe;
@@ -3252,6 +3282,9 @@ private:
 	// For each standing member, swing any hand whose cooldown has run out.
 	// Called from UpdateMonsters' cadence, no-op unless m_harness.autoAttack.
 	void TickAutoAttack();
+	// Fire the next Harness::autoCast entry when its clock runs out. Same
+	// cadence as TickAutoAttack; no-op while the rotation is empty.
+	void TickAutoCast(float dt);
 	// Walkability grid shared into snapshots, rebuilt only when the map changes.
 	std::shared_ptr<const std::vector<uint8_t>> m_walkableCache;
 	u32 m_walkableRev = 0xFFFFFFFFu; // map Revision() the cache was built for

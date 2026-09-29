@@ -11,6 +11,7 @@
 #   .\tools\AllocTest.ps1 -Wounded           # the REGENERATING steady state
 #   .\tools\AllocTest.ps1 -Melee             # a monster swinging at the party
 #   .\tools\AllocTest.ps1 -Cast              # a bolt in flight + an open spellbook
+#   .\tools\AllocTest.ps1 -Impact            # bolts landing, expiring, a blast
 #   .\tools\AllocTest.ps1 -Config release    # needs -DDN_TRACK_ALLOCS=ON
 #
 # The party stands still on purpose. Player-driven EVENTS (a bump message, a
@@ -55,6 +56,25 @@
 # an event in the console's own frame, which the guard never arms; it was
 # checked by hand from the hand use menu and the book's Cast button.
 #
+# -Impact, BECAUSE -Cast CANNOT LAND ANYTHING. -Cast freezes the world, so its
+# bolt never arrives: the strike (fx::Deal, the burn a flame leaves on the
+# monster, the hit lines, threat), the expiry of a bolt that flies past, the
+# impact sparks and an area blast all stayed outside every window. This runs
+# the world. It goes to eval_arena (an open room, so no wall of the showcase
+# level decides what gets measured), stands the party three squares from a
+# FROZEN, toughened monster (`freeze on`: it stands in the line of fire and
+# never walks up to swing, which is -Melee's job), and hands the casting to the
+# harness (`autocast`): two flame casters in OPPOSITE lanes - one bolt strikes,
+# the other flies past the monster and expires at the end of its reach - and a
+# Fire Burst, which detonates on contact or where it stops. In an open room
+# the blast's force is spent before it reaches back three squares. (A bolt's
+# `range` is in METRES, so five squares out, the first try, was out of reach
+# of everything and measured nothing but expiries.) A launch now happens in a world
+# frame, so the window holds launches AND landings. It waits until each of the
+# three has happened once (first times are warm-up), then measures, and
+# refuses a PASS unless the tally shows a bolt hit, an expiry and a blast
+# INSIDE the window.
+#
 # Every step is driven by what the log actually says rather than by sleeps, so
 # a slow cold-cache load stretches the wait instead of failing the run.
 #
@@ -80,6 +100,19 @@ param(
 	[switch]$Cast,
 	# The caster: Maren, a rear-rank caster, by default.
 	[int]$CastMember = 2,
+	# Measures bolts LANDING: impacts, expiries and an area blast, with the
+	# world running. See the note above.
+	[switch]$Impact,
+	# MEDIUM on purpose: it stands in one quarter of its square, so exactly one
+	# of the two flame lanes strikes it and the other flies past. A Large body
+	# (the plain skeleton) fills the square, both lanes hit, and nothing ever
+	# expires - the first run that tried it saw 100 strikes and 0 expiries.
+	[string]$ImpactMonster = 'skel_swarm',
+	# The target's hp scale (`spawn`'s 5th argument): it must outlive the
+	# warm-up AND the window under a bolt every fraction of a second.
+	[double]$ImpactStrength = 400,
+	# Seconds between casts, round-robin over the rotation below.
+	[double]$ImpactEvery = 0.4,
 	# Checks the CHECKER: makes the game allocate every frame on purpose
 	# (`allocpoke`) and passes only if the run comes back FAIL.
 	[switch]$SelfTest
@@ -92,7 +125,9 @@ $exe = Join-Path $bin 'Dungeon.exe'
 $log = Join-Path $bin 'dungeon.log'
 
 if (-not (Test-Path $exe)) { throw "no build at $exe - run build.cmd $Config first" }
-if (Get-Process Dungeon -ErrorAction SilentlyContinue) {
+# THIS build's exe only: another worktree's game is a different process with its
+# own log, and everything below addresses the instance this script launched.
+if (Get-Process Dungeon -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe }) {
 	throw 'Dungeon.exe is already running - close it (this test drives its own instance)'
 }
 
@@ -153,6 +188,22 @@ function Get-TallyField([string]$field) {
 		Start-Sleep -Milliseconds 200
 	}
 	throw 'the console never answered `tally` - is logecho on?'
+}
+
+# One numeric field of the tally line Get-TallyField last read.
+function Get-LastTallyField([string]$field) {
+	if ($script:lastTally -match "\b$field=([0-9.]+)") { return [double]$Matches[1] }
+	throw "tally printed no '$field': $script:lastTally"
+}
+
+# The three things -Impact must see happen, from one fresh `tally`.
+function Get-ImpactCounts {
+	Get-TallyField 'bolthits' | Out-Null
+	return [pscustomobject]@{
+		Hits = Get-LastTallyField 'bolthits'
+		Expired = Get-LastTallyField 'expired'
+		Blasts = Get-LastTallyField 'blasts'
+	}
 }
 
 Remove-Item $log -ErrorAction SilentlyContinue
@@ -301,6 +352,58 @@ try {
 		}
 	}
 
+	if ($Impact) {
+		Write-Host 'going to eval_arena for an open field of fire'
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		Send-Text 'goto eval_arena'; Send-Key 0x0D
+		# The console refuses commands while the level loads; this line is the
+		# moment it will take them again.
+		Wait-ForLog '^\[info \] Level ready: eval_arena' $LoadTimeoutSec 'the arena load' | Out-Null
+		Start-Sleep -Milliseconds 800
+		# The room is open from 1,1 to 26,22 (28x24 with a solid border). The
+		# monster stands THREE squares north of the party: a bolt's `range` is
+		# in METRES (flame's 8 m is 3.2 squares), so at five every bolt went
+		# out in open air short of it. In an open room a Fire Burst's force is
+		# spent a square or two out, so three is also past its reach back.
+		$tx = 14; $tz = 14; $px = 14; $pz = 17
+		Send-Text "tp $px $pz"; Send-Key 0x0D
+		Send-Text 'face n'; Send-Key 0x0D
+		Send-Text 'freeze on'; Send-Key 0x0D
+		Send-Text "spawn $ImpactMonster $tx $tz s $ImpactStrength"; Send-Key 0x0D
+		Start-Sleep -Milliseconds 500
+		if (-not (Select-String -Path $log -Pattern "spawned $ImpactMonster at $tx,$tz" -Quiet)) {
+			throw "the arena would not take a $ImpactMonster at $tx,$tz"
+		}
+		# Members 0 and 1 cast down OPPOSITE lanes (front-left, front-right),
+		# so whichever lane the monster's slot is not in flies past and
+		# expires; member 2 throws the blast.
+		Send-Text "autocast 0 flame $ImpactEvery"; Send-Key 0x0D
+		Send-Text 'autocast 1 flame'; Send-Key 0x0D
+		Send-Text 'autocast 2 fireburst'; Send-Key 0x0D
+		Send-Text 'tally reset'; Send-Key 0x0D
+		Write-Host "  casting at a $ImpactMonster (x$ImpactStrength) from $px,$pz; waiting for a hit, an expiry and a blast (warm-up)"
+		$deadline = (Get-Date).AddSeconds(60)
+		while ($true) {
+			$c = Get-ImpactCounts
+			if ($c.Hits -gt 0 -and $c.Expired -gt 0 -and $c.Blasts -gt 0) { break }
+			if ((Get-Date) -gt $deadline) {
+				Send-Text 'monsters'; Send-Key 0x0D
+				throw "the warm-up never saw all three (last: $script:lastTally)"
+			}
+			Start-Sleep -Seconds 1
+		}
+		# A few more rounds, so each outcome's first time (a miss line, a
+		# second burn, the book's first detonation of the run) is warm-up
+		# rather than window.
+		Start-Sleep -Seconds 4
+		Send-Text 'tally reset'; Send-Key 0x0D
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0 # close the console again; alloctest reopens it below
+		Start-Sleep -Milliseconds 400
+	}
+
 	if ($SelfTest) {
 		Write-Host 'self-test: arming allocpoke, expecting the run to FAIL'
 		Send-Key 0xC0
@@ -336,6 +439,27 @@ try {
 		Start-Sleep -Milliseconds 400
 		if ($taken -le 0 -and $result -eq 'PASS') {
 			Write-Host 'the monster landed no blow inside the window - the swing path was not measured' -ForegroundColor Yellow
+			$result = 'UNMEASURED'
+		}
+	}
+
+	# The same refusal for -Impact, over all three things it exists to see: a
+	# monster that died in the warm-up, or a rotation that stopped, would
+	# otherwise report exactly like a clean barrage.
+	if ($Impact) {
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		$c = Get-ImpactCounts
+		Write-Host "  in the window: $script:lastTally"
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 400
+		$missing = @()
+		if ($c.Hits -le 0) { $missing += 'no bolt hit' }
+		if ($c.Expired -le 0) { $missing += 'no bolt expired' }
+		if ($c.Blasts -le 0) { $missing += 'no blast went off' }
+		if ($missing.Count -gt 0 -and $result -eq 'PASS') {
+			Write-Host "$($missing -join ', ') inside the window - the impact path was not measured" -ForegroundColor Yellow
 			$result = 'UNMEASURED'
 		}
 	}

@@ -615,11 +615,16 @@ complete inventory, which is the point of writing it down — it should be
 auditable in one read rather than trusted.
 
 **All harness STATE the world holds is one member**, `DungeonWorld::m_harness`
-(`struct Harness`): the encounter `tally`, `autoAttack`, `frozen`, and
-`pendingSteps`. It is touched in six places in the simulation — the two
-`fx::ITarget` adapters and `ResolveAttack` (the tally), one `continue` in the
-monster loop (`frozen`), one guard on `TickAutoAttack`, and three lines feeding
-queued steps. Every one of them reads `m_harness.something` and says what it is.
+(`struct Harness`): the encounter `tally`, `autoAttack`, `frozen`,
+`pendingSteps` and `autoCast`. It is touched in a handful of places in the
+simulation - the two `fx::ITarget` adapters and `ResolveAttack` (the tally),
+the carrier counts in `ResolveSpellHit` / `ResolveProjectileExpiry` /
+`Detonate` (the tally again), one `continue` in the monster loop (`frozen`),
+one guard on `TickAutoAttack`, `TickAutoCast` (the `autocast` round-robin,
+added 2026-09-28 so `AllocTest.ps1 -Impact` can put a bolt's launch AND landing
+inside a guarded window - the console's own frame never is one), and three
+lines feeding queued steps. Every one of them reads `m_harness.something` and
+says what it is.
 `ResetForEval` is `m_harness = {}`, so a field added to the struct is reset for
 free — the four loose bools this replaced were four chances to forget one.
 
