@@ -21,8 +21,14 @@
 //     is the ordinary stance again.
 //   - An over-exerted bar is ANGRY: red, and swelling toward kAngryRem thick as
 //     it nears 100%. The swell is inside this widget's own bounds - the band
-//     HandPair reserves is the angry size, the resting bar is its top strip -
-//     so it never paints over the hands above it.
+//     HandPair reserves includes the angry size, and the bar sits CENTRED in
+//     that room, swelling out both ways - so it never paints over the hands
+//     above it.
+//   - The GRAB ZONE is the whole band, not the bar (Michael, 2026-09-28: the
+//     resting bar alone was too fiddly to start a drag on). The band is the gap
+//     under the hands, the room the swell grows into, and a little slack below,
+//     and while the pointer is over it the whole band lights faintly, so the
+//     pixels it claims are pixels it paints.
 //
 // Deliberately NOT ui::Slider: that control carries a label line above its
 // track and lays out by its own box, which is right on a settings page and far
@@ -46,10 +52,14 @@ namespace dungeon::game {
 
 class GuardSlider : public ui::Widget {
 public:
-	// The resting bar's thickness and the angriest bar's, in rem. HandPair
-	// reserves kAngryRem for the band, so the swell has room of its own.
+	// The band, top to bottom, in rem: the gap under the hand boxes, the bar
+	// (kRestRem thick at rest, swelling toward kAngryRem), and slack below.
+	// HandPair reserves kBandRem for the widget; all of it is the grab zone.
+	static constexpr float kGapRem = 0.25f;
 	static constexpr float kRestRem = 0.25f;
 	static constexpr float kAngryRem = 0.6f;
+	static constexpr float kSlackRem = 0.3f;
+	static constexpr float kBandRem = kGapRem + kAngryRem + kSlackRem;
 
 	// `exertMax` is the live Balance::exertMax (the share a full over-exertion
 	// means); asked every frame, because it is editable in the Balance dialog
@@ -73,7 +83,7 @@ private:
 	// The honest share under a pointer x: 0..1 across the bar, never past it.
 	float HonestAt(float x) const;
 	// The rect the bar PAINTS for this share (the resting strip, or the angry
-	// swell) - also what the pointer must be over to grab it.
+	// swell), centred in the kAngryRem room below the kGapRem gap.
 	gfx::Rect BarRect(float share) const;
 	void Report(float share) const;
 
@@ -82,6 +92,7 @@ private:
 	std::function<void(size_t, float)> m_onChange;
 	std::function<float()> m_exertMax;
 	Drag m_drag = Drag::None;
+	bool m_hot = false; // the pointer is over the grab zone (lights the band)
 	float m_pressX = 0.0f;
 	float m_lastX = 0.0f;
 	float m_effort = 0.0f; // the charge's progress; over-exertion = f(effort)

@@ -31,7 +31,6 @@ constexpr float kHandGap = 0.0025f;
 // through the layout code, because these are the numbers Michael tunes by eye
 // and they should be findable in one place.
 constexpr float kSideMargin = 0.5f;  // total, down both sides of a grid
-constexpr float kSliderGap = 0.25f;  // hand boxes -> the stance slider
 constexpr float kHandRowGap = 0.5f;  // between one member's row and the next
 constexpr float kDockGap = 0.5f;     // between one dock and the next
 constexpr float kHeaderH = 1.4f;     // a dock's title strip (and its button)
@@ -140,7 +139,7 @@ HandPair::HandPair(const gfx::Rect& rect, size_t member,
 // out - the grid's height is a consequence of the column's width, and only
 // this function knows the shape of that consequence.
 float HandPair::NeededHeight(float widthPx, float emPx) {
-	return SquareSide(widthPx, emPx) + emPx * kSliderGap + BandHeight(emPx);
+	return SquareSide(widthPx, emPx) + BandHeight(emPx);
 }
 
 float HandPair::SquareSide(float widthPx, float emPx) {
@@ -153,11 +152,13 @@ float HandPair::SquareSide(float widthPx, float emPx) {
 	return std::max(0.0f, avail * 0.5f);
 }
 
-// The ANGRY bar's thickness, not the resting one's: an over-exerted stance
-// swells toward it, and the swell must be the slider's own area rather than
-// paint over the hands above (Michael, 2026-09-28). At rest the bar is the
-// band's top strip and the rest of the band is the room it grows into.
-float HandPair::BandHeight(float emPx) { return emPx * GuardSlider::kAngryRem; }
+// The slider's WHOLE band (GuardSlider::kBandRem): the gap under the boxes, the
+// ANGRY bar's thickness - an over-exerted stance swells toward it, and the swell
+// must be the slider's own area rather than paint over the hands above - and a
+// little slack below. All of it is the slider's grab zone (Michael, 2026-09-28:
+// the bar alone was too thin to start a drag on); the gap that used to sit
+// between the boxes and the slider is now the top of that zone.
+float HandPair::BandHeight(float emPx) { return emPx * GuardSlider::kBandRem; }
 
 void HandPair::LayoutSelf(ui::UIContext&) {
 	const gfx::Rect& px = Pixel();
@@ -181,8 +182,7 @@ void HandPair::LayoutSelf(ui::UIContext&) {
 	// Spans both boxes and the gap between them - the visual claim that it
 	// governs the pair rather than either hand.
 	if (m_guard)
-		m_guard->bounds = {em * kSideMargin * 0.5f / px.w,
-						   (side + em * kSliderGap) / px.h,
+		m_guard->bounds = {em * kSideMargin * 0.5f / px.w, side / px.h,
 						   (side * 2.0f + gap) / px.w, band / px.h};
 }
 

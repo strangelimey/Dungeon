@@ -71,9 +71,14 @@ float GuardSlider::HonestAt(float x) const {
 
 gfx::Rect GuardSlider::BarRect(float share) const {
 	const gfx::Rect& px = Pixel();
-	const float rest = std::min(Rem(kRestRem), px.h);
-	const float angry = std::min(Rem(kAngryRem), px.h);
-	return {px.x, px.y, px.w, rest + (angry - rest) * OverOf(share)};
+	const float top = std::min(Rem(kGapRem), px.h);
+	const float angry = std::min(Rem(kAngryRem), px.h - top);
+	const float rest = std::min(Rem(kRestRem), angry);
+	const float h = rest + (angry - rest) * OverOf(share);
+	// CENTRED in the room reserved for the angry swell (Michael, 2026-09-28), so
+	// a resting bar sits in the middle of it and an over-exerted one swells out
+	// both ways rather than hanging from the top.
+	return {px.x, px.y + top + (angry - h) * 0.5f, px.w, h};
 }
 
 void GuardSlider::Report(float share) const {
@@ -82,6 +87,7 @@ void GuardSlider::Report(float share) const {
 
 void GuardSlider::UpdateSelf(ui::UIContext& ctx) {
 	const Character* c = RosterMember(m_roster, m_member);
+	m_hot = false;
 	if (!c) { // short roster, or the member went away mid-drag - inert
 		m_drag = Drag::None;
 		return;
@@ -91,10 +97,13 @@ void GuardSlider::UpdateSelf(ui::UIContext& ctx) {
 	const float mx = static_cast<float>(input->MouseX());
 	const float share = c->offenseShare;
 
-	// The pointer is claimed only over what the bar PAINTS - the resting strip,
-	// or the angry swell - never the empty part of the band reserved for it.
+	// The GRAB ZONE is the whole band - the gap under the hands, the room the
+	// swell grows into and the slack below - not just the bar, which at rest is
+	// a sliver too thin to start a drag on. DrawSelf lights the band while the
+	// pointer is over it, so every pixel claimed here is one painted there.
 	const bool hot = !ctx.IsMouseConsumed() &&
-					 BarRect(share).Contains(mx, static_cast<float>(input->MouseY()));
+					 Pixel().Contains(mx, static_cast<float>(input->MouseY()));
+	m_hot = hot;
 	if (hot) {
 		ctx.ConsumeMouse();
 		if (input->WasMousePressed(MouseButton::Left)) {
@@ -178,6 +187,13 @@ void GuardSlider::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const float share = c->offenseShare;
 	const float over = OverOf(share);
 	const gfx::Rect bar = BarRect(share);
+
+	// The grab zone, lit while it is hot or held, so the band the pointer can
+	// start a drag on is visible rather than guessed at.
+	if (m_hot || m_drag != Drag::None) {
+		const Vec4& a = theme.accent;
+		batch.DrawRect(Pixel(), {a.x, a.y, a.z, 0.12f});
+	}
 
 	batch.DrawRect(bar, theme.control);
 
