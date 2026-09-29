@@ -493,6 +493,26 @@ std::string_view GameUI::SetUseFor(const Character& c, size_t hand,
 	return {};
 }
 
+// Every frame, per hand box: views and a registry scan only, nothing built.
+HandSetUse GameUI::HandSetUseFor(size_t i, size_t hand) const {
+	if (i >= m_characters.size() || hand > 1) return {};
+	const Character& c = m_characters[i];
+	const std::string_view set =
+		SetUseFor(c, hand, c.inventory.Hand(static_cast<int>(hand)).typeId);
+	if (set.empty()) return {};
+	HandSetUse use;
+	use.set = true;
+	if (IsCastUse(set) && spellDefs) {
+		const std::string_view id = set.substr(kCastPrefix.size());
+		for (const auto& def : spellDefs())
+			if (def->Id() == id) {
+				use.spell = def.get();
+				break;
+			}
+	}
+	return use;
+}
+
 std::string_view GameUI::DefaultUseFor(const Character& c, size_t hand,
 								  const std::string& itemId) const {
 	if (hand > 1) return {};
@@ -1777,6 +1797,7 @@ void GameUI::BuildHud() {
 	deps.onMove = [this](MoveAction action) { onMoveAction(action); };
 	deps.onHandLeft = [this](size_t i, size_t hand) { OnHandLeftClick(i, hand); };
 	deps.onHandRight = [this](size_t i, size_t hand) { OnHandRightClick(i, hand); };
+	deps.handSetUse = [this](size_t i, size_t hand) { return HandSetUseFor(i, hand); };
 	deps.onGuardChange = [this](size_t i, float share) {
 		if (onGuardChange) onGuardChange(i, share);
 	};

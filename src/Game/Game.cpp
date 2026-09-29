@@ -694,7 +694,7 @@ void Game::LoadItemIcons() {
 	// cursor when a tablet is held, and in the hand slots / inventory.
 	for (u32 i = 0; i < kSymbolCount; ++i) {
 		const auto sym = static_cast<SpellSymbol>(i);
-		const std::string id = RuneItemId(sym);
+		const std::string id(RuneItemId(sym));
 		m_runeIconTextures[i] = TryLoadTextureFile(
 			m_device, paths::Asset(std::format("ui\\rune_icon_{}", SymbolId(sym))));
 		if (!m_runeIconTextures[i])

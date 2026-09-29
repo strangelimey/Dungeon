@@ -55,6 +55,9 @@ struct ControlBarDeps {
 	std::function<void(MoveAction)> onMove;
 	std::function<void(size_t member, size_t hand)> onHandLeft;
 	std::function<void(size_t member, size_t hand)> onHandRight;
+	// What a hand is SET to (HandSlot::setUse), asked every frame. Must not
+	// allocate.
+	std::function<HandSetUse(size_t member, size_t hand)> handSetUse;
 	// The offense/defense stance slider under a member's hands: the widget
 	// mutates nothing itself, it reports where it was dragged to.
 	std::function<void(size_t member, float share)> onGuardChange;

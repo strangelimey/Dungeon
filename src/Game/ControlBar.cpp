@@ -114,7 +114,7 @@ HandPair::HandPair(const gfx::Rect& rect, size_t member,
 	// pixel rect is known, because a SQUARE box cannot be expressed as a pair
 	// of independent axis fractions.
 	for (int hand = 0; hand < 2; ++hand) {
-		m_slots[hand] = Add<HandSlot>(
+		HandSlot* slot = Add<HandSlot>(
 			gfx::Rect{0, 0, 0.5f, 1.0f}, deps.roster, member, hand, deps.icons,
 			[onLeft = deps.onHandLeft, member, hand] {
 				onLeft(member, static_cast<size_t>(hand));
@@ -122,6 +122,11 @@ HandPair::HandPair(const gfx::Rect& rect, size_t member,
 			[onRight = deps.onHandRight, member, hand] {
 				onRight(member, static_cast<size_t>(hand));
 			});
+		if (deps.handSetUse)
+			slot->setUse = [setUse = deps.handSetUse, member, hand] {
+				return setUse(member, static_cast<size_t>(hand));
+			};
+		m_slots[hand] = slot;
 	}
 	// ONE stance for the character, spanning both boxes - the fighter decides
 	// how hard to press, and the two hands then guard with whatever each holds.

@@ -95,11 +95,8 @@ private:
 	gfx::Rect ClearRect(const gfx::Rect& px) const;
 	// The spell the sequence spells out, if any.
 	const Spell* Match() const;
-	// Draws one rune face: the rune-item icon when loaded, else an
-	// element-tinted fallback square; element-coloured border. Disabled (the
-	// symbol is already in the sequence) washes it out under a dark overlay.
-	void DrawRune(gfx::SpriteBatch& batch, const gfx::Rect& r, SpellSymbol s,
-				  bool hot, bool disabled = false) const;
+	// (Rune faces draw through PartyHudDraw's DrawRuneFace, shared with the
+	// hand boxes.)
 
 	const std::vector<Character>* m_roster;
 	const ItemIconBank* m_icons;

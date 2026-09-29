@@ -16,6 +16,13 @@ constexpr const char* kKeys[kSymbolCount] = {"symbol.fire", "symbol.earth",
 											 "symbol.air", "symbol.water",
 											 "symbol.project", "symbol.protect",
 											 "symbol.sight"};
+// The rune tablets' catalog ids, spelled out rather than built, so RuneItemId
+// can hand back a view: the HUD asks for them every frame (the hand boxes and
+// the spellbook draw rune faces), and a built std::string is a steady-state
+// allocation in the debug CRT even when it fits the small buffer.
+constexpr std::string_view kRuneIds[kSymbolCount] = {
+	"rune_fire", "rune_earth", "rune_air", "rune_water",
+	"rune_project", "rune_protect", "rune_sight"};
 
 // Parses a comma-separated symbol list ("fire,air") into a sequence. Returns
 // false (and leaves `out` partial) on the first unknown token; an empty / blank
@@ -55,7 +62,7 @@ bool ParseSymbol(std::string_view token, SpellSymbol& out) {
 	return false;
 }
 
-std::string RuneItemId(SpellSymbol s) { return std::string("rune_") + SymbolId(s); }
+std::string_view RuneItemId(SpellSymbol s) { return kRuneIds[static_cast<u32>(s)]; }
 
 bool RuneSymbolFromItemId(std::string_view typeId, SpellSymbol& out) {
 	constexpr std::string_view kPrefix = "rune_";

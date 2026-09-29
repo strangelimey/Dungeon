@@ -125,7 +125,7 @@ std::vector<Character> CreateDefaultParty() {
 	// cast) is reachable from a fresh game without scavenging the level first.
 	for (Character* caster : {&party[2], &party[3]})
 		for (u32 i = 0; i < kSymbolCount; ++i)
-			caster->inventory.Stow(RuneItemId(static_cast<SpellSymbol>(i)));
+			caster->inventory.Stow(std::string(RuneItemId(static_cast<SpellSymbol>(i))));
 
 	// Brand starts carrying one piece of each armor WEIGHT CLASS, for the same
 	// reason the casters start with runes: the trade the armor system is built

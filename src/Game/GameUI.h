@@ -393,6 +393,10 @@ private:
 	// a default but NOT a set use.
 	std::string_view SetUseFor(const Character& c, size_t hand,
 							   const std::string& itemId) const;
+	// What member `i`'s hand box shows (ControlBarDeps::handSetUse): whether the
+	// hand is SET, and the spell when that use is a cast. Every frame, so it
+	// builds nothing.
+	HandSetUse HandSetUseFor(size_t i, size_t hand) const;
 	// Whether a remembered default is still usable: an item command the item
 	// still offers, one of the bare-hand combat verbs, or a "cast:<id>" whose
 	// spell exists and whose symbols the member all knows.
