@@ -879,6 +879,9 @@ DungeonWorld::Monster DungeonWorld::MakeMonster(MonsterKind& kind, int id, int x
 	// a few KB per monster, taken at spawn where allocating costs nothing.
 	monster.aiPath.reserve(
 		static_cast<size_t>(std::max(0, m_map.Width() * m_map.Height())));
+	// Same promise for its plume: the particle buffer at its full ceiling now,
+	// so catching fire mid-fight only lights it (Monster::plume).
+	monster.plume.Reserve(kPlumeScale);
 	return monster;
 }
 

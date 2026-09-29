@@ -1734,6 +1734,9 @@ private:
 		// transparent until the bake runs.
 		std::unique_ptr<gfx::Texture> iconTarget;
 	};
+	// A burning body's plume burns a little bigger than a brazier. Shared by the
+	// plume itself (reserved at spawn) and the particle buffer that allows for one.
+	static constexpr float kPlumeScale = 1.1f;
 	struct Monster {
 		const MonsterKind* kind = nullptr; // points into m_monsterKinds (stable)
 		int id = -1; // source Entity::id, for save overrides
@@ -1807,13 +1810,17 @@ private:
 		// another slot being invented for each. Not saved yet (P5).
 		std::vector<fx::Inst> effects;
 
-		// The flame plume rising off a burning body — PRESENTATION, derived
-		// from the list above every frame (SyncPlumes): allocated when an
-		// effect that burns arrives, dropped when it goes. Not state: the
-		// effect is the truth, this is just what it looks like. Held by
-		// pointer because a FireEffect is fat (its own mt19937) and only the
-		// handful actually alight should pay for one.
-		std::unique_ptr<FireEffect> plume;
+		// The flame plume rising off a burning body - PRESENTATION, derived
+		// from the list above every frame (DungeonWorld::Update): lit when an
+		// effect that burns arrives, put out when it goes. Not state: the
+		// effect is the truth, this is just what it looks like. HELD BY VALUE
+		// and reserved at spawn (MakeMonster), then lit and put out IN PLACE:
+		// it used to be a unique_ptr made on ignition, which allocated in a
+		// settled frame every time any monster caught fire again. It was
+		// pointer-held because a FireEffect carried a 5 KB mt19937; it no
+		// longer does, so every monster can afford one.
+		FireEffect plume;
+		bool plumeLit = false;
 
 		// Chase movement (AI v1). The logical cell (x,z) snaps the instant a step
 		// commits — like the party — so occupancy/blocking is atomic; visualPos

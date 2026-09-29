@@ -22,9 +22,6 @@ namespace {
 // the albedo sRGB switch; the dev console's `ambient <x>` scales it live for
 // mood tuning (SetAmbientScale).
 constexpr Vec3 kBaseAmbient{0.052f, 0.048f, 0.064f};
-// A burning body's plume burns a little bigger than a brazier. Shared by the
-// plume itself and the buffer reserve that has to allow for one.
-constexpr float kPlumeScale = 1.1f;
 } // namespace
 
 // ============================================================================
@@ -432,16 +429,19 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 	for (Monster& monster : m_monsters) {
 		const fx::Inst* burning = PlumeEffect(monster);
 		if (!burning) {
-			monster.plume.reset();
+			if (monster.plumeLit) monster.plume.Clear();
+			monster.plumeLit = false;
 			continue;
 		}
-		if (!monster.plume)
-			monster.plume = std::make_unique<FireEffect>(
-				BurnOrigin(monster), kPlumeScale, monster.runtimeId * 2654435761u);
-		monster.plume->SetTint(BurnTint(burning->school));
-		monster.plume->SetOrigin(BurnOrigin(monster));
-		monster.plume->Update(dt);
-		monster.plume->AppendParticles(m_particleScratch);
+		// Lit IN PLACE: the buffer was reserved at spawn (MakeMonster).
+		if (!monster.plumeLit) {
+			monster.plume.Ignite(BurnOrigin(monster), monster.runtimeId * 2654435761u);
+			monster.plumeLit = true;
+		}
+		monster.plume.SetTint(BurnTint(burning->school));
+		monster.plume.SetOrigin(BurnOrigin(monster));
+		monster.plume.Update(dt);
+		monster.plume.AppendParticles(m_particleScratch);
 	}
 	// Projectiles in flight + their impact sparks render as additive billboards
 	// alongside the flames (same premultiplied-additive blend).
@@ -467,11 +467,13 @@ void DungeonWorld::ReserveParticleScratch() {
 	// than the current one: every monster on fire at once, and a busy fight's
 	// bolts and impact bursts. At 32 bytes an instance that insurance is cheap,
 	// and what it buys is not growing in the middle of the fight that needs it.
+	// Every fire, and every plume, at its CEILING (FireEffect::CapacityFor -
+	// a hard cap, not a mean), so those terms are exact rather than estimated.
 	size_t peak = 0;
 	for (const Fire& fire : m_fires)
-		peak += static_cast<size_t>(fire.effect.SteadyCount());
+		peak += static_cast<size_t>(fire.effect.Capacity());
 	peak += m_monsters.size() *
-			static_cast<size_t>(FireEffect::SteadyCountFor(kPlumeScale));
+			static_cast<size_t>(FireEffect::CapacityFor(kPlumeScale));
 	peak += 128; // projectiles in flight + their impact sparks (bursts of 6..14)
 	// Headroom over the mean: spawn times and lifetimes are both random, so the
 	// live count wanders above the settled figure SteadyCount reports.

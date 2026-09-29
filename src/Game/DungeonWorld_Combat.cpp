@@ -1181,7 +1181,8 @@ Vec3 DungeonWorld::BurnOrigin(const Monster& monster) {
 
 void DungeonWorld::Extinguish(Monster& monster) {
 	monster.effects.clear(); // a corpse carries nothing
-	monster.plume.reset();
+	monster.plume.Clear();   // put out, its buffer kept
+	monster.plumeLit = false;
 }
 
 bool DungeonWorld::ApplyEffectAhead(std::string_view id, float magnitude,

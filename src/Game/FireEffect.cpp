@@ -18,11 +18,28 @@ constexpr float kSparkRate = 2.0f;
 constexpr float kU = kUnit;
 } // namespace
 
-FireEffect::FireEffect(const Vec3& origin, float scale, u32 seed)
-	: m_origin(origin), m_scale(scale), m_rng(seed) {
-	m_particles.reserve(64);
+FireEffect::FireEffect(const Vec3& origin, float scale, u32 seed) {
+	Reserve(scale);
+	Ignite(origin, seed);
+}
+
+void FireEffect::Reserve(float scale) {
+	m_scale = scale;
+	m_capacity = CapacityFor(scale);
+	m_particles.reserve(static_cast<size_t>(m_capacity));
+}
+
+void FireEffect::Ignite(const Vec3& origin, u32 seed) {
+	Clear();
+	m_origin = origin;
+	m_rng.seed(seed);
 	// Pre-warm so fires aren't cold when first seen.
 	for (int i = 0; i < 30; ++i) Update(0.1f);
+}
+
+void FireEffect::Clear() {
+	m_particles.clear(); // keeps the capacity - that is the point
+	m_flameAccum = m_smokeAccum = m_sparkAccum = 0.0f;
 }
 
 float FireEffect::Rand(float lo, float hi) {
@@ -30,6 +47,9 @@ float FireEffect::Rand(float lo, float hi) {
 }
 
 void FireEffect::Spawn(Kind kind) {
+	// At the ceiling the spawn is dropped rather than the buffer grown: see
+	// CapacityFor. Checked first, so a dropped spawn draws no random numbers.
+	if (m_particles.size() >= static_cast<size_t>(m_capacity)) return;
 	Particle p;
 	p.kind = kind;
 	const float s = m_scale * kU; // fixture size x metres-per-unit
@@ -70,6 +90,14 @@ int FireEffect::SteadyCountFor(float scale) {
 	const float n = scale * (kFlameRate * kFlameLife + kSmokeRate * kSmokeLife +
 							 kSparkRate * kSparkLife);
 	return static_cast<int>(n) + 1;
+}
+
+int FireEffect::CapacityFor(float scale) {
+	// The live count is a sum of Poisson-ish populations, so its spread goes as
+	// the square root of the mean; half again plus a fixed 16 is past five
+	// sigma at every scale in use (a brazier settles near 26).
+	const int steady = SteadyCountFor(scale);
+	return steady + steady / 2 + 16;
 }
 
 void FireEffect::Update(float dt) {
