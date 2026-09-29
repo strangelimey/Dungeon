@@ -74,9 +74,9 @@ const gfx::Texture* ToolbarIcon(gfx::GraphicsDevice& device,
 								const std::string& name);
 
 // Loads the glyphs the control library draws itself with (assets/ui/
-// icon_dropdown — the drop-down's expander box) and installs them in
-// ui::SetControlIcons. Owned here for the same reason as the close box: ONE
-// texture, one SRV slot, shared by every context — including the editor
+// icon_dropdown + icon_dropdown_open - the drop-down's expander box, closed and
+// open) and installs them in ui::SetControlIcons. Owned here for the same
+// reason as the close box: one texture each, shared by every context — including the editor
 // dialogs, which carry no Skin. Call once at startup; a missing asset leaves
 // the control on its text glyph.
 void LoadSharedControlIcons(gfx::GraphicsDevice& device);

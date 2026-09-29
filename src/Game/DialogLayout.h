@@ -16,7 +16,7 @@
 //   DialogChrome c = BuildDialogChrome(m_ui, kPanel, title, m_closeIcon, close);
 //   c.body->Row<ui::Label>(FormRow(), "...");
 //   c.footer->Space(ui::Len::Fill()); // centres what follows
-//   c.footer->Row<ui::Button>(FooterButton(), "Save", ...);
+//   FooterIcon(*c.footer, device, "save", loc::Tr("map.cfg.save"), ...);
 //   c.footer->Space(ui::Len::Fill());
 //
 // The panel's own backing is still drawn straight to the batch by the dialog:
@@ -24,6 +24,7 @@
 // ============================================================================
 #pragma once
 
+#include "Graphics/GraphicsDevice.h" // FooterIcon's icon load
 #include "Graphics/SpriteBatch.h"
 #include "UI/Controls.h"
 #include "UI/Layout.h"
@@ -114,6 +115,23 @@ ui::Len FormRow(float lines = 1.0f);
 // buttons and one of five look like the same family; `widths` widens a button
 // that needs it ("Animation..." beside "Save").
 ui::Len FooterButton(float widths = 1.0f);
+// A footer ACTION as an icon disc: assets/ui/icon_tb_<icon> (the editor
+// toolbar's house style, AssetUtil's shared ToolbarIcon cache), the size of the
+// card's close disc, with `name` as its hover tooltip - Michael, 2026-09-29: a
+// footer of worded buttons read unlike the toolbar they open from. `name` is
+// also the text face if the art is missing. Returns the button (a caller may
+// mark it `active`, or disable it).
+ui::Button* FooterIcon(ui::Stack& row, gfx::GraphicsDevice& device, const char* icon,
+					   const std::string& name, std::function<void()> onClick);
+// The same, for an ACTION inside a form row (move up, remove, reroll, open):
+// a disc the row's height, square, so a row of controls reads as the footer's
+// family. Buttons that SHOW a value (an asset field's current set) or ARE a
+// list's rows stay worded - they are content, not actions.
+ui::Button* RowIcon(ui::Stack& row, gfx::GraphicsDevice& device, const char* icon,
+					const std::string& name, std::function<void()> onClick);
+// RowIcon's width, for the Space that keeps a column aligned in a row that has
+// no button there.
+ui::Len RowIconWidth();
 
 // The stack a TabControl page's rows go in. CONTENT-SIZED (UI/Layout.h
 // fitContent): a tab page is a window onto its rows, not a box they have to fit

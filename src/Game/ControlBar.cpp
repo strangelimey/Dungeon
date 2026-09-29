@@ -268,8 +268,9 @@ void HudDock::LayoutSelf(ui::UIContext&) {
 
 	// The header: the title, and the minimize button square at its right end.
 	// The button shows the ACTION (the editor's play-pause convention): "-"
-	// while there is something to minimize, "+" while there is not. A
-	// one-character assignment, so it never allocates in a guarded frame.
+	// while there is something to minimize, "+" while there is not - as the
+	// square boxes when installed, the text otherwise. A one-character
+	// assignment and a pointer, so it never allocates in a guarded frame.
 	const float btn = m_toggle ? head : 0.0f;
 	if (m_title)
 		m_title->bounds = {0.0f, 0.0f, std::max(0.0f, inner.w - btn - em * 0.25f) / inner.w,
@@ -277,6 +278,7 @@ void HudDock::LayoutSelf(ui::UIContext&) {
 	if (m_toggle) {
 		m_toggle->bounds = {(inner.w - btn) / inner.w, 0.0f, btn / inner.w, head / inner.h};
 		m_toggle->text = Collapsed() ? "+" : "-";
+		m_toggle->icon = Collapsed() ? m_icoExpand : m_icoCollapse;
 	}
 	// The content fills what is left, and is not there at all while minimized.
 	if (m_content) {
@@ -298,6 +300,7 @@ ControlBar::ControlBar(const gfx::Rect& rect, const ControlBarDeps& deps)
 	debugName = "ControlBar";
 	m_moveDock = Add<HudDock>(deps.moveLabel, deps.moveCollapsed, deps.onCollapseChanged);
 	m_moveDock->debugName = "MoveDock";
+	m_moveDock->SetToggleIcons(deps.boxPlus, deps.boxMinus);
 	m_moveDock->SetContent<MovementPad>(gfx::Rect{0, 0, 1, 1}, deps);
 
 	m_handsDock = Add<HudDock>(std::string(), nullptr, nullptr);
@@ -306,6 +309,7 @@ ControlBar::ControlBar(const gfx::Rect& rect, const ControlBarDeps& deps)
 
 	m_magicDock = Add<HudDock>(deps.magicLabel, deps.magicCollapsed, deps.onCollapseChanged);
 	m_magicDock->debugName = "MagicDock";
+	m_magicDock->SetToggleIcons(deps.boxPlus, deps.boxMinus);
 	m_spellbook = m_magicDock->SetContent<SpellbookPanel>(gfx::Rect{0, 0, 1, 1},
 														  deps.roster, deps.icons);
 	m_rows = HandRows(MemberCount(deps));

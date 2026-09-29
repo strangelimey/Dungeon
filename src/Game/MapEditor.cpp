@@ -1233,11 +1233,21 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 				batch.DrawRect({cx, box.y + 4.0f, 1.0f, box.h - 8.0f}, theme.text);
 			}
 		}
-		ui::DrawButtonFace(batch, font, FilterClearRect(panel), "x", theme,
-						   m_hotCtrl == HotCtrl::Clear && !m_filter.empty(),
-						   false, !m_filter.empty());
-		ui::DrawButtonFace(batch, font, CollapseAllRect(panel), "-", theme,
-						   m_hotCtrl == HotCtrl::Collapse, false, true);
+		// The square box icons, brightened on hover and dimmed when disabled
+		// (the toolbar's idiom); the text face only when the art is missing.
+		auto iconBox = [&](const gfx::Rect& r, const gfx::Texture* icon, const char* text,
+					   bool hot, bool enabled) {
+			if (!icon) {
+				ui::DrawButtonFace(batch, font, r, text, theme, hot, false, enabled);
+				return;
+			}
+			const float f = !enabled ? 0.32f : hot ? 1.15f : 0.9f;
+			batch.DrawSprite(r, {0, 0, 1, 1}, *icon, {f, f, f, 1.0f});
+		};
+		iconBox(FilterClearRect(panel), m_icoClear, "x",
+				m_hotCtrl == HotCtrl::Clear && !m_filter.empty(), !m_filter.empty());
+		iconBox(CollapseAllRect(panel), m_icoCollapse, "-",
+				m_hotCtrl == HotCtrl::Collapse, true);
 	}
 
 	// "Catalogue" checkbox (second controls line): a small box + label. Checked
@@ -1260,7 +1270,21 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	std::vector<PaletteRow> rows;
 	float content = 0.0f;
 	BuildPaletteRows(panel, rows, content);
-	const float arrowW = font.MeasureWidth("+");
+	// A header's expand/collapse mark: the square box at text height, or the
+	// "+"/"-" glyph without the art. arrowW is the width it takes, so the label
+	// after it lands the same distance away either way.
+	const bool boxes = m_icoExpand && m_icoCollapse;
+	const float arrowW = boxes ? font.Height() : font.MeasureWidth("+");
+	auto expander = [&](bool open, float x, const gfx::Rect& rc, float ty) {
+		if (boxes) {
+			const float s = std::min(arrowW, rc.h - 2.0f);
+			batch.DrawSprite({x, rc.y + (rc.h - s) * 0.5f, s, s}, {0, 0, 1, 1},
+							 *(open ? m_icoCollapse : m_icoExpand),
+							 {0.9f, 0.9f, 0.9f, 1.0f});
+		} else {
+			font.Draw(batch, open ? "-" : "+", x, ty, theme.textDim);
+		}
+	};
 	std::vector<PaletteItem> items; // the current category's items
 	for (const PaletteRow& r : rows) {
 		const gfx::Rect& rc = r.rect;
@@ -1271,8 +1295,7 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		case PaletteRow::Kind::Header: {
 			batch.DrawRect(rc, theme.control);
 			ui::DrawBorder(batch, rc, theme.panelBorder);
-			const char* arrow = m_catOpen[static_cast<size_t>(r.cat)] ? "-" : "+";
-			font.Draw(batch, arrow, rc.x + dpad, ty, theme.textDim);
+			expander(m_catOpen[static_cast<size_t>(r.cat)], rc.x + dpad, rc, ty);
 			font.Draw(batch, loc::Tr(CategoryNameKey(r.cat)),
 					  rc.x + dpad * 2 + arrowW, ty, theme.text);
 			break;
@@ -1297,7 +1320,6 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			// A group sub-header: indented +/- toggle, the free-form category
 			// token (first letter up-cased) and the member count. Tokens are
 			// data ids, so no loc lookup — like the item labels themselves.
-			const char* arrow = GroupOpen(r.cat, r.group) ? "-" : "+";
 			int n = 0;
 			for (const PaletteItem& it : items)
 				if (it.group == r.group) ++n;
@@ -1305,7 +1327,7 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			label[0] = static_cast<char>(
 				std::toupper(static_cast<unsigned char>(label[0])));
 			label += std::format(" ({})", n);
-			font.Draw(batch, arrow, rc.x + dpad * 3, ty, theme.textDim);
+			expander(GroupOpen(r.cat, r.group), rc.x + dpad * 3, rc, ty);
 			font.Draw(batch, label, rc.x + dpad * 4 + arrowW, ty, theme.text);
 			break;
 		}

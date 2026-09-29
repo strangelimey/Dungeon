@@ -1121,6 +1121,14 @@ private:
 		if (page == MapPage::World && m_mapPage != page) m_worldMapView.Reset();
 		m_mapPage = page;
 	}
+	// Closes the map overlay: Esc, and both pages' close boxes. A stroke in
+	// progress lands its undo step first, and the world view goes back to
+	// being the travel screen.
+	void CloseMapOverlay() {
+		m_mapEditor.EndStroke();
+		m_mapView.Close();
+		ShowMapPage(MapPage::Dungeon);
+	}
 	MapPage m_mapPage = MapPage::Dungeon;
 
 	gfx::Rect MapPanel(float surfaceW, float surfaceH) const {

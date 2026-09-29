@@ -144,13 +144,11 @@ void GenerateDialog::BuildUI() {
 			// A new seed, so "give me a different one" does not mean typing a
 			// number. Written straight into the field rather than rebuilding -
 			// the field is this tree's, and nothing is being cleared.
-			row->Row<ui::Button>(FooterButton(0.8f), loc::Tr("map.gen.roll"),
-								 [this, k] {
-									 std::random_device rd;
-									 generate::SetKnob(*k, m_params, rd());
-									 if (m_seedField)
-										 m_seedField->text = std::to_string(m_params.seed);
-								 });
+			RowIcon(*row, m_device, "generate", loc::Tr("map.gen.roll"), [this, k] {
+				std::random_device rd;
+				generate::SetKnob(*k, m_params, rd());
+				if (m_seedField) m_seedField->text = std::to_string(m_params.seed);
+			});
 			continue;
 		}
 
@@ -188,42 +186,37 @@ void GenerateDialog::BuildUI() {
 	chrome.footer->Space(ui::Len::Fill());
 	if (m_mode == Mode::Create) {
 		// The old [+] behaviour, kept: sometimes you want a blank canvas.
-		chrome.footer->Row<ui::Button>(FooterButton(1.4f), loc::Tr("map.gen.empty"),
-									   [this] {
-										   if (onCreate) onCreate(m_dungeon, nullptr);
-										   Close();
-									   });
-		chrome.footer->Row<ui::Button>(
-			FooterButton(1.4f), loc::Tr("map.gen.create"), [this] {
-				if (!onCreate) return;
-				if (onKnobsUsed) onKnobsUsed(m_params);
-				const std::string stem = onCreate(m_dungeon, &m_params);
-				if (stem.empty()) return;
-				// Straight into the reroll loop on what was just made. DEFERRED:
-				// this fires from inside the tree the rebuild would clear.
-				m_mode = Mode::Regenerate;
-				m_level = stem;
-				m_uiRebuild = true;
-			});
-		// THE PLAY-TEST LOOP in one click (P5): make it, and walk into it.
-		chrome.footer->Row<ui::Button>(
-			FooterButton(1.6f), loc::Tr("map.gen.createplay"), [this] {
-				if (!onCreate) return;
-				if (onKnobsUsed) onKnobsUsed(m_params);
-				const std::string stem = onCreate(m_dungeon, &m_params);
-				if (!stem.empty() && onPlay) onPlay(stem);
-			});
+		FooterIcon(*chrome.footer, m_device, "new", loc::Tr("map.gen.empty"), [this] {
+			if (onCreate) onCreate(m_dungeon, nullptr);
+			Close();
+		});
+		FooterIcon(*chrome.footer, m_device, "generate", loc::Tr("map.gen.create"), [this] {
+			if (!onCreate) return;
+			if (onKnobsUsed) onKnobsUsed(m_params);
+			const std::string stem = onCreate(m_dungeon, &m_params);
+			if (stem.empty()) return;
+			// Straight into the reroll loop on what was just made. DEFERRED:
+			// this fires from inside the tree the rebuild would clear.
+			m_mode = Mode::Regenerate;
+			m_level = stem;
+			m_uiRebuild = true;
+		});
+		// THE PLAY-TEST LOOP in one click (P5): make it, and walk into it. The
+		// play disc: in this dialog, playing means making it first.
+		FooterIcon(*chrome.footer, m_device, "play", loc::Tr("map.gen.createplay"), [this] {
+			if (!onCreate) return;
+			if (onKnobsUsed) onKnobsUsed(m_params);
+			const std::string stem = onCreate(m_dungeon, &m_params);
+			if (!stem.empty() && onPlay) onPlay(stem);
+		});
 	} else {
-		chrome.footer->Row<ui::Button>(FooterButton(1.4f), loc::Tr("map.gen.go"),
-									   [this] {
-										   if (onKnobsUsed) onKnobsUsed(m_params);
-										   if (onGenerate) onGenerate(m_params);
-									   });
+		FooterIcon(*chrome.footer, m_device, "generate", loc::Tr("map.gen.go"), [this] {
+			if (onKnobsUsed) onKnobsUsed(m_params);
+			if (onGenerate) onGenerate(m_params);
+		});
 		// ...and walk into what the rerolls made, when it looks right.
-		chrome.footer->Row<ui::Button>(FooterButton(1.4f), loc::Tr("map.gen.play"),
-									   [this] {
-										   if (onPlay) onPlay(m_level);
-									   });
+		FooterIcon(*chrome.footer, m_device, "play", loc::Tr("map.gen.play"),
+				   [this] { if (onPlay) onPlay(m_level); });
 	}
 	chrome.footer->Space(ui::Len::Fill());
 }
@@ -250,13 +243,13 @@ void GenerateDialog::BuildPresetsPage(ui::Stack& page) {
 		ui::Stack* buttons = page.Row<ui::Stack>(FormRow(1.4f), true);
 		buttons->gapRem = 0.5f;
 		buttons->Space(ui::Len::Fill());
-		buttons->Row<ui::Button>(FooterButton(), loc::Tr("map.gen.preset.load"), [this, names] {
+		RowIcon(*buttons, m_device, "open", loc::Tr("map.gen.preset.load"), [this, names] {
 			const std::string& name = names[static_cast<size_t>(m_presetPick)];
 			if (onPresetLoad && onPresetLoad(name, m_params))
 				m_presetNote = loc::Format("map.gen.preset.loaded", name);
 			m_uiRebuild = true;
 		});
-		buttons->Row<ui::Button>(FooterButton(), loc::Tr("map.gen.preset.delete"), [this, names] {
+		RowIcon(*buttons, m_device, "delete", loc::Tr("map.gen.preset.delete"), [this, names] {
 			const std::string& name = names[static_cast<size_t>(m_presetPick)];
 			if (onPresetDelete && onPresetDelete(name))
 				m_presetNote = loc::Format("map.gen.preset.deleted", name);
@@ -269,7 +262,7 @@ void GenerateDialog::BuildPresetsPage(ui::Stack& page) {
 	field->onChange = [this, field] { m_presetName = field->text; };
 	ui::Stack* save = page.Row<ui::Stack>(FormRow(1.4f), true);
 	save->Space(ui::Len::Fill());
-	save->Row<ui::Button>(FooterButton(), loc::Tr("map.gen.preset.save"), [this] {
+	RowIcon(*save, m_device, "save", loc::Tr("map.gen.preset.save"), [this] {
 		if (!onPresetSave) return;
 		const std::string saved = onPresetSave(m_presetName, m_params);
 		m_presetNote = saved.empty() ? loc::Tr("map.gen.preset.failed")

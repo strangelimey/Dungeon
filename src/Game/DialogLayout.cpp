@@ -3,6 +3,8 @@
 // ============================================================================
 #include "Game/DialogLayout.h"
 
+#include "Game/AssetUtil.h" // ToolbarIcon (FooterIcon)
+
 namespace dungeon::game {
 
 namespace {
@@ -74,6 +76,36 @@ ui::Len FormRow(float lines) {
 
 ui::Len FooterButton(float widths) {
 	return ui::Len::Fixed(kFooterBtn * widths);
+}
+
+namespace {
+// Both icon buttons: the disc is the button (ui::Button's icon face), the name
+// is the tooltip AND the text face should the art be missing, so a button never
+// shows a blank.
+ui::Button* IconButton(ui::Stack& row, ui::Len size, gfx::GraphicsDevice& device,
+					   const char* icon, const std::string& name,
+					   std::function<void()> onClick) {
+	ui::Button* b = row.Row<ui::Button>(size, name, std::move(onClick));
+	b->icon = ToolbarIcon(device, icon);
+	b->tooltip = name;
+	return b;
+}
+} // namespace
+
+ui::Button* FooterIcon(ui::Stack& row, gfx::GraphicsDevice& device, const char* icon,
+					   const std::string& name, std::function<void()> onClick) {
+	// The size of the close disc in the card's corner - at the footer's full
+	// height it read half as big again, louder than the dialog it serves.
+	return IconButton(row, ui::Len::Fixed(kCloseSlot), device, icon, name,
+					  std::move(onClick));
+}
+
+ui::Len RowIconWidth() { return FormRow(); }
+
+ui::Button* RowIcon(ui::Stack& row, gfx::GraphicsDevice& device, const char* icon,
+					const std::string& name, std::function<void()> onClick) {
+	// A form row's height, square: the disc fills the row it sits in.
+	return IconButton(row, RowIconWidth(), device, icon, name, std::move(onClick));
 }
 
 ui::Stack* TabStack(ui::TabControl& tabs, size_t tab) {

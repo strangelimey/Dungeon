@@ -74,7 +74,7 @@ public:
 
 	// Wires the Editor-mode collaborator (Game owns both; see file banner). Until
 	// set, Editor mode shows an empty left dock.
-	void SetEditor(MapEditor* editor) { m_editor = editor; }
+	void SetEditor(MapEditor* editor); // also hands it the palette's box icons
 
 	// Fired by the Editor-mode header buttons top-right of the grid: Save writes
 	// every edited level (the savemap console command), To source additionally
@@ -118,6 +118,9 @@ public:
 	// than dimming it: a game that is all dungeon should not advertise a
 	// map it does not have.
 	bool hasWorld = false;
+	// The player map's close box, top-right (Esc still closes it too). The
+	// owner closes the overlay; null hides the box.
+	std::function<void()> onClose;
 
 	bool IsOpen() const { return m_open; }
 	Mode CurrentMode() const { return m_mode; }
@@ -389,6 +392,14 @@ private:
 	// The tool strip's discs, by MapEditor::Tool, then Fill level (icon_tb_tool_*).
 	std::array<const gfx::Texture*, 5> m_icoTools{};
 	const gfx::Texture* m_icoFillLevel = nullptr;
+	// The docks' collapse buttons: square boxes, "<<" and ">>" (icon_tb_dock_*).
+	const gfx::Texture *m_icoDockL = nullptr, *m_icoDockR = nullptr;
+	// The palette's boxes, passed on to MapEditor (see MapEditor::SetIcons).
+	const gfx::Texture *m_icoClose = nullptr, *m_icoBoxPlus = nullptr,
+					   *m_icoBoxMinus = nullptr;
+	// The Player map's level browse arrows (icon_tb_box_up / _down).
+	const gfx::Texture *m_icoBoxUp = nullptr, *m_icoBoxDown = nullptr;
+	const gfx::Texture* m_icoBoxWorld = nullptr; // the way to the world map
 	// The Rectangle tool's drag: the press square and the square under the
 	// pointer now. Painted on the release (UpdateBrush), previewed until then.
 	bool m_rectDrag = false;
@@ -441,7 +452,7 @@ private:
 	enum class HoverBtn {
 		None, LevelUp, LevelDown, Undo, Redo, Save, SaveSource, Balance,
 		LevelSettings, Check, Generate, NewLevel, LevelPick, PlayPause, CollapseL,
-		CollapseR, ShowWorld, NewWorld,
+		CollapseR, ShowWorld, NewWorld, Close,
 		// The tool strip, in MapEditor::Tool order, then its one action.
 		ToolPaint, ToolRect, ToolFlood, ToolArea, ToolPick, FillLevel
 	};
@@ -488,6 +499,10 @@ private:
 	bool ShowWorldButton() const {
 		return m_mode == Mode::Player && hasWorld && onShowWorld != nullptr;
 	}
+	// The close box: the World button's square, mirrored into the top-right
+	// corner (WorldMapView's is on the same pixels).
+	gfx::Rect CloseButton(const gfx::Rect& panel) const;
+	bool ShowCloseButton() const { return m_mode == Mode::Player && onClose != nullptr; }
 
 	// ONE ROW LIST that hover, click and render all walk — the toolbar's own
 	// idiom, applied to the popup. Before W5 the popup was a flat vector of

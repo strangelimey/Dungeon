@@ -299,6 +299,9 @@ void Game::WireModuleCallbacks() {
 	// (m_mapView.hasWorld is set per world, in LoadWorld.)
 	m_mapView.onShowWorld = [this] { ShowMapPage(MapPage::World); };
 	m_worldMapView.onShowDungeon = [this] { ShowMapPage(MapPage::Dungeon); };
+	// The player map's close box, on both pages - Esc's path, not a second one.
+	m_mapView.onClose = [this] { CloseMapOverlay(); };
+	m_worldMapView.onClose = [this] { CloseMapOverlay(); };
 	WireWorldSettingsDialog();
 	// The worlds dialog is the `worlds` command's three verbs with a face, and
 	// calls the SAME two functions — so the console and the dialog cannot

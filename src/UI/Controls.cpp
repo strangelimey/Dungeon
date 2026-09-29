@@ -147,8 +147,13 @@ void Button::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 		// and alpha) — no button face behind it. Rotated in quarter turns
 		// (screen Y is down: positive turns step right→down→left→up), with
 		// hover/held brightening standing in for the face wash.
+		// Disabled dims the disc well down (the editor toolbar's 0.32), since
+		// an icon has no face to flatten.
 		const float d = std::min(px.w, px.h) * 0.92f;
-		const float f = (m_held || active) ? 1.15f : (m_hot ? 1.0f : 0.82f);
+		const float f = !enabled				? 0.32f
+						: (m_held || active) ? 1.15f
+						: m_hot				? 1.0f
+											: 0.82f;
 		batch.DrawSpriteRotated({px.x + px.w * 0.5f, px.y + px.h * 0.5f}, {d, d},
 								static_cast<float>(iconTurns) * (kPi * 0.5f),
 								{0, 0, 1, 1}, *icon, {f, f, f, 1.0f});
@@ -156,6 +161,30 @@ void Button::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	}
 	DrawButtonFace(batch, TextFont(), px, text, ctx.GetTheme(), m_hot && enabled,
 				   m_held || active, enabled, ctx.GetSkin());
+}
+
+void Button::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
+	if (!m_hot || tooltip.empty()) return;
+	// The editor toolbar's tip, as a control: the button's own font, a pad of
+	// a third of a line, the panel colour made opaque (a tip over busy content
+	// must read) and the frame's border. Above the button - dialog footers sit
+	// at the bottom, where below would run off the card - unless that leaves
+	// the window, and clamped to it sideways.
+	const Theme& theme = ctx.GetTheme();
+	const Font& font = TextFont();
+	const gfx::Rect& px = Pixel();
+	const float pad = font.Height() * 0.33f;
+	const float w = font.MeasureWidth(tooltip) + pad * 2.0f;
+	const float h = font.Height() + pad;
+	const float gap = pad;
+	float y = px.y - h - gap;
+	if (y < 0.0f) y = px.y + px.h + gap;
+	const float x = std::clamp(px.x + (px.w - w) * 0.5f, 2.0f,
+							   std::max(2.0f, ctx.Width() - w - 2.0f));
+	const gfx::Rect r{x, y, w, h};
+	batch.DrawRect(r, {theme.panel.x, theme.panel.y, theme.panel.z, 0.97f});
+	DrawBorder(batch, r, theme.panelBorder);
+	font.Draw(batch, tooltip, r.x + pad, r.y + pad * 0.5f, theme.text);
 }
 
 void DrawButtonFace(gfx::SpriteBatch& batch, const Font& font,
@@ -296,11 +325,15 @@ void Slider::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	// Filled portion + thumb.
 	const float t = (m_value - m_min) / std::max(m_max - m_min, 1e-6f);
 	batch.DrawRect({px.x, trackY, px.w * t, trackH}, theme.accent);
-	const float thumbW = Rem(0.35f);
-	const float thumbX = px.x + px.w * t - thumbW * 0.5f;
-	batch.DrawRect({thumbX, bandY, thumbW, bandH},
-				   m_dragging ? theme.controlActive : theme.controlHot);
-	DrawBorder(batch, {thumbX, bandY, thumbW, bandH}, theme.panelBorder);
+	// A stubby block centred on the track: half the band tall, 0.7rem wide (it
+	// was the full band and 0.35rem, and read as a thin post). Drawing only -
+	// the whole bounds take the drag.
+	const float thumbW = Rem(0.7f);
+	const float thumbH = bandH * 0.5f;
+	const gfx::Rect thumb{px.x + px.w * t - thumbW * 0.5f,
+						  trackY + trackH * 0.5f - thumbH * 0.5f, thumbW, thumbH};
+	batch.DrawRect(thumb, m_dragging ? theme.controlActive : theme.controlHot);
+	DrawBorder(batch, thumb, theme.panelBorder);
 }
 
 // --- DropDown ------------------------------------------------------------
@@ -451,8 +484,9 @@ void DrawDropDownExpander(gfx::SpriteBatch& batch, const Font& font,
 						  const gfx::Rect& rect, const Theme& theme, bool open,
 						  bool hot) {
 	// The authored box is a SQUARE sized off the control's height and inset so
-	// it clears the border, turned half a rotation while open — the triangle is
-	// the only asymmetric thing in it, so ONE asset serves both states.
+	// it clears the border. Open swaps to the up-triangle twin rather than
+	// turning the box, which would carry its top-lit rim round to the bottom;
+	// without that asset the closed one is turned, as before.
 	// Brightness carries the hover/open read the flat glyph used to get from
 	// the accent color (the same idiom Button's icon path uses).
 	//
@@ -460,12 +494,15 @@ void DrawDropDownExpander(gfx::SpriteBatch& batch, const Font& font,
 	// to clear a 1px border beside type of whatever size, and a rect fraction
 	// would grow the gap on a tall control and lose it on a short one.
 	const float inset = font.Height() * 0.12f;
-	if (const gfx::Texture* icon = GetControlIcons().dropDown) {
+	const ControlIcons& icons = GetControlIcons();
+	if (const gfx::Texture* icon = icons.dropDown) {
+		const bool swap = open && icons.dropDownOpen;
+		if (swap) icon = icons.dropDownOpen;
 		const float d = rect.h - inset * 2.0f;
 		const float f = (hot || open) ? 1.15f : 0.9f;
 		batch.DrawSpriteRotated(
 			{rect.x + rect.w - inset - d * 0.5f, rect.y + rect.h * 0.5f}, {d, d},
-			open ? kPi : 0.0f, {0, 0, 1, 1}, *icon, {f, f, f, 1.0f});
+			open && !swap ? kPi : 0.0f, {0, 0, 1, 1}, *icon, {f, f, f, 1.0f});
 		return;
 	}
 	// Fallback with no icon installed: the text arrow, right-aligned with a
@@ -882,9 +919,11 @@ void ColorPicker::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 		const float trackY = track.y + (track.h - trackH) * 0.5f;
 		batch.DrawRect({track.x, trackY, track.w, trackH}, theme.control);
 		batch.DrawRect({track.x, trackY, track.w * value, trackH}, kChannelTints[i]);
-		const float tw = Rem(0.3f);
+		// Slider's proportions: half the height, twice the width it had.
+		const float tw = Rem(0.6f);
+		const float th = (track.h - Rem(0.16f)) * 0.5f;
 		const gfx::Rect thumb{track.x + track.w * value - tw * 0.5f,
-							  track.y + Rem(0.08f), tw, track.h - Rem(0.16f)};
+							  trackY + trackH * 0.5f - th * 0.5f, tw, th};
 		batch.DrawRect(thumb,
 					   m_dragChannel == i ? theme.controlActive : theme.controlHot);
 		DrawBorder(batch, thumb, theme.panelBorder);

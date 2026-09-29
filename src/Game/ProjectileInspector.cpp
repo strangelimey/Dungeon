@@ -75,11 +75,10 @@ void ProjectileInspector::BuildUI() {
 	chrome.body->Space(ui::Len::Fill()); // the rows sit at the top
 
 	chrome.footer->Space(ui::Len::Fill());
-	chrome.footer->Row<ui::Button>(FooterButton(), loc::Tr("map.proj.remove"),
-								   [this] {
-									   if (onRemove) onRemove();
-									   Close();
-								   });
+	FooterIcon(*chrome.footer, m_device, "delete", loc::Tr("map.proj.remove"), [this] {
+		if (onRemove) onRemove();
+		Close();
+	});
 	chrome.footer->Space(ui::Len::Fill());
 }
 

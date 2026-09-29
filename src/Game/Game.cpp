@@ -2092,10 +2092,8 @@ void Game::UpdateStates(float dt) {
 			if (m_mapEditor.Disarm()) return;
 		}
 		if (!typingFilter && input.WasKeyPressed(VK_ESCAPE)) {
-			m_mapEditor.EndStroke(); // Esc mid-drag: the stroke's undo step lands now
-			m_mapView.Close();
-			ShowMapPage(MapPage::Dungeon); // the world view goes back to being
-			return;                        // the travel screen
+			CloseMapOverlay(); // the close boxes' path too
+			return;
 		}
 		{
 			DN_PROFILE_ZONE_L(prof::kLevelSystem, "map");

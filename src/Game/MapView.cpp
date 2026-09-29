@@ -96,6 +96,19 @@ MapView::MapView(gfx::GraphicsDevice& device, GameSettings& settings,
 						MapEditor::ToolName(static_cast<MapEditor::Tool>(i)));
 	m_icoFillLevel = ToolbarIcon(device, "tool_filllevel");
 	m_icoNewWorld = ToolbarIcon(device, "newworld");
+	m_icoDockL = ToolbarIcon(device, "dock_left");
+	m_icoDockR = ToolbarIcon(device, "dock_right");
+	m_icoClose = CloseIcon(device);
+	m_icoBoxPlus = ToolbarIcon(device, "box_plus");
+	m_icoBoxMinus = ToolbarIcon(device, "box_minus");
+	m_icoBoxUp = ToolbarIcon(device, "box_up");
+	m_icoBoxDown = ToolbarIcon(device, "box_down");
+	m_icoBoxWorld = ToolbarIcon(device, "box_world");
+}
+
+void MapView::SetEditor(MapEditor* editor) {
+	m_editor = editor;
+	if (m_editor) m_editor->SetIcons(m_icoClose, m_icoBoxPlus, m_icoBoxMinus);
 }
 
 const DungeonMap& MapView::ViewedMap() const {
@@ -147,9 +160,17 @@ gfx::Rect MapView::WorldButton(const gfx::Rect& panel) const {
 	// the two land on the SAME PIXELS and the pair reads as one control that
 	// stays put. (The right edge cannot do that: this view's key dock sits
 	// there, and its width changes with a persisted collapse flag.)
+	// A square: the globe box (its name is the hover tip). It was a word
+	// button three sides wide - WorldMapView's twin changed with it.
 	const gfx::Rect g = GridArea(panel);
 	const float pad = DockPad(panel), s = ToolBtnS(panel);
-	return {g.x + pad * 2, panel.y + pad * 2, s * 3.0f, s};
+	return {g.x + pad * 2, panel.y + pad * 2, s, s};
+}
+
+gfx::Rect MapView::CloseButton(const gfx::Rect& panel) const {
+	const gfx::Rect w = WorldButton(panel);
+	const gfx::Rect g = GridArea(panel);
+	return {g.x + g.w - (w.x - g.x) - w.w, w.y, w.w, w.h};
 }
 
 gfx::Rect MapView::ToolbarRect(const gfx::Rect& panel) const {
@@ -368,16 +389,28 @@ void MapView::ToggleLegend() {
 	m_settings.Save();
 }
 
+// A dock's collapse button is a SQUARE box in the dock's top band: centred in
+// the collapsed strip (which is narrower than the band is tall, so the strip's
+// width sizes it), and at the INNER edge of an open dock, beside the grid it
+// folds toward. The band keeps its DockBtnH height either way, so the header
+// and body below it do not move.
+static gfx::Rect CollapseSquare(const gfx::Rect& d, float pad, float band,
+								bool collapsed, bool innerIsRight) {
+	const float s = std::min(band, d.w - 2 * pad);
+	const float y = d.y + pad + (band - s) * 0.5f;
+	float x = d.x + (d.w - s) * 0.5f;
+	if (!collapsed) x = innerIsRight ? d.x + d.w - pad - s : d.x + pad;
+	return {x, y, s, s};
+}
+
 gfx::Rect MapView::LeftCollapseButton(const gfx::Rect& panel) const {
-	const gfx::Rect d = LeftDockRect(panel);
-	const float pad = DockPad(panel);
-	return {d.x + pad, d.y + pad, d.w - 2 * pad, DockBtnH(panel)};
+	return CollapseSquare(LeftDockRect(panel), DockPad(panel), DockBtnH(panel),
+						  m_settings.mapPaletteCollapsed, true);
 }
 
 gfx::Rect MapView::RightCollapseButton(const gfx::Rect& panel) const {
-	const gfx::Rect d = RightDockRect(panel);
-	const float pad = DockPad(panel);
-	return {d.x + pad, d.y + pad, d.w - 2 * pad, DockBtnH(panel)};
+	return CollapseSquare(RightDockRect(panel), DockPad(panel), DockBtnH(panel),
+						  LegendCollapsed(), false);
 }
 
 gfx::Rect MapView::PaletteBody(const gfx::Rect& panel) const {
@@ -542,7 +575,9 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 				break;
 			}
 	}
-	if (ShowWorldButton() && WorldButton(panel).Contains(mx, my))
+	if (ShowCloseButton() && CloseButton(panel).Contains(mx, my))
+		m_hoverBtn = HoverBtn::Close;
+	else if (ShowWorldButton() && WorldButton(panel).Contains(mx, my))
 		m_hoverBtn = HoverBtn::ShowWorld;
 	else if (!editor && !LevelNeighbor(-1).empty() &&
 		LevelUpButton(panel).Contains(mx, my))
@@ -620,6 +655,13 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 		// also pans.
 		if (ShowWorldButton() && WorldButton(panel).Contains(mx, my)) {
 			onShowWorld();
+			return true;
+		}
+		// The close box. The owner closes the overlay from inside this call,
+		// so nothing after it may touch the view's state: return at once.
+		if (ShowCloseButton() && CloseButton(panel).Contains(mx, my)) {
+			m_hoverBtn = HoverBtn::None;
+			onClose();
 			return true;
 		}
 		// Level-browse arrows (Player mode; the editor's dropdown replaced
@@ -1419,13 +1461,21 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	const float dpad = DockPad(panel);
 	const float btnH = DockBtnH(panel);
 
-	// A dock = its panel background + a collapse button showing flip arrows
-	// (drawn through the shared button face so it hovers like every button).
+	// A dock = its panel background + a collapse button showing flip arrows: the
+	// square box icon (brightened on hover, the drop-down expander's idiom), or
+	// the shared text button face when the art is missing.
 	auto drawDockFrame = [&](const gfx::Rect& dock, const gfx::Rect& btn,
-							 const char* arrow, HoverBtn id) {
+							 bool left, HoverBtn id) {
 		batch.DrawRect(dock, theme.panel);
 		ui::DrawBorder(batch, dock, theme.panelBorder);
-		ui::DrawButtonFace(batch, *m_font, btn, arrow, theme, m_hoverBtn == id);
+		const bool hot = m_hoverBtn == id;
+		const char* arrow = left ? "<<" : ">>";
+		if (const gfx::Texture* icon = left ? m_icoDockL : m_icoDockR) {
+			const float f = hot ? 1.15f : 0.9f;
+			batch.DrawSprite(btn, {0, 0, 1, 1}, *icon, {f, f, f, 1.0f});
+		} else {
+			ui::DrawButtonFace(batch, *m_font, btn, arrow, theme, hot);
+		}
 	};
 
 	// --- Left palette dock (Editor only; collapsed -> only the ">>" button). The
@@ -1434,8 +1484,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	if (m_mode == Mode::Editor) {
 		const gfx::Rect ld = LeftDockRect(panel);
 		drawDockFrame(ld, LeftCollapseButton(panel),
-					  m_settings.mapPaletteCollapsed ? ">>" : "<<",
-					  HoverBtn::CollapseL);
+					  !m_settings.mapPaletteCollapsed, HoverBtn::CollapseL);
 		if (!m_settings.mapPaletteCollapsed) {
 			m_font->Draw(batch, loc::Tr("map.brushes"), ld.x + dpad,
 						ld.y + dpad + btnH + dpad, theme.textDim);
@@ -1447,7 +1496,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	if (m_mode == Mode::Editor) {
 		const gfx::Rect rd = RightDockRect(panel);
 		drawDockFrame(rd, RightCollapseButton(panel),
-					  LegendCollapsed() ? "<<" : ">>", HoverBtn::CollapseR);
+					  LegendCollapsed(), HoverBtn::CollapseR);
 		if (!LegendCollapsed()) {
 			m_font->Draw(batch, loc::Tr("map.key"), rd.x + dpad,
 						rd.y + dpad + btnH + dpad, theme.textDim);
@@ -1516,15 +1565,45 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		if (m_mode == Mode::Player) {
 			const std::string above = LevelNeighbor(-1), below = LevelNeighbor(+1);
 			const gfx::Rect upR = LevelUpButton(panel), dnR = LevelDownButton(panel);
-			if (!above.empty()) face(upR, "^", HoverBtn::LevelUp);
-			if (!below.empty()) face(dnR, "v", HoverBtn::LevelDown);
+			// The square arrow boxes when installed (brightened on hover, the
+			// toolbar's idiom), else the text face.
+			auto arrow = [&](const gfx::Rect& r, const gfx::Texture* icon,
+							 const char* text, HoverBtn id) {
+				if (!icon) return face(r, text, id);
+				const float s = std::min(r.w, r.h);
+				const float f = m_hoverBtn == id ? 1.15f : 0.9f;
+				batch.DrawSprite({r.x + (r.w - s) * 0.5f, r.y + (r.h - s) * 0.5f, s, s},
+								 {0, 0, 1, 1}, *icon, {f, f, f, 1.0f});
+			};
+			if (!above.empty()) arrow(upR, m_icoBoxUp, "^", HoverBtn::LevelUp);
+			if (!below.empty()) arrow(dnR, m_icoBoxDown, "v", HoverBtn::LevelDown);
 			m_font->Draw(batch, ViewedLevel(), dnR.x + dnR.w + dpad * 2,
 						upR.y + (upR.h - m_font->Height()) * 0.5f,
 						m_browse ? theme.accent : theme.text);
-			// ...and the way to the world map, at the grid's far end.
-			if (ShowWorldButton())
-				face(WorldButton(panel), loc::Tr("map.btn.showworld"),
-					 HoverBtn::ShowWorld);
+			// The close box in the far corner (the shared dialog icon).
+			if (ShowCloseButton())
+				arrow(CloseButton(panel), m_icoClose, "x", HoverBtn::Close);
+			// ...and the way to the world map, at the grid's far end: the globe
+			// box, named by a tip under it while hovered (the text face, name
+			// and all, when the art is missing).
+			if (ShowWorldButton()) {
+				const gfx::Rect wr = WorldButton(panel);
+				const std::string name = loc::Tr("map.btn.showworld");
+				if (!m_icoBoxWorld) {
+					face(wr, name, HoverBtn::ShowWorld);
+				} else {
+					arrow(wr, m_icoBoxWorld, "", HoverBtn::ShowWorld);
+					if (m_hoverBtn == HoverBtn::ShowWorld) {
+						const float tw = m_font->MeasureWidth(name);
+						const float p = dpad * 1.5f;
+						const gfx::Rect tr{wr.x, wr.y + wr.h + 2.0f, tw + p * 2,
+										   m_font->Height() + p};
+						batch.DrawRect(tr, kMapBg);
+						ui::DrawBorder(batch, tr, theme.panelBorder);
+						m_font->Draw(batch, name, tr.x + p, tr.y + p * 0.5f, theme.text);
+					}
+				}
+			}
 		} else {
 			// The band: a subtle lift over the panel base + a 1px seam, so it
 			// reads as fixed chrome the grid scrolls under.

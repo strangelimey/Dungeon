@@ -118,15 +118,18 @@ void EntityInspector::BuildContent(ui::Stack& content) {
 	patrol->Row<ui::Label>(FormRow(),
 						   loc::Format("map.insp.waypoints", m_cfg.patrolCount))
 		->centerV = true;
-	patrol->Row<ui::Button>(FormRow(1.3f), loc::Tr("map.insp.editroute"), [this] {
+	ui::Stack* route = patrol->Row<ui::Stack>(FormRow(1.3f), true);
+	route->gapRem = 0.5f;
+	RowIcon(*route, m_device, "route", loc::Tr("map.insp.editroute"), [this] {
 		if (onEditRoute) onEditRoute(m_cfg.runtimeId);
 		Close(); // hand the grid to the editor for laying
 	});
-	patrol->Row<ui::Button>(FormRow(1.3f), loc::Tr("map.insp.clearroute"), [this] {
+	RowIcon(*route, m_device, "delete", loc::Tr("map.insp.clearroute"), [this] {
 		if (onClearRoute) onClearRoute(m_cfg.runtimeId);
 		m_cfg.patrolCount = 0;
 		RequestRebuild();
 	});
+	route->Space(ui::Len::Fill());
 }
 
 } // namespace dungeon::game

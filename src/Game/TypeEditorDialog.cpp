@@ -228,7 +228,7 @@ void TypeEditorDialog::BuildUI() {
 									 SetValue(*s, std::format("{:g}", snapped));
 								 });
 			if (optional)
-				row->Row<ui::Button>(FooterButton(0.35f), "x", [this, s] {
+				RowIcon(*row, m_device, "clear", loc::Tr("map.btn.clear"), [this, s] {
 					SetValue(*s, ""); // empty = the writer REMOVES the field
 					m_uiRebuild = true;
 				});
@@ -342,7 +342,8 @@ void TypeEditorDialog::BuildUI() {
 	m_noticeLabel = chrome.body->Row<ui::Label>(FormRow(0.9f), m_notice);
 	m_noticeLabel->accent = true;
 
-	chrome.footer->Row<ui::Button>(FooterButton(), loc::Tr("map.cfg.save"), [this] {
+	// The footer's actions are icon discs named by their tooltips (FooterIcon).
+	FooterIcon(*chrome.footer, m_device, "save", loc::Tr("map.cfg.save"), [this] {
 		// A touched field that invalidates baked geometry tells the owner to
 		// re-run AssetBaker (it keeps the dialog up, busy, meanwhile).
 		m_cfg.rebake = false;
@@ -355,24 +356,26 @@ void TypeEditorDialog::BuildUI() {
 	// same handoff the extra button makes (copy the config, close, then call:
 	// the callback may not touch this dialog's widgets after Close).
 	if (!duplicateLabel.empty())
-		chrome.footer->Row<ui::Button>(FooterButton(), duplicateLabel, [this] {
+		FooterIcon(*chrome.footer, m_device, "duplicate", duplicateLabel, [this] {
 			Config cfg = m_cfg;
 			Close();
 			if (onDuplicate) onDuplicate(cfg);
 		});
 	if (!extraLabel.empty())
-		chrome.footer->Row<ui::Button>(FooterButton(1.2f), extraLabel, [this] {
+		FooterIcon(*chrome.footer, m_device, "anim", extraLabel, [this] {
 			Config cfg = m_cfg;
 			Close();
 			if (onExtra) onExtra(cfg);
 		});
-	chrome.footer->Row<ui::Button>(
-		FooterButton(), loc::Tr(m_deleteArmed ? "map.type.delete.confirm"
-											  : "map.type.delete"),
-		[this] { ClickDelete(); });
-	chrome.footer->Space(ui::Len::Fill()); // the "?" sits at the far edge
-	chrome.footer->Row<ui::Button>(FooterButton(0.4f), "?",
-								   [this] { m_helpOpen = true; });
+	// Armed, the disc lights and its name becomes the confirmation (the notice
+	// row above says what a second click does).
+	FooterIcon(*chrome.footer, m_device, "delete",
+			   loc::Tr(m_deleteArmed ? "map.type.delete.confirm" : "map.type.delete"),
+			   [this] { ClickDelete(); })
+		->active = m_deleteArmed;
+	chrome.footer->Space(ui::Len::Fill()); // help sits at the far edge
+	FooterIcon(*chrome.footer, m_device, "help", loc::Tr("map.btn.help"),
+			   [this] { m_helpOpen = true; });
 }
 
 // --- deleting ----------------------------------------------------------------

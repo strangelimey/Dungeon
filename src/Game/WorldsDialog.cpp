@@ -17,9 +17,8 @@ namespace {
 // A short list and one form row: narrower and shorter than the settings card.
 // The list scrolls, so the card is sized for a handful of worlds, not all.
 constexpr gfx::Rect kPanel{0.25f, 0.22f, 0.50f, 0.54f};
-// The two button columns, in FooterButton widths. NARROW ON PURPOSE: the name
-// takes what is left, and at 1.6 + 1.2 a twelve-letter name ran under Open.
-constexpr float kOpenW = 1.0f, kDeleteW = 0.9f;
+// (The two button columns are RowIcon discs now, so the name takes nearly the
+// whole row - worded ones had to be narrowed to keep a long name clear.)
 
 // A world's name is a FOLDER name — the id filter every authored name gets,
 // applied as it is typed so the field never shows a name that will not be the
@@ -179,7 +178,9 @@ void WorldsDialog::BuildUI() {
 		m_ui, kPanel,
 		m_deleting.empty() ? loc::Tr("map.worlds.title")
 						   : loc::Format("map.worlds.delete.head", m_deleting),
-		m_closeIcon, [this] { Close(); });
+		m_closeIcon, [this] { Close(); },
+		/*withFooter*/ false); // every action sits in its row; an empty footer
+							   // only took height from the list
 	if (m_deleting.empty()) BuildList(chrome);
 	else BuildConfirm(chrome);
 	// What the last click did, or what the next one will. One line, fine print
@@ -222,27 +223,28 @@ void WorldsDialog::BuildList(DialogChrome& chrome) {
 		row->gapRem = 0.5f;
 		row->Row<ui::Label>(ui::Len::Fill(), name)->centerV = true;
 		if (name == m_openName) {
-			ui::Label* here = row->Row<ui::Label>(FooterButton(kOpenW),
-												  loc::Tr("map.worlds.here"));
-			here->centerV = true;
-			here->dim = true;
-			row->Space(FooterButton(kDeleteW));
+			// The open world's way-in disc, dimmed and inert: the column stays
+			// put, and hovering it says why there is nothing to do.
+			RowIcon(*row, m_device, "enter", loc::Tr("map.worlds.here"), nullptr)
+				->enabled = false;
+			row->Space(RowIconWidth());
 			continue;
 		}
+		// The first click ARMS (lit, and its name becomes the switch); the
+		// second relaunches into the world.
 		const bool armed = name == m_armed;
-		auto* btn = row->Row<ui::Button>(
-			FooterButton(kOpenW),
-			loc::Tr(armed ? "map.worlds.relaunch" : "map.worlds.open"),
-			[this, name] { ClickOpen(name); });
-		btn->active = armed;
+		RowIcon(*row, m_device, "enter",
+				loc::Tr(armed ? "map.worlds.relaunch" : "map.worlds.open"),
+				[this, name] { ClickOpen(name); })
+			->active = armed;
 		// A world that may not be deleted (the fallback) gets a SPACE, not a
 		// dead button — the Areas tab's rule: nothing offers a move that cannot
 		// happen, and the columns still line up.
 		if (!canDelete || canDelete(name).empty())
-			row->Row<ui::Button>(FooterButton(kDeleteW), loc::Tr("map.worlds.delete"),
-								 [this, name] { ClickDelete(name); });
+			RowIcon(*row, m_device, "delete", loc::Tr("map.worlds.delete"),
+					[this, name] { ClickDelete(name); });
 		else
-			row->Space(FooterButton(kDeleteW));
+			row->Space(RowIconWidth());
 	}
 
 	chrome.body->Row<ui::Separator>(ui::Len::Fixed(0.5f));
@@ -253,10 +255,10 @@ void WorldsDialog::BuildList(DialogChrome& chrome) {
 		ui::Stack* row = chrome.body->Row<ui::Stack>(FormRow(), true);
 		row->gapRem = 0.5f;
 		row->Space(ui::Len::Fill());
-		row->Row<ui::Button>(FooterButton(kOpenW + kDeleteW), loc::Tr("map.worlds.newworld"),
-							 [this] {
-								 if (onNewWorld) onNewWorld();
-							 });
+		RowIcon(*row, m_device, "newworld", loc::Tr("map.worlds.newworld"), [this] {
+			if (onNewWorld) onNewWorld();
+		});
+		row->Space(RowIconWidth()); // under the Open column, clear of the Delete one
 	}
 }
 

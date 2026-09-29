@@ -77,6 +77,16 @@ public:
 	MapEditor(MapView& view, GameSettings& settings);
 	// Rebound with the view's world (see MapView::SetWorld).
 	void SetWorld(DungeonWorld* world) { m_world = world; }
+	// The palette's square box icons (tools/BuildToolIcons.py), BORROWED from
+	// the shared caches by MapView, which has the device this does not: the
+	// filter's clear box (the shared close box), and the accordion's expand /
+	// collapse boxes (collapse also serves collapse-all). Null = the old text face.
+	void SetIcons(const gfx::Texture* clear, const gfx::Texture* expand,
+				  const gfx::Texture* collapse) {
+		m_icoClear = clear;
+		m_icoExpand = expand;
+		m_icoCollapse = collapse;
+	}
 
 	// Fired when a category's "+ New..." row is clicked (the owner opens the
 	// asset-creation dialog for that category).
@@ -419,6 +429,8 @@ private:
 	// Which control the mouse is over (hover styling; None = neither).
 	enum class HotCtrl { None, Filter, Clear, Collapse, Catalog };
 	HotCtrl m_hotCtrl = HotCtrl::None;
+	const gfx::Texture *m_icoClear = nullptr, *m_icoExpand = nullptr,
+					   *m_icoCollapse = nullptr; // see SetIcons
 	void BuildPaletteRows(const gfx::Rect& panel, std::vector<PaletteRow>& out,
 						  float& contentHeight) const;
 	// Applies the armed selection to cell (cx,cz): structural/variant paints, tool

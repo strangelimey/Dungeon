@@ -127,9 +127,16 @@ public:
 
 	void UpdateSelf(UIContext& ctx) override;
 	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	// The tooltip, when hovered (see `tooltip`).
+	void DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 	std::string text;
 	std::function<void()> onClick;
+	// Shown in a small box while the pointer is over the button - above it, or
+	// below when there is no room - in the overlay pass, so it covers whatever
+	// is next to the button. For an ICON button it is the button's name (the
+	// face shows none); empty = no tooltip.
+	std::string tooltip;
 	// Draw as selected (controlActive fill) regardless of hover — for a row that
 	// represents the current selection in a list (the config dialog's state/clip rows).
 	bool active = false;
@@ -763,7 +770,7 @@ void DrawButtonFace(gfx::SpriteBatch& batch, const Font& font,
 					const Skin* skin = nullptr);
 
 // Draws a drop-down's EXPANDER at the right end of `rect`: the authored box
-// (ui::ControlIcons::dropDown), turned half a rotation while `open`, brightened
+// (ui::ControlIcons::dropDown, or its dropDownOpen twin while `open`), brightened
 // while open or hovered — or the text arrow when no icon is installed. The look
 // belongs to the drop-down, not to any one drawing site: DropDown routes
 // through it, and so does hand-drawn chrome that presents a drop-down outside

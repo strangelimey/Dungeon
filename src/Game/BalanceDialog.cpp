@@ -83,7 +83,7 @@ void BalanceDialog::BuildUI() {
 	m_tabs->SetActiveTab(m_activeTab);
 
 	chrome.footer->Space(ui::Len::Fill());
-	chrome.footer->Row<ui::Button>(FooterButton(), loc::Tr("map.cfg.save"), [this] {
+	FooterIcon(*chrome.footer, m_device, "save", loc::Tr("map.cfg.save"), [this] {
 		if (onSave) onSave(m_cfg);
 		Close();
 	});
@@ -175,8 +175,8 @@ void BalanceDialog::BuildAttacksTab(size_t tab) {
 	header->Space(ui::Len::Fill(kIdFill + kTypeFill));
 	for (const char* h : {"damage", "accuracy", "speed", "stamina"})
 		header->Row<ui::Label>(ui::Len::Fill(kNumFill), h)->centerV = true;
-	// "?" — the column explainer overlay (what the four numbers do).
-	header->Row<ui::Button>(FooterButton(0.35f), "?", [this] { m_helpOpen = true; });
+	// Help - the column explainer overlay (what the four numbers do).
+	RowIcon(*header, m_device, "help", loc::Tr("map.btn.help"), [this] { m_helpOpen = true; });
 
 	for (AttackSpec& a : m_cfg.attacks) {
 		ui::Stack* row = rows->Row<ui::Stack>(FormRow(), true);
@@ -194,8 +194,8 @@ void BalanceDialog::BuildAttacksTab(size_t tab) {
 						[this, &a](float v) { a.pace = v; Apply(); });
 		AddNumericField(*row, ui::Len::Fill(kNumFill), a.stam,
 						[this, &a](float v) { a.stam = v; Apply(); });
-		// The header's "?" column keeps the numbers clear of the scrollbar.
-		row->Space(FooterButton(0.35f));
+		// The header's help column keeps the numbers clear of the scrollbar.
+		row->Space(RowIconWidth());
 	}
 }
 

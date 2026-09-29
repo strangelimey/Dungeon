@@ -89,6 +89,9 @@ public:
 	bool IsOverlay() const { return m_overlay; }
 	// That button. Null (or not an overlay) hides it.
 	std::function<void()> onShowDungeon;
+	// The overlay's close box, top-right - on MapView's close box pixels, so
+	// it too stays put across the page toggle. Null (or not an overlay) hides it.
+	std::function<void()> onClose;
 	// A toolbar tool was clicked. ONE callback rather than four, because the
 	// view has no opinion about any of them — it knows a disc was pressed and
 	// which one, and the owner knows what that means.
@@ -152,6 +155,8 @@ private:
 	// that stays put rather than two buttons that swap places.
 	gfx::Rect DungeonButton(const gfx::Rect& panel) const;
 	bool ShowDungeonButton() const { return m_overlay && onShowDungeon != nullptr; }
+	gfx::Rect CloseButton(const gfx::Rect& panel) const; // mirrors DungeonButton
+	bool ShowCloseButton() const { return m_overlay && onClose != nullptr; }
 
 	ui::FontLibrary& m_fonts;
 	const ui::Font* m_font = nullptr;
@@ -159,12 +164,15 @@ private:
 	// editor's band draws from the same textures.
 	const gfx::Texture *m_icoSettings = nullptr, *m_icoSave = nullptr,
 					   *m_icoUndo = nullptr, *m_icoRedo = nullptr,
-					   *m_icoWorlds = nullptr, *m_icoNewWorld = nullptr;
+					   *m_icoWorlds = nullptr, *m_icoNewWorld = nullptr,
+					   *m_icoBoxDungeon = nullptr, // the player's way back
+					   *m_icoClose = nullptr;      // the shared dialog close box
 	Tool m_hoverTool = Tool::None; // tracked by Update in WINDOW pixels; the
 								   // render re-derives its own geometry and
 								   // matches by IDENTITY, never by coordinate
 	bool m_overlay = false;     // drawn as the player's map, not the travel screen
 	bool m_hoverDungeon = false; // that button's hover, tracked the same way
+	bool m_hoverClose = false;   // and the close box's
 
 	Mode m_mode = Mode::Play;
 	std::string m_armed; // terrain id the brush lays down; empty = none

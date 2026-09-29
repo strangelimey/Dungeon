@@ -202,7 +202,7 @@ void NewWorldDialog::BuildUI() {
 				std::erase_if(raw->text, [](char ch) { return !std::isdigit(static_cast<unsigned char>(ch)); });
 				m_spec.seed = raw->text.empty() ? 1u : static_cast<u32>(std::stoul(raw->text));
 			};
-			row->Row<ui::Button>(ui::Len::Fill(0.25f), loc::Tr("map.newworld.reroll"), [this] {
+			RowIcon(*row, m_device, "generate", loc::Tr("map.newworld.reroll"), [this] {
 				// Deterministic from the current seed (the generator's rule: a
 				// level is its knobs), so a reroll can itself be retraced.
 				m_spec.seed = m_spec.seed * 1664525u + 1013904223u;
@@ -210,6 +210,7 @@ void NewWorldDialog::BuildUI() {
 				if (m_spec.seed == 0) m_spec.seed = 1;
 				m_uiRebuild = true;
 			});
+			row->Space(ui::Len::Fill(0.25f)); // the field keeps the width it had
 		}
 	}
 
@@ -224,11 +225,11 @@ void NewWorldDialog::BuildUI() {
 	m_noteLabel = note;
 
 	// Create, and once a world is made, the way there.
-	chrome.footer->Row<ui::Button>(FooterButton(), loc::Tr("map.newworld.create"),
-								   [this] { Create(m_name); });
+	FooterIcon(*chrome.footer, m_device, "newworld", loc::Tr("map.newworld.create"),
+			   [this] { Create(m_name); });
 	if (!m_made.empty())
-		chrome.footer->Row<ui::Button>(FooterButton(1.3f), loc::Tr("map.newworld.switch"),
-									   [this] { SwitchNow(); })
+		FooterIcon(*chrome.footer, m_device, "enter", loc::Tr("map.newworld.switch"),
+				   [this] { SwitchNow(); })
 			->active = true;
 }
 
