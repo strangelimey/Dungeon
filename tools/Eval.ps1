@@ -281,15 +281,24 @@ if ($SelfTest) {
 	# loader's frame counter already was, and only turned up because the load hung.
 	Write-Host ''
 	Write-Host '=== a headless run must match a windowed one ==='
-	$grabAll = { ReadLog | Where-Object { $_ -cmatch '^\[info \] console: ' } }
+	# EVERY console line is compared, so the one line that is wall-clock BY DESIGN
+	# has its number masked: `reset` times itself ("loaded in 14 ms"), and two
+	# runs round to different milliseconds often enough that this check failed on
+	# a coin toss, blaming headless for a timer. Masked, not dropped, so a reset
+	# line that goes missing on one side still counts as a difference.
+	$grabAll = { ReadLog | Where-Object { $_ -cmatch '^\[info \] console: ' } |
+		ForEach-Object { $_ -creplace '^(\[info \] console: reset: \w+ in )\d+( ms)', '${1}#${2}' } }
 	Start-Process -FilePath $exe -ArgumentList '-eval', $probe -Wait
-	$windowed = & $grabAll
+	$windowed = @(& $grabAll)
 	Start-Process -FilePath $exe -ArgumentList '-headless', '-eval', $probe -Wait
-	$hidden = & $grabAll
-	$headOk = ($windowed.Count -gt 0) -and ($windowed.Count -eq $hidden.Count) -and
-			  -not @(0..($windowed.Count - 1) | Where-Object { $windowed[$_] -cne $hidden[$_] }).Count
+	$hidden = @(& $grabAll)
+	$headBad = @(0..([Math]::Max($windowed.Count, $hidden.Count) - 1) |
+		Where-Object { $windowed[$_] -cne $hidden[$_] })
+	$headOk = ($windowed.Count -gt 0) -and ($headBad.Count -eq 0)
 	Write-Host ("  {0} lines compared - {1}" -f $windowed.Count,
-		$(if ($headOk) { 'identical headless and windowed' } else { 'DIFFERENT' }))
+		$(if ($headOk) { 'identical headless and windowed' }
+		  elseif ($windowed.Count -eq 0) { 'DIFFERENT: the windowed run printed nothing' }
+		  else { "DIFFERENT: $($headBad.Count) line(s), first '$($windowed[$headBad[0]])' vs '$($hidden[$headBad[0]])'" }))
 
 	# --- and the NUMBERS still move ------------------------------------------
 	# EVERY CHECK ABOVE IS PLUMBING. They prove the runner runs, that recycling
