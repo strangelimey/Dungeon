@@ -13,11 +13,21 @@
 #   .\tools\AllocTest.ps1 -Cast              # a bolt in flight + an open spellbook
 #   .\tools\AllocTest.ps1 -Config release    # needs -DDN_TRACK_ALLOCS=ON
 #
-# The party stands still on purpose. Player-driven EVENTS (a bump message, a
-# level line) legitimately allocate - allocation proportional to events is not
-# what the rule forbids - so the assertion is about frames where nothing
-# happened, which is where zero is unambiguously the right answer. Anything
-# that does allocate is named with a full call stack in dungeon.log.
+# THE RULE HAS NO EXCEPTIONS: an allocation in a settled frame is a bug, and
+# that includes frames where something HAPPENED. A bump message, a level line, a
+# monster's swing - since docs/message-allocation.md printing any of them
+# allocates nothing, so the guard carries no notion of an event and no list of
+# things it forgives. (It used to: "allocation proportional to events is not
+# what the rule forbids" was written here as policy, and it was a
+# rationalisation of a defect - loc::Tr copying text the table already owned.)
+#
+# The party stands still in the default run because that is the BASELINE - the
+# least a steady state can be - not because events are excused. A still party
+# simply keeps the event paths OUT of the window, and a path outside the window
+# passes whether it allocates or not. That is what the modes below are for:
+# each one puts an event path INSIDE the window (-Wounded the regeneration tick,
+# -Melee a monster's swing and its narration). Anything that allocates is named
+# with a full call stack in dungeon.log, once per unique stack.
 #
 # WHY -Wounded EXISTS, and it is the same trap this project keeps meeting: a
 # FRESH party is at full health, and regeneration only runs BELOW maximum - so
@@ -28,10 +38,13 @@
 # needs its own run. Absent and correct report identically; give the check
 # something to be wrong about.
 #
-# It wounds with a SHORT bleed and lets it expire before measuring, so the DoT's
-# own event lines fall outside the window, and it sets the resource practices
-# high first - not to make the numbers big, but because a level-up mid-window is
-# an event that would allocate legitimately and muddy the verdict. At level 20 a
+# It wounds with a SHORT bleed and lets it expire before measuring, so the
+# window holds the regeneration tick and nothing else, and it sets the resource
+# practices high first - not to make the numbers big, but so a level-up (which
+# re-derives the maxima) cannot land mid-window and make the verdict depend on
+# how near a practice happened to be to its next level. That keeps the run
+# repeatable; it is NOT an excuse. A level-up that allocated would be a bug like
+# any other - this run is just not the one that looks for it. At level 20 a
 # practice needs 41 more XP, which ten seconds of regeneration cannot reach.
 #
 # -Melee IS THE SAME TRAP AGAIN. No monster reaches a party standing at the
