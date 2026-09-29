@@ -2300,6 +2300,7 @@ void DungeonWorld::SeedFixtureBreakables() {
 		fb.brk.hp = k.hp;
 		fb.brk.soak = k.soak;
 		fb.brk.resists = k.resists;
+		fx::ReserveEffects(fb.brk.effects); // before the carry-over copies into it
 		for (const FixtureBreak& old : prior)
 			if (old.x == x && old.z == z && old.wall == wall && old.type == type) {
 				fb.brk.broken = old.brk.broken; // whatever was already wrecked
@@ -2336,6 +2337,7 @@ void DungeonWorld::SeedBreakable(Breakable& brk, const DecorationKind& kind) {
 	brk.hp = kind.hp;
 	brk.soak = kind.soak;
 	brk.resists = kind.resists;
+	fx::ReserveEffects(brk.effects); // a burning door burns DOWN, mid-fight
 }
 
 // ============================================================================

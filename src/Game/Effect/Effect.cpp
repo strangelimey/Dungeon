@@ -279,6 +279,10 @@ Inst& Apply(std::vector<Inst>& effects, const EffectKind& kind,
 	case Stacking::Stack:
 		break; // every application is its own instance
 	}
+	// At the ceiling the one closest to running out makes room (kMaxEffects),
+	// so a list reserved at its owner's creation never grows mid-fight.
+	if (effects.size() >= kMaxEffects)
+		effects.erase(std::ranges::min_element(effects, {}, &Inst::timeLeft));
 	effects.push_back({&kind, school, magnitude, duration, duration, source});
 	return effects.back();
 }

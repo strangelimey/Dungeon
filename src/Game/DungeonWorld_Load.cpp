@@ -882,6 +882,9 @@ DungeonWorld::Monster DungeonWorld::MakeMonster(MonsterKind& kind, int id, int x
 	// Same promise for its plume: the particle buffer at its full ceiling now,
 	// so catching fire mid-fight only lights it (Monster::plume).
 	monster.plume.Reserve(kPlumeScale);
+	// ...and for the effect list that lights it: a monster's first burn lands
+	// in the middle of a fight (fx::kMaxEffects).
+	fx::ReserveEffects(monster.effects);
 	return monster;
 }
 

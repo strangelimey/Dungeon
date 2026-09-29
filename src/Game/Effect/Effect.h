@@ -400,9 +400,23 @@ struct Inst {
 	bool IsDot() const { return kind && kind->Kind() == Category::Dot; }
 };
 
+// THE CEILING ON ONE EFFECT LIST. Ten kinds exist and only Sight stacks per
+// school, so thirteen is the most any body can carry today; sixteen leaves
+// room, and a future `stacking = stack` kind is the only thing that could
+// reach it. Every list's owner reserves this much when the owner is CREATED
+// (ReserveEffects - a party, a monster at spawn, a destructible piece of
+// dungeon), because a first effect used to grow an empty vector in the middle
+// of a fight: every monster's first burn allocated in a settled frame
+// (tools\AllocTest.ps1 -Impact found it). Apply keeps a full list at the
+// ceiling by EVICTING the instance nearest its end, so a reserved list never
+// grows - a promise, where a reserve alone would only be an estimate.
+inline constexpr size_t kMaxEffects = 16;
+inline void ReserveEffects(std::vector<Inst>& effects) { effects.reserve(kMaxEffects); }
+
 // Land `kind` on an effect list, honouring the kind's stacking policy — THE
 // one place the refresh rule lives (it used to be a RemoveWard/RemoveEffect
 // call open-coded at each cast and proc site). Returns the landed instance.
+// At kMaxEffects the instance with the least time left makes room.
 Inst& Apply(std::vector<Inst>& effects, const EffectKind& kind,
 			SpellSymbol school, float magnitude, float duration,
 			int source = -1);

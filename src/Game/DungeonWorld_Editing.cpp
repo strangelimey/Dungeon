@@ -635,6 +635,7 @@ void DungeonWorld::SpawnDoor(const Entity& record) {
 			door.brk.soak = def->GetFloat("armor", 0.0f);
 			ParseResists(CatalogGet(def, "resists", ""), door.brk.resists,
 						 "doors.cat [" + record.type + "]", m_damageTypes);
+			fx::ReserveEffects(door.brk.effects); // a burning door burns DOWN
 		}
 		// Guarded: an open_seconds of 0 would divide by zero in the anim tick.
 		const float secs = def->GetFloat("open_seconds", 0.7f);

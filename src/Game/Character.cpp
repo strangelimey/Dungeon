@@ -117,6 +117,10 @@ std::vector<Character> CreateDefaultParty() {
 		// (member_<n>= in the ini, edited on Settings → UI) via
 		// Game::ApplyMemberColors — this seeds slots beyond its reach.
 		if (i < kMemberColorCount) member.portraitColor = kDefaultMemberColors[i];
+		// A member's first effect lands mid-fight; the list is made now, at its
+		// ceiling (fx::kMaxEffects). Game::ResetRoster copy-assigns over these
+		// members later, which keeps the storage they already hold.
+		fx::ReserveEffects(member.effects);
 	}
 
 	// Maren and Tilo — the party's casters — start with every rune tablet
