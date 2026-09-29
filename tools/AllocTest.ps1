@@ -413,6 +413,13 @@ try {
 			if ((Get-Date) -gt $deadline) { throw 'timed out waiting for the arena load' }
 			Start-Sleep -Milliseconds 500
 		}
+		# FREEZE FIRST, THEN HEAL. A new game arrives on eval_arena's start
+		# square among the arena's own monsters, which got two seconds to act
+		# while the script typed: a fresh run found Sera down at 0 hp, and every
+		# one of her 54 casts refused. (A Continue into an eval save happened
+		# to arrive somewhere quieter, which is why it passed.)
+		Send-Text 'freeze on'; Send-Key 0x0D
+		Send-Text 'heal'; Send-Key 0x0D
 		Start-Sleep -Milliseconds 800
 		# The room is open from 1,1 to 26,22 (28x24 with a solid border). The
 		# monster stands THREE squares north of the party: a bolt's `range` is
@@ -423,7 +430,6 @@ try {
 		Send-Text "tp $px $pz"; Send-Key 0x0D
 		Send-Text 'face n'; Send-Key 0x0D
 		Assert-PartyAt $px $pz
-		Send-Text 'freeze on'; Send-Key 0x0D
 		Send-Text "spawn $ImpactMonster $tx $tz s $ImpactStrength"; Send-Key 0x0D
 		Start-Sleep -Milliseconds 500
 		if (-not (Select-String -Path $log -Pattern "spawned $ImpactMonster at $tx,$tz" -Quiet)) {
@@ -442,10 +448,31 @@ try {
 			$c = Get-ImpactCounts
 			if ($c.Hits -gt 0 -and $c.Expired -gt 0 -and $c.Blasts -gt 0) { break }
 			if ((Get-Date) -gt $deadline) {
+				# Into the log: where everything stands, and what each caster's
+				# attempts came to (a rotation entry that only fails says so).
 				Send-Text 'monsters'; Send-Key 0x0D
+				Send-Text 'autocast'; Send-Key 0x0D
+				Send-Text 'party'; Send-Key 0x0D
+				Start-Sleep -Milliseconds 500
 				throw "the warm-up never saw all three (last: $script:lastTally)"
 			}
 			Start-Sleep -Seconds 1
+		}
+		# EVERY CASTER MUST HAVE CAST. The three counts above can all arrive
+		# with one entry of the rotation refused throughout (a downed member),
+		# and then the lane pattern the window depends on is not the one this
+		# header describes. Failures alone prove nothing - a fumble is one.
+		$castPattern = 'console:   member \d+ casts \S+: \d+ cast, \d+ failed'
+		$castBefore = @(Select-String -Path $log -Pattern $castPattern).Count
+		Send-Text 'autocast'; Send-Key 0x0D
+		Start-Sleep -Milliseconds 800
+		$castRows = @(Select-String -Path $log -Pattern $castPattern) | Select-Object -Skip $castBefore
+		if ($castRows.Count -ne 3) { throw "``autocast`` listed $($castRows.Count) entries, not 3" }
+		foreach ($r in $castRows) {
+			if ($r.Line -match ': 0 cast,') {
+				Send-Text 'party'; Send-Key 0x0D
+				throw "a caster never cast: $($r.Line -replace '^.*console:\s+', '') (party state is in dungeon.log)"
+			}
 		}
 		# A few more rounds, so each outcome's first time in the PROCESS (a
 		# miss line, a sound's first voice, the first detonation) is warm-up

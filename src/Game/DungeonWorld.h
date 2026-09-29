@@ -402,6 +402,9 @@ public:
 				int member = 0;
 				char spell[32] = {};
 				u8 len = 0;
+				// What each attempt came to (CastSpell's verdict), so a rotation
+				// that stopped producing bolts says so in `autocast`.
+				int cast = 0, failed = 0;
 				std::string_view Spell() const { return {spell, len}; }
 			};
 			std::array<Entry, kMaxEntries> entries{};

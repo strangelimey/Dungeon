@@ -301,10 +301,11 @@ void Game::RegisterEvalCommands() {
 			if (args.size() < 2) {
 				m_console.Print(std::format("autocast: {} entries every {:.2f}s",
 											ac.count, ac.every));
-				for (int i = 0; i < ac.count; ++i)
-					m_console.Print(std::format("  member {} casts {}",
-												ac.entries[static_cast<size_t>(i)].member,
-												ac.entries[static_cast<size_t>(i)].Spell()));
+				for (int i = 0; i < ac.count; ++i) {
+					const auto& e = ac.entries[static_cast<size_t>(i)];
+					m_console.Print(std::format("  member {} casts {}: {} cast, {} failed",
+												e.member, e.Spell(), e.cast, e.failed));
+				}
 				return;
 			}
 			const int m = std::atoi(args[0].c_str());
