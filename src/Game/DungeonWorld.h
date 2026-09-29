@@ -997,15 +997,19 @@ public:
 							  std::string_view entText);
 
 	// --- validation (the editor's playability check) --------------------------
-	// Runs Game/Validate.h over EVERY level in the project — the active one from
-	// its live state, the rest from their stashes or parsed on demand, exactly as
-	// SweepTypeRefs walks them. Whole-project on purpose: a key may legitimately
-	// live a floor away from its door, so a per-level check would report a
-	// correct dungeon as broken.
+	// Runs Game/Validate.h over EVERY level in the project - the active one from
+	// its live state, an edited one from its edit stash (unsaved edits count),
+	// and any other from a READ-ONLY copy of its files (m_readOnlyLevels).
+	// Whole-project on purpose: a key may legitimately live a floor away from
+	// its door, so a per-level check would report a correct dungeon as broken.
 	//
-	// NOT const: reaching a level that is not in memory parses and stashes it.
-	// That is the same lazy load the map overlay does to browse one, and it is
-	// cheaper than keeping every level resident to keep a checker const.
+	// It must NEVER create an edit stash. It used to (EnsureMapStash), and a
+	// stashed level is one `savemap` rewrites - so pressing Check made the next
+	// save rewrite every level in the project, untouched ones included, and put
+	// all of them in every undo snapshot. Live validation runs this after every
+	// edit, which would have made that true of every session.
+	//
+	// NOT const: the read-only copies are parsed on first use and cached.
 	// `world` is the OPTIONAL world tier, passed in rather than held: the world
 	// sits ABOVE this class (docs/world-map.md) and DungeonWorld is the
 	// simulation of one level, so it gathers the world's view for the checker
@@ -3389,6 +3393,20 @@ private:
 	// stashed baseline. Only edited levels get an entry (m_entsDirty tracks the
 	// active level) — an untouched .ent file is never rewritten.
 	std::flat_map<std::string, std::unique_ptr<DungeonEntities>> m_levelEnts;
+	// READ-ONLY copies of level files, for the checker (Validate) alone. NOT an
+	// edit stash - nothing here is ever written back, which is the whole point:
+	// see Validate. Re-parsed when either file's write time moves (a savemap, a
+	// rename), so a copy never answers for a file that has since changed.
+	struct ReadOnlyLevel {
+		std::unique_ptr<DungeonMap> map;
+		std::unique_ptr<DungeonEntities> ents;
+		long long mapTime = -1, entTime = -1; // file write times when parsed
+	};
+	std::flat_map<std::string, ReadOnlyLevel> m_readOnlyLevels;
+	// The read-only copy of `stem`, parsed or refreshed as needed. The returned
+	// reference is only good until the next call (flat_map storage moves); the
+	// map/ents it points AT are heap-owned and stay put.
+	const ReadOnlyLevel& ReadOnlyLevelOf(const std::string& stem);
 	// The active level's m_entities records diverged from the .ent file on disk
 	// (a prune/re-face edited them); stash them on leave so the divergence
 	// survives the swap and savemap writes it.

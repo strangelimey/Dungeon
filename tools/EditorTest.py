@@ -12,13 +12,20 @@
 #   1. A PAINT DRAG IS ONE UNDO STEP, even when its first square already had
 #      the texture (the step used to be decided on the press and dropped, so
 #      Ctrl+Z skipped the drag and undid the edit before it).
+#   2. CHECKING DOES NOT CHANGE WHAT A SAVE WRITES: after a validate, savemap
+#      writes the active level alone (the checker used to stash every level,
+#      and a stashed level is one savemap rewrites).
+#
+# Every project file a phase writes is restored byte for byte afterwards.
 import io
 import os
 import re
+import shutil
 import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PROJ = os.path.join(ROOT, r"assets\projects\dungeon-demo")
 EXE = os.path.join(ROOT, r"build\debug\bin\Dungeon.exe")
 LOG = os.path.join(ROOT, r"build\debug\bin\dungeon.log")
 SCRIPTS = os.path.join(ROOT, r"tools\EvalScripts")
@@ -69,6 +76,26 @@ else:
     check(h2 != h1, "the drag changed the floor again")
     check(u1 == h1, "undo takes off the drag ALONE", f"{u1} vs {h1}")
     check(u2 == h0, "a second undo takes off the place", f"{u2} vs {h0}")
+
+# --- phase 2: a check leaves the save alone -----------------------------------
+print("2 - checking does not change what a save writes")
+backup = os.path.join(ROOT, r"build\editortest-backup")
+shutil.rmtree(backup, ignore_errors=True)
+shutil.copytree(PROJ, backup)
+try:
+    log = run("validatesave.eval")
+    check(passed(log), "the script ran clean")
+    ran = "console: > validate" in log and "console: > savemap" in log
+    check(ran, "both the check and the save ran")
+    m = re.search(r"console: saved levels: (.*)", log)
+    saved = [s.strip() for s in m.group(1).split(",")] if m else []
+    # The level the harness opens in (project.ini eval_level) is the active one.
+    check(saved == ["eval_arena"], "savemap wrote the active level alone",
+          f"saved: {saved}")
+finally:
+    shutil.rmtree(PROJ)
+    shutil.copytree(backup, PROJ)
+    shutil.rmtree(backup, ignore_errors=True)
 
 print()
 print("PASS" if failures == 0 else f"FAIL - {failures} check(s) failed")

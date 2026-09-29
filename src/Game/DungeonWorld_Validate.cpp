@@ -15,6 +15,8 @@
 
 #include "Game/Catalog.h"
 
+#include <filesystem>
+
 namespace dungeon::game {
 
 bool DungeonWorld::CellFreeForStair(const std::string& stem, int x, int z) {
@@ -147,6 +149,25 @@ bool DungeonWorld::InstallLevel(const std::string& stem, DungeonMap&& map,
 	return true;
 }
 
+const DungeonWorld::ReadOnlyLevel& DungeonWorld::ReadOnlyLevelOf(const std::string& stem) {
+	const auto writeTime = [](const std::string& path) -> long long {
+		std::error_code ec;
+		const auto t = std::filesystem::last_write_time(path, ec);
+		return ec ? -1 : static_cast<long long>(t.time_since_epoch().count());
+	};
+	const std::string mapPath = m_project.LevelMapPath(stem);
+	const std::string entPath = m_project.LevelEntPath(stem);
+	const long long mapTime = writeTime(mapPath), entTime = writeTime(entPath);
+	ReadOnlyLevel& ro = m_readOnlyLevels[stem];
+	if (!ro.map || ro.mapTime != mapTime || ro.entTime != entTime) {
+		ro.map = std::make_unique<DungeonMap>(mapPath, FixtureTypesOf(m_project));
+		ro.ents = std::make_unique<DungeonEntities>(entPath, *ro.map);
+		ro.mapTime = mapTime;
+		ro.entTime = entTime;
+	}
+	return ro;
+}
+
 std::vector<validate::Issue> DungeonWorld::Validate(const validate::WorldView& world) {
 	// The catalog half of the rules. Both are id SETS rather than lookups so the
 	// inner flood never touches a Catalog.
@@ -171,10 +192,16 @@ std::vector<validate::Issue> DungeonWorld::Validate(const validate::WorldView& w
 			v.map = &m_map;
 			v.ents = &m_entities;
 		} else {
-			// Parsed on demand if this level has never been touched — the same
-			// lazy stash SweepTypeRefs and the browse view use.
-			v.map = &EnsureMapStash(stem);
-			v.ents = &EnsureEntStash(stem);
+			// An edit stash wins (its unsaved edits are what the level IS now);
+			// otherwise a read-only copy of the files. Never EnsureMapStash: see
+			// the header - stashing is what makes savemap rewrite a level.
+			const auto ms = m_levelMaps.find(stem);
+			const auto es = m_levelEnts.find(stem);
+			const ReadOnlyLevel* ro = nullptr;
+			if (ms == m_levelMaps.end() || es == m_levelEnts.end())
+				ro = &ReadOnlyLevelOf(stem); // used before the next insertion
+			v.map = ms != m_levelMaps.end() ? ms->second.get() : ro->map.get();
+			v.ents = es != m_levelEnts.end() ? es->second.get() : ro->ents.get();
 		}
 		views.push_back(std::move(v));
 	}
