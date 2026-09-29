@@ -438,6 +438,7 @@ map.filter.hint=Filtra...
 map.cat.walls=Muri
 map.cat.floors=Pavimenti
 map.cat.ceilings=Soffitti
+map.cat.combos=Combinazioni
 map.cat.decorations=Decorazioni
 map.cat.fixtures=Installazioni
 map.cat.monsters=Mostri

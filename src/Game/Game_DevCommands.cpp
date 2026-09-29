@@ -300,6 +300,48 @@ void Game::RegisterDevCommands() {
 														   m_liveIssues.size(), badge));
 							   return;
 						   }
+						   // One square of the VIEWED level: what each surface stores
+						   // (a pinned palette index, a combination, or the default
+						   // hash) and the texture that resolves to - what the 3D
+						   // scene and the map both draw.
+						   if (!args.empty() && args[0] == "cell") {
+							   if (!Need(m_console, args, 3, "usage: editor cell <x> <z>")) return;
+							   const DungeonMap& map = m_mapView.ViewedMap();
+							   const int x = std::atoi(args[1].c_str()), z = std::atoi(args[2].c_str());
+							   std::string line = std::format("editor cell {} {},{} {}", m_mapView.ViewedLevel(),
+															  x, z, map.IsWalkable(x, z) ? "open" : "solid");
+							   static constexpr const char* kName[3] = {"wall", "floor", "ceiling"};
+							   for (int s = 0; s < 3; ++s) {
+								   const Surface sf = static_cast<Surface>(s);
+								   const int v = map.Variant(sf, x, z);
+								   const int slot = DungeonMap::ComboSlotOf(v);
+								   const std::string stored = v >= 0 ? std::format("pin{}", v)
+															  : slot >= 0 ? "mix:" + map.ComboId(slot)
+																		  : std::string("hash");
+								   const std::vector<std::string>& pal = map.Palette(sf);
+								   const u32 i = ResolveSurfaceVariant(map, x, z, sf,
+																	   static_cast<u32>(pal.size()));
+								   line += std::format(" {}={}/{}", kName[s], stored,
+													   i < pal.size() ? pal[i] : "-");
+							   }
+							   m_console.Print(line);
+							   return;
+						   }
+						   // The eyedropper (Alt+click) on a square: says what it armed.
+						   if (!args.empty() && args[0] == "pick") {
+							   if (!Need(m_console, args, 3, "usage: editor pick <x> <z>")) return;
+							   if (m_mapView.IsOpen())
+								   m_mapView.SetMode(MapView::Mode::Editor);
+							   else
+								   m_mapView.Open(MapView::Mode::Editor);
+							   m_mapEditor.PickAt(std::atoi(args[1].c_str()), std::atoi(args[2].c_str()));
+							   const MapEditor::PaletteCat c = m_mapEditor.ArmedCat();
+							   m_console.Print(std::format(
+								   "editor pick: {} {}",
+								   c == MapEditor::PaletteCat::Count ? "-" : MapEditor::CategoryCatalogKey(c),
+								   m_mapEditor.ArmedId()));
+							   return;
+						   }
 						   if (!args.empty() && args[0] == "rev") {
 							   m_console.Print(
 								   std::format("editor rev {}", m_world->EditRevision()));

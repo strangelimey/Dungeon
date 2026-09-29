@@ -232,15 +232,20 @@ static std::string SerializeMapStatic(const std::string& stem,
 		m += std::format("stairs {} {} {} {} dest={} destx={} destz={}\n", s.type, s.x, s.z,
 						 DirToken(s.facing), s.destLevel, s.destX, s.destZ);
 
+	// A pinned palette index is a `variant`; a combination reference a
+	// `surfacemix`, written by the combination's ID (its slot number is this
+	// load's bookkeeping, not something a file should depend on).
+	static constexpr const char* kSurfaceName[3] = {"wall", "floor", "ceiling"};
 	for (int z = 0; z < map.Height(); ++z)
-		for (int x = 0; x < map.Width(); ++x) {
-			if (map.WallVariant(x, z) >= 0)
-				m += std::format("variant wall {} {} {}\n", x, z, map.WallVariant(x, z));
-			if (map.FloorVariant(x, z) >= 0)
-				m += std::format("variant floor {} {} {}\n", x, z, map.FloorVariant(x, z));
-			if (map.CeilingVariant(x, z) >= 0)
-				m += std::format("variant ceiling {} {} {}\n", x, z, map.CeilingVariant(x, z));
-		}
+		for (int x = 0; x < map.Width(); ++x)
+			for (int s = 0; s < 3; ++s) {
+				const int v = map.Variant(static_cast<Surface>(s), x, z);
+				if (v >= 0)
+					m += std::format("variant {} {} {} {}\n", kSurfaceName[s], x, z, v);
+				else if (const int slot = DungeonMap::ComboSlotOf(v); slot >= 0)
+					m += std::format("surfacemix {} {} {} {}\n", kSurfaceName[s], x, z,
+									 map.ComboId(slot));
+			}
 
 	m += decoLines;
 	return m;

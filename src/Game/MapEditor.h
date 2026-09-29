@@ -57,6 +57,11 @@ public:
 	// last (it sizes the per-category open-state array).
 	enum class PaletteCat {
 		Walls, Floors, Ceilings,
+		// Surface COMBINATIONS (combos.cat): a paint brush like the three above,
+		// but one that sets a square's whole look - floor and ceiling on open
+		// ground, the wall on a solid block - by REFERENCE, so editing the
+		// combination later repaints every square it was painted on.
+		Combos,
 		Decorations, Fixtures, Monsters, Buttons, Doors, Stairs,
 		Items, Weapons, Armor, WallFeatures, SurfaceFeatures,
 		Effects, // authored + tuned, never placed (see CategoryPlaceable)
@@ -135,7 +140,10 @@ public:
 	// The surface categories (walls/floors/ceilings): the ones whose palette is
 	// a per-LEVEL subset of the catalog, so the "Catalogue" toggle applies and a
 	// paint may have to enrol the type in the level first.
-	static bool SurfaceCat(PaletteCat cat) { return PaintableCat(cat); }
+	static bool SurfaceCat(PaletteCat cat) {
+		return cat == PaletteCat::Walls || cat == PaletteCat::Floors ||
+			   cat == PaletteCat::Ceilings;
+	}
 
 	// --- surface palette membership ------------------------------------------
 	// Appends `id` to the viewed level's palette (live world or browsed stash),
@@ -268,6 +276,8 @@ public:
 	PaletteCat ArmedCat() const {
 		return m_sel.index >= 0 ? m_sel.cat : PaletteCat::Count;
 	}
+	// The armed row's catalog id ("" = nothing armed) - for the console.
+	std::string ArmedId() const;
 	// The former Select tool, now on right-CLICK (a right-drag still pans):
 	// reports the cell's contents, selects the square (highlight + patrol-route
 	// overlay), and opens the inspector immediately when it holds an editable
@@ -399,12 +409,15 @@ private:
 	// actions, or entity placement.
 	void ApplyBrush(int cx, int cz, bool dragging, const WallFace& face = {},
 					const Placement* pre = nullptr);
-	// True for the brushes that PAINT cells (rect/flood/drag apply); the
-	// placement categories act per click only.
+	// True for the brushes that PAINT cells (rect/flood/drag apply): the three
+	// surfaces and the combinations. The placement categories act per click only.
 	static bool PaintableCat(PaletteCat cat) {
-		return cat == PaletteCat::Walls || cat == PaletteCat::Floors ||
-			   cat == PaletteCat::Ceilings;
+		return SurfaceCat(cat) || cat == PaletteCat::Combos;
 	}
+	// A combination's paint on one square: its floor and ceiling mixes on open
+	// ground, its wall mix on a solid block (PaintCell's combination half). A
+	// combination RECOLOURS - it never changes the square's type.
+	void PaintComboCell(int cx, int cz, bool remote, const std::string& stem);
 	// One structural/surface application of the armed brush to a cell — the
 	// shared inner body of ApplyBrush/PaintRect/FloodFill. No undo bracketing
 	// or change detection (callers bracket a whole gesture as one step).

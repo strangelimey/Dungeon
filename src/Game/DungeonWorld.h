@@ -905,6 +905,11 @@ public:
 	// (PruneEntitiesForCell) — so live state always matches the new grid.
 	void EditCell(int x, int z, Cell cell);
 
+	// A combos.cat entry's members per surface (its `wall` / `floor` / `ceiling`
+	// id lists). The one reader of that format, for the map parser's
+	// FixtureTypes and for the brush that paints a combination.
+	static ComboMembers ComboMembersOf(const CatalogEntry& entry);
+
 	// Which surface a variant edit targets (DungeonMap's Surface - spelled out,
 	// since inside this class a bare `Surface` names the chunk-list struct).
 	using SurfaceSel = game::Surface;
@@ -941,6 +946,12 @@ public:
 	// append-only, so a type already present keeps its index.
 	int EnsureSurfaceVariant(const std::string& stem, SurfaceSel sel,
 							 const std::string& id);
+	// The same for a surface COMBINATION (combos.cat `id`): every member joins
+	// its surface's palette on level `stem` (skipping any whose assets are
+	// missing), the level gains a slot for the combination, and the return is
+	// the VARIANT a cell stores to reference it (DungeonMap::ComboVariant) - or
+	// -1 when the project defines no such combination.
+	int EnsureComboVariant(const std::string& stem, const std::string& id);
 	// True when the type's baked assets are on disk at the CURRENT quality tier
 	// (its texture set and worn_<set>_<tier>.gltf). Guards AddPaletteEntry: the
 	// worn-mesh load is a LoadModelOrDie, so an unbaked type would abort the
@@ -2514,8 +2525,9 @@ private:
 								  float fallbackRoughness);
 	// Fixture routing info for DungeonMap's parser (see the declaration below).
 	// Routing info for DungeonMap's fixture-record parser, derived from the
-	// project's fixtures catalog (wall-mount ids + the glyph default ids).
-	// Passed at every DungeonMap construction.
+	// project's fixtures catalog (wall-mount ids + the glyph default ids) and,
+	// for `surfacemix` records, its combinations. Passed at every DungeonMap
+	// construction.
 	static FixtureTypes FixtureTypesOf(const Project& project);
 	// Builds an authored model's own GPU resources (one texture per embedded glTF
 	// image, one submesh per primitive with its material) for the multi-material

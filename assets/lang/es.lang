@@ -438,6 +438,7 @@ map.filter.hint=Filtrar...
 map.cat.walls=Muros
 map.cat.floors=Suelos
 map.cat.ceilings=Techos
+map.cat.combos=Combinaciones
 map.cat.decorations=Decoraciones
 map.cat.fixtures=Instalaciones
 map.cat.monsters=Monstruos

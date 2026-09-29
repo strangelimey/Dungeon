@@ -460,6 +460,7 @@ map.filter.hint=Filter...
 map.cat.walls=Walls
 map.cat.floors=Floors
 map.cat.ceilings=Ceilings
+map.cat.combos=Combinations
 map.cat.decorations=Decorations
 map.cat.fixtures=Fixtures
 map.cat.monsters=Monsters

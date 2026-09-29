@@ -45,6 +45,11 @@ const CatalogSlot kCatalogs[] = {
 	{"terrain.cat", &Project::terrain, "Terrain kinds: what a world-map cell is (glyph + travel/difficulty/tags)."},
 	{"quests.cat", &Project::quests, "Quests: display name + ORDERED stage list; progress lives in the save, never here."},
 	{"dungeons.cat", &Project::dungeons, "Dungeons: a named group of level stems with an entry level, reached through a world-map location."},
+	{"combos.cat", &Project::combos,
+	 "Surface combinations: a named mix per surface - floor / wall / ceiling, each a "
+	 "space-separated list of that surface's catalog ids to vary between (empty = "
+	 "leave that surface alone). Cells reference one by id (`surfacemix`), so editing "
+	 "it here repaints every cell that uses it."},
 	{"wallfeatures.cat", &Project::wallfeatures, "Wall features: recessed niches carved into a wall panel."},
 	{"surfacefeatures.cat", &Project::surfacefeatures, "Surface features: a tile stamped in place of a cell's floor or ceiling block (the wall-niche idea, laid flat). `surface` picks which."},
 	{"imports.cat", &Project::imports,
@@ -223,6 +228,7 @@ Catalog* Project::CatalogForKey(const std::string& key) {
 	if (key == "balance") return &balance;
 	if (key == "wallfeatures") return &wallfeatures;
 	if (key == "surfacefeatures") return &surfacefeatures;
+	if (key == "combos") return &combos;
 	return nullptr;
 }
 
@@ -233,7 +239,7 @@ std::vector<const Catalog*> Project::AllCatalogs() const {
 			&monsters, &doors, &stairs,   &buttons,      &items,
 			&weapons, &armor,  &spells,   &effects,      &attacks,
 			&balance, &damagetypes, &wallfeatures, &surfacefeatures,
-			&terrain, &dungeons, &quests};
+			&terrain, &dungeons, &quests, &combos};
 }
 
 const CatalogEntry* Project::FindItem(std::string_view id) const {

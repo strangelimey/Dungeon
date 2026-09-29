@@ -438,6 +438,7 @@ map.filter.hint=Filtern...
 map.cat.walls=Wände
 map.cat.floors=Böden
 map.cat.ceilings=Decken
+map.cat.combos=Kombinationen
 map.cat.decorations=Dekorationen
 map.cat.fixtures=Vorrichtungen
 map.cat.monsters=Monster

@@ -307,6 +307,20 @@ int DungeonWorld::EnsureSurfaceVariant(const std::string& stem, SurfaceSel sel,
 	return indexIn(EnsureMapStash(stem));
 }
 
+int DungeonWorld::EnsureComboVariant(const std::string& stem, const std::string& id) {
+	const CatalogEntry* def = m_project.combos.Find(id);
+	if (!def) return -1;
+	const ComboMembers members = ComboMembersOf(*def);
+	// Members FIRST: a slot resolves its members against the palette, and only
+	// palette entries have textures loaded. A member whose assets are missing is
+	// simply left out of the palette, and ComboMembersOf skips what is absent.
+	for (int s = 0; s < 3; ++s)
+		for (const std::string& member : members[static_cast<size_t>(s)])
+			EnsureSurfaceVariant(stem, static_cast<SurfaceSel>(s), member);
+	DungeonMap& map = stem == m_currentLevel ? m_map : EnsureMapStash(stem);
+	return DungeonMap::ComboVariant(map.ComboSlot(id, members));
+}
+
 bool DungeonWorld::AddDecoration(const std::string& type, int x, int z,
 								 Direction facing) {
 	if (!m_map.IsWalkable(x, z)) return false;

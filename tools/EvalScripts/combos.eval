@@ -1,0 +1,38 @@
+; combos.eval - painting with a surface COMBINATION (editor-updates P3).
+;
+; tools/EditorTest.py writes the combination into the project's combos.cat
+; before this runs (and restores the project after):
+;
+;   [marble_hall]  floor = floor_slabs floor_rubble   wall = wall_marble
+;                  ceiling = ceiling_stone
+;
+; floor_rubble is NOT in eval_arena's palette - painting must enrol it.
+;
+; The script carves room A (x 1..7, z 1..22) off the arena as areafill.eval
+; does, area-fills it with the combination, and reads squares back with
+; `editor cell`: each surface's STORED value (mix:<id> = a reference to the
+; combination) and the texture it resolves to, which must be a member.
+; Then the round trip: savemap, leave, come back - the references survive.
+
+logecho on
+reset
+editor fill walls wall_marble rect 8 1 26 22
+geomhash
+echo --- area fill with the combination ---
+editor fill combos marble_hall area 3 3
+geomhash
+editor cell 1 1
+editor cell 3 3
+editor cell 7 22
+editor cell 5 12
+editor cell 0 5
+editor cell 8 9
+echo --- the eyedropper picks up the combination ---
+editor pick 4 4
+echo --- saved, left and reloaded ---
+savemap
+goto crypt1
+goto eval_arena
+geomhash
+editor cell 3 3
+editor cell 0 5

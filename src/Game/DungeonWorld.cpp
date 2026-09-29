@@ -45,7 +45,25 @@ FixtureTypes DungeonWorld::FixtureTypesOf(const Project& p) {
 		if (e.Get("mount", "floor") == "wall") t.wallMount.push_back(e.id);
 	t.sconceDefault = p.defaultSconce;
 	t.brazierDefault = p.defaultBrazier;
+	for (const CatalogEntry& e : p.combos.Entries()) t.combos[e.id] = ComboMembersOf(e);
 	return t;
+}
+
+ComboMembers DungeonWorld::ComboMembersOf(const CatalogEntry& e) {
+	static constexpr const char* kKeys[3] = {"wall", "floor", "ceiling"}; // Surface order
+	ComboMembers out;
+	for (size_t s = 0; s < 3; ++s) {
+		const std::string list = e.Get(kKeys[s], "");
+		size_t i = 0;
+		while (i < list.size()) {
+			const size_t start = list.find_first_not_of(" \t", i);
+			if (start == std::string::npos) break;
+			const size_t end = list.find_first_of(" \t", start);
+			out[s].push_back(list.substr(start, end == std::string::npos ? end : end - start));
+			i = end == std::string::npos ? list.size() : end;
+		}
+	}
+	return out;
 }
 
 const gfx::Texture* DungeonWorld::FixtureIcon(const std::string& type) const {

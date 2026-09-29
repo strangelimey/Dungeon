@@ -30,6 +30,11 @@
 #      but two boxes; a stair whose partner was deleted is boxed on its own
 #      level AND at the far end on the other; a finding with no square (a
 #      dungeon with no levels) is counted on the Check badge instead.
+#   7. PAINTING WITH A COMBINATION: an area fill with "marble hall" makes the
+#      room's floors and ceilings and the walls around it REFERENCE it, every
+#      one resolving to a member (including one the palette had to enrol);
+#      the eyedropper picks the combination up; and it survives a save and a
+#      reload with the geometry unchanged.
 #
 # Every project file a phase writes is restored byte for byte afterwards.
 import io
@@ -224,6 +229,50 @@ try:
     far = s.get("B: the far end", [])
     check("editor box crypt2 1,1 error map.check.stairunpaired (from crypt1 1,1)" in far,
           "and at its far end, on the level it leads to", str(far))
+finally:
+    shutil.rmtree(PROJ)
+    shutil.copytree(backup, PROJ)
+    shutil.rmtree(backup, ignore_errors=True)
+
+# --- phase 7: painting with a combination -------------------------------------
+print("7 - a combination paints a whole look, by reference")
+CELL = re.compile(r"console: editor cell (\S+) (\d+),(\d+) (\w+) wall=(\S+)/(\S+) "
+                  r"floor=(\S+)/(\S+) ceiling=(\S+)/(\S+)")
+backup = os.path.join(ROOT, r"build\editortest-backup")
+shutil.rmtree(backup, ignore_errors=True)
+shutil.copytree(PROJ, backup)
+try:
+    # floor_rubble is not in eval_arena's palette: painting must enrol it.
+    io.open(os.path.join(PROJ, r"catalog\combos.cat"), "w", encoding="utf-8", newline="").write(
+        "[marble_hall]\r\ndisplay = Marble Hall\r\nfloor = floor_slabs floor_rubble\r\n"
+        "wall = wall_marble\r\nceiling = ceiling_stone\r\n")
+    log = run("combos.eval")
+    check(passed(log), "the script ran clean")
+    m = re.search(r"editor: Filled the room or corridor \((\d+) cells\)", log)
+    check(m is not None and int(m.group(1)) == 212,
+          "the area fill took the room (154) and its walls (58)", m.group(0) if m else "none")
+    cells = [c.groups() for c in CELL.finditer(log)]
+    before = cells[:6]
+    opens = [c for c in before if c[3] == "open"]
+    solids = [c for c in before if c[3] == "solid"]
+    check(len(opens) == 4 and len(solids) == 2, "four room squares and two walls read back",
+          str(len(before)))
+    check(all(c[6] == "mix:marble_hall" and c[7] in ("floor_slabs", "floor_rubble") and
+              c[8] == "mix:marble_hall" and c[9] == "ceiling_stone" for c in opens),
+          "every room square references it and shows a member", str(opens))
+    check(any(c[7] == "floor_rubble" for c in opens),
+          "including the member the palette had to enrol", str([c[7] for c in opens]))
+    check(all(c[4] == "mix:marble_hall" and c[5] == "wall_marble" for c in solids),
+          "the walls around the room reference it too", str(solids))
+    check("console: editor pick: combos marble_hall" in log,
+          "the eyedropper picks up the combination, not one member")
+    h = hashes(log)
+    check(len(h) == 3 and h[1] != h[0] and h[2] == h[1],
+          "painting changed the level, and a save and reload kept it exactly",
+          str([x[2] for x in h]))
+    after = cells[6:]
+    check(len(after) == 2 and after[0][6] == "mix:marble_hall" and
+          after[1][4] == "mix:marble_hall", "the references came back from the file", str(after))
 finally:
     shutil.rmtree(PROJ)
     shutil.copytree(backup, PROJ)

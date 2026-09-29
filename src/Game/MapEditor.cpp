@@ -47,6 +47,9 @@ struct CatInfo {
 constexpr CatInfo kCategoryInfo[] = {
 	{"map.cat.walls", "walls", true},       {"map.cat.floors", "floors", true},
 	{"map.cat.ceilings", "ceilings", true},
+	// A brush (placeable) that is pure data (authorable): "+ New..." names one
+	// and opens the type editor on it, no asset dialog.
+	{"map.cat.combos", "combos", false, /*placeable*/ true, /*authorable*/ true},
 	{"map.cat.decorations", "decorations", false},
 	{"map.cat.fixtures", "fixtures", false}, {"map.cat.monsters", "monsters", false},
 	{"map.cat.buttons", "buttons", false},  {"map.cat.doors", "doors", false},
@@ -153,6 +156,20 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 	case PaletteCat::Ceilings:
 		return surfaceItems(map.CeilingPalette(), proj.ceilings, kCeiling,
 							DungeonWorld::SurfaceSel::Ceiling);
+	case PaletteCat::Combos: {
+		// World-wide, so every level lists every combination. The swatch is the
+		// first floor member's albedo where this level has it loaded.
+		std::vector<PaletteItem> items = catalogItems(proj.combos, kFloor);
+		for (PaletteItem& it : items)
+			if (const CatalogEntry* e = proj.combos.Find(it.id)) {
+				const ComboMembers m = DungeonWorld::ComboMembersOf(*e);
+				const auto& floors = m[static_cast<size_t>(Surface::Floor)];
+				if (!floors.empty())
+					it.icon = m_world->SurfaceAlbedoForId(DungeonWorld::SurfaceSel::Floor,
+														  floors.front());
+			}
+		return items;
+	}
 	case PaletteCat::Decorations: return catalogItems(proj.decorations, kDecoration);
 	case PaletteCat::Fixtures:    return catalogItems(proj.fixtures, kTorch);
 	case PaletteCat::Monsters:    return catalogItems(proj.monsters, kMonster);
@@ -620,7 +637,8 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face,
 	switch (m_sel.cat) {
 	case PaletteCat::Walls:
 	case PaletteCat::Floors:
-	case PaletteCat::Ceilings: {
+	case PaletteCat::Ceilings:
+	case PaletteCat::Combos: {
 		PaintCell(cx, cz, remote, stem);
 		// Remote edits are conservatively "changed" (see the bracket note).
 		changed = remote || m_world->Map().Revision() != rev0;
@@ -783,9 +801,46 @@ void MapEditor::EndStroke() {
 	m_world->CommitUndoStep(m_strokeChanged);
 }
 
+void MapEditor::PaintComboCell(int cx, int cz, bool remote, const std::string& stem) {
+	using SS = DungeonWorld::SurfaceSel;
+	const std::vector<PaletteItem> items = CategoryItems(PaletteCat::Combos);
+	if (m_sel.index < 0 || m_sel.index >= static_cast<int>(items.size())) return;
+	const std::string& id = items[m_sel.index].id;
+	const CatalogEntry* def = m_world->GetProject().combos.Find(id);
+	if (!def) return;
+	const ComboMembers members = DungeonWorld::ComboMembersOf(*def);
+	const DungeonMap& map = m_view.ViewedMap();
+	if (cx < 0 || cz < 0 || cx >= map.Width() || cz >= map.Height()) return;
+	// The surfaces this square shows, and only those the combination speaks
+	// for: an empty member list leaves that surface exactly as it is.
+	const bool open = map.IsWalkable(cx, cz);
+	const SS surfaces[2] = {open ? SS::Floor : SS::Wall, SS::Ceiling};
+	const int count = open ? 2 : 1;
+	bool any = false;
+	for (int i = 0; i < count; ++i) any = any || !members[static_cast<size_t>(surfaces[i])].empty();
+	if (!any) return;
+	const int variant = m_world->EnsureComboVariant(stem, id);
+	if (variant == -1) return;
+	for (int i = 0; i < count; ++i) {
+		if (members[static_cast<size_t>(surfaces[i])].empty()) continue;
+		if (remote) m_world->EditVariantRemote(stem, cx, cz, surfaces[i], variant);
+		else m_world->EditVariant(cx, cz, surfaces[i], variant);
+	}
+}
+
+std::string MapEditor::ArmedId() const {
+	if (m_sel.index < 0) return {};
+	const std::vector<PaletteItem> items = CategoryItems(m_sel.cat);
+	return m_sel.index < static_cast<int>(items.size()) ? items[m_sel.index].id : std::string();
+}
+
 void MapEditor::PaintCell(int cx, int cz, bool remote, const std::string& stem) {
 	using SS = DungeonWorld::SurfaceSel;
 	if (!PaintableCat(m_sel.cat)) return; // placement never reaches here
+	if (m_sel.cat == PaletteCat::Combos) { // a combination sets a whole look
+		PaintComboCell(cx, cz, remote, stem);
+		return;
+	}
 	const SS sel = m_sel.cat == PaletteCat::Walls    ? SS::Wall
 				   : m_sel.cat == PaletteCat::Floors ? SS::Floor
 													 : SS::Ceiling;
@@ -880,7 +935,11 @@ void MapEditor::FloodFill(int cx, int cz) {
 	if (cx < 0 || cz < 0 || cx >= map.Width() || cz >= map.Height()) return;
 	using SS = DungeonWorld::SurfaceSel;
 	const Cell baseCell = map.At(cx, cz);
-	const SS sel = m_sel.cat == PaletteCat::Walls    ? SS::Wall
+	// A combination floods over whichever surface the clicked square shows
+	// (its wall on a block, its floor on open ground) - it paints both kinds.
+	const SS sel = m_sel.cat == PaletteCat::Combos
+					   ? (baseCell == Cell::Wall ? SS::Wall : SS::Floor)
+				   : m_sel.cat == PaletteCat::Walls  ? SS::Wall
 				   : m_sel.cat == PaletteCat::Floors ? SS::Floor
 													 : SS::Ceiling;
 	// FLOOD stays a recolor: the region keys on the brush surface's
@@ -955,7 +1014,13 @@ void MapEditor::AreaFill(int cx, int cz) {
 	// A wall brush paints the blocks the area SEES; floor and ceiling brushes
 	// the area itself. Either way PaintCell's type rule leaves the cell types
 	// alone, since each square already is the kind its brush wants.
+	// A COMBINATION takes both - the room and its walls - which is the whole
+	// point of one: "make this room marble hall" in a single click.
 	if (m_sel.cat == PaletteCat::Walls) region = area::Walls(map, region);
+	else if (m_sel.cat == PaletteCat::Combos) {
+		const std::vector<area::CellXZ> walls = area::Walls(map, region);
+		region.insert(region.end(), walls.begin(), walls.end());
+	}
 	PaintCells(region);
 	m_lastX = cx;
 	m_lastZ = cz;
@@ -967,10 +1032,11 @@ void MapEditor::FillLevel() {
 	if (m_sel.index < 0 || !PaintableCat(m_sel.cat)) return;
 	const DungeonMap& map = m_view.ViewedMap();
 	const bool walls = m_sel.cat == PaletteCat::Walls;
+	const bool combo = m_sel.cat == PaletteCat::Combos; // every square, both kinds
 	std::vector<area::CellXZ> cells;
 	for (int z = 0; z < map.Height(); ++z)
 		for (int x = 0; x < map.Width(); ++x)
-			if (map.IsWalkable(x, z) != walls) cells.push_back({x, z});
+			if (combo || map.IsWalkable(x, z) != walls) cells.push_back({x, z});
 	PaintCells(cells);
 	if (m_world->onMessage)
 		m_world->onMessage(loc::FormatLine("map.level.filled", cells.size()));
@@ -984,6 +1050,22 @@ void MapEditor::PickAt(int cx, int cz) {
 	// ceilings (sharing the floor square) are picked while already on the
 	// Ceilings brush.
 	const bool solid = map.At(cx, cz) == Cell::Wall;
+	// A square painted with a COMBINATION picks up the combination - that is
+	// the thing to paint elsewhere to make it match - not the one member the
+	// hash happened to show here.
+	if (const int slot = DungeonMap::ComboSlotOf(
+			map.Variant(solid ? SS::Wall : SS::Floor, cx, cz));
+		slot >= 0 && slot < static_cast<int>(map.ComboCount())) {
+		const std::string& id = map.ComboId(slot);
+		const std::vector<PaletteItem> items = CategoryItems(PaletteCat::Combos);
+		for (int i = 0; i < static_cast<int>(items.size()); ++i)
+			if (items[i].id == id) {
+				m_sel = {PaletteCat::Combos, i};
+				if (m_world->onMessage)
+					m_world->onMessage(loc::FormatLine("map.pick.done", items[i].label));
+				return;
+			}
+	}
 	const PaletteCat cat =
 		solid ? PaletteCat::Walls
 			  : (m_sel.cat == PaletteCat::Ceilings ? PaletteCat::Ceilings
