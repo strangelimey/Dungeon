@@ -79,6 +79,15 @@ bool ParseDirection(std::string_view token, Direction& out) {
 	return true;
 }
 
+const char* DirToken(Direction d) {
+	switch (d) {
+	case Direction::North: return "north";
+	case Direction::East:  return "east";
+	case Direction::West:  return "west";
+	default:               return "south";
+	}
+}
+
 Entity ParseEntityRecord(std::string_view line, std::string_view where) {
 	const std::vector<std::string_view> tokens = SplitRecordTokens(line);
 	DN_ASSERT(tokens.size() >= 4,
