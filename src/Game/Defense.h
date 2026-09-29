@@ -60,16 +60,46 @@ float ArmorPenalty(float floor, float offsettable, CurveRules offsetCurve,
 float HandGuard(float held, CurveRules skillCurve, float leftLevel,
 				float rightLevel);
 
+// THE STANCE'S SHAPE (Michael, 2026-09-28): the stance is NOT linear at its
+// two ends. The further a member leans into either extreme, the more each
+// step is worth:
+//   - Over-exertion (share past 1) multiplies the attack's skill term by
+//     1 + (exertAttackMax - 1) * p^2, where p is how far toward exertMax the
+//     share has gone - x1 at a plain full commitment, x5 (the default) at 100%
+//     over-exertion, and most of that in the last stretch.
+//   - Holding back multiplies the guard's skill term by
+//     h * (1 + (guardDefenseMax - 1) * h^2), where h = 1 - share is the part
+//     held back - x2 (the default) at 0% attack, nearly linear near full
+//     commitment.
+// Between the two ends the stance is the plain trade it always was: the honest
+// range's ATTACK is the share itself, and an over-exerted GUARD is the same
+// negative 1 - share it was. The two multiples are balance.cat knobs
+// (exert_attack_max, guard_defense_max); exertMax is the share 100%
+// over-exertion means.
+struct StanceRules {
+	float exertMax = 2.0f;
+	float exertAttackMax = 5.0f;
+	float guardDefenseMax = 2.0f;
+};
+
+// The multiple of the skill term an attack thrown from `share` gets.
+float AttackWeight(float share, const StanceRules& rules);
+// The multiple of the skill term the guard gets from `share` - what the world
+// passes as GuardInputs::held. Negative when over-exerting.
+float GuardWeight(float share, const StanceRules& rules);
+
 // THE STANCE'S ATTACK HALF (docs/damage-system.md "The stance"). The share
 // scales the SKILL term of the attack bonus and nothing else — a stat is not
 // skill, so DEX (or a school's stat) rides at full weight whatever the stance.
+// The scaling is AttackWeight's, so past 1.0 it is not linear.
 //
 // This is what couples the two sides from ONE number: the points the share
 // takes off the guard are the same points it puts behind the swing. Before it
 // existed a character's slider only ever SUBTRACTED — pressing the attack cost
 // you your guard and bought nothing — while a monster's `offense` already
 // coupled both. Characters and monsters now trade on the same terms.
-float StanceAttack(float share, float skillLevel, CurveRules skillCurve);
+float StanceAttack(float share, float skillLevel, CurveRules skillCurve,
+				   const StanceRules& rules);
 
 // OVER-EXERTION (docs/damage-system.md "Over-exertion"): the attack points
 // bought by pushing the share PAST 1.0 — everything `StanceAttack` returns
@@ -77,8 +107,10 @@ float StanceAttack(float share, float skillLevel, CurveRules skillCurve);
 //
 // This is the quantity the bill is charged against, so it is deliberately the
 // same expression the attack roll used, not a re-derivation that could drift
-// from it.
-float ExertionPoints(float share, float skillLevel, CurveRules skillCurve);
+// from it. So the bill follows AttackWeight's curve: near 100% over-exertion
+// each step buys more and COSTS more.
+float ExertionPoints(float share, float skillLevel, CurveRules skillCurve,
+					 const StanceRules& rules);
 //
 // Deliberately NOT here: the SPLIT of the bill across stamina and health. It
 // looks like pure arithmetic and is not — the bill is scaled by the wearer's
@@ -144,7 +176,8 @@ struct GuardInputs {
 	float avoidLevel = 0.0f;   // the `avoid` skill; ignored when ARMORED
 	CurveRules avoidCurve;
 
-	// The stance's held-back share (1 - offenseShare) and what it can guard with.
+	// The stance's GUARD WEIGHT (GuardWeight(offenseShare) - the held-back share,
+	// curved toward guardDefenseMax at 0% attack) and what it can guard with.
 	// NEGATIVE when the wearer is over-exerting (share > 1): the guard becomes a
 	// PENALTY rather than merely nothing, because a fighter spending past
 	// everything they have is not just failing to defend — they are wide open.

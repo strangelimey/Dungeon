@@ -102,6 +102,7 @@ const std::vector<std::string> kNoCommands;
 constexpr int kUseItemCmd = 0;    // + index into the item's commands
 constexpr int kUseUnarmed = 1000; // + index into kUnarmedUses
 constexpr int kUseSpell = 2000;   // + index into spellDefs()
+constexpr int kUseClear = 3000;   // forget this hand's pick (checked FIRST)
 // The most quick-cast spells the Magic group lists (spellMruCount's clamp).
 constexpr size_t kMaxMenuSpells = 10;
 
@@ -315,9 +316,10 @@ void GameUI::OnHandLeftClick(size_t i, size_t hand) {
 	// Empty cursor: the control-bar hand is an ACTION button — it executes the
 	// hand's default use. Picking the item UP is the character sheet's job (its
 	// hand cells keep the pick/swap semantics), so a swing can't be fumbled into
-	// an accidental unequip mid-fight. A hand with NO default yet (bare hand,
-	// rune, key — nothing defaultable on the item) opens the use menu instead,
-	// so the first click PICKS what future clicks will do.
+	// an accidental unequip mid-fight. An UNSET hand performs the item's own
+	// first command without recording it (DefaultUseFor); only a hand with
+	// nothing to do at all (bare hand, rune, key) opens the use menu, so that
+	// first click PICKS what future clicks will do.
 	const std::string_view cmd = DefaultUseFor(m_characters[i], hand, slot.typeId);
 	if (cmd.empty()) {
 		OpenHandUseMenu(i, hand);
@@ -403,13 +405,22 @@ void GameUI::OpenHandUseMenu(size_t i, size_t hand) {
 						 kUseSpell + static_cast<int>(spells[s]), magic);
 		}
 	}
+	// Clear, LAST: takes this hand back to unset. Offered only while the hand
+	// is SET (Michael, 2026-09-28) - the item's own first command is not a pick,
+	// and a stale pick already reads as unset, so neither gets the row.
+	if (!SetUseFor(c, hand, m_handMenuItem).empty())
+		menu.Add(loc::View("use.clear"), kUseClear);
 	menu.Show(); // nothing actionable = no rows, so no empty menu pops
 }
 
 void GameUI::OnHandMenuPick(int id) {
 	const size_t i = m_handMenuMember;
 	const size_t hand = m_handMenuHand;
-	if (id >= kUseSpell) {
+	if (id == kUseClear) {
+		if (i >= m_characters.size() || hand > 1) return;
+		m_characters[i].useDefaults[hand].Remove(UseKey(m_handMenuItem));
+		Click();
+	} else if (id >= kUseSpell) {
 		if (!spellDefs) return;
 		const auto defs = spellDefs();
 		const size_t k = static_cast<size_t>(id - kUseSpell);
@@ -472,22 +483,60 @@ void GameUI::ExecuteUse(size_t i, size_t hand, std::string_view cmd) {
 	// default falls through DefaultUseFor instead. Nothing to do.
 }
 
+std::string_view GameUI::SetUseFor(const Character& c, size_t hand,
+								  const std::string& itemId) const {
+	if (hand > 1) return {};
+	// The pick must still be valid - the catalog may have changed since the save
+	// was written, and a "cast:" default needs the member to know the spell (a
+	// loaded save's defaults must not outrun its vocabulary). A stale pick reads
+	// as unset.
+	const std::string_view picked = c.useDefaults[hand].Find(UseKey(itemId));
+	if (!picked.empty() && UseValidFor(c, CommandsFor(itemId), picked)) return picked;
+	return {};
+}
+
+// Every frame, per hand box: views, a registry scan and an inline loc::Line -
+// nothing on the heap.
+HandSetUse GameUI::HandSetUseFor(size_t i, size_t hand) const {
+	if (i >= m_characters.size() || hand > 1) return {};
+	const Character& c = m_characters[i];
+	const std::string_view set =
+		SetUseFor(c, hand, c.inventory.Hand(static_cast<int>(hand)).typeId);
+	if (set.empty()) return {};
+	HandSetUse use;
+	use.set = true;
+	if (IsCastUse(set)) {
+		// SetUseFor only returns a cast whose spell is in the registry.
+		const std::string_view id = set.substr(kCastPrefix.size());
+		if (spellDefs)
+			for (const auto& def : spellDefs())
+				if (def->Id() == id) {
+					use.spell = def.get();
+					use.label = loc::View(def->NameKey());
+					break;
+				}
+	} else {
+		// The same text the use menu's row showed (use.<verb>).
+		use.label = loc::ViewKey("use.", set);
+		// Whether it has a picture is the hand box's lookup (ui/use_<verb>.png).
+		use.verb = set;
+	}
+	return use;
+}
+
 std::string_view GameUI::DefaultUseFor(const Character& c, size_t hand,
 								  const std::string& itemId) const {
 	if (hand > 1) return {};
-	const std::vector<std::string>& cmds = CommandsFor(itemId);
-	// THIS hand's remembered pick wins while it is still valid — the catalog
-	// may have changed since the save was written, and a "cast:" default needs
-	// the member to know the spell (a loaded save's defaults must not outrun
-	// its vocabulary).
-	if (const std::string_view picked = c.useDefaults[hand].Find(UseKey(itemId));
-		!picked.empty() && UseValidFor(c, cmds, picked))
-		return picked;
-	// Else the item's first defaultable command (a rune's only command is the
-	// menu-only memorize, so it yields "" — a left-click can't eat a tablet).
-	for (const std::string& cmd : cmds)
+	// SET and DEFAULT are two things (Michael, 2026-09-28). A hand is SET only
+	// once the player picks a use from its menu, and only a set hand is shown
+	// as set or can be cleared. An UNSET hand still does something on a left
+	// click: the item's own first defaultable command, performed WITHOUT being
+	// recorded, so the hand stays unset (a rune's only command is the
+	// menu-only memorize, so it yields "" - a left-click can't eat a tablet).
+	if (const std::string_view set = SetUseFor(c, hand, itemId); !set.empty()) return set;
+	for (const std::string& cmd : CommandsFor(itemId))
 		if (!IsMenuOnlyUse(cmd) && IsExecutableUse(cmd)) return cmd;
-	return {}; // no default — the left-click opens the use menu to pick one
+	return {}; // nothing to do - the left-click opens the use menu to pick one
 }
 
 bool GameUI::UseValidFor(const Character& c, const std::vector<std::string>& cmds,
@@ -1765,9 +1814,12 @@ void GameUI::BuildHud() {
 	deps.onMove = [this](MoveAction action) { onMoveAction(action); };
 	deps.onHandLeft = [this](size_t i, size_t hand) { OnHandLeftClick(i, hand); };
 	deps.onHandRight = [this](size_t i, size_t hand) { OnHandRightClick(i, hand); };
+	deps.handSetUse = [this](size_t i, size_t hand) { return HandSetUseFor(i, hand); };
+	deps.useIcons = m_useIcons; // Game's stable bank, set before any HUD build
 	deps.onGuardChange = [this](size_t i, float share) {
 		if (onGuardChange) onGuardChange(i, share);
 	};
+	deps.exertMax = [this] { return exertMax ? exertMax() : 1.0f; };
 	deps.moveLabel = loc::Tr("hud.movement");
 	deps.magicLabel = loc::Tr("hud.magic");
 	// The minimize buttons flip the settings in place; the flip is saved at

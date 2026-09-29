@@ -219,33 +219,6 @@ bool SymbolAvailable(SpellSymbol s, std::span<const SpellSymbol> sequence) {
 }
 } // namespace
 
-void SpellbookPanel::DrawRune(gfx::SpriteBatch& batch, const gfx::Rect& r,
-							  SpellSymbol s, bool hot, bool disabled) const {
-	batch.DrawRect(r, hot ? Vec4{0.12f, 0.12f, 0.13f, 1.0f} : kSlotBg);
-	const gfx::Texture* icon = m_icons ? m_icons->For(RuneItemId(s)) : nullptr;
-	if (icon) {
-		const float pad = r.w * 0.08f;
-		batch.DrawSprite({r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad},
-						 {0, 0, 1, 1}, *icon, {1, 1, 1, 1});
-	} else {
-		// Fallback: an element-tinted fill (ElementColor is premultiplied
-		// additive — rebuild it opaque for flat UI ink).
-		const Vec4 e = ElementColor(s);
-		batch.DrawRect({r.x + 3, r.y + 3, r.w - 6, r.h - 6},
-					   {e.x * 0.6f, e.y * 0.6f, e.z * 0.6f, 1.0f});
-	}
-	const Vec4 e = ElementColor(s);
-	if (disabled) {
-		// Already spelled into the sequence: washed out under a dark overlay,
-		// border flattened — reads as "spent" and stops responding.
-		batch.DrawRect(r, {0.0f, 0.0f, 0.0f, 0.62f});
-		ui::DrawBorder(batch, r, {e.x * 0.25f, e.y * 0.25f, e.z * 0.25f, 1.0f});
-		return;
-	}
-	ui::DrawBorder(batch, r, hot ? Vec4{e.x, e.y, e.z, 1.0f}
-								 : Vec4{e.x * 0.6f, e.y * 0.6f, e.z * 0.6f, 1.0f});
-}
-
 void SpellbookPanel::UpdateSelf(ui::UIContext& ctx) {
 	m_hotSymbol = -1;
 	m_hotSeq = -1;
@@ -349,8 +322,11 @@ void SpellbookPanel::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 			ui::DrawBorder(batch, r, theme.panelBorder);
 			continue;
 		}
-		DrawRune(batch, r, slots[i].symbol, static_cast<int>(i) == m_hotSymbol,
-				 !SymbolAvailable(slots[i].symbol, Sequence()));
+		// Disabled = already spelled into the sequence (or blocked by the
+		// school rule): it stops responding until a sequence edit frees it.
+		DrawRuneFace(batch, r, slots[i].symbol, m_icons,
+					 static_cast<int>(i) == m_hotSymbol,
+					 !SymbolAvailable(slots[i].symbol, Sequence()));
 	}
 
 	// The sequence spelled out so far — six slots at the bottom, just above
@@ -358,7 +334,8 @@ void SpellbookPanel::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	for (size_t i = 0; i < kMaxSequence; ++i) {
 		const gfx::Rect r = SequenceRect(px, i);
 		if (i < m_seqLen) {
-			DrawRune(batch, r, m_sequence[i], static_cast<int>(i) == m_hotSeq);
+			DrawRuneFace(batch, r, m_sequence[i], m_icons,
+						 static_cast<int>(i) == m_hotSeq);
 		} else {
 			batch.DrawRect(r, theme.control);
 			ui::DrawBorder(batch, r, theme.panelBorder);

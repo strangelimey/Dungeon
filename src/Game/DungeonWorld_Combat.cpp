@@ -938,7 +938,9 @@ float DungeonWorld::PartyTarget::Evasion(DamageType type) const {
 	in.avoidLevel = static_cast<float>(m_member.SkillLevel(kAvoidSkill));
 	in.avoidCurve = b.AvoidCurve();
 
-	in.held = 1.0f - m_member.offenseShare;
+	// Not simply 1 - share: the guard curves up toward guard_defense_max as the
+	// stance approaches 0% attack (defense::GuardWeight).
+	in.held = defense::GuardWeight(m_member.offenseShare, b.Stance());
 	in.skillCurve = b.SkillCurve();
 
 	SpellSymbol school{};
@@ -1750,8 +1752,9 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 	// owner down, and that line has to read AFTER the blow it paid for, not
 	// before it. Zero unless the stance is past 1, in which case SpendExertion
 	// is a no-op and this costs nothing.
-	const float exertion = defense::ExertionPoints(
-		attacker.offenseShare, static_cast<float>(level), m_balance.SkillCurve());
+	const float exertion =
+		defense::ExertionPoints(attacker.offenseShare, static_cast<float>(level),
+								m_balance.SkillCurve(), m_balance.Stance());
 	const auto finish = [&] {
 		SpendExertion(attacker, exertion);
 		return true;
@@ -1776,7 +1779,7 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 		// one number moves both sides (defense::StanceAttack). DEX is not skill
 		// and rides at full weight whatever the stance.
 		defense::StanceAttack(attacker.offenseShare, static_cast<float>(level),
-							  m_balance.SkillCurve()) +
+							  m_balance.SkillCurve(), m_balance.Stance()) +
 			CurveValue(static_cast<float>(attacker.dexterity),
 					   m_balance.StatCurve()) +
 			spec->acc,

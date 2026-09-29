@@ -352,6 +352,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_ui.SetItemWeights(&m_itemWeights); // stable; LoadItemIcons fills it in
 	m_ui.SetItemCategories(&m_itemCategories); // stable; LoadItemIcons fills it in
 	m_ui.SetSlotIcons(&m_slotIcons);     // stable; LoadItemIcons fills it in
+	m_ui.SetUseIcons(&m_useIcons);       // stable; LoadItemIcons fills it in
 	m_ui.SetHeldItem(&m_heldItem);    // cursor icon reads the held catalog id
 
 	// NO WORLD IS LOADED HERE (docs/world-on-demand.md): the title screen runs
@@ -508,8 +509,10 @@ void Game::UnloadWorld() {
 	// shares them, so a stale entry would show the wrong icon, not a gap.
 	m_itemIcons.byType.clear();
 	m_slotIcons.byType.clear();
+	m_useIcons.byType.clear();
 	m_itemIconPlaceholders.clear();
 	m_slotIconTextures.clear();
+	m_useIconTextures.clear();
 	m_heldItem.reset();
 	// A member's effects point at the old world's effect kinds.
 	for (Character& c : m_characters) c.effects.clear();
@@ -761,6 +764,24 @@ void Game::LoadItemIcons() {
 		}
 		m_slotIconTextures.push_back(std::move(tex));
 		m_slotIcons.byType[type] = m_slotIconTextures.back().get();
+	}
+
+	// Hand-use pictures: every ui/use_<verb>.png, keyed by the verb, so a new
+	// picture needs a file and no list here. A verb with none just draws the
+	// set tint alone.
+	std::error_code ec;
+	for (const auto& entry :
+		 std::filesystem::directory_iterator(paths::Asset("ui"), ec)) {
+		const std::filesystem::path& file = entry.path();
+		const std::string stem = file.stem().string();
+		if (file.extension() != ".png" || !stem.starts_with("use_")) continue;
+		auto tex = TryLoadTextureFile(m_device, paths::Asset("ui\\" + stem));
+		if (!tex) {
+			log::Warn("could not load {}.png - no hand-use picture", stem);
+			continue;
+		}
+		m_useIconTextures.push_back(std::move(tex));
+		m_useIcons.byType[stem.substr(4)] = m_useIconTextures.back().get();
 	}
 }
 

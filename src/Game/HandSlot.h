@@ -1,8 +1,15 @@
 // ============================================================================
 // Game/HandSlot.h — one hand box of the HUD control panel (left/right, Dungeon Master style).
+//
+// A hand with a SET use shows it: the socket behind the item takes an accent
+// tint, and a spell use also spells out its runes (Michael, 2026-09-28 - the
+// runes are the first iteration; a per-spell icon may replace them), and an
+// empty hand set to a verb with a picture (punch, kick) shows it. Hovering
+// a set hand names the use in a tooltip; an unset hand shows none.
 // ============================================================================
 #pragma once
 
+#include "Core/Loc.h"
 #include "Game/PartyHudTypes.h"
 #include "UI/Controls.h"
 
@@ -10,6 +17,21 @@
 #include <vector>
 
 namespace dungeon::game {
+
+class Spell; // Spell/Spell.h
+
+// What a hand box shows about the hand's SET use - the one the player picked
+// from its menu (GameUI::SetUseFor), never the item's own first command, which
+// a left click performs on an unset hand without setting anything.
+struct HandSetUse {
+	bool set = false;             // a use is set for what this hand holds
+	const Spell* spell = nullptr; // that use casts this spell (else a verb)
+	loc::Line label;              // its display name - the hover tooltip
+	// The set verb ("punch", "slash"; empty for a spell), for its picture -
+	// ui/use_<verb>.png, drawn when the hand holds nothing. A view into the
+	// hand's UseDefaults, valid for the frame that asked.
+	std::string_view verb;
+};
 
 class HandSlot : public ui::Widget {
 public:
@@ -25,8 +47,23 @@ public:
 
 	void UpdateSelf(ui::UIContext& ctx) override;
 	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
+	// The hover tooltip, in the overlay pass so nothing paints over it.
+	void DrawOverlaySelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
+
+	// The hand's set use, asked every frame (so a pick, a Clear, a swapped item
+	// or a load is right with no notification). Unwired = never shown as set.
+	// Must not allocate: the HUD draws in every guarded frame.
+	std::function<HandSetUse()> setUse;
+	// Hand-use pictures by verb (Game-owned, ui/use_<verb>.png), for an empty
+	// hand set to that verb. Null, or no file for the verb = the tint alone.
+	const ItemIconBank* useIcons = nullptr;
 
 private:
+	// A spell's recipe, drawn as rune faces inside `area`: a grid filling it
+	// when the hand is empty, a strip along its bottom when an item is shown.
+	void DrawSpellRunes(gfx::SpriteBatch& batch, const gfx::Rect& area,
+						const Spell& spell, bool overItem) const;
+
 	const std::vector<Character>* m_roster;
 	size_t m_member;
 	// Re-resolved every Update/Draw (see CharacterPanel).

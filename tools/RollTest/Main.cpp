@@ -965,67 +965,104 @@ int main(int argc, char** argv) {
 		}
 	}
 
-	// --- the stance couples both sides ------------------------------------------
+	// --- the stance trades both sides ------------------------------------------
 	// docs/damage-system.md "The stance" + "Over-exertion". One number moves the
-	// attack and the guard together: the points the share takes off one it puts
-	// onto the other. Over-exertion is that same line continued past 1, bought
-	// with stamina and then hide.
+	// attack and the guard together, in opposite directions. It used to be an
+	// exact coupling (attack + guard constant); since 2026-09-28 both ends CURVE
+	// (Michael: over-exertion climbs to x5 attack, a full guard to x2 defense),
+	// so what is pinned now is the shape: the ends reach their knobs, the steps
+	// steepen toward each extreme, the trade still runs one way, and a multiple
+	// of 1 puts the plain line back.
 	{
-		std::printf("\n--- the stance couples both sides ---\n");
+		std::printf("\n--- the stance trades both sides ---\n");
 		CurveRules skillCurve;
 		skillCurve.form = CurveForm::Hyperbolic;
 		skillCurve.slope = 5.0f;
 		skillCurve.cap = 120.0f;
 		const float lvl = 20.0f;
 		const double full = CurveValue(lvl, skillCurve);
+		const defense::StanceRules stance{2.0f, 5.0f, 2.0f}; // the shipped defaults
 
+		// The honest range's ATTACK is still the plain share.
 		Check("a full commitment is the plain curve value",
-			  defense::StanceAttack(1.0f, lvl, skillCurve), full, 0.001);
+			  defense::StanceAttack(1.0f, lvl, skillCurve, stance), full, 0.001);
 		Check("half the share puts half the skill behind the swing",
-			  defense::StanceAttack(0.5f, lvl, skillCurve), full * 0.5, 0.001);
+			  defense::StanceAttack(0.5f, lvl, skillCurve, stance), full * 0.5, 0.001);
 		Check("guarding with everything attacks with nothing",
-			  defense::StanceAttack(0.0f, lvl, skillCurve), 0.0, 0.0);
+			  defense::StanceAttack(0.0f, lvl, skillCurve, stance), 0.0, 0.0);
 
-		// THE COUPLING ITSELF, which is the whole point of the change: what the
-		// share adds to the attack is exactly what it takes off the guard. Checked
-		// as an identity across several shares rather than at one point, so a
-		// factor slipped into one side alone cannot pass.
-		bool coupled = true;
+		// THE TWO ENDS reach their knobs, and the middle meets them seamlessly.
+		Check("100% over-exertion attacks at exert_attack_max",
+			  defense::AttackWeight(2.0f, stance), 5.0, 0.0001);
+		Check("0% attack guards at guard_defense_max",
+			  defense::GuardWeight(0.0f, stance), 2.0, 0.0001);
+		Check("a full commitment guards with nothing",
+			  defense::GuardWeight(1.0f, stance), 0.0, 0.0);
+		Check("the attack is continuous at the full-commitment mark",
+			  defense::AttackWeight(1.0001f, stance), 1.0, 0.001);
+		Check("an over-exerted guard is still the plain penalty",
+			  defense::GuardWeight(1.5f, stance), -0.5, 0.0001);
+
+		// NOT LINEAR: each end's last step is worth more than its first. Checked
+		// on both sides, so a curve slipped onto one side alone cannot pass.
+		CheckTrue("the attack steepens toward 100% over-exertion",
+				  defense::AttackWeight(2.0f, stance) - defense::AttackWeight(1.9f, stance) >
+					  defense::AttackWeight(1.1f, stance) - defense::AttackWeight(1.0f, stance));
+		// ...and each is the SQUARE, pinned at the half-way point. Without these a
+		// shallower curve (h x (1 + h) on the guard) passed every other check - it
+		// still reaches its knob, still steepens, still trades one way. The attack
+		// side's twin is "half way to 100% buys one more skill's worth" below.
+		Check("half held back guards at 0.5 x (1 + 0.25)",
+			  defense::GuardWeight(0.5f, stance), 0.625, 0.0001);
+		CheckTrue("the guard steepens toward 0% attack",
+				  defense::GuardWeight(0.0f, stance) - defense::GuardWeight(0.1f, stance) >
+					  defense::GuardWeight(0.9f, stance) - defense::GuardWeight(1.0f, stance));
+
+		// The TRADE still runs one way: more attack always costs guard.
+		bool traded = true;
+		double lastAttack = -1.0, lastGuard = 1e9;
 		for (const float share : {0.0f, 0.25f, 0.5f, 0.75f, 1.0f, 1.5f, 2.0f}) {
-			const double attack = defense::StanceAttack(share, lvl, skillCurve);
-			const double guard =
-				defense::HandGuard(1.0f - share, skillCurve, lvl, lvl);
-			if (std::abs((attack + guard) - full) > 0.001) coupled = false;
+			const double attack = defense::AttackWeight(share, stance);
+			const double guard = defense::GuardWeight(share, stance);
+			if (attack <= lastAttack || guard >= lastGuard) traded = false;
+			lastAttack = attack;
+			lastGuard = guard;
 		}
-		CheckTrue("attack + guard is constant across every share", coupled);
+		CheckTrue("more attack always means less guard, at every share", traded);
+
+		// A multiple of 1 is the plain line - the knob's "off" setting.
+		const defense::StanceRules plainGuard{2.0f, 5.0f, 1.0f};
+		Check("guard_defense_max = 1 is the plain held share",
+			  defense::GuardWeight(0.3f, plainGuard), 0.7, 0.0001);
 
 		// --- what over-exertion BUYS -----------------------------------------
 		Check("an honest stance buys nothing",
-			  defense::ExertionPoints(1.0f, lvl, skillCurve), 0.0, 0.0);
+			  defense::ExertionPoints(1.0f, lvl, skillCurve, stance), 0.0, 0.0);
 		Check("a defensive stance buys nothing either",
-			  defense::ExertionPoints(0.3f, lvl, skillCurve), 0.0, 0.0);
-		Check("half again buys half a skill's worth",
-			  defense::ExertionPoints(1.5f, lvl, skillCurve), full * 0.5, 0.001);
-		Check("double buys a whole second skill's worth",
-			  defense::ExertionPoints(2.0f, lvl, skillCurve), full, 0.001);
+			  defense::ExertionPoints(0.3f, lvl, skillCurve, stance), 0.0, 0.0);
+		// Half way to exert_max is a QUARTER of the way up the curve: 1 + 4 x 0.25.
+		Check("half way to 100% buys one more skill's worth",
+			  defense::ExertionPoints(1.5f, lvl, skillCurve, stance), full, 0.001);
+		Check("100% over-exertion buys four more skills' worth",
+			  defense::ExertionPoints(2.0f, lvl, skillCurve, stance), full * 4.0, 0.001);
 		// The points bought are exactly the attack ABOVE an honest full swing —
 		// stated against StanceAttack rather than re-derived, because the bill is
 		// charged against this number and the two must not drift apart.
 		Check("the points bought are the attack past a full commitment",
-			  defense::ExertionPoints(1.7f, lvl, skillCurve),
-			  defense::StanceAttack(1.7f, lvl, skillCurve) -
-				  defense::StanceAttack(1.0f, lvl, skillCurve),
+			  defense::ExertionPoints(1.7f, lvl, skillCurve, stance),
+			  defense::StanceAttack(1.7f, lvl, skillCurve, stance) -
+				  defense::StanceAttack(1.0f, lvl, skillCurve, stance),
 			  0.001);
 		// A skill you do not have cannot be over-spent: there is nothing to
 		// borrow, so an untrained fighter's reckless stance is free AND useless.
 		// Non-vacuous by pairing — the same share on a trained fighter is not.
 		Check("an untrained fighter borrows nothing",
-			  defense::ExertionPoints(2.0f, 0.0f, skillCurve), 0.0, 0.001);
+			  defense::ExertionPoints(2.0f, 0.0f, skillCurve, stance), 0.0, 0.001);
 		CheckTrue("...while a trained one borrows plenty",
-				  defense::ExertionPoints(2.0f, lvl, skillCurve) > 1.0f);
+				  defense::ExertionPoints(2.0f, lvl, skillCurve, stance) > 1.0f);
 		CheckTrue("a deeper skill borrows more at the same share",
-				  defense::ExertionPoints(1.5f, 60.0f, skillCurve) >
-					  defense::ExertionPoints(1.5f, lvl, skillCurve));
+				  defense::ExertionPoints(1.5f, 60.0f, skillCurve, stance) >
+					  defense::ExertionPoints(1.5f, lvl, skillCurve, stance));
 	}
 
 	// --- when it goes wrong: fumble consequences --------------------------------
