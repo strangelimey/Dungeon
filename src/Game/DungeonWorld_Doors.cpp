@@ -364,6 +364,7 @@ bool DungeonWorld::DoorSettings(int x, int z, DoorEdit& out) const {
 void DungeonWorld::SetDoorSettings(int x, int z, const DoorEdit& in) {
 	Door* door = DoorAt(x, z);
 	if (!door) return;
+	NoteEdit(); // an inspector apply: no undo step, still a change to check
 	door->open = in.open;
 	door->initialOpen = in.open; // the editor edits the AUTHORED state
 	door->key = in.key;
@@ -465,6 +466,7 @@ const WallNiche* DungeonWorld::NicheOn(int x, int z, Direction wall) const {
 
 void DungeonWorld::SetNichePropsAt(int x, int z, Direction wall, const std::string& name,
 								   bool hidden, const std::string& type) {
+	NoteEdit(); // a niche's name is a button target
 	if (m_map.SetNichePropsAt(x, z, wall, name, hidden, type)) RebuildChunksAround(x, z);
 }
 
@@ -665,6 +667,7 @@ bool DungeonWorld::ButtonSettings(int x, int z, std::string& target) const {
 }
 
 void DungeonWorld::SetButtonSettings(int x, int z, const std::string& target) {
+	NoteEdit(); // an inspector apply: no undo step, still a change to check
 	for (Button& b : m_buttons)
 		if (b.x == x && b.z == z) {
 			b.target = target;

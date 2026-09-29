@@ -1670,6 +1670,7 @@ bool DungeonWorld::StairSettings(int x, int z, StairLink& out) const {
 
 bool DungeonWorld::SetStairFacing(int x, int z, Direction facing) {
 	if (!m_map.SetStairFacing(x, z, facing)) return false;
+	NoteEdit(); // an inspector apply: no undo step, still a change to check
 	// The prop is a decoration flagged `stair` (PlaceStairProp), turned the
 	// opposite way to the facing - see StairPropWorld.
 	for (Decoration& d : m_decorations)
@@ -1683,6 +1684,7 @@ bool DungeonWorld::SetStairFacing(int x, int z, Direction facing) {
 bool DungeonWorld::SetExitDest(int x, int z, const std::string& location) {
 	const StairLink* s = m_map.StairAt(x, z);
 	if (!s || !CatalogBool(m_project.stairs.Find(s->type), "exit", false)) return false;
+	NoteEdit();
 	return m_map.SetStairDest(x, z, location.empty() ? std::string("-") : location);
 }
 

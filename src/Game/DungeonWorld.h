@@ -1424,6 +1424,15 @@ public:
 	// only meaningful while its level is live), and so does a type RENAME:
 	// every held snapshot names the type by its old id.
 	void ClearUndoHistory();
+	// A counter that moves whenever the editor changes something - the signal
+	// live validation re-runs on. Bumped by every kept undo step, undo/redo, a
+	// history clear (level transitions, renames, deletes), and by the edits that
+	// take NO undo step but still change what the checker reads: the instance
+	// inspectors' apply (door key/name, button target, stair facing and exit)
+	// and Game's type-field writes and level creation. Over-bumping only costs a
+	// re-run; a missed bump is a stale red box, so when in doubt, NoteEdit.
+	u64 EditRevision() const { return m_editRevision; }
+	void NoteEdit() { ++m_editRevision; }
 	// An undo/redo restore DEFERS the expensive surface rebake: the full-screen
 	// editor hides the scene and shadow passes, so the stale chunks are never
 	// drawn while it stays up, and repeated undos pay nothing. GeometryDirty
@@ -3476,6 +3485,7 @@ private:
 	std::vector<EditorSnapshot> m_undoStack;
 	std::vector<EditorSnapshot> m_redoStack;
 	std::optional<EditorSnapshot> m_pendingUndo; // BeginUndoStep .. CommitUndoStep
+	u64 m_editRevision = 0;                      // see EditRevision
 	bool m_geometryDirty = false; // a restore skipped the rebake (FlushGeometry)
 	// A restore also changed a level's surface PALETTE, so FlushGeometry must
 	// reload the texture sets + worn meshes, not just re-stamp the chunks.

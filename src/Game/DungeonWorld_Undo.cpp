@@ -185,6 +185,7 @@ void DungeonWorld::CommitUndoStep(bool changed) {
 		if (m_undoStack.size() > kMaxUndoSteps)
 			m_undoStack.erase(m_undoStack.begin());
 		m_redoStack.clear(); // a new edit forks history
+		NoteEdit();
 	}
 	m_pendingUndo.reset();
 }
@@ -203,6 +204,7 @@ void DungeonWorld::Undo() {
 	}
 	m_redoStack.push_back(std::move(redo));
 	RestoreEditorState(std::move(snap));
+	NoteEdit();
 	if (onMessage) onMessage(loc::View("map.undo.done"));
 }
 
@@ -220,6 +222,7 @@ void DungeonWorld::Redo() {
 	}
 	m_undoStack.push_back(std::move(undo));
 	RestoreEditorState(std::move(snap));
+	NoteEdit();
 	if (onMessage) onMessage(loc::View("map.redo.done"));
 }
 
@@ -227,6 +230,7 @@ void DungeonWorld::ClearUndoHistory() {
 	m_undoStack.clear();
 	m_redoStack.clear();
 	m_pendingUndo.reset();
+	NoteEdit(); // a level transition, rename or delete: the checked set moved
 }
 
 

@@ -239,6 +239,13 @@ void Game::RegisterDevCommands() {
 														   args[3], args[4]));
 							   return;
 						   }
+						   // The edit counter live validation keys on: moves on a
+						   // change, stays put on a no-op (DungeonWorld::EditRevision).
+						   if (!args.empty() && args[0] == "rev") {
+							   m_console.Print(
+								   std::format("editor rev {}", m_world->EditRevision()));
+							   return;
+						   }
 						   // A left DRAG, for a harness: arm the row, then the press
 						   // on the first square and the held drag over the rest,
 						   // inside one stroke - exactly what MapView does between a

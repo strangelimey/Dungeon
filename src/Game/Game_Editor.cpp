@@ -520,6 +520,7 @@ std::string Game::CreateNewLevel(const std::string& dungeonId,
 	// AFTER joining the dungeon: the floor above is found by dungeon order.
 	// (An empty level offers no cells, so it stays unlinked - see above.)
 	if (!linkCells.empty()) LinkToFloorAbove(stem, linkCells);
+	m_world->NoteEdit(); // a new level joins the checked set
 	if (m_world->onMessage)
 		m_world->onMessage(dungeonId.empty()
 							  ? loc::FormatLine("map.level.created", stem)
@@ -1174,6 +1175,9 @@ void Game::WarnSavesInLevels(const std::vector<std::string>& stems) {
 // and an empty value REMOVES the field (absent means "the loader's default",
 // which is not the same as an empty string).
 void Game::WriteTypeFields(const TypeEditorDialog::Config& cfg) {
+	// A type edit takes no undo step but can change what the checker reads (a
+	// key item's category, a stair's traverse/exit), so it counts as an edit.
+	if (m_world) m_world->NoteEdit();
 	Catalog* cat = m_project.CatalogForKey(cfg.catalogKey);
 	if (!cat) {
 		log::Warn("type editor: unknown catalog '{}'", cfg.catalogKey);

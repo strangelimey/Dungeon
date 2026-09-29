@@ -15,6 +15,8 @@
 #   2. CHECKING DOES NOT CHANGE WHAT A SAVE WRITES: after a validate, savemap
 #      writes the active level alone (the checker used to stash every level,
 #      and a stashed level is one savemap rewrites).
+#   3. THE EDIT COUNTER live validation keys on moves on a change and STAYS PUT
+#      on a no-op (a repaint of the same texture), and moves on undo.
 #
 # Every project file a phase writes is restored byte for byte afterwards.
 import io
@@ -96,6 +98,19 @@ finally:
     shutil.rmtree(PROJ)
     shutil.copytree(backup, PROJ)
     shutil.rmtree(backup, ignore_errors=True)
+
+# --- phase 3: the edit counter ------------------------------------------------
+print("3 - the edit counter moves on a change and only on a change")
+log = run("editrev.eval")
+check(passed(log), "the script ran clean")
+revs = [int(r) for r in re.findall(r"console: editor rev (\d+)", log)]
+if len(revs) != 4:
+    check(False, "four counter readings", f"got {revs}")
+else:
+    r0, r1, r2, r3 = revs
+    check(r1 > r0, "a paint moves it", f"{r0} -> {r1}")
+    check(r2 == r1, "repainting the same texture does not", f"{r1} -> {r2}")
+    check(r3 > r2, "an undo moves it", f"{r2} -> {r3}")
 
 print()
 print("PASS" if failures == 0 else f"FAIL - {failures} check(s) failed")
