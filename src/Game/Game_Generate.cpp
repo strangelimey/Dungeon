@@ -30,6 +30,7 @@
 #include "Game/Threat.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
 #include <filesystem>
@@ -78,8 +79,16 @@ std::string RecordLine(const Entity& e) {
 // `stairs` are carried across VERBATIM: a regenerated level keeps its links to
 // the floors around it (the generator was told to leave their squares open), so
 // rerolling a floor never strands the one above.
+// The three surface palettes a generated level copies, by Surface order (wall,
+// floor, ceiling). A donor LEVEL's (PalettesOf) or ones chosen from a catalog
+// (the new-world wizard, which has no level to copy from).
+using Palettes = std::array<std::vector<std::string>, 3>;
+Palettes PalettesOf(const DungeonMap& donor) {
+	return {donor.WallPalette(), donor.FloorPalette(), donor.CeilingPalette()};
+}
+
 void BuildLevelText(const std::string& stem, const generate::Level& lv,
-					const generate::Params& params, const DungeonMap& donor,
+					const generate::Params& params, const Palettes& palettes,
 					const std::vector<std::string>& theme,
 					std::span<const StairLink> stairs, std::string& map,
 					std::string& ent) {
@@ -89,9 +98,9 @@ void BuildLevelText(const std::string& stem, const generate::Level& lv,
 		return out;
 	};
 	map = std::format("; {} - generated (seed {}).\n", stem, params.seed);
-	map += "palette wall " + join(donor.WallPalette()) + "\n";
-	map += "palette floor " + join(donor.FloorPalette()) + "\n";
-	map += "palette ceiling " + join(donor.CeilingPalette()) + "\n";
+	map += "palette wall " + join(palettes[0]) + "\n";
+	map += "palette floor " + join(palettes[1]) + "\n";
+	map += "palette ceiling " + join(palettes[2]) + "\n";
 	if (!theme.empty()) map += "theme " + join(theme) + "\n";
 	map += "stairfacing arrive\n"; // the new stair-facing meaning (DungeonMap)
 	for (const StairLink& st : stairs)
@@ -169,7 +178,7 @@ bool Game::StartEncounter(float difficulty, const std::vector<std::string>& tags
 	}
 
 	std::string map, ent;
-	BuildLevelText(kEncounterStem, lv, p, m_world->Map(), tags, {}, map, ent);
+	BuildLevelText(kEncounterStem, lv, p, PalettesOf(m_world->Map()), tags, {}, map, ent);
 	// THE WAY OUT, authored onto the arrival cell. An encounter is left the same
 	// way a dungeon is — by an exit stair — rather than by some second mechanism
 	// that would then need its own rules about when it is allowed.
@@ -193,17 +202,22 @@ bool Game::StartEncounter(float difficulty, const std::vector<std::string>& tags
 
 void Game::FillPools(generate::Params& params,
 					 const std::vector<std::string>& theme) {
-	params.monsterIds = PoolFor(m_project.monsters, theme);
+	FillPools(params, theme, m_project);
+}
+
+void Game::FillPools(generate::Params& params, const std::vector<std::string>& theme,
+					 const Project& project) {
+	params.monsterIds = PoolFor(project.monsters, theme);
 	// Each one's threat, from its stats (Game/Threat.h): what difficulty ranks.
 	params.monsterThreat.clear();
 	for (const std::string& id : params.monsterIds)
-		params.monsterThreat.push_back(ThreatOf(*m_project.monsters.Find(id)).threat);
-	params.lootIds = PoolFor(m_project.items, theme);
+		params.monsterThreat.push_back(ThreatOf(*project.monsters.Find(id)).threat);
+	params.lootIds = PoolFor(project.items, theme);
 	// Keys are the one pool that is NOT themed: a lock needs a key that exists,
 	// and which key it is matters far less than that the pair is coherent. An
 	// empty pool simply means no locks get authored (Generate.h clamps to it).
 	params.keyIds.clear();
-	for (const CatalogEntry* e : m_project.AllItems())
+	for (const CatalogEntry* e : project.AllItems())
 		if (e && e->Get("category", "") == "key") params.keyIds.push_back(e->id);
 	// Loot must not hand out the keys as treasure — that would let a key turn up
 	// behind its own door, precisely the fault the construction order prevents.
@@ -228,8 +242,8 @@ Game::ComposeGeneratedLevel(const std::string& stem, generate::Params params,
 	// The palette: the level CHOSEN in the dialog (P4b), else the active one.
 	// Read at once - MapOf may parse a stash, and nothing else touches the
 	// stashes between here and the text being built.
-	BuildLevelText(stem, lv, params, PaletteDonor(params.palette, m_world->Map()), theme,
-				   {}, map, ent);
+	BuildLevelText(stem, lv, params, PalettesOf(PaletteDonor(params.palette, m_world->Map())),
+				   theme, {}, map, ent);
 	// (The caller sets params.entry to the floor above's stair square, so the
 	// start comes first below and the link lands there.)
 	// Where the stair from the floor above may land, best first: the generated
@@ -258,6 +272,86 @@ void Game::ShowGenReport(const std::string& levelStem) {
 						   std::format("{:.1f}", r.threatMax),
 						   loc::Tr(r.bossPlaced ? "map.gen.report.boss" : "map.gen.report.noboss"))},
 		levelStem);
+}
+
+bool Game::GenerateWizardLevel(const Project& project, const std::string& stem,
+							   const NewWorldSpec& spec, const std::string& doorway,
+							   std::string& map, std::string& ent) {
+	generate::Params p;
+	p.seed = spec.seed;
+	p.width = p.height = std::clamp(spec.size, 16, 64);
+	// The SHAPE scales with the map: the defaults are tuned for 32 squares, and
+	// a small map asked for a 32-square dungeon's rooms reports shortfalls
+	// rather than building them (Generate.h), while a large one comes out empty.
+	const float scale = static_cast<float>(p.width) / 32.0f;
+	p.path = std::clamp(static_cast<int>(std::lround(6.0f * scale)), 3, 10);
+	p.branches = std::clamp(static_cast<int>(std::lround(3.0f * scale)), 1, 6);
+	p.difficulty = std::clamp(spec.difficulty, 0.0f, 1.0f);
+	// The wizard has ONE danger knob, so it drives how many as well as which:
+	// at the generator's default density a small map could place nobody at all
+	// (a 24-square vermin floor did, on the first run of the test), and a
+	// "first dungeon" with nothing to meet reads as a broken wizard. The
+	// generator keeps its two knobs separate; this is the wizard choosing.
+	p.density = 0.6f + 0.8f * p.difficulty;
+	p.theme = spec.theme;
+	const std::vector<std::string> theme =
+		spec.theme.empty() ? std::vector<std::string>{} : std::vector<std::string>{spec.theme};
+	FillPools(p, theme, project);
+
+	// The SURFACES are themed too: the types the theme's tags match lead each
+	// palette (PoolFor falls back to all of them when none match), four apiece,
+	// so a "stone undead" world does not open on whatever walls.cat lists first.
+	Palettes palettes;
+	const Catalog* surfaces[3] = {&project.walls, &project.floors, &project.ceilings};
+	for (size_t s = 0; s < 3; ++s) {
+		std::vector<std::string> ids = PoolFor(*surfaces[s], theme);
+		if (ids.size() > 4) ids.resize(4);
+		palettes[s] = std::move(ids);
+	}
+	if (palettes[0].empty() || palettes[1].empty() || palettes[2].empty()) {
+		log::Warn("wizard: the catalogs have no surfaces to build with");
+		return false;
+	}
+	generate::Level lv = generate::Run(p);
+	m_lastGenReport = lv.report;
+	// ...and, as an encounter does (StartEncounter), there is always SOMEONE:
+	// if the rolls placed no one, the weakest of the pool waits at the far end.
+	if (!p.monsterIds.empty() && std::ranges::none_of(lv.entities, [](const Entity& e) {
+			return e.kind == EntityKind::Monster;
+		})) {
+		Entity m;
+		m.kind = EntityKind::Monster;
+		m.type = p.monsterIds.front();
+		m.x = lv.exitX;
+		m.z = lv.exitZ;
+		lv.entities.push_back(std::move(m));
+	}
+	BuildLevelText(stem, lv, p, palettes, theme, {}, map, ent);
+
+	// THE WAY OUT, on the start square - an encounter's arrangement: you arrive
+	// on it, and it is where you go back to. Facing the first open side, since
+	// a stair stepped off into rock is one nobody can use.
+	std::string exit;
+	for (const CatalogEntry& e : project.stairs.Entries())
+		if (CatalogBool(&e, "exit", false)) {
+			exit = e.id;
+			break;
+		}
+	if (!exit.empty()) {
+		constexpr struct { int dx, dz; const char* facing; } kSides[] = {
+			{0, -1, "north"}, {1, 0, "east"}, {0, 1, "south"}, {-1, 0, "west"}};
+		const char* facing = "north";
+		for (const auto& s : kSides)
+			if (lv.At(lv.startX + s.dx, lv.startZ + s.dz)) {
+				facing = s.facing;
+				break;
+			}
+		map += std::format("stairs {} {} {} {} dest={} destx=0 destz=0\n", exit, lv.startX,
+						   lv.startZ, facing, doorway);
+	}
+	log::Info("wizard: {} {}x{}, theme '{}', difficulty {:.2f}, seed {}, {} monster kinds",
+			  stem, p.width, p.height, spec.theme, p.difficulty, p.seed, p.monsterIds.size());
+	return true;
 }
 
 const DungeonMap& Game::PaletteDonor(const std::string& chosen,
@@ -416,7 +510,7 @@ bool Game::BuildAndInstall(const std::string& stem, const generate::Params& para
 	m_lastGenReport = lv.report;
 
 	std::string map, ent;
-	BuildLevelText(stem, lv, p, donor, theme, stairs, map, ent);
+	BuildLevelText(stem, lv, p, PalettesOf(donor), theme, stairs, map, ent);
 
 	// Parsed through a TEMP file rather than the level's own, so the real files
 	// stay untouched until `savemap` — which is how every other editor edit

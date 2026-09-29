@@ -464,6 +464,11 @@ private:
 						  std::string* problem);
 	bool BuildLevelWorld(const std::string& folder, const std::string& id,
 						 const std::string& stem, std::string* problem);
+	bool BuildWizardWorld(const std::string& folder, const std::string& id,
+						  const NewWorldSpec& spec, std::string* problem);
+	// The wizard's THEME choices: every content tag the template's monsters
+	// carry, sorted (they are what the wizard's world will draw from).
+	std::vector<std::string> WizardThemes() const;
 	// Deleting one (W9). NOTHING BRINGS IT BACK — the undo history is in memory
 	// and about THIS world, and a world made in the editor was never in git — so
 	// the confirmation lives in the dialog (type the name, case-sensitive) and
@@ -531,9 +536,21 @@ private:
 	bool BuildAndInstall(const std::string& stem, const generate::Params& params,
 						 const std::vector<std::string>& theme,
 						 const DungeonMap& donor, std::span<const StairLink> stairs);
-	// Resolve the theme into the id pools the generator picks from.
+	// Resolve the theme into the id pools the generator picks from - this
+	// world's catalogs, or `project`'s (the new-world wizard draws from the
+	// TEMPLATE, which is not the running world).
 	void FillPools(generate::Params& params,
 				   const std::vector<std::string>& theme);
+	void FillPools(generate::Params& params, const std::vector<std::string>& theme,
+				   const Project& project);
+	// The new-world wizard's first floor (P5): generated from `spec`'s theme,
+	// size, difficulty and seed, drawing content AND surfaces from `project`
+	// (the new world's own catalogs), with an exit stair on its start square out
+	// to `doorway`. The .map / .ent text; false when there is nothing to build
+	// with. Deterministic: the same spec and catalogs give the same level.
+	bool GenerateWizardLevel(const Project& project, const std::string& stem,
+							 const NewWorldSpec& spec, const std::string& doorway,
+							 std::string& map, std::string& ent);
 	// One kind's threat (Game/Threat.h), its attacks resolved by the world when
 	// one is loaded (spells, powers, on-hit effects), else melee from the catalog.
 	threat::Parts ThreatOf(const CatalogEntry& monster) const;

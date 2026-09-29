@@ -50,6 +50,10 @@
 #  10. THE NEW WORLD DIALOG: its "Copy one level" makes a one-level world of
 #      the level picked; a name in use is refused in its own words; and a world
 #      made over the Worlds dialog lands in that list ARMED.
+#  11. THE WIZARD: the template's content and one generated floor. The same
+#      knobs and seed make an identical floor, another seed a different one;
+#      the theme holds the monsters to its tag; the size is the map's; there
+#      is a way out; and each world opens by name and passes the checker.
 #
 # Every project file a phase writes is restored byte for byte afterwards.
 import io
@@ -427,6 +431,63 @@ try:
           after[-1] if after else "no worlds dialog line")
 finally:
     for w in ("nwd_level", "nwd_blank"):
+        shutil.rmtree(os.path.join(PROJECTS, w), ignore_errors=True)
+
+# --- phase 11: the wizard -------------------------------------------------------
+print("11 - the wizard generates a first floor, themed and reproducible")
+WIZ = ("wz_a", "wz_b", "wz_c", "wz_undead", "wz_dlg")
+
+
+def tagged(tag):
+    """Template monsters carrying `tag` (monsters.cat `tags`)."""
+    text = io.open(os.path.join(ROOT, r"assets\templates\default\catalog\monsters.cat"),
+                   encoding="utf-8").read()
+    out, cur = set(), None
+    for line in text.splitlines():
+        m = re.match(r"\[(\S+)\]", line)
+        if m:
+            cur = m.group(1)
+        elif cur and re.match(r"tags\s*=", line) and tag in line.split("=", 1)[1].split():
+            out.add(cur)
+    return out
+
+
+try:
+    log = run("wizard.eval")
+    check(passed(log), "the script ran clean")
+    for w in WIZ[:-1]:
+        check(f"console: created world '{w}'" in log, f"{w} was made")
+    check("source wizard made 'wz_dlg'" in log, "wz_dlg was made, through the dialog")
+    themes = next((l.split("wizard themes: ", 1)[1] for l in log.splitlines()
+                   if "wizard themes: " in l), "")
+    check("vermin" in themes.split() and "undead" in themes.split(),
+          "the theme choices are the template's tags", themes)
+
+    def floor(w, ext):
+        p = os.path.join(PROJECTS, w, "levels", "floor1." + ext)
+        return io.open(p, encoding="utf-8").read() if os.path.isfile(p) else ""
+
+    a_map, a_ent = floor("wz_a", "map"), floor("wz_a", "ent")
+    check(a_map != "" and a_map == floor("wz_b", "map") and a_ent == floor("wz_b", "ent"),
+          "the same knobs and seed make the SAME floor")
+    check(floor("wz_c", "map") not in ("", a_map), "another seed makes a different one")
+    check(floor("wz_dlg", "map") == a_map and floor("wz_dlg", "ent") == a_ent,
+          "the dialog's wizard rows make the same floor as the console, from the same knobs")
+    grid = [l for l in a_map.splitlines() if l and l[0] in "#.P"]
+    check(bool(grid) and len(grid) == 24 and all(len(l) == 24 for l in grid),
+          "the size asked for is the map's (24 x 24)", f"{len(grid)} rows")
+    for w, tag in (("wz_a", "vermin"), ("wz_undead", "undead")):
+        monsters = set(re.findall(r"^monster (\S+)", floor(w, "ent"), re.M))
+        check(bool(monsters) and monsters <= tagged(tag),
+              f"{w}'s monsters all carry '{tag}'", str(sorted(monsters)))
+        check(re.search(r"^stairs stairs_exit \d+ \d+ \w+ dest=keep_gate", floor(w, "map"), re.M)
+              is not None, f"{w}'s floor has a way out")
+    for w in WIZ:
+        wlog = run("worldcheck.eval", project=w)
+        check("validate: clean" in wlog, f"{w} opens and passes the checker",
+              next((l for l in wlog.splitlines() if "validate" in l), "no validate line"))
+finally:
+    for w in WIZ:
         shutil.rmtree(os.path.join(PROJECTS, w), ignore_errors=True)
 
 print()

@@ -285,8 +285,22 @@ void Game::RegisterWorldCommands() {
 				else if (a.size() >= 4 && a[2] == "level") {
 					spec.source = NewWorldSpec::Source::CopyLevel;
 					spec.level = a[3];
+				} else if (a.size() >= 3 && a[2] == "wizard") {
+					// The wizard's knobs as key=value, in any order; absent =
+					// the dialog's defaults (NewWorld.h).
+					spec.source = NewWorldSpec::Source::Wizard;
+					for (size_t i = 3; i < a.size(); ++i) {
+						const size_t eq = a[i].find('=');
+						if (eq == std::string::npos) continue;
+						const std::string k = a[i].substr(0, eq), v = a[i].substr(eq + 1);
+						if (k == "theme") spec.theme = v;
+						else if (k == "size") spec.size = std::atoi(v.c_str());
+						else if (k == "difficulty") spec.difficulty = std::strtof(v.c_str(), nullptr);
+						else if (k == "seed") spec.seed = static_cast<u32>(std::strtoul(v.c_str(), nullptr, 10));
+					}
 				} else if (a.size() >= 3 && a[2] != "blank") {
-					m_console.Print("usage: worlds new <name> [blank|copy|level <stem>]");
+					m_console.Print("usage: worlds new <name> [blank|copy|level <stem>|wizard "
+									"[theme=<tag>] [size=<n>] [difficulty=<0..1>] [seed=<n>]]");
 					return;
 				}
 				std::string problem;
@@ -357,6 +371,12 @@ void Game::RegisterWorldCommands() {
 					m_worldsDialog.Note()));
 				return;
 			}
+			if (a[0] == "themes") { // the wizard's theme choices (the template's tags)
+				std::string list;
+				for (const std::string& t : WizardThemes()) list += (list.empty() ? "" : " ") + t;
+				m_console.Print("wizard themes: " + list);
+				return;
+			}
 			if (a[0] == "newdialog") {
 				// The New world dialog (P4), for a harness: the same calls its
 				// buttons make. It is modal in a level and on the world screen
@@ -366,8 +386,15 @@ void Game::RegisterWorldCommands() {
 				} else {
 					if (!m_newWorldDialog.IsOpen()) m_newWorldDialog.Open();
 					using S = NewWorldSpec::Source;
-					if (a.size() >= 3 && a[1] == "source") {
+					if (a.size() >= 6 && a[1] == "wizard") {
+						// wizard <theme|-> <size> <difficulty> <seed>: the rows' values.
+						m_newWorldDialog.SetWizard(
+							a[2] == "-" ? std::string() : a[2], std::atoi(a[3].c_str()),
+							std::strtof(a[4].c_str(), nullptr),
+							static_cast<u32>(std::strtoul(a[5].c_str(), nullptr, 10)));
+					} else if (a.size() >= 3 && a[1] == "source") {
 						if (a[2] == "copy") m_newWorldDialog.SetSource(S::CopyWorld);
+						else if (a[2] == "wizard") m_newWorldDialog.SetSource(S::Wizard);
 						else if (a[2] == "level")
 							m_newWorldDialog.SetSource(S::CopyLevel, a.size() >= 4 ? a[3] : "");
 						else m_newWorldDialog.SetSource(S::Blank);
@@ -378,12 +405,16 @@ void Game::RegisterWorldCommands() {
 					}
 					m_newWorldDialog.ApplyPending(); // not inside a tree walk here
 				}
-				static constexpr const char* kSource[] = {"blank", "copy", "level"};
+				static constexpr const char* kSource[] = {"blank", "copy", "level", "wizard"};
+				const NewWorldSpec& sp = m_newWorldDialog.Spec();
 				m_console.Print(std::format(
 					"new world dialog {}: source {} made '{}' - {}",
 					m_newWorldDialog.IsOpen() ? "open" : "closed",
 					kSource[static_cast<int>(m_newWorldDialog.Source())],
 					m_newWorldDialog.Made(), m_newWorldDialog.Note()));
+				if (sp.source == NewWorldSpec::Source::Wizard)
+					m_console.Print(std::format("  wizard theme '{}' size {} difficulty {:.2f} seed {}",
+												sp.theme, sp.size, sp.difficulty, sp.seed));
 				return;
 			}
 			m_console.Print("usage: worlds [new|load] <name> | delete <name> <name> | "

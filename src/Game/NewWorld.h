@@ -26,9 +26,21 @@ struct NewWorldSpec {
 		// one-level dungeon; its stairs (which lead to levels the copy lacks)
 		// give way to one exit stair out to the new world's overworld.
 		CopyLevel,
+		// The WIZARD (P5): the template's content, and a first dungeon of one
+		// floor GENERATED from the knobs below (the level generator, docs/
+		// level-building.md) - themed, sized and as dangerous as asked, with an
+		// exit out to the overworld. More floors come after with the editor's [+].
+		Wizard,
 	};
 	Source source = Source::Blank;
 	std::string level; // CopyLevel: which of this world's levels
+	// Wizard: the content tag the monsters, loot and surfaces are drawn by (""
+	// = any), the map's side in squares, how dangerous (0..1), and the seed -
+	// the same four give the same floor.
+	std::string theme;
+	int size = 32;
+	float difficulty = 0.4f;
+	u32 seed = 1;
 };
 
 } // namespace dungeon::game

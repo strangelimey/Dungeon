@@ -15,7 +15,14 @@ namespace dungeon::game {
 
 namespace {
 constexpr gfx::Rect kPanel{0.25f, 0.18f, 0.50f, 0.64f};
+// With the wizard picked its four rows join the card, so the card grows (up and
+// down about the same centre) rather than squeezing every other row.
+constexpr gfx::Rect kWizardPanel{0.25f, 0.06f, 0.50f, 0.88f};
 constexpr float kLevelW = 1.6f; // the level dropdown, in FooterButton widths
+// The wizard's sizes: the map's side in squares, small / medium / large.
+constexpr int kSizes[] = {24, 32, 44};
+constexpr const char* kSizeKeys[] = {"map.newworld.small", "map.newworld.medium",
+									 "map.newworld.large"};
 
 // A world's name is a FOLDER name: filtered as it is typed, so the field never
 // shows a name that will not be the one written (CreateWorld filters again).
@@ -39,6 +46,7 @@ void NewWorldDialog::Open() {
 	m_made.clear();
 	m_spec = {};
 	m_levels = onLevels ? onLevels() : std::vector<std::string>{};
+	m_themes = onThemes ? onThemes() : std::vector<std::string>{};
 	m_note = loc::Tr("map.newworld.note");
 	m_uiRebuild = false;
 	BuildUI();
@@ -49,6 +57,16 @@ void NewWorldDialog::SetSource(NewWorldSpec::Source source, const std::string& l
 	if (source == NewWorldSpec::Source::CopyLevel)
 		m_spec.level = !level.empty() ? level : m_levels.empty() ? std::string() : m_levels.front();
 	m_uiRebuild = true; // the picked choice draws active
+}
+
+void NewWorldDialog::SetWizard(const std::string& theme, int size, float difficulty,
+							   u32 seed) {
+	m_spec.source = NewWorldSpec::Source::Wizard;
+	m_spec.theme = theme;
+	m_spec.size = size;
+	m_spec.difficulty = std::clamp(difficulty, 0.0f, 1.0f);
+	m_spec.seed = seed;
+	m_uiRebuild = true;
 }
 
 void NewWorldDialog::Create(const std::string& typed) {
@@ -92,7 +110,9 @@ void NewWorldDialog::ApplyPending() {
 void NewWorldDialog::BuildUI() {
 	m_ui.Clear();
 	m_noteLabel = nullptr; // dies with the tree
-	DialogChrome chrome = BuildDialogChrome(m_ui, kPanel, loc::Tr("map.newworld.title"),
+	const bool wizard = m_spec.source == NewWorldSpec::Source::Wizard;
+	m_panel = wizard ? kWizardPanel : kPanel;
+	DialogChrome chrome = BuildDialogChrome(m_ui, m_panel, loc::Tr("map.newworld.title"),
 											m_closeIcon, [this] { Close(); });
 
 	// The name.
@@ -133,6 +153,65 @@ void NewWorldDialog::BuildUI() {
 				SetSource(S::CopyLevel, m_levels[static_cast<size_t>(i)]);
 		});
 	}
+	choice(*chrome.body->Row<ui::Stack>(FormRow(), true), S::Wizard, "map.newworld.wizard");
+	if (wizard) {
+		// The wizard's knobs, only while it is the way picked: a first dungeon
+		// generated from the template's content (docs/level-building.md).
+		const auto labelled = [&](const char* key) {
+			ui::Stack* row = chrome.body->Row<ui::Stack>(FormRow(), true);
+			row->gapRem = 0.5f;
+			row->Row<ui::Label>(ui::Len::Fill(0.4f), loc::Tr(key))->centerV = true;
+			return row;
+		};
+		{ // THEME: the content tag monsters, loot and surfaces are drawn by.
+			std::vector<std::string> items{loc::Tr("map.newworld.anytheme")};
+			items.insert(items.end(), m_themes.begin(), m_themes.end());
+			int sel = 0;
+			for (size_t i = 0; i < m_themes.size(); ++i)
+				if (m_themes[i] == m_spec.theme) sel = static_cast<int>(i) + 1;
+			labelled("map.newworld.theme")
+				->Row<ui::DropDown>(ui::Len::Fill(0.6f), items, sel, [this](int i) {
+					m_spec.theme = i > 0 && i <= static_cast<int>(m_themes.size())
+									   ? m_themes[static_cast<size_t>(i - 1)]
+									   : std::string();
+				});
+		}
+		{ // SIZE: three, in squares a side.
+			std::vector<std::string> items;
+			int sel = 1;
+			for (size_t i = 0; i < std::size(kSizes); ++i) {
+				items.push_back(loc::Format(kSizeKeys[i], kSizes[i]));
+				if (kSizes[i] == m_spec.size) sel = static_cast<int>(i);
+			}
+			labelled("map.newworld.size")
+				->Row<ui::DropDown>(ui::Len::Fill(0.6f), items, sel, [this](int i) {
+					if (i >= 0 && i < static_cast<int>(std::size(kSizes)))
+						m_spec.size = kSizes[static_cast<size_t>(i)];
+				});
+		}
+		// DIFFICULTY: which monsters, and (the wizard's choice) how many.
+		chrome.body->Row<ui::Slider>(FormRow(1.9f), loc::Tr("map.newworld.difficulty"), 0.0f,
+									 1.0f, m_spec.difficulty,
+									 [this](float f) { m_spec.difficulty = f; });
+		{ // SEED: the same seed and knobs make the same floor; Reroll for another.
+			ui::Stack* row = labelled("map.newworld.seed");
+			auto* field = row->Row<ui::TextField>(ui::Len::Fill(0.35f), std::to_string(m_spec.seed));
+			field->maxLength = 9;
+			ui::TextField* raw = field;
+			raw->onChange = [this, raw] {
+				std::erase_if(raw->text, [](char ch) { return !std::isdigit(static_cast<unsigned char>(ch)); });
+				m_spec.seed = raw->text.empty() ? 1u : static_cast<u32>(std::stoul(raw->text));
+			};
+			row->Row<ui::Button>(ui::Len::Fill(0.25f), loc::Tr("map.newworld.reroll"), [this] {
+				// Deterministic from the current seed (the generator's rule: a
+				// level is its knobs), so a reroll can itself be retraced.
+				m_spec.seed = m_spec.seed * 1664525u + 1013904223u;
+				m_spec.seed %= 1000000000u;
+				if (m_spec.seed == 0) m_spec.seed = 1;
+				m_uiRebuild = true;
+			});
+		}
+	}
 
 	chrome.body->Row<ui::Separator>(ui::Len::Fixed(0.5f));
 	// What the last click did, or what the next one will - a FIXED band (the
@@ -172,7 +251,7 @@ void NewWorldDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th, float 
 							float h) {
 	if (!m_open) return;
 	batch.DrawRect({0, 0, w, h}, {0, 0, 0, 0.6f}); // dim what is behind
-	const gfx::Rect panel{kPanel.x * w, kPanel.y * h, kPanel.w * w, kPanel.h * h};
+	const gfx::Rect panel{m_panel.x * w, m_panel.y * h, m_panel.w * w, m_panel.h * h};
 	batch.DrawRect(panel, th.panel);
 	ui::DrawBorder(batch, panel, th.panelBorder);
 	m_ui.Render(batch, w, h);

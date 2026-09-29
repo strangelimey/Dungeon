@@ -189,6 +189,7 @@ std::string Game::CreateWorld(const std::string& name, const NewWorldSpec& spec,
 	case NewWorldSpec::Source::CopyLevel:
 		built = BuildLevelWorld(temp, id, spec.level, problem);
 		break;
+	case NewWorldSpec::Source::Wizard: built = BuildWizardWorld(temp, id, spec, problem); break;
 	}
 	if (built) fs::rename(temp, folder, ec);
 	if (!built || ec) {
@@ -228,6 +229,43 @@ bool Game::BuildBlankWorld(const std::string& folder, const std::string& id,
 	return WriteText(made.LevelMapPath(stem), map) &&
 		   WriteText(made.LevelEntPath(stem), "; " + stem + " - dynamic layer (empty).\n") &&
 		   WriteStarterWorld(made, stem);
+}
+
+bool Game::BuildWizardWorld(const std::string& folder, const std::string& id,
+							const NewWorldSpec& spec, std::string* problem) {
+	// The TEMPLATE's content (Michael: the wizard starts from the template, not
+	// from whatever world is open), one dungeon of one floor, and that floor
+	// GENERATED - the generator is pure, so none of this needs the new world
+	// to be running.
+	if (!fs::exists(TemplateFolder() + "\\project.ini")) {
+		if (problem) *problem = loc::Format("map.newworld.notemplate", TemplateFolder());
+		return false;
+	}
+	Project made = Project::Load(TemplateFolder());
+	made.folder = folder;
+	made.name = id;
+	ClearPlaces(made);
+	const std::string stem = "floor1";
+	AddStarterDungeon(made, stem);
+	if (!made.Save()) return false;
+	std::string map, ent;
+	if (!GenerateWizardLevel(made, stem, spec, kStarterDoorway, map, ent)) {
+		if (problem) *problem = loc::Tr("map.worlds.failed");
+		return false;
+	}
+	return WriteText(made.LevelMapPath(stem), map) && WriteText(made.LevelEntPath(stem), ent) &&
+		   WriteStarterWorld(made, stem);
+}
+
+std::vector<std::string> Game::WizardThemes() const {
+	std::vector<std::string> tags;
+	if (!fs::exists(TemplateFolder() + "\\project.ini")) return tags;
+	const Project tpl = Project::Load(TemplateFolder());
+	for (const CatalogEntry& m : tpl.monsters.Entries())
+		for (std::string& t : ParseTags(m.Get("tags", "")))
+			if (std::find(tags.begin(), tags.end(), t) == tags.end()) tags.push_back(std::move(t));
+	std::sort(tags.begin(), tags.end());
+	return tags;
 }
 
 bool Game::BuildCopiedWorld(const std::string& folder, const std::string& id,

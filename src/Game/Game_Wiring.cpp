@@ -327,6 +327,7 @@ void Game::WireModuleCallbacks() {
 		return SwitchWorld(n);
 	};
 	m_newWorldDialog.onLevels = [this] { return m_project.levels; };
+	m_newWorldDialog.onThemes = [this] { return WizardThemes(); };
 
 	m_mapEditor.onNewAsset = [this](MapEditor::PaletteCat cat) {
 		// PURE-DATA CATEGORIES SKIP THE ASSET DIALOG. A dungeon has no texture
