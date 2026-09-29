@@ -281,13 +281,21 @@ void Game::RegisterEvalCommands() {
 	// the spell's symbols here, and the harness pays the mana at each cast -
 	// the rotation measures what a cast DOES, not whether it can be afforded.
 	m_console.Register(
-		"autocast", "cast on a clock (dev): autocast <member> <spell> [every] | off",
+		"autocast", "cast on a clock (dev): autocast <member> <spell> [every] | hold | off",
 		[this](const std::vector<std::string>& args) {
 			DungeonWorld::Harness::AutoCast& ac = m_world->GetHarness().autoCast;
 			// "off" only - a bare "0" is member 0, the first caster.
 			if (!args.empty() && args[0] == "off") {
 				ac = {};
 				m_console.Print("autocast off");
+				return;
+			}
+			// Park the rotation until the next `alloctest` window opens (see
+			// AutoCast::held); the next cast then fires on its first frame.
+			if (!args.empty() && args[0] == "hold") {
+				ac.held = true;
+				ac.timer = 0.0f;
+				m_console.Print("autocast held until an alloctest window opens");
 				return;
 			}
 			if (args.size() < 2) {
@@ -336,7 +344,6 @@ void Game::RegisterEvalCommands() {
 							   m_console.Print("tally reset");
 							   return;
 						   }
-						   const DungeonWorld::Tally& t = m_world->GetHarness().tally;
 						   // WHAT THE FIELDS MEAN, because two of them were
 						   // guessed wrong by the audit that checked them
 						   // (docs/eval-audit.md):
@@ -355,35 +362,9 @@ void Game::RegisterEvalCommands() {
 						   //           blast reports damage with zero swings
 						   //           and hitrate `n/a`.
 						   //   downed  distinct MEMBERS, not falls.
-						   const int swings = t.hits + t.misses;
-						   // ONE LINE, key=value, so a sweep's output can be
-						   // grepped and diffed without parsing prose. Damage is
-						   // in absolute POINTS, never a fraction of health —
-						   // the healing model is still to be designed, and
-						   // fractions would change meaning the day it lands.
-						   // `n/a` RATHER THAN 0.000 WHEN NOTHING SWUNG. A rate
-						   // over no trials is not zero, it is undefined, and
-						   // printing 0.000 made "the party never swung" look
-						   // identical to "the party missed every time" — which
-						   // is exactly the pair a blast table (swings=0 by
-						   // nature) sits next to (docs/eval-audit.md F8).
-						   // Parsers should read hitrate as [0-9.]+|n/a.
-						   const std::string rate =
-							   swings > 0
-								   ? std::format("{:.3f}", static_cast<float>(t.hits) /
-															   swings)
-								   : std::string("n/a");
-						   // The carrier counts go AFTER secs: Eval.ps1 parses the
-						   // fields before it as one fixed sequence.
-						   m_console.Print(std::format(
-							   "TALLY dealt={:.1f} taken={:.1f} swings={} hits={} "
-							   "misses={} hitrate={} crits={} fumbles={} "
-							   "slain={} downed={} secs={:.1f} bolthits={} "
-							   "boltmisses={} expired={} blasts={}",
-							   t.dealt, t.taken, swings, t.hits, t.misses, rate,
-							   t.crits, t.fumbles, t.monstersSlain, t.membersDowned,
-							   t.seconds, t.boltHits, t.boltMisses, t.expiries,
-							   t.blasts));
+						   //   bolthits/boltmisses/expired/blasts  the carriers
+						   //           (DungeonWorld::Tally says which count what).
+						   m_console.Print(TallyLine());
 					   });
 
 	// A script cannot otherwise tell whether it is measuring anything at all.
@@ -478,6 +459,33 @@ void Game::RegisterEvalCommands() {
 								   "the script believes; split it across calls",
 								   secs, kMaxStepSeconds, secs - got));
 					   });
+}
+
+std::string Game::TallyLine() const {
+	if (!m_world) return "TALLY (no world)";
+	const DungeonWorld::Tally& t = m_world->GetHarness().tally;
+	const int swings = t.hits + t.misses;
+	// ONE LINE, key=value, so a sweep's output can be grepped and diffed
+	// without parsing prose. Damage is in absolute POINTS, never a fraction of
+	// health - the healing model is still to be designed, and fractions would
+	// change meaning the day it lands.
+	// `n/a` RATHER THAN 0.000 WHEN NOTHING SWUNG. A rate over no trials is not
+	// zero, it is undefined, and printing 0.000 made "the party never swung"
+	// look identical to "the party missed every time" - which is exactly the
+	// pair a blast table (swings=0 by nature) sits next to (docs/eval-audit.md
+	// F8). Parsers should read hitrate as [0-9.]+|n/a.
+	const std::string rate =
+		swings > 0 ? std::format("{:.3f}", static_cast<float>(t.hits) / swings)
+				   : std::string("n/a");
+	// The carrier counts go AFTER secs: Eval.ps1 parses the fields before it as
+	// one fixed sequence.
+	return std::format(
+		"TALLY dealt={:.1f} taken={:.1f} swings={} hits={} misses={} hitrate={} "
+		"crits={} fumbles={} slain={} downed={} secs={:.1f} bolthits={} "
+		"boltmisses={} expired={} blasts={}",
+		t.dealt, t.taken, swings, t.hits, t.misses, rate, t.crits, t.fumbles,
+		t.monstersSlain, t.membersDowned, t.seconds, t.boltHits, t.boltMisses,
+		t.expiries, t.blasts);
 }
 
 } // namespace dungeon::game

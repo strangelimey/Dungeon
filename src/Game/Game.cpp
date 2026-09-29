@@ -1447,6 +1447,17 @@ const char* Game::StateName() const {
 void Game::UpdateAllocTest(float dt, bool steady) {
 	m_allocTestDeadline -= dt;
 	if (steady) {
+		// THE HARNESS'S WINDOW OPENS WITH THE FIRST ARMED FRAME. The tally
+		// restarts here, so what it reports at the verdict happened INSIDE the
+		// measurement rather than in the console's frames or the warm-up, and a
+		// held autocast is released, so a barrage's very first cast is measured
+		// (tools\AllocTest.ps1 -Impact: a fresh monster's first burn is a cost
+		// every monster pays once, and the warm-up would have swallowed it).
+		if (m_allocTestFrames == 0 && m_world) {
+			DungeonWorld::Harness& h = m_world->GetHarness();
+			h.tally = {};
+			h.autoCast.held = false;
+		}
 		m_allocTestRemaining -= dt;
 		++m_allocTestFrames;
 	}
@@ -1470,6 +1481,8 @@ void Game::UpdateAllocTest(float dt, bool steady) {
 					timedOut ? " reason=never_reached_a_steady_frame" : "");
 	log::Info("{}", line);
 	m_console.Print(line);
+	// What the harness counted over exactly those frames (reset on the first).
+	if (m_world) log::Info("alloctest window {}", TallyLine());
 	if (violations > 0)
 		m_console.Print("call sites are in dungeon.log (each reported once per session)");
 	m_allocTestRemaining = 0.0f;

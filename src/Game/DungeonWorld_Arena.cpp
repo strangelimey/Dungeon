@@ -188,7 +188,7 @@ bool DungeonWorld::DetonateSpell(std::string_view spellId, int cx, int cz) {
 
 void DungeonWorld::TickAutoCast(float dt) {
 	Harness::AutoCast& ac = m_harness.autoCast;
-	if (ac.count == 0 || !m_roster || m_partyWiped) return;
+	if (ac.count == 0 || ac.held || !m_roster || m_partyWiped) return;
 	ac.timer -= dt;
 	if (ac.timer > 0.0f) return;
 	// RESET, not `+= every`: a long frame (a rest's 60x, a `step`) would

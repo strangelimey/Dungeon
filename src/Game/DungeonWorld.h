@@ -408,6 +408,11 @@ public:
 			int count = 0, next = 0;
 			float every = 0.0f; // seconds between casts
 			float timer = 0.0f; // until the next one
+			// Parked until something releases it: `alloctest`'s first ARMED
+			// frame does, so a barrage can begin exactly when a measurement
+			// does (`autocast hold`). A wall-clock delay could not promise
+			// that - the guard's warm-up is counted in frames.
+			bool held = false;
 		} autoCast;
 	};
 	Harness& GetHarness() { return m_harness; }

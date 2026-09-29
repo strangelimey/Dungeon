@@ -232,6 +232,9 @@ private:
 	void RegisterDiagnosticCommands(); // guards, threads, health (Game_DevDiagnostics.cpp)
 	void RegisterPartyCommands(); // members, gear, pools (Game_DevParty.cpp)
 	void RegisterEvalCommands(); // the eval harness's (Game_DevEval.cpp)
+	// The encounter tally as the `tally` command prints it: one key=value
+	// line starting "TALLY ". Shared with `alloctest`'s verdict.
+	std::string TallyLine() const;
 
 	// --- loading (one task per frame while a loading screen shows) ---------
 	void BuildBootLoadTasks(); // menu essentials, run before the landing page
@@ -552,7 +555,9 @@ private:
 	void OverlayOpenedThisFrame();
 	// Advances a running `alloctest` window and reports when it closes. The
 	// window is measured in ARMED frames, so time spent loading, warming up or
-	// with the console open does not spend it.
+	// with the console open does not spend it. Its first armed frame OPENS the
+	// harness's window too (the tally restarts, a held autocast is released)
+	// and its last logs the tally, so a script can prove what happened INSIDE.
 	void UpdateAllocTest(float dt, bool steady);
 	// One line per frame from the queued eval script, and the run's verdict when
 	// it empties. Called from Update.

@@ -75,6 +75,15 @@
 # refuses a PASS unless the tally shows a bolt hit, an expiry and a blast
 # INSIDE the window.
 #
+# AND IT MEASURES A FRESH MONSTER. Warm-up may only absorb a first time for the
+# PROCESS; a first time for a MONSTER is paid again by every monster in play.
+# Warming up and measuring on one target passed while every monster's first
+# burn allocated twice (its effects list growing from empty, its flame plume
+# made on ignition). So the rotation is held (`autocast hold`), the party
+# steps aside to a new, untouched target, and alloctest's first ARMED frame
+# releases the barrage and restarts the tally; the verdict frame logs that
+# tally, which is what the refusal reads.
+#
 # Every step is driven by what the log actually says rather than by sleeps, so
 # a slow cold-cache load stretches the wait instead of failing the run.
 #
@@ -394,11 +403,49 @@ try {
 			}
 			Start-Sleep -Seconds 1
 		}
-		# A few more rounds, so each outcome's first time (a miss line, a
-		# second burn, the book's first detonation of the run) is warm-up
+		# A few more rounds, so each outcome's first time in the PROCESS (a
+		# miss line, a sound's first voice, the first detonation) is warm-up
 		# rather than window.
 		Start-Sleep -Seconds 4
-		Send-Text 'tally reset'; Send-Key 0x0D
+		# THEN A FRESH TARGET. What the warm-up absorbs must be a first time
+		# for the process, never a first time for a MONSTER - every monster
+		# in play is new once, so its first burn (an effects list growing from
+		# empty) or first threat entry is a steady cost of casting, not
+		# warm-up. Warming up and measuring on one target hid exactly that. So
+		# the party steps four squares west, out of the line of the worn-in
+		# target, and a new one is spawned three squares ahead of it, never
+		# touched by anything before the window opens.
+		#
+		# AND NOTHING FIRES AT IT UNTIL THE WINDOW OPENS, so the rotation is
+		# HELD FIRST. The guard skips a 120-frame warm-up after the console
+		# shuts, and at a cast every 0.4 s the fresh target's first hits landed
+		# in that gap - or, with the hold typed after the move, in the half
+		# second the script spent typing it. Both passed a run that should have
+		# failed. A held rotation is released by alloctest's first ARMED frame,
+		# which also restarts the tally, so the count read afterwards is the
+		# window's. The pause lets bolts already in flight land on the old one.
+		Send-Text 'autocast hold'; Send-Key 0x0D
+		Start-Sleep -Seconds 1
+		$px -= 4; $tx -= 4
+		Send-Text "tp $px $pz"; Send-Key 0x0D
+		Send-Text "spawn $ImpactMonster $tx $tz s $ImpactStrength"; Send-Key 0x0D
+		Start-Sleep -Milliseconds 300
+		if (-not (Select-String -Path $log -Pattern "spawned $ImpactMonster at $tx,$tz" -Quiet)) {
+			throw "the arena would not take a fresh $ImpactMonster at $tx,$tz"
+		}
+		# Refuse unless it really is untouched: `monsters` lists a live effect
+		# in brackets after the hp, and a burn caught early is exactly the
+		# thing this step exists to keep out of the warm-up.
+		Start-Sleep -Milliseconds 500
+		$before = @(Select-String -Path $log -Pattern "console:   $ImpactMonster @ $tx,$tz ").Count
+		Send-Text 'monsters'; Send-Key 0x0D
+		Start-Sleep -Milliseconds 500
+		$row = @(Select-String -Path $log -Pattern "console:   $ImpactMonster @ $tx,$tz ")
+		if ($row.Count -le $before) { throw "``monsters`` did not list the fresh $ImpactMonster" }
+		# (Past the "[info ]" the log line opens with, which is a bracket too.)
+		$listed = $row[-1].Line -replace '^.*console: ', ''
+		if ($listed -match '\[') { throw "the fresh target was touched before the window: $listed" }
+		Write-Host "  fresh $ImpactMonster at $tx,$tz, party at $px,$pz, untouched"
 		Send-Text 'logecho off'; Send-Key 0x0D
 		Send-Key 0xC0 # close the console again; alloctest reopens it below
 		Start-Sleep -Milliseconds 400
@@ -426,17 +473,20 @@ try {
 	Write-Host ''
 	Write-Host $line.Substring($line.IndexOf('alloctest'))
 
+	# WHAT HAPPENED INSIDE THE WINDOW, from the game itself: the verdict frame
+	# logs the harness tally, which the window's first ARMED frame restarted.
+	# (Asking `tally` afterwards used to count the console's frames, the
+	# guard's warm-up and whatever landed while the question was being typed.)
+	if ($Melee -or $Impact) {
+		$script:lastTally = (Wait-ForLog 'alloctest window TALLY ' 10 'the window tally') -replace '^.*TALLY ', 'TALLY '
+		Write-Host "  in the window: $script:lastTally"
+	}
+
 	# A melee PASS counts only if the swing path actually ran inside the window.
 	# Without this, a monster that wandered off, or a party knocked out before
 	# the window opened, would report exactly like a clean fight.
 	if ($Melee) {
-		Send-Key 0xC0
-		Start-Sleep -Milliseconds 500
-		Send-Text 'logecho on'; Send-Key 0x0D
-		$taken = Get-TallyField 'taken'
-		Write-Host "  in the window: $script:lastTally"
-		Send-Key 0xC0
-		Start-Sleep -Milliseconds 400
+		$taken = Get-LastTallyField 'taken'
 		if ($taken -le 0 -and $result -eq 'PASS') {
 			Write-Host 'the monster landed no blow inside the window - the swing path was not measured' -ForegroundColor Yellow
 			$result = 'UNMEASURED'
@@ -447,17 +497,10 @@ try {
 	# monster that died in the warm-up, or a rotation that stopped, would
 	# otherwise report exactly like a clean barrage.
 	if ($Impact) {
-		Send-Key 0xC0
-		Start-Sleep -Milliseconds 500
-		Send-Text 'logecho on'; Send-Key 0x0D
-		$c = Get-ImpactCounts
-		Write-Host "  in the window: $script:lastTally"
-		Send-Key 0xC0
-		Start-Sleep -Milliseconds 400
 		$missing = @()
-		if ($c.Hits -le 0) { $missing += 'no bolt hit' }
-		if ($c.Expired -le 0) { $missing += 'no bolt expired' }
-		if ($c.Blasts -le 0) { $missing += 'no blast went off' }
+		if ((Get-LastTallyField 'bolthits') -le 0) { $missing += 'no bolt hit' }
+		if ((Get-LastTallyField 'expired') -le 0) { $missing += 'no bolt expired' }
+		if ((Get-LastTallyField 'blasts') -le 0) { $missing += 'no blast went off' }
 		if ($missing.Count -gt 0 -and $result -eq 'PASS') {
 			Write-Host "$($missing -join ', ') inside the window - the impact path was not measured" -ForegroundColor Yellow
 			$result = 'UNMEASURED'
