@@ -981,7 +981,7 @@ int main(int argc, char** argv) {
 		skillCurve.cap = 120.0f;
 		const float lvl = 20.0f;
 		const double full = CurveValue(lvl, skillCurve);
-		const defense::StanceRules stance{2.0f, 5.0f, 2.0f}; // the shipped defaults
+		const defense::StanceRules stance{2.0f, 5.0f, 2.0f, 5.0f}; // the shipped defaults
 
 		// The honest range's ATTACK is still the plain share.
 		Check("a full commitment is the plain curve value",
@@ -1053,16 +1053,70 @@ int main(int argc, char** argv) {
 			  defense::StanceAttack(1.7f, lvl, skillCurve, stance) -
 				  defense::StanceAttack(1.0f, lvl, skillCurve, stance),
 			  0.001);
-		// A skill you do not have cannot be over-spent: there is nothing to
-		// borrow, so an untrained fighter's reckless stance is free AND useless.
-		// Non-vacuous by pairing — the same share on a trained fighter is not.
-		Check("an untrained fighter borrows nothing",
-			  defense::ExertionPoints(2.0f, 0.0f, skillCurve, stance), 0.0, 0.001);
+		// THE FLOOR (exert_floor, 2026-09-28). An untrained skill's term is zero,
+		// which used to make its over-exertion free AND useless - a 100% kick at
+		// unarmed 0 bought nothing and cost nothing. Now the stretch past 1
+		// multiplies at least the floor, so it buys (and bills) 4 x floor at 100%.
+		Check("an untrained fighter borrows the floor's worth",
+			  defense::ExertionPoints(2.0f, 0.0f, skillCurve, stance),
+			  4.0 * stance.exertFloor, 0.001);
+		Check("...and swings with it",
+			  defense::StanceAttack(2.0f, 0.0f, skillCurve, stance),
+			  4.0 * stance.exertFloor, 0.001);
+		Check("an untrained HONEST swing still gets nothing from skill",
+			  defense::StanceAttack(1.0f, 0.0f, skillCurve, stance), 0.0, 0.0);
+		// ...a skill already worth more than the floor is untouched by it (the
+		// "four more skills' worth" check above is the same claim at lvl)...
+		CheckTrue("a trained skill outweighs the floor here",
+				  CurveValue(lvl, skillCurve) > stance.exertFloor);
+		// ...and a floor of 0 is the old rule, which is how to switch it off.
+		const defense::StanceRules noFloor{2.0f, 5.0f, 2.0f, 0.0f};
+		Check("exert_floor = 0: an untrained fighter borrows nothing",
+			  defense::ExertionPoints(2.0f, 0.0f, skillCurve, noFloor), 0.0, 0.001);
 		CheckTrue("...while a trained one borrows plenty",
 				  defense::ExertionPoints(2.0f, lvl, skillCurve, stance) > 1.0f);
 		CheckTrue("a deeper skill borrows more at the same share",
 				  defense::ExertionPoints(1.5f, 60.0f, skillCurve, stance) >
 					  defense::ExertionPoints(1.5f, lvl, skillCurve, stance));
+
+		// --- the drunken haymaker: over-exertion widens an UNTRAINED fumble ----
+		// (exert_fumble / exert_skilled_level, 2026-09-28.) The extra band is
+		// exert_fumble x p x inexperience; each factor is pinned at a point
+		// where the others are held, so none can pass for another.
+		Check("an honest stance adds no fumble faces",
+			  defense::ExertionFumbleFaces(1.0f, 0.0f, stance), 0.0, 0.0);
+		Check("untrained at 100% over-exertion: +45 faces",
+			  defense::ExertionFumbleFaces(2.0f, 0.0f, stance), 45.0, 0.0001);
+		Check("...half way to 100%: half the band",
+			  defense::ExertionFumbleFaces(1.5f, 0.0f, stance), 22.5, 0.0001);
+		Check("...half way to skilled: half the band",
+			  defense::ExertionFumbleFaces(2.0f, 2.5f, stance), 22.5, 0.0001);
+		Check("...at exert_skilled_level: none at all",
+			  defense::ExertionFumbleFaces(2.0f, 5.0f, stance), 0.0, 0.0);
+		Check("past exert_max counts as 100%, never more",
+			  defense::ExertionFumbleFaces(3.0f, 0.0f, stance), 45.0, 0.0001);
+
+		// And the resolver actually USES it: measured, not assumed. A +45 band on
+		// the plain 5 fumbles on a first face of 50 or less - half the swings -
+		// against a plain swing's 5%. Seeded, so the numbers are stable.
+		{
+			StrikeRules sr;
+			constexpr int kN = 100'000;
+			const auto fumbleRate = [&](int extra) {
+				std::mt19937 rng(8080);
+				long long fumbles = 0;
+				for (int i = 0; i < kN; ++i) {
+					AttackProfile atk{10.0f, 40.0f, {}};
+					atk.fumbleExtra = extra;
+					if (ResolveAttack(atk, {40.0f, 0.0f, 0.0f}, sr, rng).fumble)
+						++fumbles;
+				}
+				return double(fumbles) / kN;
+			};
+			Check("a plain swing fumbles 5% of the time", fumbleRate(0), 0.05, 0.005);
+			Check("an untrained 100% haymaker fumbles half the time", fumbleRate(45),
+				  0.50, 0.01);
+		}
 	}
 
 	// --- when it goes wrong: fumble consequences --------------------------------

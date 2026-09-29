@@ -13,6 +13,13 @@
 ; multiple of the attack's skill term at 100% over-exertion (a stance of
 ; exert_max), guard_defense_max the multiple of the guard's at 0% attack. Both
 ; curve in with the square of how far toward that end the stance is.
+; exert_floor is the least skill term over-exertion multiplies (attack points),
+; so an untrained skill's over-exertion still buys attack and still costs; 0
+; makes an untrained fighter's over-exertion free and useless again.
+; exert_fumble / exert_skilled_level: an over-exerted swing or cast on a skill
+; below exert_skilled_level fumbles on exert_fumble extra first faces at 100%
+; over-exertion and level 0 (5 + 45 = half the time), shrinking to none at
+; exert_skilled_level. The severe band widens in proportion.
 
 [formula]
 unarmed_base = 4
@@ -104,6 +111,9 @@ exert_cost = 3
 exert_max = 2
 exert_attack_max = 5
 guard_defense_max = 2
+exert_floor = 5
+exert_fumble = 45
+exert_skilled_level = 5
 fumble_severe_face = 1
 fumble_recover = 2.2
 stabilize_time = 30

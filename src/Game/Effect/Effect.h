@@ -171,6 +171,10 @@ struct DamageEvent {
 	// since only they know what swung it; ignored on an unrolled event, which
 	// has no critical to consequence.
 	bool pierceOnCrit = false;
+	// Extra fumble faces for this attacker (AttackProfile::fumbleExtra - an
+	// untrained, over-exerted swing). Set by whoever assembled the blow;
+	// ignored on an unrolled event.
+	int fumbleExtra = 0;
 	Delivery delivery = Delivery::Melee;
 	// The roster index behind this damage (threat credit), or -1 for none —
 	// a monster's own blow, a wall, an unattributed tick.

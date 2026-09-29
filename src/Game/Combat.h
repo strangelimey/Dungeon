@@ -190,6 +190,11 @@ struct AttackProfile {
 	// one lucky roll is exactly the compounding long tail marginCap exists to
 	// stop.
 	bool pierceOnCrit = false;
+	// Extra first-roll faces that fumble for THIS attacker, on top of
+	// StrikeRules::fumbleThreshold (defense::ExertionFumbleFaces - an untrained
+	// over-exerted swing). Per attack, not a rule, because it is about who is
+	// swinging and how; the defender's fumble band is untouched.
+	int fumbleExtra = 0;
 };
 
 // A combatant's defensive response to ONE incoming strike. The caller resolves

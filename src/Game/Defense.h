@@ -76,11 +76,36 @@ float HandGuard(float held, CurveRules skillCurve, float leftLevel,
 // negative 1 - share it was. The two multiples are balance.cat knobs
 // (exert_attack_max, guard_defense_max); exertMax is the share 100%
 // over-exertion means.
+//
+// THE OVER-EXERTION FLOOR (exert_floor, Michael 2026-09-28): what the stretch
+// past 1 multiplies is the skill term OR exertFloor, whichever is larger. The
+// skill term alone is zero for an untrained skill, which made an untrained
+// fighter's over-exertion free AND useless - a 100% kick at unarmed 0 bought
+// nothing and cost only the kick's ordinary stamina. Now it buys at least the
+// floor's worth, and pays for it. A skill already worth more than the floor is
+// untouched.
+//
+// THE DRUNKEN HAYMAKER (exert_fumble / exert_skilled_level, Michael
+// 2026-09-28): over-exerting a skill you barely have is not a veteran's gamble
+// but an idiot's flail. So over-exertion also WIDENS THE FUMBLE BAND on the
+// attacker's first face, by exertFumble x p x inexperience, where inexperience
+// runs 1 at level 0 down to 0 at exertSkilledLevel. At the defaults an untrained
+// 100% swing fumbles on a first face of 5 + 45 = 50: half the time. The bill is
+// paid either way (every exit pays), and a swing that does not fumble still
+// carries the floor's bonus - so it is a coin flip, not a sure loss.
 struct StanceRules {
 	float exertMax = 2.0f;
 	float exertAttackMax = 5.0f;
 	float guardDefenseMax = 2.0f;
+	float exertFloor = 5.0f;
+	float exertFumble = 45.0f;
+	float exertSkilledLevel = 5.0f;
 };
+
+// The extra first-roll faces that fumble for a swing (or cast) thrown from
+// `share` at `skillLevel`: 0 at or below a full commitment, and 0 from
+// exertSkilledLevel up. Over-exertion past exertMax counts as 100% here.
+float ExertionFumbleFaces(float share, float skillLevel, const StanceRules& rules);
 
 // The multiple of the skill term an attack thrown from `share` gets.
 float AttackWeight(float share, const StanceRules& rules);
@@ -91,7 +116,8 @@ float GuardWeight(float share, const StanceRules& rules);
 // THE STANCE'S ATTACK HALF (docs/damage-system.md "The stance"). The share
 // scales the SKILL term of the attack bonus and nothing else — a stat is not
 // skill, so DEX (or a school's stat) rides at full weight whatever the stance.
-// The scaling is AttackWeight's, so past 1.0 it is not linear.
+// The scaling is AttackWeight's, so past 1.0 it is not linear - and the stretch
+// past 1.0 scales max(skill term, exertFloor), so it is never nothing.
 //
 // This is what couples the two sides from ONE number: the points the share
 // takes off the guard are the same points it puts behind the swing. Before it

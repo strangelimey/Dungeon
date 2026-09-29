@@ -60,9 +60,24 @@ float GuardWeight(float share, const StanceRules& rules) {
 	return held * (1.0f + (rules.guardDefenseMax - 1.0f) * held * held);
 }
 
+float ExertionFumbleFaces(float share, float skillLevel, const StanceRules& rules) {
+	if (share <= 1.0f || rules.exertMax <= 1.0f || rules.exertFumble <= 0.0f)
+		return 0.0f;
+	const float p = std::min(1.0f, (share - 1.0f) / (rules.exertMax - 1.0f));
+	// A skilled level of 0 (or less) means "no one is inexperienced": off.
+	if (rules.exertSkilledLevel <= 0.0f) return 0.0f;
+	const float inexperience =
+		std::clamp(1.0f - skillLevel / rules.exertSkilledLevel, 0.0f, 1.0f);
+	return rules.exertFumble * p * inexperience;
+}
+
 float StanceAttack(float share, float skillLevel, CurveRules skillCurve,
 				   const StanceRules& rules) {
-	return AttackWeight(share, rules) * CurveValue(skillLevel, skillCurve);
+	const float skill = CurveValue(skillLevel, skillCurve);
+	if (share <= 1.0f) return AttackWeight(share, rules) * skill;
+	// Past 1.0: the honest full commitment, plus the over-exerted stretch on at
+	// least the floor, so an untrained skill still has something to borrow.
+	return skill + (AttackWeight(share, rules) - 1.0f) * std::max(skill, rules.exertFloor);
 }
 
 float ExertionPoints(float share, float skillLevel, CurveRules skillCurve,

@@ -49,11 +49,23 @@ MagicSystem::CastReport MagicSystem::Cast(Character& caster, int casterIndex,
 											m_balance->SkillCurve(),
 											m_balance->Stance())
 				  : 0.0f;
-	const float failChance =
-		std::clamp(0.35f * static_cast<float>(spell->Difficulty() - 1) -
-					   0.10f * static_cast<float>(level) -
-					   0.01f * static_cast<float>(caster.willpower),
-				   0.0f, 0.9f);
+	// The recipe's own risk, then the DRUNKEN HAYMAKER's on top of it: an
+	// over-exerted cast in a school below exert_skilled_level fumbles on the
+	// same widened band a swing does (defense::ExertionFumbleFaces, as a
+	// probability). Added AFTER the clamp, so a high WIL cannot soak it up -
+	// the risk is about the missing skill, not the caster's composure.
+	const float exertFumble =
+		m_balance ? defense::ExertionFumbleFaces(caster.offenseShare,
+												 static_cast<float>(level),
+												 m_balance->Stance()) /
+						100.0f
+				  : 0.0f;
+	const float failChance = std::min(
+		0.95f, std::clamp(0.35f * static_cast<float>(spell->Difficulty() - 1) -
+							  0.10f * static_cast<float>(level) -
+							  0.01f * static_cast<float>(caster.willpower),
+						  0.0f, 0.9f) +
+				   exertFumble);
 	if (failChance > 0.0f &&
 		std::uniform_real_distribution<float>(0.0f, 1.0f)(rng) < failChance)
 		return {CastOutcome::Fumble, spell, exertion};

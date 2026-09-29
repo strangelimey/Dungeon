@@ -498,8 +498,13 @@ void DungeonWorld::PartyFumble(Character& attacker, size_t hand,
 							   const ItemKind* weapon, const AttackProfile& atk,
 							   int face) {
 	if (!m_roster) return;
-	const bool severe =
-		mishap::Severe(face, static_cast<int>(m_balance.fumbleSevereFace + 0.5f));
+	// A widened fumble band (an untrained over-exerted swing) widens the SEVERE
+	// band in proportion, so the drunk goes badly wrong as often as he goes
+	// wrong at all: fumbling on 50 instead of 5 makes the severe face 10, not 1.
+	const float band = std::max(1.0f, m_balance.Strike().fumbleThreshold);
+	const float widen = (band + static_cast<float>(atk.fumbleExtra)) / band;
+	const bool severe = mishap::Severe(
+		face, static_cast<int>(m_balance.fumbleSevereFace * widen + 0.5f));
 
 	// The procs first — a blade that bites the hand holding it is an EFFECT, and
 	// it lands on the attacker like any other. The striker is already an
@@ -1786,7 +1791,14 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 			spec->acc,
 		spec->type,
 		// `crit = pierce`: this edge finds the gap between the plates.
-		weapon && weapon->critPierce};
+		weapon && weapon->critPierce,
+		// THE DRUNKEN HAYMAKER: an over-exerted swing on a skill below
+		// exert_skilled_level fumbles on a wider band of first faces
+		// (defense::ExertionFumbleFaces; half the time untrained at 100%).
+		static_cast<int>(defense::ExertionFumbleFaces(
+							 attacker.offenseShare, static_cast<float>(level),
+							 m_balance.Stance()) +
+						 0.5f)};
 	const loc::Line name = loc::ViewKey("monster.", target->kind->name);
 	PartyTarget striker{*this, attacker};
 	MonsterTarget defender{*this, *target};
@@ -1799,6 +1811,7 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 						 atk.type),
 		atk.attackBonus, static_cast<int>(member));
 	ev.pierceOnCrit = atk.pierceOnCrit;
+	ev.fumbleExtra = atk.fumbleExtra;
 	fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
 	// The dice half of the eval tally. Counted for the PARTY's swings only: a
 	// hit rate that mixed both sides together would answer no question anyone

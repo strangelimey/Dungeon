@@ -201,9 +201,25 @@ knowing, each of which is a decision rather than an implementation detail:
   member's whole health several times over, so without the cap a single
   reckless swing would have been instant death by a rule meant for definitive
   blows. You can collapse from over-exertion; you cannot burst.
-- **An untrained fighter borrows nothing.** The points scale with the skill
-  curve, so a reckless stance on a skill you do not have is free *and*
-  useless — there is nothing to over-spend. Recklessness is a veteran's option.
+- **An untrained fighter still borrows the floor** (`exert_floor`, 5; changed
+  2026-09-28). The points scale with the skill curve, so a reckless stance on
+  a skill you did not have used to be free *and* useless - Michael found a
+  100% kick at `unarmed` 0 costing only the kick's own stamina. The stretch
+  past 1 now multiplies `max(skill term, exert_floor)`: an untrained fighter
+  over-exerting buys at least the floor's worth of attack (4 x 5 = 20 points
+  at 100%) and pays for it (60 stamina, then health), while a skill already
+  worth more than the floor is untouched. `exert_floor = 0` restores the old
+  rule.
+- **...and flails like a drunk** (`exert_fumble` 45, `exert_skilled_level` 5;
+  2026-09-28). Over-exerting a skill you barely have is "a drunken idiot
+  thinking he's cool" (Michael), so it also WIDENS THE FUMBLE BAND on the
+  first face by `exert_fumble x p x inexperience` - inexperience 1 at level 0,
+  0 from `exert_skilled_level` up. An untrained 100% swing fumbles on 50 or
+  less: half the time (RollTest measures 49.9% through the real resolver,
+  against 5.0% plain). The SEVERE band widens in proportion (10, not 1), a
+  cast takes the same risk as a probability on its own fumble chance, and the
+  bill is paid either way. A swing that does not fumble still carries the
+  floor's bonus, so the untrained haymaker is a coin flip, not a sure loss.
 
 The whole bill trains VIT (it routes through `SpendStamina`, the one exertion
 path, so the armor-shortfall scale and the exhaustion latch apply to it too) —

@@ -263,6 +263,18 @@ struct Balance {
 	// the stance is, so most of the multiple lives in the last stretch.
 	float exertAttackMax = 5.0f;
 	float guardDefenseMax = 2.0f;
+	// The least skill term over-exertion multiplies, in attack points (about a
+	// level-1 skill), so an UNTRAINED skill's over-exertion still buys attack
+	// and still pays for it (Michael, 2026-09-28: a 100% kick at unarmed 0 was
+	// free). 0 restores "an untrained fighter borrows nothing".
+	float exertFloor = 5.0f;
+	// THE DRUNKEN HAYMAKER (Game/Defense.h ExertionFumbleFaces, Michael
+	// 2026-09-28): an over-exerted swing or cast on a skill below
+	// exert_skilled_level fumbles on exert_fumble more first faces at 100%
+	// over-exertion and level 0 (5 + 45 = 50: half the time), shrinking to
+	// nothing at exert_skilled_level. 0 in either switches it off.
+	float exertFumble = 45.0f;
+	float exertSkilledLevel = 5.0f;
 	// FUMBLE CONSEQUENCES (docs/damage-system.md "When it goes wrong"). A fumble
 	// fires its source's mild table; at a first face of fumble_severe_face or
 	// LESS it fires the severe one as well. At the default thresholds (fumble on
@@ -352,7 +364,8 @@ struct Balance {
 	// The stance's shape, assembled for Game/Defense.h (the pure TU cannot see
 	// Balance, the RollTest wall).
 	defense::StanceRules Stance() const {
-		return {exertMax, exertAttackMax, guardDefenseMax};
+		return {exertMax,   exertAttackMax, guardDefenseMax,
+				exertFloor, exertFumble,    exertSkilledLevel};
 	}
 
 	// The two contribution curves, assembled from the knobs above.

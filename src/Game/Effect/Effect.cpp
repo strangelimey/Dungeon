@@ -211,7 +211,8 @@ void Deal(DamageEvent& ev, ITarget& target, const StrikeRules& rules,
 								 ev.soaked ? target.Soak() : 0.0f,
 								 ev.resisted ? target.Resist(ev.type) : 0.0f};
 		const AttackResult r = ResolveAttack(
-			{ev.amount, ev.attackBonus, ev.type, ev.pierceOnCrit}, def, rules, rng);
+			{ev.amount, ev.attackBonus, ev.type, ev.pierceOnCrit, ev.fumbleExtra}, def,
+			rules, rng);
 		ev.hit = r.hit;
 		ev.crit = r.crit;
 		ev.fumble = r.fumble;

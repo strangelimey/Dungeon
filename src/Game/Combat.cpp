@@ -52,13 +52,21 @@ AttackResult ResolveAttack(const AttackProfile& atk, const DefenseProfile& def,
 	const int defBonus = static_cast<int>(def.defenseBonus);
 
 	const Opposed o = Resolve(atkBonus, defBonus, rr, rng);
+	// THIS attacker's fumble band may be wider than the rule's (an untrained,
+	// over-exerted swing - AttackProfile::fumbleExtra). Judged on the same first
+	// face the dice already rolled, so it costs no extra draw and a face that
+	// fumbles the plain band still fumbles the wide one.
+	const bool atkFumble =
+		o.attack.fumble ||
+		(atk.fumbleExtra > 0 && !o.attack.crit &&
+		 o.attack.first <= rr.fumbleThreshold + atk.fumbleExtra);
 	result.crit = o.attack.crit;
-	result.fumble = o.attack.fumble;
+	result.fumble = atkFumble;
 	// The face travels only when it MEANS something. Reporting the first face
 	// unconditionally would hand the consequence layer a number it then has to
 	// re-test `fumble` against anyway, giving mishap::Severe two ways to be
 	// asked the same question — and 0 is what says "no fumble was recorded".
-	if (o.attack.fumble) result.fumbleFace = o.attack.first;
+	if (atkFumble) result.fumbleFace = o.attack.first;
 	result.margin = o.margin;
 
 	// A FUMBLE IS AUTOMATIC — "a roll of <= 5 is an automatic fumble", so it
@@ -75,7 +83,7 @@ AttackResult ResolveAttack(const AttackProfile& atk, const DefenseProfile& def,
 	// The attacker's fumble wins: a swing that goes that badly cannot land even
 	// against a guard that went equally badly.
 	bool hit = o.hit;
-	if (o.attack.fumble) {
+	if (atkFumble) {
 		hit = false;
 	} else if (o.defense.fumble) {
 		hit = true;
