@@ -286,6 +286,21 @@ private:
 	// in GameSettings — the right key's flag is per mode, via Legend*().
 	gfx::Rect LeftDockRect(const gfx::Rect& panel) const;   // brush palette
 	gfx::Rect RightDockRect(const gfx::Rect& panel) const;  // symbol key
+	// The TOOL STRIP (Editor only, MapView_Tools.cpp): a column of tool discs
+	// between the palette dock and the grid - paint, rectangle, flood, area,
+	// eyedropper, then Fill level. Its own column rather than rows in the dock
+	// so it stays put when the palette collapses. GridArea gives it up.
+	gfx::Rect ToolStripRect(const gfx::Rect& panel) const;
+	// (AppendStripButtons is declared beside ToolbarButtons, after ToolButton.)
+	// The strip's frame, the picked tool's ring and the Rectangle tool's
+	// in-progress box, drawn before the buttons (Render calls it).
+	void RenderToolStrip(gfx::SpriteBatch& batch, const ui::Theme& theme,
+						 const gfx::Rect& panel) const;
+	// A left press / hold / release on the grid, routed through the picked tool
+	// (Shift/Ctrl/Alt borrow Rectangle/Flood/Eyedropper). Returns true when the
+	// frame's input was consumed; `painted` says a browsed snapshot is stale.
+	bool UpdateBrush(const Input& input, const gfx::Rect& panel, float mx, float my,
+					 bool overGrid, bool& painted);
 	gfx::Rect LeftCollapseButton(const gfx::Rect& panel) const;
 	gfx::Rect RightCollapseButton(const gfx::Rect& panel) const;
 	bool LegendCollapsed() const; // the right key dock's collapse flag for the mode
@@ -338,6 +353,13 @@ private:
 					   *m_icoSave = nullptr, *m_icoSource = nullptr,
 					   *m_icoNew = nullptr, *m_icoPlay = nullptr,
 					   *m_icoPause = nullptr;
+	// The tool strip's discs, by MapEditor::Tool, then Fill level (icon_tb_tool_*).
+	std::array<const gfx::Texture*, 5> m_icoTools{};
+	const gfx::Texture* m_icoFillLevel = nullptr;
+	// The Rectangle tool's drag: the press square and the square under the
+	// pointer now. Painted on the release (UpdateBrush), previewed until then.
+	bool m_rectDrag = false;
+	int m_rectX0 = 0, m_rectZ0 = 0, m_rectX1 = 0, m_rectZ1 = 0;
 	bool m_editorPaused = false; // pause/play toolbar toggle (see EditorPaused)
 	// The edge drag (EdgeAt): the edge under the pointer, the one being dragged,
 	// where the drag started (along its axis), and how many cells it has moved -
@@ -386,7 +408,9 @@ private:
 	enum class HoverBtn {
 		None, LevelUp, LevelDown, Undo, Redo, Save, SaveSource, Balance,
 		LevelSettings, Check, Generate, NewLevel, LevelPick, PlayPause, CollapseL,
-		CollapseR, ShowWorld
+		CollapseR, ShowWorld,
+		// The tool strip, in MapEditor::Tool order, then its one action.
+		ToolPaint, ToolRect, ToolFlood, ToolArea, ToolPick, FillLevel
 	};
 	HoverBtn m_hoverBtn = HoverBtn::None;
 
@@ -407,8 +431,13 @@ private:
 		const gfx::Texture* icon;
 		bool visible;
 		bool enabled;
+		bool selected = false; // the strip's picked tool (drawn ringed)
+		bool strip = false;    // a strip button: its tooltip opens BESIDE it
 	};
 	std::vector<ToolButton> ToolbarButtons(const gfx::Rect& panel) const;
+	// Appends the TOOL STRIP's buttons to that list, so hover, click and render
+	// walk them with everything else (ToolbarButtons calls it).
+	void AppendStripButtons(std::vector<ToolButton>& btns, const gfx::Rect& panel) const;
 	// The band itself: full panel width in Editor mode, zero-height otherwise
 	// (Player mode keeps the floating browse arrows instead).
 	gfx::Rect ToolbarRect(const gfx::Rect& panel) const;

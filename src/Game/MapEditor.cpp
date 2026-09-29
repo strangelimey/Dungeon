@@ -828,22 +828,46 @@ void MapEditor::PaintRect(int cx, int cz) {
 		ApplyBrush(cx, cz, /*dragging*/ false);
 		return;
 	}
-	const bool remote = m_view.Browsing();
-	const std::string& stem = m_view.ViewedLevel();
-	const int x0 = std::min(m_lastX, cx), x1 = std::max(m_lastX, cx);
-	const int z0 = std::min(m_lastZ, cz), z1 = std::max(m_lastZ, cz);
-	m_world->BeginUndoStep();
-	const u32 rev0 = m_world->Map().Revision();
-	m_world->BeginChunkBatch(); // each touched chunk rebuilds once, at the end
+	PaintRectBetween(m_lastX, m_lastZ, cx, cz);
+}
+
+void MapEditor::PaintRectBetween(int ax, int az, int bx, int bz) {
+	if (m_sel.index < 0) return;
+	if (!PaintableCat(m_sel.cat)) { // placement acts as a plain click
+		ApplyBrush(bx, bz, /*dragging*/ false);
+		return;
+	}
+	const DungeonMap& map = m_view.ViewedMap();
+	const int x0 = std::max(0, std::min(ax, bx)), x1 = std::min(map.Width() - 1, std::max(ax, bx));
+	const int z0 = std::max(0, std::min(az, bz)), z1 = std::min(map.Height() - 1, std::max(az, bz));
+	std::vector<std::pair<int, int>> cells;
 	for (int z = z0; z <= z1; ++z)
-		for (int x = x0; x <= x1; ++x) PaintCell(x, z, remote, stem);
-	m_world->EndChunkBatch();
-	m_world->CommitUndoStep(remote || m_world->Map().Revision() != rev0);
-	m_lastX = cx; // chainable: the far corner anchors the next rectangle
-	m_lastZ = cz;
-	if (m_world->onMessage)
-		m_world->onMessage(loc::FormatLine("map.fill.done",
-										  (x1 - x0 + 1) * (z1 - z0 + 1)));
+		for (int x = x0; x <= x1; ++x) cells.push_back({x, z});
+	PaintCells(cells);
+	m_lastX = bx; // chainable: the far corner anchors the next rectangle
+	m_lastZ = bz;
+	if (m_world->onMessage) m_world->onMessage(loc::FormatLine("map.fill.done", cells.size()));
+}
+
+MapEditor::Tool MapEditor::ActiveTool() const {
+	const int t = m_settings.mapTool;
+	return t >= 0 && t < static_cast<int>(Tool::Count) ? static_cast<Tool>(t) : Tool::Paint;
+}
+
+void MapEditor::SetTool(Tool t) {
+	if (static_cast<int>(t) == m_settings.mapTool) return;
+	m_settings.mapTool = static_cast<int>(t);
+	m_settings.Save();
+}
+
+const char* MapEditor::ToolName(Tool t) {
+	switch (t) {
+	case Tool::Rect:  return "rect";
+	case Tool::Flood: return "flood";
+	case Tool::Area:  return "area";
+	case Tool::Pick:  return "pick";
+	default:          return "paint";
+	}
 }
 
 void MapEditor::FloodFill(int cx, int cz) {

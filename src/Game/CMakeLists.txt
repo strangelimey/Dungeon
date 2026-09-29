@@ -75,6 +75,7 @@ add_library(Game STATIC
 	Magic.cpp
 	MapEditor.cpp
 	MapView.cpp
+	MapView_Tools.cpp
 	Mishap.cpp
 	MonsterAI.cpp
 	MonsterConfigDialog.cpp

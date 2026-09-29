@@ -180,6 +180,7 @@ struct GameSettings {
 	bool mapPaletteCollapsed = false;  // map editor: left brush dock collapsed
 	bool mapLegendCollapsed = false;   // map editor: right key dock collapsed
 	bool mapShowCatalog = false;       // map editor: surfaces show the whole catalog
+	int mapTool = 0;                   // map editor: the tool strip's picked tool (MapEditor::Tool)
 	// The HUD's right-hand docks (Game/ControlBar.h): minimized to their header
 	// strip. Expanded by default (Michael: "leave it on screen by default").
 	bool hudMoveCollapsed = false;

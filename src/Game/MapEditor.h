@@ -240,6 +240,23 @@ public:
 	// viewed level (walls on every solid square, floors/ceilings on every
 	// walkable one). One undo step.
 	void FillLevel();
+	// The TOOL STRIP's tools (MapView draws the strip beside the palette). The
+	// picked tool decides what a left press on the grid does with the armed
+	// brush; holding Shift / Ctrl / Alt borrows Rectangle / Flood / Eyedropper
+	// for that one click, so the old gestures keep working as shortcuts. A
+	// placement brush places on a click whatever tool is picked. Persisted as
+	// settings.ini `map_tool`.
+	enum class Tool : u8 { Paint, Rect, Flood, Area, Pick, Count };
+	Tool ActiveTool() const;
+	void SetTool(Tool t);
+	// "paint", "rect", ... - the console's names and the icon files' suffixes.
+	static const char* ToolName(Tool t);
+	// The Rectangle tool's drag: fill the box between two corners, one undo
+	// step (Shift+click is this from the last painted square).
+	void PaintRectBetween(int ax, int az, int bx, int bz);
+	// True when the armed brush PAINTS squares - the only brushes the tools
+	// change the meaning of.
+	bool ArmedPaints() const { return m_sel.index >= 0 && PaintableCat(m_sel.cat); }
 	// Alt+click: eyedropper — arms the brush from the clicked square (a solid
 	// square arms its wall texture, a floor square its floor texture; ceilings
 	// are picked while the Ceilings brush is armed, since they share the floor

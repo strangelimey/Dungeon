@@ -252,6 +252,24 @@ void Game::RegisterDevCommands() {
 						   }
 						   // The edit counter live validation keys on: moves on a
 						   // change, stays put on a no-op (DungeonWorld::EditRevision).
+						   // The tool strip: pick a tool by name, or bare to say which.
+						   if (!args.empty() && args[0] == "tool") {
+							   using Tool = MapEditor::Tool;
+							   if (args.size() >= 2) {
+								   int found = -1;
+								   for (int i = 0; i < static_cast<int>(Tool::Count); ++i)
+									   if (args[1] == MapEditor::ToolName(static_cast<Tool>(i)))
+										   found = i;
+								   if (found < 0) {
+									   m_console.Print("usage: editor tool [paint|rect|flood|area|pick]");
+									   return;
+								   }
+								   m_mapEditor.SetTool(static_cast<Tool>(found));
+							   }
+							   m_console.Print(std::format(
+								   "editor tool: {}", MapEditor::ToolName(m_mapEditor.ActiveTool())));
+							   return;
+						   }
 						   if (!args.empty() && args[0] == "rev") {
 							   m_console.Print(
 								   std::format("editor rev {}", m_world->EditRevision()));

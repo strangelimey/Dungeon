@@ -88,6 +88,13 @@ MapView::MapView(gfx::GraphicsDevice& device, GameSettings& settings,
 	m_icoNew = ToolbarIcon(device, "new");
 	m_icoPlay = ToolbarIcon(device, "play");
 	m_icoPause = ToolbarIcon(device, "pause");
+	// The tool strip (MapView_Tools.cpp): icon_tb_tool_<name>, drawn by
+	// tools/BuildToolIcons.py; missing art falls back to a trimmed label.
+	for (int i = 0; i < static_cast<int>(MapEditor::Tool::Count); ++i)
+		m_icoTools[static_cast<size_t>(i)] = ToolbarIcon(
+			device, std::string("tool_") +
+						MapEditor::ToolName(static_cast<MapEditor::Tool>(i)));
+	m_icoFillLevel = ToolbarIcon(device, "tool_filllevel");
 }
 
 const DungeonMap& MapView::ViewedMap() const {
@@ -248,6 +255,7 @@ std::vector<MapView::ToolButton> MapView::ToolbarButtons(const gfx::Rect& panel)
 					nullptr, true, true});
 	btns.push_back({HoverBtn::NewLevel, NewLevelButton(panel),
 					loc::Tr("map.btn.newlevel"), m_icoNew, true, true});
+	AppendStripButtons(btns, panel); // the tool strip rides the same list
 	return btns;
 }
 
@@ -310,7 +318,7 @@ gfx::Rect MapView::GridArea(const gfx::Rect& panel) const {
 	// In Editor mode everything sits below the toolbar band.
 	const float t = ToolbarRect(panel).h;
 	const bool editor = m_mode == Mode::Editor;
-	const float l = editor ? LeftDockRect(panel).w : 0.0f;
+	const float l = editor ? LeftDockRect(panel).w + ToolStripRect(panel).w : 0.0f;
 	const float r = editor ? RightDockRect(panel).w : 0.0f;
 	return {panel.x + l, panel.y + t, panel.w - l - r, panel.h - t};
 }
@@ -632,12 +640,27 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 				case HoverBtn::Redo:
 					if (m_pendingHistory == 0) m_pendingHistory = +1;
 					break;
+				case HoverBtn::ToolPaint:
+				case HoverBtn::ToolRect:
+				case HoverBtn::ToolFlood:
+				case HoverBtn::ToolArea:
+				case HoverBtn::ToolPick:
+					if (m_editor)
+						m_editor->SetTool(static_cast<MapEditor::Tool>(
+							static_cast<int>(b.id) - static_cast<int>(HoverBtn::ToolPaint)));
+					break;
+				case HoverBtn::FillLevel:
+					if (m_editor) m_editor->FillLevel();
+					if (m_browse) m_browse = m_world->BrowseLevel(m_browse->stem);
+					break;
 				default: break;
 				}
 				return true;
 			}
-			// A click on the band's empty run is the band's, not the grid's.
-			if (ToolbarRect(panel).Contains(mx, my)) return true;
+			// A click on the band's empty run is the band's, not the grid's; so
+			// is one on the tool strip's.
+			if (ToolbarRect(panel).Contains(mx, my) || ToolStripRect(panel).Contains(mx, my))
+				return true;
 		}
 		// Right key dock collapse (Editor only, like the dock itself).
 		if (editor && RightCollapseButton(panel).Contains(mx, my)) {
@@ -773,43 +796,12 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 			m_editor->CancelMove();
 		return true;
 	}
-	if (editor && m_editor && overGrid) {
-		const bool shift = input.IsKeyDown(0x10 /*VK_SHIFT*/);
-		const bool ctrl = input.IsKeyDown(0x11 /*VK_CONTROL*/);
-		const bool alt = input.IsKeyDown(0x12 /*VK_MENU*/);
-		int cx, cz;
+	// The left button on the grid, through the picked tool (MapView_Tools.cpp).
+	if (editor && m_editor) {
 		bool painted = false;
-		if (!shift && !ctrl && !alt && !m_editor->LayingRoute() &&
-			m_editor->ArmedCat() == MapEditor::PaletteCat::Count &&
-			input.WasMousePressed(MouseButton::Left) && CellAt(mx, my, panel, cx, cz)) {
-			m_editor->DropFilterFocus();
-			m_editor->BeginMove(cx, cz);
-			return true;
-		}
-		if (m_editor->Moving()) return true; // mid-drag: nothing paints
-		if (input.WasMousePressed(MouseButton::Left) && CellAt(mx, my, panel, cx, cz)) {
-			m_editor->DropFilterFocus(); // painting reclaims the keyboard
-			if (alt) m_editor->PickAt(cx, cz); // never mutates — no refresh needed
-			else if (shift) { m_editor->PaintRect(cx, cz); painted = true; }
-			else if (ctrl) { m_editor->FloodFill(cx, cz); painted = true; }
-			// m_hoverFace and m_hoverPlace were both resolved from this same
-			// pointer position earlier this frame, so the click commits the pose
-			// that was on screen — the ghost is handed over, not recomputed.
-			else {
-				m_editor->BeginStroke(); // press .. release = one undo step
-				m_editor->Paint(cx, cz, /*dragging*/ false, m_hoverFace, &m_hoverPlace);
-				painted = true;
-			}
-		} else if (!shift && !ctrl && !alt &&
-				   input.IsMouseDown(MouseButton::Left) &&
-				   CellAt(mx, my, panel, cx, cz)) {
-			// A drag can arrive without a plain press (a modifier let go
-			// mid-hold): it still gets a stroke, so it is still undoable.
-			m_editor->BeginStroke();
-			m_editor->Paint(cx, cz, /*dragging*/ true, m_hoverFace, &m_hoverPlace);
-			painted = true;
-		}
+		const bool consumed = UpdateBrush(input, panel, mx, my, overGrid, painted);
 		if (painted && m_browse) m_browse = m_world->BrowseLevel(m_browse->stem);
+		if (consumed) return true;
 	}
 
 	return panel.Contains(mx, my);
@@ -1514,6 +1506,9 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			batch.DrawRect(tb, {1.0f, 1.0f, 1.0f, 0.045f});
 			batch.DrawRect({tb.x, tb.y + tb.h - 1.0f, tb.w, 1.0f},
 						   theme.panelBorder);
+			// The tool strip's column, its picked-tool ring and any Rectangle
+			// drag in progress; its discs draw with the band's, just below.
+			RenderToolStrip(batch, theme, panel);
 
 			// Icon discs (house style: the disc IS the button, hover/disable
 			// read as brightness — ui::Button's icon path); the level dropdown
@@ -1563,6 +1558,12 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 				gfx::Rect tr{tip->rect.x + tip->rect.w * 0.5f - tw * 0.5f - pad2,
 							 tb.y + tb.h + 2.0f, tw + pad2 * 2,
 							 m_font->Height() + pad2};
+				// A strip disc's tip opens BESIDE it, over the grid: under the
+				// band would put it on the next disc down.
+				if (tip->strip) {
+					tr.x = tip->rect.x + tip->rect.w + dpad * 2;
+					tr.y = tip->rect.y + (tip->rect.h - tr.h) * 0.5f;
+				}
 				tr.x = std::clamp(tr.x, panel.x + 2.0f,
 								  panel.x + panel.w - tr.w - 2.0f);
 				batch.DrawRect(tr, kMapBg);
