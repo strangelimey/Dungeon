@@ -43,7 +43,11 @@ $exe = Join-Path $bin 'Dungeon.exe'
 $log = Join-Path $bin 'dungeon.log'
 
 if (-not (Test-Path $exe)) { throw "no build at $exe - run build.cmd $Config first" }
-if (Get-Process Dungeon -ErrorAction SilentlyContinue) {
+# THIS build's exe only: another worktree's game is a different process with its
+# own log, and everything below addresses the instance this script launched.
+# (ProfileTest keeps the global check on purpose - a second game on the GPU
+# would be part of what it measured.)
+if (Get-Process Dungeon -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe }) {
 	throw 'Dungeon.exe is already running - close it (this test drives its own instance)'
 }
 
