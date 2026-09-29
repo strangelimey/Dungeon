@@ -45,8 +45,8 @@ void DevConsole::CommitPerfSeries() {
 	}
 }
 
-// Header (the section name and the GPU's), then seven gauges (or seven graphs in
-// four two-column rows). A collapsed section is its header row and nothing else.
+// Header (the section name and the GPU's), then six gauges (or six graphs in
+// three two-column rows). A collapsed section is its header row and nothing else.
 // Every section can be reduced to one line, so the panel can be cut down to
 // just the thing being watched rather than scrolled past everything else.
 float DevConsole::PerfSectionHeight(const PanelCtx& p) const {
@@ -86,11 +86,17 @@ void DevConsole::DrawPerfSection(const PanelCtx& p, float top) {
 	const int perfGraphRows = (perfVisible + 1) / 2;
 	float y = top + p.sy;
 
-	auto gauge = [&](float gx, float gw, float gy, float frac, const Vec4& fill) {
+	// A gauge may carry a SUBSET drawn first, from the left, in its own colour:
+	// the rest of the bar is then the part of the whole that is not the subset.
+	auto gauge = [&](float gx, float gw, float gy, float frac, const Vec4& fill,
+					 float subFrac, const Vec4& subFill) {
 		const float gh = line * 0.7f;
 		const float oy = gy + (line - gh) * 0.5f;
+		const float whole = std::clamp(frac, 0.0f, 1.0f);
+		const float sub = std::clamp(subFrac, 0.0f, whole);
 		batch.DrawRect({gx, oy, gw, gh}, kGaugeBg);
-		batch.DrawRect({gx, oy, gw * std::clamp(frac, 0.0f, 1.0f), gh}, fill);
+		batch.DrawRect({gx, oy, gw * whole, gh}, fill);
+		if (sub > 0.0f) batch.DrawRect({gx, oy, gw * sub, gh}, subFill);
 		ui::DrawBorder(batch, {gx, oy, gw, gh}, kBorder);
 	};
 	// The title names the GPU it is measuring beside the section's own name - the
@@ -123,7 +129,7 @@ void DevConsole::DrawPerfSection(const PanelCtx& p, float top) {
 	y += line;
 	if (m_perfExpanded) y += line * 0.4f; // the header gap PerfSectionHeight counts
 
-	// The seven gauges as ONE table, so the bar view and the graph view cannot
+	// The six gauges as ONE table, so the bar view and the graph view cannot
 	// disagree about what a measure is or what it is measured against. Each
 	// carries its own SCALE — a real ceiling in every case, which is why these
 	// graph against a fixed axis while a profile timing autoscales.
@@ -140,6 +146,23 @@ void DevConsole::DrawPerfSection(const PanelCtx& p, float top) {
 		float scale;
 		Vec4 color;
 		bool warn;
+		// An optional SUBSET of the value, stacked inside the same gauge against
+		// the same scale. Its text follows the main text in its own colour, so the
+		// label doubles as the bar's legend.
+		std::string subText = {};
+		float subValue = 0.0f;
+		Vec4 subColor = {};
+		int subSeries = -1;
+	};
+	auto labelWidth = [&](const PerfItem& it) {
+		return m_font->MeasureWidth(it.text) + m_font->MeasureWidth(it.subText);
+	};
+	// A dimmed label (a hidden graph's line) dims its subset text with it.
+	auto drawLabel = [&](const PerfItem& it, float x, float ly, const Vec4& col, bool dim) {
+		m_font->Draw(batch, it.text, x, ly, col);
+		if (!it.subText.empty())
+			m_font->Draw(batch, it.subText, x + m_font->MeasureWidth(it.text), ly,
+						dim ? kDim : it.subColor);
 	};
 	const int refreshHz = device.RefreshHz();
 	const float fpsCeiling = refreshHz > 0 ? static_cast<float>(refreshHz) : 240.0f;
@@ -158,11 +181,17 @@ void DevConsole::DrawPerfSection(const PanelCtx& p, float top) {
 		 m.gpuPercent >= 0.0f ? std::format("GPU  {:.0f}%", m.gpuPercent)
 							  : std::string("GPU  n/a"),
 		 m.gpuPercent >= 0.0f ? m.gpuPercent : 0.0f, 100.0f, kGpuColor, false},
+		// This process's working set rides INSIDE the system RAM bar: it is always
+		// a subset of the memory in use, so stacking it against the same ceiling
+		// shows the game's share directly, and the rest of the bar is everything
+		// else that is running.
 		{"RAM",
 		 std::format("RAM  {:.1f} / {:.1f} GB", m.sysMemUsedMB / 1024.0,
 					 m.sysMemTotalMB / 1024.0),
 		 static_cast<float>(m.sysMemUsedMB), static_cast<float>(sysTotalMB),
-		 {0.85f, 0.70f, 0.40f, 1.0f}, false},
+		 {0.85f, 0.70f, 0.40f, 1.0f}, false,
+		 std::format("  working set {:.2f}", m.procMemMB / 1024.0),
+		 static_cast<float>(m.procMemMB), {0.95f, 0.42f, 0.28f, 1.0f}, kProc},
 		{"VRAM", std::format("VRAM {:.2f} / {:.2f} GB", gpuUsedGB, gpuBudgetGB),
 		 static_cast<float>(vramUsedMB), static_cast<float>(vramBudgetMB),
 		 {0.80f, 0.55f, 0.85f, 1.0f}, false},
@@ -173,14 +202,6 @@ void DevConsole::DrawPerfSection(const PanelCtx& p, float top) {
 		 std::format("SRV  {} / {} (peak {})", device.SrvLive(),
 					 gfx::GraphicsDevice::SrvCapacity(), device.SrvHighWater()),
 		 srvLive, srvCap, {0.60f, 0.75f, 0.90f, 1.0f}, srvLive / srvCap > 0.9f},
-		// This process's share of the machine, against the same installed-RAM
-		// ceiling as the system bar, so the two read directly against each other:
-		// the gap between them is everything else that is running.
-		{"WSET",
-		 std::format("Working set {:.2f} / {:.1f} GB", m.procMemMB / 1024.0,
-					 m.sysMemTotalMB / 1024.0),
-		 static_cast<float>(m.procMemMB), static_cast<float>(sysTotalMB),
-		 {0.90f, 0.55f, 0.35f, 1.0f}, false},
 	};
 
 	// ONE display order for both views, so nothing moves when you toggle between
@@ -189,8 +210,7 @@ void DevConsole::DrawPerfSection(const PanelCtx& p, float top) {
 	// nothing next to each other. Read down the columns it is the two PROCESSORS
 	// side by side and the two MEMORIES side by side, with the frame rate and the
 	// descriptor ceiling — the only two with no natural partner — heading them.
-	// The working set comes last, directly under the system RAM it is a part of.
-	constexpr PerfLine kPerfOrder[kPerfLines] = {kFps, kSrv, kGpu, kCpu, kVram, kRam, kProc};
+	constexpr PerfLine kPerfOrder[kPerfLines] = {kFps, kSrv, kGpu, kCpu, kVram, kRam};
 
 	if (!m_perfExpanded) {
 		// nothing: the header above is the whole section
@@ -202,7 +222,7 @@ void DevConsole::DrawPerfSection(const PanelCtx& p, float top) {
 		// line can get, so it does not twitch as digits come and go.
 		float labelW = m_font->MeasureWidth("SRV  1024 / 1024 (peak 1024)");
 		for (const PerfItem& it : items)
-			labelW = std::max(labelW, m_font->MeasureWidth(it.text));
+			labelW = std::max(labelW, labelWidth(it));
 		const float labelRight = labelX + labelW;
 		// A clear gap either side, in line heights so it tracks the font: enough
 		// that the bars read as their own column rather than running edge to edge.
@@ -211,10 +231,12 @@ void DevConsole::DrawPerfSection(const PanelCtx& p, float top) {
 		for (int oi = 0; oi < kPerfLines; ++oi) {
 			const int i = kPerfOrder[oi];
 			const PerfItem& it = items[i];
-			m_font->Draw(batch, it.text, labelRight - m_font->MeasureWidth(it.text), y,
-						it.warn ? kWarn : (i == kGpu && m.gpuPercent < 0.0f) ? kDim : kText);
-			if (!(i == kGpu && m.gpuPercent < 0.0f))
-				gauge(barX, barW, y, it.value / it.scale, it.color);
+			const bool unavailable = i == kGpu && m.gpuPercent < 0.0f;
+			drawLabel(it, labelRight - labelWidth(it), y,
+					  it.warn ? kWarn : unavailable ? kDim : kText, unavailable);
+			if (!unavailable)
+				gauge(barX, barW, y, it.value / it.scale, it.color, it.subValue / it.scale,
+					  it.subColor);
 			y += p.rowAdvance;
 		}
 	} else {
@@ -230,10 +252,15 @@ void DevConsole::DrawPerfSection(const PanelCtx& p, float top) {
 			const float gy = y + static_cast<float>(gr) * (graphH + graphGapY);
 			if (gy > panelH || gy + graphH < 0.0f) continue; // scrolled out of view
 			const float cw = DrawCheckbox(p, gx, gy, true, i, 0, 0);
-			m_font->Draw(batch, it.text, gx + cw, gy, it.warn ? kWarn : kText);
-			DrawSeriesGraph(batch, {gx, gy + line, pgw, graphH - line},
-							m_perfSeries[i].samples, kProfHistory, m_profHead, it.scale,
-							it.color);
+			drawLabel(it, gx + cw, gy, it.warn ? kWarn : kText, false);
+			const gfx::Rect plot{gx, gy + line, pgw, graphH - line};
+			DrawSeriesGraph(batch, plot, m_perfSeries[i].samples, kProfHistory, m_profHead,
+							it.scale, it.color);
+			// The subset's band over the whole's, on the same scale - since it never
+			// exceeds the whole, the two fills read as a stack.
+			if (it.subSeries >= 0)
+				DrawSeriesGraph(batch, plot, m_perfSeries[it.subSeries].samples, kProfHistory,
+								m_profHead, it.scale, it.subColor, false, true);
 		}
 		y += static_cast<float>(perfGraphRows) * (graphH + graphGapY);
 
@@ -243,7 +270,7 @@ void DevConsole::DrawPerfSection(const PanelCtx& p, float top) {
 			const int i = kPerfOrder[oi];
 			if (!m_perfHidden[i]) continue;
 			const float cw = DrawCheckbox(p, pad * 2.0f, y, false, i, 0, 0);
-			m_font->Draw(batch, items[i].text, pad * 2.0f + cw, y, kDim);
+			drawLabel(items[i], pad * 2.0f + cw, y, kDim, true);
 			y += line;
 		}
 	}
