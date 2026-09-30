@@ -1705,10 +1705,11 @@ tested; the eval harness only REPORTS). What exists now, and the rules it rests 
 
 Michael's notes and answers: docs/ui-updates-notes.md; the plan: -plan.md.
 - THE ITEM MOUSE MAP, everywhere an item appears (sheet backpack / doll / bag
-  row, HUD hand boxes, the party inventory, floor items): LEFT unchanged (pick
-  up / put down / swap; a HUD hand box still swings), RIGHT = the item's
-  DETAILS, MIDDLE = its USE menu (what right-click used to open). A bare hand has
-  no details but keeps its middle-click menu (punch/kick/quick-cast). Off the
+  row, the party inventory, floor items): LEFT unchanged (pick up / put down /
+  swap), RIGHT = the item's DETAILS, MIDDLE = its USE menu (what right-click
+  used to open). EXCEPT THE HUD HAND BOXES (Michael, 2026-09-30, after trying
+  it): they are controls, so RIGHT still opens the use menu where a hand's
+  default is set, as before; middle opens the same menu. Off the
   hand the menu offers only memorize/eat/drink (`IsOffHandUse`); nothing to
   offer = no menu and `log.no_use` ("Brand finds no use for that item.").
   Eating from the pack is new (`GameUI::EatSlot`, allocation-free). An item's

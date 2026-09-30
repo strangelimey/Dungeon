@@ -407,15 +407,13 @@ private:
 	// of a hand is the character sheet's job (its hand cells keep pick/swap
 	// semantics).
 	void OnHandLeftClick(size_t i, size_t hand);
-	// A right-click on member `i`'s hand `hand`: the held item's DETAILS
-	// (nothing for a bare hand). docs/ui-updates-plan.md P2.
+	// A right- or middle-click on member `i`'s HUD hand `hand`: its USE menu (see
+	// OpenHandUseMenu), where the hand's default is set. A left-click on a hand
+	// with NO default yet opens the same menu, so the first click picks what
+	// future clicks will do. (Right = details was tried on the hand boxes and
+	// taken back - they are controls; the item map applies to the sheet.)
 	void OnHandRightClick(size_t i, size_t hand);
-	// A middle-click on the hand: its USE menu (see OpenHandUseMenu). A left-click
-	// on a hand with NO default yet opens the same menu, so the first click picks
-	// what future clicks will do.
 	void OnHandMiddleClick(size_t i, size_t hand);
-	// The doll place a hand index (0 left / 1 right) names.
-	static ItemPlace HandPlace(size_t hand);
 	// The item id at `place` in member `i`'s inventory, or null when the place
 	// is empty or out of range.
 	const std::string* ItemAt(size_t i, ItemPlace place) const;

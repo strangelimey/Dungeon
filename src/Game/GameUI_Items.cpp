@@ -106,14 +106,17 @@ void GameUI::OnHandLeftClick(size_t i, size_t hand) {
 	ExecuteUse(i, hand, cmd);
 }
 
-// RIGHT = details (docs/ui-updates-plan.md P2). A bare hand has nothing to
-// describe, so it does nothing - its menu is the middle button's.
+// RIGHT on a HUD hand box = its use menu, where the hand's default is SET. The
+// item mouse map (right = details) was tried here too and taken back (Michael,
+// 2026-09-30): the hand boxes are controls, and picking what a hand does is
+// what right-click on them is for. The doll's hand cells on the sheet keep the
+// item map.
 void GameUI::OnHandRightClick(size_t i, size_t hand) {
-	if (hand > 1) return;
-	OpenItemDetails(i, HandPlace(hand));
+	if (m_handMenu) OpenHandUseMenu(i, hand, *m_handMenu);
 }
 
-// MIDDLE = the use menu: what the right button used to open.
+// MIDDLE opens the same menu, so the item map's use button works on a hand box
+// as it does everywhere else.
 void GameUI::OnHandMiddleClick(size_t i, size_t hand) {
 	if (m_handMenu) OpenHandUseMenu(i, hand, *m_handMenu);
 }
@@ -155,11 +158,6 @@ bool GameUI::DismissPopup() {
 void GameUI::RenderItemDetails() {
 	if (ItemDetailsOpen())
 		m_itemDetails->Render(m_spriteBatch, m_settings.theme, DeviceW(), DeviceH());
-}
-
-ItemPlace GameUI::HandPlace(size_t hand) {
-	return {ItemPlace::Kind::Doll,
-			static_cast<int>(hand == 0 ? EquipSlot::LeftHand : EquipSlot::RightHand)};
 }
 
 const std::string* GameUI::ItemAt(size_t i, ItemPlace place) const {
