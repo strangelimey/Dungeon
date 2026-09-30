@@ -493,6 +493,13 @@ private:
 	void RenderCategoryBar(gfx::SpriteBatch& batch, const ui::Theme& theme,
 						   const gfx::Rect& panel);
 	int m_hotBar = -2; // the hovered bar button's group (-1 toggle, -2 none)
+	// The palette row under the pointer (TrackMouse, window px), and - when
+	// that row's name had to be trimmed to fit - its full name and the row's
+	// rect as RenderBody drew it (device px), for RenderOverlay's tooltip.
+	// Reset at the top of every RenderBody, so a tip never outlives its row.
+	Selection m_hoverItem{PaletteCat::Count, -1};
+	std::string m_rowTip;
+	gfx::Rect m_rowTipAt{};
 	std::array<const gfx::Texture*, 16> m_icoCats{}; // see SetCategoryIcons
 
 	// Controls-row geometry (all derived from the panel like the dock chrome):

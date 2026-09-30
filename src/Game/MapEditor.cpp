@@ -411,6 +411,19 @@ void MapEditor::TrackMouse(float mx, float my, const gfx::Rect& panel) {
 				: CollapseAllRect(panel).Contains(mx, my) ? HotCtrl::Collapse
 				: CatalogToggleRect(panel).Contains(mx, my) ? HotCtrl::Catalog
 															: HotCtrl::None;
+	// The row under the pointer, for the trimmed-name tooltip. Only laid out
+	// when the pointer is actually over the accordion.
+	m_hoverItem = {PaletteCat::Count, -1};
+	if (m_hotCtrl == HotCtrl::None && AccordionBody(panel).Contains(mx, my)) {
+		std::vector<PaletteRow> rows;
+		float content = 0.0f;
+		BuildPaletteRows(panel, rows, content);
+		for (const PaletteRow& r : rows)
+			if (r.kind == PaletteRow::Kind::Item && r.rect.Contains(mx, my)) {
+				m_hoverItem = {r.cat, r.index};
+				break;
+			}
+	}
 }
 
 void MapEditor::BuildPaletteRows(const gfx::Rect& panel, std::vector<PaletteRow>& out,
@@ -1240,6 +1253,7 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	const float dpad = MapView::DockPad(panel);
 
 	RenderCategoryBar(batch, theme, panel);
+	m_rowTip.clear(); // the row drawing below sets it again if still hovered
 
 	// Controls row (fixed above the scrolled accordion): filter box with
 	// placeholder/caret, [x] clear, [-] collapse-all.
@@ -1370,26 +1384,33 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			ui::DrawSwatch(batch, {rc.x + indent, rc.y + dpad, sw, sw},
 						   items[r.index].Swatch());
 			const float labelX = rc.x + indent + sw + dpad;
-			const int band = items[r.index].band;
+			const int band = std::clamp(items[r.index].band, 0, power::kBands);
 			// The power band: five small pips at the row's end, `band` of them
-			// lit. The name stops short of them (trimmed, with ".."), since the
-			// dock is narrow and monster names are long.
+			// lit in the band's colour (green, feeble, to red, the strongest).
 			const float pip = std::max(3.0f, std::round(rc.h * 0.16f));
 			const float gap = std::max(1.0f, std::round(pip * 0.4f));
 			const float pipsW = band > 0 ? power::kBands * pip + (power::kBands - 1) * gap : 0.0f;
 			const float pipsX = rc.x + rc.w - dpad - pipsW;
+			// Any name that does not fit - before the pips, or before the dock's
+			// edge - is trimmed with ".." and the hovered one says itself in full
+			// in a tooltip (RenderOverlay).
 			const std::string& name = items[r.index].label;
-			const float room = (band > 0 ? pipsX - dpad : rc.x + rc.w) - labelX;
-			if (band > 0 && font.MeasureWidth(name) > room) {
+			const float room = (band > 0 ? pipsX - dpad : rc.x + rc.w - dpad) - labelX;
+			const Vec4& ink = active ? theme.text : theme.textDim;
+			if (font.MeasureWidth(name) > room) {
 				std::string fit = name;
 				while (fit.size() > 1 && font.MeasureWidth(fit + "..") > room) fit.pop_back();
-				font.Draw(batch, fit + "..", labelX, ty, active ? theme.text : theme.textDim);
+				font.Draw(batch, fit + "..", labelX, ty, ink);
+				if (r.cat == m_hoverItem.cat && r.index == m_hoverItem.index) {
+					m_rowTip = name;
+					m_rowTipAt = rc;
+				}
 			} else {
-				font.Draw(batch, name, labelX, ty, active ? theme.text : theme.textDim);
+				font.Draw(batch, name, labelX, ty, ink);
 			}
 			for (int i = 0; band > 0 && i < power::kBands; ++i) {
 				const gfx::Rect p{pipsX + i * (pip + gap), rc.y + (rc.h - pip) * 0.5f, pip, pip};
-				if (i < band) batch.DrawRect(p, theme.accent);
+				if (i < band) batch.DrawRect(p, kPowerBand[band - 1]);
 				else ui::DrawBorder(batch, p, theme.panelBorder);
 			}
 			break;

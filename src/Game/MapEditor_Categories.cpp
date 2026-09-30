@@ -293,6 +293,21 @@ void MapEditor::RenderCategoryBar(gfx::SpriteBatch& batch, const ui::Theme& them
 
 void MapEditor::RenderOverlay(gfx::SpriteBatch& batch, const ui::Theme& theme,
 							  const gfx::Rect& panel) {
+	// A trimmed palette name, in full: beside its row, out over the tool strip
+	// and grid, where it has the room the dock did not.
+	if (!m_rowTip.empty()) {
+		const ui::Font& font = m_view.Font();
+		const float p = MapView::DockPad(panel) * 1.5f;
+		const float tw = font.MeasureWidth(m_rowTip);
+		gfx::Rect tr{m_rowTipAt.x + m_rowTipAt.w + 4.0f,
+					 m_rowTipAt.y + (m_rowTipAt.h - font.Height() - p) * 0.5f, tw + p * 2,
+					 font.Height() + p};
+		tr.x = std::clamp(tr.x, panel.x + 2.0f, panel.x + panel.w - tr.w - 2.0f);
+		batch.DrawRect(tr, kMapBg);
+		ui::DrawBorder(batch, tr, theme.panelBorder);
+		font.Draw(batch, m_rowTip, tr.x + p, tr.y + p * 0.5f, theme.text);
+		return;
+	}
 	if (m_hotCtrl != HotCtrl::Bar || m_hotBar < -1) return;
 	const BarLayout bar = CategoryBar(panel);
 	for (size_t i = 0; i < bar.count; ++i) {
