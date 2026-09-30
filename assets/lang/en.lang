@@ -519,7 +519,7 @@ map.cat.quests=Quests
 ; The palette's category bar (tooltips): a group, then what it holds.
 map.group.world=World: dungeons, quests, terrain
 map.group.build=Build: themes, surfaces, features, doors, stairs
-map.group.populate=Populate: monsters, items, props, fixtures, buttons
+map.group.populate=Populate: monsters, items, weapons, armor
 map.group.surfaces=Surfaces: themes, walls, floors, ceilings, features
 map.group.structure=Structure: doors, stairs
 map.group.furnishings=Furnishings: decorations, fixtures, buttons

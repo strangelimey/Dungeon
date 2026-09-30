@@ -510,8 +510,8 @@ print("12 - the category bar shows one group, both ways, and the filter sees pas
 STAGE = {"world": ["dungeons", "quests", "terrain"],
          "build": ["themes", "walls", "floors", "ceilings", "wallfeatures",
                    "surfacefeatures", "doors", "stairs"],
-         "populate": ["monsters", "items", "weapons", "armor", "decorations",
-                      "fixtures", "buttons"]}
+         "furnishings": ["decorations", "fixtures", "buttons"],
+         "populate": ["monsters", "items", "weapons", "armor"]}
 KIND = {"surfaces": ["themes", "walls", "floors", "ceilings", "wallfeatures",
                      "surfacefeatures"],
         "structure": ["doors", "stairs"],
@@ -544,7 +544,7 @@ try:
         m = re.match(r"editor palette group (\w+) (\w+):(.*)", line)
         if m:
             tables.setdefault(m.group(1), {})[m.group(2)] = m.group(3).split()
-    check(tables.get("stage") == STAGE, "the stage groups are World / Build / Populate as designed",
+    check(tables.get("stage") == STAGE, "the stage groups are World / Build / Furnishings / Populate as designed",
           str(tables.get("stage")))
     check(tables.get("kind") == KIND, "the kind groups are as designed", str(tables.get("kind")))
     for mode, groups in (("stage", STAGE), ("kind", KIND)):

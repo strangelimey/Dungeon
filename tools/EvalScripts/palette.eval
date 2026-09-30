@@ -20,6 +20,7 @@ echo --- stage ---
 editor palette mode stage
 editor palette group world
 editor palette group build
+editor palette group furnishings
 editor palette group populate
 echo --- kind ---
 editor palette mode kind

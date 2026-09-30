@@ -44,11 +44,15 @@ constexpr PC kWorld[] = {PC::Dungeons, PC::Quests, PC::Terrain};
 constexpr PC kBuild[] = {PC::Themes,       PC::Walls,           PC::Floors,
 						 PC::Ceilings,     PC::WallFeatures,    PC::SurfaceFeatures,
 						 PC::Doors,        PC::Stairs};
-constexpr PC kPopulate[] = {PC::Monsters,    PC::Items,    PC::Weapons, PC::Armor,
-							PC::Decorations, PC::Fixtures, PC::Buttons};
+// What dresses a built room - props, the lights on its walls, the levers
+// (Michael, 2026-09-30: their own group in BOTH groupings). As a stage it sits
+// between the shape and what lives in it: build, furnish, populate.
+constexpr PC kFurnishings[] = {PC::Decorations, PC::Fixtures, PC::Buttons};
+constexpr PC kPopulate[] = {PC::Monsters, PC::Items, PC::Weapons, PC::Armor};
 constexpr GroupDef kStageGroups[] = {
 	{"world", kWorld, std::size(kWorld)},
 	{"build", kBuild, std::size(kBuild)},
+	{"furnishings", kFurnishings, std::size(kFurnishings)},
 	{"populate", kPopulate, std::size(kPopulate)},
 };
 
@@ -56,9 +60,6 @@ constexpr GroupDef kStageGroups[] = {
 constexpr PC kSurfaces[] = {PC::Themes,   PC::Walls,        PC::Floors,
 							PC::Ceilings, PC::WallFeatures, PC::SurfaceFeatures};
 constexpr PC kStructure[] = {PC::Doors, PC::Stairs};
-// What dresses a built room - props, the lights on its walls, the levers
-// (Michael, 2026-09-30: split out of Structure into their own group).
-constexpr PC kFurnishings[] = {PC::Decorations, PC::Fixtures, PC::Buttons};
 constexpr PC kCreatures[] = {PC::Monsters};
 constexpr PC kItemKinds[] = {PC::Items, PC::Weapons, PC::Armor};
 constexpr GroupDef kKindGroups[] = {
@@ -101,7 +102,7 @@ std::span<const GroupDef> Groups(Grouping g) {
 // The icon files, in one order both sides agree on: every stage group, every
 // kind group, then the toggle's two faces (it shows the grouping in use).
 constexpr const char* kIconNames[] = {
-	"cat_world",	 "cat_build", "cat_populate", // stage
+	"cat_world",	 "cat_build", "cat_furnishings", "cat_populate", // stage
 	"cat_surfaces", "cat_structure", "cat_furnishings", "cat_creatures",
 	"cat_items",	 "cat_world", // kind (World is the same group, same art)
 	"cat_bystage",	 "cat_bykind", // the toggle

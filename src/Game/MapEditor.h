@@ -93,7 +93,7 @@ public:
 	// GROUP and the accordion below lists only that group's sections. Two ways of
 	// grouping the same sections, flipped by the bar's first button (Michael:
 	// "both, with a toggle to switch back and forth"):
-	//   Stage - the workflow's order: World / Build / Populate.
+	//   Stage - the workflow's order: World / Build / Furnishings / Populate.
 	//   Kind  - what a thing is: Surfaces, Structure, Furnishings, Creatures,
 	//           Items, World.
 	// Both are one table each (kStageGroups / kKindGroups), so regrouping is a

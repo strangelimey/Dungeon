@@ -56,12 +56,13 @@ first.
   then one button per group, wrapping to a second row when the dock is
   narrow (the bar reserves the larger grouping's rows, so flipping never
   moves the filter under the pointer).
-  - BY STAGE: World / Build / Populate.
+  - BY STAGE: World / Build / Furnishings / Populate (Furnishings split out
+    of Populate after Michael tried it).
     - World: Styles (Phase 5), Dungeons, Quests & flags, Terrain
     - Build: Themes, Walls, Floors, Ceilings, Wall features, Surface
       features, Doors, Stairs
-    - Populate: Monsters, Items, Weapons, Armor, Decorations, Fixtures,
-      Buttons
+    - Furnishings: Decorations, Fixtures, Buttons
+    - Populate: Monsters, Items, Weapons, Armor
   - BY KIND: one row of kinds, all visible at once - Surfaces (themes +
     walls/floors/ceilings + features), Structure (doors, stairs),
     Furnishings (decorations, fixtures, buttons - Michael split them out of

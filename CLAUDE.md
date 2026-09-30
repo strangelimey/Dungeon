@@ -1755,7 +1755,7 @@ Judged by `tools\EditorTest.py` (phase 12 onward).
 - THE PALETTE'S CATEGORY BAR (MapEditor_Categories.cpp): icon buttons at the
   top of the palette body pick a GROUP; the accordion lists only its sections.
   Two groupings, flipped by the bar's first button: by STAGE (World / Build /
-  Populate) and by KIND (Surfaces / Structure / Furnishings / Creatures / Items /
+  Furnishings / Populate) and by KIND (Surfaces / Structure / Furnishings / Creatures / Items /
   World). Each is ONE table (kStageGroups / kKindGroups) with static_asserts
   that every listed category is in exactly one group - a category missing from
   a grouping is unreachable except by the filter. The FILTER ignores the bar
