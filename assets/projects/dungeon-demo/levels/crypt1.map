@@ -1,21 +1,207 @@
-; crypt1 - the starter dungeon (docs/world-map.md).
-; Small by design: one ring corridor, one chamber, a way out at the
-; entrance and a stair down at the north-west corner.
-;
+; crypt1 — written by the in-game editor.
+
 palette wall wall_temple_ancient wall_marble wall_brick_old wall_cobble_mossy
 palette floor floor_temple floor_ancient_stone floor_slabs floor_cobble_mossy
 palette ceiling ceiling_rock_layered ceiling_stone ceiling_cracked ceiling_rock_porous
-stairfacing arrive
-stairs stairs_exit 7 7 north dest=crypt_gate destx=0 destz=0
-stairs stairs_down 1 1 south dest=crypt2 destx=1 destz=1
 atmosphere dust=0.06 haze=0.7 ambient=1.4
 ;
 ##############
-#....T.......#
+#............#
 #.##########.#
-#.#.T......#.#
-#.#......F.#.#
+#.#........#.#
+#.#........#.#
 #.#........#.#
 #.#####.####.#
 #......P.....#
 ##############
+;
+fixture sconce 5 1 north
+fixture sconce 4 3 north
+fixture brazier 9 4
+stairfacing arrive
+stairs stairs_exit 7 7 north dest=crypt_gate destx=0 destz=0
+stairs stairs_down 1 1 south dest=crypt2 destx=1 destz=1
+variant wall 0 0 3
+variant wall 1 0 3
+variant wall 2 0 3
+variant wall 3 0 3
+variant wall 4 0 3
+variant wall 5 0 3
+variant wall 6 0 3
+variant wall 7 0 3
+variant wall 8 0 3
+variant wall 9 0 3
+variant wall 10 0 3
+variant wall 11 0 3
+variant wall 12 0 3
+variant wall 13 0 3
+variant wall 0 1 3
+variant floor 1 1 3
+variant ceiling 1 1 0
+variant floor 2 1 3
+variant ceiling 2 1 0
+variant floor 3 1 3
+variant ceiling 3 1 0
+variant floor 4 1 3
+variant ceiling 4 1 0
+variant floor 5 1 3
+variant ceiling 5 1 0
+variant floor 6 1 3
+variant ceiling 6 1 0
+variant floor 7 1 3
+variant ceiling 7 1 0
+variant floor 8 1 3
+variant ceiling 8 1 0
+variant floor 9 1 3
+variant ceiling 9 1 0
+variant floor 10 1 3
+variant ceiling 10 1 0
+variant floor 11 1 3
+variant ceiling 11 1 0
+variant floor 12 1 3
+variant ceiling 12 1 0
+variant wall 13 1 3
+variant wall 0 2 3
+variant floor 1 2 3
+variant ceiling 1 2 0
+variant wall 2 2 1
+variant wall 3 2 1
+variant wall 4 2 1
+variant wall 5 2 1
+variant wall 6 2 1
+variant wall 7 2 1
+variant wall 8 2 1
+variant wall 9 2 1
+variant wall 10 2 1
+variant wall 11 2 1
+variant floor 12 2 3
+variant ceiling 12 2 0
+variant wall 13 2 3
+variant wall 0 3 3
+variant floor 1 3 3
+variant ceiling 1 3 0
+variant wall 2 3 1
+variant floor 3 3 2
+variant ceiling 3 3 1
+variant floor 4 3 2
+variant ceiling 4 3 1
+variant floor 5 3 2
+variant ceiling 5 3 1
+variant floor 6 3 2
+variant ceiling 6 3 1
+variant floor 7 3 2
+variant ceiling 7 3 1
+variant floor 8 3 2
+variant ceiling 8 3 1
+variant floor 9 3 2
+variant ceiling 9 3 1
+variant floor 10 3 2
+variant ceiling 10 3 1
+variant wall 11 3 1
+variant floor 12 3 3
+variant ceiling 12 3 0
+variant wall 13 3 3
+variant wall 0 4 3
+variant floor 1 4 3
+variant ceiling 1 4 0
+variant wall 2 4 1
+variant floor 3 4 2
+variant ceiling 3 4 1
+variant floor 4 4 2
+variant ceiling 4 4 1
+variant floor 5 4 2
+variant ceiling 5 4 1
+variant floor 6 4 2
+variant ceiling 6 4 1
+variant floor 7 4 2
+variant ceiling 7 4 1
+variant floor 8 4 2
+variant ceiling 8 4 1
+variant floor 9 4 2
+variant ceiling 9 4 1
+variant floor 10 4 2
+variant ceiling 10 4 1
+variant floor 12 4 3
+variant ceiling 12 4 0
+variant wall 13 4 3
+variant wall 0 5 3
+variant floor 1 5 3
+variant ceiling 1 5 0
+variant wall 2 5 1
+variant floor 3 5 2
+variant ceiling 3 5 1
+variant floor 4 5 2
+variant ceiling 4 5 1
+variant floor 5 5 2
+variant ceiling 5 5 1
+variant floor 6 5 2
+variant ceiling 6 5 1
+variant floor 7 5 2
+variant ceiling 7 5 1
+variant floor 8 5 2
+variant ceiling 8 5 1
+variant floor 9 5 2
+variant ceiling 9 5 1
+variant floor 10 5 2
+variant ceiling 10 5 1
+variant wall 11 5 1
+variant floor 12 5 3
+variant ceiling 12 5 0
+variant wall 13 5 3
+variant wall 0 6 3
+variant floor 1 6 3
+variant ceiling 1 6 0
+variant wall 2 6 1
+variant wall 3 6 1
+variant wall 4 6 1
+variant wall 5 6 1
+variant wall 6 6 1
+variant floor 7 6 2
+variant ceiling 7 6 1
+variant wall 8 6 1
+variant wall 9 6 1
+variant wall 10 6 1
+variant wall 11 6 1
+variant floor 12 6 3
+variant ceiling 12 6 0
+variant wall 13 6 3
+variant wall 0 7 3
+variant floor 1 7 3
+variant ceiling 1 7 0
+variant floor 2 7 3
+variant ceiling 2 7 0
+variant floor 3 7 3
+variant ceiling 3 7 0
+variant floor 4 7 3
+variant ceiling 4 7 0
+variant floor 5 7 3
+variant ceiling 5 7 0
+variant floor 6 7 3
+variant ceiling 6 7 0
+variant floor 7 7 3
+variant ceiling 7 7 0
+variant floor 8 7 3
+variant ceiling 8 7 0
+variant floor 9 7 3
+variant ceiling 9 7 0
+variant floor 10 7 3
+variant ceiling 10 7 0
+variant floor 11 7 3
+variant ceiling 11 7 0
+variant floor 12 7 3
+variant ceiling 12 7 0
+variant wall 13 7 3
+variant wall 0 8 3
+variant wall 1 8 3
+variant wall 2 8 3
+variant wall 3 8 3
+variant wall 4 8 3
+variant wall 5 8 3
+variant wall 6 8 3
+variant wall 7 8 3
+variant wall 8 8 3
+variant wall 9 8 3
+variant wall 10 8 3
+variant wall 11 8 3
+variant wall 12 8 3
+variant wall 13 8 3

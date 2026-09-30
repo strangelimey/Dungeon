@@ -1,5 +1,4 @@
-; crypt1 - dynamic layer.
-;
-; One skeleton in the chamber, so the starter dungeon has something in it.
-monster skeleton 7 4 south
+; crypt1 — written by the in-game editor (dynamic layer).
+
+monster skeleton 10 4 south
 item crypt_token 7 4 south
