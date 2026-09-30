@@ -43,6 +43,7 @@
 #include "Game/SlotGrid.h"
 #include "Game/SoundBank.h"
 #include "Game/Threat.h"
+#include "Game/Power.h"
 #include "Graphics/Camera.h"
 #include "Graphics/D3DUtil.h"
 #include "Graphics/ModelPreview.h" // gfx::PreviewSubmesh (editor instance previews)
@@ -516,6 +517,19 @@ public:
 	// effects), but from the catalog entry alone, so scoring a pool loads no
 	// models.
 	threat::Profile ThreatProfile(const CatalogEntry& monster) const;
+	// A monster kind's POWER (Game/Power.h; DungeonWorld_Census.cpp): its
+	// derived threat, or the entry's authored `power` override. Everything
+	// that ranks monsters asks here - the generator's pools, the palette's
+	// band pips, the overview - so an override moves all of them at once.
+	// Cached per edit revision (a type save calls NoteEdit); a Balance change
+	// moves threat without an edit, so its apply calls InvalidatePowers.
+	double MonsterPower(const CatalogEntry& monster) const;
+	double DerivedPower(const CatalogEntry& monster) const;
+	// 1..power::kBands for a kind of THIS project (0 = no such kind): which
+	// fifth of the project's range of monster powers it falls in.
+	int MonsterBand(const std::string& id) const;
+	power::Range MonsterPowerRange() const;
+	void InvalidatePowers() const { m_powers.valid = false; }
 
 	// Armor (docs/damage-system.md): the class governing a member (the
 	// HEAVIEST piece worn) and what it costs them on the defense roll.
@@ -3586,6 +3600,20 @@ private:
 	std::vector<EditorSnapshot> m_redoStack;
 	std::optional<EditorSnapshot> m_pendingUndo; // BeginUndoStep .. CommitUndoStep
 	u64 m_editRevision = 0;                      // see EditRevision
+	// The monster powers, derived and resolved per kind of the project, and
+	// their range (see MonsterPower). Rebuilt whole when the edit revision
+	// moves or InvalidatePowers is called - the palette reads it every frame.
+	struct PowerCache {
+		struct Kind {
+			double derived = 0.0, resolved = 0.0;
+		};
+		std::unordered_map<std::string, Kind> kinds;
+		power::Range range;
+		u64 revision = 0;
+		bool valid = false;
+	};
+	mutable PowerCache m_powers;
+	const PowerCache& Powers() const;
 	bool m_geometryDirty = false; // a restore skipped the rebake (FlushGeometry)
 	// A restore also changed a level's surface PALETTE, so FlushGeometry must
 	// reload the texture sets + worn meshes, not just re-stamp the chunks.

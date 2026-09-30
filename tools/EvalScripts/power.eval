@@ -1,0 +1,35 @@
+; power.eval - a monster kind's POWER (tool-refinement Phase 2), read by
+; tools\EditorTest.py phase 13. Power is the derived threat unless the catalog
+; overrides it; the palette's band pips and the generator's ranking both go by
+; it, so one override must move them all.
+;
+;   --- before ---   every kind's power (= its threat) and band, the table and
+;                    the palette's rows
+;   --- control ---  a low-difficulty level BEFORE the override: the swarm is
+;                    among the weakest, so it turns up
+;   --- after ---    skel_swarm overridden to 40: the table, the bands re-cut
+;                    against the new top, the palette's rows
+;   --- picks ---    the same level again (no swarm: it now ranks top) and with
+;                    a boss (exactly one swarm: the boss is the strongest)
+;   --- cleared ---  the override removed: derived again
+;
+; Every generate knob is given on every line (unset ones would fall back to the
+; dialog's remembered knobs).
+
+logecho on
+reset
+echo --- before ---
+threat
+editor palette items monsters
+echo --- control ---
+generate crypt width:40 height:40 path:6 branches:2 branchmin:1 branchmax:2 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.05 density:0.8 ramp:0 boss:0 reward:0.5 seed:51 locks:0
+typeset monsters skel_swarm power 40
+echo --- after ---
+threat
+editor palette items monsters
+echo --- picks ---
+generate crypt width:40 height:40 path:6 branches:2 branchmin:1 branchmax:2 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.05 density:0.8 ramp:0 boss:0 reward:0.5 seed:51 locks:0
+generate crypt width:40 height:40 path:6 branches:2 branchmin:1 branchmax:2 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.05 density:0.8 ramp:0 boss:1 reward:0.5 seed:51 locks:0
+typeset monsters skel_swarm power
+echo --- cleared ---
+threat

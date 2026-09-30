@@ -539,7 +539,8 @@ void Game::RegisterDevCommands() {
 	// monsters.
 	m_console.Register(
 		"threat",
-		"monster kinds ranked by derived threat: threat [tag ...] (a tag's pool)",
+		"monster kinds ranked by power (derived threat, or the authored override): "
+		"threat [tag ...] (a tag's pool)",
 		[this](const std::vector<std::string>& args) {
 			generate::Params p;
 			FillPools(p, args);
@@ -549,15 +550,22 @@ void Game::RegisterDevCommands() {
 				return p.monsterThreat[a] < p.monsterThreat[b];
 			});
 			for (const size_t i : order) {
-				const threat::Parts t = ThreatOf(*m_project.monsters.Find(p.monsterIds[i]));
+				const CatalogEntry& e = *m_project.monsters.Find(p.monsterIds[i]);
+				const threat::Parts t = ThreatOf(e);
 				// melee= and shot= are per second BEFORE the ranged edge; offence=
 				// is the better of the two with the edge applied, so a shot's
-				// weight in the ranking reads straight off the line.
+				// weight in the ranking reads straight off the line. power= is
+				// what the pool RANKS by (the threat, or the authored override,
+				// marked); band= the palette's pips. Both go at the END: the
+				// harnesses match the line's head (LevelBuildTest reads
+				// "threat <id> <n> offence=...").
+				const bool authored = e.GetFloat("power", 0.0f) > 0.0f;
 				m_console.Print(std::format(
 					"threat {} {:.2f} offence={:.2f} melee={:.2f} shot={:.2f} "
-					"toughness={:.1f} hit={:.2f} behit={:.2f}",
+					"toughness={:.1f} hit={:.2f} behit={:.2f} power={:.2f}{} band={}",
 					p.monsterIds[i], t.threat, t.offence, t.melee, t.shot, t.toughness,
-					t.hit, t.beHit));
+					t.hit, t.beHit, p.monsterThreat[i], authored ? "(set)" : "",
+					m_world->MonsterBand(e.id)));
 			}
 			m_console.Print(std::format("threat: {} kind(s){}", order.size(),
 										args.empty() ? "" : " in that tag's pool"));
@@ -1187,7 +1195,8 @@ bool Game::SaveFontCatalog() {
 // progress screen, when the player first starts a game.
 // ============================================================================
 
-// `editor palette [mode stage|kind | group <name> | filter [text] | groups]`.
+// `editor palette [mode stage|kind | group <name> | filter [text] | groups |
+// items <catalog>]`.
 // Every change goes through the same MapEditor calls the bar and the filter box
 // make, then the line says what the accordion lists: the grouping, the picked
 // group, the filter, and each section showing with how many of its rows show.
@@ -1203,6 +1212,18 @@ void Game::PrintPalette(const std::vector<std::string>& args) {
 					line += std::format(" {}", MapEditor::CategoryCatalogKey(c));
 				m_console.Print(line);
 			}
+		return;
+	}
+	// One section's rows as the accordion resolves them - the power band a
+	// monster row's pips draw included.
+	if (args.size() >= 3 && args[1] == "items") {
+		const MapEditor::PaletteCat cat = MapEditor::CatForCatalogKey(args[2]);
+		if (cat == MapEditor::PaletteCat::Count) {
+			m_console.Print(std::format("editor palette: no section '{}'", args[2]));
+			return;
+		}
+		for (const MapEditor::PaletteItem& it : m_mapEditor.Items(cat))
+			m_console.Print(std::format("editor palette item {} {} band={}", args[2], it.id, it.band));
 		return;
 	}
 	if (args.size() >= 3 && args[1] == "mode") {

@@ -34,6 +34,7 @@
 #include "UI/UIContext.h"
 
 #include <functional>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -96,6 +97,13 @@ public:
 		ui::Swatch swatch;
 	};
 	std::function<RefFace(const FieldSpec&, const std::string& id)> faceFor;
+	// An optional Float whose absence means DERIVED (a monster's `power`): the
+	// owner answers with the value the game works out instead, and the row says
+	// so - "Power (derived 12.7)" - both while unset and beside the slider once
+	// an override is set. Switching the override on STARTS it at that value, so
+	// an override begins as a nudge rather than a jump from the slider's floor.
+	// No answer = the field is not a derived one (the plain optional row).
+	std::function<std::optional<float>(const FieldSpec&)> derivedFor;
 	// A POOL asset field (TextureSet / Model) is picked in the asset picker, not
 	// a dropdown — there are hundreds and a name tells you nothing. The owner
 	// opens it (textures vs models, on `current`) and calls `apply` with the

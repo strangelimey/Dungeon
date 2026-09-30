@@ -171,7 +171,13 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 	}
 	case PaletteCat::Decorations: return catalogItems(proj.decorations, kDecoration);
 	case PaletteCat::Fixtures:    return catalogItems(proj.fixtures, kTorch);
-	case PaletteCat::Monsters:    return catalogItems(proj.monsters, kMonster);
+	case PaletteCat::Monsters: {
+		// Each wears its power band, so a strong kind reads as strong before
+		// it is placed (the world caches the powers per edit revision).
+		std::vector<PaletteItem> items = catalogItems(proj.monsters, kMonster);
+		for (PaletteItem& it : items) it.band = m_world->MonsterBand(it.id);
+		return items;
+	}
 	case PaletteCat::Buttons:     return catalogItems(proj.buttons, kButton);
 	case PaletteCat::Doors:       return catalogItems(proj.doors, kDoor);
 	case PaletteCat::Stairs:      return catalogItems(proj.stairs, kStair);
@@ -1363,8 +1369,29 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			const float sw = rc.h - dpad * 2;
 			ui::DrawSwatch(batch, {rc.x + indent, rc.y + dpad, sw, sw},
 						   items[r.index].Swatch());
-			font.Draw(batch, items[r.index].label, rc.x + indent + sw + dpad, ty,
-					  active ? theme.text : theme.textDim);
+			const float labelX = rc.x + indent + sw + dpad;
+			const int band = items[r.index].band;
+			// The power band: five small pips at the row's end, `band` of them
+			// lit. The name stops short of them (trimmed, with ".."), since the
+			// dock is narrow and monster names are long.
+			const float pip = std::max(3.0f, std::round(rc.h * 0.16f));
+			const float gap = std::max(1.0f, std::round(pip * 0.4f));
+			const float pipsW = band > 0 ? power::kBands * pip + (power::kBands - 1) * gap : 0.0f;
+			const float pipsX = rc.x + rc.w - dpad - pipsW;
+			const std::string& name = items[r.index].label;
+			const float room = (band > 0 ? pipsX - dpad : rc.x + rc.w) - labelX;
+			if (band > 0 && font.MeasureWidth(name) > room) {
+				std::string fit = name;
+				while (fit.size() > 1 && font.MeasureWidth(fit + "..") > room) fit.pop_back();
+				font.Draw(batch, fit + "..", labelX, ty, active ? theme.text : theme.textDim);
+			} else {
+				font.Draw(batch, name, labelX, ty, active ? theme.text : theme.textDim);
+			}
+			for (int i = 0; band > 0 && i < power::kBands; ++i) {
+				const gfx::Rect p{pipsX + i * (pip + gap), rc.y + (rc.h - pip) * 0.5f, pip, pip};
+				if (i < band) batch.DrawRect(p, theme.accent);
+				else ui::DrawBorder(batch, p, theme.panelBorder);
+			}
 			break;
 		}
 		}

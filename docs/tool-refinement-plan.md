@@ -92,7 +92,10 @@ Small, and the overview (Phase 3) and styles (Phase 5) both read it.
 
 - `power` = the derived `threat::Of` value, shown as a readable number and a
   BAND (1-5, cut from the project's own monster spread so the bands mean
-  something in every world).
+  something in every world). BUILT as: Game/Power.h (pure, in RollTest) -
+  Resolve (override > 0 wins) and Band (which fifth of the range, linear, not
+  by rank, so a runaway strongest kind stands alone); DungeonWorld_Census.cpp
+  caches every kind's power per edit revision (the palette asks every frame).
 - An authored `power = <n>` on a monsters.cat entry OVERRIDES the derived
   value (Michael: "derived, overridable"). One function answers "how strong
   is this monster" (`Game::PowerOf`), and the generator's ranking goes

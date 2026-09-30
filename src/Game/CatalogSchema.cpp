@@ -273,6 +273,13 @@ constexpr FieldSpec kMonsterFields[] = {
 	 .help = "Seconds between its attacks.", .lo = 0.2f, .hi = 5.0f, .step = 0.1f, .def = "1.5"},
 	{.key = "movecd", .kind = FieldKind::Float, .sectionKey = kSectionStats,
 	 .help = "Seconds between its steps.", .lo = 0.1f, .hi = 3.0f, .step = 0.05f, .def = "0.5"},
+	// No default: absent means DERIVED (Game/Power.h), which the row says - the
+	// dialog shows the derived number beside it (TypeEditorDialog::derivedFor).
+	{.key = "power", .kind = FieldKind::Float, .sectionKey = kSectionStats,
+	 .help = "How strong it is, as the generator ranks it and the palette's pips "
+			 "show it. Left unset it is DERIVED from the stats above; set it only "
+			 "when the formula misjudges this kind.",
+	 .lo = 0.5f, .hi = 50.0f, .step = 0.5f},
 	{.key = "aggro", .kind = FieldKind::Float, .sectionKey = kSectionRules,
 	 .help = "How many squares away it notices the party.",
 	 .lo = 0.0f, .hi = 20.0f, .step = 1.0f, .def = "6"},

@@ -208,10 +208,11 @@ void Game::FillPools(generate::Params& params,
 void Game::FillPools(generate::Params& params, const std::vector<std::string>& tags,
 					 const Project& project) {
 	params.monsterIds = PoolFor(project.monsters, tags);
-	// Each one's threat, from its stats (Game/Threat.h): what difficulty ranks.
+	// Each one's POWER - its derived threat unless the catalog overrides it
+	// (Game/Power.h): what difficulty ranks, so an override changes the pick.
 	params.monsterThreat.clear();
 	for (const std::string& id : params.monsterIds)
-		params.monsterThreat.push_back(ThreatOf(*project.monsters.Find(id)).threat);
+		params.monsterThreat.push_back(PowerOf(*project.monsters.Find(id)));
 	params.lootIds = PoolFor(project.items, tags);
 	// Keys are the one pool that is NOT tagged: a lock needs a key that exists,
 	// and which key it is matters far less than that the pair is coherent. An
@@ -230,6 +231,11 @@ void Game::FillPools(generate::Params& params, const std::vector<std::string>& t
 threat::Parts Game::ThreatOf(const CatalogEntry& monster) const {
 	return threat::Of(monster, m_world ? m_world->ThreatProfile(monster)
 									   : threat::FromCatalog(monster));
+}
+
+double Game::PowerOf(const CatalogEntry& monster) const {
+	if (m_world) return m_world->MonsterPower(monster);
+	return power::Resolve(ThreatOf(monster).threat, monster.GetFloat("power", 0.0f));
 }
 
 std::vector<std::pair<int, int>>

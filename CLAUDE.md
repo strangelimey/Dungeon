@@ -1764,6 +1764,18 @@ Judged by `tools\EditorTest.py` (phase 12 onward).
   BuildToolIcons.py. The world sections (Dungeons / Quests / Terrain) now list
   their entries; they used to fall through `CategoryItems` to nothing. Dev:
   `editor palette [mode stage|kind | group <name> | filter [text] | groups]`.
+- MONSTER POWER (Game/Power.h, pure; DungeonWorld_Census.cpp): a kind's power
+  is its derived threat (Game/Threat.h) unless monsters.cat carries `power =
+  <n>` (> 0). EVERYTHING that ranks monsters asks `DungeonWorld::MonsterPower`
+  - the generator's pools (Game::FillPools -> PowerOf), the palette's band
+  pips, the `threat` readout - so one override moves them all. The BAND is
+  which fifth of the project's power range a kind falls in (linear, not rank).
+  The world caches all kinds per EditRevision; a Balance change moves threat
+  with no edit, so the Balance dialog's apply calls InvalidatePowers. The type
+  editor shows "Power (derived 3.9)" through its `derivedFor` hook, and
+  switching the override on starts it AT the derived value. `threat` lines
+  gained `power=` (marked `(set)`) and `band=` at their END - LevelBuildTest
+  matches the line's head. Dev: `editor palette items <catalog>`.
 - EFFECTS LEFT THE PALETTE for the Balance dialog's Effects tab (a list whose
   rows open the type editor OVER the Balance dialog - which is why the type
   editor's input check now comes before the Balance dialog's in Game::Update,

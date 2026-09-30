@@ -227,8 +227,14 @@ public:
 		std::string group;
 		const gfx::Texture* icon = nullptr;
 		bool onTags = true;
+		// A monster's power BAND (Game/Power.h), drawn as pips at the row's end:
+		// 1..5 filled of five. 0 = no pips (everything that is not a monster).
+		int band = 0;
 		ui::Swatch Swatch() const { return {icon, swatch}; }
 	};
+	// A section's rows exactly as the accordion resolves them (label, id,
+	// band...), for the harness - `editor palette items <catalog>`.
+	std::vector<PaletteItem> Items(PaletteCat cat) const { return CategoryItems(cat); }
 	// One surface type (a Walls/Floors/Ceilings category) as the palette shows
 	// it: display name, group, the loaded albedo and the flat fallback colour.
 	// Public so a dialog listing surface types (a theme's members) shows

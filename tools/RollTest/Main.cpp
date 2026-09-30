@@ -41,6 +41,7 @@
 #include "Game/DamageLedger.h"
 #include "Game/Defense.h"
 #include "Game/Mishap.h"
+#include "Game/Power.h"
 #include "Game/Resource.h"
 #include "Game/Roll.h"
 
@@ -1969,6 +1970,38 @@ int main(int argc, char** argv) {
 			Check("...and claims to have checked nothing",
 				  static_cast<double>(led.GetStats().valuesChecked), 0.0, 0.0);
 		}
+	}
+
+	// --- monster power: the override and the bands -------------------------------
+	// Game/Power.h (tool-refinement Phase 2). What the generator ranks by and the
+	// palette's pips show, so its two rules are stated one at a time: an authored
+	// power replaces the derived one and a non-positive one does not, and a band
+	// is the fifth of the range a power falls in, with the edges where the header
+	// says. EditorTest phase 13 checks the same numbers reach the game.
+	{
+		using namespace dungeon::game::power;
+		std::printf("\nMonster power (Game/Power.h)\n");
+		Check("unset, the power is the derived one", Resolve(7.5, 0.0), 7.5, 0.0);
+		Check("an authored power replaces it", Resolve(7.5, 20.0), 20.0, 0.0);
+		Check("...downward too", Resolve(7.5, 2.0), 2.0, 0.0);
+		Check("a negative override is not an override", Resolve(7.5, -3.0), 7.5, 0.0);
+		Check("a negative derived value reads as 0", Resolve(-1.0, 0.0), 0.0, 0.0);
+
+		Range r;
+		for (const double p : {0.0, 4.0, 10.0}) r.Add(p);
+		Check("the range spans the lowest to the highest", r.hi - r.lo, 10.0, 0.0);
+		Check("the bottom of the range is band 1", Band(0.0, r), 1, 0);
+		Check("just under a fifth is still band 1", Band(1.99, r), 1, 0);
+		Check("a fifth up is band 2", Band(2.0, r), 2, 0);
+		Check("the middle is band 3", Band(5.0, r), 3, 0);
+		Check("just under the top is band 5", Band(9.99, r), 5, 0);
+		Check("the top itself is band 5, not a sixth", Band(10.0, r), 5, 0);
+		Check("above the range clamps to 5", Band(40.0, r), 5, 0);
+		Check("below the range clamps to 1", Band(-2.0, r), 1, 0);
+		Range one;
+		one.Add(6.0);
+		Check("one kind alone is the middle band", Band(6.0, one), 3, 0);
+		Check("no kinds at all: the middle band", Band(6.0, Range{}), 3, 0);
 	}
 
 	// --- verdict ------------------------------------------------------------

@@ -441,6 +441,16 @@ void Game::WireModuleCallbacks() {
 		const MapEditor::PaletteItem item = m_mapEditor.SurfaceItem(cat, id);
 		return {item.label, item.Swatch()};
 	};
+	// A monster's `power` is derived unless overridden: the row shows what the
+	// stats come to (the SAVED stats - an unsaved change to them shows after
+	// Save). Only that field; every other optional Float keeps its own wording.
+	m_typeDialog.derivedFor = [this](const FieldSpec& f) -> std::optional<float> {
+		if (m_typeDialog.CatalogKey() != "monsters" || std::string_view(f.key) != "power")
+			return std::nullopt;
+		const CatalogEntry* e = m_project.monsters.Find(m_typeDialog.Id());
+		if (!e) return std::nullopt;
+		return static_cast<float>(m_world->DerivedPower(*e));
+	};
 	// Save: merge the touched fields into the catalog, then apply. A surface
 	// whose look changed needs its worn meshes re-baked before it shows.
 	m_typeDialog.onSave = [this](const TypeEditorDialog::Config& cfg) {

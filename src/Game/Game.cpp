@@ -196,13 +196,17 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_balanceDialog.onEditEffect = [this](const std::string& id) {
 		OpenTypeEditor(MapEditor::PaletteCat::Effects, id);
 	};
+	// Both also drop the cached monster powers: a monster's threat is scored
+	// through the balance knobs (Potent), and moves with no edit to mark it.
 	m_balanceDialog.onApply = [this](const Balance& b) {
 		m_world->GetBalance() = b;
 		m_world->RecomputePartyMaxima();
+		m_world->InvalidatePowers();
 	};
 	m_balanceDialog.onSave = [this](const Balance& b) {
 		m_world->GetBalance() = b;
 		m_world->RecomputePartyMaxima();
+		m_world->InvalidatePowers();
 		b.Save(m_project.balance, m_project.attacks);
 		const bool ok =
 			m_project.balance.Save(m_project.CatalogPath("balance.cat"),

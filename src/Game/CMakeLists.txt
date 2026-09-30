@@ -35,6 +35,7 @@ add_library(Game STATIC
 	DungeonWorld_Ledger.cpp
 	DungeonWorld_LevelIO.cpp
 	DungeonWorld_Levels.cpp
+	DungeonWorld_Census.cpp
 	DungeonWorld_Load.cpp
 	DungeonWorld_Models.cpp
 	DungeonWorld_Move.cpp
@@ -92,6 +93,7 @@ add_library(Game STATIC
 	GenerateDialog.cpp
 	GenerateKnobs.cpp
 	Threat.cpp
+	Power.cpp
 	Validate.cpp
 	ValidateDialog.cpp
 	WorldMap.cpp

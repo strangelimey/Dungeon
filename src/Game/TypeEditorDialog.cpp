@@ -205,11 +205,22 @@ void TypeEditorDialog::BuildUI() {
 			// position 0 would read as an explicit zero. So an unset one shows as
 			// a checkbox instead, and a set one gets an "x" to unset it again.
 			const bool optional = !*spec.def;
+			// A DERIVED field (derivedFor answers) names the value the game uses
+			// in its place, unset or overridden alike.
+			const std::optional<float> derived =
+				optional && derivedFor ? derivedFor(spec) : std::nullopt;
+			const std::string shown =
+				derived ? label + " " + loc::Format("map.type.derived", std::format("{:.1f}", *derived))
+						: label;
 			if (optional && value.empty()) {
-				page.Row<ui::Checkbox>(FormRow(), label + loc::Tr("map.type.frommap"),
-									   true, [this, s](bool on) {
+				page.Row<ui::Checkbox>(FormRow(), derived ? shown : label + loc::Tr("map.type.frommap"),
+									   true, [this, s, derived](bool on) {
 										   if (on) return; // already unset
-										   SetValue(*s, *s->neutral ? s->neutral : "0");
+										   // An override starts where the derived value is.
+										   const float step = s->step > 0.0f ? s->step : 0.001f;
+										   SetValue(*s, derived ? std::format("{:g}",
+																			   std::max(s->lo, std::round(*derived / step) * step))
+																: *s->neutral ? s->neutral : "0");
 										   m_uiRebuild = true; // becomes a slider
 									   });
 				break;
@@ -219,7 +230,7 @@ void TypeEditorDialog::BuildUI() {
 			// A Slider stacks its label OVER its track, so it asks for two lines.
 			ui::Stack* row = page.Row<ui::Stack>(FormRow(1.9f), true);
 			row->gapRem = 0.4f;
-			row->Row<ui::Slider>(ui::Len::Fill(), label, spec.lo, spec.hi, v,
+			row->Row<ui::Slider>(ui::Len::Fill(), shown, spec.lo, spec.hi, v,
 								 [this, s](float f) {
 									 // Snap to the field's granularity so the
 									 // catalog keeps authored-looking numbers.

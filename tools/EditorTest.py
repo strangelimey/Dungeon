@@ -59,6 +59,12 @@
 #      are in none; the world sections list their entries; a filter from inside
 #      one group finds matches in the others and drops sections with none; and
 #      the grouping survives a restart through settings.ini.
+#  13. MONSTER POWER (Phase 2): unset, a kind's power is its derived threat;
+#      the bands are the fifths of the project's range (recomputed here, not
+#      read back) and the palette's rows wear them; an override moves that
+#      kind, re-cuts every band, and moves the generator's pick - a control
+#      level has the swarm, the same level after the override has none, and a
+#      boss is exactly one swarm; removing the override restores everything.
 #
 # Every project file a phase writes is restored byte for byte afterwards.
 import io
@@ -590,6 +596,110 @@ finally:
             os.remove(SETTINGS)
     else:
         io.open(SETTINGS, "wb").write(saved_settings)
+
+# --- phase 13: monster power ---------------------------------------------------
+print("13 - a monster's power is its threat until overridden, and everything ranks by it")
+
+
+def console_sections(log):
+    """Every console line (not only `editor` ones), split on '--- name ---'."""
+    out, name = {}, None
+    for line in log.splitlines():
+        if "console: " not in line:
+            continue
+        text = line.split("console: ", 1)[1]
+        m = re.match(r"--- (.*) ---$", text)
+        if m:
+            name = m.group(1)
+            out[name] = []
+        elif name is not None:
+            out[name].append(text)
+    return out
+
+
+THREAT = re.compile(r"threat (\S+) ([\d.]+) offence=.* power=([\d.]+)(\(set\))? band=(\d)")
+
+
+def table(lines):
+    """{id: (threat, power, overridden, band)} from `threat` lines."""
+    out = {}
+    for l in lines:
+        m = THREAT.match(l)
+        if m:
+            out[m.group(1)] = (float(m.group(2)), float(m.group(3)), bool(m.group(4)),
+                               int(m.group(5)))
+    return out
+
+
+def expected_band(p, lo, hi):
+    # Game/Power.h, written out again HERE so the check is not the code judging
+    # itself: which fifth of the range, the top edge in band 5, no width = 3.
+    if hi - lo <= 1e-9:
+        return 3
+    t = min(1.0, max(0.0, (p - lo) / (hi - lo)))
+    return min(5, 1 + int(t * 5))
+
+
+def bands_agree(t):
+    powers = [v[1] for v in t.values()]
+    lo, hi = min(powers), max(powers)
+    return {k: v[3] for k, v in t.items()} == {k: expected_band(v[1], lo, hi) for k, v in t.items()}
+
+
+def palette_bands(lines):
+    return {m.group(1): int(m.group(2)) for m in
+            (re.match(r"editor palette item monsters (\S+) band=(\d)", l) for l in lines) if m}
+
+
+def swarms(stem):
+    p = os.path.join(PROJ, "levels", stem + ".ent")
+    text = io.open(p, encoding="utf-8").read() if os.path.isfile(p) else ""
+    return len(re.findall(r"^monster skel_swarm ", text, re.M)), bool(text)
+
+
+backup = os.path.join(ROOT, r"build\editortest-backup")
+shutil.rmtree(backup, ignore_errors=True)
+shutil.copytree(PROJ, backup)
+try:
+    log = run("power.eval")
+    check(passed(log), "the script ran clean")
+    sec = console_sections(log)
+    before, after, cleared = (table(sec.get(s, [])) for s in ("before", "after", "cleared"))
+    check(len(before) >= 10 and all(v[0] == v[1] and not v[2] for v in before.values()),
+          "unset, every kind's power IS its derived threat", str(len(before)))
+    check(bands_agree(before) and len({v[3] for v in before.values()}) >= 3,
+          "the bands are the fifths of the project's power range (3+ bands in use)",
+          str({k: v[3] for k, v in before.items()}))
+    check(palette_bands(sec.get("before", [])) == {k: v[3] for k, v in before.items()},
+          "the palette's rows wear the same bands")
+    sw = after.get("skel_swarm")
+    check(sw is not None and sw[1] == 40.0 and sw[2] and sw[0] == before["skel_swarm"][0],
+          "an override sets the power and leaves the derived threat as it was", str(sw))
+    check(sw is not None and sw[3] == 5 and bands_agree(after)
+          and after["skel_lurker"][3] < before["skel_lurker"][3],
+          "the bands re-cut against the new top (the old strongest drops a band or more)",
+          str({k: v[3] for k, v in after.items()}))
+    check(palette_bands(sec.get("after", [])) == {k: v[3] for k, v in after.items()},
+          "the palette's pips follow the override")
+    stems = [re.match(r"generate: wrote (\S+) ", l).group(1)
+             for s in ("control", "picks") for l in sec.get(s, []) if l.startswith("generate: wrote")]
+    if len(stems) != 3:
+        check(False, "three generated levels", str(stems))
+    else:
+        (c_n, c_ok), (p_n, p_ok), (b_n, b_ok) = (swarms(s) for s in stems)
+        check(c_ok and c_n > 0, "before the override the swarm is among the weak, and turns up",
+              f"{c_n} swarms")
+        check(p_ok and p_n == 0, "overridden to the top, the same low-difficulty level has none",
+              f"{p_n} swarms")
+        check(b_ok and b_n == 1, "with a boss, the boss is the overridden swarm (exactly one)",
+              f"{b_n} swarms")
+    cw = cleared.get("skel_swarm")
+    check(cw is not None and not cw[2] and cw[1] == cw[0] and cleared == before,
+          "removing the override puts every power and band back", str(cw))
+finally:
+    shutil.rmtree(PROJ)
+    shutil.copytree(backup, PROJ)
+    shutil.rmtree(backup, ignore_errors=True)
 
 print()
 print("PASS" if failures == 0 else f"FAIL - {failures} check(s) failed")

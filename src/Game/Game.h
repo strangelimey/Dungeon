@@ -563,6 +563,8 @@ private:
 	// One kind's threat (Game/Threat.h), its attacks resolved by the world when
 	// one is loaded (spells, powers, on-hit effects), else melee from the catalog.
 	threat::Parts ThreatOf(const CatalogEntry& monster) const;
+	// Its power: the threat, or the entry's `power` override (Game/Power.h).
+	double PowerOf(const CatalogEntry& monster) const;
 	// The last generate's asked-vs-built, as the console prints it (English,
 	// one line, with every branch's length) - docs/level-building.md: a knob you
 	// cannot measure is a knob you cannot tune. The dialog's localized form is
