@@ -1009,8 +1009,10 @@ try:
     for part in log.split("console: --- persist: ")[1:]:
         name, _, body = part.partition(" ---")
         sections[name] = body
+    # crypt1's one skeleton stands at 10,4 (moved there in Michael's editor
+    # pass, dccbd3f); worldpersist.eval aims its blasts at the same square.
     def skeleton(name):
-        m = re.search(r"skeleton @ 7,4  hp ([\d.]+)", sections.get(name, ""))
+        m = re.search(r"skeleton @ 10,4  hp ([\d.]+)", sections.get(name, ""))
         return float(m.group(1)) if m else None
     # THE CONTROL: alive before the kill, dead after it — otherwise "dead on
     # the way back" would be satisfied by a skeleton that never lived.

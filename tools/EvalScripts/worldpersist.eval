@@ -24,11 +24,11 @@ discover crypt_gate
 enter crypt_gate
 echo --- persist: before the kill ---
 monsters
-blast fireburst 7 4
-blast fireburst 7 4
-blast fireburst 7 4
-blast fireburst 7 4
-blast fireburst 7 4
+blast fireburst 10 4
+blast fireburst 10 4
+blast fireburst 10 4
+blast fireburst 10 4
+blast fireburst 10 4
 step 1
 echo --- persist: killed ---
 monsters
