@@ -1557,6 +1557,14 @@ void Game::Update(float dt) {
 
 	UpdateStates(dt);
 
+	// The pointer's shape, from what this frame's input left it over: the
+	// editor's dock edges want the resize arrow (MapView_Docks.cpp). Set once,
+	// here, so no path through UpdateStates has to remember to put it back.
+	m_window.SetCursorShape(m_mapView.IsOpen() && !ShowingWorldPage() &&
+									m_mapView.WantsResizeCursor()
+								? Window::Cursor::SizeWE
+								: Window::Cursor::Arrow);
+
 	// A frame that LEFT the guarded states is a transition, not a steady-state
 	// frame. SteadyStateFrame judged it on the state at the top, but pressing Esc
 	// rebuilds the pause menu (a fresh widget tree, and the save scan behind its

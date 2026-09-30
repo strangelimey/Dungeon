@@ -172,6 +172,11 @@ void GameSettings::Load() {
 	ParseIniInt(text, "map_palette_group=", mapPaletteGrouping);
 	ParseIniInt(text, "map_palette_stage=", mapPaletteStage);
 	ParseIniInt(text, "map_palette_kind=", mapPaletteKind);
+	ParseIniFloat(text, "map_palette_width=", mapPaletteWidth, 0.0f, 1.0f);
+	ParseIniFloat(text, "map_legend_width=", mapLegendWidth, 0.0f, 1.0f);
+	ParseIniBool(text, "map_overview_collapsed=", mapOverviewCollapsed);
+	ParseIniBool(text, "map_key_collapsed=", mapKeyCollapsed);
+	ParseIniInt(text, "map_overview_scope=", mapOverviewScope);
 	ParseIniBool(text, "hud_move_collapsed=", hudMoveCollapsed);
 	ParseIniBool(text, "hud_magic_collapsed=", hudMagicCollapsed);
 	// The rest of the line, verbatim: the encoding has spaces, colons and
@@ -251,6 +256,10 @@ void GameSettings::Save() const {
 		mapShowCatalog ? 1 : 0, mapTool);
 	text += std::format("map_palette_group={}\nmap_palette_stage={}\nmap_palette_kind={}\n",
 						mapPaletteGrouping, mapPaletteStage, mapPaletteKind);
+	text += std::format("map_palette_width={:.4f}\nmap_legend_width={:.4f}\n", mapPaletteWidth,
+						mapLegendWidth);
+	text += std::format("map_overview_collapsed={}\nmap_key_collapsed={}\nmap_overview_scope={}\n",
+						mapOverviewCollapsed ? 1 : 0, mapKeyCollapsed ? 1 : 0, mapOverviewScope);
 	text += std::format("hud_move_collapsed={}\nhud_magic_collapsed={}\n",
 						hudMoveCollapsed ? 1 : 0, hudMagicCollapsed ? 1 : 0);
 	text += std::format("gen_knobs={}\n", generatorKnobs);

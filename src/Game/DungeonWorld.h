@@ -529,7 +529,36 @@ public:
 	// fifth of the project's range of monster powers it falls in.
 	int MonsterBand(const std::string& id) const;
 	power::Range MonsterPowerRange() const;
-	void InvalidatePowers() const { m_powers.valid = false; }
+	void InvalidatePowers() const {
+		m_powers.valid = false;
+		m_census.valid = false; // it counts monsters BY BAND
+	}
+
+	// THE CENSUS (DungeonWorld_Census.cpp; the editor's overview panel,
+	// tool-refinement Phase 3): what every level of the project HOLDS, as
+	// a save would write it: records everywhere, except the ACTIVE level's
+	// monsters, which are its live list (an editor-placed one has no record
+	// until a save; ActiveEntText writes the live list). One row per project
+	// level in manifest order;
+	// the panel sums rows for a dungeon or the world. Walks the levels the way
+	// Validate does (the active one live, a stashed one from its stash, the
+	// rest READ-ONLY - never stash to read), and is cached per edit revision,
+	// so the panel can ask every frame.
+	struct LevelCensus {
+		std::string stem;
+		std::string dungeon; // the dungeon holding it ("" = none)
+		int monsters = 0;
+		std::array<int, power::kBands> bands{}; // monsters per power band
+		std::string strongest;                  // its most powerful monster kind
+		double strongestPower = -1.0;
+		int items = 0;
+		int questItems = 0; // items whose type carries quest / flag / reveals
+		int doors = 0;
+		int lockedDoors = 0; // doors wanting a key
+		int stairs = 0;      // ways on and off it (a ceiling hole is scenery)
+		int buttons = 0;
+	};
+	const std::vector<LevelCensus>& Census();
 
 	// Armor (docs/damage-system.md): the class governing a member (the
 	// HEAVIEST piece worn) and what it costs them on the defense roll.
@@ -3614,6 +3643,14 @@ private:
 	};
 	mutable PowerCache m_powers;
 	const PowerCache& Powers() const;
+	struct CensusCache {
+		std::vector<LevelCensus> levels;
+		u64 revision = 0;
+		size_t liveMonsters = 0; // the active level's live list, when counted
+		std::string level;       // ...and which level that was
+		bool valid = false;
+	};
+	mutable CensusCache m_census; // see Census
 	bool m_geometryDirty = false; // a restore skipped the rebake (FlushGeometry)
 	// A restore also changed a level's surface PALETTE, so FlushGeometry must
 	// reload the texture sets + worn meshes, not just re-stamp the chunks.

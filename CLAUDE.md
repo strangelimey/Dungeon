@@ -1776,6 +1776,28 @@ Judged by `tools\EditorTest.py` (phase 12 onward).
   switching the override on starts it AT the derived value. `threat` lines
   gained `power=` (marked `(set)`) and `band=` at their END - LevelBuildTest
   matches the line's head. Dev: `editor palette items <catalog>`.
+- THE DOCKS RESIZE (MapView_Docks.cpp): drag a dock's inner edge (the band
+  below its collapse button); the width is saved as a SHARE of the panel
+  (`map_palette_width` / `map_legend_width`, 0 = the old default), clamped to
+  120 / 150 px and 30% of the panel. Nothing else needed changing - the grid,
+  tool strip, palette body, category bar and trimmed names all measure from a
+  dock's edge. The pointer turns into the resize arrow over an edge: Window::
+  SetCursorShape (WM_SETCURSOR over the client area, a direct SetCursor while a
+  drag holds capture), set ONCE per frame in Game::Update from
+  MapView::WantsResizeCursor. A dock's hover is only trusted on a frame Update
+  ran (m_dockUpdated, the RenderIssueTooltip rule), or a modal dialog would
+  leave the arrow stuck.
+- THE OVERVIEW (right dock, above the KEY; both are collapsible sections, and
+  the dock scrolls): World / Dungeon / Level, summing DungeonWorld::Census -
+  one row per project level, walked like Validate (live / stash / read-only,
+  NEVER stash to read), cached per edit revision. The active level's MONSTERS
+  are its live list, as a save writes them (ActiveEntText) - an editor-placed
+  one has no record, and a census of records alone missed it (EditorTest 14
+  caught exactly that); so the cache also keys on the live list's size and the
+  active level. Lines: counts, a power-band row, the strongest kind, the live
+  checker's issues (a link to Check), and links down a tier (the world's
+  dungeons, a dungeon's levels). Dev: `editor dock [left|right <px>]`,
+  `editor overview [world|dungeon|level]`.
 - EFFECTS LEFT THE PALETTE for the Balance dialog's Effects tab (a list whose
   rows open the type editor OVER the Balance dialog - which is why the type
   editor's input check now comes before the Balance dialog's in Game::Update,

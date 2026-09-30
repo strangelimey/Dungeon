@@ -1,0 +1,7 @@
+; docks-persist.eval - the second half of EditorTest phase 14: a FRESH process
+; must open the docks at the widths docks.eval left, read back from settings.ini.
+
+logecho on
+reset
+echo --- reopened ---
+editor dock

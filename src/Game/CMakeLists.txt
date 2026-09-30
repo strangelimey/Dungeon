@@ -79,6 +79,7 @@ add_library(Game STATIC
 	Magic.cpp
 	MapEditor.cpp
 	MapEditor_Categories.cpp
+	MapView_Docks.cpp
 	MapView.cpp
 	MapView_Issues.cpp
 	MapView_Tools.cpp

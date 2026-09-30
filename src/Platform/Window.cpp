@@ -156,9 +156,26 @@ i64 Window::HandleMessage(u32 msg, u64 wparam, i64 lparam) {
 		m_input.OnWheel(static_cast<float>(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA);
 		return 0;
 
+	// Over the client area the pointer is the GAME's to shape (SetCursorShape);
+	// over the frame, Windows keeps its own sizing arrows.
+	case WM_SETCURSOR:
+		if (LOWORD(lparam) == HTCLIENT) {
+			SetCursor(LoadCursorW(nullptr, m_cursor == Cursor::SizeWE ? IDC_SIZEWE : IDC_ARROW));
+			return TRUE;
+		}
+		return DefWindowProcW(m_hwnd, msg, static_cast<WPARAM>(wparam), static_cast<LPARAM>(lparam));
+
 	default:
 		return DefWindowProcW(m_hwnd, msg, static_cast<WPARAM>(wparam), static_cast<LPARAM>(lparam));
 	}
+}
+
+void Window::SetCursorShape(Cursor shape) {
+	if (shape == m_cursor) return;
+	m_cursor = shape;
+	// Applied now: WM_SETCURSOR only comes with the next move, and not at all
+	// while a drag holds capture - a drag must keep the arrow it started with.
+	SetCursor(LoadCursorW(nullptr, shape == Cursor::SizeWE ? IDC_SIZEWE : IDC_ARROW));
 }
 
 void Window::UpdateCapture() {

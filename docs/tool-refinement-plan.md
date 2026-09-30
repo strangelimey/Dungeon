@@ -106,7 +106,11 @@ Small, and the overview (Phase 3) and styles (Phase 5) both read it.
 - Checked: RollTest (threat is a pure TU) - the override wins, absent means
   derived; EditorTest - the palette badge follows an override.
 
-## Phase 3 - The overview panel
+## Phase 3 - The overview panel (and resizable docks)
+
+Michael, 2026-09-30: fold dock resizing into this phase - drag a dock's
+inner edge, the width remembered as a share of the panel, the pointer the
+left-right arrow over it (a small Window addition: WM_SETCURSOR).
 
 - A collapsible panel in the RIGHT dock, ABOVE the symbol key, each with its
   own collapse header (the key becomes the lower section). Persisted:

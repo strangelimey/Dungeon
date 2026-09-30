@@ -65,6 +65,12 @@
 #      kind, re-cuts every band, and moves the generator's pick - a control
 #      level has the swarm, the same level after the override has none, and a
 #      boss is exactly one swarm; removing the override restores everything.
+#  14. THE DOCKS AND THE OVERVIEW (Phase 3): a dock takes the width it is
+#      dragged to and everything beside it follows (strip, grid, palette
+#      body); both clamps hold; the widths survive a restart; the overview's
+#      level / dungeon / world counts equal the PROJECT FILES' (read here, not
+#      from the game); and a monster placed on the viewed level counts at once
+#      and uncounts on undo.
 #
 # Every project file a phase writes is restored byte for byte afterwards.
 import io
@@ -116,6 +122,27 @@ def hashes(log):
 
 def passed(log):
     return "eval BATCH RESULT=PASS" in log
+
+
+def console_sections(log):
+    """Every console line (not only `editor` ones), split on '--- name ---'."""
+    out, name = {}, None
+    for line in log.splitlines():
+        if "console: " not in line:
+            continue
+        text = line.split("console: ", 1)[1]
+        m = re.match(r"--- (.*) ---$", text)
+        if m:
+            name = m.group(1)
+            out[name] = []
+        elif name is not None:
+            out[name].append(text)
+    return out
+
+
+# The editor's own state (palette grouping, dock widths) lives in settings.ini
+# beside the exe; the phases that change it put the developer's copy back.
+SETTINGS = os.path.join(os.path.dirname(EXE), "settings.ini")
 
 
 # --- phase 1: a drag is one undo step ----------------------------------------
@@ -537,9 +564,8 @@ def shown(line):
     return m.group(1), m.group(2), m.group(3), secs
 
 
-# The bar's state lives in settings.ini beside the exe, so this phase puts the
-# developer's copy back afterwards like every project file.
-SETTINGS = os.path.join(os.path.dirname(EXE), "settings.ini")
+# The bar's state lives in settings.ini beside the exe (SETTINGS, above), so
+# this phase puts the developer's copy back afterwards like every project file.
 saved_settings = io.open(SETTINGS, "rb").read() if os.path.isfile(SETTINGS) else None
 try:
     log = run("palette.eval")
@@ -599,22 +625,6 @@ finally:
 
 # --- phase 13: monster power ---------------------------------------------------
 print("13 - a monster's power is its threat until overridden, and everything ranks by it")
-
-
-def console_sections(log):
-    """Every console line (not only `editor` ones), split on '--- name ---'."""
-    out, name = {}, None
-    for line in log.splitlines():
-        if "console: " not in line:
-            continue
-        text = line.split("console: ", 1)[1]
-        m = re.match(r"--- (.*) ---$", text)
-        if m:
-            name = m.group(1)
-            out[name] = []
-        elif name is not None:
-            out[name].append(text)
-    return out
 
 
 THREAT = re.compile(r"threat (\S+) ([\d.]+) offence=.* power=([\d.]+)(\(set\))? band=(\d)")
@@ -700,6 +710,146 @@ finally:
     shutil.rmtree(PROJ)
     shutil.copytree(backup, PROJ)
     shutil.rmtree(backup, ignore_errors=True)
+
+# --- phase 14: the docks and the overview --------------------------------------
+print("14 - the docks resize and remember, and the overview counts what the files hold")
+DOCK = re.compile(r"editor dock panel=(\d+) left=(\d+) right=(\d+) grid=(-?\d+),(\d+),(\d+) "
+                  r"strip=(-?\d+) palette=(-?\d+),(\d+)")
+
+
+def docks(lines):
+    out = []
+    for l in lines:
+        m = DOCK.match(l)
+        if m:
+            v = [int(x) for x in m.groups()]
+            out.append(dict(zip(("panel", "left", "right", "gx", "gw", "gright", "strip", "px", "pw"), v)))
+    return out
+
+
+def overview(lines, scope):
+    return {m.group(1): m.group(2) for m in
+            (re.match(rf"editor overview {scope} (\S+) (.*)", l) for l in lines) if m}
+
+
+def files_census():
+    """Each level's counts, read from the PROJECT FILES - not from the game."""
+    ini = io.open(os.path.join(PROJ, "project.ini"), encoding="utf-8").read()
+    levels = re.search(r"^levels\s*=\s*(.*)$", ini, re.M).group(1).split()
+    quest, cur = set(), None
+    for cat in ("items", "weapons", "armor"):
+        for l in io.open(os.path.join(PROJ, "catalog", cat + ".cat"), encoding="utf-8"):
+            h = re.match(r"\[(\S+)\]", l)
+            if h:
+                cur = h.group(1)
+            elif cur and re.match(r"(quest|flag|reveals)\s*=", l):
+                quest.add(cur)
+    scenery, cur = set(), None
+    for l in io.open(os.path.join(PROJ, r"catalog\stairs.cat"), encoding="utf-8"):
+        h = re.match(r"\[(\S+)\]", l)
+        if h:
+            cur = h.group(1)
+        elif cur and re.match(r"traverse\s*=\s*0", l):
+            scenery.add(cur)
+    out = {}
+    for s in levels:
+        ent = io.open(os.path.join(PROJ, "levels", s + ".ent"), encoding="utf-8").read()
+        mp = io.open(os.path.join(PROJ, "levels", s + ".map"), encoding="utf-8").read()
+        items = re.findall(r"^item (\S+)", ent, re.M)
+        out[s] = {"monsters": len(re.findall(r"^monster ", ent, re.M)), "items": len(items),
+                  "quest": sum(1 for i in items if i in quest),
+                  "doors": len(re.findall(r"^door ", ent, re.M)),
+                  "stairs": sum(1 for t in re.findall(r"^stairs (\S+)", mp, re.M) if t not in scenery)}
+    return out
+
+
+def dungeon_levels():
+    out, cur = {}, None
+    for l in io.open(os.path.join(PROJ, r"catalog\dungeons.cat"), encoding="utf-8"):
+        h = re.match(r"\[(\S+)\]", l)
+        if h:
+            cur = h.group(1)
+        m = re.match(r"levels\s*=\s*(.*)", l)
+        if cur and m:
+            out[cur] = m.group(1).split()
+    return out
+
+
+saved_settings = io.open(SETTINGS, "rb").read() if os.path.isfile(SETTINGS) else None
+backup = os.path.join(ROOT, r"build\editortest-backup")
+shutil.rmtree(backup, ignore_errors=True)
+shutil.copytree(PROJ, backup)
+try:
+    log = run("docks.eval")
+    check(passed(log), "the script ran clean")
+    sec = console_sections(log)
+    w = docks(sec.get("widths", []))
+    if len(w) != 5:
+        check(False, "five layout readings", str(len(w)))
+    else:
+        d0, d1, d2, d3, d4 = w
+        grow = 400 - d0["left"]
+        check(d1["left"] == 400 and grow != 0, "the palette dock takes the width it is dragged to",
+              f"{d0['left']} -> {d1['left']}")
+        check(d1["strip"] - d0["strip"] == grow and d1["gx"] - d0["gx"] == grow
+              and d1["pw"] - d0["pw"] == grow,
+              "the tool strip, the grid and the palette's body all move with its edge",
+              f"strip {d0['strip']}->{d1['strip']} grid {d0['gx']}->{d1['gx']} palette {d0['pw']}->{d1['pw']}")
+        check(d2["right"] == 350 and d2["gright"] == d2["panel"] - 350,
+              "the key dock likewise, and the grid ends at its edge",
+              f"right {d2['right']}, grid ends {d2['gright']} of {d2['panel']}")
+        check(d3["left"] == 120, "too narrow clamps to the floor (120)", str(d3["left"]))
+        check(d4["left"] == round(d4["panel"] * 0.30),
+              "too wide clamps to 30% of the panel, so the grid stays the larger part",
+              f"{d4['left']} of {d4['panel']}")
+    truth = files_census()
+    viewed = "eval_arena"  # project.ini's eval_level, where the harness opens
+    dl = dungeon_levels()
+    home = next((d for d, lv in dl.items() if viewed in lv), None)
+    ov = {s: overview(sec.get("overview", []), s) for s in ("level", "dungeon", "world")}
+    lvl, dun, wld = ov["level"], ov["dungeon"], ov["world"]
+
+    def total(key, stems):
+        return sum(truth[s][key] for s in stems)
+
+    def bands_sum(o):
+        return sum(int(x) for x in o.get("bands", "").split(",") if x)
+
+    for scope, o, stems in (("level", lvl, [viewed]), ("dungeon", dun, dl.get(home, [])),
+                            ("world", wld, list(truth))):
+        want = {k: str(total(k, stems)) for k in ("monsters", "items", "quest", "doors", "stairs")}
+        got = {k: o.get(k) for k in want}
+        check(got == want and bands_sum(o) == total("monsters", stems),
+              f"the {scope} counts are the files' (and every monster has a band)",
+              f"got {got}, files {want}, bands {o.get('bands')}")
+    check(wld.get("levels") == str(len(truth)) and dun.get("levels") == str(len(dl.get(home, []))),
+          "the level counts are the manifest's and the dungeon's",
+          f"world {wld.get('levels')}, dungeon {dun.get('levels')}")
+    links = {k[len("dungeon:"):]: v for k, v in wld.items() if k.startswith("dungeon:")}
+    check(set(links) == set(dl) and all(v.startswith(str(len(dl[d]))) for d, v in links.items()),
+          "the world lists every dungeon with its level count", str(links))
+    placed = overview(sec.get("placed", []), "level")
+    placed_w = overview(sec.get("placed", []), "world")
+    undone = overview(sec.get("undone", []), "level")
+    check(placed.get("monsters") == str(int(lvl.get("monsters", -1)) + 1)
+          and placed_w.get("monsters") == str(int(wld.get("monsters", -1)) + 1)
+          and bands_sum(placed) == bands_sum(lvl) + 1,
+          "a monster placed on the viewed level counts at once, there and in the world",
+          f"{lvl.get('monsters')} -> {placed.get('monsters')}")
+    check(undone == lvl, "undo takes it off the count again", str(undone))
+    back = docks(console_sections(run("docks-persist.eval")).get("reopened", []))
+    check(len(back) == 1 and back[0]["left"] == 300 and back[0]["right"] == 350,
+          "a fresh start opens both docks at the widths they were left",
+          str(back[0] if back else "no reading"))
+finally:
+    shutil.rmtree(PROJ)
+    shutil.copytree(backup, PROJ)
+    shutil.rmtree(backup, ignore_errors=True)
+    if saved_settings is None:
+        if os.path.isfile(SETTINGS):
+            os.remove(SETTINGS)
+    else:
+        io.open(SETTINGS, "wb").write(saved_settings)
 
 print()
 print("PASS" if failures == 0 else f"FAIL - {failures} check(s) failed")

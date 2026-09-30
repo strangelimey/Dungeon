@@ -54,8 +54,7 @@ constexpr float kFontH = 18.0f;
 // MapEditor can lay out the palette body with the same padding.)
 float DockBtnH(const gfx::Rect& p) { return std::clamp(p.h * 0.06f, 28.0f, 56.0f); }
 float CollapsedDockW(const gfx::Rect& p) { return std::clamp(p.w * 0.032f, 34.0f, 60.0f); }
-float ExpandedLeftW(const gfx::Rect& p) { return std::clamp(p.w * 0.16f, 120.0f, 260.0f); }
-float ExpandedRightW(const gfx::Rect& p) { return std::clamp(p.w * 0.18f, 150.0f, 300.0f); }
+// (The EXPANDED widths are LeftDockW / RightDockW, MapView_Docks.cpp: dragged.)
 
 // Toolbar/browse-arrow button side (square), shared by the band height.
 float ToolBtnS(const gfx::Rect& p) { return std::clamp(p.h * 0.042f, 22.0f, 40.0f); }
@@ -371,7 +370,7 @@ gfx::Rect MapView::LeftDockRect(const gfx::Rect& panel) const {
 	const float t = ToolbarRect(panel).h;
 	const float b = StatusBarRect(panel).h;
 	const float w = m_settings.mapPaletteCollapsed ? CollapsedDockW(panel)
-												   : ExpandedLeftW(panel);
+												   : LeftDockW(panel);
 	return {panel.x, panel.y + t, w, panel.h - t - b};
 }
 
@@ -379,7 +378,7 @@ gfx::Rect MapView::RightDockRect(const gfx::Rect& panel) const {
 	const float t = ToolbarRect(panel).h;
 	const float b = StatusBarRect(panel).h;
 	const float w = LegendCollapsed() ? CollapsedDockW(panel)
-									  : ExpandedRightW(panel);
+									  : RightDockW(panel);
 	return {panel.x + panel.w - w, panel.y + t, w, panel.h - t - b};
 }
 
@@ -627,6 +626,11 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 		m_editor->TrackMouse(mx, my, panel);
 		m_editor->LoadShownSwatches(2); // the Catalogue view's thumbnails, paced
 	}
+
+	// The docks' own input first (MapView_Docks.cpp): an edge drag in progress
+	// owns every frame until the release, and a press on an edge, a right-dock
+	// section header, scope button or overview link is the dock's.
+	if (editor && UpdateDocks(input, mx, my, panel)) return true;
 
 	// Dock interactions, each claiming the click so it never also pans/paints.
 	if (input.WasMousePressed(MouseButton::Left)) {
@@ -1502,53 +1506,11 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		const gfx::Rect rd = RightDockRect(panel);
 		drawDockFrame(rd, RightCollapseButton(panel),
 					  LegendCollapsed(), HoverBtn::CollapseR);
-		if (!LegendCollapsed()) {
-			m_font->Draw(batch, loc::Tr("map.key"), rd.x + dpad,
-						rd.y + dpad + btnH + dpad, theme.textDim);
-			// A swatch (filled / outlined / triangle) + label per symbol. Party
-			// and start use the live theme accent, so the table is built here
-			// rather than being a constant. (It used to carry a `player` flag
-			// that dropped rows from a trimmed Player key; the key is the
-			// EDITOR's alone now, so every row shows.)
-			enum class Sym { Filled, Outline, Triangle };
-			struct Row { Sym sym; Vec4 color; const char* key; };
-			const Row rows[] = {
-				{Sym::Triangle, theme.accent, "map.key.party"},
-				{Sym::Outline, theme.accent, "map.key.start"},
-				{Sym::Filled, kEditorWall, "map.key.wall"},
-				{Sym::Filled, kEditorFloor, "map.key.floor"},
-				{Sym::Filled, kTorch, "map.key.torch"},
-				{Sym::Filled, kBrazier, "map.key.brazier"},
-				{Sym::Filled, kMonster, "map.key.monster"},
-				{Sym::Filled, kItem, "map.key.item"},
-				{Sym::Filled, kButton, "map.key.button"},
-				{Sym::Filled, kDecoration, "map.key.decoration"},
-				{Sym::Filled, kDoor, "map.key.door"},
-				{Sym::Filled, kStair, "map.key.stairs"},
-				{Sym::Triangle, kProjParty, "map.key.projectile"},
-			};
-			const gfx::Rect rclip{rd.x + 2, rd.y + 2, rd.w - 4, rd.h - 4};
-			batch.SetScissor(&rclip);
-			const float rowH = std::clamp(panel.h * 0.05f, 22.0f, 44.0f);
-			float y = DockBodyTop(rd, panel);
-			for (const Row& row : rows) {
-				const float sw = rowH - dpad * 2;
-				const gfx::Rect box{rd.x + dpad, y + dpad, sw, sw};
-				switch (row.sym) {
-				case Sym::Filled: batch.DrawRect(box, row.color); break;
-				case Sym::Outline: ui::DrawBorder(batch, box, row.color); break;
-				case Sym::Triangle:
-					batch.DrawTriangle({box.x + sw * 0.5f, box.y},
-									   {box.x, box.y + sw}, {box.x + sw, box.y + sw},
-									   row.color);
-					break;
-				}
-				m_font->Draw(batch, loc::Tr(row.key), box.x + sw + dpad,
-							y + (rowH - m_font->Height()) * 0.5f, theme.text);
-				y += rowH;
-			}
-			batch.SetScissor(nullptr);
-		}
+		// Its body - the OVERVIEW and the KEY, two collapsible sections - is
+		// MapView_Docks.cpp's.
+		if (!LegendCollapsed()) RenderRightDock(batch, theme, panel);
+		// The docks' draggable edges, lit while hovered or dragged.
+		RenderDockGrips(batch, theme, panel);
 	}
 
 	// Header chrome. Player mode: the [^]/[v] browse arrows + the viewed

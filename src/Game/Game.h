@@ -334,6 +334,8 @@ private:
 	void FontCommand(const std::vector<std::string>& args);
 	// `editor palette ...` (the category bar, for the harness).
 	void PrintPalette(const std::vector<std::string>& args);
+	// `editor dock ...` / `editor overview ...` (MapView_Docks.cpp).
+	void PrintDocks(const std::vector<std::string>& args);
 	bool SaveFontCatalog();
 
 	// The editor toolbar's [+] button: writes a minimal .map/.ent pair next to

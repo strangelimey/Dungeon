@@ -350,6 +350,15 @@ void Game::RegisterDevCommands() {
 							   PrintPalette(args);
 							   return;
 						   }
+						   // The docks and the overview (MapView_Docks.cpp):
+						   // `dock [left|right <px>]` sets a width as a drag
+						   // would, then prints the layout everything else is
+						   // measured from; `overview [world|dungeon|level]`
+						   // prints the panel's lines for that scope.
+						   if (!args.empty() && (args[0] == "dock" || args[0] == "overview")) {
+							   PrintDocks(args);
+							   return;
+						   }
 						   if (!args.empty() && args[0] == "rev") {
 							   m_console.Print(
 								   std::format("editor rev {}", m_world->EditRevision()));
@@ -1253,6 +1262,41 @@ void Game::PrintPalette(const std::vector<std::string>& args) {
 	for (const MapEditor::ShownSection& s : m_mapEditor.ShownSections())
 		line += std::format(" {}({})", MapEditor::CategoryCatalogKey(s.cat), s.items);
 	m_console.Print(line);
+}
+
+void Game::PrintDocks(const std::vector<std::string>& args) {
+	if (m_mapView.IsOpen()) m_mapView.SetMode(MapView::Mode::Editor);
+	else m_mapView.Open(MapView::Mode::Editor);
+	// The panel Update hands the view: window pixels, as a drag would see.
+	const gfx::Rect panel = MapPanel(static_cast<float>(m_window.Width()),
+									 static_cast<float>(m_window.Height()));
+	using Scope = MapView::OverviewScope;
+	if (args[0] == "overview") {
+		static constexpr const char* kNames[] = {"world", "dungeon", "level"};
+		Scope scope = m_mapView.Scope();
+		if (args.size() >= 2)
+			for (int i = 0; i < 3; ++i)
+				if (args[1] == kNames[i]) scope = static_cast<Scope>(i);
+		for (const MapView::OverviewLine& l : m_mapView.OverviewContent(scope))
+			m_console.Print(std::format("editor overview {} {} {}", kNames[static_cast<int>(scope)],
+										l.key, l.title ? l.label : l.value));
+		return;
+	}
+	if (args.size() >= 3) {
+		const MapView::Dock d = args[1] == "left"	 ? MapView::Dock::Left
+								: args[1] == "right" ? MapView::Dock::Right
+													 : MapView::Dock::None;
+		m_mapView.SetDockWidth(d, static_cast<float>(std::atof(args[2].c_str())), panel);
+	}
+	const gfx::Rect g = m_mapView.GridRect(panel);
+	const gfx::Rect s = m_mapView.StripRect(panel);
+	const gfx::Rect b = m_mapView.PaletteBody(panel);
+	m_console.Print(std::format(
+		"editor dock panel={:.0f} left={:.0f} right={:.0f} grid={:.0f},{:.0f},{:.0f} "
+		"strip={:.0f} palette={:.0f},{:.0f}",
+		panel.w, m_mapView.DockWidth(MapView::Dock::Left, panel),
+		m_mapView.DockWidth(MapView::Dock::Right, panel), g.x, g.w, g.x + g.w, s.x, b.x,
+		b.w));
 }
 
 } // namespace dungeon::game

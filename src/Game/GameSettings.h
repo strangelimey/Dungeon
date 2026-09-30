@@ -183,6 +183,15 @@ struct GameSettings {
 	int mapTool = 0;                   // map editor: the tool strip's picked tool (MapEditor::Tool)
 	// map editor: the palette's category bar - which grouping (MapEditor::
 	// Grouping: 0 stage, 1 kind) and the group picked in each.
+	// map editor: the docks' dragged widths, as a share of the editor panel's
+	// width (0 = the built-in default; MapView clamps whatever is stored).
+	float mapPaletteWidth = 0.0f;
+	float mapLegendWidth = 0.0f;
+	// map editor: the right dock's two sections, and the overview's scope
+	// (MapView::OverviewScope: 0 world, 1 dungeon, 2 level).
+	bool mapOverviewCollapsed = false;
+	bool mapKeyCollapsed = false;
+	int mapOverviewScope = 2;
 	int mapPaletteGrouping = 0;
 	int mapPaletteStage = 1;           // Build: where a new level's work starts
 	int mapPaletteKind = 0;
