@@ -12,6 +12,7 @@
 #include "Game/PartyHudTypes.h"
 #include "UI/Controls.h"
 
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -26,6 +27,12 @@ public:
 	void Open() { m_open = true; }
 	void Close() { m_open = false; }
 	bool IsOpen() const { return m_open; }
+
+	// The item mouse buttons, as on the sheet (docs/ui-updates-plan.md P2):
+	// RIGHT on a non-empty slot = its details, MIDDLE = its use menu. `slot`
+	// indexes member `member`'s selected pack.
+	std::function<void(size_t member, int slot)> onItemDetails;
+	std::function<void(size_t member, int slot)> onItemUse;
 
 	void UpdateSelf(ui::UIContext& ctx) override;
 	void DrawSelf(ui::UIContext&, gfx::SpriteBatch&) override {} // overlay-only

@@ -35,6 +35,18 @@ struct ResourceBarColors {
 	Vec4 water{0.24f, 0.50f, 0.60f, 1.0f};
 };
 
+// WHERE an item sits in a member's inventory, for the item mouse buttons
+// (right = details, middle = use menu; docs/ui-updates-plan.md P2): a doll cell
+// (index = the EquipSlot, so the hands are LeftHand/RightHand), a slot of the
+// SELECTED pack's contents, or a bag in the pack row. An address rather than a
+// pointer: it is resolved again when a menu row is picked, so a slot that
+// changed while the menu was open is noticed rather than acted on.
+struct ItemPlace {
+	enum class Kind { Doll, Pack, Bag };
+	Kind kind = Kind::Pack;
+	int index = 0;
+};
+
 // The three hit-feedback splat icons, indexed by severity (0 = small, 1 =
 // medium, 2 = hard), drawn over a struck member's portrait. The textures are
 // owned by Game (loaded from assets); the party panels point at this struct and

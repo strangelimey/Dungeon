@@ -455,6 +455,44 @@ void Game::RegisterPartyCommands() {
 						   }
 					   });
 
+	// The item details dialog on any item type, without a right-click - so a
+	// script (and `uioverlap`) can reach it. Through ShowItemDetails, the one
+	// opener every right-click uses.
+	m_console.Register("itemdetails",
+					   "open the item details dialog (dev): itemdetails <item [kg]|off|status>",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 1,
+									 "usage: itemdetails <item [kg]|off|status>"))
+							   return;
+						   if (args[0] == "off") {
+							   m_ui.CloseItemDetails();
+							   m_console.Print("item details closed");
+							   return;
+						   }
+						   if (args[0] == "status") {
+							   const ItemDetailsDialog* dlg = m_ui.DetailsDialog();
+							   m_console.Print(std::format(
+								   "item details: {} ({} preview submeshes) opens={}",
+								   m_ui.ItemDetailsOpen() ? "open" : "closed",
+								   dlg ? dlg->PreviewSubs().size() : 0,
+								   dlg ? dlg->OpenCount() : 0u));
+							   return;
+						   }
+						   if (m_state != AppState::Playing &&
+							   m_state != AppState::CharacterSheet) {
+							   m_console.Refuse("only over the level or the sheet");
+							   return;
+						   }
+						   const float kg =
+							   args.size() > 1 ? static_cast<float>(std::atof(args[1].c_str()))
+											   : 0.0f;
+						   m_ui.ShowItemDetails(args[0], kg);
+						   if (!m_ui.ItemDetailsOpen())
+							   m_console.Refuse("no such item");
+						   else
+							   m_console.Print(std::format("item details: {}", args[0]));
+					   });
+
 	// Open (or close) the character sheet. It exists because the sheet was
 	// reachable ONLY by clicking a portrait, which is why `/check-ingame`
 	// reports it as a screen it cannot sweep — so the one screen with the most

@@ -30,6 +30,7 @@
 #include "Game/DungeonMeshBuilder.h" // WallPanels (the worn wall block's variants)
 #include "Game/FireEffect.h"
 #include "Game/GameSettings.h"
+#include "Game/ItemDetails.h"
 #include "Game/LoadQueue.h"
 #include "Game/Magic.h"
 #include "Game/Mishap.h" // fumble consequence tables on the kind structs
@@ -575,6 +576,12 @@ public:
 	// nullopt if nothing pickable is under the cursor. Pure query+remove — no
 	// satchel/knowledge side effects.
 	std::optional<std::string> TryPickItem(float mx, float my, float w, float h);
+	// The same pick WITHOUT the lift: the type of the floor item under the
+	// cursor (the item details dialog's right-click), or null. The id lives in
+	// the item's kind, so the pointer outlives the call.
+	const std::string* ItemTypeUnder(float mx, float my, float w, float h) const;
+	// The pick itself, shared by both: the index into m_items, or -1.
+	int PickItemIndex(float mx, float my, float w, float h) const;
 	// Drops a held item (catalog id) back onto the floor: ray-casts the screen
 	// point to the floor plane and places it on that cell when it is walkable, in
 	// reach, and seen; otherwise on the party's own cell. The tablet snaps to the
@@ -788,6 +795,15 @@ public:
 	// the model-space AABB [fitMin,fitMax] to frame against.
 	std::vector<gfx::PreviewSubmesh> ItemPreviewSubs(int entityId, Vec3& fitMin,
 													 Vec3& fitMax) const;
+	// The same by item TYPE, into a caller-owned buffer, for the play-mode item
+	// details dialog (docs/ui-updates-plan.md P3). It opens on a click in a
+	// guarded frame, so it fills rather than returns a vector: returns how many
+	// submeshes were written (0 = nothing to show, or an unknown type).
+	size_t ItemPreviewForType(const std::string& type, std::span<gfx::PreviewSubmesh> out,
+							  Vec3& fitMin, Vec3& fitMax);
+	// What the details dialog says about an item type (Game/ItemDetails.h).
+	// False for a type no catalog defines.
+	bool ItemDetailsFor(const std::string& type, ItemDetails& out);
 
 	// --- level transitions (P6 multi-level) ---------------------------------
 	// Swaps the active level to `stem` and resets all per-level state (map,
@@ -2463,6 +2479,10 @@ private:
 	// Lazily loads (and caches) the shared behaviour for an item type, resolved
 	// through the items catalog (category=rune → symbol + element glow colour).
 	ItemKind& ItemKindFor(const std::string& type);
+	// A kind's preview submeshes into `out` (its authored model, else the carved
+	// tablet) plus the model-space AABB to frame them by; returns the count.
+	size_t FillItemPreview(const ItemKind& kind, std::span<gfx::PreviewSubmesh> out,
+						   Vec3& fitMin, Vec3& fitMax) const;
 	// Renders a soft round halo (sprites) + one model's submeshes into an icon
 	// render-target (fit to bounds, flat face to camera, 3/4 view). Shared depth
 	// target; the bake list redirects the OM.

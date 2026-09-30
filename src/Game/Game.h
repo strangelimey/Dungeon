@@ -909,6 +909,12 @@ private:
 	bool m_looking = false;
 	float m_lookPrevX = 0.0f;
 	float m_lookPrevY = 0.0f;
+	// Where the right button went down and how far the pointer has strayed since:
+	// a release still within kClickSlop is a CLICK, not a look, and opens the
+	// details of the floor item under the press (docs/ui-updates-plan.md P4).
+	float m_lookPressX = 0.0f;
+	float m_lookPressY = 0.0f;
+	float m_lookStray = 0.0f;
 
 	// The engine's worker threads (Core/ThreadManager.h). Declared before m_world
 	// so it outlives every subsystem that spawns workers on it — m_world's AI is

@@ -221,8 +221,9 @@ Key conventions (memorize, they bite):
   ways: casts spawn a quarter-cell down the caster's lane and hits test
   lateral distance vs sub-cell position (kLaneHalfWidth = 0.35 cell) — an
   opposite-quadrant body is flown past. Adding a weapon: weapons.cat
-  damage/speed/skill/stats/reach + `command` (its attack list) + item.<id> lang
-  keys ×5 (armor -> armor.cat with armor/resists; runes/keys/food/etc ->
+  damage/speed/skill/stats/reach + `command` (its attack list) + item.<id> AND
+  item.<id>.desc lang keys ×5 (the .desc is the details dialog's paragraph -
+  ANY new item needs one; armor -> armor.cat with armor/resists; runes/keys/food/etc ->
   items.cat — see the editor palette section for the three-catalog item split);
   a new attack VERB is a Balance-ctor row + attacks.cat entry +
   GameUI kMeleeUses + use.<verb> keys ×5. ENCHANTED weapons: weapons.cat
@@ -973,10 +974,12 @@ HandleInput), a left+right HandSlot (PartyHud.h) pair per member (empty
 boxes with the character's identity stripe; clicking logs "hands are empty"
 until items exist), and a reserved Magic area below.
 
-In the 3D view the mouse does two things (Game::Update, gated by
+In the 3D view the mouse does three things (Game::Update, gated by
 GameUI::HudMouseConsumed so HUD widgets win the click): LEFT-click picks a floor
 tablet up onto the cursor (DungeonWorld::TryPickItem) or drops the held one
-(DropItemAt); holding the RIGHT button and dragging is MOUSE LOOK. The drag adds
+(DropItemAt); a RIGHT-click that never strays past 3px opens the DETAILS of the
+floor item under the press (DungeonWorld::ItemTypeUnder - the same pick without
+the lift); holding the RIGHT button and dragging is MOUSE LOOK. The drag adds
 a yaw/pitch offset on top of the grid facing (Party::AddLook → m_lookYaw/Pitch;
 DungeonWorld::UpdateCamera feeds the camera Party::EyeYaw()/EyePitch(), while
 Yaw()/Facing() stay the grid pose for the HUD/compass). Once the yaw passes 45°
@@ -1697,6 +1700,47 @@ tested; the eval harness only REPORTS). What exists now, and the rules it rests 
 - Console added: `editor drag|fill|rev|tool|issues|cell|pick`, `geomhash`,
   `typeset [rename|delete]`, `worlds new <n> [blank|copy|level <s>|wizard ...]`,
   `worlds tags`, `worlds newdialog ...`.
+
+## Item mouse buttons, status bar, details dialog (ui-updates branch)
+
+Michael's notes and answers: docs/ui-updates-notes.md; the plan: -plan.md.
+- THE ITEM MOUSE MAP, everywhere an item appears (sheet backpack / doll / bag
+  row, HUD hand boxes, the party inventory, floor items): LEFT unchanged (pick
+  up / put down / swap; a HUD hand box still swings), RIGHT = the item's
+  DETAILS, MIDDLE = its USE menu (what right-click used to open). A bare hand has
+  no details but keeps its middle-click menu (punch/kick/quick-cast). Off the
+  hand the menu offers only memorize/eat/drink (`IsOffHandUse`); nothing to
+  offer = no menu and `log.no_use` ("Brand finds no use for that item.").
+  Eating from the pack is new (`GameUI::EatSlot`, allocation-free). An item's
+  place is an `ItemPlace` (PartyHudTypes.h: Doll/Pack/Bag + index), resolved
+  AGAIN at pick time - a slot that changed under an open menu is not acted on.
+  The use-menu code lives in GameUI_Items.cpp (split out of GameUI.cpp).
+- ESC CLOSES A POPUP FIRST (`GameUI::DismissPopup`: the dialog, else an open use
+  menu) before it closes the sheet or pauses. It used to close the SHEET with a
+  menu open, and the stale menu then ate the next click on reopen.
+- STATUS BAR (CharacterSheet_Status.cpp): one line along the sheet's foot naming
+  what the pointer is over, on every tab - an item's name + weight (a bag with
+  its contents; the cursor's item over nothing), an attribute / bar / skill with
+  its `<key>.hint`, a spell or effect with its description. The panel GREW for
+  it: `CharacterSheet::kBodyH / kStatusH` are the split, and every layout
+  fraction resolves against `Body()`, which is also the sheet's ContentRect, so
+  the tabs kept their exact pixels. A body helper that reaches for `Pixel()` is
+  a bug now. `sheet status` prints the bar.
+- DETAILS DIALOG (ItemDetailsDialog.*): the item turning slowly in 3D (a turn per
+  20 s) beside only the lines it has, plus its `item.<id>.desc`. BUILT ONCE (a
+  right-click lands in a guarded frame); Open fills reserved strings and hides
+  absent rows (a Stack skips an invisible row). The data comes through
+  `DungeonWorld::ItemDetailsFor` into the pure `ItemDetails` struct (views, no
+  allocation) and the model through `ItemPreviewForType` into a fixed buffer.
+  Game renders it into the editor's `m_modelPreview` AFTER the scene (the editor
+  dialogs' preview replaces the scene pass; this one must not) and only while no
+  editor preview holds that target. Modal for the mouse, not the keyboard; the
+  world keeps running. Dev: `itemdetails <item [kg]|off|status>`.
+- CHECKED: `AllocTest.ps1 -Sheet` (hover, all tabs, a right-click open, the
+  spin, the menu - inside the window; refuses a PASS with no open counted). It
+  found `ModelPreview::Render` building its light rig every frame, which was
+  harmless while only the editor drew a preview. `uioverlap` covers the dialog
+  (mutation-checked: the old column split's resist line was flagged).
 
 ## Known gaps / natural next steps
 

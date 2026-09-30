@@ -63,7 +63,27 @@ void InventoryWindow::UpdateSelf(ui::UIContext& ctx) {
 	const gfx::Rect panel = PanelRect(ctx);
 	const bool left = input->WasMousePressed(MouseButton::Left);
 	const bool right = input->WasMousePressed(MouseButton::Right);
+	const bool middle = input->WasMousePressed(MouseButton::Middle);
 	const float mx = input->MouseX(), my = input->MouseY();
+
+	// Right = details, middle = use menu, on a non-empty slot. The window stays
+	// open under either, so the item is still there to act on afterwards.
+	if (right || middle) {
+		for (int m = 0; m < MemberCount(); ++m) {
+			const auto& pack =
+				(*m_roster)[static_cast<size_t>(m)].inventory.SelectedContents();
+			for (int i = 0; i < static_cast<int>(pack.size()); ++i) {
+				if (!SlotRect(panel, m, i).Contains(mx, my)) continue;
+				if (!pack[static_cast<size_t>(i)].Empty()) {
+					const auto& fire = right ? onItemDetails : onItemUse;
+					if (fire) fire(static_cast<size_t>(m), i);
+				}
+				ctx.ConsumeMouse();
+				ctx.ConsumeWheel();
+				return;
+			}
+		}
+	}
 
 	if (left) {
 		for (int m = 0; m < MemberCount(); ++m) {

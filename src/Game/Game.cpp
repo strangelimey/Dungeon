@@ -1688,6 +1688,13 @@ void Game::UpdateStates(float dt) {
 		return;
 	}
 
+	// An item's details belong to the page they were opened over. Anything that
+	// takes the game off it - a pause, a wipe to the title, a level load - drops
+	// them, so they are not waiting, invisible and holding the mouse, on return.
+	if (m_ui.ItemDetailsOpen() && m_state != AppState::Playing &&
+		m_state != AppState::CharacterSheet)
+		m_ui.CloseItemDetails();
+
 	switch (m_state) {
 	case AppState::Loading:
 		// No Esc handling at all: ESC NEVER QUITS, in any state (Michael,
@@ -1780,13 +1787,15 @@ void Game::UpdateStates(float dt) {
 		return;
 
 	case AppState::CharacterSheet:
-		// Esc resumes - to wherever the sheet was opened FROM (m_resumeState).
+		// Esc resumes - to wherever the sheet was opened FROM (m_resumeState) -
+		// unless a popup is up over it (an item's details, a use menu), which Esc
+		// closes first.
 		if (input.WasKeyPressed(VK_ESCAPE)) {
 			m_audio.Play(m_sounds.click, 0.5f);
-			m_state = m_resumeState;
+			if (!m_ui.DismissPopup()) m_state = m_resumeState;
 			return;
 		}
-		m_ui.UpdateSheet(input);
+		m_ui.UpdateSheet(input, dt);
 		// NOT A PAUSE (Michael, 2026-09-28: only the pause menu and the editor's
 		// pause button stop the game). Over a level the world goes on - monsters
 		// walk and strike, effects tick, a rest keeps resting - while the INPUT
@@ -2032,6 +2041,7 @@ void Game::UpdateStates(float dt) {
 		m_mapView.Toggle();
 		ShowMapPage(MapPage::Dungeon); // a fresh open shows where you ARE
 		OverlayOpenedThisFrame();      // as the console toggle above
+		m_ui.CloseItemDetails();       // the map takes the mouse and the screen
 	}
 
 	// The editor's pause/play button freezes the world so the level can be
@@ -2139,7 +2149,12 @@ void Game::UpdateStates(float dt) {
 		return;
 	}
 
-	// Esc closes the inventory window first (if open), before it would pause.
+	// Esc closes a popup first (an item's details, a use menu), then the
+	// inventory window, before it would pause.
+	if (input.WasKeyPressed(VK_ESCAPE) && m_ui.DismissPopup()) {
+		m_audio.Play(m_sounds.click, 0.5f);
+		return;
+	}
 	if (m_ui.InventoryOpen() && input.WasKeyPressed(VK_ESCAPE)) {
 		m_ui.CloseInventory();
 		return;
@@ -2194,8 +2209,9 @@ void Game::UpdateStates(float dt) {
 		// the cursor wanders over the HUD.
 		if (input.WasMousePressed(MouseButton::Right)) {
 			m_looking = true;
-			m_lookPrevX = mx;
-			m_lookPrevY = my;
+			m_lookPrevX = m_lookPressX = mx;
+			m_lookPrevY = m_lookPressY = my;
+			m_lookStray = 0.0f;
 			m_world->GetParty().BeginLook();
 		}
 	}
@@ -2209,11 +2225,25 @@ void Game::UpdateStates(float dt) {
 		const float dy = input.MouseY() - m_lookPrevY;
 		m_lookPrevX = input.MouseX();
 		m_lookPrevY = input.MouseY();
+		m_lookStray = std::max(m_lookStray, std::hypot(input.MouseX() - m_lookPressX,
+													   input.MouseY() - m_lookPressY));
 		// Drag right -> view swings right (clockwise); drag down -> look down.
 		m_world->GetParty().AddLook(-dx * k, -dy * k);
 	} else if (m_looking) {
 		m_looking = false;
 		m_world->GetParty().EndLook(); // RMB up: the offset eases back to orthogonal
+		// A press and release that never strayed past a few pixels was a CLICK:
+		// the details of the floor item it landed on (Michael, 2026-09-30 - a
+		// drag stays mouse look). The look it began moved the view by at most
+		// those few pixels, and the pick uses the PRESS point, where the item was.
+		constexpr float kClickSlop = 3.0f;
+		if (m_lookStray <= kClickSlop) {
+			const float w = static_cast<float>(m_window.Width());
+			const float h = static_cast<float>(m_window.Height());
+			if (const std::string* type =
+					m_world->ItemTypeUnder(m_lookPressX, m_lookPressY, w, h))
+				m_ui.ShowItemDetails(*type, m_itemWeights.For(*type));
+		}
 	}
 	m_world->Update(input, wdt, m_time);
 	if (auto t = m_world->ConsumeLevelTransition()) {
@@ -2358,6 +2388,21 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		m_world->UpdateItemIcons(list, m_spriteBatch);
 		m_world->UpdateMapIcons(list, m_spriteBatch);
 	}
+	// The item details dialog's turning model (docs/ui-updates-plan.md P3), drawn
+	// AFTER the scene - the dialog sits over a live world, so unlike the editor
+	// dialogs above it must not replace the scene pass. It borrows the editor's
+	// ModelPreview target, and so only while no editor preview holds it (an
+	// editor dialog and a play dialog are never both up; this makes it certain).
+	if (m_ui.ItemDetailsOpen() && pvSubs.empty() && !pvMesh && !editorMap) {
+		const ItemDetailsDialog& dlg = *m_ui.DetailsDialog();
+		if (!dlg.PreviewSubs().empty()) {
+			const gfx::Rect pv = dlg.PreviewRect();
+			m_modelPreview.Render(list, m_renderer, dlg.PreviewSubs(), 1.0f,
+								  kPi + dlg.Spin(), pv.h > 0.0f ? pv.w / pv.h : 1.0f, {},
+								  nullptr, {}, &dlg.FitMin(), &dlg.FitMax());
+			m_device.BindBackBuffer(list);
+		}
+	}
 	// The asset picker's model tiles bake in the same phase (they need the
 	// command list). Only the DRAW is recorded here — the picker made the mesh
 	// and the target back in Update, because creating a render target drains the
@@ -2424,6 +2469,16 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	}
 	const float dw = static_cast<float>(m_device.Width());
 	const float dh = static_cast<float>(m_device.Height());
+	// The item details dialog, over the HUD or the sheet it was opened from, and
+	// its model blitted into the pane (rendered before the 2D pass, above).
+	if (m_ui.ItemDetailsOpen() &&
+		(m_state == AppState::Playing || m_state == AppState::CharacterSheet)) {
+		m_ui.RenderItemDetails();
+		const ItemDetailsDialog& dlg = *m_ui.DetailsDialog();
+		if (!dlg.PreviewSubs().empty() && !editorMap)
+			m_spriteBatch.DrawSprite(dlg.PreviewRect(), {0, 0, 1, 1}, m_modelPreview.Srv(),
+									 {1, 1, 1, 1});
+	}
 	if (m_assetDialog.IsOpen()) {
 		// The asset dialog overlays the editor; it draws its own frame, then we
 		// blit the rendered preview model into its preview pane.

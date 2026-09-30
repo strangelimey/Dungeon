@@ -1,5 +1,9 @@
 # ui-updates - plan
 
+STATUS (2026-09-30): P1-P6 built; the interpretations below were built as
+written. Waiting on Michael's feel pass. CLAUDE.md "Item mouse buttons, status
+bar, details dialog" is the durable summary.
+
 Built from `docs/ui-updates-notes.md` (Michael's dump + answers, 2026-09-30).
 Three features: a status bar on the character sheet, a new item mouse mapping,
 and an item details dialog with a spinning 3D model.

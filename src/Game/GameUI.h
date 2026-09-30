@@ -18,6 +18,7 @@
 #include "Core/Loc.h"
 #include "Game/Character.h"
 #include "Game/GameSettings.h"
+#include "Game/ItemDetailsDialog.h"
 #include "Game/LoadQueue.h"
 #include "Game/MessageLog.h"
 #include "Game/Party.h"
@@ -78,7 +79,7 @@ public:
 	void UpdateFonts(float dt);
 	void UpdateMenu(const Input& input);  // landing list or settings page
 	void UpdatePause(const Input& input); // pause list or settings page
-	void UpdateSheet(const Input& input);
+	void UpdateSheet(const Input& input, float dt);
 	// dt advances the message footer's fades / expand animation (real frame
 	// time, not world time).
 	void UpdateHud(const Input& input, float dt);
@@ -131,7 +132,31 @@ public:
 	void SetHeldItem(std::optional<std::string>* held) { m_held = held; }
 	// True if a HUD widget consumed the mouse this frame (so the world should not
 	// also treat the click as a pick/drop). Valid after UpdateHud.
-	bool HudMouseConsumed() const { return m_hudUi.IsMouseConsumed(); }
+	// The item details dialog holds the pointer while it is up, so it counts.
+	bool HudMouseConsumed() const {
+		return m_hudUi.IsMouseConsumed() || ItemDetailsOpen();
+	}
+
+	// --- the item details dialog (docs/ui-updates-plan.md P3) ---------------------
+	// Over the HUD or the sheet, wherever the right-click landed. While it is up
+	// UpdateSheet / UpdateHud update IT instead of their own pages (it is modal
+	// for the mouse); Game routes Esc to CloseItemDetails first, and renders its
+	// 3D preview (DetailsDialog()->PreviewSubs) into the pane.
+	// `typeId` weighing `weightKg`: the one opener every right-click goes through
+	// (a floor item has no inventory place, so it comes straight here).
+	void ShowItemDetails(const std::string& typeId, float weightKg);
+	bool ItemDetailsOpen() const { return m_itemDetails && m_itemDetails->IsOpen(); }
+	void CloseItemDetails() {
+		if (m_itemDetails) m_itemDetails->Close();
+	}
+	// Esc's first job over the HUD or the sheet: close whatever popup is up (the
+	// details dialog, else an open use menu). True if it closed something - then
+	// the Esc is spent. Without it an Esc over an open use menu closed the SHEET
+	// and left the menu open, waiting to eat the next click when it reopened.
+	bool DismissPopup();
+	void RenderItemDetails();
+	// (Not `ItemDetails()`: inside the class that name would hide the struct.)
+	ItemDetailsDialog* DetailsDialog() { return m_itemDetails.get(); }
 
 	// Party inventory window (right-click a portrait). Non-modal; Game drives
 	// open/close (and routes Esc to close it before the pause menu). The world
@@ -268,6 +293,13 @@ public:
 	// Returns what it actually RESTORED, so the caller can refuse the action
 	// (and keep the item) when it would do nothing.
 	std::function<resource::Refill(size_t, const std::string&)> onConsume;
+	// The item details dialog's two questions of the world (wired to
+	// DungeonWorld::ItemDetailsFor / ItemPreviewForType): what to say about an
+	// item type (false = no such type), and its 3D preview into a buffer
+	// (returns the submesh count). Neither may allocate.
+	std::function<bool(const std::string&, ItemDetails&)> itemDetails;
+	std::function<size_t(const std::string&, std::span<gfx::PreviewSubmesh>, Vec3&, Vec3&)>
+		itemPreview;
 	// The Options panel's Rest button — wired to DungeonWorld::SetResting.
 	std::function<void()> onToggleRest;
 	std::function<void()> onKeysChanged;        // a movement key was rebound
@@ -374,10 +406,32 @@ private:
 	// of a hand is the character sheet's job (its hand cells keep pick/swap
 	// semantics).
 	void OnHandLeftClick(size_t i, size_t hand);
-	// A right-click on member `i`'s hand `hand`: opens the USE menu (see
-	// OpenHandUseMenu). A left-click on a hand with NO default yet opens the
-	// same menu, so the first click picks what future clicks will do.
+	// A right-click on member `i`'s hand `hand`: the held item's DETAILS
+	// (nothing for a bare hand). docs/ui-updates-plan.md P2.
 	void OnHandRightClick(size_t i, size_t hand);
+	// A middle-click on the hand: its USE menu (see OpenHandUseMenu). A left-click
+	// on a hand with NO default yet opens the same menu, so the first click picks
+	// what future clicks will do.
+	void OnHandMiddleClick(size_t i, size_t hand);
+	// The doll place a hand index (0 left / 1 right) names.
+	static ItemPlace HandPlace(size_t hand);
+	// The item id at `place` in member `i`'s inventory, or null when the place
+	// is empty or out of range.
+	const std::string* ItemAt(size_t i, ItemPlace place) const;
+	// The slot at `place`, for the handlers that consume an item (null for a
+	// bag - a Pack is not an ItemSlot - and for anything out of range).
+	ItemSlot* SlotAt(size_t i, ItemPlace place);
+	// What the item at `place` weighs, a bag with its contents.
+	float ItemWeightAt(size_t i, ItemPlace place) const;
+	// The item mouse buttons' two actions, from wherever the click landed (the
+	// sheet, the HUD, the party inventory): RIGHT = the details dialog, MIDDLE =
+	// the use menu in `menu` - the hand menu for a hand, otherwise the uses that
+	// work off the hand (memorize, eat, drink), or a "finds no use" log line
+	// when there are none.
+	void OpenItemDetails(size_t i, ItemPlace place);
+	void OpenItemUseMenu(size_t i, ItemPlace place, ui::ContextMenu& menu);
+	// Both context menus' onPick: dispatches on what the open menu was for.
+	void OnUseMenuPick(int id);
 	// The hand's USE menu: the item's data-driven command entries, and — when
 	// the hand has no defaultable item command (bare hand, rune, key) — the
 	// grouped default pickers: Combat > Punch/Kick and Magic > the member's
@@ -385,8 +439,9 @@ private:
 	// Selecting an entry records it as the member's default for that item type
 	// ("unarmed" for a bare hand) and, per GameSettings::useMenuExecutes,
 	// performs it. A last Clear row (only while the hand is SET) forgets the
-	// pick, so the hand is unset again.
-	void OpenHandUseMenu(size_t i, size_t hand);
+	// pick, so the hand is unset again. `menu` is the context the click landed
+	// in (the HUD's, or the sheet's for a doll hand cell).
+	void OpenHandUseMenu(size_t i, size_t hand, ui::ContextMenu& menu);
 	// The hand menu's onPick: decodes a row id (the kUse* ranges in GameUI.cpp)
 	// against what the menu was opened for (m_handMenuMember/Hand/Item).
 	void OnHandMenuPick(int id);
@@ -430,11 +485,11 @@ private:
 	// The shared memorize: learns `slot`'s rune symbol and consumes the tablet
 	// — a rune memorizes from WHEREVER it sits (hand or backpack).
 	void MemorizeSlot(size_t i, ItemSlot& slot);
-	// Right-clicked backpack slot `slot` on the open sheet: pop the item's use
-	// menu in the SHEET's context (a rune offers Memorize).
-	void OpenPackUseMenu(int slot);
-	// Eats the food in member `i`'s hand: restores some stamina, consumes it.
+	// Eats (or drinks) the item in member `i`'s hand / in `slot`, wherever it
+	// sits: the world restores what it restores and the item is consumed, or it
+	// is refused with a line when it would restore nothing.
 	void EatFromHand(size_t i, size_t hand);
+	void EatSlot(size_t i, ItemSlot& slot);
 	bool Holding() const { return m_held && m_held->has_value(); }
 
 	// Live window/device dimensions as floats (the UI authors in floats and
@@ -541,19 +596,25 @@ private:
 	// it when a quality change resets the light budget.
 	ui::DropDown* m_maxLightsDrop = nullptr;
 
-	// HUD right-click context menu (hand-slot item actions, e.g. Memorize).
-	// Reused: GameUI opens it with the actions for whatever was right-clicked.
+	// HUD use menu (a hand box's uses, a party-inventory item's), opened by the
+	// middle button. Reused: GameUI fills it for whatever was clicked.
 	ui::ContextMenu* m_handMenu = nullptr;
-	// What the open hand menu is FOR, read back by OnHandMenuPick: a menu row
-	// carries only an int id (ui::ContextMenu is allocation-free). The item id
-	// is assign()ed, so it keeps its capacity across opens.
+	// What the open use menu is FOR, read back by OnUseMenuPick: a menu row
+	// carries only an int id (ui::ContextMenu is allocation-free). A HAND menu
+	// (member + hand) or a SLOT menu (member + place); either way the item id
+	// it was opened on, assign()ed so it keeps its capacity across opens.
+	enum class UseMenuFor { Hand, Slot };
+	UseMenuFor m_useMenuFor = UseMenuFor::Hand;
 	size_t m_handMenuMember = 0;
 	size_t m_handMenuHand = 0;
+	ItemPlace m_useMenuPlace;
 	std::string m_handMenuItem;
-	// The SHEET's own context menu (backpack-slot actions — the sheet freezes
-	// the HUD, so m_handMenu can't serve it).
+	// The SHEET's own context menu (the sheet hides the HUD, so m_handMenu
+	// can't serve it) - the same menus, in the sheet's context.
 	ui::ContextMenu* m_sheetMenu = nullptr;
-	int m_packMenuSlot = -1; // the pack slot the sheet menu was opened on
+	// The item details dialog: built once in BuildStaticUi (a right-click in a
+	// guarded frame must not build a widget tree), rebuilt on a language switch.
+	std::unique_ptr<ItemDetailsDialog> m_itemDetails;
 	// Party inventory window (owned by m_hudUi); opened on right-click-while-holding.
 	InventoryWindow* m_inventory = nullptr;
 	// The Magic-area spellbook (owned by m_hudUi): opened from a hand's use

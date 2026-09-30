@@ -15,9 +15,10 @@ namespace dungeon::game {
 HandSlot::HandSlot(const gfx::Rect& rect, const std::vector<Character>* roster,
 				   size_t member, int hand,
 				   const ItemIconBank* icons, std::function<void()> onLeft,
-				   std::function<void()> onRight)
+				   std::function<void()> onRight, std::function<void()> onMiddle)
 	: m_roster(roster), m_member(member), m_hand(hand), m_icons(icons),
-	  m_onLeft(std::move(onLeft)), m_onRight(std::move(onRight)) {
+	  m_onLeft(std::move(onLeft)), m_onRight(std::move(onRight)),
+	  m_onMiddle(std::move(onMiddle)) {
 	bounds = rect;
 }
 
@@ -31,6 +32,7 @@ void HandSlot::UpdateSelf(ui::UIContext& ctx) {
 	if (m_hot) {
 		if (input->WasMousePressed(MouseButton::Left)) m_held = true;
 		if (input->WasMousePressed(MouseButton::Right)) m_heldRight = true;
+		if (input->WasMousePressed(MouseButton::Middle)) m_heldMiddle = true;
 		ctx.ConsumeMouse();
 	}
 	if (m_held && input->WasMouseReleased(MouseButton::Left)) {
@@ -40,6 +42,10 @@ void HandSlot::UpdateSelf(ui::UIContext& ctx) {
 	if (m_heldRight && input->WasMouseReleased(MouseButton::Right)) {
 		if (m_hot && m_onRight) m_onRight();
 		m_heldRight = false;
+	}
+	if (m_heldMiddle && input->WasMouseReleased(MouseButton::Middle)) {
+		if (m_hot && m_onMiddle) m_onMiddle();
+		m_heldMiddle = false;
 	}
 }
 

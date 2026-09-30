@@ -120,6 +120,9 @@ HandPair::HandPair(const gfx::Rect& rect, size_t member,
 			},
 			[onRight = deps.onHandRight, member, hand] {
 				onRight(member, static_cast<size_t>(hand));
+			},
+			[onMiddle = deps.onHandMiddle, member, hand] {
+				if (onMiddle) onMiddle(member, static_cast<size_t>(hand));
 			});
 		if (deps.handSetUse)
 			slot->setUse = [setUse = deps.handSetUse, member, hand] {

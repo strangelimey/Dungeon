@@ -188,18 +188,36 @@ void CharacterSheet::UpdateInventory(ui::UIContext& ctx, const gfx::Rect& px,
 				return;
 			}
 	}
-	// A RIGHT-click on a non-empty backpack slot opens its use menu.
+	// RIGHT = the item's details, MIDDLE = its use menu, on whatever non-empty
+	// thing the pointer is over (TrackInventoryHover has already said which).
+	// Nothing happens over an empty slot - no item to describe or use - except
+	// a middle-click on an empty hand (below).
 	const Input* input = ctx.CurrentInput();
-	if (input && !ctx.IsMouseConsumed() &&
-		input->WasMousePressed(MouseButton::Right)) {
-		const auto& pack = m_character->inventory.SelectedContents();
-		for (int i = 0; i < static_cast<int>(pack.size()); ++i)
-			if (PackRect(px, i).Contains(mx, my) &&
-				!pack[static_cast<size_t>(i)].Empty()) {
-				if (onSlotMenu) onSlotMenu(i);
-				break;
-			}
+	if (!input || ctx.IsMouseConsumed()) return;
+	const bool right = input->WasMousePressed(MouseButton::Right);
+	const bool middle = input->WasMousePressed(MouseButton::Middle);
+	if (!right && !middle) return;
+	const Inventory& inv = m_character->inventory;
+	ItemPlace place;
+	bool hit = false;
+	if (m_hoverDoll >= 0) {
+		const EquipSlot slot = kDollCells[m_hoverDoll].slot;
+		place = {ItemPlace::Kind::Doll, static_cast<int>(slot)};
+		// An EMPTY hand still has a use menu (punch, kick, its quick-cast
+		// spells), exactly as the HUD's hand box does.
+		const bool hand = slot == EquipSlot::LeftHand || slot == EquipSlot::RightHand;
+		hit = !inv.equipment[static_cast<size_t>(slot)].Empty() || (middle && hand);
+	} else if (m_hoverPack >= 0) {
+		place = {ItemPlace::Kind::Pack, m_hoverPack};
+		hit = m_hoverPack < static_cast<int>(inv.SelectedContents().size()) &&
+			  !inv.SelectedContents()[static_cast<size_t>(m_hoverPack)].Empty();
+	} else if (m_hoverPackRow >= 0) {
+		place = {ItemPlace::Kind::Bag, m_hoverPackRow};
+		hit = !inv.packs[static_cast<size_t>(m_hoverPackRow)].Empty();
 	}
+	if (!hit) return;
+	if (right && onItemDetails) onItemDetails(place);
+	else if (middle && onItemUse) onItemUse(place);
 }
 
 void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,

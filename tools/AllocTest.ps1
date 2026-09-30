@@ -13,6 +13,7 @@
 #   .\tools\AllocTest.ps1 -Cast              # a bolt in flight + an open spellbook
 #   .\tools\AllocTest.ps1 -Impact            # bolts landing, expiring, a blast
 #   .\tools\AllocTest.ps1 -Pause             # Esc to the pause menu and back
+#   .\tools\AllocTest.ps1 -Sheet             # the sheet: hover, tabs, item dialog
 #   .\tools\AllocTest.ps1 -Config release    # needs -DDN_TRACK_ALLOCS=ON
 #
 # THE RULE HAS NO EXCEPTIONS: an allocation in a settled frame is a bug, and
@@ -112,6 +113,20 @@
 # one such transition (`transitions=`), since a swallowed Esc would otherwise
 # report exactly like a clean run.
 #
+# -Sheet IS THE CHARACTER SHEET'S TURN (docs/ui-updates-plan.md). The sheet is a
+# guarded state, and since ui-updates it does things every frame the pointer
+# moves: the status bar names whatever is under it, on every tab. A right-click
+# opens the item details dialog - IN an armed frame, which is why that dialog is
+# built once rather than per open - and it spins a 3D model every frame it is
+# up; a middle-click opens the use menu. None of it ran in any window before.
+# This opens the sheet, warms the dialog up once through `itemdetails` (a first
+# open bakes its fonts, which is a first time for the process, not a steady
+# cost), then during the window hovers two slots, pages through all five tabs,
+# right-clicks an item, lets the model turn, Escs, middle-clicks a rune and Escs
+# again - three times. It refuses a PASS unless `itemdetails status` counts
+# opens made during the window, since a missed click reports exactly like a
+# clean run.
+#
 # Every step is driven by what the log actually says rather than by sleeps, so
 # a slow cold-cache load stretches the wait instead of failing the run.
 #
@@ -152,6 +167,8 @@ param(
 	[double]$ImpactEvery = 0.4,
 	# Pauses (Esc) and resumes inside the window. See the note above.
 	[switch]$Pause,
+	# Works the character sheet inside the window. See the note above.
+	[switch]$Sheet,
 	# Checks the CHECKER: makes the game allocate every frame on purpose
 	# (`allocpoke`) and passes only if the run comes back FAIL.
 	[switch]$SelfTest
@@ -180,8 +197,37 @@ using System;
 using System.Runtime.InteropServices;
 public class AllocTestWin {
 	[DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
+	[DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr h, out RECT r);
+	public struct RECT { public int Left, Top, Right, Bottom; }
 }
 '@
+
+# A mouse message at client pixel (x, y): WM_MOUSEMOVE first, so the game's
+# pointer is where the button lands, then the down/up pair (none for a hover).
+function Send-Mouse([int]$x, [int]$y, [uint32]$down = 0, [uint32]$up = 0, [int]$wparam = 0) {
+	$l = [IntPtr](($y -shl 16) -bor ($x -band 0xFFFF))
+	[AllocTestWin]::PostMessage($hwnd, 0x200, [IntPtr]0, $l) | Out-Null
+	Start-Sleep -Milliseconds 150
+	if ($down -ne 0) {
+		[AllocTestWin]::PostMessage($hwnd, $down, [IntPtr]$wparam, $l) | Out-Null
+		Start-Sleep -Milliseconds 60
+		[AllocTestWin]::PostMessage($hwnd, $up, [IntPtr]0, $l) | Out-Null
+		Start-Sleep -Milliseconds 250
+	}
+}
+
+# `itemdetails status`'s open count (needs logecho on and the console open).
+function Get-DetailOpens {
+	$before = @(Select-String -Path $log -Pattern 'item details: .* opens=').Count
+	Send-Text 'itemdetails status'; Send-Key 0x0D
+	$deadline = (Get-Date).AddSeconds(5)
+	while ((Get-Date) -lt $deadline) {
+		$lines = @(Select-String -Path $log -Pattern 'item details: .* opens=(\d+)')
+		if ($lines.Count -gt $before) { return [int]$lines[-1].Matches[0].Groups[1].Value }
+		Start-Sleep -Milliseconds 200
+	}
+	throw 'the console never answered `itemdetails status`'
+}
 
 # Waits for a pattern to appear in the log, returning the matching line.
 function Wait-ForLog([string]$pattern, [int]$timeoutSec, [string]$what) {
@@ -543,6 +589,37 @@ try {
 		Start-Sleep -Milliseconds 400
 	}
 
+	if ($Sheet) {
+		Write-Host 'opening the sheet with a rune and a blade in the pack'
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		# A new party's pack holds three pieces of armour (slots 0-2), so these
+		# land in slots 3 and 4 - the cells the clicks below aim at.
+		Send-Text 'give rune_fire 0'; Send-Key 0x0D
+		Send-Text 'give flamebrand 0'; Send-Key 0x0D
+		Send-Text 'sheet 0'; Send-Key 0x0D
+		# WARM-UP: one open of the dialog, and a moment for it to draw, bakes its
+		# fonts and glyphs - a first time for the process, outside the window.
+		Send-Text 'itemdetails flamebrand 1.4'; Send-Key 0x0D
+		Start-Sleep -Seconds 1
+		Send-Text 'itemdetails off'; Send-Key 0x0D
+		$script:opensBefore = Get-DetailOpens
+		if ($script:opensBefore -le 0) { throw 'the warm-up never opened the item details dialog' }
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0 # close the console again; alloctest reopens it below
+		Start-Sleep -Milliseconds 400
+		if (-not (Select-String -Path $log -Pattern 'console: sheet open: ' -Quiet)) {
+			throw 'the sheet did not open'
+		}
+		# Where the two cells are, from the window's own size (the sheet lays out
+		# in fractions of it): backpack slots 3 and 4 of the default layout.
+		$rc = New-Object AllocTestWin+RECT
+		[AllocTestWin]::GetClientRect($hwnd, [ref]$rc) | Out-Null
+		$script:runeX = [int]($rc.Right * 0.6675); $script:bladeX = [int]($rc.Right * 0.72)
+		$script:slotY = [int]($rc.Bottom * 0.5033)
+	}
+
 	if ($SelfTest) {
 		Write-Host 'self-test: arming allocpoke, expecting the run to FAIL'
 		Send-Key 0xC0
@@ -569,6 +646,26 @@ try {
 			Send-Key 0x1B # pause
 			Start-Sleep -Seconds 1
 			Send-Key 0x1B # and resume
+		}
+	}
+
+	# -Sheet: work the sheet while the window runs. The first wait clears the
+	# console close plus the guard's 120-frame warm-up, so the clicks land in
+	# ARMED frames. Esc closes whichever popup is up (the dialog, the menu) -
+	# never the sheet, which only closes on an Esc with nothing open.
+	if ($Sheet) {
+		for ($cycle = 1; $cycle -le 3; $cycle++) {
+			Start-Sleep -Seconds 3
+			if (Select-String -Path $log -Pattern 'alloctest RESULT=' -Quiet) { break }
+			Send-Mouse $script:runeX $script:slotY  # hover: the status bar names it
+			Send-Mouse $script:bladeX $script:slotY
+			for ($t = 0; $t -lt 5; $t++) { Send-Key 0x09 } # all five tabs, round to Inventory
+			Send-Mouse $script:bladeX $script:slotY 0x204 0x205 2 # right: details
+			Start-Sleep -Seconds 2                                 # the model turns
+			Send-Key 0x1B
+			Send-Mouse $script:runeX $script:slotY 0x207 0x208 0x10 # middle: use menu
+			Start-Sleep -Milliseconds 500
+			Send-Key 0x1B
 		}
 	}
 
@@ -620,6 +717,22 @@ try {
 		Write-Host "  transitions inside the window: $transitions"
 		if ($transitions -le 0 -and $result -eq 'PASS') {
 			Write-Host 'no Esc landed in an armed frame - the pause transition was not measured' -ForegroundColor Yellow
+			$result = 'UNMEASURED'
+		}
+	}
+
+	# And for -Sheet: no new open of the dialog means the right-click missed (or
+	# landed outside the window), and the open path was not measured.
+	if ($Sheet) {
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		$opens = (Get-DetailOpens) - $script:opensBefore
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0
+		Write-Host "  item details opened by a right-click: $opens"
+		if ($opens -le 0 -and $result -eq 'PASS') {
+			Write-Host 'no right-click opened the dialog - the open path was not measured' -ForegroundColor Yellow
 			$result = 'UNMEASURED'
 		}
 	}

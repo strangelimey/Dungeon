@@ -76,6 +76,7 @@ private:
 	ComPtr<ID3D12DescriptorHeap> m_rtvHeap;
 	ComPtr<ID3D12DescriptorHeap> m_dsvHeap;
 	SrvHandle m_srv;
+	LightSet m_lights; // the fixed studio rig, built once (see the constructor)
 };
 
 } // namespace dungeon::gfx

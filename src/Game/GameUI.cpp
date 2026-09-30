@@ -61,51 +61,6 @@ constexpr float kSavesBackY = 0.85f;
 // (see Widget.h). Layouts are authored directly in those fractions — never
 // design pixels, never a post-hoc Norm() conversion.
 
-// Hand-use command ids that resolve to a melee swing: the verb IS the attack
-// (Balance's closed attack table: damage type + numbers), the strike is the
-// one shared PartyAttack path. A new weapon verb is data (items.cat
-// `command`) + an AttackSpec row in Balance + a row here + a use.<verb> lang
-// key.
-constexpr std::string_view kMeleeUses[] = {
-	"punch", "kick", "stab",  "slash", "chop",  "bash",
-	"swing", "jab",  "thrust", "hack", "melee"};
-bool IsMeleeUse(std::string_view cmd) {
-	return std::ranges::find(kMeleeUses, cmd) != std::ranges::end(kMeleeUses);
-}
-// The bare hand's combat verbs — the "Combat" group of the default-picker
-// menu, and always-valid defaults regardless of what the hand holds.
-constexpr std::string_view kUnarmedUses[] = {"punch", "kick"};
-// A spell default is stored as "cast:<spells.cat id>" so it rides the same
-// per-item-type default map (and save lines) as the weapon verbs.
-constexpr std::string_view kCastPrefix = "cast:";
-bool IsCastUse(std::string_view cmd) { return cmd.starts_with(kCastPrefix); }
-// Commands that never become a left-click default — one-shot consuming actions
-// (memorize destroys the tablet) picked deliberately from the menu each time.
-bool IsMenuOnlyUse(std::string_view cmd) { return cmd == "memorize"; }
-// True if ExecuteUse can dispatch this id — unknown ids (a catalog typo) get
-// no menu entry rather than a dead one.
-bool IsExecutableUse(std::string_view cmd) {
-	return cmd == "eat" || cmd == "drink" || cmd == "memorize" ||
-		   IsMeleeUse(cmd) || IsCastUse(cmd);
-}
-// The useDefaults key a hand's contents map to ("unarmed" for a bare hand —
-// item ids are catalog tokens, so the sentinel can never collide). A view, so
-// a lookup builds no string.
-std::string_view UseKey(std::string_view itemId) {
-	return itemId.empty() ? std::string_view("unarmed") : itemId;
-}
-// What a bare hand (or an unwired itemCommands) offers.
-const std::vector<std::string> kNoCommands;
-
-// The hand menu's row ids (ui::ContextMenu rows carry an int, not a closure):
-// the range names the kind of use, the offset indexes that kind's own list.
-constexpr int kUseItemCmd = 0;    // + index into the item's commands
-constexpr int kUseUnarmed = 1000; // + index into kUnarmedUses
-constexpr int kUseSpell = 2000;   // + index into spellDefs()
-constexpr int kUseClear = 3000;   // forget this hand's pick (checked FIRST)
-// The most quick-cast spells the Magic group lists (spellMruCount's clamp).
-constexpr size_t kMaxMenuSpells = 10;
-
 // --- the HUD's vertical bands, as window fractions ---------------------------
 // Shared because two places need the same numbers: BuildHud authors the
 // below-bar container with them, and ApplyPartyBarScale re-derives its position
@@ -183,6 +138,10 @@ void GameUI::BuildStaticUi() {
 	BuildMenu();
 	BuildPauseMenu();
 	BuildCharacterSheet();
+	// The item details dialog, built whole now so a right-click only fills it.
+	m_itemDetails = std::make_unique<ItemDetailsDialog>(m_device, m_fonts);
+	ApplyTheme(); // again, now the dialog exists to receive it (the skin
+				  // arrives with LoadTitleArt, whose ApplySkin reaches it too)
 }
 
 void GameUI::LoadTitleArt() {
@@ -226,6 +185,7 @@ void GameUI::ApplyTheme() {
 		 {&m_hudUi, &m_menuUi, &m_settingsUi, &m_pauseUi, &m_savesUi, &m_sheetUi,
 		  &m_confirmUi})
 		ctx->SetTheme(m_settings.theme);
+	if (m_itemDetails) m_itemDetails->UI().SetTheme(m_settings.theme);
 }
 
 void GameUI::ApplySkin() {
@@ -234,6 +194,7 @@ void GameUI::ApplySkin() {
 		 {&m_hudUi, &m_menuUi, &m_settingsUi, &m_pauseUi, &m_savesUi, &m_sheetUi,
 		  &m_confirmUi})
 		ctx->SetSkin(skin);
+	if (m_itemDetails) m_itemDetails->UI().SetSkin(skin);
 }
 
 void GameUI::Click(float volume) { m_audio.Play(m_sounds.click, volume); }
@@ -292,330 +253,6 @@ void GameUI::OnPortraitEffects(size_t i) {
 	if (i >= m_characters.size()) return;
 	onOpenSheet(i);
 	m_sheet->SetMode(CharacterSheet::Mode::Effects);
-}
-
-void GameUI::OnHandLeftClick(size_t i, size_t hand) {
-	if (i >= m_characters.size() || hand > 1) return;
-	ItemSlot& slot = m_characters[i].inventory.Hand(static_cast<int>(hand));
-	if (Holding()) {
-		// Place the carried item in this hand, swapping any occupant onto the
-		// cursor (a click never silently destroys an item) — but only holdable
-		// items enter a hand; anything else stays on the cursor with a log line.
-		if (!m_itemCategories || !m_itemCategories->Holdable(**m_held)) {
-			AddLogLine(loc::FormatLine("log.cant_hold",
-									   loc::View(std::format("item.{}", **m_held))));
-			return;
-		}
-		std::string incoming = **m_held;
-		if (slot.Empty()) m_held->reset();
-		else *m_held = slot.typeId;
-		slot.typeId = std::move(incoming);
-		Click();
-		return;
-	}
-	// Empty cursor: the control-bar hand is an ACTION button — it executes the
-	// hand's default use. Picking the item UP is the character sheet's job (its
-	// hand cells keep the pick/swap semantics), so a swing can't be fumbled into
-	// an accidental unequip mid-fight. An UNSET hand performs the item's own
-	// first command without recording it (DefaultUseFor); only a hand with
-	// nothing to do at all (bare hand, rune, key) opens the use menu, so that
-	// first click PICKS what future clicks will do.
-	const std::string_view cmd = DefaultUseFor(m_characters[i], hand, slot.typeId);
-	if (cmd.empty()) {
-		OpenHandUseMenu(i, hand);
-		return;
-	}
-	ExecuteUse(i, hand, cmd);
-}
-
-void GameUI::OnHandRightClick(size_t i, size_t hand) {
-	OpenHandUseMenu(i, hand);
-}
-
-const std::vector<std::string>& GameUI::CommandsFor(const std::string& itemId) const {
-	if (itemId.empty() || !itemCommands) return kNoCommands;
-	return itemCommands(itemId);
-}
-
-// Builds the menu without allocating (ui::ContextMenu's contract): labels are
-// loc views copied into the menu's inline rows, and each row's id says which
-// use it is (the kUse* ranges), decoded by OnHandMenuPick against the member,
-// hand and item recorded here.
-void GameUI::OpenHandUseMenu(size_t i, size_t hand) {
-	if (i >= m_characters.size() || hand > 1 || !m_handMenu) return;
-	const Character& c = m_characters[i];
-	m_handMenuMember = i;
-	m_handMenuHand = hand;
-	m_handMenuItem.assign(c.inventory.Hand(static_cast<int>(hand)).typeId);
-	ui::ContextMenu& menu = *m_handMenu;
-	menu.Begin(m_hudMouseX, m_hudMouseY);
-	// The item's own command entries (ItemKind::commands, supplied by Game).
-	// Labels come from the use.<cmd> lang keys; an id ExecuteUse can't dispatch
-	// (catalog typo) gets no entry, so adding a verb is data + one case there.
-	const std::vector<std::string>& cmds = CommandsFor(m_handMenuItem);
-	bool anyItemCmd = false;
-	for (size_t k = 0; k < cmds.size(); ++k) {
-		if (!IsExecutableUse(cmds[k])) continue;
-		menu.Add(loc::ViewKey("use.", cmds[k]), kUseItemCmd + static_cast<int>(k));
-		anyItemCmd = true;
-	}
-	// An item that offers ANY command of its own — even a menu-only one like
-	// a rune's Memorize — shows just those (Michael, 2026-07-07: a rune's
-	// menu is Memorize alone). Only a hand with NOTHING to offer (bare hand,
-	// key) gets the grouped default pickers as CASCADING groups — the
-	// ContextMenu keeps the first tier visible beside an open submenu, so
-	// Combat and Magic stay in reach while browsing either: Combat > the
-	// unarmed verbs, Magic > this hand's quick-cast spells. The Magic group
-	// is the MRU list alone now — the spellbook lives in the Magic area's
-	// member selector, not the menu (Michael, 2026-07-10) — and when it is
-	// EMPTY there is nothing to group against, so the Combat tier is skipped
-	// and the unarmed verbs sit at the top level (one less click).
-	if (!anyItemCmd) {
-		// THIS hand's recency list - each hand keeps its own repertoire. Resolved
-		// to registry indices FIRST, since whether the verbs group under Combat
-		// depends on whether any spell survives, and rows are added in order.
-		std::array<size_t, kMaxMenuSpells> spells{};
-		size_t spellCount = 0;
-		const auto defs =
-			spellDefs ? spellDefs() : std::span<const std::unique_ptr<Spell>>{};
-		const size_t limit = std::min(
-			kMaxMenuSpells, static_cast<size_t>(std::max(0, m_settings.spellMruCount)));
-		const SpellIdList& mru = c.spellMru[hand];
-		for (size_t k = 0; k < mru.Size(); ++k) {
-			const std::string_view id = mru[k];
-			if (spellCount >= limit) break;
-			// Skip ids the registry no longer carries (the MRU is state,
-			// the spell classes are code — they can drift across edits).
-			for (size_t d = 0; d < defs.size(); ++d)
-				if (defs[d]->Id() == id) {
-					spells[spellCount++] = d;
-					break;
-				}
-		}
-		const bool hasMagic = spellCount > 0;
-		const int combat = hasMagic ? menu.AddGroup(loc::View("menu.combat"))
-									: ui::ContextMenu::kTopLevel;
-		for (size_t k = 0; k < std::size(kUnarmedUses); ++k)
-			menu.Add(loc::ViewKey("use.", kUnarmedUses[k]),
-					 kUseUnarmed + static_cast<int>(k), combat);
-		if (hasMagic) {
-			const int magic = menu.AddGroup(loc::View("menu.magic"));
-			for (size_t s = 0; s < spellCount; ++s)
-				menu.Add(loc::View(defs[spells[s]]->NameKey()),
-						 kUseSpell + static_cast<int>(spells[s]), magic);
-		}
-	}
-	// Clear, LAST: takes this hand back to unset. Offered only while the hand
-	// is SET (Michael, 2026-09-28) - the item's own first command is not a pick,
-	// and a stale pick already reads as unset, so neither gets the row.
-	if (!SetUseFor(c, hand, m_handMenuItem).empty())
-		menu.Add(loc::View("use.clear"), kUseClear);
-	menu.Show(); // nothing actionable = no rows, so no empty menu pops
-}
-
-void GameUI::OnHandMenuPick(int id) {
-	const size_t i = m_handMenuMember;
-	const size_t hand = m_handMenuHand;
-	if (id == kUseClear) {
-		if (i >= m_characters.size() || hand > 1) return;
-		m_characters[i].useDefaults[hand].Remove(UseKey(m_handMenuItem));
-		Click();
-	} else if (id >= kUseSpell) {
-		if (!spellDefs) return;
-		const auto defs = spellDefs();
-		const size_t k = static_cast<size_t>(id - kUseSpell);
-		if (k >= defs.size()) return;
-		// "cast:<id>", assembled on the stack (the recorded default's format).
-		char buf[64];
-		const std::string_view spell = defs[k]->Id();
-		const size_t n = std::min(spell.size(), sizeof(buf) - kCastPrefix.size());
-		std::copy(kCastPrefix.begin(), kCastPrefix.end(), buf);
-		std::copy_n(spell.data(), n, buf + kCastPrefix.size());
-		SelectUse(i, hand, m_handMenuItem, {buf, kCastPrefix.size() + n});
-	} else if (id >= kUseUnarmed) {
-		const size_t k = static_cast<size_t>(id - kUseUnarmed);
-		if (k < std::size(kUnarmedUses)) SelectUse(i, hand, m_handMenuItem, kUnarmedUses[k]);
-	} else {
-		const std::vector<std::string>& cmds = CommandsFor(m_handMenuItem);
-		const size_t k = static_cast<size_t>(id - kUseItemCmd);
-		if (k < cmds.size()) SelectUse(i, hand, m_handMenuItem, cmds[k]);
-	}
-}
-
-void GameUI::SelectUse(size_t i, size_t hand, std::string_view itemId,
-					   std::string_view cmd) {
-	if (i >= m_characters.size() || hand > 1) return;
-	const bool menuOnly = IsMenuOnlyUse(cmd);
-	// The pick becomes this member's default for THIS HAND and the item TYPE
-	// (so every khukri in that hand chops until they choose otherwise; a
-	// bare-hand pick records under the "unarmed" key) — the other hand keeps
-	// its own pick, so left can be one spell and right another. Menu-only
-	// commands are deliberate one-shots — never recorded.
-	// UseDefaults stores the text inline, so recording allocates nothing.
-	if (!menuOnly) m_characters[i].useDefaults[hand].Set(UseKey(itemId), cmd);
-	// Menu-only commands always perform; a defaultable pick performs per the
-	// Controls setting (off = the menu only arms the default).
-	if (menuOnly || m_settings.useMenuExecutes) ExecuteUse(i, hand, cmd);
-}
-
-void GameUI::ExecuteUse(size_t i, size_t hand, std::string_view cmd) {
-	if (i >= m_characters.size() || hand > 1 || cmd.empty()) return;
-	if (cmd == "memorize") {
-		MemorizeFromHand(i, hand);
-	} else if (cmd == "eat" || cmd == "drink") {
-		// ONE handler for both verbs. An apple feeds AND waters a little, so
-		// splitting by verb would have meant writing the other half twice; the
-		// item's `nutrition`/`hydration` say what it does and the verb only says
-		// how it reads in the menu.
-		EatFromHand(i, hand);
-	} else if (IsCastUse(cmd)) {
-		// A "cast:<id>" default: the world's cast façade gates vocabulary and
-		// mana and turns the outcome into log + sound; the firing hand's
-		// quick-cast MRU is credited.
-		if (onCastSpell) onCastSpell(i, cmd.substr(kCastPrefix.size()), hand);
-	} else if (IsMeleeUse(cmd)) {
-		// Every melee verb lands through the one strike path; the verb IS the
-		// attack (damage type + numbers, Balance::FindAttack). Cooldown gating
-		// and the alive-check live in DungeonWorld::PartyAttack.
-		if (onHandAttack) onHandAttack(i, hand, cmd);
-	}
-	// Unknown id: a catalog typo — the menu never offered it; a stale saved
-	// default falls through DefaultUseFor instead. Nothing to do.
-}
-
-std::string_view GameUI::SetUseFor(const Character& c, size_t hand,
-								  const std::string& itemId) const {
-	if (hand > 1) return {};
-	// The pick must still be valid - the catalog may have changed since the save
-	// was written, and a "cast:" default needs the member to know the spell (a
-	// loaded save's defaults must not outrun its vocabulary). A stale pick reads
-	// as unset.
-	const std::string_view picked = c.useDefaults[hand].Find(UseKey(itemId));
-	if (!picked.empty() && UseValidFor(c, CommandsFor(itemId), picked)) return picked;
-	return {};
-}
-
-// Every frame, per hand box: views, a registry scan and an inline loc::Line -
-// nothing on the heap.
-HandSetUse GameUI::HandSetUseFor(size_t i, size_t hand) const {
-	if (i >= m_characters.size() || hand > 1) return {};
-	const Character& c = m_characters[i];
-	const std::string_view set =
-		SetUseFor(c, hand, c.inventory.Hand(static_cast<int>(hand)).typeId);
-	if (set.empty()) return {};
-	HandSetUse use;
-	use.set = true;
-	if (IsCastUse(set)) {
-		// SetUseFor only returns a cast whose spell is in the registry.
-		const std::string_view id = set.substr(kCastPrefix.size());
-		if (spellDefs)
-			for (const auto& def : spellDefs())
-				if (def->Id() == id) {
-					use.spell = def.get();
-					use.label = loc::View(def->NameKey());
-					break;
-				}
-	} else {
-		// The same text the use menu's row showed (use.<verb>).
-		use.label = loc::ViewKey("use.", set);
-		// Whether it has a picture is the hand box's lookup (ui/use_<verb>.png).
-		use.verb = set;
-	}
-	return use;
-}
-
-std::string_view GameUI::DefaultUseFor(const Character& c, size_t hand,
-								  const std::string& itemId) const {
-	if (hand > 1) return {};
-	// SET and DEFAULT are two things (Michael, 2026-09-28). A hand is SET only
-	// once the player picks a use from its menu, and only a set hand is shown
-	// as set or can be cleared. An UNSET hand still does something on a left
-	// click: the item's own first defaultable command, performed WITHOUT being
-	// recorded, so the hand stays unset (a rune's only command is the
-	// menu-only memorize, so it yields "" - a left-click can't eat a tablet).
-	if (const std::string_view set = SetUseFor(c, hand, itemId); !set.empty()) return set;
-	for (const std::string& cmd : CommandsFor(itemId))
-		if (!IsMenuOnlyUse(cmd) && IsExecutableUse(cmd)) return cmd;
-	return {}; // nothing to do - the left-click opens the use menu to pick one
-}
-
-bool GameUI::UseValidFor(const Character& c, const std::vector<std::string>& cmds,
-						 std::string_view cmd) const {
-	if (IsMenuOnlyUse(cmd) || !IsExecutableUse(cmd)) return false;
-	if (IsCastUse(cmd)) {
-		const std::string_view id = cmd.substr(kCastPrefix.size());
-		if (!spellDefs) return false;
-		for (const auto& def : spellDefs())
-			if (def->Id() == id) return c.HasLearnedSpell(def->Id());
-		return false; // spell gone from the registry
-	}
-	if (std::ranges::find(cmds, cmd) != cmds.end()) return true;
-	// The bare-hand combat verbs are pickable for any hand contents.
-	return std::ranges::find(kUnarmedUses, cmd) != std::ranges::end(kUnarmedUses);
-}
-
-void GameUI::MemorizeFromHand(size_t i, size_t hand) {
-	if (i >= m_characters.size() || hand > 1) return;
-	MemorizeSlot(i, m_characters[i].inventory.Hand(static_cast<int>(hand)));
-}
-
-void GameUI::MemorizeSlot(size_t i, ItemSlot& slot) {
-	if (i >= m_characters.size()) return;
-	SpellSymbol sym;
-	if (!RuneSymbolFromItemId(slot.typeId, sym)) return;
-	m_characters[i].Learn(sym);
-	slot.Clear(); // the tablet is consumed
-	Click();
-	AddLogLine(loc::FormatLine("log.memorize", m_characters[i].name,
-							   loc::View(SymbolKey(sym))),
-			   m_characters[i].portraitColor);
-	RefreshSheet(); // the sheet's known symbols may be on screen later
-}
-
-void GameUI::OpenPackUseMenu(int slot) {
-	// The sheet shows m_sheetIndex's SELECTED pack; `slot` indexes into it. A
-	// rune offers Memorize — resolved by index at CLICK time (the sheet is
-	// modal, so the pack can't shift under the open menu).
-	if (!m_sheetMenu || m_sheetIndex >= m_characters.size() || slot < 0) return;
-	const auto& pack = m_characters[m_sheetIndex].inventory.SelectedContents();
-	if (slot >= static_cast<int>(pack.size())) return;
-	SpellSymbol sym;
-	if (!RuneSymbolFromItemId(pack[static_cast<size_t>(slot)].typeId, sym))
-		return; // only runes have a pack-side action so far
-	m_packMenuSlot = slot; // read back by the sheet menu's onPick (BuildCharacterSheet)
-	m_sheetMenu->Begin(m_hudMouseX, m_hudMouseY);
-	m_sheetMenu->Add(loc::View("use.memorize"), 0);
-	m_sheetMenu->Show();
-}
-
-void GameUI::EatFromHand(size_t i, size_t hand) {
-	if (i >= m_characters.size() || hand > 1) return;
-	Character& c = m_characters[i];
-	ItemSlot& slot = c.inventory.Hand(static_cast<int>(hand));
-	if (slot.Empty()) return;
-	// Localized name by the item.<id> convention (matches ItemKind::nameKey);
-	// read BEFORE the slot is cleared.
-	const std::string foodName = loc::Tr(std::format("item.{}", slot.typeId));
-	// The world owns the catalogs and the meters, so it owns the arithmetic
-	// (docs/health-and-healing.md). This used to restore a flat 25% of max
-	// STAMINA — a placeholder from the items thread, kept only because nothing
-	// consumed food. It is re-pointed here rather than replaced: an existing
-	// seam, like SpendStamina's creep.
-	const resource::Refill got =
-		onConsume ? onConsume(i, slot.typeId) : resource::Refill{};
-	if (!got.Any()) {
-		// It fed nobody — either the item has no nutrition at all, or this
-		// member is already full. Refuse rather than silently eating it: losing
-		// the last apple to a full stomach is the kind of thing a player never
-		// forgives, and never notices happening.
-		AddLogLine(loc::FormatLine("log.eat_no_effect", c.name, foodName),
-				   c.portraitColor);
-		return;
-	}
-	slot.Clear(); // consumed
-	Click();
-	AddLogLine(loc::FormatLine("log.eat", c.name, foodName), c.portraitColor);
-	RefreshSheet(); // the supply bars / carry load may be on screen
 }
 
 // ============================================================================
@@ -1406,9 +1043,12 @@ void GameUI::BuildCharacterSheet() {
 	m_sheet->defenseWith = [this](const Character& c, const std::string& id) {
 		return defenseWith ? defenseWith(c, id) : DefenseReadout{};
 	};
-	// Right-clicked backpack slot → its use menu (a rune memorizes from the
-	// pack too, not just a hand).
-	m_sheet->onSlotMenu = [this](int slot) { OpenPackUseMenu(slot); };
+	// The item mouse buttons on the sheet: right = details, middle = the use
+	// menu (a rune memorizes from the pack too, not just a hand).
+	m_sheet->onItemDetails = [this](ItemPlace place) { OpenItemDetails(m_sheetIndex, place); };
+	m_sheet->onItemUse = [this](ItemPlace place) {
+		if (m_sheetMenu) OpenItemUseMenu(m_sheetIndex, place, *m_sheetMenu);
+	};
 	// The Spells tab resolves learned-spell ids through the same registry the
 	// spellbook uses (deferred so spellDefs is wired by cast time).
 	m_sheet->spells = [this] {
@@ -1450,16 +1090,10 @@ void GameUI::BuildCharacterSheet() {
 		Click();
 		onResume();
 	});
-	// The sheet's own context menu (backpack-slot actions), added LAST so it
+	// The sheet's own context menu (the item use menus), added LAST so it
 	// updates first and its popup draws over everything.
 	m_sheetMenu = m_sheetUi.Add<ui::ContextMenu>();
-	// Its one row so far is Memorize (OpenPackUseMenu), on the slot it recorded.
-	m_sheetMenu->onPick = [this](int) {
-		if (m_sheetIndex >= m_characters.size()) return;
-		auto& pack = m_characters[m_sheetIndex].inventory.SelectedContents();
-		if (m_packMenuSlot >= 0 && m_packMenuSlot < static_cast<int>(pack.size()))
-			MemorizeSlot(m_sheetIndex, pack[static_cast<size_t>(m_packMenuSlot)]);
-	};
+	m_sheetMenu->onPick = [this](int id) { OnUseMenuPick(id); };
 }
 
 // Rebuilds every page in the active language (loc:: was just reloaded). The
@@ -1477,6 +1111,10 @@ void GameUI::RebuildForLanguage() {
 	BuildMenu();
 	BuildPauseMenu();
 	BuildCharacterSheet();
+	if (m_itemDetails) { // its row labels are localized; what it showed is stale
+		m_itemDetails->Close();
+		m_itemDetails->Build();
+	}
 	// The saves page is built on demand; repopulate it in the new language if
 	// it happens to be open (OpenSavesPage leaves m_menuPage on Saves).
 	if (m_menuPage == MenuPage::Saves) OpenSavesPage(m_savesMode);
@@ -1665,6 +1303,9 @@ void GameUI::ApplyPendingVideoRebuild() {
 void GameUI::ShowSheet(size_t index) {
 	m_sheetIndex = index;
 	m_sheet->SetCharacter(index);
+	// A use menu left open names a slot of whoever it was opened on; paging to
+	// another member (or reopening the sheet) must not keep it.
+	if (m_sheetMenu) m_sheetMenu->Close();
 }
 
 void GameUI::RefreshSheet() { m_sheet->SetCharacter(m_sheetIndex); }
@@ -1821,6 +1462,7 @@ void GameUI::BuildHud() {
 	deps.onMove = [this](MoveAction action) { onMoveAction(action); };
 	deps.onHandLeft = [this](size_t i, size_t hand) { OnHandLeftClick(i, hand); };
 	deps.onHandRight = [this](size_t i, size_t hand) { OnHandRightClick(i, hand); };
+	deps.onHandMiddle = [this](size_t i, size_t hand) { OnHandMiddleClick(i, hand); };
 	deps.handSetUse = [this](size_t i, size_t hand) { return HandSetUseFor(i, hand); };
 	deps.useIcons = m_useIcons; // Game's stable bank, set before any HUD build
 	deps.onGuardChange = [this](size_t i, float share) {
@@ -1858,11 +1500,20 @@ void GameUI::BuildHud() {
 	m_log = m_hudUi.Add<MessageLog>();
 	m_log->restoreLabel = loc::Tr("hud.log_show");
 
+	m_inventory = m_hudUi.Add<InventoryWindow>(&m_characters, m_itemIcons, m_held);
+	// The item mouse buttons inside the party inventory, as on the sheet.
+	m_inventory->onItemDetails = [this](size_t member, int slot) {
+		OpenItemDetails(member, {ItemPlace::Kind::Pack, slot});
+	};
+	m_inventory->onItemUse = [this](size_t member, int slot) {
+		if (m_handMenu) OpenItemUseMenu(member, {ItemPlace::Kind::Pack, slot}, *m_handMenu);
+	};
+	// AFTER the inventory window, so the menu updates first and draws over it
+	// (the window is a popup too, and its use menu opens on top of it).
 	m_handMenu = m_hudUi.Add<ui::ContextMenu>();
-	m_handMenu->onPick = [this](int id) { OnHandMenuPick(id); };
+	m_handMenu->onPick = [this](int id) { OnUseMenuPick(id); };
 	// Room for any item id, so opening the menu never grows it (see the member).
 	m_handMenuItem.reserve(64);
-	m_inventory = m_hudUi.Add<InventoryWindow>(&m_characters, m_itemIcons, m_held);
 
 	ApplyPartyBarScale();
 }
@@ -1995,10 +1646,17 @@ void GameUI::UpdatePause(const Input& input) {
 	PauseContext().Update(input, WindowW(), WindowH());
 }
 
-void GameUI::UpdateSheet(const Input& input) {
-	m_sheetUi.Update(input, WindowW(), WindowH());
+void GameUI::UpdateSheet(const Input& input, float dt) {
 	m_hudMouseX = input.MouseX(); // for the held-item cursor over the sheet
 	m_hudMouseY = input.MouseY();
+	// The item details dialog is modal for the mouse: while it is up it gets the
+	// update and the sheet under it holds still (the world does not - Game runs
+	// it either way).
+	if (ItemDetailsOpen()) {
+		m_itemDetails->Update(input, WindowW(), WindowH(), dt);
+		return;
+	}
+	m_sheetUi.Update(input, WindowW(), WindowH());
 
 	// THE KEYBOARD PAGES THE SHEET (play-test #4 and #5, Michael 2026-09-28).
 	// The party does not move while the sheet is open, so the strafe keys are
@@ -2018,9 +1676,15 @@ void GameUI::UpdateSheet(const Input& input) {
 }
 
 void GameUI::UpdateHud(const Input& input, float dt) {
-	m_hudUi.Update(input, WindowW(), WindowH());
 	m_hudMouseX = input.MouseX(); // stashed for the held-item cursor in RenderHud
 	m_hudMouseY = input.MouseY();
+	if (ItemDetailsOpen()) {
+		// Modal for the mouse, as over the sheet; the log still ticks its fades.
+		m_itemDetails->Update(input, WindowW(), WindowH(), dt);
+		if (m_log) m_log->Tick(dt);
+		return;
+	}
+	m_hudUi.Update(input, WindowW(), WindowH());
 	// The log reads this frame's hover/scroll (set during Update above) to
 	// advance its fades and expand/collapse animation.
 	if (m_log) m_log->Tick(dt);

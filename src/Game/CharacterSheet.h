@@ -217,10 +217,13 @@ public:
 	std::function<DefenseReadout(const Character&)> defenseFor;
 	// The same AS IF an item were worn — what the pack tooltip compares to.
 	std::function<DefenseReadout(const Character&, const std::string&)> defenseWith;
-	// Fired by a RIGHT-click on a non-empty backpack slot (the slot's index in
-	// the selected pack) — GameUI opens the item's use menu there (a rune's
-	// Memorize works from the pack, not just a hand; Michael, 2026-07-10).
-	std::function<void(int slot)> onSlotMenu;
+	// The item mouse buttons (docs/ui-updates-plan.md P2), fired on a non-empty
+	// doll cell, backpack slot or bag: RIGHT opens the item's details, MIDDLE its
+	// use menu (a rune's Memorize works from the pack, not just a hand; Michael,
+	// 2026-07-10). LEFT stays pick up / put down / swap. The place is in the
+	// shown member's inventory; GameUI resolves it.
+	std::function<void(ItemPlace)> onItemDetails;
+	std::function<void(ItemPlace)> onItemUse;
 	// The project's spell registry (wired to DungeonWorld::SpellDefs), so the
 	// Spells tab can resolve a learned spell id -> its school, rune count, and
 	// description. Null-safe: no registry, an empty Spells tab.

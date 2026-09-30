@@ -37,13 +37,13 @@ class HandSlot : public ui::Widget {
 public:
 	// `hand` is 0 = left / 1 = right (which inventory.Hand() this box shows).
 	// `icons` (Game-owned, may be null) resolves the held item's icon to draw.
-	// onLeft fires on a left click, onRight on a right click — GameUI decides
-	// what each means given the held cursor (place / swap / pick up / attack /
-	// context menu).
+	// onLeft fires on a left click, onRight on a right click, onMiddle on a
+	// middle click - GameUI decides what each means (place / swap / attack on
+	// the left, the item's details on the right, its use menu on the middle).
 	HandSlot(const gfx::Rect& rect, const std::vector<Character>* roster,
 			 size_t member, int hand,
 			 const ItemIconBank* icons, std::function<void()> onLeft,
-			 std::function<void()> onRight);
+			 std::function<void()> onRight, std::function<void()> onMiddle);
 
 	void UpdateSelf(ui::UIContext& ctx) override;
 	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
@@ -72,9 +72,11 @@ private:
 	const ItemIconBank* m_icons;
 	std::function<void()> m_onLeft;
 	std::function<void()> m_onRight;
+	std::function<void()> m_onMiddle;
 	bool m_hot = false;
-	bool m_held = false;       // left-button press latched on this slot
-	bool m_heldRight = false;  // right-button press latched on this slot
+	bool m_held = false;        // left-button press latched on this slot
+	bool m_heldRight = false;   // right-button press latched on this slot
+	bool m_heldMiddle = false;  // middle-button press latched on this slot
 };
 
 // The HUD Magic-area SPELLBOOK. A row of four member-colored SELECTOR buttons

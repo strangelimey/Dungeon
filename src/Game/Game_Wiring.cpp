@@ -215,6 +215,14 @@ void Game::WireModuleCallbacks() {
 		if (member >= m_characters.size()) return resource::Refill{};
 		return m_world->ConsumeItem(m_characters[member], id);
 	};
+	// The item details dialog's two questions (docs/ui-updates-plan.md P3).
+	m_ui.itemDetails = [this](const std::string& id, ItemDetails& out) {
+		return m_world && m_world->ItemDetailsFor(id, out);
+	};
+	m_ui.itemPreview = [this](const std::string& id, std::span<gfx::PreviewSubmesh> out,
+							  Vec3& fitMin, Vec3& fitMax) -> size_t {
+		return m_world ? m_world->ItemPreviewForType(id, out, fitMin, fitMax) : 0;
+	};
 	m_ui.onToggleRest = [this] { m_world->SetResting(!m_world->Resting()); };
 	m_ui.onKeysChanged = [this] {
 		if (m_world) m_world->GetParty().SetKeys(m_settings.moveKeys);

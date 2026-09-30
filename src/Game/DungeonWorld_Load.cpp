@@ -872,39 +872,82 @@ std::vector<gfx::PreviewSubmesh> DungeonWorld::DecorationPreviewSubs(int index) 
 	return subs;
 }
 
+size_t DungeonWorld::FillItemPreview(const ItemKind& kind,
+									 std::span<gfx::PreviewSubmesh> out, Vec3& fitMin,
+									 Vec3& fitMax) const {
+	size_t n = 0;
+	if (kind.model) { // authored model item (weapon, ...)
+		for (const auto& s : kind.model->subs)
+			if (n < out.size()) out[n++] = {s.mesh.get(), s.material};
+		fitMin = kind.model->boundsMin;
+		fitMax = kind.model->boundsMax;
+	} else if (m_runeMesh && !out.empty()) { // rune / placeholder: the carved tablet
+		gfx::MaterialParams mat;
+		const Vec4 base = m_runeModel.materials.empty()
+							  ? Vec4{1, 1, 1, 1}
+							  : m_runeModel.materials[0].baseColorFactor;
+		ApplyPropMaterial(mat, kind.tex, base, 0.85f);
+		out[n++] = {m_runeMesh.get(), mat};
+		// AABB of the tablet's vertices, for framing it.
+		fitMin = {1e9f, 1e9f, 1e9f};
+		fitMax = {-1e9f, -1e9f, -1e9f};
+		if (!m_runeModel.meshes.empty())
+			for (const auto& v : m_runeModel.meshes[0].vertices) {
+				fitMin = {std::min(fitMin.x, v.position.x), std::min(fitMin.y, v.position.y),
+						  std::min(fitMin.z, v.position.z)};
+				fitMax = {std::max(fitMax.x, v.position.x), std::max(fitMax.y, v.position.y),
+						  std::max(fitMax.z, v.position.z)};
+			}
+	}
+	return n;
+}
+
 std::vector<gfx::PreviewSubmesh> DungeonWorld::ItemPreviewSubs(int entityId, Vec3& fitMin,
 															   Vec3& fitMax) const {
 	std::vector<gfx::PreviewSubmesh> subs;
-	// AABB of a ModelData mesh's vertices (for framing the tablet placeholder).
-	auto meshBounds = [](const assets::ModelData& m, Vec3& mn, Vec3& mx) {
-		mn = {1e9f, 1e9f, 1e9f};
-		mx = {-1e9f, -1e9f, -1e9f};
-		if (m.meshes.empty()) return;
-		for (const auto& v : m.meshes[0].vertices) {
-			mn = {std::min(mn.x, v.position.x), std::min(mn.y, v.position.y),
-				  std::min(mn.z, v.position.z)};
-			mx = {std::max(mx.x, v.position.x), std::max(mx.y, v.position.y),
-				  std::max(mx.z, v.position.z)};
-		}
-	};
 	for (const Item& item : m_items) {
 		if (item.id != entityId || !item.kind) continue;
-		if (item.kind->model) { // authored model item (weapon, ...)
-			for (const auto& s : item.kind->model->subs) subs.push_back({s.mesh.get(), s.material});
-			fitMin = item.kind->model->boundsMin;
-			fitMax = item.kind->model->boundsMax;
-		} else if (m_runeMesh) { // rune / placeholder: the shared carved tablet
-			gfx::MaterialParams mat;
-			const Vec4 base = m_runeModel.materials.empty()
-								  ? Vec4{1, 1, 1, 1}
-								  : m_runeModel.materials[0].baseColorFactor;
-			ApplyPropMaterial(mat, item.kind->tex, base, 0.85f);
-			subs.push_back({m_runeMesh.get(), mat});
-			meshBounds(m_runeModel, fitMin, fitMax);
-		}
+		std::array<gfx::PreviewSubmesh, 16> buf{};
+		subs.assign(buf.begin(), buf.begin() + static_cast<std::ptrdiff_t>(
+												  FillItemPreview(*item.kind, buf, fitMin, fitMax)));
 		break;
 	}
 	return subs;
+}
+
+size_t DungeonWorld::ItemPreviewForType(const std::string& type,
+										std::span<gfx::PreviewSubmesh> out, Vec3& fitMin,
+										Vec3& fitMax) {
+	// Only a type a catalog defines: ItemKindFor would mint a kind for anything.
+	if (!m_project.FindItem(type)) return 0;
+	return FillItemPreview(ItemKindFor(type), out, fitMin, fitMax);
+}
+
+bool DungeonWorld::ItemDetailsFor(const std::string& type, ItemDetails& out) {
+	if (!m_project.FindItem(type)) return false;
+	const ItemKind& k = ItemKindFor(type);
+	out = {};
+	out.nameKey = k.nameKey;
+	out.category = k.category;
+	out.damage = k.damage;
+	out.speed = k.speed;
+	out.skill = k.skill;
+	out.polearm = k.polearm;
+	out.enchanted = k.enchanted;
+	out.element = k.element;
+	out.elementBonus = k.elementBonus;
+	out.armor = k.armor;
+	out.armorClass = k.armorClass;
+	out.wear = k.wearSlot;
+	for (size_t t = 0; t < m_damageTypes.Count() && t < kMaxDamageTypes; ++t) {
+		const float v = k.resists.cells[t];
+		if (v == 0.0f) continue;
+		out.resists[out.resistCount++] = {
+			m_damageTypes.NameKey(DamageType{static_cast<u8>(t)}), v};
+	}
+	out.nutrition = k.nutrition;
+	out.hydration = k.hydration;
+	return true;
 }
 
 DungeonWorld::Monster DungeonWorld::MakeMonster(MonsterKind& kind, int id, int x,
@@ -1207,6 +1250,21 @@ static bool InReach(int x, int z, int px, int pz) {
 
 std::optional<std::string> DungeonWorld::TryPickItem(float mx, float my, float w,
 													 float h) {
+	const int best = PickItemIndex(mx, my, w, h);
+	if (best < 0) return std::nullopt;
+	Item& picked = m_items[static_cast<size_t>(best)];
+	picked.collected = true; // off the floor
+	m_audio.Play(m_sounds.click, 0.6f); // placeholder pickup cue
+	if (onMessage) onMessage(loc::FormatLine("log.take_rune", loc::View(picked.kind->nameKey)));
+	return picked.kind->id;
+}
+
+const std::string* DungeonWorld::ItemTypeUnder(float mx, float my, float w, float h) const {
+	const int best = PickItemIndex(mx, my, w, h);
+	return best < 0 ? nullptr : &m_items[static_cast<size_t>(best)].kind->id;
+}
+
+int DungeonWorld::PickItemIndex(float mx, float my, float w, float h) const {
 	const int px = m_party.GridX(), pz = m_party.GridZ();
 	// Quarter pick: each floor item sits at the centre of one of its cell's four
 	// quarters (the Medium 2x2 slot grid). A click counts if the ray, measured at
@@ -1255,12 +1313,7 @@ std::optional<std::string> DungeonWorld::TryPickItem(float mx, float my, float w
 		const int slot = (lz < 0.5f ? 0 : 2) + (lx < 0.5f ? 0 : 1);
 		if (slot == item.slot) best = static_cast<int>(i);
 	}
-	if (best < 0) return std::nullopt;
-	Item& picked = m_items[static_cast<size_t>(best)];
-	picked.collected = true; // off the floor
-	m_audio.Play(m_sounds.click, 0.6f); // placeholder pickup cue
-	if (onMessage) onMessage(loc::FormatLine("log.take_rune", loc::View(picked.kind->nameKey)));
-	return picked.kind->id;
+	return best;
 }
 
 void DungeonWorld::DropItemAt(const std::string& typeId, float mx, float my,

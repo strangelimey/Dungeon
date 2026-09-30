@@ -71,6 +71,7 @@ add_library(Game STATIC
 	Game_World.cpp
 	GameSettings.cpp
 	GameUI.cpp
+	GameUI_Items.cpp
 	InspectPicker.cpp
 	InstanceInspector.cpp
 	LevelSettingsDialog.cpp
@@ -106,6 +107,7 @@ add_library(Game STATIC
 	GuardSlider.cpp
 	SpellbookPanel.cpp
 	InventoryWindow.cpp
+	ItemDetailsDialog.cpp
 	CharacterSheet.cpp
 	CharacterSheet_Inventory.cpp
 	CharacterSheet_Stats.cpp

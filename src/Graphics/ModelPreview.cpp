@@ -79,6 +79,19 @@ ModelPreview::ModelPreview(GraphicsDevice& device, u32 size)
 	// Shader-visible SRV (in the device's shared heap, like every Texture).
 	m_srv = device.AllocateSrv();
 	d->CreateShaderResourceView(m_color.Get(), nullptr, m_srv.cpu);
+
+	// Bright, balanced studio light so any prop reads (a rough marble column or a
+	// flat item tablet catches far less than a metal sconce or a skinned monster):
+	// stronger ambient + a warm key from the upper right and a cool fill from the
+	// lower left. Built ONCE: it never changes, and building it per Render was
+	// three allocations a frame (the vector, and under the debug CRT its proxy)
+	// - harmless while only the editor drew a preview, a steady-state violation
+	// once the play-mode item details dialog did (AllocTest.ps1 -Sheet).
+	m_lights.ambient = {0.42f, 0.42f, 0.46f};
+	m_lights.points.push_back(
+		{{1.8f, 2.6f, -2.4f}, 24.0f, {1.0f, 0.96f, 0.9f}, 6.0f, -1, false});
+	m_lights.points.push_back(
+		{{-2.0f, 1.2f, -2.6f}, 24.0f, {0.80f, 0.86f, 1.0f}, 3.5f, -1, false});
 }
 
 void ModelPreview::Render(ID3D12GraphicsCommandList* list, Renderer& renderer,
@@ -117,18 +130,7 @@ void ModelPreview::Render(ID3D12GraphicsCommandList* list, Renderer& renderer,
 	cam.SetPosition({0.0f, 1.1f, -3.3f});
 	cam.SetYawPitch(0.0f, 0.0f);
 
-	LightSet lights;
-	// Bright, balanced studio light so any prop reads (a rough marble column or a
-	// flat item tablet catches far less than a metal sconce or a skinned monster):
-	// stronger ambient + a warm key from the upper right and a cool fill from the
-	// lower left.
-	lights.ambient = {0.42f, 0.42f, 0.46f};
-	lights.points.push_back(
-		{{1.8f, 2.6f, -2.4f}, 24.0f, {1.0f, 0.96f, 0.9f}, 6.0f, -1, false});
-	lights.points.push_back(
-		{{-2.0f, 1.2f, -2.6f}, 24.0f, {0.80f, 0.86f, 1.0f}, 3.5f, -1, false});
-
-	renderer.BeginScene(list, cam, lights);
+	renderer.BeginScene(list, cam, m_lights);
 	Mat4 world;
 	if (fitMin && fitMax) {
 		// Auto-fit: centre the AABB at origin, scale to fill, spin, lift to eye height.
