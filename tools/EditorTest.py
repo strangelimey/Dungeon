@@ -69,6 +69,13 @@ EXE = os.path.join(ROOT, r"build\debug\bin\Dungeon.exe")
 LOG = os.path.join(ROOT, r"build\debug\bin\dungeon.log")
 SCRIPTS = os.path.join(ROOT, r"tools\EvalScripts")
 
+# Muted for the whole run (tools/harness_audio.py). The phases are flat, not
+# one try block, so the restore rides atexit - which also runs after sys.exit,
+# an uncaught exception and Ctrl+C.
+import atexit
+import harness_audio
+atexit.register(harness_audio.restore, harness_audio.mute(os.path.dirname(EXE)))
+
 failures = 0
 
 

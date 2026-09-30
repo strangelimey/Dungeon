@@ -129,6 +129,10 @@ public:
 	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 	// The tooltip, when hovered (see `tooltip`).
 	void DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	// The face is bounded but the label is CENTRED on it and measured, so a
+	// label wider than the button (or a font taller than it) runs out of both
+	// sides at once. See Label.
+	gfx::Rect InkRect() const override;
 
 	std::string text;
 	std::function<void()> onClick;

@@ -189,6 +189,10 @@ originals = {p: read(p) for p in (WORLD, DUNGEONS, MANIFEST)}
 # scratch world on purpose, and it must come back exactly as it was.
 SETTINGS = os.path.join(ROOT, r"build\debug\bin\settings.ini")
 settings_before = read(SETTINGS) if os.path.isfile(SETTINGS) else None
+# Muted for the whole run (tools/harness_audio.py) - AFTER the snapshot above,
+# so the restore of settings_before below carries the real volume back too.
+import harness_audio
+audio = harness_audio.mute(os.path.dirname(SETTINGS))
 try:
     print("1 - the world checks fire when the world is broken")
     log = run("worldcheck.eval")
@@ -727,8 +731,9 @@ try:
     # developer's settings at a scratch world, and a harness run must STILL
     # open dungeon-demo. Before the rule, a world Michael switched into became
     # every suite's ground.
+    # From the file as it is NOW, not settings_before, or this unmutes the run.
     if settings_before is not None:
-        lines = [l for l in settings_before.splitlines()
+        lines = [l for l in read(SETTINGS).splitlines()
                  if not l.startswith("project=")]
         write(SETTINGS, "\n".join(lines + ["project=wt_scratch"]) + "\n")
     log = run("worlddelete.eval")
@@ -1047,6 +1052,7 @@ try:
 finally:
     if settings_before is not None:
         write(SETTINGS, settings_before)
+    harness_audio.restore(audio)
     for p, s in originals.items():
         write(p, s)
     # THE SAVE THIS SUITE MAKES IS NOT ITS OWN BUSINESS ALONE. A save on disk

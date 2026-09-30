@@ -1777,8 +1777,13 @@ tested; the eval harness only REPORTS). What exists now, and the rules it rests 
   whichever dialog is open is covered — and reports both SIBLINGS whose ink
   intersects and any child that ESCAPES its parent's ContentRect, to the console
   and (labelled) to dungeon.log. Widget::InkRect is what a widget PAINTS as
-  against Pixel(), what the layout gave it: Label and Checkbox measure their
-  text, so a label wider than its row counts. `overlapOk` opts out the
+  against Pixel(), what the layout gave it: Label, Checkbox and Button measure
+  their text, so a label wider than its row counts, a label in a row shorter
+  than its font (a starved Stack Fill row resolves to ZERO height) counts at its
+  full line, and a Button's centred label wider than the face counts on BOTH
+  sides. The audit gates on empty INK, not an empty Pixel(), or that zero-height
+  row would be skipped outright - which is how both slipped a sweep once
+  (editor-updates 11c2144, NewWorldDialog). `overlapOk` opts out the
   deliberately layered; a parent that CLIPS is exempt from the escape check,
   since a scroll area's children are meant to run past it. RUN IT AFTER TOUCHING
   ANY SCREEN — a full sweep (2026-08-08) found four defects nobody had reported,

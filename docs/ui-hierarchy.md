@@ -324,6 +324,24 @@ filed: a dialog title that never fitted its card, tuning rows pitched 29px apart
 around 40px type, every schema Slider laying its track across the row below it,
 and a picker's count sitting on its close box.
 
+It also MISSED two, both in one dialog (editor-updates 11c2144, the New world
+dialog), and both for the same reason: an ink rect that was really a layout
+rect. A `Button` drew its label centred at its measured width, but reported only
+its face, so a label wider than the button spilled left past the button and the
+panel with nothing to see. And a `Label` in a Stack `Fill` row that got no room
+resolved to ZERO height - its InkRect already reported the full line, but the
+audit's gate asked whether `Pixel()` was empty and skipped the widget before
+ever asking for its ink. Both are fixed: `Button::InkRect` unions the face with
+the centred label (and `Checkbox` extends its row to the line height the same
+way), and the gate is empty INK. That gate change has a trap the first sweep
+hit as a CRASH: asking InkRect of every child reaches rows a ScrollArea skipped
+(`ChildActive`), which were never laid out and so have no font, and InkRect
+measures text. The audit now walks the tree the way the passes do
+(`Widget::ChildShown`) - a child that is never drawn is not audited either.
+Checked non-vacuously by planting both defects
+in the swept World settings dialog: flagged with the fix, a clean sweep without
+it.
+
 **What converted.** All ten editor dialogs, through one shared card
 (`game::BuildDialogChrome`, [src/Game/DialogLayout.h](../src/Game/DialogLayout.h)):
 each had been authoring the same five window fractions by hand — panel, title,

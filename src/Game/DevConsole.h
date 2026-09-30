@@ -238,21 +238,26 @@ private:
 	// The committed values for a row, or null if it has none yet.
 	const ProfSmooth* SmoothFor(u32 tid, u32 node) const;
 
-	// The seven gauges at the top of the panel, given the same treatment. These
+	// The six gauges at the top of the panel, given the same treatment. These
 	// differ from the profile series in one way that matters: each has a NATURAL
-	// maximum (the display's refresh rate, 100%, installed RAM - for the system
-	// AND for this process's working set - the VRAM budget, the descriptor
-	// ceiling), so they are drawn against a fixed scale.
+	// maximum (the display's refresh rate, 100%, installed RAM, the VRAM budget,
+	// the descriptor ceiling), so they are drawn against a fixed scale.
 	// Autoscaling would redraw 3% CPU as a full graph and make idle look like a
 	// crisis. FPS is the interesting one: its ceiling is the MONITOR's refresh
 	// rate, which is the only number that makes "is this fast enough" answerable
 	// rather than just large.
-	enum PerfLine { kFps, kCpu, kGpu, kRam, kVram, kSrv, kProc, kPerfLines };
+	// kProc (this process's working set) is a SERIES but not a gauge of its own:
+	// it is always a subset of the system RAM in use, so it draws STACKED inside
+	// the RAM gauge rather than as a second bar against the same ceiling. It sits
+	// past kPerfLines so the gauge count, the hide flags and the layout never
+	// see it.
+	enum PerfLine { kFps, kCpu, kGpu, kRam, kVram, kSrv, kPerfLines, kProc = kPerfLines,
+					kPerfSeriesCount };
 	struct PerfSeries {
 		float pending = 0.0f;
 		float samples[kProfHistory] = {};
 	};
-	PerfSeries m_perfSeries[kPerfLines];
+	PerfSeries m_perfSeries[kPerfSeriesCount];
 	bool m_perfHidden[kPerfLines] = {};
 
 	// --- the frame budget over time ------------------------------------------
