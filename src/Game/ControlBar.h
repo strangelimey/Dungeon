@@ -52,6 +52,9 @@ struct ControlBarDeps {
 	const ItemIconBank* icons = nullptr;
 	const gfx::Texture* chevron = nullptr;  // step/strafe face
 	const gfx::Texture* chevron2 = nullptr; // turn face (double chevron)
+	// The docks' minimize toggle: the square "+" / "-" boxes. Null = text.
+	const gfx::Texture* boxPlus = nullptr;
+	const gfx::Texture* boxMinus = nullptr;
 	std::function<void(MoveAction)> onMove;
 	std::function<void(size_t member, size_t hand)> onHandLeft;
 	std::function<void(size_t member, size_t hand)> onHandRight;
@@ -149,6 +152,12 @@ public:
 		return w;
 	}
 
+	// The toggle's faces: `expand` while minimized, `collapse` while open.
+	void SetToggleIcons(const gfx::Texture* expand, const gfx::Texture* collapse) {
+		m_icoExpand = expand;
+		m_icoCollapse = collapse;
+	}
+
 	bool Collapsed() const { return m_collapsed && *m_collapsed; }
 	bool HasHeader() const { return m_title != nullptr; }
 	// The padding, header height and header-to-content gap, in pixels - asked by
@@ -168,6 +177,7 @@ private:
 	ui::Button* m_toggle = nullptr;
 	ui::Widget* m_content = nullptr;
 	bool* m_collapsed = nullptr;
+	const gfx::Texture *m_icoExpand = nullptr, *m_icoCollapse = nullptr;
 };
 
 class ControlBar : public ui::Widget {

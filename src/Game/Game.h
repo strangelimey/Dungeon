@@ -63,6 +63,8 @@
 #include "Game/WorldMapView.h"
 #include "Game/WorldSettingsDialog.h"
 #include "Game/WorldsDialog.h"
+#include "Game/NewWorld.h"
+#include "Game/NewWorldDialog.h"
 #include "Game/MonsterConfigDialog.h"
 #include "Game/ButtonInspector.h"
 #include "Game/StairInspector.h"
@@ -400,6 +402,17 @@ private:
 	// through here rather than DungeonWorld::Validate directly, so no route can
 	// quietly check the dungeons and skip the world.
 	std::vector<validate::Issue> ValidateProject();
+	// LIVE VALIDATION (docs/editor-updates-plan.md, P2): while the level editor
+	// is open, re-run ValidateProject whenever DungeonWorld::EditRevision moves
+	// - but only once no mouse button is held, so a drag is checked once, when
+	// it ends, not per square. The map boxes what it finds (MapView::SetIssues).
+	// `m_liveRev` is the revision the cached findings answer for; `m_liveValid`
+	// false forces a run (the editor just opened, or a world was loaded).
+	void RefreshLiveIssues(bool pointerHeld);
+	std::vector<validate::Issue> m_liveIssues;
+	u64 m_liveRev = 0;
+	bool m_liveValid = false;
+	bool m_liveTimed = false; // the first run's cost has been logged
 	// The `world` dev command's report: size, terrain, areas and locations, one
 	// line each. Empty-world-safe.
 	std::vector<std::string> WorldReport() const;
@@ -427,15 +440,35 @@ private:
 	// the last world played unless -project named this run's. False when no
 	// such world exists.
 	bool SwitchWorld(const std::string& name);
-	// Writes a NEW world beside this one and returns its name ("" on failure).
-	// CONTENT IS COPIED, PLACES ARE NOT (Michael, 2026-09-23): every catalog
-	// comes across — surfaces, monsters, items, terrain — so you can build in
-	// it at once, while dungeons and quests start empty and the overworld is
-	// blank. It does get ONE room in one dungeon behind one doorway, because
-	// the engine loads a level in DungeonWorld's constructor and a world with
-	// nowhere at all in it could not stand up; that starter is the smallest
-	// thing that both loads and passes the checker.
-	std::string CreateWorld(const std::string& name);
+	// Writes a NEW world beside this one and returns its name ("" on failure,
+	// with the reason in `problem` when given). HOW is the spec's (NewWorld.h):
+	// blank from the template, this world whole, or one of its levels. Every
+	// kind is built in a hidden `.building-<name>` folder and renamed into
+	// place only once complete, so a failure part-way leaves nothing a world
+	// list would offer. A blank or one-level world gets ONE dungeon behind ONE
+	// doorway, because the engine loads a level in DungeonWorld's constructor -
+	// a world with nowhere in it could not stand up - and its level an exit
+	// stair out to that doorway, so a party that walks in can walk out.
+	// (Game_NewWorld.cpp.)
+	std::string CreateWorld(const std::string& name, const NewWorldSpec& spec = {},
+							std::string* problem = nullptr);
+	// The minimal 16x16 rock block with a 3x3 room at 7..9 and the start at its
+	// centre, as grid rows. A new world's first room and an empty new level
+	// both start from it; FIXED on purpose (scenarios build on the room's place).
+	static void AppendStarterRoom(std::string& map);
+	// CreateWorld's three builders, each writing a whole world into `folder`
+	// (the hidden build folder). False on failure, `problem` set when it knows.
+	bool BuildBlankWorld(const std::string& folder, const std::string& id,
+						 std::string* problem);
+	bool BuildCopiedWorld(const std::string& folder, const std::string& id,
+						  std::string* problem);
+	bool BuildLevelWorld(const std::string& folder, const std::string& id,
+						 const std::string& stem, std::string* problem);
+	bool BuildWizardWorld(const std::string& folder, const std::string& id,
+						  const NewWorldSpec& spec, std::string* problem);
+	// The wizard's THEME choices: every content tag the template's monsters
+	// carry, sorted (they are what the wizard's world will draw from).
+	std::vector<std::string> WizardThemes() const;
 	// Deleting one (W9). NOTHING BRINGS IT BACK — the undo history is in memory
 	// and about THIS world, and a world made in the editor was never in git — so
 	// the confirmation lives in the dialog (type the name, case-sensitive) and
@@ -503,9 +536,21 @@ private:
 	bool BuildAndInstall(const std::string& stem, const generate::Params& params,
 						 const std::vector<std::string>& theme,
 						 const DungeonMap& donor, std::span<const StairLink> stairs);
-	// Resolve the theme into the id pools the generator picks from.
+	// Resolve the theme into the id pools the generator picks from - this
+	// world's catalogs, or `project`'s (the new-world wizard draws from the
+	// TEMPLATE, which is not the running world).
 	void FillPools(generate::Params& params,
 				   const std::vector<std::string>& theme);
+	void FillPools(generate::Params& params, const std::vector<std::string>& theme,
+				   const Project& project);
+	// The new-world wizard's first floor (P5): generated from `spec`'s theme,
+	// size, difficulty and seed, drawing content AND surfaces from `project`
+	// (the new world's own catalogs), with an exit stair on its start square out
+	// to `doorway`. The .map / .ent text; false when there is nothing to build
+	// with. Deterministic: the same spec and catalogs give the same level.
+	bool GenerateWizardLevel(const Project& project, const std::string& stem,
+							 const NewWorldSpec& spec, const std::string& doorway,
+							 std::string& map, std::string& ent);
 	// One kind's threat (Game/Threat.h), its attacks resolved by the world when
 	// one is loaded (spells, powers, on-hit effects), else melee from the catalog.
 	threat::Parts ThreatOf(const CatalogEntry& monster) const;
@@ -931,6 +976,10 @@ private:
 	// The worlds BESIDE this one (W8): list, open (relaunches), create. The
 	// world toolbar's leftmost disc; `worlds` is the same thing typed.
 	WorldsDialog m_worldsDialog;
+	// Making a world (P4): blank, this world whole, or one level. Opened from a
+	// disc on both editor toolbars and the Worlds dialog's "New world..."; it
+	// sits ABOVE the Worlds dialog when opened from it.
+	NewWorldDialog m_newWorldDialog;
 	ValidateDialog m_validateDialog;
 	GenerateDialog m_generateDialog;
 	generate::Report m_lastGenReport; // the most recent generate's, for the readouts
@@ -1071,6 +1120,14 @@ private:
 	void ShowMapPage(MapPage page) {
 		if (page == MapPage::World && m_mapPage != page) m_worldMapView.Reset();
 		m_mapPage = page;
+	}
+	// Closes the map overlay: Esc, and both pages' close boxes. A stroke in
+	// progress lands its undo step first, and the world view goes back to
+	// being the travel screen.
+	void CloseMapOverlay() {
+		m_mapEditor.EndStroke();
+		m_mapView.Close();
+		ShowMapPage(MapPage::Dungeon);
 	}
 	MapPage m_mapPage = MapPage::Dungeon;
 

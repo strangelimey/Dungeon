@@ -855,6 +855,25 @@ public:
 	// One human-readable line per monster group (id, count, kinds, cells#slot) for
 	// the dev console `groups` command — the Phase-3 group model's reader.
 	std::vector<std::string> GroupsReport() const;
+	// A fingerprint of the active level's surface geometry, rebuilt from the map
+	// exactly as a full bake builds it: one FNV-1a hash per surface over every
+	// chunk's variant, chunk index and vertex/index bytes. For the `geomhash`
+	// command - a change that must not move a single vertex (a refactor of the
+	// variant resolve, a new cell state no cell uses yet) is checked by the hash
+	// coming out identical before and after.
+	//
+	// `layout` / `liveLayout` answer a different question: do the chunks
+	// actually UPLOADED match what a fresh bake would upload? Each hashes the
+	// sorted (surface, chunk, variant, index count) set - `layout` from the
+	// fresh build, `liveLayout` from the live chunks. The live meshes keep no
+	// CPU copy, so this is shape not bytes, but a chunk an edit forgot to
+	// rebuild keeps its old variant buckets and shows up as the two disagreeing.
+	struct GeometryPrint {
+		u64 walls = 0, floors = 0, ceilings = 0;
+		u64 layout = 0, liveLayout = 0;
+		size_t vertices = 0;
+	};
+	GeometryPrint GeometryFingerprint() const;
 
 	// --- fog of war (dynamic/save-side state, not in DungeonMap) -------------
 	// Whether a cell has been revealed (the party has stood on it or an
@@ -886,11 +905,18 @@ public:
 	// (PruneEntitiesForCell) — so live state always matches the new grid.
 	void EditCell(int x, int z, Cell cell);
 
-	// Which surface a variant edit targets.
-	enum class SurfaceSel { Wall, Floor, Ceiling };
-	// Pins a floor cell's wall/floor/ceiling texture variant to a palette index
+	// A combos.cat entry's members per surface (its `wall` / `floor` / `ceiling`
+	// id lists). The one reader of that format, for the map parser's
+	// FixtureTypes and for the brush that paints a combination.
+	static ComboMembers ComboMembersOf(const CatalogEntry& entry);
+
+	// Which surface a variant edit targets (DungeonMap's Surface - spelled out,
+	// since inside this class a bare `Surface` names the chunk-list struct).
+	using SurfaceSel = game::Surface;
+	// Pins a cell's wall/floor/ceiling texture variant to a palette index
 	// (the variant index into the level's surface palette), then rebuilds like
-	// EditCell. No-op on solid cells (variants live on floor cells).
+	// EditCell. A wall variant lives on the SOLID cell, floor/ceiling on the
+	// walkable one; the wrong cell type is a no-op.
 	void EditVariant(int x, int z, SurfaceSel sel, int variant);
 	// The loaded albedo behind a surface-palette catalog id, for the editor
 	// map's textured cell fill. Only the ACTIVE level's palette sets are ever
@@ -898,6 +924,17 @@ public:
 	// level on a foreign palette) — the map falls back to its flat ink.
 	const gfx::Texture* SurfaceAlbedoForId(SurfaceSel sel,
 										   const std::string& id) const;
+	// A surface type's SWATCH for a list (the palette, a combination's member
+	// rows): the loaded albedo when the active level has it, else a small
+	// thumbnail LoadSurfaceThumb made earlier, else null (the flat colour).
+	// Draw-safe: it never loads.
+	const gfx::Texture* SurfaceSwatchForId(SurfaceSel sel, const std::string& id) const;
+	// Loads that thumbnail for a type the level has not loaded (once per set,
+	// found or not) - the asset picker's loader, trimmed to swatch size. It
+	// uploads, which drains the GPU: call from Update, never mid-frame. True
+	// when it went to disk (so a caller can pace itself), false when there was
+	// nothing to do.
+	bool LoadSurfaceThumb(SurfaceSel sel, const std::string& id);
 
 	// --- surface palette membership (editor) --------------------------------
 	// A level paints only the surface types its `palette` record lists (the
@@ -920,6 +957,19 @@ public:
 	// append-only, so a type already present keeps its index.
 	int EnsureSurfaceVariant(const std::string& stem, SurfaceSel sel,
 							 const std::string& id);
+	// The same for a surface COMBINATION (combos.cat `id`): every member joins
+	// its surface's palette on level `stem` (skipping any whose assets are
+	// missing), the level gains a slot for the combination, and the return is
+	// the VARIANT a cell stores to reference it (DungeonMap::ComboVariant) - or
+	// -1 when the project defines no such combination.
+	int EnsureComboVariant(const std::string& stem, const std::string& id);
+	// After a combination's DEFINITION changed (the type editor's Save): every
+	// level whose squares use it takes the new members - each enrolled in that
+	// level's palette first - so it repaints with nothing re-painted. Levels not
+	// in memory are asked through their read-only copies, so only the ones that
+	// USE it get stashed (and rewritten by the next savemap). The active level's
+	// geometry is re-stamped when the editor closes, as after an undo.
+	void RefreshCombo(const std::string& id);
 	// True when the type's baked assets are on disk at the CURRENT quality tier
 	// (its texture set and worn_<set>_<tier>.gltf). Guards AddPaletteEntry: the
 	// worn-mesh load is a LoadModelOrDie, so an unbaked type would abort the
@@ -985,15 +1035,19 @@ public:
 							  std::string_view entText);
 
 	// --- validation (the editor's playability check) --------------------------
-	// Runs Game/Validate.h over EVERY level in the project — the active one from
-	// its live state, the rest from their stashes or parsed on demand, exactly as
-	// SweepTypeRefs walks them. Whole-project on purpose: a key may legitimately
-	// live a floor away from its door, so a per-level check would report a
-	// correct dungeon as broken.
+	// Runs Game/Validate.h over EVERY level in the project - the active one from
+	// its live state, an edited one from its edit stash (unsaved edits count),
+	// and any other from a READ-ONLY copy of its files (m_readOnlyLevels).
+	// Whole-project on purpose: a key may legitimately live a floor away from
+	// its door, so a per-level check would report a correct dungeon as broken.
 	//
-	// NOT const: reaching a level that is not in memory parses and stashes it.
-	// That is the same lazy load the map overlay does to browse one, and it is
-	// cheaper than keeping every level resident to keep a checker const.
+	// It must NEVER create an edit stash. It used to (EnsureMapStash), and a
+	// stashed level is one `savemap` rewrites - so pressing Check made the next
+	// save rewrite every level in the project, untouched ones included, and put
+	// all of them in every undo snapshot. Live validation runs this after every
+	// edit, which would have made that true of every session.
+	//
+	// NOT const: the read-only copies are parsed on first use and cached.
 	// `world` is the OPTIONAL world tier, passed in rather than held: the world
 	// sits ABOVE this class (docs/world-map.md) and DungeonWorld is the
 	// simulation of one level, so it gathers the world's view for the checker
@@ -1349,6 +1403,13 @@ public:
 	// Saves every level with unsaved edits: the active one (SaveLevel) plus
 	// each stashed level (WriteStashedLevel). Returns the stems written.
 	std::vector<std::string> SaveAllLevels();
+	// The text `savemap` WOULD write for level `stem`, WITHOUT writing it - a
+	// world copy puts it in the new world's folder, so the unsaved edits come
+	// across and the world they were made in is not saved behind your back. A
+	// layer this world holds no edit of comes back EMPTY: its file on disk is
+	// the truth, and the caller copies that. '\n'-joined, like the writers.
+	void LevelTextFor(const std::string& stem, std::string& mapText,
+					  std::string& entText) const;
 
 	// Renames a level's world-side state: moves the .map/.ent files, rekeys
 	// the three per-level stashes (+ the active stem), and repoints every
@@ -1408,6 +1469,15 @@ public:
 	// only meaningful while its level is live), and so does a type RENAME:
 	// every held snapshot names the type by its old id.
 	void ClearUndoHistory();
+	// A counter that moves whenever the editor changes something - the signal
+	// live validation re-runs on. Bumped by every kept undo step, undo/redo, a
+	// history clear (level transitions, renames, deletes), and by the edits that
+	// take NO undo step but still change what the checker reads: the instance
+	// inspectors' apply (door key/name, button target, stair facing and exit)
+	// and Game's type-field writes and level creation. Over-bumping only costs a
+	// re-run; a missed bump is a stale red box, so when in doubt, NoteEdit.
+	u64 EditRevision() const { return m_editRevision; }
+	void NoteEdit() { ++m_editRevision; }
 	// An undo/redo restore DEFERS the expensive surface rebake: the full-screen
 	// editor hides the scene and shadow passes, so the stale chunks are never
 	// drawn while it stays up, and repeated undos pay nothing. GeometryDirty
@@ -2478,11 +2548,14 @@ private:
 	// routes through this so the overrides apply everywhere alike.
 	static void ApplyPropMaterial(gfx::MaterialParams& m, const DecorationKind& kind,
 								  float fallbackRoughness);
-	// Fixture routing info for DungeonMap's parser (see the declaration below).
+public:
 	// Routing info for DungeonMap's fixture-record parser, derived from the
-	// project's fixtures catalog (wall-mount ids + the glyph default ids).
-	// Passed at every DungeonMap construction.
+	// project's fixtures catalog (wall-mount ids + the glyph default ids) and,
+	// for `surfacemix` records, its combinations. Passed at every DungeonMap
+	// construction - including Game's, when a new world parses a level of a
+	// project that is not the running one.
 	static FixtureTypes FixtureTypesOf(const Project& project);
+private:
 	// Builds an authored model's own GPU resources (one texture per embedded glTF
 	// image, one submesh per primitive with its material) for the multi-material
 	// decoration path.
@@ -3047,6 +3120,18 @@ private:
 	void RebuildChunksAround(int x, int z);
 	// Rebuilds the single chunk region (chunkX, chunkZ) in place.
 	void RebuildChunkRegion(int chunkX, int chunkZ);
+	// While a chunk batch is open (m_chunkBatch > 0), RebuildChunksAround only
+	// RECORDS the chunks it would rebuild; EndChunkBatch rebuilds each once.
+	int m_chunkBatch = 0;
+	std::vector<int> m_batchedChunks; // chunk indices, deduplicated at the end
+public:
+	// Batches the chunk rebuilds of a multi-cell edit (a rectangle, a flood, an
+	// area fill): N painted cells used to cost N x (GPU drain + up to 5 chunk
+	// builds); inside a batch they cost one drain and one build per distinct
+	// chunk, at EndChunkBatch. Nests - only the outermost End rebuilds.
+	void BeginChunkBatch() { ++m_chunkBatch; }
+	void EndChunkBatch();
+private:
 	// Uploads every chunk in `geo` as ONE batch (gfx::CreateMeshes) and appends
 	// them to the three surfaces. Shared by the full bake and the region rebuild.
 	void AppendSurfaceChunks(DungeonGeometry& geo);
@@ -3110,6 +3195,11 @@ private:
 	Surface m_walls;
 	Surface m_floors;
 	Surface m_ceilings;
+	// Swatch thumbnails for surface types the active level has NOT loaded
+	// (LoadSurfaceThumb), by texture SET name - a set is a pool asset, so one
+	// survives level and world changes. A null entry was tried and missing.
+	// Bounded by the surface catalogs (~16 KB and one SRV slot apiece).
+	std::unordered_map<std::string, std::unique_ptr<gfx::Texture>> m_surfaceThumbs;
 	// Resolved surface palettes: texture set names parallel to the map's palette
 	// ids, plus the per-surface parallax height scale — filled by
 	// ResolveSurfacePalettes, read by SurfaceDefs and LoadDungeonBlocks.
@@ -3222,6 +3312,11 @@ private:
 	void RemapArrivals(const std::string& stem, const std::function<bool(int&, int&)>& remap);
 	// The active level's .ent text (live monsters + records); see SaveLevel.
 	std::string ActiveEntText() const;
+	// ...and its .map text (live decorations synced back into records).
+	std::string ActiveMapText() const;
+	// A STASHED level's .map / .ent text, as WriteStashedLevel writes them.
+	static std::string StashedMapText(const std::string& stem, const DungeonMap& map);
+	static std::string StashedEntText(const std::string& stem, const DungeonEntities& ents);
 	std::mt19937 m_combatRng{0xC0FFEEu};
 	bool m_partyWiped = false; // latches onPartyWipe so it fires once
 	// The attack formula's tuning (docs/combat.md): balance.cat knobs +
@@ -3377,6 +3472,20 @@ private:
 	// stashed baseline. Only edited levels get an entry (m_entsDirty tracks the
 	// active level) — an untouched .ent file is never rewritten.
 	std::flat_map<std::string, std::unique_ptr<DungeonEntities>> m_levelEnts;
+	// READ-ONLY copies of level files, for the checker (Validate) alone. NOT an
+	// edit stash - nothing here is ever written back, which is the whole point:
+	// see Validate. Re-parsed when either file's write time moves (a savemap, a
+	// rename), so a copy never answers for a file that has since changed.
+	struct ReadOnlyLevel {
+		std::unique_ptr<DungeonMap> map;
+		std::unique_ptr<DungeonEntities> ents;
+		long long mapTime = -1, entTime = -1; // file write times when parsed
+	};
+	std::flat_map<std::string, ReadOnlyLevel> m_readOnlyLevels;
+	// The read-only copy of `stem`, parsed or refreshed as needed. The returned
+	// reference is only good until the next call (flat_map storage moves); the
+	// map/ents it points AT are heap-owned and stay put.
+	const ReadOnlyLevel& ReadOnlyLevelOf(const std::string& stem);
 	// The active level's m_entities records diverged from the .ent file on disk
 	// (a prune/re-face edited them); stash them on leave so the divergence
 	// survives the swap and savemap writes it.
@@ -3446,6 +3555,7 @@ private:
 	std::vector<EditorSnapshot> m_undoStack;
 	std::vector<EditorSnapshot> m_redoStack;
 	std::optional<EditorSnapshot> m_pendingUndo; // BeginUndoStep .. CommitUndoStep
+	u64 m_editRevision = 0;                      // see EditRevision
 	bool m_geometryDirty = false; // a restore skipped the rebake (FlushGeometry)
 	// A restore also changed a level's surface PALETTE, so FlushGeometry must
 	// reload the texture sets + worn meshes, not just re-stamp the chunks.

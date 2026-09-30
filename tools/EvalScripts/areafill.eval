@@ -1,0 +1,39 @@
+; areafill.eval - the AREA fill paints the connected room or corridor, and
+; stops where narrow meets open (editor-updates P1, Game/Area.h).
+;
+; eval_arena is one open 26x22 room, so the script first carves a layout with
+; known answers (x across, z down; the party stands at 14,12, inside room B):
+;
+;   room A      x 1..7,   z 1..22    154 squares, all open
+;   corridor    x 8..15 on z 5, then x 15 on z 6..10 - one bend, 13 squares,
+;               entering room A directly and room B through a doorway at 15,10
+;   room B      x 13..22, z 11..16   60 squares
+;
+; Each fill reports its square count ("... (N cells)"), and each is followed by
+; geomhash, so the judge can see the geometry move and the chunks keep up.
+
+logecho on
+reset
+echo --- carve ---
+editor fill walls wall_marble rect 8 1 26 22
+editor fill floors floor_slabs rect 8 5 15 5
+editor fill floors floor_slabs rect 15 6 15 10
+editor fill floors floor_slabs rect 13 11 22 16
+geomhash
+echo --- area: room A ---
+editor fill floors floor_temple area 3 3
+geomhash
+echo --- area: the corridor, clicked mid-run ---
+editor fill floors floor_cobble_mossy area 10 5
+geomhash
+echo --- area: room B ---
+editor fill ceilings ceiling_cracked area 18 13
+geomhash
+echo --- area: the corridor's walls ---
+editor fill walls wall_brick_old area 15 8
+geomhash
+echo --- area: a solid square has none ---
+editor fill floors floor_temple area 20 3
+echo --- level: every floor square ---
+editor fill floors floor_ancient_stone level
+geomhash

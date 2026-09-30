@@ -36,6 +36,9 @@ int DirDZ(Direction d);
 Direction DirOpposite(Direction d);
 // Parses "north"/"east"/"south"/"west" into `out`; false on anything else.
 bool ParseDirection(std::string_view token, Direction& out);
+// The inverse: the record token for a Direction ("north" ...), as the level
+// writers emit it.
+const char* DirToken(Direction d);
 // Yaw under the camera convention forward = (sin yaw, 0, cos yaw):
 // south = 0, east = +pi/2, north = pi, west = -pi/2.
 float DirYaw(Direction d);

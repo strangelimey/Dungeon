@@ -278,6 +278,7 @@ void Game::WireModuleCallbacks() {
 		case WorldMapView::Tool::Worlds:
 			m_worldsDialog.Open(m_project.FolderName());
 			break;
+		case WorldMapView::Tool::NewWorld: m_newWorldDialog.Open(); break;
 		case WorldMapView::Tool::Settings: OpenWorldSettings({}); break;
 		case WorldMapView::Tool::Save:
 			// The WORLD alone, not savemap: the band is the world screen's, and
@@ -298,6 +299,9 @@ void Game::WireModuleCallbacks() {
 	// (m_mapView.hasWorld is set per world, in LoadWorld.)
 	m_mapView.onShowWorld = [this] { ShowMapPage(MapPage::World); };
 	m_worldMapView.onShowDungeon = [this] { ShowMapPage(MapPage::Dungeon); };
+	// The player map's close box, on both pages - Esc's path, not a second one.
+	m_mapView.onClose = [this] { CloseMapOverlay(); };
+	m_worldMapView.onClose = [this] { CloseMapOverlay(); };
 	WireWorldSettingsDialog();
 	// The worlds dialog is the `worlds` command's three verbs with a face, and
 	// calls the SAME two functions — so the console and the dialog cannot
@@ -310,6 +314,23 @@ void Game::WireModuleCallbacks() {
 	};
 	m_worldsDialog.onDescribe = [this](const std::string& n) { return DescribeWorld(n); };
 	m_worldsDialog.onDelete = [this](const std::string& n) { return DeleteWorld(n); };
+	m_worldsDialog.onNewWorld = [this] { m_newWorldDialog.Open(); };
+
+	// The new-world dialog (P4): the same CreateWorld the console's `worlds new`
+	// calls, so the two cannot disagree about what a world starts with. A world
+	// made while the Worlds dialog is up below it lands in that list, armed.
+	m_newWorldDialog.onCreate = [this](const std::string& n, const NewWorldSpec& spec) {
+		std::string problem;
+		const std::string made = CreateWorld(n, spec, &problem);
+		if (!made.empty() && m_worldsDialog.IsOpen()) m_worldsDialog.Created(made);
+		return std::pair{made, problem};
+	};
+	m_newWorldDialog.onSwitch = [this](const std::string& n) {
+		m_worldsDialog.Close(); // the switch ends this world; nothing to go back to
+		return SwitchWorld(n);
+	};
+	m_newWorldDialog.onLevels = [this] { return m_project.levels; };
+	m_newWorldDialog.onThemes = [this] { return WizardThemes(); };
 
 	m_mapEditor.onNewAsset = [this](MapEditor::PaletteCat cat) {
 		// PURE-DATA CATEGORIES SKIP THE ASSET DIALOG. A dungeon has no texture
@@ -384,14 +405,33 @@ void Game::WireModuleCallbacks() {
 				ids.push_back(e.id);
 			return ids;
 		}
-		case FieldKind::CatalogRef: {
+		case FieldKind::CatalogRef:
+		case FieldKind::CatalogRefList: {
 			std::vector<std::string> ids;
 			if (const Catalog* c = m_project.CatalogForKey(spec.options))
-				for (const CatalogEntry& e : c->Entries()) ids.push_back(e.id);
+				for (const CatalogEntry& e : c->Entries()) {
+					// A hidden entry is internal (the palette never offers it),
+					// so a list of things to paint with does not offer it either.
+					if (spec.kind == FieldKind::CatalogRefList && CatalogBool(&e, "hidden", false))
+						continue;
+					ids.push_back(e.id);
+				}
 			return ids;
 		}
 		default: return {};
 		}
+	};
+	// A reference list of SURFACE types (a combination's members) shows each as
+	// the palette does - name and texture swatch - by asking the palette for it.
+	m_typeDialog.faceFor = [this](const FieldSpec& spec,
+								  const std::string& id) -> TypeEditorDialog::RefFace {
+		const MapEditor::PaletteCat cat = MapEditor::CatForCatalogKey(spec.options);
+		if (!MapEditor::SurfaceCat(cat)) return {};
+		// The list is the whole catalogue, most of it not loaded by this level:
+		// a thumbnail first (the dialog is built in Update, where that is safe).
+		m_mapEditor.LoadSurfaceSwatch(cat, id);
+		const MapEditor::PaletteItem item = m_mapEditor.SurfaceItem(cat, id);
+		return {item.label, item.Swatch()};
 	};
 	// Save: merge the touched fields into the catalog, then apply. A surface
 	// whose look changed needs its worn meshes re-baked before it shows.
@@ -404,6 +444,10 @@ void Game::WireModuleCallbacks() {
 			// KIND at load, so that kind is dropped and its instances re-spawned.
 			if (MapEditor::SurfaceCat(MapEditor::CatForCatalogKey(cfg.catalogKey)))
 				m_world->RefreshSurfaceMaterials();
+			// A combination is referenced, not copied: every square painted
+			// with it takes the new definition, on every level that has one.
+			else if (cfg.catalogKey == "combos")
+				m_world->RefreshCombo(cfg.id);
 			else
 				m_world->ReloadTypeKind(cfg.catalogKey, cfg.id);
 			if (m_world->onMessage)

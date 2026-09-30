@@ -448,6 +448,65 @@ void DungeonWorld::AppendSurfaceChunks(DungeonGeometry& geo) {
 	append(m_ceilings, geo.ceilings);
 }
 
+DungeonWorld::GeometryPrint DungeonWorld::GeometryFingerprint() const {
+	const DungeonGeometry geo = BuildDungeonGeometry(
+		m_map, m_wallBlocks, m_floorBlocks, m_ceilingBlocks, m_walls.uAspect,
+		m_floors.uAspect, m_ceilings.uAspect,
+		[this](int x, int z) {
+			return CellHoles{FloorHoleAt(x, z), CeilingHoleAt(x, z)};
+		},
+		[this](const std::string& type) { return NicheMeshFor(type); },
+		[this](const std::string& type) { return BoreMeshFor(type); },
+		[this](const std::string& type) { return FloorFeatureMeshFor(type); },
+		[this](const std::string& type) { return CeilingFeatureMeshFor(type); });
+	GeometryPrint out;
+	const auto fnv = [](u64 h, const void* data, size_t bytes) {
+		const auto* p = static_cast<const unsigned char*>(data);
+		for (size_t i = 0; i < bytes; ++i) h = (h ^ p[i]) * 1099511628211ull;
+		return h;
+	};
+	const auto hashSurface = [&](const std::vector<GeometryChunk>& chunks) {
+		u64 h = 14695981039346656037ull;
+		for (const GeometryChunk& c : chunks) {
+			h = fnv(h, &c.variant, sizeof c.variant);
+			h = fnv(h, &c.chunk, sizeof c.chunk);
+			h = fnv(h, c.mesh.vertices.data(), c.mesh.vertices.size() * sizeof(assets::Vertex));
+			h = fnv(h, c.mesh.indices.data(), c.mesh.indices.size() * sizeof(u32));
+			out.vertices += c.mesh.vertices.size();
+		}
+		return h;
+	};
+	out.walls = hashSurface(geo.walls);
+	out.floors = hashSurface(geo.floors);
+	out.ceilings = hashSurface(geo.ceilings);
+
+	// The layout pair: (surface, chunk, variant, index count), sorted so the
+	// order partial rebuilds leave the live lists in does not matter.
+	using Row = std::array<u32, 4>;
+	const auto layoutHash = [&](std::vector<Row> rows) {
+		std::sort(rows.begin(), rows.end());
+		return fnv(14695981039346656037ull, rows.data(), rows.size() * sizeof(Row));
+	};
+	std::vector<Row> fresh, live;
+	u32 s = 0;
+	for (const auto* list : {&geo.walls, &geo.floors, &geo.ceilings}) {
+		for (const GeometryChunk& c : *list)
+			fresh.push_back({s, static_cast<u32>(c.chunk), static_cast<u32>(c.variant),
+							 static_cast<u32>(c.mesh.indices.size())});
+		++s;
+	}
+	s = 0;
+	for (const Surface* surface : {&m_walls, &m_floors, &m_ceilings}) {
+		for (const SurfaceChunk& c : surface->chunks)
+			live.push_back({s, static_cast<u32>(c.chunk), static_cast<u32>(c.variant),
+							c.mesh ? c.mesh->IndexCount() : 0u});
+		++s;
+	}
+	out.layout = layoutHash(std::move(fresh));
+	out.liveLayout = layoutHash(std::move(live));
+	return out;
+}
+
 void DungeonWorld::BuildDungeonMeshes() {
 	// Every path that (re)builds the surfaces runs through here — the staged
 	// load, the quality swap, an undo restore — so this is the one place the

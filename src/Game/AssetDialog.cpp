@@ -178,11 +178,10 @@ void AssetDialog::Rebuild(const ui::Theme& theme) {
 	if (m_source == Source::Import) {
 		ui::Stack* row = form->Row<ui::Stack>(FormRow(), true);
 		row->gapRem = 0.5f;
-		row->Row<ui::Button>(
-			ui::Len::Fill(0.9f),
-			loc::Tr(m_textureSet ? "newasset.browse_folder" : "newasset.browse_model"),
-			[this] { Browse(); });
-		m_pathLabel = row->Row<ui::Label>(ui::Len::Fill(1.1f), loc::Tr("newasset.none"));
+		RowIcon(*row, m_device, "open",
+				loc::Tr(m_textureSet ? "newasset.browse_folder" : "newasset.browse_model"),
+				[this] { Browse(); });
+		m_pathLabel = row->Row<ui::Label>(ui::Len::Fill(), loc::Tr("newasset.none"));
 		m_pathLabel->centerV = true;
 		m_pathLabel->dim = m_sourcePath.empty();
 		if (!m_sourcePath.empty()) {
@@ -257,7 +256,7 @@ void AssetDialog::Rebuild(const ui::Theme& theme) {
 	// rebuild the tree.
 	m_problemLabel = chrome.footer->Row<ui::Label>(ui::Len::Fill(), "");
 	m_problemLabel->centerV = true;
-	chrome.footer->Row<ui::Button>(FooterButton(), loc::Tr("newasset.create"), [this] {
+	FooterIcon(*chrome.footer, m_device, "new", loc::Tr("newasset.create"), [this] {
 							  if (!Validate().empty()) return; // the label says why
 							  CreateRequest req;
 							  req.category = m_category;

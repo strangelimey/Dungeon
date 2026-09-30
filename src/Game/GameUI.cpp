@@ -1417,15 +1417,18 @@ void GameUI::BuildCharacterSheet() {
 	constexpr float kBtnH = 0.045f;
 	constexpr float kBtnW = 0.05f;
 	const float btnY = kSheetY + kSheetH + 0.02f;
+	// Previous / next member: the square arrow boxes (tools/BuildToolIcons.py),
+	// loaded HERE rather than in a load task for the close box's reason above;
+	// the "<" / ">" text shows only if the art is missing.
 	m_sheetUi.Add<ui::Button>(gfx::Rect{kSheetX, btnY, kBtnW, kBtnH}, "<",
 							  [this] {
 								  const size_t count = m_characters.size();
 								  onOpenSheet((m_sheetIndex + count - 1) % count);
-							  });
+							  })->icon = ToolbarIcon(m_device, "box_left");
 	m_sheetUi.Add<ui::Button>(
 		gfx::Rect{kSheetX + kSheetW - kBtnW, btnY, kBtnW, kBtnH}, ">", [this] {
 			onOpenSheet((m_sheetIndex + 1) % m_characters.size());
-		});
+		})->icon = ToolbarIcon(m_device, "box_right");
 	// "All" → the combined party-backpacks view (for cross-character swaps).
 	m_sheetUi.Add<ui::Button>(gfx::Rect{kSheetX + 0.06f, btnY, 0.08f, kBtnH},
 							  loc::Tr("ui.inv_all"), [this] {
@@ -1811,6 +1814,8 @@ void GameUI::BuildHud() {
 	deps.icons = m_itemIcons;
 	deps.chevron = m_chevronTex.get();
 	deps.chevron2 = m_chevron2Tex.get();
+	deps.boxPlus = ToolbarIcon(m_device, "box_plus");
+	deps.boxMinus = ToolbarIcon(m_device, "box_minus");
 	deps.onMove = [this](MoveAction action) { onMoveAction(action); };
 	deps.onHandLeft = [this](size_t i, size_t hand) { OnHandLeftClick(i, hand); };
 	deps.onHandRight = [this](size_t i, size_t hand) { OnHandRightClick(i, hand); };

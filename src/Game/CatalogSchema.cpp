@@ -636,7 +636,28 @@ constexpr FieldSpec kQuestFields[] = {
 			 "NAME, so these may be renamed but a rename must be swept."},
 };
 
+// --- surface COMBINATIONS (docs/editor-updates-plan.md, P3) -------------------
+// A named look: one tab per surface, a checkbox per type of it. The tabs reuse
+// the palette's own category names, so they read as what they are.
+constexpr FieldSpec kComboFields[] = {
+	{.key = "display", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,
+	 .help = "The name the palette shows."},
+	{.key = "floor", .kind = FieldKind::CatalogRefList, .sectionKey = "map.cat.floors",
+	 .help = "The floors this look varies between, square by square. None ticked "
+			 "leaves a painted square's floor as it was.",
+	 .options = "floors"},
+	{.key = "wall", .kind = FieldKind::CatalogRefList, .sectionKey = "map.cat.walls",
+	 .help = "The walls it varies between. A wall block wears ONE texture on all "
+			 "four faces, so painting a corridor's walls also changes whatever is "
+			 "on their far side.",
+	 .options = "walls"},
+	{.key = "ceiling", .kind = FieldKind::CatalogRefList, .sectionKey = "map.cat.ceilings",
+	 .help = "The ceilings it varies between.",
+	 .options = "ceilings"},
+};
+
 std::span<const FieldSpec> SchemaFor(std::string_view catalogKey) {
+	if (catalogKey == "combos") return kComboFields;
 	if (catalogKey == "dungeons") return kDungeonFields;
 	if (catalogKey == "terrain") return kTerrainFields;
 	if (catalogKey == "quests") return kQuestFields;

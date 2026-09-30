@@ -1,0 +1,18 @@
+; editrev.eval - the edit counter live validation re-runs on (editor-updates
+; P0): it must MOVE on a change and STAY PUT on a no-op, or the checker would
+; either miss an edit or re-run on nothing.
+;
+;   r0  start
+;   r1  after painting a square          (moved)
+;   r2  after painting it the same again (a no-op: unchanged)
+;   r3  after undo                       (moved)
+
+logecho on
+reset
+editor rev
+editor place floors floor_slabs 5 5
+editor rev
+editor place floors floor_slabs 5 5
+editor rev
+undo
+editor rev

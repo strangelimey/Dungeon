@@ -1,0 +1,268 @@
+; Doors: a leaf plus the shared frame. Blocking is keyed to the CELL, so how a
+; leaf gets out of the way is pure presentation and lives here as data:
+;   motion        slide (into the flanking wall) | rise (into the ceiling block,
+;                 which hides it) | split (two halves parting into their jambs)
+;   travel        how far the leaf moves, in SQUARES — for a split, how far EACH
+;                 half goes, so the model is authored as the LEFT HALF only and
+;                 the render turns a second copy a half turn onto the right
+;   open_seconds  how long the full throw takes. Overridable PER PLACEMENT by
+;                 the .ent record's seconds= param (the editor's door inspector,
+;                 Motion tab), because two doors of one type are rarely the same
+;                 door — the cell door at the end of a corridor and the one the
+;                 boss stands behind are both stone, and how long each takes to
+;                 grind open is a thing about the placement
+;   trim          a second model drawn with the leaf, carrying its OWN texture
+;                 (a wooden door's iron straps cannot be iron in a wood-textured
+;                 mesh — the import path binds one set per model)
+;   frame         which surround it hangs in; see the frames section below
+;   opener        the hand-hold on the jamb; see the openers section. EMPTY
+;                 means NONE, and a door with none cannot be opened by the
+;                 party at all — only by a button wired to its name
+;   opener_side   left | right — which jamb the hand-hold hangs on
+;   ease_in       how the motion STARTS: the shape it accelerates on
+;   ease_out      how it ENDS: the shape it decelerates on
+;
+; The two ends are chosen SEPARATELY, which is the point — a heavy stone slab
+; wants a slow start and a hard finish, and no single curve says that. Shapes:
+; linear quad cubic quart sine expo back elastic bounce. The same two fields on
+; an OPENER entry shape the opener instead, since both live in this catalog.
+
+[wooden_door]
+display = Wooden Door
+category = door
+tags = wood
+model = door_panel_half
+; authored = 1: the leaf is tools/BuildDoorLeaf.py's now — five real boards,
+; a closed shell with correct winding, so it back-culls like the frame it hangs
+; in. The four-box slab it replaced could not.
+authored = 1
+texture = wood_planks_old8
+motion = split
+travel = 0.4
+open_seconds = 0.8
+trim = door_band_half
+frame = door_frame_split
+opener = door_chain
+; THE ONE breakable door in this project, and deliberately the plain wooden one:
+; `destructible` is OFF by default precisely so a locked door's key and its switch
+; keep mattering (Michael, 2026-08-11). Boards give way to an axe and burn well;
+; the portcullis and the stone slab do NOT take these fields and cannot be broken
+; at all. Breaking it opens the way FOR GOOD — it cannot be shut again.
+destructible = 1
+hp = 40
+armor = 2
+resists = slash -0.25, fire -0.5, bash 0.2
+
+; NO `opener` ON PURPOSE: a portcullis is worked from a gatehouse, so this is
+; the demo of a door the party cannot touch — the lever at (10,3), or nothing.
+;
+; `sconce` rather than rusted_iron for the same reason the bands take it: a
+; portcullis is a run of narrow bars, and rusted_iron's sheet panels and seams
+; are far wider than a bar, so every bar would pick up a different piece of the
+; scan. Feature size has to be read against the thing wearing the texture.
+;
+; NO `trim` either, and unlike the opener that is not a statement — a portcullis
+; is iron all through, so the reason the wooden door splits into two models
+; (one texture set per model, and its straps cannot be iron inside a
+; wood-textured mesh) simply does not apply. tools/BuildPortcullis.py authors
+; the bars, rails, beam, spikes and rivets as one.
+;
+; `portcullis_leaf`, not `portcullis`: decorations.cat already has a cosmetic
+; [portcullis] filling a whole cell face, the same pairing as its cosmetic
+; [wood_door] beside this file's leaves. Different sizes, so one mesh cannot
+; serve both.
+;
+; travel = 1.0 is a CONTRACT, not a taste: `rise` has nothing to hide the leaf
+; in but the ceiling block over the cell, so the throw has to carry the spike
+; tips a full storey. The script asserts it.
+[portcullis]
+display = Portcullis
+category = door
+tags = iron
+model = portcullis_leaf
+authored = 1
+texture = sconce
+motion = rise
+travel = 1.0
+open_seconds = 1.4
+; Hauled up on a winch and dropped: laboured going up, and it lands.
+ease_in = cubic
+ease_out = bounce
+frame = door_frame_temple
+
+; The slab is COURSED MASONRY, not one stone: `wall_stone_granite` is a scan of
+; ashlar, so a monolith wearing it would be a single block with joints painted
+; on. tools/BuildStoneSlab.py takes the scan's own grid instead — five courses,
+; three and a half blocks, running bond — which makes this door literally what
+; the frame comment below claims: a piece of the wall that slides. The bronze is
+; then the only thing that says door, which is why it earns its keep.
+[stone_door]
+display = Stone Door
+category = door
+tags = stone temple
+model = stone_slab
+authored = 1
+texture = wall_stone_granite
+motion = slide
+travel = 0.75
+open_seconds = 2.0
+; Tonnes of stone: it takes a long time to get going and stops against its
+; stop, hard. This is the case the two-ended curve was built for.
+ease_in = quart
+ease_out = bounce
+trim = door_bosses
+frame = door_frame_granite
+opener = door_pad
+opener_side = right
+
+; --- openers ---------------------------------------------------------------
+; What a hand takes hold of. Named by a door type's `opener` (or overridden per
+; placement by the .ent record's opener= param, where opener=none means THIS
+; door has none whatever its type says).
+;
+; `style` picks the BEHAVIOUR — how it moves when worked — and everything else
+; here is look. So a new opener that presses or pulls like one of these is a
+; catalog block and nothing more; only a genuinely new MOVEMENT costs code.
+; Hidden: an opener is part of a door, never placed on its own.
+
+; Dungeon Master: a square wooden pad on the jamb. Two parts like the chain —
+; `mount` is the surround, bolted to the stone, and only the centre square
+; sinks. A button whose frame goes in with it reads as the whole fitting being
+; shoved into the wall rather than as something being pressed.
+;
+; They are also two MATERIALS, which is what decides where the studs go: a
+; studded wooden pad is the obvious picture, but a stud is iron and would have
+; to live inside the wood-textured mesh. So the bolts belong to the iron MOUNT,
+; where they are more honest anyway — they are what fixes the fitting to the
+; stone, and they are the part that does not move.
+[door_pad]
+display = Jamb Pad
+model = door_pad
+texture = wood_planks_old8
+style = pad
+mount = door_pad_mount
+authored = 1
+hidden = 1
+
+[door_pad_mount]
+display = Jamb Pad Surround
+model = door_pad_mount
+texture = sconce
+authored = 1
+hidden = 1
+
+; Grimrock: a chain hanging beside the door, pulled to work it. `mount` names
+; the STATIC socket it runs out of — the chain slides up behind that boss, so
+; working it draws more chain into the room instead of sliding the whole thing
+; down the jamb. The two have to be separate models to move differently.
+;
+; `offset` puts it further out along the jamb than the 0.42 default, which is
+; the jamb's CENTRE and right for a flat pad. A chain is not flat: the jamb
+; stones stand prouder than it hangs, so at the centre it vanished behind them
+; as soon as the door was looked at from an angle.
+[door_chain]
+display = Chain
+model = door_chain
+texture = sconce
+style = chain
+mount = door_chain_socket
+offset = 0.465
+; Snatched down and let go: the yank starts hard, the climb settles softly.
+; The asymmetry in SPEED comes from the two durations in code; these shape the
+; feel within each.
+ease_in = expo
+ease_out = sine
+authored = 1
+hidden = 1
+
+[door_chain_socket]
+display = Chain Socket
+model = door_chain_socket
+texture = sconce
+authored = 1
+hidden = 1
+
+; --- frames ----------------------------------------------------------------
+; The surround a leaf hangs in, named by the door type's `frame` (defaulting to
+; [door_frame]). Since the field is a catalog reference and not a texture name,
+; a variant is free to change the STONE, the MESH, or both.
+;
+; THE MESH HAS TO MATCH THE MOTION, because a door needs somewhere to go: the
+; frame is cut with a MORTICE on whichever side its leaf travels into, and a
+; frame whose slot is on the wrong side leaves the leaf sliding into solid
+; stone. tools/BuildDoorFrame.py takes --left/--right/--head and emits one
+; model per combination:
+;   door_frame        no slot   — a doorway that never opens, or a hinged leaf
+;   door_frame_slide  --right   — `slide` moves the leaf +X
+;   door_frame_split  --left --right — `split` sends a half each way
+;   door_frame_rise   --head    — `rise` takes the leaf up
+;
+; authored = 1 on all of them: a closed shell with correct winding back-culls,
+; which the three boxes this replaced could not.
+
+[door_frame]
+display = Door Frame
+model = door_frame
+texture = wall_stone
+authored = 1
+hidden = 1
+
+; The wooden double door, in the wall's own stone.
+[door_frame_split]
+display = Door Frame (split)
+model = door_frame_split
+texture = wall_stone
+authored = 1
+hidden = 1
+
+; The portcullis stands in a gatehouse, not a corridor.
+[door_frame_temple]
+display = Door Frame (temple)
+tags = temple
+model = door_frame_rise
+texture = wall_temple_ancient
+authored = 1
+hidden = 1
+
+; The vault frame matches its slab, so the door reads as cut from the surround.
+[door_frame_granite]
+display = Door Frame (granite)
+tags = stone
+model = door_frame_slide
+texture = wall_stone_granite
+authored = 1
+hidden = 1
+
+; --- leaf trim -------------------------------------------------------------
+; Drawn with the leaf it belongs to (the type's `trim`), and hidden from the
+; palette: trim is never placed on its own. A trim exists ONLY where a leaf
+; needs a second MATERIAL — the import path binds one texture set per model, so
+; a wooden door's iron cannot live inside its wood-textured mesh. A leaf that is
+; all one material (the portcullis) is one model and has no trim.
+;
+; The iron is `sconce`, the game's uniform worn-metal set, NOT `rusted_iron`.
+; rusted_iron is a scan of a corrugated iron WALL — big sheet panels, hard
+; vertical seams, a pale weathered strip down one third — so at any tile rate
+; each bar of a strap lands on a different panel of the scan and it reads as
+; assembled from mismatched pieces rather than forged in one. Ironwork wants a
+; texture with NO features larger than the bar is wide. As a bonus this is the
+; set the sconces and braziers already wear, so the ironwork matches.
+;
+; ([door_band], the rectangular band for a whole leaf, is gone with the
+; portcullis's trim — it was its only user.)
+
+[door_band_half]
+display = Door Band, half leaf (iron)
+model = door_band_half
+texture = sconce
+authored = 0
+hidden = 1
+
+; Bronze, not iron: banding a stone slab reads as ironwork bolted to rock, so a
+; sealed vault door marks its corners and hangs a ring instead.
+[door_bosses]
+display = Door Bosses (bronze)
+model = door_bosses
+texture = brass
+authored = 0
+hidden = 1

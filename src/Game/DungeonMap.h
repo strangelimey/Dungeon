@@ -52,7 +52,10 @@
 #include "Game/Entity.h"
 
 #include <algorithm>
+#include <array>
+#include <span>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace dungeon::game {
@@ -84,6 +87,10 @@ inline DirectX::XMMATRIX UnitScale(float extra = 1.0f) {
 }
 
 enum class Cell : u8 { Wall, Floor };
+
+// A cell's three surfaces. The variant grids, the palettes and the editor's
+// brushes are all addressed by it (DungeonWorld::SurfaceSel is this type).
+enum class Surface : u8 { Wall, Floor, Ceiling };
 
 // Per-torch light/smoke defaults (also the "don't write it" baseline for the
 // .map fixture record — only non-default values are serialized).
@@ -188,10 +195,18 @@ struct SurfaceFeature {
 // to the project's default ids. DungeonWorld builds one of these from the
 // live Project (FixtureTypesOf); the defaults keep a bare DungeonMap(path)
 // working for the classic two kinds.
+// One surface COMBINATION's members (combos.cat, docs/editor-updates-plan.md
+// P3): per Surface, the catalog ids its cells vary between. An empty list
+// leaves that surface to the default hash mix.
+using ComboMembers = std::array<std::vector<std::string>, 3>; // indexed by Surface
+
 struct FixtureTypes {
 	std::vector<std::string> wallMount{"sconce"};
 	std::string sconceDefault = "sconce";  // the 'T' glyph's id
 	std::string brazierDefault = "brazier"; // the 'F' glyph's id
+	// The project's combinations by id, for `surfacemix` records - the same
+	// "catalog facts the catalog-blind map needs" role as the fields above.
+	std::unordered_map<std::string, ComboMembers> combos;
 };
 
 // A stair/portal on a floor cell that, when the party steps onto it, transitions
@@ -265,6 +280,14 @@ public:
 	void SetWallVariant(int x, int z, int v) { SetVariant(m_wallVar, x, z, v); }
 	void SetFloorVariant(int x, int z, int v) { SetVariant(m_floorVar, x, z, v); }
 	void SetCeilingVariant(int x, int z, int v) { SetVariant(m_ceilingVar, x, z, v); }
+	// The same, addressed by surface. This is the RAW override; which variant a
+	// cell actually SHOWS is ResolveSurfaceVariant's answer (DungeonMeshBuilder).
+	int Variant(Surface s, int x, int z) const {
+		return VariantAt(s == Surface::Wall    ? m_wallVar
+						 : s == Surface::Floor ? m_floorVar
+											   : m_ceilingVar,
+						 x, z);
+	}
 
 	// Whether a cell was authored dusty (the 'D' glyph), for the .map writer —
 	// distinct from runtime Turbidity(), which also folds in nearby fires.
@@ -536,6 +559,11 @@ public:
 	const std::vector<std::string>& WallPalette() const { return m_wallPalette; }
 	const std::vector<std::string>& FloorPalette() const { return m_floorPalette; }
 	const std::vector<std::string>& CeilingPalette() const { return m_ceilingPalette; }
+	const std::vector<std::string>& Palette(Surface s) const {
+		return s == Surface::Wall    ? m_wallPalette
+			   : s == Surface::Floor ? m_floorPalette
+									 : m_ceilingPalette;
+	}
 	// Editor: APPEND a catalog id to a palette (false = already there). Append
 	// only — the `variant` records store the palette INDEX, so inserting or
 	// removing in the middle would silently repaint every cell above it. The
@@ -552,11 +580,48 @@ public:
 		return AddPaletteId(m_ceilingPalette, std::move(id));
 	}
 
+	// --- surface COMBINATIONS (docs/editor-updates-plan.md, P3) ---------------
+	// A named, world-wide mix per surface (combos.cat: "marble hall" = a floor
+	// mix + a wall mix + a ceiling mix). A cell can REFERENCE one instead of
+	// pinning a palette index: a variant of -2 or below is combination SLOT
+	// (-2 - v) in this level's own list, so it varies exactly as a default cell
+	// does, but only across the combination's members - and editing the
+	// combination repaints every cell that uses it, with nothing to re-paint.
+	// Written as `surfacemix <surface> <x> <z> <combo id>`, by ID.
+	//
+	// The map is catalog-blind, so the member IDS come in from outside (the
+	// FixtureTypes at load, ComboSlot/SetComboMembers after), and each is
+	// resolved here to a PALETTE INDEX. Only palette entries have textures and
+	// worn meshes loaded, so a member the palette lacks is skipped - painting a
+	// combination appends its members to the palette first (DungeonWorld).
+	static constexpr int ComboVariant(int slot) { return -2 - slot; }
+	static constexpr int ComboSlotOf(int variant) { return variant <= -2 ? -2 - variant : -1; }
+	// The slot for combination `id`, appended (with `members`) if this level
+	// has none yet; an existing slot takes the new members. Never removes or
+	// reorders a slot - the cells store the slot number.
+	int ComboSlot(const std::string& id, const ComboMembers& members);
+	// Re-points an existing combination's members (the definition was edited);
+	// false when this level does not use it.
+	bool SetComboMembers(const std::string& id, const ComboMembers& members);
+	size_t ComboCount() const { return m_combos.size(); }
+	const std::string& ComboId(int slot) const { return m_combos[static_cast<size_t>(slot)].id; }
+	const ComboMembers& ComboMemberIds(int slot) const {
+		return m_combos[static_cast<size_t>(slot)].ids;
+	}
+	// A slot's members on surface `s` as indices into Palette(s); empty = the
+	// surface falls back to the default hash (the combination leaves it be, or
+	// none of its members is in the palette).
+	std::span<const int> ComboMembersOf(Surface s, int slot) const {
+		if (slot < 0 || slot >= static_cast<int>(m_combos.size())) return {};
+		return m_combos[static_cast<size_t>(slot)].index[static_cast<size_t>(s)];
+	}
+
 	// Which family of records a type sweep walks (see SweepTypeRefs). One per
 	// catalog category that a .map record can name.
 	enum class TypeRecords {
 		WallPalette, FloorPalette, CeilingPalette,
-		Decoration, Fixture, WallFeature, Stair
+		Decoration, Fixture, WallFeature, Stair,
+		Combo // a surface combination's slot (counted by the squares using it)
 	};
 	// Editor type rename/delete: counts this level's references to catalog id
 	// `id` within one record family and, when `newId` is given, rewrites them.
@@ -579,13 +644,20 @@ private:
 	// First solid neighbour wall of (x,z) with no niche on it yet.
 	bool FreeNicheWall(int x, int z, Direction& out) const;
 
-	// Shared body of the palette appenders (one list per surface).
-	static bool AddPaletteId(std::vector<std::string>& list, std::string id) {
+	// Shared body of the palette appenders (one list per surface). A palette
+	// grows, so combination members it now holds are resolved again.
+	bool AddPaletteId(std::vector<std::string>& list, std::string id) {
 		if (id.empty() || std::find(list.begin(), list.end(), id) != list.end())
 			return false;
 		list.push_back(std::move(id));
+		ResolveComboIndices();
 		return true;
 	}
+	// `surfacemix <surface> <x> <z> <combo id>` (see ComboSlot).
+	void ParseSurfaceMixRecord(const std::string& record, const std::string& path,
+							   const FixtureTypes& fixtures);
+	// Every combination's member ids -> palette indices (see ComboMembersOf).
+	void ResolveComboIndices();
 
 	// Shared body of the variant getters/setters (one grid per surface).
 	int VariantAt(const std::vector<int>& grid, int x, int z) const {
@@ -624,6 +696,14 @@ private:
 	std::vector<std::string> m_wallPalette;   // catalog ids (walls.cat)
 	std::vector<std::string> m_floorPalette;  // catalog ids (floors.cat)
 	std::vector<std::string> m_ceilingPalette; // catalog ids (ceilings.cat)
+	// The combinations this level's cells reference, by slot (see ComboSlot):
+	// the id, its member ids per surface, and those resolved to palette indices.
+	struct Combo {
+		std::string id;
+		ComboMembers ids;
+		std::array<std::vector<int>, 3> index;
+	};
+	std::vector<Combo> m_combos;
 };
 
 } // namespace dungeon::game

@@ -1,0 +1,23 @@
+; newworlds.eval - the three ways to make a world (editor-updates P4).
+;
+; Made from dungeon-demo, with an UNSAVED edit in hand first (a 3x3 of
+; floor_slabs on eval_arena), so the judge (tools/EditorTest.py phase 9) can
+; see the copy carry it while dungeon-demo's own file stays as it was:
+;   nw_blank   the template's content and one starter room with an exit
+;   nw_copy    this world whole, the unsaved edit included
+;   nw_level   dungeon-demo's content and crypt1 alone, its stairs replaced
+;              by one exit
+; then each refusal, in its own words. The judge opens each world with
+; -project and runs worldcheck.eval there, and removes them all after.
+
+logecho on
+reset
+editor fill floors floor_slabs rect 3 3 5 5
+worlds new nw_blank
+worlds new nw_copy copy
+worlds new nw_level level crypt1
+echo --- refusals ---
+worlds new nw_blank
+worlds new !!!
+worlds new nw_bad level nowhere
+worlds

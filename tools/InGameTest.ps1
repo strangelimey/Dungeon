@@ -166,7 +166,21 @@ $screens = @(
 	# empty one of its own and deletes it on the way out, through the same rule.
 	@{ label = 'sweep_dungeondelete'; viaConsole = $true
 	   open = { Run-Cmd 'editor'; Run-Cmd 'newtype dungeons'; Run-Cmd 'dungeons dialog dungeon1'; Run-Cmd 'dungeons dialog delete' }
-	   close = { Run-Cmd 'dungeons dialog off'; Run-Cmd 'dungeons delete dungeon1 dungeon1'; Run-Cmd 'editor off' } }
+	   close = { Run-Cmd 'dungeons dialog off'; Run-Cmd 'dungeons delete dungeon1 dungeon1'; Run-Cmd 'editor off' } },
+	# The NEW WORLD dialog (editor-updates P4), from the level editor's toolbar:
+	# with "Copy one level" picked, so its level dropdown row is the live one...
+	@{ label = 'sweep_newworld'; viaConsole = $true
+	   open = { Run-Cmd 'editor'; Run-Cmd 'worlds newdialog source level crypt1' }
+	   close = { Run-Cmd 'worlds newdialog off'; Run-Cmd 'editor off' } },
+	# ...and after a Create, when "Switch now" joins the footer. It makes a
+	# blank world of its own and deletes it on the way out.
+	# ...with the WIZARD picked (P5), when its four rows join a taller card...
+	@{ label = 'sweep_newworldwizard'; viaConsole = $true
+	   open = { Run-Cmd 'editor'; Run-Cmd 'worlds newdialog source wizard' }
+	   close = { Run-Cmd 'worlds newdialog off'; Run-Cmd 'editor off' } },
+	@{ label = 'sweep_newworldmade'; viaConsole = $true
+	   open = { Run-Cmd 'editor'; Run-Cmd 'worlds newdialog create wt_nwsweep' }
+	   close = { Run-Cmd 'worlds newdialog off'; Run-Cmd 'worlds delete wt_nwsweep wt_nwsweep'; Run-Cmd 'editor off' } }
 )
 # NOT swept, and named rather than left to be assumed. The settings page is
 # reached by menu navigation whose entry order shifts with whether a save

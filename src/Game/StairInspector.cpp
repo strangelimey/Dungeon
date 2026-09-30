@@ -4,6 +4,7 @@
 #include "Game/StairInspector.h"
 
 #include "Core/Loc.h"
+#include "Game/DialogLayout.h" // RowIcon
 #include "UI/Controls.h"
 
 #include <algorithm>
@@ -55,10 +56,12 @@ void StairInspector::BuildContent(ui::Stack& c) {
 	c.Row<ui::Label>(FormRow(),
 					 loc::Format("map.stair.cell", m_cfg.dest, m_cfg.destX, m_cfg.destZ));
 
-	c.Row<ui::Button>(FormRow(), loc::Format("map.stair.goto", m_cfg.dest), [this] {
+	ui::Stack* go = c.Row<ui::Stack>(FormRow(), true);
+	RowIcon(*go, m_device, "enter", loc::Format("map.stair.goto", m_cfg.dest), [this] {
 		Close(); // keeping the edits: they are live, like any unsaved edit
 		if (onGoTo) onGoTo(m_cfg);
 	});
+	go->Space(ui::Len::Fill());
 }
 
 void StairInspector::ApplyLive() { // the common strip turns the flight

@@ -172,7 +172,7 @@ void LevelSettingsDialog::BuildUI() {
 	chrome.body->Space(ui::Len::Fill()); // the rows sit at the top
 
 	chrome.footer->Space(ui::Len::Fill());
-	chrome.footer->Row<ui::Button>(FooterButton(), loc::Tr("map.cfg.save"), [this] {
+	FooterIcon(*chrome.footer, m_device, "save", loc::Tr("map.cfg.save"), [this] {
 		if (onSave) onSave(m_dust, m_haze, m_ambient, m_theme);
 		Close();
 	});

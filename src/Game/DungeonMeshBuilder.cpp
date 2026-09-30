@@ -16,6 +16,24 @@ u32 SurfaceVariantFor(int x, int z, u32 salt, u32 count) {
 	return count > 0 ? (h >> 8) % count : 0;
 }
 
+u32 ResolveSurfaceVariant(const DungeonMap& map, int x, int z, Surface s, u32 count) {
+	const int over = map.Variant(s, x, z);
+	if (over >= 0) return count > 0 ? std::min(static_cast<u32>(over), count - 1) : 0u;
+	const u32 salt = s == Surface::Floor ? 1u : s == Surface::Ceiling ? 2u : 3u;
+	// A COMBINATION varies exactly as the default does - the same hash, the same
+	// salt - but only across its own members. One with no members on this
+	// surface (or none in the palette) leaves the surface to the default mix.
+	if (const int slot = DungeonMap::ComboSlotOf(over); slot >= 0) {
+		const std::span<const int> members = map.ComboMembersOf(s, slot);
+		if (!members.empty()) {
+			const u32 pick = static_cast<u32>(members[SurfaceVariantFor(
+				x, z, salt, static_cast<u32>(members.size()))]);
+			return count > 0 ? std::min(pick, count - 1) : 0u;
+		}
+	}
+	return SurfaceVariantFor(x, z, salt, count);
+}
+
 namespace {
 
 // Appends `src` transformed by `m` (positions) and its rotation part (normals).
@@ -89,15 +107,11 @@ void StampCell(const DungeonMap& map, int x, int z, CellHoles holes,
 	const u32 ceilingVariants = static_cast<u32>(ceilingBlocks.size());
 	const Vec3 center = map.CellCenter(x, z);
 
-	// An editor override (>= 0) pins the cell's variant; otherwise the stable
-	// position hash chooses it. Clamp to the loaded variant count.
-	const auto pick = [](int over, u32 hashed, u32 count) -> u32 {
-		if (over < 0) return hashed;
-		return count > 0 ? std::min(static_cast<u32>(over), count - 1) : 0u;
-	};
+	// Which variant each surface shows: ResolveSurfaceVariant, the one answer the
+	// map overlay and the editor also ask.
 	if (!holes.floor) {
-		const u32 floorVariant = pick(map.FloorVariant(x, z),
-									   SurfaceVariantFor(x, z, 1u, floorVariants), floorVariants);
+		const u32 floorVariant =
+			ResolveSurfaceVariant(map, x, z, Surface::Floor, floorVariants);
 		// A FLOOR FEATURE replaces the plain floor block for this cell — the same
 		// substitution a niche makes on a wall edge, and into the same variant
 		// bucket, so the recess wears the cell's own floor texture. That is what
@@ -115,8 +129,8 @@ void StampCell(const DungeonMap& map, int x, int z, CellHoles holes,
 						  UnitScale() * XMMatrixTranslation(center.x, 0, center.z), uScale);
 	}
 	if (!holes.ceiling) {
-		const u32 ceilingVariant = pick(map.CeilingVariant(x, z),
-										 SurfaceVariantFor(x, z, 2u, ceilingVariants), ceilingVariants);
+		const u32 ceilingVariant =
+			ResolveSurfaceVariant(map, x, z, Surface::Ceiling, ceilingVariants);
 		// The floor substitution, pointing the other way: a vault replaces the
 		// plain ceiling block and rides the ceiling's variant bucket, so it wears
 		// the cell's own ceiling texture.
@@ -170,9 +184,8 @@ void StampCell(const DungeonMap& map, int x, int z, CellHoles holes,
 			if (const WallNiche* n = map.NicheAt(cx, cz, dx, dz); n && n->open) return -1;
 		if (bore)
 			if (map.BoreAlong(sx, sz, dx != 0 ? 0 : 1)) return -1;
-		return static_cast<int>(pick(map.WallVariant(sx, sz),
-									 SurfaceVariantFor(sx, sz, 3u, wallVariants),
-									 wallVariants));
+		return static_cast<int>(
+			ResolveSurfaceVariant(map, sx, sz, Surface::Wall, wallVariants));
 	};
 	// Each wall face takes its texture from the SOLID block it belongs to: the
 	// block owns its texture (all faces of one block agree, both sides of a
@@ -180,8 +193,8 @@ void StampCell(const DungeonMap& map, int x, int z, CellHoles holes,
 	for (const Edge& e : edges) {
 		const int wx = x + e.dx, wz = z + e.dz;
 		if (map.IsWalkable(wx, wz)) continue;
-		const u32 wallVariant = pick(map.WallVariant(wx, wz),
-									  SurfaceVariantFor(wx, wz, 3u, wallVariants), wallVariants);
+		const u32 wallVariant =
+			ResolveSurfaceVariant(map, wx, wz, Surface::Wall, wallVariants);
 		const XMMATRIX m = UnitScale() * XMMatrixRotationY(e.yaw) *
 						   XMMatrixTranslation(e.pos.x, e.pos.y, e.pos.z);
 		// A niche on this edge stamps its recessed panel in place of the plain

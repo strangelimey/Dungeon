@@ -41,6 +41,9 @@ WorldMapView::WorldMapView(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)
 	m_icoUndo = ToolbarIcon(device, "undo");
 	m_icoRedo = ToolbarIcon(device, "redo");
 	m_icoWorlds = ToolbarIcon(device, "worlds");
+	m_icoNewWorld = ToolbarIcon(device, "newworld");
+	m_icoBoxDungeon = ToolbarIcon(device, "box_dungeon"); // the way back
+	m_icoClose = CloseIcon(device);
 }
 
 gfx::Rect WorldMapView::ToolbarRect(const gfx::Rect& panel) const {
@@ -71,7 +74,9 @@ std::vector<WorldMapView::ToolButton> WorldMapView::ToolbarButtons(
 		canUndo && canUndo(/*redo*/ false));
 	add(Tool::Settings, loc::Tr("map.btn.world"), m_icoSettings, true);
 	// Leftmost, and apart from the rest in meaning: every other disc acts on
-	// THIS world, and this one is the way to the others.
+	// THIS world, and these two are about the others - making one, and the
+	// way to them.
+	add(Tool::NewWorld, loc::Tr("map.btn.newworld"), m_icoNewWorld, true);
 	add(Tool::Worlds, loc::Tr("map.btn.worlds"), m_icoWorlds, true);
 	return btns;
 }
@@ -80,9 +85,16 @@ gfx::Rect WorldMapView::DungeonButton(const gfx::Rect& panel) const {
 	// The SAME PIXELS MapView's way here occupies — neither view has a left
 	// dock in the player's map, so top-left is the one corner both can agree
 	// on, and the toggle stays put instead of jumping across the panel.
+	// A square, the gate box - MapView's globe box is its twin.
 	const gfx::Rect g = GridArea(panel);
 	const float pad = ToolPad(panel), s = ToolSide(panel);
-	return {g.x + pad * 2, g.y + pad * 2, s * 3.0f, s};
+	return {g.x + pad * 2, g.y + pad * 2, s, s};
+}
+
+gfx::Rect WorldMapView::CloseButton(const gfx::Rect& panel) const {
+	const gfx::Rect d = DungeonButton(panel);
+	const gfx::Rect g = GridArea(panel);
+	return {g.x + g.w - (d.x - g.x) - d.w, d.y, d.w, d.h};
 }
 
 gfx::Rect WorldMapView::GridArea(const gfx::Rect& panel) const {
@@ -150,17 +162,28 @@ void WorldMapView::Update(const Input& input, const WorldMap& world,
 	// The overlay's way back to the dungeon map claims its own pixels too, for
 	// the reason the band does: the grid runs under it.
 	m_hoverDungeon = false;
-	bool onDungeonBtn = false;
+	bool onButton = false;
 	if (ShowDungeonButton() && DungeonButton(panel).Contains(mx, my)) {
 		m_hoverDungeon = true;
-		onDungeonBtn = true;
+		onButton = true;
 		if (input.WasMousePressed(MouseButton::Left)) {
 			m_hoverDungeon = false; // it is about to be replaced by another view
 			onShowDungeon();
 			return;
 		}
 	}
-	const bool over = inPanel && !inBand && !onDungeonBtn;
+	// The close box, likewise; the owner closes the overlay inside the call.
+	m_hoverClose = false;
+	if (ShowCloseButton() && CloseButton(panel).Contains(mx, my)) {
+		m_hoverClose = true;
+		onButton = true; // keeps the grid from also taking the pointer
+		if (input.WasMousePressed(MouseButton::Left)) {
+			m_hoverClose = false;
+			onClose();
+			return;
+		}
+	}
+	const bool over = inPanel && !inBand && !onButton;
 
 	m_hoverX = m_hoverZ = -1;
 	if (over) {
@@ -294,10 +317,39 @@ void WorldMapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	// Editor's toolbar wins the corner if both were ever up at once — they
 	// cannot be today (the overlay is Play mode), and a silent overlap would
 	// be worse than a stated precedence.
-	if (ShowDungeonButton())
-		ui::DrawButtonFace(batch, *m_font, DungeonButton(panel),
-						   loc::Tr("map.btn.showdungeon"), theme, m_hoverDungeon,
-						   /*held*/ false, /*enabled*/ true);
+	// The close box, top-right (the shared dialog icon, "x" without it).
+	if (ShowCloseButton()) {
+		const gfx::Rect r = CloseButton(panel);
+		if (!m_icoClose) {
+			ui::DrawButtonFace(batch, *m_font, r, "x", theme, m_hoverClose,
+							   /*held*/ false, /*enabled*/ true);
+		} else {
+			const float f = m_hoverClose ? 1.15f : 0.9f;
+			batch.DrawSprite(r, {0, 0, 1, 1}, *m_icoClose, {f, f, f, 1.0f});
+		}
+	}
+	// The gate box, named by a tip under it while hovered; the word face when
+	// the art is missing.
+	if (ShowDungeonButton()) {
+		const gfx::Rect r = DungeonButton(panel);
+		const std::string name = loc::Tr("map.btn.showdungeon");
+		if (!m_icoBoxDungeon) {
+			ui::DrawButtonFace(batch, *m_font, r, name, theme, m_hoverDungeon,
+							   /*held*/ false, /*enabled*/ true);
+		} else {
+			const float f = m_hoverDungeon ? 1.15f : 0.9f;
+			batch.DrawSprite(r, {0, 0, 1, 1}, *m_icoBoxDungeon, {f, f, f, 1.0f});
+			if (m_hoverDungeon) {
+				const float tw = m_font->MeasureWidth(name);
+				const float p = ToolPad(panel) * 1.5f;
+				const gfx::Rect tr{r.x, r.y + r.h + 2.0f, tw + p * 2,
+								   m_font->Height() + p};
+				batch.DrawRect(tr, kMapBg);
+				ui::DrawBorder(batch, tr, theme.panelBorder);
+				m_font->Draw(batch, name, tr.x + p, tr.y + p * 0.5f, theme.text);
+			}
+		}
+	}
 	// The Editor band, across the panel top: a subtle lift over the base plus a
 	// 1px seam, so it reads as fixed chrome the grid scrolls under — the same
 	// treatment (and the same drawing) the level editor's toolbar has.

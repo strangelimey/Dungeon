@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstdlib>
 #include <format>
 #include <string>
@@ -152,6 +153,27 @@ void Game::RegisterDevCommands() {
 							   walkable, m_world->MonsterCount(),
 							   map.Sconces().size(), map.Braziers().size()));
 					   });
+	m_console.Register("geomhash",
+					   "fingerprint the active level's surface geometry (one hash per "
+					   "surface; identical before/after = no vertex moved)",
+					   [this](const std::vector<std::string>&) {
+						   const DungeonWorld::GeometryPrint g = m_world->GeometryFingerprint();
+						   m_console.Print(std::format(
+							   "geomhash {} walls={:016x} floors={:016x} ceilings={:016x} "
+							   "verts={}",
+							   m_world->CurrentLevel(), g.walls, g.floors, g.ceilings,
+							   g.vertices));
+						   // Uploaded chunks vs a fresh bake: a chunk an edit forgot
+						   // to rebuild makes these two disagree. An undo restore
+						   // DEFERS its rebake to editor close on purpose, so a
+						   // mismatch then is the debt, not a defect: say which.
+						   const char* verdict = g.layout == g.liveLayout ? "match"
+												 : m_world->GeometryDirty() ? "deferred"
+																			: "STALE";
+						   m_console.Print(std::format("geomlayout {} fresh={:016x} live={:016x} {}",
+													   m_world->CurrentLevel(), g.layout,
+													   g.liveLayout, verdict));
+					   });
 	m_console.Register("groups", "list monster groups (id: count [kinds] @ cell#slot)",
 					   [this](const std::vector<std::string>&) {
 						   for (const std::string& line : m_world->GroupsReport())
@@ -161,7 +183,9 @@ void Game::RegisterDevCommands() {
 					   "open the map in editor mode (off = player map; inspect <x> <z> = "
 					   "what a right-click on that square does; inspect off closes it; "
 					   "place <category> <id> <x> <z> = arm that palette row and left-click "
-					   "the square; erase <x> <z> = a middle-click on it)",
+					   "the square; drag <category> <id> <x> <z> [<x> <z> ...] = the same "
+					   "row dragged over several squares as one stroke; erase <x> <z> = a "
+					   "middle-click on it)",
 					   [this](const std::vector<std::string>& args) {
 						   if (!args.empty() && args[0] == "off") {
 							   m_mapView.SetMode(MapView::Mode::Player);
@@ -224,6 +248,185 @@ void Game::RegisterDevCommands() {
 													   std::atoi(args[4].c_str()));
 							   m_console.Print(std::format("editor move: {},{} -> {},{}", fx, fz,
 														   args[3], args[4]));
+							   return;
+						   }
+						   // The edit counter live validation keys on: moves on a
+						   // change, stays put on a no-op (DungeonWorld::EditRevision).
+						   // The tool strip: pick a tool by name, or bare to say which.
+						   if (!args.empty() && args[0] == "tool") {
+							   using Tool = MapEditor::Tool;
+							   if (args.size() >= 2) {
+								   int found = -1;
+								   for (int i = 0; i < static_cast<int>(Tool::Count); ++i)
+									   if (args[1] == MapEditor::ToolName(static_cast<Tool>(i)))
+										   found = i;
+								   if (found < 0) {
+									   m_console.Print("usage: editor tool [paint|rect|flood|area|pick]");
+									   return;
+								   }
+								   m_mapEditor.SetTool(static_cast<Tool>(found));
+							   }
+							   m_console.Print(std::format(
+								   "editor tool: {}", MapEditor::ToolName(m_mapEditor.ActiveTool())));
+							   return;
+						   }
+						   // What the live check boxes on the VIEWED level, one line a
+						   // square (a stair's far end and every lost item included),
+						   // then the Check badge's count. Refreshes first - the
+						   // harness has no mouse, so nothing is ever mid-stroke.
+						   if (!args.empty() && args[0] == "issues") {
+							   if (m_mapView.IsOpen())
+								   m_mapView.SetMode(MapView::Mode::Editor);
+							   else
+								   m_mapView.Open(MapView::Mode::Editor);
+							   RefreshLiveIssues(/*pointerHeld*/ false);
+							   const std::string& here = m_mapView.ViewedLevel();
+							   int badge = 0;
+							   for (const validate::Issue& is : m_liveIssues) {
+								   const char* sev =
+									   is.severity == validate::Severity::Error ? "error" : "warning";
+								   if (is.x < 0) ++badge;
+								   if (is.level == here && is.x >= 0)
+									   m_console.Print(std::format("editor box {} {},{} {} {}", here,
+																   is.x, is.z, sev, is.messageKey));
+								   for (const validate::Spot& s : is.also)
+									   if (s.level == here)
+										   m_console.Print(std::format("editor box {} {},{} {} {} (from {} {},{})",
+																	   here, s.x, s.z, sev,
+																	   is.messageKey, is.level,
+																	   is.x, is.z));
+							   }
+							   m_console.Print(std::format("editor issues: {} finding(s), badge {}",
+														   m_liveIssues.size(), badge));
+							   return;
+						   }
+						   // One square of the VIEWED level: what each surface stores
+						   // (a pinned palette index, a combination, or the default
+						   // hash) and the texture that resolves to - what the 3D
+						   // scene and the map both draw.
+						   if (!args.empty() && args[0] == "cell") {
+							   if (!Need(m_console, args, 3, "usage: editor cell <x> <z>")) return;
+							   const DungeonMap& map = m_mapView.ViewedMap();
+							   const int x = std::atoi(args[1].c_str()), z = std::atoi(args[2].c_str());
+							   std::string line = std::format("editor cell {} {},{} {}", m_mapView.ViewedLevel(),
+															  x, z, map.IsWalkable(x, z) ? "open" : "solid");
+							   static constexpr const char* kName[3] = {"wall", "floor", "ceiling"};
+							   for (int s = 0; s < 3; ++s) {
+								   const Surface sf = static_cast<Surface>(s);
+								   const int v = map.Variant(sf, x, z);
+								   const int slot = DungeonMap::ComboSlotOf(v);
+								   const std::string stored = v >= 0 ? std::format("pin{}", v)
+															  : slot >= 0 ? "mix:" + map.ComboId(slot)
+																		  : std::string("hash");
+								   const std::vector<std::string>& pal = map.Palette(sf);
+								   const u32 i = ResolveSurfaceVariant(map, x, z, sf,
+																	   static_cast<u32>(pal.size()));
+								   line += std::format(" {}={}/{}", kName[s], stored,
+													   i < pal.size() ? pal[i] : "-");
+							   }
+							   m_console.Print(line);
+							   return;
+						   }
+						   // The eyedropper (Alt+click) on a square: says what it armed.
+						   if (!args.empty() && args[0] == "pick") {
+							   if (!Need(m_console, args, 3, "usage: editor pick <x> <z>")) return;
+							   if (m_mapView.IsOpen())
+								   m_mapView.SetMode(MapView::Mode::Editor);
+							   else
+								   m_mapView.Open(MapView::Mode::Editor);
+							   m_mapEditor.PickAt(std::atoi(args[1].c_str()), std::atoi(args[2].c_str()));
+							   const MapEditor::PaletteCat c = m_mapEditor.ArmedCat();
+							   m_console.Print(std::format(
+								   "editor pick: {} {}",
+								   c == MapEditor::PaletteCat::Count ? "-" : MapEditor::CategoryCatalogKey(c),
+								   m_mapEditor.ArmedId()));
+							   return;
+						   }
+						   if (!args.empty() && args[0] == "rev") {
+							   m_console.Print(
+								   std::format("editor rev {}", m_world->EditRevision()));
+							   return;
+						   }
+						   // The modifier gestures, for a harness: `rect` is a click on
+						   // the first corner then a Shift+click on the second (the
+						   // rectangle anchors on the last painted square), `flood` a
+						   // Ctrl+click. Timed, since batching the chunk rebuilds is
+						   // what made a big fill cheap.
+						   if (!args.empty() && args[0] == "fill") {
+							   const std::string how = args.size() >= 4 ? args[3] : "";
+							   const bool rect = how == "rect", flood = how == "flood",
+										  areaFill = how == "area", level = how == "level";
+							   const size_t need = rect ? 8u : level ? 4u : 6u;
+							   if ((!rect && !flood && !areaFill && !level) || args.size() < need) {
+								   m_console.Print("usage: editor fill <category> <id> rect <x0> "
+												   "<z0> <x1> <z1> | flood <x> <z> | area <x> <z> "
+												   "| level");
+								   return;
+							   }
+							   if (m_mapView.IsOpen())
+								   m_mapView.SetMode(MapView::Mode::Editor);
+							   else
+								   m_mapView.Open(MapView::Mode::Editor);
+							   const MapEditor::PaletteCat cat =
+								   MapEditor::CatForCatalogKey(args[1]);
+							   if (cat == MapEditor::PaletteCat::Count ||
+								   !m_mapEditor.Arm(cat, args[2])) {
+								   m_console.Print(std::format(
+									   "editor fill: no palette row '{}' in '{}'", args[2],
+									   args[1]));
+								   return;
+							   }
+							   const auto num = [&](size_t i) { return std::atoi(args[i].c_str()); };
+							   const auto t0 = std::chrono::steady_clock::now();
+							   if (rect) {
+								   m_mapEditor.Paint(num(4), num(5), /*dragging*/ false);
+								   m_mapEditor.PaintRect(num(6), num(7));
+							   } else if (flood) {
+								   m_mapEditor.FloodFill(num(4), num(5));
+							   } else if (areaFill) {
+								   m_mapEditor.AreaFill(num(4), num(5));
+							   } else {
+								   m_mapEditor.FillLevel();
+							   }
+							   const double ms = std::chrono::duration<double, std::milli>(
+													 std::chrono::steady_clock::now() - t0)
+													 .count();
+							   m_console.Print(std::format("editor fill: {} {} in {:.1f} ms",
+														   args[3], args[2], ms));
+							   return;
+						   }
+						   // A left DRAG, for a harness: arm the row, then the press
+						   // on the first square and the held drag over the rest,
+						   // inside one stroke - exactly what MapView does between a
+						   // press and its release, so the stroke's undo step is the
+						   // one a mouse drag gets.
+						   if (!args.empty() && args[0] == "drag") {
+							   if (args.size() < 5 || (args.size() - 3) % 2 != 0) {
+								   m_console.Print("usage: editor drag <category> <id> <x> <z> "
+												   "[<x> <z> ...]");
+								   return;
+							   }
+							   if (m_mapView.IsOpen())
+								   m_mapView.SetMode(MapView::Mode::Editor);
+							   else
+								   m_mapView.Open(MapView::Mode::Editor);
+							   const MapEditor::PaletteCat cat =
+								   MapEditor::CatForCatalogKey(args[1]);
+							   if (cat == MapEditor::PaletteCat::Count ||
+								   !m_mapEditor.Arm(cat, args[2])) {
+								   m_console.Print(std::format(
+									   "editor drag: no palette row '{}' in '{}'", args[2],
+									   args[1]));
+								   return;
+							   }
+							   m_mapEditor.BeginStroke();
+							   for (size_t i = 3; i + 1 < args.size(); i += 2)
+								   m_mapEditor.Paint(std::atoi(args[i].c_str()),
+													 std::atoi(args[i + 1].c_str()),
+													 /*dragging*/ i > 3);
+							   m_mapEditor.EndStroke();
+							   m_console.Print(std::format("editor drag: {} over {} squares",
+														   args[2], (args.size() - 3) / 2));
 							   return;
 						   }
 						   if (!args.empty() && (args[0] == "place" || args[0] == "erase")) {

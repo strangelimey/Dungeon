@@ -74,7 +74,7 @@ public:
 
 	// Wires the Editor-mode collaborator (Game owns both; see file banner). Until
 	// set, Editor mode shows an empty left dock.
-	void SetEditor(MapEditor* editor) { m_editor = editor; }
+	void SetEditor(MapEditor* editor); // also hands it the palette's box icons
 
 	// Fired by the Editor-mode header buttons top-right of the grid: Save writes
 	// every edited level (the savemap console command), To source additionally
@@ -102,6 +102,9 @@ public:
 	// the manifest. Empty when the viewed level belongs to no dungeon — an
 	// orphan begets an orphan, which is honest rather than guessing a home.
 	std::function<void(const std::string& dungeonId)> onNewLevel;
+	// The toolbar's New world disc, right of [+]: the owner opens the
+	// NewWorldDialog (P4) - the world screen's toolbar has the same disc.
+	std::function<void()> onNewWorld;
 
 	// --- the player map's WORLD page (W6) ------------------------------
 	// The M-map can show the overworld instead of this level. MapView does
@@ -115,6 +118,9 @@ public:
 	// than dimming it: a game that is all dungeon should not advertise a
 	// map it does not have.
 	bool hasWorld = false;
+	// The player map's close box, top-right (Esc still closes it too). The
+	// owner closes the overlay; null hides the box.
+	std::function<void()> onClose;
 
 	bool IsOpen() const { return m_open; }
 	Mode CurrentMode() const { return m_mode; }
@@ -148,6 +154,11 @@ public:
 		m_levelsOpen = false; // the level dropdown is Editor toolbar chrome
 		m_editorPaused = false; // leaving Editor mode resumes the world
 	}
+
+	// LIVE VALIDATION (docs/editor-updates-plan.md, P2): the findings to box on
+	// the grid - Game's cache (Game::RefreshLiveIssues), borrowed. Null when the
+	// editor is not up, which draws nothing.
+	void SetIssues(const std::vector<validate::Issue>* issues) { m_issues = issues; }
 
 	// The editor's pause/play toolbar button: while true, Game freezes the
 	// world simulation (monsters, party, particles) so the level can be
@@ -286,6 +297,46 @@ private:
 	// in GameSettings — the right key's flag is per mode, via Legend*().
 	gfx::Rect LeftDockRect(const gfx::Rect& panel) const;   // brush palette
 	gfx::Rect RightDockRect(const gfx::Rect& panel) const;  // symbol key
+	// The TOOL STRIP (Editor only, MapView_Tools.cpp): a column of tool discs
+	// between the palette dock and the grid - paint, rectangle, flood, area,
+	// eyedropper, then Fill level. Its own column rather than rows in the dock
+	// so it stays put when the palette collapses. GridArea gives it up.
+	gfx::Rect ToolStripRect(const gfx::Rect& panel) const;
+	// The STATUS BAR (Editor only): a full-width band fixed across the panel
+	// bottom, the toolbar's mirror - the docks and the grid end above it. It
+	// reads out the hovered square's coordinates.
+	gfx::Rect StatusBarRect(const gfx::Rect& panel) const;
+	// (AppendStripButtons is declared beside ToolbarButtons, after ToolButton.)
+	// The strip's frame, the picked tool's ring and the Rectangle tool's
+	// in-progress box, drawn before the buttons (Render calls it).
+	void RenderToolStrip(gfx::SpriteBatch& batch, const ui::Theme& theme,
+						 const gfx::Rect& panel) const;
+	// A left press / hold / release on the grid, routed through the picked tool
+	// (Shift/Ctrl/Alt borrow Rectangle/Flood/Eyedropper). Returns true when the
+	// frame's input was consumed; `painted` says a browsed snapshot is stale.
+	bool UpdateBrush(const Input& input, const gfx::Rect& panel, float mx, float my,
+					 bool overGrid, bool& painted);
+
+	// --- live validation (MapView_Issues.cpp) ---------------------------------
+	// The findings on square (x,z) of the VIEWED level - where a finding stands,
+	// or one of the other squares it names (Issue::also: a stair's far end, a
+	// lost item beyond the first). Appends to `out`.
+	void IssuesAt(int x, int z, std::vector<const validate::Issue*>& out) const;
+	// A red (error) or amber (warning) box on every square of the viewed level a
+	// finding names; red wins where both land. Drawn under the hover and
+	// selection rings, inside the grid's scissor.
+	void RenderIssueBoxes(gfx::SpriteBatch& batch, const gfx::Rect& panel) const;
+	// The hovered boxed square's findings, word-wrapped, placed like the hand
+	// slot tooltips (below the square, above when that would run off). Only on
+	// a frame Update ran - a modal dialog stops Update, and the hovered square
+	// it last saw is stale under the dialog.
+	void RenderIssueTooltip(gfx::SpriteBatch& batch, const ui::Theme& theme,
+							const gfx::Rect& panel);
+	// The Check disc's badge: how many findings have NO square (a level or the
+	// world as a whole), red when any is an error. Clicking Check lists them.
+	void RenderCheckBadge(gfx::SpriteBatch& batch, const gfx::Rect& disc) const;
+	const std::vector<validate::Issue>* m_issues = nullptr; // Game's cache, borrowed
+	bool m_updatedSinceRender = false; // see RenderIssueTooltip
 	gfx::Rect LeftCollapseButton(const gfx::Rect& panel) const;
 	gfx::Rect RightCollapseButton(const gfx::Rect& panel) const;
 	bool LegendCollapsed() const; // the right key dock's collapse flag for the mode
@@ -337,7 +388,22 @@ private:
 					   *m_icoUndo = nullptr, *m_icoRedo = nullptr,
 					   *m_icoSave = nullptr, *m_icoSource = nullptr,
 					   *m_icoNew = nullptr, *m_icoPlay = nullptr,
-					   *m_icoPause = nullptr;
+					   *m_icoPause = nullptr, *m_icoNewWorld = nullptr;
+	// The tool strip's discs, by MapEditor::Tool, then Fill level (icon_tb_tool_*).
+	std::array<const gfx::Texture*, 5> m_icoTools{};
+	const gfx::Texture* m_icoFillLevel = nullptr;
+	// The docks' collapse buttons: square boxes, "<<" and ">>" (icon_tb_dock_*).
+	const gfx::Texture *m_icoDockL = nullptr, *m_icoDockR = nullptr;
+	// The palette's boxes, passed on to MapEditor (see MapEditor::SetIcons).
+	const gfx::Texture *m_icoClose = nullptr, *m_icoBoxPlus = nullptr,
+					   *m_icoBoxMinus = nullptr;
+	// The Player map's level browse arrows (icon_tb_box_up / _down).
+	const gfx::Texture *m_icoBoxUp = nullptr, *m_icoBoxDown = nullptr;
+	const gfx::Texture* m_icoBoxWorld = nullptr; // the way to the world map
+	// The Rectangle tool's drag: the press square and the square under the
+	// pointer now. Painted on the release (UpdateBrush), previewed until then.
+	bool m_rectDrag = false;
+	int m_rectX0 = 0, m_rectZ0 = 0, m_rectX1 = 0, m_rectZ1 = 0;
 	bool m_editorPaused = false; // pause/play toolbar toggle (see EditorPaused)
 	// The edge drag (EdgeAt): the edge under the pointer, the one being dragged,
 	// where the drag started (along its axis), and how many cells it has moved -
@@ -386,7 +452,9 @@ private:
 	enum class HoverBtn {
 		None, LevelUp, LevelDown, Undo, Redo, Save, SaveSource, Balance,
 		LevelSettings, Check, Generate, NewLevel, LevelPick, PlayPause, CollapseL,
-		CollapseR, ShowWorld
+		CollapseR, ShowWorld, NewWorld, Close,
+		// The tool strip, in MapEditor::Tool order, then its one action.
+		ToolPaint, ToolRect, ToolFlood, ToolArea, ToolPick, FillLevel
 	};
 	HoverBtn m_hoverBtn = HoverBtn::None;
 
@@ -407,8 +475,13 @@ private:
 		const gfx::Texture* icon;
 		bool visible;
 		bool enabled;
+		bool selected = false; // the strip's picked tool (drawn ringed)
+		bool strip = false;    // a strip button: its tooltip opens BESIDE it
 	};
 	std::vector<ToolButton> ToolbarButtons(const gfx::Rect& panel) const;
+	// Appends the TOOL STRIP's buttons to that list, so hover, click and render
+	// walk them with everything else (ToolbarButtons calls it).
+	void AppendStripButtons(std::vector<ToolButton>& btns, const gfx::Rect& panel) const;
 	// The band itself: full panel width in Editor mode, zero-height otherwise
 	// (Player mode keeps the floating browse arrows instead).
 	gfx::Rect ToolbarRect(const gfx::Rect& panel) const;
@@ -426,6 +499,10 @@ private:
 	bool ShowWorldButton() const {
 		return m_mode == Mode::Player && hasWorld && onShowWorld != nullptr;
 	}
+	// The close box: the World button's square, mirrored into the top-right
+	// corner (WorldMapView's is on the same pixels).
+	gfx::Rect CloseButton(const gfx::Rect& panel) const;
+	bool ShowCloseButton() const { return m_mode == Mode::Player && onClose != nullptr; }
 
 	// ONE ROW LIST that hover, click and render all walk — the toolbar's own
 	// idiom, applied to the popup. Before W5 the popup was a flat vector of

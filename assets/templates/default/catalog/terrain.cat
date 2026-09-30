@@ -1,0 +1,77 @@
+; Terrain kinds: what a WORLD MAP cell is (docs/world-map.md).
+;
+; There is exactly one world per project, so terrain needs no per-level palette
+; record the way surfaces do: each kind declares its own `glyph` and the world
+; grid is read through that. Glyphs carry no ordering, so renaming or reordering
+; terrain cannot silently repaint the world the way a level's palette INDEX
+; would.
+;
+; Fields:
+;   glyph       the grid character for this kind. Must be unique, and must not
+;               be lowercase — records are lowercase and grid rows are not.
+;   passable    0 = the party cannot enter (sea, cliff). Default 1.
+;   travel      hours to cross one cell. Default 1.
+;   difficulty  0..1 danger, what an encounter is generated from. An `area`
+;               record in world.map overrides it for a region. Default 0.
+;   tags        the content pool an encounter here draws from (Catalog.h tags).
+;               Absent means "fits anywhere", never "fits nothing".
+;   color       the world map's ink for this kind, "r,g,b" 0..1. The map has its
+;               own palette rather than the UI theme's, like the dungeon map.
+
+[road]
+display = Road
+color = 0.62,0.55,0.42
+glyph = -
+travel = 0.5
+difficulty = 0.05
+tags = outdoor
+
+[grass]
+display = Grassland
+color = 0.30,0.42,0.26
+glyph = .
+travel = 1.0
+difficulty = 0.1
+tags = outdoor
+
+[forest]
+display = Forest
+color = 0.16,0.30,0.20
+glyph = F
+travel = 1.6
+difficulty = 0.3
+tags = outdoor beast
+
+[moor]
+display = Moor
+color = 0.34,0.31,0.24
+glyph = M
+travel = 1.4
+difficulty = 0.35
+tags = outdoor undead
+
+[hills]
+display = Hills
+color = 0.40,0.36,0.30
+glyph = ^
+travel = 2.2
+difficulty = 0.4
+tags = outdoor stone
+
+; Impassable, and the reason `passable` exists at all: a world grid needs edges
+; that are not just the array bounds, or every coastline is a rectangle.
+[water]
+display = Water
+color = 0.14,0.22,0.36
+glyph = ~
+passable = 0
+travel = 0
+difficulty = 0
+
+[mountain]
+display = Mountains
+color = 0.30,0.29,0.31
+glyph = A
+passable = 0
+travel = 0
+difficulty = 0

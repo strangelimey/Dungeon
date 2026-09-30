@@ -58,6 +58,30 @@ std::unique_ptr<gfx::Texture> TryLoadTextureFile(gfx::GraphicsDevice& device,
 	return nullptr;
 }
 
+std::unique_ptr<gfx::Texture> LoadTextureThumb(gfx::GraphicsDevice& device,
+											   const std::string& stemPath, u32 maxPx) {
+	// The baked chain, with its big levels dropped: a thumbnail wants maxPx,
+	// not the 2048px the set installs at. Same file, a sliver of the memory.
+	if (auto chain = assets::LoadDdsFile(stemPath + ".dds")) {
+		assets::MipChain thumb;
+		thumb.format = chain->format;
+		for (const assets::TextureLevel& level : chain->levels) {
+			if (level.width > maxPx) continue; // the levels a thumbnail can't use
+			if (thumb.levels.empty()) {
+				thumb.width = level.width;
+				thumb.height = level.height;
+			}
+			thumb.levels.push_back(level);
+		}
+		if (!thumb.levels.empty())
+			return std::make_unique<gfx::Texture>(device, thumb, /*srgb*/ true);
+	}
+	// No baked chain (a source-only set): the PNG, at whatever size it is.
+	if (auto img = assets::LoadImageFile(stemPath + ".png"))
+		return std::make_unique<gfx::Texture>(device, *img, /*srgb*/ true);
+	return nullptr;
+}
+
 namespace {
 // The one close-box texture, shared by every dialog. A namespace-scope owner
 // rather than a function-local static so the lifetime is EXPLICIT:
@@ -69,6 +93,7 @@ bool g_closeIconTried = false;
 // there. Same explicit lifetime: ReleaseSharedIcons clears the registry BEFORE
 // dropping the texture, so no widget can name a freed SRV slot.
 std::unique_ptr<gfx::Texture> g_dropDownIcon;
+std::unique_ptr<gfx::Texture> g_dropDownOpenIcon;
 // The toolbar discs, by name. A null ENTRY is a name that was tried and whose
 // art is missing — kept, so a missing icon costs one failed load rather than
 // one per frame the toolbar draws.
@@ -107,14 +132,19 @@ void LoadSharedControlIcons(gfx::GraphicsDevice& device) {
 	// of the chrome rather than the scene's albedo path.
 	g_dropDownIcon = TryLoadTextureFile(device, stem);
 	if (!g_dropDownIcon) log::Warn("dropdown icon missing: {}(.dds|.png)", stem);
+	const std::string openStem = paths::Asset("ui\\icon_dropdown_open");
+	g_dropDownOpenIcon = TryLoadTextureFile(device, openStem);
+	if (!g_dropDownOpenIcon) log::Warn("dropdown icon missing: {}(.dds|.png)", openStem);
 	ui::ControlIcons icons;
 	icons.dropDown = g_dropDownIcon.get();
+	icons.dropDownOpen = g_dropDownOpenIcon.get();
 	ui::SetControlIcons(icons);
 }
 
 void ReleaseSharedIcons() {
 	ui::SetControlIcons({}); // before the textures die — the registry borrows
 	g_dropDownIcon.reset();
+	g_dropDownOpenIcon.reset();
 	g_closeIcon.reset();
 	g_toolbarIcons.clear(); // borrowed by both toolbars; they are gone by now
 	// Re-arm: a later device (the adapter-change relaunch builds a fresh one)

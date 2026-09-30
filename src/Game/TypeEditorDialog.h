@@ -29,6 +29,7 @@
 #include "Graphics/GraphicsDevice.h"
 #include "Graphics/SpriteBatch.h"
 #include "Platform/Input.h"
+#include "UI/Controls.h" // ui::Swatch
 #include "UI/Font.h"
 #include "UI/UIContext.h"
 
@@ -86,6 +87,15 @@ public:
 	// the schema; CatalogRef's from the project). The empty string is prepended
 	// by the dialog itself as "(none)", so a provider only returns real values.
 	std::function<std::vector<std::string>(const FieldSpec&)> optionsFor;
+	// How a CatalogRefList row shows one offered id: its label and swatch. The
+	// owner answers for the lists whose entries have a look (a combination's
+	// surface types, drawn as the palette draws them); unset, or an empty label
+	// back, leaves the row the bare id with no swatch.
+	struct RefFace {
+		std::string label;
+		ui::Swatch swatch;
+	};
+	std::function<RefFace(const FieldSpec&, const std::string& id)> faceFor;
 	// A POOL asset field (TextureSet / Model) is picked in the asset picker, not
 	// a dropdown — there are hundreds and a name tells you nothing. The owner
 	// opens it (textures vs models, on `current`) and calls `apply` with the

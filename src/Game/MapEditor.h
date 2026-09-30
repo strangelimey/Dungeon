@@ -22,12 +22,15 @@
 #include "Game/Entity.h"           // Direction, WallFace
 #include "Game/Placement.h"        // Mount, Placement
 #include "Graphics/SpriteBatch.h"  // gfx::Rect, gfx::SpriteBatch
+#include "UI/Controls.h"           // ui::Swatch
 #include "UI/UIContext.h"          // ui::Theme
 
 #include <array>
 #include <functional>
 #include <map>
+#include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace dungeon {
@@ -55,6 +58,11 @@ public:
 	// last (it sizes the per-category open-state array).
 	enum class PaletteCat {
 		Walls, Floors, Ceilings,
+		// Surface COMBINATIONS (combos.cat): a paint brush like the three above,
+		// but one that sets a square's whole look - floor and ceiling on open
+		// ground, the wall on a solid block - by REFERENCE, so editing the
+		// combination later repaints every square it was painted on.
+		Combos,
 		Decorations, Fixtures, Monsters, Buttons, Doors, Stairs,
 		Items, Weapons, Armor, WallFeatures, SurfaceFeatures,
 		Effects, // authored + tuned, never placed (see CategoryPlaceable)
@@ -69,6 +77,16 @@ public:
 	MapEditor(MapView& view, GameSettings& settings);
 	// Rebound with the view's world (see MapView::SetWorld).
 	void SetWorld(DungeonWorld* world) { m_world = world; }
+	// The palette's square box icons (tools/BuildToolIcons.py), BORROWED from
+	// the shared caches by MapView, which has the device this does not: the
+	// filter's clear box (the shared close box), and the accordion's expand /
+	// collapse boxes (collapse also serves collapse-all). Null = the old text face.
+	void SetIcons(const gfx::Texture* clear, const gfx::Texture* expand,
+				  const gfx::Texture* collapse) {
+		m_icoClear = clear;
+		m_icoExpand = expand;
+		m_icoCollapse = collapse;
+	}
 
 	// Fired when a category's "+ New..." row is clicked (the owner opens the
 	// asset-creation dialog for that category).
@@ -133,7 +151,48 @@ public:
 	// The surface categories (walls/floors/ceilings): the ones whose palette is
 	// a per-LEVEL subset of the catalog, so the "Catalogue" toggle applies and a
 	// paint may have to enrol the type in the level first.
-	static bool SurfaceCat(PaletteCat cat) { return PaintableCat(cat); }
+	static bool SurfaceCat(PaletteCat cat) {
+		return cat == PaletteCat::Walls || cat == PaletteCat::Floors ||
+			   cat == PaletteCat::Ceilings;
+	}
+
+	// One resolved palette item, for display and dispatch. `id` is the catalog id
+	// (entity categories) or surface-palette id; empty for built-in tools.
+	// `group` is the entry's free-form `category` field ("" = ungrouped): items
+	// sharing one collapse under a sub-accordion within their palette category,
+	// so a growing catalog stays navigable. Data-driven — any catalog groups
+	// the moment its entries carry the field (items.cat already does).
+	// `icon` (surface rows) is the entry's loaded albedo, drawn as the row
+	// swatch so the palette shows the same texture the map fill does; null
+	// falls back to the flat `swatch` color. Swatch() hands both to
+	// ui::DrawSwatch, which is how the palette draws a row's square.
+	// `onTheme` is the viewed level's theme lens (DungeonMap::Theme vs the
+	// entry's `tags`): on-theme items list FIRST in their run, off-theme ones
+	// after a divider. Ranking only — every type stays clickable, because the
+	// one-off that breaks a theme is usually the memorable thing in a dungeon.
+	// True for everything when the level has no theme.
+	struct PaletteItem {
+		std::string label;
+		Vec4 swatch{1, 1, 1, 1};
+		std::string id;
+		std::string group;
+		const gfx::Texture* icon = nullptr;
+		bool onTheme = true;
+		ui::Swatch Swatch() const { return {icon, swatch}; }
+	};
+	// One surface type (a Walls/Floors/Ceilings category) as the palette shows
+	// it: display name, group, the loaded albedo and the flat fallback colour.
+	// Public so a dialog listing surface types (a combination's members) shows
+	// them exactly as the palette does. The swatch is the level's loaded albedo,
+	// else a thumbnail LoadSurfaceSwatch made (DungeonWorld::SurfaceSwatchForId).
+	PaletteItem SurfaceItem(PaletteCat cat, const std::string& id) const;
+	// Loads the thumbnail swatch for a surface type this level has not loaded.
+	// Uploads, so from Update only: a list about to show catalogue types (the
+	// Catalogue view, a combination's member lists) asks for them first.
+	void LoadSurfaceSwatch(PaletteCat cat, const std::string& id);
+	// Per frame from MapView::Update: while the Catalogue view is on, loads up
+	// to `max` swatches the open surface sections are missing.
+	void LoadShownSwatches(size_t max);
 
 	// --- surface palette membership ------------------------------------------
 	// Appends `id` to the viewed level's palette (live world or browsed stash),
@@ -184,6 +243,15 @@ public:
 			   const Placement* pre = nullptr) {
 		ApplyBrush(cx, cz, dragging, face, pre);
 	}
+	// A paint STROKE - the left press to its release - is ONE undo step. MapView
+	// opens it on the press and closes it on the release, so the step is decided
+	// by the WHOLE stroke: a drag whose first cell already had the texture used
+	// to drop its step on the press and leave every later cell unundoable. The
+	// release is also the "an edit just ended" moment the live checker waits for.
+	// A Paint outside a stroke (the console's `editor place`) brackets itself.
+	void BeginStroke();
+	void EndStroke();
+	bool StrokeOpen() const { return m_strokeOpen; }
 	// True when something is armed AND it is a thing that gets PLACED (not a
 	// surface paint, not a non-placeable category). The hover ghost keys off
 	// this: a wall-texture brush has no pose to preview, only a cell to fill.
@@ -218,6 +286,34 @@ public:
 	// same cell type, and for surface brushes the same RESOLVED variant
 	// (override-or-hash, so it matches what the 3D scene shows). One undo step.
 	void FloodFill(int cx, int cz);
+	// The AREA fill: paint the room or corridor holding walkable square (cx,cz)
+	// (Game/Area.h - it stops where narrow meets open). A floor or ceiling brush
+	// paints the area's squares, a wall brush the wall blocks around it. Unlike
+	// flood it ignores what the squares wear now, which is the point: it
+	// unifies a mixed corridor. A solid square has no area; says so. One undo
+	// step, one chunk rebuild each.
+	void AreaFill(int cx, int cz);
+	// Fill level: the armed surface brush on EVERY square of its kind on the
+	// viewed level (walls on every solid square, floors/ceilings on every
+	// walkable one). One undo step.
+	void FillLevel();
+	// The TOOL STRIP's tools (MapView draws the strip beside the palette). The
+	// picked tool decides what a left press on the grid does with the armed
+	// brush; holding Shift / Ctrl / Alt borrows Rectangle / Flood / Eyedropper
+	// for that one click, so the old gestures keep working as shortcuts. A
+	// placement brush places on a click whatever tool is picked. Persisted as
+	// settings.ini `map_tool`.
+	enum class Tool : u8 { Paint, Rect, Flood, Area, Pick, Count };
+	Tool ActiveTool() const;
+	void SetTool(Tool t);
+	// "paint", "rect", ... - the console's names and the icon files' suffixes.
+	static const char* ToolName(Tool t);
+	// The Rectangle tool's drag: fill the box between two corners, one undo
+	// step (Shift+click is this from the last painted square).
+	void PaintRectBetween(int ax, int az, int bx, int bz);
+	// True when the armed brush PAINTS squares - the only brushes the tools
+	// change the meaning of.
+	bool ArmedPaints() const { return m_sel.index >= 0 && PaintableCat(m_sel.cat); }
 	// Alt+click: eyedropper — arms the brush from the clicked square (a solid
 	// square arms its wall texture, a floor square its floor texture; ceilings
 	// are picked while the Ceilings brush is armed, since they share the floor
@@ -229,6 +325,8 @@ public:
 	PaletteCat ArmedCat() const {
 		return m_sel.index >= 0 ? m_sel.cat : PaletteCat::Count;
 	}
+	// The armed row's catalog id ("" = nothing armed) - for the console.
+	std::string ArmedId() const;
 	// The former Select tool, now on right-CLICK (a right-drag still pans):
 	// reports the cell's contents, selects the square (highlight + patrol-route
 	// overlay), and opens the inspector immediately when it holds an editable
@@ -267,29 +365,6 @@ private:
 	struct Selection {
 		PaletteCat cat = PaletteCat::Walls;
 		int index = -1;
-	};
-
-	// One resolved palette item, for display and dispatch. `id` is the catalog id
-	// (entity categories) or surface-palette id; empty for built-in tools.
-	// `group` is the entry's free-form `category` field ("" = ungrouped): items
-	// sharing one collapse under a sub-accordion within their palette category,
-	// so a growing catalog stays navigable. Data-driven — any catalog groups
-	// the moment its entries carry the field (items.cat already does).
-	// `icon` (surface rows) is the entry's loaded albedo, drawn as the row
-	// swatch so the palette shows the same texture the map fill does; null
-	// falls back to the flat `swatch` color.
-	// `onTheme` is the viewed level's theme lens (DungeonMap::Theme vs the
-	// entry's `tags`): on-theme items list FIRST in their run, off-theme ones
-	// after a divider. Ranking only — every type stays clickable, because the
-	// one-off that breaks a theme is usually the memorable thing in a dungeon.
-	// True for everything when the level has no theme.
-	struct PaletteItem {
-		std::string label;
-		Vec4 swatch{1, 1, 1, 1};
-		std::string id;
-		std::string group;
-		const gfx::Texture* icon = nullptr;
-		bool onTheme = true;
 	};
 
 	// Accordion layout, shared by hit-test and draw: one row per category header,
@@ -354,27 +429,37 @@ private:
 	// Which control the mouse is over (hover styling; None = neither).
 	enum class HotCtrl { None, Filter, Clear, Collapse, Catalog };
 	HotCtrl m_hotCtrl = HotCtrl::None;
+	const gfx::Texture *m_icoClear = nullptr, *m_icoExpand = nullptr,
+					   *m_icoCollapse = nullptr; // see SetIcons
 	void BuildPaletteRows(const gfx::Rect& panel, std::vector<PaletteRow>& out,
 						  float& contentHeight) const;
 	// Applies the armed selection to cell (cx,cz): structural/variant paints, tool
 	// actions, or entity placement.
 	void ApplyBrush(int cx, int cz, bool dragging, const WallFace& face = {},
 					const Placement* pre = nullptr);
-	// True for the brushes that PAINT cells (rect/flood/drag apply); the
-	// placement categories act per click only.
+	// True for the brushes that PAINT cells (rect/flood/drag apply): the three
+	// surfaces and the combinations. The placement categories act per click only.
 	static bool PaintableCat(PaletteCat cat) {
-		return cat == PaletteCat::Walls || cat == PaletteCat::Floors ||
-			   cat == PaletteCat::Ceilings;
+		return SurfaceCat(cat) || cat == PaletteCat::Combos;
 	}
+	// A combination's paint on one square: its floor and ceiling mixes on open
+	// ground, its wall mix on a solid block (PaintCell's combination half). A
+	// combination RECOLOURS - it never changes the square's type.
+	void PaintComboCell(int cx, int cz, bool remote, const std::string& stem);
 	// One structural/surface application of the armed brush to a cell — the
 	// shared inner body of ApplyBrush/PaintRect/FloodFill. No undo bracketing
 	// or change detection (callers bracket a whole gesture as one step).
 	void PaintCell(int cx, int cz, bool remote, const std::string& stem);
+	// PaintCell over a whole set of squares on the viewed level as ONE undo
+	// step and one chunk batch - the body the area and level fills share.
+	void PaintCells(std::span<const std::pair<int, int>> cells);
 	// The viewed cell's RESOLVED surface variant (override else the mesh
 	// builder's hash — exactly what the scene shows): the flood fill's region
 	// key and the eyedropper's pick. -1 when the palette is empty.
 	int ResolvedVariant(int cx, int cz, int sel) const; // sel = SurfaceSel
 	int m_lastX = -1, m_lastZ = -1; // rect anchor: the last painted cell
+	bool m_strokeOpen = false;    // BeginStroke .. EndStroke
+	bool m_strokeChanged = false; // anything in the open stroke changed
 
 	MapView& m_view;          // the viewport (layout helpers, shared font)
 	DungeonWorld* m_world = nullptr; // see SetWorld

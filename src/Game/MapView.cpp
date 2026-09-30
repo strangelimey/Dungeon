@@ -88,6 +88,27 @@ MapView::MapView(gfx::GraphicsDevice& device, GameSettings& settings,
 	m_icoNew = ToolbarIcon(device, "new");
 	m_icoPlay = ToolbarIcon(device, "play");
 	m_icoPause = ToolbarIcon(device, "pause");
+	// The tool strip (MapView_Tools.cpp): icon_tb_tool_<name>, drawn by
+	// tools/BuildToolIcons.py; missing art falls back to a trimmed label.
+	for (int i = 0; i < static_cast<int>(MapEditor::Tool::Count); ++i)
+		m_icoTools[static_cast<size_t>(i)] = ToolbarIcon(
+			device, std::string("tool_") +
+						MapEditor::ToolName(static_cast<MapEditor::Tool>(i)));
+	m_icoFillLevel = ToolbarIcon(device, "tool_filllevel");
+	m_icoNewWorld = ToolbarIcon(device, "newworld");
+	m_icoDockL = ToolbarIcon(device, "dock_left");
+	m_icoDockR = ToolbarIcon(device, "dock_right");
+	m_icoClose = CloseIcon(device);
+	m_icoBoxPlus = ToolbarIcon(device, "box_plus");
+	m_icoBoxMinus = ToolbarIcon(device, "box_minus");
+	m_icoBoxUp = ToolbarIcon(device, "box_up");
+	m_icoBoxDown = ToolbarIcon(device, "box_down");
+	m_icoBoxWorld = ToolbarIcon(device, "box_world");
+}
+
+void MapView::SetEditor(MapEditor* editor) {
+	m_editor = editor;
+	if (m_editor) m_editor->SetIcons(m_icoClose, m_icoBoxPlus, m_icoBoxMinus);
 }
 
 const DungeonMap& MapView::ViewedMap() const {
@@ -139,9 +160,17 @@ gfx::Rect MapView::WorldButton(const gfx::Rect& panel) const {
 	// the two land on the SAME PIXELS and the pair reads as one control that
 	// stays put. (The right edge cannot do that: this view's key dock sits
 	// there, and its width changes with a persisted collapse flag.)
+	// A square: the globe box (its name is the hover tip). It was a word
+	// button three sides wide - WorldMapView's twin changed with it.
 	const gfx::Rect g = GridArea(panel);
 	const float pad = DockPad(panel), s = ToolBtnS(panel);
-	return {g.x + pad * 2, panel.y + pad * 2, s * 3.0f, s};
+	return {g.x + pad * 2, panel.y + pad * 2, s, s};
+}
+
+gfx::Rect MapView::CloseButton(const gfx::Rect& panel) const {
+	const gfx::Rect w = WorldButton(panel);
+	const gfx::Rect g = GridArea(panel);
+	return {g.x + g.w - (w.x - g.x) - w.w, w.y, w.w, w.h};
 }
 
 gfx::Rect MapView::ToolbarRect(const gfx::Rect& panel) const {
@@ -248,10 +277,19 @@ std::vector<MapView::ToolButton> MapView::ToolbarButtons(const gfx::Rect& panel)
 					nullptr, true, true});
 	btns.push_back({HoverBtn::NewLevel, NewLevelButton(panel),
 					loc::Tr("map.btn.newlevel"), m_icoNew, true, true});
+	// ...and a new WORLD right of the new level: the level cluster makes
+	// places, one tier and then the next up.
+	{
+		const gfx::Rect nl = NewLevelButton(panel);
+		btns.push_back({HoverBtn::NewWorld, {nl.x + nl.w + pad, nl.y, nl.w, nl.h},
+						loc::Tr("map.btn.newworld"), m_icoNewWorld, true, true});
+	}
+	AppendStripButtons(btns, panel); // the tool strip rides the same list
 	return btns;
 }
 
 void MapView::DoUndoRedo(bool redo) {
+	if (m_editor) m_editor->EndStroke(); // Ctrl+Z mid-drag: close the stroke first
 	if (redo) m_world->Redo();
 	else m_world->Undo();
 	// A restored stash must show immediately on a browsed level (the snapshot
@@ -306,26 +344,38 @@ gfx::Rect MapView::GridArea(const gfx::Rect& panel) const {
 	// BOTH DOCKS ARE EDITOR-ONLY (Michael, 2026-09-23: the key is for building,
 	// not for playing). The player's map is the map — the whole panel is grid,
 	// and the symbols it can show are few enough to read without a table.
-	// In Editor mode everything sits below the toolbar band.
+	// In Editor mode everything sits between the toolbar band and the status bar.
 	const float t = ToolbarRect(panel).h;
+	const float b = StatusBarRect(panel).h;
 	const bool editor = m_mode == Mode::Editor;
-	const float l = editor ? LeftDockRect(panel).w : 0.0f;
+	const float l = editor ? LeftDockRect(panel).w + ToolStripRect(panel).w : 0.0f;
 	const float r = editor ? RightDockRect(panel).w : 0.0f;
-	return {panel.x + l, panel.y + t, panel.w - l - r, panel.h - t};
+	return {panel.x + l, panel.y + t, panel.w - l - r, panel.h - t - b};
+}
+
+gfx::Rect MapView::StatusBarRect(const gfx::Rect& panel) const {
+	if (m_mode != Mode::Editor) return {panel.x, panel.y + panel.h, panel.w, 0.0f};
+	// One line of the map's own text plus a pad above and below. The font is
+	// re-baked to the panel's height, so derive from the panel too (Update asks
+	// for this before any draw has sized anything).
+	const float h = std::clamp(panel.h * 0.036f, 22.0f, 44.0f);
+	return {panel.x, panel.y + panel.h - h, panel.w, h};
 }
 
 gfx::Rect MapView::LeftDockRect(const gfx::Rect& panel) const {
 	const float t = ToolbarRect(panel).h;
+	const float b = StatusBarRect(panel).h;
 	const float w = m_settings.mapPaletteCollapsed ? CollapsedDockW(panel)
 												   : ExpandedLeftW(panel);
-	return {panel.x, panel.y + t, w, panel.h - t};
+	return {panel.x, panel.y + t, w, panel.h - t - b};
 }
 
 gfx::Rect MapView::RightDockRect(const gfx::Rect& panel) const {
 	const float t = ToolbarRect(panel).h;
+	const float b = StatusBarRect(panel).h;
 	const float w = LegendCollapsed() ? CollapsedDockW(panel)
 									  : ExpandedRightW(panel);
-	return {panel.x + panel.w - w, panel.y + t, w, panel.h - t};
+	return {panel.x + panel.w - w, panel.y + t, w, panel.h - t - b};
 }
 
 // The key dock is Editor-only now, so there is one flag rather than one per
@@ -339,16 +389,28 @@ void MapView::ToggleLegend() {
 	m_settings.Save();
 }
 
+// A dock's collapse button is a SQUARE box in the dock's top band: centred in
+// the collapsed strip (which is narrower than the band is tall, so the strip's
+// width sizes it), and at the INNER edge of an open dock, beside the grid it
+// folds toward. The band keeps its DockBtnH height either way, so the header
+// and body below it do not move.
+static gfx::Rect CollapseSquare(const gfx::Rect& d, float pad, float band,
+								bool collapsed, bool innerIsRight) {
+	const float s = std::min(band, d.w - 2 * pad);
+	const float y = d.y + pad + (band - s) * 0.5f;
+	float x = d.x + (d.w - s) * 0.5f;
+	if (!collapsed) x = innerIsRight ? d.x + d.w - pad - s : d.x + pad;
+	return {x, y, s, s};
+}
+
 gfx::Rect MapView::LeftCollapseButton(const gfx::Rect& panel) const {
-	const gfx::Rect d = LeftDockRect(panel);
-	const float pad = DockPad(panel);
-	return {d.x + pad, d.y + pad, d.w - 2 * pad, DockBtnH(panel)};
+	return CollapseSquare(LeftDockRect(panel), DockPad(panel), DockBtnH(panel),
+						  m_settings.mapPaletteCollapsed, true);
 }
 
 gfx::Rect MapView::RightCollapseButton(const gfx::Rect& panel) const {
-	const gfx::Rect d = RightDockRect(panel);
-	const float pad = DockPad(panel);
-	return {d.x + pad, d.y + pad, d.w - 2 * pad, DockBtnH(panel)};
+	return CollapseSquare(RightDockRect(panel), DockPad(panel), DockBtnH(panel),
+						  LegendCollapsed(), false);
 }
 
 gfx::Rect MapView::PaletteBody(const gfx::Rect& panel) const {
@@ -428,10 +490,16 @@ WallFace MapView::FaceAt(float px, float py, const gfx::Rect& panel) const {
 }
 
 bool MapView::Update(const Input& input, const gfx::Rect& panel) {
+	// A paint stroke ends when the left button is up, wherever the pointer is -
+	// off the grid, over a dock, or on the frame after the overlay closed - so
+	// its undo step always lands and never stays open under a later edit.
+	if (m_editor && m_editor->StrokeOpen() && !input.IsMouseDown(MouseButton::Left))
+		m_editor->EndStroke();
 	if (!m_open) {
 		m_panning = false;
 		return false;
 	}
+	m_updatedSinceRender = true; // the hover below is this frame's (see RenderIssueTooltip)
 
 	// Keep the icon/label font sized to the panel (re-bakes only when the
 	// rounded height actually changes, i.e. on window resize — not on zoom).
@@ -507,7 +575,9 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 				break;
 			}
 	}
-	if (ShowWorldButton() && WorldButton(panel).Contains(mx, my))
+	if (ShowCloseButton() && CloseButton(panel).Contains(mx, my))
+		m_hoverBtn = HoverBtn::Close;
+	else if (ShowWorldButton() && WorldButton(panel).Contains(mx, my))
 		m_hoverBtn = HoverBtn::ShowWorld;
 	else if (!editor && !LevelNeighbor(-1).empty() &&
 		LevelUpButton(panel).Contains(mx, my))
@@ -550,6 +620,7 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 	if (editor && m_editor && !m_settings.mapPaletteCollapsed) {
 		m_editor->HandleTyping(input);
 		m_editor->TrackMouse(mx, my, panel);
+		m_editor->LoadShownSwatches(2); // the Catalogue view's thumbnails, paced
 	}
 
 	// Dock interactions, each claiming the click so it never also pans/paints.
@@ -584,6 +655,13 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 		// also pans.
 		if (ShowWorldButton() && WorldButton(panel).Contains(mx, my)) {
 			onShowWorld();
+			return true;
+		}
+		// The close box. The owner closes the overlay from inside this call,
+		// so nothing after it may touch the view's state: return at once.
+		if (ShowCloseButton() && CloseButton(panel).Contains(mx, my)) {
+			m_hoverBtn = HoverBtn::None;
+			onClose();
 			return true;
 		}
 		// Level-browse arrows (Player mode; the editor's dropdown replaced
@@ -626,12 +704,30 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 				case HoverBtn::Redo:
 					if (m_pendingHistory == 0) m_pendingHistory = +1;
 					break;
+				case HoverBtn::ToolPaint:
+				case HoverBtn::ToolRect:
+				case HoverBtn::ToolFlood:
+				case HoverBtn::ToolArea:
+				case HoverBtn::ToolPick:
+					if (m_editor)
+						m_editor->SetTool(static_cast<MapEditor::Tool>(
+							static_cast<int>(b.id) - static_cast<int>(HoverBtn::ToolPaint)));
+					break;
+				case HoverBtn::NewWorld:
+					if (onNewWorld) onNewWorld();
+					break;
+				case HoverBtn::FillLevel:
+					if (m_editor) m_editor->FillLevel();
+					if (m_browse) m_browse = m_world->BrowseLevel(m_browse->stem);
+					break;
 				default: break;
 				}
 				return true;
 			}
-			// A click on the band's empty run is the band's, not the grid's.
-			if (ToolbarRect(panel).Contains(mx, my)) return true;
+			// A click on the band's empty run is the band's, not the grid's; so
+			// is one on the tool strip's.
+			if (ToolbarRect(panel).Contains(mx, my) || ToolStripRect(panel).Contains(mx, my))
+				return true;
 		}
 		// Right key dock collapse (Editor only, like the dock itself).
 		if (editor && RightCollapseButton(panel).Contains(mx, my)) {
@@ -767,39 +863,12 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 			m_editor->CancelMove();
 		return true;
 	}
-	if (editor && m_editor && overGrid) {
-		const bool shift = input.IsKeyDown(0x10 /*VK_SHIFT*/);
-		const bool ctrl = input.IsKeyDown(0x11 /*VK_CONTROL*/);
-		const bool alt = input.IsKeyDown(0x12 /*VK_MENU*/);
-		int cx, cz;
+	// The left button on the grid, through the picked tool (MapView_Tools.cpp).
+	if (editor && m_editor) {
 		bool painted = false;
-		if (!shift && !ctrl && !alt && !m_editor->LayingRoute() &&
-			m_editor->ArmedCat() == MapEditor::PaletteCat::Count &&
-			input.WasMousePressed(MouseButton::Left) && CellAt(mx, my, panel, cx, cz)) {
-			m_editor->DropFilterFocus();
-			m_editor->BeginMove(cx, cz);
-			return true;
-		}
-		if (m_editor->Moving()) return true; // mid-drag: nothing paints
-		if (input.WasMousePressed(MouseButton::Left) && CellAt(mx, my, panel, cx, cz)) {
-			m_editor->DropFilterFocus(); // painting reclaims the keyboard
-			if (alt) m_editor->PickAt(cx, cz); // never mutates — no refresh needed
-			else if (shift) { m_editor->PaintRect(cx, cz); painted = true; }
-			else if (ctrl) { m_editor->FloodFill(cx, cz); painted = true; }
-			// m_hoverFace and m_hoverPlace were both resolved from this same
-			// pointer position earlier this frame, so the click commits the pose
-			// that was on screen — the ghost is handed over, not recomputed.
-			else {
-				m_editor->Paint(cx, cz, /*dragging*/ false, m_hoverFace, &m_hoverPlace);
-				painted = true;
-			}
-		} else if (!shift && !ctrl && !alt &&
-				   input.IsMouseDown(MouseButton::Left) &&
-				   CellAt(mx, my, panel, cx, cz)) {
-			m_editor->Paint(cx, cz, /*dragging*/ true, m_hoverFace, &m_hoverPlace);
-			painted = true;
-		}
+		const bool consumed = UpdateBrush(input, panel, mx, my, overGrid, painted);
 		if (painted && m_browse) m_browse = m_world->BrowseLevel(m_browse->stem);
+		if (consumed) return true;
 	}
 
 	return panel.Contains(mx, my);
@@ -819,7 +888,9 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	const gfx::Rect clip{grid.x + 2, grid.y + 2, grid.w - 4, grid.h - 4};
 	batch.SetScissor(&clip);
 
-	const float inset = std::clamp(t.cell * 0.08f, 0.5f, 2.0f); // grid gaps
+	// Grid gaps: a hairline between squares (at most 1px a side, so 2px),
+	// enough to count squares without breaking a room into tiles.
+	const float inset = std::clamp(t.cell * 0.03f, 0.5f, 1.0f);
 	auto cellRect = [&](int x, int z) -> gfx::Rect {
 		return {t.ox + x * t.cell + inset, t.oy + z * t.cell + inset,
 				t.cell - 2 * inset, t.cell - 2 * inset};
@@ -912,19 +983,19 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 					c.y + t.cell * 0.5f - m_font->Height(), theme.text);
 	};
 
-	// 1) Cell fill. Player mode keeps the stylized flat inks; Editor mode fills
-	// each floor cell with its RESOLVED floor texture (editor override or the
-	// mesh builder's position hash — the same albedo the 3D scene draws),
-	// dimmed so the markers stay primary. While a Walls/Floors/Ceilings brush
-	// is armed the fill flips to THAT surface at near-full brightness —
-	// ceilings become visible exactly when they are the subject, and wall
-	// paint shows on the solid squares themselves (the block owns its
-	// texture). Cells group by variant so the batch flushes once per texture,
-	// not per cell; an unloaded texture (a browsed level on a foreign palette)
-	// falls back to the flat ink.
+	// 1) Cell fill. Player mode keeps the stylized flat inks. Editor mode shows
+	// the STRUCTURE: every wall one dark ink, every floor one light ink, so the
+	// shape of the dungeon is what reads (Michael: textures everywhere, and
+	// then their average colours, both buried it). Only while a Walls/Floors/
+	// Ceilings brush is armed does THAT surface draw its RESOLVED textures
+	// (editor override, combination or the mesh builder's position hash - the
+	// same albedo the 3D scene draws): walls on the solid squares (the block
+	// owns its texture), floors or ceilings on the open ones. Cells group by
+	// variant so the batch flushes once per texture, not per cell; an unloaded
+	// texture (a browsed level on a foreign palette) falls back to the ink.
 	using SurfaceSel = DungeonWorld::SurfaceSel;
 	SurfaceSel fillSel = SurfaceSel::Floor;
-	bool fillArmed = false; // the armed brush IS the filled surface: brighten
+	bool fillArmed = false; // a surface brush is armed: show its textures
 	if (m_mode == Mode::Editor && m_editor) {
 		switch (m_editor->ArmedCat()) {
 		case MapEditor::PaletteCat::Walls:    fillSel = SurfaceSel::Wall;    fillArmed = true; break;
@@ -933,32 +1004,22 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		default: break;
 		}
 	}
-	const std::vector<std::string>& fillPal =
-		fillSel == SurfaceSel::Wall    ? map.WallPalette()
-		: fillSel == SurfaceSel::Floor ? map.FloorPalette()
-									   : map.CeilingPalette();
 	// Each palette id's loaded albedo, resolved once (null = flat fallback).
-	// Empty outside Editor mode, which keeps the whole loop on the flat path.
+	// Empty unless a surface brush is armed, which keeps the loop on the inks.
 	std::vector<const gfx::Texture*> fillTex;
-	if (m_mode == Mode::Editor)
-		for (const std::string& id : fillPal)
+	if (fillArmed)
+		for (const std::string& id : map.Palette(fillSel))
 			fillTex.push_back(m_world->SurfaceAlbedoForId(fillSel, id));
 	const int fillCount = static_cast<int>(fillTex.size());
-	const u32 fillSalt = fillSel == SurfaceSel::Wall    ? 3u
-						 : fillSel == SurfaceSel::Floor ? 1u : 2u;
-	// The cell's resolved variant: override else hash — StampCell's exact pick,
-	// so the fill always matches the 3D scene.
+	// The cell's resolved variant: ResolveSurfaceVariant, the answer StampCell
+	// bakes, so the fill always matches the 3D scene.
 	auto fillVariant = [&](int x, int z) -> int {
 		if (fillCount == 0) return -1;
-		const int over = fillSel == SurfaceSel::Wall	? map.WallVariant(x, z)
-						 : fillSel == SurfaceSel::Floor ? map.FloorVariant(x, z)
-														: map.CeilingVariant(x, z);
-		if (over >= 0) return std::min(over, fillCount - 1);
 		return static_cast<int>(
-			SurfaceVariantFor(x, z, fillSalt, static_cast<u32>(fillCount)));
+			ResolveSurfaceVariant(map, x, z, fillSel, static_cast<u32>(fillCount)));
 	};
-	const Vec4 fillTint = fillArmed ? kTexFillLit : kTexFillDim;
 	std::vector<std::vector<gfx::Rect>> fillCells(static_cast<size_t>(fillCount));
+	const bool editor = m_mode == Mode::Editor;
 	for (int z = 0; z < map.Height(); ++z)
 		for (int x = 0; x < map.Width(); ++x) {
 			if (!CellVisible(x, z)) continue;
@@ -968,21 +1029,17 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			// square (the block owns it), floor/ceiling on the floor square.
 			if ((fillSel == SurfaceSel::Wall) == solid) v = fillVariant(x, z);
 			if (v >= 0 && fillTex[static_cast<size_t>(v)]) {
-				// The dim view's curve: the texture draws at sub-1 alpha over
-				// this lift ink (see MapColors.h). Batch order is submission
-				// order, so the loop's rects all land under the grouped
-				// sprites below. The armed view draws opaque — no lift needed.
-				if (!fillArmed) batch.DrawRect(cellRect(x, z), kTexFillLift);
 				fillCells[static_cast<size_t>(v)].push_back(cellRect(x, z));
 				continue;
 			}
-			const Vec4 col = solid ? VariantTint(kWall, map.WallVariant(x, z))
-								   : VariantTint(kFloor, map.FloorVariant(x, z));
+			const Vec4 col = editor ? (solid ? kEditorWall : kEditorFloor)
+							 : solid ? VariantTint(kWall, map.WallVariant(x, z))
+									 : VariantTint(kFloor, map.FloorVariant(x, z));
 			batch.DrawRect(cellRect(x, z), col);
 		}
 	for (size_t v = 0; v < fillCells.size(); ++v)
 		for (const gfx::Rect& r : fillCells[v])
-			batch.DrawSprite(r, {0, 0, 1, 1}, *fillTex[v], fillTint);
+			batch.DrawSprite(r, {0, 0, 1, 1}, *fillTex[v], kTexFillLit);
 
 	// 2) Start cell — an accent outline.
 	if (CellVisible(map.StartX(), map.StartZ()))
@@ -1311,6 +1368,9 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	// the actual selection (which draws opaque below).
 	const bool selHere = m_editor && m_editor->HasSelection() &&
 						 m_editor->SelX() == m_hoverX && m_editor->SelZ() == m_hoverZ;
+	// Live validation's boxes (MapView_Issues.cpp), under the rings below so a
+	// boxed square still shows that it is hovered or selected.
+	RenderIssueBoxes(batch, panel);
 	// The hover ring previews the brush target on any viewed level; the
 	// SELECTION (and its route overlay) is a live-instance thing, so it only
 	// draws on the active level.
@@ -1401,13 +1461,21 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	const float dpad = DockPad(panel);
 	const float btnH = DockBtnH(panel);
 
-	// A dock = its panel background + a collapse button showing flip arrows
-	// (drawn through the shared button face so it hovers like every button).
+	// A dock = its panel background + a collapse button showing flip arrows: the
+	// square box icon (brightened on hover, the drop-down expander's idiom), or
+	// the shared text button face when the art is missing.
 	auto drawDockFrame = [&](const gfx::Rect& dock, const gfx::Rect& btn,
-							 const char* arrow, HoverBtn id) {
+							 bool left, HoverBtn id) {
 		batch.DrawRect(dock, theme.panel);
 		ui::DrawBorder(batch, dock, theme.panelBorder);
-		ui::DrawButtonFace(batch, *m_font, btn, arrow, theme, m_hoverBtn == id);
+		const bool hot = m_hoverBtn == id;
+		const char* arrow = left ? "<<" : ">>";
+		if (const gfx::Texture* icon = left ? m_icoDockL : m_icoDockR) {
+			const float f = hot ? 1.15f : 0.9f;
+			batch.DrawSprite(btn, {0, 0, 1, 1}, *icon, {f, f, f, 1.0f});
+		} else {
+			ui::DrawButtonFace(batch, *m_font, btn, arrow, theme, hot);
+		}
 	};
 
 	// --- Left palette dock (Editor only; collapsed -> only the ">>" button). The
@@ -1416,8 +1484,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	if (m_mode == Mode::Editor) {
 		const gfx::Rect ld = LeftDockRect(panel);
 		drawDockFrame(ld, LeftCollapseButton(panel),
-					  m_settings.mapPaletteCollapsed ? ">>" : "<<",
-					  HoverBtn::CollapseL);
+					  !m_settings.mapPaletteCollapsed, HoverBtn::CollapseL);
 		if (!m_settings.mapPaletteCollapsed) {
 			m_font->Draw(batch, loc::Tr("map.brushes"), ld.x + dpad,
 						ld.y + dpad + btnH + dpad, theme.textDim);
@@ -1429,7 +1496,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	if (m_mode == Mode::Editor) {
 		const gfx::Rect rd = RightDockRect(panel);
 		drawDockFrame(rd, RightCollapseButton(panel),
-					  LegendCollapsed() ? "<<" : ">>", HoverBtn::CollapseR);
+					  LegendCollapsed(), HoverBtn::CollapseR);
 		if (!LegendCollapsed()) {
 			m_font->Draw(batch, loc::Tr("map.key"), rd.x + dpad,
 						rd.y + dpad + btnH + dpad, theme.textDim);
@@ -1443,8 +1510,8 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			const Row rows[] = {
 				{Sym::Triangle, theme.accent, "map.key.party"},
 				{Sym::Outline, theme.accent, "map.key.start"},
-				{Sym::Filled, kWall, "map.key.wall"},
-				{Sym::Filled, kFloor, "map.key.floor"},
+				{Sym::Filled, kEditorWall, "map.key.wall"},
+				{Sym::Filled, kEditorFloor, "map.key.floor"},
 				{Sym::Filled, kTorch, "map.key.torch"},
 				{Sym::Filled, kBrazier, "map.key.brazier"},
 				{Sym::Filled, kMonster, "map.key.monster"},
@@ -1498,15 +1565,45 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		if (m_mode == Mode::Player) {
 			const std::string above = LevelNeighbor(-1), below = LevelNeighbor(+1);
 			const gfx::Rect upR = LevelUpButton(panel), dnR = LevelDownButton(panel);
-			if (!above.empty()) face(upR, "^", HoverBtn::LevelUp);
-			if (!below.empty()) face(dnR, "v", HoverBtn::LevelDown);
+			// The square arrow boxes when installed (brightened on hover, the
+			// toolbar's idiom), else the text face.
+			auto arrow = [&](const gfx::Rect& r, const gfx::Texture* icon,
+							 const char* text, HoverBtn id) {
+				if (!icon) return face(r, text, id);
+				const float s = std::min(r.w, r.h);
+				const float f = m_hoverBtn == id ? 1.15f : 0.9f;
+				batch.DrawSprite({r.x + (r.w - s) * 0.5f, r.y + (r.h - s) * 0.5f, s, s},
+								 {0, 0, 1, 1}, *icon, {f, f, f, 1.0f});
+			};
+			if (!above.empty()) arrow(upR, m_icoBoxUp, "^", HoverBtn::LevelUp);
+			if (!below.empty()) arrow(dnR, m_icoBoxDown, "v", HoverBtn::LevelDown);
 			m_font->Draw(batch, ViewedLevel(), dnR.x + dnR.w + dpad * 2,
 						upR.y + (upR.h - m_font->Height()) * 0.5f,
 						m_browse ? theme.accent : theme.text);
-			// ...and the way to the world map, at the grid's far end.
-			if (ShowWorldButton())
-				face(WorldButton(panel), loc::Tr("map.btn.showworld"),
-					 HoverBtn::ShowWorld);
+			// The close box in the far corner (the shared dialog icon).
+			if (ShowCloseButton())
+				arrow(CloseButton(panel), m_icoClose, "x", HoverBtn::Close);
+			// ...and the way to the world map, at the grid's far end: the globe
+			// box, named by a tip under it while hovered (the text face, name
+			// and all, when the art is missing).
+			if (ShowWorldButton()) {
+				const gfx::Rect wr = WorldButton(panel);
+				const std::string name = loc::Tr("map.btn.showworld");
+				if (!m_icoBoxWorld) {
+					face(wr, name, HoverBtn::ShowWorld);
+				} else {
+					arrow(wr, m_icoBoxWorld, "", HoverBtn::ShowWorld);
+					if (m_hoverBtn == HoverBtn::ShowWorld) {
+						const float tw = m_font->MeasureWidth(name);
+						const float p = dpad * 1.5f;
+						const gfx::Rect tr{wr.x, wr.y + wr.h + 2.0f, tw + p * 2,
+										   m_font->Height() + p};
+						batch.DrawRect(tr, kMapBg);
+						ui::DrawBorder(batch, tr, theme.panelBorder);
+						m_font->Draw(batch, name, tr.x + p, tr.y + p * 0.5f, theme.text);
+					}
+				}
+			}
 		} else {
 			// The band: a subtle lift over the panel base + a 1px seam, so it
 			// reads as fixed chrome the grid scrolls under.
@@ -1514,6 +1611,9 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			batch.DrawRect(tb, {1.0f, 1.0f, 1.0f, 0.045f});
 			batch.DrawRect({tb.x, tb.y + tb.h - 1.0f, tb.w, 1.0f},
 						   theme.panelBorder);
+			// The tool strip's column, its picked-tool ring and any Rectangle
+			// drag in progress; its discs draw with the band's, just below.
+			RenderToolStrip(batch, theme, panel);
 
 			// Icon discs (house style: the disc IS the button, hover/disable
 			// read as brightness — ui::Button's icon path); the level dropdown
@@ -1541,6 +1641,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 						{b.rect.x + b.rect.w * 0.5f, b.rect.y + b.rect.h * 0.5f},
 						{d, d}, 0.0f, {0.0f, 0.0f, 1.0f, 1.0f}, *b.icon,
 						{f, f, f, 1.0f});
+					if (b.id == HoverBtn::Check) RenderCheckBadge(batch, b.rect);
 				} else {
 					// No icon art for this tool yet. The face falls back to the
 					// LABEL, which is written for the tooltip and is far wider
@@ -1563,6 +1664,12 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 				gfx::Rect tr{tip->rect.x + tip->rect.w * 0.5f - tw * 0.5f - pad2,
 							 tb.y + tb.h + 2.0f, tw + pad2 * 2,
 							 m_font->Height() + pad2};
+				// A strip disc's tip opens BESIDE it, over the grid: under the
+				// band would put it on the next disc down.
+				if (tip->strip) {
+					tr.x = tip->rect.x + tip->rect.w + dpad * 2;
+					tr.y = tip->rect.y + (tip->rect.h - tr.h) * 0.5f;
+				}
 				tr.x = std::clamp(tr.x, panel.x + 2.0f,
 								  panel.x + panel.w - tr.w - 2.0f);
 				batch.DrawRect(tr, kMapBg);
@@ -1622,8 +1729,8 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	}
 
 	// Footer (kept within the grid area, clear of the docks): pan/zoom hint
-	// (left) + party cell (right). PLAYER mode only — the editor keeps its
-	// bottom row clear for map cells (its controls are discoverable enough).
+	// (left) + party cell (right). PLAYER mode only - the editor has its
+	// status bar (below).
 	if (m_mode == Mode::Player) {
 		const float footY = panel.y + panel.h - m_font->Height() - pad;
 		m_font->Draw(batch, loc::Tr("map.hint"), grid.x + pad, footY, theme.textDim);
@@ -1635,10 +1742,139 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 					footY, theme.textDim);
 	}
 
+	// The editor's STATUS BAR: the toolbar band's mirror (same lift, the seam
+	// on its top edge), reading out the hovered square - its coordinates, then
+	// what it is made of: the wall type on a solid square, the floor and
+	// ceiling types on an open one. Blank off the grid.
+	if (m_mode == Mode::Editor) {
+		const gfx::Rect sb = StatusBarRect(panel);
+		batch.DrawRect(sb, {1.0f, 1.0f, 1.0f, 0.045f});
+		batch.DrawRect({sb.x, sb.y, sb.w, 1.0f}, theme.panelBorder);
+		if (m_hoverX >= 0) {
+			using SurfaceSel = DungeonWorld::SurfaceSel;
+			const DungeonMap& vmap = ViewedMap();
+			const int hx = m_hoverX, hz = m_hoverZ;
+			// The RESOLVED type (override, combination or the hash mix - what
+			// the scene draws), by display name; a square painted with a
+			// combination names it too, since that is what repaints it.
+			auto surfaceName = [&](SurfaceSel s) -> std::string {
+				const std::vector<std::string>& pal = vmap.Palette(s);
+				if (pal.empty()) return "-";
+				const std::string& id =
+					pal[ResolveSurfaceVariant(vmap, hx, hz, s, static_cast<u32>(pal.size()))];
+				const CatalogEntry* e = m_world->SurfaceCatalog(s).Find(id);
+				std::string name = e ? e->Display() : id;
+				const int slot = DungeonMap::ComboSlotOf(vmap.Variant(s, hx, hz));
+				if (slot >= 0 && static_cast<size_t>(slot) < vmap.ComboCount()) {
+					const std::string& combo = vmap.ComboId(slot);
+					const CatalogEntry* c = m_world->GetProject().combos.Find(combo);
+					name += " (" + (c ? c->Display() : combo) + ")";
+				}
+				return name;
+			};
+			std::vector<std::string> parts{loc::Format("map.status.square", hx, hz)};
+			if (vmap.At(hx, hz) == Cell::Wall) {
+				parts.push_back(loc::Format("map.status.wall", surfaceName(SurfaceSel::Wall)));
+			} else {
+				parts.push_back(loc::Format("map.status.floor", surfaceName(SurfaceSel::Floor)));
+				parts.push_back(
+					loc::Format("map.status.ceiling", surfaceName(SurfaceSel::Ceiling)));
+			}
+			// Then what is ON the square, by display name (the palette's), from
+			// the same lists the markers above were drawn from - so the bar and
+			// the map cannot disagree. Repeats fold into "Skeleton x2".
+			const size_t firstThing = parts.size();
+			const Project& proj = m_world->GetProject();
+			auto thing = [&](const Catalog& cat, const std::string& id) {
+				const CatalogEntry* e = cat.Find(id);
+				const std::string name = e ? e->Display() : id;
+				parts.push_back(name);
+			};
+			for (const WallSconce& s : vmap.Sconces())
+				if (s.x == hx && s.z == hz) thing(proj.fixtures, s.type);
+			for (const FloorBrazier& b : vmap.Braziers())
+				if (b.x == hx && b.z == hz) thing(proj.fixtures, b.type);
+			for (const StairLink& s : vmap.Stairs())
+				if (s.x == hx && s.z == hz) thing(proj.stairs, s.type);
+			for (const WallNiche& n : vmap.Niches())
+				if (n.x == hx && n.z == hz) thing(proj.wallfeatures, n.type);
+			for (const SurfaceFeature& f : vmap.SurfaceFeatures())
+				if (f.x == hx && f.z == hz) thing(proj.surfacefeatures, f.type);
+			for (const auto& d : decos)
+				if (d.x == hx && d.z == hz) thing(proj.decorations, d.type);
+			for (const auto& m : mons)
+				if (m.x == hx && m.z == hz) thing(proj.monsters, m.type);
+			for (const Entity& e : ents) {
+				if (e.x != hx || e.z != hz) continue;
+				switch (e.kind) {
+				case EntityKind::Door:   thing(proj.doors, e.type); break;
+				case EntityKind::Button: thing(proj.buttons, e.type); break;
+				case EntityKind::Item: {
+					const CatalogEntry* it = proj.FindItem(e.type);
+					parts.push_back(it ? it->Display() : e.type);
+					break;
+				}
+				default: break; // monsters: the live list above; decorations: static
+				}
+			}
+			// Fold repeats, keeping first-appearance order.
+			{
+				std::vector<std::string> named;
+				std::vector<int> count;
+				for (size_t i = firstThing; i < parts.size(); ++i) {
+					const auto at = std::find(named.begin(), named.end(), parts[i]);
+					if (at == named.end()) {
+						named.push_back(parts[i]);
+						count.push_back(1);
+					} else {
+						++count[static_cast<size_t>(at - named.begin())];
+					}
+				}
+				parts.resize(firstThing);
+				for (size_t i = 0; i < named.size(); ++i)
+					parts.push_back(count[i] > 1 ? std::format("{} x{}", named[i], count[i])
+												 : named[i]);
+			}
+
+			// Left to right; whatever will not fit before the bar's right edge
+			// folds into "+N more" rather than running off the window.
+			const float sp = DockPad(panel);
+			const float gap = sp * 6;
+			const float avail = sb.w - sp * 4;
+			const size_t n = parts.size();
+			std::vector<float> w(n);
+			for (size_t i = 0; i < n; ++i) w[i] = m_font->MeasureWidth(parts[i]);
+			auto lineW = [&](size_t k) { // the first k parts, with their gaps
+				float sum = 0.0f;
+				for (size_t i = 0; i < k; ++i) sum += w[i] + (i > 0 ? gap : 0.0f);
+				return sum;
+			};
+			auto moreW = [&](size_t k) {
+				return gap + m_font->MeasureWidth(loc::Format("map.status.more", n - k));
+			};
+			size_t shown = n;
+			if (lineW(n) > avail) { // the coordinates always stay
+				shown = n - 1;
+				while (shown > 1 && lineW(shown) + moreW(shown) > avail) --shown;
+			}
+			const float ty = sb.y + (sb.h - m_font->Height()) * 0.5f;
+			float tx = sb.x + sp * 2;
+			for (size_t i = 0; i < shown; ++i) {
+				m_font->Draw(batch, parts[i], tx, ty,
+							 i == 0 ? theme.text
+							 : i < firstThing ? theme.textDim
+											  : theme.text);
+				tx += w[i] + gap;
+			}
+			if (shown < n)
+				m_font->Draw(batch, loc::Format("map.status.more", n - shown), tx, ty,
+							 theme.textDim);
+		}
+	}
+
 	// The editor's message line (ShowStatus): the latest report, boxed over the
 	// bottom of the grid so it reads against any cell, fading out over its last
-	// second. It sits OVER the map rather than in a reserved row because the
-	// editor keeps its bottom row for cells (see the footer above).
+	// second. It sits OVER the map, above the status bar.
 	if (m_mode == Mode::Editor && m_statusLen > 0) {
 		const float age = StatusAge();
 		if (age < kStatusSeconds) {
@@ -1660,6 +1896,9 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			m_font->Draw(batch, text, r.x + pad2, r.y + pad2 * 0.5f, ink);
 		}
 	}
+
+	// Last, over everything: what is wrong with the hovered square, if anything.
+	RenderIssueTooltip(batch, theme, panel);
 }
 
 void MapView::ShowStatus(std::string_view line) {

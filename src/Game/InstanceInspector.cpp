@@ -128,16 +128,15 @@ void InstanceInspector::BuildUI() {
 	// Footer: Save (persist), plus Delete (remove the object from the map)
 	// when the owner armed it — closing lives in the "x"/Esc, not down here.
 	// Left-aligned under the control column, so the preview pane keeps its side.
-	chrome.footer->Row<ui::Button>(FooterButton(), loc::Tr("map.cfg.save"), [this] {
+	FooterIcon(*chrome.footer, m_device, "save", loc::Tr("map.cfg.save"), [this] {
 		Persist();
 		Close();
 	});
 	if (onDelete)
-		chrome.footer->Row<ui::Button>(FooterButton(), loc::Tr("map.cfg.delete"),
-									   [this] {
-										   onDelete(); // gone — no Revert
-										   Close();
-									   });
+		FooterIcon(*chrome.footer, m_device, "delete", loc::Tr("map.cfg.delete"), [this] {
+			onDelete(); // gone - no Revert
+			Close();
+		});
 	chrome.footer->Space(ui::Len::Fill());
 }
 

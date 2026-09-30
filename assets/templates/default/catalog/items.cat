@@ -1,0 +1,163 @@
+; Items: runes, keys, food, containers, ingredients (weapons/armor are their own catalogs).
+
+[rune_fire]
+name = item.rune_fire
+category = rune
+weight = 0.5
+holdable = 1
+symbol = fire
+
+[rune_earth]
+name = item.rune_earth
+category = rune
+weight = 0.5
+holdable = 1
+symbol = earth
+
+[rune_air]
+name = item.rune_air
+category = rune
+weight = 0.5
+holdable = 1
+symbol = air
+
+[rune_water]
+name = item.rune_water
+category = rune
+weight = 0.5
+holdable = 1
+symbol = water
+
+[rune_project]
+name = item.rune_project
+category = rune
+weight = 0.5
+holdable = 1
+symbol = project
+
+[rune_protect]
+name = item.rune_protect
+category = rune
+weight = 0.5
+holdable = 1
+symbol = protect
+
+[rune_sight]
+name = item.rune_sight
+category = rune
+weight = 0.5
+holdable = 1
+symbol = sight
+
+[backpack]
+name = item.backpack
+category = container
+weight = 1.0
+capacity = 6
+
+[ammo_pouch]
+name = item.ammo_pouch
+category = container
+weight = 0.5
+capacity = 8
+accepts = ammo
+
+[medicine_pouch]
+name = item.medicine_pouch
+category = container
+weight = 0.5
+capacity = 4
+accepts = potion
+
+[herb_pouch]
+name = item.herb_pouch
+category = container
+weight = 0.3
+capacity = 4
+accepts = ingredient
+
+[herb]
+name = item.herb
+category = ingredient
+weight = 0.1
+
+[mushroom]
+name = item.mushroom
+category = ingredient
+weight = 0.1
+
+[iron_key]
+name = item.iron_key
+category = key
+weight = 0.1
+holdable = 1
+
+[brass_key]
+name = item.brass_key
+category = key
+weight = 0.1
+holdable = 1
+
+; --- food and drink ---------------------------------------------------------
+; `nutrition` and `hydration` are what CONSUMING it restores, out of 100
+; (docs/health-and-healing.md). BOTH fields on every consumable, because most
+; real food is partly one and partly the other -- an apple waters a little,
+; bread does not at all, a waterskin is nearly pure water. The `command` verb is
+; only how it reads in the hand menu; these two are what it actually does, so
+; `eat` and `drink` run the same code.
+;
+; An item with neither is not consumable: the action is REFUSED rather than
+; silently eating it, which is also what a full member gets.
+
+[apple]
+name = item.apple
+category = food
+weight = 0.3
+holdable = 1
+command = eat
+nutrition = 8
+hydration = 4
+
+[bread]
+name = item.bread
+category = food
+weight = 0.5
+holdable = 1
+command = eat
+nutrition = 18
+hydration = 0
+
+[waterskin]
+name = item.waterskin
+category = drink
+weight = 1.2
+holdable = 1
+command = drink
+nutrition = 0
+hydration = 45
+
+; --- quest content (docs/world-map.md "Quests") ------------------------------
+; The three hooks an item can carry, all applied the moment it is LIFTED:
+;   quest    = <id>:<stage>   move a quest to a named stage
+;   flag     = <key>=<value>  set a global flag (or a bare name = "1")
+;   reveals  = <location>     put a world-map location on the party's map
+; They are independent: one item may do all three, or any one of them.
+
+; THE CLUE. It reveals the crypt's back way — the "you might find a map or a
+; clue that will add them" case, straight out of the design notes. Note that it
+; reveals a PLACE without revealing the ground around it, which is exactly why
+; discovery and the fog are separate fields.
+[crypt_token]
+name = item.crypt_token
+category = key
+weight = 0.1
+holdable = 1
+
+; THE QUEST ITEM. Found in the dungeon, it moves the quest on for the whole
+; world — the case the notes open with.
+[sunken_relic]
+name = item.sunken_relic
+category = key
+weight = 2.0
+holdable = 1
+flag = relic_lifted=1

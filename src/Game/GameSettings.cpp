@@ -167,6 +167,7 @@ void GameSettings::Load() {
 	ParseIniBool(text, "map_palette_collapsed=", mapPaletteCollapsed);
 	ParseIniBool(text, "map_legend_collapsed=", mapLegendCollapsed);
 	ParseIniBool(text, "map_show_catalog=", mapShowCatalog);
+	ParseIniInt(text, "map_tool=", mapTool);
 	ParseIniBool(text, "hud_move_collapsed=", hudMoveCollapsed);
 	ParseIniBool(text, "hud_magic_collapsed=", hudMagicCollapsed);
 	// The rest of the line, verbatim: the encoding has spaces, colons and
@@ -241,9 +242,9 @@ void GameSettings::Save() const {
 	text += std::format("spell_mru={}\n", spellMruCount);
 	text += std::format("project={}\n", projectName);
 	text += std::format(
-		"map_palette_collapsed={}\nmap_legend_collapsed={}\nmap_show_catalog={}\n",
+		"map_palette_collapsed={}\nmap_legend_collapsed={}\nmap_show_catalog={}\nmap_tool={}\n",
 		mapPaletteCollapsed ? 1 : 0, mapLegendCollapsed ? 1 : 0,
-		mapShowCatalog ? 1 : 0);
+		mapShowCatalog ? 1 : 0, mapTool);
 	text += std::format("hud_move_collapsed={}\nhud_magic_collapsed={}\n",
 						hudMoveCollapsed ? 1 : 0, hudMagicCollapsed ? 1 : 0);
 	text += std::format("gen_knobs={}\n", generatorKnobs);

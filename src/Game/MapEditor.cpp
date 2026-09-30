@@ -9,7 +9,8 @@
 #include "Game/MapEditor.h"
 
 #include "Core/Loc.h"
-#include "Game/DungeonMeshBuilder.h" // SurfaceVariantFor (eyedropper/flood key)
+#include "Game/Area.h"               // the area fill's room/corridor
+#include "Game/DungeonMeshBuilder.h" // ResolveSurfaceVariant (eyedropper/flood key)
 #include "Game/DungeonWorld.h"
 #include "Game/Entity.h"
 #include "Platform/Input.h" // the filter box consumes TypedChars/VK edges
@@ -46,6 +47,9 @@ struct CatInfo {
 constexpr CatInfo kCategoryInfo[] = {
 	{"map.cat.walls", "walls", true},       {"map.cat.floors", "floors", true},
 	{"map.cat.ceilings", "ceilings", true},
+	// A brush (placeable) that is pure data (authorable): "+ New..." names one
+	// and opens the type editor on it, no asset dialog.
+	{"map.cat.combos", "combos", false, /*placeable*/ true, /*authorable*/ true},
 	{"map.cat.decorations", "decorations", false},
 	{"map.cat.fixtures", "fixtures", false}, {"map.cat.monsters", "monsters", false},
 	{"map.cat.buttons", "buttons", false},  {"map.cat.doors", "doors", false},
@@ -64,6 +68,22 @@ static_assert(sizeof(kCategoryInfo) / sizeof(kCategoryInfo[0]) ==
 const CatInfo& CatInfoFor(MapEditor::PaletteCat cat) {
 	return kCategoryInfo[static_cast<size_t>(cat)];
 }
+
+// The order the palette LISTS its sections in, which is not enum order:
+// Combinations leads, above the three surfaces it sets at once (Michael's
+// call - a whole look is the first thing reached for). Every category
+// appears exactly once; the enum keeps its order so nothing indexed by it
+// moves.
+using PC = MapEditor::PaletteCat;
+constexpr PC kDisplayOrder[] = {
+	PC::Combos, PC::Walls, PC::Floors, PC::Ceilings,
+	PC::Decorations, PC::Fixtures, PC::Monsters, PC::Buttons, PC::Doors, PC::Stairs,
+	PC::Items, PC::Weapons, PC::Armor, PC::WallFeatures, PC::SurfaceFeatures,
+	PC::Effects, PC::Dungeons, PC::Terrain, PC::Quests,
+};
+static_assert(sizeof(kDisplayOrder) / sizeof(kDisplayOrder[0]) ==
+				  static_cast<size_t>(PC::Count),
+			  "kDisplayOrder must list every PaletteCat once");
 } // namespace
 
 MapEditor::MapEditor(MapView& view, GameSettings& settings)
@@ -103,9 +123,8 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 	// the entry's loaded albedo texture — the same one the map's cell fill
 	// draws — with the flat category color as the not-loaded fallback (a
 	// browsed level's foreign palette).
-	auto surfaceItems = [&](const std::vector<std::string>& palette,
-							const Catalog& catalog, const Vec4& swatch,
-							DungeonWorld::SurfaceSel sel) {
+	auto surfaceItems = [&](const std::vector<std::string>& palette, PaletteCat surface,
+							const Catalog& catalog) {
 		// The "Catalogue" toggle swaps the SOURCE of ids: the whole catalog
 		// (minus hidden), or just the level's palette. Everything downstream
 		// keys off the id, so the two views paint the same — a catalogue-view id
@@ -119,13 +138,7 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 		const std::vector<std::string>& source =
 			m_settings.mapShowCatalog ? ids : palette;
 		std::vector<PaletteItem> items;
-		for (const std::string& id : source) {
-			const CatalogEntry* e = catalog.Find(id);
-			items.push_back({e ? e->Display() : id, swatch, id,
-							 e ? e->Get("category", "") : std::string(),
-							 m_world->SurfaceAlbedoForId(sel, id),
-							 CatalogMatchesTags(e, theme)});
-		}
+		for (const std::string& id : source) items.push_back(SurfaceItem(surface, id));
 		return items;
 	};
 	// An entity catalog resolved to display name + swatch + id. `hidden = 1`
@@ -143,15 +156,22 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 	};
 
 	switch (cat) {
-	case PaletteCat::Walls:
-		return surfaceItems(map.WallPalette(), proj.walls, kWall,
-							DungeonWorld::SurfaceSel::Wall);
-	case PaletteCat::Floors:
-		return surfaceItems(map.FloorPalette(), proj.floors, kFloor,
-							DungeonWorld::SurfaceSel::Floor);
-	case PaletteCat::Ceilings:
-		return surfaceItems(map.CeilingPalette(), proj.ceilings, kCeiling,
-							DungeonWorld::SurfaceSel::Ceiling);
+	case PaletteCat::Walls:    return surfaceItems(map.WallPalette(), cat, proj.walls);
+	case PaletteCat::Floors:   return surfaceItems(map.FloorPalette(), cat, proj.floors);
+	case PaletteCat::Ceilings: return surfaceItems(map.CeilingPalette(), cat, proj.ceilings);
+	case PaletteCat::Combos: {
+		// World-wide, so every level lists every combination. The swatch is the
+		// first floor member's, as the Floors section would show it.
+		std::vector<PaletteItem> items = catalogItems(proj.combos, kFloor);
+		for (PaletteItem& it : items)
+			if (const CatalogEntry* e = proj.combos.Find(it.id)) {
+				const ComboMembers m = DungeonWorld::ComboMembersOf(*e);
+				const auto& floors = m[static_cast<size_t>(Surface::Floor)];
+				if (!floors.empty())
+					it.icon = SurfaceItem(PaletteCat::Floors, floors.front()).icon;
+			}
+		return items;
+	}
 	case PaletteCat::Decorations: return catalogItems(proj.decorations, kDecoration);
 	case PaletteCat::Fixtures:    return catalogItems(proj.fixtures, kTorch);
 	case PaletteCat::Monsters:    return catalogItems(proj.monsters, kMonster);
@@ -178,6 +198,42 @@ DungeonWorld::SurfaceSel SelFor(MapEditor::PaletteCat cat) {
 												  : DungeonWorld::SurfaceSel::Ceiling;
 }
 } // namespace
+
+MapEditor::PaletteItem MapEditor::SurfaceItem(PaletteCat cat, const std::string& id) const {
+	// Display name + group from the surface catalog; the swatch is the entry's
+	// loaded albedo - the same one the map's cell fill draws - with the flat
+	// category colour as the not-loaded fallback (a browsed level's foreign
+	// palette, or a catalogue-view type this level does not use yet).
+	const DungeonWorld::SurfaceSel sel = SelFor(cat);
+	const CatalogEntry* e = m_world->SurfaceCatalog(sel).Find(id);
+	const Vec4& flat = cat == PaletteCat::Walls ? kWall
+					   : cat == PaletteCat::Floors ? kFloor
+												   : kCeiling;
+	return {e ? e->Display() : id, flat, id, e ? e->Get("category", "") : std::string(),
+			m_world->SurfaceSwatchForId(sel, id),
+			CatalogMatchesTags(e, m_view.ViewedMap().Theme())};
+}
+
+void MapEditor::LoadSurfaceSwatch(PaletteCat cat, const std::string& id) {
+	if (SurfaceCat(cat)) m_world->LoadSurfaceThumb(SelFor(cat), id);
+}
+
+void MapEditor::LoadShownSwatches(size_t max) {
+	// Only the Catalogue view lists types the level has not loaded; the level's
+	// own palette always has its real textures. Open surface sections only,
+	// and a few a frame (the asset picker's pacing: each is a disk read and an
+	// upload, and a screenful at once is a visible stall).
+	if (!m_settings.mapShowCatalog) return;
+	size_t loaded = 0;
+	for (const PaletteCat cat : {PaletteCat::Walls, PaletteCat::Floors, PaletteCat::Ceilings}) {
+		if (!m_catOpen[static_cast<size_t>(cat)]) continue;
+		for (const CatalogEntry& e : m_world->SurfaceCatalog(SelFor(cat)).Entries()) {
+			if (loaded >= max) return;
+			if (CatalogBool(&e, "hidden", false)) continue;
+			if (m_world->LoadSurfaceThumb(SelFor(cat), e.id)) ++loaded;
+		}
+	}
+}
 
 void MapEditor::AddToPalette(PaletteCat cat, const std::string& id) {
 	if (!SurfaceCat(cat)) return;
@@ -351,8 +407,8 @@ void MapEditor::BuildPaletteRows(const gfx::Rect& panel, std::vector<PaletteRow>
 	const bool filtering = !m_filter.empty();
 
 	float y = body.y - m_paletteScroll;
-	for (int c = 0; c < static_cast<int>(PaletteCat::Count); ++c) {
-		const PaletteCat cat = static_cast<PaletteCat>(c);
+	for (const PaletteCat cat : kDisplayOrder) {
+		const int c = static_cast<int>(cat);
 		const std::vector<PaletteItem> items = CategoryItems(cat);
 		if (filtering) {
 			std::vector<int> matches;
@@ -605,21 +661,22 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face,
 		if (m_world->onMessage) m_world->onMessage(s);
 	};
 
-	// Undo bracketing: everything below mutates. A drag stroke is ONE undo
-	// step — the snapshot is taken before the stroke's first cell; later
-	// stroke cells fold into it. `changed` decides whether the pending
-	// snapshot is kept: live paints compare the map revision, entity edits
-	// report success, and remote edits are conservatively treated as changed
-	// (a same-value remote paint costs one no-op undo step at worst).
-	const bool strokeStart = !dragging;
-	if (strokeStart) m_world->BeginUndoStep();
+	// Undo bracketing: everything below mutates. Inside a stroke (BeginStroke ..
+	// EndStroke) the stroke owns the one undo step and this call only reports
+	// whether it changed anything; outside one, it brackets itself. `changed`:
+	// live paints compare the map revision, entity edits report success, and
+	// remote edits are conservatively treated as changed (a same-value remote
+	// paint costs one no-op undo step at worst).
+	const bool ownStep = !m_strokeOpen;
+	if (ownStep) m_world->BeginUndoStep();
 	const u32 rev0 = m_world->Map().Revision();
 	bool changed = false;
 
 	switch (m_sel.cat) {
 	case PaletteCat::Walls:
 	case PaletteCat::Floors:
-	case PaletteCat::Ceilings: {
+	case PaletteCat::Ceilings:
+	case PaletteCat::Combos: {
 		PaintCell(cx, cz, remote, stem);
 		// Remote edits are conservatively "changed" (see the bracket note).
 		changed = remote || m_world->Map().Revision() != rev0;
@@ -765,12 +822,63 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face,
 		break;
 	}
 
-	if (strokeStart) m_world->CommitUndoStep(changed);
+	if (ownStep) m_world->CommitUndoStep(changed);
+	else m_strokeChanged = m_strokeChanged || changed;
+}
+
+void MapEditor::BeginStroke() {
+	if (m_strokeOpen) return;
+	m_world->BeginUndoStep();
+	m_strokeOpen = true;
+	m_strokeChanged = false;
+}
+
+void MapEditor::EndStroke() {
+	if (!m_strokeOpen) return;
+	m_strokeOpen = false;
+	m_world->CommitUndoStep(m_strokeChanged);
+}
+
+void MapEditor::PaintComboCell(int cx, int cz, bool remote, const std::string& stem) {
+	using SS = DungeonWorld::SurfaceSel;
+	const std::vector<PaletteItem> items = CategoryItems(PaletteCat::Combos);
+	if (m_sel.index < 0 || m_sel.index >= static_cast<int>(items.size())) return;
+	const std::string& id = items[m_sel.index].id;
+	const CatalogEntry* def = m_world->GetProject().combos.Find(id);
+	if (!def) return;
+	const ComboMembers members = DungeonWorld::ComboMembersOf(*def);
+	const DungeonMap& map = m_view.ViewedMap();
+	if (cx < 0 || cz < 0 || cx >= map.Width() || cz >= map.Height()) return;
+	// The surfaces this square shows, and only those the combination speaks
+	// for: an empty member list leaves that surface exactly as it is.
+	const bool open = map.IsWalkable(cx, cz);
+	const SS surfaces[2] = {open ? SS::Floor : SS::Wall, SS::Ceiling};
+	const int count = open ? 2 : 1;
+	bool any = false;
+	for (int i = 0; i < count; ++i) any = any || !members[static_cast<size_t>(surfaces[i])].empty();
+	if (!any) return;
+	const int variant = m_world->EnsureComboVariant(stem, id);
+	if (variant == -1) return;
+	for (int i = 0; i < count; ++i) {
+		if (members[static_cast<size_t>(surfaces[i])].empty()) continue;
+		if (remote) m_world->EditVariantRemote(stem, cx, cz, surfaces[i], variant);
+		else m_world->EditVariant(cx, cz, surfaces[i], variant);
+	}
+}
+
+std::string MapEditor::ArmedId() const {
+	if (m_sel.index < 0) return {};
+	const std::vector<PaletteItem> items = CategoryItems(m_sel.cat);
+	return m_sel.index < static_cast<int>(items.size()) ? items[m_sel.index].id : std::string();
 }
 
 void MapEditor::PaintCell(int cx, int cz, bool remote, const std::string& stem) {
 	using SS = DungeonWorld::SurfaceSel;
 	if (!PaintableCat(m_sel.cat)) return; // placement never reaches here
+	if (m_sel.cat == PaletteCat::Combos) { // a combination sets a whole look
+		PaintComboCell(cx, cz, remote, stem);
+		return;
+	}
 	const SS sel = m_sel.cat == PaletteCat::Walls    ? SS::Wall
 				   : m_sel.cat == PaletteCat::Floors ? SS::Floor
 													 : SS::Ceiling;
@@ -797,7 +905,11 @@ void MapEditor::PaintCell(int cx, int cz, bool remote, const std::string& stem) 
 		const Party& party = m_world->GetParty();
 		if (want == Cell::Wall && cx == party.GridX() && cz == party.GridZ())
 			return; // never wall the party in (skip; a fill keeps going)
+		m_world->BeginChunkBatch(); // the type change and the variant: one rebuild
 		m_world->EditCell(cx, cz, want);
+		m_world->EditVariant(cx, cz, sel, variant);
+		m_world->EndChunkBatch();
+		return;
 	}
 	m_world->EditVariant(cx, cz, sel, variant);
 }
@@ -809,20 +921,46 @@ void MapEditor::PaintRect(int cx, int cz) {
 		ApplyBrush(cx, cz, /*dragging*/ false);
 		return;
 	}
-	const bool remote = m_view.Browsing();
-	const std::string& stem = m_view.ViewedLevel();
-	const int x0 = std::min(m_lastX, cx), x1 = std::max(m_lastX, cx);
-	const int z0 = std::min(m_lastZ, cz), z1 = std::max(m_lastZ, cz);
-	m_world->BeginUndoStep();
-	const u32 rev0 = m_world->Map().Revision();
+	PaintRectBetween(m_lastX, m_lastZ, cx, cz);
+}
+
+void MapEditor::PaintRectBetween(int ax, int az, int bx, int bz) {
+	if (m_sel.index < 0) return;
+	if (!PaintableCat(m_sel.cat)) { // placement acts as a plain click
+		ApplyBrush(bx, bz, /*dragging*/ false);
+		return;
+	}
+	const DungeonMap& map = m_view.ViewedMap();
+	const int x0 = std::max(0, std::min(ax, bx)), x1 = std::min(map.Width() - 1, std::max(ax, bx));
+	const int z0 = std::max(0, std::min(az, bz)), z1 = std::min(map.Height() - 1, std::max(az, bz));
+	std::vector<std::pair<int, int>> cells;
 	for (int z = z0; z <= z1; ++z)
-		for (int x = x0; x <= x1; ++x) PaintCell(x, z, remote, stem);
-	m_world->CommitUndoStep(remote || m_world->Map().Revision() != rev0);
-	m_lastX = cx; // chainable: the far corner anchors the next rectangle
-	m_lastZ = cz;
-	if (m_world->onMessage)
-		m_world->onMessage(loc::FormatLine("map.fill.done",
-										  (x1 - x0 + 1) * (z1 - z0 + 1)));
+		for (int x = x0; x <= x1; ++x) cells.push_back({x, z});
+	PaintCells(cells);
+	m_lastX = bx; // chainable: the far corner anchors the next rectangle
+	m_lastZ = bz;
+	if (m_world->onMessage) m_world->onMessage(loc::FormatLine("map.fill.done", cells.size()));
+}
+
+MapEditor::Tool MapEditor::ActiveTool() const {
+	const int t = m_settings.mapTool;
+	return t >= 0 && t < static_cast<int>(Tool::Count) ? static_cast<Tool>(t) : Tool::Paint;
+}
+
+void MapEditor::SetTool(Tool t) {
+	if (static_cast<int>(t) == m_settings.mapTool) return;
+	m_settings.mapTool = static_cast<int>(t);
+	m_settings.Save();
+}
+
+const char* MapEditor::ToolName(Tool t) {
+	switch (t) {
+	case Tool::Rect:  return "rect";
+	case Tool::Flood: return "flood";
+	case Tool::Area:  return "area";
+	case Tool::Pick:  return "pick";
+	default:          return "paint";
+	}
 }
 
 void MapEditor::FloodFill(int cx, int cz) {
@@ -835,7 +973,11 @@ void MapEditor::FloodFill(int cx, int cz) {
 	if (cx < 0 || cz < 0 || cx >= map.Width() || cz >= map.Height()) return;
 	using SS = DungeonWorld::SurfaceSel;
 	const Cell baseCell = map.At(cx, cz);
-	const SS sel = m_sel.cat == PaletteCat::Walls    ? SS::Wall
+	// A combination floods over whichever surface the clicked square shows
+	// (its wall on a block, its floor on open ground) - it paints both kinds.
+	const SS sel = m_sel.cat == PaletteCat::Combos
+					   ? (baseCell == Cell::Wall ? SS::Wall : SS::Floor)
+				   : m_sel.cat == PaletteCat::Walls  ? SS::Wall
 				   : m_sel.cat == PaletteCat::Floors ? SS::Floor
 													 : SS::Ceiling;
 	// FLOOD stays a recolor: the region keys on the brush surface's
@@ -874,12 +1016,68 @@ void MapEditor::FloodFill(int cx, int cz) {
 	const std::string& stem = m_view.ViewedLevel();
 	m_world->BeginUndoStep();
 	const u32 rev0 = m_world->Map().Revision();
+	m_world->BeginChunkBatch(); // each touched chunk rebuilds once, at the end
 	for (const auto& [x, z] : region) PaintCell(x, z, remote, stem);
+	m_world->EndChunkBatch();
 	m_world->CommitUndoStep(remote || m_world->Map().Revision() != rev0);
 	m_lastX = cx;
 	m_lastZ = cz;
 	if (m_world->onMessage)
 		m_world->onMessage(loc::FormatLine("map.fill.done", region.size()));
+}
+
+void MapEditor::PaintCells(std::span<const std::pair<int, int>> cells) {
+	const bool remote = m_view.Browsing();
+	const std::string stem = m_view.ViewedLevel(); // a copy: nothing here re-browses
+	m_world->BeginUndoStep();
+	const u32 rev0 = m_world->Map().Revision();
+	m_world->BeginChunkBatch(); // each touched chunk rebuilds once, at the end
+	for (const auto& [x, z] : cells) PaintCell(x, z, remote, stem);
+	m_world->EndChunkBatch();
+	m_world->CommitUndoStep(remote || m_world->Map().Revision() != rev0);
+}
+
+void MapEditor::AreaFill(int cx, int cz) {
+	if (m_sel.index < 0) return;
+	if (!PaintableCat(m_sel.cat)) { // placement acts as a plain click
+		ApplyBrush(cx, cz, /*dragging*/ false);
+		return;
+	}
+	const DungeonMap& map = m_view.ViewedMap();
+	std::vector<area::CellXZ> region = area::Region(map, cx, cz);
+	if (region.empty()) {
+		if (m_world->onMessage) m_world->onMessage(loc::View("map.area.solid"));
+		return;
+	}
+	// A wall brush paints the blocks the area SEES; floor and ceiling brushes
+	// the area itself. Either way PaintCell's type rule leaves the cell types
+	// alone, since each square already is the kind its brush wants.
+	// A COMBINATION takes both - the room and its walls - which is the whole
+	// point of one: "make this room marble hall" in a single click.
+	if (m_sel.cat == PaletteCat::Walls) region = area::Walls(map, region);
+	else if (m_sel.cat == PaletteCat::Combos) {
+		const std::vector<area::CellXZ> walls = area::Walls(map, region);
+		region.insert(region.end(), walls.begin(), walls.end());
+	}
+	PaintCells(region);
+	m_lastX = cx;
+	m_lastZ = cz;
+	if (m_world->onMessage)
+		m_world->onMessage(loc::FormatLine("map.area.done", region.size()));
+}
+
+void MapEditor::FillLevel() {
+	if (m_sel.index < 0 || !PaintableCat(m_sel.cat)) return;
+	const DungeonMap& map = m_view.ViewedMap();
+	const bool walls = m_sel.cat == PaletteCat::Walls;
+	const bool combo = m_sel.cat == PaletteCat::Combos; // every square, both kinds
+	std::vector<area::CellXZ> cells;
+	for (int z = 0; z < map.Height(); ++z)
+		for (int x = 0; x < map.Width(); ++x)
+			if (combo || map.IsWalkable(x, z) != walls) cells.push_back({x, z});
+	PaintCells(cells);
+	if (m_world->onMessage)
+		m_world->onMessage(loc::FormatLine("map.level.filled", cells.size()));
 }
 
 void MapEditor::PickAt(int cx, int cz) {
@@ -890,6 +1088,22 @@ void MapEditor::PickAt(int cx, int cz) {
 	// ceilings (sharing the floor square) are picked while already on the
 	// Ceilings brush.
 	const bool solid = map.At(cx, cz) == Cell::Wall;
+	// A square painted with a COMBINATION picks up the combination - that is
+	// the thing to paint elsewhere to make it match - not the one member the
+	// hash happened to show here.
+	if (const int slot = DungeonMap::ComboSlotOf(
+			map.Variant(solid ? SS::Wall : SS::Floor, cx, cz));
+		slot >= 0 && slot < static_cast<int>(map.ComboCount())) {
+		const std::string& id = map.ComboId(slot);
+		const std::vector<PaletteItem> items = CategoryItems(PaletteCat::Combos);
+		for (int i = 0; i < static_cast<int>(items.size()); ++i)
+			if (items[i].id == id) {
+				m_sel = {PaletteCat::Combos, i};
+				if (m_world->onMessage)
+					m_world->onMessage(loc::FormatLine("map.pick.done", items[i].label));
+				return;
+			}
+	}
 	const PaletteCat cat =
 		solid ? PaletteCat::Walls
 			  : (m_sel.cat == PaletteCat::Ceilings ? PaletteCat::Ceilings
@@ -921,21 +1135,11 @@ int MapEditor::ResolvedVariant(int cx, int cz, int selRaw) const {
 	using SS = DungeonWorld::SurfaceSel;
 	const SS sel = static_cast<SS>(selRaw);
 	const DungeonMap& map = m_view.ViewedMap();
-	const std::vector<std::string>& pal =
-		sel == SS::Wall    ? map.WallPalette()
-		: sel == SS::Floor ? map.FloorPalette()
-						   : map.CeilingPalette();
-	const int count = static_cast<int>(pal.size());
+	const int count = static_cast<int>(map.Palette(sel).size());
 	if (count == 0) return -1;
-	// Override else the mesh builder's hash — StampCell's exact pick, the same
-	// resolution the map's textured fill uses.
-	const int over = sel == SS::Wall    ? map.WallVariant(cx, cz)
-					 : sel == SS::Floor ? map.FloorVariant(cx, cz)
-										: map.CeilingVariant(cx, cz);
-	if (over >= 0) return std::min(over, count - 1);
-	const u32 salt = sel == SS::Wall ? 3u : sel == SS::Floor ? 1u : 2u;
+	// StampCell's exact answer, the same one the map's textured fill draws.
 	return static_cast<int>(
-		SurfaceVariantFor(cx, cz, salt, static_cast<u32>(count)));
+		ResolveSurfaceVariant(map, cx, cz, sel, static_cast<u32>(count)));
 }
 
 void MapEditor::InspectAt(int cx, int cz) {
@@ -1029,11 +1233,21 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 				batch.DrawRect({cx, box.y + 4.0f, 1.0f, box.h - 8.0f}, theme.text);
 			}
 		}
-		ui::DrawButtonFace(batch, font, FilterClearRect(panel), "x", theme,
-						   m_hotCtrl == HotCtrl::Clear && !m_filter.empty(),
-						   false, !m_filter.empty());
-		ui::DrawButtonFace(batch, font, CollapseAllRect(panel), "-", theme,
-						   m_hotCtrl == HotCtrl::Collapse, false, true);
+		// The square box icons, brightened on hover and dimmed when disabled
+		// (the toolbar's idiom); the text face only when the art is missing.
+		auto iconBox = [&](const gfx::Rect& r, const gfx::Texture* icon, const char* text,
+					   bool hot, bool enabled) {
+			if (!icon) {
+				ui::DrawButtonFace(batch, font, r, text, theme, hot, false, enabled);
+				return;
+			}
+			const float f = !enabled ? 0.32f : hot ? 1.15f : 0.9f;
+			batch.DrawSprite(r, {0, 0, 1, 1}, *icon, {f, f, f, 1.0f});
+		};
+		iconBox(FilterClearRect(panel), m_icoClear, "x",
+				m_hotCtrl == HotCtrl::Clear && !m_filter.empty(), !m_filter.empty());
+		iconBox(CollapseAllRect(panel), m_icoCollapse, "-",
+				m_hotCtrl == HotCtrl::Collapse, true);
 	}
 
 	// "Catalogue" checkbox (second controls line): a small box + label. Checked
@@ -1056,7 +1270,21 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	std::vector<PaletteRow> rows;
 	float content = 0.0f;
 	BuildPaletteRows(panel, rows, content);
-	const float arrowW = font.MeasureWidth("+");
+	// A header's expand/collapse mark: the square box at text height, or the
+	// "+"/"-" glyph without the art. arrowW is the width it takes, so the label
+	// after it lands the same distance away either way.
+	const bool boxes = m_icoExpand && m_icoCollapse;
+	const float arrowW = boxes ? font.Height() : font.MeasureWidth("+");
+	auto expander = [&](bool open, float x, const gfx::Rect& rc, float ty) {
+		if (boxes) {
+			const float s = std::min(arrowW, rc.h - 2.0f);
+			batch.DrawSprite({x, rc.y + (rc.h - s) * 0.5f, s, s}, {0, 0, 1, 1},
+							 *(open ? m_icoCollapse : m_icoExpand),
+							 {0.9f, 0.9f, 0.9f, 1.0f});
+		} else {
+			font.Draw(batch, open ? "-" : "+", x, ty, theme.textDim);
+		}
+	};
 	std::vector<PaletteItem> items; // the current category's items
 	for (const PaletteRow& r : rows) {
 		const gfx::Rect& rc = r.rect;
@@ -1067,8 +1295,7 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		case PaletteRow::Kind::Header: {
 			batch.DrawRect(rc, theme.control);
 			ui::DrawBorder(batch, rc, theme.panelBorder);
-			const char* arrow = m_catOpen[static_cast<size_t>(r.cat)] ? "-" : "+";
-			font.Draw(batch, arrow, rc.x + dpad, ty, theme.textDim);
+			expander(m_catOpen[static_cast<size_t>(r.cat)], rc.x + dpad, rc, ty);
 			font.Draw(batch, loc::Tr(CategoryNameKey(r.cat)),
 					  rc.x + dpad * 2 + arrowW, ty, theme.text);
 			break;
@@ -1093,7 +1320,6 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			// A group sub-header: indented +/- toggle, the free-form category
 			// token (first letter up-cased) and the member count. Tokens are
 			// data ids, so no loc lookup — like the item labels themselves.
-			const char* arrow = GroupOpen(r.cat, r.group) ? "-" : "+";
 			int n = 0;
 			for (const PaletteItem& it : items)
 				if (it.group == r.group) ++n;
@@ -1101,7 +1327,7 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			label[0] = static_cast<char>(
 				std::toupper(static_cast<unsigned char>(label[0])));
 			label += std::format(" ({})", n);
-			font.Draw(batch, arrow, rc.x + dpad * 3, ty, theme.textDim);
+			expander(GroupOpen(r.cat, r.group), rc.x + dpad * 3, rc, ty);
 			font.Draw(batch, label, rc.x + dpad * 4 + arrowW, ty, theme.text);
 			break;
 		}
@@ -1115,12 +1341,8 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			// Grouped items indent one level past their sub-header.
 			const float indent = dpad * (r.group.empty() ? 3.0f : 5.0f);
 			const float sw = rc.h - dpad * 2;
-			const gfx::Rect swRect{rc.x + indent, rc.y + dpad, sw, sw};
-			if (items[r.index].icon)
-				batch.DrawSprite(swRect, {0, 0, 1, 1}, *items[r.index].icon,
-								 {1, 1, 1, 1});
-			else
-				batch.DrawRect(swRect, items[r.index].swatch);
+			ui::DrawSwatch(batch, {rc.x + indent, rc.y + dpad, sw, sw},
+						   items[r.index].Swatch());
 			font.Draw(batch, items[r.index].label, rc.x + indent + sw + dpad, ty,
 					  active ? theme.text : theme.textDim);
 			break;

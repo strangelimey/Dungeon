@@ -104,14 +104,27 @@ struct WorldView {
 
 enum class Severity : u8 { Error, Warning };
 
+// A square on some level: where else a finding should be SHOWN.
+struct Spot {
+	std::string level;
+	int x = -1, z = -1;
+};
+
 // One finding. `level` + `x`/`z` locate it so the report can jump there;
 // x < 0 means the finding is about the level or project as a whole.
+//
+// `also` lists the OTHER squares the editor's map should box for it, since one
+// line in the report can be about several places: a stair's far end on the
+// level it leads to (so a broken pair is boxed at both ends), and every lost
+// item beyond the first (the report COUNTS them, one line - a walled-off wing
+// would otherwise bury every other finding - but on the map each is boxed).
 struct Issue {
 	Severity severity = Severity::Error;
 	std::string level;
 	int x = -1, z = -1;
 	std::string messageKey; // loc key, formatted with the args below
 	std::string a, b;
+	std::vector<Spot> also;
 };
 
 // Runs every check over the project. `startLevel` is where play begins (the

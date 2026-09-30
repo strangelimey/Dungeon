@@ -28,7 +28,6 @@ constexpr float kLabelFill = 1.4f, kFieldFill = 1.0f;
 // The Areas table, column by column. ONE list, so the header and the rows are
 // laid out from the same numbers rather than from two sets that have to agree.
 constexpr float kAreaIdFill = 1.8f, kAreaNumFill = 0.85f;
-constexpr float kRowBtn = 0.34f; // an ^ / v / x button, in FooterButton widths
 
 // A numeric text field that writes back every PARSEABLE state (the live-apply
 // pattern the Balance and Level dialogs use; an in-progress "", "-" or "0."
@@ -173,14 +172,13 @@ void WorldSettingsDialog::BuildUI() {
 
 	// "?" on the left, Save on the right: the explainer is not an action on the
 	// world, and should not stand in the row of things that are.
-	chrome.footer->Row<ui::Button>(FooterButton(0.4f), "?",
-								   [this] { m_helpOpen = true; });
+	FooterIcon(*chrome.footer, m_device, "help", loc::Tr("map.btn.help"),
+			   [this] { m_helpOpen = true; });
 	chrome.footer->Space(ui::Len::Fill());
-	chrome.footer->Row<ui::Button>(FooterButton(1.2f), loc::Tr("map.cfg.save"),
-								   [this] {
-									   if (onSave) onSave();
-									   Close();
-								   });
+	FooterIcon(*chrome.footer, m_device, "save", loc::Tr("map.cfg.save"), [this] {
+		if (onSave) onSave();
+		Close();
+	});
 }
 
 // ---------------------------------------------------------------------------
@@ -357,7 +355,9 @@ void WorldSettingsDialog::BuildAreasTab(size_t tab) {
 		h->centerV = true;
 		h->dim = true;
 	}
-	header->Space(FooterButton(kRowBtn * 3.0f));
+	// Over the rows' up / down / remove discs: three spaces, not one wide one,
+	// so the header takes the same gaps the rows do.
+	for (int i = 0; i < 3; ++i) header->Space(RowIconWidth());
 
 	const std::vector<WorldMap::Area>& areas = m_world->Areas();
 	for (size_t i = 0; i < areas.size(); ++i) {
@@ -439,20 +439,20 @@ void WorldSettingsDialog::BuildAreasTab(size_t tab) {
 		// nothing offers a move that cannot happen.
 		const int index = static_cast<int>(i);
 		if (index > 0)
-			row->Row<ui::Button>(FooterButton(kRowBtn), "^", [this, id, index] {
+			RowIcon(*row, m_device, "up", loc::Tr("map.btn.up"), [this, id, index] {
 				if (onOrderArea) onOrderArea(*id, index - 1);
 				m_uiRebuild = true;
 			});
 		else
-			row->Space(FooterButton(kRowBtn));
+			row->Space(RowIconWidth());
 		if (i + 1 < areas.size())
-			row->Row<ui::Button>(FooterButton(kRowBtn), "v", [this, id, index] {
+			RowIcon(*row, m_device, "down", loc::Tr("map.btn.down"), [this, id, index] {
 				if (onOrderArea) onOrderArea(*id, index + 1);
 				m_uiRebuild = true;
 			});
 		else
-			row->Space(FooterButton(kRowBtn));
-		row->Row<ui::Button>(FooterButton(kRowBtn), "x", [this, id] {
+			row->Space(RowIconWidth());
+		RowIcon(*row, m_device, "delete", loc::Tr("map.btn.remove"), [this, id] {
 			if (onDeleteArea) onDeleteArea(*id);
 			m_uiRebuild = true;
 		});
@@ -462,8 +462,7 @@ void WorldSettingsDialog::BuildAreasTab(size_t tab) {
 	{
 		ui::Stack* row = rows->Row<ui::Stack>(FormRow(), true);
 		row->gapRem = 0.5f;
-		row->Row<ui::Button>(FooterButton(1.8f), loc::Tr("map.world.area.add"),
-							 [this] { AddArea(); });
+		RowIcon(*row, m_device, "new", loc::Tr("map.world.area.add"), [this] { AddArea(); });
 		row->Space(ui::Len::Fill());
 	}
 	AddNote(*rows, loc::Tr("map.world.area.note"));
@@ -523,15 +522,13 @@ void WorldSettingsDialog::BuildLocationsTab(size_t tab) {
 	{
 		ui::Stack* row = rows->Row<ui::Stack>(FormRow(), true);
 		row->gapRem = 0.5f;
-		row->Row<ui::Button>(FooterButton(1.8f), loc::Tr("map.world.loc.add"),
-							 [this] { AddLocation(); });
+		RowIcon(*row, m_device, "new", loc::Tr("map.world.loc.add"), [this] { AddLocation(); });
 		if (Selected())
-			row->Row<ui::Button>(FooterButton(1.4f), loc::Tr("map.world.loc.del"),
-								 [this] {
-									 if (onDeleteLocation) onDeleteLocation(m_selected);
-									 m_selected.clear();
-									 m_uiRebuild = true;
-								 });
+			RowIcon(*row, m_device, "delete", loc::Tr("map.world.loc.del"), [this] {
+				if (onDeleteLocation) onDeleteLocation(m_selected);
+				m_selected.clear();
+				m_uiRebuild = true;
+			});
 		row->Space(ui::Len::Fill());
 	}
 

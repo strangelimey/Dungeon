@@ -278,9 +278,35 @@ void Game::RegisterWorldCommands() {
 				return;
 			}
 			if (a[0] == "new" && a.size() >= 2) {
-				const std::string made = CreateWorld(a[1]);
+				// How it starts (Game/NewWorld.h): blank from the template (the
+				// default), this world whole, or one of its levels.
+				NewWorldSpec spec;
+				if (a.size() >= 3 && a[2] == "copy") spec.source = NewWorldSpec::Source::CopyWorld;
+				else if (a.size() >= 4 && a[2] == "level") {
+					spec.source = NewWorldSpec::Source::CopyLevel;
+					spec.level = a[3];
+				} else if (a.size() >= 3 && a[2] == "wizard") {
+					// The wizard's knobs as key=value, in any order; absent =
+					// the dialog's defaults (NewWorld.h).
+					spec.source = NewWorldSpec::Source::Wizard;
+					for (size_t i = 3; i < a.size(); ++i) {
+						const size_t eq = a[i].find('=');
+						if (eq == std::string::npos) continue;
+						const std::string k = a[i].substr(0, eq), v = a[i].substr(eq + 1);
+						if (k == "theme") spec.theme = v;
+						else if (k == "size") spec.size = std::atoi(v.c_str());
+						else if (k == "difficulty") spec.difficulty = std::strtof(v.c_str(), nullptr);
+						else if (k == "seed") spec.seed = static_cast<u32>(std::strtoul(v.c_str(), nullptr, 10));
+					}
+				} else if (a.size() >= 3 && a[2] != "blank") {
+					m_console.Print("usage: worlds new <name> [blank|copy|level <stem>|wizard "
+									"[theme=<tag>] [size=<n>] [difficulty=<0..1>] [seed=<n>]]");
+					return;
+				}
+				std::string problem;
+				const std::string made = CreateWorld(a[1], spec, &problem);
 				m_console.Print(made.empty()
-									? "could not create (see the log)"
+									? "could not create: " + problem
 									: std::format("created world '{}' - "
 												  "`worlds load {}` to open it",
 												  made, made));
@@ -345,8 +371,55 @@ void Game::RegisterWorldCommands() {
 					m_worldsDialog.Note()));
 				return;
 			}
+			if (a[0] == "themes") { // the wizard's theme choices (the template's tags)
+				std::string list;
+				for (const std::string& t : WizardThemes()) list += (list.empty() ? "" : " ") + t;
+				m_console.Print("wizard themes: " + list);
+				return;
+			}
+			if (a[0] == "newdialog") {
+				// The New world dialog (P4), for a harness: the same calls its
+				// buttons make. It is modal in a level and on the world screen
+				// alike, so unlike the Worlds dialog it opens from either.
+				if (a.size() >= 2 && a[1] == "off") {
+					m_newWorldDialog.Close();
+				} else {
+					if (!m_newWorldDialog.IsOpen()) m_newWorldDialog.Open();
+					using S = NewWorldSpec::Source;
+					if (a.size() >= 6 && a[1] == "wizard") {
+						// wizard <theme|-> <size> <difficulty> <seed>: the rows' values.
+						m_newWorldDialog.SetWizard(
+							a[2] == "-" ? std::string() : a[2], std::atoi(a[3].c_str()),
+							std::strtof(a[4].c_str(), nullptr),
+							static_cast<u32>(std::strtoul(a[5].c_str(), nullptr, 10)));
+					} else if (a.size() >= 3 && a[1] == "source") {
+						if (a[2] == "copy") m_newWorldDialog.SetSource(S::CopyWorld);
+						else if (a[2] == "wizard") m_newWorldDialog.SetSource(S::Wizard);
+						else if (a[2] == "level")
+							m_newWorldDialog.SetSource(S::CopyLevel, a.size() >= 4 ? a[3] : "");
+						else m_newWorldDialog.SetSource(S::Blank);
+					} else if (a.size() >= 3 && a[1] == "create") {
+						m_newWorldDialog.Create(a[2]);
+					} else if (a.size() >= 2 && a[1] == "switch") {
+						m_newWorldDialog.SwitchNow();
+					}
+					m_newWorldDialog.ApplyPending(); // not inside a tree walk here
+				}
+				static constexpr const char* kSource[] = {"blank", "copy", "level", "wizard"};
+				const NewWorldSpec& sp = m_newWorldDialog.Spec();
+				m_console.Print(std::format(
+					"new world dialog {}: source {} made '{}' - {}",
+					m_newWorldDialog.IsOpen() ? "open" : "closed",
+					kSource[static_cast<int>(m_newWorldDialog.Source())],
+					m_newWorldDialog.Made(), m_newWorldDialog.Note()));
+				if (sp.source == NewWorldSpec::Source::Wizard)
+					m_console.Print(std::format("  wizard theme '{}' size {} difficulty {:.2f} seed {}",
+												sp.theme, sp.size, sp.difficulty, sp.seed));
+				return;
+			}
 			m_console.Print("usage: worlds [new|load] <name> | delete <name> <name> | "
-							"dialog [open|create|delete|confirm <name>|off]");
+							"dialog [open|create|delete|confirm <name>|off] | newdialog "
+							"[source blank|copy|level <stem> | create <name> | switch | off]");
 		});
 	m_console.Register(
 		"mappage",
@@ -892,6 +965,52 @@ void Game::RegisterWorldCommands() {
 			const std::string id = CreateAuthoredType(cat);
 			m_console.Print(id.empty() ? "could not create"
 									   : std::format("created {} '{}'", args[0], id));
+		});
+	m_console.Register(
+		"typeset",
+		"the type editor's Save for one field: typeset <category> <id> <field> [value...] "
+		"(no value removes the field); typeset rename|delete <category> <id> [new]",
+		[this](const std::vector<std::string>& args) {
+			// The type editor's own paths, reachable without a mouse. Save goes
+			// through m_typeDialog.onSave, not WriteTypeFields alone: the Save
+			// also APPLIES the change (a surface's materials, a prop's kind, a
+			// combination's squares on every level), and that is what a harness
+			// needs to see. Rename and Delete are the title's and footer's.
+			if (args.size() >= 3 && (args[0] == "rename" || args[0] == "delete")) {
+				std::string problem;
+				const bool rename = args[0] == "rename";
+				if (rename && args.size() < 4) {
+					m_console.Print("usage: typeset rename <category> <id> <new>");
+					return;
+				}
+				const bool ok = rename ? RenameType(args[1], args[2], args[3], problem)
+									   : DeleteType(args[1], args[2], problem);
+				m_console.Print(std::format("typeset {} {} '{}': {}{}", args[0], args[1],
+											args[2], ok ? "done" : "refused",
+											problem.empty() ? "" : " - " + problem));
+				return;
+			}
+			if (args.size() < 3) {
+				m_console.Print("usage: typeset <category> <id> <field> [value...]");
+				return;
+			}
+			const Catalog* cat = m_project.CatalogForKey(args[0]);
+			if (!cat || !cat->Find(args[1])) {
+				m_console.Refuse(std::format("typeset: no {} '{}'", args[0], args[1]));
+				return;
+			}
+			TypeEditorDialog::Config cfg;
+			cfg.catalogKey = args[0];
+			cfg.id = args[1];
+			std::string value;
+			for (size_t i = 3; i < args.size(); ++i) value += (i > 3 ? " " : "") + args[i];
+			serialize::Field field;
+			field.key = args[2];
+			field.value = value;
+			cfg.fields.push_back(std::move(field));
+			if (m_typeDialog.onSave) m_typeDialog.onSave(cfg);
+			m_console.Print(std::format("typeset {} '{}': {} = {}", args[0], args[1], args[2],
+										value.empty() ? "(removed)" : value));
 		});
 	m_console.Register(
 		"typerefs", "count what references a type: typerefs <category> <id>",

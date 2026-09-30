@@ -22,8 +22,12 @@ namespace dungeon::ui {
 
 struct ControlIcons {
 	// DropDown's expander: an authored box with a down triangle, drawn at the
-	// right end of the closed control and turned half a rotation while open.
+	// right end of the control, and its open twin with the triangle up. Two
+	// files rather than one turned half a rotation, because the turn would put
+	// the box's top-lit rim at the bottom too. No open icon = the closed one,
+	// turned.
 	const gfx::Texture* dropDown = nullptr;
+	const gfx::Texture* dropDownOpen = nullptr;
 };
 
 // Installs the shared set (one call at startup). Pass a default-constructed

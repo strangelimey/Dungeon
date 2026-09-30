@@ -17,9 +17,8 @@ namespace {
 // A short list and one form row: narrower and shorter than the settings card.
 // The list scrolls, so the card is sized for a handful of worlds, not all.
 constexpr gfx::Rect kPanel{0.25f, 0.22f, 0.50f, 0.54f};
-// The two button columns, in FooterButton widths. NARROW ON PURPOSE: the name
-// takes what is left, and at 1.6 + 1.2 a twelve-letter name ran under Open.
-constexpr float kOpenW = 1.0f, kDeleteW = 0.9f;
+// (The two button columns are RowIcon discs now, so the name takes nearly the
+// whole row - worded ones had to be narrowed to keep a long name clear.)
 
 // A world's name is a FOLDER name — the id filter every authored name gets,
 // applied as it is typed so the field never shows a name that will not be the
@@ -100,11 +99,15 @@ void WorldsDialog::Create(const std::string& typed) {
 		SetNote(loc::Tr("map.worlds.failed"));
 		return;
 	}
-	if (onList) m_worlds = onList();
 	m_newName.clear();
+	Created(made);
+}
+
+void WorldsDialog::Created(const std::string& made) {
+	if (onList) m_worlds = onList();
 	// The new row is ARMED already: making a world is nearly always the
 	// first half of going there, so the next click on its Open is the one
-	// that relaunches — and the note says so.
+	// that switches — and the note says so.
 	m_armed = made;
 	m_note = loc::Format("map.worlds.created", made);
 	m_uiRebuild = true;
@@ -175,7 +178,9 @@ void WorldsDialog::BuildUI() {
 		m_ui, kPanel,
 		m_deleting.empty() ? loc::Tr("map.worlds.title")
 						   : loc::Format("map.worlds.delete.head", m_deleting),
-		m_closeIcon, [this] { Close(); });
+		m_closeIcon, [this] { Close(); },
+		/*withFooter*/ false); // every action sits in its row; an empty footer
+							   // only took height from the list
 	if (m_deleting.empty()) BuildList(chrome);
 	else BuildConfirm(chrome);
 	// What the last click did, or what the next one will. One line, fine print
@@ -218,45 +223,42 @@ void WorldsDialog::BuildList(DialogChrome& chrome) {
 		row->gapRem = 0.5f;
 		row->Row<ui::Label>(ui::Len::Fill(), name)->centerV = true;
 		if (name == m_openName) {
-			ui::Label* here = row->Row<ui::Label>(FooterButton(kOpenW),
-												  loc::Tr("map.worlds.here"));
-			here->centerV = true;
-			here->dim = true;
-			row->Space(FooterButton(kDeleteW));
+			// The open world's way-in disc, dimmed and inert: the column stays
+			// put, and hovering it says why there is nothing to do.
+			RowIcon(*row, m_device, "enter", loc::Tr("map.worlds.here"), nullptr)
+				->enabled = false;
+			row->Space(RowIconWidth());
 			continue;
 		}
+		// The first click ARMS (lit, and its name becomes the switch); the
+		// second relaunches into the world.
 		const bool armed = name == m_armed;
-		auto* btn = row->Row<ui::Button>(
-			FooterButton(kOpenW),
-			loc::Tr(armed ? "map.worlds.relaunch" : "map.worlds.open"),
-			[this, name] { ClickOpen(name); });
-		btn->active = armed;
+		RowIcon(*row, m_device, "enter",
+				loc::Tr(armed ? "map.worlds.relaunch" : "map.worlds.open"),
+				[this, name] { ClickOpen(name); })
+			->active = armed;
 		// A world that may not be deleted (the fallback) gets a SPACE, not a
 		// dead button — the Areas tab's rule: nothing offers a move that cannot
 		// happen, and the columns still line up.
 		if (!canDelete || canDelete(name).empty())
-			row->Row<ui::Button>(FooterButton(kDeleteW), loc::Tr("map.worlds.delete"),
-								 [this, name] { ClickDelete(name); });
+			RowIcon(*row, m_device, "delete", loc::Tr("map.worlds.delete"),
+					[this, name] { ClickDelete(name); });
 		else
-			row->Space(FooterButton(kDeleteW));
+			row->Space(RowIconWidth());
 	}
 
 	chrome.body->Row<ui::Separator>(ui::Len::Fixed(0.5f));
 	{
+		// MAKING a world happens in the NewWorldDialog, which asks HOW it starts
+		// (blank / this world / one level) - one place to make a world, however
+		// you got to it. (Create() stays: the console's way in, blank.)
 		ui::Stack* row = chrome.body->Row<ui::Stack>(FormRow(), true);
 		row->gapRem = 0.5f;
-		auto* field = row->Row<ui::TextField>(ui::Len::Fill(), m_newName);
-		field->placeholder = loc::Tr("map.worlds.newname");
-		field->maxLength = 32;
-		ui::TextField* raw = field;
-		raw->onChange = [this, raw] {
-			FilterId(raw->text);
-			m_newName = raw->text;
-		};
-		raw->onSubmit = [this] { Create(m_newName); };
-		row->Row<ui::Button>(FooterButton(kOpenW), loc::Tr("map.worlds.create"),
-							 [this] { Create(m_newName); });
-		row->Space(FooterButton(kDeleteW)); // Create sits under the Open column
+		row->Space(ui::Len::Fill());
+		RowIcon(*row, m_device, "newworld", loc::Tr("map.worlds.newworld"), [this] {
+			if (onNewWorld) onNewWorld();
+		});
+		row->Space(RowIconWidth()); // under the Open column, clear of the Delete one
 	}
 }
 

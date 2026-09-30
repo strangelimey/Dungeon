@@ -1,0 +1,24 @@
+; Dungeons: a named group of levels reached through a world-map location.
+;
+; The tier that did not exist before the world map (docs/world-map.md). Until
+; now a "dungeon" was only an accident of which level stems' stairs happened to
+; point at each other, and project.ini's flat `levels` list was the whole
+; hierarchy. That list STAYS — it is the editor's universe — and a dungeon
+; simply names which of those levels belong to it.
+;
+; A DUNGEON IS NOT A PLACE. The world-map LOCATION is the place; this is the
+; content behind it. That is what lets a found map reveal a location without
+; touching the dungeon, and what lets TWO locations share one dungeon — a front
+; gate and a back way, each landing somewhere different inside.
+;
+; A DUNGEON HAS NO START OF ITS OWN (Michael, 2026-09-09). It is a named group
+; of levels and nothing more: every way IN carries its own destination — a
+; world-map location says which level and cell it opens onto, and the game's
+; opening says the same in project.ini. So there is no `entry` field to drift
+; out of step with the doors that actually lead here.
+;
+; Fields:
+;   levels   space-separated level stems, in depth order. Every stem must exist
+;            in project.ini.
+;   tags     flavour, for later content matching (Catalog.h tags).
+

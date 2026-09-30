@@ -1,0 +1,393 @@
+; Monsters: model + texture set.
+; Per-type THREAT shading (optional, default 1 = the balance.cat global as-is):
+;   threat_scale     x how hard a landed hit builds this kind's aggro
+;   threat_threshold x the aggro needed before it LOCKS onto one member
+;                      (< 1 = single-minded, locks fast; > 1 = erratic, random longer)
+;   threat_switch    x the margin another member must beat the lock by to steal it
+;   threat_decay     x how fast the grudge fades (> 1 = short memory)
+; Editable live in the editor's monster config dialog (Behavior tab).
+;
+; damage - DOUBLED 2026-08-11, from a 4-8 band to 8-16. Armor's mitigation is
+;   part flat soak and part fractional resist, and which of those dominates
+;   depends entirely on how hard the blow is: measured (tools/RollTest), armor
+;   beats evasion against many small hits and evasion beats armor against few
+;   big ones, with the crossover around 12-20 damage. At the old 4-8 the choice
+;   never arose - armor simply won. This puts the band across the crossover so
+;   the decision is a real one.
+;
+; offense - the STANCE (docs/damage-system.md): how much of `accuracy` goes
+;   into pressing the attack, the rest held back to guard with. 1 = all-out.
+;   It is per KIND and not per archetype on purpose: an archetype says how a
+;   creature moves and perceives, not how boldly it fights. A wild caster and
+;   a cautious one are both `archetype = caster`.
+;   The trade is real in both directions - dropping it takes the same points
+;   off the attack that it adds to the guard.
+;
+; modelscale — uniform trim on top of UnitScale (Game/DungeonMap.h). A model
+; authored to convention needs none, and none here has one: every model on disk
+; is unit space (1.0 = one dungeon square, docs/authoring-scale.md), which the
+; bakers and the import tools all target directly. Reach for a trim to art-
+; direct one creature bigger or smaller than its art, never to correct a
+; mis-sized import — fix that where it was sized.
+
+[skeleton]
+; a plain animated warrior: presses, but not mindlessly
+offense = 0.9
+display = Skeleton
+category = skeleton
+tags = undead
+model = skeleton
+texture = skeleton
+hp = 16
+damage = 10
+accuracy = 70
+defense = 0.1
+armor = 0
+attackcd = 1.6
+aggro = 6
+movecd = 0.45
+iq = 135
+fleebelow = 0.3
+resists = pierce 0.5, slash 0.25, bash -0.5
+dmgtype = slash
+
+[skel_archer]
+; shoots from range, so little is spent guarding
+offense = 0.85
+display = Skeleton Archer
+category = skeleton
+tags = undead
+model = skeleton
+texture = skeleton
+hp = 12
+damage = 8
+accuracy = 70
+defense = 0.1
+armor = 0
+attackcd = 1.8
+aggro = 8
+movecd = 0.45
+iq = 120
+archetype = skirmisher
+keeprange = 4
+resists = pierce 0.5, slash 0.25, bash -0.5
+dmgtype = pierce
+
+[skel_mage]
+; hangs back warding and mending; casts to survive
+offense = 0.45
+display = Skeleton Mage
+category = skeleton
+tags = undead
+model = skeleton
+texture = skeleton
+hp = 14
+damage = 8
+accuracy = 75
+defense = 0.1
+armor = 0
+attackcd = 2.4
+aggro = 9
+movecd = 0.5
+iq = 130
+archetype = caster
+keeprange = 5
+spell = flame
+resists = pierce 0.5, slash 0.25, bash -0.5
+; It has no skills, so `powers` is where "this one is dangerous with fire" lives —
+; the attacker's mirror of the resists above. Its flame bolts land harder; its
+; feeble staff does not.
+powers = fire 0.45, bash -0.3
+
+[skel_coward]
+; skittish — guards first and swings second
+offense = 0.4
+display = Skittish Skeleton
+category = skeleton
+tags = undead
+model = skeleton
+texture = skeleton
+hp = 10
+damage = 0
+accuracy = 50
+defense = 0.2
+armor = 0
+attackcd = 2.0
+aggro = 8
+movecd = 0.4
+iq = 130
+fleebelow = 2.0
+resists = pierce 0.5, slash 0.25, bash -0.5
+
+[skel_swarm]
+; numbers, not self-preservation
+offense = 1.0
+display = Bone Swarm
+category = skeleton
+tags = undead
+model = skeleton
+texture = skeleton
+hp = 6
+damage = 4
+accuracy = 60
+defense = 0.15
+armor = 0
+attackcd = 1.4
+aggro = 7
+movecd = 0.35
+iq = 120
+size = medium
+archetype = swarm
+resists = pierce 0.5, slash 0.25, bash -0.5
+dmgtype = slash
+
+[skel_lurker]
+; commits the moment it springs
+offense = 0.95
+display = Lurking Skeleton
+category = skeleton
+tags = undead
+model = skeleton
+texture = skeleton
+hp = 20
+damage = 14
+accuracy = 75
+defense = 0.1
+armor = 1
+attackcd = 1.6
+aggro = 9
+movecd = 0.4
+iq = 130
+archetype = lurker
+resists = pierce 0.5, slash 0.25, bash -0.5
+dmgtype = slash
+on_hit = bleed 2 10 0.5
+
+[blob]
+; no notion of defending itself
+offense = 1.0
+display = Blob
+category = slime
+tags = ooze cave
+model = blob
+texture = blob
+hp = 28
+damage = 8
+accuracy = 60
+defense = 0.0
+armor = 1
+attackcd = 2.2
+aggro = 4
+movecd = 0.95
+iq = 60
+faces = false
+roughness = 0.18
+resists = pierce 0.6, bash 0.3, slash -0.25
+dmgtype = bash
+on_hit = poison 1 20 1
+
+[mummy]
+; implacable rather than reckless
+offense = 0.8
+display = Mummy
+category = undead
+tags = undead crypt
+model = mummy
+texture = burlap
+hp = 22
+damage = 16
+accuracy = 65
+defense = 0.05
+armor = 1
+attackcd = 2.0
+aggro = 5
+movecd = 0.7
+iq = 100
+resists = pierce 0.4, slash 0.1, fire -1.0
+dmgtype = bash
+
+[giant_spider]
+; darts in; some caution in the legs
+offense = 0.9
+display = Giant Spider
+category = vermin
+tags = vermin beast cave
+model = giant_spider
+texture = giant_spider
+hp = 20
+damage = 12
+accuracy = 70
+defense = 0.15
+armor = 0
+attackcd = 1.4
+aggro = 7
+movecd = 0.4
+iq = 120
+size = large
+on_hit = poison 1.5 6 0.35
+resists = bash -0.25
+dmgtype = pierce
+states = idle incombat walk run attack hit die
+anim_idle = Idle
+anim_incombat = Roar
+anim_walk = Wak
+anim_run = Run
+anim_attack = Atk1 Atk2 Atk3 Atk4 Atk5 Atk6
+anim_hit = Hit Hit2
+anim_die = Death
+
+[centipede]
+; all mandibles, no second thoughts
+offense = 1.0
+display = Giant Centipede
+category = vermin
+tags = vermin beast cave
+model = centipede
+texture = centipede
+hp = 14
+damage = 8
+accuracy = 65
+defense = 0.1
+armor = 1
+attackcd = 1.2
+aggro = 5
+movecd = 0.5
+iq = 90
+size = large
+archetype = lurker
+on_hit = poison 2 8 0.5
+resists = pierce 0.25
+dmgtype = pierce
+states = spawn idle incombat walk run attack hit die
+anim_spawn = Wakeup GetUp
+anim_idle = Idle Idle2
+anim_incombat = Idle2
+anim_walk = Walk Walk2
+anim_run = Run
+anim_attack = Atk Atk2 Atk3
+anim_hit = Hit Hit2
+anim_die = Dead Dead2 Dead3
+
+[skel_warrior]
+; drilled: a real guard between blows
+offense = 0.7
+display = Skeleton Warrior
+category = skeleton
+tags = undead
+; A single-minded brute: locks onto its tormentor at 0.6x the global threat
+; threshold (see the threat_* note at the top of this file).
+threat_threshold = 0.6
+model = skel_warrior
+hp = 22
+damage = 14
+accuracy = 70
+defense = 0.12
+armor = 2
+attackcd = 1.7
+aggro = 7
+movecd = 0.5
+iq = 125
+size = large
+resists = pierce 0.5, slash 0.25, bash -0.5
+dmgtype = slash
+states = spawn idle incombat walk run attack defend hit die
+anim_spawn = spawn__getting_up_1 spawn__getting_up_2 spawn__getting_up spawn__standing_up
+anim_idle = idle__breathing_idle idle__dwarf_idle idle__happy_idle idle__idle_1 idle__idle_2 idle__idle_3 idle__idle idle__neutral_idle idle__orc_idle_1 idle__orc_idle
+anim_incombat = incombat__fight_idle incombat__ready_idle
+anim_walk = walk__standard_walk walk__walking
+anim_run = run__fast_run run__medium_run run__running run__slow_run
+anim_attack = attack__fireball attack__zombie_attack_1 attack__zombie_attack attack__zombie_punching
+anim_defend = defend__body_block defend__dodging_right
+anim_hit = hit__big_hit_to_head_1 hit__big_hit_to_head_2 hit__big_hit_to_head hit__head_hit hit__hit_to_body
+anim_die = die__dying die__falling_back_death die__falling_forward_death die__standing_death_forward_01 die__standing_death_left_01 die__standing_react_death_backward die__standing_react_death_forward
+
+[skel_bare]
+; nothing to lose
+offense = 0.95
+display = Skeleton Raider
+category = skeleton
+tags = undead
+model = skel_bare
+hp = 16
+damage = 12
+accuracy = 65
+defense = 0.15
+armor = 0
+attackcd = 1.5
+aggro = 7
+movecd = 0.45
+iq = 100
+size = large
+resists = pierce 0.5, slash 0.25, bash -0.5
+dmgtype = slash
+states = spawn idle incombat walk run attack defend hit die
+anim_spawn = spawn__getting_up_1 spawn__getting_up_2 spawn__getting_up spawn__standing_up
+anim_idle = idle__breathing_idle idle__dwarf_idle idle__happy_idle idle__idle_1 idle__idle_2 idle__idle_3 idle__idle idle__neutral_idle idle__orc_idle_1 idle__orc_idle
+anim_incombat = incombat__fight_idle incombat__ready_idle
+anim_walk = walk__standard_walk walk__walking
+anim_run = run__fast_run run__medium_run run__running run__slow_run
+anim_attack = attack__fireball attack__zombie_attack_1 attack__zombie_attack attack__zombie_punching
+anim_defend = defend__body_block defend__dodging_right
+anim_hit = hit__big_hit_to_head_1 hit__big_hit_to_head_2 hit__big_hit_to_head hit__head_hit hit__hit_to_body
+anim_die = die__dying die__falling_back_death die__falling_forward_death die__standing_death_forward_01 die__standing_death_left_01 die__standing_react_death_backward die__standing_react_death_forward
+
+[skel_berserker]
+; the whole point is holding nothing back
+offense = 1.0
+display = Skeleton Berserker
+category = skeleton
+tags = undead
+model = skel_berserker
+hp = 19
+damage = 16
+accuracy = 68
+defense = 0.13
+armor = 1
+attackcd = 1.4
+aggro = 8
+movecd = 0.45
+iq = 110
+size = large
+resists = pierce 0.5, slash 0.25, bash -0.5
+dmgtype = slash
+states = spawn idle incombat walk run attack defend hit die
+anim_spawn = spawn__getting_up_1 spawn__getting_up_2 spawn__getting_up spawn__standing_up
+anim_idle = idle__breathing_idle idle__dwarf_idle idle__happy_idle idle__idle_1 idle__idle_2 idle__idle_3 idle__idle idle__neutral_idle idle__orc_idle_1 idle__orc_idle
+anim_incombat = incombat__fight_idle incombat__ready_idle
+anim_walk = walk__standard_walk walk__walking
+anim_run = run__fast_run run__medium_run run__running run__slow_run
+anim_attack = attack__fireball attack__zombie_attack_1 attack__zombie_attack attack__zombie_punching
+anim_defend = defend__body_block defend__dodging_right
+anim_hit = hit__big_hit_to_head_1 hit__big_hit_to_head_2 hit__big_hit_to_head hit__head_hit hit__hit_to_body
+anim_die = die__dying die__falling_back_death die__falling_forward_death die__standing_death_forward_01 die__standing_death_left_01 die__standing_react_death_backward die__standing_react_death_forward
+
+[skel_spearman]
+; a spear wall is a defensive weapon
+offense = 0.65
+display = Skeleton Spearman
+category = skeleton
+tags = undead
+model = skel_spearman
+hp = 17
+damage = 14
+accuracy = 70
+defense = 0.13
+armor = 1
+attackcd = 1.8
+aggro = 7
+movecd = 0.5
+iq = 115
+reach = 2
+size = large
+resists = pierce 0.5, slash 0.25, bash -0.5
+dmgtype = pierce
+states = spawn idle incombat walk run attack defend hit die
+anim_spawn = spawn__getting_up_1 spawn__getting_up_2 spawn__getting_up spawn__standing_up
+anim_idle = idle__breathing_idle idle__dwarf_idle idle__happy_idle idle__idle_1 idle__idle_2 idle__idle_3 idle__idle idle__neutral_idle idle__orc_idle_1 idle__orc_idle
+anim_incombat = incombat__fight_idle incombat__ready_idle
+anim_walk = walk__standard_walk walk__walking
+anim_run = run__fast_run run__medium_run run__running run__slow_run
+anim_attack = attack__fireball attack__zombie_attack_1 attack__zombie_attack attack__zombie_punching
+anim_defend = defend__body_block defend__dodging_right
+anim_hit = hit__big_hit_to_head_1 hit__big_hit_to_head_2 hit__big_hit_to_head hit__head_hit hit__hit_to_body
+anim_die = die__dying die__falling_back_death die__falling_forward_death die__standing_death_forward_01 die__standing_death_left_01 die__standing_react_death_backward die__standing_react_death_forward

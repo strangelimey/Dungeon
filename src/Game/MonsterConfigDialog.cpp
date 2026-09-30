@@ -115,7 +115,7 @@ void MonsterConfigDialog::BuildUI() {
 	m_pane->hint = loc::Tr("map.cfg.nopreview");
 
 	chrome.footer->Space(ui::Len::Fill());
-	chrome.footer->Row<ui::Button>(FooterButton(), loc::Tr("map.cfg.save"), [this] {
+	FooterIcon(*chrome.footer, m_device, "save", loc::Tr("map.cfg.save"), [this] {
 		if (onSave) onSave(m_cfg);
 		Close();
 	});

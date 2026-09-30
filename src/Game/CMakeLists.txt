@@ -1,4 +1,5 @@
 add_library(Game STATIC
+	Area.cpp
 	AssetDialog.cpp
 	AssetPicker.cpp
 	AssetUtil.cpp
@@ -29,15 +30,19 @@ add_library(Game STATIC
 	DungeonWorld.cpp
 	DungeonWorld_Arena.cpp
 	DungeonWorld_Combat.cpp
+	DungeonWorld_Doors.cpp
 	DungeonWorld_Editing.cpp
 	DungeonWorld_Ledger.cpp
+	DungeonWorld_LevelIO.cpp
 	DungeonWorld_Levels.cpp
 	DungeonWorld_Load.cpp
 	DungeonWorld_Models.cpp
 	DungeonWorld_Move.cpp
+	DungeonWorld_Remote.cpp
 	DungeonWorld_Resize.cpp
 	DungeonWorld_Render.cpp
 	DungeonWorld_Save.cpp
+	DungeonWorld_Undo.cpp
 	DungeonWorld_Validate.cpp
 	Effect/AllEffects.cpp
 	Effect/DotEffect.cpp
@@ -60,6 +65,8 @@ add_library(Game STATIC
 	Game_Eval.cpp
 	Game_Generate.cpp
 	Game_Inspect.cpp
+	Game_NewWorld.cpp
+	NewWorldDialog.cpp
 	Game_Wiring.cpp
 	Game_World.cpp
 	GameSettings.cpp
@@ -70,6 +77,8 @@ add_library(Game STATIC
 	Magic.cpp
 	MapEditor.cpp
 	MapView.cpp
+	MapView_Issues.cpp
+	MapView_Tools.cpp
 	Mishap.cpp
 	MonsterAI.cpp
 	MonsterConfigDialog.cpp

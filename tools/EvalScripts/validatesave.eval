@@ -1,0 +1,21 @@
+; validatesave.eval - running the checker must not change what a save writes
+; (editor-updates P0).
+;
+; The defect this pins: Validate reached every other level through the EDIT
+; stash (EnsureMapStash), and a stashed level is one savemap rewrites. So a
+; press of Check made the next save rewrite every level in the project,
+; untouched ones included. `savemap` names each level it wrote; after a
+; validate that list must be the active level alone.
+;
+; Writes level files. tools/EditorTest.py backs the project up and restores it.
+
+logecho on
+reset
+validate
+; ...and the same for ASKING whether a type is used - the count behind
+; `typerefs` and behind a delete's refusal had the same defect. A surface
+; family (the .map side) and an entity family (the .ent side), both of which
+; crypt1 and crypt2 contain.
+typerefs walls wall_marble
+typerefs monsters skeleton
+savemap
