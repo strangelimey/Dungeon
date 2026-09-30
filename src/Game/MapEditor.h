@@ -88,6 +88,54 @@ public:
 		m_icoCollapse = collapse;
 	}
 
+	// --- the category bar (MapEditor_Categories.cpp) ---------------------------
+	// A row or two of square icon buttons at the top of the palette body: pick a
+	// GROUP and the accordion below lists only that group's sections. Two ways of
+	// grouping the same sections, flipped by the bar's first button (Michael:
+	// "both, with a toggle to switch back and forth"):
+	//   Stage - the workflow's order: World / Build / Populate.
+	//   Kind  - what a thing is: Surfaces, Structure, Props, Creatures, Items, World.
+	// Both are one table each (kStageGroups / kKindGroups), so regrouping is a
+	// table edit. The FILTER ignores the bar and searches every section, since a
+	// search that only looked where you already are would find nothing new.
+	// Effects are in neither table: they are tuning, not building, and live in
+	// the Balance dialog now. Grouping + the picked group per grouping persist
+	// in settings.ini (map_palette_group / _stage / _kind).
+	enum class Grouping : u8 { Stage, Kind, Count };
+	// The bar's button capacity: the toggle plus the larger grouping's groups.
+	static constexpr size_t kMaxBarButtons = 8;
+	Grouping PaletteGrouping() const;
+	void SetPaletteGrouping(Grouping g);
+	static int GroupCount(Grouping g);
+	// "world", "build", ... - the console's names and the icon files' suffixes
+	// (icon_tb_cat_<name>); the tooltip is map.group.<name>.
+	static const char* GroupName(Grouping g, int group);
+	static std::span<const PaletteCat> GroupCategories(Grouping g, int group);
+	// The picked group in the current grouping.
+	int ActiveGroup() const;
+	void SetActiveGroup(int group);
+	// Whether the palette lists this category at all (false for Effects).
+	static bool CategoryListed(PaletteCat cat);
+	// The sections the accordion lists right now, in order, each with how many
+	// of its items show: the picked group's sections, or while filtering EVERY
+	// section that has a match (a section with none drops out).
+	struct ShownSection {
+		PaletteCat cat;
+		int items;
+	};
+	std::vector<ShownSection> ShownSections() const;
+	// The filter text, for the harness (the box types it for a person).
+	void SetFilter(std::string_view text);
+	const std::string& Filter() const { return m_filter; }
+	// The bar's icons, in CategoryIconNames() order; MapView loads them (it has
+	// the device) and hands them over in SetEditor. Null = a text face.
+	static std::span<const char* const> CategoryIconNames();
+	void SetCategoryIcons(std::span<const gfx::Texture* const> icons);
+	// Draws what must sit above everything else in the editor: the category
+	// bar's tooltip, which opens beside the dock over the tool strip and grid.
+	void RenderOverlay(gfx::SpriteBatch& batch, const ui::Theme& theme,
+					   const gfx::Rect& panel);
+
 	// Fired when a category's "+ New..." row is clicked (the owner opens the
 	// asset-creation dialog for that category).
 	std::function<void(PaletteCat)> onNewAsset;
@@ -406,8 +454,42 @@ private:
 	// level palette (Walls/Floors/Ceilings/entities).
 	std::vector<PaletteItem> CategoryItems(PaletteCat cat) const;
 
+	// The category bar's buttons: the grouping toggle first, then one per group
+	// of the current grouping, wrapping onto a second row when the dock is
+	// narrow. `group` -1 = the toggle. A fixed array - at most the toggle plus
+	// the larger grouping's groups.
+	struct BarButton {
+		gfx::Rect rect;
+		int group;
+	};
+	struct BarLayout {
+		std::array<BarButton, kMaxBarButtons> buttons{};
+		size_t count = 0;
+		gfx::Rect area; // every row of the bar
+	};
+	BarLayout CategoryBar(const gfx::Rect& panel) const;
+	// The sections the accordion walks before the filter drops the empty ones:
+	// the picked group's, or every listed section while filtering.
+	std::vector<PaletteCat> CandidateSections() const;
+	// Makes sure the picked group shows SOMETHING: if none of its sections is
+	// open, the first one opens. Run after every change of group or grouping.
+	void OpenSomethingInGroup();
+	// Switches to the group holding `cat` (in the current grouping) and opens
+	// its section - so a brush armed from outside the bar (an eyedropper, a new
+	// palette entry) is visible where it was armed.
+	void RevealCategory(PaletteCat cat);
+	// The bar button under a point: its group, -1 the toggle, -2 none.
+	int BarButtonAt(float mx, float my, const gfx::Rect& panel) const;
+	// A click in the bar: flips the grouping or picks a group. True when the
+	// click landed anywhere in the bar (a gap between buttons still claims it).
+	bool OnBarClick(float mx, float my, const gfx::Rect& panel);
+	void RenderCategoryBar(gfx::SpriteBatch& batch, const ui::Theme& theme,
+						   const gfx::Rect& panel);
+	int m_hotBar = -2; // the hovered bar button's group (-1 toggle, -2 none)
+	std::array<const gfx::Texture*, 16> m_icoCats{}; // see SetCategoryIcons
+
 	// Controls-row geometry (all derived from the panel like the dock chrome):
-	// [filter box............][x][-] on one line at the dock body's top; the
+	// [filter box............][x][-] on one line under the category bar; the
 	// accordion lays out in the remainder (AccordionBody).
 	gfx::Rect ControlsRow(const gfx::Rect& panel) const;
 	gfx::Rect FilterBoxRect(const gfx::Rect& panel) const;
@@ -427,7 +509,7 @@ private:
 	// like the dock-collapse flags — a workflow preference, not per-session
 	// state. Toggling it Save()s (MapEditor holds a GameSettings&).
 	// Which control the mouse is over (hover styling; None = neither).
-	enum class HotCtrl { None, Filter, Clear, Collapse, Catalog };
+	enum class HotCtrl { None, Filter, Clear, Collapse, Catalog, Bar };
 	HotCtrl m_hotCtrl = HotCtrl::None;
 	const gfx::Texture *m_icoClear = nullptr, *m_icoExpand = nullptr,
 					   *m_icoCollapse = nullptr; // see SetIcons

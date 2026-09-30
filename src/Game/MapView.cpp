@@ -104,11 +104,16 @@ MapView::MapView(gfx::GraphicsDevice& device, GameSettings& settings,
 	m_icoBoxUp = ToolbarIcon(device, "box_up");
 	m_icoBoxDown = ToolbarIcon(device, "box_down");
 	m_icoBoxWorld = ToolbarIcon(device, "box_world");
+	const std::span<const char* const> cats = MapEditor::CategoryIconNames();
+	for (size_t i = 0; i < cats.size() && i < m_icoCats.size(); ++i)
+		m_icoCats[i] = ToolbarIcon(device, cats[i]);
 }
 
 void MapView::SetEditor(MapEditor* editor) {
 	m_editor = editor;
-	if (m_editor) m_editor->SetIcons(m_icoClose, m_icoBoxPlus, m_icoBoxMinus);
+	if (!m_editor) return;
+	m_editor->SetIcons(m_icoClose, m_icoBoxPlus, m_icoBoxMinus);
+	m_editor->SetCategoryIcons(m_icoCats);
 }
 
 const DungeonMap& MapView::ViewedMap() const {
@@ -1677,6 +1682,9 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 				m_font->Draw(batch, tip->label, tr.x + pad2,
 							tr.y + pad2 * 0.5f, theme.text);
 			}
+			// The palette's own tips (its category bar), over the strip and grid.
+			if (m_editor && !m_settings.mapPaletteCollapsed)
+				m_editor->RenderOverlay(batch, theme, panel);
 
 			// The open level list, over everything: one row per level in the
 			// project's order. The viewed row washes active; the party's live

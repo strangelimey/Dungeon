@@ -78,8 +78,10 @@ void BalanceDialog::BuildUI() {
 	m_tabs = chrome.body->Row<ui::TabControl>(ui::Len::Fill(), 0.075f);
 	const size_t tabFormula = m_tabs->AddTab(loc::Tr("map.balance.tab.formula"));
 	const size_t tabAttacks = m_tabs->AddTab(loc::Tr("map.balance.tab.attacks"));
+	const size_t tabEffects = m_tabs->AddTab(loc::Tr("map.balance.tab.effects"));
 	BuildFormulaTab(tabFormula);
 	BuildAttacksTab(tabAttacks);
+	BuildEffectsTab(tabEffects);
 	m_tabs->SetActiveTab(m_activeTab);
 
 	chrome.footer->Space(ui::Len::Fill());
@@ -196,6 +198,38 @@ void BalanceDialog::BuildAttacksTab(size_t tab) {
 						[this, &a](float v) { a.stam = v; Apply(); });
 		// The header's help column keeps the numbers clear of the scrollbar.
 		row->Space(RowIconWidth());
+	}
+}
+
+void BalanceDialog::BuildEffectsTab(size_t tab) {
+	// A list, not a form: an effect's numbers are its effects.cat entry, which
+	// the schema-driven type editor already edits in full - so each row is the
+	// effect's name, id and stacking rule, and a disc that opens that editor.
+	// (They were a palette section until the category bar; being tuning, not
+	// building, is why they moved here.)
+	constexpr float kNameFill = 1.4f, kIdFill = 1.0f, kStackFill = 0.8f;
+	ui::Stack* rows = TabStack(*m_tabs, tab);
+	ui::Stack* header = rows->Row<ui::Stack>(FormRow(), true);
+	header->gapRem = 0.4f;
+	header->Space(ui::Len::Fill(kNameFill + kIdFill));
+	header->Row<ui::Label>(ui::Len::Fill(kStackFill), "stacking")->centerV = true;
+	header->Space(RowIconWidth());
+	if (m_effects.empty())
+		rows->Row<ui::Label>(FormRow(), loc::Tr("map.cat.empty"))->dim = true;
+	for (const EffectRow& e : m_effects) {
+		ui::Stack* row = rows->Row<ui::Stack>(FormRow(), true);
+		row->gapRem = 0.4f;
+		row->Row<ui::Label>(ui::Len::Fill(kNameFill), e.name)->centerV = true;
+		ui::Label* id = row->Row<ui::Label>(ui::Len::Fill(kIdFill), e.id);
+		id->centerV = true;
+		id->dim = true;
+		ui::Label* stacking = row->Row<ui::Label>(ui::Len::Fill(kStackFill), e.stacking);
+		stacking->centerV = true;
+		stacking->dim = true;
+		RowIcon(*row, m_device, "open", loc::Tr("map.balance.effect.edit"),
+				[this, id = e.id] {
+					if (onEditEffect) onEditEffect(id);
+				});
 	}
 }
 

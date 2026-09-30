@@ -641,6 +641,22 @@ void Game::OpenTypeEditor(MapEditor::PaletteCat cat, const std::string& id) {
 	m_typeDialog.Open(std::move(cfg), SchemaFor(key));
 }
 
+std::vector<BalanceDialog::EffectRow> Game::EffectRows() const {
+	std::vector<BalanceDialog::EffectRow> rows;
+	for (const CatalogEntry& e : m_project.effects.Entries()) {
+		// `name` is a loc key (the sheet appends .desc for the long form); an
+		// entry with none shows its id, which is what the palette used to show.
+		const std::string key = e.Get("name", "");
+		rows.push_back({e.id, key.empty() ? e.id : loc::Tr(key), e.Get("stacking", "refresh")});
+	}
+	return rows;
+}
+
+void Game::OpenBalanceDialog() {
+	m_balanceDialog.SetEffects(EffectRows());
+	m_balanceDialog.Open(m_world->GetBalance());
+}
+
 // The monster type's animation + behaviour dialog (the type editor's extra
 // button). It owns the states/anim_*/archetype/threat_* rows and rewrites them
 // authoritatively, which is why the schema leaves them out.

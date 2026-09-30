@@ -281,6 +281,13 @@ private:
 	// Opens the type editor for a catalog id (the palette's right-click), or
 	// does nothing when the catalog/entry is unknown.
 	void OpenTypeEditor(MapEditor::PaletteCat cat, const std::string& id);
+	// The Balance dialog on the live tuning, its Effects tab filled from the
+	// project's effects.cat (the toolbar button and the console's `balance`).
+	void OpenBalanceDialog();
+	std::vector<BalanceDialog::EffectRow> EffectRows() const;
+	// The type editor was opened OVER the Balance dialog (its Effects tab): when
+	// it closes, the tab's rows are rebuilt, since a save may have renamed one.
+	bool m_typeOverBalance = false;
 	// Creates an entry in a pure-data catalog (dungeons/terrain/quests) with a
 	// free id and the schema's defaults; the caller opens the type editor on it
 	// so the id can be renamed there. "" if the category has no catalog.
@@ -325,6 +332,8 @@ private:
 	// The typeface audition (docs/fonts.md Phase 4): the `font` console
 	// command's body, and the fonts.cat writer behind `font save`.
 	void FontCommand(const std::vector<std::string>& args);
+	// `editor palette ...` (the category bar, for the harness).
+	void PrintPalette(const std::vector<std::string>& args);
 	bool SaveFontCatalog();
 
 	// The editor toolbar's [+] button: writes a minimal .map/.ent pair next to

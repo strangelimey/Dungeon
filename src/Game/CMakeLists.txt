@@ -77,6 +77,7 @@ add_library(Game STATIC
 	LevelSettingsDialog.cpp
 	Magic.cpp
 	MapEditor.cpp
+	MapEditor_Categories.cpp
 	MapView.cpp
 	MapView_Issues.cpp
 	MapView_Tools.cpp

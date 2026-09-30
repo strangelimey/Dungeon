@@ -51,10 +51,12 @@ first.
   two rows of square icon buttons (the `box_*` family from
   tools\BuildToolIcons.py, tooltipped). Clicking one shows ONLY that group's
   sections in the accordion below.
-- Two groupings, with a toggle at the bar's end to flip between them
-  (Michael: "both, with a toggle"):
-  - BY STAGE: World / Build / Populate on the top row; the second row lists
-    the kinds inside the chosen stage.
+- Two groupings, with a toggle at the bar's start to flip between them
+  (Michael: "both, with a toggle"). One grouping shows at a time: the toggle
+  then one button per group, wrapping to a second row when the dock is
+  narrow (the bar reserves the larger grouping's rows, so flipping never
+  moves the filter under the pointer).
+  - BY STAGE: World / Build / Populate.
     - World: Styles (Phase 5), Dungeons, Quests & flags, Terrain
     - Build: Themes, Walls, Floors, Ceilings, Wall features, Surface
       features, Doors, Stairs

@@ -54,6 +54,11 @@
 #      knobs and seed make an identical floor, another seed a different one;
 #      the tag holds the monsters to it; the size is the map's; there
 #      is a way out; and each world opens by name and passes the checker.
+#  12. THE PALETTE'S CATEGORY BAR (tool-refinement Phase 1): both groupings
+#      are the designed tables, each group lists exactly its sections, effects
+#      are in none; the world sections list their entries; a filter from inside
+#      one group finds matches in the others and drops sections with none; and
+#      the grouping survives a restart through settings.ini.
 #
 # Every project file a phase writes is restored byte for byte afterwards.
 import io
@@ -496,6 +501,95 @@ try:
 finally:
     for w in WIZ:
         shutil.rmtree(os.path.join(PROJECTS, w), ignore_errors=True)
+
+# --- phase 12: the palette's category bar -------------------------------------
+print("12 - the category bar shows one group, both ways, and the filter sees past it")
+# The groupings AS DESIGNED (docs/tool-refinement-plan.md Phase 1). Stated here
+# rather than read back from the game, so a section moved to the wrong group is
+# a failure and not a new truth.
+STAGE = {"world": ["dungeons", "quests", "terrain"],
+         "build": ["themes", "walls", "floors", "ceilings", "wallfeatures",
+                   "surfacefeatures", "doors", "stairs"],
+         "populate": ["monsters", "items", "weapons", "armor", "decorations",
+                      "fixtures", "buttons"]}
+KIND = {"surfaces": ["themes", "walls", "floors", "ceilings", "wallfeatures",
+                     "surfacefeatures"],
+        "structure": ["doors", "stairs", "buttons", "fixtures"],
+        "props": ["decorations"],
+        "creatures": ["monsters"],
+        "items": ["items", "weapons", "armor"],
+        "world": ["dungeons", "quests", "terrain"]}
+SHOWS = re.compile(r"editor palette: (\w+) (\w+) filter='([^']*)' shows:(.*)")
+
+
+def shown(line):
+    """(grouping, group, filter, [(section, rows)]) from one palette line."""
+    m = SHOWS.search(line)
+    if not m:
+        return None
+    secs = [(s, int(n)) for s, n in re.findall(r"(\w+)\((\d+)\)", m.group(4))]
+    return m.group(1), m.group(2), m.group(3), secs
+
+
+# The bar's state lives in settings.ini beside the exe, so this phase puts the
+# developer's copy back afterwards like every project file.
+SETTINGS = os.path.join(os.path.dirname(EXE), "settings.ini")
+saved_settings = io.open(SETTINGS, "rb").read() if os.path.isfile(SETTINGS) else None
+try:
+    log = run("palette.eval")
+    check(passed(log), "the script ran clean")
+    sec = sections(log)
+    tables = {}
+    for line in sec.get("tables", []):
+        m = re.match(r"editor palette group (\w+) (\w+):(.*)", line)
+        if m:
+            tables.setdefault(m.group(1), {})[m.group(2)] = m.group(3).split()
+    check(tables.get("stage") == STAGE, "the stage groups are World / Build / Populate as designed",
+          str(tables.get("stage")))
+    check(tables.get("kind") == KIND, "the kind groups are as designed", str(tables.get("kind")))
+    for mode, groups in (("stage", STAGE), ("kind", KIND)):
+        listed = [c for cats in groups.values() for c in cats]
+        check(len(listed) == len(set(listed)) and "effects" not in listed,
+              f"by {mode}, every section is in one group and effects in none")
+    for mode, groups in (("stage", STAGE), ("kind", KIND)):
+        lines = [shown(l) for l in sec.get(mode, []) if shown(l)]
+        got = {g: [s for s, _ in secs] for _, g, _, secs in lines}
+        check(got == groups, f"each {mode} group lists exactly its own sections", str(got))
+    world = next((secs for _, g, _, secs in
+                  (shown(l) for l in sec.get("stage", []) if shown(l)) if g == "world"), [])
+    counts = dict(world)
+    check(counts.get("dungeons", 0) == 2 and counts.get("quests", 0) == 1
+          and counts.get("terrain", 0) == 7,
+          "the world sections list their entries (2 dungeons, 1 quest, 7 terrains)", str(world))
+    flt = [shown(l) for l in sec.get("filter", []) if shown(l)]
+    if len(flt) != 3:
+        check(False, "three readings in the filter section", str(flt))
+    else:
+        (_, _, _, before), (_, g, f, during), (_, _, f2, after) = flt
+        names = [s for s, _ in during]
+        check(before == [s for s in before if s[0] == "monsters"] and len(before) == 1,
+              "Creatures alone lists monsters", str(before))
+        check(f == "marble" and "themes" in names and "decorations" in names,
+              "a filter from inside Creatures finds the marble theme and props", str(during))
+        check("monsters" not in names and all(n > 0 for _, n in during),
+              "while filtering, a section with no match drops out", str(during))
+        check(f2 == "" and [s for s, _ in after] == ["monsters"],
+              "clearing the filter hands the list back to the bar", str(after))
+    check(any("no group 'build' when grouped by kind" in l for l in sec.get("refuse", [])),
+          "a group the grouping lacks is refused by name")
+    ini = io.open(SETTINGS, encoding="utf-8").read() if os.path.isfile(SETTINGS) else ""
+    check("map_palette_group=1" in ini and "map_palette_kind=4" in ini,
+          "the grouping and its group are saved to settings.ini")
+    log2 = run("palette-persist.eval")
+    back = [shown(l) for l in sections(log2).get("reopened", []) if shown(l)]
+    check(len(back) == 1 and back[0][:2] == ("kind", "items"),
+          "a fresh start opens the palette where it was left", str(back))
+finally:
+    if saved_settings is None:
+        if os.path.isfile(SETTINGS):
+            os.remove(SETTINGS)
+    else:
+        io.open(SETTINGS, "wb").write(saved_settings)
 
 print()
 print("PASS" if failures == 0 else f"FAIL - {failures} check(s) failed")

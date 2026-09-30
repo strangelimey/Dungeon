@@ -191,7 +191,11 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	// apply LIVE (the world's Balance is the one every formula reads, and the
 	// derived resource maxima follow); Save also writes the two catalogs back
 	// to the project (the asset copy — To source syncs them to the repo).
-	m_mapView.onBalance = [this] { m_balanceDialog.Open(m_world->GetBalance()); };
+	m_mapView.onBalance = [this] { OpenBalanceDialog(); };
+	// The Effects tab's edit disc: the type editor, over the Balance dialog.
+	m_balanceDialog.onEditEffect = [this](const std::string& id) {
+		OpenTypeEditor(MapEditor::PaletteCat::Effects, id);
+	};
 	m_balanceDialog.onApply = [this](const Balance& b) {
 		m_world->GetBalance() = b;
 		m_world->RecomputePartyMaxima();
@@ -1934,6 +1938,21 @@ void Game::UpdateStates(float dt) {
 							 static_cast<float>(m_window.Height()), dt);
 		return;
 	}
+	// The per-type catalog editor is likewise modal over the editor - and it can
+	// open OVER the Balance dialog (its Effects tab), so it takes input first.
+	if (m_typeDialog.IsOpen()) {
+		m_typeDialog.Update(input, static_cast<float>(m_window.Width()),
+							static_cast<float>(m_window.Height()));
+		m_typeOverBalance = m_balanceDialog.IsOpen();
+		return;
+	}
+	if (m_typeOverBalance) { // it just closed over the Balance dialog
+		m_typeOverBalance = false;
+		if (m_balanceDialog.IsOpen()) {
+			m_balanceDialog.SetEffects(EffectRows());
+			m_balanceDialog.Rebuild();
+		}
+	}
 	// The combat-tuning dialog is likewise modal over the editor.
 	if (m_balanceDialog.IsOpen()) {
 		m_balanceDialog.Update(input, static_cast<float>(m_window.Width()),
@@ -1956,12 +1975,6 @@ void Game::UpdateStates(float dt) {
 	if (m_validateDialog.IsOpen()) {
 		m_validateDialog.Update(input, static_cast<float>(m_window.Width()),
 								static_cast<float>(m_window.Height()));
-		return;
-	}
-	// The per-type catalog editor is likewise modal over the editor.
-	if (m_typeDialog.IsOpen()) {
-		m_typeDialog.Update(input, static_cast<float>(m_window.Width()),
-							static_cast<float>(m_window.Height()));
 		return;
 	}
 	// The monster-config dialog is likewise modal over the editor.

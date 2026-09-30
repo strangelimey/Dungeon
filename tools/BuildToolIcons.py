@@ -571,6 +571,97 @@ def glyph_box_dungeon(d):
     line(d, (x0, 46.5), (x1, 46.5), 3.2)
 
 
+# The palette's CATEGORY BAR (MapEditor_Categories.cpp, docs/tool-refinement-
+# plan.md Phase 1): one box per group of each grouping, plus the toggle's two
+# faces. Square boxes like the palette's other controls, since the bar sits in
+# the dock beside them. World reuses the globe - it is the same group in both
+# groupings.
+HOLE = (0, 0, 0, 0)
+
+
+def glyph_cat_build(d):
+    # A brick wall, courses offset: building the shape and the look.
+    rows = ((28.0, ((26, 40), (43, 57))),
+            (37.5, ((26, 32), (35, 49), (52, 57))),
+            (47.0, ((26, 40), (43, 57))))
+    for y, bricks in rows:
+        for x0, x1 in bricks:
+            d.rectangle([x0 * SS, y * SS, x1 * SS, (y + 7.5) * SS], fill=GLYPH)
+
+
+def glyph_cat_populate(d):
+    # A figure: what goes into a built level.
+    r = 6.5
+    d.ellipse([(41.5 - r) * SS, (25 - r + 6) * SS, (41.5 + r) * SS, (25 + r + 6) * SS],
+              fill=GLYPH)
+    d.rounded_rectangle([29 * SS, 40 * SS, 54 * SS, 60 * SS], radius=8 * SS, fill=GLYPH)
+    d.rectangle([29 * SS, 55 * SS, 54 * SS, 60 * SS], fill=HOLE)  # cut flat at the waist
+
+
+def glyph_cat_surfaces(d):
+    # A tile: a framed square quartered, two quarters filled.
+    x0, y0, x1, y1 = 27.0, 27.0, 56.0, 56.0
+    d.rectangle([x0 * SS, y0 * SS, x1 * SS, y1 * SS], outline=GLYPH, width=int(3 * SS))
+    m = (x0 + x1) / 2
+    d.rectangle([x0 * SS, y0 * SS, m * SS, m * SS], fill=GLYPH)
+    d.rectangle([m * SS, m * SS, x1 * SS, y1 * SS], fill=GLYPH)
+
+
+def glyph_cat_structure(d):
+    # A doorway: an arched frame with a door in it and its ring.
+    x0, x1, top, base = 29.0, 54.0, 38.0, 57.0
+    r = (x1 - x0) / 2
+    cx = (x0 + x1) / 2
+    d.pieslice([x0 * SS, (top - r) * SS, x1 * SS, (top + r) * SS], 180, 360, fill=GLYPH)
+    d.rectangle([x0 * SS, top * SS, x1 * SS, base * SS], fill=GLYPH)
+    # The door's two leaves, cut apart down the middle.
+    d.rectangle([(cx - 1) * SS, (top - r + 4) * SS, (cx + 1) * SS, base * SS], fill=HOLE)
+    rr = 2.2
+    for x in (cx - 5, cx + 5):
+        d.ellipse([(x - rr) * SS, (46 - rr) * SS, (x + rr) * SS, (46 + rr) * SS], fill=HOLE)
+
+
+def glyph_cat_props(d):
+    # An urn: the decorations that furnish a room.
+    d.polygon(S([(35, 27), (48, 27), (46, 32), (52, 38), (54, 45), (50, 53),
+                 (45, 56), (38, 56), (33, 53), (29, 45), (31, 38), (37, 32)]), fill=GLYPH)
+    line(d, (33, 27), (50, 27), 3.0)  # the lip
+    d.rectangle([33 * SS, 41 * SS, 50 * SS, 43.5 * SS], fill=HOLE)  # a band round the belly
+
+
+def glyph_cat_creatures(d):
+    # A skull: the monsters.
+    cx = 41.5
+    r = 13.5
+    d.ellipse([(cx - r) * SS, 24 * SS, (cx + r) * SS, (24 + 2 * r) * SS], fill=GLYPH)
+    d.rounded_rectangle([(cx - 8) * SS, 44 * SS, (cx + 8) * SS, 57 * SS], radius=2 * SS,
+                        fill=GLYPH)
+    er = 4.0
+    for x in (cx - 6, cx + 6):  # eyes
+        d.ellipse([(x - er) * SS, (37 - er) * SS, (x + er) * SS, (37 + er) * SS], fill=HOLE)
+    d.polygon(S([(cx, 43), (cx - 2.5, 48), (cx + 2.5, 48)]), fill=HOLE)  # nose
+    for x in (cx - 4, cx, cx + 4):  # teeth
+        d.rectangle([(x - 0.8) * SS, 51 * SS, (x + 0.8) * SS, 57 * SS], fill=HOLE)
+
+
+def glyph_cat_items(d):
+    # A sword, point up-right: the things you carry.
+    sword(d, (55, 27), (28, 56))
+
+
+def glyph_cat_bystage(d):
+    # Grouped by STAGE: three steps climbing left to right, the workflow's order.
+    d.polygon(S([(26, 57), (26, 48), (35, 48), (35, 38), (45, 38), (45, 28),
+                 (57, 28), (57, 57)]), fill=GLYPH)
+
+
+def glyph_cat_bykind(d):
+    # Grouped by KIND: four separate squares, things sorted by what they are.
+    for x, y in ((27, 27), (43, 27), (27, 43), (43, 43)):
+        d.rounded_rectangle([x * SS, y * SS, (x + 13) * SS, (y + 13) * SS], radius=2 * SS,
+                            fill=GLYPH)
+
+
 def render(blank, draw):
     layer = Image.new("RGBA", (SIZE * SS, SIZE * SS), (0, 0, 0, 0))
     draw(ImageDraw.Draw(layer))
@@ -609,7 +700,17 @@ def main():
                        ("icon_tb_box_up", glyph_box_up),
                        ("icon_tb_box_down", glyph_box_down),
                        ("icon_tb_box_world", glyph_box_world),
-                       ("icon_tb_box_dungeon", glyph_box_dungeon)):
+                       ("icon_tb_box_dungeon", glyph_box_dungeon),
+                       ("icon_tb_cat_world", glyph_box_world),
+                       ("icon_tb_cat_build", glyph_cat_build),
+                       ("icon_tb_cat_populate", glyph_cat_populate),
+                       ("icon_tb_cat_surfaces", glyph_cat_surfaces),
+                       ("icon_tb_cat_structure", glyph_cat_structure),
+                       ("icon_tb_cat_props", glyph_cat_props),
+                       ("icon_tb_cat_creatures", glyph_cat_creatures),
+                       ("icon_tb_cat_items", glyph_cat_items),
+                       ("icon_tb_cat_bystage", glyph_cat_bystage),
+                       ("icon_tb_cat_bykind", glyph_cat_bykind)):
         path = os.path.join(UI, name + ".png")
         render(square, draw).save(path)
         made.append(path)

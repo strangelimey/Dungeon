@@ -342,6 +342,14 @@ void Game::RegisterDevCommands() {
 								   m_mapEditor.ArmedId()));
 							   return;
 						   }
+						   // The palette's category bar, as the bar and the filter
+						   // box would drive it: bare = what shows now; `mode
+						   // stage|kind`, `group <name>`, `filter [text]` change it
+						   // first; `groups` prints both tables.
+						   if (!args.empty() && args[0] == "palette") {
+							   PrintPalette(args);
+							   return;
+						   }
 						   if (!args.empty() && args[0] == "rev") {
 							   m_console.Print(
 								   std::format("editor rev {}", m_world->EditRevision()));
@@ -1179,5 +1187,51 @@ bool Game::SaveFontCatalog() {
 // progress screen, when the player first starts a game.
 // ============================================================================
 
+// `editor palette [mode stage|kind | group <name> | filter [text] | groups]`.
+// Every change goes through the same MapEditor calls the bar and the filter box
+// make, then the line says what the accordion lists: the grouping, the picked
+// group, the filter, and each section showing with how many of its rows show.
+void Game::PrintPalette(const std::vector<std::string>& args) {
+	using G = MapEditor::Grouping;
+	auto modeName = [](G g) { return g == G::Kind ? "kind" : "stage"; };
+	if (args.size() >= 2 && args[1] == "groups") {
+		for (const G g : {G::Stage, G::Kind})
+			for (int i = 0; i < MapEditor::GroupCount(g); ++i) {
+				std::string line = std::format("editor palette group {} {}:", modeName(g),
+											   MapEditor::GroupName(g, i));
+				for (const MapEditor::PaletteCat c : MapEditor::GroupCategories(g, i))
+					line += std::format(" {}", MapEditor::CategoryCatalogKey(c));
+				m_console.Print(line);
+			}
+		return;
+	}
+	if (args.size() >= 3 && args[1] == "mode") {
+		if (args[2] != "stage" && args[2] != "kind") {
+			m_console.Print("usage: editor palette mode stage|kind");
+			return;
+		}
+		m_mapEditor.SetPaletteGrouping(args[2] == "kind" ? G::Kind : G::Stage);
+	} else if (args.size() >= 3 && args[1] == "group") {
+		const G g = m_mapEditor.PaletteGrouping();
+		int found = -1;
+		for (int i = 0; i < MapEditor::GroupCount(g); ++i)
+			if (args[2] == MapEditor::GroupName(g, i)) found = i;
+		if (found < 0) {
+			m_console.Print(std::format("editor palette: no group '{}' when grouped by {}",
+										args[2], modeName(g)));
+			return;
+		}
+		m_mapEditor.SetActiveGroup(found);
+	} else if (args.size() >= 2 && args[1] == "filter") {
+		m_mapEditor.SetFilter(args.size() >= 3 ? args[2] : std::string());
+	}
+	const G g = m_mapEditor.PaletteGrouping();
+	std::string line =
+		std::format("editor palette: {} {} filter='{}' shows:", modeName(g),
+					MapEditor::GroupName(g, m_mapEditor.ActiveGroup()), m_mapEditor.Filter());
+	for (const MapEditor::ShownSection& s : m_mapEditor.ShownSections())
+		line += std::format(" {}({})", MapEditor::CategoryCatalogKey(s.cat), s.items);
+	m_console.Print(line);
+}
 
 } // namespace dungeon::game

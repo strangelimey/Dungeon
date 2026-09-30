@@ -400,6 +400,9 @@ private:
 	// The Player map's level browse arrows (icon_tb_box_up / _down).
 	const gfx::Texture *m_icoBoxUp = nullptr, *m_icoBoxDown = nullptr;
 	const gfx::Texture* m_icoBoxWorld = nullptr; // the way to the world map
+	// The palette's category bar (icon_tb_cat_*, in MapEditor::CategoryIconNames
+	// order), loaded here where the device is and handed over in SetEditor.
+	std::array<const gfx::Texture*, 16> m_icoCats{};
 	// The Rectangle tool's drag: the press square and the square under the
 	// pointer now. Painted on the release (UpdateBrush), previewed until then.
 	bool m_rectDrag = false;

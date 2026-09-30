@@ -69,27 +69,25 @@ const CatInfo& CatInfoFor(MapEditor::PaletteCat cat) {
 	return kCategoryInfo[static_cast<size_t>(cat)];
 }
 
-// The order the palette LISTS its sections in, which is not enum order:
-// Themes leads, above the three surfaces it sets at once (Michael's
-// call - a whole look is the first thing reached for). Every category
-// appears exactly once; the enum keeps its order so nothing indexed by it
-// moves.
-using PC = MapEditor::PaletteCat;
-constexpr PC kDisplayOrder[] = {
-	PC::Themes, PC::Walls, PC::Floors, PC::Ceilings,
-	PC::Decorations, PC::Fixtures, PC::Monsters, PC::Buttons, PC::Doors, PC::Stairs,
-	PC::Items, PC::Weapons, PC::Armor, PC::WallFeatures, PC::SurfaceFeatures,
-	PC::Effects, PC::Dungeons, PC::Terrain, PC::Quests,
-};
-static_assert(sizeof(kDisplayOrder) / sizeof(kDisplayOrder[0]) ==
-				  static_cast<size_t>(PC::Count),
-			  "kDisplayOrder must list every PaletteCat once");
+// The order the palette LISTS its sections in is the category bar's business
+// now (MapEditor_Categories.cpp): each group lists its own, and the enum keeps
+// its order so nothing indexed by it moves.
+
+// A terrain's swatch is its own authored `color` - the colour the world map
+// paints it, read by the one parser for that field - else the floor ink.
+Vec4 TerrainSwatch(const CatalogEntry& e) {
+	Vec4 c = kFloor;
+	CatalogColor(&e, "color", c);
+	return c;
+}
 } // namespace
 
 MapEditor::MapEditor(MapView& view, GameSettings& settings)
 	: m_view(view), m_settings(settings) {
-	// Open the most-used category by default; the rest start collapsed.
+	// Open the most-used category by default; the rest start collapsed. And
+	// whatever group the bar was left on shows something from the first frame.
 	m_catOpen[static_cast<size_t>(PaletteCat::Walls)] = true;
+	OpenSomethingInGroup();
 }
 
 const char* MapEditor::CategoryNameKey(PaletteCat cat) { return CatInfoFor(cat).nameKey; }
@@ -183,6 +181,17 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 	case PaletteCat::WallFeatures: return catalogItems(proj.wallfeatures, kDecoration);
 	case PaletteCat::SurfaceFeatures: return catalogItems(proj.surfacefeatures, kDecoration);
 	case PaletteCat::Effects:     return catalogItems(proj.effects, kMonster);
+	// The world tier's catalogs: rows that open the type editor (they are
+	// never placed). They used to fall to the default below, so each section
+	// was a "+ New..." over "(none defined)" however many it held.
+	case PaletteCat::Dungeons:    return catalogItems(proj.dungeons, kStair);
+	case PaletteCat::Quests:      return catalogItems(proj.quests, kItem);
+	case PaletteCat::Terrain: {
+		std::vector<PaletteItem> items = catalogItems(proj.terrain, kFloor);
+		for (PaletteItem& it : items)
+			if (const CatalogEntry* e = proj.terrain.Find(it.id)) it.swatch = TerrainSwatch(*e);
+		return items;
+	}
 	default:                      return {};
 	}
 }
@@ -224,8 +233,11 @@ void MapEditor::LoadShownSwatches(size_t max) {
 	// upload, and a screenful at once is a visible stall).
 	if (!m_settings.mapShowCatalog) return;
 	size_t loaded = 0;
+	// Only sections actually on screen: open AND in the group the bar shows.
+	const std::vector<PaletteCat> shown = CandidateSections();
 	for (const PaletteCat cat : {PaletteCat::Walls, PaletteCat::Floors, PaletteCat::Ceilings}) {
 		if (!m_catOpen[static_cast<size_t>(cat)]) continue;
+		if (std::find(shown.begin(), shown.end(), cat) == shown.end()) continue;
 		for (const CatalogEntry& e : m_world->SurfaceCatalog(SelFor(cat)).Entries()) {
 			if (loaded >= max) return;
 			if (CatalogBool(&e, "hidden", false)) continue;
@@ -253,8 +265,8 @@ void MapEditor::AddToPalette(PaletteCat cat, const std::string& id) {
 	}
 	log(loc::Format("map.palette.added", id));
 	// Arm the newcomer: it is the last row of its category, and painting it is
-	// the reason the user added it.
-	m_catOpen[static_cast<size_t>(cat)] = true;
+	// the reason the user added it - so its section must be the one showing.
+	RevealCategory(cat);
 	const std::vector<PaletteItem> items = CategoryItems(cat);
 	for (int i = 0; i < static_cast<int>(items.size()); ++i)
 		if (items[i].id == id) {
@@ -317,9 +329,10 @@ bool MapEditor::Arm(PaletteCat cat, const std::string& id) {
 // --- palette controls row (filter + clear + collapse-all) --------------------
 
 gfx::Rect MapEditor::ControlsRow(const gfx::Rect& panel) const {
-	const gfx::Rect body = m_view.PaletteBody(panel);
+	// Under the category bar, which owns the top of the body.
+	const gfx::Rect bar = CategoryBar(panel).area;
 	const float h = std::clamp(panel.h * 0.040f, 20.0f, 36.0f);
-	return {body.x, body.y, body.w, h};
+	return {bar.x, bar.y + bar.h + MapView::DockPad(panel), bar.w, h};
 }
 
 gfx::Rect MapEditor::CollapseAllRect(const gfx::Rect& panel) const {
@@ -385,7 +398,9 @@ void MapEditor::HandleTyping(const Input& input) {
 }
 
 void MapEditor::TrackMouse(float mx, float my, const gfx::Rect& panel) {
-	m_hotCtrl = FilterBoxRect(panel).Contains(mx, my)     ? HotCtrl::Filter
+	m_hotBar = BarButtonAt(mx, my, panel);
+	m_hotCtrl = m_hotBar >= -1                             ? HotCtrl::Bar
+				: FilterBoxRect(panel).Contains(mx, my)     ? HotCtrl::Filter
 				: FilterClearRect(panel).Contains(mx, my) ? HotCtrl::Clear
 				: CollapseAllRect(panel).Contains(mx, my) ? HotCtrl::Collapse
 				: CatalogToggleRect(panel).Contains(mx, my) ? HotCtrl::Catalog
@@ -406,7 +421,7 @@ void MapEditor::BuildPaletteRows(const gfx::Rect& panel, std::vector<PaletteRow>
 	const bool filtering = !m_filter.empty();
 
 	float y = body.y - m_paletteScroll;
-	for (const PaletteCat cat : kDisplayOrder) {
+	for (const PaletteCat cat : CandidateSections()) {
 		const int c = static_cast<int>(cat);
 		const std::vector<PaletteItem> items = CategoryItems(cat);
 		if (filtering) {
@@ -518,9 +533,13 @@ void MapEditor::OnWheel(float delta, const gfx::Rect& panel) {
 }
 
 bool MapEditor::OnClick(float mx, float my, const gfx::Rect& panel) {
-	// Controls row first: the filter box takes focus, [x] clears, [-]
-	// collapses every accordion (and sub-group). Any other palette click
-	// releases the filter's keyboard capture.
+	// The category bar first, then the controls row: the filter box takes
+	// focus, [x] clears, [-] collapses every accordion (and sub-group). Any
+	// other palette click releases the filter's keyboard capture.
+	if (CategoryBar(panel).area.Contains(mx, my)) {
+		m_filterFocused = false;
+		return OnBarClick(mx, my, panel);
+	}
 	if (FilterBoxRect(panel).Contains(mx, my)) {
 		m_filterFocused = true;
 		return true;
@@ -1213,6 +1232,8 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 						   const gfx::Rect& panel) {
 	const ui::Font& font = m_view.Font();
 	const float dpad = MapView::DockPad(panel);
+
+	RenderCategoryBar(batch, theme, panel);
 
 	// Controls row (fixed above the scrolled accordion): filter box with
 	// placeholder/caret, [x] clear, [-] collapse-all.

@@ -1498,9 +1498,10 @@ worn_*, lang, shaders — what AssetBaker emits):
   fixtures/monsters/doors/stairs/items/weapons/armor/effects), block format:
   `[id]` headers + `key = value` fields naming pool assets (model/texture) +
   params (solid/authored/height_scale/mount). Levels reference catalog ids.
-  NOT every catalog is placeable: `effects` is authored + tuned only, so its
-  palette category opens the type editor on a row click and offers no
-  "+ New..." (an effect needs a class) — MapEditor's `placeable` flag.
+  NOT every catalog is placeable: `effects` is authored + tuned only (an
+  effect needs a class, so no "+ New..."), and since tool-refinement Phase 1
+  it is NOT IN THE PALETTE at all - the Balance dialog's Effects tab lists
+  them and each row's disc opens the type editor over that dialog.
 - `levels/<stem>.map` + `.ent` — the level layers. The .map's surface palette is
   a `palette <wall|floor|ceiling> <id>...` record (catalog ids), and it also
   carries `stairs <type> <x> <z> [facing] dest= destx= destz=` (a stair's
@@ -1745,6 +1746,28 @@ Michael's notes and answers: docs/ui-updates-notes.md; the plan: -plan.md.
   found `ModelPreview::Render` building its light rig every frame, which was
   harmless while only the editor drew a preview. `uioverlap` covers the dialog
   (mutation-checked: the old column split's resist line was flagged).
+
+## Tool refinement (tool-refinement branch; docs/tool-refinement-plan.md)
+
+Michael's notes and answers: docs/tool-refinement-notes.md. The goal is the
+workflow new world -> add level -> build -> populate, with less repetition.
+Judged by `tools\EditorTest.py` (phase 12 onward).
+- THE PALETTE'S CATEGORY BAR (MapEditor_Categories.cpp): icon buttons at the
+  top of the palette body pick a GROUP; the accordion lists only its sections.
+  Two groupings, flipped by the bar's first button: by STAGE (World / Build /
+  Populate) and by KIND (Surfaces / Structure / Props / Creatures / Items /
+  World). Each is ONE table (kStageGroups / kKindGroups) with static_asserts
+  that every listed category is in exactly one group - a category missing from
+  a grouping is unreachable except by the filter. The FILTER ignores the bar
+  and searches every section. Grouping + group per grouping persist
+  (`map_palette_group/_stage/_kind`). Icons: `icon_tb_cat_*` from
+  BuildToolIcons.py. The world sections (Dungeons / Quests / Terrain) now list
+  their entries; they used to fall through `CategoryItems` to nothing. Dev:
+  `editor palette [mode stage|kind | group <name> | filter [text] | groups]`.
+- EFFECTS LEFT THE PALETTE for the Balance dialog's Effects tab (a list whose
+  rows open the type editor OVER the Balance dialog - which is why the type
+  editor's input check now comes before the Balance dialog's in Game::Update,
+  and `m_typeOverBalance` rebuilds the tab when it closes).
 
 ## Known gaps / natural next steps
 
