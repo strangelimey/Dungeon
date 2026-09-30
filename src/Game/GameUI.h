@@ -552,6 +552,7 @@ private:
 	// The movement pad's chevron icon faces (single = step, double = turn).
 	std::unique_ptr<gfx::Texture> m_chevronTex;
 	std::unique_ptr<gfx::Texture> m_chevron2Tex;
+	std::unique_ptr<gfx::Texture> m_glowTex; // a set hand box's centre glow
 	const gfx::Texture* m_closeIcon = nullptr; // shared, owned by AssetUtil
 
 	MenuPage m_menuPage = MenuPage::Main;

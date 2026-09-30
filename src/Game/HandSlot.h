@@ -57,6 +57,9 @@ public:
 	// Hand-use pictures by verb (Game-owned, ui/use_<verb>.png), for an empty
 	// hand set to that verb. Null, or no file for the verb = the tint alone.
 	const ItemIconBank* useIcons = nullptr;
+	// White radial falloff (assets/ui/glow_radial.png), drawn in the theme accent
+	// behind a SET hand's contents. Null = the flat tint alone.
+	const gfx::Texture* glow = nullptr;
 
 private:
 	// A spell's recipe, drawn as rune faces inside `area`: a grid filling it

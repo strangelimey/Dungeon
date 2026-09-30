@@ -64,6 +64,9 @@ struct ControlBarDeps {
 	std::function<HandSetUse(size_t member, size_t hand)> handSetUse;
 	// Hand-use pictures by verb (ui/use_<verb>.png), for an empty set hand.
 	const ItemIconBank* useIcons = nullptr;
+	// The soft radial glow a SET hand box draws behind its contents (null = the
+	// flat tint alone).
+	const gfx::Texture* glow = nullptr;
 	// The offense/defense stance slider under a member's hands: the widget
 	// mutates nothing itself, it reports where it was dragged to.
 	std::function<void(size_t member, float share)> onGuardChange;

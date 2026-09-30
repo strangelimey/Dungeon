@@ -162,6 +162,9 @@ void GameUI::LoadTitleArt() {
 	// quarter turns per direction by ui::Button::iconTurns.
 	m_chevronTex = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_chevron"));
 	m_chevron2Tex = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_chevron2"));
+	// The soft glow behind a SET hand box (tools/BuildGlow.py). Optional: without
+	// it a set hand shows the flat tint alone.
+	m_glowTex = TryLoadTextureFile(m_device, paths::Asset("ui\\glow_radial"));
 	// (The shared close box is loaded in BuildStaticUi, which needs it before
 	// this load task runs — see the note there.)
 	// The panel part is a QUIET bake (near-black + faint noise, one thin brass
@@ -1465,6 +1468,7 @@ void GameUI::BuildHud() {
 	deps.onHandMiddle = [this](size_t i, size_t hand) { OnHandMiddleClick(i, hand); };
 	deps.handSetUse = [this](size_t i, size_t hand) { return HandSetUseFor(i, hand); };
 	deps.useIcons = m_useIcons; // Game's stable bank, set before any HUD build
+	deps.glow = m_glowTex.get();
 	deps.onGuardChange = [this](size_t i, float share) {
 		if (onGuardChange) onGuardChange(i, share);
 	};

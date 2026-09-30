@@ -77,18 +77,25 @@ void HandSlot::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	// A subtle grey lift on hover/press keeps the interaction feedback.
 	Vec4 fill = m_held ? Vec4{0.22f, 0.22f, 0.24f, 1.0f}
 					   : (m_hot ? Vec4{0.12f, 0.12f, 0.13f, 1.0f} : kSlotBg);
-	// A SET hand says so: the socket behind the icon takes the theme accent.
-	// Mixed to an opaque colour rather than drawn translucent over the fill, so
-	// it reads the same whatever the batch's blend mode, and the hover/press
-	// lift still shows through it.
+	// A SET hand says so: the socket behind the icon takes the theme accent - a
+	// LOW flat tint to the edges, and a soft glow brighter at the centre (Michael,
+	// 2026-09-30: the old 35% flat mix washed the box out). The tint is mixed to
+	// an opaque colour rather than drawn translucent over the fill, so it reads
+	// the same whatever the batch's blend mode, and the hover/press lift still
+	// shows through it; the glow then lays the accent over its middle.
 	const HandSetUse use = setUse ? setUse() : HandSetUse{};
 	if (use.set) {
-		constexpr float kTint = 0.35f;
+		constexpr float kTint = 0.14f;
 		fill = {fill.x + (theme.accent.x - fill.x) * kTint,
 				fill.y + (theme.accent.y - fill.y) * kTint,
 				fill.z + (theme.accent.z - fill.z) * kTint, 1.0f};
 	}
 	batch.DrawRect(socket, fill);
+	if (use.set && glow) {
+		constexpr float kGlow = 0.5f; // the accent's share at the very centre
+		batch.DrawSprite(socket, {0, 0, 1, 1}, *glow,
+						 {theme.accent.x, theme.accent.y, theme.accent.z, kGlow});
+	}
 	if (framed) // the ring draws over the fill; its open middle shows the socket
 		ui::DrawNineSlice(batch, px, skin->slot, {1, 1, 1, 1});
 	// The item held in this hand, if any, drawn inset from the border.
@@ -161,27 +168,22 @@ void HandSlot::DrawSpellRunes(gfx::SpriteBatch& batch, const gfx::Rect& area,
 	const size_t n = runes.size();
 	if (n == 0) return;
 	const float gap = Rem(0.12f);
-	// Over an item the runes keep out of its way: one strip along the bottom,
-	// sized as if four sat there so a short recipe does not balloon. In an
-	// empty hand they ARE the content, so they fill it: one big rune, two side
-	// by side, then rows of two (three across past four).
-	size_t cols = 0, rows = 0;
-	if (overItem) {
-		cols = std::max<size_t>(n, 4);
-		rows = 1;
-	} else {
-		cols = n <= 2 ? n : (n <= 4 ? 2 : 3);
-		rows = (n + cols - 1) / cols;
-	}
-	float side = std::max(
-		0.0f, std::min((area.w - gap * static_cast<float>(cols - 1)) / static_cast<float>(cols),
-					   (area.h - gap * static_cast<float>(rows - 1)) / static_cast<float>(rows)));
-	// A lone rune filling the box would read as HOLDING a rune tablet, and would
-	// hide the set tint - so a grid rune never exceeds 60% of the box.
-	if (!overItem) side = std::min(side, 0.6f * std::min(area.w, area.h));
+	// ROWS OF TWO, every rune the size two side by side leave it (Michael,
+	// 2026-09-30): a third and fourth rune go on the next row rather than
+	// shrinking the first two into a strip. Sized for two across even when there
+	// is one, so a lone rune never swells into what reads as HOLDING a tablet.
+	// Over an item a one-row recipe sits along the bottom, out of its way; a
+	// grid in an empty hand is centred.
+	constexpr size_t kCols = 2;
+	const size_t cols = std::min(n, kCols);
+	const size_t rows = (n + kCols - 1) / kCols;
+	const float fitRows = static_cast<float>(std::max<size_t>(rows, kCols));
+	const float side = std::max(
+		0.0f, std::min((area.w - gap * (kCols - 1)) / static_cast<float>(kCols),
+					   (area.h - gap * (fitRows - 1.0f)) / fitRows));
 	// The block of runes actually drawn, centred horizontally; a strip sits on
 	// the area's bottom edge, a grid is centred vertically too.
-	const size_t usedCols = std::min(n, cols);
+	const size_t usedCols = cols;
 	const float blockW = side * static_cast<float>(usedCols) + gap * static_cast<float>(usedCols - 1);
 	const float blockH = side * static_cast<float>(rows) + gap * static_cast<float>(rows - 1);
 	const float x0 = area.x + (area.w - blockW) * 0.5f;

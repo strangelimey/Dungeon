@@ -1709,7 +1709,10 @@ Michael's notes and answers: docs/ui-updates-notes.md; the plan: -plan.md.
   swap), RIGHT = the item's DETAILS, MIDDLE = its USE menu (what right-click
   used to open). EXCEPT THE HUD HAND BOXES (Michael, 2026-09-30, after trying
   it): they are controls, so RIGHT still opens the use menu where a hand's
-  default is set, as before; middle opens the same menu. Off the
+  default is set, as before; middle opens the same menu. A SET hand box shows a
+  low flat accent tint plus a soft centre glow (assets/ui/glow_radial.png,
+  made by tools/BuildGlow.py); a spell's runes sit in ROWS OF TWO, each the size
+  two across leave it (a 3rd/4th rune takes the next row). Off the
   hand the menu offers only memorize/eat/drink (`IsOffHandUse`); nothing to
   offer = no menu and `log.no_use` ("Brand finds no use for that item.").
   Eating from the pack is new (`GameUI::EatSlot`, allocation-free). An item's
