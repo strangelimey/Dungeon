@@ -190,7 +190,8 @@ static std::string SerializeMapStatic(const std::string& stem,
 	// default for glyph shorthand, so it is never empty).
 	for (const WallSconce& s : map.Sconces()) {
 		// The facing only when it names a WALL. A sconce with no solid neighbour
-		// (a 'T' glyph in open floor - crypt1 has one) loads by the glyph rule,
+		// (a 'T' glyph in open floor - crypt1 had one; LevelBuildTest plants one
+		// back) loads by the glyph rule,
 		// which defaults to north without complaint; written back as an explicit
 		// `... north` it met the record rule instead, which asserts the wall is
 		// there - so one `savemap` of crypt1 made the demo world fatal to load.
