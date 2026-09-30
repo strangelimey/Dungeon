@@ -49,7 +49,7 @@ constexpr CatInfo kCategoryInfo[] = {
 	{"map.cat.ceilings", "ceilings", true},
 	// A brush (placeable) that is pure data (authorable): "+ New..." names one
 	// and opens the type editor on it, no asset dialog.
-	{"map.cat.combos", "combos", false, /*placeable*/ true, /*authorable*/ true},
+	{"map.cat.themes", "themes", false, /*placeable*/ true, /*authorable*/ true},
 	{"map.cat.decorations", "decorations", false},
 	{"map.cat.fixtures", "fixtures", false}, {"map.cat.monsters", "monsters", false},
 	{"map.cat.buttons", "buttons", false},  {"map.cat.doors", "doors", false},
@@ -70,13 +70,13 @@ const CatInfo& CatInfoFor(MapEditor::PaletteCat cat) {
 }
 
 // The order the palette LISTS its sections in, which is not enum order:
-// Combinations leads, above the three surfaces it sets at once (Michael's
+// Themes leads, above the three surfaces it sets at once (Michael's
 // call - a whole look is the first thing reached for). Every category
 // appears exactly once; the enum keeps its order so nothing indexed by it
 // moves.
 using PC = MapEditor::PaletteCat;
 constexpr PC kDisplayOrder[] = {
-	PC::Combos, PC::Walls, PC::Floors, PC::Ceilings,
+	PC::Themes, PC::Walls, PC::Floors, PC::Ceilings,
 	PC::Decorations, PC::Fixtures, PC::Monsters, PC::Buttons, PC::Doors, PC::Stairs,
 	PC::Items, PC::Weapons, PC::Armor, PC::WallFeatures, PC::SurfaceFeatures,
 	PC::Effects, PC::Dungeons, PC::Terrain, PC::Quests,
@@ -113,9 +113,9 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 	// level, and each declares its own palette ids).
 	const DungeonMap& map = m_view.ViewedMap();
 	const Project& proj = m_world->GetProject();
-	// The theme lens, from the VIEWED level for the same reason: browsing a
-	// level should rank its palette by ITS theme, not by the party's.
-	const std::vector<std::string>& theme = map.Theme();
+	// The tags lens, from the VIEWED level for the same reason: browsing a
+	// level should rank its palette by ITS tags, not by the party's.
+	const std::vector<std::string>& tags = map.Tags();
 
 	// A surface palette (list of catalog ids) resolved to display name + swatch;
 	// the entry's `category` groups it under a sub-accordion like the entity
@@ -150,7 +150,7 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 		for (const CatalogEntry& e : catalog.Entries()) {
 			if (CatalogBool(&e, "hidden", false)) continue;
 			items.push_back({e.Display(), swatch, e.id, e.Get("category", ""),
-							 /*icon*/ nullptr, CatalogMatchesTags(&e, theme)});
+							 /*icon*/ nullptr, CatalogMatchesTags(&e, tags)});
 		}
 		return items;
 	};
@@ -159,16 +159,15 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 	case PaletteCat::Walls:    return surfaceItems(map.WallPalette(), cat, proj.walls);
 	case PaletteCat::Floors:   return surfaceItems(map.FloorPalette(), cat, proj.floors);
 	case PaletteCat::Ceilings: return surfaceItems(map.CeilingPalette(), cat, proj.ceilings);
-	case PaletteCat::Combos: {
-		// World-wide, so every level lists every combination. The swatch is the
-		// first floor member's, as the Floors section would show it.
-		std::vector<PaletteItem> items = catalogItems(proj.combos, kFloor);
+	case PaletteCat::Themes: {
+		// World-wide, so every level lists every theme. The swatch is its
+		// floor's, as the Floors section would show it.
+		std::vector<PaletteItem> items = catalogItems(proj.themes, kFloor);
 		for (PaletteItem& it : items)
-			if (const CatalogEntry* e = proj.combos.Find(it.id)) {
-				const ComboMembers m = DungeonWorld::ComboMembersOf(*e);
-				const auto& floors = m[static_cast<size_t>(Surface::Floor)];
-				if (!floors.empty())
-					it.icon = SurfaceItem(PaletteCat::Floors, floors.front()).icon;
+			if (const CatalogEntry* e = proj.themes.Find(it.id)) {
+				const ThemeMembers m = DungeonWorld::ThemeMembersOf(*e);
+				const std::string& floor = m[static_cast<size_t>(Surface::Floor)];
+				if (!floor.empty()) it.icon = SurfaceItem(PaletteCat::Floors, floor).icon;
 			}
 		return items;
 	}
@@ -211,7 +210,7 @@ MapEditor::PaletteItem MapEditor::SurfaceItem(PaletteCat cat, const std::string&
 												   : kCeiling;
 	return {e ? e->Display() : id, flat, id, e ? e->Get("category", "") : std::string(),
 			m_world->SurfaceSwatchForId(sel, id),
-			CatalogMatchesTags(e, m_view.ViewedMap().Theme())};
+			CatalogMatchesTags(e, m_view.ViewedMap().Tags())};
 }
 
 void MapEditor::LoadSurfaceSwatch(PaletteCat cat, const std::string& id) {
@@ -448,8 +447,8 @@ void MapEditor::BuildPaletteRows(const gfx::Rect& panel, std::vector<PaletteRow>
 								   {body.x, y, body.w, itemH}, items[i].group});
 					y += itemH;
 				};
-				// The THEME LENS, applied per run (the ungrouped items, and each
-				// open group's body): on-theme first, then a divider, then the
+				// The TAGS LENS, applied per run (the ungrouped items, and each
+				// open group's body): on-tag first, then a divider, then the
 				// rest. Indices are what get reordered, never `items` — the armed
 				// selection and every dispatch below address CategoryItems
 				// POSITIONS, so sorting the vector itself would silently re-point
@@ -460,7 +459,7 @@ void MapEditor::BuildPaletteRows(const gfx::Rect& panel, std::vector<PaletteRow>
 						if (belongs(items[i])) idx.push_back(i);
 					const auto off = std::stable_partition(
 						idx.begin(), idx.end(),
-						[&](int i) { return items[i].onTheme; });
+						[&](int i) { return items[i].onTags; });
 					for (auto it = idx.begin(); it != idx.end(); ++it) {
 						// Only between the two groups, and only when there ARE two.
 						if (it == off && it != idx.begin()) {
@@ -479,15 +478,15 @@ void MapEditor::BuildPaletteRows(const gfx::Rect& panel, std::vector<PaletteRow>
 				// GROUPS take the lens too, and this is the half that does the
 				// work: `category` and `tags` correlate hard on real content (the
 				// Skeleton group is exactly the undead ones), so ranking only
-				// WITHIN a group leaves every group uniformly on- or off-theme
-				// and the item divider never fires. A group is on-theme if ANY
+				// WITHIN a group leaves every group uniformly on- or off-tag
+				// and the item divider never fires. A group is on-tag if ANY
 				// member is — the question being asked of a collapsed group is
 				// "is there anything for me in here".
 				const auto offGroup = std::stable_partition(
 					groups.begin(), groups.end(), [&](const std::string& g) {
 						return std::any_of(items.begin(), items.end(),
 										   [&](const PaletteItem& it) {
-											   return it.group == g && it.onTheme;
+											   return it.group == g && it.onTags;
 										   });
 					});
 				run([](const PaletteItem& it) { return it.group.empty(); });
@@ -676,7 +675,7 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face,
 	case PaletteCat::Walls:
 	case PaletteCat::Floors:
 	case PaletteCat::Ceilings:
-	case PaletteCat::Combos: {
+	case PaletteCat::Themes: {
 		PaintCell(cx, cz, remote, stem);
 		// Remote edits are conservatively "changed" (see the bracket note).
 		changed = remote || m_world->Map().Revision() != rev0;
@@ -839,17 +838,17 @@ void MapEditor::EndStroke() {
 	m_world->CommitUndoStep(m_strokeChanged);
 }
 
-void MapEditor::PaintComboCell(int cx, int cz, bool remote, const std::string& stem) {
+void MapEditor::PaintThemeCell(int cx, int cz, bool remote, const std::string& stem) {
 	using SS = DungeonWorld::SurfaceSel;
-	const std::vector<PaletteItem> items = CategoryItems(PaletteCat::Combos);
+	const std::vector<PaletteItem> items = CategoryItems(PaletteCat::Themes);
 	if (m_sel.index < 0 || m_sel.index >= static_cast<int>(items.size())) return;
 	const std::string& id = items[m_sel.index].id;
-	const CatalogEntry* def = m_world->GetProject().combos.Find(id);
+	const CatalogEntry* def = m_world->GetProject().themes.Find(id);
 	if (!def) return;
-	const ComboMembers members = DungeonWorld::ComboMembersOf(*def);
+	const ThemeMembers members = DungeonWorld::ThemeMembersOf(*def);
 	const DungeonMap& map = m_view.ViewedMap();
 	if (cx < 0 || cz < 0 || cx >= map.Width() || cz >= map.Height()) return;
-	// The surfaces this square shows, and only those the combination speaks
+	// The surfaces this square shows, and only those the theme speaks
 	// for: an empty member list leaves that surface exactly as it is.
 	const bool open = map.IsWalkable(cx, cz);
 	const SS surfaces[2] = {open ? SS::Floor : SS::Wall, SS::Ceiling};
@@ -857,7 +856,7 @@ void MapEditor::PaintComboCell(int cx, int cz, bool remote, const std::string& s
 	bool any = false;
 	for (int i = 0; i < count; ++i) any = any || !members[static_cast<size_t>(surfaces[i])].empty();
 	if (!any) return;
-	const int variant = m_world->EnsureComboVariant(stem, id);
+	const int variant = m_world->EnsureThemeVariant(stem, id);
 	if (variant == -1) return;
 	for (int i = 0; i < count; ++i) {
 		if (members[static_cast<size_t>(surfaces[i])].empty()) continue;
@@ -875,8 +874,8 @@ std::string MapEditor::ArmedId() const {
 void MapEditor::PaintCell(int cx, int cz, bool remote, const std::string& stem) {
 	using SS = DungeonWorld::SurfaceSel;
 	if (!PaintableCat(m_sel.cat)) return; // placement never reaches here
-	if (m_sel.cat == PaletteCat::Combos) { // a combination sets a whole look
-		PaintComboCell(cx, cz, remote, stem);
+	if (m_sel.cat == PaletteCat::Themes) { // a theme sets a whole look
+		PaintThemeCell(cx, cz, remote, stem);
 		return;
 	}
 	const SS sel = m_sel.cat == PaletteCat::Walls    ? SS::Wall
@@ -973,9 +972,9 @@ void MapEditor::FloodFill(int cx, int cz) {
 	if (cx < 0 || cz < 0 || cx >= map.Width() || cz >= map.Height()) return;
 	using SS = DungeonWorld::SurfaceSel;
 	const Cell baseCell = map.At(cx, cz);
-	// A combination floods over whichever surface the clicked square shows
+	// A theme floods over whichever surface the clicked square shows
 	// (its wall on a block, its floor on open ground) - it paints both kinds.
-	const SS sel = m_sel.cat == PaletteCat::Combos
+	const SS sel = m_sel.cat == PaletteCat::Themes
 					   ? (baseCell == Cell::Wall ? SS::Wall : SS::Floor)
 				   : m_sel.cat == PaletteCat::Walls  ? SS::Wall
 				   : m_sel.cat == PaletteCat::Floors ? SS::Floor
@@ -1052,10 +1051,10 @@ void MapEditor::AreaFill(int cx, int cz) {
 	// A wall brush paints the blocks the area SEES; floor and ceiling brushes
 	// the area itself. Either way PaintCell's type rule leaves the cell types
 	// alone, since each square already is the kind its brush wants.
-	// A COMBINATION takes both - the room and its walls - which is the whole
+	// A THEME takes both - the room and its walls - which is the whole
 	// point of one: "make this room marble hall" in a single click.
 	if (m_sel.cat == PaletteCat::Walls) region = area::Walls(map, region);
-	else if (m_sel.cat == PaletteCat::Combos) {
+	else if (m_sel.cat == PaletteCat::Themes) {
 		const std::vector<area::CellXZ> walls = area::Walls(map, region);
 		region.insert(region.end(), walls.begin(), walls.end());
 	}
@@ -1070,11 +1069,11 @@ void MapEditor::FillLevel() {
 	if (m_sel.index < 0 || !PaintableCat(m_sel.cat)) return;
 	const DungeonMap& map = m_view.ViewedMap();
 	const bool walls = m_sel.cat == PaletteCat::Walls;
-	const bool combo = m_sel.cat == PaletteCat::Combos; // every square, both kinds
+	const bool themed = m_sel.cat == PaletteCat::Themes; // every square, both kinds
 	std::vector<area::CellXZ> cells;
 	for (int z = 0; z < map.Height(); ++z)
 		for (int x = 0; x < map.Width(); ++x)
-			if (combo || map.IsWalkable(x, z) != walls) cells.push_back({x, z});
+			if (themed || map.IsWalkable(x, z) != walls) cells.push_back({x, z});
 	PaintCells(cells);
 	if (m_world->onMessage)
 		m_world->onMessage(loc::FormatLine("map.level.filled", cells.size()));
@@ -1088,17 +1087,17 @@ void MapEditor::PickAt(int cx, int cz) {
 	// ceilings (sharing the floor square) are picked while already on the
 	// Ceilings brush.
 	const bool solid = map.At(cx, cz) == Cell::Wall;
-	// A square painted with a COMBINATION picks up the combination - that is
+	// A square painted with a THEME picks up the theme - that is
 	// the thing to paint elsewhere to make it match - not the one member the
 	// hash happened to show here.
-	if (const int slot = DungeonMap::ComboSlotOf(
+	if (const int slot = DungeonMap::ThemeSlotOf(
 			map.Variant(solid ? SS::Wall : SS::Floor, cx, cz));
-		slot >= 0 && slot < static_cast<int>(map.ComboCount())) {
-		const std::string& id = map.ComboId(slot);
-		const std::vector<PaletteItem> items = CategoryItems(PaletteCat::Combos);
+		slot >= 0 && slot < static_cast<int>(map.ThemeCount())) {
+		const std::string& id = map.ThemeId(slot);
+		const std::vector<PaletteItem> items = CategoryItems(PaletteCat::Themes);
 		for (int i = 0; i < static_cast<int>(items.size()); ++i)
 			if (items[i].id == id) {
-				m_sel = {PaletteCat::Combos, i};
+				m_sel = {PaletteCat::Themes, i};
 				if (m_world->onMessage)
 					m_world->onMessage(loc::FormatLine("map.pick.done", items[i].label));
 				return;
@@ -1307,8 +1306,8 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			font.Draw(batch, loc::Tr("map.cat.empty"), rc.x + dpad * 3, ty, theme.textDim);
 			break;
 		case PaletteRow::Kind::Divider: {
-			// The theme boundary: a hairline across the run's width, inset to the
-			// items' indent. Deliberately a RULE and not a labelled "off-theme"
+			// The tags boundary: a hairline across the run's width, inset to the
+			// items' indent. Deliberately a RULE and not a labelled "off-tag"
 			// header — the rows below it are ordinary, clickable types, and a
 			// header would read as a section you are not supposed to use.
 			const float inset = dpad * 3;

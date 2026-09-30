@@ -58,11 +58,11 @@ public:
 	// last (it sizes the per-category open-state array).
 	enum class PaletteCat {
 		Walls, Floors, Ceilings,
-		// Surface COMBINATIONS (combos.cat): a paint brush like the three above,
+		// Surface THEMES (themes.cat): a paint brush like the three above,
 		// but one that sets a square's whole look - floor and ceiling on open
 		// ground, the wall on a solid block - by REFERENCE, so editing the
-		// combination later repaints every square it was painted on.
-		Combos,
+		// theme later repaints every square it was painted on.
+		Themes,
 		Decorations, Fixtures, Monsters, Buttons, Doors, Stairs,
 		Items, Weapons, Armor, WallFeatures, SurfaceFeatures,
 		Effects, // authored + tuned, never placed (see CategoryPlaceable)
@@ -166,29 +166,29 @@ public:
 	// swatch so the palette shows the same texture the map fill does; null
 	// falls back to the flat `swatch` color. Swatch() hands both to
 	// ui::DrawSwatch, which is how the palette draws a row's square.
-	// `onTheme` is the viewed level's theme lens (DungeonMap::Theme vs the
-	// entry's `tags`): on-theme items list FIRST in their run, off-theme ones
+	// `onTags` is the viewed level's tags lens (DungeonMap::Tags vs the
+	// entry's `tags`): on-tag items list FIRST in their run, off-tag ones
 	// after a divider. Ranking only — every type stays clickable, because the
-	// one-off that breaks a theme is usually the memorable thing in a dungeon.
-	// True for everything when the level has no theme.
+	// one-off that breaks the tags is usually the memorable thing in a dungeon.
+	// True for everything when the level has no tags.
 	struct PaletteItem {
 		std::string label;
 		Vec4 swatch{1, 1, 1, 1};
 		std::string id;
 		std::string group;
 		const gfx::Texture* icon = nullptr;
-		bool onTheme = true;
+		bool onTags = true;
 		ui::Swatch Swatch() const { return {icon, swatch}; }
 	};
 	// One surface type (a Walls/Floors/Ceilings category) as the palette shows
 	// it: display name, group, the loaded albedo and the flat fallback colour.
-	// Public so a dialog listing surface types (a combination's members) shows
+	// Public so a dialog listing surface types (a theme's members) shows
 	// them exactly as the palette does. The swatch is the level's loaded albedo,
 	// else a thumbnail LoadSurfaceSwatch made (DungeonWorld::SurfaceSwatchForId).
 	PaletteItem SurfaceItem(PaletteCat cat, const std::string& id) const;
 	// Loads the thumbnail swatch for a surface type this level has not loaded.
 	// Uploads, so from Update only: a list about to show catalogue types (the
-	// Catalogue view, a combination's member lists) asks for them first.
+	// Catalogue view, a theme's member lists) asks for them first.
 	void LoadSurfaceSwatch(PaletteCat cat, const std::string& id);
 	// Per frame from MapView::Update: while the Catalogue view is on, loads up
 	// to `max` swatches the open surface sections are missing.
@@ -370,9 +370,9 @@ private:
 	// Accordion layout, shared by hit-test and draw: one row per category header,
 	// per visible item, per group sub-header, and per empty-expanded placeholder.
 	// Rects are in panel pixel space with the scroll already applied.
-	// Divider: the theme lens's boundary inside one run of items — everything
-	// below it is off-theme. Emitted only when both sides are non-empty, so an
-	// unthemed level (or a fully on-theme one) never sees one.
+	// Divider: the tags lens's boundary inside one run of items — everything
+	// below it is off-tag. Emitted only when both sides are non-empty, so an
+	// untagged level (or a fully on-tag one) never sees one.
 	struct PaletteRow {
 		enum class Kind { Header, NewButton, SubHeader, Item, Empty, Divider } kind;
 		PaletteCat cat;
@@ -438,14 +438,14 @@ private:
 	void ApplyBrush(int cx, int cz, bool dragging, const WallFace& face = {},
 					const Placement* pre = nullptr);
 	// True for the brushes that PAINT cells (rect/flood/drag apply): the three
-	// surfaces and the combinations. The placement categories act per click only.
+	// surfaces and the themes. The placement categories act per click only.
 	static bool PaintableCat(PaletteCat cat) {
-		return SurfaceCat(cat) || cat == PaletteCat::Combos;
+		return SurfaceCat(cat) || cat == PaletteCat::Themes;
 	}
-	// A combination's paint on one square: its floor and ceiling mixes on open
-	// ground, its wall mix on a solid block (PaintCell's combination half). A
-	// combination RECOLOURS - it never changes the square's type.
-	void PaintComboCell(int cx, int cz, bool remote, const std::string& stem);
+	// A theme's paint on one square: its floor and ceiling mixes on open
+	// ground, its wall mix on a solid block (PaintCell's theme half). A
+	// theme RECOLOURS - it never changes the square's type.
+	void PaintThemeCell(int cx, int cz, bool remote, const std::string& stem);
 	// One structural/surface application of the armed brush to a cell — the
 	// shared inner body of ApplyBrush/PaintRect/FloodFill. No undo bracketing
 	// or change detection (callers bracket a whole gesture as one step).

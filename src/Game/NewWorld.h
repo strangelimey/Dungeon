@@ -28,7 +28,7 @@ struct NewWorldSpec {
 		CopyLevel,
 		// The WIZARD (P5): the template's content, and a first dungeon of one
 		// floor GENERATED from the knobs below (the level generator, docs/
-		// level-building.md) - themed, sized and as dangerous as asked, with an
+		// level-building.md) - tagged, sized and as dangerous as asked, with an
 		// exit out to the overworld. More floors come after with the editor's [+].
 		Wizard,
 	};
@@ -37,7 +37,7 @@ struct NewWorldSpec {
 	// Wizard: the content tag the monsters, loot and surfaces are drawn by (""
 	// = any), the map's side in squares, how dangerous (0..1), and the seed -
 	// the same four give the same floor.
-	std::string theme;
+	std::string tag;
 	int size = 32;
 	float difficulty = 0.4f;
 	u32 seed = 1;

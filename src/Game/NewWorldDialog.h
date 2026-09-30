@@ -56,12 +56,12 @@ public:
 	std::function<bool(const std::string& name)> onSwitch;
 	// The running world's levels, for "Copy one level". Asked on Open.
 	std::function<std::vector<std::string>()> onLevels;
-	// The wizard's theme choices (the template's content tags). Asked on Open.
-	std::function<std::vector<std::string>()> onThemes;
+	// The wizard's tag choices (the template's content tags). Asked on Open.
+	std::function<std::vector<std::string>()> onTags;
 
 	// The wizard's knobs (P5), for the harness as for its rows. Size is the
 	// map's side in squares; the dialog offers three.
-	void SetWizard(const std::string& theme, int size, float difficulty, u32 seed);
+	void SetWizard(const std::string& tag, int size, float difficulty, u32 seed);
 	const NewWorldSpec& Spec() const { return m_spec; }
 
 	// For the harness: the same clicks, and what the dialog would say.
@@ -88,7 +88,7 @@ private:
 	std::string m_name;       // the name field's text, across rebuilds
 	NewWorldSpec m_spec;
 	std::vector<std::string> m_levels; // this world's, for Copy one level
-	std::vector<std::string> m_themes; // the template's tags, for the wizard
+	std::vector<std::string> m_tagChoices; // the template's tags, for the wizard
 	gfx::Rect m_panel{};               // taller while the wizard's rows show
 	std::string m_made;                // the world just made ("" = none yet)
 	std::string m_note;

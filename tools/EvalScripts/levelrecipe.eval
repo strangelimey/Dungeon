@@ -1,4 +1,4 @@
-; levelrecipe.eval - room sizes, theme, palette and presets (docs/level-
+; levelrecipe.eval - room sizes, tag, palette and presets (docs/level-
 ; building.md P4b), in a scratch copy of the demo world (run with -project
 ; lb_recipe). LevelBuildTest.py prepares that copy first - it gives crypt2 a
 ; palette of its own, since every demo level shares one and a palette check
@@ -9,14 +9,14 @@
 logecho on
 reset
 ; ROOM SIZES: 3..3 against 8..10, one seed.
-generate crypt width:64 height:64 roommin:3 roommax:3 path:6 branches:2 branchmin:1 branchmax:2 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.5 ramp:0 boss:0 reward:0.5 theme: palette: seed:51 locks:0
-generate crypt width:64 height:64 roommin:8 roommax:10 path:6 branches:2 branchmin:1 branchmax:2 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.5 ramp:0 boss:0 reward:0.5 theme: palette: seed:51 locks:0
-; THEME: ooze against undead, one seed, dense enough to place plenty.
-generate crypt width:48 height:48 roommin:3 roommax:7 path:8 branches:3 branchmin:1 branchmax:3 loops:0 winding:0 irregular:0 deadends:0 difficulty:1 ramp:0 boss:0 reward:0.5 theme:ooze palette: seed:52 locks:0
-generate crypt width:48 height:48 roommin:3 roommax:7 path:8 branches:3 branchmin:1 branchmax:3 loops:0 winding:0 irregular:0 deadends:0 difficulty:1 ramp:0 boss:0 reward:0.5 theme:undead palette: seed:52 locks:0
+generate crypt width:64 height:64 roommin:3 roommax:3 path:6 branches:2 branchmin:1 branchmax:2 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.5 ramp:0 boss:0 reward:0.5 tag: palette: seed:51 locks:0
+generate crypt width:64 height:64 roommin:8 roommax:10 path:6 branches:2 branchmin:1 branchmax:2 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.5 ramp:0 boss:0 reward:0.5 tag: palette: seed:51 locks:0
+; TAG: ooze against undead, one seed, dense enough to place plenty.
+generate crypt width:48 height:48 roommin:3 roommax:7 path:8 branches:3 branchmin:1 branchmax:3 loops:0 winding:0 irregular:0 deadends:0 difficulty:1 ramp:0 boss:0 reward:0.5 tag:ooze palette: seed:52 locks:0
+generate crypt width:48 height:48 roommin:3 roommax:7 path:8 branches:3 branchmin:1 branchmax:3 loops:0 winding:0 irregular:0 deadends:0 difficulty:1 ramp:0 boss:0 reward:0.5 tag:undead palette: seed:52 locks:0
 ; PALETTE: crypt2's (made distinct by the test) against the default.
-generate crypt width:32 height:32 roommin:3 roommax:7 path:5 branches:1 branchmin:1 branchmax:2 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.5 ramp:0 boss:0 reward:0.5 theme: palette:crypt2 seed:53 locks:0
-generate crypt width:32 height:32 roommin:3 roommax:7 path:5 branches:1 branchmin:1 branchmax:2 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.5 ramp:0 boss:0 reward:0.5 theme: palette: seed:53 locks:0
+generate crypt width:32 height:32 roommin:3 roommax:7 path:5 branches:1 branchmin:1 branchmax:2 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.5 ramp:0 boss:0 reward:0.5 tag: palette:crypt2 seed:53 locks:0
+generate crypt width:32 height:32 roommin:3 roommax:7 path:5 branches:1 branchmin:1 branchmax:2 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.5 ramp:0 boss:0 reward:0.5 tag: palette: seed:53 locks:0
 ; PRESETS: load one (the seed stays), build with it, save the knobs under a
 ; new name, list, delete, list.
 generate preset list

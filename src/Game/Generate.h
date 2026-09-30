@@ -74,12 +74,12 @@ struct Params {
 	float ramp = 0.5f;
 	bool boss = false;   // the pool's strongest kind in the exit room
 	float reward = 0.5f; // loot density, also deeper-is-richer
-	// THE CALLER'S, not the generator's (P4b): which theme tag the content
+	// THE CALLER'S, not the generator's (P4b): which tag the content
 	// pools are drawn by, and which level's surface palette the new one copies.
-	// Empty = as before (the viewed level's theme; the active level's palette).
+	// Empty = as before (the viewed level's tags; the active level's palette).
 	// They ride Params so the knob table - and so the settings line and the
 	// presets - carry them with everything else.
-	std::string theme;
+	std::string tag;
 	std::string palette;
 	u32 seed = 1;
 	// The square the level is ENTERED on, or -1 to let the generator choose.

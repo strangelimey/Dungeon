@@ -20,16 +20,11 @@ u32 ResolveSurfaceVariant(const DungeonMap& map, int x, int z, Surface s, u32 co
 	const int over = map.Variant(s, x, z);
 	if (over >= 0) return count > 0 ? std::min(static_cast<u32>(over), count - 1) : 0u;
 	const u32 salt = s == Surface::Floor ? 1u : s == Surface::Ceiling ? 2u : 3u;
-	// A COMBINATION varies exactly as the default does - the same hash, the same
-	// salt - but only across its own members. One with no members on this
-	// surface (or none in the palette) leaves the surface to the default mix.
-	if (const int slot = DungeonMap::ComboSlotOf(over); slot >= 0) {
-		const std::span<const int> members = map.ComboMembersOf(s, slot);
-		if (!members.empty()) {
-			const u32 pick = static_cast<u32>(members[SurfaceVariantFor(
-				x, z, salt, static_cast<u32>(members.size()))]);
-			return count > 0 ? std::min(pick, count - 1) : 0u;
-		}
+	// A THEME shows its one member for this surface. One with no member here
+	// (or one the palette lacks) leaves the surface to the default mix.
+	if (const int slot = DungeonMap::ThemeSlotOf(over); slot >= 0) {
+		if (const int member = map.ThemeMemberOf(s, slot); member >= 0)
+			return count > 0 ? std::min(static_cast<u32>(member), count - 1) : 0u;
 	}
 	return SurfaceVariantFor(x, z, salt, count);
 }

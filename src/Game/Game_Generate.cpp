@@ -2,12 +2,12 @@
 // Game/Game_Generate.cpp — the seam between the level generator and the project.
 //
 // Game/Generate.h is pure and knows no catalogs, so everything catalog-shaped
-// happens here: resolving the level's THEME TAGS into the id pools the generator
+// happens here: resolving the level's TAGS into the id pools the generator
 // picks from, and turning what it produces back into the ordinary .map/.ent text
 // every other level is written as.
 //
-// The theme lens works exactly as it does in the palette (Catalog.h): an entry
-// with no tags fits any theme, and a theme that matches nothing falls back to
+// The tags lens works exactly as it does in the palette (Catalog.h): an entry
+// with no tags fits any tag, and tags that matches nothing falls back to
 // the whole pool rather than generating an empty dungeon — a knob that silently
 // produces nothing teaches you to distrust the button, and "no monsters tagged
 // undead yet" is a content gap, not a reason to refuse.
@@ -42,15 +42,15 @@ namespace dungeon::game {
 
 namespace {
 
-// Ids from a catalog whose tags match the theme, or ALL of them when nothing
+// Ids from a catalog whose tags match the tags, or ALL of them when nothing
 // matches (see the header note).
 std::vector<std::string> PoolFor(const Catalog& cat,
-								 const std::vector<std::string>& theme) {
+								 const std::vector<std::string>& tags) {
 	std::vector<std::string> matched, all;
 	for (const CatalogEntry& e : cat.Entries()) {
 		if (CatalogBool(&e, "hidden", false)) continue;
 		all.push_back(e.id);
-		if (CatalogMatchesTags(&e, theme)) matched.push_back(e.id);
+		if (CatalogMatchesTags(&e, tags)) matched.push_back(e.id);
 	}
 	return matched.empty() ? all : matched;
 }
@@ -89,7 +89,7 @@ Palettes PalettesOf(const DungeonMap& donor) {
 
 void BuildLevelText(const std::string& stem, const generate::Level& lv,
 					const generate::Params& params, const Palettes& palettes,
-					const std::vector<std::string>& theme,
+					const std::vector<std::string>& tags,
 					std::span<const StairLink> stairs, std::string& map,
 					std::string& ent) {
 	auto join = [](const std::vector<std::string>& ids) {
@@ -101,7 +101,7 @@ void BuildLevelText(const std::string& stem, const generate::Level& lv,
 	map += "palette wall " + join(palettes[0]) + "\n";
 	map += "palette floor " + join(palettes[1]) + "\n";
 	map += "palette ceiling " + join(palettes[2]) + "\n";
-	if (!theme.empty()) map += "theme " + join(theme) + "\n";
+	if (!tags.empty()) map += "tags " + join(tags) + "\n";
 	map += "stairfacing arrive\n"; // the new stair-facing meaning (DungeonMap)
 	for (const StairLink& st : stairs)
 		map += std::format("stairs {} {} {} {} dest={} destx={} destz={}\n", st.type, st.x,
@@ -201,19 +201,19 @@ bool Game::StartEncounter(float difficulty, const std::vector<std::string>& tags
 }
 
 void Game::FillPools(generate::Params& params,
-					 const std::vector<std::string>& theme) {
-	FillPools(params, theme, m_project);
+					 const std::vector<std::string>& tags) {
+	FillPools(params, tags, m_project);
 }
 
-void Game::FillPools(generate::Params& params, const std::vector<std::string>& theme,
+void Game::FillPools(generate::Params& params, const std::vector<std::string>& tags,
 					 const Project& project) {
-	params.monsterIds = PoolFor(project.monsters, theme);
+	params.monsterIds = PoolFor(project.monsters, tags);
 	// Each one's threat, from its stats (Game/Threat.h): what difficulty ranks.
 	params.monsterThreat.clear();
 	for (const std::string& id : params.monsterIds)
 		params.monsterThreat.push_back(ThreatOf(*project.monsters.Find(id)).threat);
-	params.lootIds = PoolFor(project.items, theme);
-	// Keys are the one pool that is NOT themed: a lock needs a key that exists,
+	params.lootIds = PoolFor(project.items, tags);
+	// Keys are the one pool that is NOT tagged: a lock needs a key that exists,
 	// and which key it is matters far less than that the pair is coherent. An
 	// empty pool simply means no locks get authored (Generate.h clamps to it).
 	params.keyIds.clear();
@@ -234,16 +234,16 @@ threat::Parts Game::ThreatOf(const CatalogEntry& monster) const {
 
 std::vector<std::pair<int, int>>
 Game::ComposeGeneratedLevel(const std::string& stem, generate::Params params,
-							const std::vector<std::string>& theme, std::string& map,
+							const std::vector<std::string>& tags, std::string& map,
 							std::string& ent) {
-	FillPools(params, theme);
+	FillPools(params, tags);
 	const generate::Level lv = generate::Run(params);
 	m_lastGenReport = lv.report;
 	// The palette: the level CHOSEN in the dialog (P4b), else the active one.
 	// Read at once - MapOf may parse a stash, and nothing else touches the
 	// stashes between here and the text being built.
 	BuildLevelText(stem, lv, params, PalettesOf(PaletteDonor(params.palette, m_world->Map())),
-				   theme, {}, map, ent);
+				   tags, {}, map, ent);
 	// (The caller sets params.entry to the floor above's stair square, so the
 	// start comes first below and the link lands there.)
 	// Where the stair from the floor above may land, best first: the generated
@@ -293,18 +293,18 @@ bool Game::GenerateWizardLevel(const Project& project, const std::string& stem,
 	// "first dungeon" with nothing to meet reads as a broken wizard. The
 	// generator keeps its two knobs separate; this is the wizard choosing.
 	p.density = 0.6f + 0.8f * p.difficulty;
-	p.theme = spec.theme;
-	const std::vector<std::string> theme =
-		spec.theme.empty() ? std::vector<std::string>{} : std::vector<std::string>{spec.theme};
-	FillPools(p, theme, project);
+	p.tag = spec.tag;
+	const std::vector<std::string> tags =
+		spec.tag.empty() ? std::vector<std::string>{} : std::vector<std::string>{spec.tag};
+	FillPools(p, tags, project);
 
-	// The SURFACES are themed too: the types the theme's tags match lead each
+	// The SURFACES are tagged too: the types the tags match lead each
 	// palette (PoolFor falls back to all of them when none match), four apiece,
 	// so a "stone undead" world does not open on whatever walls.cat lists first.
 	Palettes palettes;
 	const Catalog* surfaces[3] = {&project.walls, &project.floors, &project.ceilings};
 	for (size_t s = 0; s < 3; ++s) {
-		std::vector<std::string> ids = PoolFor(*surfaces[s], theme);
+		std::vector<std::string> ids = PoolFor(*surfaces[s], tags);
 		if (ids.size() > 4) ids.resize(4);
 		palettes[s] = std::move(ids);
 	}
@@ -326,7 +326,7 @@ bool Game::GenerateWizardLevel(const Project& project, const std::string& stem,
 		m.z = lv.exitZ;
 		lv.entities.push_back(std::move(m));
 	}
-	BuildLevelText(stem, lv, p, palettes, theme, {}, map, ent);
+	BuildLevelText(stem, lv, p, palettes, tags, {}, map, ent);
 
 	// THE WAY OUT, on the start square - an encounter's arrangement: you arrive
 	// on it, and it is where you go back to. Facing the first open side, since
@@ -349,8 +349,8 @@ bool Game::GenerateWizardLevel(const Project& project, const std::string& stem,
 		map += std::format("stairs {} {} {} {} dest={} destx=0 destz=0\n", exit, lv.startX,
 						   lv.startZ, facing, doorway);
 	}
-	log::Info("wizard: {} {}x{}, theme '{}', difficulty {:.2f}, seed {}, {} monster kinds",
-			  stem, p.width, p.height, spec.theme, p.difficulty, p.seed, p.monsterIds.size());
+	log::Info("wizard: {} {}x{}, tags '{}', difficulty {:.2f}, seed {}, {} monster kinds",
+			  stem, p.width, p.height, spec.tag, p.difficulty, p.seed, p.monsterIds.size());
 	return true;
 }
 
@@ -502,15 +502,15 @@ bool Game::LinkToFloorAbove(const std::string& stem,
 }
 
 bool Game::BuildAndInstall(const std::string& stem, const generate::Params& params,
-						   const std::vector<std::string>& theme,
+						   const std::vector<std::string>& tags,
 						   const DungeonMap& donor, std::span<const StairLink> stairs) {
 	generate::Params p = params;
-	FillPools(p, theme);
+	FillPools(p, tags);
 	const generate::Level lv = generate::Run(p);
 	m_lastGenReport = lv.report;
 
 	std::string map, ent;
-	BuildLevelText(stem, lv, p, PalettesOf(donor), theme, stairs, map, ent);
+	BuildLevelText(stem, lv, p, PalettesOf(donor), tags, stairs, map, ent);
 
 	// Parsed through a TEMP file rather than the level's own, so the real files
 	// stay untouched until `savemap` — which is how every other editor edit
@@ -606,11 +606,11 @@ bool Game::RegenerateViewedLevel(generate::Params params) {
 	// look (it used to take the ACTIVE level's, so rerolling a browsed floor
 	// quietly re-skinned it).
 	m_world->BeginUndoStep();
-	// A theme or palette CHOSEN in the dialog (P4b) replaces the level's own;
+	// A tag or palette CHOSEN in the dialog (P4b) replaces the level's own;
 	// empty keeps it, which is what a reroll did before there was a choice.
-	const std::vector<std::string> theme =
-		!params.theme.empty() ? std::vector<std::string>{params.theme} : viewed.Theme();
-	const bool ok = BuildAndInstall(stem, params, theme,
+	const std::vector<std::string> tags =
+		!params.tag.empty() ? std::vector<std::string>{params.tag} : viewed.Tags();
+	const bool ok = BuildAndInstall(stem, params, tags,
 									PaletteDonor(params.palette, viewed), stairs);
 	m_world->CommitUndoStep(ok);
 	return ok;

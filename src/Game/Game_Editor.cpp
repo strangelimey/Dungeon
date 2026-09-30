@@ -316,16 +316,16 @@ std::string Game::CreateNewLevel(const std::string& dungeonId,
 		generate::Params p = *params;
 		p.entryX = entry.first;
 		p.entryZ = entry.second;
-		// The theme the content pools are drawn by: the viewed level's own,
+		// The tags the content pools are drawn by: the viewed level's own,
 		// else the dungeon's flavour tags - a fresh dungeon's first generated
-		// floor has no level theme to inherit, and "undead crypt" should still
+		// floor has no level tags to inherit, and "undead crypt" should still
 		// fill with undead.
-		// A theme CHOSEN in the dialog (P4b) wins over both.
-		std::vector<std::string> theme = !p.theme.empty()
-											 ? std::vector<std::string>{p.theme}
-											 : m_mapView.ViewedMap().Theme();
-		if (theme.empty() && dungeon) theme = ParseTags(dungeon->Get("tags", ""));
-		linkCells = ComposeGeneratedLevel(stem, p, theme, map, ent);
+		// A tag CHOSEN in the dialog (P4b) wins over both.
+		std::vector<std::string> tags = !p.tag.empty()
+											 ? std::vector<std::string>{p.tag}
+											 : m_mapView.ViewedMap().Tags();
+		if (tags.empty() && dungeon) tags = ParseTags(dungeon->Get("tags", ""));
+		linkCells = ComposeGeneratedLevel(stem, p, tags, map, ent);
 	} else {
 		auto join = [](const std::vector<std::string>& ids) {
 			std::string out;
@@ -579,12 +579,12 @@ std::string Game::CreateAuthoredType(MapEditor::PaletteCat cat) {
 	for (const FieldSpec& f : SchemaFor(key))
 		if (f.def && f.def[0]) e.Set(f.key, f.def);
 	e.Set("display", id); // something readable until it is renamed
-	// A new COMBINATION starts as the look of the square selected on the map
+	// A new THEME starts as the look of the square selected on the map
 	// (right-click it first): its floor and ceiling as the square shows them,
 	// and the wall of its first solid neighbour. Picking a room you like and
-	// saying "that, as a combination" is the quickest way to author one; with
+	// saying "that, as a theme" is the quickest way to author one; with
 	// nothing selected it starts empty and the tabs fill it.
-	if (key == "combos" && m_mapEditor.HasSelection()) {
+	if (key == "themes" && m_mapEditor.HasSelection()) {
 		const DungeonMap& map = m_mapView.ViewedMap();
 		const int x = m_mapEditor.SelX(), z = m_mapEditor.SelZ();
 		const auto shown = [&](Surface s, int cx, int cz) -> std::string {
@@ -721,30 +721,26 @@ int Game::SweepCatalogRefs(const std::string& catalogKey, const std::string& id,
 	if (catalogKey == "stairs") sweepField(m_project.stairs, "pair");
 	// A door names the KEY ITEM that unlocks it.
 	if (catalogKey == "items") sweepField(m_project.doors, "key");
-	// A surface COMBINATION names surface types in a LIST (combos.cat), so the
-	// match is per token: a delete refuses while a combination still mixes the
-	// type in, and a rename rewrites it where it stands in the list.
+	// A surface THEME names one surface type per surface (themes.cat): a
+	// delete refuses while a theme still uses the type, and a rename
+	// rewrites it. Matched through ThemeMembersOf, the format's one reader.
 	if (catalogKey == "walls" || catalogKey == "floors" || catalogKey == "ceilings") {
+		const Surface surface = catalogKey == "walls"    ? Surface::Wall
+								: catalogKey == "floors" ? Surface::Floor
+														 : Surface::Ceiling;
 		const char* field = catalogKey == "walls"    ? "wall"
 							: catalogKey == "floors" ? "floor"
 													 : "ceiling";
 		std::vector<std::string> matches;
-		for (const CatalogEntry& e : m_project.combos.Entries()) {
-			const std::string list = " " + e.Get(field, "") + " ";
-			if (list.find(" " + id + " ") != std::string::npos) matches.push_back(e.id);
-		}
+		for (const CatalogEntry& e : m_project.themes.Entries())
+			if (DungeonWorld::ThemeMembersOf(e)[static_cast<size_t>(surface)] == id)
+				matches.push_back(e.id);
 		hits += static_cast<int>(matches.size());
 		if (newId)
 			for (const std::string& entryId : matches) {
-				CatalogEntry copy = *m_project.combos.Find(entryId);
-				std::string rewritten;
-				for (const std::string& member : DungeonWorld::ComboMembersOf(copy)[
-						 static_cast<size_t>(catalogKey == "walls"    ? Surface::Wall
-											 : catalogKey == "floors" ? Surface::Floor
-																	  : Surface::Ceiling)])
-					rewritten += (rewritten.empty() ? "" : " ") + (member == id ? *newId : member);
-				copy.Set(field, rewritten);
-				m_project.combos.Add(std::move(copy)); // add-or-replace by id
+				CatalogEntry copy = *m_project.themes.Find(entryId);
+				copy.Set(field, *newId);
+				m_project.themes.Add(std::move(copy)); // add-or-replace by id
 			}
 	}
 	// The 'T'/'F' map glyphs resolve through the project's default fixtures.

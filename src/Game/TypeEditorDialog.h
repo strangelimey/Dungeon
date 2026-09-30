@@ -87,8 +87,8 @@ public:
 	// the schema; CatalogRef's from the project). The empty string is prepended
 	// by the dialog itself as "(none)", so a provider only returns real values.
 	std::function<std::vector<std::string>(const FieldSpec&)> optionsFor;
-	// How a CatalogRefList row shows one offered id: its label and swatch. The
-	// owner answers for the lists whose entries have a look (a combination's
+	// How a CatalogRefPick row shows one offered id: its label and swatch. The
+	// owner answers for the lists whose entries have a look (a theme's
 	// surface types, drawn as the palette draws them); unset, or an empty label
 	// back, leaves the row the bare id with no swatch.
 	struct RefFace {

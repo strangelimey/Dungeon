@@ -638,8 +638,8 @@ try:
 
     # THE WRITERS' FIDELITY. `levels new` saves the whole project, and that
     # used to rewrite four files and delete every comment in project.ini.
-    # 26 = project.ini + 25 catalogs, combos.cat (surface combinations,
-    # docs/editor-updates-plan.md P3) the newest.
+    # 26 = project.ini + 25 catalogs, themes.cat (surface themes,
+    # docs/editor-themes-notes.md) the newest.
     check("catround 26 of 26 file(s) round-trip, 0 absent" in log,
           "and saving the project leaves every file it did not change alone")
 

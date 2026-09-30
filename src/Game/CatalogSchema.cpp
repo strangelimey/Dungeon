@@ -29,8 +29,8 @@ namespace {
 // both consumers (the generator, the palette lens) work across all of them.
 #define IDENTITY_TAGS                                                            \
 	{.key = "tags", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,      \
-	 .help = "Space-separated theme words (undead, stone, outdoor). Empty fits "  \
-			 "any theme; never excluded."}
+	 .help = "Space-separated tag words (undead, stone, outdoor). Empty fits "  \
+			 "any tag; never excluded."}
 #define PROP_MODEL                                                        \
 	{.key = "model", .kind = FieldKind::Model, .sectionKey = kSectionLook, \
 	 .help = "The mesh in assets/models (without the extension)."}
@@ -636,28 +636,28 @@ constexpr FieldSpec kQuestFields[] = {
 			 "NAME, so these may be renamed but a rename must be swept."},
 };
 
-// --- surface COMBINATIONS (docs/editor-updates-plan.md, P3) -------------------
-// A named look: one tab per surface, a checkbox per type of it. The tabs reuse
+// --- surface THEMES (docs/editor-themes-notes.md) ---------------------------
+// A named look: one tab per surface, one type picked on each. The tabs reuse
 // the palette's own category names, so they read as what they are.
-constexpr FieldSpec kComboFields[] = {
+constexpr FieldSpec kSurfaceThemeFields[] = {
 	{.key = "display", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,
 	 .help = "The name the palette shows."},
-	{.key = "floor", .kind = FieldKind::CatalogRefList, .sectionKey = "map.cat.floors",
-	 .help = "The floors this look varies between, square by square. None ticked "
-			 "leaves a painted square's floor as it was.",
+	{.key = "floor", .kind = FieldKind::CatalogRefPick, .sectionKey = "map.cat.floors",
+	 .help = "The floor a painted open square shows. (none) leaves a painted "
+			 "square's floor as it was.",
 	 .options = "floors"},
-	{.key = "wall", .kind = FieldKind::CatalogRefList, .sectionKey = "map.cat.walls",
-	 .help = "The walls it varies between. A wall block wears ONE texture on all "
-			 "four faces, so painting a corridor's walls also changes whatever is "
-			 "on their far side.",
+	{.key = "wall", .kind = FieldKind::CatalogRefPick, .sectionKey = "map.cat.walls",
+	 .help = "The wall a painted wall block shows. A wall block wears ONE texture "
+			 "on all four faces, so painting a corridor's walls also changes "
+			 "whatever is on their far side.",
 	 .options = "walls"},
-	{.key = "ceiling", .kind = FieldKind::CatalogRefList, .sectionKey = "map.cat.ceilings",
-	 .help = "The ceilings it varies between.",
+	{.key = "ceiling", .kind = FieldKind::CatalogRefPick, .sectionKey = "map.cat.ceilings",
+	 .help = "The ceiling a painted open square shows.",
 	 .options = "ceilings"},
 };
 
 std::span<const FieldSpec> SchemaFor(std::string_view catalogKey) {
-	if (catalogKey == "combos") return kComboFields;
+	if (catalogKey == "themes") return kSurfaceThemeFields;
 	if (catalogKey == "dungeons") return kDungeonFields;
 	if (catalogKey == "terrain") return kTerrainFields;
 	if (catalogKey == "quests") return kQuestFields;

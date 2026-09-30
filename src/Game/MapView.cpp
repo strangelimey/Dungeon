@@ -988,7 +988,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	// shape of the dungeon is what reads (Michael: textures everywhere, and
 	// then their average colours, both buried it). Only while a Walls/Floors/
 	// Ceilings brush is armed does THAT surface draw its RESOLVED textures
-	// (editor override, combination or the mesh builder's position hash - the
+	// (editor override, theme or the mesh builder's position hash - the
 	// same albedo the 3D scene draws): walls on the solid squares (the block
 	// owns its texture), floors or ceilings on the open ones. Cells group by
 	// variant so the batch flushes once per texture, not per cell; an unloaded
@@ -1754,9 +1754,9 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			using SurfaceSel = DungeonWorld::SurfaceSel;
 			const DungeonMap& vmap = ViewedMap();
 			const int hx = m_hoverX, hz = m_hoverZ;
-			// The RESOLVED type (override, combination or the hash mix - what
+			// The RESOLVED type (override, theme or the hash mix - what
 			// the scene draws), by display name; a square painted with a
-			// combination names it too, since that is what repaints it.
+			// theme names it too, since that is what repaints it.
 			auto surfaceName = [&](SurfaceSel s) -> std::string {
 				const std::vector<std::string>& pal = vmap.Palette(s);
 				if (pal.empty()) return "-";
@@ -1764,11 +1764,11 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 					pal[ResolveSurfaceVariant(vmap, hx, hz, s, static_cast<u32>(pal.size()))];
 				const CatalogEntry* e = m_world->SurfaceCatalog(s).Find(id);
 				std::string name = e ? e->Display() : id;
-				const int slot = DungeonMap::ComboSlotOf(vmap.Variant(s, hx, hz));
-				if (slot >= 0 && static_cast<size_t>(slot) < vmap.ComboCount()) {
-					const std::string& combo = vmap.ComboId(slot);
-					const CatalogEntry* c = m_world->GetProject().combos.Find(combo);
-					name += " (" + (c ? c->Display() : combo) + ")";
+				const int slot = DungeonMap::ThemeSlotOf(vmap.Variant(s, hx, hz));
+				if (slot >= 0 && static_cast<size_t>(slot) < vmap.ThemeCount()) {
+					const std::string& themeId = vmap.ThemeId(slot);
+					const CatalogEntry* c = m_world->GetProject().themes.Find(themeId);
+					name += " (" + (c ? c->Display() : themeId) + ")";
 				}
 				return name;
 			};

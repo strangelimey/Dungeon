@@ -76,7 +76,7 @@ std::vector<std::string> CatalogTags(const CatalogEntry* e) {
 }
 
 bool CatalogMatchesTags(const CatalogEntry* e, const std::vector<std::string>& wanted) {
-	if (wanted.empty()) return true; // no theme picked: nothing is off-theme
+	if (wanted.empty()) return true; // no tags picked: nothing is off-tag
 	const std::vector<std::string> mine = CatalogTags(e);
 	if (mine.empty()) return true; // untagged content fits anywhere (Catalog.h)
 	for (const std::string& t : mine)

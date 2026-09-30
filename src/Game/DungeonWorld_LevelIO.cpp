@@ -150,12 +150,12 @@ static std::string SerializeMapStatic(const std::string& stem,
 	palette("wall", map.WallPalette());
 	palette("floor", map.FloorPalette());
 	palette("ceiling", map.CeilingPalette());
-	// The level's theme tags (DungeonMap::Theme), written beside the palette
+	// The level's tags (DungeonMap::Tags), written beside the palette
 	// because they are the same kind of fact: what this level is made of. An
-	// unthemed level carries no record.
-	if (!map.Theme().empty()) {
-		m += "theme";
-		for (const std::string& tag : map.Theme()) m += " " + tag;
+	// untagged level carries no record.
+	if (!map.Tags().empty()) {
+		m += "tags";
+		for (const std::string& tag : map.Tags()) m += " " + tag;
 		m += '\n';
 	}
 	// Per-level atmosphere (the Level settings dialog's mood knobs): only set
@@ -232,8 +232,8 @@ static std::string SerializeMapStatic(const std::string& stem,
 		m += std::format("stairs {} {} {} {} dest={} destx={} destz={}\n", s.type, s.x, s.z,
 						 DirToken(s.facing), s.destLevel, s.destX, s.destZ);
 
-	// A pinned palette index is a `variant`; a combination reference a
-	// `surfacemix`, written by the combination's ID (its slot number is this
+	// A pinned palette index is a `variant`; a theme reference a
+	// `theme`, written by the theme's ID (its slot number is this
 	// load's bookkeeping, not something a file should depend on).
 	static constexpr const char* kSurfaceName[3] = {"wall", "floor", "ceiling"};
 	for (int z = 0; z < map.Height(); ++z)
@@ -242,9 +242,9 @@ static std::string SerializeMapStatic(const std::string& stem,
 				const int v = map.Variant(static_cast<Surface>(s), x, z);
 				if (v >= 0)
 					m += std::format("variant {} {} {} {}\n", kSurfaceName[s], x, z, v);
-				else if (const int slot = DungeonMap::ComboSlotOf(v); slot >= 0)
-					m += std::format("surfacemix {} {} {} {}\n", kSurfaceName[s], x, z,
-									 map.ComboId(slot));
+				else if (const int slot = DungeonMap::ThemeSlotOf(v); slot >= 0)
+					m += std::format("theme {} {} {} {}\n", kSurfaceName[s], x, z,
+									 map.ThemeId(slot));
 			}
 
 	m += decoLines;

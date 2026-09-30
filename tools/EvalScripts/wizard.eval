@@ -1,19 +1,19 @@
 ; wizard.eval - the new-world WIZARD (editor-updates P5): the template's content
-; and one GENERATED floor, themed, sized and as dangerous as asked.
+; and one GENERATED floor, tagged, sized and as dangerous as asked.
 ;
 ;   wz_a / wz_b   the same knobs and seed - their floors must be IDENTICAL
 ;   wz_c          the same knobs, another seed - its floor must differ
-;   wz_undead     another theme and size
+;   wz_undead     another tag and size
 ; tools/EditorTest.py phase 11 reads the files, opens each world with -project
 ; to run the checker there, and removes them all.
 
 logecho on
 reset
-worlds themes
-worlds new wz_a wizard theme=vermin size=24 difficulty=0.6 seed=7
-worlds new wz_b wizard theme=vermin size=24 difficulty=0.6 seed=7
-worlds new wz_c wizard theme=vermin size=24 difficulty=0.6 seed=8
-worlds new wz_undead wizard theme=undead size=40 difficulty=0.3 seed=3
+worlds tags
+worlds new wz_a wizard tag=vermin size=24 difficulty=0.6 seed=7
+worlds new wz_b wizard tag=vermin size=24 difficulty=0.6 seed=7
+worlds new wz_c wizard tag=vermin size=24 difficulty=0.6 seed=8
+worlds new wz_undead wizard tag=undead size=40 difficulty=0.3 seed=3
 ; ...and through the DIALOG's wizard rows with wz_a's knobs: the dialog and the
 ; console must not be able to make two different worlds from one request.
 worlds newdialog wizard vermin 24 0.6 7

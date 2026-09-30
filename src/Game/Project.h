@@ -90,12 +90,12 @@ struct Project {
 	// progress is save state (WorldState::quests), not content — a catalog says
 	// what a quest IS, never where anyone has got to in it.
 	Catalog quests;
-	// Surface COMBINATIONS (docs/editor-updates-plan.md, P3): a named mix per
-	// surface - `floor` / `wall` / `ceiling`, each a space-separated list of
-	// that surface's catalog ids to vary between (empty = leave it be). World-
+	// Surface THEMES (docs/editor-themes-notes.md): a named look - `floor` /
+	// `wall` / `ceiling`, each ONE of that surface's catalog ids (empty =
+	// leave it be). World-
 	// wide, so "marble hall" means the same on every level; cells reference one
-	// by id (`surfacemix`), and editing it repaints them all.
-	Catalog combos;
+	// by id (`theme`), and editing it repaints them all.
+	Catalog themes;
 	Catalog wallfeatures; // recessed wall niches (Phase 2)
 	// The same idea laid flat, pointing down or up: a tile stamped IN PLACE OF a
 	// cell's FLOOR or CEILING block, carrying a recess sunk into it or a vault

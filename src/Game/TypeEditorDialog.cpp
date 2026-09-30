@@ -298,37 +298,33 @@ void TypeEditorDialog::BuildUI() {
 				});
 			break;
 		}
-		case FieldKind::CatalogRefList: {
-			// One checkbox per id the catalog offers, ticked when the list holds
-			// it. A toggle rewrites the WHOLE list from the current value, in the
-			// catalog's order, so the field reads the same however it was built -
-			// and an id the catalog no longer has stays in the list rather than
-			// being dropped behind the author's back. Each row shows the id's
-			// FACE when the owner has one (faceFor: a surface type's palette
-			// name and swatch), else the bare id.
-			const std::vector<std::string> offered =
+		case FieldKind::CatalogRefPick: {
+			// ONE id, picked from a list that shows every candidate the way the
+			// palette does (faceFor: a surface type's name and swatch; else the
+			// bare id) - a dropdown would hide exactly the swatches you choose
+			// by. "(none)" leads, so the field can be left unset. Ticking a row
+			// takes its id and rebuilds the page so the others clear; unticking
+			// the held one clears the field. An id the catalog no longer has
+			// still lists, ticked, rather than being dropped behind the
+			// author's back.
+			std::vector<std::string> offered =
 				optionsFor ? optionsFor(spec) : std::vector<std::string>{};
-			const std::vector<std::string> held = SplitOptions(value.c_str());
+			if (!value.empty() && std::find(offered.begin(), offered.end(), value) == offered.end())
+				offered.push_back(value);
 			page.Row<ui::Label>(FormRow(), label)->accent = true;
+			page.Row<ui::Checkbox>(FormRow(), loc::Tr("map.type.none"), value.empty(),
+								   [this, s](bool) {
+									   SetValue(*s, std::string()); // the writer REMOVES it
+									   m_uiRebuild = true; // deferred: inside a callback
+								   });
 			for (const std::string& id : offered) {
-				const bool on = std::find(held.begin(), held.end(), id) != held.end();
 				RefFace face = faceFor ? faceFor(*s, id) : RefFace{};
 				if (face.label.empty()) face.label = id;
 				ui::Checkbox* row = page.Row<ui::Checkbox>(
-					FormRow(), face.label, on, [this, s, offered, id](bool checked) {
-					const std::string now = ValueOf(*s);
-					std::vector<std::string> list = SplitOptions(now.c_str());
-					std::erase(list, id);
-					if (checked) list.push_back(id);
-					std::string out;
-					for (const std::string& o : offered) // the catalog's order...
-						if (std::find(list.begin(), list.end(), o) != list.end())
-							out += (out.empty() ? "" : " ") + o;
-					for (const std::string& o : list) // ...then anything it lacks
-						if (std::find(offered.begin(), offered.end(), o) == offered.end())
-							out += (out.empty() ? "" : " ") + o;
-					SetValue(*s, out); // empty = the writer REMOVES the field
-				});
+					FormRow(), face.label, id == value, [this, s, id](bool checked) {
+						SetValue(*s, checked ? id : std::string());
+						m_uiRebuild = true;
+					});
 				row->swatch = face.swatch;
 			}
 			break;

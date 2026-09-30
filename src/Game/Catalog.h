@@ -72,20 +72,20 @@ inline bool CatalogBool(const CatalogEntry* e, std::string_view key, bool fallba
 // can be a weapon in a stone dungeon, and one field cannot say both.
 //
 // Multi-valued deliberately: a mossy stone set is both `stone` and `outdoor`,
-// and a single `theme` field would force a false choice at authoring time —
+// and a single `tags` field would force a false choice at authoring time —
 // the kind of schema decision that is painful to reverse once content carries it.
 //
 // Two consumers, which is why the field lives on every catalog rather than on
 // the ones that need it first: the level generator picks from tag-matched sets,
-// and the editor palette ranks on-theme types first.
+// and the editor palette ranks on-tag types first.
 //
 // AN ABSENT `tags` MEANS "FITS ANYWHERE", NEVER "FITS NOTHING". Matching is a
 // preference, never a gate — untagged content must stay usable, or every
-// existing type would vanish from the palette the day a level picks a theme.
+// existing type would vanish from the palette the day a level picks tags.
 std::vector<std::string> ParseTags(std::string_view value);
 // The entry's `tags`, parsed and lowercased; empty for a null entry.
 std::vector<std::string> CatalogTags(const CatalogEntry* e);
-// Does `e` carry any of `wanted`? An empty `wanted` — no theme picked — is true
+// Does `e` carry any of `wanted`? An empty `wanted` — no tags picked — is true
 // for everything, and so is an entry with no tags of its own (see above).
 bool CatalogMatchesTags(const CatalogEntry* e, const std::vector<std::string>& wanted);
 

@@ -259,7 +259,7 @@ DungeonWorld::TypeUsage DungeonWorld::SweepTypeRefs(const std::string& catalogKe
 	else if (catalogKey == "fixtures") statics = TR::Fixture;
 	else if (catalogKey == "wallfeatures") statics = TR::WallFeature;
 	else if (catalogKey == "stairs") statics = TR::Stair;
-	else if (catalogKey == "combos") statics = TR::Combo;
+	else if (catalogKey == "themes") statics = TR::Theme;
 	else if (catalogKey == "monsters") dynamics = EntityKind::Monster;
 	// Weapons and armor place as Item entities too, so a rename/delete of one
 	// sweeps the same .ent record family.
@@ -354,26 +354,26 @@ int DungeonWorld::EnsureSurfaceVariant(const std::string& stem, SurfaceSel sel,
 	return indexIn(EnsureMapStash(stem));
 }
 
-int DungeonWorld::EnsureComboVariant(const std::string& stem, const std::string& id) {
-	const CatalogEntry* def = m_project.combos.Find(id);
+int DungeonWorld::EnsureThemeVariant(const std::string& stem, const std::string& id) {
+	const CatalogEntry* def = m_project.themes.Find(id);
 	if (!def) return -1;
-	const ComboMembers members = ComboMembersOf(*def);
+	const ThemeMembers members = ThemeMembersOf(*def);
 	// Members FIRST: a slot resolves its members against the palette, and only
 	// palette entries have textures loaded. A member whose assets are missing is
-	// simply left out of the palette, and ComboMembersOf skips what is absent.
+	// simply left out of the palette, and ThemeMemberOf reads it as absent.
 	for (int s = 0; s < 3; ++s)
-		for (const std::string& member : members[static_cast<size_t>(s)])
+		if (const std::string& member = members[static_cast<size_t>(s)]; !member.empty())
 			EnsureSurfaceVariant(stem, static_cast<SurfaceSel>(s), member);
 	DungeonMap& map = stem == m_currentLevel ? m_map : EnsureMapStash(stem);
-	return DungeonMap::ComboVariant(map.ComboSlot(id, members));
+	return DungeonMap::ThemeVariant(map.ThemeSlot(id, members));
 }
 
-void DungeonWorld::RefreshCombo(const std::string& id) {
-	const CatalogEntry* def = m_project.combos.Find(id);
-	const ComboMembers members = def ? ComboMembersOf(*def) : ComboMembers{};
+void DungeonWorld::RefreshTheme(const std::string& id) {
+	const CatalogEntry* def = m_project.themes.Find(id);
+	const ThemeMembers members = def ? ThemeMembersOf(*def) : ThemeMembers{};
 	const auto uses = [&](const DungeonMap& map) {
-		for (size_t i = 0; i < map.ComboCount(); ++i)
-			if (map.ComboId(static_cast<int>(i)) == id) return true;
+		for (size_t i = 0; i < map.ThemeCount(); ++i)
+			if (map.ThemeId(static_cast<int>(i)) == id) return true;
 		return false;
 	};
 	for (const std::string& stem : m_project.levels) {
@@ -384,10 +384,10 @@ void DungeonWorld::RefreshCombo(const std::string& id) {
 													   : uses(*ReadOnlyLevelOf(stem).map);
 		if (!used) continue;
 		for (int s = 0; s < 3; ++s)
-			for (const std::string& member : members[static_cast<size_t>(s)])
+			if (const std::string& member = members[static_cast<size_t>(s)]; !member.empty())
 				EnsureSurfaceVariant(stem, static_cast<SurfaceSel>(s), member);
 		DungeonMap& map = active ? m_map : EnsureMapStash(stem);
-		map.SetComboMembers(id, members);
+		map.SetThemeMembers(id, members);
 		if (active) m_geometryDirty = true; // FlushGeometry, on the editor's close
 	}
 	NoteEdit();

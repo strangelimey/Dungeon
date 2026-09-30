@@ -39,8 +39,8 @@
 #      the ranged kinds (by the catalog FILE's archetype) are scored with a shot,
 #      and a caster's shot is its spell - 3x+ its melee.
 #   5. THE RECIPE (P4b) - room sizes 3..3 vs 8..10 on one seed, every room
-#      measured inside its range; theme ooze vs undead, every monster carrying
-#      that tag in monsters.cat and the level recording its theme; palette
+#      measured inside its range; tag ooze vs undead, every monster carrying
+#      that tag in monsters.cat and the level recording its tags; palette
 #      copied from crypt2 (made DISTINCT first, since every demo level shares
 #      one) and not from the default; presets loaded, built with, saved (no
 #      seed in the recipe), listed and deleted, read back from genpresets.cat.
@@ -651,7 +651,7 @@ def main():
             shutil.rmtree(proj, ignore_errors=True)
 
     if phase_wanted(5):
-        print("\n5 - room sizes, theme, palette and presets")
+        print("\n5 - room sizes, tag, palette and presets")
         proj = scratch("lb_recipe")
         try:
             # crypt2 gets a palette OF ITS OWN (the same surface types, reversed),
@@ -697,16 +697,16 @@ def main():
                 def themed(stem, tag):
                     mons = monsters_of(levels, stem)
                     bad = [t for (t, _x, _z) in mons if tag not in tags.get(t, set())]
-                    rec = any(l.strip() == f"theme {tag}" for l in
+                    rec = any(l.strip() == f"tags {tag}" for l in
                               io.open(os.path.join(levels, stem + ".map"), encoding="utf-8"))
                     return mons, bad, rec
                 mo, bo, ro = themed(ooze["stem"], "ooze")
                 mu, bu, ru = themed(undead["stem"], "undead")
                 check(mo and mu and not bo and not bu and ro and ru and
                       {t for t, *_ in mo}.isdisjoint({t for t, *_ in mu}),
-                      "theme ooze vs undead on one seed: every monster carries its level's tag, "
-                      "the two share no kind, and each level records its theme",
-                      f"ooze {len(mo)} (off-theme {bo}), undead {len(mu)} (off-theme {bu}), "
+                      "tag ooze vs undead on one seed: every monster carries its level's tag, "
+                      "the two share no kind, and each level records its tags",
+                      f"ooze {len(mo)} (off-tag {bo}), undead {len(mu)} (off-tag {bu}), "
                       f"records {ro}/{ru}")
                 # PALETTE: crypt2's (now distinct) vs the default (the active level's).
                 def palette(stem):
@@ -742,7 +742,7 @@ def main():
                       f"file has my_recipe: {'[my_recipe]' in presets}")
             check(any(l.startswith("catround 26 of 26") for l in con),
                   "every catalog file round-trips, genpresets.cat included (26 of 26 "
-                  "since combos.cat)",
+                  "since themes.cat)",
                   next((l for l in con if l.startswith("catround")), "(no catround line)"))
             check("validate: clean - no faults found" in con,
                   "the checker finds nothing wrong",
