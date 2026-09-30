@@ -148,6 +148,13 @@ public:
 	CharacterSheet::Mode SheetMode() const {
 		return m_sheet ? m_sheet->CurrentMode() : CharacterSheet::Mode::Inventory;
 	}
+	// The sheet's status bar this frame (empty = nothing hovered).
+	std::string_view SheetStatusName() const {
+		return m_sheet ? m_sheet->StatusName() : std::string_view{};
+	}
+	std::string_view SheetStatusText() const {
+		return m_sheet ? m_sheet->StatusText() : std::string_view{};
+	}
 
 	// --- spellbook (the Magic area) ------------------------------------------------
 	// Opens member `i`'s book exactly as its selector button does, or refuses

@@ -122,22 +122,29 @@ float CharacterSheet::CarryLoad() const {
 	return total;
 }
 
+// What the pointer is over, for the armor tooltip and the status bar. Tracked
+// every frame rather than on a click - a tooltip that needed clicking would not
+// be one. Cleared whenever the pointer is not ours (a popup or the close box in
+// front of the slot), so neither readout goes stale. Nothing is CONSUMED here:
+// hovering must not steal the click that a slot is about to want.
+void CharacterSheet::TrackInventoryHover(ui::UIContext& ctx, const gfx::Rect& px,
+										 bool pointerFree) {
+	m_hoverDoll = m_hoverPack = m_hoverPackRow = -1;
+	const Input* input = ctx.CurrentInput();
+	if (!pointerFree || !input || !m_character || m_mode != Mode::Inventory) return;
+	const float mx = input->MouseX(), my = input->MouseY();
+	for (int i = 0; i < kDollCellCount; ++i)
+		if (EquipRect(px, i).Contains(mx, my)) { m_hoverDoll = i; return; }
+	const auto& contents = m_character->inventory.SelectedContents();
+	for (int i = 0; i < static_cast<int>(contents.size()); ++i)
+		if (PackRect(px, i).Contains(mx, my)) { m_hoverPack = i; return; }
+	for (int i = 0; i < kPackRowSlots; ++i)
+		if (PackRowRect(px, i).Contains(mx, my)) { m_hoverPackRow = i; return; }
+}
+
 void CharacterSheet::UpdateInventory(ui::UIContext& ctx, const gfx::Rect& px,
 									 float mx, float my, bool clicked) {
 	if (!m_character) return;
-
-	// What the pointer is over, for the armor tooltip. Tracked every frame
-	// rather than on a click — a tooltip that needed clicking would not be one.
-	// Nothing is CONSUMED here: hovering must not steal the click that a slot
-	// is about to want.
-	m_hoverDoll = m_hoverPack = -1;
-	for (int i = 0; i < kDollCellCount; ++i)
-		if (EquipRect(px, i).Contains(mx, my)) { m_hoverDoll = i; break; }
-	if (m_hoverDoll < 0) {
-		const auto& contents = m_character->inventory.SelectedContents();
-		for (int i = 0; i < static_cast<int>(contents.size()); ++i)
-			if (PackRect(px, i).Contains(mx, my)) { m_hoverPack = i; break; }
-	}
 
 	// Item slots are only live (and only hit-tested) in Inventory mode.
 	if (clicked && !ctx.IsMouseConsumed()) {

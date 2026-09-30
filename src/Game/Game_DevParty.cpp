@@ -474,6 +474,14 @@ void Game::RegisterPartyCommands() {
 								   m_state == AppState::CharacterSheet ? "open" : "closed",
 								   m, m < m_characters.size() ? m_characters[m].name : "?",
 								   kModes[static_cast<int>(m_ui.SheetMode())]));
+							   // The status bar, so a script that parks the pointer
+							   // on something can read what it says.
+							   const std::string_view name = m_ui.SheetStatusName();
+							   m_console.Print(
+								   name.empty()
+									   ? std::string("sheet bar: (empty)")
+									   : std::format("sheet bar: {} | {}", name,
+													 m_ui.SheetStatusText()));
 							   return;
 						   }
 						   if (!args.empty() && args[0] == "off") {

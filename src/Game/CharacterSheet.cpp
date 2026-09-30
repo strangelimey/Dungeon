@@ -183,10 +183,17 @@ void CharacterSheet::UpdateSelf(ui::UIContext& ctx) {
 		BakeEffects();
 	}
 	const Input* input = ctx.CurrentInput();
-	if (!input || ctx.IsMouseConsumed()) return;
-	const gfx::Rect& px = Pixel();
+	// Whether the pointer is still ours to read: a child (the close box, a mode
+	// button) or a popup in front may already have claimed it.
+	const bool pointerFree = input && !ctx.IsMouseConsumed();
+	const gfx::Rect px = Body();
+	TrackInventoryHover(ctx, px, pointerFree);
+	// Before any early return, so a pointer that has left the sheet (or gone
+	// behind the close box) clears the bar rather than leaving it stale.
+	UpdateStatus(ctx, pointerFree);
+	if (!pointerFree) return;
 	const float mx = input->MouseX(), my = input->MouseY();
-	if (!px.Contains(mx, my)) return;
+	if (!Pixel().Contains(mx, my)) return;
 	const bool clicked = m_character && input->WasMousePressed(MouseButton::Left);
 
 	if (m_mode == Mode::Inventory)
@@ -198,10 +205,11 @@ void CharacterSheet::UpdateSelf(ui::UIContext& ctx) {
 void CharacterSheet::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	m_character = RosterMember(m_roster, m_member);
 	const ui::Theme& theme = ctx.GetTheme();
-	const gfx::Rect& px = Pixel();
+	const gfx::Rect px = Body();
 
-	ui::DrawPanelFace(ctx, batch, px);
+	ui::DrawPanelFace(ctx, batch, Pixel()); // the whole card, status band included
 	if (!m_character) return;
+	DrawStatus(ctx, batch);
 
 	// --- header band: the name (the portrait is a child) --------------------
 	ctx.FontAt(ui::FontRole::Display, Rem(kHeadingRem))
@@ -220,7 +228,7 @@ void CharacterSheet::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 // can paint over it — it is drawn last by definition, which is what a tooltip
 // has to be.
 void CharacterSheet::DrawOverlaySelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
-	if (m_mode == Mode::Inventory) DrawArmorTip(ctx, batch, Pixel());
+	if (m_mode == Mode::Inventory) DrawArmorTip(ctx, batch, Body());
 }
 
 // --- SheetPortrait ---------------------------------------------------------

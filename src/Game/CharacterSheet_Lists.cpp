@@ -44,8 +44,8 @@ SheetList::SheetList(const gfx::Rect& rect, std::string heading,
 	m_scroll->debugName = "SheetScroll";
 	m_rows = m_scroll->Add<ui::Repeater>(
 		gfx::Rect{0, 0, 1, 1},
-		[draw = std::move(drawRow)](size_t i) -> std::unique_ptr<ui::Widget> {
-			return std::make_unique<SheetRow>(i, draw);
+		[this, draw = std::move(drawRow)](size_t i) -> std::unique_ptr<ui::Widget> {
+			return std::make_unique<SheetRow>(i, draw, &m_hoverRow);
 		},
 		[this] { return m_count ? m_count() : 0; },
 		[this](size_t i) {
@@ -147,6 +147,7 @@ void CharacterSheet::BakeSkills() {
 		const float base = static_cast<float>(level * level);
 		const float next = static_cast<float>((level + 1) * (level + 1));
 		SkillRow& row = m_skillRows.Next();
+		row.id.assign(id);
 		row.label.assign(loc::ViewKey("skill.", id).View());
 		char buf[16];
 		const auto end = std::format_to_n(buf, sizeof(buf), "{}", level).out;
@@ -160,6 +161,7 @@ void CharacterSheet::BakeSkills() {
 	// labels over empty space.
 	auto addHeader = [&](const char* key) {
 		SkillRow& row = m_skillRows.Next();
+		row.id.clear();
 		row.label.assign(loc::View(key));
 		row.level.clear();
 		row.frac = 0.0f;
@@ -275,7 +277,7 @@ float CharacterSheet::MeasureSkillRow(size_t i, ui::UIContext& ctx,
 	// One line plus a small gap, measured — not a fixed pitch. A skill row is a
 	// single line of text, so anything more is dead space in a list that grows.
 	const ui::Font& font = ctx.FontAt(ui::FontRole::Body, Rem(kSkillRem));
-	float h = font.LineAdvance() + kSkillRowGap * Pixel().h;
+	float h = font.LineAdvance() + kSkillRowGap * Body().h;
 	// Not the FIRST heading, which would push the whole list off the tab's top
 	// edge for no gain — there is nothing above it to be separated from.
 	if (i > 0 && i < m_skillRows.size() && m_skillRows[i].header)
@@ -289,7 +291,7 @@ void CharacterSheet::DrawSkillRow(size_t i, ui::UIContext& ctx,
 	const SkillRow& row = m_skillRows[i];
 	const ui::Theme& theme = ctx.GetTheme();
 	const ui::Font& font = ctx.FontAt(ui::FontRole::Body, Rem(kSkillRem));
-	const gfx::Rect& px = Pixel();
+	const gfx::Rect px = Body();
 	// A group heading: the label alone, in the accent the Stats tab uses for its
 	// column headings, and hard against the left margin rather than indented
 	// with the skills under it.
@@ -321,7 +323,7 @@ float CharacterSheet::MeasureSpellRow(size_t i, ui::UIContext& ctx,
 	const int lines = CountLines(desc, m_spellRows[i].desc, maxW);
 	return name.Height() + Rem(kNameDescGapRem) +
 		   static_cast<float>(lines) * desc.LineAdvance() +
-		   kSpellRowGap * Pixel().h;
+		   kSpellRowGap * Body().h;
 }
 
 void CharacterSheet::DrawSpellRow(size_t i, ui::UIContext& ctx,
@@ -332,7 +334,7 @@ void CharacterSheet::DrawSpellRow(size_t i, ui::UIContext& ctx,
 	// The name line (and with it the rune squares, which are sized off the text)
 	// runs at kNameRem; MeasureSpellRow uses the same font for that line.
 	const ui::Font& font = ctx.FontAt(ui::FontRole::Body, Rem(kNameRem));
-	const gfx::Rect& px = Pixel();
+	const gfx::Rect px = Body();
 	const float textX = Ax(px, kSpellTextX);
 	const float maxW = (kTextRight - kSpellTextX) * px.w;
 	const float ish = font.Height(); // rune-icon square ~ the text height
@@ -371,7 +373,7 @@ float CharacterSheet::EffectIconSize(const ui::Font& nameFont) const {
 }
 
 float CharacterSheet::EffectTextInset(const ui::Font& nameFont) const {
-	return kEffectIconX * Pixel().w + EffectIconSize(nameFont) +
+	return kEffectIconX * Body().w + EffectIconSize(nameFont) +
 		   Rem(kEffectIconGapRem);
 }
 
@@ -388,7 +390,7 @@ float CharacterSheet::MeasureEffectRow(size_t i, ui::UIContext& ctx,
 	// construction, so it can never be taller than name + description.
 	return name.Height() + Rem(kNameDescGapRem) +
 		   static_cast<float>(lines) * desc.LineAdvance() +
-		   kEffectRowGap * Pixel().h;
+		   kEffectRowGap * Body().h;
 }
 
 void CharacterSheet::DrawEffectRow(size_t i, ui::UIContext& ctx,
@@ -398,7 +400,7 @@ void CharacterSheet::DrawEffectRow(size_t i, ui::UIContext& ctx,
 	const ui::Theme& theme = ctx.GetTheme();
 	// Name AND duration at kNameRem, matching a spell row's name line.
 	const ui::Font& font = ctx.FontAt(ui::FontRole::Body, Rem(kNameRem));
-	const gfx::Rect& px = Pixel();
+	const gfx::Rect px = Body();
 
 	// Square, spanning the name line: top on the name's top, bottom where the
 	// description starts.

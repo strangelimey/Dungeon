@@ -1374,7 +1374,9 @@ void GameUI::BuildCharacterSheet() {
 	// columns: paper doll, defense numbers, backpack (CharacterSheetLayout.h
 	// kWiden, which keeps the square cells square through the change).
 	constexpr float kSheetW = 0.65f;
-	constexpr float kSheetH = 0.62f;
+	// The tabs plus the status bar beneath them (the sheet owns the split, so it
+	// can keep its tabs at the height they were authored at).
+	constexpr float kSheetH = CharacterSheet::kBodyH + CharacterSheet::kStatusH;
 	constexpr float kSheetX = (1.0f - kSheetW) * 0.5f;
 	constexpr float kSheetY = (1.0f - kSheetH) * 0.5f - 0.03f;
 	const gfx::Rect sheet{kSheetX, kSheetY, kSheetW, kSheetH};

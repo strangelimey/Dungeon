@@ -4,7 +4,8 @@
 // ============================================================================
 #pragma once
 
-#include "Game/Inventory.h" // EquipSlot
+#include "Game/CharacterSheet.h" // kBodyH / kStatusH
+#include "Game/Inventory.h"      // EquipSlot
 #include "Graphics/SpriteBatch.h"
 
 namespace dungeon::game {
@@ -32,6 +33,20 @@ inline float Ay(const gfx::Rect& px, float y) { return px.y + y * px.h; }
 // divided by the growth factor below, which keeps them the pixel size they
 // already were; only the POSITIONS were re-laid.
 inline constexpr float kWiden = 0.50f / 0.65f; // old panel width / new
+
+// --- the status bar -----------------------------------------------------------
+// A band along the bottom of the panel naming whatever the pointer is over
+// (docs/ui-updates-plan.md P1). The panel GREW to hold it rather than squeezing
+// the tabs: every fraction in this file is of the BODY - the panel minus the
+// band - so the tabs keep the exact pixel geometry they had before it existed
+// (CharacterSheet::Body, and its ContentRect, which lays the children out
+// against the same rect). The two heights are WINDOW fractions that GameUI
+// sizes the panel from, so they live on the class (CharacterSheet::kBodyH /
+// kStatusH) and this only derives the split.
+inline constexpr float kBodyFrac =
+	CharacterSheet::kBodyH / (CharacterSheet::kBodyH + CharacterSheet::kStatusH);
+inline constexpr float kStatusTextRem = 1.1f;  // the bar's text, in rem
+inline constexpr float kStatusGapRem = 0.8f;   // between the name and its line
 
 // --- shared tab body columns ------------------------------------------------
 inline constexpr float kLeft = 0.055f;

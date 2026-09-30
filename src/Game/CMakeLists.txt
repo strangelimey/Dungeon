@@ -110,6 +110,7 @@ add_library(Game STATIC
 	CharacterSheet_Inventory.cpp
 	CharacterSheet_Stats.cpp
 	CharacterSheet_Lists.cpp
+	CharacterSheet_Status.cpp
 	Project.cpp
 	Projectiles.cpp
 	ProjectileInspector.cpp

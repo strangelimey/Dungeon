@@ -31,6 +31,18 @@ std::string_view FormatPool(std::span<char> buf, float value, float max) {
 // header). Kept so SetCharacter's list of bakes still names every tab.
 void CharacterSheet::BakeStats() {}
 
+// The rows start a line BELOW the heading, measured, rather than at an
+// authored fraction: the heading grew with kStatRem and the old fixed start
+// left the two almost touching. Deriving it means the gap survives any
+// future retune of the scale — and both columns share it, so the bars stay
+// on the same baselines as the attributes beside them. One function because
+// the status bar hit-tests the same rows the draw lays out.
+CharacterSheet::StatRows CharacterSheet::StatRowsFor(ui::UIContext& ctx,
+													 const gfx::Rect& px) const {
+	const ui::Font& font = ctx.FontAt(ui::FontRole::Body, Rem(kStatRem));
+	return {Ay(px, kHeaderY) + font.LineAdvance() + Rem(0.4f), kStatRowH * px.h};
+}
+
 void CharacterSheet::DrawStats(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 							   const gfx::Rect& px) {
 	const ui::Theme& theme = ctx.GetTheme();
@@ -41,13 +53,9 @@ void CharacterSheet::DrawStats(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	// --- attributes (left column) -------------------------------------------
 	font.Draw(batch, m_attributesLabel, Ax(px, kLeft), Ay(px, kHeaderY), theme.accent);
 
-	// The rows start a line BELOW the heading, measured, rather than at an
-	// authored fraction: the heading grew with kStatRem and the old fixed start
-	// left the two almost touching. Deriving it means the gap survives any
-	// future retune of the scale — and both columns share it, so the bars stay
-	// on the same baselines as the attributes beside them.
-	const float rowTop = Ay(px, kHeaderY) + font.LineAdvance() + Rem(0.4f);
-	const float rowStep = kStatRowH * px.h;
+	const StatRows rows = StatRowsFor(ctx, px);
+	const float rowTop = rows.top;
+	const float rowStep = rows.step;
 
 	const int attrs[] = {m_character->strength, m_character->dexterity,
 						 m_character->vitality, m_character->willpower,
