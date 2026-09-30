@@ -301,7 +301,7 @@ void Game::RegisterDevCommands() {
 							   return;
 						   }
 						   // One square of the VIEWED level: what each surface stores
-						   // (a pinned palette index, a combination, or the default
+						   // (a pinned palette index, a theme, or the default
 						   // hash) and the texture that resolves to - what the 3D
 						   // scene and the map both draw.
 						   if (!args.empty() && args[0] == "cell") {
@@ -314,9 +314,9 @@ void Game::RegisterDevCommands() {
 							   for (int s = 0; s < 3; ++s) {
 								   const Surface sf = static_cast<Surface>(s);
 								   const int v = map.Variant(sf, x, z);
-								   const int slot = DungeonMap::ComboSlotOf(v);
+								   const int slot = DungeonMap::ThemeSlotOf(v);
 								   const std::string stored = v >= 0 ? std::format("pin{}", v)
-															  : slot >= 0 ? "mix:" + map.ComboId(slot)
+															  : slot >= 0 ? "theme:" + map.ThemeId(slot)
 																		  : std::string("hash");
 								   const std::vector<std::string>& pal = map.Palette(sf);
 								   const u32 i = ResolveSurfaceVariant(map, x, z, sf,
@@ -526,12 +526,12 @@ void Game::RegisterDevCommands() {
 					   });
 	// THE RANKING DIFFICULTY PICKS BY (docs/level-building.md P4), readable
 	// before anything is tuned against it. With tags, the pool exactly as the
-	// generator draws it for that theme; without, every kind. Machine-readable
+	// generator draws it for those tags; without, every kind. Machine-readable
 	// lines (`threat <id> <threat> ...`) so a harness can join them to a level's
 	// monsters.
 	m_console.Register(
 		"threat",
-		"monster kinds ranked by derived threat: threat [tag ...] (a theme's pool)",
+		"monster kinds ranked by derived threat: threat [tag ...] (a tag's pool)",
 		[this](const std::vector<std::string>& args) {
 			generate::Params p;
 			FillPools(p, args);
@@ -552,7 +552,7 @@ void Game::RegisterDevCommands() {
 					t.hit, t.beHit));
 			}
 			m_console.Print(std::format("threat: {} kind(s){}", order.size(),
-										args.empty() ? "" : " in that theme's pool"));
+										args.empty() ? "" : " in that tag's pool"));
 		});
 	m_console.Register("generate",
 					   "rough out a new level: generate [dungeon|again] [knob:value ...] | dialog [new|off|tab <n>] | "

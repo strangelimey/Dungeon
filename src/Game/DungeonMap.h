@@ -20,7 +20,8 @@
 //   stairfacing arrive   (this file's stair facings are the new meaning)
 //   variant <wall|floor|ceiling> <x> <z> <index>   per-cell surface override
 //   atmosphere [dust=] [haze=] [ambient=]  the level's mood knobs
-//   theme <tag> <tag> ...             the level's content lens (Theme())
+//   theme <wall|floor|ceiling> <x> <z> <id>  a cell showing a surface theme
+//   tags <tag> <tag> ...              the level's content lens (Tags())
 //   decoration <type> <x> <z> [facing] [wall=]
 //                                     static entity (Entity.h) — and the
 //                                     FALL-THROUGH: any record matching none
@@ -195,18 +196,18 @@ struct SurfaceFeature {
 // to the project's default ids. DungeonWorld builds one of these from the
 // live Project (FixtureTypesOf); the defaults keep a bare DungeonMap(path)
 // working for the classic two kinds.
-// One surface COMBINATION's members (combos.cat, docs/editor-updates-plan.md
-// P3): per Surface, the catalog ids its cells vary between. An empty list
-// leaves that surface to the default hash mix.
-using ComboMembers = std::array<std::vector<std::string>, 3>; // indexed by Surface
+// One surface THEME's members (themes.cat, docs/editor-themes-notes.md): per
+// Surface, the ONE catalog id its cells show. An empty id leaves that surface
+// to the default hash mix.
+using ThemeMembers = std::array<std::string, 3>; // indexed by Surface
 
 struct FixtureTypes {
 	std::vector<std::string> wallMount{"sconce"};
 	std::string sconceDefault = "sconce";  // the 'T' glyph's id
 	std::string brazierDefault = "brazier"; // the 'F' glyph's id
-	// The project's combinations by id, for `surfacemix` records - the same
+	// The project's themes by id, for `theme` records - the same
 	// "catalog facts the catalog-blind map needs" role as the fields above.
-	std::unordered_map<std::string, ComboMembers> combos;
+	std::unordered_map<std::string, ThemeMembers> themes;
 };
 
 // A stair/portal on a floor cell that, when the party steps onto it, transitions
@@ -318,18 +319,18 @@ public:
 		m_ambientScale = ambient;
 	}
 
-	// --- per-level theme (the content lens) ----------------------------------
-	// The tag words this level is built from — `theme undead stone` — matched
-	// against each catalog entry's `tags` (Catalog.h). Empty = no theme, and
-	// then nothing is off-theme.
+	// --- per-level tags (the content lens) ----------------------------------
+	// The tag words this level is built from — `tags undead stone` — matched
+	// against each catalog entry's `tags` (Catalog.h). Empty = no tags, and
+	// then nothing is off-tag.
 	//
 	// A PREFERENCE, NOT A CONSTRAINT. It ranks the editor palette and seeds the
 	// generator's picks; it never stops a type being placed, because the one-off
-	// that breaks a theme is usually the memorable thing in a dungeon. Nothing
+	// that breaks the tags is usually the memorable thing in a dungeon. Nothing
 	// downstream of placement reads it — a placed record is a placed record,
 	// which is what keeps this safe to change on a finished level.
-	const std::vector<std::string>& Theme() const { return m_theme; }
-	void SetTheme(std::vector<std::string> tags) { m_theme = std::move(tags); }
+	const std::vector<std::string>& Tags() const { return m_tags; }
+	void SetTags(std::vector<std::string> tags) { m_tags = std::move(tags); }
 
 	Vec3 CellCenter(int x, int z, float y = 0.0f) const {
 		return {(static_cast<float>(x) + 0.5f) * kCellSize, y,
@@ -580,40 +581,39 @@ public:
 		return AddPaletteId(m_ceilingPalette, std::move(id));
 	}
 
-	// --- surface COMBINATIONS (docs/editor-updates-plan.md, P3) ---------------
-	// A named, world-wide mix per surface (combos.cat: "marble hall" = a floor
-	// mix + a wall mix + a ceiling mix). A cell can REFERENCE one instead of
-	// pinning a palette index: a variant of -2 or below is combination SLOT
-	// (-2 - v) in this level's own list, so it varies exactly as a default cell
-	// does, but only across the combination's members - and editing the
-	// combination repaints every cell that uses it, with nothing to re-paint.
-	// Written as `surfacemix <surface> <x> <z> <combo id>`, by ID.
+	// --- surface THEMES (docs/editor-themes-notes.md) ----------------------
+	// A named, world-wide look (themes.cat: "marble hall" = one floor + one
+	// wall + one ceiling). A cell can REFERENCE one instead of pinning a
+	// palette index: a variant of -2 or below is theme SLOT (-2 - v) in this
+	// level's own list, and the cell shows that theme's member for its surface
+	// - so editing the theme repaints every cell that uses it, with nothing to
+	// re-paint. Written as `theme <surface> <x> <z> <theme id>`, by ID.
 	//
 	// The map is catalog-blind, so the member IDS come in from outside (the
-	// FixtureTypes at load, ComboSlot/SetComboMembers after), and each is
+	// FixtureTypes at load, ThemeSlot/SetThemeMembers after), and each is
 	// resolved here to a PALETTE INDEX. Only palette entries have textures and
 	// worn meshes loaded, so a member the palette lacks is skipped - painting a
-	// combination appends its members to the palette first (DungeonWorld).
-	static constexpr int ComboVariant(int slot) { return -2 - slot; }
-	static constexpr int ComboSlotOf(int variant) { return variant <= -2 ? -2 - variant : -1; }
-	// The slot for combination `id`, appended (with `members`) if this level
+	// theme appends its members to the palette first (DungeonWorld).
+	static constexpr int ThemeVariant(int slot) { return -2 - slot; }
+	static constexpr int ThemeSlotOf(int variant) { return variant <= -2 ? -2 - variant : -1; }
+	// The slot for theme `id`, appended (with `members`) if this level
 	// has none yet; an existing slot takes the new members. Never removes or
 	// reorders a slot - the cells store the slot number.
-	int ComboSlot(const std::string& id, const ComboMembers& members);
-	// Re-points an existing combination's members (the definition was edited);
+	int ThemeSlot(const std::string& id, const ThemeMembers& members);
+	// Re-points an existing theme's members (the definition was edited);
 	// false when this level does not use it.
-	bool SetComboMembers(const std::string& id, const ComboMembers& members);
-	size_t ComboCount() const { return m_combos.size(); }
-	const std::string& ComboId(int slot) const { return m_combos[static_cast<size_t>(slot)].id; }
-	const ComboMembers& ComboMemberIds(int slot) const {
-		return m_combos[static_cast<size_t>(slot)].ids;
+	bool SetThemeMembers(const std::string& id, const ThemeMembers& members);
+	size_t ThemeCount() const { return m_themes.size(); }
+	const std::string& ThemeId(int slot) const { return m_themes[static_cast<size_t>(slot)].id; }
+	const ThemeMembers& ThemeMemberIds(int slot) const {
+		return m_themes[static_cast<size_t>(slot)].ids;
 	}
-	// A slot's members on surface `s` as indices into Palette(s); empty = the
-	// surface falls back to the default hash (the combination leaves it be, or
-	// none of its members is in the palette).
-	std::span<const int> ComboMembersOf(Surface s, int slot) const {
-		if (slot < 0 || slot >= static_cast<int>(m_combos.size())) return {};
-		return m_combos[static_cast<size_t>(slot)].index[static_cast<size_t>(s)];
+	// A slot's member on surface `s` as an index into Palette(s); -1 = the
+	// surface falls back to the default hash (the theme leaves it be, or its
+	// member is not in the palette).
+	int ThemeMemberOf(Surface s, int slot) const {
+		if (slot < 0 || slot >= static_cast<int>(m_themes.size())) return -1;
+		return m_themes[static_cast<size_t>(slot)].index[static_cast<size_t>(s)];
 	}
 
 	// Which family of records a type sweep walks (see SweepTypeRefs). One per
@@ -621,7 +621,7 @@ public:
 	enum class TypeRecords {
 		WallPalette, FloorPalette, CeilingPalette,
 		Decoration, Fixture, WallFeature, Stair,
-		Combo // a surface combination's slot (counted by the squares using it)
+		Theme // a surface theme's slot (counted by the squares using it)
 	};
 	// Editor type rename/delete: counts this level's references to catalog id
 	// `id` within one record family and, when `newId` is given, rewrites them.
@@ -645,19 +645,19 @@ private:
 	bool FreeNicheWall(int x, int z, Direction& out) const;
 
 	// Shared body of the palette appenders (one list per surface). A palette
-	// grows, so combination members it now holds are resolved again.
+	// grows, so theme members it now holds are resolved again.
 	bool AddPaletteId(std::vector<std::string>& list, std::string id) {
 		if (id.empty() || std::find(list.begin(), list.end(), id) != list.end())
 			return false;
 		list.push_back(std::move(id));
-		ResolveComboIndices();
+		ResolveThemeIndices();
 		return true;
 	}
-	// `surfacemix <surface> <x> <z> <combo id>` (see ComboSlot).
-	void ParseSurfaceMixRecord(const std::string& record, const std::string& path,
+	// `theme <surface> <x> <z> <theme id>` (see ThemeSlot).
+	void ParseThemeRecord(const std::string& record, const std::string& path,
 							   const FixtureTypes& fixtures);
-	// Every combination's member ids -> palette indices (see ComboMembersOf).
-	void ResolveComboIndices();
+	// Every theme's member ids -> palette indices (see ThemeMemberOf).
+	void ResolveThemeIndices();
 
 	// Shared body of the variant getters/setters (one grid per surface).
 	int VariantAt(const std::vector<int>& grid, int x, int z) const {
@@ -683,7 +683,7 @@ private:
 	std::vector<u8> m_dusty;        // authored 'D' cells (for the writer)
 	// Per-level atmosphere overrides (< 0 = unset; see SetAtmosphere).
 	float m_dustDensity = -1.0f, m_hazeAmbient = -1.0f, m_ambientScale = -1.0f;
-	std::vector<std::string> m_theme; // the `theme` record's tags (see Theme())
+	std::vector<std::string> m_tags; // the `tags` record's tags (see Tags())
 	// Per-cell variant overrides, parallel to m_cells; -1 = use the hash default.
 	std::vector<int> m_wallVar, m_floorVar, m_ceilingVar;
 	std::vector<WallSconce> m_torches;
@@ -696,14 +696,15 @@ private:
 	std::vector<std::string> m_wallPalette;   // catalog ids (walls.cat)
 	std::vector<std::string> m_floorPalette;  // catalog ids (floors.cat)
 	std::vector<std::string> m_ceilingPalette; // catalog ids (ceilings.cat)
-	// The combinations this level's cells reference, by slot (see ComboSlot):
-	// the id, its member ids per surface, and those resolved to palette indices.
-	struct Combo {
+	// The themes this level's cells reference, by slot (see ThemeSlot):
+	// the id, its member id per surface, and that resolved to a palette index
+	// (-1 = none).
+	struct SurfaceTheme {
 		std::string id;
-		ComboMembers ids;
-		std::array<std::vector<int>, 3> index;
+		ThemeMembers ids;
+		std::array<int, 3> index{-1, -1, -1};
 	};
-	std::vector<Combo> m_combos;
+	std::vector<SurfaceTheme> m_themes;
 };
 
 } // namespace dungeon::game

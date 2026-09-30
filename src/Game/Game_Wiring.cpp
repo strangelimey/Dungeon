@@ -330,7 +330,7 @@ void Game::WireModuleCallbacks() {
 		return SwitchWorld(n);
 	};
 	m_newWorldDialog.onLevels = [this] { return m_project.levels; };
-	m_newWorldDialog.onThemes = [this] { return WizardThemes(); };
+	m_newWorldDialog.onTags = [this] { return WizardTags(); };
 
 	m_mapEditor.onNewAsset = [this](MapEditor::PaletteCat cat) {
 		// PURE-DATA CATEGORIES SKIP THE ASSET DIALOG. A dungeon has no texture
@@ -406,13 +406,13 @@ void Game::WireModuleCallbacks() {
 			return ids;
 		}
 		case FieldKind::CatalogRef:
-		case FieldKind::CatalogRefList: {
+		case FieldKind::CatalogRefPick: {
 			std::vector<std::string> ids;
 			if (const Catalog* c = m_project.CatalogForKey(spec.options))
 				for (const CatalogEntry& e : c->Entries()) {
 					// A hidden entry is internal (the palette never offers it),
 					// so a list of things to paint with does not offer it either.
-					if (spec.kind == FieldKind::CatalogRefList && CatalogBool(&e, "hidden", false))
+					if (spec.kind == FieldKind::CatalogRefPick && CatalogBool(&e, "hidden", false))
 						continue;
 					ids.push_back(e.id);
 				}
@@ -421,7 +421,7 @@ void Game::WireModuleCallbacks() {
 		default: return {};
 		}
 	};
-	// A reference list of SURFACE types (a combination's members) shows each as
+	// A reference list of SURFACE types (a theme's members) shows each as
 	// the palette does - name and texture swatch - by asking the palette for it.
 	m_typeDialog.faceFor = [this](const FieldSpec& spec,
 								  const std::string& id) -> TypeEditorDialog::RefFace {
@@ -444,10 +444,10 @@ void Game::WireModuleCallbacks() {
 			// KIND at load, so that kind is dropped and its instances re-spawned.
 			if (MapEditor::SurfaceCat(MapEditor::CatForCatalogKey(cfg.catalogKey)))
 				m_world->RefreshSurfaceMaterials();
-			// A combination is referenced, not copied: every square painted
+			// A theme is referenced, not copied: every square painted
 			// with it takes the new definition, on every level that has one.
-			else if (cfg.catalogKey == "combos")
-				m_world->RefreshCombo(cfg.id);
+			else if (cfg.catalogKey == "themes")
+				m_world->RefreshTheme(cfg.id);
 			else
 				m_world->ReloadTypeKind(cfg.catalogKey, cfg.id);
 			if (m_world->onMessage)

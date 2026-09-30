@@ -24,7 +24,7 @@ namespace {
 // kDialogTitleScale, and the old 0.28-wide card could not hold it — the stem
 // ran out past the panel edge and under the close box long before any of this
 // was stacked. A card has to be sized for the text it carries.
-// Grown 0.48 -> 0.54 when the theme row landed. The Stack would have absorbed
+// Grown 0.48 -> 0.54 when the tags row landed. The Stack would have absorbed
 // the row into its trailing Fill without complaint, which is exactly why the
 // height is adjusted deliberately: a card that silently swallows its own slack
 // looks fine until the row after next has nowhere to go.
@@ -63,13 +63,13 @@ LevelSettingsDialog::LevelSettingsDialog(gfx::GraphicsDevice& device, ui::FontLi
 }
 
 void LevelSettingsDialog::Open(const std::string& stem, float dust, float haze,
-							   float ambient, const std::string& theme) {
+							   float ambient, const std::string& tags) {
 	m_open = true;
 	m_stem = stem;
 	m_dust = m_oDust = dust;
 	m_haze = m_oHaze = haze;
 	m_ambient = m_oAmbient = ambient;
-	m_theme = theme;
+	m_tags = tags;
 	m_editName = false;
 	m_uiRebuild = false;
 	BuildUI();
@@ -143,9 +143,9 @@ void LevelSettingsDialog::BuildUI() {
 							Apply();
 						});
 	}
-	// The theme row. A text field, not a dropdown: tags are free-form words that
+	// The tags row. A text field, not a dropdown: tags are free-form words that
 	// content joins by being tagged, so there is no closed list to offer — and
-	// typing one no catalog carries yet is how a theme gets started, not an error.
+	// typing one no catalog carries yet is how a tag gets started, not an error.
 	{
 		ui::Stack* row = chrome.body->Row<ui::Stack>(FormRow(), true);
 		row->gapRem = 0.5f;
@@ -153,9 +153,9 @@ void LevelSettingsDialog::BuildUI() {
 		// a list of words. The clip in ui::TextField keeps a long list inside its
 		// box either way, but a value you cannot read without focusing the field
 		// is still a worse row than one you can.
-		row->Row<ui::Label>(ui::Len::Fill(1.0f), loc::Tr("map.level.theme"))
+		row->Row<ui::Label>(ui::Len::Fill(1.0f), loc::Tr("map.level.tags"))
 			->centerV = true;
-		auto* field = row->Row<ui::TextField>(ui::Len::Fill(1.4f), m_theme);
+		auto* field = row->Row<ui::TextField>(ui::Len::Fill(1.4f), m_tags);
 		field->maxLength = 48;
 		ui::TextField* raw = field;
 		raw->onChange = [this, raw] {
@@ -166,14 +166,14 @@ void LevelSettingsDialog::BuildUI() {
 				const unsigned char u = static_cast<unsigned char>(ch);
 				return !(std::isalnum(u) || ch == '_' || ch == '-' || ch == ' ');
 			});
-			m_theme = raw->text;
+			m_tags = raw->text;
 		};
 	}
 	chrome.body->Space(ui::Len::Fill()); // the rows sit at the top
 
 	chrome.footer->Space(ui::Len::Fill());
 	FooterIcon(*chrome.footer, m_device, "save", loc::Tr("map.cfg.save"), [this] {
-		if (onSave) onSave(m_dust, m_haze, m_ambient, m_theme);
+		if (onSave) onSave(m_dust, m_haze, m_ambient, m_tags);
 		Close();
 	});
 	chrome.footer->Space(ui::Len::Fill());

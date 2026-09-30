@@ -257,7 +257,7 @@ bool Game::BuildWizardWorld(const std::string& folder, const std::string& id,
 		   WriteStarterWorld(made, stem);
 }
 
-std::vector<std::string> Game::WizardThemes() const {
+std::vector<std::string> Game::WizardTags() const {
 	std::vector<std::string> tags;
 	if (!fs::exists(TemplateFolder() + "\\project.ini")) return tags;
 	const Project tpl = Project::Load(TemplateFolder());

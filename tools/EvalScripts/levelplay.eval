@@ -6,7 +6,7 @@
 logecho on
 reset
 editor
-generate crypt width:40 height:40 roommin:3 roommax:7 path:6 branches:2 branchmin:1 branchmax:2 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.6 ramp:0.5 boss:0 reward:0.5 theme: palette: seed:61 locks:0
+generate crypt width:40 height:40 roommin:3 roommax:7 path:6 branches:2 branchmin:1 branchmax:2 loops:0 winding:0 irregular:0 deadends:0 difficulty:0.6 ramp:0.5 boss:0 reward:0.5 tag: palette: seed:61 locks:0
 generate play
 pos
 mapinfo
@@ -15,4 +15,8 @@ validate
 ; An unknown level is refused, and nothing happens.
 generate play nosuchlevel
 pos
+; crypt1 carries a planted floating sconce (LevelBuildTest.py) and nothing above
+; touches it, so make it the active level: savemap always writes that one, and
+; the check reads what the writer made of the sconce.
+goto crypt1
 savemap

@@ -45,23 +45,21 @@ FixtureTypes DungeonWorld::FixtureTypesOf(const Project& p) {
 		if (e.Get("mount", "floor") == "wall") t.wallMount.push_back(e.id);
 	t.sconceDefault = p.defaultSconce;
 	t.brazierDefault = p.defaultBrazier;
-	for (const CatalogEntry& e : p.combos.Entries()) t.combos[e.id] = ComboMembersOf(e);
+	for (const CatalogEntry& e : p.themes.Entries()) t.themes[e.id] = ThemeMembersOf(e);
 	return t;
 }
 
-ComboMembers DungeonWorld::ComboMembersOf(const CatalogEntry& e) {
+ThemeMembers DungeonWorld::ThemeMembersOf(const CatalogEntry& e) {
 	static constexpr const char* kKeys[3] = {"wall", "floor", "ceiling"}; // Surface order
-	ComboMembers out;
+	ThemeMembers out;
 	for (size_t s = 0; s < 3; ++s) {
-		const std::string list = e.Get(kKeys[s], "");
-		size_t i = 0;
-		while (i < list.size()) {
-			const size_t start = list.find_first_not_of(" \t", i);
-			if (start == std::string::npos) break;
-			const size_t end = list.find_first_of(" \t", start);
-			out[s].push_back(list.substr(start, end == std::string::npos ? end : end - start));
-			i = end == std::string::npos ? list.size() : end;
-		}
+		// One id. A value written as a list (themes were mixes once) keeps its
+		// first word, so an old file still loads with a sensible look.
+		const std::string value = e.Get(kKeys[s], "");
+		const size_t start = value.find_first_not_of(" \t");
+		if (start == std::string::npos) continue;
+		const size_t end = value.find_first_of(" \t", start);
+		out[s] = value.substr(start, end == std::string::npos ? end : end - start);
 	}
 	return out;
 }
@@ -548,16 +546,16 @@ void DungeonWorld::SetLevelAtmosphere(const std::string& stem, float dust,
 	}
 }
 
-// The theme's counterpart. Nothing to apply to the running world: the tags are
+// The tags' counterpart. Nothing to apply to the running world: the tags are
 // read by the editor palette straight off the map, and no placed object or
 // rendered thing consults them — which is what makes retheming a finished level
 // a safe, reversible edit rather than a migration.
-void DungeonWorld::SetLevelTheme(const std::string& stem,
+void DungeonWorld::SetLevelTags(const std::string& stem,
 								 std::vector<std::string> tags) {
 	if (stem == m_currentLevel)
-		m_map.SetTheme(std::move(tags));
+		m_map.SetTags(std::move(tags));
 	else
-		EnsureMapStash(stem).SetTheme(std::move(tags));
+		EnsureMapStash(stem).SetTags(std::move(tags));
 }
 
 // See the header for why the cooldowns move with the latch, and why only when

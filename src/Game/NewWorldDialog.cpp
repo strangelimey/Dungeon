@@ -46,7 +46,7 @@ void NewWorldDialog::Open() {
 	m_made.clear();
 	m_spec = {};
 	m_levels = onLevels ? onLevels() : std::vector<std::string>{};
-	m_themes = onThemes ? onThemes() : std::vector<std::string>{};
+	m_tagChoices = onTags ? onTags() : std::vector<std::string>{};
 	m_note = loc::Tr("map.newworld.note");
 	m_uiRebuild = false;
 	BuildUI();
@@ -59,10 +59,10 @@ void NewWorldDialog::SetSource(NewWorldSpec::Source source, const std::string& l
 	m_uiRebuild = true; // the picked choice draws active
 }
 
-void NewWorldDialog::SetWizard(const std::string& theme, int size, float difficulty,
+void NewWorldDialog::SetWizard(const std::string& tag, int size, float difficulty,
 							   u32 seed) {
 	m_spec.source = NewWorldSpec::Source::Wizard;
-	m_spec.theme = theme;
+	m_spec.tag = tag;
 	m_spec.size = size;
 	m_spec.difficulty = std::clamp(difficulty, 0.0f, 1.0f);
 	m_spec.seed = seed;
@@ -163,16 +163,16 @@ void NewWorldDialog::BuildUI() {
 			row->Row<ui::Label>(ui::Len::Fill(0.4f), loc::Tr(key))->centerV = true;
 			return row;
 		};
-		{ // THEME: the content tag monsters, loot and surfaces are drawn by.
-			std::vector<std::string> items{loc::Tr("map.newworld.anytheme")};
-			items.insert(items.end(), m_themes.begin(), m_themes.end());
+		{ // TAGS: the content tag monsters, loot and surfaces are drawn by.
+			std::vector<std::string> items{loc::Tr("map.newworld.anytag")};
+			items.insert(items.end(), m_tagChoices.begin(), m_tagChoices.end());
 			int sel = 0;
-			for (size_t i = 0; i < m_themes.size(); ++i)
-				if (m_themes[i] == m_spec.theme) sel = static_cast<int>(i) + 1;
-			labelled("map.newworld.theme")
+			for (size_t i = 0; i < m_tagChoices.size(); ++i)
+				if (m_tagChoices[i] == m_spec.tag) sel = static_cast<int>(i) + 1;
+			labelled("map.newworld.tag")
 				->Row<ui::DropDown>(ui::Len::Fill(0.6f), items, sel, [this](int i) {
-					m_spec.theme = i > 0 && i <= static_cast<int>(m_themes.size())
-									   ? m_themes[static_cast<size_t>(i - 1)]
+					m_spec.tag = i > 0 && i <= static_cast<int>(m_tagChoices.size())
+									   ? m_tagChoices[static_cast<size_t>(i - 1)]
 									   : std::string();
 				});
 		}

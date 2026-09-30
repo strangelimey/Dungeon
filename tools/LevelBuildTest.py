@@ -39,8 +39,8 @@
 #      the ranged kinds (by the catalog FILE's archetype) are scored with a shot,
 #      and a caster's shot is its spell - 3x+ its melee.
 #   5. THE RECIPE (P4b) - room sizes 3..3 vs 8..10 on one seed, every room
-#      measured inside its range; theme ooze vs undead, every monster carrying
-#      that tag in monsters.cat and the level recording its theme; palette
+#      measured inside its range; tag ooze vs undead, every monster carrying
+#      that tag in monsters.cat and the level recording its tags; palette
 #      copied from crypt2 (made DISTINCT first, since every demo level shares
 #      one) and not from the default; presets loaded, built with, saved (no
 #      seed in the recipe), listed and deleted, read back from genpresets.cat.
@@ -651,7 +651,7 @@ def main():
             shutil.rmtree(proj, ignore_errors=True)
 
     if phase_wanted(5):
-        print("\n5 - room sizes, theme, palette and presets")
+        print("\n5 - room sizes, tag, palette and presets")
         proj = scratch("lb_recipe")
         try:
             # crypt2 gets a palette OF ITS OWN (the same surface types, reversed),
@@ -697,16 +697,16 @@ def main():
                 def themed(stem, tag):
                     mons = monsters_of(levels, stem)
                     bad = [t for (t, _x, _z) in mons if tag not in tags.get(t, set())]
-                    rec = any(l.strip() == f"theme {tag}" for l in
+                    rec = any(l.strip() == f"tags {tag}" for l in
                               io.open(os.path.join(levels, stem + ".map"), encoding="utf-8"))
                     return mons, bad, rec
                 mo, bo, ro = themed(ooze["stem"], "ooze")
                 mu, bu, ru = themed(undead["stem"], "undead")
                 check(mo and mu and not bo and not bu and ro and ru and
                       {t for t, *_ in mo}.isdisjoint({t for t, *_ in mu}),
-                      "theme ooze vs undead on one seed: every monster carries its level's tag, "
-                      "the two share no kind, and each level records its theme",
-                      f"ooze {len(mo)} (off-theme {bo}), undead {len(mu)} (off-theme {bu}), "
+                      "tag ooze vs undead on one seed: every monster carries its level's tag, "
+                      "the two share no kind, and each level records its tags",
+                      f"ooze {len(mo)} (off-tag {bo}), undead {len(mu)} (off-tag {bu}), "
                       f"records {ro}/{ru}")
                 # PALETTE: crypt2's (now distinct) vs the default (the active level's).
                 def palette(stem):
@@ -742,7 +742,7 @@ def main():
                       f"file has my_recipe: {'[my_recipe]' in presets}")
             check(any(l.startswith("catround 26 of 26") for l in con),
                   "every catalog file round-trips, genpresets.cat included (26 of 26 "
-                  "since combos.cat)",
+                  "since themes.cat)",
                   next((l for l in con if l.startswith("catround")), "(no catround line)"))
             check("validate: clean - no faults found" in con,
                   "the checker finds nothing wrong",
@@ -757,13 +757,26 @@ def main():
             # A FLOATING SCONCE, planted: a 'T' in open floor with no wall on any
             # side. crypt1 shipped one until 2026-09-25 (then moved to the north
             # wall), and it is what exposed the writer bug checked below - so the
-            # scratch copy gets one back, or that check would pass vacuously.
+            # scratch copy gets one back, or that check would pass vacuously. The
+            # square is FOUND, not fixed: crypt1 is hand-edited, and a hardcoded
+            # square stopped being floating (or being written at all) once
+            # already. levelplay.eval ends on crypt1 so savemap always writes it.
             c1p = os.path.join(proj, r"levels\crypt1.map")
             rows = io.open(c1p, encoding="utf-8", newline="").read().split("\n")
             grid_at = [i for i, l in enumerate(rows) if l[:1] in "#.PT"]
-            r4 = grid_at[4]
-            rows[r4] = rows[r4][:4] + "T" + rows[r4][5:]
-            io.open(c1p, "w", encoding="utf-8", newline="").write("\n".join(rows))
+            g = [rows[i].rstrip("\r") for i in grid_at]
+            def open_at(x, z):
+                return 0 <= z < len(g) and 0 <= x < len(g[z]) and g[z][x] in ".P"
+            floating = next(((x, z) for z in range(len(g)) for x in range(len(g[z]))
+                             if g[z][x] == "." and all(open_at(x + dx, z + dz) for dx, dz in
+                                                       ((1, 0), (-1, 0), (0, 1), (0, -1)))),
+                            None)
+            check(floating is not None, "crypt1 has an open square to plant a floating sconce on")
+            fx, fz = floating or (0, 0)
+            if floating:
+                r = grid_at[fz]
+                rows[r] = rows[r][:fx] + "T" + rows[r][fx + 1:]
+                io.open(c1p, "w", encoding="utf-8", newline="").write("\n".join(rows))
             code, con = run("levelplay.eval", "lb_play")
             check(code == 0, "the script ran to the end", f"exit {code}")
             runs = parse_runs(con)
@@ -792,16 +805,17 @@ def main():
                   poses[1] == poses[0],
                   "an unknown level is refused, and the party does not move", f"{poses[:2]}")
 
-            # THE WRITER'S ROUND TRIP (found by this phase, 2026-09-25): crypt1 has a
-            # sconce glyph in open floor, which loads with a default facing - but
-            # `savemap` wrote it back as `... north`, a record the loader ASSERTS
-            # faces a wall, so the next load of the world died. Run 2 below reloads
-            # it; this reads what the writer produced.
+            # THE WRITER'S ROUND TRIP (found by this phase, 2026-09-25): a sconce
+            # glyph in open floor loads with a default facing - but `savemap` wrote
+            # it back as `... north`, a record the loader ASSERTS faces a wall, so
+            # the next load of the world died. Run 2 below reloads it; this reads
+            # what the writer produced for the planted square.
+            want = ["fixture", "sconce", str(fx), str(fz)]
             c1 = [l.strip() for l in io.open(os.path.join(levels, "crypt1.map"), encoding="utf-8")
-                  if l.startswith("fixture sconce 4 4")]
-            check(c1 == ["fixture sconce 4 4"],
+                  if l.split()[:4] == want]
+            check(floating is not None and c1 == [" ".join(want)],
                   "a sconce with no wall to face is written back WITHOUT a facing "
-                  "(so the world still loads after a savemap)", f"{c1}")
+                  "(so the world still loads after a savemap)", f"at {floating}: {c1}")
 
             # THE SAME-LEVEL PATH: stand somewhere else on it, then play it.
             away = next(((x, z) for z, row in enumerate(grid) for x, ch in enumerate(row)

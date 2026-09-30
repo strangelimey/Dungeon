@@ -293,14 +293,14 @@ void Game::RegisterWorldCommands() {
 						const size_t eq = a[i].find('=');
 						if (eq == std::string::npos) continue;
 						const std::string k = a[i].substr(0, eq), v = a[i].substr(eq + 1);
-						if (k == "theme") spec.theme = v;
+						if (k == "tag") spec.tag = v;
 						else if (k == "size") spec.size = std::atoi(v.c_str());
 						else if (k == "difficulty") spec.difficulty = std::strtof(v.c_str(), nullptr);
 						else if (k == "seed") spec.seed = static_cast<u32>(std::strtoul(v.c_str(), nullptr, 10));
 					}
 				} else if (a.size() >= 3 && a[2] != "blank") {
 					m_console.Print("usage: worlds new <name> [blank|copy|level <stem>|wizard "
-									"[theme=<tag>] [size=<n>] [difficulty=<0..1>] [seed=<n>]]");
+									"[tag=<tag>] [size=<n>] [difficulty=<0..1>] [seed=<n>]]");
 					return;
 				}
 				std::string problem;
@@ -371,10 +371,10 @@ void Game::RegisterWorldCommands() {
 					m_worldsDialog.Note()));
 				return;
 			}
-			if (a[0] == "themes") { // the wizard's theme choices (the template's tags)
+			if (a[0] == "tags") { // the wizard's tag choices (the template's tags)
 				std::string list;
-				for (const std::string& t : WizardThemes()) list += (list.empty() ? "" : " ") + t;
-				m_console.Print("wizard themes: " + list);
+				for (const std::string& t : WizardTags()) list += (list.empty() ? "" : " ") + t;
+				m_console.Print("wizard tags: " + list);
 				return;
 			}
 			if (a[0] == "newdialog") {
@@ -387,7 +387,7 @@ void Game::RegisterWorldCommands() {
 					if (!m_newWorldDialog.IsOpen()) m_newWorldDialog.Open();
 					using S = NewWorldSpec::Source;
 					if (a.size() >= 6 && a[1] == "wizard") {
-						// wizard <theme|-> <size> <difficulty> <seed>: the rows' values.
+						// wizard <tag|-> <size> <difficulty> <seed>: the rows' values.
 						m_newWorldDialog.SetWizard(
 							a[2] == "-" ? std::string() : a[2], std::atoi(a[3].c_str()),
 							std::strtof(a[4].c_str(), nullptr),
@@ -413,8 +413,8 @@ void Game::RegisterWorldCommands() {
 					kSource[static_cast<int>(m_newWorldDialog.Source())],
 					m_newWorldDialog.Made(), m_newWorldDialog.Note()));
 				if (sp.source == NewWorldSpec::Source::Wizard)
-					m_console.Print(std::format("  wizard theme '{}' size {} difficulty {:.2f} seed {}",
-												sp.theme, sp.size, sp.difficulty, sp.seed));
+					m_console.Print(std::format("  wizard tag '{}' size {} difficulty {:.2f} seed {}",
+												sp.tag, sp.size, sp.difficulty, sp.seed));
 				return;
 			}
 			m_console.Print("usage: worlds [new|load] <name> | delete <name> <name> | "
@@ -974,7 +974,7 @@ void Game::RegisterWorldCommands() {
 			// The type editor's own paths, reachable without a mouse. Save goes
 			// through m_typeDialog.onSave, not WriteTypeFields alone: the Save
 			// also APPLIES the change (a surface's materials, a prop's kind, a
-			// combination's squares on every level), and that is what a harness
+			// theme's squares on every level), and that is what a harness
 			// needs to see. Rename and Delete are the title's and footer's.
 			if (args.size() >= 3 && (args[0] == "rename" || args[0] == "delete")) {
 				std::string problem;

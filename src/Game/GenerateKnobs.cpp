@@ -15,9 +15,9 @@ namespace {
 constexpr const char* kShape = "map.gen.tab.shape";
 constexpr const char* kComplexity = "map.gen.tab.complexity";
 constexpr const char* kPopulation = "map.gen.tab.population";
-constexpr const char* kTheme = "map.gen.tab.theme";
+constexpr const char* kTag = "map.gen.tab.tag";
 
-constexpr const char* kTabs[] = {kShape, kComplexity, kPopulation, kTheme};
+constexpr const char* kTabs[] = {kShape, kComplexity, kPopulation, kTag};
 
 // Captureless lambdas decay to the plain function pointers Knob holds, which
 // keeps the table a constant with no per-row allocation.
@@ -89,11 +89,11 @@ constexpr Knob kKnobs[] = {
 	 [](const Params& p) -> double { return p.reward; },
 	 [](Params& p, double v) { p.reward = static_cast<float>(v); }},
 	// P4b: what the level is ABOUT and what it LOOKS like, both "as before"
-	// when empty (the viewed level's theme / the active level's palette).
-	{"theme", "map.gen.theme", kTheme, KnobKind::Choice, 0, 0, nullptr, nullptr,
-	 [](const Params& p) { return p.theme; },
-	 [](Params& p, std::string_view v) { p.theme = std::string(v); }},
-	{"palette", "map.gen.palette", kTheme, KnobKind::Choice, 0, 0, nullptr, nullptr,
+	// when empty (the viewed level's tags / the active level's palette).
+	{"tag", "map.gen.tag", kTag, KnobKind::Choice, 0, 0, nullptr, nullptr,
+	 [](const Params& p) { return p.tag; },
+	 [](Params& p, std::string_view v) { p.tag = std::string(v); }},
+	{"palette", "map.gen.palette", kTag, KnobKind::Choice, 0, 0, nullptr, nullptr,
 	 [](const Params& p) { return p.palette; },
 	 [](Params& p, std::string_view v) { p.palette = std::string(v); }},
 };
@@ -120,7 +120,7 @@ std::string Encode(const Params& p) {
 		// Whole numbers print as integers: {:g} would put a large seed in
 		// exponent form, and a seed that does not round-trip is a lost level.
 		if (k.kind == KnobKind::Choice) {
-			out += std::format("{}:{}", k.key, k.getText(p)); // "theme:" = inherit
+			out += std::format("{}:{}", k.key, k.getText(p)); // "tag:" = inherit
 			continue;
 		}
 		const double v = k.get(p);

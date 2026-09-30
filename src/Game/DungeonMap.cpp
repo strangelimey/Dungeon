@@ -322,14 +322,14 @@ void DungeonMap::Parse(const std::vector<u8>& bytesIn, FixtureTypes fixtures,
 			ParseVariantRecord(record, path);
 			continue;
 		}
-		if (record.starts_with("surfacemix")) {
-			ParseSurfaceMixRecord(record, path, fixtures);
+		if (record.starts_with("theme")) {
+			ParseThemeRecord(record, path, fixtures);
 			continue;
 		}
-		if (record.starts_with("theme")) {
-			// theme <tag> <tag> ... — the level's content lens (DungeonMap::Theme).
+		if (record.starts_with("tags")) {
+			// tags <tag> <tag> ... — the level's content lens (DungeonMap::Tags).
 			// Unlike every other record here there is nothing to validate against:
-			// a tag naming no content is not an error, just a theme nothing has
+			// a tag naming no content is not an error, just a tag nothing has
 			// joined yet, and refusing it would make tagging content and theming
 			// a level order-dependent. Lowercased to match Catalog.h's parse.
 			const std::vector<std::string_view> tok = SplitRecordTokens(record);
@@ -337,7 +337,7 @@ void DungeonMap::Parse(const std::vector<u8>& bytesIn, FixtureTypes fixtures,
 				std::string tag(tok[i]);
 				for (char& ch : tag)
 					ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-				m_theme.push_back(std::move(tag));
+				m_tags.push_back(std::move(tag));
 			}
 			continue;
 		}
@@ -390,8 +390,8 @@ void DungeonMap::Parse(const std::vector<u8>& bytesIn, FixtureTypes fixtures,
 			  "map must declare its surface palettes (palette <wall|floor|ceiling> "
 			  "<id> ...): " + path);
 	// The palettes are only complete now (records may come in any order), so
-	// this is where the combinations' members find their palette indices.
-	ResolveComboIndices();
+	// this is where the themes' members find their palette indices.
+	ResolveThemeIndices();
 
 	// A STAIR'S FACING changed meaning (Michael, 2026-09-25). It used to be the
 	// way you TRAVEL on it - the way the steps rise, or fall - and is now the
@@ -547,70 +547,68 @@ void DungeonMap::ParseVariantRecord(const std::string& record, const std::string
 									 tok[1], record, path));
 }
 
-void DungeonMap::ParseSurfaceMixRecord(const std::string& record, const std::string& path,
+void DungeonMap::ParseThemeRecord(const std::string& record, const std::string& path,
 									   const FixtureTypes& fixtures) {
 	const std::vector<std::string_view> tok = SplitRecordTokens(record);
 	DN_ASSERT(tok.size() >= 5,
-			  std::format("surfacemix needs <wall|floor|ceiling> <x> <z> <combo>: \"{}\" in {}",
+			  std::format("theme needs <wall|floor|ceiling> <x> <z> <theme>: \"{}\" in {}",
 						  record, path));
 	const auto num = [&](std::string_view t) {
 		int v = 0;
 		const auto [end, ec] = std::from_chars(t.data(), t.data() + t.size(), v);
 		DN_ASSERT(ec == std::errc{} && end == t.data() + t.size(),
-				  std::format("bad surfacemix number \"{}\": \"{}\" in {}", t, record, path));
+				  std::format("bad theme number \"{}\": \"{}\" in {}", t, record, path));
 		return v;
 	};
 	const int x = num(tok[2]), z = num(tok[3]);
 	const std::string id(tok[4]);
-	// A combination the project no longer defines keeps its slot with NO
+	// A theme the project no longer defines keeps its slot with NO
 	// members, so its cells draw the default mix rather than failing the load:
 	// the record survives the next save, and restoring the definition brings the
 	// look back.
-	const auto def = fixtures.combos.find(id);
-	const int v = ComboVariant(ComboSlot(id, def != fixtures.combos.end() ? def->second
-																		 : ComboMembers{}));
+	const auto def = fixtures.themes.find(id);
+	const int v = ThemeVariant(ThemeSlot(id, def != fixtures.themes.end() ? def->second
+																		 : ThemeMembers{}));
 	// The same cell-type rule as `variant`: walls on solid, the rest on floor.
 	if (tok[1] == "wall") { if (!IsWalkable(x, z)) SetWallVariant(x, z, v); }
 	else if (tok[1] == "floor") { if (IsWalkable(x, z)) SetFloorVariant(x, z, v); }
 	else if (tok[1] == "ceiling") { if (IsWalkable(x, z)) SetCeilingVariant(x, z, v); }
 	else
-		DN_ASSERT(false, std::format("unknown surfacemix surface \"{}\": \"{}\" in {}",
+		DN_ASSERT(false, std::format("unknown theme surface \"{}\": \"{}\" in {}",
 									 tok[1], record, path));
 }
 
-int DungeonMap::ComboSlot(const std::string& id, const ComboMembers& members) {
-	for (size_t i = 0; i < m_combos.size(); ++i)
-		if (m_combos[i].id == id) {
-			m_combos[i].ids = members;
-			ResolveComboIndices();
+int DungeonMap::ThemeSlot(const std::string& id, const ThemeMembers& members) {
+	for (size_t i = 0; i < m_themes.size(); ++i)
+		if (m_themes[i].id == id) {
+			m_themes[i].ids = members;
+			ResolveThemeIndices();
 			return static_cast<int>(i);
 		}
-	m_combos.push_back({id, members, {}});
-	ResolveComboIndices();
-	return static_cast<int>(m_combos.size() - 1);
+	m_themes.push_back({id, members, {}});
+	ResolveThemeIndices();
+	return static_cast<int>(m_themes.size() - 1);
 }
 
-bool DungeonMap::SetComboMembers(const std::string& id, const ComboMembers& members) {
-	for (Combo& c : m_combos)
+bool DungeonMap::SetThemeMembers(const std::string& id, const ThemeMembers& members) {
+	for (SurfaceTheme& c : m_themes)
 		if (c.id == id) {
 			c.ids = members;
-			ResolveComboIndices();
+			ResolveThemeIndices();
 			++m_revision; // every cell using it may now show another texture
 			return true;
 		}
 	return false;
 }
 
-void DungeonMap::ResolveComboIndices() {
-	for (Combo& c : m_combos)
+void DungeonMap::ResolveThemeIndices() {
+	for (SurfaceTheme& c : m_themes)
 		for (int s = 0; s < 3; ++s) {
 			const std::vector<std::string>& pal = Palette(static_cast<Surface>(s));
-			std::vector<int>& out = c.index[static_cast<size_t>(s)];
-			out.clear();
-			for (const std::string& member : c.ids[static_cast<size_t>(s)]) {
-				const auto it = std::find(pal.begin(), pal.end(), member);
-				if (it != pal.end()) out.push_back(static_cast<int>(it - pal.begin()));
-			}
+			const std::string& member = c.ids[static_cast<size_t>(s)];
+			const auto it = member.empty() ? pal.end() : std::find(pal.begin(), pal.end(), member);
+			c.index[static_cast<size_t>(s)] =
+				it != pal.end() ? static_cast<int>(it - pal.begin()) : -1;
 		}
 }
 
@@ -1215,31 +1213,31 @@ int DungeonMap::SweepTypeRefs(TypeRecords records, std::string_view id,
 	case TypeRecords::Stair:
 		for (StairLink& s : m_stairs) sweep(s.type);
 		break;
-	case TypeRecords::Combo:
+	case TypeRecords::Theme:
 		// A slot is a REFERENCE only while a square uses it: an erased square
 		// leaves its slot behind until the next load, and a leftover must not
-		// block deleting the combination. So the squares are what is counted.
-		for (size_t slot = 0; slot < m_combos.size(); ++slot) {
-			if (m_combos[slot].id != id) continue;
-			const int v = ComboVariant(static_cast<int>(slot));
+		// block deleting the theme. So the squares are what is counted.
+		for (size_t slot = 0; slot < m_themes.size(); ++slot) {
+			if (m_themes[slot].id != id) continue;
+			const int v = ThemeVariant(static_cast<int>(slot));
 			for (const std::vector<int>* g : {&m_wallVar, &m_floorVar, &m_ceilingVar})
 				hits += static_cast<int>(std::count(g->begin(), g->end(), v));
-			if (newId) m_combos[slot].id = *newId;
+			if (newId) m_themes[slot].id = *newId;
 		}
 		break;
 	}
-	// A surface type renamed is also a combination MEMBER renamed: the member
-	// lists this level holds follow it, so they keep resolving (the palette
+	// A surface type renamed is also a theme MEMBER renamed: the members
+	// this level holds follow it, so they keep resolving (the palette
 	// index does not move, being renamed in place). Not counted - the catalog's
-	// combos.cat entry is the reference, and Game's catalog sweep counts that.
+	// themes.cat entry is the reference, and Game's catalog sweep counts that.
 	const int surface = records == TypeRecords::WallPalette    ? 0
 						: records == TypeRecords::FloorPalette ? 1
 						: records == TypeRecords::CeilingPalette ? 2 : -1;
 	if (surface >= 0 && newId) {
-		for (Combo& c : m_combos)
-			for (std::string& member : c.ids[static_cast<size_t>(surface)])
-				if (member == id) member = *newId;
-		ResolveComboIndices();
+		for (SurfaceTheme& c : m_themes)
+			if (std::string& member = c.ids[static_cast<size_t>(surface)]; member == id)
+				member = *newId;
+		ResolveThemeIndices();
 	}
 	// Nothing here moves a cell or changes the grid, so the revision stands —
 	// a rename is a relabelling, not an edit the mesh builder cares about.

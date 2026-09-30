@@ -1,0 +1,18 @@
+; Surface themes: a named, world-wide look. Painting one (the editor's Themes
+; brush) never changes a square's type: an open square takes the floor and
+; ceiling, a wall block the wall. The square REFERENCES the theme, so editing
+; an entry here repaints every square that uses it (docs/editor-themes-notes.md).
+;
+; Fields:
+;   display   the name the palette shows.
+;   floor     the floors.cat id its open squares show.
+;   wall      the walls.cat id its wall blocks show.
+;   ceiling   the ceilings.cat id its ceilings show.
+;   Each is ONE id; an empty or absent one leaves that surface exactly as
+;   it is.
+
+[marble_hall]
+display = Marble Hall
+floor = floor_slabs
+wall = wall_marble
+ceiling = ceiling_stone

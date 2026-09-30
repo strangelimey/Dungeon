@@ -905,10 +905,10 @@ public:
 	// (PruneEntitiesForCell) — so live state always matches the new grid.
 	void EditCell(int x, int z, Cell cell);
 
-	// A combos.cat entry's members per surface (its `wall` / `floor` / `ceiling`
-	// id lists). The one reader of that format, for the map parser's
-	// FixtureTypes and for the brush that paints a combination.
-	static ComboMembers ComboMembersOf(const CatalogEntry& entry);
+	// A themes.cat entry's member per surface (its `wall` / `floor` / `ceiling`
+	// ids, empty = none). The one reader of that format, for the map parser's
+	// FixtureTypes and for the brush that paints a theme.
+	static ThemeMembers ThemeMembersOf(const CatalogEntry& entry);
 
 	// Which surface a variant edit targets (DungeonMap's Surface - spelled out,
 	// since inside this class a bare `Surface` names the chunk-list struct).
@@ -924,7 +924,7 @@ public:
 	// level on a foreign palette) — the map falls back to its flat ink.
 	const gfx::Texture* SurfaceAlbedoForId(SurfaceSel sel,
 										   const std::string& id) const;
-	// A surface type's SWATCH for a list (the palette, a combination's member
+	// A surface type's SWATCH for a list (the palette, a theme's member
 	// rows): the loaded albedo when the active level has it, else a small
 	// thumbnail LoadSurfaceThumb made earlier, else null (the flat colour).
 	// Draw-safe: it never loads.
@@ -957,19 +957,19 @@ public:
 	// append-only, so a type already present keeps its index.
 	int EnsureSurfaceVariant(const std::string& stem, SurfaceSel sel,
 							 const std::string& id);
-	// The same for a surface COMBINATION (combos.cat `id`): every member joins
+	// The same for a surface THEME (themes.cat `id`): each member joins
 	// its surface's palette on level `stem` (skipping any whose assets are
-	// missing), the level gains a slot for the combination, and the return is
-	// the VARIANT a cell stores to reference it (DungeonMap::ComboVariant) - or
-	// -1 when the project defines no such combination.
-	int EnsureComboVariant(const std::string& stem, const std::string& id);
-	// After a combination's DEFINITION changed (the type editor's Save): every
+	// missing), the level gains a slot for the theme, and the return is
+	// the VARIANT a cell stores to reference it (DungeonMap::ThemeVariant) - or
+	// -1 when the project defines no such theme.
+	int EnsureThemeVariant(const std::string& stem, const std::string& id);
+	// After a theme's DEFINITION changed (the type editor's Save): every
 	// level whose squares use it takes the new members - each enrolled in that
 	// level's palette first - so it repaints with nothing re-painted. Levels not
 	// in memory are asked through their read-only copies, so only the ones that
 	// USE it get stashed (and rewritten by the next savemap). The active level's
 	// geometry is re-stamped when the editor closes, as after an undo.
-	void RefreshCombo(const std::string& id);
+	void RefreshTheme(const std::string& id);
 	// True when the type's baked assets are on disk at the CURRENT quality tier
 	// (its texture set and worn_<set>_<tier>.gltf). Guards AddPaletteEntry: the
 	// worn-mesh load is a LoadModelOrDie, so an unbaked type would abort the
@@ -1590,10 +1590,10 @@ public:
 									float& haze, float& ambient);
 	void SetLevelAtmosphere(const std::string& stem, float dust, float haze,
 							float ambient);
-	// The level's THEME tags (same dialog, persisted as the .map `theme`
+	// The level's TAGS (same dialog, persisted as the .map `tags`
 	// record; same active-vs-stash routing). Nothing in the running world reads
 	// them — see the definition.
-	void SetLevelTheme(const std::string& stem, std::vector<std::string> tags);
+	void SetLevelTags(const std::string& stem, std::vector<std::string> tags);
 
 	// HUD log feedback (bump lines, monster announcements, palette flavor).
 	// Set before play starts; the party/monster callbacks route through it.
@@ -2551,7 +2551,7 @@ private:
 public:
 	// Routing info for DungeonMap's fixture-record parser, derived from the
 	// project's fixtures catalog (wall-mount ids + the glyph default ids) and,
-	// for `surfacemix` records, its combinations. Passed at every DungeonMap
+	// for `theme` records, its themes. Passed at every DungeonMap
 	// construction - including Game's, when a new world parses a level of a
 	// project that is not the running one.
 	static FixtureTypes FixtureTypesOf(const Project& project);

@@ -1651,7 +1651,7 @@ tested; the eval harness only REPORTS). What exists now, and the rules it rests 
   type writes); a new edit path that takes no undo step must `NoteEdit()`.
 - NEVER STASH TO READ. A stashed level is one `savemap` rewrites, so anything
   that only READS other levels (Validate, `typerefs`/delete refusal counts,
-  RefreshCombo's "who uses this?") goes through `m_readOnlyLevels`
+  RefreshTheme's "who uses this?") goes through `m_readOnlyLevels`
   (ReadOnlyLevelOf, re-parsed when the file's write time moves). Both Check and
   the type-usage count used to stash every level.
 - Multi-cell fills batch chunk rebuilds (`BeginChunkBatch/EndChunkBatch`,
@@ -1667,14 +1667,23 @@ tested; the eval harness only REPORTS). What exists now, and the rules it rests 
   (red/amber), tooltips them, and badges Check with the cell-less count.
   `validate::Issue::also` lists extra squares to box (a stair's far end, every
   lost item). `editor issues` prints the boxes.
-- SURFACE COMBINATIONS: `combos.cat` (world-wide), a Combinations palette
-  brush that RECOLOURS (never changes a cell's type). A cell REFERENCES one: a
-  variant <= -2 is combination slot (-2 - v) in the level's list, written as
-  `surfacemix <surface> <x> <z> <id>` BY ID. Members resolve to palette INDICES
-  on the map (only palette entries have textures), so painting enrols them.
-  Editing one (`FieldKind::CatalogRefList` checkbox tabs) repaints every level
-  using it (RefreshCombo). Rename sweeps slots; delete refuses while SQUARES use
-  it; a member type's rename is swept into combos.cat and the maps.
+- SURFACE THEMES (were "combinations"; editor-themes branch, docs/editor-themes-
+  notes.md): `themes.cat` (world-wide), ONE wall + ONE floor + ONE ceiling id per
+  theme (empty = leave that surface be; a legacy list keeps its first word). The
+  Themes palette brush RECOLOURS and never changes a cell's type: an open square
+  takes floor + ceiling, a wall block the wall - by click, drag, rect, flood,
+  area or fill level. A cell REFERENCES the theme: a variant <= -2 is theme slot
+  (-2 - v) in the level's list, written as `theme <surface> <x> <z> <id>` BY ID.
+  Members resolve to palette INDICES on the map (only palette entries have
+  textures), so painting enrols them. Editing one (`FieldKind::CatalogRefPick`:
+  a tab per surface, one swatch row ticked) repaints every level using it
+  (RefreshTheme). Rename sweeps slots; delete refuses while SQUARES use it; a
+  member type's rename is swept into themes.cat and the maps.
+  NAMING: "theme" used to ALSO mean a level's content tags (undead, stone). That
+  concept is now TAGS everywhere - the .map `tags <tag> ...` record,
+  DungeonMap::Tags(), the Level dialog's "Tags" row, the generator's `tag:` knob
+  and Tags tab, the wizard's `tag=` and `worlds tags`. ui::Theme (UI colours) is
+  a third, unrelated meaning and stays.
 - WORLDS: `assets/templates/default` (built by `tools/BuildTemplate.py` from
   dungeon-demo, minus places/provenance/quest hooks; outside projects/, so never
   listed) is what a BLANK world starts from. `Game::CreateWorld(name,
@@ -1687,7 +1696,7 @@ tested; the eval harness only REPORTS). What exists now, and the rules it rests 
   Worlds dialog's "New world...". A starter or wizard floor has an exit stair.
 - Console added: `editor drag|fill|rev|tool|issues|cell|pick`, `geomhash`,
   `typeset [rename|delete]`, `worlds new <n> [blank|copy|level <s>|wizard ...]`,
-  `worlds themes`, `worlds newdialog ...`.
+  `worlds tags`, `worlds newdialog ...`.
 
 ## Known gaps / natural next steps
 

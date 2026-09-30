@@ -31,13 +31,13 @@
 #      but two boxes; a stair whose partner was deleted is boxed on its own
 #      level AND at the far end on the other; a finding with no square (a
 #      dungeon with no levels) is counted on the Check badge instead.
-#   7. PAINTING WITH A COMBINATION: an area fill with "marble hall" makes the
+#   7. PAINTING WITH A THEME: an area fill with "marble hall" makes the
 #      room's floors and ceilings and the walls around it REFERENCE it, every
-#      one resolving to a member (including one the palette had to enrol);
-#      the eyedropper picks the combination up; it survives a save and a
-#      reload with the geometry unchanged; and "+ New..." seeds a combination
+#      one resolving to its one member per surface (the floor one the palette
+#      had to enrol); the eyedropper picks the theme up; it survives a save and
+#      a reload with the geometry unchanged; and "+ New..." seeds a theme
 #      from the selected square's look.
-#   8. EDITING A COMBINATION reaches every square painted with it: a new floor
+#   8. EDITING A THEME reaches every square painted with it: a new floor
 #      shows at once on the level in hand and on a level NOT loaded, and the
 #      save that follows writes that level but not one that does not use it;
 #      a rename reaches the squares, a delete is refused while any use it, and
@@ -52,7 +52,7 @@
 #      made over the Worlds dialog lands in that list ARMED.
 #  11. THE WIZARD: the template's content and one generated floor. The same
 #      knobs and seed make an identical floor, another seed a different one;
-#      the theme holds the monsters to its tag; the size is the map's; there
+#      the tag holds the monsters to it; the size is the map's; there
 #      is a way out; and each world opens by name and passes the checker.
 #
 # Every project file a phase writes is restored byte for byte afterwards.
@@ -260,8 +260,8 @@ finally:
     shutil.copytree(backup, PROJ)
     shutil.rmtree(backup, ignore_errors=True)
 
-# --- phase 7: painting with a combination -------------------------------------
-print("7 - a combination paints a whole look, by reference")
+# --- phase 7: painting with a theme -------------------------------------------
+print("7 - a theme paints a whole look, by reference")
 CELL = re.compile(r"console: editor cell (\S+) (\d+),(\d+) (\w+) wall=(\S+)/(\S+) "
                   r"floor=(\S+)/(\S+) ceiling=(\S+)/(\S+)")
 backup = os.path.join(ROOT, r"build\editortest-backup")
@@ -269,10 +269,10 @@ shutil.rmtree(backup, ignore_errors=True)
 shutil.copytree(PROJ, backup)
 try:
     # floor_rubble is not in eval_arena's palette: painting must enrol it.
-    io.open(os.path.join(PROJ, r"catalog\combos.cat"), "w", encoding="utf-8", newline="").write(
-        "[marble_hall]\r\ndisplay = Marble Hall\r\nfloor = floor_slabs floor_rubble\r\n"
+    io.open(os.path.join(PROJ, r"catalog\themes.cat"), "w", encoding="utf-8", newline="").write(
+        "[marble_hall]\r\ndisplay = Marble Hall\r\nfloor = floor_rubble\r\n"
         "wall = wall_marble\r\nceiling = ceiling_stone\r\n")
-    log = run("combos.eval")
+    log = run("themes.eval")
     check(passed(log), "the script ran clean")
     m = re.search(r"editor: Filled the room or corridor \((\d+) cells\)", log)
     check(m is not None and int(m.group(1)) == 212,
@@ -283,50 +283,50 @@ try:
     solids = [c for c in before if c[3] == "solid"]
     check(len(opens) == 4 and len(solids) == 2, "four room squares and two walls read back",
           str(len(before)))
-    check(all(c[6] == "mix:marble_hall" and c[7] in ("floor_slabs", "floor_rubble") and
-              c[8] == "mix:marble_hall" and c[9] == "ceiling_stone" for c in opens),
-          "every room square references it and shows a member", str(opens))
-    check(any(c[7] == "floor_rubble" for c in opens),
-          "including the member the palette had to enrol", str([c[7] for c in opens]))
-    check(all(c[4] == "mix:marble_hall" and c[5] == "wall_marble" for c in solids),
+    check(all(c[6] == "theme:marble_hall" and c[7] == "floor_rubble" and
+              c[8] == "theme:marble_hall" and c[9] == "ceiling_stone" for c in opens),
+          "every room square references it and shows its members", str(opens))
+    check(len(opens) > 0 and all(c[7] == "floor_rubble" for c in opens),
+          "including the floor the palette had to enrol", str([c[7] for c in opens]))
+    check(all(c[4] == "theme:marble_hall" and c[5] == "wall_marble" for c in solids),
           "the walls around the room reference it too", str(solids))
-    check("console: editor pick: combos marble_hall" in log,
-          "the eyedropper picks up the combination, not one member")
+    check("console: editor pick: themes marble_hall" in log,
+          "the eyedropper picks up the theme, not its member")
     h = hashes(log)
     check(len(h) == 3 and h[1] != h[0] and h[2] == h[1],
           "painting changed the level, and a save and reload kept it exactly",
           str([x[2] for x in h]))
     after = cells[6:8]
-    check(len(after) == 2 and after[0][6] == "mix:marble_hall" and
-          after[1][4] == "mix:marble_hall", "the references came back from the file", str(after))
-    # "+ New..." seeds a combination from the SELECTED square: 1,5's floor and
+    check(len(after) == 2 and after[0][6] == "theme:marble_hall" and
+          after[1][4] == "theme:marble_hall", "the references came back from the file", str(after))
+    # "+ New..." seeds a theme from the SELECTED square: 1,5's floor and
     # ceiling and its west wall, one member each - so what it paints must show
     # exactly those.
     seed = cells[8:]
     if len(seed) != 3:
-        check(False, "three squares read for the new combination", str(len(seed)))
+        check(False, "three squares read for the new theme", str(len(seed)))
     else:
         src, room, wall = seed
-        check(room[6] == "mix:combo1" and room[7] == src[7] and room[9] == src[9],
-              "a new combination takes the selected square's floor and ceiling",
+        check(room[6] == "theme:theme1" and room[7] == src[7] and room[9] == src[9],
+              "a new theme takes the selected square's floor and ceiling",
               f"{src[7]}/{src[9]} -> {room[7]}/{room[9]}")
-        check(wall[4] == "mix:combo1" and wall[5] == "wall_marble",
+        check(wall[4] == "theme:theme1" and wall[5] == "wall_marble",
               "and the wall beside it", str(wall))
 finally:
     shutil.rmtree(PROJ)
     shutil.copytree(backup, PROJ)
     shutil.rmtree(backup, ignore_errors=True)
 
-# --- phase 8: editing a combination -------------------------------------------
-print("8 - editing a combination repaints every square that uses it")
+# --- phase 8: editing a theme -------------------------------------------------
+print("8 - editing a theme repaints every square that uses it")
 backup = os.path.join(ROOT, r"build\editortest-backup")
 shutil.rmtree(backup, ignore_errors=True)
 shutil.copytree(PROJ, backup)
 try:
-    io.open(os.path.join(PROJ, r"catalog\combos.cat"), "w", encoding="utf-8", newline="").write(
-        "[marble_hall]\r\ndisplay = Marble Hall\r\nfloor = floor_slabs floor_rubble\r\n"
+    io.open(os.path.join(PROJ, r"catalog\themes.cat"), "w", encoding="utf-8", newline="").write(
+        "[marble_hall]\r\ndisplay = Marble Hall\r\nfloor = floor_rubble\r\n"
         "wall = wall_marble\r\nceiling = ceiling_stone\r\n")
-    log = run("comboedit.eval")
+    log = run("themeedit.eval")
     check(passed(log), "the script ran clean")
     s = {}
     name = None
@@ -339,19 +339,19 @@ try:
             s[name].append(line.split("console: ", 1)[1])
     two, three, four = s.get("2", []), s.get("3", []), s.get("4", [])
     floors2 = [l for l in two if l.startswith("editor cell")]
-    check(len(floors2) == 3 and all("floor=mix:marble_hall/floor_temple" in l for l in floors2),
+    check(len(floors2) == 3 and all("floor=theme:marble_hall/floor_temple" in l for l in floors2),
           "the new floor shows on the level in hand AND on crypt2, not loaded",
           str(floors2))
     saved = [l for l in two if l.startswith("saved levels:")]
     check(saved and "crypt2" in saved[0] and "crypt1" not in saved[0],
           "the save wrote crypt2, which uses it, and not crypt1, which does not",
           str(saved))
-    check(any("floor=mix:grand_hall/" in l for l in three), "a rename reaches the squares",
+    check(any("floor=theme:grand_hall/" in l for l in three), "a rename reaches the squares",
           str(three))
-    check(any(l.startswith("typeset delete combos 'grand_hall': refused") for l in three),
+    check(any(l.startswith("typeset delete themes 'grand_hall': refused") for l in three),
           "a delete is refused while squares use it", str(three))
-    check(any("floor=mix:grand_hall/floor_temple_b" in l for l in four),
-          "a member floor type renamed keeps the combination resolving", str(four))
+    check(any("floor=theme:grand_hall/floor_temple_b" in l for l in four),
+          "a member floor type renamed keeps the theme resolving", str(four))
 finally:
     shutil.rmtree(PROJ)
     shutil.copytree(backup, PROJ)
@@ -404,7 +404,7 @@ try:
     blank = read("nw_blank", r"levels\room1.map")
     check(re.search(r"^stairs stairs_exit 8 7 south dest=keep_gate", blank, re.M) is not None,
           "the blank world's first room has a way out")
-    check("[marble_hall]" in read("nw_blank", r"catalog\combos.cat") and
+    check("[marble_hall]" in read("nw_blank", r"catalog\themes.cat") and
           "[crypt]" not in read("nw_blank", r"catalog\dungeons.cat"),
           "and the template's content, without dungeon-demo's places")
     # Each opens BY NAME (-project) and is clean as it stands.
@@ -441,7 +441,7 @@ finally:
         shutil.rmtree(os.path.join(PROJECTS, w), ignore_errors=True)
 
 # --- phase 11: the wizard -------------------------------------------------------
-print("11 - the wizard generates a first floor, themed and reproducible")
+print("11 - the wizard generates a first floor, tagged and reproducible")
 WIZ = ("wz_a", "wz_b", "wz_c", "wz_undead", "wz_dlg")
 
 
@@ -465,10 +465,10 @@ try:
     for w in WIZ[:-1]:
         check(f"console: created world '{w}'" in log, f"{w} was made")
     check("source wizard made 'wz_dlg'" in log, "wz_dlg was made, through the dialog")
-    themes = next((l.split("wizard themes: ", 1)[1] for l in log.splitlines()
-                   if "wizard themes: " in l), "")
+    themes = next((l.split("wizard tags: ", 1)[1] for l in log.splitlines()
+                   if "wizard tags: " in l), "")
     check("vermin" in themes.split() and "undead" in themes.split(),
-          "the theme choices are the template's tags", themes)
+          "the tag choices are the template's tags", themes)
 
     def floor(w, ext):
         p = os.path.join(PROJECTS, w, "levels", "floor1." + ext)

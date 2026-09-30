@@ -39,10 +39,10 @@ enum class FieldKind {
 	TextureSet, // dropdown over the installed texture sets (assets/textures)
 	Model,      // dropdown over the installed models (assets/models)
 	CatalogRef, // dropdown over the ids of the catalog named by `options`
-	// A SET of ids from the catalog named by `options`, written as a space-
-	// separated list: one checkbox per id (a combination's floor/wall/ceiling
-	// mixes). A dropdown picks one; this picks any number.
-	CatalogRefList,
+	// ONE id from the catalog named by `options`, like CatalogRef, but picked
+	// from a list of rows that shows each candidate's face (a theme's floor /
+	// wall / ceiling, with the palette's swatches) instead of a dropdown.
+	CatalogRefPick,
 	// Dropdown over the DAMAGE TYPES the project defines (damagetypes.cat).
 	// Its own kind rather than a CatalogRef because the types are loaded into a
 	// registry that resolves and validates them (DamageTypeBook), and the

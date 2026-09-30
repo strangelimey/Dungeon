@@ -220,11 +220,11 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_mapView.onLevelSettings = [this] {
 		float dust, haze, ambient;
 		DungeonWorld::EffectiveAtmosphere(m_mapView.ViewedMap(), dust, haze, ambient);
-		// The theme goes in as the user types it: space-separated words.
-		std::string theme;
-		for (const std::string& tag : m_mapView.ViewedMap().Theme())
-			theme += (theme.empty() ? "" : " ") + tag;
-		m_levelSettingsDialog.Open(m_mapView.ViewedLevel(), dust, haze, ambient, theme);
+		// The tags go in as the user types it: space-separated words.
+		std::string tags;
+		for (const std::string& tag : m_mapView.ViewedMap().Tags())
+			tags += (tags.empty() ? "" : " ") + tag;
+		m_levelSettingsDialog.Open(m_mapView.ViewedLevel(), dust, haze, ambient, tags);
 	};
 	// The Check toolbar button: run the whole-project playability check and show
 	// what it found. Reads live state, so it answers for unsaved edits too —
@@ -259,9 +259,9 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		m_world->SetAmbientScale(ambient);
 	};
 	m_levelSettingsDialog.onSave = [this](float dust, float haze, float ambient,
-										 const std::string& theme) {
+										 const std::string& tags) {
 		m_world->SetLevelAtmosphere(m_levelSettingsDialog.Level(), dust, haze, ambient);
-		m_world->SetLevelTheme(m_levelSettingsDialog.Level(), ParseTags(theme));
+		m_world->SetLevelTags(m_levelSettingsDialog.Level(), ParseTags(tags));
 		if (m_world->onMessage)
 			m_world->onMessage(loc::FormatLine("map.level.applied",
 											  m_levelSettingsDialog.Level()));
@@ -298,7 +298,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		std::vector<std::pair<std::string, std::string>> out{{"", loc::Tr("map.gen.asbefore")}};
 		if (key == "palette") {
 			for (const std::string& stem : m_project.levels) out.push_back({stem, stem});
-		} else if (key == "theme") {
+		} else if (key == "tag") {
 			// Every tag the pools could be drawn by: the content catalogs' and
 			// the dungeons' own flavour tags, each once, in order.
 			std::vector<std::string> tags;
