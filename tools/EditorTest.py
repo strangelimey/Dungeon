@@ -514,8 +514,8 @@ STAGE = {"world": ["dungeons", "quests", "terrain"],
                       "fixtures", "buttons"]}
 KIND = {"surfaces": ["themes", "walls", "floors", "ceilings", "wallfeatures",
                      "surfacefeatures"],
-        "structure": ["doors", "stairs", "buttons", "fixtures"],
-        "props": ["decorations"],
+        "structure": ["doors", "stairs"],
+        "furnishings": ["decorations", "fixtures", "buttons"],
         "creatures": ["monsters"],
         "items": ["items", "weapons", "armor"],
         "world": ["dungeons", "quests", "terrain"]}

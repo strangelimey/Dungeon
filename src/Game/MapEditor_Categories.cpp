@@ -55,14 +55,16 @@ constexpr GroupDef kStageGroups[] = {
 // --- by KIND: what a thing is -------------------------------------------------
 constexpr PC kSurfaces[] = {PC::Themes,   PC::Walls,        PC::Floors,
 							PC::Ceilings, PC::WallFeatures, PC::SurfaceFeatures};
-constexpr PC kStructure[] = {PC::Doors, PC::Stairs, PC::Buttons, PC::Fixtures};
-constexpr PC kProps[] = {PC::Decorations};
+constexpr PC kStructure[] = {PC::Doors, PC::Stairs};
+// What dresses a built room - props, the lights on its walls, the levers
+// (Michael, 2026-09-30: split out of Structure into their own group).
+constexpr PC kFurnishings[] = {PC::Decorations, PC::Fixtures, PC::Buttons};
 constexpr PC kCreatures[] = {PC::Monsters};
 constexpr PC kItemKinds[] = {PC::Items, PC::Weapons, PC::Armor};
 constexpr GroupDef kKindGroups[] = {
 	{"surfaces", kSurfaces, std::size(kSurfaces)},
 	{"structure", kStructure, std::size(kStructure)},
-	{"props", kProps, std::size(kProps)},
+	{"furnishings", kFurnishings, std::size(kFurnishings)},
 	{"creatures", kCreatures, std::size(kCreatures)},
 	{"items", kItemKinds, std::size(kItemKinds)},
 	{"world", kWorld, std::size(kWorld)},
@@ -100,7 +102,7 @@ std::span<const GroupDef> Groups(Grouping g) {
 // kind group, then the toggle's two faces (it shows the grouping in use).
 constexpr const char* kIconNames[] = {
 	"cat_world",	 "cat_build", "cat_populate", // stage
-	"cat_surfaces", "cat_structure", "cat_props", "cat_creatures",
+	"cat_surfaces", "cat_structure", "cat_furnishings", "cat_creatures",
 	"cat_items",	 "cat_world", // kind (World is the same group, same art)
 	"cat_bystage",	 "cat_bykind", // the toggle
 };

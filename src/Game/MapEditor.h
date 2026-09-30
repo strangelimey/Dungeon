@@ -94,7 +94,8 @@ public:
 	// grouping the same sections, flipped by the bar's first button (Michael:
 	// "both, with a toggle to switch back and forth"):
 	//   Stage - the workflow's order: World / Build / Populate.
-	//   Kind  - what a thing is: Surfaces, Structure, Props, Creatures, Items, World.
+	//   Kind  - what a thing is: Surfaces, Structure, Furnishings, Creatures,
+	//           Items, World.
 	// Both are one table each (kStageGroups / kKindGroups), so regrouping is a
 	// table edit. The FILTER ignores the bar and searches every section, since a
 	// search that only looked where you already are would find nothing new.

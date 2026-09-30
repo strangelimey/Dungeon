@@ -63,8 +63,9 @@ first.
     - Populate: Monsters, Items, Weapons, Armor, Decorations, Fixtures,
       Buttons
   - BY KIND: one row of kinds, all visible at once - Surfaces (themes +
-    walls/floors/ceilings + features), Structure (doors, stairs, buttons,
-    fixtures), Props (decorations), Creatures, Items (items, weapons, armor),
+    walls/floors/ceilings + features), Structure (doors, stairs),
+    Furnishings (decorations, fixtures, buttons - Michael split them out of
+    Structure after trying it), Creatures, Items (items, weapons, armor),
     World (dungeons, quests & flags, terrain, styles).
   Both are one data table (category -> stage, category -> kind), the
   kCategoryInfo idiom, so regrouping is a table edit. Michael kept these

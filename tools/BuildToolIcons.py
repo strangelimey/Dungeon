@@ -621,12 +621,17 @@ def glyph_cat_structure(d):
         d.ellipse([(x - rr) * SS, (46 - rr) * SS, (x + rr) * SS, (46 + rr) * SS], fill=HOLE)
 
 
-def glyph_cat_props(d):
-    # An urn: the decorations that furnish a room.
-    d.polygon(S([(35, 27), (48, 27), (46, 32), (52, 38), (54, 45), (50, 53),
-                 (45, 56), (38, 56), (33, 53), (29, 45), (31, 38), (37, 32)]), fill=GLYPH)
-    line(d, (33, 27), (50, 27), 3.0)  # the lip
-    d.rectangle([33 * SS, 41 * SS, 50 * SS, 43.5 * SS], fill=HOLE)  # a band round the belly
+def glyph_cat_furnishings(d):
+    # A torch in its wall sconce: what dresses a built room - the props, the
+    # lights on its walls, the levers.
+    d.polygon(S([(41.5, 22), (47, 31), (46.5, 36), (43.5, 39), (39.5, 39),
+                 (36.5, 36), (36, 31)]), fill=GLYPH)                       # flame
+    d.polygon(S([(41.5, 29), (43.5, 33), (42.5, 36), (40.5, 36), (39.5, 33)]),
+              fill=HOLE)                                                   # its core
+    d.polygon(S([(37.5, 41), (45.5, 41), (44, 55), (39, 55)]), fill=GLYPH)  # the torch
+    line(d, (33, 47), (50, 47), 3.4)                                       # the ring
+    d.rounded_rectangle([35 * SS, 55 * SS, 48 * SS, 60 * SS], radius=1.5 * SS,
+                        fill=GLYPH)                                        # wall plate
 
 
 def glyph_cat_creatures(d):
@@ -706,7 +711,7 @@ def main():
                        ("icon_tb_cat_populate", glyph_cat_populate),
                        ("icon_tb_cat_surfaces", glyph_cat_surfaces),
                        ("icon_tb_cat_structure", glyph_cat_structure),
-                       ("icon_tb_cat_props", glyph_cat_props),
+                       ("icon_tb_cat_furnishings", glyph_cat_furnishings),
                        ("icon_tb_cat_creatures", glyph_cat_creatures),
                        ("icon_tb_cat_items", glyph_cat_items),
                        ("icon_tb_cat_bystage", glyph_cat_bystage),
