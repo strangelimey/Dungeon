@@ -108,7 +108,7 @@ void ModelPreview::Render(ID3D12GraphicsCommandList* list, Renderer& renderer,
 						  std::span<const PreviewSubmesh> subs, float scale, float orbit,
 						  float aspect, std::span<const Mat4> palette, ParticleBatch* particles,
 						  std::span<const ParticleInstance> billboards, const Vec3* fitMin,
-						  const Vec3* fitMax) {
+						  const Vec3* fitMax, const Mat4* orient) {
 	using namespace DirectX;
 
 	D3D12_RESOURCE_BARRIER toRT = Transition(m_color.Get(),
@@ -140,10 +140,11 @@ void ModelPreview::Render(ID3D12GraphicsCommandList* list, Renderer& renderer,
 									fitMax->z - fitMin->z});
 		const float k = (ext > 1e-4f ? kFitSize / ext : 1.0f) * scale;
 		// Tumble on TWO axes (Y spin + a slower X pitch off the same clock) so a flat
-		// prop like a blade never sits edge-on for long.
-		XMStoreFloat4x4(&world, XMMatrixTranslation(-c.x, -c.y, -c.z) *
-									XMMatrixRotationX(orbit * 0.6f) * XMMatrixRotationY(orbit) *
-									XMMatrixScaling(k, k, k) *
+		// prop like a blade never sits edge-on for long - unless the caller stood
+		// the model up itself (`orient`), when it turns about +Y alone.
+		const XMMATRIX pose = orient ? XMLoadFloat4x4(orient) : XMMatrixRotationX(orbit * 0.6f);
+		XMStoreFloat4x4(&world, XMMatrixTranslation(-c.x, -c.y, -c.z) * pose *
+									XMMatrixRotationY(orbit) * XMMatrixScaling(k, k, k) *
 									XMMatrixTranslation(0.0f, kLookHeight, 0.0f));
 	} else {
 		XMStoreFloat4x4(&world, XMMatrixScaling(scale, scale, scale) * XMMatrixRotationY(orbit));

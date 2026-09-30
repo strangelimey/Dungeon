@@ -156,10 +156,12 @@ void ItemDetailsDialog::SetRow(RowId id, std::string_view text) {
 	row.value->text.assign(text);
 }
 
-void ItemDetailsDialog::SetPreview(size_t count, const Vec3& fitMin, const Vec3& fitMax) {
+void ItemDetailsDialog::SetPreview(size_t count, const Vec3& fitMin, const Vec3& fitMax,
+								   const Mat4& pose) {
 	m_subCount = std::min(count, m_subs.size());
 	m_fitMin = fitMin;
 	m_fitMax = fitMax;
+	m_pose = pose;
 }
 
 void ItemDetailsDialog::Open(const ItemDetails& d, float weightKg) {

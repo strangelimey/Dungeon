@@ -2399,7 +2399,7 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 			const gfx::Rect pv = dlg.PreviewRect();
 			m_modelPreview.Render(list, m_renderer, dlg.PreviewSubs(), 1.0f,
 								  kPi + dlg.Spin(), pv.h > 0.0f ? pv.w / pv.h : 1.0f, {},
-								  nullptr, {}, &dlg.FitMin(), &dlg.FitMax());
+								  nullptr, {}, &dlg.FitMin(), &dlg.FitMax(), &dlg.Pose());
 			m_device.BindBackBuffer(list);
 		}
 	}

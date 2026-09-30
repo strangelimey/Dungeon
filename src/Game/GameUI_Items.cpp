@@ -129,9 +129,11 @@ void GameUI::ShowItemDetails(const std::string& typeId, float weightKg) {
 	ItemDetails details;
 	if (!itemDetails(typeId, details)) return;
 	Vec3 fitMin{}, fitMax{};
-	const size_t subs =
-		itemPreview ? itemPreview(typeId, m_itemDetails->PreviewBuffer(), fitMin, fitMax) : 0;
-	m_itemDetails->SetPreview(subs, fitMin, fitMax);
+	Mat4 pose{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+	const size_t subs = itemPreview ? itemPreview(typeId, m_itemDetails->PreviewBuffer(),
+												  fitMin, fitMax, pose)
+									: 0;
+	m_itemDetails->SetPreview(subs, fitMin, fitMax, pose);
 	m_itemDetails->Open(details, weightKg);
 	Click();
 }

@@ -872,9 +872,47 @@ std::vector<gfx::PreviewSubmesh> DungeonWorld::DecorationPreviewSubs(int index) 
 	return subs;
 }
 
+namespace {
+
+// A rotation (row-vector, v' = v * M) as its three rows: the images of +X, +Y
+// and +Z.
+Mat4 Basis(const Vec3& x, const Vec3& y, const Vec3& z) {
+	return {x.x, x.y, x.z, 0, y.x, y.y, y.z, 0, z.x, z.y, z.z, 0, 0, 0, 0, 1};
+}
+
+// How the item details dialog stands an item up before it turns it about the
+// vertical (Michael, 2026-09-30: "spin the item along its long axis"). THREE
+// POSES, chosen from the item and its box:
+//  - a WEAPON stands on its long axis, handle up and point down, so it turns on
+//    the line of blade and grip;
+//  - a FLAT thing (a rune tablet, the placeholder slab) stands face-on, so the
+//    face sweeps past rather than showing only its edge to a level camera;
+//  - anything else keeps the pose it was authored in - armor is modelled
+//    upright, head hole up, so it turns about the up axis as it stands.
+Mat4 PreviewPose(bool weapon, int longAxis, float handleSign, const Vec3& lo,
+				 const Vec3& hi) {
+	const float s = handleSign;
+	if (weapon) {
+		// The handle end's direction (along the long axis) goes to +Y.
+		switch (longAxis) {
+		case 0: return Basis({0, s, 0}, {-s, 0, 0}, {0, 0, 1});  // X -> sY
+		case 2: return Basis({1, 0, 0}, {0, 0, -s}, {0, s, 0});  // Z -> sY
+		default:
+			return s > 0 ? Basis({1, 0, 0}, {0, 1, 0}, {0, 0, 1})    // already up
+						 : Basis({1, 0, 0}, {0, -1, 0}, {0, 0, -1}); // turned over
+		}
+	}
+	const float ex = hi.x - lo.x, ey = hi.y - lo.y, ez = hi.z - lo.z;
+	if (ey < 0.35f * std::max(ex, ez)) // lies flat: its face (+Y) turns to the camera
+		return Basis({1, 0, 0}, {0, 0, -1}, {0, 1, 0});
+	return Basis({1, 0, 0}, {0, 1, 0}, {0, 0, 1});
+}
+
+} // namespace
+
 size_t DungeonWorld::FillItemPreview(const ItemKind& kind,
 									 std::span<gfx::PreviewSubmesh> out, Vec3& fitMin,
-									 Vec3& fitMax) const {
+									 Vec3& fitMax, Mat4* pose) const {
 	size_t n = 0;
 	if (kind.model) { // authored model item (weapon, ...)
 		for (const auto& s : kind.model->subs)
@@ -899,6 +937,13 @@ size_t DungeonWorld::FillItemPreview(const ItemKind& kind,
 						  std::max(fitMax.z, v.position.z)};
 			}
 	}
+	if (pose && n > 0) {
+		// Only a real model knows its handle; the tablet placeholder never
+		// stands as a weapon (it is flat, and poses as flat).
+		const bool weapon = kind.model && kind.category == "weapon";
+		*pose = PreviewPose(weapon, kind.model ? kind.model->longAxis : 1,
+							kind.model ? kind.model->handleSign : 1.0f, fitMin, fitMax);
+	}
 	return n;
 }
 
@@ -917,10 +962,10 @@ std::vector<gfx::PreviewSubmesh> DungeonWorld::ItemPreviewSubs(int entityId, Vec
 
 size_t DungeonWorld::ItemPreviewForType(const std::string& type,
 										std::span<gfx::PreviewSubmesh> out, Vec3& fitMin,
-										Vec3& fitMax) {
+										Vec3& fitMax, Mat4& pose) {
 	// Only a type a catalog defines: ItemKindFor would mint a kind for anything.
 	if (!m_project.FindItem(type)) return 0;
-	return FillItemPreview(ItemKindFor(type), out, fitMin, fitMax);
+	return FillItemPreview(ItemKindFor(type), out, fitMin, fitMax, &pose);
 }
 
 bool DungeonWorld::ItemDetailsFor(const std::string& type, ItemDetails& out) {
@@ -1549,6 +1594,34 @@ std::unique_ptr<DungeonWorld::MultiMaterialModel> DungeonWorld::BuildMultiMateri
 	}
 	out->boundsMin = lo;
 	out->boundsMax = hi;
+
+	// The long axis, and which of its two ends is the HANDLE: the half that is
+	// THICKEST, measured across the model's thinnest axis. A blade is flat - thin
+	// across that axis all the way to its point - while a grip, a guard and a
+	// pommel are round and stand out of the blade's plane. (Measuring the widest
+	// reach instead is fooled by a curved blade like the khukri, whose belly
+	// bulges IN its own plane.) On anything not long and thin the answer is never
+	// asked for.
+	const float ext[3] = {hi.x - lo.x, hi.y - lo.y, hi.z - lo.z};
+	const int a = ext[0] >= ext[1] && ext[0] >= ext[2] ? 0 : (ext[1] >= ext[2] ? 1 : 2);
+	const int b = (a + 1) % 3, d = (a + 2) % 3;
+	const int thin = ext[b] <= ext[d] ? b : d;
+	const float c[3] = {(lo.x + hi.x) * 0.5f, (lo.y + hi.y) * 0.5f, (lo.z + hi.z) * 0.5f};
+	float reach[2] = {0.0f, 0.0f}; // [0] the negative half, [1] the positive half
+	for (const assets::MeshData& mesh : model.meshes) {
+		const XMMATRIX node = XMLoadFloat4x4(&mesh.worldTransform);
+		for (const assets::Vertex& v : mesh.vertices) {
+			XMFLOAT3 pf;
+			XMStoreFloat3(&pf, XMVector3Transform(
+								   XMVectorSet(v.position.x, v.position.y, v.position.z, 1.0f),
+								   node));
+			const float p[3] = {pf.x, pf.y, pf.z};
+			float& r = reach[p[a] >= c[a] ? 1 : 0];
+			r = std::max(r, std::abs(p[thin] - c[thin]));
+		}
+	}
+	out->longAxis = a;
+	out->handleSign = reach[1] >= reach[0] ? 1.0f : -1.0f;
 	return out;
 }
 

@@ -298,7 +298,8 @@ public:
 	// item type (false = no such type), and its 3D preview into a buffer
 	// (returns the submesh count). Neither may allocate.
 	std::function<bool(const std::string&, ItemDetails&)> itemDetails;
-	std::function<size_t(const std::string&, std::span<gfx::PreviewSubmesh>, Vec3&, Vec3&)>
+	std::function<size_t(const std::string&, std::span<gfx::PreviewSubmesh>, Vec3&, Vec3&,
+						 Mat4&)>
 		itemPreview;
 	// The Options panel's Rest button — wired to DungeonWorld::SetResting.
 	std::function<void()> onToggleRest;

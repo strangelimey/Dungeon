@@ -220,8 +220,8 @@ void Game::WireModuleCallbacks() {
 		return m_world && m_world->ItemDetailsFor(id, out);
 	};
 	m_ui.itemPreview = [this](const std::string& id, std::span<gfx::PreviewSubmesh> out,
-							  Vec3& fitMin, Vec3& fitMax) -> size_t {
-		return m_world ? m_world->ItemPreviewForType(id, out, fitMin, fitMax) : 0;
+							  Vec3& fitMin, Vec3& fitMax, Mat4& pose) -> size_t {
+		return m_world ? m_world->ItemPreviewForType(id, out, fitMin, fitMax, pose) : 0;
 	};
 	m_ui.onToggleRest = [this] { m_world->SetResting(!m_world->Resting()); };
 	m_ui.onKeysChanged = [this] {

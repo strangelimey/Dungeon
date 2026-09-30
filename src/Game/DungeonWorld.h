@@ -798,9 +798,10 @@ public:
 	// The same by item TYPE, into a caller-owned buffer, for the play-mode item
 	// details dialog (docs/ui-updates-plan.md P3). It opens on a click in a
 	// guarded frame, so it fills rather than returns a vector: returns how many
-	// submeshes were written (0 = nothing to show, or an unknown type).
+	// submeshes were written (0 = nothing to show, or an unknown type). `pose` is
+	// how to stand it up for its turntable spin (see FillItemPreview).
 	size_t ItemPreviewForType(const std::string& type, std::span<gfx::PreviewSubmesh> out,
-							  Vec3& fitMin, Vec3& fitMax);
+							  Vec3& fitMin, Vec3& fitMax, Mat4& pose);
 	// What the details dialog says about an item type (Game/ItemDetails.h).
 	// False for a type no catalog defines.
 	bool ItemDetailsFor(const std::string& type, ItemDetails& out);
@@ -1994,6 +1995,12 @@ private:
 		};
 		std::vector<Sub> subs; // one per model.meshes
 		Vec3 boundsMin{}, boundsMax{}; // world-space AABB of the baked geometry
+		// The model's LONG axis (0 x, 1 y, 2 z - the AABB's biggest extent) and
+		// which way along it the "handle" end lies (+1 / -1): the half holding
+		// the widest cross-section, which on a blade is the guard's side. The item
+		// details dialog stands a weapon on this axis, handle up.
+		int longAxis = 1;
+		float handleSign = 1.0f;
 		// Grounded height (min y -> 0) and the y-offset that grounds the model.
 		// One source for "where it sits / how tall it is", so the floor draw and
 		// the pick test can't disagree (and a non-grounded .glb still sits right).
@@ -2481,8 +2488,11 @@ private:
 	ItemKind& ItemKindFor(const std::string& type);
 	// A kind's preview submeshes into `out` (its authored model, else the carved
 	// tablet) plus the model-space AABB to frame them by; returns the count.
+	// `pose`, when given, receives how the details dialog stands it up before its
+	// turntable spin (a weapon on its long axis handle up, a flat thing face-on,
+	// the rest as authored - PreviewPose in DungeonWorld_Load.cpp).
 	size_t FillItemPreview(const ItemKind& kind, std::span<gfx::PreviewSubmesh> out,
-						   Vec3& fitMin, Vec3& fitMax) const;
+						   Vec3& fitMin, Vec3& fitMax, Mat4* pose = nullptr) const;
 	// Renders a soft round halo (sprites) + one model's submeshes into an icon
 	// render-target (fit to bounds, flat face to camera, 3/4 view). Shared depth
 	// target; the bake list redirects the OM.

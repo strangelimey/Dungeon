@@ -51,12 +51,16 @@ public:
 	// to fill the pane and centred on that box (for small/loose props); `scale` then
 	// multiplies the fit. Otherwise it is drawn grounded head-on at `scale`. `orbit`
 	// spins it either way (pass a time-varying angle to revolve).
+	// `orient` (auto-fit only): a rotation applied to the centred model before the
+	// spin, which is then about +Y ALONE - a turntable. Without it the fit tumbles
+	// on two axes, so a flat prop is never edge-on for long (the editor's look).
 	void Render(ID3D12GraphicsCommandList* list, Renderer& renderer,
 				std::span<const PreviewSubmesh> subs, float scale, float orbit,
 				float aspect = 1.0f, std::span<const Mat4> palette = {},
 				ParticleBatch* particles = nullptr,
 				std::span<const ParticleInstance> billboards = {},
-				const Vec3* fitMin = nullptr, const Vec3* fitMax = nullptr);
+				const Vec3* fitMin = nullptr, const Vec3* fitMax = nullptr,
+				const Mat4* orient = nullptr);
 	// Convenience single-mesh overload (delegates to the span version).
 	void Render(ID3D12GraphicsCommandList* list, Renderer& renderer, const Mesh& mesh,
 				const MaterialParams& material, float scale, float orbit,

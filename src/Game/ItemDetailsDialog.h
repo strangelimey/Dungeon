@@ -69,12 +69,14 @@ public:
 	// The caller fills this at Open time; up to kMaxSubs submeshes.
 	static constexpr size_t kMaxSubs = 16;
 	std::span<gfx::PreviewSubmesh> PreviewBuffer() { return m_subs; }
-	void SetPreview(size_t count, const Vec3& fitMin, const Vec3& fitMax);
+	void SetPreview(size_t count, const Vec3& fitMin, const Vec3& fitMax, const Mat4& pose);
 	std::span<const gfx::PreviewSubmesh> PreviewSubs() const {
 		return {m_subs.data(), m_subCount};
 	}
 	const Vec3& FitMin() const { return m_fitMin; }
 	const Vec3& FitMax() const { return m_fitMax; }
+	// How the model is stood up before it turns about the vertical.
+	const Mat4& Pose() const { return m_pose; }
 	// The turntable angle: a slow full turn every kSpinSeconds.
 	float Spin() const { return m_spin; }
 	// The pane's pixel rect from the layout that last ran (Render lays out).
@@ -109,6 +111,7 @@ private:
 	std::array<gfx::PreviewSubmesh, kMaxSubs> m_subs{};
 	size_t m_subCount = 0;
 	Vec3 m_fitMin{}, m_fitMax{};
+	Mat4 m_pose{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
 };
 
 } // namespace dungeon::game
