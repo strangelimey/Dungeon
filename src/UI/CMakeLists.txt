@@ -1,6 +1,7 @@
 add_library(UI STATIC
 	ControlIcons.cpp
 	Controls.cpp
+	FloatingPanel.cpp
 	Font.cpp
 	FontLibrary.cpp
 	Layout.cpp

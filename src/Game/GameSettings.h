@@ -143,8 +143,6 @@ struct GameSettings {
 								  // (tear-free; ini presentinterval=)
 	std::string language = "en";  // assets/lang/<code>.lang stem
 	float volume = 1.0f;          // master volume, pushed into the AudioEngine
-	float partyBarScale = 1.0f;   // HUD party bar: 0.5–1.5 about its top center
-	float partyBarOpacity = 1.0f; // HUD party bar: slot background alpha
 	// Textured UI chrome (UI/Skin.h). Off = the flat theme-fill look, kept
 	// deliberately as a DEBUG MODE (widget containment/extents read at a
 	// glance). Settings → UI checkbox; ini uiskin=.
@@ -188,10 +186,14 @@ struct GameSettings {
 	// strip. Expanded by default (Michael: "leave it on screen by default").
 	bool hudMoveCollapsed = false;
 	bool hudMagicCollapsed = false;
-	// Their scale and background opacity (PartyHudTypes.h HudPanelLook), the
-	// party bar's two knobs once per dock. ini hud_<move|hands|magic>_scale /
-	// _opacity.
-	HudPanelLook hudMove, hudHands, hudMagic;
+	// The FLOATING HUD panels (UI/FloatingPanel.h): each one's saved spot, scale
+	// and background opacity (PartyHudTypes.h HudPanelLook). kHudPanelFields
+	// below lists them and drives the ini round-trip (hud_<id>_pos / _scale /
+	// _opacity), the Settings -> UI rows and Reset. The party bar's scale and
+	// opacity were barscale= / baropacity= before it floated; those still load.
+	HudPanelLook hudParty, hudStatus, hudOptions, hudMove, hudHands, hudMagic;
+	// Settings -> UI "Lock HUD layout": no grips, no drags. ini hud_locked=.
+	bool hudLocked = false;
 	// The level generator's last-USED knobs, encoded by Game/GenerateKnobs.h
 	// ("path:6 branches:3 ..."). Held as the opaque line so settings knows
 	// nothing of the generator; empty = its defaults. ini gen_knobs=.
@@ -233,5 +235,25 @@ struct GameSettings {
 	// built from the live bindings.
 	std::string MoveKeysHelp() const;
 };
+
+// The floating HUD panels, in the order Settings -> UI lists them: the id is
+// the ini stem (hud_<id>_pos ...) and the `hudpanel` dev command's name, the
+// label key heads its Settings rows.
+struct HudPanelField {
+	const char* id;
+	const char* labelKey;
+	HudPanelLook GameSettings::*look;
+};
+inline constexpr HudPanelField kHudPanelFields[] = {
+	{"party", "settings.party_bar", &GameSettings::hudParty},
+	{"status", "settings.status_panel", &GameSettings::hudStatus},
+	{"options", "settings.options_panel", &GameSettings::hudOptions},
+	{"move", "settings.move_panel", &GameSettings::hudMove},
+	{"hands", "settings.hands_panel", &GameSettings::hudHands},
+	{"magic", "settings.magic_panel", &GameSettings::hudMagic},
+};
+// Their indices, for code that needs one panel by name.
+enum HudPanelIndex : size_t { kHudParty, kHudStatus, kHudOptions, kHudMove, kHudHands, kHudMagic };
+static_assert(std::size(kHudPanelFields) == kHudMagic + 1);
 
 } // namespace dungeon::game

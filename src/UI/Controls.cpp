@@ -67,7 +67,7 @@ void DrawSwatch(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Swatch& sw
 // --- Panel -------------------------------------------------------------
 
 void Panel::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
-	DrawPanelFace(ctx, batch, Pixel());
+	DrawPanelFace(ctx, batch, Pixel(), opacity ? *opacity : 1.0f);
 }
 
 // --- Separator ---------------------------------------------------------

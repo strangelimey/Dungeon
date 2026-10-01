@@ -28,10 +28,12 @@
 #include "Graphics/Texture.h"
 #include "Platform/Window.h"
 #include "UI/Controls.h"
+#include "UI/FloatingPanel.h"
 #include "UI/Layout.h" // ui::Stack — the settings page's rows
 #include "UI/Skin.h"
 #include "UI/UIContext.h"
 
+#include <array>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -135,6 +137,18 @@ public:
 	// The item details dialog holds the pointer while it is up, so it counts.
 	bool HudMouseConsumed() const {
 		return m_hudUi.IsMouseConsumed() || ItemDetailsOpen();
+	}
+
+	// --- the floating HUD panels (ui-panels P3a) -------------------------------
+	// Every panel back to its default spot and size (Settings -> UI "Reset HUD
+	// layout", dev `hudpanel reset`); opacity stays.
+	void ResetHudLayout();
+	// The pointer shape the HUD's grips want this frame.
+	Window::Cursor HudCursor() const;
+	// A panel by kHudPanelFields index, for the `hudpanel` dev command (null
+	// before the first game load builds the HUD).
+	const ui::FloatingPanel* HudPanel(size_t index) const {
+		return index < m_hudPanels.size() ? m_hudPanels[index] : nullptr;
 	}
 
 	// --- the item details dialog (docs/ui-updates-plan.md P3) ---------------------
@@ -378,13 +392,11 @@ private:
 	void LoadStone(const std::string& name);
 	// Scales the skin's frames and stone grain with the window, like the fonts.
 	void UpdateSkinScale();
-	// Re-derives the party-bar slot rects from the settings scale and shifts
-	// the widgets beneath the bar to match; no-op until BuildHud has run.
-	void ApplyPartyBarScale();
-	// Widens the right-hand control column to its widest dock's scale, keeping
-	// its right edge; the docks read their own scale and opacity live. No-op
-	// until BuildHud has run.
-	void ApplyHudPanelScale();
+	// A floating HUD panel was dragged or resized (save + slider sync), and the
+	// sync on its own (the scale sliders follow a corner drag).
+	void OnHudPanelMoved();
+	void SyncHudPanelSliders();
+	void SyncHudPanelSlidersIfStale();
 	void DrawLoadProgress(const LoadQueue& queue, float barY); // shared bar
 	// Title face centered horizontally at y (accent color); returns y so a
 	// subtitle can be placed relative to it. Shared by every title screen.
@@ -659,13 +671,20 @@ private:
 	// recreates the dropdown showing the palette that is actually active.
 	int m_torchPalette = 0;
 
-	// The party bar (owns the slots) and the container holding everything under
-	// it; ApplyPartyBarScale resizes the one and slides the other, and the
-	// trees carry their contents. Both are owned by m_hudUi.
+	// The floating HUD (UI/FloatingPanel.h): the layer every movable panel sits
+	// on, and the panels by kHudPanelFields index (null until BuildHud). The
+	// party bar owns the slots. All owned by m_hudUi.
+	ui::FloatingLayer* m_hudLayer = nullptr;
+	std::array<ui::FloatingPanel*, std::size(kHudPanelFields)> m_hudPanels{};
 	PartyBar* m_partyBar = nullptr;
-	ui::Widget* m_belowBar = nullptr;
-	ControlBar* m_controlBar = nullptr; // the right column, owned by m_belowBar
 	std::vector<CharacterPanel*> m_partyPanels; // owned by m_partyBar
+	// Settings -> UI's per-panel scale sliders (kHudPanelFields order), kept so a
+	// corner drag can move them (SyncHudPanelSliders). Owned by m_settingsUi.
+	std::array<ui::Slider*, std::size(kHudPanelFields)> m_hudScaleSliders{};
+	bool m_hudSlidersStale = false; // a drag moved a scale; sync before showing
+	// The pointer shape the HUD asked for last frame (a grip's arrow), applied
+	// at the top of the next (UpdateFonts) so every other state resets it.
+	Window::Cursor m_hudCursor = Window::Cursor::Arrow;
 	const HitSplatIcons* m_hitSplats = nullptr; // hit-feedback icons (Game-owned)
 	const ItemIconBank* m_itemIcons = nullptr;  // item icons (Game-owned)
 	const ItemWeightBank* m_itemWeights = nullptr; // item carry weights (Game-owned)

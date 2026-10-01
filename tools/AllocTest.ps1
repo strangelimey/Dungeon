@@ -14,6 +14,7 @@
 #   .\tools\AllocTest.ps1 -Impact            # bolts landing, expiring, a blast
 #   .\tools\AllocTest.ps1 -Pause             # Esc to the pause menu and back
 #   .\tools\AllocTest.ps1 -Sheet             # the sheet: hover, tabs, item dialog
+#   .\tools\AllocTest.ps1 -Panels            # drag and resize the floating HUD
 #   .\tools\AllocTest.ps1 -Config release    # needs -DDN_TRACK_ALLOCS=ON
 #
 # THE RULE HAS NO EXCEPTIONS: an allocation in a settled frame is a bug, and
@@ -127,6 +128,18 @@
 # opens made during the window, since a missed click reports exactly like a
 # clean run.
 #
+# -Panels IS THE FLOATING HUD'S TURN (docs/ui-panels-plan.md P3a). Every HUD
+# panel moves and resizes under the mouse now, inside armed frames: a drag
+# re-places the panel every frame it is held, a corner grip rescales it (a new
+# font size the first time, which is a first time, not a steady cost - so the
+# warm-up below drags once before the window), and the release SAVES
+# settings.ini, which excuses itself (GameSettings::Save). This resets the
+# layout, warms up, then during the window drags the Movement dock by its title
+# and back and pulls the Hands dock's corner grip - three times. It refuses a
+# PASS unless `hudpanel list` afterwards shows both landed (the move dock saved
+# off its default, the hands dock off scale 1), since a missed drag reports
+# exactly like a clean run.
+#
 # Every step is driven by what the log actually says rather than by sleeps, so
 # a slow cold-cache load stretches the wait instead of failing the run.
 #
@@ -169,6 +182,8 @@ param(
 	[switch]$Pause,
 	# Works the character sheet inside the window. See the note above.
 	[switch]$Sheet,
+	# Drags and resizes the floating HUD panels inside the window. See above.
+	[switch]$Panels,
 	# Checks the CHECKER: makes the game allocate every frame on purpose
 	# (`allocpoke`) and passes only if the run comes back FAIL.
 	[switch]$SelfTest
@@ -217,6 +232,24 @@ function Send-Mouse([int]$x, [int]$y, [uint32]$down = 0, [uint32]$up = 0, [int]$
 }
 
 # `itemdetails status`'s open count (needs logecho on and the console open).
+# A left-button drag in client pixels: press, a run of moves with the button
+# held (wparam MK_LBUTTON), release - what a player's hand sends.
+function Send-Drag([int]$x0, [int]$y0, [int]$x1, [int]$y1, [int]$steps = 10) {
+	$at = { param($x, $y) [IntPtr](($y -shl 16) -bor ($x -band 0xFFFF)) }
+	[AllocTestWin]::PostMessage($hwnd, 0x200, [IntPtr]0, (& $at $x0 $y0)) | Out-Null
+	Start-Sleep -Milliseconds 150
+	[AllocTestWin]::PostMessage($hwnd, 0x201, [IntPtr]1, (& $at $x0 $y0)) | Out-Null
+	Start-Sleep -Milliseconds 80
+	for ($i = 1; $i -le $steps; $i++) {
+		$x = [int]($x0 + ($x1 - $x0) * $i / $steps); $y = [int]($y0 + ($y1 - $y0) * $i / $steps)
+		[AllocTestWin]::PostMessage($hwnd, 0x200, [IntPtr]1, (& $at $x $y)) | Out-Null
+		Start-Sleep -Milliseconds 40
+	}
+	Start-Sleep -Milliseconds 80
+	[AllocTestWin]::PostMessage($hwnd, 0x202, [IntPtr]0, (& $at $x1 $y1)) | Out-Null
+	Start-Sleep -Milliseconds 300
+}
+
 function Get-DetailOpens {
 	$before = @(Select-String -Path $log -Pattern 'item details: .* opens=').Count
 	Send-Text 'itemdetails status'; Send-Key 0x0D
@@ -620,6 +653,36 @@ try {
 		$script:slotY = [int]($rc.Bottom * 0.5033)
 	}
 
+	if ($Panels) {
+		Write-Host 'resetting the HUD layout and warming the panel drags up'
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'hudpanel reset'; Send-Key 0x0D
+		Send-Text 'hudpanel lock off'; Send-Key 0x0D
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 600
+		# Where the grabs are, from the window's own size (the default layout is
+		# in fractions of it): the Movement dock's title, and the bottom-right
+		# corner grip of the Hands dock (the default 1600x900 spots, as shares).
+		$rc = New-Object AllocTestWin+RECT
+		[AllocTestWin]::GetClientRect($hwnd, [ref]$rc) | Out-Null
+		$script:moveX = [int]($rc.Right * 0.8775); $script:moveY = [int]($rc.Bottom * 0.1733)
+		$script:awayX = [int]($rc.Right * 0.55); $script:awayY = [int]($rc.Bottom * 0.35)
+		$script:gripX = [int]($rc.Right * 0.9835); $script:gripY = [int]($rc.Bottom * 0.5575)
+		$script:pullX = [int]($rc.Right * 0.96); $script:pullY = [int]($rc.Bottom * 0.53)
+		# WARM-UP: one drag and one pull outside the window - the pull's new scale
+		# bakes a font size, a first time for the process. Then back to default.
+		Send-Drag $script:moveX $script:moveY $script:awayX $script:awayY
+		Send-Drag $script:awayX $script:awayY $script:moveX $script:moveY
+		Send-Drag $script:gripX $script:gripY $script:pullX $script:pullY
+		Start-Sleep -Milliseconds 400
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'hudpanel reset'; Send-Key 0x0D
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 400
+	}
+
 	if ($SelfTest) {
 		Write-Host 'self-test: arming allocpoke, expecting the run to FAIL'
 		Send-Key 0xC0
@@ -666,6 +729,20 @@ try {
 			Send-Mouse $script:runeX $script:slotY 0x207 0x208 0x10 # middle: use menu
 			Start-Sleep -Milliseconds 500
 			Send-Key 0x1B
+		}
+	}
+
+	# -Panels: drag the Movement dock away by its title and home again, then
+	# pull the Hands dock's corner grip, while the window runs. The first wait
+	# clears the console close plus the guard's warm-up, so the drags land in
+	# ARMED frames; each release saves settings.ini.
+	if ($Panels) {
+		for ($cycle = 1; $cycle -le 3; $cycle++) {
+			Start-Sleep -Seconds 3
+			if (Select-String -Path $log -Pattern 'alloctest RESULT=' -Quiet) { break }
+			Send-Drag $script:moveX $script:moveY $script:awayX $script:awayY
+			Send-Drag $script:awayX $script:awayY $script:moveX $script:moveY
+			if ($cycle -eq 1) { Send-Drag $script:gripX $script:gripY $script:pullX $script:pullY }
 		}
 	}
 
@@ -733,6 +810,28 @@ try {
 		Write-Host "  item details opened by a right-click: $opens"
 		if ($opens -le 0 -and $result -eq 'PASS') {
 			Write-Host 'no right-click opened the dialog - the open path was not measured' -ForegroundColor Yellow
+			$result = 'UNMEASURED'
+		}
+	}
+
+	# And for -Panels: the drags must have LANDED - the move dock saved off its
+	# default spot and the hands dock off scale 1 - or nothing was measured.
+	if ($Panels) {
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		Send-Text 'hudpanel list'; Send-Key 0x0D
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0
+		$moveRow = @(Select-String -Path $log -Pattern 'console:   move ')[-1].Line
+		$handsRow = @(Select-String -Path $log -Pattern 'console:   hands ')[-1].Line
+		Write-Host "  $($moveRow -replace '^.*console:   ', '')"
+		Write-Host "  $($handsRow -replace '^.*console:   ', '')"
+		$moved = $moveRow -notmatch 'saved default'
+		$scaled = $handsRow -notmatch 'scale 1\.00'
+		if ((-not $moved -or -not $scaled) -and $result -eq 'PASS') {
+			Write-Host 'a drag did not land inside the window - the panel path was not measured' -ForegroundColor Yellow
 			$result = 'UNMEASURED'
 		}
 	}

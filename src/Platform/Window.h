@@ -62,6 +62,14 @@ public:
 	// Invoked when the client area changes size (not called for minimize).
 	std::function<void(u32, u32)> onResize;
 
+	// The pointer's shape over the client area. The game sets it every frame
+	// from what the pointer is over (a floating HUD panel's move grip wants the
+	// four-way arrow, its resize grip the diagonal; the map editor's dock edges
+	// the left-right one); a change applies at once, even mid-drag, when mouse
+	// capture keeps Windows from asking (WM_SETCURSOR).
+	enum class Cursor : u8 { Arrow, SizeWE, SizeAll, SizeNWSE };
+	void SetCursorShape(Cursor shape);
+
 private:
 	static i64 __stdcall WndProcThunk(HWND__* hwnd, u32 msg, u64 wparam, i64 lparam);
 	i64 HandleMessage(u32 msg, u64 wparam, i64 lparam);
@@ -80,6 +88,7 @@ private:
 	// that triggered it is still unread this frame). Only genuine theft
 	// (another window taking capture mid-hold) clears.
 	bool m_releasingCapture = false;
+	Cursor m_cursor = Cursor::Arrow; // see SetCursorShape
 	Input m_input;
 };
 

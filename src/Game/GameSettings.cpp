@@ -4,6 +4,7 @@
 #include "Game/GameSettings.h"
 
 #include "Assets/File.h"
+#include "Core/AllocTrack.h"
 #include "Core/Loc.h"
 #include "Core/Log.h"
 #include "Core/Paths.h"
@@ -100,6 +101,21 @@ void ParseIniBool(const std::string& text, const std::string& key, bool& value) 
 	if (i < text.size()) value = text[i] != '0';
 }
 
+// Reads key=<x>,<y> (a HUD panel's top-left as window fractions). Both or
+// neither: a half-written pair keeps the caller's (default-spot) values.
+void ParseIniPair(const std::string& text, const std::string& key, float& x, float& y) {
+	const size_t pos = text.find(key);
+	if (pos == std::string::npos) return;
+	const char* p = text.data() + pos + key.size();
+	const char* end = text.data() + text.size();
+	float px = 0.0f, py = 0.0f;
+	const auto rx = std::from_chars(p, end, px);
+	if (rx.ec != std::errc{} || rx.ptr >= end || *rx.ptr != ',') return;
+	if (std::from_chars(rx.ptr + 1, end, py).ec != std::errc{}) return;
+	x = std::clamp(px, -1.0f, 1.0f);
+	y = std::clamp(py, -1.0f, 1.0f);
+}
+
 } // namespace
 
 void GameSettings::Load() {
@@ -141,8 +157,17 @@ void GameSettings::Load() {
 	presentInterval = kPresentIntervals[PresentIntervalIndex(interval)];
 
 	ParseIniFloat(text, "volume=", volume, 0.0f, 1.0f);
-	ParseIniFloat(text, "barscale=", partyBarScale, 0.5f, 1.5f);
-	ParseIniFloat(text, "baropacity=", partyBarOpacity, 0.0f, 1.0f);
+	// The party bar's pair from before it floated (the hud_party_ keys below win).
+	ParseIniFloat(text, "barscale=", hudParty.scale, 0.5f, 1.5f);
+	ParseIniFloat(text, "baropacity=", hudParty.opacity, 0.0f, 1.0f);
+	for (const HudPanelField& field : kHudPanelFields) {
+		HudPanelLook& look = this->*(field.look);
+		const std::string stem = std::string("hud_") + field.id;
+		ParseIniPair(text, stem + "_pos=", look.x, look.y);
+		ParseIniFloat(text, stem + "_scale=", look.scale, 0.5f, 1.5f);
+		ParseIniFloat(text, stem + "_opacity=", look.opacity, 0.0f, 1.0f);
+	}
+	ParseIniBool(text, "hud_locked=", hudLocked);
 
 	// Mouse-look feel. Durations are clamped to the slider ranges; the two curves
 	// store the dropdown INDEX into kLookEaseOptions (validated before mapping).
@@ -171,12 +196,6 @@ void GameSettings::Load() {
 	ParseIniInt(text, "map_tool=", mapTool);
 	ParseIniBool(text, "hud_move_collapsed=", hudMoveCollapsed);
 	ParseIniBool(text, "hud_magic_collapsed=", hudMagicCollapsed);
-	ParseIniFloat(text, "hud_move_scale=", hudMove.scale, 0.5f, 1.5f);
-	ParseIniFloat(text, "hud_move_opacity=", hudMove.opacity, 0.0f, 1.0f);
-	ParseIniFloat(text, "hud_hands_scale=", hudHands.scale, 0.5f, 1.5f);
-	ParseIniFloat(text, "hud_hands_opacity=", hudHands.opacity, 0.0f, 1.0f);
-	ParseIniFloat(text, "hud_magic_scale=", hudMagic.scale, 0.5f, 1.5f);
-	ParseIniFloat(text, "hud_magic_opacity=", hudMagic.opacity, 0.0f, 1.0f);
 	// The rest of the line, verbatim: the encoding has spaces, colons and
 	// points, which ParseIniString's token rule would stop at.
 	if (const size_t g = text.find("gen_knobs="); g != std::string::npos) {
@@ -218,10 +237,17 @@ void GameSettings::Load() {
 }
 
 void GameSettings::Save() const {
+	// Persisting a change the player just MADE - a dock minimized, a HUD panel
+	// dropped where they dragged it - lands inside a frame the allocation guard
+	// arms (ui-panels P3a found the second; the first was there already). It
+	// formats the whole file and writes it, so it cannot be allocation-free, and
+	// it runs on one click or one release, never per frame: it excuses itself,
+	// as reporting code does. Anything calling Save EVERY frame would still be a
+	// bug - the count of excused allocations shows it.
+	const alloc::Excused excuse;
 	std::string text = std::format(
-		"quality={}\nmaxlights={}\npresentinterval={}\nlanguage={}\nvolume={:.2f}\nbarscale={:.2f}\nbaropacity={:.2f}\n",
-		static_cast<int>(quality), maxPointLights, presentInterval, language, volume,
-		partyBarScale, partyBarOpacity);
+		"quality={}\nmaxlights={}\npresentinterval={}\nlanguage={}\nvolume={:.2f}\n",
+		static_cast<int>(quality), maxPointLights, presentInterval, language, volume);
 	for (const ThemeField& field : kThemeFields) {
 		const Vec4& c = theme.*(field.field);
 		text += std::format("theme_{}={:.3f},{:.3f},{:.3f},{:.3f}\n", field.key,
@@ -255,11 +281,12 @@ void GameSettings::Save() const {
 		mapShowCatalog ? 1 : 0, mapTool);
 	text += std::format("hud_move_collapsed={}\nhud_magic_collapsed={}\n",
 						hudMoveCollapsed ? 1 : 0, hudMagicCollapsed ? 1 : 0);
-	text += std::format(
-		"hud_move_scale={:.2f}\nhud_move_opacity={:.2f}\nhud_hands_scale={:.2f}\n"
-		"hud_hands_opacity={:.2f}\nhud_magic_scale={:.2f}\nhud_magic_opacity={:.2f}\n",
-		hudMove.scale, hudMove.opacity, hudHands.scale, hudHands.opacity,
-		hudMagic.scale, hudMagic.opacity);
+	for (const HudPanelField& field : kHudPanelFields) {
+		const HudPanelLook& look = this->*(field.look);
+		text += std::format("hud_{0}_pos={1:.4f},{2:.4f}\nhud_{0}_scale={3:.2f}\nhud_{0}_opacity={4:.2f}\n",
+							field.id, look.x, look.y, look.scale, look.opacity);
+	}
+	text += std::format("hud_locked={}\n", hudLocked ? 1 : 0);
 	text += std::format("gen_knobs={}\n", generatorKnobs);
 	text += std::format(
 		"adapter={}\noutput={}\nreswidth={}\nresheight={}\nfullscreen={}\n",

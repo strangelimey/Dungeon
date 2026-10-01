@@ -61,20 +61,15 @@ constexpr float kSavesBackY = 0.85f;
 // (see Widget.h). Layouts are authored directly in those fractions — never
 // design pixels, never a post-hoc Norm() conversion.
 
-// --- the HUD's vertical bands, as window fractions ---------------------------
-// Shared because two places need the same numbers: BuildHud authors the
-// below-bar container with them, and ApplyPartyBarScale re-derives its position
-// when the bar grows. They were duplicated between the two, which is fine right
-// up until one copy changes.
+// --- the HUD's DEFAULT layout, as window fractions ---------------------------
+// Where a floating HUD panel sits until the player moves it (BuildHud's
+// defaultPos / size functions). File scope so the numbers live in one place.
 constexpr float kBarTop = 0.018f;
-constexpr float kBarH0 = 0.107f; // party bar height at scale 1
-constexpr float kBarGap = 0.018f;
-constexpr float kBelowBar0 = kBarTop + kBarH0 + kBarGap; // ~0.143
+constexpr float kBarH0 = 0.107f;  // party bar height at scale 1
+constexpr float kBarGap = 0.018f; // party bar -> the panels under it
 constexpr float kFooter = 0.071f; // the message-log footer along the bottom
-// What the below-bar column spans: bar to footer, neither included.
-constexpr float kBelowSpan = (1.0f - kFooter) - kBelowBar0;
-// The right-hand control column at dock scale 1 (~250/1600), and its gap from
-// the window's right edge. ApplyHudPanelScale widens it from that edge.
+// The right-hand dock column at scale 1 (~250/1600), and its gap from the
+// window's right edge.
 constexpr float kControlW = 0.156f;
 constexpr float kControlMargin = 0.01f;
 
@@ -707,54 +702,53 @@ void GameUI::BuildSettings() {
 			m_settings.Save();
 		});
 
-	// UI → Party Bar: scale resizes the bar live (about its top center) and
-	// opacity fades the slot backgrounds. Both apply while dragging and
-	// persist on release; safe before the HUD exists (the panel list is empty
-	// until the first game load).
+	// UI → HUD panels: every floating panel's scale and background opacity
+	// (kHudPanelFields), above them the layout lock and the reset. The panels
+	// read their HudPanelLook live, so a slider needs no apply step; scale is
+	// the SAME number the panel's corner grip edits (OnHudPanelMoved moves the
+	// slider back to it). Apply while dragging, persist on release. Safe before
+	// the HUD exists - nothing here touches a widget of it but the party slots,
+	// whose list is empty until the first game load.
 	uf->Space(ui::Len::Fixed(kSetGroup));
-	uf->Row<ui::Label>(ui::Len::Fixed(kSetLabel), loc::Tr("settings.party_bar"));
-	auto* barScale = uf->Row<ui::Slider>(
-		ui::Len::Fixed(kSetSlider),
-		loc::Tr("settings.bar_scale"), 0.5f, 1.5f, m_settings.partyBarScale,
-		[this](float v) {
-			m_settings.partyBarScale = v;
-			ApplyPartyBarScale();
+	uf->Row<ui::Label>(ui::Len::Fixed(kSetLabel), loc::Tr("settings.hud_panels"));
+	uf->Row<ui::Checkbox>(
+		ui::Len::Fixed(kSetCtrl),
+		loc::Tr("settings.hud_lock"), m_settings.hudLocked, [this](bool on) {
+			Click();
+			m_settings.hudLocked = on;
+			m_settings.Save();
 		});
-	barScale->onRelease = [this] { m_settings.Save(); };
-	auto* barOpacity = uf->Row<ui::Slider>(
-		ui::Len::Fixed(kSetSlider),
-		loc::Tr("settings.bar_opacity"), 0.0f, 1.0f, m_settings.partyBarOpacity,
-		[this](float v) {
-			m_settings.partyBarOpacity = v;
-			for (CharacterPanel* panel : m_partyPanels)
-				panel->backgroundOpacity = v;
-		});
-	barOpacity->onRelease = [this] { m_settings.Save(); };
-
-	// UI -> Movement / Hands / Magic panels: the party bar's two knobs once per
-	// dock of the right-hand column. The docks read their HudPanelLook live, so
-	// opacity needs nothing more; scale also widens the column to the widest
-	// dock. Same apply-while-dragging, persist-on-release rule.
-	auto panelLook = [&](const char* labelKey, HudPanelLook& look) {
+	auto* resetRow = uf->Row<ui::Stack>(ui::Len::Fixed(kSetCtrl), true);
+	resetRow->Row<ui::Button>(ui::Len::Fill(), loc::Tr("settings.hud_reset"), [this] {
+		Click();
+		ResetHudLayout();
+	});
+	resetRow->Space(ui::Len::Fill());
+	resetRow->Space(ui::Len::Fill());
+	for (size_t i = 0; i < std::size(kHudPanelFields); ++i) {
+		const HudPanelField& field = kHudPanelFields[i];
+		HudPanelLook& look = m_settings.*(field.look);
 		uf->Space(ui::Len::Fixed(kSetGroup));
-		uf->Row<ui::Label>(ui::Len::Fixed(kSetLabel), loc::Tr(labelKey));
+		uf->Row<ui::Label>(ui::Len::Fixed(kSetLabel), loc::Tr(field.labelKey));
 		auto* scale = uf->Row<ui::Slider>(
 			ui::Len::Fixed(kSetSlider),
 			loc::Tr("settings.bar_scale"), 0.5f, 1.5f, look.scale,
-			[this, &look](float v) {
-				look.scale = v;
-				ApplyHudPanelScale();
-			});
+			[&look](float v) { look.scale = v; });
 		scale->onRelease = [this] { m_settings.Save(); };
+		m_hudScaleSliders[i] = scale;
+		const bool partyBar = i == kHudParty;
 		auto* opacity = uf->Row<ui::Slider>(
 			ui::Len::Fixed(kSetSlider),
 			loc::Tr("settings.bar_opacity"), 0.0f, 1.0f, look.opacity,
-			[&look](float v) { look.opacity = v; });
+			[this, &look, partyBar](float v) {
+				look.opacity = v;
+				// The party slots keep their own copy (they fade only the slot
+				// fills, and are built per member); every other panel reads it.
+				if (partyBar)
+					for (CharacterPanel* panel : m_partyPanels) panel->backgroundOpacity = v;
+			});
 		opacity->onRelease = [this] { m_settings.Save(); };
-	};
-	panelLook("settings.move_panel", m_settings.hudMove);
-	panelLook("settings.hands_panel", m_settings.hudHands);
-	panelLook("settings.magic_panel", m_settings.hudMagic);
+	}
 
 	// UI → Theme Colors (kThemeFields) and Resource Bars (kBarFields): color
 	// pickers, three per row. Theme edits recolor every context live
@@ -1432,18 +1426,55 @@ void GameUI::BuildHud() {
 	// builds it again (docs/world-on-demand.md) — it used to append a second
 	// copy on top. Every cached HUD pointer is reassigned below.
 	m_hudUi.Clear();
-	// All HUD bounds are fractions of the window. Party-bar slots start empty
-	// and are sized by ApplyPartyBarScale (scale slider); everything below the
-	// bar is authored at scale 1 and shifted when the bar grows.
-	//
-	// Layout fractions (window): bar top margin 0.018, bar height 0.107 at
-	// scale 1, gap under bar 0.018 → content starts at kBelowBar0.
-	// (kBarTop / kBarH0 / kBarGap / kBelowBar0 / kFooter / kBelowSpan are file
-	// scope — ApplyPartyBarScale needs the same numbers.)
+	m_hudPanels.fill(nullptr);
 
-	// The bar owns the slots: ApplyPartyBarScale moves this one rect and every
-	// panel (and everything inside a panel) follows.
-	m_partyBar = m_hudUi.Add<PartyBar>(gfx::Rect{});
+	// THE FLOATING PANELS (ui-panels P3a, UI/FloatingPanel.h). Every piece of
+	// HUD chrome but the message log is a panel the player moves and resizes:
+	// its spot and scale are GameSettings' (kHudPanelFields), a never-moved
+	// panel sits at the DEFAULT spot below - the layout the HUD always had - and
+	// its size at a scale is its content's. The numbers are window fractions
+	// (kBarTop and friends, file scope), turned into pixels each layout.
+	m_hudLayer = m_hudUi.Add<ui::FloatingLayer>();
+	m_hudLayer->bounds = {0, 0, 1, 1};
+	auto makePanel = [this](size_t field, const char* name) {
+		HudPanelLook& look = m_settings.*(kHudPanelFields[field].look);
+		auto* panel = m_hudLayer->Add<ui::FloatingPanel>();
+		panel->debugName = name;
+		panel->posX = &look.x;
+		panel->posY = &look.y;
+		panel->scale = &look.scale;
+		panel->locked = &m_settings.hudLocked;
+		panel->onChanged = [this] { OnHudPanelMoved(); };
+		m_hudPanels[field] = panel;
+		return panel;
+	};
+	// The defaults hang off the party bar's DEFAULT height at its scale - what
+	// the old below-bar container did when the bar grew - so an unmoved left
+	// column and dock column still start just under it.
+	auto belowTop = [this](ui::UIContext& ctx) {
+		return (kBarTop + kBarH0 * m_settings.hudParty.scale + kBarGap) * ctx.Height();
+	};
+
+	// The party bar. Its width only shrinks below scale 1 and is pinned at the
+	// window's span above it, so past 1 the bar only grows taller - the
+	// slider's old behaviour, kept: four portraits cannot get wider than the
+	// screen.
+	ui::FloatingPanel* party = makePanel(kHudParty, "PartyPanel");
+	m_partyBar = party->Add<PartyBar>(gfx::Rect{0, 0, 1, 1});
+	party->size = [this](ui::UIContext& ctx, float s) {
+		const float ws = std::min(s, 1.0f);
+		constexpr float kMargin = 0.01f;
+		constexpr float kGap0 = 0.006f;
+		const float gap = kGap0 * ws;
+		const float usable = 1.0f - 2 * kMargin - 3 * gap;
+		const float barW = (usable * ws) + 3 * gap;
+		m_partyBar->gap = gap / barW; // the same pixel gap, as a bar fraction
+		return Vec2{barW * ctx.Width(), kBarH0 * s * ctx.Height()};
+	};
+	party->defaultPos = [party](ui::UIContext& ctx) {
+		const Vec2 size = party->size(ctx, party->Scale());
+		return Vec2{(ctx.Width() - size.x) * 0.5f, kBarTop * ctx.Height()};
+	};
 	m_partyPanels.clear();
 	for (size_t i = 0; i < m_characters.size() && i < PartyBar::kSlots; ++i) {
 		auto* panel = m_partyBar->Add<CharacterPanel>(
@@ -1452,31 +1483,27 @@ void GameUI::BuildHud() {
 			[this, i] { OnPortraitRightClick(i); },
 			[this, i] { OnPortraitBars(i); },
 			[this, i] { OnPortraitEffects(i); });
-		panel->backgroundOpacity = m_settings.partyBarOpacity;
+		panel->backgroundOpacity = m_settings.hudParty.opacity;
 		m_partyPanels.push_back(panel);
 	}
 
-	// Everything under the bar hangs off one container that slides down as the
-	// bar grows (ApplyPartyBarScale). It takes the area it actually holds — it
-	// used to span the whole window so its children could keep the window
-	// fractions they were authored with, which meant it sat on the party bar and
-	// the message log, and `uioverlap` said so. Its children divide their own
-	// spans through kBelowSpan below; the numbers in this block are still the
-	// window fractions they were authored in, so "same pixels, new structure"
-	// stays checkable.
-	m_belowBar = m_hudUi.Add<ui::Widget>();
-	m_belowBar->bounds = {0, kBelowBar0, 1, kBelowSpan};
-	m_belowBar->debugName = "BelowBar";
 	// Left column: the status plate (compass + position) over the options plate
-	// (torchlight + Wait/Help). Two padded panels, each laying its own rows out
+	// (torchlight + Rest/Help). Two padded panels, each laying its own rows out
 	// as fractions of itself.
 	constexpr float kLeftX = 0.01f, kLeftW = 0.15f;
 	constexpr float kStatusH = 0.071f, kOptionsH = 0.16f;
 	constexpr float kOptionsGap = 0.013f;
 
-	auto* status = m_belowBar->Add<ui::Panel>(
-		gfx::Rect{kLeftX, 0.0f, kLeftW, kStatusH / kBelowSpan});
+	ui::FloatingPanel* statusPanel = makePanel(kHudStatus, "StatusPanel");
+	statusPanel->size = [](ui::UIContext& ctx, float s) {
+		return Vec2{kLeftW * s * ctx.Width(), kStatusH * s * ctx.Height()};
+	};
+	statusPanel->defaultPos = [belowTop](ui::UIContext& ctx) {
+		return Vec2{kLeftX * ctx.Width(), belowTop(ctx)};
+	};
+	auto* status = statusPanel->Add<ui::Panel>(gfx::Rect{0, 0, 1, 1});
 	status->debugName = "StatusPlate";
+	status->opacity = &m_settings.hudStatus.opacity;
 	status->padX = 0.0467f; // 0.007 of the window, as a fraction of the plate
 	status->padY = 0.1549f; // 0.011 likewise
 	m_compass = status->Add<ui::Label>(gfx::Rect{0, 0, 1, 0.449f}, "");
@@ -1488,10 +1515,18 @@ void GameUI::BuildHud() {
 	m_position->text.reserve(loc::Line::kCapacity);
 	m_position->dim = true;
 
-	auto* options = m_belowBar->Add<ui::Panel>(
-		gfx::Rect{kLeftX, (kStatusH + kOptionsGap) / kBelowSpan, kLeftW,
-				  kOptionsH / kBelowSpan});
+	ui::FloatingPanel* optionsPanel = makePanel(kHudOptions, "OptionsPanel");
+	optionsPanel->size = [](ui::UIContext& ctx, float s) {
+		return Vec2{kLeftW * s * ctx.Width(), kOptionsH * s * ctx.Height()};
+	};
+	optionsPanel->defaultPos = [this, belowTop](ui::UIContext& ctx) {
+		return Vec2{kLeftX * ctx.Width(),
+					belowTop(ctx) + (kStatusH * m_settings.hudStatus.scale + kOptionsGap) *
+										ctx.Height()};
+	};
+	auto* options = optionsPanel->Add<ui::Panel>(gfx::Rect{0, 0, 1, 1});
 	options->debugName = "OptionsPlate";
+	options->opacity = &m_settings.hudOptions.opacity;
 	options->padX = 0.0600f; // 0.009 of the window
 	options->padY = 0.0688f; // 0.011 of the window
 	options->Add<ui::Label>(gfx::Rect{0, 0, 1, 0.1594f}, loc::Tr("hud.options"));
@@ -1534,12 +1569,9 @@ void GameUI::BuildHud() {
 			m_log->AddLine(loc::View("log.scroll_hint"));
 		});
 
-	// Right control column: movement, hands and magic as three docks, laid out
-	// by one container (Game/ControlBar.h). Stops above the log footer.
-	constexpr float kPanelW = kControlW;
-	constexpr float kPanelX = 1.0f - kPanelW - kControlMargin;
-	constexpr float panelH = kBelowSpan; // the column's whole height
-
+	// Movement, hands and magic: three docks, each its own floating panel
+	// (Game/ControlBar.h). Their default column runs from under the party bar to
+	// the top of the log footer, flush right.
 	ControlBarDeps deps;
 	deps.roster = &m_characters;
 	deps.icons = m_itemIcons;
@@ -1571,12 +1603,18 @@ void GameUI::BuildHud() {
 	deps.moveLook = &m_settings.hudMove;
 	deps.handsLook = &m_settings.hudHands;
 	deps.magicLook = &m_settings.hudMagic;
-	// Authored at scale 1; ApplyHudPanelScale (below) widens it to the widest
-	// dock from the same right edge.
-	m_controlBar = m_belowBar->Add<ControlBar>(
-		gfx::Rect{kPanelX, 0.0f, kPanelW, panelH / kBelowSpan}, deps);
+	deps.columnW = kControlW;
+	deps.columnMargin = kControlMargin;
+	deps.columnTop = belowTop;
+	deps.columnBottom = [](ui::UIContext& ctx) { return (1.0f - kFooter) * ctx.Height(); };
+	deps.locked = &m_settings.hudLocked;
+	deps.onPlacementChanged = [this] { OnHudPanelMoved(); };
+	const HudDocks docks = BuildHudDocks(*m_hudLayer, deps);
+	m_hudPanels[kHudMove] = docks.move;
+	m_hudPanels[kHudHands] = docks.hands;
+	m_hudPanels[kHudMagic] = docks.magic;
 
-	m_spellbook = m_controlBar->Spellbook();
+	m_spellbook = docks.spellbook;
 	m_spellbook->onClick = [this] { Click(); };
 	m_spellbook->castIcon = m_castIconTex.get();
 	m_spellbook->clearIcon = m_clearIconTex.get();
@@ -1608,47 +1646,56 @@ void GameUI::BuildHud() {
 	m_handMenu->onPick = [this](int id) { OnUseMenuPick(id); };
 	// Room for any item id, so opening the menu never grows it (see the member).
 	m_handMenuItem.reserve(64);
-
-	ApplyPartyBarScale();
-	ApplyHudPanelScale();
 }
 
 void GameUI::OpenInventory() { if (m_inventory) m_inventory->Open(); }
 void GameUI::CloseInventory() { if (m_inventory) m_inventory->Close(); }
 bool GameUI::InventoryOpen() const { return m_inventory && m_inventory->IsOpen(); }
 
-// The scale slider now moves two rects: the bar (its slots, and everything
-// inside them, are fractions of it) and the container holding everything
-// underneath (which slides down by exactly the bar's growth).
-void GameUI::ApplyPartyBarScale() {
-	if (!m_partyBar) return;
-	const float s = m_settings.partyBarScale;
-	// Width only shrinks when s < 1; height grows with s.
-	const float ws = std::min(s, 1.0f);
-	constexpr float kMargin = 0.01f;
-	constexpr float kGap0 = 0.006f;
-	const float gap = kGap0 * ws;
-	const float usable = 1.0f - 2 * kMargin - 3 * gap;
-	const float barW = (usable * ws) + 3 * gap;
-	m_partyBar->bounds = {(1.0f - barW) * 0.5f, kBarTop, barW, kBarH0 * s};
-	m_partyBar->gap = gap / barW; // the same pixel gap, as a bar fraction
-
-	// Slide the container down by whatever the bar grew, from the authored
-	// position rather than by accumulating shifts. The HEIGHT stays put: its
-	// children divide their spans through it, so changing it would resize the
-	// control bar with the party-bar slider instead of just moving it.
-	m_belowBar->bounds.y = kBelowBar0 + kBarH0 * (s - 1.0f);
+// A panel was dragged or resized: save, and mark the Settings sliders behind
+// the scale the corner grip left (a slider and the grip edit one number). NOT
+// synced here: this runs in a frame the allocation guard arms, and a slider
+// rebuilds its readout text - AllocTest -Panels caught exactly that. The page
+// is only ever seen from the menu or the pause screen, whose updates catch up
+// (SyncHudPanelSlidersIfStale), so the sliders are right before they show.
+void GameUI::OnHudPanelMoved() {
+	m_settings.Save();
+	m_hudSlidersStale = true;
 }
 
-// The docks size themselves from their own scale (ControlBar::LayoutSelf);
-// what they cannot do is widen the column they sit in, and a dock wider than
-// its parent would escape it. So the column takes the widest dock's width,
-// growing leftward from the same right edge.
-void GameUI::ApplyHudPanelScale() {
-	if (!m_controlBar) return;
-	const float w = kControlW * m_controlBar->WidestScale();
-	m_controlBar->bounds.x = 1.0f - w - kControlMargin;
-	m_controlBar->bounds.w = w;
+void GameUI::SyncHudPanelSlidersIfStale() {
+	if (!m_hudSlidersStale) return;
+	m_hudSlidersStale = false;
+	SyncHudPanelSliders();
+}
+
+void GameUI::SyncHudPanelSliders() {
+	for (size_t i = 0; i < m_hudScaleSliders.size(); ++i)
+		if (m_hudScaleSliders[i])
+			m_hudScaleSliders[i]->SetValue((m_settings.*(kHudPanelFields[i].look)).scale);
+}
+
+// Settings -> UI "Reset HUD layout": every panel back to its default spot and
+// size. Opacity is a look, not a layout, so it stays.
+void GameUI::ResetHudLayout() {
+	for (const HudPanelField& field : kHudPanelFields) {
+		HudPanelLook& look = m_settings.*(field.look);
+		look.x = look.y = -1.0f;
+		look.scale = 1.0f;
+	}
+	m_settings.Save();
+	SyncHudPanelSliders();
+}
+
+// What the pointer shape should be for the HUD this frame: a grip's arrow
+// while one is hovered or dragging, else the plain arrow.
+Window::Cursor GameUI::HudCursor() const {
+	for (const ui::FloatingPanel* panel : m_hudPanels) {
+		if (!panel || !panel->visible) continue;
+		if (panel->CursorWanted() == 1) return Window::Cursor::SizeAll;
+		if (panel->CursorWanted() == 2) return Window::Cursor::SizeNWSE;
+	}
+	return Window::Cursor::Arrow;
 }
 
 // ============================================================================
@@ -1693,6 +1740,12 @@ void GameUI::UpdateFonts(float dt) {
 	// draws this frame — the safe between-frames point the atlas upload needs.
 	// One call now covers every font in the game, dialogs and console included.
 	m_fonts.CommitAll();
+
+	// The pointer shape the HUD's grips asked for last frame, and then back to
+	// the arrow: UpdateHud asks again if a grip is still under the pointer, so
+	// any other state (paused, the sheet, a menu) gets the plain arrow.
+	m_window.SetCursorShape(m_hudCursor);
+	m_hudCursor = Window::Cursor::Arrow;
 }
 
 // A save was written or deleted. Two things go stale, and each catches up at
@@ -1733,6 +1786,7 @@ void GameUI::RefreshMenuEntriesIfDirty() {
 void GameUI::UpdateMenu(const Input& input) {
 	RefreshSavesIfDirty();
 	RefreshMenuEntriesIfDirty();
+	SyncHudPanelSlidersIfStale();
 	if (m_confirmActive) { // modal: freeze the page beneath it
 		m_confirmUi.Update(input, WindowW(), WindowH());
 		ResolveConfirm();
@@ -1744,6 +1798,7 @@ void GameUI::UpdateMenu(const Input& input) {
 void GameUI::UpdatePause(const Input& input) {
 	RefreshSavesIfDirty();
 	RefreshMenuEntriesIfDirty();
+	SyncHudPanelSlidersIfStale();
 	if (m_confirmActive) {
 		// The keyboard answers here too (Enter/Y, N) — Esc has already been
 		// taken by Game as a No, through CloseSettingsPage.
@@ -1792,6 +1847,7 @@ void GameUI::UpdateHud(const Input& input, float dt) {
 		return;
 	}
 	m_hudUi.Update(input, WindowW(), WindowH());
+	m_hudCursor = HudCursor();
 	// The log reads this frame's hover/scroll (set during Update above) to
 	// advance its fades and expand/collapse animation.
 	if (m_log) m_log->Tick(dt);

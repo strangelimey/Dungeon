@@ -64,6 +64,9 @@ public:
 
 	float padX = 0.0f;
 	float padY = 0.0f;
+	// The background's opacity, read live every draw from whoever owns it (a
+	// HUD plate's Settings slider). Null = opaque.
+	const float* opacity = nullptr;
 };
 
 // Horizontal rule (like HTML <hr>): a 1px line centered in its bounds, spanning
@@ -208,6 +211,16 @@ public:
 	}
 
 	float Value() const { return m_value; }
+	// Moves the thumb to a value changed ELSEWHERE (a HUD panel resized by its
+	// corner grip) without firing onChange. A no-op mid-drag, where the
+	// player's hand is the authority. Rebuilds the readout - not per frame.
+	void SetValue(float v) {
+		if (m_dragging) return;
+		v = v < m_min ? m_min : (v > m_max ? m_max : v);
+		if (v == m_value) return;
+		m_value = v;
+		RefreshDisplay();
+	}
 	// Places shown after the point in the readout (default 2). 0 for a slider
 	// over whole numbers, which otherwise reads "Rooms: 8.00".
 	void SetDecimals(int places) {

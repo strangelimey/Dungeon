@@ -296,95 +296,146 @@ void HudDock::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	ui::DrawPanelFace(ctx, batch, Pixel(), m_look ? m_look->opacity : 1.0f);
 }
 
-// --- ControlBar ------------------------------------------------------------
+// --- the docks as floating panels --------------------------------------------
 
-ControlBar::ControlBar(const gfx::Rect& rect, const ControlBarDeps& deps)
-	: m_roster(deps.roster) {
-	bounds = rect;
-	debugName = "ControlBar";
-	m_moveDock = Add<HudDock>(deps.moveLabel, deps.moveCollapsed, deps.onCollapseChanged,
-							  deps.moveLook);
-	m_moveDock->debugName = "MoveDock";
-	m_moveDock->SetToggleIcons(deps.boxPlus, deps.boxMinus);
-	m_moveDock->SetContent<MovementPad>(gfx::Rect{0, 0, 1, 1}, deps);
+namespace {
 
-	m_handsDock = Add<HudDock>(std::string(), nullptr, nullptr, deps.handsLook);
-	m_handsDock->debugName = "HandsDock";
-	m_handsDock->SetContent<HandsArea>(gfx::Rect{0, 0, 1, 1}, deps);
+// A dock's pixel metrics at a width and em - what its size, and the default
+// spots of the docks below it, are computed from.
+struct DockMetrics {
+	float pad = 0.0f, innerW = 0.0f, head = 0.0f, headGap = 0.0f;
+	float Minimized() const { return 2 * pad + head; } // a header strip and its padding
+};
 
-	m_magicDock = Add<HudDock>(deps.magicLabel, deps.magicCollapsed, deps.onCollapseChanged,
-							   deps.magicLook);
-	m_magicDock->debugName = "MagicDock";
-	m_magicDock->SetToggleIcons(deps.boxPlus, deps.boxMinus);
-	m_spellbook = m_magicDock->SetContent<SpellbookPanel>(gfx::Rect{0, 0, 1, 1},
+DockMetrics MetricsFor(float w, float em, bool header) {
+	DockMetrics m;
+	m.pad = HudDock::Pad(w);
+	m.innerW = std::max(0.0f, w - 2 * m.pad);
+	m.head = header ? HudDock::HeaderHeight(em) : 0.0f;
+	m.headGap = header ? HudDock::HeaderGap(em) : 0.0f;
+	return m;
+}
+
+float MoveHeight(float w, float em) {
+	const DockMetrics m = MetricsFor(w, em, true);
+	return m.Minimized() + m.headGap + MovementPad::NeededHeight(m.innerW, em);
+}
+
+float HandsHeight(float w, float em, size_t rows) {
+	const DockMetrics m = MetricsFor(w, em, false);
+	return m.Minimized() + HandsArea::NeededHeight(m.innerW, em, rows);
+}
+
+} // namespace
+
+HudDocks BuildHudDocks(ui::FloatingLayer& layer, const ControlBarDeps& deps) {
+	HudDocks out;
+	auto makePanel = [&](const char* name, HudPanelLook* look) {
+		auto* panel = layer.Add<ui::FloatingPanel>();
+		panel->debugName = name;
+		panel->posX = &look->x;
+		panel->posY = &look->y;
+		panel->scale = &look->scale;
+		panel->locked = deps.locked;
+		panel->onChanged = deps.onPlacementChanged;
+		return panel;
+	};
+	ui::FloatingPanel* move = out.move = makePanel("MovePanel", deps.moveLook);
+	ui::FloatingPanel* hands = out.hands = makePanel("HandsPanel", deps.handsLook);
+	ui::FloatingPanel* magic = out.magic = makePanel("MagicPanel", deps.magicLook);
+
+	auto* moveDock = move->Add<HudDock>(deps.moveLabel, deps.moveCollapsed,
+										deps.onCollapseChanged, deps.moveLook);
+	moveDock->bounds = {0, 0, 1, 1};
+	moveDock->debugName = "MoveDock";
+	moveDock->SetToggleIcons(deps.boxPlus, deps.boxMinus);
+	moveDock->SetContent<MovementPad>(gfx::Rect{0, 0, 1, 1}, deps);
+
+	auto* handsDock = hands->Add<HudDock>(std::string(), nullptr, nullptr, deps.handsLook);
+	handsDock->bounds = {0, 0, 1, 1};
+	handsDock->debugName = "HandsDock";
+	handsDock->SetContent<HandsArea>(gfx::Rect{0, 0, 1, 1}, deps);
+
+	auto* magicDock = magic->Add<HudDock>(deps.magicLabel, deps.magicCollapsed,
+										  deps.onCollapseChanged, deps.magicLook);
+	magicDock->bounds = {0, 0, 1, 1};
+	magicDock->debugName = "MagicDock";
+	magicDock->SetToggleIcons(deps.boxPlus, deps.boxMinus);
+	out.spellbook = magicDock->SetContent<SpellbookPanel>(gfx::Rect{0, 0, 1, 1},
 														  deps.roster, deps.icons);
-	m_rows = HandRows(MemberCount(deps));
-}
 
-float ControlBar::WidestScale() const {
-	return std::max({m_moveDock->Scale(), m_handsDock->Scale(), m_magicDock->Scale()});
-}
-
-void ControlBar::LayoutSelf(ui::UIContext& ctx) {
-	const gfx::Rect& px = Pixel();
-	if (px.w <= 0.0f || px.h <= 0.0f) return;
-
-	// Everything in PIXELS first, then fractions of this column. A dock at scale
-	// 1 is the width the column has at scale 1 (the owner widens the column to
-	// the widest dock), and each is as wide as its scale says, flush right. The
-	// padded interior's width is what sizes the square cells and boxes inside.
-	//
-	// A dock's detail is in ITS em: the font at its scale, asked of the library
-	// exactly as Widget::Layout will ask it for the dock's own subtree, so the
-	// heights measured here are the heights the docks then lay out to.
-	const float widest = WidestScale();
-	const float unitW = px.w / widest;
-	struct Metrics {
-		float w, em, pad, innerW, head, headGap, minimized;
+	// Everything below is asked every layout, in pixels. A dock is the column's
+	// width times its scale; its detail is in ITS em (the font at its scale,
+	// asked exactly as Widget::Layout will ask it for the dock's subtree), so
+	// the heights measured here are the heights the docks then lay out to.
+	const size_t rows = HandRows(MemberCount(deps));
+	const float columnW = deps.columnW, margin = deps.columnMargin;
+	const HudPanelLook* moveLook = deps.moveLook;
+	const HudPanelLook* handsLook = deps.handsLook;
+	const HudPanelLook* magicLook = deps.magicLook;
+	const bool* moveCollapsed = deps.moveCollapsed;
+	const bool* magicCollapsed = deps.magicCollapsed;
+	const std::function<float(ui::UIContext&)> columnTop = deps.columnTop;
+	const std::function<float(ui::UIContext&)> columnBottom = deps.columnBottom;
+	auto width = [columnW](ui::UIContext& ctx, float s) { return ctx.Width() * columnW * s; };
+	auto right = [margin](ui::UIContext& ctx) { return ctx.Width() * (1.0f - margin); };
+	auto gap = [move](ui::UIContext& ctx) { return move->EmAt(ctx, 1.0f) * kDockGap; };
+	// The DEFAULT tops: the column top, then each dock below the one above at
+	// that one's EXPANDED height and current scale - no reflow when one is
+	// minimized (the header's rule).
+	auto moveTop = [columnTop](ui::UIContext& ctx) { return columnTop ? columnTop(ctx) : 0.0f; };
+	auto handsTop = [=](ui::UIContext& ctx) {
+		const float s = moveLook->scale;
+		return moveTop(ctx) + MoveHeight(width(ctx, s), move->EmAt(ctx, s)) + gap(ctx);
 	};
-	auto metrics = [&](HudDock* dock) {
-		const float s = dock->Scale();
-		dock->fontScale = s;
-		Metrics m;
-		m.w = unitW * s;
-		m.em = s == 1.0f ? ctx.FontFor(ResolvedRole()).Height()
-						 : ctx.FontAt(ResolvedRole(), ctx.DesignHeight() * s).Height();
-		m.pad = HudDock::Pad(m.w);
-		m.innerW = std::max(0.0f, m.w - 2 * m.pad);
-		m.head = dock->HasHeader() ? HudDock::HeaderHeight(m.em) : 0.0f;
-		m.headGap = dock->HasHeader() ? HudDock::HeaderGap(m.em) : 0.0f;
-		m.minimized = 2 * m.pad + m.head; // a header strip and its padding
-		return m;
+	auto magicTop = [=](ui::UIContext& ctx) {
+		const float s = handsLook->scale;
+		return handsTop(ctx) + HandsHeight(width(ctx, s), hands->EmAt(ctx, s), rows) + gap(ctx);
 	};
-	const Metrics move = metrics(m_moveDock);
-	const Metrics hands = metrics(m_handsDock);
-	const Metrics magic = metrics(m_magicDock);
-	const float dockGap = Rem(kDockGap);
 
-	const float moveH = move.minimized + move.headGap +
-						MovementPad::NeededHeight(move.innerW, move.em);
-	const float handsH = hands.minimized + HandsArea::NeededHeight(hands.innerW, hands.em, m_rows);
-
-	auto place = [&](HudDock* dock, const Metrics& m, float y, float h) {
-		dock->bounds = {(px.w - m.w) / px.w, y / px.h, m.w / px.w, h / px.h};
+	move->size = [=](ui::UIContext& ctx, float s) {
+		const float w = width(ctx, s), em = move->EmAt(ctx, s);
+		const bool collapsed = moveCollapsed && *moveCollapsed;
+		return Vec2{w, collapsed ? MetricsFor(w, em, true).Minimized() : MoveHeight(w, em)};
 	};
-	// NO REFLOW: each dock's TOP comes from the others' EXPANDED heights, so
-	// minimizing one leaves a gap rather than pulling the next one up.
-	float y = 0.0f;
-	place(m_moveDock, move, y, m_moveDock->Collapsed() ? move.minimized : moveH);
-	y += moveH + dockGap;
-	place(m_handsDock, hands, y, handsH);
-	y += handsH + dockGap;
-	place(m_magicDock, magic, y,
-		  m_magicDock->Collapsed() ? magic.minimized
-								   : std::max(magic.minimized, px.h - y));
+	move->defaultPos = [=](ui::UIContext& ctx) {
+		return Vec2{right(ctx) - width(ctx, moveLook->scale), moveTop(ctx)};
+	};
 
+	hands->size = [=](ui::UIContext& ctx, float s) {
+		const float w = width(ctx, s);
+		return Vec2{w, HandsHeight(w, hands->EmAt(ctx, s), rows)};
+	};
+	hands->defaultPos = [=](ui::UIContext& ctx) {
+		return Vec2{right(ctx) - width(ctx, handsLook->scale), handsTop(ctx)};
+	};
+
+	// Magic's height at scale 1 is what the default column leaves below the
+	// other two at THEIR scale 1 - a fixed number, so resizing the hands does
+	// not resize the magic dock - and it scales from there like the others.
+	magic->size = [=](ui::UIContext& ctx, float s) {
+		const float w = width(ctx, s), em = magic->EmAt(ctx, s);
+		const DockMetrics m = MetricsFor(w, em, true);
+		if (magicCollapsed && *magicCollapsed) return Vec2{w, m.Minimized()};
+		const float w1 = width(ctx, 1.0f), em1 = magic->EmAt(ctx, 1.0f);
+		const float top1 = moveTop(ctx) + MoveHeight(w1, em1) + gap(ctx) +
+						   HandsHeight(w1, em1, rows) + gap(ctx);
+		const float bottom = columnBottom ? columnBottom(ctx) : ctx.Height();
+		return Vec2{w, std::max(m.Minimized(), (bottom - top1) * s)};
+	};
+	magic->defaultPos = [=](ui::UIContext& ctx) {
+		return Vec2{right(ctx) - width(ctx, magicLook->scale), magicTop(ctx)};
+	};
 	// Magic appears once ANY member knows a symbol - not before, and not by a
 	// flag set when one is learned, which a load or a roster change would miss.
-	bool anySymbols = false;
-	if (m_roster)
-		for (const Character& c : *m_roster) anySymbols = anySymbols || c.knownSymbols != 0;
-	m_magicDock->visible = anySymbols;
+	const std::vector<Character>* roster = deps.roster;
+	magic->shownWhen = [roster] {
+		if (!roster) return false;
+		for (const Character& c : *roster)
+			if (c.knownSymbols != 0) return true;
+		return false;
+	};
+	return out;
 }
 
 } // namespace dungeon::game

@@ -548,6 +548,61 @@ void Game::RegisterPartyCommands() {
 							   std::format("sheet open: {}", m_characters[m].name));
 					   });
 
+	// The floating HUD panels (ui-panels P3a, UI/FloatingPanel.h). A harness
+	// moves and scales them through here rather than scripting drags at a
+	// layout that moves under it; bare (or `list`) prints where each one is.
+	m_console.Register(
+		"hudpanel",
+		"floating HUD panels (dev): hudpanel [list] | <id> <x> <y> [scale] | reset | "
+		"lock on|off",
+		[this](const std::vector<std::string>& args) {
+			if (args.empty() || args[0] == "list") {
+				m_console.Print(std::format("hud layout {}", m_settings.hudLocked ? "locked" : "unlocked"));
+				for (size_t i = 0; i < std::size(kHudPanelFields); ++i) {
+					const HudPanelLook& look = m_settings.*(kHudPanelFields[i].look);
+					const ui::FloatingPanel* panel = m_ui.HudPanel(i);
+					const gfx::Rect r = panel ? panel->Pixel() : gfx::Rect{};
+					m_console.Print(std::format(
+						"  {:<8} {}  px {:.0f},{:.0f} {:.0f}x{:.0f}  saved {}  scale {:.2f}  opacity {:.2f}",
+						kHudPanelFields[i].id,
+						!panel ? "unbuilt" : (panel->visible ? "shown " : "hidden"), r.x, r.y,
+						r.w, r.h,
+						look.x < 0.0f ? std::string("default")
+									  : std::format("{:.3f},{:.3f}", look.x, look.y),
+						look.scale, look.opacity));
+				}
+				return;
+			}
+			if (args[0] == "reset") {
+				m_ui.ResetHudLayout();
+				m_console.Print("hud layout reset");
+				return;
+			}
+			if (args[0] == "lock") {
+				m_settings.hudLocked = args.size() < 2 || args[1] != "off";
+				m_settings.Save();
+				m_console.Print(m_settings.hudLocked ? "hud layout locked" : "hud layout unlocked");
+				return;
+			}
+			for (const HudPanelField& field : kHudPanelFields) {
+				if (args[0] != field.id) continue;
+				if (args.size() < 3) {
+					m_console.Refuse("usage: hudpanel <id> <x> <y> [scale] (window fractions)");
+					return;
+				}
+				HudPanelLook& look = m_settings.*(field.look);
+				look.x = std::clamp(static_cast<float>(std::atof(args[1].c_str())), 0.0f, 1.0f);
+				look.y = std::clamp(static_cast<float>(std::atof(args[2].c_str())), 0.0f, 1.0f);
+				if (args.size() > 3)
+					look.scale = std::clamp(static_cast<float>(std::atof(args[3].c_str())), 0.5f, 1.5f);
+				m_settings.Save();
+				m_console.Print(std::format("{} at {:.3f},{:.3f} scale {:.2f}", field.id, look.x,
+											look.y, look.scale));
+				return;
+			}
+			m_console.Refuse("no such panel - party, status, options, move, hands, magic");
+		});
+
 	// Open (or close) a member's spellbook in the Magic area - the selector
 	// button's own path. It exists for tools\AllocTest.ps1 -Cast: an open book
 	// redraws its rune grid every frame, and that grid allocated per frame for
