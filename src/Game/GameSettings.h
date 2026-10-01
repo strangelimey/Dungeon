@@ -149,6 +149,9 @@ struct GameSettings {
 	// deliberately as a DEBUG MODE (widget containment/extents read at a
 	// glance). Settings → UI checkbox; ini uiskin=.
 	bool uiSkin = true;
+	// The stone that chrome is cut from: an assets/ui/stones/<name>.png stem
+	// (tools/BuildUiStones.py). Settings → UI dropdown; ini ui_stone=.
+	std::string uiStone = "granite_grey";
 	// Walking head bob (Party::EyePosition's footfall dip + sway). Off for
 	// motion-sensitive players — the eye glides dead level. Settings → UI
 	// checkbox; ini headbob=.

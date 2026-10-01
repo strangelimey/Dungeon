@@ -374,6 +374,10 @@ private:
 	// Pushes the skin (or null, per settings.uiSkin) into every UIContext.
 	// Live — widgets re-check the pointer each draw, no rebuild needed.
 	void ApplySkin();
+	// Loads assets/ui/stones/<name>.png as the skin's stone (UI/Skin.h).
+	void LoadStone(const std::string& name);
+	// Scales the skin's frames and stone grain with the window, like the fonts.
+	void UpdateSkinScale();
 	// Re-derives the party-bar slot rects from the settings scale and shifts
 	// the widgets beneath the bar to match; no-op until BuildHud has run.
 	void ApplyPartyBarScale();
@@ -543,12 +547,16 @@ private:
 	const ui::Font* m_titleFont = nullptr;
 	std::unique_ptr<gfx::Texture> m_titleBackground; // landing-page art
 	std::unique_ptr<gfx::Texture> m_deleteIcon;      // red X for the save browser
-	// Textured-chrome skin (UI/Skin.h): the part textures + the Skin handed to
-	// every context by ApplySkin (null when settings.uiSkin is off — the flat
-	// debug look). Textures are optional; missing parts stay flat.
-	std::unique_ptr<gfx::Texture> m_skinPanelTex;
-	std::unique_ptr<gfx::Texture> m_skinButtonTex;
-	std::unique_ptr<gfx::Texture> m_skinSlotTex;
+	// Textured-chrome skin (UI/Skin.h): the bevel overlays, the polish, the
+	// picked stone + the Skin handed to every context by ApplySkin (null when
+	// settings.uiSkin is off — the flat debug look). Textures are optional;
+	// missing frames stay flat, a missing stone draws without grain.
+	std::unique_ptr<gfx::Texture> m_framePanelTex;
+	std::unique_ptr<gfx::Texture> m_frameButtonTex;
+	std::unique_ptr<gfx::Texture> m_frameButtonDownTex;
+	std::unique_ptr<gfx::Texture> m_frameSlotTex;
+	std::unique_ptr<gfx::Texture> m_sheenTex;
+	std::unique_ptr<gfx::Texture> m_stoneTex;
 	ui::Skin m_skin;
 	// The spellbook's Cast/Clear round icon faces (optional).
 	std::unique_ptr<gfx::Texture> m_castIconTex;

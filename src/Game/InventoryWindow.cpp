@@ -129,8 +129,7 @@ void InventoryWindow::DrawOverlaySelf(ui::UIContext& ctx, gfx::SpriteBatch& batc
 				  panel.y + padY + kHeaderH * panel.h, theme.text);
 		for (int i = 0; i < static_cast<int>(pack.size()); ++i) {
 			const gfx::Rect r = SlotRect(panel, m, i);
-			batch.DrawRect(r, kSlotBg);
-			ui::DrawBorder(batch, r, theme.panelBorder);
+			ui::DrawSlotFace(ctx, batch, r, kSlotBg);
 			const ItemSlot& s = pack[static_cast<size_t>(i)];
 			if (!s.Empty() && m_icons) {
 				if (const gfx::Texture* icon = m_icons->For(s.typeId)) {

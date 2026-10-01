@@ -1,6 +1,7 @@
 #include "UI/Skin.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace dungeon::ui {
 
@@ -29,7 +30,74 @@ void TileRegion(gfx::SpriteBatch& batch, const gfx::Texture& texture,
 	}
 }
 
+// Fills dst with the stone, tiled on a grid anchored to the SCREEN origin
+// rather than to dst, so neighbouring faces continue one slab. One quad per
+// grid cell dst touches (a button is one to four; a window-wide panel a few).
+// The sprite sampler clamps, which is why this tiles in quads rather than
+// with uv past 1.
+void TileStone(gfx::SpriteBatch& batch, const gfx::Texture& stone, const gfx::Rect& dst,
+			   float tile, const Vec4& tint) {
+	if (dst.w <= 0.0f || dst.h <= 0.0f || tile <= 0.0f) return;
+	const float right = dst.x + dst.w, bottom = dst.y + dst.h;
+	for (float ty = std::floor(dst.y / tile) * tile; ty < bottom; ty += tile) {
+		const float y0 = std::max(ty, dst.y), y1 = std::min(ty + tile, bottom);
+		for (float tx = std::floor(dst.x / tile) * tile; tx < right; tx += tile) {
+			const float x0 = std::max(tx, dst.x), x1 = std::min(tx + tile, right);
+			batch.DrawSprite({x0, y0, x1 - x0, y1 - y0},
+							 {(x0 - tx) / tile, (y0 - ty) / tile, (x1 - x0) / tile,
+							  (y1 - y0) / tile},
+							 stone, tint);
+		}
+	}
+}
+
+const SkinPart& PartFor(const Skin& skin, Face face) {
+	switch (face) {
+	case Face::Panel: return skin.panel;
+	case Face::Button: return skin.button;
+	case Face::ButtonDown: return skin.buttonDown.texture ? skin.buttonDown : skin.button;
+	case Face::Slot: return skin.slot;
+	}
+	return skin.panel;
+}
+
+// The stone's brightness under each kind of face. A button stands a little
+// proud of the panel it sits on, so it catches a little more light; a slot's
+// darkness comes from its overlay's well, not from here.
+float StoneTone(Face face) {
+	switch (face) {
+	case Face::Button: return 1.12f;
+	case Face::ButtonDown: return 0.95f;
+	default: return 1.0f;
+	}
+}
+
 } // namespace
+
+void DrawFace(gfx::SpriteBatch& batch, const gfx::Rect& dst, const Skin& skin, Face face,
+			  const Vec4& tint) {
+	const SkinPart& part = PartFor(skin, face);
+	if (!part.texture || dst.w <= 0.0f || dst.h <= 0.0f) return;
+	const float tone = StoneTone(face);
+	if (skin.stone) {
+		TileStone(batch, *skin.stone, dst, skin.stoneTile,
+				  {tint.x * tone, tint.y * tone, tint.z * tone, tint.w});
+	} else {
+		const Vec4& f = skin.stoneFallback;
+		batch.DrawRect(dst, {f.x * tint.x * tone, f.y * tint.y * tone, f.z * tint.z * tone,
+							 f.w * tint.w});
+	}
+	if (face == Face::Panel && skin.sheen.texture)
+		DrawNineSlice(batch, dst, skin.sheen, {1, 1, 1, tint.w});
+	// The bevel carries only light, so it takes the face's alpha, not its tint:
+	// a dimmed button keeps its edges.
+	DrawNineSlice(batch, dst, part, {1, 1, 1, tint.w});
+}
+
+float FaceInset(const Skin& skin, Face face) {
+	const SkinPart& part = PartFor(skin, face);
+	return part.texture ? part.inset * part.scale : 0.0f;
+}
 
 void DrawNineSlice(gfx::SpriteBatch& batch, const gfx::Rect& dst,
 				   const SkinPart& part, const Vec4& tint) {

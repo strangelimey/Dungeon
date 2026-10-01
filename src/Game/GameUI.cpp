@@ -153,12 +153,16 @@ void GameUI::LoadTitleArt() {
 	// Small UI glyph; optional (the SlotList falls back to a text "X").
 	m_deleteIcon = TryLoadTextureFile(m_device, paths::Asset("ui\\delete"));
 
-	// UI skin parts (assets/ui/skin_*.png, committed source like the other UI
-	// images). All optional — a missing part leaves that chrome flat, and the
-	// flat look survives whole as the debug mode / uiskin=0.
-	m_skinPanelTex = TryLoadTextureFile(m_device, paths::Asset("ui\\skin_panel"));
-	m_skinButtonTex = TryLoadTextureFile(m_device, paths::Asset("ui\\skin_button"));
-	m_skinSlotTex = TryLoadTextureFile(m_device, paths::Asset("ui\\skin_slot"));
+	// UI skin: the bevel overlays every stone face is drawn with
+	// (assets/ui/frame_*.png + sheen_panel.png, made by tools/BuildUiFrames.py,
+	// committed source like the other UI images) and the picked stone (LoadStone).
+	// All optional — a missing frame leaves that chrome flat, and the flat look
+	// survives whole as the debug mode / uiskin=0.
+	m_framePanelTex = TryLoadTextureFile(m_device, paths::Asset("ui\\frame_panel"));
+	m_frameButtonTex = TryLoadTextureFile(m_device, paths::Asset("ui\\frame_button"));
+	m_frameButtonDownTex = TryLoadTextureFile(m_device, paths::Asset("ui\\frame_button_down"));
+	m_frameSlotTex = TryLoadTextureFile(m_device, paths::Asset("ui\\frame_slot"));
+	m_sheenTex = TryLoadTextureFile(m_device, paths::Asset("ui\\sheen_panel"));
 	// The spellbook's Cast/Clear icon faces (optional — text buttons without).
 	m_castIconTex = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_cast"));
 	m_clearIconTex = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_clear"));
@@ -171,20 +175,38 @@ void GameUI::LoadTitleArt() {
 	m_glowTex = TryLoadTextureFile(m_device, paths::Asset("ui\\glow_radial"));
 	// (The shared close box is loaded in BuildStaticUi, which needs it before
 	// this load task runs — see the note there.)
-	// The panel part is a QUIET bake (near-black + faint noise, one thin brass
-	// edge, no black rim — the old stone face read too busy under the kit's
-	// wooden buttons); it tiles, so the noise stays dense at any panel size.
-	m_skin.panel = {m_skinPanelTex.get(), 8.0f, 1.0f};
-	// The button part (Medieval RPG UI kit slot #17: planked face, iron corner
-	// plates) is baked 64px with a ~14px frame; scale 0.65 renders it ~9px
-	// (full-scale read as heavy on the small movement/hand chrome). Both kit
-	// parts are AUTHORED faces with baked lighting, so they stretch rather
-	// than tile (tiling their gradients banded visibly).
-	m_skin.button = {m_skinButtonTex.get(), 14.0f, 0.65f, /*stretch*/ true};
-	// The socket frame (kit slot #12) is baked 96px with a ~20px ring;
-	// scale 0.42 renders it ~8px so a hand slot keeps its item visible.
-	m_skin.slot = {m_skinSlotTex.get(), 20.0f, 0.42f, /*stretch*/ true};
+	// The overlays are authored at 2x (64 texels, a 16-texel corner) and drawn
+	// at half scale times the UI's window scale (UpdateSkinScale). They carry
+	// only light, uniform along each edge, so they stretch. The last number is
+	// the VISIBLE frame - rim + bevel (+ the panel's groove) - which is where a
+	// face's content starts (ui::FaceInset); it must match BuildUiFrames.py.
+	m_skin.panel = {m_framePanelTex.get(), 16.0f, 0.5f, /*stretch*/ true, 12.5f};
+	m_skin.button = {m_frameButtonTex.get(), 16.0f, 0.5f, true, 9.0f};
+	m_skin.buttonDown = {m_frameButtonDownTex.get(), 16.0f, 0.5f, true, 8.0f};
+	m_skin.slot = {m_frameSlotTex.get(), 16.0f, 0.5f, true, 8.0f};
+	m_skin.sheen = {m_sheenTex.get(), 0.0f, 1.0f, true};
+	LoadStone(m_settings.uiStone);
+	UpdateSkinScale();
 	ApplySkin();
+}
+
+// The stone every skinned face is cut from: assets/ui/stones/<name>.png
+// (tools/BuildUiStones.py). A missing one is logged and leaves the faces on the
+// skin's flat fallback colour - still chrome, just without grain.
+void GameUI::LoadStone(const std::string& name) {
+	auto tex = TryLoadTextureFile(m_device, paths::Asset("ui\\stones\\" + name));
+	if (!tex) log::Warn("UI stone missing: ui/stones/{}.png - faces draw without grain", name);
+	m_stoneTex = std::move(tex);
+	m_skin.stone = m_stoneTex.get();
+}
+
+// The frames and the stone grain track the window like the fonts do, so a
+// bevel is the same share of a button at any resolution. Assignments only -
+// runs every frame from UpdateFonts.
+void GameUI::UpdateSkinScale() {
+	const float s = 0.5f * m_fontScale;
+	m_skin.panel.scale = m_skin.button.scale = m_skin.buttonDown.scale = m_skin.slot.scale = s;
+	m_skin.stoneTile = 1024.0f * m_fontScale;
 }
 
 void GameUI::ApplyTheme() {
@@ -1613,6 +1635,7 @@ void GameUI::UpdateFonts(float dt) {
 			   (m_fontSettle += dt) >= kFontSettleDelay) {
 		m_fontScale = windowH / kFontDesignWindowH;
 	}
+	UpdateSkinScale();
 
 	// Re-resolve every context every frame. This is a map lookup per context,
 	// not a re-bake: the library returns the SAME Font while the role's face and
@@ -1840,15 +1863,12 @@ void GameUI::DrawLoadProgress(const LoadQueue& queue, float barY) {
 	const ui::Theme& theme = m_menuUi.GetTheme();
 
 	const gfx::Rect bar{w * 0.3f, barY, w * 0.4f, h * (14.0f / kFontDesignWindowH)};
-	// Skinned: the button part frames the bar with the track inset as a dark
-	// socket (the HandSlot treatment); flat mode keeps the bordered fill.
+	// Skinned: the track is a groove sunk into the stone (the item-socket face),
+	// the progress filling its well; flat mode keeps the bordered fill.
 	const ui::Skin* skin = m_menuUi.GetSkin();
-	if (skin && skin->button.texture) {
-		ui::DrawNineSlice(m_spriteBatch, bar, skin->button, {1, 1, 1, 1});
-		const float in = 3.0f;
-		const gfx::Rect track{bar.x + in, bar.y + in, bar.w - 2 * in,
-							  bar.h - 2 * in};
-		m_spriteBatch.DrawRect(track, {0.0f, 0.0f, 0.0f, 1.0f});
+	if (skin && skin->slot.texture) {
+		const gfx::Rect track =
+			ui::DrawSlotFace(m_menuUi, m_spriteBatch, bar, {0.0f, 0.0f, 0.0f, 1.0f});
 		m_spriteBatch.DrawRect({track.x, track.y, track.w * queue.Progress(), track.h},
 							   theme.accent);
 	} else {
