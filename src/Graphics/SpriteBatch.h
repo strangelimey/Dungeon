@@ -6,6 +6,8 @@
 // and flush as a single draw; a flush is forced whenever the texture or the
 // scissor rect changes, so submission order == draw order. Vertices live in
 // the per-frame UploadAllocator arena (nothing persists between frames).
+// A second pipeline draws the procedural resource-bar fills (DrawBarFill,
+// assets/shaders/bar.hlsl); moving between the two is a flush like any other.
 // Text rendering sits one level up: ui::Font turns glyphs into DrawSprite
 // calls against its atlas texture.
 // ============================================================================
@@ -26,6 +28,20 @@ struct Rect {
 	bool Contains(float px, float py) const {
 		return px >= x && px < x + w && py >= y && py < y + h;
 	}
+};
+
+// A PROCEDURAL bar fill (assets/shaders/bar.hlsl): the animated fluid inside a
+// resource bar's glass tube. Each kind has its own look and motion; Solid is a
+// flat tint (the food/water placeholder). The shader paints the whole tube -
+// the filled part AND the empty glass past it - so the caller passes the
+// tube's rect, not the filled width.
+enum class BarKind : u32 { Solid = 0, Health = 1, Stamina = 2, Mana = 3 };
+struct BarFill {
+	BarKind kind = BarKind::Solid;
+	float fraction = 1.0f; // 0..1, how full the bar is
+	float beat = 0.0f;     // heartbeat phase within the current beat, 0..1 (Health)
+	float seed = 0.0f;     // per-bar offset, so two bars never move in lockstep
+	Vec4 tint{1, 1, 1, 1}; // Solid's colour (the animated kinds carry their own)
 };
 
 // Batched 2D rendering in pixel coordinates (origin top-left). Used by the UI
@@ -61,6 +77,17 @@ public:
 	void DrawTriangle(const Vec2& a, const Vec2& b, const Vec2& c,
 					  const Vec4& color);
 
+	// One procedural bar fill over `tube` (see BarFill). Batched like sprites:
+	// consecutive fills share one draw, and switching between fills and sprites
+	// flushes, so submission order is still draw order - a frame drawn after
+	// its fill lands on top of it.
+	void DrawBarFill(const Rect& tube, const BarFill& fill);
+
+	// The clock the bar fills animate by, in seconds. REAL time, set once a
+	// frame before Begin: not the world's clock, which runs 60x while resting
+	// and stops in the pause menu.
+	void SetTime(float seconds) { m_time = seconds; }
+
 	// Pixel-space clipping for scrolling panels. Pass nullptr to reset.
 	void SetScissor(const Rect* rect);
 
@@ -74,12 +101,27 @@ private:
 		Vec2 uv;
 		Vec4 color;
 	};
+	// bar.hlsl's vertex: uv runs 0..1 across the TUBE; params = (kind,
+	// fraction, beat, seed); extra = (tube aspect w/h, tube height in px).
+	struct BarVertex {
+		Vec2 position;
+		Vec2 uv;
+		Vec4 tint;
+		Vec4 params;
+		Vec4 extra;
+	};
+	enum class Mode { Sprite, Bar };
 
 	void Flush();
+	void UseMode(Mode mode);
+	// Uploads `bytes` of vertices and draws them under the current scissor
+	// (nothing is submitted when the scissor clips everything away).
+	void Submit(const void* data, u64 bytes, u32 stride, u32 count);
 
 	GraphicsDevice& m_device;
 	ComPtr<ID3D12RootSignature> m_rootSignature;
 	ComPtr<ID3D12PipelineState> m_pso;
+	ComPtr<ID3D12PipelineState> m_barPso;
 	std::unique_ptr<UploadAllocator> m_frameAllocators[kFrameCount];
 	std::unique_ptr<Texture> m_white;
 
@@ -87,7 +129,10 @@ private:
 	u32 m_frameIndex = 0;
 	u32 m_screenWidth = 1;
 	u32 m_screenHeight = 1;
+	float m_time = 0.0f;
+	Mode m_mode = Mode::Sprite;
 	std::vector<SpriteVertex> m_pending;
+	std::vector<BarVertex> m_pendingBars;
 	D3D12_GPU_DESCRIPTOR_HANDLE m_pendingTexture{};
 	Rect m_scissor{};
 	bool m_scissorActive = false;

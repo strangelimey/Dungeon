@@ -6,12 +6,14 @@
 #include "Core/Loc.h"
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
+#include "Game/PartyHudDraw.h" // the resource bars' heartbeat (TickResourceBars)
 #include "Game/Project.h"
 #include "Game/SaveGame.h"
 #include "Game/Spell/Spell.h"
 #include "Graphics/DisplayEnum.h"
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <format>
 #include <iterator>
@@ -67,9 +69,12 @@ constexpr float kSavesBackY = 0.85f;
 // when the bar grows. They were duplicated between the two, which is fine right
 // up until one copy changes.
 constexpr float kBarTop = 0.018f;
-constexpr float kBarH0 = 0.107f; // party bar height at scale 1
+// Party bar height at scale 1. Raised from 0.107 for the framed resource bars
+// (Michael, 2026-09-30: "make the party bar tubes taller") - at 0.107 a tube
+// was ~10 px and its iron frame shrank to a dark rim with no ornament visible.
+constexpr float kBarH0 = 0.140f;
 constexpr float kBarGap = 0.018f;
-constexpr float kBelowBar0 = kBarTop + kBarH0 + kBarGap; // ~0.143
+constexpr float kBelowBar0 = kBarTop + kBarH0 + kBarGap; // ~0.176
 constexpr float kFooter = 0.071f; // the message-log footer along the bottom
 // What the below-bar column spans: bar to footer, neither included.
 constexpr float kBelowSpan = (1.0f - kFooter) - kBelowBar0;
@@ -159,6 +164,10 @@ void GameUI::LoadTitleArt() {
 	m_skinPanelTex = TryLoadTextureFile(m_device, paths::Asset("ui\\skin_panel"));
 	m_skinButtonTex = TryLoadTextureFile(m_device, paths::Asset("ui\\skin_button"));
 	m_skinSlotTex = TryLoadTextureFile(m_device, paths::Asset("ui\\skin_slot"));
+	// The resource bars' iron frame (tools/CutBarFrame.py). Optional too:
+	// without it the bars draw flat.
+	m_barFrameTex = TryLoadTextureFile(m_device, paths::Asset("ui\\bar_frame"));
+	m_barStyle.frame = m_barFrameTex.get();
 	// The spellbook's Cast/Clear icon faces (optional — text buttons without).
 	m_castIconTex = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_cast"));
 	m_clearIconTex = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_clear"));
@@ -197,6 +206,7 @@ void GameUI::ApplyTheme() {
 
 void GameUI::ApplySkin() {
 	const ui::Skin* skin = m_settings.uiSkin ? &m_skin : nullptr;
+	m_barStyle.framed = m_settings.uiSkin; // the flat debug look takes the bars too
 	for (ui::UIContext* ctx :
 		 {&m_hudUi, &m_menuUi, &m_settingsUi, &m_pauseUi, &m_savesUi, &m_sheetUi,
 		  &m_confirmUi})
@@ -700,11 +710,10 @@ void GameUI::BuildSettings() {
 	panelLook("settings.hands_panel", m_settings.hudHands);
 	panelLook("settings.magic_panel", m_settings.hudMagic);
 
-	// UI → Theme Colors (kThemeFields) and Resource Bars (kBarFields): color
-	// pickers, three per row. Theme edits recolor every context live
-	// (ApplyTheme); bar edits show on the HUD widgets' next draw (they point
-	// at the settings' barColors). Both persist once when a picker's popup
-	// closes.
+	// UI → Theme Colors (kThemeFields): color pickers, three per row. Edits
+	// recolor every context live (ApplyTheme) and persist once when a picker's
+	// popup closes. (The resource bars had a grid here too; their fills are
+	// procedural now, each with its own fixed colour - ResourceBarStyle.)
 	//
 	// A grid is rows of three: each row is a horizontal stack, so the columns
 	// line up by construction. It used to be a block of hand-computed cells —
@@ -739,18 +748,6 @@ void GameUI::BuildSettings() {
 			[this, member = field.field](const Vec4& color) {
 				m_settings.theme.*member = color;
 				ApplyTheme();
-			});
-		picker->onClose = [this] { m_settings.Save(); };
-	});
-
-	section(*uf, "settings.resource_bars");
-	colorGrid(*uf, std::size(kBarFields), [&](ui::Stack& row, size_t i) {
-		const BarField& field = kBarFields[i];
-		auto* picker = row.Row<ui::ColorPicker>(
-			ui::Len::Fill(), loc::Tr(field.labelKey),
-			m_settings.barColors.*(field.field),
-			[this, member = field.field](const Vec4& color) {
-				m_settings.barColors.*member = color;
 			});
 		picker->onClose = [this] { m_settings.Save(); };
 	});
@@ -1053,7 +1050,7 @@ void GameUI::BuildCharacterSheet() {
 	// Added FIRST so the buttons below it update on top (and consume their clicks
 	// before the sheet's slot hit-testing).
 	m_sheet = m_sheetUi.Add<CharacterSheet>(sheet, &m_characters,
-											&m_settings.barColors, m_itemIcons,
+											&m_barStyle, m_itemIcons,
 											m_itemWeights, m_slotIcons,
 											m_itemCategories, m_held);
 	// A pack refused the held item: a soft thud + a "won't fit" log line. Item
@@ -1391,7 +1388,7 @@ void GameUI::BuildHud() {
 	m_partyPanels.clear();
 	for (size_t i = 0; i < m_characters.size() && i < PartyBar::kSlots; ++i) {
 		auto* panel = m_partyBar->Add<CharacterPanel>(
-			gfx::Rect{}, &m_characters, i, &m_settings.barColors,
+			gfx::Rect{}, &m_characters, i, &m_barStyle,
 			m_hitSplats, m_itemIcons, [this, i] { OnPortraitClick(i); },
 			[this, i] { OnPortraitRightClick(i); },
 			[this, i] { OnPortraitBars(i); },
@@ -1598,6 +1595,20 @@ void GameUI::ApplyHudPanelScale() {
 // ============================================================================
 // Per-frame updates
 // ============================================================================
+
+void GameUI::TickResourceBars(float dt, bool noticed) {
+	// Wrapped once an hour so the shader's float clock never loses precision;
+	// the fills jump once at the wrap, which nobody watching a bar will catch.
+	m_barStyle.clock = std::fmod(m_barStyle.clock + dt, 3600.0f);
+	m_spriteBatch.SetTime(m_barStyle.clock);
+	for (size_t i = 0; i < ResourceBarStyle::kMaxMembers; ++i) {
+		const Character* c = RosterMember(&m_characters, i);
+		const float target = !c ? 0.0f
+							 : m_barStyle.pinnedBpm >= 0.0f ? m_barStyle.pinnedBpm
+															: HeartRateTarget(*c, noticed);
+		TickBarPulse(m_barStyle.pulse[i], target, dt);
+	}
+}
 
 // Keeps fonts in step with the window height so text scales with the
 // normalized UI. Re-bakes are debounced until the height has settled for

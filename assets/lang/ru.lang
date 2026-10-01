@@ -137,7 +137,6 @@ settings.move_panel=Панель движения
 settings.hands_panel=Панель рук
 settings.magic_panel=Панель магии
 settings.theme_colors=Цвета темы
-settings.resource_bars=Полосы ресурсов
 settings.party_colors=Цвета отряда
 settings.member_n=Участник {}
 theme.panel=Панель

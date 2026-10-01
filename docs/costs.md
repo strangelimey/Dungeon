@@ -80,7 +80,7 @@ Scouted candidates (prices as seen 2026-06-22, not bought):
 ### itch.io — UI art packs
 | date | listing | seller | price | license | formats | in-game / status |
 |---|---|---|---|---|---|---|
-| 2026-07-12 | UI Medieval RPG (+180 Medieval Fantasy RPG UI Kit, Gothic & Gold 4K) | Vill8tion | $2.70 | itch standard (commercial ok) | PNG (3072², AI-4x upscale, black bg — keyed at cut) | skin_button (slot #17) + skin_slot (slot #12) — done; 175+ unused variants archived (buttons/frames/bars) |
+| 2026-07-12 | UI Medieval RPG (+180 Medieval Fantasy RPG UI Kit, Gothic & Gold 4K) | Vill8tion | $2.70 | itch standard (commercial ok) | PNG (3072², AI-4x upscale, black bg — keyed at cut) | skin_button (slot #17) + skin_slot (slot #12) — done; bar_frame (Life Status Bars #1, the resource bars' iron frame, tools/CutBarFrame.py) - done 2026-09-30; 170+ unused variants archived (buttons/frames/bars) |
 | 2026-07-12 | Assets: UI Medieval Interface | Wenrexa | $3.99 | itch standard (commercial ok) | PNG + PSD + vector | archived (ui\wenrexa-medieval-interface) — panel candidates flatter than the current stone skin; unused so far |
 
 ### Fonts

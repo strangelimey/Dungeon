@@ -77,6 +77,11 @@ public:
 	// Keeps fonts in step with the window height so text scales with the
 	// normalized UI; re-bakes are debounced until a resize settles.
 	void UpdateFonts(float dt);
+	// Advances the resource bars by `dt` REAL seconds - the fills' animation
+	// clock (handed to the SpriteBatch) and each member's heartbeat, whose rate
+	// follows their health and whether the party is `noticed`. Every frame, in
+	// every state, so the bars never stutter on a state change.
+	void TickResourceBars(float dt, bool noticed);
 	void UpdateMenu(const Input& input);  // landing list or settings page
 	void UpdatePause(const Input& input); // pause list or settings page
 	void UpdateSheet(const Input& input, float dt);
@@ -173,6 +178,8 @@ public:
 	CharacterSheet::Mode SheetMode() const {
 		return m_sheet ? m_sheet->CurrentMode() : CharacterSheet::Mode::Inventory;
 	}
+	// The resource bars' live style, for the `hudbars` dev command.
+	ResourceBarStyle& BarStyle() { return m_barStyle; }
 	// The sheet's status bar this frame (empty = nothing hovered).
 	std::string_view SheetStatusName() const {
 		return m_sheet ? m_sheet->StatusName() : std::string_view{};
@@ -550,6 +557,11 @@ private:
 	std::unique_ptr<gfx::Texture> m_skinButtonTex;
 	std::unique_ptr<gfx::Texture> m_skinSlotTex;
 	ui::Skin m_skin;
+	// The resource bars' look (PartyHudTypes.h): the iron frame, the fills'
+	// clock and every member's heartbeat. The party bar and the sheet point at
+	// it; TickResourceBars keeps it moving, ApplySkin follows uiskin.
+	std::unique_ptr<gfx::Texture> m_barFrameTex;
+	ResourceBarStyle m_barStyle;
 	// The spellbook's Cast/Clear round icon faces (optional).
 	std::unique_ptr<gfx::Texture> m_castIconTex;
 	std::unique_ptr<gfx::Texture> m_clearIconTex;

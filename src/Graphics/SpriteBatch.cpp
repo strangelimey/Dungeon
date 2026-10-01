@@ -9,7 +9,8 @@
 namespace dungeon::gfx {
 
 SpriteBatch::SpriteBatch(GraphicsDevice& device) : m_device(device) {
-	// Root signature: 0 = screen size root constants, 1 = texture table.
+	// Root signature: 0 = root constants (screen size + the bar fills' clock,
+	// visible to the pixel stage for bar.hlsl), 1 = texture table.
 	D3D12_DESCRIPTOR_RANGE srvRange{};
 	srvRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
 	srvRange.NumDescriptors = 1;
@@ -18,8 +19,8 @@ SpriteBatch::SpriteBatch(GraphicsDevice& device) : m_device(device) {
 	D3D12_ROOT_PARAMETER params[2]{};
 	params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
 	params[0].Constants.ShaderRegister = 0;
-	params[0].Constants.Num32BitValues = 2;
-	params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+	params[0].Constants.Num32BitValues = 4;
+	params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 	params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
 	params[1].DescriptorTable.NumDescriptorRanges = 1;
 	params[1].DescriptorTable.pDescriptorRanges = &srvRange;
@@ -90,6 +91,31 @@ SpriteBatch::SpriteBatch(GraphicsDevice& device) : m_device(device) {
 
 	DN_HR(m_device.Device()->CreateGraphicsPipelineState(&pso, IID_PPV_ARGS(&m_pso)));
 
+	// The bar-fill pipeline: same root signature, its own shader and vertex,
+	// and PREMULTIPLIED blending, so a fill can be both a solid body (alpha 1)
+	// and light added on top (alpha 0) - the emissive look, in a pass that runs
+	// after bloom and tonemapping and so gets no glow from the scene's.
+	const std::string barPath = paths::Asset("shaders\\bar.hlsl");
+	ComPtr<ID3DBlob> barVs = CompileShader(barPath, "VSMain", "vs_5_1");
+	ComPtr<ID3DBlob> barPs = CompileShader(barPath, "PSMain", "ps_5_1");
+	const D3D12_INPUT_ELEMENT_DESC barLayout[] = {
+		{"POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 0,
+		 D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+		{"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 8,
+		 D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+		{"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 16,
+		 D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+		{"TEXCOORD", 1, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 32,
+		 D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+		{"TEXCOORD", 2, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 48,
+		 D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+	};
+	pso.VS = {barVs->GetBufferPointer(), barVs->GetBufferSize()};
+	pso.PS = {barPs->GetBufferPointer(), barPs->GetBufferSize()};
+	pso.InputLayout = {barLayout, _countof(barLayout)};
+	blend.SrcBlend = D3D12_BLEND_ONE;
+	DN_HR(m_device.Device()->CreateGraphicsPipelineState(&pso, IID_PPV_ARGS(&m_barPso)));
+
 	for (u32 i = 0; i < kFrameCount; ++i)
 		m_frameAllocators[i] =
 			std::make_unique<UploadAllocator>(m_device.Device(), 4 * 1024 * 1024);
@@ -102,6 +128,9 @@ SpriteBatch::SpriteBatch(GraphicsDevice& device) : m_device(device) {
 	// The pending list empties on every flush but keeps its capacity; reserve
 	// enough for a busy HUD so steady-state frames never allocate.
 	m_pending.reserve(8 * 1024);
+	// Bar fills: four members x three bars on the party bar, five on the sheet
+	// - six vertices each. Generous, for the same reason.
+	m_pendingBars.reserve(64 * 6);
 }
 
 void SpriteBatch::NewFrame(u32 frameIndex) {
@@ -115,17 +144,42 @@ void SpriteBatch::Begin(ID3D12GraphicsCommandList* list, u32 screenWidth,
 	m_screenWidth = screenWidth;
 	m_screenHeight = screenHeight;
 	m_scissorActive = false;
+	m_mode = Mode::Sprite;
 
 	list->SetGraphicsRootSignature(m_rootSignature.Get());
 	list->SetPipelineState(m_pso.Get());
 	list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-	const float screen[2] = {static_cast<float>(screenWidth),
-							 static_cast<float>(screenHeight)};
-	list->SetGraphicsRoot32BitConstants(0, 2, screen, 0);
+	const float constants[4] = {static_cast<float>(screenWidth),
+								static_cast<float>(screenHeight), m_time, 0.0f};
+	list->SetGraphicsRoot32BitConstants(0, 4, constants, 0);
+}
+
+void SpriteBatch::UseMode(Mode mode) {
+	if (m_mode == mode) return;
+	Flush();
+	m_mode = mode;
+	if (m_list) m_list->SetPipelineState(mode == Mode::Bar ? m_barPso.Get() : m_pso.Get());
 }
 
 void SpriteBatch::DrawRect(const Rect& dst, const Vec4& color) {
 	DrawSprite(dst, {0, 0, 1, 1}, *m_white, color);
+}
+
+void SpriteBatch::DrawBarFill(const Rect& tube, const BarFill& fill) {
+	if (!m_list || tube.w <= 0.0f || tube.h <= 0.0f) return;
+	UseMode(Mode::Bar);
+	const Vec4 params{static_cast<float>(fill.kind), fill.fraction, fill.beat, fill.seed};
+	const Vec4 extra{tube.w / tube.h, tube.h, 0.0f, 0.0f};
+	const BarVertex v0{{tube.x, tube.y}, {0, 0}, fill.tint, params, extra};
+	const BarVertex v1{{tube.x + tube.w, tube.y}, {1, 0}, fill.tint, params, extra};
+	const BarVertex v2{{tube.x + tube.w, tube.y + tube.h}, {1, 1}, fill.tint, params, extra};
+	const BarVertex v3{{tube.x, tube.y + tube.h}, {0, 1}, fill.tint, params, extra};
+	m_pendingBars.push_back(v0);
+	m_pendingBars.push_back(v1);
+	m_pendingBars.push_back(v2);
+	m_pendingBars.push_back(v0);
+	m_pendingBars.push_back(v2);
+	m_pendingBars.push_back(v3);
 }
 
 void SpriteBatch::DrawSprite(const Rect& dst, const Rect& uv, const Texture& texture,
@@ -136,6 +190,7 @@ void SpriteBatch::DrawSprite(const Rect& dst, const Rect& uv, const Texture& tex
 void SpriteBatch::DrawSprite(const Rect& dst, const Rect& uv,
 							 D3D12_GPU_DESCRIPTOR_HANDLE srv, const Vec4& color) {
 	if (!m_list) return;
+	UseMode(Mode::Sprite);
 	if (m_pendingTexture.ptr != srv.ptr && !m_pending.empty()) Flush();
 	m_pendingTexture = srv;
 
@@ -160,6 +215,7 @@ void SpriteBatch::DrawSpriteRotated(const Vec2& center, const Vec2& size,
 									float radians, const Rect& uv,
 									const Texture& texture, const Vec4& color) {
 	if (!m_list) return;
+	UseMode(Mode::Sprite);
 	if (m_pendingTexture.ptr != texture.GpuHandle().ptr && !m_pending.empty()) Flush();
 	m_pendingTexture = texture.GpuHandle();
 
@@ -189,6 +245,7 @@ void SpriteBatch::DrawSpriteRotated(const Vec2& center, const Vec2& size,
 void SpriteBatch::DrawTriangle(const Vec2& a, const Vec2& b, const Vec2& c,
 							   const Vec4& color) {
 	if (!m_list) return;
+	UseMode(Mode::Sprite);
 	const Texture& white = *m_white;
 	if (m_pendingTexture.ptr != white.GpuHandle().ptr && !m_pending.empty()) Flush();
 	m_pendingTexture = white.GpuHandle();
@@ -208,8 +265,24 @@ void SpriteBatch::SetScissor(const Rect* rect) {
 }
 
 void SpriteBatch::Flush() {
-	if (m_pending.empty() || !m_list) return;
+	if (!m_list) return;
+	if (m_mode == Mode::Bar) {
+		if (m_pendingBars.empty()) return;
+		// bar.hlsl samples nothing, but the table is bound regardless so the
+		// root signature is never left half-set.
+		m_pendingTexture = m_white->GpuHandle();
+		Submit(m_pendingBars.data(), m_pendingBars.size() * sizeof(BarVertex),
+			   sizeof(BarVertex), static_cast<u32>(m_pendingBars.size()));
+		m_pendingBars.clear();
+		return;
+	}
+	if (m_pending.empty()) return;
+	Submit(m_pending.data(), m_pending.size() * sizeof(SpriteVertex), sizeof(SpriteVertex),
+		   static_cast<u32>(m_pending.size()));
+	m_pending.clear();
+}
 
+void SpriteBatch::Submit(const void* data, u64 bytes, u32 stride, u32 count) {
 	D3D12_RECT scissor;
 	if (m_scissorActive) {
 		scissor = {static_cast<LONG>(m_scissor.x), static_cast<LONG>(m_scissor.y),
@@ -225,26 +298,21 @@ void SpriteBatch::Flush() {
 	// page's view produces one PER FRAME: a dialog left open wrote ten thousand
 	// identical validation warnings into dungeon.log, which is the file you open
 	// after a crash. The clipping itself is correct; submitting the work was not.
-	if (scissor.right <= scissor.left || scissor.bottom <= scissor.top) {
-		m_pending.clear();
-		return;
-	}
+	if (scissor.right <= scissor.left || scissor.bottom <= scissor.top) return;
 
-	const u64 size = m_pending.size() * sizeof(SpriteVertex);
-	UploadAllocation alloc = m_frameAllocators[m_frameIndex]->Allocate(size, 16);
-	std::memcpy(alloc.cpu, m_pending.data(), size);
+	UploadAllocation alloc = m_frameAllocators[m_frameIndex]->Allocate(bytes, 16);
+	std::memcpy(alloc.cpu, data, bytes);
 
 	D3D12_VERTEX_BUFFER_VIEW vbv{};
 	vbv.BufferLocation = alloc.gpu;
-	vbv.SizeInBytes = static_cast<UINT>(size);
-	vbv.StrideInBytes = sizeof(SpriteVertex);
+	vbv.SizeInBytes = static_cast<UINT>(bytes);
+	vbv.StrideInBytes = stride;
 	m_list->IASetVertexBuffers(0, 1, &vbv);
 
 	m_list->RSSetScissorRects(1, &scissor);
 
 	m_list->SetGraphicsRootDescriptorTable(1, m_pendingTexture);
-	m_list->DrawInstanced(static_cast<UINT>(m_pending.size()), 1, 0, 0);
-	m_pending.clear();
+	m_list->DrawInstanced(count, 1, 0, 0);
 }
 
 void SpriteBatch::End() {
