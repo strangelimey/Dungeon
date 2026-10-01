@@ -171,10 +171,10 @@ public:
 	static constexpr float kStatusH = 0.055f;
 
 	CharacterSheet(const gfx::Rect& rect, std::vector<Character>* roster,
-				   const ResourceBarColors* barColors, const ItemIconBank* icons,
+				   const ResourceBarStyle* barStyle, const ItemIconBank* icons,
 				   const ItemWeightBank* weights, const ItemIconBank* slotIcons,
 				   const ItemCategoryBank* categories,
-				   std::optional<std::string>* held);
+				   HeldItem* held);
 
 	// Re-points the sheet at roster member `member` (mutable, for inventory
 	// edits) and caches its strings. An out-of-range index leaves the sheet
@@ -193,6 +193,8 @@ public:
 	// the dev console's `sheet status`, which is how a script reads it.
 	std::string_view StatusName() const { return m_statusName.View(); }
 	std::string_view StatusText() const { return m_statusText.View(); }
+	// Containers equipped into the pack row so far (see m_packEquips).
+	unsigned PackEquips() const { return m_packEquips; }
 
 	// Which body the sheet shows; the mode buttons under the portrait switch it.
 	// (Order == the mode-button strip order — Spells sits before Effects.)
@@ -322,16 +324,20 @@ private:
 	// Re-resolved from (m_roster, m_member) at the top of every Update/Draw
 	// (see CharacterPanel); the body helpers null-check it.
 	Character* m_character = nullptr;
-	const ResourceBarColors* m_barColors;
+	const ResourceBarStyle* m_barStyle;
 	const ItemIconBank* m_icons;
 	const ItemWeightBank* m_weights;
 	const ItemIconBank* m_slotIcons; // equipment-slot outline silhouettes
 	const ItemCategoryBank* m_categories; // item id → category (pack = container)
-	std::optional<std::string>* m_held;
+	HeldItem* m_held;
 	// What the pointer is over, refreshed every Update: the doll cell index, or
 	// the pack slot index, or neither. Only ever one of them.
 	int m_hoverDoll = -1;
 	int m_hoverPack = -1;
+	// Containers equipped into the pack row this run, swaps included - how
+	// tools\AllocTest.ps1 -Packs shows its clicks actually equipped something
+	// (`sheet status`).
+	unsigned m_packEquips = 0;
 	int m_hoverPackRow = -1; // the bag row above the grid (status bar only)
 	// The status bar's two halves, held inline (no heap: this is set every
 	// frame the sheet is up) plus the colour the name draws in.

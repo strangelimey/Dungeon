@@ -612,9 +612,10 @@ mutates is a trap, and this one caught its own author within the hour. Bare
   (`SkillRow::header` — one flag, not a second row type; a heading is a row that
   draws less). A group with no rows prints no heading.
 - **Food and water bars** on the Stats tab, beneath the three pools — five bars
-  against the five attributes, which is how the two halves now line up. Themed
-  from `kBarFields` like the others rather than being the only two a player
-  cannot recolour. `Character::maxFood`/`maxWater` are derived mirrors of the
+  against the five attributes, which is how the two halves now line up. (They
+  were themed from `kBarFields`; since icon-updates every bar wears the iron
+  frame and food/water fill with a SOLID placeholder colour from
+  `ResourceBarStyle` - docs/icon-updates-plan.md.) `Character::maxFood`/`maxWater` are derived mirrors of the
   knobs, refreshed by `RecomputePartyMaxima`, so a reader with no `Balance` in
   reach can still draw the bar.
 - Dev: `sheet <member|off>`, and `regen` grew a pace column plus a party line.

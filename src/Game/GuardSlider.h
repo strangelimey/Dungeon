@@ -53,9 +53,11 @@ namespace dungeon::game {
 
 class GuardSlider : public ui::Widget {
 public:
-	// The band, top to bottom, in rem: the gap under the hand boxes, the bar
+	// The band, top to bottom: the gap under the hand boxes, the bar
 	// (kRestRem thick at rest, swelling toward kAngryRem), and slack below.
 	// HandPair reserves kBandRem for the widget; all of it is the grab zone.
+	// Measured in EM since the HUD docks scale (ControlBar.h HudDock): the
+	// names predate that, and em is rem at scale 1.
 	static constexpr float kGapRem = 0.25f;
 	static constexpr float kRestRem = 0.25f;
 	static constexpr float kAngryRem = 0.6f;

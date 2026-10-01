@@ -17,6 +17,7 @@ add_library(Game STATIC
 	DamageTypes.cpp
 	Defense.cpp
 	DevConsole.cpp
+	DevConsole_Commands.cpp
 	DevConsole_Health.cpp
 	DevConsole_Perf.cpp
 	DevConsole_Profile.cpp

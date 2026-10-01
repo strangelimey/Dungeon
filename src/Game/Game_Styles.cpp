@@ -78,7 +78,7 @@ void Game::RegisterStyleCommands() {
 	// Every style, the world's and the library's, one machine-readable line each:
 	// `style <id> <world|library> [current] room= corridor= width= monsters=`.
 	m_console.Register(
-		"styles", "list the world's styles and the library's",
+		{.name = "styles", .group = CmdGroup::Types, .summary = "list the world's styles and the library's"},
 		[this](const std::vector<std::string>&) {
 			const auto line = [&](const CatalogEntry& e, const char* where) {
 				m_console.Print(std::format(
@@ -91,12 +91,15 @@ void Game::RegisterStyleCommands() {
 			for (const CatalogEntry& e : m_library.styles.Entries())
 				if (!m_project.styles.Contains(e.id)) line(e, "library");
 		});
+	// use: the current style; add: from the library; save: to the library;
+	// row: what clicking its palette row does.
 	m_console.Register(
-		"style",
-		"styles: style use <id>|off (the current style) | style add <id> (from the "
-		"library) | style save <id> (to the library) | style row <id> (a palette click)",
+		{.name = "style",
+		 .group = CmdGroup::Types,
+		 .params = "use <id>|off\nadd <id>\nsave <id>\nrow <id>",
+		 .summary = "arm a style, or move one between the world and the library"},
 		[this](const std::vector<std::string>& args) {
-			if (!Need(m_console, args, 1, "usage: style use|add|save|row <id>")) return;
+			if (!Need(m_console, args, 1)) return;
 			const std::string& verb = args[0];
 			if (verb == "use") {
 				if (!Need(m_console, args, 2, "usage: style use <id>|off")) return;

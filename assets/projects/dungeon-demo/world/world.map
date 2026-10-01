@@ -3,7 +3,7 @@
 start 6 6
 area lowlands 2 5 20 11 difficulty=0.12
 area moors 2 1 12 4 difficulty=0.45
-location dungeon crypt_gate 10 10 dungeon=crypt level=crypt1 entryx=7 entryz=7
+location dungeon crypt_gate 10 10 dungeon=crypt level=crypt1 entryx=7 entryz=8
 location dungeon crypt_back 5 13 dungeon=crypt level=crypt2 entryx=10 entryz=6
 location dungeon proving_ground 18 6 dungeon=eval level=eval_arena entryx=14 entryz=12
 ;

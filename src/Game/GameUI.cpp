@@ -6,12 +6,14 @@
 #include "Core/Loc.h"
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
+#include "Game/PartyHudDraw.h" // the resource bars' heartbeat (TickResourceBars)
 #include "Game/Project.h"
 #include "Game/SaveGame.h"
 #include "Game/Spell/Spell.h"
 #include "Graphics/DisplayEnum.h"
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <format>
 #include <iterator>
@@ -67,12 +69,19 @@ constexpr float kSavesBackY = 0.85f;
 // when the bar grows. They were duplicated between the two, which is fine right
 // up until one copy changes.
 constexpr float kBarTop = 0.018f;
-constexpr float kBarH0 = 0.107f; // party bar height at scale 1
+// Party bar height at scale 1. Raised from 0.107 for the framed resource bars
+// (Michael, 2026-09-30: "make the party bar tubes taller") - at 0.107 a tube
+// was ~10 px and its iron frame shrank to a dark rim with no ornament visible.
+constexpr float kBarH0 = 0.140f;
 constexpr float kBarGap = 0.018f;
-constexpr float kBelowBar0 = kBarTop + kBarH0 + kBarGap; // ~0.143
+constexpr float kBelowBar0 = kBarTop + kBarH0 + kBarGap; // ~0.176
 constexpr float kFooter = 0.071f; // the message-log footer along the bottom
 // What the below-bar column spans: bar to footer, neither included.
 constexpr float kBelowSpan = (1.0f - kFooter) - kBelowBar0;
+// The right-hand control column at dock scale 1 (~250/1600), and its gap from
+// the window's right edge. ApplyHudPanelScale widens it from that edge.
+constexpr float kControlW = 0.156f;
+constexpr float kControlMargin = 0.01f;
 
 // --- settings page rows ------------------------------------------------------
 // In REM (UI/Units.h) — the settings context's own type size, which already
@@ -155,6 +164,10 @@ void GameUI::LoadTitleArt() {
 	m_skinPanelTex = TryLoadTextureFile(m_device, paths::Asset("ui\\skin_panel"));
 	m_skinButtonTex = TryLoadTextureFile(m_device, paths::Asset("ui\\skin_button"));
 	m_skinSlotTex = TryLoadTextureFile(m_device, paths::Asset("ui\\skin_slot"));
+	// The resource bars' iron frame (tools/CutBarFrame.py). Optional too:
+	// without it the bars draw flat.
+	m_barFrameTex = TryLoadTextureFile(m_device, paths::Asset("ui\\bar_frame"));
+	m_barStyle.frame = m_barFrameTex.get();
 	// The spellbook's Cast/Clear icon faces (optional — text buttons without).
 	m_castIconTex = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_cast"));
 	m_clearIconTex = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_clear"));
@@ -193,6 +206,7 @@ void GameUI::ApplyTheme() {
 
 void GameUI::ApplySkin() {
 	const ui::Skin* skin = m_settings.uiSkin ? &m_skin : nullptr;
+	m_barStyle.framed = m_settings.uiSkin; // the flat debug look takes the bars too
 	for (ui::UIContext* ctx :
 		 {&m_hudUi, &m_menuUi, &m_settingsUi, &m_pauseUi, &m_savesUi, &m_sheetUi,
 		  &m_confirmUi})
@@ -220,11 +234,9 @@ void GameUI::OnPortraitClick(size_t i) {
 			m_audio.Play(m_sounds.bump, 0.5f);
 			AddLogLine(loc::FormatLine("log.pack_rejects", loc::ViewKey("item.", **m_held),
 									   loc::ViewKey("item.", packId)));
-		} else if (c.inventory.Stow(**m_held)) {
-			AddLogLine(loc::FormatLine("log.stow", c.name,
-									   loc::View(std::format("item.{}", **m_held))),
-					   c.portraitColor);
-			m_held->reset();
+		} else if (const loc::Line name = loc::ViewKey("item.", **m_held);
+				   c.inventory.Stow(*m_held)) { // the name is taken first: Stow empties the cursor
+			AddLogLine(loc::FormatLine("log.stow", c.name, name), c.portraitColor);
 			Click();
 		} else {
 			AddLogLine(loc::View("log.pack_full")); // full — keep carrying it
@@ -671,11 +683,35 @@ void GameUI::BuildSettings() {
 		});
 	barOpacity->onRelease = [this] { m_settings.Save(); };
 
-	// UI → Theme Colors (kThemeFields) and Resource Bars (kBarFields): color
-	// pickers, three per row. Theme edits recolor every context live
-	// (ApplyTheme); bar edits show on the HUD widgets' next draw (they point
-	// at the settings' barColors). Both persist once when a picker's popup
-	// closes.
+	// UI -> Movement / Hands / Magic panels: the party bar's two knobs once per
+	// dock of the right-hand column. The docks read their HudPanelLook live, so
+	// opacity needs nothing more; scale also widens the column to the widest
+	// dock. Same apply-while-dragging, persist-on-release rule.
+	auto panelLook = [&](const char* labelKey, HudPanelLook& look) {
+		uf->Space(ui::Len::Fixed(kSetGroup));
+		uf->Row<ui::Label>(ui::Len::Fixed(kSetLabel), loc::Tr(labelKey));
+		auto* scale = uf->Row<ui::Slider>(
+			ui::Len::Fixed(kSetSlider),
+			loc::Tr("settings.bar_scale"), 0.5f, 1.5f, look.scale,
+			[this, &look](float v) {
+				look.scale = v;
+				ApplyHudPanelScale();
+			});
+		scale->onRelease = [this] { m_settings.Save(); };
+		auto* opacity = uf->Row<ui::Slider>(
+			ui::Len::Fixed(kSetSlider),
+			loc::Tr("settings.bar_opacity"), 0.0f, 1.0f, look.opacity,
+			[&look](float v) { look.opacity = v; });
+		opacity->onRelease = [this] { m_settings.Save(); };
+	};
+	panelLook("settings.move_panel", m_settings.hudMove);
+	panelLook("settings.hands_panel", m_settings.hudHands);
+	panelLook("settings.magic_panel", m_settings.hudMagic);
+
+	// UI → Theme Colors (kThemeFields): color pickers, three per row. Edits
+	// recolor every context live (ApplyTheme) and persist once when a picker's
+	// popup closes. (The resource bars had a grid here too; their fills are
+	// procedural now, each with its own fixed colour - ResourceBarStyle.)
 	//
 	// A grid is rows of three: each row is a horizontal stack, so the columns
 	// line up by construction. It used to be a block of hand-computed cells —
@@ -710,18 +746,6 @@ void GameUI::BuildSettings() {
 			[this, member = field.field](const Vec4& color) {
 				m_settings.theme.*member = color;
 				ApplyTheme();
-			});
-		picker->onClose = [this] { m_settings.Save(); };
-	});
-
-	section(*uf, "settings.resource_bars");
-	colorGrid(*uf, std::size(kBarFields), [&](ui::Stack& row, size_t i) {
-		const BarField& field = kBarFields[i];
-		auto* picker = row.Row<ui::ColorPicker>(
-			ui::Len::Fill(), loc::Tr(field.labelKey),
-			m_settings.barColors.*(field.field),
-			[this, member = field.field](const Vec4& color) {
-				m_settings.barColors.*member = color;
 			});
 		picker->onClose = [this] { m_settings.Save(); };
 	});
@@ -1024,7 +1048,7 @@ void GameUI::BuildCharacterSheet() {
 	// Added FIRST so the buttons below it update on top (and consume their clicks
 	// before the sheet's slot hit-testing).
 	m_sheet = m_sheetUi.Add<CharacterSheet>(sheet, &m_characters,
-											&m_settings.barColors, m_itemIcons,
+											&m_barStyle, m_itemIcons,
 											m_itemWeights, m_slotIcons,
 											m_itemCategories, m_held);
 	// A pack refused the held item: a soft thud + a "won't fit" log line. Item
@@ -1362,7 +1386,7 @@ void GameUI::BuildHud() {
 	m_partyPanels.clear();
 	for (size_t i = 0; i < m_characters.size() && i < PartyBar::kSlots; ++i) {
 		auto* panel = m_partyBar->Add<CharacterPanel>(
-			gfx::Rect{}, &m_characters, i, &m_settings.barColors,
+			gfx::Rect{}, &m_characters, i, &m_barStyle,
 			m_hitSplats, m_itemIcons, [this, i] { OnPortraitClick(i); },
 			[this, i] { OnPortraitRightClick(i); },
 			[this, i] { OnPortraitBars(i); },
@@ -1451,8 +1475,8 @@ void GameUI::BuildHud() {
 
 	// Right control column: movement, hands and magic as three docks, laid out
 	// by one container (Game/ControlBar.h). Stops above the log footer.
-	constexpr float kPanelW = 0.156f; // ~250/1600
-	constexpr float kPanelX = 1.0f - kPanelW - 0.01f;
+	constexpr float kPanelW = kControlW;
+	constexpr float kPanelX = 1.0f - kPanelW - kControlMargin;
 	constexpr float panelH = kBelowSpan; // the column's whole height
 
 	ControlBarDeps deps;
@@ -1483,10 +1507,15 @@ void GameUI::BuildHud() {
 		Click();
 		m_settings.Save();
 	};
-	auto* controlBar = m_belowBar->Add<ControlBar>(
+	deps.moveLook = &m_settings.hudMove;
+	deps.handsLook = &m_settings.hudHands;
+	deps.magicLook = &m_settings.hudMagic;
+	// Authored at scale 1; ApplyHudPanelScale (below) widens it to the widest
+	// dock from the same right edge.
+	m_controlBar = m_belowBar->Add<ControlBar>(
 		gfx::Rect{kPanelX, 0.0f, kPanelW, panelH / kBelowSpan}, deps);
 
-	m_spellbook = controlBar->Spellbook();
+	m_spellbook = m_controlBar->Spellbook();
 	m_spellbook->onClick = [this] { Click(); };
 	m_spellbook->castIcon = m_castIconTex.get();
 	m_spellbook->clearIcon = m_clearIconTex.get();
@@ -1520,6 +1549,7 @@ void GameUI::BuildHud() {
 	m_handMenuItem.reserve(64);
 
 	ApplyPartyBarScale();
+	ApplyHudPanelScale();
 }
 
 void GameUI::OpenInventory() { if (m_inventory) m_inventory->Open(); }
@@ -1549,9 +1579,34 @@ void GameUI::ApplyPartyBarScale() {
 	m_belowBar->bounds.y = kBelowBar0 + kBarH0 * (s - 1.0f);
 }
 
+// The docks size themselves from their own scale (ControlBar::LayoutSelf);
+// what they cannot do is widen the column they sit in, and a dock wider than
+// its parent would escape it. So the column takes the widest dock's width,
+// growing leftward from the same right edge.
+void GameUI::ApplyHudPanelScale() {
+	if (!m_controlBar) return;
+	const float w = kControlW * m_controlBar->WidestScale();
+	m_controlBar->bounds.x = 1.0f - w - kControlMargin;
+	m_controlBar->bounds.w = w;
+}
+
 // ============================================================================
 // Per-frame updates
 // ============================================================================
+
+void GameUI::TickResourceBars(float dt, bool noticed) {
+	// Wrapped once an hour so the shader's float clock never loses precision;
+	// the fills jump once at the wrap, which nobody watching a bar will catch.
+	m_barStyle.clock = std::fmod(m_barStyle.clock + dt, 3600.0f);
+	m_spriteBatch.SetTime(m_barStyle.clock);
+	for (size_t i = 0; i < ResourceBarStyle::kMaxMembers; ++i) {
+		const Character* c = RosterMember(&m_characters, i);
+		const float target = !c ? 0.0f
+							 : m_barStyle.pinnedBpm >= 0.0f ? m_barStyle.pinnedBpm
+															: HeartRateTarget(*c, noticed);
+		TickBarPulse(m_barStyle.pulse[i], target, dt);
+	}
+}
 
 // Keeps fonts in step with the window height so text scales with the
 // normalized UI. Re-bakes are debounced until the height has settled for

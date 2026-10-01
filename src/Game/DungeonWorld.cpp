@@ -869,6 +869,10 @@ void DungeonWorld::TickParty(float dt, bool danger) {
 	// member per pool: they are the same for everyone and assembling them is
 	// pure arithmetic over the balance sheet, but a steady-state frame is not
 	// the place to do it four times over.
+	// A journey ticks the party with no level and so no monsters: nothing has
+	// noticed it. A dungeon tick sets the real answer after this returns
+	// (UpdateMonsters).
+	m_partyNoticed = false;
 	const resource::PoolRules pools = m_balance.Resources();
 	const CurveRules statCurve = m_balance.StatCurve();
 	if (m_roster)
@@ -1028,6 +1032,18 @@ void DungeonWorld::UpdateMonsters(float dt) {
 	}
 
 	TickParty(dt, danger);
+
+	// NOTICED (the health bar's quickened heartbeat) is NOT `danger`: that is
+	// a distance through walls, true the moment a game starts beside a crypt
+	// full of sleepers. It is a live monster that knows of the party AND is
+	// acting on it - `aware` alone is sticky for the whole game, so a monster
+	// that lost the party would keep the heart racing forever.
+	m_partyNoticed = false;
+	for (const Monster& m : m_monsters)
+		if (m.Alive() && m.aware && m.intent.mode != ai::Intent::Mode::Idle) {
+			m_partyNoticed = true;
+			break;
+		}
 
 	// Re-derive groups from current co-location (monsters sharing a cell are one
 	// group — merge/split as they converge/spread), then assign formation targets

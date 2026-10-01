@@ -962,7 +962,7 @@ private:
 	// The item currently carried on the cursor (its catalog id), or empty. Set by
 	// clicking a floor tablet; cleared by dropping it (world / portrait / hand /
 	// inventory). GameUI reads the address to draw the cursor icon.
-	std::optional<std::string> m_heldItem;
+	HeldItem m_heldItem;
 	// Editor undo/redo defers the surface rebake while the full-screen editor
 	// hides the scene (DungeonWorld::GeometryDirty). On leaving editor mode
 	// this latches ONE frame so Render shows the centered "rebuilding

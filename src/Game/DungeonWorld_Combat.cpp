@@ -490,7 +490,7 @@ void DungeonWorld::DropItemInCell(const std::string& typeId, int cx, int cz) {
 	// A RUNTIME drop (negative id), not an .ent record: a weapon knocked out of
 	// a hand is dynamic state that rides the save, exactly like the cursor drop
 	// beside it. Authoring a record would write it into the LEVEL.
-	m_items.push_back({&kind, m_nextDropId--, cx, cz, false, slot});
+	PlaceDrop({&kind, m_nextDropId--, cx, cz, false, slot});
 	MarkSeen(cx, cz);
 }
 

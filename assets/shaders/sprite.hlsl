@@ -2,6 +2,8 @@
 
 cbuffer ScreenConstants : register(b0) {
 	float2 gScreenSize;
+	float gTime;   // bar.hlsl's clock (SpriteBatch::SetTime); unused here
+	float gUnused;
 };
 
 Texture2D gTexture : register(t0);

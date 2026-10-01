@@ -24,7 +24,10 @@ namespace dungeon::game {
 using devargs::Need;
 
 void Game::RegisterEvalCommands() {
-	m_console.Register("timescale", "scale sim speed (1 normal, 0 freeze)",
+	m_console.Register({.name = "timescale",
+						.group = CmdGroup::Simulation,
+						.params = "[scale]",
+						.summary = "scale simulation speed (1 = normal, 0 = frozen)"},
 					   [this](const std::vector<std::string>& args) {
 						   if (args.empty()) {
 							   m_console.Print(std::format("timescale {:.2f}", m_timeScale));
@@ -51,7 +54,10 @@ void Game::RegisterEvalCommands() {
 	// screenshot — which captures whatever happens to be in front of it. This
 	// puts every console line into dungeon.log instead, which is what makes the
 	// existing command surface drivable from a script at all.
-	m_console.Register("logecho", "mirror console output to dungeon.log",
+	m_console.Register({.name = "logecho",
+						.group = CmdGroup::Console,
+						.params = "[on|off]",
+						.summary = "mirror console output to dungeon.log"},
 					   [this](const std::vector<std::string>& args) {
 						   if (args.empty()) {
 							   m_console.Print(std::format(
@@ -77,7 +83,9 @@ void Game::RegisterEvalCommands() {
 	// where the "already loaded, or load first?" decision lives; a dev command
 	// that reimplements a UI action will drift from it, and this one drifted
 	// immediately.
-	m_console.Register("newgame", "start a new game (dev)",
+	m_console.Register({.name = "newgame",
+						.group = CmdGroup::SaveLoad,
+						.summary = "start a new game through the menu entry's own callback"},
 					   [this](const std::vector<std::string>&) {
 						   if (!m_ui.onStartNewGame) {
 							   m_console.Print("newgame: not wired yet");
@@ -96,8 +104,9 @@ void Game::RegisterEvalCommands() {
 	// measuring PROGRESSION across a series simply does not call it, and inherits
 	// whatever the previous one left — Michael's call, and the reason this is a
 	// directive a script chooses rather than something the runner imposes.
-	m_console.Register("reset",
-					   "recycle the world to a new-game baseline, no reload (dev)",
+	m_console.Register({.name = "reset",
+						.group = CmdGroup::Simulation,
+						.summary = "recycle the world to a new-game baseline without a reload"},
 					   [this](const std::vector<std::string>&) {
 						   const bool fresh = !m_gameLoaded;
 						   // TIMED, because the whole justification is the number:
@@ -125,11 +134,12 @@ void Game::RegisterEvalCommands() {
 	// Writes NO files: the editor's new-level button would author a .map/.ent
 	// into the git tree, which an eval must not do on every run.
 	m_console.Register(
-		"arena", "carve a test arena (dev): arena <open|corridor|deadend|tjunction> [w] [h]",
+		{.name = "arena",
+		 .group = CmdGroup::Simulation,
+		 .params = "<open|corridor|deadend|tjunction> [w] [h]",
+		 .summary = "carve a test arena into the map and empty the world into it"},
 		[this](const std::vector<std::string>& args) {
-			if (!Need(m_console, args, 1,
-					  "usage: arena <open|corridor|deadend|tjunction> [w] [h]"))
-				return;
+			if (!Need(m_console, args, 1)) return;
 			DungeonWorld::ArenaShape shape{};
 			if (!DungeonWorld::ArenaShapeFromName(args[0], shape)) {
 				m_console.Refuse("unknown shape: " + args[0] +
@@ -165,7 +175,10 @@ void Game::RegisterEvalCommands() {
 	// own pace, rather than teleporting a cell at a time. A blocked step is
 	// simply refused by Party::Act, as it would be for a player walking into a
 	// wall, so `forward 20` down a six-cell corridor stops at the end.
-	m_console.Register("forward", "walk the party (dev): forward [n]",
+	m_console.Register({.name = "forward",
+						.group = CmdGroup::Party,
+						.params = "[n]",
+						.summary = "queue party steps forward, walked at the party's own pace"},
 					   [this](const std::vector<std::string>& args) {
 						   const int n = args.empty() ? 1 : std::atoi(args[0].c_str());
 						   if (n < 1) {
@@ -178,7 +191,10 @@ void Game::RegisterEvalCommands() {
 
 	// Monsters hold still while everything that happens TO them keeps running.
 	// A geometry probe's instruments must not wander off the cells they measure.
-	m_console.Register("freeze", "monsters stop acting (dev): freeze on|off",
+	m_console.Register({.name = "freeze",
+						.group = CmdGroup::Monsters,
+						.params = "[on|off]",
+						.summary = "stop monsters acting while effects on them keep running"},
 					   [this](const std::vector<std::string>& args) {
 						   if (args.empty()) {
 							   m_console.Print(std::format(
@@ -197,11 +213,12 @@ void Game::RegisterEvalCommands() {
 	// A blast plays out over TICKS (blast_rate seconds apart), so a script must
 	// `step` afterwards to let it land; detonating and reading `monsters` in the
 	// same breath measures the moment before it went off.
-	m_console.Register("blast", "detonate a spell's blast (dev): blast <spell> <x> <z>",
+	m_console.Register({.name = "blast",
+						.group = CmdGroup::Combat,
+						.params = "<spell> <x> <z>",
+						.summary = "detonate a spell's authored blast at a cell, no caster"},
 					   [this](const std::vector<std::string>& args) {
-						   if (!Need(m_console, args, 3,
-									 "usage: blast <spell id> <x> <z>"))
-							   return;
+						   if (!Need(m_console, args, 3)) return;
 						   const int x = std::atoi(args[1].c_str());
 						   const int z = std::atoi(args[2].c_str());
 						   if (!m_world->DetonateSpell(args[0], x, z)) {
@@ -219,11 +236,12 @@ void Game::RegisterEvalCommands() {
 	// unwalkable or occupied cell, and so does this — reported rather than
 	// silent, because a spawn that did not happen is an encounter that is not
 	// the one the script described.
-	m_console.Register("spawn", "place a monster (dev): spawn <type> <x> <z> [n|e|s|w]",
+	m_console.Register({.name = "spawn",
+						.group = CmdGroup::Monsters,
+						.params = "<type> <x> <z> [n|e|s|w] [strength]",
+						.summary = "place a monster live, optionally scaling its hp and damage"},
 					   [this](const std::vector<std::string>& args) {
-						   if (!Need(m_console, args, 3,
-									 "usage: spawn <type> <x> <z> [facing]"))
-							   return;
+						   if (!Need(m_console, args, 3)) return;
 						   const int x = std::atoi(args[1].c_str());
 						   const int z = std::atoi(args[2].c_str());
 						   Direction facing = Direction::South;
@@ -262,7 +280,10 @@ void Game::RegisterEvalCommands() {
 	// PartyAttack is driven by a hand-slot click or `swing`, so the first
 	// two-tier comparison had the monster finish on full hp in both rungs and
 	// still looked like a complete result.
-	m_console.Register("autoattack", "party swings off cooldown (dev): autoattack on|off",
+	m_console.Register({.name = "autoattack",
+						.group = CmdGroup::Simulation,
+						.params = "[on|off]",
+						.summary = "make the party swing on its own whenever off cooldown"},
 					   [this](const std::vector<std::string>& args) {
 						   if (args.empty()) {
 							   m_console.Print(std::format(
@@ -281,7 +302,12 @@ void Game::RegisterEvalCommands() {
 	// the spell's symbols here, and the harness pays the mana at each cast -
 	// the rotation measures what a cast DOES, not whether it can be afforded.
 	m_console.Register(
-		"autocast", "cast on a clock (dev): autocast <member> <spell> [every] | hold | off",
+		{.name = "autocast",
+		 .group = CmdGroup::Simulation,
+		 .params = "[<member> <spell> [every]]\n"
+				   "hold\n"
+				   "off",
+		 .summary = "cast spells in a round-robin on a sim-time clock"},
 		[this](const std::vector<std::string>& args) {
 			DungeonWorld::Harness::AutoCast& ac = m_world->GetHarness().autoCast;
 			// "off" only - a bare "0" is member 0, the first caster.
@@ -338,7 +364,10 @@ void Game::RegisterEvalCommands() {
 
 	// The encounter's numbers, in one machine-readable line. `tally reset` marks
 	// the start of a rung; `tally` prints what has happened since.
-	m_console.Register("tally", "encounter counters (dev): tally [reset]",
+	m_console.Register({.name = "tally",
+						.group = CmdGroup::Simulation,
+						.params = "[reset]",
+						.summary = "print the encounter counters as one key=value line"},
 					   [this](const std::vector<std::string>& args) {
 						   if (!args.empty() && args[0] == "reset") {
 							   m_world->GetHarness().tally = {};
@@ -369,14 +398,19 @@ void Game::RegisterEvalCommands() {
 					   });
 
 	// A script cannot otherwise tell whether it is measuring anything at all.
-	m_console.Register("state", "what the app is doing (loading/menu/playing/...)",
+	m_console.Register({.name = "state",
+						.group = CmdGroup::Console,
+						.summary = "print what the app is doing (loading/menu/playing/...)"},
 					   [this](const std::vector<std::string>&) {
 						   m_console.Print(std::format("state {}", StateName()));
 					   });
 
-	m_console.Register("seed", "reseed the combat RNG (dev): seed <n>",
+	m_console.Register({.name = "seed",
+						.group = CmdGroup::Simulation,
+						.params = "<n>",
+						.summary = "reseed the combat RNG"},
 					   [this](const std::vector<std::string>& args) {
-						   if (!Need(m_console, args, 1, "usage: seed <n>")) return;
+						   if (!Need(m_console, args, 1)) return;
 						   const auto n = static_cast<u32>(
 							   std::strtoul(args[0].c_str(), nullptr, 10));
 						   m_world->SeedCombat(n);
@@ -386,7 +420,10 @@ void Game::RegisterEvalCommands() {
 	// Without this a stepped run is a fiction: the AI's four bucket workers tick
 	// on WALL-CLOCK, so simulating thirty seconds inside a few frames lets the
 	// monsters think perhaps twice. See ai::AsyncDirector::SetLockstep.
-	m_console.Register("lockstep", "drive monster AI from sim time, not the clock",
+	m_console.Register({.name = "lockstep",
+						.group = CmdGroup::Monsters,
+						.params = "[on|off]",
+						.summary = "drive monster AI from sim time, not the wall clock"},
 					   [this](const std::vector<std::string>& args) {
 						   if (args.empty()) {
 							   m_console.Print(std::format(
@@ -402,9 +439,12 @@ void Game::RegisterEvalCommands() {
 	// actually RAN rather than what was asked for: a short answer means the run
 	// hit the ceiling or changed level, and an eval that silently measured less
 	// time than it believes is worse than one that failed outright.
-	m_console.Register("step", "advance the sim by N seconds (dev): step <seconds>",
+	m_console.Register({.name = "step",
+						.group = CmdGroup::Simulation,
+						.params = "<seconds>",
+						.summary = "advance the world by sim seconds now, in fixed ticks"},
 					   [this](const std::vector<std::string>& args) {
-						   if (!Need(m_console, args, 1, "usage: step <seconds>")) return;
+						   if (!Need(m_console, args, 1)) return;
 						   const float secs =
 							   static_cast<float>(std::atof(args[0].c_str()));
 						   if (secs <= 0.0f) {
@@ -483,10 +523,10 @@ std::string Game::TallyLine() const {
 	return std::format(
 		"TALLY dealt={:.1f} taken={:.1f} swings={} hits={} misses={} hitrate={} "
 		"crits={} fumbles={} slain={} downed={} secs={:.1f} bolthits={} "
-		"boltmisses={} expired={} blasts={}",
+		"boltmisses={} expired={} blasts={} drops={} lifts={}",
 		t.dealt, t.taken, swings, t.hits, t.misses, rate, t.crits, t.fumbles,
 		t.monstersSlain, t.membersDowned, t.seconds, t.boltHits, t.boltMisses,
-		t.expiries, t.blasts);
+		t.expiries, t.blasts, t.drops, t.lifts);
 }
 
 } // namespace dungeon::game

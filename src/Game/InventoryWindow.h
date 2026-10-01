@@ -22,7 +22,7 @@ namespace dungeon::game {
 class InventoryWindow : public ui::Widget {
 public:
 	InventoryWindow(std::vector<Character>* roster, const ItemIconBank* icons,
-					std::optional<std::string>* held);
+					HeldItem* held);
 
 	void Open() { m_open = true; }
 	void Close() { m_open = false; }
@@ -45,7 +45,7 @@ private:
 
 	std::vector<Character>* m_roster;
 	const ItemIconBank* m_icons;
-	std::optional<std::string>* m_held;
+	HeldItem* m_held;
 	bool m_open = false;
 	std::string m_title; // localized once at construction
 };

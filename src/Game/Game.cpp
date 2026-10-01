@@ -746,6 +746,8 @@ static std::unique_ptr<gfx::Texture> MakeSolidIcon(gfx::GraphicsDevice& device,
 }
 
 void Game::LoadItemIcons() {
+	// Every item kind is built here, not on its first drop (see the method).
+	m_world->PreloadItemKinds();
 	// One element-tinted icon per symbol, keyed by the rune's catalog id
 	// (rune_fire → rune_icon_fire). PNG only (like the splats). Drawn on the
 	// cursor when a tablet is held, and in the hand slots / inventory.
@@ -796,8 +798,13 @@ void Game::LoadItemIcons() {
 		const CatalogEntry& def = *defp;
 		m_itemWeights.byType[def.id] = def.GetFloat("weight", 0.0f);
 		m_itemCategories.byType[def.id] = def.Get("category", "misc");
-		m_itemCategories.capacityByType[def.id] =
-			static_cast<int>(def.GetFloat("capacity", 0.0f));
+		int capacity = static_cast<int>(def.GetFloat("capacity", 0.0f));
+		if (capacity > kMaxPackSlots) { // a bag's slots are fixed storage (PackSlots)
+			log::Warn("item '{}': capacity {} is more than the {} slots a bag can have"
+					  " - clamped", def.id, capacity, kMaxPackSlots);
+			capacity = kMaxPackSlots;
+		}
+		m_itemCategories.capacityByType[def.id] = capacity;
 		m_itemCategories.acceptsByType[def.id] = splitList(def.Get("accepts", ""));
 		if (def.GetBool("holdable", false))
 			m_itemCategories.holdableTypes.insert(def.id);
@@ -1108,9 +1115,13 @@ bool Game::LoadGame(const std::string& path) {
 			inv.packs[p].typeId = c.packTypes[p];
 			const std::vector<std::string> items =
 				p < c.packContents.size() ? c.packContents[p] : std::vector<std::string>{};
-			inv.packs[p].contents.assign(items.size(), {});
-			for (size_t s = 0; s < items.size(); ++s)
-				inv.packs[p].contents[s].typeId = items[s];
+			PackSlots& slots = inv.packs[p].contents;
+			slots.resize(items.size()); // clears; clamps at kMaxPackSlots
+			if (items.size() > slots.size())
+				log::Warn("save: pack {} of {} holds {} slots, more than the {} a bag can have"
+						  " - the rest are dropped",
+						  p, m_characters[i].name, items.size(), slots.size());
+			for (size_t s = 0; s < slots.size(); ++s) slots[s].typeId = items[s];
 		}
 		if (c.selectedPack >= 0 && c.selectedPack < kPackRowSlots)
 			inv.selectedPack = c.selectedPack;
@@ -1656,6 +1667,9 @@ void Game::UpdateStates(float dt) {
 		DN_PROFILE_ZONE_L(prof::kLevelSystem, "fonts");
 		m_ui.UpdateFonts(dt);
 	}
+	// The resource bars run on REAL time (dt, not wdt): a heartbeat racing 60x
+	// while the party rests, or freezing under the pause menu, would be wrong.
+	m_ui.TickResourceBars(dt, m_world && m_world->PartyNoticed());
 	if (m_previewMesh) m_previewOrbit += dt * 0.6f; // spin the editor 3D preview
 
 	// Poll the asset bake (P4c): non-blocking, so the "baking…" dialog stays
@@ -2256,9 +2270,9 @@ void Game::UpdateStates(float dt) {
 			if (m_heldItem) {
 				m_world->DropItemAt(*m_heldItem, mx, my, w, h);
 				m_heldItem.reset();
-			} else if (auto picked = m_world->TryPickItem(mx, my, w, h)) {
+			} else if (const std::string* picked = m_world->TryPickItem(mx, my, w, h)) {
 				OnItemFound(*picked); // quest / flag / reveal hooks
-				m_heldItem = std::move(picked);
+				m_heldItem = *picked; // into the cursor's own buffer (HeldItem)
 			} else if (!m_world->ToggleDoorAhead(mx, my, w, h)) {
 				// No tablet, and nothing on the door ahead that the click
 				// actually landed on: try the button on the wall the party

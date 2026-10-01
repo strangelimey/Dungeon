@@ -87,7 +87,7 @@ float MovementPad::NeededHeight(float widthPx, float emPx) {
 void MovementPad::LayoutSelf(ui::UIContext&) {
 	const gfx::Rect& px = Pixel();
 	if (px.w <= 0.0f || px.h <= 0.0f) return;
-	const float em = Rem(1.0f);
+	const float em = Em(1.0f);
 	const float gap = px.w * (kMoveGap / kInnerW);
 	const float side = CellSide(px.w, em);
 	if (side <= 0.0f) return;
@@ -168,7 +168,7 @@ void HandPair::LayoutSelf(ui::UIContext&) {
 	const gfx::Rect& px = Pixel();
 	if (px.w <= 0.0f || px.h <= 0.0f) return;
 
-	const float em = Rem(1.0f);
+	const float em = Em(1.0f);
 	const float gap = px.w * (kHandGap / kSetW);
 	const float side = SquareSide(px.w, em);
 	const float band = BandHeight(em);
@@ -219,7 +219,7 @@ float HandsArea::NeededHeight(float widthPx, float emPx, size_t rows) {
 void HandsArea::LayoutSelf(ui::UIContext&) {
 	const gfx::Rect& px = Pixel();
 	if (px.w <= 0.0f || px.h <= 0.0f) return;
-	const float em = Rem(1.0f);
+	const float em = Em(1.0f);
 	const float setW = px.w * (kSetW / kInnerW);
 	const float rowH = HandPair::NeededHeight(setW, em);
 	const float pitch = rowH + em * kHandRowGap;
@@ -235,8 +235,8 @@ void HandsArea::LayoutSelf(ui::UIContext&) {
 // --- HudDock ---------------------------------------------------------------
 
 HudDock::HudDock(std::string title, bool* collapsed,
-				 std::function<void()> onCollapseChanged)
-	: m_collapsed(collapsed) {
+				 std::function<void()> onCollapseChanged, const HudPanelLook* look)
+	: m_collapsed(collapsed), m_look(look) {
 	debugName = "HudDock";
 	// Placeholder bounds throughout: the column places the dock, and LayoutSelf
 	// places the header and content once the dock's pixel rect is known.
@@ -266,7 +266,7 @@ gfx::Rect HudDock::ContentRect() const {
 void HudDock::LayoutSelf(ui::UIContext&) {
 	const gfx::Rect inner = ContentRect();
 	if (inner.w <= 0.0f || inner.h <= 0.0f) return;
-	const float em = Rem(1.0f);
+	const float em = Em(1.0f);
 	const float head = HasHeader() ? HeaderHeight(em) : 0.0f;
 	const float gap = HasHeader() ? HeaderGap(em) : 0.0f;
 
@@ -293,7 +293,7 @@ void HudDock::LayoutSelf(ui::UIContext&) {
 }
 
 void HudDock::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
-	ui::DrawPanelFace(ctx, batch, Pixel());
+	ui::DrawPanelFace(ctx, batch, Pixel(), m_look ? m_look->opacity : 1.0f);
 }
 
 // --- ControlBar ------------------------------------------------------------
@@ -302,16 +302,18 @@ ControlBar::ControlBar(const gfx::Rect& rect, const ControlBarDeps& deps)
 	: m_roster(deps.roster) {
 	bounds = rect;
 	debugName = "ControlBar";
-	m_moveDock = Add<HudDock>(deps.moveLabel, deps.moveCollapsed, deps.onCollapseChanged);
+	m_moveDock = Add<HudDock>(deps.moveLabel, deps.moveCollapsed, deps.onCollapseChanged,
+							  deps.moveLook);
 	m_moveDock->debugName = "MoveDock";
 	m_moveDock->SetToggleIcons(deps.boxPlus, deps.boxMinus);
 	m_moveDock->SetContent<MovementPad>(gfx::Rect{0, 0, 1, 1}, deps);
 
-	m_handsDock = Add<HudDock>(std::string(), nullptr, nullptr);
+	m_handsDock = Add<HudDock>(std::string(), nullptr, nullptr, deps.handsLook);
 	m_handsDock->debugName = "HandsDock";
 	m_handsDock->SetContent<HandsArea>(gfx::Rect{0, 0, 1, 1}, deps);
 
-	m_magicDock = Add<HudDock>(deps.magicLabel, deps.magicCollapsed, deps.onCollapseChanged);
+	m_magicDock = Add<HudDock>(deps.magicLabel, deps.magicCollapsed, deps.onCollapseChanged,
+							   deps.magicLook);
 	m_magicDock->debugName = "MagicDock";
 	m_magicDock->SetToggleIcons(deps.boxPlus, deps.boxMinus);
 	m_spellbook = m_magicDock->SetContent<SpellbookPanel>(gfx::Rect{0, 0, 1, 1},
@@ -319,36 +321,63 @@ ControlBar::ControlBar(const gfx::Rect& rect, const ControlBarDeps& deps)
 	m_rows = HandRows(MemberCount(deps));
 }
 
-void ControlBar::LayoutSelf(ui::UIContext&) {
+float ControlBar::WidestScale() const {
+	return std::max({m_moveDock->Scale(), m_handsDock->Scale(), m_magicDock->Scale()});
+}
+
+void ControlBar::LayoutSelf(ui::UIContext& ctx) {
 	const gfx::Rect& px = Pixel();
 	if (px.w <= 0.0f || px.h <= 0.0f) return;
 
-	// Everything in PIXELS first, then fractions of this column. The docks share
-	// the column's width, so their padded interiors all have the same width, and
-	// that width is what sizes the square cells and boxes inside them.
-	const float em = Rem(1.0f);
-	const float pad = HudDock::Pad(px.w);
-	const float innerW = std::max(0.0f, px.w - 2 * pad);
-	const float head = HudDock::HeaderHeight(em);
-	const float headGap = HudDock::HeaderGap(em);
-	const float dockGap = em * kDockGap;
-	const float minimized = 2 * pad + head; // a header strip and its padding
+	// Everything in PIXELS first, then fractions of this column. A dock at scale
+	// 1 is the width the column has at scale 1 (the owner widens the column to
+	// the widest dock), and each is as wide as its scale says, flush right. The
+	// padded interior's width is what sizes the square cells and boxes inside.
+	//
+	// A dock's detail is in ITS em: the font at its scale, asked of the library
+	// exactly as Widget::Layout will ask it for the dock's own subtree, so the
+	// heights measured here are the heights the docks then lay out to.
+	const float widest = WidestScale();
+	const float unitW = px.w / widest;
+	struct Metrics {
+		float w, em, pad, innerW, head, headGap, minimized;
+	};
+	auto metrics = [&](HudDock* dock) {
+		const float s = dock->Scale();
+		dock->fontScale = s;
+		Metrics m;
+		m.w = unitW * s;
+		m.em = s == 1.0f ? ctx.FontFor(ResolvedRole()).Height()
+						 : ctx.FontAt(ResolvedRole(), ctx.DesignHeight() * s).Height();
+		m.pad = HudDock::Pad(m.w);
+		m.innerW = std::max(0.0f, m.w - 2 * m.pad);
+		m.head = dock->HasHeader() ? HudDock::HeaderHeight(m.em) : 0.0f;
+		m.headGap = dock->HasHeader() ? HudDock::HeaderGap(m.em) : 0.0f;
+		m.minimized = 2 * m.pad + m.head; // a header strip and its padding
+		return m;
+	};
+	const Metrics move = metrics(m_moveDock);
+	const Metrics hands = metrics(m_handsDock);
+	const Metrics magic = metrics(m_magicDock);
+	const float dockGap = Rem(kDockGap);
 
-	const float moveH = 2 * pad + head + headGap + MovementPad::NeededHeight(innerW, em);
-	const float handsH = 2 * pad + HandsArea::NeededHeight(innerW, em, m_rows);
+	const float moveH = move.minimized + move.headGap +
+						MovementPad::NeededHeight(move.innerW, move.em);
+	const float handsH = hands.minimized + HandsArea::NeededHeight(hands.innerW, hands.em, m_rows);
 
-	auto place = [&](HudDock* dock, float y, float h) {
-		dock->bounds = {0.0f, y / px.h, 1.0f, h / px.h};
+	auto place = [&](HudDock* dock, const Metrics& m, float y, float h) {
+		dock->bounds = {(px.w - m.w) / px.w, y / px.h, m.w / px.w, h / px.h};
 	};
 	// NO REFLOW: each dock's TOP comes from the others' EXPANDED heights, so
 	// minimizing one leaves a gap rather than pulling the next one up.
 	float y = 0.0f;
-	place(m_moveDock, y, m_moveDock->Collapsed() ? minimized : moveH);
+	place(m_moveDock, move, y, m_moveDock->Collapsed() ? move.minimized : moveH);
 	y += moveH + dockGap;
-	place(m_handsDock, y, handsH);
+	place(m_handsDock, hands, y, handsH);
 	y += handsH + dockGap;
-	place(m_magicDock, y,
-		  m_magicDock->Collapsed() ? minimized : std::max(minimized, px.h - y));
+	place(m_magicDock, magic, y,
+		  m_magicDock->Collapsed() ? magic.minimized
+								   : std::max(magic.minimized, px.h - y));
 
 	// Magic appears once ANY member knows a symbol - not before, and not by a
 	// flag set when one is learned, which a load or a roster change would miss.

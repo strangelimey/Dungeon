@@ -77,6 +77,11 @@ public:
 	// Keeps fonts in step with the window height so text scales with the
 	// normalized UI; re-bakes are debounced until a resize settles.
 	void UpdateFonts(float dt);
+	// Advances the resource bars by `dt` REAL seconds - the fills' animation
+	// clock (handed to the SpriteBatch) and each member's heartbeat, whose rate
+	// follows their health and whether the party is `noticed`. Every frame, in
+	// every state, so the bars never stutter on a state change.
+	void TickResourceBars(float dt, bool noticed);
 	void UpdateMenu(const Input& input);  // landing list or settings page
 	void UpdatePause(const Input& input); // pause list or settings page
 	void UpdateSheet(const Input& input, float dt);
@@ -129,7 +134,7 @@ public:
 	// The cursor-carried item (Game's m_heldItem). RenderHud paints its icon at
 	// the mouse, and the held-aware portrait/hand handlers place INTO and pick
 	// OUT OF it, so the pointer is mutable. Address stable; value read/written live.
-	void SetHeldItem(std::optional<std::string>* held) { m_held = held; }
+	void SetHeldItem(HeldItem* held) { m_held = held; }
 	// True if a HUD widget consumed the mouse this frame (so the world should not
 	// also treat the click as a pick/drop). Valid after UpdateHud.
 	// The item details dialog holds the pointer while it is up, so it counts.
@@ -173,6 +178,8 @@ public:
 	CharacterSheet::Mode SheetMode() const {
 		return m_sheet ? m_sheet->CurrentMode() : CharacterSheet::Mode::Inventory;
 	}
+	// The resource bars' live style, for the `hudbars` dev command.
+	ResourceBarStyle& BarStyle() { return m_barStyle; }
 	// The sheet's status bar this frame (empty = nothing hovered).
 	std::string_view SheetStatusName() const {
 		return m_sheet ? m_sheet->StatusName() : std::string_view{};
@@ -180,6 +187,7 @@ public:
 	std::string_view SheetStatusText() const {
 		return m_sheet ? m_sheet->StatusText() : std::string_view{};
 	}
+	unsigned SheetPackEquips() const { return m_sheet ? m_sheet->PackEquips() : 0u; }
 
 	// --- spellbook (the Magic area) ------------------------------------------------
 	// Opens member `i`'s book exactly as its selector button does, or refuses
@@ -377,6 +385,10 @@ private:
 	// Re-derives the party-bar slot rects from the settings scale and shifts
 	// the widgets beneath the bar to match; no-op until BuildHud has run.
 	void ApplyPartyBarScale();
+	// Widens the right-hand control column to its widest dock's scale, keeping
+	// its right edge; the docks read their own scale and opacity live. No-op
+	// until BuildHud has run.
+	void ApplyHudPanelScale();
 	void DrawLoadProgress(const LoadQueue& queue, float barY); // shared bar
 	// Title face centered horizontally at y (accent color); returns y so a
 	// subtitle can be placed relative to it. Shared by every title screen.
@@ -546,6 +558,11 @@ private:
 	std::unique_ptr<gfx::Texture> m_skinButtonTex;
 	std::unique_ptr<gfx::Texture> m_skinSlotTex;
 	ui::Skin m_skin;
+	// The resource bars' look (PartyHudTypes.h): the iron frame, the fills'
+	// clock and every member's heartbeat. The party bar and the sheet point at
+	// it; TickResourceBars keeps it moving, ApplySkin follows uiskin.
+	std::unique_ptr<gfx::Texture> m_barFrameTex;
+	ResourceBarStyle m_barStyle;
 	// The spellbook's Cast/Clear round icon faces (optional).
 	std::unique_ptr<gfx::Texture> m_castIconTex;
 	std::unique_ptr<gfx::Texture> m_clearIconTex;
@@ -649,6 +666,7 @@ private:
 	// trees carry their contents. Both are owned by m_hudUi.
 	PartyBar* m_partyBar = nullptr;
 	ui::Widget* m_belowBar = nullptr;
+	ControlBar* m_controlBar = nullptr; // the right column, owned by m_belowBar
 	std::vector<CharacterPanel*> m_partyPanels; // owned by m_partyBar
 	const HitSplatIcons* m_hitSplats = nullptr; // hit-feedback icons (Game-owned)
 	const ItemIconBank* m_itemIcons = nullptr;  // item icons (Game-owned)
@@ -659,7 +677,7 @@ private:
 	// Cursor-carried item (Game owns the storage; placement handlers mutate it)
 	// + the last HUD mouse position (stashed in UpdateHud so RenderHud can draw
 	// the held icon, which has no Input).
-	std::optional<std::string>* m_held = nullptr;
+	HeldItem* m_held = nullptr;
 	float m_hudMouseX = 0.0f, m_hudMouseY = 0.0f;
 
 	// Font re-bake debounce: last seen window height and how long it has

@@ -80,9 +80,9 @@ float GuardSlider::HonestAt(float x) const {
 
 gfx::Rect GuardSlider::BarRect(float share) const {
 	const gfx::Rect& px = Pixel();
-	const float top = std::min(Rem(kGapRem), px.h);
-	const float angry = std::min(Rem(kAngryRem), px.h - top);
-	const float rest = std::min(Rem(kRestRem), angry);
+	const float top = std::min(Em(kGapRem), px.h);
+	const float angry = std::min(Em(kAngryRem), px.h - top);
+	const float rest = std::min(Em(kRestRem), angry);
 	const float h = rest + (angry - rest) * OverOf(share);
 	// CENTRED in the room reserved for the angry swell (Michael, 2026-09-28), so
 	// a resting bar sits in the middle of it and an over-exerted one swells out
@@ -144,14 +144,14 @@ void GuardSlider::UpdateSelf(ui::UIContext& ctx) {
 	switch (m_drag) {
 	case Drag::Pending: {
 		const float dx = mx - m_pressX;
-		if (dx >= Rem(kDirectionRem) && ExertMax() > 1.0f) {
+		if (dx >= Em(kDirectionRem) && ExertMax() > 1.0f) {
 			// Right from a full (or already over-exerted) bar: the charge, carrying
 			// on from wherever the over-exertion already stands.
 			m_drag = Drag::Charge;
 			m_effort = EffortFromOver(OverOf(share));
 			m_lastTick = std::chrono::steady_clock::now();
 			m_lastX = mx;
-		} else if (dx <= -Rem(kDirectionRem)) {
+		} else if (dx <= -Em(kDirectionRem)) {
 			if (share > 1.0f) {
 				// Left from over-exertion: back to 100% attack / 0% over, and this
 				// press is spent - defense takes another drag.

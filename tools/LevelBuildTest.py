@@ -848,8 +848,9 @@ def main():
         print("\n7 - a reroll keeps every way in: world-map doorways and the game's opening")
         proj = scratch("lb_arrive")
         try:
-            # The opening moves OFF the exit stair it shares in the demo (7,7) onto
-            # a square nothing else holds open, or keeping stairs would keep it too.
+            # The opening moves to a square nothing else holds open (the demo's
+            # 7,7 sits right beside the exit stair at 7,8), so only the rule for
+            # ways in can be what keeps it.
             ini = os.path.join(proj, "project.ini")
             text = io.open(ini, encoding="utf-8", newline="").read()
             text = text.replace("start_x = 7", "start_x = 12").replace("start_z = 7", "start_z = 1")
@@ -914,8 +915,8 @@ def main():
             check(s1 == (12, 1),
                   "crypt1: with no floor above, the game's OPENING is the entry - the level "
                   "starts on it", f"start {s1}")
-            check(s1 is not None and (7, 7) in reached(g1, s1),
-                  "crypt1: the exit stair (and crypt_gate's landing) at 7,7 is still joined on",
+            check(s1 is not None and (7, 8) in reached(g1, s1),
+                  "crypt1: the exit stair (and crypt_gate's landing) at 7,8 is still joined on",
                   f"rows {g1}")
         finally:
             shutil.rmtree(proj, ignore_errors=True)

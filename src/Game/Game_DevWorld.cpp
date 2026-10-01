@@ -31,14 +31,19 @@ using devargs::Need;
 
 void Game::RegisterWorldCommands() {
 	// --- travelling the overworld ---------------------------------------
-	m_console.Register("world",
-					   "print the world map: terrain, areas and locations",
-					   [this](const std::vector<std::string>&) {
-						   for (const std::string& line : WorldReport())
-							   m_console.Print(line);
-					   });
 	m_console.Register(
-		"worldmap", "enter or leave the world map: worldmap [on|off]",
+		{.name = "world",
+		 .group = CmdGroup::World,
+		 .summary = "print the world map: terrain, areas and locations"},
+		[this](const std::vector<std::string>&) {
+			for (const std::string& line : WorldReport())
+				m_console.Print(line);
+		});
+	m_console.Register(
+		{.name = "worldmap",
+		 .group = CmdGroup::World,
+		 .params = "[on|off]",
+		 .summary = "enter or leave the world map; bare reports where the party is"},
 		[this](const std::vector<std::string>& args) {
 			// Bare `worldmap` REPORTS rather than toggles — the same choice
 			// `rest` made, and for the same reason: a state command whose
@@ -55,7 +60,10 @@ void Game::RegisterWorldCommands() {
 								: "in a dungeon");
 		});
 	m_console.Register(
-		"travel", "step on the world map: travel <n|s|e|w> [count]",
+		{.name = "travel",
+		 .group = CmdGroup::World,
+		 .params = "<n|s|e|w> [count]",
+		 .summary = "step across the world map, stopping where blocked"},
 		[this](const std::vector<std::string>& args) {
 			if (args.empty()) {
 				m_console.Print("usage: travel <n|s|e|w> [count]");
@@ -83,7 +91,12 @@ void Game::RegisterWorldCommands() {
 				moved < count ? " (blocked)" : ""));
 		});
 	m_console.Register(
-		"quest", "quests: quest (list) | quest <id> <stage> (set) | quest flags",
+		{.name = "quest",
+		 .group = CmdGroup::World,
+		 .params = "[list]\n"
+				   "<id> <stage>\n"
+				   "flags",
+		 .summary = "list every authored quest, set a quest's stage, or show flags"},
 		[this](const std::vector<std::string>& args) {
 			if (!args.empty() && args[0] == "flags") {
 				if (m_worldState.flags.empty()) m_console.Print("no flags set");
@@ -113,9 +126,12 @@ void Game::RegisterWorldCommands() {
 	// FLAGS (flags.cat): read or set one, list them by scope. Lines are
 	// `flag <id> <on|off> <scope>` so a harness can read them back.
 	m_console.Register(
-		"flag", "a flag: flag <id> (read) | flag <id> on|off (set)",
+		{.name = "flag",
+		 .group = CmdGroup::World,
+		 .params = "<id> [on|off]",
+		 .summary = "read a flag, or set it on or off"},
 		[this](const std::vector<std::string>& args) {
-			if (!Need(m_console, args, 1, "usage: flag <id> [on|off]")) return;
+			if (!Need(m_console, args, 1)) return;
 			const CatalogEntry* e = m_project.flags.Find(args[0]);
 			if (args.size() > 1) {
 				if (args[1] != "on" && args[1] != "off") {
@@ -130,9 +146,12 @@ void Game::RegisterWorldCommands() {
 										scope.empty() ? "world" : "dungeon:" + scope,
 										e ? "" : " (not in flags.cat)"));
 		});
+	// `dungeon` alone = the party's dungeon.
 	m_console.Register(
-		"flags", "list flags: flags [world | dungeon [id]] (dungeon alone = the "
-				 "party's)",
+		{.name = "flags",
+		 .group = CmdGroup::World,
+		 .params = "[world]\ndungeon [id]",
+		 .summary = "list the flags and whether each is on, by scope"},
 		[this](const std::vector<std::string>& args) {
 			// Which scope to show: all, the world's, or one dungeon's (the
 			// party's own when none is named).
@@ -159,7 +178,9 @@ void Game::RegisterWorldCommands() {
 			if (shown == 0) m_console.Print("flags: none authored in that scope");
 		});
 	m_console.Register(
-		"camp", "camp on the world map until rest ends by itself",
+		{.name = "camp",
+		 .group = CmdGroup::World,
+		 .summary = "camp on the world map until rest ends by itself"},
 		[this](const std::vector<std::string>&) {
 			if (!m_worldState.onWorldMap) {
 				m_console.Print("camping is a world-map action (you are in a level)");
@@ -174,7 +195,10 @@ void Game::RegisterWorldCommands() {
 											: "did not start"));
 		});
 	m_console.Register(
-		"encounter", "force a random encounter here: encounter [difficulty]",
+		{.name = "encounter",
+		 .group = CmdGroup::World,
+		 .params = "[difficulty]",
+		 .summary = "force a random encounter on the party's world cell"},
 		[this](const std::vector<std::string>& args) {
 			if (!m_worldMap) {
 				m_console.Print("no world map loaded");
@@ -191,7 +215,10 @@ void Game::RegisterWorldCommands() {
 								: "no encounter (see log)");
 		});
 	m_console.Register(
-		"encounters", "encounter rolls: encounters [on|off|<rate>]",
+		{.name = "encounters",
+		 .group = CmdGroup::World,
+		 .params = "[on|off|<rate>]",
+		 .summary = "switch random encounter rolls or set their rate"},
 		[this](const std::vector<std::string>& args) {
 			if (!args.empty()) {
 				if (args[0] == "off") m_encountersOff = true;
@@ -210,7 +237,10 @@ void Game::RegisterWorldCommands() {
 										m_encounterRate));
 		});
 	m_console.Register(
-		"enter", "enter a world location's dungeon: enter [id] (default: here)",
+		{.name = "enter",
+		 .group = CmdGroup::World,
+		 .params = "[location]",
+		 .summary = "enter a world location's dungeon (default: the one here)"},
 		[this](const std::vector<std::string>& args) {
 			if (!m_worldMap) {
 				m_console.Print("no world map loaded");
@@ -232,7 +262,10 @@ void Game::RegisterWorldCommands() {
 								: std::format("could not enter {}", id));
 		});
 	m_console.Register(
-		"leave", "leave the dungeon: leave [location] (default: the way you came)",
+		{.name = "leave",
+		 .group = CmdGroup::World,
+		 .params = "[location]",
+		 .summary = "leave the dungeon for the world (default: the way you came)"},
 		[this](const std::vector<std::string>& args) {
 			// The optional argument is what an EXIT STAIR supplies — which door
 			// this is. The console can reach it and a script cannot reach the
@@ -246,7 +279,10 @@ void Game::RegisterWorldCommands() {
 								: "no world map to leave to");
 		});
 	m_console.Register(
-		"worldpos", "move the party's world cell: worldpos <x> <z>",
+		{.name = "worldpos",
+		 .group = CmdGroup::World,
+		 .params = "<x> <z>",
+		 .summary = "move the party to a world cell"},
 		[this](const std::vector<std::string>& args) {
 			if (!m_worldMap) {
 				m_console.Print("no world map loaded");
@@ -273,7 +309,11 @@ void Game::RegisterWorldCommands() {
 																   : "impassable"));
 		});
 	m_console.Register(
-		"discover", "mark a world location discovered: discover <id>",
+		{.name = "discover",
+		 .group = CmdGroup::World,
+		 .params = "\n"
+				   "<location>",
+		 .summary = "mark a world location discovered; bare lists every location"},
 		[this](const std::vector<std::string>& args) {
 			if (!m_worldMap) {
 				m_console.Print("no world map loaded");
@@ -301,9 +341,21 @@ void Game::RegisterWorldCommands() {
 
 	// --- worlds, the map's pages, and the project's files -----------------
 	m_console.Register(
-		"worlds",
-		"the worlds on disk: worlds | status | new <name> | load <name> | "
-		"delete <name> <name again> | dialog",
+		{.name = "worlds",
+		 .group = CmdGroup::World,
+		 .params = "\n"
+				   "status\n"
+				   "new <name> [blank [style=<id>]|copy|level <stem>]\n"
+				   "new <name> wizard [style=<id>] [tag=<tag>] [size=<n>] [difficulty=<0..1>] [seed=<n>]\n"
+				   "load <name>\n"
+				   "delete <name> <name again>\n"
+				   "dialog [off|<open|create|delete|confirm> <name>]\n"
+				   "tags\n"
+				   "newdialog [off|switch|create <name>]\n"
+				   "newdialog source <blank|copy|wizard|level [stem]>\n"
+				   "newdialog style <id|->\n"
+				   "newdialog wizard <tag|-> <size> <difficulty> <seed>",
+		 .summary = "list worlds on disk; create, load, delete; drive the world dialogs"},
 		[this](const std::vector<std::string>& a) {
 			// A WORLD IS A PROJECT FOLDER (assets/projects/<name>): its own
 			// overworld, dungeons, levels and content. Loaded when a game starts
@@ -481,8 +533,12 @@ void Game::RegisterWorldCommands() {
 							"[source blank|copy|level <stem> | style <id|-> | create <name> | switch | off]");
 		});
 	m_console.Register(
-		"mappage",
-		"the player map, without a keyboard: mappage | open | close | dungeon | world",
+		{.name = "mappage",
+		 .group = CmdGroup::Levels,
+		 .params = "[dungeon|world]\n"
+				   "open\n"
+				   "close",
+		 .summary = "open, close or page the player map without a keyboard"},
 		[this](const std::vector<std::string>& a) {
 			// The M key and the toggle button, reachable by a harness. It
 			// reports the page, whether the toggle is even OFFERED, and whether
@@ -511,8 +567,9 @@ void Game::RegisterWorldCommands() {
 				m_mapView.IsOpen() ? "open" : "closed"));
 		});
 	m_console.Register(
-		"catround",
-		"check every project file survives being written back unchanged",
+		{.name = "catround",
+		 .group = CmdGroup::Levels,
+		 .summary = "check every project file survives being written back unchanged"},
 		[this](const std::vector<std::string>&) {
 			// THE WRITERS' FIDELITY, CHECKED. Every editor action that touches a
 			// type saves the WHOLE project, so a writer that quietly drops a
@@ -560,9 +617,12 @@ void Game::RegisterWorldCommands() {
 				checked - bad, checked, missing));
 		});
 	m_console.Register(
-		"levels",
-		"the project's levels, grouped by the dungeon that claims them: "
-		"levels | new [dungeon] | view <stem>",
+		{.name = "levels",
+		 .group = CmdGroup::Levels,
+		 .params = "[list]\n"
+				   "new [dungeon]\n"
+				   "view <stem>",
+		 .summary = "list levels by dungeon, create a level, or browse one"},
 		[this](const std::vector<std::string>& a) {
 			// THE PICKER'S LIST, WITHOUT A MOUSE. The toolbar dropdown is what
 			// W5 actually built; this prints the same grouping (through the same
@@ -608,8 +668,9 @@ void Game::RegisterWorldCommands() {
 											: m_mapView.ViewedDungeon()));
 		});
 	m_console.Register(
-		"levelcheck",
-		"verify every level file is present and every model a type names is installed",
+		{.name = "levelcheck",
+		 .group = CmdGroup::Levels,
+		 .summary = "check level files exist and every model a type names is installed"},
 		[this](const std::vector<std::string>&) {
 			// WHAT THIS GUARDS, and why it is scoped this narrowly: the baked pool
 			// (assets/models, assets/textures) is GITIGNORED, so a fresh clone — or
@@ -665,7 +726,10 @@ void Game::RegisterWorldCommands() {
 
 	// --- the world editor -------------------------------------------------
 	m_console.Register(
-		"worldedit", "world map edit mode: worldedit [on|off]",
+		{.name = "worldedit",
+		 .group = CmdGroup::World,
+		 .params = "[on|off]",
+		 .summary = "switch the world map between edit and play mode"},
 		[this](const std::vector<std::string>& args) {
 			if (!m_worldMap) {
 				m_console.Print("no world map loaded");
@@ -680,7 +744,10 @@ void Game::RegisterWorldCommands() {
 													 : "world playing (fog on)");
 		});
 	m_console.Register(
-		"terrainbrush", "arm the world terrain brush: terrainbrush [id|off]",
+		{.name = "terrainbrush",
+		 .group = CmdGroup::World,
+		 .params = "[<terrain>|off]",
+		 .summary = "arm or disarm the world terrain brush"},
 		[this](const std::vector<std::string>& args) {
 			if (!m_worldMap) {
 				m_console.Print("no world map loaded");
@@ -707,7 +774,10 @@ void Game::RegisterWorldCommands() {
 								: "armed: " + m_worldMapView.ArmedTerrain());
 		});
 	m_console.Register(
-		"paint", "paint the armed terrain on a world cell: paint <x> <z>",
+		{.name = "paint",
+		 .group = CmdGroup::World,
+		 .params = "<x> <z>",
+		 .summary = "paint the armed terrain brush on a world cell"},
 		[this](const std::vector<std::string>& args) {
 			// The mouse path's rules, reachable without a mouse: same armed
 			// brush, same undo bracketing, same refusal to repaint a cell that
@@ -745,9 +815,14 @@ void Game::RegisterWorldCommands() {
 									: std::format("{},{} unchanged", x, z));
 		});
 	m_console.Register(
-		"worldprops",
-		"the world's own properties: worldprops | start <x> <z> | "
-		"opening <dungeon> <level> <x> <z> | opening world | eval <level>",
+		{.name = "worldprops",
+		 .group = CmdGroup::World,
+		 .params = "\n"
+				   "start <x> <z>\n"
+				   "opening <dungeon> <level> <x> <z>\n"
+				   "opening world\n"
+				   "eval <level>",
+		 .summary = "show or set the world start, the game's opening and harness level"},
 		[this](const std::vector<std::string>& a) {
 			if (!m_worldMap) {
 				m_console.Print("no world map loaded");
@@ -814,9 +889,14 @@ void Game::RegisterWorldCommands() {
 								"written by a project save)");
 		});
 	m_console.Register(
-		"worldloc",
-		"world locations: worldloc | add <kind> <id> <x> <z> | del <id> | "
-		"move <id> <x> <z> | set <id> <field> <value>",
+		{.name = "worldloc",
+		 .group = CmdGroup::World,
+		 .params = "\n"
+				   "add <kind> <id> <x> <z>\n"
+				   "del <id>\n"
+				   "move <id> <x> <z>\n"
+				   "set <id> <kind|dungeon|level|entryx|entryz> <value>",
+		 .summary = "list, add, remove, move or edit world locations"},
 		[this](const std::vector<std::string>& a) {
 			if (!m_worldMap) {
 				m_console.Print("no world map loaded");
@@ -886,9 +966,14 @@ void Game::RegisterWorldCommands() {
 			}
 		});
 	m_console.Register(
-		"worldarea",
-		"world areas: worldarea | add <id> <x> <z> <w> <h> [difficulty] | "
-		"del <id> | order <id> <index>",
+		{.name = "worldarea",
+		 .group = CmdGroup::World,
+		 .params = "\n"
+				   "add <id> <x> <z> <w> <h> [difficulty]\n"
+				   "del <id>\n"
+				   "order <id> <index>\n"
+				   "at <x> <z>",
+		 .summary = "list, add, remove or reorder world areas; ask who owns a cell"},
 		[this](const std::vector<std::string>& a) {
 			if (!m_worldMap) {
 				m_console.Print("no world map loaded");
@@ -974,8 +1059,11 @@ void Game::RegisterWorldCommands() {
 			}
 		});
 	m_console.Register(
-		"worldsettings",
-		"open the world settings dialog: worldsettings [location] | off",
+		{.name = "worldsettings",
+		 .group = CmdGroup::World,
+		 .params = "[location]\n"
+				   "off",
+		 .summary = "open or close the world settings dialog"},
 		[this](const std::vector<std::string>& a) {
 			// The toolbar's Settings disc, reachable without a mouse. It does
 			// NOT duplicate the rules — the dialog's callbacks are the same
@@ -1005,7 +1093,10 @@ void Game::RegisterWorldCommands() {
 														   : "could not open");
 		});
 	m_console.Register(
-		"newtype", "create a pure-data type: newtype <dungeons|terrain|quests|flags|themes>",
+		{.name = "newtype",
+		 .group = CmdGroup::Types,
+		 .params = "<dungeons|terrain|quests|flags|themes>",
+		 .summary = "create a new pure-data type in a catalog"},
 		[this](const std::vector<std::string>& args) {
 			// The palette's "+ New..." for these categories, reachable without a
 			// mouse — the harness cannot click, and this is the path W2 adds.
@@ -1026,9 +1117,12 @@ void Game::RegisterWorldCommands() {
 									   : std::format("created {} '{}'", args[0], id));
 		});
 	m_console.Register(
-		"typeset",
-		"the type editor's Save for one field: typeset <category> <id> <field> [value...] "
-		"(no value removes the field); typeset rename|delete <category> <id> [new]",
+		{.name = "typeset",
+		 .group = CmdGroup::Types,
+		 .params = "<category> <id> <field> [value...]\n"
+				   "rename <category> <id> <new>\n"
+				   "delete <category> <id>",
+		 .summary = "the type editor's Save, Rename or Delete; no value removes a field"},
 		[this](const std::vector<std::string>& args) {
 			// The type editor's own paths, reachable without a mouse. Save goes
 			// through m_typeDialog.onSave, not WriteTypeFields alone: the Save
@@ -1072,7 +1166,10 @@ void Game::RegisterWorldCommands() {
 										value.empty() ? "(removed)" : value));
 		});
 	m_console.Register(
-		"typerefs", "count what references a type: typerefs <category> <id>",
+		{.name = "typerefs",
+		 .group = CmdGroup::Types,
+		 .params = "<category> <id>",
+		 .summary = "count the level records and other references naming a type"},
 		[this](const std::vector<std::string>& args) {
 			if (args.size() < 2) {
 				m_console.Print("usage: typerefs <category> <id>");
@@ -1088,7 +1185,9 @@ void Game::RegisterWorldCommands() {
 										args[0], args[1], lv.count, other));
 		});
 	m_console.Register(
-		"saveworld", "write world/world.map alone (savemap writes the levels too)",
+		{.name = "saveworld",
+		 .group = CmdGroup::World,
+		 .summary = "write world/world.map alone (savemap writes the levels too)"},
 		[this](const std::vector<std::string>&) {
 			// SEPARATE FROM `savemap` because savemap rewrites every level file
 			// as well, and a level writer regenerates headers — so using it to

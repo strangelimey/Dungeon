@@ -80,6 +80,11 @@ struct ControlBarDeps {
 	bool* moveCollapsed = nullptr;
 	bool* magicCollapsed = nullptr;
 	std::function<void()> onCollapseChanged;
+	// Each dock's scale and background opacity (GameSettings, Settings -> UI),
+	// read live every layout and draw. Null = scale 1, opaque.
+	const HudPanelLook* moveLook = nullptr;
+	const HudPanelLook* handsLook = nullptr;
+	const HudPanelLook* magicLook = nullptr;
 };
 
 // 3x2 grid of movement buttons: turn-left / forward / turn-right over
@@ -143,10 +148,20 @@ private:
 // its bounds; the dock lays out its own header and content inside its padding.
 // Minimized, the content is hidden and the dock is only as tall as its header
 // - the column decides that height too, so the dock just follows the flag.
+//
+// SCALED through the inherited fontScale: the column sets it to the dock's
+// HudPanelLook::scale, and everything inside a dock measures its detail in EM
+// rather than rem, so the boxes, the gaps and the text grow together. (Rem is
+// the HUD's grid and does not move with fontScale - by design - which is why
+// the widgets in here use Em.)
 class HudDock : public ui::Widget {
 public:
 	// `title` empty = no header. `collapsed` null = cannot be minimized.
-	HudDock(std::string title, bool* collapsed, std::function<void()> onCollapseChanged);
+	// `look` null = scale 1, opaque.
+	HudDock(std::string title, bool* collapsed, std::function<void()> onCollapseChanged,
+			const HudPanelLook* look);
+
+	float Scale() const { return m_look ? m_look->scale : 1.0f; }
 
 	// The content widget, added by the owner after construction so its bounds
 	// resolve against this dock.
@@ -181,6 +196,7 @@ private:
 	ui::Button* m_toggle = nullptr;
 	ui::Widget* m_content = nullptr;
 	bool* m_collapsed = nullptr;
+	const HudPanelLook* m_look = nullptr;
 	const gfx::Texture *m_icoExpand = nullptr, *m_icoCollapse = nullptr;
 };
 
@@ -189,6 +205,10 @@ public:
 	ControlBar(const gfx::Rect& rect, const ControlBarDeps& deps);
 
 	SpellbookPanel* Spellbook() { return m_spellbook; }
+
+	// The widest dock's scale. The owner sizes the column to kPanelW times this
+	// (anchored at its right edge), so a dock scaled up never escapes it.
+	float WidestScale() const;
 
 private:
 	// Places the three docks, in PIXELS, then converts to fractions. The hand
