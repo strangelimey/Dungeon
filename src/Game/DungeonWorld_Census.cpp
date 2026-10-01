@@ -134,6 +134,8 @@ const std::vector<DungeonWorld::LevelCensus>& DungeonWorld::Census() {
 		}
 		for (const StairLink& s : map->Stairs())
 			if (CatalogBool(m_project.stairs.Find(s.type), "traverse", true)) ++c.stairs;
+		for (int z = 0; z < map->Height(); ++z)
+			for (int x = 0; x < map->Width(); ++x) c.squares += map->IsWalkable(x, z) ? 1 : 0;
 		m_census.levels.push_back(std::move(c));
 	}
 	m_census.revision = m_editRevision;

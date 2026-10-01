@@ -631,7 +631,8 @@ void Game::RegisterDevCommands() {
 										args.empty() ? "" : " in that tag's pool"));
 		});
 	m_console.Register("generate",
-					   "rough out a new level: generate [dungeon|again] [knob:value ...] | dialog [new|off|tab <n>] | "
+					   "rough out a new level: generate [dungeon|again|populate] [knob:value ...] | "
+					   "dialog [new|off|tab <n>|create|empty|populate|style <id|->] | "
 					   "preset [list|save|load|delete] [name] | play [stem] "
 					   "(a new floor of the viewed dungeon by default, and the view jumps "
 					   "to it; `again` rerolls the VIEWED level in place, as the dialog's "
@@ -659,15 +660,25 @@ void Game::RegisterDevCommands() {
 								   m_generateDialog.ShowTab(std::atoi(args[2].c_str()));
 							   else if (mode == "new" && m_mapView.onNewLevel)
 								   m_mapView.onNewLevel(m_mapView.ViewedDungeon());
+							   // Phase 7: its buttons and its style dropdown, as clicks.
+							   else if (mode == "create" || mode == "empty") {
+								   const std::string stem = m_generateDialog.PressCreate(mode == "create");
+								   m_console.Print("generate dialog: made " + (stem.empty() ? "-" : stem));
+							   } else if (mode == "populate")
+								   m_generateDialog.PressPopulate();
+							   else if (mode == "style" && args.size() > 2)
+								   m_generateDialog.PickChoice("style", args[2] == "-" ? "" : args[2]);
 							   else if (m_mapView.onGenerate)
 								   m_mapView.onGenerate();
+							   const std::string& style = m_generateDialog.Knobs().style;
 							   m_console.Print(std::format(
-								   "generate dialog: {}",
+								   "generate dialog: {} style={} knobs {}",
 								   !m_generateDialog.IsOpen() ? "closed"
 								   : m_generateDialog.GetMode() ==
 										   GenerateDialog::Mode::Create
 									   ? "create"
-									   : "regenerate"));
+									   : "regenerate",
+								   style.empty() ? "-" : style, generate::Encode(m_generateDialog.Knobs())));
 							   return;
 						   }
 						   // PLAY (P5): the dialog's Play buttons, without a mouse.
@@ -715,16 +726,39 @@ void Game::RegisterDevCommands() {
 						   // through the same table - so a scripted run and a
 						   // dialog run cannot disagree about what a knob means.
 						   generate::Params p = m_generateDialog.Knobs();
+						   // NO STYLE unless the line names one (`style:<id>`): the
+						   // dialog's last one rides settings.ini, and a script
+						   // must build the same floor whatever was clicked last.
+						   p.style.clear();
 						   std::string line, dungeon = m_mapView.ViewedDungeon();
-						   bool again = false;
+						   bool again = false, populate = false;
 						   for (const std::string& a : args)
 							   if (a == "again")
 								   again = true;
+							   else if (a == "populate")
+								   populate = true;
 							   else if (a.find(':') == std::string::npos)
 								   dungeon = a; // a bare word names the dungeon
 							   else
 								   line += a + ' ';
 						   generate::Decode(line, p);
+						   if (!p.style.empty() && !m_project.styles.Contains(p.style)) {
+							   m_console.Refuse("generate: this world has no style '" + p.style + "'");
+							   return;
+						   }
+						   // POPULATE ONLY (Phase 7): the viewed level's shape kept,
+						   // its monsters and loot rerolled from these knobs.
+						   if (populate) {
+							   const int placed = PopulateViewedLevel(p);
+							   if (placed < 0) {
+								   m_console.Print("generate: populate failed");
+								   return;
+							   }
+							   m_console.Print(std::format("generate: populated {} ({})",
+														   m_mapView.ViewedLevel(), generate::Encode(p)));
+							   m_console.Print("generate: built " + GenReportText());
+							   return;
+						   }
 						   // The dialog's two buttons, without a mouse: a new floor
 						   // (and the view follows it, as the dialog's does), or a
 						   // reroll of the one being viewed.
@@ -1430,6 +1464,25 @@ void Game::PrintDocks(const std::vector<std::string>& args) {
 	if (args[0] == "overview") {
 		static constexpr const char* kNames[] = {"world", "dungeon", "level"};
 		Scope scope = m_mapView.Scope();
+		// `overview follow <key> [world|dungeon|level]`: click that line of the
+		// panel (in its current scope unless named) - Phase 7's "what next" is
+		// the one that matters - and say where it led.
+		if (args.size() >= 3 && args[1] == "follow") {
+			if (args.size() >= 4)
+				for (int i = 0; i < 3; ++i)
+					if (args[3] == kNames[i]) scope = static_cast<Scope>(i);
+			for (const MapView::OverviewLine& l : m_mapView.OverviewContent(scope))
+				if (l.key == args[2]) {
+					m_mapView.FollowOverviewLink(l.link);
+					m_console.Print(std::format("editor overview follow {} -> {} (palette {})", l.key,
+												l.link.empty() ? "-" : l.link,
+												MapEditor::GroupName(m_mapEditor.PaletteGrouping(),
+																	 m_mapEditor.ActiveGroup())));
+					return;
+				}
+			m_console.Refuse("editor overview follow: no line '" + args[2] + "'");
+			return;
+		}
 		if (args.size() >= 2)
 			for (int i = 0; i < 3; ++i)
 				if (args[1] == kNames[i]) scope = static_cast<Scope>(i);

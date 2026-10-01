@@ -1,0 +1,18 @@
+; workflow_worlds.eval - EditorTest phase 18, part 1 (tool-refinement Phase 7):
+; new worlds that START IN A LIBRARY STYLE.
+;
+;   p7_world  blank, through the New world dialog, in Dirt Tunnels - the world
+;             receives the style (and its themes and surfaces), its starter
+;             dungeon names it, and the first room wears it
+;   p7_wiz    the wizard in Marble Halls - its floor generated from the style's
+;             recipe, tags and monster list, in its two themes
+; tools/EditorTest.py reads the files, opens each world to run the checker, then
+; walks the four stages inside p7_world (workflow_walk.eval), and removes both.
+
+logecho on
+reset
+worlds newdialog source blank
+worlds newdialog style dirt_tunnels
+worlds newdialog create p7_world
+worlds newdialog off
+worlds new p7_wiz wizard style=marble_halls size=32 difficulty=0.6 seed=5

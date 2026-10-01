@@ -65,6 +65,7 @@ add_library(Game STATIC
 	Game_Editor.cpp
 	Game_Eval.cpp
 	Game_Generate.cpp
+	Game_Populate.cpp
 	Game_Inspect.cpp
 	Game_NewWorld.cpp
 	NewWorldDialog.cpp
@@ -85,6 +86,7 @@ add_library(Game STATIC
 	Game_Styles.cpp
 	Style.cpp
 	StyleLibrary.cpp
+	StyleLook.cpp
 	Carve.cpp
 	MapView_Docks.cpp
 	MapView.cpp

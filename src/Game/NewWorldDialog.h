@@ -58,6 +58,11 @@ public:
 	std::function<std::vector<std::string>()> onLevels;
 	// The wizard's tag choices (the template's content tags). Asked on Open.
 	std::function<std::vector<std::string>()> onTags;
+	// The shared library's styles as (id, display), for the Style row a blank
+	// or wizard world starts in (Phase 7). Asked on Open.
+	std::function<std::vector<std::pair<std::string, std::string>>()> onStyles;
+	// The Style row's pick, as the harness makes it ("" = none).
+	void SetStyle(const std::string& id);
 
 	// The wizard's knobs (P5), for the harness as for its rows. Size is the
 	// map's side in squares; the dialog offers three.
@@ -89,6 +94,7 @@ private:
 	NewWorldSpec m_spec;
 	std::vector<std::string> m_levels; // this world's, for Copy one level
 	std::vector<std::string> m_tagChoices; // the template's tags, for the wizard
+	std::vector<std::pair<std::string, std::string>> m_styleChoices; // the library's
 	gfx::Rect m_panel{};               // taller while the wizard's rows show
 	std::string m_made;                // the world just made ("" = none yet)
 	std::string m_note;

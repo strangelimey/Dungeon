@@ -339,6 +339,13 @@ void Game::WireModuleCallbacks() {
 	};
 	m_newWorldDialog.onLevels = [this] { return m_project.levels; };
 	m_newWorldDialog.onTags = [this] { return WizardTags(); };
+	// The LIBRARY's styles (Phase 7): a new world starts in one of the shared
+	// ones, since its own world has none yet to offer.
+	m_newWorldDialog.onStyles = [this] {
+		std::vector<std::pair<std::string, std::string>> out;
+		for (const CatalogEntry& s : m_library.styles.Entries()) out.push_back({s.id, s.Display()});
+		return out;
+	};
 
 	m_mapEditor.onNewAsset = [this](MapEditor::PaletteCat cat) {
 		// PURE-DATA CATEGORIES SKIP THE ASSET DIALOG. A dungeon has no texture

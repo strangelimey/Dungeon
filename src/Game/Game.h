@@ -475,10 +475,22 @@ private:
 	// centre, as grid rows. A new world's first room and an empty new level
 	// both start from it; FIXED on purpose (scenarios build on the room's place).
 	static void AppendStarterRoom(std::string& map);
+	static constexpr int kStarterSize = 16, kStarterCentre = 8;
+	// The same box as a floor grid (row-major, 1 = open).
+	static std::vector<u8> StarterFloor();
+	// The box in style `styleId` (Phase 7): `palettes` (wall, floor, ceiling)
+	// take the style's theme members where it names any, and the returned text
+	// is the level's `tags` record plus the `theme` records painting the room and
+	// its walls. "" (palettes untouched) for no style or one `project` lacks.
+	static std::string StyledStarterRecords(const Project& project, const std::string& styleId,
+											std::array<std::vector<std::string>, 3>& palettes);
 	// CreateWorld's three builders, each writing a whole world into `folder`
 	// (the hidden build folder). False on failure, `problem` set when it knows.
 	bool BuildBlankWorld(const std::string& folder, const std::string& id,
-						 std::string* problem);
+						 const NewWorldSpec& spec, std::string* problem);
+	// Blank and Wizard: the spec's LIBRARY style into `made` (with the themes and
+	// surfaces it names) before anything is built in it. True with no style.
+	bool AddSpecStyle(Project& made, const NewWorldSpec& spec, std::string* problem) const;
 	bool BuildCopiedWorld(const std::string& folder, const std::string& id,
 						  std::string* problem);
 	bool BuildLevelWorld(const std::string& folder, const std::string& id,
@@ -516,8 +528,11 @@ private:
 	// WRITER of new levels: the [+] dialog, the `newlevel` and `generate`
 	// commands all come through here, so a generated level cannot be named,
 	// grouped or linked differently from an empty one.
+	// The EMPTY box takes `emptyStyle` (Phase 7: the [+] dialog's style), its
+	// look and tags; a generated level's style rides `params`.
 	std::string CreateNewLevel(const std::string& dungeonId = {},
-							   const generate::Params* params = nullptr);
+							   const generate::Params* params = nullptr,
+							   const std::string& emptyStyle = {});
 	// --- random encounters (Game_Generate.cpp, docs/world-map.md) ----------
 	// Builds a throwaway space from the area's difficulty and its terrain's
 	// tags and drops the party into it. It NEVER touches disk: generated to
@@ -555,6 +570,10 @@ private:
 	bool BuildAndInstall(const std::string& stem, const generate::Params& params,
 						 const std::vector<std::string>& tags,
 						 const DungeonMap& donor, std::span<const StairLink> stairs);
+	// Hands a level's whole text to the world in place of what it held (the
+	// files stay untouched until `savemap`, like every editor edit).
+	bool InstallLevelText(const std::string& stem, const std::string& map,
+						  const std::string& ent);
 	// Resolve the tags into the id pools the generator picks from - this
 	// world's catalogs, or `project`'s (the new-world wizard draws from the
 	// TEMPLATE, which is not the running world).
@@ -596,6 +615,29 @@ private:
 	bool PlayLevel(const std::string& stem);
 	static std::vector<std::string> SplitKnobs(const std::string& line);
 	void ShowGenReport(const std::string& levelStem);
+
+	// --- the workflow, wired through (Game_Populate.cpp, tool-refinement Phase 7)
+	// Loads style `id`'s shape knobs (styles.cat `knobs`, the settings line) into
+	// `params` and names it as the style - the seed kept, so loading a style is
+	// not a reroll. False, and `params` untouched, for a style the world lacks.
+	bool LoadStyleKnobs(const std::string& id, generate::Params& params) const;
+	// The tags a generated level is drawn by: a chosen `tag`, else the STYLE's,
+	// else `fallback` (the viewed level's, or a dungeon's flavour tags).
+	std::vector<std::string> TagsFor(const generate::Params& params, const Project& project,
+									 std::vector<std::string> fallback) const;
+	// POPULATE ONLY: monsters and loot for the VIEWED level from the knobs'
+	// population half and pools (the style's monster list when one is named,
+	// else the tags'), its shape untouched - however it was built. Replaces what
+	// populating can make (monsters and loot of the pools' kinds); a key, a quest
+	// item or a monster outside the pool is left where it stands. ONE undo step.
+	// Returns the monsters placed (-1 on failure); the report holds the rest.
+	int PopulateViewedLevel(const generate::Params& params);
+	// The dungeon a [+] lands in, and the style it opens on: the dungeon's
+	// `style` when this world has it, else the current (armed) one, else none.
+	std::string DefaultStyleFor(const std::string& dungeonId) const;
+	// After a create: the new level viewed in the BUILD stage of the palette,
+	// with `style` armed for the shape brushes (Phase 7's "lands you in Build").
+	void LandInBuild(const std::string& stem, const std::string& style);
 
 	// The Level dialog's inline rename: validates (unique stem), drives
 	// DungeonWorld::RenameLevel (files, stashes, stair dests), then updates

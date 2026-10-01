@@ -350,10 +350,15 @@ void Game::RegisterWorldCommands() {
 						else if (k == "seed") spec.seed = static_cast<u32>(std::strtoul(v.c_str(), nullptr, 10));
 					}
 				} else if (a.size() >= 3 && a[2] != "blank") {
-					m_console.Print("usage: worlds new <name> [blank|copy|level <stem>|wizard "
-									"[tag=<tag>] [size=<n>] [difficulty=<0..1>] [seed=<n>]]");
+					m_console.Print("usage: worlds new <name> [blank [style=<id>]|copy|level <stem>|wizard "
+									"[style=<id>] [tag=<tag>] [size=<n>] [difficulty=<0..1>] [seed=<n>]]");
 					return;
 				}
+				// Blank and wizard start in a LIBRARY style (Phase 7) when asked.
+				if (spec.source == NewWorldSpec::Source::Blank ||
+					spec.source == NewWorldSpec::Source::Wizard)
+					for (size_t i = 3; i < a.size(); ++i)
+						if (a[i].starts_with("style=")) spec.style = a[i].substr(6);
 				std::string problem;
 				const std::string made = CreateWorld(a[1], spec, &problem);
 				m_console.Print(made.empty()
@@ -449,6 +454,8 @@ void Game::RegisterWorldCommands() {
 						else if (a[2] == "level")
 							m_newWorldDialog.SetSource(S::CopyLevel, a.size() >= 4 ? a[3] : "");
 						else m_newWorldDialog.SetSource(S::Blank);
+					} else if (a.size() >= 3 && a[1] == "style") {
+						m_newWorldDialog.SetStyle(a[2] == "-" ? std::string() : a[2]);
 					} else if (a.size() >= 3 && a[1] == "create") {
 						m_newWorldDialog.Create(a[2]);
 					} else if (a.size() >= 2 && a[1] == "switch") {
@@ -459,10 +466,11 @@ void Game::RegisterWorldCommands() {
 				static constexpr const char* kSource[] = {"blank", "copy", "level", "wizard"};
 				const NewWorldSpec& sp = m_newWorldDialog.Spec();
 				m_console.Print(std::format(
-					"new world dialog {}: source {} made '{}' - {}",
+					"new world dialog {}: source {} made '{}' style {} - {}",
 					m_newWorldDialog.IsOpen() ? "open" : "closed",
 					kSource[static_cast<int>(m_newWorldDialog.Source())],
-					m_newWorldDialog.Made(), m_newWorldDialog.Note()));
+					m_newWorldDialog.Made(), sp.style.empty() ? "-" : sp.style,
+					m_newWorldDialog.Note()));
 				if (sp.source == NewWorldSpec::Source::Wizard)
 					m_console.Print(std::format("  wizard tag '{}' size {} difficulty {:.2f} seed {}",
 												sp.tag, sp.size, sp.difficulty, sp.seed));
@@ -470,7 +478,7 @@ void Game::RegisterWorldCommands() {
 			}
 			m_console.Print("usage: worlds [new|load] <name> | delete <name> <name> | "
 							"dialog [open|create|delete|confirm <name>|off] | newdialog "
-							"[source blank|copy|level <stem> | create <name> | switch | off]");
+							"[source blank|copy|level <stem> | style <id|-> | create <name> | switch | off]");
 		});
 	m_console.Register(
 		"mappage",

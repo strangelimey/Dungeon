@@ -95,6 +95,15 @@
 #      a stamp raises its pillars, never on the party; a region generates
 #      inside its box joined to the room it touches; no style = plain carving;
 #      a region under 6x6 makes nothing.
+#  18. THE WORKFLOW, WIRED THROUGH (Phase 7): a blank world made in a library
+#      style receives it (and its themes), its dungeon names it and its first
+#      room wears it; a wizard world in a style lays both themes and draws the
+#      style's monsters; both pass the checker. Then the walk, inside the new
+#      world: [+] opens on the dungeon's style; Create and Empty each land in
+#      Build with the style armed, the level tagged and themed with no Level
+#      settings visit; a room, a corridor and a stamp build; Populate fills the
+#      hand-built floor from the style's list; and the overview's "what next"
+#      reads build -> populate -> check/ready, counting what the files hold.
 #
 # Every project file a phase writes is restored byte for byte afterwards.
 import io
@@ -1285,6 +1294,132 @@ finally:
     shutil.rmtree(PROJ)
     shutil.copytree(backup, PROJ)
     shutil.rmtree(backup, ignore_errors=True)
+
+# --- phase 18: the workflow, wired through ------------------------------------------
+print("18 - the four stages as one path: a styled world, add, build, populate, overview")
+P7 = ("p7_world", "p7_wiz")
+DIRT = {"centipede", "giant_spider", "blob"}
+MARBLE = {"skel_mage", "mummy", "skel_warrior", "skel_berserker"}
+
+
+def world_file(world, rel):
+    p = os.path.join(PROJECTS, world, rel)
+    return io.open(p, encoding="utf-8").read() if os.path.isfile(p) else ""
+
+
+def theme_ids(text):
+    return {m.group(1) for m in re.finditer(r"^theme \w+ \d+ \d+ (\S+)", text, re.M)}
+
+
+def monsters_in(text):
+    return [m.group(1) for m in re.finditer(r"^monster (\S+)", text, re.M)]
+
+
+# The dialog's Create and Populate PERSIST their knobs (settings.ini gen_knobs),
+# and other suites' scripts inherit the knobs they leave unset - so the style's
+# recipe this phase uses must not outlive it.
+SETTINGS = os.path.join(os.path.dirname(EXE), "settings.ini")
+settings_before = io.open(SETTINGS, "rb").read() if os.path.isfile(SETTINGS) else None
+try:
+    for w in P7:
+        shutil.rmtree(os.path.join(PROJECTS, w), ignore_errors=True)
+    log = run("workflow_worlds.eval")
+    check(passed(log), "the worlds script ran clean")
+    # A BLANK world in a library style: the style and what it names arrive, the
+    # starter dungeon names it, and the first room wears it - tags included.
+    check("[dirt_tunnels]" in world_file("p7_world", r"catalog\styles.cat")
+          and "[dirt_cave]" in world_file("p7_world", r"catalog\themes.cat")
+          and "[dirt_tunnel]" in world_file("p7_world", r"catalog\themes.cat"),
+          "a blank world made in Dirt Tunnels receives the style and its two themes")
+    check(re.search(r"^style = dirt_tunnels\s*$", world_file("p7_world", r"catalog\dungeons.cat"), re.M)
+          is not None, "its starter dungeon names the style as its default")
+    room1 = world_file("p7_world", r"levels\room1.map")
+    check(re.search(r"^tags cave vermin ooze\s*$", room1, re.M) is not None
+          and re.search(r"^theme floor 8 8 dirt_cave\s*$", room1, re.M) is not None
+          and re.search(r"^theme wall 6 6 dirt_cave\s*$", room1, re.M) is not None
+          and re.search(r"^palette floor .*ground_soil_rocky", room1, re.M) is not None,
+          "the first room wears the room theme, floor and walls, with the style's tags")
+    # The WIZARD in a style: its recipe, tags, monsters and both themes.
+    wiz_map, wiz_ent = world_file("p7_wiz", r"levels\floor1.map"), world_file("p7_wiz", r"levels\floor1.ent")
+    wiz_monsters = set(monsters_in(wiz_ent))
+    check(theme_ids(wiz_map) == {"marble_hall", "marble_gallery"}
+          and re.search(r"^tags undead stone\s*$", wiz_map, re.M) is not None,
+          "a wizard floor in Marble Halls lays its room and corridor themes, with its tags",
+          str(theme_ids(wiz_map)))
+    check(bool(wiz_monsters) and wiz_monsters <= MARBLE,
+          "...and draws its monsters from the style's list", str(sorted(wiz_monsters)))
+    for w in P7:
+        wlog = run("worldcheck.eval", project=w)
+        check("validate: clean" in wlog, f"{w} opens and passes the checker",
+              next((l for l in wlog.splitlines() if "validate" in l), "no validate line"))
+
+    # THE WALK, inside p7_world.
+    log = run("workflow_walk.eval", project="p7_world")
+    check(passed(log), "the walk ran clean")
+    sec = console_sections(log)
+    add = sec.get("add", [])
+    opened = next((l for l in add if l.startswith("generate dialog: create")), "")
+    check("style=dirt_tunnels" in opened and "winding:0.85" in opened,
+          "[+] opens on the dungeon's style, its shape knobs loaded", opened[:120])
+    check("generate dialog: made keep1" in add, "Create makes the floor", " | ".join(add[:4]))
+    check(any(l.startswith("editor palette: stage build ") for l in add)
+          and any(re.match(r"style dirt_tunnels world current ", l) for l in add),
+          "...and lands in the Build stage with the style armed (it was on Creatures before)")
+    keep1_map, keep1_ent = world_file("p7_world", r"levels\keep1.map"), world_file("p7_world", r"levels\keep1.ent")
+    check(theme_ids(keep1_map) == {"dirt_cave", "dirt_tunnel"}
+          and re.search(r"^tags cave vermin ooze\s*$", keep1_map, re.M) is not None,
+          "the generated floor wears both themes and carries the style's tags - no Level settings visit",
+          str(theme_ids(keep1_map)))
+    check(set(monsters_in(keep1_ent)) <= DIRT and monsters_in(keep1_ent),
+          "...and its monsters are the style's", str(sorted(set(monsters_in(keep1_ent)))))
+    empty = sec.get("empty", [])
+    check("generate dialog: made keep2" in empty
+          and any(l.startswith("editor palette: stage build ") for l in empty),
+          "Empty makes the box in the style, landing in Build")
+
+    def ov(lines, key):
+        return next((l.split(f"editor overview level {key} ", 1)[1] for l in lines
+                     if l.startswith(f"editor overview level {key} ")), None)
+
+    def followed(lines):
+        return next((l.split(" -> ", 1)[1].split(" ", 1)[0] for l in lines
+                     if l.startswith("editor overview follow next")), None)
+
+    check(ov(empty, "squares") == "9" and followed(empty) == "stage:build",
+          "an empty floor's next step is Build (and its link opens that stage)",
+          f"squares {ov(empty, 'squares')}, next -> {followed(empty)}")
+    build = sec.get("build", [])
+    shapes = shape_lines(build)
+    check([s[0] for s in shapes] == ["room", "corridor", "stamp"] and all(s[3] > 0 and s[5] > 0 for s in shapes),
+          "room, corridor and stamp each open rock and paint it", str(shapes))
+    check(int(ov(build, "squares") or 0) > 9 and followed(build) == "populate",
+          "built, the next step is Populate", f"squares {ov(build, 'squares')}, next -> {followed(build)}")
+    pop = sec.get("populate", [])
+    keep2_ent = world_file("p7_world", r"levels\keep2.ent")
+    placed = monsters_in(keep2_ent)
+    runs = [tuple(int(x) for x in m.groups()) for m in
+            re.finditer(r"populate keep2: (\d+) monsters, (\d+) loot, (\d+) replaced", log)]
+    check(len(runs) == 2, "the dialog's Populate and the console's both populate the viewed floor",
+          str(runs))
+    check(len(runs) == 2 and runs[0][0] > 0 and runs[1][2] == runs[0][0] + runs[0][1]
+          and len(placed) == runs[1][0],
+          "populating again replaces what the first populate placed: the file holds the second's alone",
+          f"{runs}, file {len(placed)}")
+    check(bool(placed) and set(placed) <= DIRT,
+          "the hand-built floor is populated from the style's list", str(placed))
+    check(ov(pop, "monsters") == str(len(placed)),
+          "the overview counts what the file holds", f"{ov(pop, 'monsters')} vs {len(placed)}")
+    check(followed(pop) in ("-", "check"),
+          "populated, the next step is the check or play", str(followed(pop)))
+    keep2_map = world_file("p7_world", r"levels\keep2.map")
+    check(re.search(r"^tags cave vermin ooze\s*$", keep2_map, re.M) is not None
+          and "dirt_cave" in theme_ids(keep2_map),
+          "the empty floor carries the style's tags and room theme too")
+finally:
+    for w in P7:
+        shutil.rmtree(os.path.join(PROJECTS, w), ignore_errors=True)
+    if settings_before is not None:
+        io.open(SETTINGS, "wb").write(settings_before)
 
 print()
 print("PASS" if failures == 0 else f"FAIL - {failures} check(s) failed")

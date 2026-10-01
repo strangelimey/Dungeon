@@ -729,8 +729,15 @@ def main():
                       "you were on (a preset holds none)",
                       f"preset '{lab_knobs[:60]}...', built '{recipe_line[:90]}...'")
                 saved = [l for l in con if l.startswith("preset my_recipe ")]
+
+                # An EMPTY choice knob is the same as an absent one ("as before"),
+                # so a preset written before a knob existed (the labyrinth predates
+                # `style`) still equals what saving it again writes.
+                def knob_set(line):
+                    return {p for p in line.split() if not p.endswith(":")}
+
                 check(len(saved) == 1 and "seed" not in saved[0] and
-                      saved[0].split(" ", 2)[2] == lab_knobs,
+                      knob_set(saved[0].split(" ", 2)[2]) == knob_set(lab_knobs),
                       "saving stores the current knobs WITHOUT the seed, and it is listed",
                       f"{saved}")
                 presets = io.open(os.path.join(proj, r"catalog\genpresets.cat"), encoding="utf-8").read()

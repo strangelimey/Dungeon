@@ -10,6 +10,7 @@
 #include "Core/Paths.h"
 #include "Game/Serialize.h"
 #include "Game/Style.h"
+#include "Game/StyleLook.h"
 
 #include <algorithm>
 #include <cctype>
@@ -143,15 +144,38 @@ bool Game::SyncProjectToSource() {
 // Appended as grid rows, after the caller's palette records. FIXED on purpose:
 // scenarios and habits build on the room being at 7..9 (see CreateNewLevel).
 void Game::AppendStarterRoom(std::string& map) {
-	constexpr int kStarterSize = 16, kStarterCentre = 8;
+	const std::vector<u8> floor = StarterFloor();
 	for (int z = 0; z < kStarterSize; ++z) {
 		for (int x = 0; x < kStarterSize; ++x) {
-			const bool room = std::abs(x - kStarterCentre) <= 1 &&
-							 std::abs(z - kStarterCentre) <= 1;
+			const bool room = floor[static_cast<size_t>(z) * kStarterSize + x] != 0;
 			map += !room ? '#' : (x == kStarterCentre && z == kStarterCentre) ? 'P' : '.';
 		}
 		map += '\n';
 	}
+}
+
+std::vector<u8> Game::StarterFloor() {
+	std::vector<u8> floor(static_cast<size_t>(kStarterSize) * kStarterSize, 0);
+	for (int z = kStarterCentre - 1; z <= kStarterCentre + 1; ++z)
+		for (int x = kStarterCentre - 1; x <= kStarterCentre + 1; ++x)
+			floor[static_cast<size_t>(z) * kStarterSize + x] = 1;
+	return floor;
+}
+
+std::string Game::StyledStarterRecords(const Project& project, const std::string& styleId,
+									   std::array<std::vector<std::string>, 3>& palettes) {
+	const CatalogEntry* style = stylelook::Find(project, styleId);
+	if (!style) return {};
+	const stylelook::Look look =
+		stylelook::Lay(project, *style, StarterFloor(), kStarterSize, kStarterSize);
+	palettes = stylelook::Palettes(look, palettes);
+	std::string out;
+	if (const std::vector<std::string> tags = stylelook::Tags(*style); !tags.empty()) {
+		out = "tags";
+		for (const std::string& t : tags) out += " " + t;
+		out += "\n";
+	}
+	return out + look.records;
 }
 
 // --- worlds (W7, docs/world-editor-plan.md) ---------------------------------
@@ -273,7 +297,7 @@ bool Game::DeleteWorld(const std::string& name) {
 // stair dests, savemap) reads Project::levels or lazy-parses the files, so no
 // other state needs touching. Returns the stem, or "" on failure.
 std::string Game::CreateNewLevel(const std::string& dungeonId,
-								 const generate::Params* params) {
+								 const generate::Params* params, const std::string& emptyStyle) {
 	// THE STEM IS NAMED AFTER ITS DUNGEON when it has one — crypt1, crypt2,
 	// crypt3 — so the grouping the picker shows is legible in the filename too,
 	// which is how the demo's levels were already hand-named. A level with no
@@ -321,12 +345,11 @@ std::string Game::CreateNewLevel(const std::string& dungeonId,
 		// else the dungeon's flavour tags - a fresh dungeon's first generated
 		// floor has no level tags to inherit, and "undead crypt" should still
 		// fill with undead.
-		// A tag CHOSEN in the dialog (P4b) wins over both.
-		std::vector<std::string> tags = !p.tag.empty()
-											 ? std::vector<std::string>{p.tag}
-											 : m_mapView.ViewedMap().Tags();
-		if (tags.empty() && dungeon) tags = ParseTags(dungeon->Get("tags", ""));
-		linkCells = ComposeGeneratedLevel(stem, p, tags, map, ent);
+		// A tag CHOSEN in the dialog (P4b) wins over both, and the STYLE's tags
+		// (Phase 7) over the level's and the dungeon's.
+		std::vector<std::string> fallback = m_mapView.ViewedMap().Tags();
+		if (fallback.empty() && dungeon) fallback = ParseTags(dungeon->Get("tags", ""));
+		linkCells = ComposeGeneratedLevel(stem, p, TagsFor(p, m_project, fallback), map, ent);
 	} else {
 		auto join = [](const std::vector<std::string>& ids) {
 			std::string out;
@@ -334,10 +357,16 @@ std::string Game::CreateNewLevel(const std::string& dungeonId,
 			return out;
 		};
 		const DungeonMap& live = m_world->Map(); // active level: the palette donor
+		// In a STYLE (Phase 7) the box wears its room theme: its palettes lead
+		// where it names surfaces, and its tags come with it.
+		std::array<std::vector<std::string>, 3> palettes{live.WallPalette(), live.FloorPalette(),
+														 live.CeilingPalette()};
+		const std::string styled = StyledStarterRecords(m_project, emptyStyle, palettes);
 		map = "; " + stem + " - created in the editor.\n";
-		map += "palette wall " + join(live.WallPalette()) + "\n";
-		map += "palette floor " + join(live.FloorPalette()) + "\n";
-		map += "palette ceiling " + join(live.CeilingPalette()) + "\n\n";
+		map += "palette wall " + join(palettes[0]) + "\n";
+		map += "palette floor " + join(palettes[1]) + "\n";
+		map += "palette ceiling " + join(palettes[2]) + "\n";
+		map += styled + "\n";
 		AppendStarterRoom(map);
 		ent = "; " + stem + " - dynamic layer (empty).\n";
 	}

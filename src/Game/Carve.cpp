@@ -221,4 +221,41 @@ std::vector<Square> Rim(const Shape& s) {
 	return out;
 }
 
+Dressing Dress(const std::vector<u8>& floor, int w, int h) {
+	const auto open = [&](int x, int z) {
+		return x >= 0 && z >= 0 && x < w && z < h && floor[static_cast<size_t>(z) * w + x] != 0;
+	};
+	// In any of the four 2x2 blocks that hold (x,z).
+	const auto roomy = [&](int x, int z) {
+		for (int dz = -1; dz <= 0; ++dz)
+			for (int dx = -1; dx <= 0; ++dx)
+				if (open(x + dx, z + dz) && open(x + dx + 1, z + dz) && open(x + dx, z + dz + 1) &&
+					open(x + dx + 1, z + dz + 1))
+					return true;
+		return false;
+	};
+	Dressing d;
+	std::vector<u8> room(static_cast<size_t>(w) * h, 0);
+	for (int z = 0; z < h; ++z)
+		for (int x = 0; x < w; ++x)
+			if (open(x, z)) {
+				const bool r = roomy(x, z);
+				room[static_cast<size_t>(z) * w + x] = r ? 1 : 0;
+				d.open.push_back({x, z, r ? Role::Room : Role::Corridor});
+			}
+	for (int z = 0; z < h; ++z)
+		for (int x = 0; x < w; ++x) {
+			if (open(x, z)) continue;
+			bool any = false, byRoom = false;
+			for (int dz = -1; dz <= 1; ++dz)
+				for (int dx = -1; dx <= 1; ++dx)
+					if (open(x + dx, z + dz)) {
+						any = true;
+						byRoom = byRoom || room[static_cast<size_t>(z + dz) * w + x + dx] != 0;
+					}
+			if (any) d.walls.push_back({x, z, byRoom ? Role::Room : Role::Corridor});
+		}
+	return d;
+}
+
 } // namespace dungeon::game::carve

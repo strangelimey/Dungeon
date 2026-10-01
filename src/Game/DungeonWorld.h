@@ -572,6 +572,7 @@ public:
 		int lockedDoors = 0; // doors wanting a key
 		int stairs = 0;      // ways on and off it (a ceiling hole is scenery)
 		int buttons = 0;
+		int squares = 0;     // walkable squares: how much has been BUILT (Phase 7)
 	};
 	const std::vector<LevelCensus>& Census();
 	// A QUEST ITEM's type: one carrying `quest`, `flag` or `reveals` - a hook
@@ -1499,6 +1500,11 @@ public:
 	// the truth, and the caller copies that. '\n'-joined, like the writers.
 	void LevelTextFor(const std::string& stem, std::string& mapText,
 					  std::string& entText) const;
+	// A dynamic layer as the .ent text the writers produce (one record a line):
+	// how an edit made to a parsed copy goes back in (Game::PopulateViewedLevel).
+	static std::string EntTextOf(const std::string& stem, const DungeonEntities& ents) {
+		return StashedEntText(stem, ents);
+	}
 
 	// Renames a level's world-side state: moves the .map/.ent files, rekeys
 	// the three per-level stashes (+ the active stem), and repoints every

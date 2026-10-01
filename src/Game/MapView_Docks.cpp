@@ -173,6 +173,7 @@ std::vector<MapView::OverviewLine> MapView::OverviewContent(OverviewScope scope)
 		sum.lockedDoors += c.lockedDoors;
 		sum.stairs += c.stairs;
 		sum.buttons += c.buttons;
+		sum.squares += c.squares;
 		if (c.strongestPower > sum.strongestPower) {
 			sum.strongestPower = c.strongestPower;
 			sum.strongest = c.strongest;
@@ -193,6 +194,22 @@ std::vector<MapView::OverviewLine> MapView::OverviewContent(OverviewScope scope)
 					}
 		}
 
+	// WHAT NEXT (Phase 7): where the viewed level stands in the four stages, as
+	// the one line that says what to do about it - a link into that stage. Read
+	// in order, so a level is never told to populate before it has a shape.
+	if (scope == OverviewScope::Level) {
+		// The [+] box is 9 squares; a level no bigger has not been built yet.
+		constexpr int kUnbuilt = 9;
+		if (sum.squares <= kUnbuilt)
+			line("next", "map.ov.next", loc::Tr("map.ov.next.build"), "stage:build");
+		else if (sum.monsters == 0)
+			line("next", "map.ov.next", loc::Tr("map.ov.next.populate"), "populate");
+		else if (issues > 0)
+			line("next", "map.ov.next", loc::Format("map.ov.next.check", issues), "check");
+		else
+			line("next", "map.ov.next", loc::Tr("map.ov.next.ready"));
+		line("squares", "map.ov.squares", std::to_string(sum.squares));
+	}
 	if (scope != OverviewScope::Level)
 		line("levels", "map.ov.levels", std::to_string(levels));
 	if (scope == OverviewScope::World) {
@@ -261,6 +278,24 @@ std::vector<MapView::OverviewLine> MapView::OverviewContent(OverviewScope scope)
 							   {}, c.stem});
 	}
 	return out;
+}
+
+void MapView::FollowOverviewLink(const std::string& link) {
+	if (link == "check") {
+		if (onValidate) onValidate();
+	} else if (link == "populate") {
+		// The generator dialog, whose Populate button is the stage's action.
+		if (onGenerate) onGenerate();
+	} else if (link.starts_with("stage:")) {
+		// A palette stage, by name, in the Stage grouping (the guided order).
+		if (!m_editor) return;
+		const std::string_view name = std::string_view(link).substr(6);
+		m_editor->SetPaletteGrouping(MapEditor::Grouping::Stage);
+		for (int g = 0; g < MapEditor::GroupCount(MapEditor::Grouping::Stage); ++g)
+			if (name == MapEditor::GroupName(MapEditor::Grouping::Stage, g)) m_editor->SetActiveGroup(g);
+	} else if (!link.empty()) {
+		SetViewLevel(link);
+	}
 }
 
 // --- the right dock's layout ---------------------------------------------------------
@@ -367,15 +402,9 @@ bool MapView::UpdateDocks(const Input& input, float mx, float my, const gfx::Rec
 			m_rightScroll = 0.0f;
 			break;
 		case DockRow::Kind::Scope: SetScope(static_cast<OverviewScope>(r.index)); break;
-		case DockRow::Kind::Line: {
-			const std::string link = m_overview[static_cast<size_t>(r.index)].link;
-			if (link == "check") {
-				if (onValidate) onValidate();
-			} else if (!link.empty()) {
-				SetViewLevel(link);
-			}
+		case DockRow::Kind::Line:
+			FollowOverviewLink(m_overview[static_cast<size_t>(r.index)].link);
 			break;
-		}
 		default: break;
 		}
 		return true;

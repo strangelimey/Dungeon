@@ -350,6 +350,77 @@ Now the pieces exist, make the four stages one path.
   library style, add a level, corridor + room + stamp, populate, overview
   counts - with no dialog opened that the plan does not name.
 
+BUILT (2026-09-30), and where it differs from the above:
+- A STYLE IS NOW A GENERATOR KNOB (`style`, the Generate dialog's Style tab,
+  first): it supplies the tags, the look and the monster list, and picking one
+  loads its shape knobs (seed kept). Game/StyleLook.h is the one place a style
+  becomes text: the palettes (its themes' members where it names any, else the
+  donor's - not both, every entry is a texture set to load) and the `theme`
+  records, BY ID, that lay its room theme on rooms and its corridor theme on
+  passages. Which squares are which is the new pure `carve::Dress` (Area.h's
+  2x2 rule on a bare grid; a wall wears the room's theme if it borders any room
+  square). Used by a generated level, the [+] empty box, a new world's first
+  room and the wizard's floor.
+- NEW WORLD: Blank and Wizard gain a Style row (the LIBRARY's styles). The
+  style is added to the new world (StyleLibrary::AddTo, so its themes and
+  surfaces come with it), the starter dungeon names it as `style`, and the
+  first floor is built in it - the blank room in its themes and tags, the
+  wizard's floor from its recipe (path/branches rescaled from the style's own
+  map side), tags, monsters and themes. With a style the wizard's Tag row hides.
+  Console: `worlds new <n> blank|wizard style=<id> ...`, `worlds newdialog style`.
+- ADD LEVEL: [+] opens on the dungeon's `style` (else the armed one), its knobs
+  loaded; Create and Empty both make the level in it (the empty box wears it
+  too, tags included), then LAND IN BUILD: the palette's Stage grouping on its
+  Build group, found by name, and the style armed for the shape brushes.
+- BUILD: already led by Shapes since Phase 6 - nothing to do.
+- POPULATE ONLY is `generate::Populate` (pure, in Generate.cpp beside Run so
+  they share one weighted pick): Run's population rules on a level whose rooms
+  are FOUND - runs of 2x2-open squares, or every square on a level of passages
+  alone - with walking-distance progress from the start, the three-step margin,
+  the boss in the deepest room, loot deeper-is-richer. Two rules the found
+  rooms forced: the start's room is skipped only WHILE ANOTHER can be reached (a
+  wandering corridor two wide is "room" and joins what it touches, so the
+  start's room can be the whole floor - the walk found exactly that), and there
+  is ALWAYS SOMEONE when density > 0 (the style's own 0.6 rolled nobody on a
+  52-square floor; a button that sometimes does nothing teaches distrust).
+  The Game seam (Game_Populate.cpp) replaces what populating can make -
+  monsters and loot of the POOL'S kinds - and leaves keys, quest items (never
+  loot now) and monsters of other kinds; keeps two steps clear of every stair;
+  one undo step; the party put back where it stood. Monster WEIGHTS ride a new
+  Params::monsterWeight, read by Populate and by Run only when present, so an
+  unstyled generate is byte-for-byte what it was.
+  The Generate dialog's REGENERATE mode gains a Populate button (the Populate
+  stage icon); console `generate populate [knobs]`, `generate dialog
+  create|empty|populate|style <id>`.
+- OVERVIEW: the Level view leads with NEXT - "Build its shape" (9 squares or
+  fewer, the [+] box), "Populate it" (no monsters), "Fix N issues", "Ready to
+  play" - each a link into that stage (the palette's Build group, the
+  generator's Populate, the checker), plus a Floor squares line (census
+  `squares`). Console `editor overview follow <key> [scope]`.
+- THE DIALOG AUDIT. What each stage still opens:
+  - World: New world (named), Worlds, the type editor for a style / dungeon /
+    quest / flag (right-click), World settings.
+  - Build: Generate ([+] and Generate - named), the asset dialog behind a
+    surface "+ New...", the theme editor, Level settings (atmosphere, tags,
+    rename), the stair / niche inspectors.
+  - Furnishings: the prop / fixture / button inspectors, the asset dialog.
+  - Populate: the monster type editor and Animation config, the item and
+    monster inspectors, Generate's Populate (named).
+  FOLDED: the generator's Tag and Palette-donor rows - the style is where both
+  decisions live now. They are `hidden` knobs (GenerateKnobs.h): still encoded,
+  so a preset, a settings line or a script naming them works as before, but
+  given no row, and CLEARED when the dialog opens so an old value cannot steer
+  a run from out of sight. NOT folded, for Michael: Level settings' Tags row.
+  A new level no longer needs it (the style writes the tags), but the dialog
+  exists for atmosphere and rename anyway, and a hand-retag has nowhere else.
+- Checked: RollTest (Dress 5, Populate 13); EditorTest 18 (24 checks): two
+  worlds in library styles (files read, both pass the checker), then the walk
+  inside one - [+] on the dungeon's style, Create and Empty landing in Build
+  with it armed, room + corridor + stamp, the dialog's and the console's
+  Populate (the second replacing the first), the overview's next step build ->
+  populate -> check/ready and its monster count against the saved file. Every
+  new check mutation-proven (three rounds, nine mutations).
+
 ## Order and size
 
 1 palette -> 2 power -> 3 overview -> 4 quests/flags -> 5 styles -> 6 shape

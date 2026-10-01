@@ -258,6 +258,10 @@ public:
 		bool title = false;
 	};
 	std::vector<OverviewLine> OverviewContent(OverviewScope scope);
+	// What clicking a line's link does: "check" (the checker), "populate" (the
+	// generator dialog, whose Populate button is that stage's action),
+	// "stage:<group>" (that palette stage), else a level stem to browse.
+	void FollowOverviewLink(const std::string& link);
 	OverviewScope Scope() const;
 	void SetScope(OverviewScope scope);
 	// The level the viewport is SHOWING (the [^]/[v] arrows browse the project's

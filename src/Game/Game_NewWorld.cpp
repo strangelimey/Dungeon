@@ -3,7 +3,7 @@
 // P4; W7 in docs/world-editor-plan.md before it). Split out of Game_Editor.cpp.
 //
 // A world IS a project folder, and making one is a file operation: nothing
-// about the running game changes until it is opened. Three ways, one spec
+// about the running game changes until it is opened. Four ways, one spec
 // (Game/NewWorld.h):
 //
 //   BLANK       the TEMPLATE's content (assets/templates/default, built by
@@ -14,6 +14,10 @@
 //               written into the copy - never saved here first.
 //   COPY LEVEL  this world's content and one of its levels as the only floor
 //               of a one-level dungeon.
+//   WIZARD      the template's content and one GENERATED floor.
+//
+// Blank and Wizard can start in a LIBRARY STYLE (tool-refinement Phase 7): the
+// world receives it, its starter dungeon names it, its first floor wears it.
 //
 // Each is built in a hidden `.building-<name>` folder (Project::List skips
 // dot-folders) and RENAMED into place only when complete. The old path wrote
@@ -29,6 +33,7 @@
 #include "Game/Serialize.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <filesystem>
 #include <format>
@@ -47,12 +52,14 @@ constexpr const char* kStarterDoorway = "keep_gate";
 
 std::string TemplateFolder() { return paths::Asset("templates") + "\\default"; }
 
-// The first few ids of a catalog, space-joined: a fresh level's surface palette.
-std::string FirstIds(const Catalog& catalog, size_t count) {
-	std::string out;
+// The first few ids of a catalog: a fresh level's surface palette. The first
+// and then `count` more - what the old space-joining loop produced, kept so a
+// blank world still comes out as it did.
+std::vector<std::string> FirstIds(const Catalog& catalog, size_t count) {
+	std::vector<std::string> out;
 	for (const CatalogEntry& e : catalog.Entries()) {
-		if (out.size() && count-- == 0) break;
-		out += (out.empty() ? "" : " ") + e.id;
+		if (out.size() > count) break;
+		out.push_back(e.id);
 	}
 	return out;
 }
@@ -101,7 +108,7 @@ void ClearPlaces(Project& p) {
 // The one dungeon holding `stem`, which is also the harness's ground: a world
 // with no `eval_level` opens the harness on the WORLD MAP, where half the dev
 // commands refuse (W7).
-void AddStarterDungeon(Project& p, const std::string& stem) {
+void AddStarterDungeon(Project& p, const std::string& stem, const std::string& style = {}) {
 	p.levels = {stem};
 	p.evalLevel = stem;
 	CatalogEntry dungeon;
@@ -109,6 +116,9 @@ void AddStarterDungeon(Project& p, const std::string& stem) {
 	dungeon.lead.push_back("; The starter: one level, so the world has ground to stand on.");
 	dungeon.Set("display", "The Keep");
 	dungeon.Set("levels", stem);
+	// Its default style (Phase 7): the next [+] in it opens on the style the
+	// world was made in.
+	if (!style.empty()) dungeon.Set("style", style);
 	p.dungeons.Add(std::move(dungeon));
 }
 
@@ -189,7 +199,7 @@ std::string Game::CreateWorld(const std::string& name, const NewWorldSpec& spec,
 	fs::create_directories(temp, ec);
 	bool built = false;
 	switch (spec.source) {
-	case NewWorldSpec::Source::Blank: built = BuildBlankWorld(temp, id, problem); break;
+	case NewWorldSpec::Source::Blank: built = BuildBlankWorld(temp, id, spec, problem); break;
 	case NewWorldSpec::Source::CopyWorld: built = BuildCopiedWorld(temp, id, problem); break;
 	case NewWorldSpec::Source::CopyLevel:
 		built = BuildLevelWorld(temp, id, spec.level, problem);
@@ -207,8 +217,20 @@ std::string Game::CreateWorld(const std::string& name, const NewWorldSpec& spec,
 	return id;
 }
 
+bool Game::AddSpecStyle(Project& made, const NewWorldSpec& spec, std::string* problem) const {
+	if (spec.style.empty()) return true;
+	StyleLibrary::AddResult r;
+	if (!m_library.AddTo(spec.style, made, r)) {
+		if (problem) *problem = loc::Format("map.style.nolib", spec.style);
+		return false;
+	}
+	log::Info("new world: style '{}' from the library ({} entries came with it){}", spec.style,
+			  r.copied.size(), r.missingMonsters.empty() ? "" : ", some of its monsters missing");
+	return true;
+}
+
 bool Game::BuildBlankWorld(const std::string& folder, const std::string& id,
-						   std::string* problem) {
+						   const NewWorldSpec& spec, std::string* problem) {
 	if (!fs::exists(TemplateFolder() + "\\project.ini")) {
 		if (problem) *problem = loc::Format("map.newworld.notemplate", TemplateFolder());
 		return false;
@@ -217,17 +239,28 @@ bool Game::BuildBlankWorld(const std::string& folder, const std::string& id,
 	made.folder = folder;
 	made.name = id;
 	ClearPlaces(made); // the template has none - held to the same rule anyway
+	if (!AddSpecStyle(made, spec, problem)) return false;
 	const std::string stem = "room1";
-	AddStarterDungeon(made, stem);
+	AddStarterDungeon(made, stem, spec.style);
 	if (!made.Save()) return false;
 
 	// The first room: the same box an empty new level is, with its palette from
 	// the CATALOGS (there is no level to copy one from) and an exit stair on
 	// the square north of the start, facing into the room, out to the doorway.
+	// In a STYLE it wears the style's room theme, and its tags.
+	std::array<std::vector<std::string>, 3> palettes{
+		FirstIds(made.walls, 4), FirstIds(made.floors, 4), FirstIds(made.ceilings, 4)};
+	const std::string styled = StyledStarterRecords(made, spec.style, palettes);
+	const auto join = [](const std::vector<std::string>& ids) {
+		std::string out;
+		for (const std::string& s : ids) out += (out.empty() ? "" : " ") + s;
+		return out;
+	};
 	std::string map = "; " + stem + " - the first room of a new world.\n";
-	map += "palette wall " + FirstIds(made.walls, 4) + "\n";
-	map += "palette floor " + FirstIds(made.floors, 4) + "\n";
-	map += "palette ceiling " + FirstIds(made.ceilings, 4) + "\n\n";
+	map += "palette wall " + join(palettes[0]) + "\n";
+	map += "palette floor " + join(palettes[1]) + "\n";
+	map += "palette ceiling " + join(palettes[2]) + "\n";
+	map += styled + "\n";
 	AppendStarterRoom(map);
 	if (const std::string exit = ExitStairType(made); !exit.empty())
 		map += "stairfacing arrive\n" + ExitRecord(exit, 8, 7, "south");
@@ -250,8 +283,9 @@ bool Game::BuildWizardWorld(const std::string& folder, const std::string& id,
 	made.folder = folder;
 	made.name = id;
 	ClearPlaces(made);
+	if (!AddSpecStyle(made, spec, problem)) return false;
 	const std::string stem = "floor1";
-	AddStarterDungeon(made, stem);
+	AddStarterDungeon(made, stem, spec.style);
 	if (!made.Save()) return false;
 	std::string map, ent;
 	if (!GenerateWizardLevel(made, stem, spec, kStarterDoorway, map, ent)) {

@@ -243,7 +243,20 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	// the lock ordering is built by construction is so that comes back clean, and
 	// showing it is how anyone finds out it stopped.
 	m_mapView.onGenerate = [this] {
+		// The CURRENT style (Phase 7) is the one a reroll or a populate is in:
+		// arming another since loads its recipe; a style this world lacks (the
+		// knobs are remembered across worlds) is dropped rather than half-used.
+		generate::Params p = m_generateDialog.Knobs();
+		const std::string& armed = m_mapEditor.CurrentStyle();
+		if (!armed.empty() && armed != p.style) LoadStyleKnobs(armed, p);
+		if (!m_project.styles.Contains(p.style)) p.style.clear();
+		m_generateDialog.SetKnobs(p);
 		m_generateDialog.OpenRegenerate(m_mapView.ViewedLevel());
+	};
+	m_generateDialog.onPopulate = [this](const generate::Params& p) {
+		if (PopulateViewedLevel(p) < 0) return;
+		ShowGenReport(m_mapView.ViewedLevel());
+		m_validateDialog.Open(ValidateProject());
 	};
 	m_generateDialog.onGenerate = [this](const generate::Params& p) {
 		if (!RegenerateViewedLevel(p)) return;
@@ -290,21 +303,39 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 						? loc::Format("map.gen.wherefirst", d->Display())
 						: loc::Format("map.gen.where", d->Display(), floors.back());
 		}
+		// OPENS ON THE DUNGEON'S STYLE (Phase 7), which fills the tags, the look
+		// and the shape knobs in one go - no Level settings visit first, no
+		// palette donor to pick. No style: the knobs as last used.
+		generate::Params p = m_generateDialog.Knobs();
+		p.style.clear();
+		if (const std::string style = DefaultStyleFor(dungeonId); !style.empty())
+			LoadStyleKnobs(style, p);
+		m_generateDialog.SetKnobs(p);
 		m_generateDialog.OpenCreate(dungeonId, where);
 	};
 	m_generateDialog.onCreate = [this](const std::string& dungeonId,
 									   const generate::Params* p) {
-		const std::string stem = CreateNewLevel(dungeonId, p);
+		// The empty box is in the dialog's style too.
+		const std::string style = p ? p->style : m_generateDialog.Knobs().style;
+		const std::string stem = CreateNewLevel(dungeonId, p, style);
 		if (stem.empty()) return stem;
 		if (p) ShowGenReport(stem);
-		m_mapView.SetViewLevel(stem);
+		// ...and lands you in the BUILD stage with that style armed.
+		LandInBuild(stem, style);
 		if (p) m_validateDialog.Open(ValidateProject());
 		return stem;
+	};
+	m_generateDialog.onChoice = [this](std::string_view key, generate::Params& p) {
+		// Picking a style brings its recipe with it.
+		return key == "style" && !p.style.empty() && LoadStyleKnobs(p.style, p);
 	};
 	// P4b: the dialog's choices and presets, answered from the project.
 	m_generateDialog.choicesFor = [this](std::string_view key) {
 		std::vector<std::pair<std::string, std::string>> out{{"", loc::Tr("map.gen.asbefore")}};
-		if (key == "palette") {
+		if (key == "style") {
+			out.front().second = loc::Tr("map.gen.nostyle");
+			for (const CatalogEntry& s : m_project.styles.Entries()) out.push_back({s.id, s.Display()});
+		} else if (key == "palette") {
 			for (const std::string& stem : m_project.levels) out.push_back({stem, stem});
 		} else if (key == "tag") {
 			// Every tag the pools could be drawn by: the content catalogs' and

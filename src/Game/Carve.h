@@ -85,4 +85,18 @@ Shape Region(const std::vector<u8>& floor, int w, int h, int x0, int z0,
 // style's WALL paint goes, on whichever of them is solid.
 std::vector<Square> Rim(const Shape& s);
 
+// A STYLE LAID OVER A WHOLE GRID (Phase 7): what a generated level, a styled
+// starter room and a new world's first floor paint their themes by, since none
+// of them was carved by a brush that knew which squares were which.
+// `floor` is row-major, 1 = open, `w` x `h`. Every open square comes back with
+// its role - a ROOM's when it sits in any 2x2 block of open squares, else a
+// CORRIDOR's (Game/Area.h's rule, on a bare grid) - and every solid square of
+// the grid with an open square among its eight neighbours comes back as a WALL,
+// wearing a room's theme when it borders any room square and a corridor's only
+// when it borders nothing else. Both lists in row-major order.
+struct Dressing {
+	std::vector<Square> open, walls;
+};
+Dressing Dress(const std::vector<u8>& floor, int w, int h);
+
 } // namespace dungeon::game::carve

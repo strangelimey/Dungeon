@@ -44,6 +44,7 @@
 #include "Game/Power.h"
 #include "Game/Style.h"
 #include "Game/Carve.h"
+#include "Game/Generate.h"
 #include "Game/Resource.h"
 #include "Game/Roll.h"
 
@@ -2108,6 +2109,136 @@ int main(int argc, char** argv) {
 			  static_cast<double>(none.open.size()), 4.0, 0.0);
 		Check("a lone square's rim is its eight neighbours",
 			  static_cast<double>(Rim(Room(0, 0, 0, 0)).size()), 8.0, 0.0);
+
+		// Dress (Phase 7): a style laid over a whole grid. A 3x3 room with a
+		// 2-square passage off its east side.
+		const char* kDressGrid[] = {"#######", "#...###", "#.....#", "#...###", "#######"};
+		std::vector<dungeon::u8> dg(7 * 5, 0);
+		for (int z = 0; z < 5; ++z)
+			for (int x = 0; x < 7; ++x) dg[static_cast<size_t>(z) * 7 + x] = kDressGrid[z][x] == '.';
+		const Dressing dr = Dress(dg, 7, 5);
+		const auto roleAt = [](const std::vector<Square>& v, int x, int z) {
+			for (const Square& q : v)
+				if (q.x == x && q.z == z) return static_cast<int>(q.role);
+			return -1;
+		};
+		int roomSquares = 0;
+		for (const Square& q : dr.open) roomSquares += q.role == Role::Room;
+		Check("dress: the 3x3 is room, the passage is not", static_cast<double>(roomSquares), 9.0, 0.0);
+		Check("...the passage is corridor", roleAt(dr.open, 5, 2) == static_cast<int>(Role::Corridor) ? 1 : 0,
+			  1, 0);
+		Check("...a wall touching the room wears the room's",
+			  roleAt(dr.walls, 4, 1) == static_cast<int>(Role::Room) ? 1 : 0, 1, 0);
+		Check("...a wall touching only the passage wears the corridor's",
+			  roleAt(dr.walls, 6, 1) == static_cast<int>(Role::Corridor) ? 1 : 0, 1, 0);
+		Check("...and every solid square beside an open one is a wall (20 here)",
+			  static_cast<double>(dr.walls.size()), 20.0, 0.0);
+	}
+
+	// --- populate only ----------------------------------------------------------
+	// Game/Generate.h's Populate (tool-refinement Phase 7): content for a level
+	// that is already built. Two rooms joined by a passage, the start in the west
+	// one; three kinds ranked by threat.
+	{
+		using namespace dungeon::game;
+		std::printf("\nPopulate only (Game/Generate.h)\n");
+		const char* kRows[] = {
+			"########################",
+			"#####################..#",
+			"#....###########.......#",
+			"#..................... #",
+			"#....###########.......#",
+			"#....###########.......#",
+			"################.......#",
+			"########################",
+		};
+		constexpr int W = 24, H = 8;
+		std::vector<dungeon::u8> walk(W * H, 0);
+		for (int z = 0; z < H; ++z)
+			for (int x = 0; x < W; ++x) walk[static_cast<size_t>(z) * W + x] = kRows[z][x] == '.';
+		generate::Params p;
+		p.monsterIds = {"weak", "mid", "strong"};
+		p.monsterThreat = {1.0, 2.0, 3.0};
+		p.difficulty = 1.0f;
+		p.density = 2.0f;
+		p.ramp = 0.0f;
+		p.reward = 1.0f;
+		p.lootIds = {"coin"};
+		p.seed = 7;
+		const generate::Level a = generate::Populate(p, W, H, walk, walk, 2, 3);
+		bool inStartRoom = false, nearStart = false, offFree = false;
+		int monsters = 0;
+		for (const Entity& e : a.entities) {
+			offFree = offFree || !walk[static_cast<size_t>(e.z) * W + e.x];
+			if (e.kind != EntityKind::Monster) continue;
+			++monsters;
+			inStartRoom = inStartRoom || e.x <= 4;
+			nearStart = nearStart || std::abs(e.x - 2) + std::abs(e.z - 3) <= 3;
+		}
+		Check("populate places monsters in a built level", monsters > 0 ? 1 : 0, 1, 0);
+		Check("...none in the start's room", inStartRoom ? 0 : 1, 1, 0);
+		Check("...none within three steps of the start", nearStart ? 0 : 1, 1, 0);
+		Check("...and nothing off the free squares", offFree ? 0 : 1, 1, 0);
+		Check("...loot too, at reward 1", a.report.loot > 0 ? 1 : 0, 1, 0);
+		const generate::Level again = generate::Populate(p, W, H, walk, walk, 2, 3);
+		bool same = again.entities.size() == a.entities.size();
+		for (size_t i = 0; same && i < a.entities.size(); ++i)
+			same = again.entities[i].type == a.entities[i].type && again.entities[i].x == a.entities[i].x &&
+				   again.entities[i].z == a.entities[i].z;
+		Check("the same knobs and seed populate the same way", same ? 1 : 0, 1, 0);
+		// A zero weight takes a kind out of the choice near the target rank.
+		generate::Params pw = p;
+		pw.monsterWeight = {1.0f, 1.0f, 0.0f};
+		const generate::Level w = generate::Populate(pw, W, H, walk, walk, 2, 3);
+		bool onlyMid = true;
+		for (const Entity& e : w.entities)
+			if (e.kind == EntityKind::Monster) onlyMid = onlyMid && e.type == "mid";
+		Check("a weight of 0 leaves a kind out (difficulty 1: all 'mid')", onlyMid ? 1 : 0, 1, 0);
+		// The boss: the strongest, in the deepest room, whatever its weight.
+		pw.boss = true;
+		pw.density = 0.0f;
+		const generate::Level b = generate::Populate(pw, W, H, walk, walk, 2, 3);
+		Check("the boss stands in the far room",
+			  b.report.bossPlaced && b.entities.size() >= 1 && b.entities.front().type == "strong" &&
+					  b.entities.front().x >= 16
+				  ? 1
+				  : 0,
+			  1, 0);
+		// Squares that are not free stay empty.
+		std::vector<dungeon::u8> none(W * H, 0);
+		const generate::Level n = generate::Populate(p, W, H, walk, none, 2, 3);
+		Check("no free square, no content", static_cast<double>(n.entities.size()), 0.0, 0.0);
+		// A level of passages only still gets its monsters.
+		std::vector<dungeon::u8> line(W * H, 0);
+		for (int x = 1; x < W - 1; ++x) line[static_cast<size_t>(3) * W + x] = 1;
+		const generate::Level c = generate::Populate(p, W, H, line, line, 1, 3);
+		int lineMonsters = 0;
+		for (const Entity& e : c.entities) lineMonsters += e.kind == EntityKind::Monster;
+		Check("a level with no room is populated along its passages", lineMonsters > 0 ? 1 : 0, 1, 0);
+		// A two-wide passage is ROOM by the 2x2 rule, so it joins the far room to
+		// the start's: one room holding the start, and nothing else to fill. The
+		// margin is then the rule, and the far end still gets its monsters.
+		std::vector<dungeon::u8> joined = walk;
+		for (int x = 5; x <= 15; ++x) joined[static_cast<size_t>(4) * W + x] = 1;
+		const generate::Level j = generate::Populate(p, W, H, joined, joined, 2, 3);
+		int joinedMonsters = 0;
+		bool joinedNear = false;
+		for (const Entity& e : j.entities)
+			if (e.kind == EntityKind::Monster) {
+				++joinedMonsters;
+				joinedNear = joinedNear || std::abs(e.x - 2) + std::abs(e.z - 3) <= 3;
+			}
+		Check("a level that is all the start's room is still populated, past three steps",
+			  joinedMonsters > 0 && !joinedNear ? 1 : 0, 1, 0);
+		// A density too low to roll anyone still meets someone - and 0 means none.
+		generate::Params low = p;
+		low.density = 0.01f;
+		low.lootIds.clear();
+		const generate::Level lo = generate::Populate(low, W, H, walk, walk, 2, 3);
+		Check("a low density still places one monster", static_cast<double>(lo.report.monsters), 1.0, 0.0);
+		low.density = 0.0f;
+		Check("...and density 0 places none",
+			  static_cast<double>(generate::Populate(low, W, H, walk, walk, 2, 3).report.monsters), 0.0, 0.0);
 	}
 
 	// --- verdict ------------------------------------------------------------

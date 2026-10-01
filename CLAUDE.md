@@ -1851,6 +1851,37 @@ Judged by `tools\EditorTest.py` (phase 12 onward).
   generator was not lifted. Stamps are `shapes.cat` (`rows`, '|'-split); the
   palette's Shapes section leads Build. Every gesture previews exactly what
   its release commits (MapEditor::preview). Dev: `editor shape ...`. EditorTest 17.
+- THE WORKFLOW, WIRED THROUGH (Phase 7). A STYLE IS A GENERATOR KNOB now
+  (`style`, the Generate dialog's Style tab; picking one loads its knobs, seed
+  kept) and supplies tags, look and monster list at once. `Game/StyleLook.h` is
+  the ONE place a style becomes level text: palettes = its themes' members where
+  it names any (else the donor's - never both, each entry is a texture set to
+  load) plus `theme` records BY ID, rooms vs passages decided by the pure
+  `carve::Dress` (Area.h's 2x2 rule on a bare grid). Used by a generated level,
+  the [+] empty box, a new world's first room and the wizard. NEW WORLD (Blank /
+  Wizard) takes a LIBRARY style: added to the world (AddTo), named as the
+  starter dungeon's `style`, the first floor built in it. [+] OPENS ON THE
+  DUNGEON'S `style` (else the armed one) and both Create and Empty LAND IN BUILD
+  (Game::LandInBuild: Stage grouping, the Build group by NAME, the style armed).
+  POPULATE ONLY is `generate::Populate` (pure, beside Run in Generate.cpp so they
+  share PickNear, the weighted pick): Run's rules on FOUND rooms. Two rules the
+  found rooms forced, both learned from the walk: the start's room is skipped
+  only WHILE ANOTHER is reachable (a wandering 2-wide corridor is "room" and joins
+  what it touches, so the start's room can be the whole floor), and there is
+  ALWAYS SOMEONE when density > 0. Game::PopulateViewedLevel replaces what
+  populating can make (the POOL'S kinds of monster and loot) and nothing else -
+  keys, quest items (never loot) and other monsters stay; one undo step.
+  `Params::monsterWeight` is read by Run only when present, so an unstyled
+  generate is byte-for-byte what it was. The generator's Tag and Palette-donor
+  rows are FOLDED into the style: `hidden` knobs (GenerateKnobs.h), still
+  encoded for presets / scripts, given no row, CLEARED when the dialog opens. The
+  overview's Level view leads with NEXT (build / populate / fix N / ready, each a
+  link into that stage) and a Floor squares line. TRAP for scripts: console
+  `generate` starts with NO style (the dialog's rides settings.ini); name one
+  with `style:<id>`. Dev: `generate populate [knobs]`, `generate dialog
+  create|empty|populate|style <id>`, `editor overview follow <key> [scope]`,
+  `worlds new <n> blank|wizard style=<id>`, `worlds newdialog style <id>`.
+  EditorTest 18.
 - EFFECTS LEFT THE PALETTE for the Balance dialog's Effects tab (a list whose
   rows open the type editor OVER the Balance dialog - which is why the type
   editor's input check now comes before the Balance dialog's in Game::Update,
