@@ -67,6 +67,7 @@ constexpr int kUseItemCmd = 0;    // + index into the item's commands
 constexpr int kUseUnarmed = 1000; // + index into kUnarmedUses
 constexpr int kUseSpell = 2000;   // + index into spellDefs()
 constexpr int kUseClear = 3000;   // forget this hand's pick (checked FIRST)
+constexpr int kUseThrow = 4000;   // the throw every held item offers (checked next)
 // The most quick-cast spells the Magic group lists (spellMruCount's clamp).
 constexpr size_t kMaxMenuSpells = 10;
 
@@ -345,6 +346,14 @@ void GameUI::OpenHandUseMenu(size_t i, size_t hand, ui::ContextMenu& menu) {
 						 kUseSpell + static_cast<int>(spells[s]), magic);
 		}
 	}
+	// THROW, for anything the hand holds (Michael, ui-updates: "add throw to
+	// every holdable item"). Added here rather than to every item's commands,
+	// so it is never an unset hand's click - a key or a rune in a hand still
+	// opens this menu on a click instead of flying off - and it does not count
+	// as the item's own command, so the Combat / Magic pickers stay. An item
+	// that lists `command = throw` already has its row above.
+	if (!m_handMenuItem.empty() && std::ranges::find(cmds, "throw") == cmds.end())
+		menu.Add(loc::View("use.throw"), kUseThrow);
 	// Clear, LAST: takes this hand back to unset. Offered only while the hand
 	// is SET (Michael, 2026-09-28) - the item's own first command is not a pick,
 	// and a stale pick already reads as unset, so neither gets the row.
@@ -360,6 +369,8 @@ void GameUI::OnHandMenuPick(int id) {
 		if (i >= m_characters.size() || hand > 1) return;
 		m_characters[i].useDefaults[hand].Remove(UseKey(m_handMenuItem));
 		Click();
+	} else if (id == kUseThrow) {
+		SelectUse(i, hand, m_handMenuItem, "throw");
 	} else if (id >= kUseSpell) {
 		if (!spellDefs) return;
 		const auto defs = spellDefs();
@@ -500,6 +511,9 @@ bool GameUI::UseValidFor(const Character& c, const std::vector<std::string>& cmd
 		return false; // spell gone from the registry
 	}
 	if (std::ranges::find(cmds, cmd) != cmds.end()) return true;
+	// Anything held can be thrown (the menu offers it for every item; a bare
+	// hand's throw does nothing - ExecuteUse finds the hand empty).
+	if (cmd == "throw") return true;
 	// The bare-hand combat verbs are pickable for any hand contents.
 	return std::ranges::find(kUnarmedUses, cmd) != std::ranges::end(kUnarmedUses);
 }
