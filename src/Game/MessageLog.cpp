@@ -14,7 +14,6 @@ namespace {
 // (kMaxLines is the ring's capacity and lives on the class — see MessageLog.h.)
 constexpr float kHold = 6.0f;          // seconds a message stays fully opaque
 constexpr float kFade = 5.0f;          // seconds it then takes to fade out
-constexpr float kShrinkDelay = 0.5f;   // pause before collapsing once unhovered
 constexpr float kPadRem = 0.35f;       // inner text padding, in rem (UI/Units.h)
 constexpr float kCollapsedLines = 2.0f;
 constexpr float kExpandedLines = 11.0f;
@@ -100,7 +99,6 @@ void MessageLog::LayoutSelf(ui::UIContext& ctx) {
 void MessageLog::UpdateSelf(ui::UIContext& ctx) {
 	const ui::Font& font = TextFont();
 	const float lineH = font.LineAdvance();
-	m_hovered = false;
 	m_restoreHot = false;
 
 	const Input* input = ctx.CurrentInput();
@@ -108,26 +106,27 @@ void MessageLog::UpdateSelf(ui::UIContext& ctx) {
 	const float mx = input->MouseX();
 	const float my = input->MouseY();
 
-	// While the footer is faded out only the restore button is live.
-	if (Dormant()) {
-		if (!ctx.IsMouseConsumed() && RestoreRect(ctx).Contains(mx, my)) {
-			m_restoreHot = true;
-			ctx.ConsumeMouse();
-			if (input->WasMousePressed(MouseButton::Left)) {
-				m_expanded = true; // reveal and expand straight to the history
-				m_shrinkTimer = 0.0f;
-				m_scroll = 0.0f;
-			}
+	// THE LOG BUTTON is the only way the history opens or closes (Michael,
+	// ui-updates: hovering used to expand it, and it got in the way). It sits at
+	// the bottom-left in every state - alone once the footer has faded, inside
+	// the footer's corner while it shows - and toggles.
+	if (!ctx.IsMouseConsumed() && RestoreRect(ctx).Contains(mx, my)) {
+		m_restoreHot = true;
+		ctx.ConsumeMouse();
+		if (input->WasMousePressed(MouseButton::Left)) {
+			m_expanded = !m_expanded;
+			m_scroll = 0.0f;
 		}
 		return;
 	}
+	if (Dormant()) return; // faded out: the button is all there is
 
-	// Footer is shown: hovering keeps it expanded; the wheel scrolls history.
+	// Footer is shown: it claims the pointer (it paints there), and while open
+	// the wheel scrolls the history.
 	const gfx::Rect footer = FooterRect(ctx);
 	if (!ctx.IsMouseConsumed() && footer.Contains(mx, my)) {
-		m_hovered = true;
 		ctx.ConsumeMouse();
-		if (input->WheelDelta() != 0.0f && !ctx.IsWheelConsumed()) {
+		if (m_expanded && input->WheelDelta() != 0.0f && !ctx.IsWheelConsumed()) {
 			const float innerH = footer.h - 2.0f * Rem(kPadRem);
 			const float maxScroll = std::max(
 				0.0f, static_cast<float>(Count()) - innerH / lineH);
@@ -139,15 +138,6 @@ void MessageLog::UpdateSelf(ui::UIContext& ctx) {
 }
 
 void MessageLog::Tick(float dt) {
-	// Hover holds it open; leaving starts the shrink countdown.
-	if (m_hovered) {
-		m_expanded = true;
-		m_shrinkTimer = 0.0f;
-	} else if (m_expanded) {
-		m_shrinkTimer += dt;
-		if (m_shrinkTimer >= kShrinkDelay) m_expanded = false;
-	}
-
 	// Messages age only while collapsed, so reading (expanded) freezes the fade.
 	if (!m_expanded)
 		for (size_t i = 0; i < Count(); ++i) At(i).age += dt;
@@ -184,8 +174,11 @@ void MessageLog::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 			ui::DrawBorder(batch, footer, border);
 		}
 
-		const gfx::Rect inner{footer.x + Rem(kPadRem), footer.y + Rem(kPadRem),
-							  footer.w - 2.0f * Rem(kPadRem), footer.h - 2.0f * Rem(kPadRem)};
+		// The text starts right of the Log button, which keeps the corner.
+		const gfx::Rect btn = RestoreRect(ctx);
+		const float left = btn.x + btn.w + Rem(kPadRem);
+		const gfx::Rect inner{left, footer.y + Rem(kPadRem), footer.w - left - Rem(kPadRem),
+							  footer.h - 2.0f * Rem(kPadRem)};
 		const ui::ScopedClip clip(batch, inner);
 		const float lineH = font.LineAdvance();
 		// Newest at the bottom, offset upward by the scroll.
@@ -201,28 +194,28 @@ void MessageLog::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		}
 	}
 
-	// Restore button cross-fades in as the footer fades out.
-	const float ba = 1.0f - ca;
-	if (ba > 0.02f) {
-		const gfx::Rect btn = RestoreRect(ctx);
-		const ui::Skin* skin = ctx.GetSkin();
-		if (skin && skin->button.texture) {
-			ui::DrawFace(batch, btn, *skin, ui::Face::Button,
-						 {1, 1, 1, ba * (m_restoreHot ? 1.0f : 0.75f)});
-		} else {
-			Vec4 bg = theme.panel;
-			bg.w *= ba * (m_restoreHot ? 0.9f : 0.5f);
-			batch.DrawRect(btn, bg);
-			Vec4 border = theme.panelBorder;
-			border.w *= ba * 0.7f;
-			ui::DrawBorder(batch, btn, border);
-		}
-		Vec4 col = theme.text;
-		col.w *= ba;
-		const float tw = font.MeasureWidth(restoreLabel);
-		font.Draw(batch, restoreLabel, btn.x + (btn.w - tw) * 0.5f,
-				  btn.y + (btn.h - font.Height()) * 0.5f, col);
+	// The Log button, always: translucent on its own once the footer has faded,
+	// solid in the footer's corner while it shows, pressed while the history is
+	// open.
+	const float ba = std::max(ca, m_restoreHot ? 1.0f : 0.75f);
+	const gfx::Rect btn = RestoreRect(ctx);
+	const ui::Skin* skin = ctx.GetSkin();
+	if (skin && skin->button.texture) {
+		ui::DrawFace(batch, btn, *skin, m_expanded ? ui::Face::ButtonDown : ui::Face::Button,
+					 {1, 1, 1, ba});
+	} else {
+		Vec4 bg = theme.panel;
+		bg.w *= ba * (m_restoreHot || m_expanded ? 0.9f : 0.5f);
+		batch.DrawRect(btn, bg);
+		Vec4 border = m_expanded ? theme.accent : theme.panelBorder;
+		border.w *= ba * 0.7f;
+		ui::DrawBorder(batch, btn, border);
 	}
+	Vec4 col = m_expanded ? theme.accent : theme.text;
+	col.w *= ba;
+	const float tw = font.MeasureWidth(restoreLabel);
+	font.Draw(batch, restoreLabel, btn.x + (btn.w - tw) * 0.5f,
+			  btn.y + (btn.h - font.Height()) * 0.5f + (m_expanded ? 1.0f : 0.0f), col);
 }
 
 } // namespace dungeon::game

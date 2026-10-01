@@ -3,12 +3,14 @@
 // the dungeon..." log).
 //
 // Anchored flush to the bottom of the screen and spanning the full width.
-// Collapsed it shows ~2 lines; hovering expands it upward so the player can
-// scroll back through history (aging freezes while expanded so messages stay
-// readable). Each message holds at full opacity, then fades over a few seconds;
-// once every message has faded and the pointer is away, the whole footer fades
-// out, cross-fading into a small translucent button that brings it back. A new
-// line (AddLine) fades the footer back in automatically.
+// Collapsed it shows ~2 lines. The LOG BUTTON at its bottom-left - there in
+// every state - opens it upward so the player can scroll back through history
+// (aging freezes while open so messages stay readable), and closes it again.
+// Hovering does nothing (Michael, ui-updates: an expand on hover got in the
+// way). Each message holds at full opacity, then fades over a few seconds;
+// once every message has faded and the history is closed, the footer fades
+// out and leaves the button alone. A new line (AddLine) fades the footer back
+// in automatically.
 //
 // Screen-anchored: the footer's rect comes from the window (full width, bottom
 // edge) and its height animates, so LayoutSelf writes that rect back into
@@ -17,7 +19,7 @@
 // window while drawing in one corner, which made it the topmost widget under
 // every pixel on screen (see docs/ui-hierarchy.md). Time-based work (fades,
 // height/opacity easing) runs in Tick(dt), called once per frame; Update(ctx)
-// handles hover, the wheel scroll, and the restore-button click. AddLine/Clear
+// handles the Log button's click and the wheel scroll. AddLine/Clear
 // match ui::TextOutput so it drops in where the old log lived.
 //
 // PRINTING A MESSAGE ALLOCATES NOTHING (docs/message-allocation.md). The
@@ -80,7 +82,7 @@ private:
 	static constexpr size_t kMaxLines = 200; // ring capacity = history depth
 
 	gfx::Rect FooterRect(ui::UIContext& ctx) const;  // animated, bottom-anchored
-	gfx::Rect RestoreRect(ui::UIContext& ctx) const; // small bottom-left button
+	gfx::Rect RestoreRect(ui::UIContext& ctx) const; // the Log button, bottom-left
 	float MsgAlpha(const Msg& msg) const;            // per-message fade [0,1]
 	// Faded out: only the restore button is live, and it is what `bounds` holds.
 	bool Dormant() const { return m_chromeAlpha < 0.5f && !m_expanded; }
@@ -104,10 +106,8 @@ private:
 	float m_chromeAlpha = 0.0f;  // animated footer opacity (1 shown, 0 dormant)
 	float m_scroll = 0.0f;       // lines scrolled back (0 = newest)
 
-	bool m_expanded = false;     // grown to show history (hover/restore)
-	bool m_hovered = false;      // pointer over the footer this frame
-	bool m_restoreHot = false;   // pointer over the restore button this frame
-	float m_shrinkTimer = 0.0f;  // counts up once the pointer leaves
+	bool m_expanded = false;     // the history is open (toggled by the Log button)
+	bool m_restoreHot = false;   // pointer over the Log button this frame
 };
 
 } // namespace dungeon::game
