@@ -3,6 +3,34 @@
 From docs/ui-panels-notes.md ("Organized" + Michael's answers to Q1-Q4). Q5
 (Lock / Reset layout) was not asked and is still marked (assumed).
 
+## Status (2026-09-30) - built, awaiting the feel pass
+
+| Phase | Commit | Notes |
+|---|---|---|
+| Commit 0 | 613cd4f | per-dock scale / opacity sliders, carried in from main |
+| P1 stone layers | df2b4dc | six stones, five overlays; wood kit PNGs deleted |
+| P2 stone picker | 5079e29 | + FIX: an open drop-down owns the click (UIContext::ClaimPopup) |
+| P3a floating HUD | e0f0272 | six panels; GameSettings::Save excuses itself; AllocTest -Panels |
+| P3b floating windows | 37b600c | the sheet (context root font scales) + a NON-MODAL party inventory |
+| P4 Minimal | 94c94c6 | one card per member; Magic's default moves to the left column |
+| P5 wrap-up | (this) | CLAUDE.md section; release handed over |
+
+Where the build departed from the plan below:
+- P3a: the column-widening ApplyHudPanelScale and ApplyPartyBarScale went
+  entirely (every panel is placed by its own rect). The party bar keeps its old
+  "taller past 1, never wider than the window" size rule.
+- P3a: a drag marks the Settings sliders stale rather than moving them (a
+  slider's readout allocates); the menu / pause updates catch them up.
+- P3b: the party inventory became NON-MODAL (no dim, no click-outside close,
+  a close box) - implied by "floating window", not asked in so many words.
+- P4: "each layout keeps its own saved panel positions" was simplified - panels
+  both layouts share keep ONE spot; only party / hands (Standard) and cards
+  (Minimal) are layout-specific. In Minimal, Magic's DEFAULT moves to the left
+  column, since the cards take the slot under Movement.
+- P4: a roster of one or three could not be exercised - nothing builds one yet.
+- Found in passing, out of scope, flagged as its own task: picking an item up
+  and a kind's first floor drop allocate in guarded frames (on main too).
+
 ## The shape
 
 Five phases. The look first (it touches every screen but moves no geometry),

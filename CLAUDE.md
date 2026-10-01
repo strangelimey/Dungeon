@@ -883,17 +883,10 @@ Changing the adapter/monitor dropdown also repopulates the dependent lists by
 rebuilding the settings page next frame (GameUI::m_videoRebuildPending →
 ApplyPendingVideoRebuild, deferred like the language switch since the rebuild
 destroys the live dropdown; BuildSettings is split out of BuildMenu for this).
-master-volume slider on Audio, party-bar sliders on
-UI (scale 0.5–1.5 resizes the bar about its top center and shifts the panels
-beneath it — GameUI::ApplyPartyBarScale; width is pinned at the window span,
-so above 1 the bar only grows taller; background opacity 0–1 fades the slot
-fills only), the same two sliders once per right-hand HUD dock (Movement /
-Hands / Magic Panel - GameSettings::hudMove/hudHands/hudMagic, a
-HudPanelLook each, ini hud_<dock>_scale / _opacity; the docks read them live.
-Scale sizes a dock AND its text: ControlBar sets the dock's inherited
-fontScale and everything inside a dock measures its detail in Em, not Rem, so
-a new widget in there must too; GameUI::ApplyHudPanelScale widens the column
-to the widest dock from its right edge; opacity fades the dock face only)
+master-volume slider on Audio, and on UI the Stone dropdown, the HUD layout
+(Standard / Minimal), Lock / Reset HUD layout and a scale + background-opacity
+pair for every floating HUD panel (see "Stone chrome, floating panels,
+Minimal layout" below - the party bar's old pair is one of them)
 plus color-picker grids for Theme Colors (the 8 ui::Theme
 colors — GameSettings owns the master theme, GameUI::ApplyTheme pushes it
 into all five UIContexts live) and Resource Bars (health/stamina/mana fills,
@@ -915,7 +908,9 @@ into the Party via SetLook (GameUI::onLookChanged); sensitivity is read live by
 the Game's drag handler. (See the free-look paragraph under Game state machine.)
 Game tab hosts the Language dropdown (see the Core/Loc bullet above).
 All persist to settings.ini next to exe (quality=0..3, maxlights=16/32/48/64,
-presentinterval=1..4, language=<code>, volume=0..1, barscale, baropacity, theme_<name>= and
+presentinterval=1..4, language=<code>, volume=0..1, ui_stone=<name>,
+hud_<panel>_pos/_scale/_opacity, hud_layout, hud_locked (barscale/baropacity
+still load, into the party bar's pair), theme_<name>= and
 bar_<name>=r,g,b,a, key_<action>=vkey, look_sensitivity/look_hold/look_return/
 look_move=<float> and look_curve/look_move_curve=<easing index>,
 adapter=<packed LUID, 0=auto>,
@@ -1753,6 +1748,85 @@ Michael's notes and answers: docs/ui-updates-notes.md; the plan: -plan.md.
   harmless while only the editor drew a preview. `uioverlap` covers the dialog
   (mutation-checked: the old column split's resist line was flagged).
 
+## Stone chrome, floating panels, Minimal layout (ui-panels branch)
+
+Michael's Grimrock 2 brain dump, organized, answered and planned in
+docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
+- STONE IN LAYERS (UI/Skin.h). A skinned face is a seamless STONE tile, tiled
+  on a grid anchored to the SCREEN (so a slot reads as cut from its panel's
+  slab; the sprite sampler clamps, so it tiles in quads, one per grid cell a
+  face touches), under a stone-independent BEVEL overlay that carries only
+  light (white top/left, black bottom/right, a dark rim, a dark well for a
+  slot), plus a stretched sheen on panels. ONE entry point: `ui::DrawFace(batch,
+  rect, skin, Face::Panel|Button|ButtonDown|Slot, tint)` and `ui::FaceInset`
+  for where content starts; `ui::DrawSlotFace` is THE item socket (HUD hands,
+  sheet doll / pack row / backpack / effect icons, party inventory, empty rune
+  cells, the loading bar's track). A NEW socket or button goes through these -
+  never a flat kSlotBg rect or a raw DrawNineSlice. The flat look stays whole as
+  the debug mode (uiskin=0); editor dialogs never receive the skin.
+  Assets are script-made and committed: `tools/BuildUiStones.py` ->
+  assets/ui/stones/<name>.png (1024, resized WHOLE - a crop breaks the wrap -
+  and toned to one mean luminance; `--check` reports the seam; adding a stone =
+  a table line + a re-run + a `stone.<name>` key x5) and `tools/BuildUiFrames.py`
+  -> assets/ui/frame_*.png + sheen_panel.png (2x, drawn at 0.5 x the window
+  scale - GameUI::UpdateSkinScale beside the fonts; the `inset` numbers in
+  LoadTitleArt must match the script). Settings -> UI "Stone" lists the folder
+  and swaps the stone live (`LoadStone` WaitIdles before the old one dies).
+- AN OPEN POPUP OWNS THE CLICK (`UIContext::ClaimPopup`): the update walk visits
+  children in REVERSE add order, so a control added after a drop-down saw a
+  press on its open list first (picking a stone unticked Head bob). An open
+  drop-down / colour picker renews the claim each frame and the next walk starts
+  with the pointer and wheel claimed; its own open branch never asks
+  IsMouseConsumed. A click outside an open list now only closes it.
+- FLOATING PANELS (UI/FloatingPanel.h). A FloatingLayer places FloatingPanel
+  children from POINTERS to a saved spot (top-left, window fractions; < 0 = the
+  panel's `defaultPos`) and scale; `size(ctx, scale)` is the CONTENT'S (a dock's
+  height follows from its width), the scale becomes the subtree's fontScale
+  (so content measures detail in EM - a new widget in a dock or card must too),
+  and `onChanged` fires when a drag ends. Move = a left-drag on the panel's own
+  BACKGROUND (it starts after the children had their look, so a control's press
+  never moves it) or the top-left move grip; scale = the bottom-right grip;
+  both grips show on hover, with Window::SetCursorShape's four-way / diagonal
+  arrows (ported from tool-refinement with two more shapes - at merge, take the
+  superset). A panel claims the pointer over its whole rect (a click on a dock's
+  padding used to reach the 3D view). `Scale()` clamps to the panel's own
+  min/max (the sheet stops at 1.3), whatever the slider's 0.5..1.5 stored.
+  THE PANELS are kHudPanelFields (GameSettings.h: party, status, options, move,
+  hands, magic, cards, inventory, sheet - the SHEET LAST, since it alone lives
+  in another context and [0, kHudSheet) means "the HUD's"); each a HudPanelLook
+  {x, y, scale, opacity} in settings, a Settings -> UI scale + opacity pair, and
+  covered by Lock / Reset. Untouched, every panel sits exactly where the old
+  fixed layout put it (the defaults keep its rules: the column starts under the
+  party bar's height at its scale, a dock's default top follows the EXPANDED
+  docks above it, Magic shows once a member knows a symbol). Dev `hudpanel
+  [list] | <id> <x> <y> [scale] | reset | lock on|off | layout standard|minimal`,
+  `inventory [off]`.
+  THE TWO WINDOWS: the character sheet is a panel in m_sheetUi whose scale is
+  that CONTEXT'S root font size (UpdateFonts) - rem itself moves - so it sets
+  `scalesText = false`; it drags by its title band (CharacterSheet leaves that
+  strip unclaimed). The party inventory is NON-MODAL now - no dim, the world
+  clickable around it, closed by its corner box or Esc.
+- MINIMAL LAYOUT (Game/MemberCards.h; ini hud_layout=1, Settings -> UI
+  "Layout"): no party bar, no Hands dock - one CARD per member, the very
+  CharacterPanel and HandPair the Standard layout uses (so every click and hand
+  use is identical), on one face, in a 2x2 "cards" block under Movement; Magic's
+  default moves to the left column. A switch goes through RebuildForRoster (the
+  log restarts with the help line). Shared panels keep ONE saved spot across
+  layouts.
+- TWO ALLOCATION RULINGS (AllocTest -Panels found both): GameSettings::Save
+  EXCUSES itself - it runs on one click or release inside an armed frame (a
+  drag's drop, a dock's minimize), formats and writes a file, and cannot be
+  allocation-free; and a drag never touches the Settings sliders directly (a
+  slider rebuilds its readout text) - it marks them stale and the menu / pause
+  updates sync them.
+- CHECKED: AllocTest `-Panels` (drags the Movement dock away and back and pulls
+  the Hands grip inside the window with the inventory window open; refuses a
+  PASS unless all three landed) and `-Minimal` (any mode under the card layout,
+  switched FIRST since the rebuild would close -Cast's book; refuses a PASS
+  unless the cards were up); InGameTest sweeps `sweep_inventory` and
+  `sweep_minimal`. A roster of one or three is NOT exercised - nothing can build
+  one yet.
+
 ## Known gaps / natural next steps
 
 - Combat is built out (see the COMBAT bullet: the attack formula, damage
@@ -1811,8 +1885,9 @@ Michael's notes and answers: docs/ui-updates-notes.md; the plan: -plan.md.
   — size the repeater to the stacked height. Bounds may be COMPUTED in
   LayoutSelf rather than authored when a child is aspect- or font-locked (a
   square sized by the parent's height; a row the height of a line advance) —
-  still parent-relative, just derived. Screen-anchored popups (ContextMenu,
-  InventoryWindow) keep zero bounds and draw in the overlay pass on purpose.
+  still parent-relative, just derived. Screen-anchored popups (ContextMenu)
+  keep zero bounds and draw in the overlay pass on purpose (the party
+  inventory used to as well; it is a floating window now - ui-panels).
   UNITS are typographic, the CSS model (UI/Units.h): bounds are [0..1] of the
   parent, but the DETAIL inside a control — padding, row heights, a scrollbar's
   width, a thumb's minimum — is in REM, where 1rem = that context's root font
