@@ -144,9 +144,13 @@ void EffectIcon::DrawOverlaySelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const loc::Line label =
 		loc::FormatLine("hud.effect_time", loc::View(effect->NameKey()),
 						static_cast<int>(effect->timeLeft + 0.5f));
-	const gfx::Rect tip{r.x, r.y + r.h + Rem(0.35f),
-						font.MeasureWidth(label) + Rem(0.7f),
-						font.LineAdvance() + Rem(0.35f)};
+	// Under the icon, kept wholly on screen (the rightmost member's tip used to
+	// run off the window's edge).
+	const gfx::Rect tip = ui::PlaceTooltip(r, font.MeasureWidth(label) + Rem(0.7f),
+										   font.LineAdvance() + Rem(0.35f),
+										   {0, 0, ctx.Width(), ctx.Height()},
+										   ui::TipSide::Below, Rem(0.35f), 2.0f,
+										   ui::TipAlign::Start);
 	ui::DrawPanelFace(ctx, batch, tip);
 	font.Draw(batch, label, tip.x + Rem(0.35f), tip.y + Rem(0.18f),
 			  ctx.GetTheme().text);

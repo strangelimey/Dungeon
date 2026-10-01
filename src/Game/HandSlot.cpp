@@ -135,16 +135,9 @@ void HandSlot::DrawOverlaySelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const float w = font.MeasureWidth(use.label) + 2.0f * padX;
 	const float h = font.Height() + 2.0f * padY;
 	// NEVER OVER THE HAND. Below it by preference, above when that would run
-	// off the screen, and pulled in from the right edge the column sits on (the
-	// sheet's armor tooltip and the dev console's follow the same rule).
-	const gfx::Rect& px = Pixel();
-	const float screenW = ctx.Width(), screenH = ctx.Height();
-	float tx = px.x + (px.w - w) * 0.5f;
-	if (tx + w > screenW - padX) tx = screenW - padX - w;
-	if (tx < padX) tx = padX;
-	float ty = px.y + px.h + gapY;
-	if (ty + h > screenH - padY) ty = px.y - h - gapY;
-	const gfx::Rect tip{tx, ty, w, h};
+	// off the screen, and always wholly on it (ui::PlaceTooltip).
+	const gfx::Rect tip = ui::PlaceTooltip(Pixel(), w, h, {0, 0, ctx.Width(), ctx.Height()},
+										   ui::TipSide::Below, gapY, padX);
 	// Near-opaque: it sits over the other hands and the world view.
 	batch.DrawRect(tip, {0.10f, 0.10f, 0.13f, 0.97f});
 	ui::DrawBorder(batch, tip, theme.panelBorder);

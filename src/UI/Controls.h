@@ -795,6 +795,22 @@ void DrawBorder(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Vec4& colo
 void DrawGlow(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Vec4& color,
 			  float radius, float strength);
 
+// WHERE A TOOLTIP GOES - every tooltip in the game asks here, so none can run
+// off the screen (an effect's tip on the rightmost portrait used to clip off the
+// window's edge, because each tip did its own sums and most only checked one
+// side). The tip sits on its `prefer` side of `anchor`, `gap` px off it; when it
+// would leave `bounds` there and the opposite side has more room, it flips; then
+// it is CLAMPED wholly inside `bounds`, `margin` px in, on both axes. Below and
+// Above line up with the anchor by `align` (centred, its left edge, or its
+// right edge), Right centres beside it. It covers the anchor only when nothing
+// else fits. `bounds` is the surface the tip is drawn on - the window for a
+// UIContext (ctx.Width()/Height()), the panel for the map editor.
+enum class TipSide { Below, Above, Right };
+enum class TipAlign { Center, Start, End };
+gfx::Rect PlaceTooltip(const gfx::Rect& anchor, float w, float h, const gfx::Rect& bounds,
+					   TipSide prefer, float gap, float margin = 2.0f,
+					   TipAlign align = TipAlign::Center);
+
 // TEXT FITTED TO A WIDTH. The whole of `text` when it fits in `room` pixels,
 // else its longest prefix that leaves room for kTrimMark after it - cut back to
 // a whole UTF-8 character, never part-way through one. `trimmed` (optional) says

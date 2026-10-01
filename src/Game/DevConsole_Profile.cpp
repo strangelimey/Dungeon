@@ -1278,13 +1278,8 @@ void DevConsole::DrawProfileSection(const PanelCtx& pc, float top, const Profile
 		// it — the row under the pointer is what the tooltip is about, and
 		// covering it would answer a question by hiding it.
 		auto placeTip = [&](const gfx::Rect& anchor, float w, float h) {
-			float tx = anchor.x;
-			if (tx + w > width - pad) tx = width - pad - w;
-			if (tx < pad) tx = pad;
-			float ty = anchor.y + anchor.h + line * 0.3f;
-			if (ty + h > panelH - pad) ty = anchor.y - h - line * 0.3f;
-			if (ty < 0.0f) ty = anchor.y + anchor.h + line * 0.3f; // neither fits
-			return gfx::Rect{tx, ty, w, h};
+			return ui::PlaceTooltip(anchor, w, h, {0, 0, width, panelH}, ui::TipSide::Below,
+									line * 0.3f, pad, ui::TipAlign::Start);
 		};
 		auto tipPanel = [&](const gfx::Rect& r) {
 			// Near-opaque on purpose: it is a panel over a busy readout, and

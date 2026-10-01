@@ -99,6 +99,34 @@ void DrawGlow(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Vec4& color,
 	}
 }
 
+gfx::Rect PlaceTooltip(const gfx::Rect& anchor, float w, float h, const gfx::Rect& bounds,
+					   TipSide prefer, float gap, float margin, TipAlign align) {
+	const float left = bounds.x + margin, top = bounds.y + margin;
+	const float right = bounds.x + bounds.w - margin, bottom = bounds.y + bounds.h - margin;
+	float x = 0.0f, y = 0.0f;
+	if (prefer == TipSide::Right) {
+		const float besideR = anchor.x + anchor.w + gap, besideL = anchor.x - gap - w;
+		const bool fitsR = besideR + w <= right, fitsL = besideL >= left;
+		const bool roomierR = right - (anchor.x + anchor.w) >= anchor.x - left;
+		x = (fitsR || (!fitsL && roomierR)) ? besideR : besideL;
+		y = anchor.y + (anchor.h - h) * 0.5f;
+	} else {
+		const float below = anchor.y + anchor.h + gap, above = anchor.y - gap - h;
+		const bool fitsB = below + h <= bottom, fitsA = above >= top;
+		const bool roomierB = bottom - (anchor.y + anchor.h) >= anchor.y - top;
+		const bool useBelow = prefer == TipSide::Below ? (fitsB || (!fitsA && roomierB))
+													   : !(fitsA || (!fitsB && !roomierB));
+		y = useBelow ? below : above;
+		x = align == TipAlign::Start ? anchor.x
+			: align == TipAlign::End ? anchor.x + anchor.w - w
+									 : anchor.x + (anchor.w - w) * 0.5f;
+	}
+	// Whatever side it took, the whole tip stays on the surface.
+	x = std::clamp(x, left, std::max(left, right - w));
+	y = std::clamp(y, top, std::max(top, bottom - h));
+	return {x, y, w, h};
+}
+
 std::string_view FitText(const Font& font, std::string_view text, float room,
 						 bool* trimmed) {
 	const bool cut = font.MeasureWidth(text) > room;
@@ -148,12 +176,8 @@ void DrawTooltip(UIContext& ctx, gfx::SpriteBatch& batch, const Font& font,
 	const float pad = font.Height() * 0.33f;
 	const float w = font.MeasureWidth(text) + pad * 2.0f;
 	const float h = font.Height() + pad;
-	const float gap = pad;
-	float y = anchor.y - h - gap;
-	if (y < 0.0f) y = anchor.y + anchor.h + gap;
-	const float x = std::clamp(anchor.x + (anchor.w - w) * 0.5f, 2.0f,
-							   std::max(2.0f, ctx.Width() - w - 2.0f));
-	const gfx::Rect r{x, y, w, h};
+	const gfx::Rect r = PlaceTooltip(anchor, w, h, {0, 0, ctx.Width(), ctx.Height()},
+									 TipSide::Above, pad);
 	batch.DrawRect(r, {theme.panel.x, theme.panel.y, theme.panel.z, 0.97f});
 	DrawBorder(batch, r, theme.panelBorder);
 	font.Draw(batch, text, r.x + pad, r.y + pad * 0.5f, theme.text);

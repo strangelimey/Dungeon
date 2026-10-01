@@ -122,18 +122,17 @@ void MapView::RenderIssueTooltip(gfx::SpriteBatch& batch, const ui::Theme& theme
 
 	// Placed like the hand-slot tooltips: never over the thing it explains -
 	// below the square by preference, above if it would run off the bottom,
-	// and pulled back inside the panel at the sides.
+	// and wholly inside the panel (ui::PlaceTooltip).
 	const Transform t = ComputeTransform(panel);
 	const float cx = t.ox + m_hoverX * t.cell, cy = t.oy + m_hoverZ * t.cell;
-	float bx = cx, by = cy + t.cell + pad;
-	if (by + boxH > panel.y + panel.h - 2.0f) by = cy - pad - boxH;
-	bx = std::clamp(bx, panel.x + 2.0f, panel.x + panel.w - boxW - 2.0f);
-	by = std::max(by, panel.y + 2.0f);
-	const gfx::Rect box{bx, by, boxW, boxH};
+	const gfx::Rect box = ui::PlaceTooltip({cx, cy, t.cell, t.cell}, boxW, boxH, panel,
+										   ui::TipSide::Below, pad, 2.0f,
+										   ui::TipAlign::Start);
 	batch.DrawRect(box, {0.10f, 0.10f, 0.13f, 0.97f});
 	ui::DrawBorder(batch, box, theme.panelBorder);
 
-	float y = by + pad;
+	const float bx = box.x;
+	float y = box.y + pad;
 	for (const auto& [sev, text] : lines) {
 		batch.DrawRect({bx + pad, y + (lineH - mark) * 0.5f, mark, mark}, Ink(sev));
 		const float x = bx + pad * 2 + mark;

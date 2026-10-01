@@ -342,8 +342,9 @@ void WorldMapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			if (m_hoverDungeon) {
 				const float tw = m_font->MeasureWidth(name);
 				const float p = ToolPad(panel) * 1.5f;
-				const gfx::Rect tr{r.x, r.y + r.h + 2.0f, tw + p * 2,
-								   m_font->Height() + p};
+				const gfx::Rect tr =
+					ui::PlaceTooltip(r, tw + p * 2, m_font->Height() + p, panel,
+									 ui::TipSide::Below, 2.0f, 2.0f, ui::TipAlign::Start);
 				batch.DrawRect(tr, kMapBg);
 				ui::DrawBorder(batch, tr, theme.panelBorder);
 				m_font->Draw(batch, name, tr.x + p, tr.y + p * 0.5f, theme.text);
@@ -392,9 +393,9 @@ void WorldMapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		if (tip) { // the hovered tool's name, just under the band
 			const float tw = m_font->MeasureWidth(tip->label);
 			const float pad2 = pad * 1.5f;
-			gfx::Rect tr{tip->rect.x + tip->rect.w * 0.5f - tw * 0.5f - pad2,
-						 tb.y + tb.h + 2.0f, tw + pad2 * 2, m_font->Height() + pad2};
-			tr.x = std::clamp(tr.x, panel.x + 2.0f, panel.x + panel.w - tr.w - 2.0f);
+			const gfx::Rect tr =
+				ui::PlaceTooltip({tip->rect.x, tb.y, tip->rect.w, tb.h}, tw + pad2 * 2,
+								 m_font->Height() + pad2, panel, ui::TipSide::Below, 2.0f);
 			batch.DrawRect(tr, kMapBg);
 			ui::DrawBorder(batch, tr, theme.panelBorder);
 			m_font->Draw(batch, tip->label, tr.x + pad2, tr.y + pad2 * 0.5f,

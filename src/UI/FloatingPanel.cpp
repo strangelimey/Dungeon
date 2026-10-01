@@ -328,11 +328,9 @@ void FloatingPanel::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const float padX = Em(0.6f), padY = Em(0.35f), gapY = Em(0.3f);
 	const float w = font.MeasureWidth(tip) + 2.0f * padX;
 	const float h = font.Height() + 2.0f * padY;
-	float tx = r.x + r.w - w;
-	if (tx + w > ctx.Width() - padX) tx = ctx.Width() - padX - w;
-	if (tx < padX) tx = padX;
-	float ty = r.y + r.h + gapY;
-	if (ty + h > ctx.Height() - padY) ty = r.y - h - gapY;
+	const gfx::Rect place = PlaceTooltip(r, w, h, {0, 0, ctx.Width(), ctx.Height()},
+										 TipSide::Below, gapY, padX, TipAlign::End);
+	const float tx = place.x, ty = place.y;
 	const gfx::Rect box{tx, ty, w, h};
 	batch.DrawRect(box, {0.10f, 0.10f, 0.13f, 0.97f});
 	DrawBorder(batch, box, theme.panelBorder);

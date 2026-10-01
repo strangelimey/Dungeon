@@ -465,15 +465,10 @@ void CharacterSheet::DrawArmorTip(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	// NEVER OVER THE ITEM. Below it by preference, above when that would run
 	// off the screen — the thing under the pointer is what the tooltip is
 	// about, and covering it would answer a question by hiding it. (The same
-	// rule the dev console's tooltips use.)
-	const float screenW = ctx.Width(), screenH = ctx.Height();
-	float tx = anchor.x;
-	if (tx + w > screenW - pad) tx = screenW - pad - w;
-	if (tx < pad) tx = pad;
-	float ty = anchor.y + anchor.h + rem * 0.3f;
-	if (ty + h > screenH - pad) ty = anchor.y - h - rem * 0.3f;
-	if (ty < 0.0f) ty = anchor.y + anchor.h + rem * 0.3f; // neither fits: below
-	const gfx::Rect tip{tx, ty, w, h};
+	// rule every tooltip uses - ui::PlaceTooltip, which also keeps it on screen.)
+	const gfx::Rect tip =
+		ui::PlaceTooltip(anchor, w, h, {0, 0, ctx.Width(), ctx.Height()}, ui::TipSide::Below,
+						 rem * 0.3f, pad, ui::TipAlign::Start);
 
 	// Near-opaque: it sits over a busy grid, and a translucent panel would
 	// leave the icons behind it legible through the numbers in front.
