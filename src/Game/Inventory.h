@@ -35,6 +35,10 @@ inline constexpr int kBackpackStart = 6;
 // packs later. The SELECTED pack's contents fill the slot grid below it.
 inline constexpr int kPackRowSlots = 4;
 inline constexpr const char* kStartingPack = "backpack"; // catalog id, pack slot 0
+// The most slots one bag can have. A catalog `capacity` above it is clamped
+// (with a warning at load, Game::LoadItemIcons). The biggest bag authored so
+// far has 8; the sheet grid shows six across, so 16 is under three rows.
+inline constexpr int kMaxPackSlots = 16;
 
 // Placeholder accent tint for an item category — drives both the floor mesh
 // (tablet, tinted) and the generated hand/cursor icon, so they read alike until
@@ -87,11 +91,47 @@ private:
 	std::string m_id;
 };
 
+// The slots inside one bag: a FIXED-capacity list, not a std::vector, because
+// a bag's slot count changes in a guarded frame (equipping a bigger or smaller
+// bag into the pack row) and a vector cannot grow without allocating - even
+// within its capacity, each new slot constructs a std::string, which the debug
+// CRT allocates for. Here all kMaxPackSlots strings exist from construction, and
+// resize only clears slots and moves the count. It reads like the vector it
+// replaced (size / [] / range-for / std::span), and resize clamps at the cap.
+class PackSlots {
+public:
+	size_t size() const { return m_size; }
+	bool empty() const { return m_size == 0; }
+	static constexpr size_t capacity() { return kMaxPackSlots; }
+	ItemSlot& operator[](size_t i) { return m_slots[i]; }
+	const ItemSlot& operator[](size_t i) const { return m_slots[i]; }
+	ItemSlot* data() { return m_slots.data(); }
+	const ItemSlot* data() const { return m_slots.data(); }
+	ItemSlot* begin() { return m_slots.data(); }
+	ItemSlot* end() { return m_slots.data() + m_size; }
+	const ItemSlot* begin() const { return m_slots.data(); }
+	const ItemSlot* end() const { return m_slots.data() + m_size; }
+	// Every slot that enters or leaves the list is cleared (keeping its
+	// buffer), so a slot past the count is always empty and a grown one never
+	// shows an item it held before the bag shrank.
+	void resize(size_t n) {
+		n = n < capacity() ? n : capacity();
+		const size_t lo = n < m_size ? n : m_size, hi = n < m_size ? m_size : n;
+		for (size_t i = lo; i < hi; ++i) m_slots[i].Clear();
+		m_size = n;
+	}
+	void clear() { resize(0); }
+
+private:
+	std::array<ItemSlot, kMaxPackSlots> m_slots;
+	size_t m_size = 0;
+};
+
 // A carried container (backpack, ammo pouch, medicine pouch, ...) plus its own
 // contents. An empty typeId = an empty pack-row slot (no container).
 struct Pack {
-	std::string typeId;             // pack catalog id; "" = empty pack slot
-	std::vector<ItemSlot> contents; // items inside this pack
+	std::string typeId; // pack catalog id; "" = empty pack slot
+	PackSlots contents; // items inside this pack
 	bool Empty() const { return typeId.empty(); }
 	// True if the pack holds any item (so it can't be swapped out / lost).
 	bool HasItems() const {
@@ -178,10 +218,10 @@ struct Inventory {
 	}
 
 	// The selected pack's contents — the slot grid the sheet shows and edits.
-	std::vector<ItemSlot>& SelectedContents() {
+	PackSlots& SelectedContents() {
 		return packs[static_cast<size_t>(selectedPack)].contents;
 	}
-	const std::vector<ItemSlot>& SelectedContents() const {
+	const PackSlots& SelectedContents() const {
 		return packs[static_cast<size_t>(selectedPack)].contents;
 	}
 
@@ -214,7 +254,8 @@ struct Inventory {
 		return true;
 	}
 
-	// Adds `extra` empty slots to the selected pack (a bag/spell raised capacity).
+	// Adds `extra` empty slots to the selected pack (a bag/spell raised capacity),
+	// up to kMaxPackSlots.
 	void Grow(int extra) {
 		if (extra <= 0) return;
 		auto& c = SelectedContents();
@@ -225,7 +266,7 @@ struct Inventory {
 	void ResetPacks() {
 		for (Pack& p : packs) { p.typeId.clear(); p.contents.clear(); }
 		packs[0].typeId = kStartingPack;
-		packs[0].contents.assign(kBackpackStart, {});
+		packs[0].contents.resize(kBackpackStart);
 		selectedPack = 0;
 	}
 

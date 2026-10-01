@@ -47,6 +47,9 @@ only the default):
   measured item is a kind never dropped before the window (a kind's first drop
   is paid by every kind, so it is not warm-up). It refuses a PASS unless the
   window's tally counts two drops and two lifts (`drops=`/`lifts=`)
+- `.\tools\AllocTest.ps1 -Packs` - a 4-slot and an 8-slot bag swapped in the
+  sheet's pack row, so a bag GROWS inside the window. It refuses a PASS unless
+  `sheet status` counts two equips made during it (`equips=`)
 
 ## Reading a failure
 

@@ -751,8 +751,13 @@ void Game::LoadItemIcons() {
 		const CatalogEntry& def = *defp;
 		m_itemWeights.byType[def.id] = def.GetFloat("weight", 0.0f);
 		m_itemCategories.byType[def.id] = def.Get("category", "misc");
-		m_itemCategories.capacityByType[def.id] =
-			static_cast<int>(def.GetFloat("capacity", 0.0f));
+		int capacity = static_cast<int>(def.GetFloat("capacity", 0.0f));
+		if (capacity > kMaxPackSlots) { // a bag's slots are fixed storage (PackSlots)
+			log::Warn("item '{}': capacity {} is more than the {} slots a bag can have"
+					  " - clamped", def.id, capacity, kMaxPackSlots);
+			capacity = kMaxPackSlots;
+		}
+		m_itemCategories.capacityByType[def.id] = capacity;
 		m_itemCategories.acceptsByType[def.id] = splitList(def.Get("accepts", ""));
 		if (def.GetBool("holdable", false))
 			m_itemCategories.holdableTypes.insert(def.id);
@@ -1063,9 +1068,13 @@ bool Game::LoadGame(const std::string& path) {
 			inv.packs[p].typeId = c.packTypes[p];
 			const std::vector<std::string> items =
 				p < c.packContents.size() ? c.packContents[p] : std::vector<std::string>{};
-			inv.packs[p].contents.assign(items.size(), {});
-			for (size_t s = 0; s < items.size(); ++s)
-				inv.packs[p].contents[s].typeId = items[s];
+			PackSlots& slots = inv.packs[p].contents;
+			slots.resize(items.size()); // clears; clamps at kMaxPackSlots
+			if (items.size() > slots.size())
+				log::Warn("save: pack {} of {} holds {} slots, more than the {} a bag can have"
+						  " - the rest are dropped",
+						  p, m_characters[i].name, items.size(), slots.size());
+			for (size_t s = 0; s < slots.size(); ++s) slots[s].typeId = items[s];
 		}
 		if (c.selectedPack >= 0 && c.selectedPack < kPackRowSlots)
 			inv.selectedPack = c.selectedPack;
