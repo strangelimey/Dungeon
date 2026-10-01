@@ -46,12 +46,13 @@ constexpr std::string_view kThrowSkill = "throwing";
 const std::vector<std::string> kThrowStats{"str", "dex"};
 } // namespace
 
-bool DungeonWorld::ThrowItem(const std::string& typeId) {
-	if (!m_roster || m_leader < 0 || m_leader >= static_cast<int>(m_roster->size()))
+bool DungeonWorld::ThrowItem(const std::string& typeId, int member) {
+	if (member < 0) member = m_leader;
+	if (!m_roster || member < 0 || member >= static_cast<int>(m_roster->size()))
 		return false;
-	Character& thrower = (*m_roster)[static_cast<size_t>(m_leader)];
-	if (!thrower.IsAlive()) return false; // nobody standing leads (Game gates too)
-	const size_t who = static_cast<size_t>(m_leader);
+	Character& thrower = (*m_roster)[static_cast<size_t>(member)];
+	if (!thrower.IsAlive()) return false; // nobody standing (Game gates the leader too)
+	const size_t who = static_cast<size_t>(member);
 	if (who < m_throwCooldown.size() && m_throwCooldown[who] > 0.0f) {
 		MemberMessage(thrower, loc::FormatLine("log.throw_wait", thrower.name));
 		return false;
@@ -104,7 +105,7 @@ bool DungeonWorld::ThrowItem(const std::string& typeId) {
 	flight.color = {0.35f, 0.32f, 0.28f, 0.0f}; // its sparks: a puff of grit
 	flight.size = 0.0f;
 	flight.target = TargetSide::Monsters;
-	flight.attacker = m_leader;
+	flight.attacker = member;
 	flight.payload = kind.throwPayload;
 	flight.cargo = &kind; // the kinds are stable (PreloadItemKinds)
 	m_projectiles.Spawn(flight);

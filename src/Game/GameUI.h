@@ -310,6 +310,9 @@ public:
 	// HUD hand-slot click (member, hand 0=L/1=R, melee verb — the executed
 	// command id, e.g. "stab" = the ATTACK, Balance::FindAttack).
 	std::function<void(size_t, size_t, std::string_view)> onHandAttack;
+	// A hand's `throw` use (member, the item id): true = it was thrown and the
+	// hand empties; false = not now (down, or still recovering), it stays.
+	std::function<bool(size_t, const std::string&)> onHandThrow;
 	// The hand right-click menu's command list for an item id (ItemKind::commands),
 	// wired by Game to the world's item kinds — keeps the command source single.
 	// By REFERENCE: a copy per hand click was a steady-state allocation. The
@@ -457,9 +460,12 @@ private:
 	// remembered per-item-type pick, else the item's first defaultable command,
 	// which is performed WITHOUT being recorded), and with nothing to do at all
 	// (bare hand, rune, key) it opens the use menu instead. Picking an item OUT
-	// of a hand is the character sheet's job (its hand cells keep pick/swap
-	// semantics).
+	// of a hand is a press-and-hold (OnHandHold), so a click stays a swing.
 	void OnHandLeftClick(size_t i, size_t hand);
+	// A left press HELD on a HUD hand box (HandSlot::kHoldSeconds): the hand's
+	// item comes up onto the cursor, or swaps with the cursor's (Michael,
+	// ui-updates). An empty hand under an empty cursor does nothing.
+	void OnHandHold(size_t i, size_t hand);
 	// A right- or middle-click on member `i`'s HUD hand `hand`: its USE menu (see
 	// OpenHandUseMenu), where the hand's default is set. A left-click on a hand
 	// with NO default yet opens the same menu, so the first click picks what

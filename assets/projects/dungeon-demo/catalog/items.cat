@@ -105,6 +105,9 @@ holdable = 1
 ;   throw_spell  = a spell whose payload it carries (its on_hit and blast)
 ;                  instead of its own on_hit: a fire flask bursts into fire.
 ;   throw_breaks = 1: it shatters where it stops instead of landing.
+;   command      = throw: what a hand holding it does on a click (the hand's
+;                  default use) - THAT member throws it. Anything on the cursor
+;                  can be thrown either way.
 ; Speed is the thrower's skill against the weight (balance.cat throw_speed*).
 ;
 ; A stone to throw: what is lying about for it. Bash by weight (throw_base /
@@ -114,6 +117,7 @@ name = item.rock
 category = misc
 weight = 1.5
 holdable = 1
+command = throw
 model = rock
 
 ; A flask of fire: it shatters where it stops and bursts as fireburst does -
@@ -123,6 +127,7 @@ name = item.fire_flask
 category = misc
 weight = 0.6
 holdable = 1
+command = throw
 throw_spell = fireburst
 throw_breaks = 1
 
@@ -136,6 +141,7 @@ name = item.poison_flask
 category = misc
 weight = 0.6
 holdable = 1
+command = throw
 throw_breaks = 1
 on_hit = poison 2 10
 blast_force = 6

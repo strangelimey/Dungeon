@@ -127,6 +127,10 @@ HandPair::HandPair(const gfx::Rect& rect, size_t member,
 			[onMiddle = deps.onHandMiddle, member, hand] {
 				if (onMiddle) onMiddle(member, static_cast<size_t>(hand));
 			});
+		if (deps.onHandHold)
+			slot->onHold = [onHold = deps.onHandHold, member, hand] {
+				onHold(member, static_cast<size_t>(hand));
+			};
 		if (deps.handSetUse)
 			slot->setUse = [setUse = deps.handSetUse, member, hand] {
 				return setUse(member, static_cast<size_t>(hand));

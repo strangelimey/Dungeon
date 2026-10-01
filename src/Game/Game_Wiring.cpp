@@ -193,6 +193,9 @@ void Game::WireModuleCallbacks() {
 	m_ui.onHandAttack = [this](size_t member, size_t hand, std::string_view verb) {
 		m_world->PartyAttack(member, hand, verb);
 	};
+	m_ui.onHandThrow = [this](size_t member, const std::string& item) {
+		return m_world->ThrowItem(item, static_cast<int>(member));
+	};
 	// The hand right-click menu reads an item's commands from the world's item
 	// kinds (single source — ItemKindFor parses category/command + rune defaults).
 	// The return type is spelled out: deduced, it would be a COPY, and the

@@ -688,11 +688,12 @@ public:
 	// that meets no reachable floor - above the floor's horizon, on a wall,
 	// beyond reach - drops NOTHING and returns false, and the caller throws.
 	bool DropItemAt(const std::string& typeId, float mx, float my, float w, float h);
-	// THROWING (DungeonWorld_Throw.cpp): the party LEADER throws a held item
-	// (catalog id) straight ahead down their quadrant lane. False = nobody
-	// threw (nobody standing, or the leader is still recovering from the last
-	// throw - throw_interval): the item stays in the hand.
-	bool ThrowItem(const std::string& typeId);
+	// THROWING (DungeonWorld_Throw.cpp): a member throws an item (catalog id)
+	// straight ahead down their quadrant lane - `member` < 0 = the party LEADER
+	// (the cursor's throw), else that roster slot (a hand's `throw` use). False =
+	// nobody threw (the thrower is down, or still recovering from their last
+	// throw - throw_interval): the item stays where it was.
+	bool ThrowItem(const std::string& typeId, int member = -1);
 	// Brings every thrown item still in the air down where it is - before a save
 	// (a flight is not saved; the item must be) and a level change.
 	void LandThrownItems() { m_projectiles.LandCargo(); }

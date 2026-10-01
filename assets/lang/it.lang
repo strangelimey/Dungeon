@@ -344,6 +344,8 @@ log.cast_fumble=L'incantesimo sfugge a {}!
 ; Hand-slot use menu (items.cat `command` ids -> use.<id>).
 use.memorize=Memorizza
 use.eat=Mangia
+use.drink=Bevi
+use.throw=Lancia
 use.punch=Pugno
 use.kick=Calcio
 use.stab=Pugnalata

@@ -344,6 +344,8 @@ log.cast_fumble=¡El hechizo se le escapa a {}!
 ; Hand-slot use menu (items.cat `command` ids -> use.<id>).
 use.memorize=Memorizar
 use.eat=Comer
+use.drink=Beber
+use.throw=Lanzar
 use.punch=Puñetazo
 use.kick=Patada
 use.stab=Apuñalar

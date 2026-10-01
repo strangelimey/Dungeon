@@ -30,14 +30,27 @@ void HandSlot::UpdateSelf(ui::UIContext& ctx) {
 	m_hot = !ctx.IsMouseConsumed() &&
 			Pixel().Contains(input->MouseX(), input->MouseY());
 	if (m_hot) {
-		if (input->WasMousePressed(MouseButton::Left)) m_held = true;
+		if (input->WasMousePressed(MouseButton::Left)) {
+			m_held = true;
+			m_holdFired = false;
+			m_pressAt = std::chrono::steady_clock::now();
+		}
 		if (input->WasMousePressed(MouseButton::Right)) m_heldRight = true;
 		if (input->WasMousePressed(MouseButton::Middle)) m_heldMiddle = true;
 		ctx.ConsumeMouse();
 	}
+	// The hold fires once, while the press is still down over the box; moving
+	// off the box first lets it run out as an ordinary cancelled click.
+	if (m_held && !m_holdFired && m_hot && input->IsMouseDown(MouseButton::Left) &&
+		std::chrono::duration<float>(std::chrono::steady_clock::now() - m_pressAt).count() >=
+			kHoldSeconds) {
+		m_holdFired = true;
+		if (onHold) onHold();
+	}
 	if (m_held && input->WasMouseReleased(MouseButton::Left)) {
-		if (m_hot && m_onLeft) m_onLeft();
+		if (m_hot && !m_holdFired && m_onLeft) m_onLeft();
 		m_held = false;
+		m_holdFired = false;
 	}
 	if (m_heldRight && input->WasMouseReleased(MouseButton::Right)) {
 		if (m_hot && m_onRight) m_onRight();

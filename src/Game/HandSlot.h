@@ -13,6 +13,7 @@
 #include "Game/PartyHudTypes.h"
 #include "UI/Controls.h"
 
+#include <chrono>
 #include <functional>
 #include <vector>
 
@@ -60,6 +61,12 @@ public:
 	// White radial falloff (assets/ui/glow_radial.png), drawn in the theme accent
 	// behind a SET hand's contents. Null = the flat tint alone.
 	const gfx::Texture* glow = nullptr;
+	// PRESS AND HOLD (Michael, ui-updates): a left press held kHoldSeconds over
+	// the box fires this instead of the click - GameUI picks the item up onto
+	// the cursor, or swaps it with the cursor's. A held press never also clicks,
+	// whatever the hold did, so a long press can never swing by accident.
+	std::function<void()> onHold;
+	static constexpr float kHoldSeconds = 0.4f;
 
 private:
 	// A spell's recipe, drawn as rune faces inside `area`: a grid filling it
@@ -78,6 +85,8 @@ private:
 	std::function<void()> m_onMiddle;
 	bool m_hot = false;
 	bool m_held = false;        // left-button press latched on this slot
+	bool m_holdFired = false;   // that press was held long enough: no click
+	std::chrono::steady_clock::time_point m_pressAt{}; // the left press
 	bool m_heldRight = false;   // right-button press latched on this slot
 	bool m_heldMiddle = false;  // middle-button press latched on this slot
 };

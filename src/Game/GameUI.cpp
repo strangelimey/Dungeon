@@ -1673,6 +1673,7 @@ void GameUI::BuildHud() {
 	deps.onHandLeft = [this](size_t i, size_t hand) { OnHandLeftClick(i, hand); };
 	deps.onHandRight = [this](size_t i, size_t hand) { OnHandRightClick(i, hand); };
 	deps.onHandMiddle = [this](size_t i, size_t hand) { OnHandMiddleClick(i, hand); };
+	deps.onHandHold = [this](size_t i, size_t hand) { OnHandHold(i, hand); };
 	deps.handSetUse = [this](size_t i, size_t hand) { return HandSetUseFor(i, hand); };
 	deps.useIcons = m_useIcons; // Game's stable bank, set before any HUD build
 	deps.glow = m_glowTex.get();

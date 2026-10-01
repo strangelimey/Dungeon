@@ -49,7 +49,7 @@ bool IsOffHandUse(std::string_view cmd) {
 // True if ExecuteUse can dispatch this id — unknown ids (a catalog typo) get
 // no menu entry rather than a dead one.
 bool IsExecutableUse(std::string_view cmd) {
-	return cmd == "eat" || cmd == "drink" || cmd == "memorize" ||
+	return cmd == "eat" || cmd == "drink" || cmd == "memorize" || cmd == "throw" ||
 		   IsMeleeUse(cmd) || IsCastUse(cmd);
 }
 // The useDefaults key a hand's contents map to ("unarmed" for a bare hand —
@@ -88,9 +88,9 @@ void GameUI::OnHandLeftClick(size_t i, size_t hand) {
 		return;
 	}
 	// Empty cursor: the control-bar hand is an ACTION button — it executes the
-	// hand's default use. Picking the item UP is the character sheet's job (its
-	// hand cells keep the pick/swap semantics), so a swing can't be fumbled into
-	// an accidental unequip mid-fight. An UNSET hand performs the item's own
+	// hand's default use. Picking the item UP is a press-and-hold (OnHandHold),
+	// so a swing can't be fumbled into an accidental unequip mid-fight. An UNSET
+	// hand performs the item's own
 	// first command without recording it (DefaultUseFor); only a hand with
 	// nothing to do at all (bare hand, rune, key) opens the use menu, so that
 	// first click PICKS what future clicks will do.
@@ -100,6 +100,22 @@ void GameUI::OnHandLeftClick(size_t i, size_t hand) {
 		return;
 	}
 	ExecuteUse(i, hand, cmd);
+}
+
+// HELD on a HUD hand box: the item comes OUT of the hand - onto an empty cursor,
+// or swapped with the cursor's (which the click already does; the hold does it
+// too, so a long press with an item in hand never surprises). One SwapWith
+// either way: no allocation.
+void GameUI::OnHandHold(size_t i, size_t hand) {
+	if (i >= m_characters.size() || hand > 1 || !m_held) return;
+	ItemSlot& slot = m_characters[i].inventory.Hand(static_cast<int>(hand));
+	if (Holding()) {
+		OnHandLeftClick(i, hand); // place / swap, with the holdable check
+		return;
+	}
+	if (slot.Empty()) return;
+	m_held->SwapWith(slot.typeId);
+	Click();
 }
 
 // RIGHT on a HUD hand box = its use menu, where the hand's default is SET. The
@@ -397,6 +413,16 @@ void GameUI::ExecuteUse(size_t i, size_t hand, std::string_view cmd) {
 		// mana and turns the outcome into log + sound; the firing hand's
 		// quick-cast MRU is credited.
 		if (onCastSpell) onCastSpell(i, cmd.substr(kCastPrefix.size()), hand);
+	} else if (cmd == "throw") {
+		// THIS member throws what THIS hand holds, through the same throw the
+		// cursor makes (DungeonWorld::ThrowItem - the attack formula, the flight,
+		// the payload). The hand empties only if the throw was made; a member
+		// still recovering from the last one keeps it.
+		ItemSlot& slot = m_characters[i].inventory.Hand(static_cast<int>(hand));
+		if (!slot.Empty() && onHandThrow && onHandThrow(i, slot.typeId)) {
+			slot.Clear();
+			RefreshSheet(); // the carry load may be on screen
+		}
 	} else if (IsMeleeUse(cmd)) {
 		// Every melee verb lands through the one strike path; the verb IS the
 		// attack (damage type + numbers, Balance::FindAttack). Cooldown gating

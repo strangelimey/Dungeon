@@ -106,6 +106,7 @@ name = item.rock
 category = misc
 weight = 1.5
 holdable = 1
+command = throw
 model = rock
 
 ; --- food and drink ---------------------------------------------------------
