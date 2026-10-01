@@ -27,6 +27,10 @@ namespace dungeon::game {
 
 namespace {
 
+// What OnItemFound reads for a hook field the item does not have. Built at
+// startup, so the first lift in a guarded frame does not construct it.
+const std::string kNoItemHook;
+
 // A terrain kind's glyph, as authored. Exactly one character: a glyph IS one
 // grid cell, so "" or "MM" is an authoring error rather than something to
 // interpret generously.
@@ -448,10 +452,18 @@ void Game::OnItemFound(const std::string& itemId) {
 	// twice and an item still on the floor has changed nothing.
 	const CatalogEntry* e = m_project.FindItem(itemId);
 	if (!e) return;
+	// Each hook reads its field BY REFERENCE. A lift happens in a guarded frame
+	// and nearly every item has none of these fields, so the common case must
+	// cost nothing - Get returns a copy, and three of them allocated on every
+	// pick. (A hook that FIRES records new world state; that is its own event.)
+	const auto field = [e](std::string_view key) -> const std::string& {
+		const std::string* v = e->Find(key);
+		return v ? *v : kNoItemHook;
+	};
 
 	// "quest = <id>:<stage>" — the quest reaches that stage. Named, not
 	// numbered, so inserting a stage cannot silently move everyone along.
-	const std::string q = e->Get("quest", "");
+	const std::string& q = field("quest");
 	if (const size_t colon = q.find(':'); colon != std::string::npos) {
 		const std::string id = q.substr(0, colon), stage = q.substr(colon + 1);
 		if (m_worldState.SetQuestStage(id, stage)) {
@@ -466,7 +478,7 @@ void Game::OnItemFound(const std::string& itemId) {
 	}
 
 	// "flag = <key>=<value>" — global state that is not a quest's progress.
-	const std::string f = e->Get("flag", "");
+	const std::string& f = field("flag");
 	if (const size_t eq = f.find('='); eq != std::string::npos)
 		m_worldState.SetFlag(f.substr(0, eq), f.substr(eq + 1));
 	else if (!f.empty())
@@ -475,7 +487,7 @@ void Game::OnItemFound(const std::string& itemId) {
 	// "reveals = <location>" — the map-or-clue path, which writes the SAME list
 	// exploring writes. That is the whole reason discovery and `seen` are
 	// separate fields: this reveals a place without revealing the ground.
-	const std::string r = e->Get("reveals", "");
+	const std::string& r = field("reveals");
 	if (!r.empty() && m_worldMap) {
 		bool exists = false;
 		for (const WorldMap::Location& l : m_worldMap->Locations())

@@ -134,7 +134,7 @@ public:
 	// The cursor-carried item (Game's m_heldItem). RenderHud paints its icon at
 	// the mouse, and the held-aware portrait/hand handlers place INTO and pick
 	// OUT OF it, so the pointer is mutable. Address stable; value read/written live.
-	void SetHeldItem(std::optional<std::string>* held) { m_held = held; }
+	void SetHeldItem(HeldItem* held) { m_held = held; }
 	// True if a HUD widget consumed the mouse this frame (so the world should not
 	// also treat the click as a pick/drop). Valid after UpdateHud.
 	// The item details dialog holds the pointer while it is up, so it counts.
@@ -676,7 +676,7 @@ private:
 	// Cursor-carried item (Game owns the storage; placement handlers mutate it)
 	// + the last HUD mouse position (stashed in UpdateHud so RenderHud can draw
 	// the held icon, which has no Input).
-	std::optional<std::string>* m_held = nullptr;
+	HeldItem* m_held = nullptr;
 	float m_hudMouseX = 0.0f, m_hudMouseY = 0.0f;
 
 	// Font re-bake debounce: last seen window height and how long it has

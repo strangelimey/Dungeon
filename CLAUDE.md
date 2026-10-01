@@ -1769,6 +1769,19 @@ Michael's notes and answers: docs/ui-updates-notes.md; the plan: -plan.md.
   found `ModelPreview::Render` building its light rig every frame, which was
   harmless while only the editor drew a preview. `uioverlap` covers the dialog
   (mutation-checked: the old column split's resist line was flagged).
+- MOVING AN ITEM ALLOCATES NOTHING (2026-09-30). The cursor's item is a
+  `HeldItem` (Game/Inventory.h), NOT a `std::optional<std::string>`: it reads
+  like one (has_value / * / reset) but its string lives as long as the cursor,
+  empty = nothing held, and every pick, put and swap with a slot is ONE
+  `SwapWith` - copying an id constructs a string, which the debug CRT allocates
+  for at any length. `Inventory::Stow(HeldItem&)` is the portrait quick-stow;
+  `TryPickItem` returns the kind's own id (a pointer). Every item KIND is built
+  at load (`DungeonWorld::PreloadItemKinds`) - runes used to be built on their
+  first drop, 2 MB in a guarded frame - and a drop reuses a dead runtime drop's
+  slot (`PlaceDrop`) inside load-time headroom (`ReserveDropRoom`). KNOWN LEFT:
+  equipping a BIGGER pack grows its slot vector. CHECKED: `AllocTest.ps1 -Items`
+  (pack -> floor -> pack through the inventory window; dev `inventory [off|
+  status]`; tally `drops=`/`lifts=`), mutation-checked both ways.
 
 ## RESOURCE BARS (icon-updates branch; docs/icon-updates-notes.md + -plan.md)
 

@@ -4,8 +4,8 @@
 // Split out of Game_DevCommands.cpp by concern: what a member knows, carries
 // and does (learn/rune/give/guard/swing/wear/equip/effect/grudges/cast), their
 // pools and supplies (party/regen/supplies/rest/consume/setsupply), and the
-// sheet and the dev setters that re-derive it (sheet/setstat/setskill/heal/
-// char).
+// sheet, the party inventory window, and the dev setters that re-derive it
+// (sheet/inventory/setstat/setskill/heal/char).
 // ============================================================================
 #include "Game/Game.h"
 
@@ -629,6 +629,45 @@ void Game::RegisterPartyCommands() {
 						   OpenCharacterSheet(m);
 						   m_console.Print(
 							   std::format("sheet open: {}", m_characters[m].name));
+					   });
+
+	// The party inventory window (every member's selected pack side by side),
+	// otherwise reachable only through the sheet's "All" button. It exists for
+	// tools\AllocTest.ps1 -Items, which picks an item out of a pack in this
+	// window inside a guarded frame; `status` is how it checks where the item
+	// went, since a missed click and a clean move look alike to the guard.
+	m_console.Register({.name = "inventory",
+						.group = CmdGroup::Characters,
+						.params = "\n"
+								  "off\n"
+								  "status",
+						.summary = "open, close or report the party inventory window"},
+					   [this](const std::vector<std::string>& args) {
+						   if (!args.empty() && args[0] == "status") {
+							   std::string line = std::format(
+								   "inventory: {} held={}",
+								   m_ui.InventoryOpen() ? "open" : "closed",
+								   m_heldItem ? *m_heldItem : std::string("none"));
+							   for (size_t m = 0; m < m_characters.size(); ++m) {
+								   line += std::format(" | {}:", m);
+								   for (const ItemSlot& s :
+										m_characters[m].inventory.SelectedContents())
+									   line += " " + (s.Empty() ? std::string("-") : s.typeId);
+							   }
+							   m_console.Print(line);
+							   return;
+						   }
+						   if (!args.empty() && args[0] == "off") {
+							   m_ui.CloseInventory();
+							   m_console.Print("inventory closed");
+							   return;
+						   }
+						   if (m_state != AppState::Playing) {
+							   m_console.Refuse("only over the level");
+							   return;
+						   }
+						   m_ui.OpenInventory();
+						   m_console.Print("inventory open");
 					   });
 
 	// Open (or close) a member's spellbook in the Magic area - the selector

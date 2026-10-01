@@ -57,6 +57,36 @@ struct ItemSlot {
 	void Clear() { typeId.clear(); }
 };
 
+// THE CURSOR'S ITEM (Game owns the one instance; the HUD, the sheet and the
+// party inventory window hold a pointer). It reads like a
+// std::optional<std::string> on purpose - has_value / * / reset - but it is NOT
+// one, because moving an item is a guarded-frame event and an optional cannot
+// do it without allocating: emptying it destroys the string, and filling it
+// constructs a new one, which the debug CRT allocates for even when the text
+// fits the small-string buffer (a 16-byte iterator proxy). So the string here
+// lives as long as the cursor does, empty = nothing held, and an exchange with
+// a slot SWAPS the two strings - a pick, a put and a swap are all one swap, and
+// moving buffers around allocates nothing in any build.
+class HeldItem {
+public:
+	bool has_value() const { return !m_id.empty(); }
+	explicit operator bool() const { return has_value(); }
+	const std::string& operator*() const { return m_id; }
+	void reset() { m_id.clear(); } // keeps the buffer for the next pick
+	// Copies into the existing buffer (a floor pick, a loaded save): no
+	// allocation while the id fits what the buffer already holds.
+	HeldItem& operator=(std::string_view id) {
+		m_id.assign(id);
+		return *this;
+	}
+	// Exchanges the cursor with a slot: the slot's item comes up, the cursor's
+	// goes down, and either side may be empty. Every placement is this.
+	void SwapWith(std::string& slotId) { m_id.swap(slotId); }
+
+private:
+	std::string m_id;
+};
+
 // A carried container (backpack, ammo pouch, medicine pouch, ...) plus its own
 // contents. An empty typeId = an empty pack-row slot (no container).
 struct Pack {
@@ -174,6 +204,15 @@ struct Inventory {
 	}
 	// Stows into the SELECTED pack (the active container) — the default target.
 	bool Stow(const std::string& typeId) { return AddToPack(typeId, selectedPack); }
+	// Stows the CURSOR'S item into the selected pack by swapping it into the
+	// first free slot (see HeldItem - a copy would allocate). False = full, and
+	// the cursor keeps it.
+	bool Stow(HeldItem& held) {
+		const int i = FirstFree(selectedPack);
+		if (i < 0) return false;
+		held.SwapWith(SelectedContents()[static_cast<size_t>(i)].typeId);
+		return true;
+	}
 
 	// Adds `extra` empty slots to the selected pack (a bag/spell raised capacity).
 	void Grow(int extra) {

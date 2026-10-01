@@ -39,6 +39,14 @@ only the default):
   disarmed (docs/ARCHITECTURE.md "Checking the rule"); this checks that rule
   and the resumed frames after it, and refuses a PASS unless the verdict line
   counts a transition (`transitions=`)
+- `.\tools\AllocTest.ps1 -Sheet` - the character sheet: hover (the status bar),
+  every tab, a right-click opening the item details dialog, the use menu. It
+  refuses a PASS unless `itemdetails status` counts an open made in the window
+- `.\tools\AllocTest.ps1 -Items` - an item moved pack -> cursor -> floor ->
+  cursor -> pack through the party inventory window, in eval_arena. The
+  measured item is a kind never dropped before the window (a kind's first drop
+  is paid by every kind, so it is not warm-up). It refuses a PASS unless the
+  window's tally counts two drops and two lifts (`drops=`/`lifts=`)
 
 ## Reading a failure
 

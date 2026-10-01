@@ -699,6 +699,8 @@ static std::unique_ptr<gfx::Texture> MakeSolidIcon(gfx::GraphicsDevice& device,
 }
 
 void Game::LoadItemIcons() {
+	// Every item kind is built here, not on its first drop (see the method).
+	m_world->PreloadItemKinds();
 	// One element-tinted icon per symbol, keyed by the rune's catalog id
 	// (rune_fire → rune_icon_fire). PNG only (like the splats). Drawn on the
 	// cursor when a tablet is held, and in the hand slots / inventory.
@@ -2195,9 +2197,9 @@ void Game::UpdateStates(float dt) {
 			if (m_heldItem) {
 				m_world->DropItemAt(*m_heldItem, mx, my, w, h);
 				m_heldItem.reset();
-			} else if (auto picked = m_world->TryPickItem(mx, my, w, h)) {
+			} else if (const std::string* picked = m_world->TryPickItem(mx, my, w, h)) {
 				OnItemFound(*picked); // quest / flag / reveal hooks
-				m_heldItem = std::move(picked);
+				m_heldItem = *picked; // into the cursor's own buffer (HeldItem)
 			} else if (!m_world->ToggleDoorAhead(mx, my, w, h)) {
 				// No tablet, and nothing on the door ahead that the click
 				// actually landed on: try the button on the wall the party
