@@ -2332,11 +2332,10 @@ void GameUI::RenderCharacterSheetOverlay() {
 // everything. Shared by the HUD and the (frozen) sheet so dropping works on both.
 void GameUI::DrawHeldCursor() {
 	if (!m_held || !m_held->has_value() || !m_itemIcons) return;
-	if (const gfx::Texture* icon = m_itemIcons->For(**m_held)) {
-		const float s = DeviceH() * 0.072f; // ~20% larger than a slot icon reads
-		const gfx::Rect dst{m_hudMouseX - s * 0.5f, m_hudMouseY - s * 0.5f, s, s};
-		m_spriteBatch.DrawSprite(dst, {0, 0, 1, 1}, *icon, {1, 1, 1, 1});
-	}
+	const float s = DeviceH() * 0.072f; // ~20% larger than a slot icon reads
+	const gfx::Rect dst{m_hudMouseX - s * 0.5f, m_hudMouseY - s * 0.5f, s, s};
+	// A rune glows as it does in every socket (DrawItemIcon).
+	DrawItemIcon(m_spriteBatch, dst, **m_held, m_itemIcons, 0.0f);
 }
 
 void GameUI::RenderHud() {

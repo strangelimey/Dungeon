@@ -343,10 +343,8 @@ void CharacterSheet::DrawSpellRow(size_t i, ui::UIContext& ctx,
 	float nameX = textX;
 	for (SpellSymbol sym : row.symbols) {
 		const gfx::Rect ir{nameX, r.y, ish, ish};
-		const gfx::Texture* ic = m_icons ? m_icons->For(RuneItemId(sym)) : nullptr;
-		if (ic)
-			batch.DrawSprite(ir, {0, 0, 1, 1}, *ic, {1, 1, 1, 1});
-		else {
+		// The rune glows, as it does in every socket (DrawItemIcon).
+		if (!DrawItemIcon(batch, ir, RuneItemId(sym), m_icons, 0.0f)) {
 			const Vec4 sc = ElementColor(sym);
 			batch.DrawRect(ir, {sc.x, sc.y, sc.z, 0.6f});
 		}

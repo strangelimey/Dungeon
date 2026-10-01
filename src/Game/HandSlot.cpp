@@ -177,13 +177,16 @@ void HandSlot::DrawSpellRunes(gfx::SpriteBatch& batch, const gfx::Rect& area,
 	const float blockH = side * static_cast<float>(rows) + gap * static_cast<float>(rows - 1);
 	const float x0 = area.x + (area.w - blockW) * 0.5f;
 	const float y0 = overItem ? area.y + area.h - blockH : area.y + (area.h - blockH) * 0.5f;
+	// Each rune glows as the Magic window's do (Michael, ui-updates), over the
+	// set tint, pulsing out of step with its neighbours.
+	constexpr float kTwoPi = 6.2831853f;
 	for (size_t k = 0; k < n; ++k) {
 		const size_t c = k % cols, r = k / cols;
-		DrawRuneFace(batch,
+		DrawRuneGlow(batch,
 					 {x0 + static_cast<float>(c) * (side + gap),
 					  y0 + static_cast<float>(r) * (side + gap), side, side},
 					 runes[k], m_icons, /*hot=*/false, /*disabled=*/false,
-					 /*background=*/false); // the set tint shows behind it
+					 batch.Time() * (kTwoPi / 3.4f) - static_cast<float>(k) * 1.3f);
 	}
 }
 
