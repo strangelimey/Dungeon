@@ -1677,7 +1677,9 @@ void GameUI::BuildHud() {
 	deps.magicLook = &m_settings.hudMagic;
 	deps.columnW = kControlW;
 	deps.columnMargin = kControlMargin;
-	deps.columnTop = belowTop;
+	// The docks start under the tray's strip, kept whether or not the tray is
+	// showing, so minimizing a panel never moves the others' defaults.
+	deps.columnTop = [this](ui::UIContext& ctx) { return DockColumnTop(ctx); };
 	deps.columnBottom = [](ui::UIContext& ctx) { return (1.0f - kFooter) * ctx.Height(); };
 	deps.locked = &m_settings.hudLocked;
 	deps.onPlacementChanged = [this] { OnHudPanelMoved(); };
@@ -1731,9 +1733,10 @@ void GameUI::BuildHud() {
 
 	// THE CLOSED-PANELS TRAY (Phase 8, Game/HudTray.h): a button for each panel
 	// of THIS layout that minimizes, shown while that panel is minimized. Its
-	// default spot is beside Movement's default, top edge level with it, growing
-	// leftward as buttons arrive: the column hangs from the party bar with no
-	// room above it, and a tray there would sit on the bar.
+	// default spot heads the right-hand column, its right edge on the column's
+	// (the party bar's and the docks' - Michael), growing leftward as buttons
+	// arrive, snug under the party bar (TrayTop). The docks start under the
+	// strip it needs (DockColumnTop).
 	{
 		ui::FloatingPanel* trayPanel = makePanel(kHudTray, "TrayPanel");
 		auto* tray = trayPanel->Add<HudTray>(&m_settings.hudTray.opacity);
@@ -1749,11 +1752,9 @@ void GameUI::BuildHud() {
 			return HudTray::Size(tray->ShownCount(), trayPanel->EmAt(ctx, s));
 		};
 		trayPanel->shownWhen = [tray] { return tray->ShownCount() > 0; };
-		ui::FloatingPanel* move = docks.move;
-		trayPanel->defaultPos = [trayPanel, move](ui::UIContext& ctx) {
-			const Vec2 at = move->defaultPos(ctx);
+		trayPanel->defaultPos = [this, trayPanel](ui::UIContext& ctx) {
 			const float w = trayPanel->size(ctx, trayPanel->Scale()).x;
-			return Vec2{at.x - move->EmAt(ctx, 1.0f) * 0.5f - w, at.y};
+			return Vec2{ctx.Width() * (1.0f - kControlMargin) - w, TrayTop(ctx)};
 		};
 	}
 
@@ -1823,6 +1824,26 @@ bool GameUI::InventoryOpen() const { return m_inventory && m_inventory->IsOpen()
 void GameUI::OnHudPanelMoved() {
 	m_settings.Save();
 	m_hudSlidersStale = true;
+}
+
+// The tray's DEFAULT top: snug under the party bar at the bar's scale (Michael:
+// "tighter to the party bar"), or the bar's own top in the Minimal layout,
+// which has none. Asked every layout; the tray panel is built after the docks,
+// so it is looked up, not captured.
+float GameUI::TrayTop(ui::UIContext& ctx) const {
+	if (m_settings.hudLayout == 1) return kBarTop * ctx.Height();
+	const ui::FloatingPanel* tray = m_hudPanels[kHudTray];
+	const float gap = tray ? tray->EmAt(ctx, 1.0f) * 0.3f : 0.0f;
+	return (kBarTop + kBarH0 * m_settings.hudParty.scale) * ctx.Height() + gap;
+}
+
+// Where the right-hand column's docks start by default: under the tray's
+// strip - one row at its scale and a dock gap - kept whether or not it shows.
+float GameUI::DockColumnTop(ui::UIContext& ctx) const {
+	const ui::FloatingPanel* tray = m_hudPanels[kHudTray];
+	if (!tray) return TrayTop(ctx);
+	return TrayTop(ctx) + HudTray::Size(1, tray->EmAt(ctx, tray->Scale())).y +
+		   tray->EmAt(ctx, 1.0f) * 0.5f;
 }
 
 // A panel went into the tray, or came back out of it: a click, and the flag

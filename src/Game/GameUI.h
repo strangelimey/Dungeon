@@ -420,6 +420,10 @@ private:
 	void OnHudPanelMoved();
 	// A panel was minimized into the tray, or restored from it (click + save).
 	void OnHudPanelHidden(bool restored);
+	// The tray's default top, and where the right-hand docks start under its
+	// strip, in pixels.
+	float TrayTop(ui::UIContext& ctx) const;
+	float DockColumnTop(ui::UIContext& ctx) const;
 	void SyncHudPanelSliders();
 	void SyncHudPanelSlidersIfStale();
 	void DrawLoadProgress(const LoadQueue& queue, float barY); // shared bar

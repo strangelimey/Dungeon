@@ -1911,8 +1911,9 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   is a floating panel of its own holding a stone button per such panel of the
   current layout (face assets/ui/glyph_panel_<id>.png, BuildToolIcons.py), shown
   while that panel is minimized; it shows only while it has a button. Its
-  default is beside Movement's default, top edge level - there is no room above
-  the column. A flag flips and the layout follows: nothing rebuilds, so it is
+  default heads the right-hand column, right edge on the party bar's and the
+  docks', growing leftward; the docks' defaults start under a strip kept for it
+  (GameUI::DockColumnTop) whether it shows or not; it sits snug under the bar (TrayTop). A flag flips and the layout follows: nothing rebuilds, so it is
   free in an armed frame (AllocTest -Panels makes the trip). Reset restores all.
   THE TWO WINDOWS: the character sheet is a panel in m_sheetUi whose scale is
   that CONTEXT'S root font size (UpdateFonts) - rem itself moves - so it sets

@@ -913,9 +913,11 @@ try {
 		$script:awayX = [int]($rc.Right * 0.30); $script:awayY = [int]($rc.Bottom * 0.80)
 		# THE TRAY (ui-updates Phase 8): the Movement dock's MINIMIZE is the
 		# top-right Ctrl button, with RESET one button to its left; the tray's
-		# button for it then sits beside the dock's default spot, top edge level
-		# (GameUI's tray: right edge half an em left of the dock, padding 0.8 em,
-		# a 2 em button). The button side and so the em come from `hudpanel list`.
+		# button for it then heads the column, right edges level, in the strip
+		# the dock's default spot starts under (GameUI::DockColumnTop: padding 0.3 em,
+		# a 1.4 em button - HudTray.h - and a 0.5 em gap, so the button's centre
+		# is 1 em in from the dock's right and 1.5 em above its top). The button
+		# side and so the em come from `hudpanel list`.
 		$gripRow = @(Select-String -Path $log -Pattern 'console: hud layout .*grip (\d+)px')[-1].Line
 		if ($gripRow -notmatch 'grip (\d+)px') { throw "no grip size: $gripRow" }
 		$script:grip = [int]$Matches[1]
@@ -924,7 +926,7 @@ try {
 		$mLeft = [int]$Matches[1]; $mTop = [int]$Matches[2]; $mRight = $mLeft + [int]$Matches[3]
 		$script:hideX = $mRight - 6; $script:hideY = $mTop + 6
 		$script:resetX = $mRight - $script:grip - 7; $script:resetY = $mTop + 6
-		$script:trayX = [int]($mLeft - 2.3 * $em); $script:trayY = [int]($mTop + 1.8 * $em)
+		$script:trayX = [int]($mRight - 1.0 * $em); $script:trayY = [int]($mTop - 1.5 * $em)
 		# WARM-UP: one drag and one pull outside the window - the pull's new scale
 		# bakes a font size, a first time for the process - and one trip through
 		# the tray. Then back to default.

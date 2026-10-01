@@ -56,9 +56,11 @@ private:
 	void LayoutSelf(ui::UIContext& ctx) override;
 	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 
-	static constexpr float kPad = 0.8f;  // em: the face's inset, the docks' look
-	static constexpr float kCell = 2.0f; // em: one button's side
-	static constexpr float kGap = 0.3f;  // em: between buttons
+	// Small (Michael: the first cut, a 2 em button in a 3.6 em block, was "far
+	// too big"): a button the size of a dock header's minimize box, a thin rim.
+	static constexpr float kPad = 0.3f;  // em: the rim round the buttons
+	static constexpr float kCell = 1.4f; // em: one button's side
+	static constexpr float kGap = 0.2f;  // em: between buttons
 
 	std::vector<Entry> m_entries; // built once; nothing grows it per frame
 	const float* m_opacity;
