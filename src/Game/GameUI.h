@@ -594,9 +594,9 @@ private:
 	// it; TickResourceBars keeps it moving, ApplySkin follows uiskin.
 	std::unique_ptr<gfx::Texture> m_barFrameTex;
 	ResourceBarStyle m_barStyle;
-	// The spellbook's Cast/Clear round icon faces (optional).
-	std::unique_ptr<gfx::Texture> m_castIconTex;
-	std::unique_ptr<gfx::Texture> m_clearIconTex;
+	// The spellbook's Cast / Clear face glyphs (drawn on stone buttons).
+	std::unique_ptr<gfx::Texture> m_castGlyphTex;
+	std::unique_ptr<gfx::Texture> m_clearGlyphTex;
 	// The movement pad's chevron icon faces (single = step, double = turn).
 	std::unique_ptr<gfx::Texture> m_chevronTex;
 	std::unique_ptr<gfx::Texture> m_chevron2Tex;

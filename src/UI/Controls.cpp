@@ -305,16 +305,61 @@ void TextOutput::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 void Button::UpdateSelf(UIContext& ctx) {
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
+	const Clock::time_point now = Clock::now();
+	const auto since = [&](Clock::time_point t) {
+		return std::chrono::duration<float>(now - t).count();
+	};
+
+	// The push in flight: the action fires at the bottom of the sink, the rise
+	// follows it.
+	if (m_push == Push::Sinking && since(m_pressAt) >= kSinkSeconds + kHoldSeconds) {
+		m_push = Push::Rising;
+		m_riseAt = now;
+		if (enabled && onClick) onClick();
+	} else if (m_push == Push::Rising && since(m_riseAt) >= kRiseSeconds) {
+		m_push = Push::None;
+	}
+
 	m_hot = !ctx.IsMouseConsumed() && Pixel().Contains(input->MouseX(), input->MouseY());
 	if (m_hot) {
-		if (enabled && input->WasMousePressed(MouseButton::Left)) m_held = true;
+		if (enabled && input->WasMousePressed(MouseButton::Left)) {
+			// A click hard on the heels of the last one: that one's action runs
+			// NOW, so a quick double click is still two actions, in order.
+			if (m_push == Push::Sinking && onClick) onClick();
+			m_push = Push::None;
+			m_held = true;
+			m_pressAt = now;
+		}
 		ctx.ConsumeMouse();
 	}
-	if (!enabled) m_held = false; // disabled mid-press: the release does nothing
-	if (m_held && input->WasMouseReleased(MouseButton::Left)) {
-		if (m_hot && onClick) onClick();
+	if (!enabled) { // disabled mid-press: the release does nothing
 		m_held = false;
+		if (m_push == Push::Sinking) m_push = Push::None;
 	}
+	if (m_held && input->WasMouseReleased(MouseButton::Left)) {
+		m_held = false;
+		// Released ON the button: the push completes (fires once the face has
+		// reached the bottom). Released off it: a cancelled press just rises.
+		if (m_hot) {
+			m_push = Push::Sinking;
+		} else {
+			m_push = Push::Rising;
+			m_riseAt = now - std::chrono::duration_cast<Clock::duration>(
+								 std::chrono::duration<float>(
+									 kRiseSeconds * (1.0f - std::min(1.0f, since(m_pressAt) /
+																		  kSinkSeconds))));
+		}
+	}
+}
+
+float Button::Depth() const {
+	const Clock::time_point now = Clock::now();
+	const auto since = [&](Clock::time_point t) {
+		return std::chrono::duration<float>(now - t).count();
+	};
+	if (m_held || m_push == Push::Sinking) return std::min(1.0f, since(m_pressAt) / kSinkSeconds);
+	if (m_push == Push::Rising) return std::max(0.0f, 1.0f - since(m_riseAt) / kRiseSeconds);
+	return 0.0f;
 }
 
 void Button::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
@@ -326,18 +371,37 @@ void Button::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 		// hover/held brightening standing in for the face wash.
 		// Disabled dims the disc well down (the editor toolbar's 0.32), since
 		// an icon has no face to flatten.
-		const float d = std::min(px.w, px.h) * 0.92f;
-		const float f = !enabled				? 0.32f
-						: (m_held || active) ? 1.15f
-						: m_hot				? 1.0f
-											: 0.82f;
+		// A push shrinks the disc a touch, as though pressed into the panel.
+		const float depth = Depth();
+		const float d = std::min(px.w, px.h) * (0.92f - 0.07f * depth);
+		const float f = !enabled							? 0.32f
+						: (depth > 0.0f || active)		? 1.15f
+						: m_hot							? 1.0f
+														: 0.82f;
 		batch.DrawSpriteRotated({px.x + px.w * 0.5f, px.y + px.h * 0.5f}, {d, d},
 								static_cast<float>(iconTurns) * (kPi * 0.5f),
 								{0, 0, 1, 1}, *icon, {f, f, f, 1.0f});
 		return;
 	}
-	DrawButtonFace(batch, TextFont(), px, text, ctx.GetTheme(), m_hot && enabled,
-				   m_held || active, enabled, ctx.GetSkin());
+	// The face shows PUSHED for the deeper half of the motion, and the label
+	// follows the depth down by up to a sixteenth of a line - so the sink and
+	// the rise are both seen, not just a flip between two faces.
+	const float depth = Depth();
+	const float sink = depth * std::max(1.0f, TextFont().Height() * 0.08f);
+	static const std::string kNoLabel;
+	DrawButtonFace(batch, TextFont(), px, faceIcon ? kNoLabel : text, ctx.GetTheme(),
+				   m_hot && enabled, depth >= 0.5f || active, enabled, ctx.GetSkin(), sink);
+	if (faceIcon) {
+		// The icon in the label's place, in the label's colour, sinking with it.
+		// A face glyph is authored in the middle of a disc-sized canvas (the
+		// toolbar discs' 84 px space, strokes inside its central half), so only
+		// that half is drawn, filling most of the face's height.
+		const Theme& theme = ctx.GetTheme();
+		const float d = px.h * 0.82f;
+		const Vec4 ink = enabled ? theme.text : theme.textDim;
+		batch.DrawSprite({px.x + (px.w - d) * 0.5f, px.y + (px.h - d) * 0.5f + sink, d, d},
+						 {0.25f, 0.25f, 0.5f, 0.5f}, *faceIcon, ink);
+	}
 }
 
 void Button::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
@@ -354,7 +418,7 @@ gfx::Rect Button::InkRect() const {
 	// Mirrors DrawButtonFace: the face fills the bounds, the label is centred on
 	// them at its measured size. An icon face is drawn inside the bounds.
 	const gfx::Rect& px = Pixel();
-	if (icon || text.empty()) return px;
+	if (icon || faceIcon || text.empty()) return px;
 	const Font& font = TextFont();
 	const float w = font.MeasureWidth(text);
 	const float h = font.Height();
@@ -366,7 +430,7 @@ gfx::Rect Button::InkRect() const {
 void DrawButtonFace(gfx::SpriteBatch& batch, const Font& font,
 					const gfx::Rect& rect,
 					const std::string& label, const Theme& theme, bool hot,
-					bool held, bool enabled, const Skin* skin) {
+					bool held, bool enabled, const Skin* skin, float sink) {
 	if (skin && skin->button.texture) {
 		// Disabled dims the stone (the bevel keeps its edges); held sinks the
 		// bevel. Hot and held also wash the theme's control colour over the face,
@@ -391,7 +455,7 @@ void DrawButtonFace(gfx::SpriteBatch& batch, const Font& font,
 	}
 	const float textW = font.MeasureWidth(label);
 	font.Draw(batch, label, rect.x + (rect.w - textW) * 0.5f,
-			  rect.y + (rect.h - font.Height()) * 0.5f,
+			  rect.y + (rect.h - font.Height()) * 0.5f + sink,
 			  enabled ? theme.text : theme.textDim);
 }
 

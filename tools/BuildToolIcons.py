@@ -705,6 +705,40 @@ def glyph_cat_bykind(d):
                             fill=GLYPH)
 
 
+# --- face glyphs: an icon drawn ON a stone button's face ----------------------
+# ui::Button::faceIcon (ui-updates): no disc, no box - the button's own stone
+# face is the chrome. WHITE so the game tints it with the theme's text colour
+# (dimmed when the button is disabled), over the same soft dark drop the discs
+# use. Written as assets/ui/glyph_<name>.png.
+def glyph_cast(d):
+    # Cast: send it - a double chevron, the old Cast disc's mark.
+    w = 4.5
+    line(d, (27, 29), (39, 41.5), w)
+    line(d, (39, 41.5), (27, 54), w)
+    line(d, (43, 29), (55, 41.5), w)
+    line(d, (55, 41.5), (43, 54), w)
+
+
+FACE_GLYPHS = {
+    "cast": glyph_cast,
+    "clear": glyph_clear,
+}
+
+
+def render_face(draw):
+    layer = Image.new("RGBA", (SIZE * SS, SIZE * SS), (0, 0, 0, 0))
+    draw(ImageDraw.Draw(layer))
+    alpha = layer.resize((SIZE, SIZE), Image.LANCZOS).getchannel("A")
+    glyph = Image.new("RGBA", (SIZE, SIZE), (255, 255, 255, 0))
+    glyph.putalpha(alpha)
+    drop = Image.new("RGBA", (SIZE, SIZE), SHADOW[:3] + (0,))
+    drop.putalpha(alpha.point(lambda a: a * SHADOW[3] // 255).filter(ImageFilter.GaussianBlur(1.2)))
+    out = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
+    out.alpha_composite(drop, (1, 1))
+    out.alpha_composite(glyph)
+    return out
+
+
 def render(blank, draw):
     layer = Image.new("RGBA", (SIZE * SS, SIZE * SS), (0, 0, 0, 0))
     draw(ImageDraw.Draw(layer))
@@ -756,6 +790,11 @@ def main():
                        ("icon_tb_cat_bykind", glyph_cat_bykind)):
         path = os.path.join(UI, name + ".png")
         render(square, draw).save(path)
+        made.append(path)
+        print("wrote", os.path.relpath(path, ROOT))
+    for name, draw in FACE_GLYPHS.items():
+        path = os.path.join(UI, f"glyph_{name}.png")
+        render_face(draw).save(path)
         made.append(path)
         print("wrote", os.path.relpath(path, ROOT))
     if args.montage:

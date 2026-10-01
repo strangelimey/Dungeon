@@ -26,6 +26,7 @@
 #include "UI/Widget.h"
 
 #include <array>
+#include <chrono>
 #include <deque>
 #include <functional>
 #include <memory>
@@ -158,10 +159,36 @@ public:
 	// (the HUD movement pad).
 	const gfx::Texture* icon = nullptr;
 	int iconTurns = 0;
+	// An icon drawn ON the button's face in place of its label (ui-updates):
+	// the face keeps its stone, bevel and push, the icon - a white glyph,
+	// assets/ui/glyph_<name>.png from tools/BuildToolIcons.py - is tinted with
+	// the label's colour (dimmed when disabled) and sinks with it. Put the words
+	// in `tooltip`; `text` stays the fallback when the texture is missing.
+	const gfx::Texture* faceIcon = nullptr;
+
+	// THE PUSH (Michael, ui-updates: "animate as pushed, execute the action,
+	// then animate back"). A click does not fire the moment the button is
+	// released: the face SINKS into the pushed look (the label a pixel lower; an
+	// icon face shrinks a touch), the action runs at the BOTTOM of the press,
+	// and the face RISES back. So even a flick of a click is seen to land, and
+	// every button in the game reads alike. Timed on the steady clock - real
+	// time, allocation-free - and stepped from Update, so the callback still
+	// runs where callbacks always have (a page rebuild still defers itself).
+	static constexpr float kSinkSeconds = 0.07f;  // up -> fully pushed
+	static constexpr float kHoldSeconds = 0.05f;  // held at the bottom, then fire
+	static constexpr float kRiseSeconds = 0.10f;  // pushed -> up, after the action
 
 private:
+	using Clock = std::chrono::steady_clock;
+	enum class Push { None, Sinking, Rising };
+	// How far down the face is: 0 up, 1 fully pushed.
+	float Depth() const;
+
 	bool m_hot = false;
 	bool m_held = false;
+	Push m_push = Push::None;
+	Clock::time_point m_pressAt{}; // the sink's start (the press)
+	Clock::time_point m_riseAt{};  // the rise's start (just after the action)
 };
 
 // A labeled on/off box: a small square at the left with the label to its right;
@@ -880,11 +907,12 @@ gfx::Rect DrawFieldFace(const UIContext& ctx, gfx::SpriteBatch& batch, const gfx
 // hot/held wash the theme's control colors over it, disabled dims the tint —
 // so state still reads through the user's theme. Null skin = the flat look
 // (kept as debug mode); hand-drawn chrome callers pass their owner's skin.
+// `sink` (px) lowers the label, for a face caught mid-push (Button's animation).
 void DrawButtonFace(gfx::SpriteBatch& batch, const Font& font,
 					const gfx::Rect& rect,
 					const std::string& label, const Theme& theme, bool hot,
 					bool held = false, bool enabled = true,
-					const Skin* skin = nullptr);
+					const Skin* skin = nullptr, float sink = 0.0f);
 
 // Draws a drop-down's EXPANDER at the right end of `rect`: the authored box
 // (ui::ControlIcons::dropDown, or its dropDownOpen twin while `open`), brightened

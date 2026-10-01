@@ -168,9 +168,10 @@ void GameUI::LoadTitleArt() {
 	// without it the bars draw flat.
 	m_barFrameTex = TryLoadTextureFile(m_device, paths::Asset("ui\\bar_frame"));
 	m_barStyle.frame = m_barFrameTex.get();
-	// The spellbook's Cast/Clear icon faces (optional — text buttons without).
-	m_castIconTex = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_cast"));
-	m_clearIconTex = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_clear"));
+	// The spellbook's Cast / Clear face glyphs (tools/BuildToolIcons.py); without
+	// them the stone buttons carry their words.
+	m_castGlyphTex = TryLoadTextureFile(m_device, paths::Asset("ui\\glyph_cast"));
+	m_clearGlyphTex = TryLoadTextureFile(m_device, paths::Asset("ui\\glyph_clear"));
 	// The movement pad's chevrons (single = step, double = turn), rotated in
 	// quarter turns per direction by ui::Button::iconTurns.
 	m_chevronTex = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_chevron"));
@@ -1752,8 +1753,7 @@ void GameUI::BuildHud() {
 
 	m_spellbook = docks.spellbook;
 	m_spellbook->onClick = [this] { Click(); };
-	m_spellbook->castIcon = m_castIconTex.get();
-	m_spellbook->clearIcon = m_clearIconTex.get();
+	m_spellbook->SetActionIcons(m_castGlyphTex.get(), m_clearGlyphTex.get());
 	m_spellbook->spells = [this] {
 		return spellDefs ? spellDefs()
 						 : std::span<const std::unique_ptr<Spell>>{};
