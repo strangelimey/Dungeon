@@ -239,12 +239,8 @@ void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 									 *o, {1, 1, 1, 0.5f});
 				}
 			}
-		} else if (m_icons) {
-			if (const gfx::Texture* icon = m_icons->For(s.typeId)) {
-				const float p = r.w * 0.1f;
-				batch.DrawSprite({r.x + p, r.y + p, r.w - 2 * p, r.h - 2 * p}, {0, 0, 1, 1},
-								 *icon, {1, 1, 1, 1});
-			}
+		} else {
+			DrawItemIcon(batch, r, s.typeId, m_icons); // a rune glows (PartyHudDraw)
 		}
 	}
 
@@ -269,12 +265,7 @@ void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 
 	const Inventory& inv = m_character->inventory;
 	auto drawIcon = [&](const gfx::Rect& r, const std::string& typeId) {
-		if (typeId.empty() || !m_icons) return;
-		if (const gfx::Texture* icon = m_icons->For(typeId)) {
-			const float p = r.w * 0.1f;
-			batch.DrawSprite({r.x + p, r.y + p, r.w - 2 * p, r.h - 2 * p}, {0, 0, 1, 1},
-							 *icon, {1, 1, 1, 1});
-		}
+		DrawItemIcon(batch, r, typeId, m_icons); // a rune glows (PartyHudDraw)
 	};
 	for (int i = 0; i < kPackRowSlots; ++i) {
 		const gfx::Rect r = PackRowRect(px, i);

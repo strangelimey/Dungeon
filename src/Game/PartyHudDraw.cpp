@@ -224,6 +224,25 @@ void DrawRuneGlow(gfx::SpriteBatch& batch, const gfx::Rect& r, SpellSymbol s,
 					  c.z + (1.0f - c.z) * lift, 1.0f});
 }
 
+bool DrawItemIcon(gfx::SpriteBatch& batch, const gfx::Rect& r, std::string_view typeId,
+				  const ItemIconBank* icons, float pad) {
+	if (typeId.empty() || !icons) return false;
+	if (SpellSymbol s; RuneSymbolFromItemId(typeId, s)) {
+		// The Magic window's slow breath, each socket a little out of step with
+		// its neighbours (keyed off where it sits, so a row shimmers).
+		constexpr float kTwoPi = 6.2831853f;
+		const float phase = batch.Time() * (kTwoPi / 3.4f) - (r.x + r.y) * 0.013f;
+		DrawRuneGlow(batch, r, s, icons, /*hot=*/false, /*disabled=*/false, phase);
+		return true;
+	}
+	const gfx::Texture* icon = icons->For(typeId);
+	if (!icon) return false;
+	const float p = r.w * pad;
+	batch.DrawSprite({r.x + p, r.y + p, r.w - 2 * p, r.h - 2 * p}, {0, 0, 1, 1}, *icon,
+					 {1, 1, 1, 1});
+	return true;
+}
+
 void DrawRuneFace(gfx::SpriteBatch& batch, const gfx::Rect& r, SpellSymbol s,
 				  const ItemIconBank* icons, bool hot, bool disabled,
 				  bool background) {

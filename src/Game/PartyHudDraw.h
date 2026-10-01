@@ -97,4 +97,14 @@ Vec4 RuneGlowColor(SpellSymbol s);
 void DrawRuneGlow(gfx::SpriteBatch& batch, const gfx::Rect& r, SpellSymbol s,
 				  const ItemIconBank* icons, bool hot, bool disabled, float phase);
 
+// An ITEM in a socket `r` (the caller draws the socket): its icon, inset by
+// `pad` of the socket's width - except a RUNE TABLET, which is drawn the way the
+// Magic window draws a rune, its glyph lit over a pulsing halo (DrawRuneGlow;
+// Michael, ui-updates: the flat tile read as 2D beside the Magic window's).
+// Every item socket draws through this - hands, the doll, the backpack, the
+// party inventory - so a rune reads the same wherever it sits. False = nothing
+// to draw (empty id, no icon).
+bool DrawItemIcon(gfx::SpriteBatch& batch, const gfx::Rect& r, std::string_view typeId,
+				  const ItemIconBank* icons, float pad = 0.1f);
+
 } // namespace dungeon::game
