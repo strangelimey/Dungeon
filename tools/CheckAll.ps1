@@ -102,6 +102,14 @@ $checks = @(
 		selfTest = { & (Join-Path $root 'tools\AllocTest.ps1') -Config $Config -Seconds 10 -SelfTest | Out-Host; $LASTEXITCODE }
 	},
 	@{
+		name = 'typing'; tier = 'full'
+		what = 'typed console text arrives whole and in order (focus loss, heavy frames)'
+		# Every harness here drives the game by typing, so a dropped character
+		# fails a run for a reason unrelated to what it measures.
+		run      = { & (Join-Path $root 'tools\TypingTest.ps1') -Config $Config | Out-Host; $LASTEXITCODE }
+		selfTest = { & (Join-Path $root 'tools\TypingTest.ps1') -Config $Config -SelfTest | Out-Host; $LASTEXITCODE }
+	},
+	@{
 		name = 'health'; tier = 'full'
 		what = 'crashes, faults and stalls are caught, recorded and explained'
 		run      = { & (Join-Path $root 'tools\HealthTest.ps1') -Config $Config | Out-Host; $LASTEXITCODE }

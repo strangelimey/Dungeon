@@ -686,8 +686,15 @@ private:
 	bool EditingName() const;
 	void RefreshSuggestions();
 	bool SuggestListVisible() const;
-	// Handles the type-ahead's keys. Returns true when it consumed Enter.
+	// Handles the type-ahead's keys (Tab, Up/Down, Esc). Returns true when it
+	// consumed one, so the history keys and Esc-to-close stand down.
 	bool UpdateSuggest(const Input& input);
+	// Enter on a half-typed name takes the highlighted command into the line
+	// instead of running it. Returns true when it claimed this Enter.
+	bool SuggestTakesEnter();
+	// One Enter, where it fell in the typed text: the type-ahead's claim, else
+	// run the line (or refuse it while a load is mid-flight) and clear it.
+	void SubmitLine();
 	void AcceptSuggestion();
 	void DrawSuggest(gfx::SpriteBatch& batch, float width, float inputY, float line, float pad,
 					 float labelX);

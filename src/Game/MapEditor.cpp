@@ -397,21 +397,26 @@ bool MapEditor::MatchesFilter(const std::string& label) const {
 
 void MapEditor::HandleTyping(const Input& input) {
 	if (!m_filterFocused) return;
+	// The typed text in order (Input::TypedChars). Esc/Enter release the
+	// keyboard back to the game (Game gates the party keys and its own Esc/M on
+	// KeyboardCaptured while we hold it), so typing after an Enter is not ours.
 	bool edited = false;
 	for (const char c : input.TypedChars()) {
-		if (static_cast<unsigned char>(c) < 0x20) continue; // printable only
-		if (m_filter.size() >= 24) break;
-		m_filter.push_back(c);
+		if (c == Input::kTypedEnter) {
+			m_filterFocused = false;
+			break;
+		}
+		if (c == Input::kTypedBack) {
+			if (m_filter.empty()) continue;
+			m_filter.pop_back();
+		} else {
+			if (static_cast<unsigned char>(c) < 0x20) continue; // printable only
+			if (m_filter.size() >= 24) continue;
+			m_filter.push_back(c);
+		}
 		edited = true;
 	}
-	if (input.WasKeyPressed(vk::Back) && !m_filter.empty()) {
-		m_filter.pop_back();
-		edited = true;
-	}
-	// Esc/Enter release the keyboard back to the game (Game gates the party
-	// keys and its own Esc/M on KeyboardCaptured while we hold it).
-	if (input.WasKeyPressed(vk::Escape) || input.WasKeyPressed(vk::Return))
-		m_filterFocused = false;
+	if (input.WasKeyPressed(vk::Escape)) m_filterFocused = false;
 	if (edited) m_paletteScroll = 0.0f; // a changed filter restarts at the top
 }
 

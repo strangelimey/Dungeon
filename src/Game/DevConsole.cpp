@@ -271,44 +271,40 @@ void DevConsole::Update(const Input& input, float dt, float windowW, float windo
 		}
 	}
 
-	// Typed characters (skip the toggle key so `~`/backtick never self-types).
-	// Any edit re-opens the type-ahead list; see m_suggestOpen for why a history
-	// recall does not.
-	bool edited = false;
-	for (char c : input.TypedChars()) {
-		if (c == '`' || c == '~') continue;
-		m_input.push_back(c);
-		edited = true;
-	}
-	if (input.WasKeyPressed(VK_BACK) && !m_input.empty()) {
-		m_input.pop_back();
-		edited = true;
-	}
-	if (edited) {
+	// The typed text, IN ORDER: characters, Backspace and Enter exactly as they
+	// fell, so a frame holding `sheet 1<Enter>sh` runs `sheet 1` and starts the
+	// next line with `sh` (Input::TypedChars says why it is one stream). Skip the
+	// toggle key so `~`/backtick never self-types. Any edit re-opens the
+	// type-ahead list; see m_suggestOpen for why a history recall does not.
+	// Indexed afresh each step, not range-for: Enter runs a command, and the
+	// view must not be held across whatever that command does.
+	for (size_t i = 0; i < input.TypedChars().size(); ++i) {
+		const char c = input.TypedChars()[i];
+		if (c == Input::kTypedEnter) {
+			SubmitLine();
+			// A command that shut the console (alloctest, allocpoke) takes the
+			// rest of the frame's typing with it - there is nothing open to type
+			// into, the same as typing while it is closed.
+			if (!m_open) return;
+			continue;
+		}
+		if (c == Input::kTypedBack) {
+			if (m_input.empty()) continue;
+			m_input.pop_back();
+		} else {
+			if (c == '`' || c == '~') continue;
+			m_input.push_back(c);
+		}
 		m_suggestOpen = true;
 		m_suggestSel = 0;
 		m_historyIndex = -1;
 	}
 	RefreshSuggestions();
 
-	// The type-ahead takes Tab, Up/Down and Esc while its list shows, and Enter
-	// on a half-typed name. What it does not claim falls through to the ordinary
-	// editing below - so Enter, history and Esc all sit behind this one flag.
+	// The type-ahead takes Tab, Up/Down and Esc while its list shows (and Enter
+	// on a half-typed name, in SubmitLine). What it does not claim falls through
+	// to the ordinary keys below - so history and Esc sit behind this one flag.
 	const bool suggestConsumed = UpdateSuggest(input);
-
-	if (!suggestConsumed && input.WasKeyPressed(VK_RETURN)) {
-		if (!m_input.empty()) {
-			m_history.push_back(m_input);
-			// Gated while a staged load runs (see SetCommandsEnabled): the
-			// world is partially built, so no handler may touch it. The line
-			// stays in history — recall it with Up once the load finishes.
-			if (m_commandsEnabled) Execute(m_input);
-			else Print("commands are unavailable while loading");
-			m_input.clear();
-		}
-		m_historyIndex = -1;
-		m_suggestOpen = false;
-	}
 
 	// Command history recall. A recalled line leaves the type-ahead list shut
 	// (see m_suggestOpen), so the next Up steps further back.
@@ -358,6 +354,21 @@ void DevConsole::Update(const Input& input, float dt, float windowW, float windo
 	// Again, after Enter / a recall / a completion changed the line, so Render
 	// never draws suggestions for the line before this frame's keys.
 	RefreshSuggestions();
+}
+
+void DevConsole::SubmitLine() {
+	if (SuggestTakesEnter()) return;
+	if (!m_input.empty()) {
+		m_history.push_back(m_input);
+		// Gated while a staged load runs (see SetCommandsEnabled): the
+		// world is partially built, so no handler may touch it. The line
+		// stays in history - recall it with Up once the load finishes.
+		if (m_commandsEnabled) Execute(m_input);
+		else Print("commands are unavailable while loading");
+		m_input.clear();
+	}
+	m_historyIndex = -1;
+	m_suggestOpen = false;
 }
 
 // The collapse control every section header carries. Its face names what a

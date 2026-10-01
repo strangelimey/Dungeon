@@ -350,17 +350,20 @@ bool DevConsole::UpdateSuggest(const Input& input) {
 		m_suggestOpen = false;
 		return true;
 	}
-	if (input.WasKeyPressed(VK_RETURN)) {
-		// Typed a whole name and left it highlighted: run it, as Enter always did.
-		const Command* pick = m_suggest[static_cast<size_t>(m_suggestSel)];
-		if (pick->name == Lower(m_input)) return false;
-		// Otherwise Enter takes the highlighted command into the line. One that
-		// takes no arguments has nothing left to type, so it runs on the same
-		// press rather than asking for a second.
-		AcceptSuggestion();
-		return !pick->params.empty();
-	}
 	return false;
+}
+
+bool DevConsole::SuggestTakesEnter() {
+	RefreshSuggestions(); // the line as it stands at THIS Enter, not the frame's end
+	if (!EditingName() || !SuggestListVisible()) return false;
+	// Typed a whole name and left it highlighted: run it, as Enter always did.
+	const Command* pick = m_suggest[static_cast<size_t>(m_suggestSel)];
+	if (pick->name == Lower(m_input)) return false;
+	// Otherwise Enter takes the highlighted command into the line. One that
+	// takes no arguments has nothing left to type, so it runs on the same
+	// press rather than asking for a second.
+	AcceptSuggestion();
+	return !pick->params.empty();
 }
 
 void DevConsole::DrawSuggest(gfx::SpriteBatch& batch, float width, float inputY, float line,

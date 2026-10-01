@@ -1071,17 +1071,26 @@ void TextField::UpdateSelf(UIContext& ctx) {
 	}
 	if (!m_focused) return;
 
+	// The typed text in order (Input::TypedChars): Backspace where it fell, and
+	// an Enter ends this frame's typing - submitting usually closes whatever the
+	// field is on, so nothing typed after it is applied to the old text.
 	bool changed = false;
+	bool submit = false;
 	for (const char c : input->TypedChars()) {
-		if (text.size() >= maxLength) break;
-		text.push_back(c); // OnChar already filtered to printable characters
+		if (c == Input::kTypedEnter) {
+			submit = true;
+			break;
+		}
+		if (c == Input::kTypedBack) {
+			if (text.empty()) continue;
+			text.pop_back();
+		} else {
+			if (text.size() >= maxLength) continue;
+			text.push_back(c);
+		}
 		changed = true;
 	}
-	if (input->WasKeyPressed(vk::Back) && !text.empty()) {
-		text.pop_back();
-		changed = true;
-	}
-	if (input->WasKeyPressed(vk::Return) && onSubmit) onSubmit();
+	if (submit && onSubmit) onSubmit();
 	if (changed && onChange) onChange();
 }
 

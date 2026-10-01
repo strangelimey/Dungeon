@@ -8,14 +8,25 @@ namespace dungeon {
 
 void Input::OnKey(int vkey, bool down) {
 	vkey &= 0xFF;
-	if (down && !m_keys[vkey]) m_keysPressed[vkey] = true;
+	if (down && !m_keys[vkey]) {
+		m_keysPressed[vkey] = true;
+		// Backspace and Enter also join the typed text, where they fall among
+		// the characters (see TypedChars). From the KEY, not from the WM_CHAR
+		// TranslateMessage makes of it: OnChar drops control codes, so a real
+		// keyboard does not count them twice, and a posted key-down (every
+		// harness) arrives with no WM_CHAR at all. On the press only, like the
+		// edge - a held Enter must not submit over and over.
+		if (vkey == vk::Back) m_typed.push_back(kTypedBack);
+		if (vkey == vk::Return) m_typed.push_back(kTypedEnter);
+	}
 	if (!down && m_keys[vkey]) m_keysReleased[vkey] = true;
 	m_keys[vkey] = down;
 }
 
 void Input::OnChar(unsigned int codepoint) {
-	// Keep printable characters only; control codes (Enter, Backspace, Esc,
-	// Tab) reach the consumer through the edge-triggered key queries instead.
+	// Keep printable characters only; Enter and Backspace join the stream from
+	// OnKey, and the other control codes (Esc, Tab) reach the consumer through
+	// the edge-triggered key queries.
 	if (codepoint >= 32 && codepoint != 127)
 		m_typed.push_back(static_cast<char>(codepoint & 0xFF));
 }
@@ -53,19 +64,28 @@ std::string KeyName(int vkey) {
 	return std::format("Key {:#04x}", vkey);
 }
 
-void Input::EndFrame() {
+void Input::ClearEdges() {
 	m_keysPressed.fill(false);
 	m_keysReleased.fill(false);
 	m_mousePressed.fill(false);
 	m_mouseReleased.fill(false);
-	m_typed.clear();
 	m_wheel = 0.0f;
+}
+
+void Input::EndFrame() {
+	ClearEdges();
+	// Only what this frame SHOWED. A character that arrived after BeginFrame -
+	// dispatched mid-frame by anything that pumps messages - was never offered
+	// to a reader, so it waits for the next frame instead of vanishing. (No
+	// allocation: erase keeps the capacity.)
+	m_typed.erase(0, m_typedFrame);
+	m_typedFrame = 0;
 }
 
 void Input::ClearAll() {
 	m_keys.fill(false);
 	m_mouse.fill(false);
-	EndFrame(); // and every one-frame edge with them
+	ClearEdges(); // and every one-frame edge with them - but not the typed text
 }
 
 void Input::ClearMouseButtons() {
