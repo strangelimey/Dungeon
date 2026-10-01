@@ -67,15 +67,9 @@ gfx::Rect CharacterSheet::PackRowRect(const gfx::Rect& px, int i) const {
 }
 void CharacterSheet::ClickSlot(ItemSlot& slot) {
 	if (!m_held) return;
-	if (m_held->has_value()) {
-		std::string incoming = **m_held; // place; any occupant returns to cursor
-		if (slot.Empty()) m_held->reset();
-		else *m_held = slot.typeId;
-		slot.typeId = std::move(incoming);
-	} else if (!slot.Empty()) {
-		*m_held = slot.typeId; // pick the slot's item up onto the cursor
-		slot.Clear();
-	}
+	// Place (any occupant returns to the cursor) or pick up: one exchange,
+	// which allocates nothing (see HeldItem).
+	if (m_held->has_value() || !slot.Empty()) m_held->SwapWith(slot.typeId);
 }
 void CharacterSheet::EquipOrSelectPack(int i) {
 	if (!m_character) return;
@@ -90,14 +84,16 @@ void CharacterSheet::EquipOrSelectPack(int i) {
 		}
 		// Refuse to drop onto a pack that holds items (its contents would be lost).
 		if (slot.HasItems()) return;
-		std::string incoming = **m_held;
 		// Fresh capacity from the catalog (this pack type's content slots).
-		int cap = m_categories->Capacity(incoming);
+		int cap = m_categories->Capacity(**m_held);
 		if (cap <= 0) cap = kBackpackStart;
-		if (slot.Empty()) m_held->reset();   // equip into an empty slot
-		else *m_held = slot.typeId;           // swap the (empty) pack onto the cursor
-		slot.typeId = std::move(incoming);
-		slot.contents.assign(static_cast<size_t>(cap), {});
+		// Equip into an empty slot, or swap the (empty) pack onto the cursor.
+		m_held->SwapWith(slot.typeId);
+		// Every slot is already empty (HasItems above), so only the COUNT
+		// changes - a resize, not an assign, so a pack that keeps or loses
+		// slots reuses its strings. Growing still allocates the new slots: a
+		// bigger bag is new storage, which is a known cost of equipping one.
+		slot.contents.resize(static_cast<size_t>(cap));
 		inv.selectedPack = i;                 // view the newly equipped pack
 	} else if (!slot.Empty()) {
 		inv.selectedPack = i; // empty-handed: select this pack

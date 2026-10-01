@@ -1257,6 +1257,7 @@ void DungeonWorld::LoadItems() {
 		}
 		m_items.push_back({&kind, spawn.id, spawn.x, spawn.z, false, slot});
 	}
+	ReserveDropRoom();
 }
 
 void DungeonWorld::LoadButtons() {
@@ -1293,15 +1294,15 @@ static bool InReach(int x, int z, int px, int pz) {
 	return std::abs(x - px) + std::abs(z - pz) <= 1;
 }
 
-std::optional<std::string> DungeonWorld::TryPickItem(float mx, float my, float w,
-													 float h) {
+const std::string* DungeonWorld::TryPickItem(float mx, float my, float w, float h) {
 	const int best = PickItemIndex(mx, my, w, h);
-	if (best < 0) return std::nullopt;
+	if (best < 0) return nullptr;
 	Item& picked = m_items[static_cast<size_t>(best)];
 	picked.collected = true; // off the floor
+	++m_harness.tally.lifts;
 	m_audio.Play(m_sounds.click, 0.6f); // placeholder pickup cue
 	if (onMessage) onMessage(loc::FormatLine("log.take_rune", loc::View(picked.kind->nameKey)));
-	return picked.kind->id;
+	return &picked.kind->id;
 }
 
 const std::string* DungeonWorld::ItemTypeUnder(float mx, float my, float w, float h) const {
@@ -1363,6 +1364,7 @@ int DungeonWorld::PickItemIndex(float mx, float my, float w, float h) const {
 
 void DungeonWorld::DropItemAt(const std::string& typeId, float mx, float my,
 							  float w, float h) {
+	++m_harness.tally.drops; // always succeeds - a niche, the floor or the feet
 	const int px = m_party.GridX(), pz = m_party.GridZ();
 	const gfx::Camera::Ray ray = m_camera.ScreenRay(mx, my, w, h);
 	// First: does the ray land in an OPEN niche's pocket within reach? Drop into
@@ -1385,8 +1387,7 @@ void DungeonWorld::DropItemAt(const std::string& typeId, float mx, float my,
 	if (bestNiche >= 0) {
 		const WallNiche& n = niches[static_cast<size_t>(bestNiche)];
 		ItemKind& kind = ItemKindFor(typeId);
-		m_items.push_back(
-			{&kind, m_nextDropId--, n.x, n.z, false, 0, static_cast<int>(n.wall)});
+		PlaceDrop({&kind, m_nextDropId--, n.x, n.z, false, 0, static_cast<int>(n.wall)});
 		m_audio.Play(m_sounds.click, 0.5f);
 		if (onMessage) onMessage(loc::FormatLine("log.drop_rune", loc::View(kind.nameKey)));
 		return;
@@ -1411,9 +1412,34 @@ void DungeonWorld::DropItemAt(const std::string& typeId, float mx, float my,
 	}
 	ItemKind& kind = ItemKindFor(typeId);
 	const int slot = FreeItemSlotNear(cx, cz, wx, wz, -1);
-	m_items.push_back({&kind, m_nextDropId--, cx, cz, false, slot});
+	PlaceDrop({&kind, m_nextDropId--, cx, cz, false, slot});
 	m_audio.Play(m_sounds.click, 0.5f);
 	if (onMessage) onMessage(loc::FormatLine("log.drop_rune", loc::View(kind.nameKey)));
+}
+
+void DungeonWorld::PlaceDrop(const Item& item) {
+	for (Item& dead : m_items)
+		if (dead.id < 0 && dead.collected) {
+			dead = item;
+			return;
+		}
+	m_items.push_back(item);
+}
+
+namespace {
+// Spare room ReserveDropRoom keeps for drops that do not land in a dead slot:
+// that many DIFFERENT items can lie newly on the floor before a drop grows the
+// list. A party carries about forty slots between four members.
+constexpr size_t kDropRoom = 64;
+} // namespace
+
+void DungeonWorld::ReserveDropRoom() {
+	if (m_items.capacity() - m_items.size() < kDropRoom)
+		m_items.reserve(m_items.size() + kDropRoom);
+}
+
+void DungeonWorld::PreloadItemKinds() {
+	for (const CatalogEntry* def : m_project.AllItems()) ItemKindFor(def->id);
 }
 
 // Floor items occupy the Medium 2x2 quarter grid (up to 4 per cell). Pick the

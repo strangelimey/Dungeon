@@ -26,7 +26,7 @@ CharacterSheet::CharacterSheet(const gfx::Rect& rect,
 							   const ItemWeightBank* weights,
 							   const ItemIconBank* slotIcons,
 							   const ItemCategoryBank* categories,
-							   std::optional<std::string>* held)
+							   HeldItem* held)
 	: m_roster(roster), m_barColors(barColors),
 	  m_icons(icons), m_weights(weights), m_slotIcons(slotIcons),
 	  m_categories(categories), m_held(held),

@@ -14,6 +14,7 @@
 #   .\tools\AllocTest.ps1 -Impact            # bolts landing, expiring, a blast
 #   .\tools\AllocTest.ps1 -Pause             # Esc to the pause menu and back
 #   .\tools\AllocTest.ps1 -Sheet             # the sheet: hover, tabs, item dialog
+#   .\tools\AllocTest.ps1 -Items             # pack -> cursor -> floor -> cursor -> pack
 #   .\tools\AllocTest.ps1 -Config release    # needs -DDN_TRACK_ALLOCS=ON
 #
 # THE RULE HAS NO EXCEPTIONS: an allocation in a settled frame is a bug, and
@@ -127,6 +128,30 @@
 # opens made during the window, since a missed click reports exactly like a
 # clean run.
 #
+# -Items IS MOVING AN ITEM, which no run did (found by accident 2026-09-30, when
+# a -Panels click on the ui-panels branch landed on an inventory slot and a later
+# one on the floor). Two defects, both logged with call stacks: every pick, put
+# and swap COPIED the cursor's id into a fresh std::string (the debug CRT
+# allocates for any string it constructs, short or not), and the first time a
+# kind of item reached the floor its kind was BUILT - a rune's first drop loaded
+# its PBR set, 246 allocations and 2 MB in one guarded frame. The cursor now
+# swaps strings with the slot (Game/Inventory.h HeldItem) and every item kind is
+# built at load (DungeonWorld::PreloadItemKinds).
+# This goes to eval_arena (open floor ahead, like -Impact), freezes it, puts two
+# runes in the pack of a member with room, and opens the party inventory window from the
+# console (`inventory`). Each cycle: pick the rune out of its slot, click the
+# floor (which shuts the window), click it again (drop), and again (lift), then
+# reopen the window and put it back. The floor point is computed from the
+# camera (70 degree lens, eye 1.55 m up) to land in the FAR quarter of the
+# square ahead, so the lift - which samples the ray at the item's own height,
+# nearer the party - still lands in the same quarter. ONE rune runs a warm-up
+# cycle first, which also checks the coordinates (`inventory status`); the
+# window then moves the OTHER rune, so its FIRST drop is inside the window - a
+# first time for a KIND is paid again by every kind a player drops, so it is
+# not warm-up (the -Impact lesson). It refuses a PASS unless the window's tally
+# counts at least two drops and two lifts, which also puts the put-back between
+# them inside the window.
+#
 # Every step is driven by what the log actually says rather than by sleeps, so
 # a slow cold-cache load stretches the wait instead of failing the run.
 #
@@ -169,12 +194,21 @@ param(
 	[switch]$Pause,
 	# Works the character sheet inside the window. See the note above.
 	[switch]$Sheet,
+	# Moves an item pack -> floor -> pack inside the window. See the note above.
+	[switch]$Items,
+	# The warm-up item and the measured one: two different kinds, the second
+	# never dropped before the window opens.
+	[string]$WarmItem = 'rune_air',
+	[string]$MeasureItem = 'rune_water',
 	# Checks the CHECKER: makes the game allocate every frame on purpose
 	# (`allocpoke`) and passes only if the run comes back FAIL.
 	[switch]$SelfTest
 )
 
 $ErrorActionPreference = 'Stop'
+# -Items spends about four armed seconds a round trip and needs two whole ones
+# inside the window, so its default window is longer.
+if ($Items -and -not $PSBoundParameters.ContainsKey('Seconds')) { $Seconds = 20 }
 $root = Split-Path -Parent $PSScriptRoot
 $bin = Join-Path $root "build\$Config\bin"
 
@@ -295,6 +329,101 @@ function Assert-PartyAt([int]$x, [int]$z) {
 	}
 	$got = Select-String -Path $log -Pattern 'console: \d+,\d+ facing ' | Select-Object -Last 1
 	throw "the party is not at $x,$z facing north (pos: $(if ($got) { $got.Line } else { 'no answer' }))"
+}
+
+# Goes to eval_arena, freezes its monsters and heals the party (needs logecho on
+# and the console open). -Impact and -Items both want its open floor.
+function Enter-FrozenArena {
+	# The console refuses commands while the level loads; a NEW "Level
+	# ready" line is the moment it will take them again. NEW, counted from
+	# before the goto: when the landing page Continues an eval save, the
+	# game has ALREADY printed one for eval_arena, the wait matched it at
+	# once, and `tp` and `face` were typed into the reload and refused - the
+	# party then fired the whole barrage the wrong way.
+	$readyPattern = '^\[info \] Level ready: eval_arena'
+	$readyBefore = @(Select-String -Path $log -Pattern $readyPattern).Count
+	Send-Text 'goto eval_arena'; Send-Key 0x0D
+	$deadline = (Get-Date).AddSeconds($LoadTimeoutSec)
+	while (@(Select-String -Path $log -Pattern $readyPattern).Count -le $readyBefore) {
+		if ($proc.HasExited) { throw "the game exited during the arena load (code $($proc.ExitCode))" }
+		if ((Get-Date) -gt $deadline) { throw 'timed out waiting for the arena load' }
+		Start-Sleep -Milliseconds 500
+	}
+	# FREEZE FIRST, THEN HEAL. A new game arrives on eval_arena's start
+	# square among the arena's own monsters, which got two seconds to act
+	# while the script typed: a fresh run found Sera down at 0 hp, and every
+	# one of her 54 casts refused. (A Continue into an eval save happened
+	# to arrive somewhere quieter, which is why it passed.)
+	Send-Text 'freeze on'; Send-Key 0x0D
+	Send-Text 'heal'; Send-Key 0x0D
+	Start-Sleep -Milliseconds 800
+}
+
+# `inventory status`, minus the log prefix (needs logecho on and the console
+# open): "inventory: open|closed held=<id|none> | 0: <slot> <slot> ... | 1: ...".
+function Get-InventoryStatus {
+	$pattern = 'console: inventory: '
+	$before = @(Select-String -Path $log -Pattern $pattern -SimpleMatch).Count
+	Send-Text 'inventory status'; Send-Key 0x0D
+	$deadline = (Get-Date).AddSeconds(5)
+	while ((Get-Date) -lt $deadline) {
+		$lines = @(Select-String -Path $log -Pattern $pattern -SimpleMatch)
+		if ($lines.Count -gt $before) { return $lines[-1].Line -replace '^.*console: ', '' }
+		Start-Sleep -Milliseconds 200
+	}
+	throw 'the console never answered `inventory status`'
+}
+
+# Member $m's pack slots ('-' = free), from an `inventory status` line.
+function Get-PackSlots([string]$status, [int]$m) {
+	if ($status -notmatch "\| ${m}:((?: [^|\s]+)*)") { throw "no member $m in: $status" }
+	return @($Matches[1].Trim() -split ' ')
+}
+
+# Where item $id sits in member $m's pack.
+function Get-PackSlot([string]$status, [int]$m, [string]$id) {
+	$i = [array]::IndexOf((Get-PackSlots $status $m), $id)
+	if ($i -lt 0) { throw "$id is not in member $m's pack: $status" }
+	return $i
+}
+
+# The centre of member $m's pack slot $i in the party inventory window, from
+# the fractions InventoryWindow.cpp lays it out by (panel of the window, slots
+# of the panel; four member columns, two slots across).
+function Get-InventorySlotPoint([int]$m, [int]$i) {
+	$pw = $script:clientW * 0.72; $ph = $script:clientH * 0.54
+	$px = ($script:clientW - $pw) / 2; $py = ($script:clientH - $ph) / 2
+	$pad = 0.025 * $pw; $gap = 0.015 * $pw
+	$colW = ($pw - 2 * $pad) / 4
+	$slotW = ($colW - 3 * $gap) / 2
+	$top = $py + (0.025 + 0.055 + 0.045) * $ph
+	$col = $i % 2; $row = [math]::Floor($i / 2)
+	return [pscustomobject]@{
+		X = [int]($px + $pad + $m * $colW + $gap + $col * ($slotW + $gap) + $slotW / 2)
+		Y = [int]($top + $row * ($slotW + $gap) + $slotW / 2)
+	}
+}
+
+# A left click at client pixel (x, y).
+function Send-Click([int]$x, [int]$y) { Send-Mouse $x $y 0x201 0x202 1 }
+
+# One round trip for the item in member 0's pack slot $slot, starting with the
+# party inventory window OPEN and the console shut: out of the slot onto the
+# cursor; a floor click, which only shuts the window (it claims the click); a
+# second, the drop; a third, the lift; then the window reopened from the
+# console and the item put back. Ends as it began. The wait after the console
+# shuts is the guard's 120-frame warm-up, so the put lands in an armed frame.
+function Invoke-ItemRoundTrip($slot) {
+	Send-Click $slot.X $slot.Y
+	Send-Click $script:floorX $script:floorY
+	Send-Click $script:floorX $script:floorY
+	Send-Click $script:floorX $script:floorY
+	Send-Key 0xC0
+	Start-Sleep -Milliseconds 400
+	Send-Text 'inventory'; Send-Key 0x0D
+	Send-Key 0xC0
+	Start-Sleep -Seconds 3
+	Send-Click $slot.X $slot.Y
 }
 
 # One numeric field of the tally line Get-TallyField last read.
@@ -464,29 +593,7 @@ try {
 		Send-Key 0xC0
 		Start-Sleep -Milliseconds 500
 		Send-Text 'logecho on'; Send-Key 0x0D
-		# The console refuses commands while the level loads; a NEW "Level
-		# ready" line is the moment it will take them again. NEW, counted from
-		# before the goto: when the landing page Continues an eval save, the
-		# game has ALREADY printed one for eval_arena, the wait matched it at
-		# once, and `tp` and `face` were typed into the reload and refused - the
-		# party then fired the whole barrage the wrong way.
-		$readyPattern = '^\[info \] Level ready: eval_arena'
-		$readyBefore = @(Select-String -Path $log -Pattern $readyPattern).Count
-		Send-Text 'goto eval_arena'; Send-Key 0x0D
-		$deadline = (Get-Date).AddSeconds($LoadTimeoutSec)
-		while (@(Select-String -Path $log -Pattern $readyPattern).Count -le $readyBefore) {
-			if ($proc.HasExited) { throw "the game exited during the arena load (code $($proc.ExitCode))" }
-			if ((Get-Date) -gt $deadline) { throw 'timed out waiting for the arena load' }
-			Start-Sleep -Milliseconds 500
-		}
-		# FREEZE FIRST, THEN HEAL. A new game arrives on eval_arena's start
-		# square among the arena's own monsters, which got two seconds to act
-		# while the script typed: a fresh run found Sera down at 0 hp, and every
-		# one of her 54 casts refused. (A Continue into an eval save happened
-		# to arrive somewhere quieter, which is why it passed.)
-		Send-Text 'freeze on'; Send-Key 0x0D
-		Send-Text 'heal'; Send-Key 0x0D
-		Start-Sleep -Milliseconds 800
+		Enter-FrozenArena
 		# The room is open from 1,1 to 26,22 (28x24 with a solid border). The
 		# monster stands THREE squares north of the party: a bolt's `range` is
 		# in METRES (flame's 8 m is 3.2 squares), so at five every bolt went
@@ -620,6 +727,80 @@ try {
 		$script:slotY = [int]($rc.Bottom * 0.5033)
 	}
 
+	if ($Items) {
+		Write-Host "going to eval_arena: $WarmItem warms up, $MeasureItem is measured"
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		Enter-FrozenArena
+		# Facing north across open floor at 14,17 (the room is open from 1,1 to
+		# 26,22), so the square ahead takes a drop. WALKED onto, not teleported:
+		# `tp` reveals nothing, and a drop only lands on a square the party has
+		# SEEN - an unseen one falls back to its feet, out of view, and the first
+		# run of this lifted nothing for exactly that reason. A step reveals the
+		# eight squares round where it lands.
+		Send-Text 'tp 14 18'; Send-Key 0x0D
+		Send-Text 'face n'; Send-Key 0x0D
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 400
+		Send-Key 0x57 # W: one step forward
+		Start-Sleep -Seconds 1
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 400
+		Assert-PartyAt 14 17
+		# Whoever has two free pack slots carries them: a Continued eval save can
+		# leave any member's pack full.
+		$status = Get-InventoryStatus
+		$member = -1
+		for ($m = 0; $m -lt 4 -and $member -lt 0; $m++) {
+			if (@(Get-PackSlots $status $m | Where-Object { $_ -eq '-' }).Count -ge 2) { $member = $m }
+		}
+		if ($member -lt 0) { throw "no member has two free pack slots: $status" }
+		Send-Text "give $WarmItem $member"; Send-Key 0x0D
+		Send-Text "give $MeasureItem $member"; Send-Key 0x0D
+		Start-Sleep -Milliseconds 300
+		$status = Get-InventoryStatus
+		$warmSlot = Get-PackSlot $status $member $WarmItem
+		$measureSlot = Get-PackSlot $status $member $MeasureItem
+		Write-Host "  member $member carries $WarmItem in slot $warmSlot, $MeasureItem in slot $measureSlot"
+		$rc = New-Object AllocTestWin+RECT
+		[AllocTestWin]::GetClientRect($hwnd, [ref]$rc) | Out-Null
+		$script:clientW = [double]$rc.Right; $script:clientH = [double]$rc.Bottom
+		$script:warmPoint = Get-InventorySlotPoint $member $warmSlot
+		$script:measurePoint = Get-InventorySlotPoint $member $measureSlot
+		# THE FLOOR POINT, from the camera: a 70 degree vertical lens with the eye
+		# 1.55 m up (kEyeHeight), level. A pixel ndc units below the centre sees
+		# the floor at 1.55 / (ndc * tan 35) metres. 3.3 m is the FAR quarter of
+		# the square ahead (2.5 to 3.75), far enough that the lift - which
+		# samples the ray at the item's own mid-height, a rune's 0.23 m, so about
+		# 2.8 m out - is still in it. Left of centre puts both in the west half.
+		$ndc = (1.55 / 3.3) / [math]::Tan(35 * [math]::PI / 180)
+		$script:floorX = [int]($script:clientW * 0.40)
+		$script:floorY = [int]($script:clientH * (0.5 + $ndc / 2))
+		Send-Text 'tally reset'; Send-Key 0x0D
+		Send-Text 'inventory'; Send-Key 0x0D
+		Send-Key 0xC0
+		Start-Sleep -Seconds 1
+		# WARM-UP, and the check that every click lands where it is aimed: a
+		# first drop's sound voice and the like are first times for the PROCESS.
+		Invoke-ItemRoundTrip $script:warmPoint
+		Start-Sleep -Milliseconds 500
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		$drops = Get-TallyField 'drops'
+		$lifts = Get-LastTallyField 'lifts'
+		$status = Get-InventoryStatus
+		if ($drops -ne 1 -or $lifts -ne 1 -or $status -notmatch 'held=none' -or
+			(Get-PackSlot $status $member $WarmItem) -ne $warmSlot) {
+			throw "the warm-up round trip went wrong (drops=$drops lifts=$lifts; $status) - " +
+				"slot $($script:warmPoint.X),$($script:warmPoint.Y), floor $($script:floorX),$($script:floorY)"
+		}
+		Write-Host "  warm-up round trip ok (floor point $($script:floorX),$($script:floorY))"
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0 # close the console again; alloctest reopens it below
+		Start-Sleep -Milliseconds 400
+	}
+
 	if ($SelfTest) {
 		Write-Host 'self-test: arming allocpoke, expecting the run to FAIL'
 		Send-Key 0xC0
@@ -669,6 +850,17 @@ try {
 		}
 	}
 
+	# -Items: round trips with the measured item while the window runs. The
+	# window is still open from the warm-up; the first wait clears the console
+	# close plus the guard's 120-frame warm-up, so the first pick is armed.
+	if ($Items) {
+		for ($cycle = 1; $cycle -le 3; $cycle++) {
+			Start-Sleep -Seconds 3
+			if (Select-String -Path $log -Pattern 'alloctest RESULT=' -Quiet) { break }
+			Invoke-ItemRoundTrip $script:measurePoint
+		}
+	}
+
 	# The command closes the console itself, then spends its budget on armed
 	# frames only; its own deadline guarantees a line either way.
 	$line = Wait-ForLog 'alloctest RESULT=' ($Seconds * 4 + 60) 'the alloctest result'
@@ -680,7 +872,7 @@ try {
 	# logs the harness tally, which the window's first ARMED frame restarted.
 	# (Asking `tally` afterwards used to count the console's frames, the
 	# guard's warm-up and whatever landed while the question was being typed.)
-	if ($Melee -or $Impact) {
+	if ($Melee -or $Impact -or $Items) {
 		$script:lastTally = (Wait-ForLog 'alloctest window TALLY ' 10 'the window tally') -replace '^.*TALLY ', 'TALLY '
 		Write-Host "  in the window: $script:lastTally"
 	}
@@ -717,6 +909,19 @@ try {
 		Write-Host "  transitions inside the window: $transitions"
 		if ($transitions -le 0 -and $result -eq 'PASS') {
 			Write-Host 'no Esc landed in an armed frame - the pause transition was not measured' -ForegroundColor Yellow
+			$result = 'UNMEASURED'
+		}
+	}
+
+	# And for -Items: two drops and two lifts inside the window, which puts the
+	# first round trip's put-back between them inside it too. Fewer means a
+	# click missed or the window closed early, and the moves were not measured.
+	if ($Items) {
+		$drops = Get-LastTallyField 'drops'
+		$lifts = Get-LastTallyField 'lifts'
+		Write-Host "  floor drops / lifts inside the window: $drops / $lifts"
+		if (($drops -lt 2 -or $lifts -lt 2) -and $result -eq 'PASS') {
+			Write-Host 'fewer than two round trips inside the window - the item moves were not measured' -ForegroundColor Yellow
 			$result = 'UNMEASURED'
 		}
 	}

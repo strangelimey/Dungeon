@@ -27,7 +27,7 @@ constexpr int kInvCols = 2;
 
 InventoryWindow::InventoryWindow(std::vector<Character>* roster,
 								 const ItemIconBank* icons,
-								 std::optional<std::string>* held)
+								 HeldItem* held)
 	: m_roster(roster), m_icons(icons), m_held(held),
 	  m_title(loc::Tr("ui.inv_all")) {}
 
@@ -90,16 +90,10 @@ void InventoryWindow::UpdateSelf(ui::UIContext& ctx) {
 			auto& pack = (*m_roster)[static_cast<size_t>(m)].inventory.SelectedContents();
 			for (int i = 0; i < static_cast<int>(pack.size()); ++i) {
 				if (!SlotRect(panel, m, i).Contains(mx, my)) continue;
+				// Pick, put or swap: one exchange (HeldItem - no allocation).
 				ItemSlot& s = pack[static_cast<size_t>(i)];
-				if (m_held && m_held->has_value()) {
-					std::string incoming = **m_held;
-					if (s.Empty()) m_held->reset();
-					else *m_held = s.typeId;
-					s.typeId = std::move(incoming);
-				} else if (!s.Empty()) {
-					*m_held = s.typeId;
-					s.Clear();
-				}
+				if (m_held && (m_held->has_value() || !s.Empty()))
+					m_held->SwapWith(s.typeId);
 				ctx.ConsumeMouse();
 				return;
 			}

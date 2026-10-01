@@ -174,7 +174,7 @@ public:
 				   const ResourceBarColors* barColors, const ItemIconBank* icons,
 				   const ItemWeightBank* weights, const ItemIconBank* slotIcons,
 				   const ItemCategoryBank* categories,
-				   std::optional<std::string>* held);
+				   HeldItem* held);
 
 	// Re-points the sheet at roster member `member` (mutable, for inventory
 	// edits) and caches its strings. An out-of-range index leaves the sheet
@@ -327,7 +327,7 @@ private:
 	const ItemWeightBank* m_weights;
 	const ItemIconBank* m_slotIcons; // equipment-slot outline silhouettes
 	const ItemCategoryBank* m_categories; // item id → category (pack = container)
-	std::optional<std::string>* m_held;
+	HeldItem* m_held;
 	// What the pointer is over, refreshed every Update: the doll cell index, or
 	// the pack slot index, or neither. Only ever one of them.
 	int m_hoverDoll = -1;

@@ -134,6 +134,13 @@ public:
 	// The baked 3D icon for an item type (building its kind on demand), or null
 	// for a model-less item (the caller falls back to its flat placeholder).
 	const gfx::Texture* ItemIconFor(const std::string& typeId);
+	// Builds the kind of EVERY catalog item, at load. A kind's first build
+	// loads its model or its rune's PBR set (a first rune drop measured 246
+	// allocations / 2 MB in a guarded frame), and an item can reach the floor
+	// from any pack in any frame - so no kind is left for play to build. The
+	// icon pass (Game::LoadItemIcons) already built every non-rune kind by
+	// asking for its icon; runes never ask, which is how they were missed.
+	void PreloadItemKinds();
 	// Renders the map overlay's baked icons: each monster kind's HEAD SHOT (its
 	// mesh in rest pose framed on the model's top quarter — a skull for the
 	// skeleton), each decoration kind's whole model (props read best in full;
@@ -344,6 +351,11 @@ public:
 		// because a run that means to measure an impact must be able to show one
 		// happened: `dealt` cannot tell a bolt from the burn it left behind.
 		int boltHits = 0, boltMisses = 0, expiries = 0, blasts = 0;
+		// FLOOR ITEMS: a held item laid on the floor (the cursor drop; not a
+		// weapon a fumble knocks loose) and a floor item lifted onto the cursor.
+		// Counted for tools\AllocTest.ps1 -Items, which must show the moves it
+		// measures actually happened.
+		int drops = 0, lifts = 0;
 	};
 
 	// ========================================================================
@@ -573,9 +585,10 @@ public:
 	// rests in — gated by reach (the cell is the party cell or orthogonally
 	// adjacent) + seen. The top item (last in render order) wins. It is removed
 	// from the floor and its catalog id returned (Game puts it on the cursor);
-	// nullopt if nothing pickable is under the cursor. Pure query+remove — no
-	// satchel/knowledge side effects.
-	std::optional<std::string> TryPickItem(float mx, float my, float w, float h);
+	// null if nothing pickable is under the cursor. The id is the kind's own, so
+	// it outlives the call and the lift copies nothing (it runs in a guarded
+	// frame). Pure query+remove - no satchel/knowledge side effects.
+	const std::string* TryPickItem(float mx, float my, float w, float h);
 	// The same pick WITHOUT the lift: the type of the floor item under the
 	// cursor (the item details dialog's right-click), or null. The id lives in
 	// the item's kind, so the pointer outlives the call.
@@ -2486,6 +2499,13 @@ private:
 	// Lazily loads (and caches) the shared behaviour for an item type, resolved
 	// through the items catalog (category=rune → symbol + element glow colour).
 	ItemKind& ItemKindFor(const std::string& type);
+	// Lays a RUNTIME drop (negative id) on the floor: into the slot of a
+	// runtime drop that was picked back up (it is dead - the save skips it)
+	// when there is one, else onto the end. With ReserveDropRoom's headroom, a
+	// drop allocates nothing, and a pick-and-drop loop never grows the list.
+	void PlaceDrop(const Item& item);
+	// Tops up m_items' spare capacity for drops, at load time (kDropRoom).
+	void ReserveDropRoom();
 	// A kind's preview submeshes into `out` (its authored model, else the carved
 	// tablet) plus the model-space AABB to frame them by; returns the count.
 	// `pose`, when given, receives how the details dialog stands it up before its

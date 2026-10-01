@@ -224,11 +224,9 @@ void GameUI::OnPortraitClick(size_t i) {
 			m_audio.Play(m_sounds.bump, 0.5f);
 			AddLogLine(loc::FormatLine("log.pack_rejects", loc::ViewKey("item.", **m_held),
 									   loc::ViewKey("item.", packId)));
-		} else if (c.inventory.Stow(**m_held)) {
-			AddLogLine(loc::FormatLine("log.stow", c.name,
-									   loc::View(std::format("item.{}", **m_held))),
-					   c.portraitColor);
-			m_held->reset();
+		} else if (const loc::Line name = loc::ViewKey("item.", **m_held);
+				   c.inventory.Stow(*m_held)) { // the name is taken first: Stow empties the cursor
+			AddLogLine(loc::FormatLine("log.stow", c.name, name), c.portraitColor);
 			Click();
 		} else {
 			AddLogLine(loc::View("log.pack_full")); // full — keep carrying it
