@@ -88,6 +88,21 @@ public:
 	// and stops in the pause menu.
 	void SetTime(float seconds) { m_time = seconds; }
 
+	// One glyph of OUTLINED text (ui::Font::Draw is the only caller). `dst` and
+	// `uv` are the glyph's box GROWN by `radius` px on every side, so the ring
+	// has room; sprite.hlsl dilates the atlas coverage by `radius` and puts the
+	// glyph over a ring in TextOutline()'s colour. Same pipeline as sprites, so
+	// text and faces still batch together.
+	void DrawGlyph(const Rect& dst, const Rect& uv, const Texture& atlas,
+				   const Vec4& color, float radius);
+
+	// The outline every glyph drawn from here on carries (alpha 0 = none). A
+	// skinned UIContext sets it for its own draw pass and puts the old one back
+	// (UIContext::Render), so text on stone is outlined at all ~110 draw sites
+	// with no per-site code, and flat mode, the editor and the console are not.
+	void SetTextOutline(const Vec4& color) { m_textOutline = color; }
+	const Vec4& TextOutline() const { return m_textOutline; }
+
 	// Pixel-space clipping for scrolling panels. Pass nullptr to reset.
 	void SetScissor(const Rect* rect);
 
@@ -96,10 +111,14 @@ public:
 	const Texture& WhiteTexture() const { return *m_white; }
 
 private:
+	// `outline` is zero for every sprite but an outlined glyph (DrawGlyph);
+	// glyph.x is that glyph's outline radius in px.
 	struct SpriteVertex {
 		Vec2 position;
 		Vec2 uv;
 		Vec4 color;
+		Vec4 outline{0, 0, 0, 0};
+		Vec2 glyph{0, 0};
 	};
 	// bar.hlsl's vertex: uv runs 0..1 across the TUBE; params = (kind,
 	// fraction, beat, seed); extra = (tube aspect w/h, tube height in px).
@@ -130,6 +149,7 @@ private:
 	u32 m_screenWidth = 1;
 	u32 m_screenHeight = 1;
 	float m_time = 0.0f;
+	Vec4 m_textOutline{0, 0, 0, 0};
 	Mode m_mode = Mode::Sprite;
 	std::vector<SpriteVertex> m_pending;
 	std::vector<BarVertex> m_pendingBars;

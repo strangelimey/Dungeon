@@ -64,6 +64,11 @@ struct Skin {
 	SkinPart buttonDown; // held / active button; falls back to `button`
 	SkinPart slot;       // item sockets
 	SkinPart sheen;      // stretched over a panel (corner 0); optional
+
+	// The ring under every glyph a skinned context draws (UIContext::Render ->
+	// SpriteBatch::SetTextOutline): stone is mid-toned and busy, so light text
+	// on it washes out without a dark edge. Alpha 0 turns it off.
+	Vec4 textOutline{0.03f, 0.025f, 0.02f, 0.85f};
 };
 
 // Draws `part` into `dst` as a 9-slice: fixed corners, edges tiled along

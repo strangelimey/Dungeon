@@ -116,8 +116,9 @@ void CharacterSheet::DrawStats(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 		const std::string_view text = FormatPool(buf, b.value, b.max);
 		const float tw = font.MeasureWidth(text);
 		const float tx = bar.x + (bar.w - tw) * 0.5f;
-		// A shadow under the number, so it reads over a bright, moving fill.
-		if (framed) font.Draw(batch, text, tx + 1.0f, textY + 1.0f, {0, 0, 0, 0.85f});
+		// No hand-made shadow: the skinned sheet outlines all its text
+		// (UIContext::Render), which is what keeps this number readable over a
+		// bright, moving fill.
 		font.Draw(batch, text, tx, textY, theme.text);
 	}
 }
