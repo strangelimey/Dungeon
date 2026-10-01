@@ -35,13 +35,19 @@ struct Rect {
 // flat tint (the food/water placeholder). The shader paints the whole tube -
 // the filled part AND the empty glass past it - so the caller passes the
 // tube's rect, not the filled width.
-enum class BarKind : u32 { Solid = 0, Health = 1, Stamina = 2, Mana = 3 };
+// Effort is the HUD's stance meter (GuardSlider): its colour is the CALLER'S -
+// the stance's own green-to-yellow grade, or the angry body once over-exerted -
+// carried in `tint`, and `beat` holds the over-exertion (0..1) instead of a
+// heartbeat, which the shader burns across the tube from the left.
+enum class BarKind : u32 { Solid = 0, Health = 1, Stamina = 2, Mana = 3, Effort = 4 };
 struct BarFill {
 	BarKind kind = BarKind::Solid;
 	float fraction = 1.0f; // 0..1, how full the bar is
-	float beat = 0.0f;     // heartbeat phase within the current beat, 0..1 (Health)
+	float beat = 0.0f;     // Health: heartbeat phase 0..1; Effort: over-exertion 0..1
 	float seed = 0.0f;     // per-bar offset, so two bars never move in lockstep
-	Vec4 tint{1, 1, 1, 1}; // Solid's colour (the animated kinds carry their own)
+	Vec4 tint{1, 1, 1, 1}; // Solid's and Effort's colour (the others carry their own)
+	float pulse = 0.0f;    // Effort: a full over-exertion's throb, 0..1 (CPU-timed so
+						   // the colour beats with the height the caller animates)
 };
 
 // Batched 2D rendering in pixel coordinates (origin top-left). Used by the UI

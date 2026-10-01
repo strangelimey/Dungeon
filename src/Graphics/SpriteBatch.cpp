@@ -175,7 +175,7 @@ void SpriteBatch::DrawBarFill(const Rect& tube, const BarFill& fill) {
 	if (!m_list || tube.w <= 0.0f || tube.h <= 0.0f) return;
 	UseMode(Mode::Bar);
 	const Vec4 params{static_cast<float>(fill.kind), fill.fraction, fill.beat, fill.seed};
-	const Vec4 extra{tube.w / tube.h, tube.h, 0.0f, 0.0f};
+	const Vec4 extra{tube.w / tube.h, tube.h, fill.pulse, 0.0f};
 	const BarVertex v0{{tube.x, tube.y}, {0, 0}, fill.tint, params, extra};
 	const BarVertex v1{{tube.x + tube.w, tube.y}, {1, 0}, fill.tint, params, extra};
 	const BarVertex v2{{tube.x + tube.w, tube.y + tube.h}, {1, 1}, fill.tint, params, extra};
