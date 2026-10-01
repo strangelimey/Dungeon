@@ -1958,6 +1958,25 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   each `blast_rate` (>= 0.3 s) for that long, SILENTLY (ActiveBlast::lingering;
   a kill or a break still speaks). Spell and item read the fields through one
   helper, ReadBlastRules (Spell.h).
+- HAND BOXES, after Phase 10's play: a left press HELD 0.4 s on a HUD hand box
+  (HandSlot::onHold -> GameUI::OnHandHold) takes its item onto the cursor, or
+  swaps it with the cursor's; a held press never also clicks. `throw` is a hand
+  USE (ThrowItem takes the thrower: member < 0 = the leader), the click of any
+  item listing `command = throw` (the rock, both flasks), and a ROW in every
+  held item's hand menu - a row, not a command, so a key or rune in a hand
+  still opens its menu on a click and keeps Punch / Kick. use.throw and the
+  missing use.drink are in the lang files.
+- A RUNE GLOWS WHEREVER IT SITS: `DrawItemIcon` (PartyHudDraw.h) is the one way
+  an item goes into a socket, and a rune tablet draws as the Magic window draws
+  it (DrawRuneGlow: glyph lit over a pulsing halo) - hands, doll, backpack,
+  party inventory, the cursor, a set hand's recipe and the Known Spells list.
+  DrawRuneFace survives only as the glow's fallback.
+- THE STARTER KIT (Character.cpp CreateDefaultParty): Brand a dagger in his
+  right hand (his bare left is what the harness's `swing 0` uses), Sera one in
+  her left; Maren holds fire + project, Tilo earth + protect, school rune left.
+- THE MESSAGE LOG opens only from its Log button, which sits at the bottom-left
+  in every state (alone once the footer fades, in its corner while it shows,
+  pressed while open); hovering does nothing (Michael: it got in the way).
   THE TWO WINDOWS: the character sheet is a panel in m_sheetUi whose scale is
   that CONTEXT'S root font size (UpdateFonts) - rem itself moves - so it sets
   `scalesText = false`. The party inventory is NON-MODAL now - no dim, the world
