@@ -163,10 +163,10 @@ CASES = [
     # A dungeon has no start of its own any more: the DOORWAY says where it
     # leads, so the fault to catch is a doorway that says nothing.
     ("a doorway that says which level", WORLD,
-     "level=crypt1 entryx=7 entryz=7", "",
+     "level=crypt1 entryx=7 entryz=8", "",
      "map.check.locationnolevel"),
     ("a doorway naming a level of another dungeon", WORLD,
-     "level=crypt1 entryx=7 entryz=7", "level=nowhere entryx=7 entryz=7",
+     "level=crypt1 entryx=7 entryz=8", "level=nowhere entryx=7 entryz=8",
      "map.check.locationlevel"),
     ("two dungeons claim one level", DUNGEONS,
      "tags = stone undead", "tags = stone undead\n\n[rival]\nlevels = crypt1",
@@ -516,7 +516,7 @@ try:
         check(rows_before == rows_after and len(rows_after) > 0,
               f"the terrain grid came through unchanged ({len(rows_after)} rows)")
         for record in ("start 6 6", "area lowlands", "dungeon=crypt level=crypt1",
-                       "entryx=7 entryz=7"):
+                       "entryx=7 entryz=8"):
             check(record in after, f"kept: {record}")
     finally:
         write(WORLD, world_before)
