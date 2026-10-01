@@ -123,19 +123,21 @@ std::vector<Character> CreateDefaultParty() {
 		fx::ReserveEffects(member.effects);
 	}
 
-	// THE STARTING KIT (Michael, ui-updates): the two fighters hold a dagger in
-	// the RIGHT hand - the left stays bare, which is also the hand the harness's
-	// `swing` uses by default, so its unarmed numbers are unchanged - and the two
-	// casters each carry one school rune and one form rune in the pack: Maren
-	// fire + project (a bolt), Tilo earth + protect (a ward). Enough to reach the
-	// magic loop (memorize from the hand menu, build in the spellbook, cast)
-	// from a fresh game; the rest of the runes are found.
-	for (Character* fighter : {&party[0], &party[1]})
-		fighter->inventory.Hand(1).typeId = "dagger";
-	for (SpellSymbol s : {SpellSymbol::Fire, SpellSymbol::Project})
-		party[2].inventory.Stow(std::string(RuneItemId(s)));
-	for (SpellSymbol s : {SpellSymbol::Earth, SpellSymbol::Protect})
-		party[3].inventory.Stow(std::string(RuneItemId(s)));
+	// THE STARTING KIT (Michael, ui-updates): the two fighters each hold a
+	// dagger, Brand in his RIGHT hand and Sera in her LEFT, the other hand bare.
+	// (Brand's bare left is the hand the harness's `swing 0` uses by default, so
+	// the eval suites' unarmed numbers are unchanged; nothing swings Sera's.)
+	// The two casters hold one school rune and one form rune, school in the left
+	// hand: Maren fire + project (a bolt), Tilo earth + protect (a ward). A rune
+	// in a hand is memorized from its use menu, so the magic loop (memorize,
+	// build in the spellbook, cast) is a click away in a fresh game; the rest of
+	// the runes are found.
+	party[0].inventory.Hand(1).typeId = "dagger";
+	party[1].inventory.Hand(0).typeId = "dagger";
+	party[2].inventory.Hand(0).typeId = RuneItemId(SpellSymbol::Fire);
+	party[2].inventory.Hand(1).typeId = RuneItemId(SpellSymbol::Project);
+	party[3].inventory.Hand(0).typeId = RuneItemId(SpellSymbol::Earth);
+	party[3].inventory.Hand(1).typeId = RuneItemId(SpellSymbol::Protect);
 
 	// Brand starts carrying one piece of each armor WEIGHT CLASS, for the same
 	// reason the casters start with runes: the trade the armor system is built
