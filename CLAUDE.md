@@ -1499,7 +1499,8 @@ worn_*, lang, shaders — what AssetBaker emits):
   `[id]` headers + `key = value` fields naming pool assets (model/texture) +
   params (solid/authored/height_scale/mount). Levels reference catalog ids.
   (`flags.cat` joined them in tool-refinement Phase 4: named on/off facts,
-  scoped to a dungeon or the world - see the Tool refinement section.)
+  scoped to a dungeon or the world; `styles.cat` in Phase 5, with a shared
+  library in assets/library - see the Tool refinement section.)
   NOT every catalog is placeable: `effects` is authored + tuned only (an
   effect needs a class, so no "+ New..."), and since tool-refinement Phase 1
   it is NOT IN THE PALETTE at all - the Balance dialog's Effects tab lists
@@ -1820,6 +1821,23 @@ Judged by `tools\EditorTest.py` (phase 12 onward).
   Dev: `flag <id> [on|off]`, `flags [world|dungeon [id]]`, `opendoor <x> <z>`,
   `press <x> <z> party`, `flagwire <x> <z> <door|lever|stair> ...`, `editor
   palette use <id> [link]`. EditorTest 15.
+- STYLES (Phase 5): `styles.cat` - `room` / `corridor` themes, `knobs` (the
+  generator's settings line), `corridor_width`, `tags`, `monsters` (`<id>
+  [weight], ...`; Game/Style.h, pure and in RollTest). THE SHARED LIBRARY is
+  `assets/library` (styles.cat + the themes they name + those themes' surface
+  types; Game/StyleLibrary.h), outside projects/ like the template. ADDING a
+  library style copies it and whatever it points at that the world LACKS -
+  never what it has, so an add cannot repaint anything - and reports monsters
+  the world lacks instead of copying them; a second add is a no-op. "Save to
+  library" (the style editor's footer) goes the other way and replaces the
+  library's entries of those ids. The palette's Styles section lists This world
+  then the library's: a world row ARMS the current style (MapEditor::
+  CurrentStyle, session-only), a library row adds. The armed style RANKS the
+  Monsters section (its list, a divider, the rest - the tags lens). Its monster
+  rows are FieldKind::WeightedRefs (each named with its power via faceFor).
+  Sweeps: theme -> styles, style -> dungeons' `style`, monster -> styles' lists,
+  and flags -> items / locations / door, lever and stair records (Phase 4's gap).
+  Dev: `styles`, `style use|add|save|row <id>`. EditorTest 16.
 - EFFECTS LEFT THE PALETTE for the Balance dialog's Effects tab (a list whose
   rows open the type editor OVER the Balance dialog - which is why the type
   editor's input check now comes before the Balance dialog's in Game::Update,

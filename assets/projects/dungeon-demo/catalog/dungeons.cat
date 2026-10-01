@@ -28,6 +28,7 @@ display = The Crypt
 ; of the lower one.
 levels = crypt1 crypt2
 tags = stone undead
+style = small_crypt
 
 ; NOT CONTENT. The harness's ground is a dungeon so that the checker has a
 ; coherent world to check — a level belonging to nothing raises an orphan

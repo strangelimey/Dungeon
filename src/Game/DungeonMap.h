@@ -628,7 +628,8 @@ public:
 	enum class TypeRecords {
 		WallPalette, FloorPalette, CeilingPalette,
 		Decoration, Fixture, WallFeature, Stair,
-		Theme // a surface theme's slot (counted by the squares using it)
+		Theme, // a surface theme's slot (counted by the squares using it)
+		StairFlag // the flags.cat id a stair waits on (`flag=`)
 	};
 	// Editor type rename/delete: counts this level's references to catalog id
 	// `id` within one record family and, when `newId` is given, rewrites them.

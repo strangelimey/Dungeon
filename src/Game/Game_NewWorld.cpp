@@ -354,8 +354,36 @@ bool Game::BuildLevelWorld(const std::string& folder, const std::string& id,
 			break;
 		}
 	}
+	// ITS FLAG WIRING GOES TOO: the new world starts with no flags (ClearPlaces),
+	// so a door or lever still waiting on one would wait forever - an error the
+	// moment the world exists. The door and the lever stay; what they named does
+	// not (W7's rule, one tier down).
+	std::string ents;
+	for (size_t at = 0; at < entText.size();) {
+		size_t end = entText.find('\n', at);
+		if (end == std::string::npos) end = entText.size();
+		std::string line = entText.substr(at, end - at);
+		at = end + 1;
+		if (!line.empty() && line.back() == '\r') line.pop_back();
+		if (line.starts_with("door ") || line.starts_with("button ")) {
+			std::string out;
+			for (size_t t = 0; t < line.size();) {
+				size_t e = line.find(' ', t);
+				if (e == std::string::npos) e = line.size();
+				const std::string tok = line.substr(t, e - t);
+				t = e + 1;
+				const std::string key = tok.substr(0, tok.find('='));
+				if (tok.find('=') != std::string::npos &&
+					(key == "flag" || key == "sets" || key == "clears" || key == "toggles"))
+					continue;
+				out += (out.empty() ? "" : " ") + tok;
+			}
+			line = out;
+		}
+		ents += line + "\n";
+	}
 	return WriteText(made.LevelMapPath(stem), kept) &&
-		   WriteText(made.LevelEntPath(stem), entText) && WriteStarterWorld(made, stem);
+		   WriteText(made.LevelEntPath(stem), ents) && WriteStarterWorld(made, stem);
 }
 
 } // namespace dungeon::game

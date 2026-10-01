@@ -158,4 +158,18 @@ int DungeonEntities::SweepTypeRefs(EntityKind kind, std::string_view id,
 	return hits;
 }
 
+int DungeonEntities::SweepFlagRefs(std::string_view id, const std::string* newId) {
+	int hits = 0;
+	for (Entity& e : m_entities) {
+		if (e.kind != EntityKind::Door && e.kind != EntityKind::Button) continue;
+		for (auto& [k, v] : e.params) {
+			if (v != id || (k != "flag" && k != "sets" && k != "clears" && k != "toggles"))
+				continue;
+			++hits;
+			if (newId) v = *newId;
+		}
+	}
+	return hits;
+}
+
 } // namespace dungeon::game

@@ -50,6 +50,11 @@ const CatalogSlot kCatalogs[] = {
 	 "Phase 4). `dungeon` scopes one to a dungeon (empty = the world). Set by items "
 	 "(`flag`) and buttons (`sets` / `clears` / `toggles`); read by doors, buttons and "
 	 "stairs (`flag`). The value lives in the save, never here."},
+	{"styles.cat", &Project::styles,
+	 "Styles (docs/tool-refinement-plan.md Phase 5, Game/Style.h): `room` / `corridor` "
+	 "theme ids, `knobs` (the generator's settings line), `corridor_width`, `tags` and "
+	 "`monsters` (`<id> [weight]`, comma-separated). Added from the shared library "
+	 "(assets/library) or made here; arming one ranks the Monsters section by its list."},
 	{"themes.cat", &Project::themes,
 	 "Surface themes: a named look - floor / wall / ceiling, each ONE of that "
 	 "surface's catalog ids (empty = leave that surface alone). Cells reference one "
@@ -219,6 +224,7 @@ Catalog* Project::CatalogForKey(const std::string& key) {
 	if (key == "dungeons") return &dungeons;
 	if (key == "quests") return &quests;
 	if (key == "flags") return &flags;
+	if (key == "styles") return &styles;
 	if (key == "walls") return &walls;
 	if (key == "floors") return &floors;
 	if (key == "ceilings") return &ceilings;
@@ -249,7 +255,7 @@ std::vector<const Catalog*> Project::AllCatalogs() const {
 			&monsters, &doors, &stairs,   &buttons,      &items,
 			&weapons, &armor,  &spells,   &effects,      &attacks,
 			&balance, &damagetypes, &wallfeatures, &surfacefeatures,
-			&terrain, &dungeons, &quests, &flags, &themes};
+			&terrain, &dungeons, &quests, &flags, &styles, &themes};
 }
 
 const CatalogEntry* Project::FindItem(std::string_view id) const {

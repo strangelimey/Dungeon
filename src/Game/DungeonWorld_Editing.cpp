@@ -268,7 +268,14 @@ DungeonWorld::TypeUsage DungeonWorld::SweepTypeRefs(const std::string& catalogKe
 		dynamics = EntityKind::Item;
 	else if (catalogKey == "buttons") dynamics = EntityKind::Button;
 	else if (catalogKey == "doors") dynamics = EntityKind::Door;
-	if (!statics && !dynamics) return usage;
+	// A FLAG is named in params, not types: a stair's on the map, a door's or a
+	// lever's on its record (tool-refinement Phase 4).
+	const bool flags = catalogKey == "flags";
+	if (flags) statics = TR::StairFlag;
+	if (!statics && !dynamics && !flags) return usage;
+	const auto sweepEnts = [&](DungeonEntities& ents, const std::string* to) {
+		return flags ? ents.SweepFlagRefs(id, to) : ents.SweepTypeRefs(*dynamics, id, to);
+	};
 
 	// The ACTIVE level's decorations live as instances, not records — sync them
 	// back first (the stash/save rule) so the sweep sees the truth and the
@@ -296,18 +303,18 @@ DungeonWorld::TypeUsage DungeonWorld::SweepTypeRefs(const std::string& catalogKe
 			}
 			if (map) hits += map->SweepTypeRefs(*statics, id, newId);
 		}
-		if (dynamics) {
+		if (dynamics || flags) {
 			const auto stash = m_levelEnts.find(stem);
 			DungeonEntities* ents = active ? &m_entities
 									: stash != m_levelEnts.end() ? stash->second.get() : nullptr;
 			int n = 0;
 			if (!ents) {
-				n = ReadOnlyLevelOf(stem).ents->SweepTypeRefs(*dynamics, id, nullptr);
+				n = sweepEnts(*ReadOnlyLevelOf(stem).ents, nullptr);
 				if (n > 0 && newId) ents = &EnsureEntStash(stem);
 				else hits += n;
 			}
 			if (ents) {
-				n = ents->SweepTypeRefs(*dynamics, id, newId);
+				n = sweepEnts(*ents, newId);
 				hits += n;
 			}
 			// The active level's records diverge from its file once touched;

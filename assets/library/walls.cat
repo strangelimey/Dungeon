@@ -1,0 +1,43 @@
+; Wall types the library's themes are made of.
+
+[wall_stone_30]
+display = Coursed Stone
+tags = stone
+texture = wall_stone_30
+height_scale = 0.06
+category = stone
+
+[wall_stone_28]
+display = Rubble Stone
+tags = stone
+texture = wall_stone_28
+height_scale = 0.06
+category = stone
+
+[wall_rock]
+display = Cave Rock
+tags = rock cave outdoor
+texture = rock_cliff
+height_scale = 0.06
+category = rock
+
+[wall_brick_old]
+display = Old Brick
+tags = brick ruin
+texture = wall_brick_old
+height_scale = 0.045
+category = brick
+
+[wall_brick_weathered]
+display = Weathered Brick
+tags = brick ruin
+texture = wall_brick_weathered
+height_scale = 0.05
+category = brick
+
+[wall_marble]
+display = Marble
+tags = marble temple
+texture = marble_white
+height_scale = 0.02
+category = smooth

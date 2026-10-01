@@ -16,3 +16,15 @@ display = Marble Hall
 floor = floor_slabs
 wall = wall_marble
 ceiling = ceiling_stone
+
+[crypt_chamber]
+display = Crypt Chamber
+floor = floor_ancient_stone
+wall = wall_stone_30
+ceiling = ceiling_stone
+
+[crypt_passage]
+display = Crypt Passage
+floor = floor_slabs
+wall = wall_stone_28
+ceiling = ceiling_cracked

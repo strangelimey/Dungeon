@@ -119,6 +119,7 @@ public:
 	// specialised dialog (Monsters: animations + behaviour). No label = no button.
 	std::function<void(const Config&)> onExtra;
 	std::string extraLabel;
+	std::string extraIcon = "anim"; // its icon_tb_<name> face
 	// Duplicate: clone this entry as a new type — "the same wall with a different
 	// texture" is a copy plus one field, not a form filled from scratch. The owner
 	// opens the CREATE dialog preset to Duplicate-of-this-id, so a clone still
@@ -175,6 +176,9 @@ private:
 	// A QuestStages field's rows: one per stage (id, the log's line, a remove
 	// box) and the add button.
 	void BuildStageRows(ui::Stack& page, const FieldSpec& spec);
+	// A WeightedRefs field's rows: one per entry (the id as a dropdown named
+	// through faceFor, its weight, a remove box) and the add button.
+	void BuildWeightedRows(ui::Stack& page, const FieldSpec& spec);
 
 	gfx::GraphicsDevice& m_device;
 	ui::UIContext m_ui; // the tabbed form

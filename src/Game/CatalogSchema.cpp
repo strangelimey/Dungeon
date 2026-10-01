@@ -627,6 +627,37 @@ constexpr FieldSpec kDungeonFields[] = {
 			 "says where it lands."},
 	{.key = "tags", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,
 	 .help = "Flavour words for content matching; absent means 'fits anywhere'."},
+	{.key = "style", .kind = FieldKind::CatalogRef, .sectionKey = kSectionIdentity,
+	 .help = "The style its levels are built in by default (styles.cat).",
+	 .options = "styles"},
+};
+
+// Styles (tool-refinement Phase 5, Game/Style.h): one named decision about
+// how a stretch of dungeon looks, is shaped and what lives there.
+constexpr FieldSpec kStyleFields[] = {
+	{.key = "display", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,
+	 .help = "The style's name, as the palette lists it."},
+	{.key = "tags", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,
+	 .help = "What content fits it - the generator and the palette's tags lens read "
+			 "these, as they read a level's."},
+	{.key = "room", .kind = FieldKind::CatalogRef, .sectionKey = kSectionLook,
+	 .help = "The theme a room is painted in (themes.cat).", .options = "themes"},
+	{.key = "corridor", .kind = FieldKind::CatalogRef, .sectionKey = kSectionLook,
+	 .help = "The theme a corridor is painted in - a winding tunnel can wear a "
+			 "different look from the chamber it opens into.",
+	 .options = "themes"},
+	{.key = "corridor_width", .kind = FieldKind::Float, .sectionKey = kSectionShape,
+	 .help = "How many squares wide its corridors are: 1 for a dirt tunnel, 2 for a "
+			 "grand hall.",
+	 .lo = 1.0f, .hi = 3.0f, .step = 1.0f, .def = "1"},
+	{.key = "knobs", .kind = FieldKind::Text, .sectionKey = kSectionShape,
+	 .help = "The generator's settings line (the Generate dialog's, as genpresets.cat "
+			 "stores it): width:40 roommin:3 winding:0.3 ...",
+	 .maxLen = 400},
+	{.key = "monsters", .kind = FieldKind::WeightedRefs, .sectionKey = kSectionMonsters,
+	 .help = "The monsters found in it, each with a weight: how often it turns up "
+			 "beside the others. Its power is the monster's own.",
+	 .options = "monsters"},
 };
 
 constexpr FieldSpec kTerrainFields[] = {
@@ -702,6 +733,7 @@ std::span<const FieldSpec> SchemaFor(std::string_view catalogKey) {
 	if (catalogKey == "terrain") return kTerrainFields;
 	if (catalogKey == "quests") return kQuestFields;
 	if (catalogKey == "flags") return kFlagFields;
+	if (catalogKey == "styles") return kStyleFields;
 	if (catalogKey == "walls") return kWallFields;
 	if (catalogKey == "floors") return kFloorFields;
 	if (catalogKey == "ceilings") return kCeilingFields;

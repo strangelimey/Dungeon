@@ -17,6 +17,7 @@
 #include "Core/Log.h"
 #include "Game/Resource.h"
 #include "Game/Serialize.h"
+#include "Game/Style.h"
 
 #include <algorithm>
 #include <chrono>
@@ -138,8 +139,19 @@ std::vector<validate::Issue> Game::ValidateProject() {
 		validate::DungeonView d;
 		d.id = e.id;
 		d.levels = ParseTags(e.Get("levels", "")); // space-split + lowercased
+		d.style = e.Get("style", "");
 		view.dungeons.push_back(std::move(d));
 	}
+	for (const CatalogEntry& e : m_project.styles.Entries()) {
+		validate::StyleView s;
+		s.id = e.id;
+		s.themes = StyleLibrary::StyleThemes(e);
+		for (const style::Pick& p : style::ParseMonsters(e.Get("monsters", "")))
+			s.monsters.push_back(p.id);
+		view.styles.push_back(std::move(s));
+	}
+	for (const CatalogEntry& e : m_project.themes.Entries()) view.themeIds.insert(e.id);
+	for (const CatalogEntry& e : m_project.monsters.Entries()) view.monsterIds.insert(e.id);
 	for (const CatalogEntry& e : m_project.quests.Entries()) {
 		validate::QuestView q;
 		q.id = e.id;

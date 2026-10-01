@@ -1,0 +1,50 @@
+; Floor types the library's themes are made of.
+
+[floor_ancient_stone]
+display = Ancient Stone
+tags = stone temple ruin
+texture = floor_ancient_stone
+height_scale = 0.04
+category = temple
+
+[floor_slabs]
+display = Slabs
+tags = stone
+texture = floor_slabs
+height_scale = 0.045
+category = stone
+
+[ground_soil_rocky]
+display = Rocky Soil
+tags = rock cave outdoor
+texture = ground_soil_rocky
+height_scale = 0.05
+category = ground
+
+[ground_soil_dusty]
+display = Dusty Soil
+tags = cave outdoor
+texture = ground_soil_dusty
+height_scale = 0.03
+category = ground
+
+[floor_stone_pavement]
+display = Stone Pavement
+tags = stone
+texture = floor_stone_pavement
+height_scale = 0.04
+category = stone
+
+[floor_cobble_medieval]
+display = Medieval Cobble
+tags = stone cobble
+texture = floor_cobble_medieval
+height_scale = 0.05
+category = stone
+
+[floor_temple]
+display = Temple Floor
+tags = marble temple
+texture = floor_temple
+height_scale = 0.035
+category = temple

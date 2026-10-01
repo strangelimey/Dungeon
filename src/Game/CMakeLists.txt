@@ -80,6 +80,10 @@ add_library(Game STATIC
 	MapEditor.cpp
 	MapEditor_Categories.cpp
 	MapEditor_Quests.cpp
+	MapEditor_Styles.cpp
+	Game_Styles.cpp
+	Style.cpp
+	StyleLibrary.cpp
 	MapView_Docks.cpp
 	MapView.cpp
 	MapView_Issues.cpp
@@ -98,6 +102,7 @@ add_library(Game STATIC
 	Power.cpp
 	Validate.cpp
 	Validate_Flags.cpp
+	Validate_Styles.cpp
 	ValidateDialog.cpp
 	WorldMap.cpp
 	WorldMapView.cpp

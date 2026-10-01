@@ -456,6 +456,15 @@ void Game::WireModuleCallbacks() {
 	// the palette does - name and texture swatch - by asking the palette for it.
 	m_typeDialog.faceFor = [this](const FieldSpec& spec,
 								  const std::string& id) -> TypeEditorDialog::RefFace {
+		// A MONSTER is named with its power, so a style's list says how strong
+		// each choice is while it is being chosen (Phase 2's one number).
+		if (std::string_view(spec.options) == "monsters") {
+			const CatalogEntry* e = m_project.monsters.Find(id);
+			if (!e) return {};
+			return {loc::Format("map.type.monsterpower", e->Display(),
+								std::format("{:.1f}", m_world->MonsterPower(*e))),
+					{}};
+		}
 		const MapEditor::PaletteCat cat = MapEditor::CatForCatalogKey(spec.options);
 		if (!MapEditor::SurfaceCat(cat)) return {};
 		// The list is the whole catalogue, most of it not loaded by this level:
@@ -558,8 +567,19 @@ void Game::WireModuleCallbacks() {
 	// REWRITES those rows, so the schema deliberately leaves them out); the type
 	// editor's extra button is the way through to it.
 	m_typeDialog.onExtra = [this](const TypeEditorDialog::Config& cfg) {
+		if (cfg.catalogKey == "styles") {
+			// SAVE TO LIBRARY takes the style as edited: its fields are written
+			// to the world first, so what reaches the library is what the
+			// dialog showed rather than the version before this edit.
+			WriteTypeFields(cfg);
+			std::vector<StyleLibrary::Copy> copied;
+			SaveStyleToLibrary(cfg.id, copied);
+			return;
+		}
 		OpenMonsterConfig(cfg.id);
 	};
+	// A library style's row adds it to the world.
+	m_mapEditor.onAddStyle = [this](const std::string& id) { AddStyleFromLibrary(id); };
 	// Rename / delete: the owner sweeps every level (and the cross-catalog
 	// references) and refuses with a reason the dialog shows.
 	m_typeDialog.onRename = [this](const std::string& id, const std::string& newId,

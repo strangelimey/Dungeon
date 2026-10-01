@@ -41,6 +41,7 @@ namespace dungeon::game {
 
 class MapView;
 class DungeonWorld;
+class StyleLibrary;
 struct GameSettings;
 
 class MapEditor {
@@ -77,6 +78,11 @@ public:
 		// item row arms that item's brush and says where it lies, with a link
 		// there. "+ New..." makes a flag.
 		Flags,
+		// STYLES (MapEditor_Styles.cpp, Game/Style.h): this world's, then the
+		// shared library's it lacks. A world style's row ARMS it as the current
+		// style (again = off), which ranks the Monsters section by its list; a
+		// library row adds it to the world (onAddStyle).
+		Styles,
 		Count
 	};
 
@@ -157,6 +163,22 @@ public:
 	// placed on a browsed level is not asked about - the inspectors need the
 	// level active - and keeps the dest it landed with.
 	std::function<void(int cx, int cz)> onExitPlaced;
+	// --- styles (MapEditor_Styles.cpp) --------------------------------------
+	// The shared library the Styles section offers from (Game owns it).
+	void SetLibrary(const StyleLibrary* library) { m_library = library; }
+	// The CURRENT style: what a world style's row arms. "" = none. The Monsters
+	// section ranks by its list while one is armed (its monsters first, a
+	// divider, the rest - the tags lens, since the odd one out is often the
+	// memorable one). Not saved: it is this session's working choice.
+	const std::string& CurrentStyle() const { return m_style; }
+	void SetCurrentStyle(std::string id) { m_style = std::move(id); }
+	// What clicking the Styles row for `id` does: a world style toggles as the
+	// current one; a library style is added to the world (onAddStyle). False
+	// when no row lists it.
+	bool UseStyleRow(const std::string& id);
+	// Fired by a library style's row: the owner copies it into the world.
+	std::function<void(const std::string& id)> onAddStyle;
+
 	// Fired by a palette row's go-to link (a quest item's placement): browse to
 	// that level and select the square.
 	std::function<void(const std::string& level, int cx, int cz)> onGoTo;
@@ -460,9 +482,10 @@ private:
 	}
 	bool GroupOpen(PaletteCat cat, const std::string& group) const {
 		const auto it = m_groupOpen.find(GroupKey(cat, group));
-		// The Quest items & flags section's two groups ARE the section, so they
-		// start open.
-		if (it == m_groupOpen.end()) return cat == PaletteCat::Flags;
+		// The Quest items & flags and Styles sections' groups ARE the section
+		// (this dungeon / world, this world / library), so they start open.
+		if (it == m_groupOpen.end())
+			return cat == PaletteCat::Flags || cat == PaletteCat::Styles;
 		return it->second;
 	}
 
@@ -487,9 +510,21 @@ private:
 		return {row.x + row.w - row.h, row.y, row.h, row.h};
 	}
 	// The category a row's click acts on: its `ref` catalog's, else its own.
+	// Count for a row with no catalog of the world's behind it (a library
+	// style, ref = kLibraryRef).
 	static PaletteCat RowCat(PaletteCat cat, const PaletteItem& item) {
 		return item.ref.empty() ? cat : CatForCatalogKey(item.ref);
 	}
+	static constexpr const char* kLibraryRef = "library";
+
+	// --- the Styles section (MapEditor_Styles.cpp) ------------------------------
+	// Its rows: the world's styles, then the library's the world lacks.
+	std::vector<PaletteItem> StyleSectionItems() const;
+	// A style's weighted monster ids, when `id` names one of the world's (else
+	// empty): the Monsters section's lens.
+	std::vector<std::string> StyleMonsters(const std::string& id) const;
+	const StyleLibrary* m_library = nullptr;
+	std::string m_style; // the current style (see CurrentStyle)
 
 	// Every category authors new assets — each gets a "+ New..." row that
 	// opens the asset dialog.

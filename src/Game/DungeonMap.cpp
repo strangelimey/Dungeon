@@ -1224,6 +1224,9 @@ int DungeonMap::SweepTypeRefs(TypeRecords records, std::string_view id,
 	case TypeRecords::Stair:
 		for (StairLink& s : m_stairs) sweep(s.type);
 		break;
+	case TypeRecords::StairFlag:
+		for (StairLink& s : m_stairs) sweep(s.flag);
+		break;
 	case TypeRecords::Theme:
 		// A slot is a REFERENCE only while a square uses it: an erased square
 		// leaves its slot behind until the next load, and a leftover must not

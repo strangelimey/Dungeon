@@ -8,6 +8,7 @@
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
 #include "Game/DialogLayout.h"
+#include "Game/Style.h" // the WeightedRefs list format
 #include "UI/Controls.h"
 
 #include <algorithm>
@@ -169,6 +170,75 @@ void TypeEditorDialog::BuildStageRows(ui::Stack& page, const FieldSpec& spec) {
 	});
 }
 
+void TypeEditorDialog::BuildWeightedRows(ui::Stack& page, const FieldSpec& spec) {
+	const FieldSpec* s = &spec;
+	// Re-read on every change, by index - the stage rows' rule.
+	auto list = [this, s] { return style::ParseMonsters(ValueOf(*s)); };
+	auto write = [this, s](const std::vector<style::Pick>& picks) {
+		SetValue(*s, style::FormatMonsters(picks));
+	};
+	// The candidates, each named the way faceFor names it (a monster with its
+	// power); an id the catalog has lost stays listed by its own name.
+	std::vector<std::string> ids = optionsFor ? optionsFor(spec) : std::vector<std::string>{};
+	const std::vector<style::Pick> now = list();
+	for (const style::Pick& p : now)
+		if (std::find(ids.begin(), ids.end(), p.id) == ids.end()) ids.push_back(p.id);
+	std::vector<std::string> names;
+	for (const std::string& id : ids) {
+		std::string label = faceFor ? faceFor(spec, id).label : std::string();
+		names.push_back(label.empty() ? id : label);
+	}
+	page.Row<ui::Label>(FormRow(), loc::Tr("map.type.weighted.head"))->dim = true;
+	for (size_t i = 0; i < now.size(); ++i) {
+		ui::Stack* row = page.Row<ui::Stack>(FormRow(), true);
+		row->gapRem = 0.4f;
+		const int sel = static_cast<int>(std::find(ids.begin(), ids.end(), now[i].id) - ids.begin());
+		row->Row<ui::DropDown>(ui::Len::Fill(1.6f), names, sel, [list, write, ids, i](int pick) {
+			std::vector<style::Pick> picks = list();
+			if (i >= picks.size() || pick < 0 || pick >= static_cast<int>(ids.size())) return;
+			picks[i].id = ids[static_cast<size_t>(pick)];
+			write(picks);
+		});
+		ui::TextField* weight =
+			row->Row<ui::TextField>(ui::Len::Fill(0.4f), std::format("{:g}", now[i].weight));
+		weight->maxLength = 6;
+		weight->onChange = [weight, list, write, i] {
+			std::erase_if(weight->text, [](char ch) {
+				return !(std::isdigit(static_cast<unsigned char>(ch)) || ch == '.');
+			});
+			float w = 0.0f;
+			const auto [end, ec] = std::from_chars(weight->text.data(),
+												   weight->text.data() + weight->text.size(), w);
+			// A weight being typed ("0.", "") waits; only a usable one is kept.
+			if (ec != std::errc{} || w <= 0.0f) return;
+			std::vector<style::Pick> picks = list();
+			if (i >= picks.size()) return;
+			picks[i].weight = w;
+			write(picks);
+		};
+		RowIcon(*row, m_device, "clear", loc::Tr("map.type.weighted.remove"),
+				[this, list, write, i] {
+					std::vector<style::Pick> picks = list();
+					if (i >= picks.size()) return;
+					picks.erase(picks.begin() + static_cast<std::ptrdiff_t>(i));
+					write(picks);
+					m_uiRebuild = true; // deferred: inside a callback
+				});
+	}
+	page.Row<ui::Button>(FormRow(), loc::Tr("map.type.weighted.add"), [this, list, write, ids] {
+		std::vector<style::Pick> picks = list();
+		// The first candidate not already listed.
+		for (const std::string& id : ids)
+			if (std::none_of(picks.begin(), picks.end(),
+							 [&](const style::Pick& p) { return p.id == id; })) {
+				picks.push_back({id, 1.0f});
+				write(picks);
+				m_uiRebuild = true;
+				return;
+			}
+	});
+}
+
 void TypeEditorDialog::BuildUI() {
 	// Read the open tab BEFORE Clear frees the control (a rebuild keeps the tab,
 	// and so does a trip through the confirmation, which has no tabs).
@@ -323,7 +393,7 @@ void TypeEditorDialog::BuildUI() {
 		case FieldKind::Text: {
 			auto* field =
 				labelled(FormRow())->Row<ui::TextField>(ui::Len::Fill(kFieldFill), value);
-			field->maxLength = 64;
+			field->maxLength = spec.maxLen > 0 ? spec.maxLen : 64;
 			ui::TextField* raw = field;
 			field->onChange = [this, raw, s] { SetValue(*s, raw->text); };
 			break;
@@ -387,6 +457,9 @@ void TypeEditorDialog::BuildUI() {
 		case FieldKind::QuestStages:
 			BuildStageRows(page, spec);
 			break;
+		case FieldKind::WeightedRefs:
+			BuildWeightedRows(page, spec);
+			break;
 		case FieldKind::CatalogRefPick: {
 			// ONE id, picked from a list that shows every candidate the way the
 			// palette does (faceFor: a surface type's name and swatch; else the
@@ -447,7 +520,7 @@ void TypeEditorDialog::BuildUI() {
 			if (onDuplicate) onDuplicate(cfg);
 		});
 	if (!extraLabel.empty())
-		FooterIcon(*chrome.footer, m_device, "anim", extraLabel, [this] {
+		FooterIcon(*chrome.footer, m_device, extraIcon.c_str(), extraLabel, [this] {
 			Config cfg = m_cfg;
 			Close();
 			if (onExtra) onExtra(cfg);

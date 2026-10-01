@@ -1335,11 +1335,11 @@ void Game::PrintPalette(const std::vector<std::string>& args) {
 		// Quest items & flags section.
 		for (const MapEditor::PaletteItem& it : m_mapEditor.Items(cat))
 			m_console.Print(std::format(
-				"editor palette item {} {} band={} group='{}' ref={} goto={} label='{}'", args[2],
-				it.id, it.band, it.group, it.ref.empty() ? "-" : it.ref,
+				"editor palette item {} {} band={} group='{}' ref={} goto={} label='{}' lens={}",
+				args[2], it.id, it.band, it.group, it.ref.empty() ? "-" : it.ref,
 				it.gotoLevel.empty() ? std::string("-")
 									 : std::format("{}@{},{}", it.gotoLevel, it.gotoX, it.gotoZ),
-				it.label));
+				it.label, it.onTags ? "on" : "off"));
 		return;
 	}
 	if (args.size() >= 3 && args[1] == "mode") {

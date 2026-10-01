@@ -81,6 +81,13 @@
 #      per scope; and the palette's Quest items & flags section lists this
 #      dungeon's and the world's (not another dungeon's), says where a quest
 #      item lies, arms it, goes there and opens a flag's editor.
+#  16. STYLES (Phase 5): the world's and the library's are listed apart; the
+#      armed style ranks the Monsters section by its list and disarms again;
+#      adding a library style copies it, its themes and the one floor the
+#      world lacked - and nothing the world had - and a second add is a no-op;
+#      a world style saves to the library with what it names; the checker
+#      names a monster a style lists and the world lacks; and renaming a theme
+#      or a flag rewrites the styles, levers, stairs and items that name it.
 #
 # Every project file a phase writes is restored byte for byte afterwards.
 import io
@@ -550,7 +557,7 @@ print("12 - the category bar shows one group, both ways, and the filter sees pas
 # The groupings AS DESIGNED (docs/tool-refinement-plan.md Phase 1). Stated here
 # rather than read back from the game, so a section moved to the wrong group is
 # a failure and not a new truth.
-STAGE = {"world": ["dungeons", "quests", "flags", "terrain"],
+STAGE = {"world": ["styles", "dungeons", "quests", "flags", "terrain"],
          "build": ["themes", "walls", "floors", "ceilings", "wallfeatures",
                    "surfacefeatures", "doors", "stairs"],
          "furnishings": ["decorations", "fixtures", "buttons"],
@@ -561,7 +568,7 @@ KIND = {"surfaces": ["themes", "walls", "floors", "ceilings", "wallfeatures",
         "furnishings": ["decorations", "fixtures", "buttons"],
         "creatures": ["monsters"],
         "items": ["items", "weapons", "armor"],
-        "world": ["dungeons", "quests", "flags", "terrain"]}
+        "world": ["styles", "dungeons", "quests", "flags", "terrain"]}
 SHOWS = re.compile(r"editor palette: (\w+) (\w+) filter='([^']*)' shows:(.*)")
 
 
@@ -603,9 +610,10 @@ try:
     # Quest items & flags: the world's one flag and the two quest items (both
     # world-scoped; the harness views eval_arena, whose dungeon has none).
     check(counts.get("dungeons", 0) == 2 and counts.get("quests", 0) == 1
-          and counts.get("terrain", 0) == 7 and counts.get("flags", 0) == 3,
-          "the world sections list their entries (2 dungeons, 1 quest, 3 quest rows, 7 terrains)",
-          str(world))
+          and counts.get("terrain", 0) == 7 and counts.get("flags", 0) == 3
+          and counts.get("styles", 0) == 4,
+          "the world sections list their entries (4 styles, 2 dungeons, 1 quest, 3 quest rows, "
+          "7 terrains)", str(world))
     flt = [shown(l) for l in sec.get("filter", []) if shown(l)]
     if len(flt) != 3:
         check(False, "three readings in the filter section", str(flt))
@@ -1015,6 +1023,145 @@ finally:
     shutil.rmtree(PROJ)
     shutil.copytree(backup, PROJ)
     shutil.rmtree(backup, ignore_errors=True)
+
+# --- phase 16: styles and the library ---------------------------------------------
+print("16 - styles: the library, adding and saving, the monster lens, the rename sweeps")
+
+LIBRARY = os.path.join(ROOT, r"assets\library")
+STYLELINE = re.compile(r"style (\S+) (world|library)( current)? room=(\S+) corridor=(\S+) "
+                       r"width=(\S+) monsters=(.*)")
+
+
+def style_lines(lines):
+    return {m.group(1): m.groups()[1:] for m in (STYLELINE.match(l) for l in lines) if m}
+
+
+def palette_lens(lines, section):
+    return {m.group(1): m.group(2) for m in
+            (re.match(rf"editor palette item {section} (\S+) .* lens=(on|off)$", l) for l in lines) if m}
+
+
+def palette_listings(lines, section):
+    """Each consecutive run of `editor palette item <section>` lines, as one listing."""
+    runs, cur = [], []
+    for l in lines:
+        if l.startswith(f"editor palette item {section} "):
+            cur.append(l)
+        elif cur:
+            runs.append(cur)
+            cur = []
+    if cur:
+        runs.append(cur)
+    return runs
+
+
+def drop_block(path, block_id):
+    raw = io.open(path, "rb").read().decode("utf-8")
+    eol = "\r\n" if "\r\n" in raw else "\n"
+    out, skip = [], False
+    for l in raw.split(eol):
+        if l.strip().startswith("["):
+            skip = l.strip() == f"[{block_id}]"
+        if not skip:
+            out.append(l)
+    io.open(path, "wb").write(eol.join(out).encode("utf-8"))
+
+
+def read(rel):
+    return io.open(os.path.join(PROJ, rel), encoding="utf-8").read()
+
+
+backup = os.path.join(ROOT, r"build\editortest-backup")
+libbak = os.path.join(ROOT, r"build\editortest-library")
+shutil.rmtree(backup, ignore_errors=True)
+shutil.rmtree(libbak, ignore_errors=True)
+shutil.copytree(PROJ, backup)
+shutil.copytree(LIBRARY, libbak)
+try:
+    drop_block(os.path.join(PROJ, r"catalog\floors.cat"), "ground_soil_rocky")
+    walls_before = io.open(os.path.join(PROJ, r"catalog\walls.cat"), "rb").read()
+
+    def arena(ext, fn):
+        p = ARENA + ext
+        raw = io.open(p, "rb").read().decode("utf-8")
+        eol = "\r\n" if "\r\n" in raw else "\n"
+        io.open(p, "wb").write(eol.join(fn(raw.split(eol))).encode("utf-8"))
+
+    arena(".ent", lambda ls: [l for l in ls if l] +
+          ["button lever 5 1 north flag=relic_lifted sets=relic_lifted", ""])
+    arena(".map", lambda ls: ls[:next(i for i, l in enumerate(ls) if l.startswith("#"))] +
+          ["stairs stairs_down 20 10 south dest=crypt2 destx=1 destz=1 flag=relic_lifted"] +
+          ls[next(i for i, l in enumerate(ls) if l.startswith("#")):])
+
+    log = run("styles.eval")
+    check(passed(log), "the script ran clean")
+    sec = console_sections(log)
+    listed = style_lines(sec.get("list", []))
+    check({k: v[0] for k, v in listed.items()} ==
+          {"small_crypt": "world", "dirt_tunnels": "library", "guard_barracks": "library",
+           "marble_halls": "library"},
+          "the world's style and the library's three are listed", str({k: v[0] for k, v in listed.items()}))
+    groups = {m.group(1): (m.group(2), m.group(3)) for m in
+              (re.match(r"editor palette item styles (\S+) .*group='([^']*)' ref=(\S+)", l)
+               for l in sec.get("list", [])) if m}
+    check(groups.get("small_crypt") == ("This world", "-")
+          and all(groups.get(s, ("", ""))[1] == "library"
+                  for s in ("dirt_tunnels", "guard_barracks", "marble_halls")),
+          "the palette lists This world, then the library's", str(groups))
+    lens = sec.get("lens", [])
+    runs = [palette_lens(r, "monsters") for r in palette_listings(lens, "monsters")]
+    crypt = {"skeleton", "skel_archer", "skel_coward", "mummy"}
+    if len(runs) != 3:
+        check(False, "three Monsters listings", str(len(runs)))
+    else:
+        check(all(v == "on" for v in runs[0].values()) and len(runs[0]) >= 10,
+              "with no style armed every monster is on the lens")
+        check({k for k, v in runs[1].items() if v == "on"} == crypt,
+              "Small Crypt armed: its four monsters lead, the rest fall below the divider",
+              str({k for k, v in runs[1].items() if v == "on"}))
+        check(runs[2] == runs[0], "disarmed, the lens is the level's again")
+    rows = [l for l in lens if l.startswith("style current")]
+    check(rows[-2:] == ["style current small_crypt", "style current -"],
+          "clicking the world style's row arms it, and again puts it down", str(rows))
+    add = [l for l in sec.get("add", []) if l.startswith("style add")]
+    check(len(add) == 2 and add[0] == "style add dirt_tunnels: added copied=floors:ground_soil_rocky,"
+          "themes:dirt_cave,themes:dirt_tunnel,styles:dirt_tunnels missing=-",
+          "adding Dirt Tunnels copies its two themes and the one floor the world lacked",
+          add[0] if add else "(none)")
+    check(len(add) == 2 and add[1].startswith("style add dirt_tunnels: already copied=-"),
+          "a second add is a no-op", add[1] if len(add) > 1 else "(none)")
+    check(style_lines(sec.get("add", [])).get("dirt_tunnels", ("",))[0] == "world",
+          "and it lists as the world's own now")
+    check("[ground_soil_rocky]" in read(r"catalog\floors.cat")
+          and io.open(os.path.join(PROJ, r"catalog\walls.cat"), "rb").read() == walls_before,
+          "the floor reached floors.cat, and walls.cat (which had wall_rock) is untouched")
+    saved = [l for l in sec.get("save", []) if l.startswith("style save")]
+    lib = io.open(os.path.join(LIBRARY, "styles.cat"), encoding="utf-8").read()
+    check(saved == ["style save style1: saved copied=walls:wall_stone_30,floors:floor_ancient_stone,"
+                    "ceilings:ceiling_stone,themes:crypt_chamber,styles:style1"]
+          and "[style1]" in lib and "monsters = skeleton 2, ghoul" in lib,
+          "a world style saves to the library with its theme and the theme's surfaces",
+          str(saved))
+    issues = [l.strip() for l in sec.get("save", [])]
+    check(any(re.match(r"warn\s+map\.check\.stylenomonster style1$", l) for l in issues),
+          "the checker names the monster the style lists and the world lacks")
+    renamed = style_lines(sec.get("rename", []))
+    check(renamed.get("small_crypt", ("",) * 3)[2] == "crypt_room"
+          and renamed.get("style1", ("",) * 3)[2] == "crypt_room",
+          "renaming a theme rewrites the styles that name it",
+          str({k: v[2] for k, v in renamed.items()}))
+    ent, mp = read(r"levels\eval_arena.ent"), read(r"levels\eval_arena.map")
+    items = read(r"catalog\items.cat")
+    check("flag=relic_taken sets=relic_taken" in ent and "flag=relic_taken" in mp
+          and "flag = relic_taken=1" in items and "[relic_taken]" in read(r"catalog\flags.cat"),
+          "renaming a flag rewrites the lever, the stair and the item that name it")
+finally:
+    shutil.rmtree(PROJ)
+    shutil.copytree(backup, PROJ)
+    shutil.rmtree(backup, ignore_errors=True)
+    shutil.rmtree(LIBRARY)
+    shutil.copytree(libbak, LIBRARY)
+    shutil.rmtree(libbak, ignore_errors=True)
 
 print()
 print("PASS" if failures == 0 else f"FAIL - {failures} check(s) failed")

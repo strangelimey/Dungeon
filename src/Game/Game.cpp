@@ -383,6 +383,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	RegisterDiagnosticCommands();
 	RegisterPartyCommands();
 	RegisterEvalCommands();
+	RegisterStyleCommands();
 	// THE TITLE SCREEN HAS NO WORLD (docs/world-on-demand.md), and most
 	// commands reach into one. Rather than a guard in each of a hundred and
 	// twenty handlers, ONE gate: with no world loaded, only the commands listed
@@ -442,6 +443,11 @@ bool Game::LoadWorld(const std::string& folder) {
 	UnloadWorld();
 	m_project = Project::Load(Project::FolderFor(root, folder));
 	log::Info("Opening world '{}'", folder);
+	// The shared style library, re-read with each world (it is a few small
+	// files, and a library edited outside the game is picked up this way).
+	m_library.Load(paths::Asset("library"));
+	m_mapEditor.SetLibrary(&m_library);
+	m_mapEditor.SetCurrentStyle({}); // another world's style means nothing here
 	// The world tier: text-only and tiny, so it loads here rather than as a
 	// staged task, and an absent world map is legal (docs/world-map.md).
 	LoadWorldMap();

@@ -94,6 +94,11 @@ struct Project {
 	// one to a dungeon, absent = the world. Like quests, the catalog says what a
 	// flag IS; whether it is on is save state (WorldState::flags, by id).
 	Catalog flags;
+	// STYLES (tool-refinement Phase 5, Game/Style.h): a room theme, a corridor
+	// theme, generator knobs, a corridor width, tags and a weighted monster
+	// list - one named decision a builder makes once. The world's own; the
+	// shared library's are in StyleLibrary.
+	Catalog styles;
 	// Surface THEMES (docs/editor-themes-notes.md): a named look - `floor` /
 	// `wall` / `ceiling`, each ONE of that surface's catalog ids (empty =
 	// leave it be). World-

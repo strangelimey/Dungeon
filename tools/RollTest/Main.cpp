@@ -42,6 +42,7 @@
 #include "Game/Defense.h"
 #include "Game/Mishap.h"
 #include "Game/Power.h"
+#include "Game/Style.h"
 #include "Game/Resource.h"
 #include "Game/Roll.h"
 
@@ -2002,6 +2003,33 @@ int main(int argc, char** argv) {
 		one.Add(6.0);
 		Check("one kind alone is the middle band", Band(6.0, one), 3, 0);
 		Check("no kinds at all: the middle band", Band(6.0, Range{}), 3, 0);
+	}
+
+	// --- a style's monster list ----------------------------------------------------
+	// Game/Style.h (tool-refinement Phase 5): `<id> [weight]`, comma-separated.
+	// The rename sweep goes through RenameMonster and the type editor's rows
+	// through Parse/Format, so a list that does not round-trip would rewrite
+	// every style it touched.
+	{
+		using namespace dungeon::game::style;
+		std::printf("\nStyle monster lists (Game/Style.h)\n");
+		const std::vector<Pick> p = ParseMonsters(" skeleton 3, skel_archer ,mummy 0.5,, ");
+		Check("three entries, the empty ones skipped", static_cast<double>(p.size()), 3.0, 0.0);
+		Check("a written weight is read", p.size() > 0 ? p[0].weight : -1.0f, 3.0, 0.0);
+		Check("an absent weight is 1", p.size() > 1 ? p[1].weight : -1.0f, 1.0, 0.0);
+		Check("an id is trimmed", p.size() > 1 && p[1].id == "skel_archer" ? 1 : 0, 1, 0);
+		Check("a fractional weight is read", p.size() > 2 ? p[2].weight : -1.0f, 0.5, 0.0);
+		Check("it writes back as written, a weight of 1 left out",
+			  FormatMonsters(p) == "skeleton 3, skel_archer, mummy 0.5" ? 1 : 0, 1, 0);
+		Check("a weight of 0 can never be chosen, so it is dropped",
+			  static_cast<double>(ParseMonsters("blob 0, mummy").size()), 1.0, 0.0);
+		Check("a bad weight reads as 1", ParseMonsters("blob x")[0].weight, 1.0, 0.0);
+		Check("a repeated id keeps its first entry",
+			  ParseMonsters("blob 2, blob 5")[0].weight, 2.0, 0.0);
+		std::vector<Pick> r = ParseMonsters("skeleton 3, mummy");
+		Check("a rename finds the one entry", RenameMonster(r, "mummy", "wrapped"), 1, 0);
+		Check("...and keeps every weight",
+			  FormatMonsters(r) == "skeleton 3, wrapped" ? 1 : 0, 1, 0);
 	}
 
 	// --- verdict ------------------------------------------------------------

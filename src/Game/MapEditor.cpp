@@ -62,6 +62,7 @@ constexpr CatInfo kCategoryInfo[] = {
 	{"map.cat.terrain", "terrain", false, /*placeable*/ false, /*authorable*/ true},
 	{"map.cat.quests", "quests", false, /*placeable*/ false, /*authorable*/ true},
 	{"map.cat.flags", "flags", false, /*placeable*/ false, /*authorable*/ true},
+	{"map.cat.styles", "styles", false, /*placeable*/ false, /*authorable*/ true},
 };
 static_assert(sizeof(kCategoryInfo) / sizeof(kCategoryInfo[0]) ==
 				  static_cast<size_t>(MapEditor::PaletteCat::Count),
@@ -177,6 +178,12 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 		// it is placed (the world caches the powers per edit revision).
 		std::vector<PaletteItem> items = catalogItems(proj.monsters, kMonster);
 		for (PaletteItem& it : items) it.band = m_world->MonsterBand(it.id);
+		// The CURRENT STYLE's lens, in place of the level's tags: its monsters
+		// first, then a divider, then the rest - still all clickable.
+		const std::vector<std::string> picks = StyleMonsters(m_style);
+		if (!picks.empty())
+			for (PaletteItem& it : items)
+				it.onTags = std::find(picks.begin(), picks.end(), it.id) != picks.end();
 		return items;
 	}
 	case PaletteCat::Buttons:     return catalogItems(proj.buttons, kButton);
@@ -194,6 +201,7 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 	case PaletteCat::Dungeons:    return catalogItems(proj.dungeons, kStair);
 	case PaletteCat::Quests:      return catalogItems(proj.quests, kItem);
 	case PaletteCat::Flags:       return QuestSectionItems();
+	case PaletteCat::Styles:      return StyleSectionItems();
 	case PaletteCat::Terrain: {
 		std::vector<PaletteItem> items = catalogItems(proj.terrain, kFloor);
 		for (PaletteItem& it : items)
@@ -612,6 +620,13 @@ bool MapEditor::OnClick(float mx, float my, const gfx::Rect& panel) {
 			m_groupOpen[GroupKey(r.cat, r.group)] = !GroupOpen(r.cat, r.group);
 		else if (r.kind == PaletteRow::Kind::Item && r.cat == PaletteCat::Flags)
 			QuestRowClick(r, mx, my); // rows of two catalogs, with links
+		else if (r.kind == PaletteRow::Kind::Item && r.cat == PaletteCat::Styles) {
+			// Arm a world style, add a library one (never the type editor: a
+			// right-click is that, as everywhere).
+			const std::vector<PaletteItem> items = CategoryItems(r.cat);
+			if (r.index >= 0 && r.index < static_cast<int>(items.size()))
+				UseStyleRow(items[static_cast<size_t>(r.index)].id);
+		}
 		else if (r.kind == PaletteRow::Kind::Item) {
 			// A placeable type arms the brush; a non-placeable one has nothing
 			// to arm, so a click opens its editor (what right-click does for
@@ -645,9 +660,12 @@ bool MapEditor::OnRightClick(float mx, float my, const gfx::Rect& panel) {
 		// there is no per-category allowlist here any more).
 		if (r.kind == PaletteRow::Kind::Item && onConfigure) {
 			const std::vector<PaletteItem> items = CategoryItems(r.cat);
-			// A row standing for another catalog's type edits it THERE.
+			// A row standing for another catalog's type edits it THERE; a row
+			// with no world catalog behind it (a library style) has nothing to
+			// edit until it is added.
 			if (r.index >= 0 && r.index < static_cast<int>(items.size()))
-				onConfigure(RowCat(r.cat, items[r.index]), items[r.index].id);
+				if (const PaletteCat cat = RowCat(r.cat, items[r.index]); cat != PaletteCat::Count)
+					onConfigure(cat, items[r.index].id);
 		}
 		return true; // any row in the dock body consumes the right-click
 	}
@@ -1401,7 +1419,10 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 				std::toupper(static_cast<unsigned char>(label[0])));
 			label += std::format(" ({})", n);
 			expander(GroupOpen(r.cat, r.group), rc.x + dpad * 3, rc, ty);
-			font.Draw(batch, label, rc.x + dpad * 4 + arrowW, ty, theme.text);
+			const float sx = rc.x + dpad * 4 + arrowW;
+			// Trimmed, without a tooltip: hover never resolves to a sub-header
+			// (-3 is no row's index), and its full name is one click away.
+			drawFitted(r, -3, label, sx, rc.x + rc.w - dpad - sx, ty, theme.text);
 			break;
 		}
 		case PaletteRow::Kind::Item: {
@@ -1409,7 +1430,9 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			const PaletteItem& item = items[r.index];
 			const bool active = (m_sel.cat == r.cat && m_sel.index == r.index) ||
 								(!item.ref.empty() && armedCat == RowCat(r.cat, item) &&
-								 armedId == item.id);
+								 armedId == item.id) ||
+								(r.cat == PaletteCat::Styles && item.ref.empty() &&
+								 item.id == m_style);
 			if (active) {
 				batch.DrawRect(rc, theme.controlActive);
 				ui::DrawBorder(batch, rc, theme.panelBorder);

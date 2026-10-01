@@ -1,0 +1,48 @@
+; styles.eval - EditorTest phase 16 (tool-refinement Phase 5): styles, the
+; shared library, the current style's lens on the Monsters section, and the
+; rename sweeps that keep references to themes and flags whole.
+;
+; Run on a FIXTURE the test writes first (and puts back after, with the
+; library): the world's floors.cat lacks ground_soil_rocky, which only the
+; library's Dirt Tunnels needs; eval_arena gains a lever and a stair down that
+; name relic_lifted, so a flag rename has records to rewrite.
+logecho on
+reset
+timescale 0
+freeze on
+
+echo --- list ---
+styles
+editor palette items styles
+
+; --- the current style ranks the Monsters section ------------------------------
+echo --- lens ---
+editor palette items monsters
+style use small_crypt
+editor palette items monsters
+style use off
+editor palette items monsters
+style row small_crypt
+style row small_crypt
+
+; --- a library style comes across with what it needs -----------------------------
+echo --- add ---
+style add dirt_tunnels
+style add dirt_tunnels
+styles
+editor palette items styles
+
+; --- a world style goes to the library -------------------------------------------
+echo --- save ---
+newtype styles
+typeset styles style1 room crypt_chamber
+typeset styles style1 monsters skeleton 2, ghoul
+style save style1
+validate
+
+; --- renames reach what names the renamed ----------------------------------------
+echo --- rename ---
+typeset rename themes crypt_chamber crypt_room
+typeset rename flags relic_lifted relic_taken
+styles
+savemap

@@ -233,6 +233,36 @@ in a shared library AND per world.
   the themes it needed arrived and nothing else did; a second add is a
   no-op; the monster filter follows the armed style.
 
+BUILT (2026-09-30), and where it differs from the above:
+- `styles.cat` per world: `room`, `corridor` (themes), `knobs`, `corridor_width`,
+  `tags`, `monsters` (`<id> [weight], ...`, Game/Style.h - pure, in RollTest).
+  The type editor's style form has Look / Shape / Monsters tabs; the monster
+  list is rows (a dropdown naming each monster with its power, a weight, a
+  remove box) through a new FieldKind::WeightedRefs. `knobs` is the plain
+  settings line for now (Phase 7 hands it to the generator).
+- THE LIBRARY is assets/library: styles.cat, themes.cat and the walls /
+  floors / ceilings those themes are made of (Game/StyleLibrary.h). Starter:
+  Small Crypt, Dirt Tunnels, Guard Barracks, Marble Halls. The demo world
+  owns Small Crypt (and its crypt dungeon names it as `style`); the other
+  three are offered from the library.
+- The palette's Styles section (World group, first): This world, then the
+  library's the world lacks. A world style's row ARMS it (again = off); a
+  library row ADDS it. Right-click a world style for its editor, whose footer
+  has "Save to library" (the style as edited, written to the world first).
+- The armed style RANKS the Monsters section rather than hiding the rest: its
+  monsters first, a divider, the others - the tags lens's rule, since the odd
+  one out is often the memorable one. Not saved: a session's working choice.
+- The checker warns when a style names a theme or monster the world lacks
+  (an add from the library reports missing monsters and does not copy them)
+  and when a dungeon names a style it lacks.
+- Rename sweeps: a theme rename rewrites styles' room / corridor, a style
+  rename dungeons' `style`, a monster rename styles' lists (weights kept).
+  And the Phase 4 gap this exposed: a FLAG rename now rewrites items' `flag`,
+  locations' `flag=`, and the door / lever / stair records naming it.
+- New worlds: the template carries styles.cat (styles are reusable content,
+  like themes).
+- Dev: `styles`, `style use|add|save|row <id>`.
+
 ## Phase 6 - Shape brushes
 
 Four ways to lay shape in the current style (Michael: all four). Each is one

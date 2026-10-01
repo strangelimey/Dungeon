@@ -73,6 +73,7 @@
 #include "Game/ProjectileInspector.h"
 #include "Game/PropInspector.h"
 #include "Game/Project.h"
+#include "Game/StyleLibrary.h"
 #include "Game/TypeEditorDialog.h"
 #include "Game/SoundBank.h"
 #include "UI/FontLibrary.h"
@@ -239,6 +240,7 @@ private:
 	void RegisterDiagnosticCommands(); // guards, threads, health (Game_DevDiagnostics.cpp)
 	void RegisterPartyCommands(); // members, gear, pools (Game_DevParty.cpp)
 	void RegisterEvalCommands(); // the eval harness's (Game_DevEval.cpp)
+	void RegisterStyleCommands(); // styles and the library (Game_Styles.cpp)
 	// The encounter tally as the `tally` command prints it: one key=value
 	// line starting "TALLY ". Shared with `alloctest`'s verdict.
 	std::string TallyLine() const;
@@ -292,6 +294,12 @@ private:
 	// free id and the schema's defaults; the caller opens the type editor on it
 	// so the id can be renamed there. "" if the category has no catalog.
 	std::string CreateAuthoredType(MapEditor::PaletteCat cat);
+	// STYLES (Game_Styles.cpp): add a library style to this world (the style
+	// and whatever it points at that the world lacks, saved; monsters it lacks
+	// reported), and save a world style back to the library. Both report what
+	// they did through onMessage and return it for the console.
+	StyleLibrary::AddResult AddStyleFromLibrary(const std::string& id);
+	bool SaveStyleToLibrary(const std::string& id, std::vector<StyleLibrary::Copy>& out);
 	// Renames a catalog type EVERYWHERE: the entry, every level record that
 	// names it (DungeonWorld::SweepTypeRefs), the cross-catalog references
 	// (stairs `pair`, doors `key`) and the project's default fixture ids. False
@@ -855,6 +863,9 @@ private:
 	// Loaded before the world (which reads it for level paths and catalogs);
 	// the editor will read and write it.
 	Project m_project;
+	// The shared STYLE LIBRARY (assets/library, Game/StyleLibrary.h): what the
+	// palette's Styles section offers to add. Read with each world.
+	StyleLibrary m_library;
 	// The overworld above the dungeons (docs/world-map.md), loaded from the
 	// project once at construction. EMPTY IS LEGAL: a project need not have a
 	// world authored yet, so everything that reads this must cope with nullopt

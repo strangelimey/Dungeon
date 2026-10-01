@@ -57,6 +57,12 @@ enum class FieldKind {
 	// stage and what it says are authored together rather than as a list here
 	// and a hand-typed field elsewhere.
 	QuestStages,
+	// A WEIGHTED LIST of ids from the catalog named by `options`, written
+	// `<id> [weight], ...` (a style's `monsters`, Game/Style.h). One row per
+	// entry - the id as a dropdown, its weight, a remove box - and an add
+	// button; the dropdown names each candidate through faceFor, so a monster
+	// shows its power.
+	WeightedRefs,
 };
 
 // One editable field of one category.
@@ -83,6 +89,9 @@ struct FieldSpec {
 	// Changing this field invalidates BAKED geometry (the worn block meshes),
 	// so saving it has to re-run AssetBaker before the change is visible.
 	bool rebakes = false;
+	// Text only: the longest value the field accepts (0 = the dialog's 64). A
+	// generator settings line runs to a couple of hundred characters.
+	int maxLen = 0;
 };
 
 // The rows for a project catalog key ("walls", "monsters", ...); empty for a
@@ -100,6 +109,8 @@ inline constexpr const char* kSectionStats = "map.type.sec.stats";
 inline constexpr const char* kSectionRules = "map.type.sec.rules";
 inline constexpr const char* kSectionQuest = "map.type.sec.quest";
 inline constexpr const char* kSectionStages = "map.type.sec.stages";
+inline constexpr const char* kSectionShape = "map.type.sec.shape";
+inline constexpr const char* kSectionMonsters = "map.type.sec.monsters";
 
 // CatalogRef `options` that name no catalog but a list Game builds: every
 // "<quest>:<stage>" pair, and every world-map location id.

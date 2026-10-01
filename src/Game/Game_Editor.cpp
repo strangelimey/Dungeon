@@ -9,6 +9,7 @@
 #include "Core/Log.h"
 #include "Core/Paths.h"
 #include "Game/Serialize.h"
+#include "Game/Style.h"
 
 #include <algorithm>
 #include <cctype>
@@ -631,9 +632,12 @@ void Game::OpenTypeEditor(MapEditor::PaletteCat cat, const std::string& id) {
 	cfg.categoryLabel = loc::Tr(MapEditor::CategoryNameKey(cat));
 	cfg.id = id;
 	cfg.fields = entry->fields;
-	m_typeDialog.extraLabel = cat == MapEditor::PaletteCat::Monsters
-								  ? loc::Tr("map.type.anims")
-								  : std::string();
+	// The per-category extra button: a monster's animations, a style's way back
+	// to the shared library.
+	m_typeDialog.extraLabel = cat == MapEditor::PaletteCat::Monsters ? loc::Tr("map.type.anims")
+							  : cat == MapEditor::PaletteCat::Styles ? loc::Tr("map.style.savelib")
+																	 : std::string();
+	m_typeDialog.extraIcon = cat == MapEditor::PaletteCat::Styles ? "source" : "anim";
 	// Duplicate is offered wherever a type can be authored at all — the same test
 	// the palette's "+ New..." row uses, since the button opens that same dialog.
 	m_typeDialog.duplicateLabel = MapEditor::CategoryPlaceable(cat)
@@ -764,6 +768,60 @@ int Game::SweepCatalogRefs(const std::string& catalogKey, const std::string& id,
 				copy.Set(field, *newId);
 				m_project.themes.Add(std::move(copy)); // add-or-replace by id
 			}
+	}
+	// A STYLE names its room and corridor themes, and a dungeon its default
+	// style (tool-refinement Phase 5).
+	if (catalogKey == "themes") {
+		sweepField(m_project.styles, "room");
+		sweepField(m_project.styles, "corridor");
+	}
+	if (catalogKey == "styles") sweepField(m_project.dungeons, "style");
+	// ... and a style's monster list names monsters, among weights that a
+	// rename must keep.
+	if (catalogKey == "monsters") {
+		std::vector<std::string> matches;
+		for (const CatalogEntry& e : m_project.styles.Entries()) {
+			std::vector<style::Pick> picks = style::ParseMonsters(e.Get("monsters", ""));
+			if (style::RenameMonster(picks, id, newId ? *newId : id) > 0) matches.push_back(e.id);
+		}
+		hits += static_cast<int>(matches.size());
+		if (newId)
+			for (const std::string& entryId : matches) {
+				CatalogEntry copy = *m_project.styles.Find(entryId);
+				std::vector<style::Pick> picks = style::ParseMonsters(copy.Get("monsters", ""));
+				style::RenameMonster(picks, id, *newId);
+				copy.Set("monsters", style::FormatMonsters(picks));
+				m_project.styles.Add(std::move(copy));
+			}
+	}
+	// A FLAG is named by an item's hook (`flag = <id>`, or a hand-written
+	// `<id>=<value>`) and by a world location's `flag=` (Phase 4). The level
+	// records naming one are the level sweep's (DungeonWorld::SweepTypeRefs).
+	if (catalogKey == "flags") {
+		for (Catalog* c : {&m_project.items, &m_project.weapons, &m_project.armor}) {
+			std::vector<std::string> matches;
+			for (const CatalogEntry& e : c->Entries()) {
+				const std::string f = e.Get("flag", "");
+				if (f.substr(0, f.find('=')) == id) matches.push_back(e.id);
+			}
+			hits += static_cast<int>(matches.size());
+			if (newId)
+				for (const std::string& entryId : matches) {
+					CatalogEntry copy = *c->Find(entryId);
+					const std::string f = copy.Get("flag", "");
+					const size_t eq = f.find('=');
+					copy.Set("flag", *newId + (eq == std::string::npos ? "" : f.substr(eq)));
+					c->Add(std::move(copy));
+				}
+		}
+		if (m_worldMap)
+			for (const WorldMap::Location& l : m_worldMap->Locations())
+				if (const std::string* f = l.Param("flag"); f && *f == id) {
+					++hits;
+					if (newId)
+						for (auto& [k, v] : m_worldMap->MutableLocation(l.id)->params)
+							if (k == "flag") v = *newId;
+				}
 	}
 	// The 'T'/'F' map glyphs resolve through the project's default fixtures.
 	if (catalogKey == "fixtures") {

@@ -74,6 +74,14 @@ struct Rules {
 struct DungeonView {
 	std::string id;
 	std::vector<std::string> levels;
+	std::string style; // its default style ("" = none)
+};
+
+// One STYLE (styles.cat, Game/Style.h): the themes and monsters it names.
+struct StyleView {
+	std::string id;
+	std::vector<std::string> themes;   // room, corridor
+	std::vector<std::string> monsters; // its weighted list's ids
 };
 
 // The WORLD tier, when the project has one (docs/world-map.md). Non-owning, and
@@ -111,6 +119,9 @@ struct WorldView {
 	// The flags, checked whether or not there is a world map (Validate_Flags.cpp):
 	// a door, lever or stair waiting on a flag nothing sets can never be used.
 	std::vector<FlagView> flags;
+	// The styles, and the ids they may name (Validate_Styles.cpp).
+	std::vector<StyleView> styles;
+	std::unordered_set<std::string> themeIds, monsterIds;
 };
 
 enum class Severity : u8 { Error, Warning };
@@ -156,5 +167,8 @@ std::vector<Issue> Run(const std::vector<LevelView>& levels,
 // another dungeon.
 void CheckFlags(const std::vector<LevelView>& levels, const WorldView& world,
 				std::vector<Issue>& issues);
+// The style checks (Validate_Styles.cpp), run by Run: a style naming a theme or
+// a monster the world lacks, a dungeon naming a style it lacks.
+void CheckStyles(const WorldView& world, std::vector<Issue>& issues);
 
 } // namespace dungeon::game::validate
