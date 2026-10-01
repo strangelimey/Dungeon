@@ -112,9 +112,8 @@ void HandSlot::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	}
 	// A spell use spells out its recipe on top.
 	if (use.spell) DrawSpellRunes(batch, inner, *use.spell, drewItem);
-	// Identity stripe along the socket's bottom edge.
-	batch.DrawRect({socket.x + 1, socket.y + socket.h - 4, socket.w - 2, 3},
-				   m_character->portraitColor);
+	// No identity stripe: whose hand this is reads from the member border its
+	// HandPair draws round both hands and the effort meter (ui-updates).
 	if (m_hot)
 		ui::DrawBorder(batch, px, theme.accent);
 	else if (!skinned)

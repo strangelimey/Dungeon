@@ -126,7 +126,9 @@ private:
 
 // One member's two hand boxes side by side, with the stance slider spanning
 // the full width beneath BOTH of them - one decision for the character, not
-// one per hand.
+// one per hand. The three are framed TOGETHER by one border in the member's
+// identity colour (ui-updates: it replaced a colour stripe inside each box), so
+// whose hands these are reads as a property of the group.
 class HandPair : public ui::Widget {
 public:
 	HandPair(const gfx::Rect& rect, size_t member, const ControlBarDeps& deps);
@@ -137,8 +139,12 @@ public:
 	static float NeededHeight(float widthPx, float emPx);
 	static float SquareSide(float widthPx, float emPx);
 	static float BandHeight(float emPx);
+	// The padding on EVERY side that holds the member border and its glow, so
+	// the frame stays inside the pair's own area (the bar frames' rule).
+	static float FramePad(float emPx);
 
 private:
+	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 	// The boxes are SQUARE, and squareness cannot be authored: `bounds` are
 	// fractions of the parent in each axis independently, so a w/h pair only
 	// comes out square when the parent's own pixel aspect happens to agree.
@@ -147,6 +153,8 @@ private:
 	// when a child is aspect-locked).
 	void LayoutSelf(ui::UIContext& ctx) override;
 
+	const std::vector<Character>* m_roster = nullptr;
+	size_t m_member = 0;
 	ui::Widget* m_slots[2]{nullptr, nullptr};
 	ui::Widget* m_guard = nullptr;
 };

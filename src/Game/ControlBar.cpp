@@ -106,7 +106,8 @@ void MovementPad::LayoutSelf(ui::UIContext&) {
 // --- HandPair --------------------------------------------------------------
 
 HandPair::HandPair(const gfx::Rect& rect, size_t member,
-				   const ControlBarDeps& deps) {
+				   const ControlBarDeps& deps)
+	: m_roster(deps.roster), m_member(member) {
 	bounds = rect;
 	debugName = "HandPair";
 	// Bounds here are placeholders: LayoutSelf computes the real ones once the
@@ -143,17 +144,46 @@ HandPair::HandPair(const gfx::Rect& rect, size_t member,
 // out - the grid's height is a consequence of the column's width, and only
 // this function knows the shape of that consequence.
 float HandPair::NeededHeight(float widthPx, float emPx) {
-	return SquareSide(widthPx, emPx) + BandHeight(emPx);
+	return SquareSide(widthPx, emPx) + BandHeight(emPx) + 2.0f * FramePad(emPx);
 }
 
 float HandPair::SquareSide(float widthPx, float emPx) {
-	// kSideMargin of margin in total, the authored sliver between the boxes,
-	// and the rest split in two. WIDTH ALONE decides - the height then follows
-	// from it, which is the whole point: a box clamped by the height it was
-	// given comes out tiny the moment the parent is short.
+	// The frame's padding down both sides, the authored sliver between the
+	// boxes, and the rest split in two. WIDTH ALONE decides - the height then
+	// follows from it, which is the whole point: a box clamped by the height it
+	// was given comes out tiny the moment the parent is short.
 	const float gap = widthPx * (kHandGap / kSetW);
-	const float avail = widthPx - emPx * kSideMargin - gap;
+	const float avail = widthPx - 2.0f * FramePad(emPx) - gap;
 	return std::max(0.0f, avail * 0.5f);
+}
+
+// The member border sits kFrameGlow in from the pair's edge (room for its glow
+// outside it) and the contents kFramePad in (room for the border and a breath
+// of stone inside it). In EM, so the frame grows with the dock's scale.
+namespace {
+constexpr float kFrameGlow = 0.22f;
+constexpr float kFramePad = 0.5f;
+} // namespace
+
+float HandPair::FramePad(float emPx) { return emPx * kFramePad; }
+
+void HandPair::DrawSelf(ui::UIContext&, gfx::SpriteBatch& batch) {
+	const Character* c = RosterMember(m_roster, m_member);
+	if (!c) return;
+	const gfx::Rect& px = Pixel();
+	const float g = Em(kFrameGlow);
+	const gfx::Rect frame{px.x + g, px.y + g, px.w - 2.0f * g, px.h - 2.0f * g};
+	if (frame.w <= 0.0f || frame.h <= 0.0f) return;
+	// A member who is down keeps the frame, quietly: whose hands these are does
+	// not change, but nothing about them is lit.
+	const bool up = c->IsAlive();
+	Vec4 col = c->portraitColor;
+	col.w = up ? 1.0f : 0.45f;
+	ui::DrawGlow(batch, frame, col, g, up ? 0.5f : 0.15f);
+	// Two hairlines: the frame reads as a line at any scale, and 2px is still a
+	// hairline by the rem rule (UI/Units.h).
+	ui::DrawBorder(batch, frame, col);
+	ui::DrawBorder(batch, {frame.x + 1, frame.y + 1, frame.w - 2, frame.h - 2}, col);
 }
 
 // The slider's WHOLE band (GuardSlider::kBandRem): the gap under the boxes, the
@@ -172,6 +202,7 @@ void HandPair::LayoutSelf(ui::UIContext&) {
 	const float gap = px.w * (kHandGap / kSetW);
 	const float side = SquareSide(px.w, em);
 	const float band = BandHeight(em);
+	const float pad = FramePad(em);
 	if (side <= 0.0f) return;
 
 	// SQUARE IN PIXELS, which is why the two axes are divided by different
@@ -179,15 +210,14 @@ void HandPair::LayoutSelf(ui::UIContext&) {
 	// fractions are only a square when the parent happens to be square.
 	for (int hand = 0; hand < 2; ++hand) {
 		if (!m_slots[hand]) continue;
-		m_slots[hand]->bounds = {
-			(em * kSideMargin * 0.5f + (side + gap) * static_cast<float>(hand)) / px.w,
-			0.0f, side / px.w, side / px.h};
+		m_slots[hand]->bounds = {(pad + (side + gap) * static_cast<float>(hand)) / px.w,
+								 pad / px.h, side / px.w, side / px.h};
 	}
 	// Spans both boxes and the gap between them - the visual claim that it
 	// governs the pair rather than either hand.
 	if (m_guard)
-		m_guard->bounds = {em * kSideMargin * 0.5f / px.w, side / px.h,
-						   (side * 2.0f + gap) / px.w, band / px.h};
+		m_guard->bounds = {pad / px.w, (pad + side) / px.h, (side * 2.0f + gap) / px.w,
+						   band / px.h};
 }
 
 // --- HandsArea -------------------------------------------------------------
