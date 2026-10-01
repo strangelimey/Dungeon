@@ -2,7 +2,7 @@
 // Game/Game_DevParty.cpp — the party's dev-console commands.
 //
 // Split out of Game_DevCommands.cpp by concern: what a member knows, carries
-// and does (learn/rune/give/guard/swing/wear/equip/effect/threat/cast), their
+// and does (learn/rune/give/guard/swing/wear/equip/effect/grudges/cast), their
 // pools and supplies (party/regen/supplies/rest/consume/setsupply), and the
 // sheet and the dev setters that re-derive it (sheet/setstat/setskill/heal/
 // char).
@@ -24,11 +24,12 @@ using devargs::Need;
 using devargs::ParseSymbolArg;
 
 void Game::RegisterPartyCommands() {
-	m_console.Register("learn", "grant a spell symbol to a member (dev)",
+	m_console.Register({.name = "learn",
+						.group = CmdGroup::Characters,
+						.params = "<member> <fire|earth|air|water>",
+						.summary = "grant a spell symbol to a member"},
 					   [this](const std::vector<std::string>& args) {
-						   if (!Need(m_console, args, 2,
-									 "usage: learn <member 0-3> <fire|earth|air|water>"))
-							   return;
+						   if (!Need(m_console, args, 2)) return;
 						   const size_t m = static_cast<size_t>(std::atoi(args[0].c_str()));
 						   SpellSymbol sym;
 						   if (m >= m_characters.size()) {
@@ -41,11 +42,12 @@ void Game::RegisterPartyCommands() {
 						   m_console.Print(std::format("{} learned {}", m_characters[m].name,
 													   SymbolId(sym)));
 					   });
-	m_console.Register("rune", "give a rune tablet to the lead member's pack (dev)",
+	m_console.Register({.name = "rune",
+						.group = CmdGroup::Characters,
+						.params = "<fire|earth|air|water>",
+						.summary = "give a rune tablet to the lead member's pack"},
 					   [this](const std::vector<std::string>& args) {
-						   if (!Need(m_console, args, 1,
-									 "usage: rune <fire|earth|air|water>"))
-							   return;
+						   if (!Need(m_console, args, 1)) return;
 						   SpellSymbol sym;
 						   if (!ParseSymbolArg(m_console, args[0], sym)) return;
 						   const std::string typeId(RuneItemId(sym));
@@ -55,11 +57,12 @@ void Game::RegisterPartyCommands() {
 						   else
 							   m_console.Print(std::format("pack += {}", typeId));
 					   });
-	m_console.Register("give", "stow an items.cat item in a member's pack (dev)",
+	m_console.Register({.name = "give",
+						.group = CmdGroup::Characters,
+						.params = "<item> [member]",
+						.summary = "stow an item in a member's pack, firing its found hooks"},
 					   [this](const std::vector<std::string>& args) {
-						   if (!Need(m_console, args, 1,
-									 "usage: give <item id> [member 0-3]"))
-							   return;
+						   if (!Need(m_console, args, 1)) return;
 						   const size_t m = args.size() > 1
 							   ? static_cast<size_t>(std::atoi(args[1].c_str())) : 0;
 						   if (m >= m_characters.size()) {
@@ -86,11 +89,12 @@ void Game::RegisterPartyCommands() {
 	// (docs/damage-system.md). Worth keeping once the UI lands: setting an
 	// exact share is how the split gets MEASURED, where dragging a slider is
 	// how it gets FELT, and those are different questions.
-	m_console.Register("guard", "set a hand's offense share 0..N (dev)",
+	m_console.Register({.name = "guard",
+						.group = CmdGroup::Characters,
+						.params = "<share> [member]",
+						.summary = "set a member's offense share and print the stance weights"},
 					   [this](const std::vector<std::string>& args) {
-						   if (!Need(m_console, args, 1,
-									 "usage: guard <share 0..N> [member 0-3]"))
-							   return;
+						   if (!Need(m_console, args, 1)) return;
 						   const float share =
 							   static_cast<float>(std::atof(args[0].c_str()));
 						   const size_t m = args.size() > 1
@@ -132,11 +136,12 @@ void Game::RegisterPartyCommands() {
 	// whole fumble consequence table) could only be reached by clicking a hand
 	// slot in the HUD, which no script drives reliably. A verb of "" takes the
 	// neutral attack, exactly as the hand menu's default does.
-	m_console.Register("swing", "attack with a member's hand (dev): swing <member> [hand] [verb]",
+	m_console.Register({.name = "swing",
+						.group = CmdGroup::Combat,
+						.params = "<member> [hand] [verb]",
+						.summary = "attack with a member's hand"},
 					   [this](const std::vector<std::string>& args) {
-						   if (!Need(m_console, args, 1,
-									 "usage: swing <member 0-3> [hand 0/1] [verb]"))
-							   return;
+						   if (!Need(m_console, args, 1)) return;
 						   const size_t m =
 							   static_cast<size_t>(std::atoi(args[0].c_str()));
 						   if (m >= m_characters.size()) {
@@ -160,11 +165,13 @@ void Game::RegisterPartyCommands() {
 	// counts (DungeonWorld::WornArmorClass). Without it there is no scriptable
 	// way to put armor ON a character, which made the whole armor system
 	// untestable except by dragging things in the sheet.
-	m_console.Register("wear", "put an item in its worn doll slot (dev)",
+	m_console.Register({.name = "wear",
+						.group = CmdGroup::Characters,
+						.params = "<item> [member]\n"
+								  "none [member]",
+						.summary = "put an item in its worn doll slot, or strip the doll"},
 					   [this](const std::vector<std::string>& args) {
-						   if (!Need(m_console, args, 1,
-									 "usage: wear <item id|none> [member 0-3]"))
-							   return;
+						   if (!Need(m_console, args, 1)) return;
 						   const size_t m = args.size() > 1
 							   ? static_cast<size_t>(std::atoi(args[1].c_str())) : 0;
 						   if (m >= m_characters.size()) {
@@ -212,11 +219,12 @@ void Game::RegisterPartyCommands() {
 
 	// `give` fills the pack; this puts a weapon straight in a hand, which is
 	// what a combat test actually needs (no cursor drag, no HUD clicking).
-	m_console.Register("equip", "put an item in a member's hand (dev)",
+	m_console.Register({.name = "equip",
+						.group = CmdGroup::Characters,
+						.params = "<item> [member] [hand]",
+						.summary = "put an item in a member's hand"},
 					   [this](const std::vector<std::string>& args) {
-						   if (!Need(m_console, args, 1,
-									 "usage: equip <item id> [member 0-3] [hand 0/1]"))
-							   return;
+						   if (!Need(m_console, args, 1)) return;
 						   const size_t m = args.size() > 1
 							   ? static_cast<size_t>(std::atoi(args[1].c_str())) : 0;
 						   const int hand = args.size() > 2
@@ -239,19 +247,18 @@ void Game::RegisterPartyCommands() {
 	// live fight is otherwise a coin toss — vocabulary, mana, and the fumble
 	// roll all have to go your way, and then a monster has to choose to hit
 	// the bearer before you see the ward DO anything.
-	m_console.Register("effect", "apply a status effect to a member or the monster ahead (dev)",
+	//
+	// MAGNITUDE IS PER SECOND for a DoT, and the default pair (8 for 60s) is
+	// therefore 480 damage against a 42 hp member. Spelled out in the params
+	// because the argument order reads as "10 damage over 20 seconds" and means
+	// almost the opposite: `effect bleed 0 10 20` deals 200 and annihilates the
+	// party (docs/eval-audit.md).
+	m_console.Register({.name = "effect",
+						.group = CmdGroup::Combat,
+						.params = "<id> [member|ahead] [magnitude per sec for a DoT] [seconds]",
+						.summary = "apply a status effect to a member or the monster ahead"},
 					   [this](const std::vector<std::string>& args) {
-						   // MAGNITUDE IS PER SECOND for a DoT, and the default
-						   // pair (8 for 60s) is therefore 480 damage against a
-						   // 42 hp member. Spelled out in the usage because the
-						   // argument order reads as "10 damage over 20 seconds"
-						   // and means almost the opposite: `effect bleed 0 10
-						   // 20` deals 200 and annihilates the party
-						   // (docs/eval-audit.md).
-						   if (!Need(m_console, args, 1,
-									 "usage: effect <id> [member 0-3 | ahead] "
-									 "[magnitude, PER SECOND for a DoT] [seconds]"))
-							   return;
+						   if (!Need(m_console, args, 1)) return;
 						   const float mag = args.size() > 2
 							   ? std::strtof(args[2].c_str(), nullptr) : 8.0f;
 						   const float secs = args.size() > 3
@@ -299,8 +306,11 @@ void Game::RegisterPartyCommands() {
 													   m_characters[m].name, args[0],
 													   magnitude, seconds));
 					   });
-	m_console.Register("threat",
-					   "list per-member threat for every monster holding a grudge (dev)",
+	// Named `grudges`, not `threat`: another file registers a different
+	// `threat` first, so this one was unreachable under that name.
+	m_console.Register({.name = "grudges",
+						.group = CmdGroup::Combat,
+						.summary = "list per-member threat for every monster holding a grudge"},
 					   [this](const std::vector<std::string>&) {
 						   const std::vector<std::string> lines = m_world->ThreatReport();
 						   if (lines.empty()) {
@@ -309,11 +319,12 @@ void Game::RegisterPartyCommands() {
 						   }
 						   for (const std::string& l : lines) m_console.Print("  " + l);
 					   });
-	m_console.Register("cast", "cast a spell by symbol sequence (dev): cast <member> [hand 0/1] <sym>...",
+	m_console.Register({.name = "cast",
+						.group = CmdGroup::Combat,
+						.params = "<member> [hand] <symbol>...",
+						.summary = "cast a spell by symbol sequence"},
 					   [this](const std::vector<std::string>& args) {
-						   if (!Need(m_console, args, 2,
-									 "usage: cast <member 0-3> [hand 0/1] <sym> [sym...]"))
-							   return;
+						   if (!Need(m_console, args, 2)) return;
 						   const size_t m = static_cast<size_t>(std::atoi(args[0].c_str()));
 						   if (m >= m_characters.size()) {
 							   m_console.Refuse("no such member");
@@ -342,7 +353,9 @@ void Game::RegisterPartyCommands() {
 	// has printed the other side for a while; without this a harness can watch a
 	// fight and never learn what it COST, which is most of what a balance pass
 	// is trying to find out.
-	m_console.Register("party", "each member's hp/stamina/mana + stance (dev)",
+	m_console.Register({.name = "party",
+						.group = CmdGroup::Characters,
+						.summary = "each member's hp/stamina/mana and stance"},
 					   [this](const std::vector<std::string>&) {
 						   for (size_t i = 0; i < m_characters.size(); ++i) {
 							   const Character& c = m_characters[i];
@@ -375,7 +388,9 @@ void Game::RegisterPartyCommands() {
 	// three pools — measured UNTRAINED and TRAINED, since a crossing can hide at
 	// either end. Reporting whether an authored property holds is measurement;
 	// what to do about it is Michael's.
-	m_console.Register("regen", "health/stamina/mana per second, and the ordering (dev)",
+	m_console.Register({.name = "regen",
+						.group = CmdGroup::Characters,
+						.summary = "health/stamina/mana regen per second, and the ordering"},
 					   [this](const std::vector<std::string>&) {
 						   const Balance& bal = m_world->GetBalance();
 						   const resource::PoolRules pools = bal.Resources();
@@ -429,7 +444,9 @@ void Game::RegisterPartyCommands() {
 	// drain rate depends on the member's conditioning — the fitter member burns
 	// more, which is the brake the whole design rests on. Printed in hours,
 	// because a supply run is a question about hours and not about seconds.
-	m_console.Register("supplies", "each member's food and water, and hours left (dev)",
+	m_console.Register({.name = "supplies",
+						.group = CmdGroup::Characters,
+						.summary = "each member's food and water, and hours left"},
 					   [this](const std::vector<std::string>&) {
 						   const Balance& bal = m_world->GetBalance();
 						   const resource::SupplyRules food =
@@ -458,12 +475,14 @@ void Game::RegisterPartyCommands() {
 	// The item details dialog on any item type, without a right-click - so a
 	// script (and `uioverlap`) can reach it. Through ShowItemDetails, the one
 	// opener every right-click uses.
-	m_console.Register("itemdetails",
-					   "open the item details dialog (dev): itemdetails <item [kg]|off|status>",
+	m_console.Register({.name = "itemdetails",
+						.group = CmdGroup::Characters,
+						.params = "<item> [kg]\n"
+								  "off\n"
+								  "status",
+						.summary = "open, close or report the item details dialog"},
 					   [this](const std::vector<std::string>& args) {
-						   if (!Need(m_console, args, 1,
-									 "usage: itemdetails <item [kg]|off|status>"))
-							   return;
+						   if (!Need(m_console, args, 1)) return;
 						   if (args[0] == "off") {
 							   m_ui.CloseItemDetails();
 							   m_console.Print("item details closed");
@@ -498,8 +517,12 @@ void Game::RegisterPartyCommands() {
 	// reports it as a screen it cannot sweep — so the one screen with the most
 	// hand-laid-out content in the game was also the one screen `uioverlap`
 	// never saw. `sheet <n>` then `uioverlap` closes half of that gap.
-	m_console.Register("sheet",
-					   "open the character sheet (dev): sheet <member|off|status>",
+	m_console.Register({.name = "sheet",
+						.group = CmdGroup::Characters,
+						.params = "[member]\n"
+								  "off\n"
+								  "status",
+						.summary = "open, close or report the character sheet"},
 					   [this](const std::vector<std::string>& args) {
 						   // What the sheet shows - for a harness driving it with
 						   // keys (the strafe keys page members, Tab the tabs).
@@ -552,7 +575,11 @@ void Game::RegisterPartyCommands() {
 	// button's own path. It exists for tools\AllocTest.ps1 -Cast: an open book
 	// redraws its rune grid every frame, and that grid allocated per frame for
 	// as long as no harness could reach it.
-	m_console.Register("book", "open a member's spellbook (dev): book <member|off>",
+	m_console.Register({.name = "book",
+						.group = CmdGroup::Characters,
+						.params = "[member]\n"
+								  "off",
+						.summary = "open or close a member's spellbook"},
 					   [this](const std::vector<std::string>& args) {
 						   if (!args.empty() && args[0] == "off") {
 							   m_ui.CloseSpellbook();
@@ -584,8 +611,11 @@ void Game::RegisterPartyCommands() {
 	// query at four places — each of which silently turned the state back on and
 	// made the auto-stop rules look broken when they were working. A query that
 	// mutates is a trap, and this one caught its own author.
-	m_console.Register("rest",
-					   "the rest state (dev): rest [on|off|until [secs]], bare = report",
+	m_console.Register({.name = "rest",
+						.group = CmdGroup::Characters,
+						.params = "[on|off]\n"
+								  "until [secs]",
+						.summary = "report or set the rest state, or rest until it ends"},
 					   [this](const std::vector<std::string>& args) {
 						   // `rest until` — enter rest AND run the world until it
 						   // ends. This is the form a script wants, and the reason
@@ -634,11 +664,12 @@ void Game::RegisterPartyCommands() {
 	// path (a hand-menu `eat`/`drink`) runs the very same DungeonWorld::
 	// ConsumeItem, so this exercises the arithmetic and the effect-lifting that
 	// a script cannot reach by clicking (see [[hands-on-visual-testing]]).
-	m_console.Register("consume", "eat or drink an item (dev): consume <item> [member]",
+	m_console.Register({.name = "consume",
+						.group = CmdGroup::Characters,
+						.params = "<item> [member]",
+						.summary = "eat or drink an item outright"},
 					   [this](const std::vector<std::string>& args) {
-						   if (!Need(m_console, args, 1,
-									 "usage: consume <item id> [member 0-3]"))
-							   return;
+						   if (!Need(m_console, args, 1)) return;
 						   const size_t m =
 							   args.size() > 1
 								   ? static_cast<size_t>(std::atoi(args[1].c_str()))
@@ -661,13 +692,12 @@ void Game::RegisterPartyCommands() {
 
 	// Seeding a supply state, so a script can start a rung hungry instead of
 	// stepping eight hours to get there.
-	m_console.Register("setsupply",
-					   "set food/water (dev): setsupply <member|all> <food|water> <n>",
+	m_console.Register({.name = "setsupply",
+						.group = CmdGroup::Characters,
+						.params = "<member|all> <food|water> <n>",
+						.summary = "set a member's or the party's food or water"},
 					   [this](const std::vector<std::string>& args) {
-						   if (!Need(m_console, args, 3,
-									 "usage: setsupply <member 0-3|all> "
-									 "<food|water> <n>"))
-							   return;
+						   if (!Need(m_console, args, 3)) return;
 						   const bool all = args[0] == "all";
 						   const size_t one =
 							   static_cast<size_t>(std::atoi(args[0].c_str()));
@@ -700,12 +730,12 @@ void Game::RegisterPartyCommands() {
 	// A single eval run cannot play from fresh characters to end-game, so a rung
 	// has to START where it wants to measure. These two put a member wherever on
 	// the curve the test needs.
-	m_console.Register("setstat", "set a stat (dev): setstat <member> <stat> <n>",
+	m_console.Register({.name = "setstat",
+						.group = CmdGroup::Characters,
+						.params = "<member> <str|dex|vit|wil|int> <n>",
+						.summary = "set a member's stat and re-derive the pools"},
 					   [this](const std::vector<std::string>& args) {
-						   if (!Need(m_console, args, 3,
-									 "usage: setstat <member 0-3> "
-									 "<str|dex|vit|wil|int> <n>"))
-							   return;
+						   if (!Need(m_console, args, 3)) return;
 						   const size_t m =
 							   static_cast<size_t>(std::atoi(args[0].c_str()));
 						   if (m >= m_characters.size()) {
@@ -737,11 +767,12 @@ void Game::RegisterPartyCommands() {
 	// seeded skill trains onward from exactly where a played one would have.
 	// Without it, giving a caster a usable fire skill for a test means casting
 	// thirty times and hoping the mana holds out.
-	m_console.Register("setskill", "set a skill level (dev): setskill <member> <skill> <level>",
+	m_console.Register({.name = "setskill",
+						.group = CmdGroup::Characters,
+						.params = "<member> <skill> <level>",
+						.summary = "set a member's skill level and re-derive the pools"},
 					   [this](const std::vector<std::string>& args) {
-						   if (!Need(m_console, args, 3,
-									 "usage: setskill <member 0-3> <skill id> <level>"))
-							   return;
+						   if (!Need(m_console, args, 3)) return;
 						   const size_t m =
 							   static_cast<size_t>(std::atoi(args[0].c_str()));
 						   if (m >= m_characters.size()) {
@@ -778,7 +809,10 @@ void Game::RegisterPartyCommands() {
 	// restores in place. It deliberately does NOT touch stats, skills, gear or
 	// stance: those are what a preset SEEDED, and a heal that undid the seeding
 	// would make the second rung measure the first one's party.
-	m_console.Register("heal", "restore the party to full (dev): heal [member]",
+	m_console.Register({.name = "heal",
+						.group = CmdGroup::Characters,
+						.params = "[member]",
+						.summary = "restore the party (or one member) to full"},
 					   [this](const std::vector<std::string>& args) {
 						   const auto restore = [this](Character& c) {
 							   c.dead = false;
@@ -831,9 +865,12 @@ void Game::RegisterPartyCommands() {
 	// doing. A rung that seeded nothing (a typo'd skill id, a member index past
 	// the roster) would otherwise run and report a perfectly plausible number
 	// for the wrong character.
-	m_console.Register("char", "a member's stats, skills and gear (dev): char <member>",
+	m_console.Register({.name = "char",
+						.group = CmdGroup::Characters,
+						.params = "<member>",
+						.summary = "a member's stats, skills, creep pools and gear"},
 					   [this](const std::vector<std::string>& args) {
-						   if (!Need(m_console, args, 1, "usage: char <member 0-3>")) return;
+						   if (!Need(m_console, args, 1)) return;
 						   const size_t m =
 							   static_cast<size_t>(std::atoi(args[0].c_str()));
 						   if (m >= m_characters.size()) {

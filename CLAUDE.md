@@ -328,7 +328,7 @@ Key conventions (memorize, they bite):
   script runner is its own TU, `Game_Eval.cpp`. Headless is one branch in Main.
   NOT harness machinery despite appearances: lockstep AI (SetResting uses it —
   rest runs the world at 60x and lockstep makes the fast-forward honest), the dev
-  console (90 commands; allocguard/crashpoke/uioverlap predate eval), and the
+  console (~130 commands; allocguard/crashpoke/uioverlap predate eval), and the
   damage ledger (a shipping rule check). NONE OF IT IS BEHIND `#ifdef`, and that
   is a decision: the harness's value is that it measures the SHIPPING binary
   (RollTest's rule — the real thing linked in, never a copy), and a fourth build
@@ -1054,6 +1054,24 @@ into its slot. A monster's iq (monsters.cat field; Scheduler::BucketForIq) picks
 its bucket; bucket intervals are PRIME milliseconds (251/499/997/1999 ms ≈
 4/2/1/0.5 Hz; Scheduler::BucketInterval) — coprime, so the buckets almost never
 fire together (cicada pattern) instead of resonating like power-of-two harmonics.
+
+Dev console COMMANDS (console-updates branch, docs/console-updates-plan.md): every
+command registers a `CmdInfo` - `{.name, .group (CmdGroup enum = the listing
+order), .params, .summary}`, designated initializers IN THAT ORDER. `params` is
+the synopsis without the name (`<req> [opt] a|b ...`), one FORM per line
+('\n'); an EMPTY FIRST form is the command typed bare, for one whose bare form
+differs from its verbs. `summary` is one line, no params. Register ASSERTS on a
+duplicate name (Execute runs the first match, so a second one is dead - the
+per-member `threat` was, until it became `grudges`), an empty or multi-line
+summary, and a stray empty form. Both readers use those fields: `help [group|
+command|word]` (grouped, three-column; a word that is both a group and a
+command gets both) and the TYPE-AHEAD box above the prompt (prefix matches,
+then contains-matches dimmed; Up/Down move the selection while it is open,
+Tab/Enter take it, Esc shuts it first; a history recall never opens it, or the
+second Up would select instead of stepping back; after `name ` it shows that
+command's forms). An arity error goes through `devargs::Need(console, args, n)`
+/ `DevConsole::RefuseUsage`, which print the REGISTERED params, so `help` and
+the error cannot drift. Code: DevConsole_Commands.cpp.
 
 Dev console (`~`) THREADS panel (top, under the perf gauges): a live row per
 worker (name / state[colored] / iterations / last+avg ms / hz / pN priority /
