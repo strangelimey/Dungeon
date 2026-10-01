@@ -74,15 +74,19 @@ private:
 class StatsArea : public ui::Widget {
 public:
 	StatsArea(const std::vector<Character>* roster, size_t member,
-			  const ResourceBarColors* barColors, std::function<void()> onBars);
+			  const ResourceBarStyle* barStyle, std::function<void()> onBars);
 
 private:
+	// Space between framed TUBES, in rem (flat bars keep 0.25). The frames'
+	// own reach already spaces them; this is the glass-to-glass gap.
+	static constexpr float kFramedGapRem = 0.4f;
+
 	void UpdateSelf(ui::UIContext& ctx) override;
 	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 	const std::vector<Character>* m_roster;
 	size_t m_member;
-	const ResourceBarColors* m_barColors;
+	const ResourceBarStyle* m_barStyle;
 	std::function<void()> m_onBars;
 	bool m_held = false;
 	bool m_heldRight = false;
@@ -97,7 +101,7 @@ public:
 	// inventory). onBars fires on either button over the stat bars (the Stats
 	// tab), onEffects on a click on an effect icon (the Effects tab).
 	CharacterPanel(const gfx::Rect& rect, const std::vector<Character>* roster,
-				   size_t member, const ResourceBarColors* barColors,
+				   size_t member, const ResourceBarStyle* barStyle,
 				   const HitSplatIcons* hitSplats, const ItemIconBank* icons,
 				   std::function<void()> onClick,
 				   std::function<void()> onRight, std::function<void()> onBars,

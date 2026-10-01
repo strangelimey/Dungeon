@@ -6,6 +6,7 @@
 #include "Game/PartyHudTypes.h"
 
 #include <algorithm>
+#include <cmath>
 #include <string_view>
 
 namespace dungeon::game {
@@ -16,6 +17,125 @@ void DrawStatBar(gfx::SpriteBatch& batch, const gfx::Rect& rect, float fraction,
 	const float t = std::clamp(fraction, 0.0f, 1.0f);
 	if (t > 0.0f) batch.DrawRect({rect.x, rect.y, rect.w * t, rect.h}, color);
 	ui::DrawBorder(batch, rect, theme.panelBorder);
+}
+
+// --- the framed resource bars ------------------------------------------------
+
+namespace {
+
+// bar_frame.png's geometry, as printed by tools/CutBarFrame.py - fractions of
+// the frame image. Re-cut the frame, copy the new numbers here.
+constexpr float kFrameAspect = 1024.0f / 175.0f; // image width / height
+constexpr float kTubeLeft = 0.0858f;   // the glass, inset from each edge
+constexpr float kTubeRight = 0.0841f;
+constexpr float kTubeTop = 0.3016f;
+constexpr float kTubeBottom = 0.2444f;
+constexpr float kCapLeft = 0.1908f;    // where the end caps stop and the
+constexpr float kCapRight = 0.1887f;   // plain (stretchable) rim begins
+
+// The heartbeat's numbers, in beats per minute. A first cut, Michael's to tune.
+constexpr float kBpmRest = 60.0f;
+constexpr float kBpmNoticed = 120.0f;
+constexpr float kBpmNearDeath = 35.0f;   // at 0 health, still standing
+constexpr float kNearDeath = 0.30f;      // health fraction where the slowing starts
+constexpr float kBpmEaseSeconds = 1.5f;  // time constant of a rate change
+
+} // namespace
+
+BarFrameReach FrameReach(float tubeH) {
+	const float frameH = tubeH / (1.0f - kTubeTop - kTubeBottom);
+	const float frameW = frameH * kFrameAspect; // the image's own width at this height
+	return {kTubeLeft * frameW, kTubeRight * frameW, kTubeTop * frameH,
+			kTubeBottom * frameH};
+}
+
+void DrawResourceBar(gfx::SpriteBatch& batch, const gfx::Rect& tube, ResourceBar which,
+					 float fraction, size_t member, const ResourceBarStyle& style,
+					 const ui::Theme& theme) {
+	DrawResourceBarFill(batch, tube, which, fraction, member, style, theme);
+	DrawResourceBarFrame(batch, tube, style);
+}
+
+void DrawResourceBarFill(gfx::SpriteBatch& batch, const gfx::Rect& tube, ResourceBar which,
+						 float fraction, size_t member, const ResourceBarStyle& style,
+						 const ui::Theme& theme) {
+	if (style.demo) {
+		// `hudbars demo`: an 8 s triangle wave, each bar a little behind the last.
+		const float s = std::fmod(style.clock / 8.0f + static_cast<float>(which) * 0.07f, 1.0f);
+		fraction = 1.0f - std::abs(s * 2.0f - 1.0f);
+	}
+	const float t = std::clamp(fraction, 0.0f, 1.0f);
+	const Vec4* flat = &style.health;
+	gfx::BarFill fill;
+	switch (which) {
+	case ResourceBar::Health:
+		flat = &style.health;
+		fill.kind = gfx::BarKind::Health;
+		break;
+	case ResourceBar::Stamina:
+		flat = &style.stamina;
+		fill.kind = gfx::BarKind::Stamina;
+		break;
+	case ResourceBar::Mana:
+		flat = &style.mana;
+		fill.kind = gfx::BarKind::Mana;
+		break;
+	case ResourceBar::Food: flat = &style.food; break;
+	case ResourceBar::Water: flat = &style.water; break;
+	}
+	if (!style.framed || !style.frame) {
+		DrawStatBar(batch, tube, t, *flat, theme);
+		return;
+	}
+
+	fill.fraction = t;
+	fill.tint = *flat;
+	fill.beat = style.PulseOf(member).phase;
+	// Every bar its own offset, so neighbours never slosh in lockstep.
+	fill.seed = static_cast<float>(member) * 1.37f + static_cast<float>(which) * 0.71f;
+	batch.DrawBarFill(tube, fill);
+}
+
+void DrawResourceBarFrame(gfx::SpriteBatch& batch, const gfx::Rect& tube,
+						  const ResourceBarStyle& style) {
+	if (!style.framed || !style.frame || tube.h <= 0.0f) return;
+	// The frame, 3-SLICED: both end caps at the image's own aspect, the plain rim
+	// between them stretched to whatever width the bar is.
+	const BarFrameReach reach = FrameReach(tube.h);
+	const float frameH = tube.h + reach.top + reach.bottom;
+	const float frameW = frameH * kFrameAspect;
+	const gfx::Rect frame{tube.x - reach.left, tube.y - reach.top,
+						  tube.w + reach.left + reach.right, frameH};
+	float capL = kCapLeft * frameW, capR = kCapRight * frameW;
+	if (capL + capR > frame.w) { // a bar shorter than its two caps: squeeze them
+		const float s = frame.w / (capL + capR);
+		capL *= s;
+		capR *= s;
+	}
+	const gfx::Texture& tex = *style.frame;
+	const Vec4 white{1, 1, 1, 1};
+	batch.DrawSprite({frame.x, frame.y, capL, frameH}, {0, 0, kCapLeft, 1}, tex, white);
+	batch.DrawSprite({frame.x + capL, frame.y, frame.w - capL - capR, frameH},
+					 {kCapLeft, 0, 1.0f - kCapLeft - kCapRight, 1}, tex, white);
+	batch.DrawSprite({frame.x + frame.w - capR, frame.y, capR, frameH},
+					 {1.0f - kCapRight, 0, kCapRight, 1}, tex, white);
+}
+
+float HeartRateTarget(const Character& member, bool noticed) {
+	if (!member.IsAlive()) return 0.0f; // down: no beat
+	const float h = member.maxHealth > 0.0f ? member.health / member.maxHealth : 1.0f;
+	// Near death WINS over noticed: below the threshold the heart labours,
+	// fight or no fight, sliding from the resting rate down to the floor.
+	if (h < kNearDeath)
+		return kBpmNearDeath + (kBpmRest - kBpmNearDeath) * (h / kNearDeath);
+	return noticed ? kBpmNoticed : kBpmRest;
+}
+
+void TickBarPulse(BarPulse& pulse, float targetBpm, float dt) {
+	if (dt <= 0.0f) return;
+	pulse.bpm += (targetBpm - pulse.bpm) * (1.0f - std::exp(-dt / kBpmEaseSeconds));
+	pulse.phase += dt * pulse.bpm / 60.0f;
+	pulse.phase -= std::floor(pulse.phase);
 }
 
 void DrawIdentityBorder(gfx::SpriteBatch& batch, const gfx::Rect& rect,

@@ -197,9 +197,6 @@ void GameSettings::Load() {
 	for (const ThemeField& field : kThemeFields)
 		ParseIniColor(text, std::format("theme_{}=", field.key),
 					  theme.*(field.field));
-	for (const BarField& field : kBarFields)
-		ParseIniColor(text, std::format("bar_{}=", field.key),
-					  barColors.*(field.field));
 	for (size_t i = 0; i < kMemberColorCount; ++i)
 		ParseIniColor(text, std::format("member_{}=", i + 1), memberColors[i]);
 
@@ -224,11 +221,6 @@ void GameSettings::Save() const {
 	for (const ThemeField& field : kThemeFields) {
 		const Vec4& c = theme.*(field.field);
 		text += std::format("theme_{}={:.3f},{:.3f},{:.3f},{:.3f}\n", field.key,
-							c.x, c.y, c.z, c.w);
-	}
-	for (const BarField& field : kBarFields) {
-		const Vec4& c = barColors.*(field.field);
-		text += std::format("bar_{}={:.3f},{:.3f},{:.3f},{:.3f}\n", field.key,
 							c.x, c.y, c.z, c.w);
 	}
 	for (size_t i = 0; i < kMemberColorCount; ++i) {

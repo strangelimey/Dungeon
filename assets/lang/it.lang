@@ -133,7 +133,6 @@ settings.move_panel=Pannello movimento
 settings.hands_panel=Pannello mani
 settings.magic_panel=Pannello magia
 settings.theme_colors=Colori del tema
-settings.resource_bars=Barre delle risorse
 settings.party_colors=Colori del gruppo
 settings.member_n=Membro {}
 theme.panel=Pannello

@@ -1,20 +1,21 @@
 // ============================================================================
 // Game/GameSettings.h — user options, persisted to settings.ini next to the
 // exe (quality=0..3, language=<code>, volume=0..1, barscale=0.5..1.5,
-// baropacity=0..1, theme_<name>=r,g,b,a, bar_<name>=r,g,b,a,
-// key_<action>=vkey).
+// baropacity=0..1, theme_<name>=r,g,b,a, key_<action>=vkey).
 //
 // This struct is the master copy of everything user-tunable: GameUI copies
-// the theme into every UIContext (ApplyTheme), the HUD widgets point at
-// barColors, the Party receives moveKeys via SetKeys, and DungeonWorld reads
-// the quality tier when loading meshes and textures. The kThemeFields /
-// kBarFields / kKeyFields tables drive both the ini round-trip here and the
-// Settings-page controls in GameUI, so adding a field is a one-line change.
+// the theme into every UIContext (ApplyTheme), the Party receives moveKeys via
+// SetKeys, and DungeonWorld reads the quality tier when loading meshes and
+// textures. The kThemeFields / kKeyFields tables drive both the ini round-trip
+// here and the Settings-page controls in GameUI, so adding a field is a
+// one-line change. (The resource-bar colours are NOT user settings any more:
+// the fills are procedural, each kind with its own colour. An old ini's
+// bar_<name>= lines are ignored, and gone at the next save.)
 // ============================================================================
 #pragma once
 
 #include "Game/Party.h"           // MoveKeys
-#include "Game/PartyHudTypes.h"   // ResourceBarColors (not the whole HUD)
+#include "Game/PartyHudTypes.h"   // HudPanelLook (not the whole HUD)
 #include "Graphics/DisplayEnum.h" // gfx::FullscreenMode
 #include "UI/Controls.h"          // ui::Widget complete for UIContext's unique_ptr
 #include "UI/UIContext.h"         // ui::Theme
@@ -64,21 +65,6 @@ inline constexpr ThemeField kThemeFields[] = {
 	{"text", "theme.text", &ui::Theme::text},
 	{"textdim", "theme.textdim", &ui::Theme::textDim},
 	{"accent", "theme.accent", &ui::Theme::accent},
-};
-
-// Same idea for the HUD resource-bar fills (PartyHud's ResourceBarColors;
-// ini keys bar_<key>=r,g,b,a).
-struct BarField {
-	const char* key;
-	const char* labelKey;
-	Vec4 ResourceBarColors::*field;
-};
-inline constexpr BarField kBarFields[] = {
-	{"health", "bar.health", &ResourceBarColors::health},
-	{"stamina", "bar.stamina", &ResourceBarColors::stamina},
-	{"mana", "bar.mana", &ResourceBarColors::mana},
-	{"food", "bar.food", &ResourceBarColors::food},
-	{"water", "bar.water", &ResourceBarColors::water},
 };
 
 // Party identity colors, one per roster slot (portrait border, hand-slot
@@ -154,7 +140,6 @@ struct GameSettings {
 	// checkbox; ini headbob=.
 	bool headBob = true;
 	ui::Theme theme;              // the 8 user-editable control colors
-	ResourceBarColors barColors;  // health/stamina/mana fills
 	// Per-slot party identity colors (see kDefaultMemberColors above).
 	std::array<Vec4, kMemberColorCount> memberColors{
 		kDefaultMemberColors[0], kDefaultMemberColors[1],

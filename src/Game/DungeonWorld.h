@@ -292,6 +292,10 @@ public:
 	// the caller supplies it: a travelling party is not in one, and false is not
 	// a simplification there but the truth.
 	void TickParty(float dt, bool danger);
+	// Has a monster NOTICED the party - a live one, aware of it and acting on
+	// that (not Idle)? The health bar's heartbeat quickens on it
+	// (docs/icon-updates-plan.md). Set each dungeon tick; a journey reads false.
+	bool PartyNoticed() const { return m_partyNoticed; }
 	// Has the wipe latch fired? A settled JOURNEY reads it between slices, so a
 	// party that dies three hours into a march stops being charged for the
 	// other three.
@@ -3349,6 +3353,7 @@ private:
 	static std::string StashedEntText(const std::string& stem, const DungeonEntities& ents);
 	std::mt19937 m_combatRng{0xC0FFEEu};
 	bool m_partyWiped = false; // latches onPartyWipe so it fires once
+	bool m_partyNoticed = false; // PartyNoticed: set by UpdateMonsters, cleared by TickParty
 	// The attack formula's tuning (docs/combat.md): balance.cat knobs +
 	// attacks.cat numbers, loaded with the project in the constructor.
 	Balance m_balance;

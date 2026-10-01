@@ -74,32 +74,51 @@ void CharacterSheet::DrawStats(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	const struct {
 		const std::string& label;
 		float value, max;
-		const Vec4& color;
+		ResourceBar which;
 	} bars[] = {
-		{m_healthLabel, m_character->health, m_character->maxHealth,
-		 m_barColors->health},
+		{m_healthLabel, m_character->health, m_character->maxHealth, ResourceBar::Health},
 		{m_staminaLabel, m_character->stamina, m_character->maxStamina,
-		 m_barColors->stamina},
-		{m_manaLabel, m_character->mana, m_character->maxMana, m_barColors->mana},
+		 ResourceBar::Stamina},
+		{m_manaLabel, m_character->mana, m_character->maxMana, ResourceBar::Mana},
 		// The two SUPPLIES, below the three pools they pay for
 		// (docs/health-and-healing.md). Five bars against the five attributes in
 		// the left column, which is how the two halves of the tab now line up.
-		{m_foodLabel, m_character->food, m_character->maxFood, m_barColors->food},
-		{m_waterLabel, m_character->water, m_character->maxWater,
-		 m_barColors->water},
+		{m_foodLabel, m_character->food, m_character->maxFood, ResourceBar::Food},
+		{m_waterLabel, m_character->water, m_character->maxWater, ResourceBar::Water},
 	};
+	// The bar's box is the GLASS less the end caps' reach, so the iron frame
+	// stays inside the column the layout gave it across, and sticks out only up
+	// and down. Three passes - fills, frames, then the text - so no frame
+	// covers its neighbour's fill and no frame covers a number.
+	const bool framed = m_barStyle->framed && m_barStyle->frame;
+	auto tubeOf = [&](size_t i) {
+		gfx::Rect bar{Ax(px, kBarX), rowTop + static_cast<float>(i) * rowStep,
+					  kBarW * px.w, kStatBarH * px.h};
+		if (framed) {
+			const BarFrameReach reach = FrameReach(bar.h);
+			bar.x += reach.left;
+			bar.w = std::max(bar.w - reach.left - reach.right, 0.0f);
+		}
+		return bar;
+	};
+	for (size_t i = 0; i < std::size(bars); ++i)
+		DrawResourceBarFill(batch, tubeOf(i), bars[i].which,
+							bars[i].value / std::max(bars[i].max, 1.0f), m_member,
+							*m_barStyle, theme);
+	for (size_t i = 0; i < std::size(bars); ++i)
+		DrawResourceBarFrame(batch, tubeOf(i), *m_barStyle);
 	for (size_t i = 0; i < std::size(bars); ++i) {
 		const auto& b = bars[i];
-		const gfx::Rect bar{Ax(px, kBarX), rowTop + static_cast<float>(i) * rowStep,
-							kBarW * px.w, kStatBarH * px.h};
-		font.Draw(batch, b.label, Ax(px, kBarLabelX),
-				  bar.y + (bar.h - font.Height()) * 0.5f, theme.textDim);
-		DrawStatBar(batch, bar, b.value / std::max(b.max, 1.0f), b.color, theme);
+		const gfx::Rect bar = tubeOf(i);
+		const float textY = bar.y + (bar.h - font.Height()) * 0.5f;
+		font.Draw(batch, b.label, Ax(px, kBarLabelX), textY, theme.textDim);
 		char buf[32];
 		const std::string_view text = FormatPool(buf, b.value, b.max);
 		const float tw = font.MeasureWidth(text);
-		font.Draw(batch, text, bar.x + (bar.w - tw) * 0.5f,
-				  bar.y + (bar.h - font.Height()) * 0.5f, theme.text);
+		const float tx = bar.x + (bar.w - tw) * 0.5f;
+		// A shadow under the number, so it reads over a bright, moving fill.
+		if (framed) font.Draw(batch, text, tx + 1.0f, textY + 1.0f, {0, 0, 0, 0.85f});
+		font.Draw(batch, text, tx, textY, theme.text);
 	}
 }
 

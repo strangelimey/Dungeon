@@ -10,6 +10,7 @@
 
 #include "Game/Character.h"
 
+#include <array>
 #include <flat_map>
 #include <flat_set>
 #include <string>
@@ -18,21 +19,47 @@
 
 namespace dungeon::game {
 
-// Resource bar fill colors, shared by the party bar and the sheet. The
-// master copy lives in Game (Settings → UI edits it, persisted to
-// settings.ini as bar_<name>); both widgets point at it and read the live
-// values every draw.
-struct ResourceBarColors {
+// One member's HEARTBEAT, behind the health bar's pulse. The phase is
+// integrated here, on the CPU, rather than computed as time x rate in the
+// shader - so a change of rate speeds the beat up or slows it down instead of
+// jumping it to a different point in the beat. Presentation only, not saved.
+struct BarPulse {
+	float phase = 0.0f; // 0..1 within the current beat
+	float bpm = 60.0f;  // current rate, eased toward HeartRateTarget
+};
+
+// How the resource bars look (docs/icon-updates-plan.md): kit bar #1's iron
+// frame (assets/ui/bar_frame.png, cut by tools/CutBarFrame.py) around a
+// procedural fill (assets/shaders/bar.hlsl). Owned by GameUI, shared by the
+// party bar and the sheet, which read it live every draw. Not a user setting -
+// each fill carries its own colour; the Settings > UI "Resource Bars" pickers
+// went when the fills became procedural.
+struct ResourceBarStyle {
+	static constexpr size_t kMaxMembers = 4;
+
+	const gfx::Texture* frame = nullptr; // null = the flat bars
+	bool framed = true;                  // false = the flat debug look (uiskin=0)
+	float clock = 0.0f;                  // real seconds, the fills' animation clock
+	std::array<BarPulse, kMaxMembers> pulse{};
+	// Dev console `hudbars` (judging the look without staging a fight): `demo`
+	// sweeps every bar empty -> full -> empty; `pinnedBpm` >= 0 holds every
+	// heartbeat at that rate instead of HeartRateTarget.
+	bool demo = false;
+	float pinnedBpm = -1.0f;
+	// The FLAT look's fills (uiskin=0, or no frame texture), and the solid fills
+	// of the two SUPPLY meters (docs/health-and-healing.md) - a placeholder until
+	// they get a look of their own. Warm bread against cold water, so a glance
+	// tells them apart without reading the labels.
 	Vec4 health{0.62f, 0.18f, 0.14f, 1.0f};
 	Vec4 stamina{0.26f, 0.52f, 0.22f, 1.0f};
 	Vec4 mana{0.22f, 0.36f, 0.68f, 1.0f};
-	// The two SUPPLY meters (docs/health-and-healing.md). Not pools — nothing
-	// regenerates them — but they are bars on the same sheet, so they are themed
-	// from the same table rather than being the only two a player cannot
-	// recolour. Warm bread against cold water, so a glance tells them apart
-	// without reading the labels.
 	Vec4 food{0.58f, 0.40f, 0.18f, 1.0f};
 	Vec4 water{0.24f, 0.50f, 0.60f, 1.0f};
+
+	const BarPulse& PulseOf(size_t member) const {
+		static constexpr BarPulse kStill{0.0f, 0.0f};
+		return member < kMaxMembers ? pulse[member] : kStill;
+	}
 };
 
 // One of the HUD's right-hand docks (movement / hands / magic): the same two
