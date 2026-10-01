@@ -39,7 +39,10 @@ struct Theme {
 	Vec4 controlHot{0.30f, 0.25f, 0.18f, 1.0f};
 	Vec4 controlActive{0.42f, 0.34f, 0.22f, 1.0f};
 	Vec4 text{0.92f, 0.88f, 0.80f, 1.0f};
-	Vec4 textDim{0.62f, 0.58f, 0.50f, 1.0f};
+	// Lifted from 0.62/0.58/0.50 (ui-updates): on the stone chrome the old dim
+	// sat at the stone's own value and vanished. GameSettings retires the old
+	// value from existing inis (kRetiredColors).
+	Vec4 textDim{0.78f, 0.74f, 0.66f, 1.0f};
 	Vec4 accent{0.85f, 0.65f, 0.25f, 1.0f};
 };
 

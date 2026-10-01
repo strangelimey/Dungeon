@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cctype>
 #include <charconv>
+#include <cmath>
 #include <cstdlib>
 #include <format>
 #include <iterator>
@@ -47,6 +48,37 @@ void ParseIniColor(const std::string& text, const std::string& key, Vec4& color)
 		}
 	}
 	color = parsed;
+}
+
+// RETIRED DEFAULTS. Every colour is saved whole, so an ini written before a
+// default changed holds the OLD default forever and the new one never reaches
+// the player. A loaded value equal to a retired default is read as "never
+// chosen" and gives way to today's default; a colour the player picked is left
+// alone. Append a row whenever a colour default changes.
+struct RetiredColor {
+	std::string_view key; // the ini key, with its '='
+	Vec4 old;
+};
+constexpr RetiredColor kRetiredColors[] = {
+	{"theme_textdim=", {0.62f, 0.58f, 0.50f, 1.0f}}, // ui-updates: vanished on stone
+};
+
+// The ini holds three decimals, so "equal" is within half a step of that.
+bool SameColor(const Vec4& a, const Vec4& b) {
+	constexpr float kEps = 0.0015f;
+	return std::abs(a.x - b.x) < kEps && std::abs(a.y - b.y) < kEps &&
+		   std::abs(a.z - b.z) < kEps && std::abs(a.w - b.w) < kEps;
+}
+
+// ParseIniColor, then a retired default reverts to `color`'s own default.
+void ParseIniColorRetiring(const std::string& text, const std::string& key, Vec4& color) {
+	const Vec4 current = color;
+	ParseIniColor(text, key, color);
+	for (const RetiredColor& r : kRetiredColors)
+		if (r.key == key && SameColor(color, r.old)) {
+			log::Info("settings: {} was the retired default, now the new one", key);
+			color = current;
+		}
 }
 
 // Reads key=<float> from the ini text, clamped to [min, max]. A missing or
@@ -226,10 +258,10 @@ void GameSettings::Load() {
 	if (fs >= 0 && fs <= 2) fullscreen = static_cast<gfx::FullscreenMode>(fs);
 
 	for (const ThemeField& field : kThemeFields)
-		ParseIniColor(text, std::format("theme_{}=", field.key),
-					  theme.*(field.field));
+		ParseIniColorRetiring(text, std::format("theme_{}=", field.key),
+							  theme.*(field.field));
 	for (size_t i = 0; i < kMemberColorCount; ++i)
-		ParseIniColor(text, std::format("member_{}=", i + 1), memberColors[i]);
+		ParseIniColorRetiring(text, std::format("member_{}=", i + 1), memberColors[i]);
 
 	for (const KeyField& field : kKeyFields) {
 		const std::string key = std::format("key_{}=", field.key);

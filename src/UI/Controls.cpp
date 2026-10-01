@@ -50,6 +50,36 @@ gfx::Rect DrawSlotFace(const UIContext& ctx, gfx::SpriteBatch& batch, const gfx:
 	return well;
 }
 
+gfx::Rect DrawFieldFace(const UIContext& ctx, gfx::SpriteBatch& batch, const gfx::Rect& rect,
+						FieldState state, const Vec4& flatFill, const Vec4& flatBorder) {
+	const Skin* skin = ctx.GetSkin();
+	if (!skin || !(skin->buttonDown.texture || skin->button.texture)) {
+		batch.DrawRect(rect, flatFill);
+		DrawBorder(batch, rect, flatBorder);
+		return rect;
+	}
+	// Darker than the tab it is modelled on (Michael: "a darker, in-set look"):
+	// the stone dimmed under the sunken bevel, then a black veil over the well.
+	// The veil thins on hover so the control answers the pointer.
+	DrawFace(batch, rect, *skin, Face::ButtonDown, {0.8f, 0.8f, 0.8f, 1.0f});
+	const float in = std::min(FaceInset(*skin, Face::ButtonDown),
+							  std::min(rect.w, rect.h) * 0.25f);
+	const gfx::Rect well{rect.x + in, rect.y + in, std::max(0.0f, rect.w - 2 * in),
+						 std::max(0.0f, rect.h - 2 * in)};
+	const float veil = state == FieldState::Normal ? 0.32f : 0.20f;
+	batch.DrawRect(well, {0.0f, 0.0f, 0.0f, veil});
+	if (state == FieldState::Active) {
+		// A soft accent EDGE - two hairlines fading inward - where the flat look
+		// drew a hard yellow border.
+		Vec4 edge = ctx.GetTheme().accent;
+		edge.w = 0.38f;
+		DrawBorder(batch, well, edge);
+		edge.w = 0.14f;
+		DrawBorder(batch, {well.x + 1, well.y + 1, well.w - 2, well.h - 2}, edge);
+	}
+	return well;
+}
+
 void DrawBorder(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Vec4& color) {
 	batch.DrawRect({rect.x, rect.y, rect.w, 1}, color);
 	batch.DrawRect({rect.x, rect.y + rect.h - 1, rect.w, 1}, color);
@@ -323,20 +353,37 @@ void Checkbox::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
 	const Font& font = TextFont();
 	const gfx::Rect& px = Pixel();
-	if (highlight) {
+	const bool skinned = ctx.GetSkin() != nullptr;
+	if (skinned) {
+		// On stone the row states are light, not paint: the old brown fills
+		// read as mud over the slab.
+		if (highlight) {
+			batch.DrawRect(px, {theme.accent.x, theme.accent.y, theme.accent.z, 0.12f});
+			DrawBorder(batch, px, {theme.accent.x, theme.accent.y, theme.accent.z, 0.40f});
+		} else if (m_hot) {
+			batch.DrawRect(px, {1.0f, 1.0f, 1.0f, 0.06f});
+		}
+	} else if (highlight) {
 		batch.DrawRect(px, theme.controlActive);
 		DrawBorder(batch, px, theme.panelBorder);
 	} else if (m_hot) {
 		batch.DrawRect(px, theme.controlHot);
 	}
 	// The check box itself, left-aligned and vertically centered.
-	const float box = std::min(px.h * 0.6f, Rem(0.65f));
+	const float box = BoxSide(px);
 	const gfx::Rect b{px.x + Rem(0.15f), px.y + (px.h - box) * 0.5f, box, box};
-	batch.DrawRect(b, theme.control);
-	DrawBorder(batch, b, theme.panelBorder);
+	DrawFieldFace(ctx, batch, b, m_hot ? FieldState::Hot : FieldState::Normal, theme.control,
+				  theme.panelBorder);
 	if (m_checked) {
-		const float in = box * 0.24f;
-		batch.DrawRect({b.x + in, b.y + in, b.w - 2 * in, b.h - 2 * in}, theme.accent);
+		const float in = box * (skinned ? 0.32f : 0.24f);
+		const gfx::Rect tick{b.x + in, b.y + in, b.w - 2 * in, b.h - 2 * in};
+		if (skinned) {
+			// A lit mark in the well: a soft halo, then the tick.
+			const float g = in * 0.3f;
+			batch.DrawRect({tick.x - g, tick.y - g, tick.w + 2 * g, tick.h + 2 * g},
+						   {theme.accent.x, theme.accent.y, theme.accent.z, 0.30f});
+		}
+		batch.DrawRect(tick, theme.accent);
 	}
 	// The swatch: square, the row's height less a hairline inset, after the box.
 	if (!swatch.Empty()) {
@@ -348,7 +395,7 @@ void Checkbox::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 }
 
 float Checkbox::TextX(const gfx::Rect& px) const {
-	const float box = std::min(px.h * 0.6f, Rem(0.65f));
+	const float box = BoxSide(px);
 	float x = px.x + Rem(0.15f) + box + Rem(0.3f);
 	if (!swatch.Empty()) x += (px.h - 2.0f) + Rem(0.3f);
 	return x;
@@ -409,18 +456,41 @@ void Slider::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const float bandY = px.y + font.LineAdvance();
 	const float bandH = std::max(px.h - font.LineAdvance(), Rem(0.3f));
 
+	const float t = (m_value - m_min) / std::max(m_max - m_min, 1e-6f);
+	const float thumbW = Rem(0.7f);
+	const Skin* skin = ctx.GetSkin();
+	if (skin && skin->button.texture) {
+		// Skinned: the track is a sunken GROOVE (the field face, so it reads with
+		// the drop-downs and text boxes) holding a lit accent strip, and the thumb
+		// a raised stone button - the thing you grab stands proud of the thing it
+		// slides in.
+		const float grooveH = std::min(Rem(0.45f), bandH);
+		const float grooveY = bandY + (bandH - grooveH) * 0.5f;
+		const gfx::Rect groove{px.x, grooveY, px.w, grooveH};
+		const gfx::Rect well = DrawFieldFace(ctx, batch, groove,
+											 m_dragging ? FieldState::Active : FieldState::Normal,
+											 theme.control, theme.panelBorder);
+		batch.DrawRect({well.x, well.y, well.w * t, well.h},
+					   {theme.accent.x, theme.accent.y, theme.accent.z, 0.85f});
+		const float thumbH = std::max(bandH * 0.9f, grooveH + 4.0f);
+		const float stoneW = Rem(0.9f);
+		const gfx::Rect thumb{px.x + px.w * t - stoneW * 0.5f,
+							  grooveY + grooveH * 0.5f - thumbH * 0.5f, stoneW, thumbH};
+		DrawFace(batch, thumb, *skin, m_dragging ? Face::ButtonDown : Face::Button,
+				 {1.0f, 1.0f, 1.0f, 1.0f});
+		return;
+	}
+
 	// Track.
 	const float trackH = Rem(0.15f);
 	const float trackY = bandY + (bandH - trackH) * 0.5f;
 	batch.DrawRect({px.x, trackY, px.w, trackH}, theme.control);
 
 	// Filled portion + thumb.
-	const float t = (m_value - m_min) / std::max(m_max - m_min, 1e-6f);
 	batch.DrawRect({px.x, trackY, px.w * t, trackH}, theme.accent);
 	// A stubby block centred on the track: half the band tall, 0.7rem wide (it
 	// was the full band and 0.35rem, and read as a thin post). Drawing only -
 	// the whole bounds take the drag.
-	const float thumbW = Rem(0.7f);
 	const float thumbH = bandH * 0.5f;
 	const gfx::Rect thumb{px.x + px.w * t - thumbW * 0.5f,
 						  trackY + trackH * 0.5f - thumbH * 0.5f, thumbW, thumbH};
@@ -575,8 +645,9 @@ void DropDown::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Font& font = TextFont();
 	const gfx::Rect& px = Pixel();
 
-	batch.DrawRect(px, m_hot || m_open ? theme.controlHot : theme.control);
-	DrawBorder(batch, px, theme.panelBorder);
+	DrawFieldFace(ctx, batch, px,
+				  m_open ? FieldState::Active : (m_hot ? FieldState::Hot : FieldState::Normal),
+				  m_hot || m_open ? theme.controlHot : theme.control, theme.panelBorder);
 	const float textY = px.y + (px.h - font.Height()) * 0.5f;
 	DrawFittedText(batch, font, Current(), TextX(), textY, TextRoom(), theme.text);
 	DrawDropDownExpander(batch, font, px, theme, m_open, m_hot);
@@ -663,11 +734,19 @@ void DropDown::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Font& font = TextFont();
 	const gfx::Rect popup = PopupRect(ctx);
 	const float maxScroll = MaxScroll(popup);
+	const bool skinned = ctx.GetSkin() != nullptr;
 
 	{
 		// Scoped so the clip lifts before the scrollbar draws beside the list.
 		std::optional<ScopedClip> clip;
-		if (maxScroll > 0.0f) {
+		if (skinned) {
+			// The open list is one sunken field, opaque so the page under it
+			// cannot show through the veil; rows are light on it, not boxes.
+			batch.DrawRect(popup, {0.05f, 0.045f, 0.04f, 1.0f});
+			DrawFieldFace(ctx, batch, popup, FieldState::Active, theme.control,
+						  theme.panelBorder);
+			if (maxScroll > 0.0f) clip.emplace(batch, popup);
+		} else if (maxScroll > 0.0f) {
 			batch.DrawRect(popup, theme.control); // backing behind the part-rows
 			clip.emplace(batch, popup);
 		}
@@ -675,8 +754,13 @@ void DropDown::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 			const gfx::Rect rect = ItemRect(popup, i);
 			if (rect.y + rect.h <= popup.y || rect.y >= popup.y + popup.h) continue;
 			const bool hovered = static_cast<int>(i) == m_hoverItem;
-			batch.DrawRect(rect, hovered ? theme.controlHot : theme.control);
-			DrawBorder(batch, rect, theme.panelBorder);
+			if (skinned) {
+				if (hovered)
+					batch.DrawRect(rect, {theme.accent.x, theme.accent.y, theme.accent.z, 0.18f});
+			} else {
+				batch.DrawRect(rect, hovered ? theme.controlHot : theme.control);
+				DrawBorder(batch, rect, theme.panelBorder);
+			}
 			const float inset = TextX() - Pixel().x;
 			DrawFittedText(batch, font, items[i], rect.x + inset,
 						   rect.y + (rect.h - font.Height()) * 0.5f,
@@ -1139,9 +1223,10 @@ void KeyBind::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 			  theme.textDim);
 
 	const gfx::Rect box = BoxRect();
-	batch.DrawRect(box, m_capturing ? theme.controlActive
-									: (m_hot ? theme.controlHot : theme.control));
-	DrawBorder(batch, box, m_capturing || m_hot ? theme.accent : theme.panelBorder);
+	DrawFieldFace(ctx, batch, box,
+				  m_capturing ? FieldState::Active : (m_hot ? FieldState::Hot : FieldState::Normal),
+				  m_capturing ? theme.controlActive : (m_hot ? theme.controlHot : theme.control),
+				  m_capturing || m_hot ? theme.accent : theme.panelBorder);
 
 	const std::string& text = m_capturing ? capturePrompt : m_keyName;
 	const float textW = font.MeasureWidth(text);
@@ -1197,9 +1282,11 @@ void TextField::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Font& font = TextFont();
 	const gfx::Rect& px = Pixel();
 
-	batch.DrawRect(px, m_focused ? theme.controlActive
-								 : (m_hot ? theme.controlHot : theme.control));
-	DrawBorder(batch, px, m_focused || m_hot ? theme.accent : theme.panelBorder);
+	const gfx::Rect face = DrawFieldFace(
+		ctx, batch, px,
+		m_focused ? FieldState::Active : (m_hot ? FieldState::Hot : FieldState::Normal),
+		m_focused ? theme.controlActive : (m_hot ? theme.controlHot : theme.control),
+		m_focused || m_hot ? theme.accent : theme.panelBorder);
 
 	const float pad = Rem(0.3f);
 	const float ty = px.y + (px.h - font.Height()) * 0.5f;
@@ -1210,7 +1297,9 @@ void TextField::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	// control and over the panel edge. That breaks the rule the whole layout
 	// rests on — a widget's area is its own — and `uioverlap` scores it as an
 	// escape.
-	const gfx::Rect inner{px.x + 1.0f, px.y + 1.0f, px.w - 2.0f, px.h - 2.0f};
+	// Inside the face's frame (the flat face returns the whole rect, so that is
+	// the old 1px inset).
+	const gfx::Rect inner{face.x + 1.0f, face.y + 1.0f, face.w - 2.0f, face.h - 2.0f};
 	ScopedClip clip(batch, inner);
 	if (text.empty() && !m_focused) {
 		font.Draw(batch, placeholder, px.x + pad, ty, theme.textDim);

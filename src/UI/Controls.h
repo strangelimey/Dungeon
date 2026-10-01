@@ -194,6 +194,9 @@ private:
 	// Where the label starts, past the box and any swatch (DrawSelf and
 	// InkRect both ask, so the measured ink matches the drawn row).
 	float TextX(const gfx::Rect& px) const;
+	// The box's side: big enough that a sunken field face still shows its well
+	// round the tick (at 0.65rem the frame and the tick filled it solid).
+	float BoxSide(const gfx::Rect& px) const { return std::min(px.h * 0.75f, Rem(0.9f)); }
 
 	bool m_checked = false;
 	bool m_hot = false;
@@ -821,6 +824,17 @@ void DrawPanelFace(UIContext& ctx, gfx::SpriteBatch& batch, const gfx::Rect& rec
 // `lift` (0..1) brightens the well for hover / selection.
 gfx::Rect DrawSlotFace(const UIContext& ctx, gfx::SpriteBatch& batch, const gfx::Rect& rect,
 					   const Vec4& flatFill, float lift = 0.0f);
+
+// Draws the face of a control you put a VALUE into - a drop-down, a text
+// field, a check box, a slider's groove - so all four read as one kind of
+// thing. Skinned: the SELECTED SETTINGS TAB's sunken stone (Face::ButtonDown)
+// under a darker veil, lifted a little when Hot, and Active (focused / open)
+// edged with a soft accent glow instead of a flat yellow border. Flat (the
+// debug look): `flatFill` with a 1px `flatBorder`, exactly as these controls
+// drew before. Returns the rect inside the frame, where content belongs.
+enum class FieldState { Normal, Hot, Active };
+gfx::Rect DrawFieldFace(const UIContext& ctx, gfx::SpriteBatch& batch, const gfx::Rect& rect,
+						FieldState state, const Vec4& flatFill, const Vec4& flatBorder);
 
 // Draws a button FACE — the one button look (state fill, border, centered
 // label). ui::Button routes through it, and so does every hand-drawn chrome
