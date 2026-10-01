@@ -2087,10 +2087,10 @@ void GameUI::AddLogLine(std::string_view line) {
 
 void GameUI::AddLogLine(std::string_view line, const Vec4& memberColor) {
 	if (!m_log) return;
-	// Identity colors are authored DARK (portrait fills, slot stripes); as
-	// text ink on the dark footer they'd read as mud, so brighten toward
-	// full — the hue carries the identity, the lift carries the legibility.
-	const auto lift = [](float c) { return std::min(1.0f, c * 2.0f + 0.15f); };
+	// Identity colors are bright now (ui-updates), so the old "double it" lift
+	// would bleach most of them to white. A quarter of the way toward white is
+	// enough for ink on the dark footer and keeps the hue - which is the point.
+	const auto lift = [](float c) { return c + (1.0f - c) * 0.25f; };
 	m_log->AddLine(line,
 				   Vec4{lift(memberColor.x), lift(memberColor.y),
 						lift(memberColor.z), 1.0f});

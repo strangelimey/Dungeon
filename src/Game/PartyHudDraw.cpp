@@ -140,6 +140,9 @@ void TickBarPulse(BarPulse& pulse, float targetBpm, float dt) {
 
 void DrawIdentityBorder(gfx::SpriteBatch& batch, const gfx::Rect& rect,
 						const Character& character) {
+	// The member's colour GLOWS off the stone round the frame (ui-updates): the
+	// bright palette alone still sat close to the slab's value in places.
+	ui::DrawGlow(batch, rect, character.portraitColor, std::max(2.0f, rect.w * 0.035f), 0.55f);
 	ui::DrawBorder(batch, rect, character.portraitColor);
 	ui::DrawBorder(batch, {rect.x + 1, rect.y + 1, rect.w - 2, rect.h - 2},
 				   character.portraitColor);

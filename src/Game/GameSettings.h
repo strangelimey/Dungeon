@@ -72,12 +72,16 @@ inline constexpr ThemeField kThemeFields[] = {
 // MASTER — Game::ApplyMemberColors pushes it onto the roster at creation/
 // reset and the Settings → UI picker edits it live; CreateDefaultParty's
 // authored palette only mirrors these defaults. Ini keys member_<n>=r,g,b,a.
+// BRIGHT since ui-updates (2026-10-01): the old rust / moss / gold / indigo were
+// authored dark for flat fills and sank into the stone chrome (Tilo's indigo and
+// Maren's gold worst). The old values are retired in GameSettings.cpp, so an
+// existing ini moves to these unless the player picked a colour.
 inline constexpr size_t kMemberColorCount = 4;
 inline constexpr Vec4 kDefaultMemberColors[kMemberColorCount] = {
-	{0.42f, 0.20f, 0.14f, 1.0f}, // slot 0 — rust (Brand)
-	{0.18f, 0.32f, 0.18f, 1.0f}, // slot 1 — moss (Sera)
-	{0.42f, 0.34f, 0.14f, 1.0f}, // slot 2 — gold (Maren)
-	{0.22f, 0.22f, 0.44f, 1.0f}, // slot 3 — indigo (Tilo)
+	{0.92f, 0.36f, 0.20f, 1.0f}, // slot 0 - ember (Brand)
+	{0.36f, 0.82f, 0.34f, 1.0f}, // slot 1 - leaf (Sera)
+	{1.00f, 0.82f, 0.26f, 1.0f}, // slot 2 - gold (Maren)
+	{0.66f, 0.48f, 1.00f, 1.0f}, // slot 3 - violet (Tilo)
 };
 
 // And for the movement keys (MoveKeys; ini keys key_<action>=vkey). Order is

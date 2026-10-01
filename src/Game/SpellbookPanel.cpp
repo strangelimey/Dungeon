@@ -110,12 +110,16 @@ void MemberButton::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		// A stone button, sunk while selected, with the member's colour laid
 		// flat inside its bevel.
 		const ui::Face kind = selected ? ui::Face::ButtonDown : ui::Face::Button;
+		// The member's colour glows off the stone round an eligible button,
+		// brightest on the open book (ui-updates: Tilo's and Maren's sank).
+		if (eligible)
+			ui::DrawGlow(batch, r, col, Rem(0.3f), selected ? 0.7f : (m_hot ? 0.45f : 0.3f));
 		ui::DrawFace(batch, r, *skin, kind,
 					 eligible ? Vec4{1, 1, 1, 1} : Vec4{0.55f, 0.55f, 0.55f, 1.0f});
 		const float in = ui::FaceInset(*skin, kind);
 		const gfx::Rect face{r.x + in, r.y + in, r.w - 2 * in, r.h - 2 * in};
 		if (eligible) {
-			const float f = selected ? 1.0f : (m_hot ? 0.95f : 0.75f);
+			const float f = selected ? 1.0f : (m_hot ? 0.95f : 0.8f);
 			batch.DrawRect(face, {col.x * f, col.y * f, col.z * f, 1.0f});
 		} else {
 			batch.DrawRect(face, theme.control);

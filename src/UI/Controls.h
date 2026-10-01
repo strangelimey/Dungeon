@@ -786,6 +786,15 @@ private:
 // Draws a 1px border around a rectangle.
 void DrawBorder(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Vec4& color);
 
+// A soft GLOW round a rectangle: `radius` px of rings outside it, `color` at
+// `strength` alpha against the edge falling away to nothing (a quadratic
+// falloff, so it reads as light rather than as a second border). Makes a
+// coloured mark - a member's identity border, a lit button - stand off stone
+// that is close to its own value. Draw it BEFORE the thing it surrounds. The
+// glow paints outside `rect`, so a caller must leave it that much room.
+void DrawGlow(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Vec4& color,
+			  float radius, float strength);
+
 // TEXT FITTED TO A WIDTH. The whole of `text` when it fits in `room` pixels,
 // else its longest prefix that leaves room for kTrimMark after it - cut back to
 // a whole UTF-8 character, never part-way through one. `trimmed` (optional) says

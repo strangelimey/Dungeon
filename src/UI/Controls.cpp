@@ -5,6 +5,7 @@
 #include "UI/Units.h"
 
 #include <algorithm>
+#include <cmath>
 #include <format>
 #include <optional>
 
@@ -85,6 +86,17 @@ void DrawBorder(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Vec4& colo
 	batch.DrawRect({rect.x, rect.y + rect.h - 1, rect.w, 1}, color);
 	batch.DrawRect({rect.x, rect.y, 1, rect.h}, color);
 	batch.DrawRect({rect.x + rect.w - 1, rect.y, 1, rect.h}, color);
+}
+
+void DrawGlow(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Vec4& color,
+			  float radius, float strength) {
+	const int rings = std::clamp(static_cast<int>(std::lround(radius)), 1, 12);
+	for (int i = 1; i <= rings; ++i) {
+		const float t = 1.0f - (static_cast<float>(i) - 0.5f) / static_cast<float>(rings);
+		const float o = static_cast<float>(i);
+		DrawBorder(batch, {rect.x - o, rect.y - o, rect.w + 2 * o, rect.h + 2 * o},
+				   {color.x, color.y, color.z, strength * t * t});
+	}
 }
 
 std::string_view FitText(const Font& font, std::string_view text, float room,

@@ -61,6 +61,11 @@ struct RetiredColor {
 };
 constexpr RetiredColor kRetiredColors[] = {
 	{"theme_textdim=", {0.62f, 0.58f, 0.50f, 1.0f}}, // ui-updates: vanished on stone
+	// ui-updates: the member colours, authored dark, sank into the stone.
+	{"member_1=", {0.42f, 0.20f, 0.14f, 1.0f}},
+	{"member_2=", {0.18f, 0.32f, 0.18f, 1.0f}},
+	{"member_3=", {0.42f, 0.34f, 0.14f, 1.0f}},
+	{"member_4=", {0.22f, 0.22f, 0.44f, 1.0f}},
 };
 
 // The ini holds three decimals, so "equal" is within half a step of that.
