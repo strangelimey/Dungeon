@@ -239,6 +239,16 @@ void AuditNode(const Widget& parent, const std::string& path,
 				if (g_auditSeen.insert(line).second) out(line);
 			}
 		}
+		// TRIMS: a widget that kept to its area only by cutting its text (a
+		// drop-down's face). Nothing collides, so neither check above can see it,
+		// but the layout did not give it the room for what it shows. The same
+		// slack as an escape: a rounding hair of trim is not a cut anyone reads.
+		if (const float cut = kids[i]->TextOverrun(); cut > 2.0f) {
+			std::string line =
+				std::format("  {} > {} [{}] trims its text by {:.0f}px to fit", path,
+							Name(*kids[i]), RectText(kids[i]->InkRect()), cut);
+			if (g_auditSeen.insert(line).second) out(line);
+		}
 	}
 	for (const auto& child : kids) {
 		if (!parent.ChildShown(*child)) continue;
@@ -267,7 +277,7 @@ void EndOverlapAuditFrame() {
 	if (g_auditOut)
 		g_auditOut(g_auditSeen.empty()
 					   ? "uioverlap: clean — every widget kept to its own area"
-					   : std::format("uioverlap: {} overlapping pairs",
+					   : std::format("uioverlap: {} findings (overlaps, escapes, trims)",
 									 g_auditSeen.size()));
 	g_auditOut = nullptr;
 	g_auditSeen.clear();

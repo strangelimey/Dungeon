@@ -59,6 +59,11 @@ std::string Name(const Widget& widget);
 // row that runs off the end of its container lands on something with a
 // different parent, which no sibling check would ever compare.
 //
+// And a third, which neither of those can see: a widget that kept to its area
+// only by TRIMMING its text (Widget::TextOverrun - a drop-down's face cut with
+// ".."). It collides with nothing, yet the layout did not give it room for
+// what it shows.
+//
 // Widgets marked `overlapOk` are skipped; so are empty INK rects, which is what
 // a screen-anchored popup has. Ink, not layout: a label in a row squeezed to
 // zero height still paints its line, and must still be compared.

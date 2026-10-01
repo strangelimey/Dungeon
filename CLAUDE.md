@@ -2158,7 +2158,16 @@ Judged by `tools\EditorTest.py` (phase 12 onward).
   their text, so a label wider than its row counts, a label in a row shorter
   than its font (a starved Stack Fill row resolves to ZERO height) counts at its
   full line, and a Button's centred label wider than the face counts on BOTH
-  sides. The audit gates on empty INK, not an empty Pixel(), or that zero-height
+  sides. A DropDown is the other shape: its face TRIMS a selection wider than
+  the room left of the expander (ui::FitText / DrawFittedText - "..", whole
+  UTF-8 characters, allocation-free; the open list widens to its longest item
+  and a trimmed face tooltips itself), so it never paints outside itself and
+  its InkRect stays honest - but the trim is still a layout that did not fit,
+  so it reports through Widget::TextOverrun and the audit lists it as a third
+  finding, "trims its text by Npx" (mutation-checked on ButtonInspector's old
+  side-by-side flag row, the case the overlap check could not see). The palette
+  and overview docks fit their names through the same helper.
+  The audit gates on empty INK, not an empty Pixel(), or that zero-height
   row would be skipped outright - which is how both slipped a sweep once
   (editor-updates 11c2144, NewWorldDialog). `overlapOk` opts out the
   deliberately layered; a parent that CLIPS is exempt from the escape check,

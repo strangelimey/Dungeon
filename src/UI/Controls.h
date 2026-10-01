@@ -250,6 +250,13 @@ private:
 // the control, flips above when there is more room there, and scrolls (wheel or
 // thumb drag, like SlotList) when it still doesn't fit — an installed-asset list
 // is as long as the pool, and it used to run off the bottom of the screen.
+//
+// The FACE never paints outside the control: a selection wider than the room
+// left of the expander is trimmed with ".." (FitText), says itself in full in a
+// tooltip while hovered, and the open list widens to its longest item (within
+// the window), so nothing is ever unreadable. The trim is still a layout defect
+// - the control was not given room for what it shows - so it reports itself to
+// the overlap audit through TextOverrun.
 class DropDown : public Widget {
 public:
 	DropDown(const gfx::Rect& rect, std::vector<std::string> items, int selected,
@@ -266,14 +273,28 @@ public:
 	}
 	void UpdateSelf(UIContext& ctx) override;
 	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	// The open list, or the hovered face's tooltip when its text was trimmed.
 	void DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	// The face is bounded sideways (the text is trimmed) but the line is CENTRED
+	// on it at the font's height, so a row shorter than the font spills the text
+	// out of the top and bottom - a Button's rule.
+	gfx::Rect InkRect() const override;
+	float TextOverrun() const override;
 
 	std::vector<std::string> items;
 	std::function<void(int)> onSelect;
 
 private:
+	// The selected item's text ("" for none), a reference into `items`.
+	const std::string& Current() const;
+	// Where the face text starts, and how wide it may run before the expander.
+	// DrawSelf, InkRect and TextOverrun all ask, so the measure is the draw.
+	float TextX() const;
+	float TextRoom() const;
+
 	// The open list's box, clamped to the window (below the control, or above it
-	// when that side has more room). Everything else resolves against it.
+	// when that side has more room), and at least as wide as its longest item
+	// (m_popupTextW) where the window allows. Everything else resolves against it.
 	gfx::Rect PopupRect(const UIContext& ctx) const;
 	gfx::Rect ItemRect(const gfx::Rect& popup, size_t index) const;
 	float MaxScroll(const gfx::Rect& popup) const;
@@ -288,6 +309,9 @@ private:
 	bool m_scrollHot = false;
 	bool m_scrollDragging = false;
 	float m_scrollGrab = 0.0f; // pointer offset within the thumb while dragging
+	// The widest item's text, measured when the list opens (never per frame -
+	// a pool-length list is hundreds of rows).
+	float m_popupTextW = 0.0f;
 };
 
 // Labeled color swatch. Clicking the swatch opens a popup with one slider per
@@ -759,6 +783,20 @@ private:
 // Draws a 1px border around a rectangle.
 void DrawBorder(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Vec4& color);
 
+// TEXT FITTED TO A WIDTH. The whole of `text` when it fits in `room` pixels,
+// else its longest prefix that leaves room for kTrimMark after it - cut back to
+// a whole UTF-8 character, never part-way through one. `trimmed` (optional) says
+// which; an empty prefix with `trimmed` set means not even the mark fits. A VIEW
+// into `text`, so fitting allocates nothing: a drop-down's face fits its text
+// every frame, inside the frames the steady-state guard watches.
+inline constexpr std::string_view kTrimMark = "..";
+std::string_view FitText(const Font& font, std::string_view text, float room,
+						 bool* trimmed = nullptr);
+// Draws `text` at (x, y) fitted to `room`, the mark after a trimmed prefix (and
+// nothing at all when even the mark would not fit). Allocation-free, as above.
+void DrawFittedText(gfx::SpriteBatch& batch, const Font& font, std::string_view text,
+					float x, float y, float room, const Vec4& color);
+
 // Draws a Swatch filling the rect: the texture, else the flat colour. The
 // editor palette's rows and a Checkbox's swatch both draw through this, so a
 // type looks the same in the palette and in a dialog listing it.
@@ -810,6 +848,10 @@ void DrawButtonFace(gfx::SpriteBatch& batch, const Font& font,
 void DrawDropDownExpander(gfx::SpriteBatch& batch, const Font& font,
 						  const gfx::Rect& rect, const Theme& theme, bool open,
 						  bool hot);
+// The x where that expander begins, less the gap text must keep from it: the
+// right end of the room a drop-down's face text may use. Same `font` and `rect`
+// as the draw, which is what keeps the two in step.
+float DropDownTextRight(const Font& font, const gfx::Rect& rect);
 
 // The standard close affordance every dialog uses: a small square button in the
 // top-right CORNER of `panel` (window-fraction space, like the widgets it joins).

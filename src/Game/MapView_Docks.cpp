@@ -68,12 +68,12 @@ std::array<KeySym, kKeyRows> KeyTable(const ui::Theme& theme) {
 
 constexpr const char* kScopeKeys[] = {"map.ov.world", "map.ov.dungeon", "map.ov.level"};
 
-// Text trimmed to a width, ".." marking the cut.
+// Text trimmed to a width, ".." marking the cut (ui::FitText: never part-way
+// through a UTF-8 character). A copy, since DrawButtonFace takes a string.
 std::string Fit(const ui::Font& font, const std::string& text, float room) {
-	if (font.MeasureWidth(text) <= room) return text;
-	std::string fit = text;
-	while (fit.size() > 1 && font.MeasureWidth(fit + "..") > room) fit.pop_back();
-	return fit + "..";
+	bool trimmed = false;
+	const std::string_view fit = ui::FitText(font, text, room, &trimmed);
+	return trimmed ? std::string(fit) + std::string(ui::kTrimMark) : text;
 }
 } // namespace
 

@@ -57,6 +57,68 @@ void DrawBorder(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Vec4& colo
 	batch.DrawRect({rect.x + rect.w - 1, rect.y, 1, rect.h}, color);
 }
 
+std::string_view FitText(const Font& font, std::string_view text, float room,
+						 bool* trimmed) {
+	const bool cut = font.MeasureWidth(text) > room;
+	if (trimmed) *trimmed = cut;
+	if (!cut) return text;
+	// Widths add (the font has no kerning), so one forward walk measuring a
+	// character at a time finds the cut without re-measuring the prefix.
+	const float budget = room - font.MeasureWidth(kTrimMark);
+	float w = 0.0f;
+	size_t keep = 0;
+	for (size_t i = 0; i < text.size();) {
+		size_t next = i + 1; // past the lead byte and any continuation bytes
+		while (next < text.size() &&
+			   (static_cast<unsigned char>(text[next]) & 0xC0) == 0x80)
+			++next;
+		w += font.MeasureWidth(text.substr(i, next - i));
+		if (w > budget) break;
+		keep = i = next;
+	}
+	// "Warm.." rather than "Warm ..": a cut at a word gap reads as one word.
+	while (keep > 0 && text[keep - 1] == ' ') --keep;
+	return text.substr(0, keep);
+}
+
+void DrawFittedText(gfx::SpriteBatch& batch, const Font& font, std::string_view text,
+					float x, float y, float room, const Vec4& color) {
+	bool trimmed = false;
+	const std::string_view fit = FitText(font, text, room, &trimmed);
+	if (!trimmed) {
+		font.Draw(batch, fit, x, y, color);
+		return;
+	}
+	const float mark = font.MeasureWidth(kTrimMark);
+	if (mark > room) return; // not even ".." fits: paint nothing rather than spill
+	font.Draw(batch, fit, x, y, color);
+	font.Draw(batch, kTrimMark, x + font.MeasureWidth(fit), y, color);
+}
+
+namespace {
+
+// A small opaque box naming something in full, above `anchor` - or below it
+// when that leaves the window - and clamped sideways. A Button's tooltip and a
+// trimmed drop-down's face share it, so every tip reads the same.
+void DrawTooltip(UIContext& ctx, gfx::SpriteBatch& batch, const Font& font,
+				 std::string_view text, const gfx::Rect& anchor) {
+	const Theme& theme = ctx.GetTheme();
+	const float pad = font.Height() * 0.33f;
+	const float w = font.MeasureWidth(text) + pad * 2.0f;
+	const float h = font.Height() + pad;
+	const float gap = pad;
+	float y = anchor.y - h - gap;
+	if (y < 0.0f) y = anchor.y + anchor.h + gap;
+	const float x = std::clamp(anchor.x + (anchor.w - w) * 0.5f, 2.0f,
+							   std::max(2.0f, ctx.Width() - w - 2.0f));
+	const gfx::Rect r{x, y, w, h};
+	batch.DrawRect(r, {theme.panel.x, theme.panel.y, theme.panel.z, 0.97f});
+	DrawBorder(batch, r, theme.panelBorder);
+	font.Draw(batch, text, r.x + pad, r.y + pad * 0.5f, theme.text);
+}
+
+} // namespace
+
 void DrawSwatch(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Swatch& swatch) {
 	if (swatch.icon)
 		batch.DrawSprite(rect, {0, 0, 1, 1}, *swatch.icon, {1, 1, 1, 1});
@@ -194,21 +256,7 @@ void Button::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	// must read) and the frame's border. Above the button - dialog footers sit
 	// at the bottom, where below would run off the card - unless that leaves
 	// the window, and clamped to it sideways.
-	const Theme& theme = ctx.GetTheme();
-	const Font& font = TextFont();
-	const gfx::Rect& px = Pixel();
-	const float pad = font.Height() * 0.33f;
-	const float w = font.MeasureWidth(tooltip) + pad * 2.0f;
-	const float h = font.Height() + pad;
-	const float gap = pad;
-	float y = px.y - h - gap;
-	if (y < 0.0f) y = px.y + px.h + gap;
-	const float x = std::clamp(px.x + (px.w - w) * 0.5f, 2.0f,
-							   std::max(2.0f, ctx.Width() - w - 2.0f));
-	const gfx::Rect r{x, y, w, h};
-	batch.DrawRect(r, {theme.panel.x, theme.panel.y, theme.panel.z, 0.97f});
-	DrawBorder(batch, r, theme.panelBorder);
-	font.Draw(batch, tooltip, r.x + pad, r.y + pad * 0.5f, theme.text);
+	DrawTooltip(ctx, batch, TextFont(), tooltip, Pixel());
 }
 
 gfx::Rect Button::InkRect() const {
@@ -391,10 +439,22 @@ gfx::Rect DropDown::PopupRect(const UIContext& ctx) const {
 	const float content = px.h * static_cast<float>(items.size());
 	const float below = std::max(0.0f, ctx.Height() - (px.y + px.h) - pad);
 	const float above = std::max(0.0f, px.y - pad);
-	if (content <= below || below >= above) return {px.x, px.y + px.h, px.w,
-													std::min(content, below)};
-	const float h = std::min(content, above);
-	return {px.x, px.y - h, px.w, h};
+	gfx::Rect r;
+	if (content <= below || below >= above) {
+		r = {px.x, px.y + px.h, px.w, std::min(content, below)};
+	} else {
+		const float h = std::min(content, above);
+		r = {px.x, px.y - h, px.w, h};
+	}
+	// Wide enough for the longest item - the face may be trimming it - with the
+	// face's own text inset on both sides and the scrollbar's gutter when the
+	// list scrolls; never past the window, so it shifts left before it widens
+	// off the edge. A row that still does not fit is trimmed like the face.
+	const float gutter = content > r.h ? Rem(0.45f) : 0.0f;
+	const float want = m_popupTextW + (TextX() - px.x) * 2.0f + gutter;
+	r.w = std::min(std::max(px.w, want), ctx.Width());
+	r.x = std::clamp(px.x, 0.0f, std::max(0.0f, ctx.Width() - r.w));
+	return r;
 }
 
 float DropDown::MaxScroll(const gfx::Rect& popup) const {
@@ -496,6 +556,9 @@ void DropDown::UpdateSelf(UIContext& ctx) {
 		if (input->WasMousePressed(MouseButton::Left)) {
 			m_open = true;
 			ctx.ClaimPopup();
+			m_popupTextW = 0.0f;
+			for (const std::string& item : items)
+				m_popupTextW = std::max(m_popupTextW, TextFont().MeasureWidth(item));
 			// Open with the current selection in view — a long list otherwise
 			// opens at the top, nowhere near what it says it is showing.
 			const gfx::Rect popup = PopupRect(ctx);
@@ -514,18 +577,37 @@ void DropDown::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 
 	batch.DrawRect(px, m_hot || m_open ? theme.controlHot : theme.control);
 	DrawBorder(batch, px, theme.panelBorder);
+	const float textY = px.y + (px.h - font.Height()) * 0.5f;
+	DrawFittedText(batch, font, Current(), TextX(), textY, TextRoom(), theme.text);
+	DrawDropDownExpander(batch, font, px, theme, m_open, m_hot);
+}
+
+const std::string& DropDown::Current() const {
 	// The empty case is a named string, NOT a "" literal: a ternary mixing
 	// std::string with const char* has common type std::string, so binding the
 	// reference COPIED the selected item — a heap allocation per dropdown per
 	// frame, in a draw path (found by the steady-state allocation guard).
 	static const std::string kNoSelection;
-	const std::string& current =
-		(m_selected >= 0 && m_selected < static_cast<int>(items.size()))
-			? items[static_cast<size_t>(m_selected)]
-			: kNoSelection;
-	const float textY = px.y + (px.h - font.Height()) * 0.5f;
-	font.Draw(batch, current, px.x + 8, textY, theme.text);
-	DrawDropDownExpander(batch, font, px, theme, m_open, m_hot);
+	return (m_selected >= 0 && m_selected < static_cast<int>(items.size()))
+			   ? items[static_cast<size_t>(m_selected)]
+			   : kNoSelection;
+}
+
+float DropDown::TextX() const { return Pixel().x + Rem(0.4f); }
+
+float DropDown::TextRoom() const {
+	return std::max(0.0f, DropDownTextRight(TextFont(), Pixel()) - TextX());
+}
+
+gfx::Rect DropDown::InkRect() const {
+	const gfx::Rect& px = Pixel();
+	if (Current().empty()) return px;
+	const float h = std::max(px.h, TextFont().Height());
+	return {px.x, px.y + (px.h - h) * 0.5f, px.w, h};
+}
+
+float DropDown::TextOverrun() const {
+	return std::max(0.0f, TextFont().MeasureWidth(Current()) - TextRoom());
 }
 
 void DrawDropDownExpander(gfx::SpriteBatch& batch, const Font& font,
@@ -561,8 +643,22 @@ void DrawDropDownExpander(gfx::SpriteBatch& batch, const Font& font,
 			  rect.y + (rect.h - font.Height()) * 0.5f, theme.accent);
 }
 
+float DropDownTextRight(const Font& font, const gfx::Rect& rect) {
+	// DrawDropDownExpander's geometry, then the same inset again as a gap, so
+	// text that runs to the limit still reads as separate from the box.
+	const float inset = font.Height() * 0.12f;
+	const float left = GetControlIcons().dropDown
+						   ? rect.x + rect.w - inset - (rect.h - inset * 2.0f)
+						   : rect.x + rect.w - font.MeasureWidth("v") - inset * 3.0f;
+	return left - inset;
+}
+
 void DropDown::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
-	if (!m_open) return;
+	if (!m_open) {
+		// A trimmed face says itself in full while hovered, as a palette row does.
+		if (m_hot && TextOverrun() > 0.0f) DrawTooltip(ctx, batch, TextFont(), Current(), Pixel());
+		return;
+	}
 	const Theme& theme = ctx.GetTheme();
 	const Font& font = TextFont();
 	const gfx::Rect popup = PopupRect(ctx);
@@ -581,9 +677,11 @@ void DropDown::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 			const bool hovered = static_cast<int>(i) == m_hoverItem;
 			batch.DrawRect(rect, hovered ? theme.controlHot : theme.control);
 			DrawBorder(batch, rect, theme.panelBorder);
-			font.Draw(batch, items[i], rect.x + 8,
-					  rect.y + (rect.h - font.Height()) * 0.5f,
-					  static_cast<int>(i) == m_selected ? theme.accent : theme.text);
+			const float inset = TextX() - Pixel().x;
+			DrawFittedText(batch, font, items[i], rect.x + inset,
+						   rect.y + (rect.h - font.Height()) * 0.5f,
+						   rect.w - inset * 2.0f,
+						   static_cast<int>(i) == m_selected ? theme.accent : theme.text);
 		}
 	}
 	if (maxScroll > 0.0f) {
