@@ -410,9 +410,10 @@ BUILT (2026-09-30), and where it differs from the above:
   decisions live now. They are `hidden` knobs (GenerateKnobs.h): still encoded,
   so a preset, a settings line or a script naming them works as before, but
   given no row, and CLEARED when the dialog opens so an old value cannot steer
-  a run from out of sight. NOT folded, for Michael: Level settings' Tags row.
-  A new level no longer needs it (the style writes the tags), but the dialog
-  exists for atmosphere and rename anyway, and a hand-retag has nowhere else.
+  a run from out of sight. KEPT (Michael, 2026-09-30): Level settings' Tags
+  row. A new level no longer needs it (the style writes the tags), but the
+  dialog exists for atmosphere and rename anyway, and a hand-retag has nowhere
+  else.
 - Checked: RollTest (Dress 5, Populate 13); EditorTest 18 (24 checks): two
   worlds in library styles (files read, both pass the checker), then the walk
   inside one - [+] on the dungeon's style, Create and Empty landing in Build
