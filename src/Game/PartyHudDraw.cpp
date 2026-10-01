@@ -24,14 +24,15 @@ void DrawStatBar(gfx::SpriteBatch& batch, const gfx::Rect& rect, float fraction,
 namespace {
 
 // bar_frame.png's geometry, as printed by tools/CutBarFrame.py - fractions of
-// the frame image. Re-cut the frame, copy the new numbers here.
-constexpr float kFrameAspect = 1024.0f / 175.0f; // image width / height
-constexpr float kTubeLeft = 0.0858f;   // the glass, inset from each edge
-constexpr float kTubeRight = 0.0841f;
-constexpr float kTubeTop = 0.3016f;
-constexpr float kTubeBottom = 0.2444f;
-constexpr float kCapLeft = 0.1908f;    // where the end caps stop and the
-constexpr float kCapRight = 0.1887f;   // plain (stretchable) rim begins
+// the frame image. Re-cut the frame, copy the new numbers here. The SILVER
+// frame (Mana Status Bars #13) since ui-updates; the iron one was too dark.
+constexpr float kFrameAspect = 1024.0f / 160.0f; // image width / height
+constexpr float kTubeLeft = 0.0709f;   // the glass, inset from each edge
+constexpr float kTubeRight = 0.0696f;
+constexpr float kTubeTop = 0.2524f;
+constexpr float kTubeBottom = 0.2220f;
+constexpr float kCapLeft = 0.1332f;    // where the end caps stop and the
+constexpr float kCapRight = 0.1319f;   // plain (stretchable) rim begins
 
 // The heartbeat's numbers, in beats per minute. A first cut, Michael's to tune.
 constexpr float kBpmRest = 60.0f;
@@ -138,27 +139,108 @@ void TickBarPulse(BarPulse& pulse, float targetBpm, float dt) {
 	pulse.phase -= std::floor(pulse.phase);
 }
 
+Vec4 MutedIdentity(const Vec4& color, bool down) {
+	// Halfway to its own grey, then darkened to sit at the stone's depth.
+	const float grey = color.x * 0.3f + color.y * 0.59f + color.z * 0.11f;
+	const float sat = 0.55f, dark = down ? 0.35f : 0.62f;
+	const auto mix = [&](float c) { return (grey + (c - grey) * sat) * dark; };
+	return {mix(color.x), mix(color.y), mix(color.z), 1.0f};
+}
+
+namespace {
+// The portrait frame's groove and the breath of stone between it and the
+// picture, as shares of the portrait's width.
+float PortraitGroove(const gfx::Rect& r) { return std::max(3.0f, r.w * 0.033f); }
+float PortraitInset(const gfx::Rect& r) { return PortraitGroove(r) + std::max(2.0f, r.w * 0.035f); }
+} // namespace
+
 void DrawIdentityBorder(gfx::SpriteBatch& batch, const gfx::Rect& rect,
 						const Character& character) {
-	ui::DrawBorder(batch, rect, character.portraitColor);
-	ui::DrawBorder(batch, {rect.x + 1, rect.y + 1, rect.w - 2, rect.h - 2},
-				   character.portraitColor);
+	// A groove carved round the picture, its floor the member's colour muted
+	// into the stone (Michael: the bright glowing frame was far too loud).
+	ui::DrawCarvedGroove(batch, rect, PortraitGroove(rect),
+						 MutedIdentity(character.portraitColor, !character.IsAlive()));
 }
 
 void DrawPortrait(gfx::SpriteBatch& batch, const gfx::Rect& rect,
 				  const Character& character, const ui::Font& font,
 				  const ui::Theme& theme) {
+	// The picture sits a breath of stone in from its groove (Michael: space it
+	// out inside the border), the frame round the slot's own edge.
+	const float in = PortraitInset(rect);
+	const gfx::Rect pic{rect.x + in, rect.y + in, rect.w - 2 * in, rect.h - 2 * in};
+	DrawIdentityBorder(batch, rect, character);
 	if (character.portrait) {
-		batch.DrawSprite(rect, {0, 0, 1, 1}, *character.portrait, {1, 1, 1, 1});
-		DrawIdentityBorder(batch, rect, character);
+		batch.DrawSprite(pic, {0, 0, 1, 1}, *character.portrait, {1, 1, 1, 1});
 		return;
 	}
-	batch.DrawRect(rect, character.portraitColor);
-	DrawIdentityBorder(batch, rect, character);
+	batch.DrawRect(pic, character.portraitColor);
 	const std::string_view initial = std::string_view(character.name).substr(0, 1);
 	const float initialW = font.MeasureWidth(initial);
 	font.Draw(batch, initial, rect.x + (rect.w - initialW) * 0.5f,
 			  rect.y + (rect.h - font.Height()) * 0.5f, theme.text);
+}
+
+Vec4 RuneGlowColor(SpellSymbol s) {
+	// The icons' own glyph colours, as tools/BuildRuneGlow.py prints them.
+	switch (s) {
+	case SpellSymbol::Fire: return {0.95f, 0.45f, 0.18f, 1.0f};
+	case SpellSymbol::Earth: return {0.45f, 0.80f, 0.32f, 1.0f};
+	case SpellSymbol::Air: return {0.80f, 0.92f, 1.00f, 1.0f};
+	case SpellSymbol::Water: return {0.30f, 0.55f, 0.95f, 1.0f};
+	default: return {1.0f, 1.0f, 1.0f, 1.0f}; // a form rune: no school, white
+	}
+}
+
+void DrawRuneGlow(gfx::SpriteBatch& batch, const gfx::Rect& r, SpellSymbol s,
+				  const ItemIconBank* icons, bool hot, bool disabled, float phase) {
+	const size_t i = static_cast<size_t>(s);
+	const gfx::Texture* glyph =
+		icons && i < ItemIconBank::kRuneSlots ? icons->runeGlyph[i] : nullptr;
+	const gfx::Texture* glow =
+		icons && i < ItemIconBank::kRuneSlots ? icons->runeGlow[i] : nullptr;
+	if (!glyph || !glow) {
+		DrawRuneFace(batch, r, s, icons, hot, disabled, /*background*/ false);
+		return;
+	}
+	const Vec4 c = RuneGlowColor(s);
+	const float pad = r.w * 0.08f;
+	const gfx::Rect in{r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad};
+	if (disabled) {
+		// Spent or blocked: the mark is still there, but nothing about it is lit.
+		batch.DrawSprite(in, {0, 0, 1, 1}, *glyph, {c.x * 0.4f, c.y * 0.4f, c.z * 0.4f, 0.8f});
+		return;
+	}
+	// The halo breathes; hovering lifts it. Slow, so a grid of them shimmers
+	// rather than flashes.
+	const float pulse = 0.5f + 0.5f * std::sin(phase);
+	const float halo = (hot ? 0.70f : 0.40f) + 0.30f * pulse;
+	batch.DrawSprite(in, {0, 0, 1, 1}, *glow, {c.x, c.y, c.z, halo});
+	// The glyph itself: the colour lifted toward white, a touch more at the crest,
+	// so the stroke reads as the bright core of its own light.
+	const float lift = 0.35f + 0.20f * pulse + (hot ? 0.15f : 0.0f);
+	batch.DrawSprite(in, {0, 0, 1, 1}, *glyph,
+					 {c.x + (1.0f - c.x) * lift, c.y + (1.0f - c.y) * lift,
+					  c.z + (1.0f - c.z) * lift, 1.0f});
+}
+
+bool DrawItemIcon(gfx::SpriteBatch& batch, const gfx::Rect& r, std::string_view typeId,
+				  const ItemIconBank* icons, float pad) {
+	if (typeId.empty() || !icons) return false;
+	if (SpellSymbol s; RuneSymbolFromItemId(typeId, s)) {
+		// The Magic window's slow breath, each socket a little out of step with
+		// its neighbours (keyed off where it sits, so a row shimmers).
+		constexpr float kTwoPi = 6.2831853f;
+		const float phase = batch.Time() * (kTwoPi / 3.4f) - (r.x + r.y) * 0.013f;
+		DrawRuneGlow(batch, r, s, icons, /*hot=*/false, /*disabled=*/false, phase);
+		return true;
+	}
+	const gfx::Texture* icon = icons->For(typeId);
+	if (!icon) return false;
+	const float p = r.w * pad;
+	batch.DrawSprite({r.x + p, r.y + p, r.w - 2 * p, r.h - 2 * p}, {0, 0, 1, 1}, *icon,
+					 {1, 1, 1, 1});
+	return true;
 }
 
 void DrawRuneFace(gfx::SpriteBatch& batch, const gfx::Rect& r, SpellSymbol s,

@@ -58,9 +58,14 @@ float HeartRateTarget(const Character& member, bool noticed);
 // seconds.
 void TickBarPulse(BarPulse& pulse, float targetBpm, float dt);
 
+// The identity colour as it sits IN the stone: desaturated toward its own grey
+// and darkened, so it marks a member without lighting up. The floor of every
+// carved member groove (portrait frame, hand-pair frame); `down` dims it again.
+Vec4 MutedIdentity(const Vec4& color, bool down = false);
+
 // Baked portrait when present; otherwise the tinted square with the character's
-// initial. The border is the character's identity color (doubled so it reads at
-// party-bar size), matching the HandSlot stripe.
+// initial. The border is a groove carved round the portrait, its floor the
+// muted identity colour - the same frame the member's hand pair wears.
 void DrawIdentityBorder(gfx::SpriteBatch& batch, const gfx::Rect& rect,
 						const Character& character);
 void DrawPortrait(gfx::SpriteBatch& batch, const gfx::Rect& rect,
@@ -78,5 +83,28 @@ struct ItemIconBank; // PartyHudTypes.h
 void DrawRuneFace(gfx::SpriteBatch& batch, const gfx::Rect& r, SpellSymbol s,
 				  const ItemIconBank* icons, bool hot, bool disabled = false,
 				  bool background = true);
+
+// The colour a rune GLOWS in the Magic window: its school's - the very glyph
+// colour its icon is drawn in (tools/BuildRuneGlow.py prints them) - and WHITE
+// for the form runes, which belong to no school (Michael, ui-updates: "for now").
+Vec4 RuneGlowColor(SpellSymbol s);
+
+// A rune in the MAGIC WINDOW: its glyph alone, lit in RuneGlowColor over a soft
+// halo of the same colour that PULSES slowly - `phase` in radians, so each rune
+// can sit out of step with its neighbours. The caller draws the socket under it.
+// Falls back to DrawRuneFace when the glow masks are not installed. `disabled`
+// (spent / blocked) leaves the glyph dim and unlit.
+void DrawRuneGlow(gfx::SpriteBatch& batch, const gfx::Rect& r, SpellSymbol s,
+				  const ItemIconBank* icons, bool hot, bool disabled, float phase);
+
+// An ITEM in a socket `r` (the caller draws the socket): its icon, inset by
+// `pad` of the socket's width - except a RUNE TABLET, which is drawn the way the
+// Magic window draws a rune, its glyph lit over a pulsing halo (DrawRuneGlow;
+// Michael, ui-updates: the flat tile read as 2D beside the Magic window's).
+// Every item socket draws through this - hands, the doll, the backpack, the
+// party inventory - so a rune reads the same wherever it sits. False = nothing
+// to draw (empty id, no icon).
+bool DrawItemIcon(gfx::SpriteBatch& batch, const gfx::Rect& r, std::string_view typeId,
+				  const ItemIconBank* icons, float pad = 0.1f);
 
 } // namespace dungeon::game

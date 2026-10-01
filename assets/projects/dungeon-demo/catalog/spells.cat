@@ -81,6 +81,9 @@ blast_force = 7
 blast_damage = 5
 blast_falloff = 1.5
 blast_rate = 0.06
+; How it is SEEN (ui-updates: blasts drew nothing before): an orange glow -
+; fire's rune red reads as pink once it is a glow over stone.
+blast_color = 1.0, 0.45, 0.1
 
 [slingshot]
 name = spell.slingshot

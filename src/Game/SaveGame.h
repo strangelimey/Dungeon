@@ -95,6 +95,9 @@ struct SaveData {
 	std::string heldItem;
 
 	int torchPalette = 0; // HUD torchlight index (0 warm, 1 cold, 2 eerie)
+	// The party leader's roster index (DungeonWorld::Leader). Absent in older
+	// saves = 0, which is right: slot 0 leads a new game.
+	int leader = 0;
 
 	// Per-roster-slot mutable resources, in roster order.
 	struct CharState {

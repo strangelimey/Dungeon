@@ -1567,8 +1567,9 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 					if (m_hoverBtn == HoverBtn::ShowWorld) {
 						const float tw = m_font->MeasureWidth(name);
 						const float p = dpad * 1.5f;
-						const gfx::Rect tr{wr.x, wr.y + wr.h + 2.0f, tw + p * 2,
-										   m_font->Height() + p};
+						const gfx::Rect tr = ui::PlaceTooltip(
+							wr, tw + p * 2, m_font->Height() + p, panel, ui::TipSide::Below,
+							2.0f, 2.0f, ui::TipAlign::Start);
 						batch.DrawRect(tr, kMapBg);
 						ui::DrawBorder(batch, tr, theme.panelBorder);
 						m_font->Draw(batch, name, tr.x + p, tr.y + p * 0.5f, theme.text);
@@ -1632,17 +1633,16 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			if (tip) {
 				const float tw = m_font->MeasureWidth(tip->label);
 				const float pad2 = dpad * 1.5f;
-				gfx::Rect tr{tip->rect.x + tip->rect.w * 0.5f - tw * 0.5f - pad2,
-							 tb.y + tb.h + 2.0f, tw + pad2 * 2,
-							 m_font->Height() + pad2};
-				// A strip disc's tip opens BESIDE it, over the grid: under the
-				// band would put it on the next disc down.
-				if (tip->strip) {
-					tr.x = tip->rect.x + tip->rect.w + dpad * 2;
-					tr.y = tip->rect.y + (tip->rect.h - tr.h) * 0.5f;
-				}
-				tr.x = std::clamp(tr.x, panel.x + 2.0f,
-								  panel.x + panel.w - tr.w - 2.0f);
+				const float tw2 = tw + pad2 * 2, th = m_font->Height() + pad2;
+				// Under the BAND (not the disc), centred on the disc; a strip
+				// disc's tip opens BESIDE it, over the grid, since under the band
+				// would put it on the next disc down.
+				const gfx::Rect tr =
+					tip->strip
+						? ui::PlaceTooltip(tip->rect, tw2, th, panel, ui::TipSide::Right,
+										   dpad * 2)
+						: ui::PlaceTooltip({tip->rect.x, tb.y, tip->rect.w, tb.h}, tw2, th,
+										   panel, ui::TipSide::Below, 2.0f);
 				batch.DrawRect(tr, kMapBg);
 				ui::DrawBorder(batch, tr, theme.panelBorder);
 				m_font->Draw(batch, tip->label, tr.x + pad2,

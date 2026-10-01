@@ -16,15 +16,32 @@ namespace {
 // Horizontal / vertical pads as fractions of the panel.
 constexpr float kPadX = 0.045f;
 constexpr float kPadY = 0.035f;
-constexpr float kMemberY = 0.035f;
+// The member row and rune grid sit HIGH and Cast / Clear low (Michael,
+// ui-updates): a learned spell's name prints between the grid and the sequence
+// row, and with the old 0.035 / 0.145 / 0.15 it landed on the grid's second row.
+constexpr float kMemberY = 0.012f;
 constexpr float kMemberH = 0.085f;
 constexpr float kMemberGapX = 0.036f; // extra air for skinned button frames
-constexpr float kGridY = 0.145f;
+constexpr float kGridY = 0.11f;
 constexpr float kGridGap = 0.027f;
+constexpr float kGridCell = 0.86f; // rune cells' share of the width-derived size
 constexpr float kSeqGap = 0.018f;
-constexpr float kCastH = 0.15f;
+constexpr float kCastH = 0.125f;
 constexpr float kCastGap = 0.036f; // between Cast and Clear
 constexpr float kSeqAboveCast = 0.03f;
+constexpr float kNameAboveSeq = 0.07f; // the spell name's gap above the sequence
+// The tallest the vertical fractions above are taken of, as a share of the
+// panel's width (SpellbookPanel::RefH): about the default dock's shape before
+// the tray took a strip off it, the shape every number here was tuned at.
+constexpr float kRefAspect = 0.9f;
+
+// The glow's pulse for rune `slot`: one breath every ~3.4 s of REAL time (the
+// bars' clock, so rest's 60x never hurries it), each slot ~75 degrees behind
+// the last so the grid shimmers instead of throbbing in unison.
+float RunePhase(const gfx::SpriteBatch& batch, size_t slot) {
+	constexpr float kTwoPi = 6.2831853f;
+	return batch.Time() * (kTwoPi / 3.4f) - static_cast<float>(slot) * 1.3f;
+}
 } // namespace
 
 SpellbookPanel::SpellbookPanel(const gfx::Rect& rect,
@@ -35,15 +52,65 @@ SpellbookPanel::SpellbookPanel(const gfx::Rect& rect,
 	  m_clearLabel(loc::Tr("magic.clear")) {
 	bounds = rect;
 	debugName = "SpellbookPanel";
-	// The selector row is a child; the rune grid and the sequence/Cast/Clear
-	// below it stay this panel's own (docs/ui-hierarchy.md says why).
-	Add<MemberRow>(gfx::Rect{kPadX, kMemberY, 1.0f - 2.0f * kPadX, kMemberH},
+	// The selector row and Cast / Clear are children; the rune grid and the
+	// sequence row stay this panel's own (docs/ui-hierarchy.md says why).
+	m_memberRow = Add<MemberRow>(gfx::Rect{kPadX, kMemberY, 1.0f - 2.0f * kPadX, kMemberH},
 				   roster, &m_member,
 				   [this](size_t i) { return MemberEligible(i); },
 				   [this](size_t i) {
 					   SelectMember(i);
 					   if (onClick) onClick();
 				   });
+	// The action runs at the bottom of the button's push (ui::Button), so it
+	// re-reads the state then rather than trusting what was true at the click.
+	m_castButton = Add<ui::Button>(gfx::Rect{}, m_castLabel, [this] {
+		if (m_member >= 0 && m_seqLen > 0 && onCast)
+			onCast(static_cast<size_t>(m_member), Sequence());
+		m_seqLen = 0; // the slate empties either way (a fizzle is spent)
+	});
+	m_clearButton = Add<ui::Button>(gfx::Rect{}, m_clearLabel, [this] {
+		if (m_seqLen == 0) return;
+		m_seqLen = 0;
+		if (onClick) onClick();
+	});
+}
+
+void SpellbookPanel::SetActionIcons(const gfx::Texture* cast, const gfx::Texture* clear) {
+	m_castButton->faceIcon = cast;
+	m_castButton->tooltip = cast ? m_castLabel : std::string();
+	m_clearButton->faceIcon = clear;
+	m_clearButton->tooltip = clear ? m_clearLabel : std::string();
+}
+
+float SpellbookPanel::RefH(const gfx::Rect& px) {
+	return std::min(px.h, px.w * kRefAspect);
+}
+
+void SpellbookPanel::LayoutSelf(ui::UIContext&) {
+	// Cast / Clear fill their row (CastRect / ClearRect) and only act on a
+	// spelled sequence; with no book open they are not there at all.
+	const gfx::Rect px = Pixel();
+	const bool open = m_member >= 0 && px.w > 0.0f && px.h > 0.0f;
+	// The member row, at its tuned height however tall the panel is, spanning
+	// the panel so each button can sit exactly over the school rune in its
+	// column (Michael: "line them up ... so one is above the other").
+	if (px.w > 0.0f && px.h > 0.0f) {
+		const float k = RefH(px) / px.h;
+		m_memberRow->bounds = {0.0f, kMemberY * k, 1.0f, kMemberH * k};
+		size_t i = 0;
+		for (const auto& button : m_memberRow->Children()) {
+			const gfx::Rect cell = SymbolRect(px, i++);
+			button->bounds = {(cell.x - px.x) / px.w, 0.0f, cell.w / px.w, 1.0f};
+		}
+	}
+	const auto place = [&](ui::Button* b, const gfx::Rect& r) {
+		b->visible = open;
+		if (!open) return;
+		b->bounds = {(r.x - px.x) / px.w, (r.y - px.y) / px.h, r.w / px.w, r.h / px.h};
+		b->enabled = m_seqLen > 0;
+	};
+	place(m_castButton, CastRect(px));
+	place(m_clearButton, ClearRect(px));
 }
 
 void SpellbookPanel::SelectMember(size_t member) {
@@ -110,12 +177,16 @@ void MemberButton::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		// A stone button, sunk while selected, with the member's colour laid
 		// flat inside its bevel.
 		const ui::Face kind = selected ? ui::Face::ButtonDown : ui::Face::Button;
+		// The member's colour glows off the stone round an eligible button,
+		// brightest on the open book (ui-updates: Tilo's and Maren's sank).
+		if (eligible)
+			ui::DrawGlow(batch, r, col, Rem(0.3f), selected ? 0.7f : (m_hot ? 0.45f : 0.3f));
 		ui::DrawFace(batch, r, *skin, kind,
 					 eligible ? Vec4{1, 1, 1, 1} : Vec4{0.55f, 0.55f, 0.55f, 1.0f});
 		const float in = ui::FaceInset(*skin, kind);
 		const gfx::Rect face{r.x + in, r.y + in, r.w - 2 * in, r.h - 2 * in};
 		if (eligible) {
-			const float f = selected ? 1.0f : (m_hot ? 0.95f : 0.75f);
+			const float f = selected ? 1.0f : (m_hot ? 0.95f : 0.8f);
 			batch.DrawRect(face, {col.x * f, col.y * f, col.z * f, 1.0f});
 		} else {
 			batch.DrawRect(face, theme.control);
@@ -146,10 +217,17 @@ MemberRow::MemberRow(const gfx::Rect& rect, const std::vector<Character>* roster
 }
 
 gfx::Rect SpellbookPanel::SymbolRect(const gfx::Rect& px, size_t i) const {
-	const float pad = kPadX * px.w, gap = kGridGap * px.w;
-	const float cell = (px.w - 2 * pad - 3 * gap) / 4.0f;
+	// The cells are kGridCell of what the width would allow, the spare going
+	// into the gaps so the grid keeps its span: the panel's height is fixed, and
+	// full-width cells left no room for the spell name under the grid.
+	const float pad = kPadX * px.w;
+	const float full = (px.w - 2 * pad - 3 * kGridGap * px.w) / 4.0f;
+	const float cell = full * kGridCell;
+	const float gap = (px.w - 2 * pad - 4 * cell) / 3.0f;
+	// Rows keep the authored gap: only the columns spread.
+	const float rowGap = kGridGap * px.w;
 	return {px.x + pad + (cell + gap) * static_cast<float>(i % 4),
-			px.y + kGridY * px.h + (cell + gap) * static_cast<float>(i / 4), cell,
+			px.y + kGridY * RefH(px) + (cell + rowGap) * static_cast<float>(i / 4), cell,
 			cell};
 }
 
@@ -159,7 +237,7 @@ gfx::Rect SpellbookPanel::SequenceRect(const gfx::Rect& px, size_t i) const {
 	const float cell =
 		(px.w - 2 * pad - gap * static_cast<float>(kMaxSequence - 1)) /
 		static_cast<float>(kMaxSequence);
-	const float y = CastRect(px).y - kSeqAboveCast * px.h - cell;
+	const float y = CastRect(px).y - kSeqAboveCast * RefH(px) - cell;
 	return {px.x + pad + (cell + gap) * static_cast<float>(i), y, cell, cell};
 }
 
@@ -167,7 +245,7 @@ gfx::Rect SpellbookPanel::CastRect(const gfx::Rect& px) const {
 	const float pad = kPadX * px.w;
 	const float gap = kCastGap * px.w;
 	const float w = (px.w - 2 * pad - gap) / 2.0f;
-	const float h = kCastH * px.h;
+	const float h = kCastH * RefH(px);
 	// Flush with the panel's bottom: the dock around it (ControlBar.h HudDock)
 	// already pads that edge, and a second pad here left the row floating
 	// (Michael, 2026-09-30). The sequence row hangs off this one, so it follows.
@@ -226,8 +304,6 @@ bool SymbolAvailable(SpellSymbol s, std::span<const SpellSymbol> sequence) {
 void SpellbookPanel::UpdateSelf(ui::UIContext& ctx) {
 	m_hotSymbol = -1;
 	m_hotSeq = -1;
-	m_hotCast = false;
-	m_hotClear = false;
 	// The selection must stay ELIGIBLE: a member who went down (or a roster
 	// that shrank) deselects — their button draws disabled, never pressed.
 	if (m_member >= 0 && !MemberEligible(static_cast<size_t>(m_member)))
@@ -279,20 +355,7 @@ void SpellbookPanel::UpdateSelf(ui::UIContext& ctx) {
 			break;
 		}
 	}
-	if (CastRect(px).Contains(mx, my)) {
-		m_hotCast = true;
-		if (pressed && m_seqLen > 0) {
-			if (onCast) onCast(static_cast<size_t>(m_member), Sequence());
-			m_seqLen = 0; // the slate empties either way (a fizzle is spent)
-		}
-	}
-	if (ClearRect(px).Contains(mx, my)) {
-		m_hotClear = true;
-		if (pressed && m_seqLen > 0) {
-			m_seqLen = 0;
-			if (onClick) onClick();
-		}
-	}
+	// (Cast / Clear are child buttons and have had the mouse already.)
 	// The open book owns the pointer AND the wheel over its box.
 	ctx.ConsumeMouse();
 	ctx.ConsumeWheel();
@@ -309,7 +372,7 @@ void SpellbookPanel::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	// line — the pressed button and portrait row already say whose book.)
 	if (!c) {
 		font.Draw(batch, m_placeholder, px.x + kPadX * px.w,
-				  px.y + (kMemberY + kMemberH + 0.025f) * px.h, theme.textDim);
+				  px.y + (kMemberY + kMemberH + 0.025f) * RefH(px), theme.textDim);
 		return;
 	}
 
@@ -327,9 +390,11 @@ void SpellbookPanel::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		}
 		// Disabled = already spelled into the sequence (or blocked by the
 		// school rule): it stops responding until a sequence edit frees it.
-		DrawRuneFace(batch, r, slots[i].symbol, m_icons,
-					 static_cast<int>(i) == m_hotSymbol,
-					 !SymbolAvailable(slots[i].symbol, Sequence()));
+		// Each rune GLOWS in its school's colour in its socket, pulsing a
+		// little out of step with its neighbours (ui-updates).
+		ui::DrawSlotFace(ctx, batch, r, theme.control);
+		DrawRuneGlow(batch, r, slots[i].symbol, m_icons, static_cast<int>(i) == m_hotSymbol,
+					 !SymbolAvailable(slots[i].symbol, Sequence()), RunePhase(batch, i));
 	}
 
 	// The sequence spelled out so far — six slots at the bottom, just above
@@ -337,8 +402,9 @@ void SpellbookPanel::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	for (size_t i = 0; i < kMaxSequence; ++i) {
 		const gfx::Rect r = SequenceRect(px, i);
 		if (i < m_seqLen) {
-			DrawRuneFace(batch, r, m_sequence[i], m_icons,
-						 static_cast<int>(i) == m_hotSeq);
+			ui::DrawSlotFace(ctx, batch, r, theme.control);
+			DrawRuneGlow(batch, r, m_sequence[i], m_icons, static_cast<int>(i) == m_hotSeq,
+						 false, RunePhase(batch, i + 7));
 		} else {
 			ui::DrawSlotFace(ctx, batch, r, theme.control);
 		}
@@ -348,37 +414,16 @@ void SpellbookPanel::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	// but ONLY once this member has LEARNED it (first successful cast). An
 	// unlearned recipe stays anonymous so building a sequence is genuine
 	// EXPERIMENTATION: the book won't confirm a discovery before the cast does.
-	// Drawn in two pieces from views of the table's own text: the label shows
-	// every frame the sequence matches, and `"= " + loc::Tr(...)` made two
-	// strings a frame.
+	// Drawn from a view of the table's own text (it shows every frame the
+	// sequence matches, so it must build no string). No "= " lead any more
+	// (Michael, ui-updates), and a clear gap above the sequence row it names.
 	const gfx::Rect seq0 = SequenceRect(px, 0);
 	if (const Spell* def = Match(); def && c->HasLearnedSpell(def->Id())) {
-		constexpr std::string_view kPrefix = "= ";
 		const float x = px.x + kPadX * px.w;
-		const float y = seq0.y - 0.025f * px.h - font.Height();
-		font.Draw(batch, kPrefix, x, y, theme.accent);
-		font.Draw(batch, loc::View(def->NameKey()), x + font.MeasureWidth(kPrefix), y,
-				  theme.accent);
+		const float y = seq0.y - kNameAboveSeq * RefH(px) - font.Height();
+		font.Draw(batch, loc::View(def->NameKey()), x, y, theme.accent);
 	}
-
-	// Cast / Clear. With icon faces (round buttons with their own chrome +
-	// alpha) each draws centered at the rect's height — the WHOLE rect stays
-	// the hit target, so the small circles keep the generous click area.
-	// Without icons, the localized text buttons return.
-	const bool armed = m_seqLen > 0;
-	auto iconButton = [&](const gfx::Rect& r, const gfx::Texture* icon,
-						  const std::string& label, bool hot) {
-		if (!icon) {
-			ui::DrawButtonFace(batch, font, r, label, theme, hot, false, armed);
-			return;
-		}
-		const float d = std::min(r.h, r.w);
-		const gfx::Rect ir{r.x + (r.w - d) * 0.5f, r.y + (r.h - d) * 0.5f, d, d};
-		const float f = armed && hot ? 1.0f : 0.78f; // brighten on hover
-		batch.DrawSprite(ir, {0, 0, 1, 1}, *icon, {f, f, f, armed ? 1.0f : 0.35f});
-	};
-	iconButton(CastRect(px), castIcon, m_castLabel, m_hotCast);
-	iconButton(ClearRect(px), clearIcon, m_clearLabel, m_hotClear);
+	// (Cast / Clear are child ui::Buttons and draw themselves.)
 }
 
 } // namespace dungeon::game

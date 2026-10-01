@@ -759,6 +759,15 @@ void Game::LoadItemIcons() {
 		if (!m_runeIconTextures[i])
 			log::Warn("missing rune_icon_{}.png — no cursor icon", SymbolId(sym));
 		m_itemIcons.byType[id] = m_runeIconTextures[i].get();
+		// The Magic window's glowing rune: glyph + halo (tools/BuildRuneGlow.py).
+		// Linear, not sRGB: they are white masks the draw tints.
+		static_assert(kSymbolCount <= ItemIconBank::kRuneSlots);
+		m_runeGlyphTextures[i] = TryLoadTextureFile(
+			m_device, paths::Asset(std::format("ui\\rune_glyph_{}", SymbolId(sym))));
+		m_runeGlowTextures[i] = TryLoadTextureFile(
+			m_device, paths::Asset(std::format("ui\\rune_glow_{}", SymbolId(sym))));
+		m_itemIcons.runeGlyph[i] = m_runeGlyphTextures[i].get();
+		m_itemIcons.runeGlow[i] = m_runeGlowTextures[i].get();
 	}
 	// Non-rune items: a model item uses its baked 3D thumbnail (rendered once by
 	// DungeonWorld; the same texture feeds every slot/grid/cursor instance);
@@ -1004,6 +1013,9 @@ bool Game::SaveGame(const std::string& name) {
 	// An item on the cursor is party-level state — save it as such, leaving the
 	// live session's held item untouched (restored to the cursor on load).
 	if (m_heldItem) data.heldItem = *m_heldItem;
+	// A thrown item in the air is not saved as a flight: it comes down first,
+	// and is saved where it lies (Phase 10).
+	m_world->LandThrownItems();
 
 	data.world = m_worldState; // the global tier (docs/world-map.md)
 	// On the world map the level underneath is not where the party IS: a parked
@@ -2275,10 +2287,16 @@ void Game::UpdateStates(float dt) {
 		const float mx = input.MouseX(), my = input.MouseY();
 		const float w = static_cast<float>(m_window.Width());
 		const float h = static_cast<float>(m_window.Height());
-		if (input.WasMousePressed(MouseButton::Left)) {
+		// Every one of these is the PARTY LEADER's act (Phase 9): with nobody
+		// standing to lead, the hand does nothing in the world.
+		if (input.WasMousePressed(MouseButton::Left) && m_world->LeaderMember()) {
 			if (m_heldItem) {
-				m_world->DropItemAt(*m_heldItem, mx, my, w, h);
-				m_heldItem.reset();
+				// THROW OR DROP (Phase 10): a click on reachable floor (or an
+				// open niche) lays it there; any other click throws it. A throw
+				// the leader cannot make yet keeps it in the hand.
+				if (m_world->DropItemAt(*m_heldItem, mx, my, w, h) ||
+					m_world->ThrowItem(*m_heldItem))
+					m_heldItem.reset();
 			} else if (const std::string* picked = m_world->TryPickItem(mx, my, w, h)) {
 				OnItemFound(*picked); // quest / flag / reveal hooks
 				m_heldItem = *picked; // into the cursor's own buffer (HeldItem)

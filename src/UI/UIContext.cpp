@@ -1,5 +1,6 @@
 #include "UI/UIContext.h"
 
+#include "UI/Skin.h"
 #include "UI/TreeInspector.h"
 #include "UI/Widget.h"
 
@@ -66,8 +67,14 @@ void UIContext::Render(gfx::SpriteBatch& batch, float width, float height) {
 	// areas. Between Layout and Draw so it reads the rects that are about to be
 	// drawn, and so every context is covered with no per-caller wiring.
 	inspect::RunOverlapAudit(*this);
+	// Text on stone carries the skin's outline - every glyph the tree draws,
+	// whichever of the ~110 draw sites it comes from. Put back afterwards, so a
+	// flat context (the editor dialogs, the console) drawn next is untouched.
+	const Vec4 outline = batch.TextOutline();
+	if (m_skin) batch.SetTextOutline(m_skin->textOutline);
 	m_root.Draw(*this, batch);
 	m_root.DrawOverlay(*this, batch);
+	batch.SetTextOutline(outline);
 	// Debug view of the tree, above everything (no-op unless `uitree` is on).
 	inspect::Draw(*this, batch);
 }

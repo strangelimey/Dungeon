@@ -166,6 +166,10 @@ public:
 	const ui::FloatingPanel* HudPanel(size_t index) const {
 		return index < m_hudPanels.size() ? m_hudPanels[index] : nullptr;
 	}
+	// How many times a panel was minimized by a click, and restored from the
+	// tray, since launch - AllocTest -Panels' evidence its clicks landed.
+	unsigned PanelMinimizes() const { return m_panelMinimizes; }
+	unsigned PanelRestores() const { return m_panelRestores; }
 
 	// --- the item details dialog (docs/ui-updates-plan.md P3) ---------------------
 	// Over the HUD or the sheet, wherever the right-click landed. While it is up
@@ -292,6 +296,10 @@ public:
 	// share). The widget reports where it was dragged; Game owns the roster
 	// and does the writing.
 	std::function<void(size_t, float)> onGuardChange;
+	// The party leader (Phase 9): who leads (the world's roster index), and a
+	// click on a member's name in the party bar or on their card.
+	std::function<int()> partyLeader;
+	std::function<void(size_t)> onPickLeader;
 	// The live Balance::exertMax, so the slider can show over-exertion as a
 	// percentage of the way to it (wired to the world's balance by Game).
 	std::function<float()> exertMax;
@@ -302,6 +310,9 @@ public:
 	// HUD hand-slot click (member, hand 0=L/1=R, melee verb — the executed
 	// command id, e.g. "stab" = the ATTACK, Balance::FindAttack).
 	std::function<void(size_t, size_t, std::string_view)> onHandAttack;
+	// A hand's `throw` use (member, the item id): true = it was thrown and the
+	// hand empties; false = not now (down, or still recovering), it stays.
+	std::function<bool(size_t, const std::string&)> onHandThrow;
 	// The hand right-click menu's command list for an item id (ItemKind::commands),
 	// wired by Game to the world's item kinds — keeps the command source single.
 	// By REFERENCE: a copy per hand click was a steady-state allocation. The
@@ -414,6 +425,12 @@ private:
 	// A floating HUD panel was dragged or resized (save + slider sync), and the
 	// sync on its own (the scale sliders follow a corner drag).
 	void OnHudPanelMoved();
+	// A panel was minimized into the tray, or restored from it (click + save).
+	void OnHudPanelHidden(bool restored);
+	// The tray's default top, and where the right-hand docks start under its
+	// strip, in pixels.
+	float TrayTop(ui::UIContext& ctx) const;
+	float DockColumnTop(ui::UIContext& ctx) const;
 	void SyncHudPanelSliders();
 	void SyncHudPanelSlidersIfStale();
 	void DrawLoadProgress(const LoadQueue& queue, float barY); // shared bar
@@ -443,9 +460,12 @@ private:
 	// remembered per-item-type pick, else the item's first defaultable command,
 	// which is performed WITHOUT being recorded), and with nothing to do at all
 	// (bare hand, rune, key) it opens the use menu instead. Picking an item OUT
-	// of a hand is the character sheet's job (its hand cells keep pick/swap
-	// semantics).
+	// of a hand is a press-and-hold (OnHandHold), so a click stays a swing.
 	void OnHandLeftClick(size_t i, size_t hand);
+	// A left press HELD on a HUD hand box (HandSlot::kHoldSeconds): the hand's
+	// item comes up onto the cursor, or swaps with the cursor's (Michael,
+	// ui-updates). An empty hand under an empty cursor does nothing.
+	void OnHandHold(size_t i, size_t hand);
 	// A right- or middle-click on member `i`'s HUD hand `hand`: its USE menu (see
 	// OpenHandUseMenu), where the hand's default is set. A left-click on a hand
 	// with NO default yet opens the same menu, so the first click picks what
@@ -594,9 +614,12 @@ private:
 	// it; TickResourceBars keeps it moving, ApplySkin follows uiskin.
 	std::unique_ptr<gfx::Texture> m_barFrameTex;
 	ResourceBarStyle m_barStyle;
-	// The spellbook's Cast/Clear round icon faces (optional).
-	std::unique_ptr<gfx::Texture> m_castIconTex;
-	std::unique_ptr<gfx::Texture> m_clearIconTex;
+	// The spellbook's Cast / Clear face glyphs (drawn on stone buttons).
+	std::unique_ptr<gfx::Texture> m_castGlyphTex;
+	std::unique_ptr<gfx::Texture> m_clearGlyphTex;
+	// The closed-panels tray's button faces, by kHudPanelFields index (only the
+	// panels that minimize have one).
+	std::array<std::unique_ptr<gfx::Texture>, kHudSheet> m_panelGlyphs;
 	// The movement pad's chevron icon faces (single = step, double = turn).
 	std::unique_ptr<gfx::Texture> m_chevronTex;
 	std::unique_ptr<gfx::Texture> m_chevron2Tex;
@@ -706,6 +729,9 @@ private:
 	// corner drag can move them (SyncHudPanelSliders). Owned by m_settingsUi.
 	std::array<ui::Slider*, std::size(kHudPanelFields)> m_hudScaleSliders{};
 	bool m_hudSlidersStale = false; // a drag moved a scale; sync before showing
+	unsigned m_panelMinimizes = 0, m_panelRestores = 0; // see PanelMinimizes
+	// What every member panel's name reads and calls (BuildHud fills it).
+	LeaderLink m_leaderLink;
 	// The pointer shape the HUD asked for last frame (a grip's arrow), applied
 	// at the top of the next (UpdateFonts) so every other state resets it.
 	Window::Cursor m_hudCursor = Window::Cursor::Arrow;

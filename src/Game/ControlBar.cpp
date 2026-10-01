@@ -4,6 +4,7 @@
 #include "Game/ControlBar.h"
 
 #include "Game/GuardSlider.h"
+#include "Game/PartyHudDraw.h" // MutedIdentity
 
 #include <algorithm>
 
@@ -22,8 +23,9 @@ constexpr float kInnerW = kBarW - 2 * kPad;
 // Movement pad.
 constexpr float kMoveGap = 0.005f;
 
-// Hands.
-constexpr float kSetGap = 0.005f;
+// Hands. The gap between two members' framed pairs is tight on purpose: the
+// carved frame already separates them (ui-updates).
+constexpr float kSetGap = 0.003f;
 constexpr float kSetW = (kInnerW - kSetGap) / 2.0f;
 constexpr float kHandGap = 0.0025f;
 
@@ -31,7 +33,7 @@ constexpr float kHandGap = 0.0025f;
 // through the layout code, because these are the numbers Michael tunes by eye
 // and they should be findable in one place.
 constexpr float kSideMargin = 0.5f;  // total, down both sides of a grid
-constexpr float kHandRowGap = 0.5f;  // between one member's row and the next
+constexpr float kHandRowGap = 0.3f;  // between one member's row and the next
 constexpr float kDockGap = 0.5f;     // between one dock and the next
 constexpr float kHeaderH = 1.4f;     // a dock's title strip (and its button)
 constexpr float kHeaderGap = 0.25f;  // title strip -> content
@@ -106,7 +108,8 @@ void MovementPad::LayoutSelf(ui::UIContext&) {
 // --- HandPair --------------------------------------------------------------
 
 HandPair::HandPair(const gfx::Rect& rect, size_t member,
-				   const ControlBarDeps& deps) {
+				   const ControlBarDeps& deps)
+	: m_roster(deps.roster), m_member(member) {
 	bounds = rect;
 	debugName = "HandPair";
 	// Bounds here are placeholders: LayoutSelf computes the real ones once the
@@ -124,6 +127,10 @@ HandPair::HandPair(const gfx::Rect& rect, size_t member,
 			[onMiddle = deps.onHandMiddle, member, hand] {
 				if (onMiddle) onMiddle(member, static_cast<size_t>(hand));
 			});
+		if (deps.onHandHold)
+			slot->onHold = [onHold = deps.onHandHold, member, hand] {
+				onHold(member, static_cast<size_t>(hand));
+			};
 		if (deps.handSetUse)
 			slot->setUse = [setUse = deps.handSetUse, member, hand] {
 				return setUse(member, static_cast<size_t>(hand));
@@ -143,17 +150,46 @@ HandPair::HandPair(const gfx::Rect& rect, size_t member,
 // out - the grid's height is a consequence of the column's width, and only
 // this function knows the shape of that consequence.
 float HandPair::NeededHeight(float widthPx, float emPx) {
-	return SquareSide(widthPx, emPx) + BandHeight(emPx);
+	return SquareSide(widthPx, emPx) + BandHeight(emPx) + 2.0f * FramePad(emPx);
 }
 
 float HandPair::SquareSide(float widthPx, float emPx) {
-	// kSideMargin of margin in total, the authored sliver between the boxes,
-	// and the rest split in two. WIDTH ALONE decides - the height then follows
-	// from it, which is the whole point: a box clamped by the height it was
-	// given comes out tiny the moment the parent is short.
+	// The frame's padding down both sides, the authored sliver between the
+	// boxes, and the rest split in two. WIDTH ALONE decides - the height then
+	// follows from it, which is the whole point: a box clamped by the height it
+	// was given comes out tiny the moment the parent is short.
 	const float gap = widthPx * (kHandGap / kSetW);
-	const float avail = widthPx - emPx * kSideMargin - gap;
+	const float avail = widthPx - 2.0f * FramePad(emPx) - gap;
 	return std::max(0.0f, avail * 0.5f);
+}
+
+// The member frame is a groove kGrooveW wide, kGrooveIn in from the pair's edge,
+// and the contents sit kFramePad in (the groove plus a breath of stone inside
+// it). In EM, so the frame grows with the dock's scale.
+namespace {
+// Tight outside, roomier inside (Michael): the groove hugs the pair's edge and
+// the hands stand a clear breath of stone in from it.
+constexpr float kGrooveIn = 0.04f;
+constexpr float kGrooveW = 0.17f;
+constexpr float kFramePad = 0.45f;
+static_assert(kGrooveIn + kGrooveW < kFramePad, "the groove must clear the hands");
+} // namespace
+
+float HandPair::FramePad(float emPx) { return emPx * kFramePad; }
+
+void HandPair::DrawSelf(ui::UIContext&, gfx::SpriteBatch& batch) {
+	const Character* c = RosterMember(m_roster, m_member);
+	if (!c) return;
+	const gfx::Rect& px = Pixel();
+	const float in = Em(kGrooveIn);
+	const gfx::Rect frame{px.x + in, px.y + in, px.w - 2.0f * in, px.h - 2.0f * in};
+	if (frame.w <= 0.0f || frame.h <= 0.0f) return;
+	// CARVED, not lit (Michael: the glowing border was far too bright) - a groove
+	// round both hands and the effort meter whose floor is the member's colour
+	// muted into the stone; the portrait wears the same frame. A member who is
+	// down keeps it, darker: whose hands these are does not change.
+	ui::DrawCarvedGroove(batch, frame, Em(kGrooveW),
+						 MutedIdentity(c->portraitColor, !c->IsAlive()));
 }
 
 // The slider's WHOLE band (GuardSlider::kBandRem): the gap under the boxes, the
@@ -172,6 +208,7 @@ void HandPair::LayoutSelf(ui::UIContext&) {
 	const float gap = px.w * (kHandGap / kSetW);
 	const float side = SquareSide(px.w, em);
 	const float band = BandHeight(em);
+	const float pad = FramePad(em);
 	if (side <= 0.0f) return;
 
 	// SQUARE IN PIXELS, which is why the two axes are divided by different
@@ -179,15 +216,14 @@ void HandPair::LayoutSelf(ui::UIContext&) {
 	// fractions are only a square when the parent happens to be square.
 	for (int hand = 0; hand < 2; ++hand) {
 		if (!m_slots[hand]) continue;
-		m_slots[hand]->bounds = {
-			(em * kSideMargin * 0.5f + (side + gap) * static_cast<float>(hand)) / px.w,
-			0.0f, side / px.w, side / px.h};
+		m_slots[hand]->bounds = {(pad + (side + gap) * static_cast<float>(hand)) / px.w,
+								 pad / px.h, side / px.w, side / px.h};
 	}
 	// Spans both boxes and the gap between them - the visual claim that it
 	// governs the pair rather than either hand.
 	if (m_guard)
-		m_guard->bounds = {em * kSideMargin * 0.5f / px.w, side / px.h,
-						   (side * 2.0f + gap) / px.w, band / px.h};
+		m_guard->bounds = {pad / px.w, (pad + side) / px.h, (side * 2.0f + gap) / px.w,
+						   band / px.h};
 }
 
 // --- HandsArea -------------------------------------------------------------
@@ -234,22 +270,31 @@ void HandsArea::LayoutSelf(ui::UIContext&) {
 
 // --- HudDock ---------------------------------------------------------------
 
-HudDock::HudDock(std::string title, bool* collapsed,
-				 std::function<void()> onCollapseChanged, const HudPanelLook* look)
-	: m_collapsed(collapsed), m_look(look) {
+HudDock::HudDock(std::string title, bool* hidden,
+				 std::function<void()> onHideChanged, const HudPanelLook* look)
+	: m_look(look) {
 	debugName = "HudDock";
+	const bool header = !title.empty();
 	// Placeholder bounds throughout: the column places the dock, and LayoutSelf
 	// places the header and content once the dock's pixel rect is known.
-	if (!title.empty()) {
+	if (header) {
 		m_title = Add<ui::Label>(gfx::Rect{}, std::move(title));
 		m_title->centerV = true;
 	}
-	if (collapsed)
-		m_toggle = Add<ui::Button>(gfx::Rect{}, "-",
-			[this, onChanged = std::move(onCollapseChanged)] {
-				*m_collapsed = !*m_collapsed;
+	// Minimize: the whole panel goes, into the tray. The button only ever sets
+	// the flag - the tray's button is what clears it.
+	if (hidden && header)
+		m_minimize = Add<ui::Button>(gfx::Rect{}, "-",
+			[hidden, onChanged = std::move(onHideChanged)] {
+				*hidden = true;
 				if (onChanged) onChanged();
 			});
+}
+
+void HudDock::SetMinimizeIcon(const gfx::Texture* icon, std::string tooltip) {
+	if (!m_minimize) return;
+	m_minimize->icon = icon;
+	m_minimize->tooltip = std::move(tooltip);
 }
 
 float HudDock::Pad(float widthPx) { return widthPx * (kPad / kBarW); }
@@ -271,25 +316,16 @@ void HudDock::LayoutSelf(ui::UIContext&) {
 	const float gap = HasHeader() ? HeaderGap(em) : 0.0f;
 
 	// The header: the title, and the minimize button square at its right end.
-	// The button shows the ACTION (the editor's play-pause convention): "-"
-	// while there is something to minimize, "+" while there is not - as the
-	// square boxes when installed, the text otherwise. A one-character
-	// assignment and a pointer, so it never allocates in a guarded frame.
-	const float btn = m_toggle ? head : 0.0f;
+	const float btn = m_minimize ? head : 0.0f;
 	if (m_title)
 		m_title->bounds = {0.0f, 0.0f, std::max(0.0f, inner.w - btn - em * 0.25f) / inner.w,
 						   head / inner.h};
-	if (m_toggle) {
-		m_toggle->bounds = {(inner.w - btn) / inner.w, 0.0f, btn / inner.w, head / inner.h};
-		m_toggle->text = Collapsed() ? "+" : "-";
-		m_toggle->icon = Collapsed() ? m_icoExpand : m_icoCollapse;
-	}
-	// The content fills what is left, and is not there at all while minimized.
-	if (m_content) {
-		m_content->visible = !Collapsed();
+	if (m_minimize)
+		m_minimize->bounds = {(inner.w - btn) / inner.w, 0.0f, btn / inner.w, head / inner.h};
+	// The content fills what is left.
+	if (m_content)
 		m_content->bounds = {0.0f, (head + gap) / inner.h, 1.0f,
 							 std::max(0.0f, inner.h - head - gap) / inner.h};
-	}
 }
 
 void HudDock::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
@@ -338,6 +374,7 @@ HudDocks BuildHudDocks(ui::FloatingLayer& layer, const ControlBarDeps& deps) {
 		panel->scale = &look->scale;
 		panel->locked = deps.locked;
 		panel->onChanged = deps.onPlacementChanged;
+		panel->hidden = &look->hidden;
 		return panel;
 	};
 	ui::FloatingPanel* move = out.move = makePanel("MovePanel", deps.moveLook);
@@ -345,11 +382,11 @@ HudDocks BuildHudDocks(ui::FloatingLayer& layer, const ControlBarDeps& deps) {
 		deps.withHands ? makePanel("HandsPanel", deps.handsLook) : nullptr;
 	ui::FloatingPanel* magic = out.magic = makePanel("MagicPanel", deps.magicLook);
 
-	auto* moveDock = move->Add<HudDock>(deps.moveLabel, deps.moveCollapsed,
-										deps.onCollapseChanged, deps.moveLook);
+	auto* moveDock = move->Add<HudDock>(deps.moveLabel, &deps.moveLook->hidden,
+										deps.onHideChanged, deps.moveLook);
 	moveDock->bounds = {0, 0, 1, 1};
 	moveDock->debugName = "MoveDock";
-	moveDock->SetToggleIcons(deps.boxPlus, deps.boxMinus);
+	moveDock->SetMinimizeIcon(deps.boxMinus, deps.minimizeTip);
 	moveDock->SetContent<MovementPad>(gfx::Rect{0, 0, 1, 1}, deps);
 
 	if (hands) {
@@ -359,11 +396,11 @@ HudDocks BuildHudDocks(ui::FloatingLayer& layer, const ControlBarDeps& deps) {
 		handsDock->SetContent<HandsArea>(gfx::Rect{0, 0, 1, 1}, deps);
 	}
 
-	auto* magicDock = magic->Add<HudDock>(deps.magicLabel, deps.magicCollapsed,
-										  deps.onCollapseChanged, deps.magicLook);
+	auto* magicDock = magic->Add<HudDock>(deps.magicLabel, &deps.magicLook->hidden,
+										  deps.onHideChanged, deps.magicLook);
 	magicDock->bounds = {0, 0, 1, 1};
 	magicDock->debugName = "MagicDock";
-	magicDock->SetToggleIcons(deps.boxPlus, deps.boxMinus);
+	magicDock->SetMinimizeIcon(deps.boxMinus, deps.minimizeTip);
 	out.spellbook = magicDock->SetContent<SpellbookPanel>(gfx::Rect{0, 0, 1, 1},
 														  deps.roster, deps.icons);
 
@@ -376,32 +413,35 @@ HudDocks BuildHudDocks(ui::FloatingLayer& layer, const ControlBarDeps& deps) {
 	const HudPanelLook* moveLook = deps.moveLook;
 	const HudPanelLook* handsLook = deps.handsLook;
 	const HudPanelLook* magicLook = deps.magicLook;
-	const bool* moveCollapsed = deps.moveCollapsed;
-	const bool* magicCollapsed = deps.magicCollapsed;
 	const std::function<float(ui::UIContext&)> columnTop = deps.columnTop;
 	const std::function<float(ui::UIContext&)> columnBottom = deps.columnBottom;
 	auto width = [columnW](ui::UIContext& ctx, float s) { return ctx.Width() * columnW * s; };
 	auto right = [margin](ui::UIContext& ctx) { return ctx.Width() * (1.0f - margin); };
 	auto gap = [move](ui::UIContext& ctx) { return move->EmAt(ctx, 1.0f) * kDockGap; };
-	// The DEFAULT tops: the column top, then each dock below the one above at
-	// that one's EXPANDED height and current scale - no reflow when one is
-	// minimized (the header's rule).
+	// The DEFAULT tops: the column top, then each dock below the SHOWN ones
+	// above it, at their heights and current scales. A dock minimized into the
+	// tray gives its place up (Michael: with Movement closed, Hands moves up and
+	// Magic stretches to fill) - which only moves docks still on their default
+	// spots; one the player placed stays where they put it.
+	const bool* moveHidden = &moveLook->hidden;
+	const bool* handsHidden = hands ? &handsLook->hidden : nullptr;
 	auto moveTop = [columnTop](ui::UIContext& ctx) { return columnTop ? columnTop(ctx) : 0.0f; };
 	auto handsTop = [=](ui::UIContext& ctx) {
+		if (*moveHidden) return moveTop(ctx);
 		const float s = moveLook->scale;
 		return moveTop(ctx) + MoveHeight(width(ctx, s), move->EmAt(ctx, s)) + gap(ctx);
 	};
 	// (The hands' em is any dock's at that scale: all three share the HUD's font.)
 	auto magicTop = [=](ui::UIContext& ctx) {
+		if (!handsHidden || *handsHidden) return handsTop(ctx);
 		const float s = handsLook->scale;
 		return handsTop(ctx) + HandsHeight(width(ctx, s), move->EmAt(ctx, s), rows) + gap(ctx);
 	};
 	out.handsTop = handsTop;
 
 	move->size = [=](ui::UIContext& ctx, float s) {
-		const float w = width(ctx, s), em = move->EmAt(ctx, s);
-		const bool collapsed = moveCollapsed && *moveCollapsed;
-		return Vec2{w, collapsed ? MetricsFor(w, em, true).Minimized() : MoveHeight(w, em)};
+		const float w = width(ctx, s);
+		return Vec2{w, MoveHeight(w, move->EmAt(ctx, s))};
 	};
 	move->defaultPos = [=](ui::UIContext& ctx) {
 		return Vec2{right(ctx) - width(ctx, moveLook->scale), moveTop(ctx)};
@@ -418,19 +458,20 @@ HudDocks BuildHudDocks(ui::FloatingLayer& layer, const ControlBarDeps& deps) {
 	}
 
 	// Magic's height at scale 1 is what the default column leaves below the
-	// other two at THEIR scale 1 - a fixed number, so resizing the hands does
-	// not resize the magic dock - and it scales from there like the others. The
-	// Minimal layout says both its height and its spot itself.
+	// SHOWN other two at THEIR scale 1 - so resizing the hands does not resize
+	// the magic dock, but minimizing one hands Magic its room - and it scales
+	// from there like the others. The Minimal layout says both its height and
+	// its spot itself.
 	const std::function<float(ui::UIContext&)> magicHeight1 = deps.magicHeight1;
 	const std::function<Vec2(ui::UIContext&)> magicDefaultPos = deps.magicDefaultPos;
 	magic->size = [=](ui::UIContext& ctx, float s) {
 		const float w = width(ctx, s), em = magic->EmAt(ctx, s);
 		const DockMetrics m = MetricsFor(w, em, true);
-		if (magicCollapsed && *magicCollapsed) return Vec2{w, m.Minimized()};
 		if (magicHeight1) return Vec2{w, std::max(m.Minimized(), magicHeight1(ctx) * s)};
 		const float w1 = width(ctx, 1.0f), em1 = magic->EmAt(ctx, 1.0f);
-		const float top1 = moveTop(ctx) + MoveHeight(w1, em1) + gap(ctx) +
-						   HandsHeight(w1, em1, rows) + gap(ctx);
+		float top1 = moveTop(ctx);
+		if (!*moveHidden) top1 += MoveHeight(w1, em1) + gap(ctx);
+		if (handsHidden && !*handsHidden) top1 += HandsHeight(w1, em1, rows) + gap(ctx);
 		const float bottom = columnBottom ? columnBottom(ctx) : ctx.Height();
 		return Vec2{w, std::max(m.Minimized(), (bottom - top1) * s)};
 	};

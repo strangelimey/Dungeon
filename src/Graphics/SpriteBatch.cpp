@@ -59,7 +59,12 @@ SpriteBatch::SpriteBatch(GraphicsDevice& device) : m_device(device) {
 		 D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
 		{"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 16,
 		 D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+		{"TEXCOORD", 1, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 32,
+		 D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+		{"TEXCOORD", 2, DXGI_FORMAT_R32G32_FLOAT, 0, 48,
+		 D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
 	};
+	static_assert(sizeof(SpriteVertex) == 56, "sprite.hlsl's VSInput mirrors this layout");
 
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC pso{};
 	pso.pRootSignature = m_rootSignature.Get();
@@ -145,6 +150,7 @@ void SpriteBatch::Begin(ID3D12GraphicsCommandList* list, u32 screenWidth,
 	m_screenHeight = screenHeight;
 	m_scissorActive = false;
 	m_mode = Mode::Sprite;
+	m_textOutline = {0, 0, 0, 0}; // a context that set one and threw cannot leak it
 
 	list->SetGraphicsRootSignature(m_rootSignature.Get());
 	list->SetPipelineState(m_pso.Get());
@@ -169,7 +175,7 @@ void SpriteBatch::DrawBarFill(const Rect& tube, const BarFill& fill) {
 	if (!m_list || tube.w <= 0.0f || tube.h <= 0.0f) return;
 	UseMode(Mode::Bar);
 	const Vec4 params{static_cast<float>(fill.kind), fill.fraction, fill.beat, fill.seed};
-	const Vec4 extra{tube.w / tube.h, tube.h, 0.0f, 0.0f};
+	const Vec4 extra{tube.w / tube.h, tube.h, fill.pulse, 0.0f};
 	const BarVertex v0{{tube.x, tube.y}, {0, 0}, fill.tint, params, extra};
 	const BarVertex v1{{tube.x + tube.w, tube.y}, {1, 0}, fill.tint, params, extra};
 	const BarVertex v2{{tube.x + tube.w, tube.y + tube.h}, {1, 1}, fill.tint, params, extra};
@@ -198,6 +204,30 @@ void SpriteBatch::DrawSprite(const Rect& dst, const Rect& uv,
 	const SpriteVertex v1{{dst.x + dst.w, dst.y}, {uv.x + uv.w, uv.y}, color};
 	const SpriteVertex v2{{dst.x + dst.w, dst.y + dst.h}, {uv.x + uv.w, uv.y + uv.h}, color};
 	const SpriteVertex v3{{dst.x, dst.y + dst.h}, {uv.x, uv.y + uv.h}, color};
+	m_pending.push_back(v0);
+	m_pending.push_back(v1);
+	m_pending.push_back(v2);
+	m_pending.push_back(v0);
+	m_pending.push_back(v2);
+	m_pending.push_back(v3);
+}
+
+void SpriteBatch::DrawGlyph(const Rect& dst, const Rect& uv, const Texture& atlas,
+							const Vec4& color, float radius) {
+	if (!m_list) return;
+	UseMode(Mode::Sprite);
+	const D3D12_GPU_DESCRIPTOR_HANDLE srv = atlas.GpuHandle();
+	if (m_pendingTexture.ptr != srv.ptr && !m_pending.empty()) Flush();
+	m_pendingTexture = srv;
+
+	const Vec2 glyph{radius, 0.0f};
+	const SpriteVertex v0{{dst.x, dst.y}, {uv.x, uv.y}, color, m_textOutline, glyph};
+	const SpriteVertex v1{{dst.x + dst.w, dst.y}, {uv.x + uv.w, uv.y}, color, m_textOutline,
+						  glyph};
+	const SpriteVertex v2{{dst.x + dst.w, dst.y + dst.h}, {uv.x + uv.w, uv.y + uv.h}, color,
+						  m_textOutline, glyph};
+	const SpriteVertex v3{{dst.x, dst.y + dst.h}, {uv.x, uv.y + uv.h}, color, m_textOutline,
+						  glyph};
 	m_pending.push_back(v0);
 	m_pending.push_back(v1);
 	m_pending.push_back(v2);

@@ -1894,15 +1894,89 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   a dock's padding used to reach the 3D view). `Scale()` clamps to the panel's own
   min/max (the sheet stops at 1.3), whatever the slider's 0.5..1.5 stored.
   THE PANELS are kHudPanelFields (GameSettings.h: party, status, options, move,
-  hands, magic, cards, inventory, sheet - the SHEET LAST, since it alone lives
-  in another context and [0, kHudSheet) means "the HUD's"); each a HudPanelLook
-  {x, y, scale, opacity} in settings, a Settings -> UI scale + opacity pair, and
-  covered by Lock / Reset. Untouched, every panel sits exactly where the old
-  fixed layout put it (the defaults keep its rules: the column starts under the
-  party bar's height at its scale, a dock's default top follows the EXPANDED
-  docks above it, Magic shows once a member knows a symbol). Dev `hudpanel
-  [list] | <id> <x> <y> [scale] | reset | lock on|off | layout standard|minimal`,
-  `inventory [off]`.
+  hands, magic, cards, inventory, tray, sheet - the SHEET LAST, since it alone
+  lives in another context and [0, kHudSheet) means "the HUD's"); each a
+  HudPanelLook {x, y, scale, opacity, hidden} in settings, a Settings -> UI
+  scale + opacity pair, and covered by Lock / Reset. Untouched, every panel sits
+  exactly where the old fixed layout put it (the defaults keep its rules: the
+  column starts under the party bar's height at its scale, a dock's default top
+  follows the SHOWN docks above it and Magic fills what they leave - a minimized dock closes up the column - Magic shows once a member
+  knows a symbol). Dev `hudpanel [list] | <id> <x> <y> [scale] | hide|show <id>
+  | reset | lock on|off | layout standard|minimal`, `inventory [off]`.
+  THE CLOSED-PANELS TRAY (ui-updates Phase 8, Game/HudTray.h): a panel whose
+  kHudPanelFields row names a `glyph` MINIMIZES - the docks by their header
+  button, every one by a Ctrl button in its top-right corner (reset moved in
+  beside it) - and is then not laid out or drawn at all (FloatingPanel::hidden;
+  ini hud_<id>_hidden, the old hud_move/magic_collapsed load into it). The tray
+  is a floating panel of its own holding a stone button per such panel of the
+  current layout (face assets/ui/glyph_panel_<id>.png, BuildToolIcons.py), shown
+  while that panel is minimized; it shows only while it has a button. Its
+  default heads the right-hand column, right edge on the party bar's and the
+  docks', growing leftward; the docks' defaults start under a strip kept for it
+  (GameUI::DockColumnTop) whether it shows or not; it sits snug under the bar (TrayTop). A flag flips and the layout follows: nothing rebuilds, so it is
+  free in an armed frame (AllocTest -Panels makes the trip). Reset restores all.
+  The MAGIC dock's parts keep their tuned size however tall it is stretched
+  (SpellbookPanel::RefH caps every vertical fraction at kRefAspect of the
+  width); the extra height opens under the rune grid, for more learned runes.
+- THE PARTY LEADER (ui-updates Phase 9, DungeonWorld_Leader.cpp): the member
+  who does what the mouse does in the world - lift, door hand-hold, lever, and
+  (Phase 10) throw. A roster index in DungeonWorld (`leader` save line, absent =
+  slot 0; slot 0 leads a new game), picked by a click on a member's NAME
+  (CharacterPanel's NameTag child, kNameScale 1.3 of the panel's text - in the
+  bar and on a card alike) and shown in the accent over a soft glow. A leader
+  who is not standing hands it to the next standing member in roster order,
+  checked every frame in Update (one health test covers every way to fall), and
+  it does not return. The acts' log lines name the leader; with nobody standing
+  a world click does nothing. Checks of the leader's skill hang off
+  LeaderMember() later. Dev: `leader [member]`.
+- THROWING (ui-updates Phase 10, DungeonWorld_Throw.cpp). THROW OR DROP is
+  Grimrock's screen-height rule: with an item on the cursor, a click whose ray
+  meets reachable floor (or an open niche) drops it (DropItemAt returns true);
+  any other click throws it (ThrowItem; false = the leader is not ready and the
+  item stays held). A THROW IS AN ATTACK (Michael): PartyAttackProfile - the
+  swing's formula, shared - with the `throwing` skill and the ATTACK the item
+  flies as (`throw = <attacks.cat id>`; absent = a weapon's first command,
+  else the new `throw` attack, bash), potent with what is worn plus the item's
+  own `powers`, dealt as a Blow (crit, fumble band, enchantment burst). SPEED is
+  skill against weight (balance.cat throw_speed*). What it leaves is ItemKind::
+  throwPayload: its on_hit, its own blast (the spell blast fields + `blast_type`)
+  or `throw_spell`'s whole payload; `throw_breaks = 1` shatters it instead of
+  landing (the fire flask bursts as fireburst, the poison flask lets go a
+  lingering gas). The flight is a projectile carrying the item's kind as CARGO
+  (Projectiles.h - opaque to the engine; no billboard, the item draws itself
+  tumbling via ForEachCargo). IT IS NEVER LOST: it lands in the struck monster's
+  square, before the wall it hit, or where its range ran out, and a save, a
+  level change (StashActive) and the inspector's Remove LAND it first
+  (LandCargo). The rock is script-built (tools/BuildRock.py -> assets/models/
+  rock.glb, committed by a .gitignore exception: an item loads only .glb). Dev:
+  `throw [item]`; tally `throws= throwstrikes= throwlandings=`. Checked by
+  AllocTest -Throw (lift, throw at eval_arena's north wall, again, by clicks).
+- BLASTS ARE SEEN now (they drew nothing): a puff of `blast_color` (else the
+  type's element colour) in each square on each tick (ProjectileSystem::Puff,
+  LandBlastHit) - a fire front flares, a persistent gas rolls. And `blast_linger`
+  is real: a persistent blast, once spread, bites again in every square it filled
+  each `blast_rate` (>= 0.3 s) for that long, SILENTLY (ActiveBlast::lingering;
+  a kill or a break still speaks). Spell and item read the fields through one
+  helper, ReadBlastRules (Spell.h).
+- HAND BOXES, after Phase 10's play: a left press HELD 0.4 s on a HUD hand box
+  (HandSlot::onHold -> GameUI::OnHandHold) takes its item onto the cursor, or
+  swaps it with the cursor's; a held press never also clicks. `throw` is a hand
+  USE (ThrowItem takes the thrower: member < 0 = the leader), the click of any
+  item listing `command = throw` (the rock, both flasks), and a ROW in every
+  held item's hand menu - a row, not a command, so a key or rune in a hand
+  still opens its menu on a click and keeps Punch / Kick. use.throw and the
+  missing use.drink are in the lang files.
+- A RUNE GLOWS WHEREVER IT SITS: `DrawItemIcon` (PartyHudDraw.h) is the one way
+  an item goes into a socket, and a rune tablet draws as the Magic window draws
+  it (DrawRuneGlow: glyph lit over a pulsing halo) - hands, doll, backpack,
+  party inventory, the cursor, a set hand's recipe and the Known Spells list.
+  DrawRuneFace survives only as the glow's fallback.
+- THE STARTER KIT (Character.cpp CreateDefaultParty): Brand a dagger in his
+  right hand (his bare left is what the harness's `swing 0` uses), Sera one in
+  her left; Maren holds fire + project, Tilo earth + protect, school rune left.
+- THE MESSAGE LOG opens only from its Log button, which sits at the bottom-left
+  in every state (alone once the footer fades, in its corner while it shows,
+  pressed while open); hovering does nothing (Michael: it got in the way).
   THE TWO WINDOWS: the character sheet is a panel in m_sheetUi whose scale is
   that CONTEXT'S root font size (UpdateFonts) - rem itself moves - so it sets
   `scalesText = false`. The party inventory is NON-MODAL now - no dim, the world

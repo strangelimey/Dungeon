@@ -69,6 +69,29 @@ private:
 	bool m_held = false;
 };
 
+// The member's NAME at the head of the slot, sized to the measured name, and
+// the party leader's picker (ui-updates Phase 9): a click makes this member the
+// leader. The leader's name is drawn in the accent over a soft glow; a hovered
+// name of someone who could lead is underlined and says so. A downed member's
+// name is not a target - only a standing member can lead.
+class NameTag : public ui::Widget {
+public:
+	NameTag(const std::vector<Character>* roster, size_t member);
+	void SetLink(const LeaderLink* link) { m_link = link; }
+	bool IsLeader() const;
+
+private:
+	void UpdateSelf(ui::UIContext& ctx) override;
+	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void DrawOverlaySelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
+
+	const std::vector<Character>* m_roster;
+	size_t m_member;
+	const LeaderLink* m_link = nullptr; // null = a plain name, not a picker
+	bool m_hot = false;
+	bool m_held = false;
+};
+
 // The three resource bars (health / stamina / mana). A click anywhere on the
 // band, either button, opens the sheet's Stats tab.
 class StatsArea : public ui::Widget {
@@ -77,9 +100,9 @@ public:
 			  const ResourceBarStyle* barStyle, std::function<void()> onBars);
 
 private:
-	// Space between framed TUBES, in rem (flat bars keep 0.25). The frames'
-	// own reach already spaces them; this is the glass-to-glass gap.
-	static constexpr float kFramedGapRem = 0.4f;
+	// Space between framed bars, in rem (flat bars keep 0.25): FRAME to frame,
+	// since ui-updates stacks whole frames so their caps cannot interleave.
+	static constexpr float kFramedGapRem = 0.12f;
 
 	void UpdateSelf(ui::UIContext& ctx) override;
 	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
@@ -111,6 +134,10 @@ public:
 	// the border, portrait, name, and bars stay fully opaque.
 	float backgroundOpacity = 1.0f;
 
+	// The party leader: who leads, and the click on this member's name that
+	// picks them (Phase 9). Null = the name is only a name.
+	void SetLeaderLink(const LeaderLink* link) { m_name->SetLink(link); }
+
 private:
 	// Places the three children against this slot's live pixel rect (see the
 	// header note on why they aren't authored constants).
@@ -122,10 +149,21 @@ private:
 
 	// Inset shared by every part, as a fraction of the slot's HEIGHT.
 	static constexpr float kPad = 0.08f;
+	// The member's name, as a multiple of the panel's text size.
+	static constexpr float kNameScale = 1.3f;
+	// The portrait's own, tighter inset: its carved frame already separates it
+	// from the slot's edge (Michael: less padding outside the border).
+	static constexpr float kPortraitPad = 0.04f;
+	// Where the name / effect strip / bars start: past the portrait and a kPad gap.
+	float ColumnLeft(float slotW, float slotH) const {
+		return (kPortraitPad * slotH + (slotH - 2 * kPortraitPad * slotH) + kPad * slotH) /
+			   slotW;
+	}
 
 	const std::vector<Character>* m_roster;
 	size_t m_member;
 	PortraitBox* m_portrait = nullptr;
+	NameTag* m_name = nullptr;
 	ui::Repeater* m_effects = nullptr;
 	StatsArea* m_stats = nullptr;
 	bool m_hot = false;

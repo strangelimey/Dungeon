@@ -26,6 +26,7 @@
 #include "UI/Widget.h"
 
 #include <array>
+#include <chrono>
 #include <deque>
 #include <functional>
 #include <memory>
@@ -158,10 +159,36 @@ public:
 	// (the HUD movement pad).
 	const gfx::Texture* icon = nullptr;
 	int iconTurns = 0;
+	// An icon drawn ON the button's face in place of its label (ui-updates):
+	// the face keeps its stone, bevel and push, the icon - a white glyph,
+	// assets/ui/glyph_<name>.png from tools/BuildToolIcons.py - is tinted with
+	// the label's colour (dimmed when disabled) and sinks with it. Put the words
+	// in `tooltip`; `text` stays the fallback when the texture is missing.
+	const gfx::Texture* faceIcon = nullptr;
+
+	// THE PUSH (Michael, ui-updates: "animate as pushed, execute the action,
+	// then animate back"). A click does not fire the moment the button is
+	// released: the face SINKS into the pushed look (the label a pixel lower; an
+	// icon face shrinks a touch), the action runs at the BOTTOM of the press,
+	// and the face RISES back. So even a flick of a click is seen to land, and
+	// every button in the game reads alike. Timed on the steady clock - real
+	// time, allocation-free - and stepped from Update, so the callback still
+	// runs where callbacks always have (a page rebuild still defers itself).
+	static constexpr float kSinkSeconds = 0.07f;  // up -> fully pushed
+	static constexpr float kHoldSeconds = 0.05f;  // held at the bottom, then fire
+	static constexpr float kRiseSeconds = 0.10f;  // pushed -> up, after the action
 
 private:
+	using Clock = std::chrono::steady_clock;
+	enum class Push { None, Sinking, Rising };
+	// How far down the face is: 0 up, 1 fully pushed.
+	float Depth() const;
+
 	bool m_hot = false;
 	bool m_held = false;
+	Push m_push = Push::None;
+	Clock::time_point m_pressAt{}; // the sink's start (the press)
+	Clock::time_point m_riseAt{};  // the rise's start (just after the action)
 };
 
 // A labeled on/off box: a small square at the left with the label to its right;
@@ -194,6 +221,9 @@ private:
 	// Where the label starts, past the box and any swatch (DrawSelf and
 	// InkRect both ask, so the measured ink matches the drawn row).
 	float TextX(const gfx::Rect& px) const;
+	// The box's side: big enough that a sunken field face still shows its well
+	// round the tick (at 0.65rem the frame and the tick filled it solid).
+	float BoxSide(const gfx::Rect& px) const { return std::min(px.h * 0.75f, Rem(0.9f)); }
 
 	bool m_checked = false;
 	bool m_hot = false;
@@ -783,6 +813,41 @@ private:
 // Draws a 1px border around a rectangle.
 void DrawBorder(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Vec4& color);
 
+// A soft GLOW round a rectangle: `radius` px of rings outside it, `color` at
+// `strength` alpha against the edge falling away to nothing (a quadratic
+// falloff, so it reads as light rather than as a second border). Makes a
+// coloured mark - a member's identity border, a lit button - stand off stone
+// that is close to its own value. Draw it BEFORE the thing it surrounds. The
+// glow paints outside `rect`, so a caller must leave it that much room.
+void DrawGlow(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Vec4& color,
+			  float radius, float strength);
+
+// A GROOVE CUT INTO THE STONE round a rectangle: a channel `width` px wide,
+// lying just inside `rect`, whose floor is `base` and whose walls are lit from
+// the top-left like every bevel in the skin - the upper and left walls in
+// shadow, the lower and right ones catching the light. So the OUTER edge is dark
+// on top/left and light on bottom/right, and the INNER edge the other way round.
+// Marks something as belonging to a colour without lighting it up (Michael: the
+// glowing member borders were "far too bright").
+void DrawCarvedGroove(gfx::SpriteBatch& batch, const gfx::Rect& rect, float width,
+					  const Vec4& base);
+
+// WHERE A TOOLTIP GOES - every tooltip in the game asks here, so none can run
+// off the screen (an effect's tip on the rightmost portrait used to clip off the
+// window's edge, because each tip did its own sums and most only checked one
+// side). The tip sits on its `prefer` side of `anchor`, `gap` px off it; when it
+// would leave `bounds` there and the opposite side has more room, it flips; then
+// it is CLAMPED wholly inside `bounds`, `margin` px in, on both axes. Below and
+// Above line up with the anchor by `align` (centred, its left edge, or its
+// right edge), Right centres beside it. It covers the anchor only when nothing
+// else fits. `bounds` is the surface the tip is drawn on - the window for a
+// UIContext (ctx.Width()/Height()), the panel for the map editor.
+enum class TipSide { Below, Above, Right };
+enum class TipAlign { Center, Start, End };
+gfx::Rect PlaceTooltip(const gfx::Rect& anchor, float w, float h, const gfx::Rect& bounds,
+					   TipSide prefer, float gap, float margin = 2.0f,
+					   TipAlign align = TipAlign::Center);
+
 // TEXT FITTED TO A WIDTH. The whole of `text` when it fits in `room` pixels,
 // else its longest prefix that leaves room for kTrimMark after it - cut back to
 // a whole UTF-8 character, never part-way through one. `trimmed` (optional) says
@@ -822,6 +887,17 @@ void DrawPanelFace(UIContext& ctx, gfx::SpriteBatch& batch, const gfx::Rect& rec
 gfx::Rect DrawSlotFace(const UIContext& ctx, gfx::SpriteBatch& batch, const gfx::Rect& rect,
 					   const Vec4& flatFill, float lift = 0.0f);
 
+// Draws the face of a control you put a VALUE into - a drop-down, a text
+// field, a check box, a slider's groove - so all four read as one kind of
+// thing. Skinned: the SELECTED SETTINGS TAB's sunken stone (Face::ButtonDown)
+// under a darker veil, lifted a little when Hot, and Active (focused / open)
+// edged with a soft accent glow instead of a flat yellow border. Flat (the
+// debug look): `flatFill` with a 1px `flatBorder`, exactly as these controls
+// drew before. Returns the rect inside the frame, where content belongs.
+enum class FieldState { Normal, Hot, Active };
+gfx::Rect DrawFieldFace(const UIContext& ctx, gfx::SpriteBatch& batch, const gfx::Rect& rect,
+						FieldState state, const Vec4& flatFill, const Vec4& flatBorder);
+
 // Draws a button FACE — the one button look (state fill, border, centered
 // label). ui::Button routes through it, and so does every hand-drawn chrome
 // button (the map editor's header/dock buttons), so hover reads the same
@@ -831,11 +907,12 @@ gfx::Rect DrawSlotFace(const UIContext& ctx, gfx::SpriteBatch& batch, const gfx:
 // hot/held wash the theme's control colors over it, disabled dims the tint —
 // so state still reads through the user's theme. Null skin = the flat look
 // (kept as debug mode); hand-drawn chrome callers pass their owner's skin.
+// `sink` (px) lowers the label, for a face caught mid-push (Button's animation).
 void DrawButtonFace(gfx::SpriteBatch& batch, const Font& font,
 					const gfx::Rect& rect,
 					const std::string& label, const Theme& theme, bool hot,
 					bool held = false, bool enabled = true,
-					const Skin* skin = nullptr);
+					const Skin* skin = nullptr, float sink = 0.0f);
 
 // Draws a drop-down's EXPANDER at the right end of `rect`: the authored box
 // (ui::ControlIcons::dropDown, or its dropDownOpen twin while `open`), brightened

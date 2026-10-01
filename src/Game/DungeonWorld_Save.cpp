@@ -16,6 +16,7 @@ namespace dungeon::game {
 
 void DungeonWorld::ResetForNewGame() {
 	m_party.Reset(m_map.StartX(), m_map.StartZ());
+	m_leader = 0; // slot 0 (Brand) leads a new game
 	for (size_t i = 0; i < m_monsters.size(); ++i) {
 		Monster& monster = m_monsters[i];
 		monster.announced = false;
@@ -264,6 +265,9 @@ SaveData::LevelState DungeonWorld::SnapshotActive() const {
 }
 
 void DungeonWorld::StashActive() {
+	// A thrown item still in the air comes down first, so it is stashed with
+	// the level rather than dropped with the flights (Phase 10).
+	m_projectiles.LandCargo();
 	m_levelStates[m_currentLevel] = SnapshotActive();
 }
 
@@ -446,6 +450,7 @@ void DungeonWorld::CaptureState(SaveData& out, bool includeLive) const {
 	out.lookPitch = m_party.LookPitch();
 	out.looking = m_party.IsLooking();
 	out.torchPalette = m_torchPalette;
+	out.leader = m_leader;
 
 	// Every inactive visited level, plus the live one — unless it is parked,
 	// when the store already holds it and a second copy would be written.
@@ -460,6 +465,8 @@ void DungeonWorld::ApplyState(const SaveData& in) {
 	// Re-layer the free-look offset on the restored facing (SetFacing cleared it).
 	m_party.SetLookState(in.lookYaw, in.lookPitch, in.looking);
 	SetTorchPalette(in.torchPalette);
+	// The leader as saved; Update hands it on if the roster says they are down.
+	m_leader = in.leader;
 
 	// Load every level's saved state into the per-level store. The active level's
 	// state is applied by ApplyActiveSnapshot once Game has routed to

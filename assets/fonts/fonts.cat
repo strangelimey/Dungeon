@@ -19,6 +19,7 @@
 ;             fonts/GrenzeGotisch/GrenzeGotisch-Regular.ttf     448
 ;   BODY      fonts/Alegreya/Alegreya-Regular.ttf               452
 ;             fonts/Spectral/Spectral-Regular.ttf               450
+;             fonts/Spectral/Spectral-SemiBold.ttf              (same metrics)
 ;             fonts/GentiumBookPlus/GentiumBookPlus-Regular.ttf 454
 ;             fonts/Bitter/Bitter-Regular.ttf                   528
 ;   SCRIPT    fonts/IMFellEnglish/IMFeENit28P.ttf               445  (italic)
@@ -26,10 +27,9 @@
 ;             fonts/PetitFormalScript/PetitFormalScript-Regular.ttf  579
 ;   MONO      fonts/JetBrainsMono/JetBrainsMono-Regular.ttf     550
 ;
-; Every role is deliberately left on the system fallback: the faces are chosen
-; in the in-game audition (docs/fonts.md Phase 4), against real dungeon art at
-; real sizes, not from a specimen sheet. Until then the game looks exactly as it
-; always has. Try one live with the dev console: `font body <path>`.
+; The faces were chosen in the in-game audition (docs/fonts.md Phase 4), against
+; real dungeon art at real sizes, not from a specimen sheet. Try one live with
+; the dev console: `font body <path>`.
 
 ; HUD, message log, settings, character sheet, every dialog. Must stay legible
 ; at 17px, where stb_truetype's unhinted grayscale AA is least forgiving.
@@ -39,8 +39,12 @@
 ; terminal. scale lifts it to the apparent size the layouts were tuned at
 ; against Consolas' taller lowercase. Swap live: `font body gentium`, `bitter`,
 ; `alegreya` — see assets/fonts/README.md for the x-height table.
+; SEMIBOLD since ui-updates (2026-10-01): on the stone chrome the Regular's thin
+; strokes washed out even with the text outline, and at matched size none of the
+; other installed Regulars read any better - the weight was the problem, not the
+; face. Same family, same metrics, so no layout moved.
 [body]
-file = fonts/Spectral/Spectral-Regular.ttf
+file = fonts/Spectral/Spectral-SemiBold.ttf
 scale = 1.1
 
 ; The DUNGEON title, menu and character-sheet headings.

@@ -130,13 +130,7 @@ void InventoryWindow::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 			const gfx::Rect r = SlotRect(panel, m, i);
 			ui::DrawSlotFace(ctx, batch, r, kSlotBg);
 			const ItemSlot& s = pack[static_cast<size_t>(i)];
-			if (!s.Empty() && m_icons) {
-				if (const gfx::Texture* icon = m_icons->For(s.typeId)) {
-					const float p = r.w * 0.1f;
-					batch.DrawSprite({r.x + p, r.y + p, r.w - 2 * p, r.h - 2 * p},
-									 {0, 0, 1, 1}, *icon, {1, 1, 1, 1});
-				}
-			}
+			if (!s.Empty()) DrawItemIcon(batch, r, s.typeId, m_icons); // a rune glows
 		}
 	}
 }

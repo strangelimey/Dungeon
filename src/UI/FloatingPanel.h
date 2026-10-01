@@ -15,6 +15,12 @@
 // (FloatingLayer::onResetAll). A drag, once started, runs to the button's
 // release whether or not Ctrl is still down.
 //
+// MINIMIZING (ui-updates Phase 8): a panel given a `hidden` flag can be put
+// away entirely - not drawn, not laid out - and the app shows a button for it
+// elsewhere (the HUD's closed-panels tray). Under Ctrl such a panel offers a
+// MINIMIZE button in its top-right corner, with reset moved in beside it; a
+// panel with a header of its own carries the same action there too.
+//
 // SNAPPING: a moved panel's edges snap to any other panel's edges (and the
 // window's) that come within half a rem, and a resized panel's right or bottom
 // edge does the same - the scale is solved for the edge. A thin accent guide
@@ -70,6 +76,10 @@ public:
 	// Shown at all? Asked every layout (the Magic dock appears only once a
 	// member knows a symbol). Null = always.
 	std::function<bool()> shownWhen;
+	// Minimized (owned by the app's settings): hidden whatever shownWhen says.
+	// Non-null = the panel CAN be minimized, so it offers the button under Ctrl.
+	bool* hidden = nullptr;
+	bool Hidden() const { return hidden && *hidden; }
 
 	// The saved placement (owned by the app's settings). posX/posY < 0 = use
 	// defaultPos. scale null = 1, and the resize grip is not offered.
@@ -93,6 +103,8 @@ public:
 	// button it is 0: that is a button, not a grip.)
 	int CursorWanted() const { return m_cursor; }
 	bool Dragging() const { return m_drag != Drag::None; }
+	// The side of the arranging buttons in pixels (a harness aims at them).
+	float GripSide() const { return GripRect(0).w; }
 
 	// Within this panel's own limits, whatever the stored value says (a Settings
 	// slider spans 0.5..1.5 for every panel; the sheet stops short of filling
@@ -115,6 +127,11 @@ private:
 	enum class Drag { None, Move, Resize };
 	bool Unlocked() const { return !locked || !*locked; }
 	gfx::Rect GripRect(int corner) const; // 0 top-left, 1 top-right, 3 bottom-right
+	// The top-right pair: minimize in the corner when the panel minimizes, and
+	// reset beside it (in the corner itself otherwise).
+	bool CanHide() const;
+	gfx::Rect HideRect() const { return GripRect(1); }
+	gfx::Rect ResetRect() const;
 	void StartDrag(Drag kind, float mx, float my);
 	// The snaps, in absolute pixels: shift a moved rect onto the nearest edge
 	// in reach; solve a resized panel's scale for its right or bottom edge.
@@ -129,6 +146,7 @@ private:
 	Drag m_drag = Drag::None;
 	bool m_arranging = false;  // Ctrl held over this panel: outlined, grips up
 	bool m_resetHot = false;   // ... and the pointer is on the reset button
+	bool m_hideHot = false;    // ... or on the minimize button
 	int m_cursor = 0;
 	float m_grabX = 0.0f, m_grabY = 0.0f; // pointer at the press
 	float m_startX = 0.0f, m_startY = 0.0f; // panel top-left at the press (px)
@@ -154,6 +172,10 @@ public:
 	std::function<void()> onResetAll;
 	// The reset button's tooltip (localized by the app).
 	std::string resetTip;
+	// A panel with a `hidden` flag was minimized by its Ctrl button (the app
+	// saves). Null = no panel of this layer offers the button.
+	std::function<void()> onHideChanged;
+	std::string hideTip;
 	// Another layer whose panels this one's snap to - the character sheet has
 	// its own UIContext, but it floats over the HUD's panels. Asked at each
 	// drag, since the other context rebuilds its layer.

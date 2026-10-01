@@ -23,7 +23,7 @@ part of the gitignored-asset provisioning dance.
 | JetBrainsMono | JetBrainsMono-Regular.ttf | `ofl/jetbrainsmono/JetBrainsMono[wght].ttf` | instanced wght=400 |
 | Marcellus | Marcellus-Regular.ttf | `ofl/marcellus/` | no — shipped static |
 | PetitFormalScript | PetitFormalScript-Regular.ttf | `ofl/petitformalscript/` | no — shipped static |
-| Spectral | Spectral-Regular.ttf | `ofl/spectral/` | no — shipped static |
+| Spectral | Spectral-Regular.ttf, Spectral-SemiBold.ttf (the Body face, 2026-10-01) | `ofl/spectral/` | no - shipped static |
 
 ## Why the variable fonts were instanced
 

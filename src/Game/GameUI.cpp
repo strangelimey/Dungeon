@@ -6,6 +6,7 @@
 #include "Core/Loc.h"
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
+#include "Game/HudTray.h"
 #include "Game/MemberCards.h"
 #include "Game/PartyHudDraw.h" // the resource bars' heartbeat (TickResourceBars)
 #include "Game/Project.h"
@@ -168,9 +169,16 @@ void GameUI::LoadTitleArt() {
 	// without it the bars draw flat.
 	m_barFrameTex = TryLoadTextureFile(m_device, paths::Asset("ui\\bar_frame"));
 	m_barStyle.frame = m_barFrameTex.get();
-	// The spellbook's Cast/Clear icon faces (optional — text buttons without).
-	m_castIconTex = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_cast"));
-	m_clearIconTex = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_clear"));
+	// The spellbook's Cast / Clear face glyphs (tools/BuildToolIcons.py); without
+	// them the stone buttons carry their words.
+	m_castGlyphTex = TryLoadTextureFile(m_device, paths::Asset("ui\\glyph_cast"));
+	m_clearGlyphTex = TryLoadTextureFile(m_device, paths::Asset("ui\\glyph_clear"));
+	// The tray's button faces, one per panel that minimizes (same script);
+	// without one, that button carries the panel's name.
+	for (size_t i = 0; i < kHudSheet; ++i)
+		if (const char* glyph = kHudPanelFields[i].glyph)
+			m_panelGlyphs[i] = TryLoadTextureFile(
+				m_device, paths::Asset(std::string("ui\\glyph_") + glyph));
 	// The movement pad's chevrons (single = step, double = turn), rotated in
 	// quarter turns per direction by ui::Button::iconTurns.
 	m_chevronTex = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_chevron"));
@@ -1486,6 +1494,10 @@ void GameUI::BuildHud() {
 	// Ctrl over any panel offers a button that puts EVERY panel home.
 	m_hudLayer->onResetAll = [this] { ResetHudLayout(); };
 	m_hudLayer->resetTip = loc::Tr("hud.reset_layout");
+	// ... and, on a panel that minimizes, one that puts it in the tray (Phase
+	// 8). A flag flips and the layout follows: nothing is rebuilt.
+	m_hudLayer->onHideChanged = [this] { OnHudPanelHidden(false); };
+	m_hudLayer->hideTip = loc::Tr("hud.minimize");
 	auto makePanel = [this](size_t field, const char* name) {
 		HudPanelLook& look = m_settings.*(kHudPanelFields[field].look);
 		auto* panel = m_hudLayer->Add<ui::FloatingPanel>();
@@ -1495,6 +1507,7 @@ void GameUI::BuildHud() {
 		panel->scale = &look.scale;
 		panel->locked = &m_settings.hudLocked;
 		panel->onChanged = [this] { OnHudPanelMoved(); };
+		if (kHudPanelFields[field].glyph) panel->hidden = &look.hidden;
 		m_hudPanels[field] = panel;
 		return panel;
 	};
@@ -1511,15 +1524,27 @@ void GameUI::BuildHud() {
 		return (kBarTop + kBarH0 * m_settings.hudParty.scale + kBarGap) * ctx.Height();
 	};
 
+	// THE PARTY LEADER (Phase 9): every member's name reads who leads and picks
+	// on a click - in the bar and on a card alike, since both are this panel.
+	m_leaderLink.leader = [this] { return partyLeader ? partyLeader() : 0; };
+	m_leaderLink.pick = [this](size_t i) {
+		Click();
+		if (onPickLeader) onPickLeader(i);
+	};
+	m_leaderLink.leaderTip = loc::Tr("hud.leader_tip");
+	m_leaderLink.pickTip = loc::Tr("hud.make_leader");
+
 	// One member's party-bar slot (portrait, name, effects, bars), the same
 	// widget in the bar and on a card.
 	auto addMemberPanel = [this](ui::Widget& parent, size_t i) {
-		return parent.Add<CharacterPanel>(
+		CharacterPanel* panel = parent.Add<CharacterPanel>(
 			gfx::Rect{}, &m_characters, i, &m_barStyle,
 			m_hitSplats, m_itemIcons, [this, i] { OnPortraitClick(i); },
 			[this, i] { OnPortraitRightClick(i); },
 			[this, i] { OnPortraitBars(i); },
 			[this, i] { OnPortraitEffects(i); });
+		panel->SetLeaderLink(&m_leaderLink);
+		return panel;
 	};
 
 	// The party bar. Its width only shrinks below scale 1 and is pinned at the
@@ -1642,12 +1667,13 @@ void GameUI::BuildHud() {
 	deps.icons = m_itemIcons;
 	deps.chevron = m_chevronTex.get();
 	deps.chevron2 = m_chevron2Tex.get();
-	deps.boxPlus = ToolbarIcon(m_device, "box_plus");
 	deps.boxMinus = ToolbarIcon(m_device, "box_minus");
+	deps.minimizeTip = loc::Tr("hud.minimize");
 	deps.onMove = [this](MoveAction action) { onMoveAction(action); };
 	deps.onHandLeft = [this](size_t i, size_t hand) { OnHandLeftClick(i, hand); };
 	deps.onHandRight = [this](size_t i, size_t hand) { OnHandRightClick(i, hand); };
 	deps.onHandMiddle = [this](size_t i, size_t hand) { OnHandMiddleClick(i, hand); };
+	deps.onHandHold = [this](size_t i, size_t hand) { OnHandHold(i, hand); };
 	deps.handSetUse = [this](size_t i, size_t hand) { return HandSetUseFor(i, hand); };
 	deps.useIcons = m_useIcons; // Game's stable bank, set before any HUD build
 	deps.glow = m_glowTex.get();
@@ -1657,20 +1683,16 @@ void GameUI::BuildHud() {
 	deps.exertMax = [this] { return exertMax ? exertMax() : 1.0f; };
 	deps.moveLabel = loc::Tr("hud.movement");
 	deps.magicLabel = loc::Tr("hud.magic");
-	// The minimize buttons flip the settings in place; the flip is saved at
-	// once, like the editor's dock collapse.
-	deps.moveCollapsed = &m_settings.hudMoveCollapsed;
-	deps.magicCollapsed = &m_settings.hudMagicCollapsed;
-	deps.onCollapseChanged = [this] {
-		Click();
-		m_settings.Save();
-	};
+	// A dock's header button minimizes it into the tray, saved at once.
+	deps.onHideChanged = [this] { OnHudPanelHidden(false); };
 	deps.moveLook = &m_settings.hudMove;
 	deps.handsLook = &m_settings.hudHands;
 	deps.magicLook = &m_settings.hudMagic;
 	deps.columnW = kControlW;
 	deps.columnMargin = kControlMargin;
-	deps.columnTop = belowTop;
+	// The docks start under the tray's strip, kept whether or not the tray is
+	// showing, so minimizing a panel never moves the others' defaults.
+	deps.columnTop = [this](ui::UIContext& ctx) { return DockColumnTop(ctx); };
 	deps.columnBottom = [](ui::UIContext& ctx) { return (1.0f - kFooter) * ctx.Height(); };
 	deps.locked = &m_settings.hudLocked;
 	deps.onPlacementChanged = [this] { OnHudPanelMoved(); };
@@ -1722,6 +1744,33 @@ void GameUI::BuildHud() {
 		}
 	}
 
+	// THE CLOSED-PANELS TRAY (Phase 8, Game/HudTray.h): a button for each panel
+	// of THIS layout that minimizes, shown while that panel is minimized. Its
+	// default spot heads the right-hand column, its right edge on the column's
+	// (the party bar's and the docks' - Michael), growing leftward as buttons
+	// arrive, snug under the party bar (TrayTop). The docks start under the
+	// strip it needs (DockColumnTop).
+	{
+		ui::FloatingPanel* trayPanel = makePanel(kHudTray, "TrayPanel");
+		auto* tray = trayPanel->Add<HudTray>(&m_settings.hudTray.opacity);
+		tray->bounds = {0, 0, 1, 1};
+		for (size_t i = 0; i < kHudSheet; ++i) {
+			const HudPanelField& field = kHudPanelFields[i];
+			if (!field.glyph || !m_hudPanels[i]) continue;
+			tray->AddPanel(m_hudPanels[i], &(m_settings.*(field.look)).hidden,
+						   m_panelGlyphs[i].get(), loc::Tr(field.labelKey),
+						   [this] { OnHudPanelHidden(true); });
+		}
+		trayPanel->size = [trayPanel, tray](ui::UIContext& ctx, float s) {
+			return HudTray::Size(tray->ShownCount(), trayPanel->EmAt(ctx, s));
+		};
+		trayPanel->shownWhen = [tray] { return tray->ShownCount() > 0; };
+		trayPanel->defaultPos = [this, trayPanel](ui::UIContext& ctx) {
+			const float w = trayPanel->size(ctx, trayPanel->Scale()).x;
+			return Vec2{ctx.Width() * (1.0f - kControlMargin) - w, TrayTop(ctx)};
+		};
+	}
+
 	// The party inventory: a floating WINDOW (P3b) - the last panel on the
 	// layer, so it draws over the others, and shown only while open. Centred
 	// until moved; the world stays clickable around it.
@@ -1752,8 +1801,7 @@ void GameUI::BuildHud() {
 
 	m_spellbook = docks.spellbook;
 	m_spellbook->onClick = [this] { Click(); };
-	m_spellbook->castIcon = m_castIconTex.get();
-	m_spellbook->clearIcon = m_clearIconTex.get();
+	m_spellbook->SetActionIcons(m_castGlyphTex.get(), m_clearGlyphTex.get());
 	m_spellbook->spells = [this] {
 		return spellDefs ? spellDefs()
 						 : std::span<const std::unique_ptr<Spell>>{};
@@ -1791,6 +1839,34 @@ void GameUI::OnHudPanelMoved() {
 	m_hudSlidersStale = true;
 }
 
+// The tray's DEFAULT top: snug under the party bar at the bar's scale (Michael:
+// "tighter to the party bar"), or the bar's own top in the Minimal layout,
+// which has none. Asked every layout; the tray panel is built after the docks,
+// so it is looked up, not captured.
+float GameUI::TrayTop(ui::UIContext& ctx) const {
+	if (m_settings.hudLayout == 1) return kBarTop * ctx.Height();
+	const ui::FloatingPanel* tray = m_hudPanels[kHudTray];
+	const float gap = tray ? tray->EmAt(ctx, 1.0f) * 0.3f : 0.0f;
+	return (kBarTop + kBarH0 * m_settings.hudParty.scale) * ctx.Height() + gap;
+}
+
+// Where the right-hand column's docks start by default: under the tray's
+// strip - one row at its scale and a dock gap - kept whether or not it shows.
+float GameUI::DockColumnTop(ui::UIContext& ctx) const {
+	const ui::FloatingPanel* tray = m_hudPanels[kHudTray];
+	if (!tray) return TrayTop(ctx);
+	return TrayTop(ctx) + HudTray::Size(1, tray->EmAt(ctx, tray->Scale())).y +
+		   tray->EmAt(ctx, 1.0f) * 0.5f;
+}
+
+// A panel went into the tray, or came back out of it: a click, and the flag
+// saved. Inside an armed frame like a drag's end; Save excuses itself.
+void GameUI::OnHudPanelHidden(bool restored) {
+	++(restored ? m_panelRestores : m_panelMinimizes);
+	Click();
+	m_settings.Save();
+}
+
 void GameUI::SyncHudPanelSlidersIfStale() {
 	if (!m_hudSlidersStale) return;
 	m_hudSlidersStale = false;
@@ -1816,15 +1892,17 @@ void GameUI::SetHudLayout(int layout) {
 }
 
 // Settings -> UI "Reset HUD layout", and the reset button on a Ctrl-hovered
-// panel: every panel back to its default spot and size. Opacity is a look, not
-// a layout, so it stays. The panel's button presses it inside an armed frame,
-// so the sliders are only marked stale (OnHudPanelMoved) - the Settings page
-// catches them up before it shows.
+// panel: every panel back to its default spot and size, and out of the tray
+// (Michael: "restore all"). Opacity is a look, not a layout, so it stays. The
+// panel's button presses it inside an armed frame, so the sliders are only
+// marked stale (OnHudPanelMoved) - the Settings page catches them up before it
+// shows.
 void GameUI::ResetHudLayout() {
 	for (const HudPanelField& field : kHudPanelFields) {
 		HudPanelLook& look = m_settings.*(field.look);
 		look.x = look.y = -1.0f;
 		look.scale = 1.0f;
+		look.hidden = false;
 	}
 	OnHudPanelMoved();
 }
@@ -2087,10 +2165,10 @@ void GameUI::AddLogLine(std::string_view line) {
 
 void GameUI::AddLogLine(std::string_view line, const Vec4& memberColor) {
 	if (!m_log) return;
-	// Identity colors are authored DARK (portrait fills, slot stripes); as
-	// text ink on the dark footer they'd read as mud, so brighten toward
-	// full — the hue carries the identity, the lift carries the legibility.
-	const auto lift = [](float c) { return std::min(1.0f, c * 2.0f + 0.15f); };
+	// Identity colors are bright now (ui-updates), so the old "double it" lift
+	// would bleach most of them to white. A quarter of the way toward white is
+	// enough for ink on the dark footer and keeps the hue - which is the point.
+	const auto lift = [](float c) { return c + (1.0f - c) * 0.25f; };
 	m_log->AddLine(line,
 				   Vec4{lift(memberColor.x), lift(memberColor.y),
 						lift(memberColor.z), 1.0f});
@@ -2254,11 +2332,10 @@ void GameUI::RenderCharacterSheetOverlay() {
 // everything. Shared by the HUD and the (frozen) sheet so dropping works on both.
 void GameUI::DrawHeldCursor() {
 	if (!m_held || !m_held->has_value() || !m_itemIcons) return;
-	if (const gfx::Texture* icon = m_itemIcons->For(**m_held)) {
-		const float s = DeviceH() * 0.072f; // ~20% larger than a slot icon reads
-		const gfx::Rect dst{m_hudMouseX - s * 0.5f, m_hudMouseY - s * 0.5f, s, s};
-		m_spriteBatch.DrawSprite(dst, {0, 0, 1, 1}, *icon, {1, 1, 1, 1});
-	}
+	const float s = DeviceH() * 0.072f; // ~20% larger than a slot icon reads
+	const gfx::Rect dst{m_hudMouseX - s * 0.5f, m_hudMouseY - s * 0.5f, s, s};
+	// A rune glows as it does in every socket (DrawItemIcon).
+	DrawItemIcon(m_spriteBatch, dst, **m_held, m_itemIcons, 0.0f);
 }
 
 void GameUI::RenderHud() {

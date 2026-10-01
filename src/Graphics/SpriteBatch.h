@@ -35,13 +35,19 @@ struct Rect {
 // flat tint (the food/water placeholder). The shader paints the whole tube -
 // the filled part AND the empty glass past it - so the caller passes the
 // tube's rect, not the filled width.
-enum class BarKind : u32 { Solid = 0, Health = 1, Stamina = 2, Mana = 3 };
+// Effort is the HUD's stance meter (GuardSlider): its colour is the CALLER'S -
+// the stance's own green-to-yellow grade, or the angry body once over-exerted -
+// carried in `tint`, and `beat` holds the over-exertion (0..1) instead of a
+// heartbeat, which the shader burns across the tube from the left.
+enum class BarKind : u32 { Solid = 0, Health = 1, Stamina = 2, Mana = 3, Effort = 4 };
 struct BarFill {
 	BarKind kind = BarKind::Solid;
 	float fraction = 1.0f; // 0..1, how full the bar is
-	float beat = 0.0f;     // heartbeat phase within the current beat, 0..1 (Health)
+	float beat = 0.0f;     // Health: heartbeat phase 0..1; Effort: over-exertion 0..1
 	float seed = 0.0f;     // per-bar offset, so two bars never move in lockstep
-	Vec4 tint{1, 1, 1, 1}; // Solid's colour (the animated kinds carry their own)
+	Vec4 tint{1, 1, 1, 1}; // Solid's and Effort's colour (the others carry their own)
+	float pulse = 0.0f;    // Effort: a full over-exertion's throb, 0..1 (CPU-timed so
+						   // the colour beats with the height the caller animates)
 };
 
 // Batched 2D rendering in pixel coordinates (origin top-left). Used by the UI
@@ -87,6 +93,24 @@ public:
 	// frame before Begin: not the world's clock, which runs 60x while resting
 	// and stops in the pause menu.
 	void SetTime(float seconds) { m_time = seconds; }
+	// The same clock, for a CPU-drawn pulse that should keep the bars' time
+	// (the Magic window's glowing runes).
+	float Time() const { return m_time; }
+
+	// One glyph of OUTLINED text (ui::Font::Draw is the only caller). `dst` and
+	// `uv` are the glyph's box GROWN by `radius` px on every side, so the ring
+	// has room; sprite.hlsl dilates the atlas coverage by `radius` and puts the
+	// glyph over a ring in TextOutline()'s colour. Same pipeline as sprites, so
+	// text and faces still batch together.
+	void DrawGlyph(const Rect& dst, const Rect& uv, const Texture& atlas,
+				   const Vec4& color, float radius);
+
+	// The outline every glyph drawn from here on carries (alpha 0 = none). A
+	// skinned UIContext sets it for its own draw pass and puts the old one back
+	// (UIContext::Render), so text on stone is outlined at all ~110 draw sites
+	// with no per-site code, and flat mode, the editor and the console are not.
+	void SetTextOutline(const Vec4& color) { m_textOutline = color; }
+	const Vec4& TextOutline() const { return m_textOutline; }
 
 	// Pixel-space clipping for scrolling panels. Pass nullptr to reset.
 	void SetScissor(const Rect* rect);
@@ -96,10 +120,14 @@ public:
 	const Texture& WhiteTexture() const { return *m_white; }
 
 private:
+	// `outline` is zero for every sprite but an outlined glyph (DrawGlyph);
+	// glyph.x is that glyph's outline radius in px.
 	struct SpriteVertex {
 		Vec2 position;
 		Vec2 uv;
 		Vec4 color;
+		Vec4 outline{0, 0, 0, 0};
+		Vec2 glyph{0, 0};
 	};
 	// bar.hlsl's vertex: uv runs 0..1 across the TUBE; params = (kind,
 	// fraction, beat, seed); extra = (tube aspect w/h, tube height in px).
@@ -130,6 +158,7 @@ private:
 	u32 m_screenWidth = 1;
 	u32 m_screenHeight = 1;
 	float m_time = 0.0f;
+	Vec4 m_textOutline{0, 0, 0, 0};
 	Mode m_mode = Mode::Sprite;
 	std::vector<SpriteVertex> m_pending;
 	std::vector<BarVertex> m_pendingBars;

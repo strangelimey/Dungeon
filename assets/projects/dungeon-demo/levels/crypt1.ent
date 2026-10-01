@@ -2,3 +2,7 @@
 
 monster skeleton 10 4 south
 item crypt_token 7 4 south
+item rock 7 7 north
+item rock 6 7 east
+item fire_flask 8 7 west
+item poison_flask 8 7 east

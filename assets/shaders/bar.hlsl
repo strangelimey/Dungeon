@@ -10,6 +10,11 @@
 //             from the CPU so a change of rate never jumps it.
 //   Stamina - a green glow that breathes, with motes drifting and a shimmer.
 //   Mana    - blue wisps, and lightning that arcs along the tube at intervals.
+//   Effort  - the HUD's stance meter, in the caller's colour: a faint drifting
+//             grain and a soft sheen that slides along it now and then; once
+//             over-exerted, the over-exertion burns across it from the left as
+//             a slow ember. The quietest kind on purpose (Michael: "keep the
+//             animation low key") - it sits under the hands, in the eye's way.
 //   Solid   - a flat tint (the food / water placeholder).
 // The three animated kinds are EMISSIVE and dim as they empty. Output is
 // PREMULTIPLIED (SpriteBatch's bar pipeline): the tube is opaque, alpha 1.
@@ -30,7 +35,7 @@ struct VSInput {
 	float2 uv : TEXCOORD0;
 	float4 tint : COLOR;
 	float4 params : TEXCOORD1; // kind, fraction, beat phase, seed
-	float4 extra : TEXCOORD2;  // tube aspect (w/h), tube height in px
+	float4 extra : TEXCOORD2;  // tube aspect (w/h), tube height in px, Effort's throb
 };
 
 struct PSInput {
@@ -71,6 +76,10 @@ static const float3 kStaminaBright = float3(0.35, 1.00, 0.45);
 static const float3 kManaDeep = float3(0.02, 0.06, 0.30);
 static const float3 kManaBright = float3(0.30, 0.65, 1.00);
 static const float3 kLightning = float3(0.85, 0.95, 1.00);
+// GuardSlider's over-exertion palette (kOverDark / kOverHot there): the burning
+// stretch starts dark and brightens to a full hot red at 100%.
+static const float3 kOverDark = float3(0.40, 0.04, 0.03);
+static const float3 kOverHot = float3(1.00, 0.10, 0.06);
 
 // --- noise -------------------------------------------------------------------
 // An INTEGER hash of a lattice point, 0..1. Not the usual frac(sin)/frac(dot)
@@ -210,6 +219,42 @@ float3 ManaPulse(float2 p, float seed, float hpx, float bright, out float edge) 
 	return col * bright;
 }
 
+float3 EffortFill(float2 p, float seed, float aspect, float over, float throb, float3 tint,
+				  out float edge) {
+	const float t = gTime * kPace;
+	// A faint grain drifting along, so the fill reads as a substance rather
+	// than paint - kept to a tenth either way of the stance colour.
+	const float grain = Calm(Fbm(p * float2(1.5, 3.0) + float2(-t * 0.2 + seed, 0.0)));
+	float3 col = tint * (0.9 + 0.2 * grain);
+	// A soft sheen sliding along the tube once every ~8 s of real time, jittered
+	// per member so the four meters never sweep together.
+	const float period = 8.0;
+	const float ph = frac((gTime + seed * 11.0) / period);
+	const float sweepX = ph * (aspect + 3.0) - 1.5;
+	col += tint * exp(-pow((p.x - sweepX) / 0.8, 2.0)) * 0.22;
+	if (over > 0.0) {
+		// The over-exertion burns from the left, hotter as it climbs, and
+		// breathes like an ember - slowly; it is a warning, not an alarm.
+		const float3 hot = lerp(kOverDark, kOverHot, over);
+		const float ember = 0.86 + 0.14 * sin(gTime * 1.5 + seed * 4.0);
+		const float flick = Calm(Fbm(p * float2(2.0, 3.0) + float2(-t * 0.6, t * 0.2) + seed));
+		float3 burn = hot * ember * (0.85 + 0.3 * flick);
+		// FULL over-exertion THROBS (Michael): `throb` is the CPU's beat, the same
+		// one swelling the tube's height, so colour and size pulse together -
+		// from a dull blood red at the trough to a hot, near-orange red at the crest.
+		if (throb > 0.0) {
+			// GuardSlider sends 0.02 + 0.98 x the beat, so 0 can mean "none".
+			const float beat = saturate((throb - 0.02) / 0.98);
+			const float3 crest = float3(1.00, 0.32, 0.14);
+			burn = lerp(burn * 0.7, crest * (0.9 + 0.2 * flick), beat);
+		}
+		const float end = over * aspect;
+		col = lerp(col, burn, smoothstep(end + 0.08, end - 0.08, p.x));
+	}
+	edge = 0.0;
+	return col;
+}
+
 float4 PSMain(PSInput input) : SV_TARGET {
 	const int kind = (int)(input.params.x + 0.5);
 	const float fraction = saturate(input.params.y);
@@ -232,6 +277,12 @@ float4 PSMain(PSInput input) : SV_TARGET {
 	} else if (kind == 3) {
 		fluid = ManaPulse(p, seed, hpx, bright, edge);
 		hue = kManaBright;
+	} else if (kind == 4) {
+		// The stance's own colour, not dimmed by how full it is: a pulled-back
+		// stance is already graded darker by its caller.
+		fluid = EffortFill(p, seed, aspect, saturate(beatPhase), saturate(input.extra.z),
+						   input.tint.rgb, edge);
+		hue = input.tint.rgb;
 	} else {
 		fluid = input.tint.rgb;
 		hue = input.tint.rgb;

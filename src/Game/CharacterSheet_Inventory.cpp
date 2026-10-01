@@ -239,12 +239,8 @@ void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 									 *o, {1, 1, 1, 0.5f});
 				}
 			}
-		} else if (m_icons) {
-			if (const gfx::Texture* icon = m_icons->For(s.typeId)) {
-				const float p = r.w * 0.1f;
-				batch.DrawSprite({r.x + p, r.y + p, r.w - 2 * p, r.h - 2 * p}, {0, 0, 1, 1},
-								 *icon, {1, 1, 1, 1});
-			}
+		} else {
+			DrawItemIcon(batch, r, s.typeId, m_icons); // a rune glows (PartyHudDraw)
 		}
 	}
 
@@ -269,12 +265,7 @@ void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 
 	const Inventory& inv = m_character->inventory;
 	auto drawIcon = [&](const gfx::Rect& r, const std::string& typeId) {
-		if (typeId.empty() || !m_icons) return;
-		if (const gfx::Texture* icon = m_icons->For(typeId)) {
-			const float p = r.w * 0.1f;
-			batch.DrawSprite({r.x + p, r.y + p, r.w - 2 * p, r.h - 2 * p}, {0, 0, 1, 1},
-							 *icon, {1, 1, 1, 1});
-		}
+		DrawItemIcon(batch, r, typeId, m_icons); // a rune glows (PartyHudDraw)
 	};
 	for (int i = 0; i < kPackRowSlots; ++i) {
 		const gfx::Rect r = PackRowRect(px, i);
@@ -465,15 +456,10 @@ void CharacterSheet::DrawArmorTip(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	// NEVER OVER THE ITEM. Below it by preference, above when that would run
 	// off the screen — the thing under the pointer is what the tooltip is
 	// about, and covering it would answer a question by hiding it. (The same
-	// rule the dev console's tooltips use.)
-	const float screenW = ctx.Width(), screenH = ctx.Height();
-	float tx = anchor.x;
-	if (tx + w > screenW - pad) tx = screenW - pad - w;
-	if (tx < pad) tx = pad;
-	float ty = anchor.y + anchor.h + rem * 0.3f;
-	if (ty + h > screenH - pad) ty = anchor.y - h - rem * 0.3f;
-	if (ty < 0.0f) ty = anchor.y + anchor.h + rem * 0.3f; // neither fits: below
-	const gfx::Rect tip{tx, ty, w, h};
+	// rule every tooltip uses - ui::PlaceTooltip, which also keeps it on screen.)
+	const gfx::Rect tip =
+		ui::PlaceTooltip(anchor, w, h, {0, 0, ctx.Width(), ctx.Height()}, ui::TipSide::Below,
+						 rem * 0.3f, pad, ui::TipAlign::Start);
 
 	// Near-opaque: it sits over a busy grid, and a translucent panel would
 	// leave the icons behind it legible through the numbers in front.

@@ -98,6 +98,17 @@ category = key
 weight = 0.1
 holdable = 1
 
+; A stone to throw (ui-updates Phase 10): anything can be thrown, and this is
+; what is lying about for it. Bash by weight (balance.cat throw_base /
+; throw_weight). The model is script-built: tools/BuildRock.py.
+[rock]
+name = item.rock
+category = misc
+weight = 1.5
+holdable = 1
+command = throw
+model = rock
+
 ; --- food and drink ---------------------------------------------------------
 ; `nutrition` and `hydration` are what CONSUMING it restores, out of 100
 ; (docs/health-and-healing.md). BOTH fields on every consumable, because most

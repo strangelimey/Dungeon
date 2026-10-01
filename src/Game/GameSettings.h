@@ -72,12 +72,16 @@ inline constexpr ThemeField kThemeFields[] = {
 // MASTER — Game::ApplyMemberColors pushes it onto the roster at creation/
 // reset and the Settings → UI picker edits it live; CreateDefaultParty's
 // authored palette only mirrors these defaults. Ini keys member_<n>=r,g,b,a.
+// BRIGHT since ui-updates (2026-10-01): the old rust / moss / gold / indigo were
+// authored dark for flat fills and sank into the stone chrome (Tilo's indigo and
+// Maren's gold worst). The old values are retired in GameSettings.cpp, so an
+// existing ini moves to these unless the player picked a colour.
 inline constexpr size_t kMemberColorCount = 4;
 inline constexpr Vec4 kDefaultMemberColors[kMemberColorCount] = {
-	{0.42f, 0.20f, 0.14f, 1.0f}, // slot 0 — rust (Brand)
-	{0.18f, 0.32f, 0.18f, 1.0f}, // slot 1 — moss (Sera)
-	{0.42f, 0.34f, 0.14f, 1.0f}, // slot 2 — gold (Maren)
-	{0.22f, 0.22f, 0.44f, 1.0f}, // slot 3 — indigo (Tilo)
+	{0.92f, 0.36f, 0.20f, 1.0f}, // slot 0 - ember (Brand)
+	{0.36f, 0.82f, 0.34f, 1.0f}, // slot 1 - leaf (Sera)
+	{1.00f, 0.82f, 0.26f, 1.0f}, // slot 2 - gold (Maren)
+	{0.66f, 0.48f, 1.00f, 1.0f}, // slot 3 - violet (Tilo)
 };
 
 // And for the movement keys (MoveKeys; ini keys key_<action>=vkey). Order is
@@ -181,18 +185,19 @@ struct GameSettings {
 	int mapPaletteGrouping = 0;
 	int mapPaletteStage = 1;           // Build: where a new level's work starts
 	int mapPaletteKind = 0;
-	// The HUD's right-hand docks (Game/ControlBar.h): minimized to their header
-	// strip. Expanded by default (Michael: "leave it on screen by default").
-	bool hudMoveCollapsed = false;
-	bool hudMagicCollapsed = false;
-	// The FLOATING HUD panels (UI/FloatingPanel.h): each one's saved spot, scale
-	// and background opacity (PartyHudTypes.h HudPanelLook). kHudPanelFields
-	// below lists them and drives the ini round-trip (hud_<id>_pos / _scale /
-	// _opacity), the Settings -> UI rows and Reset. The party bar's scale and
-	// opacity were barscale= / baropacity= before it floated; those still load.
+	// The FLOATING HUD panels (UI/FloatingPanel.h): each one's saved spot, scale,
+	// background opacity and whether it is minimized into the tray (PartyHudTypes.h
+	// HudPanelLook). kHudPanelFields below lists them and drives the ini
+	// round-trip (hud_<id>_pos / _scale / _opacity / _hidden), the Settings -> UI
+	// rows and Reset. The party bar's scale and opacity were barscale= /
+	// baropacity= before it floated, and the two docks' hud_move_collapsed= /
+	// hud_magic_collapsed= became their _hidden; those still load.
 	HudPanelLook hudParty, hudStatus, hudOptions, hudMove, hudHands, hudMagic;
 	// The two floating WINDOWS (P3b): the party inventory and the sheet.
 	HudPanelLook hudInventory, hudSheet;
+	// The closed-panels TRAY (ui-updates Phase 8, Game/HudTray.h): a button per
+	// minimized panel. Never hidden itself - it shows while it has a button.
+	HudPanelLook hudTray;
 	// THE HUD LAYOUT (P4): 0 = Standard (party bar + Hands dock), 1 = Minimal
 	// (one card per member: portrait, bars and hands together - Game/
 	// MemberCards.h). Settings -> UI "Layout"; ini hud_layout=. The cards
@@ -245,28 +250,33 @@ struct GameSettings {
 
 // The floating HUD panels, in the order Settings -> UI lists them: the id is
 // the ini stem (hud_<id>_pos ...) and the `hudpanel` dev command's name, the
-// label key heads its Settings rows.
+// label key heads its Settings rows (and names its tray button). `glyph` is
+// the tray button's face (assets/ui/glyph_<glyph>.png, tools/BuildToolIcons.py)
+// and says the panel MINIMIZES at all: null = it does not (the two windows
+// close instead, and the tray only empties).
 struct HudPanelField {
 	const char* id;
 	const char* labelKey;
 	HudPanelLook GameSettings::*look;
+	const char* glyph = nullptr;
 };
 inline constexpr HudPanelField kHudPanelFields[] = {
-	{"party", "settings.party_bar", &GameSettings::hudParty},
-	{"status", "settings.status_panel", &GameSettings::hudStatus},
-	{"options", "settings.options_panel", &GameSettings::hudOptions},
-	{"move", "settings.move_panel", &GameSettings::hudMove},
-	{"hands", "settings.hands_panel", &GameSettings::hudHands},
-	{"magic", "settings.magic_panel", &GameSettings::hudMagic},
-	{"cards", "settings.cards_panel", &GameSettings::hudCards},
+	{"party", "settings.party_bar", &GameSettings::hudParty, "panel_party"},
+	{"status", "settings.status_panel", &GameSettings::hudStatus, "panel_status"},
+	{"options", "settings.options_panel", &GameSettings::hudOptions, "panel_options"},
+	{"move", "settings.move_panel", &GameSettings::hudMove, "panel_move"},
+	{"hands", "settings.hands_panel", &GameSettings::hudHands, "panel_hands"},
+	{"magic", "settings.magic_panel", &GameSettings::hudMagic, "panel_magic"},
+	{"cards", "settings.cards_panel", &GameSettings::hudCards, "panel_cards"},
 	{"inventory", "settings.inventory_panel", &GameSettings::hudInventory},
+	{"tray", "settings.tray_panel", &GameSettings::hudTray},
 	{"sheet", "settings.sheet_panel", &GameSettings::hudSheet},
 };
 // Their indices, for code that needs one panel by name. The sheet stays LAST:
 // it alone lives in another UI context, and [0, kHudSheet) is "the HUD's".
 enum HudPanelIndex : size_t {
 	kHudParty, kHudStatus, kHudOptions, kHudMove, kHudHands, kHudMagic,
-	kHudCards, kHudInventory, kHudSheet
+	kHudCards, kHudInventory, kHudTray, kHudSheet
 };
 static_assert(std::size(kHudPanelFields) == kHudSheet + 1);
 

@@ -78,16 +78,30 @@ float GuardSlider::HonestAt(float x) const {
 	return std::clamp((x - px.x) / px.w, 0.0f, 1.0f);
 }
 
-gfx::Rect GuardSlider::BarRect(float share) const {
+gfx::Rect GuardSlider::BarRect(float share, float throb) const {
 	const gfx::Rect& px = Pixel();
 	const float top = std::min(Em(kGapRem), px.h);
 	const float angry = std::min(Em(kAngryRem), px.h - top);
 	const float rest = std::min(Em(kRestRem), angry);
-	const float h = rest + (angry - rest) * OverOf(share);
+	// A full over-exertion throbs INSIDE the angry room (never past it - the room
+	// is what HandPair reserves): between 70% and 100% of the swell.
+	const float h = (rest + (angry - rest) * OverOf(share)) * (0.7f + 0.3f * throb);
 	// CENTRED in the room reserved for the angry swell (Michael, 2026-09-28), so
 	// a resting bar sits in the middle of it and an over-exerted one swells out
 	// both ways rather than hanging from the top.
 	return {px.x, px.y + top + (angry - h) * 0.5f, px.w, h};
+}
+
+float GuardSlider::Throb(float over) {
+	// Only at FULL over-exertion (Michael: "make 100% pulse and throb"): the
+	// last percent of the charge is the one that can drop the character. About
+	// 1.1 beats a second, on the steady clock (real time, like the bars).
+	if (over < 0.999f) return 1.0f;
+	const double t = std::chrono::duration<double>(
+						 std::chrono::steady_clock::now().time_since_epoch())
+						 .count();
+	const float s = static_cast<float>(std::sin(t * 2.0 * 3.14159265358979 * 1.1));
+	return 0.5f + 0.5f * s;
 }
 
 void GuardSlider::Report(float share) const {
@@ -195,13 +209,40 @@ void GuardSlider::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const ui::Theme& theme = ctx.GetTheme();
 	const float share = c->offenseShare;
 	const float over = OverOf(share);
-	const gfx::Rect bar = BarRect(share);
+	const float throb = Throb(over);
+	const gfx::Rect bar = BarRect(share, throb);
 
 	// The grab zone, lit while it is hot or held, so the band the pointer can
 	// start a drag on is visible rather than guessed at.
 	if (m_hot || m_drag != Drag::None) {
 		const Vec4& a = theme.accent;
 		batch.DrawRect(Pixel(), {a.x, a.y, a.z, 0.12f});
+	}
+
+	if (ctx.GetSkin()) {
+		// SKINNED: a glass tube like the resource bars (bar.hlsl's Effort kind),
+		// quieter than any of them. The colours and what they mean are exactly
+		// the flat look's - computed here, so the two cannot disagree: the stance
+		// grade while honest, the angry body with the over-exertion burning
+		// across it once past 100%.
+		gfx::BarFill fill;
+		fill.kind = gfx::BarKind::Effort;
+		fill.seed = 0.37f * static_cast<float>(m_member) + 0.11f;
+		if (over <= 0.0f) {
+			const float effort = std::clamp(share, 0.0f, 1.0f);
+			fill.fraction = effort;
+			fill.tint = Mix(kEffortLow, kEffortFull, effort);
+		} else {
+			fill.fraction = 1.0f;
+			fill.beat = over;
+			fill.tint = Mix(kEffortFull, kAngryBody, 0.85f + 0.15f * over);
+			// The colour half of a full over-exertion's throb, on the same beat
+			// as the height. Offset so its trough (throb 0) still reads as
+			// "throbbing" - 0 is the shader's "no throb".
+			if (over >= 0.999f) fill.pulse = 0.02f + 0.98f * throb;
+		}
+		batch.DrawBarFill(bar, fill);
+		return;
 	}
 
 	batch.DrawRect(bar, theme.control);

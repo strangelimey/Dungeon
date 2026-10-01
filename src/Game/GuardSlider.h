@@ -86,8 +86,12 @@ private:
 	// The honest share under a pointer x: 0..1 across the bar, never past it.
 	float HonestAt(float x) const;
 	// The rect the bar PAINTS for this share (the resting strip, or the angry
-	// swell), centred in the kAngryRem room below the kGapRem gap.
-	gfx::Rect BarRect(float share) const;
+	// swell), centred in the kAngryRem room below the kGapRem gap. `throb`
+	// (0..1, 1 = full height) shrinks a FULLY over-exerted bar inside that room.
+	gfx::Rect BarRect(float share, float throb = 1.0f) const;
+	// The throb of a FULL over-exertion, 0..1 on real time: a slow swell the
+	// height and the colour share, so they beat together. 1 (still) otherwise.
+	static float Throb(float over);
 	void Report(float share) const;
 
 	const std::vector<Character>* m_roster;

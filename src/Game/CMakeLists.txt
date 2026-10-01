@@ -33,6 +33,7 @@ add_library(Game STATIC
 	DungeonWorld_Combat.cpp
 	DungeonWorld_Doors.cpp
 	DungeonWorld_Editing.cpp
+	DungeonWorld_Leader.cpp
 	DungeonWorld_Ledger.cpp
 	DungeonWorld_LevelIO.cpp
 	DungeonWorld_Levels.cpp
@@ -44,6 +45,7 @@ add_library(Game STATIC
 	DungeonWorld_Resize.cpp
 	DungeonWorld_Render.cpp
 	DungeonWorld_Save.cpp
+	DungeonWorld_Throw.cpp
 	DungeonWorld_Undo.cpp
 	DungeonWorld_Validate.cpp
 	Effect/AllEffects.cpp
@@ -120,6 +122,7 @@ add_library(Game STATIC
 	CharacterPanel.cpp
 	ControlBar.cpp
 	MemberCards.cpp
+	HudTray.cpp
 	HandSlot.cpp
 	GuardSlider.cpp
 	SpellbookPanel.cpp

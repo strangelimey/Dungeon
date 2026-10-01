@@ -300,10 +300,8 @@ void MapEditor::RenderOverlay(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		const ui::Font& font = m_view.Font();
 		const float p = MapView::DockPad(panel) * 1.5f;
 		const float tw = font.MeasureWidth(m_rowTip);
-		gfx::Rect tr{m_rowTipAt.x + m_rowTipAt.w + 4.0f,
-					 m_rowTipAt.y + (m_rowTipAt.h - font.Height() - p) * 0.5f, tw + p * 2,
-					 font.Height() + p};
-		tr.x = std::clamp(tr.x, panel.x + 2.0f, panel.x + panel.w - tr.w - 2.0f);
+		const gfx::Rect tr = ui::PlaceTooltip(m_rowTipAt, tw + p * 2, font.Height() + p, panel,
+											  ui::TipSide::Right, 4.0f);
 		batch.DrawRect(tr, kMapBg);
 		ui::DrawBorder(batch, tr, theme.panelBorder);
 		font.Draw(batch, m_rowTip, tr.x + p, tr.y + p * 0.5f, theme.text);
@@ -321,9 +319,8 @@ void MapEditor::RenderOverlay(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		const float dpad = MapView::DockPad(panel);
 		const float tw = font.MeasureWidth(tip);
 		const float p = dpad * 1.5f;
-		gfx::Rect tr{b.rect.x + b.rect.w * 0.5f - tw * 0.5f - p, b.rect.y + b.rect.h + 2.0f,
-					 tw + p * 2, font.Height() + p};
-		tr.x = std::clamp(tr.x, panel.x + 2.0f, panel.x + panel.w - tr.w - 2.0f);
+		const gfx::Rect tr = ui::PlaceTooltip(b.rect, tw + p * 2, font.Height() + p, panel,
+											  ui::TipSide::Below, 2.0f);
 		batch.DrawRect(tr, kMapBg);
 		ui::DrawBorder(batch, tr, theme.panelBorder);
 		font.Draw(batch, tip, tr.x + p, tr.y + p * 0.5f, theme.text);

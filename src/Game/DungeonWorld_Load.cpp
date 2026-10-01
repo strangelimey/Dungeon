@@ -1160,6 +1160,32 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		// the hand right-click menu offers; runes implicitly gain "memorize" below.
 		for (const std::string& cmd : SplitTokens(CatalogGet(def, "command", "")))
 			kind->commands.push_back(cmd);
+		// THROWING (ui-updates Phase 10; DungeonWorld_Throw.cpp). Any item can be
+		// thrown. `throw` names the ATTACK it flies as (attacks.cat - its type and
+		// numbers): absent = a weapon's first command, else `throw` (bash). What it
+		// leaves on what it strikes is its `on_hit`, or `throw_spell`'s whole
+		// payload - a fire flask carries fireburst's, blast and all. `throw_breaks`
+		// = it shatters where it stops instead of landing.
+		kind->throwAttack = CatalogGet(def, "throw", "");
+		kind->throwBreaks = CatalogBool(def, "throw_breaks", false);
+		kind->throwPayload = PackPayload(kind->onHit, "[" + type + "]");
+		if (kind->enchanted) kind->throwPayload.flavour = kind->element;
+		// An area BLAST of its own, authored as a spell's is (blast_force ...,
+		// blast_persist for a gas that fills and keeps biting), typed by
+		// `blast_type` (a damagetypes.cat id; poison is earth here).
+		if (def) ReadBlastRules(*def, kind->throwPayload.blast);
+		kind->throwBlastType =
+			m_damageTypes.FindOr(CatalogGet(def, "blast_type", "bash"), m_balance.Neutral().type);
+		if (const std::string spellId = CatalogGet(def, "throw_spell", ""); !spellId.empty()) {
+			if (const Spell* spell = m_magic.FindSpell(spellId)) {
+				kind->throwPayload = spell->MakePayload();
+				kind->throwPayload.flavour = spell->School();
+				// A borrowed blast burns as the spell's school - fire, not bash.
+				kind->throwBlastType = m_damageTypes.ForSchool(spell->School());
+			} else {
+				log::Warn("[{}]: throw_spell '{}' is not a spell", type, spellId);
+			}
+		}
 		// Placeholder look: non-rune items reuse the tablet mesh tinted by category
 		// (runes overwrite this with their element colour just below).
 		kind->glow = CategoryTint(kind->category);
@@ -1302,7 +1328,9 @@ const std::string* DungeonWorld::TryPickItem(float mx, float my, float w, float 
 	picked.collected = true; // off the floor
 	++m_harness.tally.lifts;
 	m_audio.Play(m_sounds.click, 0.6f); // placeholder pickup cue
-	if (onMessage) onMessage(loc::FormatLine("log.take_rune", loc::View(picked.kind->nameKey)));
+	// The LEADER lifts it (Phase 9) - the line names them.
+	if (onMessage)
+		onMessage(loc::FormatLine("log.take_item", LeaderName(), loc::View(picked.kind->nameKey)));
 	return &picked.kind->id;
 }
 
@@ -1363,9 +1391,8 @@ int DungeonWorld::PickItemIndex(float mx, float my, float w, float h) const {
 	return best;
 }
 
-void DungeonWorld::DropItemAt(const std::string& typeId, float mx, float my,
+bool DungeonWorld::DropItemAt(const std::string& typeId, float mx, float my,
 							  float w, float h) {
-	++m_harness.tally.drops; // always succeeds - a niche, the floor or the feet
 	const int px = m_party.GridX(), pz = m_party.GridZ();
 	const gfx::Camera::Ray ray = m_camera.ScreenRay(mx, my, w, h);
 	// First: does the ray land in an OPEN niche's pocket within reach? Drop into
@@ -1389,33 +1416,29 @@ void DungeonWorld::DropItemAt(const std::string& typeId, float mx, float my,
 		const WallNiche& n = niches[static_cast<size_t>(bestNiche)];
 		ItemKind& kind = ItemKindFor(typeId);
 		PlaceDrop({&kind, m_nextDropId--, n.x, n.z, false, 0, static_cast<int>(n.wall)});
+		++m_harness.tally.drops;
 		m_audio.Play(m_sounds.click, 0.5f);
 		if (onMessage) onMessage(loc::FormatLine("log.drop_rune", loc::View(kind.nameKey)));
-		return;
+		return true;
 	}
-	int cx = px, cz = pz; // fallback: drop at the party's feet
-	// Desired drop point in world space — used to pick the nearest quarter slot.
-	// Defaults to the fallback cell's centre (feet); a floor hit overrides it.
-	Vec3 feet = m_map.CellCenter(cx, cz);
-	float wx = feet.x, wz = feet.z;
-	if (ray.dir.y < -1e-3f) { // looking down toward the floor plane y=0
-		const float t = -ray.origin.y / ray.dir.y;
-		const float hxw = ray.origin.x + ray.dir.x * t;
-		const float hzw = ray.origin.z + ray.dir.z * t;
-		const int hx = static_cast<int>(std::floor(hxw / kCellSize));
-		const int hz = static_cast<int>(std::floor(hzw / kCellSize));
-		if (m_map.IsWalkable(hx, hz) && IsSeen(hx, hz) && InReach(hx, hz, px, pz)) {
-			cx = hx;
-			cz = hz;
-			wx = hxw; // snap to the quarter under the cursor
-			wz = hzw;
-		}
-	}
+	// Then the FLOOR: where the ray meets the floor plane, when that square is
+	// open, seen and in reach. Anything else - looking above the floor's
+	// horizon, at a wall (the plane meets the floor behind it), past reach - is
+	// not a drop: the caller throws (Phase 10; it used to fall at the feet).
+	if (ray.dir.y >= -1e-3f) return false;
+	const float t = -ray.origin.y / ray.dir.y;
+	const float wx = ray.origin.x + ray.dir.x * t;
+	const float wz = ray.origin.z + ray.dir.z * t;
+	const int cx = static_cast<int>(std::floor(wx / kCellSize));
+	const int cz = static_cast<int>(std::floor(wz / kCellSize));
+	if (!m_map.IsWalkable(cx, cz) || !IsSeen(cx, cz) || !InReach(cx, cz, px, pz)) return false;
 	ItemKind& kind = ItemKindFor(typeId);
-	const int slot = FreeItemSlotNear(cx, cz, wx, wz, -1);
+	const int slot = FreeItemSlotNear(cx, cz, wx, wz, -1); // the quarter under the cursor
 	PlaceDrop({&kind, m_nextDropId--, cx, cz, false, slot});
+	++m_harness.tally.drops;
 	m_audio.Play(m_sounds.click, 0.5f);
 	if (onMessage) onMessage(loc::FormatLine("log.drop_rune", loc::View(kind.nameKey)));
+	return true;
 }
 
 void DungeonWorld::PlaceDrop(const Item& item) {

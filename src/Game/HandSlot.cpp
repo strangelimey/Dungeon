@@ -30,14 +30,27 @@ void HandSlot::UpdateSelf(ui::UIContext& ctx) {
 	m_hot = !ctx.IsMouseConsumed() &&
 			Pixel().Contains(input->MouseX(), input->MouseY());
 	if (m_hot) {
-		if (input->WasMousePressed(MouseButton::Left)) m_held = true;
+		if (input->WasMousePressed(MouseButton::Left)) {
+			m_held = true;
+			m_holdFired = false;
+			m_pressAt = std::chrono::steady_clock::now();
+		}
 		if (input->WasMousePressed(MouseButton::Right)) m_heldRight = true;
 		if (input->WasMousePressed(MouseButton::Middle)) m_heldMiddle = true;
 		ctx.ConsumeMouse();
 	}
+	// The hold fires once, while the press is still down over the box; moving
+	// off the box first lets it run out as an ordinary cancelled click.
+	if (m_held && !m_holdFired && m_hot && input->IsMouseDown(MouseButton::Left) &&
+		std::chrono::duration<float>(std::chrono::steady_clock::now() - m_pressAt).count() >=
+			kHoldSeconds) {
+		m_holdFired = true;
+		if (onHold) onHold();
+	}
 	if (m_held && input->WasMouseReleased(MouseButton::Left)) {
-		if (m_hot && m_onLeft) m_onLeft();
+		if (m_hot && !m_holdFired && m_onLeft) m_onLeft();
 		m_held = false;
+		m_holdFired = false;
 	}
 	if (m_heldRight && input->WasMouseReleased(MouseButton::Right)) {
 		if (m_hot && m_onRight) m_onRight();
@@ -91,13 +104,8 @@ void HandSlot::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const ItemSlot& slot = m_character->inventory.Hand(m_hand);
 	const float pad = px.w * 0.12f;
 	const gfx::Rect inner{px.x + pad, px.y + pad, px.w - 2 * pad, px.h - 2 * pad};
-	bool drewItem = false;
-	if (!slot.Empty() && m_icons) {
-		if (const gfx::Texture* icon = m_icons->For(slot.typeId)) {
-			batch.DrawSprite(inner, {0, 0, 1, 1}, *icon, {1, 1, 1, 1});
-			drewItem = true;
-		}
-	}
+	// A rune glows in the box as it does in the Magic window (DrawItemIcon).
+	const bool drewItem = !slot.Empty() && DrawItemIcon(batch, px, slot.typeId, m_icons, 0.12f);
 	// An empty hand set to a verb with a picture (punch, kick) shows the ACTION
 	// (Michael, 2026-09-28: the paper doll's hand and feet slots were tried
 	// first and read as body parts, not strikes). The pictures are drawn
@@ -112,9 +120,8 @@ void HandSlot::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	}
 	// A spell use spells out its recipe on top.
 	if (use.spell) DrawSpellRunes(batch, inner, *use.spell, drewItem);
-	// Identity stripe along the socket's bottom edge.
-	batch.DrawRect({socket.x + 1, socket.y + socket.h - 4, socket.w - 2, 3},
-				   m_character->portraitColor);
+	// No identity stripe: whose hand this is reads from the member border its
+	// HandPair draws round both hands and the effort meter (ui-updates).
 	if (m_hot)
 		ui::DrawBorder(batch, px, theme.accent);
 	else if (!skinned)
@@ -135,16 +142,9 @@ void HandSlot::DrawOverlaySelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const float w = font.MeasureWidth(use.label) + 2.0f * padX;
 	const float h = font.Height() + 2.0f * padY;
 	// NEVER OVER THE HAND. Below it by preference, above when that would run
-	// off the screen, and pulled in from the right edge the column sits on (the
-	// sheet's armor tooltip and the dev console's follow the same rule).
-	const gfx::Rect& px = Pixel();
-	const float screenW = ctx.Width(), screenH = ctx.Height();
-	float tx = px.x + (px.w - w) * 0.5f;
-	if (tx + w > screenW - padX) tx = screenW - padX - w;
-	if (tx < padX) tx = padX;
-	float ty = px.y + px.h + gapY;
-	if (ty + h > screenH - padY) ty = px.y - h - gapY;
-	const gfx::Rect tip{tx, ty, w, h};
+	// off the screen, and always wholly on it (ui::PlaceTooltip).
+	const gfx::Rect tip = ui::PlaceTooltip(Pixel(), w, h, {0, 0, ctx.Width(), ctx.Height()},
+										   ui::TipSide::Below, gapY, padX);
 	// Near-opaque: it sits over the other hands and the world view.
 	batch.DrawRect(tip, {0.10f, 0.10f, 0.13f, 0.97f});
 	ui::DrawBorder(batch, tip, theme.panelBorder);
@@ -177,13 +177,16 @@ void HandSlot::DrawSpellRunes(gfx::SpriteBatch& batch, const gfx::Rect& area,
 	const float blockH = side * static_cast<float>(rows) + gap * static_cast<float>(rows - 1);
 	const float x0 = area.x + (area.w - blockW) * 0.5f;
 	const float y0 = overItem ? area.y + area.h - blockH : area.y + (area.h - blockH) * 0.5f;
+	// Each rune glows as the Magic window's do (Michael, ui-updates), over the
+	// set tint, pulsing out of step with its neighbours.
+	constexpr float kTwoPi = 6.2831853f;
 	for (size_t k = 0; k < n; ++k) {
 		const size_t c = k % cols, r = k / cols;
-		DrawRuneFace(batch,
+		DrawRuneGlow(batch,
 					 {x0 + static_cast<float>(c) * (side + gap),
 					  y0 + static_cast<float>(r) * (side + gap), side, side},
 					 runes[k], m_icons, /*hot=*/false, /*disabled=*/false,
-					 /*background=*/false); // the set tint shows behind it
+					 batch.Time() * (kTwoPi / 3.4f) - static_cast<float>(k) * 1.3f);
 	}
 }
 

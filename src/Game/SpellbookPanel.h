@@ -73,12 +73,11 @@ public:
 	// spellDefs source). Null-safe: no registry, no label.
 	std::function<std::span<const std::unique_ptr<Spell>>()> spells;
 	std::function<void()> onClick; // UI click feedback
-	// Optional icon faces for Cast/Clear (assets/ui/icon_cast / icon_clear —
-	// complete round buttons with alpha, from the Wenrexa UI pack). Null =
-	// the localized text buttons (the fallback keeps the lang keys alive).
-	const gfx::Texture* castIcon = nullptr;
-	const gfx::Texture* clearIcon = nullptr;
+	// Cast / Clear wear these glyphs on their faces, their words moving to the
+	// tooltip; a null glyph leaves that button its word.
+	void SetActionIcons(const gfx::Texture* cast, const gfx::Texture* clear);
 
+	void LayoutSelf(ui::UIContext& ctx) override;
 	void UpdateSelf(ui::UIContext& ctx) override;
 	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 
@@ -117,6 +116,12 @@ private:
 	gfx::Rect SequenceRect(const gfx::Rect& px, size_t i) const;
 	gfx::Rect CastRect(const gfx::Rect& px) const;
 	gfx::Rect ClearRect(const gfx::Rect& px) const;
+	// The height every VERTICAL measure is a fraction of: the panel's own, but
+	// never more than kRefAspect of its width. A Magic dock stretched to fill a
+	// column (Movement minimized) keeps its rows and buttons the size they
+	// were tuned at; only the gap between the grid and the sequence grows
+	// (Michael: Cast / Clear "shouldn't scale the same").
+	static float RefH(const gfx::Rect& px);
 	// The spell the sequence spells out, if any.
 	const Spell* Match() const;
 	// (Rune faces draw through PartyHudDraw's DrawRuneFace, shared with the
@@ -128,7 +133,12 @@ private:
 	std::array<SpellSymbol, kMaxSequence> m_sequence{};
 	size_t m_seqLen = 0; // how much of m_sequence is spelled
 	int m_hotSymbol = -1, m_hotSeq = -1;
-	bool m_hotCast = false, m_hotClear = false;
+	// Cast and Clear are ordinary ui::Buttons (ui-updates: they were two hand-
+	// drawn icon discs) - the settings tabs' stone face and the shared push
+	// animation, laid out each frame over CastRect / ClearRect.
+	ui::Button* m_castButton = nullptr;
+	ui::Button* m_clearButton = nullptr;
+	ui::Widget* m_memberRow = nullptr; // placed each layout (RefH)
 	std::string m_placeholder, m_castLabel, m_clearLabel; // localized once
 };
 

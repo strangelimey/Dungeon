@@ -13,6 +13,7 @@
 #include <array>
 #include <flat_map>
 #include <flat_set>
+#include <functional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -62,6 +63,15 @@ struct ResourceBarStyle {
 	}
 };
 
+// THE PARTY LEADER as the HUD sees it (ui-updates Phase 9): who leads, asked
+// every draw (the world owns it - DungeonWorld::Leader), and what a click on a
+// member's NAME does. GameUI owns one; every member panel points at it.
+struct LeaderLink {
+	std::function<int()> leader;       // roster index; null = slot 0
+	std::function<void(size_t)> pick;  // a click on that member's name
+	std::string leaderTip, pickTip;    // the hover lines (localized)
+};
+
 // One FLOATING HUD panel's placement and look (ui-panels P3a: the party bar,
 // the two left plates, the Movement / Hands / Magic docks). The master copy
 // lives in GameSettings (kHudPanelFields; Settings -> UI, settings.ini
@@ -73,6 +83,9 @@ struct HudPanelLook {
 	float y = -1.0f;      // so the panel sits at its default spot
 	float scale = 1.0f;   // 0.5..1.5: the panel AND its text
 	float opacity = 1.0f; // 0..1: the panel face only, never its controls
+	// MINIMIZED into the closed-panels tray (ui-updates Phase 8; ini
+	// hud_<id>_hidden): not drawn at all, a tray button stands in for it.
+	bool hidden = false;
 };
 
 // WHERE an item sits in a member's inventory, for the item mouse buttons
@@ -112,6 +125,12 @@ struct ItemIconBank {
 		const auto it = byType.find(typeId);
 		return it == byType.end() ? nullptr : it->second;
 	}
+	// The Magic window's GLOWING runes (tools/BuildRuneGlow.py), by SpellSymbol
+	// index: the glyph alone and its soft halo, both white for the draw to tint.
+	// Null = not installed, and the rune falls back to its plain icon.
+	static constexpr size_t kRuneSlots = 8;
+	const gfx::Texture* runeGlyph[kRuneSlots]{};
+	const gfx::Texture* runeGlow[kRuneSlots]{};
 };
 
 // Item carry weights (kg) keyed by catalog id, the data behind a member's carry

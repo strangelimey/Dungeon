@@ -123,13 +123,21 @@ std::vector<Character> CreateDefaultParty() {
 		fx::ReserveEffects(member.effects);
 	}
 
-	// Maren and Tilo — the party's casters — start with every rune tablet
-	// (the four schools + the shared form runes) stowed in their backpacks,
-	// so the magic loop (memorize from the hand menu, build in the spellbook,
-	// cast) is reachable from a fresh game without scavenging the level first.
-	for (Character* caster : {&party[2], &party[3]})
-		for (u32 i = 0; i < kSymbolCount; ++i)
-			caster->inventory.Stow(std::string(RuneItemId(static_cast<SpellSymbol>(i))));
+	// THE STARTING KIT (Michael, ui-updates): the two fighters each hold a
+	// dagger, Brand in his RIGHT hand and Sera in her LEFT, the other hand bare.
+	// (Brand's bare left is the hand the harness's `swing 0` uses by default, so
+	// the eval suites' unarmed numbers are unchanged; nothing swings Sera's.)
+	// The two casters hold one school rune and one form rune, school in the left
+	// hand: Maren fire + project (a bolt), Tilo earth + protect (a ward). A rune
+	// in a hand is memorized from its use menu, so the magic loop (memorize,
+	// build in the spellbook, cast) is a click away in a fresh game; the rest of
+	// the runes are found.
+	party[0].inventory.Hand(1).typeId = "dagger";
+	party[1].inventory.Hand(0).typeId = "dagger";
+	party[2].inventory.Hand(0).typeId = RuneItemId(SpellSymbol::Fire);
+	party[2].inventory.Hand(1).typeId = RuneItemId(SpellSymbol::Project);
+	party[3].inventory.Hand(0).typeId = RuneItemId(SpellSymbol::Earth);
+	party[3].inventory.Hand(1).typeId = RuneItemId(SpellSymbol::Protect);
 
 	// Brand starts carrying one piece of each armor WEIGHT CLASS, for the same
 	// reason the casters start with runes: the trade the armor system is built

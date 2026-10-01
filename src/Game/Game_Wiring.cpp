@@ -179,6 +179,12 @@ void Game::WireModuleCallbacks() {
 				std::clamp(share, 0.0f, m_world->GetBalance().exertMax);
 	};
 	m_ui.exertMax = [this] { return m_world ? m_world->GetBalance().exertMax : 1.0f; };
+	// The party leader is the world's (it passes when a member falls, and it is
+	// saved with the party); the HUD only reads it and asks to change it.
+	m_ui.partyLeader = [this] { return m_world ? m_world->Leader() : 0; };
+	m_ui.onPickLeader = [this](size_t member) {
+		if (m_world) m_world->SetLeader(static_cast<int>(member));
+	};
 	m_ui.onMoveAction = [this](MoveAction action) {
 		// A pit fall swallows movement (the keyboard path gates in
 		// DungeonWorld::Update; this is the HUD arrow-button path).
@@ -186,6 +192,9 @@ void Game::WireModuleCallbacks() {
 	};
 	m_ui.onHandAttack = [this](size_t member, size_t hand, std::string_view verb) {
 		m_world->PartyAttack(member, hand, verb);
+	};
+	m_ui.onHandThrow = [this](size_t member, const std::string& item) {
+		return m_world->ThrowItem(item, static_cast<int>(member));
 	};
 	// The hand right-click menu reads an item's commands from the world's item
 	// kinds (single source — ItemKindFor parses category/command + rune defaults).

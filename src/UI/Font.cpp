@@ -19,7 +19,17 @@ namespace {
 // leave the floor.
 constexpr int kInitialAtlas = 256;
 constexpr int kMaxAtlasSize = 4096;
-constexpr int kGlyphPad = 1; // 1px gutter so neighbours don't bleed under bilinear
+// The gutter between glyphs. An outlined glyph (SpriteBatch::DrawGlyph) is drawn
+// grown by its radius AND dilates by that radius again, so its taps reach 2r
+// past its own box: the gutter holds 2 x kMaxOutline + 1 so a neighbour never
+// bleeds into the ring under bilinear.
+constexpr float kMaxOutline = 2.0f;
+constexpr int kGlyphPad = 5;
+static_assert(kGlyphPad >= 2 * static_cast<int>(kMaxOutline) + 1);
+
+// Outline radius in px for a font of `height` px: about 1px at the HUD's 17px,
+// 2px from ~29px (the menus). Thin enough to read as an edge, not a halo.
+float OutlineRadius(float height) { return std::clamp(height * 0.07f, 1.0f, kMaxOutline); }
 
 // Decodes the next UTF-8 codepoint of `text`, advancing `i` past it.
 // Malformed bytes decode as '?' (one byte consumed) so bad input stays
@@ -228,13 +238,25 @@ void Font::Draw(gfx::SpriteBatch& batch, std::string_view text, float x, float y
 	// y is the top of the text box; pen baseline sits one ascent below.
 	float penX = x;
 	const float baseline = y + m_ascent;
+	// An outline is the batch's state (a skinned context sets it - UIContext::
+	// Render); the glyph quad grows by the radius so the ring has room.
+	const bool outlined = batch.TextOutline().w > 0.0f;
+	const float r = outlined ? OutlineRadius(m_pixelHeight) : 0.0f;
+	const float ruv = m_atlasSize > 0 ? r / static_cast<float>(m_atlasSize) : 0.0f;
 	for (size_t i = 0; i < text.size();) {
 		const Glyph* g = EnsureGlyph(NextCodepoint(text, i));
 		if (!g) continue; // deferred this frame (atlas growing) — appears next frame
 		if (g->size.x > 0 && g->size.y > 0) {
 			const gfx::Rect dst{penX + g->offset.x, baseline + g->offset.y, g->size.x,
 								g->size.y};
-			batch.DrawSprite(dst, g->uv, *m_atlas, color);
+			if (outlined) {
+				const gfx::Rect grown{dst.x - r, dst.y - r, dst.w + 2 * r, dst.h + 2 * r};
+				const gfx::Rect uv{g->uv.x - ruv, g->uv.y - ruv, g->uv.w + 2 * ruv,
+								   g->uv.h + 2 * ruv};
+				batch.DrawGlyph(grown, uv, *m_atlas, color, r);
+			} else {
+				batch.DrawSprite(dst, g->uv, *m_atlas, color);
+			}
 		}
 		penX += g->advance;
 	}

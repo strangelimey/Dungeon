@@ -269,7 +269,7 @@ bool DungeonWorld::ToggleDoorAhead(float mx, float my, float w, float h) {
 	// anyone who walked up and clicked. Wired buttons go through ToggleDoorsNamed
 	// and never come here, so a mechanism is unaffected — as with key locks.
 	if (!door->opener) {
-		if (onMessage) onMessage(loc::View("log.door_nohandle"));
+		if (onMessage) onMessage(loc::FormatLine("log.door_nohandle", LeaderName()));
 		return true; // the click WAS for the door; it just found nothing to pull
 	}
 	// THE RAY HAS TO HIT THE HAND-HOLD. A sphere around it rather than the mesh:
@@ -315,10 +315,10 @@ bool DungeonWorld::HandOnDoor(Door& door) {
 	// (mechanisms don't need the key).
 	if (!door.open && !door.key.empty()) {
 		if (!PartyHasItem(door.key)) {
-			if (onMessage) onMessage(loc::View("log.door_locked"));
+			if (onMessage) onMessage(loc::FormatLine("log.door_locked", LeaderName()));
 			return false;
 		}
-		if (onMessage) onMessage(loc::View("log.door_unlock"));
+		if (onMessage) onMessage(loc::FormatLine("log.door_unlock", LeaderName()));
 	}
 	return ToggleDoor(door);
 }
@@ -674,7 +674,7 @@ bool DungeonWorld::PressButtonFacing() {
 			// party's, and it found nothing that gives.
 			if (!FlagOn(b.needs)) {
 				m_audio.Play(m_sounds.bump, 0.4f);
-				if (onMessage) onMessage(loc::View("log.button_stuck"));
+				if (onMessage) onMessage(loc::FormatLine("log.button_stuck", LeaderName()));
 				return true;
 			}
 			PressButton(b);
@@ -686,7 +686,7 @@ bool DungeonWorld::PressButtonFacing() {
 void DungeonWorld::PressButton(Button& b) {
 	b.activated = !b.activated;
 	m_audio.Play(m_sounds.bump, 0.4f); // a soft clunk until a click exists
-	if (onMessage) onMessage(loc::View("log.button_press"));
+	if (onMessage) onMessage(loc::FormatLine("log.button_press", LeaderName()));
 	ToggleDoorsNamed(b.target);
 	ToggleNichesNamed(b.target); // secret-niche reveal
 	ApplyFlagOp(b.op, b.sets);

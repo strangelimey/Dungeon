@@ -103,6 +103,7 @@ instancing rationale and the Reserved Font Name audit live in
 | 2026-08-02 | IM Fell English (roman + italic) | **free** | OFL 1.1 (no RFN) | Script | audition |
 | 2026-08-02 | Petit Formal Script | **free** | OFL 1.1 (RFN, unmodified) | Script | audition |
 | 2026-08-02 | JetBrains Mono | **free** | OFL 1.1 (no RFN) | Mono | instanced wght=400; audition |
+| 2026-10-01 | Spectral SemiBold | **free** | OFL 1.1 (no RFN) | Body | shipped static; the Body face since ui-updates (text on stone) |
 
 ### Other asset packs (sound / music / etc.)
 | date | item | source | price | notes |
