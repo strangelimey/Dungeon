@@ -99,6 +99,13 @@ struct ControlBarDeps {
 	// Settings -> UI "Lock HUD layout", and who to tell when a drag ends.
 	const bool* locked = nullptr;
 	std::function<void()> onPlacementChanged;
+	// THE MINIMAL LAYOUT (Game/MemberCards.h): no Hands dock - the hands ride
+	// the party cards - and the Magic dock's default spot and its height at
+	// scale 1 (pixels) come from the owner, since the column under Movement now
+	// holds the cards. Null = the Standard column's rules.
+	bool withHands = true;
+	std::function<Vec2(ui::UIContext&)> magicDefaultPos;
+	std::function<float(ui::UIContext&)> magicHeight1;
 };
 
 // 3x2 grid of movement buttons: turn-left / forward / turn-right over
@@ -217,9 +224,12 @@ private:
 // The three docks, built as floating panels on `layer`.
 struct HudDocks {
 	ui::FloatingPanel* move = nullptr;
-	ui::FloatingPanel* hands = nullptr;
+	ui::FloatingPanel* hands = nullptr; // null when !deps.withHands
 	ui::FloatingPanel* magic = nullptr;
 	SpellbookPanel* spellbook = nullptr;
+	// The default TOP of the slot under Movement (pixels) - where the Hands
+	// dock starts, or what takes its place (the Minimal layout's cards).
+	std::function<float(ui::UIContext&)> handsTop;
 };
 HudDocks BuildHudDocks(ui::FloatingLayer& layer, const ControlBarDeps& deps);
 

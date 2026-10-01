@@ -143,6 +143,8 @@ public:
 	// Every panel back to its default spot and size (Settings -> UI "Reset HUD
 	// layout", dev `hudpanel reset`); opacity stays.
 	void ResetHudLayout();
+	// The HUD layout: 0 Standard, 1 Minimal (party cards). Rebuilds the HUD.
+	void SetHudLayout(int layout);
 	// The pointer shape the grips of panels [first, last) want this frame.
 	Window::Cursor PanelCursor(size_t first, size_t last) const;
 	// A panel by kHudPanelFields index, for the `hudpanel` dev command (null

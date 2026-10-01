@@ -341,7 +341,8 @@ HudDocks BuildHudDocks(ui::FloatingLayer& layer, const ControlBarDeps& deps) {
 		return panel;
 	};
 	ui::FloatingPanel* move = out.move = makePanel("MovePanel", deps.moveLook);
-	ui::FloatingPanel* hands = out.hands = makePanel("HandsPanel", deps.handsLook);
+	ui::FloatingPanel* hands = out.hands =
+		deps.withHands ? makePanel("HandsPanel", deps.handsLook) : nullptr;
 	ui::FloatingPanel* magic = out.magic = makePanel("MagicPanel", deps.magicLook);
 
 	auto* moveDock = move->Add<HudDock>(deps.moveLabel, deps.moveCollapsed,
@@ -351,10 +352,12 @@ HudDocks BuildHudDocks(ui::FloatingLayer& layer, const ControlBarDeps& deps) {
 	moveDock->SetToggleIcons(deps.boxPlus, deps.boxMinus);
 	moveDock->SetContent<MovementPad>(gfx::Rect{0, 0, 1, 1}, deps);
 
-	auto* handsDock = hands->Add<HudDock>(std::string(), nullptr, nullptr, deps.handsLook);
-	handsDock->bounds = {0, 0, 1, 1};
-	handsDock->debugName = "HandsDock";
-	handsDock->SetContent<HandsArea>(gfx::Rect{0, 0, 1, 1}, deps);
+	if (hands) {
+		auto* handsDock = hands->Add<HudDock>(std::string(), nullptr, nullptr, deps.handsLook);
+		handsDock->bounds = {0, 0, 1, 1};
+		handsDock->debugName = "HandsDock";
+		handsDock->SetContent<HandsArea>(gfx::Rect{0, 0, 1, 1}, deps);
+	}
 
 	auto* magicDock = magic->Add<HudDock>(deps.magicLabel, deps.magicCollapsed,
 										  deps.onCollapseChanged, deps.magicLook);
@@ -388,10 +391,12 @@ HudDocks BuildHudDocks(ui::FloatingLayer& layer, const ControlBarDeps& deps) {
 		const float s = moveLook->scale;
 		return moveTop(ctx) + MoveHeight(width(ctx, s), move->EmAt(ctx, s)) + gap(ctx);
 	};
+	// (The hands' em is any dock's at that scale: all three share the HUD's font.)
 	auto magicTop = [=](ui::UIContext& ctx) {
 		const float s = handsLook->scale;
-		return handsTop(ctx) + HandsHeight(width(ctx, s), hands->EmAt(ctx, s), rows) + gap(ctx);
+		return handsTop(ctx) + HandsHeight(width(ctx, s), move->EmAt(ctx, s), rows) + gap(ctx);
 	};
+	out.handsTop = handsTop;
 
 	move->size = [=](ui::UIContext& ctx, float s) {
 		const float w = width(ctx, s), em = move->EmAt(ctx, s);
@@ -402,21 +407,27 @@ HudDocks BuildHudDocks(ui::FloatingLayer& layer, const ControlBarDeps& deps) {
 		return Vec2{right(ctx) - width(ctx, moveLook->scale), moveTop(ctx)};
 	};
 
-	hands->size = [=](ui::UIContext& ctx, float s) {
-		const float w = width(ctx, s);
-		return Vec2{w, HandsHeight(w, hands->EmAt(ctx, s), rows)};
-	};
-	hands->defaultPos = [=](ui::UIContext& ctx) {
-		return Vec2{right(ctx) - width(ctx, handsLook->scale), handsTop(ctx)};
-	};
+	if (hands) {
+		hands->size = [=](ui::UIContext& ctx, float s) {
+			const float w = width(ctx, s);
+			return Vec2{w, HandsHeight(w, hands->EmAt(ctx, s), rows)};
+		};
+		hands->defaultPos = [=](ui::UIContext& ctx) {
+			return Vec2{right(ctx) - width(ctx, handsLook->scale), handsTop(ctx)};
+		};
+	}
 
 	// Magic's height at scale 1 is what the default column leaves below the
 	// other two at THEIR scale 1 - a fixed number, so resizing the hands does
-	// not resize the magic dock - and it scales from there like the others.
+	// not resize the magic dock - and it scales from there like the others. The
+	// Minimal layout says both its height and its spot itself.
+	const std::function<float(ui::UIContext&)> magicHeight1 = deps.magicHeight1;
+	const std::function<Vec2(ui::UIContext&)> magicDefaultPos = deps.magicDefaultPos;
 	magic->size = [=](ui::UIContext& ctx, float s) {
 		const float w = width(ctx, s), em = magic->EmAt(ctx, s);
 		const DockMetrics m = MetricsFor(w, em, true);
 		if (magicCollapsed && *magicCollapsed) return Vec2{w, m.Minimized()};
+		if (magicHeight1) return Vec2{w, std::max(m.Minimized(), magicHeight1(ctx) * s)};
 		const float w1 = width(ctx, 1.0f), em1 = magic->EmAt(ctx, 1.0f);
 		const float top1 = moveTop(ctx) + MoveHeight(w1, em1) + gap(ctx) +
 						   HandsHeight(w1, em1, rows) + gap(ctx);
@@ -424,6 +435,7 @@ HudDocks BuildHudDocks(ui::FloatingLayer& layer, const ControlBarDeps& deps) {
 		return Vec2{w, std::max(m.Minimized(), (bottom - top1) * s)};
 	};
 	magic->defaultPos = [=](ui::UIContext& ctx) {
+		if (magicDefaultPos) return magicDefaultPos(ctx);
 		return Vec2{right(ctx) - width(ctx, magicLook->scale), magicTop(ctx)};
 	};
 	// Magic appears once ANY member knows a symbol - not before, and not by a

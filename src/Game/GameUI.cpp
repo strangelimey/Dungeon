@@ -6,6 +6,7 @@
 #include "Core/Loc.h"
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
+#include "Game/MemberCards.h"
 #include "Game/Project.h"
 #include "Game/SaveGame.h"
 #include "Game/Spell/Spell.h"
@@ -711,6 +712,19 @@ void GameUI::BuildSettings() {
 	// whose list is empty until the first game load.
 	uf->Space(ui::Len::Fixed(kSetGroup));
 	uf->Row<ui::Label>(ui::Len::Fixed(kSetLabel), loc::Tr("settings.hud_panels"));
+	// The layout (P4): Standard, or Minimal - the party bar and the hands
+	// folded into one card per member. A switch rebuilds the HUD at once (it
+	// lives in another context, so this callback cannot pull its own widget
+	// out from under itself).
+	uf->Row<ui::Label>(ui::Len::Fixed(kSetLabel), loc::Tr("settings.hud_layout"))->dim = true;
+	uf->Row<ui::DropDown>(
+		ui::Len::Fixed(kSetCtrl),
+		std::vector<std::string>{loc::Tr("settings.layout_standard"),
+								 loc::Tr("settings.layout_minimal")},
+		m_settings.hudLayout, [this](int index) {
+			Click();
+			SetHudLayout(index);
+		});
 	uf->Row<ui::Checkbox>(
 		ui::Len::Fixed(kSetCtrl),
 		loc::Tr("settings.hud_lock"), m_settings.hudLocked, [this](bool on) {
@@ -1481,43 +1495,58 @@ void GameUI::BuildHud() {
 		m_hudPanels[field] = panel;
 		return panel;
 	};
+	// THE LAYOUT (P4): Standard = the party bar across the top and the Hands
+	// dock in the right column; Minimal = neither, one card per member instead
+	// (Game/MemberCards.h), the cards block where the Hands dock was.
+	const bool minimal = m_settings.hudLayout == 1;
+
 	// The defaults hang off the party bar's DEFAULT height at its scale - what
 	// the old below-bar container did when the bar grew - so an unmoved left
-	// column and dock column still start just under it.
-	auto belowTop = [this](ui::UIContext& ctx) {
+	// column and dock column still start just under it. No bar, no gap for one.
+	auto belowTop = [this, minimal](ui::UIContext& ctx) {
+		if (minimal) return kBarTop * ctx.Height();
 		return (kBarTop + kBarH0 * m_settings.hudParty.scale + kBarGap) * ctx.Height();
+	};
+
+	// One member's party-bar slot (portrait, name, effects, bars), the same
+	// widget in the bar and on a card.
+	auto addMemberPanel = [this](ui::Widget& parent, size_t i) {
+		return parent.Add<CharacterPanel>(
+			gfx::Rect{}, &m_characters, i, &m_settings.barColors,
+			m_hitSplats, m_itemIcons, [this, i] { OnPortraitClick(i); },
+			[this, i] { OnPortraitRightClick(i); },
+			[this, i] { OnPortraitBars(i); },
+			[this, i] { OnPortraitEffects(i); });
 	};
 
 	// The party bar. Its width only shrinks below scale 1 and is pinned at the
 	// window's span above it, so past 1 the bar only grows taller - the
 	// slider's old behaviour, kept: four portraits cannot get wider than the
 	// screen.
-	ui::FloatingPanel* party = makePanel(kHudParty, "PartyPanel");
-	m_partyBar = party->Add<PartyBar>(gfx::Rect{0, 0, 1, 1});
-	party->size = [this](ui::UIContext& ctx, float s) {
-		const float ws = std::min(s, 1.0f);
-		constexpr float kMargin = 0.01f;
-		constexpr float kGap0 = 0.006f;
-		const float gap = kGap0 * ws;
-		const float usable = 1.0f - 2 * kMargin - 3 * gap;
-		const float barW = (usable * ws) + 3 * gap;
-		m_partyBar->gap = gap / barW; // the same pixel gap, as a bar fraction
-		return Vec2{barW * ctx.Width(), kBarH0 * s * ctx.Height()};
-	};
-	party->defaultPos = [party](ui::UIContext& ctx) {
-		const Vec2 size = party->size(ctx, party->Scale());
-		return Vec2{(ctx.Width() - size.x) * 0.5f, kBarTop * ctx.Height()};
-	};
+	m_partyBar = nullptr;
 	m_partyPanels.clear();
-	for (size_t i = 0; i < m_characters.size() && i < PartyBar::kSlots; ++i) {
-		auto* panel = m_partyBar->Add<CharacterPanel>(
-			gfx::Rect{}, &m_characters, i, &m_settings.barColors,
-			m_hitSplats, m_itemIcons, [this, i] { OnPortraitClick(i); },
-			[this, i] { OnPortraitRightClick(i); },
-			[this, i] { OnPortraitBars(i); },
-			[this, i] { OnPortraitEffects(i); });
-		panel->backgroundOpacity = m_settings.hudParty.opacity;
-		m_partyPanels.push_back(panel);
+	if (!minimal) {
+		ui::FloatingPanel* party = makePanel(kHudParty, "PartyPanel");
+		m_partyBar = party->Add<PartyBar>(gfx::Rect{0, 0, 1, 1});
+		party->size = [this](ui::UIContext& ctx, float s) {
+			const float ws = std::min(s, 1.0f);
+			constexpr float kMargin = 0.01f;
+			constexpr float kGap0 = 0.006f;
+			const float gap = kGap0 * ws;
+			const float usable = 1.0f - 2 * kMargin - 3 * gap;
+			const float barW = (usable * ws) + 3 * gap;
+			m_partyBar->gap = gap / barW; // the same pixel gap, as a bar fraction
+			return Vec2{barW * ctx.Width(), kBarH0 * s * ctx.Height()};
+		};
+		party->defaultPos = [party](ui::UIContext& ctx) {
+			const Vec2 size = party->size(ctx, party->Scale());
+			return Vec2{(ctx.Width() - size.x) * 0.5f, kBarTop * ctx.Height()};
+		};
+		for (size_t i = 0; i < m_characters.size() && i < PartyBar::kSlots; ++i) {
+			CharacterPanel* panel = addMemberPanel(*m_partyBar, i);
+			panel->backgroundOpacity = m_settings.hudParty.opacity;
+			m_partyPanels.push_back(panel);
+		}
 	}
 
 	// Left column: the status plate (compass + position) over the options plate
@@ -1642,10 +1671,53 @@ void GameUI::BuildHud() {
 	deps.columnBottom = [](ui::UIContext& ctx) { return (1.0f - kFooter) * ctx.Height(); };
 	deps.locked = &m_settings.hudLocked;
 	deps.onPlacementChanged = [this] { OnHudPanelMoved(); };
+	if (minimal) {
+		// The cards take the column under Movement, so Magic's default moves to
+		// the LEFT column, under the options plate (at the plates' scale 1, so
+		// resizing a plate never shifts or resizes it), running down to the log.
+		deps.withHands = false;
+		auto magicTop = [belowTop](ui::UIContext& ctx) {
+			return belowTop(ctx) +
+				   (kStatusH + kOptionsGap + kOptionsH + kOptionsGap) * ctx.Height();
+		};
+		deps.magicDefaultPos = [magicTop](ui::UIContext& ctx) {
+			return Vec2{kLeftX * ctx.Width(), magicTop(ctx)};
+		};
+		deps.magicHeight1 = [magicTop](ui::UIContext& ctx) {
+			return (1.0f - kFooter) * ctx.Height() - magicTop(ctx);
+		};
+	}
 	const HudDocks docks = BuildHudDocks(*m_hudLayer, deps);
 	m_hudPanels[kHudMove] = docks.move;
 	m_hudPanels[kHudHands] = docks.hands;
 	m_hudPanels[kHudMagic] = docks.magic;
+
+	// THE PARTY CARDS (Minimal, Game/MemberCards.h): one floating block, two
+	// cards across in formation order, where the Hands dock sits in Standard -
+	// under Movement, flush right. Each card is the bar's member panel over that
+	// member's hand pair; the card draws the one face behind both.
+	if (minimal) {
+		constexpr float kCardsW = 0.24f; // the block at scale 1, of the window width
+		const size_t members = std::min<size_t>(m_characters.size(), PartyBar::kSlots);
+		ui::FloatingPanel* cards = makePanel(kHudCards, "CardsPanel");
+		cards->size = [cards, members](ui::UIContext& ctx, float s) {
+			const float w = kCardsW * s * ctx.Width();
+			return Vec2{w, CardGrid::Height(w, cards->EmAt(ctx, s), members)};
+		};
+		const std::function<float(ui::UIContext&)> slotTop = docks.handsTop;
+		cards->defaultPos = [cards, slotTop](ui::UIContext& ctx) {
+			const float w = kCardsW * cards->Scale() * ctx.Width();
+			return Vec2{ctx.Width() * (1.0f - kControlMargin) - w, slotTop(ctx)};
+		};
+		auto* grid = cards->Add<CardGrid>();
+		grid->bounds = {0, 0, 1, 1};
+		for (size_t i = 0; i < members; ++i) {
+			auto* card = grid->Add<MemberCard>(&m_characters, i, &m_settings.hudCards.opacity);
+			CharacterPanel* panel = addMemberPanel(*card, i);
+			panel->backgroundOpacity = 0.0f; // the card's face shows through
+			card->SetPieces(panel, card->Add<HandPair>(gfx::Rect{}, i, deps));
+		}
+	}
 
 	// The party inventory: a floating WINDOW (P3b) - the last panel on the
 	// layer, so it draws over the others, and shown only while open. Centred
@@ -1726,6 +1798,18 @@ void GameUI::SyncHudPanelSliders() {
 	for (size_t i = 0; i < m_hudScaleSliders.size(); ++i)
 		if (m_hudScaleSliders[i])
 			m_hudScaleSliders[i]->SetValue((m_settings.*(kHudPanelFields[i].look)).scale);
+}
+
+// Standard (0) or Minimal (1) - Settings -> UI "Layout", dev `hudpanel layout`.
+// Saved, and the HUD rebuilt in the new shape if a game has built one (before
+// that, the first BuildHud reads the setting). The rebuild is RebuildForRoster's:
+// it restores the movement help line, but the message log starts afresh.
+void GameUI::SetHudLayout(int layout) {
+	layout = std::clamp(layout, 0, 1);
+	if (layout == m_settings.hudLayout) return;
+	m_settings.hudLayout = layout;
+	m_settings.Save();
+	RebuildForRoster();
 }
 
 // Settings -> UI "Reset HUD layout": every panel back to its default spot and

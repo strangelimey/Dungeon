@@ -15,6 +15,7 @@
 #   .\tools\AllocTest.ps1 -Pause             # Esc to the pause menu and back
 #   .\tools\AllocTest.ps1 -Sheet             # the sheet: hover, tabs, item dialog
 #   .\tools\AllocTest.ps1 -Panels            # drag and resize the floating HUD
+#   .\tools\AllocTest.ps1 -Minimal [-Sheet]  # any mode, under the party-card layout
 #   .\tools\AllocTest.ps1 -Config release    # needs -DDN_TRACK_ALLOCS=ON
 #
 # THE RULE HAS NO EXCEPTIONS: an allocation in a settled frame is a bug, and
@@ -185,6 +186,9 @@ param(
 	[switch]$Sheet,
 	# Drags and resizes the floating HUD panels inside the window. See above.
 	[switch]$Panels,
+	# Runs whichever mode under the Minimal HUD layout (one card per member,
+	# docs/ui-panels-plan.md P4), and puts Standard back afterwards.
+	[switch]$Minimal,
 	# Checks the CHECKER: makes the game allocate every frame on purpose
 	# (`allocpoke`) and passes only if the run comes back FAIL.
 	[switch]$SelfTest
@@ -394,6 +398,19 @@ try {
 	Start-Sleep -Milliseconds 300
 	Send-Key 0xC0 # closed again: each path below opens it for itself
 	Start-Sleep -Milliseconds 400
+
+	# -Minimal: the whole run under the Minimal HUD layout (the party cards).
+	# FIRST, before any mode sets its scene up: the switch REBUILDS the HUD, which
+	# would close a spellbook -Cast had opened. A first time, out here before the
+	# window; the verdict below refuses a PASS unless the cards were actually up.
+	if ($Minimal) {
+		Write-Host 'switching the HUD to the Minimal layout'
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'hudpanel layout minimal'; Send-Key 0x0D
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 600
+	}
 
 	if ($Wounded) {
 		Write-Host 'wounding the party so the regeneration path actually runs'
@@ -845,6 +862,26 @@ try {
 		$invShown = $invRow -match 'inventory shown'
 		if ((-not $moved -or -not $scaled -or -not $invShown) -and $result -eq 'PASS') {
 			Write-Host 'a drag did not land, or the inventory was not open, inside the window - the panel path was not measured' -ForegroundColor Yellow
+			$result = 'UNMEASURED'
+		}
+	}
+
+	# And for -Minimal: the cards must have been up - else the run measured the
+	# Standard HUD and says nothing about the Minimal one. Then Standard goes
+	# back, so the next harness on this build starts where it expects.
+	if ($Minimal) {
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		Send-Text 'hudpanel list'; Send-Key 0x0D
+		Start-Sleep -Milliseconds 500
+		Send-Text 'hudpanel layout standard'; Send-Key 0x0D
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0
+		$cardsRow = @(Select-String -Path $log -Pattern 'console:   cards ')[-1].Line
+		Write-Host "  $($cardsRow -replace '^.*console:   ', '')"
+		if ($cardsRow -notmatch 'cards +shown' -and $result -eq 'PASS') {
+			Write-Host 'the party cards were not up - the Minimal layout was not measured' -ForegroundColor Yellow
 			$result = 'UNMEASURED'
 		}
 	}

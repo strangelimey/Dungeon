@@ -554,10 +554,12 @@ void Game::RegisterPartyCommands() {
 	m_console.Register(
 		"hudpanel",
 		"floating HUD panels (dev): hudpanel [list] | <id> <x> <y> [scale] | reset | "
-		"lock on|off",
+		"lock on|off | layout standard|minimal",
 		[this](const std::vector<std::string>& args) {
 			if (args.empty() || args[0] == "list") {
-				m_console.Print(std::format("hud layout {}", m_settings.hudLocked ? "locked" : "unlocked"));
+				m_console.Print(std::format("hud layout {}, {}",
+											m_settings.hudLayout == 1 ? "minimal" : "standard",
+											m_settings.hudLocked ? "locked" : "unlocked"));
 				for (size_t i = 0; i < std::size(kHudPanelFields); ++i) {
 					const HudPanelLook& look = m_settings.*(kHudPanelFields[i].look);
 					const ui::FloatingPanel* panel = m_ui.HudPanel(i);
@@ -576,6 +578,15 @@ void Game::RegisterPartyCommands() {
 			if (args[0] == "reset") {
 				m_ui.ResetHudLayout();
 				m_console.Print("hud layout reset");
+				return;
+			}
+			if (args[0] == "layout") {
+				if (args.size() < 2 || (args[1] != "standard" && args[1] != "minimal")) {
+					m_console.Refuse("usage: hudpanel layout standard|minimal");
+					return;
+				}
+				m_ui.SetHudLayout(args[1] == "minimal" ? 1 : 0);
+				m_console.Print(std::format("hud layout {}", args[1]));
 				return;
 			}
 			if (args[0] == "lock") {
@@ -600,7 +611,7 @@ void Game::RegisterPartyCommands() {
 											look.y, look.scale));
 				return;
 			}
-			m_console.Refuse("no such panel - party, status, options, move, hands, magic, inventory, sheet");
+			m_console.Refuse("no such panel - party, status, options, move, hands, magic, cards, inventory, sheet");
 		});
 
 	// Open (or close) the party inventory window - the sheet's "All" button's

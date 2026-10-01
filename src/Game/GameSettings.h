@@ -194,6 +194,12 @@ struct GameSettings {
 	HudPanelLook hudParty, hudStatus, hudOptions, hudMove, hudHands, hudMagic;
 	// The two floating WINDOWS (P3b): the party inventory and the sheet.
 	HudPanelLook hudInventory, hudSheet;
+	// THE HUD LAYOUT (P4): 0 = Standard (party bar + Hands dock), 1 = Minimal
+	// (one card per member: portrait, bars and hands together - Game/
+	// MemberCards.h). Settings -> UI "Layout"; ini hud_layout=. The cards
+	// block is a floating panel of its own.
+	int hudLayout = 0;
+	HudPanelLook hudCards;
 	// Settings -> UI "Lock HUD layout": no grips, no drags. ini hud_locked=.
 	bool hudLocked = false;
 	// The level generator's last-USED knobs, encoded by Game/GenerateKnobs.h
@@ -253,13 +259,15 @@ inline constexpr HudPanelField kHudPanelFields[] = {
 	{"move", "settings.move_panel", &GameSettings::hudMove},
 	{"hands", "settings.hands_panel", &GameSettings::hudHands},
 	{"magic", "settings.magic_panel", &GameSettings::hudMagic},
+	{"cards", "settings.cards_panel", &GameSettings::hudCards},
 	{"inventory", "settings.inventory_panel", &GameSettings::hudInventory},
 	{"sheet", "settings.sheet_panel", &GameSettings::hudSheet},
 };
-// Their indices, for code that needs one panel by name.
+// Their indices, for code that needs one panel by name. The sheet stays LAST:
+// it alone lives in another UI context, and [0, kHudSheet) is "the HUD's".
 enum HudPanelIndex : size_t {
 	kHudParty, kHudStatus, kHudOptions, kHudMove, kHudHands, kHudMagic,
-	kHudInventory, kHudSheet
+	kHudCards, kHudInventory, kHudSheet
 };
 static_assert(std::size(kHudPanelFields) == kHudSheet + 1);
 

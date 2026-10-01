@@ -168,6 +168,8 @@ void GameSettings::Load() {
 		ParseIniFloat(text, stem + "_opacity=", look.opacity, 0.0f, 1.0f);
 	}
 	ParseIniBool(text, "hud_locked=", hudLocked);
+	ParseIniInt(text, "hud_layout=", hudLayout);
+	hudLayout = std::clamp(hudLayout, 0, 1);
 
 	// Mouse-look feel. Durations are clamped to the slider ranges; the two curves
 	// store the dropdown INDEX into kLookEaseOptions (validated before mapping).
@@ -286,7 +288,7 @@ void GameSettings::Save() const {
 		text += std::format("hud_{0}_pos={1:.4f},{2:.4f}\nhud_{0}_scale={3:.2f}\nhud_{0}_opacity={4:.2f}\n",
 							field.id, look.x, look.y, look.scale, look.opacity);
 	}
-	text += std::format("hud_locked={}\n", hudLocked ? 1 : 0);
+	text += std::format("hud_locked={}\nhud_layout={}\n", hudLocked ? 1 : 0, hudLayout);
 	text += std::format("gen_knobs={}\n", generatorKnobs);
 	text += std::format(
 		"adapter={}\noutput={}\nreswidth={}\nresheight={}\nfullscreen={}\n",

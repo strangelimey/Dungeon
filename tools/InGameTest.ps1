@@ -113,6 +113,14 @@ $screens = @(
 	# backwards; the `sheet` dev command opens it through the same entry point
 	# the click uses, and it is swept like everything else now.
 	@{ label = 'sweep_sheet';  viaConsole = $true;  open = { Run-Cmd 'sheet 0' }; close = { Run-Cmd 'sheet off' } },
+	# The floating HUD's other shapes (docs/ui-panels-plan.md P3b/P4): the party
+	# inventory WINDOW, and the MINIMAL layout - the party bar and the hands
+	# folded into one card per member, with the Magic dock (a member knows a
+	# symbol first, or it is not shown) moved to the left column.
+	@{ label = 'sweep_inventory'; viaConsole = $true; open = { Run-Cmd 'inventory' }; close = { Run-Cmd 'inventory off' } },
+	@{ label = 'sweep_minimal'; viaConsole = $true
+	   open = { Run-Cmd 'learn 0 fire'; Run-Cmd 'hudpanel layout minimal' }
+	   close = { Run-Cmd 'hudpanel layout standard' } },
 	# The level generator's dialog in BOTH modes (docs/level-building.md P1):
 	# CREATE (the toolbar's [+]) and REGENERATE. Opened only - nothing is
 	# generated, so the sweep writes no level.
