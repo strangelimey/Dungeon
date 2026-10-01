@@ -149,6 +149,7 @@ settings.sheet_panel=Character Sheet
 settings.hud_panels=HUD Panels
 settings.hud_lock=Lock HUD layout (no moving or resizing)
 settings.hud_reset=Reset HUD layout
+hud.reset_layout=Reset all panels to their default places
 settings.theme_colors=Theme Colors
 settings.resource_bars=Resource Bars
 settings.party_colors=Party Colors

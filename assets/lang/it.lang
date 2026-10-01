@@ -150,6 +150,7 @@ settings.sheet_panel=Scheda del personaggio
 settings.hud_panels=Pannelli dell'interfaccia
 settings.hud_lock=Blocca la disposizione (niente spostamenti o ridimensionamenti)
 settings.hud_reset=Ripristina la disposizione
+hud.reset_layout=Riporta tutti i pannelli al loro posto
 settings.theme_colors=Colori del tema
 settings.resource_bars=Barre delle risorse
 settings.party_colors=Colori del gruppo

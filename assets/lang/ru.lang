@@ -154,6 +154,7 @@ settings.sheet_panel=Лист персонажа
 settings.hud_panels=Панели интерфейса
 settings.hud_lock=Закрепить расположение (без перемещения и масштаба)
 settings.hud_reset=Сбросить расположение
+hud.reset_layout=Вернуть все панели на места по умолчанию
 settings.theme_colors=Цвета темы
 settings.resource_bars=Полосы ресурсов
 settings.party_colors=Цвета отряда

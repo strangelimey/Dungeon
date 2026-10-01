@@ -1124,6 +1124,11 @@ void GameUI::BuildCharacterSheet() {
 	// Capped at 1.3: past it the window would outgrow a 16:9 screen.
 	auto* layer = m_sheetUi.Add<ui::FloatingLayer>();
 	layer->bounds = {0, 0, 1, 1};
+	layer->onResetAll = [this] { ResetHudLayout(); };
+	layer->resetTip = loc::Tr("hud.reset_layout");
+	// The sheet floats over the HUD, so it lines up with the HUD's panels too.
+	// Asked per drag: BuildHud replaces the HUD's layer.
+	layer->snapPeer = [this] { return static_cast<const ui::FloatingLayer*>(m_hudLayer); };
 	auto* window = layer->Add<ui::FloatingPanel>();
 	window->debugName = "SheetPanel";
 	window->posX = &m_settings.hudSheet.x;
@@ -1483,6 +1488,9 @@ void GameUI::BuildHud() {
 	// (kBarTop and friends, file scope), turned into pixels each layout.
 	m_hudLayer = m_hudUi.Add<ui::FloatingLayer>();
 	m_hudLayer->bounds = {0, 0, 1, 1};
+	// Ctrl over any panel offers a button that puts EVERY panel home.
+	m_hudLayer->onResetAll = [this] { ResetHudLayout(); };
+	m_hudLayer->resetTip = loc::Tr("hud.reset_layout");
 	auto makePanel = [this](size_t field, const char* name) {
 		HudPanelLook& look = m_settings.*(kHudPanelFields[field].look);
 		auto* panel = m_hudLayer->Add<ui::FloatingPanel>();
@@ -1812,16 +1820,18 @@ void GameUI::SetHudLayout(int layout) {
 	RebuildForRoster();
 }
 
-// Settings -> UI "Reset HUD layout": every panel back to its default spot and
-// size. Opacity is a look, not a layout, so it stays.
+// Settings -> UI "Reset HUD layout", and the reset button on a Ctrl-hovered
+// panel: every panel back to its default spot and size. Opacity is a look, not
+// a layout, so it stays. The panel's button presses it inside an armed frame,
+// so the sliders are only marked stale (OnHudPanelMoved) - the Settings page
+// catches them up before it shows.
 void GameUI::ResetHudLayout() {
 	for (const HudPanelField& field : kHudPanelFields) {
 		HudPanelLook& look = m_settings.*(field.look);
 		look.x = look.y = -1.0f;
 		look.scale = 1.0f;
 	}
-	m_settings.Save();
-	SyncHudPanelSliders();
+	OnHudPanelMoved();
 }
 
 // What the pointer shape should be this frame: a grip's arrow while one of

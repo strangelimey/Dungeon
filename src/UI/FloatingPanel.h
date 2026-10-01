@@ -2,10 +2,23 @@
 // UI/FloatingPanel.h - panels the player moves and resizes (ui-panels P3a).
 //
 // A FloatingPanel is a top-level piece of HUD - the party bar, a plate, a
-// dock - whose place is the PLAYER'S, not the layout's: dragged by its own
-// background (or the move grip at its top-left) and scaled by the grip at its
-// bottom-right. Michael (docs/ui-panels-notes.md): "each bar/panel is a
-// floating panel that can be independently moved and resized."
+// dock - whose place is the PLAYER'S, not the layout's. Michael
+// (docs/ui-panels-notes.md): "each bar/panel is a floating panel that can be
+// independently moved and resized."
+//
+// HOLD CTRL TO ARRANGE (Michael, 2026-09-30, after the first feel pass: the
+// grips appeared on every hover). Without Ctrl a panel is just its content.
+// With Ctrl held over it, the panel is outlined, shows a move cross at its
+// top-left, a resize wedge at its bottom-right and a RESET button at its
+// top-right, and takes the whole pointer: a drag anywhere on it moves it, a
+// drag on the wedge scales it, a click on reset puts EVERY panel back
+// (FloatingLayer::onResetAll). A drag, once started, runs to the button's
+// release whether or not Ctrl is still down.
+//
+// SNAPPING: a moved panel's edges snap to any other panel's edges (and the
+// window's) that come within half a rem, and a resized panel's right or bottom
+// edge does the same - the scale is solved for the edge. A thin accent guide
+// shows the edge it caught.
 //
 // Two classes, because a widget's pixel rect comes from its PARENT's layout:
 //   FloatingLayer   a window-sized container; its LayoutSelf places every
@@ -27,20 +40,22 @@
 // The scale also becomes the panel's inherited fontScale, so text and every
 // em-sized detail inside grow with it.
 //
-// INPUT. Real controls inside a panel still win: the grips claim the pointer
-// BEFORE the children (UpdateBeforeChildren) but only over their own small
-// squares, and a background drag starts in UpdateSelf, AFTER the children, so
-// a press a button took never moves the panel. A panel claims the pointer over
-// its whole rect - it is an opaque surface, and a click on a dock's padding
-// used to fall through to the 3D view behind it.
+// INPUT. Without Ctrl the content has the pointer, and the panel claims only
+// what is left (UpdateSelf, after the children) - it is an opaque surface, and
+// a click on a dock's padding used to fall through to the 3D view behind it.
+// With Ctrl the panel claims it FIRST (UpdateBeforeChildren), over its whole
+// rect, so no button inside takes an arranging click.
 // ============================================================================
 #pragma once
 
 #include "UI/Widget.h"
 
 #include <functional>
+#include <string>
 
 namespace dungeon::ui {
+
+class FloatingLayer;
 
 class FloatingPanel : public Widget {
 public:
@@ -74,7 +89,8 @@ public:
 	std::function<void()> onChanged;
 
 	// What the pointer shape should be for this panel right now: 0 none,
-	// 1 move, 2 resize. The app turns it into a window cursor.
+	// 1 move, 2 resize. The app turns it into a window cursor. (Over the reset
+	// button it is 0: that is a button, not a grip.)
 	int CursorWanted() const { return m_cursor; }
 	bool Dragging() const { return m_drag != Drag::None; }
 
@@ -95,19 +111,32 @@ protected:
 	void DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 private:
+	friend class FloatingLayer;
 	enum class Drag { None, Move, Resize };
 	bool Unlocked() const { return !locked || !*locked; }
-	gfx::Rect MoveGrip() const;
-	gfx::Rect ResizeGrip() const;
+	gfx::Rect GripRect(int corner) const; // 0 top-left, 1 top-right, 3 bottom-right
 	void StartDrag(Drag kind, float mx, float my);
+	// The snaps, in absolute pixels: shift a moved rect onto the nearest edge
+	// in reach; solve a resized panel's scale for its right or bottom edge.
+	void SnapMove(float& x, float& y, float w, float h, float reach);
+	float SnapResize(UIContext& ctx, float s, float reach);
+	// Every rect a panel can snap to: the other shown panels of this layer and
+	// of the layer's peer, and the window. `fn(rect, isWindow)`.
+	template <typename Fn> void ForEachSnapTarget(Fn&& fn) const;
+	void DrawResetGlyph(gfx::SpriteBatch& batch, const gfx::Rect& r, const Vec4& ink) const;
 
+	FloatingLayer* m_layer = nullptr; // the layer that placed it (set each layout)
 	Drag m_drag = Drag::None;
-	bool m_hover = false;
+	bool m_arranging = false;  // Ctrl held over this panel: outlined, grips up
+	bool m_resetHot = false;   // ... and the pointer is on the reset button
 	int m_cursor = 0;
 	float m_grabX = 0.0f, m_grabY = 0.0f; // pointer at the press
 	float m_startX = 0.0f, m_startY = 0.0f; // panel top-left at the press (px)
 	float m_startW = 0.0f, m_startH = 0.0f; // panel size at the press (px)
 	float m_startScale = 1.0f;
+	// The edges the drag snapped to this frame, as hairline guides (w or h 0 =
+	// none): a vertical line for an x snap, a horizontal one for a y snap.
+	gfx::Rect m_guideX{}, m_guideY{};
 };
 
 class FloatingLayer : public Widget {
@@ -119,6 +148,16 @@ public:
 		debugName = "FloatingLayer";
 		overlapOk = true;
 	}
+
+	// The reset button on an arranging panel: every panel back to its default
+	// spot and size. Null = no reset button.
+	std::function<void()> onResetAll;
+	// The reset button's tooltip (localized by the app).
+	std::string resetTip;
+	// Another layer whose panels this one's snap to - the character sheet has
+	// its own UIContext, but it floats over the HUD's panels. Asked at each
+	// drag, since the other context rebuilds its layer.
+	std::function<const FloatingLayer*()> snapPeer;
 
 protected:
 	void LayoutSelf(UIContext& ctx) override;

@@ -1783,13 +1783,23 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   panel's `defaultPos`) and scale; `size(ctx, scale)` is the CONTENT'S (a dock's
   height follows from its width), the scale becomes the subtree's fontScale
   (so content measures detail in EM - a new widget in a dock or card must too),
-  and `onChanged` fires when a drag ends. Move = a left-drag on the panel's own
-  BACKGROUND (it starts after the children had their look, so a control's press
-  never moves it) or the top-left move grip; scale = the bottom-right grip;
-  both grips show on hover, with Window::SetCursorShape's four-way / diagonal
-  arrows (ported from tool-refinement with two more shapes - at merge, take the
-  superset). A panel claims the pointer over its whole rect (a click on a dock's
-  padding used to reach the 3D view). `Scale()` clamps to the panel's own
+  and `onChanged` fires when a drag ends. HOLD CTRL TO ARRANGE (Michael,
+  2026-09-30 - the grips used to show on every hover): with Ctrl held over a
+  panel it is outlined in the accent and takes the WHOLE pointer before its
+  content (UpdateBeforeChildren) - a drag anywhere moves it, the bottom-right
+  wedge scales it, and a RESET button at its top-right puts every panel home
+  (`FloatingLayer::onResetAll` -> GameUI::ResetHudLayout, which only marks the
+  Settings sliders stale - it runs in an armed frame). A started drag runs to
+  the release with or without Ctrl. Without Ctrl a panel is just its content.
+  SNAPPING: a moved panel's edges (either edge, onto either edge - lining up and
+  butting up) catch any other shown panel's or the window's within half a rem;
+  a resize solves the SCALE for its right or bottom edge (a dock's height steps
+  with its font, so a solve that cannot land within 1.5 px is no snap). Accent
+  hairlines show the caught edge. The sheet's layer snaps to the HUD layer's
+  panels too (`FloatingLayer::snapPeer`). Window::SetCursorShape's four-way /
+  diagonal arrows (ported from tool-refinement with two more shapes - at merge,
+  take the superset). A panel claims the pointer over its whole rect (a click on
+  a dock's padding used to reach the 3D view). `Scale()` clamps to the panel's own
   min/max (the sheet stops at 1.3), whatever the slider's 0.5..1.5 stored.
   THE PANELS are kHudPanelFields (GameSettings.h: party, status, options, move,
   hands, magic, cards, inventory, sheet - the SHEET LAST, since it alone lives
@@ -1803,8 +1813,7 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   `inventory [off]`.
   THE TWO WINDOWS: the character sheet is a panel in m_sheetUi whose scale is
   that CONTEXT'S root font size (UpdateFonts) - rem itself moves - so it sets
-  `scalesText = false`; it drags by its title band (CharacterSheet leaves that
-  strip unclaimed). The party inventory is NON-MODAL now - no dim, the world
+  `scalesText = false`. The party inventory is NON-MODAL now - no dim, the world
   clickable around it, closed by its corner box or Esc.
 - MINIMAL LAYOUT (Game/MemberCards.h; ini hud_layout=1, Settings -> UI
   "Layout"): no party bar, no Hands dock - one CARD per member, the very

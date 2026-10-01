@@ -150,6 +150,7 @@ settings.sheet_panel=Hoja de personaje
 settings.hud_panels=Paneles de la interfaz
 settings.hud_lock=Bloquear la disposición (sin mover ni redimensionar)
 settings.hud_reset=Restablecer la disposición
+hud.reset_layout=Devolver todos los paneles a su sitio
 settings.theme_colors=Colores del tema
 settings.resource_bars=Barras de recursos
 settings.party_colors=Colores del grupo

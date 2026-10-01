@@ -195,8 +195,9 @@ void CharacterSheet::UpdateSelf(ui::UIContext& ctx) {
 	const float mx = input->MouseX(), my = input->MouseY();
 	if (!Pixel().Contains(mx, my)) return;
 	// The TITLE BAND - right of the portrait, above the tab icons, where the name
-	// sits - acts on nothing, so it is left unclaimed: the sheet is a floating
-	// window (ui-panels P3b), and its panel takes a press there as a drag.
+	// sits - acts on nothing, so it is left to the sheet's floating window
+	// (ui-panels P3b), which claims it as its own background. (A Ctrl-drag
+	// moves the window from anywhere on it.)
 	if (mx >= Ax(px, kNameX) && my < Ay(px, kModeBtnY)) return;
 	const bool clicked = m_character && input->WasMousePressed(MouseButton::Left);
 

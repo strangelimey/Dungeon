@@ -13,7 +13,8 @@ From docs/ui-panels-notes.md ("Organized" + Michael's answers to Q1-Q4). Q5
 | P3a floating HUD | e0f0272 | six panels; GameSettings::Save excuses itself; AllocTest -Panels |
 | P3b floating windows | 37b600c | the sheet (context root font scales) + a NON-MODAL party inventory |
 | P4 Minimal | 94c94c6 | one card per member; Magic's default moves to the left column |
-| P5 wrap-up | (this) | CLAUDE.md section; release handed over |
+| P5 wrap-up | 3755505 | CLAUDE.md section; release handed over |
+| Feel pass 1 | (this) | hold Ctrl to arrange; edge snapping; a reset-all button on the arranging panel |
 
 Where the build departed from the plan below:
 - P3a: the column-widening ApplyHudPanelScale and ApplyPartyBarScale went

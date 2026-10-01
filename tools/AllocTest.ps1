@@ -140,7 +140,11 @@
 # party inventory WINDOW (P3b) open the whole while. It refuses a PASS unless
 # `hudpanel list` afterwards shows all three (the move dock saved off its
 # default, the hands dock off scale 1, the inventory shown), since a missed
-# drag or a window that never opened reports exactly like a clean run.
+# drag or a window that never opened reports exactly like a clean run. Every
+# drag holds Ctrl (a panel only arranges under it). After the window it also
+# checks the arranging rules: a Ctrl+click on a panel's reset button puts every
+# panel home, a drag WITHOUT Ctrl moves nothing, and a drag ending 4 px short of
+# another panel's edge lands on it - any of them failing is a FAIL.
 #
 # Every step is driven by what the log actually says rather than by sleeps, so
 # a slow cold-cache load stretches the wait instead of failing the run.
@@ -238,9 +242,15 @@ function Send-Mouse([int]$x, [int]$y, [uint32]$down = 0, [uint32]$up = 0, [int]$
 
 # `itemdetails status`'s open count (needs logecho on and the console open).
 # A left-button drag in client pixels: press, a run of moves with the button
-# held (wparam MK_LBUTTON), release - what a player's hand sends.
-function Send-Drag([int]$x0, [int]$y0, [int]$x1, [int]$y1, [int]$steps = 10) {
+# held (wparam MK_LBUTTON), release - what a player's hand sends. With Ctrl
+# held through it by default, since a panel only arranges under Ctrl; -NoCtrl
+# is the plain drag that must NOT move one.
+function Send-Drag([int]$x0, [int]$y0, [int]$x1, [int]$y1, [int]$steps = 10, [switch]$NoCtrl) {
 	$at = { param($x, $y) [IntPtr](($y -shl 16) -bor ($x -band 0xFFFF)) }
+	if (-not $NoCtrl) {
+		[AllocTestWin]::PostMessage($hwnd, 0x100, [IntPtr]0x11, [IntPtr]1) | Out-Null
+		Start-Sleep -Milliseconds 60
+	}
 	[AllocTestWin]::PostMessage($hwnd, 0x200, [IntPtr]0, (& $at $x0 $y0)) | Out-Null
 	Start-Sleep -Milliseconds 150
 	[AllocTestWin]::PostMessage($hwnd, 0x201, [IntPtr]1, (& $at $x0 $y0)) | Out-Null
@@ -252,7 +262,36 @@ function Send-Drag([int]$x0, [int]$y0, [int]$x1, [int]$y1, [int]$steps = 10) {
 	}
 	Start-Sleep -Milliseconds 80
 	[AllocTestWin]::PostMessage($hwnd, 0x202, [IntPtr]0, (& $at $x1 $y1)) | Out-Null
-	Start-Sleep -Milliseconds 300
+	Start-Sleep -Milliseconds 100
+	if (-not $NoCtrl) {
+		[AllocTestWin]::PostMessage($hwnd, 0x101, [IntPtr]0x11, [IntPtr][int64]0xC0000001) | Out-Null
+	}
+	Start-Sleep -Milliseconds 200
+}
+
+# A Ctrl+click at client pixel (x, y): what presses an arranging panel's reset.
+function Send-CtrlClick([int]$x, [int]$y) {
+	[AllocTestWin]::PostMessage($hwnd, 0x100, [IntPtr]0x11, [IntPtr]1) | Out-Null
+	Start-Sleep -Milliseconds 60
+	Send-Mouse $x $y 0x201 0x202 1
+	[AllocTestWin]::PostMessage($hwnd, 0x101, [IntPtr]0x11, [IntPtr][int64]0xC0000001) | Out-Null
+	Start-Sleep -Milliseconds 200
+}
+
+# `hudpanel list`'s row for one panel (console open, logecho on around it).
+function Get-PanelRow([string]$id) {
+	$before = @(Select-String -Path $log -Pattern "console:   $id ").Count
+	Send-Key 0xC0
+	Start-Sleep -Milliseconds 500
+	Send-Text 'logecho on'; Send-Key 0x0D
+	Send-Text 'hudpanel list'; Send-Key 0x0D
+	Start-Sleep -Milliseconds 500
+	Send-Text 'logecho off'; Send-Key 0x0D
+	Send-Key 0xC0
+	Start-Sleep -Milliseconds 400
+	$rows = @(Select-String -Path $log -Pattern "console:   $id ")
+	if ($rows.Count -le $before) { throw "the console never listed the $id panel" }
+	return $rows[-1].Line
 }
 
 function Get-DetailOpens {
@@ -863,6 +902,53 @@ try {
 		if ((-not $moved -or -not $scaled -or -not $invShown) -and $result -eq 'PASS') {
 			Write-Host 'a drag did not land, or the inventory was not open, inside the window - the panel path was not measured' -ForegroundColor Yellow
 			$result = 'UNMEASURED'
+		}
+
+		# The arranging rules, after the window: a Ctrl+click on the moved dock's
+		# RESET button (its top-right corner, read off the dock's own rect) puts
+		# every panel home, and a drag WITHOUT Ctrl then moves nothing.
+		if ($moveRow -match 'px (-?\d+),(-?\d+) (\d+)x(\d+)') {
+			$rx = [int]$Matches[1] + [int]$Matches[3] - 6; $ry = [int]$Matches[2] + 6
+			Send-Mouse $rx $ry
+			Send-CtrlClick $rx $ry
+			$resetMove = Get-PanelRow 'move'
+			$resetHands = Get-PanelRow 'hands'
+			Send-Drag $script:moveX $script:moveY $script:awayX $script:awayY -NoCtrl
+			$plainMove = Get-PanelRow 'move'
+			Write-Host "  after reset: $($resetMove -replace '^.*console:   ', '')"
+			Write-Host "  after a plain drag: $($plainMove -replace '^.*console:   ', '')"
+			$wasReset = $resetMove -match 'saved default' -and $resetHands -match 'saved default.*scale 1\.00'
+			$stayed = $plainMove -match 'saved default'
+			# SNAPPING: drag the move dock left until its right edge is 4 px short
+			# of the hands dock's left edge (they share a column, so the hands
+			# dock sits right below it); it must land butted up against it.
+			$snapped = $false; $snapNote = 'rects unreadable'
+			if ($plainMove -match 'px (-?\d+),(-?\d+) (\d+)x(\d+)') {
+				$mLeft = [int]$Matches[1]; $mW = [int]$Matches[3]
+				if ($resetHands -match 'px (-?\d+),') {
+					$hLeft = [int]$Matches[1]
+					$dx = ($hLeft - 4) - ($mLeft + $mW)
+					Send-Drag $script:moveX $script:moveY ($script:moveX + $dx) $script:moveY
+					$snapMove = Get-PanelRow 'move'
+					Write-Host "  after a snapping drag: $($snapMove -replace '^.*console:   ', '')"
+					$want = $hLeft - $mW
+					$snapNote = "wanted the left edge at $want"
+					if ($snapMove -match 'px (-?\d+),') { $snapped = [Math]::Abs([int]$Matches[1] - $want) -le 1 }
+					Send-Key 0xC0
+					Start-Sleep -Milliseconds 500
+					Send-Text 'hudpanel reset'; Send-Key 0x0D
+					Send-Key 0xC0
+				}
+			}
+			if (-not $wasReset -or -not $stayed -or -not $snapped) {
+				Write-Host $(if (-not $wasReset) { 'the reset button did not put the panels home' }
+							 elseif (-not $stayed) { 'a drag without Ctrl moved a panel' }
+							 else { "a drag 4 px from an edge did not snap to it ($snapNote)" }) -ForegroundColor Red
+				if ($result -eq 'PASS') { $result = 'FAIL' }
+			}
+		} else {
+			Write-Host 'could not read the move dock''s rect - the reset button was not checked' -ForegroundColor Yellow
+			if ($result -eq 'PASS') { $result = 'UNMEASURED' }
 		}
 	}
 
