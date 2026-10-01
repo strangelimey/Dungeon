@@ -55,7 +55,7 @@ void ButtonInspector::BuildContent(ui::Stack& c) {
 
 	// What a press DOES to a flag: the verb, then the flag it acts on. Stacked,
 	// not side by side - half the column was too narrow for a flag's name and
-	// its scope, which a dropdown does not trim.
+	// its scope, which the dropdown then had to trim (and uioverlap reports).
 	c.Row<ui::Label>(FormRow(), loc::Tr("map.btn.onpress"));
 	const std::vector<std::string> ops{loc::Tr("map.btn.op.none"), loc::Tr("map.btn.op.set"),
 									   loc::Tr("map.btn.op.clear"),

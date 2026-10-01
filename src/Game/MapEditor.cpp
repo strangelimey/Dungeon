@@ -1346,13 +1346,7 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			font.Draw(batch, name, x, ty, ink);
 			return;
 		}
-		std::string fit = name;
-		while (fit.size() > 1 && font.MeasureWidth(fit + "..") > room) {
-			fit.pop_back();
-			while (!fit.empty() && (static_cast<unsigned char>(fit.back()) & 0xC0) == 0x80)
-				fit.pop_back();
-		}
-		font.Draw(batch, fit + "..", x, ty, ink);
+		ui::DrawFittedText(batch, font, name, x, ty, room, ink);
 		if (r.cat == m_hoverItem.cat && hoverIndex == m_hoverItem.index) {
 			m_rowTip = name;
 			m_rowTipAt = r.rect;

@@ -175,6 +175,14 @@ public:
 	// rather than bounded.
 	virtual gfx::Rect InkRect() const { return m_pixel; }
 
+	// How many pixels of text this widget CUT to stay inside its area (0 = it
+	// showed everything). A control that trims (a DropDown's face, ".." at the
+	// cut) never paints outside itself, so its InkRect is honest and no collision
+	// exists - but the layout still did not give it room for what it shows, and
+	// the `uioverlap` audit reports that as a finding of its own. Override in any
+	// widget that fits its text by trimming.
+	virtual float TextOverrun() const { return 0.0f; }
+
 	// True if this widget clips its children (a scroll area, a tab page). Its
 	// children are then MEANT to run past its bounds — the excess paints on
 	// nothing — which is why the overlap audit does not count that as an escape.
