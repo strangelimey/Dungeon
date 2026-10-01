@@ -36,6 +36,7 @@ public:
 		int x = 0, z = 0;
 		bool open = false;   // authored initial state (the live door follows)
 		std::string key;     // items.cat id required to open by hand ("" = none)
+		std::string flag;    // flags.cat id it waits on ("" = none)
 		std::string name;    // button-target id ("" = unwired); record-safe chars
 		// The opener OVERRIDES, three-state: "" inherits the door type, "none"
 		// is this placement having no hand-hold whatever the type says, and an
@@ -71,9 +72,10 @@ public:
 	// would supply, already display-ready — they are what the "Default (...)"
 	// rows name, and a Default row that named the wrong thing would be worse
 	// than one that named nothing.
+	// `flags` are the project's flags, for the "Waits for flag" row.
 	void Open(const Config& cfg, std::vector<std::pair<std::string, std::string>> keys,
 			  std::vector<std::pair<std::string, std::string>> openers,
-			  std::string typeOpener, std::string typeSide,
+			  std::string typeOpener, std::string typeSide, FlagChoices flags,
 			  PreviewSpec preview = {});
 
 	// Push the working state to the live door + its .ent record (both edits are
@@ -106,6 +108,7 @@ private:
 	std::vector<std::pair<std::string, std::string>> m_keys;    // (id, display)
 	std::vector<std::pair<std::string, std::string>> m_openers; // (id, display)
 	std::string m_typeOpener, m_typeSide; // what the TYPE gives, for the Default rows
+	FlagChoices m_flags;
 };
 
 } // namespace dungeon::game

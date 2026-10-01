@@ -60,6 +60,13 @@ public:
 	// doubt WHICH level the button is about to replace.
 	void OpenRegenerate(const std::string& levelStem);
 	void Close() { m_open = false; }
+	// The footer's buttons and a dropdown pick, as the harness clicks them
+	// (EditorTest): Create (`generated`) or Empty in CREATE mode, returning the
+	// new stem; Populate in REGENERATE mode; a Choice knob set as its dropdown
+	// sets it, onChoice included (false for no such knob).
+	std::string PressCreate(bool generated);
+	void PressPopulate();
+	bool PickChoice(std::string_view key, const std::string& value);
 	// Show tab `index` (in KnobTabs order). For the UI sweep, which otherwise
 	// only ever audits the first tab's widgets.
 	void ShowTab(int index) {
@@ -116,9 +123,19 @@ public:
 	// P5: play `stem` from its start (the owner closes this dialog and the
 	// editor as part of it).
 	std::function<void(const std::string& stem)> onPlay;
+	// A Choice knob was just picked (its value is already in `params`). The
+	// owner may change OTHER knobs to suit - picking a style loads its shape -
+	// and returns true when it did, so the form shows them.
+	std::function<bool(std::string_view key, generate::Params& params)> onChoice;
+	// REGENERATE mode's second action (tool-refinement Phase 7): monsters and
+	// loot for the viewed level from these knobs, its shape left alone.
+	std::function<void(const generate::Params&)> onPopulate;
 
 private:
 	void BuildUI();
+	// Empties every knob the form gives no row (GenerateKnobs.h `hidden`), so a
+	// value left over in settings.ini cannot steer a run invisibly.
+	void ClearHiddenKnobs();
 	void BuildPresetsPage(ui::Stack& page);
 
 	gfx::GraphicsDevice& m_device;

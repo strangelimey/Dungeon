@@ -438,6 +438,8 @@ std::vector<Issue> Run(const std::vector<LevelView>& levels,
 	}
 
 	CheckWorld(world, levels, issues);
+	CheckFlags(levels, world, issues);
+	CheckStyles(world, issues);
 
 	// Errors first, then by place - a TOTAL order, so the report reads the same
 	// on every run (doors and buttons come out of hash maps, whose order is not

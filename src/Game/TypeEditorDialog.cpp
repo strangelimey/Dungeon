@@ -8,6 +8,7 @@
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
 #include "Game/DialogLayout.h"
+#include "Game/Style.h" // the WeightedRefs list format
 #include "UI/Controls.h"
 
 #include <algorithm>
@@ -90,8 +91,152 @@ bool TypeEditorDialog::Touched(std::string_view key) const {
 }
 
 void TypeEditorDialog::SetValue(const FieldSpec& spec, std::string value) {
-	serialize::Set(m_cfg.fields, spec.key, std::move(value));
-	if (!Touched(spec.key)) m_touched.emplace_back(spec.key);
+	SetField(spec.key, std::move(value));
+}
+
+void TypeEditorDialog::SetField(std::string_view key, std::string value) {
+	serialize::Set(m_cfg.fields, std::string(key), std::move(value));
+	if (!Touched(key)) m_touched.emplace_back(key);
+}
+
+void TypeEditorDialog::BuildStageRows(ui::Stack& page, const FieldSpec& spec) {
+	const FieldSpec* s = &spec;
+	// Each row addresses its stage by INDEX and re-reads the list on every
+	// change: an id is being typed one key at a time, so a captured id would be
+	// stale by the second keystroke.
+	auto stages = [this, s] { return SplitOptions(ValueOf(*s)); };
+	auto join = [](const std::vector<std::string>& v) {
+		std::string out;
+		for (const std::string& w : v) out += (out.empty() ? "" : " ") + w;
+		return out;
+	};
+	auto textOf = [this](const std::string& id) {
+		const std::string* v = serialize::Find(m_cfg.fields, "text_" + id);
+		return v ? *v : std::string();
+	};
+	page.Row<ui::Label>(FormRow(), loc::Tr("map.type.stages.head"))->dim = true;
+	const std::vector<std::string> now = stages();
+	for (size_t i = 0; i < now.size(); ++i) {
+		ui::Stack* row = page.Row<ui::Stack>(FormRow(), true);
+		row->gapRem = 0.4f;
+		// The stage's id: record-safe, since the save and the items name it.
+		ui::TextField* id = row->Row<ui::TextField>(ui::Len::Fill(0.6f), now[i]);
+		id->maxLength = 24;
+		id->onChange = [this, s, i, id, stages, join, textOf] {
+			std::erase_if(id->text, [](char ch) {
+				const unsigned char u = static_cast<unsigned char>(ch);
+				return !(std::isalnum(u) || ch == '_' || ch == '-');
+			});
+			std::vector<std::string> list = stages();
+			// An emptied id waits for its new name rather than dropping the stage
+			// (the list is space-split, so an empty id would shift every index).
+			if (i >= list.size() || id->text.empty() || id->text == list[i]) return;
+			// The line moves with the stage.
+			const std::string text = textOf(list[i]);
+			SetField("text_" + list[i], std::string());
+			list[i] = id->text;
+			if (!text.empty()) SetField("text_" + list[i], text);
+			SetValue(*s, join(list));
+		};
+		// What the log says on reaching it (`text_<id>`).
+		ui::TextField* line = row->Row<ui::TextField>(ui::Len::Fill(1.4f), textOf(now[i]));
+		line->maxLength = 96;
+		line->placeholder = loc::Tr("map.type.stages.hint");
+		line->onChange = [this, i, line, stages] {
+			const std::vector<std::string> list = stages();
+			if (i < list.size()) SetField("text_" + list[i], line->text);
+		};
+		RowIcon(*row, m_device, "clear", loc::Tr("map.type.stages.remove"),
+				[this, s, i, stages, join] {
+					std::vector<std::string> list = stages();
+					if (i >= list.size()) return;
+					SetField("text_" + list[i], std::string()); // the writer removes it
+					list.erase(list.begin() + static_cast<std::ptrdiff_t>(i));
+					SetValue(*s, join(list));
+					m_uiRebuild = true; // deferred: inside a callback
+				});
+	}
+	page.Row<ui::Button>(FormRow(), loc::Tr("map.type.stages.add"), [this, s, stages, join] {
+		std::vector<std::string> list = stages();
+		// A fresh id nothing else uses: stage<N>.
+		std::string fresh;
+		for (int n = static_cast<int>(list.size()) + 1;; ++n) {
+			fresh = "stage" + std::to_string(n);
+			if (std::find(list.begin(), list.end(), fresh) == list.end()) break;
+		}
+		list.push_back(fresh);
+		SetValue(*s, join(list));
+		m_uiRebuild = true;
+	});
+}
+
+void TypeEditorDialog::BuildWeightedRows(ui::Stack& page, const FieldSpec& spec) {
+	const FieldSpec* s = &spec;
+	// Re-read on every change, by index - the stage rows' rule.
+	auto list = [this, s] { return style::ParseMonsters(ValueOf(*s)); };
+	auto write = [this, s](const std::vector<style::Pick>& picks) {
+		SetValue(*s, style::FormatMonsters(picks));
+	};
+	// The candidates, each named the way faceFor names it (a monster with its
+	// power); an id the catalog has lost stays listed by its own name.
+	std::vector<std::string> ids = optionsFor ? optionsFor(spec) : std::vector<std::string>{};
+	const std::vector<style::Pick> now = list();
+	for (const style::Pick& p : now)
+		if (std::find(ids.begin(), ids.end(), p.id) == ids.end()) ids.push_back(p.id);
+	std::vector<std::string> names;
+	for (const std::string& id : ids) {
+		std::string label = faceFor ? faceFor(spec, id).label : std::string();
+		names.push_back(label.empty() ? id : label);
+	}
+	page.Row<ui::Label>(FormRow(), loc::Tr("map.type.weighted.head"))->dim = true;
+	for (size_t i = 0; i < now.size(); ++i) {
+		ui::Stack* row = page.Row<ui::Stack>(FormRow(), true);
+		row->gapRem = 0.4f;
+		const int sel = static_cast<int>(std::find(ids.begin(), ids.end(), now[i].id) - ids.begin());
+		row->Row<ui::DropDown>(ui::Len::Fill(1.6f), names, sel, [list, write, ids, i](int pick) {
+			std::vector<style::Pick> picks = list();
+			if (i >= picks.size() || pick < 0 || pick >= static_cast<int>(ids.size())) return;
+			picks[i].id = ids[static_cast<size_t>(pick)];
+			write(picks);
+		});
+		ui::TextField* weight =
+			row->Row<ui::TextField>(ui::Len::Fill(0.4f), std::format("{:g}", now[i].weight));
+		weight->maxLength = 6;
+		weight->onChange = [weight, list, write, i] {
+			std::erase_if(weight->text, [](char ch) {
+				return !(std::isdigit(static_cast<unsigned char>(ch)) || ch == '.');
+			});
+			float w = 0.0f;
+			const auto [end, ec] = std::from_chars(weight->text.data(),
+												   weight->text.data() + weight->text.size(), w);
+			// A weight being typed ("0.", "") waits; only a usable one is kept.
+			if (ec != std::errc{} || w <= 0.0f) return;
+			std::vector<style::Pick> picks = list();
+			if (i >= picks.size()) return;
+			picks[i].weight = w;
+			write(picks);
+		};
+		RowIcon(*row, m_device, "clear", loc::Tr("map.type.weighted.remove"),
+				[this, list, write, i] {
+					std::vector<style::Pick> picks = list();
+					if (i >= picks.size()) return;
+					picks.erase(picks.begin() + static_cast<std::ptrdiff_t>(i));
+					write(picks);
+					m_uiRebuild = true; // deferred: inside a callback
+				});
+	}
+	page.Row<ui::Button>(FormRow(), loc::Tr("map.type.weighted.add"), [this, list, write, ids] {
+		std::vector<style::Pick> picks = list();
+		// The first candidate not already listed.
+		for (const std::string& id : ids)
+			if (std::none_of(picks.begin(), picks.end(),
+							 [&](const style::Pick& p) { return p.id == id; })) {
+				picks.push_back({id, 1.0f});
+				write(picks);
+				m_uiRebuild = true;
+				return;
+			}
+	});
 }
 
 void TypeEditorDialog::BuildUI() {
@@ -205,11 +350,22 @@ void TypeEditorDialog::BuildUI() {
 			// position 0 would read as an explicit zero. So an unset one shows as
 			// a checkbox instead, and a set one gets an "x" to unset it again.
 			const bool optional = !*spec.def;
+			// A DERIVED field (derivedFor answers) names the value the game uses
+			// in its place, unset or overridden alike.
+			const std::optional<float> derived =
+				optional && derivedFor ? derivedFor(spec) : std::nullopt;
+			const std::string shown =
+				derived ? label + " " + loc::Format("map.type.derived", std::format("{:.1f}", *derived))
+						: label;
 			if (optional && value.empty()) {
-				page.Row<ui::Checkbox>(FormRow(), label + loc::Tr("map.type.frommap"),
-									   true, [this, s](bool on) {
+				page.Row<ui::Checkbox>(FormRow(), derived ? shown : label + loc::Tr("map.type.frommap"),
+									   true, [this, s, derived](bool on) {
 										   if (on) return; // already unset
-										   SetValue(*s, *s->neutral ? s->neutral : "0");
+										   // An override starts where the derived value is.
+										   const float step = s->step > 0.0f ? s->step : 0.001f;
+										   SetValue(*s, derived ? std::format("{:g}",
+																			   std::max(s->lo, std::round(*derived / step) * step))
+																: *s->neutral ? s->neutral : "0");
 										   m_uiRebuild = true; // becomes a slider
 									   });
 				break;
@@ -219,7 +375,7 @@ void TypeEditorDialog::BuildUI() {
 			// A Slider stacks its label OVER its track, so it asks for two lines.
 			ui::Stack* row = page.Row<ui::Stack>(FormRow(1.9f), true);
 			row->gapRem = 0.4f;
-			row->Row<ui::Slider>(ui::Len::Fill(), label, spec.lo, spec.hi, v,
+			row->Row<ui::Slider>(ui::Len::Fill(), shown, spec.lo, spec.hi, v,
 								 [this, s](float f) {
 									 // Snap to the field's granularity so the
 									 // catalog keeps authored-looking numbers.
@@ -237,7 +393,7 @@ void TypeEditorDialog::BuildUI() {
 		case FieldKind::Text: {
 			auto* field =
 				labelled(FormRow())->Row<ui::TextField>(ui::Len::Fill(kFieldFill), value);
-			field->maxLength = 64;
+			field->maxLength = spec.maxLen > 0 ? spec.maxLen : 64;
 			ui::TextField* raw = field;
 			field->onChange = [this, raw, s] { SetValue(*s, raw->text); };
 			break;
@@ -298,6 +454,12 @@ void TypeEditorDialog::BuildUI() {
 				});
 			break;
 		}
+		case FieldKind::QuestStages:
+			BuildStageRows(page, spec);
+			break;
+		case FieldKind::WeightedRefs:
+			BuildWeightedRows(page, spec);
+			break;
 		case FieldKind::CatalogRefPick: {
 			// ONE id, picked from a list that shows every candidate the way the
 			// palette does (faceFor: a surface type's name and swatch; else the
@@ -358,7 +520,7 @@ void TypeEditorDialog::BuildUI() {
 			if (onDuplicate) onDuplicate(cfg);
 		});
 	if (!extraLabel.empty())
-		FooterIcon(*chrome.footer, m_device, "anim", extraLabel, [this] {
+		FooterIcon(*chrome.footer, m_device, extraIcon.c_str(), extraLabel, [this] {
 			Config cfg = m_cfg;
 			Close();
 			if (onExtra) onExtra(cfg);

@@ -166,6 +166,20 @@ struct GameSettings {
 	bool mapLegendCollapsed = false;   // map editor: right key dock collapsed
 	bool mapShowCatalog = false;       // map editor: surfaces show the whole catalog
 	int mapTool = 0;                   // map editor: the tool strip's picked tool (MapEditor::Tool)
+	// map editor: the palette's category bar - which grouping (MapEditor::
+	// Grouping: 0 stage, 1 kind) and the group picked in each.
+	// map editor: the docks' dragged widths, as a share of the editor panel's
+	// width (0 = the built-in default; MapView clamps whatever is stored).
+	float mapPaletteWidth = 0.0f;
+	float mapLegendWidth = 0.0f;
+	// map editor: the right dock's two sections, and the overview's scope
+	// (MapView::OverviewScope: 0 world, 1 dungeon, 2 level).
+	bool mapOverviewCollapsed = false;
+	bool mapKeyCollapsed = false;
+	int mapOverviewScope = 2;
+	int mapPaletteGrouping = 0;
+	int mapPaletteStage = 1;           // Build: where a new level's work starts
+	int mapPaletteKind = 0;
 	// The HUD's right-hand docks (Game/ControlBar.h): minimized to their header
 	// strip. Expanded by default (Michael: "leave it on screen by default").
 	bool hudMoveCollapsed = false;

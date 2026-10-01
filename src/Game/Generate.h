@@ -81,6 +81,10 @@ struct Params {
 	// presets - carry them with everything else.
 	std::string tag;
 	std::string palette;
+	// THE STYLE (styles.cat id, tool-refinement Phase 7), also the caller's: it
+	// supplies the tags, the look (its room and corridor themes) and the monster
+	// list in one go, so with one set the two above are only overrides.
+	std::string style;
 	u32 seed = 1;
 	// The square the level is ENTERED on, or -1 to let the generator choose.
 	// Not a knob: the caller sets it to the floor above's stair square, since a
@@ -99,6 +103,12 @@ struct Params {
 	// Each monster's THREAT, parallel to monsterIds - derived by the caller from
 	// the catalog stats (Game/Threat.h), since this module reads no catalog.
 	std::vector<double> monsterThreat;
+	// Each one's WEIGHT, parallel again (a style's `<id> <weight>` list); empty
+	// = all 1. It decides among the kinds NEAR the rank a room wants, never which
+	// rank that is, so a heavy weak monster cannot drag a hard level down. Empty
+	// takes Run's old uniform step, so an unstyled level is built exactly as it
+	// was before weights existed.
+	std::vector<float> monsterWeight;
 	std::vector<std::string> lootIds;
 	std::vector<std::string> keyIds; // door/key pairs draw from these, in order
 };
@@ -146,5 +156,28 @@ struct Level {
 // dungeon rather than an empty one, because an editor tool that sometimes
 // produces nothing teaches you to distrust the button.
 Level Run(const Params& params);
+
+// POPULATE ONLY (docs/tool-refinement-plan.md Phase 7): monsters and loot for a
+// level that is ALREADY BUILT - by the generator, the shape brushes or by hand -
+// from the same knobs (difficulty, density, ramp, boss, reward), the same pools
+// and the same seed rule as Run's own population, which this does not replace.
+//
+// Run knows its rooms because it made them. A built level has only squares, so
+// the rooms are found: every 4-connected run of squares in some 2x2 open block
+// (Game/Area.h's room rule), or every run of squares at all when the level has
+// no room anywhere. A room's PROGRESS is its walking distance from the start
+// over the deepest room's; the room holding the start gets nothing while any
+// other room can be reached, and nothing stands within three steps of the start
+// - Run's rules, for Run's reasons. (A found room is only as separate as its
+// walls: a wide, wandering corridor joins what it touches into one, and that one
+// may hold the start.)
+//
+// `walkable` and `free` are row-major `width` x `height`: distance is walked
+// over `walkable`, content stands only on `free` squares (walkable, and not a
+// stair, a blocking fixture or something already placed - the caller knows).
+// Returns the placements as Level::entities with the report's monster, loot,
+// threat and boss lines filled in; its floor is `walkable`.
+Level Populate(const Params& params, int width, int height, const std::vector<u8>& walkable,
+			   const std::vector<u8>& free, int startX, int startZ);
 
 } // namespace dungeon::game::generate

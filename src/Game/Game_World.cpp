@@ -17,6 +17,7 @@
 #include "Core/Log.h"
 #include "Game/Resource.h"
 #include "Game/Serialize.h"
+#include "Game/Style.h"
 
 #include <algorithm>
 #include <chrono>
@@ -142,8 +143,19 @@ std::vector<validate::Issue> Game::ValidateProject() {
 		validate::DungeonView d;
 		d.id = e.id;
 		d.levels = ParseTags(e.Get("levels", "")); // space-split + lowercased
+		d.style = e.Get("style", "");
 		view.dungeons.push_back(std::move(d));
 	}
+	for (const CatalogEntry& e : m_project.styles.Entries()) {
+		validate::StyleView s;
+		s.id = e.id;
+		s.themes = StyleLibrary::StyleThemes(e);
+		for (const style::Pick& p : style::ParseMonsters(e.Get("monsters", "")))
+			s.monsters.push_back(p.id);
+		view.styles.push_back(std::move(s));
+	}
+	for (const CatalogEntry& e : m_project.themes.Entries()) view.themeIds.insert(e.id);
+	for (const CatalogEntry& e : m_project.monsters.Entries()) view.monsterIds.insert(e.id);
 	for (const CatalogEntry& e : m_project.quests.Entries()) {
 		validate::QuestView q;
 		q.id = e.id;
@@ -160,9 +172,12 @@ std::vector<validate::Issue> Game::ValidateProject() {
 			h.stage = q.substr(colon + 1);
 		}
 		h.reveals = e->Get("reveals", "");
-		if (!h.quest.empty() || !h.reveals.empty())
+		h.flag = e->Get("flag", "");
+		if (!h.quest.empty() || !h.reveals.empty() || !h.flag.empty())
 			view.itemHooks.push_back(std::move(h));
 	}
+	for (const CatalogEntry& e : m_project.flags.Entries())
+		view.flags.push_back({e.id, e.Get("dungeon", "")});
 	return m_world->Validate(view);
 }
 
@@ -238,6 +253,12 @@ bool Game::EnterLocation(const std::string& id) {
 	// and being able to walk into it would make finding it meaningless.
 	if (!m_worldState.Discovered(id)) {
 		if (m_world->onMessage) m_world->onMessage(loc::View("world.undiscovered"));
+		return false;
+	}
+	// A doorway waiting on a flag (`flag=` on the location record) is barred
+	// until it is on - a gate found but not yet opened.
+	if (const std::string* f = loc->Param("flag"); f && !m_worldState.FlagOn(*f)) {
+		if (m_world->onMessage) m_world->onMessage(loc::View("world.barred"));
 		return false;
 	}
 	if (loc->kind != "dungeon") {
@@ -336,6 +357,11 @@ void Game::OfferEntrance() {
 	// known to be there (the step that reached it has just revealed it, if it
 	// reveals at all), and a town has nothing behind it yet.
 	if (!l || l->kind != "dungeon" || !m_worldState.Discovered(l->id)) return;
+	// A barred doorway says so rather than asking a question it would refuse.
+	if (const std::string* f = l->Param("flag"); f && !m_worldState.FlagOn(*f)) {
+		if (m_world->onMessage) m_world->onMessage(loc::View("world.barred"));
+		return;
+	}
 	const CatalogEntry* d = m_project.dungeons.Find(l->Dungeon());
 	m_ui.AskYesNo(loc::Format("world.ask.enter", d ? d->Display() : l->id),
 				  loc::Tr("world.ask.keys"), [this, id = l->id] { EnterLocation(id); });

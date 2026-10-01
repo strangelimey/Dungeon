@@ -230,8 +230,9 @@ static std::string SerializeMapStatic(const std::string& stem,
 	// without the marker as the old travel-facing meaning and turns it round).
 	m += "stairfacing arrive\n";
 	for (const StairLink& s : map.Stairs())
-		m += std::format("stairs {} {} {} {} dest={} destx={} destz={}\n", s.type, s.x, s.z,
-						 DirToken(s.facing), s.destLevel, s.destX, s.destZ);
+		m += std::format("stairs {} {} {} {} dest={} destx={} destz={}{}\n", s.type, s.x, s.z,
+						 DirToken(s.facing), s.destLevel, s.destX, s.destZ,
+						 s.flag.empty() ? std::string() : " flag=" + s.flag);
 
 	// A pinned palette index is a `variant`; a theme reference a
 	// `theme`, written by the theme's ID (its slot number is this

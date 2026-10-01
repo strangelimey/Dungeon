@@ -15,11 +15,12 @@ namespace dungeon::game {
 void DoorInspector::Open(const Config& cfg,
 						 std::vector<std::pair<std::string, std::string>> keys,
 						 std::vector<std::pair<std::string, std::string>> openers,
-						 std::string typeOpener, std::string typeSide,
+						 std::string typeOpener, std::string typeSide, FlagChoices flags,
 						 PreviewSpec preview) {
 	m_cfg = cfg;
 	m_original = cfg;
 	m_keys = std::move(keys);
+	m_flags = std::move(flags);
 	m_openers = std::move(openers);
 	m_typeOpener = std::move(typeOpener);
 	m_typeSide = std::move(typeSide);
@@ -77,10 +78,15 @@ void DoorInspector::BuildContent(ui::Stack& c) {
 	// as long as its rows and scrolls if it outgrows the card. Nothing here
 	// writes a coordinate.
 	ui::TabControl* tabs = c.Row<ui::TabControl>(ui::Len::Fill(), 0.09f);
+	// The LOCK has its own page (tool-refinement Phase 4): a key and a flag are
+	// both "what keeps it shut", and with the flag row the Door page ran past
+	// its card.
 	const std::size_t tDoor = tabs->AddTab(loc::Tr("map.door.tab_door"));
+	const std::size_t tLock = tabs->AddTab(loc::Tr("map.door.tab_lock"));
 	const std::size_t tMotion = tabs->AddTab(loc::Tr("map.door.tab_motion"));
 	const std::size_t tOpener = tabs->AddTab(loc::Tr("map.door.tab_opener"));
 	ui::Stack& door = *TabStack(*tabs, tDoor);
+	ui::Stack& lock = *TabStack(*tabs, tLock);
 	ui::Stack& motion = *TabStack(*tabs, tMotion);
 	ui::Stack& opener = *TabStack(*tabs, tOpener);
 
@@ -95,7 +101,7 @@ void DoorInspector::BuildContent(ui::Stack& c) {
 	// Required key: "None" + every items.cat entry with category=key. Selecting
 	// one authors key=<id> on the record — the party's click then opens the
 	// door only while a member carries the item; wired buttons ignore locks.
-	door.Row<ui::Label>(FormRow(), loc::Tr("map.door.key"));
+	lock.Row<ui::Label>(FormRow(), loc::Tr("map.door.key"));
 	std::vector<std::string> names;
 	names.push_back(loc::Tr("map.door.nokey"));
 	int sel = 0;
@@ -103,9 +109,16 @@ void DoorInspector::BuildContent(ui::Stack& c) {
 		names.push_back(m_keys[i].second);
 		if (m_keys[i].first == m_cfg.key) sel = static_cast<int>(i) + 1;
 	}
-	door.Row<ui::DropDown>(FormRow(), names, sel, [this](int i) {
+	lock.Row<ui::DropDown>(FormRow(), names, sel, [this](int i) {
 		m_cfg.key =
 			i <= 0 ? std::string() : m_keys[static_cast<size_t>(i) - 1].first;
+		if (onApply) onApply(m_cfg);
+	});
+
+	// Waits for flag: the party's hand cannot open it until the flag is on
+	// (checked before the key). A wired button still moves it.
+	lock.Row<ui::Label>(FormRow(), loc::Tr("map.door.flag"));
+	FlagDropDown(lock, FormRow(), m_flags, m_cfg.flag, [this] {
 		if (onApply) onApply(m_cfg);
 	});
 

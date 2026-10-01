@@ -19,6 +19,20 @@ std::array<InstanceInspector*, 7> Game::InstanceInspectors() {
 			&m_stairInspector};
 }
 
+FlagChoices Game::FlagChoiceList() const {
+	// Each flag labelled with its SCOPE, so picking "sealed" in the crypt does
+	// not quietly pick the barrow's flag of the same look.
+	FlagChoices out;
+	for (const CatalogEntry& e : m_project.flags.Entries()) {
+		const std::string d = e.Get("dungeon", "");
+		const CatalogEntry* dungeon = d.empty() ? nullptr : m_project.dungeons.Find(d);
+		out.emplace_back(e.id, loc::Format("map.flag.label", e.Display(),
+										   d.empty() ? loc::Tr("map.flag.world")
+													 : dungeon ? dungeon->Display() : d));
+	}
+	return out;
+}
+
 InstanceInspector* Game::ActiveInstanceInspector() {
 	for (InstanceInspector* ii : InstanceInspectors())
 		if (ii->IsOpen()) return ii;
@@ -103,6 +117,7 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 			return; // gone since the picker listed it
 		c.open = edit.open;
 		c.key = edit.key;
+		c.flag = edit.flag;
 		c.name = edit.name;
 		c.opener = edit.opener;
 		c.openerSide = edit.openerSide;
@@ -144,15 +159,20 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		};
 		m_doorInspector.Open(c, std::move(keys), std::move(openers),
 							 std::move(typeOpenerName), std::move(typeSide),
-							 std::move(pv));
+							 FlagChoiceList(), std::move(pv));
 		break;
 	}
 	case InspectTarget::Kind::Button: {
 		ButtonInspector::Config c;
 		c.x = cx;
 		c.z = cz;
-		if (!m_world->ButtonSettings(cx, cz, c.target))
+		DungeonWorld::ButtonEdit edit;
+		if (!m_world->ButtonSettings(cx, cz, edit))
 			return; // gone since the picker listed it
+		c.target = edit.target;
+		c.needs = edit.needs;
+		c.sets = edit.sets;
+		c.op = edit.op;
 		PreviewSpec pv;
 		pv.subs = m_world->ButtonPreviewSubs(cx, cz);
 		// A button can target a door OR a niche name — offer both.
@@ -163,7 +183,7 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 			m_world->CommitUndoStep(m_world->RemoveButtonAt(cx, cz));
 			if (m_world->onMessage) m_world->onMessage(loc::View("map.erase.removed"));
 		};
-		m_buttonInspector.Open(c, std::move(targets), std::move(pv));
+		m_buttonInspector.Open(c, std::move(targets), FlagChoiceList(), std::move(pv));
 		break;
 	}
 	case InspectTarget::Kind::Decoration: {
@@ -323,6 +343,7 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		c.destX = s.destX;
 		c.destZ = s.destZ;
 		c.facing = s.facing;
+		c.flag = s.flag;
 		PreviewSpec pv;
 		pv.subs = m_world->StairPreviewSubs(cx, cz);
 		// Delete takes BOTH halves, as the middle-click erase does.
@@ -336,7 +357,7 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		if (m_worldMap)
 			for (const WorldMap::Location& l : m_worldMap->Locations())
 				locations.push_back(l.id);
-		m_stairInspector.Open(c, std::move(locations), std::move(pv));
+		m_stairInspector.Open(c, std::move(locations), FlagChoiceList(), std::move(pv));
 		break;
 	}
 	}

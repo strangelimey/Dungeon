@@ -1,0 +1,8 @@
+; palette-persist.eval - the second half of EditorTest phase 12: a FRESH
+; process must open the palette where palette.eval left it (kind / items),
+; read back from settings.ini.
+
+logecho on
+reset
+echo --- reopened ---
+editor palette

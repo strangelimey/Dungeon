@@ -1,0 +1,40 @@
+; palette.eval - the palette's category bar (tool-refinement Phase 1).
+; tools\EditorTest.py phase 12 reads it. The bar picks a GROUP and the
+; accordion lists only its sections; the grouping flips between STAGE and KIND;
+; the filter searches every section whatever the bar says; and a world
+; section (dungeons / quests / terrain) lists its entries instead of nothing.
+;
+;   --- tables ---     both groupings, as data
+;   --- stage ---      each stage group's sections
+;   --- kind ---       each kind group's sections
+;   --- filter ---     a filter from inside Creatures reaches the rest, and
+;                      clearing it hands the list back to the bar
+;   --- refuse ---     a group the grouping does not have
+;   --- persist ---    left on kind / items, for the next run to find
+
+logecho on
+reset
+echo --- tables ---
+editor palette groups
+echo --- stage ---
+editor palette mode stage
+editor palette group world
+editor palette group build
+editor palette group furnishings
+editor palette group populate
+echo --- kind ---
+editor palette mode kind
+editor palette group surfaces
+editor palette group structure
+editor palette group furnishings
+editor palette group creatures
+editor palette group items
+editor palette group world
+echo --- filter ---
+editor palette group creatures
+editor palette filter marble
+editor palette filter
+echo --- refuse ---
+editor palette group build
+echo --- persist ---
+editor palette group items

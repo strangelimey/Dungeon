@@ -130,6 +130,10 @@ $screens = @(
 	@{ label = 'sweep_genpopulation'; viaConsole = $true
 	   open = { Run-Cmd 'editor'; Run-Cmd 'generate dialog'; Run-Cmd 'generate dialog tab 2' }
 	   close = { Run-Cmd 'generate dialog off'; Run-Cmd 'editor off' } },
+	# The Style tab (tool-refinement Phase 7), with a style picked.
+	@{ label = 'sweep_genstyle'; viaConsole = $true
+	   open = { Run-Cmd 'editor'; Run-Cmd 'generate dialog'; Run-Cmd 'generate dialog style small_crypt'; Run-Cmd 'generate dialog tab 3' }
+	   close = { Run-Cmd 'generate dialog off'; Run-Cmd 'editor off' } },
 	# The STAIR inspector, both layouts: crypt1's stair down at 1,1 (destination
 	# and Go to) and its exit at 7,8 (one "leads out to" line).
 	# `editor inspect` is what a right-click on the square does. It goes to crypt1
@@ -177,6 +181,10 @@ $screens = @(
 	# ...with the WIZARD picked (P5), when its four rows join a taller card...
 	@{ label = 'sweep_newworldwizard'; viaConsole = $true
 	   open = { Run-Cmd 'editor'; Run-Cmd 'worlds newdialog source wizard' }
+	   close = { Run-Cmd 'worlds newdialog off'; Run-Cmd 'editor off' } },
+	# ...with BLANK picked, when the Style row (Phase 7) joins the plain card.
+	@{ label = 'sweep_newworldblank'; viaConsole = $true
+	   open = { Run-Cmd 'editor'; Run-Cmd 'worlds newdialog source blank'; Run-Cmd 'worlds newdialog style dirt_tunnels' }
 	   close = { Run-Cmd 'worlds newdialog off'; Run-Cmd 'editor off' } },
 	@{ label = 'sweep_newworldmade'; viaConsole = $true
 	   open = { Run-Cmd 'editor'; Run-Cmd 'worlds newdialog create wt_nwsweep' }

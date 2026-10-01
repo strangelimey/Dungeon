@@ -12,10 +12,11 @@
 namespace dungeon::game {
 
 void StairInspector::Open(const Config& cfg, std::vector<std::string> locations,
-						  PreviewSpec preview) {
+						  FlagChoices flags, PreviewSpec preview) {
 	m_cfg = cfg;
 	m_original = cfg;
 	m_locations = std::move(locations);
+	m_flags = std::move(flags);
 	// An exit pointing somewhere the world no longer lists still shows (the
 	// ButtonInspector rule), so opening and saving cannot quietly repoint it.
 	if (!m_cfg.destIsLevel && m_cfg.dest != "-" && !m_cfg.dest.empty() &&
@@ -49,6 +50,7 @@ void StairInspector::BuildContent(ui::Stack& c) {
 			m_cfg.dest = i <= 0 ? std::string("-") : m_locations[static_cast<size_t>(i) - 1];
 			if (onApply) onApply(m_cfg);
 		});
+		FlagRows(c);
 		return;
 	}
 	// A paired stair: shown, not edited (see the header).
@@ -62,6 +64,16 @@ void StairInspector::BuildContent(ui::Stack& c) {
 		if (onGoTo) onGoTo(m_cfg);
 	});
 	go->Space(ui::Len::Fill());
+	FlagRows(c);
+}
+
+void StairInspector::FlagRows(ui::Stack& c) {
+	// The flag THIS half waits on: until it is on, stepping onto it only says
+	// the way is barred. The far half is its own record (see the header).
+	c.Row<ui::Label>(FormRow(), loc::Tr("map.stair.flag"))->dim = true;
+	FlagDropDown(c, FormRow(), m_flags, m_cfg.flag, [this] {
+		if (onApply) onApply(m_cfg);
+	});
 }
 
 void StairInspector::ApplyLive() { // the common strip turns the flight

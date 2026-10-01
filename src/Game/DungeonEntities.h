@@ -68,6 +68,10 @@ public:
 	// the level would load records naming a type that no longer exists.
 	int SweepTypeRefs(EntityKind kind, std::string_view id,
 					  const std::string* newId);
+	// The same for a FLAG (flags.cat id), which records name in their params
+	// rather than their type: a door's or lever's `flag=`, a lever's `sets=` /
+	// `clears=` / `toggles=`.
+	int SweepFlagRefs(std::string_view id, const std::string* newId);
 
 	// A level resize (DungeonWorld::ResizeLevel): every record moves by (dx,dz)
 	// - its cell AND the squares its params name (a monster's leashfrom= and

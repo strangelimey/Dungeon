@@ -506,6 +506,7 @@ void DungeonMap::ParseStairRecord(const std::string& record, const std::string& 
 		if (key == "dest") s.destLevel = std::string(val);
 		else if (key == "destx") s.destX = coord(val);
 		else if (key == "destz") s.destZ = coord(val);
+		else if (key == "flag") s.flag = std::string(val);
 		else if (key == "destfacing") {
 			Direction ignored;
 			DN_ASSERT(ParseDirection(val, ignored),
@@ -1082,6 +1083,16 @@ bool DungeonMap::SetStairFacing(int x, int z, Direction facing) {
 	return false;
 }
 
+bool DungeonMap::SetStairFlag(int x, int z, std::string flag) {
+	for (StairLink& s : m_stairs)
+		if (s.x == x && s.z == z) {
+			if (s.flag == flag) return false;
+			s.flag = std::move(flag);
+			return true;
+		}
+	return false;
+}
+
 void DungeonMap::Reframe(int x0, int z0, int w, int h) {
 	const int ow = m_width, oh = m_height;
 	// Every PER-CELL grid, remapped into the new window. The list is the member
@@ -1212,6 +1223,9 @@ int DungeonMap::SweepTypeRefs(TypeRecords records, std::string_view id,
 		break;
 	case TypeRecords::Stair:
 		for (StairLink& s : m_stairs) sweep(s.type);
+		break;
+	case TypeRecords::StairFlag:
+		for (StairLink& s : m_stairs) sweep(s.flag);
 		break;
 	case TypeRecords::Theme:
 		// A slot is a REFERENCE only while a square uses it: an erased square

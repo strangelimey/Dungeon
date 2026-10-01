@@ -1,0 +1,49 @@
+; The themes the library's styles name (one floor / wall / ceiling each, as in a world's themes.cat). Copied into a world with the style that names them.
+
+[crypt_chamber]
+display = Crypt Chamber
+floor = floor_ancient_stone
+wall = wall_stone_30
+ceiling = ceiling_stone
+
+[crypt_passage]
+display = Crypt Passage
+floor = floor_slabs
+wall = wall_stone_28
+ceiling = ceiling_cracked
+
+[dirt_cave]
+display = Dirt Cave
+floor = ground_soil_rocky
+wall = wall_rock
+ceiling = ceiling_rock_porous
+
+[dirt_tunnel]
+display = Dirt Tunnel
+floor = ground_soil_dusty
+wall = wall_rock
+ceiling = ceiling_rock_layered
+
+[barracks_room]
+display = Barracks Room
+floor = floor_stone_pavement
+wall = wall_brick_old
+ceiling = ceiling_rough
+
+[barracks_hall]
+display = Barracks Hall
+floor = floor_cobble_medieval
+wall = wall_brick_weathered
+ceiling = ceiling_rough
+
+[marble_hall]
+display = Marble Hall
+floor = floor_slabs
+wall = wall_marble
+ceiling = ceiling_stone
+
+[marble_gallery]
+display = Marble Gallery
+floor = floor_temple
+wall = wall_marble
+ceiling = ceiling_stone

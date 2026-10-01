@@ -1,0 +1,23 @@
+; Styles: one named decision about how a stretch of dungeon looks, is shaped and
+; what lives there (docs/tool-refinement-plan.md Phase 5, Game/Style.h).
+;
+; Fields:
+;   display          the style's name, as the palette lists it.
+;   room / corridor  themes.cat ids: the look of a room and of a passage.
+;   knobs            the generator's settings line (as genpresets.cat stores it).
+;   corridor_width   squares: 1 for a dirt tunnel, 2 for a grand hall.
+;   tags             what content fits it.
+;   monsters         `<id> [weight]`, comma-separated; an absent weight is 1. A
+;                    monster's power is its own (monsters.cat), never written here.
+;
+; The shared library (assets/library) holds more; the palette's Styles section
+; adds one to this world with the themes and surfaces it needs.
+
+[small_crypt]
+display = Small Crypt
+room = crypt_chamber
+corridor = crypt_passage
+knobs = width:28 height:28 roommin:3 roommax:5 path:5 branches:2 branchmin:1 branchmax:2 loops:0 winding:0.2 irregular:0.2 deadends:2 locks:1 difficulty:0.3 density:0.5 ramp:0.4 boss:0 reward:0.5
+corridor_width = 1
+tags = undead crypt stone
+monsters = skeleton 3, skel_archer, skel_coward, mummy

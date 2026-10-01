@@ -90,6 +90,19 @@ struct Project {
 	// progress is save state (WorldState::quests), not content — a catalog says
 	// what a quest IS, never where anyone has got to in it.
 	Catalog quests;
+	// FLAGS: named on/off facts (a lever pulled, a seal broken). `dungeon` scopes
+	// one to a dungeon, absent = the world. Like quests, the catalog says what a
+	// flag IS; whether it is on is save state (WorldState::flags, by id).
+	Catalog flags;
+	// STYLES (tool-refinement Phase 5, Game/Style.h): a room theme, a corridor
+	// theme, generator knobs, a corridor width, tags and a weighted monster
+	// list - one named decision a builder makes once. The world's own; the
+	// shared library's are in StyleLibrary.
+	Catalog styles;
+	// SHAPES (tool-refinement Phase 6, Game/Carve.h): the Stamp brush's small
+	// grids - a round chamber, a cross hall - as `rows` of '.' (open), '#'
+	// (solid) and anything else (leave), split by '|'.
+	Catalog shapes;
 	// Surface THEMES (docs/editor-themes-notes.md): a named look - `floor` /
 	// `wall` / `ceiling`, each ONE of that surface's catalog ids (empty =
 	// leave it be). World-

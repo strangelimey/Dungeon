@@ -1,0 +1,33 @@
+; docks.eval - the editor's docks and overview (tool-refinement Phase 3), read by
+; tools\EditorTest.py phase 14.
+;
+;   --- widths ---    the default layout, then each dock set as a drag would,
+;                     then past both clamps
+;   --- overview ---  the level / dungeon / world lines (checked against the
+;                     project FILES by the test, not the game's own counts)
+;   --- placed ---    a monster placed on the viewed level: the level and world
+;                     counts move at once (the census reads the live level)
+;   --- undone ---    and back
+;   --- persist ---   left at a known width, for docks-persist.eval to find
+
+logecho on
+reset
+echo --- widths ---
+editor dock
+editor dock left 400
+editor dock right 350
+editor dock left 5
+editor dock left 5000
+echo --- overview ---
+editor overview level
+editor overview dungeon
+editor overview world
+echo --- placed ---
+editor place monsters skel_swarm 5 5
+editor overview level
+editor overview world
+echo --- undone ---
+undo
+editor overview level
+echo --- persist ---
+editor dock left 300

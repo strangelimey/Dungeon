@@ -27,9 +27,9 @@ namespace dungeon::game {
 namespace {
 using Tool = MapEditor::Tool;
 constexpr int kToolCount = static_cast<int>(Tool::Count);
-constexpr const char* kToolTips[kToolCount] = {"map.tool.paint", "map.tool.rect",
-											   "map.tool.flood", "map.tool.area",
-											   "map.tool.pick"};
+constexpr const char* kToolTips[kToolCount] = {
+	"map.tool.paint", "map.tool.rect",     "map.tool.flood", "map.tool.area", "map.tool.pick",
+	"map.tool.corridor", "map.tool.room", "map.tool.stamp", "map.tool.region"};
 } // namespace
 
 gfx::Rect MapView::ToolStripRect(const gfx::Rect& panel) const {
@@ -103,6 +103,7 @@ void MapView::RenderToolStrip(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		ui::DrawBorder(batch, {box.x + 1, box.y + 1, box.w - 2, box.h - 2}, theme.accent);
 		batch.SetScissor(nullptr);
 	}
+	RenderShapePreview(batch, theme, panel);
 }
 
 bool MapView::UpdateBrush(const Input& input, const gfx::Rect& panel, float mx, float my,
@@ -116,6 +117,18 @@ bool MapView::UpdateBrush(const Input& input, const gfx::Rect& panel, float mx, 
 		painted = true;
 		return true;
 	}
+	// A SHAPE drag (corridor, room, region) commits on its release the same way,
+	// and commits exactly what it previewed.
+	if (m_shapeDrag && !input.IsMouseDown(MouseButton::Left)) {
+		m_shapeDrag = false;
+		m_editor->ApplyShape(m_shapeTool == Tool::Region
+								 ? m_editor->RegionShape(m_rectX0, m_rectZ0, m_rectX1, m_rectZ1)
+								 : m_editor->preview);
+		m_editor->preview = {};
+		painted = true;
+		return true;
+	}
+	if (UpdateShapeTools(input, panel, mx, my, overGrid, painted)) return true;
 	if (!overGrid) return false;
 	const bool shift = input.IsKeyDown(0x10 /*VK_SHIFT*/);
 	const bool ctrl = input.IsKeyDown(0x11 /*VK_CONTROL*/);
@@ -129,6 +142,9 @@ bool MapView::UpdateBrush(const Input& input, const gfx::Rect& panel, float mx, 
 												   : m_editor->ActiveTool();
 	if (tool != Tool::Pick && (!m_editor->ArmedPaints() || m_editor->LayingRoute()))
 		tool = Tool::Paint;
+	// A shape tool that UpdateShapeTools left alone (a stamp's press off the
+	// grid, a modifier held) falls back to a plain click too.
+	if (MapEditor::ShapeTool(tool)) tool = Tool::Paint;
 
 	int cx, cz;
 	const bool pressed = input.WasMousePressed(MouseButton::Left);
@@ -191,6 +207,82 @@ bool MapView::UpdateBrush(const Input& input, const gfx::Rect& panel, float mx, 
 		return true;
 	}
 	return false;
+}
+
+bool MapView::UpdateShapeTools(const Input& input, const gfx::Rect& panel, float mx, float my,
+							   bool overGrid, bool& painted) {
+	const Tool tool = m_editor->ActiveTool();
+	const bool held = input.IsKeyDown(0x10) || input.IsKeyDown(0x11) || input.IsKeyDown(0x12);
+	if (!MapEditor::ShapeTool(tool) || held || m_editor->LayingRoute()) {
+		m_editor->preview = {};
+		return false;
+	}
+	int cx, cz;
+	const bool on = overGrid && CellAt(mx, my, panel, cx, cz);
+	if (m_shapeDrag) { // the far end follows the pointer until the release
+		if (on && (cx != m_rectX1 || cz != m_rectZ1)) {
+			m_rectX1 = cx, m_rectZ1 = cz;
+			if (tool == Tool::Corridor)
+				m_editor->preview = m_editor->CorridorShape(m_rectX0, m_rectZ0, cx, cz);
+			else if (tool == Tool::Room)
+				m_editor->preview = m_editor->RoomShape(m_rectX0, m_rectZ0, cx, cz);
+		}
+		return true;
+	}
+	if (tool == Tool::Stamp) {
+		// R turns the stamp (not while the filter box holds the keyboard).
+		if (!m_editor->KeyboardCaptured() && input.WasKeyPressed('R')) m_editor->TurnStamp();
+		m_editor->preview = on ? m_editor->StampShape(cx, cz) : carve::Shape{};
+		if (on && input.WasMousePressed(MouseButton::Left)) {
+			m_editor->DropFilterFocus();
+			m_editor->ApplyShape(m_editor->preview);
+			painted = true;
+			return true;
+		}
+		return false;
+	}
+	m_editor->preview = {};
+	if (on && input.WasMousePressed(MouseButton::Left)) {
+		m_editor->DropFilterFocus();
+		m_shapeDrag = true;
+		m_shapeTool = tool;
+		m_rectX0 = m_rectX1 = cx;
+		m_rectZ0 = m_rectZ1 = cz;
+		if (tool == Tool::Corridor) m_editor->preview = m_editor->CorridorShape(cx, cz, cx, cz);
+		else if (tool == Tool::Room) m_editor->preview = m_editor->RoomShape(cx, cz, cx, cz);
+		return true;
+	}
+	return false;
+}
+
+void MapView::RenderShapePreview(gfx::SpriteBatch& batch, const ui::Theme& theme,
+								 const gfx::Rect& panel) const {
+	if (m_mode != Mode::Editor || !m_editor) return;
+	const Transform t = ComputeTransform(panel);
+	const gfx::Rect grid = GridArea(panel);
+	batch.SetScissor(&grid);
+	// What opens, tinted by role; what a stamp makes solid, dark.
+	const Vec4 room{theme.accent.x, theme.accent.y, theme.accent.z, 0.35f};
+	const Vec4 corridor{0.45f, 0.75f, 0.95f, 0.35f};
+	for (const carve::Square& q : m_editor->preview.open)
+		batch.DrawRect({t.ox + q.x * t.cell, t.oy + q.z * t.cell, t.cell, t.cell},
+					   q.role == carve::Role::Corridor ? corridor : room);
+	for (const auto& [x, z] : m_editor->preview.solid)
+		batch.DrawRect({t.ox + x * t.cell, t.oy + z * t.cell, t.cell, t.cell},
+					   {0.05f, 0.05f, 0.06f, 0.75f});
+	// A region's box (its contents are generated on the release).
+	if (m_shapeDrag && m_shapeTool == Tool::Region) {
+		const int x0 = std::min(m_rectX0, m_rectX1), x1 = std::max(m_rectX0, m_rectX1);
+		const int z0 = std::min(m_rectZ0, m_rectZ1), z1 = std::max(m_rectZ0, m_rectZ1);
+		const gfx::Rect box{t.ox + x0 * t.cell, t.oy + z0 * t.cell, (x1 - x0 + 1) * t.cell,
+							(z1 - z0 + 1) * t.cell};
+		// Red while too small to generate in (RegionShape's 6x6 floor).
+		const bool tooSmall = x1 - x0 + 1 < 6 || z1 - z0 + 1 < 6;
+		batch.DrawRect(box, tooSmall ? Vec4{0.8f, 0.3f, 0.25f, 0.18f}
+									 : Vec4{theme.accent.x, theme.accent.y, theme.accent.z, 0.18f});
+		ui::DrawBorder(batch, box, tooSmall ? Vec4{0.9f, 0.35f, 0.3f, 1.0f} : theme.accent);
+	}
+	batch.SetScissor(nullptr);
 }
 
 } // namespace dungeon::game

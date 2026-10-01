@@ -31,6 +31,7 @@
 
 #include "Game/DungeonWorld.h"
 #include "Game/GameSettings.h" // collapse-state persistence
+#include "Game/MapEditor.h"    // MapEditor::Tool (the tool strip's buttons)
 #include "Game/Placement.h"    // Placement (the hover ghost)
 #include "Graphics/GraphicsDevice.h"
 #include "Graphics/SpriteBatch.h"
@@ -195,6 +196,11 @@ public:
 		if (m_browse && m_browse->stem == oldStem)
 			m_browse = m_world->BrowseLevel(newStem);
 	}
+	// A browsed level changed under the view (an edit from the console): the
+	// snapshot is rebuilt, as a brush's own paint does after each stroke.
+	void RefreshBrowse() {
+		if (m_browse) m_browse = m_world->BrowseLevel(m_browse->stem);
+	}
 
 	// Re-bakes the icon font when the window height changes (the overlay text
 	// scales with the screen like the rest of the UI).
@@ -220,6 +226,44 @@ public:
 	// --- shared with MapEditor (the left dock lives partly in each class) ------
 	// The shared icon/label font (one atlas, sized to the panel each frame).
 	const ui::Font& Font() const { return *m_font; }
+
+	// --- the docks (MapView_Docks.cpp; tool-refinement Phase 3) --------------
+	// Each dock's width is DRAGGED at its inner edge (the pointer turns into
+	// the left-right arrow over it, WantsResizeCursor) and saved as a share of
+	// the panel's width; everything inside and beside a dock is measured from
+	// its edge, so nothing else needs telling. The right dock holds two
+	// collapsible sections: the OVERVIEW (what the world, the viewed level's
+	// dungeon or the viewed level holds - DungeonWorld::Census) and the symbol
+	// KEY.
+	enum class Dock : u8 { None, Left, Right };
+	enum class OverviewScope : u8 { World, Dungeon, Level };
+	// True while the pointer is over a dock's edge or dragging one - Game turns
+	// the window's pointer into the resize arrow.
+	bool WantsResizeCursor() const {
+		return m_dockDrag != Dock::None || m_gripHover != Dock::None;
+	}
+	// For the harness: a dock's width in panel pixels, set as a drag would
+	// (clamped, saved); and the current layout, as `editor dock` prints it.
+	void SetDockWidth(Dock dock, float px, const gfx::Rect& panel);
+	float DockWidth(Dock dock, const gfx::Rect& panel) const;
+	gfx::Rect GridRect(const gfx::Rect& panel) const { return GridArea(panel); }
+	gfx::Rect StripRect(const gfx::Rect& panel) const { return ToolStripRect(panel); }	// One line of the overview panel, as data: `key` is the dev name (the
+	// console prints it), `label`/`value` what the panel shows, `bands` the
+	// power-band counts for the "bands" line, `link` what a click opens (a level
+	// stem, or "check" for the issues report; "" = not a link).
+	struct OverviewLine {
+		std::string key, label, value;
+		std::array<int, 5> bands{};
+		std::string link;
+		bool title = false;
+	};
+	std::vector<OverviewLine> OverviewContent(OverviewScope scope);
+	// What clicking a line's link does: "check" (the checker), "populate" (the
+	// generator dialog, whose Populate button is that stage's action),
+	// "stage:<group>" (that palette stage), else a level stem to browse.
+	void FollowOverviewLink(const std::string& link);
+	OverviewScope Scope() const;
+	void SetScope(OverviewScope scope);
 	// The level the viewport is SHOWING (the [^]/[v] arrows browse the project's
 	// level order). MapEditor routes the brush by these: the active level edits
 	// live state, any other level edits its in-memory stash (DungeonWorld's
@@ -342,6 +386,38 @@ private:
 	bool LegendCollapsed() const; // the right key dock's collapse flag for the mode
 	void ToggleLegend();          // flips that flag and persists
 
+	// --- docks, continued (MapView_Docks.cpp) ----------------------------------
+	float LeftDockW(const gfx::Rect& panel) const;  // expanded widths, clamped
+	float RightDockW(const gfx::Rect& panel) const;
+	// The draggable band on an OPEN dock's inner edge, below its collapse
+	// button; empty for a collapsed one.
+	gfx::Rect DockGrip(Dock dock, const gfx::Rect& panel) const;
+	// The edge drag, then the right dock's own clicks and wheel. True when the
+	// frame's input is the docks' (nothing behind them may also act on it).
+	bool UpdateDocks(const Input& input, float mx, float my, const gfx::Rect& panel);
+	// The right dock's body (its frame and collapse button are Render's), and
+	// the hovered / dragged edge's highlight.
+	void RenderRightDock(gfx::SpriteBatch& batch, const ui::Theme& theme,
+						 const gfx::Rect& panel);
+	void RenderDockGrips(gfx::SpriteBatch& batch, const ui::Theme& theme,
+						 const gfx::Rect& panel);
+	// The right dock's rows, laid out ONCE for both the hit-test and the draw.
+	struct DockRow {
+		enum class Kind { Section, Scope, Line, Key } kind;
+		gfx::Rect rect;
+		int index = 0; // Section: 0 overview / 1 key; Scope: the scope; Line /
+					   // Key: the line's or symbol's index
+	};
+	void BuildRightRows(const gfx::Rect& panel, std::vector<DockRow>& out, float& contentH);
+	gfx::Rect RightBody(const gfx::Rect& panel) const;
+	Dock m_dockDrag = Dock::None;  // the edge being dragged
+	float m_dockDragOffset = 0.0f; // pointer minus edge at the press
+	Dock m_gripHover = Dock::None; // the edge under the pointer
+	float m_rightScroll = 0.0f;    // the right dock's scroll (px)
+	int m_rightHover = -1;         // the hovered overview LINK (its line index)
+	bool m_dockUpdated = false;    // Update ran since the last Render (hover fresh)
+	std::vector<OverviewLine> m_overview; // this frame's lines (Update builds them)
+
 	// --- level browsing (both modes) -----------------------------------------
 	// The viewport can SHOW a level other than the active one: the [^]/[v]
 	// header arrows step the viewed level through the project's level order (an
@@ -390,7 +466,7 @@ private:
 					   *m_icoNew = nullptr, *m_icoPlay = nullptr,
 					   *m_icoPause = nullptr, *m_icoNewWorld = nullptr;
 	// The tool strip's discs, by MapEditor::Tool, then Fill level (icon_tb_tool_*).
-	std::array<const gfx::Texture*, 5> m_icoTools{};
+	std::array<const gfx::Texture*, static_cast<size_t>(MapEditor::Tool::Count)> m_icoTools{};
 	const gfx::Texture* m_icoFillLevel = nullptr;
 	// The docks' collapse buttons: square boxes, "<<" and ">>" (icon_tb_dock_*).
 	const gfx::Texture *m_icoDockL = nullptr, *m_icoDockR = nullptr;
@@ -400,10 +476,24 @@ private:
 	// The Player map's level browse arrows (icon_tb_box_up / _down).
 	const gfx::Texture *m_icoBoxUp = nullptr, *m_icoBoxDown = nullptr;
 	const gfx::Texture* m_icoBoxWorld = nullptr; // the way to the world map
+	// The palette's category bar (icon_tb_cat_*, in MapEditor::CategoryIconNames
+	// order), loaded here where the device is and handed over in SetEditor.
+	std::array<const gfx::Texture*, 16> m_icoCats{};
 	// The Rectangle tool's drag: the press square and the square under the
 	// pointer now. Painted on the release (UpdateBrush), previewed until then.
 	bool m_rectDrag = false;
 	int m_rectX0 = 0, m_rectZ0 = 0, m_rectX1 = 0, m_rectZ1 = 0;
+	// A SHAPE drag (Corridor / Room / Region tools) uses the same two squares;
+	// which tool it was pressed under is kept, since the release is what counts.
+	bool m_shapeDrag = false;
+	MapEditor::Tool m_shapeTool = MapEditor::Tool::Paint;
+	// The shape tools' half of UpdateBrush (MapView_Tools.cpp): the drags, the
+	// stamp's hover and click, R to turn it. True when it took the input.
+	bool UpdateShapeTools(const Input& input, const gfx::Rect& panel, float mx, float my,
+						  bool overGrid, bool& painted);
+	// MapEditor::preview over the grid, and a region drag's box.
+	void RenderShapePreview(gfx::SpriteBatch& batch, const ui::Theme& theme,
+							const gfx::Rect& panel) const;
 	bool m_editorPaused = false; // pause/play toolbar toggle (see EditorPaused)
 	// The edge drag (EdgeAt): the edge under the pointer, the one being dragged,
 	// where the drag started (along its axis), and how many cells it has moved -
@@ -454,8 +544,12 @@ private:
 		LevelSettings, Check, Generate, NewLevel, LevelPick, PlayPause, CollapseL,
 		CollapseR, ShowWorld, NewWorld, Close,
 		// The tool strip, in MapEditor::Tool order, then its one action.
-		ToolPaint, ToolRect, ToolFlood, ToolArea, ToolPick, FillLevel
+		ToolPaint, ToolRect, ToolFlood, ToolArea, ToolPick, ToolCorridor, ToolRoom,
+		ToolStamp, ToolRegion, FillLevel
 	};
+	static_assert(static_cast<int>(HoverBtn::FillLevel) - static_cast<int>(HoverBtn::ToolPaint) ==
+					  static_cast<int>(MapEditor::Tool::Count),
+				  "one strip button per MapEditor::Tool, in its order");
 	HoverBtn m_hoverBtn = HoverBtn::None;
 
 	// The editor's TOOLBAR — a full-width band fixed across the top of the

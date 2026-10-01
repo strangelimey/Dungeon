@@ -92,6 +92,22 @@ bool WorldState::SetFlag(std::string key, std::string value) {
 	return SetPair(flags, std::move(key), std::move(value));
 }
 
+bool WorldState::FlagOn(std::string_view key) const {
+	const std::string* v = FindPair(flags, key);
+	return v && *v != "0";
+}
+
+bool WorldState::SetFlagOn(std::string_view key, bool on) {
+	if (FlagOn(key) == on) return false; // includes "off" on a flag never set
+	for (auto& [k, v] : flags)
+		if (k == key) {
+			v = on ? "1" : "0"; // fits the small-string buffer: no allocation
+			return true;
+		}
+	flags.emplace_back(std::string(key), on ? "1" : "0");
+	return true;
+}
+
 bool WorldState::Discovered(std::string_view id) const {
 	return std::find(discovered.begin(), discovered.end(), id) != discovered.end();
 }

@@ -47,6 +47,7 @@ void NewWorldDialog::Open() {
 	m_spec = {};
 	m_levels = onLevels ? onLevels() : std::vector<std::string>{};
 	m_tagChoices = onTags ? onTags() : std::vector<std::string>{};
+	m_styleChoices = onStyles ? onStyles() : std::vector<std::pair<std::string, std::string>>{};
 	m_note = loc::Tr("map.newworld.note");
 	m_uiRebuild = false;
 	BuildUI();
@@ -66,6 +67,14 @@ void NewWorldDialog::SetWizard(const std::string& tag, int size, float difficult
 	m_spec.size = size;
 	m_spec.difficulty = std::clamp(difficulty, 0.0f, 1.0f);
 	m_spec.seed = seed;
+	m_uiRebuild = true;
+}
+
+void NewWorldDialog::SetStyle(const std::string& id) {
+	m_spec.style = id;
+	// The style decides the tags, and its row hides the wizard's tag row - so a
+	// tag picked before cannot go on steering the floor from out of sight.
+	if (!id.empty()) m_spec.tag.clear();
 	m_uiRebuild = true;
 }
 
@@ -154,16 +163,34 @@ void NewWorldDialog::BuildUI() {
 		});
 	}
 	choice(*chrome.body->Row<ui::Stack>(FormRow(), true), S::Wizard, "map.newworld.wizard");
+	const auto labelled = [&](const char* key) {
+		ui::Stack* row = chrome.body->Row<ui::Stack>(FormRow(), true);
+		row->gapRem = 0.5f;
+		row->Row<ui::Label>(ui::Len::Fill(0.4f), loc::Tr(key))->centerV = true;
+		return row;
+	};
+	// THE STYLE (Phase 7), for the two ways that start from the template: the
+	// world receives it from the library and its first floor is built in it.
+	// The copies bring this world's own styles, so the row is theirs to skip.
+	if (m_spec.source == S::Blank || wizard) {
+		std::vector<std::string> items{loc::Tr("map.newworld.nostyle")};
+		int sel = 0;
+		for (size_t i = 0; i < m_styleChoices.size(); ++i) {
+			items.push_back(m_styleChoices[i].second);
+			if (m_styleChoices[i].first == m_spec.style) sel = static_cast<int>(i) + 1;
+		}
+		labelled("map.newworld.style")
+			->Row<ui::DropDown>(ui::Len::Fill(0.6f), items, sel, [this](int i) {
+				SetStyle(i > 0 && i <= static_cast<int>(m_styleChoices.size())
+							 ? m_styleChoices[static_cast<size_t>(i - 1)].first
+							 : std::string());
+			});
+	}
 	if (wizard) {
 		// The wizard's knobs, only while it is the way picked: a first dungeon
 		// generated from the template's content (docs/level-building.md).
-		const auto labelled = [&](const char* key) {
-			ui::Stack* row = chrome.body->Row<ui::Stack>(FormRow(), true);
-			row->gapRem = 0.5f;
-			row->Row<ui::Label>(ui::Len::Fill(0.4f), loc::Tr(key))->centerV = true;
-			return row;
-		};
-		{ // TAGS: the content tag monsters, loot and surfaces are drawn by.
+		if (m_spec.style.empty()) { // TAGS, unless the style decides them
+			// The content tag monsters, loot and surfaces are drawn by.
 			std::vector<std::string> items{loc::Tr("map.newworld.anytag")};
 			items.insert(items.end(), m_tagChoices.begin(), m_tagChoices.end());
 			int sel = 0;

@@ -18,6 +18,7 @@
 #pragma once
 
 #include "Core/MathTypes.h"        // Vec4
+#include "Game/Carve.h"           // carve::Shape (the shape brushes)
 #include "Game/DungeonWorld.h"     // DungeonWorld::MoveTarget (the drag in progress)
 #include "Game/Entity.h"           // Direction, WallFace
 #include "Game/Placement.h"        // Mount, Placement
@@ -41,6 +42,7 @@ namespace dungeon::game {
 
 class MapView;
 class DungeonWorld;
+class StyleLibrary;
 struct GameSettings;
 
 class MapEditor {
@@ -71,6 +73,20 @@ public:
 		// are pure data, so they DO offer "+ New...": there is no class behind
 		// a dungeon to write first.
 		Dungeons, Terrain, Quests,
+		// QUEST ITEMS & FLAGS (MapEditor_Quests.cpp): the flags (flags.cat) and
+		// the items that hook a quest, a flag or a reveal, in two groups - THIS
+		// DUNGEON (the viewed level's) and WORLD. A flag row opens its editor; an
+		// item row arms that item's brush and says where it lies, with a link
+		// there. "+ New..." makes a flag.
+		Flags,
+		// STYLES (MapEditor_Styles.cpp, Game/Style.h): this world's, then the
+		// shared library's it lacks. A world style's row ARMS it as the current
+		// style (again = off), which ranks the Monsters section by its list; a
+		// library row adds it to the world (onAddStyle).
+		Styles,
+		// SHAPES (shapes.cat, Game/Carve.h): the Stamp brush's grids. A row ARMS
+		// it as the current stamp and picks the Stamp tool (again = off).
+		Shapes,
 		Count
 	};
 
@@ -88,6 +104,55 @@ public:
 		m_icoCollapse = collapse;
 	}
 
+	// --- the category bar (MapEditor_Categories.cpp) ---------------------------
+	// A row or two of square icon buttons at the top of the palette body: pick a
+	// GROUP and the accordion below lists only that group's sections. Two ways of
+	// grouping the same sections, flipped by the bar's first button (Michael:
+	// "both, with a toggle to switch back and forth"):
+	//   Stage - the workflow's order: World / Build / Furnishings / Populate.
+	//   Kind  - what a thing is: Surfaces, Structure, Furnishings, Creatures,
+	//           Items, World.
+	// Both are one table each (kStageGroups / kKindGroups), so regrouping is a
+	// table edit. The FILTER ignores the bar and searches every section, since a
+	// search that only looked where you already are would find nothing new.
+	// Effects are in neither table: they are tuning, not building, and live in
+	// the Balance dialog now. Grouping + the picked group per grouping persist
+	// in settings.ini (map_palette_group / _stage / _kind).
+	enum class Grouping : u8 { Stage, Kind, Count };
+	// The bar's button capacity: the toggle plus the larger grouping's groups.
+	static constexpr size_t kMaxBarButtons = 8;
+	Grouping PaletteGrouping() const;
+	void SetPaletteGrouping(Grouping g);
+	static int GroupCount(Grouping g);
+	// "world", "build", ... - the console's names and the icon files' suffixes
+	// (icon_tb_cat_<name>); the tooltip is map.group.<name>.
+	static const char* GroupName(Grouping g, int group);
+	static std::span<const PaletteCat> GroupCategories(Grouping g, int group);
+	// The picked group in the current grouping.
+	int ActiveGroup() const;
+	void SetActiveGroup(int group);
+	// Whether the palette lists this category at all (false for Effects).
+	static bool CategoryListed(PaletteCat cat);
+	// The sections the accordion lists right now, in order, each with how many
+	// of its items show: the picked group's sections, or while filtering EVERY
+	// section that has a match (a section with none drops out).
+	struct ShownSection {
+		PaletteCat cat;
+		int items;
+	};
+	std::vector<ShownSection> ShownSections() const;
+	// The filter text, for the harness (the box types it for a person).
+	void SetFilter(std::string_view text);
+	const std::string& Filter() const { return m_filter; }
+	// The bar's icons, in CategoryIconNames() order; MapView loads them (it has
+	// the device) and hands them over in SetEditor. Null = a text face.
+	static std::span<const char* const> CategoryIconNames();
+	void SetCategoryIcons(std::span<const gfx::Texture* const> icons);
+	// Draws what must sit above everything else in the editor: the category
+	// bar's tooltip, which opens beside the dock over the tool strip and grid.
+	void RenderOverlay(gfx::SpriteBatch& batch, const ui::Theme& theme,
+					   const gfx::Rect& panel);
+
 	// Fired when a category's "+ New..." row is clicked (the owner opens the
 	// asset-creation dialog for that category).
 	std::function<void(PaletteCat)> onNewAsset;
@@ -102,6 +167,58 @@ public:
 	// placed on a browsed level is not asked about - the inspectors need the
 	// level active - and keeps the dest it landed with.
 	std::function<void(int cx, int cz)> onExitPlaced;
+	// --- styles (MapEditor_Styles.cpp) --------------------------------------
+	// The shared library the Styles section offers from (Game owns it).
+	void SetLibrary(const StyleLibrary* library) { m_library = library; }
+	// The CURRENT style: what a world style's row arms. "" = none. The Monsters
+	// section ranks by its list while one is armed (its monsters first, a
+	// divider, the rest - the tags lens, since the odd one out is often the
+	// memorable one). Not saved: it is this session's working choice.
+	const std::string& CurrentStyle() const { return m_style; }
+	void SetCurrentStyle(std::string id) { m_style = std::move(id); }
+	// What clicking the Styles row for `id` does: a world style toggles as the
+	// current one; a library style is added to the world (onAddStyle). False
+	// when no row lists it.
+	bool UseStyleRow(const std::string& id);
+	// Fired by a library style's row: the owner copies it into the world.
+	std::function<void(const std::string& id)> onAddStyle;
+
+	// --- the shape brushes (MapEditor_Shapes.cpp, Game/Carve.h) ----------------
+	// Each lays shape on the VIEWED level in the current style: the corridor
+	// and room themes, the corridor width, the knobs (winding; a region's whole
+	// recipe). No style armed = plain carving, one square wide, no paint.
+	// The tool strip's Corridor / Room / Region tools drag from one square to
+	// another; Stamp clicks the CURRENT STAMP (a Shapes palette row) down,
+	// turned with R. Every gesture previews exactly what its release commits.
+	carve::Shape CorridorShape(int ax, int az, int bx, int bz) const;
+	carve::Shape RoomShape(int ax, int az, int bx, int bz) const;
+	carve::Shape StampShape(int cx, int cz) const;
+	// Runs the generator in the rectangle (too slow to preview: the box shows
+	// instead). Empty when the rectangle is under 6x6.
+	carve::Shape RegionShape(int ax, int az, int bx, int bz) const;
+	struct ShapeResult {
+		int opened = 0, raised = 0, painted = 0;
+	};
+	// Commits a shape as ONE undo step: opens its squares, raises a stamp's
+	// solid ones (never onto the party), paints the style's themes on what
+	// opened and on the rock around it. Advances the shape seed, so the next
+	// winding corridor or region differs from this one.
+	ShapeResult ApplyShape(const carve::Shape& shape);
+	// A Shapes row's click: arm `id` as the current stamp and pick the Stamp
+	// tool - or, when it already is the stamp, put it down. False if no row.
+	bool UseShapeRow(const std::string& id);
+	const std::string& CurrentStamp() const { return m_stamp; }
+	void SetCurrentStamp(std::string id) { m_stamp = std::move(id); }
+	int StampTurns() const { return m_stampTurns; }
+	void TurnStamp() { m_stampTurns = (m_stampTurns + 1) % 4; }
+	void SetShapeSeed(u32 seed) { m_shapeSeed = seed; }
+	// What the tool strip previews while a shape gesture is under way (MapView
+	// draws it; empty = nothing).
+	carve::Shape preview;
+
+	// Fired by a palette row's go-to link (a quest item's placement): browse to
+	// that level and select the square.
+	std::function<void(const std::string& level, int cx, int cz)> onGoTo;
 	// Fired for each grid cell clicked while LAYING a patrol route (grid-click route
 	// authoring). Carries the monster's runtimeId + the cell; the owner appends it.
 	std::function<void(u32 runtimeId, int cx, int cz)> onRouteWaypoint;
@@ -178,8 +295,22 @@ public:
 		std::string group;
 		const gfx::Texture* icon = nullptr;
 		bool onTags = true;
+		// A monster's power BAND (Game/Power.h), drawn as pips at the row's end:
+		// 1..5 filled of five. 0 = no pips (everything that is not a monster).
+		int band = 0;
+		// A row standing for ANOTHER catalog's type (the Quest items & flags
+		// section lists items): that catalog's key, which its click and its
+		// right-click act on. "" = the section's own catalog.
+		std::string ref;
+		// Where the thing lies, when the row can take you there ("" = nowhere):
+		// the row ends in a link that browses to that level and square.
+		std::string gotoLevel;
+		int gotoX = -1, gotoZ = -1;
 		ui::Swatch Swatch() const { return {icon, swatch}; }
 	};
+	// A section's rows exactly as the accordion resolves them (label, id,
+	// band...), for the harness - `editor palette items <catalog>`.
+	std::vector<PaletteItem> Items(PaletteCat cat) const { return CategoryItems(cat); }
 	// One surface type (a Walls/Floors/Ceilings category) as the palette shows
 	// it: display name, group, the loaded albedo and the flat fallback colour.
 	// Public so a dialog listing surface types (a theme's members) shows
@@ -303,7 +434,11 @@ public:
 	// for that one click, so the old gestures keep working as shortcuts. A
 	// placement brush places on a click whatever tool is picked. Persisted as
 	// settings.ini `map_tool`.
-	enum class Tool : u8 { Paint, Rect, Flood, Area, Pick, Count };
+	// The SHAPE tools (MapEditor_Shapes.cpp, Game/Carve.h) follow: they need no
+	// armed brush - they carve in the CURRENT STYLE (its themes, its corridor
+	// width, its shape knobs), and carve plainly when none is armed.
+	enum class Tool : u8 { Paint, Rect, Flood, Area, Pick, Corridor, Room, Stamp, Region, Count };
+	static bool ShapeTool(Tool t) { return t >= Tool::Corridor && t < Tool::Count; }
 	Tool ActiveTool() const;
 	void SetTool(Tool t);
 	// "paint", "rect", ... - the console's names and the icon files' suffixes.
@@ -388,8 +523,56 @@ private:
 	}
 	bool GroupOpen(PaletteCat cat, const std::string& group) const {
 		const auto it = m_groupOpen.find(GroupKey(cat, group));
-		return it != m_groupOpen.end() && it->second;
+		// The Quest items & flags and Styles sections' groups ARE the section
+		// (this dungeon / world, this world / library), so they start open.
+		if (it == m_groupOpen.end())
+			return cat == PaletteCat::Flags || cat == PaletteCat::Styles;
+		return it->second;
 	}
+
+	// --- the Quest items & flags section (MapEditor_Quests.cpp) ---------------
+	// Its rows: this dungeon's and the world's flags, then the quest items whose
+	// scope is each (an item's is the scope of the flag it sets; the world's
+	// when it sets none - a quest and a reveal are world-tier).
+	std::vector<PaletteItem> QuestSectionItems() const;
+	// A left click on one of its rows: a flag opens its editor; an item arms
+	// that item's brush (again = disarm), or on its link goes to where it lies.
+	void QuestRowClick(const PaletteRow& row, float mx, float my);
+	void UseQuestRow(const PaletteItem& item, bool link);
+
+public:
+	// What clicking the Quest items & flags row for `id` does - on its link when
+	// `link` - for the harness, which cannot click. False if no row lists it.
+	bool UseQuestRow(const std::string& id, bool link);
+
+private:
+	// The go-to link at a row's end: a square the row's height.
+	static gfx::Rect GoToRect(const gfx::Rect& row) {
+		return {row.x + row.w - row.h, row.y, row.h, row.h};
+	}
+	// The category a row's click acts on: its `ref` catalog's, else its own.
+	// Count for a row with no catalog of the world's behind it (a library
+	// style, ref = kLibraryRef).
+	static PaletteCat RowCat(PaletteCat cat, const PaletteItem& item) {
+		return item.ref.empty() ? cat : CatForCatalogKey(item.ref);
+	}
+	static constexpr const char* kLibraryRef = "library";
+
+	// --- the Styles section (MapEditor_Styles.cpp) ------------------------------
+	// Its rows: the world's styles, then the library's the world lacks.
+	std::vector<PaletteItem> StyleSectionItems() const;
+	// A style's weighted monster ids, when `id` names one of the world's (else
+	// empty): the Monsters section's lens.
+	std::vector<std::string> StyleMonsters(const std::string& id) const;
+	const StyleLibrary* m_library = nullptr;
+	std::string m_style; // the current style (see CurrentStyle)
+	// The shape brushes' state: the armed stamp, its turn, and the seed the next
+	// winding corridor / region rolls from.
+	std::string m_stamp;
+	int m_stampTurns = 0;
+	u32 m_shapeSeed = 1;
+	// The current style's entry ("" style = null).
+	const CatalogEntry* StyleEntry() const;
 
 	// Every category authors new assets — each gets a "+ New..." row that
 	// opens the asset dialog.
@@ -406,8 +589,49 @@ private:
 	// level palette (Walls/Floors/Ceilings/entities).
 	std::vector<PaletteItem> CategoryItems(PaletteCat cat) const;
 
+	// The category bar's buttons: the grouping toggle first, then one per group
+	// of the current grouping, wrapping onto a second row when the dock is
+	// narrow. `group` -1 = the toggle. A fixed array - at most the toggle plus
+	// the larger grouping's groups.
+	struct BarButton {
+		gfx::Rect rect;
+		int group;
+	};
+	struct BarLayout {
+		std::array<BarButton, kMaxBarButtons> buttons{};
+		size_t count = 0;
+		gfx::Rect area; // every row of the bar
+	};
+	BarLayout CategoryBar(const gfx::Rect& panel) const;
+	// The sections the accordion walks before the filter drops the empty ones:
+	// the picked group's, or every listed section while filtering.
+	std::vector<PaletteCat> CandidateSections() const;
+	// Makes sure the picked group shows SOMETHING: if none of its sections is
+	// open, the first one opens. Run after every change of group or grouping.
+	void OpenSomethingInGroup();
+	// Switches to the group holding `cat` (in the current grouping) and opens
+	// its section - so a brush armed from outside the bar (an eyedropper, a new
+	// palette entry) is visible where it was armed.
+	void RevealCategory(PaletteCat cat);
+	// The bar button under a point: its group, -1 the toggle, -2 none.
+	int BarButtonAt(float mx, float my, const gfx::Rect& panel) const;
+	// A click in the bar: flips the grouping or picks a group. True when the
+	// click landed anywhere in the bar (a gap between buttons still claims it).
+	bool OnBarClick(float mx, float my, const gfx::Rect& panel);
+	void RenderCategoryBar(gfx::SpriteBatch& batch, const ui::Theme& theme,
+						   const gfx::Rect& panel);
+	int m_hotBar = -2; // the hovered bar button's group (-1 toggle, -2 none)
+	// The palette row under the pointer (TrackMouse, window px), and - when
+	// that row's name had to be trimmed to fit - its full name and the row's
+	// rect as RenderBody drew it (device px), for RenderOverlay's tooltip.
+	// Reset at the top of every RenderBody, so a tip never outlives its row.
+	Selection m_hoverItem{PaletteCat::Count, -1};
+	std::string m_rowTip;
+	gfx::Rect m_rowTipAt{};
+	std::array<const gfx::Texture*, 16> m_icoCats{}; // see SetCategoryIcons
+
 	// Controls-row geometry (all derived from the panel like the dock chrome):
-	// [filter box............][x][-] on one line at the dock body's top; the
+	// [filter box............][x][-] on one line under the category bar; the
 	// accordion lays out in the remainder (AccordionBody).
 	gfx::Rect ControlsRow(const gfx::Rect& panel) const;
 	gfx::Rect FilterBoxRect(const gfx::Rect& panel) const;
@@ -427,7 +651,7 @@ private:
 	// like the dock-collapse flags — a workflow preference, not per-session
 	// state. Toggling it Save()s (MapEditor holds a GameSettings&).
 	// Which control the mouse is over (hover styling; None = neither).
-	enum class HotCtrl { None, Filter, Clear, Collapse, Catalog };
+	enum class HotCtrl { None, Filter, Clear, Collapse, Catalog, Bar };
 	HotCtrl m_hotCtrl = HotCtrl::None;
 	const gfx::Texture *m_icoClear = nullptr, *m_icoExpand = nullptr,
 					   *m_icoCollapse = nullptr; // see SetIcons
@@ -446,6 +670,11 @@ private:
 	// ground, its wall mix on a solid block (PaintCell's theme half). A
 	// theme RECOLOURS - it never changes the square's type.
 	void PaintThemeCell(int cx, int cz, bool remote, const std::string& stem);
+	// The same with the theme NAMED and the square's openness SAID rather than
+	// read - a shape brush paints squares it has just changed, which a browsed
+	// level's snapshot does not show yet.
+	void PaintThemeAs(const std::string& id, int cx, int cz, bool open, bool remote,
+					  const std::string& stem);
 	// One structural/surface application of the armed brush to a cell — the
 	// shared inner body of ApplyBrush/PaintRect/FloodFill. No undo bracketing
 	// or change detection (callers bracket a whole gesture as one step).

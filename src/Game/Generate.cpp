@@ -85,6 +85,32 @@ bool Chance(std::mt19937& rng, float p) {
 	return p > 0.0f && std::uniform_real_distribution<float>(0.0f, 1.0f)(rng) < p;
 }
 
+// A rank in `ranked` (weakest first) a step either side of `at`, chosen between
+// by each kind's WEIGHT (Params::monsterWeight; absent = 1). All weights equal
+// is Run's old uniform step; a weight of 0 is never chosen while another is.
+int PickNear(std::mt19937& rng, const std::vector<size_t>& ranked,
+			 const std::vector<float>& weights, int at) {
+	const int n = static_cast<int>(ranked.size());
+	const auto weightOf = [&](int rank) {
+		const size_t i = ranked[static_cast<size_t>(rank)];
+		return i < weights.size() ? std::max(0.0f, weights[i]) : 1.0f;
+	};
+	const int lo = std::max(0, at - 1), hi = std::min(n - 1, at + 1);
+	float total = 0.0f;
+	for (int r = lo; r <= hi; ++r) total += weightOf(r);
+	int pick = std::clamp(at, 0, n - 1);
+	if (total <= 0.0f) return pick;
+	float roll = std::uniform_real_distribution<float>(0.0f, total)(rng);
+	for (int r = lo; r <= hi; ++r) {
+		const float w = weightOf(r);
+		if (w <= 0.0f) continue;
+		pick = r;
+		if (roll < w) break;
+		roll -= w;
+	}
+	return pick;
+}
+
 void Carve(Level& lv, int x, int z) {
 	if (x < 1 || z < 1 || x >= lv.width - 1 || z >= lv.height - 1) return;
 	lv.floor[static_cast<size_t>(z) * lv.width + x] = 1;
@@ -824,11 +850,13 @@ Level Run(const Params& p) {
 				const int cell = freeIn(rooms[r], true);
 				if (cell < 0) break;
 				// Near the target rank, with a step either way so one level
-				// is not a single kind throughout.
-				const int at = std::clamp(
-					static_cast<int>(std::lround(target * static_cast<float>(n - 1))) +
-						Roll(rng, -1, 1),
-					0, n - 1);
+				// is not a single kind throughout - by WEIGHT when the pool has
+				// them (a style's list), else the old uniform step, untouched so
+				// an unstyled level comes out exactly as it always did.
+				const int centre = static_cast<int>(std::lround(target * static_cast<float>(n - 1)));
+				const int at = p.monsterWeight.empty()
+								   ? std::clamp(centre + Roll(rng, -1, 1), 0, n - 1)
+								   : PickNear(rng, ranked, p.monsterWeight, centre);
 				place(ranked[static_cast<size_t>(at)], cell);
 			}
 		}
@@ -859,6 +887,222 @@ Level Run(const Params& p) {
 			if (children[r] == 0 && r != exitRoom && Chance(rng, reward)) drop(r);
 		}
 	}
+	return lv;
+}
+
+// --- populate only (tool-refinement Phase 7) -------------------------------------
+// Run's population, restated for a level whose rooms are not known: the same
+// knobs mean the same thing here, so "difficulty 0.7" asks for the same strength
+// whether the shape came from Run, a brush or a hand.
+Level Populate(const Params& p, int width, int height, const std::vector<u8>& walkable,
+			   const std::vector<u8>& free, int startX, int startZ) {
+	Level lv;
+	lv.width = width;
+	lv.height = height;
+	lv.floor = walkable;
+	lv.startX = startX;
+	lv.startZ = startZ;
+	const size_t cells = static_cast<size_t>(std::max(0, width)) * std::max(0, height);
+	if (cells == 0 || walkable.size() != cells || free.size() != cells) return lv;
+	const auto idx = [&](int x, int z) { return static_cast<size_t>(z) * width + x; };
+	const auto walk = [&](int x, int z) {
+		return x >= 0 && z >= 0 && x < width && z < height && walkable[idx(x, z)] != 0;
+	};
+	// Area.h's room rule: the square sits in some 2x2 block of walkable squares.
+	const auto roomy = [&](int x, int z) {
+		for (int dz = -1; dz <= 0; ++dz)
+			for (int dx = -1; dx <= 0; ++dx)
+				if (walk(x + dx, z + dz) && walk(x + dx + 1, z + dz) && walk(x + dx, z + dz + 1) &&
+					walk(x + dx + 1, z + dz + 1))
+					return true;
+		return false;
+	};
+	constexpr int kDx[4] = {0, 1, 0, -1}, kDz[4] = {-1, 0, 1, 0};
+
+	// --- the rooms: runs of ROOM squares, 4-connected - or, on a level of nothing
+	// but passages, runs of any squares, since a warren still wants something in it.
+	bool anyRoom = false;
+	std::vector<u8> isRoom(cells, 0);
+	for (int z = 0; z < height; ++z)
+		for (int x = 0; x < width; ++x)
+			if (walk(x, z) && roomy(x, z)) isRoom[idx(x, z)] = 1, anyRoom = true;
+	if (!anyRoom) isRoom = walkable;
+	std::vector<int> label(cells, -1);
+	std::vector<std::vector<int>> rooms; // each room's squares, as cell indices
+	for (int z = 0; z < height; ++z)
+		for (int x = 0; x < width; ++x) {
+			if (!isRoom[idx(x, z)] || label[idx(x, z)] >= 0) continue;
+			const int id = static_cast<int>(rooms.size());
+			rooms.emplace_back();
+			std::vector<int> todo{static_cast<int>(idx(x, z))};
+			label[idx(x, z)] = id;
+			while (!todo.empty()) {
+				const int c = todo.back();
+				todo.pop_back();
+				rooms.back().push_back(c);
+				const int cx = c % width, cz = c / width;
+				for (int d = 0; d < 4; ++d) {
+					const int nx = cx + kDx[d], nz = cz + kDz[d];
+					if (!walk(nx, nz) || !isRoom[idx(nx, nz)] || label[idx(nx, nz)] >= 0) continue;
+					label[idx(nx, nz)] = id;
+					todo.push_back(static_cast<int>(idx(nx, nz)));
+				}
+			}
+			std::sort(rooms.back().begin(), rooms.back().end()); // row-major, whatever the flood did
+		}
+
+	// --- how deep each sits: walking distance from the start, a room's being its
+	// nearest square's. A room the start cannot reach gets nothing - what stood
+	// there could never be met.
+	std::vector<int> dist(cells, -1);
+	if (walk(startX, startZ)) {
+		std::vector<int> queue{static_cast<int>(idx(startX, startZ))};
+		dist[idx(startX, startZ)] = 0;
+		for (size_t head = 0; head < queue.size(); ++head) {
+			const int c = queue[head], cx = c % width, cz = c / width;
+			for (int d = 0; d < 4; ++d) {
+				const int nx = cx + kDx[d], nz = cz + kDz[d];
+				if (!walk(nx, nz) || dist[idx(nx, nz)] >= 0) continue;
+				dist[idx(nx, nz)] = dist[static_cast<size_t>(c)] + 1;
+				queue.push_back(static_cast<int>(idx(nx, nz)));
+			}
+		}
+	}
+	std::vector<int> depth(rooms.size(), -1);
+	int maxDepth = 0;
+	for (size_t r = 0; r < rooms.size(); ++r) {
+		for (const int c : rooms[r]) {
+			const int d = dist[static_cast<size_t>(c)];
+			if (d >= 0 && (depth[r] < 0 || d < depth[r])) depth[r] = d;
+		}
+		maxDepth = std::max(maxDepth, depth[r]);
+	}
+	// The start's own room gets nothing - WHILE THERE IS ANOTHER to fill. A found
+	// room is only as separate as its walls make it: a corridor that wanders two
+	// squares wide is "room" by the 2x2 rule and joins what it touches, so on a
+	// hand-built floor the start's room can be most of the level (on a level of
+	// passages alone it IS the level). Then the three-step margin is the rule.
+	int startRoom = walk(startX, startZ) ? label[idx(startX, startZ)] : -1;
+	bool another = false;
+	for (size_t r = 0; r < rooms.size(); ++r)
+		another = another || (depth[r] >= 0 && static_cast<int>(r) != startRoom);
+	if (!another) startRoom = -1;
+	const auto progress = [&](size_t r) {
+		return maxDepth > 0 ? static_cast<float>(depth[r]) / static_cast<float>(maxDepth) : 1.0f;
+	};
+	const auto counts = [&](size_t r) { return depth[r] >= 0 && static_cast<int>(r) != startRoom; };
+
+	std::mt19937 rng(p.seed * 2654435761u + 0x5eedu);
+	std::vector<u8> taken(cells, 0);
+	if (walk(startX, startZ)) taken[idx(startX, startZ)] = 1;
+	// A free square of room `r`, or -1; `safe` keeps it three steps from the start.
+	const auto freeIn = [&](size_t r, bool safe) -> int {
+		std::vector<int> spots;
+		for (const int c : rooms[r]) {
+			if (!free[static_cast<size_t>(c)] || taken[static_cast<size_t>(c)]) continue;
+			if (safe && std::abs(c % width - startX) + std::abs(c / width - startZ) <= 3) continue;
+			spots.push_back(c);
+		}
+		if (spots.empty()) return -1;
+		return spots[static_cast<size_t>(Roll(rng, 0, static_cast<int>(spots.size()) - 1))];
+	};
+	const auto countOf = [&](float expected) {
+		const int whole = static_cast<int>(expected);
+		return whole + (Chance(rng, expected - static_cast<float>(whole)) ? 1 : 0);
+	};
+	const float difficulty = std::clamp(p.difficulty, 0.0f, 1.0f);
+	const float density = std::clamp(p.density, 0.0f, 2.0f);
+	const float ramp = std::clamp(p.ramp, 0.0f, 1.0f);
+	const float reward = std::clamp(p.reward, 0.0f, 1.0f);
+
+	// --- monsters, weakest first, the boss first of all ---------------------------
+	std::vector<size_t> ranked(p.monsterIds.size());
+	for (size_t i = 0; i < ranked.size(); ++i) ranked[i] = i;
+	const auto threatOf = [&](size_t i) {
+		return i < p.monsterThreat.size() ? p.monsterThreat[i] : 0.0;
+	};
+	std::stable_sort(ranked.begin(), ranked.end(),
+					 [&](size_t l, size_t r) { return threatOf(l) < threatOf(r); });
+	const auto place = [&](size_t pick, int cell) {
+		Entity m;
+		m.kind = EntityKind::Monster;
+		m.type = p.monsterIds[pick];
+		m.x = cell % width;
+		m.z = cell / width;
+		lv.entities.push_back(std::move(m));
+		taken[static_cast<size_t>(cell)] = 1;
+		const double t = threatOf(pick);
+		if (lv.report.monsters == 0 || t < lv.report.threatMin) lv.report.threatMin = t;
+		if (lv.report.monsters == 0 || t > lv.report.threatMax) lv.report.threatMax = t;
+		++lv.report.monsters;
+	};
+	if (!ranked.empty()) {
+		const int n = static_cast<int>(ranked.size());
+		if (p.boss) { // the strongest kind, in the deepest room
+			int far = -1;
+			for (size_t r = 0; r < rooms.size(); ++r)
+				if (counts(r) && (far < 0 || depth[r] > depth[static_cast<size_t>(far)]))
+					far = static_cast<int>(r);
+			if (far >= 0)
+				if (const int cell = freeIn(static_cast<size_t>(far), true); cell >= 0) {
+					place(ranked.back(), cell);
+					lv.report.bossPlaced = true;
+				}
+		}
+		for (size_t r = 0; r < rooms.size(); ++r) {
+			if (!counts(r)) continue;
+			const float pr = progress(r);
+			const float target = std::clamp(difficulty + ramp * (pr - 0.5f), 0.0f, 1.0f);
+			const float perSquare = 0.04f * density * (1.0f + ramp * (pr - 0.5f));
+			const int count = countOf(perSquare * static_cast<float>(rooms[r].size()));
+			const int centre = static_cast<int>(std::lround(target * static_cast<float>(n - 1)));
+			for (int k = 0; k < count; ++k) {
+				const int cell = freeIn(r, true);
+				if (cell < 0) break;
+				place(ranked[static_cast<size_t>(PickNear(rng, ranked, p.monsterWeight, centre))], cell);
+			}
+		}
+		// AND THERE IS SOMEONE, when anything is asked for at all: a small floor
+		// at a modest density can roll nobody, and a Populate that sometimes does
+		// nothing teaches you to distrust the button (the wizard's and the
+		// encounter's rule). One, in the deepest room that has a free square,
+		// near the strength the far end asks for.
+		if (density > 0.0f && lv.report.monsters == 0) {
+			std::vector<size_t> byDepth;
+			for (size_t r = 0; r < rooms.size(); ++r)
+				if (counts(r)) byDepth.push_back(r);
+			std::stable_sort(byDepth.begin(), byDepth.end(),
+							 [&](size_t a, size_t b) { return depth[a] > depth[b]; });
+			const float target = std::clamp(difficulty + ramp * 0.5f, 0.0f, 1.0f);
+			const int centre = static_cast<int>(std::lround(target * static_cast<float>(n - 1)));
+			for (const size_t r : byDepth)
+				if (const int cell = freeIn(r, true); cell >= 0) {
+					place(ranked[static_cast<size_t>(PickNear(rng, ranked, p.monsterWeight, centre))], cell);
+					break;
+				}
+		}
+	}
+
+	// --- loot: more of it deeper in, none in the start room -------------------------
+	if (!p.lootIds.empty())
+		for (size_t r = 0; r < rooms.size(); ++r) {
+			if (!counts(r)) continue;
+			const float perSquare = 0.03f * reward * (0.5f + progress(r));
+			const int count = countOf(perSquare * static_cast<float>(rooms[r].size()));
+			for (int k = 0; k < count; ++k) {
+				const int cell = freeIn(r, false);
+				if (cell < 0) break;
+				Entity it;
+				it.kind = EntityKind::Item;
+				it.type = p.lootIds[static_cast<size_t>(
+					Roll(rng, 0, static_cast<int>(p.lootIds.size()) - 1))];
+				it.x = cell % width;
+				it.z = cell / width;
+				lv.entities.push_back(std::move(it));
+				taken[static_cast<size_t>(cell)] = 1;
+				++lv.report.loot;
+			}
+		}
 	return lv;
 }
 

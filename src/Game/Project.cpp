@@ -45,6 +45,20 @@ const CatalogSlot kCatalogs[] = {
 	{"terrain.cat", &Project::terrain, "Terrain kinds: what a world-map cell is (glyph + travel/difficulty/tags)."},
 	{"quests.cat", &Project::quests, "Quests: display name + ORDERED stage list; progress lives in the save, never here."},
 	{"dungeons.cat", &Project::dungeons, "Dungeons: a named group of level stems with an entry level, reached through a world-map location."},
+	{"flags.cat", &Project::flags,
+	 "Flags: named on/off facts the game remembers (docs/tool-refinement-plan.md "
+	 "Phase 4). `dungeon` scopes one to a dungeon (empty = the world). Set by items "
+	 "(`flag`) and buttons (`sets` / `clears` / `toggles`); read by doors, buttons and "
+	 "stairs (`flag`). The value lives in the save, never here."},
+	{"styles.cat", &Project::styles,
+	 "Styles (docs/tool-refinement-plan.md Phase 5, Game/Style.h): `room` / `corridor` "
+	 "theme ids, `knobs` (the generator's settings line), `corridor_width`, `tags` and "
+	 "`monsters` (`<id> [weight]`, comma-separated). Added from the shared library "
+	 "(assets/library) or made here; arming one ranks the Monsters section by its list."},
+	{"shapes.cat", &Project::shapes,
+	 "Shapes (docs/tool-refinement-plan.md Phase 6, Game/Carve.h): the Stamp brush's grids. "
+	 "`rows` is the grid, rows split by '|': '.' opens a square, '#' makes it solid, "
+	 "anything else leaves it. Placed centred on the square clicked; R turns it."},
 	{"themes.cat", &Project::themes,
 	 "Surface themes: a named look - floor / wall / ceiling, each ONE of that "
 	 "surface's catalog ids (empty = leave that surface alone). Cells reference one "
@@ -213,6 +227,9 @@ Catalog* Project::CatalogForKey(const std::string& key) {
 	if (key == "terrain") return &terrain;
 	if (key == "dungeons") return &dungeons;
 	if (key == "quests") return &quests;
+	if (key == "flags") return &flags;
+	if (key == "styles") return &styles;
+	if (key == "shapes") return &shapes;
 	if (key == "walls") return &walls;
 	if (key == "floors") return &floors;
 	if (key == "ceilings") return &ceilings;
@@ -243,7 +260,7 @@ std::vector<const Catalog*> Project::AllCatalogs() const {
 			&monsters, &doors, &stairs,   &buttons,      &items,
 			&weapons, &armor,  &spells,   &effects,      &attacks,
 			&balance, &damagetypes, &wallfeatures, &surfacefeatures,
-			&terrain, &dungeons, &quests, &themes};
+			&terrain, &dungeons, &quests, &flags, &styles, &shapes, &themes};
 }
 
 const CatalogEntry* Project::FindItem(std::string_view id) const {

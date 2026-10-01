@@ -168,6 +168,15 @@ void GameSettings::Load() {
 	ParseIniBool(text, "map_legend_collapsed=", mapLegendCollapsed);
 	ParseIniBool(text, "map_show_catalog=", mapShowCatalog);
 	ParseIniInt(text, "map_tool=", mapTool);
+	// Clamped where they are READ (MapEditor), which knows the group counts.
+	ParseIniInt(text, "map_palette_group=", mapPaletteGrouping);
+	ParseIniInt(text, "map_palette_stage=", mapPaletteStage);
+	ParseIniInt(text, "map_palette_kind=", mapPaletteKind);
+	ParseIniFloat(text, "map_palette_width=", mapPaletteWidth, 0.0f, 1.0f);
+	ParseIniFloat(text, "map_legend_width=", mapLegendWidth, 0.0f, 1.0f);
+	ParseIniBool(text, "map_overview_collapsed=", mapOverviewCollapsed);
+	ParseIniBool(text, "map_key_collapsed=", mapKeyCollapsed);
+	ParseIniInt(text, "map_overview_scope=", mapOverviewScope);
 	ParseIniBool(text, "hud_move_collapsed=", hudMoveCollapsed);
 	ParseIniBool(text, "hud_magic_collapsed=", hudMagicCollapsed);
 	ParseIniFloat(text, "hud_move_scale=", hudMove.scale, 0.5f, 1.5f);
@@ -243,6 +252,12 @@ void GameSettings::Save() const {
 		"map_palette_collapsed={}\nmap_legend_collapsed={}\nmap_show_catalog={}\nmap_tool={}\n",
 		mapPaletteCollapsed ? 1 : 0, mapLegendCollapsed ? 1 : 0,
 		mapShowCatalog ? 1 : 0, mapTool);
+	text += std::format("map_palette_group={}\nmap_palette_stage={}\nmap_palette_kind={}\n",
+						mapPaletteGrouping, mapPaletteStage, mapPaletteKind);
+	text += std::format("map_palette_width={:.4f}\nmap_legend_width={:.4f}\n", mapPaletteWidth,
+						mapLegendWidth);
+	text += std::format("map_overview_collapsed={}\nmap_key_collapsed={}\nmap_overview_scope={}\n",
+						mapOverviewCollapsed ? 1 : 0, mapKeyCollapsed ? 1 : 0, mapOverviewScope);
 	text += std::format("hud_move_collapsed={}\nhud_magic_collapsed={}\n",
 						hudMoveCollapsed ? 1 : 0, hudMagicCollapsed ? 1 : 0);
 	text += std::format(

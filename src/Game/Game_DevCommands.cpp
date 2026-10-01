@@ -23,7 +23,9 @@
 #include <chrono>
 #include <cstdlib>
 #include <format>
+#include <optional>
 #include <string>
+#include <tuple>
 #include <utility>
 
 namespace dungeon::game {
@@ -225,7 +227,17 @@ void Game::RegisterDevCommands() {
 								  "cell <x> <z>\n"
 								  "move <x> <z> <to-x> <to-z>\n"
 								  "resize <x0> <z0> <x1> <z1>\n"
-								  "tool [paint|rect|flood|area|pick]\n"
+								  "tool [paint|rect|flood|area|pick|corridor|room|stamp|region]\n"
+								  "shape corridor|room|region <ax> <az> <bx> <bz>\n"
+								  "shape stamp <id> <x> <z> [turns]\n"
+								  "shape seed <n>\n"
+								  "palette [mode stage|kind]\n"
+								  "palette group <name>|filter [text]|groups\n"
+								  "palette items <catalog>\n"
+								  "palette use <id> [link]\n"
+								  "dock [left|right <px>]\n"
+								  "overview [world|dungeon|level]\n"
+								  "overview follow <key> [world|dungeon|level]\n"
 								  "disarm\n"
 								  "view\n"
 								  "issues\n"
@@ -306,13 +318,62 @@ void Game::RegisterDevCommands() {
 									   if (args[1] == MapEditor::ToolName(static_cast<Tool>(i)))
 										   found = i;
 								   if (found < 0) {
-									   m_console.Print("usage: editor tool [paint|rect|flood|area|pick]");
+									   m_console.Print("usage: editor tool [paint|rect|flood|area|pick|"
+												   "corridor|room|stamp|region]");
 									   return;
 								   }
 								   m_mapEditor.SetTool(static_cast<Tool>(found));
 							   }
 							   m_console.Print(std::format(
 								   "editor tool: {}", MapEditor::ToolName(m_mapEditor.ActiveTool())));
+							   return;
+						   }
+						   // THE SHAPE BRUSHES without a mouse (Phase 6): the same
+						   // shape the drag previews, committed the way its release
+						   // commits it, on the viewed level in the current style.
+						   //   editor shape corridor|room|region <ax> <az> <bx> <bz>
+						   //   editor shape stamp <id> <x> <z> [turns]
+						   //   editor shape seed <n>      (the next winding / region)
+						   if (!args.empty() && args[0] == "shape") {
+							   if (args.size() >= 3 && args[1] == "seed") {
+								   m_mapEditor.SetShapeSeed(
+									   static_cast<u32>(std::strtoul(args[2].c_str(), nullptr, 10)));
+								   m_console.Print(std::format("editor shape seed {}", args[2]));
+								   return;
+							   }
+							   if (m_mapView.IsOpen())
+								   m_mapView.SetMode(MapView::Mode::Editor);
+							   else
+								   m_mapView.Open(MapView::Mode::Editor);
+							   const auto n = [&](size_t i) { return std::atoi(args[i].c_str()); };
+							   carve::Shape shape;
+							   const std::string kind = args.size() >= 2 ? args[1] : std::string();
+							   if ((kind == "corridor" || kind == "room" || kind == "region") &&
+								   args.size() >= 6) {
+								   shape = kind == "corridor" ? m_mapEditor.CorridorShape(n(2), n(3), n(4), n(5))
+										   : kind == "room"	 ? m_mapEditor.RoomShape(n(2), n(3), n(4), n(5))
+															 : m_mapEditor.RegionShape(n(2), n(3), n(4), n(5));
+							   } else if (kind == "stamp" && args.size() >= 5) {
+								   if (!m_project.shapes.Contains(args[2])) {
+									   m_console.Refuse(std::format("editor shape: no shape '{}'", args[2]));
+									   return;
+								   }
+								   m_mapEditor.SetCurrentStamp(args[2]);
+								   while (args.size() >= 6 &&
+										  m_mapEditor.StampTurns() != (n(5) % 4 + 4) % 4)
+									   m_mapEditor.TurnStamp();
+								   shape = m_mapEditor.StampShape(n(3), n(4));
+							   } else {
+								   m_console.Refuse("usage: editor shape corridor|room|region <ax> <az> "
+													"<bx> <bz> | stamp <id> <x> <z> [turns] | seed <n>");
+								   return;
+							   }
+							   const MapEditor::ShapeResult r = m_mapEditor.ApplyShape(shape);
+							   m_mapView.RefreshBrowse();
+							   m_console.Print(std::format(
+								   "editor shape {}: squares={} solid={} opened={} raised={} painted={}",
+								   kind, shape.open.size(), shape.solid.size(), r.opened, r.raised,
+								   r.painted));
 							   return;
 						   }
 						   // What the live check boxes on the VIEWED level, one line a
@@ -385,6 +446,23 @@ void Game::RegisterDevCommands() {
 								   "editor pick: {} {}",
 								   c == MapEditor::PaletteCat::Count ? "-" : MapEditor::CategoryCatalogKey(c),
 								   m_mapEditor.ArmedId()));
+							   return;
+						   }
+						   // The palette's category bar, as the bar and the filter
+						   // box would drive it: bare = what shows now; `mode
+						   // stage|kind`, `group <name>`, `filter [text]` change it
+						   // first; `groups` prints both tables.
+						   if (!args.empty() && args[0] == "palette") {
+							   PrintPalette(args);
+							   return;
+						   }
+						   // The docks and the overview (MapView_Docks.cpp):
+						   // `dock [left|right <px>]` sets a width as a drag
+						   // would, then prints the layout everything else is
+						   // measured from; `overview [world|dungeon|level]`
+						   // prints the panel's lines for that scope.
+						   if (!args.empty() && (args[0] == "dock" || args[0] == "overview")) {
+							   PrintDocks(args);
 							   return;
 						   }
 						   if (!args.empty() && args[0] == "rev") {
@@ -580,7 +658,7 @@ void Game::RegisterDevCommands() {
 		{.name = "threat",
 		 .group = CmdGroup::Monsters,
 		 .params = "[tag ...]",
-		 .summary = "rank monster kinds by derived threat (a tag's pool, or all)"},
+		 .summary = "rank monster kinds by power - derived threat or the override (a tag's pool, or all)"},
 		[this](const std::vector<std::string>& args) {
 			generate::Params p;
 			FillPools(p, args);
@@ -590,33 +668,44 @@ void Game::RegisterDevCommands() {
 				return p.monsterThreat[a] < p.monsterThreat[b];
 			});
 			for (const size_t i : order) {
-				const threat::Parts t = ThreatOf(*m_project.monsters.Find(p.monsterIds[i]));
+				const CatalogEntry& e = *m_project.monsters.Find(p.monsterIds[i]);
+				const threat::Parts t = ThreatOf(e);
 				// melee= and shot= are per second BEFORE the ranged edge; offence=
 				// is the better of the two with the edge applied, so a shot's
-				// weight in the ranking reads straight off the line.
+				// weight in the ranking reads straight off the line. power= is
+				// what the pool RANKS by (the threat, or the authored override,
+				// marked); band= the palette's pips. Both go at the END: the
+				// harnesses match the line's head (LevelBuildTest reads
+				// "threat <id> <n> offence=...").
+				const bool authored = e.GetFloat("power", 0.0f) > 0.0f;
 				m_console.Print(std::format(
 					"threat {} {:.2f} offence={:.2f} melee={:.2f} shot={:.2f} "
-					"toughness={:.1f} hit={:.2f} behit={:.2f}",
+					"toughness={:.1f} hit={:.2f} behit={:.2f} power={:.2f}{} band={}",
 					p.monsterIds[i], t.threat, t.offence, t.melee, t.shot, t.toughness,
-					t.hit, t.beHit));
+					t.hit, t.beHit, p.monsterThreat[i], authored ? "(set)" : "",
+					m_world->MonsterBand(e.id)));
 			}
 			m_console.Print(std::format("threat: {} kind(s){}", order.size(),
 										args.empty() ? "" : " in that tag's pool"));
 		});
 	// A new floor of the viewed dungeon by default, and the view jumps to it;
-	// `again` rerolls the VIEWED level in place, as the dialog's Regenerate does.
-	// Knobs as the dialog names them, e.g. path:8 seed:7 - unset ones keep the
-	// dialog's.
+	// `again` rerolls the VIEWED level in place, as the dialog's Regenerate does;
+	// `populate` keeps its shape and rerolls its monsters and loot (tool-
+	// refinement Phase 7). Knobs as the dialog names them, e.g. path:8 seed:7 -
+	// unset ones keep the dialog's, except the style (none unless named).
 	m_console.Register({.name = "generate",
 						.group = CmdGroup::Levels,
 						.params = "[dungeon] [<knob>:<value> ...]\n"
 								  "again [<knob>:<value> ...]\n"
+								  "populate [<knob>:<value> ...]\n"
 								  "dialog [new|off]\n"
 								  "dialog tab <n>\n"
+								  "dialog create|empty|populate\n"
+								  "dialog style <id|->\n"
 								  "preset [list]\n"
 								  "preset save|load|delete <name>\n"
 								  "play [stem]",
-						.summary = "rough out a new level, or reroll the viewed one"},
+						.summary = "rough out a new level, reroll or populate the viewed one"},
 					   [this](const std::vector<std::string>& args) {
 						   if (!m_gameLoaded || (m_state != AppState::Playing &&
 												 m_state != AppState::Paused)) {
@@ -639,15 +728,25 @@ void Game::RegisterDevCommands() {
 								   m_generateDialog.ShowTab(std::atoi(args[2].c_str()));
 							   else if (mode == "new" && m_mapView.onNewLevel)
 								   m_mapView.onNewLevel(m_mapView.ViewedDungeon());
+							   // Phase 7: its buttons and its style dropdown, as clicks.
+							   else if (mode == "create" || mode == "empty") {
+								   const std::string stem = m_generateDialog.PressCreate(mode == "create");
+								   m_console.Print("generate dialog: made " + (stem.empty() ? "-" : stem));
+							   } else if (mode == "populate")
+								   m_generateDialog.PressPopulate();
+							   else if (mode == "style" && args.size() > 2)
+								   m_generateDialog.PickChoice("style", args[2] == "-" ? "" : args[2]);
 							   else if (m_mapView.onGenerate)
 								   m_mapView.onGenerate();
+							   const std::string& style = m_generateDialog.Knobs().style;
 							   m_console.Print(std::format(
-								   "generate dialog: {}",
+								   "generate dialog: {} style={} knobs {}",
 								   !m_generateDialog.IsOpen() ? "closed"
 								   : m_generateDialog.GetMode() ==
 										   GenerateDialog::Mode::Create
 									   ? "create"
-									   : "regenerate"));
+									   : "regenerate",
+								   style.empty() ? "-" : style, generate::Encode(m_generateDialog.Knobs())));
 							   return;
 						   }
 						   // PLAY (P5): the dialog's Play buttons, without a mouse.
@@ -695,16 +794,39 @@ void Game::RegisterDevCommands() {
 						   // through the same table - so a scripted run and a
 						   // dialog run cannot disagree about what a knob means.
 						   generate::Params p = m_generateDialog.Knobs();
+						   // NO STYLE unless the line names one (`style:<id>`): the
+						   // dialog's last one rides settings.ini, and a script
+						   // must build the same floor whatever was clicked last.
+						   p.style.clear();
 						   std::string line, dungeon = m_mapView.ViewedDungeon();
-						   bool again = false;
+						   bool again = false, populate = false;
 						   for (const std::string& a : args)
 							   if (a == "again")
 								   again = true;
+							   else if (a == "populate")
+								   populate = true;
 							   else if (a.find(':') == std::string::npos)
 								   dungeon = a; // a bare word names the dungeon
 							   else
 								   line += a + ' ';
 						   generate::Decode(line, p);
+						   if (!p.style.empty() && !m_project.styles.Contains(p.style)) {
+							   m_console.Refuse("generate: this world has no style '" + p.style + "'");
+							   return;
+						   }
+						   // POPULATE ONLY (Phase 7): the viewed level's shape kept,
+						   // its monsters and loot rerolled from these knobs.
+						   if (populate) {
+							   const int placed = PopulateViewedLevel(p);
+							   if (placed < 0) {
+								   m_console.Print("generate: populate failed");
+								   return;
+							   }
+							   m_console.Print(std::format("generate: populated {} ({})",
+														   m_mapView.ViewedLevel(), generate::Encode(p)));
+							   m_console.Print("generate: built " + GenReportText());
+							   return;
+						   }
 						   // The dialog's two buttons, without a mouse: a new floor
 						   // (and the view follows it, as the dialog's does), or a
 						   // reroll of the one being viewed.
@@ -918,21 +1040,102 @@ void Game::RegisterDevCommands() {
 												   x, z)
 									 : std::format("nothing breakable at {},{}", x, z));
 					   });
+	// `party` honours the lever's flag= wait, as a hand would.
 	m_console.Register({.name = "press",
 						.group = CmdGroup::Levels,
-						.params = "<x> <z>",
+						.params = "<x> <z> [party]",
 						.summary = "toggle the button in a cell (exercises save)"},
 					   [this](const std::vector<std::string>& args) {
 						   if (!Need(m_console, args, 2)) return;
 						   const int x = std::atoi(args[0].c_str());
 						   const int z = std::atoi(args[1].c_str());
 						   bool on = false;
-						   if (m_world->ToggleButtonAt(x, z, on))
+						   const bool party = args.size() > 2 && args[2] == "party";
+						   if (m_world->ToggleButtonAt(x, z, on, party))
 							   m_console.Print(std::format("button {},{} -> {}", x, z,
 														   on ? "on" : "off"));
 						   else
 							   m_console.Print(std::format("no button at {},{}", x, z));
 					   });
+	m_console.Register({.name = "opendoor",
+						.group = CmdGroup::Levels,
+						.params = "<x> <z>",
+						.summary = "the party's hand on a door: its flag wait, its key, then the toggle"},
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 2)) return;
+						   const int x = std::atoi(args[0].c_str());
+						   const int z = std::atoi(args[1].c_str());
+						   bool open = false;
+						   if (m_world->HandOnDoorAt(x, z, open))
+							   m_console.Print(std::format("door {},{} -> {}", x, z,
+														   open ? "open" : "shut"));
+						   else
+							   m_console.Print(std::format("no door at {},{}", x, z));
+					   });
+	// The door / lever / stair inspectors' flag rows, without a mouse: the SAME
+	// setters their Apply calls, reading the object's settings first so only
+	// the flag wiring changes. `flag=` (or bare `flag=` to clear) is what it
+	// waits on; a lever also takes one of sets= / clears= / toggles= (or `op=`
+	// alone to clear the op).
+	m_console.Register(
+		{.name = "flagwire",
+		 .group = CmdGroup::Levels,
+		 .params = "<x> <z> door|stair [flag=[id]]\n"
+				   "<x> <z> lever [flag=[id]] [sets=|clears=|toggles=<id>] [op=]",
+		 .summary = "wire a door's, lever's or stair's flags as its inspector does"},
+		[this](const std::vector<std::string>& args) {
+			if (!Need(m_console, args, 3)) return;
+			const int x = std::atoi(args[0].c_str());
+			const int z = std::atoi(args[1].c_str());
+			std::optional<std::string> flag;
+			std::optional<std::pair<FlagOp, std::string>> op;
+			for (size_t i = 3; i < args.size(); ++i) {
+				const size_t eq = args[i].find('=');
+				const std::string k = args[i].substr(0, eq);
+				const std::string v = eq == std::string::npos ? "" : args[i].substr(eq + 1);
+				if (k == "flag") flag = v;
+				else if (k == "op") op = std::pair{FlagOp::None, std::string()};
+				else if (FlagOpFromKey(k) != FlagOp::None) op = std::pair{FlagOpFromKey(k), v};
+				else {
+					m_console.Refuse(std::format("flagwire: unknown '{}'", args[i]));
+					return;
+				}
+			}
+			const std::string& what = args[2];
+			if (what == "door") {
+				DungeonWorld::DoorEdit e;
+				if (!m_world->DoorSettings(x, z, e)) {
+					m_console.Refuse(std::format("flagwire: no door at {},{}", x, z));
+					return;
+				}
+				if (flag) e.flag = *flag;
+				m_world->SetDoorSettings(x, z, e);
+				m_console.Print(std::format("flagwire door {},{} flag={}", x, z, e.flag));
+			} else if (what == "lever") {
+				DungeonWorld::ButtonEdit e;
+				if (!m_world->ButtonSettings(x, z, e)) {
+					m_console.Refuse(std::format("flagwire: no lever at {},{}", x, z));
+					return;
+				}
+				if (flag) e.needs = *flag;
+				if (op) std::tie(e.op, e.sets) = *op;
+				m_world->SetButtonSettings(x, z, e);
+				m_world->ButtonSettings(x, z, e); // as written
+				m_console.Print(std::format("flagwire lever {},{} flag={} {}={}", x, z, e.needs,
+											*FlagOpKey(e.op) ? FlagOpKey(e.op) : "op", e.sets));
+			} else if (what == "stair") {
+				StairLink s;
+				if (!m_world->StairSettings(x, z, s)) {
+					m_console.Refuse(std::format("flagwire: no stair at {},{}", x, z));
+					return;
+				}
+				if (flag) m_world->SetStairFlag(x, z, *flag);
+				m_world->StairSettings(x, z, s);
+				m_console.Print(std::format("flagwire stair {},{} flag={}", x, z, s.flag));
+			} else {
+				m_console.Refuse("flagwire: door, lever or stair");
+			}
+		});
 	m_console.Register({.name = "lights",
 						.group = CmdGroup::Rendering,
 						.summary = "print active point-light count"},
@@ -1288,5 +1491,143 @@ bool Game::SaveFontCatalog() {
 // progress screen, when the player first starts a game.
 // ============================================================================
 
+// `editor palette [mode stage|kind | group <name> | filter [text] | groups |
+// items <catalog>]`.
+// Every change goes through the same MapEditor calls the bar and the filter box
+// make, then the line says what the accordion lists: the grouping, the picked
+// group, the filter, and each section showing with how many of its rows show.
+void Game::PrintPalette(const std::vector<std::string>& args) {
+	using G = MapEditor::Grouping;
+	auto modeName = [](G g) { return g == G::Kind ? "kind" : "stage"; };
+	if (args.size() >= 2 && args[1] == "groups") {
+		for (const G g : {G::Stage, G::Kind})
+			for (int i = 0; i < MapEditor::GroupCount(g); ++i) {
+				std::string line = std::format("editor palette group {} {}:", modeName(g),
+											   MapEditor::GroupName(g, i));
+				for (const MapEditor::PaletteCat c : MapEditor::GroupCategories(g, i))
+					line += std::format(" {}", MapEditor::CategoryCatalogKey(c));
+				m_console.Print(line);
+			}
+		return;
+	}
+	// A Quest items & flags row, used as a click would use it (on its go-to
+	// link with `link`), then what that left: the armed brush, the viewed level
+	// and selected square, whether a type editor opened.
+	if (args.size() >= 3 && args[1] == "use") {
+		const bool link = args.size() > 3 && args[3] == "link";
+		if (!m_mapEditor.UseQuestRow(args[2], link)) {
+			m_console.Refuse(std::format("editor palette: no quest row '{}'", args[2]));
+			return;
+		}
+		const MapEditor::PaletteCat armed = m_mapEditor.ArmedCat();
+		m_console.Print(std::format(
+			"editor palette used {} armed={}:{} view={} sel={},{} typeeditor={}", args[2],
+			armed == MapEditor::PaletteCat::Count ? "-" : MapEditor::CategoryCatalogKey(armed),
+			m_mapEditor.ArmedId(), m_mapView.ViewedLevel(), m_mapEditor.SelX(),
+			m_mapEditor.SelZ(), m_typeDialog.IsOpen() ? m_typeDialog.Id() : std::string("-")));
+		return;
+	}
+	// One section's rows as the accordion resolves them - the power band a
+	// monster row's pips draw included.
+	if (args.size() >= 3 && args[1] == "items") {
+		const MapEditor::PaletteCat cat = MapEditor::CatForCatalogKey(args[2]);
+		if (cat == MapEditor::PaletteCat::Count) {
+			m_console.Print(std::format("editor palette: no section '{}'", args[2]));
+			return;
+		}
+		// The head is fixed (phase 13 matches it); what a row adds goes after:
+		// its group, the catalog it stands for and where it goes, for the
+		// Quest items & flags section.
+		for (const MapEditor::PaletteItem& it : m_mapEditor.Items(cat))
+			m_console.Print(std::format(
+				"editor palette item {} {} band={} group='{}' ref={} goto={} label='{}' lens={}",
+				args[2], it.id, it.band, it.group, it.ref.empty() ? "-" : it.ref,
+				it.gotoLevel.empty() ? std::string("-")
+									 : std::format("{}@{},{}", it.gotoLevel, it.gotoX, it.gotoZ),
+				it.label, it.onTags ? "on" : "off"));
+		return;
+	}
+	if (args.size() >= 3 && args[1] == "mode") {
+		if (args[2] != "stage" && args[2] != "kind") {
+			m_console.Print("usage: editor palette mode stage|kind");
+			return;
+		}
+		m_mapEditor.SetPaletteGrouping(args[2] == "kind" ? G::Kind : G::Stage);
+	} else if (args.size() >= 3 && args[1] == "group") {
+		const G g = m_mapEditor.PaletteGrouping();
+		int found = -1;
+		for (int i = 0; i < MapEditor::GroupCount(g); ++i)
+			if (args[2] == MapEditor::GroupName(g, i)) found = i;
+		if (found < 0) {
+			m_console.Print(std::format("editor palette: no group '{}' when grouped by {}",
+										args[2], modeName(g)));
+			return;
+		}
+		m_mapEditor.SetActiveGroup(found);
+	} else if (args.size() >= 2 && args[1] == "filter") {
+		m_mapEditor.SetFilter(args.size() >= 3 ? args[2] : std::string());
+	}
+	const G g = m_mapEditor.PaletteGrouping();
+	std::string line =
+		std::format("editor palette: {} {} filter='{}' shows:", modeName(g),
+					MapEditor::GroupName(g, m_mapEditor.ActiveGroup()), m_mapEditor.Filter());
+	for (const MapEditor::ShownSection& s : m_mapEditor.ShownSections())
+		line += std::format(" {}({})", MapEditor::CategoryCatalogKey(s.cat), s.items);
+	m_console.Print(line);
+}
+
+void Game::PrintDocks(const std::vector<std::string>& args) {
+	if (m_mapView.IsOpen()) m_mapView.SetMode(MapView::Mode::Editor);
+	else m_mapView.Open(MapView::Mode::Editor);
+	// The panel Update hands the view: window pixels, as a drag would see.
+	const gfx::Rect panel = MapPanel(static_cast<float>(m_window.Width()),
+									 static_cast<float>(m_window.Height()));
+	using Scope = MapView::OverviewScope;
+	if (args[0] == "overview") {
+		static constexpr const char* kNames[] = {"world", "dungeon", "level"};
+		Scope scope = m_mapView.Scope();
+		// `overview follow <key> [world|dungeon|level]`: click that line of the
+		// panel (in its current scope unless named) - Phase 7's "what next" is
+		// the one that matters - and say where it led.
+		if (args.size() >= 3 && args[1] == "follow") {
+			if (args.size() >= 4)
+				for (int i = 0; i < 3; ++i)
+					if (args[3] == kNames[i]) scope = static_cast<Scope>(i);
+			for (const MapView::OverviewLine& l : m_mapView.OverviewContent(scope))
+				if (l.key == args[2]) {
+					m_mapView.FollowOverviewLink(l.link);
+					m_console.Print(std::format("editor overview follow {} -> {} (palette {})", l.key,
+												l.link.empty() ? "-" : l.link,
+												MapEditor::GroupName(m_mapEditor.PaletteGrouping(),
+																	 m_mapEditor.ActiveGroup())));
+					return;
+				}
+			m_console.Refuse("editor overview follow: no line '" + args[2] + "'");
+			return;
+		}
+		if (args.size() >= 2)
+			for (int i = 0; i < 3; ++i)
+				if (args[1] == kNames[i]) scope = static_cast<Scope>(i);
+		for (const MapView::OverviewLine& l : m_mapView.OverviewContent(scope))
+			m_console.Print(std::format("editor overview {} {} {}", kNames[static_cast<int>(scope)],
+										l.key, l.title ? l.label : l.value));
+		return;
+	}
+	if (args.size() >= 3) {
+		const MapView::Dock d = args[1] == "left"	 ? MapView::Dock::Left
+								: args[1] == "right" ? MapView::Dock::Right
+													 : MapView::Dock::None;
+		m_mapView.SetDockWidth(d, static_cast<float>(std::atof(args[2].c_str())), panel);
+	}
+	const gfx::Rect g = m_mapView.GridRect(panel);
+	const gfx::Rect s = m_mapView.StripRect(panel);
+	const gfx::Rect b = m_mapView.PaletteBody(panel);
+	m_console.Print(std::format(
+		"editor dock panel={:.0f} left={:.0f} right={:.0f} grid={:.0f},{:.0f},{:.0f} "
+		"strip={:.0f} palette={:.0f},{:.0f}",
+		panel.w, m_mapView.DockWidth(MapView::Dock::Left, panel),
+		m_mapView.DockWidth(MapView::Dock::Right, panel), g.x, g.w, g.x + g.w, s.x, b.x,
+		b.w));
+}
 
 } // namespace dungeon::game
