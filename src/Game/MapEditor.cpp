@@ -61,6 +61,7 @@ constexpr CatInfo kCategoryInfo[] = {
 	{"map.cat.dungeons", "dungeons", false, /*placeable*/ false, /*authorable*/ true},
 	{"map.cat.terrain", "terrain", false, /*placeable*/ false, /*authorable*/ true},
 	{"map.cat.quests", "quests", false, /*placeable*/ false, /*authorable*/ true},
+	{"map.cat.flags", "flags", false, /*placeable*/ false, /*authorable*/ true},
 };
 static_assert(sizeof(kCategoryInfo) / sizeof(kCategoryInfo[0]) ==
 				  static_cast<size_t>(MapEditor::PaletteCat::Count),
@@ -192,6 +193,7 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 	// was a "+ New..." over "(none defined)" however many it held.
 	case PaletteCat::Dungeons:    return catalogItems(proj.dungeons, kStair);
 	case PaletteCat::Quests:      return catalogItems(proj.quests, kItem);
+	case PaletteCat::Flags:       return QuestSectionItems();
 	case PaletteCat::Terrain: {
 		std::vector<PaletteItem> items = catalogItems(proj.terrain, kFloor);
 		for (PaletteItem& it : items)
@@ -419,8 +421,10 @@ void MapEditor::TrackMouse(float mx, float my, const gfx::Rect& panel) {
 		float content = 0.0f;
 		BuildPaletteRows(panel, rows, content);
 		for (const PaletteRow& r : rows)
-			if (r.kind == PaletteRow::Kind::Item && r.rect.Contains(mx, my)) {
-				m_hoverItem = {r.cat, r.index};
+			if ((r.kind == PaletteRow::Kind::Item || r.kind == PaletteRow::Kind::Header) &&
+				r.rect.Contains(mx, my)) {
+				// A header is index -2: its name can be trimmed too.
+				m_hoverItem = {r.cat, r.kind == PaletteRow::Kind::Header ? -2 : r.index};
 				break;
 			}
 	}
@@ -606,6 +610,8 @@ bool MapEditor::OnClick(float mx, float my, const gfx::Rect& panel) {
 			m_catOpen[static_cast<size_t>(r.cat)] = !m_catOpen[static_cast<size_t>(r.cat)];
 		else if (r.kind == PaletteRow::Kind::SubHeader)
 			m_groupOpen[GroupKey(r.cat, r.group)] = !GroupOpen(r.cat, r.group);
+		else if (r.kind == PaletteRow::Kind::Item && r.cat == PaletteCat::Flags)
+			QuestRowClick(r, mx, my); // rows of two catalogs, with links
 		else if (r.kind == PaletteRow::Kind::Item) {
 			// A placeable type arms the brush; a non-placeable one has nothing
 			// to arm, so a click opens its editor (what right-click does for
@@ -639,8 +645,9 @@ bool MapEditor::OnRightClick(float mx, float my, const gfx::Rect& panel) {
 		// there is no per-category allowlist here any more).
 		if (r.kind == PaletteRow::Kind::Item && onConfigure) {
 			const std::vector<PaletteItem> items = CategoryItems(r.cat);
+			// A row standing for another catalog's type edits it THERE.
 			if (r.index >= 0 && r.index < static_cast<int>(items.size()))
-				onConfigure(r.cat, items[r.index].id);
+				onConfigure(RowCat(r.cat, items[r.index]), items[r.index].id);
 		}
 		return true; // any row in the dock body consumes the right-click
 	}
@@ -1326,6 +1333,31 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		}
 	};
 	std::vector<PaletteItem> items; // the current category's items
+	// A row standing for another section's type (PaletteItem::ref) lights when
+	// THAT type is armed - once per draw, since ArmedId resolves a section.
+	const PaletteCat armedCat = ArmedCat();
+	const std::string armedId = ArmedId();
+	// A name that does not fit is trimmed with ".." - back to a whole UTF-8
+	// character, never mid-way through one - and, when its row is the hovered
+	// one (`hoverIndex`), says itself in full in a tooltip (RenderOverlay).
+	auto drawFitted = [&](const PaletteRow& r, int hoverIndex, const std::string& name,
+						  float x, float room, float ty, const Vec4& ink) {
+		if (font.MeasureWidth(name) <= room) {
+			font.Draw(batch, name, x, ty, ink);
+			return;
+		}
+		std::string fit = name;
+		while (fit.size() > 1 && font.MeasureWidth(fit + "..") > room) {
+			fit.pop_back();
+			while (!fit.empty() && (static_cast<unsigned char>(fit.back()) & 0xC0) == 0x80)
+				fit.pop_back();
+		}
+		font.Draw(batch, fit + "..", x, ty, ink);
+		if (r.cat == m_hoverItem.cat && hoverIndex == m_hoverItem.index) {
+			m_rowTip = name;
+			m_rowTipAt = r.rect;
+		}
+	};
 	for (const PaletteRow& r : rows) {
 		const gfx::Rect& rc = r.rect;
 		if (r.kind == PaletteRow::Kind::Header) items = CategoryItems(r.cat);
@@ -1336,8 +1368,9 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			batch.DrawRect(rc, theme.control);
 			ui::DrawBorder(batch, rc, theme.panelBorder);
 			expander(m_catOpen[static_cast<size_t>(r.cat)], rc.x + dpad, rc, ty);
-			font.Draw(batch, loc::Tr(CategoryNameKey(r.cat)),
-					  rc.x + dpad * 2 + arrowW, ty, theme.text);
+			const float hx = rc.x + dpad * 2 + arrowW;
+			drawFitted(r, -2, loc::Tr(CategoryNameKey(r.cat)), hx, rc.x + rc.w - dpad - hx, ty,
+					   theme.text);
 			break;
 		}
 		case PaletteRow::Kind::NewButton:
@@ -1373,7 +1406,10 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		}
 		case PaletteRow::Kind::Item: {
 			if (r.index < 0 || r.index >= static_cast<int>(items.size())) break;
-			const bool active = m_sel.cat == r.cat && m_sel.index == r.index;
+			const PaletteItem& item = items[r.index];
+			const bool active = (m_sel.cat == r.cat && m_sel.index == r.index) ||
+								(!item.ref.empty() && armedCat == RowCat(r.cat, item) &&
+								 armedId == item.id);
 			if (active) {
 				batch.DrawRect(rc, theme.controlActive);
 				ui::DrawBorder(batch, rc, theme.panelBorder);
@@ -1391,23 +1427,22 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			const float gap = std::max(1.0f, std::round(pip * 0.4f));
 			const float pipsW = band > 0 ? power::kBands * pip + (power::kBands - 1) * gap : 0.0f;
 			const float pipsX = rc.x + rc.w - dpad - pipsW;
-			// Any name that does not fit - before the pips, or before the dock's
-			// edge - is trimmed with ".." and the hovered one says itself in full
-			// in a tooltip (RenderOverlay).
-			const std::string& name = items[r.index].label;
-			const float room = (band > 0 ? pipsX - dpad : rc.x + rc.w - dpad) - labelX;
-			const Vec4& ink = active ? theme.text : theme.textDim;
-			if (font.MeasureWidth(name) > room) {
-				std::string fit = name;
-				while (fit.size() > 1 && font.MeasureWidth(fit + "..") > room) fit.pop_back();
-				font.Draw(batch, fit + "..", labelX, ty, ink);
-				if (r.cat == m_hoverItem.cat && r.index == m_hoverItem.index) {
-					m_rowTip = name;
-					m_rowTipAt = rc;
-				}
-			} else {
-				font.Draw(batch, name, labelX, ty, ink);
+			// A GO-TO link at the row's end, where the thing lies somewhere the
+			// editor can take you (a placed quest item).
+			const bool link = !item.gotoLevel.empty();
+			const gfx::Rect linkAt = GoToRect(rc);
+			if (link) {
+				const float gw = font.MeasureWidth(">");
+				font.Draw(batch, ">", linkAt.x + (linkAt.w - gw) * 0.5f, ty, theme.accent);
 			}
+			// Any name that does not fit - before the pips or the link, or before
+			// the dock's edge - is trimmed with ".." and the hovered one says itself
+			// in full in a tooltip (RenderOverlay).
+			const std::string& name = item.label;
+			const float end = band > 0 ? pipsX : link ? linkAt.x : rc.x + rc.w;
+			const float room = end - dpad - labelX;
+			const Vec4& ink = active ? theme.text : theme.textDim;
+			drawFitted(r, r.index, name, labelX, room, ty, ink);
 			for (int i = 0; band > 0 && i < power::kBands; ++i) {
 				const gfx::Rect p{pipsX + i * (pip + gap), rc.y + (rc.h - pip) * 0.5f, pip, pip};
 				if (i < band) batch.DrawRect(p, kPowerBand[band - 1]);

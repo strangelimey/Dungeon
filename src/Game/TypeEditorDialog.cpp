@@ -90,8 +90,83 @@ bool TypeEditorDialog::Touched(std::string_view key) const {
 }
 
 void TypeEditorDialog::SetValue(const FieldSpec& spec, std::string value) {
-	serialize::Set(m_cfg.fields, spec.key, std::move(value));
-	if (!Touched(spec.key)) m_touched.emplace_back(spec.key);
+	SetField(spec.key, std::move(value));
+}
+
+void TypeEditorDialog::SetField(std::string_view key, std::string value) {
+	serialize::Set(m_cfg.fields, std::string(key), std::move(value));
+	if (!Touched(key)) m_touched.emplace_back(key);
+}
+
+void TypeEditorDialog::BuildStageRows(ui::Stack& page, const FieldSpec& spec) {
+	const FieldSpec* s = &spec;
+	// Each row addresses its stage by INDEX and re-reads the list on every
+	// change: an id is being typed one key at a time, so a captured id would be
+	// stale by the second keystroke.
+	auto stages = [this, s] { return SplitOptions(ValueOf(*s)); };
+	auto join = [](const std::vector<std::string>& v) {
+		std::string out;
+		for (const std::string& w : v) out += (out.empty() ? "" : " ") + w;
+		return out;
+	};
+	auto textOf = [this](const std::string& id) {
+		const std::string* v = serialize::Find(m_cfg.fields, "text_" + id);
+		return v ? *v : std::string();
+	};
+	page.Row<ui::Label>(FormRow(), loc::Tr("map.type.stages.head"))->dim = true;
+	const std::vector<std::string> now = stages();
+	for (size_t i = 0; i < now.size(); ++i) {
+		ui::Stack* row = page.Row<ui::Stack>(FormRow(), true);
+		row->gapRem = 0.4f;
+		// The stage's id: record-safe, since the save and the items name it.
+		ui::TextField* id = row->Row<ui::TextField>(ui::Len::Fill(0.6f), now[i]);
+		id->maxLength = 24;
+		id->onChange = [this, s, i, id, stages, join, textOf] {
+			std::erase_if(id->text, [](char ch) {
+				const unsigned char u = static_cast<unsigned char>(ch);
+				return !(std::isalnum(u) || ch == '_' || ch == '-');
+			});
+			std::vector<std::string> list = stages();
+			// An emptied id waits for its new name rather than dropping the stage
+			// (the list is space-split, so an empty id would shift every index).
+			if (i >= list.size() || id->text.empty() || id->text == list[i]) return;
+			// The line moves with the stage.
+			const std::string text = textOf(list[i]);
+			SetField("text_" + list[i], std::string());
+			list[i] = id->text;
+			if (!text.empty()) SetField("text_" + list[i], text);
+			SetValue(*s, join(list));
+		};
+		// What the log says on reaching it (`text_<id>`).
+		ui::TextField* line = row->Row<ui::TextField>(ui::Len::Fill(1.4f), textOf(now[i]));
+		line->maxLength = 96;
+		line->placeholder = loc::Tr("map.type.stages.hint");
+		line->onChange = [this, i, line, stages] {
+			const std::vector<std::string> list = stages();
+			if (i < list.size()) SetField("text_" + list[i], line->text);
+		};
+		RowIcon(*row, m_device, "clear", loc::Tr("map.type.stages.remove"),
+				[this, s, i, stages, join] {
+					std::vector<std::string> list = stages();
+					if (i >= list.size()) return;
+					SetField("text_" + list[i], std::string()); // the writer removes it
+					list.erase(list.begin() + static_cast<std::ptrdiff_t>(i));
+					SetValue(*s, join(list));
+					m_uiRebuild = true; // deferred: inside a callback
+				});
+	}
+	page.Row<ui::Button>(FormRow(), loc::Tr("map.type.stages.add"), [this, s, stages, join] {
+		std::vector<std::string> list = stages();
+		// A fresh id nothing else uses: stage<N>.
+		std::string fresh;
+		for (int n = static_cast<int>(list.size()) + 1;; ++n) {
+			fresh = "stage" + std::to_string(n);
+			if (std::find(list.begin(), list.end(), fresh) == list.end()) break;
+		}
+		list.push_back(fresh);
+		SetValue(*s, join(list));
+		m_uiRebuild = true;
+	});
 }
 
 void TypeEditorDialog::BuildUI() {
@@ -309,6 +384,9 @@ void TypeEditorDialog::BuildUI() {
 				});
 			break;
 		}
+		case FieldKind::QuestStages:
+			BuildStageRows(page, spec);
+			break;
 		case FieldKind::CatalogRefPick: {
 			// ONE id, picked from a list that shows every candidate the way the
 			// palette does (faceFor: a surface type's name and swatch; else the

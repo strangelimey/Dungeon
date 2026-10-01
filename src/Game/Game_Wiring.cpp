@@ -416,6 +416,29 @@ void Game::WireModuleCallbacks() {
 		case FieldKind::CatalogRef:
 		case FieldKind::CatalogRefPick: {
 			std::vector<std::string> ids;
+			// Two lists that are not a catalog: an item's quest hook names a
+			// quest AND a stage ("<quest>:<stage>"), and its reveal a world-map
+			// location.
+			if (std::string_view(spec.options) == kOptQuestStages) {
+				// Split as written, NOT through ParseTags: that lowercases, and a
+				// stage is matched by its exact name.
+				for (const CatalogEntry& q : m_project.quests.Entries()) {
+					const std::string st = q.Get("stages", "");
+					for (size_t i = 0; i < st.size();) {
+						while (i < st.size() && st[i] == ' ') ++i;
+						const size_t b = i;
+						while (i < st.size() && st[i] != ' ') ++i;
+						if (i > b) ids.push_back(q.id + ":" + st.substr(b, i - b));
+					}
+				}
+				return ids;
+			}
+			if (std::string_view(spec.options) == kOptLocations) {
+				if (m_worldMap)
+					for (const WorldMap::Location& l : m_worldMap->Locations())
+						ids.push_back(l.id);
+				return ids;
+			}
 			if (const Catalog* c = m_project.CatalogForKey(spec.options))
 				for (const CatalogEntry& e : c->Entries()) {
 					// A hidden entry is internal (the palette never offers it),
@@ -639,8 +662,8 @@ void Game::WireModuleCallbacks() {
 			}
 		}
 		{
-			std::string target;
-			if (m_world->ButtonSettings(cx, cz, target)) {
+			DungeonWorld::ButtonEdit button; // presence check only
+			if (m_world->ButtonSettings(cx, cz, button)) {
 				m_inspectTargets.push_back(InspectTarget{InspectTarget::Kind::Button});
 				labels.push_back(loc::Tr("map.key.button"));
 			}
@@ -743,6 +766,7 @@ void Game::WireModuleCallbacks() {
 		DungeonWorld::DoorEdit e;
 		e.open = c.open;
 		e.key = c.key;
+		e.flag = c.flag;
 		e.name = c.name;
 		e.opener = c.opener;
 		e.openerSide = c.openerSide;
@@ -762,9 +786,15 @@ void Game::WireModuleCallbacks() {
 		if (!m_world->SaveLevel()) log::Warn("door inspector: failed to save level");
 	};
 
-	// Button inspector: the Target dropdown wires the lever to a door name.
+	// Button inspector: the Target dropdown wires the lever to a door name; the
+	// flag rows say what it waits on and what a press does to a flag.
 	m_buttonInspector.onApply = [this](const ButtonInspector::Config& c) {
-		m_world->SetButtonSettings(c.x, c.z, c.target);
+		DungeonWorld::ButtonEdit e;
+		e.target = c.target;
+		e.needs = c.needs;
+		e.sets = c.sets;
+		e.op = c.op;
+		m_world->SetButtonSettings(c.x, c.z, e);
 	};
 	m_buttonInspector.onSave = [this] {
 		if (!m_world->SaveLevel()) log::Warn("button inspector: failed to save level");
@@ -788,6 +818,7 @@ void Game::WireModuleCallbacks() {
 	// .map data, like a niche), or go to the far end.
 	m_stairInspector.onApply = [this](const StairInspector::Config& c) {
 		m_world->SetStairFacing(c.x, c.z, c.facing);
+		m_world->SetStairFlag(c.x, c.z, c.flag);
 		if (!c.destIsLevel) m_world->SetExitDest(c.x, c.z, c.dest);
 	};
 	m_stairInspector.onSave = [this] {
@@ -796,6 +827,11 @@ void Game::WireModuleCallbacks() {
 	m_stairInspector.onGoTo = [this](const StairInspector::Config& c) {
 		m_mapView.SetViewLevel(c.dest);
 		m_mapEditor.SelectCell(c.destX, c.destZ);
+	};
+	// A palette row's link (a quest item's placement): the same trip.
+	m_mapEditor.onGoTo = [this](const std::string& level, int cx, int cz) {
+		m_mapView.SetViewLevel(level);
+		m_mapEditor.SelectCell(cx, cz);
 	};
 
 	// Item/decoration inspector: apply the facing edit to the right live object.

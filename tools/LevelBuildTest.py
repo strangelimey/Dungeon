@@ -740,9 +740,9 @@ def main():
                       not any(l.startswith("preset my_recipe") for l in after),
                       "deleting removes it from the list and from genpresets.cat, and only it",
                       f"file has my_recipe: {'[my_recipe]' in presets}")
-            check(any(l.startswith("catround 26 of 26") for l in con),
-                  "every catalog file round-trips, genpresets.cat included (26 of 26 "
-                  "since themes.cat)",
+            check(any(l.startswith("catround 27 of 27") for l in con),
+                  "every catalog file round-trips, genpresets.cat included (27 of 27 "
+                  "since flags.cat)",
                   next((l for l in con if l.startswith("catround")), "(no catround line)"))
             check("validate: clean - no faults found" in con,
                   "the checker finds nothing wrong",

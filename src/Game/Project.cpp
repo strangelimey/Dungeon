@@ -45,6 +45,11 @@ const CatalogSlot kCatalogs[] = {
 	{"terrain.cat", &Project::terrain, "Terrain kinds: what a world-map cell is (glyph + travel/difficulty/tags)."},
 	{"quests.cat", &Project::quests, "Quests: display name + ORDERED stage list; progress lives in the save, never here."},
 	{"dungeons.cat", &Project::dungeons, "Dungeons: a named group of level stems with an entry level, reached through a world-map location."},
+	{"flags.cat", &Project::flags,
+	 "Flags: named on/off facts the game remembers (docs/tool-refinement-plan.md "
+	 "Phase 4). `dungeon` scopes one to a dungeon (empty = the world). Set by items "
+	 "(`flag`) and buttons (`sets` / `clears` / `toggles`); read by doors, buttons and "
+	 "stairs (`flag`). The value lives in the save, never here."},
 	{"themes.cat", &Project::themes,
 	 "Surface themes: a named look - floor / wall / ceiling, each ONE of that "
 	 "surface's catalog ids (empty = leave that surface alone). Cells reference one "
@@ -213,6 +218,7 @@ Catalog* Project::CatalogForKey(const std::string& key) {
 	if (key == "terrain") return &terrain;
 	if (key == "dungeons") return &dungeons;
 	if (key == "quests") return &quests;
+	if (key == "flags") return &flags;
 	if (key == "walls") return &walls;
 	if (key == "floors") return &floors;
 	if (key == "ceilings") return &ceilings;
@@ -243,7 +249,7 @@ std::vector<const Catalog*> Project::AllCatalogs() const {
 			&monsters, &doors, &stairs,   &buttons,      &items,
 			&weapons, &armor,  &spells,   &effects,      &attacks,
 			&balance, &damagetypes, &wallfeatures, &surfacefeatures,
-			&terrain, &dungeons, &quests, &themes};
+			&terrain, &dungeons, &quests, &flags, &themes};
 }
 
 const CatalogEntry* Project::FindItem(std::string_view id) const {

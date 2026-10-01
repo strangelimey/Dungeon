@@ -467,6 +467,8 @@ bool Game::LoadWorld(const std::string& folder) {
 	m_world->GetParty().SetLook(m_settings.look);
 	m_world->GetParty().SetHeadBob(m_settings.headBob);
 	m_world->SetRoster(&m_characters); // combat drains these; reset in place
+	// Doors, levers and stairs read the game's flags, and levers write them.
+	m_world->SetFlagStore(&m_worldState);
 	// AFTER SetRoster, not before: the pace rule reads the roster through the
 	// world (conditioning feeds it), so it has nothing to average until then.
 	ApplyPartySpeed();

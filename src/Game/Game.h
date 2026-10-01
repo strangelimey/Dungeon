@@ -1079,6 +1079,9 @@ private:
 	// nothing in those loops needs the concrete type.
 	std::array<InstanceInspector*, 7> InstanceInspectors();
 	InstanceInspector* ActiveInstanceInspector(); // the open per-instance dialog, or null
+	// The project's flags as the inspectors' dropdowns list them: (id, "name
+	// (scope)").
+	FlagChoices FlagChoiceList() const;
 	PreviewSpec m_inspectPreview;                 // cached spec (re-pass on route return)
 	gfx::ParticleBatch m_previewParticles;        // preview-only particle batch (torch)
 	FireEffect m_previewFire;

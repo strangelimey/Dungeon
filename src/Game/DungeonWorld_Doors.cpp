@@ -57,6 +57,7 @@ void DungeonWorld::SpawnDoor(const Entity& record) {
 	door.facing = record.facing;
 	if (const std::string* n = record.Param("name")) door.name = *n;
 	if (const std::string* k = record.Param("key")) door.key = *k;
+	if (const std::string* f = record.Param("flag")) door.flag = *f;
 	if (const std::string* o = record.Param("open")) door.initialOpen = *o != "0";
 	door.open = door.initialOpen;
 	door.openT = door.open ? 1.0f : 0.0f;
@@ -297,18 +298,37 @@ bool DungeonWorld::ToggleDoorAhead(float mx, float my, float w, float h) {
 	if (!hit) return false; // missed the hand-hold: not this door's click
 	door->pullT = 0.0f;     // the throw; DungeonWorld::Update runs it and eases
 	door->pullRising = true; // it back afterwards, slower
+	HandOnDoor(*door);
+	return true; // the click was for the door even if it jammed
+}
+
+bool DungeonWorld::HandOnDoor(Door& door) {
+	// A door waiting on a FLAG refuses the hand until the flag is on, before the
+	// key is even asked about: a seal is not something a key turns. Wired
+	// buttons still move it, as they do a locked one.
+	if (!door.open && !FlagOn(door.flag)) {
+		if (onMessage) onMessage(loc::View("log.door_sealed"));
+		return false;
+	}
 	// A keyed door refuses the hand unless a member carries the key item (the
 	// key stays — the door re-locks when shut). Wired buttons still move it
 	// (mechanisms don't need the key).
-	if (!door->open && !door->key.empty()) {
-		if (!PartyHasItem(door->key)) {
+	if (!door.open && !door.key.empty()) {
+		if (!PartyHasItem(door.key)) {
 			if (onMessage) onMessage(loc::View("log.door_locked"));
-			return true;
+			return false;
 		}
 		if (onMessage) onMessage(loc::View("log.door_unlock"));
 	}
-	ToggleDoor(*door);
-	return true; // the click was for the door even if it jammed
+	return ToggleDoor(door);
+}
+
+bool DungeonWorld::HandOnDoorAt(int x, int z, bool& open) {
+	Door* door = DoorAt(x, z);
+	if (!door) return false;
+	HandOnDoor(*door);
+	open = door->open;
+	return true;
 }
 
 bool DungeonWorld::PartyHasItem(std::string_view typeId) const {
@@ -332,6 +352,7 @@ bool DungeonWorld::DoorSettings(int x, int z, DoorEdit& out) const {
 	if (!door) return false;
 	out.open = door->open;
 	out.key = door->key;
+	out.flag = door->flag;
 	out.name = door->name;
 	// The opener overrides come from the RECORD, not the door: the door holds
 	// the RESOLVED opener, which cannot tell "inherit" from "the type's value
@@ -368,6 +389,7 @@ void DungeonWorld::SetDoorSettings(int x, int z, const DoorEdit& in) {
 	door->open = in.open;
 	door->initialOpen = in.open; // the editor edits the AUTHORED state
 	door->key = in.key;
+	door->flag = in.flag;
 	door->name = in.name;
 	// Mirror onto the .ent record so the writer/stash carry it. Default-valued
 	// params are removed to keep records minimal.
@@ -379,6 +401,7 @@ void DungeonWorld::SetDoorSettings(int x, int z, const DoorEdit& in) {
 		};
 		set("open", in.open ? "1" : "");
 		set("key", in.key);
+		set("flag", in.flag);
 		set("name", in.name);
 		set("opener", in.opener);
 		set("opener_side", in.openerSide);
@@ -647,35 +670,81 @@ bool DungeonWorld::PressButtonFacing() {
 	const Direction f = static_cast<Direction>(m_party.Facing());
 	for (Button& b : m_buttons)
 		if (b.x == m_party.GridX() && b.z == m_party.GridZ() && b.facing == f) {
-			b.activated = !b.activated;
-			m_audio.Play(m_sounds.bump, 0.4f); // a soft clunk until a click exists
-			if (onMessage) onMessage(loc::View("log.button_press"));
-			ToggleDoorsNamed(b.target);
-			ToggleNichesNamed(b.target); // secret-niche reveal
+			// A lever waiting on a flag will not move at all: the press is the
+			// party's, and it found nothing that gives.
+			if (!FlagOn(b.needs)) {
+				m_audio.Play(m_sounds.bump, 0.4f);
+				if (onMessage) onMessage(loc::View("log.button_stuck"));
+				return true;
+			}
+			PressButton(b);
 			return true;
 		}
 	return false;
 }
 
-bool DungeonWorld::ButtonSettings(int x, int z, std::string& target) const {
+void DungeonWorld::PressButton(Button& b) {
+	b.activated = !b.activated;
+	m_audio.Play(m_sounds.bump, 0.4f); // a soft clunk until a click exists
+	if (onMessage) onMessage(loc::View("log.button_press"));
+	ToggleDoorsNamed(b.target);
+	ToggleNichesNamed(b.target); // secret-niche reveal
+	ApplyFlagOp(b.op, b.sets);
+}
+
+void DungeonWorld::ApplyFlagOp(FlagOp op, std::string_view id) {
+	if (op == FlagOp::None || id.empty() || !m_flagStore) return;
+	const bool on = op == FlagOp::Set ? true
+				  : op == FlagOp::Clear ? false
+										: !m_flagStore->FlagOn(id);
+	m_flagStore->SetFlagOn(id, on);
+}
+
+void DungeonWorld::ReadButtonFlags(const Entity& record, Button& b) {
+	b.needs.clear();
+	b.sets.clear();
+	b.op = FlagOp::None;
+	if (const std::string* f = record.Param("flag")) b.needs = *f;
+	// One op per lever: the first of sets= / clears= / toggles= it carries.
+	for (const auto& [k, v] : record.params)
+		if (const FlagOp op = FlagOpFromKey(k); op != FlagOp::None) {
+			b.op = op;
+			b.sets = v;
+			break;
+		}
+}
+
+bool DungeonWorld::ButtonSettings(int x, int z, ButtonEdit& out) const {
 	for (const Button& b : m_buttons)
 		if (b.x == x && b.z == z) {
-			target = b.target;
+			out.target = b.target;
+			out.needs = b.needs;
+			out.sets = b.sets;
+			out.op = b.op;
 			return true;
 		}
 	return false;
 }
 
-void DungeonWorld::SetButtonSettings(int x, int z, const std::string& target) {
+void DungeonWorld::SetButtonSettings(int x, int z, const ButtonEdit& in) {
 	NoteEdit(); // an inspector apply: no undo step, still a change to check
 	for (Button& b : m_buttons)
 		if (b.x == x && b.z == z) {
-			b.target = target;
 			if (Entity* record = m_entities.MutableById(b.id)) {
-				std::erase_if(record->params,
-							  [](const auto& p) { return p.first == "target"; });
-				if (!target.empty()) record->params.emplace_back("target", target);
+				std::erase_if(record->params, [](const auto& p) {
+					return p.first == "target" || p.first == "flag" ||
+						   FlagOpFromKey(p.first) != FlagOp::None;
+				});
+				if (!in.target.empty()) record->params.emplace_back("target", in.target);
+				if (!in.needs.empty()) record->params.emplace_back("flag", in.needs);
+				// An op with no flag to act on, or a flag with no op, is no wiring.
+				if (in.op != FlagOp::None && !in.sets.empty())
+					record->params.emplace_back(FlagOpKey(in.op), in.sets);
 				m_entsDirty = true;
+				b.target = in.target;
+				ReadButtonFlags(*record, b); // the live lever reads what was written
+			} else {
+				b.target = in.target;
 			}
 			return;
 		}

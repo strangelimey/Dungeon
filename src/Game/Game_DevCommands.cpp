@@ -23,7 +23,9 @@
 #include <chrono>
 #include <cstdlib>
 #include <format>
+#include <optional>
 #include <string>
+#include <tuple>
 #include <utility>
 
 namespace dungeon::game {
@@ -872,18 +874,98 @@ void Game::RegisterDevCommands() {
 												   x, z)
 									 : std::format("nothing breakable at {},{}", x, z));
 					   });
-	m_console.Register("press", "toggle the button in cell x,z (exercises save)",
+	m_console.Register("press",
+					   "press the button in cell x,z: press <x> <z> [party] (party = "
+					   "honour its flag= wait, as a hand would)",
 					   [this](const std::vector<std::string>& args) {
-						   if (!Need(m_console, args, 2, "usage: press <x> <z>")) return;
+						   if (!Need(m_console, args, 2, "usage: press <x> <z> [party]")) return;
 						   const int x = std::atoi(args[0].c_str());
 						   const int z = std::atoi(args[1].c_str());
 						   bool on = false;
-						   if (m_world->ToggleButtonAt(x, z, on))
+						   const bool party = args.size() > 2 && args[2] == "party";
+						   if (m_world->ToggleButtonAt(x, z, on, party))
 							   m_console.Print(std::format("button {},{} -> {}", x, z,
 														   on ? "on" : "off"));
 						   else
 							   m_console.Print(std::format("no button at {},{}", x, z));
 					   });
+	m_console.Register("opendoor",
+					   "the party's hand on the door at x,z (flag wait, key, toggle): "
+					   "opendoor <x> <z>",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 2, "usage: opendoor <x> <z>")) return;
+						   const int x = std::atoi(args[0].c_str());
+						   const int z = std::atoi(args[1].c_str());
+						   bool open = false;
+						   if (m_world->HandOnDoorAt(x, z, open))
+							   m_console.Print(std::format("door {},{} -> {}", x, z,
+														   open ? "open" : "shut"));
+						   else
+							   m_console.Print(std::format("no door at {},{}", x, z));
+					   });
+	// The door / lever / stair inspectors' flag rows, without a mouse: the SAME
+	// setters their Apply calls, reading the object's settings first so only
+	// the flag wiring changes. `flag=` (or bare `flag=` to clear) is what it
+	// waits on; a lever also takes one of sets= / clears= / toggles= (or `op=`
+	// alone to clear the op).
+	m_console.Register(
+		"flagwire",
+		"wire flags as the inspectors do: flagwire <x> <z> <door|lever|stair> "
+		"[flag=<id>] [sets=|clears=|toggles=<id>] [op=]",
+		[this](const std::vector<std::string>& args) {
+			if (!Need(m_console, args, 3, "usage: flagwire <x> <z> <door|lever|stair> [k=v...]"))
+				return;
+			const int x = std::atoi(args[0].c_str());
+			const int z = std::atoi(args[1].c_str());
+			std::optional<std::string> flag;
+			std::optional<std::pair<FlagOp, std::string>> op;
+			for (size_t i = 3; i < args.size(); ++i) {
+				const size_t eq = args[i].find('=');
+				const std::string k = args[i].substr(0, eq);
+				const std::string v = eq == std::string::npos ? "" : args[i].substr(eq + 1);
+				if (k == "flag") flag = v;
+				else if (k == "op") op = std::pair{FlagOp::None, std::string()};
+				else if (FlagOpFromKey(k) != FlagOp::None) op = std::pair{FlagOpFromKey(k), v};
+				else {
+					m_console.Refuse(std::format("flagwire: unknown '{}'", args[i]));
+					return;
+				}
+			}
+			const std::string& what = args[2];
+			if (what == "door") {
+				DungeonWorld::DoorEdit e;
+				if (!m_world->DoorSettings(x, z, e)) {
+					m_console.Refuse(std::format("flagwire: no door at {},{}", x, z));
+					return;
+				}
+				if (flag) e.flag = *flag;
+				m_world->SetDoorSettings(x, z, e);
+				m_console.Print(std::format("flagwire door {},{} flag={}", x, z, e.flag));
+			} else if (what == "lever") {
+				DungeonWorld::ButtonEdit e;
+				if (!m_world->ButtonSettings(x, z, e)) {
+					m_console.Refuse(std::format("flagwire: no lever at {},{}", x, z));
+					return;
+				}
+				if (flag) e.needs = *flag;
+				if (op) std::tie(e.op, e.sets) = *op;
+				m_world->SetButtonSettings(x, z, e);
+				m_world->ButtonSettings(x, z, e); // as written
+				m_console.Print(std::format("flagwire lever {},{} flag={} {}={}", x, z, e.needs,
+											*FlagOpKey(e.op) ? FlagOpKey(e.op) : "op", e.sets));
+			} else if (what == "stair") {
+				StairLink s;
+				if (!m_world->StairSettings(x, z, s)) {
+					m_console.Refuse(std::format("flagwire: no stair at {},{}", x, z));
+					return;
+				}
+				if (flag) m_world->SetStairFlag(x, z, *flag);
+				m_world->StairSettings(x, z, s);
+				m_console.Print(std::format("flagwire stair {},{} flag={}", x, z, s.flag));
+			} else {
+				m_console.Refuse("flagwire: door, lever or stair");
+			}
+		});
 	m_console.Register("lights", "print active point-light count",
 					   [this](const std::vector<std::string>&) {
 						   m_console.Print(std::format("{} active point lights",
@@ -1223,6 +1305,23 @@ void Game::PrintPalette(const std::vector<std::string>& args) {
 			}
 		return;
 	}
+	// A Quest items & flags row, used as a click would use it (on its go-to
+	// link with `link`), then what that left: the armed brush, the viewed level
+	// and selected square, whether a type editor opened.
+	if (args.size() >= 3 && args[1] == "use") {
+		const bool link = args.size() > 3 && args[3] == "link";
+		if (!m_mapEditor.UseQuestRow(args[2], link)) {
+			m_console.Refuse(std::format("editor palette: no quest row '{}'", args[2]));
+			return;
+		}
+		const MapEditor::PaletteCat armed = m_mapEditor.ArmedCat();
+		m_console.Print(std::format(
+			"editor palette used {} armed={}:{} view={} sel={},{} typeeditor={}", args[2],
+			armed == MapEditor::PaletteCat::Count ? "-" : MapEditor::CategoryCatalogKey(armed),
+			m_mapEditor.ArmedId(), m_mapView.ViewedLevel(), m_mapEditor.SelX(),
+			m_mapEditor.SelZ(), m_typeDialog.IsOpen() ? m_typeDialog.Id() : std::string("-")));
+		return;
+	}
 	// One section's rows as the accordion resolves them - the power band a
 	// monster row's pips draw included.
 	if (args.size() >= 3 && args[1] == "items") {
@@ -1231,8 +1330,16 @@ void Game::PrintPalette(const std::vector<std::string>& args) {
 			m_console.Print(std::format("editor palette: no section '{}'", args[2]));
 			return;
 		}
+		// The head is fixed (phase 13 matches it); what a row adds goes after:
+		// its group, the catalog it stands for and where it goes, for the
+		// Quest items & flags section.
 		for (const MapEditor::PaletteItem& it : m_mapEditor.Items(cat))
-			m_console.Print(std::format("editor palette item {} {} band={}", args[2], it.id, it.band));
+			m_console.Print(std::format(
+				"editor palette item {} {} band={} group='{}' ref={} goto={} label='{}'", args[2],
+				it.id, it.band, it.group, it.ref.empty() ? "-" : it.ref,
+				it.gotoLevel.empty() ? std::string("-")
+									 : std::format("{}@{},{}", it.gotoLevel, it.gotoX, it.gotoZ),
+				it.label));
 		return;
 	}
 	if (args.size() >= 3 && args[1] == "mode") {

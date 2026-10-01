@@ -51,6 +51,12 @@ enum class FieldKind {
 	// moment types became data — a project could author a type the editor
 	// could not name.
 	DamageType,
+	// A quest's ORDERED stages, each with the line the log shows on reaching it
+	// (`stages` = the ids, space-separated; `text_<id>` = each one's line). One
+	// row per stage - an id, its text, a remove box - and an add button, so a
+	// stage and what it says are authored together rather than as a list here
+	// and a hand-typed field elsewhere.
+	QuestStages,
 };
 
 // One editable field of one category.
@@ -92,5 +98,12 @@ inline constexpr const char* kSectionLook = "map.type.sec.look";
 inline constexpr const char* kSectionMaterial = "map.type.sec.material";
 inline constexpr const char* kSectionStats = "map.type.sec.stats";
 inline constexpr const char* kSectionRules = "map.type.sec.rules";
+inline constexpr const char* kSectionQuest = "map.type.sec.quest";
+inline constexpr const char* kSectionStages = "map.type.sec.stages";
+
+// CatalogRef `options` that name no catalog but a list Game builds: every
+// "<quest>:<stage>" pair, and every world-map location id.
+inline constexpr const char* kOptQuestStages = "@queststages";
+inline constexpr const char* kOptLocations = "@locations";
 
 } // namespace dungeon::game

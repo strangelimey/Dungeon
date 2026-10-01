@@ -1498,6 +1498,8 @@ worn_*, lang, shaders — what AssetBaker emits):
   fixtures/monsters/doors/stairs/items/weapons/armor/effects), block format:
   `[id]` headers + `key = value` fields naming pool assets (model/texture) +
   params (solid/authored/height_scale/mount). Levels reference catalog ids.
+  (`flags.cat` joined them in tool-refinement Phase 4: named on/off facts,
+  scoped to a dungeon or the world - see the Tool refinement section.)
   NOT every catalog is placeable: `effects` is authored + tuned only (an
   effect needs a class, so no "+ New..."), and since tool-refinement Phase 1
   it is NOT IN THE PALETTE at all - the Balance dialog's Effects tab lists
@@ -1798,6 +1800,26 @@ Judged by `tools\EditorTest.py` (phase 12 onward).
   checker's issues (a link to Check), and links down a tier (the world's
   dungeons, a dungeon's levels). Dev: `editor dock [left|right <px>]`,
   `editor overview [world|dungeon|level]`.
+- FLAGS (Phase 4): `flags.cat` - a name and a scope (`dungeon = <id>`, absent =
+  the world). The on/off value is save state, in WorldState::flags BY ID (no
+  save-format change); `FlagOn` = set to anything but "0". SET by an item's
+  `flag` when lifted and a lever's `sets=` / `toggles=` (`clears=` turns one
+  off); READ by a door's, a lever's and a stair's `flag=` (each waits until it is
+  on: a sealed door refuses the hand BEFORE its key is asked about, a lever will
+  not move, a stair says the way is barred) and a world location's `flag=`.
+  DungeonWorld borrows the store (SetFlagStore, like SetRoster); a wired button
+  still moves a waiting door, as it does a locked one. The three inspectors
+  share `FlagDropDown` (InstanceInspector.h). The checker (Validate_Flags.cpp):
+  `flagwaits` (an error where the waiter stands - nothing sets it), `flagunknown`,
+  `flagscope` (a dungeon's flag used in another), `flagunused`. The palette's
+  "Quest items & flags" section (MapEditor_Quests.cpp; rows of two catalogs,
+  told apart by PaletteItem::ref) lists this dungeon's and the world's flags and
+  quest items - an item's scope is its flag's - with where each item lies and a
+  ">" link there; an item row arms its own brush. A quest's stages are rows with
+  their log lines (FieldKind::QuestStages); items/weapons/armor have a Quest tab.
+  Dev: `flag <id> [on|off]`, `flags [world|dungeon [id]]`, `opendoor <x> <z>`,
+  `press <x> <z> party`, `flagwire <x> <z> <door|lever|stair> ...`, `editor
+  palette use <id> [link]`. EditorTest 15.
 - EFFECTS LEFT THE PALETTE for the Balance dialog's Effects tab (a list whose
   rows open the type editor OVER the Balance dialog - which is why the type
   editor's input check now comes before the Balance dialog's in Game::Update,

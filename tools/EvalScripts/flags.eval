@@ -1,0 +1,89 @@
+; flags.eval - EditorTest phase 15 (tool-refinement Phase 4): flags, what reads
+; them and what writes them, and the palette's Quest items & flags section.
+;
+; Run on a FIXTURE the test writes into eval_arena first (and puts back after):
+; a wall across row 3 with a doorway at 12,3 holding a door that waits on
+; arena_gate; a lever at 5,4 that sets it; a lever at 8,4 that waits on it; a
+; lever at 10,4 toggling the CRYPT's flag from the Proving Ground; a lever at
+; 14,4 waiting on a flag flags.cat lacks; and a stair down at 20,10 waiting on
+; beacon_lit, which nothing sets. flags.cat gains those four and an orphan.
+logecho on
+reset
+timescale 0
+freeze on
+
+echo --- start ---
+flags
+flags dungeon
+
+; --- the door and the levers -------------------------------------------------
+; The door is sealed until arena_gate is on, and the lever that waits on it will
+; not move; the lever that sets it opens the way for both.
+echo --- door ---
+opendoor 12 3
+press 8 4 party
+press 5 4 party
+flag arena_gate
+opendoor 12 3
+press 8 4 party
+
+; --- an item's hook ------------------------------------------------------------
+echo --- item ---
+flag relic_lifted
+give sunken_relic 0
+flag relic_lifted
+
+; --- the save carries them ------------------------------------------------------
+echo --- save ---
+save flagtest
+flag arena_gate off
+flag relic_lifted off
+load flagtest
+flag arena_gate
+flag relic_lifted
+
+; --- the checker ---------------------------------------------------------------
+echo --- validate ---
+validate
+
+; --- the inspectors' setters, through the console ------------------------------
+; Rewire the door to the world's beacon and back: what the dialog's Apply does.
+echo --- wire ---
+flagwire 12 3 door flag=beacon_lit
+flagwire 12 3 door flag=arena_gate
+flagwire 8 4 lever flag= clears=arena_gate
+flagwire 8 4 lever op= flag=arena_gate
+
+; --- the overview and the palette ----------------------------------------------
+echo --- palette ---
+editor
+editor overview world
+editor overview dungeon
+editor palette items flags
+newtype flags
+editor palette items flags
+editor palette use sunken_relic
+editor palette use sunken_relic
+editor palette use arena_gate
+dungeons dialog off
+editor palette use sunken_relic link
+editor off
+
+; --- the stair -----------------------------------------------------------------
+; Barred while beacon_lit is off: the party stands on it and stays. On, the same
+; step goes down.
+echo --- stair ---
+tp 20 11
+face n
+forward 1
+step 2
+pos
+mapinfo
+flag beacon_lit on
+face s
+forward 1
+step 2
+face n
+forward 1
+step 2
+mapinfo

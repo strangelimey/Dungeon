@@ -37,6 +37,7 @@ public:
 		bool destIsLevel = true; // false = an exit to the world map
 		int destX = 0, destZ = 0;
 		Direction facing = Direction::North;
+		std::string flag; // the flag THIS half waits on ("" = none)
 	};
 
 	StairInspector(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)
@@ -45,8 +46,9 @@ public:
 	// `locations` = the world-map location ids an EXIT may lead to (ignored for
 	// a paired stair). An exit's current dest is kept selectable even when the
 	// world no longer lists it, so Save cannot silently drop it.
+	// `flags` = the project's flags, for the "Waits for flag" row (both kinds).
 	void Open(const Config& cfg, std::vector<std::string> locations = {},
-			  PreviewSpec preview = {});
+			  FlagChoices flags = {}, PreviewSpec preview = {});
 
 	// Push the facing (and an exit's dest) to the live stair + record.
 	std::function<void(const Config&)> onApply;
@@ -57,10 +59,12 @@ public:
 
 protected:
 	std::string Title() const override;
-	// Five rows under the Facing strip, so as tall as the niche dialog's: at
-	// 0.50 the stack had 132px for them and squeezed each row under its text.
-	gfx::Rect Panel() const override { return {0.28f, 0.17f, 0.44f, 0.64f}; }
+	// Up to seven rows under the Facing strip (the way it leads, then the flag it
+	// waits on): at 0.50 the stack had 132px for five and squeezed each row under
+	// its text.
+	gfx::Rect Panel() const override { return {0.28f, 0.12f, 0.44f, 0.74f}; }
 	void BuildContent(ui::Stack& content) override;
+	void FlagRows(ui::Stack& content); // the "Waits for flag" label + dropdown
 	void ApplyLive() override;
 	void Persist() override;
 	void Revert() override;
@@ -69,6 +73,7 @@ private:
 	Config m_cfg;
 	Config m_original; // snapshot for revert on Close/Esc
 	std::vector<std::string> m_locations; // an exit's choices (see Open)
+	FlagChoices m_flags;
 };
 
 } // namespace dungeon::game

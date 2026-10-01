@@ -42,6 +42,7 @@
 namespace dungeon::ui {
 class Button;
 class Label;
+class Stack;
 class TabControl;
 class TextField;
 } // namespace dungeon::ui
@@ -168,7 +169,12 @@ private:
 	std::string ValueOf(const FieldSpec& spec) const;
 	// Records an edit (and marks the dialog dirty for Save).
 	void SetValue(const FieldSpec& spec, std::string value);
+	// The same for a field no schema row names - a quest stage's `text_<id>`.
+	void SetField(std::string_view key, std::string value);
 	bool Touched(std::string_view key) const;
+	// A QuestStages field's rows: one per stage (id, the log's line, a remove
+	// box) and the add button.
+	void BuildStageRows(ui::Stack& page, const FieldSpec& spec);
 
 	gfx::GraphicsDevice& m_device;
 	ui::UIContext m_ui; // the tabbed form

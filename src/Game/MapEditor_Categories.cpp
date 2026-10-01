@@ -40,7 +40,7 @@ struct GroupDef {
 // and the look (Themes leads, above the three surfaces it sets at once -
 // Michael's call, a whole look is the first thing reached for); Populate is
 // what goes into a built level.
-constexpr PC kWorld[] = {PC::Dungeons, PC::Quests, PC::Terrain};
+constexpr PC kWorld[] = {PC::Dungeons, PC::Quests, PC::Flags, PC::Terrain};
 constexpr PC kBuild[] = {PC::Themes,       PC::Walls,           PC::Floors,
 						 PC::Ceilings,     PC::WallFeatures,    PC::SurfaceFeatures,
 						 PC::Doors,        PC::Stairs};

@@ -58,14 +58,12 @@ power::Range DungeonWorld::MonsterPowerRange() const { return Powers().range; }
 
 // --- the census ----------------------------------------------------------------
 
-namespace {
 // A quest item is one whose TYPE hooks the world on pickup (Game::OnItemFound):
 // it advances a quest, sets a flag or reveals a place.
-bool IsQuestItem(const CatalogEntry* e) {
+bool DungeonWorld::IsQuestItem(const CatalogEntry* e) {
 	return e && (!e->Get("quest", "").empty() || !e->Get("flag", "").empty() ||
 				 !e->Get("reveals", "").empty());
 }
-} // namespace
 
 const std::vector<DungeonWorld::LevelCensus>& DungeonWorld::Census() {
 	// The active level's monsters are the LIVE list (below), which a kill or an
@@ -120,7 +118,10 @@ const std::vector<DungeonWorld::LevelCensus>& DungeonWorld::Census() {
 				break;
 			case EntityKind::Item:
 				++c.items;
-				if (IsQuestItem(m_project.FindItem(e.type))) ++c.questItems;
+				if (IsQuestItem(m_project.FindItem(e.type))) {
+					++c.questItems;
+					c.questPlaced.push_back({e.type, e.x, e.z});
+				}
 				break;
 			case EntityKind::Door:
 				++c.doors;

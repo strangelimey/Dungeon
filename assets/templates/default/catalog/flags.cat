@@ -1,0 +1,17 @@
+; Flags: named on/off facts the game remembers - a relic lifted, a seal broken,
+; a lever pulled somewhere else (docs/tool-refinement-plan.md Phase 4).
+;
+; Like quests, a catalog says what a flag IS. Whether it is ON is save state
+; (WorldState::flags, by id), never here.
+;
+; Fields:
+;   display   the flag's name, as the editor lists it.
+;   dungeon   the dungeon it belongs to: its LOCAL flags. Absent = a WORLD flag,
+;             true everywhere. Check warns when something in another dungeon
+;             reads or writes a local one.
+;
+; What sets one: an item's `flag = <id>` when it is lifted, a lever's
+; `sets=` / `toggles=` (and `clears=` turns one off). What reads one: a door's,
+; a lever's or a stair's `flag=`, which waits until it is on, and a world-map
+; location's `flag=`, whose doorway is barred until then.
+

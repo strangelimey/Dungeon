@@ -171,6 +171,36 @@ left-right arrow over it (a small Window addition: WM_SETCURSOR).
   Validation learns them: a door or stair waiting on a flag nothing can set
   is an error (the `doorlocked` check's shape).
 
+BUILT (2026-09-30), and where it differs from the above:
+- Flags are stored in WorldState::flags BY ID, not as `<dungeon>/<flag>`:
+  flags.cat ids are already unique, so the prefix bought nothing, and the scope
+  lives where the editor and the checker read it (flags.cat `dungeon`, absent =
+  world). The save format still does not change. WorldState::FlagOn /
+  SetFlagOn are the on/off view (on = set to anything but "0"), so a
+  hand-written `flag = seal=broken` still reads as on.
+- The palette keeps Quests (the quest definitions) and adds a "Quest items &
+  flags" section beside it, in both World groups: this dungeon's group and the
+  World's, each listing its flags and then its quest items. An item's scope is
+  the scope of the flag it sets (the world's when it sets none - a quest and a
+  reveal are world-tier). A flag row opens its editor; an item row arms that
+  item's brush and ends in a ">" link to where it lies; "+ New..." makes a flag,
+  local to the viewed dungeon. Flags of OTHER dungeons are not listed.
+- Quest stages: a Stages tab (FieldKind::QuestStages) - one row per stage,
+  its id and its log line together, a remove box, an add button.
+- The items' Quest tab is on items, weapons and armor alike (OnItemFound reads
+  all three).
+- Consumers as planned; the door's wait is checked BEFORE its key. A world
+  location's `flag=` is honoured (EnterLocation, OfferEntrance) but authored by
+  hand - the world editor has no row for it yet.
+- Validation (Validate_Flags.cpp): `flagwaits` (error, at the door / lever /
+  stair), `flagunknown`, `flagscope`, `flagunused`. Not done: the reachability
+  flood still treats a flag-waiting door as passable; "nothing sets it" names
+  the unusable case.
+- The overview counts flags per scope (World / Dungeon) and how many are on.
+- Dev: `flag`, `flags`, `opendoor` (the party's hand on a door), `press ...
+  party`, `flagwire` (the inspectors' setters), `editor palette use`.
+- Checked: EditorTest 15 (18 checks) on a fixture written into eval_arena.
+
 ## Phase 5 - Styles
 
 A STYLE is look + shape + content tags + a monster list (Michael: all four),

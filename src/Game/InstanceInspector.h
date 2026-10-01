@@ -57,6 +57,18 @@ struct PreviewSpec {
 	Vec3 fitMin{}, fitMax{};
 };
 
+// The FLAGS an inspector may pick from (flags.cat): (id, label), the label
+// naming the flag and its scope so a dungeon's flag reads as that dungeon's.
+// The door, lever and stair inspectors all take one.
+using FlagChoices = std::vector<std::pair<std::string, std::string>>;
+
+// A "(none)" + flags dropdown bound to `value` (its id, "" = none). A value the
+// list lacks (a flag since deleted) is kept selectable, so opening and saving
+// cannot quietly drop it. `onChange` runs after `value` is updated; `value`
+// must outlive the widget (an inspector's Config member does).
+void FlagDropDown(ui::Stack& page, ui::Len len, const FlagChoices& flags,
+				  std::string& value, std::function<void()> onChange);
+
 class InstanceInspector {
 public:
 	InstanceInspector(gfx::GraphicsDevice& device, ui::FontLibrary& fonts);

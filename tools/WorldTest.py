@@ -638,9 +638,9 @@ try:
 
     # THE WRITERS' FIDELITY. `levels new` saves the whole project, and that
     # used to rewrite four files and delete every comment in project.ini.
-    # 26 = project.ini + 25 catalogs, themes.cat (surface themes,
-    # docs/editor-themes-notes.md) the newest.
-    check("catround 26 of 26 file(s) round-trip, 0 absent" in log,
+    # 27 = project.ini + 26 catalogs, flags.cat (tool-refinement Phase 4) the
+    # newest.
+    check("catround 27 of 27 file(s) round-trip, 0 absent" in log,
           "and saving the project leaves every file it did not change alone")
 
     # --- W6: the player's map has two pages ---------------------------------

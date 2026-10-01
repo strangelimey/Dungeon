@@ -15,6 +15,7 @@
 #include "Core/Log.h"
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
+#include "Game/DevCommandArgs.h" // Need
 #include "Game/Serialize.h"
 
 #include <algorithm>
@@ -25,6 +26,8 @@
 #include <utility>
 
 namespace dungeon::game {
+
+using devargs::Need;
 
 void Game::RegisterWorldCommands() {
 	// --- travelling the overworld ---------------------------------------
@@ -106,6 +109,54 @@ void Game::RegisterWorldCommands() {
 					   : std::format("not started [{}]", e.Get("stages", ""))));
 			}
 			if (m_project.quests.Empty()) m_console.Print("no quests authored");
+		});
+	// FLAGS (flags.cat): read or set one, list them by scope. Lines are
+	// `flag <id> <on|off> <scope>` so a harness can read them back.
+	m_console.Register(
+		"flag", "a flag: flag <id> (read) | flag <id> on|off (set)",
+		[this](const std::vector<std::string>& args) {
+			if (!Need(m_console, args, 1, "usage: flag <id> [on|off]")) return;
+			const CatalogEntry* e = m_project.flags.Find(args[0]);
+			if (args.size() > 1) {
+				if (args[1] != "on" && args[1] != "off") {
+					m_console.Refuse("flag: on or off");
+					return;
+				}
+				m_worldState.SetFlagOn(args[0], args[1] == "on");
+			}
+			const std::string scope = e ? e->Get("dungeon", "") : std::string();
+			m_console.Print(std::format("flag {} {} {}{}", args[0],
+										m_worldState.FlagOn(args[0]) ? "on" : "off",
+										scope.empty() ? "world" : "dungeon:" + scope,
+										e ? "" : " (not in flags.cat)"));
+		});
+	m_console.Register(
+		"flags", "list flags: flags [world | dungeon [id]] (dungeon alone = the "
+				 "party's)",
+		[this](const std::vector<std::string>& args) {
+			// Which scope to show: all, the world's, or one dungeon's (the
+			// party's own when none is named).
+			std::string want = "*";
+			if (!args.empty() && args[0] == "world") want.clear();
+			else if (!args.empty() && args[0] == "dungeon") {
+				if (args.size() > 1) want = args[1];
+				else if (const CatalogEntry* d = m_project.DungeonOfLevel(m_world->CurrentLevel()))
+					want = d->id;
+				else {
+					m_console.Print("flags: the party's level belongs to no dungeon");
+					return;
+				}
+			}
+			int shown = 0;
+			for (const CatalogEntry& e : m_project.flags.Entries()) {
+				const std::string scope = e.Get("dungeon", "");
+				if (want != "*" && scope != want) continue;
+				m_console.Print(std::format("flag {} {} {}", e.id,
+											m_worldState.FlagOn(e.id) ? "on" : "off",
+											scope.empty() ? "world" : "dungeon:" + scope));
+				++shown;
+			}
+			if (shown == 0) m_console.Print("flags: none authored in that scope");
 		});
 	m_console.Register(
 		"camp", "camp on the world map until rest ends by itself",
@@ -946,19 +997,19 @@ void Game::RegisterWorldCommands() {
 														   : "could not open");
 		});
 	m_console.Register(
-		"newtype", "create a pure-data type: newtype <dungeons|terrain|quests>",
+		"newtype", "create a pure-data type: newtype <dungeons|terrain|quests|flags|themes>",
 		[this](const std::vector<std::string>& args) {
 			// The palette's "+ New..." for these categories, reachable without a
 			// mouse — the harness cannot click, and this is the path W2 adds.
 			if (args.empty()) {
-				m_console.Print("usage: newtype <dungeons|terrain|quests>");
+				m_console.Print("usage: newtype <dungeons|terrain|quests|flags|themes>");
 				return;
 			}
 			const MapEditor::PaletteCat cat = MapEditor::CatForCatalogKey(args[0]);
 			if (cat == MapEditor::PaletteCat::Count ||
 				!MapEditor::CategoryAuthorable(cat)) {
 				m_console.Print(std::format(
-					"'{}' is not a pure-data category (dungeons/terrain/quests)",
+					"'{}' is not a pure-data category (dungeons/terrain/quests/flags/themes)",
 					args[0]));
 				return;
 			}

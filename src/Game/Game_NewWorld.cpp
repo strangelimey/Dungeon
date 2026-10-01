@@ -80,14 +80,19 @@ void ClearPlaces(Project& p) {
 	p.manifest = {};
 	p.dungeons = {};
 	p.quests = {};
-	// AND THE HOOKS THAT NAME THEM (W7): an item's `quest` names a quest stage
-	// and its `reveals` a world location, both of which just went. Content
-	// comes across; what content POINTS AT does not.
+	// FLAGS make a particular game as quests do (a relic lifted, a seal broken),
+	// so they go too - the world's as well as the dungeons': a world flag kept
+	// with nothing left to set it is dead content the checker would name.
+	p.flags = {};
+	// AND THE HOOKS THAT NAME THEM (W7): an item's `quest` names a quest stage,
+	// its `reveals` a world location and its `flag` a flag, all of which just
+	// went. Content comes across; what content POINTS AT does not.
 	for (Catalog* c : {&p.items, &p.weapons, &p.armor}) {
 		const std::vector<CatalogEntry> entries = c->Entries(); // Add replaces by id
 		for (CatalogEntry copy : entries) {
 			serialize::Remove(copy.fields, "quest");
 			serialize::Remove(copy.fields, "reveals");
+			serialize::Remove(copy.fields, "flag");
 			c->Add(std::move(copy));
 		}
 	}

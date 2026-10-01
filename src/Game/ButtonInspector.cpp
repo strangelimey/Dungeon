@@ -11,10 +11,11 @@
 namespace dungeon::game {
 
 void ButtonInspector::Open(const Config& cfg, std::vector<std::string> doorNames,
-						   PreviewSpec preview) {
+						   FlagChoices flags, PreviewSpec preview) {
 	m_cfg = cfg;
 	m_original = cfg;
 	m_doorNames = std::move(doorNames);
+	m_flags = std::move(flags);
 	// A wired target whose door has been renamed/removed still shows: keep it
 	// selectable so Save doesn't silently drop it.
 	if (!m_cfg.target.empty() &&
@@ -43,6 +44,27 @@ void ButtonInspector::BuildContent(ui::Stack& c) {
 	c.Row<ui::DropDown>(FormRow(), names, sel, [this](int i) {
 		m_cfg.target =
 			i <= 0 ? std::string() : m_doorNames[static_cast<size_t>(i) - 1];
+		if (onApply) onApply(m_cfg);
+	});
+
+	// The flag it WAITS on: until it is on, the lever will not move.
+	c.Row<ui::Label>(FormRow(), loc::Tr("map.btn.needs"));
+	FlagDropDown(c, FormRow(), m_flags, m_cfg.needs, [this] {
+		if (onApply) onApply(m_cfg);
+	});
+
+	// What a press DOES to a flag: the verb, then the flag it acts on. Stacked,
+	// not side by side - half the column was too narrow for a flag's name and
+	// its scope, which a dropdown does not trim.
+	c.Row<ui::Label>(FormRow(), loc::Tr("map.btn.onpress"));
+	const std::vector<std::string> ops{loc::Tr("map.btn.op.none"), loc::Tr("map.btn.op.set"),
+									   loc::Tr("map.btn.op.clear"),
+									   loc::Tr("map.btn.op.toggle")};
+	c.Row<ui::DropDown>(FormRow(), ops, static_cast<int>(m_cfg.op), [this](int i) {
+		m_cfg.op = static_cast<FlagOp>(std::clamp(i, 0, 3));
+		if (onApply) onApply(m_cfg);
+	});
+	FlagDropDown(c, FormRow(), m_flags, m_cfg.sets, [this] {
 		if (onApply) onApply(m_cfg);
 	});
 }

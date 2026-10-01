@@ -108,6 +108,13 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 			if (s.x == px && s.z == pz) {
 				const CatalogEntry* e = m_project.stairs.Find(s.type);
 				if (!CatalogBool(e, "traverse", true)) break;
+				// A way that waits on a flag is barred until it is on: the party
+				// stands on it and is told so (a pit's drop is barred the same way
+				// - grated over, say).
+				if (!FlagOn(s.flag)) {
+					if (onMessage) onMessage(loc::View("log.stair_barred"));
+					break;
+				}
 				if (CatalogBool(e, "fall", false)) {
 					if (onMessage) onMessage(loc::View("world.pitfall"));
 					m_pendingFall = LevelTransition{
@@ -595,14 +602,18 @@ std::vector<std::string> DungeonWorld::MonsterList() const {
 	return out;
 }
 
-bool DungeonWorld::ToggleButtonAt(int x, int z, bool& out) {
+bool DungeonWorld::ToggleButtonAt(int x, int z, bool& out, bool asParty) {
 	for (Button& b : m_buttons)
 		if (b.x == x && b.z == z) {
-			b.activated = !b.activated;
+			// As the party's hand would: a lever waiting on a flag stays put.
+			if (asParty && !FlagOn(b.needs)) {
+				if (onMessage) onMessage(loc::View("log.button_stuck"));
+				out = b.activated;
+				return true;
+			}
+			// The whole press - doors and niches it names, and its flag.
+			PressButton(b);
 			out = b.activated;
-			// The target wiring: toggle the doors AND niches it names.
-			ToggleDoorsNamed(b.target);
-			ToggleNichesNamed(b.target);
 			return true;
 		}
 	return false;
@@ -1714,6 +1725,12 @@ bool DungeonWorld::SetStairFacing(int x, int z, Direction facing) {
 	return true;
 }
 
+bool DungeonWorld::SetStairFlag(int x, int z, const std::string& flag) {
+	if (!m_map.SetStairFlag(x, z, flag)) return false;
+	NoteEdit(); // an inspector apply: the checker reads what a stair waits on
+	return true;
+}
+
 bool DungeonWorld::SetExitDest(int x, int z, const std::string& location) {
 	const StairLink* s = m_map.StairAt(x, z);
 	if (!s || !CatalogBool(m_project.stairs.Find(s->type), "exit", false)) return false;
@@ -1730,10 +1747,10 @@ std::vector<gfx::PreviewSubmesh> DungeonWorld::StairPreviewSubs(int x, int z) co
 }
 
 bool DungeonWorld::AnyInspectableAt(int cx, int cz) const {
-	std::string target;
+	ButtonEdit button;
 	return MonsterRuntimeIdAt(cx, cz) != 0 || SconceAt(cx, cz) || BrazierAt(cx, cz) ||
 		   m_map.StairAt(cx, cz) != nullptr ||
-		   DoorAt(cx, cz) != nullptr || ButtonSettings(cx, cz, target) ||
+		   DoorAt(cx, cz) != nullptr || ButtonSettings(cx, cz, button) ||
 		   !DecorationsAt(cx, cz).empty() || !ItemsAt(cx, cz).empty() ||
 		   !ProjectilesAt(cx, cz).empty() || !NicheFacesAt(cx, cz).empty();
 }

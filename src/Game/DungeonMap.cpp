@@ -506,6 +506,7 @@ void DungeonMap::ParseStairRecord(const std::string& record, const std::string& 
 		if (key == "dest") s.destLevel = std::string(val);
 		else if (key == "destx") s.destX = coord(val);
 		else if (key == "destz") s.destZ = coord(val);
+		else if (key == "flag") s.flag = std::string(val);
 		else if (key == "destfacing") {
 			Direction ignored;
 			DN_ASSERT(ParseDirection(val, ignored),
@@ -1077,6 +1078,16 @@ bool DungeonMap::SetStairFacing(int x, int z, Direction facing) {
 	for (StairLink& s : m_stairs)
 		if (s.x == x && s.z == z) {
 			s.facing = facing;
+			return true;
+		}
+	return false;
+}
+
+bool DungeonMap::SetStairFlag(int x, int z, std::string flag) {
+	for (StairLink& s : m_stairs)
+		if (s.x == x && s.z == z) {
+			if (s.flag == flag) return false;
+			s.flag = std::move(flag);
 			return true;
 		}
 	return false;

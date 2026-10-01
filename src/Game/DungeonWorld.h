@@ -176,6 +176,14 @@ public:
 	// so monster melee can drain member health and party melee can read each
 	// member's derived stats. Must be set before play; null = no combat.
 	void SetRoster(std::vector<Character>* roster) { m_roster = roster; }
+	// The game's FLAGS (WorldState::flags), borrowed the same way, for the three
+	// things in a level that read one - doors, levers and stairs (flag=) - and
+	// the levers that write one. Null = no flags: every wait is satisfied,
+	// which is what a level had before flags existed.
+	void SetFlagStore(WorldState* state) { m_flagStore = state; }
+	bool FlagOn(std::string_view id) const {
+		return id.empty() || !m_flagStore || m_flagStore->FlagOn(id);
+	}
 	// The WORLD, by pointer, for the undo history ALONE (Michael's answer:
 	// one history, so a step spanning tiers undoes as one thing). The world is
 	// Game's and stays Game's — this is the same borrowing m_roster does, and
@@ -553,12 +561,22 @@ public:
 		double strongestPower = -1.0;
 		int items = 0;
 		int questItems = 0; // items whose type carries quest / flag / reveals
+		// Where each of those lies, in record order (the palette's Quest items
+		// section says where an item is, and goes there).
+		struct Placed {
+			std::string type;
+			int x = 0, z = 0;
+		};
+		std::vector<Placed> questPlaced;
 		int doors = 0;
 		int lockedDoors = 0; // doors wanting a key
 		int stairs = 0;      // ways on and off it (a ceiling hole is scenery)
 		int buttons = 0;
 	};
 	const std::vector<LevelCensus>& Census();
+	// A QUEST ITEM's type: one carrying `quest`, `flag` or `reveals` - a hook
+	// that fires when it is lifted (Game::OnItemFound).
+	static bool IsQuestItem(const CatalogEntry* e);
 
 	// Armor (docs/damage-system.md): the class governing a member (the
 	// HEAVIEST piece worn) and what it costs them on the defense roll.
@@ -1240,10 +1258,18 @@ public:
 	// Click interaction: presses the button on the party's OWN cell mounted on
 	// the wall the party faces. False if there isn't one.
 	bool PressButtonFacing();
-	// Button instance surface for the inspector: presence + wired target, and
-	// the live/record edit (target= param; in-memory until savemap).
-	bool ButtonSettings(int x, int z, std::string& target) const;
-	void SetButtonSettings(int x, int z, const std::string& target);
+	// Button instance surface for the inspector: presence + wiring, and the
+	// live/record edit (in-memory until savemap). `target` is the door/niche
+	// name it toggles; `needs` the flag it waits on (flag=); `sets` + `op` what
+	// a press does to a flag (sets= / clears= / toggles=).
+	struct ButtonEdit {
+		std::string target;
+		std::string needs;
+		std::string sets;
+		FlagOp op = FlagOp::None;
+	};
+	bool ButtonSettings(int x, int z, ButtonEdit& out) const;
+	void SetButtonSettings(int x, int z, const ButtonEdit& in);
 	// Distinct non-empty door names on the ACTIVE level, for the inspector's
 	// Target dropdown (buttons only reach doors on their own level).
 	std::vector<std::string> DoorNames() const;
@@ -1301,6 +1327,7 @@ public:
 	struct DoorEdit {
 		bool open = false;
 		std::string key;         // items.cat id required by hand ("" = none)
+		std::string flag;        // flags.cat id it waits on ("" = none)
 		std::string name;        // button-target id ("" = unwired)
 		std::string opener;      // "" = inherit type, "none", or a doors.cat id
 		std::string openerSide;  // "" = inherit type, else "left" / "right"
@@ -1351,6 +1378,8 @@ public:
 	// the 3D view at once. The paired half on the other level is untouched.
 	bool StairSettings(int x, int z, StairLink& out) const;
 	bool SetStairFacing(int x, int z, Direction facing);
+	// The flag this half waits on (flag=, "" = none); the far half is its own.
+	bool SetStairFlag(int x, int z, const std::string& flag);
 	// Repoints an EXIT at a world-map location ("-" = nowhere yet). Refuses a
 	// paired stair: its dest is a level and its pair's position, which the
 	// inspector deliberately does not let one half change.
@@ -1604,10 +1633,15 @@ public:
 	// The `pipeline` command's lines: the RESULT= verdict, then how much health
 	// moved by each sanctioned route.
 	std::vector<std::string> DamageLedgerReport() const;
-	// Toggles the activated state of the button in cell (x,z) (no-op if none),
-	// returning the new state via `out`. Exercises the button save path until the
-	// P5 mechanism wiring drives it from gameplay; the map overlay reflects it.
-	bool ToggleButtonAt(int x, int z, bool& out);
+	// Presses the button in cell (x,z) (false if none), returning its new state
+	// via `out`: the doors and niches it names and its flag op, as a press does.
+	// `asParty` also honours its flag= wait, as the party's hand would; without
+	// it the press is forced (the `press` dev command's old meaning).
+	bool ToggleButtonAt(int x, int z, bool& out, bool asParty = false);
+	// The party's hand on the door at (x,z), as a click on its opener would be
+	// once it hit (flag wait, key, toggle) - for the harness, which has no
+	// pointer to aim. False if there is no door; `open` is its state after.
+	bool HandOnDoorAt(int x, int z, bool& open);
 	// "id @ x,z = on|off" for each live button (dev console `buttons`).
 	std::vector<std::string> ButtonList() const;
 	// Point lights submitted this frame (after UpdateLights).
@@ -2175,6 +2209,11 @@ private:
 		int x = 0, z = 0;                    // the cell it mounts in
 		Direction facing = Direction::South; // the solid wall it faces
 		std::string target;                  // wired door name (target= param)
+		// Flags (flags.cat ids, "" = none): `needs` is the flag= param - the
+		// lever will not move until it is on; `sets` is what a press does to a
+		// flag, `op` saying how (sets= / clears= / toggles=, one per lever).
+		std::string needs, sets;
+		FlagOp op = FlagOp::None;
 		bool activated = false;              // pressed / toggled on (saved)
 		// The lever, in TWO parts (buttons.cat), wall-mounted at hand height.
 		// `kind` is the HANDLE and the render tilts it by `activated`; `plate`
@@ -2315,6 +2354,10 @@ private:
 		Direction facing = Direction::South; // travel axis (panel spans the other)
 		std::string name;                    // button-target id ("" = unwired)
 		std::string key;                     // item id that unlocks it ("" = none)
+		// A flags.cat id the door waits on (flag= param, "" = none): the party's
+		// hand cannot open it until the flag is on - the key rule's shape, and
+		// like a lock a wired button still moves it.
+		std::string flag;
 		bool open = false;
 		bool initialOpen = false;            // authored state (open= param)
 		float openT = 0.0f;                  // open anim, 0 closed .. 1 open
@@ -2525,7 +2568,19 @@ private:
 	// Toggles one door (with the doorway-occupied jam check + message/anim) /
 	// every door whose name matches a button's target.
 	bool ToggleDoor(Door& door);
+	// The party's HAND on a door, once it has been reached: the flag wait, then
+	// the key, then the toggle. False when it was refused (or jammed).
+	bool HandOnDoor(Door& door);
 	void ToggleDoorsNamed(const std::string& name);
+	// A lever's whole press: flip it, toggle the doors and niches it names, and
+	// apply its flag op. Its flag= wait is the CALLER's to honour (the party's
+	// hand does; a forced dev press does not).
+	void PressButton(Button& b);
+	// What `flag=` / `sets=` / `clears=` / `toggles=` on a button record say, read
+	// into the live lever (spawn and the inspector's apply share it).
+	void ReadButtonFlags(const Entity& record, Button& b);
+	// Sets / clears / toggles a flag in the borrowed store (no-op without one).
+	void ApplyFlagOp(FlagOp op, std::string_view id);
 	// Lazily loads (and caches) the shared behaviour for an item type, resolved
 	// through the items catalog (category=rune → symbol + element glow colour).
 	ItemKind& ItemKindFor(const std::string& type);
@@ -3369,6 +3424,7 @@ private:
 	// Combat: the Game's roster (not owned) + the strike RNG. UpdateMonsters
 	// ticks cooldowns and runs monster melee; PartyAttack runs the party's.
 	std::vector<Character>* m_roster = nullptr;
+	WorldState* m_flagStore = nullptr; // see SetFlagStore
 	std::optional<WorldMap>* m_worldForUndo = nullptr; // borrowed; see SetWorldForUndo
 	// The project's opening, borrowed (SetOpeningForUndo), and whether a move
 	// has changed it since the owner last saved.

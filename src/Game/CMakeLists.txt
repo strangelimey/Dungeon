@@ -79,6 +79,7 @@ add_library(Game STATIC
 	Magic.cpp
 	MapEditor.cpp
 	MapEditor_Categories.cpp
+	MapEditor_Quests.cpp
 	MapView_Docks.cpp
 	MapView.cpp
 	MapView_Issues.cpp
@@ -96,6 +97,7 @@ add_library(Game STATIC
 	Threat.cpp
 	Power.cpp
 	Validate.cpp
+	Validate_Flags.cpp
 	ValidateDialog.cpp
 	WorldMap.cpp
 	WorldMapView.cpp

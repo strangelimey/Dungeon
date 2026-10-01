@@ -71,6 +71,12 @@ public:
 		// are pure data, so they DO offer "+ New...": there is no class behind
 		// a dungeon to write first.
 		Dungeons, Terrain, Quests,
+		// QUEST ITEMS & FLAGS (MapEditor_Quests.cpp): the flags (flags.cat) and
+		// the items that hook a quest, a flag or a reveal, in two groups - THIS
+		// DUNGEON (the viewed level's) and WORLD. A flag row opens its editor; an
+		// item row arms that item's brush and says where it lies, with a link
+		// there. "+ New..." makes a flag.
+		Flags,
 		Count
 	};
 
@@ -151,6 +157,9 @@ public:
 	// placed on a browsed level is not asked about - the inspectors need the
 	// level active - and keeps the dest it landed with.
 	std::function<void(int cx, int cz)> onExitPlaced;
+	// Fired by a palette row's go-to link (a quest item's placement): browse to
+	// that level and select the square.
+	std::function<void(const std::string& level, int cx, int cz)> onGoTo;
 	// Fired for each grid cell clicked while LAYING a patrol route (grid-click route
 	// authoring). Carries the monster's runtimeId + the cell; the owner appends it.
 	std::function<void(u32 runtimeId, int cx, int cz)> onRouteWaypoint;
@@ -230,6 +239,14 @@ public:
 		// A monster's power BAND (Game/Power.h), drawn as pips at the row's end:
 		// 1..5 filled of five. 0 = no pips (everything that is not a monster).
 		int band = 0;
+		// A row standing for ANOTHER catalog's type (the Quest items & flags
+		// section lists items): that catalog's key, which its click and its
+		// right-click act on. "" = the section's own catalog.
+		std::string ref;
+		// Where the thing lies, when the row can take you there ("" = nowhere):
+		// the row ends in a link that browses to that level and square.
+		std::string gotoLevel;
+		int gotoX = -1, gotoZ = -1;
 		ui::Swatch Swatch() const { return {icon, swatch}; }
 	};
 	// A section's rows exactly as the accordion resolves them (label, id,
@@ -443,7 +460,35 @@ private:
 	}
 	bool GroupOpen(PaletteCat cat, const std::string& group) const {
 		const auto it = m_groupOpen.find(GroupKey(cat, group));
-		return it != m_groupOpen.end() && it->second;
+		// The Quest items & flags section's two groups ARE the section, so they
+		// start open.
+		if (it == m_groupOpen.end()) return cat == PaletteCat::Flags;
+		return it->second;
+	}
+
+	// --- the Quest items & flags section (MapEditor_Quests.cpp) ---------------
+	// Its rows: this dungeon's and the world's flags, then the quest items whose
+	// scope is each (an item's is the scope of the flag it sets; the world's
+	// when it sets none - a quest and a reveal are world-tier).
+	std::vector<PaletteItem> QuestSectionItems() const;
+	// A left click on one of its rows: a flag opens its editor; an item arms
+	// that item's brush (again = disarm), or on its link goes to where it lies.
+	void QuestRowClick(const PaletteRow& row, float mx, float my);
+	void UseQuestRow(const PaletteItem& item, bool link);
+
+public:
+	// What clicking the Quest items & flags row for `id` does - on its link when
+	// `link` - for the harness, which cannot click. False if no row lists it.
+	bool UseQuestRow(const std::string& id, bool link);
+
+private:
+	// The go-to link at a row's end: a square the row's height.
+	static gfx::Rect GoToRect(const gfx::Rect& row) {
+		return {row.x + row.w - row.h, row.y, row.h, row.h};
+	}
+	// The category a row's click acts on: its `ref` catalog's, else its own.
+	static PaletteCat RowCat(PaletteCat cat, const PaletteItem& item) {
+		return item.ref.empty() ? cat : CatForCatalogKey(item.ref);
 	}
 
 	// Every category authors new assets — each gets a "+ New..." row that

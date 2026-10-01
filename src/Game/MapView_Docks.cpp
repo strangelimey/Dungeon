@@ -212,6 +212,20 @@ std::vector<MapView::OverviewLine> MapView::OverviewContent(OverviewScope scope)
 	}
 	line("items", "map.ov.items", std::to_string(sum.items));
 	line("quest", "map.ov.quest", std::to_string(sum.questItems));
+	// FLAGS belong to a scope rather than to a level: the world's, or a
+	// dungeon's own (flags.cat `dungeon`). How many are on is the game being
+	// played - the editor is a live view.
+	if (scope != OverviewScope::Level) {
+		const std::string want = scope == OverviewScope::World ? std::string() : dungeon;
+		int flags = 0, on = 0;
+		for (const CatalogEntry& f : proj.flags.Entries())
+			if (f.Get("dungeon", "") == want) {
+				++flags;
+				on += m_world->FlagOn(f.id);
+			}
+		line("flags", "map.ov.flags",
+			 on > 0 ? loc::Format("map.ov.flagson", flags, on) : std::to_string(flags));
+	}
 	line("doors", "map.ov.doors",
 		 sum.lockedDoors > 0 ? loc::Format("map.ov.doorslocked", sum.doors, sum.lockedDoors)
 							 : std::to_string(sum.doors));

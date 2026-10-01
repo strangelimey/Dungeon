@@ -604,6 +604,12 @@ std::string Game::CreateAuthoredType(MapEditor::PaletteCat cat) {
 			e.Set("wall", shown(Surface::Wall, x, z));
 		}
 	}
+	// A new FLAG starts local to the dungeon being viewed - the palette lists
+	// that dungeon's flags first, and most flags are one dungeon's business.
+	// Clearing `dungeon` in the editor makes it a world flag.
+	if (key == "flags")
+		if (const CatalogEntry* d = m_project.DungeonOfLevel(m_mapView.ViewedLevel()))
+			e.Set("dungeon", d->id);
 	catalog->Add(std::move(e));
 	log::Info("new {} type '{}'", key, id);
 	return id;
