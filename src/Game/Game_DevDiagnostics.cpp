@@ -72,6 +72,24 @@ void Game::RegisterDiagnosticCommands() {
 										seconds));
 			if (m_console.IsOpen()) m_console.Toggle();
 		});
+	// The typing harness's way to fail on purpose (tools\TypingTest.ps1
+	// -SelfTest): the loss Input exists to prevent, done deliberately. The
+	// console stays open, so it is the harness's next line that goes missing.
+	m_console.Register(
+		{.name = "inputpoke",
+		 .group = CmdGroup::Diagnostics,
+		 .params = "[seconds]",
+		 .summary = "drop typed text for a while on purpose (proves TypingTest can fail)"},
+		[this](const std::vector<std::string>& args) {
+			// SECONDS, not frames: the harness paces itself in milliseconds, and
+			// a frame count is a different length on every monitor.
+			m_inputPokeRemaining =
+				args.empty() ? 1.0f
+							 : std::clamp(static_cast<float>(std::atof(args[0].c_str())),
+										  0.1f, 60.0f);
+			m_console.Print(std::format("inputpoke: dropping typed text for {:.1f}s",
+										m_inputPokeRemaining));
+		});
 	// --- the one-pipeline check (Game/DamageLedger.h, docs/effects.md) --------
 	// The same three-command shape the allocation guard uses, for the same
 	// reason: a readout, an arming switch, and a way to make it FAIL on purpose.

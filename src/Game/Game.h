@@ -862,6 +862,9 @@ private:
 	// result so the allocation cannot be optimized away.
 	float m_allocPokeRemaining = 0.0f;
 	std::unique_ptr<u32> m_pokeScratch;
+	// `inputpoke`: throw the typed text away unread for this many seconds - the
+	// loss tools\TypingTest.ps1 -SelfTest must be seen to catch.
+	float m_inputPokeRemaining = 0.0f;
 	// Frame count when the current loading state was entered; tasks only run
 	// once its screen has been presented at least once.
 	u32 m_stateFrameMark = 0;

@@ -81,6 +81,7 @@ bool Window::PumpMessages() {
 		TranslateMessage(&msg);
 		DispatchMessageW(&msg);
 	}
+	m_input.BeginFrame(); // the frame's typed text is what arrived up to here
 	return !m_closed;
 }
 

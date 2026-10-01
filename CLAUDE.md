@@ -1581,6 +1581,17 @@ Full per-phase history + gotchas live in the editor-overhaul memory.
   keyup or the next keydown of that key won't register as pressed).
   Menu nav: Down/Enter; allow ~10s+ load on
   High/Ultra cold cache before sending keys.
+- TYPED TEXT IS ONE ORDERED STREAM (Platform/Input.h `TypedChars`): printable
+  characters plus `Input::kTypedBack` / `kTypedEnter`, pushed by OnKey on the
+  press, so a consumer applies Backspace and Enter WHERE THEY FELL (the console,
+  ui::TextField and the editor's filter box all walk it; do not go back to
+  reading Enter/Backspace as key edges beside it - a heavy frame batching
+  `...t<Enter>s` ran `...ts`). The view is fixed at BeginFrame (end of
+  PumpMessages); EndFrame clears only what the frame showed, and focus loss
+  (ClearAll) never clears it - clearing it there drops exactly one queued
+  character, the likeliest cause of `sheet status` arriving as `shee status`
+  on 2026-09-30 (another session's harness taking the foreground). Checked by `tools\TypingTest.ps1` (CheckAll full tier;
+  `-SelfTest` uses the `inputpoke` dev command).
 - Commit per feature with detailed messages; push to origin/main. Long
   commit messages via a temp file + `git commit -F` (PowerShell mangles
   embedded quotes).

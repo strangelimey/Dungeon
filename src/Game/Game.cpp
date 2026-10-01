@@ -1604,6 +1604,11 @@ void Game::Update(float dt) {
 		m_allocPokeRemaining -= dt;
 		m_pokeScratch = std::make_unique<u32>(m_framesRendered);
 	}
+	// `inputpoke`: before anything reads the frame's typing.
+	if (m_inputPokeRemaining > 0.0f) {
+		m_inputPokeRemaining -= dt;
+		m_window.GetInput().DiscardTypedForTest();
+	}
 
 	UpdateStates(dt);
 
