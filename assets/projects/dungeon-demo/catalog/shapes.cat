@@ -1,0 +1,27 @@
+; Shapes: the Stamp brush's grids (docs/tool-refinement-plan.md Phase 6,
+; Game/Carve.h). Pick one in the palette's Shapes section, click it down on the
+; map, R turns it a quarter.
+;
+; Fields:
+;   display   the shape's name, as the palette lists it.
+;   rows      the grid, rows split by '|':
+;               '.'  opens the square (painted in the current style's ROOM theme)
+;               '#'  makes it solid - a pillar, or a wall the shape needs
+;               '-'  (or anything else) leaves the square as it was
+;             It is placed centred on the square clicked.
+
+[round_chamber]
+display = Round Chamber
+rows = --...--|-.....-|.......|.......|.......|-.....-|--...--
+
+[cross_hall]
+display = Cross Hall
+rows = --...--|--...--|.......|.......|.......|--...--|--...--
+
+[pillared_hall]
+display = Pillared Hall
+rows = .........|.#..#..#.|.........|.........|.#..#..#.|.........
+
+[l_room]
+display = L-Shaped Room
+rows = ......|......|......|...---|...---|...---

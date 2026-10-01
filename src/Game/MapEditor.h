@@ -18,6 +18,7 @@
 #pragma once
 
 #include "Core/MathTypes.h"        // Vec4
+#include "Game/Carve.h"           // carve::Shape (the shape brushes)
 #include "Game/DungeonWorld.h"     // DungeonWorld::MoveTarget (the drag in progress)
 #include "Game/Entity.h"           // Direction, WallFace
 #include "Game/Placement.h"        // Mount, Placement
@@ -83,6 +84,9 @@ public:
 		// style (again = off), which ranks the Monsters section by its list; a
 		// library row adds it to the world (onAddStyle).
 		Styles,
+		// SHAPES (shapes.cat, Game/Carve.h): the Stamp brush's grids. A row ARMS
+		// it as the current stamp and picks the Stamp tool (again = off).
+		Shapes,
 		Count
 	};
 
@@ -178,6 +182,39 @@ public:
 	bool UseStyleRow(const std::string& id);
 	// Fired by a library style's row: the owner copies it into the world.
 	std::function<void(const std::string& id)> onAddStyle;
+
+	// --- the shape brushes (MapEditor_Shapes.cpp, Game/Carve.h) ----------------
+	// Each lays shape on the VIEWED level in the current style: the corridor
+	// and room themes, the corridor width, the knobs (winding; a region's whole
+	// recipe). No style armed = plain carving, one square wide, no paint.
+	// The tool strip's Corridor / Room / Region tools drag from one square to
+	// another; Stamp clicks the CURRENT STAMP (a Shapes palette row) down,
+	// turned with R. Every gesture previews exactly what its release commits.
+	carve::Shape CorridorShape(int ax, int az, int bx, int bz) const;
+	carve::Shape RoomShape(int ax, int az, int bx, int bz) const;
+	carve::Shape StampShape(int cx, int cz) const;
+	// Runs the generator in the rectangle (too slow to preview: the box shows
+	// instead). Empty when the rectangle is under 6x6.
+	carve::Shape RegionShape(int ax, int az, int bx, int bz) const;
+	struct ShapeResult {
+		int opened = 0, raised = 0, painted = 0;
+	};
+	// Commits a shape as ONE undo step: opens its squares, raises a stamp's
+	// solid ones (never onto the party), paints the style's themes on what
+	// opened and on the rock around it. Advances the shape seed, so the next
+	// winding corridor or region differs from this one.
+	ShapeResult ApplyShape(const carve::Shape& shape);
+	// A Shapes row's click: arm `id` as the current stamp and pick the Stamp
+	// tool - or, when it already is the stamp, put it down. False if no row.
+	bool UseShapeRow(const std::string& id);
+	const std::string& CurrentStamp() const { return m_stamp; }
+	void SetCurrentStamp(std::string id) { m_stamp = std::move(id); }
+	int StampTurns() const { return m_stampTurns; }
+	void TurnStamp() { m_stampTurns = (m_stampTurns + 1) % 4; }
+	void SetShapeSeed(u32 seed) { m_shapeSeed = seed; }
+	// What the tool strip previews while a shape gesture is under way (MapView
+	// draws it; empty = nothing).
+	carve::Shape preview;
 
 	// Fired by a palette row's go-to link (a quest item's placement): browse to
 	// that level and select the square.
@@ -397,7 +434,11 @@ public:
 	// for that one click, so the old gestures keep working as shortcuts. A
 	// placement brush places on a click whatever tool is picked. Persisted as
 	// settings.ini `map_tool`.
-	enum class Tool : u8 { Paint, Rect, Flood, Area, Pick, Count };
+	// The SHAPE tools (MapEditor_Shapes.cpp, Game/Carve.h) follow: they need no
+	// armed brush - they carve in the CURRENT STYLE (its themes, its corridor
+	// width, its shape knobs), and carve plainly when none is armed.
+	enum class Tool : u8 { Paint, Rect, Flood, Area, Pick, Corridor, Room, Stamp, Region, Count };
+	static bool ShapeTool(Tool t) { return t >= Tool::Corridor && t < Tool::Count; }
 	Tool ActiveTool() const;
 	void SetTool(Tool t);
 	// "paint", "rect", ... - the console's names and the icon files' suffixes.
@@ -525,6 +566,13 @@ private:
 	std::vector<std::string> StyleMonsters(const std::string& id) const;
 	const StyleLibrary* m_library = nullptr;
 	std::string m_style; // the current style (see CurrentStyle)
+	// The shape brushes' state: the armed stamp, its turn, and the seed the next
+	// winding corridor / region rolls from.
+	std::string m_stamp;
+	int m_stampTurns = 0;
+	u32 m_shapeSeed = 1;
+	// The current style's entry ("" style = null).
+	const CatalogEntry* StyleEntry() const;
 
 	// Every category authors new assets — each gets a "+ New..." row that
 	// opens the asset dialog.
@@ -622,6 +670,11 @@ private:
 	// ground, its wall mix on a solid block (PaintCell's theme half). A
 	// theme RECOLOURS - it never changes the square's type.
 	void PaintThemeCell(int cx, int cz, bool remote, const std::string& stem);
+	// The same with the theme NAMED and the square's openness SAID rather than
+	// read - a shape brush paints squares it has just changed, which a browsed
+	// level's snapshot does not show yet.
+	void PaintThemeAs(const std::string& id, int cx, int cz, bool open, bool remote,
+					  const std::string& stem);
 	// One structural/surface application of the armed brush to a cell — the
 	// shared inner body of ApplyBrush/PaintRect/FloodFill. No undo bracketing
 	// or change detection (callers bracket a whole gesture as one step).

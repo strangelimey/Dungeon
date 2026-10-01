@@ -1838,6 +1838,19 @@ Judged by `tools\EditorTest.py` (phase 12 onward).
   Sweeps: theme -> styles, style -> dungeons' `style`, monster -> styles' lists,
   and flags -> items / locations / door, lever and stair records (Phase 4's gap).
   Dev: `styles`, `style use|add|save|row <id>`. EditorTest 16.
+- SHAPE BRUSHES (Phase 6): four tools on the strip - Corridor, Room (drag),
+  Stamp (click; R turns), Region (drag a box of 6x6 or more for the generator
+  to fill) - laid in the CURRENT STYLE (its corridor / room themes, corridor
+  width, knobs) or plainly when none is armed. Geometry is `Game/Carve.h`
+  (pure, in RollTest); MapEditor_Shapes.cpp commits a carve::Shape as one undo
+  step and one chunk batch. A BRUSH NEVER RAISES WALLS round what it carves -
+  it opens rock and paints the theme on what opened and the rock round it, so
+  a drag over open floor cannot cut a room in two (a stamp's '#' pillars are
+  the one raise, never on the party). The region brush calls generate::Run
+  as-is, sized to the box, and joins the result to what touches the box; the
+  generator was not lifted. Stamps are `shapes.cat` (`rows`, '|'-split); the
+  palette's Shapes section leads Build. Every gesture previews exactly what
+  its release commits (MapEditor::preview). Dev: `editor shape ...`. EditorTest 17.
 - EFFECTS LEFT THE PALETTE for the Balance dialog's Effects tab (a list whose
   rows open the type editor OVER the Balance dialog - which is why the type
   editor's input check now comes before the Balance dialog's in Game::Update,

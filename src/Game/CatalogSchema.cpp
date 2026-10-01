@@ -660,6 +660,17 @@ constexpr FieldSpec kStyleFields[] = {
 	 .options = "monsters"},
 };
 
+// Shapes (tool-refinement Phase 6, Game/Carve.h): the Stamp brush's grids.
+constexpr FieldSpec kShapeFields[] = {
+	{.key = "display", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,
+	 .help = "The shape's name, as the palette lists it."},
+	IDENTITY_CATEGORY,
+	{.key = "rows", .kind = FieldKind::Text, .sectionKey = kSectionShape,
+	 .help = "The grid, rows split by '|': '.' opens a square, '#' makes it solid "
+			 "(a pillar), anything else ('-') leaves the square as it is.",
+	 .maxLen = 400},
+};
+
 constexpr FieldSpec kTerrainFields[] = {
 	{.key = "display", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,
 	 .help = "The terrain's name."},
@@ -734,6 +745,7 @@ std::span<const FieldSpec> SchemaFor(std::string_view catalogKey) {
 	if (catalogKey == "quests") return kQuestFields;
 	if (catalogKey == "flags") return kFlagFields;
 	if (catalogKey == "styles") return kStyleFields;
+	if (catalogKey == "shapes") return kShapeFields;
 	if (catalogKey == "walls") return kWallFields;
 	if (catalogKey == "floors") return kFloorFields;
 	if (catalogKey == "ceilings") return kCeilingFields;

@@ -718,6 +718,10 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 				case HoverBtn::ToolFlood:
 				case HoverBtn::ToolArea:
 				case HoverBtn::ToolPick:
+				case HoverBtn::ToolCorridor:
+				case HoverBtn::ToolRoom:
+				case HoverBtn::ToolStamp:
+				case HoverBtn::ToolRegion:
 					if (m_editor)
 						m_editor->SetTool(static_cast<MapEditor::Tool>(
 							static_cast<int>(b.id) - static_cast<int>(HoverBtn::ToolPaint)));

@@ -31,6 +31,7 @@
 
 #include "Game/DungeonWorld.h"
 #include "Game/GameSettings.h" // collapse-state persistence
+#include "Game/MapEditor.h"    // MapEditor::Tool (the tool strip's buttons)
 #include "Game/Placement.h"    // Placement (the hover ghost)
 #include "Graphics/GraphicsDevice.h"
 #include "Graphics/SpriteBatch.h"
@@ -194,6 +195,11 @@ public:
 	void OnLevelRenamed(const std::string& oldStem, const std::string& newStem) {
 		if (m_browse && m_browse->stem == oldStem)
 			m_browse = m_world->BrowseLevel(newStem);
+	}
+	// A browsed level changed under the view (an edit from the console): the
+	// snapshot is rebuilt, as a brush's own paint does after each stroke.
+	void RefreshBrowse() {
+		if (m_browse) m_browse = m_world->BrowseLevel(m_browse->stem);
 	}
 
 	// Re-bakes the icon font when the window height changes (the overlay text
@@ -456,7 +462,7 @@ private:
 					   *m_icoNew = nullptr, *m_icoPlay = nullptr,
 					   *m_icoPause = nullptr, *m_icoNewWorld = nullptr;
 	// The tool strip's discs, by MapEditor::Tool, then Fill level (icon_tb_tool_*).
-	std::array<const gfx::Texture*, 5> m_icoTools{};
+	std::array<const gfx::Texture*, static_cast<size_t>(MapEditor::Tool::Count)> m_icoTools{};
 	const gfx::Texture* m_icoFillLevel = nullptr;
 	// The docks' collapse buttons: square boxes, "<<" and ">>" (icon_tb_dock_*).
 	const gfx::Texture *m_icoDockL = nullptr, *m_icoDockR = nullptr;
@@ -473,6 +479,17 @@ private:
 	// pointer now. Painted on the release (UpdateBrush), previewed until then.
 	bool m_rectDrag = false;
 	int m_rectX0 = 0, m_rectZ0 = 0, m_rectX1 = 0, m_rectZ1 = 0;
+	// A SHAPE drag (Corridor / Room / Region tools) uses the same two squares;
+	// which tool it was pressed under is kept, since the release is what counts.
+	bool m_shapeDrag = false;
+	MapEditor::Tool m_shapeTool = MapEditor::Tool::Paint;
+	// The shape tools' half of UpdateBrush (MapView_Tools.cpp): the drags, the
+	// stamp's hover and click, R to turn it. True when it took the input.
+	bool UpdateShapeTools(const Input& input, const gfx::Rect& panel, float mx, float my,
+						  bool overGrid, bool& painted);
+	// MapEditor::preview over the grid, and a region drag's box.
+	void RenderShapePreview(gfx::SpriteBatch& batch, const ui::Theme& theme,
+							const gfx::Rect& panel) const;
 	bool m_editorPaused = false; // pause/play toolbar toggle (see EditorPaused)
 	// The edge drag (EdgeAt): the edge under the pointer, the one being dragged,
 	// where the drag started (along its axis), and how many cells it has moved -
@@ -523,8 +540,12 @@ private:
 		LevelSettings, Check, Generate, NewLevel, LevelPick, PlayPause, CollapseL,
 		CollapseR, ShowWorld, NewWorld, Close,
 		// The tool strip, in MapEditor::Tool order, then its one action.
-		ToolPaint, ToolRect, ToolFlood, ToolArea, ToolPick, FillLevel
+		ToolPaint, ToolRect, ToolFlood, ToolArea, ToolPick, ToolCorridor, ToolRoom,
+		ToolStamp, ToolRegion, FillLevel
 	};
+	static_assert(static_cast<int>(HoverBtn::FillLevel) - static_cast<int>(HoverBtn::ToolPaint) ==
+					  static_cast<int>(MapEditor::Tool::Count),
+				  "one strip button per MapEditor::Tool, in its order");
 	HoverBtn m_hoverBtn = HoverBtn::None;
 
 	// The editor's TOOLBAR — a full-width band fixed across the top of the

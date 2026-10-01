@@ -88,6 +88,13 @@
 #      a world style saves to the library with what it names; the checker
 #      names a monster a style lists and the world lacks; and renaming a theme
 #      or a flag rewrites the styles, levers, stairs and items that name it.
+#  17. THE SHAPE BRUSHES (Phase 6), on eval_arena turned to rock round one
+#      room: a corridor opens the rock it crosses, reaches its far end, and
+#      wears the style's corridor theme on its floor and walls - and undo puts
+#      the geometry back exactly; a room opens its rectangle in the room theme;
+#      a stamp raises its pillars, never on the party; a region generates
+#      inside its box joined to the room it touches; no style = plain carving;
+#      a region under 6x6 makes nothing.
 #
 # Every project file a phase writes is restored byte for byte afterwards.
 import io
@@ -558,13 +565,13 @@ print("12 - the category bar shows one group, both ways, and the filter sees pas
 # rather than read back from the game, so a section moved to the wrong group is
 # a failure and not a new truth.
 STAGE = {"world": ["styles", "dungeons", "quests", "flags", "terrain"],
-         "build": ["themes", "walls", "floors", "ceilings", "wallfeatures",
+         "build": ["shapes", "themes", "walls", "floors", "ceilings", "wallfeatures",
                    "surfacefeatures", "doors", "stairs"],
          "furnishings": ["decorations", "fixtures", "buttons"],
          "populate": ["monsters", "items", "weapons", "armor"]}
 KIND = {"surfaces": ["themes", "walls", "floors", "ceilings", "wallfeatures",
                      "surfacefeatures"],
-        "structure": ["doors", "stairs"],
+        "structure": ["shapes", "doors", "stairs"],
         "furnishings": ["decorations", "fixtures", "buttons"],
         "creatures": ["monsters"],
         "items": ["items", "weapons", "armor"],
@@ -1162,6 +1169,122 @@ finally:
     shutil.rmtree(LIBRARY)
     shutil.copytree(libbak, LIBRARY)
     shutil.rmtree(libbak, ignore_errors=True)
+
+# --- phase 17: the shape brushes ---------------------------------------------------
+print("17 - shape brushes: corridor, room, stamp and region, in the current style")
+
+SHAPELINE = re.compile(r"editor shape (\w+): squares=(\d+) solid=(\d+) opened=(\d+) "
+                       r"raised=(\d+) painted=(\d+)")
+WALKABLE = re.compile(r"(\d+)x(\d+) map, start (\d+),(\d+), (\d+) walkable")
+
+
+def shape_lines(lines):
+    return [tuple(int(x) if x.isdigit() else x for x in m.groups())
+            for m in (SHAPELINE.match(l) for l in lines) if m]
+
+
+def walkables(lines):
+    return [int(m.group(5)) for m in (WALKABLE.match(l) for l in lines) if m]
+
+
+def read_level(stem):
+    """(grid rows, {(surface, x, z): theme}) of a saved level."""
+    text = io.open(os.path.join(PROJ, "levels", stem + ".map"), encoding="utf-8").read()
+    rows = [l for l in text.splitlines() if l and l[0] in "#.PDTF"]
+    themes = {}
+    for m in re.finditer(r"^theme (\w+) (\d+) (\d+) (\S+)", text, re.M):
+        themes[(m.group(1), int(m.group(2)), int(m.group(3)))] = m.group(4)
+    return rows, themes
+
+
+backup = os.path.join(ROOT, r"build\editortest-backup")
+shutil.rmtree(backup, ignore_errors=True)
+shutil.copytree(PROJ, backup)
+try:
+    # The fixture: rock everywhere but a 5x5 room round the start (14,12).
+    def rocky(lines):
+        grid = [i for i, l in enumerate(lines) if l and l[0] in "#.P"]
+        for i, z in zip(grid, range(len(grid))):
+            row = ["#"] * len(lines[i])
+            if 10 <= z <= 14:
+                for x in range(12, 17):
+                    row[x] = "."
+            if z == 12:
+                row[14] = "P"
+            lines[i] = "".join(row)
+        return lines
+
+    for ext, fn in ((".map", rocky), (".ent", lambda ls: ["; eval_arena - emptied by EditorTest 17", ""])):
+        p = ARENA + ext
+        raw = io.open(p, "rb").read().decode("utf-8")
+        eol = "\r\n" if "\r\n" in raw else "\n"
+        io.open(p, "wb").write(eol.join(fn(raw.split(eol))).encode("utf-8"))
+
+    log = run("shapes.eval")
+    check(passed(log), "the script ran clean")
+    sec = console_sections(log)
+    base = walkables(sec.get("base", []))
+    cor = walkables(sec.get("corridor", []))
+    shapes = shape_lines([l.split("console: ", 1)[1] for l in log.splitlines()
+                          if "console: editor shape" in l])
+    kinds = [s[0] for s in shapes]
+    check(base == [25], "the fixture is the 5x5 room and rock", str(base))
+    c = shapes[0] if shapes else None
+    check(c is not None and c[0] == "corridor" and len(cor) == 3 and cor[0] == 25 + c[3]
+          and c[3] > 0 and c[5] > c[3],
+          "a corridor opens the rock it crosses and paints it and its walls",
+          f"{c}, walkable {cor}")
+    hashes_seen = [h for h in hashes(log)]
+    check(len(cor) == 3 and cor[1] == 25 and cor[2] == cor[0]
+          and len(hashes_seen) >= 2 and hashes_seen[0] == hashes_seen[1],
+          "undo puts the rock back exactly (geometry hash), redo lays it again",
+          f"walkable {cor}")
+    rows, themes = read_level("eval_arena")
+    open_ = {(x, z) for z, r in enumerate(rows) for x, ch in enumerate(r) if ch != "#"}
+
+    def reach(start):
+        seen, todo = {start}, [start]
+        while todo:
+            x, z = todo.pop()
+            for n in ((x + 1, z), (x - 1, z), (x, z + 1), (x, z - 1)):
+                if n in open_ and n not in seen:
+                    seen.add(n)
+                    todo.append(n)
+        return seen
+
+    from_start = reach((14, 12))
+    check((3, 3) in from_start, "the corridor joins the room to its far end")
+    check(themes.get(("floor", 3, 3)) == "crypt_passage"
+          and any(themes.get(("wall", x, z)) == "crypt_passage"
+                  for x, z in ((2, 3), (3, 2), (2, 2), (4, 2))),
+          "its floor and the walls along it wear the style's corridor theme",
+          str({k: v for k, v in themes.items() if k[1] <= 4 and k[2] <= 4}))
+    r = shapes[1] if len(shapes) > 1 else None
+    room = {(x, z) for x in range(18, 25) for z in range(3, 9)}
+    check(r is not None and r[0] == "room" and r[1] == 42 and room <= open_
+          and themes.get(("floor", 18, 3)) == "crypt_chamber",
+          "a room opens its rectangle in the style's room theme", str(r))
+    s = shapes[2] if len(shapes) > 2 else None
+    check(s is not None and s[0] == "stamp" and s[2] == 6 and s[4] == 2
+          and (14, 10) not in open_ and (14, 13) not in open_ and (14, 12) in open_,
+          "a stamp over the start room raises its two pillars there - never on the party",
+          str(s))
+    g = shapes[3] if len(shapes) > 3 else None
+    region = {(x, z) for x in range(12, 23) for z in range(15, 23)} & open_
+    check(g is not None and g[0] == "region" and g[3] > 20 and region and region <= from_start,
+          "a region generates rooms in its box, joined to the room touching it",
+          f"{g}, {len(region)} open, {len(region - from_start)} unreached")
+    pl = shapes[4] if len(shapes) > 4 else None
+    check(pl is not None and pl[0] == "room" and pl[3] == 9 and pl[5] == 0
+          and ("floor", 25, 13) not in themes,
+          "with no style a room is plain carving: opened, nothing painted", str(pl))
+    sm = shapes[5] if len(shapes) > 5 else None
+    check(sm is not None and sm[0] == "region" and sm[1] == 0 and sm[3] == 0,
+          "a region under 6x6 generates nothing", str(sm))
+finally:
+    shutil.rmtree(PROJ)
+    shutil.copytree(backup, PROJ)
+    shutil.rmtree(backup, ignore_errors=True)
 
 print()
 print("PASS" if failures == 0 else f"FAIL - {failures} check(s) failed")

@@ -43,6 +43,7 @@
 #include "Game/Mishap.h"
 #include "Game/Power.h"
 #include "Game/Style.h"
+#include "Game/Carve.h"
 #include "Game/Resource.h"
 #include "Game/Roll.h"
 
@@ -2030,6 +2031,83 @@ int main(int argc, char** argv) {
 		Check("a rename finds the one entry", RenameMonster(r, "mummy", "wrapped"), 1, 0);
 		Check("...and keeps every weight",
 			  FormatMonsters(r) == "skeleton 3, wrapped" ? 1 : 0, 1, 0);
+	}
+
+	// --- the shape brushes' geometry ------------------------------------------------
+	// Game/Carve.h (tool-refinement Phase 6). What each brush opens, checked
+	// without a map: a corridor reaches its far end however it winds, a room is
+	// its rectangle, a stamp turned four times is itself, a region is joined to
+	// what touches it.
+	{
+		using namespace dungeon::game::carve;
+		std::printf("\nShape brushes (Game/Carve.h)\n");
+		// Every open square reachable from (ax,az), 4-connected, within the shape.
+		const auto connects = [](const Shape& s, int ax, int az, int bx, int bz) {
+			std::vector<std::pair<int, int>> todo{{ax, az}}, seen{{ax, az}};
+			if (!s.Opens(ax, az)) return false;
+			while (!todo.empty()) {
+				const auto [x, z] = todo.back();
+				todo.pop_back();
+				if (x == bx && z == bz) return true;
+				for (const auto [dx, dz] : {std::pair{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) {
+					const std::pair<int, int> n{x + dx, z + dz};
+					if (!s.Opens(n.first, n.second) ||
+						std::find(seen.begin(), seen.end(), n) != seen.end())
+						continue;
+					seen.push_back(n);
+					todo.push_back(n);
+				}
+			}
+			return false;
+		};
+		const Shape l = Corridor(2, 3, 9, 7, 1, 0.0f, 5);
+		Check("a straight-ish corridor is one L: |dx| + |dz| + 1 squares",
+			  static_cast<double>(l.open.size()), 12.0, 0.0);
+		Check("...from one end to the other", connects(l, 2, 3, 9, 7) ? 1 : 0, 1, 0);
+		bool allMeanderConnect = true, someWound = false;
+		for (dungeon::u32 seed = 1; seed <= 40; ++seed) {
+			const Shape m = Corridor(5, 5, 20, 14, 1, 0.9f, seed);
+			allMeanderConnect = allMeanderConnect && connects(m, 5, 5, 20, 14);
+			someWound = someWound || m.open.size() > 25;
+		}
+		Check("a winding corridor always arrives (40 seeds)", allMeanderConnect ? 1 : 0, 1, 0);
+		Check("...and does wind (some longer than the L)", someWound ? 1 : 0, 1, 0);
+		const Shape wide = Corridor(0, 0, 6, 0, 2, 0.0f, 1);
+		Check("a two-wide corridor is two rows of squares", static_cast<double>(wide.open.size()),
+			  14.0, 0.0);
+		Check("every corridor square is a corridor's",
+			  std::all_of(l.open.begin(), l.open.end(),
+						  [](const Square& q) { return q.role == Role::Corridor; }) ? 1 : 0, 1, 0);
+		Check("a room is its rectangle, corners either way round",
+			  static_cast<double>(Room(7, 6, 3, 2).open.size()), 25.0, 0.0);
+		const Stamp st = ParseStamp(" .#.. | .... |##");
+		Check("a stamp reads its rows", static_cast<double>(st.Height()), 3.0, 0.0);
+		Stamp four = st;
+		for (int i = 0; i < 4; ++i) four = Turned(four);
+		// Turning pads short rows with '-', so compare what each places.
+		const Shape s0 = StampAt(st, 10, 10, 0), s4 = StampAt(four, 10, 10, 0);
+		Check("four quarter turns give the stamp back",
+			  s0.open.size() == s4.open.size() && s0.solid == s4.solid ? 1 : 0, 1, 0);
+		Check("a stamp opens its '.' squares and marks its '#' ones",
+			  static_cast<double>(s0.open.size() * 10 + s0.solid.size()), 73.0, 0.0);
+		const Stamp t1 = Turned(st);
+		Check("a quarter turn stands a 4-wide, 3-tall stamp 4 tall",
+			  static_cast<double>(t1.Height() * 10 + t1.Width()), 43.0, 0.0);
+		// Clockwise: the old bottom-left '#' becomes the new top-left.
+		Check("...turned clockwise", t1.rows[0][0] == '#' ? 1 : 0, 1, 0);
+		std::vector<dungeon::u8> floor(16, 0);
+		floor[5] = floor[6] = floor[9] = floor[10] = 1; // the middle 2x2 of a 4x4
+		const Shape reg = Region(floor, 4, 4, 10, 10,
+								 [](int x, int z) { return x == 9 && z == 11; }, 3);
+		Check("a region's generated floor is its room squares",
+			  reg.Opens(11, 11) && reg.Opens(12, 12) ? 1 : 0, 1, 0);
+		Check("...joined to the open square touching its edge",
+			  connects(reg, 10, 11, 12, 12) ? 1 : 0, 1, 0);
+		const Shape none = Region(floor, 4, 4, 10, 10, [](int, int) { return false; }, 3);
+		Check("...and to nothing when nothing touches it",
+			  static_cast<double>(none.open.size()), 4.0, 0.0);
+		Check("a lone square's rim is its eight neighbours",
+			  static_cast<double>(Rim(Room(0, 0, 0, 0)).size()), 8.0, 0.0);
 	}
 
 	// --- verdict ------------------------------------------------------------

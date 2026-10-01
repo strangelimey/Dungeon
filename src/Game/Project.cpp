@@ -55,6 +55,10 @@ const CatalogSlot kCatalogs[] = {
 	 "theme ids, `knobs` (the generator's settings line), `corridor_width`, `tags` and "
 	 "`monsters` (`<id> [weight]`, comma-separated). Added from the shared library "
 	 "(assets/library) or made here; arming one ranks the Monsters section by its list."},
+	{"shapes.cat", &Project::shapes,
+	 "Shapes (docs/tool-refinement-plan.md Phase 6, Game/Carve.h): the Stamp brush's grids. "
+	 "`rows` is the grid, rows split by '|': '.' opens a square, '#' makes it solid, "
+	 "anything else leaves it. Placed centred on the square clicked; R turns it."},
 	{"themes.cat", &Project::themes,
 	 "Surface themes: a named look - floor / wall / ceiling, each ONE of that "
 	 "surface's catalog ids (empty = leave that surface alone). Cells reference one "
@@ -225,6 +229,7 @@ Catalog* Project::CatalogForKey(const std::string& key) {
 	if (key == "quests") return &quests;
 	if (key == "flags") return &flags;
 	if (key == "styles") return &styles;
+	if (key == "shapes") return &shapes;
 	if (key == "walls") return &walls;
 	if (key == "floors") return &floors;
 	if (key == "ceilings") return &ceilings;
@@ -255,7 +260,7 @@ std::vector<const Catalog*> Project::AllCatalogs() const {
 			&monsters, &doors, &stairs,   &buttons,      &items,
 			&weapons, &armor,  &spells,   &effects,      &attacks,
 			&balance, &damagetypes, &wallfeatures, &surfacefeatures,
-			&terrain, &dungeons, &quests, &flags, &styles, &themes};
+			&terrain, &dungeons, &quests, &flags, &styles, &shapes, &themes};
 }
 
 const CatalogEntry* Project::FindItem(std::string_view id) const {

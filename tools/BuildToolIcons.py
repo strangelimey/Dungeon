@@ -389,8 +389,46 @@ def glyph_route(d):
         d.ellipse([(x - r) * SS, (y - r) * SS, (x + r) * SS, (y + r) * SS], fill=GLYPH)
 
 
+# --- the shape brushes (tool-refinement Phase 6) ------------------------------
+def glyph_corridor(d):
+    # A corridor seen from above: its two walls, running in and bending down -
+    # the L a drag from one square to another lays.
+    for a, b in (((25, 31), (50, 31)), ((50, 31), (50, 58)),
+                 ((25, 41), (40, 41)), ((40, 41), (40, 58))):
+        line(d, a, b, 3.0)
+
+
+def glyph_room(d):
+    # A room dragged open: its walls, and the drag from corner to corner.
+    d.rectangle([26 * SS, 28 * SS, 57 * SS, 55 * SS], fill=GLYPH)
+    d.rectangle([29.5 * SS, 31.5 * SS, 53.5 * SS, 51.5 * SS], fill=(0, 0, 0, 0))
+    line(d, (35, 37), (47, 46), 2.5)
+    d.polygon(S([(49, 48), (42, 47), (47, 42)]), fill=GLYPH)  # the arrowhead
+
+
+def glyph_stamp(d):
+    # A rubber stamp: knob, neck, the block, and the print beneath it.
+    d.ellipse([36 * SS, 21 * SS, 47 * SS, 32 * SS], fill=GLYPH)              # knob
+    d.rectangle([39 * SS, 31 * SS, 44 * SS, 39 * SS], fill=GLYPH)            # neck
+    d.rectangle([29 * SS, 38 * SS, 54 * SS, 46 * SS], fill=GLYPH)            # block
+    d.rectangle([27 * SS, 52 * SS, 56 * SS, 55 * SS], fill=GLYPH)            # the print
+
+
+def glyph_region(d):
+    # A marked-out box with rooms grown inside it: the generator's patch.
+    glyph_rect(d)
+    for box in ((31, 34, 39, 41), (44, 33, 51, 39), (40, 44, 50, 50)):
+        d.rectangle([box[0] * SS, box[1] * SS, box[2] * SS, box[3] * SS], fill=GLYPH)
+    line(d, (39, 38), (44, 37), 2.0)
+    line(d, (45, 39), (45, 44), 2.0)
+
+
 # Output name -> glyph; each writes assets/ui/icon_tb_<name>.png.
 GLYPHS = {
+    "tool_corridor": glyph_corridor,
+    "tool_room": glyph_room,
+    "tool_stamp": glyph_stamp,
+    "tool_region": glyph_region,
     "tool_paint": glyph_paint,
     "tool_rect": glyph_rect,
     "tool_flood": glyph_flood,

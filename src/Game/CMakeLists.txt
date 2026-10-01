@@ -81,9 +81,11 @@ add_library(Game STATIC
 	MapEditor_Categories.cpp
 	MapEditor_Quests.cpp
 	MapEditor_Styles.cpp
+	MapEditor_Shapes.cpp
 	Game_Styles.cpp
 	Style.cpp
 	StyleLibrary.cpp
+	Carve.cpp
 	MapView_Docks.cpp
 	MapView.cpp
 	MapView_Issues.cpp

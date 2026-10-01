@@ -99,6 +99,10 @@ struct Project {
 	// list - one named decision a builder makes once. The world's own; the
 	// shared library's are in StyleLibrary.
 	Catalog styles;
+	// SHAPES (tool-refinement Phase 6, Game/Carve.h): the Stamp brush's small
+	// grids - a round chamber, a cross hall - as `rows` of '.' (open), '#'
+	// (solid) and anything else (leave), split by '|'.
+	Catalog shapes;
 	// Surface THEMES (docs/editor-themes-notes.md): a named look - `floor` /
 	// `wall` / `ceiling`, each ONE of that surface's catalog ids (empty =
 	// leave it be). World-

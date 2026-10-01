@@ -43,6 +43,7 @@ add_executable(RollTest
 	${CMAKE_SOURCE_DIR}/src/Game/Resource.cpp
 	${CMAKE_SOURCE_DIR}/src/Game/Power.cpp
 	${CMAKE_SOURCE_DIR}/src/Game/Style.cpp
+	${CMAKE_SOURCE_DIR}/src/Game/Carve.cpp
 )
 # NOT linked, and the attempt is worth recording: pulling Balance.cpp in for the
 # attacker's type axis dragged Catalog -> assets::ReadBinaryFile, i.e. the file

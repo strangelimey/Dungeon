@@ -41,9 +41,10 @@ struct GroupDef {
 // Michael's call, a whole look is the first thing reached for); Populate is
 // what goes into a built level.
 constexpr PC kWorld[] = {PC::Styles, PC::Dungeons, PC::Quests, PC::Flags, PC::Terrain};
-constexpr PC kBuild[] = {PC::Themes,       PC::Walls,           PC::Floors,
-						 PC::Ceilings,     PC::WallFeatures,    PC::SurfaceFeatures,
-						 PC::Doors,        PC::Stairs};
+// Shapes lead Build: laying the shape comes before dressing it (Phase 6).
+constexpr PC kBuild[] = {PC::Shapes,       PC::Themes,          PC::Walls,
+						 PC::Floors,       PC::Ceilings,        PC::WallFeatures,
+						 PC::SurfaceFeatures, PC::Doors,        PC::Stairs};
 // What dresses a built room - props, the lights on its walls, the levers
 // (Michael, 2026-09-30: their own group in BOTH groupings). As a stage it sits
 // between the shape and what lives in it: build, furnish, populate.
@@ -59,7 +60,7 @@ constexpr GroupDef kStageGroups[] = {
 // --- by KIND: what a thing is -------------------------------------------------
 constexpr PC kSurfaces[] = {PC::Themes,   PC::Walls,        PC::Floors,
 							PC::Ceilings, PC::WallFeatures, PC::SurfaceFeatures};
-constexpr PC kStructure[] = {PC::Doors, PC::Stairs};
+constexpr PC kStructure[] = {PC::Shapes, PC::Doors, PC::Stairs};
 constexpr PC kCreatures[] = {PC::Monsters};
 constexpr PC kItemKinds[] = {PC::Items, PC::Weapons, PC::Armor};
 constexpr GroupDef kKindGroups[] = {

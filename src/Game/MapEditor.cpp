@@ -63,6 +63,7 @@ constexpr CatInfo kCategoryInfo[] = {
 	{"map.cat.quests", "quests", false, /*placeable*/ false, /*authorable*/ true},
 	{"map.cat.flags", "flags", false, /*placeable*/ false, /*authorable*/ true},
 	{"map.cat.styles", "styles", false, /*placeable*/ false, /*authorable*/ true},
+	{"map.cat.shapes", "shapes", false, /*placeable*/ false, /*authorable*/ true},
 };
 static_assert(sizeof(kCategoryInfo) / sizeof(kCategoryInfo[0]) ==
 				  static_cast<size_t>(MapEditor::PaletteCat::Count),
@@ -202,6 +203,7 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 	case PaletteCat::Quests:      return catalogItems(proj.quests, kItem);
 	case PaletteCat::Flags:       return QuestSectionItems();
 	case PaletteCat::Styles:      return StyleSectionItems();
+	case PaletteCat::Shapes:      return catalogItems(proj.shapes, kFloor);
 	case PaletteCat::Terrain: {
 		std::vector<PaletteItem> items = catalogItems(proj.terrain, kFloor);
 		for (PaletteItem& it : items)
@@ -626,6 +628,11 @@ bool MapEditor::OnClick(float mx, float my, const gfx::Rect& panel) {
 			const std::vector<PaletteItem> items = CategoryItems(r.cat);
 			if (r.index >= 0 && r.index < static_cast<int>(items.size()))
 				UseStyleRow(items[static_cast<size_t>(r.index)].id);
+		} else if (r.kind == PaletteRow::Kind::Item && r.cat == PaletteCat::Shapes) {
+			// The current stamp, with the Stamp tool picked to lay it.
+			const std::vector<PaletteItem> items = CategoryItems(r.cat);
+			if (r.index >= 0 && r.index < static_cast<int>(items.size()))
+				UseShapeRow(items[static_cast<size_t>(r.index)].id);
 		}
 		else if (r.kind == PaletteRow::Kind::Item) {
 			// A placeable type arms the brush; a non-placeable one has nothing
@@ -902,18 +909,21 @@ void MapEditor::EndStroke() {
 }
 
 void MapEditor::PaintThemeCell(int cx, int cz, bool remote, const std::string& stem) {
-	using SS = DungeonWorld::SurfaceSel;
 	const std::vector<PaletteItem> items = CategoryItems(PaletteCat::Themes);
 	if (m_sel.index < 0 || m_sel.index >= static_cast<int>(items.size())) return;
-	const std::string& id = items[m_sel.index].id;
+	const DungeonMap& map = m_view.ViewedMap();
+	if (cx < 0 || cz < 0 || cx >= map.Width() || cz >= map.Height()) return;
+	PaintThemeAs(items[m_sel.index].id, cx, cz, map.IsWalkable(cx, cz), remote, stem);
+}
+
+void MapEditor::PaintThemeAs(const std::string& id, int cx, int cz, bool open, bool remote,
+							 const std::string& stem) {
+	using SS = DungeonWorld::SurfaceSel;
 	const CatalogEntry* def = m_world->GetProject().themes.Find(id);
 	if (!def) return;
 	const ThemeMembers members = DungeonWorld::ThemeMembersOf(*def);
-	const DungeonMap& map = m_view.ViewedMap();
-	if (cx < 0 || cz < 0 || cx >= map.Width() || cz >= map.Height()) return;
 	// The surfaces this square shows, and only those the theme speaks
 	// for: an empty member list leaves that surface exactly as it is.
-	const bool open = map.IsWalkable(cx, cz);
 	const SS surfaces[2] = {open ? SS::Floor : SS::Wall, SS::Ceiling};
 	const int count = open ? 2 : 1;
 	bool any = false;
@@ -1021,6 +1031,10 @@ const char* MapEditor::ToolName(Tool t) {
 	case Tool::Flood: return "flood";
 	case Tool::Area:  return "area";
 	case Tool::Pick:  return "pick";
+	case Tool::Corridor: return "corridor";
+	case Tool::Room:     return "room";
+	case Tool::Stamp:    return "stamp";
+	case Tool::Region:   return "region";
 	default:          return "paint";
 	}
 }
@@ -1432,7 +1446,8 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 								(!item.ref.empty() && armedCat == RowCat(r.cat, item) &&
 								 armedId == item.id) ||
 								(r.cat == PaletteCat::Styles && item.ref.empty() &&
-								 item.id == m_style);
+								 item.id == m_style) ||
+								(r.cat == PaletteCat::Shapes && item.id == m_stamp);
 			if (active) {
 				batch.DrawRect(rc, theme.controlActive);
 				ui::DrawBorder(batch, rc, theme.panelBorder);

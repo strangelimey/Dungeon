@@ -294,6 +294,38 @@ dragging, before anything is committed.
   ends; a room is closed; a region joins its edge); `generate` regression on
   a fixed seed before/after the lift; EditorTest for each brush + undo.
 
+BUILT (2026-09-30), and where it differs from the above:
+- `Game/Carve.h` is NEW pure code (corridor, room, stamp, region, rim), in
+  RollTest. THE GENERATOR WAS NOT LIFTED: the region brush calls the existing
+  `generate::Run` sized to its box (plus the rock rim) with the style's knobs
+  and empty content pools, and Carve::Region joins what comes back to the open
+  squares touching the box - one corridor per run of touching squares. So
+  whole-level generation is untouched (no byte-identical regression needed),
+  at the cost of the region's rooms not being shaped round what is already
+  there beyond the join.
+- A BRUSH NEVER RAISES A WALL round what it carves: it opens rock and paints
+  the style's corridor or room theme on the floor it opened and on the rock
+  around it (all eight neighbours). A drag across open floor leaves it open,
+  so a careless corridor cannot cut a room in two. A stamp's '#' squares are
+  the one raise, and never onto the party.
+- Corridor: a low winding (< 0.5) is one L, its bend from the seed; a higher
+  one meanders (steps toward the end, sideways with a chance that falls as it
+  goes). Width from the style, widened ACROSS the way of travel, a full block
+  at each bend. Room: the dragged rectangle. Region: a box of at least 6x6
+  (red until it is), generated on the release (too slow to preview).
+- Stamps are `shapes.cat` (per world; the template carries it): `rows`, split
+  by '|', '.' open / '#' solid / anything else leave. The palette's Shapes
+  section leads Build (and Structure, by kind): a row arms the stamp and picks
+  the Stamp tool; R turns it.
+- The four tools join the strip (icons from BuildToolIcons.py); each previews
+  exactly what its release commits (MapEditor::preview), one undo step and one
+  chunk batch each. An undo that takes back a theme's enrolled surface reloads
+  the surfaces when the editor closes, the existing deferral.
+- Dev: `editor shape corridor|room|region <ax> <az> <bx> <bz> | stamp <id> <x>
+  <z> [turns] | seed <n>`; `editor tool corridor|room|stamp|region`.
+- Checked: RollTest (18 shape checks); EditorTest 17 (11 checks) on
+  eval_arena turned to rock round one room.
+
 ## Phase 7 - The workflow, wired through
 
 Now the pieces exist, make the four stages one path.

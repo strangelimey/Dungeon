@@ -263,13 +263,62 @@ void Game::RegisterDevCommands() {
 									   if (args[1] == MapEditor::ToolName(static_cast<Tool>(i)))
 										   found = i;
 								   if (found < 0) {
-									   m_console.Print("usage: editor tool [paint|rect|flood|area|pick]");
+									   m_console.Print("usage: editor tool [paint|rect|flood|area|pick|"
+												   "corridor|room|stamp|region]");
 									   return;
 								   }
 								   m_mapEditor.SetTool(static_cast<Tool>(found));
 							   }
 							   m_console.Print(std::format(
 								   "editor tool: {}", MapEditor::ToolName(m_mapEditor.ActiveTool())));
+							   return;
+						   }
+						   // THE SHAPE BRUSHES without a mouse (Phase 6): the same
+						   // shape the drag previews, committed the way its release
+						   // commits it, on the viewed level in the current style.
+						   //   editor shape corridor|room|region <ax> <az> <bx> <bz>
+						   //   editor shape stamp <id> <x> <z> [turns]
+						   //   editor shape seed <n>      (the next winding / region)
+						   if (!args.empty() && args[0] == "shape") {
+							   if (args.size() >= 3 && args[1] == "seed") {
+								   m_mapEditor.SetShapeSeed(
+									   static_cast<u32>(std::strtoul(args[2].c_str(), nullptr, 10)));
+								   m_console.Print(std::format("editor shape seed {}", args[2]));
+								   return;
+							   }
+							   if (m_mapView.IsOpen())
+								   m_mapView.SetMode(MapView::Mode::Editor);
+							   else
+								   m_mapView.Open(MapView::Mode::Editor);
+							   const auto n = [&](size_t i) { return std::atoi(args[i].c_str()); };
+							   carve::Shape shape;
+							   const std::string kind = args.size() >= 2 ? args[1] : std::string();
+							   if ((kind == "corridor" || kind == "room" || kind == "region") &&
+								   args.size() >= 6) {
+								   shape = kind == "corridor" ? m_mapEditor.CorridorShape(n(2), n(3), n(4), n(5))
+										   : kind == "room"	 ? m_mapEditor.RoomShape(n(2), n(3), n(4), n(5))
+															 : m_mapEditor.RegionShape(n(2), n(3), n(4), n(5));
+							   } else if (kind == "stamp" && args.size() >= 5) {
+								   if (!m_project.shapes.Contains(args[2])) {
+									   m_console.Refuse(std::format("editor shape: no shape '{}'", args[2]));
+									   return;
+								   }
+								   m_mapEditor.SetCurrentStamp(args[2]);
+								   while (args.size() >= 6 &&
+										  m_mapEditor.StampTurns() != (n(5) % 4 + 4) % 4)
+									   m_mapEditor.TurnStamp();
+								   shape = m_mapEditor.StampShape(n(3), n(4));
+							   } else {
+								   m_console.Refuse("usage: editor shape corridor|room|region <ax> <az> "
+													"<bx> <bz> | stamp <id> <x> <z> [turns] | seed <n>");
+								   return;
+							   }
+							   const MapEditor::ShapeResult r = m_mapEditor.ApplyShape(shape);
+							   m_mapView.RefreshBrowse();
+							   m_console.Print(std::format(
+								   "editor shape {}: squares={} solid={} opened={} raised={} painted={}",
+								   kind, shape.open.size(), shape.solid.size(), r.opened, r.raised,
+								   r.painted));
 							   return;
 						   }
 						   // What the live check boxes on the VIEWED level, one line a
