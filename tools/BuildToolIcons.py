@@ -719,9 +719,102 @@ def glyph_cast(d):
     line(d, (55, 41.5), (43, 54), w)
 
 
+# The closed-panels TRAY's buttons (ui-updates Phase 8): one per HUD panel that
+# can be minimized, on a stone button like Cast / Clear. A face glyph only shows
+# the middle half of the 84 px square (ui::Button draws its centre), so these
+# stay inside 23..60 and BOLD - at HUD size one unit here is about 0.6 px.
+def bust(d, cx, top, r, shoulders):
+    # A head and the round of its shoulders: a person, at any size.
+    d.ellipse([(cx - r) * SS, top * SS, (cx + r) * SS, (top + 2 * r) * SS], fill=GLYPH)
+    sy = top + 2 * r + 1.5
+    d.pieslice([(cx - shoulders) * SS, sy * SS, (cx + shoulders) * SS,
+                (sy + 2 * shoulders) * SS], 180, 360, fill=GLYPH)
+
+
+def glyph_panel_party(d):
+    # The party bar: three people, the middle one in front.
+    for cx in (29.5, 53.5):
+        bust(d, cx, 30, 4.5, 8.5)
+    # A gap cut round the front figure so the three do not fuse.
+    d.ellipse([(41.5 - 8) * SS, (25 - 2) * SS, (41.5 + 8) * SS, (25 + 14) * SS], fill=HOLE)
+    d.rectangle([(41.5 - 13) * SS, 38 * SS, (41.5 + 13) * SS, 60 * SS], fill=HOLE)
+    bust(d, 41.5, 25, 6.0, 11.0)
+
+
+def glyph_panel_status(d):
+    # The compass plate: a ring and its needle.
+    cx, cy, r = 41.5, 41.5, 16.0
+    d.ellipse([(cx - r) * SS, (cy - r) * SS, (cx + r) * SS, (cy + r) * SS], outline=GLYPH,
+              width=int(4.0 * SS))
+    d.polygon(S([(cx, cy - 11.5), (cx + 5, cy), (cx - 5, cy)]), fill=GLYPH)
+    d.polygon(S([(cx, cy + 11.5), (cx + 3.5, cy + 1), (cx - 3.5, cy + 1)]), fill=GLYPH)
+
+
+def glyph_panel_options(d):
+    # The options plate: a cog.
+    cx, cy = 41.5, 41.5
+    for i in range(8):
+        a = i * math.pi / 4
+        line(d, (cx, cy), (cx + 16.5 * math.cos(a), cy + 16.5 * math.sin(a)), 6.5)
+    r = 12.0
+    d.ellipse([(cx - r) * SS, (cy - r) * SS, (cx + r) * SS, (cy + r) * SS], fill=GLYPH)
+    h = 5.0
+    d.ellipse([(cx - h) * SS, (cy - h) * SS, (cx + h) * SS, (cy + h) * SS], fill=HOLE)
+
+
+def glyph_panel_move(d):
+    # The movement pad: four arrows out from the middle.
+    cx, cy = 41.5, 41.5
+    a, b, c = 18.0, 7.0, 8.5  # tip distance, head half-width, head base distance
+    for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+        nx, ny = -dy, dx
+        d.polygon(S([(cx + dx * a, cy + dy * a), (cx + dx * c + nx * b, cy + dy * c + ny * b),
+                     (cx + dx * c - nx * b, cy + dy * c - ny * b)]), fill=GLYPH)
+    line(d, (cx - c, cy), (cx + c, cy), 4.0)
+    line(d, (cx, cy - c), (cx, cy + c), 4.0)
+
+
+def glyph_panel_hands(d):
+    # The hands dock: a member's two hand boxes over their stance bar.
+    for x0 in (25.0, 43.5):
+        d.rounded_rectangle([x0 * SS, 26 * SS, (x0 + 14.5) * SS, 44 * SS], radius=2 * SS,
+                            fill=GLYPH)
+    d.rounded_rectangle([25 * SS, 49 * SS, 58 * SS, 55 * SS], radius=1.5 * SS, fill=GLYPH)
+
+
+def sparkle(d, cx, cy, r, waist):
+    d.polygon(S([(cx, cy - r), (cx + waist, cy - waist), (cx + r, cy), (cx + waist, cy + waist),
+                 (cx, cy + r), (cx - waist, cy + waist), (cx - r, cy), (cx - waist, cy - waist)]),
+              fill=GLYPH)
+
+
+def glyph_panel_magic(d):
+    # The magic dock: a large spark and a small one.
+    sparkle(d, 38.5, 44.5, 15.0, 3.6)
+    sparkle(d, 53.5, 28.5, 6.5, 1.8)
+
+
+def glyph_panel_cards(d):
+    # The party cards: two cards, each with its person cut out of it.
+    for x0 in (24.5, 43.0):
+        d.rounded_rectangle([x0 * SS, 25 * SS, (x0 + 15.5) * SS, 58 * SS], radius=2.5 * SS,
+                            fill=GLYPH)
+        cx = x0 + 7.75
+        r = 3.6
+        d.ellipse([(cx - r) * SS, 31 * SS, (cx + r) * SS, (31 + 2 * r) * SS], fill=HOLE)
+        d.pieslice([(cx - 5.5) * SS, 40 * SS, (cx + 5.5) * SS, 51 * SS], 180, 360, fill=HOLE)
+
+
 FACE_GLYPHS = {
     "cast": glyph_cast,
     "clear": glyph_clear,
+    "panel_party": glyph_panel_party,
+    "panel_status": glyph_panel_status,
+    "panel_options": glyph_panel_options,
+    "panel_move": glyph_panel_move,
+    "panel_hands": glyph_panel_hands,
+    "panel_magic": glyph_panel_magic,
+    "panel_cards": glyph_panel_cards,
 }
 
 

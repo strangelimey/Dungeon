@@ -6,6 +6,7 @@
 #include "Core/Loc.h"
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
+#include "Game/HudTray.h"
 #include "Game/MemberCards.h"
 #include "Game/PartyHudDraw.h" // the resource bars' heartbeat (TickResourceBars)
 #include "Game/Project.h"
@@ -172,6 +173,12 @@ void GameUI::LoadTitleArt() {
 	// them the stone buttons carry their words.
 	m_castGlyphTex = TryLoadTextureFile(m_device, paths::Asset("ui\\glyph_cast"));
 	m_clearGlyphTex = TryLoadTextureFile(m_device, paths::Asset("ui\\glyph_clear"));
+	// The tray's button faces, one per panel that minimizes (same script);
+	// without one, that button carries the panel's name.
+	for (size_t i = 0; i < kHudSheet; ++i)
+		if (const char* glyph = kHudPanelFields[i].glyph)
+			m_panelGlyphs[i] = TryLoadTextureFile(
+				m_device, paths::Asset(std::string("ui\\glyph_") + glyph));
 	// The movement pad's chevrons (single = step, double = turn), rotated in
 	// quarter turns per direction by ui::Button::iconTurns.
 	m_chevronTex = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_chevron"));
@@ -1487,6 +1494,10 @@ void GameUI::BuildHud() {
 	// Ctrl over any panel offers a button that puts EVERY panel home.
 	m_hudLayer->onResetAll = [this] { ResetHudLayout(); };
 	m_hudLayer->resetTip = loc::Tr("hud.reset_layout");
+	// ... and, on a panel that minimizes, one that puts it in the tray (Phase
+	// 8). A flag flips and the layout follows: nothing is rebuilt.
+	m_hudLayer->onHideChanged = [this] { OnHudPanelHidden(false); };
+	m_hudLayer->hideTip = loc::Tr("hud.minimize");
 	auto makePanel = [this](size_t field, const char* name) {
 		HudPanelLook& look = m_settings.*(kHudPanelFields[field].look);
 		auto* panel = m_hudLayer->Add<ui::FloatingPanel>();
@@ -1496,6 +1507,7 @@ void GameUI::BuildHud() {
 		panel->scale = &look.scale;
 		panel->locked = &m_settings.hudLocked;
 		panel->onChanged = [this] { OnHudPanelMoved(); };
+		if (kHudPanelFields[field].glyph) panel->hidden = &look.hidden;
 		m_hudPanels[field] = panel;
 		return panel;
 	};
@@ -1643,8 +1655,8 @@ void GameUI::BuildHud() {
 	deps.icons = m_itemIcons;
 	deps.chevron = m_chevronTex.get();
 	deps.chevron2 = m_chevron2Tex.get();
-	deps.boxPlus = ToolbarIcon(m_device, "box_plus");
 	deps.boxMinus = ToolbarIcon(m_device, "box_minus");
+	deps.minimizeTip = loc::Tr("hud.minimize");
 	deps.onMove = [this](MoveAction action) { onMoveAction(action); };
 	deps.onHandLeft = [this](size_t i, size_t hand) { OnHandLeftClick(i, hand); };
 	deps.onHandRight = [this](size_t i, size_t hand) { OnHandRightClick(i, hand); };
@@ -1658,14 +1670,8 @@ void GameUI::BuildHud() {
 	deps.exertMax = [this] { return exertMax ? exertMax() : 1.0f; };
 	deps.moveLabel = loc::Tr("hud.movement");
 	deps.magicLabel = loc::Tr("hud.magic");
-	// The minimize buttons flip the settings in place; the flip is saved at
-	// once, like the editor's dock collapse.
-	deps.moveCollapsed = &m_settings.hudMoveCollapsed;
-	deps.magicCollapsed = &m_settings.hudMagicCollapsed;
-	deps.onCollapseChanged = [this] {
-		Click();
-		m_settings.Save();
-	};
+	// A dock's header button minimizes it into the tray, saved at once.
+	deps.onHideChanged = [this] { OnHudPanelHidden(false); };
 	deps.moveLook = &m_settings.hudMove;
 	deps.handsLook = &m_settings.hudHands;
 	deps.magicLook = &m_settings.hudMagic;
@@ -1721,6 +1727,34 @@ void GameUI::BuildHud() {
 			panel->backgroundOpacity = 0.0f; // the card's face shows through
 			card->SetPieces(panel, card->Add<HandPair>(gfx::Rect{}, i, deps));
 		}
+	}
+
+	// THE CLOSED-PANELS TRAY (Phase 8, Game/HudTray.h): a button for each panel
+	// of THIS layout that minimizes, shown while that panel is minimized. Its
+	// default spot is beside Movement's default, top edge level with it, growing
+	// leftward as buttons arrive: the column hangs from the party bar with no
+	// room above it, and a tray there would sit on the bar.
+	{
+		ui::FloatingPanel* trayPanel = makePanel(kHudTray, "TrayPanel");
+		auto* tray = trayPanel->Add<HudTray>(&m_settings.hudTray.opacity);
+		tray->bounds = {0, 0, 1, 1};
+		for (size_t i = 0; i < kHudSheet; ++i) {
+			const HudPanelField& field = kHudPanelFields[i];
+			if (!field.glyph || !m_hudPanels[i]) continue;
+			tray->AddPanel(m_hudPanels[i], &(m_settings.*(field.look)).hidden,
+						   m_panelGlyphs[i].get(), loc::Tr(field.labelKey),
+						   [this] { OnHudPanelHidden(true); });
+		}
+		trayPanel->size = [trayPanel, tray](ui::UIContext& ctx, float s) {
+			return HudTray::Size(tray->ShownCount(), trayPanel->EmAt(ctx, s));
+		};
+		trayPanel->shownWhen = [tray] { return tray->ShownCount() > 0; };
+		ui::FloatingPanel* move = docks.move;
+		trayPanel->defaultPos = [trayPanel, move](ui::UIContext& ctx) {
+			const Vec2 at = move->defaultPos(ctx);
+			const float w = trayPanel->size(ctx, trayPanel->Scale()).x;
+			return Vec2{at.x - move->EmAt(ctx, 1.0f) * 0.5f - w, at.y};
+		};
 	}
 
 	// The party inventory: a floating WINDOW (P3b) - the last panel on the
@@ -1791,6 +1825,14 @@ void GameUI::OnHudPanelMoved() {
 	m_hudSlidersStale = true;
 }
 
+// A panel went into the tray, or came back out of it: a click, and the flag
+// saved. Inside an armed frame like a drag's end; Save excuses itself.
+void GameUI::OnHudPanelHidden(bool restored) {
+	++(restored ? m_panelRestores : m_panelMinimizes);
+	Click();
+	m_settings.Save();
+}
+
 void GameUI::SyncHudPanelSlidersIfStale() {
 	if (!m_hudSlidersStale) return;
 	m_hudSlidersStale = false;
@@ -1816,15 +1858,17 @@ void GameUI::SetHudLayout(int layout) {
 }
 
 // Settings -> UI "Reset HUD layout", and the reset button on a Ctrl-hovered
-// panel: every panel back to its default spot and size. Opacity is a look, not
-// a layout, so it stays. The panel's button presses it inside an armed frame,
-// so the sliders are only marked stale (OnHudPanelMoved) - the Settings page
-// catches them up before it shows.
+// panel: every panel back to its default spot and size, and out of the tray
+// (Michael: "restore all"). Opacity is a look, not a layout, so it stays. The
+// panel's button presses it inside an armed frame, so the sliders are only
+// marked stale (OnHudPanelMoved) - the Settings page catches them up before it
+// shows.
 void GameUI::ResetHudLayout() {
 	for (const HudPanelField& field : kHudPanelFields) {
 		HudPanelLook& look = m_settings.*(field.look);
 		look.x = look.y = -1.0f;
 		look.scale = 1.0f;
+		look.hidden = false;
 	}
 	OnHudPanelMoved();
 }

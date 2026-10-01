@@ -1894,15 +1894,26 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   a dock's padding used to reach the 3D view). `Scale()` clamps to the panel's own
   min/max (the sheet stops at 1.3), whatever the slider's 0.5..1.5 stored.
   THE PANELS are kHudPanelFields (GameSettings.h: party, status, options, move,
-  hands, magic, cards, inventory, sheet - the SHEET LAST, since it alone lives
-  in another context and [0, kHudSheet) means "the HUD's"); each a HudPanelLook
-  {x, y, scale, opacity} in settings, a Settings -> UI scale + opacity pair, and
-  covered by Lock / Reset. Untouched, every panel sits exactly where the old
-  fixed layout put it (the defaults keep its rules: the column starts under the
-  party bar's height at its scale, a dock's default top follows the EXPANDED
-  docks above it, Magic shows once a member knows a symbol). Dev `hudpanel
-  [list] | <id> <x> <y> [scale] | reset | lock on|off | layout standard|minimal`,
-  `inventory [off]`.
+  hands, magic, cards, inventory, tray, sheet - the SHEET LAST, since it alone
+  lives in another context and [0, kHudSheet) means "the HUD's"); each a
+  HudPanelLook {x, y, scale, opacity, hidden} in settings, a Settings -> UI
+  scale + opacity pair, and covered by Lock / Reset. Untouched, every panel sits
+  exactly where the old fixed layout put it (the defaults keep its rules: the
+  column starts under the party bar's height at its scale, a dock's default top
+  follows the docks above it whether shown or not, Magic shows once a member
+  knows a symbol). Dev `hudpanel [list] | <id> <x> <y> [scale] | hide|show <id>
+  | reset | lock on|off | layout standard|minimal`, `inventory [off]`.
+  THE CLOSED-PANELS TRAY (ui-updates Phase 8, Game/HudTray.h): a panel whose
+  kHudPanelFields row names a `glyph` MINIMIZES - the docks by their header
+  button, every one by a Ctrl button in its top-right corner (reset moved in
+  beside it) - and is then not laid out or drawn at all (FloatingPanel::hidden;
+  ini hud_<id>_hidden, the old hud_move/magic_collapsed load into it). The tray
+  is a floating panel of its own holding a stone button per such panel of the
+  current layout (face assets/ui/glyph_panel_<id>.png, BuildToolIcons.py), shown
+  while that panel is minimized; it shows only while it has a button. Its
+  default is beside Movement's default, top edge level - there is no room above
+  the column. A flag flips and the layout follows: nothing rebuilds, so it is
+  free in an armed frame (AllocTest -Panels makes the trip). Reset restores all.
   THE TWO WINDOWS: the character sheet is a panel in m_sheetUi whose scale is
   that CONTEXT'S root font size (UpdateFonts) - rem itself moves - so it sets
   `scalesText = false`. The party inventory is NON-MODAL now - no dim, the world

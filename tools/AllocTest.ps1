@@ -147,6 +147,9 @@
 # checks the arranging rules: a Ctrl+click on a panel's reset button puts every
 # panel home, a drag WITHOUT Ctrl moves nothing, and a drag ending 4 px short of
 # another panel's edge lands on it - any of them failing is a FAIL.
+# THE TRAY (ui-updates Phase 8) rides the same window: the Movement dock is
+# minimized by its Ctrl button and restored by its tray button, and the counts
+# `hudpanel list` prints must show the trip landed.
 # -Items IS MOVING AN ITEM, which no run did (found by accident 2026-09-30, when
 # a -Panels click on the ui-panels branch landed on an inventory slot and a later
 # one on the floor). Two defects, both logged with call stacks: every pick, put
@@ -323,6 +326,16 @@ function Send-CtrlClick([int]$x, [int]$y) {
 	Send-Mouse $x $y 0x201 0x202 1
 	[AllocTestWin]::PostMessage($hwnd, 0x101, [IntPtr]0x11, [IntPtr][int64]0xC0000001) | Out-Null
 	Start-Sleep -Milliseconds 200
+}
+
+# One trip through the closed-panels tray (-Panels): Ctrl+click the Movement
+# dock's minimize button, then a plain click on its tray button. The waits cover
+# a button's push (it fires ~0.12 s after the release, ui::Button).
+function Invoke-TrayTrip {
+	Send-CtrlClick $script:hideX $script:hideY
+	Start-Sleep -Milliseconds 400
+	Send-Mouse $script:trayX $script:trayY 0x201 0x202 1
+	Start-Sleep -Milliseconds 500
 }
 
 # `hudpanel list`'s row for one panel (console open, logecho on around it).
@@ -898,11 +911,27 @@ try {
 		# Below the inventory window's default rect (0.23..0.77 down) and above the
 		# log footer: a grab landing ON the window would act on its slots instead.
 		$script:awayX = [int]($rc.Right * 0.30); $script:awayY = [int]($rc.Bottom * 0.80)
+		# THE TRAY (ui-updates Phase 8): the Movement dock's MINIMIZE is the
+		# top-right Ctrl button, with RESET one button to its left; the tray's
+		# button for it then sits beside the dock's default spot, top edge level
+		# (GameUI's tray: right edge half an em left of the dock, padding 0.8 em,
+		# a 2 em button). The button side and so the em come from `hudpanel list`.
+		$gripRow = @(Select-String -Path $log -Pattern 'console: hud layout .*grip (\d+)px')[-1].Line
+		if ($gripRow -notmatch 'grip (\d+)px') { throw "no grip size: $gripRow" }
+		$script:grip = [int]$Matches[1]
+		$em = $script:grip / 1.2
+		if ($moveRect -notmatch 'px (-?\d+),(-?\d+) (\d+)x(\d+)') { throw "no move dock rect: $moveRect" }
+		$mLeft = [int]$Matches[1]; $mTop = [int]$Matches[2]; $mRight = $mLeft + [int]$Matches[3]
+		$script:hideX = $mRight - 6; $script:hideY = $mTop + 6
+		$script:resetX = $mRight - $script:grip - 7; $script:resetY = $mTop + 6
+		$script:trayX = [int]($mLeft - 2.3 * $em); $script:trayY = [int]($mTop + 1.8 * $em)
 		# WARM-UP: one drag and one pull outside the window - the pull's new scale
-		# bakes a font size, a first time for the process. Then back to default.
+		# bakes a font size, a first time for the process - and one trip through
+		# the tray. Then back to default.
 		Send-Drag $script:moveX $script:moveY $script:awayX $script:awayY
 		Send-Drag $script:awayX $script:awayY $script:moveX $script:moveY
 		Send-Drag $script:gripX $script:gripY $script:pullX $script:pullY
+		Invoke-TrayTrip
 		Start-Sleep -Milliseconds 400
 		Send-Key 0xC0
 		Start-Sleep -Milliseconds 500
@@ -1102,6 +1131,9 @@ try {
 		for ($cycle = 1; $cycle -le 3; $cycle++) {
 			Start-Sleep -Seconds 3
 			if (Select-String -Path $log -Pattern 'alloctest RESULT=' -Quiet) { break }
+			# First, while the dock is still on its default spot: into the tray
+			# and back out.
+			if ($cycle -eq 1) { Invoke-TrayTrip }
 			Send-Drag $script:moveX $script:moveY $script:awayX $script:awayY
 			Send-Drag $script:awayX $script:awayY $script:moveX $script:moveY
 			if ($cycle -eq 1) { Send-Drag $script:gripX $script:gripY $script:pullX $script:pullY }
@@ -1246,16 +1278,23 @@ try {
 		$moved = $moveRow -notmatch 'saved default'
 		$scaled = $handsRow -notmatch 'scale 1\.00'
 		$invShown = $invRow -match 'inventory shown'
-		if ((-not $moved -or -not $scaled -or -not $invShown) -and $result -eq 'PASS') {
-			Write-Host 'a drag did not land, or the inventory was not open, inside the window - the panel path was not measured' -ForegroundColor Yellow
+		# The tray: the counts are since launch and the warm-up made one trip, so
+		# the window's trip shows as a second of each - and the dock is back.
+		$hudRow = @(Select-String -Path $log -Pattern 'console: hud layout ')[-1].Line
+		$trips = if ($hudRow -match 'minimizes (\d+), restores (\d+)') { [Math]::Min([int]$Matches[1], [int]$Matches[2]) } else { 0 }
+		Write-Host "  tray trips (warm-up included): $trips; move dock $(if ($moveRow -match 'minimized') { 'still minimized' } else { 'restored' })"
+		$tripped = $trips -ge 2 -and $moveRow -notmatch 'minimized'
+		if ((-not $moved -or -not $scaled -or -not $invShown -or -not $tripped) -and $result -eq 'PASS') {
+			Write-Host 'a drag or the tray trip did not land, or the inventory was not open, inside the window - the panel path was not measured' -ForegroundColor Yellow
 			$result = 'UNMEASURED'
 		}
 
 		# The arranging rules, after the window: a Ctrl+click on the moved dock's
-		# RESET button (its top-right corner, read off the dock's own rect) puts
-		# every panel home, and a drag WITHOUT Ctrl then moves nothing.
+		# RESET button (beside its minimize in the top-right corner, read off the
+		# dock's own rect) puts every panel home, and a drag WITHOUT Ctrl then
+		# moves nothing.
 		if ($moveRow -match 'px (-?\d+),(-?\d+) (\d+)x(\d+)') {
-			$rx = [int]$Matches[1] + [int]$Matches[3] - 6; $ry = [int]$Matches[2] + 6
+			$rx = [int]$Matches[1] + [int]$Matches[3] - $script:grip - 7; $ry = [int]$Matches[2] + 6
 			Send-Mouse $rx $ry
 			Send-CtrlClick $rx $ry
 			$resetMove = Get-PanelRow 'move'

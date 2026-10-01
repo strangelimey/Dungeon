@@ -166,6 +166,10 @@ public:
 	const ui::FloatingPanel* HudPanel(size_t index) const {
 		return index < m_hudPanels.size() ? m_hudPanels[index] : nullptr;
 	}
+	// How many times a panel was minimized by a click, and restored from the
+	// tray, since launch - AllocTest -Panels' evidence its clicks landed.
+	unsigned PanelMinimizes() const { return m_panelMinimizes; }
+	unsigned PanelRestores() const { return m_panelRestores; }
 
 	// --- the item details dialog (docs/ui-updates-plan.md P3) ---------------------
 	// Over the HUD or the sheet, wherever the right-click landed. While it is up
@@ -414,6 +418,8 @@ private:
 	// A floating HUD panel was dragged or resized (save + slider sync), and the
 	// sync on its own (the scale sliders follow a corner drag).
 	void OnHudPanelMoved();
+	// A panel was minimized into the tray, or restored from it (click + save).
+	void OnHudPanelHidden(bool restored);
 	void SyncHudPanelSliders();
 	void SyncHudPanelSlidersIfStale();
 	void DrawLoadProgress(const LoadQueue& queue, float barY); // shared bar
@@ -597,6 +603,9 @@ private:
 	// The spellbook's Cast / Clear face glyphs (drawn on stone buttons).
 	std::unique_ptr<gfx::Texture> m_castGlyphTex;
 	std::unique_ptr<gfx::Texture> m_clearGlyphTex;
+	// The closed-panels tray's button faces, by kHudPanelFields index (only the
+	// panels that minimize have one).
+	std::array<std::unique_ptr<gfx::Texture>, kHudSheet> m_panelGlyphs;
 	// The movement pad's chevron icon faces (single = step, double = turn).
 	std::unique_ptr<gfx::Texture> m_chevronTex;
 	std::unique_ptr<gfx::Texture> m_chevron2Tex;
@@ -706,6 +715,7 @@ private:
 	// corner drag can move them (SyncHudPanelSliders). Owned by m_settingsUi.
 	std::array<ui::Slider*, std::size(kHudPanelFields)> m_hudScaleSliders{};
 	bool m_hudSlidersStale = false; // a drag moved a scale; sync before showing
+	unsigned m_panelMinimizes = 0, m_panelRestores = 0; // see PanelMinimizes
 	// The pointer shape the HUD asked for last frame (a grip's arrow), applied
 	// at the top of the next (UpdateFonts) so every other state resets it.
 	Window::Cursor m_hudCursor = Window::Cursor::Arrow;

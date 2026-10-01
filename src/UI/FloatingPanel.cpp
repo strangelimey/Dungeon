@@ -33,6 +33,17 @@ gfx::Rect FloatingPanel::GripRect(int corner) const {
 	return {x, y, g, g};
 }
 
+bool FloatingPanel::CanHide() const {
+	return hidden && m_layer && m_layer->onHideChanged;
+}
+
+gfx::Rect FloatingPanel::ResetRect() const {
+	gfx::Rect r = GripRect(1);
+	// Beside minimize, a hairline apart; and never over the move cross.
+	if (CanHide()) r.x = std::max(Pixel().x + r.w, r.x - r.w - 1.0f);
+	return r;
+}
+
 void FloatingPanel::StartDrag(Drag kind, float mx, float my) {
 	const gfx::Rect& px = Pixel();
 	const gfx::Rect& win = ContainerRect();
@@ -173,6 +184,7 @@ void FloatingPanel::UpdateBeforeChildren(UIContext& ctx) {
 	m_cursor = 0;
 	m_arranging = false;
 	m_resetHot = false;
+	m_hideHot = false;
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
 	const float mx = input->MouseX(), my = input->MouseY();
@@ -217,7 +229,15 @@ void FloatingPanel::UpdateBeforeChildren(UIContext& ctx) {
 	m_arranging = true;
 	ctx.ConsumeMouse();
 	const bool pressed = input->WasMousePressed(MouseButton::Left);
-	if (m_layer && m_layer->onResetAll && GripRect(1).Contains(mx, my)) {
+	if (CanHide() && HideRect().Contains(mx, my)) {
+		m_hideHot = true;
+		if (pressed) {
+			*hidden = true;
+			m_layer->onHideChanged();
+		}
+		return;
+	}
+	if (m_layer && m_layer->onResetAll && ResetRect().Contains(mx, my)) {
 		m_resetHot = true;
 		if (pressed) m_layer->onResetAll();
 		return;
@@ -315,26 +335,38 @@ void FloatingPanel::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 						   {r.x + in, r.y + r.h - in}, wedge);
 	}
 
-	// RESET: every panel home. Not while dragging - the drag owns the pointer.
-	if (dragging || !m_layer || !m_layer->onResetAll) return;
-	const gfx::Rect r = GripRect(1);
-	button(r, false);
-	DrawResetGlyph(batch, r, m_resetHot ? theme.accent : ink);
-	if (!m_resetHot || m_layer->resetTip.empty()) return;
-	// Its tooltip, below the button (above when that runs off the screen) and
+	// MINIMIZE and RESET, the top-right pair. Not while dragging - the drag
+	// owns the pointer.
+	if (dragging || !m_layer) return;
+	// A button's tooltip, below it (above when that runs off the screen) and
 	// pulled in from the right edge, the hand tooltip's rule.
-	const Font& font = TextFont();
-	const std::string& tip = m_layer->resetTip;
-	const float padX = Em(0.6f), padY = Em(0.35f), gapY = Em(0.3f);
-	const float w = font.MeasureWidth(tip) + 2.0f * padX;
-	const float h = font.Height() + 2.0f * padY;
-	const gfx::Rect place = PlaceTooltip(r, w, h, {0, 0, ctx.Width(), ctx.Height()},
-										 TipSide::Below, gapY, padX, TipAlign::End);
-	const float tx = place.x, ty = place.y;
-	const gfx::Rect box{tx, ty, w, h};
-	batch.DrawRect(box, {0.10f, 0.10f, 0.13f, 0.97f});
-	DrawBorder(batch, box, theme.panelBorder);
-	font.Draw(batch, tip, box.x + padX, box.y + padY, theme.text);
+	auto tooltip = [&](const gfx::Rect& r, const std::string& tip) {
+		if (tip.empty()) return;
+		const Font& font = TextFont();
+		const float padX = Em(0.6f), padY = Em(0.35f), gapY = Em(0.3f);
+		const float w = font.MeasureWidth(tip) + 2.0f * padX;
+		const float h = font.Height() + 2.0f * padY;
+		const gfx::Rect box = PlaceTooltip(r, w, h, {0, 0, ctx.Width(), ctx.Height()},
+										   TipSide::Below, gapY, padX, TipAlign::End);
+		batch.DrawRect(box, {0.10f, 0.10f, 0.13f, 0.97f});
+		DrawBorder(batch, box, theme.panelBorder);
+		font.Draw(batch, tip, box.x + padX, box.y + padY, theme.text);
+	};
+	if (CanHide()) {
+		// A bar low in the box: the window minimized to a line.
+		const gfx::Rect r = HideRect();
+		button(r, false);
+		const float bw = r.w * 0.48f, bh = std::max(2.0f, std::round(r.h * 0.12f));
+		batch.DrawRect({std::round(r.x + (r.w - bw) * 0.5f), std::round(r.y + r.h * 0.62f), bw, bh},
+					   m_hideHot ? theme.accent : ink);
+	}
+	if (m_layer->onResetAll) {
+		const gfx::Rect r = ResetRect();
+		button(r, false);
+		DrawResetGlyph(batch, r, m_resetHot ? theme.accent : ink);
+		if (m_resetHot) tooltip(r, m_layer->resetTip);
+	}
+	if (m_hideHot) tooltip(HideRect(), m_layer->hideTip);
 }
 
 void FloatingLayer::LayoutSelf(UIContext& ctx) {
@@ -344,8 +376,13 @@ void FloatingLayer::LayoutSelf(UIContext& ctx) {
 		auto* panel = dynamic_cast<FloatingPanel*>(child.get());
 		if (!panel || !panel->size) continue;
 		panel->m_layer = this;
-		if (panel->shownWhen) panel->visible = panel->shownWhen();
-		if (!panel->visible) continue;
+		panel->visible = (!panel->shownWhen || panel->shownWhen()) && !panel->Hidden();
+		if (!panel->visible) {
+			// Put away mid-arrange: nothing of the arranging state may outlive it.
+			panel->m_drag = FloatingPanel::Drag::None;
+			panel->m_arranging = false;
+			continue;
+		}
 		const float s = panel->Scale();
 		if (panel->scalesText) panel->fontScale = s;
 		Vec2 size = panel->size(ctx, s);

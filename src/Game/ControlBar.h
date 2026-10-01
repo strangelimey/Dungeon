@@ -18,13 +18,15 @@
 //       SpellbookPanel
 //
 // His rules for the three:
-//   - Movement and Magic can each be MINIMIZED to their header strip, and start
-//     expanded. The flags are the player's (settings.ini hud_move_collapsed /
-//     hud_magic_collapsed), so ControlBarDeps carries pointers to them.
+//   - Movement and Magic each have a MINIMIZE button in their header, and start
+//     shown. Minimized, a dock goes away entirely and a button in the HUD's
+//     closed-panels tray brings it back (ui-updates Phase 8, Game/HudTray.h; it
+//     used to shrink to its header strip). The flag is the panel's own
+//     HudPanelLook::hidden; the Hands dock minimizes too, by its Ctrl button.
 //   - Minimizing a panel DOES NOT MOVE THE OTHERS: a panel's DEFAULT spot comes
-//     from the others' EXPANDED sizes, and a minimized one only draws shorter
-//     from where its top already was. That was "the first half of later, each
-//     panel resizable and movable with the mouse", and floating is the second.
+//     from the others' SHOWN sizes whether they are shown or not. That was "the
+//     first half of later, each panel resizable and movable with the mouse",
+//     and floating is the second.
 //   - Magic is not shown at all until some member KNOWS A SYMBOL (it appears the
 //     moment one is learned). Derived every layout from the roster, never
 //     latched, so a load or a roster change is right with no notification.
@@ -56,9 +58,10 @@ struct ControlBarDeps {
 	const ItemIconBank* icons = nullptr;
 	const gfx::Texture* chevron = nullptr;  // step/strafe face
 	const gfx::Texture* chevron2 = nullptr; // turn face (double chevron)
-	// The docks' minimize toggle: the square "+" / "-" boxes. Null = text.
-	const gfx::Texture* boxPlus = nullptr;
+	// The docks' minimize button: the square "-" box (null = text) and its
+	// tooltip.
 	const gfx::Texture* boxMinus = nullptr;
+	std::string minimizeTip;
 	std::function<void(MoveAction)> onMove;
 	std::function<void(size_t member, size_t hand)> onHandLeft;
 	std::function<void(size_t member, size_t hand)> onHandRight;  // details
@@ -79,13 +82,12 @@ struct ControlBarDeps {
 	std::function<float()> exertMax;
 	std::string moveLabel;  // localized "Movement" heading
 	std::string magicLabel; // localized "Magic" heading
-	// The two minimize flags (GameSettings), and who to tell when a click flips
-	// one (GameUI saves the settings). Null = that dock cannot be minimized.
-	bool* moveCollapsed = nullptr;
-	bool* magicCollapsed = nullptr;
-	std::function<void()> onCollapseChanged;
-	// Each dock's placement, scale and background opacity (GameSettings,
-	// Settings -> UI and the panel grips), read live every layout and draw.
+	// Who to tell when a dock's header button minimizes it (GameUI saves the
+	// settings; the flag is the dock's HudPanelLook::hidden).
+	std::function<void()> onHideChanged;
+	// Each dock's placement, scale, background opacity and minimized flag
+	// (GameSettings, Settings -> UI and the panel grips), read live every
+	// layout and draw.
 	HudPanelLook* moveLook = nullptr;
 	HudPanelLook* handsLook = nullptr;
 	HudPanelLook* magicLook = nullptr;
@@ -173,10 +175,10 @@ private:
 };
 
 // One framed dock: an optional HEADER (title, and a minimize button when it has
-// a flag to flip) over one content widget. It fills its FloatingPanel and lays
-// out its own header and content inside its padding. Minimized, the content is
-// hidden and the dock is only as tall as its header - the panel's size
-// function decides that height, so the dock just follows the flag.
+// a flag to set) over one content widget. It fills its FloatingPanel and lays
+// out its own header and content inside its padding. Minimizing sets the
+// panel's hidden flag; the panel is then not laid out or drawn at all, and the
+// HUD's tray offers it back.
 //
 // SCALED through the inherited fontScale: the floating layer sets it to the
 // panel's scale, and everything inside a dock measures its detail in EM rather
@@ -185,9 +187,10 @@ private:
 // widgets in here use Em.)
 class HudDock : public ui::Widget {
 public:
-	// `title` empty = no header. `collapsed` null = cannot be minimized.
-	// `look` null = scale 1, opaque.
-	HudDock(std::string title, bool* collapsed, std::function<void()> onCollapseChanged,
+	// `title` empty = no header. `hidden` null = no minimize button (a headerless
+	// dock minimizes through its panel's Ctrl button instead). `look` null =
+	// scale 1, opaque.
+	HudDock(std::string title, bool* hidden, std::function<void()> onHideChanged,
 			const HudPanelLook* look);
 
 	float Scale() const { return m_look ? m_look->scale : 1.0f; }
@@ -200,13 +203,10 @@ public:
 		return w;
 	}
 
-	// The toggle's faces: `expand` while minimized, `collapse` while open.
-	void SetToggleIcons(const gfx::Texture* expand, const gfx::Texture* collapse) {
-		m_icoExpand = expand;
-		m_icoCollapse = collapse;
-	}
+	// The minimize button's face (the square "-" box; null = the text "-") and
+	// its tooltip.
+	void SetMinimizeIcon(const gfx::Texture* icon, std::string tooltip);
 
-	bool Collapsed() const { return m_collapsed && *m_collapsed; }
 	bool HasHeader() const { return m_title != nullptr; }
 	// The padding, header height and header-to-content gap, in pixels - asked by
 	// the column before it places anything. Padding follows the WIDTH (it is
@@ -222,11 +222,9 @@ private:
 	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 	ui::Label* m_title = nullptr;
-	ui::Button* m_toggle = nullptr;
+	ui::Button* m_minimize = nullptr;
 	ui::Widget* m_content = nullptr;
-	bool* m_collapsed = nullptr;
 	const HudPanelLook* m_look = nullptr;
-	const gfx::Texture *m_icoExpand = nullptr, *m_icoCollapse = nullptr;
 };
 
 // The three docks, built as floating panels on `layer`.

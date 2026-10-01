@@ -266,22 +266,31 @@ void HandsArea::LayoutSelf(ui::UIContext&) {
 
 // --- HudDock ---------------------------------------------------------------
 
-HudDock::HudDock(std::string title, bool* collapsed,
-				 std::function<void()> onCollapseChanged, const HudPanelLook* look)
-	: m_collapsed(collapsed), m_look(look) {
+HudDock::HudDock(std::string title, bool* hidden,
+				 std::function<void()> onHideChanged, const HudPanelLook* look)
+	: m_look(look) {
 	debugName = "HudDock";
+	const bool header = !title.empty();
 	// Placeholder bounds throughout: the column places the dock, and LayoutSelf
 	// places the header and content once the dock's pixel rect is known.
-	if (!title.empty()) {
+	if (header) {
 		m_title = Add<ui::Label>(gfx::Rect{}, std::move(title));
 		m_title->centerV = true;
 	}
-	if (collapsed)
-		m_toggle = Add<ui::Button>(gfx::Rect{}, "-",
-			[this, onChanged = std::move(onCollapseChanged)] {
-				*m_collapsed = !*m_collapsed;
+	// Minimize: the whole panel goes, into the tray. The button only ever sets
+	// the flag - the tray's button is what clears it.
+	if (hidden && header)
+		m_minimize = Add<ui::Button>(gfx::Rect{}, "-",
+			[hidden, onChanged = std::move(onHideChanged)] {
+				*hidden = true;
 				if (onChanged) onChanged();
 			});
+}
+
+void HudDock::SetMinimizeIcon(const gfx::Texture* icon, std::string tooltip) {
+	if (!m_minimize) return;
+	m_minimize->icon = icon;
+	m_minimize->tooltip = std::move(tooltip);
 }
 
 float HudDock::Pad(float widthPx) { return widthPx * (kPad / kBarW); }
@@ -303,25 +312,16 @@ void HudDock::LayoutSelf(ui::UIContext&) {
 	const float gap = HasHeader() ? HeaderGap(em) : 0.0f;
 
 	// The header: the title, and the minimize button square at its right end.
-	// The button shows the ACTION (the editor's play-pause convention): "-"
-	// while there is something to minimize, "+" while there is not - as the
-	// square boxes when installed, the text otherwise. A one-character
-	// assignment and a pointer, so it never allocates in a guarded frame.
-	const float btn = m_toggle ? head : 0.0f;
+	const float btn = m_minimize ? head : 0.0f;
 	if (m_title)
 		m_title->bounds = {0.0f, 0.0f, std::max(0.0f, inner.w - btn - em * 0.25f) / inner.w,
 						   head / inner.h};
-	if (m_toggle) {
-		m_toggle->bounds = {(inner.w - btn) / inner.w, 0.0f, btn / inner.w, head / inner.h};
-		m_toggle->text = Collapsed() ? "+" : "-";
-		m_toggle->icon = Collapsed() ? m_icoExpand : m_icoCollapse;
-	}
-	// The content fills what is left, and is not there at all while minimized.
-	if (m_content) {
-		m_content->visible = !Collapsed();
+	if (m_minimize)
+		m_minimize->bounds = {(inner.w - btn) / inner.w, 0.0f, btn / inner.w, head / inner.h};
+	// The content fills what is left.
+	if (m_content)
 		m_content->bounds = {0.0f, (head + gap) / inner.h, 1.0f,
 							 std::max(0.0f, inner.h - head - gap) / inner.h};
-	}
 }
 
 void HudDock::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
@@ -370,6 +370,7 @@ HudDocks BuildHudDocks(ui::FloatingLayer& layer, const ControlBarDeps& deps) {
 		panel->scale = &look->scale;
 		panel->locked = deps.locked;
 		panel->onChanged = deps.onPlacementChanged;
+		panel->hidden = &look->hidden;
 		return panel;
 	};
 	ui::FloatingPanel* move = out.move = makePanel("MovePanel", deps.moveLook);
@@ -377,11 +378,11 @@ HudDocks BuildHudDocks(ui::FloatingLayer& layer, const ControlBarDeps& deps) {
 		deps.withHands ? makePanel("HandsPanel", deps.handsLook) : nullptr;
 	ui::FloatingPanel* magic = out.magic = makePanel("MagicPanel", deps.magicLook);
 
-	auto* moveDock = move->Add<HudDock>(deps.moveLabel, deps.moveCollapsed,
-										deps.onCollapseChanged, deps.moveLook);
+	auto* moveDock = move->Add<HudDock>(deps.moveLabel, &deps.moveLook->hidden,
+										deps.onHideChanged, deps.moveLook);
 	moveDock->bounds = {0, 0, 1, 1};
 	moveDock->debugName = "MoveDock";
-	moveDock->SetToggleIcons(deps.boxPlus, deps.boxMinus);
+	moveDock->SetMinimizeIcon(deps.boxMinus, deps.minimizeTip);
 	moveDock->SetContent<MovementPad>(gfx::Rect{0, 0, 1, 1}, deps);
 
 	if (hands) {
@@ -391,11 +392,11 @@ HudDocks BuildHudDocks(ui::FloatingLayer& layer, const ControlBarDeps& deps) {
 		handsDock->SetContent<HandsArea>(gfx::Rect{0, 0, 1, 1}, deps);
 	}
 
-	auto* magicDock = magic->Add<HudDock>(deps.magicLabel, deps.magicCollapsed,
-										  deps.onCollapseChanged, deps.magicLook);
+	auto* magicDock = magic->Add<HudDock>(deps.magicLabel, &deps.magicLook->hidden,
+										  deps.onHideChanged, deps.magicLook);
 	magicDock->bounds = {0, 0, 1, 1};
 	magicDock->debugName = "MagicDock";
-	magicDock->SetToggleIcons(deps.boxPlus, deps.boxMinus);
+	magicDock->SetMinimizeIcon(deps.boxMinus, deps.minimizeTip);
 	out.spellbook = magicDock->SetContent<SpellbookPanel>(gfx::Rect{0, 0, 1, 1},
 														  deps.roster, deps.icons);
 
@@ -408,16 +409,14 @@ HudDocks BuildHudDocks(ui::FloatingLayer& layer, const ControlBarDeps& deps) {
 	const HudPanelLook* moveLook = deps.moveLook;
 	const HudPanelLook* handsLook = deps.handsLook;
 	const HudPanelLook* magicLook = deps.magicLook;
-	const bool* moveCollapsed = deps.moveCollapsed;
-	const bool* magicCollapsed = deps.magicCollapsed;
 	const std::function<float(ui::UIContext&)> columnTop = deps.columnTop;
 	const std::function<float(ui::UIContext&)> columnBottom = deps.columnBottom;
 	auto width = [columnW](ui::UIContext& ctx, float s) { return ctx.Width() * columnW * s; };
 	auto right = [margin](ui::UIContext& ctx) { return ctx.Width() * (1.0f - margin); };
 	auto gap = [move](ui::UIContext& ctx) { return move->EmAt(ctx, 1.0f) * kDockGap; };
 	// The DEFAULT tops: the column top, then each dock below the one above at
-	// that one's EXPANDED height and current scale - no reflow when one is
-	// minimized (the header's rule).
+	// that one's height and current scale - shown or minimized, so no reflow
+	// when one goes into the tray.
 	auto moveTop = [columnTop](ui::UIContext& ctx) { return columnTop ? columnTop(ctx) : 0.0f; };
 	auto handsTop = [=](ui::UIContext& ctx) {
 		const float s = moveLook->scale;
@@ -431,9 +430,8 @@ HudDocks BuildHudDocks(ui::FloatingLayer& layer, const ControlBarDeps& deps) {
 	out.handsTop = handsTop;
 
 	move->size = [=](ui::UIContext& ctx, float s) {
-		const float w = width(ctx, s), em = move->EmAt(ctx, s);
-		const bool collapsed = moveCollapsed && *moveCollapsed;
-		return Vec2{w, collapsed ? MetricsFor(w, em, true).Minimized() : MoveHeight(w, em)};
+		const float w = width(ctx, s);
+		return Vec2{w, MoveHeight(w, move->EmAt(ctx, s))};
 	};
 	move->defaultPos = [=](ui::UIContext& ctx) {
 		return Vec2{right(ctx) - width(ctx, moveLook->scale), moveTop(ctx)};
@@ -458,7 +456,6 @@ HudDocks BuildHudDocks(ui::FloatingLayer& layer, const ControlBarDeps& deps) {
 	magic->size = [=](ui::UIContext& ctx, float s) {
 		const float w = width(ctx, s), em = magic->EmAt(ctx, s);
 		const DockMetrics m = MetricsFor(w, em, true);
-		if (magicCollapsed && *magicCollapsed) return Vec2{w, m.Minimized()};
 		if (magicHeight1) return Vec2{w, std::max(m.Minimized(), magicHeight1(ctx) * s)};
 		const float w1 = width(ctx, 1.0f), em1 = magic->EmAt(ctx, 1.0f);
 		const float top1 = moveTop(ctx) + MoveHeight(w1, em1) + gap(ctx) +

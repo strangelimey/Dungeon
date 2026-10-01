@@ -73,6 +73,9 @@ struct HudPanelLook {
 	float y = -1.0f;      // so the panel sits at its default spot
 	float scale = 1.0f;   // 0.5..1.5: the panel AND its text
 	float opacity = 1.0f; // 0..1: the panel face only, never its controls
+	// MINIMIZED into the closed-panels tray (ui-updates Phase 8; ini
+	// hud_<id>_hidden): not drawn at all, a tray button stands in for it.
+	bool hidden = false;
 };
 
 // WHERE an item sits in a member's inventory, for the item mouse buttons

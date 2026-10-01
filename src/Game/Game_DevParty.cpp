@@ -653,28 +653,51 @@ void Game::RegisterPartyCommands() {
 		 .params = "\n"
 				   "list\n"
 				   "<id> <x> <y> [scale]\n"
+				   "hide|show <id>\n"
 				   "reset\n"
 				   "lock on|off\n"
 				   "layout standard|minimal",
-		 .summary = "list, place, reset or lock the floating HUD panels"},
+		 .summary = "list, place, minimize, reset or lock the floating HUD panels"},
 		[this](const std::vector<std::string>& args) {
 			if (args.empty() || args[0] == "list") {
-				m_console.Print(std::format("hud layout {}, {}",
-											m_settings.hudLayout == 1 ? "minimal" : "standard",
-											m_settings.hudLocked ? "locked" : "unlocked"));
+				// The arranging buttons' side, so a harness can aim at the
+				// top-right pair (minimize in the corner, reset beside it), and
+				// the clicks that minimized or restored a panel since launch.
+				const ui::FloatingPanel* move = m_ui.HudPanel(kHudMove);
+				m_console.Print(std::format(
+					"hud layout {}, {}, grip {:.0f}px, minimizes {}, restores {}",
+					m_settings.hudLayout == 1 ? "minimal" : "standard",
+					m_settings.hudLocked ? "locked" : "unlocked", move ? move->GripSide() : 0.0f,
+					m_ui.PanelMinimizes(), m_ui.PanelRestores()));
 				for (size_t i = 0; i < std::size(kHudPanelFields); ++i) {
 					const HudPanelLook& look = m_settings.*(kHudPanelFields[i].look);
 					const ui::FloatingPanel* panel = m_ui.HudPanel(i);
 					const gfx::Rect r = panel ? panel->Pixel() : gfx::Rect{};
 					m_console.Print(std::format(
-						"  {:<8} {}  px {:.0f},{:.0f} {:.0f}x{:.0f}  saved {}  scale {:.2f}  opacity {:.2f}",
+						"  {:<8} {}  px {:.0f},{:.0f} {:.0f}x{:.0f}  saved {}  scale {:.2f}  opacity {:.2f}{}",
 						kHudPanelFields[i].id,
 						!panel ? "unbuilt" : (panel->visible ? "shown " : "hidden"), r.x, r.y,
 						r.w, r.h,
 						look.x < 0.0f ? std::string("default")
 									  : std::format("{:.3f},{:.3f}", look.x, look.y),
-						look.scale, look.opacity));
+						look.scale, look.opacity, look.hidden ? "  minimized" : ""));
 				}
+				return;
+			}
+			if (args[0] == "hide" || args[0] == "show") {
+				const bool hide = args[0] == "hide";
+				for (const HudPanelField& field : kHudPanelFields) {
+					if (args.size() < 2 || args[1] != field.id) continue;
+					if (!field.glyph) {
+						m_console.Refuse(std::format("{} does not minimize", field.id));
+						return;
+					}
+					(m_settings.*(field.look)).hidden = hide;
+					m_settings.Save();
+					m_console.Print(std::format("{} {}", field.id, hide ? "minimized" : "restored"));
+					return;
+				}
+				m_console.Refuse("usage: hudpanel hide|show <id> - party, status, options, move, hands, magic, cards");
 				return;
 			}
 			if (args[0] == "reset") {
@@ -713,7 +736,7 @@ void Game::RegisterPartyCommands() {
 											look.y, look.scale));
 				return;
 			}
-			m_console.Refuse("no such panel - party, status, options, move, hands, magic, cards, inventory, sheet");
+			m_console.Refuse("no such panel - party, status, options, move, hands, magic, cards, inventory, tray, sheet");
 		});
 
 	// The party inventory window (every member's selected pack side by side),
