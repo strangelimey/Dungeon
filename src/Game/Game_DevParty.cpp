@@ -603,6 +603,19 @@ void Game::RegisterPartyCommands() {
 									   ? std::string("sheet bar: (empty)")
 									   : std::format("sheet bar: {} | {}", name,
 													 m_ui.SheetStatusText()));
+							   // The shown member's pack row ('-' = no bag), which
+							   // one is selected, how many slots it has, and the
+							   // equips counted so far.
+							   if (m < m_characters.size()) {
+								   const Inventory& inv = m_characters[m].inventory;
+								   std::string row;
+								   for (const Pack& p : inv.packs)
+									   row += " " + (p.Empty() ? std::string("-") : p.typeId);
+								   m_console.Print(std::format(
+									   "sheet packs:{} selected={} slots={} equips={}", row,
+									   inv.selectedPack, inv.SelectedContents().size(),
+									   m_ui.SheetPackEquips()));
+							   }
 							   return;
 						   }
 						   if (!args.empty() && args[0] == "off") {

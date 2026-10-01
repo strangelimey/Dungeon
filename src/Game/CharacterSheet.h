@@ -193,6 +193,8 @@ public:
 	// the dev console's `sheet status`, which is how a script reads it.
 	std::string_view StatusName() const { return m_statusName.View(); }
 	std::string_view StatusText() const { return m_statusText.View(); }
+	// Containers equipped into the pack row so far (see m_packEquips).
+	unsigned PackEquips() const { return m_packEquips; }
 
 	// Which body the sheet shows; the mode buttons under the portrait switch it.
 	// (Order == the mode-button strip order — Spells sits before Effects.)
@@ -332,6 +334,10 @@ private:
 	// the pack slot index, or neither. Only ever one of them.
 	int m_hoverDoll = -1;
 	int m_hoverPack = -1;
+	// Containers equipped into the pack row this run, swaps included - how
+	// tools\AllocTest.ps1 -Packs shows its clicks actually equipped something
+	// (`sheet status`).
+	unsigned m_packEquips = 0;
 	int m_hoverPackRow = -1; // the bag row above the grid (status bar only)
 	// The status bar's two halves, held inline (no heap: this is set every
 	// frame the sheet is up) plus the colour the name draws in.

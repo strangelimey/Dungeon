@@ -187,6 +187,7 @@ public:
 	std::string_view SheetStatusText() const {
 		return m_sheet ? m_sheet->StatusText() : std::string_view{};
 	}
+	unsigned SheetPackEquips() const { return m_sheet ? m_sheet->PackEquips() : 0u; }
 
 	// --- spellbook (the Magic area) ------------------------------------------------
 	// Opens member `i`'s book exactly as its selector button does, or refuses

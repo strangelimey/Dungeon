@@ -90,11 +90,11 @@ void CharacterSheet::EquipOrSelectPack(int i) {
 		// Equip into an empty slot, or swap the (empty) pack onto the cursor.
 		m_held->SwapWith(slot.typeId);
 		// Every slot is already empty (HasItems above), so only the COUNT
-		// changes - a resize, not an assign, so a pack that keeps or loses
-		// slots reuses its strings. Growing still allocates the new slots: a
-		// bigger bag is new storage, which is a known cost of equipping one.
+		// changes - and a PackSlots resize allocates nothing either way, a
+		// bigger bag included (its strings exist from construction).
 		slot.contents.resize(static_cast<size_t>(cap));
 		inv.selectedPack = i;                 // view the newly equipped pack
+		++m_packEquips;
 	} else if (!slot.Empty()) {
 		inv.selectedPack = i; // empty-handed: select this pack
 	}

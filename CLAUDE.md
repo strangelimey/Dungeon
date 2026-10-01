@@ -1778,10 +1778,14 @@ Michael's notes and answers: docs/ui-updates-notes.md; the plan: -plan.md.
   `TryPickItem` returns the kind's own id (a pointer). Every item KIND is built
   at load (`DungeonWorld::PreloadItemKinds`) - runes used to be built on their
   first drop, 2 MB in a guarded frame - and a drop reuses a dead runtime drop's
-  slot (`PlaceDrop`) inside load-time headroom (`ReserveDropRoom`). KNOWN LEFT:
-  equipping a BIGGER pack grows its slot vector. CHECKED: `AllocTest.ps1 -Items`
-  (pack -> floor -> pack through the inventory window; dev `inventory [off|
-  status]`; tally `drops=`/`lifts=`), mutation-checked both ways.
+  slot (`PlaceDrop`) inside load-time headroom (`ReserveDropRoom`). A bag's slots
+  are a `PackSlots` (fixed capacity, `kMaxPackSlots` = 16, all strings built up
+  front), not a vector, so equipping a bigger bag only moves a count; a catalog
+  `capacity` past the cap is clamped with a warning. CHECKED: `AllocTest.ps1
+  -Items` (pack -> floor -> pack through the inventory window; dev `inventory
+  [off|status]`; tally `drops=`/`lifts=`), mutation-checked both ways, and
+  `-Packs` (a 4- and an 8-slot bag swapped in the pack row; `sheet status`
+  prints the row and an `equips=` count), which FAILed on the vector first.
 
 ## RESOURCE BARS (icon-updates branch; docs/icon-updates-notes.md + -plan.md)
 

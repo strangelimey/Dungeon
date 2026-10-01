@@ -15,6 +15,7 @@
 #   .\tools\AllocTest.ps1 -Pause             # Esc to the pause menu and back
 #   .\tools\AllocTest.ps1 -Sheet             # the sheet: hover, tabs, item dialog
 #   .\tools\AllocTest.ps1 -Items             # pack -> cursor -> floor -> cursor -> pack
+#   .\tools\AllocTest.ps1 -Packs             # swap a 4-slot and an 8-slot bag
 #   .\tools\AllocTest.ps1 -Config release    # needs -DDN_TRACK_ALLOCS=ON
 #
 # THE RULE HAS NO EXCEPTIONS: an allocation in a settled frame is a bug, and
@@ -152,6 +153,17 @@
 # counts at least two drops and two lifts, which also puts the put-back between
 # them inside the window.
 #
+# -Packs IS -Items' KNOWN-LEFT CASE: equipping a bag with more slots than the
+# one it replaces. A pack's slots were a std::vector, so a bigger bag grew it,
+# and even growth inside its capacity constructed a std::string per new slot
+# (the debug CRT allocates for each). Pack slots are now a fixed-capacity list
+# whose strings exist from the start (Game/Inventory.h PackSlots). This puts an
+# ammo pouch (8 slots) in an empty pack-row square and a herb pouch (4) on the
+# cursor, both through the sheet's own clicks, warms up one swap pair, then
+# clicks that square twice per cycle inside the window: herb in (8 -> 4), ammo
+# back (4 -> 8). It refuses a PASS unless `sheet status` counts two equips made
+# during the window.
+#
 # Every step is driven by what the log actually says rather than by sleeps, so
 # a slow cold-cache load stretches the wait instead of failing the run.
 #
@@ -200,6 +212,8 @@ param(
 	# never dropped before the window opens.
 	[string]$WarmItem = 'rune_air',
 	[string]$MeasureItem = 'rune_water',
+	# Swaps a small and a big bag in the pack row inside the window. See above.
+	[switch]$Packs,
 	# Checks the CHECKER: makes the game allocate every frame on purpose
 	# (`allocpoke`) and passes only if the run comes back FAIL.
 	[switch]$SelfTest
@@ -424,6 +438,50 @@ function Invoke-ItemRoundTrip($slot) {
 	Send-Key 0xC0
 	Start-Sleep -Seconds 3
 	Send-Click $slot.X $slot.Y
+}
+
+# `sheet status`'s pack-row line (needs logecho on, the console open and the
+# sheet up): the row (one entry per pack-row square, '-' = none), the selected
+# square, its slot count and the equips counted so far.
+function Get-SheetPacks {
+	$pattern = 'console: sheet packs: '
+	$before = @(Select-String -Path $log -Pattern $pattern -SimpleMatch).Count
+	Send-Text 'sheet status'; Send-Key 0x0D
+	$deadline = (Get-Date).AddSeconds(5)
+	while ((Get-Date) -lt $deadline) {
+		$lines = @(Select-String -Path $log -Pattern $pattern -SimpleMatch)
+		if ($lines.Count -gt $before) {
+			$line = $lines[-1].Line -replace '^.*console: sheet packs: ', ''
+			if ($line -notmatch '^(.*) selected=(\d+) slots=(\d+) equips=(\d+)$') {
+				throw "unreadable sheet packs line: $line"
+			}
+			return [pscustomobject]@{
+				Row = @($Matches[1].Trim() -split ' ')
+				Selected = [int]$Matches[2]; Slots = [int]$Matches[3]
+				Equips = [int]$Matches[4]; Line = $line
+			}
+		}
+		Start-Sleep -Milliseconds 200
+	}
+	throw 'the console never answered `sheet status`'
+}
+
+# Centres on the sheet's Inventory tab, as window fractions measured from the
+# -Sheet run's calibration (backpack slots 3 and 4 at 0.6675 / 0.72 of the
+# width, 0.5033 of the height): a slot step of 0.0525 of the width, and the
+# pack row 0.161 of the sheet BODY above the grid (CharacterSheetLayout.h:
+# kPackY - kPackRowY), the body being 0.62 of the window's height (kBodyH).
+function Get-SheetGridPoint([int]$i) {
+	return [pscustomobject]@{
+		X = [int]($script:clientW * (0.51 + ($i % 6) * 0.0525))
+		Y = [int]($script:clientH * (0.5033 + [math]::Floor($i / 6) * 0.147 * 0.62))
+	}
+}
+function Get-SheetPackRowPoint([int]$i) {
+	return [pscustomobject]@{
+		X = [int]($script:clientW * (0.51 + $i * 0.0525))
+		Y = [int]($script:clientH * (0.5033 - 0.161 * 0.62))
+	}
 }
 
 # One numeric field of the tally line Get-TallyField last read.
@@ -801,6 +859,62 @@ try {
 		Start-Sleep -Milliseconds 400
 	}
 
+	if ($Packs) {
+		Write-Host 'putting an ammo pouch in the pack row and a herb pouch on the cursor'
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		$rc = New-Object AllocTestWin+RECT
+		[AllocTestWin]::GetClientRect($hwnd, [ref]$rc) | Out-Null
+		$script:clientW = [double]$rc.Right; $script:clientH = [double]$rc.Bottom
+		# Whoever has two free slots in the pack on show takes both bags (a
+		# Continued eval save can leave any member's pack full).
+		$status = Get-InventoryStatus
+		$member = -1
+		for ($m = 0; $m -lt 4 -and $member -lt 0; $m++) {
+			if (@(Get-PackSlots $status $m | Where-Object { $_ -eq '-' }).Count -ge 2) { $member = $m }
+		}
+		if ($member -lt 0) { throw "no member has two free pack slots: $status" }
+		Send-Text "give ammo_pouch $member"; Send-Key 0x0D
+		Send-Text "give herb_pouch $member"; Send-Key 0x0D
+		Start-Sleep -Milliseconds 300
+		$status = Get-InventoryStatus
+		$ammoAt = Get-SheetGridPoint (Get-PackSlot $status $member 'ammo_pouch')
+		$herbAt = Get-SheetGridPoint (Get-PackSlot $status $member 'herb_pouch')
+		Send-Text "sheet $member"; Send-Key 0x0D
+		Start-Sleep -Milliseconds 500
+		$p = Get-SheetPacks
+		$shown = $p.Selected
+		$free = [array]::IndexOf($p.Row, '-')
+		if ($free -lt 0) { throw "member $member has no empty pack-row square: $($p.Line)" }
+		$script:bagAt = Get-SheetPackRowPoint $free
+		$shownAt = Get-SheetPackRowPoint $shown
+		Write-Host "  member $member, bags into pack-row square $free (the pack on show is $shown)"
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 600
+		Send-Click $ammoAt.X $ammoAt.Y                 # the ammo pouch onto the cursor
+		Send-Click $script:bagAt.X $script:bagAt.Y     # into the empty square (0 -> 8)
+		Send-Click $shownAt.X $shownAt.Y                 # back to the pack holding the herb pouch
+		Send-Click $herbAt.X $herbAt.Y                 # the herb pouch onto the cursor
+		# WARM-UP: one swap pair, first times for the process.
+		Send-Click $script:bagAt.X $script:bagAt.Y
+		Send-Click $script:bagAt.X $script:bagAt.Y
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		$p = Get-SheetPacks
+		$status = Get-InventoryStatus
+		if ($p.Equips -ne 3 -or $p.Row[$free] -ne 'ammo_pouch' -or $p.Slots -ne 8 -or
+			$status -notmatch 'held=herb_pouch ') {
+			throw "the pack setup went wrong ($($p.Line); $status) - grid $($ammoAt.X),$($ammoAt.Y), " +
+				"row $($script:bagAt.X),$($script:bagAt.Y)"
+		}
+		$script:equipsBefore = $p.Equips
+		Write-Host '  setup and a warm-up swap pair ok'
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0 # close the console again; alloctest reopens it below
+		Start-Sleep -Milliseconds 400
+	}
+
 	if ($SelfTest) {
 		Write-Host 'self-test: arming allocpoke, expecting the run to FAIL'
 		Send-Key 0xC0
@@ -847,6 +961,17 @@ try {
 			Send-Mouse $script:runeX $script:slotY 0x207 0x208 0x10 # middle: use menu
 			Start-Sleep -Milliseconds 500
 			Send-Key 0x1B
+		}
+	}
+
+	# -Packs: two clicks on the bag square a cycle - the herb pouch in (8 -> 4)
+	# and the ammo pouch back (4 -> 8), the growth this mode exists for.
+	if ($Packs) {
+		for ($cycle = 1; $cycle -le 3; $cycle++) {
+			Start-Sleep -Seconds 3
+			if (Select-String -Path $log -Pattern 'alloctest RESULT=' -Quiet) { break }
+			Send-Click $script:bagAt.X $script:bagAt.Y
+			Send-Click $script:bagAt.X $script:bagAt.Y
 		}
 	}
 
@@ -909,6 +1034,22 @@ try {
 		Write-Host "  transitions inside the window: $transitions"
 		if ($transitions -le 0 -and $result -eq 'PASS') {
 			Write-Host 'no Esc landed in an armed frame - the pause transition was not measured' -ForegroundColor Yellow
+			$result = 'UNMEASURED'
+		}
+	}
+
+	# And for -Packs: two equips made during the window (one each way), or the
+	# clicks missed and the growth was not measured.
+	if ($Packs) {
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		$equips = (Get-SheetPacks).Equips - $script:equipsBefore
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0
+		Write-Host "  bags equipped by a click during the window: $equips"
+		if ($equips -lt 2 -and $result -eq 'PASS') {
+			Write-Host 'fewer than two equips - the pack growth was not measured' -ForegroundColor Yellow
 			$result = 'UNMEASURED'
 		}
 	}
