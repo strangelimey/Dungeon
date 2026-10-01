@@ -65,6 +65,11 @@ public:
 	float maxScale = 1.5f;
 	// Locked = no grips, no drags (Settings -> UI "Lock HUD layout").
 	const bool* locked = nullptr;
+	// The scale becomes the subtree's fontScale. Off for a panel whose whole
+	// CONTEXT scales with it instead (the character sheet has its own UIContext,
+	// so its scale is the context's root font size - rem itself moves - and a
+	// fontScale on top would apply it twice).
+	bool scalesText = true;
 	// A move or resize ended (the app saves).
 	std::function<void()> onChanged;
 
@@ -73,7 +78,13 @@ public:
 	int CursorWanted() const { return m_cursor; }
 	bool Dragging() const { return m_drag != Drag::None; }
 
-	float Scale() const { return scale ? *scale : 1.0f; }
+	// Within this panel's own limits, whatever the stored value says (a Settings
+	// slider spans 0.5..1.5 for every panel; the sheet stops short of filling
+	// the window).
+	float Scale() const {
+		const float s = scale ? *scale : 1.0f;
+		return s < minScale ? minScale : (s > maxScale ? maxScale : s);
+	}
 	// The em a panel's content measures in at `s` - the font its subtree will
 	// resolve, asked of the library exactly as Widget::Layout will ask it.
 	float EmAt(UIContext& ctx, float s) const;

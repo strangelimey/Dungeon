@@ -600,8 +600,21 @@ void Game::RegisterPartyCommands() {
 											look.y, look.scale));
 				return;
 			}
-			m_console.Refuse("no such panel - party, status, options, move, hands, magic");
+			m_console.Refuse("no such panel - party, status, options, move, hands, magic, inventory, sheet");
 		});
+
+	// Open (or close) the party inventory window - the sheet's "All" button's
+	// path, which a harness cannot click from the HUD.
+	m_console.Register("inventory", "open the party inventory window (dev): inventory [off]",
+					   [this](const std::vector<std::string>& args) {
+						   if (!args.empty() && args[0] == "off") {
+							   m_ui.CloseInventory();
+							   m_console.Print("inventory closed");
+							   return;
+						   }
+						   m_ui.OpenInventory();
+						   m_console.Print("inventory open");
+					   });
 
 	// Open (or close) a member's spellbook in the Magic area - the selector
 	// button's own path. It exists for tools\AllocTest.ps1 -Cast: an open book

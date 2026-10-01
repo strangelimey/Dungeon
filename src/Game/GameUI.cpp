@@ -1098,11 +1098,40 @@ void GameUI::BuildCharacterSheet() {
 	constexpr float kSheetH = CharacterSheet::kBodyH + CharacterSheet::kStatusH;
 	constexpr float kSheetX = (1.0f - kSheetW) * 0.5f;
 	constexpr float kSheetY = (1.0f - kSheetH) * 0.5f - 0.03f;
-	const gfx::Rect sheet{kSheetX, kSheetY, kSheetW, kSheetH};
+	// The member arrows and "All" sit in a row under the card, inside the window.
+	constexpr float kBtnGap = 0.02f, kBtnH = 0.045f, kBtnW = 0.05f;
+	constexpr float kWindowH = kSheetH + kBtnGap + kBtnH;
+
+	// A FLOATING WINDOW (ui-panels P3b): the card and its button row are one
+	// panel the player moves (by the title band right of the portrait, the gap
+	// above the buttons, or the move grip) and scales (the corner grip). Its
+	// scale is the SHEET CONTEXT'S root font size (UpdateFonts), so rem itself
+	// moves and every tab's rem-sized detail follows - not a fontScale on top.
+	// Capped at 1.3: past it the window would outgrow a 16:9 screen.
+	auto* layer = m_sheetUi.Add<ui::FloatingLayer>();
+	layer->bounds = {0, 0, 1, 1};
+	auto* window = layer->Add<ui::FloatingPanel>();
+	window->debugName = "SheetPanel";
+	window->posX = &m_settings.hudSheet.x;
+	window->posY = &m_settings.hudSheet.y;
+	window->scale = &m_settings.hudSheet.scale;
+	window->minScale = 0.6f;
+	window->maxScale = 1.3f;
+	window->scalesText = false;
+	window->locked = &m_settings.hudLocked;
+	window->onChanged = [this] { OnHudPanelMoved(); };
+	window->size = [](ui::UIContext& ctx, float s) {
+		return Vec2{kSheetW * s * ctx.Width(), kWindowH * s * ctx.Height()};
+	};
+	window->defaultPos = [](ui::UIContext& ctx) {
+		return Vec2{kSheetX * ctx.Width(), kSheetY * ctx.Height()};
+	};
+	m_hudPanels[kHudSheet] = window;
 
 	// Added FIRST so the buttons below it update on top (and consume their clicks
 	// before the sheet's slot hit-testing).
-	m_sheet = m_sheetUi.Add<CharacterSheet>(sheet, &m_characters,
+	m_sheet = window->Add<CharacterSheet>(gfx::Rect{0, 0, 1, kSheetH / kWindowH},
+										  &m_characters,
 											&m_settings.barColors, m_itemIcons,
 											m_itemWeights, m_slotIcons,
 											m_itemCategories, m_held);
@@ -1119,6 +1148,7 @@ void GameUI::BuildCharacterSheet() {
 		m_audio.Play(m_sounds.bump, 0.5f);
 		AddLogLine(loc::FormatLine("log.cant_hold", loc::ViewKey("item.", item)));
 	};
+	m_sheet->opacity = &m_settings.hudSheet.opacity;
 	m_sheet->defenseFor = [this](const Character& c) {
 		return defenseFor ? defenseFor(c) : DefenseReadout{};
 	};
@@ -1138,27 +1168,27 @@ void GameUI::BuildCharacterSheet() {
 						 : std::span<const std::unique_ptr<Spell>>{};
 	};
 
-	constexpr float kBtnH = 0.045f;
-	constexpr float kBtnW = 0.05f;
-	const float btnY = kSheetY + kSheetH + 0.02f;
+	// The button row, in fractions of the window panel (authored as fractions
+	// of the game window, divided through the panel's own extents).
+	constexpr float btnY = (kSheetH + kBtnGap) / kWindowH, btnH = kBtnH / kWindowH;
+	constexpr float btnW = kBtnW / kSheetW;
 	// Previous / next member: the square arrow boxes (tools/BuildToolIcons.py),
 	// loaded HERE rather than in a load task for the close box's reason above;
 	// the "<" / ">" text shows only if the art is missing.
-	m_sheetUi.Add<ui::Button>(gfx::Rect{kSheetX, btnY, kBtnW, kBtnH}, "<",
-							  [this] {
-								  const size_t count = m_characters.size();
-								  onOpenSheet((m_sheetIndex + count - 1) % count);
-							  })->icon = ToolbarIcon(m_device, "box_left");
-	m_sheetUi.Add<ui::Button>(
-		gfx::Rect{kSheetX + kSheetW - kBtnW, btnY, kBtnW, kBtnH}, ">", [this] {
-			onOpenSheet((m_sheetIndex + 1) % m_characters.size());
-		})->icon = ToolbarIcon(m_device, "box_right");
+	window->Add<ui::Button>(gfx::Rect{0.0f, btnY, btnW, btnH}, "<",
+							[this] {
+								const size_t count = m_characters.size();
+								onOpenSheet((m_sheetIndex + count - 1) % count);
+							})->icon = ToolbarIcon(m_device, "box_left");
+	window->Add<ui::Button>(gfx::Rect{1.0f - btnW, btnY, btnW, btnH}, ">", [this] {
+		onOpenSheet((m_sheetIndex + 1) % m_characters.size());
+	})->icon = ToolbarIcon(m_device, "box_right");
 	// "All" → the combined party-backpacks view (for cross-character swaps).
-	m_sheetUi.Add<ui::Button>(gfx::Rect{kSheetX + 0.06f, btnY, 0.08f, kBtnH},
-							  loc::Tr("ui.inv_all"), [this] {
-								  Click();
-								  if (onShowPartyInventory) onShowPartyInventory();
-							  });
+	window->Add<ui::Button>(gfx::Rect{0.06f / kSheetW, btnY, 0.08f / kSheetW, btnH},
+							loc::Tr("ui.inv_all"), [this] {
+								Click();
+								if (onShowPartyInventory) onShowPartyInventory();
+							});
 	// Close (= resume) is the shared corner box at the sheet panel's top-right,
 	// matching every other dialog — no footer Back button. In a slot INSIDE the
 	// sheet, the way the editor dialogs reserve one: floated over the panel as a
@@ -1426,7 +1456,10 @@ void GameUI::BuildHud() {
 	// builds it again (docs/world-on-demand.md) — it used to append a second
 	// copy on top. Every cached HUD pointer is reassigned below.
 	m_hudUi.Clear();
-	m_hudPanels.fill(nullptr);
+	// Every HUD panel pointer dies with the clear - but not the sheet's, which
+	// lives in the sheet's own context (BuildCharacterSheet owns that entry).
+	for (size_t i = 0; i < m_hudPanels.size(); ++i)
+		if (i != kHudSheet) m_hudPanels[i] = nullptr;
 
 	// THE FLOATING PANELS (ui-panels P3a, UI/FloatingPanel.h). Every piece of
 	// HUD chrome but the message log is a panel the player moves and resizes:
@@ -1614,6 +1647,34 @@ void GameUI::BuildHud() {
 	m_hudPanels[kHudHands] = docks.hands;
 	m_hudPanels[kHudMagic] = docks.magic;
 
+	// The party inventory: a floating WINDOW (P3b) - the last panel on the
+	// layer, so it draws over the others, and shown only while open. Centred
+	// until moved; the world stays clickable around it.
+	ui::FloatingPanel* inventoryPanel = makePanel(kHudInventory, "InventoryPanel");
+	inventoryPanel->size = [](ui::UIContext& ctx, float s) {
+		return Vec2{InventoryWindow::kWidthFrac * s * ctx.Width(),
+					InventoryWindow::kHeightFrac * s * ctx.Height()};
+	};
+	inventoryPanel->defaultPos = [inventoryPanel](ui::UIContext& ctx) {
+		const Vec2 size = inventoryPanel->size(ctx, inventoryPanel->Scale());
+		return Vec2{(ctx.Width() - size.x) * 0.5f, (ctx.Height() - size.y) * 0.5f};
+	};
+	inventoryPanel->shownWhen = [this] { return m_inventory && m_inventory->IsOpen(); };
+	m_inventory = inventoryPanel->Add<InventoryWindow>(&m_characters, m_itemIcons, m_held,
+													   m_closeIcon, [this] {
+														   Click();
+														   CloseInventory();
+													   });
+	m_inventory->bounds = {0, 0, 1, 1};
+	m_inventory->opacity = &m_settings.hudInventory.opacity;
+	// The item mouse buttons inside the party inventory, as on the sheet.
+	m_inventory->onItemDetails = [this](size_t member, int slot) {
+		OpenItemDetails(member, {ItemPlace::Kind::Pack, slot});
+	};
+	m_inventory->onItemUse = [this](size_t member, int slot) {
+		if (m_handMenu) OpenItemUseMenu(member, {ItemPlace::Kind::Pack, slot}, *m_handMenu);
+	};
+
 	m_spellbook = docks.spellbook;
 	m_spellbook->onClick = [this] { Click(); };
 	m_spellbook->castIcon = m_castIconTex.get();
@@ -1632,16 +1693,8 @@ void GameUI::BuildHud() {
 	m_log = m_hudUi.Add<MessageLog>();
 	m_log->restoreLabel = loc::Tr("hud.log_show");
 
-	m_inventory = m_hudUi.Add<InventoryWindow>(&m_characters, m_itemIcons, m_held);
-	// The item mouse buttons inside the party inventory, as on the sheet.
-	m_inventory->onItemDetails = [this](size_t member, int slot) {
-		OpenItemDetails(member, {ItemPlace::Kind::Pack, slot});
-	};
-	m_inventory->onItemUse = [this](size_t member, int slot) {
-		if (m_handMenu) OpenItemUseMenu(member, {ItemPlace::Kind::Pack, slot}, *m_handMenu);
-	};
-	// AFTER the inventory window, so the menu updates first and draws over it
-	// (the window is a popup too, and its use menu opens on top of it).
+	// LAST, so the menu updates first and draws over everything - the
+	// inventory window included, whose use menu opens on top of it.
 	m_handMenu = m_hudUi.Add<ui::ContextMenu>();
 	m_handMenu->onPick = [this](int id) { OnUseMenuPick(id); };
 	// Room for any item id, so opening the menu never grows it (see the member).
@@ -1687,10 +1740,13 @@ void GameUI::ResetHudLayout() {
 	SyncHudPanelSliders();
 }
 
-// What the pointer shape should be for the HUD this frame: a grip's arrow
-// while one is hovered or dragging, else the plain arrow.
-Window::Cursor GameUI::HudCursor() const {
-	for (const ui::FloatingPanel* panel : m_hudPanels) {
+// What the pointer shape should be this frame: a grip's arrow while one of
+// panels [first, last) is hovered or dragging, else the plain arrow. A range,
+// because only the context that just updated has a fresh answer - the HUD's
+// panels while playing, the sheet's window while the sheet is up.
+Window::Cursor GameUI::PanelCursor(size_t first, size_t last) const {
+	for (size_t i = first; i < last && i < m_hudPanels.size(); ++i) {
+		const ui::FloatingPanel* panel = m_hudPanels[i];
 		if (!panel || !panel->visible) continue;
 		if (panel->CursorWanted() == 1) return Window::Cursor::SizeAll;
 		if (panel->CursorWanted() == 2) return Window::Cursor::SizeNWSE;
@@ -1731,7 +1787,11 @@ void GameUI::UpdateFonts(float dt) {
 	m_settingsUi.UseFont(ui::FontRole::Body, kMenuFontH * m_fontScale);
 	m_pauseUi.UseFont(ui::FontRole::Body, kMenuFontH * m_fontScale);
 	m_savesUi.UseFont(ui::FontRole::Body, kMenuFontH * m_fontScale);
-	m_sheetUi.UseFont(ui::FontRole::Body, kSheetFontH * m_fontScale);
+	// The sheet is a floating window whose scale IS its context's root font
+	// size (BuildCharacterSheet): the panel's clamped scale, so a slider set
+	// past the sheet's cap scales the text no further than the window.
+	const float sheetScale = m_hudPanels[kHudSheet] ? m_hudPanels[kHudSheet]->Scale() : 1.0f;
+	m_sheetUi.UseFont(ui::FontRole::Body, kSheetFontH * m_fontScale * sheetScale);
 	m_confirmUi.UseFont(ui::FontRole::Body, kMenuFontH * m_fontScale);
 	m_titleFont = &m_fonts.Get(ui::FontRole::Display, kTitleFontH * m_fontScale);
 
@@ -1819,6 +1879,7 @@ void GameUI::UpdateSheet(const Input& input, float dt) {
 		return;
 	}
 	m_sheetUi.Update(input, WindowW(), WindowH());
+	m_hudCursor = PanelCursor(kHudSheet, kHudSheet + 1);
 
 	// THE KEYBOARD PAGES THE SHEET (play-test #4 and #5, Michael 2026-09-28).
 	// The party does not move while the sheet is open, so the strafe keys are
@@ -1847,7 +1908,7 @@ void GameUI::UpdateHud(const Input& input, float dt) {
 		return;
 	}
 	m_hudUi.Update(input, WindowW(), WindowH());
-	m_hudCursor = HudCursor();
+	m_hudCursor = PanelCursor(0, kHudSheet); // the sheet's window is its own context
 	// The log reads this frame's hover/scroll (set during Update above) to
 	// advance its fades and expand/collapse animation.
 	if (m_log) m_log->Tick(dt);

@@ -143,8 +143,8 @@ public:
 	// Every panel back to its default spot and size (Settings -> UI "Reset HUD
 	// layout", dev `hudpanel reset`); opacity stays.
 	void ResetHudLayout();
-	// The pointer shape the HUD's grips want this frame.
-	Window::Cursor HudCursor() const;
+	// The pointer shape the grips of panels [first, last) want this frame.
+	Window::Cursor PanelCursor(size_t first, size_t last) const;
 	// A panel by kHudPanelFields index, for the `hudpanel` dev command (null
 	// before the first game load builds the HUD).
 	const ui::FloatingPanel* HudPanel(size_t index) const {

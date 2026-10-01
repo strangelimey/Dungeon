@@ -192,6 +192,8 @@ struct GameSettings {
 	// _opacity), the Settings -> UI rows and Reset. The party bar's scale and
 	// opacity were barscale= / baropacity= before it floated; those still load.
 	HudPanelLook hudParty, hudStatus, hudOptions, hudMove, hudHands, hudMagic;
+	// The two floating WINDOWS (P3b): the party inventory and the sheet.
+	HudPanelLook hudInventory, hudSheet;
 	// Settings -> UI "Lock HUD layout": no grips, no drags. ini hud_locked=.
 	bool hudLocked = false;
 	// The level generator's last-USED knobs, encoded by Game/GenerateKnobs.h
@@ -251,9 +253,14 @@ inline constexpr HudPanelField kHudPanelFields[] = {
 	{"move", "settings.move_panel", &GameSettings::hudMove},
 	{"hands", "settings.hands_panel", &GameSettings::hudHands},
 	{"magic", "settings.magic_panel", &GameSettings::hudMagic},
+	{"inventory", "settings.inventory_panel", &GameSettings::hudInventory},
+	{"sheet", "settings.sheet_panel", &GameSettings::hudSheet},
 };
 // Their indices, for code that needs one panel by name.
-enum HudPanelIndex : size_t { kHudParty, kHudStatus, kHudOptions, kHudMove, kHudHands, kHudMagic };
-static_assert(std::size(kHudPanelFields) == kHudMagic + 1);
+enum HudPanelIndex : size_t {
+	kHudParty, kHudStatus, kHudOptions, kHudMove, kHudHands, kHudMagic,
+	kHudInventory, kHudSheet
+};
+static_assert(std::size(kHudPanelFields) == kHudSheet + 1);
 
 } // namespace dungeon::game

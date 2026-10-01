@@ -135,10 +135,11 @@
 # warm-up below drags once before the window), and the release SAVES
 # settings.ini, which excuses itself (GameSettings::Save). This resets the
 # layout, warms up, then during the window drags the Movement dock by its title
-# and back and pulls the Hands dock's corner grip - three times. It refuses a
-# PASS unless `hudpanel list` afterwards shows both landed (the move dock saved
-# off its default, the hands dock off scale 1), since a missed drag reports
-# exactly like a clean run.
+# and back and pulls the Hands dock's corner grip - three times - with the
+# party inventory WINDOW (P3b) open the whole while. It refuses a PASS unless
+# `hudpanel list` afterwards shows all three (the move dock saved off its
+# default, the hands dock off scale 1, the inventory shown), since a missed
+# drag or a window that never opened reports exactly like a clean run.
 #
 # Every step is driven by what the log actually says rather than by sleeps, so
 # a slow cold-cache load stretches the wait instead of failing the run.
@@ -627,6 +628,9 @@ try {
 		Send-Key 0xC0
 		Start-Sleep -Milliseconds 500
 		Send-Text 'logecho on'; Send-Key 0x0D
+		# The sheet is a floating window now (ui-panels P3b): the clicks below aim
+		# at its DEFAULT spot and size, so put it back there first.
+		Send-Text 'hudpanel reset'; Send-Key 0x0D
 		# A new party's pack holds three pieces of armour (slots 0-2), so these
 		# land in slots 3 and 4 - the cells the clicks below aim at.
 		Send-Text 'give rune_fire 0'; Send-Key 0x0D
@@ -667,7 +671,9 @@ try {
 		$rc = New-Object AllocTestWin+RECT
 		[AllocTestWin]::GetClientRect($hwnd, [ref]$rc) | Out-Null
 		$script:moveX = [int]($rc.Right * 0.8775); $script:moveY = [int]($rc.Bottom * 0.1733)
-		$script:awayX = [int]($rc.Right * 0.55); $script:awayY = [int]($rc.Bottom * 0.35)
+		# Below the inventory window's default rect (0.23..0.77 down) and above the
+		# log footer: a grab landing ON the window would act on its slots instead.
+		$script:awayX = [int]($rc.Right * 0.30); $script:awayY = [int]($rc.Bottom * 0.80)
 		$script:gripX = [int]($rc.Right * 0.9835); $script:gripY = [int]($rc.Bottom * 0.5575)
 		$script:pullX = [int]($rc.Right * 0.96); $script:pullY = [int]($rc.Bottom * 0.53)
 		# WARM-UP: one drag and one pull outside the window - the pull's new scale
@@ -679,6 +685,10 @@ try {
 		Send-Key 0xC0
 		Start-Sleep -Milliseconds 500
 		Send-Text 'hudpanel reset'; Send-Key 0x0D
+		# The party inventory window stays open through the window, so its draw
+		# (every slot of every pack, every frame) is measured too. Its default
+		# spot is clear of both grabs above.
+		Send-Text 'inventory'; Send-Key 0x0D
 		Send-Key 0xC0
 		Start-Sleep -Milliseconds 400
 	}
@@ -828,10 +838,13 @@ try {
 		$handsRow = @(Select-String -Path $log -Pattern 'console:   hands ')[-1].Line
 		Write-Host "  $($moveRow -replace '^.*console:   ', '')"
 		Write-Host "  $($handsRow -replace '^.*console:   ', '')"
+		$invRow = @(Select-String -Path $log -Pattern 'console:   inventory ')[-1].Line
+		Write-Host "  $($invRow -replace '^.*console:   ', '')"
 		$moved = $moveRow -notmatch 'saved default'
 		$scaled = $handsRow -notmatch 'scale 1\.00'
-		if ((-not $moved -or -not $scaled) -and $result -eq 'PASS') {
-			Write-Host 'a drag did not land inside the window - the panel path was not measured' -ForegroundColor Yellow
+		$invShown = $invRow -match 'inventory shown'
+		if ((-not $moved -or -not $scaled -or -not $invShown) -and $result -eq 'PASS') {
+			Write-Host 'a drag did not land, or the inventory was not open, inside the window - the panel path was not measured' -ForegroundColor Yellow
 			$result = 'UNMEASURED'
 		}
 	}

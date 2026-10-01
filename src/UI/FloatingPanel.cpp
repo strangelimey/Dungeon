@@ -162,7 +162,7 @@ void FloatingLayer::LayoutSelf(UIContext& ctx) {
 		if (panel->shownWhen) panel->visible = panel->shownWhen();
 		if (!panel->visible) continue;
 		const float s = panel->Scale();
-		panel->fontScale = s;
+		if (panel->scalesText) panel->fontScale = s;
 		Vec2 size = panel->size(ctx, s);
 		size.x = std::clamp(size.x, 1.0f, win.w);
 		size.y = std::clamp(size.y, 1.0f, win.h);
