@@ -77,9 +77,9 @@ public:
 			  const ResourceBarStyle* barStyle, std::function<void()> onBars);
 
 private:
-	// Space between framed TUBES, in rem (flat bars keep 0.25). The frames'
-	// own reach already spaces them; this is the glass-to-glass gap.
-	static constexpr float kFramedGapRem = 0.4f;
+	// Space between framed bars, in rem (flat bars keep 0.25): FRAME to frame,
+	// since ui-updates stacks whole frames so their caps cannot interleave.
+	static constexpr float kFramedGapRem = 0.12f;
 
 	void UpdateSelf(ui::UIContext& ctx) override;
 	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;

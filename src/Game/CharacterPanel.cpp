@@ -192,23 +192,27 @@ void StatsArea::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Character* c = RosterMember(m_roster, m_member);
 	if (!c) return;
 	const gfx::Rect& px = Pixel();
-	// The rects below are the GLASS, and each iron frame reaches past its tube
+	// The rects below are the GLASS, and each frame reaches past its tube
 	// (FrameReach). The frames must stay inside the member's slot (Michael,
-	// 2026-09-30: the chrome overlapped the character container), so the tubes
-	// are sized to leave room for the OUTER reaches: the caps at both ends, the
-	// scrollwork above the first bar and below the last. Between bars only the
-	// end scrollwork meets, and it is allowed to interleave.
+	// 2026-09-30: the chrome overlapped the character container), AND clear of
+	// each other (Michael, ui-updates: the silver caps reach nearly a
+	// tube-height each way and interleaved into one another) - so what stacks
+	// is WHOLE frames, each tube plus its reach above and below, a small gap
+	// apart.
 	const bool framed = m_barStyle->framed && m_barStyle->frame;
-	const float barGap = Rem(framed ? kFramedGapRem : 0.25f);
+	float barGap = Rem(framed ? kFramedGapRem : 0.25f);
 	float barH = (px.h - 2 * barGap) / 3.0f;
 	float x = px.x, w = px.w, top = px.y;
 	if (framed) {
 		const BarFrameReach unit = FrameReach(1.0f); // reaches per px of tube
-		barH = (px.h - 2 * barGap) / (3.0f + unit.top + unit.bottom);
+		const float span = 1.0f + unit.top + unit.bottom; // one frame, per px of tube
+		barH = (px.h - 2 * barGap) / (3.0f * span);
 		const BarFrameReach reach = FrameReach(barH);
 		x += reach.left;
 		w = std::max(w - reach.left - reach.right, 0.0f);
 		top += reach.top;
+		// From one tube's top to the next is one whole frame plus the gap.
+		barGap += reach.top + reach.bottom;
 	}
 	const struct {
 		float value, max;

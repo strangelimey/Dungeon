@@ -40,7 +40,9 @@ from PIL import Image
 KIT = os.path.join(os.environ.get("OneDrive", os.path.expanduser("~\\OneDrive")),
 				   "DungeonAssets", "ui", "medieval-rpg-ui-kit", "extracted",
 				   "upscayl_png_upscayl-standard-4x_4x")
-DEFAULT_SRC = os.path.join(KIT, "Life Status Bars (1).png")
+# The SILVER frame since ui-updates (Michael: the iron Life bar #1 was too dark).
+# The iron cut: --src "...Life Status Bars (1).png" --fluid red.
+DEFAULT_SRC = os.path.join(KIT, "Mana Status Bars (13).png")
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_OUT = os.path.join(REPO, "assets", "ui", "bar_frame.png")
 
@@ -51,6 +53,7 @@ MEDIAN_WINDOW = 41            # source columns smoothed over for the hole's edge
 SNAP = 14                     # source px from the straight line that snaps onto it
 RIM_TOLERANCE = 12            # source px the silhouette may wander and still be plain rim
 BRIDGE = 8                    # passes closing one-column gaps in the plain run
+TUBE_SHARE = 0.35             # a column is tube when this share of the fullest is fluid
 
 
 def running_median(v, window):
@@ -72,13 +75,32 @@ def red_mask(rgb):
 	return (r > 40) & (r > 1.5 * g) & (r > 1.5 * b)
 
 
+def blue_mask(rgb):
+	# The silver (Mana) bars: blue wisps in glass that is blue right through,
+	# inside a silver frame with a COOL cast - measured, its dark tones are
+	# (39, 62, 77), blue twice its red, so a ratio test takes the frame too. What
+	# the fluid has and the silver never does is almost NO red at real brightness:
+	# (2, 62, 121), (13, 93, 182), (4, 156, 241). The silver's highlights carry
+	# red (188, 236, 255) and its darks never reach 100 blue.
+	r, b = rgb[..., 0], rgb[..., 2]
+	return (b > 100) & (r < 0.25 * b)
+
+
+FLUIDS = {"red": red_mask, "blue": blue_mask}
+
+
 def main():
 	ap = argparse.ArgumentParser()
 	ap.add_argument("--src", default=DEFAULT_SRC)
 	ap.add_argument("--out", default=DEFAULT_OUT)
 	ap.add_argument("--width", type=int, default=1024)
 	ap.add_argument("--preview", help="also write the frame over grey + checker")
+	ap.add_argument("--fluid", choices=sorted(FLUIDS), default="blue",
+					help="the colour of the bar's fluid, which marks the tube to punch "
+						 "(blue = the silver Mana bars, the frame in use since ui-updates; "
+						 "red = the iron Life bars)")
 	args = ap.parse_args()
+	fluid_mask = FLUIDS[args.fluid]
 
 	if not os.path.isfile(args.src):
 		sys.exit(f"source not found: {args.src}")
@@ -90,13 +112,15 @@ def main():
 	alpha = np.clip((bright - KEY_LO) / (KEY_HI - KEY_LO), 0.0, 1.0)
 
 	# --- 2. punch the tube -------------------------------------------------
-	red = red_mask(rgb)
-	# The tube is the long horizontal run of red; find its band from the
-	# columns that are mostly red, so a stray red speck elsewhere cannot widen it.
+	# (`red` names the FLUID mask whichever colour it is - the red Life bars came
+	# first and the code below still reads that way.)
+	red = fluid_mask(rgb)
+	# The tube is the long horizontal run of fluid; find its band from the
+	# columns that are mostly fluid, so a stray speck elsewhere cannot widen it.
 	col_count = red.sum(axis=0)
 	tube_cols = np.where(col_count > 0.5 * col_count.max())[0]
 	if tube_cols.size == 0:
-		sys.exit("no red tube found - is this a Life Status Bar?")
+		sys.exit(f"no {args.fluid} tube found - is --fluid right for this bar?")
 	rows_any = np.where(red[:, tube_cols].any(axis=1))[0]
 	band_top, band_bot = rows_any.min(), rows_any.max()
 	# Each column's red run, then a RUNNING MEDIAN of its top and bottom: the
@@ -105,7 +129,16 @@ def main():
 	# chewed iron once the fill behind it is a smooth glow.
 	tops = np.full(w, np.nan)
 	bots = np.full(w, np.nan)
-	for x in range(w):
+	# Only the ONE contiguous run of tube columns through the middle: the silver
+	# caps carry blue reflections that pass the fluid test, and a column there
+	# would put a hole through the ornament.
+	full = col_count > TUBE_SHARE * col_count.max()
+	span_l = span_r = w // 2
+	while span_l > 0 and full[span_l - 1]:
+		span_l -= 1
+	while span_r < w - 1 and full[span_r + 1]:
+		span_r += 1
+	for x in range(span_l, span_r + 1):
 		ys = np.where(red[band_top:band_bot + 1, x])[0]
 		if ys.size >= 4:
 			tops[x], bots[x] = band_top + ys.min(), band_top + ys.max()
@@ -116,6 +149,11 @@ def main():
 	top_line, bot_line = np.nanmedian(tops), np.nanmedian(bots)
 	tops = np.where(np.abs(tops - top_line) <= SNAP, top_line, tops)
 	bots = np.where(np.abs(bots - bot_line) <= SNAP, bot_line, bots)
+	# And never PAST those lines: a capsule's rounded ends only ever pull in, so
+	# a column reaching beyond the straight run is a reflection on the rim (the
+	# silver bar has one), not glass - it would cut a notch through the frame.
+	tops = np.maximum(tops, top_line)
+	bots = np.minimum(bots, bot_line)
 	hole = np.zeros((h, w), dtype=bool)
 	for x in range(w):
 		if not np.isnan(tops[x]):

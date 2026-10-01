@@ -24,14 +24,15 @@ void DrawStatBar(gfx::SpriteBatch& batch, const gfx::Rect& rect, float fraction,
 namespace {
 
 // bar_frame.png's geometry, as printed by tools/CutBarFrame.py - fractions of
-// the frame image. Re-cut the frame, copy the new numbers here.
-constexpr float kFrameAspect = 1024.0f / 175.0f; // image width / height
-constexpr float kTubeLeft = 0.0858f;   // the glass, inset from each edge
-constexpr float kTubeRight = 0.0841f;
-constexpr float kTubeTop = 0.3016f;
-constexpr float kTubeBottom = 0.2444f;
-constexpr float kCapLeft = 0.1908f;    // where the end caps stop and the
-constexpr float kCapRight = 0.1887f;   // plain (stretchable) rim begins
+// the frame image. Re-cut the frame, copy the new numbers here. The SILVER
+// frame (Mana Status Bars #13) since ui-updates; the iron one was too dark.
+constexpr float kFrameAspect = 1024.0f / 160.0f; // image width / height
+constexpr float kTubeLeft = 0.0709f;   // the glass, inset from each edge
+constexpr float kTubeRight = 0.0696f;
+constexpr float kTubeTop = 0.2524f;
+constexpr float kTubeBottom = 0.2220f;
+constexpr float kCapLeft = 0.1332f;    // where the end caps stop and the
+constexpr float kCapRight = 0.1319f;   // plain (stretchable) rim begins
 
 // The heartbeat's numbers, in beats per minute. A first cut, Michael's to tune.
 constexpr float kBpmRest = 60.0f;
