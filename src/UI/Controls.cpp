@@ -21,12 +21,15 @@ const SkinPart* PanelPart(const UIContext& ctx) {
 
 } // namespace
 
-void DrawPanelFace(UIContext& ctx, gfx::SpriteBatch& batch, const gfx::Rect& rect) {
+void DrawPanelFace(UIContext& ctx, gfx::SpriteBatch& batch, const gfx::Rect& rect,
+				   float opacity) {
 	if (const SkinPart* part = PanelPart(ctx)) {
-		DrawNineSlice(batch, rect, *part, {1, 1, 1, ctx.GetTheme().panel.w});
+		DrawNineSlice(batch, rect, *part, {1, 1, 1, ctx.GetTheme().panel.w * opacity});
 		return;
 	}
-	batch.DrawRect(rect, ctx.GetTheme().panel);
+	Vec4 fill = ctx.GetTheme().panel;
+	fill.w *= opacity;
+	batch.DrawRect(rect, fill);
 	DrawBorder(batch, rect, ctx.GetTheme().panelBorder);
 }
 

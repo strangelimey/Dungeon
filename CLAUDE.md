@@ -887,7 +887,14 @@ master-volume slider on Audio, party-bar sliders on
 UI (scale 0.5–1.5 resizes the bar about its top center and shifts the panels
 beneath it — GameUI::ApplyPartyBarScale; width is pinned at the window span,
 so above 1 the bar only grows taller; background opacity 0–1 fades the slot
-fills only) plus color-picker grids for Theme Colors (the 8 ui::Theme
+fills only), the same two sliders once per right-hand HUD dock (Movement /
+Hands / Magic Panel - GameSettings::hudMove/hudHands/hudMagic, a
+HudPanelLook each, ini hud_<dock>_scale / _opacity; the docks read them live.
+Scale sizes a dock AND its text: ControlBar sets the dock's inherited
+fontScale and everything inside a dock measures its detail in Em, not Rem, so
+a new widget in there must too; GameUI::ApplyHudPanelScale widens the column
+to the widest dock from its right edge; opacity fades the dock face only)
+plus color-picker grids for Theme Colors (the 8 ui::Theme
 colors — GameSettings owns the master theme, GameUI::ApplyTheme pushes it
 into all five UIContexts live) and Resource Bars (health/stamina/mana fills,
 ResourceBarColors in PartyHud.h — the HUD widgets point at

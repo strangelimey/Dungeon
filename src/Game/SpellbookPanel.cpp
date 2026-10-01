@@ -167,7 +167,10 @@ gfx::Rect SpellbookPanel::CastRect(const gfx::Rect& px) const {
 	const float gap = kCastGap * px.w;
 	const float w = (px.w - 2 * pad - gap) / 2.0f;
 	const float h = kCastH * px.h;
-	return {px.x + pad, px.y + px.h - pad - h, w, h};
+	// Flush with the panel's bottom: the dock around it (ControlBar.h HudDock)
+	// already pads that edge, and a second pad here left the row floating
+	// (Michael, 2026-09-30). The sequence row hangs off this one, so it follows.
+	return {px.x + pad, px.y + px.h - h, w, h};
 }
 
 gfx::Rect SpellbookPanel::ClearRect(const gfx::Rect& px) const {

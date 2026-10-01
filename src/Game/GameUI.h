@@ -377,6 +377,10 @@ private:
 	// Re-derives the party-bar slot rects from the settings scale and shifts
 	// the widgets beneath the bar to match; no-op until BuildHud has run.
 	void ApplyPartyBarScale();
+	// Widens the right-hand control column to its widest dock's scale, keeping
+	// its right edge; the docks read their own scale and opacity live. No-op
+	// until BuildHud has run.
+	void ApplyHudPanelScale();
 	void DrawLoadProgress(const LoadQueue& queue, float barY); // shared bar
 	// Title face centered horizontally at y (accent color); returns y so a
 	// subtitle can be placed relative to it. Shared by every title screen.
@@ -649,6 +653,7 @@ private:
 	// trees carry their contents. Both are owned by m_hudUi.
 	PartyBar* m_partyBar = nullptr;
 	ui::Widget* m_belowBar = nullptr;
+	ControlBar* m_controlBar = nullptr; // the right column, owned by m_belowBar
 	std::vector<CharacterPanel*> m_partyPanels; // owned by m_partyBar
 	const HitSplatIcons* m_hitSplats = nullptr; // hit-feedback icons (Game-owned)
 	const ItemIconBank* m_itemIcons = nullptr;  // item icons (Game-owned)

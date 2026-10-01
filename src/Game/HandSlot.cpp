@@ -71,7 +71,7 @@ void HandSlot::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		socket = {px.x + in, px.y + in, px.w - 2 * in, px.h - 2 * in};
 	} else if (skinned) {
 		ui::DrawNineSlice(batch, px, skin->button, {1, 1, 1, 1});
-		const float in = Rem(0.24f);
+		const float in = Em(0.24f);
 		socket = {px.x + in, px.y + in, px.w - 2 * in, px.h - 2 * in};
 	}
 	// A subtle grey lift on hover/press keeps the interaction feedback.
@@ -142,7 +142,7 @@ void HandSlot::DrawOverlaySelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	if (!use.set || use.label.empty()) return;
 	const ui::Font& font = TextFont();
 	const ui::Theme& theme = ctx.GetTheme();
-	const float padX = Rem(0.6f), padY = Rem(0.35f), gapY = Rem(0.3f);
+	const float padX = Em(0.6f), padY = Em(0.35f), gapY = Em(0.3f);
 	const float w = font.MeasureWidth(use.label) + 2.0f * padX;
 	const float h = font.Height() + 2.0f * padY;
 	// NEVER OVER THE HAND. Below it by preference, above when that would run
@@ -167,7 +167,7 @@ void HandSlot::DrawSpellRunes(gfx::SpriteBatch& batch, const gfx::Rect& area,
 	const std::span<const SpellSymbol> runes = spell.Sequence();
 	const size_t n = runes.size();
 	if (n == 0) return;
-	const float gap = Rem(0.12f);
+	const float gap = Em(0.12f);
 	// ROWS OF TWO, every rune the size two side by side leave it (Michael,
 	// 2026-09-30): a third and fourth rune go on the next row rather than
 	// shrinking the first two into a strip. Sized for two across even when there

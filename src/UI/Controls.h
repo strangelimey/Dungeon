@@ -756,7 +756,10 @@ void DrawSwatch(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Swatch& sw
 // the background-opacity preference applies to both looks), else the flat
 // theme fill + 1px border. Panel/TextOutput/popups route through it, and so
 // does the game-layer chrome (PartyHud's sheet/inventory/tooltip surfaces).
-void DrawPanelFace(UIContext& ctx, gfx::SpriteBatch& batch, const gfx::Rect& rect);
+// `opacity` fades the background on top of that (the HUD docks' own slider);
+// the flat look's border stays, as the party bar's slots keep theirs.
+void DrawPanelFace(UIContext& ctx, gfx::SpriteBatch& batch, const gfx::Rect& rect,
+				   float opacity = 1.0f);
 
 // Draws a button FACE — the one button look (state fill, border, centered
 // label). ui::Button routes through it, and so does every hand-drawn chrome

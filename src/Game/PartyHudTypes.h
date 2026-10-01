@@ -35,6 +35,15 @@ struct ResourceBarColors {
 	Vec4 water{0.24f, 0.50f, 0.60f, 1.0f};
 };
 
+// One of the HUD's right-hand docks (movement / hands / magic): the same two
+// knobs the party bar has. The master copy lives in GameSettings (Settings ->
+// UI, settings.ini hud_<dock>_scale / _opacity); the column points at it and
+// reads the live values every layout and draw, so a slider needs no apply.
+struct HudPanelLook {
+	float scale = 1.0f;   // 0.5..1.5: the dock AND its text, about the right edge
+	float opacity = 1.0f; // 0..1: the dock's panel face only, never its controls
+};
+
 // WHERE an item sits in a member's inventory, for the item mouse buttons
 // (right = details, middle = use menu; docs/ui-updates-plan.md P2): a doll cell
 // (index = the EquipSlot, so the hands are LeftHand/RightHand), a slot of the

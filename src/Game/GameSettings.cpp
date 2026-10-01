@@ -170,6 +170,12 @@ void GameSettings::Load() {
 	ParseIniInt(text, "map_tool=", mapTool);
 	ParseIniBool(text, "hud_move_collapsed=", hudMoveCollapsed);
 	ParseIniBool(text, "hud_magic_collapsed=", hudMagicCollapsed);
+	ParseIniFloat(text, "hud_move_scale=", hudMove.scale, 0.5f, 1.5f);
+	ParseIniFloat(text, "hud_move_opacity=", hudMove.opacity, 0.0f, 1.0f);
+	ParseIniFloat(text, "hud_hands_scale=", hudHands.scale, 0.5f, 1.5f);
+	ParseIniFloat(text, "hud_hands_opacity=", hudHands.opacity, 0.0f, 1.0f);
+	ParseIniFloat(text, "hud_magic_scale=", hudMagic.scale, 0.5f, 1.5f);
+	ParseIniFloat(text, "hud_magic_opacity=", hudMagic.opacity, 0.0f, 1.0f);
 	// The rest of the line, verbatim: the encoding has spaces, colons and
 	// points, which ParseIniString's token rule would stop at.
 	if (const size_t g = text.find("gen_knobs="); g != std::string::npos) {
@@ -247,6 +253,11 @@ void GameSettings::Save() const {
 		mapShowCatalog ? 1 : 0, mapTool);
 	text += std::format("hud_move_collapsed={}\nhud_magic_collapsed={}\n",
 						hudMoveCollapsed ? 1 : 0, hudMagicCollapsed ? 1 : 0);
+	text += std::format(
+		"hud_move_scale={:.2f}\nhud_move_opacity={:.2f}\nhud_hands_scale={:.2f}\n"
+		"hud_hands_opacity={:.2f}\nhud_magic_scale={:.2f}\nhud_magic_opacity={:.2f}\n",
+		hudMove.scale, hudMove.opacity, hudHands.scale, hudHands.opacity,
+		hudMagic.scale, hudMagic.opacity);
 	text += std::format("gen_knobs={}\n", generatorKnobs);
 	text += std::format(
 		"adapter={}\noutput={}\nreswidth={}\nresheight={}\nfullscreen={}\n",

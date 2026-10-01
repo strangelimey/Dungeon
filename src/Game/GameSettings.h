@@ -185,6 +185,10 @@ struct GameSettings {
 	// strip. Expanded by default (Michael: "leave it on screen by default").
 	bool hudMoveCollapsed = false;
 	bool hudMagicCollapsed = false;
+	// Their scale and background opacity (PartyHudTypes.h HudPanelLook), the
+	// party bar's two knobs once per dock. ini hud_<move|hands|magic>_scale /
+	// _opacity.
+	HudPanelLook hudMove, hudHands, hudMagic;
 	// The level generator's last-USED knobs, encoded by Game/GenerateKnobs.h
 	// ("path:6 branches:3 ..."). Held as the opaque line so settings knows
 	// nothing of the generator; empty = its defaults. ini gen_knobs=.

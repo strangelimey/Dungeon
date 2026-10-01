@@ -73,6 +73,10 @@ constexpr float kBelowBar0 = kBarTop + kBarH0 + kBarGap; // ~0.143
 constexpr float kFooter = 0.071f; // the message-log footer along the bottom
 // What the below-bar column spans: bar to footer, neither included.
 constexpr float kBelowSpan = (1.0f - kFooter) - kBelowBar0;
+// The right-hand control column at dock scale 1 (~250/1600), and its gap from
+// the window's right edge. ApplyHudPanelScale widens it from that edge.
+constexpr float kControlW = 0.156f;
+constexpr float kControlMargin = 0.01f;
 
 // --- settings page rows ------------------------------------------------------
 // In REM (UI/Units.h) — the settings context's own type size, which already
@@ -670,6 +674,31 @@ void GameUI::BuildSettings() {
 				panel->backgroundOpacity = v;
 		});
 	barOpacity->onRelease = [this] { m_settings.Save(); };
+
+	// UI -> Movement / Hands / Magic panels: the party bar's two knobs once per
+	// dock of the right-hand column. The docks read their HudPanelLook live, so
+	// opacity needs nothing more; scale also widens the column to the widest
+	// dock. Same apply-while-dragging, persist-on-release rule.
+	auto panelLook = [&](const char* labelKey, HudPanelLook& look) {
+		uf->Space(ui::Len::Fixed(kSetGroup));
+		uf->Row<ui::Label>(ui::Len::Fixed(kSetLabel), loc::Tr(labelKey));
+		auto* scale = uf->Row<ui::Slider>(
+			ui::Len::Fixed(kSetSlider),
+			loc::Tr("settings.bar_scale"), 0.5f, 1.5f, look.scale,
+			[this, &look](float v) {
+				look.scale = v;
+				ApplyHudPanelScale();
+			});
+		scale->onRelease = [this] { m_settings.Save(); };
+		auto* opacity = uf->Row<ui::Slider>(
+			ui::Len::Fixed(kSetSlider),
+			loc::Tr("settings.bar_opacity"), 0.0f, 1.0f, look.opacity,
+			[&look](float v) { look.opacity = v; });
+		opacity->onRelease = [this] { m_settings.Save(); };
+	};
+	panelLook("settings.move_panel", m_settings.hudMove);
+	panelLook("settings.hands_panel", m_settings.hudHands);
+	panelLook("settings.magic_panel", m_settings.hudMagic);
 
 	// UI → Theme Colors (kThemeFields) and Resource Bars (kBarFields): color
 	// pickers, three per row. Theme edits recolor every context live
@@ -1451,8 +1480,8 @@ void GameUI::BuildHud() {
 
 	// Right control column: movement, hands and magic as three docks, laid out
 	// by one container (Game/ControlBar.h). Stops above the log footer.
-	constexpr float kPanelW = 0.156f; // ~250/1600
-	constexpr float kPanelX = 1.0f - kPanelW - 0.01f;
+	constexpr float kPanelW = kControlW;
+	constexpr float kPanelX = 1.0f - kPanelW - kControlMargin;
 	constexpr float panelH = kBelowSpan; // the column's whole height
 
 	ControlBarDeps deps;
@@ -1483,10 +1512,15 @@ void GameUI::BuildHud() {
 		Click();
 		m_settings.Save();
 	};
-	auto* controlBar = m_belowBar->Add<ControlBar>(
+	deps.moveLook = &m_settings.hudMove;
+	deps.handsLook = &m_settings.hudHands;
+	deps.magicLook = &m_settings.hudMagic;
+	// Authored at scale 1; ApplyHudPanelScale (below) widens it to the widest
+	// dock from the same right edge.
+	m_controlBar = m_belowBar->Add<ControlBar>(
 		gfx::Rect{kPanelX, 0.0f, kPanelW, panelH / kBelowSpan}, deps);
 
-	m_spellbook = controlBar->Spellbook();
+	m_spellbook = m_controlBar->Spellbook();
 	m_spellbook->onClick = [this] { Click(); };
 	m_spellbook->castIcon = m_castIconTex.get();
 	m_spellbook->clearIcon = m_clearIconTex.get();
@@ -1520,6 +1554,7 @@ void GameUI::BuildHud() {
 	m_handMenuItem.reserve(64);
 
 	ApplyPartyBarScale();
+	ApplyHudPanelScale();
 }
 
 void GameUI::OpenInventory() { if (m_inventory) m_inventory->Open(); }
@@ -1547,6 +1582,17 @@ void GameUI::ApplyPartyBarScale() {
 	// children divide their spans through it, so changing it would resize the
 	// control bar with the party-bar slider instead of just moving it.
 	m_belowBar->bounds.y = kBelowBar0 + kBarH0 * (s - 1.0f);
+}
+
+// The docks size themselves from their own scale (ControlBar::LayoutSelf);
+// what they cannot do is widen the column they sit in, and a dock wider than
+// its parent would escape it. So the column takes the widest dock's width,
+// growing leftward from the same right edge.
+void GameUI::ApplyHudPanelScale() {
+	if (!m_controlBar) return;
+	const float w = kControlW * m_controlBar->WidestScale();
+	m_controlBar->bounds.x = 1.0f - w - kControlMargin;
+	m_controlBar->bounds.w = w;
 }
 
 // ============================================================================
