@@ -35,17 +35,22 @@ using devargs::ArgOn;
 void Game::RegisterDevCommands() {
 	// Developer console commands (dev-facing, English). The generic ones
 	// (help/clear/echo) live in DevConsole; these reach into the app state.
-	m_console.Register("quit", "exit the game",
+	m_console.Register({.name = "quit", .group = CmdGroup::Console, .summary = "exit the game"},
 					   [this](const std::vector<std::string>&) { m_quitRequested = true; });
-	m_console.Register("exit", "exit the game",
+	m_console.Register({.name = "exit", .group = CmdGroup::Console, .summary = "exit the game"},
 					   [this](const std::vector<std::string>&) { m_quitRequested = true; });
-	m_console.Register("fps", "print the current frame rate",
+	m_console.Register({.name = "fps",
+						.group = CmdGroup::Profiling,
+						.summary = "print the current frame rate"},
 					   [this](const std::vector<std::string>&) {
 						   m_console.Print(std::format("{:.1f} fps", m_console.Fps()));
 					   });
-	m_console.Register("quality", "set quality tier 0-3 (low/med/high/ultra)",
+	m_console.Register({.name = "quality",
+						.group = CmdGroup::Settings,
+						.params = "<0-3>",
+						.summary = "set the quality tier (low/med/high/ultra)"},
 					   [this](const std::vector<std::string>& args) {
-						   if (!Need(m_console, args, 1, "usage: quality <0-3>")) return;
+						   if (!Need(m_console, args, 1)) return;
 						   const int q = std::atoi(args[0].c_str());
 						   if (q < 0 || q > 3) {
 							   m_console.Print("quality must be 0-3");
@@ -54,8 +59,10 @@ void Game::RegisterDevCommands() {
 						   m_pendingQuality = static_cast<Quality>(q); // applied next frame
 						   m_console.Print(std::format("quality set to {}", q));
 					   });
-	m_console.Register("framecap",
-					   "cap the frame rate to the window's monitor (on/off)",
+	m_console.Register({.name = "framecap",
+						.group = CmdGroup::Settings,
+						.params = "[on|off]",
+						.summary = "cap the frame rate to the window's monitor"},
 					   [this](const std::vector<std::string>& args) {
 						   if (!args.empty()) m_device.SetFrameCapEnabled(ArgOn(args[0]));
 						   const int hz = m_device.FrameCapHz();
@@ -75,15 +82,21 @@ void Game::RegisterDevCommands() {
 												 "monitor, not this one ({} Hz)",
 												 m_device.RefreshHz()));
 					   });
-	m_console.Register("lang", "switch language by code (e.g. en, de)",
+	m_console.Register({.name = "lang",
+						.group = CmdGroup::Settings,
+						.params = "<code>",
+						.summary = "switch language by code (e.g. en, de)"},
 					   [this](const std::vector<std::string>& args) {
-						   if (!Need(m_console, args, 1, "usage: lang <code>")) return;
+						   if (!Need(m_console, args, 1)) return;
 						   m_pendingLanguage = args[0]; // applied next frame
 						   m_console.Print("language: " + args[0]);
 					   });
-	m_console.Register("tp", "teleport the party to a cell",
+	m_console.Register({.name = "tp",
+						.group = CmdGroup::Party,
+						.params = "<x> <z>",
+						.summary = "teleport the party to a cell"},
 					   [this](const std::vector<std::string>& args) {
-						   if (!Need(m_console, args, 2, "usage: tp <x> <z>")) return;
+						   if (!Need(m_console, args, 2)) return;
 						   const int x = std::atoi(args[0].c_str());
 						   const int z = std::atoi(args[1].c_str());
 						   if (m_world->GetParty().SetGridPosition(x, z))
@@ -94,7 +107,10 @@ void Game::RegisterDevCommands() {
 					   });
 
 	// --- save / load ---
-	m_console.Register("save", "save the game to a named slot (default quicksave)",
+	m_console.Register({.name = "save",
+						.group = CmdGroup::SaveLoad,
+						.params = "[name]",
+						.summary = "save the game to a named slot (default quicksave)"},
 					   [this](const std::vector<std::string>& args) {
 						   if (!m_gameLoaded) {
 							   m_console.Print("no game loaded");
@@ -105,7 +121,10 @@ void Game::RegisterDevCommands() {
 						   if (SaveGame(name)) m_console.Print("saved: " + name);
 						   else m_console.Refuse("not saved (see log)");
 					   });
-	m_console.Register("load", "load a save by name (no arg lists saves)",
+	m_console.Register({.name = "load",
+						.group = CmdGroup::SaveLoad,
+						.params = "[name]",
+						.summary = "load a save by name, or list the saves"},
 					   [this](const std::vector<std::string>& args) {
 						   if (args.empty()) {
 							   const std::vector<SaveSlot> slots = ListSaves();
@@ -126,7 +145,9 @@ void Game::RegisterDevCommands() {
 					   });
 
 	// --- diagnostics (read-only) ---
-	m_console.Register("pos", "print party position and facing",
+	m_console.Register({.name = "pos",
+						.group = CmdGroup::Party,
+						.summary = "print party position and facing"},
 					   [this](const std::vector<std::string>&) {
 						   const Party& p = m_world->GetParty();
 						   static const char* kDirs[] = {"north", "east", "south", "west"};
@@ -139,7 +160,9 @@ void Game::RegisterDevCommands() {
 	// "identical" while the world was still an empty carved box. The WALKABLE
 	// count is the load-bearing one: `arena` walls every cell before carving, so
 	// a map that never came back shows up here and nowhere else.
-	m_console.Register("mapinfo", "print dungeon size and a static-layer fingerprint",
+	m_console.Register({.name = "mapinfo",
+						.group = CmdGroup::Levels,
+						.summary = "print dungeon size and a static-layer fingerprint"},
 					   [this](const std::vector<std::string>&) {
 						   const DungeonMap& map = m_world->Map();
 						   int walkable = 0;
@@ -153,9 +176,10 @@ void Game::RegisterDevCommands() {
 							   walkable, m_world->MonsterCount(),
 							   map.Sconces().size(), map.Braziers().size()));
 					   });
-	m_console.Register("geomhash",
-					   "fingerprint the active level's surface geometry (one hash per "
-					   "surface; identical before/after = no vertex moved)",
+	// One hash per surface; identical before/after an edit = no vertex moved.
+	m_console.Register({.name = "geomhash",
+						.group = CmdGroup::Levels,
+						.summary = "fingerprint the active level's surface geometry"},
 					   [this](const std::vector<std::string>&) {
 						   const DungeonWorld::GeometryPrint g = m_world->GeometryFingerprint();
 						   m_console.Print(std::format(
@@ -174,18 +198,39 @@ void Game::RegisterDevCommands() {
 													   m_world->CurrentLevel(), g.layout,
 													   g.liveLayout, verdict));
 					   });
-	m_console.Register("groups", "list monster groups (id: count [kinds] @ cell#slot)",
+	m_console.Register({.name = "groups",
+						.group = CmdGroup::Monsters,
+						.summary = "list monster groups (id: count [kinds] @ cell#slot)"},
 					   [this](const std::vector<std::string>&) {
 						   for (const std::string& line : m_world->GroupsReport())
 							   m_console.Print(line);
 					   });
-	m_console.Register("editor",
-					   "open the map in editor mode (off = player map; inspect <x> <z> = "
-					   "what a right-click on that square does; inspect off closes it; "
-					   "place <category> <id> <x> <z> = arm that palette row and left-click "
-					   "the square; drag <category> <id> <x> <z> [<x> <z> ...] = the same "
-					   "row dragged over several squares as one stroke; erase <x> <z> = a "
-					   "middle-click on it)",
+	// Bare opens the editor, `off` the player map. The rest drive what a mouse
+	// does, for a harness: `inspect` is a right-click on the square, `place` arms
+	// that palette row and left-clicks it, `drag` is the same row dragged over
+	// several squares as one stroke, `erase` a middle-click, `fill` the Shift /
+	// Ctrl / area / fill-level gestures, `move` a drag with no brush armed.
+	m_console.Register({.name = "editor",
+						.group = CmdGroup::Levels,
+						.params = "[off]\n"
+								  "place <category> <id> <x> <z>\n"
+								  "drag <category> <id> <x> <z> [<x> <z> ...]\n"
+								  "erase <x> <z>\n"
+								  "fill <category> <id> rect <x0> <z0> <x1> <z1>\n"
+								  "fill <category> <id> flood|area <x> <z>\n"
+								  "fill <category> <id> level\n"
+								  "inspect <x> <z>\n"
+								  "inspect off\n"
+								  "pick <x> <z>\n"
+								  "cell <x> <z>\n"
+								  "move <x> <z> <to-x> <to-z>\n"
+								  "resize <x0> <z0> <x1> <z1>\n"
+								  "tool [paint|rect|flood|area|pick]\n"
+								  "disarm\n"
+								  "view\n"
+								  "issues\n"
+								  "rev",
+						.summary = "open the map editor, or drive its brushes and gestures"},
 					   [this](const std::vector<std::string>& args) {
 						   if (!args.empty() && args[0] == "off") {
 							   m_mapView.SetMode(MapView::Mode::Player);
@@ -502,10 +547,12 @@ void Game::RegisterDevCommands() {
 							   m_mapView.Open(MapView::Mode::Editor);
 						   m_console.Print("map: editor mode");
 					   });
-	m_console.Register("goto", "load another level by stem (e.g. goto crypt2)",
+	m_console.Register({.name = "goto",
+						.group = CmdGroup::Levels,
+						.params = "<level-stem>",
+						.summary = "load another level by stem (e.g. crypt2)"},
 					   [this](const std::vector<std::string>& args) {
-						   if (!Need(m_console, args, 1, "usage: goto <level-stem>"))
-							   return;
+						   if (!Need(m_console, args, 1)) return;
 						   if (m_state != AppState::Playing) {
 							   m_console.Refuse(std::format(
 								   "goto only works in-game (state: {})", StateName()));
@@ -530,8 +577,10 @@ void Game::RegisterDevCommands() {
 	// lines (`threat <id> <threat> ...`) so a harness can join them to a level's
 	// monsters.
 	m_console.Register(
-		"threat",
-		"monster kinds ranked by derived threat: threat [tag ...] (a tag's pool)",
+		{.name = "threat",
+		 .group = CmdGroup::Monsters,
+		 .params = "[tag ...]",
+		 .summary = "rank monster kinds by derived threat (a tag's pool, or all)"},
 		[this](const std::vector<std::string>& args) {
 			generate::Params p;
 			FillPools(p, args);
@@ -554,13 +603,20 @@ void Game::RegisterDevCommands() {
 			m_console.Print(std::format("threat: {} kind(s){}", order.size(),
 										args.empty() ? "" : " in that tag's pool"));
 		});
-	m_console.Register("generate",
-					   "rough out a new level: generate [dungeon|again] [knob:value ...] | dialog [new|off|tab <n>] | "
-					   "preset [list|save|load|delete] [name] | play [stem] "
-					   "(a new floor of the viewed dungeon by default, and the view jumps "
-					   "to it; `again` rerolls the VIEWED level in place, as the dialog's "
-					   "Regenerate does; knobs as the dialog names them, e.g. path:8 "
-					   "seed:7 - unset ones keep the dialog's)",
+	// A new floor of the viewed dungeon by default, and the view jumps to it;
+	// `again` rerolls the VIEWED level in place, as the dialog's Regenerate does.
+	// Knobs as the dialog names them, e.g. path:8 seed:7 - unset ones keep the
+	// dialog's.
+	m_console.Register({.name = "generate",
+						.group = CmdGroup::Levels,
+						.params = "[dungeon] [<knob>:<value> ...]\n"
+								  "again [<knob>:<value> ...]\n"
+								  "dialog [new|off]\n"
+								  "dialog tab <n>\n"
+								  "preset [list]\n"
+								  "preset save|load|delete <name>\n"
+								  "play [stem]",
+						.summary = "rough out a new level, or reroll the viewed one"},
 					   [this](const std::vector<std::string>& args) {
 						   if (!m_gameLoaded || (m_state != AppState::Playing &&
 												 m_state != AppState::Paused)) {
@@ -689,7 +745,9 @@ void Game::RegisterDevCommands() {
 																			   : "warn",
 									   i.level, i.x, i.z, i.messageKey, i.a));
 					   });
-	m_console.Register("validate", "check the whole project for playability faults",
+	m_console.Register({.name = "validate",
+						.group = CmdGroup::Levels,
+						.summary = "check the whole project for playability faults"},
 					   [this](const std::vector<std::string>&) {
 						   if (!m_gameLoaded || (m_state != AppState::Playing &&
 												 m_state != AppState::Paused)) {
@@ -721,7 +779,9 @@ void Game::RegisterDevCommands() {
 						   }
 					   });
 	m_console.Register(
-		"undo", "undo one editor step (the toolbar's < / Ctrl+Z)",
+		{.name = "undo",
+		 .group = CmdGroup::Levels,
+		 .summary = "undo one editor step (the toolbar's < / Ctrl+Z)"},
 		[this](const std::vector<std::string>&) {
 			// The editor's history, reachable without a keyboard shortcut. It
 			// is ONE history across the tiers now (a world paint and a level
@@ -735,7 +795,9 @@ void Game::RegisterDevCommands() {
 			m_console.Print("undone");
 		});
 	m_console.Register(
-		"redo", "redo one editor step (the toolbar's > / Ctrl+Y)",
+		{.name = "redo",
+		 .group = CmdGroup::Levels,
+		 .summary = "redo one editor step (the toolbar's > / Ctrl+Y)"},
 		[this](const std::vector<std::string>&) {
 			if (!m_world->CanRedo()) {
 				m_console.Print("nothing to redo");
@@ -744,8 +806,9 @@ void Game::RegisterDevCommands() {
 			m_world->Redo();
 			m_console.Print("redone");
 		});
-	m_console.Register("savemap",
-					   "write every edited level's .map/.ent, and the world, to the project",
+	m_console.Register({.name = "savemap",
+						.group = CmdGroup::Levels,
+						.summary = "write every edited level, and the world, to the project"},
 					   [this](const std::vector<std::string>&) {
 						   if (!m_gameLoaded || (m_state != AppState::Playing &&
 												 m_state != AppState::Paused)) {
@@ -777,14 +840,19 @@ void Game::RegisterDevCommands() {
 							   m_console.Print(m_project.Save() ? "saved project opening"
 																: "project save failed");
 					   });
-	m_console.Register("synctosource",
-					   "copy the active project (edits) into the repo source tree",
+	m_console.Register({.name = "synctosource",
+						.group = CmdGroup::Levels,
+						.summary = "copy the active project (edits) into the repo source tree"},
 					   [this](const std::vector<std::string>&) {
 						   m_console.Print(SyncProjectToSource()
 											   ? "synced project -> source"
 											   : "sync failed (see log)");
 					   });
-	m_console.Register("preview", "show a model in the 3D preview (off to close)",
+	m_console.Register({.name = "preview",
+						.group = CmdGroup::Rendering,
+						.params = "<model>\n"
+								  "off",
+						.summary = "show a model in the 3D preview, or close it"},
 					   [this](const std::vector<std::string>& args) {
 						   if (!args.empty() && args[0] == "off") {
 							   // In-flight frames may still draw the mesh
@@ -793,8 +861,7 @@ void Game::RegisterDevCommands() {
 							   m_console.Print("preview off");
 							   return;
 						   }
-						   if (!Need(m_console, args, 1, "usage: preview <model> (off)"))
-							   return;
+						   if (!Need(m_console, args, 1)) return;
 						   const std::string name = JoinArgs(args);
 						   if (!assets::ReadBinaryFile(paths::Asset("models\\" + name + ".gltf"))) {
 							   m_console.Print("no model: " + name);
@@ -812,7 +879,9 @@ void Game::RegisterDevCommands() {
 						   m_previewOrbit = 0.0f;
 						   m_console.Print("preview: " + name);
 					   });
-	m_console.Register("monsters", "list monsters and their cells",
+	m_console.Register({.name = "monsters",
+						.group = CmdGroup::Monsters,
+						.summary = "list monsters and their cells"},
 					   [this](const std::vector<std::string>&) {
 						   const std::vector<std::string> list = m_world->MonsterList();
 						   if (list.empty()) {
@@ -821,7 +890,9 @@ void Game::RegisterDevCommands() {
 						   }
 						   for (const std::string& l : list) m_console.Print("  " + l);
 					   });
-	m_console.Register("buttons", "list buttons (id, cell, state)",
+	m_console.Register({.name = "buttons",
+						.group = CmdGroup::Levels,
+						.summary = "list buttons (id, cell, state)"},
 					   [this](const std::vector<std::string>&) {
 						   const std::vector<std::string> list = m_world->ButtonList();
 						   if (list.empty()) {
@@ -830,12 +901,12 @@ void Game::RegisterDevCommands() {
 						   }
 						   for (const std::string& l : list) m_console.Print("  " + l);
 					   });
-	m_console.Register("smash",
-					   "damage what is breakable in a cell (dev): smash <x> <z> [amount]",
+	m_console.Register({.name = "smash",
+						.group = CmdGroup::Combat,
+						.params = "<x> <z> [amount]",
+						.summary = "damage what is breakable in a cell (default 100)"},
 					   [this](const std::vector<std::string>& args) {
-						   if (!Need(m_console, args, 2,
-									 "usage: smash <x> <z> [amount]"))
-							   return;
+						   if (!Need(m_console, args, 2)) return;
 						   const int x = std::atoi(args[0].c_str());
 						   const int z = std::atoi(args[1].c_str());
 						   const float amount =
@@ -847,9 +918,12 @@ void Game::RegisterDevCommands() {
 												   x, z)
 									 : std::format("nothing breakable at {},{}", x, z));
 					   });
-	m_console.Register("press", "toggle the button in cell x,z (exercises save)",
+	m_console.Register({.name = "press",
+						.group = CmdGroup::Levels,
+						.params = "<x> <z>",
+						.summary = "toggle the button in a cell (exercises save)"},
 					   [this](const std::vector<std::string>& args) {
-						   if (!Need(m_console, args, 2, "usage: press <x> <z>")) return;
+						   if (!Need(m_console, args, 2)) return;
 						   const int x = std::atoi(args[0].c_str());
 						   const int z = std::atoi(args[1].c_str());
 						   bool on = false;
@@ -859,12 +933,14 @@ void Game::RegisterDevCommands() {
 						   else
 							   m_console.Print(std::format("no button at {},{}", x, z));
 					   });
-	m_console.Register("lights", "print active point-light count",
+	m_console.Register({.name = "lights",
+						.group = CmdGroup::Rendering,
+						.summary = "print active point-light count"},
 					   [this](const std::vector<std::string>&) {
 						   m_console.Print(std::format("{} active point lights",
 													   m_world->ActiveLightCount()));
 					   });
-	m_console.Register("ver", "print build and GPU info",
+	m_console.Register({.name = "ver", .group = CmdGroup::Console, .summary = "print build and GPU info"},
 					   [this](const std::vector<std::string>&) {
 #ifdef _DEBUG
 						   const char* cfg = "debug";
@@ -876,9 +952,12 @@ void Game::RegisterDevCommands() {
 					   });
 
 	// --- navigation ---
-	m_console.Register("face", "turn the party to n/e/s/w",
+	m_console.Register({.name = "face",
+						.group = CmdGroup::Party,
+						.params = "n|e|s|w",
+						.summary = "turn the party to a compass direction"},
 					   [this](const std::vector<std::string>& args) {
-						   if (!Need(m_console, args, 1, "usage: face <n|e|s|w>")) return;
+						   if (!Need(m_console, args, 1)) return;
 						   int facing = -1;
 						   switch (std::tolower(static_cast<unsigned char>(args[0][0]))) {
 						   case 'n': facing = 0; break;
@@ -893,16 +972,21 @@ void Game::RegisterDevCommands() {
 						   m_world->GetParty().SetFacing(facing);
 						   m_console.Print("facing set");
 					   });
-	m_console.Register("home", "teleport the party to the start cell",
+	m_console.Register({.name = "home",
+						.group = CmdGroup::Party,
+						.summary = "teleport the party to the start cell"},
 					   [this](const std::vector<std::string>&) {
 						   const DungeonMap& map = m_world->Map();
 						   m_world->GetParty().SetGridPosition(map.StartX(), map.StartZ());
 						   m_console.Print(std::format("home at {},{}", map.StartX(),
 													   map.StartZ()));
 					   });
-	m_console.Register("speed", "set party pace multiplier",
+	m_console.Register({.name = "speed",
+						.group = CmdGroup::Party,
+						.params = "<mult>",
+						.summary = "set party pace multiplier"},
 					   [this](const std::vector<std::string>& args) {
-						   if (!Need(m_console, args, 1, "usage: speed <mult>")) return;
+						   if (!Need(m_console, args, 1)) return;
 						   const float v = static_cast<float>(std::atof(args[0].c_str()));
 						   if (v <= 0.0f) {
 							   m_console.Refuse("speed must be > 0");
@@ -912,7 +996,9 @@ void Game::RegisterDevCommands() {
 						   m_console.Print(std::format("speed x{:.2f}", v));
 					   });
 
-	m_console.Register("noclip", "toggle walking through walls",
+	m_console.Register({.name = "noclip",
+						.group = CmdGroup::Party,
+						.summary = "toggle walking through walls"},
 					   [this](const std::vector<std::string>&) {
 						   Party& p = m_world->GetParty();
 						   p.SetNoclip(!p.Noclip());
@@ -921,7 +1007,9 @@ void Game::RegisterDevCommands() {
 
 	// --- fonts: the audition (docs/fonts.md Phase 4) ---
 	m_console.Register(
-		"fonts", "show each role's typeface, the installed faces, and the live atlases",
+		{.name = "fonts",
+		 .group = CmdGroup::Settings,
+		 .summary = "show each role's typeface, the installed faces and live atlases"},
 		[this](const std::vector<std::string>&) {
 			m_console.Print("roles:");
 			for (int i = 0; i < ui::kFontRoleCount; ++i) {
@@ -941,21 +1029,30 @@ void Game::RegisterDevCommands() {
 				m_console.Print(std::format("  {:>4}px  {}", f.pixelHeight, f.face));
 		});
 
+	// Bare prints these forms; a bare <role> reports its face.
 	m_console.Register(
-		"font",
-		"audition a face live: font <role> <name|index|next|prev|off> | "
-		"font scale <role> <n> | font save",
+		{.name = "font",
+		 .group = CmdGroup::Settings,
+		 .params = "<role> [<name>|<index>|next|prev|off]\n"
+				   "scale <role> <n>\n"
+				   "save",
+		 .summary = "audition a typeface live, set a role's optical size, or save"},
 		[this](const std::vector<std::string>& args) { FontCommand(args); });
 
 	// --- render debug ---
-	m_console.Register("shadows", "toggle shadow rendering (on/off)",
+	m_console.Register({.name = "shadows",
+						.group = CmdGroup::Rendering,
+						.params = "[on|off]",
+						.summary = "toggle shadow rendering"},
 					   [this](const std::vector<std::string>& args) {
 						   if (!args.empty()) m_world->SetShadowsEnabled(ArgOn(args[0]));
 						   m_console.Print(m_world->ShadowsEnabled() ? "shadows on"
 																	: "shadows off");
 					   });
-	m_console.Register("shadowrate",
-				"fire shadow re-render rate: <hz> [per-frame budget]",
+	m_console.Register({.name = "shadowrate",
+						.group = CmdGroup::Rendering,
+						.params = "[<hz> [per-frame-budget]]",
+						.summary = "fire shadow re-render rate and per-frame cube budget"},
 				[this](const std::vector<std::string>& args) {
 					if (!args.empty()) {
 						const float hz = std::strtof(args[0].c_str(), nullptr);
@@ -967,7 +1064,10 @@ void Game::RegisterDevCommands() {
 						"fire shadows re-render at {:.1f} Hz, at most {} cube(s)/frame",
 						m_world->ShadowFlickerHz(), m_world->ShadowFlickerBudget()));
 				});
-	m_console.Register("dust", "volumetric dust: on/off, or a density (default 0.075)",
+	m_console.Register({.name = "dust",
+						.group = CmdGroup::Rendering,
+						.params = "[on|off|<density>]",
+						.summary = "volumetric dust on/off, or its density (default 0.075)"},
 					   [this](const std::vector<std::string>& args) {
 						   if (!args.empty()) {
 							   if (args[0] == "on" || args[0] == "off") {
@@ -983,7 +1083,10 @@ void Game::RegisterDevCommands() {
 															 m_world->DustDensity())
 											   : "dust off");
 					   });
-	m_console.Register("haze", "dust ambient pickup (mood tuning, default 0.9)",
+	m_console.Register({.name = "haze",
+						.group = CmdGroup::Rendering,
+						.params = "[value]",
+						.summary = "dust ambient pickup (mood tuning, default 0.9)"},
 					   [this](const std::vector<std::string>& args) {
 						   if (!args.empty())
 							   m_world->SetHazeAmbient(
@@ -991,7 +1094,10 @@ void Game::RegisterDevCommands() {
 						   m_console.Print(
 							   std::format("haze ambient {:.2f}", m_world->HazeAmbient()));
 					   });
-	m_console.Register("ambient", "scale the ambient fill (mood tuning, default 1.0)",
+	m_console.Register({.name = "ambient",
+						.group = CmdGroup::Rendering,
+						.params = "[scale]",
+						.summary = "scale the ambient fill (mood tuning, default 1.0)"},
 					   [this](const std::vector<std::string>& args) {
 						   if (!args.empty())
 							   m_world->SetAmbientScale(
@@ -999,7 +1105,10 @@ void Game::RegisterDevCommands() {
 						   m_console.Print(
 							   std::format("ambient x{:.2f}", m_world->AmbientScale()));
 					   });
-	m_console.Register("fov", "set camera field of view in degrees (default 70)",
+	m_console.Register({.name = "fov",
+						.group = CmdGroup::Settings,
+						.params = "[degrees]",
+						.summary = "camera field of view in degrees (default 70)"},
 					   [this](const std::vector<std::string>& args) {
 						   if (!args.empty())
 							   m_world->SetFov(static_cast<float>(std::atof(args[0].c_str())));

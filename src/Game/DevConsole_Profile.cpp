@@ -184,8 +184,16 @@ bool AtMaxDetail(const ProfRow& r) {
 // The `profile` command: the section's typed controls, and the only way in to
 // trace dumps and snapshots.
 void DevConsole::RegisterProfileCommand() {
-	Register("profile",
-			 "panel|dump|detail <path> <lvl>|smooth <secs>|snap <name> [secs]|snaps|diff <a> <b>",
+	Register({.name = "profile",
+			  .group = CmdGroup::Profiling,
+			  .params = "panel\n"
+						"dump\n"
+						"detail <path> <level>\n"
+						"smooth <secs>\n"
+						"snap <name> [secs]\n"
+						"snaps\n"
+						"diff <before> <after>",
+			  .summary = "the zone profiler: panel view, dumps, detail levels, snapshots and diffs"},
 			 [this](const std::vector<std::string>& args) {
 				 if constexpr (!prof::kEnabled) {
 					 Print("profiling is not compiled in (build debug-profile or "

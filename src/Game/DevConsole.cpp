@@ -94,23 +94,25 @@ DevConsole::DevConsole(ui::FontLibrary& fonts, threads::Manager& threadManager)
 	m_perf.StartOsSampler(threadManager);
 
 	// Generic built-ins. Gameplay-aware commands are registered by the Game.
-	Register("help", "list available commands", [this](const std::vector<std::string>&) {
-		for (const Command& cmd : m_commands)
-			Print(std::format("  {:<10} {}", cmd.name, cmd.help));
-	});
-	Register("clear", "clear the console output", [this](const std::vector<std::string>&) {
-		m_output.clear();
-		m_scroll = 0;
-	});
+	RegisterHelp();
+	Register({.name = "clear", .group = CmdGroup::Console, .summary = "clear the console output"},
+			 [this](const std::vector<std::string>&) {
+				 m_output.clear();
+				 m_scroll = 0;
+			 });
 	RegisterProfileCommand();
-	Register("echo", "echo the arguments", [this](const std::vector<std::string>& args) {
-		std::string line;
-		for (size_t i = 0; i < args.size(); ++i)
-			line += (i ? " " : "") + args[i];
-		Print(line);
-	});
+	Register({.name = "echo",
+			  .group = CmdGroup::Console,
+			  .params = "<text...>",
+			  .summary = "print the arguments back"},
+			 [this](const std::vector<std::string>& args) {
+				 std::string line;
+				 for (size_t i = 0; i < args.size(); ++i)
+					 line += (i ? " " : "") + args[i];
+				 Print(line);
+			 });
 
-	Print("Developer console - type 'help' for commands.");
+	Print("Developer console - type 'help' for commands, or start typing one.");
 }
 
 void DevConsole::Toggle() {
@@ -122,16 +124,13 @@ void DevConsole::Toggle() {
 	}
 }
 
-void DevConsole::Register(std::string name, std::string help,
-						  std::function<void(const std::vector<std::string>&)> fn) {
-	m_commands.push_back({std::move(name), std::move(help), std::move(fn)});
-}
+void DevConsole::Print(std::string line) { PrintLine({.text = std::move(line)}); }
 
-void DevConsole::Print(std::string line) {
+void DevConsole::PrintLine(OutLine line) {
 	// Mirrored BEFORE the move, and through the ordinary log so a mirrored run
 	// interleaves correctly with everything else the frame wrote — the point
 	// is to read ONE file and see the whole story in order.
-	if (m_mirrorToLog) log::Info("console: {}", line);
+	if (m_mirrorToLog) log::Info("console: {}", line.text);
 	m_output.push_back(std::move(line));
 	while (m_output.size() > kMaxOutput) m_output.pop_front();
 	m_scroll = 0; // jump to the newest line
@@ -160,20 +159,24 @@ bool DevConsole::Execute(const std::string& line) {
 	});
 	const std::vector<std::string> args(tokens.begin() + 1, tokens.end());
 
-	for (const Command& cmd : m_commands) {
-		if (cmd.name == name) {
-			if (gate) {
-				if (std::string why = gate(name); !why.empty()) {
-					Refuse(std::move(why));
-					return true;
-				}
-			}
-			cmd.fn(args);
+	const Command* cmd = FindCommand(name);
+	if (!cmd) {
+		Print("unknown command: " + name + " (type 'help' to list them)");
+		return false;
+	}
+	if (gate) {
+		if (std::string why = gate(name); !why.empty()) {
+			Refuse(std::move(why));
 			return true;
 		}
 	}
-	Print("unknown command: " + name);
-	return false;
+	// Restored rather than cleared: a handler may run another line (the eval
+	// runner does), and the outer command's usage must survive the inner one.
+	const Command* outer = m_running;
+	m_running = cmd;
+	cmd->fn(args);
+	m_running = outer;
+	return true;
 }
 
 void DevConsole::SampleHistory(float dt, const gfx::GraphicsDevice& device) {
@@ -269,12 +272,31 @@ void DevConsole::Update(const Input& input, float dt, float windowW, float windo
 	}
 
 	// Typed characters (skip the toggle key so `~`/backtick never self-types).
-	for (char c : input.TypedChars())
-		if (c != '`' && c != '~') m_input.push_back(c);
+	// Any edit re-opens the type-ahead list; see m_suggestOpen for why a history
+	// recall does not.
+	bool edited = false;
+	for (char c : input.TypedChars()) {
+		if (c == '`' || c == '~') continue;
+		m_input.push_back(c);
+		edited = true;
+	}
+	if (input.WasKeyPressed(VK_BACK) && !m_input.empty()) {
+		m_input.pop_back();
+		edited = true;
+	}
+	if (edited) {
+		m_suggestOpen = true;
+		m_suggestSel = 0;
+		m_historyIndex = -1;
+	}
+	RefreshSuggestions();
 
-	if (input.WasKeyPressed(VK_BACK) && !m_input.empty()) m_input.pop_back();
+	// The type-ahead takes Tab, Up/Down and Esc while its list shows, and Enter
+	// on a half-typed name. What it does not claim falls through to the ordinary
+	// editing below - so Enter, history and Esc all sit behind this one flag.
+	const bool suggestConsumed = UpdateSuggest(input);
 
-	if (input.WasKeyPressed(VK_RETURN)) {
+	if (!suggestConsumed && input.WasKeyPressed(VK_RETURN)) {
 		if (!m_input.empty()) {
 			m_history.push_back(m_input);
 			// Gated while a staged load runs (see SetCommandsEnabled): the
@@ -285,17 +307,20 @@ void DevConsole::Update(const Input& input, float dt, float windowW, float windo
 			m_input.clear();
 		}
 		m_historyIndex = -1;
+		m_suggestOpen = false;
 	}
 
-	// Command history recall.
-	if (input.WasKeyPressed(VK_UP) && !m_history.empty()) {
+	// Command history recall. A recalled line leaves the type-ahead list shut
+	// (see m_suggestOpen), so the next Up steps further back.
+	if (!suggestConsumed && input.WasKeyPressed(VK_UP) && !m_history.empty()) {
 		if (m_historyIndex == -1)
 			m_historyIndex = static_cast<int>(m_history.size()) - 1;
 		else if (m_historyIndex > 0)
 			--m_historyIndex;
 		m_input = m_history[static_cast<size_t>(m_historyIndex)];
+		m_suggestOpen = false;
 	}
-	if (input.WasKeyPressed(VK_DOWN) && m_historyIndex != -1) {
+	if (!suggestConsumed && input.WasKeyPressed(VK_DOWN) && m_historyIndex != -1) {
 		if (m_historyIndex < static_cast<int>(m_history.size()) - 1) {
 			++m_historyIndex;
 			m_input = m_history[static_cast<size_t>(m_historyIndex)];
@@ -303,6 +328,7 @@ void DevConsole::Update(const Input& input, float dt, float windowW, float windo
 			m_historyIndex = -1;
 			m_input.clear();
 		}
+		m_suggestOpen = false;
 	}
 
 	// The wheel goes to whatever is UNDER it: the readout panel while the cursor
@@ -325,7 +351,13 @@ void DevConsole::Update(const Input& input, float dt, float windowW, float windo
 		}
 	}
 
-	if (input.WasKeyPressed(VK_ESCAPE)) m_open = false;
+	// Esc shuts an open type-ahead list first (UpdateSuggest claims it), and only
+	// a second Esc closes the console - the popup-first rule GameUI follows.
+	if (!suggestConsumed && input.WasKeyPressed(VK_ESCAPE)) m_open = false;
+
+	// Again, after Enter / a recall / a completion changed the line, so Render
+	// never draws suggestions for the line before this frame's keys.
+	RefreshSuggestions();
 }
 
 // The collapse control every section header carries. Its face names what a
@@ -453,9 +485,28 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 	const int start = std::max(0, end - visible);
 	float ly = logBottom - line;
 	for (int i = end - 1; i >= start; --i) {
-		m_font->Draw(batch, m_output[static_cast<size_t>(i)], labelX, ly, kText);
+		const OutLine& o = m_output[static_cast<size_t>(i)];
+		if (o.style == LineStyle::Header) {
+			m_font->Draw(batch, o.text, labelX, ly, kAccent);
+		} else if (o.style == LineStyle::Row) {
+			// Mono, so each column's x is its byte offset's width - the padding
+			// spaces are in the text and the three draws land on the same grid.
+			const std::string_view t = o.text;
+			const size_t a = std::min<size_t>(o.nameEnd, t.size());
+			const size_t b = std::clamp<size_t>(o.paramsEnd, a, t.size());
+			m_font->Draw(batch, t.substr(0, a), labelX, ly, kAccent);
+			m_font->Draw(batch, t.substr(a, b - a), labelX + m_font->MeasureWidth(t.substr(0, a)),
+						 ly, kText);
+			m_font->Draw(batch, t.substr(b), labelX + m_font->MeasureWidth(t.substr(0, b)), ly,
+						 kDim);
+		} else {
+			m_font->Draw(batch, o.text, labelX, ly, kText);
+		}
 		ly -= line;
 	}
+
+	// Last, so the type-ahead box sits OVER the scrollback it shares room with.
+	DrawSuggest(batch, width, inputY, line, pad, labelX);
 }
 
 } // namespace dungeon::game
