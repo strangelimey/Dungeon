@@ -414,16 +414,22 @@ HudDocks BuildHudDocks(ui::FloatingLayer& layer, const ControlBarDeps& deps) {
 	auto width = [columnW](ui::UIContext& ctx, float s) { return ctx.Width() * columnW * s; };
 	auto right = [margin](ui::UIContext& ctx) { return ctx.Width() * (1.0f - margin); };
 	auto gap = [move](ui::UIContext& ctx) { return move->EmAt(ctx, 1.0f) * kDockGap; };
-	// The DEFAULT tops: the column top, then each dock below the one above at
-	// that one's height and current scale - shown or minimized, so no reflow
-	// when one goes into the tray.
+	// The DEFAULT tops: the column top, then each dock below the SHOWN ones
+	// above it, at their heights and current scales. A dock minimized into the
+	// tray gives its place up (Michael: with Movement closed, Hands moves up and
+	// Magic stretches to fill) - which only moves docks still on their default
+	// spots; one the player placed stays where they put it.
+	const bool* moveHidden = &moveLook->hidden;
+	const bool* handsHidden = hands ? &handsLook->hidden : nullptr;
 	auto moveTop = [columnTop](ui::UIContext& ctx) { return columnTop ? columnTop(ctx) : 0.0f; };
 	auto handsTop = [=](ui::UIContext& ctx) {
+		if (*moveHidden) return moveTop(ctx);
 		const float s = moveLook->scale;
 		return moveTop(ctx) + MoveHeight(width(ctx, s), move->EmAt(ctx, s)) + gap(ctx);
 	};
 	// (The hands' em is any dock's at that scale: all three share the HUD's font.)
 	auto magicTop = [=](ui::UIContext& ctx) {
+		if (!handsHidden || *handsHidden) return handsTop(ctx);
 		const float s = handsLook->scale;
 		return handsTop(ctx) + HandsHeight(width(ctx, s), move->EmAt(ctx, s), rows) + gap(ctx);
 	};
@@ -448,9 +454,10 @@ HudDocks BuildHudDocks(ui::FloatingLayer& layer, const ControlBarDeps& deps) {
 	}
 
 	// Magic's height at scale 1 is what the default column leaves below the
-	// other two at THEIR scale 1 - a fixed number, so resizing the hands does
-	// not resize the magic dock - and it scales from there like the others. The
-	// Minimal layout says both its height and its spot itself.
+	// SHOWN other two at THEIR scale 1 - so resizing the hands does not resize
+	// the magic dock, but minimizing one hands Magic its room - and it scales
+	// from there like the others. The Minimal layout says both its height and
+	// its spot itself.
 	const std::function<float(ui::UIContext&)> magicHeight1 = deps.magicHeight1;
 	const std::function<Vec2(ui::UIContext&)> magicDefaultPos = deps.magicDefaultPos;
 	magic->size = [=](ui::UIContext& ctx, float s) {
@@ -458,8 +465,9 @@ HudDocks BuildHudDocks(ui::FloatingLayer& layer, const ControlBarDeps& deps) {
 		const DockMetrics m = MetricsFor(w, em, true);
 		if (magicHeight1) return Vec2{w, std::max(m.Minimized(), magicHeight1(ctx) * s)};
 		const float w1 = width(ctx, 1.0f), em1 = magic->EmAt(ctx, 1.0f);
-		const float top1 = moveTop(ctx) + MoveHeight(w1, em1) + gap(ctx) +
-						   HandsHeight(w1, em1, rows) + gap(ctx);
+		float top1 = moveTop(ctx);
+		if (!*moveHidden) top1 += MoveHeight(w1, em1) + gap(ctx);
+		if (handsHidden && !*handsHidden) top1 += HandsHeight(w1, em1, rows) + gap(ctx);
 		const float bottom = columnBottom ? columnBottom(ctx) : ctx.Height();
 		return Vec2{w, std::max(m.Minimized(), (bottom - top1) * s)};
 	};

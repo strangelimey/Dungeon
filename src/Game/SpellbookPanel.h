@@ -116,6 +116,12 @@ private:
 	gfx::Rect SequenceRect(const gfx::Rect& px, size_t i) const;
 	gfx::Rect CastRect(const gfx::Rect& px) const;
 	gfx::Rect ClearRect(const gfx::Rect& px) const;
+	// The height every VERTICAL measure is a fraction of: the panel's own, but
+	// never more than kRefAspect of its width. A Magic dock stretched to fill a
+	// column (Movement minimized) keeps its rows and buttons the size they
+	// were tuned at; only the gap between the grid and the sequence grows
+	// (Michael: Cast / Clear "shouldn't scale the same").
+	static float RefH(const gfx::Rect& px);
 	// The spell the sequence spells out, if any.
 	const Spell* Match() const;
 	// (Rune faces draw through PartyHudDraw's DrawRuneFace, shared with the
@@ -132,6 +138,7 @@ private:
 	// animation, laid out each frame over CastRect / ClearRect.
 	ui::Button* m_castButton = nullptr;
 	ui::Button* m_clearButton = nullptr;
+	ui::Widget* m_memberRow = nullptr; // placed each layout (RefH)
 	std::string m_placeholder, m_castLabel, m_clearLabel; // localized once
 };
 

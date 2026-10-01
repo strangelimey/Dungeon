@@ -23,10 +23,11 @@
 //     closed-panels tray brings it back (ui-updates Phase 8, Game/HudTray.h; it
 //     used to shrink to its header strip). The flag is the panel's own
 //     HudPanelLook::hidden; the Hands dock minimizes too, by its Ctrl button.
-//   - Minimizing a panel DOES NOT MOVE THE OTHERS: a panel's DEFAULT spot comes
-//     from the others' SHOWN sizes whether they are shown or not. That was "the
-//     first half of later, each panel resizable and movable with the mouse",
-//     and floating is the second.
+//   - Minimizing a dock CLOSES UP THE COLUMN (Michael, ui-updates: with
+//     Movement closed, "the hands panel moves up and the magic panel expands
+//     vertically to fill the rest"): a dock's DEFAULT spot stacks under the
+//     SHOWN docks above it, and Magic's default height is what they leave. Only
+//     docks still on their default spots move - one the player placed stays.
 //   - Magic is not shown at all until some member KNOWS A SYMBOL (it appears the
 //     moment one is learned). Derived every layout from the roster, never
 //     latched, so a load or a roster change is right with no notification.

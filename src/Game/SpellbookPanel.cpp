@@ -30,6 +30,10 @@ constexpr float kCastH = 0.125f;
 constexpr float kCastGap = 0.036f; // between Cast and Clear
 constexpr float kSeqAboveCast = 0.03f;
 constexpr float kNameAboveSeq = 0.07f; // the spell name's gap above the sequence
+// The tallest the vertical fractions above are taken of, as a share of the
+// panel's width (SpellbookPanel::RefH): about the default dock's shape before
+// the tray took a strip off it, the shape every number here was tuned at.
+constexpr float kRefAspect = 0.9f;
 
 // The glow's pulse for rune `slot`: one breath every ~3.4 s of REAL time (the
 // bars' clock, so rest's 60x never hurries it), each slot ~75 degrees behind
@@ -50,7 +54,7 @@ SpellbookPanel::SpellbookPanel(const gfx::Rect& rect,
 	debugName = "SpellbookPanel";
 	// The selector row and Cast / Clear are children; the rune grid and the
 	// sequence row stay this panel's own (docs/ui-hierarchy.md says why).
-	Add<MemberRow>(gfx::Rect{kPadX, kMemberY, 1.0f - 2.0f * kPadX, kMemberH},
+	m_memberRow = Add<MemberRow>(gfx::Rect{kPadX, kMemberY, 1.0f - 2.0f * kPadX, kMemberH},
 				   roster, &m_member,
 				   [this](size_t i) { return MemberEligible(i); },
 				   [this](size_t i) {
@@ -78,11 +82,27 @@ void SpellbookPanel::SetActionIcons(const gfx::Texture* cast, const gfx::Texture
 	m_clearButton->tooltip = clear ? m_clearLabel : std::string();
 }
 
+float SpellbookPanel::RefH(const gfx::Rect& px) {
+	return std::min(px.h, px.w * kRefAspect);
+}
+
 void SpellbookPanel::LayoutSelf(ui::UIContext&) {
 	// Cast / Clear fill their row (CastRect / ClearRect) and only act on a
 	// spelled sequence; with no book open they are not there at all.
 	const gfx::Rect px = Pixel();
 	const bool open = m_member >= 0 && px.w > 0.0f && px.h > 0.0f;
+	// The member row, at its tuned height however tall the panel is, spanning
+	// the panel so each button can sit exactly over the school rune in its
+	// column (Michael: "line them up ... so one is above the other").
+	if (px.w > 0.0f && px.h > 0.0f) {
+		const float k = RefH(px) / px.h;
+		m_memberRow->bounds = {0.0f, kMemberY * k, 1.0f, kMemberH * k};
+		size_t i = 0;
+		for (const auto& button : m_memberRow->Children()) {
+			const gfx::Rect cell = SymbolRect(px, i++);
+			button->bounds = {(cell.x - px.x) / px.w, 0.0f, cell.w / px.w, 1.0f};
+		}
+	}
 	const auto place = [&](ui::Button* b, const gfx::Rect& r) {
 		b->visible = open;
 		if (!open) return;
@@ -207,7 +227,7 @@ gfx::Rect SpellbookPanel::SymbolRect(const gfx::Rect& px, size_t i) const {
 	// Rows keep the authored gap: only the columns spread.
 	const float rowGap = kGridGap * px.w;
 	return {px.x + pad + (cell + gap) * static_cast<float>(i % 4),
-			px.y + kGridY * px.h + (cell + rowGap) * static_cast<float>(i / 4), cell,
+			px.y + kGridY * RefH(px) + (cell + rowGap) * static_cast<float>(i / 4), cell,
 			cell};
 }
 
@@ -217,7 +237,7 @@ gfx::Rect SpellbookPanel::SequenceRect(const gfx::Rect& px, size_t i) const {
 	const float cell =
 		(px.w - 2 * pad - gap * static_cast<float>(kMaxSequence - 1)) /
 		static_cast<float>(kMaxSequence);
-	const float y = CastRect(px).y - kSeqAboveCast * px.h - cell;
+	const float y = CastRect(px).y - kSeqAboveCast * RefH(px) - cell;
 	return {px.x + pad + (cell + gap) * static_cast<float>(i), y, cell, cell};
 }
 
@@ -225,7 +245,7 @@ gfx::Rect SpellbookPanel::CastRect(const gfx::Rect& px) const {
 	const float pad = kPadX * px.w;
 	const float gap = kCastGap * px.w;
 	const float w = (px.w - 2 * pad - gap) / 2.0f;
-	const float h = kCastH * px.h;
+	const float h = kCastH * RefH(px);
 	// Flush with the panel's bottom: the dock around it (ControlBar.h HudDock)
 	// already pads that edge, and a second pad here left the row floating
 	// (Michael, 2026-09-30). The sequence row hangs off this one, so it follows.
@@ -352,7 +372,7 @@ void SpellbookPanel::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	// line — the pressed button and portrait row already say whose book.)
 	if (!c) {
 		font.Draw(batch, m_placeholder, px.x + kPadX * px.w,
-				  px.y + (kMemberY + kMemberH + 0.025f) * px.h, theme.textDim);
+				  px.y + (kMemberY + kMemberH + 0.025f) * RefH(px), theme.textDim);
 		return;
 	}
 
@@ -400,7 +420,7 @@ void SpellbookPanel::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const gfx::Rect seq0 = SequenceRect(px, 0);
 	if (const Spell* def = Match(); def && c->HasLearnedSpell(def->Id())) {
 		const float x = px.x + kPadX * px.w;
-		const float y = seq0.y - kNameAboveSeq * px.h - font.Height();
+		const float y = seq0.y - kNameAboveSeq * RefH(px) - font.Height();
 		font.Draw(batch, loc::View(def->NameKey()), x, y, theme.accent);
 	}
 	// (Cast / Clear are child ui::Buttons and draw themselves.)
