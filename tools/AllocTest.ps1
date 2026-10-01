@@ -18,6 +18,7 @@
 #   .\tools\AllocTest.ps1 -Minimal [-Sheet]  # any mode, under the party-card layout
 #   .\tools\AllocTest.ps1 -Items             # pack -> cursor -> floor -> cursor -> pack
 #   .\tools\AllocTest.ps1 -Packs             # swap a 4-slot and an 8-slot bag
+#   .\tools\AllocTest.ps1 -Throw             # lift a rock, throw it at a wall, again
 #   .\tools\AllocTest.ps1 -Config release    # needs -DDN_TRACK_ALLOCS=ON
 #
 # THE RULE HAS NO EXCEPTIONS: an allocation in a settled frame is a bug, and
@@ -240,6 +241,9 @@ param(
 	[string]$MeasureItem = 'rune_water',
 	# Swaps a small and a big bag in the pack row inside the window. See above.
 	[switch]$Packs,
+	# Lifts a rock off the floor and throws it at a wall, round and round,
+	# inside the window (ui-updates Phase 10). See the note at the setup.
+	[switch]$Throw,
 	# Checks the CHECKER: makes the game allocate every frame on purpose
 	# (`allocpoke`) and passes only if the run comes back FAIL.
 	[switch]$SelfTest
@@ -248,7 +252,7 @@ param(
 $ErrorActionPreference = 'Stop'
 # -Items spends about four armed seconds a round trip and needs two whole ones
 # inside the window, so its default window is longer.
-if ($Items -and -not $PSBoundParameters.ContainsKey('Seconds')) { $Seconds = 20 }
+if (($Items -or $Throw) -and -not $PSBoundParameters.ContainsKey('Seconds')) { $Seconds = 20 }
 $root = Split-Path -Parent $PSScriptRoot
 $bin = Join-Path $root "build\$Config\bin"
 
@@ -1020,6 +1024,66 @@ try {
 		Start-Sleep -Milliseconds 400
 	}
 
+	# -Throw (ui-updates Phase 10): THROWING, by clicks - a lift off the floor,
+	# a click above the floor's horizon that throws it, the flight, the wall it
+	# hits and the landing. The party stands one square back from eval_arena's
+	# north wall (14,2 facing north), so every throw hits the wall and comes
+	# down in the square ahead - in its FIRST free quarter, slot 0, which facing
+	# north is the far-left one: exactly -Items' floor point. So the loop needs
+	# no feedback: lift there, throw high, wait out throw_interval, again.
+	if ($Throw) {
+		Write-Host 'going to eval_arena''s north wall with a rock'
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		Enter-FrozenArena
+		Send-Text 'tp 14 3'; Send-Key 0x0D
+		Send-Text 'face n'; Send-Key 0x0D
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 400
+		Send-Key 0x57 # W: one step forward, which reveals the squares round it
+		Start-Sleep -Seconds 1
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 400
+		Assert-PartyAt 14 2
+		$rc = New-Object AllocTestWin+RECT
+		[AllocTestWin]::GetClientRect($hwnd, [ref]$rc) | Out-Null
+		$script:clientW = [double]$rc.Right; $script:clientH = [double]$rc.Bottom
+		# The floor point as -Items works it out (see there), and a point well
+		# above the horizon: the ray never meets the floor, so it is a throw.
+		$ndc = (1.55 / 3.3) / [math]::Tan(35 * [math]::PI / 180)
+		$script:floorX = [int]($script:clientW * 0.40)
+		$script:floorY = [int]($script:clientH * (0.5 + $ndc / 2))
+		$script:skyX = [int]($script:clientW * 0.50)
+		$script:skyY = [int]($script:clientH * 0.30)
+		# The first rock comes from nowhere: the leader throws one, and it lands
+		# where every later one will.
+		Send-Text 'tally reset'; Send-Key 0x0D
+		Send-Text 'throw rock'; Send-Key 0x0D
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 1500
+		# WARM-UP, and the check that the loop's clicks land: one whole cycle by
+		# hand. A first throw's sound voice and the like are first times for the
+		# PROCESS, not steady costs.
+		Send-Click $script:floorX $script:floorY
+		Start-Sleep -Milliseconds 300
+		Send-Click $script:skyX $script:skyY
+		Start-Sleep -Milliseconds 1500
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		$throws = Get-TallyField 'throws'
+		$lifts = Get-LastTallyField 'lifts'
+		$landed = (Get-LastTallyField 'throwlandings') + (Get-LastTallyField 'throwstrikes')
+		if ($throws -ne 2 -or $lifts -ne 1 -or $landed -ne 2) {
+			throw "the warm-up throw went wrong (throws=$throws lifts=$lifts landed=$landed) - " +
+				"floor $($script:floorX),$($script:floorY), sky $($script:skyX),$($script:skyY)"
+		}
+		Write-Host "  warm-up throw ok (floor point $($script:floorX),$($script:floorY))"
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0 # close the console again; alloctest reopens it below
+		Start-Sleep -Milliseconds 400
+	}
+
 	if ($Packs) {
 		Write-Host 'putting an ammo pouch in the pack row and a herb pouch on the cursor'
 		Send-Key 0xC0
@@ -1164,6 +1228,21 @@ try {
 		}
 	}
 
+	# -Throw: lift the rock from the square ahead and throw it at the wall, a
+	# round every ~2 s (throw_interval is 1 s, and the flight and landing take
+	# well under one). The first wait clears the console close plus the guard's
+	# warm-up, so the first lift is armed.
+	if ($Throw) {
+		Start-Sleep -Seconds 3
+		for ($cycle = 1; $cycle -le 6; $cycle++) {
+			if (Select-String -Path $log -Pattern 'alloctest RESULT=' -Quiet) { break }
+			Send-Click $script:floorX $script:floorY
+			Start-Sleep -Milliseconds 300
+			Send-Click $script:skyX $script:skyY
+			Start-Sleep -Milliseconds 1700
+		}
+	}
+
 	# The command closes the console itself, then spends its budget on armed
 	# frames only; its own deadline guarantees a line either way.
 	$line = Wait-ForLog 'alloctest RESULT=' ($Seconds * 4 + 60) 'the alloctest result'
@@ -1175,7 +1254,7 @@ try {
 	# logs the harness tally, which the window's first ARMED frame restarted.
 	# (Asking `tally` afterwards used to count the console's frames, the
 	# guard's warm-up and whatever landed while the question was being typed.)
-	if ($Melee -or $Impact -or $Items) {
+	if ($Melee -or $Impact -or $Items -or $Throw) {
 		$script:lastTally = (Wait-ForLog 'alloctest window TALLY ' 10 'the window tally') -replace '^.*TALLY ', 'TALLY '
 		Write-Host "  in the window: $script:lastTally"
 	}
@@ -1241,6 +1320,19 @@ try {
 		Write-Host "  floor drops / lifts inside the window: $drops / $lifts"
 		if (($drops -lt 2 -or $lifts -lt 2) -and $result -eq 'PASS') {
 			Write-Host 'fewer than two round trips inside the window - the item moves were not measured' -ForegroundColor Yellow
+			$result = 'UNMEASURED'
+		}
+	}
+
+	# And for -Throw: two lifts, two throws and two flights that came down,
+	# inside the window - or a click missed and the throw was not measured.
+	if ($Throw) {
+		$throws = Get-LastTallyField 'throws'
+		$lifts = Get-LastTallyField 'lifts'
+		$landed = (Get-LastTallyField 'throwlandings') + (Get-LastTallyField 'throwstrikes')
+		Write-Host "  lifts / throws / came down inside the window: $lifts / $throws / $landed"
+		if (($lifts -lt 2 -or $throws -lt 2 -or $landed -lt 2) -and $result -eq 'PASS') {
+			Write-Host 'fewer than two whole throws inside the window - throwing was not measured' -ForegroundColor Yellow
 			$result = 'UNMEASURED'
 		}
 	}

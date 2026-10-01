@@ -35,7 +35,17 @@ void ProjectileSystem::Spawn(const ProjectileSpec& spec) {
 	it.attacker = spec.attacker;
 	it.shooter = spec.shooter;
 	it.payload = spec.payload;
+	it.cargo = spec.cargo;
 	m_items.push_back(it);
+}
+
+void ProjectileSystem::LandCargo() {
+	for (Item& it : m_items)
+		if (it.cargo) {
+			Expire(it, ExpiryCause::Range);
+			it.rangeLeft = -1.0f;
+		}
+	std::erase_if(m_items, [](const Item& it) { return it.rangeLeft <= 0.0f; });
 }
 
 std::vector<ProjectileInfo> ProjectileSystem::Live() const {
@@ -58,6 +68,9 @@ bool ProjectileSystem::Find(u32 id, ProjectileInfo& out) const {
 }
 
 bool ProjectileSystem::Remove(u32 id) {
+	// A thrown item is landed where it is, never dismissed into nothing.
+	for (const Item& it : m_items)
+		if (it.id == id && it.cargo) Expire(it, ExpiryCause::Range);
 	return std::erase_if(m_items, [id](const Item& it) { return it.id == id; }) > 0;
 }
 
@@ -75,10 +88,26 @@ void ProjectileSystem::SpawnSparkBurst(const Vec3& pos, const Vec4& color, int c
 	}
 }
 
+void ProjectileSystem::Puff(const Vec3& pos, const Vec4& color, int count, float spread,
+							 float life, float size) {
+	auto r = [&] { return (static_cast<float>(m_rng() & 0xFFFF) / 32768.0f) - 1.0f; };
+	for (int i = 0; i < count; ++i) {
+		Spark s;
+		s.pos = {pos.x + r() * 0.6f, pos.y + r() * 0.25f, pos.z + r() * 0.6f};
+		s.vel = {r() * spread, 0.15f + r() * spread * 0.3f, r() * spread};
+		s.color = {color.x, color.y, color.z, 0.0f}; // additive
+		s.life = life * (0.75f + 0.25f * (r() + 1.0f));
+		s.size = size;
+		s.fall = -0.2f; // drifts up, as warm air or a cloud does
+		s.swell = true;
+		m_sparks.push_back(s);
+	}
+}
+
 void ProjectileSystem::Expire(const Item& it, ExpiryCause cause) {
 	if (!onExpire) return;
 	onExpire({it.pos, it.dir, cause, it.target, it.atk, it.payload, it.attacker,
-			  it.shooter});
+			  it.shooter, it.cargo});
 }
 
 void ProjectileSystem::Update(float dt) {
@@ -86,7 +115,7 @@ void ProjectileSystem::Update(float dt) {
 	for (Spark& s : m_sparks) {
 		s.age += dt;
 		s.pos = Add(s.pos, Scale(s.vel, dt));
-		s.vel.y -= 3.5f * dt;
+		s.vel.y -= s.fall * dt;
 	}
 	std::erase_if(m_sparks, [](const Spark& s) { return s.age >= s.life; });
 
@@ -97,6 +126,7 @@ void ProjectileSystem::Update(float dt) {
 		const float step = it.speed * dt;
 		it.pos = Add(it.pos, Scale(it.dir, step));
 		it.rangeLeft -= step;
+		it.age += dt;
 
 		if (isBlocked && isBlocked(it.pos, it.dir)) { // hit a wall (or left the map)
 			SpawnSparkBurst(it.pos, it.color, 8);
@@ -107,7 +137,7 @@ void ProjectileSystem::Update(float dt) {
 
 		if (resolveHit &&
 			resolveHit(it.target, {it.pos, it.dir, it.atk, it.push, it.attacker,
-								   it.shooter, it.payload})) { // struck a target
+								   it.shooter, it.payload, it.cargo})) { // struck a target
 			SpawnSparkBurst(it.pos, it.color, 14);
 			it.rangeLeft = -1.0f;
 			continue;
@@ -122,11 +152,17 @@ void ProjectileSystem::Update(float dt) {
 }
 
 void ProjectileSystem::AppendBillboards(std::vector<gfx::ParticleInstance>& out) const {
-	for (const Item& it : m_items) out.push_back({it.pos, it.size, it.color});
+	// A thrown item draws as itself (the host's ForEachCargo), not a glow.
+	for (const Item& it : m_items)
+		if (!it.cargo) out.push_back({it.pos, it.size, it.color});
 	for (const Spark& s : m_sparks) {
-		const float fade = 1.0f - s.age / s.life; // dim as it ages
-		out.push_back(
-			{s.pos, s.size, {s.color.x * fade, s.color.y * fade, s.color.z * fade, 0.0f}});
+		const float t = s.age / s.life;
+		const float fade = 1.0f - t; // dim as it ages
+		// A puff fades in over its first fifth and swells as it thins.
+		const float in = s.swell ? std::min(1.0f, t * 5.0f) : 1.0f;
+		const float size = s.swell ? s.size * (0.6f + 0.8f * t) : s.size;
+		out.push_back({s.pos, size,
+					   {s.color.x * fade * in, s.color.y * fade * in, s.color.z * fade * in, 0.0f}});
 	}
 }
 

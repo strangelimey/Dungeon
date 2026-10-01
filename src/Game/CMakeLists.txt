@@ -45,6 +45,7 @@ add_library(Game STATIC
 	DungeonWorld_Resize.cpp
 	DungeonWorld_Render.cpp
 	DungeonWorld_Save.cpp
+	DungeonWorld_Throw.cpp
 	DungeonWorld_Undo.cpp
 	DungeonWorld_Validate.cpp
 	Effect/AllEffects.cpp

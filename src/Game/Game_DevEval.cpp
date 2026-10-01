@@ -523,10 +523,12 @@ std::string Game::TallyLine() const {
 	return std::format(
 		"TALLY dealt={:.1f} taken={:.1f} swings={} hits={} misses={} hitrate={} "
 		"crits={} fumbles={} slain={} downed={} secs={:.1f} bolthits={} "
-		"boltmisses={} expired={} blasts={} drops={} lifts={}",
+		"boltmisses={} expired={} blasts={} drops={} lifts={} throws={} "
+		"throwstrikes={} throwlandings={}",
 		t.dealt, t.taken, swings, t.hits, t.misses, rate, t.crits, t.fumbles,
 		t.monstersSlain, t.membersDowned, t.seconds, t.boltHits, t.boltMisses,
-		t.expiries, t.blasts, t.drops, t.lifts);
+		t.expiries, t.blasts, t.drops, t.lifts, t.throws, t.throwStrikes,
+		t.throwLandings);
 }
 
 } // namespace dungeon::game

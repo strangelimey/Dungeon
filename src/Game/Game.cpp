@@ -1013,6 +1013,9 @@ bool Game::SaveGame(const std::string& name) {
 	// An item on the cursor is party-level state — save it as such, leaving the
 	// live session's held item untouched (restored to the cursor on load).
 	if (m_heldItem) data.heldItem = *m_heldItem;
+	// A thrown item in the air is not saved as a flight: it comes down first,
+	// and is saved where it lies (Phase 10).
+	m_world->LandThrownItems();
 
 	data.world = m_worldState; // the global tier (docs/world-map.md)
 	// On the world map the level underneath is not where the party IS: a parked
@@ -2288,8 +2291,12 @@ void Game::UpdateStates(float dt) {
 		// standing to lead, the hand does nothing in the world.
 		if (input.WasMousePressed(MouseButton::Left) && m_world->LeaderMember()) {
 			if (m_heldItem) {
-				m_world->DropItemAt(*m_heldItem, mx, my, w, h);
-				m_heldItem.reset();
+				// THROW OR DROP (Phase 10): a click on reachable floor (or an
+				// open niche) lays it there; any other click throws it. A throw
+				// the leader cannot make yet keeps it in the hand.
+				if (m_world->DropItemAt(*m_heldItem, mx, my, w, h) ||
+					m_world->ThrowItem(*m_heldItem))
+					m_heldItem.reset();
 			} else if (const std::string* picked = m_world->TryPickItem(mx, my, w, h)) {
 				OnItemFound(*picked); // quest / flag / reveal hooks
 				m_heldItem = *picked; // into the cursor's own buffer (HeldItem)

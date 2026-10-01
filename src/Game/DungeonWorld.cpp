@@ -238,7 +238,8 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_projectiles.resolveHit = [this](TargetSide side, const ProjectileImpact& impact) {
 		switch (side) {
 		case TargetSide::Monsters:
-			return ResolveSpellHit(impact); // a party spell strikes a monster
+			// A thrown item, or a party spell, strikes a monster.
+			return impact.cargo ? ResolveThrowHit(impact) : ResolveSpellHit(impact);
 		case TargetSide::Party:
 			// A monster bolt strikes the party (push doesn't apply — the party
 			// isn't displaceable; a future gust trap would need its own path).
@@ -247,7 +248,9 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		return false;
 	};
 	m_projectiles.onExpire = [this](const ProjectileExpiry& expiry) {
-		ResolveProjectileExpiry(expiry);
+		// A thrown item comes down; a bolt bursts or goes out.
+		if (expiry.cargo) LandThrown(expiry);
+		else ResolveProjectileExpiry(expiry);
 	};
 }
 
@@ -398,6 +401,8 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 	m_party.Update(dt);
 	// A leader who fell last frame - to anything - hands the lead on.
 	PassLeadIfDown(true);
+	// Every member's wait after a throw runs down on world time.
+	for (float& wait : m_throwCooldown) wait = std::max(0.0f, wait - dt);
 
 	// Door leaves travel toward their open/shut target. The DURATION is per type
 	// (doors.cat `open_seconds`), because a stone slab that grinds and a wooden

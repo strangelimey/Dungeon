@@ -95,6 +95,15 @@ rest_scale = 60
 ; the benefit is invisible until the worst-trained one has it.
 pace_slope = 0.02
 pace_cap = 0.4
+throw_base = 2
+throw_weight = 2
+throw_speed = 9
+throw_speed_skill = 0.4
+throw_speed_weight = 1.5
+throw_speed_min = 3
+throw_range = 4
+throw_stamina = 1
+throw_interval = 1
 stamina_swing = 1
 stamina_weight = 0.4
 stamina_step = 0.1

@@ -104,6 +104,15 @@ constexpr BalanceField kBalanceFields[] = {
 	{"rest_scale", &Balance::restScale},
 	{"pace_slope", &Balance::paceSlope},
 	{"pace_cap", &Balance::paceCap},
+	{"throw_base", &Balance::throwBase},
+	{"throw_weight", &Balance::throwWeight},
+	{"throw_speed", &Balance::throwSpeed},
+	{"throw_speed_skill", &Balance::throwSpeedSkill},
+	{"throw_speed_weight", &Balance::throwSpeedWeight},
+	{"throw_speed_min", &Balance::throwSpeedMin},
+	{"throw_range", &Balance::throwRange},
+	{"throw_stamina", &Balance::throwStamina},
+	{"throw_interval", &Balance::throwInterval},
 	{"stamina_swing", &Balance::staminaSwing},
 	{"stamina_weight", &Balance::staminaWeight},
 	{"stamina_step", &Balance::staminaStep},
@@ -185,6 +194,10 @@ Balance::Balance() {
 		{"swing", "bash", {}, 1.0f, 0.0f, 1.0f, 1.2f},
 		{"punch", "bash", {}, 1.0f, 0.0f, 1.0f, 0.8f},
 		{"kick", "bash", {}, 1.15f, 0.0f, 1.15f, 1.2f},
+		// A THROWN thing that is not a weapon (ui-updates Phase 10): a rock, a
+		// key, a loaf. A weapon is thrown as its own first attack instead, and an
+		// item can name any of these (`throw = stab` for a throwing star).
+		{"throw", "bash", {}, 1.0f, 0.0f, 1.0f, 1.0f},
 	};
 	m_neutral = {"", "bash", {}, 1.0f, 0.0f, 1.0f, 1.0f};
 }

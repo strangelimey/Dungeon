@@ -78,6 +78,10 @@ inline constexpr size_t kMaxPayloadProcs = 4;
 // side you are on, and positioning is the price of throwing one.
 struct BlastSpec {
 	blast::Rules rules; // Game/Blast.h — force, falloff, expansion rate, persistence
+	// Its LOOK (`blast_color`): the glow of the puffs it fills each square with.
+	// Unset = its damage type's element colour.
+	Vec4 color{0, 0, 0, 0};
+	bool hasColor = false;
 	bool Any() const { return rules.Any(); }
 };
 
@@ -136,6 +140,10 @@ struct ProjectileSpec {
 	int attacker = -1;       // party roster index, -1 = not a party shot
 	u32 shooter = 0;         // monster runtimeId, 0 = not a monster shot
 	ProjectilePayload payload{}; // what it leaves behind, on a hit or on expiry
+	// A THROWN ITEM (ui-updates Phase 10): the thing in flight, opaque to this
+	// engine - the host's item kind, which it lands when the flight ends and
+	// draws as itself (no billboard). Null = a bolt.
+	const void* cargo = nullptr;
 };
 
 // Everything the owner needs to resolve one impact: where it landed, the strike
@@ -151,6 +159,7 @@ struct ProjectileImpact {
 	int attacker = -1; // party roster index, -1 = not a party shot
 	u32 shooter = 0;   // monster runtimeId, 0 = not a monster shot
 	ProjectilePayload payload{};
+	const void* cargo = nullptr; // a thrown item (see ProjectileSpec)
 };
 
 // An item's flight ended without striking anything. Everything the owner needs
@@ -170,6 +179,7 @@ struct ProjectileExpiry {
 	ProjectilePayload payload{};
 	int attacker = -1; // party roster index, -1 = not a party shot
 	u32 shooter = 0;   // monster runtimeId, 0 = not a monster shot
+	const void* cargo = nullptr; // a thrown item: the host lands it here
 };
 
 // A read-only snapshot of one live item, for the editor's map marker + inspect
@@ -214,6 +224,22 @@ public:
 		m_items.clear();
 		m_sparks.clear();
 	}
+	// Ends every THROWN item's flight where it is (onExpire, Range) and drops
+	// it, so the host lands it rather than losing it. Call before anything that
+	// would Clear a flight the game must not forget: a save, a level change.
+	void LandCargo();
+	// A soft glowing PUFF at `pos` - what a blast filling a square looks like
+	// (DungeonWorld::UpdateBlasts): `count` motes drifting out `spread` m/s and
+	// rising a little, swelling as they fade over `life` seconds. Fire is a
+	// short bright flare, gas a slow lingering cloud.
+	void Puff(const Vec3& pos, const Vec4& color, int count, float spread, float life,
+			  float size);
+	// Every thrown item in flight, for the host to draw as itself:
+	// fn(pos, dir, secondsInFlight, cargo).
+	template <typename Fn> void ForEachCargo(Fn&& fn) const {
+		for (const Item& it : m_items)
+			if (it.cargo) fn(it.pos, it.dir, it.age, it.cargo);
+	}
 
 	// --- editor introspection (transient content, shown on the map) ----------
 	// A snapshot of every live item, for the editor map markers.
@@ -253,6 +279,8 @@ private:
 		int attacker = -1;      // party roster index (threat; see ProjectileSpec)
 		u32 shooter = 0;        // monster runtimeId (threat; see ProjectileSpec)
 		ProjectilePayload payload{}; // delivered on a hit, or on expiry
+		const void* cargo = nullptr; // a thrown item (ProjectileSpec::cargo)
+		float age = 0.0f;            // seconds in flight (a thrown item tumbles by it)
 	};
 	// A short-lived impact/fizzle spark (a burst of these sells a hit). Flies out,
 	// fades over its life, additive.
@@ -263,12 +291,15 @@ private:
 		float age = 0.0f;
 		float life = 0.35f;
 		float size = 0.1f;
+		float fall = 3.5f; // downward pull (m/s^2); a puff of gas rises (< 0)
+		bool swell = false; // grows as it fades (a puff), rather than holding
 	};
 
 	// Room for a crowded fight: a burst is 6-14 sparks living under half a
-	// second, so 512 covers dozens of impacts landing together.
+	// second, so 512 covers dozens of impacts landing together - and a blast's
+	// puffs (a few a square a tick, about a second each) beside them.
 	static constexpr size_t kReservedItems = 64;
-	static constexpr size_t kReservedSparks = 512;
+	static constexpr size_t kReservedSparks = 1024;
 
 	void SpawnSparkBurst(const Vec3& pos, const Vec4& color, int count);
 	// Report a flight that ended without a strike, through onExpire.

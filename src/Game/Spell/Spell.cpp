@@ -35,12 +35,19 @@ void Spell::ApplyOverrides(const CatalogEntry& e) {
 		m_payload = PackPayload(procs, where);
 		m_payload.blast = blast;
 	}
-	// The AREA blast, if this spell is one. `blast_force` in squares is the gate;
-	// the rest only mean anything alongside it. `blast_rate` is the EXPANSION
-	// SPEED in seconds per tick — small for a fireball, large for a creeping gas —
-	// and `blast_persist` decides whether squares vacate behind the front (fire) or
-	// fill and keep biting (gas).
-	blast::Rules& b = m_payload.blast.rules;
+	ReadBlastRules(e, m_payload.blast);
+}
+
+// The AREA blast, if an entry authors one. `blast_force` in squares is the gate;
+// the rest only mean anything alongside it. `blast_rate` is the EXPANSION SPEED
+// in seconds per tick — small for a fireball, large for a creeping gas — and
+// `blast_persist` decides whether squares vacate behind the front (fire) or fill
+// and keep biting (gas), `blast_linger` how long a gas then hangs where it
+// spread, and `blast_color` the glow it is seen as. A spell and a thrown item
+// (ui-updates Phase 10: a poison gas flask) both author it this way.
+void ReadBlastRules(const CatalogEntry& e, BlastSpec& spec) {
+	if (CatalogColor(&e, "blast_color", spec.color)) spec.hasColor = true;
+	blast::Rules& b = spec.rules;
 	b.force = static_cast<int>(e.GetFloat("blast_force", static_cast<float>(b.force)));
 	b.damage = e.GetFloat("blast_damage", b.damage);
 	b.falloff = e.GetFloat("blast_falloff", b.falloff);

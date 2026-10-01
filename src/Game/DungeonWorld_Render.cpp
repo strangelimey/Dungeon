@@ -226,6 +226,25 @@ static Mat4 FloorItemWorld(const Vec3& bmin, const Vec3& bmax, float scale,
 	return w;
 }
 
+// A THROWN item in flight (Phase 10): centred on its bounds at `pos`, tumbling
+// end over end about the axis across its flight - one turn every
+// kTumbleSeconds - and turned to face along it.
+static Mat4 ThrownItemWorld(const Vec3& bmin, const Vec3& bmax, float scale, const Vec3& pos,
+							const Vec3& dir, float age) {
+	constexpr float kTumbleSeconds = 0.45f;
+	const XMMATRIX centre = XMMatrixTranslation(-0.5f * (bmin.x + bmax.x),
+												-0.5f * (bmin.y + bmax.y),
+												-0.5f * (bmin.z + bmax.z));
+	const float heading = std::atan2(dir.x, dir.z); // +Z forward (left-handed)
+	const XMMATRIX world = centre * XMMatrixScaling(scale, scale, scale) *
+						   XMMatrixRotationX(age * XM_2PI / kTumbleSeconds) *
+						   XMMatrixRotationY(heading) *
+						   XMMatrixTranslation(pos.x, pos.y, pos.z);
+	Mat4 w;
+	XMStoreFloat4x4(&w, world);
+	return w;
+}
+
 void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 									  const ViewCull* cull) {
 	// A discrete mesh draws only if its bounding sphere passes the cull (camera
@@ -474,6 +493,38 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 		}
 	}
 
+	// THROWN ITEMS in flight (Phase 10): the item itself, tumbling - its model,
+	// or the floor's tablet in its own look - never a glow.
+	m_projectiles.ForEachCargo([&](const Vec3& pos, const Vec3& dir, float age,
+								   const void* cargo) {
+		const ItemKind& kind = *static_cast<const ItemKind*>(cargo);
+		if (!visible(pos, 0.35f * kUnit)) return;
+		if (kind.model) {
+			const MultiMaterialModel& mm = *kind.model;
+			DrawMultiMaterial(list, mm,
+							  ThrownItemWorld(mm.boundsMin, mm.boundsMax,
+											  kUnit * kind.modelScale, pos, dir, age));
+			return;
+		}
+		if (!m_runeMesh) return;
+		const float scale =
+			kUnit * kind.modelScale * (kind.isRune ? 1.0f : kItemPlaceholderScale);
+		gfx::MaterialParams material;
+		material.doubleSided = false;
+		const Vec4& g = kind.glow;
+		if (kind.isRune) {
+			ApplyPropMaterial(material, kind.tex, m_runeModel.materials[0].baseColorFactor,
+							  0.85f);
+			material.emissive = {g.x * 0.9f, g.y * 0.9f, g.z * 0.9f};
+		} else {
+			ApplyPropMaterial(material, nullptr, g, 0.7f);
+			material.emissive = {g.x * 0.55f, g.y * 0.55f, g.z * 0.55f};
+		}
+		m_renderer.DrawMesh(list, *m_runeMesh,
+							ThrownItemWorld(m_runeBoundsMin, m_runeBoundsMax, scale, pos, dir, age),
+							material);
+	});
+
 	// Monsters: bone/bandage/slime PBR sets, bound by type name. The flat-color
 	// fallback keeps the old look if a set is missing (blob glistens wetly).
 	for (const Monster& monster : m_monsters) {
@@ -694,7 +745,14 @@ void DungeonWorld::BakeIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& s
 	const Vec3 ext{hi.x - lo.x, hi.y - lo.y, hi.z - lo.z};
 	const float longest = std::max({ext.x, ext.y, ext.z, 1e-3f});
 	// Camera at 2.2 / 35° FOV frames ~1.39 units tall (diagonal ~1.97); fill ~95%.
-	const float s = 1.9f / longest;
+	// A COMPACT item - no axis under half the longest, a rock or an apple - has
+	// no thin side to lay along the diagonal, so it fits the frame's HEIGHT
+	// instead (ui-updates: the rock filled the whole square, edge to edge).
+	float s = 1.9f / longest;
+	{
+		const float shortest = std::min({ext.x, ext.y, ext.z});
+		if (shortest > longest * 0.5f) s = 1.15f / longest;
+	}
 	// Turn the model's FLATTEST face toward the camera — align its thinnest axis
 	// with the view (+Z) so we see the broad face, not the thin edge, whatever
 	// orientation the item shipped in (a blade modelled flat-on-Z, lying on Y, or

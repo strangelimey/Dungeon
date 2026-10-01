@@ -746,6 +746,7 @@ void DungeonWorld::SeedPartySkills() {
 	for (int k = 0; k < static_cast<int>(resource::Kind::Count); ++k)
 		ids.emplace_back(resource::SkillId(static_cast<resource::Kind>(k)));
 	ids.emplace_back("unarmed"); // the bare-hand class, which no catalog entry names
+	ids.emplace_back("throwing"); // anything thrown (Phase 10) - no item names it either
 	// The DEFENSIVE skills (TrainDefense above). Easy to forget precisely because
 	// nothing in a catalog names them — the guard caught their absence the first
 	// time a skeleton landed a blow on this seed.
@@ -1683,6 +1684,43 @@ bool DungeonWorld::CellHasLineOfSight(int x0, int z0, int x1, int z1) const {
 	return false; // not axis-aligned — no orthogonal line
 }
 
+// THE PARTY ATTACK FORMULA (docs/combat.md part 5), one place for a swing and a
+// throw (ui-updates Phase 10: Michael, "throwing ... feeds through the same
+// attack pipeline as the hand controls"). The ATTACK supplies the damage type
+// and its numbers, `base` the weapon's damage (or the unarmed / thrown default),
+// `statAvg` the associated stats' average, `level` the skill.
+AttackProfile DungeonWorld::PartyAttackProfile(const Character& attacker, const ItemKind* weapon,
+											   const AttackSpec& spec, int level, float statAvg,
+											   float base) const {
+	return {
+		(base + m_balance.statDamage * statAvg) * spec.dmg *
+			(1.0f + m_balance.skillDamage * static_cast<float>(level)) *
+			(attacker.exhausted ? m_balance.exhaustDamage : 1.0f),
+		// THE ATTACK BONUS (docs/damage-system.md): skill is the main driver,
+		// through its diminishing-returns curve; DEX shades it through its own,
+		// much shallower one; the verb adds its authored points. All three are
+		// in d100 points, against the ~41 the dice themselves deviate by.
+		//
+		// The STANCE scales the skill term and only the skill term — the same
+		// points it takes off the guard are the ones it puts behind the swing, so
+		// one number moves both sides (defense::StanceAttack). DEX is not skill
+		// and rides at full weight whatever the stance.
+		defense::StanceAttack(attacker.offenseShare, static_cast<float>(level),
+							  m_balance.SkillCurve(), m_balance.Stance()) +
+			CurveValue(static_cast<float>(attacker.dexterity), m_balance.StatCurve()) +
+			spec.acc,
+		spec.type,
+		// `crit = pierce`: this edge finds the gap between the plates.
+		weapon && weapon->critPierce,
+		// THE DRUNKEN HAYMAKER: an over-exerted swing on a skill below
+		// exert_skilled_level fumbles on a wider band of first faces
+		// (defense::ExertionFumbleFaces; half the time untrained at 100%).
+		static_cast<int>(defense::ExertionFumbleFaces(attacker.offenseShare,
+													  static_cast<float>(level),
+													  m_balance.Stance()) +
+						 0.5f)};
+}
+
 bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb) {
 	if (!m_roster || member >= m_roster->size() || hand > 1) return false;
 	Character& attacker = (*m_roster)[member];
@@ -1771,34 +1809,8 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 		return finish();
 	}
 
-	const AttackProfile atk{
-		(base + m_balance.statDamage * statAvg) * spec->dmg *
-			(1.0f + m_balance.skillDamage * static_cast<float>(level)) *
-			(winded ? m_balance.exhaustDamage : 1.0f),
-		// THE ATTACK BONUS (docs/damage-system.md): skill is the main driver,
-		// through its diminishing-returns curve; DEX shades it through its own,
-		// much shallower one; the verb adds its authored points. All three are
-		// in d100 points, against the ~41 the dice themselves deviate by.
-		//
-		// The STANCE scales the skill term and only the skill term — the same
-		// points it takes off the guard are the ones it puts behind the swing, so
-		// one number moves both sides (defense::StanceAttack). DEX is not skill
-		// and rides at full weight whatever the stance.
-		defense::StanceAttack(attacker.offenseShare, static_cast<float>(level),
-							  m_balance.SkillCurve(), m_balance.Stance()) +
-			CurveValue(static_cast<float>(attacker.dexterity),
-					   m_balance.StatCurve()) +
-			spec->acc,
-		spec->type,
-		// `crit = pierce`: this edge finds the gap between the plates.
-		weapon && weapon->critPierce,
-		// THE DRUNKEN HAYMAKER: an over-exerted swing on a skill below
-		// exert_skilled_level fumbles on a wider band of first faces
-		// (defense::ExertionFumbleFaces; half the time untrained at 100%).
-		static_cast<int>(defense::ExertionFumbleFaces(
-							 attacker.offenseShare, static_cast<float>(level),
-							 m_balance.Stance()) +
-						 0.5f)};
+	const AttackProfile atk =
+		PartyAttackProfile(attacker, weapon, *spec, level, statAvg, base);
 	const loc::Line name = loc::ViewKey("monster.", target->kind->name);
 	PartyTarget striker{*this, attacker};
 	MonsterTarget defender{*this, *target};
@@ -2389,6 +2401,14 @@ void DungeonWorld::Detonate(int cx, int cz, const ProjectilePayload& payload,
 	active.type = type;
 	active.attacker = attacker;
 	active.payload = payload; // what every square it reaches is left burning with
+	// Its look: the colour of the element it deals (fire's orange, earth's -
+	// and so poison's - green), and whether it lingers as a cloud.
+	if (spec.hasColor)
+		active.color = spec.color;
+	else if (SpellSymbol school; m_damageTypes.SchoolOf(type, school))
+		active.color = ElementColor(school);
+	active.persistent = spec.rules.persistence == blast::Persistence::Persistent;
+	active.linger = active.persistent ? std::max(0.0f, spec.rules.linger) : 0.0f;
 	m_activeBlasts.push_back(std::move(active));
 	m_audio.Play(m_sounds.spellImpact, 0.9f);
 	UpdateBlasts(0.0f); // tick 0 now, not next frame
@@ -2406,13 +2426,46 @@ void DungeonWorld::UpdateBlasts(float dt) {
 				static_cast<float>(h.tick) * a.rate > a.elapsed + 1e-4f)
 				break;
 			++a.next;
-			ApplyBlastHit(h, a);
+			LandBlastHit(h, a);
 		}
-		if (a.next >= a.result.count)
+		// Spread out. A GAS then HANGS where it reached (blast_linger): every
+		// square it filled bites again each step until the linger runs out.
+		if (a.next >= a.result.count && a.linger > 0.0f) {
+			a.lingering = true;
+			a.linger -= dt;
+			a.lingerClock += dt;
+			const float step = std::max(0.3f, a.rate);
+			while (a.lingerClock >= step) {
+				a.lingerClock -= step;
+				for (int i = 0; i < a.result.count; ++i) {
+					const blast::Hit& h = a.result.hits[i];
+					bool first = true; // each square once, at the strength it arrived with
+					for (int j = 0; j < i && first; ++j)
+						first = a.result.hits[j].x != h.x || a.result.hits[j].z != h.z;
+					if (first) LandBlastHit(h, a);
+				}
+			}
+		}
+		if (a.next >= a.result.count && a.linger <= 0.0f)
 			m_activeBlasts.erase(m_activeBlasts.begin() + static_cast<long>(b));
 		else
 			++b;
 	}
+}
+
+void DungeonWorld::LandBlastHit(const blast::Hit& h, const ActiveBlast& a) {
+	// Seen as well as felt: a puff where it lands - a cloud rolls slow and soft,
+	// a fire front flares quick and bright.
+	Vec3 at = m_map.CellCenter(h.x, h.z);
+	at.y = 0.35f * kUnit;
+	const Vec4& c = a.color;
+	if (a.persistent)
+		m_projectiles.Puff(at, {c.x * 0.35f, c.y * 0.35f, c.z * 0.35f, 0.0f}, 3, 0.25f, 1.8f,
+						   0.55f * kUnit * 0.4f);
+	else
+		m_projectiles.Puff(at, {c.x * 1.4f, c.y * 1.4f, c.z * 1.4f, 0.0f}, 6, 0.9f, 0.55f,
+						   0.4f * kUnit * 0.4f);
+	ApplyBlastHit(h, a);
 }
 
 void DungeonWorld::ApplyBlastHit(const blast::Hit& c,
@@ -2439,7 +2492,9 @@ void DungeonWorld::ApplyBlastHit(const blast::Hit& c,
 			MonsterTarget defender{*this, m};
 			fx::DamageEvent ev = fx::DamageEvent::Burst(type, dmg, attacker);
 			fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
-			if (ev.dealt >= 0.5f)
+			if (active.lingering) {
+				// a hanging gas's bite: silent (see ActiveBlast::lingering)
+			} else if (ev.dealt >= 0.5f)
 				onMessage(loc::FormatLine("log.blast_hits", name,
 										  static_cast<int>(ev.dealt + 0.5f)));
 			else if (ev.dealt >= 0.0f)
@@ -2471,7 +2526,9 @@ void DungeonWorld::ApplyBlastHit(const blast::Hit& c,
 				PartyTarget defender{*this, member};
 				fx::DamageEvent ev = fx::DamageEvent::Burst(type, dmg, -1);
 				fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
-				if (ev.dealt >= 0.5f)
+				if (active.lingering) {
+					// a hanging gas's bite: silent (see ActiveBlast::lingering)
+				} else if (ev.dealt >= 0.5f)
 					MemberMessage(member, loc::FormatLine("log.blast_hits_member",
 														  member.name,
 													  static_cast<int>(ev.dealt + 0.5f)));
@@ -2497,7 +2554,8 @@ void DungeonWorld::ApplyBlastHit(const blast::Hit& c,
 		if (!active.payload.Empty())
 			fx::ApplyProcs(t, active.payload.Procs(), active.payload.flavour,
 						   attacker, m_effects, m_combatRng);
-		NarrateBreak(t, ev);
+		if (!active.lingering) NarrateBreak(t, ev);
+		else if (ev.slew && onMessage) onMessage(loc::FormatLine(t.BrokenKey(), t.Name()));
 	});
 }
 

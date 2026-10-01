@@ -232,6 +232,25 @@ struct Balance {
 	// exactly the way `baseHealth` is, and training should close that gap rather
 	// than erase it. A cap of 0 switches the term off (resource::SkillTerm).
 	float paceSlope = 0.02f, paceCap = 0.4f;
+	// THROWING (ui-updates Phase 10; DungeonWorld_Throw.cpp). Anything held can
+	// be thrown by the party LEADER, and a throw IS an attack: the party attack
+	// formula (PartyAttackProfile) with the `throwing` skill, the attack the
+	// item flies as (its `throw`, a weapon's first command, else `throw`) and a
+	// base of the weapon's damage - or, for anything else, throw_base +
+	// throw_weight per kg. Michael: its SPEED is the thrower's skill and the
+	// thing's weight - throw_speed + throw_speed_skill per level -
+	// throw_speed_weight per kg, never under throw_speed_min m/s. It flies
+	// throw_range squares, spends throw_stamina + stamina_weight per kg x the
+	// attack's stamina, and the thrower waits throw_interval seconds.
+	float throwBase = 2.0f;
+	float throwWeight = 2.0f;
+	float throwSpeed = 9.0f;
+	float throwSpeedSkill = 0.4f;
+	float throwSpeedWeight = 1.5f;
+	float throwSpeedMin = 3.0f;
+	float throwRange = 4.0f;
+	float throwStamina = 1.0f;
+	float throwInterval = 1.0f;
 	// Stamina costs + exhaustion (docs/combat.md Phase 4). A swing spends
 	// (stamina_swing + stamina_weight × weapon kg) × attack.stam; a step
 	// spends stamina_step per standing member. Regen is the resource model

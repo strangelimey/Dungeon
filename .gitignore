@@ -17,6 +17,9 @@ docs/*.png
 # .glb is heavy — regenerated from OneDrive\DungeonAssets by tools/FetchModels.ps1
 # (committed models stay .gltf). See the fab.com mesh pipeline.
 assets/models/*.glb
+# ...except the script-built ITEMS: an item loads only <model>.glb, so a fresh
+# clone needs the file, and it is small (tools/BuildRock.py writes it).
+!assets/models/rock.glb
 # Bought rigged monsters land as .gltf (the monster loader's name convention)
 # but are heavy embedded-texture GLBs inside — regenerable the same way, so
 # ignored by NAME (the baked procedural .gltf models stay committed).

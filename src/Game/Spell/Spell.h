@@ -35,6 +35,12 @@ namespace dungeon::game {
 struct Character;
 struct CatalogEntry;
 
+// Reads an entry's area-blast fields (blast_force / _damage / _falloff / _rate /
+// _linger / _persist / _color) over `spec`, keeping what it does not author. A
+// spell's overrides and a thrown item's own blast (a gas flask) both read it.
+struct BlastSpec;
+void ReadBlastRules(const CatalogEntry& e, BlastSpec& spec);
+
 // What a Cast() may DO beyond touching the caster — wired by the host once
 // (DungeonWorld ctor) and handed to every cast.
 struct CastServices {

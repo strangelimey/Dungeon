@@ -1929,6 +1929,35 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   it does not return. The acts' log lines name the leader; with nobody standing
   a world click does nothing. Checks of the leader's skill hang off
   LeaderMember() later. Dev: `leader [member]`.
+- THROWING (ui-updates Phase 10, DungeonWorld_Throw.cpp). THROW OR DROP is
+  Grimrock's screen-height rule: with an item on the cursor, a click whose ray
+  meets reachable floor (or an open niche) drops it (DropItemAt returns true);
+  any other click throws it (ThrowItem; false = the leader is not ready and the
+  item stays held). A THROW IS AN ATTACK (Michael): PartyAttackProfile - the
+  swing's formula, shared - with the `throwing` skill and the ATTACK the item
+  flies as (`throw = <attacks.cat id>`; absent = a weapon's first command,
+  else the new `throw` attack, bash), potent with what is worn plus the item's
+  own `powers`, dealt as a Blow (crit, fumble band, enchantment burst). SPEED is
+  skill against weight (balance.cat throw_speed*). What it leaves is ItemKind::
+  throwPayload: its on_hit, its own blast (the spell blast fields + `blast_type`)
+  or `throw_spell`'s whole payload; `throw_breaks = 1` shatters it instead of
+  landing (the fire flask bursts as fireburst, the poison flask lets go a
+  lingering gas). The flight is a projectile carrying the item's kind as CARGO
+  (Projectiles.h - opaque to the engine; no billboard, the item draws itself
+  tumbling via ForEachCargo). IT IS NEVER LOST: it lands in the struck monster's
+  square, before the wall it hit, or where its range ran out, and a save, a
+  level change (StashActive) and the inspector's Remove LAND it first
+  (LandCargo). The rock is script-built (tools/BuildRock.py -> assets/models/
+  rock.glb, committed by a .gitignore exception: an item loads only .glb). Dev:
+  `throw [item]`; tally `throws= throwstrikes= throwlandings=`. Checked by
+  AllocTest -Throw (lift, throw at eval_arena's north wall, again, by clicks).
+- BLASTS ARE SEEN now (they drew nothing): a puff of `blast_color` (else the
+  type's element colour) in each square on each tick (ProjectileSystem::Puff,
+  LandBlastHit) - a fire front flares, a persistent gas rolls. And `blast_linger`
+  is real: a persistent blast, once spread, bites again in every square it filled
+  each `blast_rate` (>= 0.3 s) for that long, SILENTLY (ActiveBlast::lingering;
+  a kill or a break still speaks). Spell and item read the fields through one
+  helper, ReadBlastRules (Spell.h).
   THE TWO WINDOWS: the character sheet is a panel in m_sheetUi whose scale is
   that CONTEXT'S root font size (UpdateFonts) - rem itself moves - so it sets
   `scalesText = false`. The party inventory is NON-MODAL now - no dim, the world

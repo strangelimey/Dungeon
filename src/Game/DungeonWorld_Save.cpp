@@ -265,6 +265,9 @@ SaveData::LevelState DungeonWorld::SnapshotActive() const {
 }
 
 void DungeonWorld::StashActive() {
+	// A thrown item still in the air comes down first, so it is stashed with
+	// the level rather than dropped with the flights (Phase 10).
+	m_projectiles.LandCargo();
 	m_levelStates[m_currentLevel] = SnapshotActive();
 }
 

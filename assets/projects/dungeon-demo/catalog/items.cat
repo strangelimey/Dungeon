@@ -98,6 +98,55 @@ category = key
 weight = 0.1
 holdable = 1
 
+; THROWING (ui-updates Phase 10). Anything can be thrown; a throw is an attack.
+;   throw        = the attacks.cat attack it flies as - its damage TYPE and
+;                  numbers (absent: a weapon's first command, else `throw`,
+;                  bash). A throwing star would say `throw = stab` (pierce).
+;   throw_spell  = a spell whose payload it carries (its on_hit and blast)
+;                  instead of its own on_hit: a fire flask bursts into fire.
+;   throw_breaks = 1: it shatters where it stops instead of landing.
+; Speed is the thrower's skill against the weight (balance.cat throw_speed*).
+;
+; A stone to throw: what is lying about for it. Bash by weight (throw_base /
+; throw_weight). The model is script-built: tools/BuildRock.py.
+[rock]
+name = item.rock
+category = misc
+weight = 1.5
+holdable = 1
+model = rock
+
+; A flask of fire: it shatters where it stops and bursts as fireburst does -
+; blast and all, which catches the party too if it bursts close.
+[fire_flask]
+name = item.fire_flask
+category = misc
+weight = 0.6
+holdable = 1
+throw_spell = fireburst
+throw_breaks = 1
+
+; A flask of poison gas: it shatters where it stops and lets go a CLOUD - a
+; persistent blast that creeps out slowly (blast_rate s a step), fills the
+; squares it reaches and keeps biting in them, a whiff of damage each time and a
+; poisoning that each breath refreshes. Poison is earth here (effects.cat). A
+; cloud in a corridor runs along it; keep the party out of it.
+[poison_flask]
+name = item.poison_flask
+category = misc
+weight = 0.6
+holdable = 1
+throw_breaks = 1
+on_hit = poison 2 10
+blast_force = 6
+blast_damage = 1
+blast_falloff = 0.1
+blast_rate = 0.6
+blast_persist = 1
+blast_linger = 8
+blast_type = earth
+blast_color = 0.35, 0.9, 0.2
+
 ; --- food and drink ---------------------------------------------------------
 ; `nutrition` and `hydration` are what CONSUMING it restores, out of 100
 ; (docs/health-and-healing.md). BOTH fields on every consumable, because most

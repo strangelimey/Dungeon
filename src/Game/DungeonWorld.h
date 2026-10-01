@@ -385,6 +385,10 @@ public:
 		// Counted for tools\AllocTest.ps1 -Items, which must show the moves it
 		// measures actually happened.
 		int drops = 0, lifts = 0;
+		// THROWING (Phase 10): items thrown, and how their flights ended -
+		// struck a monster (hit or miss) or landed without one. AllocTest
+		// -Throw must show a throw that went and came down.
+		int throws = 0, throwStrikes = 0, throwLandings = 0;
 	};
 
 	// ========================================================================
@@ -677,11 +681,25 @@ public:
 	const std::string* ItemTypeUnder(float mx, float my, float w, float h) const;
 	// The pick itself, shared by both: the index into m_items, or -1.
 	int PickItemIndex(float mx, float my, float w, float h) const;
-	// Drops a held item (catalog id) back onto the floor: ray-casts the screen
-	// point to the floor plane and places it on that cell when it is walkable, in
-	// reach, and seen; otherwise on the party's own cell. The tablet snaps to the
-	// quarter slot nearest the hit point. Always succeeds.
-	void DropItemAt(const std::string& typeId, float mx, float my, float w, float h);
+	// Drops a held item (catalog id): into an open niche the click lands in, or
+	// onto the floor where the ray meets it, when that square is walkable, in
+	// reach and seen - snapped to the quarter slot nearest the hit point.
+	// THROW OR DROP (ui-updates Phase 10, Grimrock's screen-height rule): a click
+	// that meets no reachable floor - above the floor's horizon, on a wall,
+	// beyond reach - drops NOTHING and returns false, and the caller throws.
+	bool DropItemAt(const std::string& typeId, float mx, float my, float w, float h);
+	// THROWING (DungeonWorld_Throw.cpp): the party LEADER throws a held item
+	// (catalog id) straight ahead down their quadrant lane. False = nobody
+	// threw (nobody standing, or the leader is still recovering from the last
+	// throw - throw_interval): the item stays in the hand.
+	bool ThrowItem(const std::string& typeId);
+	// Brings every thrown item still in the air down where it is - before a save
+	// (a flight is not saved; the item must be) and a level change.
+	void LandThrownItems() { m_projectiles.LandCargo(); }
+	// The thrower's wait, ticked down in Update (indexed by roster slot).
+	float ThrowCooldown(size_t member) const {
+		return member < m_throwCooldown.size() ? m_throwCooldown[member] : 0.0f;
+	}
 	// The data-driven hand commands for an item id (its ItemKind::commands) — the
 	// single source the HUD's hand right-click menu builds from.
 	const std::vector<std::string>& ItemCommands(const std::string& id) {
@@ -2199,6 +2217,14 @@ private:
 		float armor = 0.0f;
 		float weight = 0.0f;     // carry weight (kg); sums into a member's load
 		std::vector<std::string> commands; // hand right-click command ids (data-driven)
+		// THROWING (Phase 10): the attacks.cat attack it flies as ("" = the
+		// default rule, DungeonWorld_Throw.cpp), what it leaves on what it
+		// strikes or where it bursts (on_hit, or a throw_spell's payload), and
+		// whether it shatters rather than landing (a flask).
+		std::string throwAttack;
+		ProjectilePayload throwPayload;
+		DamageType throwBlastType{}; // what its blast deals (blast_type / the spell's school)
+		bool throwBreaks = false;
 		bool isRune = false;
 		// Uniform size trim (items.cat `scale`) over the model's authored unit
 		// size — the DecorationKind knob, for floor/niche draws. 1 = as authored.
@@ -2845,6 +2871,17 @@ private:
 	// lands its payload on every combatant of its target side in the cell it died
 	// in — CELL-WIDE, where a hit is lane-wide (see the definition for why).
 	void ResolveProjectileExpiry(const ProjectileExpiry& expiry);
+	// A THROWN item's two ends (DungeonWorld_Throw.cpp). A strike: a monster in
+	// the lane takes the blow through fx::Deal as a swing's (a carried blast
+	// bursts instead), the thrower trains `throwing` on a landed one, and the
+	// item falls in that cell either way. A landing: the item comes down in the
+	// last OPEN square it flew through (a wall's square is never one), so a
+	// thrown item is never lost - unless it shatters (`throw_breaks`), when what
+	// it carried is let go there.
+	bool ResolveThrowHit(const ProjectileImpact& impact);
+	void LandThrown(const ProjectileExpiry& expiry);
+	// Every member's throw wait, by roster slot (throw_interval after a throw).
+	std::array<float, 4> m_throwCooldown{};
 	// Set off an AREA blast on a cell: Game/Blast.h propagates it (a wavefront over
 	// ticks, deflecting and reflecting off walls, converging units multiplying) and
 	// this plays the result out over time. Unrolled Bursts, and it catches EVERYONE
@@ -2865,7 +2902,21 @@ private:
 		ProjectilePayload payload{}; // what each square it reaches is left with
 		float elapsed = 0.0f;
 		int next = 0; // index of the first hit not yet applied
+		// How it LOOKS (ui-updates Phase 10 - blasts had no visual at all): a
+		// puff of its element's colour in each square on each tick, a quick flare
+		// for a passing front, a slow lingering cloud for a persistent gas.
+		Vec4 color{0.7f, 0.65f, 0.6f, 1.0f};
+		bool persistent = false;
+		// A persistent gas HANGS once it has spread (`blast_linger` seconds),
+		// biting again in every square it filled each `rate` (at least 0.3 s).
+		float linger = 0.0f;
+		float lingerClock = 0.0f;
+		// Set once it has spread: its bites from then on say nothing (a line a
+		// bite every half second floods the log); a kill or a break still speaks.
+		bool lingering = false;
 	};
+	// One blast square landing, seen and felt: its puff, then ApplyBlastHit.
+	void LandBlastHit(const blast::Hit& h, const ActiveBlast& a);
 	std::vector<ActiveBlast> m_activeBlasts;
 	// Advance every live blast and apply whatever has come due. Called per frame.
 	void UpdateBlasts(float dt);
@@ -2905,6 +2956,12 @@ private:
 	// PartyTarget::Resist sums the defender's. Characters have no innate cell; what
 	// they carry is what they get, because their own axis is skill.
 	ResistTable PartyPowers(const Character& member, int hand);
+	// The party attack formula - damage, attack bonus, type, crit pierce and the
+	// over-exertion fumble band - shared by a swing (PartyAttack) and a throw
+	// (ThrowItem), so the two can never drift apart.
+	AttackProfile PartyAttackProfile(const Character& attacker, const ItemKind* weapon,
+									 const AttackSpec& spec, int level, float statAvg,
+									 float base) const;
 	// The potency of whoever LAUNCHED a carrier: a party member's worn gear (by
 	// roster index) or a monster's own table (by runtimeId). Applied where the
 	// carrier's DamageEvent is built, which is the only place both are known —

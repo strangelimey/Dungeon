@@ -115,6 +115,45 @@ void Game::RegisterPartyCommands() {
 												   m_characters[i].IsAlive() ? "up" : "down");
 						   m_console.Print(line);
 					   });
+	// Throwing (ui-updates Phase 10): the leader throws the item on the cursor,
+	// or a given catalog item from nowhere, straight ahead - what a click above
+	// the floor does, without having to aim one.
+	m_console.Register({.name = "throw",
+						.group = CmdGroup::Characters,
+						.params = "[item]",
+						.summary = "the leader throws the held item (or a given one) ahead"},
+					   [this](const std::vector<std::string>& args) {
+						   if (m_state != AppState::Playing) {
+							   m_console.Refuse("only over the level");
+							   return;
+						   }
+						   if (!m_world->LeaderMember()) {
+							   m_console.Refuse("nobody is standing to throw");
+							   return;
+						   }
+						   if (!args.empty()) {
+							   if (!m_project.HasItem(args[0])) {
+								   m_console.Refuse(std::format("no item '{}'", args[0]));
+								   return;
+							   }
+							   if (m_world->ThrowItem(args[0]))
+								   m_console.Print(std::format("{} thrown", args[0]));
+							   else
+								   m_console.Refuse("not thrown (the leader is not ready)");
+							   return;
+						   }
+						   if (!m_heldItem) {
+							   m_console.Refuse("nothing held - give an item id");
+							   return;
+						   }
+						   const std::string item = *m_heldItem;
+						   if (m_world->ThrowItem(item)) {
+							   m_heldItem.reset();
+							   m_console.Print(std::format("{} thrown", item));
+						   } else {
+							   m_console.Refuse("not thrown (the leader is not ready)");
+						   }
+					   });
 	// The offense/defense split before its slider exists
 	// (docs/damage-system.md). Worth keeping once the UI lands: setting an
 	// exact share is how the split gets MEASURED, where dragging a slider is
