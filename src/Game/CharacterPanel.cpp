@@ -155,9 +155,9 @@ void EffectIcon::DrawOverlaySelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 // --- StatsArea -------------------------------------------------------------
 
 StatsArea::StatsArea(const std::vector<Character>* roster, size_t member,
-					 const ResourceBarColors* barColors,
+					 const ResourceBarStyle* barStyle,
 					 std::function<void()> onBars)
-	: m_roster(roster), m_member(member), m_barColors(barColors),
+	: m_roster(roster), m_member(member), m_barStyle(barStyle),
 	  m_onBars(std::move(onBars)) {
 	debugName = "StatsArea";
 }
@@ -188,29 +188,48 @@ void StatsArea::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Character* c = RosterMember(m_roster, m_member);
 	if (!c) return;
 	const gfx::Rect& px = Pixel();
-	const float barGap = Rem(0.25f);
-	const float barH = (px.h - 2 * barGap) / 3.0f;
+	// The rects below are the GLASS, and each iron frame reaches past its tube
+	// (FrameReach). The frames must stay inside the member's slot (Michael,
+	// 2026-09-30: the chrome overlapped the character container), so the tubes
+	// are sized to leave room for the OUTER reaches: the caps at both ends, the
+	// scrollwork above the first bar and below the last. Between bars only the
+	// end scrollwork meets, and it is allowed to interleave.
+	const bool framed = m_barStyle->framed && m_barStyle->frame;
+	const float barGap = Rem(framed ? kFramedGapRem : 0.25f);
+	float barH = (px.h - 2 * barGap) / 3.0f;
+	float x = px.x, w = px.w, top = px.y;
+	if (framed) {
+		const BarFrameReach unit = FrameReach(1.0f); // reaches per px of tube
+		barH = (px.h - 2 * barGap) / (3.0f + unit.top + unit.bottom);
+		const BarFrameReach reach = FrameReach(barH);
+		x += reach.left;
+		w = std::max(w - reach.left - reach.right, 0.0f);
+		top += reach.top;
+	}
 	const struct {
 		float value, max;
-		const Vec4& color;
+		ResourceBar which;
 	} bars[] = {
-		{c->health, c->maxHealth, m_barColors->health},
-		{c->stamina, c->maxStamina, m_barColors->stamina},
-		{c->mana, c->maxMana, m_barColors->mana},
+		{c->health, c->maxHealth, ResourceBar::Health},
+		{c->stamina, c->maxStamina, ResourceBar::Stamina},
+		{c->mana, c->maxMana, ResourceBar::Mana},
 	};
-	float y = px.y;
-	for (const auto& bar : bars) {
-		DrawStatBar(batch, {px.x, y, px.w, barH}, bar.value / std::max(bar.max, 1.0f),
-					bar.color, ctx.GetTheme());
-		y += barH + barGap;
-	}
+	auto tube = [&](size_t i) {
+		return gfx::Rect{x, top + static_cast<float>(i) * (barH + barGap), w, barH};
+	};
+	for (size_t i = 0; i < std::size(bars); ++i)
+		DrawResourceBarFill(batch, tube(i), bars[i].which,
+							bars[i].value / std::max(bars[i].max, 1.0f), m_member,
+							*m_barStyle, ctx.GetTheme());
+	for (size_t i = 0; i < std::size(bars); ++i)
+		DrawResourceBarFrame(batch, tube(i), *m_barStyle);
 }
 
 // --- CharacterPanel --------------------------------------------------------
 
 CharacterPanel::CharacterPanel(const gfx::Rect& rect,
 							   const std::vector<Character>* roster, size_t member,
-							   const ResourceBarColors* barColors,
+							   const ResourceBarStyle* barStyle,
 							   const HitSplatIcons* hitSplats,
 							   const ItemIconBank* icons,
 							   std::function<void()> onClick,
@@ -244,7 +263,7 @@ CharacterPanel::CharacterPanel(const gfx::Rect& rect,
 							 side, 1.0f};
 		});
 	m_effects->debugName = "EffectsArea";
-	m_stats = Add<StatsArea>(roster, member, barColors, std::move(onBars));
+	m_stats = Add<StatsArea>(roster, member, barStyle, std::move(onBars));
 }
 
 // Portrait square at the left, the effect strip along the name row, the bars

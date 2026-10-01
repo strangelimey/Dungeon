@@ -161,7 +161,7 @@ Key conventions (memorize, they bite):
   kMaxSkinJoints=128, root signature layout in Renderer.h header comment.
 - The Game lib is split by category: Game.cpp is just the app state machine
   + wiring; GameSettings (ini round-trip, quality tier, the kThemeFields/
-  kBarFields/kKeyFields tables), SoundBank, LoadQueue (staged loading),
+  kKeyFields tables), SoundBank, LoadQueue (staged loading),
   DungeonWorld (world state, simulation, both render passes), GameUI (all
   five UIContexts: menus, settings page, HUD, sheet, overlays), AssetUtil
   (load-or-die helpers). World→log feedback flows through
@@ -290,8 +290,8 @@ Key conventions (memorize, they bite):
   ApplyPartyPace` owns the rule (Game only forwards) because conditioning levels
   inside the combat tick where Game is not in the call chain. SHEET: the Skills
   tab groups under Training / Reserves headings (`SkillRow::header`), and the
-  Stats tab draws five bars — the three pools plus food and water, themed from
-  `kBarFields` like the rest. Dev: `sheet <member|off>`, which also let the
+  Stats tab draws five bars — the three pools plus food and water, framed like
+  the party bar's (see RESOURCE BARS below). Dev: `sheet <member|off>`, which also let the
   sheet JOIN `/check-ingame`'s uioverlap sweep (it was the one screen no audit
   reached; note that sweep sees WIDGETS, and the bars are direct draws).
   TRAP: any dev command that seeds a SKILL must re-derive — `setskill` wrote xp
@@ -894,13 +894,12 @@ Scale sizes a dock AND its text: ControlBar sets the dock's inherited
 fontScale and everything inside a dock measures its detail in Em, not Rem, so
 a new widget in there must too; GameUI::ApplyHudPanelScale widens the column
 to the widest dock from its right edge; opacity fades the dock face only)
-plus color-picker grids for Theme Colors (the 8 ui::Theme
+plus a color-picker grid for Theme Colors (the 8 ui::Theme
 colors — GameSettings owns the master theme, GameUI::ApplyTheme pushes it
-into all five UIContexts live) and Resource Bars (health/stamina/mana fills,
-ResourceBarColors in PartyHud.h — the HUD widgets point at
-GameSettings::barColors). The ColorPicker control's swatch opens an R/G/B/A
-slider popup; kThemeFields/kBarFields in GameSettings.h drive both grids and
-the ini round-trip. Controls tab: movement key bindings via ui::KeyBind rows
+into all five UIContexts live). The ColorPicker control's swatch opens an R/G/B/A
+slider popup; kThemeFields in GameSettings.h drives the grid and the ini
+round-trip. (The Resource Bars picker grid is GONE - the fills are procedural,
+see RESOURCE BARS; an old ini's bar_<name>= lines are ignored.) Controls tab: movement key bindings via ui::KeyBind rows
 (click the key box, press the new key; Esc/click cancels —
 GameUI::KeyCaptureActive suppresses the page's own Esc while armed; binding a
 key another action holds swaps the two). kKeyFields drives the rows and the
@@ -915,8 +914,8 @@ into the Party via SetLook (GameUI::onLookChanged); sensitivity is read live by
 the Game's drag handler. (See the free-look paragraph under Game state machine.)
 Game tab hosts the Language dropdown (see the Core/Loc bullet above).
 All persist to settings.ini next to exe (quality=0..3, maxlights=16/32/48/64,
-presentinterval=1..4, language=<code>, volume=0..1, barscale, baropacity, theme_<name>= and
-bar_<name>=r,g,b,a, key_<action>=vkey, look_sensitivity/look_hold/look_return/
+presentinterval=1..4, language=<code>, volume=0..1, barscale, baropacity,
+theme_<name>=r,g,b,a, key_<action>=vkey, look_sensitivity/look_hold/look_return/
 look_move=<float> and look_curve/look_move_curve=<easing index>,
 adapter=<packed LUID, 0=auto>,
 output=<index>, reswidth=/resheight=<0=window default>, fullscreen=0/1/2;
@@ -1783,6 +1782,47 @@ Michael's notes and answers: docs/ui-updates-notes.md; the plan: -plan.md.
   equipping a BIGGER pack grows its slot vector. CHECKED: `AllocTest.ps1 -Items`
   (pack -> floor -> pack through the inventory window; dev `inventory [off|
   status]`; tally `drops=`/`lifts=`), mutation-checked both ways.
+
+## RESOURCE BARS (icon-updates branch; docs/icon-updates-notes.md + -plan.md)
+
+The health / stamina / mana bars (party bar AND sheet; the sheet's food/water
+too) are an iron FRAME around a PROCEDURAL, ANIMATED, EMISSIVE fill.
+- FRAME: `assets/ui/bar_frame.png`, cut from the bought UI kit's "Life Status
+  Bars (1)" by `tools/CutBarFrame.py` (committed: the script is the asset). The
+  kit is opaque on black and the iron is nearly black, so the key is a TIGHT
+  1..3 brightness ramp; the tube is punched per column (snapped to one line, a
+  running median otherwise - a ragged hole reads as chewed iron). The script
+  PRINTS the tube insets + cap slice points, which PartyHudDraw.cpp holds as
+  constants - re-cut, copy the numbers. Drawn 3-SLICE (caps at their aspect, the
+  plain rim stretched). The rect a caller passes is the GLASS; `FrameReach` says
+  how far the frame sticks out, and the LAYOUT must make room - on the party
+  bar the frames stay inside the member's slot (Michael: the chrome overlapped
+  the container), which is why StatsArea sizes tubes from the reaches.
+- FILL: `SpriteBatch::DrawBarFill` - a second PSO (`assets/shaders/bar.hlsl`,
+  premultiplied blend, its own vertex: kind/fraction/beat/seed + tube aspect/px).
+  Switching sprite <-> fill FLUSHES, so draw order is still submission order;
+  stacks draw every fill, then every frame (`DrawResourceBarFill/Frame`). Health
+  = blood ebbing + a heartbeat; stamina = a breathing green glow; mana = blue
+  wisps + an occasional lightning strike; food/water = solid placeholder.
+  Brightness falls with the stat. Tuning lives at the top of bar.hlsl (edit +
+  relaunch): `kPace` / `kSubdue` exist because the first cut was "too busy - it
+  draws the eye". TRAP that cost a round: a frac(dot) FLOAT HASH disagrees with
+  itself across a cell boundary by a rounding ulp, which drew drifting vertical
+  seams in every fill - noise lattices hash INTEGERS (`HashLattice`).
+- HEARTBEAT: `HeartRateTarget` (PartyHudDraw) - rest 60, NOTICED 120, near
+  death (<30% health) slides to 35 and WINS over noticed, down = no beat. The
+  phase is integrated on the CPU (`BarPulse`, `TickBarPulse`, eased), never time
+  x rate in the shader, so a rate change never jumps the beat. Everything runs
+  on REAL time (`GameUI::TickResourceBars`), not the world's (rest is 60x).
+  NOTICED = `DungeonWorld::PartyNoticed()`: a live monster that is `aware` AND
+  not Idle. NOT the stabilize clock's `danger`, which is distance through walls
+  and was true the moment a new game began beside a crypt of sleepers.
+- `ResourceBarStyle` (PartyHudTypes.h, owned by GameUI) replaced the user
+  `ResourceBarColors` + `kBarFields` + the Settings > UI picker grid. uiskin=0
+  keeps the flat `DrawStatBar` look. The skill XP bars stay flat on purpose.
+- Dev: `hudbars [status]` (bpm per member, noticed), `hudbars demo on|off`
+  (sweeps every bar), `hudbars rate <bpm|auto>`. Checked: AllocTest (default +
+  -Sheet) PASS; `uioverlap hud` clean (it sees widgets; the bars are direct draws).
 
 ## Known gaps / natural next steps
 

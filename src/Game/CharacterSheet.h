@@ -171,7 +171,7 @@ public:
 	static constexpr float kStatusH = 0.055f;
 
 	CharacterSheet(const gfx::Rect& rect, std::vector<Character>* roster,
-				   const ResourceBarColors* barColors, const ItemIconBank* icons,
+				   const ResourceBarStyle* barStyle, const ItemIconBank* icons,
 				   const ItemWeightBank* weights, const ItemIconBank* slotIcons,
 				   const ItemCategoryBank* categories,
 				   HeldItem* held);
@@ -322,7 +322,7 @@ private:
 	// Re-resolved from (m_roster, m_member) at the top of every Update/Draw
 	// (see CharacterPanel); the body helpers null-check it.
 	Character* m_character = nullptr;
-	const ResourceBarColors* m_barColors;
+	const ResourceBarStyle* m_barStyle;
 	const ItemIconBank* m_icons;
 	const ItemWeightBank* m_weights;
 	const ItemIconBank* m_slotIcons; // equipment-slot outline silhouettes

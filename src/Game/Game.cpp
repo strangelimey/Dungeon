@@ -1603,6 +1603,9 @@ void Game::UpdateStates(float dt) {
 		DN_PROFILE_ZONE_L(prof::kLevelSystem, "fonts");
 		m_ui.UpdateFonts(dt);
 	}
+	// The resource bars run on REAL time (dt, not wdt): a heartbeat racing 60x
+	// while the party rests, or freezing under the pause menu, would be wrong.
+	m_ui.TickResourceBars(dt, m_world && m_world->PartyNoticed());
 	if (m_previewMesh) m_previewOrbit += dt * 0.6f; // spin the editor 3D preview
 
 	// Poll the asset bake (P4c): non-blocking, so the "baking…" dialog stays

@@ -11,6 +11,7 @@
 
 #include "Core/Log.h"
 #include "Game/DevCommandArgs.h"
+#include "Game/PartyHudDraw.h" // HeartRateTarget (hudbars)
 
 #include <algorithm>
 #include <cctype>
@@ -517,6 +518,65 @@ void Game::RegisterPartyCommands() {
 	// reports it as a screen it cannot sweep — so the one screen with the most
 	// hand-laid-out content in the game was also the one screen `uioverlap`
 	// never saw. `sheet <n>` then `uioverlap` closes half of that gap.
+	// The framed resource bars (docs/icon-updates-plan.md): report each member's
+	// heartbeat, sweep every bar so the dimming and the leading edge can be
+	// judged without a fight, or pin the heart rate to judge the beat.
+	m_console.Register({.name = "hudbars",
+						.group = CmdGroup::Characters,
+						.params = "[status]\n"
+								  "demo on|off\n"
+								  "rate <bpm|auto>",
+						.summary = "report, sweep or pin the party bar's resource bars"},
+					   [this](const std::vector<std::string>& args) {
+						   ResourceBarStyle& style = m_ui.BarStyle();
+						   if (!args.empty() && args[0] == "demo") {
+							   if (!Need(m_console, args, 2)) return;
+							   style.demo = args[1] == "on";
+							   m_console.Print(std::format("hudbars demo {}",
+														   style.demo ? "on" : "off"));
+							   return;
+						   }
+						   if (!args.empty() && args[0] == "rate") {
+							   if (!Need(m_console, args, 2)) return;
+							   style.pinnedBpm =
+								   args[1] == "auto"
+									   ? -1.0f
+									   : std::max(0.0f, static_cast<float>(
+															std::atof(args[1].c_str())));
+							   m_console.Print(style.pinnedBpm < 0.0f
+												   ? std::string("hudbars rate auto")
+												   : std::format("hudbars rate {:.0f} bpm",
+																 style.pinnedBpm));
+							   return;
+						   }
+						   if (!args.empty() && args[0] != "status") {
+							   m_console.RefuseUsage();
+							   return;
+						   }
+						   const bool noticed = m_world && m_world->PartyNoticed();
+						   m_console.Print(std::format(
+							   "hudbars: {} | noticed {} | demo {} | rate {}",
+							   !style.frame     ? "no frame texture (flat)"
+							   : !style.framed ? "flat (uiskin off)"
+											   : "framed",
+							   noticed ? "yes" : "no", style.demo ? "on" : "off",
+							   style.pinnedBpm < 0.0f ? std::string("auto")
+													  : std::format("{:.0f}", style.pinnedBpm)));
+						   for (size_t i = 0; i < m_characters.size(); ++i) {
+							   const Character& c = m_characters[i];
+							   auto pct = [](float v, float m) {
+								   return m > 0.0f ? 100.0f * v / m : 0.0f;
+							   };
+							   m_console.Print(std::format(
+								   "  {} {:<6} hp {:3.0f}% st {:3.0f}% mp {:3.0f}% | "
+								   "heart {:5.1f} bpm -> {:3.0f}{}",
+								   i, c.name, pct(c.health, c.maxHealth),
+								   pct(c.stamina, c.maxStamina), pct(c.mana, c.maxMana),
+								   style.PulseOf(i).bpm, HeartRateTarget(c, noticed),
+								   c.IsAlive() ? "" : " (down)"));
+						   }
+					   });
+
 	m_console.Register({.name = "sheet",
 						.group = CmdGroup::Characters,
 						.params = "[member]\n"
