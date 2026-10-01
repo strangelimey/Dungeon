@@ -795,6 +795,16 @@ void DrawBorder(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Vec4& colo
 void DrawGlow(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Vec4& color,
 			  float radius, float strength);
 
+// A GROOVE CUT INTO THE STONE round a rectangle: a channel `width` px wide,
+// lying just inside `rect`, whose floor is `base` and whose walls are lit from
+// the top-left like every bevel in the skin - the upper and left walls in
+// shadow, the lower and right ones catching the light. So the OUTER edge is dark
+// on top/left and light on bottom/right, and the INNER edge the other way round.
+// Marks something as belonging to a colour without lighting it up (Michael: the
+// glowing member borders were "far too bright").
+void DrawCarvedGroove(gfx::SpriteBatch& batch, const gfx::Rect& rect, float width,
+					  const Vec4& base);
+
 // WHERE A TOOLTIP GOES - every tooltip in the game asks here, so none can run
 // off the screen (an effect's tip on the rightmost portrait used to clip off the
 // window's edge, because each tip did its own sums and most only checked one

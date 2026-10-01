@@ -122,6 +122,14 @@ private:
 
 	// Inset shared by every part, as a fraction of the slot's HEIGHT.
 	static constexpr float kPad = 0.08f;
+	// The portrait's own, tighter inset: its carved frame already separates it
+	// from the slot's edge (Michael: less padding outside the border).
+	static constexpr float kPortraitPad = 0.04f;
+	// Where the name / effect strip / bars start: past the portrait and a kPad gap.
+	float ColumnLeft(float slotW, float slotH) const {
+		return (kPortraitPad * slotH + (slotH - 2 * kPortraitPad * slotH) + kPad * slotH) /
+			   slotW;
+	}
 
 	const std::vector<Character>* m_roster;
 	size_t m_member;

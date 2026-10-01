@@ -4,6 +4,7 @@
 #include "Game/ControlBar.h"
 
 #include "Game/GuardSlider.h"
+#include "Game/PartyHudDraw.h" // MutedIdentity
 
 #include <algorithm>
 
@@ -22,8 +23,9 @@ constexpr float kInnerW = kBarW - 2 * kPad;
 // Movement pad.
 constexpr float kMoveGap = 0.005f;
 
-// Hands.
-constexpr float kSetGap = 0.005f;
+// Hands. The gap between two members' framed pairs is tight on purpose: the
+// carved frame already separates them (ui-updates).
+constexpr float kSetGap = 0.003f;
 constexpr float kSetW = (kInnerW - kSetGap) / 2.0f;
 constexpr float kHandGap = 0.0025f;
 
@@ -31,7 +33,7 @@ constexpr float kHandGap = 0.0025f;
 // through the layout code, because these are the numbers Michael tunes by eye
 // and they should be findable in one place.
 constexpr float kSideMargin = 0.5f;  // total, down both sides of a grid
-constexpr float kHandRowGap = 0.5f;  // between one member's row and the next
+constexpr float kHandRowGap = 0.3f;  // between one member's row and the next
 constexpr float kDockGap = 0.5f;     // between one dock and the next
 constexpr float kHeaderH = 1.4f;     // a dock's title strip (and its button)
 constexpr float kHeaderGap = 0.25f;  // title strip -> content
@@ -157,12 +159,16 @@ float HandPair::SquareSide(float widthPx, float emPx) {
 	return std::max(0.0f, avail * 0.5f);
 }
 
-// The member border sits kFrameGlow in from the pair's edge (room for its glow
-// outside it) and the contents kFramePad in (room for the border and a breath
-// of stone inside it). In EM, so the frame grows with the dock's scale.
+// The member frame is a groove kGrooveW wide, kGrooveIn in from the pair's edge,
+// and the contents sit kFramePad in (the groove plus a breath of stone inside
+// it). In EM, so the frame grows with the dock's scale.
 namespace {
-constexpr float kFrameGlow = 0.22f;
-constexpr float kFramePad = 0.5f;
+// Tight outside, roomier inside (Michael): the groove hugs the pair's edge and
+// the hands stand a clear breath of stone in from it.
+constexpr float kGrooveIn = 0.04f;
+constexpr float kGrooveW = 0.17f;
+constexpr float kFramePad = 0.45f;
+static_assert(kGrooveIn + kGrooveW < kFramePad, "the groove must clear the hands");
 } // namespace
 
 float HandPair::FramePad(float emPx) { return emPx * kFramePad; }
@@ -171,19 +177,15 @@ void HandPair::DrawSelf(ui::UIContext&, gfx::SpriteBatch& batch) {
 	const Character* c = RosterMember(m_roster, m_member);
 	if (!c) return;
 	const gfx::Rect& px = Pixel();
-	const float g = Em(kFrameGlow);
-	const gfx::Rect frame{px.x + g, px.y + g, px.w - 2.0f * g, px.h - 2.0f * g};
+	const float in = Em(kGrooveIn);
+	const gfx::Rect frame{px.x + in, px.y + in, px.w - 2.0f * in, px.h - 2.0f * in};
 	if (frame.w <= 0.0f || frame.h <= 0.0f) return;
-	// A member who is down keeps the frame, quietly: whose hands these are does
-	// not change, but nothing about them is lit.
-	const bool up = c->IsAlive();
-	Vec4 col = c->portraitColor;
-	col.w = up ? 1.0f : 0.45f;
-	ui::DrawGlow(batch, frame, col, g, up ? 0.5f : 0.15f);
-	// Two hairlines: the frame reads as a line at any scale, and 2px is still a
-	// hairline by the rem rule (UI/Units.h).
-	ui::DrawBorder(batch, frame, col);
-	ui::DrawBorder(batch, {frame.x + 1, frame.y + 1, frame.w - 2, frame.h - 2}, col);
+	// CARVED, not lit (Michael: the glowing border was far too bright) - a groove
+	// round both hands and the effort meter whose floor is the member's colour
+	// muted into the stone; the portrait wears the same frame. A member who is
+	// down keeps it, darker: whose hands these are does not change.
+	ui::DrawCarvedGroove(batch, frame, Em(kGrooveW),
+						 MutedIdentity(c->portraitColor, !c->IsAlive()));
 }
 
 // The slider's WHOLE band (GuardSlider::kBandRem): the gap under the boxes, the

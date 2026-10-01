@@ -138,26 +138,42 @@ void TickBarPulse(BarPulse& pulse, float targetBpm, float dt) {
 	pulse.phase -= std::floor(pulse.phase);
 }
 
+Vec4 MutedIdentity(const Vec4& color, bool down) {
+	// Halfway to its own grey, then darkened to sit at the stone's depth.
+	const float grey = color.x * 0.3f + color.y * 0.59f + color.z * 0.11f;
+	const float sat = 0.55f, dark = down ? 0.35f : 0.62f;
+	const auto mix = [&](float c) { return (grey + (c - grey) * sat) * dark; };
+	return {mix(color.x), mix(color.y), mix(color.z), 1.0f};
+}
+
+namespace {
+// The portrait frame's groove and the breath of stone between it and the
+// picture, as shares of the portrait's width.
+float PortraitGroove(const gfx::Rect& r) { return std::max(3.0f, r.w * 0.033f); }
+float PortraitInset(const gfx::Rect& r) { return PortraitGroove(r) + std::max(2.0f, r.w * 0.035f); }
+} // namespace
+
 void DrawIdentityBorder(gfx::SpriteBatch& batch, const gfx::Rect& rect,
 						const Character& character) {
-	// The member's colour GLOWS off the stone round the frame (ui-updates): the
-	// bright palette alone still sat close to the slab's value in places.
-	ui::DrawGlow(batch, rect, character.portraitColor, std::max(2.0f, rect.w * 0.035f), 0.55f);
-	ui::DrawBorder(batch, rect, character.portraitColor);
-	ui::DrawBorder(batch, {rect.x + 1, rect.y + 1, rect.w - 2, rect.h - 2},
-				   character.portraitColor);
+	// A groove carved round the picture, its floor the member's colour muted
+	// into the stone (Michael: the bright glowing frame was far too loud).
+	ui::DrawCarvedGroove(batch, rect, PortraitGroove(rect),
+						 MutedIdentity(character.portraitColor, !character.IsAlive()));
 }
 
 void DrawPortrait(gfx::SpriteBatch& batch, const gfx::Rect& rect,
 				  const Character& character, const ui::Font& font,
 				  const ui::Theme& theme) {
+	// The picture sits a breath of stone in from its groove (Michael: space it
+	// out inside the border), the frame round the slot's own edge.
+	const float in = PortraitInset(rect);
+	const gfx::Rect pic{rect.x + in, rect.y + in, rect.w - 2 * in, rect.h - 2 * in};
+	DrawIdentityBorder(batch, rect, character);
 	if (character.portrait) {
-		batch.DrawSprite(rect, {0, 0, 1, 1}, *character.portrait, {1, 1, 1, 1});
-		DrawIdentityBorder(batch, rect, character);
+		batch.DrawSprite(pic, {0, 0, 1, 1}, *character.portrait, {1, 1, 1, 1});
 		return;
 	}
-	batch.DrawRect(rect, character.portraitColor);
-	DrawIdentityBorder(batch, rect, character);
+	batch.DrawRect(pic, character.portraitColor);
 	const std::string_view initial = std::string_view(character.name).substr(0, 1);
 	const float initialW = font.MeasureWidth(initial);
 	font.Draw(batch, initial, rect.x + (rect.w - initialW) * 0.5f,

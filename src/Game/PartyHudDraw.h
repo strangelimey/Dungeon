@@ -58,9 +58,14 @@ float HeartRateTarget(const Character& member, bool noticed);
 // seconds.
 void TickBarPulse(BarPulse& pulse, float targetBpm, float dt);
 
+// The identity colour as it sits IN the stone: desaturated toward its own grey
+// and darkened, so it marks a member without lighting up. The floor of every
+// carved member groove (portrait frame, hand-pair frame); `down` dims it again.
+Vec4 MutedIdentity(const Vec4& color, bool down = false);
+
 // Baked portrait when present; otherwise the tinted square with the character's
-// initial. The border is the character's identity color (doubled so it reads at
-// party-bar size), matching the HandSlot stripe.
+// initial. The border is a groove carved round the portrait, its floor the
+// muted identity colour - the same frame the member's hand pair wears.
 void DrawIdentityBorder(gfx::SpriteBatch& batch, const gfx::Rect& rect,
 						const Character& character);
 void DrawPortrait(gfx::SpriteBatch& batch, const gfx::Rect& rect,

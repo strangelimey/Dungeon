@@ -99,6 +99,31 @@ void DrawGlow(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Vec4& color,
 	}
 }
 
+void DrawCarvedGroove(gfx::SpriteBatch& batch, const gfx::Rect& rect, float width,
+					  const Vec4& base) {
+	const float w = std::min(width, std::min(rect.w, rect.h) * 0.25f);
+	if (w < 2.0f) return;
+	const float x0 = rect.x, y0 = rect.y, x1 = rect.x + rect.w, y1 = rect.y + rect.h;
+	// The floor: four strips, the corners belonging to the top and bottom ones.
+	batch.DrawRect({x0, y0, rect.w, w}, base);
+	batch.DrawRect({x0, y1 - w, rect.w, w}, base);
+	batch.DrawRect({x0, y0 + w, w, rect.h - 2 * w}, base);
+	batch.DrawRect({x1 - w, y0 + w, w, rect.h - 2 * w}, base);
+	// The walls, as hairlines on the floor's two edges.
+	const Vec4 shade{0.0f, 0.0f, 0.0f, 0.65f}, lit{1.0f, 1.0f, 1.0f, 0.24f};
+	const gfx::Rect in{x0 + w, y0 + w, rect.w - 2 * w, rect.h - 2 * w};
+	// Outer edge: shaded top + left (the walls facing away from the light).
+	batch.DrawRect({x0, y0, rect.w, 1}, shade);
+	batch.DrawRect({x0, y0, 1, rect.h}, shade);
+	batch.DrawRect({x0, y1 - 1, rect.w, 1}, lit);
+	batch.DrawRect({x1 - 1, y0, 1, rect.h}, lit);
+	// Inner edge: lit top + left, shaded bottom + right - the far walls.
+	batch.DrawRect({in.x - 1, in.y - 1, in.w + 2, 1}, lit);
+	batch.DrawRect({in.x - 1, in.y - 1, 1, in.h + 2}, lit);
+	batch.DrawRect({in.x - 1, in.y + in.h, in.w + 2, 1}, shade);
+	batch.DrawRect({in.x + in.w, in.y - 1, 1, in.h + 2}, shade);
+}
+
 gfx::Rect PlaceTooltip(const gfx::Rect& anchor, float w, float h, const gfx::Rect& bounds,
 					   TipSide prefer, float gap, float margin, TipAlign align) {
 	const float left = bounds.x + margin, top = bounds.y + margin;

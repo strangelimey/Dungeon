@@ -283,14 +283,16 @@ void CharacterPanel::LayoutSelf(ui::UIContext&) {
 
 	const float padY = kPad;               // fraction of the slot's height
 	const float padX = kPad * px.h / px.w; // the same inset, in width fractions
-	const float sideY = 1.0f - 2 * padY;   // portrait square, height fractions
+	const float ppY = kPortraitPad;            // the portrait's tighter inset
+	const float ppX = kPortraitPad * px.h / px.w;
+	const float sideY = 1.0f - 2 * ppY;        // portrait square, height fractions
 	const float sideX = sideY * px.h / px.w;
-	m_portrait->bounds = {padX, padY, sideX, sideY};
+	m_portrait->bounds = {ppX, ppY, sideX, sideY};
 
 	// The name row is one line advance tall, so the effect icons sit exactly
 	// on the name band.
 	const float rowH = TextFont().LineAdvance() / px.h;
-	const float left = padX + sideX + padX; // past the portrait
+	const float left = ColumnLeft(px.w, px.h); // past the portrait
 	const float right = 1.0f - padX;
 	m_effects->bounds = {left, padY, right - left, rowH};
 
@@ -341,7 +343,7 @@ void CharacterPanel::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 
 	// The name shares the row the effect strip sits on: name left, strip right.
 	const float pad = px.h * kPad;
-	const float left = px.x + pad + (px.h - 2 * pad) + pad; // past the portrait
+	const float left = px.x + ColumnLeft(px.w, px.h) * px.w; // past the portrait
 	TextFont().Draw(batch, character->name, left, px.y + pad, theme.text);
 }
 
