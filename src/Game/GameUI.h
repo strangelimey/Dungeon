@@ -296,6 +296,10 @@ public:
 	// share). The widget reports where it was dragged; Game owns the roster
 	// and does the writing.
 	std::function<void(size_t, float)> onGuardChange;
+	// The party leader (Phase 9): who leads (the world's roster index), and a
+	// click on a member's name in the party bar or on their card.
+	std::function<int()> partyLeader;
+	std::function<void(size_t)> onPickLeader;
 	// The live Balance::exertMax, so the slider can show over-exertion as a
 	// percentage of the way to it (wired to the world's balance by Game).
 	std::function<float()> exertMax;
@@ -720,6 +724,8 @@ private:
 	std::array<ui::Slider*, std::size(kHudPanelFields)> m_hudScaleSliders{};
 	bool m_hudSlidersStale = false; // a drag moved a scale; sync before showing
 	unsigned m_panelMinimizes = 0, m_panelRestores = 0; // see PanelMinimizes
+	// What every member panel's name reads and calls (BuildHud fills it).
+	LeaderLink m_leaderLink;
 	// The pointer shape the HUD asked for last frame (a grip's arrow), applied
 	// at the top of the next (UpdateFonts) so every other state resets it.
 	Window::Cursor m_hudCursor = Window::Cursor::Arrow;

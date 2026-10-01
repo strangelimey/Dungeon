@@ -396,6 +396,8 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 	}
 	if (acceptInput && !m_pendingFall) m_party.HandleInput(input);
 	m_party.Update(dt);
+	// A leader who fell last frame - to anything - hands the lead on.
+	PassLeadIfDown(true);
 
 	// Door leaves travel toward their open/shut target. The DURATION is per type
 	// (doors.cat `open_seconds`), because a stone slab that grinds and a wooden
@@ -607,7 +609,7 @@ bool DungeonWorld::ToggleButtonAt(int x, int z, bool& out, bool asParty) {
 		if (b.x == x && b.z == z) {
 			// As the party's hand would: a lever waiting on a flag stays put.
 			if (asParty && !FlagOn(b.needs)) {
-				if (onMessage) onMessage(loc::View("log.button_stuck"));
+				if (onMessage) onMessage(loc::FormatLine("log.button_stuck", LeaderName()));
 				out = b.activated;
 				return true;
 			}

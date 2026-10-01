@@ -13,6 +13,7 @@
 #include <array>
 #include <flat_map>
 #include <flat_set>
+#include <functional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -60,6 +61,15 @@ struct ResourceBarStyle {
 		static constexpr BarPulse kStill{0.0f, 0.0f};
 		return member < kMaxMembers ? pulse[member] : kStill;
 	}
+};
+
+// THE PARTY LEADER as the HUD sees it (ui-updates Phase 9): who leads, asked
+// every draw (the world owns it - DungeonWorld::Leader), and what a click on a
+// member's NAME does. GameUI owns one; every member panel points at it.
+struct LeaderLink {
+	std::function<int()> leader;       // roster index; null = slot 0
+	std::function<void(size_t)> pick;  // a click on that member's name
+	std::string leaderTip, pickTip;    // the hover lines (localized)
 };
 
 // One FLOATING HUD panel's placement and look (ui-panels P3a: the party bar,

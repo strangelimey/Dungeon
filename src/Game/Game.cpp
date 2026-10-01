@@ -2284,7 +2284,9 @@ void Game::UpdateStates(float dt) {
 		const float mx = input.MouseX(), my = input.MouseY();
 		const float w = static_cast<float>(m_window.Width());
 		const float h = static_cast<float>(m_window.Height());
-		if (input.WasMousePressed(MouseButton::Left)) {
+		// Every one of these is the PARTY LEADER's act (Phase 9): with nobody
+		// standing to lead, the hand does nothing in the world.
+		if (input.WasMousePressed(MouseButton::Left) && m_world->LeaderMember()) {
 			if (m_heldItem) {
 				m_world->DropItemAt(*m_heldItem, mx, my, w, h);
 				m_heldItem.reset();

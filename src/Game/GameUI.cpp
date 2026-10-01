@@ -1524,15 +1524,27 @@ void GameUI::BuildHud() {
 		return (kBarTop + kBarH0 * m_settings.hudParty.scale + kBarGap) * ctx.Height();
 	};
 
+	// THE PARTY LEADER (Phase 9): every member's name reads who leads and picks
+	// on a click - in the bar and on a card alike, since both are this panel.
+	m_leaderLink.leader = [this] { return partyLeader ? partyLeader() : 0; };
+	m_leaderLink.pick = [this](size_t i) {
+		Click();
+		if (onPickLeader) onPickLeader(i);
+	};
+	m_leaderLink.leaderTip = loc::Tr("hud.leader_tip");
+	m_leaderLink.pickTip = loc::Tr("hud.make_leader");
+
 	// One member's party-bar slot (portrait, name, effects, bars), the same
 	// widget in the bar and on a card.
 	auto addMemberPanel = [this](ui::Widget& parent, size_t i) {
-		return parent.Add<CharacterPanel>(
+		CharacterPanel* panel = parent.Add<CharacterPanel>(
 			gfx::Rect{}, &m_characters, i, &m_barStyle,
 			m_hitSplats, m_itemIcons, [this, i] { OnPortraitClick(i); },
 			[this, i] { OnPortraitRightClick(i); },
 			[this, i] { OnPortraitBars(i); },
 			[this, i] { OnPortraitEffects(i); });
+		panel->SetLeaderLink(&m_leaderLink);
+		return panel;
 	};
 
 	// The party bar. Its width only shrinks below scale 1 and is pinned at the

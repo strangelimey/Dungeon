@@ -1900,7 +1900,7 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   scale + opacity pair, and covered by Lock / Reset. Untouched, every panel sits
   exactly where the old fixed layout put it (the defaults keep its rules: the
   column starts under the party bar's height at its scale, a dock's default top
-  follows the docks above it whether shown or not, Magic shows once a member
+  follows the SHOWN docks above it and Magic fills what they leave - a minimized dock closes up the column - Magic shows once a member
   knows a symbol). Dev `hudpanel [list] | <id> <x> <y> [scale] | hide|show <id>
   | reset | lock on|off | layout standard|minimal`, `inventory [off]`.
   THE CLOSED-PANELS TRAY (ui-updates Phase 8, Game/HudTray.h): a panel whose
@@ -1915,6 +1915,20 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   docks', growing leftward; the docks' defaults start under a strip kept for it
   (GameUI::DockColumnTop) whether it shows or not; it sits snug under the bar (TrayTop). A flag flips and the layout follows: nothing rebuilds, so it is
   free in an armed frame (AllocTest -Panels makes the trip). Reset restores all.
+  The MAGIC dock's parts keep their tuned size however tall it is stretched
+  (SpellbookPanel::RefH caps every vertical fraction at kRefAspect of the
+  width); the extra height opens under the rune grid, for more learned runes.
+- THE PARTY LEADER (ui-updates Phase 9, DungeonWorld_Leader.cpp): the member
+  who does what the mouse does in the world - lift, door hand-hold, lever, and
+  (Phase 10) throw. A roster index in DungeonWorld (`leader` save line, absent =
+  slot 0; slot 0 leads a new game), picked by a click on a member's NAME
+  (CharacterPanel's NameTag child, kNameScale 1.3 of the panel's text - in the
+  bar and on a card alike) and shown in the accent over a soft glow. A leader
+  who is not standing hands it to the next standing member in roster order,
+  checked every frame in Update (one health test covers every way to fall), and
+  it does not return. The acts' log lines name the leader; with nobody standing
+  a world click does nothing. Checks of the leader's skill hang off
+  LeaderMember() later. Dev: `leader [member]`.
   THE TWO WINDOWS: the character sheet is a panel in m_sheetUi whose scale is
   that CONTEXT'S root font size (UpdateFonts) - rem itself moves - so it sets
   `scalesText = false`. The party inventory is NON-MODAL now - no dim, the world

@@ -86,6 +86,35 @@ void Game::RegisterPartyCommands() {
 						   m_console.Print(std::format("{} pack += {}",
 													   m_characters[m].name, args[0]));
 					   });
+	// The party leader (ui-updates Phase 9): bare reports who leads and who
+	// could; a member index picks them, as a click on their name does (and is
+	// refused the same way when they are down).
+	m_console.Register({.name = "leader",
+						.group = CmdGroup::Characters,
+						.params = "[member]",
+						.summary = "report or pick the party leader"},
+					   [this](const std::vector<std::string>& args) {
+						   if (!args.empty()) {
+							   const int m = std::atoi(args[0].c_str());
+							   if (m < 0 || m >= static_cast<int>(m_characters.size())) {
+								   m_console.Refuse("no such member");
+								   return;
+							   }
+							   if (!m_world->SetLeader(m)) {
+								   m_console.Refuse(std::format("{} cannot lead (down)",
+																m_characters[static_cast<size_t>(m)].name));
+								   return;
+							   }
+						   }
+						   const int lead = m_world->Leader();
+						   std::string line = std::format(
+							   "leader {} ({}){}", lead, m_world->LeaderName(),
+							   m_world->LeaderMember() ? "" : " - nobody standing");
+						   for (size_t i = 0; i < m_characters.size(); ++i)
+							   line += std::format(" | {}:{}", i,
+												   m_characters[i].IsAlive() ? "up" : "down");
+						   m_console.Print(line);
+					   });
 	// The offense/defense split before its slider exists
 	// (docs/damage-system.md). Worth keeping once the UI lands: setting an
 	// exact share is how the split gets MEASURED, where dragging a slider is

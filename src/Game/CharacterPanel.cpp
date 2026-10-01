@@ -9,6 +9,7 @@
 #include "UI/Units.h"
 
 #include <algorithm>
+#include <cmath>
 #include <format>
 
 namespace dungeon::game {
@@ -156,6 +157,74 @@ void EffectIcon::DrawOverlaySelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 			  ctx.GetTheme().text);
 }
 
+// --- NameTag ---------------------------------------------------------------
+
+NameTag::NameTag(const std::vector<Character>* roster, size_t member)
+	: m_roster(roster), m_member(member) {
+	debugName = "NameTag";
+}
+
+bool NameTag::IsLeader() const {
+	const int leader = m_link && m_link->leader ? m_link->leader() : 0;
+	return leader == static_cast<int>(m_member);
+}
+
+void NameTag::UpdateSelf(ui::UIContext& ctx) {
+	m_hot = false;
+	const Character* c = RosterMember(m_roster, m_member);
+	const Input* input = ctx.CurrentInput();
+	if (!c || !input || !m_link) return;
+	// A click on the name picks the leader - a standing member only, so a
+	// downed one's name is just a name (the world would refuse it anyway).
+	const bool over =
+		!ctx.IsMouseConsumed() && Pixel().Contains(input->MouseX(), input->MouseY());
+	if (over && c->IsAlive()) {
+		m_hot = true;
+		ctx.ConsumeMouse();
+		if (input->WasMousePressed(MouseButton::Left)) m_held = true;
+		if (m_held && input->WasMouseReleased(MouseButton::Left)) {
+			m_held = false;
+			if (!IsLeader() && m_link->pick) m_link->pick(m_member);
+		}
+	}
+	if (!input->IsMouseDown(MouseButton::Left)) m_held = false;
+}
+
+void NameTag::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
+	const Character* c = RosterMember(m_roster, m_member);
+	if (!c) return;
+	const ui::Theme& theme = ctx.GetTheme();
+	const ui::Font& font = TextFont();
+	const gfx::Rect& px = Pixel();
+	const float w = font.MeasureWidth(c->name);
+	const bool leader = IsLeader();
+	// THE LEADER: the accent, over a soft glow of it hugging the word.
+	if (leader) {
+		const gfx::Rect word{px.x, px.y + font.Height() * 0.18f, w, font.Height() * 0.7f};
+		ui::DrawGlow(batch, word, theme.accent, Em(0.45f), 0.22f);
+	}
+	const Vec4 ink = leader ? theme.accent : theme.text;
+	font.Draw(batch, c->name, px.x, px.y, ink);
+	// A name that could take the lead, hovered: underlined, like a link.
+	if (m_hot && !leader)
+		batch.DrawRect({px.x, std::round(px.y + font.Height() * 0.98f), w, 1.0f},
+					   {ink.x, ink.y, ink.z, 0.8f});
+}
+
+void NameTag::DrawOverlaySelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
+	if (!m_hot || !m_link) return;
+	const std::string& line = IsLeader() ? m_link->leaderTip : m_link->pickTip;
+	if (line.empty()) return;
+	const ui::Font& font = TextFont();
+	const gfx::Rect tip = ui::PlaceTooltip(Pixel(), font.MeasureWidth(line) + Rem(0.7f),
+										   font.LineAdvance() + Rem(0.35f),
+										   {0, 0, ctx.Width(), ctx.Height()},
+										   ui::TipSide::Below, Rem(0.35f), 2.0f,
+										   ui::TipAlign::Start);
+	ui::DrawPanelFace(ctx, batch, tip);
+	font.Draw(batch, line, tip.x + Rem(0.35f), tip.y + Rem(0.18f), ctx.GetTheme().text);
+}
+
 // --- StatsArea -------------------------------------------------------------
 
 StatsArea::StatsArea(const std::vector<Character>* roster, size_t member,
@@ -249,6 +318,7 @@ CharacterPanel::CharacterPanel(const gfx::Rect& rect,
 	debugName = "CharacterPanel";
 	m_portrait = Add<PortraitBox>(roster, member, hitSplats, std::move(onClick),
 								  std::move(onRight));
+	m_name = Add<NameTag>(roster, member);
 	// One icon per live effect, right-aligned in the name band and growing
 	// right-to-left as effects stack (index 0 is the rightmost). LayoutSelf
 	// gives the repeater its box; the placer splits that box into cells.
@@ -277,10 +347,11 @@ CharacterPanel::CharacterPanel(const gfx::Rect& rect,
 // Portrait square at the left, the effect strip along the name row, the bars
 // filling what is left beneath. All three are fractions of THIS slot, worked
 // out from its live pixel rect because they are aspect- and font-locked.
-void CharacterPanel::LayoutSelf(ui::UIContext&) {
+void CharacterPanel::LayoutSelf(ui::UIContext& ctx) {
 	const gfx::Rect& px = Pixel();
 	const bool present = RosterMember(m_roster, m_member) != nullptr;
 	m_portrait->visible = present;
+	m_name->visible = present;
 	m_effects->visible = present;
 	m_stats->visible = present;
 	if (!present || px.w <= 0.0f || px.h <= 0.0f) return;
@@ -293,12 +364,29 @@ void CharacterPanel::LayoutSelf(ui::UIContext&) {
 	const float sideX = sideY * px.h / px.w;
 	m_portrait->bounds = {ppX, ppY, sideX, sideY};
 
-	// The name row is one line advance tall, so the effect icons sit exactly
-	// on the name band.
-	const float rowH = TextFont().LineAdvance() / px.h;
+	// THE NAME is kNameScale of the panel's text (Michael: "make the names
+	// bigger"), so its scale is set here from the panel's own - a fontScale is
+	// absolute, not a multiple, and the panel's comes from its floating panel.
+	// It is measured in that same face, asked exactly as Widget::Layout will.
+	const ui::FontRole role = ResolvedRole();
+	const float panelScale = TextFont().Height() / ctx.FontFor(role).Height();
+	const float nameScale = panelScale * kNameScale;
+	m_name->fontScale = nameScale;
+	const ui::Font& nameFont = ctx.FontAt(role, ctx.DesignHeight() * nameScale);
+	// The name row is one line advance of the NAME tall; the effect icons keep
+	// the body's line and sit centred on it.
+	const float rowH = nameFont.LineAdvance() / px.h;
+	const float iconH = TextFont().LineAdvance() / px.h;
 	const float left = ColumnLeft(px.w, px.h); // past the portrait
 	const float right = 1.0f - padX;
-	m_effects->bounds = {left, padY, right - left, rowH};
+	// The name leads the row, as wide as the word (it is a click target: the
+	// party leader's picker); the effect strip has the rest, right-aligned.
+	const float nameW = std::min(
+		nameFont.MeasureWidth(RosterMember(m_roster, m_member)->name) / px.w, right - left);
+	m_name->bounds = {left, padY, nameW, rowH};
+	const float stripLeft = std::min(right, left + nameW + Rem(0.4f) / px.w);
+	m_effects->bounds = {stripLeft, padY + std::max(0.0f, rowH - iconH) * 0.5f,
+						 right - stripLeft, iconH};
 
 	const float barsTop = padY + rowH + Rem(0.12f) / px.h;
 	m_stats->bounds = {left, barsTop, right - left, 1.0f - padY - barsTop};
@@ -344,11 +432,7 @@ void CharacterPanel::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		batch.DrawRect(px, background);
 		ui::DrawBorder(batch, px, m_hot ? theme.accent : theme.panelBorder);
 	}
-
-	// The name shares the row the effect strip sits on: name left, strip right.
-	const float pad = px.h * kPad;
-	const float left = px.x + ColumnLeft(px.w, px.h) * px.w; // past the portrait
-	TextFont().Draw(batch, character->name, left, px.y + pad, theme.text);
+	// (The name is the NameTag child's: it is the leader picker.)
 }
 
 } // namespace dungeon::game

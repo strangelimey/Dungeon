@@ -183,6 +183,22 @@ public:
 	// so monster melee can drain member health and party melee can read each
 	// member's derived stats. Must be set before play; null = no combat.
 	void SetRoster(std::vector<Character>* roster) { m_roster = roster; }
+
+	// THE PARTY LEADER (ui-updates Phase 9): the member who does what the mouse
+	// does in the world - picks up, works a door or a lever, throws. A roster
+	// index, party state saved with the party (`leader` save line; slot 0 leads
+	// a new game). When the leader is down or dead the next STANDING member in
+	// roster order takes over, and the lead does not return when they get up
+	// (Michael). Today the leader only NAMES the act; checks of their skill or
+	// strength hang off LeaderMember() later.
+	int Leader() const { return m_leader; }
+	// The leader, or null when nobody can act: no roster, or every member down.
+	const Character* LeaderMember() const;
+	// The leader's name for a log line about what they did ("" with no roster).
+	std::string_view LeaderName() const;
+	// A click on a name. Refuses (false, with a line saying why) a member out of
+	// range or not standing; picking the leader again is a quiet yes.
+	bool SetLeader(int member);
 	// The game's FLAGS (WorldState::flags), borrowed the same way, for the three
 	// things in a level that read one - doors, levers and stairs (flag=) - and
 	// the levers that write one. Null = no flags: every wait is satisfied,
@@ -3795,6 +3811,12 @@ private:
 
 	Vec3 m_torchColor{1.0f, 0.62f, 0.28f};
 	int m_torchPalette = 0; // index behind m_torchColor (saved/restored)
+
+	// The party leader's roster index (see Leader()), and the pass that hands
+	// the lead on from a member who is no longer standing - every frame from
+	// Update (cheap: one health check), and on load without a line.
+	int m_leader = 0;
+	void PassLeadIfDown(bool announce);
 
 	// Dev console toggles (see the hooks above).
 	float m_fovDegrees = 70.0f;

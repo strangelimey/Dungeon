@@ -1302,7 +1302,9 @@ const std::string* DungeonWorld::TryPickItem(float mx, float my, float w, float 
 	picked.collected = true; // off the floor
 	++m_harness.tally.lifts;
 	m_audio.Play(m_sounds.click, 0.6f); // placeholder pickup cue
-	if (onMessage) onMessage(loc::FormatLine("log.take_rune", loc::View(picked.kind->nameKey)));
+	// The LEADER lifts it (Phase 9) - the line names them.
+	if (onMessage)
+		onMessage(loc::FormatLine("log.take_item", LeaderName(), loc::View(picked.kind->nameKey)));
 	return &picked.kind->id;
 }
 
