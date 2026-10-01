@@ -161,7 +161,7 @@ Key conventions (memorize, they bite):
   kMaxSkinJoints=128, root signature layout in Renderer.h header comment.
 - The Game lib is split by category: Game.cpp is just the app state machine
   + wiring; GameSettings (ini round-trip, quality tier, the kThemeFields/
-  kBarFields/kKeyFields tables), SoundBank, LoadQueue (staged loading),
+  kKeyFields tables), SoundBank, LoadQueue (staged loading),
   DungeonWorld (world state, simulation, both render passes), GameUI (all
   five UIContexts: menus, settings page, HUD, sheet, overlays), AssetUtil
   (load-or-die helpers). World→log feedback flows through
@@ -290,8 +290,8 @@ Key conventions (memorize, they bite):
   ApplyPartyPace` owns the rule (Game only forwards) because conditioning levels
   inside the combat tick where Game is not in the call chain. SHEET: the Skills
   tab groups under Training / Reserves headings (`SkillRow::header`), and the
-  Stats tab draws five bars — the three pools plus food and water, themed from
-  `kBarFields` like the rest. Dev: `sheet <member|off>`, which also let the
+  Stats tab draws five bars — the three pools plus food and water, framed like
+  the party bar's (see RESOURCE BARS below). Dev: `sheet <member|off>`, which also let the
   sheet JOIN `/check-ingame`'s uioverlap sweep (it was the one screen no audit
   reached; note that sweep sees WIDGETS, and the bars are direct draws).
   TRAP: any dev command that seeds a SKILL must re-derive — `setskill` wrote xp
@@ -328,7 +328,7 @@ Key conventions (memorize, they bite):
   script runner is its own TU, `Game_Eval.cpp`. Headless is one branch in Main.
   NOT harness machinery despite appearances: lockstep AI (SetResting uses it —
   rest runs the world at 60x and lockstep makes the fast-forward honest), the dev
-  console (90 commands; allocguard/crashpoke/uioverlap predate eval), and the
+  console (~130 commands; allocguard/crashpoke/uioverlap predate eval), and the
   damage ledger (a shipping rule check). NONE OF IT IS BEHIND `#ifdef`, and that
   is a decision: the harness's value is that it measures the SHIPPING binary
   (RollTest's rule — the real thing linked in, never a copy), and a fourth build
@@ -887,13 +887,12 @@ master-volume slider on Audio, and on UI the Stone dropdown, the HUD layout
 (Standard / Minimal), Lock / Reset HUD layout and a scale + background-opacity
 pair for every floating HUD panel (see "Stone chrome, floating panels,
 Minimal layout" below - the party bar's old pair is one of them)
-plus color-picker grids for Theme Colors (the 8 ui::Theme
+plus a color-picker grid for Theme Colors (the 8 ui::Theme
 colors — GameSettings owns the master theme, GameUI::ApplyTheme pushes it
-into all five UIContexts live) and Resource Bars (health/stamina/mana fills,
-ResourceBarColors in PartyHud.h — the HUD widgets point at
-GameSettings::barColors). The ColorPicker control's swatch opens an R/G/B/A
-slider popup; kThemeFields/kBarFields in GameSettings.h drive both grids and
-the ini round-trip. Controls tab: movement key bindings via ui::KeyBind rows
+into all five UIContexts live). The ColorPicker control's swatch opens an R/G/B/A
+slider popup; kThemeFields in GameSettings.h drives the grid and the ini
+round-trip. (The Resource Bars picker grid is GONE - the fills are procedural,
+see RESOURCE BARS; an old ini's bar_<name>= lines are ignored.) Controls tab: movement key bindings via ui::KeyBind rows
 (click the key box, press the new key; Esc/click cancels —
 GameUI::KeyCaptureActive suppresses the page's own Esc while armed; binding a
 key another action holds swaps the two). kKeyFields drives the rows and the
@@ -910,8 +909,8 @@ Game tab hosts the Language dropdown (see the Core/Loc bullet above).
 All persist to settings.ini next to exe (quality=0..3, maxlights=16/32/48/64,
 presentinterval=1..4, language=<code>, volume=0..1, ui_stone=<name>,
 hud_<panel>_pos/_scale/_opacity, hud_layout, hud_locked (barscale/baropacity
-still load, into the party bar's pair), theme_<name>= and
-bar_<name>=r,g,b,a, key_<action>=vkey, look_sensitivity/look_hold/look_return/
+still load, into the party bar's pair),
+theme_<name>=r,g,b,a, key_<action>=vkey, look_sensitivity/look_hold/look_return/
 look_move=<float> and look_curve/look_move_curve=<easing index>,
 adapter=<packed LUID, 0=auto>,
 output=<index>, reswidth=/resheight=<0=window default>, fullscreen=0/1/2;
@@ -1049,6 +1048,24 @@ into its slot. A monster's iq (monsters.cat field; Scheduler::BucketForIq) picks
 its bucket; bucket intervals are PRIME milliseconds (251/499/997/1999 ms ≈
 4/2/1/0.5 Hz; Scheduler::BucketInterval) — coprime, so the buckets almost never
 fire together (cicada pattern) instead of resonating like power-of-two harmonics.
+
+Dev console COMMANDS (console-updates branch, docs/console-updates-plan.md): every
+command registers a `CmdInfo` - `{.name, .group (CmdGroup enum = the listing
+order), .params, .summary}`, designated initializers IN THAT ORDER. `params` is
+the synopsis without the name (`<req> [opt] a|b ...`), one FORM per line
+('\n'); an EMPTY FIRST form is the command typed bare, for one whose bare form
+differs from its verbs. `summary` is one line, no params. Register ASSERTS on a
+duplicate name (Execute runs the first match, so a second one is dead - the
+per-member `threat` was, until it became `grudges`), an empty or multi-line
+summary, and a stray empty form. Both readers use those fields: `help [group|
+command|word]` (grouped, three-column; a word that is both a group and a
+command gets both) and the TYPE-AHEAD box above the prompt (prefix matches,
+then contains-matches dimmed; Up/Down move the selection while it is open,
+Tab/Enter take it, Esc shuts it first; a history recall never opens it, or the
+second Up would select instead of stepping back; after `name ` it shows that
+command's forms). An arity error goes through `devargs::Need(console, args, n)`
+/ `DevConsole::RefuseUsage`, which print the REGISTERED params, so `help` and
+the error cannot drift. Code: DevConsole_Commands.cpp.
 
 Dev console (`~`) THREADS panel (top, under the perf gauges): a live row per
 worker (name / state[colored] / iterations / last+avg ms / hz / pN priority /
@@ -1747,6 +1764,64 @@ Michael's notes and answers: docs/ui-updates-notes.md; the plan: -plan.md.
   found `ModelPreview::Render` building its light rig every frame, which was
   harmless while only the editor drew a preview. `uioverlap` covers the dialog
   (mutation-checked: the old column split's resist line was flagged).
+- MOVING AN ITEM ALLOCATES NOTHING (2026-09-30). The cursor's item is a
+  `HeldItem` (Game/Inventory.h), NOT a `std::optional<std::string>`: it reads
+  like one (has_value / * / reset) but its string lives as long as the cursor,
+  empty = nothing held, and every pick, put and swap with a slot is ONE
+  `SwapWith` - copying an id constructs a string, which the debug CRT allocates
+  for at any length. `Inventory::Stow(HeldItem&)` is the portrait quick-stow;
+  `TryPickItem` returns the kind's own id (a pointer). Every item KIND is built
+  at load (`DungeonWorld::PreloadItemKinds`) - runes used to be built on their
+  first drop, 2 MB in a guarded frame - and a drop reuses a dead runtime drop's
+  slot (`PlaceDrop`) inside load-time headroom (`ReserveDropRoom`). A bag's slots
+  are a `PackSlots` (fixed capacity, `kMaxPackSlots` = 16, all strings built up
+  front), not a vector, so equipping a bigger bag only moves a count; a catalog
+  `capacity` past the cap is clamped with a warning. CHECKED: `AllocTest.ps1
+  -Items` (pack -> floor -> pack through the inventory window; dev `inventory
+  [off|status]`; tally `drops=`/`lifts=`), mutation-checked both ways, and
+  `-Packs` (a 4- and an 8-slot bag swapped in the pack row; `sheet status`
+  prints the row and an `equips=` count), which FAILed on the vector first.
+
+## RESOURCE BARS (icon-updates branch; docs/icon-updates-notes.md + -plan.md)
+
+The health / stamina / mana bars (party bar AND sheet; the sheet's food/water
+too) are an iron FRAME around a PROCEDURAL, ANIMATED, EMISSIVE fill.
+- FRAME: `assets/ui/bar_frame.png`, cut from the bought UI kit's "Life Status
+  Bars (1)" by `tools/CutBarFrame.py` (committed: the script is the asset). The
+  kit is opaque on black and the iron is nearly black, so the key is a TIGHT
+  1..3 brightness ramp; the tube is punched per column (snapped to one line, a
+  running median otherwise - a ragged hole reads as chewed iron). The script
+  PRINTS the tube insets + cap slice points, which PartyHudDraw.cpp holds as
+  constants - re-cut, copy the numbers. Drawn 3-SLICE (caps at their aspect, the
+  plain rim stretched). The rect a caller passes is the GLASS; `FrameReach` says
+  how far the frame sticks out, and the LAYOUT must make room - on the party
+  bar the frames stay inside the member's slot (Michael: the chrome overlapped
+  the container), which is why StatsArea sizes tubes from the reaches.
+- FILL: `SpriteBatch::DrawBarFill` - a second PSO (`assets/shaders/bar.hlsl`,
+  premultiplied blend, its own vertex: kind/fraction/beat/seed + tube aspect/px).
+  Switching sprite <-> fill FLUSHES, so draw order is still submission order;
+  stacks draw every fill, then every frame (`DrawResourceBarFill/Frame`). Health
+  = blood ebbing + a heartbeat; stamina = a breathing green glow; mana = blue
+  wisps + an occasional lightning strike; food/water = solid placeholder.
+  Brightness falls with the stat. Tuning lives at the top of bar.hlsl (edit +
+  relaunch): `kPace` / `kSubdue` exist because the first cut was "too busy - it
+  draws the eye". TRAP that cost a round: a frac(dot) FLOAT HASH disagrees with
+  itself across a cell boundary by a rounding ulp, which drew drifting vertical
+  seams in every fill - noise lattices hash INTEGERS (`HashLattice`).
+- HEARTBEAT: `HeartRateTarget` (PartyHudDraw) - rest 60, NOTICED 120, near
+  death (<30% health) slides to 35 and WINS over noticed, down = no beat. The
+  phase is integrated on the CPU (`BarPulse`, `TickBarPulse`, eased), never time
+  x rate in the shader, so a rate change never jumps the beat. Everything runs
+  on REAL time (`GameUI::TickResourceBars`), not the world's (rest is 60x).
+  NOTICED = `DungeonWorld::PartyNoticed()`: a live monster that is `aware` AND
+  not Idle. NOT the stabilize clock's `danger`, which is distance through walls
+  and was true the moment a new game began beside a crypt of sleepers.
+- `ResourceBarStyle` (PartyHudTypes.h, owned by GameUI) replaced the user
+  `ResourceBarColors` + `kBarFields` + the Settings > UI picker grid. uiskin=0
+  keeps the flat `DrawStatBar` look. The skill XP bars stay flat on purpose.
+- Dev: `hudbars [status]` (bpm per member, noticed), `hudbars demo on|off`
+  (sweeps every bar), `hudbars rate <bpm|auto>`. Checked: AllocTest (default +
+  -Sheet) PASS; `uioverlap hud` clean (it sees widgets; the bars are direct draws).
 
 ## Stone chrome, floating panels, Minimal layout (ui-panels branch)
 

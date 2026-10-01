@@ -12,9 +12,14 @@
 // the console seeds the generic ones (help/clear/echo) and the Game registers
 // the gameplay-aware ones (quit/fps/quality/lang/tp).
 //
-// One class, six files: DevConsole.cpp is the frame (commands, input, the
-// scrollback, the panel's layout), and each section of the readout panel is
-// its own file - DevConsole_Perf / _Profile / _Health / _Threads.cpp, with the
+// Every command registers a CmdInfo - name, group, params, one-line summary -
+// and those four fields drive BOTH readers: `help` (grouped, columned, or one
+// command in full) and the type-ahead box above the prompt.
+//
+// One class, seven files: DevConsole.cpp is the frame (input, the scrollback,
+// the panel's layout), DevConsole_Commands.cpp the registry and its readers
+// (`help`, the type-ahead), and each section of the readout panel is its own
+// file - DevConsole_Perf / _Profile / _Health / _Threads.cpp, with the
 // profile's snapshots in _Snapshots.cpp - sharing only what DevConsole_Panel.h
 // declares.
 // ============================================================================
@@ -39,6 +44,47 @@ namespace dungeon::game {
 namespace devcon {
 struct ProfileFrame; // DevConsole_Panel.h
 }
+
+// ---------------------------------------------------------------------------
+// What a command is FOR, and the order `help` lists the groups in. An enum
+// rather than a string so a command cannot land in a misspelt group of its
+// own; DevConsole_Commands.cpp holds each group's title and `help` key.
+// ---------------------------------------------------------------------------
+enum class CmdGroup : u8 {
+	Console,
+	Settings,
+	Rendering,
+	SaveLoad,
+	Party,
+	Characters,
+	Combat,
+	Monsters,
+	Simulation,
+	Levels,
+	Types,
+	World,
+	Diagnostics,
+	Threads,
+	Profiling,
+	Count
+};
+
+// A command's description, split so the listing and the type-ahead can lay it
+// out in columns.
+//   params  - the synopsis in the usual notation: <required> [optional] a|b
+//             choices, ... repeats. "" = takes no arguments. A command with
+//             several verbs gives ONE FORM PER LINE ('\n'-separated) rather
+//             than one long `a | b | c` run. An EMPTY FIRST form ("\nstatus")
+//             is the command typed bare, for one whose bare form does
+//             something its verbs do not (lists, where `status` reports) -
+//             `[status]` would claim the two are the same.
+//   summary - one line, no parameters in it.
+struct CmdInfo {
+	std::string_view name;
+	CmdGroup group = CmdGroup::Console;
+	std::string_view params;
+	std::string_view summary;
+};
 
 class DevConsole {
 public:
@@ -65,10 +111,16 @@ public:
 				float width, float height);
 
 	// Command registry. `fn` receives the whitespace-split arguments (without
-	// the command name). Print appends a line to the scrollback.
-	void Register(std::string name, std::string help,
-				  std::function<void(const std::vector<std::string>&)> fn);
+	// the command name). ASSERTS on a duplicate name - Execute runs the first
+	// match, so a second registration is silently unreachable (the per-member
+	// `threat` was, for months) - and on an empty or multi-line summary.
+	void Register(const CmdInfo& info, std::function<void(const std::vector<std::string>&)> fn);
+	// Print appends a line to the scrollback.
 	void Print(std::string line);
+	// REFUSES with the RUNNING command's registered params, one line per form, so
+	// an arity error can never disagree with what `help` says. Only meaningful
+	// inside a handler; see devargs::Need.
+	void RefuseUsage();
 
 	// A command that RAN and DECLINED to do what it was asked: a `tp` onto rock,
 	// a `spawn` into a wall, an unknown spell, a `step` that could not run the
@@ -579,7 +631,21 @@ private:
 	float m_panelH = 0.0f; // last frame's panel height, for wheel hit-testing
 	float m_lineH = 16.0f; // last frame's line advance, so Update can step by lines
 	std::string m_input;             // current edit line
-	std::deque<std::string> m_output; // scrollback (oldest front)
+
+	// A scrollback line. Plain lines are the ordinary case; `help` writes HEADERS
+	// (accent) and ROWS, whose three columns - name, params, summary - draw in
+	// three inks so the eye can run down one of them. The splits are byte
+	// offsets into `text`, which is still the whole line (the log mirror and the
+	// clipboard-free reading of a screenshot both want it that way).
+	enum class LineStyle : u8 { Plain, Header, Row };
+	struct OutLine {
+		std::string text;
+		LineStyle style = LineStyle::Plain;
+		u16 nameEnd = 0;   // Row: [0, nameEnd) is the name
+		u16 paramsEnd = 0; // Row: [nameEnd, paramsEnd) the params, the rest the summary
+	};
+	std::deque<OutLine> m_output; // scrollback (oldest front)
+	void PrintLine(OutLine line); // Print, for a styled line
 	std::vector<std::string> m_history;
 	int m_historyIndex = -1; // -1 = editing a fresh line
 	int m_scroll = 0;        // lines scrolled up from the bottom
@@ -587,10 +653,44 @@ private:
 
 	struct Command {
 		std::string name;
-		std::string help;
+		CmdGroup group = CmdGroup::Console;
+		std::string params;
+		std::string summary;
 		std::function<void(const std::vector<std::string>&)> fn;
 	};
 	std::vector<Command> m_commands;
+	const Command* m_running = nullptr; // set by Execute around the handler, for RefuseUsage
+
+	// --- help + type-ahead (DevConsole_Commands.cpp) --------------------------
+	void RegisterHelp();
+	void Help(const std::vector<std::string>& args);
+	// Writes `cmds` as column-aligned rows under one header per group.
+	void PrintCommandTable(const std::vector<const Command*>& cmds);
+	void PrintCommandDetail(const Command& cmd);
+	const Command* FindCommand(std::string_view name) const;
+
+	// THE TYPE-AHEAD. While the FIRST word is being typed a box above the input
+	// line lists the commands matching it; once a known command and a space are
+	// in, the box shrinks to that command's params (the HINT).
+	//
+	// A line RECALLED from history does not open the list: Up/Down move the
+	// list's selection while it is showing, so a recall that opened it would
+	// turn the second Up into a selection move instead of stepping further back.
+	// The list opens on an edit and closes on a recall, Enter, Tab or Esc.
+	bool m_suggestOpen = false;
+	int m_suggestSel = 0;
+	int m_suggestPrefixCount = 0;          // the first N of m_suggest are prefix matches
+	std::vector<const Command*> m_suggest; // matches for the word being typed
+	std::string m_suggestFor;              // the word m_suggest was built for
+	// True while the first word is still being typed (no space yet).
+	bool EditingName() const;
+	void RefreshSuggestions();
+	bool SuggestListVisible() const;
+	// Handles the type-ahead's keys. Returns true when it consumed Enter.
+	bool UpdateSuggest(const Input& input);
+	void AcceptSuggestion();
+	void DrawSuggest(gfx::SpriteBatch& batch, float width, float inputY, float line, float pad,
+					 float labelX);
 };
 
 } // namespace dungeon::game

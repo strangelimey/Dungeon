@@ -34,7 +34,7 @@ public:
 	// `closeIcon` is the shared corner box (AssetUtil CloseIcon); `onClose`
 	// runs when it is clicked.
 	InventoryWindow(std::vector<Character>* roster, const ItemIconBank* icons,
-					std::optional<std::string>* held, const gfx::Texture* closeIcon,
+					HeldItem* held, const gfx::Texture* closeIcon,
 					std::function<void()> onClose);
 
 	void Open() { m_open = true; }
@@ -59,7 +59,7 @@ private:
 
 	std::vector<Character>* m_roster;
 	const ItemIconBank* m_icons;
-	std::optional<std::string>* m_held;
+	HeldItem* m_held;
 	bool m_open = false;
 	std::string m_title; // localized once at construction
 };

@@ -33,6 +33,18 @@ inline bool Need(DevConsole& console, const std::vector<std::string>& args, size
 	return true;
 }
 
+// The same guard, refusing with the command's REGISTERED params (every form)
+// instead of a hand-written usage line - so `help` and the arity error cannot
+// drift apart. Prefer this one; the message form is for a sub-verb whose usage
+// is narrower than the whole command's.
+inline bool Need(DevConsole& console, const std::vector<std::string>& args, size_t n) {
+	if (args.size() < n) {
+		console.RefuseUsage();
+		return false;
+	}
+	return true;
+}
+
 // Joins args into one space-separated string (save-slot names may have spaces).
 inline std::string JoinArgs(const std::vector<std::string>& args) {
 	std::string out;

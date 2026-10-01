@@ -16,8 +16,47 @@ namespace dungeon::game {
 // black, so the light-haloed 3D item icons read clearly against it.
 inline constexpr Vec4 kSlotBg{0.0f, 0.0f, 0.0f, 1.0f};
 
+// The FLAT bar: a theme-filled track, a coloured fill `fraction` wide, a 1px
+// border. The skill XP bars use it, and so does the uiskin=0 debug look.
 void DrawStatBar(gfx::SpriteBatch& batch, const gfx::Rect& rect, float fraction,
 				 const Vec4& color, const ui::Theme& theme);
+
+// --- the framed resource bars (docs/icon-updates-plan.md) --------------------
+struct BarPulse;          // PartyHudTypes.h
+struct ResourceBarStyle;  // PartyHudTypes.h
+
+enum class ResourceBar { Health, Stamina, Mana, Food, Water };
+
+// One resource bar: the procedural fill in the glass (SpriteBatch::DrawBarFill)
+// and the iron frame around it. `tube` is the GLASS - the frame STICKS OUT past
+// it on every side (FrameReach says how far), which is the layout's to make
+// room for. `member` picks the heartbeat. Falls back to DrawStatBar over `tube`
+// when the style is unframed or has no frame texture.
+void DrawResourceBar(gfx::SpriteBatch& batch, const gfx::Rect& tube, ResourceBar which,
+					 float fraction, size_t member, const ResourceBarStyle& style,
+					 const ui::Theme& theme);
+// The same in two passes, for a STACK of bars: every fill first, then every
+// frame, so one bar's fill can never cover the scrollwork of the frame above
+// it (and the fills batch into one draw, the frames into another).
+void DrawResourceBarFill(gfx::SpriteBatch& batch, const gfx::Rect& tube, ResourceBar which,
+						 float fraction, size_t member, const ResourceBarStyle& style,
+						 const ui::Theme& theme);
+void DrawResourceBarFrame(gfx::SpriteBatch& batch, const gfx::Rect& tube,
+						  const ResourceBarStyle& style);
+
+// How far the frame reaches past a tube of `tubeH` pixels, on each side.
+struct BarFrameReach {
+	float left, right, top, bottom;
+};
+BarFrameReach FrameReach(float tubeH);
+
+// The heartbeat (Michael, 2026-09-30): resting, faster once the party is
+// NOTICED (a monster in aggro), and much slower NEAR DEATH - which wins over
+// noticed. No beat at all while down. Beats per minute.
+float HeartRateTarget(const Character& member, bool noticed);
+// Eases a pulse's rate toward `targetBpm` and advances its phase by `dt` real
+// seconds.
+void TickBarPulse(BarPulse& pulse, float targetBpm, float dt);
 
 // Baked portrait when present; otherwise the tinted square with the character's
 // initial. The border is the character's identity color (doubled so it reads at

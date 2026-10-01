@@ -152,7 +152,6 @@ settings.hud_lock=HUD-Anordnung sperren (kein Verschieben oder Skalieren)
 settings.hud_reset=HUD-Anordnung zurücksetzen
 hud.reset_layout=Alle Fenster an ihren Standardplatz zurücksetzen
 settings.theme_colors=Farbschema
-settings.resource_bars=Ressourcenbalken
 settings.party_colors=Gruppenfarben
 settings.member_n=Mitglied {}
 theme.panel=Panel

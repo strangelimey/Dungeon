@@ -80,14 +80,10 @@ void GameUI::OnHandLeftClick(size_t i, size_t hand) {
 		// cursor (a click never silently destroys an item) — but only holdable
 		// items enter a hand; anything else stays on the cursor with a log line.
 		if (!m_itemCategories || !m_itemCategories->Holdable(**m_held)) {
-			AddLogLine(loc::FormatLine("log.cant_hold",
-									   loc::View(std::format("item.{}", **m_held))));
+			AddLogLine(loc::FormatLine("log.cant_hold", loc::ViewKey("item.", **m_held)));
 			return;
 		}
-		std::string incoming = **m_held;
-		if (slot.Empty()) m_held->reset();
-		else *m_held = slot.typeId;
-		slot.typeId = std::move(incoming);
+		m_held->SwapWith(slot.typeId); // one exchange, no allocation (HeldItem)
 		Click();
 		return;
 	}

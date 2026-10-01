@@ -21,13 +21,13 @@ constexpr float kHeadingRem = 64.0f / 22.0f;
 
 CharacterSheet::CharacterSheet(const gfx::Rect& rect,
 							   std::vector<Character>* roster,
-							   const ResourceBarColors* barColors,
+							   const ResourceBarStyle* barStyle,
 							   const ItemIconBank* icons,
 							   const ItemWeightBank* weights,
 							   const ItemIconBank* slotIcons,
 							   const ItemCategoryBank* categories,
-							   std::optional<std::string>* held)
-	: m_roster(roster), m_barColors(barColors),
+							   HeldItem* held)
+	: m_roster(roster), m_barStyle(barStyle),
 	  m_icons(icons), m_weights(weights), m_slotIcons(slotIcons),
 	  m_categories(categories), m_held(held),
 	  m_healthLabel(loc::Tr("bar.health")),

@@ -13,14 +13,15 @@ atmosphere dust=0.06 haze=0.7 ambient=1.4
 #.#........#.#
 #.#####.####.#
 #......P.....#
+#######.######
 ##############
 ;
 fixture sconce 5 1 north
 fixture sconce 4 3 north
 fixture brazier 9 4
 stairfacing arrive
-stairs stairs_exit 7 7 north dest=crypt_gate destx=0 destz=0
 stairs stairs_down 1 1 south dest=crypt2 destx=1 destz=1
+stairs stairs_exit 7 8 north dest=crypt_gate destx=0 destz=0
 variant wall 0 0 3
 variant wall 1 0 3
 variant wall 2 0 3
@@ -199,9 +200,25 @@ variant wall 4 8 3
 variant wall 5 8 3
 variant wall 6 8 3
 variant wall 7 8 3
+variant floor 7 8 3
 variant wall 8 8 3
 variant wall 9 8 3
 variant wall 10 8 3
 variant wall 11 8 3
 variant wall 12 8 3
 variant wall 13 8 3
+variant wall 0 9 3
+variant wall 1 9 3
+variant wall 2 9 3
+variant wall 3 9 3
+variant wall 4 9 3
+variant wall 5 9 3
+variant wall 6 9 3
+variant wall 7 9 3
+variant floor 7 9 3
+variant wall 8 9 3
+variant wall 9 9 3
+variant wall 10 9 3
+variant wall 11 9 3
+variant wall 12 9 3
+variant wall 13 9 3

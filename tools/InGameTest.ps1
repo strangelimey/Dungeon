@@ -139,7 +139,7 @@ $screens = @(
 	   open = { Run-Cmd 'editor'; Run-Cmd 'generate dialog'; Run-Cmd 'generate dialog tab 2' }
 	   close = { Run-Cmd 'generate dialog off'; Run-Cmd 'editor off' } },
 	# The STAIR inspector, both layouts: crypt1's stair down at 1,1 (destination
-	# and Go to) and its exit at 7,7 (one "leads out to" line).
+	# and Go to) and its exit at 7,8 (one "leads out to" line).
 	# `editor inspect` is what a right-click on the square does. It goes to crypt1
 	# FIRST: Enter on the landing page can mean Continue, which loads whatever
 	# level the newest save names (an eval save puts it on eval_arena), and the
@@ -152,7 +152,7 @@ $screens = @(
 	   open = { Run-Cmd 'freeze on'; Run-Cmd 'goto crypt1'; Run-Cmd 'editor inspect 1 1' }
 	   close = { Run-Cmd 'editor inspect off'; Run-Cmd 'editor off' } },
 	@{ label = 'sweep_stairexit'; viaConsole = $true
-	   open = { Run-Cmd 'editor inspect 7 7' }
+	   open = { Run-Cmd 'editor inspect 7 8' }
 	   close = { Run-Cmd 'editor inspect off'; Run-Cmd 'editor off' } },
 	# The WORLD screen's two dialogs, LAST because reaching them leaves the
 	# dungeon: each one opens only on the world map (the one state that routes

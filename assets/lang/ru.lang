@@ -156,7 +156,6 @@ settings.hud_lock=Закрепить расположение (без перем
 settings.hud_reset=Сбросить расположение
 hud.reset_layout=Вернуть все панели на места по умолчанию
 settings.theme_colors=Цвета темы
-settings.resource_bars=Полосы ресурсов
 settings.party_colors=Цвета отряда
 settings.member_n=Участник {}
 theme.panel=Панель
