@@ -948,6 +948,9 @@ private:
 	// stable, filled by LoadItemIcons: rune tablets load element PNGs, other
 	// categories get a generated solid-tint placeholder (m_itemIconPlaceholders).
 	std::array<std::unique_ptr<gfx::Texture>, kSymbolCount> m_runeIconTextures;
+	// The Magic window's glowing runes: glyph + halo per symbol (BuildRuneGlow.py).
+	std::array<std::unique_ptr<gfx::Texture>, kSymbolCount> m_runeGlyphTextures;
+	std::array<std::unique_ptr<gfx::Texture>, kSymbolCount> m_runeGlowTextures;
 	std::vector<std::unique_ptr<gfx::Texture>> m_itemIconPlaceholders;
 	ItemIconBank m_itemIcons;
 	ItemWeightBank m_itemWeights; // catalog id → carry weight (kg), for the sheet

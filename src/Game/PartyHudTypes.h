@@ -112,6 +112,12 @@ struct ItemIconBank {
 		const auto it = byType.find(typeId);
 		return it == byType.end() ? nullptr : it->second;
 	}
+	// The Magic window's GLOWING runes (tools/BuildRuneGlow.py), by SpellSymbol
+	// index: the glyph alone and its soft halo, both white for the draw to tint.
+	// Null = not installed, and the rune falls back to its plain icon.
+	static constexpr size_t kRuneSlots = 8;
+	const gfx::Texture* runeGlyph[kRuneSlots]{};
+	const gfx::Texture* runeGlow[kRuneSlots]{};
 };
 
 // Item carry weights (kg) keyed by catalog id, the data behind a member's carry

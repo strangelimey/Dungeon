@@ -759,6 +759,15 @@ void Game::LoadItemIcons() {
 		if (!m_runeIconTextures[i])
 			log::Warn("missing rune_icon_{}.png — no cursor icon", SymbolId(sym));
 		m_itemIcons.byType[id] = m_runeIconTextures[i].get();
+		// The Magic window's glowing rune: glyph + halo (tools/BuildRuneGlow.py).
+		// Linear, not sRGB: they are white masks the draw tints.
+		static_assert(kSymbolCount <= ItemIconBank::kRuneSlots);
+		m_runeGlyphTextures[i] = TryLoadTextureFile(
+			m_device, paths::Asset(std::format("ui\\rune_glyph_{}", SymbolId(sym))));
+		m_runeGlowTextures[i] = TryLoadTextureFile(
+			m_device, paths::Asset(std::format("ui\\rune_glow_{}", SymbolId(sym))));
+		m_itemIcons.runeGlyph[i] = m_runeGlyphTextures[i].get();
+		m_itemIcons.runeGlow[i] = m_runeGlowTextures[i].get();
 	}
 	// Non-rune items: a model item uses its baked 3D thumbnail (rendered once by
 	// DungeonWorld; the same texture feeds every slot/grid/cursor instance);

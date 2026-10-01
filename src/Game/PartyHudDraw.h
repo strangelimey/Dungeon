@@ -84,4 +84,17 @@ void DrawRuneFace(gfx::SpriteBatch& batch, const gfx::Rect& r, SpellSymbol s,
 				  const ItemIconBank* icons, bool hot, bool disabled = false,
 				  bool background = true);
 
+// The colour a rune GLOWS in the Magic window: its school's - the very glyph
+// colour its icon is drawn in (tools/BuildRuneGlow.py prints them) - and WHITE
+// for the form runes, which belong to no school (Michael, ui-updates: "for now").
+Vec4 RuneGlowColor(SpellSymbol s);
+
+// A rune in the MAGIC WINDOW: its glyph alone, lit in RuneGlowColor over a soft
+// halo of the same colour that PULSES slowly - `phase` in radians, so each rune
+// can sit out of step with its neighbours. The caller draws the socket under it.
+// Falls back to DrawRuneFace when the glow masks are not installed. `disabled`
+// (spent / blocked) leaves the glyph dim and unlit.
+void DrawRuneGlow(gfx::SpriteBatch& batch, const gfx::Rect& r, SpellSymbol s,
+				  const ItemIconBank* icons, bool hot, bool disabled, float phase);
+
 } // namespace dungeon::game

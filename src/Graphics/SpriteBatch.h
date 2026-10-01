@@ -93,6 +93,9 @@ public:
 	// frame before Begin: not the world's clock, which runs 60x while resting
 	// and stops in the pause menu.
 	void SetTime(float seconds) { m_time = seconds; }
+	// The same clock, for a CPU-drawn pulse that should keep the bars' time
+	// (the Magic window's glowing runes).
+	float Time() const { return m_time; }
 
 	// One glyph of OUTLINED text (ui::Font::Draw is the only caller). `dst` and
 	// `uv` are the glyph's box GROWN by `radius` px on every side, so the ring

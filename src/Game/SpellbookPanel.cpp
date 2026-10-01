@@ -25,6 +25,14 @@ constexpr float kSeqGap = 0.018f;
 constexpr float kCastH = 0.15f;
 constexpr float kCastGap = 0.036f; // between Cast and Clear
 constexpr float kSeqAboveCast = 0.03f;
+
+// The glow's pulse for rune `slot`: one breath every ~3.4 s of REAL time (the
+// bars' clock, so rest's 60x never hurries it), each slot ~75 degrees behind
+// the last so the grid shimmers instead of throbbing in unison.
+float RunePhase(const gfx::SpriteBatch& batch, size_t slot) {
+	constexpr float kTwoPi = 6.2831853f;
+	return batch.Time() * (kTwoPi / 3.4f) - static_cast<float>(slot) * 1.3f;
+}
 } // namespace
 
 SpellbookPanel::SpellbookPanel(const gfx::Rect& rect,
@@ -331,9 +339,11 @@ void SpellbookPanel::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		}
 		// Disabled = already spelled into the sequence (or blocked by the
 		// school rule): it stops responding until a sequence edit frees it.
-		DrawRuneFace(batch, r, slots[i].symbol, m_icons,
-					 static_cast<int>(i) == m_hotSymbol,
-					 !SymbolAvailable(slots[i].symbol, Sequence()));
+		// Each rune GLOWS in its school's colour in its socket, pulsing a
+		// little out of step with its neighbours (ui-updates).
+		ui::DrawSlotFace(ctx, batch, r, theme.control);
+		DrawRuneGlow(batch, r, slots[i].symbol, m_icons, static_cast<int>(i) == m_hotSymbol,
+					 !SymbolAvailable(slots[i].symbol, Sequence()), RunePhase(batch, i));
 	}
 
 	// The sequence spelled out so far — six slots at the bottom, just above
@@ -341,8 +351,9 @@ void SpellbookPanel::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	for (size_t i = 0; i < kMaxSequence; ++i) {
 		const gfx::Rect r = SequenceRect(px, i);
 		if (i < m_seqLen) {
-			DrawRuneFace(batch, r, m_sequence[i], m_icons,
-						 static_cast<int>(i) == m_hotSeq);
+			ui::DrawSlotFace(ctx, batch, r, theme.control);
+			DrawRuneGlow(batch, r, m_sequence[i], m_icons, static_cast<int>(i) == m_hotSeq,
+						 false, RunePhase(batch, i + 7));
 		} else {
 			ui::DrawSlotFace(ctx, batch, r, theme.control);
 		}

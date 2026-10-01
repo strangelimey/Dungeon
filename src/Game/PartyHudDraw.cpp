@@ -180,6 +180,49 @@ void DrawPortrait(gfx::SpriteBatch& batch, const gfx::Rect& rect,
 			  rect.y + (rect.h - font.Height()) * 0.5f, theme.text);
 }
 
+Vec4 RuneGlowColor(SpellSymbol s) {
+	// The icons' own glyph colours, as tools/BuildRuneGlow.py prints them.
+	switch (s) {
+	case SpellSymbol::Fire: return {0.95f, 0.45f, 0.18f, 1.0f};
+	case SpellSymbol::Earth: return {0.45f, 0.80f, 0.32f, 1.0f};
+	case SpellSymbol::Air: return {0.80f, 0.92f, 1.00f, 1.0f};
+	case SpellSymbol::Water: return {0.30f, 0.55f, 0.95f, 1.0f};
+	default: return {1.0f, 1.0f, 1.0f, 1.0f}; // a form rune: no school, white
+	}
+}
+
+void DrawRuneGlow(gfx::SpriteBatch& batch, const gfx::Rect& r, SpellSymbol s,
+				  const ItemIconBank* icons, bool hot, bool disabled, float phase) {
+	const size_t i = static_cast<size_t>(s);
+	const gfx::Texture* glyph =
+		icons && i < ItemIconBank::kRuneSlots ? icons->runeGlyph[i] : nullptr;
+	const gfx::Texture* glow =
+		icons && i < ItemIconBank::kRuneSlots ? icons->runeGlow[i] : nullptr;
+	if (!glyph || !glow) {
+		DrawRuneFace(batch, r, s, icons, hot, disabled, /*background*/ false);
+		return;
+	}
+	const Vec4 c = RuneGlowColor(s);
+	const float pad = r.w * 0.08f;
+	const gfx::Rect in{r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad};
+	if (disabled) {
+		// Spent or blocked: the mark is still there, but nothing about it is lit.
+		batch.DrawSprite(in, {0, 0, 1, 1}, *glyph, {c.x * 0.4f, c.y * 0.4f, c.z * 0.4f, 0.8f});
+		return;
+	}
+	// The halo breathes; hovering lifts it. Slow, so a grid of them shimmers
+	// rather than flashes.
+	const float pulse = 0.5f + 0.5f * std::sin(phase);
+	const float halo = (hot ? 0.70f : 0.40f) + 0.30f * pulse;
+	batch.DrawSprite(in, {0, 0, 1, 1}, *glow, {c.x, c.y, c.z, halo});
+	// The glyph itself: the colour lifted toward white, a touch more at the crest,
+	// so the stroke reads as the bright core of its own light.
+	const float lift = 0.35f + 0.20f * pulse + (hot ? 0.15f : 0.0f);
+	batch.DrawSprite(in, {0, 0, 1, 1}, *glyph,
+					 {c.x + (1.0f - c.x) * lift, c.y + (1.0f - c.y) * lift,
+					  c.z + (1.0f - c.z) * lift, 1.0f});
+}
+
 void DrawRuneFace(gfx::SpriteBatch& batch, const gfx::Rect& r, SpellSymbol s,
 				  const ItemIconBank* icons, bool hot, bool disabled,
 				  bool background) {
