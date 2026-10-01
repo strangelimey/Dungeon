@@ -1269,6 +1269,7 @@ void DungeonWorld::LoadButtons() {
 		b.z = spawn.z;
 		b.facing = spawn.facing;
 		if (const std::string* t = spawn.Param("target")) b.target = *t;
+		ReadButtonFlags(spawn, b);
 		// The lever's two meshes, when the catalog knows the type (a legacy
 		// record with an unknown type still works — it just has no 3D presence).
 		// The mount is shared by every lever type, resolved by its well-known

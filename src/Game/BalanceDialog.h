@@ -28,6 +28,8 @@
 #include "UI/UIContext.h"
 
 #include <functional>
+#include <string>
+#include <vector>
 
 namespace dungeon::ui {
 class TabControl;
@@ -55,10 +57,28 @@ public:
 	std::function<void(const Balance&)> onApply;
 	std::function<void(const Balance&)> onSave;
 
+	// The Effects tab (docs/tool-refinement-plan.md Phase 1): effects are
+	// tuning, not building, so they left the editor palette for here. One row
+	// per effects.cat entry - its display name, id and stacking rule - and an
+	// edit disc that fires onEditEffect; the owner opens the schema-driven type
+	// editor over this dialog, which stays open beneath it. Set before Open.
+	struct EffectRow {
+		std::string id, name, stacking;
+	};
+	void SetEffects(std::vector<EffectRow> rows) { m_effects = std::move(rows); }
+	// Rebuilds the open dialog's widgets from its working copy and effect rows
+	// (the tab stays where it was). Never from one of its own callbacks - the
+	// rebuild destroys the widget that fired it.
+	void Rebuild() {
+		if (m_open) BuildUI();
+	}
+	std::function<void(const std::string& id)> onEditEffect;
+
 private:
 	void BuildUI();
 	void BuildFormulaTab(size_t tab);
 	void BuildAttacksTab(size_t tab);
+	void BuildEffectsTab(size_t tab);
 	void Apply() { if (onApply) onApply(m_cfg); }
 
 	gfx::GraphicsDevice& m_device;
@@ -75,6 +95,7 @@ private:
 
 	ui::TabControl* m_tabs = nullptr; // owned by m_ui; kept to restore the tab
 	int m_activeTab = 0;
+	std::vector<EffectRow> m_effects; // see SetEffects
 };
 
 } // namespace dungeon::game

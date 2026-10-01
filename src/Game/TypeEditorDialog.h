@@ -34,6 +34,7 @@
 #include "UI/UIContext.h"
 
 #include <functional>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -41,6 +42,7 @@
 namespace dungeon::ui {
 class Button;
 class Label;
+class Stack;
 class TabControl;
 class TextField;
 } // namespace dungeon::ui
@@ -96,6 +98,13 @@ public:
 		ui::Swatch swatch;
 	};
 	std::function<RefFace(const FieldSpec&, const std::string& id)> faceFor;
+	// An optional Float whose absence means DERIVED (a monster's `power`): the
+	// owner answers with the value the game works out instead, and the row says
+	// so - "Power (derived 12.7)" - both while unset and beside the slider once
+	// an override is set. Switching the override on STARTS it at that value, so
+	// an override begins as a nudge rather than a jump from the slider's floor.
+	// No answer = the field is not a derived one (the plain optional row).
+	std::function<std::optional<float>(const FieldSpec&)> derivedFor;
 	// A POOL asset field (TextureSet / Model) is picked in the asset picker, not
 	// a dropdown — there are hundreds and a name tells you nothing. The owner
 	// opens it (textures vs models, on `current`) and calls `apply` with the
@@ -110,6 +119,7 @@ public:
 	// specialised dialog (Monsters: animations + behaviour). No label = no button.
 	std::function<void(const Config&)> onExtra;
 	std::string extraLabel;
+	std::string extraIcon = "anim"; // its icon_tb_<name> face
 	// Duplicate: clone this entry as a new type — "the same wall with a different
 	// texture" is a copy plus one field, not a form filled from scratch. The owner
 	// opens the CREATE dialog preset to Duplicate-of-this-id, so a clone still
@@ -160,7 +170,15 @@ private:
 	std::string ValueOf(const FieldSpec& spec) const;
 	// Records an edit (and marks the dialog dirty for Save).
 	void SetValue(const FieldSpec& spec, std::string value);
+	// The same for a field no schema row names - a quest stage's `text_<id>`.
+	void SetField(std::string_view key, std::string value);
 	bool Touched(std::string_view key) const;
+	// A QuestStages field's rows: one per stage (id, the log's line, a remove
+	// box) and the add button.
+	void BuildStageRows(ui::Stack& page, const FieldSpec& spec);
+	// A WeightedRefs field's rows: one per entry (the id as a dropdown named
+	// through faceFor, its weight, a remove box) and the add button.
+	void BuildWeightedRows(ui::Stack& page, const FieldSpec& spec);
 
 	gfx::GraphicsDevice& m_device;
 	ui::UIContext m_ui; // the tabbed form

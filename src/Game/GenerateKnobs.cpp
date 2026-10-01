@@ -88,14 +88,22 @@ constexpr Knob kKnobs[] = {
 	{"reward", "map.gen.reward", kPopulation, KnobKind::Float, 0, 1,
 	 [](const Params& p) -> double { return p.reward; },
 	 [](Params& p, double v) { p.reward = static_cast<float>(v); }},
+	// Phase 7 (tool-refinement): THE STYLE - what the level is about, what it
+	// looks like and what lives in it, in one choice. Picking one in the dialog
+	// also loads its shape knobs (GenerateDialog::onChoice).
+	{"style", "map.gen.style", kTag, KnobKind::Choice, 0, 0, nullptr, nullptr,
+	 [](const Params& p) { return p.style; },
+	 [](Params& p, std::string_view v) { p.style = std::string(v); }},
 	// P4b: what the level is ABOUT and what it LOOKS like, both "as before"
-	// when empty (the viewed level's tags / the active level's palette).
+	// when empty (the viewed level's tags / the active level's palette). HIDDEN
+	// since Phase 7 - the style decides both - but still read, so a scripted run
+	// or a preset naming them works as it did.
 	{"tag", "map.gen.tag", kTag, KnobKind::Choice, 0, 0, nullptr, nullptr,
 	 [](const Params& p) { return p.tag; },
-	 [](Params& p, std::string_view v) { p.tag = std::string(v); }},
+	 [](Params& p, std::string_view v) { p.tag = std::string(v); }, true},
 	{"palette", "map.gen.palette", kTag, KnobKind::Choice, 0, 0, nullptr, nullptr,
 	 [](const Params& p) { return p.palette; },
-	 [](Params& p, std::string_view v) { p.palette = std::string(v); }},
+	 [](Params& p, std::string_view v) { p.palette = std::string(v); }, true},
 };
 
 } // namespace

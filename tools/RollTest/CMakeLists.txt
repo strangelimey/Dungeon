@@ -31,6 +31,9 @@
 # Core/Types.h and the standard library — and knows nothing of members, monsters
 # or the world it watches. The moment a Character or a DungeonWorld appears in
 # it, this line stops compiling, which is the wall doing its job.
+# Generate.cpp (tool-refinement Phase 7) for generate::Populate, the populate-
+# only pass: the level generator was always pure (Params in, a grid and records
+# out), so linking it here costs nothing and measures the shipping rules.
 add_executable(RollTest
 	Main.cpp
 	${CMAKE_SOURCE_DIR}/src/Game/DamageLedger.cpp
@@ -41,6 +44,10 @@ add_executable(RollTest
 	${CMAKE_SOURCE_DIR}/src/Game/Mishap.cpp
 	${CMAKE_SOURCE_DIR}/src/Game/Blast.cpp
 	${CMAKE_SOURCE_DIR}/src/Game/Resource.cpp
+	${CMAKE_SOURCE_DIR}/src/Game/Power.cpp
+	${CMAKE_SOURCE_DIR}/src/Game/Style.cpp
+	${CMAKE_SOURCE_DIR}/src/Game/Carve.cpp
+	${CMAKE_SOURCE_DIR}/src/Game/Generate.cpp
 )
 # NOT linked, and the attempt is worth recording: pulling Balance.cpp in for the
 # attacker's type axis dragged Catalog -> assets::ReadBinaryFile, i.e. the file

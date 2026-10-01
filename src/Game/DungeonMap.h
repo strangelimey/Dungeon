@@ -229,6 +229,10 @@ struct StairLink {
 	std::string type;
 	std::string destLevel;
 	int destX = 0, destZ = 0;
+	// A flags.cat id this way waits on (`flag=`, "" = none): stepping onto it
+	// does nothing but say so until the flag is on. THIS half only - the far
+	// end is its own record and may wait on something else, or nothing.
+	std::string flag;
 };
 
 // Grid-based dungeon. Coordinates: x = column, z = row; world position of a
@@ -534,6 +538,9 @@ public:
 	// Turns the stair at (x,z) (the stair inspector) - see StairLink::facing.
 	// False if there is none.
 	bool SetStairFacing(int x, int z, Direction facing);
+	// The flag the stair at (x,z) waits on ("" = none). False if there is no
+	// stair there or it already waited on that.
+	bool SetStairFlag(int x, int z, std::string flag);
 	// The facing a NEW stair on (x,z) should take: the first of north, east,
 	// south, west whose neighbour is walkable - the way off it - or north when
 	// the cell is walled in on every side.
@@ -621,7 +628,8 @@ public:
 	enum class TypeRecords {
 		WallPalette, FloorPalette, CeilingPalette,
 		Decoration, Fixture, WallFeature, Stair,
-		Theme // a surface theme's slot (counted by the squares using it)
+		Theme, // a surface theme's slot (counted by the squares using it)
+		StairFlag // the flags.cat id a stair waits on (`flag=`)
 	};
 	// Editor type rename/delete: counts this level's references to catalog id
 	// `id` within one record family and, when `newId` is given, rewrites them.

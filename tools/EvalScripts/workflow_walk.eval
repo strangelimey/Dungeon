@@ -1,0 +1,56 @@
+; workflow_walk.eval - EditorTest phase 18, part 2 (tool-refinement Phase 7):
+; the four stages as ONE PATH, run inside p7_world (made by workflow_worlds.eval
+; in Dirt Tunnels, its keep dungeon naming that style).
+;
+;   add      [+] opens on the dungeon's style; Create makes a floor in it and
+;            lands in the Build stage with the style armed - no Level settings
+;            visit, no palette donor
+;   build    an empty floor in the style, then room + corridor + stamp
+;   populate the dialog's Populate, then the console's at a known density
+;   overview "what next" says build, then populate, then check / ready
+logecho on
+reset
+timescale 0
+freeze on
+editor
+; Somewhere other than Build, so landing there is visible - in BOTH groupings,
+; since each remembers its own group.
+editor palette mode stage
+editor palette group populate
+editor palette mode kind
+editor palette group creatures
+
+echo --- add ---
+generate dialog new
+generate dialog create
+generate dialog off
+editor palette
+styles
+
+echo --- empty ---
+editor palette mode stage
+editor palette group populate
+editor palette mode kind
+generate dialog new
+generate dialog empty
+editor palette
+styles
+editor overview level
+editor overview follow next level
+
+echo --- build ---
+editor shape room 2 2 5 5
+editor shape corridor 7 8 4 5
+editor shape stamp l_room 11 3 0
+editor overview level
+editor overview follow next level
+
+echo --- populate ---
+generate dialog
+generate dialog populate
+generate dialog off
+generate populate style:dirt_tunnels density:2 seed:3
+editor overview level
+editor overview follow next level
+generate dialog off
+savemap

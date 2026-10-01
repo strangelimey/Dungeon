@@ -39,6 +39,14 @@ inline const Vec4 kGhostOk{0.45f, 1.0f, 0.65f, 0.55f};
 inline const Vec4 kGhostNo{1.0f, 0.35f, 0.35f, 0.45f};
 // Editor: live validation's boxes (MapView_Issues.cpp) - red for an error, amber
 // for a warning. The fill is these at a low alpha, the ring at full.
+// A monster's power band on the palette's pips (Game/Power.h): green for the
+// feeblest fifth of the world's monsters through to an angry red for the
+// strongest. The lit pips of a row all take its band's colour.
+inline const Vec4 kPowerBand[5] = {{0.36f, 0.80f, 0.36f, 1.0f},
+								   {0.66f, 0.82f, 0.28f, 1.0f},
+								   {0.92f, 0.80f, 0.24f, 1.0f},
+								   {0.96f, 0.52f, 0.18f, 1.0f},
+								   {0.94f, 0.18f, 0.14f, 1.0f}};
 inline const Vec4 kIssueError{1.0f, 0.30f, 0.28f, 1.0f};
 inline const Vec4 kIssueWarning{1.0f, 0.72f, 0.20f, 1.0f};
 

@@ -33,8 +33,14 @@ GenerateDialog::GenerateDialog(gfx::GraphicsDevice& device, ui::FontLibrary& fon
 	m_closeIcon = CloseIcon(device);
 }
 
+void GenerateDialog::ClearHiddenKnobs() {
+	for (const generate::Knob& k : generate::Knobs())
+		if (k.hidden && k.setText) k.setText(m_params, "");
+}
+
 void GenerateDialog::OpenCreate(const std::string& dungeonId,
 								const std::string& where) {
+	ClearHiddenKnobs();
 	m_open = true;
 	m_mode = Mode::Create;
 	m_dungeon = dungeonId;
@@ -45,12 +51,48 @@ void GenerateDialog::OpenCreate(const std::string& dungeonId,
 }
 
 void GenerateDialog::OpenRegenerate(const std::string& levelStem) {
+	ClearHiddenKnobs();
 	m_open = true;
 	m_mode = Mode::Regenerate;
 	m_level = levelStem;
 	if (levelStem != m_reportLevel) m_report = {};
 	m_uiRebuild = false;
 	BuildUI();
+}
+
+std::string GenerateDialog::PressCreate(bool generated) {
+	if (!onCreate || m_mode != Mode::Create) return {};
+	if (!generated) {
+		const std::string stem = onCreate(m_dungeon, nullptr);
+		Close();
+		return stem;
+	}
+	if (onKnobsUsed) onKnobsUsed(m_params);
+	const std::string stem = onCreate(m_dungeon, &m_params);
+	if (stem.empty()) return stem;
+	// Straight into the reroll loop on what was just made. DEFERRED: the button
+	// fires from inside the tree the rebuild would clear.
+	m_mode = Mode::Regenerate;
+	m_level = stem;
+	m_uiRebuild = true;
+	return stem;
+}
+
+void GenerateDialog::PressPopulate() {
+	if (m_mode != Mode::Regenerate) return;
+	if (onKnobsUsed) onKnobsUsed(m_params);
+	if (onPopulate) onPopulate(m_params);
+}
+
+bool GenerateDialog::PickChoice(std::string_view key, const std::string& value) {
+	for (const generate::Knob& k : generate::Knobs()) {
+		if (k.kind != generate::KnobKind::Choice || key != k.key) continue;
+		k.setText(m_params, value);
+		if (onChoice) onChoice(k.key, m_params);
+		m_uiRebuild = true;
+		return true;
+	}
+	return false;
 }
 
 void GenerateDialog::BuildUI() {
@@ -84,6 +126,7 @@ void GenerateDialog::BuildUI() {
 	// Callbacks capture the knob BY POINTER: the table is a static constant, so
 	// it outlives every widget built from it.
 	for (const generate::Knob& knob : generate::Knobs()) {
+		if (knob.hidden) continue; // its decision lives elsewhere now (GenerateKnobs.h)
 		const generate::Knob* k = &knob;
 		const auto it = std::find_if(tabs.begin(), tabs.end(), [&](const char* t) {
 			return std::string_view(t) == knob.tab;
@@ -113,8 +156,13 @@ void GenerateDialog::BuildUI() {
 			row->Row<ui::Label>(ui::Len::Fill(kLabelFill), label)->centerV = true;
 			row->Row<ui::DropDown>(ui::Len::Fill(kFieldFill), std::move(labels), selected,
 								   [this, k, choices](int i) {
-									   if (i >= 0 && i < static_cast<int>(choices.size()))
-										   k->setText(m_params, choices[static_cast<size_t>(i)].first);
+									   if (i < 0 || i >= static_cast<int>(choices.size())) return;
+									   k->setText(m_params, choices[static_cast<size_t>(i)].first);
+									   // The owner may move other knobs with it (a
+									   // style brings its shape); every slider must
+									   // then show the new value - DEFERRED, since
+									   // this fires inside the tree being rebuilt.
+									   if (onChoice && onChoice(k->key, m_params)) m_uiRebuild = true;
 								   });
 			continue;
 		}
@@ -186,21 +234,10 @@ void GenerateDialog::BuildUI() {
 	chrome.footer->Space(ui::Len::Fill());
 	if (m_mode == Mode::Create) {
 		// The old [+] behaviour, kept: sometimes you want a blank canvas.
-		FooterIcon(*chrome.footer, m_device, "new", loc::Tr("map.gen.empty"), [this] {
-			if (onCreate) onCreate(m_dungeon, nullptr);
-			Close();
-		});
-		FooterIcon(*chrome.footer, m_device, "generate", loc::Tr("map.gen.create"), [this] {
-			if (!onCreate) return;
-			if (onKnobsUsed) onKnobsUsed(m_params);
-			const std::string stem = onCreate(m_dungeon, &m_params);
-			if (stem.empty()) return;
-			// Straight into the reroll loop on what was just made. DEFERRED:
-			// this fires from inside the tree the rebuild would clear.
-			m_mode = Mode::Regenerate;
-			m_level = stem;
-			m_uiRebuild = true;
-		});
+		FooterIcon(*chrome.footer, m_device, "new", loc::Tr("map.gen.empty"),
+				   [this] { PressCreate(false); });
+		FooterIcon(*chrome.footer, m_device, "generate", loc::Tr("map.gen.create"),
+				   [this] { PressCreate(true); });
 		// THE PLAY-TEST LOOP in one click (P5): make it, and walk into it. The
 		// play disc: in this dialog, playing means making it first.
 		FooterIcon(*chrome.footer, m_device, "play", loc::Tr("map.gen.createplay"), [this] {
@@ -214,6 +251,10 @@ void GenerateDialog::BuildUI() {
 			if (onKnobsUsed) onKnobsUsed(m_params);
 			if (onGenerate) onGenerate(m_params);
 		});
+		// POPULATE ONLY (Phase 7): the Population tab's knobs and the style's
+		// monsters on the shape the level already has, however it was built.
+		FooterIcon(*chrome.footer, m_device, "cat_populate", loc::Tr("map.gen.populate"),
+				   [this] { PressPopulate(); });
 		// ...and walk into what the rerolls made, when it looks right.
 		FooterIcon(*chrome.footer, m_device, "play", loc::Tr("map.gen.play"),
 				   [this] { if (onPlay) onPlay(m_level); });

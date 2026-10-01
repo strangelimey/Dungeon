@@ -49,6 +49,19 @@
 
 namespace dungeon::game {
 
+// What pressing a lever does to a flag (a button record's `sets=` / `clears=` /
+// `toggles=` param - the op IS the key, so one record says both at once).
+enum class FlagOp : u8 { None, Set, Clear, Toggle };
+// The record key for an op ("" for None), and back (None for anything else).
+inline const char* FlagOpKey(FlagOp op) {
+	return op == FlagOp::Set ? "sets" : op == FlagOp::Clear ? "clears"
+		 : op == FlagOp::Toggle ? "toggles" : "";
+}
+inline FlagOp FlagOpFromKey(std::string_view key) {
+	return key == "sets" ? FlagOp::Set : key == "clears" ? FlagOp::Clear
+		 : key == "toggles" ? FlagOp::Toggle : FlagOp::None;
+}
+
 // The DYNAMIC half of the world — the save-side twin of the WorldMap below,
 // and the same split every level already makes: the map is authored and never
 // changes, this is everything play does to it.
@@ -112,6 +125,14 @@ struct WorldState {
 	// set to "" was set.
 	const std::string* Flag(std::string_view key) const;
 	bool SetFlag(std::string key, std::string value);
+	// THE ON/OFF VIEW an authored flag (flags.cat) is read and written through.
+	// On = set to anything but "0" (so a hand-authored `flag = seal=broken` on an
+	// item reads as on); off = absent or "0". Switching one off WRITES "0" rather
+	// than erasing it, so a save shows it was touched. No allocation once a flag
+	// exists: the doors and buttons that call this are pressed in play.
+	bool FlagOn(std::string_view key) const;
+	// False when it was already in that state (the SetFlag rule).
+	bool SetFlagOn(std::string_view key, bool on);
 
 	bool Discovered(std::string_view id) const;
 	// Marks a location known. Returns false when it already was — callers

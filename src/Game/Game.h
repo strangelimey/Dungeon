@@ -73,6 +73,7 @@
 #include "Game/ProjectileInspector.h"
 #include "Game/PropInspector.h"
 #include "Game/Project.h"
+#include "Game/StyleLibrary.h"
 #include "Game/TypeEditorDialog.h"
 #include "Game/SoundBank.h"
 #include "UI/FontLibrary.h"
@@ -239,6 +240,7 @@ private:
 	void RegisterDiagnosticCommands(); // guards, threads, health (Game_DevDiagnostics.cpp)
 	void RegisterPartyCommands(); // members, gear, pools (Game_DevParty.cpp)
 	void RegisterEvalCommands(); // the eval harness's (Game_DevEval.cpp)
+	void RegisterStyleCommands(); // styles and the library (Game_Styles.cpp)
 	// The encounter tally as the `tally` command prints it: one key=value
 	// line starting "TALLY ". Shared with `alloctest`'s verdict.
 	std::string TallyLine() const;
@@ -281,10 +283,23 @@ private:
 	// Opens the type editor for a catalog id (the palette's right-click), or
 	// does nothing when the catalog/entry is unknown.
 	void OpenTypeEditor(MapEditor::PaletteCat cat, const std::string& id);
+	// The Balance dialog on the live tuning, its Effects tab filled from the
+	// project's effects.cat (the toolbar button and the console's `balance`).
+	void OpenBalanceDialog();
+	std::vector<BalanceDialog::EffectRow> EffectRows() const;
+	// The type editor was opened OVER the Balance dialog (its Effects tab): when
+	// it closes, the tab's rows are rebuilt, since a save may have renamed one.
+	bool m_typeOverBalance = false;
 	// Creates an entry in a pure-data catalog (dungeons/terrain/quests) with a
 	// free id and the schema's defaults; the caller opens the type editor on it
 	// so the id can be renamed there. "" if the category has no catalog.
 	std::string CreateAuthoredType(MapEditor::PaletteCat cat);
+	// STYLES (Game_Styles.cpp): add a library style to this world (the style
+	// and whatever it points at that the world lacks, saved; monsters it lacks
+	// reported), and save a world style back to the library. Both report what
+	// they did through onMessage and return it for the console.
+	StyleLibrary::AddResult AddStyleFromLibrary(const std::string& id);
+	bool SaveStyleToLibrary(const std::string& id, std::vector<StyleLibrary::Copy>& out);
 	// Renames a catalog type EVERYWHERE: the entry, every level record that
 	// names it (DungeonWorld::SweepTypeRefs), the cross-catalog references
 	// (stairs `pair`, doors `key`) and the project's default fixture ids. False
@@ -325,6 +340,10 @@ private:
 	// The typeface audition (docs/fonts.md Phase 4): the `font` console
 	// command's body, and the fonts.cat writer behind `font save`.
 	void FontCommand(const std::vector<std::string>& args);
+	// `editor palette ...` (the category bar, for the harness).
+	void PrintPalette(const std::vector<std::string>& args);
+	// `editor dock ...` / `editor overview ...` (MapView_Docks.cpp).
+	void PrintDocks(const std::vector<std::string>& args);
 	bool SaveFontCatalog();
 
 	// The editor toolbar's [+] button: writes a minimal .map/.ent pair next to
@@ -456,10 +475,22 @@ private:
 	// centre, as grid rows. A new world's first room and an empty new level
 	// both start from it; FIXED on purpose (scenarios build on the room's place).
 	static void AppendStarterRoom(std::string& map);
+	static constexpr int kStarterSize = 16, kStarterCentre = 8;
+	// The same box as a floor grid (row-major, 1 = open).
+	static std::vector<u8> StarterFloor();
+	// The box in style `styleId` (Phase 7): `palettes` (wall, floor, ceiling)
+	// take the style's theme members where it names any, and the returned text
+	// is the level's `tags` record plus the `theme` records painting the room and
+	// its walls. "" (palettes untouched) for no style or one `project` lacks.
+	static std::string StyledStarterRecords(const Project& project, const std::string& styleId,
+											std::array<std::vector<std::string>, 3>& palettes);
 	// CreateWorld's three builders, each writing a whole world into `folder`
 	// (the hidden build folder). False on failure, `problem` set when it knows.
 	bool BuildBlankWorld(const std::string& folder, const std::string& id,
-						 std::string* problem);
+						 const NewWorldSpec& spec, std::string* problem);
+	// Blank and Wizard: the spec's LIBRARY style into `made` (with the themes and
+	// surfaces it names) before anything is built in it. True with no style.
+	bool AddSpecStyle(Project& made, const NewWorldSpec& spec, std::string* problem) const;
 	bool BuildCopiedWorld(const std::string& folder, const std::string& id,
 						  std::string* problem);
 	bool BuildLevelWorld(const std::string& folder, const std::string& id,
@@ -497,8 +528,11 @@ private:
 	// WRITER of new levels: the [+] dialog, the `newlevel` and `generate`
 	// commands all come through here, so a generated level cannot be named,
 	// grouped or linked differently from an empty one.
+	// The EMPTY box takes `emptyStyle` (Phase 7: the [+] dialog's style), its
+	// look and tags; a generated level's style rides `params`.
 	std::string CreateNewLevel(const std::string& dungeonId = {},
-							   const generate::Params* params = nullptr);
+							   const generate::Params* params = nullptr,
+							   const std::string& emptyStyle = {});
 	// --- random encounters (Game_Generate.cpp, docs/world-map.md) ----------
 	// Builds a throwaway space from the area's difficulty and its terrain's
 	// tags and drops the party into it. It NEVER touches disk: generated to
@@ -536,6 +570,10 @@ private:
 	bool BuildAndInstall(const std::string& stem, const generate::Params& params,
 						 const std::vector<std::string>& tags,
 						 const DungeonMap& donor, std::span<const StairLink> stairs);
+	// Hands a level's whole text to the world in place of what it held (the
+	// files stay untouched until `savemap`, like every editor edit).
+	bool InstallLevelText(const std::string& stem, const std::string& map,
+						  const std::string& ent);
 	// Resolve the tags into the id pools the generator picks from - this
 	// world's catalogs, or `project`'s (the new-world wizard draws from the
 	// TEMPLATE, which is not the running world).
@@ -554,6 +592,8 @@ private:
 	// One kind's threat (Game/Threat.h), its attacks resolved by the world when
 	// one is loaded (spells, powers, on-hit effects), else melee from the catalog.
 	threat::Parts ThreatOf(const CatalogEntry& monster) const;
+	// Its power: the threat, or the entry's `power` override (Game/Power.h).
+	double PowerOf(const CatalogEntry& monster) const;
 	// The last generate's asked-vs-built, as the console prints it (English,
 	// one line, with every branch's length) - docs/level-building.md: a knob you
 	// cannot measure is a knob you cannot tune. The dialog's localized form is
@@ -575,6 +615,29 @@ private:
 	bool PlayLevel(const std::string& stem);
 	static std::vector<std::string> SplitKnobs(const std::string& line);
 	void ShowGenReport(const std::string& levelStem);
+
+	// --- the workflow, wired through (Game_Populate.cpp, tool-refinement Phase 7)
+	// Loads style `id`'s shape knobs (styles.cat `knobs`, the settings line) into
+	// `params` and names it as the style - the seed kept, so loading a style is
+	// not a reroll. False, and `params` untouched, for a style the world lacks.
+	bool LoadStyleKnobs(const std::string& id, generate::Params& params) const;
+	// The tags a generated level is drawn by: a chosen `tag`, else the STYLE's,
+	// else `fallback` (the viewed level's, or a dungeon's flavour tags).
+	std::vector<std::string> TagsFor(const generate::Params& params, const Project& project,
+									 std::vector<std::string> fallback) const;
+	// POPULATE ONLY: monsters and loot for the VIEWED level from the knobs'
+	// population half and pools (the style's monster list when one is named,
+	// else the tags'), its shape untouched - however it was built. Replaces what
+	// populating can make (monsters and loot of the pools' kinds); a key, a quest
+	// item or a monster outside the pool is left where it stands. ONE undo step.
+	// Returns the monsters placed (-1 on failure); the report holds the rest.
+	int PopulateViewedLevel(const generate::Params& params);
+	// The dungeon a [+] lands in, and the style it opens on: the dungeon's
+	// `style` when this world has it, else the current (armed) one, else none.
+	std::string DefaultStyleFor(const std::string& dungeonId) const;
+	// After a create: the new level viewed in the BUILD stage of the palette,
+	// with `style` armed for the shape brushes (Phase 7's "lands you in Build").
+	void LandInBuild(const std::string& stem, const std::string& style);
 
 	// The Level dialog's inline rename: validates (unique stem), drives
 	// DungeonWorld::RenameLevel (files, stashes, stair dests), then updates
@@ -842,6 +905,9 @@ private:
 	// Loaded before the world (which reads it for level paths and catalogs);
 	// the editor will read and write it.
 	Project m_project;
+	// The shared STYLE LIBRARY (assets/library, Game/StyleLibrary.h): what the
+	// palette's Styles section offers to add. Read with each world.
+	StyleLibrary m_library;
 	// The overworld above the dungeons (docs/world-map.md), loaded from the
 	// project once at construction. EMPTY IS LEGAL: a project need not have a
 	// world authored yet, so everything that reads this must cope with nullopt
@@ -1066,6 +1132,9 @@ private:
 	// nothing in those loops needs the concrete type.
 	std::array<InstanceInspector*, 7> InstanceInspectors();
 	InstanceInspector* ActiveInstanceInspector(); // the open per-instance dialog, or null
+	// The project's flags as the inspectors' dropdowns list them: (id, "name
+	// (scope)").
+	FlagChoices FlagChoiceList() const;
 	PreviewSpec m_inspectPreview;                 // cached spec (re-pass on route return)
 	gfx::ParticleBatch m_previewParticles;        // preview-only particle batch (torch)
 	FireEffect m_previewFire;

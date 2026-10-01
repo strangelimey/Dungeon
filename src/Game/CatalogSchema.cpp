@@ -273,6 +273,13 @@ constexpr FieldSpec kMonsterFields[] = {
 	 .help = "Seconds between its attacks.", .lo = 0.2f, .hi = 5.0f, .step = 0.1f, .def = "1.5"},
 	{.key = "movecd", .kind = FieldKind::Float, .sectionKey = kSectionStats,
 	 .help = "Seconds between its steps.", .lo = 0.1f, .hi = 3.0f, .step = 0.05f, .def = "0.5"},
+	// No default: absent means DERIVED (Game/Power.h), which the row says - the
+	// dialog shows the derived number beside it (TypeEditorDialog::derivedFor).
+	{.key = "power", .kind = FieldKind::Float, .sectionKey = kSectionStats,
+	 .help = "How strong it is, as the generator ranks it and the palette's pips "
+			 "show it. Left unset it is DERIVED from the stats above; set it only "
+			 "when the formula misjudges this kind.",
+	 .lo = 0.5f, .hi = 50.0f, .step = 0.5f},
 	{.key = "aggro", .kind = FieldKind::Float, .sectionKey = kSectionRules,
 	 .help = "How many squares away it notices the party.",
 	 .lo = 0.0f, .hi = 20.0f, .step = 1.0f, .def = "6"},
@@ -405,6 +412,22 @@ constexpr FieldSpec kStairFields[] = {
 	 .help = "Kilograms, against the carry load.",                              \
 	 .lo = 0.0f, .hi = 50.0f, .step = 0.1f, .def = "1"}
 
+// The QUEST hooks, which fire when any item is lifted (Game::OnItemFound) -
+// so weapons and armor carry them too. An item with any of the three is a
+// QUEST ITEM: it lists in the palette's Quests & flags section and counts in
+// the overview.
+#define ITEM_QUEST                                                              \
+	{.key = "quest", .kind = FieldKind::CatalogRef, .sectionKey = kSectionQuest, \
+	 .help = "Picking it up moves this quest to this stage.",                    \
+	 .options = kOptQuestStages},                                                \
+	{.key = "flag", .kind = FieldKind::CatalogRef, .sectionKey = kSectionQuest,  \
+	 .help = "Picking it up turns this flag on (doors, levers and stairs can "   \
+			 "wait on it).",                                                     \
+	 .options = "flags"},                                                        \
+	{.key = "reveals", .kind = FieldKind::CatalogRef, .sectionKey = kSectionQuest, \
+	 .help = "Picking it up reveals this world-map location (a map, a clue).",   \
+	 .options = kOptLocations}
+
 // --- items (the catch-all: runes, keys, food, containers, ingredients) ------
 // Weapons and armor moved to their own catalogs/schemas, so their attack/defense
 // fields no longer clutter a rune or an apple.
@@ -433,6 +456,7 @@ constexpr FieldSpec kItemFields[] = {
 	 .help = "Container capacity in kilograms.", .lo = 0.0f, .hi = 50.0f, .step = 0.5f},
 	{.key = "accepts", .kind = FieldKind::Text, .sectionKey = kSectionRules,
 	 .help = "Item categories a container takes, e.g. 'rune'."},
+	ITEM_QUEST,
 };
 
 // --- weapons ----------------------------------------------------------------
@@ -491,6 +515,7 @@ constexpr FieldSpec kWeaponFields[] = {
 	 .help = "Attack verbs the hand menu offers, e.g. 'stab, slash'."},
 	{.key = "holdable", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
 	 .help = "Can be held in a hand slot (weapons should be on).", .def = "1"},
+	ITEM_QUEST,
 };
 
 // --- armor ------------------------------------------------------------------
@@ -520,6 +545,7 @@ constexpr FieldSpec kArmorFields[] = {
 	{.key = "powers", .kind = FieldKind::Text, .sectionKey = kSectionStats,
 	 .help = "Per-type POTENCY granted, e.g. 'fire 0.3'. Sums across the wielded "
 			 "weapon and every worn piece, and scales what its bearer deals."},
+	ITEM_QUEST,
 };
 
 // --- status effects ---------------------------------------------------------
@@ -601,6 +627,48 @@ constexpr FieldSpec kDungeonFields[] = {
 			 "says where it lands."},
 	{.key = "tags", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,
 	 .help = "Flavour words for content matching; absent means 'fits anywhere'."},
+	{.key = "style", .kind = FieldKind::CatalogRef, .sectionKey = kSectionIdentity,
+	 .help = "The style its levels are built in by default (styles.cat).",
+	 .options = "styles"},
+};
+
+// Styles (tool-refinement Phase 5, Game/Style.h): one named decision about
+// how a stretch of dungeon looks, is shaped and what lives there.
+constexpr FieldSpec kStyleFields[] = {
+	{.key = "display", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,
+	 .help = "The style's name, as the palette lists it."},
+	{.key = "tags", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,
+	 .help = "What content fits it - the generator and the palette's tags lens read "
+			 "these, as they read a level's."},
+	{.key = "room", .kind = FieldKind::CatalogRef, .sectionKey = kSectionLook,
+	 .help = "The theme a room is painted in (themes.cat).", .options = "themes"},
+	{.key = "corridor", .kind = FieldKind::CatalogRef, .sectionKey = kSectionLook,
+	 .help = "The theme a corridor is painted in - a winding tunnel can wear a "
+			 "different look from the chamber it opens into.",
+	 .options = "themes"},
+	{.key = "corridor_width", .kind = FieldKind::Float, .sectionKey = kSectionShape,
+	 .help = "How many squares wide its corridors are: 1 for a dirt tunnel, 2 for a "
+			 "grand hall.",
+	 .lo = 1.0f, .hi = 3.0f, .step = 1.0f, .def = "1"},
+	{.key = "knobs", .kind = FieldKind::Text, .sectionKey = kSectionShape,
+	 .help = "The generator's settings line (the Generate dialog's, as genpresets.cat "
+			 "stores it): width:40 roommin:3 winding:0.3 ...",
+	 .maxLen = 400},
+	{.key = "monsters", .kind = FieldKind::WeightedRefs, .sectionKey = kSectionMonsters,
+	 .help = "The monsters found in it, each with a weight: how often it turns up "
+			 "beside the others. Its power is the monster's own.",
+	 .options = "monsters"},
+};
+
+// Shapes (tool-refinement Phase 6, Game/Carve.h): the Stamp brush's grids.
+constexpr FieldSpec kShapeFields[] = {
+	{.key = "display", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,
+	 .help = "The shape's name, as the palette lists it."},
+	IDENTITY_CATEGORY,
+	{.key = "rows", .kind = FieldKind::Text, .sectionKey = kSectionShape,
+	 .help = "The grid, rows split by '|': '.' opens a square, '#' makes it solid "
+			 "(a pillar), anything else ('-') leaves the square as it is.",
+	 .maxLen = 400},
 };
 
 constexpr FieldSpec kTerrainFields[] = {
@@ -631,9 +699,23 @@ constexpr FieldSpec kTerrainFields[] = {
 constexpr FieldSpec kQuestFields[] = {
 	{.key = "display", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,
 	 .help = "The quest's name."},
-	{.key = "stages", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,
-	 .help = "ORDERED stage ids, earliest first. The save records a stage by "
-			 "NAME, so these may be renamed but a rename must be swept."},
+	{.key = "stages", .kind = FieldKind::QuestStages, .sectionKey = kSectionStages,
+	 .help = "ORDERED stages, earliest first, each with the line the log shows on "
+			 "reaching it. The save records a stage by NAME, so renaming one "
+			 "strands a save and any item still naming the old one (Check finds "
+			 "those)."},
+};
+
+// Flags (tool-refinement Phase 4): a name and a scope. The on/off value is
+// save state; this says what the flag IS and whose it is.
+constexpr FieldSpec kFlagFields[] = {
+	{.key = "display", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,
+	 .help = "The flag's name, as the editor lists it."},
+	{.key = "dungeon", .kind = FieldKind::CatalogRef, .sectionKey = kSectionIdentity,
+	 .help = "The dungeon it belongs to - its LOCAL flags. (none) = a WORLD flag, "
+			 "true everywhere. Check warns when something in another dungeon "
+			 "reads or writes a local one.",
+	 .options = "dungeons"},
 };
 
 // --- surface THEMES (docs/editor-themes-notes.md) ---------------------------
@@ -661,6 +743,9 @@ std::span<const FieldSpec> SchemaFor(std::string_view catalogKey) {
 	if (catalogKey == "dungeons") return kDungeonFields;
 	if (catalogKey == "terrain") return kTerrainFields;
 	if (catalogKey == "quests") return kQuestFields;
+	if (catalogKey == "flags") return kFlagFields;
+	if (catalogKey == "styles") return kStyleFields;
+	if (catalogKey == "shapes") return kShapeFields;
 	if (catalogKey == "walls") return kWallFields;
 	if (catalogKey == "floors") return kFloorFields;
 	if (catalogKey == "ceilings") return kCeilingFields;

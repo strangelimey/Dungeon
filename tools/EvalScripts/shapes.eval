@@ -1,0 +1,47 @@
+; shapes.eval - EditorTest phase 17 (tool-refinement Phase 6): the shape
+; brushes - corridor, room, stamp, region - laid in the current style.
+;
+; Run on a FIXTURE the test writes into eval_arena first (and puts back after):
+; solid rock, 28x24, but for a 5x5 room round the start at 14,12 - so every
+; brush has rock to open. Small Crypt is the style: crypt_passage for a
+; corridor, crypt_chamber for a room.
+logecho on
+reset
+timescale 0
+freeze on
+
+echo --- base ---
+mapinfo
+geomhash
+style use small_crypt
+editor shape seed 7
+
+; --- a corridor out of the room, undone and redone --------------------------------
+echo --- corridor ---
+editor shape corridor 12 12 3 3
+mapinfo
+undo
+mapinfo
+; An undo defers reloading the surfaces until the editor closes (the theme's
+; wall type the corridor enrolled has to come off the palette), so close it
+; and let a frame run before measuring.
+editor off
+step 0.1
+geomhash
+redo
+mapinfo
+
+; --- a room on its own, a stamp over the start room, a region below it ---------
+echo --- room ---
+editor shape room 18 3 24 8
+echo --- stamp ---
+editor shape stamp pillared_hall 14 12 0
+echo --- region ---
+editor shape region 12 15 22 22
+
+; --- no style: plain carving; a region too small to generate in -----------------
+echo --- plain ---
+style use off
+editor shape room 24 12 26 14
+editor shape region 2 18 5 21
+savemap

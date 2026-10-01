@@ -50,6 +50,12 @@ struct Knob {
 	// both whitespace-tokenised everywhere else in the project anyway.
 	std::string (*getText)(const Params&) = nullptr;
 	void (*setText)(Params&, std::string_view) = nullptr;
+	// Encoded and decoded like any knob (the console, presets and old settings
+	// lines keep it) but given no row in the dialog: a decision that now lives
+	// elsewhere (tool-refinement Phase 7 - the tag and the palette donor are the
+	// STYLE's now). The dialog clears a hidden knob when it opens, so a value
+	// left in settings.ini cannot steer a run from where nobody can see it.
+	bool hidden = false;
 };
 
 std::span<const Knob> Knobs();

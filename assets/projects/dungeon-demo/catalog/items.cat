@@ -139,7 +139,7 @@ hydration = 45
 ; --- quest content (docs/world-map.md "Quests") ------------------------------
 ; The three hooks an item can carry, all applied the moment it is LIFTED:
 ;   quest    = <id>:<stage>   move a quest to a named stage
-;   flag     = <key>=<value>  set a global flag (or a bare name = "1")
+;   flag     = <id>           turn a flag on (flags.cat; a hand-written <key>=<value> still sets that value)
 ;   reveals  = <location>     put a world-map location on the party's map
 ; They are independent: one item may do all three, or any one of them.
 

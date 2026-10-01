@@ -41,6 +41,13 @@ struct NewWorldSpec {
 	int size = 32;
 	float difficulty = 0.4f;
 	u32 seed = 1;
+	// Blank and Wizard (docs/tool-refinement-plan.md Phase 7): a style from the
+	// shared LIBRARY (assets/library/styles.cat), "" = none. The new world
+	// receives it (StyleLibrary::AddTo: the style and the themes and surfaces it
+	// names), its starter dungeon names it as `style`, and the first floor is
+	// built in it - the wizard's from its recipe, tags and monsters, the blank
+	// room in its themes.
+	std::string style;
 };
 
 } // namespace dungeon::game

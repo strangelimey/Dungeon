@@ -152,6 +152,15 @@ public:
 	void SetHudLayout(int layout);
 	// The pointer shape the grips of panels [first, last) want this frame.
 	Window::Cursor PanelCursor(size_t first, size_t last) const;
+	// What this frame's HUD / sheet update asked the pointer to be, handed back
+	// once and reset to the arrow - so a state that ran neither (paused, a menu)
+	// asks for nothing. Game sets the window's cursor in ONE place each frame
+	// (beside the editor's dock-edge arrow) and passes this in.
+	Window::Cursor TakeHudCursor() {
+		const Window::Cursor wanted = m_hudCursor;
+		m_hudCursor = Window::Cursor::Arrow;
+		return wanted;
+	}
 	// A panel by kHudPanelFields index, for the `hudpanel` dev command (null
 	// before the first game load builds the HUD).
 	const ui::FloatingPanel* HudPanel(size_t index) const {

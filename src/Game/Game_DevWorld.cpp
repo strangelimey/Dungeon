@@ -15,6 +15,7 @@
 #include "Core/Log.h"
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
+#include "Game/DevCommandArgs.h" // Need
 #include "Game/Serialize.h"
 
 #include <algorithm>
@@ -25,6 +26,8 @@
 #include <utility>
 
 namespace dungeon::game {
+
+using devargs::Need;
 
 void Game::RegisterWorldCommands() {
 	// --- travelling the overworld ---------------------------------------
@@ -119,6 +122,60 @@ void Game::RegisterWorldCommands() {
 					   : std::format("not started [{}]", e.Get("stages", ""))));
 			}
 			if (m_project.quests.Empty()) m_console.Print("no quests authored");
+		});
+	// FLAGS (flags.cat): read or set one, list them by scope. Lines are
+	// `flag <id> <on|off> <scope>` so a harness can read them back.
+	m_console.Register(
+		{.name = "flag",
+		 .group = CmdGroup::World,
+		 .params = "<id> [on|off]",
+		 .summary = "read a flag, or set it on or off"},
+		[this](const std::vector<std::string>& args) {
+			if (!Need(m_console, args, 1)) return;
+			const CatalogEntry* e = m_project.flags.Find(args[0]);
+			if (args.size() > 1) {
+				if (args[1] != "on" && args[1] != "off") {
+					m_console.Refuse("flag: on or off");
+					return;
+				}
+				m_worldState.SetFlagOn(args[0], args[1] == "on");
+			}
+			const std::string scope = e ? e->Get("dungeon", "") : std::string();
+			m_console.Print(std::format("flag {} {} {}{}", args[0],
+										m_worldState.FlagOn(args[0]) ? "on" : "off",
+										scope.empty() ? "world" : "dungeon:" + scope,
+										e ? "" : " (not in flags.cat)"));
+		});
+	// `dungeon` alone = the party's dungeon.
+	m_console.Register(
+		{.name = "flags",
+		 .group = CmdGroup::World,
+		 .params = "[world]\ndungeon [id]",
+		 .summary = "list the flags and whether each is on, by scope"},
+		[this](const std::vector<std::string>& args) {
+			// Which scope to show: all, the world's, or one dungeon's (the
+			// party's own when none is named).
+			std::string want = "*";
+			if (!args.empty() && args[0] == "world") want.clear();
+			else if (!args.empty() && args[0] == "dungeon") {
+				if (args.size() > 1) want = args[1];
+				else if (const CatalogEntry* d = m_project.DungeonOfLevel(m_world->CurrentLevel()))
+					want = d->id;
+				else {
+					m_console.Print("flags: the party's level belongs to no dungeon");
+					return;
+				}
+			}
+			int shown = 0;
+			for (const CatalogEntry& e : m_project.flags.Entries()) {
+				const std::string scope = e.Get("dungeon", "");
+				if (want != "*" && scope != want) continue;
+				m_console.Print(std::format("flag {} {} {}", e.id,
+											m_worldState.FlagOn(e.id) ? "on" : "off",
+											scope.empty() ? "world" : "dungeon:" + scope));
+				++shown;
+			}
+			if (shown == 0) m_console.Print("flags: none authored in that scope");
 		});
 	m_console.Register(
 		{.name = "camp",
@@ -288,14 +345,15 @@ void Game::RegisterWorldCommands() {
 		 .group = CmdGroup::World,
 		 .params = "\n"
 				   "status\n"
-				   "new <name> [blank|copy|level <stem>]\n"
-				   "new <name> wizard [tag=<tag>] [size=<n>] [difficulty=<0..1>] [seed=<n>]\n"
+				   "new <name> [blank [style=<id>]|copy|level <stem>]\n"
+				   "new <name> wizard [style=<id>] [tag=<tag>] [size=<n>] [difficulty=<0..1>] [seed=<n>]\n"
 				   "load <name>\n"
 				   "delete <name> <name again>\n"
 				   "dialog [off|<open|create|delete|confirm> <name>]\n"
 				   "tags\n"
 				   "newdialog [off|switch|create <name>]\n"
 				   "newdialog source <blank|copy|wizard|level [stem]>\n"
+				   "newdialog style <id|->\n"
 				   "newdialog wizard <tag|-> <size> <difficulty> <seed>",
 		 .summary = "list worlds on disk; create, load, delete; drive the world dialogs"},
 		[this](const std::vector<std::string>& a) {
@@ -344,10 +402,15 @@ void Game::RegisterWorldCommands() {
 						else if (k == "seed") spec.seed = static_cast<u32>(std::strtoul(v.c_str(), nullptr, 10));
 					}
 				} else if (a.size() >= 3 && a[2] != "blank") {
-					m_console.Print("usage: worlds new <name> [blank|copy|level <stem>|wizard "
-									"[tag=<tag>] [size=<n>] [difficulty=<0..1>] [seed=<n>]]");
+					m_console.Print("usage: worlds new <name> [blank [style=<id>]|copy|level <stem>|wizard "
+									"[style=<id>] [tag=<tag>] [size=<n>] [difficulty=<0..1>] [seed=<n>]]");
 					return;
 				}
+				// Blank and wizard start in a LIBRARY style (Phase 7) when asked.
+				if (spec.source == NewWorldSpec::Source::Blank ||
+					spec.source == NewWorldSpec::Source::Wizard)
+					for (size_t i = 3; i < a.size(); ++i)
+						if (a[i].starts_with("style=")) spec.style = a[i].substr(6);
 				std::string problem;
 				const std::string made = CreateWorld(a[1], spec, &problem);
 				m_console.Print(made.empty()
@@ -443,6 +506,8 @@ void Game::RegisterWorldCommands() {
 						else if (a[2] == "level")
 							m_newWorldDialog.SetSource(S::CopyLevel, a.size() >= 4 ? a[3] : "");
 						else m_newWorldDialog.SetSource(S::Blank);
+					} else if (a.size() >= 3 && a[1] == "style") {
+						m_newWorldDialog.SetStyle(a[2] == "-" ? std::string() : a[2]);
 					} else if (a.size() >= 3 && a[1] == "create") {
 						m_newWorldDialog.Create(a[2]);
 					} else if (a.size() >= 2 && a[1] == "switch") {
@@ -453,10 +518,11 @@ void Game::RegisterWorldCommands() {
 				static constexpr const char* kSource[] = {"blank", "copy", "level", "wizard"};
 				const NewWorldSpec& sp = m_newWorldDialog.Spec();
 				m_console.Print(std::format(
-					"new world dialog {}: source {} made '{}' - {}",
+					"new world dialog {}: source {} made '{}' style {} - {}",
 					m_newWorldDialog.IsOpen() ? "open" : "closed",
 					kSource[static_cast<int>(m_newWorldDialog.Source())],
-					m_newWorldDialog.Made(), m_newWorldDialog.Note()));
+					m_newWorldDialog.Made(), sp.style.empty() ? "-" : sp.style,
+					m_newWorldDialog.Note()));
 				if (sp.source == NewWorldSpec::Source::Wizard)
 					m_console.Print(std::format("  wizard tag '{}' size {} difficulty {:.2f} seed {}",
 												sp.tag, sp.size, sp.difficulty, sp.seed));
@@ -464,7 +530,7 @@ void Game::RegisterWorldCommands() {
 			}
 			m_console.Print("usage: worlds [new|load] <name> | delete <name> <name> | "
 							"dialog [open|create|delete|confirm <name>|off] | newdialog "
-							"[source blank|copy|level <stem> | create <name> | switch | off]");
+							"[source blank|copy|level <stem> | style <id|-> | create <name> | switch | off]");
 		});
 	m_console.Register(
 		{.name = "mappage",
@@ -1029,20 +1095,20 @@ void Game::RegisterWorldCommands() {
 	m_console.Register(
 		{.name = "newtype",
 		 .group = CmdGroup::Types,
-		 .params = "<dungeons|terrain|quests>",
+		 .params = "<dungeons|terrain|quests|flags|themes>",
 		 .summary = "create a new pure-data type in a catalog"},
 		[this](const std::vector<std::string>& args) {
 			// The palette's "+ New..." for these categories, reachable without a
 			// mouse — the harness cannot click, and this is the path W2 adds.
 			if (args.empty()) {
-				m_console.Print("usage: newtype <dungeons|terrain|quests>");
+				m_console.Print("usage: newtype <dungeons|terrain|quests|flags|themes>");
 				return;
 			}
 			const MapEditor::PaletteCat cat = MapEditor::CatForCatalogKey(args[0]);
 			if (cat == MapEditor::PaletteCat::Count ||
 				!MapEditor::CategoryAuthorable(cat)) {
 				m_console.Print(std::format(
-					"'{}' is not a pure-data category (dungeons/terrain/quests)",
+					"'{}' is not a pure-data category (dungeons/terrain/quests/flags/themes)",
 					args[0]));
 				return;
 			}

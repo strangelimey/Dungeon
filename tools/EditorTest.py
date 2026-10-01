@@ -54,6 +54,56 @@
 #      knobs and seed make an identical floor, another seed a different one;
 #      the tag holds the monsters to it; the size is the map's; there
 #      is a way out; and each world opens by name and passes the checker.
+#  12. THE PALETTE'S CATEGORY BAR (tool-refinement Phase 1): both groupings
+#      are the designed tables, each group lists exactly its sections, effects
+#      are in none; the world sections list their entries; a filter from inside
+#      one group finds matches in the others and drops sections with none; and
+#      the grouping survives a restart through settings.ini.
+#  13. MONSTER POWER (Phase 2): unset, a kind's power is its derived threat;
+#      the bands are the fifths of the project's range (recomputed here, not
+#      read back) and the palette's rows wear them; an override moves that
+#      kind, re-cuts every band, and moves the generator's pick - a control
+#      level has the swarm, the same level after the override has none, and a
+#      boss is exactly one swarm; removing the override restores everything.
+#  14. THE DOCKS AND THE OVERVIEW (Phase 3): a dock takes the width it is
+#      dragged to and everything beside it follows (strip, grid, palette
+#      body); both clamps hold; the widths survive a restart; the overview's
+#      level / dungeon / world counts equal the PROJECT FILES' (read here, not
+#      from the game); and a monster placed on the viewed level counts at once
+#      and uncounts on undo.
+#  15. FLAGS (Phase 4), on a fixture written into eval_arena: a door waiting on
+#      a flag stays sealed and a lever waiting on it stays put until a lever
+#      sets it; an item's hook sets one; the save carries them; a stair waiting
+#      on one bars the way until it is on, then goes down; the checker names a
+#      wait nothing satisfies, a flag flags.cat lacks, a dungeon's flag used in
+#      another and a flag nothing touches - and nothing about the sound ones;
+#      the inspectors' setters rewrite the records; the overview counts flags
+#      per scope; and the palette's Quest items & flags section lists this
+#      dungeon's and the world's (not another dungeon's), says where a quest
+#      item lies, arms it, goes there and opens a flag's editor.
+#  16. STYLES (Phase 5): the world's and the library's are listed apart; the
+#      armed style ranks the Monsters section by its list and disarms again;
+#      adding a library style copies it, its themes and the one floor the
+#      world lacked - and nothing the world had - and a second add is a no-op;
+#      a world style saves to the library with what it names; the checker
+#      names a monster a style lists and the world lacks; and renaming a theme
+#      or a flag rewrites the styles, levers, stairs and items that name it.
+#  17. THE SHAPE BRUSHES (Phase 6), on eval_arena turned to rock round one
+#      room: a corridor opens the rock it crosses, reaches its far end, and
+#      wears the style's corridor theme on its floor and walls - and undo puts
+#      the geometry back exactly; a room opens its rectangle in the room theme;
+#      a stamp raises its pillars, never on the party; a region generates
+#      inside its box joined to the room it touches; no style = plain carving;
+#      a region under 6x6 makes nothing.
+#  18. THE WORKFLOW, WIRED THROUGH (Phase 7): a blank world made in a library
+#      style receives it (and its themes), its dungeon names it and its first
+#      room wears it; a wizard world in a style lays both themes and draws the
+#      style's monsters; both pass the checker. Then the walk, inside the new
+#      world: [+] opens on the dungeon's style; Create and Empty each land in
+#      Build with the style armed, the level tagged and themed with no Level
+#      settings visit; a room, a corridor and a stamp build; Populate fills the
+#      hand-built floor from the style's list; and the overview's "what next"
+#      reads build -> populate -> check/ready, counting what the files hold.
 #
 # Every project file a phase writes is restored byte for byte afterwards.
 import io
@@ -105,6 +155,27 @@ def hashes(log):
 
 def passed(log):
     return "eval BATCH RESULT=PASS" in log
+
+
+def console_sections(log):
+    """Every console line (not only `editor` ones), split on '--- name ---'."""
+    out, name = {}, None
+    for line in log.splitlines():
+        if "console: " not in line:
+            continue
+        text = line.split("console: ", 1)[1]
+        m = re.match(r"--- (.*) ---$", text)
+        if m:
+            name = m.group(1)
+            out[name] = []
+        elif name is not None:
+            out[name].append(text)
+    return out
+
+
+# The editor's own state (palette grouping, dock widths) lives in settings.ini
+# beside the exe; the phases that change it put the developer's copy back.
+SETTINGS = os.path.join(os.path.dirname(EXE), "settings.ini")
 
 
 # --- phase 1: a drag is one undo step ----------------------------------------
@@ -496,6 +567,859 @@ try:
 finally:
     for w in WIZ:
         shutil.rmtree(os.path.join(PROJECTS, w), ignore_errors=True)
+
+# --- phase 12: the palette's category bar -------------------------------------
+print("12 - the category bar shows one group, both ways, and the filter sees past it")
+# The groupings AS DESIGNED (docs/tool-refinement-plan.md Phase 1). Stated here
+# rather than read back from the game, so a section moved to the wrong group is
+# a failure and not a new truth.
+STAGE = {"world": ["styles", "dungeons", "quests", "flags", "terrain"],
+         "build": ["shapes", "themes", "walls", "floors", "ceilings", "wallfeatures",
+                   "surfacefeatures", "doors", "stairs"],
+         "furnishings": ["decorations", "fixtures", "buttons"],
+         "populate": ["monsters", "items", "weapons", "armor"]}
+KIND = {"surfaces": ["themes", "walls", "floors", "ceilings", "wallfeatures",
+                     "surfacefeatures"],
+        "structure": ["shapes", "doors", "stairs"],
+        "furnishings": ["decorations", "fixtures", "buttons"],
+        "creatures": ["monsters"],
+        "items": ["items", "weapons", "armor"],
+        "world": ["styles", "dungeons", "quests", "flags", "terrain"]}
+SHOWS = re.compile(r"editor palette: (\w+) (\w+) filter='([^']*)' shows:(.*)")
+
+
+def shown(line):
+    """(grouping, group, filter, [(section, rows)]) from one palette line."""
+    m = SHOWS.search(line)
+    if not m:
+        return None
+    secs = [(s, int(n)) for s, n in re.findall(r"(\w+)\((\d+)\)", m.group(4))]
+    return m.group(1), m.group(2), m.group(3), secs
+
+
+# The bar's state lives in settings.ini beside the exe (SETTINGS, above), so
+# this phase puts the developer's copy back afterwards like every project file.
+saved_settings = io.open(SETTINGS, "rb").read() if os.path.isfile(SETTINGS) else None
+try:
+    log = run("palette.eval")
+    check(passed(log), "the script ran clean")
+    sec = sections(log)
+    tables = {}
+    for line in sec.get("tables", []):
+        m = re.match(r"editor palette group (\w+) (\w+):(.*)", line)
+        if m:
+            tables.setdefault(m.group(1), {})[m.group(2)] = m.group(3).split()
+    check(tables.get("stage") == STAGE, "the stage groups are World / Build / Furnishings / Populate as designed",
+          str(tables.get("stage")))
+    check(tables.get("kind") == KIND, "the kind groups are as designed", str(tables.get("kind")))
+    for mode, groups in (("stage", STAGE), ("kind", KIND)):
+        listed = [c for cats in groups.values() for c in cats]
+        check(len(listed) == len(set(listed)) and "effects" not in listed,
+              f"by {mode}, every section is in one group and effects in none")
+    for mode, groups in (("stage", STAGE), ("kind", KIND)):
+        lines = [shown(l) for l in sec.get(mode, []) if shown(l)]
+        got = {g: [s for s, _ in secs] for _, g, _, secs in lines}
+        check(got == groups, f"each {mode} group lists exactly its own sections", str(got))
+    world = next((secs for _, g, _, secs in
+                  (shown(l) for l in sec.get("stage", []) if shown(l)) if g == "world"), [])
+    counts = dict(world)
+    # Quest items & flags: the world's one flag and the two quest items (both
+    # world-scoped; the harness views eval_arena, whose dungeon has none).
+    check(counts.get("dungeons", 0) == 2 and counts.get("quests", 0) == 1
+          and counts.get("terrain", 0) == 7 and counts.get("flags", 0) == 3
+          and counts.get("styles", 0) == 4,
+          "the world sections list their entries (4 styles, 2 dungeons, 1 quest, 3 quest rows, "
+          "7 terrains)", str(world))
+    flt = [shown(l) for l in sec.get("filter", []) if shown(l)]
+    if len(flt) != 3:
+        check(False, "three readings in the filter section", str(flt))
+    else:
+        (_, _, _, before), (_, g, f, during), (_, _, f2, after) = flt
+        names = [s for s, _ in during]
+        check(before == [s for s in before if s[0] == "monsters"] and len(before) == 1,
+              "Creatures alone lists monsters", str(before))
+        check(f == "marble" and "themes" in names and "decorations" in names,
+              "a filter from inside Creatures finds the marble theme and props", str(during))
+        check("monsters" not in names and all(n > 0 for _, n in during),
+              "while filtering, a section with no match drops out", str(during))
+        check(f2 == "" and [s for s, _ in after] == ["monsters"],
+              "clearing the filter hands the list back to the bar", str(after))
+    check(any("no group 'build' when grouped by kind" in l for l in sec.get("refuse", [])),
+          "a group the grouping lacks is refused by name")
+    ini = io.open(SETTINGS, encoding="utf-8").read() if os.path.isfile(SETTINGS) else ""
+    check("map_palette_group=1" in ini and "map_palette_kind=4" in ini,
+          "the grouping and its group are saved to settings.ini")
+    log2 = run("palette-persist.eval")
+    back = [shown(l) for l in sections(log2).get("reopened", []) if shown(l)]
+    check(len(back) == 1 and back[0][:2] == ("kind", "items"),
+          "a fresh start opens the palette where it was left", str(back))
+finally:
+    if saved_settings is None:
+        if os.path.isfile(SETTINGS):
+            os.remove(SETTINGS)
+    else:
+        io.open(SETTINGS, "wb").write(saved_settings)
+
+# --- phase 13: monster power ---------------------------------------------------
+print("13 - a monster's power is its threat until overridden, and everything ranks by it")
+
+
+THREAT = re.compile(r"threat (\S+) ([\d.]+) offence=.* power=([\d.]+)(\(set\))? band=(\d)")
+
+
+def table(lines):
+    """{id: (threat, power, overridden, band)} from `threat` lines."""
+    out = {}
+    for l in lines:
+        m = THREAT.match(l)
+        if m:
+            out[m.group(1)] = (float(m.group(2)), float(m.group(3)), bool(m.group(4)),
+                               int(m.group(5)))
+    return out
+
+
+def expected_band(p, lo, hi):
+    # Game/Power.h, written out again HERE so the check is not the code judging
+    # itself: which fifth of the range, the top edge in band 5, no width = 3.
+    if hi - lo <= 1e-9:
+        return 3
+    t = min(1.0, max(0.0, (p - lo) / (hi - lo)))
+    return min(5, 1 + int(t * 5))
+
+
+def bands_agree(t):
+    powers = [v[1] for v in t.values()]
+    lo, hi = min(powers), max(powers)
+    return {k: v[3] for k, v in t.items()} == {k: expected_band(v[1], lo, hi) for k, v in t.items()}
+
+
+def palette_bands(lines):
+    return {m.group(1): int(m.group(2)) for m in
+            (re.match(r"editor palette item monsters (\S+) band=(\d)", l) for l in lines) if m}
+
+
+def swarms(stem):
+    p = os.path.join(PROJ, "levels", stem + ".ent")
+    text = io.open(p, encoding="utf-8").read() if os.path.isfile(p) else ""
+    return len(re.findall(r"^monster skel_swarm ", text, re.M)), bool(text)
+
+
+backup = os.path.join(ROOT, r"build\editortest-backup")
+shutil.rmtree(backup, ignore_errors=True)
+shutil.copytree(PROJ, backup)
+try:
+    log = run("power.eval")
+    check(passed(log), "the script ran clean")
+    sec = console_sections(log)
+    before, after, cleared = (table(sec.get(s, [])) for s in ("before", "after", "cleared"))
+    check(len(before) >= 10 and all(v[0] == v[1] and not v[2] for v in before.values()),
+          "unset, every kind's power IS its derived threat", str(len(before)))
+    check(bands_agree(before) and len({v[3] for v in before.values()}) >= 3,
+          "the bands are the fifths of the project's power range (3+ bands in use)",
+          str({k: v[3] for k, v in before.items()}))
+    check(palette_bands(sec.get("before", [])) == {k: v[3] for k, v in before.items()},
+          "the palette's rows wear the same bands")
+    sw = after.get("skel_swarm")
+    check(sw is not None and sw[1] == 40.0 and sw[2] and sw[0] == before["skel_swarm"][0],
+          "an override sets the power and leaves the derived threat as it was", str(sw))
+    check(sw is not None and sw[3] == 5 and bands_agree(after)
+          and after["skel_lurker"][3] < before["skel_lurker"][3],
+          "the bands re-cut against the new top (the old strongest drops a band or more)",
+          str({k: v[3] for k, v in after.items()}))
+    check(palette_bands(sec.get("after", [])) == {k: v[3] for k, v in after.items()},
+          "the palette's pips follow the override")
+    stems = [re.match(r"generate: wrote (\S+) ", l).group(1)
+             for s in ("control", "picks") for l in sec.get(s, []) if l.startswith("generate: wrote")]
+    if len(stems) != 3:
+        check(False, "three generated levels", str(stems))
+    else:
+        (c_n, c_ok), (p_n, p_ok), (b_n, b_ok) = (swarms(s) for s in stems)
+        check(c_ok and c_n > 0, "before the override the swarm is among the weak, and turns up",
+              f"{c_n} swarms")
+        check(p_ok and p_n == 0, "overridden to the top, the same low-difficulty level has none",
+              f"{p_n} swarms")
+        check(b_ok and b_n == 1, "with a boss, the boss is the overridden swarm (exactly one)",
+              f"{b_n} swarms")
+    cw = cleared.get("skel_swarm")
+    check(cw is not None and not cw[2] and cw[1] == cw[0] and cleared == before,
+          "removing the override puts every power and band back", str(cw))
+finally:
+    shutil.rmtree(PROJ)
+    shutil.copytree(backup, PROJ)
+    shutil.rmtree(backup, ignore_errors=True)
+
+# --- phase 14: the docks and the overview --------------------------------------
+print("14 - the docks resize and remember, and the overview counts what the files hold")
+DOCK = re.compile(r"editor dock panel=(\d+) left=(\d+) right=(\d+) grid=(-?\d+),(\d+),(\d+) "
+                  r"strip=(-?\d+) palette=(-?\d+),(\d+)")
+
+
+def docks(lines):
+    out = []
+    for l in lines:
+        m = DOCK.match(l)
+        if m:
+            v = [int(x) for x in m.groups()]
+            out.append(dict(zip(("panel", "left", "right", "gx", "gw", "gright", "strip", "px", "pw"), v)))
+    return out
+
+
+def overview(lines, scope):
+    return {m.group(1): m.group(2) for m in
+            (re.match(rf"editor overview {scope} (\S+) (.*)", l) for l in lines) if m}
+
+
+def files_census():
+    """Each level's counts, read from the PROJECT FILES - not from the game."""
+    ini = io.open(os.path.join(PROJ, "project.ini"), encoding="utf-8").read()
+    levels = re.search(r"^levels\s*=\s*(.*)$", ini, re.M).group(1).split()
+    quest, cur = set(), None
+    for cat in ("items", "weapons", "armor"):
+        for l in io.open(os.path.join(PROJ, "catalog", cat + ".cat"), encoding="utf-8"):
+            h = re.match(r"\[(\S+)\]", l)
+            if h:
+                cur = h.group(1)
+            elif cur and re.match(r"(quest|flag|reveals)\s*=", l):
+                quest.add(cur)
+    scenery, cur = set(), None
+    for l in io.open(os.path.join(PROJ, r"catalog\stairs.cat"), encoding="utf-8"):
+        h = re.match(r"\[(\S+)\]", l)
+        if h:
+            cur = h.group(1)
+        elif cur and re.match(r"traverse\s*=\s*0", l):
+            scenery.add(cur)
+    out = {}
+    for s in levels:
+        ent = io.open(os.path.join(PROJ, "levels", s + ".ent"), encoding="utf-8").read()
+        mp = io.open(os.path.join(PROJ, "levels", s + ".map"), encoding="utf-8").read()
+        items = re.findall(r"^item (\S+)", ent, re.M)
+        out[s] = {"monsters": len(re.findall(r"^monster ", ent, re.M)), "items": len(items),
+                  "quest": sum(1 for i in items if i in quest),
+                  "doors": len(re.findall(r"^door ", ent, re.M)),
+                  "stairs": sum(1 for t in re.findall(r"^stairs (\S+)", mp, re.M) if t not in scenery)}
+    return out
+
+
+def dungeon_levels():
+    out, cur = {}, None
+    for l in io.open(os.path.join(PROJ, r"catalog\dungeons.cat"), encoding="utf-8"):
+        h = re.match(r"\[(\S+)\]", l)
+        if h:
+            cur = h.group(1)
+        m = re.match(r"levels\s*=\s*(.*)", l)
+        if cur and m:
+            out[cur] = m.group(1).split()
+    return out
+
+
+saved_settings = io.open(SETTINGS, "rb").read() if os.path.isfile(SETTINGS) else None
+backup = os.path.join(ROOT, r"build\editortest-backup")
+shutil.rmtree(backup, ignore_errors=True)
+shutil.copytree(PROJ, backup)
+try:
+    log = run("docks.eval")
+    check(passed(log), "the script ran clean")
+    sec = console_sections(log)
+    w = docks(sec.get("widths", []))
+    if len(w) != 5:
+        check(False, "five layout readings", str(len(w)))
+    else:
+        d0, d1, d2, d3, d4 = w
+        grow = 400 - d0["left"]
+        check(d1["left"] == 400 and grow != 0, "the palette dock takes the width it is dragged to",
+              f"{d0['left']} -> {d1['left']}")
+        check(d1["strip"] - d0["strip"] == grow and d1["gx"] - d0["gx"] == grow
+              and d1["pw"] - d0["pw"] == grow,
+              "the tool strip, the grid and the palette's body all move with its edge",
+              f"strip {d0['strip']}->{d1['strip']} grid {d0['gx']}->{d1['gx']} palette {d0['pw']}->{d1['pw']}")
+        check(d2["right"] == 350 and d2["gright"] == d2["panel"] - 350,
+              "the key dock likewise, and the grid ends at its edge",
+              f"right {d2['right']}, grid ends {d2['gright']} of {d2['panel']}")
+        check(d3["left"] == 120, "too narrow clamps to the floor (120)", str(d3["left"]))
+        check(d4["left"] == round(d4["panel"] * 0.30),
+              "too wide clamps to 30% of the panel, so the grid stays the larger part",
+              f"{d4['left']} of {d4['panel']}")
+    truth = files_census()
+    viewed = "eval_arena"  # project.ini's eval_level, where the harness opens
+    dl = dungeon_levels()
+    home = next((d for d, lv in dl.items() if viewed in lv), None)
+    ov = {s: overview(sec.get("overview", []), s) for s in ("level", "dungeon", "world")}
+    lvl, dun, wld = ov["level"], ov["dungeon"], ov["world"]
+
+    def total(key, stems):
+        return sum(truth[s][key] for s in stems)
+
+    def bands_sum(o):
+        return sum(int(x) for x in o.get("bands", "").split(",") if x)
+
+    for scope, o, stems in (("level", lvl, [viewed]), ("dungeon", dun, dl.get(home, [])),
+                            ("world", wld, list(truth))):
+        want = {k: str(total(k, stems)) for k in ("monsters", "items", "quest", "doors", "stairs")}
+        got = {k: o.get(k) for k in want}
+        check(got == want and bands_sum(o) == total("monsters", stems),
+              f"the {scope} counts are the files' (and every monster has a band)",
+              f"got {got}, files {want}, bands {o.get('bands')}")
+    check(wld.get("levels") == str(len(truth)) and dun.get("levels") == str(len(dl.get(home, []))),
+          "the level counts are the manifest's and the dungeon's",
+          f"world {wld.get('levels')}, dungeon {dun.get('levels')}")
+    links = {k[len("dungeon:"):]: v for k, v in wld.items() if k.startswith("dungeon:")}
+    check(set(links) == set(dl) and all(v.startswith(str(len(dl[d]))) for d, v in links.items()),
+          "the world lists every dungeon with its level count", str(links))
+    placed = overview(sec.get("placed", []), "level")
+    placed_w = overview(sec.get("placed", []), "world")
+    undone = overview(sec.get("undone", []), "level")
+    check(placed.get("monsters") == str(int(lvl.get("monsters", -1)) + 1)
+          and placed_w.get("monsters") == str(int(wld.get("monsters", -1)) + 1)
+          and bands_sum(placed) == bands_sum(lvl) + 1,
+          "a monster placed on the viewed level counts at once, there and in the world",
+          f"{lvl.get('monsters')} -> {placed.get('monsters')}")
+    check(undone == lvl, "undo takes it off the count again", str(undone))
+    back = docks(console_sections(run("docks-persist.eval")).get("reopened", []))
+    check(len(back) == 1 and back[0]["left"] == 300 and back[0]["right"] == 350,
+          "a fresh start opens both docks at the widths they were left",
+          str(back[0] if back else "no reading"))
+finally:
+    shutil.rmtree(PROJ)
+    shutil.copytree(backup, PROJ)
+    shutil.rmtree(backup, ignore_errors=True)
+    if saved_settings is None:
+        if os.path.isfile(SETTINGS):
+            os.remove(SETTINGS)
+    else:
+        io.open(SETTINGS, "wb").write(saved_settings)
+
+# --- phase 15: flags --------------------------------------------------------------
+print("15 - flags: what waits on them, what sets them, the checker and the palette")
+
+ARENA = os.path.join(PROJ, r"levels\eval_arena")
+FIXTURE_FLAGS = """
+[arena_gate]
+display = Arena gate
+dungeon = eval
+
+[beacon_lit]
+display = Beacon lit
+
+[crypt_seal]
+display = Crypt seal
+dungeon = crypt
+
+[orphan_flag]
+display = Orphan
+"""
+FIXTURE_ENTS = [
+    "door wooden_door 12 3 north flag=arena_gate",
+    "button lever 5 4 north sets=arena_gate",
+    "button lever 8 4 north flag=arena_gate",
+    "button lever 10 4 north toggles=crypt_seal",
+    "button lever 14 4 north flag=ghost_flag",
+]
+FIXTURE_STAIR = "stairs stairs_down 20 10 south dest=crypt2 destx=1 destz=1 flag=beacon_lit"
+
+
+def write_fixture():
+    def edit(path, fn):
+        raw = io.open(path, "rb").read().decode("utf-8")
+        eol = "\r\n" if "\r\n" in raw else "\n"
+        io.open(path, "wb").write(eol.join(fn(raw.split(eol))).encode("utf-8"))
+
+    def walled(lines):
+        grid = [i for i, l in enumerate(lines) if l.startswith("#")]
+        row = grid[3]  # z = 3: a wall across, its doorway at x = 12
+        lines[row] = "#" * 12 + "." + "#" * (len(lines[row]) - 13)
+        lines.insert(grid[0], FIXTURE_STAIR)
+        return lines
+
+    edit(ARENA + ".map", walled)
+    edit(ARENA + ".ent", lambda lines: [l for l in lines if l] + FIXTURE_ENTS + [""])
+    edit(os.path.join(PROJ, r"catalog\flags.cat"),
+         lambda lines: lines + FIXTURE_FLAGS.strip("\n").split("\n") + [""])
+
+
+FLAGLINE = re.compile(r"flag (\S+) (on|off) (\S+)")
+
+
+def flag_states(lines):
+    return {m.group(1): (m.group(2), m.group(3)) for m in (FLAGLINE.match(l) for l in lines) if m}
+
+
+def palette_rows(lines):
+    out = []
+    for l in lines:
+        m = re.match(r"editor palette item flags (\S+) band=\d group='([^']*)' ref=(\S+) goto=(\S+) "
+                     r"label='([^']*)'", l)
+        if m:
+            out.append(m.groups())
+    return out
+
+
+backup = os.path.join(ROOT, r"build\editortest-backup")
+shutil.rmtree(backup, ignore_errors=True)
+shutil.copytree(PROJ, backup)
+try:
+    write_fixture()
+    log = run("flags.eval")
+    check(passed(log), "the script ran clean")
+    sec = console_sections(log)
+    start = flag_states(sec.get("start", []))
+    check(start == {"arena_gate": ("off", "dungeon:eval"), "beacon_lit": ("off", "world"),
+                    "crypt_seal": ("off", "dungeon:crypt"), "orphan_flag": ("off", "world"),
+                    "relic_lifted": ("off", "world")},
+          "every flag starts off, each with its scope", str(start))
+    local = [l for l in sec.get("start", []) if l.startswith("flag ")][len(start):]
+    check([l.split()[1] for l in local] == ["arena_gate"],
+          "`flags dungeon` lists the party's dungeon's own flags alone", str(local))
+    door = sec.get("door", [])
+    want = ["door 12,3 -> shut", "button 8,4 -> off", "button 5,4 -> on",
+            "flag arena_gate on dungeon:eval", "door 12,3 -> open", "button 8,4 -> on"]
+    check([l for l in door if l.startswith(("door ", "button ", "flag "))] == want,
+          "sealed and stuck until the lever sets the flag, then both give", str(door))
+    item = flag_states(sec.get("item", []))
+    lines = [l for l in sec.get("item", []) if l.startswith("flag ")]
+    check(len(lines) == 2 and lines[0].startswith("flag relic_lifted off")
+          and lines[1].startswith("flag relic_lifted on"),
+          "lifting the relic turns its flag on", str(lines))
+    saved = [l for l in sec.get("save", []) if l.startswith("flag ")]
+    check(saved[-2:] == ["flag arena_gate on dungeon:eval", "flag relic_lifted on world"],
+          "a load puts back the flags the save held", str(saved))
+    issues = [l.strip() for l in sec.get("validate", [])]
+
+    def found(sev, where, key, arg):
+        return any(re.match(rf"{sev}\s+{re.escape(where)}\s*{key} {arg}$", l) for l in issues)
+
+    check(found("ERR", "eval_arena @20,10", "map.check.flagwaits", "beacon_lit")
+          and found("ERR", "eval_arena @14,4", "map.check.flagwaits", "ghost_flag"),
+          "a stair and a lever waiting on flags nothing sets are errors where they stand")
+    check(found("warn", "eval_arena @14,4", "map.check.flagunknown", "ghost_flag"),
+          "a flag flags.cat lacks is named")
+    check(found("warn", "eval_arena @10,4", "map.check.flagscope", "crypt_seal"),
+          "the crypt's flag toggled from the Proving Ground is named")
+    check(found("warn", "", "map.check.flagunused", "orphan_flag"),
+          "a flag nothing sets or reads is named")
+    check(not any(re.search(r"flag\w+ (arena_gate|relic_lifted)$", l) for l in issues),
+          "the sound flags raise nothing (the gate's lever, the relic in the crypt)",
+          str([l for l in issues if "flag" in l]))
+    wire = [l for l in sec.get("wire", []) if l.startswith("flagwire ")]
+    check(wire == ["flagwire door 12,3 flag=beacon_lit", "flagwire door 12,3 flag=arena_gate",
+                   "flagwire lever 8,4 flag= clears=arena_gate",
+                   "flagwire lever 8,4 flag=arena_gate op="],
+          "the inspectors' setters rewire a door and a lever", str(wire))
+    pal = sec.get("palette", [])
+    wld, dun = overview(pal, "world"), overview(pal, "dungeon")
+    check(wld.get("flags") == "3 (1 on)" and dun.get("flags") == "1 (1 on)",
+          "the overview counts the world's flags and the dungeon's own, and how many are on",
+          f"world {wld.get('flags')}, dungeon {dun.get('flags')}")
+    # Listed twice: before `newtype flags` (N rows) and after it (N + 1).
+    item_lines = [l for l in pal if l.startswith("editor palette item flags")]
+    first = palette_rows(item_lines[:(len(item_lines) - 1) // 2])
+    rows = {r[0]: r for r in palette_rows(item_lines)}
+    groups = {r[0]: r[1] for r in first}
+    check(groups.get("arena_gate", "").endswith("(this dungeon)")
+          and all(groups.get(f) == "World" for f in ("beacon_lit", "orphan_flag", "relic_lifted"))
+          and "crypt_seal" not in groups,
+          "the section lists this dungeon's flags and the world's, not the crypt's", str(groups))
+    relic = rows.get("sunken_relic")
+    check(relic is not None and relic[2] == "items" and relic[3] == "crypt2@5,4"
+          and "crypt2 5,4" in relic[4] and relic[1] == "World",
+          "a quest item lists with where it lies, and a link there", str(relic))
+    check("flag1" in rows and rows["flag1"][1].endswith("(this dungeon)") and "flag1" not in groups,
+          "a new flag joins the viewed dungeon's own")
+    used = [l for l in pal if l.startswith("editor palette used")]
+    exp = ["armed=items:sunken_relic", "armed=-:", "typeeditor=arena_gate", "view=crypt2 sel=5,4"]
+    check(len(used) == 4 and all(e in u for e, u in zip(exp, used)),
+          "a quest item row arms its brush and again puts it down; a flag row opens its "
+          "editor; the link goes to where the item lies", "\n         ".join(used))
+    stair = sec.get("stair", [])
+    maps = [l for l in stair if " map, start " in l]
+    check(any(l.startswith("20,10 ") for l in stair) and len(maps) == 2
+          and maps[0].startswith("28x24") and not maps[1].startswith("28x24"),
+          "a stair waiting on a flag bars the way until it is on, then goes down",
+          str([l for l in stair if " map, " in l or l.startswith("20,")]))
+finally:
+    shutil.rmtree(PROJ)
+    shutil.copytree(backup, PROJ)
+    shutil.rmtree(backup, ignore_errors=True)
+
+# --- phase 16: styles and the library ---------------------------------------------
+print("16 - styles: the library, adding and saving, the monster lens, the rename sweeps")
+
+LIBRARY = os.path.join(ROOT, r"assets\library")
+STYLELINE = re.compile(r"style (\S+) (world|library)( current)? room=(\S+) corridor=(\S+) "
+                       r"width=(\S+) monsters=(.*)")
+
+
+def style_lines(lines):
+    return {m.group(1): m.groups()[1:] for m in (STYLELINE.match(l) for l in lines) if m}
+
+
+def palette_lens(lines, section):
+    return {m.group(1): m.group(2) for m in
+            (re.match(rf"editor palette item {section} (\S+) .* lens=(on|off)$", l) for l in lines) if m}
+
+
+def palette_listings(lines, section):
+    """Each consecutive run of `editor palette item <section>` lines, as one listing."""
+    runs, cur = [], []
+    for l in lines:
+        if l.startswith(f"editor palette item {section} "):
+            cur.append(l)
+        elif cur:
+            runs.append(cur)
+            cur = []
+    if cur:
+        runs.append(cur)
+    return runs
+
+
+def drop_block(path, block_id):
+    raw = io.open(path, "rb").read().decode("utf-8")
+    eol = "\r\n" if "\r\n" in raw else "\n"
+    out, skip = [], False
+    for l in raw.split(eol):
+        if l.strip().startswith("["):
+            skip = l.strip() == f"[{block_id}]"
+        if not skip:
+            out.append(l)
+    io.open(path, "wb").write(eol.join(out).encode("utf-8"))
+
+
+def read(rel):
+    return io.open(os.path.join(PROJ, rel), encoding="utf-8").read()
+
+
+backup = os.path.join(ROOT, r"build\editortest-backup")
+libbak = os.path.join(ROOT, r"build\editortest-library")
+shutil.rmtree(backup, ignore_errors=True)
+shutil.rmtree(libbak, ignore_errors=True)
+shutil.copytree(PROJ, backup)
+shutil.copytree(LIBRARY, libbak)
+try:
+    drop_block(os.path.join(PROJ, r"catalog\floors.cat"), "ground_soil_rocky")
+    walls_before = io.open(os.path.join(PROJ, r"catalog\walls.cat"), "rb").read()
+
+    def arena(ext, fn):
+        p = ARENA + ext
+        raw = io.open(p, "rb").read().decode("utf-8")
+        eol = "\r\n" if "\r\n" in raw else "\n"
+        io.open(p, "wb").write(eol.join(fn(raw.split(eol))).encode("utf-8"))
+
+    arena(".ent", lambda ls: [l for l in ls if l] +
+          ["button lever 5 1 north flag=relic_lifted sets=relic_lifted", ""])
+    arena(".map", lambda ls: ls[:next(i for i, l in enumerate(ls) if l.startswith("#"))] +
+          ["stairs stairs_down 20 10 south dest=crypt2 destx=1 destz=1 flag=relic_lifted"] +
+          ls[next(i for i, l in enumerate(ls) if l.startswith("#")):])
+
+    log = run("styles.eval")
+    check(passed(log), "the script ran clean")
+    sec = console_sections(log)
+    listed = style_lines(sec.get("list", []))
+    check({k: v[0] for k, v in listed.items()} ==
+          {"small_crypt": "world", "dirt_tunnels": "library", "guard_barracks": "library",
+           "marble_halls": "library"},
+          "the world's style and the library's three are listed", str({k: v[0] for k, v in listed.items()}))
+    groups = {m.group(1): (m.group(2), m.group(3)) for m in
+              (re.match(r"editor palette item styles (\S+) .*group='([^']*)' ref=(\S+)", l)
+               for l in sec.get("list", [])) if m}
+    check(groups.get("small_crypt") == ("This world", "-")
+          and all(groups.get(s, ("", ""))[1] == "library"
+                  for s in ("dirt_tunnels", "guard_barracks", "marble_halls")),
+          "the palette lists This world, then the library's", str(groups))
+    lens = sec.get("lens", [])
+    runs = [palette_lens(r, "monsters") for r in palette_listings(lens, "monsters")]
+    crypt = {"skeleton", "skel_archer", "skel_coward", "mummy"}
+    if len(runs) != 3:
+        check(False, "three Monsters listings", str(len(runs)))
+    else:
+        check(all(v == "on" for v in runs[0].values()) and len(runs[0]) >= 10,
+              "with no style armed every monster is on the lens")
+        check({k for k, v in runs[1].items() if v == "on"} == crypt,
+              "Small Crypt armed: its four monsters lead, the rest fall below the divider",
+              str({k for k, v in runs[1].items() if v == "on"}))
+        check(runs[2] == runs[0], "disarmed, the lens is the level's again")
+    rows = [l for l in lens if l.startswith("style current")]
+    check(rows[-2:] == ["style current small_crypt", "style current -"],
+          "clicking the world style's row arms it, and again puts it down", str(rows))
+    add = [l for l in sec.get("add", []) if l.startswith("style add")]
+    check(len(add) == 2 and add[0] == "style add dirt_tunnels: added copied=floors:ground_soil_rocky,"
+          "themes:dirt_cave,themes:dirt_tunnel,styles:dirt_tunnels missing=-",
+          "adding Dirt Tunnels copies its two themes and the one floor the world lacked",
+          add[0] if add else "(none)")
+    check(len(add) == 2 and add[1].startswith("style add dirt_tunnels: already copied=-"),
+          "a second add is a no-op", add[1] if len(add) > 1 else "(none)")
+    check(style_lines(sec.get("add", [])).get("dirt_tunnels", ("",))[0] == "world",
+          "and it lists as the world's own now")
+    check("[ground_soil_rocky]" in read(r"catalog\floors.cat")
+          and io.open(os.path.join(PROJ, r"catalog\walls.cat"), "rb").read() == walls_before,
+          "the floor reached floors.cat, and walls.cat (which had wall_rock) is untouched")
+    saved = [l for l in sec.get("save", []) if l.startswith("style save")]
+    lib = io.open(os.path.join(LIBRARY, "styles.cat"), encoding="utf-8").read()
+    check(saved == ["style save style1: saved copied=walls:wall_stone_30,floors:floor_ancient_stone,"
+                    "ceilings:ceiling_stone,themes:crypt_chamber,styles:style1"]
+          and "[style1]" in lib and "monsters = skeleton 2, ghoul" in lib,
+          "a world style saves to the library with its theme and the theme's surfaces",
+          str(saved))
+    issues = [l.strip() for l in sec.get("save", [])]
+    check(any(re.match(r"warn\s+map\.check\.stylenomonster style1$", l) for l in issues),
+          "the checker names the monster the style lists and the world lacks")
+    renamed = style_lines(sec.get("rename", []))
+    check(renamed.get("small_crypt", ("",) * 3)[2] == "crypt_room"
+          and renamed.get("style1", ("",) * 3)[2] == "crypt_room",
+          "renaming a theme rewrites the styles that name it",
+          str({k: v[2] for k, v in renamed.items()}))
+    ent, mp = read(r"levels\eval_arena.ent"), read(r"levels\eval_arena.map")
+    items = read(r"catalog\items.cat")
+    check("flag=relic_taken sets=relic_taken" in ent and "flag=relic_taken" in mp
+          and "flag = relic_taken=1" in items and "[relic_taken]" in read(r"catalog\flags.cat"),
+          "renaming a flag rewrites the lever, the stair and the item that name it")
+finally:
+    shutil.rmtree(PROJ)
+    shutil.copytree(backup, PROJ)
+    shutil.rmtree(backup, ignore_errors=True)
+    shutil.rmtree(LIBRARY)
+    shutil.copytree(libbak, LIBRARY)
+    shutil.rmtree(libbak, ignore_errors=True)
+
+# --- phase 17: the shape brushes ---------------------------------------------------
+print("17 - shape brushes: corridor, room, stamp and region, in the current style")
+
+SHAPELINE = re.compile(r"editor shape (\w+): squares=(\d+) solid=(\d+) opened=(\d+) "
+                       r"raised=(\d+) painted=(\d+)")
+WALKABLE = re.compile(r"(\d+)x(\d+) map, start (\d+),(\d+), (\d+) walkable")
+
+
+def shape_lines(lines):
+    return [tuple(int(x) if x.isdigit() else x for x in m.groups())
+            for m in (SHAPELINE.match(l) for l in lines) if m]
+
+
+def walkables(lines):
+    return [int(m.group(5)) for m in (WALKABLE.match(l) for l in lines) if m]
+
+
+def read_level(stem):
+    """(grid rows, {(surface, x, z): theme}) of a saved level."""
+    text = io.open(os.path.join(PROJ, "levels", stem + ".map"), encoding="utf-8").read()
+    rows = [l for l in text.splitlines() if l and l[0] in "#.PDTF"]
+    themes = {}
+    for m in re.finditer(r"^theme (\w+) (\d+) (\d+) (\S+)", text, re.M):
+        themes[(m.group(1), int(m.group(2)), int(m.group(3)))] = m.group(4)
+    return rows, themes
+
+
+backup = os.path.join(ROOT, r"build\editortest-backup")
+shutil.rmtree(backup, ignore_errors=True)
+shutil.copytree(PROJ, backup)
+try:
+    # The fixture: rock everywhere but a 5x5 room round the start (14,12).
+    def rocky(lines):
+        grid = [i for i, l in enumerate(lines) if l and l[0] in "#.P"]
+        for i, z in zip(grid, range(len(grid))):
+            row = ["#"] * len(lines[i])
+            if 10 <= z <= 14:
+                for x in range(12, 17):
+                    row[x] = "."
+            if z == 12:
+                row[14] = "P"
+            lines[i] = "".join(row)
+        return lines
+
+    for ext, fn in ((".map", rocky), (".ent", lambda ls: ["; eval_arena - emptied by EditorTest 17", ""])):
+        p = ARENA + ext
+        raw = io.open(p, "rb").read().decode("utf-8")
+        eol = "\r\n" if "\r\n" in raw else "\n"
+        io.open(p, "wb").write(eol.join(fn(raw.split(eol))).encode("utf-8"))
+
+    log = run("shapes.eval")
+    check(passed(log), "the script ran clean")
+    sec = console_sections(log)
+    base = walkables(sec.get("base", []))
+    cor = walkables(sec.get("corridor", []))
+    shapes = shape_lines([l.split("console: ", 1)[1] for l in log.splitlines()
+                          if "console: editor shape" in l])
+    kinds = [s[0] for s in shapes]
+    check(base == [25], "the fixture is the 5x5 room and rock", str(base))
+    c = shapes[0] if shapes else None
+    check(c is not None and c[0] == "corridor" and len(cor) == 3 and cor[0] == 25 + c[3]
+          and c[3] > 0 and c[5] > c[3],
+          "a corridor opens the rock it crosses and paints it and its walls",
+          f"{c}, walkable {cor}")
+    hashes_seen = [h for h in hashes(log)]
+    check(len(cor) == 3 and cor[1] == 25 and cor[2] == cor[0]
+          and len(hashes_seen) >= 2 and hashes_seen[0] == hashes_seen[1],
+          "undo puts the rock back exactly (geometry hash), redo lays it again",
+          f"walkable {cor}")
+    rows, themes = read_level("eval_arena")
+    open_ = {(x, z) for z, r in enumerate(rows) for x, ch in enumerate(r) if ch != "#"}
+
+    def reach(start):
+        seen, todo = {start}, [start]
+        while todo:
+            x, z = todo.pop()
+            for n in ((x + 1, z), (x - 1, z), (x, z + 1), (x, z - 1)):
+                if n in open_ and n not in seen:
+                    seen.add(n)
+                    todo.append(n)
+        return seen
+
+    from_start = reach((14, 12))
+    check((3, 3) in from_start, "the corridor joins the room to its far end")
+    check(themes.get(("floor", 3, 3)) == "crypt_passage"
+          and any(themes.get(("wall", x, z)) == "crypt_passage"
+                  for x, z in ((2, 3), (3, 2), (2, 2), (4, 2))),
+          "its floor and the walls along it wear the style's corridor theme",
+          str({k: v for k, v in themes.items() if k[1] <= 4 and k[2] <= 4}))
+    r = shapes[1] if len(shapes) > 1 else None
+    room = {(x, z) for x in range(18, 25) for z in range(3, 9)}
+    check(r is not None and r[0] == "room" and r[1] == 42 and room <= open_
+          and themes.get(("floor", 18, 3)) == "crypt_chamber",
+          "a room opens its rectangle in the style's room theme", str(r))
+    s = shapes[2] if len(shapes) > 2 else None
+    check(s is not None and s[0] == "stamp" and s[2] == 6 and s[4] == 2
+          and (14, 10) not in open_ and (14, 13) not in open_ and (14, 12) in open_,
+          "a stamp over the start room raises its two pillars there - never on the party",
+          str(s))
+    g = shapes[3] if len(shapes) > 3 else None
+    region = {(x, z) for x in range(12, 23) for z in range(15, 23)} & open_
+    check(g is not None and g[0] == "region" and g[3] > 20 and region and region <= from_start,
+          "a region generates rooms in its box, joined to the room touching it",
+          f"{g}, {len(region)} open, {len(region - from_start)} unreached")
+    pl = shapes[4] if len(shapes) > 4 else None
+    check(pl is not None and pl[0] == "room" and pl[3] == 9 and pl[5] == 0
+          and ("floor", 25, 13) not in themes,
+          "with no style a room is plain carving: opened, nothing painted", str(pl))
+    sm = shapes[5] if len(shapes) > 5 else None
+    check(sm is not None and sm[0] == "region" and sm[1] == 0 and sm[3] == 0,
+          "a region under 6x6 generates nothing", str(sm))
+finally:
+    shutil.rmtree(PROJ)
+    shutil.copytree(backup, PROJ)
+    shutil.rmtree(backup, ignore_errors=True)
+
+# --- phase 18: the workflow, wired through ------------------------------------------
+print("18 - the four stages as one path: a styled world, add, build, populate, overview")
+P7 = ("p7_world", "p7_wiz")
+DIRT = {"centipede", "giant_spider", "blob"}
+MARBLE = {"skel_mage", "mummy", "skel_warrior", "skel_berserker"}
+
+
+def world_file(world, rel):
+    p = os.path.join(PROJECTS, world, rel)
+    return io.open(p, encoding="utf-8").read() if os.path.isfile(p) else ""
+
+
+def theme_ids(text):
+    return {m.group(1) for m in re.finditer(r"^theme \w+ \d+ \d+ (\S+)", text, re.M)}
+
+
+def monsters_in(text):
+    return [m.group(1) for m in re.finditer(r"^monster (\S+)", text, re.M)]
+
+
+# The dialog's Create and Populate PERSIST their knobs (settings.ini gen_knobs),
+# and other suites' scripts inherit the knobs they leave unset - so the style's
+# recipe this phase uses must not outlive it.
+SETTINGS = os.path.join(os.path.dirname(EXE), "settings.ini")
+settings_before = io.open(SETTINGS, "rb").read() if os.path.isfile(SETTINGS) else None
+try:
+    for w in P7:
+        shutil.rmtree(os.path.join(PROJECTS, w), ignore_errors=True)
+    log = run("workflow_worlds.eval")
+    check(passed(log), "the worlds script ran clean")
+    # A BLANK world in a library style: the style and what it names arrive, the
+    # starter dungeon names it, and the first room wears it - tags included.
+    check("[dirt_tunnels]" in world_file("p7_world", r"catalog\styles.cat")
+          and "[dirt_cave]" in world_file("p7_world", r"catalog\themes.cat")
+          and "[dirt_tunnel]" in world_file("p7_world", r"catalog\themes.cat"),
+          "a blank world made in Dirt Tunnels receives the style and its two themes")
+    check(re.search(r"^style = dirt_tunnels\s*$", world_file("p7_world", r"catalog\dungeons.cat"), re.M)
+          is not None, "its starter dungeon names the style as its default")
+    room1 = world_file("p7_world", r"levels\room1.map")
+    check(re.search(r"^tags cave vermin ooze\s*$", room1, re.M) is not None
+          and re.search(r"^theme floor 8 8 dirt_cave\s*$", room1, re.M) is not None
+          and re.search(r"^theme wall 6 6 dirt_cave\s*$", room1, re.M) is not None
+          and re.search(r"^palette floor .*ground_soil_rocky", room1, re.M) is not None,
+          "the first room wears the room theme, floor and walls, with the style's tags")
+    # The WIZARD in a style: its recipe, tags, monsters and both themes.
+    wiz_map, wiz_ent = world_file("p7_wiz", r"levels\floor1.map"), world_file("p7_wiz", r"levels\floor1.ent")
+    wiz_monsters = set(monsters_in(wiz_ent))
+    check(theme_ids(wiz_map) == {"marble_hall", "marble_gallery"}
+          and re.search(r"^tags undead stone\s*$", wiz_map, re.M) is not None,
+          "a wizard floor in Marble Halls lays its room and corridor themes, with its tags",
+          str(theme_ids(wiz_map)))
+    check(bool(wiz_monsters) and wiz_monsters <= MARBLE,
+          "...and draws its monsters from the style's list", str(sorted(wiz_monsters)))
+    for w in P7:
+        wlog = run("worldcheck.eval", project=w)
+        check("validate: clean" in wlog, f"{w} opens and passes the checker",
+              next((l for l in wlog.splitlines() if "validate" in l), "no validate line"))
+
+    # THE WALK, inside p7_world.
+    log = run("workflow_walk.eval", project="p7_world")
+    check(passed(log), "the walk ran clean")
+    sec = console_sections(log)
+    add = sec.get("add", [])
+    opened = next((l for l in add if l.startswith("generate dialog: create")), "")
+    check("style=dirt_tunnels" in opened and "winding:0.85" in opened,
+          "[+] opens on the dungeon's style, its shape knobs loaded", opened[:120])
+    check("generate dialog: made keep1" in add, "Create makes the floor", " | ".join(add[:4]))
+    check(any(l.startswith("editor palette: stage build ") for l in add)
+          and any(re.match(r"style dirt_tunnels world current ", l) for l in add),
+          "...and lands in the Build stage with the style armed (it was on Creatures before)")
+    keep1_map, keep1_ent = world_file("p7_world", r"levels\keep1.map"), world_file("p7_world", r"levels\keep1.ent")
+    check(theme_ids(keep1_map) == {"dirt_cave", "dirt_tunnel"}
+          and re.search(r"^tags cave vermin ooze\s*$", keep1_map, re.M) is not None,
+          "the generated floor wears both themes and carries the style's tags - no Level settings visit",
+          str(theme_ids(keep1_map)))
+    check(set(monsters_in(keep1_ent)) <= DIRT and monsters_in(keep1_ent),
+          "...and its monsters are the style's", str(sorted(set(monsters_in(keep1_ent)))))
+    empty = sec.get("empty", [])
+    check("generate dialog: made keep2" in empty
+          and any(l.startswith("editor palette: stage build ") for l in empty),
+          "Empty makes the box in the style, landing in Build")
+
+    def ov(lines, key):
+        return next((l.split(f"editor overview level {key} ", 1)[1] for l in lines
+                     if l.startswith(f"editor overview level {key} ")), None)
+
+    def followed(lines):
+        return next((l.split(" -> ", 1)[1].split(" ", 1)[0] for l in lines
+                     if l.startswith("editor overview follow next")), None)
+
+    check(ov(empty, "squares") == "9" and followed(empty) == "stage:build",
+          "an empty floor's next step is Build (and its link opens that stage)",
+          f"squares {ov(empty, 'squares')}, next -> {followed(empty)}")
+    build = sec.get("build", [])
+    shapes = shape_lines(build)
+    check([s[0] for s in shapes] == ["room", "corridor", "stamp"] and all(s[3] > 0 and s[5] > 0 for s in shapes),
+          "room, corridor and stamp each open rock and paint it", str(shapes))
+    check(int(ov(build, "squares") or 0) > 9 and followed(build) == "populate",
+          "built, the next step is Populate", f"squares {ov(build, 'squares')}, next -> {followed(build)}")
+    pop = sec.get("populate", [])
+    keep2_ent = world_file("p7_world", r"levels\keep2.ent")
+    placed = monsters_in(keep2_ent)
+    runs = [tuple(int(x) for x in m.groups()) for m in
+            re.finditer(r"populate keep2: (\d+) monsters, (\d+) loot, (\d+) replaced", log)]
+    check(len(runs) == 2, "the dialog's Populate and the console's both populate the viewed floor",
+          str(runs))
+    check(len(runs) == 2 and runs[0][0] > 0 and runs[1][2] == runs[0][0] + runs[0][1]
+          and len(placed) == runs[1][0],
+          "populating again replaces what the first populate placed: the file holds the second's alone",
+          f"{runs}, file {len(placed)}")
+    check(bool(placed) and set(placed) <= DIRT,
+          "the hand-built floor is populated from the style's list", str(placed))
+    check(ov(pop, "monsters") == str(len(placed)),
+          "the overview counts what the file holds", f"{ov(pop, 'monsters')} vs {len(placed)}")
+    check(followed(pop) in ("-", "check"),
+          "populated, the next step is the check or play", str(followed(pop)))
+    keep2_map = world_file("p7_world", r"levels\keep2.map")
+    check(re.search(r"^tags cave vermin ooze\s*$", keep2_map, re.M) is not None
+          and "dirt_cave" in theme_ids(keep2_map),
+          "the empty floor carries the style's tags and room theme too")
+finally:
+    for w in P7:
+        shutil.rmtree(os.path.join(PROJECTS, w), ignore_errors=True)
+    if settings_before is not None:
+        io.open(SETTINGS, "wb").write(settings_before)
 
 print()
 print("PASS" if failures == 0 else f"FAIL - {failures} check(s) failed")

@@ -13,12 +13,12 @@
 # build with - surfaces, props, monsters, items, spells, effects, the combat
 # numbers, stairs, doors - taken from dungeon-demo, the content this game
 # ships. What is NOT in it is anything that makes a particular GAME: no
-# levels, no dungeons, no quests, no overworld, no opening, and no
-# imports.cat provenance (it describes files on one machine). Items keep their
-# `flag` hooks but lose `quest` and `reveals`, which name a quest stage and a
-# world location that do not exist in a new world - W7's lesson, found by the
-# checker on its first run: content comes across, what content POINTS AT does
-# not.
+# levels, no dungeons, no quests, no flags, no overworld, no opening, and no
+# imports.cat provenance (it describes files on one machine). Items lose
+# `quest`, `reveals` and `flag`, which name a quest stage, a world location and
+# a flag (flags.cat, since tool-refinement Phase 4) that do not exist in a new
+# world - W7's lesson, found by the checker on its first run: content comes
+# across, what content POINTS AT does not.
 #
 # The template is DEFINED BY THIS SCRIPT (the Build*.py rule): to change what a
 # new world starts with, change dungeon-demo's catalogs or the rules below and
@@ -35,10 +35,10 @@ OUT = os.path.join(ROOT, r"assets\templates\default")
 # Catalogs whose ENTRIES are places or provenance: only their header comment
 # (everything before the first [id]) comes across, so the file still explains
 # itself to whoever opens it.
-HEADER_ONLY = {"dungeons.cat", "quests.cat", "imports.cat"}
+HEADER_ONLY = {"dungeons.cat", "quests.cat", "flags.cat", "imports.cat"}
 # Fields that point at places, stripped from every entry of these catalogs.
-STRIP = {"items.cat": ("quest", "reveals"), "weapons.cat": ("quest", "reveals"),
-         "armor.cat": ("quest", "reveals")}
+STRIP = {"items.cat": ("quest", "reveals", "flag"), "weapons.cat": ("quest", "reveals", "flag"),
+         "armor.cat": ("quest", "reveals", "flag")}
 
 MANIFEST = (
     "; The TEMPLATE a blank new world starts from (docs/editor-updates-plan.md P4).\r\n"

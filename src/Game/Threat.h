@@ -1,7 +1,9 @@
 // ============================================================================
 // Game/Threat.h - how dangerous a monster kind is, as one number, DERIVED from
 // its monsters.cat stats (docs/level-building.md P4; Michael chose derived over
-// an authored tier, so there is no field to keep in step with the stats).
+// an authored tier, so there is no field to keep in step with the stats). Since
+// tool-refinement Phase 2 an entry MAY override it with `power` - see
+// Game/Power.h, which is what everything that ranks monsters now reads.
 //
 // The question it answers: against a REFERENCE PARTY, how much does this kind
 // hurt per second (offence), and how much punishment does it take to put down

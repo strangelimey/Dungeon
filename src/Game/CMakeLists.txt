@@ -36,6 +36,7 @@ add_library(Game STATIC
 	DungeonWorld_Ledger.cpp
 	DungeonWorld_LevelIO.cpp
 	DungeonWorld_Levels.cpp
+	DungeonWorld_Census.cpp
 	DungeonWorld_Load.cpp
 	DungeonWorld_Models.cpp
 	DungeonWorld_Move.cpp
@@ -65,6 +66,7 @@ add_library(Game STATIC
 	Game_Editor.cpp
 	Game_Eval.cpp
 	Game_Generate.cpp
+	Game_Populate.cpp
 	Game_Inspect.cpp
 	Game_NewWorld.cpp
 	NewWorldDialog.cpp
@@ -78,6 +80,16 @@ add_library(Game STATIC
 	LevelSettingsDialog.cpp
 	Magic.cpp
 	MapEditor.cpp
+	MapEditor_Categories.cpp
+	MapEditor_Quests.cpp
+	MapEditor_Styles.cpp
+	MapEditor_Shapes.cpp
+	Game_Styles.cpp
+	Style.cpp
+	StyleLibrary.cpp
+	StyleLook.cpp
+	Carve.cpp
+	MapView_Docks.cpp
 	MapView.cpp
 	MapView_Issues.cpp
 	MapView_Tools.cpp
@@ -92,7 +104,10 @@ add_library(Game STATIC
 	GenerateDialog.cpp
 	GenerateKnobs.cpp
 	Threat.cpp
+	Power.cpp
 	Validate.cpp
+	Validate_Flags.cpp
+	Validate_Styles.cpp
 	ValidateDialog.cpp
 	WorldMap.cpp
 	WorldMapView.cpp

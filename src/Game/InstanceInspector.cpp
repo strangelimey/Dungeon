@@ -10,8 +10,34 @@
 #include "UI/Controls.h"
 
 #include <algorithm>
+#include <memory>
 
 namespace dungeon::game {
+
+void FlagDropDown(ui::Stack& page, ui::Len len, const FlagChoices& flags,
+				  std::string& value, std::function<void()> onChange) {
+	// The choices by id, with a stale value appended so it stays selectable.
+	auto ids = std::make_shared<std::vector<std::string>>();
+	std::vector<std::string> names;
+	names.push_back(loc::Tr("map.flag.none"));
+	int sel = 0;
+	for (const auto& [id, label] : flags) {
+		ids->push_back(id);
+		names.push_back(label);
+		if (id == value) sel = static_cast<int>(ids->size());
+	}
+	if (!value.empty() && sel == 0) {
+		ids->push_back(value);
+		names.push_back(value);
+		sel = static_cast<int>(ids->size());
+	}
+	page.Row<ui::DropDown>(len, names, sel,
+						   [ids, &value, onChange = std::move(onChange)](int i) {
+							   value = i <= 0 ? std::string()
+											  : (*ids)[static_cast<size_t>(i) - 1];
+							   if (onChange) onChange();
+						   });
+}
 
 namespace {
 // The bands used to be fractions of the panel — kTitleH 0.12, kFacingH 0.14 —

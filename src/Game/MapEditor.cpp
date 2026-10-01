@@ -61,6 +61,9 @@ constexpr CatInfo kCategoryInfo[] = {
 	{"map.cat.dungeons", "dungeons", false, /*placeable*/ false, /*authorable*/ true},
 	{"map.cat.terrain", "terrain", false, /*placeable*/ false, /*authorable*/ true},
 	{"map.cat.quests", "quests", false, /*placeable*/ false, /*authorable*/ true},
+	{"map.cat.flags", "flags", false, /*placeable*/ false, /*authorable*/ true},
+	{"map.cat.styles", "styles", false, /*placeable*/ false, /*authorable*/ true},
+	{"map.cat.shapes", "shapes", false, /*placeable*/ false, /*authorable*/ true},
 };
 static_assert(sizeof(kCategoryInfo) / sizeof(kCategoryInfo[0]) ==
 				  static_cast<size_t>(MapEditor::PaletteCat::Count),
@@ -69,27 +72,25 @@ const CatInfo& CatInfoFor(MapEditor::PaletteCat cat) {
 	return kCategoryInfo[static_cast<size_t>(cat)];
 }
 
-// The order the palette LISTS its sections in, which is not enum order:
-// Themes leads, above the three surfaces it sets at once (Michael's
-// call - a whole look is the first thing reached for). Every category
-// appears exactly once; the enum keeps its order so nothing indexed by it
-// moves.
-using PC = MapEditor::PaletteCat;
-constexpr PC kDisplayOrder[] = {
-	PC::Themes, PC::Walls, PC::Floors, PC::Ceilings,
-	PC::Decorations, PC::Fixtures, PC::Monsters, PC::Buttons, PC::Doors, PC::Stairs,
-	PC::Items, PC::Weapons, PC::Armor, PC::WallFeatures, PC::SurfaceFeatures,
-	PC::Effects, PC::Dungeons, PC::Terrain, PC::Quests,
-};
-static_assert(sizeof(kDisplayOrder) / sizeof(kDisplayOrder[0]) ==
-				  static_cast<size_t>(PC::Count),
-			  "kDisplayOrder must list every PaletteCat once");
+// The order the palette LISTS its sections in is the category bar's business
+// now (MapEditor_Categories.cpp): each group lists its own, and the enum keeps
+// its order so nothing indexed by it moves.
+
+// A terrain's swatch is its own authored `color` - the colour the world map
+// paints it, read by the one parser for that field - else the floor ink.
+Vec4 TerrainSwatch(const CatalogEntry& e) {
+	Vec4 c = kFloor;
+	CatalogColor(&e, "color", c);
+	return c;
+}
 } // namespace
 
 MapEditor::MapEditor(MapView& view, GameSettings& settings)
 	: m_view(view), m_settings(settings) {
-	// Open the most-used category by default; the rest start collapsed.
+	// Open the most-used category by default; the rest start collapsed. And
+	// whatever group the bar was left on shows something from the first frame.
 	m_catOpen[static_cast<size_t>(PaletteCat::Walls)] = true;
+	OpenSomethingInGroup();
 }
 
 const char* MapEditor::CategoryNameKey(PaletteCat cat) { return CatInfoFor(cat).nameKey; }
@@ -173,7 +174,19 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 	}
 	case PaletteCat::Decorations: return catalogItems(proj.decorations, kDecoration);
 	case PaletteCat::Fixtures:    return catalogItems(proj.fixtures, kTorch);
-	case PaletteCat::Monsters:    return catalogItems(proj.monsters, kMonster);
+	case PaletteCat::Monsters: {
+		// Each wears its power band, so a strong kind reads as strong before
+		// it is placed (the world caches the powers per edit revision).
+		std::vector<PaletteItem> items = catalogItems(proj.monsters, kMonster);
+		for (PaletteItem& it : items) it.band = m_world->MonsterBand(it.id);
+		// The CURRENT STYLE's lens, in place of the level's tags: its monsters
+		// first, then a divider, then the rest - still all clickable.
+		const std::vector<std::string> picks = StyleMonsters(m_style);
+		if (!picks.empty())
+			for (PaletteItem& it : items)
+				it.onTags = std::find(picks.begin(), picks.end(), it.id) != picks.end();
+		return items;
+	}
 	case PaletteCat::Buttons:     return catalogItems(proj.buttons, kButton);
 	case PaletteCat::Doors:       return catalogItems(proj.doors, kDoor);
 	case PaletteCat::Stairs:      return catalogItems(proj.stairs, kStair);
@@ -183,6 +196,20 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 	case PaletteCat::WallFeatures: return catalogItems(proj.wallfeatures, kDecoration);
 	case PaletteCat::SurfaceFeatures: return catalogItems(proj.surfacefeatures, kDecoration);
 	case PaletteCat::Effects:     return catalogItems(proj.effects, kMonster);
+	// The world tier's catalogs: rows that open the type editor (they are
+	// never placed). They used to fall to the default below, so each section
+	// was a "+ New..." over "(none defined)" however many it held.
+	case PaletteCat::Dungeons:    return catalogItems(proj.dungeons, kStair);
+	case PaletteCat::Quests:      return catalogItems(proj.quests, kItem);
+	case PaletteCat::Flags:       return QuestSectionItems();
+	case PaletteCat::Styles:      return StyleSectionItems();
+	case PaletteCat::Shapes:      return catalogItems(proj.shapes, kFloor);
+	case PaletteCat::Terrain: {
+		std::vector<PaletteItem> items = catalogItems(proj.terrain, kFloor);
+		for (PaletteItem& it : items)
+			if (const CatalogEntry* e = proj.terrain.Find(it.id)) it.swatch = TerrainSwatch(*e);
+		return items;
+	}
 	default:                      return {};
 	}
 }
@@ -224,8 +251,11 @@ void MapEditor::LoadShownSwatches(size_t max) {
 	// upload, and a screenful at once is a visible stall).
 	if (!m_settings.mapShowCatalog) return;
 	size_t loaded = 0;
+	// Only sections actually on screen: open AND in the group the bar shows.
+	const std::vector<PaletteCat> shown = CandidateSections();
 	for (const PaletteCat cat : {PaletteCat::Walls, PaletteCat::Floors, PaletteCat::Ceilings}) {
 		if (!m_catOpen[static_cast<size_t>(cat)]) continue;
+		if (std::find(shown.begin(), shown.end(), cat) == shown.end()) continue;
 		for (const CatalogEntry& e : m_world->SurfaceCatalog(SelFor(cat)).Entries()) {
 			if (loaded >= max) return;
 			if (CatalogBool(&e, "hidden", false)) continue;
@@ -253,8 +283,8 @@ void MapEditor::AddToPalette(PaletteCat cat, const std::string& id) {
 	}
 	log(loc::Format("map.palette.added", id));
 	// Arm the newcomer: it is the last row of its category, and painting it is
-	// the reason the user added it.
-	m_catOpen[static_cast<size_t>(cat)] = true;
+	// the reason the user added it - so its section must be the one showing.
+	RevealCategory(cat);
 	const std::vector<PaletteItem> items = CategoryItems(cat);
 	for (int i = 0; i < static_cast<int>(items.size()); ++i)
 		if (items[i].id == id) {
@@ -317,9 +347,10 @@ bool MapEditor::Arm(PaletteCat cat, const std::string& id) {
 // --- palette controls row (filter + clear + collapse-all) --------------------
 
 gfx::Rect MapEditor::ControlsRow(const gfx::Rect& panel) const {
-	const gfx::Rect body = m_view.PaletteBody(panel);
+	// Under the category bar, which owns the top of the body.
+	const gfx::Rect bar = CategoryBar(panel).area;
 	const float h = std::clamp(panel.h * 0.040f, 20.0f, 36.0f);
-	return {body.x, body.y, body.w, h};
+	return {bar.x, bar.y + bar.h + MapView::DockPad(panel), bar.w, h};
 }
 
 gfx::Rect MapEditor::CollapseAllRect(const gfx::Rect& panel) const {
@@ -385,11 +416,28 @@ void MapEditor::HandleTyping(const Input& input) {
 }
 
 void MapEditor::TrackMouse(float mx, float my, const gfx::Rect& panel) {
-	m_hotCtrl = FilterBoxRect(panel).Contains(mx, my)     ? HotCtrl::Filter
+	m_hotBar = BarButtonAt(mx, my, panel);
+	m_hotCtrl = m_hotBar >= -1                             ? HotCtrl::Bar
+				: FilterBoxRect(panel).Contains(mx, my)     ? HotCtrl::Filter
 				: FilterClearRect(panel).Contains(mx, my) ? HotCtrl::Clear
 				: CollapseAllRect(panel).Contains(mx, my) ? HotCtrl::Collapse
 				: CatalogToggleRect(panel).Contains(mx, my) ? HotCtrl::Catalog
 															: HotCtrl::None;
+	// The row under the pointer, for the trimmed-name tooltip. Only laid out
+	// when the pointer is actually over the accordion.
+	m_hoverItem = {PaletteCat::Count, -1};
+	if (m_hotCtrl == HotCtrl::None && AccordionBody(panel).Contains(mx, my)) {
+		std::vector<PaletteRow> rows;
+		float content = 0.0f;
+		BuildPaletteRows(panel, rows, content);
+		for (const PaletteRow& r : rows)
+			if ((r.kind == PaletteRow::Kind::Item || r.kind == PaletteRow::Kind::Header) &&
+				r.rect.Contains(mx, my)) {
+				// A header is index -2: its name can be trimmed too.
+				m_hoverItem = {r.cat, r.kind == PaletteRow::Kind::Header ? -2 : r.index};
+				break;
+			}
+	}
 }
 
 void MapEditor::BuildPaletteRows(const gfx::Rect& panel, std::vector<PaletteRow>& out,
@@ -406,7 +454,7 @@ void MapEditor::BuildPaletteRows(const gfx::Rect& panel, std::vector<PaletteRow>
 	const bool filtering = !m_filter.empty();
 
 	float y = body.y - m_paletteScroll;
-	for (const PaletteCat cat : kDisplayOrder) {
+	for (const PaletteCat cat : CandidateSections()) {
 		const int c = static_cast<int>(cat);
 		const std::vector<PaletteItem> items = CategoryItems(cat);
 		if (filtering) {
@@ -518,9 +566,13 @@ void MapEditor::OnWheel(float delta, const gfx::Rect& panel) {
 }
 
 bool MapEditor::OnClick(float mx, float my, const gfx::Rect& panel) {
-	// Controls row first: the filter box takes focus, [x] clears, [-]
-	// collapses every accordion (and sub-group). Any other palette click
-	// releases the filter's keyboard capture.
+	// The category bar first, then the controls row: the filter box takes
+	// focus, [x] clears, [-] collapses every accordion (and sub-group). Any
+	// other palette click releases the filter's keyboard capture.
+	if (CategoryBar(panel).area.Contains(mx, my)) {
+		m_filterFocused = false;
+		return OnBarClick(mx, my, panel);
+	}
 	if (FilterBoxRect(panel).Contains(mx, my)) {
 		m_filterFocused = true;
 		return true;
@@ -568,6 +620,20 @@ bool MapEditor::OnClick(float mx, float my, const gfx::Rect& panel) {
 			m_catOpen[static_cast<size_t>(r.cat)] = !m_catOpen[static_cast<size_t>(r.cat)];
 		else if (r.kind == PaletteRow::Kind::SubHeader)
 			m_groupOpen[GroupKey(r.cat, r.group)] = !GroupOpen(r.cat, r.group);
+		else if (r.kind == PaletteRow::Kind::Item && r.cat == PaletteCat::Flags)
+			QuestRowClick(r, mx, my); // rows of two catalogs, with links
+		else if (r.kind == PaletteRow::Kind::Item && r.cat == PaletteCat::Styles) {
+			// Arm a world style, add a library one (never the type editor: a
+			// right-click is that, as everywhere).
+			const std::vector<PaletteItem> items = CategoryItems(r.cat);
+			if (r.index >= 0 && r.index < static_cast<int>(items.size()))
+				UseStyleRow(items[static_cast<size_t>(r.index)].id);
+		} else if (r.kind == PaletteRow::Kind::Item && r.cat == PaletteCat::Shapes) {
+			// The current stamp, with the Stamp tool picked to lay it.
+			const std::vector<PaletteItem> items = CategoryItems(r.cat);
+			if (r.index >= 0 && r.index < static_cast<int>(items.size()))
+				UseShapeRow(items[static_cast<size_t>(r.index)].id);
+		}
 		else if (r.kind == PaletteRow::Kind::Item) {
 			// A placeable type arms the brush; a non-placeable one has nothing
 			// to arm, so a click opens its editor (what right-click does for
@@ -601,8 +667,12 @@ bool MapEditor::OnRightClick(float mx, float my, const gfx::Rect& panel) {
 		// there is no per-category allowlist here any more).
 		if (r.kind == PaletteRow::Kind::Item && onConfigure) {
 			const std::vector<PaletteItem> items = CategoryItems(r.cat);
+			// A row standing for another catalog's type edits it THERE; a row
+			// with no world catalog behind it (a library style) has nothing to
+			// edit until it is added.
 			if (r.index >= 0 && r.index < static_cast<int>(items.size()))
-				onConfigure(r.cat, items[r.index].id);
+				if (const PaletteCat cat = RowCat(r.cat, items[r.index]); cat != PaletteCat::Count)
+					onConfigure(cat, items[r.index].id);
 		}
 		return true; // any row in the dock body consumes the right-click
 	}
@@ -839,18 +909,21 @@ void MapEditor::EndStroke() {
 }
 
 void MapEditor::PaintThemeCell(int cx, int cz, bool remote, const std::string& stem) {
-	using SS = DungeonWorld::SurfaceSel;
 	const std::vector<PaletteItem> items = CategoryItems(PaletteCat::Themes);
 	if (m_sel.index < 0 || m_sel.index >= static_cast<int>(items.size())) return;
-	const std::string& id = items[m_sel.index].id;
+	const DungeonMap& map = m_view.ViewedMap();
+	if (cx < 0 || cz < 0 || cx >= map.Width() || cz >= map.Height()) return;
+	PaintThemeAs(items[m_sel.index].id, cx, cz, map.IsWalkable(cx, cz), remote, stem);
+}
+
+void MapEditor::PaintThemeAs(const std::string& id, int cx, int cz, bool open, bool remote,
+							 const std::string& stem) {
+	using SS = DungeonWorld::SurfaceSel;
 	const CatalogEntry* def = m_world->GetProject().themes.Find(id);
 	if (!def) return;
 	const ThemeMembers members = DungeonWorld::ThemeMembersOf(*def);
-	const DungeonMap& map = m_view.ViewedMap();
-	if (cx < 0 || cz < 0 || cx >= map.Width() || cz >= map.Height()) return;
 	// The surfaces this square shows, and only those the theme speaks
 	// for: an empty member list leaves that surface exactly as it is.
-	const bool open = map.IsWalkable(cx, cz);
 	const SS surfaces[2] = {open ? SS::Floor : SS::Wall, SS::Ceiling};
 	const int count = open ? 2 : 1;
 	bool any = false;
@@ -958,6 +1031,10 @@ const char* MapEditor::ToolName(Tool t) {
 	case Tool::Flood: return "flood";
 	case Tool::Area:  return "area";
 	case Tool::Pick:  return "pick";
+	case Tool::Corridor: return "corridor";
+	case Tool::Room:     return "room";
+	case Tool::Stamp:    return "stamp";
+	case Tool::Region:   return "region";
 	default:          return "paint";
 	}
 }
@@ -1214,6 +1291,9 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	const ui::Font& font = m_view.Font();
 	const float dpad = MapView::DockPad(panel);
 
+	RenderCategoryBar(batch, theme, panel);
+	m_rowTip.clear(); // the row drawing below sets it again if still hovered
+
 	// Controls row (fixed above the scrolled accordion): filter box with
 	// placeholder/caret, [x] clear, [-] collapse-all.
 	{
@@ -1285,6 +1365,31 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		}
 	};
 	std::vector<PaletteItem> items; // the current category's items
+	// A row standing for another section's type (PaletteItem::ref) lights when
+	// THAT type is armed - once per draw, since ArmedId resolves a section.
+	const PaletteCat armedCat = ArmedCat();
+	const std::string armedId = ArmedId();
+	// A name that does not fit is trimmed with ".." - back to a whole UTF-8
+	// character, never mid-way through one - and, when its row is the hovered
+	// one (`hoverIndex`), says itself in full in a tooltip (RenderOverlay).
+	auto drawFitted = [&](const PaletteRow& r, int hoverIndex, const std::string& name,
+						  float x, float room, float ty, const Vec4& ink) {
+		if (font.MeasureWidth(name) <= room) {
+			font.Draw(batch, name, x, ty, ink);
+			return;
+		}
+		std::string fit = name;
+		while (fit.size() > 1 && font.MeasureWidth(fit + "..") > room) {
+			fit.pop_back();
+			while (!fit.empty() && (static_cast<unsigned char>(fit.back()) & 0xC0) == 0x80)
+				fit.pop_back();
+		}
+		font.Draw(batch, fit + "..", x, ty, ink);
+		if (r.cat == m_hoverItem.cat && hoverIndex == m_hoverItem.index) {
+			m_rowTip = name;
+			m_rowTipAt = r.rect;
+		}
+	};
 	for (const PaletteRow& r : rows) {
 		const gfx::Rect& rc = r.rect;
 		if (r.kind == PaletteRow::Kind::Header) items = CategoryItems(r.cat);
@@ -1295,8 +1400,9 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			batch.DrawRect(rc, theme.control);
 			ui::DrawBorder(batch, rc, theme.panelBorder);
 			expander(m_catOpen[static_cast<size_t>(r.cat)], rc.x + dpad, rc, ty);
-			font.Draw(batch, loc::Tr(CategoryNameKey(r.cat)),
-					  rc.x + dpad * 2 + arrowW, ty, theme.text);
+			const float hx = rc.x + dpad * 2 + arrowW;
+			drawFitted(r, -2, loc::Tr(CategoryNameKey(r.cat)), hx, rc.x + rc.w - dpad - hx, ty,
+					   theme.text);
 			break;
 		}
 		case PaletteRow::Kind::NewButton:
@@ -1327,12 +1433,21 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 				std::toupper(static_cast<unsigned char>(label[0])));
 			label += std::format(" ({})", n);
 			expander(GroupOpen(r.cat, r.group), rc.x + dpad * 3, rc, ty);
-			font.Draw(batch, label, rc.x + dpad * 4 + arrowW, ty, theme.text);
+			const float sx = rc.x + dpad * 4 + arrowW;
+			// Trimmed, without a tooltip: hover never resolves to a sub-header
+			// (-3 is no row's index), and its full name is one click away.
+			drawFitted(r, -3, label, sx, rc.x + rc.w - dpad - sx, ty, theme.text);
 			break;
 		}
 		case PaletteRow::Kind::Item: {
 			if (r.index < 0 || r.index >= static_cast<int>(items.size())) break;
-			const bool active = m_sel.cat == r.cat && m_sel.index == r.index;
+			const PaletteItem& item = items[r.index];
+			const bool active = (m_sel.cat == r.cat && m_sel.index == r.index) ||
+								(!item.ref.empty() && armedCat == RowCat(r.cat, item) &&
+								 armedId == item.id) ||
+								(r.cat == PaletteCat::Styles && item.ref.empty() &&
+								 item.id == m_style) ||
+								(r.cat == PaletteCat::Shapes && item.id == m_stamp);
 			if (active) {
 				batch.DrawRect(rc, theme.controlActive);
 				ui::DrawBorder(batch, rc, theme.panelBorder);
@@ -1342,8 +1457,35 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			const float sw = rc.h - dpad * 2;
 			ui::DrawSwatch(batch, {rc.x + indent, rc.y + dpad, sw, sw},
 						   items[r.index].Swatch());
-			font.Draw(batch, items[r.index].label, rc.x + indent + sw + dpad, ty,
-					  active ? theme.text : theme.textDim);
+			const float labelX = rc.x + indent + sw + dpad;
+			const int band = std::clamp(items[r.index].band, 0, power::kBands);
+			// The power band: five small pips at the row's end, `band` of them
+			// lit in the band's colour (green, feeble, to red, the strongest).
+			const float pip = std::max(3.0f, std::round(rc.h * 0.16f));
+			const float gap = std::max(1.0f, std::round(pip * 0.4f));
+			const float pipsW = band > 0 ? power::kBands * pip + (power::kBands - 1) * gap : 0.0f;
+			const float pipsX = rc.x + rc.w - dpad - pipsW;
+			// A GO-TO link at the row's end, where the thing lies somewhere the
+			// editor can take you (a placed quest item).
+			const bool link = !item.gotoLevel.empty();
+			const gfx::Rect linkAt = GoToRect(rc);
+			if (link) {
+				const float gw = font.MeasureWidth(">");
+				font.Draw(batch, ">", linkAt.x + (linkAt.w - gw) * 0.5f, ty, theme.accent);
+			}
+			// Any name that does not fit - before the pips or the link, or before
+			// the dock's edge - is trimmed with ".." and the hovered one says itself
+			// in full in a tooltip (RenderOverlay).
+			const std::string& name = item.label;
+			const float end = band > 0 ? pipsX : link ? linkAt.x : rc.x + rc.w;
+			const float room = end - dpad - labelX;
+			const Vec4& ink = active ? theme.text : theme.textDim;
+			drawFitted(r, r.index, name, labelX, room, ty, ink);
+			for (int i = 0; band > 0 && i < power::kBands; ++i) {
+				const gfx::Rect p{pipsX + i * (pip + gap), rc.y + (rc.h - pip) * 0.5f, pip, pip};
+				if (i < band) batch.DrawRect(p, kPowerBand[band - 1]);
+				else ui::DrawBorder(batch, p, theme.panelBorder);
+			}
 			break;
 		}
 		}

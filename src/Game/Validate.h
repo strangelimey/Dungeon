@@ -74,6 +74,14 @@ struct Rules {
 struct DungeonView {
 	std::string id;
 	std::vector<std::string> levels;
+	std::string style; // its default style ("" = none)
+};
+
+// One STYLE (styles.cat, Game/Style.h): the themes and monsters it names.
+struct StyleView {
+	std::string id;
+	std::vector<std::string> themes;   // room, corridor
+	std::vector<std::string> monsters; // its weighted list's ids
 };
 
 // The WORLD tier, when the project has one (docs/world-map.md). Non-owning, and
@@ -87,6 +95,14 @@ struct ItemHookView {
 	std::string item;
 	std::string quest, stage; // empty = the item moves no quest
 	std::string reveals;      // empty = it reveals nothing
+	std::string flag;         // the flag it turns on (the key of `k=v`); "" = none
+};
+
+// One authored FLAG (flags.cat): its id and scope ("" = the world, else the
+// dungeon it belongs to).
+struct FlagView {
+	std::string id;
+	std::string dungeon;
 };
 
 // One quest DEFINITION: its ordered stage names.
@@ -100,6 +116,12 @@ struct WorldView {
 	std::vector<DungeonView> dungeons;
 	std::vector<QuestView> quests;
 	std::vector<ItemHookView> itemHooks;
+	// The flags, checked whether or not there is a world map (Validate_Flags.cpp):
+	// a door, lever or stair waiting on a flag nothing sets can never be used.
+	std::vector<FlagView> flags;
+	// The styles, and the ids they may name (Validate_Styles.cpp).
+	std::vector<StyleView> styles;
+	std::unordered_set<std::string> themeIds, monsterIds;
 };
 
 enum class Severity : u8 { Error, Warning };
@@ -139,5 +161,14 @@ struct Issue {
 std::vector<Issue> Run(const std::vector<LevelView>& levels,
 					   const std::string& startLevel, const Rules& rules,
 					   const WorldView& world = {});
+
+// The flag checks (Validate_Flags.cpp), run by Run: waits nothing satisfies,
+// flags nothing sets, names flags.cat lacks, and a dungeon's flag used in
+// another dungeon.
+void CheckFlags(const std::vector<LevelView>& levels, const WorldView& world,
+				std::vector<Issue>& issues);
+// The style checks (Validate_Styles.cpp), run by Run: a style naming a theme or
+// a monster the world lacks, a dungeon naming a style it lacks.
+void CheckStyles(const WorldView& world, std::vector<Issue>& issues);
 
 } // namespace dungeon::game::validate

@@ -1903,12 +1903,6 @@ void GameUI::UpdateFonts(float dt) {
 	// draws this frame — the safe between-frames point the atlas upload needs.
 	// One call now covers every font in the game, dialogs and console included.
 	m_fonts.CommitAll();
-
-	// The pointer shape the HUD's grips asked for last frame, and then back to
-	// the arrow: UpdateHud asks again if a grip is still under the pointer, so
-	// any other state (paused, the sheet, a menu) gets the plain arrow.
-	m_window.SetCursorShape(m_hudCursor);
-	m_hudCursor = Window::Cursor::Arrow;
 }
 
 // A save was written or deleted. Two things go stale, and each catches up at

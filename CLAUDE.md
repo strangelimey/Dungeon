@@ -1517,9 +1517,13 @@ worn_*, lang, shaders — what AssetBaker emits):
   fixtures/monsters/doors/stairs/items/weapons/armor/effects), block format:
   `[id]` headers + `key = value` fields naming pool assets (model/texture) +
   params (solid/authored/height_scale/mount). Levels reference catalog ids.
-  NOT every catalog is placeable: `effects` is authored + tuned only, so its
-  palette category opens the type editor on a row click and offers no
-  "+ New..." (an effect needs a class) — MapEditor's `placeable` flag.
+  (`flags.cat` joined them in tool-refinement Phase 4: named on/off facts,
+  scoped to a dungeon or the world; `styles.cat` in Phase 5, with a shared
+  library in assets/library - see the Tool refinement section.)
+  NOT every catalog is placeable: `effects` is authored + tuned only (an
+  effect needs a class, so no "+ New..."), and since tool-refinement Phase 1
+  it is NOT IN THE PALETTE at all - the Balance dialog's Effects tab lists
+  them and each row's disc opens the type editor over that dialog.
 - `levels/<stem>.map` + `.ent` — the level layers. The .map's surface palette is
   a `palette <wall|floor|ceiling> <id>...` record (catalog ids), and it also
   carries `stairs <type> <x> <z> [facing] dest= destx= destz=` (a stair's
@@ -1871,9 +1875,11 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   a resize solves the SCALE for its right or bottom edge (a dock's height steps
   with its font, so a solve that cannot land within 1.5 px is no snap). Accent
   hairlines show the caught edge. The sheet's layer snaps to the HUD layer's
-  panels too (`FloatingLayer::snapPeer`). Window::SetCursorShape's four-way /
-  diagonal arrows (ported from tool-refinement with two more shapes - at merge,
-  take the superset). A panel claims the pointer over its whole rect (a click on
+  panels too (`FloatingLayer::snapPeer`). The pointer turns to Window::
+  SetCursorShape's four-way / diagonal arrows: GameUI records what the panels
+  want (PanelCursor) and Game::Update sets the cursor ONCE a frame from it and
+  the editor's dock-edge arrow (GameUI::TakeHudCursor) - two writers made the
+  editor's arrow flicker back. A panel claims the pointer over its whole rect (a click on
   a dock's padding used to reach the 3D view). `Scale()` clamps to the panel's own
   min/max (the sheet stops at 1.3), whatever the slider's 0.5..1.5 stored.
   THE PANELS are kHudPanelFields (GameSettings.h: party, status, options, move,
@@ -1910,6 +1916,143 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   unless the cards were up); InGameTest sweeps `sweep_inventory` and
   `sweep_minimal`. A roster of one or three is NOT exercised - nothing can build
   one yet.
+
+## Tool refinement (tool-refinement branch; docs/tool-refinement-plan.md)
+
+Michael's notes and answers: docs/tool-refinement-notes.md. The goal is the
+workflow new world -> add level -> build -> populate, with less repetition.
+Judged by `tools\EditorTest.py` (phase 12 onward).
+- THE PALETTE'S CATEGORY BAR (MapEditor_Categories.cpp): icon buttons at the
+  top of the palette body pick a GROUP; the accordion lists only its sections.
+  Two groupings, flipped by the bar's first button: by STAGE (World / Build /
+  Furnishings / Populate) and by KIND (Surfaces / Structure / Furnishings / Creatures / Items /
+  World). Each is ONE table (kStageGroups / kKindGroups) with static_asserts
+  that every listed category is in exactly one group - a category missing from
+  a grouping is unreachable except by the filter. The FILTER ignores the bar
+  and searches every section. Grouping + group per grouping persist
+  (`map_palette_group/_stage/_kind`). Icons: `icon_tb_cat_*` from
+  BuildToolIcons.py. The world sections (Dungeons / Quests / Terrain) now list
+  their entries; they used to fall through `CategoryItems` to nothing. Dev:
+  `editor palette [mode stage|kind | group <name> | filter [text] | groups]`.
+- MONSTER POWER (Game/Power.h, pure; DungeonWorld_Census.cpp): a kind's power
+  is its derived threat (Game/Threat.h) unless monsters.cat carries `power =
+  <n>` (> 0). EVERYTHING that ranks monsters asks `DungeonWorld::MonsterPower`
+  - the generator's pools (Game::FillPools -> PowerOf), the palette's band
+  pips, the `threat` readout - so one override moves them all. The BAND is
+  which fifth of the project's power range a kind falls in (linear, not rank).
+  The world caches all kinds per EditRevision; a Balance change moves threat
+  with no edit, so the Balance dialog's apply calls InvalidatePowers. The type
+  editor shows "Power (derived 3.9)" through its `derivedFor` hook, and
+  switching the override on starts it AT the derived value. `threat` lines
+  gained `power=` (marked `(set)`) and `band=` at their END - LevelBuildTest
+  matches the line's head. Dev: `editor palette items <catalog>`.
+- THE DOCKS RESIZE (MapView_Docks.cpp): drag a dock's inner edge (the band
+  below its collapse button); the width is saved as a SHARE of the panel
+  (`map_palette_width` / `map_legend_width`, 0 = the old default), clamped to
+  120 / 150 px and 30% of the panel. Nothing else needed changing - the grid,
+  tool strip, palette body, category bar and trimmed names all measure from a
+  dock's edge. The pointer turns into the resize arrow over an edge: Window::
+  SetCursorShape (WM_SETCURSOR over the client area, a direct SetCursor while a
+  drag holds capture), set ONCE per frame in Game::Update from
+  MapView::WantsResizeCursor. A dock's hover is only trusted on a frame Update
+  ran (m_dockUpdated, the RenderIssueTooltip rule), or a modal dialog would
+  leave the arrow stuck.
+- THE OVERVIEW (right dock, above the KEY; both are collapsible sections, and
+  the dock scrolls): World / Dungeon / Level, summing DungeonWorld::Census -
+  one row per project level, walked like Validate (live / stash / read-only,
+  NEVER stash to read), cached per edit revision. The active level's MONSTERS
+  are its live list, as a save writes them (ActiveEntText) - an editor-placed
+  one has no record, and a census of records alone missed it (EditorTest 14
+  caught exactly that); so the cache also keys on the live list's size and the
+  active level. Lines: counts, a power-band row, the strongest kind, the live
+  checker's issues (a link to Check), and links down a tier (the world's
+  dungeons, a dungeon's levels). Dev: `editor dock [left|right <px>]`,
+  `editor overview [world|dungeon|level]`.
+- FLAGS (Phase 4): `flags.cat` - a name and a scope (`dungeon = <id>`, absent =
+  the world). The on/off value is save state, in WorldState::flags BY ID (no
+  save-format change); `FlagOn` = set to anything but "0". SET by an item's
+  `flag` when lifted and a lever's `sets=` / `toggles=` (`clears=` turns one
+  off); READ by a door's, a lever's and a stair's `flag=` (each waits until it is
+  on: a sealed door refuses the hand BEFORE its key is asked about, a lever will
+  not move, a stair says the way is barred) and a world location's `flag=`.
+  DungeonWorld borrows the store (SetFlagStore, like SetRoster); a wired button
+  still moves a waiting door, as it does a locked one. The three inspectors
+  share `FlagDropDown` (InstanceInspector.h). The checker (Validate_Flags.cpp):
+  `flagwaits` (an error where the waiter stands - nothing sets it), `flagunknown`,
+  `flagscope` (a dungeon's flag used in another), `flagunused`. The palette's
+  "Quest items & flags" section (MapEditor_Quests.cpp; rows of two catalogs,
+  told apart by PaletteItem::ref) lists this dungeon's and the world's flags and
+  quest items - an item's scope is its flag's - with where each item lies and a
+  ">" link there; an item row arms its own brush. A quest's stages are rows with
+  their log lines (FieldKind::QuestStages); items/weapons/armor have a Quest tab.
+  Dev: `flag <id> [on|off]`, `flags [world|dungeon [id]]`, `opendoor <x> <z>`,
+  `press <x> <z> party`, `flagwire <x> <z> <door|lever|stair> ...`, `editor
+  palette use <id> [link]`. EditorTest 15.
+- STYLES (Phase 5): `styles.cat` - `room` / `corridor` themes, `knobs` (the
+  generator's settings line), `corridor_width`, `tags`, `monsters` (`<id>
+  [weight], ...`; Game/Style.h, pure and in RollTest). THE SHARED LIBRARY is
+  `assets/library` (styles.cat + the themes they name + those themes' surface
+  types; Game/StyleLibrary.h), outside projects/ like the template. ADDING a
+  library style copies it and whatever it points at that the world LACKS -
+  never what it has, so an add cannot repaint anything - and reports monsters
+  the world lacks instead of copying them; a second add is a no-op. "Save to
+  library" (the style editor's footer) goes the other way and replaces the
+  library's entries of those ids. The palette's Styles section lists This world
+  then the library's: a world row ARMS the current style (MapEditor::
+  CurrentStyle, session-only), a library row adds. The armed style RANKS the
+  Monsters section (its list, a divider, the rest - the tags lens). Its monster
+  rows are FieldKind::WeightedRefs (each named with its power via faceFor).
+  Sweeps: theme -> styles, style -> dungeons' `style`, monster -> styles' lists,
+  and flags -> items / locations / door, lever and stair records (Phase 4's gap).
+  Dev: `styles`, `style use|add|save|row <id>`. EditorTest 16.
+- SHAPE BRUSHES (Phase 6): four tools on the strip - Corridor, Room (drag),
+  Stamp (click; R turns), Region (drag a box of 6x6 or more for the generator
+  to fill) - laid in the CURRENT STYLE (its corridor / room themes, corridor
+  width, knobs) or plainly when none is armed. Geometry is `Game/Carve.h`
+  (pure, in RollTest); MapEditor_Shapes.cpp commits a carve::Shape as one undo
+  step and one chunk batch. A BRUSH NEVER RAISES WALLS round what it carves -
+  it opens rock and paints the theme on what opened and the rock round it, so
+  a drag over open floor cannot cut a room in two (a stamp's '#' pillars are
+  the one raise, never on the party). The region brush calls generate::Run
+  as-is, sized to the box, and joins the result to what touches the box; the
+  generator was not lifted. Stamps are `shapes.cat` (`rows`, '|'-split); the
+  palette's Shapes section leads Build. Every gesture previews exactly what
+  its release commits (MapEditor::preview). Dev: `editor shape ...`. EditorTest 17.
+- THE WORKFLOW, WIRED THROUGH (Phase 7). A STYLE IS A GENERATOR KNOB now
+  (`style`, the Generate dialog's Style tab; picking one loads its knobs, seed
+  kept) and supplies tags, look and monster list at once. `Game/StyleLook.h` is
+  the ONE place a style becomes level text: palettes = its themes' members where
+  it names any (else the donor's - never both, each entry is a texture set to
+  load) plus `theme` records BY ID, rooms vs passages decided by the pure
+  `carve::Dress` (Area.h's 2x2 rule on a bare grid). Used by a generated level,
+  the [+] empty box, a new world's first room and the wizard. NEW WORLD (Blank /
+  Wizard) takes a LIBRARY style: added to the world (AddTo), named as the
+  starter dungeon's `style`, the first floor built in it. [+] OPENS ON THE
+  DUNGEON'S `style` (else the armed one) and both Create and Empty LAND IN BUILD
+  (Game::LandInBuild: Stage grouping, the Build group by NAME, the style armed).
+  POPULATE ONLY is `generate::Populate` (pure, beside Run in Generate.cpp so they
+  share PickNear, the weighted pick): Run's rules on FOUND rooms. Two rules the
+  found rooms forced, both learned from the walk: the start's room is skipped
+  only WHILE ANOTHER is reachable (a wandering 2-wide corridor is "room" and joins
+  what it touches, so the start's room can be the whole floor), and there is
+  ALWAYS SOMEONE when density > 0. Game::PopulateViewedLevel replaces what
+  populating can make (the POOL'S kinds of monster and loot) and nothing else -
+  keys, quest items (never loot) and other monsters stay; one undo step.
+  `Params::monsterWeight` is read by Run only when present, so an unstyled
+  generate is byte-for-byte what it was. The generator's Tag and Palette-donor
+  rows are FOLDED into the style: `hidden` knobs (GenerateKnobs.h), still
+  encoded for presets / scripts, given no row, CLEARED when the dialog opens. The
+  overview's Level view leads with NEXT (build / populate / fix N / ready, each a
+  link into that stage) and a Floor squares line. TRAP for scripts: console
+  `generate` starts with NO style (the dialog's rides settings.ini); name one
+  with `style:<id>`. Dev: `generate populate [knobs]`, `generate dialog
+  create|empty|populate|style <id>`, `editor overview follow <key> [scope]`,
+  `worlds new <n> blank|wizard style=<id>`, `worlds newdialog style <id>`.
+  EditorTest 18.
+- EFFECTS LEFT THE PALETTE for the Balance dialog's Effects tab (a list whose
+  rows open the type editor OVER the Balance dialog - which is why the type
+  editor's input check now comes before the Balance dialog's in Game::Update,
+  and `m_typeOverBalance` rebuilds the tab when it closes).
 
 ## Known gaps / natural next steps
 

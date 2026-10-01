@@ -1,0 +1,37 @@
+; The style LIBRARY (docs/tool-refinement-plan.md Phase 5): styles any world can add from the palette's Styles section. A style is a room theme, a corridor theme, generator knobs, a corridor width, tags and a weighted monster list (Game/Style.h). Adding one copies it and whatever it points at that the world lacks; "Save to library" in a style's editor writes one back here.
+
+[small_crypt]
+display = Small Crypt
+room = crypt_chamber
+corridor = crypt_passage
+knobs = width:28 height:28 roommin:3 roommax:5 path:5 branches:2 branchmin:1 branchmax:2 loops:0 winding:0.2 irregular:0.2 deadends:2 locks:1 difficulty:0.3 density:0.5 ramp:0.4 boss:0 reward:0.5
+corridor_width = 1
+tags = undead crypt stone
+monsters = skeleton 3, skel_archer, skel_coward, mummy
+
+[dirt_tunnels]
+display = Dirt Tunnels
+room = dirt_cave
+corridor = dirt_tunnel
+knobs = width:40 height:40 roommin:3 roommax:5 path:9 branches:4 branchmin:2 branchmax:4 loops:1 winding:0.85 irregular:0.8 deadends:4 locks:0 difficulty:0.4 density:0.6 ramp:0.5 boss:0 reward:0.4
+corridor_width = 1
+tags = cave vermin ooze
+monsters = centipede 3, giant_spider 2, blob
+
+[guard_barracks]
+display = Guard Barracks
+room = barracks_room
+corridor = barracks_hall
+knobs = width:36 height:36 roommin:4 roommax:7 path:6 branches:3 branchmin:1 branchmax:2 loops:1 winding:0 irregular:0 deadends:1 locks:2 difficulty:0.6 density:0.7 ramp:0.5 boss:1 reward:0.6
+corridor_width = 1
+tags = undead stone
+monsters = skel_warrior 3, skel_spearman 2, skel_archer 2, skel_berserker
+
+[marble_halls]
+display = Marble Halls
+room = marble_hall
+corridor = marble_gallery
+knobs = width:44 height:44 roommin:5 roommax:9 path:6 branches:2 branchmin:1 branchmax:2 loops:1 winding:0.1 irregular:0 deadends:1 locks:1 difficulty:0.5 density:0.4 ramp:0.5 boss:1 reward:0.7
+corridor_width = 2
+tags = undead stone
+monsters = skel_mage 2, mummy 2, skel_warrior, skel_berserker

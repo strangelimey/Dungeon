@@ -41,6 +41,10 @@
 #include "Game/DamageLedger.h"
 #include "Game/Defense.h"
 #include "Game/Mishap.h"
+#include "Game/Power.h"
+#include "Game/Style.h"
+#include "Game/Carve.h"
+#include "Game/Generate.h"
 #include "Game/Resource.h"
 #include "Game/Roll.h"
 
@@ -1969,6 +1973,272 @@ int main(int argc, char** argv) {
 			Check("...and claims to have checked nothing",
 				  static_cast<double>(led.GetStats().valuesChecked), 0.0, 0.0);
 		}
+	}
+
+	// --- monster power: the override and the bands -------------------------------
+	// Game/Power.h (tool-refinement Phase 2). What the generator ranks by and the
+	// palette's pips show, so its two rules are stated one at a time: an authored
+	// power replaces the derived one and a non-positive one does not, and a band
+	// is the fifth of the range a power falls in, with the edges where the header
+	// says. EditorTest phase 13 checks the same numbers reach the game.
+	{
+		using namespace dungeon::game::power;
+		std::printf("\nMonster power (Game/Power.h)\n");
+		Check("unset, the power is the derived one", Resolve(7.5, 0.0), 7.5, 0.0);
+		Check("an authored power replaces it", Resolve(7.5, 20.0), 20.0, 0.0);
+		Check("...downward too", Resolve(7.5, 2.0), 2.0, 0.0);
+		Check("a negative override is not an override", Resolve(7.5, -3.0), 7.5, 0.0);
+		Check("a negative derived value reads as 0", Resolve(-1.0, 0.0), 0.0, 0.0);
+
+		Range r;
+		for (const double p : {0.0, 4.0, 10.0}) r.Add(p);
+		Check("the range spans the lowest to the highest", r.hi - r.lo, 10.0, 0.0);
+		Check("the bottom of the range is band 1", Band(0.0, r), 1, 0);
+		Check("just under a fifth is still band 1", Band(1.99, r), 1, 0);
+		Check("a fifth up is band 2", Band(2.0, r), 2, 0);
+		Check("the middle is band 3", Band(5.0, r), 3, 0);
+		Check("just under the top is band 5", Band(9.99, r), 5, 0);
+		Check("the top itself is band 5, not a sixth", Band(10.0, r), 5, 0);
+		Check("above the range clamps to 5", Band(40.0, r), 5, 0);
+		Check("below the range clamps to 1", Band(-2.0, r), 1, 0);
+		Range one;
+		one.Add(6.0);
+		Check("one kind alone is the middle band", Band(6.0, one), 3, 0);
+		Check("no kinds at all: the middle band", Band(6.0, Range{}), 3, 0);
+	}
+
+	// --- a style's monster list ----------------------------------------------------
+	// Game/Style.h (tool-refinement Phase 5): `<id> [weight]`, comma-separated.
+	// The rename sweep goes through RenameMonster and the type editor's rows
+	// through Parse/Format, so a list that does not round-trip would rewrite
+	// every style it touched.
+	{
+		using namespace dungeon::game::style;
+		std::printf("\nStyle monster lists (Game/Style.h)\n");
+		const std::vector<Pick> p = ParseMonsters(" skeleton 3, skel_archer ,mummy 0.5,, ");
+		Check("three entries, the empty ones skipped", static_cast<double>(p.size()), 3.0, 0.0);
+		Check("a written weight is read", p.size() > 0 ? p[0].weight : -1.0f, 3.0, 0.0);
+		Check("an absent weight is 1", p.size() > 1 ? p[1].weight : -1.0f, 1.0, 0.0);
+		Check("an id is trimmed", p.size() > 1 && p[1].id == "skel_archer" ? 1 : 0, 1, 0);
+		Check("a fractional weight is read", p.size() > 2 ? p[2].weight : -1.0f, 0.5, 0.0);
+		Check("it writes back as written, a weight of 1 left out",
+			  FormatMonsters(p) == "skeleton 3, skel_archer, mummy 0.5" ? 1 : 0, 1, 0);
+		Check("a weight of 0 can never be chosen, so it is dropped",
+			  static_cast<double>(ParseMonsters("blob 0, mummy").size()), 1.0, 0.0);
+		Check("a bad weight reads as 1", ParseMonsters("blob x")[0].weight, 1.0, 0.0);
+		Check("a repeated id keeps its first entry",
+			  ParseMonsters("blob 2, blob 5")[0].weight, 2.0, 0.0);
+		std::vector<Pick> r = ParseMonsters("skeleton 3, mummy");
+		Check("a rename finds the one entry", RenameMonster(r, "mummy", "wrapped"), 1, 0);
+		Check("...and keeps every weight",
+			  FormatMonsters(r) == "skeleton 3, wrapped" ? 1 : 0, 1, 0);
+	}
+
+	// --- the shape brushes' geometry ------------------------------------------------
+	// Game/Carve.h (tool-refinement Phase 6). What each brush opens, checked
+	// without a map: a corridor reaches its far end however it winds, a room is
+	// its rectangle, a stamp turned four times is itself, a region is joined to
+	// what touches it.
+	{
+		using namespace dungeon::game::carve;
+		std::printf("\nShape brushes (Game/Carve.h)\n");
+		// Every open square reachable from (ax,az), 4-connected, within the shape.
+		const auto connects = [](const Shape& s, int ax, int az, int bx, int bz) {
+			std::vector<std::pair<int, int>> todo{{ax, az}}, seen{{ax, az}};
+			if (!s.Opens(ax, az)) return false;
+			while (!todo.empty()) {
+				const auto [x, z] = todo.back();
+				todo.pop_back();
+				if (x == bx && z == bz) return true;
+				for (const auto [dx, dz] : {std::pair{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) {
+					const std::pair<int, int> n{x + dx, z + dz};
+					if (!s.Opens(n.first, n.second) ||
+						std::find(seen.begin(), seen.end(), n) != seen.end())
+						continue;
+					seen.push_back(n);
+					todo.push_back(n);
+				}
+			}
+			return false;
+		};
+		const Shape l = Corridor(2, 3, 9, 7, 1, 0.0f, 5);
+		Check("a straight-ish corridor is one L: |dx| + |dz| + 1 squares",
+			  static_cast<double>(l.open.size()), 12.0, 0.0);
+		Check("...from one end to the other", connects(l, 2, 3, 9, 7) ? 1 : 0, 1, 0);
+		bool allMeanderConnect = true, someWound = false;
+		for (dungeon::u32 seed = 1; seed <= 40; ++seed) {
+			const Shape m = Corridor(5, 5, 20, 14, 1, 0.9f, seed);
+			allMeanderConnect = allMeanderConnect && connects(m, 5, 5, 20, 14);
+			someWound = someWound || m.open.size() > 25;
+		}
+		Check("a winding corridor always arrives (40 seeds)", allMeanderConnect ? 1 : 0, 1, 0);
+		Check("...and does wind (some longer than the L)", someWound ? 1 : 0, 1, 0);
+		const Shape wide = Corridor(0, 0, 6, 0, 2, 0.0f, 1);
+		Check("a two-wide corridor is two rows of squares", static_cast<double>(wide.open.size()),
+			  14.0, 0.0);
+		Check("every corridor square is a corridor's",
+			  std::all_of(l.open.begin(), l.open.end(),
+						  [](const Square& q) { return q.role == Role::Corridor; }) ? 1 : 0, 1, 0);
+		Check("a room is its rectangle, corners either way round",
+			  static_cast<double>(Room(7, 6, 3, 2).open.size()), 25.0, 0.0);
+		const Stamp st = ParseStamp(" .#.. | .... |##");
+		Check("a stamp reads its rows", static_cast<double>(st.Height()), 3.0, 0.0);
+		Stamp four = st;
+		for (int i = 0; i < 4; ++i) four = Turned(four);
+		// Turning pads short rows with '-', so compare what each places.
+		const Shape s0 = StampAt(st, 10, 10, 0), s4 = StampAt(four, 10, 10, 0);
+		Check("four quarter turns give the stamp back",
+			  s0.open.size() == s4.open.size() && s0.solid == s4.solid ? 1 : 0, 1, 0);
+		Check("a stamp opens its '.' squares and marks its '#' ones",
+			  static_cast<double>(s0.open.size() * 10 + s0.solid.size()), 73.0, 0.0);
+		const Stamp t1 = Turned(st);
+		Check("a quarter turn stands a 4-wide, 3-tall stamp 4 tall",
+			  static_cast<double>(t1.Height() * 10 + t1.Width()), 43.0, 0.0);
+		// Clockwise: the old bottom-left '#' becomes the new top-left.
+		Check("...turned clockwise", t1.rows[0][0] == '#' ? 1 : 0, 1, 0);
+		std::vector<dungeon::u8> floor(16, 0);
+		floor[5] = floor[6] = floor[9] = floor[10] = 1; // the middle 2x2 of a 4x4
+		const Shape reg = Region(floor, 4, 4, 10, 10,
+								 [](int x, int z) { return x == 9 && z == 11; }, 3);
+		Check("a region's generated floor is its room squares",
+			  reg.Opens(11, 11) && reg.Opens(12, 12) ? 1 : 0, 1, 0);
+		Check("...joined to the open square touching its edge",
+			  connects(reg, 10, 11, 12, 12) ? 1 : 0, 1, 0);
+		const Shape none = Region(floor, 4, 4, 10, 10, [](int, int) { return false; }, 3);
+		Check("...and to nothing when nothing touches it",
+			  static_cast<double>(none.open.size()), 4.0, 0.0);
+		Check("a lone square's rim is its eight neighbours",
+			  static_cast<double>(Rim(Room(0, 0, 0, 0)).size()), 8.0, 0.0);
+
+		// Dress (Phase 7): a style laid over a whole grid. A 3x3 room with a
+		// 2-square passage off its east side.
+		const char* kDressGrid[] = {"#######", "#...###", "#.....#", "#...###", "#######"};
+		std::vector<dungeon::u8> dg(7 * 5, 0);
+		for (int z = 0; z < 5; ++z)
+			for (int x = 0; x < 7; ++x) dg[static_cast<size_t>(z) * 7 + x] = kDressGrid[z][x] == '.';
+		const Dressing dr = Dress(dg, 7, 5);
+		const auto roleAt = [](const std::vector<Square>& v, int x, int z) {
+			for (const Square& q : v)
+				if (q.x == x && q.z == z) return static_cast<int>(q.role);
+			return -1;
+		};
+		int roomSquares = 0;
+		for (const Square& q : dr.open) roomSquares += q.role == Role::Room;
+		Check("dress: the 3x3 is room, the passage is not", static_cast<double>(roomSquares), 9.0, 0.0);
+		Check("...the passage is corridor", roleAt(dr.open, 5, 2) == static_cast<int>(Role::Corridor) ? 1 : 0,
+			  1, 0);
+		Check("...a wall touching the room wears the room's",
+			  roleAt(dr.walls, 4, 1) == static_cast<int>(Role::Room) ? 1 : 0, 1, 0);
+		Check("...a wall touching only the passage wears the corridor's",
+			  roleAt(dr.walls, 6, 1) == static_cast<int>(Role::Corridor) ? 1 : 0, 1, 0);
+		Check("...and every solid square beside an open one is a wall (20 here)",
+			  static_cast<double>(dr.walls.size()), 20.0, 0.0);
+	}
+
+	// --- populate only ----------------------------------------------------------
+	// Game/Generate.h's Populate (tool-refinement Phase 7): content for a level
+	// that is already built. Two rooms joined by a passage, the start in the west
+	// one; three kinds ranked by threat.
+	{
+		using namespace dungeon::game;
+		std::printf("\nPopulate only (Game/Generate.h)\n");
+		const char* kRows[] = {
+			"########################",
+			"#####################..#",
+			"#....###########.......#",
+			"#..................... #",
+			"#....###########.......#",
+			"#....###########.......#",
+			"################.......#",
+			"########################",
+		};
+		constexpr int W = 24, H = 8;
+		std::vector<dungeon::u8> walk(W * H, 0);
+		for (int z = 0; z < H; ++z)
+			for (int x = 0; x < W; ++x) walk[static_cast<size_t>(z) * W + x] = kRows[z][x] == '.';
+		generate::Params p;
+		p.monsterIds = {"weak", "mid", "strong"};
+		p.monsterThreat = {1.0, 2.0, 3.0};
+		p.difficulty = 1.0f;
+		p.density = 2.0f;
+		p.ramp = 0.0f;
+		p.reward = 1.0f;
+		p.lootIds = {"coin"};
+		p.seed = 7;
+		const generate::Level a = generate::Populate(p, W, H, walk, walk, 2, 3);
+		bool inStartRoom = false, nearStart = false, offFree = false;
+		int monsters = 0;
+		for (const Entity& e : a.entities) {
+			offFree = offFree || !walk[static_cast<size_t>(e.z) * W + e.x];
+			if (e.kind != EntityKind::Monster) continue;
+			++monsters;
+			inStartRoom = inStartRoom || e.x <= 4;
+			nearStart = nearStart || std::abs(e.x - 2) + std::abs(e.z - 3) <= 3;
+		}
+		Check("populate places monsters in a built level", monsters > 0 ? 1 : 0, 1, 0);
+		Check("...none in the start's room", inStartRoom ? 0 : 1, 1, 0);
+		Check("...none within three steps of the start", nearStart ? 0 : 1, 1, 0);
+		Check("...and nothing off the free squares", offFree ? 0 : 1, 1, 0);
+		Check("...loot too, at reward 1", a.report.loot > 0 ? 1 : 0, 1, 0);
+		const generate::Level again = generate::Populate(p, W, H, walk, walk, 2, 3);
+		bool same = again.entities.size() == a.entities.size();
+		for (size_t i = 0; same && i < a.entities.size(); ++i)
+			same = again.entities[i].type == a.entities[i].type && again.entities[i].x == a.entities[i].x &&
+				   again.entities[i].z == a.entities[i].z;
+		Check("the same knobs and seed populate the same way", same ? 1 : 0, 1, 0);
+		// A zero weight takes a kind out of the choice near the target rank.
+		generate::Params pw = p;
+		pw.monsterWeight = {1.0f, 1.0f, 0.0f};
+		const generate::Level w = generate::Populate(pw, W, H, walk, walk, 2, 3);
+		bool onlyMid = true;
+		for (const Entity& e : w.entities)
+			if (e.kind == EntityKind::Monster) onlyMid = onlyMid && e.type == "mid";
+		Check("a weight of 0 leaves a kind out (difficulty 1: all 'mid')", onlyMid ? 1 : 0, 1, 0);
+		// The boss: the strongest, in the deepest room, whatever its weight.
+		pw.boss = true;
+		pw.density = 0.0f;
+		const generate::Level b = generate::Populate(pw, W, H, walk, walk, 2, 3);
+		Check("the boss stands in the far room",
+			  b.report.bossPlaced && b.entities.size() >= 1 && b.entities.front().type == "strong" &&
+					  b.entities.front().x >= 16
+				  ? 1
+				  : 0,
+			  1, 0);
+		// Squares that are not free stay empty.
+		std::vector<dungeon::u8> none(W * H, 0);
+		const generate::Level n = generate::Populate(p, W, H, walk, none, 2, 3);
+		Check("no free square, no content", static_cast<double>(n.entities.size()), 0.0, 0.0);
+		// A level of passages only still gets its monsters.
+		std::vector<dungeon::u8> line(W * H, 0);
+		for (int x = 1; x < W - 1; ++x) line[static_cast<size_t>(3) * W + x] = 1;
+		const generate::Level c = generate::Populate(p, W, H, line, line, 1, 3);
+		int lineMonsters = 0;
+		for (const Entity& e : c.entities) lineMonsters += e.kind == EntityKind::Monster;
+		Check("a level with no room is populated along its passages", lineMonsters > 0 ? 1 : 0, 1, 0);
+		// A two-wide passage is ROOM by the 2x2 rule, so it joins the far room to
+		// the start's: one room holding the start, and nothing else to fill. The
+		// margin is then the rule, and the far end still gets its monsters.
+		std::vector<dungeon::u8> joined = walk;
+		for (int x = 5; x <= 15; ++x) joined[static_cast<size_t>(4) * W + x] = 1;
+		const generate::Level j = generate::Populate(p, W, H, joined, joined, 2, 3);
+		int joinedMonsters = 0;
+		bool joinedNear = false;
+		for (const Entity& e : j.entities)
+			if (e.kind == EntityKind::Monster) {
+				++joinedMonsters;
+				joinedNear = joinedNear || std::abs(e.x - 2) + std::abs(e.z - 3) <= 3;
+			}
+		Check("a level that is all the start's room is still populated, past three steps",
+			  joinedMonsters > 0 && !joinedNear ? 1 : 0, 1, 0);
+		// A density too low to roll anyone still meets someone - and 0 means none.
+		generate::Params low = p;
+		low.density = 0.01f;
+		low.lootIds.clear();
+		const generate::Level lo = generate::Populate(low, W, H, walk, walk, 2, 3);
+		Check("a low density still places one monster", static_cast<double>(lo.report.monsters), 1.0, 0.0);
+		low.density = 0.0f;
+		Check("...and density 0 places none",
+			  static_cast<double>(generate::Populate(low, W, H, walk, walk, 2, 3).report.monsters), 0.0, 0.0);
 	}
 
 	// --- verdict ------------------------------------------------------------
