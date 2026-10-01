@@ -431,7 +431,10 @@ void DropDown::UpdateSelf(UIContext& ctx) {
 	if (m_open) {
 		// The open popup owns the mouse entirely — including the wheel, which a
 		// modal claims whether or not it scrolls: a list open over a page must
-		// not let the page scroll out from under it.
+		// not let the page scroll out from under it. ClaimPopup extends that to
+		// the controls updated BEFORE this one (added after it), which would
+		// otherwise see the click on a row first.
+		ctx.ClaimPopup();
 		ctx.ConsumeWheel();
 		const gfx::Rect popup = PopupRect(ctx);
 		const float maxScroll = MaxScroll(popup);
@@ -492,6 +495,7 @@ void DropDown::UpdateSelf(UIContext& ctx) {
 		ctx.ConsumeMouse();
 		if (input->WasMousePressed(MouseButton::Left)) {
 			m_open = true;
+			ctx.ClaimPopup();
 			// Open with the current selection in view — a long list otherwise
 			// opens at the top, nowhere near what it says it is showing.
 			const gfx::Rect popup = PopupRect(ctx);
@@ -905,16 +909,21 @@ void ColorPicker::UpdateSelf(UIContext& ctx) {
 			}
 		}
 		// The open popup owns the mouse entirely — wheel included, so the page
-		// behind cannot scroll the popup off its own swatch.
+		// behind cannot scroll the popup off its own swatch — and, through
+		// ClaimPopup, before any control the walk reaches first.
 		ctx.ConsumeMouse();
 		ctx.ConsumeWheel();
+		if (m_open) ctx.ClaimPopup();
 		return;
 	}
 
 	m_hot = !ctx.IsMouseConsumed() && SwatchRect().Contains(mx, my);
 	if (m_hot) {
 		ctx.ConsumeMouse();
-		if (input->WasMousePressed(MouseButton::Left)) m_open = true;
+		if (input->WasMousePressed(MouseButton::Left)) {
+			m_open = true;
+			ctx.ClaimPopup();
+		}
 	}
 }
 

@@ -6,7 +6,8 @@
 # (tools/BuildUiFrames.py). This script makes the stone half: one seamless tile
 # per entry in STONES, written to assets/ui/stones/<name>.png, which is the
 # filtered list the Settings -> UI "Stone" dropdown offers. Adding a stone is
-# one line here and a re-run.
+# one line here, a re-run, and a stone.<name> key in each assets/lang file
+# (the dropdown's label; a missing key shows as the key itself).
 #
 # The source scans live in the OneDrive archive (DungeonAssets\2k\...). They
 # tile at full size, so the script only RESIZES (never crops - a crop would

@@ -124,6 +124,13 @@ settings.framelimit.vsync=VSync ({} FPS)
 settings.framelimit.fps={} FPS
 settings.volume=Volume
 settings.uiskin=Textured UI (off = plain debug look)
+settings.ui_stone=Stone
+stone.armani_marble=Dark marble
+stone.blackrock=Black rock
+stone.granite_almond=Speckled granite
+stone.granite_flecks=Flecked granite
+stone.granite_grey=Grey granite
+stone.slate=Slate
 settings.headbob=Head bob while walking
 settings.party_bar=Party Bar
 settings.bar_scale=Scale

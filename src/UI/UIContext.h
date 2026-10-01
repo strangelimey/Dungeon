@@ -152,6 +152,17 @@ public:
 	bool IsWheelConsumed() const { return m_wheelConsumed; }
 	void ConsumeWheel() { m_wheelConsumed = true; }
 
+	// An open POPUP (a drop-down's list, a colour picker) calls this every frame
+	// it is open, and the NEXT frame's walk starts with the pointer and wheel
+	// already claimed - so no other widget sees a click, whatever the add order.
+	// The popup's own open branch does not ask IsMouseConsumed, so it still
+	// gets the click. Without it, the walk's reverse add order handed the click
+	// to any control added AFTER the drop-down first: picking a row over the
+	// checkbox below it also ticked the checkbox. A claim lapses the frame its
+	// popup stops renewing it (closed, its tab hidden), so it cannot strand
+	// the page.
+	void ClaimPopup() { m_popupClaimNext = true; }
+
 private:
 	// Exactly one of these backs m_font: an owned Font (legacy form) or one
 	// borrowed from the library. Library fonts live as long as the library, so
@@ -171,6 +182,7 @@ private:
 	const Input* m_input = nullptr;
 	bool m_mouseConsumed = false;
 	bool m_wheelConsumed = false;
+	bool m_popupClaimNext = false; // ClaimPopup this frame -> claimed next frame
 	float m_width = 1.0f;
 	float m_height = 1.0f;
 	float m_mouseX = 0.0f;

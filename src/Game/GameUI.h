@@ -651,6 +651,9 @@ private:
 	// Installed languages (assets/lang scan), in the Game tab dropdown's
 	// order; maps the selection index back to a language code.
 	std::vector<loc::LanguageInfo> m_languages;
+	// The stones the Settings → UI dropdown offers (assets/ui/stones stems,
+	// scanned when the page is built), index-matched to its rows.
+	std::vector<std::string> m_stoneNames;
 
 	// Last torchlight dropdown selection, so a HUD rebuild (language change)
 	// recreates the dropdown showing the palette that is actually active.

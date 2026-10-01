@@ -125,6 +125,13 @@ settings.framelimit.vsync=VSync ({} FPS)
 settings.framelimit.fps={} FPS
 settings.volume=Volumen
 settings.uiskin=Interfaz texturizada (no = aspecto simple de depuración)
+settings.ui_stone=Piedra
+stone.armani_marble=Mármol oscuro
+stone.blackrock=Roca negra
+stone.granite_almond=Granito jaspeado
+stone.granite_flecks=Granito moteado
+stone.granite_grey=Granito gris
+stone.slate=Pizarra
 settings.headbob=Balanceo de cámara al caminar
 settings.party_bar=Barra del grupo
 settings.bar_scale=Tamaño

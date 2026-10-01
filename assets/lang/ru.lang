@@ -129,6 +129,13 @@ settings.framelimit.vsync=Верт. синхр. ({} FPS)
 settings.framelimit.fps={} FPS
 settings.volume=Громкость
 settings.uiskin=Текстурированный интерфейс (выкл = простой отладочный вид)
+settings.ui_stone=Камень
+stone.armani_marble=Тёмный мрамор
+stone.blackrock=Чёрная скала
+stone.granite_almond=Пёстрый гранит
+stone.granite_flecks=Крапчатый гранит
+stone.granite_grey=Серый гранит
+stone.slate=Сланец
 settings.headbob=Покачивание камеры при ходьбе
 settings.party_bar=Панель отряда
 settings.bar_scale=Размер

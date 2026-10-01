@@ -40,8 +40,11 @@ const Font& UIContext::FontAt(FontRole role, float pixelHeight) const {
 
 void UIContext::Update(const Input& input, float width, float height) {
 	m_input = &input;
-	m_mouseConsumed = false;
-	m_wheelConsumed = false;
+	// A popup open last frame holds the pointer from the first widget on (see
+	// ClaimPopup); it renews the claim during this walk if it is still open.
+	m_mouseConsumed = m_popupClaimNext;
+	m_wheelConsumed = m_popupClaimNext;
+	m_popupClaimNext = false;
 	m_width = width;
 	m_height = height;
 	m_mouseX = input.MouseX();

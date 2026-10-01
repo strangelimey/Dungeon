@@ -193,9 +193,14 @@ void GameUI::LoadTitleArt() {
 // The stone every skinned face is cut from: assets/ui/stones/<name>.png
 // (tools/BuildUiStones.py). A missing one is logged and leaves the faces on the
 // skin's flat fallback colour - still chrome, just without grain.
+//
+// Also the Settings dropdown's live switch, so it may replace a stone frames
+// still in flight are sampling: the GPU is drained before the old texture is
+// released (the SRV rule - its slot recycles and its resource dies with it).
 void GameUI::LoadStone(const std::string& name) {
 	auto tex = TryLoadTextureFile(m_device, paths::Asset("ui\\stones\\" + name));
 	if (!tex) log::Warn("UI stone missing: ui/stones/{}.png - faces draw without grain", name);
+	if (m_stoneTex) m_device.WaitIdle();
 	m_stoneTex = std::move(tex);
 	m_skin.stone = m_stoneTex.get();
 }
@@ -659,6 +664,35 @@ void GameUI::BuildSettings() {
 			Click();
 			m_settings.uiSkin = on;
 			ApplySkin();
+			m_settings.Save();
+		});
+
+	// UI → Stone: what the chrome is cut from. The list is whatever
+	// assets/ui/stones holds (tools/BuildUiStones.py is the curated set),
+	// scanned when the page is built, never per frame; each is named by its
+	// stone.<name> lang key. Live: only the skin's stone pointer changes.
+	uf->Row<ui::Label>(ui::Len::Fixed(kSetLabel), loc::Tr("settings.ui_stone"))->dim = true;
+	m_stoneNames.clear();
+	std::error_code scanError;
+	for (const auto& entry :
+		 std::filesystem::directory_iterator(paths::Asset("ui\\stones"), scanError))
+		if (entry.path().extension() == ".png")
+			m_stoneNames.push_back(entry.path().stem().string());
+	std::sort(m_stoneNames.begin(), m_stoneNames.end());
+	std::vector<std::string> stoneLabels;
+	int stoneIndex = 0;
+	for (size_t i = 0; i < m_stoneNames.size(); ++i) {
+		stoneLabels.push_back(loc::Tr("stone." + m_stoneNames[i]));
+		if (m_stoneNames[i] == m_settings.uiStone) stoneIndex = static_cast<int>(i);
+	}
+	uf->Row<ui::DropDown>(
+		ui::Len::Fixed(kSetCtrl), std::move(stoneLabels), stoneIndex, [this](int index) {
+			Click();
+			if (index < 0 || index >= static_cast<int>(m_stoneNames.size())) return;
+			const std::string& name = m_stoneNames[static_cast<size_t>(index)];
+			if (name == m_settings.uiStone) return;
+			m_settings.uiStone = name;
+			LoadStone(name);
 			m_settings.Save();
 		});
 
