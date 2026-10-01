@@ -12,25 +12,42 @@ namespace dungeon::ui {
 
 namespace {
 
-// The context's panel part, or null when unskinned (flat debug mode) — the
-// widget-side gate for every "skin or flat?" draw decision.
-const SkinPart* PanelPart(const UIContext& ctx) {
+// The context's skin when it can draw a panel face, or null when unskinned
+// (flat debug mode) — the widget-side gate for every "skin or flat?" draw
+// decision.
+const Skin* PanelSkin(const UIContext& ctx) {
 	const Skin* skin = ctx.GetSkin();
-	return skin && skin->panel.texture ? &skin->panel : nullptr;
+	return skin && skin->panel.texture ? skin : nullptr;
 }
 
 } // namespace
 
 void DrawPanelFace(UIContext& ctx, gfx::SpriteBatch& batch, const gfx::Rect& rect,
 				   float opacity) {
-	if (const SkinPart* part = PanelPart(ctx)) {
-		DrawNineSlice(batch, rect, *part, {1, 1, 1, ctx.GetTheme().panel.w * opacity});
+	if (const Skin* skin = PanelSkin(ctx)) {
+		DrawFace(batch, rect, *skin, Face::Panel, {1, 1, 1, ctx.GetTheme().panel.w * opacity});
 		return;
 	}
 	Vec4 fill = ctx.GetTheme().panel;
 	fill.w *= opacity;
 	batch.DrawRect(rect, fill);
 	DrawBorder(batch, rect, ctx.GetTheme().panelBorder);
+}
+
+gfx::Rect DrawSlotFace(const UIContext& ctx, gfx::SpriteBatch& batch, const gfx::Rect& rect,
+					   const Vec4& flatFill, float lift) {
+	const Skin* skin = ctx.GetSkin();
+	if (!skin || !skin->slot.texture) {
+		batch.DrawRect(rect, flatFill);
+		DrawBorder(batch, rect, ctx.GetTheme().panelBorder);
+		return rect;
+	}
+	DrawFace(batch, rect, *skin, Face::Slot, {1, 1, 1, 1});
+	const float in = FaceInset(*skin, Face::Slot);
+	const gfx::Rect well{rect.x + in, rect.y + in, std::max(0.0f, rect.w - 2 * in),
+						 std::max(0.0f, rect.h - 2 * in)};
+	if (lift > 0.0f) batch.DrawRect(well, {1, 1, 1, lift});
+	return well;
 }
 
 void DrawBorder(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Vec4& color) {
@@ -50,7 +67,7 @@ void DrawSwatch(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Swatch& sw
 // --- Panel -------------------------------------------------------------
 
 void Panel::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
-	DrawPanelFace(ctx, batch, Pixel());
+	DrawPanelFace(ctx, batch, Pixel(), opacity ? *opacity : 1.0f);
 }
 
 // --- Separator ---------------------------------------------------------
@@ -212,14 +229,18 @@ void DrawButtonFace(gfx::SpriteBatch& batch, const Font& font,
 					const std::string& label, const Theme& theme, bool hot,
 					bool held, bool enabled, const Skin* skin) {
 	if (skin && skin->button.texture) {
-		// Disabled dims the face itself; hot/held wash the theme's control
-		// color over the texture so state keeps reading through the theme.
+		// Disabled dims the stone (the bevel keeps its edges); held sinks the
+		// bevel. Hot and held also wash the theme's control colour over the face,
+		// lightly - the stone and bevel carry the look, the theme the state.
 		const float dim = enabled ? 1.0f : 0.45f;
-		DrawNineSlice(batch, rect, skin->button, {dim, dim, dim, 1.0f});
+		const bool down = enabled && held;
+		DrawFace(batch, rect, *skin, down ? Face::ButtonDown : Face::Button,
+				 {dim, dim, dim, 1.0f});
 		if (enabled && (held || hot)) {
 			Vec4 wash = held ? theme.controlActive : theme.controlHot;
-			wash.w = 0.4f;
-			batch.DrawRect(rect, wash);
+			wash.w = 0.22f;
+			const float in = FaceInset(*skin, down ? Face::ButtonDown : Face::Button);
+			batch.DrawRect({rect.x + in, rect.y + in, rect.w - 2 * in, rect.h - 2 * in}, wash);
 		}
 	} else {
 		const Vec4& fill = !enabled ? theme.panel
@@ -410,7 +431,10 @@ void DropDown::UpdateSelf(UIContext& ctx) {
 	if (m_open) {
 		// The open popup owns the mouse entirely — including the wheel, which a
 		// modal claims whether or not it scrolls: a list open over a page must
-		// not let the page scroll out from under it.
+		// not let the page scroll out from under it. ClaimPopup extends that to
+		// the controls updated BEFORE this one (added after it), which would
+		// otherwise see the click on a row first.
+		ctx.ClaimPopup();
 		ctx.ConsumeWheel();
 		const gfx::Rect popup = PopupRect(ctx);
 		const float maxScroll = MaxScroll(popup);
@@ -471,6 +495,7 @@ void DropDown::UpdateSelf(UIContext& ctx) {
 		ctx.ConsumeMouse();
 		if (input->WasMousePressed(MouseButton::Left)) {
 			m_open = true;
+			ctx.ClaimPopup();
 			// Open with the current selection in view — a long list otherwise
 			// opens at the top, nowhere near what it says it is showing.
 			const gfx::Rect popup = PopupRect(ctx);
@@ -732,11 +757,12 @@ void ContextMenu::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	// Skinned: ONE panel face behind the whole menu (opaque, like the other
 	// popups), rows keep only their hover/active washes; flat mode keeps the
 	// per-row fills + borders.
-	const bool skinned = PanelPart(ctx) != nullptr;
+	const Skin* skin = PanelSkin(ctx);
+	const bool skinned = skin != nullptr;
 	const size_t topCount = TopCount();
 	if (skinned && topCount > 0) {
 		const gfx::Rect box{m_x, m_y, m_w, m_rowH * static_cast<float>(topCount)};
-		DrawNineSlice(batch, box, *PanelPart(ctx), {1, 1, 1, 1});
+		DrawFace(batch, box, *skin, Face::Panel, {1, 1, 1, 1});
 	}
 	size_t pos = 0;
 	for (size_t r = 0; r < m_count; ++r) {
@@ -770,7 +796,7 @@ void ContextMenu::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 		if (skinned && kids > 0) {
 			const gfx::Rect box{m_childX, m_childY, m_childW,
 								m_rowH * static_cast<float>(kids)};
-			DrawNineSlice(batch, box, *PanelPart(ctx), {1, 1, 1, 1});
+			DrawFace(batch, box, *skin, Face::Panel, {1, 1, 1, 1});
 		}
 		size_t kid = 0;
 		for (size_t r = 0; r < m_count; ++r) {
@@ -883,16 +909,21 @@ void ColorPicker::UpdateSelf(UIContext& ctx) {
 			}
 		}
 		// The open popup owns the mouse entirely — wheel included, so the page
-		// behind cannot scroll the popup off its own swatch.
+		// behind cannot scroll the popup off its own swatch — and, through
+		// ClaimPopup, before any control the walk reaches first.
 		ctx.ConsumeMouse();
 		ctx.ConsumeWheel();
+		if (m_open) ctx.ClaimPopup();
 		return;
 	}
 
 	m_hot = !ctx.IsMouseConsumed() && SwatchRect().Contains(mx, my);
 	if (m_hot) {
 		ctx.ConsumeMouse();
-		if (input->WasMousePressed(MouseButton::Left)) m_open = true;
+		if (input->WasMousePressed(MouseButton::Left)) {
+			m_open = true;
+			ctx.ClaimPopup();
+		}
 	}
 }
 
@@ -916,8 +947,8 @@ void ColorPicker::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Font& font = TextFont();
 	const gfx::Rect popup = PopupRect(ctx);
 
-	if (const SkinPart* part = PanelPart(ctx)) {
-		DrawNineSlice(batch, popup, *part, {1, 1, 1, 1}); // opaque, unlike Panel
+	if (const Skin* skin = PanelSkin(ctx)) {
+		DrawFace(batch, popup, *skin, Face::Panel, {1, 1, 1, 1}); // opaque, unlike Panel
 	} else {
 		Vec4 background = theme.panel;
 		background.w = 1.0f; // opaque so the page beneath doesn't bleed through
@@ -1567,7 +1598,7 @@ void TabControl::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 
 	// Page frame first so the active tab can open into it.
 	const gfx::Rect page = PageRect();
-	const bool skinned = PanelPart(ctx) != nullptr;
+	const bool skinned = PanelSkin(ctx) != nullptr;
 	DrawPanelFace(ctx, batch, page);
 
 	for (size_t i = 0; i < m_tabs.size(); ++i) {

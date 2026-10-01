@@ -28,10 +28,12 @@
 #include "Graphics/Texture.h"
 #include "Platform/Window.h"
 #include "UI/Controls.h"
+#include "UI/FloatingPanel.h"
 #include "UI/Layout.h" // ui::Stack — the settings page's rows
 #include "UI/Skin.h"
 #include "UI/UIContext.h"
 
+#include <array>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -140,6 +142,29 @@ public:
 	// The item details dialog holds the pointer while it is up, so it counts.
 	bool HudMouseConsumed() const {
 		return m_hudUi.IsMouseConsumed() || ItemDetailsOpen();
+	}
+
+	// --- the floating HUD panels (ui-panels P3a) -------------------------------
+	// Every panel back to its default spot and size (Settings -> UI "Reset HUD
+	// layout", dev `hudpanel reset`); opacity stays.
+	void ResetHudLayout();
+	// The HUD layout: 0 Standard, 1 Minimal (party cards). Rebuilds the HUD.
+	void SetHudLayout(int layout);
+	// The pointer shape the grips of panels [first, last) want this frame.
+	Window::Cursor PanelCursor(size_t first, size_t last) const;
+	// What this frame's HUD / sheet update asked the pointer to be, handed back
+	// once and reset to the arrow - so a state that ran neither (paused, a menu)
+	// asks for nothing. Game sets the window's cursor in ONE place each frame
+	// (beside the editor's dock-edge arrow) and passes this in.
+	Window::Cursor TakeHudCursor() {
+		const Window::Cursor wanted = m_hudCursor;
+		m_hudCursor = Window::Cursor::Arrow;
+		return wanted;
+	}
+	// A panel by kHudPanelFields index, for the `hudpanel` dev command (null
+	// before the first game load builds the HUD).
+	const ui::FloatingPanel* HudPanel(size_t index) const {
+		return index < m_hudPanels.size() ? m_hudPanels[index] : nullptr;
 	}
 
 	// --- the item details dialog (docs/ui-updates-plan.md P3) ---------------------
@@ -382,13 +407,15 @@ private:
 	// Pushes the skin (or null, per settings.uiSkin) into every UIContext.
 	// Live — widgets re-check the pointer each draw, no rebuild needed.
 	void ApplySkin();
-	// Re-derives the party-bar slot rects from the settings scale and shifts
-	// the widgets beneath the bar to match; no-op until BuildHud has run.
-	void ApplyPartyBarScale();
-	// Widens the right-hand control column to its widest dock's scale, keeping
-	// its right edge; the docks read their own scale and opacity live. No-op
-	// until BuildHud has run.
-	void ApplyHudPanelScale();
+	// Loads assets/ui/stones/<name>.png as the skin's stone (UI/Skin.h).
+	void LoadStone(const std::string& name);
+	// Scales the skin's frames and stone grain with the window, like the fonts.
+	void UpdateSkinScale();
+	// A floating HUD panel was dragged or resized (save + slider sync), and the
+	// sync on its own (the scale sliders follow a corner drag).
+	void OnHudPanelMoved();
+	void SyncHudPanelSliders();
+	void SyncHudPanelSlidersIfStale();
 	void DrawLoadProgress(const LoadQueue& queue, float barY); // shared bar
 	// Title face centered horizontally at y (accent color); returns y so a
 	// subtitle can be placed relative to it. Shared by every title screen.
@@ -551,12 +578,16 @@ private:
 	const ui::Font* m_titleFont = nullptr;
 	std::unique_ptr<gfx::Texture> m_titleBackground; // landing-page art
 	std::unique_ptr<gfx::Texture> m_deleteIcon;      // red X for the save browser
-	// Textured-chrome skin (UI/Skin.h): the part textures + the Skin handed to
-	// every context by ApplySkin (null when settings.uiSkin is off — the flat
-	// debug look). Textures are optional; missing parts stay flat.
-	std::unique_ptr<gfx::Texture> m_skinPanelTex;
-	std::unique_ptr<gfx::Texture> m_skinButtonTex;
-	std::unique_ptr<gfx::Texture> m_skinSlotTex;
+	// Textured-chrome skin (UI/Skin.h): the bevel overlays, the polish, the
+	// picked stone + the Skin handed to every context by ApplySkin (null when
+	// settings.uiSkin is off — the flat debug look). Textures are optional;
+	// missing frames stay flat, a missing stone draws without grain.
+	std::unique_ptr<gfx::Texture> m_framePanelTex;
+	std::unique_ptr<gfx::Texture> m_frameButtonTex;
+	std::unique_ptr<gfx::Texture> m_frameButtonDownTex;
+	std::unique_ptr<gfx::Texture> m_frameSlotTex;
+	std::unique_ptr<gfx::Texture> m_sheenTex;
+	std::unique_ptr<gfx::Texture> m_stoneTex;
 	ui::Skin m_skin;
 	// The resource bars' look (PartyHudTypes.h): the iron frame, the fills'
 	// clock and every member's heartbeat. The party bar and the sheet point at
@@ -656,18 +687,28 @@ private:
 	// Installed languages (assets/lang scan), in the Game tab dropdown's
 	// order; maps the selection index back to a language code.
 	std::vector<loc::LanguageInfo> m_languages;
+	// The stones the Settings → UI dropdown offers (assets/ui/stones stems,
+	// scanned when the page is built), index-matched to its rows.
+	std::vector<std::string> m_stoneNames;
 
 	// Last torchlight dropdown selection, so a HUD rebuild (language change)
 	// recreates the dropdown showing the palette that is actually active.
 	int m_torchPalette = 0;
 
-	// The party bar (owns the slots) and the container holding everything under
-	// it; ApplyPartyBarScale resizes the one and slides the other, and the
-	// trees carry their contents. Both are owned by m_hudUi.
+	// The floating HUD (UI/FloatingPanel.h): the layer every movable panel sits
+	// on, and the panels by kHudPanelFields index (null until BuildHud). The
+	// party bar owns the slots. All owned by m_hudUi.
+	ui::FloatingLayer* m_hudLayer = nullptr;
+	std::array<ui::FloatingPanel*, std::size(kHudPanelFields)> m_hudPanels{};
 	PartyBar* m_partyBar = nullptr;
-	ui::Widget* m_belowBar = nullptr;
-	ControlBar* m_controlBar = nullptr; // the right column, owned by m_belowBar
 	std::vector<CharacterPanel*> m_partyPanels; // owned by m_partyBar
+	// Settings -> UI's per-panel scale sliders (kHudPanelFields order), kept so a
+	// corner drag can move them (SyncHudPanelSliders). Owned by m_settingsUi.
+	std::array<ui::Slider*, std::size(kHudPanelFields)> m_hudScaleSliders{};
+	bool m_hudSlidersStale = false; // a drag moved a scale; sync before showing
+	// The pointer shape the HUD asked for last frame (a grip's arrow), applied
+	// at the top of the next (UpdateFonts) so every other state resets it.
+	Window::Cursor m_hudCursor = Window::Cursor::Arrow;
 	const HitSplatIcons* m_hitSplats = nullptr; // hit-feedback icons (Game-owned)
 	const ItemIconBank* m_itemIcons = nullptr;  // item icons (Game-owned)
 	const ItemWeightBank* m_itemWeights = nullptr; // item carry weights (Game-owned)

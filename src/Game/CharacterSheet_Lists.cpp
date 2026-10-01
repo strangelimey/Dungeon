@@ -406,14 +406,14 @@ void CharacterSheet::DrawEffectRow(size_t i, ui::UIContext& ctx,
 	// description starts.
 	const float iconSize = EffectIconSize(font);
 	const gfx::Rect icon{Ax(px, kEffectIconX), r.y, iconSize, iconSize};
-	batch.DrawRect(icon, kSlotBg);
+	const gfx::Rect well = ui::DrawSlotFace(ctx, batch, icon, kSlotBg);
+	const gfx::Rect pic{well.x + 2, well.y + 2, well.w - 4, well.h - 4};
 	const gfx::Texture* iconTex =
 		m_icons && row.kind ? m_icons->For(row.kind->IconItem()) : nullptr;
 	if (iconTex)
-		batch.DrawSprite({icon.x + 2, icon.y + 2, icon.w - 4, icon.h - 4},
-						 {0, 0, 1, 1}, *iconTex, {1, 1, 1, 1});
+		batch.DrawSprite(pic, {0, 0, 1, 1}, *iconTex, {1, 1, 1, 1});
 	else
-		batch.DrawRect({icon.x + 2, icon.y + 2, icon.w - 4, icon.h - 4},
+		batch.DrawRect(pic,
 					   {row.tint.x, row.tint.y, row.tint.z, 0.5f});
 	batch.DrawRect({icon.x + 2, icon.y + icon.h - 5, (icon.w - 4) * row.frac, 3},
 				   row.tint);

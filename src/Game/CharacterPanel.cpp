@@ -314,16 +314,16 @@ void CharacterPanel::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const ui::Theme& theme = ctx.GetTheme();
 	const gfx::Rect& px = Pixel();
 
-	// Skinned: the panel part is the slot face (frame baked in), hover/press
-	// wash the theme's control colors over it and hover keeps its accent
-	// border. The flat look stays as the debug mode, exactly as before.
+	// Skinned: a stone panel face, hover/press wash the theme's control colors
+	// over it and hover keeps its accent border. The flat look stays as the
+	// debug mode, exactly as before.
 	const ui::Skin* skin = ctx.GetSkin();
 	if (skin && skin->panel.texture) {
-		ui::DrawNineSlice(batch, px, skin->panel,
-						  {1, 1, 1, theme.panel.w * backgroundOpacity});
+		ui::DrawFace(batch, px, *skin, ui::Face::Panel,
+					 {1, 1, 1, theme.panel.w * backgroundOpacity});
 		if (m_pressed || m_hot) {
 			Vec4 wash = m_pressed ? theme.controlActive : theme.controlHot;
-			wash.w = 0.3f;
+			wash.w = 0.2f;
 			batch.DrawRect(px, wash);
 		}
 		if (m_hot) ui::DrawBorder(batch, px, theme.accent);

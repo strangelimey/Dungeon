@@ -54,50 +54,39 @@ void HandSlot::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	if (!m_character) return; // roster shorter than this slot — draw nothing
 	const ui::Theme& theme = ctx.GetTheme();
 	const gfx::Rect& px = Pixel();
-	// Skinned: prefer the dedicated SOCKET FRAME part (an open-centred ring
-	// with transparent middle texels, drawn OVER the socket fill), falling
-	// back to the button part (opaque face, the socket inset into it). The
-	// black socket stays in every mode — the light-haloed item icons read
-	// against it.
+	// The socket: skinned, the stone sunk into a dark well (ui::DrawSlotFace,
+	// the one socket look every item slot shares); flat, the black fill. Either
+	// way the light-haloed item icons read against a dark middle. A subtle lift
+	// on hover/press keeps the interaction feedback.
 	const ui::Skin* skin = ctx.GetSkin();
-	const bool framed = skin && skin->slot.texture;
-	const bool skinned = framed || (skin && skin->button.texture);
-	gfx::Rect socket = px;
-	if (framed) {
-		// Content lives inside the frame ring; the fill overlaps the ring by a
-		// couple of px so no seam shows at the hole's antialiased edge.
-		const float ring = skin->slot.corner * skin->slot.scale;
-		const float in = std::max(2.0f, ring - 2.0f);
-		socket = {px.x + in, px.y + in, px.w - 2 * in, px.h - 2 * in};
-	} else if (skinned) {
-		ui::DrawNineSlice(batch, px, skin->button, {1, 1, 1, 1});
-		const float in = Em(0.24f);
-		socket = {px.x + in, px.y + in, px.w - 2 * in, px.h - 2 * in};
-	}
-	// A subtle grey lift on hover/press keeps the interaction feedback.
-	Vec4 fill = m_held ? Vec4{0.22f, 0.22f, 0.24f, 1.0f}
-					   : (m_hot ? Vec4{0.12f, 0.12f, 0.13f, 1.0f} : kSlotBg);
+	const bool skinned = skin && skin->slot.texture;
 	// A SET hand says so: the socket behind the icon takes the theme accent - a
-	// LOW flat tint to the edges, and a soft glow brighter at the centre (Michael,
-	// 2026-09-30: the old 35% flat mix washed the box out). The tint is mixed to
-	// an opaque colour rather than drawn translucent over the fill, so it reads
-	// the same whatever the batch's blend mode, and the hover/press lift still
-	// shows through it; the glow then lays the accent over its middle.
+	// LOW tint to the edges, and a soft glow brighter at the centre (Michael,
+	// 2026-09-30: the old 35% flat mix washed the box out). Over the flat fill the
+	// tint is mixed to an opaque colour; over stone it is a translucent wash, so
+	// the grain still shows through it. The glow then lays the accent over the
+	// middle.
+	constexpr float kTint = 0.14f;
 	const HandSetUse use = setUse ? setUse() : HandSetUse{};
-	if (use.set) {
-		constexpr float kTint = 0.14f;
-		fill = {fill.x + (theme.accent.x - fill.x) * kTint,
-				fill.y + (theme.accent.y - fill.y) * kTint,
-				fill.z + (theme.accent.z - fill.z) * kTint, 1.0f};
+	gfx::Rect socket = px;
+	if (skinned) {
+		socket = ui::DrawSlotFace(ctx, batch, px, kSlotBg, m_held ? 0.12f : (m_hot ? 0.06f : 0.0f));
+		if (use.set)
+			batch.DrawRect(socket, {theme.accent.x, theme.accent.y, theme.accent.z, kTint});
+	} else {
+		Vec4 fill = m_held ? Vec4{0.22f, 0.22f, 0.24f, 1.0f}
+						   : (m_hot ? Vec4{0.12f, 0.12f, 0.13f, 1.0f} : kSlotBg);
+		if (use.set)
+			fill = {fill.x + (theme.accent.x - fill.x) * kTint,
+					fill.y + (theme.accent.y - fill.y) * kTint,
+					fill.z + (theme.accent.z - fill.z) * kTint, 1.0f};
+		batch.DrawRect(socket, fill);
 	}
-	batch.DrawRect(socket, fill);
 	if (use.set && glow) {
 		constexpr float kGlow = 0.5f; // the accent's share at the very centre
 		batch.DrawSprite(socket, {0, 0, 1, 1}, *glow,
 						 {theme.accent.x, theme.accent.y, theme.accent.z, kGlow});
 	}
-	if (framed) // the ring draws over the fill; its open middle shows the socket
-		ui::DrawNineSlice(batch, px, skin->slot, {1, 1, 1, 1});
 	// The item held in this hand, if any, drawn inset from the border.
 	const ItemSlot& slot = m_character->inventory.Hand(m_hand);
 	const float pad = px.w * 0.12f;

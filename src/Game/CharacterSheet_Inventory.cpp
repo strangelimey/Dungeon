@@ -225,8 +225,7 @@ void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	for (int i = 0; i < kDollCellCount; ++i) {
 		const size_t slot = static_cast<size_t>(kDollCells[i].slot);
 		const gfx::Rect r = EquipRect(px, i);
-		batch.DrawRect(r, kSlotBg);
-		ui::DrawBorder(batch, r, theme.panelBorder);
+		ui::DrawSlotFace(ctx, batch, r, kSlotBg);
 		const ItemSlot& s = m_character->inventory.equipment[slot];
 		if (s.Empty()) {
 			if (m_slotIcons) {
@@ -280,8 +279,9 @@ void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	for (int i = 0; i < kPackRowSlots; ++i) {
 		const gfx::Rect r = PackRowRect(px, i);
 		const bool sel = i == inv.selectedPack;
-		batch.DrawRect(r, sel ? Vec4{0.18f, 0.18f, 0.20f, 1.0f} : kSlotBg);
-		ui::DrawBorder(batch, r, sel ? theme.accent : theme.panelBorder);
+		ui::DrawSlotFace(ctx, batch, r, sel ? Vec4{0.18f, 0.18f, 0.20f, 1.0f} : kSlotBg,
+						 sel ? 0.08f : 0.0f);
+		if (sel) ui::DrawBorder(batch, r, theme.accent);
 		drawIcon(r, inv.packs[static_cast<size_t>(i)].typeId);
 	}
 
@@ -294,8 +294,7 @@ void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	const auto& pack = inv.SelectedContents();
 	for (int i = 0; i < static_cast<int>(pack.size()); ++i) {
 		const gfx::Rect r = PackRect(px, i);
-		batch.DrawRect(r, kSlotBg);
-		ui::DrawBorder(batch, r, theme.panelBorder);
+		ui::DrawSlotFace(ctx, batch, r, kSlotBg);
 		drawIcon(r, pack[static_cast<size_t>(i)].typeId);
 	}
 }

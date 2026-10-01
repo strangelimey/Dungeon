@@ -14,6 +14,8 @@
 #   .\tools\AllocTest.ps1 -Impact            # bolts landing, expiring, a blast
 #   .\tools\AllocTest.ps1 -Pause             # Esc to the pause menu and back
 #   .\tools\AllocTest.ps1 -Sheet             # the sheet: hover, tabs, item dialog
+#   .\tools\AllocTest.ps1 -Panels            # drag and resize the floating HUD
+#   .\tools\AllocTest.ps1 -Minimal [-Sheet]  # any mode, under the party-card layout
 #   .\tools\AllocTest.ps1 -Items             # pack -> cursor -> floor -> cursor -> pack
 #   .\tools\AllocTest.ps1 -Packs             # swap a 4-slot and an 8-slot bag
 #   .\tools\AllocTest.ps1 -Config release    # needs -DDN_TRACK_ALLOCS=ON
@@ -129,6 +131,22 @@
 # opens made during the window, since a missed click reports exactly like a
 # clean run.
 #
+# -Panels IS THE FLOATING HUD'S TURN (docs/ui-panels-plan.md P3a). Every HUD
+# panel moves and resizes under the mouse now, inside armed frames: a drag
+# re-places the panel every frame it is held, a corner grip rescales it (a new
+# font size the first time, which is a first time, not a steady cost - so the
+# warm-up below drags once before the window), and the release SAVES
+# settings.ini, which excuses itself (GameSettings::Save). This resets the
+# layout, warms up, then during the window drags the Movement dock by its title
+# and back and pulls the Hands dock's corner grip - three times - with the
+# party inventory WINDOW (P3b) open the whole while. It refuses a PASS unless
+# `hudpanel list` afterwards shows all three (the move dock saved off its
+# default, the hands dock off scale 1, the inventory shown), since a missed
+# drag or a window that never opened reports exactly like a clean run. Every
+# drag holds Ctrl (a panel only arranges under it). After the window it also
+# checks the arranging rules: a Ctrl+click on a panel's reset button puts every
+# panel home, a drag WITHOUT Ctrl moves nothing, and a drag ending 4 px short of
+# another panel's edge lands on it - any of them failing is a FAIL.
 # -Items IS MOVING AN ITEM, which no run did (found by accident 2026-09-30, when
 # a -Panels click on the ui-panels branch landed on an inventory slot and a later
 # one on the floor). Two defects, both logged with call stacks: every pick, put
@@ -141,8 +159,8 @@
 # This goes to eval_arena (open floor ahead, like -Impact), freezes it, puts two
 # runes in the pack of a member with room, and opens the party inventory window from the
 # console (`inventory`). Each cycle: pick the rune out of its slot, click the
-# floor (which shuts the window), click it again (drop), and again (lift), then
-# reopen the window and put it back. The floor point is computed from the
+# floor (drop), click it again (lift), and put it back - the window is
+# non-modal, so it stays open throughout. The floor point is computed from the
 # camera (70 degree lens, eye 1.55 m up) to land in the FAR quarter of the
 # square ahead, so the lift - which samples the ray at the item's own height,
 # nearer the party - still lands in the same quarter. ONE rune runs a warm-up
@@ -206,6 +224,11 @@ param(
 	[switch]$Pause,
 	# Works the character sheet inside the window. See the note above.
 	[switch]$Sheet,
+	# Drags and resizes the floating HUD panels inside the window. See above.
+	[switch]$Panels,
+	# Runs whichever mode under the Minimal HUD layout (one card per member,
+	# docs/ui-panels-plan.md P4), and puts Standard back afterwards.
+	[switch]$Minimal,
 	# Moves an item pack -> floor -> pack inside the window. See the note above.
 	[switch]$Items,
 	# The warm-up item and the measured one: two different kinds, the second
@@ -265,6 +288,59 @@ function Send-Mouse([int]$x, [int]$y, [uint32]$down = 0, [uint32]$up = 0, [int]$
 }
 
 # `itemdetails status`'s open count (needs logecho on and the console open).
+# A left-button drag in client pixels: press, a run of moves with the button
+# held (wparam MK_LBUTTON), release - what a player's hand sends. With Ctrl
+# held through it by default, since a panel only arranges under Ctrl; -NoCtrl
+# is the plain drag that must NOT move one.
+function Send-Drag([int]$x0, [int]$y0, [int]$x1, [int]$y1, [int]$steps = 10, [switch]$NoCtrl) {
+	$at = { param($x, $y) [IntPtr](($y -shl 16) -bor ($x -band 0xFFFF)) }
+	if (-not $NoCtrl) {
+		[AllocTestWin]::PostMessage($hwnd, 0x100, [IntPtr]0x11, [IntPtr]1) | Out-Null
+		Start-Sleep -Milliseconds 60
+	}
+	[AllocTestWin]::PostMessage($hwnd, 0x200, [IntPtr]0, (& $at $x0 $y0)) | Out-Null
+	Start-Sleep -Milliseconds 150
+	[AllocTestWin]::PostMessage($hwnd, 0x201, [IntPtr]1, (& $at $x0 $y0)) | Out-Null
+	Start-Sleep -Milliseconds 80
+	for ($i = 1; $i -le $steps; $i++) {
+		$x = [int]($x0 + ($x1 - $x0) * $i / $steps); $y = [int]($y0 + ($y1 - $y0) * $i / $steps)
+		[AllocTestWin]::PostMessage($hwnd, 0x200, [IntPtr]1, (& $at $x $y)) | Out-Null
+		Start-Sleep -Milliseconds 40
+	}
+	Start-Sleep -Milliseconds 80
+	[AllocTestWin]::PostMessage($hwnd, 0x202, [IntPtr]0, (& $at $x1 $y1)) | Out-Null
+	Start-Sleep -Milliseconds 100
+	if (-not $NoCtrl) {
+		[AllocTestWin]::PostMessage($hwnd, 0x101, [IntPtr]0x11, [IntPtr][int64]0xC0000001) | Out-Null
+	}
+	Start-Sleep -Milliseconds 200
+}
+
+# A Ctrl+click at client pixel (x, y): what presses an arranging panel's reset.
+function Send-CtrlClick([int]$x, [int]$y) {
+	[AllocTestWin]::PostMessage($hwnd, 0x100, [IntPtr]0x11, [IntPtr]1) | Out-Null
+	Start-Sleep -Milliseconds 60
+	Send-Mouse $x $y 0x201 0x202 1
+	[AllocTestWin]::PostMessage($hwnd, 0x101, [IntPtr]0x11, [IntPtr][int64]0xC0000001) | Out-Null
+	Start-Sleep -Milliseconds 200
+}
+
+# `hudpanel list`'s row for one panel (console open, logecho on around it).
+function Get-PanelRow([string]$id) {
+	$before = @(Select-String -Path $log -Pattern "console:   $id ").Count
+	Send-Key 0xC0
+	Start-Sleep -Milliseconds 500
+	Send-Text 'logecho on'; Send-Key 0x0D
+	Send-Text 'hudpanel list'; Send-Key 0x0D
+	Start-Sleep -Milliseconds 500
+	Send-Text 'logecho off'; Send-Key 0x0D
+	Send-Key 0xC0
+	Start-Sleep -Milliseconds 400
+	$rows = @(Select-String -Path $log -Pattern "console:   $id ")
+	if ($rows.Count -le $before) { throw "the console never listed the $id panel" }
+	return $rows[-1].Line
+}
+
 function Get-DetailOpens {
 	$before = @(Select-String -Path $log -Pattern 'item details: .* opens=').Count
 	Send-Text 'itemdetails status'; Send-Key 0x0D
@@ -423,20 +499,13 @@ function Send-Click([int]$x, [int]$y) { Send-Mouse $x $y 0x201 0x202 1 }
 
 # One round trip for the item in member 0's pack slot $slot, starting with the
 # party inventory window OPEN and the console shut: out of the slot onto the
-# cursor; a floor click, which only shuts the window (it claims the click); a
-# second, the drop; a third, the lift; then the window reopened from the
-# console and the item put back. Ends as it began. The wait after the console
-# shuts is the guard's 120-frame warm-up, so the put lands in an armed frame.
+# cursor; a floor click, the drop; a second, the lift; then the item put back.
+# The window is a NON-MODAL floating window (ui-panels P3b), so it stays open
+# throughout and the floor below it takes the clicks directly. Ends as it began.
 function Invoke-ItemRoundTrip($slot) {
 	Send-Click $slot.X $slot.Y
 	Send-Click $script:floorX $script:floorY
 	Send-Click $script:floorX $script:floorY
-	Send-Click $script:floorX $script:floorY
-	Send-Key 0xC0
-	Start-Sleep -Milliseconds 400
-	Send-Text 'inventory'; Send-Key 0x0D
-	Send-Key 0xC0
-	Start-Sleep -Seconds 3
 	Send-Click $slot.X $slot.Y
 }
 
@@ -547,6 +616,19 @@ try {
 	Start-Sleep -Milliseconds 300
 	Send-Key 0xC0 # closed again: each path below opens it for itself
 	Start-Sleep -Milliseconds 400
+
+	# -Minimal: the whole run under the Minimal HUD layout (the party cards).
+	# FIRST, before any mode sets its scene up: the switch REBUILDS the HUD, which
+	# would close a spellbook -Cast had opened. A first time, out here before the
+	# window; the verdict below refuses a PASS unless the cards were actually up.
+	if ($Minimal) {
+		Write-Host 'switching the HUD to the Minimal layout'
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'hudpanel layout minimal'; Send-Key 0x0D
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 600
+	}
 
 	if ($Wounded) {
 		Write-Host 'wounding the party so the regeneration path actually runs'
@@ -759,6 +841,9 @@ try {
 		Send-Key 0xC0
 		Start-Sleep -Milliseconds 500
 		Send-Text 'logecho on'; Send-Key 0x0D
+		# The sheet is a floating window now (ui-panels P3b): the clicks below aim
+		# at its DEFAULT spot and size, so put it back there first.
+		Send-Text 'hudpanel reset'; Send-Key 0x0D
 		# A new party's pack holds three pieces of armour (slots 0-2), so these
 		# land in slots 3 and 4 - the cells the clicks below aim at.
 		Send-Text 'give rune_fire 0'; Send-Key 0x0D
@@ -783,6 +868,51 @@ try {
 		[AllocTestWin]::GetClientRect($hwnd, [ref]$rc) | Out-Null
 		$script:runeX = [int]($rc.Right * 0.6675); $script:bladeX = [int]($rc.Right * 0.72)
 		$script:slotY = [int]($rc.Bottom * 0.5033)
+	}
+
+	if ($Panels) {
+		Write-Host 'resetting the HUD layout and warming the panel drags up'
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'hudpanel reset'; Send-Key 0x0D
+		Send-Text 'hudpanel lock off'; Send-Key 0x0D
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 600
+		# Where the grabs are, read off the docks' OWN rects (`hudpanel list`), so
+		# a change to the default layout - the party bar grew taller once and the
+		# Movement dock slid down under a fixed grab point - cannot make the drags
+		# miss: a point in the Movement dock's title row, and just inside the
+		# Hands dock's bottom-right corner (the resize wedge).
+		$rc = New-Object AllocTestWin+RECT
+		[AllocTestWin]::GetClientRect($hwnd, [ref]$rc) | Out-Null
+		$moveRect = Get-PanelRow 'move'
+		$handsRect = Get-PanelRow 'hands'
+		if ($moveRect -notmatch 'px (-?\d+),(-?\d+) (\d+)x(\d+)') { throw "no move dock rect: $moveRect" }
+		$script:moveX = [int]$Matches[1] + [int]([int]$Matches[3] * 0.25)
+		$script:moveY = [int]$Matches[2] + 12
+		if ($handsRect -notmatch 'px (-?\d+),(-?\d+) (\d+)x(\d+)') { throw "no hands dock rect: $handsRect" }
+		$script:gripX = [int]$Matches[1] + [int]$Matches[3] - 4
+		$script:gripY = [int]$Matches[2] + [int]$Matches[4] - 4
+		$script:pullX = $script:gripX - [int]($rc.Right * 0.0235)
+		$script:pullY = $script:gripY - [int]($rc.Bottom * 0.0275)
+		# Below the inventory window's default rect (0.23..0.77 down) and above the
+		# log footer: a grab landing ON the window would act on its slots instead.
+		$script:awayX = [int]($rc.Right * 0.30); $script:awayY = [int]($rc.Bottom * 0.80)
+		# WARM-UP: one drag and one pull outside the window - the pull's new scale
+		# bakes a font size, a first time for the process. Then back to default.
+		Send-Drag $script:moveX $script:moveY $script:awayX $script:awayY
+		Send-Drag $script:awayX $script:awayY $script:moveX $script:moveY
+		Send-Drag $script:gripX $script:gripY $script:pullX $script:pullY
+		Start-Sleep -Milliseconds 400
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'hudpanel reset'; Send-Key 0x0D
+		# The party inventory window stays open through the window, so its draw
+		# (every slot of every pack, every frame) is measured too. Its default
+		# spot is clear of both grabs above.
+		Send-Text 'inventory'; Send-Key 0x0D
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 400
 	}
 
 	if ($Items) {
@@ -964,6 +1094,20 @@ try {
 		}
 	}
 
+	# -Panels: drag the Movement dock away by its title and home again, then
+	# pull the Hands dock's corner grip, while the window runs. The first wait
+	# clears the console close plus the guard's warm-up, so the drags land in
+	# ARMED frames; each release saves settings.ini.
+	if ($Panels) {
+		for ($cycle = 1; $cycle -le 3; $cycle++) {
+			Start-Sleep -Seconds 3
+			if (Select-String -Path $log -Pattern 'alloctest RESULT=' -Quiet) { break }
+			Send-Drag $script:moveX $script:moveY $script:awayX $script:awayY
+			Send-Drag $script:awayX $script:awayY $script:moveX $script:moveY
+			if ($cycle -eq 1) { Send-Drag $script:gripX $script:gripY $script:pullX $script:pullY }
+		}
+	}
+
 	# -Packs: two clicks on the bag square a cycle - the herb pouch in (8 -> 4)
 	# and the ammo pouch back (4 -> 8), the growth this mode exists for.
 	if ($Packs) {
@@ -1079,6 +1223,98 @@ try {
 		Write-Host "  item details opened by a right-click: $opens"
 		if ($opens -le 0 -and $result -eq 'PASS') {
 			Write-Host 'no right-click opened the dialog - the open path was not measured' -ForegroundColor Yellow
+			$result = 'UNMEASURED'
+		}
+	}
+
+	# And for -Panels: the drags must have LANDED - the move dock saved off its
+	# default spot and the hands dock off scale 1 - or nothing was measured.
+	if ($Panels) {
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		Send-Text 'hudpanel list'; Send-Key 0x0D
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0
+		$moveRow = @(Select-String -Path $log -Pattern 'console:   move ')[-1].Line
+		$handsRow = @(Select-String -Path $log -Pattern 'console:   hands ')[-1].Line
+		Write-Host "  $($moveRow -replace '^.*console:   ', '')"
+		Write-Host "  $($handsRow -replace '^.*console:   ', '')"
+		$invRow = @(Select-String -Path $log -Pattern 'console:   inventory ')[-1].Line
+		Write-Host "  $($invRow -replace '^.*console:   ', '')"
+		$moved = $moveRow -notmatch 'saved default'
+		$scaled = $handsRow -notmatch 'scale 1\.00'
+		$invShown = $invRow -match 'inventory shown'
+		if ((-not $moved -or -not $scaled -or -not $invShown) -and $result -eq 'PASS') {
+			Write-Host 'a drag did not land, or the inventory was not open, inside the window - the panel path was not measured' -ForegroundColor Yellow
+			$result = 'UNMEASURED'
+		}
+
+		# The arranging rules, after the window: a Ctrl+click on the moved dock's
+		# RESET button (its top-right corner, read off the dock's own rect) puts
+		# every panel home, and a drag WITHOUT Ctrl then moves nothing.
+		if ($moveRow -match 'px (-?\d+),(-?\d+) (\d+)x(\d+)') {
+			$rx = [int]$Matches[1] + [int]$Matches[3] - 6; $ry = [int]$Matches[2] + 6
+			Send-Mouse $rx $ry
+			Send-CtrlClick $rx $ry
+			$resetMove = Get-PanelRow 'move'
+			$resetHands = Get-PanelRow 'hands'
+			Send-Drag $script:moveX $script:moveY $script:awayX $script:awayY -NoCtrl
+			$plainMove = Get-PanelRow 'move'
+			Write-Host "  after reset: $($resetMove -replace '^.*console:   ', '')"
+			Write-Host "  after a plain drag: $($plainMove -replace '^.*console:   ', '')"
+			$wasReset = $resetMove -match 'saved default' -and $resetHands -match 'saved default.*scale 1\.00'
+			$stayed = $plainMove -match 'saved default'
+			# SNAPPING: drag the move dock left until its right edge is 4 px short
+			# of the hands dock's left edge (they share a column, so the hands
+			# dock sits right below it); it must land butted up against it.
+			$snapped = $false; $snapNote = 'rects unreadable'
+			if ($plainMove -match 'px (-?\d+),(-?\d+) (\d+)x(\d+)') {
+				$mLeft = [int]$Matches[1]; $mW = [int]$Matches[3]
+				if ($resetHands -match 'px (-?\d+),') {
+					$hLeft = [int]$Matches[1]
+					$dx = ($hLeft - 4) - ($mLeft + $mW)
+					Send-Drag $script:moveX $script:moveY ($script:moveX + $dx) $script:moveY
+					$snapMove = Get-PanelRow 'move'
+					Write-Host "  after a snapping drag: $($snapMove -replace '^.*console:   ', '')"
+					$want = $hLeft - $mW
+					$snapNote = "wanted the left edge at $want"
+					if ($snapMove -match 'px (-?\d+),') { $snapped = [Math]::Abs([int]$Matches[1] - $want) -le 1 }
+					Send-Key 0xC0
+					Start-Sleep -Milliseconds 500
+					Send-Text 'hudpanel reset'; Send-Key 0x0D
+					Send-Key 0xC0
+				}
+			}
+			if (-not $wasReset -or -not $stayed -or -not $snapped) {
+				Write-Host $(if (-not $wasReset) { 'the reset button did not put the panels home' }
+							 elseif (-not $stayed) { 'a drag without Ctrl moved a panel' }
+							 else { "a drag 4 px from an edge did not snap to it ($snapNote)" }) -ForegroundColor Red
+				if ($result -eq 'PASS') { $result = 'FAIL' }
+			}
+		} else {
+			Write-Host 'could not read the move dock''s rect - the reset button was not checked' -ForegroundColor Yellow
+			if ($result -eq 'PASS') { $result = 'UNMEASURED' }
+		}
+	}
+
+	# And for -Minimal: the cards must have been up - else the run measured the
+	# Standard HUD and says nothing about the Minimal one. Then Standard goes
+	# back, so the next harness on this build starts where it expects.
+	if ($Minimal) {
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		Send-Text 'hudpanel list'; Send-Key 0x0D
+		Start-Sleep -Milliseconds 500
+		Send-Text 'hudpanel layout standard'; Send-Key 0x0D
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0
+		$cardsRow = @(Select-String -Path $log -Pattern 'console:   cards ')[-1].Line
+		Write-Host "  $($cardsRow -replace '^.*console:   ', '')"
+		if ($cardsRow -notmatch 'cards +shown' -and $result -eq 'PASS') {
+			Write-Host 'the party cards were not up - the Minimal layout was not measured' -ForegroundColor Yellow
 			$result = 'UNMEASURED'
 		}
 	}

@@ -226,6 +226,9 @@ public:
 	// shown member's inventory; GameUI resolves it.
 	std::function<void(ItemPlace)> onItemDetails;
 	std::function<void(ItemPlace)> onItemUse;
+	// The card's background opacity, read live (Settings -> UI; the sheet is a
+	// floating window, ui-panels P3b). Null = opaque.
+	const float* opacity = nullptr;
 	// The project's spell registry (wired to DungeonWorld::SpellDefs), so the
 	// Spells tab can resolve a learned spell id -> its school, rune count, and
 	// description. Null-safe: no registry, an empty Spells tab.

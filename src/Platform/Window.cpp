@@ -11,6 +11,16 @@ namespace dungeon {
 
 namespace {
 constexpr wchar_t kClassName[] = L"DungeonWindowClass";
+
+// The system cursor for each shape SetCursorShape takes.
+const wchar_t* CursorId(Window::Cursor shape) {
+	switch (shape) {
+	case Window::Cursor::SizeWE: return IDC_SIZEWE;
+	case Window::Cursor::SizeAll: return IDC_SIZEALL;
+	case Window::Cursor::SizeNWSE: return IDC_SIZENWSE;
+	default: return IDC_ARROW;
+	}
+}
 }
 
 Window::Window(const WindowDesc& desc) : m_width(desc.width), m_height(desc.height) {
@@ -160,7 +170,7 @@ i64 Window::HandleMessage(u32 msg, u64 wparam, i64 lparam) {
 	// over the frame, Windows keeps its own sizing arrows.
 	case WM_SETCURSOR:
 		if (LOWORD(lparam) == HTCLIENT) {
-			SetCursor(LoadCursorW(nullptr, m_cursor == Cursor::SizeWE ? IDC_SIZEWE : IDC_ARROW));
+			SetCursor(LoadCursorW(nullptr, CursorId(m_cursor)));
 			return TRUE;
 		}
 		return DefWindowProcW(m_hwnd, msg, static_cast<WPARAM>(wparam), static_cast<LPARAM>(lparam));
@@ -175,7 +185,7 @@ void Window::SetCursorShape(Cursor shape) {
 	m_cursor = shape;
 	// Applied now: WM_SETCURSOR only comes with the next move, and not at all
 	// while a drag holds capture - a drag must keep the arrow it started with.
-	SetCursor(LoadCursorW(nullptr, shape == Cursor::SizeWE ? IDC_SIZEWE : IDC_ARROW));
+	SetCursor(LoadCursorW(nullptr, CursorId(shape)));
 }
 
 void Window::UpdateCapture() {

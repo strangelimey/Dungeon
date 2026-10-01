@@ -107,11 +107,12 @@ void MemberButton::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Vec4 col = m ? m->portraitColor : theme.control;
 	const ui::Skin* skin = ctx.GetSkin();
 	if (skin && skin->button.texture) {
-		ui::DrawNineSlice(batch, r, skin->button,
-						  eligible ? Vec4{1, 1, 1, 1}
-								   : Vec4{0.55f, 0.55f, 0.55f, 1.0f});
-		const float ring = skin->button.corner * skin->button.scale;
-		const float in = std::max(2.0f, ring - 2.0f);
+		// A stone button, sunk while selected, with the member's colour laid
+		// flat inside its bevel.
+		const ui::Face kind = selected ? ui::Face::ButtonDown : ui::Face::Button;
+		ui::DrawFace(batch, r, *skin, kind,
+					 eligible ? Vec4{1, 1, 1, 1} : Vec4{0.55f, 0.55f, 0.55f, 1.0f});
+		const float in = ui::FaceInset(*skin, kind);
 		const gfx::Rect face{r.x + in, r.y + in, r.w - 2 * in, r.h - 2 * in};
 		if (eligible) {
 			const float f = selected ? 1.0f : (m_hot ? 0.95f : 0.75f);
@@ -321,8 +322,7 @@ void SpellbookPanel::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	for (size_t i = 0; i < slots.size(); ++i) {
 		const gfx::Rect r = SymbolRect(px, i);
 		if (!slots[i].known) { // reserved school slot, not yet memorized
-			batch.DrawRect(r, theme.control);
-			ui::DrawBorder(batch, r, theme.panelBorder);
+			ui::DrawSlotFace(ctx, batch, r, theme.control);
 			continue;
 		}
 		// Disabled = already spelled into the sequence (or blocked by the
@@ -340,8 +340,7 @@ void SpellbookPanel::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 			DrawRuneFace(batch, r, m_sequence[i], m_icons,
 						 static_cast<int>(i) == m_hotSeq);
 		} else {
-			batch.DrawRect(r, theme.control);
-			ui::DrawBorder(batch, r, theme.panelBorder);
+			ui::DrawSlotFace(ctx, batch, r, theme.control);
 		}
 	}
 

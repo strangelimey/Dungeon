@@ -194,6 +194,11 @@ void CharacterSheet::UpdateSelf(ui::UIContext& ctx) {
 	if (!pointerFree) return;
 	const float mx = input->MouseX(), my = input->MouseY();
 	if (!Pixel().Contains(mx, my)) return;
+	// The TITLE BAND - right of the portrait, above the tab icons, where the name
+	// sits - acts on nothing, so it is left to the sheet's floating window
+	// (ui-panels P3b), which claims it as its own background. (A Ctrl-drag
+	// moves the window from anywhere on it.)
+	if (mx >= Ax(px, kNameX) && my < Ay(px, kModeBtnY)) return;
 	const bool clicked = m_character && input->WasMousePressed(MouseButton::Left);
 
 	if (m_mode == Mode::Inventory)
@@ -207,7 +212,8 @@ void CharacterSheet::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const ui::Theme& theme = ctx.GetTheme();
 	const gfx::Rect px = Body();
 
-	ui::DrawPanelFace(ctx, batch, Pixel()); // the whole card, status band included
+	// The whole card, status band included.
+	ui::DrawPanelFace(ctx, batch, Pixel(), opacity ? *opacity : 1.0f);
 	if (!m_character) return;
 	DrawStatus(ctx, batch);
 

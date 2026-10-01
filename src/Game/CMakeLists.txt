@@ -119,6 +119,7 @@ add_library(Game STATIC
 	PartyBar.cpp
 	CharacterPanel.cpp
 	ControlBar.cpp
+	MemberCards.cpp
 	HandSlot.cpp
 	GuardSlider.cpp
 	SpellbookPanel.cpp

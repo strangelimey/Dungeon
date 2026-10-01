@@ -1,34 +1,37 @@
 // ============================================================================
-// Game/ControlBar.h - the right-hand HUD column: movement, hands, magic.
+// Game/ControlBar.h - the HUD's movement, hands and magic docks.
 //
 // THREE PANELS, NOT ONE (play-test #6-#8, Michael 2026-09-28). The Dungeon
-// Master control panel was one framed box holding all three parts; it is now a
-// frameless column of three framed docks, one per part:
+// Master control panel was one framed box holding all three parts; it became
+// a column of three framed docks, and now (ui-panels P3a) three FLOATING
+// panels the player moves and resizes on their own (UI/FloatingPanel.h):
 //
-//   ControlBar          the column; lays the docks out, draws nothing itself
-//     HudDock "move"    header (title + minimize) over the MovementPad
-//       MovementPad     3x2 grid of turn/step buttons
-//     HudDock "hands"   no header; the hand grid alone
-//       HandsArea       2x2 grid, one cell per party member
-//         HandPair      that member's two hands
-//     HudDock "magic"   header (title + minimize) over the spellbook
+//   FloatingPanel "move"   placement + grips
+//     HudDock              header (title + minimize) over the MovementPad
+//       MovementPad        3x2 grid of turn/step buttons
+//   FloatingPanel "hands"
+//     HudDock              no header; the hand grid alone
+//       HandsArea          2x2 grid, one cell per party member
+//         HandPair         that member's two hands
+//   FloatingPanel "magic"
+//     HudDock              header (title + minimize) over the spellbook
 //       SpellbookPanel
 //
-// His rules for the three, each of which is a line of LayoutSelf:
+// His rules for the three:
 //   - Movement and Magic can each be MINIMIZED to their header strip, and start
 //     expanded. The flags are the player's (settings.ini hud_move_collapsed /
 //     hud_magic_collapsed), so ControlBarDeps carries pointers to them.
-//   - Minimizing a panel DOES NOT MOVE THE OTHERS. Every dock is placed as if
-//     all were expanded, and a minimized one only draws shorter. That is also
-//     the first half of "later, each panel resizable and movable with the
-//     mouse": no dock's position is derived from another's CURRENT size.
+//   - Minimizing a panel DOES NOT MOVE THE OTHERS: a panel's DEFAULT spot comes
+//     from the others' EXPANDED sizes, and a minimized one only draws shorter
+//     from where its top already was. That was "the first half of later, each
+//     panel resizable and movable with the mouse", and floating is the second.
 //   - Magic is not shown at all until some member KNOWS A SYMBOL (it appears the
 //     moment one is learned). Derived every layout from the roster, never
 //     latched, so a load or a roster change is right with no notification.
 //
-// Every bound is a fraction of its own parent, so the whole column moves or
-// resizes by setting ControlBar::bounds. The one size that depends on content
-// is the hand grid: a party of one or two fills a single row.
+// A dock's SIZE is its content's: square cells and boxes sized from the
+// width, so the height follows (the size functions below). The one size that
+// depends on the party is the hand grid: a party of one or two fills one row.
 // ============================================================================
 #pragma once
 
@@ -37,6 +40,7 @@
 #include "Game/PartyHudTypes.h"
 #include "Game/SpellbookPanel.h"
 #include "UI/Controls.h"
+#include "UI/FloatingPanel.h"
 
 #include <functional>
 #include <string>
@@ -80,11 +84,28 @@ struct ControlBarDeps {
 	bool* moveCollapsed = nullptr;
 	bool* magicCollapsed = nullptr;
 	std::function<void()> onCollapseChanged;
-	// Each dock's scale and background opacity (GameSettings, Settings -> UI),
-	// read live every layout and draw. Null = scale 1, opaque.
-	const HudPanelLook* moveLook = nullptr;
-	const HudPanelLook* handsLook = nullptr;
-	const HudPanelLook* magicLook = nullptr;
+	// Each dock's placement, scale and background opacity (GameSettings,
+	// Settings -> UI and the panel grips), read live every layout and draw.
+	HudPanelLook* moveLook = nullptr;
+	HudPanelLook* handsLook = nullptr;
+	HudPanelLook* magicLook = nullptr;
+	// Where the docks' DEFAULT column sits: its width and right margin as
+	// window fractions (at scale 1), and its top and bottom in pixels (asked
+	// every layout - the top follows the party bar's default height).
+	float columnW = 0.156f;
+	float columnMargin = 0.01f;
+	std::function<float(ui::UIContext&)> columnTop;
+	std::function<float(ui::UIContext&)> columnBottom;
+	// Settings -> UI "Lock HUD layout", and who to tell when a drag ends.
+	const bool* locked = nullptr;
+	std::function<void()> onPlacementChanged;
+	// THE MINIMAL LAYOUT (Game/MemberCards.h): no Hands dock - the hands ride
+	// the party cards - and the Magic dock's default spot and its height at
+	// scale 1 (pixels) come from the owner, since the column under Movement now
+	// holds the cards. Null = the Standard column's rules.
+	bool withHands = true;
+	std::function<Vec2(ui::UIContext&)> magicDefaultPos;
+	std::function<float(ui::UIContext&)> magicHeight1;
 };
 
 // 3x2 grid of movement buttons: turn-left / forward / turn-right over
@@ -143,17 +164,17 @@ private:
 	void LayoutSelf(ui::UIContext& ctx) override;
 };
 
-// One framed panel of the column: an optional HEADER (title, and a minimize
-// button when it has a flag to flip) over one content widget. The column sets
-// its bounds; the dock lays out its own header and content inside its padding.
-// Minimized, the content is hidden and the dock is only as tall as its header
-// - the column decides that height too, so the dock just follows the flag.
+// One framed dock: an optional HEADER (title, and a minimize button when it has
+// a flag to flip) over one content widget. It fills its FloatingPanel and lays
+// out its own header and content inside its padding. Minimized, the content is
+// hidden and the dock is only as tall as its header - the panel's size
+// function decides that height, so the dock just follows the flag.
 //
-// SCALED through the inherited fontScale: the column sets it to the dock's
-// HudPanelLook::scale, and everything inside a dock measures its detail in EM
-// rather than rem, so the boxes, the gaps and the text grow together. (Rem is
-// the HUD's grid and does not move with fontScale - by design - which is why
-// the widgets in here use Em.)
+// SCALED through the inherited fontScale: the floating layer sets it to the
+// panel's scale, and everything inside a dock measures its detail in EM rather
+// than rem, so the boxes, the gaps and the text grow together. (Rem is the
+// HUD's grid and does not move with fontScale - by design - which is why the
+// widgets in here use Em.)
 class HudDock : public ui::Widget {
 public:
 	// `title` empty = no header. `collapsed` null = cannot be minimized.
@@ -200,28 +221,16 @@ private:
 	const gfx::Texture *m_icoExpand = nullptr, *m_icoCollapse = nullptr;
 };
 
-class ControlBar : public ui::Widget {
-public:
-	ControlBar(const gfx::Rect& rect, const ControlBarDeps& deps);
-
-	SpellbookPanel* Spellbook() { return m_spellbook; }
-
-	// The widest dock's scale. The owner sizes the column to kPanelW times this
-	// (anchored at its right edge), so a dock scaled up never escapes it.
-	float WidestScale() const;
-
-private:
-	// Places the three docks, in PIXELS, then converts to fractions. The hand
-	// grid's height is DERIVED from the width (square boxes); Magic takes what
-	// is left below it. Positions are always the EXPANDED ones (see the header).
-	void LayoutSelf(ui::UIContext& ctx) override;
-
-	const std::vector<Character>* m_roster = nullptr;
-	HudDock* m_moveDock = nullptr;
-	HudDock* m_handsDock = nullptr;
-	HudDock* m_magicDock = nullptr;
-	SpellbookPanel* m_spellbook = nullptr;
-	size_t m_rows = 1;
+// The three docks, built as floating panels on `layer`.
+struct HudDocks {
+	ui::FloatingPanel* move = nullptr;
+	ui::FloatingPanel* hands = nullptr; // null when !deps.withHands
+	ui::FloatingPanel* magic = nullptr;
+	SpellbookPanel* spellbook = nullptr;
+	// The default TOP of the slot under Movement (pixels) - where the Hands
+	// dock starts, or what takes its place (the Minimal layout's cards).
+	std::function<float(ui::UIContext&)> handsTop;
 };
+HudDocks BuildHudDocks(ui::FloatingLayer& layer, const ControlBarDeps& deps);
 
 } // namespace dungeon::game

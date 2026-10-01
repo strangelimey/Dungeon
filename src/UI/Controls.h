@@ -64,6 +64,9 @@ public:
 
 	float padX = 0.0f;
 	float padY = 0.0f;
+	// The background's opacity, read live every draw from whoever owns it (a
+	// HUD plate's Settings slider). Null = opaque.
+	const float* opacity = nullptr;
 };
 
 // Horizontal rule (like HTML <hr>): a 1px line centered in its bounds, spanning
@@ -208,6 +211,16 @@ public:
 	}
 
 	float Value() const { return m_value; }
+	// Moves the thumb to a value changed ELSEWHERE (a HUD panel resized by its
+	// corner grip) without firing onChange. A no-op mid-drag, where the
+	// player's hand is the authority. Rebuilds the readout - not per frame.
+	void SetValue(float v) {
+		if (m_dragging) return;
+		v = v < m_min ? m_min : (v > m_max ? m_max : v);
+		if (v == m_value) return;
+		m_value = v;
+		RefreshDisplay();
+	}
 	// Places shown after the point in the readout (default 2). 0 for a slider
 	// over whole numbers, which otherwise reads "Rooms: 8.00".
 	void SetDecimals(int places) {
@@ -751,15 +764,25 @@ void DrawBorder(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Vec4& colo
 // type looks the same in the palette and in a dialog listing it.
 void DrawSwatch(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Swatch& swatch);
 
-// Draws the shared framed-background look: the context's skin panel part when
-// one is set (its frame is baked in; the theme's panel alpha rides the tint so
-// the background-opacity preference applies to both looks), else the flat
-// theme fill + 1px border. Panel/TextOutput/popups route through it, and so
-// does the game-layer chrome (PartyHud's sheet/inventory/tooltip surfaces).
-// `opacity` fades the background on top of that (the HUD docks' own slider);
-// the flat look's border stays, as the party bar's slots keep theirs.
+// Draws the shared framed-background look: the context's skinned panel face
+// (stone + bevel + sheen, UI/Skin.h) when a skin is set (the theme's panel
+// alpha rides the tint so the background-opacity preference applies to both
+// looks), else the flat theme fill + 1px border. Panel/TextOutput/popups route
+// through it, and so does the game-layer chrome (PartyHud's sheet/inventory/
+// tooltip surfaces). `opacity` fades the background on top of that (the HUD
+// docks' own slider); the flat look's border stays, as the party bar's slots
+// keep theirs.
 void DrawPanelFace(UIContext& ctx, gfx::SpriteBatch& batch, const gfx::Rect& rect,
 				   float opacity = 1.0f);
+
+// Draws an ITEM SOCKET - every one, so a backpack cell, a doll slot, a bag row
+// and a HUD hand box read as the same kind of hole: skinned, the stone sunk
+// into a dark well (Face::Slot); flat, `flatFill` with the theme's 1px border
+// (a caller wanting an accent border draws it after). Returns the WELL - the rect
+// inside the frame, where the item and anything laid on the socket belong.
+// `lift` (0..1) brightens the well for hover / selection.
+gfx::Rect DrawSlotFace(const UIContext& ctx, gfx::SpriteBatch& batch, const gfx::Rect& rect,
+					   const Vec4& flatFill, float lift = 0.0f);
 
 // Draws a button FACE — the one button look (state fill, border, centered
 // label). ui::Button routes through it, and so does every hand-drawn chrome

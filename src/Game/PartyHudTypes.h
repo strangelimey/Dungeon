@@ -62,13 +62,17 @@ struct ResourceBarStyle {
 	}
 };
 
-// One of the HUD's right-hand docks (movement / hands / magic): the same two
-// knobs the party bar has. The master copy lives in GameSettings (Settings ->
-// UI, settings.ini hud_<dock>_scale / _opacity); the column points at it and
-// reads the live values every layout and draw, so a slider needs no apply.
+// One FLOATING HUD panel's placement and look (ui-panels P3a: the party bar,
+// the two left plates, the Movement / Hands / Magic docks). The master copy
+// lives in GameSettings (kHudPanelFields; Settings -> UI, settings.ini
+// hud_<id>_pos / _scale / _opacity); the panel points at it and reads the live
+// values every layout and draw, so a slider needs no apply step, and a corner
+// drag and the slider edit the SAME scale.
 struct HudPanelLook {
-	float scale = 1.0f;   // 0.5..1.5: the dock AND its text, about the right edge
-	float opacity = 1.0f; // 0..1: the dock's panel face only, never its controls
+	float x = -1.0f;      // top-left as window fractions; < 0 = not moved yet,
+	float y = -1.0f;      // so the panel sits at its default spot
+	float scale = 1.0f;   // 0.5..1.5: the panel AND its text
+	float opacity = 1.0f; // 0..1: the panel face only, never its controls
 };
 
 // WHERE an item sits in a member's inventory, for the item mouse buttons

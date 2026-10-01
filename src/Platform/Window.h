@@ -63,10 +63,11 @@ public:
 	std::function<void(u32, u32)> onResize;
 
 	// The pointer's shape over the client area. The game sets it every frame
-	// from what the pointer is over (the map editor's dock edges want the
-	// left-right resize arrow); a change applies at once, even mid-drag, when
-	// mouse capture keeps Windows from asking (WM_SETCURSOR).
-	enum class Cursor : u8 { Arrow, SizeWE };
+	// from what the pointer is over (a floating HUD panel's move grip wants the
+	// four-way arrow, its resize grip the diagonal; the map editor's dock edges
+	// the left-right one); a change applies at once, even mid-drag, when mouse
+	// capture keeps Windows from asking (WM_SETCURSOR).
+	enum class Cursor : u8 { Arrow, SizeWE, SizeAll, SizeNWSE };
 	void SetCursorShape(Cursor shape);
 
 private:

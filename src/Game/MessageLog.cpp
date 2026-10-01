@@ -4,6 +4,7 @@
 #include "Game/MessageLog.h"
 
 #include "UI/Controls.h" // ui::DrawBorder
+#include "UI/Skin.h"     // ui::DrawFace
 
 #include <algorithm>
 
@@ -170,12 +171,18 @@ void MessageLog::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 
 	if (ca > 0.02f) {
 		const gfx::Rect footer = FooterRect(ctx);
-		Vec4 bg = theme.panel;
-		bg.w *= ca;
-		batch.DrawRect(footer, bg);
-		Vec4 border = theme.panelBorder;
-		border.w *= ca;
-		ui::DrawBorder(batch, footer, border);
+		const ui::Skin* skin = ctx.GetSkin();
+		if (skin && skin->panel.texture) {
+			// A stone panel like every other piece of chrome, faded as a whole.
+			ui::DrawFace(batch, footer, *skin, ui::Face::Panel, {1, 1, 1, theme.panel.w * ca});
+		} else {
+			Vec4 bg = theme.panel;
+			bg.w *= ca;
+			batch.DrawRect(footer, bg);
+			Vec4 border = theme.panelBorder;
+			border.w *= ca;
+			ui::DrawBorder(batch, footer, border);
+		}
 
 		const gfx::Rect inner{footer.x + Rem(kPadRem), footer.y + Rem(kPadRem),
 							  footer.w - 2.0f * Rem(kPadRem), footer.h - 2.0f * Rem(kPadRem)};
@@ -198,12 +205,18 @@ void MessageLog::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const float ba = 1.0f - ca;
 	if (ba > 0.02f) {
 		const gfx::Rect btn = RestoreRect(ctx);
-		Vec4 bg = theme.panel;
-		bg.w *= ba * (m_restoreHot ? 0.9f : 0.5f);
-		batch.DrawRect(btn, bg);
-		Vec4 border = theme.panelBorder;
-		border.w *= ba * 0.7f;
-		ui::DrawBorder(batch, btn, border);
+		const ui::Skin* skin = ctx.GetSkin();
+		if (skin && skin->button.texture) {
+			ui::DrawFace(batch, btn, *skin, ui::Face::Button,
+						 {1, 1, 1, ba * (m_restoreHot ? 1.0f : 0.75f)});
+		} else {
+			Vec4 bg = theme.panel;
+			bg.w *= ba * (m_restoreHot ? 0.9f : 0.5f);
+			batch.DrawRect(btn, bg);
+			Vec4 border = theme.panelBorder;
+			border.w *= ba * 0.7f;
+			ui::DrawBorder(batch, btn, border);
+		}
 		Vec4 col = theme.text;
 		col.w *= ba;
 		const float tw = font.MeasureWidth(restoreLabel);

@@ -1,44 +1,47 @@
 // ============================================================================
 // Game/InventoryWindow.cpp — see InventoryWindow.h.
 //
-// Layout is parent-relative: the panel is a fraction of the window; slots are
-// fractions of the panel. No design-pixel artboard.
+// Layout is parent-relative: the window fills its floating panel, and the slots
+// are fractions of the window. No design-pixel artboard.
 // ============================================================================
 #include "Game/InventoryWindow.h"
 
 #include "Core/Loc.h"
 #include "Game/PartyHudDraw.h"
+#include "UI/Layout.h"
 
 #include <algorithm>
 
 namespace dungeon::game {
 
 namespace {
-// Panel as fractions of the window.
-constexpr float kPanelW = 0.72f;
-constexpr float kPanelH = 0.54f;
-// Interior as fractions of the panel.
+// Interior as fractions of the window.
 constexpr float kPad = 0.025f;
 constexpr float kHeaderH = 0.055f; // title band
 constexpr float kNameH = 0.045f;
 constexpr float kGap = 0.015f;
 constexpr int kInvCols = 2;
+// The close box's slot in the top-right corner, about square at the window's
+// 0.72 x 0.54 proportions.
+constexpr float kCloseW = 0.036f, kCloseH = 0.085f;
 } // namespace
 
 InventoryWindow::InventoryWindow(std::vector<Character>* roster,
 								 const ItemIconBank* icons,
-								 HeldItem* held)
+								 HeldItem* held,
+								 const gfx::Texture* closeIcon,
+								 std::function<void()> onClose)
 	: m_roster(roster), m_icons(icons), m_held(held),
-	  m_title(loc::Tr("ui.inv_all")) {}
+	  m_title(loc::Tr("ui.inv_all")) {
+	debugName = "InventoryWindow";
+	auto* closeSlot = Add<ui::Box>(
+		gfx::Rect{1.0f - kCloseW - kPad * 0.6f, kPad, kCloseW, kCloseH});
+	closeSlot->debugName = "close";
+	ui::AddCloseButton(*closeSlot, closeIcon, std::move(onClose));
+}
 
 int InventoryWindow::MemberCount() const {
 	return static_cast<int>(std::min<size_t>(m_roster->size(), 4));
-}
-
-gfx::Rect InventoryWindow::PanelRect(const ui::UIContext& ctx) const {
-	const float w = ctx.Width() * kPanelW;
-	const float h = ctx.Height() * kPanelH;
-	return {(ctx.Width() - w) * 0.5f, (ctx.Height() - h) * 0.5f, w, h};
 }
 
 gfx::Rect InventoryWindow::SlotRect(const gfx::Rect& panel, int member,
@@ -56,15 +59,19 @@ gfx::Rect InventoryWindow::SlotRect(const gfx::Rect& panel, int member,
 			slotsTop + static_cast<float>(row) * (slotW + gap), slotW, slotW};
 }
 
+// The close box (a child) has had the pointer first. Everything here acts only
+// INSIDE the window: it floats over a running game, so a click beside it is
+// the world's.
 void InventoryWindow::UpdateSelf(ui::UIContext& ctx) {
 	if (!m_open) return;
 	const Input* input = ctx.CurrentInput();
-	if (!input) return;
-	const gfx::Rect panel = PanelRect(ctx);
+	if (!input || ctx.IsMouseConsumed()) return;
+	const gfx::Rect panel = Pixel();
+	const float mx = input->MouseX(), my = input->MouseY();
+	if (!panel.Contains(mx, my)) return;
 	const bool left = input->WasMousePressed(MouseButton::Left);
 	const bool right = input->WasMousePressed(MouseButton::Right);
 	const bool middle = input->WasMousePressed(MouseButton::Middle);
-	const float mx = input->MouseX(), my = input->MouseY();
 
 	// Right = details, middle = use menu, on a non-empty slot. The window stays
 	// open under either, so the item is still there to act on afterwards.
@@ -99,18 +106,16 @@ void InventoryWindow::UpdateSelf(ui::UIContext& ctx) {
 			}
 		}
 	}
-	if ((left || right) && !panel.Contains(mx, my)) m_open = false;
-	ctx.ConsumeMouse();
-	ctx.ConsumeWheel(); // an open popup freezes what is behind it, scroll too
+	// Not a slot: the window's background, which its floating panel takes - a
+	// press there moves it.
 }
 
-void InventoryWindow::DrawOverlaySelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
+void InventoryWindow::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	if (!m_open) return;
 	const ui::Theme& theme = ctx.GetTheme();
 	const ui::Font& font = TextFont();
-	batch.DrawRect({0, 0, ctx.Width(), ctx.Height()}, {0, 0, 0, 0.5f});
-	const gfx::Rect panel = PanelRect(ctx);
-	ui::DrawPanelFace(ctx, batch, panel);
+	const gfx::Rect panel = Pixel();
+	ui::DrawPanelFace(ctx, batch, panel, opacity ? *opacity : 1.0f);
 	const float padX = kPad * panel.w, padY = kPad * panel.h;
 	font.Draw(batch, m_title, panel.x + padX, panel.y + padY, theme.accent);
 
@@ -123,8 +128,7 @@ void InventoryWindow::DrawOverlaySelf(ui::UIContext& ctx, gfx::SpriteBatch& batc
 				  panel.y + padY + kHeaderH * panel.h, theme.text);
 		for (int i = 0; i < static_cast<int>(pack.size()); ++i) {
 			const gfx::Rect r = SlotRect(panel, m, i);
-			batch.DrawRect(r, kSlotBg);
-			ui::DrawBorder(batch, r, theme.panelBorder);
+			ui::DrawSlotFace(ctx, batch, r, kSlotBg);
 			const ItemSlot& s = pack[static_cast<size_t>(i)];
 			if (!s.Empty() && m_icons) {
 				if (const gfx::Texture* icon = m_icons->For(s.typeId)) {

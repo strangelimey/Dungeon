@@ -1608,12 +1608,16 @@ void Game::Update(float dt) {
 	UpdateStates(dt);
 
 	// The pointer's shape, from what this frame's input left it over: the
-	// editor's dock edges want the resize arrow (MapView_Docks.cpp). Set once,
-	// here, so no path through UpdateStates has to remember to put it back.
-	m_window.SetCursorShape(m_mapView.IsOpen() && !ShowingWorldPage() &&
-									m_mapView.WantsResizeCursor()
-								? Window::Cursor::SizeWE
-								: Window::Cursor::Arrow);
+	// editor's dock edges want the resize arrow (MapView_Docks.cpp), a
+	// Ctrl-hovered floating HUD panel its move or resize arrow (GameUI::
+	// PanelCursor, taken whether or not it is used so it never goes stale). Set
+	// once, here, so no path through UpdateStates has to remember to put it back.
+	const Window::Cursor hudCursor = m_ui.TakeHudCursor();
+	m_window.SetCursorShape(m_mapView.IsOpen()
+								? (!ShowingWorldPage() && m_mapView.WantsResizeCursor()
+									   ? Window::Cursor::SizeWE
+									   : Window::Cursor::Arrow)
+								: hudCursor);
 
 	// A frame that LEFT the guarded states is a transition, not a steady-state
 	// frame. SteadyStateFrame judged it on the state at the top, but pressing Esc

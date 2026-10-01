@@ -1,11 +1,16 @@
 // ============================================================================
-// Game/InventoryWindow.h — combined party inventory overlay (one backpack column per member).
+// Game/InventoryWindow.h — combined party inventory (one backpack column per member).
 //
-// SCREEN-ANCHORED, not parent-relative: it centres itself on the window and
-// draws in the OVERLAY pass, so `bounds` stays zero and its rect comes from
-// PanelRect(ctx). That is deliberate for a floating panel — it must not be
-// clipped or positioned by whatever happens to own it — but it means the tree
-// inspector reports it as 0x0. See docs/ui-hierarchy.md.
+// A FLOATING WINDOW (ui-panels P3b): the content of a ui::FloatingPanel on the
+// HUD's floating layer, which places it, moves it and scales it like every
+// other HUD panel (the panel shows only while the window is open). It fills
+// that panel and lays itself out in fractions of its own rect.
+//
+// It used to be a modal overlay - a screen-wide dim, centred on the window, a
+// click anywhere outside it closing it. Grimrock's inventory floats over the
+// running game instead, so this one does too: no dim, the world clickable
+// around it, and closed by its corner box (or Esc, which Game routes here
+// first).
 // ============================================================================
 #pragma once
 
@@ -21,8 +26,16 @@ namespace dungeon::game {
 
 class InventoryWindow : public ui::Widget {
 public:
+	// The window's size at scale 1, as fractions of the game window (the
+	// floating panel's size function multiplies them out).
+	static constexpr float kWidthFrac = 0.72f;
+	static constexpr float kHeightFrac = 0.54f;
+
+	// `closeIcon` is the shared corner box (AssetUtil CloseIcon); `onClose`
+	// runs when it is clicked.
 	InventoryWindow(std::vector<Character>* roster, const ItemIconBank* icons,
-					HeldItem* held);
+					HeldItem* held, const gfx::Texture* closeIcon,
+					std::function<void()> onClose);
 
 	void Open() { m_open = true; }
 	void Close() { m_open = false; }
@@ -34,13 +47,14 @@ public:
 	std::function<void(size_t member, int slot)> onItemDetails;
 	std::function<void(size_t member, int slot)> onItemUse;
 
+	// The background's opacity, read live (Settings -> UI). Null = opaque.
+	const float* opacity = nullptr;
+
 	void UpdateSelf(ui::UIContext& ctx) override;
-	void DrawSelf(ui::UIContext&, gfx::SpriteBatch&) override {} // overlay-only
-	void DrawOverlaySelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 private:
 	int MemberCount() const;
-	gfx::Rect PanelRect(const ui::UIContext& ctx) const;
 	gfx::Rect SlotRect(const gfx::Rect& panel, int member, int slot) const;
 
 	std::vector<Character>* m_roster;
