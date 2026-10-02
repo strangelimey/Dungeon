@@ -2232,10 +2232,17 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   held item's hand menu - a row, not a command, so a key or rune in a hand
   still opens its menu on a click and keeps Punch / Kick. use.throw and the
   missing use.drink are in the lang files.
-- A RUNE GLOWS WHEREVER IT SITS: `DrawItemIcon` (PartyHudDraw.h) is the one way
-  an item goes into a socket, and a rune tablet draws as the Magic window draws
-  it (DrawRuneGlow: glyph lit over a pulsing halo) - hands, doll, backpack,
-  party inventory, the cursor, a set hand's recipe and the Known Spells list.
+- A RUNE IS A TABLET IN THE PACK, A GLYPH IN THE CONTROLS (Michael,
+  2026-10-02): `DrawItemIcon` (PartyHudDraw.h) is the one way an item goes into
+  a socket. In the pack, doll, bags, party window and on the cursor a rune is
+  its CARVED TABLET - an icon baked from the 3D model (BakeRuneIcon) with the
+  school's halo breathing over the groove (RuneFaceUv places it). The HUD hand
+  boxes, the doll's hand cells, a set hand's recipe, the Magic window and the
+  Known Spells list pass `symbolic` and draw the glyph alone (DrawRuneGlow).
+  The groove glows IN 3D too: `MaterialParams::emissiveGroove` decodes the
+  carve from the rune set's occlusion (RuneBaker writes 1 - 0.45 x carve), and
+  `RuneTabletMaterial` is the one held-tablet material (icon bake + details
+  dialog, which breathes it on the same kRuneBreathSeconds), so the two match.
   DrawRuneFace survives only as the glow's fallback.
 - THE STARTER KIT (Character.cpp CreateDefaultParty): Brand a dagger in his
   right hand (his bare left is what the harness's `swing 0` uses), Sera one in
