@@ -95,8 +95,12 @@ The answer to the open question, in four parts:
 
 - A bolt lights in its SCHOOL'S colour by default (profiles `bolt_fire`,
   `bolt_water`, `bolt_air`, `bolt_earth`); spells.cat `light = <profile>`
-  overrides it per spell. A volley's bolts in one lane MERGE into one light
-  (summed intensity at their centre), so a volley costs one light, not five.
+  overrides it per spell. A volley is ONE LIGHT PER BOLT (Michael,
+  2026-10-02), so each bolt lights its own stretch of corridor as it flies.
+  What keeps that affordable is Phase 3, not merging: bolt lights are
+  shadowless and small-radius, the tiles keep each one's cost to the pixels
+  it reaches, and the ranking drops the dimmest first if a big fight ever
+  outruns Max Lights. The stress check casts volleys in a fire-dense room.
 - A thrown item lights if its kind has a `light` (a thrown lit torch keeps
   lighting the corridor it flies down, and lands lit).
 - MAGIC ARROWS: no bow or arrow exists yet, so this phase builds the hook only -
