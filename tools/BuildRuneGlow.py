@@ -24,7 +24,7 @@ from PIL import Image, ImageFilter
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 UI = os.path.join(REPO, "assets", "ui")
-RUNES = ["fire", "earth", "air", "water", "project", "protect", "sight"]
+RUNES = ["fire", "earth", "air", "water", "project", "protect", "sight", "multiple", "explode"]
 GLOW_RADIUS = 9.0     # px of blur at the icons' 128px - about 7% of the tile
 GLOW_SPREAD = 1.35    # the halo's alpha is lifted, then clipped, so it reads wide
 

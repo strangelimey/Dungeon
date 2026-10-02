@@ -8,9 +8,11 @@ namespace dungeon::baker {
 // uncompressed RGBA8 DDS next to it (same stem, .dds extension).
 bool BakeMipChain(const std::string& pngPath, const std::string& ddsPath);
 
-// Runs BakeMipChain for every .png in <texturesDir>. DDS files are derived
-// artifacts (gitignored); rerun after importing or rebaking textures.
-bool BakeAllMips(const std::string& texturesDir);
+// Runs BakeMipChain for every .png in <texturesDir> whose name starts with
+// `prefix` (empty = all). DDS files are derived artifacts (gitignored); rerun
+// after importing or rebaking textures. The prefix exists because the whole
+// folder is ~640 chains: a `runes` rebake wants `rune_`, not an hour.
+bool BakeAllMips(const std::string& texturesDir, const std::string& prefix = {});
 
 // The same for the images EMBEDDED in every .gltf/.glb in <modelsDir>: one BC7
 // chain per image, beside the model as assets::EmbeddedImageSidecar names it,

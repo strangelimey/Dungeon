@@ -49,6 +49,20 @@ weight = 0.5
 holdable = 1
 symbol = sight
 
+[rune_multiple]
+name = item.rune_multiple
+category = rune
+weight = 0.5
+holdable = 1
+symbol = multiple
+
+[rune_explode]
+name = item.rune_explode
+category = rune
+weight = 0.5
+holdable = 1
+symbol = explode
+
 [backpack]
 name = item.backpack
 category = container

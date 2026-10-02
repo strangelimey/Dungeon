@@ -31,12 +31,40 @@ class DamageTypeBook; // Catalog.h — SpellBook::Build reads the spells catalog
 
 // The spell symbols: the four tier-1 SCHOOL elements first, then the shared
 // tier-2 FORM symbols (Project = "throw it ahead", Protect = "guard the
-// caster", Sight = "see through the wall ahead"; more forms follow — see
-// docs/magic system.md). The enum order is the serialization order (save +
-// catalog tokens) — APPEND new symbols, never reorder.
-enum class SpellSymbol : u8 { Fire, Earth, Air, Water, Project, Protect, Sight, Count };
+// caster", Sight = "see through the wall ahead"), then the tier-3 MODIFIERS
+// (Multiple = Ingwaz, "more of it"; Explode = Hagalaz, "burst") - see
+// docs/magic system.md. The enum order is the serialization order (save +
+// catalog tokens) - APPEND new symbols, never reorder.
+enum class SpellSymbol : u8 {
+	Fire, Earth, Air, Water, Project, Protect, Sight, Multiple, Explode, Count
+};
 
 inline constexpr u32 kSymbolCount = static_cast<u32>(SpellSymbol::Count);
+
+// A symbol's TIER, which is also its place in a recipe: a spell is a school,
+// then optionally one form, then optionally one modifier (Kenaz Tiwaz Hagalaz).
+enum class SymbolTier : u8 { School, Form, Modifier };
+
+inline constexpr SymbolTier TierOf(SpellSymbol s) {
+	switch (s) {
+	case SpellSymbol::Fire:
+	case SpellSymbol::Earth:
+	case SpellSymbol::Air:
+	case SpellSymbol::Water:    return SymbolTier::School;
+	case SpellSymbol::Multiple:
+	case SpellSymbol::Explode:  return SymbolTier::Modifier;
+	default:                    return SymbolTier::Form;
+	}
+}
+
+// Whether `s` may follow `sequence` in a recipe: school first, then at most one
+// form, then at most one modifier. The spellbook offers only the runes this
+// allows, and SpellBook::Build holds every class recipe to it.
+bool SymbolMayFollow(SpellSymbol s, std::span<const SpellSymbol> sequence);
+// Whether a whole sequence obeys that grammar (and is not empty).
+bool WellFormedRecipe(std::span<const SpellSymbol> sequence);
+// The longest sequence the grammar allows.
+inline constexpr size_t kMaxRecipe = 3;
 
 // The `hand` values a cast carries (DungeonWorld::CastSpell): 0/1 credit that
 // hand's quick-cast MRU, -1 credits neither (the dev console), and kBookHands
@@ -58,8 +86,12 @@ inline constexpr bool IsSchoolSymbol(SpellSymbol s) {
 
 // Lowercase id token ("fire") for catalog/save/console text.
 const char* SymbolId(SpellSymbol s);
-// loc:: key for the display name ("symbol.fire"); pass through loc::Tr.
+// loc:: key for what the symbol MEANS ("symbol.fire" = "Fire") - the element
+// word, which is also how an enchanted weapon's element is named.
 const char* SymbolKey(SpellSymbol s);
+// loc:: key for the RUNE's own name, its Elder Futhark name ("rune.fire" =
+// "Kenaz"). A rune is shown by this; its meaning goes in the description.
+const char* RuneNameKey(SpellSymbol s);
 // Parses an id token ("fire") into `out`; false on anything unknown.
 bool ParseSymbol(std::string_view token, SpellSymbol& out);
 

@@ -27,7 +27,7 @@ using devargs::ParseSymbolArg;
 void Game::RegisterPartyCommands() {
 	m_console.Register({.name = "learn",
 						.group = CmdGroup::Characters,
-						.params = "<member> <fire|earth|air|water>",
+						.params = "<member> <symbol>",
 						.summary = "grant a spell symbol to a member"},
 					   [this](const std::vector<std::string>& args) {
 						   if (!Need(m_console, args, 2)) return;
@@ -45,7 +45,7 @@ void Game::RegisterPartyCommands() {
 					   });
 	m_console.Register({.name = "rune",
 						.group = CmdGroup::Characters,
-						.params = "<fire|earth|air|water>",
+						.params = "<symbol>",
 						.summary = "give a rune tablet to the lead member's pack"},
 					   [this](const std::vector<std::string>& args) {
 						   if (!Need(m_console, args, 1)) return;

@@ -17,8 +17,9 @@ namespace {
 constexpr float kPadX = 0.045f;
 constexpr float kPadY = 0.035f;
 // The member row and rune grid sit HIGH and Cast / Clear low (Michael,
-// ui-updates): a learned spell's name prints between the grid and the sequence
-// row, and with the old 0.035 / 0.145 / 0.15 it landed on the grid's second row.
+// ui-updates). A learned spell's name used to print between the grid and the
+// sequence row (with the old 0.035 / 0.145 / 0.15 it landed on the grid's
+// second row); it sits beside the sequence now, and the grid takes that room.
 constexpr float kMemberY = 0.012f;
 constexpr float kMemberH = 0.085f;
 constexpr float kMemberGapX = 0.036f; // extra air for skinned button frames
@@ -29,7 +30,7 @@ constexpr float kSeqGap = 0.018f;
 constexpr float kCastH = 0.125f;
 constexpr float kCastGap = 0.036f; // between Cast and Clear
 constexpr float kSeqAboveCast = 0.03f;
-constexpr float kNameAboveSeq = 0.07f; // the spell name's gap above the sequence
+constexpr float kGridAboveSeq = 0.06f; // the least gap between rune grid and sequence
 // The tallest the vertical fractions above are taken of, as a share of the
 // panel's width (SpellbookPanel::RefH): about the default dock's shape before
 // the tray took a strip off it, the shape every number here was tuned at.
@@ -99,7 +100,7 @@ void SpellbookPanel::LayoutSelf(ui::UIContext&) {
 		m_memberRow->bounds = {0.0f, kMemberY * k, 1.0f, kMemberH * k};
 		size_t i = 0;
 		for (const auto& button : m_memberRow->Children()) {
-			const gfx::Rect cell = SymbolRect(px, i++);
+			const gfx::Rect cell = ColumnRect(px, i++);
 			button->bounds = {(cell.x - px.x) / px.w, 0.0f, cell.w / px.w, 1.0f};
 		}
 	}
@@ -216,7 +217,7 @@ MemberRow::MemberRow(const gfx::Rect& rect, const std::vector<Character>* roster
 			(cell + gap) * static_cast<float>(i), 0.0f, cell, 1.0f};
 }
 
-gfx::Rect SpellbookPanel::SymbolRect(const gfx::Rect& px, size_t i) const {
+gfx::Rect SpellbookPanel::ColumnRect(const gfx::Rect& px, size_t col) const {
 	// The cells are kGridCell of what the width would allow, the spare going
 	// into the gaps so the grid keeps its span: the panel's height is fixed, and
 	// full-width cells left no room for the spell name under the grid.
@@ -224,19 +225,35 @@ gfx::Rect SpellbookPanel::SymbolRect(const gfx::Rect& px, size_t i) const {
 	const float full = (px.w - 2 * pad - 3 * kGridGap * px.w) / 4.0f;
 	const float cell = full * kGridCell;
 	const float gap = (px.w - 2 * pad - 4 * cell) / 3.0f;
-	// Rows keep the authored gap: only the columns spread.
+	return {px.x + pad + (cell + gap) * static_cast<float>(col), px.y + kGridY * RefH(px),
+			cell, cell};
+}
+
+gfx::Rect SpellbookPanel::SymbolRect(const gfx::Rect& px, const RuneSlot& slot,
+									 size_t rows) const {
+	const gfx::Rect column = ColumnRect(px, slot.col);
+	// Rows keep the authored gap. The grid must end above the sequence row:
+	// three tiers of runes do not fit at the tuned size in a default-height
+	// dock, so the cells shrink until they do (a third at the least, where a
+	// dock squeezed that far has bigger problems than its runes).
 	const float rowGap = kGridGap * px.w;
-	return {px.x + pad + (cell + gap) * static_cast<float>(i % 4),
-			px.y + kGridY * RefH(px) + (cell + rowGap) * static_cast<float>(i / 4), cell,
-			cell};
+	const float n = static_cast<float>(std::max<size_t>(rows, 1));
+	const float bottom = SequenceRect(px, 0).y - kGridAboveSeq * RefH(px);
+	const float fit = (bottom - column.y - (n - 1.0f) * rowGap) / n;
+	const float cell = std::clamp(fit, column.w / 3.0f, column.w);
+	return {column.x + (column.w - cell) * 0.5f,
+			column.y + (cell + rowGap) * static_cast<float>(slot.row), cell, cell};
 }
 
 gfx::Rect SpellbookPanel::SequenceRect(const gfx::Rect& px, size_t i) const {
-	// Sequence sits just above Cast / Clear.
+	// Sequence sits just above Cast / Clear. Its cells keep the size they had
+	// when the row held six (the grammar now stops at three): a bigger row
+	// would only take height from the rune grid above it.
+	constexpr size_t kAcross = 6;
 	const float pad = kPadX * px.w, gap = kSeqGap * px.w;
 	const float cell =
-		(px.w - 2 * pad - gap * static_cast<float>(kMaxSequence - 1)) /
-		static_cast<float>(kMaxSequence);
+		(px.w - 2 * pad - gap * static_cast<float>(kAcross - 1)) /
+		static_cast<float>(kAcross);
 	const float y = CastRect(px).y - kSeqAboveCast * RefH(px) - cell;
 	return {px.x + pad + (cell + gap) * static_cast<float>(i), y, cell, cell};
 }
@@ -267,16 +284,24 @@ constexpr SpellSymbol kSchoolRow[] = {SpellSymbol::Earth, SpellSymbol::Air,
 
 SpellbookPanel::RuneSlotList SpellbookPanel::RuneSlots(const Character& c) const {
 	RuneSlotList slots;
-	const auto add = [&slots](SpellSymbol s, bool known) {
-		if (slots.count < slots.slot.size()) slots.slot[slots.count++] = {s, known};
+	u8 col = 0;
+	const auto add = [&](SpellSymbol s, bool known) {
+		if (slots.count >= slots.slot.size()) return;
+		slots.slot[slots.count++] = {s, known, static_cast<u8>(slots.rows), col++};
 	};
 	// The four school runes ALWAYS hold the top row — an unknown one keeps
 	// its place as an empty frame, so the row reads as the fixed school set.
 	for (SpellSymbol s : kSchoolRow) add(s, c.Knows(s));
-	// Everything else appears below only once memorized, in enum order.
-	for (u32 i = 0; i < kSymbolCount; ++i) {
-		const auto s = static_cast<SpellSymbol>(i);
-		if (!IsSchoolSymbol(s) && c.Knows(s)) add(s, true);
+	slots.rows = 1;
+	// The forms, then the modifiers, each tier its own row below, holding only
+	// what is memorized, in enum order. A tier with nothing known takes no row.
+	for (const SymbolTier tier : {SymbolTier::Form, SymbolTier::Modifier}) {
+		col = 0;
+		for (u32 i = 0; i < kSymbolCount; ++i) {
+			const auto s = static_cast<SpellSymbol>(i);
+			if (TierOf(s) == tier && c.Knows(s)) add(s, true);
+		}
+		if (col > 0) ++slots.rows;
 	}
 	return slots;
 }
@@ -289,15 +314,12 @@ const Spell* SpellbookPanel::Match() const {
 }
 
 namespace {
-// Whether a symbol button responds given the sequence so far. School (element)
-// runes are mutually exclusive — one picks the spell's school, then all four
-// go dark; a spell also STARTS with its school, so until one is down every
-// other symbol waits. Any symbol already spelled in is spent (no repeats).
+// Whether a symbol button responds given the sequence so far: the recipe
+// grammar (Spells.h SymbolMayFollow) - a school first, then a form, then a
+// modifier, so each row of the grid lights in its turn and goes dark once
+// spent.
 bool SymbolAvailable(SpellSymbol s, std::span<const SpellSymbol> sequence) {
-	if (std::ranges::find(sequence, s) != sequence.end()) return false;
-	const bool haveSchool =
-		!sequence.empty() && IsSchoolSymbol(sequence.front());
-	return IsSchoolSymbol(s) ? !haveSchool : haveSchool;
+	return SymbolMayFollow(s, sequence);
 }
 } // namespace
 
@@ -324,18 +346,21 @@ void SpellbookPanel::UpdateSelf(ui::UIContext& ctx) {
 	const Character* c = RosterMember(m_roster, static_cast<size_t>(m_member));
 	if (!c) return; // unreachable after the eligibility check; belt-and-braces
 	// Self-heal: a roster reset may have taken symbols back; the sequence must
-	// never show (or cast) anything the member no longer knows.
-	size_t kept = 0;
+	// never show (or cast) anything the member no longer knows. It stops at the
+	// first forgotten rune: what followed it was spelled on top of it, and
+	// closing the gap would break the school-form-modifier order.
 	for (size_t i = 0; i < m_seqLen; ++i)
-		if (c->Knows(m_sequence[i])) m_sequence[kept++] = m_sequence[i];
-	m_seqLen = kept;
+		if (!c->Knows(m_sequence[i])) {
+			m_seqLen = i;
+			break;
+		}
 
 	const RuneSlotList list = RuneSlots(*c);
 	const std::span<const RuneSlot> slots = list.View();
 	for (size_t i = 0; i < slots.size(); ++i) {
-		if (!SymbolRect(px, i).Contains(mx, my)) continue;
-		// Unknown school frames and unavailable symbols (spent, or blocked by
-		// the school rule) are inert — no hover, no click.
+		if (!SymbolRect(px, slots[i], list.rows).Contains(mx, my)) continue;
+		// Unknown school frames and unavailable symbols (spent, or out of
+		// turn in the recipe order) are inert - no hover, no click.
 		if (!slots[i].known || !SymbolAvailable(slots[i].symbol, Sequence()))
 			break;
 		m_hotSymbol = static_cast<int>(i);
@@ -377,19 +402,19 @@ void SpellbookPanel::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	}
 
 	// The rune grid: the school row on top (unknown schools keep their place
-	// as empty frames), learned runes below. A symbol the sequence can't take
-	// right now (spent, or blocked by the one-school rule) draws disabled
-	// until a sequence edit frees it.
+	// as empty frames), then a row of known forms and a row of known modifiers.
+	// A symbol the sequence can't take right now (spent, or out of turn in the
+	// recipe order) draws disabled until a sequence edit frees it.
 	const RuneSlotList list = RuneSlots(*c);
 	const std::span<const RuneSlot> slots = list.View();
 	for (size_t i = 0; i < slots.size(); ++i) {
-		const gfx::Rect r = SymbolRect(px, i);
+		const gfx::Rect r = SymbolRect(px, slots[i], list.rows);
 		if (!slots[i].known) { // reserved school slot, not yet memorized
 			ui::DrawSlotFace(ctx, batch, r, theme.control);
 			continue;
 		}
-		// Disabled = already spelled into the sequence (or blocked by the
-		// school rule): it stops responding until a sequence edit frees it.
+		// Disabled = already spelled into the sequence (or out of turn): it
+		// stops responding until a sequence edit frees it.
 		// Each rune GLOWS in its school's colour in its socket, pulsing a
 		// little out of step with its neighbours (ui-updates).
 		ui::DrawSlotFace(ctx, batch, r, theme.control);
@@ -397,31 +422,35 @@ void SpellbookPanel::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 					 !SymbolAvailable(slots[i].symbol, Sequence()), RunePhase(batch, i));
 	}
 
-	// The sequence spelled out so far — six slots at the bottom, just above
-	// Cast / Clear, filled left to right.
+	// The sequence spelled out so far - kMaxSequence slots at the bottom, just
+	// above Cast / Clear, filled left to right. (Their glow phases follow on
+	// from the grid's, so no socket pulses in step with another.)
 	for (size_t i = 0; i < kMaxSequence; ++i) {
 		const gfx::Rect r = SequenceRect(px, i);
 		if (i < m_seqLen) {
 			ui::DrawSlotFace(ctx, batch, r, theme.control);
 			DrawRuneGlow(batch, r, m_sequence[i], m_icons, static_cast<int>(i) == m_hotSeq,
-						 false, RunePhase(batch, i + 7));
+						 false, RunePhase(batch, i + kSymbolCount));
 		} else {
 			ui::DrawSlotFace(ctx, batch, r, theme.control);
 		}
 	}
 
-	// The spell those symbols resolve to — on the line above the sequence row,
+	// The spell those symbols resolve to - BESIDE the sequence row, in the room
+	// its three cells leave on the right (it sat on a line of its own above the
+	// row while that held six, and the line cost the rune grid its third row) -
 	// but ONLY once this member has LEARNED it (first successful cast). An
 	// unlearned recipe stays anonymous so building a sequence is genuine
 	// EXPERIMENTATION: the book won't confirm a discovery before the cast does.
-	// Drawn from a view of the table's own text (it shows every frame the
-	// sequence matches, so it must build no string). No "= " lead any more
-	// (Michael, ui-updates), and a clear gap above the sequence row it names.
-	const gfx::Rect seq0 = SequenceRect(px, 0);
+	// Drawn from a view of the table's own text, fitted with a trim mark (it
+	// shows every frame the sequence matches, so it must build no string). No
+	// "= " lead (Michael, ui-updates).
 	if (const Spell* def = Match(); def && c->HasLearnedSpell(def->Id())) {
-		const float x = px.x + kPadX * px.w;
-		const float y = seq0.y - kNameAboveSeq * RefH(px) - font.Height();
-		font.Draw(batch, loc::View(def->NameKey()), x, y, theme.accent);
+		const gfx::Rect last = SequenceRect(px, kMaxSequence - 1);
+		const float x = last.x + last.w + Rem(0.5f);
+		const float room = px.x + px.w - kPadX * px.w - x;
+		const float y = last.y + (last.h - font.Height()) * 0.5f;
+		ui::DrawFittedText(batch, font, loc::View(def->NameKey()), x, y, room, theme.accent);
 	}
 	// (Cast / Clear are child ui::Buttons and draw themselves.)
 }

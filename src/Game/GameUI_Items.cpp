@@ -531,7 +531,7 @@ void GameUI::MemorizeSlot(size_t i, ItemSlot& slot) {
 	slot.Clear(); // the tablet is consumed
 	Click();
 	AddLogLine(loc::FormatLine("log.memorize", m_characters[i].name,
-							   loc::View(SymbolKey(sym))),
+							   loc::View(RuneNameKey(sym))),
 			   m_characters[i].portraitColor);
 	RefreshSheet(); // the sheet's known symbols may be on screen later
 }

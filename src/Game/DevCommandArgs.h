@@ -56,11 +56,17 @@ inline std::string JoinArgs(const std::vector<std::string>& args) {
 // A toggle command's argument: "on"/"1" enable, anything else disables.
 inline bool ArgOn(const std::string& a) { return a == "on" || a == "1"; }
 
-// Parses one symbol-id arg (fire/earth/air/water); on a bad token prints the
-// shared usage line and returns false, so a command can `if (!...) return;`.
+// Parses one symbol-id arg (fire, project, explode, ...); on a bad token prints
+// the shared usage line - every id, from the table - and returns false, so a
+// command can `if (!...) return;`.
 inline bool ParseSymbolArg(DevConsole& console, const std::string& arg, SpellSymbol& out) {
 	if (ParseSymbol(arg, out)) return true;
-	console.Print("symbol must be fire/earth/air/water");
+	std::string ids;
+	for (u32 i = 0; i < kSymbolCount; ++i) {
+		if (i) ids += '/';
+		ids += SymbolId(static_cast<SpellSymbol>(i));
+	}
+	console.Print("symbol must be " + ids);
 	return false;
 }
 

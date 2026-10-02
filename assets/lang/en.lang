@@ -386,13 +386,15 @@ menu.spellbook=Spellbook
 magic.cast=Cast
 magic.clear=Clear
 ; Item display names (ItemKind.nameKey; rune_<elem> -> item.rune_<elem>).
-item.rune_fire=Fire rune
-item.rune_earth=Earth rune
-item.rune_air=Air rune
-item.rune_water=Water rune
-item.rune_project=Project rune
-item.rune_protect=Protect rune
-item.rune_sight=Sight rune
+item.rune_fire=Kenaz rune
+item.rune_earth=Berkano rune
+item.rune_air=Ansuz rune
+item.rune_water=Laguz rune
+item.rune_project=Tiwaz rune
+item.rune_protect=Algiz rune
+item.rune_sight=Dagaz rune
+item.rune_multiple=Ingwaz rune
+item.rune_explode=Hagalaz rune
 item.dagger=Dagger
 item.khukri=Khukri
 item.flamebrand=Flamebrand
@@ -425,13 +427,15 @@ item.poison_flask=Poison gas flask
 item.brass_key=Brass key
 ; An item's description (item.<id>.desc): the paragraph in its details dialog
 ; (a right-click). A new item needs one, or its dialog has no paragraph.
-item.rune_fire.desc=A stone tablet cut with the rune of fire. Commit it to memory and the symbol is yours to cast; the tablet is spent in the learning.
-item.rune_earth.desc=A stone tablet cut with the rune of earth. Commit it to memory and the symbol is yours to cast; the tablet is spent in the learning.
-item.rune_air.desc=A stone tablet cut with the rune of air. Commit it to memory and the symbol is yours to cast; the tablet is spent in the learning.
-item.rune_water.desc=A stone tablet cut with the rune of water. Commit it to memory and the symbol is yours to cast; the tablet is spent in the learning.
-item.rune_project.desc=A tablet cut with the rune of projection, the form that sends a spell flying at a foe. Memorizing it spends the tablet.
-item.rune_protect.desc=A tablet cut with the rune of protection, the form that wraps a spell around the party as a ward. Memorizing it spends the tablet.
-item.rune_sight.desc=A tablet cut with the rune of sight, the form that turns a spell into a way of seeing. Memorizing it spends the tablet.
+item.rune_fire.desc=A stone tablet cut with Kenaz, the rune of fire. Commit it to memory and the symbol is yours to cast; the tablet is spent in the learning.
+item.rune_earth.desc=A stone tablet cut with Berkano, the rune of earth. Commit it to memory and the symbol is yours to cast; the tablet is spent in the learning.
+item.rune_air.desc=A stone tablet cut with Ansuz, the rune of air. Commit it to memory and the symbol is yours to cast; the tablet is spent in the learning.
+item.rune_water.desc=A stone tablet cut with Laguz, the rune of water. Commit it to memory and the symbol is yours to cast; the tablet is spent in the learning.
+item.rune_project.desc=A tablet cut with Tiwaz, the rune of projection, the form that sends a spell flying at a foe. Memorizing it spends the tablet.
+item.rune_protect.desc=A tablet cut with Algiz, the rune of protection, the form that wraps a spell around the party as a ward. Memorizing it spends the tablet.
+item.rune_sight.desc=A tablet cut with Dagaz, the rune of sight, the form that turns a spell into a way of seeing. Memorizing it spends the tablet.
+item.rune_multiple.desc=A tablet cut with Ingwaz, the rune of the many. It follows a form and multiplies it: more bolts, or a ward for the whole party. Memorizing it spends the tablet.
+item.rune_explode.desc=A tablet cut with Hagalaz, the rune of hail. It follows a form and makes it burst: a bolt that explodes, or a ward that blasts all around. Memorizing it spends the tablet.
 item.dagger.desc=A plain, well-balanced dagger. Quick in the hand, for stabbing and slashing.
 item.khukri.desc=A heavy, forward-curved blade that bites deep with every chop.
 item.flamebrand.desc=A khukri forged in a fire that never quite went out. Its blows burn.
@@ -527,6 +531,19 @@ symbol.water=Water
 symbol.project=Project
 symbol.protect=Protect
 symbol.sight=Sight
+symbol.multiple=Multiple
+symbol.explode=Explode
+
+; Rune names (the Elder Futhark name; Spells.cpp RuneNameKey). The meaning is the symbol.* word above.
+rune.fire=Kenaz
+rune.earth=Berkano
+rune.air=Ansuz
+rune.water=Laguz
+rune.project=Tiwaz
+rune.protect=Algiz
+rune.sight=Dagaz
+rune.multiple=Ingwaz
+rune.explode=Hagalaz
 
 ; --- map overlay / editor --------------------------------------------------------
 map.title=Map

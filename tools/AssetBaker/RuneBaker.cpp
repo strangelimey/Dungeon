@@ -15,7 +15,8 @@
 //
 // Glyph → symbol: Fire=Kenaz, Water=Laguz, Air=Ansuz, Earth=Berkano; the shared
 // tier-2 form runes follow — Project=Tiwaz (the arrow: "throw it ahead"),
-// Protect=Algiz (the warding stave: raised arms). Each is a short list of
+// Protect=Algiz (the warding stave: raised arms), Sight=Dagaz; then the
+// third-tier modifiers, Multiple=Ingwaz and Explode=Hagalaz. Each is a short list of
 // straight strokes (Elder Futhark is all straight lines), shared by the tablet
 // textures and the icons. Purely deterministic.
 // ============================================================================
@@ -56,7 +57,9 @@ struct RuneSpec {
 };
 
 // Coordinates picked to read as the named Futhark rune at a glance.
-const std::array<RuneSpec, 7> kRunes = {{
+// tools/BuildRuneIcons.py draws the icons of the runes with no hand-made one
+// from the SAME strokes - keep the two tables in step.
+const std::array<RuneSpec, 9> kRunes = {{
 	// Fire — Kenaz "<" (beacon/torch).
 	{"fire", {0.55f, 0.42f, 0.36f}, {0.95f, 0.45f, 0.18f},
 	 {{0.58f, 0.84f, 0.40f, 0.50f}, {0.40f, 0.50f, 0.58f, 0.16f}}},
@@ -95,6 +98,17 @@ const std::array<RuneSpec, 7> kRunes = {{
 	  {0.66f, 0.14f, 0.66f, 0.86f},
 	  {0.34f, 0.14f, 0.66f, 0.86f},
 	  {0.34f, 0.86f, 0.66f, 0.14f}}},
+	// Multiple (third-tier modifier) - Ingwaz: the seed, a closed diamond (one
+	// thing becoming many). Modifiers share the forms' stone + gold.
+	{"multiple", {0.48f, 0.47f, 0.44f}, {0.92f, 0.76f, 0.30f},
+	 {{0.50f, 0.86f, 0.76f, 0.50f}, {0.76f, 0.50f, 0.50f, 0.14f},
+	  {0.50f, 0.14f, 0.24f, 0.50f}, {0.24f, 0.50f, 0.50f, 0.86f}}},
+	// Explode (third-tier modifier) - Hagalaz: hail, two staves and the bar
+	// falling between them.
+	{"explode", {0.48f, 0.47f, 0.44f}, {0.92f, 0.76f, 0.30f},
+	 {{0.34f, 0.14f, 0.34f, 0.86f},
+	  {0.66f, 0.14f, 0.66f, 0.86f},
+	  {0.34f, 0.64f, 0.66f, 0.40f}}},
 }};
 
 // Distance from point (px,py) to segment (a→b), all in uv space.
@@ -430,8 +444,11 @@ bool BakeRunes(const std::string& assetsDir) {
 	int e = 0;
 	// Per-symbol crop of the stone scan so the tablets read as distinct
 	// pieces of the same ancient rock.
-	const float offsets[6][2] = {{0.0f, 0.0f},   {0.5f, 0.13f},  {0.21f, 0.57f},
-								 {0.63f, 0.38f}, {0.34f, 0.81f}, {0.77f, 0.66f}};
+	// One per rune: the table was once a row short, and the last rune read past
+	// its end.
+	const float offsets[kRunes.size()][2] = {
+		{0.0f, 0.0f},   {0.5f, 0.13f},  {0.21f, 0.57f}, {0.63f, 0.38f}, {0.34f, 0.81f},
+		{0.77f, 0.66f}, {0.09f, 0.29f}, {0.45f, 0.49f}, {0.88f, 0.17f}};
 	for (const RuneSpec& r : kRunes) {
 		ok &= BakeRuneTextureSet(textures, r, seed, stone, offsets[e][0], offsets[e][1]);
 		seed += 31u;

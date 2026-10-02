@@ -82,16 +82,18 @@ public:
 	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 private:
-	// The most symbols a built sequence holds - recipes are 1-2 symbols today,
-	// six slots leave room for deeper tiers without outgrowing the magic box.
-	static constexpr size_t kMaxSequence = 6;
+	// The most symbols a built sequence holds: the recipe grammar's longest
+	// (school, form, modifier - Spells.h).
+	static constexpr size_t kMaxSequence = kMaxRecipe;
 
-	// One cell of the rune-button grid: the four SCHOOL runes always hold the
-	// TOP ROW (schools-table order, drawn as empty frames until memorized);
-	// other runes appear in the rows below as the member learns them.
+	// One cell of the rune-button grid, ONE ROW PER TIER: the four SCHOOL runes
+	// always hold the top row (schools-table order, drawn as empty frames until
+	// memorized); the forms the member knows take the next row and the
+	// modifiers the one after, each row appearing once it has a rune in it.
 	struct RuneSlot {
 		SpellSymbol symbol;
 		bool known;
+		u8 row = 0, col = 0;
 	};
 	// A member's grid, INLINE. The panel rebuilds it in every Update and Draw
 	// while a book is open - every settled frame the steady-state allocation
@@ -100,6 +102,7 @@ private:
 	struct RuneSlotList {
 		std::array<RuneSlot, kSymbolCount> slot{};
 		size_t count = 0;
+		size_t rows = 0;
 		std::span<const RuneSlot> View() const { return {slot.data(), count}; }
 	};
 	RuneSlotList RuneSlots(const Character& c) const;
@@ -109,10 +112,13 @@ private:
 	// Whether party slot i's selector button responds: the member exists and
 	// is standing (absent / unconscious / dead all disable).
 	bool MemberEligible(size_t i) const;
-	// Layout inside the live box, shared by Update (hit-test) and Draw. The
-	// symbol grid indexes RuneSlots
-	// (4 per row); the sequence row indexes m_sequence.
-	gfx::Rect SymbolRect(const gfx::Rect& px, size_t i) const;
+	// Layout inside the live box, shared by Update (hit-test) and Draw. A
+	// COLUMN is the full-size cell a column holds (the member buttons stand on
+	// them); a rune's cell is its slot's row and column, shrunk when the grid's
+	// rows would otherwise run into the spell name's line, and centred in its
+	// column. The sequence row indexes m_sequence.
+	gfx::Rect ColumnRect(const gfx::Rect& px, size_t col) const;
+	gfx::Rect SymbolRect(const gfx::Rect& px, const RuneSlot& slot, size_t rows) const;
 	gfx::Rect SequenceRect(const gfx::Rect& px, size_t i) const;
 	gfx::Rect CastRect(const gfx::Rect& px) const;
 	gfx::Rect ClearRect(const gfx::Rect& px) const;
