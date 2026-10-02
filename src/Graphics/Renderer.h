@@ -109,6 +109,15 @@ public:
 	// Call when the device frame index advances (resets that frame's allocator).
 	void NewFrame(u32 frameIndex);
 
+	// Rewrites a single-mip RGBA8 texture's pixels in place, through this frame's
+	// upload arena: records PIXEL_SHADER_RESOURCE -> COPY_DEST, the copy, and back,
+	// on `list`. The mid-frame alternative to constructing a new Texture (which
+	// allocates, takes a fresh SRV slot and drains the GPU). `rgba8` is tightly
+	// packed, Width() * 4 bytes a row. Record it before any draw that samples the
+	// texture this frame.
+	void UpdateTexture(ID3D12GraphicsCommandList* list, const Texture& texture,
+					   std::span<const u8> rgba8);
+
 private:
 	void CreateShadowResources();
 

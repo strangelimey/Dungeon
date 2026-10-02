@@ -11,7 +11,7 @@
 #   .\tools\AllocTest.ps1 -Wounded           # the REGENERATING steady state
 #   .\tools\AllocTest.ps1 -Melee             # a monster swinging at the party
 #   .\tools\AllocTest.ps1 -Cast              # a bolt in flight + an open spellbook
-#   .\tools\AllocTest.ps1 -Impact            # bolts landing, expiring, a blast
+#   .\tools\AllocTest.ps1 -Impact            # bolts landing, expiring, a blast, a crate alight
 #   .\tools\AllocTest.ps1 -Pause             # Esc to the pause menu and back
 #   .\tools\AllocTest.ps1 -Sheet             # the sheet: hover, tabs, item dialog
 #   .\tools\AllocTest.ps1 -Panels            # drag and resize the floating HUD
@@ -37,8 +37,9 @@
 # each one puts an event path INSIDE the window (-Wounded the regeneration tick,
 # -Melee a monster's swing and its narration, -Cast a bolt in flight and an open
 # spellbook, -Impact bolts launching, striking a FRESH monster, expiring and
-# bursting). Anything that allocates is named with a full call stack in
-# dungeon.log, once per unique stack.
+# bursting, and a crate the blasts leave alight burning down). Anything that
+# allocates is named with a full call stack in dungeon.log, once per unique
+# stack.
 #
 # WHY -Wounded EXISTS, and it is the same trap this project keeps meeting: a
 # FRESH party is at full health, and regeneration only runs BELOW maximum - so
@@ -941,6 +942,37 @@ try {
 		$listed = $row[-1].Line -replace '^.*console: ', ''
 		if ($listed -match '\[') { throw "the fresh target was touched before the window: $listed" }
 		Write-Host "  fresh $ImpactMonster at $tx,$tz, party at $px,$pz, untouched"
+		# AND A FRESH CRATE beside it, in the Fire Burst's ring: a blast leaves a
+		# piece of dungeon alight, and its burn ticks every frame until it breaks
+		# (TickBreakables). Fresh for the same reason as the target - a crate's
+		# first burn and its break are a steady cost of fighting beside one. It is
+		# off the bolts' column, so it never stands between a bolt and its mark.
+		$cx = $tx + 1
+		Send-Text "editor place decorations crate $cx $tz"; Send-Key 0x0D
+		Send-Text 'mappage close'; Send-Key 0x0D
+		Start-Sleep -Milliseconds 500
+		if (-not (Select-String -Path $log -Pattern "editor place: crate at $cx,$tz" -Quiet)) {
+			throw "the arena would not take a crate at $cx,$tz"
+		}
+		Send-Text "breakables $cx $tz"; Send-Key 0x0D
+		Start-Sleep -Milliseconds 500
+		$crate = @(Select-String -Path $log -Pattern "console:   decoration crate @ $cx,$tz ")
+		if ($crate.Count -eq 0) { throw "the crate at $cx,$tz is not breakable" }
+		Write-Host "  fresh $($crate[-1].Line -replace '^.*console:\s+', '')"
+		# AND A LIT BRAZIER THAT BREAKS INSIDE THE WINDOW: a wrecked fixture puts
+		# its fire out and thins the haze it fed (DouseFixture) - the haze texture
+		# is rewritten in place, which used to be a whole new texture built
+		# mid-frame. Braziers shrug off fire, so it gets a POISON (earth) that eats
+		# its 30 hp in about five seconds: applied as the very last thing before
+		# the console shuts, so the break lands a few seconds into the window.
+		$bx = $tx - 3
+		Send-Text "editor place fixtures brazier $bx $tz"; Send-Key 0x0D
+		Send-Text 'mappage close'; Send-Key 0x0D
+		Start-Sleep -Milliseconds 500
+		if (-not (Select-String -Path $log -Pattern "editor place: brazier at $bx,$tz" -Quiet)) {
+			throw "the arena would not take a brazier at $bx,$tz"
+		}
+		Send-Text "breakables $bx $tz poison 6 30"; Send-Key 0x0D
 		Send-Text 'logecho off'; Send-Key 0x0D
 		Send-Key 0xC0 # close the console again; alloctest reopens it below
 		Start-Sleep -Milliseconds 400
@@ -1468,6 +1500,24 @@ try {
 		if ((Get-LastTallyField 'bolthits') -le 0) { $missing += 'no bolt hit' }
 		if ((Get-LastTallyField 'expired') -le 0) { $missing += 'no bolt expired' }
 		if ((Get-LastTallyField 'blasts') -le 0) { $missing += 'no blast went off' }
+		if ((Get-LastTallyField 'sceneryticks') -le 0) { $missing += 'no burning crate ticked' }
+		if ((Get-LastTallyField 'doused') -le 0) { $missing += 'no fixture broke and went out' }
+		# What the crate came to, for the reader: `broken` means its burn finished
+		# it inside the window, so the break was measured as well as the ticks.
+		# The console is shut again afterwards - the quit below reopens it.
+		Send-Key 0xC0; Start-Sleep -Milliseconds 400
+		Send-Text 'logecho on'; Send-Key 0x0D
+		Send-Text "breakables $cx $tz"; Send-Key 0x0D
+		Send-Text "breakables $bx $tz"; Send-Key 0x0D
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Start-Sleep -Milliseconds 500
+		Send-Key 0xC0; Start-Sleep -Milliseconds 300
+		foreach ($what in @("decoration crate @ $cx,$tz ", "fixture brazier @ $bx,$tz ")) {
+			$row = @(Select-String -Path $log -Pattern "console:   $what")
+			if ($row.Count -gt 0) {
+				Write-Host "  after the window: $($row[-1].Line -replace '^.*console:\s+', '')"
+			}
+		}
 		if ($missing.Count -gt 0 -and $result -eq 'PASS') {
 			Write-Host "$($missing -join ', ') inside the window - the impact path was not measured" -ForegroundColor Yellow
 			$result = 'UNMEASURED'

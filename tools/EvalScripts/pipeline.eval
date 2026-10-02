@@ -36,17 +36,56 @@ pipelineguard on
 pipelineguard reset
 
 ; --- 1. THE DUNGEON AS A TARGET -------------------------------------------
-; First, because it is the only section that needs the AUTHORED level: `reset`
-; leaves the harness ground intact, and an arena strips every prop, door and
-; fixture out of
-; the map. All three breakable kinds are here, which is the point — the ledger
-; watches decorations, doors and fixtures separately and each has its own adapter
-; call to account for.
-echo === 1. breakables: a prop, a door and a fixture ===
-smash 10 12 6   ; the barrel   (Decoration)
-smash 17 12 6   ; the crate    (Decoration)
-smash 13 19 9   ; the wooden door AND the sconce sharing that cell
+; All three breakable kinds, which is the point - the ledger watches
+; decorations, doors and fixtures separately and each has its own adapter call
+; to account for. They are PLACED here, because eval_arena authors none: this
+; section used to smash three cells of a level the suite no longer ran on, and
+; reported "nothing breakable" three times over a PASS (a `smash` that strikes
+; nothing now REFUSES, so that cannot recur quietly).
+;
+; Both halves of the route: a BLOW (smash, a blast) and an EFFECT riding the
+; piece, whose bites go through TickBreakables - a barrel the blast leaves
+; alight burns down, a crate's weak burn runs out with the crate standing, and
+; a SHUT door a blast washes against (it cannot pass the door, but the door's
+; face takes the hit) catches fire and burns. Both fixture forms: a floor
+; brazier, and a sconce hung on the arena's west wall.
+echo === 1. breakables: props, fixtures and a door ===
+arena open 9 9
+tp 10 16
+editor place decorations barrel 14 12
+editor place decorations crate 17 15
+editor place fixtures brazier 17 9
+editor place fixtures sconce 10 12 west
+mappage close
+smash 17 9 9
+smash 10 12 2
+blast fireburst 13 12
+breakables 17 15 burn 0.5 3
+step 6
+breakables
+arena corridor 11
+tp 9 12
+editor place doors wooden_door 15 12
+mappage close
+smash 15 12 5
+blast fireburst 14 12
+step 12
+breakables
+; and a BOLT that breaks against a shut door strikes it (StrikeDoorWithBolt):
+; Tilo's flame bolt, two squares short of a fresh wooden door. Then a THROWN
+; rock does the same (StrikeDoorWithThrow).
+arena corridor 11
+tp 13 12
+face east
+editor place doors wooden_door 15 12
+mappage close
+learn 3 fire
+cast 3 fire
+step 6
+breakables
+throw rock
 step 2
+breakables
 pipeline
 
 ; --- 2. MELEE, BOTH WAYS --------------------------------------------------

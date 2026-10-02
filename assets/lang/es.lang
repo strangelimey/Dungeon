@@ -305,6 +305,7 @@ log.spell_misses={} esquiva el rayo.
 log.spell_slain=¡{} se desintegra!
 log.spell_pushes=¡{} sale despedido hacia atrás!
 log.blast_hits=¡La explosión alcanza a {} causando {} de daño!
+log.bolt_hits_door=¡El proyectil golpea {} causando {} de daño!
 log.blast_hits_member=¡{} queda atrapado en la explosión y sufre {} de daño!
 log.door_broken=¡{} salta de su marco hecha pedazos!
 log.door_wrecked=El vano está destrozado; ya no queda nada que cerrar.

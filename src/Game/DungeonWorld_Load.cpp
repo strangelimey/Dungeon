@@ -1928,6 +1928,9 @@ void DungeonWorld::BuildFires() {
 		fire.kind = &kind;
 		fire.brazier = false;
 		fire.lit = sconce.lit && !kind.flameless;
+		fire.x = sconce.x;
+		fire.z = sconce.z;
+		fire.wall = static_cast<int>(sconce.wall);
 		fire.lightRadius = sconce.brightness * kCellSize; // "squares" -> metres
 		const float fs = kind.modelScale; // fixtures.cat `scale`
 		XMStoreFloat4x4(&fire.world, UnitScale(fs) * XMMatrixRotationY(yaw) *
@@ -1950,6 +1953,9 @@ void DungeonWorld::BuildFires() {
 		fire.kind = &kind;
 		fire.brazier = true;
 		fire.lit = b.lit && !kind.flameless;
+		fire.x = b.x;
+		fire.z = b.z;
+		fire.wall = -1;
 		fire.lightRadius = b.brightness * kCellSize; // "squares" -> metres
 		const float fs = kind.modelScale; // fixtures.cat `scale`
 		XMStoreFloat4x4(&fire.world,
@@ -1971,19 +1977,44 @@ void DungeonWorld::BuildFires() {
 // Per-cell turbidity as a top-down density grid: one texel per dungeon cell,
 // R channel; bilinear filtering blends region borders. The scene shader
 // raymarches it (see scene.hlsl).
-void DungeonWorld::BuildTurbidityMap() {
-	assets::ImageData grid;
-	grid.width = static_cast<u32>(m_map.Width());
-	grid.height = static_cast<u32>(m_map.Height());
-	grid.pixels.resize(static_cast<size_t>(grid.width) * grid.height * 4);
+void DungeonWorld::FillTurbidityPixels() {
+	const size_t w = static_cast<size_t>(m_map.Width());
+	m_turbidityPixels.assign(w * static_cast<size_t>(m_map.Height()) * 4, 0);
 	for (int z = 0; z < m_map.Height(); ++z) {
 		for (int x = 0; x < m_map.Width(); ++x) {
-			const size_t i = (static_cast<size_t>(z) * grid.width + x) * 4;
-			grid.pixels[i + 0] = static_cast<u8>(m_map.Turbidity(x, z) * 255.0f);
-			grid.pixels[i + 3] = 255;
+			const size_t i = (static_cast<size_t>(z) * w + x) * 4;
+			m_turbidityPixels[i + 0] = static_cast<u8>(m_map.Turbidity(x, z) * 255.0f);
+			m_turbidityPixels[i + 3] = 255;
 		}
 	}
+}
+
+void DungeonWorld::RefreshTurbidity() {
+	// The in-place path: the same pixels rewritten (assign() keeps the capacity,
+	// so a same-size map allocates nothing) and copied into the EXISTING texture
+	// by the next RenderScene. Only when the map changed SIZE - which no fixture
+	// break can do - does it fall back to building a new texture.
+	if (!m_turbidityMap ||
+		m_turbidityMap->Width() != static_cast<u32>(m_map.Width()) ||
+		m_turbidityMap->Height() != static_cast<u32>(m_map.Height())) {
+		BuildTurbidityMap();
+		return;
+	}
+	FillTurbidityPixels();
+	m_turbidityDirty = true;
+}
+
+void DungeonWorld::BuildTurbidityMap() {
+	FillTurbidityPixels();
+	// ONE mip, so RefreshTurbidity can rewrite the whole texture by its top level.
+	// The shader samples it at level 0 (SampleLevel in scene.hlsl); the box-filtered
+	// chain the ImageData constructor would build was never read.
+	assets::MipChain grid;
+	grid.width = static_cast<u32>(m_map.Width());
+	grid.height = static_cast<u32>(m_map.Height());
+	grid.levels.push_back({grid.width, grid.height, m_turbidityPixels});
 	m_turbidityMap = std::make_unique<gfx::Texture>(m_device, grid);
+	m_turbidityDirty = false; // the new texture already holds these pixels
 	m_atmosphere.turbidityMap = m_turbidityMap.get();
 	m_atmosphere.worldExtent = {m_map.Width() * kCellSize,
 								m_map.Height() * kCellSize};

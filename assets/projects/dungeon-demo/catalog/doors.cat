@@ -48,10 +48,12 @@ opener = door_chain
 ; keep mattering (Michael, 2026-08-11). Boards give way to an axe and burn well;
 ; the portcullis and the stone slab do NOT take these fields and cannot be broken
 ; at all. Breaking it opens the way FOR GOOD — it cannot be shut again.
+; EARTH matches BASH: an earth bolt hits a door as a battering, so it is resisted
+; as one (Michael, 2026-10-02).
 destructible = 1
 hp = 40
 armor = 2
-resists = slash -0.25, fire -0.5, bash 0.2
+resists = slash -0.25, fire -0.5, bash 0.2, earth 0.2
 
 ; NO `opener` ON PURPOSE: a portcullis is worked from a gatehouse, so this is
 ; the demo of a door the party cannot touch — the lever at (10,3), or nothing.

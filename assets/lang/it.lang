@@ -305,6 +305,7 @@ log.spell_misses={} schiva il dardo.
 log.spell_slain={} si disintegra!
 log.spell_pushes={} viene scagliato all'indietro!
 log.blast_hits=L'esplosione travolge {} per {} danni!
+log.bolt_hits_door=Il dardo colpisce {} per {} danni!
 log.blast_hits_member={} è travolto dall'esplosione e subisce {} danni!
 log.door_broken={} viene sfondata e strappata dai cardini!
 log.door_wrecked=Il vano è distrutto: non resta nulla da chiudere.

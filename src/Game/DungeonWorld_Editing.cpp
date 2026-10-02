@@ -414,6 +414,7 @@ bool DungeonWorld::AddDecoration(const std::string& type, int x, int z,
 	XMStoreFloat4x4(&deco.world, UnitScale(kind.modelScale) * XMMatrixRotationY(DirYaw(facing)) *
 									 XMMatrixTranslation(pos.x, 0, pos.z));
 	deco.solid = kind.solidDefault;
+	SeedBreakable(deco.brk, kind); // breakable on the same terms as a loaded one
 	m_decorations.push_back(std::move(deco));
 	MarkSeen(x, z);
 	return true;
@@ -438,6 +439,7 @@ bool DungeonWorld::AddWallDecoration(const std::string& type, int x, int z,
 	XMStoreFloat4x4(&deco.world, UnitScale(kind.modelScale) * XMMatrixRotationY(m.yaw) *
 									 XMMatrixTranslation(m.pos.x, 0, m.pos.z));
 	deco.solid = false; // it's on the wall — the floor stays walkable
+	SeedBreakable(deco.brk, kind);
 	m_decorations.push_back(std::move(deco));
 	MarkSeen(x, z);
 	return true;
