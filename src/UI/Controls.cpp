@@ -395,8 +395,8 @@ void Button::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 		DrawCarvedText(batch, font, text, px.x + (px.w - font.MeasureWidth(text)) * 0.5f + sink,
 					   px.y + (px.h - font.Height()) * 0.5f + sink,
 					   !enabled ? Vec4{0.45f, 0.40f, 0.30f, 1.0f}
-					   : m_hot  ? kCarvedLit
-								: kCarvedGold);
+					   : m_hot  ? CarvedLit(skin)
+								: CarvedGold(skin));
 		return;
 	}
 	if (icon) {
@@ -1766,7 +1766,7 @@ void SlotRow::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 
 	const float ty = r.y + (r.h - font.Height()) * 0.5f + sink;
 	const float left = r.x + (stone ? FaceInset(*skin, Face::Block) + Rem(0.45f) : Rem(0.45f));
-	if (stone) DrawCarvedText(batch, font, m_primary, left + sink, ty, lit ? kCarvedLit : kCarvedGold);
+	if (stone) DrawCarvedText(batch, font, m_primary, left + sink, ty, lit ? CarvedLit(skin) : CarvedGold(skin));
 	else font.Draw(batch, m_primary, left, ty, theme.text);
 
 	const gfx::Rect del = DeleteRect();
@@ -1774,7 +1774,7 @@ void SlotRow::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 		const float sw = font.MeasureWidth(m_secondary);
 		const float sx = (m_deletable ? del.x : r.x + r.w) - sw - Rem(0.6f) -
 						 (stone && !m_deletable ? FaceInset(*skin, Face::Block) : 0.0f);
-		if (stone) DrawCarvedText(batch, font, m_secondary, sx + sink, ty, kCarvedPlain);
+		if (stone) DrawCarvedText(batch, font, m_secondary, sx + sink, ty, CarvedPlain(skin));
 		else font.Draw(batch, m_secondary, sx, ty, theme.textDim);
 	}
 	if (!m_deletable) return;
@@ -1912,7 +1912,7 @@ void SlotList::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 			DrawCutStone(batch, b, *skin, nullptr, 0.0f, hot, {1, 1, 1, 1});
 			DrawCarvedText(batch, font, label, b.x + (b.w - font.MeasureWidth(label)) * 0.5f,
 						   b.y + (b.h - font.Height()) * 0.5f,
-						   hot ? kCarvedLit : (danger ? Vec4{0.86f, 0.40f, 0.26f, 1.0f} : kCarvedGold));
+						   hot ? CarvedLit(skin) : (danger ? Vec4{0.86f, 0.40f, 0.26f, 1.0f} : CarvedGold(skin)));
 			return;
 		}
 		batch.DrawRect(b, hot ? theme.controlActive : theme.control);
@@ -2047,14 +2047,39 @@ void DrawCarvedText(gfx::SpriteBatch& batch, const Font& font, std::string_view 
 	batch.SetTextOutline(ring);
 }
 
+namespace {
+// How far a material sits toward light, for the carved fills: the dark stones
+// (granite, 0.20) at 0, the snows (0.42) at 1.
+float CarveLight(const Skin* skin) {
+	return skin ? std::clamp((skin->luma - 0.22f) / 0.20f, 0.0f, 1.0f) : 0.0f;
+}
+Vec4 Mix(const Vec4& a, const Vec4& b, float t) {
+	return {a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t,
+			a.w + (b.w - a.w) * t};
+}
+} // namespace
+
+Vec4 CarvedGold(const Skin* skin) {
+	return Mix({0.80f, 0.62f, 0.26f, 1.0f}, {0.44f, 0.29f, 0.08f, 1.0f}, CarveLight(skin));
+}
+Vec4 CarvedLit(const Skin* skin) {
+	return Mix({1.0f, 0.86f, 0.46f, 1.0f}, {0.70f, 0.47f, 0.10f, 1.0f}, CarveLight(skin));
+}
+Vec4 CarvedTitle(const Skin* skin) {
+	return Mix({0.86f, 0.68f, 0.30f, 1.0f}, {0.52f, 0.34f, 0.09f, 1.0f}, CarveLight(skin));
+}
+Vec4 CarvedPlain(const Skin* skin) {
+	return Mix({0.78f, 0.74f, 0.66f, 0.80f}, {0.16f, 0.14f, 0.12f, 0.80f}, CarveLight(skin));
+}
+
 void MenuList::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
 	const Font& font = TextFont();
 
 	if (const Skin* skin = ctx.GetSkin(); skin && skin->block.texture) {
 		// Cut stones with carved words; the selected entry's gold lit.
-		const Vec4& gold = kCarvedGold;
-		const Vec4& lit = kCarvedLit;
+		const Vec4 gold = CarvedGold(skin);
+		const Vec4 lit = CarvedLit(skin);
 		for (size_t i = 0; i < m_items.size(); ++i) {
 			const gfx::Rect rect = ItemRect(i);
 			const bool selected = static_cast<int>(i) == m_selected;

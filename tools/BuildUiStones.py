@@ -34,7 +34,7 @@ import os
 import sys
 
 import numpy as np
-from PIL import Image, ImageEnhance, ImageStat
+from PIL import Image, ImageEnhance, ImageFilter, ImageStat
 
 ARCHIVE = os.path.join(os.path.expandvars("%USERPROFILE%"), "OneDrive", "DungeonAssets", "2k")
 OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "ui", "stones")
@@ -148,16 +148,35 @@ def build(name, rel, target, contrast, check):
     return True
 
 
+def measure(name):
+    # What the GAME needs to keep text legible on the baked tile (the contrast
+    # pass, more-ui-updates): its mean colour - what a calming wash is made of -
+    # and its DETAIL, the texture's contrast at the scale of a glyph (a band-pass:
+    # a 1 px blur less a 12 px one, the spread of what is left). Busy leaves
+    # score 0.05, smooth marble 0.01. Measured from the tile ON DISK, so the
+    # index can be rewritten without the archive (--index-only).
+    img = Image.open(os.path.join(OUT_DIR, name + ".png")).convert("RGB")
+    mean = np.asarray(img, dtype=np.float32).reshape(-1, 3).mean(0) / 255.0
+    lum = img.convert("L")
+    fine = np.asarray(lum.filter(ImageFilter.GaussianBlur(1.0)), dtype=np.float32)
+    coarse = np.asarray(lum.filter(ImageFilter.GaussianBlur(12.0)), dtype=np.float32)
+    return mean, float((fine - coarse).std() / 255.0)
+
+
 def write_index():
     # Block format (Game/Serialize.h), CRLF like every other .cat. Written from
     # the TABLE, so the luminance is the target the stone was toned to - the
     # number the filter means - not a re-measurement of the contrast-eased tile.
     lines = ["; Written by tools/BuildUiStones.py - do not edit; re-run the script.",
              "; luminance = the mean the stone was toned to (light from %.2f)." % LIGHT_FROM,
-             "; family    = stone / wood / forest / snow / rock (the tab's kind filter).", ""]
+             "; family    = stone / wood / forest / snow / rock (the tab's kind filter).",
+             "; mean      = the baked tile's mean colour (sRGB 0..1).",
+             "; detail    = its contrast at glyph scale (busy = high; GameUI calms it).", ""]
     for name, (rel, target, _, family) in sorted(STONES.items()):
+        mean, detail = measure(name)
         lines += [f"[{name}]", f"luminance = {target:.2f}", f"family = {family}",
-                  f"source = {rel}", ""]
+                  f"source = {rel}", f"mean = {mean[0]:.3f} {mean[1]:.3f} {mean[2]:.3f}",
+                  f"detail = {detail:.3f}", ""]
     with open(os.path.join(OUT_DIR, "stones.cat"), "w", encoding="utf-8", newline="\r\n") as f:
         f.write("\n".join(lines))
 
@@ -165,7 +184,13 @@ def write_index():
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true", help="report each tile's seam score")
+    ap.add_argument("--index-only", action="store_true",
+                    help="rewrite stones.cat from the tiles already baked (no archive needed)")
     args = ap.parse_args()
+    if args.index_only:
+        write_index()
+        print(f"stones.cat rewritten for {len(STONES)} stones")
+        return 0
     ok = sum(build(n, r, t, c, args.check) for n, (r, t, c, _) in STONES.items())
     write_index()
     print(f"{ok} / {len(STONES)} stones -> {os.path.normpath(OUT_DIR)}")

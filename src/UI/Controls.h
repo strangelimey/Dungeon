@@ -764,12 +764,18 @@ private:
 void DrawCarvedText(gfx::SpriteBatch& batch, const Font& font, std::string_view text,
 					float x, float y, const Vec4& fill);
 // The gold in a carved word, and the same gold lit (the selected / hovered
-// stone) - one pair, so every carved face in the game agrees.
-inline constexpr Vec4 kCarvedGold{0.80f, 0.62f, 0.26f, 1.0f};
-inline constexpr Vec4 kCarvedLit{1.0f, 0.86f, 0.46f, 1.0f};
-// Carved but unpainted: the cut alone, its floor a little paler than the
-// stone - for the quieter words on a stone (a save's date, a world's folder).
-inline constexpr Vec4 kCarvedPlain{0.78f, 0.74f, 0.66f, 0.80f};
+// stone) - one set, so every carved face in the game agrees. They follow the
+// MATERIAL (Skin::luma): pale gold sinks into a pale stone, so on a light one
+// the gold deepens toward bronze - the contrast pass (more-ui-updates). A null
+// skin gets the dark-stone colours.
+Vec4 CarvedGold(const Skin* skin);
+Vec4 CarvedLit(const Skin* skin);
+// A card's title, a shade brighter than the words under it.
+Vec4 CarvedTitle(const Skin* skin);
+// Carved but unpainted: the cut alone, its floor a little paler than a dark
+// stone (darker than a light one) - for the quieter words on a stone (a
+// save's date, a world's folder).
+Vec4 CarvedPlain(const Skin* skin);
 
 // A container that scrolls its children vertically when they overflow it.
 // Children are authored as fractions of ContentRect() — this widget's rect

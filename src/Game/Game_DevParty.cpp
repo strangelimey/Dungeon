@@ -586,6 +586,38 @@ void Game::RegisterPartyCommands() {
 	// reports it as a screen it cannot sweep — so the one screen with the most
 	// hand-laid-out content in the game was also the one screen `uioverlap`
 	// never saw. `sheet <n>` then `uioverlap` closes half of that gap.
+	// Shows the chrome in one UI material without touching the setting - the
+	// Level dialog's preview, from the console - so every material can be
+	// looked at in turn (more-ui-updates: the contrast pass). `off` hands the
+	// chrome back to the setting and the place.
+	m_console.Register({.name = "uimaterial",
+						.group = CmdGroup::Settings,
+						.params = "<material>\n"
+								  "off\n"
+								  "list",
+						.summary = "preview a UI material (nothing saved)"},
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 1)) return;
+						   if (args[0] == "off") {
+							   m_ui.EndStonePreview();
+							   m_console.Print(std::format("uimaterial: back to {}", m_ui.ShownStone()));
+							   return;
+						   }
+						   const std::vector<std::string> order = m_ui.StoneOrder();
+						   if (args[0] == "list") {
+							   std::string line = "uimaterial:";
+							   for (const std::string& s : order) line += " " + s;
+							   m_console.Print(line);
+							   return;
+						   }
+						   if (std::ranges::find(order, args[0]) == order.end()) {
+							   m_console.Refuse("no such material - `uimaterial list`");
+							   return;
+						   }
+						   m_ui.PreviewStone(args[0]);
+						   m_console.Print(std::format("uimaterial: showing {}", args[0]));
+					   });
+
 	// The framed resource bars (docs/icon-updates-plan.md): report each member's
 	// heartbeat, sweep every bar so the dimming and the leading edge can be
 	// judged without a fight, or pin the heart rate to judge the beat.

@@ -93,6 +93,13 @@ void DrawFace(gfx::SpriteBatch& batch, const gfx::Rect& dst, const Skin& skin, F
 		batch.DrawRect(dst, {f.x * tint.x * tone, f.y * tint.y * tone, f.z * tint.z * tone,
 							 f.w * tint.w});
 	}
+	// A busy material's grain, calmed toward its own mean (Skin::calm). Not in a
+	// slot: an item's well is dark anyway, and the grain is what reads as stone.
+	if (skin.stone && skin.calm > 0.0f && face != Face::Slot) {
+		const Vec4& m = skin.stoneMean;
+		batch.DrawRect(dst, {m.x * tint.x * tone, m.y * tint.y * tone, m.z * tint.z * tone,
+							 skin.calm * tint.w});
+	}
 	if (face == Face::Panel && skin.sheen.texture)
 		DrawNineSlice(batch, dst, skin.sheen, {1, 1, 1, tint.w});
 	// The bevel carries only light, so it takes the face's alpha, not its tint:

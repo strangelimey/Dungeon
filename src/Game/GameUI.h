@@ -483,6 +483,9 @@ private:
 	// Reads the curated stones (assets/ui/stones: the tiles, stones.cat, the
 	// thumbnails) into m_stones - once; a page rebuild reuses them.
 	void ScanStones();
+	// Sets the skin's legibility knobs (luma, calm, stoneMean, the text ring)
+	// for the material on show - GameUI_Stone.cpp.
+	void ApplyLegibility();
 	// Scales the skin's frames and stone grain with the window, like the fonts.
 	void UpdateSkinScale();
 	// A floating HUD panel was dragged or resized (save + slider sync), and the
@@ -793,6 +796,10 @@ private:
 		float luminance = 0.0f;
 		std::string family; // stones.cat `family` (stone / wood / forest / ...)
 		std::unique_ptr<gfx::Texture> thumb;
+		// stones.cat `mean` / `detail`: the tile's mean colour and how busy it
+		// is at glyph scale - what ApplyStone calms it by (Skin::calm).
+		Vec4 mean{0.2f, 0.2f, 0.2f, 1.0f};
+		float detail = 0.0f;
 	};
 	std::vector<StoneInfo> m_stones;
 	bool m_stonesScanned = false;

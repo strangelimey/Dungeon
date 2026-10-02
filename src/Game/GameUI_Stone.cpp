@@ -31,6 +31,7 @@
 #include "Game/StonePicker.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
 #include <iterator>
 
@@ -70,6 +71,7 @@ void GameUI::ApplyStone() {
 	if (want != m_shownStone) {
 		m_shownStone = want;
 		LoadStone(want);
+		ApplyLegibility();
 	}
 	// The follow tile previews what following means here and now.
 	if (m_stonePicker) {
@@ -80,6 +82,29 @@ void GameUI::ApplyStone() {
 			if (s.name == place) thumb = s.thumb.get();
 		m_stonePicker->SetThumb(GameSettings::kUiStoneFollow, thumb);
 	}
+}
+
+// THE CONTRAST PASS (more-ui-updates; Michael picked "tune contrast"): the
+// chrome adapts to the material on show rather than each material being
+// re-toned. A LIGHT one (snow, 0.42) carves its words in bronze instead of pale
+// gold (ui::CarvedGold reads Skin::luma) and rings small text harder; a BUSY
+// one (leaves, lava - stones.cat `detail`) has its grain calmed by a wash of
+// its own mean colour, so text stops competing with it. A material the index
+// does not know keeps the dark-stone settings.
+void GameUI::ApplyLegibility() {
+	ScanStones();
+	const StoneInfo* info = nullptr;
+	for (const StoneInfo& s : m_stones)
+		if (s.name == m_shownStone) info = &s;
+	const float luma = info ? info->luminance : 0.20f;
+	m_skin.luma = luma;
+	m_skin.stoneMean = info ? info->mean : Vec4{0.2f, 0.2f, 0.2f, 1.0f};
+	// Detail 0.024 is about the default granite's: nothing is calmed below it,
+	// and the busiest leaves (0.05) take a wash of a little under half.
+	const float busy = info ? std::clamp((info->detail - 0.024f) / 0.026f, 0.0f, 1.0f) : 0.0f;
+	m_skin.calm = 0.45f * busy;
+	// The ring under small text: as authored on dark stone, solid on the snows.
+	m_skin.textOutline.w = 0.85f + 0.15f * std::clamp((luma - 0.22f) / 0.20f, 0.0f, 1.0f);
 }
 
 const gfx::Texture* GameUI::StoneThumb(std::string_view name) {
@@ -177,6 +202,10 @@ void GameUI::ScanStones() {
 				if (s.name == b.id) {
 					s.luminance = std::strtof(b.Get("luminance", "0").c_str(), nullptr);
 					s.family = b.Get("family", "stone");
+					s.detail = std::strtof(b.Get("detail", "0").c_str(), nullptr);
+					const std::string mean = b.Get("mean", "");
+					if (float r, g, bl; std::sscanf(mean.c_str(), "%f %f %f", &r, &g, &bl) == 3)
+						s.mean = {r, g, bl, 1.0f};
 				}
 	} else {
 		log::Warn("ui/stones/stones.cat missing - the Material tab cannot tell light from "

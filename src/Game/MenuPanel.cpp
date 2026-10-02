@@ -67,7 +67,7 @@ void DrawCardTitle(ui::UIContext& ctx, gfx::SpriteBatch& batch, const ui::Font& 
 	const float x = card.x + (card.w - font.MeasureWidth(title)) * 0.5f;
 	const float y = card.y + pad + (band - font.Height()) * 0.5f;
 	if (ctx.GetSkin())
-		ui::DrawCarvedText(batch, font, title, x, y, {0.86f, 0.68f, 0.30f, 1.0f});
+		ui::DrawCarvedText(batch, font, title, x, y, ui::CarvedTitle(ctx.GetSkin()));
 	else
 		font.Draw(batch, title, x, y, ctx.GetTheme().accent);
 }

@@ -1902,7 +1902,14 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   CARVED WORDS (P4): `ui::DrawCarvedText` cuts a word into stone (a 1 px dark
   offset up-left, a faint lit one down-right, the fill between - keep both
   offsets ONE pixel and the lit one faint, or it reads as a blurry echo) in
-  `kCarvedGold` / `kCarvedLit` / `kCarvedPlain`. The pause and title menus are
+  `ui::CarvedGold` / `CarvedLit` / `CarvedTitle` / `CarvedPlain(skin)`. THEY
+  FOLLOW THE MATERIAL (the contrast pass): `Skin::luma` deepens the gold toward
+  bronze on a light stone, and GameUI::ApplyLegibility also rings small text
+  harder there and sets `Skin::calm`, a wash of the stone's own mean colour over
+  every face but a slot, from stones.cat `detail` (a band-pass of the baked tile
+  at glyph scale; `BuildUiStones.py --index-only` rewrites mean + detail from the
+  tiles on disk, no archive needed). Dark calm materials are untouched. Dev
+  `uimaterial <name>|off|list` previews one without saving. The pause and title menus are
   `Game/MenuPanel` (a card sized in rem from its entries, the pause title carved
   on it) holding a skinned `ui::MenuList`: cut stones that sink on the press and
   ACT ON RELEASE (drag off cancels; Enter presses the selected one), the

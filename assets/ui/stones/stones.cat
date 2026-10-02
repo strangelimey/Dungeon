@@ -1,143 +1,201 @@
 ; Written by tools/BuildUiStones.py - do not edit; re-run the script.
 ; luminance = the mean the stone was toned to (light from 0.25).
 ; family    = stone / wood / forest / snow / rock (the tab's kind filter).
+; mean      = the baked tile's mean colour (sRGB 0..1).
+; detail    = its contrast at glyph scale (busy = high; GameUI calms it).
 
 [armani_marble]
 luminance = 0.21
 family = stone
 source = countertops/armani-marble
+mean = 0.207 0.207 0.207
+detail = 0.013
 
 [blackrock]
 luminance = 0.18
 family = stone
 source = rocks/blackrock
+mean = 0.174 0.175 0.181
+detail = 0.025
 
 [desert_rock]
 luminance = 0.28
 family = rock
 source = ground/desert-rocks1
+mean = 0.307 0.268 0.240
+detail = 0.022
 
 [granite_almond]
 luminance = 0.19
 family = stone
 source = countertops/almond-speckled-granite
+mean = 0.190 0.186 0.177
+detail = 0.028
 
 [granite_flecks]
 luminance = 0.19
 family = stone
 source = countertops/gray-granite-flecks
+mean = 0.188 0.186 0.185
+detail = 0.031
 
 [granite_grey]
 luminance = 0.20
 family = stone
 source = rocks/granite-gray-white
+mean = 0.196 0.196 0.197
+detail = 0.022
 
 [ice_field]
 luminance = 0.40
 family = snow
 source = ground/ice-field
+mean = 0.354 0.414 0.416
+detail = 0.023
 
 [lava_rock]
 luminance = 0.20
 family = rock
 source = ground/lava-and-rock
+mean = 0.273 0.164 0.139
+detail = 0.049
 
 [leaf_fall]
 luminance = 0.24
 family = forest
 source = ground/leaf-fall1-bl4
+mean = 0.271 0.224 0.205
+detail = 0.050
 
 [limestone_cliffs]
 luminance = 0.30
 family = stone
 source = rocks/limestone-cliffs
+mean = 0.317 0.294 0.267
+detail = 0.013
 
 [limestone_flat]
 luminance = 0.30
 family = stone
 source = rocks/limestone_flat_textured
+mean = 0.295 0.296 0.300
+detail = 0.015
 
 [limestone_marked]
 luminance = 0.30
 family = stone
 source = rocks/limestonemarked2
+mean = 0.304 0.297 0.288
+detail = 0.018
 
 [limestone_pale]
 luminance = 0.30
 family = stone
 source = rocks/limestone3_bl4
+mean = 0.310 0.293 0.277
+detail = 0.020
 
 [marble_pillar]
 luminance = 0.30
 family = stone
 source = rocks/marble_pillar
+mean = 0.297 0.298 0.298
+detail = 0.022
 
 [marble_white]
 luminance = 0.30
 family = stone
 source = rocks/marble_white
+mean = 0.297 0.296 0.295
+detail = 0.010
 
 [moss]
 luminance = 0.24
 family = forest
 source = ground/mixedmoss-bl4
+mean = 0.242 0.250 0.149
+detail = 0.036
 
 [mossy_rock]
 luminance = 0.22
 family = rock
 source = rocks/wet-mossy-rocks
+mean = 0.266 0.217 0.088
+detail = 0.021
 
 [pine_needles]
 luminance = 0.26
 family = forest
 source = ground/pineneedles-ground
+mean = 0.274 0.248 0.254
+detail = 0.034
 
 [planks_weathered]
 luminance = 0.28
 family = wood
 source = wood/wood_planks_old3
+mean = 0.313 0.269 0.231
+detail = 0.023
 
 [rock_smooth]
 luminance = 0.30
 family = stone
 source = rocks/rock_smooth
+mean = 0.329 0.292 0.233
+detail = 0.015
 
 [rubble]
 luminance = 0.26
 family = rock
 source = ground/rubble
+mean = 0.269 0.252 0.244
+detail = 0.022
 
 [slate]
 luminance = 0.18
 family = stone
 source = rocks/slate-cliff-rock-bl4
+mean = 0.177 0.174 0.181
+detail = 0.027
 
 [snow_crusted]
 luminance = 0.42
 family = snow
 source = ground/Crusted_snow2
+mean = 0.359 0.426 0.511
+detail = 0.016
 
 [snow_packed]
 luminance = 0.42
 family = snow
 source = ground/snow-packed12
+mean = 0.351 0.427 0.522
+detail = 0.011
 
 [snow_rock]
 luminance = 0.40
 family = snow
 source = ground/rock-snow-ice1-2k
+mean = 0.351 0.407 0.464
+detail = 0.018
 
 [speckled_stone]
 luminance = 0.30
 family = stone
 source = countertops/speckled-countertop1
+mean = 0.318 0.295 0.249
+detail = 0.016
 
 [wood_cherry]
 luminance = 0.24
 family = wood
 source = wood/cherry-wood-veneer2
+mean = 0.420 0.171 0.109
+detail = 0.016
 
 [wood_dark]
 luminance = 0.20
 family = wood
 source = wood/antique-veneer1 bl
+mean = 0.338 0.147 0.093
+detail = 0.013

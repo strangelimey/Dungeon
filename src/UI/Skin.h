@@ -74,6 +74,16 @@ struct Skin {
 	// SpriteBatch::SetTextOutline): stone is mid-toned and busy, so light text
 	// on it washes out without a dark edge. Alpha 0 turns it off.
 	Vec4 textOutline{0.03f, 0.025f, 0.02f, 0.85f};
+
+	// LEGIBILITY ON THE MATERIAL SHOWN (more-ui-updates, the contrast pass): set
+	// with the stone from assets/ui/stones/stones.cat (GameUI::ApplyStone).
+	// `luma` is the material's toned luminance - a light one carves darker
+	// words and rings its text harder (ui::CarvedGold, textOutline); `calm` is
+	// the alpha of a wash of the stone's own mean colour over every face but a
+	// slot, which quiets a BUSY texture (leaves, lava) without changing its hue.
+	float luma = 0.20f;
+	float calm = 0.0f;
+	Vec4 stoneMean{0.2f, 0.2f, 0.2f, 1.0f};
 };
 
 // Draws `part` into `dst` as a 9-slice: fixed corners, edges tiled along
