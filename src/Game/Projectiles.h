@@ -242,24 +242,41 @@ public:
 			if (it.cargo) fn(it.pos, it.dir, it.age, it.cargo);
 	}
 
-	// TURNS BACK every item flying at the party for which `inZone(pos)` holds: it
-	// reverses, becomes a shot at monsters credited to party member `attacker`,
-	// and has at least `minRange` metres left to fly home in. A thrown item is
-	// left alone (nothing throws one at the party). Returns how many turned. A
-	// template so the zone test is inlined: this runs inside a cast, a frame the
+	// A gust against the shots flying at the party, for which `inZone(pos)` holds
+	// (Michael): its `power` comes off each shot's strength. Short of the shot's
+	// strength, the shot flies on WEAKENED by that much; at or past it, the shot
+	// is FLUNG BACK the way it came, carrying what the gust had left over (power
+	// minus strength, never more than the shot had) - so a strong gust returns
+	// it hard and a bare match returns it spent. Flung back, it is a shot at
+	// monsters credited to party member `attacker`, with at least `minRange`
+	// metres to fly home in; one left with nothing in it falls where it is. A
+	// thrown item is left alone (nothing throws one at the party). A template
+	// so the zone test is inlined: this runs inside a cast, a frame the
 	// steady-state allocation guard watches.
-	template <typename Fn> int TurnBack(Fn&& inZone, int attacker, float minRange) {
-		int turned = 0;
+	struct Repelled {
+		int weakened = 0; // flew on, lighter
+		int turned = 0;   // flung back
+	};
+	template <typename Fn>
+	Repelled Repel(Fn&& inZone, float power, int attacker, float minRange) {
+		Repelled out;
 		for (Item& it : m_items) {
 			if (it.target != TargetSide::Party || it.cargo || !inZone(it.pos)) continue;
+			const float strength = it.atk.damage;
+			if (power < strength) {
+				it.atk.damage = strength - power;
+				++out.weakened;
+				continue;
+			}
+			it.atk.damage = std::min(power - strength, strength);
 			it.dir = {-it.dir.x, -it.dir.y, -it.dir.z};
 			it.target = TargetSide::Monsters;
 			it.attacker = attacker;
 			it.shooter = 0;
-			it.rangeLeft = std::max(it.rangeLeft, minRange);
-			++turned;
+			it.rangeLeft = it.atk.damage > 0.0f ? std::max(it.rangeLeft, minRange) : 0.0f;
+			++out.turned;
 		}
-		return turned;
+		return out;
 	}
 
 	// --- editor introspection (transient content, shown on the map) ----------

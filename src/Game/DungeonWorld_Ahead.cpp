@@ -51,20 +51,20 @@ bool DungeonWorld::ShoveAhead(int cells) {
 	return moved;
 }
 
-int DungeonWorld::RepelAhead(int casterIndex) {
+ProjectileSystem::Repelled DungeonWorld::RepelAhead(float power, int casterIndex) {
 	const Direction facing = static_cast<Direction>(m_party.Facing());
 	const int px = m_party.GridX(), pz = m_party.GridZ();
 	const int ax = px + DirDX(facing), az = pz + DirDZ(facing);
 	// The zone is the party's square and the one it faces: a shot already that
-	// close is one the breeze can still catch. Turned back, it has at least the
+	// close is one the breeze can still catch. Flung back, it has at least the
 	// two squares it came through plus two more to fly home in.
-	return m_projectiles.TurnBack(
+	return m_projectiles.Repel(
 		[&](const Vec3& p) {
 			const int cx = static_cast<int>(std::floor(p.x / kCellSize));
 			const int cz = static_cast<int>(std::floor(p.z / kCellSize));
 			return (cx == px && cz == pz) || (cx == ax && cz == az);
 		},
-		casterIndex, 4.0f * kCellSize);
+		power, casterIndex, 4.0f * kCellSize);
 }
 
 void DungeonWorld::BlastAroundParty(const ProjectilePayload& payload, SpellSymbol school,

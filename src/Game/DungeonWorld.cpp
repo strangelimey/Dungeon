@@ -224,7 +224,7 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		 [this] { return FireAheadOfParty(); },
 		 [this](std::string_view itemId) { DropAtPartyFeet(itemId); },
 		 [this](int cells) { return ShoveAhead(cells); },
-		 [this](int casterIndex) { return RepelAhead(casterIndex); },
+		 [this](float power, int casterIndex) { return RepelAhead(power, casterIndex); },
 		 [this](const ProjectilePayload& payload, SpellSymbol school, int casterIndex) {
 			 BlastAroundParty(payload, school, casterIndex);
 		 }});

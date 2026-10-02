@@ -424,7 +424,7 @@ void Game::RegisterPartyCommands() {
 	// hand spell's outcome can be pinned on the spell or on the world.
 	m_console.Register({.name = "castsvc",
 						.group = CmdGroup::Combat,
-						.params = "fire\ndrop <item>\nshove [cells]\nrepel [member]\nblast <spell>",
+						.params = "fire\ndrop <item>\nshove [cells]\nrepel <power> [member]\nblast <spell>",
 						.summary = "drive one cast service directly (the world ahead of the party)"},
 					   [this](const std::vector<std::string>& args) {
 						   if (!Need(m_console, args, 1)) return;
@@ -443,10 +443,12 @@ void Game::RegisterPartyCommands() {
 							   const int cells = args.size() >= 2 ? std::atoi(args[1].c_str()) : 1;
 							   m_console.Print(std::format("castsvc shove: moved={}",
 														   m_world->ShoveAhead(cells) ? 1 : 0));
-						   } else if (what == "repel") {
-							   const int member = args.size() >= 2 ? std::atoi(args[1].c_str()) : 0;
-							   m_console.Print(
-								   std::format("castsvc repel: turned={}", m_world->RepelAhead(member)));
+						   } else if (what == "repel" && args.size() >= 2) {
+							   const float power = static_cast<float>(std::atof(args[1].c_str()));
+							   const int member = args.size() >= 3 ? std::atoi(args[2].c_str()) : 0;
+							   const auto r = m_world->RepelAhead(power, member);
+							   m_console.Print(std::format("castsvc repel: weakened={} turned={}",
+														   r.weakened, r.turned));
 						   } else if (what == "blast" && args.size() >= 2) {
 							   const Spell* spell = m_world->FindSpell(args[1]);
 							   if (!spell || !spell->Blast().Any()) {

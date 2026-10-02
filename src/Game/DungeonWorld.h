@@ -661,7 +661,7 @@ public:
 	FireAhead FireAheadOfParty() const;
 	void DropAtPartyFeet(std::string_view itemId);
 	bool ShoveAhead(int cells);
-	int RepelAhead(int casterIndex);
+	ProjectileSystem::Repelled RepelAhead(float power, int casterIndex);
 	void BlastAroundParty(const ProjectilePayload& payload, SpellSymbol school,
 						  int casterIndex);
 	// The whole spell registry (the Magic menu filters it by known symbols).

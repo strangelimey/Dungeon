@@ -83,10 +83,11 @@ struct CastServices {
 	// away, along the party's facing (stopped early by a wall, a shut door or a
 	// packed square). True if anything moved.
 	std::function<bool(int cells)> shoveAhead;
-	// Turns back every projectile flying AT the party in its own square or the
-	// one ahead: it reverses and flies on as the caster's (credited to
-	// `casterIndex`, aimed at monsters). Returns how many turned.
-	std::function<int(int casterIndex)> repelAhead;
+	// A gust of `power` against every projectile flying AT the party in its own
+	// square or the one ahead (ProjectileSystem::Repel): it weakens a stronger
+	// shot and flings back one it outweighs, which then flies as the caster's
+	// (credited to `casterIndex`, aimed at monsters).
+	std::function<ProjectileSystem::Repelled(float power, int casterIndex)> repelAhead;
 	// A blast of `payload` (its BlastSpec) as `school`'s damage, centred on the
 	// party's square and spreading from it, the square itself untouched.
 	std::function<void(const ProjectilePayload& payload, SpellSymbol school,

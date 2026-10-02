@@ -59,6 +59,14 @@ Context: started from the list of current spells - 16, four schools, each a
    OF THE FUTHARK RUNE (Kenaz, Laguz, ...), with "fire" (its meaning) mentioned
    in the DESCRIPTION. (Applies to all runes, schools and forms alike.)
 
+10. REPEL (after Phase 2, on the turned-back arrow): "repel would be compared to
+    the power of the projectile (spell, arrow, rock, etc.). It would reduce the
+    attack strength and, if powerful enough, fling it back where it came from."
+    ANSWERED (the arithmetic): the breeze's power P comes off the shot's
+    strength S. P < S: it flies on at S - P. P >= S: it is flung back at what P
+    had left over, P - S, capped at S - a strong breeze returns it hard, a bare
+    match returns it weakly.
+
 ## Organized (2026-10-01)
 
 The dump reshapes the spell ladder into three tiers with one meaning each:
