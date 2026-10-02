@@ -1,234 +1,206 @@
 # Spells
 
 The living list of spells. Details accrete here as they are designed; the
-implementation column tracks what the code actually does today. Add new spells
+implementation notes track what the code actually does today. Add new spells
 as sections, keep the catalog (`assets/projects/dungeon-demo/catalog/spells.cat`)
-and this list in step.
+and this list in step. The spell-updates thread (docs/spell-updates-notes.md,
+-plan.md) reworked the whole list into three tiers in October 2026.
 
 Rules of the system (see `docs/magic system.md` for the full model):
 
-- A spell is a SEQUENCE of runes. The four element runes are SCHOOL runes —
-  mutually exclusive, exactly one per spell, in first position: the first rune
-  picks the school (and the spell's colour). Tier-2 runes are SHARED FORM
-  runes usable under any school; each authored school+form recipe gives the
-  combination its school-flavoured reading.
-- A spell's strength scales with the caster's POWER in its school — the
-  per-school SKILL that grows as the caster uses that school's magic
-  (docs/skills.md: effective power = catalog power × (1 + 0.10 × level)).
-- A character LEARNS a spell the first time they successfully CAST it (built
-  in the spellbook). Only learned spells appear in the hand menu's Magic
-  quick-cast list or can be armed as a hand default; learning is saved per
-  character. Higher-tier spells demand higher school skill: a cast can FAIL
-  (the skill roll in docs/skills.md — mana spent, nothing else) — a failed
-  cast teaches nothing.
+- A spell is a SEQUENCE of runes read like a sentence: a SCHOOL rune (one of
+  four, mandatory, first - it picks the school and the spell's colour), then
+  optionally a FORM rune (Project, Protect, Sight), then optionally ONE
+  MODIFIER rune (Ingwaz, Hagalaz). Nothing else is well formed: no modifier on
+  a bare school rune or on Sight, no second modifier, nothing out of order
+  (`WellFormedRecipe`, Spells.h; the spellbook greys out a rune that may not
+  come next, and a malformed recipe is refused, never cast).
+- Every rune is shown by its ELDER FUTHARK NAME (`rune.<id>` lang keys); what
+  it means is in its description. The ids in code and catalogs stay the
+  meanings (`fire`, `project`, `multiple`).
+- A spell's strength scales with the caster's POWER in its school - catalog
+  power x (1 + 0.10 x school level) x (1 + the school's stat term). Every
+  threshold in the list below reads that cast power, never the skill level.
+- A character LEARNS a spell the first time they successfully CAST it (built in
+  the spellbook). Higher-tier spells can FUMBLE (35% a rune past the first, less
+  10% a school level: a three-rune spell at level 0 fails about 70% of the time,
+  which is intended - the balance pass owns it). A fumble teaches nothing.
 
-## Tier 1 — the four one-rune spells
+The runes:
 
-The base rune alone, castable the moment the symbol is memorized. Each starts
-almost trivial and GROWS with the caster's school power.
+| Rune | Futhark name | Tier | Meaning |
+| --- | --- | --- | --- |
+| fire | Kenaz | school | fire |
+| earth | Berkano | school | earth |
+| air | Ansuz | school | air |
+| water | Laguz | school | water |
+| project | Tiwaz | form | throw it ahead |
+| protect | Algiz | form | guard the caster |
+| sight | Dagaz | form | see through the wall ahead |
+| multiple | Ingwaz | modifier | more of it: more bolts, or the whole party |
+| explode | Hagalaz | modifier | it bursts: on impact, or round the caster |
 
-### Earth — Pebble (`rock` in spells.cat)
+## Tier 1 - the four hand spells
 
-Summons a small pebble, thrown as a projectile. Its SIZE (and punch) increases
-as the caster's earth powers increase — from gravel toward a real stone.
+The school rune alone, castable the moment it is memorized. Michael's rule
+(2026-10-01): these are NOT bolts. Each is something in the caster's hand, and
+it acts on what the caster holds or on the square ahead. Mana 2 each. They
+share `Spell/HandSpell.h`: a spell cast from a hand looks first at the OTHER
+hand; one cast from no hand (the console, the book) looks at both, right first.
 
-- Today: a plain damage bolt (the heaviest, slowest tier-1 projectile).
-- Growth: size/damage scale with earth power.
+### Fire - Puff of Flame (`flame`, Kenaz)
 
-### Air — Puff of Wind (`gust` in spells.cat)
+A puff of flame in the hand. In order:
+1. an unlit torch held in the other hand lights (its `lit_as`);
+2. else the wall torch ahead lights;
+3. else the brazier ahead lights - but only at cast power >= `brazier_power`
+   (14; school level 0 falls short, level 30 reaches it);
+4. else "nothing catches".
 
-A puff of wind. Not much use at the start — but it will grow into a gust that
-PUSHES MONSTERS AWAY (a shove down the faced row, not a damage bolt).
+### Earth - Pebble (`rock`, Berkano)
 
-- Today: a light, fast damage bolt (placeholder behaviour).
-- Growth: the push effect — knockback distance/weight class scales with air
-  power. Needs a push/displacement effect kind in the engine.
+A small stone (`conjures = pebble`: 0.1 kg, throwable, `command = throw`) in
+the casting hand if it is empty, else the other hand, else at the caster's
+feet. It is a real item - throw it, stow it, drop it.
 
-### Fire — Puff of Flame (`flame` in spells.cat)
+### Air - Puff of Wind (`gust`, Ansuz)
 
-A puff of fire. Useful to LIGHT TORCHES and SCONCES; gives a brief FLASH — a
-short-lived light source in the dark. Eventually grows into a fire blast.
+A breeze from the hand. It FLARES a fire ahead (a sconce or a brazier burns
+bigger and brighter for a moment). At cast power >= `push_power` (8) it also:
+- shoves the monster ahead back `push` (1) square, and
+- REPELS a shot in the square ahead: against a projectile of strength S, a gust
+  of power P < S weakens it to S - P and it flies on; P >= S flings it back the
+  way it came carrying min(P - S, S) (Michael, 2026-10-01). Arrows, bolts,
+  thrown items - anything in flight.
+Otherwise not much use, as designed.
 
-- Today: a plain damage bolt.
-- Growth: interactions first (igniting sconces/braziers, a transient point
-  light on cast), then the fire-blast damage form scaling with fire power.
+### Water - Splash (`splash`, Laguz)
 
-### Water — Splash (`splash` in spells.cat)
+A handful of water. In order:
+1. a water container held in the other hand fills ONE STEP (its `fill_as`:
+   empty -> half -> full waterskin; a full one is skipped);
+2. else the wall torch ahead goes out;
+3. else the brazier ahead goes out - only at cast power >= `brazier_power` (12);
+4. else it splashes harmlessly.
+A fire put out SMOKES: the fixture kind's `on_douse` effects (effects.cat
+`smoke`, a haze effect) land on the fire and raise the square's turbidity,
+thinning away over a few seconds. See docs/torches-and-fire.md.
 
-Summons a splash of water. With an EMPTY VIAL in the caster's OTHER hand, the
-cast FILLS IT with water — the feedstock for later potions (the Conjure idea
-from the magic-system doc). Grows into a huge deluge that can sweep monsters
-away, put out fires, and so on.
+## Tier 2 - the shared form runes
 
-- Today: a plain damage bolt.
-- Growth: the vial-filling interaction (needs vial items + the containers
-  system), dousing fires, then the deluge — a sweeping push + extinguish that
-  scales with water power.
+Tier-2 runes are SHARED FORMS (settled 2026-07-06): one form rune combines with
+every school, and the authored recipe gives each combination its
+school-flavoured behaviour. The spell's colour always comes from the school
+rune. Form tablets and UI use a neutral arcane gold.
 
-## Tier 2 — the shared form runes
+### Project (Tiwaz) - the bolts
 
-Tier-2 runes are SHARED FORMS (settled 2026-07-06, see docs/magic system.md):
-one form rune combines with every school, and the authored recipe gives each
-combination its school-flavoured behaviour. The spell's colour always comes
-from the school rune. Form tablets/UI use a neutral arcane gold.
+`symbols = <school>,project`. Each is a SINGLE-TARGET bolt: it flies the
+caster's quadrant lane down the faced row and strikes the first body in its
+lane. It does NOT explode - a blast is Hagalaz's job.
 
-### Project (Tiwaz, the up arrow) — "throw it ahead"
+| Spell | Id | Power | Notes |
+| --- | --- | --- | --- |
+| Fire Bolt | `firebolt` | 14 | `on_hit = burn 2 4` - it catches |
+| Earth Bolt | `earthbolt` | 18 | the "magic missile": the hardest, a fast bolt |
+| Water Bolt | `waterbolt` | 12 | fast middleweight |
+| Air Bolt | `airbolt` | 4 | token damage; `push = 1` shoves what it strikes back a square |
 
-The directed/thrown form: the school's substance, projected hard down the
-faced row. Four spells, `symbols = <school>,project`:
+The ids were `fireburst` / `slingshot` / `push` until October 2026; a save that
+knew the old ids drops them from its known list (the usual dev-cycle cost).
 
-#### Fire — Fire Burst (`fireburst`)
+### Protect (Algiz) - the wards
 
-A directed burst of flame — the flame puff turned weapon.
+The defensive form: a WARD on the caster, the school picking HOW it guards -
+earth HARDENS, air DEFLECTS, water ABSORBS, fire RETALIATES. Each is an effect
+class overriding the pipeline stage it acts at (docs/effects.md): Stone Skin at
+mitigate, Wind Ward at deflect, Water Veil at absorb, Fire Shield at react.
+Wards STACK across schools; recasting the SAME school replaces its ward. The
+ward lasts `duration` seconds; earth and fire read `power` as a flat number,
+water and air as a BUDGET (pool / charges) that ends the ward early when spent.
 
-- Today: a strong fire bolt (power 14).
-- Growth: with fire power it becomes a sustained FLAMETHROWER — a held jet
-  rather than a single burst.
+| Spell | Id | Power | What it does |
+| --- | --- | --- | --- |
+| Stone Skin | `stoneskin` | 6 | flat physical mitigation for 30 s |
+| Fire Shield | `fireshield` | 6 | a monster that lands a melee blow is burned back (a Burst, itself resisted) |
+| Water Veil | `waterveil` | 20 | soaks damage into a pool before health; bursts when spent |
+| Wind Ward | `windward` | 3 | turns ranged shots aside outright, a charge each |
 
-#### Earth — Slingshot (`slingshot`)
+### Sight (Dagaz) - the peepholes
 
-The pebble slung with real violence — the heaviest tier-2 hit.
+A round PEEPHOLE bored through the wall block directly ahead, in the first-person
+view (the scene shader carves it from the `sightCell`/`sightHole` frame
+constants - no mesh rebuild). It follows the party's facing live for its
+duration, stacks across schools (Fire's flavour wins the one camera), and rides
+the save on the effects line. Sight takes NO modifier.
 
-- Today: the hardest, and a fast, bolt (power 18).
-- Growth: projectile size/weight scales with earth power (gravel → stone →
-  boulder), inheriting Pebble's growth line.
+| Spell | Id | What it shows |
+| --- | --- | --- |
+| Ember Sight | `embersight` | lights the room beyond with a warm fill light |
+| Far Sight | `farsight` | bores deep down the row, through several walls |
+| Stone Sight | `stonesight` | writes the revealed room into the map's fog of war; lasts longest |
+| Scrying | `scrying` | a wider, clearer window (its "reveal the hidden" identity waits for secret content) |
 
-#### Water — Water Bolt (`waterbolt`)
+## Tier 3 - the modifiers
 
-A jet of water thrown as a projectile.
+A modifier follows a FORM rune: `<school>,project,<modifier>` or
+`<school>,protect,<modifier>`. ONE class makes them all
+(`Spell/ModifiedSpell.h`): AllSpells.cpp wraps every Project and Protect spell
+with each modifier, giving sixteen whole spells with their own ids, names and
+spells.cat entries - so learning, the spellbook, the hand menus and saves treat
+them like any other spell. Each costs about twice its base (spells.cat `mana`).
 
-- Today: a fast middleweight bolt (power 12).
-- Growth: douses fires it passes through/hits (sconces, braziers — the
-  inverse of Fire Burst's ignition), scaling toward Splash's deluge.
+### Ingwaz (multiple) on a bolt - the VOLLEY (`<bolt>_volley`)
 
-#### Air — Push (`push`)
+`count` bolts (2, or 3 for water and air), plus one per `count_per_power` past
+the spell's power, at most `count_max`. They fly down the CASTER'S OWN LANE a
+beat apart (`gap`), each a little off the line (`jitter`, kept inside the lane
+so the lane hit test holds), and each at `share` (0.6) of the cast power -
+weaker than one bolt, together much stronger (Michael: "each weaker"). Later
+bolts wait in a fixed pending-bolt queue in the world (cast service
+`spawnBoltAfter`), since a cast happens in a frame that must not allocate.
 
-The air school's identity: its "bolt" MOVES the target rather than hurting
-it. A gust projected down the row that shoves the first monster it strikes
-backward — the first DISPLACEMENT effect in the engine.
+### Hagalaz (explode) on a bolt - the BURST (`<bolt>_burst`)
 
-- Today: BUILT as designed — catalog `push = 1` shoves a struck, surviving
-  monster one cell along the bolt's travel (`ResolveSpellHit` →
-  `StepMonsterTo`; walls, closed doors, occupied cells, and the party's cell
-  stop the shove — `FreeSlotInCell` is the predicate). Damage is token
-  (power 4). A pushed monster glides visually like a normal step.
-- Growth: push distance (`push = 2, 3...`) and affected weight class scale
-  with air power; a future tier-3 turns it into a sweeping line/cone.
+The bolt detonates where it strikes or where it stops: the shared blast system
+(Game/Blast.h - a wavefront that flows through open squares, round corners,
+spent by walls). Damage scales as cast power over the spell's power; reach
+grows by one square per `blast_force_per_power` past it. NOTE `blast_force`
+counts SQUARES the wave may fill, not a radius. Fire Bolt Burst carries the old
+Fire Burst's tuned blast whole (force 7, damage 5), and the fire flask's
+`throw_spell` bursts as it.
 
-### Protect (Algiz, the warding stave) — "guard the caster"
+### Ingwaz on a ward - the PARTY WARD (`<ward>_party`)
 
-The defensive form: a WARD on the caster, the school picking HOW it guards —
-earth HARDENS, air DEFLECTS, water ABSORBS, fire RETALIATES. Four different
-answers to "protect me", no overlap. All four are BUILT. Framework: wards
-STACK across schools (Michael, 2026-07-07: effects of different identities
-coexist — a member may carry all four wards at once); only recasting the
-SAME school replaces its ward. Wards are caster-only day one ("grows to
-cover the party" is a high-power growth form; Dungeon Master's fire shield
-was party-wide, so there's precedent for that endpoint). The ward lasts
-`duration` seconds (spells.cat), `power` is its school magnitude —
-earth/fire read it as a flat number for their whole lifetime, water/air
-read it as a BUDGET (pool/charges) they spend, ending early when it runs
-dry (burst/stilled). Every ward ticks/fades in DungeonWorld with a log
-line; active wards ride the save (one "effect" line each, v14+). Each ward
-shows as an icon in its member's party-bar name band (right-aligned, newer
-effects growing leftward; school-tinted border, draining time sliver,
-hover = name + time left).
+The ward lands on every STANDING member at `share` (0.75; Wind Ward 1.0) of its
+power each.
 
-#### Earth — Stone Skin (`stoneskin`) — BUILT
+### Hagalaz on a ward - the WARD BURST (`<ward>_burst`)
 
-The caster's skin turns to stone: a flat armor bonus (power 6) for the
-duration. Rides `Character::Armor()`, so it reduces BOTH melee and ranged
-hits through the normal strike resolver.
+The ward's power spent as a blast of the school's element round the caster -
+whose own square is SPARED (`Detonate`'s `spareCentre`: the centre is treated
+as impassable, so the wave starts beside it) - and NO WARD is left (Michael:
+"burst instead"). Force 6 to 8: the four squares round the caster are the
+first ring, and force 3 once left one of them untouched.
 
-- Growth: armor scales with earth power. Tier-3 outward form: a stone wall
-  filling a cell.
+## Monster casters
 
-#### Fire — Fire Shield (`fireshield`) — BUILT
+`monsters.cat` `spell` names any spell id, a modified one included. The mage
+LADDER is authored as three kinds rather than a per-instance level (monsters have
+none): `skel_mage` casts `firebolt`, `skel_mage_adept` casts `firebolt_volley`,
+`skel_magus` casts `firebolt_burst` (Michael: "higher level mages shoot with
+Ingwaz, and even higher ones do Hagalaz"). A monster volley rides the same
+pending-bolt queue (`Spell::MonsterVolley`).
 
-Fire guards by burning back — even its defense is aggression. A monster that
-LANDS a melee blow on the warded member is scorched for the ward's power
-(6). The incoming hit is NOT reduced (that's earth's job); ranged attackers
-are out of its reach.
+## Where the runes are found
 
-- Growth: retaliation damage with fire power; igniting flavour later.
-  Tier-3 outward form: the fire WALL (the aura turned into a burning cell).
+Placed tablets in a level, deeper and guarded - not the starter kit (Q10). The
+starter party knows its kit's runes; Ingwaz and Hagalaz are still to be placed.
 
-#### Water — Water Veil (`waterveil`) — BUILT
+## Checked by
 
-Water guards by absorbing: a flowing film soaks damage into a POOL (power
-20) before any reaches health, and BURSTS when the pool is spent — it dies
-by spending, not by the clock (though an unspent veil still fades at its
-60 s duration). The intercept sits in WoundMember — the one place a member
-takes damage — so it soaks every source alike: melee, ranged bolts, even a
-wall bump. A partial soak lets the remainder through.
-
-- Growth: pool size with water power; quenching fire damage entirely once
-  monsters have elemental attacks. Tier-3: mist/deluge wall.
-
-#### Air — Wind Ward (`windward`) — BUILT
-
-Air guards by deflecting — the school that moves things moves ATTACKS.
-A ranged bolt aimed at the warded member is turned aside OUTRIGHT (no
-strike roll), spending one of the ward's CHARGES (power 3); the last
-deflection stills the wind (spend-to-end like the veil, 60 s fade
-otherwise). Bolts aimed at unwarded neighbours fly true — the ward wraps
-its caster alone. Melee is out of its reach: the defensive mirror of Push.
-
-- Growth: charge count with air power, then melee attacks straying too.
-  Tier-3: a wind wall cell bolts can't cross (reusing push for whatever
-  walks in).
-
-### Sight (Dagaz, the day-rune) — "see through the wall ahead"
-
-The divination form: a round PEEPHOLE bored through the middle of the wall
-block directly in front of the caster — you peer through the stone into the
-cell beyond, in the first-person view (a screen-door aperture with a thin
-school-tinted rim; the scene pixel shader carves it from the `sightCell`/
-`sightHole` frame constants — no mesh rebuild). One block, following the
-party's facing LIVE, for the spell's duration; a wall (or off-map) cell ahead
-ghosts, an open cell is a no-op (you already see it). Four spells,
-`symbols = <school>,sight`, the school picking WHAT the peek shows. All four
-are BUILT. Framework: the peek is a caster-only timed `StatusEffect`
-(`StatusKind::Sight`) — it STACKS across schools (hold several at once; the
-party shares ONE camera, so when several are up Fire's flavour wins the single
-ghost), a same-school recast REFRESHES, and it rides the save on the effects
-line (the "effect" v14 format, generic over kind — no new save version). Cast
-entry, the party-bar/Effects-tab icon (`rune_sight`), and the fade line all
-reuse the ward machinery. The host reads the active Sight in
-`DungeonWorld::UpdateLights`, computes the ghosted cell + hole, and
-`RenderScene` carries them into the frame's `Atmosphere`.
-
-#### Fire — Ember Sight (`embersight`) — BUILT
-
-Fire LIGHTS what it reveals: a warm fill light (no shadow cube) drops into the
-first open cell past the wall, so the room beyond — and any creature in it —
-shows through the stone in the dark. Red rim.
-
-- Growth: brightness/reach with fire power; a heat-outline on creatures later.
-
-#### Air — Far Sight (`farsight`) — BUILT
-
-Air sees FAR: the hole bores DEEP down the row, piercing successive wall
-blocks (the sight box extends `depth` cells along the facing, so the cylinder
-holes every wall in that span) rather than the single block ahead — the one
-school that beats the one-block rule, distance being air's identity. White rim.
-
-- Growth: tunnel depth scales with air power (today a fixed 6 cells).
-
-#### Earth — Stone Sight (`stonesight`) — BUILT
-
-Earth READS and REMEMBERS: the revealed room is permanently written into the
-fog-of-war set (`MarkSeen`), so its layout stays on the M-map after the peek
-fades, and its effect lasts the LONGEST (catalog `duration`). Brown-green rim.
-
-- Growth: reveal depth / thickness of rock read with earth power.
-
-#### Water — Scrying (`scrying`) — BUILT (interim)
-
-Water's scrying window is WIDER and clearer than the others (a larger hole
-radius). Its true identity is revealing the HIDDEN — secret doors, hidden
-buttons, trap pits — but until that content exists it stands in as the
-clearest plain peek. Blue rim.
-
-- Growth: the hidden-thing reveal once secret content lands (the divination
-  reads what's concealed in the cell beyond).
+`tools\SpellTest.py` (runs `tools\EvalScripts\spells.eval` and judges 33 checks,
+one per outcome above; `--selftest` cuts every cast and demands exactly the
+spell-free checks still pass) and `tools\AllocTest.ps1 -Hand` (the hand spells
+inside a guarded window), `-Cast` (a bolt in flight + an open book) and
+`-Impact` (bolts landing, a burst).

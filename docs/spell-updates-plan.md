@@ -260,3 +260,19 @@ the pipeline check and AllocTest -Impact detonate one.
 docs/spells.md and "docs/magic system.md" (tiers, runes, Futhark names),
 CLAUDE.md's MAGIC bullet, the tier-1 `spell.<id>.desc` lines (they say
 "flung ... for {} damage").
+
+### Phase 9 - as built (2026-10-02)
+
+- docs/spells.md rewritten around the three tiers: the rune table with Futhark
+  names, the grammar, each hand spell's order of outcomes and threshold, the
+  bolts, wards and peepholes as tables, the four modifiers, monster casters.
+- docs/torches-and-fire.md (new): the held torch as the light, burn-down and
+  the three torch tiers, charge as part of the item, taking and mounting wall
+  torches, fires as saved state, the douse smoke, waterskins, known gaps.
+- "docs/magic system.md": the third tier and the rune names beside the form
+  table, a "Built - the three tiers" status section, the module layout
+  (HandSpell, ModifiedSpell), stale Push / growth-form lines corrected.
+- CLAUDE.md: the MAGIC bullet's three tiers, a new FIRE AND LIGHT bullet, and
+  the starter kit and fire-flask lines.
+- The tier-1 descriptions were already rewritten in all five languages in
+  Phase 5.
