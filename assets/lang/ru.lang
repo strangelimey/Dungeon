@@ -772,6 +772,7 @@ map.level.ambient=Фоновый свет
 map.level.tags=Теги
 map.level.uistone=Материал интерфейса
 map.level.uistone.dungeon=Как у подземелья
+map.level.uistone.follow=Материал интерфейса теперь как в подземелье - вы видите то, что задали.
 ; --- настройки мира (Game/WorldSettingsDialog.h) ---
 map.btn.world=Настройки мира
 map.btn.worlds=Миры

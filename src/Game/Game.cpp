@@ -308,9 +308,15 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		m_world->SetLevelTags(m_levelSettingsDialog.Level(), ParseTags(tags));
 		m_world->SetLevelUiStone(m_levelSettingsDialog.Level(), uiStone);
 		RefreshPlaceStone(); // the chrome follows at once if this is the active level
-		if (m_world->onMessage)
+		// Authoring a level's material while the player's setting is pinned to
+		// another would show nothing in play (Michael hit exactly that), so a
+		// Save hands the choice back to the place - and says so.
+		const bool unpinned = m_ui.FollowPlaceStone();
+		if (m_world->onMessage) {
 			m_world->onMessage(loc::FormatLine("map.level.applied",
 											  m_levelSettingsDialog.Level()));
+			if (unpinned) m_world->onMessage(loc::View("map.level.uistone.follow"));
+		}
 	};
 	// The editor toolbar's [+] button: the generator dialog in CREATE mode,
 	// aimed at the viewed dungeon (docs/level-building.md P1). Its Create /

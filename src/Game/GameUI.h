@@ -112,6 +112,10 @@ public:
 	// back to whatever the setting and the place decide.
 	void PreviewStone(std::string name);
 	void EndStonePreview();
+	// Sets the player's Material setting to follow the place (and saves it).
+	// The Level dialog's Save calls this (Michael: authoring a level's material
+	// while pinned to another showed nothing in play). False = already did.
+	bool FollowPlaceStone();
 	// The skin the game chrome draws with - for a sample of it inside the
 	// editor's own (unskinned) dialogs.
 	const ui::Skin& GameSkin() const { return m_skin; }

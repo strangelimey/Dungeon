@@ -135,6 +135,15 @@ unsigned GameUI::StoneFilterBits(std::string_view name) {
 	return ~0u; // unknown: never hidden
 }
 
+bool GameUI::FollowPlaceStone() {
+	if (m_settings.uiStone == GameSettings::kUiStoneFollow) return false;
+	m_settings.uiStone = GameSettings::kUiStoneFollow;
+	m_settings.Save();
+	if (m_stonePicker) m_stonePicker->SetCurrent(GameSettings::kUiStoneFollow);
+	ApplyStone();
+	return true;
+}
+
 void GameUI::PreviewStone(std::string name) {
 	m_previewStone = std::move(name);
 	ApplyStone();

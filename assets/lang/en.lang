@@ -793,6 +793,7 @@ map.level.ambient=Ambient light
 map.level.tags=Tags
 map.level.uistone=UI material
 map.level.uistone.dungeon=The dungeon's
+map.level.uistone.follow=Your UI material now follows the dungeon, so you see what you authored.
 ; --- the world's settings (Game/WorldSettingsDialog.h) ---
 map.btn.world=World settings
 map.btn.worlds=Worlds

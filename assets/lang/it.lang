@@ -768,6 +768,7 @@ map.level.ambient=Luce ambientale
 map.level.tags=Tag
 map.level.uistone=Materiale dell'interfaccia
 map.level.uistone.dungeon=Quello del sotterraneo
+map.level.uistone.follow=Il materiale dell'interfaccia ora segue il sotterraneo, così vedi ciò che hai creato.
 ; --- le impostazioni del mondo (Game/WorldSettingsDialog.h) ---
 map.btn.world=Impostazioni del mondo
 map.btn.worlds=Mondi

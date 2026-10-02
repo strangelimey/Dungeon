@@ -768,6 +768,7 @@ map.level.ambient=Umgebungslicht
 map.level.tags=Tags
 map.level.uistone=UI-Material
 map.level.uistone.dungeon=Das des Verlieses
+map.level.uistone.follow=Dein UI-Material folgt jetzt dem Verlies, damit du siehst, was du gestaltet hast.
 ; --- die Welteinstellungen (Game/WorldSettingsDialog.h) ---
 map.btn.world=Welteinstellungen
 map.btn.worlds=Welten

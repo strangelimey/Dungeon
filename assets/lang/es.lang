@@ -768,6 +768,7 @@ map.level.ambient=Luz ambiental
 map.level.tags=Etiquetas
 map.level.uistone=Material de la interfaz
 map.level.uistone.dungeon=El de la mazmorra
+map.level.uistone.follow=Tu material de interfaz sigue ahora a la mazmorra, para que veas lo que has creado.
 ; --- los ajustes del mundo (Game/WorldSettingsDialog.h) ---
 map.btn.world=Ajustes del mundo
 map.btn.worlds=Mundos
