@@ -67,6 +67,10 @@ static const float kGlassTint = 0.06;  // how much of the fluid's colour the emp
 // detail around each fill's mid colour. 1 / 1 was the first cut.
 static const float kPace = 0.45;
 static const float kSubdue = 0.55;
+// The whole tube's brightness, fluid and glass alike (Michael, 2026-10-01: the
+// fills read too bright, cartoonish; picked from a 100..50% side-by-side).
+// 1 was the first cut.
+static const float kBrightness = 0.7;
 
 static const float3 kBloodDeep = float3(0.32, 0.01, 0.02);
 static const float3 kBloodBright = float3(1.00, 0.10, 0.07);
@@ -307,5 +311,5 @@ float4 PSMain(PSInput input) : SV_TARGET {
 	const float lip = exp(-pow((input.uv.y - 0.88) / 0.05, 2.0)) * 0.06;
 	col += streak + lip;
 
-	return float4(col, 1.0);
+	return float4(col * kBrightness, 1.0);
 }
