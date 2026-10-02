@@ -2043,7 +2043,13 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   LayoutSelf since fontScale is ABSOLUTE, not inherited) - the scroll gutter is
   the one rem left, because ScrollArea reads it in rem. The window is sized in
   card em (SizeForEm), keeps the `inventory` panel slot, and draws the hovered
-  card's status line. Its four cards are built and warmed with the HUD, so an
+  card's status line. Its INVENTORY tab (P6) is the exception to "the sheet's
+  tab at card size": a card lays its squares out in em from its own corner (no
+  doll, the load beside the name, pack row over contents six across) at the
+  SHEET'S text size (`squareDesign`, times the window's scale), so a square is
+  the sheet's; the window's size follows the tab (PanelSize: the most rows any
+  shown bag needs) and its default spot is centred at the other tabs' size, so
+  the tab stones do not move. Its four cards are built and warmed with the HUD, so an
   open adds nothing. Dev: `inventory [tab] | off | status | slot <m> <i> |
   stone <tab>` (status gives `tab`, `opens=` and the bar); `sheet status` gives
   the All button's point. Checked: AllocTest `-All` (All, every tab, Esc, the

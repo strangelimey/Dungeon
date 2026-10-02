@@ -199,6 +199,15 @@ close), uioverlap over the All window on every tab, `inventory status` gains
 
 ## Phase 6 - The party backpacks (C.2, C.3, answer 6)
 
+DONE. A card's Inventory tab is its own em layout (no doll; the carry load
+beside the name; pack row over the contents, six across), at the SHEET'S text
+size times the window's scale, so a square is the sheet's. The window's size
+follows the tab (PartyWindow::PanelSize, rows = the most any shown member's
+bag needs) and its default spot is centred at the other tabs' size, so the tab
+stones stay put. The three defects went with InventoryWindow. -Items aims by
+`inventory slot`; -Packs still works the SHEET (the same EquipOrSelectPack).
+A 16-slot bag (three rows) would not fit a 900-px window - none is authored.
+
 - The All window's Inventory tab: each card shows that member's PACK ROW
   (four bag squares, select / equip exactly as the sheet's - the same code
   now, EquipOrSelectPack) over the selected bag's contents at the SAME slot

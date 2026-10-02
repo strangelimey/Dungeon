@@ -226,11 +226,15 @@ void CharacterSheet::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		if (!m_character) return;
 		const ui::Font& nameFont = ctx.FontAt(ui::FontRole::Display, Em(1.5f));
 		const float band = Em(kCardNameEm);
-		nameFont.Draw(batch, m_character->name, Ax(px, kLeft),
+		// On the Inventory tab the name lines up with the squares (em from the
+		// card's corner); elsewhere with the tab's own left margin.
+		const bool squares = m_mode == Mode::Inventory;
+		const float left = squares ? card.x + Em(kCardInvPadEm) : Ax(px, kLeft);
+		const float right = squares ? card.x + card.w - Em(kCardInvPadEm) : Ax(px, 1.0f - kLeft);
+		nameFont.Draw(batch, m_character->name, left,
 					  card.y + (band - nameFont.Height()) * 0.5f, theme.accent);
 		const Vec4& c = m_character->portraitColor;
-		batch.DrawRect({Ax(px, kLeft), card.y + band - 2.0f, Ax(px, 1.0f - kLeft) - Ax(px, kLeft), 1.0f},
-					   {c.x, c.y, c.z, 0.7f});
+		batch.DrawRect({left, card.y + band - 2.0f, right - left, 1.0f}, {c.x, c.y, c.z, 0.7f});
 		switch (m_mode) {
 		case Mode::Inventory: DrawInventory(ctx, batch, px); break;
 		case Mode::Stats:     DrawStats(ctx, batch, px); break;

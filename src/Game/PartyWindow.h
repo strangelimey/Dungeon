@@ -52,9 +52,19 @@ public:
 	static constexpr float kGapEm = 0.6f;     // tab row to cards, card to card
 	static constexpr float kStatusEm = 2.2f;  // the status line's band
 
-	// The window's size for a window em of `em` pixels - what its floating
-	// panel asks for.
+	// The window's size for a window em of `em` pixels on any tab but
+	// Inventory - what its floating panel asks for.
 	static Vec2 SizeForEm(float em);
+	// Its size on tab `mode` at panel scale `s` (window em `em`): the Inventory
+	// tab's cards are sized by their squares, which are the SHEET'S (Phase 6),
+	// and by the most rows any shown member's bag needs - so the window grows
+	// on that tab and shrinks back after.
+	Vec2 PanelSize(ui::UIContext& ctx, float s, float em, CharacterSheet::Mode mode) const;
+
+	// The sheet's root text size, design pixels (UIContext::DesignHeight of its
+	// context): on the Inventory tab the cards take it, times the panel's
+	// scale, so their squares match the sheet's. Unset = the cards' usual size.
+	std::function<float()> squareDesign;
 
 	// `panel` is the floating panel it fills, whose scale the cards' text
 	// follows. `closeIcon` is the shared corner box.
@@ -100,6 +110,9 @@ private:
 	// The card whose status the line shows: the one under the pointer, else
 	// the first with something to say (an item riding the cursor).
 	const CharacterSheet* StatusCard() const;
+	// Rows of contents the Inventory tab needs: the most any shown member's
+	// selected bag fills, six across, at least one.
+	int InventoryRows() const;
 	float CardEm() const { return Em(kCardScale); }
 
 	const ui::FloatingPanel* m_panel;

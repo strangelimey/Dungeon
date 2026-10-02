@@ -1786,11 +1786,17 @@ void GameUI::BuildHud() {
 	// others, and shown only while open. Centred until moved; the world stays
 	// clickable around it. Sized in its own em, so its shape holds at any scale.
 	ui::FloatingPanel* inventoryPanel = makePanel(kHudInventory, "InventoryPanel");
-	inventoryPanel->size = [inventoryPanel](ui::UIContext& ctx, float s) {
-		return PartyWindow::SizeForEm(inventoryPanel->EmAt(ctx, s));
+	// Its size follows the TAB (Phase 6): the Inventory cards carry the sheet's
+	// own squares, so the window grows on that tab and shrinks back after.
+	inventoryPanel->size = [this, inventoryPanel](ui::UIContext& ctx, float s) {
+		const float em = inventoryPanel->EmAt(ctx, s);
+		return m_inventory ? m_inventory->PanelSize(ctx, s, em, m_inventory->CurrentMode())
+						   : PartyWindow::SizeForEm(em);
 	};
+	// Centred at its OTHER-tabs size, so its top-left - and with it the row of
+	// tab stones - stays put while the size changes under a tab switch.
 	inventoryPanel->defaultPos = [inventoryPanel](ui::UIContext& ctx) {
-		const Vec2 size = inventoryPanel->size(ctx, inventoryPanel->Scale());
+		const Vec2 size = PartyWindow::SizeForEm(inventoryPanel->EmAt(ctx, inventoryPanel->Scale()));
 		return Vec2{(ctx.Width() - size.x) * 0.5f, (ctx.Height() - size.y) * 0.5f};
 	};
 	inventoryPanel->shownWhen = [this] { return m_inventory && m_inventory->IsOpen(); };
@@ -1801,6 +1807,7 @@ void GameUI::BuildHud() {
 			CloseInventory();
 		});
 	m_inventory->bounds = {0, 0, 1, 1};
+	m_inventory->squareDesign = [this] { return m_sheetUi.DesignHeight(); };
 	m_inventory->opacity = &m_settings.hudInventory.opacity;
 	{
 		std::array<const gfx::Texture*, 5> etch{}, lit{};

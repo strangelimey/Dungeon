@@ -193,6 +193,24 @@ public:
 	static constexpr float kCardWEm = 47.0f;    // the sheet's width at 16:9
 	static constexpr float kCardNameEm = 2.2f;  // the name band
 	static constexpr float kCardTabEm = 17.1f;  // (1 - kHeaderY) of the sheet's body
+	// A card's INVENTORY tab is its own layout (Phase 6, Michael: "keep the
+	// backpack squares the same size as they are in the regular backpack"): no
+	// paper doll, the carry load beside the name, then the pack row over the
+	// selected bag's contents, six across - at the SHEET'S em (the window sets
+	// the card's fontScale to it on this tab), so a square is the sheet's size.
+	static constexpr float kCardInvPadEm = 0.8f;
+	static constexpr float kCardSlotEm = 3.3f;     // the sheet's kPackW / kPackH
+	static constexpr float kCardSlotGapEm = 0.47f; // its kPackGapX / kPackGapY
+	static constexpr float kCardInvSepEm = 0.8f;   // pack row to contents
+	static constexpr int kCardInvCols = 6;
+	static constexpr float kCardInvWEm =
+		2.0f * kCardInvPadEm + kCardInvCols * kCardSlotEm + (kCardInvCols - 1) * kCardSlotGapEm;
+	// A card's height on the Inventory tab with `rows` rows of contents.
+	static constexpr float CardInventoryHEm(int rows) {
+		return kCardNameEm + kCardSlotGapEm + kCardSlotEm + kCardInvSepEm +
+			   static_cast<float>(rows) * kCardSlotEm +
+			   static_cast<float>(rows > 0 ? rows - 1 : 0) * kCardSlotGapEm + kCardInvPadEm;
+	}
 	CharacterSheet(const gfx::Rect& rect, std::vector<Character>* roster,
 				   const ResourceBarStyle* barStyle, const ItemIconBank* icons,
 				   const ItemWeightBank* weights, const ItemIconBank* slotIcons,

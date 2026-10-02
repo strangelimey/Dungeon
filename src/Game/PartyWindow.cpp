@@ -27,6 +27,28 @@ Vec2 PartyWindow::SizeForEm(float em) {
 	return {w * k, h * k};
 }
 
+int PartyWindow::InventoryRows() const {
+	int rows = 1;
+	const size_t shown = std::min(m_roster->size(), kMaxCards);
+	for (size_t i = 0; i < shown; ++i) {
+		const int slots = static_cast<int>((*m_roster)[i].inventory.SelectedContents().size());
+		rows = std::max(rows, (slots + CharacterSheet::kCardInvCols - 1) / CharacterSheet::kCardInvCols);
+	}
+	return rows;
+}
+
+Vec2 PartyWindow::PanelSize(ui::UIContext& ctx, float s, float em,
+							CharacterSheet::Mode mode) const {
+	if (mode != CharacterSheet::Mode::Inventory || !squareDesign) return SizeForEm(em);
+	// The chrome stays in the window's card em; the cards are the squares'.
+	const float k = em * kCardScale;
+	const float sq = ctx.FontAt(ctx.RootRole(), squareDesign() * s).Height();
+	const float w = (2.0f * kPadEm + kGapEm) * k + 2.0f * CharacterSheet::kCardInvWEm * sq;
+	const float h = (2.0f * kPadEm + kTabEm + 2.0f * kGapEm + kStatusEm) * k +
+					2.0f * CharacterSheet::CardInventoryHEm(InventoryRows()) * sq;
+	return {w, h};
+}
+
 PartyWindow::PartyWindow(const ui::FloatingPanel* panel, std::vector<Character>* roster,
 						 const ResourceBarStyle* barStyle, const ItemIconBank* icons,
 						 const ItemWeightBank* weights, const ItemIconBank* slotIcons,
@@ -64,7 +86,7 @@ void PartyWindow::SetModeEtches(std::span<const gfx::Texture* const> etch,
 	if (m_strip) m_strip->SetEtches(etch, lit);
 }
 
-void PartyWindow::LayoutSelf(ui::UIContext&) {
+void PartyWindow::LayoutSelf(ui::UIContext& ctx) {
 	const gfx::Rect& px = Pixel();
 	if (px.w <= 0.0f || px.h <= 0.0f) return;
 	const float k = CardEm();
@@ -81,7 +103,13 @@ void PartyWindow::LayoutSelf(ui::UIContext&) {
 	const float top = pad + (kTabEm + kGapEm) * k;
 	const float cardW = std::max((px.w - 2.0f * pad - gap) * 0.5f, 0.0f);
 	const float cardH = std::max((px.h - top - gap - kStatusEm * k - pad) * 0.5f, 0.0f);
-	const float scale = (m_panel ? m_panel->Scale() : 1.0f) * kCardScale;
+	// On the Inventory tab the cards' squares are the SHEET'S (its text size,
+	// times this panel's scale so the window still scales as a whole).
+	const float panelScale = m_panel ? m_panel->Scale() : 1.0f;
+	const bool squares = CurrentMode() == CharacterSheet::Mode::Inventory && squareDesign &&
+						 ctx.DesignHeight() > 0.0f;
+	const float scale = squares ? squareDesign() * panelScale / ctx.DesignHeight()
+								: panelScale * kCardScale;
 	for (size_t i = 0; i < m_cards.size(); ++i) {
 		CharacterSheet* card = m_cards[i];
 		card->visible = i < m_roster->size();
