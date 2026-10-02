@@ -162,7 +162,10 @@ void DevConsole::DrawThreadsSection(const PanelCtx& p, float top,
 }
 
 void DevConsole::ThreadsClick(float mx, float my) {
-	if (m_threadsBtn.Contains(mx, my)) m_threadsExpanded = !m_threadsExpanded;
+	if (m_threadsBtn.Contains(mx, my)) {
+		m_threadsExpanded = !m_threadsExpanded;
+		NoteSectionsChanged();
+	}
 
 	// Thread-panel control buttons (hit-tested against the rects Render laid out
 	// last frame). Left-click toggles pause, halves/doubles the rate, or kills.

@@ -161,6 +161,23 @@ public:
 	std::function<std::string(std::string_view name)> gate;
 	bool CommandsEnabled() const { return m_commandsEnabled; }
 
+	// The readout panel's three sections, expanded or collapsed. The console
+	// knows nothing of settings.ini: Game seeds the state with SetSections and
+	// persists it from onSectionsChanged, which fires on every toggle (a header
+	// click or `profile on|off`).
+	struct Sections {
+		bool perf = false;
+		bool profile = false;
+		bool threads = false;
+	};
+	void SetSections(const Sections& s) {
+		m_perfExpanded = s.perf;
+		m_profileExpanded = s.profile;
+		m_threadsExpanded = s.threads;
+	}
+	Sections GetSections() const { return {m_perfExpanded, m_profileExpanded, m_threadsExpanded}; }
+	std::function<void()> onSectionsChanged;
+
 	// MIRROR EVERY CONSOLE LINE TO dungeon.log (the eval harness; `logecho`).
 	// The console's scrollback is a WINDOW: reading it means taking a
 	// screenshot, and a screenshot captures whatever window is in FRONT. So the
@@ -601,11 +618,15 @@ private:
 	bool m_commandsEnabled = true;   // false while a staged load is mid-flight
 	bool m_mirrorToLog = false;      // `logecho`: every console line also to dungeon.log
 	// Every section collapses to its header, so the panel can be cut down to just
-	// the one thing being watched. THREADS starts collapsed because it is a
-	// CONTROL surface — halt, rate, kill, boot — rather than a readout, and its
-	// buttons should not push the numbers you came to read down the screen.
-	bool m_perfExpanded = true;
-	bool m_profileExpanded = true;
+	// the one thing being watched. All three start collapsed (Michael, 2026-10-01)
+	// so opening the console shows the scrollback first; each header still answers
+	// its headline question, and a click expands the one you came to read. The
+	// state persists in settings.ini (console_*_expanded, see SetSections).
+	void NoteSectionsChanged() {
+		if (onSectionsChanged) onSectionsChanged();
+	}
+	bool m_perfExpanded = false;
+	bool m_profileExpanded = false;
 	bool m_threadsExpanded = false;
 
 	bool m_profileGraph = false; // list of current values, or scrolling graphs

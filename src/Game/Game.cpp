@@ -438,6 +438,17 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	// ...and its saves are that world's alone (SaveGame.h SetSaveWorldFilter).
 	if (m_worldFromCommandLine) SetSaveWorldFilter(m_defaultWorld);
 
+	// The console's section states round-trip settings.ini (console_*_expanded).
+	m_console.SetSections({m_settings.consolePerfExpanded, m_settings.consoleProfileExpanded,
+						   m_settings.consoleThreadsExpanded});
+	m_console.onSectionsChanged = [this] {
+		const DevConsole::Sections s = m_console.GetSections();
+		m_settings.consolePerfExpanded = s.perf;
+		m_settings.consoleProfileExpanded = s.profile;
+		m_settings.consoleThreadsExpanded = s.threads;
+		m_settings.Save();
+	};
+
 	WireModuleCallbacks();
 	RegisterDevCommands();
 	RegisterDungeonCommands();

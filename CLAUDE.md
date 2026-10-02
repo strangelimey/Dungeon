@@ -1818,7 +1818,11 @@ too) are an iron FRAME around a PROCEDURAL, ANIMATED, EMISSIVE fill.
   Switching sprite <-> fill FLUSHES, so draw order is still submission order;
   stacks draw every fill, then every frame (`DrawResourceBarFill/Frame`). Health
   = blood ebbing + a heartbeat; stamina = a breathing green glow; mana = blue
-  wisps + an occasional lightning strike; food/water = solid placeholder.
+  wisps + an occasional lightning strike; food = packed grain (mottle, speckle,
+  lighter kernels, nearly still, a crumbly end with no meniscus); water = clear
+  TEAL (mana owns blue, a row away), lighter at the surface, soft pools of
+  caustic light (thin threads read as mana's lightning), small bubbles, a
+  gentle slosh (BarKind Food = 5 / Water = 6).
   Brightness falls with the stat. Tuning lives at the top of bar.hlsl (edit +
   relaunch): `kPace` / `kSubdue` exist because the first cut was "too busy - it
   draws the eye". TRAP that cost a round: a frac(dot) FLOAT HASH disagrees with
@@ -1835,6 +1839,12 @@ too) are an iron FRAME around a PROCEDURAL, ANIMATED, EMISSIVE fill.
 - `ResourceBarStyle` (PartyHudTypes.h, owned by GameUI) replaced the user
   `ResourceBarColors` + `kBarFields` + the Settings > UI picker grid. uiskin=0
   keeps the flat `DrawStatBar` look. The skill XP bars stay flat on purpose.
+- BRIGHTNESS / SATURATION are USER SETTINGS, not shader constants (Settings ->
+  UI "Resource Bars"; settings.ini bar_brightness= default 0.7, bar_saturation=
+  default 1 - Michael picked both from side-by-sides, 1.0 brightness read
+  cartoonish). They ride the sprite root constants' SECOND float4
+  (`SpriteBatch::SetBarLook`, refreshed each frame in TickResourceBars);
+  sprite.hlsl declares only the first, so the root signature carries 8 values.
 - Dev: `hudbars [status]` (bpm per member, noticed), `hudbars demo on|off`
   (sweeps every bar), `hudbars rate <bpm|auto>`. Checked: AllocTest (default +
   -Sheet) PASS; `uioverlap hud` clean (it sees widgets; the bars are direct draws).

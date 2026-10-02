@@ -47,10 +47,10 @@ struct ResourceBarStyle {
 	// heartbeat at that rate instead of HeartRateTarget.
 	bool demo = false;
 	float pinnedBpm = -1.0f;
-	// The FLAT look's fills (uiskin=0, or no frame texture), and the solid fills
-	// of the two SUPPLY meters (docs/health-and-healing.md) - a placeholder until
-	// they get a look of their own. Warm bread against cold water, so a glance
-	// tells them apart without reading the labels.
+	// The FLAT look's fills (uiskin=0, or no frame texture). The framed bars
+	// draw their own procedural colours (bar.hlsl), the two SUPPLY meters
+	// included (docs/health-and-healing.md). Warm bread against cold water, so
+	// a glance tells them apart without reading the labels.
 	Vec4 health{0.62f, 0.18f, 0.14f, 1.0f};
 	Vec4 stamina{0.26f, 0.52f, 0.22f, 1.0f};
 	Vec4 mana{0.22f, 0.36f, 0.68f, 1.0f};

@@ -148,7 +148,13 @@ struct GameSettings {
 	// motion-sensitive players — the eye glides dead level. Settings → UI
 	// checkbox; ini headbob=.
 	bool headBob = true;
-	ui::Theme theme;              // the 8 user-editable control colors
+	// The resource bars' procedural fills (assets/shaders/bar.hlsl): overall
+	// brightness, and how much of their colour survives toward grey (1 =
+	// untouched). Settings -> UI sliders; ini bar_brightness= / bar_saturation=.
+	// 0.7 was picked from a side-by-side: at 1 the fills read cartoonish.
+	float barBrightness = 0.7f;
+	float barSaturation = 1.0f;
+	ui::Theme theme;             // the 8 user-editable control colors
 	// Per-slot party identity colors (see kDefaultMemberColors above).
 	std::array<Vec4, kMemberColorCount> memberColors{
 		kDefaultMemberColors[0], kDefaultMemberColors[1],
@@ -189,6 +195,11 @@ struct GameSettings {
 	int mapPaletteGrouping = 0;
 	int mapPaletteStage = 1;           // Build: where a new level's work starts
 	int mapPaletteKind = 0;
+	// The dev console's three readout sections (Perf / Profile / Threads):
+	// expanded or collapsed to their headers. All start collapsed.
+	bool consolePerfExpanded = false;
+	bool consoleProfileExpanded = false;
+	bool consoleThreadsExpanded = false;
 	// The FLOATING HUD panels (UI/FloatingPanel.h): each one's saved spot, scale,
 	// background opacity and whether it is minimized into the tray (PartyHudTypes.h
 	// HudPanelLook). kHudPanelFields below lists them and drives the ini
