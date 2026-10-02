@@ -104,7 +104,7 @@ void DungeonWorld::AppendCarriedLights(float time) {
 		gfx::PointLight torch;
 		torch.position = at;
 		torch.radius = kTorchRadius * (0.6f + 0.4f * brightness);
-		torch.color = m_torchColor;
+		torch.color = kTorchColor;
 		torch.intensity = kTorchIntensity * flicker * brightness;
 		m_lights.points.push_back(torch);
 	};

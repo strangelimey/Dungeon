@@ -1035,7 +1035,7 @@ void Game::RegisterPartyCommands() {
 					m_console.Print(std::format("{} {}", field.id, hide ? "minimized" : "restored"));
 					return;
 				}
-				m_console.Refuse("usage: hudpanel hide|show <id> - party, status, options, move, hands, magic, cards");
+				m_console.Refuse("usage: hudpanel hide|show <id> - party, status, move, hands, magic, cards");
 				return;
 			}
 			if (args[0] == "reset") {

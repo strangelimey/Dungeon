@@ -1630,12 +1630,13 @@ void GameUI::BuildHud() {
 		}
 	}
 
-	// Left column: the status plate (compass + position) over the options plate
-	// (torchlight + Rest/Help). Two padded panels, each laying its own rows out
-	// as fractions of itself.
+	// Left column: the status plate (compass + position), a padded panel laying
+	// its rows out as fractions of itself. The options plate that sat under it
+	// (torchlight + Rest/Help) is gone (lighting-updates Phase 1): light comes
+	// from what is lit, and Rest / Help moved into the log's corner row.
 	constexpr float kLeftX = 0.01f, kLeftW = 0.15f;
-	constexpr float kStatusH = 0.071f, kOptionsH = 0.16f;
-	constexpr float kOptionsGap = 0.013f;
+	constexpr float kStatusH = 0.071f;
+	constexpr float kLeftGap = 0.013f;
 
 	ui::FloatingPanel* statusPanel = makePanel(kHudStatus, "StatusPanel");
 	statusPanel->size = [](ui::UIContext& ctx, float s) {
@@ -1657,60 +1658,6 @@ void GameUI::BuildHud() {
 	m_compass->text.reserve(loc::Line::kCapacity);
 	m_position->text.reserve(loc::Line::kCapacity);
 	m_position->dim = true;
-
-	ui::FloatingPanel* optionsPanel = makePanel(kHudOptions, "OptionsPanel");
-	optionsPanel->size = [](ui::UIContext& ctx, float s) {
-		return Vec2{kLeftW * s * ctx.Width(), kOptionsH * s * ctx.Height()};
-	};
-	optionsPanel->defaultPos = [this, belowTop](ui::UIContext& ctx) {
-		return Vec2{kLeftX * ctx.Width(),
-					belowTop(ctx) + (kStatusH * m_settings.hudStatus.scale + kOptionsGap) *
-										ctx.Height()};
-	};
-	auto* options = optionsPanel->Add<ui::Panel>(gfx::Rect{0, 0, 1, 1});
-	options->debugName = "OptionsPlate";
-	options->opacity = &m_settings.hudOptions.opacity;
-	options->padX = 0.0600f; // 0.009 of the window
-	options->padY = 0.0688f; // 0.011 of the window
-	options->Add<ui::Label>(gfx::Rect{0, 0, 1, 0.1594f}, loc::Tr("hud.options"));
-	auto* torchLabel = options->Add<ui::Label>(gfx::Rect{0, 0.2391f, 1, 0.1594f},
-											   loc::Tr("hud.torchlight"));
-	torchLabel->dim = true;
-	options->Add<ui::DropDown>(gfx::Rect{0, 0.4348f, 1, 0.2101f},
-		std::vector<std::string>{loc::Tr("torch.warm"), loc::Tr("torch.cold"),
-								 loc::Tr("torch.eerie")},
-		m_torchPalette, [this](int index) {
-			Click();
-			m_torchPalette = index;
-			onTorchPalette(index);
-		});
-	constexpr float kHalfBtn = 0.4773f; // 0.063 of the window, of the inner width
-	// REST — the toggle for the rest STATE (docs/health-and-healing.md). This
-	// button was "Wait", which logged a line and did nothing else; rest is what
-	// waiting was always a placeholder for, so it takes the slot rather than
-	// crowding a second button in beside a dead one.
-	//
-	// The LABEL SHOWS THE ACTION, not the state — "Rest" while awake, "Wake"
-	// while resting — the same convention the editor's play-pause button uses,
-	// because a button labelled with the state it is already in reads as broken.
-	// It is re-labelled every frame from the world, so the rest ending BY ITSELF
-	// (fully recovered, attacked, out of food) puts the label back with no
-	// callback and no chance of the two disagreeing.
-	m_restButton =
-		options->Add<ui::Button>(gfx::Rect{0, 0.7609f, kHalfBtn, 0.2246f},
-			loc::Tr("hud.rest"), [this] {
-				Click();
-				if (onToggleRest) onToggleRest();
-			});
-	// Flush with the plate's inner right edge. It was authored at x 0.5379,
-	// which plus the button's own 0.4773 comes to 1.0152 — three pixels out of
-	// the plate, which is what `uioverlap` reported.
-	options->Add<ui::Button>(gfx::Rect{1.0f - kHalfBtn, 0.7609f, kHalfBtn, 0.2246f},
-		loc::Tr("hud.help"), [this] {
-			Click();
-			m_log->AddLine(m_settings.MoveKeysHelp());
-			m_log->AddLine(loc::View("log.scroll_hint"));
-		});
 
 	// Movement, hands and magic: three docks, each its own floating panel
 	// (Game/ControlBar.h). Their default column runs from under the party bar to
@@ -1758,12 +1705,11 @@ void GameUI::BuildHud() {
 	deps.onPlacementChanged = [this] { OnHudPanelMoved(); };
 	if (minimal) {
 		// The cards take the column under Movement, so Magic's default moves to
-		// the LEFT column, under the options plate (at the plates' scale 1, so
-		// resizing a plate never shifts or resizes it), running down to the log.
+		// the LEFT column, under the status plate (at the plate's scale 1, so
+		// resizing it never shifts or resizes Magic), running down to the log.
 		deps.withHands = false;
 		auto magicTop = [belowTop](ui::UIContext& ctx) {
-			return belowTop(ctx) +
-				   (kStatusH + kOptionsGap + kOptionsH + kOptionsGap) * ctx.Height();
+			return belowTop(ctx) + (kStatusH + kLeftGap) * ctx.Height();
 		};
 		deps.magicDefaultPos = [magicTop](ui::UIContext& ctx) {
 			return Vec2{kLeftX * ctx.Width(), magicTop(ctx)};
@@ -1912,6 +1858,23 @@ void GameUI::BuildHud() {
 	// (footer or restore button — see MessageLog.h).
 	m_log = m_hudUi.Add<MessageLog>();
 	m_log->restoreLabel = loc::Tr("hud.log_show");
+	// REST and HELP, beside the Log button (they lived on the Options panel).
+	// Rest toggles the rest STATE (docs/health-and-healing.md); its LABEL SHOWS
+	// THE ACTION, not the state - "Rest" while awake, "Wake" while resting - the
+	// convention the editor's play-pause button uses, since a button labelled
+	// with the state it is already in reads as broken. SetResting re-flags it
+	// every frame from the world, so rest ending BY ITSELF (recovered, attacked,
+	// hungry) puts the label back with no callback to disagree with.
+	m_log->cornerButtons.reserve(kCornerCount);
+	m_log->cornerButtons.push_back({loc::Tr("hud.rest"), loc::Tr("hud.wake"), [this] {
+		Click();
+		if (onToggleRest) onToggleRest();
+	}});
+	m_log->cornerButtons.push_back({loc::Tr("hud.help"), {}, [this] {
+		Click();
+		m_log->AddLine(m_settings.MoveKeysHelp());
+		m_log->AddLine(loc::View("log.scroll_hint"));
+	}});
 
 	// LAST, so the menu updates first and draws over everything - the
 	// inventory window included, whose use menu opens on top of it.
@@ -2254,9 +2217,8 @@ void GameUI::SetHudStatus(const Party& party) {
 // click (fully recovered, attacked, out of food), and a label maintained at the
 // click site would be wrong every one of those times.
 void GameUI::SetResting(bool resting) {
-	if (!m_restButton || resting == m_restLabelState) return;
-	m_restLabelState = resting;
-	m_restButton->text = loc::Tr(resting ? "hud.wake" : "hud.rest");
+	if (m_log && m_log->cornerButtons.size() > kCornerRest)
+		m_log->cornerButtons[kCornerRest].alt = resting;
 }
 
 void GameUI::ResetHudStatus() { m_lastFacing = m_lastGridX = m_lastGridZ = -1; }

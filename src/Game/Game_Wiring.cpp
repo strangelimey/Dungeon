@@ -169,9 +169,6 @@ void Game::WireModuleCallbacks() {
 		m_settings.Save();
 		RestartApp();
 	};
-	m_ui.onTorchPalette = [this](int index) {
-		if (m_world) m_world->SetTorchPalette(index);
-	};
 	// The sheet's defense breakdown: only the world can resolve worn items,
 	// balance knobs and the live evasion formula.
 	m_ui.defenseFor = [this](const Character& c) { return m_world->DefenseFor(c); };

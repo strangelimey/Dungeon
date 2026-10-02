@@ -750,18 +750,6 @@ def glyph_panel_status(d):
     d.polygon(S([(cx, cy + 11.5), (cx + 3.5, cy + 1), (cx - 3.5, cy + 1)]), fill=GLYPH)
 
 
-def glyph_panel_options(d):
-    # The options plate: a cog.
-    cx, cy = 41.5, 41.5
-    for i in range(8):
-        a = i * math.pi / 4
-        line(d, (cx, cy), (cx + 16.5 * math.cos(a), cy + 16.5 * math.sin(a)), 6.5)
-    r = 12.0
-    d.ellipse([(cx - r) * SS, (cy - r) * SS, (cx + r) * SS, (cy + r) * SS], fill=GLYPH)
-    h = 5.0
-    d.ellipse([(cx - h) * SS, (cy - h) * SS, (cx + h) * SS, (cy + h) * SS], fill=HOLE)
-
-
 def glyph_panel_move(d):
     # The movement pad: four arrows out from the middle.
     cx, cy = 41.5, 41.5
@@ -810,7 +798,6 @@ FACE_GLYPHS = {
     "clear": glyph_clear,
     "panel_party": glyph_panel_party,
     "panel_status": glyph_panel_status,
-    "panel_options": glyph_panel_options,
     "panel_move": glyph_panel_move,
     "panel_hands": glyph_panel_hands,
     "panel_magic": glyph_panel_magic,

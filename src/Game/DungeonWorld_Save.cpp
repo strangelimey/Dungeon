@@ -91,7 +91,6 @@ void DungeonWorld::ResetForNewGame() {
 	SyncFiresFromMap();
 	std::fill(m_seen.begin(), m_seen.end(), static_cast<u8>(0));
 	MarkSeen(m_party.GridX(), m_party.GridZ());
-	SetTorchPalette(0);
 	m_levelStates.clear(); // forget any explored levels
 	m_parked = false;
 	// Every monster is back at full and the world is a different world: the
@@ -527,7 +526,6 @@ void DungeonWorld::CaptureState(SaveData& out, bool includeLive) const {
 	out.lookYaw = m_party.LookYaw();
 	out.lookPitch = m_party.LookPitch();
 	out.looking = m_party.IsLooking();
-	out.torchPalette = m_torchPalette;
 	out.leader = m_leader;
 
 	// Every inactive visited level, plus the live one — unless it is parked,
@@ -542,7 +540,6 @@ void DungeonWorld::ApplyState(const SaveData& in) {
 	m_party.SetFacing(in.partyFacing);
 	// Re-layer the free-look offset on the restored facing (SetFacing cleared it).
 	m_party.SetLookState(in.lookYaw, in.lookPitch, in.looking);
-	SetTorchPalette(in.torchPalette);
 	// The leader as saved; Update hands it on if the roster says they are down.
 	m_leader = in.leader;
 

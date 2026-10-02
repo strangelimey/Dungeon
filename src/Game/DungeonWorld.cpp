@@ -371,15 +371,6 @@ void DungeonWorld::MarkSeen(int x, int z) {
 	}
 }
 
-void DungeonWorld::SetTorchPalette(int index) {
-	m_torchPalette = index;
-	switch (index) {
-	case 1:  m_torchColor = {0.45f, 0.65f, 1.0f}; onMessage(loc::View("log.torch_cold")); break;
-	case 2:  m_torchColor = {0.55f, 1.0f, 0.45f}; onMessage(loc::View("log.torch_eerie")); break;
-	default: m_torchColor = {1.0f, 0.62f, 0.28f}; onMessage(loc::View("log.torch_warm")); break;
-	}
-}
-
 // How long the pit-fall camera drop takes once the step glide has finished.
 static constexpr float kPitFallSeconds = 0.55f;
 
@@ -747,8 +738,8 @@ void DungeonWorld::UpdateLights(float time) {
 		// close. Wall sconces stay tighter.
 		light.radius = fire.lightRadius;
 		light.color = fire.brazier
-						  ? Vec3{m_torchColor.x, m_torchColor.y * 0.85f, m_torchColor.z * 0.8f}
-						  : m_torchColor;
+						  ? Vec3{kTorchColor.x, kTorchColor.y * 0.85f, kTorchColor.z * 0.8f}
+						  : kTorchColor;
 		const float base = fire.brazier ? 2.3f : 1.8f;
 		light.intensity = base * (0.9f + 0.1f * std::sin(time * 11.0f + fire.phase) *
 											 std::sin(time * 7.3f + fire.phase));

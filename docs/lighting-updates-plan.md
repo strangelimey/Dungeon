@@ -22,6 +22,14 @@ a system that already copes with many lights.
 
 ## Phase 1 - the Options panel goes; Rest and Help move beside Log
 
+DONE 2026-10-02. Rest / Help are `MessageLog::cornerButtons` (each button as
+wide as its longer caption, so Rest -> Wake never moves Help). Minimal's Magic
+default now sits under the status plate. The Help click allocated in a guarded
+frame (the key names come from the OS layout as strings) - it was the old
+button's behaviour too; `MoveKeysHelp` now excuses itself as reporting code.
+Checked: `uioverlap hud` + `settings` clean, InGameTest PASS, AllocTest
+default / `-Minimal` / `-Panels` PASS, an old save carrying `torch 0` loads.
+
 - Delete the `options` floating panel (GameUI.cpp BuildHud), its
   kHudPanelFields row, its Settings -> UI scale/opacity pair and tray glyph.
   An old ini's `hud_options_*` lines are ignored.

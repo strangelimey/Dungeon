@@ -314,8 +314,9 @@ Key conventions (memorize, they bite):
   "permanent effect" concept and exactly one place a member stops starving
   (`ConsumeItem` deliberately does not lift it). Dev: `supplies` (in HOURS LEFT,
   since a meter reading means nothing without its rate), `setsupply`, `consume`.
-  REST is a STATE (the HUD Options panel's Rest button, which replaced the dead
-  "Wait" placeholder; dev `rest [on|off]`, bare = REPORT not toggle). It
+  REST is a STATE (the Rest button beside the log's Log button - it was on the
+  HUD Options panel, gone in lighting-updates; dev `rest [on|off]`, bare =
+  REPORT not toggle). It
   multiplies TIME at ONE place — `Game::Update`'s `wdt` — so every rate, timer
   and cooldown accelerates together and no second set of resting rates can
   drift. **It forces LOCKSTEP AI while resting** and hands the previous mode
@@ -1136,8 +1137,10 @@ place (keeping each slot's loaded portrait); a roster SIZE change must
 call GameUI::RebuildForRoster (deferred like RebuildForLanguage, never
 from a widget callback) to re-lay-out the per-member widgets — BuildHud
 lays out whatever count it finds (hand pairs fill 2 wide, 2+1 for three). Left column under the bar: the
-facing/position panel, then the Options panel (torchlight dropdown,
-Wait/Help). Right edge: a Dungeon Master-style control panel — six movement
+facing/position panel (the Options panel under it - torchlight palette, Rest,
+Help - was REMOVED in lighting-updates Phase 1: light comes from what is lit,
+and Rest / Help sit in the log's corner row beside the Log button,
+MessageLog::cornerButtons). Right edge: a Dungeon Master-style control panel — six movement
 arrow buttons (turn/forward over strafe/back; GameUI::onMoveAction →
 Party::Act(MoveAction), the same discrete actions the bound keys map to in
 HandleInput), a left+right HandSlot (PartyHud.h) pair per member (empty
@@ -2170,7 +2173,7 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   editor's arrow flicker back. A panel claims the pointer over its whole rect (a click on
   a dock's padding used to reach the 3D view). `Scale()` clamps to the panel's own
   min/max (the sheet stops at 1.3), whatever the slider's 0.5..1.5 stored.
-  THE PANELS are kHudPanelFields (GameSettings.h: party, status, options, move,
+  THE PANELS are kHudPanelFields (GameSettings.h: party, status, move,
   hands, magic, cards, inventory, tray, sheet - the SHEET LAST, since it alone
   lives in another context and [0, kHudSheet) means "the HUD's"); each a
   HudPanelLook {x, y, scale, opacity, hidden} in settings, a Settings -> UI

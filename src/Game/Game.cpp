@@ -1459,7 +1459,7 @@ bool Game::LoadGame(const std::string& path) {
 	// cleanly if the button isn't actually held.
 	m_looking = m_world->GetParty().IsLooking();
 	m_world->ApplyActiveSnapshot(); // restore the active level's fog + entity diff
-	m_ui.ClearLog(); // SetTorchPalette logged a line during ApplyState
+	m_ui.ClearLog(); // a loaded game starts its log afresh
 	m_ui.AddLogLine(loc::View("log.descend"));
 	const Party& party = m_world->GetParty();
 	m_ui.ResetHudStatus();

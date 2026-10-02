@@ -185,10 +185,6 @@ public:
 	// first use (BuildFires / placement), so the active level's are always in.
 	const gfx::Texture* FixtureIcon(const std::string& type) const;
 
-	// Torchlight palette (the HUD dropdown): 0 warm, 1 cold blue, 2 eerie
-	// green. Announces the change through onMessage.
-	void SetTorchPalette(int index);
-
 	Party& GetParty() { return m_party; }
 
 	// --- combat -------------------------------------------------------------
@@ -4113,8 +4109,10 @@ private:
 	std::vector<gfx::ParticleInstance> m_particleScratch;
 	void ReserveParticleScratch();
 
-	Vec3 m_torchColor{1.0f, 0.62f, 0.28f};
-	int m_torchPalette = 0; // index behind m_torchColor (saved/restored)
+	// The warm firelight every torch and fire shares. A constant until the
+	// light profiles (lighting-updates Phase 2) give each light type its own;
+	// the HUD palette that used to change it is gone.
+	static constexpr Vec3 kTorchColor{1.0f, 0.62f, 0.28f};
 
 	// The party leader's roster index (see Leader()), and the pass that hands
 	// the lead on from a member who is no longer standing - every frame from

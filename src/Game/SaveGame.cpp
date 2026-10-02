@@ -136,7 +136,6 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 	// Tablet on the mouse cursor (party-level, not in any pack). Omitted when the
 	// hand is empty; older saves lack it and default to no held item.
 	if (!data.heldItem.empty()) t += std::format("held {}\n", data.heldItem);
-	t += std::format("torch {}\n", data.torchPalette);
 	// The party leader (roster index); older saves lack it and load slot 0.
 	t += std::format("leader {}\n", data.leader);
 	// The party's size (party creation: 1..4). Older saves lack it: four.
@@ -414,8 +413,10 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			data.looking = IntOf(tok[3]) != 0;
 		} else if (kw == "held" && tok.size() >= 2) {
 			data.heldItem = std::string(tok[1]);
-		} else if (kw == "torch" && tok.size() >= 2) {
-			data.torchPalette = IntOf(tok[1]);
+		} else if (kw == "torch") {
+			// The HUD torchlight palette, gone with the Options panel
+			// (lighting-updates Phase 1). An older save still carries the line;
+			// it is read past, so the save loads with no version bump.
 		} else if (kw == "leader" && tok.size() >= 2) {
 			data.leader = IntOf(tok[1]);
 		} else if (kw == "roster" && tok.size() >= 2) {

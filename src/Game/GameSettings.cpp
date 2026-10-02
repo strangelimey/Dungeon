@@ -398,6 +398,11 @@ const char* GameSettings::QualityLabel() const {
 }
 
 std::string GameSettings::MoveKeysHelp() const {
+	// REPORTING, so it excuses itself (the rule Save follows): the HUD's Help
+	// button prints it on one click inside a guarded frame, and the key names
+	// come from the OS keyboard layout as strings. A once-per-click line, never
+	// per frame.
+	const alloc::Excused excuse;
 	return loc::Format("log.movekeys", KeyName(moveKeys.forward),
 					   KeyName(moveKeys.back), KeyName(moveKeys.strafeLeft),
 					   KeyName(moveKeys.strafeRight), KeyName(moveKeys.turnLeft),

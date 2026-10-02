@@ -64,12 +64,32 @@ gfx::Rect MessageLog::FooterRect(ui::UIContext& ctx) const {
 	return {0.0f, h - fh, w, fh}; // full width, flush to the bottom edge
 }
 
-gfx::Rect MessageLog::RestoreRect(ui::UIContext& ctx) const {
+const std::string& MessageLog::CornerLabel(size_t i) const {
+	if (i == 0) return restoreLabel;
+	const CornerButton& b = cornerButtons[i - 1];
+	return b.alt && !b.altLabel.empty() ? b.altLabel : b.label;
+}
+
+gfx::Rect MessageLog::CornerRect(ui::UIContext& ctx, size_t i) const {
 	const ui::Font& font = TextFont();
 	const float bh = font.LineAdvance() + Rem(0.6f);
-	const float bw = font.MeasureWidth(restoreLabel) + Rem(1.4f);
-	// bottom-left, where the footer sat
-	return {Rem(0.5f), ctx.Height() - bh - Rem(0.35f), bw, bh};
+	const float gap = Rem(0.3f);
+	// Bottom-left, where the footer sat, then rightward. A button is as wide as
+	// the LONGER of its two captions, so Rest -> Wake never moves its neighbour.
+	float x = Rem(0.5f);
+	for (size_t k = 0;; ++k) {
+		float textW = font.MeasureWidth(k == 0 ? restoreLabel : cornerButtons[k - 1].label);
+		if (k > 0) textW = std::max(textW, font.MeasureWidth(cornerButtons[k - 1].altLabel));
+		const float bw = textW + Rem(1.4f);
+		if (k == i) return {x, ctx.Height() - bh - Rem(0.35f), bw, bh};
+		x += bw + gap;
+	}
+}
+
+gfx::Rect MessageLog::CornerRow(ui::UIContext& ctx) const {
+	const gfx::Rect first = CornerRect(ctx, 0);
+	const gfx::Rect last = CornerRect(ctx, CornerCount() - 1);
+	return {first.x, first.y, last.x + last.w - first.x, first.h};
 }
 
 // Height targets track the live font (so they scale with the window), then the
@@ -89,7 +109,7 @@ void MessageLog::LayoutSelf(ui::UIContext& ctx) {
 	if (m_heightFrac <= 0.0f) m_heightFrac = m_collapsedFrac; // seed first frame
 
 	if (Dormant()) {
-		const gfx::Rect btn = RestoreRect(ctx);
+		const gfx::Rect btn = CornerRow(ctx);
 		bounds = {btn.x / w, btn.y / h, btn.w / w, btn.h / h};
 	} else {
 		bounds = {0.0f, 1.0f - m_heightFrac, 1.0f, m_heightFrac};
@@ -99,7 +119,7 @@ void MessageLog::LayoutSelf(ui::UIContext& ctx) {
 void MessageLog::UpdateSelf(ui::UIContext& ctx) {
 	const ui::Font& font = TextFont();
 	const float lineH = font.LineAdvance();
-	m_restoreHot = false;
+	m_hot = -1;
 
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
@@ -109,16 +129,23 @@ void MessageLog::UpdateSelf(ui::UIContext& ctx) {
 	// THE LOG BUTTON is the only way the history opens or closes (Michael,
 	// ui-updates: hovering used to expand it, and it got in the way). It sits at
 	// the bottom-left in every state - alone once the footer has faded, inside
-	// the footer's corner while it shows - and toggles.
-	if (!ctx.IsMouseConsumed() && RestoreRect(ctx).Contains(mx, my)) {
-		m_restoreHot = true;
-		ctx.ConsumeMouse();
-		if (input->WasMousePressed(MouseButton::Left)) {
-			m_expanded = !m_expanded;
-			m_scroll = 0.0f;
+	// the footer's corner while it shows - and toggles. The rest of the corner
+	// row behaves the same way and calls its own action.
+	if (!ctx.IsMouseConsumed())
+		for (size_t i = 0; i < CornerCount(); ++i) {
+			if (!CornerRect(ctx, i).Contains(mx, my)) continue;
+			m_hot = static_cast<int>(i);
+			ctx.ConsumeMouse();
+			if (input->WasMousePressed(MouseButton::Left)) {
+				if (i == 0) {
+					m_expanded = !m_expanded;
+					m_scroll = 0.0f;
+				} else if (cornerButtons[i - 1].onClick) {
+					cornerButtons[i - 1].onClick();
+				}
+			}
+			return;
 		}
-		return;
-	}
 	if (Dormant()) return; // faded out: the button is all there is
 
 	// Footer is shown: it claims the pointer (it paints there), and while open
@@ -174,8 +201,8 @@ void MessageLog::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 			ui::DrawBorder(batch, footer, border);
 		}
 
-		// The text starts right of the Log button, which keeps the corner.
-		const gfx::Rect btn = RestoreRect(ctx);
+		// The text starts right of the corner row, which keeps the corner.
+		const gfx::Rect btn = CornerRow(ctx);
 		const float left = btn.x + btn.w + Rem(kPadRem);
 		const gfx::Rect inner{left, footer.y + Rem(kPadRem), footer.w - left - Rem(kPadRem),
 							  footer.h - 2.0f * Rem(kPadRem)};
@@ -194,28 +221,33 @@ void MessageLog::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		}
 	}
 
-	// The Log button, always: translucent on its own once the footer has faded,
-	// solid in the footer's corner while it shows, pressed while the history is
-	// open.
-	const float ba = std::max(ca, m_restoreHot ? 1.0f : 0.75f);
-	const gfx::Rect btn = RestoreRect(ctx);
+	// The corner row, always: translucent on its own once the footer has faded,
+	// solid in the footer's corner while it shows. The Log button is pressed
+	// while the history is open.
 	const ui::Skin* skin = ctx.GetSkin();
-	if (skin && skin->button.texture) {
-		ui::DrawFace(batch, btn, *skin, m_expanded ? ui::Face::ButtonDown : ui::Face::Button,
-					 {1, 1, 1, ba});
-	} else {
-		Vec4 bg = theme.panel;
-		bg.w *= ba * (m_restoreHot || m_expanded ? 0.9f : 0.5f);
-		batch.DrawRect(btn, bg);
-		Vec4 border = m_expanded ? theme.accent : theme.panelBorder;
-		border.w *= ba * 0.7f;
-		ui::DrawBorder(batch, btn, border);
+	for (size_t i = 0; i < CornerCount(); ++i) {
+		const bool hot = m_hot == static_cast<int>(i);
+		const bool down = i == 0 && m_expanded;
+		const float ba = std::max(ca, hot ? 1.0f : 0.75f);
+		const gfx::Rect btn = CornerRect(ctx, i);
+		if (skin && skin->button.texture) {
+			ui::DrawFace(batch, btn, *skin, down ? ui::Face::ButtonDown : ui::Face::Button,
+						 {1, 1, 1, ba});
+		} else {
+			Vec4 bg = theme.panel;
+			bg.w *= ba * (hot || down ? 0.9f : 0.5f);
+			batch.DrawRect(btn, bg);
+			Vec4 border = down ? theme.accent : theme.panelBorder;
+			border.w *= ba * 0.7f;
+			ui::DrawBorder(batch, btn, border);
+		}
+		Vec4 col = down ? theme.accent : theme.text;
+		col.w *= ba;
+		const std::string& label = CornerLabel(i);
+		const float tw = font.MeasureWidth(label);
+		font.Draw(batch, label, btn.x + (btn.w - tw) * 0.5f,
+				  btn.y + (btn.h - font.Height()) * 0.5f + (down ? 1.0f : 0.0f), col);
 	}
-	Vec4 col = m_expanded ? theme.accent : theme.text;
-	col.w *= ba;
-	const float tw = font.MeasureWidth(restoreLabel);
-	font.Draw(batch, restoreLabel, btn.x + (btn.w - tw) * 0.5f,
-			  btn.y + (btn.h - font.Height()) * 0.5f + (m_expanded ? 1.0f : 0.0f), col);
 }
 
 } // namespace dungeon::game
