@@ -683,7 +683,8 @@ void DungeonWorld::UpdateItemIcons(ID3D12GraphicsCommandList* list,
 	for (auto&& [id, kind] : m_itemKinds) {
 		if (!kind->model || !kind->iconTarget) continue;
 		if (m_itemIconsBaked && !kind->iconAnimated) continue; // static, already baked
-		BakeIcon(list, sprites, *kind->model, *kind->iconTarget, kind->iconAnimated, spin);
+		BakeIcon(list, sprites, *kind->model, *kind->iconTarget, kind->iconAnimated, spin,
+				 /*torch=*/kind->Lit() || !kind->litAs.empty());
 		any = true;
 	}
 	m_itemIconsBaked = true;
@@ -716,42 +717,18 @@ static const gfx::LightSet& IconStudioLights() {
 	return lights;
 }
 
-void DungeonWorld::BakeIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
-							const MultiMaterialModel& model, const gfx::Texture& target,
-							bool animated, float spin) {
-	D3D12_RESOURCE_BARRIER toRT = gfx::Transition(
-		target.Resource(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
-		D3D12_RESOURCE_STATE_RENDER_TARGET);
-	list->ResourceBarrier(1, &toRT);
-
-	const float clear[4] = {0.0f, 0.0f, 0.0f, 0.0f}; // transparent corners
-	gfx::BeginOffscreen(list, target.Rtv(),
-						m_iconDsvHeap->GetCPUDescriptorHandleForHeapStart(), kIconSize,
-						clear);
-
-	// Composite a soft round halo first (the 3D item draws over it). Tint sets the
-	// halo colour + translucency — tweak kHaloColor to taste.
-	// NOTE on alpha: the halo is straight-alpha blended over a TRANSPARENT clear,
-	// so the icon stores premultiplied-ish RGB with straight alpha; the UI then
-	// blends the icon straight-alpha again, so the halo reads at ~alpha^2 (dimmer
-	// than the nominal tint). kHaloColor is therefore the AS-COMPOSITED value that
-	// was tuned visually, not a literal target — a true fix would need a
-	// premultiplied-alpha path through SpriteBatch (a broad UI change). The opaque
-	// model itself is unaffected (alpha 1).
-	constexpr Vec4 kHaloColor{0.90f, 0.92f, 0.97f, 0.55f}; // soft light glow
-	sprites.Begin(list, kIconSize, kIconSize);
-	sprites.DrawSprite({0.0f, 0.0f, static_cast<float>(kIconSize),
-						static_cast<float>(kIconSize)},
-					   {0, 0, 1, 1}, *m_iconHalo, kHaloColor);
-	sprites.End();
-
+// The pose an ITEM icon is baked in: the model centred, scaled to fill the
+// square and turned for a 3/4 view (a long one laid corner to corner). Shared
+// by the bake and ItemFlameUv, so a flame drawn over the icon lands on the
+// very spot the bake put the torch head.
+static XMMATRIX ItemIconWorld(const Vec3& lo, const Vec3& hi, bool animated, float spin,
+							  bool torch) {
 	// Centre the model at the origin and scale its LONGEST extent to fill the icon
 	// frame's DIAGONAL — a long thin weapon laid corner-to-corner (the classic RPG
 	// look) reads big in a square, where filling only the height leaves a thin
 	// sliver. Roll about the view axis (world Z, since the camera has no roll) for
 	// the diagonal, plus a gentle yaw/tilt for a 3/4 view. Item models vary in real
 	// size (a ~0.5 m dagger), so fit by bounds, not a fixed scale.
-	const Vec3 lo = model.boundsMin, hi = model.boundsMax;
 	const Vec3 c{(lo.x + hi.x) * 0.5f, (lo.y + hi.y) * 0.5f, (lo.z + hi.z) * 0.5f};
 	const Vec3 ext{hi.x - lo.x, hi.y - lo.y, hi.z - lo.z};
 	const float longest = std::max({ext.x, ext.y, ext.z, 1e-3f});
@@ -778,6 +755,21 @@ void DungeonWorld::BakeIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& s
 	std::sort(sorted, sorted + 3);
 	const bool elongated = sorted[2] > sorted[1] * 2.0f;
 
+	if (torch && !animated) {
+		// A TORCH (anything that can burn): upright with a slight lean, smaller
+		// and lower in the square, so its top third is left for the flame drawn
+		// over a burning one (DrawHeldFlame) - laid corner to corner, its head
+		// sat on the frame's edge with no room above it. Lit and unlit alike, so
+		// lighting one does not swing its icon round.
+		XMMATRIX longUp = XMMatrixIdentity();
+		if (ext.x >= ext.y && ext.x >= ext.z) longUp = XMMatrixRotationZ(kPi * 0.5f);
+		else if (ext.z >= ext.x && ext.z >= ext.y) longUp = XMMatrixRotationX(-kPi * 0.5f);
+		const float st = 1.0f / longest;
+		return XMMatrixTranslation(-c.x, -c.y, -c.z) * XMMatrixScaling(st, st, st) * longUp *
+			   XMMatrixRotationY(0.35f) * XMMatrixRotationZ(-0.28f) *
+			   XMMatrixTranslation(0.0f, -0.22f, 0.0f);
+	}
+
 	XMMATRIX pose;
 	if (animated && elongated) {
 		// Spin a blade about its OWN long axis ("down the blade"): orient the
@@ -798,15 +790,82 @@ void DungeonWorld::BakeIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& s
 		// Static bulky item: upright, front to the camera — no roll.
 		pose = align * XMMatrixRotationY(0.35f) * XMMatrixRotationX(-0.12f);
 	}
-	const XMMATRIX worldX = XMMatrixTranslation(-c.x, -c.y, -c.z) *
-							XMMatrixScaling(s, s, s) * pose;
-	Mat4 world;
-	XMStoreFloat4x4(&world, worldX);
+	return XMMatrixTranslation(-c.x, -c.y, -c.z) * XMMatrixScaling(s, s, s) * pose;
+}
 
+// The icon camera: 2.2 back down -Z, looking +Z, 35 degrees. ONE copy, for the
+// bake and for ItemFlameUv - the camera mirrors X (Camera::ViewProj), and the
+// first flame anchor, projected by hand without that, burned beside the head.
+static gfx::Camera IconCamera() {
 	gfx::Camera cam;
 	cam.SetLens(35.0f * kPi / 180.0f, 1.0f, 0.02f, 10.0f);
 	cam.SetPosition({0.0f, 0.0f, -2.2f});
 	cam.SetYawPitch(0.0f, 0.0f);
+	return cam;
+}
+
+bool DungeonWorld::ItemFlameHead(const std::string& typeId, Vec3& head) {
+	const ItemKind& kind = ItemKindFor(typeId);
+	if (!kind.Lit() || !kind.model) return false;
+	const Vec3 lo = kind.model->boundsMin, hi = kind.model->boundsMax;
+	// The burning end: the top of the model's longest axis (the torches are
+	// authored head up), centred across the other two.
+	head = {(lo.x + hi.x) * 0.5f, (lo.y + hi.y) * 0.5f, (lo.z + hi.z) * 0.5f};
+	const Vec3 ext{hi.x - lo.x, hi.y - lo.y, hi.z - lo.z};
+	if (ext.y >= ext.x && ext.y >= ext.z) head.y = hi.y - ext.y * 0.04f;
+	else if (ext.x >= ext.z) head.x = hi.x - ext.x * 0.04f;
+	else head.z = hi.z - ext.z * 0.04f;
+	return true;
+}
+
+bool DungeonWorld::ItemFlameUv(const std::string& typeId, Vec2& uv) {
+	Vec3 head;
+	const ItemKind& kind = ItemKindFor(typeId);
+	if (kind.iconAnimated || !ItemFlameHead(typeId, head)) return false;
+	const Mat4 vp = IconCamera().ViewProj();
+	XMFLOAT4 c;
+	XMStoreFloat4(&c, XMVector4Transform(
+		XMVectorSet(head.x, head.y, head.z, 1.0f),
+		ItemIconWorld(kind.model->boundsMin, kind.model->boundsMax, false, 0.0f,
+					  /*torch=*/true) * XMLoadFloat4x4(&vp)));
+	if (c.w <= 0.01f) return false;
+	uv = {0.5f + 0.5f * c.x / c.w, 0.5f - 0.5f * c.y / c.w};
+	return true;
+}
+
+void DungeonWorld::BakeIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
+							const MultiMaterialModel& model, const gfx::Texture& target,
+							bool animated, float spin, bool torch) {
+	D3D12_RESOURCE_BARRIER toRT = gfx::Transition(
+		target.Resource(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+		D3D12_RESOURCE_STATE_RENDER_TARGET);
+	list->ResourceBarrier(1, &toRT);
+
+	const float clear[4] = {0.0f, 0.0f, 0.0f, 0.0f}; // transparent corners
+	gfx::BeginOffscreen(list, target.Rtv(),
+						m_iconDsvHeap->GetCPUDescriptorHandleForHeapStart(), kIconSize,
+						clear);
+
+	// Composite a soft round halo first (the 3D item draws over it). Tint sets the
+	// halo colour + translucency — tweak kHaloColor to taste.
+	// NOTE on alpha: the halo is straight-alpha blended over a TRANSPARENT clear,
+	// so the icon stores premultiplied-ish RGB with straight alpha; the UI then
+	// blends the icon straight-alpha again, so the halo reads at ~alpha^2 (dimmer
+	// than the nominal tint). kHaloColor is therefore the AS-COMPOSITED value that
+	// was tuned visually, not a literal target — a true fix would need a
+	// premultiplied-alpha path through SpriteBatch (a broad UI change). The opaque
+	// model itself is unaffected (alpha 1).
+	constexpr Vec4 kHaloColor{0.90f, 0.92f, 0.97f, 0.55f}; // soft light glow
+	sprites.Begin(list, kIconSize, kIconSize);
+	sprites.DrawSprite({0.0f, 0.0f, static_cast<float>(kIconSize),
+						static_cast<float>(kIconSize)},
+					   {0, 0, 1, 1}, *m_iconHalo, kHaloColor);
+	sprites.End();
+
+	Mat4 world;
+	XMStoreFloat4x4(&world, ItemIconWorld(model.boundsMin, model.boundsMax, animated, spin, torch));
+
+	const gfx::Camera cam = IconCamera();
 
 	// The shared studio rig (see IconStudioLights above) — the background stays
 	// transparent, the item just floats, lit bright.

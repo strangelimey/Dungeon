@@ -43,6 +43,10 @@ struct ItemDetails {
 	// --- what eating it restores ---
 	float nutrition = 0.0f;
 	float hydration = 0.0f;
+	// --- a BURNING item (a lit torch): where its flame stands, in model space
+	// (DungeonWorld::ItemFlameHead), so the turning preview burns too ---
+	bool burning = false;
+	Vec3 flameHead{};
 };
 
 } // namespace dungeon::game

@@ -20,6 +20,8 @@
 
 namespace dungeon::gfx {
 
+class Camera;
+
 // Binds rtv+dsv, sets the viewport/scissor to a `size`x`size` square, and clears
 // both — the shared offscreen-pass setup for the editor's ModelPreview and the
 // item-icon bake (DungeonWorld). The caller owns the RT/depth resource barriers
@@ -68,11 +70,23 @@ public:
 				ParticleBatch* particles = nullptr,
 				std::span<const ParticleInstance> billboards = {});
 
+	// Where model-space point `p` lands in the image (uv, 0..1 from the top-left)
+	// when Render is given the same scale / orbit / aspect / fit / orient - the
+	// one framing both use, so an overlay drawn there sits on the model (the
+	// details dialog's flame on a torch head). False behind the camera.
+	static bool Project(const Vec3& p, float scale, float orbit, float aspect,
+						const Vec3* fitMin, const Vec3* fitMax, const Mat4* orient,
+						Vec2& uv);
+
 	// The rendered image's SRV, for SpriteBatch::DrawSprite.
 	D3D12_GPU_DESCRIPTOR_HANDLE Srv() const { return m_srv.gpu; }
 	u32 Size() const { return m_size; }
 
 private:
+	static Camera PreviewCamera(float aspect);
+	static Mat4 PreviewWorld(float scale, float orbit, const Vec3* fitMin, const Vec3* fitMax,
+							 const Mat4* orient);
+
 	GraphicsDevice& m_device;
 	u32 m_size;
 	ComPtr<ID3D12Resource> m_color;

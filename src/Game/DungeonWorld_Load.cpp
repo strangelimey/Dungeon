@@ -992,6 +992,7 @@ bool DungeonWorld::ItemDetailsFor(const std::string& type, ItemDetails& out) {
 	}
 	out.nutrition = k.nutrition;
 	out.hydration = k.hydration;
+	out.burning = ItemFlameHead(type, out.flameHead);
 	return true;
 }
 

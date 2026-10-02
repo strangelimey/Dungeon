@@ -89,6 +89,12 @@ public:
 	const Mat4& Pose() const { return m_pose; }
 	// The turntable angle: a slow full turn every kSpinSeconds.
 	float Spin() const { return m_spin; }
+	// A burning item's flame head (model space), else null; Game projects it
+	// through the preview's framing and draws the flame over the image.
+	const Vec3* FlameHead() const { return m_burning ? &m_flameHead : nullptr; }
+	// The model's size in the pane: a burning one is drawn smaller, leaving
+	// room above its head for the flame.
+	float PreviewScale() const { return m_burning ? 0.78f : 1.0f; }
 	// The pane's pixel rect from the layout that last ran (Render lays out).
 	gfx::Rect PreviewRect() const;
 
@@ -122,6 +128,8 @@ private:
 	std::array<gfx::PreviewSubmesh, kMaxSubs> m_subs{};
 	size_t m_subCount = 0;
 	Vec3 m_fitMin{}, m_fitMax{};
+	bool m_burning = false;
+	Vec3 m_flameHead{};
 	Mat4 m_pose{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
 };
 

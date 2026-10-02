@@ -1014,6 +1014,8 @@ private:
 	// The Magic window's glowing runes: glyph + halo per symbol (BuildRuneGlow.py).
 	std::array<std::unique_ptr<gfx::Texture>, kSymbolCount> m_runeGlyphTextures;
 	std::array<std::unique_ptr<gfx::Texture>, kSymbolCount> m_runeGlowTextures;
+	// A burning torch's flame over its icon, and the glow under it (ItemIconBank).
+	std::unique_ptr<gfx::Texture> m_flameTexture, m_flameGlowTexture;
 	std::vector<std::unique_ptr<gfx::Texture>> m_itemIconPlaceholders;
 	ItemIconBank m_itemIcons;
 	ItemWeightBank m_itemWeights; // catalog id → carry weight (kg), for the sheet

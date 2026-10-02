@@ -102,9 +102,24 @@ void DrawRuneGlow(gfx::SpriteBatch& batch, const gfx::Rect& r, SpellSymbol s,
 // Magic window draws a rune, its glyph lit over a pulsing halo (DrawRuneGlow;
 // Michael, ui-updates: the flat tile read as 2D beside the Magic window's).
 // Every item socket draws through this - hands, the doll, the backpack, the
-// party inventory - so a rune reads the same wherever it sits. False = nothing
+// party inventory - so a rune reads the same wherever it sits. A BURNING item
+// (a lit torch) wears its flame over the icon (DrawHeldFlame). False = nothing
 // to draw (empty id, no icon).
 bool DrawItemIcon(gfx::SpriteBatch& batch, const gfx::Rect& r, std::string_view typeId,
 				  const ItemIconBank* icons, float pad = 0.1f);
+
+// A flame standing on the head of a burning item's icon `in`: `at` is the head
+// in the icon (uv), the flame a stack of three tinted `flame` sprites (body,
+// heart, core) that squash and sway out of step over a warm `glow`. It rises
+// straight up whatever the torch's tilt in the icon, as a flame does. Animated
+// off SpriteBatch::Time; allocation-free.
+void DrawHeldFlame(gfx::SpriteBatch& batch, const gfx::Rect& in, const Vec2& at,
+				   const gfx::Texture& flame, const gfx::Texture* glow);
+// The flame itself, sized by the caller: standing on `head` (pixels), about
+// `tall` pixels high, over a glow `glowSize` across. `seed` sets it out of step
+// with any other flame. DrawHeldFlame sizes it to a socket; the item details
+// dialog to the torch it turns.
+void DrawFlame(gfx::SpriteBatch& batch, const Vec2& head, float tall, float glowSize,
+			   float seed, const gfx::Texture& flame, const gfx::Texture* glow);
 
 } // namespace dungeon::game

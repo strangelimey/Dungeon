@@ -135,6 +135,15 @@ public:
 	// The baked 3D icon for an item type (building its kind on demand), or null
 	// for a model-less item (the caller falls back to its flat placeholder).
 	const gfx::Texture* ItemIconFor(const std::string& typeId);
+	// Where a LIT item's flame stands in its icon (uv, 0..1 from the top-left):
+	// the top of its longest axis, through the very pose the icon was baked in
+	// (ItemIconWorld). False for an item that is not lit, has no model, or spins
+	// (an icon_spin icon moves, so no fixed point would hold).
+	bool ItemFlameUv(const std::string& typeId, Vec2& uv);
+	// The same head in MODEL space, for any other view of the model (the
+	// details dialog's turning preview). False for an item that is not lit or
+	// has no model.
+	bool ItemFlameHead(const std::string& typeId, Vec3& head);
 	// Builds the kind of EVERY catalog item, at load. A kind's first build
 	// loads its model or its rune's PBR set (a first rune drop measured 246
 	// allocations / 2 MB in a guarded frame), and an item can reach the floor
@@ -2791,7 +2800,7 @@ private:
 	// target; the bake list redirects the OM.
 	void BakeIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
 				  const MultiMaterialModel& model, const gfx::Texture& target,
-				  bool animated, float spin);
+				  bool animated, float spin, bool torch = false);
 	// Draws every submesh of an authored multi-material model at `world`, each with
 	// its own glTF material. Shared by decorations, floor items, and the icon bake.
 	void DrawMultiMaterial(ID3D12GraphicsCommandList* list,

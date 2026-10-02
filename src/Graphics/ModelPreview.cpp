@@ -29,6 +29,58 @@ void BeginOffscreen(ID3D12GraphicsCommandList* list, D3D12_CPU_DESCRIPTOR_HANDLE
 	list->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
 }
 
+// Shared framing for EVERY preview (the asset-creation dialog / dev `preview`,
+// the monster-config dialog, the item details dialog). Models are grounded
+// (min y = 0), centred in XZ, ~2 m tall. Frame level-on from the front with
+// headroom above and below (the vertical FOV covers ~-0.3..2.5 m, so a
+// full-height humanoid isn't clipped at the skull or feet); this also suits the
+// imported props the asset dialog shows.
+Camera ModelPreview::PreviewCamera(float aspect) {
+	Camera cam;
+	cam.SetLens(45.0f * kPi / 180.0f, aspect, 0.05f, 50.0f);
+	cam.SetPosition({0.0f, kLookHeight, -3.3f});
+	cam.SetYawPitch(0.0f, 0.0f);
+	return cam;
+}
+
+Mat4 ModelPreview::PreviewWorld(float scale, float orbit, const Vec3* fitMin,
+								const Vec3* fitMax, const Mat4* orient) {
+	using namespace DirectX;
+	Mat4 world;
+	if (fitMin && fitMax) {
+		// Auto-fit: centre the AABB at origin, scale to fill, spin, lift to eye height.
+		const Vec3 c{(fitMin->x + fitMax->x) * 0.5f, (fitMin->y + fitMax->y) * 0.5f,
+					 (fitMin->z + fitMax->z) * 0.5f};
+		const float ext = std::max({fitMax->x - fitMin->x, fitMax->y - fitMin->y,
+									fitMax->z - fitMin->z});
+		const float k = (ext > 1e-4f ? kFitSize / ext : 1.0f) * scale;
+		// Tumble on TWO axes (Y spin + a slower X pitch off the same clock) so a flat
+		// prop like a blade never sits edge-on for long - unless the caller stood
+		// the model up itself (`orient`), when it turns about +Y alone.
+		const XMMATRIX pose = orient ? XMLoadFloat4x4(orient) : XMMatrixRotationX(orbit * 0.6f);
+		XMStoreFloat4x4(&world, XMMatrixTranslation(-c.x, -c.y, -c.z) * pose *
+									XMMatrixRotationY(orbit) * XMMatrixScaling(k, k, k) *
+									XMMatrixTranslation(0.0f, kLookHeight, 0.0f));
+	} else {
+		XMStoreFloat4x4(&world, XMMatrixScaling(scale, scale, scale) * XMMatrixRotationY(orbit));
+	}
+	return world;
+}
+
+bool ModelPreview::Project(const Vec3& p, float scale, float orbit, float aspect,
+						   const Vec3* fitMin, const Vec3* fitMax, const Mat4* orient,
+						   Vec2& uv) {
+	using namespace DirectX;
+	const Mat4 world = PreviewWorld(scale, orbit, fitMin, fitMax, orient);
+	const Mat4 vp = PreviewCamera(aspect).ViewProj();
+	XMFLOAT4 c;
+	XMStoreFloat4(&c, XMVector4Transform(XMVectorSet(p.x, p.y, p.z, 1.0f),
+										 XMLoadFloat4x4(&world) * XMLoadFloat4x4(&vp)));
+	if (c.w <= 0.01f) return false;
+	uv = {0.5f + 0.5f * c.x / c.w, 0.5f - 0.5f * c.y / c.w};
+	return true;
+}
+
 ModelPreview::ModelPreview(GraphicsDevice& device, u32 size)
 	: m_device(device), m_size(size) {
 	ID3D12Device* d = device.Device();
@@ -120,35 +172,9 @@ void ModelPreview::Render(ID3D12GraphicsCommandList* list, Renderer& renderer,
 				   m_dsvHeap->GetCPUDescriptorHandleForHeapStart(), m_size,
 				   kPreviewClear);
 
-	// Shared framing for BOTH previews (the asset-creation dialog / dev `preview`,
-	// and the monster-config dialog). Models are grounded (min y = 0), centred in
-	// XZ, ~2 m tall. Frame level-on from the front with headroom above and below
-	// (the vertical FOV covers ~-0.3..2.5 m, so a full-height humanoid isn't clipped
-	// at the skull or feet); this also suits the imported props the asset dialog shows.
-	Camera cam;
-	cam.SetLens(45.0f * kPi / 180.0f, aspect, 0.05f, 50.0f);
-	cam.SetPosition({0.0f, 1.1f, -3.3f});
-	cam.SetYawPitch(0.0f, 0.0f);
-
+	const Camera cam = PreviewCamera(aspect);
 	renderer.BeginScene(list, cam, m_lights);
-	Mat4 world;
-	if (fitMin && fitMax) {
-		// Auto-fit: centre the AABB at origin, scale to fill, spin, lift to eye height.
-		const Vec3 c{(fitMin->x + fitMax->x) * 0.5f, (fitMin->y + fitMax->y) * 0.5f,
-					 (fitMin->z + fitMax->z) * 0.5f};
-		const float ext = std::max({fitMax->x - fitMin->x, fitMax->y - fitMin->y,
-									fitMax->z - fitMin->z});
-		const float k = (ext > 1e-4f ? kFitSize / ext : 1.0f) * scale;
-		// Tumble on TWO axes (Y spin + a slower X pitch off the same clock) so a flat
-		// prop like a blade never sits edge-on for long - unless the caller stood
-		// the model up itself (`orient`), when it turns about +Y alone.
-		const XMMATRIX pose = orient ? XMLoadFloat4x4(orient) : XMMatrixRotationX(orbit * 0.6f);
-		XMStoreFloat4x4(&world, XMMatrixTranslation(-c.x, -c.y, -c.z) * pose *
-									XMMatrixRotationY(orbit) * XMMatrixScaling(k, k, k) *
-									XMMatrixTranslation(0.0f, kLookHeight, 0.0f));
-	} else {
-		XMStoreFloat4x4(&world, XMMatrixScaling(scale, scale, scale) * XMMatrixRotationY(orbit));
-	}
+	const Mat4 world = PreviewWorld(scale, orbit, fitMin, fitMax, orient);
 	for (const PreviewSubmesh& s : subs)
 		if (s.mesh) renderer.DrawMesh(list, *s.mesh, world, s.material, palette);
 

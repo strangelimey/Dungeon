@@ -12,6 +12,7 @@
 #include "Core/Profile.h"
 #include "Game/AssetUtil.h"
 #include "Game/GenerateKnobs.h"
+#include "Game/PartyHudDraw.h" // DrawFlame (the details dialog's burning torch)
 #include "Graphics/DisplayEnum.h"
 #include "Graphics/Texture.h"
 #include "Platform/PerfMonitor.h"
@@ -883,6 +884,21 @@ void Game::LoadItemIcons() {
 		m_itemIconPlaceholders.push_back(MakeSolidIcon(m_device, CategoryTint(category)));
 		m_itemIcons.byType[def.id] = m_itemIconPlaceholders.back().get();
 	}
+	// A BURNING item's flame (Michael: the lit torch in a hand had none): where
+	// it stands on the icon, and the sprites it is drawn with. White masks the
+	// draw tints, so linear.
+	m_itemIcons.flameAt.clear();
+	for (const CatalogEntry* defp : m_project.AllItems())
+		if (Vec2 uv; m_world->ItemFlameUv(defp->id, uv)) {
+			m_itemIcons.flameAt[defp->id] = uv;
+			log::Info("item icon {}: flame at {:.2f},{:.2f}", defp->id, uv.x, uv.y);
+		}
+	if (!m_flameTexture) {
+		m_flameTexture = TryLoadTextureFile(m_device, paths::Asset("ui\\flame"));
+		m_flameGlowTexture = TryLoadTextureFile(m_device, paths::Asset("ui\\glow_radial"));
+	}
+	m_itemIcons.flame = m_flameTexture.get();
+	m_itemIcons.flameGlow = m_flameGlowTexture.get();
 	// Carry weights + categories for every catalog item (load sum; pack check).
 	m_itemWeights.byType.clear();
 	m_itemCategories.byType.clear();
@@ -2704,7 +2720,7 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		const ItemDetailsDialog& dlg = *m_ui.DetailsDialog();
 		if (!dlg.PreviewSubs().empty()) {
 			const gfx::Rect pv = dlg.PreviewRect();
-			m_modelPreview.Render(list, m_renderer, dlg.PreviewSubs(), 1.0f,
+			m_modelPreview.Render(list, m_renderer, dlg.PreviewSubs(), dlg.PreviewScale(),
 								  kPi + dlg.Spin(), pv.h > 0.0f ? pv.w / pv.h : 1.0f, {},
 								  nullptr, {}, &dlg.FitMin(), &dlg.FitMax(), &dlg.Pose());
 			m_device.BindBackBuffer(list);
@@ -2782,9 +2798,23 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		(m_state == AppState::Playing || m_state == AppState::CharacterSheet)) {
 		m_ui.RenderItemDetails();
 		const ItemDetailsDialog& dlg = *m_ui.DetailsDialog();
-		if (!dlg.PreviewSubs().empty() && !editorMap)
-			m_spriteBatch.DrawSprite(dlg.PreviewRect(), {0, 0, 1, 1}, m_modelPreview.Srv(),
-									 {1, 1, 1, 1});
+		if (!dlg.PreviewSubs().empty() && !editorMap) {
+			const gfx::Rect pv = dlg.PreviewRect();
+			m_spriteBatch.DrawSprite(pv, {0, 0, 1, 1}, m_modelPreview.Srv(), {1, 1, 1, 1});
+			// A burning item burns here too: its head projected through the very
+			// framing the image was rendered with, the flame drawn over it. Sized
+			// to the torch as the hand icon sizes it - the fitted model spans
+			// about half the pane at the dialog's burning scale, so the flame
+			// stands 0.30 of it and the glow spreads 0.36.
+			Vec2 uv;
+			if (const Vec3* head = dlg.FlameHead();
+				head && m_flameTexture && pv.h > 0.0f &&
+				gfx::ModelPreview::Project(*head, dlg.PreviewScale(), kPi + dlg.Spin(),
+										   pv.w / pv.h, &dlg.FitMin(), &dlg.FitMax(),
+										   &dlg.Pose(), uv))
+				DrawFlame(m_spriteBatch, {pv.x + uv.x * pv.w, pv.y + uv.y * pv.h}, pv.h * 0.30f,
+						  pv.h * 0.36f, 0.0f, *m_flameTexture, m_flameGlowTexture.get());
+		}
 	}
 	// The portrait picker, over the sheet (or the HUD, from the console).
 	if (m_ui.PortraitPickerOpen() &&

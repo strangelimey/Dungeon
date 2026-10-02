@@ -230,6 +230,56 @@ void DrawRuneGlow(gfx::SpriteBatch& batch, const gfx::Rect& r, SpellSymbol s,
 					  c.z + (1.0f - c.z) * lift, 1.0f});
 }
 
+void DrawHeldFlame(gfx::SpriteBatch& batch, const gfx::Rect& in, const Vec2& at,
+				   const gfx::Texture& flame, const gfx::Texture* glow) {
+	// Where the head is, and how tall the flame may stand: about two fifths of
+	// the icon, but never past the top of it, so a head near the top edge
+	// burns low rather than spilling out of its socket.
+	const float bx = in.x + at.x * in.w;
+	const float by = in.y + at.y * in.h;
+	const float tall = std::min(in.h * 0.42f, (by - in.y) + in.h * 0.06f);
+	// Seeded by where the socket sits, so two torches side by side do not
+	// burn in lockstep.
+	DrawFlame(batch, {bx, by}, tall, in.w * 0.50f, in.x * 0.37f + in.y * 0.11f, flame, glow);
+}
+
+void DrawFlame(gfx::SpriteBatch& batch, const Vec2& head, float tall, float glowSize,
+			   float seed, const gfx::Texture& flame, const gfx::Texture* glow) {
+	if (tall <= 1.0f) return;
+	const float bx = head.x, by = head.y;
+	// Three flickers out of step. Fast, like a real flame.
+	const float t = batch.Time();
+	const float f1 = 0.5f + 0.5f * std::sin(t * 9.1f + seed);
+	const float f2 = 0.5f + 0.5f * std::sin(t * 14.3f + seed * 1.7f);
+	const float f3 = std::sin(t * 6.3f + seed * 0.6f);
+	const float h = tall * (0.88f + 0.16f * f1);
+	const float w = h * 0.52f * (0.95f + 0.10f * f2);
+	const float sway = w * 0.08f * f3;
+	// The base sinks a little into the head, so the flame grows out of it.
+	const float base = by + h * 0.10f;
+	if (glow) {
+		const float g = glowSize * (1.0f + 0.12f * f1);
+		const float gy = base - h * 0.40f;
+		batch.DrawSprite({bx - g * 0.5f, gy - g * 0.5f, g, g}, {0, 0, 1, 1}, *glow,
+						 {1.0f, 0.55f, 0.15f, 0.30f + 0.12f * f2});
+	}
+	// Body, heart, core: each smaller, brighter, swaying a little less.
+	struct Layer {
+		float scale, sway;
+		Vec4 color;
+	};
+	constexpr Layer kLayers[] = {
+		{1.00f, 1.0f, {1.00f, 0.42f, 0.08f, 0.85f}},
+		{0.70f, 0.7f, {1.00f, 0.76f, 0.24f, 0.90f}},
+		{0.40f, 0.4f, {1.00f, 0.96f, 0.84f, 0.95f}},
+	};
+	for (const Layer& l : kLayers) {
+		const float lh = h * l.scale, lw = w * l.scale;
+		batch.DrawSprite({bx - lw * 0.5f + sway * l.sway, base - lh, lw, lh}, {0, 0, 1, 1}, flame,
+						 l.color);
+	}
+}
+
 bool DrawItemIcon(gfx::SpriteBatch& batch, const gfx::Rect& r, std::string_view typeId,
 				  const ItemIconBank* icons, float pad) {
 	if (typeId.empty() || !icons) return false;
@@ -244,8 +294,10 @@ bool DrawItemIcon(gfx::SpriteBatch& batch, const gfx::Rect& r, std::string_view 
 	const gfx::Texture* icon = icons->For(typeId);
 	if (!icon) return false;
 	const float p = r.w * pad;
-	batch.DrawSprite({r.x + p, r.y + p, r.w - 2 * p, r.h - 2 * p}, {0, 0, 1, 1}, *icon,
-					 {1, 1, 1, 1});
+	const gfx::Rect in{r.x + p, r.y + p, r.w - 2 * p, r.h - 2 * p};
+	batch.DrawSprite(in, {0, 0, 1, 1}, *icon, {1, 1, 1, 1});
+	if (const Vec2* at = icons->FlameAt(typeId); at && icons->flame)
+		DrawHeldFlame(batch, in, *at, *icons->flame, icons->flameGlow);
 	return true;
 }
 
