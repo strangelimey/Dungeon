@@ -313,10 +313,54 @@ public:
 
 	std::vector<std::string> items;
 	std::function<void(int)> onSelect;
+	// Optional PICTURES, parallel to `items` (empty = a plain text list; a null
+	// entry = no picture on that row). Each draws as a square before its text,
+	// on the face and in the open list - whose rows grow to `iconRowScale` x
+	// the face's height, so the pictures are big enough to tell apart (the
+	// Level dialog's UI material thumbnails). Not owned.
+	std::vector<const gfx::Texture*> icons;
+	float iconRowScale = 2.2f;
+	// Optional CATEGORY buttons pinned along the top of the open list (Michael,
+	// for the Level dialog's materials: All / Light / Dark / Stone / Wood ...).
+	// `filterLabels` names them; `itemFilters`, parallel to `items`, says which
+	// rows each passes - bit f set = shown under button f. A row past the end
+	// of itemFilters passes them all. The pick lasts while the control does.
+	std::vector<std::string> filterLabels;
+	std::vector<unsigned> itemFilters;
+	// Each button's COLOUR CHIP, parallel to filterLabels: a small swatch
+	// before its label that hints at the category (light grey for Light, green
+	// for Forest). Alpha 0, or past the end, = no chip.
+	std::vector<Vec4> filterColors;
+	// The buttons' text size against the list's: they are captions, and at the
+	// list's own size eight of them took three lines of a dialog-sized list.
+	float filterScale = 0.68f;
+
+protected:
+	void LayoutSelf(UIContext& ctx) override;
 
 private:
 	// The selected item's text ("" for none), a reference into `items`.
 	const std::string& Current() const;
+	// An open-list row's height: the face's, or iconRowScale x it with icons.
+	float RowH() const;
+	// The picture's square in a row `rowH` tall, and how far it pushes the text
+	// right (0 with no icons). Face and list both ask, so they cannot disagree.
+	float IconSide(float rowH) const;
+	float IconLead(float rowH) const;
+	const gfx::Texture* IconAt(int index) const;
+	void DrawIcon(gfx::SpriteBatch& batch, const Theme& theme, int index,
+				  const gfx::Rect& row) const;
+	// The category filter: whether row `item` shows under the current button,
+	// and how many rows do. With no buttons every row shows.
+	bool Passes(size_t item) const;
+	size_t ShownCount() const;
+	// The category buttons, laid left to right across the top of a popup and
+	// wrapping: calls f(index, rect) for each, returns the band's height (0
+	// with no buttons). One walk serves the layout, the hit test and the draw.
+	template <class F>
+	float ForEachChip(const gfx::Rect& popup, F&& f) const;
+	// The popup below the button band - where the rows scroll.
+	gfx::Rect ListRect(const gfx::Rect& popup) const;
 	// Where the face text starts, and how wide it may run before the expander.
 	// DrawSelf, InkRect and TextOverrun all ask, so the measure is the draw.
 	float TextX() const;
@@ -326,13 +370,23 @@ private:
 	// when that side has more room), and at least as wide as its longest item
 	// (m_popupTextW) where the window allows. Everything else resolves against it.
 	gfx::Rect PopupRect(const UIContext& ctx) const;
-	gfx::Rect ItemRect(const gfx::Rect& popup, size_t index) const;
+	// The `slot`-th SHOWN row (the category filter hides some; slot counts
+	// only the ones that pass), scrolled, in the list area.
+	gfx::Rect ItemRect(const gfx::Rect& popup, size_t slot) const;
 	float MaxScroll(const gfx::Rect& popup) const;
 	gfx::Rect ScrollTrackRect(const gfx::Rect& popup) const;
 	gfx::Rect ScrollThumbRect(const gfx::Rect& popup, float maxScroll) const;
 
 	int m_selected = 0;
 	int m_hoverItem = -1;
+	int m_filter = 0;     // the category button in force
+	int m_hoverChip = -1; // the category button under the pointer
+	// The buttons' font (filterScale x this control's), resolved at Layout so
+	// the const layout walk can measure in it. Null until then / with no buttons.
+	const Font* m_chipFont = nullptr;
+	const Font& ChipFont() const { return m_chipFont ? *m_chipFont : TextFont(); }
+	bool HasChip(size_t i) const;    // button i has a colour chip
+	float ChipWidth(size_t i) const; // button i's whole width
 	bool m_open = false;
 	bool m_hot = false;
 	float m_scroll = 0.0f; // pixels scrolled down the open list

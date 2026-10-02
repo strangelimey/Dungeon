@@ -96,6 +96,10 @@ std::vector<std::string> InstalledTextureSets();
 // `model` field names. The worn_* block meshes are baked per surface texture,
 // not authored types, so they are left out.
 std::vector<std::string> InstalledModels();
+// The UI materials in assets/ui/stones (tools/BuildUiStones.py), sorted, as
+// stems - what settings' ui_stone, dungeons.cat's `ui_stone` and a level's
+// `uistone` record name.
+std::vector<std::string> InstalledUiStones();
 // Every typeface under assets/fonts, as a path RELATIVE to assets/ and using
 // forward slashes — exactly the form fonts.cat's `file` field takes, so a
 // listing entry can be handed straight back as a face. Sorted, families first

@@ -1,0 +1,143 @@
+; Written by tools/BuildUiStones.py - do not edit; re-run the script.
+; luminance = the mean the stone was toned to (light from 0.25).
+; family    = stone / wood / forest / snow / rock (the tab's kind filter).
+
+[armani_marble]
+luminance = 0.21
+family = stone
+source = countertops/armani-marble
+
+[blackrock]
+luminance = 0.18
+family = stone
+source = rocks/blackrock
+
+[desert_rock]
+luminance = 0.28
+family = rock
+source = ground/desert-rocks1
+
+[granite_almond]
+luminance = 0.19
+family = stone
+source = countertops/almond-speckled-granite
+
+[granite_flecks]
+luminance = 0.19
+family = stone
+source = countertops/gray-granite-flecks
+
+[granite_grey]
+luminance = 0.20
+family = stone
+source = rocks/granite-gray-white
+
+[ice_field]
+luminance = 0.40
+family = snow
+source = ground/ice-field
+
+[lava_rock]
+luminance = 0.20
+family = rock
+source = ground/lava-and-rock
+
+[leaf_fall]
+luminance = 0.24
+family = forest
+source = ground/leaf-fall1-bl4
+
+[limestone_cliffs]
+luminance = 0.30
+family = stone
+source = rocks/limestone-cliffs
+
+[limestone_flat]
+luminance = 0.30
+family = stone
+source = rocks/limestone_flat_textured
+
+[limestone_marked]
+luminance = 0.30
+family = stone
+source = rocks/limestonemarked2
+
+[limestone_pale]
+luminance = 0.30
+family = stone
+source = rocks/limestone3_bl4
+
+[marble_pillar]
+luminance = 0.30
+family = stone
+source = rocks/marble_pillar
+
+[marble_white]
+luminance = 0.30
+family = stone
+source = rocks/marble_white
+
+[moss]
+luminance = 0.24
+family = forest
+source = ground/mixedmoss-bl4
+
+[mossy_rock]
+luminance = 0.22
+family = rock
+source = rocks/wet-mossy-rocks
+
+[pine_needles]
+luminance = 0.26
+family = forest
+source = ground/pineneedles-ground
+
+[planks_weathered]
+luminance = 0.28
+family = wood
+source = wood/wood_planks_old3
+
+[rock_smooth]
+luminance = 0.30
+family = stone
+source = rocks/rock_smooth
+
+[rubble]
+luminance = 0.26
+family = rock
+source = ground/rubble
+
+[slate]
+luminance = 0.18
+family = stone
+source = rocks/slate-cliff-rock-bl4
+
+[snow_crusted]
+luminance = 0.42
+family = snow
+source = ground/Crusted_snow2
+
+[snow_packed]
+luminance = 0.42
+family = snow
+source = ground/snow-packed12
+
+[snow_rock]
+luminance = 0.40
+family = snow
+source = ground/rock-snow-ice1-2k
+
+[speckled_stone]
+luminance = 0.30
+family = stone
+source = countertops/speckled-countertop1
+
+[wood_cherry]
+luminance = 0.24
+family = wood
+source = wood/cherry-wood-veneer2
+
+[wood_dark]
+luminance = 0.20
+family = wood
+source = wood/antique-veneer1 bl

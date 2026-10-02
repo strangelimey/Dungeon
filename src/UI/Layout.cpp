@@ -35,6 +35,14 @@ void Stack::LayoutSelf(UIContext&) {
 	const float gap = Rem(gapRem);
 	const float pad = Rem(padRem);
 
+	// A Fit row's extent is its widget's answer for the room ACROSS the stack
+	// (its own rect is known by now; the padding comes off it like ContentRect).
+	const gfx::Rect& px = Pixel();
+	const float cross = std::max((horizontal ? px.h : px.w) - 2 * pad, 0.0f);
+	auto fixedPx = [&](size_t i) {
+		return m_lens[i].fit ? kids[i]->FitExtent(cross, Rem(1.0f)) : Rem(m_lens[i].rem);
+	};
+
 	// Fixed rows take their rem; the fills divide what is left. An invisible row
 	// takes no room at all — a stack with an optional row closes over it rather
 	// than leaving a hole (the facing strip a fixture without facings omits).
@@ -43,7 +51,7 @@ void Stack::LayoutSelf(UIContext&) {
 	for (size_t i = 0; i < n; ++i) {
 		if (!kids[i]->visible) continue;
 		++shown;
-		fixed += Rem(m_lens[i].rem);
+		fixed += fixedPx(i);
 		fills += m_lens[i].fill;
 	}
 	const float gaps = shown > 1 ? gap * static_cast<float>(shown - 1) : 0.0f;
@@ -86,7 +94,7 @@ void Stack::LayoutSelf(UIContext&) {
 		if (!child.visible) continue;
 		const float extent = m_lens[i].fill > 0.0f
 								 ? free * (m_lens[i].fill / fills)
-								 : Rem(m_lens[i].rem) * squeeze;
+								 : fixedPx(i) * squeeze;
 		child.bounds = horizontal
 						   ? gfx::Rect{at / content.w, 0.0f, extent / content.w, 1.0f}
 						   : gfx::Rect{0.0f, at / content.h, 1.0f, extent / content.h};

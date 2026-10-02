@@ -449,6 +449,7 @@ void Game::WireModuleCallbacks() {
 				}
 				return ids;
 			}
+			if (std::string_view(spec.options) == kOptUiStones) return InstalledUiStones();
 			if (std::string_view(spec.options) == kOptLocations) {
 				if (m_worldMap)
 					for (const WorldMap::Location& l : m_worldMap->Locations())

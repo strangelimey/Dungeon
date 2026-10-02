@@ -1746,6 +1746,10 @@ public:
 	// record; same active-vs-stash routing). Nothing in the running world reads
 	// them — see the definition.
 	void SetLevelTags(const std::string& stem, std::vector<std::string> tags);
+	// The level's UI material override (same dialog, the .map `uistone`
+	// record; same routing). Empty clears it, so the dungeon's applies. Game
+	// re-resolves the chrome after a save (Game::RefreshPlaceStone).
+	void SetLevelUiStone(const std::string& stem, std::string name);
 
 	// HUD log feedback (bump lines, monster announcements, palette flavor).
 	// Set before play starts; the party/monster callbacks route through it.

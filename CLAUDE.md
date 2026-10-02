@@ -883,7 +883,8 @@ Changing the adapter/monitor dropdown also repopulates the dependent lists by
 rebuilding the settings page next frame (GameUI::m_videoRebuildPending →
 ApplyPendingVideoRebuild, deferred like the language switch since the rebuild
 destroys the live dropdown; BuildSettings is split out of BuildMenu for this).
-master-volume slider on Audio, and on UI the Stone dropdown, the HUD layout
+master-volume slider on Audio, a STONE tab of its own (see "Stone chrome"
+below), and on UI the HUD layout
 (Standard / Minimal), Lock / Reset HUD layout and a scale + background-opacity
 pair for every floating HUD panel (see "Stone chrome, floating panels,
 Minimal layout" below - the party bar's old pair is one of them)
@@ -1856,12 +1857,35 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   the debug mode (uiskin=0); editor dialogs never receive the skin.
   Assets are script-made and committed: `tools/BuildUiStones.py` ->
   assets/ui/stones/<name>.png (1024, resized WHOLE - a crop breaks the wrap -
-  and toned to one mean luminance; `--check` reports the seam; adding a stone =
-  a table line + a re-run + a `stone.<name>` key x5) and `tools/BuildUiFrames.py`
+  and toned to a mean luminance PER STONE - ~0.2 the dark set, ~0.3 the light
+  one; `--check` reports the seam; adding a stone = a table line + a re-run + a
+  `stone.<name>` key x5; it also writes thumbs/<name>.png and stones.cat, each
+  stone's luminance) and `tools/BuildUiFrames.py`
   -> assets/ui/frame_*.png + sheen_panel.png (2x, drawn at 0.5 x the window
   scale - GameUI::UpdateSkinScale beside the fonts; the `inset` numbers in
-  LoadTitleArt must match the script). Settings -> UI "Stone" lists the folder
-  and swaps the stone live (`LoadStone` WaitIdles before the old one dies).
+  LoadTitleArt must match the script). Settings -> MATERIAL (its own tab,
+  more-ui-updates; GameUI_Stone.cpp + Game/StonePicker.h) shows the folder as
+  a grid of thumbnails, filtered by name, kind (stones.cat `family`: stone /
+  wood / forest / snow / rock) and shade (`luminance`, light from 0.25), and
+  swaps the stone live (`LoadStone` WaitIdles before the old one dies). The
+  grid WRAPS, so it is a `Len::Fit` row: a Stack asks the row's
+  `Widget::FitExtent(crossPx, remPx)` for its length, for content whose height
+  depends on its width. THE PLACE PICKS THE MATERIAL (Michael): ui_stone=follow
+  is the default (the grid's first tile) and resolves to the active level's
+  `.map` `uistone <name>` record, else its dungeon's dungeons.cat `ui_stone`,
+  else granite_grey; any other tile PINS one everywhere. Game::RefreshPlaceStone
+  re-resolves when the level or EditRevision moves (a settled frame only
+  compares) and GameUI::ApplyStone reloads only when the NAME changes. The
+  editor's Level settings dialog authors `uistone` with a LIVE PREVIEW
+  (GameUI::PreviewStone wins while the dialog is up; every way out ends it, so
+  Esc reverts and Save keeps) and a sample strip drawn in the game skin, since
+  the editor's own chrome is flat and would show no change. The folder and ini
+  key keep the word "stone" on purpose - renaming them would churn every ini.
+  ui::DropDown grew two options there: `icons` (a picture per row; rows grow
+  to `iconRowScale`) and CATEGORY BUTTONS (`filterLabels` + per-item
+  `itemFilters` bit masks + `filterColors` chips, drawn at `filterScale`,
+  pinned above the scrolling rows, the list widening so they fit two lines).
+  ItemRect takes a SLOT among the shown rows, not an item index.
 - AN OPEN POPUP OWNS THE CLICK (`UIContext::ClaimPopup`): the update walk visits
   children in REVERSE add order, so a control added after a drop-down saw a
   press on its open list first (picking a stone unticked Head bob). An open

@@ -113,8 +113,10 @@ inline constexpr const char* kSectionShape = "map.type.sec.shape";
 inline constexpr const char* kSectionMonsters = "map.type.sec.monsters";
 
 // CatalogRef `options` that name no catalog but a list Game builds: every
-// "<quest>:<stage>" pair, and every world-map location id.
+// "<quest>:<stage>" pair, every world-map location id, and every UI material
+// (assets/ui/stones).
 inline constexpr const char* kOptQuestStages = "@queststages";
 inline constexpr const char* kOptLocations = "@locations";
+inline constexpr const char* kOptUiStones = "@uistones";
 
 } // namespace dungeon::game

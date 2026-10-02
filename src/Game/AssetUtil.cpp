@@ -318,6 +318,18 @@ std::vector<std::string> InstalledModels() {
 	});
 }
 
+std::vector<std::string> InstalledUiStones() {
+	std::vector<std::string> out;
+	std::error_code ec;
+	// Not recursive: thumbs/ beside the tiles holds a same-named copy of each.
+	for (const auto& entry :
+		 std::filesystem::directory_iterator(paths::Asset("ui\\stones"), ec))
+		if (entry.is_regular_file() && entry.path().extension() == ".png")
+			out.push_back(entry.path().stem().string());
+	std::ranges::sort(out);
+	return out;
+}
+
 std::vector<std::string> InstalledFonts() {
 	std::vector<std::string> out;
 	std::error_code ec;

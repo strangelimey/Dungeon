@@ -203,6 +203,13 @@ public:
 	// accident; every use should be a thing that is meant to be layered.
 	bool overlapOk = false;
 
+	// How long this widget needs to be along a stack's axis, in pixels, given
+	// `crossPx` of room across it and the context's `remPx` - asked by a Stack
+	// for a Len::Fit row, BEFORE this widget is laid out (so it is handed rem
+	// rather than reading its own, which is from the last layout). Only a widget
+	// that wraps needs it; the default says nothing (0).
+	virtual float FitExtent(float /*crossPx*/, float /*remPx*/) const { return 0.0f; }
+
 protected:
 	// --- what a subclass implements: itself, never its children --------------
 

@@ -44,6 +44,8 @@
 
 namespace dungeon::game {
 
+class StonePicker; // Game/StonePicker.h - the Material tab's grid
+
 class GameUI {
 public:
 	GameUI(Window& window, gfx::GraphicsDevice& device,
@@ -84,6 +86,35 @@ public:
 	// follows their health and whether the party is `noticed`. Every frame, in
 	// every state, so the bars never stutter on a state change.
 	void TickResourceBars(float dt, bool noticed);
+	// The UI material the PLACE asks for (Game::RefreshPlaceStone; empty = it
+	// asks for none). Applied at once while the Material setting follows the
+	// place; remembered either way, so switching back to follow lands on it.
+	void SetPlaceStone(std::string name);
+	// What the place currently asks for (empty = nothing).
+	const std::string& PlaceStone() const { return m_placeStone; }
+	// The material showing now (a stem), whoever chose it.
+	const std::string& ShownStone() const { return m_shownStone; }
+	// A material's thumbnail (assets/ui/stones/thumbs), null for an unknown
+	// stem - for the editor dialogs that pick one. Owned here; scans on first ask.
+	const gfx::Texture* StoneThumb(std::string_view name);
+	// Every material's stem in the Material tab's order - grouped by kind,
+	// lightest first within one - so an editor list reads the same way.
+	std::vector<std::string> StoneOrder();
+	// The category buttons for a material list (ui::DropDown::filterLabels):
+	// all, light, dark, then each kind - and which of them a material passes,
+	// as that control's bit mask (bit f = shown under button f).
+	std::vector<std::string> StoneFilterLabels() const;
+	// Each of those buttons' colour chip (ui::DropDown::filterColors).
+	std::vector<Vec4> StoneFilterColors() const;
+	unsigned StoneFilterBits(std::string_view name);
+	// A PREVIEW wins over everything while it is set (the Level dialog's
+	// material row: picked = shown at once); EndStonePreview hands the chrome
+	// back to whatever the setting and the place decide.
+	void PreviewStone(std::string name);
+	void EndStonePreview();
+	// The skin the game chrome draws with - for a sample of it inside the
+	// editor's own (unskinned) dialogs.
+	const ui::Skin& GameSkin() const { return m_skin; }
 	void UpdateMenu(const Input& input);  // landing list or settings page
 	void UpdatePause(const Input& input); // pause list or settings page
 	void UpdateSheet(const Input& input, float dt);
@@ -420,6 +451,15 @@ private:
 	void ApplySkin();
 	// Loads assets/ui/stones/<name>.png as the skin's stone (UI/Skin.h).
 	void LoadStone(const std::string& name);
+	// The Settings -> Material tab (GameUI_Stone.cpp): a filter row over the
+	// StonePicker grid. Built with the rest of the settings page.
+	void BuildStoneTab(ui::TabControl& tabs);
+	// Loads whichever material should show now - the pinned one, or the
+	// place's while the setting follows it - if it is not the one showing.
+	void ApplyStone();
+	// Reads the curated stones (assets/ui/stones: the tiles, stones.cat, the
+	// thumbnails) into m_stones - once; a page rebuild reuses them.
+	void ScanStones();
 	// Scales the skin's frames and stone grain with the window, like the fonts.
 	void UpdateSkinScale();
 	// A floating HUD panel was dragged or resized (save + slider sync), and the
@@ -710,9 +750,27 @@ private:
 	// Installed languages (assets/lang scan), in the Game tab dropdown's
 	// order; maps the selection index back to a language code.
 	std::vector<loc::LanguageInfo> m_languages;
-	// The stones the Settings → UI dropdown offers (assets/ui/stones stems,
-	// scanned when the page is built), index-matched to its rows.
-	std::vector<std::string> m_stoneNames;
+	// The stones the Settings -> Stone tab offers (ScanStones): each tile's
+	// stem, its toned luminance from stones.cat (the light / dark filter) and
+	// its thumbnail. Loaded once and kept across page rebuilds, so a language
+	// switch does not reload fourteen textures; the picker points into it.
+	struct StoneInfo {
+		std::string name;
+		float luminance = 0.0f;
+		std::string family; // stones.cat `family` (stone / wood / forest / ...)
+		std::unique_ptr<gfx::Texture> thumb;
+	};
+	std::vector<StoneInfo> m_stones;
+	bool m_stonesScanned = false;
+	// The place's material (SetPlaceStone) and the one actually loaded into
+	// the skin (ApplyStone compares the two names, so a level change that keeps
+	// the material reloads nothing).
+	std::string m_placeStone;
+	std::string m_shownStone;
+	std::string m_previewStone; // PreviewStone; empty = none
+	// The Material tab's grid, while the settings page stands - so a place
+	// change can update its "follow" tile. Dies with the page (UIContext rule).
+	StonePicker* m_stonePicker = nullptr;
 
 	// Last torchlight dropdown selection, so a HUD rebuild (language change)
 	// recreates the dropdown showing the palette that is actually active.

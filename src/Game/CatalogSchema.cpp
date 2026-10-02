@@ -630,6 +630,11 @@ constexpr FieldSpec kDungeonFields[] = {
 	{.key = "style", .kind = FieldKind::CatalogRef, .sectionKey = kSectionIdentity,
 	 .help = "The style its levels are built in by default (styles.cat).",
 	 .options = "styles"},
+	{.key = "ui_stone", .kind = FieldKind::CatalogRef, .sectionKey = kSectionLook,
+	 .help = "The material the UI is cut from while the party is in this dungeon, "
+			 "for a player whose Material setting follows the place. A level can "
+			 "set its own (Level settings).",
+	 .options = kOptUiStones},
 };
 
 // Styles (tool-refinement Phase 5, Game/Style.h): one named decision about

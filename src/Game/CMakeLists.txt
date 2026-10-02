@@ -77,6 +77,7 @@ add_library(Game STATIC
 	GameSettings.cpp
 	GameUI.cpp
 	GameUI_Items.cpp
+	GameUI_Stone.cpp
 	InspectPicker.cpp
 	InstanceInspector.cpp
 	LevelSettingsDialog.cpp
@@ -122,6 +123,7 @@ add_library(Game STATIC
 	CharacterPanel.cpp
 	ControlBar.cpp
 	MemberCards.cpp
+	StonePicker.cpp
 	HudTray.cpp
 	HandSlot.cpp
 	GuardSlider.cpp

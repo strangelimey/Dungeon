@@ -765,6 +765,12 @@ private:
 	// + resolution) to the window and swapchain in place. Called at boot and by
 	// the Video tab's Apply button for non-adapter changes.
 	void ApplyDisplaySettings();
+	// Resolves the UI material the PLACE asks for - the active level's
+	// `uistone` record, else its dungeon's `ui_stone`, else none - and hands it
+	// to GameUI, which applies it when the player's Material setting follows
+	// the place. Run from UpdateStates when the level or the edit revision
+	// moves, and after a Level settings save.
+	void RefreshPlaceStone();
 	// Relaunches the executable (a fresh process picks up the new adapter, the
 	// only way to switch GPUs, or a new world) and flags this instance to quit.
 	// `extraArgs` go on the new command line (`-newgame` for the world list).
@@ -1002,6 +1008,10 @@ private:
 	// Rebuilt rather than reset: a new object has none of the old world's
 	// caches to forget, and a world made from another shares its catalog ids.
 	std::unique_ptr<DungeonWorld> m_world;
+	// What RefreshPlaceStone last resolved for: the level and the world's edit
+	// revision. The revision starts impossible so the first frame resolves.
+	std::string m_placeStoneLevel;
+	u64 m_placeStoneRev = ~0ull;
 	// Typefaces, addressed by role (UI/FontLibrary.h). Declared BEFORE m_ui
 	// because every UIContext there borrows a Font from it, and configured from
 	// assets/fonts/fonts.cat before those contexts first resolve a role — see

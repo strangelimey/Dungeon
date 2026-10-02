@@ -137,9 +137,13 @@ struct GameSettings {
 	// deliberately as a DEBUG MODE (widget containment/extents read at a
 	// glance). Settings → UI checkbox; ini uiskin=.
 	bool uiSkin = true;
-	// The stone that chrome is cut from: an assets/ui/stones/<name>.png stem
-	// (tools/BuildUiStones.py). Settings → UI dropdown; ini ui_stone=.
-	std::string uiStone = "granite_grey";
+	// The material that chrome is cut from: an assets/ui/stones/<name>.png stem
+	// (tools/BuildUiStones.py) PINS one; kUiStoneFollow (the default) lets the
+	// place decide - the level's `uistone`, else its dungeon's `ui_stone`, else
+	// kDefaultUiStone. Settings -> Material tab; ini ui_stone=.
+	static constexpr const char* kUiStoneFollow = "follow";
+	static constexpr const char* kDefaultUiStone = "granite_grey";
+	std::string uiStone = kUiStoneFollow;
 	// Walking head bob (Party::EyePosition's footfall dip + sway). Off for
 	// motion-sensitive players — the eye glides dead level. Settings → UI
 	// checkbox; ini headbob=.

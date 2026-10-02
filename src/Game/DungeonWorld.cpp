@@ -572,6 +572,15 @@ void DungeonWorld::SetLevelTags(const std::string& stem,
 		EnsureMapStash(stem).SetTags(std::move(tags));
 }
 
+// The UI material's counterpart: only the chrome reads it, and Game resolves
+// the chrome itself, so this is a plain write.
+void DungeonWorld::SetLevelUiStone(const std::string& stem, std::string name) {
+	if (stem == m_currentLevel)
+		m_map.SetUiStone(std::move(name));
+	else
+		EnsureMapStash(stem).SetUiStone(std::move(name));
+}
+
 // See the header for why the cooldowns move with the latch, and why only when
 // it was actually set.
 void DungeonWorld::ClearWipeLatch() {

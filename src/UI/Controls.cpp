@@ -628,52 +628,159 @@ void Slider::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 // The list opens below the control; when it doesn't fit there and the space
 // above is larger, it flips. Whatever is still too tall scrolls — a pool-length
 // list used to draw straight off the bottom of the window.
+float DropDown::RowH() const {
+	return icons.empty() ? Pixel().h : Pixel().h * iconRowScale;
+}
+
+float DropDown::IconSide(float rowH) const { return std::max(0.0f, rowH - Rem(0.24f)); }
+
+float DropDown::IconLead(float rowH) const {
+	return icons.empty() ? 0.0f : IconSide(rowH) + Rem(0.35f);
+}
+
+const gfx::Texture* DropDown::IconAt(int index) const {
+	return index >= 0 && index < static_cast<int>(icons.size())
+			   ? icons[static_cast<size_t>(index)]
+			   : nullptr;
+}
+
+// The picture square at the row's left, inset like the text; a hairline round
+// it so a dark picture still reads as a tile on a dark field.
+void DropDown::DrawIcon(gfx::SpriteBatch& batch, const Theme& theme, int index,
+						const gfx::Rect& row) const {
+	const gfx::Texture* icon = IconAt(index);
+	if (!icon) return;
+	const float side = IconSide(row.h);
+	const gfx::Rect r{row.x + Rem(0.4f), row.y + (row.h - side) * 0.5f, side, side};
+	batch.DrawSprite(r, {0, 0, 1, 1}, *icon, {1, 1, 1, 1});
+	DrawBorder(batch, r, theme.panelBorder);
+}
+
+bool DropDown::Passes(size_t item) const {
+	if (filterLabels.empty() || item >= itemFilters.size()) return true;
+	return ((itemFilters[item] >> static_cast<unsigned>(m_filter)) & 1u) != 0;
+}
+
+size_t DropDown::ShownCount() const {
+	if (filterLabels.empty()) return items.size();
+	size_t n = 0;
+	for (size_t i = 0; i < items.size(); ++i)
+		if (Passes(i)) ++n;
+	return n;
+}
+
+void DropDown::LayoutSelf(UIContext& ctx) {
+	// The category buttons' caption size. Em is this control's own text size
+	// (fontScale included), so the buttons track whatever the list is drawn at.
+	m_chipFont = filterLabels.empty()
+					 ? nullptr
+					 : &ctx.FontAt(ResolvedRole(), std::max(8.0f, Em(filterScale)));
+}
+
+// A button's colour chip: a square the caption's cap height, before its text.
+static float ChipSwatch(const Font& font) { return font.Height() * 0.62f; }
+
+bool DropDown::HasChip(size_t i) const {
+	return i < filterColors.size() && filterColors[i].w > 0.0f;
+}
+
+// One category button's width: its caption, its colour chip and their gap, and
+// the padding either side. The draw lays out against exactly these terms.
+float DropDown::ChipWidth(size_t i) const {
+	const Font& font = ChipFont();
+	return font.MeasureWidth(filterLabels[i]) + Rem(0.4f) +
+		   (HasChip(i) ? ChipSwatch(font) + Rem(0.2f) : 0.0f);
+}
+
+template <class F>
+float DropDown::ForEachChip(const gfx::Rect& popup, F&& f) const {
+	if (filterLabels.empty()) return 0.0f;
+	const Font& font = ChipFont();
+	const float pad = Rem(0.25f), gap = Rem(0.2f), h = font.LineAdvance() + Rem(0.15f);
+	float x = popup.x + pad, y = popup.y + pad;
+	for (size_t i = 0; i < filterLabels.size(); ++i) {
+		const float w = ChipWidth(i);
+		// Wrap to a new line of buttons, unless this is the first on its line
+		// (a button wider than the list is trimmed, never stranded alone).
+		if (x > popup.x + pad && x + w > popup.x + popup.w - pad) {
+			x = popup.x + pad;
+			y += h + gap;
+		}
+		f(i, gfx::Rect{x, y, std::min(w, popup.w - 2.0f * pad), h});
+		x += w + gap;
+	}
+	return y + h + pad - popup.y;
+}
+
+gfx::Rect DropDown::ListRect(const gfx::Rect& popup) const {
+	const float band = ForEachChip(popup, [](size_t, const gfx::Rect&) {});
+	return {popup.x, popup.y + band, popup.w, std::max(0.0f, popup.h - band)};
+}
+
 gfx::Rect DropDown::PopupRect(const UIContext& ctx) const {
 	const gfx::Rect& px = Pixel();
 	const float pad = Rem(0.15f);
-	const float content = px.h * static_cast<float>(items.size());
-	const float below = std::max(0.0f, ctx.Height() - (px.y + px.h) - pad);
-	const float above = std::max(0.0f, px.y - pad);
-	gfx::Rect r;
-	if (content <= below || below >= above) {
-		r = {px.x, px.y + px.h, px.w, std::min(content, below)};
-	} else {
-		const float h = std::min(content, above);
-		r = {px.x, px.y - h, px.w, h};
-	}
 	// Wide enough for the longest item - the face may be trimming it - with the
 	// face's own text inset on both sides and the scrollbar's gutter when the
 	// list scrolls; never past the window, so it shifts left before it widens
 	// off the edge. A row that still does not fit is trimmed like the face.
+	// The WIDTH comes first because the category buttons wrap to it, and how
+	// many lines of them there are is part of the height.
+	float want = m_popupTextW + Rem(0.4f) * 2.0f + IconLead(RowH());
+	// Wide enough that the category buttons wrap onto at most TWO lines: half
+	// their run, plus the widest one so the greedy wrap cannot spill a third.
+	if (!filterLabels.empty()) {
+		float run = 0.0f, widest = 0.0f;
+		for (size_t i = 0; i < filterLabels.size(); ++i) {
+			run += ChipWidth(i) + Rem(0.2f);
+			widest = std::max(widest, ChipWidth(i));
+		}
+		want = std::max(want, run * 0.5f + widest + Rem(0.5f));
+	}
+	const float w0 = std::min(std::max(px.w, want), ctx.Width());
+	const float band = ForEachChip({0, 0, w0, 0}, [](size_t, const gfx::Rect&) {});
+	const float content = band + RowH() * static_cast<float>(ShownCount());
+	const float below = std::max(0.0f, ctx.Height() - (px.y + px.h) - pad);
+	const float above = std::max(0.0f, px.y - pad);
+	gfx::Rect r;
+	if (content <= below || below >= above) {
+		r = {px.x, px.y + px.h, w0, std::min(content, below)};
+	} else {
+		const float h = std::min(content, above);
+		r = {px.x, px.y - h, w0, h};
+	}
 	const float gutter = content > r.h ? Rem(0.45f) : 0.0f;
-	const float want = m_popupTextW + (TextX() - px.x) * 2.0f + gutter;
-	r.w = std::min(std::max(px.w, want), ctx.Width());
+	r.w = std::min(std::max(px.w, want + gutter), ctx.Width());
 	r.x = std::clamp(px.x, 0.0f, std::max(0.0f, ctx.Width() - r.w));
 	return r;
 }
 
 float DropDown::MaxScroll(const gfx::Rect& popup) const {
-	return std::max(0.0f, Pixel().h * static_cast<float>(items.size()) - popup.h);
+	return std::max(0.0f,
+					RowH() * static_cast<float>(ShownCount()) - ListRect(popup).h);
 }
 
-gfx::Rect DropDown::ItemRect(const gfx::Rect& popup, size_t index) const {
-	const float rowH = Pixel().h;
+gfx::Rect DropDown::ItemRect(const gfx::Rect& popup, size_t slot) const {
+	const float rowH = RowH();
+	const gfx::Rect list = ListRect(popup);
 	// Rows stop short of the scrollbar gutter, so a row hover never sits under
 	// the thumb (SlotList's rule).
 	const float gutter = MaxScroll(popup) > 0.0f ? Rem(0.45f) : 0.0f;
-	return {popup.x, popup.y + rowH * static_cast<float>(index) - m_scroll,
-			popup.w - gutter, rowH};
+	return {list.x, list.y + rowH * static_cast<float>(slot) - m_scroll, list.w - gutter,
+			rowH};
 }
 
 gfx::Rect DropDown::ScrollTrackRect(const gfx::Rect& popup) const {
 	const float barW = Rem(0.35f);
-	return {popup.x + popup.w - barW - 1.0f, popup.y + 1.0f, barW, popup.h - 2.0f};
+	const gfx::Rect list = ListRect(popup);
+	return {list.x + list.w - barW - 1.0f, list.y + 1.0f, barW, list.h - 2.0f};
 }
 
 gfx::Rect DropDown::ScrollThumbRect(const gfx::Rect& popup, float maxScroll) const {
 	const gfx::Rect track = ScrollTrackRect(popup);
+	const float listH = ListRect(popup).h;
 	const float thumbH =
-		std::max(track.h * popup.h / (popup.h + maxScroll), Rem(0.9f));
+		std::max(track.h * listH / (listH + maxScroll), Rem(0.9f));
 	const float t = maxScroll > 0.0f ? m_scroll / maxScroll : 0.0f;
 	return {track.x, track.y + (track.h - thumbH) * t, track.w, thumbH};
 }
@@ -692,6 +799,27 @@ void DropDown::UpdateSelf(UIContext& ctx) {
 		ctx.ClaimPopup();
 		ctx.ConsumeWheel();
 		const gfx::Rect popup = PopupRect(ctx);
+
+		// The category buttons sit above the rows and do not scroll. A press
+		// switches the filter - the list closes up to what passes and goes back
+		// to its top - and never picks a row or closes the list.
+		m_hoverChip = -1;
+		bool chipPressed = false;
+		ForEachChip(popup, [&](size_t i, const gfx::Rect& r) {
+			if (!r.Contains(mx, my)) return;
+			m_hoverChip = static_cast<int>(i);
+			chipPressed = input->WasMousePressed(MouseButton::Left);
+		});
+		if (m_hoverChip >= 0) {
+			if (chipPressed) {
+				m_filter = m_hoverChip;
+				m_scroll = 0.0f;
+			}
+			m_hoverItem = -1;
+			ctx.ConsumeMouse();
+			return;
+		}
+
 		const float maxScroll = MaxScroll(popup);
 		m_scroll = std::clamp(m_scroll, 0.0f, maxScroll);
 
@@ -716,7 +844,7 @@ void DropDown::UpdateSelf(UIContext& ctx) {
 						maxScroll);
 			}
 			if (input->WheelDelta() != 0.0f && popup.Contains(mx, my))
-				m_scroll = std::clamp(m_scroll - input->WheelDelta() * Pixel().h,
+				m_scroll = std::clamp(m_scroll - input->WheelDelta() * RowH(),
 									  0.0f, maxScroll);
 			if (m_scrollHot || m_scrollDragging || track.Contains(mx, my)) {
 				ctx.ConsumeMouse();
@@ -727,9 +855,13 @@ void DropDown::UpdateSelf(UIContext& ctx) {
 		}
 
 		m_hoverItem = -1;
-		if (popup.Contains(mx, my)) { // a part-scrolled row reaches past the box
+		// Inside the LIST area only: a part-scrolled row reaches past the box,
+		// and under the category buttons there is no row to pick.
+		if (ListRect(popup).Contains(mx, my)) {
+			size_t slot = 0;
 			for (size_t i = 0; i < items.size(); ++i) {
-				if (!ItemRect(popup, i).Contains(mx, my)) continue;
+				if (!Passes(i)) continue;
+				if (!ItemRect(popup, slot++).Contains(mx, my)) continue;
 				m_hoverItem = static_cast<int>(i);
 				if (input->WasMousePressed(MouseButton::Left)) {
 					m_selected = static_cast<int>(i);
@@ -740,7 +872,10 @@ void DropDown::UpdateSelf(UIContext& ctx) {
 				}
 			}
 		}
-		if (input->WasMousePressed(MouseButton::Left)) m_open = false;
+		// A click OUTSIDE the list closes it; one on the button band's gaps or
+		// below the last row does nothing.
+		if (input->WasMousePressed(MouseButton::Left) && !popup.Contains(mx, my))
+			m_open = false;
 		ctx.ConsumeMouse();
 		return;
 	}
@@ -756,10 +891,16 @@ void DropDown::UpdateSelf(UIContext& ctx) {
 				m_popupTextW = std::max(m_popupTextW, TextFont().MeasureWidth(item));
 			// Open with the current selection in view — a long list otherwise
 			// opens at the top, nowhere near what it says it is showing.
+			// The selection's SLOT among the rows the filter shows (it may be
+			// hidden, and then the list opens at its top).
+			size_t slot = 0;
+			for (int i = 0; i < m_selected && i < static_cast<int>(items.size()); ++i)
+				if (Passes(static_cast<size_t>(i))) ++slot;
+			if (m_selected >= 0 && !Passes(static_cast<size_t>(m_selected))) slot = 0;
 			const gfx::Rect popup = PopupRect(ctx);
-			const float rowH = Pixel().h;
-			m_scroll = std::clamp(rowH * static_cast<float>(m_selected) -
-									  (popup.h - rowH) * 0.5f,
+			const float rowH = RowH();
+			m_scroll = std::clamp(rowH * static_cast<float>(slot) -
+									  (ListRect(popup).h - rowH) * 0.5f,
 								  0.0f, MaxScroll(popup));
 		}
 	}
@@ -773,6 +914,7 @@ void DropDown::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	DrawFieldFace(ctx, batch, px,
 				  m_open ? FieldState::Active : (m_hot ? FieldState::Hot : FieldState::Normal),
 				  m_hot || m_open ? theme.controlHot : theme.control, theme.panelBorder);
+	DrawIcon(batch, theme, m_selected, px);
 	const float textY = px.y + (px.h - font.Height()) * 0.5f;
 	DrawFittedText(batch, font, Current(), TextX(), textY, TextRoom(), theme.text);
 	DrawDropDownExpander(batch, font, px, theme, m_open, m_hot);
@@ -789,7 +931,7 @@ const std::string& DropDown::Current() const {
 			   : kNoSelection;
 }
 
-float DropDown::TextX() const { return Pixel().x + Rem(0.4f); }
+float DropDown::TextX() const { return Pixel().x + Rem(0.4f) + IconLead(Pixel().h); }
 
 float DropDown::TextRoom() const {
 	return std::max(0.0f, DropDownTextRight(TextFont(), Pixel()) - TextX());
@@ -858,26 +1000,63 @@ void DropDown::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
 	const Font& font = TextFont();
 	const gfx::Rect popup = PopupRect(ctx);
+	const gfx::Rect list = ListRect(popup);
 	const float maxScroll = MaxScroll(popup);
 	const bool skinned = ctx.GetSkin() != nullptr;
 
+	// The list's backing. A category band needs one even unskinned and
+	// unscrolled, since its buttons do not cover it.
+	if (skinned) {
+		// The open list is one sunken field, opaque so the page under it
+		// cannot show through the veil; rows are light on it, not boxes.
+		batch.DrawRect(popup, {0.05f, 0.045f, 0.04f, 1.0f});
+		DrawFieldFace(ctx, batch, popup, FieldState::Active, theme.control,
+					  theme.panelBorder);
+	} else if (maxScroll > 0.0f || !filterLabels.empty()) {
+		batch.DrawRect(popup, theme.control); // backing behind the part-rows
+	}
+
+	// The category buttons: the one in force lit in the accent, the hovered one
+	// brightened, each label trimmed to its button.
+	ForEachChip(popup, [&](size_t i, const gfx::Rect& r) {
+		const bool on = static_cast<int>(i) == m_filter;
+		const bool hot = static_cast<int>(i) == m_hoverChip;
+		if (skinned) {
+			batch.DrawRect(r, on	? Vec4{theme.accent.x, theme.accent.y, theme.accent.z, 0.22f}
+							  : hot ? Vec4{1.0f, 1.0f, 1.0f, 0.08f}
+									: Vec4{0.0f, 0.0f, 0.0f, 0.25f});
+		} else {
+			batch.DrawRect(r, on ? theme.controlActive : hot ? theme.controlHot : theme.control);
+		}
+		DrawBorder(batch, r, on ? theme.accent : theme.panelBorder);
+		// Colour chip, then the caption, the pair centred on the button.
+		const Font& cf = ChipFont();
+		const bool chip = HasChip(i);
+		const float sw = chip ? ChipSwatch(cf) : 0.0f, sgap = chip ? Rem(0.2f) : 0.0f;
+		// The room is the very sum the width was built from, so a pixel of
+		// slack stops float round-off trimming a caption that fits.
+		const std::string_view fit =
+			FitText(cf, filterLabels[i], r.w - Rem(0.4f) - sw - sgap + 1.0f);
+		float x = r.x + (r.w - (sw + sgap + cf.MeasureWidth(fit))) * 0.5f;
+		if (chip) {
+			const gfx::Rect s{x, r.y + (r.h - sw) * 0.5f, sw, sw};
+			batch.DrawRect(s, filterColors[i]);
+			DrawBorder(batch, s, {0.0f, 0.0f, 0.0f, 0.6f});
+			x += sw + sgap;
+		}
+		cf.Draw(batch, fit, x, r.y + (r.h - cf.Height()) * 0.5f, on ? theme.accent : theme.text);
+	});
+
 	{
 		// Scoped so the clip lifts before the scrollbar draws beside the list.
+		// Rows scroll UNDER the category band, never over it.
 		std::optional<ScopedClip> clip;
-		if (skinned) {
-			// The open list is one sunken field, opaque so the page under it
-			// cannot show through the veil; rows are light on it, not boxes.
-			batch.DrawRect(popup, {0.05f, 0.045f, 0.04f, 1.0f});
-			DrawFieldFace(ctx, batch, popup, FieldState::Active, theme.control,
-						  theme.panelBorder);
-			if (maxScroll > 0.0f) clip.emplace(batch, popup);
-		} else if (maxScroll > 0.0f) {
-			batch.DrawRect(popup, theme.control); // backing behind the part-rows
-			clip.emplace(batch, popup);
-		}
+		if (maxScroll > 0.0f || !filterLabels.empty()) clip.emplace(batch, list);
+		size_t slot = 0;
 		for (size_t i = 0; i < items.size(); ++i) {
-			const gfx::Rect rect = ItemRect(popup, i);
-			if (rect.y + rect.h <= popup.y || rect.y >= popup.y + popup.h) continue;
+			if (!Passes(i)) continue;
+			const gfx::Rect rect = ItemRect(popup, slot++);
+			if (rect.y + rect.h <= list.y || rect.y >= list.y + list.h) continue;
 			const bool hovered = static_cast<int>(i) == m_hoverItem;
 			if (skinned) {
 				if (hovered)
@@ -886,10 +1065,11 @@ void DropDown::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 				batch.DrawRect(rect, hovered ? theme.controlHot : theme.control);
 				DrawBorder(batch, rect, theme.panelBorder);
 			}
-			const float inset = TextX() - Pixel().x;
-			DrawFittedText(batch, font, items[i], rect.x + inset,
+			DrawIcon(batch, theme, static_cast<int>(i), rect);
+			const float inset = Rem(0.4f), lead = inset + IconLead(rect.h);
+			DrawFittedText(batch, font, items[i], rect.x + lead,
 						   rect.y + (rect.h - font.Height()) * 0.5f,
-						   rect.w - inset * 2.0f,
+						   rect.w - lead - inset,
 						   static_cast<int>(i) == m_selected ? theme.accent : theme.text);
 		}
 	}

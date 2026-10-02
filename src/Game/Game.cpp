@@ -232,8 +232,30 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		std::string tags;
 		for (const std::string& tag : m_mapView.ViewedMap().Tags())
 			tags += (tags.empty() ? "" : " ") + tag;
-		m_levelSettingsDialog.Open(m_mapView.ViewedLevel(), dust, haze, ambient, tags);
+		// What "the dungeon's" means for this level - its dungeon's material,
+		// else the default - so that row's picture is what the level would wear.
+		std::string dungeonStone = GameSettings::kDefaultUiStone;
+		if (const CatalogEntry* d = m_project.DungeonOfLevel(m_mapView.ViewedLevel()))
+			dungeonStone = d->Get("ui_stone", dungeonStone);
+		m_levelSettingsDialog.Open(m_mapView.ViewedLevel(), dust, haze, ambient, tags,
+								   m_mapView.ViewedMap().UiStone(), dungeonStone);
 	};
+	m_levelSettingsDialog.thumbFor = [this](const std::string& stone) {
+		return m_ui.StoneThumb(stone);
+	};
+	m_levelSettingsDialog.stoneOrder = [this] { return m_ui.StoneOrder(); };
+	m_levelSettingsDialog.stoneFilterLabels = [this] { return m_ui.StoneFilterLabels(); };
+	m_levelSettingsDialog.stoneFilterColors = [this] { return m_ui.StoneFilterColors(); };
+	m_levelSettingsDialog.stoneFilterBits = [this](const std::string& stone) {
+		return m_ui.StoneFilterBits(stone);
+	};
+	// Picking a material shows it at once; closing without Save hands the
+	// chrome back (a Save has already re-resolved the place by then).
+	m_levelSettingsDialog.onPreviewStone = [this](const std::string& stone) {
+		if (stone.empty()) m_ui.EndStonePreview();
+		else m_ui.PreviewStone(stone);
+	};
+	m_levelSettingsDialog.sampleSkin = &m_ui.GameSkin();
 	// The Check toolbar button: run the whole-project playability check and show
 	// what it found. Reads live state, so it answers for unsaved edits too —
 	// which is exactly when you want to hear that a door just became unopenable.
@@ -280,9 +302,12 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		m_world->SetAmbientScale(ambient);
 	};
 	m_levelSettingsDialog.onSave = [this](float dust, float haze, float ambient,
-										 const std::string& tags) {
+										 const std::string& tags,
+										 const std::string& uiStone) {
 		m_world->SetLevelAtmosphere(m_levelSettingsDialog.Level(), dust, haze, ambient);
 		m_world->SetLevelTags(m_levelSettingsDialog.Level(), ParseTags(tags));
+		m_world->SetLevelUiStone(m_levelSettingsDialog.Level(), uiStone);
+		RefreshPlaceStone(); // the chrome follows at once if this is the active level
 		if (m_world->onMessage)
 			m_world->onMessage(loc::FormatLine("map.level.applied",
 											  m_levelSettingsDialog.Level()));
@@ -1654,6 +1679,18 @@ void Game::Update(float dt) {
 	}
 }
 
+void Game::RefreshPlaceStone() {
+	m_placeStoneLevel = m_world ? m_world->CurrentLevel() : std::string();
+	m_placeStoneRev = m_world ? m_world->EditRevision() : 0;
+	// The level's own override, else its dungeon's, else none (GameUI then
+	// falls back to the default material).
+	std::string stone = m_world ? m_world->Map().UiStone() : std::string();
+	if (stone.empty() && !m_placeStoneLevel.empty())
+		if (const CatalogEntry* d = m_project.DungeonOfLevel(m_placeStoneLevel))
+			stone = d->Get("ui_stone", "");
+	m_ui.SetPlaceStone(stone);
+}
+
 void Game::UpdateStates(float dt) {
 	// World dt: the dev console's `timescale`, times the REST multiplier
 	// (docs/health-and-healing.md). Rest is folded in HERE, at the one place the
@@ -1683,6 +1720,16 @@ void Game::UpdateStates(float dt) {
 	// A Video-tab adapter/monitor change last frame repopulates the settings page
 	// now, for the same reason: the rebuild destroys the dropdown that triggered it.
 	m_ui.ApplyPendingVideoRebuild();
+
+	// The UI material follows the PLACE (more-ui-updates): re-resolved when the
+	// party changes level or the editor changes anything, never every frame -
+	// the lookup reads the catalogs. A settled frame only compares.
+	{
+		const std::string_view level =
+			m_world ? std::string_view(m_world->CurrentLevel()) : std::string_view();
+		const u64 rev = m_world ? m_world->EditRevision() : 0;
+		if (level != m_placeStoneLevel || rev != m_placeStoneRev) RefreshPlaceStone();
+	}
 
 	{
 		DN_PROFILE_ZONE_L(prof::kLevelSystem, "fonts");
