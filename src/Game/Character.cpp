@@ -111,6 +111,10 @@ std::vector<Character> CreateDefaultParty() {
 	party[1].portraitId = "portrait398";
 	party[2].portraitId = "portrait1419";
 	party[3].portraitId = "b045";
+	// All four are human (their portraits are). Their stats stay as authored -
+	// the eval suites measure exactly these four - so they are PREMADE members,
+	// not race + points (docs/party-creation-plan.md).
+	for (Character& member : party) member.raceId = "human";
 
 	for (size_t i = 0; i < party.size(); ++i) {
 		Character& member = party[i];

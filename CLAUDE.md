@@ -438,7 +438,7 @@ Key conventions (memorize, they bite):
   itself (visible, never fatal); a missing language file falls back to
   en.lang. Dev-facing text (log::, DN_ASSERT, asset names, ini keys) stays
   English. Dynamic ids map to keys by convention: monster.<ent type>,
-  class.* (Character.classKey), facing.* (Party::FacingName returns the
+  race.* (races.cat `name`; there are NO classes), facing.* (Party::FacingName returns the
   key). Settings → Game has a Language dropdown (loc::ScanLanguages; each
   file self-names via lang.name); switching saves language=<code>, reloads
   strings, and rebuilds every page next frame (GameUI::RebuildForLanguage —
@@ -711,8 +711,9 @@ buffer, reused across all ~25 submissions).
   `portrait [member] [id]`; checked by `tools/EvalScripts/portraits.eval`.
   THE PICKER (Game/PortraitPicker.*): a grid of thumbnails filtered by race /
   sex / age, opened by the sheet's "Change portrait" button (under the name),
-  STANDALONE (Open(title, currentId, onPick) - party creation is its
-  real home), owned and routed by GameUI exactly like ItemDetailsDialog (built
+  STANDALONE (Open(title, currentId, onPick) - the party creation page opens
+  it too, filtered to the member's race, on the title screen), owned and
+  routed by GameUI exactly like ItemDetailsDialog (built
   once, updated instead of the page under it, DismissPopup closes it first, the
   mouse is its while open). Two rules worth knowing: the GRID IS ONE WIDGET
   (PortraitGrid sizes its bounds to every row so the ScrollArea scrolls right,
@@ -997,7 +998,84 @@ light at flame) and braziers at 'F', each with FireEffect particles
 (flame/spark/smoke via gfx::ParticleBatch premultiplied billboards) and
 fire-driven turbidity rings around them.
 
-The HUD's top bar shows the party — 1..4 members; planned party creation
+PARTY CREATION (party-creation branch, docs/party-creation-plan.md + -notes.md;
+built in phases - the page itself is phase 3). NO CLASSES (Michael): a member is
+a RACE, the points they spend and the skills they pick, then whatever they do.
+- RACES are data: each world's `races.cat` (human / elf / dwarf / orc, also in
+  the world template) - stat modifiers from 10, `extra_points`, `pace` (->
+  moveSpeed), `base_health/_stamina/_mana`, `resists` (-> Character::
+  natureResists; NOT saved, re-applied from `Character::raceId` on load by
+  Game::ApplyRaceResists) and the `portrait` tag the picker filters by. Poison
+  bites as EARTH, so the dwarf's poison resistance is `earth 0.25`.
+- THE ARITHMETIC is the pure `Game/PartyRules.h` (in RollTest): base 10, 5 free
+  points + the race's extra, a floor of 3, 2 starting skills boosted to LEVEL 2
+  (xp 4), 2 starting items, names 1-16 characters with no underscore. A member
+  as chosen is a `party::MemberSpec`; `Game::BuildMember` (Game_Party.cpp) is
+  the ONE place it becomes a Character - the page, the dev command and the eval
+  all use it. A starting item must be on the world's manifest `start_items` list
+  (low-quality existing gear; a later branch adds sword / potion / wand / ring to
+  it) and goes where it belongs: a weapon in the first empty hand, armour on its
+  `wear` slot, the rest in the pack. A skill must be one `DungeonWorld::
+  TrainableSkills` lists (what SeedPartySkills seeds). The DEFAULT FOUR stay
+  exactly as authored - every eval suite measures them - as PREMADE members
+  (`MemberSpec::premade`): only name / portrait / colour change.
+- THE START: `Game::m_startParty` is the party the next new game uses (consumed
+  by StartNewGame; empty = the default four; `ResetForEval` clears it, so a suite
+  always starts from the four). `ResetRoster(party)` replaces the vector when the
+  SIZE differs and calls RebuildForRoster at once (every caller runs outside the
+  HUD's widget walk); only the default four take the Settings palette's colours.
+- COLOUR is the member's own (saved with them). Settings -> UI -> Party Colors
+  FOLLOWS THE PARTY: in a game, row n names member n, shows their colour and
+  recolours them live (and sets slot n's default); on the title, or for a slot
+  a short party leaves empty, it is "Member n" and edits only the ini's
+  `member_<n>=`, the colour a new member in that slot starts with
+  (GameUI::SyncMemberColorPickers, re-run whenever the page opens).
+- SAVE: `roster <n>` plus per-member `name` (spaces as underscores), `race`,
+  `color`, `pace`. A save without them is the default four, so no version bump.
+  LoadGame cuts the default four down to `roster` before laying the save on top.
+- Dev: `newparty default | <member> [| <member> ...]` (key=value words: name=
+  race= portrait= color=rrggbb points=s,d,v,w,i skills=a,b items=a,b premade=n;
+  the `|` is its own word) starts a new game with that party; `roster` prints
+  what each member was made from. `newparty` works on the TITLE SCREEN too: with
+  no world resident it opens the default one first, as Start New Game does (and
+  portraits.cat loads with the BOOT load, `Game::LoadPortraitCatalog`, so a face
+  can be checked before any game). Checked by `tools/EvalScripts/
+  partycreation.eval` (a created 2-member party survives save -> reset -> load)
+  and RollTest's "Party creation" section.
+- PARTIES OF 1-4 IN PLAY: everything placed by roster SLOT treats a missing
+  member as a fallen one - a lone member stands front-left, a third rear-left,
+  and the per-file blocking rule opens a file whose near member is absent, so
+  the member behind the hole is reachable from that side. The `parties` eval
+  suite (smallparty.eval) measures it: from behind, a party of three is hurt on
+  Sera and Maren and never on Brand. `AllocTest -Party '<spec>'` runs any mode
+  with a created party (refusing a PASS if `newparty` did not build it), and
+  InGameTest sweeps a party of three and of one. The four-slot tables (monster
+  threat, its save line, the bar's slots) are static_asserted against
+  `party::kMaxMembers`; the Magic dock draws no button for an empty slot.
+- THE PAGE (Game/PartyCreationPage.*, menu glue GameUI_Party.cpp): Start New
+  Game -> (the world list, when there is more than one) -> the party page ->
+  Start. `Game::OpenPartyCreation` LOADS THE WORLD FIRST (not its levels), so the
+  page offers that world's races / skills / `start_items`; a different world
+  switches a frame later and opens the page when it lands. The Editor entry,
+  `newgame` and `reset` skip the page and keep the default four. The page edits
+  MemberSpecs and shows a PREVIEW of each built by BuildMember plus the world's
+  pool rules, so its numbers ARE the game's. Number edits leave the tree standing
+  (Tick rewrites the live text each frame); select / add / remove / a race that
+  remakes a premade member rebuild a frame later (TakeRebuild, polled at the top
+  of UpdateMenu - the cached-pointer rule). It lives in m_savesUi like the world
+  list, draws no big title (its card needs the height), and its RACE LINE spans
+  the card (a race's line is longer than a column). Default party lays out the
+  four as PREMADE members: authored stats, no stones, no picks; another race makes
+  one anew. Esc: the face picker, then an open list (a DropDown closes on Esc now;
+  `UIContext::PopupOpen` tells the page), then the page (Back: the world list it
+  came from, else the title). Dev twin: `partypage [open|add|default|back|start|
+  picker|select|remove|set k=v...|spend|skill|item]`, every verb one of the
+  page's own edit methods, `set` through the same `party::ApplySpecField` as
+  `newparty`. Checked by `tools/EvalScripts/partypage.eval` (ON ITS OWN - it
+  starts on the title, where `partypage open` must be) and InGameTest's title
+  sweeps `sweep_partycreation` / `sweep_partydefault` / `sweep_partypicker`.
+
+The HUD's top bar shows the party — 1..4 members; party creation
 lets the player build fewer than 4, and the bar always reserves four slots
 so a short roster keeps its slot size (Character.h roster, widgets in
 PartyHud.h: portrait, name, health/stamina/mana bars); clicking a portrait
@@ -2144,8 +2222,9 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   PASS unless all three landed) and `-Minimal` (any mode under the card layout,
   switched FIRST since the rebuild would close -Cast's book; refuses a PASS
   unless the cards were up); InGameTest sweeps `sweep_inventory` and
-  `sweep_minimal`. A roster of one or three is NOT exercised - nothing can build
-  one yet.
+  `sweep_minimal`. Short rosters are exercised now (see PARTY CREATION):
+  `AllocTest -Party <spec>` runs any mode with one, and InGameTest sweeps a
+  party of three and of one.
 
 ## Tool refinement (tool-refinement branch; docs/tool-refinement-plan.md)
 

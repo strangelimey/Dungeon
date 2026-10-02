@@ -43,6 +43,7 @@
 #include "Game/AssetDialog.h"
 #include "Game/AssetPicker.h"
 #include "Game/Character.h"
+#include "Game/PartyRules.h"
 #include "Game/DevConsole.h"
 #include "Game/DungeonWorld.h"
 #include "Game/GameSettings.h"
@@ -722,7 +723,8 @@ private:
 	// once as the last task lands, and again on demand (`loadstats`, which also
 	// echoes it into the console scrollback).
 	void LogLoadStats(bool echoToConsole = false);
-	void LoadPortraits();      // portrait catalog + every member's portrait (load task)
+	void LoadPortraitCatalog(); // portraits.cat (boot load task: party creation reads it)
+	void LoadPortraits();      // every member's portrait (game load task)
 	// Loads the portrait of every member whose portraitId differs from what is
 	// loaded for that slot (draining the GPU first, since in-flight frames still
 	// sample the old texture - the SRV recycling rule), and re-points every
@@ -750,7 +752,38 @@ private:
 	// but a size change must still call GameUI::RebuildForRoster (deferred, not
 	// from a widget callback) to re-lay-out the per-member widgets. Shared by
 	// StartNewGame and LoadGame.
-	void ResetRoster();
+	// `party` is the party to start with (a CREATED one, docs/party-creation-
+	// plan.md); null = the default four. A different SIZE replaces the vector and
+	// re-lays-out the HUD (RebuildForRoster - safe here: every caller runs outside
+	// the HUD's widget walk). Only the default four take the Settings palette's
+	// colours; a created member keeps the one it was given.
+	void ResetRoster(const std::vector<Character>* party = nullptr);
+
+	// --- party creation (Game_Party.cpp) ------------------------------------
+	// One member from a spec: race (stats from PartyRules + the race's bases,
+	// pace and resists), points, portrait, colour, boosted skills, starting items
+	// placed where they go. Empty optional + `why` when the spec is refused.
+	std::optional<Character> BuildMember(const party::MemberSpec& spec, std::string& why) const;
+	// A whole party (1..4 members); false + `why` on the first refusal.
+	bool BuildParty(const std::vector<party::MemberSpec>& specs, std::vector<Character>& out,
+					std::string& why) const;
+	// natureResists from the member's race (they are not saved, so a load
+	// re-derives them; a premade or unknown race has none).
+	void ApplyRaceResists(Character& member) const;
+	// The party the NEXT new game starts with, set by party creation or the
+	// `newparty` command and consumed by StartNewGame; empty = the default four.
+	std::optional<std::vector<Character>> m_startParty;
+	void RegisterPartyCreationCommands(); // newparty / roster / partypage (Game_Party.cpp)
+	void RegisterPartyPageCommands();     // partypage (the page's dev twin)
+	// THE PAGE (phase 3): the world `folder` (empty = the resident one, else the
+	// default) is opened first - deferred a frame when it is another world, as a
+	// switch always is - then GameUI's party creation page shows what it offers.
+	void OpenPartyCreation(const std::string& folder);
+	// What the open world offers the page: races, skills, starting items, the
+	// default four as premade specs, and the build it previews with.
+	PartyCreationData PartyCreationDataFor();
+	// Start with the page's party (its Start button and `partypage start`).
+	bool StartWithParty(const std::vector<party::MemberSpec>& specs, std::string& why);
 	// Captures the live world + roster to a named slot under SaveDir. Requires
 	// the dungeon to be loaded (m_gameLoaded); no-op otherwise.
 	// False when nothing was written — no game loaded, inside a random
@@ -853,6 +886,9 @@ private:
 	struct PendingWorld {
 		std::string folder;
 		std::string savePath;
+		// Opens the party creation page once the world is in, instead of
+		// starting a game (OpenPartyCreation).
+		bool partyPage = false;
 	};
 	std::optional<PendingWorld> m_pendingWorld;
 	// The landing page's Editor entry asked for the editor, paused, once the

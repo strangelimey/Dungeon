@@ -498,10 +498,10 @@ monster.skel_berserker=el esqueleto berserker
 monster.skel_spearman=el esqueleto lancero
 
 ; --- character sheet / party bar -------------------------------------------------
-class.fighter=Guerrero
-class.rogue=Pícara
-class.cleric=Clériga
-class.mage=Mago
+race.human=Humano
+race.elf=Elfo
+race.dwarf=Enano
+race.orc=Orco
 sheet.subtitle=Nivel {} {}
 bar.health=Vida
 bar.stamina=Vigor
@@ -1365,3 +1365,31 @@ portrait.age.young=Joven
 portrait.age.adult=Adulto
 portrait.age.old=Anciano
 sheet.portrait.change=Cambiar retrato
+
+; party creation (docs/party-creation-plan.md)
+party.title=Tu grupo
+party.new_member=Nuevo miembro
+party.add=+ Añadir miembro
+party.name=Nombre
+party.name_placeholder=Escribe un nombre
+party.race=Raza
+party.face=Rostro
+party.face_choose=Elegir un rostro...
+party.color=Color
+party.points=Quedan {} de {} puntos
+party.premade_stats=Tal como son
+party.skills=Habilidades iniciales (nivel {})
+party.items=Objetos iniciales
+party.none=Ninguno
+party.premade=Conserva su propio entrenamiento y equipo.
+party.premade_race=Elige otra raza para crearlo de nuevo.
+party.pools=Salud {}   Aguante {}   Maná {}
+party.default=Grupo por defecto
+party.start=Empezar
+party.why.name=El miembro {} necesita un nombre.
+party.why.face={} necesita un rostro.
+party.why.build=No se puede crear a {}: {}
+party.race.points=+{} puntos libres
+party.race.quick=rápido
+party.race.slow=lento
+party.race.resists=resiste {} {}%

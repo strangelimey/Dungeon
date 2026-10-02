@@ -92,6 +92,25 @@ function Send-Text([string]$t) {
 # send the next line to the game as movement keys.
 function Open-Console { Send-Key 0xC0; Start-Sleep -Milliseconds 600 }
 function Run-Cmd([string]$c) { Send-Text $c; Send-Key 0x0D; Start-Sleep -Seconds 2 }
+# A new game with a CREATED party (party creation, docs/party-creation-plan.md
+# phase 2), waited out: `newparty` restarts the game, and a command typed while
+# its level loads is refused. logecho first, so the command's own line ("new
+# game with a party of N") reaches the log for the verdict below.
+function Run-Party([string]$spec) {
+	Run-Cmd 'logecho on'
+	$before = @(Select-String -Path $log -Pattern 'New game started' -EA SilentlyContinue).Count
+	Run-Cmd "newparty $spec"
+	$deadline = (Get-Date).AddSeconds($LoadTimeoutSec)
+	while ((Get-Date) -lt $deadline -and
+		   @(Select-String -Path $log -Pattern 'New game started' -EA SilentlyContinue).Count -le $before) {
+		if ($proc.HasExited) { throw 'the game exited during newparty' }
+		Start-Sleep -Milliseconds 400
+	}
+	Start-Sleep -Seconds 2
+	# Off again: an echoed `uioverlap: auditing ...` line reads as a finding
+	# to the verdict below, which takes any uioverlap line that is not "clean".
+	Run-Cmd 'logecho off'
+}
 
 # The screens this sweeps, and how each is reached. Keyboard only: scripted
 # mouse clicks proved unreliable against a layout whose rows move.
@@ -202,7 +221,33 @@ $screens = @(
 	   close = { Run-Cmd 'worlds newdialog off'; Run-Cmd 'editor off' } },
 	@{ label = 'sweep_newworldmade'; viaConsole = $true
 	   open = { Run-Cmd 'editor'; Run-Cmd 'worlds newdialog create wt_nwsweep' }
-	   close = { Run-Cmd 'worlds newdialog off'; Run-Cmd 'worlds delete wt_nwsweep wt_nwsweep'; Run-Cmd 'editor off' } }
+	   close = { Run-Cmd 'worlds newdialog off'; Run-Cmd 'worlds delete wt_nwsweep wt_nwsweep'; Run-Cmd 'editor off' } },
+	# SHORT PARTIES (party creation phase 2), LAST because each one restarts the
+	# game: three members (the bar keeps four slots, the hands go 2+1, the party
+	# window's fourth card goes inert) and then one. The verdict demands both
+	# parties were really built.
+	@{ label = 'sweep_party3'; viaConsole = $true
+	   open = { Run-Party 'premade=0 | premade=1 | premade=2' }; close = { } },
+	@{ label = 'sweep_party3sheet'; viaConsole = $true
+	   open = { Run-Cmd 'sheet 2' }; close = { Run-Cmd 'sheet off' } },
+	@{ label = 'sweep_party3inventory'; viaConsole = $true
+	   open = { Run-Cmd 'inventory' }; close = { Run-Cmd 'inventory off' } },
+	@{ label = 'sweep_party3minimal'; viaConsole = $true
+	   open = { Run-Cmd 'learn 0 fire'; Run-Cmd 'hudpanel layout minimal' }
+	   close = { Run-Cmd 'hudpanel layout standard' } },
+	@{ label = 'sweep_party1'; viaConsole = $true
+	   open = { Run-Party 'premade=0' }; close = { } },
+	@{ label = 'sweep_party1minimal'; viaConsole = $true
+	   open = { Run-Cmd 'learn 0 fire'; Run-Cmd 'hudpanel layout minimal' }
+	   close = { Run-Cmd 'hudpanel layout standard' } }
+)
+# The screens swept on the TITLE, before the game starts - the party creation
+# page (phase 3), opened by its dev twin, which drives the page's own code.
+# Each opens on top of the one before; the run backs out after the last.
+$titleScreens = @(
+	@{ label = 'sweep_partycreation'; open = { Run-Cmd 'partypage open' } },
+	@{ label = 'sweep_partydefault';  open = { Run-Cmd 'partypage default' } },
+	@{ label = 'sweep_partypicker';   open = { Run-Cmd 'partypage picker' } }
 )
 # NOT swept, and named rather than left to be assumed. The settings page is
 # reached by menu navigation whose entry order shifts with whether a save
@@ -246,6 +291,18 @@ try {
 		$started = [bool](Select-String -Path $log -Pattern 'console: > logecho on' -EA SilentlyContinue)
 	}
 	if (-not $started) { throw 'the console never accepted a command on the title screen' }
+	# THE PARTY CREATION PAGE (party creation phase 3), on the title screen
+	# where it lives: a new member, the default four, and the face picker over
+	# the page. Echo off for the audits (see below); the verdict reads the
+	# page's own log line, not an echo.
+	Run-Cmd 'logecho off'
+	foreach ($s in $titleScreens) {
+		$label = if ($SelfTest) { 'sweep_never_emitted' } else { $s.label }
+		& $s.open
+		Run-Cmd "uioverlap $label"
+	}
+	Run-Cmd 'partypage back'
+	Run-Cmd 'logecho on'
 	Send-Text 'newgame'; Send-Key 0x0D
 	Start-Sleep -Milliseconds 300
 	Send-Key 0xC0; Start-Sleep -Milliseconds 400     # closed: Open-Console below reopens it
@@ -325,7 +382,7 @@ if ($lc) {
 
 # Coverage first: a screen whose label never reached the log was never audited,
 # and a sweep that quietly skipped half the screens must not read as clean.
-foreach ($s in $screens) {
+foreach ($s in @($titleScreens) + @($screens)) {
 	if ($text -match [regex]::Escape($s.label)) {
 		Write-Host "  [ok  ] swept $($s.label)"
 	} else {
@@ -345,11 +402,31 @@ if ($stairs.Count -ge 2) {
 	$failures++
 }
 # Likewise the portrait picker: without it the sweep audited the sheet beneath.
-if (@($lines | Select-String 'portrait picker: open for ').Count -ge 1) {
-	Write-Host '  [ok  ] the portrait picker opened for its sweep'
+# Twice: over the sheet, and over the party creation page.
+$pickers = @($lines | Select-String 'portrait picker: open for ').Count
+if ($pickers -ge 2) {
+	Write-Host '  [ok  ] the portrait picker opened for both its sweeps'
 } else {
-	Write-Host '  [FAIL] the portrait picker never opened - its sweep audited the sheet beneath' -ForegroundColor Red
+	Write-Host "  [FAIL] the portrait picker opened $pickers of 2 times - a sweep audited the page beneath" -ForegroundColor Red
 	$failures++
+}
+# And the party creation page, or its sweeps audited the title screen.
+if ($lines | Select-String 'party creation: the page opens for ') {
+	Write-Host '  [ok  ] the party creation page opened for its sweeps'
+} else {
+	Write-Host '  [FAIL] the party creation page never opened - its sweeps audited the title' -ForegroundColor Red
+	$failures++
+}
+
+# And the short-party screens only if `newparty` built them: a refused one
+# leaves the default four up, and their sweep is the HUD swept again.
+foreach ($n in 3, 1) {
+	if ($lines | Select-String "console: new game with a party of $n\b") {
+		Write-Host "  [ok  ] a party of $n was built for its sweeps"
+	} else {
+		Write-Host "  [FAIL] no party of $n was built - its sweeps audited the default four" -ForegroundColor Red
+		$failures++
+	}
 }
 
 # Then the findings themselves.

@@ -1,0 +1,67 @@
+; Races: what a party member's people give them (docs/party-creation-plan.md).
+; There are no classes - a member is their race, the points they spend and the
+; skills they pick, and then whatever they do. The arithmetic is
+; Game/PartyRules.h: every stat starts at 10, the race adds or takes away, and
+; then the member spends 5 free points (plus extra_points) on top.
+;
+; Fields:
+;   name           lang key for the race's name.
+;   portrait       the portraits.cat race tag the portrait picker filters by.
+;   strength / dexterity / vitality / willpower / intelligence
+;                  added to the base 10 (negative = a weakness; absent = 0).
+;   extra_points   free points on top of the usual 5.
+;   pace           walking pace (1 = baseline) - Character::moveSpeed.
+;   base_health / base_stamina / base_mana
+;                  the resource BASES a member of this race starts with (the
+;                  maxima derive from these + the stats + practice).
+;   resists        nature resists, damage type + fraction (Character::
+;                  natureResists). Poison bites as EARTH (effects.cat), so a
+;                  poison-hardy race resists earth - which also blunts earth
+;                  spells.
+
+[human]
+name = race.human
+portrait = human
+extra_points = 2
+pace = 1.0
+base_health = 20
+base_stamina = 23
+base_mana = 13
+
+[elf]
+name = race.elf
+portrait = elf
+dexterity = 2
+intelligence = 1
+vitality = -2
+strength = -1
+pace = 1.1
+base_health = 18
+base_stamina = 22
+base_mana = 16
+
+[dwarf]
+name = race.dwarf
+portrait = dwarf
+vitality = 2
+strength = 1
+dexterity = -1
+intelligence = -1
+pace = 0.9
+base_health = 23
+base_stamina = 24
+base_mana = 10
+resists = earth 0.25
+
+[orc]
+name = race.orc
+portrait = orc
+strength = 3
+vitality = 1
+intelligence = -2
+willpower = -2
+pace = 1.0
+base_health = 24
+base_stamina = 25
+base_mana = 8
+resists = bash 0.15

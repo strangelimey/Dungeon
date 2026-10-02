@@ -165,8 +165,9 @@ void GameUI::BuildStaticUi() {
 	BuildCharacterSheet();
 	// The item details dialog, built whole now so a right-click only fills it.
 	m_itemDetails = std::make_unique<ItemDetailsDialog>(m_device, m_fonts);
-	// The portrait picker, likewise (Game::LoadPortraits fills it).
+	// The portrait picker, likewise (Game::LoadPortraitCatalog fills it).
 	m_portraitPicker = std::make_unique<PortraitPicker>(m_device, m_fonts);
+	m_partyPage = std::make_unique<PartyCreationPage>(m_device);
 	ApplyTheme(); // again, now the dialog exists to receive it (the skin
 				  // arrives with LoadTitleArt, whose ApplySkin reaches it too)
 }
@@ -380,6 +381,7 @@ void GameUI::BuildMenuList() {
 	menu->AddItem(loc::Tr("menu.settings"), [this] {
 		Click();
 		m_menuPage = MenuPage::Settings;
+		SyncMemberColorPickers();
 	});
 	// Exit LAST, the way the pause menu ends with it. Deliberately the only click
 	// that quits from here, since Esc no longer does.
@@ -837,25 +839,25 @@ void GameUI::BuildSettings() {
 	});
 
 	// UI → Party Colors: one picker per roster slot — the member's identity
-	// color (portrait border, hand stripe, log tint). Edits land in the
-	// settings (the master, member_<n>= in the ini) AND on the live roster,
-	// so the HUD recolors immediately; persists when the popup closes.
+	// color (portrait border, hand stripe, log tint). Party creation (phase 4):
+	// a member's colour is THEIRS, saved with the game, and the ini's
+	// member_<n>= is the colour a NEW member in slot n starts with. So with a
+	// party in play a row shows and edits that member (the HUD recolours at
+	// once) and keeps the slot's default in step; on the title, or for a slot
+	// the party does not fill, it edits only the default. Labels and swatches
+	// follow the party through SyncMemberColorPickers; persists on close.
 	section(*uf, "settings.party_colors");
 	colorGrid(*uf, kMemberColorCount, [&](ui::Stack& row, size_t i) {
-		// Label with the member's name when the roster has the slot (proper
-		// nouns, not localized); a slot number otherwise.
-		const std::string label =
-			i < m_characters.size() ? m_characters[i].name
-									: loc::Format("settings.member_n", i + 1);
 		auto* picker = row.Row<ui::ColorPicker>(
-			ui::Len::Fill(), label, m_settings.memberColors[i],
+			ui::Len::Fill(), loc::Format("settings.member_n", i + 1), m_settings.memberColors[i],
 			[this, i](const Vec4& color) {
 				m_settings.memberColors[i] = color;
-				if (i < m_characters.size())
-					m_characters[i].portraitColor = color;
+				if (MemberColorInPlay(i)) m_characters[i].portraitColor = color;
 			});
 		picker->onClose = [this] { m_settings.Save(); };
+		m_memberColorPickers[i] = picker;
 	});
+	SyncMemberColorPickers();
 
 	m_settingsUi.Add<ui::Button>(gfx::Rect{(1.0f - 0.14f) * 0.5f, kTabsY + kTabsH + 0.03f, 0.14f, 0.05f},
 		loc::Tr("menu.back"), [this] {
@@ -896,6 +898,7 @@ void GameUI::BuildPauseMenu() {
 	menu->AddItem(loc::Tr("menu.settings"), [this] {
 		Click();
 		m_menuPage = MenuPage::Settings;
+		SyncMemberColorPickers();
 	});
 	// Out of THIS game and back to the title (Michael, 2026-09-24) — just above
 	// Exit, the other way out. The game stays loaded, as after a party wipe, so
@@ -1010,15 +1013,20 @@ void GameUI::OpenSavesPage(SavesMode mode) {
 // centred under the big title. The card carries the page's own title, so these
 // pages draw no subtitle and the card starts where it would have been.
 ui::Stack* GameUI::SavesCard(const char* titleKey) {
-	constexpr float kCardW = 0.50f;
-	constexpr float kCardTop = kMenuSubtitleY;
-	constexpr float kCardBottom = kSavesCardBottom;
-	auto* card = m_savesUi.Add<PageCard>(
-		gfx::Rect{(1.0f - kCardW) * 0.5f, kCardTop, kCardW, kCardBottom - kCardTop},
-		loc::Tr(titleKey));
-	auto* col = card->Add<ui::Stack>(gfx::Rect{0, 0, 1, 1});
+	auto* col = AddPageCard(0.50f, titleKey)->Add<ui::Stack>(gfx::Rect{0, 0, 1, 1});
 	col->gapRem = 0.4f;
 	return col;
+}
+
+// A page card `width` of the window wide (the party page needs more than the
+// lists), into m_savesUi: centred under the big title, or from `top` (a window
+// fraction) on a page that draws no big title.
+PageCard* GameUI::AddPageCard(float width, const char* titleKey, float top) {
+	const float cardTop = top >= 0.0f ? top : kMenuSubtitleY;
+	constexpr float kCardBottom = kSavesCardBottom;
+	return m_savesUi.Add<PageCard>(
+		gfx::Rect{(1.0f - width) * 0.5f, cardTop, width, kCardBottom - cardTop},
+		loc::Tr(titleKey));
 }
 
 // A carved Back stone, centred, as the page's last row.
@@ -1046,6 +1054,13 @@ void GameUI::BeginNewGame(bool editor) {
 	}
 	Click(0.6f);
 	if (onEditorOnArrival) onEditorOnArrival(editor);
+	// A new GAME builds its party first (party creation); the editor starts
+	// with the default four, as it always has.
+	if (!editor && onOpenPartyCreation) {
+		m_partyFromWorlds = false;
+		onOpenPartyCreation(worlds.size() == 1 ? worlds.front().folder : std::string());
+		return;
+	}
 	// One world: straight into THAT one - which is not necessarily the default
 	// a harness start would open.
 	if (worlds.size() == 1 && onStartNewGameIn) onStartNewGameIn(worlds.front().folder);
@@ -1073,8 +1088,14 @@ void GameUI::OpenWorldsPage() {
 		row.secondary = row.primary == w.folder ? std::string() : w.folder;
 		row.onActivate = [this, folder = w.folder] {
 			Click(0.6f);
-			m_menuPage = MenuPage::Main;
 			if (onEditorOnArrival) onEditorOnArrival(m_worldsForEditor);
+			if (!m_worldsForEditor && onOpenPartyCreation) {
+				// The page replaces this one next frame (it borrows this context).
+				m_partyFromWorlds = true;
+				onOpenPartyCreation(folder);
+				return;
+			}
+			m_menuPage = MenuPage::Main;
 			onStartNewGameIn(folder);
 		};
 		list->AddRow(std::move(row)); // onDelete left null: no delete icon
@@ -2114,14 +2135,23 @@ void GameUI::RefreshMenuEntriesIfDirty() {
 	BuildPauseMenu();
 }
 
-void GameUI::UpdateMenu(const Input& input) {
+void GameUI::UpdateMenu(const Input& input, float dt) {
 	RefreshSavesIfDirty();
 	RefreshMenuEntriesIfDirty();
+	RefreshPartyPageIfDirty();
 	SyncHudPanelSlidersIfStale();
 	if (m_confirmActive) { // modal: freeze the page beneath it
 		m_confirmUi.Update(input, WindowW(), WindowH());
 		ResolveConfirm();
 		return;
+	}
+	if (PartyPageOpen()) {
+		// The face picker over the page is modal for the mouse, as over the sheet.
+		if (PortraitPickerOpen()) {
+			m_portraitPicker->Update(input, WindowW(), WindowH(), dt);
+			return;
+		}
+		m_partyPage->Tick();
 	}
 	MenuContext().Update(input, WindowW(), WindowH());
 }
@@ -2239,6 +2269,14 @@ bool GameUI::CloseSettingsPage() {
 		return true;
 	}
 	if (m_menuPage == MenuPage::Main) return false;
+	if (m_menuPage == MenuPage::Party) {
+		// The face picker first, then an open list or colour picker (which
+		// closes itself on the same Esc), then the page (back to where it came
+		// from).
+		if (PortraitPickerOpen()) ClosePortraitPicker();
+		else if (!m_savesUi.PopupOpen()) LeavePartyPage();
+		return true;
+	}
 	m_menuPage = MenuPage::Main;
 	return true;
 }
@@ -2364,12 +2402,14 @@ void GameUI::RenderMenuOverlay() {
 							 {1, 1, 1, 1});
 	m_spriteBatch.DrawRect({0, 0, w, h}, {0, 0, 0, 0.30f});
 
-	// Title + subtitle.
-	DrawCenteredTitle(loc::View("title"), h * kMenuTitleY);
+	// Title + subtitle. The party page is the exception: its card needs the
+	// height, and carries its own title.
+	if (m_menuPage != MenuPage::Party) DrawCenteredTitle(loc::View("title"), h * kMenuTitleY);
 
 	// The saves and worlds pages carry their title on their stone card
 	// (SavesCard), which stands where the subtitle would.
-	if (m_menuPage != MenuPage::Saves && m_menuPage != MenuPage::Worlds) {
+	if (m_menuPage != MenuPage::Saves && m_menuPage != MenuPage::Worlds &&
+		m_menuPage != MenuPage::Party) {
 		const char* subKey = m_menuPage == MenuPage::Settings ? "menu.subtitle_settings" : "menu.subtitle";
 		const std::string_view subtitle = loc::View(subKey);
 		ui::Font& font = m_menuUi.GetFont();
@@ -2379,6 +2419,7 @@ void GameUI::RenderMenuOverlay() {
 	}
 
 	MenuContext().Render(m_spriteBatch, w, h);
+	if (PartyPageOpen()) RenderPortraitPicker(); // a member's face, over the page
 	RenderConfirmOverlay();
 }
 

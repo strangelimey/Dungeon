@@ -53,6 +53,12 @@ struct Project {
 	// because there will be several harness levels, not one.
 	std::string evalLevel;
 
+	// What a new party member may pick as their two starting items
+	// (docs/party-creation-plan.md): the manifest's `start_items`, item ids in
+	// any of the three item catalogs. A list in the data, so new starting gear
+	// (a sword, a potion) joins it without code.
+	std::vector<std::string> startItems;
+
 	// THE MANIFEST AS IT WAS READ, comments and all. Save updates the fields
 	// above INSIDE it rather than building a fresh block, for the reason the
 	// catalogs keep their lead comments: project.ini is hand-authored
@@ -125,6 +131,11 @@ struct Project {
 	// FindItem / AllItems below, so nothing downstream cares which file it came
 	// from.
 	Catalog weapons, armor;
+	// RACES (docs/party-creation-plan.md): what a party member's people give
+	// them - stat modifiers, extra free points, pace, resource bases, nature
+	// resists, the portrait tag. The arithmetic is Game/PartyRules.h. Not
+	// placeable, so not in CatalogForKey or the palette.
+	Catalog races;
 	// PROVENANCE, not content: one entry per asset the editor imported, keyed by
 	// its pool name, recording where it came from and how. The baked assets
 	// themselves are gitignored (assets/textures, assets/models), so without

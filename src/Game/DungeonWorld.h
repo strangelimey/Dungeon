@@ -256,6 +256,11 @@ public:
 	// xp > 0 (the sheet's two lists, the save writer, `char`), because a skill
 	// you have not trained is not one you have.
 	void SeedPartySkills();
+	// Every skill a member can train in this world, each once: the schools, the
+	// resource practices, the bare-hand / throwing / defensive skills and every
+	// item `skill`. What SeedPartySkills seeds and what a starting-skill pick
+	// (party creation) may name.
+	std::vector<std::string> TrainableSkills() const;
 	// Feed the SLOWEST member's effective pace into the Party. Lives here rather
 	// than on Game because it has to run the moment CONDITIONING levels — which
 	// happens deep inside the combat tick — and the world holds both the roster

@@ -498,10 +498,10 @@ monster.skel_berserker=Der Skelettberserker
 monster.skel_spearman=Der Skelettspeerträger
 
 ; --- character sheet / party bar -------------------------------------------------
-class.fighter=Krieger
-class.rogue=Schurkin
-class.cleric=Klerikerin
-class.mage=Magier
+race.human=Mensch
+race.elf=Elf
+race.dwarf=Zwerg
+race.orc=Ork
 sheet.subtitle=Stufe {} {}
 bar.health=Leben
 bar.stamina=Ausdauer
@@ -1365,3 +1365,31 @@ portrait.age.young=Jung
 portrait.age.adult=Erwachsen
 portrait.age.old=Alt
 sheet.portrait.change=Porträt ändern
+
+; party creation (docs/party-creation-plan.md)
+party.title=Deine Gruppe
+party.new_member=Neues Mitglied
+party.add=+ Mitglied hinzufügen
+party.name=Name
+party.name_placeholder=Namen eingeben
+party.race=Volk
+party.face=Gesicht
+party.face_choose=Gesicht wählen...
+party.color=Farbe
+party.points={} von {} Punkten zu verteilen
+party.premade_stats=Wie sie sind
+party.skills=Startfertigkeiten (Stufe {})
+party.items=Startausrüstung
+party.none=Keine
+party.premade=Behält eigenes Training und Ausrüstung.
+party.premade_race=Ein anderes Volk wählen, um neu zu beginnen.
+party.pools=Leben {}   Ausdauer {}   Mana {}
+party.default=Standardgruppe
+party.start=Start
+party.why.name=Mitglied {} braucht einen Namen.
+party.why.face={} braucht ein Gesicht.
+party.why.build={} lässt sich nicht erstellen: {}
+party.race.points=+{} freie Punkte
+party.race.quick=flink
+party.race.slow=langsam
+party.race.resists=widersteht {} {}%

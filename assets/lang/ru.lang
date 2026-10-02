@@ -502,10 +502,10 @@ monster.skel_berserker=скелет-берсерк
 monster.skel_spearman=скелет-копейщик
 
 ; --- character sheet / party bar -------------------------------------------------
-class.fighter=Воин
-class.rogue=Разбойница
-class.cleric=Жрица
-class.mage=Маг
+race.human=Человек
+race.elf=Эльф
+race.dwarf=Гном
+race.orc=Орк
 sheet.subtitle=Уровень {} {}
 bar.health=Здоровье
 bar.stamina=Выносливость
@@ -1369,3 +1369,31 @@ portrait.age.young=Молодой
 portrait.age.adult=Взрослый
 portrait.age.old=Старый
 sheet.portrait.change=Сменить портрет
+
+; party creation (docs/party-creation-plan.md)
+party.title=Ваш отряд
+party.new_member=Новый участник
+party.add=+ Добавить участника
+party.name=Имя
+party.name_placeholder=Введите имя
+party.race=Раса
+party.face=Лицо
+party.face_choose=Выбрать лицо...
+party.color=Цвет
+party.points=Осталось очков: {} из {}
+party.premade_stats=Как есть
+party.skills=Начальные навыки (уровень {})
+party.items=Начальные предметы
+party.none=Нет
+party.premade=Сохраняет свою подготовку и снаряжение.
+party.premade_race=Выберите другую расу, чтобы создать заново.
+party.pools=Здоровье {}   Выносливость {}   Мана {}
+party.default=Отряд по умолчанию
+party.start=Начать
+party.why.name=Участнику {} нужно имя.
+party.why.face={}: нужно лицо.
+party.why.build={}: невозможно создать: {}
+party.race.points=+{} свободных очков
+party.race.quick=быстрый
+party.race.slow=медленный
+party.race.resists=сопротивление: {} {}%

@@ -1,0 +1,223 @@
+; smallparty.eval - parties of one, three and two, in play
+; (docs/party-creation-plan.md, phase 2).
+;
+; Every other suite plays the default four. Party creation lets the player
+; build fewer, and the rules that place a member are all BY ROSTER SLOT
+; (0 front-left, 1 front-right, 2 rear-left, 3 rear-right), so a short party
+; is a formation with holes in it. This walks each hole through the rules that
+; read the formation:
+;   - melee FROM AHEAD, the party swinging back (autoattack);
+;   - melee FROM BEHIND with the party standing still, which shows the per-file
+;     blocking rule: a missing near member OPENS its file, so the member behind
+;     the hole is reachable. WHO IS HURT is the measurement:
+;       one   - Brand (no rear rank at all);
+;       three - Maren (slot 2, near in her file) and Sera (slot 1, whose rear
+;               is the hole), never Brand (Maren shields him);
+;       two   - both (no rear rank);
+;   - an archer's bolts down the quadrant lanes;
+;   - the leader's throw, and spells from either rank (autocast);
+;   - the rear-rank reach rule (slot 2 never swings at what is ahead);
+;   - a rest to recover, in a cleared room.
+;
+; Two harness facts shape the script. AUTOATTACK SWINGS BETWEEN COMMANDS (its
+; cooldowns are not dt), so it goes on only after `tally reset` and off at the
+; end of each section, or the tally misses the fight. And it TURNS TO THE
+; THREAT, so a test of who a monster can reach from behind runs without it.
+;
+; `newparty` starts a NEW GAME with the party it builds, so the harness knobs
+; (timescale, lockstep, seed) are set after it, each time. The numbers are
+; measurements, not verdicts.
+
+logecho on
+reset
+
+; ============ ONE: Brand alone (front-left, the other three slots empty) ====
+newparty premade=0
+roster
+timescale 0
+lockstep on
+seed 11
+
+heal
+arena open 9 9
+spawn skeleton 14 11 south
+tp 14 12
+face n
+tally reset
+autoattack on
+step 20
+autoattack off
+echo === SOLO: a skeleton ahead ===
+party
+monsters
+tally
+
+heal
+arena open 9 9
+spawn skeleton 14 13 north 0.5
+tp 14 12
+face n
+tally reset
+step 6
+echo === SOLO: a skeleton behind, nobody swinging ===
+party
+tally
+
+heal
+arena open 9 9
+spawn skel_archer 14 8 south 0.3
+tp 14 12
+face n
+tally reset
+step 6
+echo === SOLO: an archer ahead ===
+party
+tally
+
+heal
+arena open 9 9
+spawn skeleton 14 9 south 0.3
+tp 14 12
+face n
+give rock 0
+tally reset
+throw rock
+step 3
+echo === SOLO: a thrown rock ===
+monsters
+tally
+
+arena open 9 9
+tp 14 12
+rest until 600
+echo === SOLO: rested ===
+party
+state
+
+; ============ THREE: Brand, Sera, Maren (rear-right empty) ==================
+newparty premade=0 | premade=1 | premade=2
+roster
+timescale 0
+lockstep on
+seed 11
+
+heal
+arena open 9 9
+spawn skeleton 14 11 south
+tp 14 12
+face n
+tally reset
+autoattack on
+step 20
+autoattack off
+echo === THREE: a skeleton ahead ===
+party
+monsters
+tally
+
+; A target four squares off: the bolts land before it arrives.
+heal
+arena open 9 9
+spawn skeleton 14 8 south
+tp 14 12
+face n
+tally reset
+autocast 2 flame 0.5
+step 2
+autocast off
+echo === THREE: Maren casts from the rear rank ===
+party
+monsters
+tally
+
+heal
+arena open 9 9
+spawn skeleton 14 13 north 0.5
+tp 14 12
+face n
+tally reset
+step 6
+echo === THREE: a skeleton behind, nobody swinging ===
+party
+tally
+
+heal
+arena open 9 9
+spawn skel_archer 14 8 south 0.3
+tp 14 12
+face n
+tally reset
+step 6
+echo === THREE: an archer ahead ===
+party
+tally
+
+; No heal here: the archer's wounds are what the rest below recovers.
+arena open 9 9
+spawn skeleton 14 11 south
+tp 14 12
+face n
+tally reset
+swing 2
+echo === THREE: Maren swings from the rear rank ===
+tally
+
+arena open 9 9
+tp 14 12
+rest until 600
+echo === THREE: rested ===
+party
+state
+
+; ============ TWO: a created orc and Maren, both front ======================
+newparty name=Grak race=orc portrait=portrait010 color=60a040 points=2,0,3,0,0 skills=blunt,conditioning items=club,padded_jack | premade=2
+roster
+timescale 0
+lockstep on
+seed 11
+
+heal
+arena open 9 9
+spawn skeleton 14 11 south
+tp 14 12
+face n
+tally reset
+autoattack on
+step 20
+autoattack off
+echo === TWO: a skeleton ahead ===
+party
+monsters
+tally
+
+heal
+arena open 9 9
+spawn skeleton 14 8 south
+tp 14 12
+face n
+tally reset
+autocast 1 flame 0.5
+step 2
+autocast off
+echo === TWO: Maren casts from the front rank ===
+party
+monsters
+tally
+
+heal
+arena open 9 9
+spawn skeleton 14 13 north 0.5
+tp 14 12
+face n
+tally reset
+step 6
+echo === TWO: a skeleton behind, nobody swinging ===
+party
+tally
+
+arena open 9 9
+tp 14 12
+rest until 600
+echo === TWO: rested ===
+party
+state
