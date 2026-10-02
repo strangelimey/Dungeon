@@ -517,10 +517,11 @@ monster.skel_berserker=skeleton berserker
 monster.skel_spearman=skeleton spearman
 
 ; --- character sheet / party bar -------------------------------------------------
-class.fighter=Fighter
-class.rogue=Rogue
-class.cleric=Cleric
-class.mage=Mage
+; Races (races.cat `name`; party creation). There are no classes.
+race.human=Human
+race.elf=Elf
+race.dwarf=Dwarf
+race.orc=Orc
 sheet.subtitle=Level {} {}
 bar.health=Health
 bar.stamina=Stamina

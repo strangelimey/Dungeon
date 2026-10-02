@@ -736,6 +736,13 @@ void DungeonWorld::SpendExertion(Character& member, float points) {
 
 void DungeonWorld::SeedPartySkills() {
 	if (!m_roster) return;
+	const std::vector<std::string> ids = TrainableSkills();
+	for (Character& member : *m_roster)
+		for (const std::string& id : ids)
+			if (!member.skillXp.contains(id)) member.skillXp[id] = 0.0f;
+}
+
+std::vector<std::string> DungeonWorld::TrainableSkills() const {
 	// Built fresh rather than cached: a project reload or an editor catalog edit
 	// can add a weapon class, and this runs once per new game / load.
 	std::vector<std::string> ids;
@@ -755,12 +762,10 @@ void DungeonWorld::SeedPartySkills() {
 		if (const char* skill = ArmorSkillId(static_cast<ArmorClass>(c)); *skill)
 			ids.emplace_back(skill);
 	for (const CatalogEntry* item : m_project.AllItems())
-		if (std::string skill = CatalogGet(item, "skill", ""); !skill.empty())
+		if (std::string skill = CatalogGet(item, "skill", "");
+			!skill.empty() && std::ranges::find(ids, skill) == ids.end())
 			ids.push_back(std::move(skill));
-
-	for (Character& member : *m_roster)
-		for (const std::string& id : ids)
-			if (!member.skillXp.contains(id)) member.skillXp[id] = 0.0f;
+	return ids;
 }
 
 void DungeonWorld::RecomputePartyMaxima() {

@@ -41,6 +41,7 @@
 #include "Game/DamageLedger.h"
 #include "Game/Defense.h"
 #include "Game/Mishap.h"
+#include "Game/PartyRules.h"
 #include "Game/Power.h"
 #include "Game/Style.h"
 #include "Game/Carve.h"
@@ -2239,6 +2240,47 @@ int main(int argc, char** argv) {
 		low.density = 0.0f;
 		Check("...and density 0 places none",
 			  static_cast<double>(generate::Populate(low, W, H, walk, walk, 2, 3).report.monsters), 0.0, 0.0);
+	}
+
+	// --- party creation (Game/PartyRules.h) ---------------------------------
+	// The numbers a created member is made from. Expectations are written out
+	// by hand from the rules in docs/party-creation-plan.md, never read back
+	// from the header's constants.
+	{
+		std::printf("\nParty creation (Game/PartyRules.h)\n");
+		using namespace party;
+		const RaceStats human{{0, 0, 0, 0, 0}, 2};
+		const RaceStats elf{{-1, 2, -2, 0, 1}, 0};
+		const RaceStats orc{{3, 0, 1, -2, -2}, 0};
+		Check("a human has 7 points (5 + 2 extra)", PointBudget(human), 7, 0);
+		Check("an elf has 5", PointBudget(elf), 5, 0);
+		const StatArray none{};
+		Check("an unspent elf's DEX is 12", StatValue(elf, none, 1), 12, 0);
+		Check("an unspent elf's VIT is 8", StatValue(elf, none, 2), 8, 0);
+		const StatArray spent{0, 2, 0, 3, 0};
+		const StatArray aria = Stats(elf, spent);
+		CheckTrue("elf + 0,2,0,3,0 is 9,14,8,13,11",
+				  aria == StatArray{9, 14, 8, 13, 11});
+		CheckTrue("5 spent of an elf's 5 is valid", SpendingValid(elf, spent));
+		CheckTrue("...and no more can be spent", !CanSpend(elf, spent));
+		CheckTrue("6 spent is not valid", !SpendingValid(elf, StatArray{1, 2, 0, 3, 0}));
+		CheckTrue("a negative spend is not valid", !SpendingValid(human, StatArray{-1, 0, 0, 0, 0}));
+		CheckTrue("a human can still spend after 5", CanSpend(human, StatArray{5, 0, 0, 0, 0}));
+		CheckTrue("a spent point can come back", CanRefund(spent, 1));
+		CheckTrue("an unspent one cannot", !CanRefund(spent, 0));
+		// The floor: a race that took 9 from a stat would leave 1; it stops at 3.
+		const RaceStats harsh{{0, 0, 0, 0, -9}, 0};
+		Check("a stat never falls below 3", StatValue(harsh, none, 4), 3, 0);
+		Check("an orc's INT is 8", StatValue(orc, none, 4), 8, 0);
+		Check("a boosted skill is level 2, xp 4", kSkillBoostXp, 4.0, 0.0);
+		CheckTrue("two different skills are a valid pick",
+				  SkillPicksValid({"blade", "conditioning"}));
+		CheckTrue("the same skill twice is not", !SkillPicksValid({"blade", "blade"}));
+		CheckTrue("three skills are too many", !SkillPicksValid({"a", "b", "c"}));
+		CheckTrue("'Old Tom' is a name", NameValid("Old Tom"));
+		CheckTrue("an underscore is not (saves use it for spaces)", !NameValid("Old_Tom"));
+		CheckTrue("all spaces is not a name", !NameValid("   "));
+		CheckTrue("17 characters is too long", !NameValid("Abcdefghijklmnopq"));
 	}
 
 	// --- verdict ------------------------------------------------------------

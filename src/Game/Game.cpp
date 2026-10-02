@@ -455,6 +455,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	RegisterWorldCommands();
 	RegisterDiagnosticCommands();
 	RegisterPartyCommands();
+	RegisterPartyCreationCommands();
 	RegisterEvalCommands();
 	RegisterStyleCommands();
 	// THE TITLE SCREEN HAS NO WORLD (docs/world-on-demand.md), and most
@@ -946,13 +947,19 @@ void Game::LoadItemIcons() {
 // State transitions
 // ============================================================================
 
-void Game::ResetRoster() {
-	// Element-wise so the addresses the party-bar panels and the sheet point at
-	// stay valid. Each member returns to its DEFAULT portrait id; SyncPortraits
-	// re-points the textures, reloading only a slot whose id changed.
-	const std::vector<Character> fresh = CreateDefaultParty();
-	for (size_t i = 0; i < m_characters.size() && i < fresh.size(); ++i)
-		m_characters[i] = fresh[i];
+void Game::ResetRoster(const std::vector<Character>* party) {
+	// Element-wise when the size holds, so the storage the party-bar panels and
+	// the sheet resolve into stays put. Each member takes its portrait id from
+	// the new party; SyncPortraits re-points the textures, reloading only a slot
+	// whose id changed. A party of another SIZE (party creation) replaces the
+	// vector - the world holds a pointer to the vector, not to its members.
+	const std::vector<Character> fresh = party ? *party : CreateDefaultParty();
+	const bool resized = fresh.size() != m_characters.size();
+	if (resized) {
+		m_characters = fresh;
+	} else {
+		for (size_t i = 0; i < m_characters.size(); ++i) m_characters[i] = fresh[i];
+	}
 	SyncPortraits();
 	// CreateDefaultParty seeds the derived maxima at k=1; re-derive under the
 	// project's live balance knobs (fresh members are at full, so top them up).
@@ -972,10 +979,13 @@ void Game::ResetRoster() {
 		member.food = bal.foodMax;
 		member.water = bal.waterMax;
 	}
-	ApplyMemberColors(); // the settings palette wins over the authored defaults
+	// The default four take the Settings palette; a created party keeps the
+	// colours its members were made with (Michael: colour is the character's).
+	if (!party) ApplyMemberColors();
 	// The roster these are is not the roster the one-pipeline check was watching
 	// (Game/DamageLedger.h) — same storage, replaced contents.
 	m_world->RebaseDamageLedger();
+	if (resized) m_ui.RebuildForRoster();
 }
 
 void Game::ApplyMemberColors() {
@@ -1009,7 +1019,10 @@ bool Game::OpenInLevel(const std::string& level, int x, int z) {
 void Game::StartNewGame() {
 	m_world->ResetForNewGame();
 	ResetWorldState();
-	ResetRoster(); // fresh members carry empty inventories + no known symbols
+	// Fresh members carry empty inventories + no known symbols. The party is the
+	// one party creation made, once (consumed here), else the default four.
+	ResetRoster(m_startParty ? &*m_startParty : nullptr);
+	m_startParty.reset();
 	m_ui.RefreshSheet();
 	ApplyPartySpeed();
 
@@ -1171,6 +1184,16 @@ bool Game::SaveGame(const std::string& name) {
 		c.food = member.food;
 		c.water = member.water;
 		c.portrait = member.portraitId;
+		// Who they are (party creation).
+		c.name = member.name;
+		c.race = member.raceId;
+		c.hasColor = true;
+		c.color[0] = member.portraitColor.x;
+		c.color[1] = member.portraitColor.y;
+		c.color[2] = member.portraitColor.z;
+		c.color[3] = member.portraitColor.w;
+		c.hasPace = true;
+		c.pace = member.moveSpeed;
 		data.characters.push_back(std::move(c));
 	}
 	return WriteSave(data, SaveSlotPath(name));
@@ -1191,6 +1214,13 @@ bool Game::LoadGame(const std::string& path) {
 	// reset), then lay the save on top.
 	m_world->ResetForNewGame();
 	ResetRoster();
+	// THE PARTY'S SIZE (party creation). A save that names one cuts the default
+	// four down to it before anything is laid on top; the members' own lines then
+	// say who they are. A save without one (older than party creation) is four.
+	const bool resized = data->rosterSize >= party::kMinMembers &&
+						 data->rosterSize <= party::kMaxMembers &&
+						 data->rosterSize != m_characters.size();
+	if (resized) m_characters.resize(data->rosterSize);
 	// The global tier is stored WHOLE rather than as a diff, so it is simply
 	// taken (a fresh baseline first, so a save that predates a field gets the
 	// new-game value for it rather than the last session's).
@@ -1201,6 +1231,15 @@ bool Game::LoadGame(const std::string& path) {
 	else m_heldItem.reset();
 	for (size_t i = 0; i < m_characters.size() && i < data->characters.size(); ++i) {
 		const SaveData::CharState& c = data->characters[i];
+		// WHO THEY ARE first (party creation) - each absent in an older save,
+		// which keeps the default member's. The resists are not saved: they come
+		// back from the race.
+		if (!c.name.empty()) m_characters[i].name = c.name;
+		if (!c.race.empty()) m_characters[i].raceId = c.race;
+		if (c.hasColor)
+			m_characters[i].portraitColor = {c.color[0], c.color[1], c.color[2], c.color[3]};
+		if (c.hasPace) m_characters[i].moveSpeed = c.pace;
+		ApplyRaceResists(m_characters[i]);
 		m_characters[i].health = c.health;     m_characters[i].maxHealth = c.maxHealth;
 		m_characters[i].stamina = c.stamina;   m_characters[i].maxStamina = c.maxStamina;
 		m_characters[i].mana = c.mana;         m_characters[i].maxMana = c.maxMana;
@@ -1324,6 +1363,7 @@ bool Game::LoadGame(const std::string& path) {
 		}
 	}
 	SyncPortraits();
+	if (resized) m_ui.RebuildForRoster(); // a load runs outside the HUD's walk
 	m_world->ApplyState(*data); // fills the per-level store + party pose/torch
 	// Restored hit points are not writes to explain (Game/DamageLedger.h): the
 	// values they replaced belong to a session that is over.

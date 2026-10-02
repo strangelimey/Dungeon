@@ -438,7 +438,7 @@ Key conventions (memorize, they bite):
   itself (visible, never fatal); a missing language file falls back to
   en.lang. Dev-facing text (log::, DN_ASSERT, asset names, ini keys) stays
   English. Dynamic ids map to keys by convention: monster.<ent type>,
-  class.* (Character.classKey), facing.* (Party::FacingName returns the
+  race.* (races.cat `name`; there are NO classes), facing.* (Party::FacingName returns the
   key). Settings → Game has a Language dropdown (loc::ScanLanguages; each
   file self-names via lang.name); switching saves language=<code>, reloads
   strings, and rebuilds every page next frame (GameUI::RebuildForLanguage —
@@ -997,7 +997,43 @@ light at flame) and braziers at 'F', each with FireEffect particles
 (flame/spark/smoke via gfx::ParticleBatch premultiplied billboards) and
 fire-driven turbidity rings around them.
 
-The HUD's top bar shows the party — 1..4 members; planned party creation
+PARTY CREATION (party-creation branch, docs/party-creation-plan.md + -notes.md;
+built in phases - the page itself is phase 3). NO CLASSES (Michael): a member is
+a RACE, the points they spend and the skills they pick, then whatever they do.
+- RACES are data: each world's `races.cat` (human / elf / dwarf / orc, also in
+  the world template) - stat modifiers from 10, `extra_points`, `pace` (->
+  moveSpeed), `base_health/_stamina/_mana`, `resists` (-> Character::
+  natureResists; NOT saved, re-applied from `Character::raceId` on load by
+  Game::ApplyRaceResists) and the `portrait` tag the picker filters by. Poison
+  bites as EARTH, so the dwarf's poison resistance is `earth 0.25`.
+- THE ARITHMETIC is the pure `Game/PartyRules.h` (in RollTest): base 10, 5 free
+  points + the race's extra, a floor of 3, 2 starting skills boosted to LEVEL 2
+  (xp 4), 2 starting items, names 1-16 characters with no underscore. A member
+  as chosen is a `party::MemberSpec`; `Game::BuildMember` (Game_Party.cpp) is
+  the ONE place it becomes a Character - the page, the dev command and the eval
+  all use it. A starting item must be on the world's manifest `start_items` list
+  (low-quality existing gear; a later branch adds sword / potion / wand / ring to
+  it) and goes where it belongs: a weapon in the first empty hand, armour on its
+  `wear` slot, the rest in the pack. A skill must be one `DungeonWorld::
+  TrainableSkills` lists (what SeedPartySkills seeds). The DEFAULT FOUR stay
+  exactly as authored - every eval suite measures them - as PREMADE members
+  (`MemberSpec::premade`): only name / portrait / colour change.
+- THE START: `Game::m_startParty` is the party the next new game uses (consumed
+  by StartNewGame; empty = the default four; `ResetForEval` clears it, so a suite
+  always starts from the four). `ResetRoster(party)` replaces the vector when the
+  SIZE differs and calls RebuildForRoster at once (every caller runs outside the
+  HUD's widget walk); only the default four take the Settings palette's colours.
+- SAVE: `roster <n>` plus per-member `name` (spaces as underscores), `race`,
+  `color`, `pace`. A save without them is the default four, so no version bump.
+  LoadGame cuts the default four down to `roster` before laying the save on top.
+- Dev: `newparty default | <member> [| <member> ...]` (key=value words: name=
+  race= portrait= color=rrggbb points=s,d,v,w,i skills=a,b items=a,b premade=n;
+  the `|` is its own word) starts a new game with that party; `roster` prints
+  what each member was made from. Checked by `tools/EvalScripts/
+  partycreation.eval` (a created 2-member party survives save -> reset -> load)
+  and RollTest's "Party creation" section.
+
+The HUD's top bar shows the party — 1..4 members; party creation
 lets the player build fewer than 4, and the bar always reserves four slots
 so a short roster keeps its slot size (Character.h roster, widgets in
 PartyHud.h: portrait, name, health/stamina/mana bars); clicking a portrait

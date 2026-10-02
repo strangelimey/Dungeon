@@ -501,10 +501,10 @@ monster.skel_berserker=скелет-берсерк
 monster.skel_spearman=скелет-копейщик
 
 ; --- character sheet / party bar -------------------------------------------------
-class.fighter=Воин
-class.rogue=Разбойница
-class.cleric=Жрица
-class.mage=Маг
+race.human=Человек
+race.elf=Эльф
+race.dwarf=Гном
+race.orc=Орк
 sheet.subtitle=Уровень {} {}
 bar.health=Здоровье
 bar.stamina=Выносливость

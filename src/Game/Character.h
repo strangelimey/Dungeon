@@ -70,6 +70,10 @@ inline constexpr int kStatCount = 5;
 
 struct Character {
 	std::string name; // proper noun — not localized
+	// The member's people: a races.cat id (party creation). Applied once, when
+	// the member is made (stats, bases, pace, natureResists); kept so a load can
+	// re-apply the resists, which are not saved, and so the sheet can say it.
+	std::string raceId;
 
 	// Resources. The maxima are DERIVED (docs/combat.md "The resource
 	// formula"): max = base + k × statAvg, recomputed by RecomputeMaxima

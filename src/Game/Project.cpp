@@ -66,6 +66,10 @@ const CatalogSlot kCatalogs[] = {
 	 "it here repaints every cell that uses it."},
 	{"wallfeatures.cat", &Project::wallfeatures, "Wall features: recessed niches carved into a wall panel."},
 	{"surfacefeatures.cat", &Project::surfacefeatures, "Surface features: a tile stamped in place of a cell's floor or ceiling block (the wall-niche idea, laid flat). `surface` picks which."},
+	{"races.cat", &Project::races,
+	 "Races: a party member's people - stat modifiers, extra points, pace, resource "
+	 "bases, nature resists and the portrait tag (docs/party-creation-plan.md, "
+	 "Game/PartyRules.h)."},
 	{"imports.cat", &Project::imports,
 	 "Imported assets: where each editor-imported texture set / model came from, "
 	 "so tools/ReplayImports.ps1 can rebuild it (the baked files are gitignored)."},
@@ -146,6 +150,10 @@ Project Project::Load(const std::string& folder) {
 			p.startX = std::atoi(b.Get("start_x", "-1").c_str());
 			p.startZ = std::atoi(b.Get("start_z", "-1").c_str());
 			p.evalLevel = b.Get("eval_level", "");
+			// Comma- or space-separated; either reads.
+			std::string items = b.Get("start_items", "");
+			std::ranges::replace(items, ',', ' ');
+			p.startItems = SplitWords(items);
 		}
 	} else {
 		log::Warn("project has no project.ini: {}", folder);

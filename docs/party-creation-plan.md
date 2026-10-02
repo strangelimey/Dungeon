@@ -70,6 +70,23 @@ four through Default party, and starts. No classes: a character is what they do.
   load with its names, races, colours, stats, skills and items; a RollTest case
   for the spec -> character rules (points, floors, race bonuses, skill levels).
 
+DONE (2026-10-02). What it came to:
+- The dev commands are `newparty default | <member> | <member> ...` (key=value
+  words) and `roster` - `party` already existed (the pools, read by scripts),
+  so it was left alone. The save's size line is `roster <n>`: `party` is the
+  party's position line.
+- Poison deals EARTH damage (effects.cat), so the dwarf resists `earth 0.25`.
+- Race bases are first cuts: human 20/23/13, elf 18/22/16, dwarf 23/24/10,
+  orc 24/25/8 (health/stamina/mana); paces 1.0 / 1.1 / 0.9 / 1.0.
+- `DungeonWorld::TrainableSkills` lifted out of SeedPartySkills (now
+  de-duplicated) is what a starting-skill pick is checked against.
+- A premade member given no name / colour keeps its own (`MemberSpec::colorSet`).
+- Checked: partycreation.eval PASS (Aria the elf 9,14,8,13,11 and Old Tom the
+  dwarf 13,9,15,10,9, dagger in hand + apple in pack / jack worn + club in hand,
+  identical after save -> reset -> load); RollTest 343 checks PASS (22 new);
+  CheckAll quick tier PASS; all ten eval suites PASS (the default four
+  unchanged).
+
 ## Phase 2 - parties of one to four, in play
 
 - Walk every 4-assumption: threat per member (sized to the roster), the quadrant

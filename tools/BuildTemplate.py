@@ -50,6 +50,9 @@ MANIFEST = (
     "name = New World\r\n"
     "default_sconce = sconce\r\n"
     "default_brazier = brazier\r\n"
+    "\r\n"
+    "; What a new party member may pick as their two starting items (party creation).\r\n"
+    "start_items = dagger, club, padded_jack, tunic, rock, apple, bread, waterskin\r\n"
 )
 
 

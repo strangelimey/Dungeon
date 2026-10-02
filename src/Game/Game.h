@@ -43,6 +43,7 @@
 #include "Game/AssetDialog.h"
 #include "Game/AssetPicker.h"
 #include "Game/Character.h"
+#include "Game/PartyRules.h"
 #include "Game/DevConsole.h"
 #include "Game/DungeonWorld.h"
 #include "Game/GameSettings.h"
@@ -750,7 +751,28 @@ private:
 	// but a size change must still call GameUI::RebuildForRoster (deferred, not
 	// from a widget callback) to re-lay-out the per-member widgets. Shared by
 	// StartNewGame and LoadGame.
-	void ResetRoster();
+	// `party` is the party to start with (a CREATED one, docs/party-creation-
+	// plan.md); null = the default four. A different SIZE replaces the vector and
+	// re-lays-out the HUD (RebuildForRoster - safe here: every caller runs outside
+	// the HUD's widget walk). Only the default four take the Settings palette's
+	// colours; a created member keeps the one it was given.
+	void ResetRoster(const std::vector<Character>* party = nullptr);
+
+	// --- party creation (Game_Party.cpp) ------------------------------------
+	// One member from a spec: race (stats from PartyRules + the race's bases,
+	// pace and resists), points, portrait, colour, boosted skills, starting items
+	// placed where they go. Empty optional + `why` when the spec is refused.
+	std::optional<Character> BuildMember(const party::MemberSpec& spec, std::string& why) const;
+	// A whole party (1..4 members); false + `why` on the first refusal.
+	bool BuildParty(const std::vector<party::MemberSpec>& specs, std::vector<Character>& out,
+					std::string& why) const;
+	// natureResists from the member's race (they are not saved, so a load
+	// re-derives them; a premade or unknown race has none).
+	void ApplyRaceResists(Character& member) const;
+	// The party the NEXT new game starts with, set by party creation or the
+	// `newparty` command and consumed by StartNewGame; empty = the default four.
+	std::optional<std::vector<Character>> m_startParty;
+	void RegisterPartyCreationCommands(); // newparty / roster (Game_Party.cpp)
 	// Captures the live world + roster to a named slot under SaveDir. Requires
 	// the dungeon to be loaded (m_gameLoaded); no-op otherwise.
 	// False when nothing was written — no game loaded, inside a random

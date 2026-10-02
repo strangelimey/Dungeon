@@ -497,10 +497,10 @@ monster.skel_berserker=lo scheletro berserker
 monster.skel_spearman=lo scheletro lanciere
 
 ; --- character sheet / party bar -------------------------------------------------
-class.fighter=Guerriero
-class.rogue=Ladra
-class.cleric=Chierica
-class.mage=Mago
+race.human=Umano
+race.elf=Elfo
+race.dwarf=Nano
+race.orc=Orco
 sheet.subtitle=Livello {} {}
 bar.health=Salute
 bar.stamina=Vigore

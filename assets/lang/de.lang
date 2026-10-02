@@ -497,10 +497,10 @@ monster.skel_berserker=Der Skelettberserker
 monster.skel_spearman=Der Skelettspeerträger
 
 ; --- character sheet / party bar -------------------------------------------------
-class.fighter=Krieger
-class.rogue=Schurkin
-class.cleric=Klerikerin
-class.mage=Magier
+race.human=Mensch
+race.elf=Elf
+race.dwarf=Zwerg
+race.orc=Ork
 sheet.subtitle=Stufe {} {}
 bar.health=Leben
 bar.stamina=Ausdauer
