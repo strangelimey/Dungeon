@@ -719,6 +719,22 @@ void GameUI::BuildSettings() {
 			m_settings.Save();
 		});
 
+	// UI → Resource bars: the fills' brightness and saturation. Read live each
+	// frame (TickResourceBars hands them to the sprite batch), so dragging
+	// needs no apply step; persisted on release.
+	uf->Space(ui::Len::Fixed(kSetGroup));
+	uf->Row<ui::Label>(ui::Len::Fixed(kSetLabel), loc::Tr("settings.resource_bars"));
+	auto* barBright = uf->Row<ui::Slider>(
+		ui::Len::Fixed(kSetSlider),
+		loc::Tr("settings.bar_brightness"), 0.3f, 1.0f, m_settings.barBrightness,
+		[this](float v) { m_settings.barBrightness = v; });
+	barBright->onRelease = [this] { m_settings.Save(); };
+	auto* barSat = uf->Row<ui::Slider>(
+		ui::Len::Fixed(kSetSlider),
+		loc::Tr("settings.bar_saturation"), 0.0f, 1.0f, m_settings.barSaturation,
+		[this](float v) { m_settings.barSaturation = v; });
+	barSat->onRelease = [this] { m_settings.Save(); };
+
 	// UI → HUD panels: every floating panel's scale and background opacity
 	// (kHudPanelFields), above them the layout lock and the reset. The panels
 	// read their HudPanelLook live, so a slider needs no apply step; scale is
@@ -1930,6 +1946,7 @@ void GameUI::TickResourceBars(float dt, bool noticed) {
 	// the fills jump once at the wrap, which nobody watching a bar will catch.
 	m_barStyle.clock = std::fmod(m_barStyle.clock + dt, 3600.0f);
 	m_spriteBatch.SetTime(m_barStyle.clock);
+	m_spriteBatch.SetBarLook(m_settings.barBrightness, m_settings.barSaturation);
 	for (size_t i = 0; i < ResourceBarStyle::kMaxMembers; ++i) {
 		const Character* c = RosterMember(&m_characters, i);
 		const float target = !c ? 0.0f

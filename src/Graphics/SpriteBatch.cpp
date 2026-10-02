@@ -19,7 +19,7 @@ SpriteBatch::SpriteBatch(GraphicsDevice& device) : m_device(device) {
 	D3D12_ROOT_PARAMETER params[2]{};
 	params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
 	params[0].Constants.ShaderRegister = 0;
-	params[0].Constants.Num32BitValues = 4;
+	params[0].Constants.Num32BitValues = 8; // ScreenConstants: two float4s (see Begin)
 	params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 	params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
 	params[1].DescriptorTable.NumDescriptorRanges = 1;
@@ -155,9 +155,16 @@ void SpriteBatch::Begin(ID3D12GraphicsCommandList* list, u32 screenWidth,
 	list->SetGraphicsRootSignature(m_rootSignature.Get());
 	list->SetPipelineState(m_pso.Get());
 	list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-	const float constants[4] = {static_cast<float>(screenWidth),
-								static_cast<float>(screenHeight), m_time, 0.0f};
-	list->SetGraphicsRoot32BitConstants(0, 4, constants, 0);
+	// The second float4 is bar.hlsl's look (sprite.hlsl declares only the first).
+	const float constants[8] = {static_cast<float>(screenWidth),
+								static_cast<float>(screenHeight),
+								m_time,
+								0.0f,
+								m_barBrightness,
+								m_barSaturation,
+								0.0f,
+								0.0f};
+	list->SetGraphicsRoot32BitConstants(0, 8, constants, 0);
 }
 
 void SpriteBatch::UseMode(Mode mode) {

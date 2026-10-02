@@ -96,6 +96,13 @@ public:
 	// The same clock, for a CPU-drawn pulse that should keep the bars' time
 	// (the Magic window's glowing runes).
 	float Time() const { return m_time; }
+	// The bar fills' overall look, set once a frame before Begin (the user's
+	// Settings -> UI sliders): brightness scales the whole tube, saturation
+	// pulls its colour toward its own grey (1 = untouched).
+	void SetBarLook(float brightness, float saturation) {
+		m_barBrightness = brightness;
+		m_barSaturation = saturation;
+	}
 
 	// One glyph of OUTLINED text (ui::Font::Draw is the only caller). `dst` and
 	// `uv` are the glyph's box GROWN by `radius` px on every side, so the ring
@@ -158,6 +165,8 @@ private:
 	u32 m_screenWidth = 1;
 	u32 m_screenHeight = 1;
 	float m_time = 0.0f;
+	float m_barBrightness = 1.0f;
+	float m_barSaturation = 1.0f;
 	Vec4 m_textOutline{0, 0, 0, 0};
 	Mode m_mode = Mode::Sprite;
 	std::vector<SpriteVertex> m_pending;

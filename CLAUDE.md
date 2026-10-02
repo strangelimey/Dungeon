@@ -1834,6 +1834,12 @@ too) are an iron FRAME around a PROCEDURAL, ANIMATED, EMISSIVE fill.
 - `ResourceBarStyle` (PartyHudTypes.h, owned by GameUI) replaced the user
   `ResourceBarColors` + `kBarFields` + the Settings > UI picker grid. uiskin=0
   keeps the flat `DrawStatBar` look. The skill XP bars stay flat on purpose.
+- BRIGHTNESS / SATURATION are USER SETTINGS, not shader constants (Settings ->
+  UI "Resource Bars"; settings.ini bar_brightness= default 0.7, bar_saturation=
+  default 1 - Michael picked both from side-by-sides, 1.0 brightness read
+  cartoonish). They ride the sprite root constants' SECOND float4
+  (`SpriteBatch::SetBarLook`, refreshed each frame in TickResourceBars);
+  sprite.hlsl declares only the first, so the root signature carries 8 values.
 - Dev: `hudbars [status]` (bpm per member, noticed), `hudbars demo on|off`
   (sweeps every bar), `hudbars rate <bpm|auto>`. Checked: AllocTest (default +
   -Sheet) PASS; `uioverlap hud` clean (it sees widgets; the bars are direct draws).
