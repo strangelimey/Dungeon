@@ -82,6 +82,7 @@ Scouted candidates (prices as seen 2026-06-22, not bought):
 |---|---|---|---|---|---|---|
 | 2026-07-12 | UI Medieval RPG (+180 Medieval Fantasy RPG UI Kit, Gothic & Gold 4K) | Vill8tion | $2.70 | itch standard (commercial ok) | PNG (3072², AI-4x upscale, black bg — keyed at cut) | skin_button (slot #17) + skin_slot (slot #12) — done; bar_frame (Life Status Bars #1, the resource bars' iron frame, tools/CutBarFrame.py) - done 2026-09-30; 170+ unused variants archived (buttons/frames/bars) |
 | 2026-07-12 | Assets: UI Medieval Interface | Wenrexa | $3.99 | itch standard (commercial ok) | PNG + PSD + vector | archived (ui\wenrexa-medieval-interface) — panel candidates flatter than the current stone skin; unused so far |
+| 2026-10-01 | [Fantasy Character Portraits Pack](https://magory.itch.io/fantasy-portraits) | Magory (Tomasz Kucza) | $7.99 | any free or commercial project (readme); no NFT use, no reselling as a pack (store page). AI-assisted (Midjourney, retouched) | PNG (4 zips, ~1.5 GB): 2104 portraits + 355 bonus, each square (256/128/64/32) and tall (256x360 down), each plain + 3 dithered palettes (Endesga 32, AAP-64, Duel) | archived (ui\magory-fantasy-portraits); party portrait candidates, picks pending |
 
 ### Fonts
 All **free**, all **SIL Open Font License 1.1**, all from the
@@ -134,14 +135,15 @@ One-off or recurring software bought for the project.
 
 ---
 
-## Totals (as of 2026-07-11)
+## Totals (as of 2026-10-01)
 - **Asset purchases:** textures.com **$39.00** (5,000-credit bundle; 3,425 left,
   ~$26.71 prepaid headroom); fab.com **$87.43 charged** (all five orders, tax
   incl.: Fantasy Assassin $2.18 + skeleton $7.65 + crawlers $16.39 + Skeleton
   Army Kit $21.87 + fixtures/torches $39.34; the CC-BY freebies cost $0);
-  itch.io **$6.69** (Medieval RPG UI kit $2.70 + Wenrexa UI $3.99); other $0.
+  itch.io **$14.68** (Medieval RPG UI kit $2.70 + Wenrexa UI $3.99 + Magory
+  portraits $7.99); other $0.
 - **AI / API:** not yet recorded.
 - **Dev tools / licenses:** $0 (all free so far).
-- **Cash out of pocket so far:** **$133.12** ($39.00 textures.com + $87.43
-  fab.com + $6.69 itch.io; fab amounts are actual charges from the Epic
+- **Cash out of pocket so far:** **$141.11** ($39.00 textures.com + $87.43
+  fab.com + $14.68 itch.io; fab amounts are actual charges from the Epic
   purchases page).
