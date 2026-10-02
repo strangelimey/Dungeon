@@ -145,6 +145,9 @@ struct ProjectileSpec {
 	// engine - the host's item kind, which it lands when the flight ends and
 	// draws as itself (no billboard). Null = a bolt.
 	const void* cargo = nullptr;
+	// The thrown item's own charge (a torch's seconds left, -1 = none), so it
+	// lands with what it left with.
+	float cargoCharge = -1.0f;
 };
 
 // Everything the owner needs to resolve one impact: where it landed, the strike
@@ -161,6 +164,7 @@ struct ProjectileImpact {
 	u32 shooter = 0;   // monster runtimeId, 0 = not a monster shot
 	ProjectilePayload payload{};
 	const void* cargo = nullptr; // a thrown item (see ProjectileSpec)
+	float cargoCharge = -1.0f;   // ...and its charge
 };
 
 // An item's flight ended without striking anything. Everything the owner needs
@@ -181,6 +185,7 @@ struct ProjectileExpiry {
 	int attacker = -1; // party roster index, -1 = not a party shot
 	u32 shooter = 0;   // monster runtimeId, 0 = not a monster shot
 	const void* cargo = nullptr; // a thrown item: the host lands it here
+	float cargoCharge = -1.0f;   // ...with this charge
 };
 
 // A read-only snapshot of one live item, for the editor's map marker + inspect
@@ -318,6 +323,7 @@ private:
 		u32 shooter = 0;        // monster runtimeId (threat; see ProjectileSpec)
 		ProjectilePayload payload{}; // delivered on a hit, or on expiry
 		const void* cargo = nullptr; // a thrown item (ProjectileSpec::cargo)
+		float cargoCharge = -1.0f;
 		float age = 0.0f;            // seconds in flight (a thrown item tumbles by it)
 	};
 	// A short-lived impact/fizzle spark (a burst of these sells a hit). Flies out,

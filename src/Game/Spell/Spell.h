@@ -52,6 +52,8 @@ struct FireAhead {
 	// False for a kind that can never hold a flame (fixtures.cat `flame = 0`,
 	// the empty brazier): a puff of flame finds nothing to catch.
 	bool canBurn = false;
+	// A wall torch whose torch was taken: only the bare bracket is there.
+	bool empty = false;
 };
 
 // What a Cast() may DO beyond touching the caster — wired by the host once

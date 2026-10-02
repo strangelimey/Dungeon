@@ -312,7 +312,7 @@ public:
 	std::function<void(size_t, size_t, std::string_view)> onHandAttack;
 	// A hand's `throw` use (member, the item id): true = it was thrown and the
 	// hand empties; false = not now (down, or still recovering), it stays.
-	std::function<bool(size_t, const std::string&)> onHandThrow;
+	std::function<bool(size_t, const std::string&, float charge)> onHandThrow;
 	// The hand right-click menu's command list for an item id (ItemKind::commands),
 	// wired by Game to the world's item kinds — keeps the command source single.
 	// By REFERENCE: a copy per hand click was a steady-state allocation. The
@@ -337,6 +337,9 @@ public:
 	// Returns what it actually RESTORED, so the caller can refuse the action
 	// (and keep the item) when it would do nothing.
 	std::function<resource::Refill(size_t, const std::string&)> onConsume;
+	// What consuming this item LEAVES in its place (items.cat `drink_as`: a
+	// waterskin steps down a fill level); empty = it is used up.
+	std::function<std::string_view(const std::string&)> consumeLeaves;
 	// The item details dialog's two questions of the world (wired to
 	// DungeonWorld::ItemDetailsFor / ItemPreviewForType): what to say about an
 	// item type (false = no such type), and its 3D preview into a buffer

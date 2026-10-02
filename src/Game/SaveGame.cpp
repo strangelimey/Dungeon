@@ -294,9 +294,13 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 			case EntityKind::Item:
 				if (e.id >= 0) // baseline rune lifted off the floor: a one-bit diff
 					t += std::format("item {}\n", e.id);
-				else // dropped tablet (no baseline): cell + slot, + niche wall (v21)
+				else if (e.charge < 0.0f) // dropped item (no baseline): cell + slot,
+										 // + niche wall (v21)
 					t += std::format("drop {} {} {} {} {}\n", e.type, e.x, e.z, e.slot,
 									 e.niche);
+				else // ...and its own charge, when it has one (a torch's seconds)
+					t += std::format("drop {} {} {} {} {} {:.1f}\n", e.type, e.x, e.z,
+									 e.slot, e.niche, e.charge);
 				break;
 			case EntityKind::Button: // baseline button toggle, keyed by id
 				t += std::format("button {} {}\n", e.id, e.activated ? 1 : 0);
@@ -315,7 +319,8 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 			t += std::format("broken {} {} {} {}\n", b.x, b.z, b.type, b.wall);
 		// Fires lit or put out in play (burning != authored lit).
 		for (const SaveData::FireBurning& f : lvl.fires)
-			t += std::format("fire {} {} {} {}\n", f.x, f.z, f.wall, f.burning ? 1 : 0);
+			t += std::format("fire {} {} {} {} {}\n", f.x, f.z, f.wall, f.burning ? 1 : 0,
+							 f.empty ? 1 : 0);
 		if (!lvl.seen.empty()) {
 			t += "seen";
 			for (const auto& [x, z] : lvl.seen) t += std::format(" {},{}", x, z);
@@ -611,6 +616,7 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			e.z = IntOf(tok[3]);
 			if (tok.size() >= 5) e.slot = IntOf(tok[4]);  // older saves omit it
 			if (tok.size() >= 6) e.niche = IntOf(tok[5]); // v21: wall niche it fell into
+			if (tok.size() >= 7) e.charge = FloatOf(tok[6]); // its charge, if it has one
 			currentBlock().entities.push_back(e);
 		} else if (kw == "button" && tok.size() >= 3) {
 			// Baseline button toggle (v7 diff): id activated.
@@ -652,6 +658,7 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			f.z = IntOf(tok[2]);
 			f.wall = IntOf(tok[3]);
 			f.burning = IntOf(tok[4]) != 0;
+			if (tok.size() >= 6) f.empty = IntOf(tok[5]) != 0; // its torch was taken
 			currentBlock().fires.push_back(f);
 		} else if (kw == "seen") {
 			SaveData::LevelState& lvl = currentBlock();

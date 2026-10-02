@@ -14,6 +14,10 @@
 #   * --height M normalizes scale/ground/center IN Blender (used by the rigged
 #     path; the static-prop path leaves geometry raw and lets import-model
 #     normalize)
+#   * --bind-textures DIR wires each material to the loose PBR maps under DIR
+#     whose file names start with the material's own prefix (Torch_02_mat ->
+#     Torch_02_Base_color.jpg, _Normal, _Roughness, _Metallic), for a pack whose
+#     fbx does not reference its own textures - so the .glb embeds them
 #
 # Usage (invoked by tools/FetchModels.ps1, but runnable by hand):
 #   blender --background --factory-startup --python tools/ConvertMesh.py -- \
@@ -69,7 +73,67 @@ def parse_args():
         opts["max_tex"] = int(argv[argv.index("--max-tex") + 1])
     if "--dump-images" in argv:
         opts["dump_images"] = os.path.abspath(argv[argv.index("--dump-images") + 1])
+    opts["bind_textures"] = ""
+    if "--bind-textures" in argv:
+        opts["bind_textures"] = os.path.abspath(argv[argv.index("--bind-textures") + 1])
     return opts
+
+
+# Map-name tokens -> the Principled input they feed (first match wins). Kept to
+# the four the glTF exporter carries; an AO map rides nowhere it can reach.
+BIND_MAPS = [
+    ("base_color", "Base Color"), ("basecolor", "Base Color"), ("albedo", "Base Color"),
+    ("diffuse", "Base Color"),
+    ("normal", "Normal"),
+    ("roughness", "Roughness"),
+    ("metallic", "Metallic"), ("metalness", "Metallic"),
+]
+
+
+def bind_textures(root):
+    """Wire every material whose name begins 'X_mat'/'X' to the maps named X_*."""
+    files = []
+    for d, _, names in os.walk(root):
+        for n in names:
+            if n.lower().endswith((".png", ".jpg", ".jpeg", ".tga")):
+                files.append(os.path.join(d, n))
+    bound = 0
+    for mat in bpy.data.materials:
+        prefix = re.sub(r"_?mat(erial)?$", "", mat.name, flags=re.I).lower()
+        if not prefix:
+            continue
+        mine = [f for f in files if os.path.basename(f).lower().startswith(prefix + "_")]
+        if not mine:
+            continue
+        mat.use_nodes = True
+        nt = mat.node_tree
+        bsdf = next((n for n in nt.nodes if n.type == "BSDF_PRINCIPLED"), None)
+        if bsdf is None:
+            bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
+            out = next((n for n in nt.nodes if n.type == "OUTPUT_MATERIAL"), None) \
+                or nt.nodes.new("ShaderNodeOutputMaterial")
+            nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
+        for f in mine:
+            stem = os.path.splitext(os.path.basename(f))[0].lower()[len(prefix) + 1:]
+            target = next((inp for tok, inp in BIND_MAPS if tok in stem), None)
+            if not target:
+                continue
+            tex = nt.nodes.new("ShaderNodeTexImage")
+            tex.image = bpy.data.images.load(f)
+            if target == "Base Color":
+                nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+            else:
+                tex.image.colorspace_settings.name = "Non-Color"
+                if target == "Normal":
+                    nm = nt.nodes.new("ShaderNodeNormalMap")
+                    nt.links.new(tex.outputs["Color"], nm.inputs["Color"])
+                    nt.links.new(nm.outputs["Normal"], bsdf.inputs["Normal"])
+                else:
+                    nt.links.new(tex.outputs["Color"], bsdf.inputs[target])
+            bound += 1
+        print(f"ConvertMesh: bound {mat.name} to {len(mine)} maps under {prefix}_*")
+    if bound == 0:
+        raise SystemExit(f"ConvertMesh: --bind-textures found no maps for any material in {root}")
 
 
 def fresh_scene():
@@ -387,6 +451,9 @@ def main():
             bake_rig(opts["height"], opts["fit"])
         else:
             normalize(opts["height"], False, opts["fit"])
+
+    if opts["bind_textures"]:
+        bind_textures(opts["bind_textures"])
 
     if opts["max_tex"] > 0:
         downscale_images(opts["max_tex"])

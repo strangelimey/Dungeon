@@ -193,8 +193,8 @@ void Game::WireModuleCallbacks() {
 	m_ui.onHandAttack = [this](size_t member, size_t hand, std::string_view verb) {
 		m_world->PartyAttack(member, hand, verb);
 	};
-	m_ui.onHandThrow = [this](size_t member, const std::string& item) {
-		return m_world->ThrowItem(item, static_cast<int>(member));
+	m_ui.onHandThrow = [this](size_t member, const std::string& item, float charge) {
+		return m_world->ThrowItem(item, static_cast<int>(member), charge);
 	};
 	// The hand right-click menu reads an item's commands from the world's item
 	// kinds (single source — ItemKindFor parses category/command + rune defaults).
@@ -223,6 +223,9 @@ void Game::WireModuleCallbacks() {
 	m_ui.onConsume = [this](size_t member, const std::string& id) {
 		if (member >= m_characters.size()) return resource::Refill{};
 		return m_world->ConsumeItem(m_characters[member], id);
+	};
+	m_ui.consumeLeaves = [this](const std::string& id) -> std::string_view {
+		return m_world ? m_world->ConsumeLeaves(id) : std::string_view{};
 	};
 	// The item details dialog's two questions (docs/ui-updates-plan.md P3).
 	m_ui.itemDetails = [this](const std::string& id, ItemDetails& out) {

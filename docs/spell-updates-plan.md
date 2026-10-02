@@ -87,6 +87,31 @@ that names it.
   Drinking steps it down a level instead of deleting it (ConsumeItem returns
   the container). Splash steps an empty or half one up one level.
 
+### Phase 4 - as built (2026-10-01)
+
+- PER-ITEM CHARGE (answered): ItemSlot / HeldItem / floor Item carry a
+  `charge` (kNoCharge = none / untouched) through every swap, pick, drop, throw
+  (ProjectileSpec::cargoCharge) and save (`id#charge` tokens; a drop's 6th
+  field), so a half-burnt torch is half-burnt wherever it goes.
+- TORCH TIERS (answered): crude (pack #2) 10 min, common (#1) 15, fine (#5) 25;
+  each an unlit + a lit item (`lit_as` / `unlit_as`), `burn_time`, and
+  `spent_as = torch_stub` (answered: a stub, not nothing). Models imported by
+  FetchModels with the new ConvertMesh `--bind-textures`.
+- The LIGHT is every lit torch held (hands + cursor), at its member's side of
+  the eye, dimming over its last tenth (DungeonWorld_Light.cpp). Sera starts
+  with a lit common torch in her free right hand.
+- Out: stowed in a pack (per-frame pass) or anything placed on the floor
+  (PlaceDrop). A torch on the CURSOR still burns and lights.
+- WALL TORCHES: a click ON one from its square takes it (lit if it burned) into
+  the leader's free hand, else onto the cursor; the bare bracket stays
+  (`empty_model = wall_torch_bracket`, tools/BuildWallTorchBracket.py, fitted
+  to wall_torch.gltf exactly). A torch clicked onto an empty bracket mounts,
+  lit or not. Saved (`fire ... empty`).
+- WATERSKIN: full / half / empty, 25 water a drink, `drink_as` steps it down.
+- Known, for the balance pass / play-test: resting runs the world at 60x, so a
+  held torch burns 60x as fast while resting; a mounted torch loses its charge
+  (taking it back gives a full one); the stub wears the crude torch's model.
+
 ## Phase 5 - The four hand spells (notes 1-5)
 
 Each loses BoltSpell and gets its own `Cast()`. Thresholds are spells.cat

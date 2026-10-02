@@ -12,6 +12,11 @@ mount = wall
 flame_height = 0.68
 flame_scale = 0.55
 flame_out = 0.064
+; Its torch can be TAKEN (a click on it from its square): the bare bracket
+; stays (tools/BuildWallTorchBracket.py) and the torch - lit if it burned -
+; goes to the leader's hand. Any torch clicked back onto the bracket mounts.
+empty_model = wall_torch_bracket
+torch_item = torch
 ; A torch in an iron bracket: knock it off the wall and the room goes dark. Cheap
 ; to break, and it does not care about fire — it is already alight (`fire 1.0` is
 ; immunity). NOT every fixture opts in: [brazier_empty] below authors none of this

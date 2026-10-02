@@ -419,6 +419,63 @@ void Game::RegisterPartyCommands() {
 						   m_console.Print(ok ? "cast away" : "no cast (fizzle / no mana / unknown)");
 					   });
 
+	// The party's LIGHT (DungeonWorld_Light.cpp): every held item with a charge,
+	// how much is left, and the wall torch the party faces - taken off its
+	// bracket or mounted back with no click.
+	m_console.Register({.name = "torch",
+						.group = CmdGroup::Party,
+						.params = "\nstatus\ntake\nmount [item]\ncharge <member> <hand> <seconds>",
+						.summary = "the held torches' charge; take / mount the wall torch ahead"},
+					   [this](const std::vector<std::string>& args) {
+						   const std::string what = args.empty() ? "status" : args[0];
+						   int x = 0, z = 0, wall = -1;
+						   if (what == "take" || what == "mount") {
+							   if (!m_world->FireAheadCell(x, z, wall) || wall < 0) {
+								   m_console.Refuse("no wall torch ahead");
+								   return;
+							   }
+							   bool ok = false;
+							   if (what == "take") {
+								   ok = m_world->TakeTorchAt(x, z, wall, m_heldItem);
+							   } else if (args.size() >= 2) { // a named torch, from nowhere
+								   ok = m_world->MountTorchAt(x, z, wall, args[1]);
+							   } else if (m_heldItem && m_world->MountTorchAt(x, z, wall, *m_heldItem)) {
+								   m_heldItem.reset(); // the cursor's torch goes in
+								   ok = true;
+							   }
+							   m_console.Print(std::format("torch {}: {}", what, ok ? "done" : "refused"));
+							   return;
+						   }
+						   if (what == "charge" && args.size() >= 4) {
+							   const size_t m = static_cast<size_t>(std::atoi(args[1].c_str()));
+							   const int hand = std::atoi(args[2].c_str());
+							   if (m >= m_characters.size() || hand < 0 || hand > 1) {
+								   m_console.Refuse("no such member or hand");
+								   return;
+							   }
+							   m_characters[m].inventory.Hand(hand).charge =
+								   static_cast<float>(std::atof(args[3].c_str()));
+							   m_console.Print("torch charge set");
+							   return;
+						   }
+						   for (size_t m = 0; m < m_characters.size(); ++m)
+							   for (int h = 0; h < 2; ++h) {
+								   const ItemSlot& s = m_characters[m].inventory.Hand(h);
+								   if (s.Empty()) continue;
+								   m_console.Print(std::format("  [{}] {} hand {}: {} charge {:.1f}", m,
+															   m_characters[m].name, h, s.typeId, s.charge));
+							   }
+						   if (m_heldItem)
+							   m_console.Print(std::format("  cursor: {} charge {:.1f}", *m_heldItem,
+														   m_heldItem.Charge()));
+						   const FireAhead f = m_world->FireAheadOfParty();
+						   m_console.Print(std::format("  wall torch ahead: {}",
+													   f.kind != FireAhead::Kind::WallTorch ? "none"
+													   : f.empty                            ? "empty bracket"
+													   : f.lit                              ? "burning"
+																							: "out"));
+					   });
+
 	// The cast services one at a time, with no spell in between: what a spell
 	// would see ahead of the party and what each world hook does to it, so a
 	// hand spell's outcome can be pinned on the spell or on the world.

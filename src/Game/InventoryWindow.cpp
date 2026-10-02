@@ -100,7 +100,7 @@ void InventoryWindow::UpdateSelf(ui::UIContext& ctx) {
 				// Pick, put or swap: one exchange (HeldItem - no allocation).
 				ItemSlot& s = pack[static_cast<size_t>(i)];
 				if (m_held && (m_held->has_value() || !s.Empty()))
-					m_held->SwapWith(s.typeId);
+					m_held->SwapWith(s);
 				ctx.ConsumeMouse();
 				return;
 			}

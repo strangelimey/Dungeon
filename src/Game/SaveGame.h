@@ -191,6 +191,7 @@ struct SaveData {
 		int slot = 0;                           // sub-cell slot: item quarter (0..3)
 												// or monster slot on its size's grid
 		int niche = -1;                         // item: wall niche it sits in (-1 = floor)
+		float charge = -1.0f;                   // item: its own charge (a torch's seconds left)
 		bool activated = false;                 // button: pressed / toggled on
 		std::array<float, 4> threat{};          // monster: per-member aggro
 		int threatLock = -1;                    // monster: locked member
@@ -239,6 +240,7 @@ struct SaveData {
 		int x = 0, z = 0;
 		int wall = -1;
 		bool burning = true;
+		bool empty = false; // a wall torch taken off its bracket
 	};
 
 	struct LevelState {

@@ -126,7 +126,10 @@ struct WallSconce {
 	float turbidity = kSconceTurbidity;
 	std::string type = "sconce";
 	bool flipped = false; // runtime: burning differs from `lit` (see above)
-	bool Burning() const { return lit != flipped; }
+	// Runtime: its torch was TAKEN (the bare bracket is left). An empty sconce
+	// never burns; a torch mounted back fills it again. Saved like `flipped`.
+	bool empty = false;
+	bool Burning() const { return !empty && lit != flipped; }
 };
 
 // Per-brazier defaults (bigger reach + more smoke than a sconce), same "don't
@@ -383,6 +386,10 @@ public:
 	bool SetFixtureBurning(int x, int z, int wall, bool burning);
 	// Every fixture back to its authored state (a new game). True if any changed.
 	bool ResetFixtureBurning();
+	// Takes the torch out of the sconce on (x,z)/`wall` (`empty`) or puts one
+	// back. Mounting sets it burning as `burning` says (the torch put in was
+	// lit or not). Recomputes the haze; false if no such sconce or no change.
+	bool SetSconceEmpty(int x, int z, int wall, bool empty, bool burning = false);
 	// The brazier standing on (x,z), or null. At most one per cell (AddBrazier
 	// rejects duplicates).
 	const FloorBrazier* BrazierAt(int x, int z) const;

@@ -134,6 +134,10 @@ std::vector<Character> CreateDefaultParty() {
 	// the runes are found.
 	party[0].inventory.Hand(1).typeId = "dagger";
 	party[1].inventory.Hand(0).typeId = "dagger";
+	// Sera carries the party's LIGHT in her free right hand (spell-updates): a
+	// lit common torch, full. With nothing lit held, the party sees by the
+	// level's ambient alone, so a new game without it would open in the dark.
+	party[1].inventory.Hand(1).typeId = "torch_lit";
 	party[2].inventory.Hand(0).typeId = RuneItemId(SpellSymbol::Fire);
 	party[2].inventory.Hand(1).typeId = RuneItemId(SpellSymbol::Project);
 	party[3].inventory.Hand(0).typeId = RuneItemId(SpellSymbol::Earth);

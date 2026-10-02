@@ -84,7 +84,7 @@ void GameUI::OnHandLeftClick(size_t i, size_t hand) {
 			AddLogLine(loc::FormatLine("log.cant_hold", loc::ViewKey("item.", **m_held)));
 			return;
 		}
-		m_held->SwapWith(slot.typeId); // one exchange, no allocation (HeldItem)
+		m_held->SwapWith(slot); // one exchange, no allocation (HeldItem)
 		Click();
 		return;
 	}
@@ -115,7 +115,7 @@ void GameUI::OnHandHold(size_t i, size_t hand) {
 		return;
 	}
 	if (slot.Empty()) return;
-	m_held->SwapWith(slot.typeId);
+	m_held->SwapWith(slot);
 	Click();
 }
 
@@ -430,7 +430,7 @@ void GameUI::ExecuteUse(size_t i, size_t hand, std::string_view cmd) {
 		// the payload). The hand empties only if the throw was made; a member
 		// still recovering from the last one keeps it.
 		ItemSlot& slot = m_characters[i].inventory.Hand(static_cast<int>(hand));
-		if (!slot.Empty() && onHandThrow && onHandThrow(i, slot.typeId)) {
+		if (!slot.Empty() && onHandThrow && onHandThrow(i, slot.typeId, slot.charge)) {
 			slot.Clear();
 			RefreshSheet(); // the carry load may be on screen
 		}
@@ -566,7 +566,15 @@ void GameUI::EatSlot(size_t i, ItemSlot& slot) {
 				   c.portraitColor);
 		return;
 	}
-	slot.Clear(); // consumed
+	// Consumed - or, for a container, stepped down a fill level (a waterskin
+	// drunk from is a half-full one now, items.cat `drink_as`). Assigned into
+	// the slot's own buffer: a shorter id never allocates.
+	if (const std::string_view leaves = consumeLeaves ? consumeLeaves(slot.typeId)
+													  : std::string_view{};
+		!leaves.empty())
+		slot.typeId.assign(leaves);
+	else
+		slot.Clear();
 	Click();
 	AddLogLine(loc::FormatLine("log.eat", c.name, foodName), c.portraitColor);
 	RefreshSheet(); // the supply bars / carry load may be on screen

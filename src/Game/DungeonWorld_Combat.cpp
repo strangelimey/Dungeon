@@ -483,14 +483,14 @@ DungeonWorld::FumbleTable(const std::vector<mishap::Entry>& own, bool severe,
 	return fallback;
 }
 
-void DungeonWorld::DropItemInCell(const std::string& typeId, int cx, int cz) {
+void DungeonWorld::DropItemInCell(const std::string& typeId, int cx, int cz, float charge) {
 	ItemKind& kind = ItemKindFor(typeId);
 	const Vec3 c = m_map.CellCenter(cx, cz);
 	const int slot = FreeItemSlotNear(cx, cz, c.x, c.z, -1);
 	// A RUNTIME drop (negative id), not an .ent record: a weapon knocked out of
 	// a hand is dynamic state that rides the save, exactly like the cursor drop
 	// beside it. Authoring a record would write it into the LEVEL.
-	PlaceDrop({&kind, m_nextDropId--, cx, cz, false, slot});
+	PlaceDrop({&kind, m_nextDropId--, cx, cz, false, slot, -1, charge});
 	MarkSeen(cx, cz);
 }
 

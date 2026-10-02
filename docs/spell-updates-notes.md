@@ -76,6 +76,11 @@ Context: started from the list of current spells - 16, four schools, each a
     1.0 / 4 s); the square's extra haze is read off it each frame as
     x * time-left / y.
 
+12. TORCH BURN (during Phase 4): per-item CHARGE (answered); 15 minutes lit,
+    then a burnt-out STUB (answered). Then: "Maybe higher level torches burn
+    for longer..." (torch QUALITY tiers - the bought pack has six variants -
+    each with its own burn time).
+
 ## Organized (2026-10-01)
 
 The dump reshapes the spell ladder into three tiers with one meaning each:

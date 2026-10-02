@@ -220,6 +220,7 @@ SaveData::LevelState DungeonWorld::SnapshotActive() const {
 			e.z = item.z;
 			e.slot = item.slot;
 			e.niche = item.niche; // -1 = floor drop; else the wall it fell into
+			e.charge = item.charge; // a half-burnt torch keeps what is left
 			ls.entities.push_back(std::move(e));
 		}
 	}
@@ -268,7 +269,8 @@ SaveData::LevelState DungeonWorld::SnapshotActive() const {
 	// (A smashed fixture is out too, but its `broken` entry already says so and
 	// restores it dark, so this records it again harmlessly.)
 	for (const WallSconce& s : m_map.Sconces())
-		if (s.flipped) ls.fires.push_back({s.x, s.z, static_cast<int>(s.wall), s.Burning()});
+		if (s.flipped || s.empty)
+			ls.fires.push_back({s.x, s.z, static_cast<int>(s.wall), s.Burning(), s.empty});
 	for (const FloorBrazier& b : m_map.Braziers())
 		if (b.flipped) ls.fires.push_back({b.x, b.z, -1, b.Burning()});
 	return ls;
@@ -380,7 +382,7 @@ void DungeonWorld::ApplyActiveSnapshot() {
 				// quarter slot (or piled in its wall niche, e.niche >= 0).
 				ItemKind& kind = ItemKindFor(e.type);
 				m_items.push_back(
-					{&kind, m_nextDropId--, e.x, e.z, false, e.slot, e.niche});
+					{&kind, m_nextDropId--, e.x, e.z, false, e.slot, e.niche, e.charge});
 			} else {
 				// Baseline rune collected — mark the kept instance lifted.
 				for (Item& item : m_items)
@@ -418,7 +420,8 @@ void DungeonWorld::ApplyActiveSnapshot() {
 	// Fires lit or put out in play. Restored QUIETLY: a fire found out on
 	// arrival went out long ago, and its smoke with it.
 	for (const SaveData::FireBurning& f : ls.fires)
-		SetFireBurning(f.x, f.z, f.wall, f.burning, /*smoke*/ false);
+		if (f.empty) SetSconceEmpty(f.x, f.z, f.wall, true); // its torch was taken
+		else SetFireBurning(f.x, f.z, f.wall, f.burning, /*smoke*/ false);
 	// Re-break what was broken (v24). A saved entry naming a prop this level no
 	// longer has is simply dropped — the level was edited under the save, and a
 	// missing prop is exactly the outcome the entry wanted anyway.

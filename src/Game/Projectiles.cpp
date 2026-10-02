@@ -36,6 +36,7 @@ void ProjectileSystem::Spawn(const ProjectileSpec& spec) {
 	it.shooter = spec.shooter;
 	it.payload = spec.payload;
 	it.cargo = spec.cargo;
+	it.cargoCharge = spec.cargoCharge;
 	m_items.push_back(it);
 }
 
@@ -107,7 +108,7 @@ void ProjectileSystem::Puff(const Vec3& pos, const Vec4& color, int count, float
 void ProjectileSystem::Expire(const Item& it, ExpiryCause cause) {
 	if (!onExpire) return;
 	onExpire({it.pos, it.dir, cause, it.target, it.atk, it.payload, it.attacker,
-			  it.shooter, it.cargo});
+			  it.shooter, it.cargo, it.cargoCharge});
 }
 
 void ProjectileSystem::Update(float dt) {
@@ -137,7 +138,7 @@ void ProjectileSystem::Update(float dt) {
 
 		if (resolveHit &&
 			resolveHit(it.target, {it.pos, it.dir, it.atk, it.push, it.attacker,
-								   it.shooter, it.payload, it.cargo})) { // struck a target
+								   it.shooter, it.payload, it.cargo, it.cargoCharge})) { // struck a target
 			SpawnSparkBurst(it.pos, it.color, 14);
 			it.rangeLeft = -1.0f;
 			continue;

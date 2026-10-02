@@ -196,6 +196,8 @@ command = eat
 nutrition = 18
 hydration = 0
 
+; A waterskin holds two drinks: a drink steps it down a FILL LEVEL (drink_as)
+; rather than using it up, and a Splash (or a stream, later) steps it back up.
 [waterskin]
 name = item.waterskin
 category = drink
@@ -203,7 +205,94 @@ weight = 1.2
 holdable = 1
 command = drink
 nutrition = 0
-hydration = 45
+hydration = 25
+drink_as = waterskin_half
+
+[waterskin_half]
+name = item.waterskin_half
+category = drink
+weight = 0.8
+holdable = 1
+command = drink
+nutrition = 0
+hydration = 25
+drink_as = waterskin_empty
+
+[waterskin_empty]
+name = item.waterskin_empty
+category = drink
+weight = 0.4
+holdable = 1
+
+; --- light -----------------------------------------------------------------
+; THE HELD TORCH IS THE PARTY'S LIGHT (spell-updates): with nothing lit in a
+; hand, the party sees by the level's ambient alone. Three tiers, each an unlit
+; and a lit item (lit_as / unlit_as) sharing one model. A lit one burns
+; `burn_time` seconds of game time while it is HELD (the item's charge counts
+; down), dims over its last tenth and becomes `spent_as`. Stowed in a pack or
+; set down it goes out, keeping what is left; Puff of Flame lights it again.
+[torch_crude]
+name = item.torch_crude
+category = light
+weight = 0.7
+holdable = 1
+model = torch_crude
+lit_as = torch_crude_lit
+
+[torch_crude_lit]
+name = item.torch_crude_lit
+category = light
+weight = 0.7
+holdable = 1
+model = torch_crude
+burn_time = 600
+unlit_as = torch_crude
+spent_as = torch_stub
+
+[torch]
+name = item.torch
+category = light
+weight = 0.8
+holdable = 1
+model = torch
+lit_as = torch_lit
+
+[torch_lit]
+name = item.torch_lit
+category = light
+weight = 0.8
+holdable = 1
+model = torch
+burn_time = 900
+unlit_as = torch
+spent_as = torch_stub
+
+[torch_fine]
+name = item.torch_fine
+category = light
+weight = 1.0
+holdable = 1
+model = torch_fine
+lit_as = torch_fine_lit
+
+[torch_fine_lit]
+name = item.torch_fine_lit
+category = light
+weight = 1.0
+holdable = 1
+model = torch_fine
+burn_time = 1500
+unlit_as = torch_fine
+spent_as = torch_stub
+
+; What a torch leaves when it burns out. Junk: it cannot be lit again. (Wears
+; the crude torch's model until it has its own.)
+[torch_stub]
+name = item.torch_stub
+category = light
+weight = 0.2
+holdable = 1
+model = torch_crude
 
 ; --- quest content (docs/world-map.md "Quests") ------------------------------
 ; The three hooks an item can carry, all applied the moment it is LIFTED:

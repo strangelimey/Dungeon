@@ -42,7 +42,8 @@ FireAhead DungeonWorld::FireAheadOfParty() const {
 	if (wall >= 0) {
 		for (const WallSconce& s : m_map.Sconces())
 			if (s.x == x && s.z == z && static_cast<int>(s.wall) == wall)
-				return {FireAhead::Kind::WallTorch, s.Burning(), canBurn(s.type)};
+				return {FireAhead::Kind::WallTorch, s.Burning(), canBurn(s.type) && !s.empty,
+						s.empty};
 		return {};
 	}
 	const FloorBrazier* b = m_map.BrazierAt(x, z);

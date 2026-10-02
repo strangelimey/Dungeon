@@ -69,7 +69,7 @@ void CharacterSheet::ClickSlot(ItemSlot& slot) {
 	if (!m_held) return;
 	// Place (any occupant returns to the cursor) or pick up: one exchange,
 	// which allocates nothing (see HeldItem).
-	if (m_held->has_value() || !slot.Empty()) m_held->SwapWith(slot.typeId);
+	if (m_held->has_value() || !slot.Empty()) m_held->SwapWith(slot);
 }
 void CharacterSheet::EquipOrSelectPack(int i) {
 	if (!m_character) return;
@@ -88,7 +88,7 @@ void CharacterSheet::EquipOrSelectPack(int i) {
 		int cap = m_categories->Capacity(**m_held);
 		if (cap <= 0) cap = kBackpackStart;
 		// Equip into an empty slot, or swap the (empty) pack onto the cursor.
-		m_held->SwapWith(slot.typeId);
+		m_held->SwapIdWith(slot.typeId);
 		// Every slot is already empty (HasItems above), so only the COUNT
 		// changes - and a PackSlots resize allocates nothing either way, a
 		// bigger bag included (its strings exist from construction).

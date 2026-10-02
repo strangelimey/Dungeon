@@ -640,16 +640,33 @@ bool DungeonMap::SetFixtureBurning(int x, int z, int wall, bool burning) {
 		return false;
 	}
 	for (WallSconce& s : m_torches)
-		if (s.x == x && s.z == z && static_cast<int>(s.wall) == wall) return set(s);
+		if (s.x == x && s.z == z && static_cast<int>(s.wall) == wall)
+			return !s.empty && set(s); // a bare bracket has nothing to light
 	return false;
 }
 
 bool DungeonMap::ResetFixtureBurning() {
 	bool changed = false;
-	for (WallSconce& s : m_torches) changed |= std::exchange(s.flipped, false);
+	for (WallSconce& s : m_torches) {
+		changed |= std::exchange(s.flipped, false);
+		changed |= std::exchange(s.empty, false);
+	}
 	for (FloorBrazier& b : m_braziers) changed |= std::exchange(b.flipped, false);
 	if (changed) RebuildTurbidity();
 	return changed;
+}
+
+bool DungeonMap::SetSconceEmpty(int x, int z, int wall, bool empty, bool burning) {
+	for (WallSconce& s : m_torches) {
+		if (s.x != x || s.z != z || static_cast<int>(s.wall) != wall) continue;
+		if (s.empty == empty) return false;
+		s.empty = empty;
+		// A torch put back burns as it came: lit when the torch was.
+		if (!empty) s.flipped = burning != s.lit;
+		RebuildTurbidity(); // bumps Revision()
+		return true;
+	}
+	return false;
 }
 
 // The editor's setters write the AUTHORED state, and what the editor shows is

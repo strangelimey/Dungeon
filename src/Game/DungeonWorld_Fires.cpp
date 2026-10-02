@@ -19,6 +19,8 @@
 // ============================================================================
 #include "Game/DungeonWorld.h"
 
+#include "Core/Loc.h"
+
 #include <algorithm>
 
 namespace dungeon::game {
@@ -65,6 +67,95 @@ bool DungeonWorld::SetFireBurning(int x, int z, int wall, bool burning, bool smo
 	return true;
 }
 
+bool DungeonWorld::SetSconceEmpty(int x, int z, int wall, bool empty, bool burning) {
+	Fire* fire = FindFire(x, z, wall);
+	if (!fire || !fire->kind || !fire->kind->meshEmpty) return false; // not takeable
+	if (!m_map.SetSconceEmpty(x, z, wall, empty, burning)) return false;
+	fire->empty = empty;
+	const bool lit = !empty && burning && !fire->kind->flameless;
+	fire->flare = 0.0f;
+	fire->effect.SetFlare(0.0f);
+	if (lit != fire->lit) {
+		fire->lit = lit;
+		if (lit) fire->effect.Ignite(fire->flamePos, static_cast<u32>(fire->phase * 977.0f));
+		else fire->effect.Clear();
+	}
+	RefreshTurbidityGrid();
+	return true;
+}
+
+bool DungeonWorld::SconceUnderCursor(float mx, float my, float w, float h, int& x, int& z,
+									 int& wall) const {
+	// The wall torch the party FACES, from its own square - the lever's rule -
+	// and the click has to be ON it: a ball round the torch, as a door's panel
+	// is hit-tested, so a click elsewhere in the view is not a grab.
+	if (!FireAheadCell(x, z, wall) || wall < 0) return false;
+	for (const Fire& f : m_fires) {
+		if (f.x != x || f.z != z || f.wall != wall) continue;
+		const gfx::Camera::Ray ray = m_camera.ScreenRay(mx, my, w, h);
+		const Vec3 c{f.flamePos.x, f.flamePos.y - 0.15f * kUnit, f.flamePos.z};
+		const Vec3 oc{ray.origin.x - c.x, ray.origin.y - c.y, ray.origin.z - c.z};
+		const float r = 0.22f * kUnit;
+		const float b = oc.x * ray.dir.x + oc.y * ray.dir.y + oc.z * ray.dir.z;
+		const float cc = oc.x * oc.x + oc.y * oc.y + oc.z * oc.z - r * r;
+		return b * b - cc >= 0.0f && -b > 0.0f;
+	}
+	return false;
+}
+
+bool DungeonWorld::TakeTorchAhead(float mx, float my, float w, float h, HeldItem& cursor) {
+	int x = 0, z = 0, wall = -1;
+	return !cursor.has_value() && SconceUnderCursor(mx, my, w, h, x, z, wall) &&
+		   TakeTorchAt(x, z, wall, cursor);
+}
+
+bool DungeonWorld::TakeTorchAt(int x, int z, int wall, HeldItem& cursor) {
+	const Fire* fire = FindFire(x, z, wall);
+	if (!fire || fire->empty || !fire->kind || fire->kind->torchItem.empty()) return false;
+	// What comes off the wall: the kind's torch, lit when the sconce was.
+	const ItemKind& torch = ItemKindFor(fire->kind->torchItem);
+	const bool lit = fire->lit;
+	const std::string& id = lit && !torch.litAs.empty() ? torch.litAs : torch.id;
+	if (!SetSconceEmpty(x, z, wall, true)) return false;
+	// Into the LEADER's free hand (right, then left); with both full, onto the
+	// cursor as anything lifted is.
+	Character* leader = m_roster && m_leader >= 0 && static_cast<size_t>(m_leader) < m_roster->size()
+							? &(*m_roster)[static_cast<size_t>(m_leader)]
+							: nullptr;
+	bool inHand = false;
+	if (leader)
+		for (int h = 1; h >= 0 && !inHand; --h)
+			if (ItemSlot& slot = leader->inventory.Hand(h); slot.Empty()) {
+				slot.typeId.assign(id);
+				slot.charge = kNoCharge;
+				inHand = true;
+			}
+	if (!inHand) cursor.Set(id, kNoCharge);
+	m_audio.Play(m_sounds.click, 0.6f);
+	if (onMessage)
+		onMessage(loc::FormatLine("log.take_item", LeaderName(),
+								  loc::View(ItemKindFor(id).nameKey)));
+	return true;
+}
+
+bool DungeonWorld::MountTorchAhead(const std::string& itemId, float mx, float my, float w,
+								   float h) {
+	int x = 0, z = 0, wall = -1;
+	return !itemId.empty() && SconceUnderCursor(mx, my, w, h, x, z, wall) &&
+		   MountTorchAt(x, z, wall, itemId);
+}
+
+bool DungeonWorld::MountTorchAt(int x, int z, int wall, const std::string& itemId) {
+	const Fire* fire = FindFire(x, z, wall);
+	if (!fire || !fire->empty) return false;
+	// Any torch that can burn - lit or not - goes in; a stub does not.
+	const ItemKind& kind = ItemKindFor(itemId);
+	if (!kind.Lit() && kind.litAs.empty()) return false;
+	if (!SetSconceEmpty(x, z, wall, false, kind.Lit())) return false;
+	m_audio.Play(m_sounds.click, 0.5f);
+	return true;
+}
+
 bool DungeonWorld::FlareFire(int x, int z, int wall) {
 	Fire* fire = FindFire(x, z, wall);
 	if (!fire || !fire->lit) return false;
@@ -76,9 +167,10 @@ void DungeonWorld::SyncFiresFromMap() {
 	// After the map's burning states were set wholesale (a new game, a reset):
 	// each live fire takes its record's state, relit or put out to match, with
 	// nothing left hanging from before.
-	const auto sync = [&](int x, int z, int wall, bool burning) {
+	const auto sync = [&](int x, int z, int wall, bool burning, bool empty) {
 		Fire* fire = FindFire(x, z, wall);
 		if (!fire) return;
+		fire->empty = empty;
 		const bool lit = burning && !(fire->kind && fire->kind->flameless);
 		fire->flare = 0.0f;
 		fire->effect.SetFlare(0.0f);
@@ -89,8 +181,8 @@ void DungeonWorld::SyncFiresFromMap() {
 		else fire->effect.Clear();
 	};
 	for (const WallSconce& s : m_map.Sconces())
-		sync(s.x, s.z, static_cast<int>(s.wall), s.Burning());
-	for (const FloorBrazier& b : m_map.Braziers()) sync(b.x, b.z, -1, b.Burning());
+		sync(s.x, s.z, static_cast<int>(s.wall), s.Burning(), s.empty);
+	for (const FloorBrazier& b : m_map.Braziers()) sync(b.x, b.z, -1, b.Burning(), false);
 	RefreshTurbidityGrid();
 }
 

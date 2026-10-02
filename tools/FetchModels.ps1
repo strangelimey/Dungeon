@@ -140,6 +140,9 @@ function Find-Mesh {
 #              the scene normalizes as ONE (Height on combined bounds), so
 #              co-located parts of one prop stay aligned; Object picks the
 #              piece. Pair with Raw so import-model doesn't re-fit the piece.
+#   BindTextures $true (MultiMaterial) -> ConvertMesh --bind-textures Src: wire
+#              each material to the loose maps named after it (a pack whose fbx
+#              does not reference its own textures, so nothing would embed).
 #   Raw        $true -> import-model --raw: trust the glb's placement (no
 #              orient/scale/ground/center/lift).
 #
@@ -153,6 +156,15 @@ $modelSets = @(
     # brass guard, leather/wood grip). MultiMaterial -> split per weapon + keep
     # each weapon's own glTF materials in one embedded-texture .glb (downscaled),
     # rendered by the engine's multi-material path. Height = target longest extent.
+    # AnimaZ "Torch pack" (fab, 2026-07-11) - six handheld torches in one fbx,
+    # each with its own PBR set. Three are the item TIERS (spell-updates, Michael
+    # 2026-10-01): torch_crude = Torch_02 (plain tapered iron), torch = Torch_01
+    # (wooden shaft, iron basket), torch_fine = Torch_05 (capped iron cup). Lit and
+    # unlit are the same model (items.cat lit_as / unlit_as); the flame is the
+    # game's own. ~0.6 m in the hand -> 0.24 units.
+    @{ Src = "fab\props\torch_pack_fbx\extracted"; Name = "torch_crude"; Object = "torch_02_poly"; MultiMaterial = $true; BindTextures = $true; Height = 0.24 }
+    @{ Src = "fab\props\torch_pack_fbx\extracted"; Name = "torch";       Object = "torch_01_poly"; MultiMaterial = $true; BindTextures = $true; Height = 0.24 }
+    @{ Src = "fab\props\torch_pack_fbx\extracted"; Name = "torch_fine";  Object = "torch_05_poly"; MultiMaterial = $true; BindTextures = $true; Height = 0.24 }
     @{ Src = "fab\weapons\fantasy-assassin"; Name = "viking_dagger"; Object = "viking_dagger"; MultiMaterial = $true; Height = 0.22 }
     @{ Src = "fab\weapons\fantasy-assassin"; Name = "khukri";        Object = "khukri";        MultiMaterial = $true; Height = 0.18 }
     @{ Src = "fab\weapons\fantasy-assassin"; Name = "snake_dagger";  Object = "snake_dagger";  MultiMaterial = $true; Height = 0.20 }
@@ -239,6 +251,7 @@ foreach ($m in $modelSets) {
             $cargs = @($mesh, $stage)
             if ($m.Object) { $cargs += '--split' }
             $cargs += @('--height', $h, '--max-tex', $maxTex)
+            if ($m.BindTextures) { $cargs += @('--bind-textures', $srcDir) }
             if ((Invoke-Convert @cargs) -ne 0) { throw "Convert failed for $($m.Src)" }
         }
         # Split -> the named object's .glb; single -> the one .glb produced.

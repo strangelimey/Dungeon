@@ -36,6 +36,7 @@ add_library(Game STATIC
 	DungeonWorld_Editing.cpp
 	DungeonWorld_Fires.cpp
 	DungeonWorld_Leader.cpp
+	DungeonWorld_Light.cpp
 	DungeonWorld_Ledger.cpp
 	DungeonWorld_LevelIO.cpp
 	DungeonWorld_Levels.cpp

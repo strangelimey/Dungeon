@@ -21,8 +21,11 @@
 #include "Core/MathTypes.h"
 
 #include <array>
+#include <charconv>
+#include <format>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace dungeon::game {
@@ -51,15 +54,50 @@ inline Vec4 CategoryTint(std::string_view category) {
 	if (category == "drink")    return {0.28f, 0.48f, 0.68f, 1.0f}; // water blue
 	if (category == "container") return {0.40f, 0.26f, 0.14f, 1.0f}; // dark leather
 	if (category == "ingredient") return {0.34f, 0.60f, 0.32f, 1.0f}; // herb green
+	if (category == "light")    return {0.86f, 0.52f, 0.18f, 1.0f}; // flame amber
 	if (category == "key")      return {0.72f, 0.58f, 0.22f, 1.0f}; // brass gold
 	return {0.55f, 0.55f, 0.55f, 1.0f};                             // misc grey
 }
 
+// An item's own CHARGE: what is left of it, for the kinds that use one up (a
+// torch's seconds of burning). Negative = not used, or untouched - the item is
+// as its kind makes it. It travels WITH the item wherever the id goes: a slot,
+// the cursor, the floor, a save (as `id#charge`, ItemToken).
+inline constexpr float kNoCharge = -1.0f;
+
 struct ItemSlot {
 	std::string typeId; // catalog id; empty = the slot is free
+	float charge = kNoCharge;
 	bool Empty() const { return typeId.empty(); }
-	void Clear() { typeId.clear(); }
+	void Clear() {
+		typeId.clear();
+		charge = kNoCharge;
+	}
+	// Exchanges this slot's item - id and charge - with `other`'s.
+	void SwapWith(ItemSlot& other) {
+		typeId.swap(other.typeId);
+		std::swap(charge, other.charge);
+	}
 };
+
+// An item as a save TOKEN: its id, plus `#<charge>` when it has one, so an
+// uncharged item writes exactly what it always did and an older save reads.
+inline std::string ItemToken(const std::string& typeId, float charge) {
+	if (typeId.empty() || charge < 0.0f) return typeId;
+	return std::format("{}#{:.1f}", typeId, charge);
+}
+// The reverse: `id#charge` (or a bare id) into a slot.
+inline void ItemFromToken(std::string_view token, ItemSlot& out) {
+	const size_t hash = token.find('#');
+	out.typeId.assign(token.substr(0, hash));
+	out.charge = kNoCharge;
+	if (hash != std::string_view::npos) {
+		const std::string_view n = token.substr(hash + 1);
+		float c = kNoCharge;
+		if (std::from_chars(n.data(), n.data() + n.size(), c).ec == std::errc{})
+			out.charge = c;
+	}
+}
 
 // THE CURSOR'S ITEM (Game owns the one instance; the HUD, the sheet and the
 // party inventory window hold a pointer). It reads like a
@@ -76,19 +114,43 @@ public:
 	bool has_value() const { return !m_id.empty(); }
 	explicit operator bool() const { return has_value(); }
 	const std::string& operator*() const { return m_id; }
-	void reset() { m_id.clear(); } // keeps the buffer for the next pick
+	void reset() { // keeps the buffer for the next pick
+		m_id.clear();
+		m_charge = kNoCharge;
+	}
 	// Copies into the existing buffer (a floor pick, a loaded save): no
-	// allocation while the id fits what the buffer already holds.
-	HeldItem& operator=(std::string_view id) {
+	// allocation while the id fits what the buffer already holds. The charge
+	// comes with it (kNoCharge for an item that has none).
+	void Set(std::string_view id, float charge) {
 		m_id.assign(id);
+		m_charge = charge;
+	}
+	HeldItem& operator=(std::string_view id) {
+		Set(id, kNoCharge);
 		return *this;
 	}
 	// Exchanges the cursor with a slot: the slot's item comes up, the cursor's
-	// goes down, and either side may be empty. Every placement is this.
-	void SwapWith(std::string& slotId) { m_id.swap(slotId); }
+	// goes down, and either side may be empty. Every placement is this - the
+	// charge goes with the id.
+	void SwapWith(ItemSlot& slot) {
+		m_id.swap(slot.typeId);
+		std::swap(m_charge, slot.charge);
+	}
+	// The same with a bare id (a pack-row container, which carries no charge):
+	// whatever comes up has none.
+	void SwapIdWith(std::string& slotId) {
+		m_id.swap(slotId);
+		m_charge = kNoCharge;
+	}
+	float Charge() const { return m_charge; }
+	void SetCharge(float charge) { m_charge = charge; }
+	// The id itself, for a caller that renames the held item in place (a torch
+	// going out swaps `torch_lit` for `torch`): assign() into it, never replace it.
+	std::string& Id() { return m_id; }
 
 private:
 	std::string m_id;
+	float m_charge = kNoCharge;
 };
 
 // The slots inside one bag: a FIXED-capacity list, not a std::vector, because
@@ -250,7 +312,7 @@ struct Inventory {
 	bool Stow(HeldItem& held) {
 		const int i = FirstFree(selectedPack);
 		if (i < 0) return false;
-		held.SwapWith(SelectedContents()[static_cast<size_t>(i)].typeId);
+		held.SwapWith(SelectedContents()[static_cast<size_t>(i)]);
 		return true;
 	}
 

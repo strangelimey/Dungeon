@@ -183,6 +183,9 @@ public:
 	// so monster melee can drain member health and party melee can read each
 	// member's derived stats. Must be set before play; null = no combat.
 	void SetRoster(std::vector<Character>* roster) { m_roster = roster; }
+	// The CURSOR's item (Game owns it): a lit torch carried on the cursor still
+	// burns and still lights the way (DungeonWorld_Light.cpp). Borrowed.
+	void SetCursorItem(HeldItem* held) { m_cursorItem = held; }
 
 	// THE PARTY LEADER (ui-updates Phase 9): the member who does what the mouse
 	// does in the world - picks up, works a door or a lever, throws. A roster
@@ -304,6 +307,11 @@ public:
 	// knows to refuse the action and keep the item. Public because the HUD
 	// raises it (GameUI::onConsume) and only the world has the catalogs.
 	resource::Refill ConsumeItem(Character& member, const std::string& typeId);
+	// What is left in the hand after consuming `typeId` (items.cat `drink_as`),
+	// or empty when it is used up. A view of the kind's own string.
+	std::string_view ConsumeLeaves(const std::string& typeId) {
+		return ItemKindFor(typeId).drinkAs;
+	}
 
 	// --- the eval harness (docs/eval-harness.md) ----------------------------
 	// Reseed the combat RNG. Every roll in the game comes off this one stream —
@@ -662,6 +670,9 @@ public:
 	// Where that fire is: its square, and its wall (-1 = a brazier). False if
 	// there is none.
 	bool FireAheadCell(int& x, int& z, int& wall) const;
+	// That fire when it is a WALL TORCH and the click (mx,my) lands on it.
+	bool SconceUnderCursor(float mx, float my, float w, float h, int& x, int& z,
+						   int& wall) const;
 	bool SetFireAhead(bool burning);
 	bool FlareFireAhead();
 	// The haze that fire's smoke effects add to its square right now (0 = none):
@@ -691,7 +702,8 @@ public:
 	// null if nothing pickable is under the cursor. The id is the kind's own, so
 	// it outlives the call and the lift copies nothing (it runs in a guarded
 	// frame). Pure query+remove - no satchel/knowledge side effects.
-	const std::string* TryPickItem(float mx, float my, float w, float h);
+	const std::string* TryPickItem(float mx, float my, float w, float h,
+								   float* charge = nullptr); // the lifted item's charge
 	// The same pick WITHOUT the lift: the type of the floor item under the
 	// cursor (the item details dialog's right-click), or null. The id lives in
 	// the item's kind, so the pointer outlives the call.
@@ -704,13 +716,14 @@ public:
 	// THROW OR DROP (ui-updates Phase 10, Grimrock's screen-height rule): a click
 	// that meets no reachable floor - above the floor's horizon, on a wall,
 	// beyond reach - drops NOTHING and returns false, and the caller throws.
-	bool DropItemAt(const std::string& typeId, float mx, float my, float w, float h);
+	bool DropItemAt(const std::string& typeId, float mx, float my, float w, float h,
+					float charge = -1.0f); // the item's charge goes down with it
 	// THROWING (DungeonWorld_Throw.cpp): a member throws an item (catalog id)
 	// straight ahead down their quadrant lane - `member` < 0 = the party LEADER
 	// (the cursor's throw), else that roster slot (a hand's `throw` use). False =
 	// nobody threw (the thrower is down, or still recovering from their last
 	// throw - throw_interval): the item stays where it was.
-	bool ThrowItem(const std::string& typeId, int member = -1);
+	bool ThrowItem(const std::string& typeId, int member = -1, float charge = -1.0f);
 	// Brings every thrown item still in the air down where it is - before a save
 	// (a flight is not saved; the item must be) and a level change.
 	void LandThrownItems() { m_projectiles.LandCargo(); }
@@ -1328,6 +1341,20 @@ public:
 	// Click interaction: presses the button on the party's OWN cell mounted on
 	// the wall the party faces. False if there isn't one.
 	bool PressButtonFacing();
+	// A wall torch, off its bracket and back (DungeonWorld_Fires.cpp). The party
+	// faces it from its square and the click lands ON it. Taking leaves the bare
+	// bracket and puts the torch - lit if it burned - in the leader's free hand,
+	// else on `cursor` (which must be empty). Mounting puts the item `itemId` (a
+	// torch, lit or not) into an EMPTY bracket. True if it happened.
+	bool TakeTorchAhead(float mx, float my, float w, float h, HeldItem& cursor);
+	bool MountTorchAhead(const std::string& itemId, float mx, float my, float w, float h);
+	// The same acts on a named sconce, with no click (the dev console's `torch`).
+	bool TakeTorchAt(int x, int z, int wall, HeldItem& cursor);
+	bool MountTorchAt(int x, int z, int wall, const std::string& itemId);
+	// Empties or refills the sconce on (x,z)/`wall` (the map record + the live
+	// fire); `burning` = the refilled torch is lit. False for a kind with no
+	// bare bracket to show (fixtures.cat `empty_model`) or no change.
+	bool SetSconceEmpty(int x, int z, int wall, bool empty, bool burning = false);
 	// Button instance surface for the inspector: presence + wiring, and the
 	// live/record edit (in-memory until savemap). `target` is the door/niche
 	// name it toggles; `needs` the flag it waits on (flag=); `sets` + `op` what
@@ -2185,6 +2212,18 @@ private:
 		// 0/0 means it feeds nobody, which is how a consume is refused.
 		float nutrition = 0.0f;
 		float hydration = 0.0f;
+		// What a consume leaves in the hand (items.cat `drink_as`): a waterskin
+		// drunk from steps down a fill level instead of being used up. Empty =
+		// the item is gone (bread is eaten).
+		std::string drinkAs;
+		// LIGHT (items.cat): `burn_time` > 0 marks a LIT item - it is the party's
+		// light while it is held, and burns for that many seconds of game time
+		// (the item's CHARGE counts them down, ItemSlot::charge), then becomes
+		// `spent_as` (a burnt-out stub). `unlit_as` is what it turns into when
+		// it goes out (stowed, put down, doused) and `lit_as` the reverse.
+		float burnTime = 0.0f;
+		std::string litAs, unlitAs, spentAs;
+		bool Lit() const { return burnTime > 0.0f; }
 		// Worn armor's WEIGHT CLASS (armor.cat `class`): what it costs to
 		// evade in, which skill it trains, and what STR it asks. The soak
 		// itself stays per ITEM (`armor` below) — a breastplate and a mail
@@ -2277,6 +2316,10 @@ private:
 		// item). Niche items pile at the pocket centre (NicheItemPos), ignore `slot`,
 		// and are hidden + unpickable while the niche is closed.
 		int niche = -1;
+		// The item's own charge (ItemSlot::charge - a torch's seconds left),
+		// kept while it lies here and handed back when it is lifted. LAST, so
+		// the positional inits above need not name it.
+		float charge = -1.0f;
 	};
 
 	// A wall-mounted button/lever (EntityKind::Button from the .ent layer). The
@@ -2583,6 +2626,8 @@ private:
 		// Which map record this is (SetFireBurning finds it by these): its square,
 		// and for a sconce the wall it hangs on (-1 for a brazier).
 		int x = 0, z = 0, wall = -1;
+		// A wall torch whose torch was taken: the bare bracket draws, nothing burns.
+		bool empty = false;
 		// A FLARE in progress, 1 = just fanned .. 0 = none, decaying in Update:
 		// the light swells and the flames leap while it lasts (FlareFire).
 		float flare = 0.0f;
@@ -3099,7 +3144,7 @@ private:
 	// Lay an item on the floor of a cell as a RUNTIME drop (negative id, saved
 	// as a `drop` diff) — NOT an .ent record, which is what an editor placement
 	// authors. Shared by the cursor drop and by a fumbled weapon.
-	void DropItemInCell(const std::string& typeId, int cx, int cz);
+	void DropItemInCell(const std::string& typeId, int cx, int cz, float charge = -1.0f);
 	// A landed monster blow rolls its type's on-hit DoT (Phase 6): chance,
 	// then land/refresh the effect with its log line. No-op for dps 0.
 	// Strip a monster's effects (and with them its plume) — a corpse carries
@@ -3592,6 +3637,20 @@ private:
 	// Combat: the Game's roster (not owned) + the strike RNG. UpdateMonsters
 	// ticks cooldowns and runs monster melee; PartyAttack runs the party's.
 	std::vector<Character>* m_roster = nullptr;
+	// The party's own light (DungeonWorld_Light.cpp): the cursor's item
+	// (borrowed, SetCursorItem), a scratch slot the cursor's torch burns
+	// through, and the per-frame passes.
+	HeldItem* m_cursorItem = nullptr;
+	ItemSlot m_cursorScratch;
+	// Burns every lit torch held (hands, cursor) by `dt`, and puts out any
+	// stowed in a pack.
+	void TickCarriedLight(float dt);
+	// One light per lit torch held, at its member's side of the eye.
+	void AppendCarriedLights(float time);
+	// Burns one slot's torch; true if it burnt out (and became its stub).
+	bool BurnTorch(ItemSlot& slot, float dt, const Character* holder);
+	// 1 = a torch at full light, falling to a floor over its last tenth.
+	static float TorchBrightness(const ItemKind& kind, float charge);
 	WorldState* m_flagStore = nullptr; // see SetFlagStore
 	std::optional<WorldMap>* m_worldForUndo = nullptr; // borrowed; see SetWorldForUndo
 	// The project's opening, borrowed (SetOpeningForUndo), and whether a move
@@ -3903,6 +3962,12 @@ private:
 		bool flameless = false; // fixtures.cat flame = 0: never lit (empty bowl)
 		std::shared_ptr<gfx::Mesh> mesh;  // via the model cache
 		std::shared_ptr<gfx::Mesh> mesh2;
+		// A wall torch whose torch can be TAKEN (spell-updates): the bare bracket
+		// it shows once taken (fixtures.cat `empty_model`, same placement as
+		// `model`), and the item a taken torch becomes (`torch_item`, its lit
+		// form used while the sconce burns). No empty_model = the torch stays put.
+		std::shared_ptr<gfx::Mesh> meshEmpty;
+		std::string torchItem;
 		// Kept for the map-icon bake's bounds fit (shared via the model cache).
 		std::shared_ptr<const assets::ModelData> model;
 		Vec4 color{1, 1, 1, 1};
