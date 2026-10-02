@@ -1817,7 +1817,10 @@ too) are an iron FRAME around a PROCEDURAL, ANIMATED, EMISSIVE fill.
   Switching sprite <-> fill FLUSHES, so draw order is still submission order;
   stacks draw every fill, then every frame (`DrawResourceBarFill/Frame`). Health
   = blood ebbing + a heartbeat; stamina = a breathing green glow; mana = blue
-  wisps + an occasional lightning strike; food/water = solid placeholder.
+  wisps + an occasional lightning strike; food = packed grain (mottle, speckle,
+  lighter kernels, nearly still, a crumbly end with no meniscus); water = cool
+  and clear, lighter at the surface, drifting caustic light, small bubbles, a
+  gentle slosh (BarKind Food = 5 / Water = 6).
   Brightness falls with the stat. Tuning lives at the top of bar.hlsl (edit +
   relaunch): `kPace` / `kSubdue` exist because the first cut was "too busy - it
   draws the eye". TRAP that cost a round: a frac(dot) FLOAT HASH disagrees with

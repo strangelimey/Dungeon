@@ -15,8 +15,12 @@
 //             over-exerted, the over-exertion burns across it from the left as
 //             a slow ember. The quietest kind on purpose (Michael: "keep the
 //             animation low key") - it sits under the hands, in the eye's way.
-//   Solid   - a flat tint (the food / water placeholder).
-// The three animated kinds are EMISSIVE and dim as they empty. Output is
+//   Food    - packed grain: a warm mottle, speckle and lighter kernels, nearly
+//             still, ending in a crumbly edge (no meniscus).
+//   Water   - clear and cool, lighter at the surface, caustic light drifting
+//             across it, a few small bubbles and a gentle slosh.
+//   Solid   - a flat tint (no caller uses it any more; kept as the fallback).
+// The animated kinds are EMISSIVE and dim as they empty. Output is
 // PREMULTIPLIED (SpriteBatch's bar pipeline): the tube is opaque, alpha 1.
 //
 // Space: `p` is measured in TUBE HEIGHTS (x = uv.x * aspect, y = uv.y), so a
@@ -84,6 +88,12 @@ static const float3 kStaminaBright = float3(0.35, 1.00, 0.45);
 static const float3 kManaDeep = float3(0.02, 0.06, 0.30);
 static const float3 kManaBright = float3(0.30, 0.65, 1.00);
 static const float3 kLightning = float3(0.85, 0.95, 1.00);
+static const float3 kFoodDeep = float3(0.22, 0.11, 0.03);
+static const float3 kFoodBright = float3(0.85, 0.55, 0.22);
+static const float3 kFoodKernel = float3(1.00, 0.85, 0.55);
+static const float3 kWaterDeep = float3(0.02, 0.10, 0.20);
+static const float3 kWaterBright = float3(0.20, 0.55, 0.75);
+static const float3 kWaterLight = float3(0.75, 0.95, 1.00);
 // GuardSlider's over-exertion palette (kOverDark / kOverHot there): the burning
 // stretch starts dark and brightens to a full hot red at 100%.
 static const float3 kOverDark = float3(0.40, 0.04, 0.03);
@@ -227,6 +237,53 @@ float3 ManaPulse(float2 p, float seed, float hpx, float bright, out float edge) 
 	return col * bright;
 }
 
+// Food: a packed GRAIN, not a fluid - a warm mottle under a fine speckle, with
+// lighter kernels scattered through it. It barely drifts (food sits still), and
+// its end is CRUMBLY - a fixed ragged line, not a slosh.
+float3 FoodGrain(float2 p, float seed, float bright, out float edge) {
+	const float t = gTime * kPace;
+	const float2 q = p + float2(-t * 0.04 + seed, 0.0);
+	const float mottle = Fbm(q * float2(1.2, 2.0));
+	const float speck = ValueNoise(q * 14.0);
+	float3 col = lerp(kFoodDeep, kFoodBright, Calm(saturate(mottle * 1.2 - 0.1)) + 0.1);
+	col *= 0.85 + 0.3 * Calm(speck);
+	// Kernels: one chance per cell, a little oval each.
+	const float2 cell = float2(0.22, 0.25);
+	const float2 id = floor(q / cell);
+	const float2 f = frac(q / cell) - 0.5;
+	const float r = 0.20 + 0.10 * Hash21(id + 5.3);
+	const float present = step(0.55, Hash21(id + 1.7));
+	const float kernel = smoothstep(r, r * 0.5, length(f * float2(1.0, 1.4))) * present;
+	col = lerp(col, kFoodKernel, kernel * 0.3);
+	edge = 0.08 * (ValueNoise(float2(p.y * 9.0, seed * 3.0)) - 0.5);
+	return col * bright;
+}
+
+// Water: clear and cool - lighter toward the surface (the tube's top), a net of
+// caustic light drifting across it, a few small bubbles rising, and a gentle
+// slosh at its end.
+float3 WaterFlow(float2 p, float seed, float bright, out float edge) {
+	const float t = gTime * kPace;
+	float3 col = lerp(kWaterBright, kWaterDeep, smoothstep(0.1, 0.95, p.y));
+	// Caustics: where two drifting noise layers cross, light gathers.
+	const float a = ValueNoise(p * float2(2.2, 3.5) + float2(-t * 0.30 + seed, t * 0.12));
+	const float b = ValueNoise(p * float2(2.6, 3.0) + float2(t * 0.22 - seed, -t * 0.10) + 4.0);
+	const float caustic = pow(1.0 - abs(a - b), 8.0);
+	col += kWaterLight * caustic * 0.45 * kSubdue;
+	// Bubbles: smaller and sparser than the blood's.
+	const float2 cell = float2(0.35, 0.4);
+	const float2 bp = p + float2(-t * 0.10, t * 0.45) + seed * 1.7;
+	const float2 id = floor(bp / cell);
+	const float2 f = frac(bp / cell) - 0.5;
+	const float r = 0.06 + 0.08 * Hash21(id + 7.9);
+	const float present = step(0.78, Hash21(id + 2.3));
+	const float d = length(f * cell / 0.5);
+	const float ring = smoothstep(r, r * 0.6, d) * smoothstep(r * 0.2, r * 0.6, d);
+	col += kWaterLight * ring * present * 0.2;
+	edge = 0.03 * sin(t * 1.1 + p.y * 5.0 + seed * 4.0);
+	return col * bright;
+}
+
 float3 EffortFill(float2 p, float seed, float aspect, float over, float throb, float3 tint,
 				  out float edge) {
 	const float t = gTime * kPace;
@@ -291,6 +348,12 @@ float4 PSMain(PSInput input) : SV_TARGET {
 		fluid = EffortFill(p, seed, aspect, saturate(beatPhase), saturate(input.extra.z),
 						   input.tint.rgb, edge);
 		hue = input.tint.rgb;
+	} else if (kind == 5) {
+		fluid = FoodGrain(p, seed, bright, edge);
+		hue = kFoodBright;
+	} else if (kind == 6) {
+		fluid = WaterFlow(p, seed, bright, edge);
+		hue = kWaterBright;
 	} else {
 		fluid = input.tint.rgb;
 		hue = input.tint.rgb;
@@ -302,8 +365,9 @@ float4 PSMain(PSInput input) : SV_TARGET {
 	const float m = fraction * aspect + (kind == 0 ? 0.0 : edge) - p.x;
 	const float aa = 1.5 / max(hpx, 1.0);
 	const float inside = fraction > 0.0 ? smoothstep(-aa, aa, m) : 0.0;
-	// A bright meniscus right at the edge (not for the flat placeholder).
-	const float meniscus = kind == 0 ? 0.0 : exp(-abs(m) * 18.0) * inside * 0.35 * bright;
+	// A bright meniscus right at the edge (not for the flat kind, nor for food:
+	// grain has no surface tension, its end just crumbles).
+	const float meniscus = (kind == 0 || kind == 5) ? 0.0 : exp(-abs(m) * 18.0) * inside * 0.35 * bright;
 
 	// The cylinder: darker toward the top and bottom of the tube.
 	const float shade = 0.55 + 0.45 * sin(3.14159 * input.uv.y);

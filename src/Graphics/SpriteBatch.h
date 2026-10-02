@@ -39,7 +39,15 @@ struct Rect {
 // the stance's own green-to-yellow grade, or the angry body once over-exerted -
 // carried in `tint`, and `beat` holds the over-exertion (0..1) instead of a
 // heartbeat, which the shader burns across the tube from the left.
-enum class BarKind : u32 { Solid = 0, Health = 1, Stamina = 2, Mana = 3, Effort = 4 };
+enum class BarKind : u32 {
+	Solid = 0,
+	Health = 1,
+	Stamina = 2,
+	Mana = 3,
+	Effort = 4,
+	Food = 5,
+	Water = 6
+};
 struct BarFill {
 	BarKind kind = BarKind::Solid;
 	float fraction = 1.0f; // 0..1, how full the bar is
