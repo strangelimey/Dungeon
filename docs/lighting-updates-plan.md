@@ -101,6 +101,12 @@ The answer to the open question, in four parts:
   shadowless and small-radius, the tiles keep each one's cost to the pixels
   it reaches, and the ranking drops the dimmest first if a big fight ever
   outruns Max Lights. The stress check casts volleys in a fire-dense room.
+  Each bolt is its OWN light source because a volley's timing varies by spell
+  (the pending-bolt queue, `spawnBoltAfter`, staggers launches): the light is
+  keyed to that projectile's runtime id (Phase 3's stable key), switches on
+  when that bolt launches - a bolt still waiting in the queue makes none -
+  and goes out when that bolt lands or dies, independent of its siblings.
+  Nothing assumes the bolts of one cast fly together.
 - A thrown item lights if its kind has a `light` (a thrown lit torch keeps
   lighting the corridor it flies down, and lands lit).
 - MAGIC ARROWS: no bow or arrow exists yet, so this phase builds the hook only -
