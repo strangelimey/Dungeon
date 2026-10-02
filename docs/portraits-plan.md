@@ -150,6 +150,35 @@ Checked by: `uioverlap` with the picker open (and a long filter result); the SRV
 gauge stays well under 1024 after scrolling the whole set; a scroll through every
 portrait leaves live SRVs back where they started once closed.
 
+DONE (2026-10-02). What it came to:
+- THE GRID IS ONE WIDGET (`PortraitGrid`, PortraitPicker.cpp), not the
+  AssetPicker's widget-per-tile: it writes its own height into `bounds` during
+  layout (the fitContent idea) so the ScrollArea scrolls the right distance, and
+  draws and hit-tests only the rows in the area's ViewRect. 2879 tiles cost what
+  a screenful does.
+- `ThumbCache<Payload>` (Game/ThumbCache.h, header-only) holds the rules; the
+  AssetPicker moved onto it (its model-bake mesh rides in the payload). New in
+  the move: eviction drains to a LOW-WATER mark (3/4 of the cap) so a long scroll
+  drains the GPU now and then, not every frame once over the cap; and Clear
+  drains first (the AssetPicker's Open used to clear without).
+- `LoadTextureThumb` gained `srgb` (default true): the portraits load LINEAR, so a
+  thumbnail must too or a face is darker in the grid than once picked.
+- Every Open starts on Any/Any/Any and scrolls the current portrait into the
+  middle of the view; Close frees every thumbnail.
+- Allocation: an open picker is not a quiet frame (SteadyStateFrame), and
+  `Game::OpenPortraitPicker` calls OverlayOpenedThisFrame for the click that
+  opens it.
+- Dev: `portrait picker [member|off|status]`, `portrait picker filter <race|any>
+  <sex|any> <age|any>`, `portrait picker scroll <0..1>`; and `assetpicker
+  textures|models|off|status`, because nothing could open the AssetPicker without
+  clicking a type-editor field, and it is the cache's other client.
+- Measured, picker open over the sheet: `uioverlap` clean; a scroll through all
+  2879 peaks at 568 of 1024 SRVs (the cache cycles 240 -> 180) and closing drops
+  back to 341 (339 before the first open: the +2 is a one-time lazy load, the
+  same after a second open). A click picks and closes; Esc closes only the
+  picker. AllocTest default and -Sheet PASS; release builds; portraits.eval PASS.
+- Not built: a hover readout of a portrait's tags.
+
 ## Phase 4 - the sheet button, and handing it over
 
 - A small button on the sheet beside the portrait ("Change portrait", lang x5),

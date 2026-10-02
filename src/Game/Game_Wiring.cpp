@@ -123,6 +123,10 @@ void Game::WireModuleCallbacks() {
 		m_state = m_resumeState; // resume after saving from the pause menu
 	};
 	m_ui.onOpenSheet = [this](size_t index) { OpenCharacterSheet(index); };
+	// A pick in the portrait picker (docs/portraits-plan.md).
+	m_ui.onSetPortrait = [this](size_t member, const std::string& id) {
+		return SetPortrait(member, id);
+	};
 	// Sheet "All" button: leave the sheet and bring up the party window - every
 	// member on the sheet's tab, over the live world (Game/PartyWindow.h).
 	m_ui.onShowPartyInventory = [this] {

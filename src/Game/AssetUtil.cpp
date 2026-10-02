@@ -59,7 +59,7 @@ std::unique_ptr<gfx::Texture> TryLoadTextureFile(gfx::GraphicsDevice& device,
 }
 
 std::unique_ptr<gfx::Texture> LoadTextureThumb(gfx::GraphicsDevice& device,
-											   const std::string& stemPath, u32 maxPx) {
+											   const std::string& stemPath, u32 maxPx, bool srgb) {
 	// The baked chain, with its big levels dropped: a thumbnail wants maxPx,
 	// not the 2048px the set installs at. Same file, a sliver of the memory.
 	if (auto chain = assets::LoadDdsFile(stemPath + ".dds")) {
@@ -74,11 +74,11 @@ std::unique_ptr<gfx::Texture> LoadTextureThumb(gfx::GraphicsDevice& device,
 			thumb.levels.push_back(level);
 		}
 		if (!thumb.levels.empty())
-			return std::make_unique<gfx::Texture>(device, thumb, /*srgb*/ true);
+			return std::make_unique<gfx::Texture>(device, thumb, srgb);
 	}
 	// No baked chain (a source-only set): the PNG, at whatever size it is.
 	if (auto img = assets::LoadImageFile(stemPath + ".png"))
-		return std::make_unique<gfx::Texture>(device, *img, /*srgb*/ true);
+		return std::make_unique<gfx::Texture>(device, *img, srgb);
 	return nullptr;
 }
 

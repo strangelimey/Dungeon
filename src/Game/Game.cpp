@@ -741,6 +741,7 @@ void Game::LoadPortraits() {
 				  "nothing can be picked");
 	else
 		log::Info("portraits.cat: {} portraits", m_portraitCatalog.Entries().size());
+	if (PortraitPicker* picker = m_ui.Portraits()) picker->SetCatalog(m_portraitCatalog);
 	// Forget what is loaded so every slot reloads (SyncPortraits drains first).
 	std::ranges::fill(m_portraitIds, std::nullopt);
 	SyncPortraits();
@@ -773,6 +774,14 @@ void Game::SyncPortraits() {
 		}
 		member.portrait = m_portraitTextures[i].get();
 	}
+}
+
+void Game::OpenPortraitPicker(size_t member) {
+	m_ui.OpenPortraitPicker(member);
+	// Opening fills strings and a filter list - allocation, in what may be a
+	// guarded frame (a click on the sheet). Like any overlay opening, the frame
+	// is not a steady one; while it stays open SteadyStateFrame keeps it so.
+	if (m_ui.PortraitPickerOpen()) OverlayOpenedThisFrame();
 }
 
 bool Game::SetPortrait(size_t member, const std::string& id) {
@@ -1595,7 +1604,10 @@ void Game::UpdateGovernor(float dt) {
 // really is steady: AllocTest.ps1 -Wounded / -Melee / -Cast.
 bool Game::SteadyStateFrame() {
 	constexpr u32 kWarmupFrames = 120;
+	// An open portrait picker streams thumbnails in as it scrolls: loading, not a
+	// steady state (its opening frame is excused by Game::OpenPortraitPicker).
 	const bool quiet = GuardedState() && !m_console.IsOpen() && !EvalRunning() &&
+					   !m_ui.PortraitPickerOpen() &&
 					   !m_mapView.IsOpen() && !m_baking && m_pendingLanguage.empty() &&
 					   !m_pendingQuality;
 	m_steadyFrames = quiet ? m_steadyFrames + 1 : 0;
@@ -1898,6 +1910,10 @@ void Game::UpdateStates(float dt) {
 	if (m_ui.ItemDetailsOpen() && m_state != AppState::Playing &&
 		m_state != AppState::CharacterSheet)
 		m_ui.CloseItemDetails();
+	// The portrait picker likewise.
+	if (m_ui.PortraitPickerOpen() && m_state != AppState::Playing &&
+		m_state != AppState::CharacterSheet)
+		m_ui.ClosePortraitPicker();
 
 	switch (m_state) {
 	case AppState::Loading:
@@ -2255,6 +2271,7 @@ void Game::UpdateStates(float dt) {
 		ShowMapPage(MapPage::Dungeon); // a fresh open shows where you ARE
 		OverlayOpenedThisFrame();      // as the console toggle above
 		m_ui.CloseItemDetails();       // the map takes the mouse and the screen
+		m_ui.ClosePortraitPicker();
 	}
 
 	// The editor's pause/play button freezes the world so the level can be
@@ -2698,6 +2715,10 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 			m_spriteBatch.DrawSprite(dlg.PreviewRect(), {0, 0, 1, 1}, m_modelPreview.Srv(),
 									 {1, 1, 1, 1});
 	}
+	// The portrait picker, over the sheet (or the HUD, from the console).
+	if (m_ui.PortraitPickerOpen() &&
+		(m_state == AppState::Playing || m_state == AppState::CharacterSheet))
+		m_ui.RenderPortraitPicker();
 	if (m_assetDialog.IsOpen()) {
 		// The asset dialog overlays the editor; it draws its own frame, then we
 		// blit the rendered preview model into its preview pane.

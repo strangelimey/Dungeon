@@ -131,6 +131,7 @@ add_library(Game STATIC
 	SpellbookPanel.cpp
 	PartyWindow.cpp
 	ItemDetailsDialog.cpp
+	PortraitPicker.cpp
 	CharacterSheet.cpp
 	CharacterSheet_Inventory.cpp
 	CharacterSheet_Stats.cpp

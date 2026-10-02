@@ -1092,6 +1092,35 @@ void Game::RegisterWorldCommands() {
 			m_console.Print(m_worldSettingsDialog.IsOpen() ? "world settings open"
 														   : "could not open");
 		});
+	// The asset pool browser without the type editor in front of it: the
+	// harness cannot click a `texture` field. It shares ThumbCache with the
+	// portrait picker, so this is how that cache's other client gets exercised;
+	// status prints the SRV gauge for the same reason the picker's does.
+	m_console.Register(
+		{.name = "assetpicker",
+		 .group = CmdGroup::Types,
+		 .params = "textures|models|off|status",
+		 .summary = "open the asset pool browser (in the editor), or report it"},
+		[this](const std::vector<std::string>& args) {
+			const std::string sub = args.empty() ? "status" : args[0];
+			if (sub == "textures" || sub == "models") {
+				m_pickApply = nullptr; // a pick goes nowhere
+				m_assetPicker.Open(sub == "textures" ? AssetPicker::Mode::Textures
+													 : AssetPicker::Mode::Models,
+								   "", loc::Tr(sub == "textures" ? "map.type.texture"
+																 : "map.type.model"),
+								   m_settings.theme);
+			} else if (sub == "off") {
+				m_assetPicker.Close();
+			} else if (sub != "status") {
+				m_console.RefuseUsage();
+				return;
+			}
+			m_console.Print(std::format("assetpicker {} thumbs={} srv={} peak={}",
+										m_assetPicker.IsOpen() ? "open" : "closed",
+										m_assetPicker.ThumbCount(), m_device.SrvLive(),
+										m_device.SrvHighWater()));
+		});
 	m_console.Register(
 		{.name = "newtype",
 		 .group = CmdGroup::Types,

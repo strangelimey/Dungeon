@@ -155,6 +155,10 @@ void GameUI::ShowItemDetails(const std::string& typeId, float weightKg) {
 }
 
 bool GameUI::DismissPopup() {
+	if (PortraitPickerOpen()) {
+		m_portraitPicker->Close();
+		return true;
+	}
 	if (ItemDetailsOpen()) {
 		m_itemDetails->Close();
 		return true;
@@ -171,6 +175,24 @@ bool GameUI::DismissPopup() {
 void GameUI::RenderItemDetails() {
 	if (ItemDetailsOpen())
 		m_itemDetails->Render(m_spriteBatch, m_settings.theme, DeviceW(), DeviceH());
+}
+
+// The portrait picker, for one roster member: titled with their name, the
+// current portrait outlined, a pick handed to onSetPortrait. An index past the
+// roster does nothing.
+void GameUI::OpenPortraitPicker(size_t member) {
+	if (!m_portraitPicker || member >= m_characters.size()) return;
+	CloseItemDetails(); // one dialog at a time
+	const Character& c = m_characters[member];
+	m_portraitPicker->Open(loc::FormatLine("portrait.pick.title", c.name).View(), c.portraitId,
+						   [this, member](const std::string& id) {
+							   if (onSetPortrait) onSetPortrait(member, id);
+						   });
+	Click();
+}
+
+void GameUI::RenderPortraitPicker() {
+	if (PortraitPickerOpen()) m_portraitPicker->Render(m_spriteBatch, DeviceW(), DeviceH());
 }
 
 const std::string* GameUI::ItemAt(size_t i, ItemPlace place) const {

@@ -165,6 +165,8 @@ void GameUI::BuildStaticUi() {
 	BuildCharacterSheet();
 	// The item details dialog, built whole now so a right-click only fills it.
 	m_itemDetails = std::make_unique<ItemDetailsDialog>(m_device, m_fonts);
+	// The portrait picker, likewise (Game::LoadPortraits fills it).
+	m_portraitPicker = std::make_unique<PortraitPicker>(m_device, m_fonts);
 	ApplyTheme(); // again, now the dialog exists to receive it (the skin
 				  // arrives with LoadTitleArt, whose ApplySkin reaches it too)
 }
@@ -252,6 +254,7 @@ void GameUI::ApplyTheme() {
 		  &m_confirmUi})
 		ctx->SetTheme(m_settings.theme);
 	if (m_itemDetails) m_itemDetails->UI().SetTheme(m_settings.theme);
+	if (m_portraitPicker) m_portraitPicker->UI().SetTheme(m_settings.theme);
 }
 
 void GameUI::ApplySkin() {
@@ -262,6 +265,7 @@ void GameUI::ApplySkin() {
 		  &m_confirmUi})
 		ctx->SetSkin(skin);
 	if (m_itemDetails) m_itemDetails->UI().SetSkin(skin);
+	if (m_portraitPicker) m_portraitPicker->UI().SetSkin(skin);
 }
 
 void GameUI::Click(float volume) { m_audio.Play(m_sounds.click, volume); }
@@ -1263,6 +1267,10 @@ void GameUI::RebuildForLanguage() {
 		m_itemDetails->Close();
 		m_itemDetails->Build();
 	}
+	if (m_portraitPicker) { // its filter words are localized; the title is stale
+		m_portraitPicker->Close();
+		m_portraitPicker->Build();
+	}
 	// The saves page is built on demand; repopulate it in the new language if
 	// it happens to be open (OpenSavesPage leaves m_menuPage on Saves).
 	if (m_menuPage == MenuPage::Saves) OpenSavesPage(m_savesMode);
@@ -2133,7 +2141,11 @@ void GameUI::UpdateSheet(const Input& input, float dt) {
 	m_hudMouseY = input.MouseY();
 	// The item details dialog is modal for the mouse: while it is up it gets the
 	// update and the sheet under it holds still (the world does not - Game runs
-	// it either way).
+	// it either way). The portrait picker is the same.
+	if (PortraitPickerOpen()) {
+		m_portraitPicker->Update(input, WindowW(), WindowH(), dt);
+		return;
+	}
 	if (ItemDetailsOpen()) {
 		m_itemDetails->Update(input, WindowW(), WindowH(), dt);
 		return;
@@ -2161,9 +2173,12 @@ void GameUI::UpdateSheet(const Input& input, float dt) {
 void GameUI::UpdateHud(const Input& input, float dt) {
 	m_hudMouseX = input.MouseX(); // stashed for the held-item cursor in RenderHud
 	m_hudMouseY = input.MouseY();
-	if (ItemDetailsOpen()) {
+	if (PortraitPickerOpen() || ItemDetailsOpen()) {
 		// Modal for the mouse, as over the sheet; the log still ticks its fades.
-		m_itemDetails->Update(input, WindowW(), WindowH(), dt);
+		if (PortraitPickerOpen())
+			m_portraitPicker->Update(input, WindowW(), WindowH(), dt);
+		else
+			m_itemDetails->Update(input, WindowW(), WindowH(), dt);
 		if (m_log) m_log->Tick(dt);
 		return;
 	}

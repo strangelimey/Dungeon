@@ -709,6 +709,24 @@ buffer, reused across all ~25 submissions).
   game via ResetRoster, LoadGame, `Game::SetPortrait`) just calls it.
   SetPortrait and LoadGame refuse an id portraits.cat does not list. Dev:
   `portrait [member] [id]`; checked by `tools/EvalScripts/portraits.eval`.
+  THE PICKER (Game/PortraitPicker.*): a grid of thumbnails filtered by race /
+  sex / age, STANDALONE (Open(title, currentId, onPick) - party creation is its
+  real home), owned and routed by GameUI exactly like ItemDetailsDialog (built
+  once, updated instead of the page under it, DismissPopup closes it first, the
+  mouse is its while open). Two rules worth knowing: the GRID IS ONE WIDGET
+  (PortraitGrid sizes its bounds to every row so the ScrollArea scrolls right,
+  but draws and hit-tests only the rows in view - a widget per tile, the
+  AssetPicker's way, does not scale to thousands), and the thumbnails go
+  through `Game/ThumbCache.h`, the ONE copy of the load-a-few-a-frame / mark-seen-
+  in-draw / LRU-evict-to-a-low-water-mark / drain-before-free rules, which the
+  AssetPicker uses too. Thumbnails load LINEAR (`LoadTextureThumb`'s srgb=false)
+  to match the party bar. ALLOCATION: an open picker is not a quiet frame
+  (SteadyStateFrame), and `Game::OpenPortraitPicker` excuses the opening click's
+  frame (OverlayOpenedThisFrame) - open through it, never GameUI directly. Dev:
+  `portrait picker [member|off|status]` / `filter <race|any> <sex|any> <age|any>`
+  / `scroll <0..1>` (status prints the SRV gauge: a full scroll peaks ~568, and
+  closing must return to where it was), and `assetpicker textures|models|off|
+  status` for the cache's other client.
 - Textures: PNG = source, .dds = derived BC7 mip chains (gitignored).
   The game loads the .dds and falls back to the PNG. TRAP, and why a rejected
   .dds now WARNS (TryLoadTextureFile): from 2026-06-11 to 2026-09-28 the DDS

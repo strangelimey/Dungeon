@@ -732,6 +732,9 @@ private:
 	// Sets one member's portrait to a portraits.cat id. False (and nothing
 	// changes) for a member out of range or an id the catalog does not list.
 	bool SetPortrait(size_t member, const std::string& id);
+	// Opens the portrait picker for a member (its pick -> SetPortrait, wired as
+	// GameUI::onSetPortrait) and excuses this frame from the allocation guard.
+	void OpenPortraitPicker(size_t member);
 	void LoadHitSplats();      // hit-feedback splat icons (load task)
 	void LoadItemIcons();      // rune + placeholder item cursor/inventory icons (load task)
 

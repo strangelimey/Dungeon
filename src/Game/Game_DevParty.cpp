@@ -117,12 +117,70 @@ void Game::RegisterPartyCommands() {
 					   });
 	// Portraits by id (portraits phase 2): bare lists every member's portrait
 	// with its tags; a member and an id sets it, as the picker will (refused
-	// for an id portraits.cat does not list).
+	// for an id portraits.cat does not list). `picker` drives the picker (phase
+	// 3) for a script: open it for a member, filter it by tag words, scroll it,
+	// and read back what it shows - and the SRV gauge, since a picker that leaked
+	// thumbnails would show there first.
 	m_console.Register({.name = "portrait",
 						.group = CmdGroup::Characters,
-						.params = "[member] [id]",
-						.summary = "report or set a member's portrait (a portraits.cat id)"},
+						.params = "[member] [id]\npicker [member|off|status]\n"
+								  "picker filter <race|any> <sex|any> <age|any>\n"
+								  "picker scroll <0..1>",
+						.summary = "report or set a member's portrait, or drive the picker"},
 					   [this](const std::vector<std::string>& args) {
+						   if (!args.empty() && args[0] == "picker") {
+							   PortraitPicker* picker = m_ui.Portraits();
+							   if (!picker) {
+								   m_console.Refuse("no picker");
+								   return;
+							   }
+							   const std::string sub = args.size() >= 2 ? args[1] : "0";
+							   if (sub == "off") {
+								   m_ui.ClosePortraitPicker();
+							   } else if (sub == "filter") {
+								   if (args.size() < 5) {
+									   m_console.RefuseUsage();
+									   return;
+								   }
+								   // A word's 1-based place in its list; 0 for "any".
+								   const auto pick = [](std::span<const char* const> words,
+														const std::string& w) {
+									   if (w == "any") return 0;
+									   for (size_t i = 0; i < words.size(); ++i)
+										   if (w == words[i]) return static_cast<int>(i) + 1;
+									   return -1;
+								   };
+								   const int r = pick(PortraitPicker::Races(), args[2]);
+								   const int s = pick(PortraitPicker::Sexes(), args[3]);
+								   const int a = pick(PortraitPicker::Ages(), args[4]);
+								   if (r < 0 || s < 0 || a < 0) {
+									   m_console.Refuse("unknown tag word");
+									   return;
+								   }
+								   picker->SetFilter(r, s, a);
+							   } else if (sub == "scroll") {
+								   if (args.size() < 3) {
+									   m_console.RefuseUsage();
+									   return;
+								   }
+								   picker->ScrollTo(static_cast<float>(std::atof(args[2].c_str())));
+							   } else if (sub != "status") {
+								   const int m = std::atoi(sub.c_str());
+								   if (m < 0 || m >= static_cast<int>(m_characters.size())) {
+									   m_console.Refuse("no such member");
+									   return;
+								   }
+								   OpenPortraitPicker(static_cast<size_t>(m));
+							   }
+							   const PortraitPicker::Status st = picker->GetStatus();
+							   m_console.Print(std::format(
+								   "picker {} shown={} of {} filter={},{},{} visible={}+{} "
+								   "thumbs={} srv={} peak={}",
+								   st.open ? "open" : "closed", st.shown, st.total, st.race,
+								   st.sex, st.age, st.firstVisible, st.visible, st.thumbs,
+								   m_device.SrvLive(), m_device.SrvHighWater()));
+							   return;
+						   }
 						   size_t first = 0, last = m_characters.size();
 						   if (!args.empty()) {
 							   const int m = std::atoi(args[0].c_str());
