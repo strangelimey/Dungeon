@@ -411,6 +411,13 @@ public:
 	// ('D' cells) plus every LIT brazier and every LIT sconce's own smoke. Called at
 	// load and whenever a fixture's smoke/lit state changes.
 	void RebuildTurbidity();
+	// The same grid WITHOUT bumping Revision(): for a fire lit, put out or emptied
+	// in PLAY, which moves no wall, floor or mesh. Revision() is what the AI's
+	// walkability grid, the shadow-cube cache and the editor's undo key on, and a
+	// bump there rebuilt the AI grid (three allocations) on every hand spell that
+	// touched a fire (AllocTest -Hand found it). The world refreshes its GPU copy
+	// of the grid on its own flag.
+	void RecomputeTurbidity();
 
 	int StartX() const { return m_startX; }
 	int StartZ() const { return m_startZ; }

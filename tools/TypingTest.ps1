@@ -171,7 +171,7 @@ try {
 
 	Write-Host 'starting a new game'
 	Send-Key 0x0D
-	Wait-ForLog '^\[info \] (Level ready: |New game started)' $LoadTimeoutSec 'the dungeon load' | Out-Null
+	Wait-ForLog '^\[info \] (Level ready: |New game started|Loaded game from )' $LoadTimeoutSec 'the dungeon load' | Out-Null
 	Start-Sleep -Seconds 2
 
 	# Wait until the console answers (see AllocTest.ps1: a save can stage a

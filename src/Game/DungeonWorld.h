@@ -678,6 +678,11 @@ public:
 	// The haze that fire's smoke effects add to its square right now (0 = none):
 	// the harness's view of a douse thinning away.
 	float FireAheadHaze() const;
+	// How far that fire is flared right now (0 = steady), and the ids of the
+	// items lying in a square, space-separated: two more harness views, of a
+	// gust on a fire and of a conjured item landing at the party's feet.
+	float FireAheadFlare() const;
+	std::string ItemIdsAt(int x, int z) const;
 	void DropAtPartyFeet(std::string_view itemId);
 	bool ShoveAhead(int cells);
 	ProjectileSystem::Repelled RepelAhead(float power, int casterIndex);

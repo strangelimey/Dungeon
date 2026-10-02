@@ -617,6 +617,11 @@ void DungeonMap::ResolveThemeIndices() {
 // Fires raise the air turbidity of their own square and the squares nearby
 // (smoke hangs around flames). Chebyshev rings: full / half / quarter.
 void DungeonMap::RebuildTurbidity() {
+	RecomputeTurbidity();
+	++m_revision;
+}
+
+void DungeonMap::RecomputeTurbidity() {
 	// Reset to the authored dusty base ('D' cells = 1.0), then re-add fire smoke.
 	for (size_t i = 0; i < m_turbidity.size(); ++i)
 		m_turbidity[i] = m_dusty[i] ? 1.0f : 0.0f;
@@ -624,14 +629,13 @@ void DungeonMap::RebuildTurbidity() {
 		if (b.Burning()) AddFireTurbidity(b.x, b.z, b.turbidity);
 	for (const WallSconce& s : m_torches)
 		if (s.Burning()) AddFireTurbidity(s.x, s.z, s.turbidity);
-	++m_revision;
 }
 
 bool DungeonMap::SetFixtureBurning(int x, int z, int wall, bool burning) {
 	const auto set = [&](auto& f) {
 		if (f.Burning() == burning) return false;
 		f.flipped = !f.flipped;
-		RebuildTurbidity(); // bumps Revision()
+		RecomputeTurbidity(); // play: no Revision() bump (see the header)
 		return true;
 	};
 	if (wall < 0) {
@@ -652,7 +656,7 @@ bool DungeonMap::ResetFixtureBurning() {
 		changed |= std::exchange(s.empty, false);
 	}
 	for (FloorBrazier& b : m_braziers) changed |= std::exchange(b.flipped, false);
-	if (changed) RebuildTurbidity();
+	if (changed) RecomputeTurbidity(); // play state only: no Revision() bump
 	return changed;
 }
 
@@ -663,7 +667,7 @@ bool DungeonMap::SetSconceEmpty(int x, int z, int wall, bool empty, bool burning
 		s.empty = empty;
 		// A torch put back burns as it came: lit when the torch was.
 		if (!empty) s.flipped = burning != s.lit;
-		RebuildTurbidity(); // bumps Revision()
+		RecomputeTurbidity(); // play: the bracket is a fire mesh, not geometry
 		return true;
 	}
 	return false;

@@ -113,6 +113,13 @@ std::vector<Entity> DungeonWorld::LiveDecorationRecords() const {
 void DungeonWorld::StashStaticMap() {
 	auto copy = std::make_unique<DungeonMap>(m_map);
 	copy->SetDecorationRecords(LiveDecorationRecords());
+	// The stash is the STATIC layer, so it keeps the authored fires and niches.
+	// What play did to them (a doused torch, a taken one, a niche found) rides
+	// the level's dynamic state (SnapshotActive), which every way back in
+	// re-applies - and which a new game or a loaded save REPLACES. Left on the
+	// copy, a fire doused before a new game came back out in it.
+	copy->ResetFixtureBurning();
+	copy->ResetNicheOpen();
 	m_levelMaps.insert_or_assign(m_currentLevel, std::move(copy));
 }
 

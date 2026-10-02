@@ -292,8 +292,8 @@ void Game::RegisterPartyCommands() {
 	// what a combat test actually needs (no cursor drag, no HUD clicking).
 	m_console.Register({.name = "equip",
 						.group = CmdGroup::Characters,
-						.params = "<item> [member] [hand]",
-						.summary = "put an item in a member's hand"},
+						.params = "<item|none> [member] [hand]",
+						.summary = "put an item in a member's hand (none empties it)"},
 					   [this](const std::vector<std::string>& args) {
 						   if (!Need(m_console, args, 1)) return;
 						   const size_t m = args.size() > 1
@@ -302,6 +302,12 @@ void Game::RegisterPartyCommands() {
 							   ? std::clamp(std::atoi(args[2].c_str()), 0, 1) : 0;
 						   if (m >= m_characters.size()) {
 							   m_console.Refuse("no such member");
+							   return;
+						   }
+						   if (args[0] == "none") {
+							   m_characters[m].inventory.Hand(hand).Clear();
+							   m_console.Print(std::format("{} {} hand emptied", m_characters[m].name,
+														   hand == 0 ? "left" : "right"));
 							   return;
 						   }
 						   if (!m_project.HasItem(args[0])) {
@@ -483,7 +489,7 @@ void Game::RegisterPartyCommands() {
 	// hand spell's outcome can be pinned on the spell or on the world.
 	m_console.Register({.name = "castsvc",
 						.group = CmdGroup::Combat,
-						.params = "fire\nlight\ndouse\nflare\ndrop <item>\nshove [cells]\nrepel <power> [member]\nblast <spell>",
+						.params = "fire\nlight\ndouse\nflare\nfloor\ndrop <item>\nshove [cells]\nrepel <power> [member]\nblast <spell>",
 						.summary = "drive one cast service directly (the world ahead of the party)"},
 					   [this](const std::vector<std::string>& args) {
 						   if (!Need(m_console, args, 1)) return;
@@ -493,9 +499,14 @@ void Game::RegisterPartyCommands() {
 							   const char* kind = f.kind == FireAhead::Kind::WallTorch ? "walltorch"
 												: f.kind == FireAhead::Kind::Brazier ? "brazier"
 																					   : "none";
-							   m_console.Print(std::format("castsvc fire: kind={} lit={} canburn={} haze={:.2f}",
-														   kind, f.lit ? 1 : 0, f.canBurn ? 1 : 0,
-														   m_world->FireAheadHaze()));
+							   m_console.Print(std::format(
+								   "castsvc fire: kind={} lit={} canburn={} haze={:.2f} flare={:.2f}", kind,
+								   f.lit ? 1 : 0, f.canBurn ? 1 : 0, m_world->FireAheadHaze(),
+								   m_world->FireAheadFlare()));
+						   } else if (what == "floor") {
+							   const Party& p = m_world->GetParty();
+							   const std::string ids = m_world->ItemIdsAt(p.GridX(), p.GridZ());
+							   m_console.Print(std::format("castsvc floor: {}", ids.empty() ? "(none)" : ids));
 						   } else if (what == "light" || what == "douse") {
 							   m_console.Print(std::format("castsvc {}: changed={}", what,
 														   m_world->SetFireAhead(what == "light") ? 1 : 0));
@@ -1312,6 +1323,11 @@ void Game::RegisterPartyCommands() {
 							   if (!slot.Empty())
 								   m_console.Print(std::format("    worn  {}", slot.typeId));
 						   }
+						   // What is on the member: a ward cast on the whole party
+						   // has nowhere else to be seen from the console.
+						   for (const fx::Inst& e : c.effects)
+							   m_console.Print(std::format("    effect {} {:.1f} {:.1f}s", e.Id(),
+														   e.magnitude, e.timeLeft));
 					   });
 }
 

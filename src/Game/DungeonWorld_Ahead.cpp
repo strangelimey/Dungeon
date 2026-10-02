@@ -73,6 +73,24 @@ float DungeonWorld::FireAheadHaze() const {
 	return haze;
 }
 
+float DungeonWorld::FireAheadFlare() const {
+	int x = 0, z = 0, wall = -1;
+	if (!FireAheadCell(x, z, wall)) return 0.0f;
+	for (const Fire& f : m_fires)
+		if (f.x == x && f.z == z && f.wall == wall) return f.flare;
+	return 0.0f;
+}
+
+std::string DungeonWorld::ItemIdsAt(int x, int z) const {
+	std::string ids;
+	for (const Item& it : m_items) {
+		if (it.collected || !it.kind || it.x != x || it.z != z) continue;
+		if (!ids.empty()) ids += ' ';
+		ids += it.kind->id;
+	}
+	return ids;
+}
+
 std::string_view DungeonWorld::RenameHeldItem(ItemSlot& slot,
 											  std::string ItemKind::*becomes) {
 	if (slot.Empty()) return {};

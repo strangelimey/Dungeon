@@ -96,10 +96,24 @@ $checks = @(
 		selfTest = { & (Join-Path $root 'tools\PipelineTest.ps1') -Config $Config -SelfTest | Out-Host; $LASTEXITCODE }
 	},
 	@{
+		name = 'spells'; tier = 'quick'
+		what = 'every spell tier does what it says: hand spells, bolts, modifiers, wards'
+		# The debug build only (it reads build\debug), like LevelBuildTest. Its
+		# self-test cuts every cast and demands exactly the spell-free checks pass.
+		run      = { python (Join-Path $root 'tools\SpellTest.py') | Out-Host; $LASTEXITCODE }
+		selfTest = { python (Join-Path $root 'tools\SpellTest.py') --selftest | Out-Host; $LASTEXITCODE }
+	},
+	@{
 		name = 'alloc'; tier = 'full'
 		what = 'a steady-state frame allocates nothing on the heap'
 		run      = { & (Join-Path $root 'tools\AllocTest.ps1') -Config $Config -Seconds 10 | Out-Host; $LASTEXITCODE }
 		selfTest = { & (Join-Path $root 'tools\AllocTest.ps1') -Config $Config -Seconds 10 -SelfTest | Out-Host; $LASTEXITCODE }
+	},
+	@{
+		name = 'alloc-hand'; tier = 'full'
+		what = 'the hand spells (light, douse, flare, fill, pebble) allocate nothing'
+		run      = { & (Join-Path $root 'tools\AllocTest.ps1') -Config $Config -Hand | Out-Host; $LASTEXITCODE }
+		selfTest = { & (Join-Path $root 'tools\AllocTest.ps1') -Config $Config -Hand -SelfTest | Out-Host; $LASTEXITCODE }
 	},
 	@{
 		name = 'typing'; tier = 'full'

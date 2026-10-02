@@ -12,6 +12,7 @@
 #   .\tools\AllocTest.ps1 -Melee             # a monster swinging at the party
 #   .\tools\AllocTest.ps1 -Cast              # a bolt in flight + an open spellbook
 #   .\tools\AllocTest.ps1 -Impact            # bolts landing, expiring, a blast
+#   .\tools\AllocTest.ps1 -Hand              # the hand spells: light, douse, flare, fill, pebble
 #   .\tools\AllocTest.ps1 -Pause             # Esc to the pause menu and back
 #   .\tools\AllocTest.ps1 -Sheet             # the sheet: hover, tabs, item dialog
 #   .\tools\AllocTest.ps1 -Panels            # drag and resize the floating HUD
@@ -224,6 +225,9 @@ param(
 	[double]$ImpactStrength = 400,
 	# Seconds between casts, round-robin over the rotation below.
 	[double]$ImpactEvery = 0.4,
+	# Casts the four hand spells at a wall torch inside the window (spell-updates
+	# Phase 8). See the note at the setup.
+	[switch]$Hand,
 	# Pauses (Esc) and resumes inside the window. See the note above.
 	[switch]$Pause,
 	# Works the character sheet inside the window. See the note above.
@@ -439,17 +443,18 @@ function Assert-PartyAt([int]$x, [int]$z) {
 }
 
 # Goes to eval_arena, freezes its monsters and heals the party (needs logecho on
-# and the console open). -Impact and -Items both want its open floor.
-function Enter-FrozenArena {
+# and the console open). -Impact and -Items both want its open floor; -Hand
+# names another level, for its wall torch.
+function Enter-FrozenArena([string]$Stem = 'eval_arena') {
 	# The console refuses commands while the level loads; a NEW "Level
 	# ready" line is the moment it will take them again. NEW, counted from
 	# before the goto: when the landing page Continues an eval save, the
 	# game has ALREADY printed one for eval_arena, the wait matched it at
 	# once, and `tp` and `face` were typed into the reload and refused - the
 	# party then fired the whole barrage the wrong way.
-	$readyPattern = '^\[info \] Level ready: eval_arena'
+	$readyPattern = "^\[info \] Level ready: $Stem"
 	$readyBefore = @(Select-String -Path $log -Pattern $readyPattern).Count
-	Send-Text 'goto eval_arena'; Send-Key 0x0D
+	Send-Text "goto $Stem"; Send-Key 0x0D
 	$deadline = (Get-Date).AddSeconds($LoadTimeoutSec)
 	while (@(Select-String -Path $log -Pattern $readyPattern).Count -le $readyBefore) {
 		if ($proc.HasExited) { throw "the game exited during the arena load (code $($proc.ExitCode))" }
@@ -605,8 +610,11 @@ try {
 	# a load TASK, before the starting level's own load has begun, and every
 	# console command typed then is refused as "still loading". A level load
 	# ends with 'Level ready:'; a new game that lands without one (the world
-	# map, or a level already in memory) says 'New game started'.
-	$ready = Wait-ForLog '^\[info \] (Level ready: |New game started)' $LoadTimeoutSec 'the dungeon load'
+	# map, or a level already in memory) says 'New game started'. And Enter
+	# CONTINUES whenever a save exists (the eval suites leave them behind); a
+	# save of a level already in memory loads inline and says only 'Loaded game
+	# from', which this once waited past for its whole timeout.
+	$ready = Wait-ForLog '^\[info \] (Level ready: |New game started|Loaded game from )' $LoadTimeoutSec 'the dungeon load'
 	Write-Host "  $($ready -replace '^\[info \] ', '')"
 	Start-Sleep -Milliseconds 500
 
@@ -854,6 +862,65 @@ try {
 		$listed = $row[-1].Line -replace '^.*console: ', ''
 		if ($listed -match '\[') { throw "the fresh target was touched before the window: $listed" }
 		Write-Host "  fresh $ImpactMonster at $tx,$tz, party at $px,$pz, untouched"
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0 # close the console again; alloctest reopens it below
+		Start-Sleep -Milliseconds 400
+	}
+
+	# -Hand: THE HAND SPELLS (spell-updates Phase 8). A tier-1 spell changes the
+	# WORLD AHEAD and the ITEMS IN HAND, not a monster: Kenaz lights a held torch
+	# (an item renamed in its slot) and the wall torch ahead (a fire's state, the
+	# turbidity grid refreshed in place on the GPU), Laguz fills a held waterskin
+	# a step at a time and then douses that torch (a smoke effect on the fire),
+	# Ansuz flares it, and Berkano conjures a pebble into an empty hand and then
+	# at the feet (a floor drop). None of that is a bolt, so -Cast and -Impact
+	# never reach it. crypt1's torch at 4,3 is the target, the monsters frozen;
+	# `autocast` casts each from a world frame, so the window holds the casts.
+	#
+	# The ITEM paths happen once each before a slot is used up (a full skin
+	# stops filling, a lit torch stays lit), so the warm-up runs the whole
+	# rotation, then the rotation is HELD and FRESH items go back in hand - an
+	# unlit torch, an empty skin, an empty hand - and the window's first armed
+	# frame releases it. So the first light, both fills and a hand landing fall
+	# inside the window, and every cast after them is a fire change or a drop.
+	if ($Hand) {
+		Write-Host "going to crypt1's wall torch for the hand spells"
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		Enter-FrozenArena 'crypt1'
+		Send-Text 'tp 4 3'; Send-Key 0x0D
+		Send-Text 'face n'; Send-Key 0x0D
+		Assert-PartyAt 4 3
+		$handKit = {
+			Send-Text 'equip torch 2 1'; Send-Key 0x0D
+			Send-Text 'equip waterskin_empty 3 1'; Send-Key 0x0D
+			Send-Text 'equip none 0 0'; Send-Key 0x0D
+		}
+		& $handKit
+		Send-Text 'learn 0 earth'; Send-Key 0x0D
+		Send-Text 'learn 1 air'; Send-Key 0x0D
+		Send-Text 'learn 2 fire'; Send-Key 0x0D
+		Send-Text 'learn 3 water'; Send-Key 0x0D
+		Send-Text 'autocast 2 flame 0.3'; Send-Key 0x0D
+		Send-Text 'autocast 3 splash'; Send-Key 0x0D
+		Send-Text 'autocast 1 gust'; Send-Key 0x0D
+		Send-Text 'autocast 0 rock'; Send-Key 0x0D
+		Write-Host '  warming the rotation up'
+		Start-Sleep -Seconds 6
+		$castPattern = 'console:   member \d+ casts \S+: \d+ cast, \d+ failed'
+		$castBefore = @(Select-String -Path $log -Pattern $castPattern).Count
+		Send-Text 'autocast hold'; Send-Key 0x0D
+		Send-Text 'autocast'; Send-Key 0x0D
+		Start-Sleep -Milliseconds 800
+		$script:handRows = @(Select-String -Path $log -Pattern $castPattern) | Select-Object -Skip $castBefore
+		if ($script:handRows.Count -ne 4) { throw "``autocast`` listed $($script:handRows.Count) entries, not 4" }
+		foreach ($r in $script:handRows) {
+			if ($r.Line -match ': 0 cast,') { throw "a hand spell never cast in the warm-up: $($r.Line -replace '^.*console:\s+', '')" }
+		}
+		Start-Sleep -Milliseconds 500
+		& $handKit
+		Start-Sleep -Milliseconds 300
 		Send-Text 'logecho off'; Send-Key 0x0D
 		Send-Key 0xC0 # close the console again; alloctest reopens it below
 		Start-Sleep -Milliseconds 400
@@ -1286,6 +1353,45 @@ try {
 		if ((Get-LastTallyField 'blasts') -le 0) { $missing += 'no blast went off' }
 		if ($missing.Count -gt 0 -and $result -eq 'PASS') {
 			Write-Host "$($missing -join ', ') inside the window - the impact path was not measured" -ForegroundColor Yellow
+			$result = 'UNMEASURED'
+		}
+	}
+
+	# And for -Hand: every entry of the rotation cast again (several times - the
+	# counts run on past the window until the hold, so one is not enough to say
+	# it was inside), and the fresh items were USED: the torch lit, the skin
+	# filled, the empty hand holding a pebble.
+	if ($Hand) {
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		Send-Text 'autocast hold'; Send-Key 0x0D
+		$castPattern = 'console:   member \d+ casts \S+: \d+ cast, \d+ failed'
+		$castBefore = @(Select-String -Path $log -Pattern $castPattern).Count
+		$torchBefore = @(Select-String -Path $log -Pattern 'console:   \[\d\] \w+ hand \d: ').Count
+		Send-Text 'autocast'; Send-Key 0x0D
+		Send-Text 'torch'; Send-Key 0x0D
+		Start-Sleep -Milliseconds 800
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0
+		$after = @(Select-String -Path $log -Pattern $castPattern) | Select-Object -Skip $castBefore
+		$hands = (@(Select-String -Path $log -Pattern 'console:   \[\d\] \w+ hand \d: ') |
+			Select-Object -Skip $torchBefore | ForEach-Object { $_.Line -replace '^.*console:\s+', '' }) -join '; '
+		$short = @()
+		for ($i = 0; $i -lt $after.Count -and $i -lt $script:handRows.Count; $i++) {
+			$was = if ($script:handRows[$i].Line -match ': (\d+) cast,') { [int]$Matches[1] } else { 0 }
+			$now = if ($after[$i].Line -match ': (\d+) cast,') { [int]$Matches[1] } else { 0 }
+			Write-Host "  $($after[$i].Line -replace '^.*console:\s+', '') ($($now - $was) since the warm-up)"
+			if ($now - $was -lt 3) { $short += ($after[$i].Line -replace '^.*casts (\S+):.*$', '$1') }
+		}
+		Write-Host "  hands: $hands"
+		$used = @()
+		if ($hands -notmatch '\[2\] Maren hand 1: torch_lit ') { $used += 'the torch was not lit' }
+		if ($hands -notmatch '\[3\] Tilo hand 1: waterskin ') { $used += 'the skin was not filled' }
+		if ($hands -notmatch '\[0\] Brand hand 0: pebble ') { $used += 'no pebble landed in hand' }
+		if (($short.Count -gt 0 -or $used.Count -gt 0 -or $after.Count -ne 4) -and $result -eq 'PASS') {
+			if ($short.Count -gt 0) { Write-Host "too few casts after the warm-up: $($short -join ', ')" -ForegroundColor Yellow }
+			if ($used.Count -gt 0) { Write-Host "$($used -join ', ') - the item paths were not measured" -ForegroundColor Yellow }
 			$result = 'UNMEASURED'
 		}
 	}
