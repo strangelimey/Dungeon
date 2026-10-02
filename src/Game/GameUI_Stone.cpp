@@ -86,8 +86,11 @@ void GameUI::ApplyStone() {
 
 // THE CONTRAST PASS (more-ui-updates; Michael picked "tune contrast"): the
 // chrome adapts to the material on show rather than each material being
-// re-toned. A LIGHT one (snow, 0.42) carves its words in bronze instead of pale
-// gold (ui::CarvedGold reads Skin::luma) and rings small text harder; a BUSY
+// re-toned. Its carved INKS are solved against its mean colour (ui::ResolveInks:
+// the gold kept where it reads at 4.5:1, else moved toward pale gold or dark
+// bronze until it does - it used to slide toward bronze by brightness alone,
+// which on the mid-toned materials was the wrong way and left the snows at
+// 1.2:1); a LIGHT one rings small text harder; a BUSY
 // one (leaves, lava - stones.cat `detail`) has its grain calmed by a wash of
 // its own mean colour, so text stops competing with it. A material the index
 // does not know keeps the dark-stone settings.
@@ -105,6 +108,10 @@ void GameUI::ApplyLegibility() {
 	m_skin.calm = 0.45f * busy;
 	// The ring under small text: as authored on dark stone, solid on the snows.
 	m_skin.textOutline.w = 0.85f + 0.15f * std::clamp((luma - 0.22f) / 0.20f, 0.0f, 1.0f);
+	ui::ResolveInks(m_skin);
+	log::Info("ui material {}: gold {:.2f},{:.2f},{:.2f} reads {:.1f}:1 on its mean", m_shownStone,
+			  m_skin.inkGold.x, m_skin.inkGold.y, m_skin.inkGold.z,
+			  ui::ContrastRatio(m_skin.inkGold, m_skin.stoneMean));
 }
 
 const gfx::Texture* GameUI::StoneThumb(std::string_view name) {

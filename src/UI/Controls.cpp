@@ -394,7 +394,7 @@ void Button::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 		const float sink = depth * std::max(1.0f, px.h * 0.035f);
 		DrawCarvedText(batch, font, text, px.x + (px.w - font.MeasureWidth(text)) * 0.5f + sink,
 					   px.y + (px.h - font.Height()) * 0.5f + sink,
-					   !enabled ? Vec4{0.45f, 0.40f, 0.30f, 1.0f}
+					   !enabled ? CarvedDisabled(skin)
 					   : m_hot  ? CarvedLit(skin)
 								: CarvedGold(skin));
 		return;
@@ -2057,28 +2057,81 @@ void DrawCarvedText(gfx::SpriteBatch& batch, const Font& font, std::string_view 
 }
 
 namespace {
-// How far a material sits toward light, for the carved fills: the dark stones
-// (granite, 0.20) at 0, the snows (0.42) at 1.
-float CarveLight(const Skin* skin) {
-	return skin ? std::clamp((skin->luma - 0.22f) / 0.20f, 0.0f, 1.0f) : 0.0f;
-}
 Vec4 Mix(const Vec4& a, const Vec4& b, float t) {
 	return {a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t,
 			a.w + (b.w - a.w) * t};
 }
+// sRGB channel -> linear light, and a colour's relative luminance (WCAG 2).
+float Linear(float c) {
+	return c <= 0.04045f ? c / 12.92f : std::pow((c + 0.055f) / 1.055f, 2.4f);
+}
+float RelLuminance(const Vec4& c) {
+	return 0.2126f * Linear(c.x) + 0.7152f * Linear(c.y) + 0.0722f * Linear(c.z);
+}
+// The ends an ink is pushed toward when it does not read: a pale gold (still
+// warm, so it reads as the same metal lit) and a dark bronze. A mid-grey stone
+// caps any colour near 5:1, so these sit close to white and black.
+constexpr Vec4 kInkPale{1.0f, 0.95f, 0.80f, 1.0f};
+constexpr Vec4 kInkDeep{0.12f, 0.08f, 0.03f, 1.0f};
+// What a part-transparent ink looks like over `bg` - the colour the eye judges.
+Vec4 Over(const Vec4& ink, const Vec4& bg) {
+	Vec4 seen = Mix(bg, ink, ink.w);
+	seen.w = 1.0f;
+	return seen;
+}
+// `ink` kept if it reads on `bg` at `target`, else moved the least distance along
+// either ramp that gets there; if neither does, the ramp end that reads best.
+Vec4 Legible(const Vec4& ink, const Vec4& bg, float target) {
+	if (ContrastRatio(Over(ink, bg), bg) >= target) return ink;
+	constexpr int kSteps = 20;
+	int best = kSteps + 1;
+	Vec4 pick = ink;
+	for (const Vec4& end : {kInkPale, kInkDeep})
+		for (int i = 1; i <= kSteps && i < best; ++i) {
+			Vec4 c = Mix(ink, end, static_cast<float>(i) / kSteps);
+			c.w = ink.w;
+			if (ContrastRatio(Over(c, bg), bg) >= target) {
+				best = i;
+				pick = c;
+			}
+		}
+	if (best <= kSteps) return pick;
+	Vec4 pale = kInkPale, deep = kInkDeep;
+	pale.w = deep.w = ink.w;
+	return ContrastRatio(Over(pale, bg), bg) >= ContrastRatio(Over(deep, bg), bg) ? pale : deep;
+}
 } // namespace
 
-Vec4 CarvedGold(const Skin* skin) {
-	return Mix({0.80f, 0.62f, 0.26f, 1.0f}, {0.44f, 0.29f, 0.08f, 1.0f}, CarveLight(skin));
+float ContrastRatio(const Vec4& a, const Vec4& b) {
+	const float la = RelLuminance(a), lb = RelLuminance(b);
+	return (std::max(la, lb) + 0.05f) / (std::min(la, lb) + 0.05f);
 }
-Vec4 CarvedLit(const Skin* skin) {
-	return Mix({1.0f, 0.86f, 0.46f, 1.0f}, {0.70f, 0.47f, 0.10f, 1.0f}, CarveLight(skin));
+
+void ResolveInks(Skin& skin) {
+	const Vec4 bg{skin.stoneMean.x, skin.stoneMean.y, skin.stoneMean.z, 1.0f};
+	const Skin authored; // the dark-stone inks the defaults carry
+	skin.inkGold = Legible(authored.inkGold, bg, kInkContrast);
+	skin.inkTitle = Legible(authored.inkTitle, bg, kInkContrast);
+	skin.inkPlain = Legible(authored.inkPlain, bg, kInkContrastPlain);
+	// The hover must still SHOW: lit reads at least as well as the gold, and
+	// further from the stone than it, or it is the gold pushed further along.
+	skin.inkLit = Legible(authored.inkLit, bg, kInkContrast);
+	if (ContrastRatio(skin.inkLit, bg) < ContrastRatio(skin.inkGold, bg) + 0.5f) {
+		const bool paler = RelLuminance(skin.inkGold) > RelLuminance(bg);
+		skin.inkLit = Mix(skin.inkGold, paler ? Vec4{1, 1, 1, 1} : Vec4{0, 0, 0, 1}, 0.5f);
+		skin.inkLit.w = 1.0f;
+	}
+	// Disabled: the gold sunk most of the way back into its own stone.
+	skin.inkDisabled = Mix(skin.inkGold, bg, 0.55f);
+	skin.inkDisabled.w = 1.0f;
 }
-Vec4 CarvedTitle(const Skin* skin) {
-	return Mix({0.86f, 0.68f, 0.30f, 1.0f}, {0.52f, 0.34f, 0.09f, 1.0f}, CarveLight(skin));
-}
-Vec4 CarvedPlain(const Skin* skin) {
-	return Mix({0.78f, 0.74f, 0.66f, 0.80f}, {0.16f, 0.14f, 0.12f, 0.80f}, CarveLight(skin));
+
+Vec4 CarvedGold(const Skin* skin) { return skin ? skin->inkGold : Skin{}.inkGold; }
+Vec4 CarvedLit(const Skin* skin) { return skin ? skin->inkLit : Skin{}.inkLit; }
+Vec4 CarvedTitle(const Skin* skin) { return skin ? skin->inkTitle : Skin{}.inkTitle; }
+Vec4 CarvedPlain(const Skin* skin) { return skin ? skin->inkPlain : Skin{}.inkPlain; }
+Vec4 CarvedDisabled(const Skin* skin) {
+	return skin ? skin->inkDisabled : Skin{}.inkDisabled;
 }
 
 void MenuList::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {

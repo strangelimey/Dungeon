@@ -84,6 +84,18 @@ struct Skin {
 	float luma = 0.20f;
 	float calm = 0.0f;
 	Vec4 stoneMean{0.2f, 0.2f, 0.2f, 1.0f};
+	// The carved INKS on this material (ui::CarvedGold & co. return them), SOLVED
+	// against `stoneMean` by ui::ResolveInks whenever the material changes: each
+	// is the authored gold kept wherever it already reads, and otherwise moved
+	// toward pale gold or dark bronze until it clears a contrast ratio (Michael:
+	// the gold on a light stone blended into it - the brightness-only rule
+	// darkened it on mid-toned materials, the wrong way). The defaults are the
+	// authored dark-stone inks, so a skin never resolved draws as it always did.
+	Vec4 inkGold{0.80f, 0.62f, 0.26f, 1.0f};
+	Vec4 inkLit{1.0f, 0.86f, 0.46f, 1.0f};
+	Vec4 inkTitle{0.86f, 0.68f, 0.30f, 1.0f};
+	Vec4 inkPlain{0.78f, 0.74f, 0.66f, 0.80f};
+	Vec4 inkDisabled{0.45f, 0.40f, 0.30f, 1.0f};
 };
 
 // Draws `part` into `dst` as a 9-slice: fixed corners, edges tiled along

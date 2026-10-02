@@ -2092,8 +2092,15 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   offset up-left, a faint lit one down-right, the fill between - keep both
   offsets ONE pixel and the lit one faint, or it reads as a blurry echo) in
   `ui::CarvedGold` / `CarvedLit` / `CarvedTitle` / `CarvedPlain(skin)`. THEY
-  FOLLOW THE MATERIAL (the contrast pass): `Skin::luma` deepens the gold toward
-  bronze on a light stone, and GameUI::ApplyLegibility also rings small text
+  FOLLOW THE MATERIAL (the contrast pass): they are SOLVED against the stone's
+  mean colour (`ui::ResolveInks` -> `Skin::inkGold` & co.): an ink is kept where
+  it reads at WCAG 4.5:1, else moved toward pale gold or dark bronze, whichever
+  gets there with the smaller change (Michael, 2026-10-02: the gold blended into
+  the party page's buttons - the old brightness-only rule darkened it on the
+  mid-toned materials, the wrong way, and left the snows at 1.2:1). Hover stays
+  brighter than the gold; disabled fades toward the stone (`CarvedDisabled`).
+  The solve logs `ui material <name>: gold r,g,b reads N:1` on every change, and
+  `uimaterial <name>` previews one. GameUI::ApplyLegibility also rings small text
   harder there and sets `Skin::calm`, a wash of the stone's own mean colour over
   every face but a slot, from stones.cat `detail` (a band-pass of the baked tile
   at glyph scale; `BuildUiStones.py --index-only` rewrites mean + detail from the

@@ -765,17 +765,29 @@ void DrawCarvedText(gfx::SpriteBatch& batch, const Font& font, std::string_view 
 					float x, float y, const Vec4& fill);
 // The gold in a carved word, and the same gold lit (the selected / hovered
 // stone) - one set, so every carved face in the game agrees. They follow the
-// MATERIAL (Skin::luma): pale gold sinks into a pale stone, so on a light one
-// the gold deepens toward bronze - the contrast pass (more-ui-updates). A null
-// skin gets the dark-stone colours.
+// MATERIAL: each is the skin's ink, solved by ResolveInks against the stone's
+// mean colour. A null skin gets the dark-stone colours.
 Vec4 CarvedGold(const Skin* skin);
 Vec4 CarvedLit(const Skin* skin);
 // A card's title, a shade brighter than the words under it.
 Vec4 CarvedTitle(const Skin* skin);
-// Carved but unpainted: the cut alone, its floor a little paler than a dark
-// stone (darker than a light one) - for the quieter words on a stone (a
-// save's date, a world's folder).
+// Carved but unpainted: the cut alone, quieter than the gold - for the
+// secondary words on a stone (a save's date, a world's folder).
 Vec4 CarvedPlain(const Skin* skin);
+// A disabled carved word: the gold faded toward the stone it is cut in.
+Vec4 CarvedDisabled(const Skin* skin);
+// Solves `skin`'s inks against its `stoneMean`: each authored ink is kept if its
+// WCAG contrast ratio against the mean already reaches kInkContrast (the plain
+// one kInkContrastPlain), else moved toward pale gold or dark bronze - whichever
+// gets there with the smaller change, or the end that reads best when neither
+// does (a mid-grey stone caps every colour near 5:1). The lit ink is kept
+// brighter than the gold so a hover still shows. Call when the material changes.
+inline constexpr float kInkContrast = 4.5f;
+inline constexpr float kInkContrastPlain = 3.0f;
+void ResolveInks(Skin& skin);
+// The WCAG contrast ratio of two sRGB colours (1 = identical .. 21 = black on
+// white); alpha is ignored. For the ink solve and `uimaterial`'s report.
+float ContrastRatio(const Vec4& a, const Vec4& b);
 
 // A container that scrolls its children vertically when they overflow it.
 // Children are authored as fractions of ContentRect() — this widget's rect
