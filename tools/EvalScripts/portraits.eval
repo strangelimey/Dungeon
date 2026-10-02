@@ -1,0 +1,23 @@
+; portraits.eval - a member's portrait is an id that round-trips through a save.
+;
+; Run:  Dungeon.exe -headless -eval <path to this file>, then read dungeon.log.
+; What it should show (docs/portraits-plan.md, phase 2):
+;   - the four defaults, each loaded (no "NOT LOADED");
+;   - Sera changed to corax001;
+;   - a reset puts Sera back on her default;
+;   - loading the save brings corax001 back.
+; (An id the catalog lacks is refused - `portrait 3 no_such_portrait` - but a
+; refusal fails the run, so that is checked by hand, not here.)
+
+logecho on
+reset
+portrait
+
+portrait 1 corax001
+save eval_portraits
+
+reset
+portrait 1
+
+load eval_portraits
+portrait

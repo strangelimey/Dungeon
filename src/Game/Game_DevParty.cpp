@@ -115,6 +115,38 @@ void Game::RegisterPartyCommands() {
 												   m_characters[i].IsAlive() ? "up" : "down");
 						   m_console.Print(line);
 					   });
+	// Portraits by id (portraits phase 2): bare lists every member's portrait
+	// with its tags; a member and an id sets it, as the picker will (refused
+	// for an id portraits.cat does not list).
+	m_console.Register({.name = "portrait",
+						.group = CmdGroup::Characters,
+						.params = "[member] [id]",
+						.summary = "report or set a member's portrait (a portraits.cat id)"},
+					   [this](const std::vector<std::string>& args) {
+						   size_t first = 0, last = m_characters.size();
+						   if (!args.empty()) {
+							   const int m = std::atoi(args[0].c_str());
+							   if (m < 0 || m >= static_cast<int>(m_characters.size())) {
+								   m_console.Refuse("no such member");
+								   return;
+							   }
+							   first = static_cast<size_t>(m);
+							   last = first + 1;
+							   if (args.size() >= 2 && !SetPortrait(first, args[1])) {
+								   m_console.Refuse(std::format("{} is not in portraits.cat", args[1]));
+								   return;
+							   }
+						   }
+						   for (size_t i = first; i < last; ++i) {
+							   const Character& c = m_characters[i];
+							   const CatalogEntry* e = m_portraitCatalog.Find(c.portraitId);
+							   m_console.Print(std::format(
+								   "portrait {} {} {} [{} {} {} {}]{}", i, c.name, c.portraitId,
+								   CatalogGet(e, "source", "?"), CatalogGet(e, "race", "?"),
+								   CatalogGet(e, "sex", "?"), CatalogGet(e, "age", "?"),
+								   c.portrait ? "" : " - NOT LOADED"));
+						   }
+					   });
 	// Throwing (ui-updates Phase 10): the leader throws the item on the cursor,
 	// or a given catalog item from nowhere, straight ahead - what a click above
 	// the floor does, without having to aim one.

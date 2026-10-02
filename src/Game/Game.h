@@ -722,7 +722,16 @@ private:
 	// once as the last task lands, and again on demand (`loadstats`, which also
 	// echoes it into the console scrollback).
 	void LogLoadStats(bool echoToConsole = false);
-	void LoadPortraits();      // baked party portraits (load task)
+	void LoadPortraits();      // portrait catalog + every member's portrait (load task)
+	// Loads the portrait of every member whose portraitId differs from what is
+	// loaded for that slot (draining the GPU first, since in-flight frames still
+	// sample the old texture - the SRV recycling rule), and re-points every
+	// member's `portrait`. Cheap when nothing changed, so every path that can
+	// change an id (new game, load, SetPortrait) just calls it.
+	void SyncPortraits();
+	// Sets one member's portrait to a portraits.cat id. False (and nothing
+	// changes) for a member out of range or an id the catalog does not list.
+	bool SetPortrait(size_t member, const std::string& id);
 	void LoadHitSplats();      // hit-feedback splat icons (load task)
 	void LoadItemIcons();      // rune + placeholder item cursor/inventory icons (load task)
 
@@ -731,8 +740,9 @@ private:
 	// already held. True = a load is in flight and the caller is done.
 	bool OpenInLevel(const std::string& level, int x, int z);
 	void StartNewGame();
-	// Resets the roster to a fresh default party in place, keeping each slot's
-	// loaded portrait. The HUD/sheet widgets address members by (roster, index)
+	// Resets the roster to a fresh default party in place; each slot's portrait
+	// returns to its default id (SyncPortraits reloads only a changed one). The
+	// HUD/sheet widgets address members by (roster, index)
 	// and re-resolve every frame, so even a roster RESIZE can't dangle them —
 	// but a size change must still call GameUI::RebuildForRoster (deferred, not
 	// from a widget callback) to re-lay-out the per-member widgets. Shared by
@@ -943,9 +953,14 @@ private:
 	// StartNewGame resets the members in place.
 	bool m_harnessOpensInLevel = false;
 	std::vector<Character> m_characters;
-	// Baked portrait textures, parallel to m_characters (entries may be null
-	// when the asset is missing; Character::portrait points in here).
+	// Portrait textures, parallel to m_characters (entries may be null when the
+	// image is missing; Character::portrait points in here), and the id each
+	// slot's texture was loaded for - nullopt = never loaded, so a missing image
+	// is tried once rather than on every sync.
 	std::vector<std::unique_ptr<gfx::Texture>> m_portraitTextures;
+	std::vector<std::optional<std::string>> m_portraitIds;
+	// assets/portraits/portraits.cat: every portrait that ships, with its tags.
+	Catalog m_portraitCatalog;
 	// Hit-feedback splat icons (small/medium/hard) + the pointer struct the
 	// party bar reads. The struct address is stable, handed to GameUI once at
 	// construction; LoadHitSplats fills it in during the staged load.

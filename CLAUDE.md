@@ -700,6 +700,15 @@ buffer, reused across all ~25 submissions).
   image look older than its .dds, so the skip-current bake skipped it - the
   fetch stamps each file it writes. Its last check demands a .dds per image,
   because a missing one still renders (the PNG fallback) and so hides.
+  IN THE GAME a member's portrait is an ID (`Character::portraitId`; the default
+  party's four are set in CreateDefaultParty) saved as a per-member `portrait
+  <i> <id>` line - absent in an older save, which keeps the default, so no
+  version bump. `Game::SyncPortraits` is the ONE loader: it reloads only a slot
+  whose id differs from what is loaded (draining the GPU first - the SRV rule)
+  and re-points `Character::portrait`, so every path that changes an id (new
+  game via ResetRoster, LoadGame, `Game::SetPortrait`) just calls it.
+  SetPortrait and LoadGame refuse an id portraits.cat does not list. Dev:
+  `portrait [member] [id]`; checked by `tools/EvalScripts/portraits.eval`.
 - Textures: PNG = source, .dds = derived BC7 mip chains (gitignored).
   The game loads the .dds and falls back to the PNG. TRAP, and why a rejected
   .dds now WARNS (TryLoadTextureFile): from 2026-06-11 to 2026-09-28 the DDS
@@ -2262,11 +2271,9 @@ Judged by `tools\EditorTest.py` (phase 12 onward).
   (the editor's Balance dialog / balance.cat + attacks.cat). No polearm or
   ranged weapon is authored yet (the reach/lane plumbing is ready); no
   healing source exists beyond unconscious self-stabilize (potions and a
-  heal spell are queued in the magic backlog). Portraits: the bought sets in
-  assets/portraits are installed (see the asset pipeline), but until the
-  portraits branch's phase 2 lands the game still draws the old busts,
-  assets/ui/portrait_<name>.png; the tinted-initial fallback draws if an image
-  is missing.
+  heal spell are queued in the magic backlog). Portraits are the bought sets
+  (see the asset pipeline); the tinted-initial fallback draws if an image is
+  missing.
 - Monster models are still simple procedural rigs (tapered-tube limbs + a
   skull for the humanoids, a lumpy sphere for the blob); a bought/authored
   rigged glTF would drop in via LoadModel (JOINTS_0 remap already handled).

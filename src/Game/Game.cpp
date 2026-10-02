@@ -735,19 +735,51 @@ void Game::LogLoadStats(bool echoToConsole) {
 }
 
 void Game::LoadPortraits() {
-	m_portraitTextures.clear();
-	for (Character& member : m_characters) {
-		std::string stem = "portrait_" + member.name;
-		std::ranges::transform(stem, stem.begin(), [](char c) {
-			return static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-		});
-		auto texture =
-			TryLoadTextureFile(m_device, paths::Asset("ui\\" + stem));
-		if (!texture)
-			log::Warn("missing {}.png — falling back to the initial tile", stem);
-		member.portrait = texture.get();
-		m_portraitTextures.push_back(std::move(texture));
+	m_portraitCatalog.Load(paths::Asset("portraits\\portraits.cat"));
+	if (m_portraitCatalog.Empty())
+		log::Warn("portraits.cat is missing or empty - members keep their ids, but "
+				  "nothing can be picked");
+	else
+		log::Info("portraits.cat: {} portraits", m_portraitCatalog.Entries().size());
+	// Forget what is loaded so every slot reloads (SyncPortraits drains first).
+	std::ranges::fill(m_portraitIds, std::nullopt);
+	SyncPortraits();
+}
+
+void Game::SyncPortraits() {
+	const size_t n = m_characters.size();
+	bool drained = false;
+	const auto drain = [&] {
+		if (!drained) m_device.WaitIdle();
+		drained = true;
+	};
+	if (m_portraitTextures.size() > n) drain(); // a shrinking roster frees some
+	m_portraitTextures.resize(n);
+	m_portraitIds.resize(n);
+	for (size_t i = 0; i < n; ++i) {
+		Character& member = m_characters[i];
+		if (m_portraitIds[i] != member.portraitId) {
+			if (m_portraitTextures[i]) drain();
+			m_portraitTextures[i].reset();
+			if (!member.portraitId.empty()) {
+				m_portraitTextures[i] = TryLoadTextureFile(
+					m_device, paths::Asset("portraits\\" + member.portraitId));
+				if (!m_portraitTextures[i])
+					log::Warn("missing portrait {} for {} - falling back to the initial "
+							  "tile (tools\\FetchPortraits.ps1 installs the set)",
+							  member.portraitId, member.name);
+			}
+			m_portraitIds[i] = member.portraitId;
+		}
+		member.portrait = m_portraitTextures[i].get();
 	}
+}
+
+bool Game::SetPortrait(size_t member, const std::string& id) {
+	if (member >= m_characters.size() || !m_portraitCatalog.Find(id)) return false;
+	m_characters[member].portraitId = id;
+	SyncPortraits();
+	return true;
 }
 
 void Game::LoadHitSplats() {
@@ -903,13 +935,12 @@ void Game::LoadItemIcons() {
 
 void Game::ResetRoster() {
 	// Element-wise so the addresses the party-bar panels and the sheet point at
-	// stay valid, keeping each slot's loaded portrait (the defaults carry null).
+	// stay valid. Each member returns to its DEFAULT portrait id; SyncPortraits
+	// re-points the textures, reloading only a slot whose id changed.
 	const std::vector<Character> fresh = CreateDefaultParty();
-	for (size_t i = 0; i < m_characters.size() && i < fresh.size(); ++i) {
-		const gfx::Texture* portrait = m_characters[i].portrait;
+	for (size_t i = 0; i < m_characters.size() && i < fresh.size(); ++i)
 		m_characters[i] = fresh[i];
-		m_characters[i].portrait = portrait;
-	}
+	SyncPortraits();
 	// CreateDefaultParty seeds the derived maxima at k=1; re-derive under the
 	// project's live balance knobs (fresh members are at full, so top them up).
 	m_world->RecomputePartyMaxima();
@@ -1126,6 +1157,7 @@ bool Game::SaveGame(const std::string& name) {
 		c.hasSupplies = true; // food and water (v25)
 		c.food = member.food;
 		c.water = member.water;
+		c.portrait = member.portraitId;
 		data.characters.push_back(std::move(c));
 	}
 	return WriteSave(data, SaveSlotPath(name));
@@ -1267,7 +1299,18 @@ bool Game::LoadGame(const std::string& path) {
 		// (an unconscious member starts their safe count fresh on load).
 		member.dead = c.dead;
 		member.stabilize = 0.0f;
+		// The portrait. Absent (an older save) keeps the default ResetRoster gave;
+		// an id the catalog no longer lists is refused the same way, out loud,
+		// rather than drawing the tinted initial for a portrait that was dropped.
+		if (!c.portrait.empty()) {
+			if (m_portraitCatalog.Find(c.portrait))
+				member.portraitId = c.portrait;
+			else
+				log::Warn("LoadGame: {}'s portrait {} is not in portraits.cat - "
+						  "keeping {}", member.name, c.portrait, member.portraitId);
+		}
 	}
+	SyncPortraits();
 	m_world->ApplyState(*data); // fills the per-level store + party pose/torch
 	// Restored hit points are not writes to explain (Game/DamageLedger.h): the
 	// values they replaced belong to a session that is over.

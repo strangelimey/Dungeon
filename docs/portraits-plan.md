@@ -111,6 +111,23 @@ DONE (2026-10-02). What it came to:
 Checked by: a save -> load round trip keeps a changed portrait; a new game resets
 it; AllocTest (default) still PASSES.
 
+DONE (2026-10-02). What it came to:
+- `Game::SyncPortraits` is the one loader (it replaced the plan's SetPortrait-
+  does-its-own-load): a slot reloads only when its id differs from what it
+  holds, so ResetRoster, LoadGame and SetPortrait all just call it.
+- The PortraitBaker was already gone; retiring the busts was the four PNGs and
+  the stale docs.
+- `tools/EvalScripts/portraits.eval` (headless) PASSES: defaults loaded, Sera ->
+  corax001, a reset restores her default, the save brings corax001 back. An
+  unknown id is refused (checked by hand - a refusal fails an eval run).
+- AllocTest default and -Sheet PASS. NEW: AllocTest started its game with Enter
+  on the landing page, which is Continue whenever a save exists - so it measured
+  whichever save was newest, and timed out on one whose level was already held.
+  It now starts with the console's `newgame`.
+- Cost to know: the portraits load task is 85 ms / 298k allocs in DEBUG, nearly
+  all of it parsing the 2879-entry catalog (a Field vector of strings per line).
+  Fine for a load task; if it ever matters, the catalog is the place to look.
+
 ## Phase 3 - the picker
 
 - `ThumbCache` (Game lib): the AssetPicker's thumbnail cache lifted out - load
