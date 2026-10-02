@@ -223,6 +223,38 @@ the pipeline check and AllocTest -Impact detonate one.
   each modifier, the thresholds, a douse surviving save/load.
 - `/check-ingame` (rune grid third row), `/check` quick tier, `/check-alloc`.
 
+### Phase 8 - as built (2026-10-01)
+
+- `tools\SpellTest.py` + `tools\EvalScripts\spells.eval`: 33 JUDGED checks
+  (the eval runner only reports) - every hand-spell outcome and its power
+  threshold, the waterskin's steps, the pebble's hand-then-feet, the recipe
+  grammar (four malformed recipes refused beside a well-formed one), Fire Bolt /
+  volley / burst, the plain, party and burst wards, the mage ladder, repel, a
+  douse surviving a save and NOT surviving a new game. `--selftest` cuts every
+  `cast` line and demands that exactly the spell-free checks still pass - which
+  is how it found five negative claims ("leaves it cold", "harms no one")
+  passing on nothing happening; each is tied to its cast now. In CheckAll's
+  quick tier (`spells`, 5 s).
+- `AllocTest.ps1 -Hand`: Kenaz / Laguz / Ansuz / Berkano round-robin
+  (`autocast`) at crypt1's wall torch, with fresh items (an unlit torch, an empty
+  skin, an empty hand) handed out after the warm-up so the item paths fall inside
+  the window; refuses a PASS unless every entry cast and every item was used.
+  CheckAll full tier (`alloc-hand`).
+- TWO BUGS IT FOUND. (1) A fire doused, then the level left, came back OUT in a
+  new game: the stashed static map kept the play flags. `StashStaticMap` now
+  resets fires and niches on the copy - the level's dynamic state, which every
+  way back in re-applies, carries them (mutation-checked: with the reset gone,
+  the new-game check fails). (2) Every fire lit or put out in play bumped the
+  map's `Revision()`, which rebuilt the AI walkability grid - three allocations
+  per hand spell. Play-time fire changes now `RecomputeTurbidity()` without the
+  bump; editor edits still bump.
+- Readouts added for the judge: `castsvc fire` prints `flare=`, `castsvc floor`
+  lists the items in the party's square, `char` lists a member's effects, and
+  `equip none` empties a hand. The AllocTest / TypingTest load wait also accepts
+  `Loaded game from` (Enter continues a save the evals leave behind; one that
+  loads inline printed nothing else, and the wait sat out its timeout).
+- Already moved in Phases 5-7: the evals and AllocTest -Cast / -Impact recipes.
+
 ## Phase 9 - Docs
 
 docs/spells.md and "docs/magic system.md" (tiers, runes, Futhark names),
