@@ -291,6 +291,7 @@ void DevConsole::RegisterProfileCommand() {
 						 m_profileExpanded = args[0] != "off" && args[0] != "0";
 					 else
 						 m_profileExpanded = !m_profileExpanded;
+					 NoteSectionsChanged();
 					 Print(std::format("profile panel {}",
 									   m_profileExpanded ? "expanded" : "collapsed"));
 				 }
@@ -1431,7 +1432,10 @@ void DevConsole::ProfileHover(float mx, float my) {
 }
 
 void DevConsole::ProfileClick(float mx, float my) {
-	if (m_profExpandBtn.Contains(mx, my)) m_profileExpanded = !m_profileExpanded;
+	if (m_profExpandBtn.Contains(mx, my)) {
+		m_profileExpanded = !m_profileExpanded;
+		NoteSectionsChanged();
+	}
 	if (m_profViewBtn.Contains(mx, my)) m_profileGraph = !m_profileGraph;
 	// Clicking a row of the tree drills into it: one level deeper each time,
 	// then back to inheriting. The zones it reveals are already compiled in and

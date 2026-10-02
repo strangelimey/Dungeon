@@ -249,6 +249,9 @@ void GameSettings::Load() {
 	ParseIniBool(text, "map_overview_collapsed=", mapOverviewCollapsed);
 	ParseIniBool(text, "map_key_collapsed=", mapKeyCollapsed);
 	ParseIniInt(text, "map_overview_scope=", mapOverviewScope);
+	ParseIniBool(text, "console_perf_expanded=", consolePerfExpanded);
+	ParseIniBool(text, "console_profile_expanded=", consoleProfileExpanded);
+	ParseIniBool(text, "console_threads_expanded=", consoleThreadsExpanded);
 	// The rest of the line, verbatim: the encoding has spaces, colons and
 	// points, which ParseIniString's token rule would stop at.
 	if (const size_t g = text.find("gen_knobs="); g != std::string::npos) {
@@ -330,6 +333,9 @@ void GameSettings::Save() const {
 						mapLegendWidth);
 	text += std::format("map_overview_collapsed={}\nmap_key_collapsed={}\nmap_overview_scope={}\n",
 						mapOverviewCollapsed ? 1 : 0, mapKeyCollapsed ? 1 : 0, mapOverviewScope);
+	text += std::format("console_perf_expanded={}\nconsole_profile_expanded={}\nconsole_threads_expanded={}\n",
+						consolePerfExpanded ? 1 : 0, consoleProfileExpanded ? 1 : 0,
+						consoleThreadsExpanded ? 1 : 0);
 	for (const HudPanelField& field : kHudPanelFields) {
 		const HudPanelLook& look = this->*(field.look);
 		text += std::format("hud_{0}_pos={1:.4f},{2:.4f}\nhud_{0}_scale={3:.2f}\nhud_{0}_opacity={4:.2f}\n",

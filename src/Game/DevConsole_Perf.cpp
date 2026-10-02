@@ -277,7 +277,10 @@ void DevConsole::DrawPerfSection(const PanelCtx& p, float top) {
 }
 
 void DevConsole::PerfClick(float mx, float my) {
-	if (m_perfExpandBtn.Contains(mx, my)) m_perfExpanded = !m_perfExpanded;
+	if (m_perfExpandBtn.Contains(mx, my)) {
+		m_perfExpanded = !m_perfExpanded;
+		NoteSectionsChanged();
+	}
 	if (m_perfViewBtn.Contains(mx, my)) m_perfGraph = !m_perfGraph;
 }
 

@@ -185,6 +185,11 @@ struct GameSettings {
 	int mapPaletteGrouping = 0;
 	int mapPaletteStage = 1;           // Build: where a new level's work starts
 	int mapPaletteKind = 0;
+	// The dev console's three readout sections (Perf / Profile / Threads):
+	// expanded or collapsed to their headers. All start collapsed.
+	bool consolePerfExpanded = false;
+	bool consoleProfileExpanded = false;
+	bool consoleThreadsExpanded = false;
 	// The FLOATING HUD panels (UI/FloatingPanel.h): each one's saved spot, scale,
 	// background opacity and whether it is minimized into the tray (PartyHudTypes.h
 	// HudPanelLook). kHudPanelFields below lists them and drives the ini
