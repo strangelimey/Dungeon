@@ -13,6 +13,7 @@
 #include "Game/DevCommandArgs.h"
 #include "Game/PartyHudDraw.h" // HeartRateTarget (hudbars)
 #include "Game/Spell/Spell.h"    // castsvc: a spell's blast payload
+#include "Game/SpellbookPanel.h" // book spell|cast|status
 
 #include <algorithm>
 #include <cctype>
@@ -1175,12 +1176,42 @@ void Game::RegisterPartyCommands() {
 	m_console.Register({.name = "book",
 						.group = CmdGroup::Characters,
 						.params = "[member]\n"
-								  "off",
-						.summary = "open or close a member's spellbook"},
+								  "off\n"
+								  "spell <symbol>...\n"
+								  "cast\n"
+								  "status",
+						.summary = "open or close a member's spellbook, build and cast in it"},
 					   [this](const std::vector<std::string>& args) {
 						   if (!args.empty() && args[0] == "off") {
 							   m_ui.CloseSpellbook();
 							   m_console.Print("book closed");
+							   return;
+						   }
+						   // The open book's slate, worked as its rune grid and Cast
+						   // button work it (SpellbookPanel::SetSequence / PressCast).
+						   SpellbookPanel* book = m_ui.Spellbook();
+						   if (!args.empty() && (args[0] == "spell" || args[0] == "cast" ||
+												 args[0] == "status")) {
+							   if (!book || !book->IsOpen()) {
+								   m_console.Refuse("no book is open (`book <member>` first)");
+								   return;
+							   }
+							   if (args[0] == "spell") {
+								   std::array<SpellSymbol, kMaxRecipe> seq{};
+								   size_t n = 0;
+								   for (size_t i = 1; i < args.size(); ++i) {
+									   if (n >= seq.size()) break;
+									   if (!ParseSymbolArg(m_console, args[i], seq[n])) return;
+									   ++n;
+								   }
+								   if (!book->SetSequence({seq.data(), n})) {
+									   m_console.Refuse("not laid: an unknown rune, or too many");
+									   return;
+								   }
+							   } else if (args[0] == "cast") {
+								   book->PressCast();
+							   }
+							   m_console.Print(std::format("book slate: {} rune(s)", book->SequenceLength()));
 							   return;
 						   }
 						   const size_t m =

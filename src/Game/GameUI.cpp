@@ -1905,7 +1905,7 @@ void GameUI::BuildHud() {
 	};
 	m_spellbook->onCast = [this](size_t member, std::span<const SpellSymbol> seq) {
 		Click();
-		if (onCastSequence) onCastSequence(member, kBookHands, seq);
+		return onCastSequence && onCastSequence(member, kBookHands, seq);
 	};
 
 	// Message log: screen-anchored, and it writes its own bounds each frame

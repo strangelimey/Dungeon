@@ -669,8 +669,10 @@ public:
 	// `hand` is the hand slot the cast was fired from (0 = left, 1 = right):
 	// a successful cast credits THAT hand's quick-cast MRU. -1 (dev console,
 	// no hand context) casts normally but touches no MRU.
+	// `outcome`, when given, says WHY a cast failed - the spellbook keeps its
+	// built spell when the caster merely lacked the mana.
 	bool CastSpell(size_t member, std::span<const SpellSymbol> sequence,
-				   int hand = -1);
+				   int hand = -1, MagicSystem::CastOutcome* outcome = nullptr);
 	// Same cast, referencing the recipe by catalog id (the hand-slot Magic menu
 	// stores "cast:<id>" defaults). All the same gates apply — the member must
 	// know the recipe's symbols and afford its mana. False on an unknown id.

@@ -171,6 +171,24 @@ cast 2 0 fire project
 
 ; --- TIER 2 and 3: bolts and their modifiers -----------------------------------
 
+; --- THE BOOK: a Cast refused for want of mana keeps the spell built ----------
+; Four Fire Bolts (8 mana each) leave Maren short; the book's Cast is then
+; refused and the slate must still hold the spell. After a heal it casts, and
+; the slate empties.
+echo === book-nomana ===
+heal
+cast 2 0 fire project
+cast 2 0 fire project
+cast 2 0 fire project
+cast 2 0 fire project
+party
+book 2
+book spell fire project
+book cast
+heal
+book cast
+book off
+
 echo === firebolt ===
 arena open 9 9
 freeze on

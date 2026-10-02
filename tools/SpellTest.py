@@ -51,6 +51,8 @@ SPELL_FREE = {
 	"and pressing it learns the rune and spends the tablet",
 	"a rune its holder already knows offers no Memorize, and is not spent",
 	"the dialog opened on no one's item offers no Memorize",
+	# the book's own Cast is not a `cast` line, so it still casts with them cut
+	"with the mana back it casts, and the slate empties",
 	"a torch doused before a save is out again after the load",
 	"a new game finds the torch doused in the last one lit",
 	"the adept's volleys hurt the party",
@@ -261,6 +263,16 @@ def judge(lines):
 		  "no modifier on tier 1, none out of order, one at most, none on Sight", f"{casts}")
 	check(len(casts) == 5 and casts[4] == "cast away", "the well-formed recipe beside them casts",
 		  f"{casts}")
+
+	print("THE BOOK - a Cast refused for want of mana keeps the spell")
+	sec = get("book-nomana")
+	slates = [int(m.group(1)) for l in sec if (m := re.match(r"book slate: (\d+)", l))]
+	mp = next((float(m.group(1)) for l in sec
+			   if (m := re.match(r"  \[2\] Maren\s+hp \S+\s+st \S+\s+mp ([\d.]+)/", l))), None)
+	check(mp is not None and mp < 8.0 and slates[:2] == [2, 2],
+		  "out of mana, the book's Cast is refused and the spell stays built",
+		  f"mp={mp} slates={slates}")
+	check(slates[2:3] == [0], "with the mana back it casts, and the slate empties", f"{slates}")
 
 	print("TIER 2 and 3 - bolts, volleys, bursts, wards")
 	t = tally(get("firebolt"))

@@ -303,6 +303,7 @@ public:
 	// dev `book` command's path, so a harness can hold a book open.
 	bool OpenSpellbook(size_t i);
 	void CloseSpellbook();
+	SpellbookPanel* Spellbook() { return m_spellbook; } // the dev `book` command
 
 	// --- message log ---------------------------------------------------------------
 	// Borrows the line: it is copied once, into the log's own ring slot, so
@@ -436,8 +437,9 @@ public:
 	// Member `i` casts a symbol sequence BUILT in the spellbook panel (the
 	// Magic area's member selector picks whose book) — wired to DungeonWorld::
 	// CastSpell (exact-recipe match; a miss fizzles). The hand argument is
-	// kBookHands: a book cast credits both hands' quick-cast MRU.
-	std::function<void(size_t, size_t, std::span<const SpellSymbol>)>
+	// kBookHands: a book cast credits both hands' quick-cast MRU. True = the
+	// caster lacked the mana, so the book keeps the spell built.
+	std::function<bool(size_t, size_t, std::span<const SpellSymbol>)>
 		onCastSequence;
 	// Member `i` eats or drinks the item with this catalog id — wired to
 	// DungeonWorld::ConsumeItem, which owns the catalogs and the two meters.

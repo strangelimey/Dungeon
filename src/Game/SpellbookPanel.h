@@ -66,9 +66,19 @@ public:
 	void Close();
 	bool IsOpen() const { return m_member >= 0; }
 
+	// The harness's hands (the dev `book spell|cast|status`): lay runes on the
+	// slate as the grid's clicks would (false, and nothing laid, if the member
+	// does not know one or there are too many), press Cast exactly as the button
+	// does, and read back what is built.
+	bool SetSequence(std::span<const SpellSymbol> seq);
+	void PressCast();
+	size_t SequenceLength() const { return m_seqLen; }
+
 	// Cast pressed: (member, the built sequence) — wired to the world's cast
-	// façade. Fired only with a non-empty sequence.
-	std::function<void(size_t, std::span<const SpellSymbol>)> onCast;
+	// façade. Fired only with a non-empty sequence. Returns true to KEEP the
+	// built spell (the caster lacked the mana - Michael: report it, but leave
+	// the spell to cast again); otherwise the slate empties.
+	std::function<bool(size_t, std::span<const SpellSymbol>)> onCast;
 	// The spell registry, for the live "= <spell>" match label (GameUI's
 	// spellDefs source). Null-safe: no registry, no label.
 	std::function<std::span<const std::unique_ptr<Spell>>()> spells;

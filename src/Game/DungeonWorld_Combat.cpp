@@ -1928,7 +1928,7 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 // ============================================================================
 
 bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequence,
-							 int hand) {
+							 int hand, MagicSystem::CastOutcome* outcome) {
 	if (!m_roster || member >= m_roster->size()) return false;
 	Character& caster = (*m_roster)[member];
 	if (!caster.IsAlive()) return false;
@@ -1956,6 +1956,7 @@ bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequenc
 	const MagicSystem::CastReport r =
 		m_magic.Cast(caster, static_cast<int>(member), sequence, origin, dir, castHand,
 					 std::span<Character>(*m_roster), m_combatRng);
+	if (outcome) *outcome = r.outcome;
 	switch (r.outcome) {
 	case MagicSystem::CastOutcome::Cast:
 		// The spell's own Cast() override has already landed the effect

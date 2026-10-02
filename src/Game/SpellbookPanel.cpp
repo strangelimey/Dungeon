@@ -65,9 +65,13 @@ SpellbookPanel::SpellbookPanel(const gfx::Rect& rect,
 	// The action runs at the bottom of the button's push (ui::Button), so it
 	// re-reads the state then rather than trusting what was true at the click.
 	m_castButton = Add<ui::Button>(gfx::Rect{}, m_castLabel, [this] {
+		bool keep = false;
 		if (m_member >= 0 && m_seqLen > 0 && onCast)
-			onCast(static_cast<size_t>(m_member), Sequence());
-		m_seqLen = 0; // the slate empties either way (a fizzle is spent)
+			keep = onCast(static_cast<size_t>(m_member), Sequence());
+		// The slate empties after a cast, a fizzle or a fumble (that mana is
+		// spent); a cast refused for want of mana spent nothing, so the spell
+		// stays built for when the mana is back.
+		if (!keep) m_seqLen = 0;
 	});
 	m_clearButton = Add<ui::Button>(gfx::Rect{}, m_clearLabel, [this] {
 		if (m_seqLen == 0) return;
@@ -122,6 +126,22 @@ void SpellbookPanel::SelectMember(size_t member) {
 void SpellbookPanel::Close() {
 	m_member = -1;
 	m_seqLen = 0;
+}
+
+bool SpellbookPanel::SetSequence(std::span<const SpellSymbol> seq) {
+	if (m_member < 0 || !m_roster || static_cast<size_t>(m_member) >= m_roster->size() ||
+		seq.size() > kMaxSequence)
+		return false;
+	const Character& c = (*m_roster)[static_cast<size_t>(m_member)];
+	for (SpellSymbol s : seq)
+		if (!c.Knows(s)) return false;
+	m_seqLen = 0;
+	for (SpellSymbol s : seq) m_sequence[m_seqLen++] = s;
+	return true;
+}
+
+void SpellbookPanel::PressCast() {
+	if (m_castButton && m_castButton->onClick) m_castButton->onClick();
 }
 
 bool SpellbookPanel::MemberEligible(size_t i) const {

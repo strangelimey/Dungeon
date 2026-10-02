@@ -233,7 +233,9 @@ void Game::WireModuleCallbacks() {
 	// kBookHands so the cast credits both hands' quick-cast MRU.
 	m_ui.onCastSequence = [this](size_t member, size_t hand,
 								 std::span<const SpellSymbol> seq) {
-		m_world->CastSpell(member, seq, static_cast<int>(hand));
+		MagicSystem::CastOutcome outcome = MagicSystem::CastOutcome::Cast;
+		m_world->CastSpell(member, seq, static_cast<int>(hand), &outcome);
+		return outcome == MagicSystem::CastOutcome::NoMana; // keep the spell built
 	};
 	// Eating and drinking: the world owns the catalogs and the two supply
 	// meters, so it does the arithmetic and reports what it actually restored.
