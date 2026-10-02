@@ -144,6 +144,10 @@ public:
 	// details dialog's turning preview). False for an item that is not lit or
 	// has no model.
 	bool ItemFlameHead(const std::string& typeId, Vec3& head);
+	// Where a rune tablet's carved face sits in its baked icon (uv box, 0..1 from
+	// the top-left), the same for every rune: DrawItemIcon lays the school's
+	// glow over it. False before the tablet mesh is loaded.
+	bool RuneFaceUv(Vec2& lo, Vec2& hi) const;
 	// Builds the kind of EVERY catalog item, at load. A kind's first build
 	// loads its model or its rune's PBR set (a first rune drop measured 246
 	// allocations / 2 MB in a guarded frame), and an item can reach the floor
@@ -2801,6 +2805,18 @@ private:
 	void BakeIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
 				  const MultiMaterialModel& model, const gfx::Texture& target,
 				  bool animated, float spin, bool torch = false);
+	// The carved tablet's material for a HELD view (icon, details dialog):
+	// the rune's set, darker stone, the groove glowing in its school's colour.
+	void RuneTabletMaterial(gfx::MaterialParams& mat, const ItemKind& kind) const;
+	// A rune's icon: its carved tablet in its own texture set (RuneTabletIconWorld).
+	void BakeRuneIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
+					  const ItemKind& kind, const gfx::Texture& target);
+	// Both bakes' bracket: Begin redirects the OM at `target`, clears it, lays
+	// the halo and opens the scene with the icon camera + studio rig; the caller
+	// draws; End hands `target` back as a shader resource.
+	void BeginItemIconBake(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
+						   const gfx::Texture& target);
+	void EndItemIconBake(ID3D12GraphicsCommandList* list, const gfx::Texture& target);
 	// Draws every submesh of an authored multi-material model at `world`, each with
 	// its own glTF material. Shared by decorations, floor items, and the icon bake.
 	void DrawMultiMaterial(ID3D12GraphicsCommandList* list,

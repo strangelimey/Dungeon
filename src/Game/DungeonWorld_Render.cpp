@@ -6,6 +6,7 @@
 // GraphicsDevice::BeginFrame already cleared and bound.
 // ============================================================================
 #include "Game/DungeonWorld.h"
+#include "Game/PartyHudDraw.h" // RuneGlowColor (the tablet's groove glow)
 
 #include "Core/Profile.h"
 #include "Assets/Image.h"
@@ -681,10 +682,15 @@ void DungeonWorld::UpdateItemIcons(ID3D12GraphicsCommandList* list,
 	const float spin = IconSpinAngle();
 	bool any = false;
 	for (auto&& [id, kind] : m_itemKinds) {
-		if (!kind->model || !kind->iconTarget) continue;
+		if (!kind->iconTarget) continue;
 		if (m_itemIconsBaked && !kind->iconAnimated) continue; // static, already baked
-		BakeIcon(list, sprites, *kind->model, *kind->iconTarget, kind->iconAnimated, spin,
-				 /*torch=*/kind->Lit() || !kind->litAs.empty());
+		if (kind->model)
+			BakeIcon(list, sprites, *kind->model, *kind->iconTarget, kind->iconAnimated, spin,
+					 /*torch=*/kind->Lit() || !kind->litAs.empty());
+		else if (kind->isRune && m_runeMesh)
+			BakeRuneIcon(list, sprites, *kind, *kind->iconTarget);
+		else
+			continue;
 		any = true;
 	}
 	m_itemIconsBaked = true;
@@ -836,6 +842,93 @@ bool DungeonWorld::ItemFlameUv(const std::string& typeId, Vec2& uv) {
 void DungeonWorld::BakeIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
 							const MultiMaterialModel& model, const gfx::Texture& target,
 							bool animated, float spin, bool torch) {
+	BeginItemIconBake(list, sprites, target);
+	Mat4 world;
+	XMStoreFloat4x4(&world, ItemIconWorld(model.boundsMin, model.boundsMax, animated, spin, torch));
+	DrawMultiMaterial(list, model, world);
+	EndItemIconBake(list, target);
+}
+
+// A RUNE's icon: its carved tablet (the shared m_runeMesh in the rune's own
+// texture set), stood face-on with a slight turn so the groove reads and the
+// face is a near-rectangle - DrawItemIcon lays the school's glow over that
+// face (RuneFaceUv), so the glyph and its halo have to line up.
+static XMMATRIX RuneTabletIconWorld(const Vec3& lo, const Vec3& hi) {
+	const Vec3 c{(lo.x + hi.x) * 0.5f, (lo.y + hi.y) * 0.5f, (lo.z + hi.z) * 0.5f};
+	const float longest = std::max({hi.x - lo.x, hi.y - lo.y, hi.z - lo.z, 1e-3f});
+	const float s = 1.30f / longest;
+	return XMMatrixTranslation(-c.x, -c.y, -c.z) * XMMatrixScaling(s, s, s) *
+		   XMMatrixRotationY(kPi + 0.22f) * XMMatrixRotationX(-0.08f);
+}
+
+void DungeonWorld::BakeRuneIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
+								const ItemKind& kind, const gfx::Texture& target) {
+	BeginItemIconBake(list, sprites, target);
+	gfx::MaterialParams mat;
+	RuneTabletMaterial(mat, kind);
+	Mat4 world;
+	XMStoreFloat4x4(&world, RuneTabletIconWorld(m_runeBoundsMin, m_runeBoundsMax));
+	m_renderer.DrawMesh(list, *m_runeMesh, world, mat);
+	EndItemIconBake(list, target);
+}
+
+void DungeonWorld::RuneTabletMaterial(gfx::MaterialParams& mat, const ItemKind& kind) const {
+	const Vec4 base = m_runeModel.materials.empty() ? Vec4{1, 1, 1, 1}
+													: m_runeModel.materials[0].baseColorFactor;
+	ApplyPropMaterial(mat, kind.tex, base, 0.85f);
+	mat.doubleSided = false;
+	// Darker than the floor's: the studio rigs light a held item brightly, and
+	// at full albedo the pale stone came out near-white, a form rune's white
+	// glow lost on it. The factor multiplies the albedo map.
+	constexpr float kStone = 0.55f;
+	mat.baseColor = {mat.baseColor.x * kStone, mat.baseColor.y * kStone,
+					 mat.baseColor.z * kStone, mat.baseColor.w};
+	// The groove glows in the school's colour - the one the Magic window and
+	// the sockets' halo use - at the pulse's mean (the details dialog breathes
+	// it round that; the baked icon holds it and breathes a halo over it).
+	if (kind.isRune) {
+		const Vec4 c = RuneGlowColor(kind.runeSymbol);
+		mat.emissive = {c.x, c.y, c.z};
+		mat.emissiveGroove = kRuneGrooveMean;
+	}
+}
+
+bool DungeonWorld::RuneFaceUv(Vec2& lo, Vec2& hi) const {
+	if (!m_runeMesh) return false;
+	// The broad face the camera sees: the tablet's AABB at its near Z, through
+	// the very pose and camera the icon was baked with.
+	const Vec3 a = m_runeBoundsMin, b = m_runeBoundsMax;
+	const XMMATRIX m = RuneTabletIconWorld(a, b) * [] {
+		const Mat4 vp = IconCamera().ViewProj();
+		return XMLoadFloat4x4(&vp);
+	}();
+	// Both broad faces carry the glyph; the one nearer the camera is the seen one.
+	float bestDepth = 1e9f;
+	const float zs[2] = {a.z, b.z};
+	for (const float z : zs) {
+		Vec2 flo{1e9f, 1e9f}, fhi{-1e9f, -1e9f};
+		float depth = 0.0f;
+		for (int i = 0; i < 4; ++i) {
+			const XMVECTOR p = XMVectorSet(i & 1 ? b.x : a.x, i & 2 ? b.y : a.y, z, 1.0f);
+			XMFLOAT4 c;
+			XMStoreFloat4(&c, XMVector4Transform(p, m));
+			if (c.w <= 0.01f) return false;
+			depth += c.w;
+			const Vec2 uv{0.5f + 0.5f * c.x / c.w, 0.5f - 0.5f * c.y / c.w};
+			flo = {std::min(flo.x, uv.x), std::min(flo.y, uv.y)};
+			fhi = {std::max(fhi.x, uv.x), std::max(fhi.y, uv.y)};
+		}
+		if (depth < bestDepth) {
+			bestDepth = depth;
+			lo = flo;
+			hi = fhi;
+		}
+	}
+	return true;
+}
+
+void DungeonWorld::BeginItemIconBake(ID3D12GraphicsCommandList* list,
+									 gfx::SpriteBatch& sprites, const gfx::Texture& target) {
 	D3D12_RESOURCE_BARRIER toRT = gfx::Transition(
 		target.Resource(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
 		D3D12_RESOURCE_STATE_RENDER_TARGET);
@@ -862,16 +955,13 @@ void DungeonWorld::BakeIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& s
 					   {0, 0, 1, 1}, *m_iconHalo, kHaloColor);
 	sprites.End();
 
-	Mat4 world;
-	XMStoreFloat4x4(&world, ItemIconWorld(model.boundsMin, model.boundsMax, animated, spin, torch));
-
-	const gfx::Camera cam = IconCamera();
-
 	// The shared studio rig (see IconStudioLights above) — the background stays
-	// transparent, the item just floats, lit bright.
-	m_renderer.BeginScene(list, cam, IconStudioLights());
-	DrawMultiMaterial(list, model, world);
+	// transparent, the item just floats, lit bright. The caller draws next.
+	m_renderer.BeginScene(list, IconCamera(), IconStudioLights());
+}
 
+void DungeonWorld::EndItemIconBake(ID3D12GraphicsCommandList* list,
+								   const gfx::Texture& target) {
 	D3D12_RESOURCE_BARRIER toSRV = gfx::Transition(
 		target.Resource(), D3D12_RESOURCE_STATE_RENDER_TARGET,
 		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);

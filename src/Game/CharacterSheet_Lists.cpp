@@ -343,8 +343,8 @@ void CharacterSheet::DrawSpellRow(size_t i, ui::UIContext& ctx,
 	float nameX = textX;
 	for (SpellSymbol sym : row.symbols) {
 		const gfx::Rect ir{nameX, r.y, ish, ish};
-		// The rune glows, as it does in every socket (DrawItemIcon).
-		if (!DrawItemIcon(batch, ir, RuneItemId(sym), m_icons, 0.0f)) {
+		// A spell control: the rune is its glowing glyph, never the tablet.
+		if (!DrawItemIcon(batch, ir, RuneItemId(sym), m_icons, 0.0f, /*symbolic=*/true)) {
 			const Vec4 sc = ElementColor(sym);
 			batch.DrawRect(ir, {sc.x, sc.y, sc.z, 0.6f});
 		}

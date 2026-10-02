@@ -870,6 +870,24 @@ void Game::LoadItemIcons() {
 		m_itemIcons.runeGlyph[i] = m_runeGlyphTextures[i].get();
 		m_itemIcons.runeGlow[i] = m_runeGlowTextures[i].get();
 	}
+	// A rune in an item socket (pack, doll, cursor) is its CARVED TABLET, baked
+	// from the 3D model like any item, with its school's glow laid over the
+	// groove; the hand boxes and spell controls keep the glyph alone (Michael).
+	// The flat rune_icon PNG above stays the fallback while a tablet is missing.
+	{
+		std::array<const gfx::Texture*, kSymbolCount> tablets{};
+		bool all = m_world->RuneFaceUv(m_itemIcons.runeFaceLo, m_itemIcons.runeFaceHi);
+		for (u32 i = 0; all && i < kSymbolCount; ++i)
+			all = (tablets[i] = m_world->ItemIconFor(
+					   std::string(RuneItemId(static_cast<SpellSymbol>(i))))) != nullptr;
+		m_itemIcons.runeTablets = all;
+		if (all)
+			for (u32 i = 0; i < kSymbolCount; ++i)
+				m_itemIcons.byType[std::string(RuneItemId(static_cast<SpellSymbol>(i)))] =
+					tablets[i];
+		else
+			log::Warn("rune tablet icons not baked - runes keep their flat icon");
+	}
 	// Non-rune items: a model item uses its baked 3D thumbnail (rendered once by
 	// DungeonWorld; the same texture feeds every slot/grid/cursor instance);
 	// model-less items keep a generated solid category-tint placeholder.

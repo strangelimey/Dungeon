@@ -3,8 +3,9 @@
 //
 // One shared tablet MODEL plus four per-element TEXTURE sets and four ICONS:
 //   * rune_tablet.gltf — a small standing stone slab. Only the broad front and
-//     back faces carry the carved-rune UVs (full 0..1); the thin edges pin to a
-//     stone-only corner of the texture, so the glyph shows once on each face.
+//     back faces carry the carved-rune UVs (full 0..1); the thin edges take the
+//     plain stone strips round the texture's border, so the glyph shows once on
+//     each face and the edges keep the stone's grain.
 //   * rune_<elem>_2k.png (+ _n + _mr) — a stone HEIGHT FIELD with an Elder
 //     Futhark glyph carved in as a recessed groove (lower height). Albedo, the
 //     normal+height map (parallax in scene.hlsl), and the ORM map all derive
@@ -405,17 +406,28 @@ assets::ModelData BuildRuneTablet() {
 			}
 	};
 
-	const Vec2 s{0.5f, 0.97f}; // thin edges pin to a stone-only texel
-	constexpr int N = 7;       // broad-face subdivisions
-	constexpr int M = 2;       // thin-edge subdivisions
+	constexpr int N = 7; // broad-face subdivisions
+	constexpr int M = 2; // thin-edge subdivisions
 	const float h = y1 - y0;
-	// Broad faces carry the glyph (full 0..1, rune upright); edges stay stone.
+	// Broad faces carry the glyph (full 0..1, rune upright). The thin EDGES are
+	// stone: each takes the plain strip of the texture's border beside it (the
+	// strokes, kHalfWidth wide, stay inside u 0.20..0.80 and v 0.10..0.90), so
+	// they show the stone's grain. They used to pin to ONE texel, which drew a
+	// flat smear down every edge (Michael, seen turning in the details dialog).
+	// The strips stop short of the glyph by a few coarse-mip texels, since the
+	// held tablet's groove glow reads a blurred mip of the carve (scene.hlsl).
+	constexpr float kSideU0 = 0.02f, kSideU1 = 0.14f; // left edge; right mirrors
+	constexpr float kCapV = 0.05f;                     // top strip; bottom mirrors
 	addFace({-hx, y0, hz}, {2 * hx, 0, 0}, {0, h, 0}, N, N, {0, 1}, {1, 1}, {1, 0}, {0, 0});  // front +Z
 	addFace({hx, y0, -hz}, {-2 * hx, 0, 0}, {0, h, 0}, N, N, {0, 1}, {1, 1}, {1, 0}, {0, 0}); // back -Z
-	addFace({-hx, y0, -hz}, {0, 0, 2 * hz}, {0, h, 0}, M, N, s, s, s, s);                     // left -X
-	addFace({hx, y0, hz}, {0, 0, -2 * hz}, {0, h, 0}, M, N, s, s, s, s);                      // right +X
-	addFace({-hx, y1, hz}, {2 * hx, 0, 0}, {0, 0, -2 * hz}, N, M, s, s, s, s);                // top +Y
-	addFace({-hx, y0, -hz}, {2 * hx, 0, 0}, {0, 0, 2 * hz}, N, M, s, s, s, s);                // bottom -Y
+	addFace({-hx, y0, -hz}, {0, 0, 2 * hz}, {0, h, 0}, M, N, {kSideU0, 1}, {kSideU1, 1},
+			{kSideU1, 0}, {kSideU0, 0}); // left -X
+	addFace({hx, y0, hz}, {0, 0, -2 * hz}, {0, h, 0}, M, N, {1 - kSideU0, 1}, {1 - kSideU1, 1},
+			{1 - kSideU1, 0}, {1 - kSideU0, 0}); // right +X
+	addFace({-hx, y1, hz}, {2 * hx, 0, 0}, {0, 0, -2 * hz}, N, M, {0, kCapV}, {1, kCapV},
+			{1, 0}, {0, 0}); // top +Y
+	addFace({-hx, y0, -hz}, {2 * hx, 0, 0}, {0, 0, 2 * hz}, N, M, {0, 1 - kCapV},
+			{1, 1 - kCapV}, {1, 1}, {0, 1}); // bottom -Y
 
 	// The tablet is proportioned in METRES above (~17 cm wide), like every prop;
 	// models on disk are UNIT space (1.0 = one dungeon square — see game::kUnit

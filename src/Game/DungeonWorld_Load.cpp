@@ -921,10 +921,14 @@ size_t DungeonWorld::FillItemPreview(const ItemKind& kind,
 		fitMax = kind.model->boundsMax;
 	} else if (m_runeMesh && !out.empty()) { // rune / placeholder: the carved tablet
 		gfx::MaterialParams mat;
-		const Vec4 base = m_runeModel.materials.empty()
-							  ? Vec4{1, 1, 1, 1}
-							  : m_runeModel.materials[0].baseColorFactor;
-		ApplyPropMaterial(mat, kind.tex, base, 0.85f);
+		if (kind.isRune) {
+			RuneTabletMaterial(mat, kind); // as its icon shows it: the groove lit
+		} else {
+			const Vec4 base = m_runeModel.materials.empty()
+								  ? Vec4{1, 1, 1, 1}
+								  : m_runeModel.materials[0].baseColorFactor;
+			ApplyPropMaterial(mat, kind.tex, base, 0.85f);
+		}
 		out[n++] = {m_runeMesh.get(), mat};
 		// AABB of the tablet's vertices, for framing it.
 		fitMin = {1e9f, 1e9f, 1e9f};
@@ -1248,9 +1252,12 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		// A model item owns a render-target texture for its baked 3D icon (drawn
 		// once by BakeItemIconsIfNeeded; the icon bank points at it). Placeholder
 		// items leave iconTarget null and keep their flat category swatch.
-		if (kind->model) {
+		// A RUNE bakes one too, of its carved tablet (BakeRuneIcon; Michael: the
+		// pack should show the tablet, the glyph alone is for the hand and spell
+		// controls).
+		if (kind->model || (kind->isRune && m_runeMesh)) {
 			kind->iconTarget = gfx::Texture::RenderTarget(m_device, kIconSize);
-			kind->iconAnimated = CatalogBool(def, "icon_spin", false);
+			kind->iconAnimated = kind->model && CatalogBool(def, "icon_spin", false);
 			m_itemIconsBaked = false; // a freshly added icon needs baking
 		}
 		// Uniform size trim over the authored unit size, like DecorationKind's.

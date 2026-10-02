@@ -6,6 +6,7 @@
 #include "Core/Loc.h"
 #include "Game/AssetUtil.h"
 #include "Game/DialogLayout.h"
+#include "Game/PartyHudDraw.h" // the rune groove's breath (kRuneGroove*)
 #include "UI/Controls.h"
 #include "UI/Layout.h"
 #include "UI/TextWrap.h"
@@ -253,8 +254,15 @@ bool ItemDetailsDialog::MemorizeShown() const { return m_memorize && m_memorize-
 void ItemDetailsDialog::Update(const Input& input, float w, float h, float dt) {
 	if (!m_open) return;
 	m_ui.UseFont(ui::FontRole::Body, std::clamp(h * 0.020f, 12.0f, 24.0f));
-	m_spin = std::fmod(m_spin + dt * (2.0f * std::numbers::pi_v<float> / kSpinSeconds),
-					   2.0f * std::numbers::pi_v<float>);
+	constexpr float kTwoPi = 2.0f * std::numbers::pi_v<float>;
+	m_spin = std::fmod(m_spin + dt * (kTwoPi / kSpinSeconds), kTwoPi);
+	// A rune tablet's groove breathes as its halo does in the pack (the same
+	// colour and the same 3.4 s breath), round the mean its icon holds.
+	m_breath = std::fmod(m_breath + dt * (kTwoPi / kRuneBreathSeconds), kTwoPi);
+	for (size_t i = 0; i < m_subCount; ++i)
+		if (m_subs[i].material.emissiveGroove > 0.0f)
+			m_subs[i].material.emissiveGroove =
+				kRuneGrooveMean + kRuneGrooveSwing * std::sin(m_breath);
 	m_ui.Update(input, w, h);
 }
 

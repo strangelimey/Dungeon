@@ -88,6 +88,12 @@ void DrawRuneFace(gfx::SpriteBatch& batch, const gfx::Rect& r, SpellSymbol s,
 // colour its icon is drawn in (tools/BuildRuneGlow.py prints them) - and WHITE
 // for the form runes, which belong to no school (Michael, ui-updates: "for now").
 Vec4 RuneGlowColor(SpellSymbol s);
+// A rune TABLET's groove glow (MaterialParams::emissiveGroove): its mean, what
+// the baked item icon holds, and how far the details dialog breathes it either
+// side - on the same 3.4 s breath as the sockets' halo (kRuneBreathSeconds).
+inline constexpr float kRuneGrooveMean = 0.35f;
+inline constexpr float kRuneGrooveSwing = 0.18f;
+inline constexpr float kRuneBreathSeconds = 3.4f;
 
 // A rune in the MAGIC WINDOW: its glyph alone, lit in RuneGlowColor over a soft
 // halo of the same colour that PULSES slowly - `phase` in radians, so each rune
@@ -98,15 +104,16 @@ void DrawRuneGlow(gfx::SpriteBatch& batch, const gfx::Rect& r, SpellSymbol s,
 				  const ItemIconBank* icons, bool hot, bool disabled, float phase);
 
 // An ITEM in a socket `r` (the caller draws the socket): its icon, inset by
-// `pad` of the socket's width - except a RUNE TABLET, which is drawn the way the
-// Magic window draws a rune, its glyph lit over a pulsing halo (DrawRuneGlow;
-// Michael, ui-updates: the flat tile read as 2D beside the Magic window's).
-// Every item socket draws through this - hands, the doll, the backpack, the
-// party inventory - so a rune reads the same wherever it sits. A BURNING item
+// `pad` of the socket's width. A RUNE is its baked CARVED TABLET with the
+// school's halo breathing over the groove (Michael, 2026-10-02) - unless
+// `symbolic`, which the HAND BOXES and the SPELL controls pass: there it is the
+// glyph alone, lit as the Magic window draws it (DrawRuneGlow). Every item
+// socket draws through this - hands, the doll, the backpack, the party
+// inventory, the cursor. A BURNING item
 // (a lit torch) wears its flame over the icon (DrawHeldFlame). False = nothing
 // to draw (empty id, no icon).
 bool DrawItemIcon(gfx::SpriteBatch& batch, const gfx::Rect& r, std::string_view typeId,
-				  const ItemIconBank* icons, float pad = 0.1f);
+				  const ItemIconBank* icons, float pad = 0.1f, bool symbolic = false);
 
 // A flame standing on the head of a burning item's icon `in`: `at` is the head
 // in the icon (uv), the flame a stack of three tinted `flame` sprites (body,

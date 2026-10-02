@@ -406,7 +406,18 @@ float4 PSMain(PSInput input) : SV_TARGET {
 	// Element glow as an AURA rather than a panel: weak across the face,
 	// intensifying at grazing angles (Fresnel) so the rune's silhouette/edges
 	// glow and the stone still reads as stone. Zero for everything but runes.
-	if (any(gEmissive.rgb > 0.0)) {
+	if (gEmissive.w > 0.0 && gUseMRMap != 0) {
+		// A rune tablet's GROOVE lit from within (the item icon and details
+		// dialog): the carve decoded from the rune set's occlusion (RuneBaker
+		// writes 1 - 0.45 x carve), crisp in the groove plus a soft halo read
+		// from a coarse mip - at least level 5, so the halo is the same size on
+		// the tablet however small it is drawn.
+		const float lod = gMetalRough.CalculateLevelOfDetail(gSampler, uv);
+		const float crisp = saturate((1.0 - gMetalRough.Sample(gSampler, uv).r) / 0.45);
+		const float soft =
+			saturate((1.0 - gMetalRough.SampleLevel(gSampler, uv, max(lod + 2.0, 5.0)).r) / 0.45);
+		color += gEmissive.rgb * gEmissive.w * (crisp + 2.5 * soft);
+	} else if (any(gEmissive.rgb > 0.0)) {
 		const float3 viewDir = normalize(gCameraPos.xyz - input.worldPos);
 		const float rim = pow(1.0 - saturate(dot(normal, viewDir)), 2.5);
 		color += gEmissive.rgb * (0.30 + 0.70 * rim);
