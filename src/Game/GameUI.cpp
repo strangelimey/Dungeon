@@ -165,7 +165,7 @@ void GameUI::BuildStaticUi() {
 	BuildCharacterSheet();
 	// The item details dialog, built whole now so a right-click only fills it.
 	m_itemDetails = std::make_unique<ItemDetailsDialog>(m_device, m_fonts);
-	// The portrait picker, likewise (Game::LoadPortraits fills it).
+	// The portrait picker, likewise (Game::LoadPortraitCatalog fills it).
 	m_portraitPicker = std::make_unique<PortraitPicker>(m_device, m_fonts);
 	ApplyTheme(); // again, now the dialog exists to receive it (the skin
 				  // arrives with LoadTitleArt, whose ApplySkin reaches it too)

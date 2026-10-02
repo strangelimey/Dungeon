@@ -723,7 +723,8 @@ private:
 	// once as the last task lands, and again on demand (`loadstats`, which also
 	// echoes it into the console scrollback).
 	void LogLoadStats(bool echoToConsole = false);
-	void LoadPortraits();      // portrait catalog + every member's portrait (load task)
+	void LoadPortraitCatalog(); // portraits.cat (boot load task: party creation reads it)
+	void LoadPortraits();      // every member's portrait (game load task)
 	// Loads the portrait of every member whose portraitId differs from what is
 	// loaded for that slot (draining the GPU first, since in-flight frames still
 	// sample the old texture - the SRV recycling rule), and re-points every

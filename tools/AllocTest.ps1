@@ -262,6 +262,11 @@ param(
 	# Lifts a rock off the floor and throws it at a wall, round and round,
 	# inside the window (ui-updates Phase 10). See the note at the setup.
 	[switch]$Throw,
+	# Starts with a CREATED party instead of the default four: a `newparty` spec
+	# (party creation, docs/party-creation-plan.md phase 2), e.g.
+	# 'premade=0 | premade=1 | premade=2' for three. Any mode runs under it; the
+	# member loops below walk only the members it builds.
+	[string]$Party = '',
 	# Checks the CHECKER: makes the game allocate every frame on purpose
 	# (`allocpoke`) and passes only if the run comes back FAIL.
 	[switch]$SelfTest
@@ -280,6 +285,11 @@ if (-not $env:DN_HARNESS_MUTED) { exit (Invoke-Muted $bin $PSCommandPath $PSBoun
 
 $exe = Join-Path $bin 'Dungeon.exe'
 $log = Join-Path $bin 'dungeon.log'
+
+# How many members the run plays: the default four, or one per `|`-separated
+# member of -Party.
+$memberCount = if ($Party) { @($Party -split '\|').Count } else { 4 }
+if ($memberCount -lt 1 -or $memberCount -gt 4) { throw "-Party names $memberCount members; a party has 1 to 4" }
 
 if (-not (Test-Path $exe)) { throw "no build at $exe - run build.cmd $Config first" }
 # THIS build's exe only: another worktree's game is a different process with its
@@ -671,7 +681,12 @@ try {
 		$started = [bool](Select-String -Path $log -Pattern 'console: > logecho on' -EA SilentlyContinue)
 	}
 	if (-not $started) { throw 'the console never accepted a command on the title screen' }
-	Send-Text 'newgame'; Send-Key 0x0D
+	if ($Party) {
+		Write-Host "  with a created party of $memberCount"
+		Send-Text "newparty $Party"; Send-Key 0x0D
+	} else {
+		Send-Text 'newgame'; Send-Key 0x0D
+	}
 	Start-Sleep -Milliseconds 300
 	Send-Key 0xC0
 	# NOT 'Game loaded:' - since the world loads on demand that line comes from
@@ -682,6 +697,11 @@ try {
 	$ready = Wait-ForLog '^\[info \] (Level ready: |New game started)' $LoadTimeoutSec 'the dungeon load'
 	Write-Host "  $($ready -replace '^\[info \] ', '')"
 	Start-Sleep -Milliseconds 500
+	# A REFUSED `newparty` still ends in a game - the default four's - so the run
+	# would measure the wrong party and PASS. The command's own line is the proof.
+	if ($Party -and -not (Select-String -Path $log -Pattern "console: new game with a party of $memberCount\b" -EA SilentlyContinue)) {
+		throw "newparty did not build the party of $memberCount (see dungeon.log)"
+	}
 
 	# AND WAIT UNTIL THE CONSOLE ANSWERS before relying on it. The first level
 	# being ready still does not mean commands are live: Enter on the landing
@@ -729,7 +749,7 @@ try {
 		# so one stray press eats every command after it) would leave a run that
 		# looks exactly like a clean one. The `party` line below is the evidence.
 		Send-Text 'logecho on'; Send-Key 0x0D
-		foreach ($m in 0, 1, 2, 3) {
+		foreach ($m in 0..($memberCount - 1)) {
 			# Level the practices first (a level-up inside the window is an
 			# event, and events are allowed to allocate - see the header).
 			foreach ($s in 'constitution', 'conditioning', 'attunement') {
@@ -997,7 +1017,7 @@ try {
 			$script:stones += [pscustomobject]@{ X = [int]$Matches[1]; Y = [int]$Matches[2] }
 		}
 		$script:cardPoints = @()
-		for ($m = 0; $m -lt 4; $m++) { $script:cardPoints += Get-InventorySlotPoint $m 0 }
+		for ($m = 0; $m -lt $memberCount; $m++) { $script:cardPoints += Get-InventorySlotPoint $m 0 }
 		Send-Text 'inventory off'; Send-Key 0x0D
 		Send-Text 'sheet 0'; Send-Key 0x0D
 		Send-Key 0xC0
@@ -1111,7 +1131,7 @@ try {
 		# leave any member's pack full.
 		$status = Get-InventoryStatus
 		$member = -1
-		for ($m = 0; $m -lt 4 -and $member -lt 0; $m++) {
+		for ($m = 0; $m -lt $memberCount -and $member -lt 0; $m++) {
 			if (@(Get-PackSlots $status $m | Where-Object { $_ -eq '-' }).Count -ge 2) { $member = $m }
 		}
 		if ($member -lt 0) { throw "no member has two free pack slots: $status" }
@@ -1242,7 +1262,7 @@ try {
 		# Continued eval save can leave any member's pack full).
 		$status = Get-InventoryStatus
 		$member = -1
-		for ($m = 0; $m -lt 4 -and $member -lt 0; $m++) {
+		for ($m = 0; $m -lt $memberCount -and $member -lt 0; $m++) {
 			if (@(Get-PackSlots $status $m | Where-Object { $_ -eq '-' }).Count -ge 2) { $member = $m }
 		}
 		if ($member -lt 0) { throw "no member has two free pack slots: $status" }

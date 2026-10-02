@@ -1029,9 +1029,22 @@ a RACE, the points they spend and the skills they pick, then whatever they do.
 - Dev: `newparty default | <member> [| <member> ...]` (key=value words: name=
   race= portrait= color=rrggbb points=s,d,v,w,i skills=a,b items=a,b premade=n;
   the `|` is its own word) starts a new game with that party; `roster` prints
-  what each member was made from. Checked by `tools/EvalScripts/
+  what each member was made from. `newparty` works on the TITLE SCREEN too: with
+  no world resident it opens the default one first, as Start New Game does (and
+  portraits.cat loads with the BOOT load, `Game::LoadPortraitCatalog`, so a face
+  can be checked before any game). Checked by `tools/EvalScripts/
   partycreation.eval` (a created 2-member party survives save -> reset -> load)
   and RollTest's "Party creation" section.
+- PARTIES OF 1-4 IN PLAY: everything placed by roster SLOT treats a missing
+  member as a fallen one - a lone member stands front-left, a third rear-left,
+  and the per-file blocking rule opens a file whose near member is absent, so
+  the member behind the hole is reachable from that side. The `parties` eval
+  suite (smallparty.eval) measures it: from behind, a party of three is hurt on
+  Sera and Maren and never on Brand. `AllocTest -Party '<spec>'` runs any mode
+  with a created party (refusing a PASS if `newparty` did not build it), and
+  InGameTest sweeps a party of three and of one. The four-slot tables (monster
+  threat, its save line, the bar's slots) are static_asserted against
+  `party::kMaxMembers`; the Magic dock draws no button for an empty slot.
 
 The HUD's top bar shows the party — 1..4 members; party creation
 lets the player build fewer than 4, and the bar always reserves four slots
@@ -2180,8 +2193,9 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   PASS unless all three landed) and `-Minimal` (any mode under the card layout,
   switched FIRST since the rebuild would close -Cast's book; refuses a PASS
   unless the cards were up); InGameTest sweeps `sweep_inventory` and
-  `sweep_minimal`. A roster of one or three is NOT exercised - nothing can build
-  one yet.
+  `sweep_minimal`. Short rosters are exercised now (see PARTY CREATION):
+  `AllocTest -Party <spec>` runs any mode with one, and InGameTest sweeps a
+  party of three and of one.
 
 ## Tool refinement (tool-refinement branch; docs/tool-refinement-plan.md)
 

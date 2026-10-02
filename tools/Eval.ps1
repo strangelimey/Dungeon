@@ -179,6 +179,11 @@ $suites = @(
 		name = 'expedition'; script = 'expedition.eval'
 		what = 'fight, retreat, rest, repeat - how many fights a load of supplies buys'
 		measure = '===|TALLY |rested [0-9.]+s|  \[0\] Brand|state '
+	},
+	@{
+		name = 'parties'; script = 'smallparty.eval'
+		what = 'parties of one, three and two: who the formation lets a monster reach'
+		measure = '===|  \[[0-9]\]|TALLY |roster [0-9]|rested [0-9.]+s|state '
 	}
 )
 

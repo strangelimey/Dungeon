@@ -97,6 +97,32 @@ DONE (2026-10-02). What it came to:
   existing combat / resources suites' shape; AllocTest default and `-Sheet` with a
   3-member party; InGameTest's HUD sweep with 1 and 3.
 
+DONE (2026-10-02). The survey's "places that assume four" were already
+guarded: the formation is by slot (a lone member stands front-left, a third
+rear-left), the per-file blocking rule treats a missing member as a fallen one
+(so the member behind a hole is reachable), the lane hit, the wild fumble and
+the threat loops all stop at the roster's end, and the HUD, sheet, party window
+and Minimal cards lay out whatever count they find. So the phase was proving it,
+which found three real things:
+- `newparty` was refused on the TITLE SCREEN: the world is built only when a
+  game starts, and the command was gated off without one. It now opens the
+  default world first, as Start New Game does, and the portrait catalog loads
+  with the BOOT load (`Game::LoadPortraitCatalog`) so a face can be checked
+  before any game - both of which phase 3's page needs anyway.
+- The Magic dock's member row drew all four buttons; a short party showed dead
+  ones. A slot past the roster's end now has no button (the columns stay put).
+- The four-slot tables (a monster's threat, the save's threat line, the party
+  bar's slots) are static_asserted against `party::kMaxMembers`.
+Checked: the new `parties` eval suite (smallparty.eval: one, three and two
+members, melee from ahead and behind, an archer, a throw, casts from either
+rank, the rear-rank reach rule, a rest) - from behind, the three-member party is
+hurt only on Sera and Maren, never on Brand, exactly as the blocking rule says;
+all eleven suites PASS. AllocTest `-Party <spec>` (new; refuses a PASS if the
+party was not built): default, -Sheet, -All, -Minimal and -Cast with three
+members, default and -Minimal with one, all PASS. InGameTest sweeps
+`sweep_party3` (+sheet, inventory, minimal) and `sweep_party1` (+minimal), and
+demands both parties were really built: PASS, all clean.
+
 ## Phase 3 - the creation page
 
 - `MenuPage::PartyCreation` (GameUI, its own TU), reached from the world pick

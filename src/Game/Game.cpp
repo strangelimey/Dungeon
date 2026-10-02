@@ -472,7 +472,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 			"allocpoke", "crashpoke", "health", "throttle", "governor",
 			"threadspawn", "threadwedge", "threadprio", "threadaffinity",
 			"threadreap", "uitree", "uioverlap", "logecho", "timescale", "state",
-			"worlds", "newgame", "reset",
+			"worlds", "newgame", "reset", "newparty",
 		};
 		for (std::string_view n : kNoWorldNeeded)
 			if (n == name) return {};
@@ -645,6 +645,10 @@ void Game::BuildBootLoadTasks() {
 							audio::AudioEngine::kMaxVoices / formatCount);
 	}, "sounds");
 	m_loadQueue.Add(loc::Tr("load.title_art"), [this] { m_ui.LoadTitleArt(); }, "title art");
+	// The portrait CATALOG (text, no images) comes with the menu: a party is
+	// made before any game loads, and its faces are checked against it.
+	m_loadQueue.Add(loc::Tr("load.portraits"), [this] { LoadPortraitCatalog(); },
+					"portrait catalog");
 }
 
 void Game::BuildGameLoadTasks() {
@@ -735,7 +739,7 @@ void Game::LogLoadStats(bool echoToConsole) {
 						static_cast<double>(s->bytes) / (1024.0 * 1024.0), s->name));
 }
 
-void Game::LoadPortraits() {
+void Game::LoadPortraitCatalog() {
 	m_portraitCatalog.Load(paths::Asset("portraits\\portraits.cat"));
 	if (m_portraitCatalog.Empty())
 		log::Warn("portraits.cat is missing or empty - members keep their ids, but "
@@ -743,6 +747,12 @@ void Game::LoadPortraits() {
 	else
 		log::Info("portraits.cat: {} portraits", m_portraitCatalog.Entries().size());
 	if (PortraitPicker* picker = m_ui.Portraits()) picker->SetCatalog(m_portraitCatalog);
+}
+
+void Game::LoadPortraits() {
+	// The catalog came with the boot load; a world's load re-reads it only if
+	// that found nothing (a missing file stays a warning, not a crash).
+	if (m_portraitCatalog.Empty()) LoadPortraitCatalog();
 	// Forget what is loaded so every slot reloads (SyncPortraits drains first).
 	std::ranges::fill(m_portraitIds, std::nullopt);
 	SyncPortraits();

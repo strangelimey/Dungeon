@@ -147,6 +147,9 @@ MemberButton::MemberButton(size_t member, const std::vector<Character>* roster,
 
 void MemberButton::UpdateSelf(ui::UIContext& ctx) {
 	m_hot = false;
+	// A slot past the roster's end is nobody: no button at all (a short party
+	// keeps the four columns, so the others stay where they are).
+	if (!RosterMember(m_roster, m_member)) return;
 	const Input* input = ctx.CurrentInput();
 	if (!input || ctx.IsMouseConsumed()) return;
 	if (!Pixel().Contains(input->MouseX(), input->MouseY())) return;
@@ -167,8 +170,8 @@ void MemberButton::UpdateSelf(ui::UIContext& ctx) {
 void MemberButton::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const ui::Theme& theme = ctx.GetTheme();
 	const gfx::Rect& r = Pixel();
-	const Character* m =
-		m_roster && m_member < m_roster->size() ? &(*m_roster)[m_member] : nullptr;
+	const Character* m = RosterMember(m_roster, m_member);
+	if (!m) return; // nobody in this slot (see UpdateSelf)
 	const bool eligible = m_eligible && m_eligible(m_member);
 	const bool selected = static_cast<int>(m_member) == *m_selected;
 	const Vec4 col = m ? m->portraitColor : theme.control;

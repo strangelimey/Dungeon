@@ -12,14 +12,23 @@
 #include "Game/Game.h"
 
 #include "Core/Log.h"
-#include "Game/Balance.h" // ParseResists
+#include "Game/Balance.h"  // ParseResists
+#include "Game/PartyBar.h" // kSlots
+#include "Game/SaveGame.h" // EntityState::threat
 
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <format>
+#include <tuple>
 
 namespace dungeon::game {
+
+// THE FOUR-SLOT TABLES hold the biggest party the rules allow. A monster's
+// per-member threat is copied straight to and from the save's (so one check
+// covers both), and the party bar reserves a slot per member.
+static_assert(std::tuple_size_v<decltype(SaveData::EntityState::threat)> >= party::kMaxMembers);
+static_assert(PartyBar::kSlots >= party::kMaxMembers);
 
 namespace {
 
@@ -231,8 +240,16 @@ void Game::RegisterPartyCreationCommands() {
 				m_console.RefuseUsage();
 				return;
 			}
-			if (!m_world || !m_ui.onStartNewGame) {
-				m_console.Refuse("load a world first");
+			// On the title screen no world is resident yet; open the default one,
+			// as Start New Game would (Game_Wiring's onStartNewGame), so the spec
+			// is checked against the catalogs the game will play.
+			if (!m_world && !LoadWorld(m_defaultWorld)) {
+				m_console.Refuse(
+					std::format("the default world '{}' could not be opened", m_defaultWorld));
+				return;
+			}
+			if (!m_ui.onStartNewGame) {
+				m_console.Refuse("the game is not wired yet");
 				return;
 			}
 			if (args.size() == 1 && args[0] == "default") {
