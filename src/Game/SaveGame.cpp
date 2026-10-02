@@ -222,6 +222,9 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 		t += std::format("supply {} {:.3f} {:.3f}\n", i, c.food, c.water);
 		// "dead <i>" — the overkill flag (v18), written only when set.
 		if (c.dead) t += std::format("dead {}\n", i);
+		// "portrait <i> <id>" - the portraits.cat id. An id is one token (the
+		// catalog's ids are filenames), so it needs no escaping.
+		if (!c.portrait.empty()) t += std::format("portrait {} {}\n", i, c.portrait);
 		// "share <i> <value>" — the offense stance (v23), written only when it
 		// is off all-out. An all-out party is the overwhelming case and a line
 		// per member per save would be noise.
@@ -505,6 +508,9 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 		} else if (kw == "dead" && tok.size() >= 2) {
 			// The overkill flag (v18): present = this member is DEAD.
 			CharAt(data, tok[1]).dead = true;
+		} else if (kw == "portrait" && tok.size() >= 3) {
+			// The portraits.cat id: "portrait <i> <id>". Absent = the default's.
+			CharAt(data, tok[1]).portrait = tok[2];
 		} else if (kw == "skill" && tok.size() >= 4) {
 			// Skill XP pairs: "skill <i> <id> <xp> ..." (v15).
 			SaveData::CharState& c = CharAt(data, tok[1]);

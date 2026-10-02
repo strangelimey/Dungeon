@@ -161,6 +161,9 @@ struct SaveData {
 		// took deliberate overkill — never self-stabilizes. Absent = alive or
 		// unconscious.
 		bool dead = false;
+		// The portrait id ("portrait" line, portraits.cat). Empty = a save older
+		// than portraits by id, which keeps the default party's.
+		std::string portrait;
 	};
 	std::vector<CharState> characters;
 

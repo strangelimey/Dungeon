@@ -283,6 +283,10 @@ public:
 	// shown member's inventory; GameUI resolves it.
 	std::function<void(ItemPlace)> onItemDetails;
 	std::function<void(ItemPlace)> onItemUse;
+	// The "Change portrait" button under the name (docs/portraits-plan.md P4):
+	// GameUI opens the portrait picker for the shown member. A card has no
+	// portrait and so no button.
+	std::function<void()> onChangePortrait;
 	// The card's background opacity, read live (Settings -> UI; the sheet is a
 	// floating window, ui-panels P3b). Null = opaque.
 	const float* opacity = nullptr;

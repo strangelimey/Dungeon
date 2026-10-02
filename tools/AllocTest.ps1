@@ -652,9 +652,28 @@ try {
 	$hwnd = $proc.MainWindowHandle
 	if ($hwnd -eq [IntPtr]::Zero) { throw 'the game has no main window' }
 
-	# Landing page: with no save present the first entry is Start New Game.
+	# START A NEW GAME THROUGH THE CONSOLE, not the landing page. Enter there is
+	# the FIRST entry, which is Continue whenever a loadable save exists - and
+	# the eval suites and other sessions leave saves behind in the one shared
+	# Documents\DungeonSaves. So the run measured whichever save was newest, and
+	# one whose level the world already held printed neither line waited for
+	# below, timing the run out (portraits branch, 2026-10-02). `newgame` calls
+	# the menu entry's own callback (Game_DevEval.cpp), so this is the same new
+	# game whatever the menu holds. logecho first, so the retry can see a
+	# command land.
 	Write-Host 'starting a new game'
-	Send-Key 0x0D
+	Send-Key 0xC0
+	Start-Sleep -Milliseconds 500
+	$started = $false
+	for ($try = 1; $try -le 10 -and -not $started; $try++) {
+		Send-Text 'logecho on'; Send-Key 0x0D
+		Start-Sleep -Milliseconds 500
+		$started = [bool](Select-String -Path $log -Pattern 'console: > logecho on' -EA SilentlyContinue)
+	}
+	if (-not $started) { throw 'the console never accepted a command on the title screen' }
+	Send-Text 'newgame'; Send-Key 0x0D
+	Start-Sleep -Milliseconds 300
+	Send-Key 0xC0
 	# NOT 'Game loaded:' - since the world loads on demand that line comes from
 	# a load TASK, before the starting level's own load has begun, and every
 	# console command typed then is refused as "still loading". A level load

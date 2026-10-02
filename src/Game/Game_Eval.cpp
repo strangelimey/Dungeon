@@ -58,7 +58,7 @@ bool Game::ResetForEval() {
 		return true;
 	}
 	m_world->ResetForEval();
-	ResetRoster();  // fresh members, keeping each slot's loaded portrait
+	ResetRoster();  // fresh members, default portraits (reloaded only if changed)
 	m_ui.RefreshSheet();
 	m_ui.ClearLog();
 	ApplyPartySpeed();

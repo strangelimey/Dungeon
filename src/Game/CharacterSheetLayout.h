@@ -129,6 +129,11 @@ inline constexpr float kModeBtnY = 0.236f;
 inline constexpr float kPortraitX = 0.031f * kWiden, kPortraitY = 0.036f;
 inline constexpr float kPortraitW = 0.128f * kWiden, kPortraitH = 0.179f;
 inline constexpr float kNameX = 0.179f * kWiden, kNameY = 0.054f;
+// "Change portrait", under the name with its foot on the portrait's - the one
+// free strip beside the portrait, so it reads as belonging to it.
+inline constexpr float kPortraitBtnW = 0.24f * kWiden, kPortraitBtnH = 0.055f;
+inline constexpr float kPortraitBtnX = kNameX;
+inline constexpr float kPortraitBtnY = kPortraitY + kPortraitH - kPortraitBtnH;
 
 // --- stats / skills columns -------------------------------------------------
 inline constexpr float kLabelX = 0.072f;
