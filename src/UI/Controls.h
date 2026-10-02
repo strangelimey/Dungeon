@@ -178,6 +178,11 @@ public:
 	// plays, all of it, and never delays the action; a press dragged off before
 	// release has already acted, so it completes rather than cancelling.
 	bool fireOnPress = false;
+	// CARVED WORDS on a cut stone (more-ui-updates: the save, load and world
+	// pages - Michael: "that needs the same treatment"): with a skin that has
+	// the block part, a text button draws as the menus' entries do, its label
+	// carved in gold, lit while the pointer is over it. No skin = the plain face.
+	bool carved = false;
 	// Plays the push with no click and no action - the movement pad presses a
 	// stone when the KEYBOARD moves the party. Ignored while the mouse holds it.
 	void PressVisual();
@@ -629,9 +634,11 @@ public:
 			const gfx::Texture* const* icon, std::function<void()> onDeleteClick);
 
 private:
+	using Clock = std::chrono::steady_clock;
 	void UpdateSelf(UIContext& ctx) override;
 	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 	gfx::Rect DeleteRect() const; // square icon button at the row's right end
+	float Depth() const;          // the push: 0 up .. 1 down
 
 	std::string m_primary, m_secondary;
 	std::function<void()> m_onActivate;
@@ -640,6 +647,15 @@ private:
 	bool m_deletable;
 	bool m_hot = false;
 	bool m_hotDelete = false;
+	// THE PUSH, as a menu entry has it (more-ui-updates): a press sinks the row,
+	// the RELEASE over it completes the push and the row acts at the bottom of
+	// the sink (Button's clock); released elsewhere it only rises. The delete
+	// icon is not pushed - it opens its confirm on the press, as it did.
+	bool m_held = false;
+	bool m_sinking = false;
+	bool m_rising = false;
+	Clock::time_point m_pressAt{};
+	Clock::time_point m_riseAt{};
 };
 
 class SlotList : public Widget {
@@ -701,23 +717,59 @@ public:
 	void SetLabel(size_t index, std::string label);
 
 	int Selected() const { return m_selected; }
+	size_t Count() const { return m_items.size(); }
+	const std::string& Label(size_t index) const { return m_items[index].label; }
 	void UpdateSelf(UIContext& ctx) override;
 	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
+
+	// The space between two entries, in rem.
+	float gapRem = 0.3f;
+
+	// THE PUSH (more-ui-updates Phase 4: the pause and title menus, Michael):
+	// an entry is pressed like any button - it sinks, ACTS ON RELEASE over it
+	// (drag off to cancel; Enter / Space press the selected one), and rises,
+	// on Button's clock (kSinkSeconds / kHoldSeconds / kRiseSeconds). Skinned,
+	// each entry is a CUT-STONE block with its word carved in (DrawCarvedText),
+	// the selected one's gold lit; the flat look keeps the accent bar.
 
 private:
 	struct Item {
 		std::string label;
 		std::function<void()> onActivate;
 	};
+	using Clock = std::chrono::steady_clock;
 
 	gfx::Rect ItemRect(size_t index) const;
 	void MoveSelection(int delta);
-	void Activate();
+	void Activate(int index);
+	// How far entry `index` is pushed: 0 up .. 1 down.
+	float Depth(int index) const;
 
 	std::vector<Item> m_items;
 	float m_itemHeight;
 	int m_selected = 0;
+	int m_pushItem = -1;     // the entry being pressed, or -1
+	bool m_held = false;     // the mouse still holds it
+	bool m_sinking = false;  // released / Enter: completing, then it acts
+	bool m_rising = false;   // acted (or cancelled): coming back up
+	Clock::time_point m_pressAt{};
+	Clock::time_point m_riseAt{};
 };
+
+// WORDS CARVED INTO STONE (more-ui-updates): `text` at (x, y) as an incised
+// cut lit from the top-left - its near edge in shadow, its far edge catching
+// the light - with `fill` (gold, for the menus) lying in it. The context's text
+// outline is suspended around it, since a ring round each of the three layers
+// reads as paint, not a cut. Allocation-free.
+void DrawCarvedText(gfx::SpriteBatch& batch, const Font& font, std::string_view text,
+					float x, float y, const Vec4& fill);
+// The gold in a carved word, and the same gold lit (the selected / hovered
+// stone) - one pair, so every carved face in the game agrees.
+inline constexpr Vec4 kCarvedGold{0.80f, 0.62f, 0.26f, 1.0f};
+inline constexpr Vec4 kCarvedLit{1.0f, 0.86f, 0.46f, 1.0f};
+// Carved but unpainted: the cut alone, its floor a little paler than the
+// stone - for the quieter words on a stone (a save's date, a world's folder).
+inline constexpr Vec4 kCarvedPlain{0.78f, 0.74f, 0.66f, 0.80f};
 
 // A container that scrolls its children vertically when they overflow it.
 // Children are authored as fractions of ContentRect() — this widget's rect

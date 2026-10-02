@@ -8,6 +8,7 @@
 #include "Game/AssetUtil.h"
 #include "Game/HudTray.h"
 #include "Game/MemberCards.h"
+#include "Game/MenuPanel.h"
 #include "Game/PartyHudDraw.h" // the resource bars' heartbeat (TickResourceBars)
 #include "Game/Project.h"
 #include "Game/SaveGame.h"
@@ -64,10 +65,13 @@ constexpr float kMenuTitleY = 0.16f;
 constexpr float kMenuSubtitleY = kMenuTitleY + 74.0f / kFontDesignWindowH;
 constexpr float kMenuContentY =
 	kMenuSubtitleY + (kMenuFontH + 20.0f) / kFontDesignWindowH;
-// Where the saves page parks its Back button. The list above it is SIZED from
-// this rather than authored separately, so moving the content start can never
-// push the button off the bottom.
-constexpr float kSavesBackY = 0.85f;
+// The bottom of the save / load / world pages' stone card. Everything on the
+// card is stacked inside it, so nothing can be pushed off its foot.
+constexpr float kSavesCardBottom = 0.95f;
+// One slot on those pages, in rem, gap included (SlotList::rowHeight): its
+// stone is the height of a menu entry's (MenuPanel::kEntryRem), and the save
+// name's field and the Save / Back stones match it.
+constexpr float kSlotRowRem = 2.1f;
 
 // Widget bounds are normalized fractions [0..1] of their container
 // (see Widget.h). Layouts are authored directly in those fractions — never
@@ -341,11 +345,12 @@ void GameUI::BuildMenuList() {
 	// +1 for Exit, which is always present: it is the ONLY pointer-driven way out
 	// of the title screen now that Esc no longer quits (see Game.cpp's Menu case).
 	const int itemCount = (hasSaves ? 5 : 3) + 1; // Editor sits under Start
-	constexpr float kMenuW = 0.26f;   // ~420/1600
-	constexpr float kItemH = 0.064f;  // ~58/900
-	const float menuH = kItemH * static_cast<float>(itemCount);
-	auto* menu = m_menuUi.Add<ui::MenuList>(gfx::Rect{(1.0f - kMenuW) * 0.5f, 0.42f, kMenuW, menuH},
-		1.0f / static_cast<float>(itemCount));
+	// The same stone card as the pause menu (Michael chose both), untitled:
+	// the game's own title stays over the art, and the card starts just under
+	// its subtitle.
+	auto* panel = m_menuUi.Add<MenuPanel>(std::string(), static_cast<size_t>(itemCount),
+										  kMenuContentY + 0.02f);
+	ui::MenuList* menu = panel->List();
 
 	// Order: Continue / Load (only when a save exists), then Start New Game just
 	// above Settings. Continue loads the most recent save outright (no browser).
@@ -852,11 +857,12 @@ void GameUI::BuildPauseMenu() {
 	const bool hasSaves = !ListSaves().empty();
 	m_menuHasSaves = hasSaves;
 	const int itemCount = hasSaves ? 6 : 5;
-	constexpr float kMenuW = 0.26f;
-	constexpr float kItemH = 0.064f;
-	const float menuH = kItemH * static_cast<float>(itemCount);
-	auto* menu = m_pauseUi.Add<ui::MenuList>(gfx::Rect{(1.0f - kMenuW) * 0.5f, 0.42f, kMenuW, menuH},
-		1.0f / static_cast<float>(itemCount));
+	// A stone card, centred, with the title carved on it and the entries as
+	// cut stones (Game/MenuPanel.h; more-ui-updates Phase 4). RenderPauseOverlay
+	// no longer draws the title above it on this page.
+	auto* panel = m_pauseUi.Add<MenuPanel>(loc::Tr("pause.title"),
+										   static_cast<size_t>(itemCount), -1.0f);
+	ui::MenuList* menu = panel->List();
 	menu->AddItem(loc::Tr("menu.save"), [this] {
 		Click();
 		OpenSavesPage(SavesMode::Save);
@@ -905,16 +911,18 @@ void GameUI::OpenSavesPage(SavesMode mode) {
 
 	const std::vector<SaveSlot> slots = ListSaves();
 
-	// Column as window fractions (~720/1600 wide, centered).
-	constexpr float kColW = 0.45f;
-	constexpr float kColX = (1.0f - kColW) * 0.5f;
-	constexpr float kRowH = 0.05f;
-	constexpr float kLabelH = 0.032f;
+	// The page is a stone card with its title carved on it and its rows in one
+	// Stack (more-ui-updates: the same treatment as the pause and title menus).
+	// The slots are cut stones that press and act on release; Save and Back are
+	// carved stones. Nothing below writes a coordinate.
+	ui::Stack* col = SavesCard(mode == SavesMode::Save ? "saves.title_save" : "saves.title_load");
 
-	// Builds the slots into a scroll box at [ly, ly+lh] (window fractions).
-	// Added LAST by the caller so its modal dialog claims the mouse first.
-	auto buildList = [&](float ly, float lh) {
-		auto* list = m_savesUi.Add<ui::SlotList>(gfx::Rect{kColX, ly, kColW, lh});
+	// Builds the slots into the column's filling row. The list sits ABOVE the
+	// Back row in add order, so Back is updated first: the list's delete confirm
+	// takes the pointer through ClaimPopup, not by being added last.
+	auto buildList = [&] {
+		auto* list = col->Row<ui::SlotList>(ui::Len::Fill());
+		list->rowHeight = kSlotRowRem;
 		list->deleteIcon = m_deleteIcon.get();
 		list->confirmPrompt = loc::Tr("saves.delete_prompt");
 		list->deleteLabel = loc::Tr("saves.delete");
@@ -949,60 +957,59 @@ void GameUI::OpenSavesPage(SavesMode mode) {
 		}
 	};
 
-	float backY = 0.0f;
-	bool wantList = false;
-	float listY = 0.0f, listH = 0.0f;
 	if (mode == SavesMode::Save) {
-		float y = kMenuContentY;
-		m_saveField = m_savesUi.Add<ui::TextField>(gfx::Rect{kColX, y, kColW, kRowH},
+		m_saveField = col->Row<ui::TextField>(ui::Len::Fixed(kSlotRowRem - 0.2f),
 			loc::Format("saves.default_name", slots.size() + 1));
 		m_saveField->placeholder = loc::Tr("saves.name_placeholder");
 		m_saveField->onChange = [this] { DisarmOverwrite(); };
 		m_saveField->onSubmit = [this] { CommitSave(); };
 		m_saveField->SetFocused(true);
-		y += 0.07f;
 
-		m_saveButton = m_savesUi.Add<ui::Button>(gfx::Rect{kColX, y, kColW, kRowH}, loc::Tr("menu.save"),
+		m_saveButton = col->Row<ui::Button>(ui::Len::Fixed(kSlotRowRem - 0.2f), loc::Tr("menu.save"),
 			[this] { CommitSave(); });
-		y += 0.085f;
+		m_saveButton->carved = true;
 
 		if (slots.empty()) {
-			backY = y;
+			col->Space(ui::Len::Fill());
 		} else {
-			m_savesUi.Add<ui::Label>(gfx::Rect{kColX, y, kColW, kLabelH},
-									 loc::Tr("saves.overwrite_label"))
-				->dim = true;
-			listY = y + 0.04f;
-			// Fill what is left above the Back button instead of authoring a
-			// height here too: the two would drift the moment either moves.
-			listH = kSavesBackY - 0.02f - listY;
-			wantList = true;
-			backY = kSavesBackY;
+			col->Row<ui::Label>(ui::Len::Fixed(1.25f), loc::Tr("saves.overwrite_label"))->dim = true;
+			buildList();
 		}
+	} else if (slots.empty()) {
+		col->Row<ui::Label>(ui::Len::Fixed(1.25f), loc::Tr("saves.none"))->dim = true;
+		col->Space(ui::Len::Fill());
 	} else {
-		listY = kMenuContentY;
-		if (slots.empty()) {
-			m_savesUi.Add<ui::Label>(gfx::Rect{kColX, listY, kColW, kLabelH},
-									 loc::Tr("saves.none"))
-				->dim = true;
-			backY = listY + 0.06f;
-		} else {
-			listH = kSavesBackY - 0.02f - listY;
-			wantList = true;
-			backY = kSavesBackY;
-		}
+		buildList();
 	}
-
-	constexpr float kBackW = 0.14f;
-	m_savesUi.Add<ui::Button>(gfx::Rect{(1.0f - kBackW) * 0.5f, backY, kBackW, kRowH}, loc::Tr("menu.back"),
-		[this] {
-			Click();
-			m_menuPage = MenuPage::Main;
-		});
-
-	if (wantList) buildList(listY, listH);
+	SavesBackRow(*col);
 
 	m_menuPage = MenuPage::Saves;
+}
+
+// The card the save, load and world pages stand on, and the column inside it:
+// centred under the big title. The card carries the page's own title, so these
+// pages draw no subtitle and the card starts where it would have been.
+ui::Stack* GameUI::SavesCard(const char* titleKey) {
+	constexpr float kCardW = 0.50f;
+	constexpr float kCardTop = kMenuSubtitleY;
+	constexpr float kCardBottom = kSavesCardBottom;
+	auto* card = m_savesUi.Add<PageCard>(
+		gfx::Rect{(1.0f - kCardW) * 0.5f, kCardTop, kCardW, kCardBottom - kCardTop},
+		loc::Tr(titleKey));
+	auto* col = card->Add<ui::Stack>(gfx::Rect{0, 0, 1, 1});
+	col->gapRem = 0.4f;
+	return col;
+}
+
+// A carved Back stone, centred, as the page's last row.
+void GameUI::SavesBackRow(ui::Stack& col) {
+	auto* row = col.Row<ui::Stack>(ui::Len::Fixed(kSlotRowRem - 0.2f), true);
+	row->Space(ui::Len::Fill());
+	row->Row<ui::Button>(ui::Len::Fixed(8.0f), loc::Tr("menu.back"), [this] {
+		Click();
+		m_menuPage = MenuPage::Main;
+	})->carved = true;
+	row->Space(ui::Len::Fill());
 }
 
 void GameUI::BeginNewGame(bool editor) {
@@ -1035,12 +1042,9 @@ void GameUI::OpenWorldsPage() {
 	const std::vector<WorldChoice> worlds =
 		onListWorlds ? onListWorlds() : std::vector<WorldChoice>{};
 
-	constexpr float kColW = 0.45f;
-	constexpr float kColX = (1.0f - kColW) * 0.5f;
-	constexpr float kRowH = 0.05f;
-	constexpr float kBackW = 0.14f;
-	auto* list = m_savesUi.Add<ui::SlotList>(
-		gfx::Rect{kColX, kMenuContentY, kColW, kSavesBackY - 0.02f - kMenuContentY});
+	ui::Stack* col = SavesCard("worlds.title");
+	auto* list = col->Row<ui::SlotList>(ui::Len::Fill());
+	list->rowHeight = kSlotRowRem;
 	for (const WorldChoice& w : worlds) {
 		ui::SlotList::Row row;
 		row.primary = w.display.empty() ? w.folder : w.display;
@@ -1055,11 +1059,7 @@ void GameUI::OpenWorldsPage() {
 		};
 		list->AddRow(std::move(row)); // onDelete left null: no delete icon
 	}
-	m_savesUi.Add<ui::Button>(gfx::Rect{(1.0f - kBackW) * 0.5f, kSavesBackY, kBackW, kRowH},
-							  loc::Tr("menu.back"), [this] {
-								  Click();
-								  m_menuPage = MenuPage::Main;
-							  });
+	SavesBackRow(*col);
 	m_menuPage = MenuPage::Worlds;
 }
 
@@ -2270,17 +2270,16 @@ void GameUI::RenderMenuOverlay() {
 	// Title + subtitle.
 	DrawCenteredTitle(loc::View("title"), h * kMenuTitleY);
 
-	const char* subKey = "menu.subtitle";
-	if (m_menuPage == MenuPage::Settings) subKey = "menu.subtitle_settings";
-	else if (m_menuPage == MenuPage::Worlds) subKey = "menu.subtitle_worlds";
-	else if (m_menuPage == MenuPage::Saves)
-		subKey = m_savesMode == SavesMode::Save ? "menu.subtitle_save"
-												: "menu.subtitle_load";
-	const std::string_view subtitle = loc::View(subKey);
-	ui::Font& font = m_menuUi.GetFont();
-	const float subW = font.MeasureWidth(subtitle);
-	font.Draw(m_spriteBatch, subtitle, (w - subW) * 0.5f,
-			  h * kMenuSubtitleY, theme.textDim);
+	// The saves and worlds pages carry their title on their stone card
+	// (SavesCard), which stands where the subtitle would.
+	if (m_menuPage != MenuPage::Saves && m_menuPage != MenuPage::Worlds) {
+		const char* subKey = m_menuPage == MenuPage::Settings ? "menu.subtitle_settings" : "menu.subtitle";
+		const std::string_view subtitle = loc::View(subKey);
+		ui::Font& font = m_menuUi.GetFont();
+		const float subW = font.MeasureWidth(subtitle);
+		font.Draw(m_spriteBatch, subtitle, (w - subW) * 0.5f,
+				  h * kMenuSubtitleY, theme.textDim);
+	}
 
 	MenuContext().Render(m_spriteBatch, w, h);
 	RenderConfirmOverlay();
@@ -2306,13 +2305,13 @@ void GameUI::RenderPauseOverlay() {
 
 	m_spriteBatch.DrawRect({0, 0, w, h}, {0, 0, 0, 0.55f});
 
-	DrawCenteredTitle(loc::View("pause.title"), h * kMenuTitleY);
+	// The main page's title is carved on its stone card (MenuPanel); the
+	// settings and saves pages keep the floating one above them.
+	if (m_menuPage != MenuPage::Main) DrawCenteredTitle(loc::View("pause.title"), h * kMenuTitleY);
 
-	if (m_menuPage != MenuPage::Main) {
-		const char* subKey = "menu.subtitle_load";
-		if (m_menuPage == MenuPage::Settings) subKey = "menu.subtitle_settings";
-		else if (m_savesMode == SavesMode::Save) subKey = "menu.subtitle_save";
-		const std::string_view subtitle = loc::View(subKey);
+	// Only Settings has a subtitle now: the saves page's title is on its card.
+	if (m_menuPage == MenuPage::Settings) {
+		const std::string_view subtitle = loc::View("menu.subtitle_settings");
 		ui::Font& font = m_pauseUi.GetFont();
 		const float subW = font.MeasureWidth(subtitle);
 		font.Draw(m_spriteBatch, subtitle, (w - subW) * 0.5f,

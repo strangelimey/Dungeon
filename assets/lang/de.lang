@@ -15,9 +15,9 @@ title=DUNGEON
 pause.title=PAUSE
 menu.subtitle=ein Dungeon-Crawler der alten Schule
 menu.subtitle_settings=Einstellungen
-menu.subtitle_load=einen Spielstand wählen
-menu.subtitle_worlds=eine Welt für das neue Spiel wählen
-menu.subtitle_save=Spielstand benennen
+saves.title_load=Spiel laden
+worlds.title=Welt wählen
+saves.title_save=Spiel speichern
 loading.descending=Abstieg...
 
 ; --- landing + pause menus --------------------------------------------------

@@ -386,6 +386,19 @@ void Button::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 					 active ? 1.0f : Depth(), m_hot && enabled, {dim, dim, dim, 1.0f});
 		return;
 	}
+	if (const Skin* skin = ctx.GetSkin(); carved && skin && skin->block.texture) {
+		const float depth = Depth();
+		const float dim = enabled ? 1.0f : 0.45f;
+		DrawCutStone(batch, px, *skin, nullptr, depth, m_hot && enabled, {dim, dim, dim, 1.0f});
+		const Font& font = TextFont();
+		const float sink = depth * std::max(1.0f, px.h * 0.035f);
+		DrawCarvedText(batch, font, text, px.x + (px.w - font.MeasureWidth(text)) * 0.5f + sink,
+					   px.y + (px.h - font.Height()) * 0.5f + sink,
+					   !enabled ? Vec4{0.45f, 0.40f, 0.30f, 1.0f}
+					   : m_hot  ? kCarvedLit
+								: kCarvedGold);
+		return;
+	}
 	if (icon) {
 		// Icon-only: the round face IS the button (it carries its own chrome
 		// and alpha) — no button face behind it. Rotated in quarter turns
@@ -1667,22 +1680,63 @@ gfx::Rect SlotRow::DeleteRect() const {
 	return {r.x + r.w - s - Rem(0.3f), r.y + (r.h - s) * 0.5f, s, s};
 }
 
+float SlotRow::Depth() const {
+	const auto since = [](Clock::time_point t) {
+		return std::chrono::duration<float>(Clock::now() - t).count();
+	};
+	if (m_held || m_sinking) return std::min(1.0f, since(m_pressAt) / Button::kSinkSeconds);
+	if (m_rising) return std::max(0.0f, 1.0f - since(m_riseAt) / Button::kRiseSeconds);
+	return 0.0f;
+}
+
 void SlotRow::UpdateSelf(UIContext& ctx) {
 	m_hot = m_hotDelete = false;
 	const Input* input = ctx.CurrentInput();
-	if (!input || ctx.IsMouseConsumed()) return;
+	if (!input) return;
+	const Clock::time_point now = Clock::now();
+	const auto since = [&](Clock::time_point t) {
+		return std::chrono::duration<float>(now - t).count();
+	};
+	// The push in flight acts at the bottom of its sink. The callback may
+	// (deferred) rebuild the page that owns this widget - fire and touch
+	// nothing afterwards.
+	if (m_sinking && since(m_pressAt) >= Button::kSinkSeconds + Button::kHoldSeconds) {
+		m_sinking = false;
+		m_rising = true;
+		m_riseAt = now;
+		if (m_onActivate) m_onActivate();
+		return;
+	}
+	if (m_rising && since(m_riseAt) >= Button::kRiseSeconds) m_rising = false;
+
 	const float mx = input->MouseX(), my = input->MouseY();
-	if (!Pixel().Contains(mx, my)) return;
-	m_hot = true;
-	m_hotDelete = m_deletable && DeleteRect().Contains(mx, my);
-	ctx.ConsumeMouse();
-	if (!input->WasMousePressed(MouseButton::Left)) return;
-	// Either callback may (deferred) rebuild the page that owns this widget —
-	// fire and touch nothing afterwards.
-	if (m_hotDelete) {
-		if (m_onDeleteClick) m_onDeleteClick();
-	} else if (m_onActivate) {
-		m_onActivate();
+	if (!ctx.IsMouseConsumed() && Pixel().Contains(mx, my)) {
+		m_hot = true;
+		m_hotDelete = m_deletable && DeleteRect().Contains(mx, my);
+		ctx.ConsumeMouse();
+		if (input->WasMousePressed(MouseButton::Left) && !m_sinking) {
+			if (m_hotDelete) {
+				// The confirm the click opens is modal: claim the pointer from the
+				// first widget of the next walk on, before the list renews it.
+				ctx.ClaimPopup();
+				if (m_onDeleteClick) m_onDeleteClick();
+				return;
+			}
+			m_held = true;
+			m_rising = false;
+			m_pressAt = now;
+		}
+	}
+	if (m_held && input->WasMouseReleased(MouseButton::Left)) {
+		m_held = false;
+		if (m_hot && !m_hotDelete) {
+			m_sinking = true;
+		} else { // cancelled: rise from wherever the sink had got to
+			m_rising = true;
+			m_riseAt = now - std::chrono::duration_cast<Clock::duration>(std::chrono::duration<float>(
+								 Button::kRiseSeconds *
+								 (1.0f - std::min(1.0f, since(m_pressAt) / Button::kSinkSeconds))));
+		}
 	}
 }
 
@@ -1690,20 +1744,54 @@ void SlotRow::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
 	const Font& font = TextFont();
 	const gfx::Rect& r = Pixel();
-	batch.DrawRect(r, m_hot ? theme.controlHot : theme.control);
-	DrawBorder(batch, r, theme.panelBorder);
+	const Skin* skin = ctx.GetSkin();
+	const bool stone = skin && skin->block.texture;
+	const bool lit = m_hot && !m_hotDelete;
+	float sink = 0.0f;
+	if (stone) {
+		// A cut stone like a menu entry: its words carved, the name in gold (lit
+		// under the pointer, with the entry's gold hairline), the date plain.
+		const float depth = Depth();
+		DrawCutStone(batch, r, *skin, nullptr, depth, lit, {1, 1, 1, 1});
+		if (lit) {
+			const float in = FaceInset(*skin, Face::Block) * 0.35f;
+			DrawBorder(batch, {r.x + in, r.y + in, r.w - 2 * in, r.h - 2 * in},
+					   {theme.accent.x, theme.accent.y, theme.accent.z, 0.65f});
+		}
+		sink = depth * std::max(1.0f, r.h * 0.035f);
+	} else {
+		batch.DrawRect(r, m_hot ? theme.controlHot : theme.control);
+		DrawBorder(batch, r, theme.panelBorder);
+	}
 
-	const float ty = r.y + (r.h - font.Height()) * 0.5f;
-	font.Draw(batch, m_primary, r.x + Rem(0.45f), ty, theme.text);
+	const float ty = r.y + (r.h - font.Height()) * 0.5f + sink;
+	const float left = r.x + (stone ? FaceInset(*skin, Face::Block) + Rem(0.45f) : Rem(0.45f));
+	if (stone) DrawCarvedText(batch, font, m_primary, left + sink, ty, lit ? kCarvedLit : kCarvedGold);
+	else font.Draw(batch, m_primary, left, ty, theme.text);
 
 	const gfx::Rect del = DeleteRect();
 	if (!m_secondary.empty()) {
 		const float sw = font.MeasureWidth(m_secondary);
-		const float sx = (m_deletable ? del.x : r.x + r.w) - sw - Rem(0.6f);
-		font.Draw(batch, m_secondary, sx, ty, theme.textDim);
+		const float sx = (m_deletable ? del.x : r.x + r.w) - sw - Rem(0.6f) -
+						 (stone && !m_deletable ? FaceInset(*skin, Face::Block) : 0.0f);
+		if (stone) DrawCarvedText(batch, font, m_secondary, sx + sink, ty, kCarvedPlain);
+		else font.Draw(batch, m_secondary, sx, ty, theme.textDim);
 	}
 	if (!m_deletable) return;
-	if (const gfx::Texture* icon = m_icon ? *m_icon : nullptr) {
+	if (stone) {
+		// On the stone the red X shouted over the names (Michael: "too loud",
+		// twice - a muted, smaller icon was still too much). It is a CARVED
+		// cross now, like the words: the bare cut at rest, a dull red in it only
+		// under the pointer.
+		// At the row's text size the cross was a speck ("now it's too small"):
+		// it gets a face of its own, sized to its box.
+		static constexpr std::string_view kCross = "\xC3\x97"; // U+00D7, in the Latin-1 bake
+		const Font& crossFont = ctx.FontAt(FontRole::Body, del.h * 1.35f);
+		const float xw = crossFont.MeasureWidth(kCross);
+		DrawCarvedText(batch, crossFont, kCross, del.x + (del.w - xw) * 0.5f + sink,
+					   del.y + (del.h - crossFont.Height()) * 0.5f + sink,
+					   m_hotDelete ? Vec4{0.78f, 0.34f, 0.24f, 1.0f} : Vec4{0.60f, 0.56f, 0.50f, 0.55f});
+	} else if (const gfx::Texture* icon = m_icon ? *m_icon : nullptr) {
 		batch.DrawSprite(del, {0, 0, 1, 1}, *icon,
 						 {1, 1, 1, m_hotDelete ? 1.0f : 0.8f});
 	} else { // fallback: an "X" glyph in the accent color
@@ -1762,6 +1850,9 @@ void SlotList::UpdateBeforeChildren(UIContext& ctx) {
 	if (!input) return;
 	ctx.ConsumeMouse();
 	ctx.ConsumeWheel(); // a modal freezes the list behind it, scroll included
+	// ...and the page around it: a control added after the list (the page's
+	// Back stone) is updated before it and would see the click first.
+	ctx.ClaimPopup();
 	const float mx = input->MouseX(), my = input->MouseY();
 	const gfx::Rect del = ConfirmButton(ctx, true);
 	const gfx::Rect cancel = ConfirmButton(ctx, false);
@@ -1782,14 +1873,14 @@ void SlotList::UpdateBeforeChildren(UIContext& ctx) {
 }
 
 gfx::Rect SlotList::ConfirmRect(const UIContext& ctx) const {
-	const float w = Rem(13.5f), h = Rem(6.0f);
+	const float w = Rem(13.5f), h = Rem(6.6f);
 	return {(ctx.Width() - w) * 0.5f, (ctx.Height() - h) * 0.5f, w, h};
 }
 
 gfx::Rect SlotList::ConfirmButton(const UIContext& ctx, bool deleteButton) const {
 	const gfx::Rect d = ConfirmRect(ctx);
 	const float m = Rem(0.7f); // margin / gutter around the pair
-	const float bw = (d.w - 3.0f * m) * 0.5f, bh = Rem(1.6f);
+	const float bw = (d.w - 3.0f * m) * 0.5f, bh = Rem(2.0f);
 	const float by = d.y + d.h - bh - m;
 	return deleteButton ? gfx::Rect{d.x + m, by, bw, bh}
 						: gfx::Rect{d.x + d.w - m - bw, by, bw, bh};
@@ -1813,8 +1904,17 @@ void SlotList::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const float nw = font.MeasureWidth(name);
 	font.Draw(batch, name, d.x + (d.w - nw) * 0.5f, d.y + Rem(2.35f), theme.accent);
 
+	const Skin* skin = ctx.GetSkin();
 	auto button = [&](const gfx::Rect& b, const std::string& label, bool hot,
 					  bool danger) {
+		if (skin && skin->block.texture) {
+			// Cut stones with carved words, like the page's own buttons.
+			DrawCutStone(batch, b, *skin, nullptr, 0.0f, hot, {1, 1, 1, 1});
+			DrawCarvedText(batch, font, label, b.x + (b.w - font.MeasureWidth(label)) * 0.5f,
+						   b.y + (b.h - font.Height()) * 0.5f,
+						   hot ? kCarvedLit : (danger ? Vec4{0.86f, 0.40f, 0.26f, 1.0f} : kCarvedGold));
+			return;
+		}
 		batch.DrawRect(b, hot ? theme.controlActive : theme.control);
 		DrawBorder(batch, b, hot || danger ? theme.accent : theme.panelBorder);
 		const float lw = font.MeasureWidth(label);
@@ -1840,7 +1940,7 @@ gfx::Rect MenuList::ItemRect(size_t index) const {
 	const gfx::Rect& px = Pixel();
 	const float itemH = m_itemHeight * px.h;
 	return {px.x, px.y + itemH * static_cast<float>(index), px.w,
-			itemH - Rem(0.3f)}; // gap between entries
+			itemH - Rem(gapRem)}; // gap between entries
 }
 
 void MenuList::MoveSelection(int delta) {
@@ -1849,37 +1949,133 @@ void MenuList::MoveSelection(int delta) {
 	m_selected = (m_selected + delta + count) % count; // wrap around
 }
 
-void MenuList::Activate() {
-	if (m_selected >= 0 && m_selected < static_cast<int>(m_items.size())) {
-		const auto& onActivate = m_items[static_cast<size_t>(m_selected)].onActivate;
+void MenuList::Activate(int index) {
+	if (index >= 0 && index < static_cast<int>(m_items.size())) {
+		const auto& onActivate = m_items[static_cast<size_t>(index)].onActivate;
 		if (onActivate) onActivate();
 	}
+}
+
+float MenuList::Depth(int index) const {
+	if (index != m_pushItem) return 0.0f;
+	const auto since = [](Clock::time_point t) {
+		return std::chrono::duration<float>(Clock::now() - t).count();
+	};
+	if (m_held || m_sinking) return std::min(1.0f, since(m_pressAt) / Button::kSinkSeconds);
+	if (m_rising) return std::max(0.0f, 1.0f - since(m_riseAt) / Button::kRiseSeconds);
+	return 0.0f;
 }
 
 void MenuList::UpdateSelf(UIContext& ctx) {
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
+	const Clock::time_point now = Clock::now();
+	const auto since = [&](Clock::time_point t) {
+		return std::chrono::duration<float>(now - t).count();
+	};
 
-	// Mouse: hovering selects, clicking activates.
+	// The push in flight: an entry ACTS at the bottom of its sink (Button's
+	// rule), then rises. Acting may rebuild the page that owns this list, so it
+	// is the last thing done.
+	if (m_sinking && since(m_pressAt) >= Button::kSinkSeconds + Button::kHoldSeconds) {
+		m_sinking = false;
+		m_rising = true;
+		m_riseAt = now;
+		Activate(m_pushItem);
+		return;
+	}
+	if (m_rising && since(m_riseAt) >= Button::kRiseSeconds) {
+		m_rising = false;
+		m_pushItem = -1;
+	}
+
+	// Mouse: hovering selects; a press holds the entry down and the RELEASE
+	// over it completes the push (released elsewhere, it just rises).
+	int over = -1;
 	if (!ctx.IsMouseConsumed()) {
 		for (size_t i = 0; i < m_items.size(); ++i) {
 			if (!ItemRect(i).Contains(input->MouseX(), input->MouseY())) continue;
-			m_selected = static_cast<int>(i);
+			over = static_cast<int>(i);
+			m_selected = over;
 			ctx.ConsumeMouse();
-			if (input->WasMousePressed(MouseButton::Left)) Activate();
+			if (input->WasMousePressed(MouseButton::Left) && !m_sinking) {
+				m_pushItem = over;
+				m_held = true;
+				m_rising = false;
+				m_pressAt = now;
+			}
 			break;
 		}
 	}
+	if (m_held && input->WasMouseReleased(MouseButton::Left)) {
+		m_held = false;
+		if (over == m_pushItem) {
+			m_sinking = true;
+		} else { // cancelled: rise from wherever the sink had got to
+			m_rising = true;
+			m_riseAt = now - std::chrono::duration_cast<Clock::duration>(
+								 std::chrono::duration<float>(
+									 Button::kRiseSeconds *
+									 (1.0f - std::min(1.0f, since(m_pressAt) /
+																Button::kSinkSeconds))));
+		}
+	}
 
-	// Keyboard: arrows / W/S move the selection, Enter/Space activates.
+	// Keyboard: arrows / W/S move the selection, Enter/Space press it.
+	if (m_held || m_sinking) return; // one push at a time
 	if (input->WasKeyPressed(vk::Up) || input->WasKeyPressed('W')) MoveSelection(-1);
 	if (input->WasKeyPressed(vk::Down) || input->WasKeyPressed('S')) MoveSelection(+1);
-	if (input->WasKeyPressed(vk::Return) || input->WasKeyPressed(vk::Space)) Activate();
+	if (input->WasKeyPressed(vk::Return) || input->WasKeyPressed(vk::Space)) {
+		m_pushItem = m_selected;
+		m_sinking = true;
+		m_rising = false;
+		m_pressAt = now;
+	}
+}
+
+void DrawCarvedText(gfx::SpriteBatch& batch, const Font& font, std::string_view text,
+					float x, float y, const Vec4& fill) {
+	const Vec4 ring = batch.TextOutline();
+	batch.SetTextOutline({0, 0, 0, 0});
+	// ONE pixel each way, whatever the size, and the lit edge only a whisper:
+	// scaled with the font (3 px on a title) and at 0.30, the pale copy read as
+	// an echo of the word rather than a cut edge - Michael: "a pale outline
+	// behind the text that makes things blurry".
+	font.Draw(batch, text, x - 1.0f, y - 1.0f, {0.0f, 0.0f, 0.0f, 0.85f}); // the shadowed near wall
+	font.Draw(batch, text, x + 1.0f, y + 1.0f, {1.0f, 1.0f, 1.0f, 0.10f}); // the lit far wall
+	font.Draw(batch, text, x, y, fill);                                     // the gold in the cut
+	batch.SetTextOutline(ring);
 }
 
 void MenuList::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
 	const Font& font = TextFont();
+
+	if (const Skin* skin = ctx.GetSkin(); skin && skin->block.texture) {
+		// Cut stones with carved words; the selected entry's gold lit.
+		const Vec4& gold = kCarvedGold;
+		const Vec4& lit = kCarvedLit;
+		for (size_t i = 0; i < m_items.size(); ++i) {
+			const gfx::Rect rect = ItemRect(i);
+			const bool selected = static_cast<int>(i) == m_selected;
+			const float depth = Depth(static_cast<int>(i));
+			DrawCutStone(batch, rect, *skin, nullptr, depth, selected, {1, 1, 1, 1});
+			if (selected) {
+				// Lit gold alone was too quiet a mark for the keyboard's
+				// selection: a gold hairline just inside the stone's joint too.
+				const float in = FaceInset(*skin, Face::Block) * 0.35f;
+				DrawBorder(batch, {rect.x + in, rect.y + in, rect.w - 2 * in, rect.h - 2 * in},
+						   {theme.accent.x, theme.accent.y, theme.accent.z, 0.65f});
+			}
+			const std::string& label = m_items[i].label;
+			const float sink = depth * std::max(1.0f, rect.h * 0.035f);
+			DrawCarvedText(batch, font, label,
+						   rect.x + (rect.w - font.MeasureWidth(label)) * 0.5f + sink,
+						   rect.y + (rect.h - font.Height()) * 0.5f + sink,
+						   selected ? lit : gold);
+		}
+		return;
+	}
 
 	for (size_t i = 0; i < m_items.size(); ++i) {
 		const gfx::Rect rect = ItemRect(i);

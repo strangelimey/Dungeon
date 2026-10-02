@@ -15,9 +15,9 @@ title=SOTTERRANEO
 pause.title=PAUSA
 menu.subtitle=un dungeon crawler alla vecchia maniera
 menu.subtitle_settings=impostazioni
-menu.subtitle_load=scegli una partita salvata
-menu.subtitle_worlds=scegli un mondo per la nuova partita
-menu.subtitle_save=dai un nome al salvataggio
+saves.title_load=Carica partita
+worlds.title=Scegli un mondo
+saves.title_save=Salva partita
 loading.descending=discesa...
 
 ; --- landing + pause menus --------------------------------------------------

@@ -15,9 +15,9 @@ title=MAZMORRA
 pause.title=PAUSA
 menu.subtitle=un calabozo a la vieja usanza
 menu.subtitle_settings=ajustes
-menu.subtitle_load=elige una partida guardada
-menu.subtitle_worlds=elige un mundo para la nueva partida
-menu.subtitle_save=nombra tu partida
+saves.title_load=Cargar partida
+worlds.title=Elige un mundo
+saves.title_save=Guardar partida
 loading.descending=descendiendo...
 
 ; --- landing + pause menus --------------------------------------------------

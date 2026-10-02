@@ -436,6 +436,10 @@ private:
 	void OpenSavesPage(SavesMode mode);
 	// The new-game world list (MenuPage::Worlds), built into m_savesUi.
 	void OpenWorldsPage();
+	// The stone card those three pages stand on (its title from `titleKey`) and
+	// the column of rows inside it; the carved Back stone that ends the column.
+	ui::Stack* SavesCard(const char* titleKey);
+	void SavesBackRow(ui::Stack& col);
 	// Start New Game and Editor share one flow; `editor` is which was clicked.
 	void BeginNewGame(bool editor);
 	// Save page helpers: commit the named save (arming an overwrite confirm

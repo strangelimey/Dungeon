@@ -1899,6 +1899,20 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   action. The movement pad uses all three and watches `Party::ActCount` so a
   KEY move presses its stone. Checked by `AllocTest.ps1 -Walk` (key turns in
   the window; refuses a PASS under 4 `moves=`, a field of the verdict line).
+  CARVED WORDS (P4): `ui::DrawCarvedText` cuts a word into stone (a 1 px dark
+  offset up-left, a faint lit one down-right, the fill between - keep both
+  offsets ONE pixel and the lit one faint, or it reads as a blurry echo) in
+  `kCarvedGold` / `kCarvedLit` / `kCarvedPlain`. The pause and title menus are
+  `Game/MenuPanel` (a card sized in rem from its entries, the pause title carved
+  on it) holding a skinned `ui::MenuList`: cut stones that sink on the press and
+  ACT ON RELEASE (drag off cancels; Enter presses the selected one), the
+  selected lit with a gold hairline. The save, load and world pages are a
+  `PageCard` (title carved, children in one Stack - GameUI::SavesCard /
+  SavesBackRow) with `Button::carved` stones and SlotList rows as cut stones
+  that push the same way; on stone the delete mark is a CARVED cross, red only
+  under the pointer (Michael: the red icon was "too loud"). The list's delete
+  confirm claims the pointer through ClaimPopup, since the Back stone is added
+  after the list. Those pages draw no subtitle: the card carries the title.
 - AN OPEN POPUP OWNS THE CLICK (`UIContext::ClaimPopup`): the update walk visits
   children in REVERSE add order, so a control added after a drop-down saw a
   press on its open list first (picking a stone unticked Head bob). An open

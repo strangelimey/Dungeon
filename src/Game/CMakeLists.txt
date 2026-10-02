@@ -123,6 +123,7 @@ add_library(Game STATIC
 	CharacterPanel.cpp
 	ControlBar.cpp
 	MemberCards.cpp
+	MenuPanel.cpp
 	StonePicker.cpp
 	HudTray.cpp
 	HandSlot.cpp

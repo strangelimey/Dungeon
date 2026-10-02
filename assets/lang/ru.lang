@@ -19,9 +19,9 @@ title=ПОДЗЕМЕЛЬЕ
 pause.title=ПАУЗА
 menu.subtitle=олдскульный данжен-кроулер
 menu.subtitle_settings=настройки
-menu.subtitle_load=выберите сохранение
-menu.subtitle_worlds=выберите мир для новой игры
-menu.subtitle_save=назовите сохранение
+saves.title_load=Загрузить игру
+worlds.title=Выберите мир
+saves.title_save=Сохранить игру
 loading.descending=спуск...
 
 ; --- landing + pause menus --------------------------------------------------

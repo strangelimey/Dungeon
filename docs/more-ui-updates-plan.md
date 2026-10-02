@@ -128,6 +128,12 @@ Checks: AllocTest -Sheet, uioverlap sheet (`sheet <m>` puts it in the sweep).
 
 ## Phase 4 - The pause and title menus (A, answer 3; plan answers 1, 2, 5)
 
+DONE. Plus, at Michael's ask after seeing it: the world selection, load and
+save pages on the same stone (a PageCard with its title carved; slots are cut
+stones that push; Save and Back carved; the delete mark a carved cross, red
+only under the pointer). The carved text's lit edge was cut to a 1 px whisper
+after "a pale outline behind the text that makes things blurry".
+
 Today: BuildPauseMenu (GameUI.cpp:859-902) is a bare `ui::MenuList` - text
 only, the selected row an accent fill + border with `>` `<` markers - over a
 0.55 black wash, the title drawn raw above it (RenderPauseOverlay,
