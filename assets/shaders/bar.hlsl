@@ -18,8 +18,8 @@
 //   Food    - packed grain: a warm mottle, speckle and lighter kernels, nearly
 //             still, ending in a crumbly edge (no meniscus).
 //   Water   - clear teal (mana owns blue), lighter at the surface, soft pools
-//             of caustic light drifting
-//             across it, a few small bubbles and a gentle slosh.
+//             of caustic light drifting across it, a few small bubbles and a
+//             gentle slosh.
 //   Solid   - a flat tint (no caller uses it any more; kept as the fallback).
 // The animated kinds are EMISSIVE and dim as they empty. Output is
 // PREMULTIPLIED (SpriteBatch's bar pipeline): the tube is opaque, alpha 1.
