@@ -39,7 +39,15 @@ struct Rect {
 // the stance's own green-to-yellow grade, or the angry body once over-exerted -
 // carried in `tint`, and `beat` holds the over-exertion (0..1) instead of a
 // heartbeat, which the shader burns across the tube from the left.
-enum class BarKind : u32 { Solid = 0, Health = 1, Stamina = 2, Mana = 3, Effort = 4 };
+enum class BarKind : u32 {
+	Solid = 0,
+	Health = 1,
+	Stamina = 2,
+	Mana = 3,
+	Effort = 4,
+	Food = 5,
+	Water = 6
+};
 struct BarFill {
 	BarKind kind = BarKind::Solid;
 	float fraction = 1.0f; // 0..1, how full the bar is
@@ -96,6 +104,13 @@ public:
 	// The same clock, for a CPU-drawn pulse that should keep the bars' time
 	// (the Magic window's glowing runes).
 	float Time() const { return m_time; }
+	// The bar fills' overall look, set once a frame before Begin (the user's
+	// Settings -> UI sliders): brightness scales the whole tube, saturation
+	// pulls its colour toward its own grey (1 = untouched).
+	void SetBarLook(float brightness, float saturation) {
+		m_barBrightness = brightness;
+		m_barSaturation = saturation;
+	}
 
 	// One glyph of OUTLINED text (ui::Font::Draw is the only caller). `dst` and
 	// `uv` are the glyph's box GROWN by `radius` px on every side, so the ring
@@ -158,6 +173,8 @@ private:
 	u32 m_screenWidth = 1;
 	u32 m_screenHeight = 1;
 	float m_time = 0.0f;
+	float m_barBrightness = 1.0f;
+	float m_barSaturation = 1.0f;
 	Vec4 m_textOutline{0, 0, 0, 0};
 	Mode m_mode = Mode::Sprite;
 	std::vector<SpriteVertex> m_pending;

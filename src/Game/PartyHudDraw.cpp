@@ -81,8 +81,14 @@ void DrawResourceBarFill(gfx::SpriteBatch& batch, const gfx::Rect& tube, Resourc
 		flat = &style.mana;
 		fill.kind = gfx::BarKind::Mana;
 		break;
-	case ResourceBar::Food: flat = &style.food; break;
-	case ResourceBar::Water: flat = &style.water; break;
+	case ResourceBar::Food:
+		flat = &style.food;
+		fill.kind = gfx::BarKind::Food;
+		break;
+	case ResourceBar::Water:
+		flat = &style.water;
+		fill.kind = gfx::BarKind::Water;
+		break;
 	}
 	if (!style.framed || !style.frame) {
 		DrawStatBar(batch, tube, t, *flat, theme);

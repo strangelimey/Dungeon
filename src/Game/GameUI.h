@@ -19,9 +19,11 @@
 #include "Game/Character.h"
 #include "Game/GameSettings.h"
 #include "Game/ItemDetailsDialog.h"
+#include "Game/PortraitPicker.h"
 #include "Game/LoadQueue.h"
 #include "Game/MessageLog.h"
 #include "Game/Party.h"
+#include "Game/PartyCreationPage.h"
 #include "Game/PartyHud.h"
 #include "Game/SoundBank.h"
 #include "Graphics/SpriteBatch.h"
@@ -43,6 +45,9 @@
 #include <vector>
 
 namespace dungeon::game {
+
+class StonePicker; // Game/StonePicker.h - the Material tab's grid
+class PageCard;    // Game/MenuPanel.h - the menu pages' stone card
 
 class GameUI {
 public:
@@ -84,7 +89,40 @@ public:
 	// follows their health and whether the party is `noticed`. Every frame, in
 	// every state, so the bars never stutter on a state change.
 	void TickResourceBars(float dt, bool noticed);
-	void UpdateMenu(const Input& input);  // landing list or settings page
+	// The UI material the PLACE asks for (Game::RefreshPlaceStone; empty = it
+	// asks for none). Applied at once while the Material setting follows the
+	// place; remembered either way, so switching back to follow lands on it.
+	void SetPlaceStone(std::string name);
+	// What the place currently asks for (empty = nothing).
+	const std::string& PlaceStone() const { return m_placeStone; }
+	// The material showing now (a stem), whoever chose it.
+	const std::string& ShownStone() const { return m_shownStone; }
+	// A material's thumbnail (assets/ui/stones/thumbs), null for an unknown
+	// stem - for the editor dialogs that pick one. Owned here; scans on first ask.
+	const gfx::Texture* StoneThumb(std::string_view name);
+	// Every material's stem in the Material tab's order - grouped by kind,
+	// lightest first within one - so an editor list reads the same way.
+	std::vector<std::string> StoneOrder();
+	// The category buttons for a material list (ui::DropDown::filterLabels):
+	// all, light, dark, then each kind - and which of them a material passes,
+	// as that control's bit mask (bit f = shown under button f).
+	std::vector<std::string> StoneFilterLabels() const;
+	// Each of those buttons' colour chip (ui::DropDown::filterColors).
+	std::vector<Vec4> StoneFilterColors() const;
+	unsigned StoneFilterBits(std::string_view name);
+	// A PREVIEW wins over everything while it is set (the Level dialog's
+	// material row: picked = shown at once); EndStonePreview hands the chrome
+	// back to whatever the setting and the place decide.
+	void PreviewStone(std::string name);
+	void EndStonePreview();
+	// Sets the player's Material setting to follow the place (and saves it).
+	// The Level dialog's Save calls this (Michael: authoring a level's material
+	// while pinned to another showed nothing in play). False = already did.
+	bool FollowPlaceStone();
+	// The skin the game chrome draws with - for a sample of it inside the
+	// editor's own (unskinned) dialogs.
+	const ui::Skin& GameSkin() const { return m_skin; }
+	void UpdateMenu(const Input& input, float dt); // landing list or a sub-page
 	void UpdatePause(const Input& input); // pause list or settings page
 	void UpdateSheet(const Input& input, float dt);
 	// dt advances the message footer's fades / expand animation (real frame
@@ -141,7 +179,7 @@ public:
 	// also treat the click as a pick/drop). Valid after UpdateHud.
 	// The item details dialog holds the pointer while it is up, so it counts.
 	bool HudMouseConsumed() const {
-		return m_hudUi.IsMouseConsumed() || ItemDetailsOpen();
+		return m_hudUi.IsMouseConsumed() || ItemDetailsOpen() || PortraitPickerOpen();
 	}
 
 	// --- the floating HUD panels (ui-panels P3a) -------------------------------
@@ -203,12 +241,42 @@ public:
 		return true;
 	}
 
-	// Party inventory window (right-click a portrait). Non-modal; Game drives
-	// open/close (and routes Esc to close it before the pause menu). The world
-	// view's right button is mouse-look, so it no longer opens this.
-	void OpenInventory();
+	// --- the portrait picker (docs/portraits-plan.md, phase 3) -----------------
+	// Handled like the details dialog: modal for the mouse, updated instead of
+	// the page under it, closed first by DismissPopup. Opened for a roster
+	// member, whose pick goes to onSetPortrait. The OPENER must also excuse the
+	// frame (Game::OpenPortraitPicker does), since opening allocates.
+	void OpenPortraitPicker(size_t member);
+	bool PortraitPickerOpen() const { return m_portraitPicker && m_portraitPicker->IsOpen(); }
+	void ClosePortraitPicker() {
+		if (m_portraitPicker) m_portraitPicker->Close();
+	}
+	void RenderPortraitPicker();
+	PortraitPicker* Portraits() { return m_portraitPicker.get(); }
+	// A pick: (member, portraits.cat id). Game::SetPortrait.
+	std::function<bool(size_t, const std::string&)> onSetPortrait;
+	// The sheet's "Change portrait" button, for the shown member. Game opens the
+	// picker through Game::OpenPortraitPicker, which also excuses the frame.
+	std::function<void(size_t)> onChangePortrait;
+
+	// The party window (the sheet's "All"; Game/PartyWindow.h): every member's
+	// card on one tab. Non-modal; Game drives open/close (and routes Esc to
+	// close it before the pause menu). Opens on `mode`, the tab the sheet was
+	// showing.
+	void OpenInventory(CharacterSheet::Mode mode = CharacterSheet::Mode::Inventory);
 	void CloseInventory();
 	bool InventoryOpen() const;
+	// What it shows, for the `inventory status` readout: its tab, its status
+	// line, and where member `member`'s pack slot `slot` is (false = no card).
+	CharacterSheet::Mode InventoryMode() const;
+	std::string_view InventoryStatusName() const;
+	std::string_view InventoryStatusText() const;
+	bool InventorySlotRect(size_t member, int slot, gfx::Rect& out) const;
+	// And for AllocTest -All: how often it has opened, where its tab stone `i`
+	// is, and where the sheet's "All" button is (empty rects when not laid out).
+	unsigned InventoryOpens() const;
+	gfx::Rect InventoryStoneRect(size_t i) const;
+	gfx::Rect SheetAllRect() const { return m_sheetAll ? m_sheetAll->Pixel() : gfx::Rect{}; }
 
 	// --- character sheet ---------------------------------------------------------
 	void ShowSheet(size_t index); // re-points the sheet at the member
@@ -280,6 +348,31 @@ public:
 	};
 	std::function<std::vector<WorldChoice>()> onListWorlds;
 	std::function<void(const std::string& folder)> onStartNewGameIn;
+	// PARTY CREATION (docs/party-creation-plan.md phase 3): Start New Game,
+	// once the world is chosen, asks for the party page instead of starting -
+	// the receiver opens the world and calls OpenPartyPage with what it offers
+	// (empty folder = the resident world, else the default). The page's Start
+	// hands its specs to onStartParty, which builds the party and starts the
+	// game; false + why when it cannot (the page shows why itself first). The
+	// Editor entry and the harness's `newgame` / `reset` skip the page.
+	std::function<void(const std::string& folder)> onOpenPartyCreation;
+	std::function<bool(const std::vector<party::MemberSpec>&, std::string& why)> onStartParty;
+	// Whether a game is in play (not the title screen): the Settings colour rows
+	// then edit the party's members, not only the new-member defaults.
+	std::function<bool()> partyInPlay;
+
+	// The page itself (GameUI_Party.cpp). OpenPartyPage shows it next frame,
+	// fresh (one new member); Back leaves for the world list it came from, or the
+	// title. Start goes through StartPartyPage, which the dev command calls too.
+	void OpenPartyPage(PartyCreationData data);
+	bool PartyPageOpen() const { return m_menuPage == MenuPage::Party; }
+	// Open, or asked for and building next frame: its edits apply either way.
+	bool PartyPageActive() const { return PartyPageOpen() || m_partyBuildPending; }
+	PartyCreationPage* PartyPage() { return m_partyPage.get(); }
+	void LeavePartyPage();                  // Back / Esc (deferred a frame)
+	bool StartPartyPage(std::string& why);  // Start: false + why if refused
+	// The face picker over the page, for one of its members.
+	void OpenPartyPortraitPicker(size_t member, const std::string& raceTag);
 	// The landing page's "Editor" entry starts a new game exactly as Start New
 	// Game does (the same world question), then opens the editor, PAUSED, the
 	// moment the game arrives. Every landing entry says which it is, so the
@@ -303,6 +396,9 @@ public:
 	std::function<void(int)> onFrameLimitSelected; // Video tab frame-rate dropdown
 	std::function<void(int)> onTorchPalette;    // HUD torchlight dropdown
 	std::function<void(MoveAction)> onMoveAction; // HUD movement buttons
+	// The party's Act count and last action (Party::ActCount), for the pad to
+	// press the stone a KEY move used. 0 with no world. Must not allocate.
+	std::function<unsigned(MoveAction& last)> moveCounter;
 	// The offense/defense stance slider under a member's hands: (member,
 	// share). The widget reports where it was dragged; Game owns the roster
 	// and does the writing.
@@ -381,7 +477,8 @@ public:
 private:
 	// Worlds: the new-game world list. It borrows m_savesUi (both are one-list
 	// pages rebuilt on open, and only one sub-page is ever showing).
-	enum class MenuPage { Main, Settings, Saves, Worlds };
+	// Party: the party creation page, which borrows m_savesUi too.
+	enum class MenuPage { Main, Settings, Saves, Worlds, Party };
 	// The Saves sub-page serves two jobs: Load (a list of slots to load) and
 	// Save (a name field + existing slots to overwrite). m_savesMode picks.
 	enum class SavesMode { Load, Save };
@@ -412,6 +509,11 @@ private:
 	void OpenSavesPage(SavesMode mode);
 	// The new-game world list (MenuPage::Worlds), built into m_savesUi.
 	void OpenWorldsPage();
+	// The stone card those three pages stand on (its title from `titleKey`) and
+	// the column of rows inside it; the carved Back stone that ends the column.
+	ui::Stack* SavesCard(const char* titleKey);
+	PageCard* AddPageCard(float width, const char* titleKey, float top = -1.0f);
+	void SavesBackRow(ui::Stack& col);
 	// Start New Game and Editor share one flow; `editor` is which was clicked.
 	void BeginNewGame(bool editor);
 	// Save page helpers: commit the named save (arming an overwrite confirm
@@ -434,6 +536,18 @@ private:
 	void ApplySkin();
 	// Loads assets/ui/stones/<name>.png as the skin's stone (UI/Skin.h).
 	void LoadStone(const std::string& name);
+	// The Settings -> Material tab (GameUI_Stone.cpp): a filter row over the
+	// StonePicker grid. Built with the rest of the settings page.
+	void BuildStoneTab(ui::TabControl& tabs);
+	// Loads whichever material should show now - the pinned one, or the
+	// place's while the setting follows it - if it is not the one showing.
+	void ApplyStone();
+	// Reads the curated stones (assets/ui/stones: the tiles, stones.cat, the
+	// thumbnails) into m_stones - once; a page rebuild reuses them.
+	void ScanStones();
+	// Sets the skin's legibility knobs (luma, calm, stoneMean, the text ring)
+	// for the material on show - GameUI_Stone.cpp.
+	void ApplyLegibility();
 	// Scales the skin's frames and stone grain with the window, like the fonts.
 	void UpdateSkinScale();
 	// A floating HUD panel was dragged or resized (save + slider sync), and the
@@ -585,6 +699,7 @@ private:
 		case MenuPage::Settings: return m_settingsUi;
 		case MenuPage::Saves:    return m_savesUi;
 		case MenuPage::Worlds:   return m_savesUi; // the list page it borrows
+		case MenuPage::Party:    return m_savesUi; // likewise
 		default:                 return m_menuUi;
 		}
 	}
@@ -645,6 +760,16 @@ private:
 	// The movement pad's chevron icon faces (single = step, double = turn).
 	std::unique_ptr<gfx::Texture> m_chevronTex;
 	std::unique_ptr<gfx::Texture> m_chevron2Tex;
+	// ...and the cut-stone pad's etched symbols, in the pad's order (plain and
+	// gold-lit), plus the block chamfer they sit on.
+	std::array<std::unique_ptr<gfx::Texture>, 6> m_moveEtch;
+	std::array<std::unique_ptr<gfx::Texture>, 6> m_moveEtchLit;
+	// The sheet's tab stones' symbols, in its Mode order (loaded in
+	// BuildStaticUi, before the sheet that points at them is built).
+	std::array<std::unique_ptr<gfx::Texture>, 5> m_tabEtch;
+	std::array<std::unique_ptr<gfx::Texture>, 5> m_tabEtchLit;
+	std::unique_ptr<gfx::Texture> m_frameBlockTex;
+	std::unique_ptr<gfx::Texture> m_frameBlockDownTex;
 	std::unique_ptr<gfx::Texture> m_glowTex; // a set hand box's centre glow
 	const gfx::Texture* m_closeIcon = nullptr; // shared, owned by AssetUtil
 
@@ -652,6 +777,20 @@ private:
 	// Whether the world list was opened by Editor rather than Start New Game:
 	// the pick, not the page, is where the new game begins.
 	bool m_worldsForEditor = false;
+	// The party creation page (GameUI_Party.cpp): built next frame after
+	// OpenPartyPage or an edit that needs a new tree, and left next frame on
+	// Back (both from inside its own widgets' callbacks).
+	std::unique_ptr<PartyCreationPage> m_partyPage;
+	bool m_partyBuildPending = false;
+	bool m_partyLeavePending = false;
+	bool m_partyFromWorlds = false; // Back returns to the world list
+	void BuildPartyPage();
+	void RefreshPartyPageIfDirty();
+	// Settings -> UI -> Party Colors (GameUI_Party.cpp): the four pickers, kept
+	// in step with whoever holds each slot.
+	std::array<ui::ColorPicker*, kMemberColorCount> m_memberColorPickers{};
+	bool MemberColorInPlay(size_t slot) const; // a member of a game in play holds it
+	void SyncMemberColorPickers();
 	SavesMode m_savesMode = SavesMode::Load;
 	// Save page widgets (live in m_savesUi, valid only while it is built): the
 	// name field and the Save button, plus whether a second click is needed to
@@ -713,8 +852,11 @@ private:
 	// The item details dialog: built once in BuildStaticUi (a right-click in a
 	// guarded frame must not build a widget tree), rebuilt on a language switch.
 	std::unique_ptr<ItemDetailsDialog> m_itemDetails;
-	// Party inventory window (owned by m_hudUi); opened on right-click-while-holding.
-	InventoryWindow* m_inventory = nullptr;
+	// The portrait picker: built once, likewise; filled by Game::LoadPortraits.
+	std::unique_ptr<PortraitPicker> m_portraitPicker;
+	// The party window (owned by m_hudUi), opened by the sheet's "All".
+	PartyWindow* m_inventory = nullptr;
+	ui::Button* m_sheetAll = nullptr; // that button (owned by m_sheetUi)
 	// The Magic-area spellbook (owned by m_hudUi): opened from a hand's use
 	// menu (Magic » Spellbook), where a member builds a symbol sequence.
 	SpellbookPanel* m_spellbook = nullptr;
@@ -737,9 +879,31 @@ private:
 	// Installed languages (assets/lang scan), in the Game tab dropdown's
 	// order; maps the selection index back to a language code.
 	std::vector<loc::LanguageInfo> m_languages;
-	// The stones the Settings → UI dropdown offers (assets/ui/stones stems,
-	// scanned when the page is built), index-matched to its rows.
-	std::vector<std::string> m_stoneNames;
+	// The stones the Settings -> Stone tab offers (ScanStones): each tile's
+	// stem, its toned luminance from stones.cat (the light / dark filter) and
+	// its thumbnail. Loaded once and kept across page rebuilds, so a language
+	// switch does not reload fourteen textures; the picker points into it.
+	struct StoneInfo {
+		std::string name;
+		float luminance = 0.0f;
+		std::string family; // stones.cat `family` (stone / wood / forest / ...)
+		std::unique_ptr<gfx::Texture> thumb;
+		// stones.cat `mean` / `detail`: the tile's mean colour and how busy it
+		// is at glyph scale - what ApplyStone calms it by (Skin::calm).
+		Vec4 mean{0.2f, 0.2f, 0.2f, 1.0f};
+		float detail = 0.0f;
+	};
+	std::vector<StoneInfo> m_stones;
+	bool m_stonesScanned = false;
+	// The place's material (SetPlaceStone) and the one actually loaded into
+	// the skin (ApplyStone compares the two names, so a level change that keeps
+	// the material reloads nothing).
+	std::string m_placeStone;
+	std::string m_shownStone;
+	std::string m_previewStone; // PreviewStone; empty = none
+	// The Material tab's grid, while the settings page stands - so a place
+	// change can update its "follow" tile. Dies with the page (UIContext rule).
+	StonePicker* m_stonePicker = nullptr;
 
 	// Last torchlight dropdown selection, so a HUD rebuild (language change)
 	// recreates the dropdown showing the palette that is actually active.

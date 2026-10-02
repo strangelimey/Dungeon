@@ -1,6 +1,12 @@
 // ============================================================================
 // Game/CharacterSheetLayout.h — shared layout fractions for CharacterSheet*.cpp.
 // Parent-relative [0..1] of the sheet pixel rect. Not for use outside those TUs.
+//
+// The "...Rem" sizes below are measured in the sheet's EM (Widget::Em), not
+// its rem (more-ui-updates Phase 5). On the sheet the two are the same number -
+// nothing in it sets a fontScale - but the party window's cards are the same
+// class at a smaller fontScale, and their text has to shrink with the card.
+// The one exception is the scroll gutter, which ScrollArea reads in rem.
 // ============================================================================
 #pragma once
 
@@ -109,9 +115,12 @@ inline constexpr float kTipValueRem = 5.0f;  // one value column width
 inline constexpr float kTipIconRem = 2.2f;   // the column-heading item icons
 
 // --- mode toggle buttons under the portrait ---------------------------------
+// Grown for the CUT-STONE tabs (more-ui-updates P3): at 0.038 x 0.054 a stone
+// was ~30 px and its etched symbol could not be read. Now ~43 px square at
+// 16:9, ending just above kHeaderY.
 inline constexpr int kModeCount = 5;
-inline constexpr float kModeBtnW = 0.038f * kWiden;
-inline constexpr float kModeBtnH = 0.054f;
+inline constexpr float kModeBtnW = 0.054f * kWiden;
+inline constexpr float kModeBtnH = 0.076f;
 inline constexpr float kModeBtnGap = 0.006f * kWiden;
 inline constexpr float kModeBtnX = 0.031f * kWiden;
 inline constexpr float kModeBtnY = 0.236f;
@@ -120,6 +129,11 @@ inline constexpr float kModeBtnY = 0.236f;
 inline constexpr float kPortraitX = 0.031f * kWiden, kPortraitY = 0.036f;
 inline constexpr float kPortraitW = 0.128f * kWiden, kPortraitH = 0.179f;
 inline constexpr float kNameX = 0.179f * kWiden, kNameY = 0.054f;
+// "Change portrait", under the name with its foot on the portrait's - the one
+// free strip beside the portrait, so it reads as belonging to it.
+inline constexpr float kPortraitBtnW = 0.24f * kWiden, kPortraitBtnH = 0.055f;
+inline constexpr float kPortraitBtnX = kNameX;
+inline constexpr float kPortraitBtnY = kPortraitY + kPortraitH - kPortraitBtnH;
 
 // --- stats / skills columns -------------------------------------------------
 inline constexpr float kLabelX = 0.072f;

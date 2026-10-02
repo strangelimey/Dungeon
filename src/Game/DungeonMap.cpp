@@ -368,6 +368,18 @@ void DungeonMap::Parse(const std::vector<u8>& bytesIn, FixtureTypes fixtures,
 			}
 			continue;
 		}
+		if (record.starts_with("uistone")) {
+			// uistone <name> - the UI material this level overrides its
+			// dungeon's with (assets/ui/stones/<name>.png; UiStone()). Not
+			// checked against the folder: a missing tile already warns where it
+			// loads and falls back to the flat face, and a map must not fail to
+			// load over the look of its chrome.
+			const std::vector<std::string_view> tok = SplitRecordTokens(record);
+			DN_ASSERT(tok.size() == 2,
+					  std::format("expected \"uistone <name>\": \"{}\" in {}", record, path));
+			m_uiStone.assign(tok[1]);
+			continue;
+		}
 		Entity e = ParseEntityRecord(record, path);
 		DN_ASSERT(e.kind == EntityKind::Decoration,
 				  std::format("only decorations are static — move \"{}\" to the .ent file ({})",

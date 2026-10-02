@@ -362,6 +362,47 @@ void Renderer::NewFrame(u32 frameIndex) {
 	m_paletteCache.reserve(kPaletteCacheReserve);
 }
 
+void Renderer::UpdateTexture(ID3D12GraphicsCommandList* list, const Texture& texture,
+							 std::span<const u8> rgba8) {
+	ID3D12Resource* resource = texture.Resource();
+	const D3D12_RESOURCE_DESC desc = resource->GetDesc();
+	DN_ASSERT(desc.MipLevels == 1, "UpdateTexture rewrites mip 0 only");
+	const u32 w = texture.Width(), h = texture.Height();
+	const u64 rowBytes = static_cast<u64>(w) * 4;
+	DN_ASSERT(rgba8.size() >= rowBytes * h, "UpdateTexture: too few pixels");
+	// A placed footprint wants its rows on 256-byte pitches and its start on a
+	// 512-byte boundary; the arena hands out exactly that.
+	const u64 pitch = (rowBytes + D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1) &
+					  ~static_cast<u64>(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1);
+	UploadAllocator& arena = *m_frameAllocators[m_frameIndex];
+	const UploadAllocation staged =
+		arena.Allocate(pitch * h, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
+	u8* dstRows = static_cast<u8*>(staged.cpu);
+	for (u32 y = 0; y < h; ++y)
+		std::memcpy(dstRows + y * pitch, rgba8.data() + y * rowBytes,
+					static_cast<size_t>(rowBytes));
+
+	D3D12_TEXTURE_COPY_LOCATION dst{};
+	dst.pResource = resource;
+	dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+	dst.SubresourceIndex = 0;
+	D3D12_TEXTURE_COPY_LOCATION src{};
+	src.pResource = arena.Resource();
+	src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+	src.PlacedFootprint.Offset = staged.gpu - arena.Resource()->GetGPUVirtualAddress();
+	src.PlacedFootprint.Footprint = {desc.Format, w, h, 1, static_cast<UINT>(pitch)};
+
+	// The barrier into COPY_DEST also orders the copy after every earlier frame's
+	// reads of the texture on this queue.
+	const auto toCopy = Transition(resource, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+								   D3D12_RESOURCE_STATE_COPY_DEST);
+	list->ResourceBarrier(1, &toCopy);
+	list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+	const auto toRead = Transition(resource, D3D12_RESOURCE_STATE_COPY_DEST,
+								   D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+	list->ResourceBarrier(1, &toRead);
+}
+
 void Renderer::BeginScene(ID3D12GraphicsCommandList* list, const Camera& camera,
 						  const LightSet& lights, const Atmosphere& atmosphere,
 						  bool hdrTarget) {

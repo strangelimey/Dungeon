@@ -464,6 +464,8 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 	// landing, and the exertion of the steps themselves.
 	CheckDamageLedger("party movement");
 	UpdateMonsters(dt);
+	// The dungeon's own effects - a door a blast left alight burns down.
+	TickBreakables(dt);
 	// The busiest phase by far — monster blows, every DoT bite on both sides,
 	// regeneration, supplies, and the unconscious waking up.
 	CheckDamageLedger("monsters, effects and regeneration");
@@ -586,6 +588,15 @@ void DungeonWorld::SetLevelTags(const std::string& stem,
 		m_map.SetTags(std::move(tags));
 	else
 		EnsureMapStash(stem).SetTags(std::move(tags));
+}
+
+// The UI material's counterpart: only the chrome reads it, and Game resolves
+// the chrome itself, so this is a plain write.
+void DungeonWorld::SetLevelUiStone(const std::string& stem, std::string name) {
+	if (stem == m_currentLevel)
+		m_map.SetUiStone(std::move(name));
+	else
+		EnsureMapStash(stem).SetUiStone(std::move(name));
 }
 
 // See the header for why the cooldowns move with the latch, and why only when
@@ -1574,6 +1585,10 @@ void DungeonWorld::RebuildFiresAndDust() {
 	m_fires.clear();
 	BuildFires();
 	BuildTurbidityMap();
+	// The damage side-table follows the fixture set too, or a brazier the editor
+	// placed is indestructible until the next load (it carries the old entries'
+	// state over, so a rebuild never mends anything).
+	SeedFixtureBreakables();
 }
 
 bool DungeonWorld::RemountSconce(int cx, int cz, Direction from, Direction to) {
@@ -1973,8 +1988,29 @@ void DungeonWorld::BuildAISnapshot() {
 	// reusing a stale grid there would read out of bounds on the worker thread).
 	if (m_walkableRev != m_map.Revision() || !m_walkableCache ||
 		m_walkableCache->size() != static_cast<size_t>(W) * H) {
-		auto grid = std::make_shared<std::vector<uint8_t>>(
-			static_cast<size_t>(W) * H); // value-initialised to 0
+		const size_t cells = static_cast<size_t>(W) * H;
+		// An IDLE pooled snapshot (only the pool holds it) still points at the grid
+		// it was last published with, which would keep that grid's count up for
+		// good. No worker reads an idle one, so let go of its grid first.
+		for (auto& s : m_snapshotPool)
+			if (s.use_count() == 1) s->walkable.reset();
+		// A grid nobody else holds - not the cache, not a snapshot in flight.
+		std::shared_ptr<std::vector<uint8_t>> grid;
+		for (auto& g : m_walkablePool)
+			if (g.use_count() == 1 && g->size() == cells) {
+				grid = g;
+				break;
+			}
+		if (!grid) {
+			// A level of a NEW SIZE (load time), or every grid still in flight. The
+			// old size's free grids go, and this one comes with a spare beside it.
+			std::erase_if(m_walkablePool, [cells](const auto& g) {
+				return g.use_count() == 1 && g->size() != cells;
+			});
+			grid = std::make_shared<std::vector<uint8_t>>(cells);
+			m_walkablePool.push_back(grid);
+			m_walkablePool.push_back(std::make_shared<std::vector<uint8_t>>(cells));
+		}
 		// Braziers block like walls (the party bumps them too) — bake them into
 		// the grid so monsters don't path through the fire. Placement/removal
 		// bumps the map Revision, so edits invalidate this cache like any paint.

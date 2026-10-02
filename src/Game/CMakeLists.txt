@@ -68,6 +68,7 @@ add_library(Game STATIC
 	Game_DevDungeons.cpp
 	Game_DevEval.cpp
 	Game_DevParty.cpp
+	Game_Party.cpp
 	Game_DevWorld.cpp
 	Game_Editor.cpp
 	Game_Eval.cpp
@@ -81,6 +82,8 @@ add_library(Game STATIC
 	GameSettings.cpp
 	GameUI.cpp
 	GameUI_Items.cpp
+	GameUI_Party.cpp
+	GameUI_Stone.cpp
 	InspectPicker.cpp
 	InstanceInspector.cpp
 	LevelSettingsDialog.cpp
@@ -126,12 +129,16 @@ add_library(Game STATIC
 	CharacterPanel.cpp
 	ControlBar.cpp
 	MemberCards.cpp
+	MenuPanel.cpp
+	StonePicker.cpp
 	HudTray.cpp
 	HandSlot.cpp
 	GuardSlider.cpp
 	SpellbookPanel.cpp
-	InventoryWindow.cpp
+	PartyWindow.cpp
 	ItemDetailsDialog.cpp
+	PortraitPicker.cpp
+	PartyCreationPage.cpp
 	CharacterSheet.cpp
 	CharacterSheet_Inventory.cpp
 	CharacterSheet_Stats.cpp

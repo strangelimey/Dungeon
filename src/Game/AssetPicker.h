@@ -28,6 +28,7 @@
 #include "Assets/Model.h"
 #include "Game/AssetUtil.h"
 #include "Game/DialogLayout.h" // PreviewPane, the card chrome
+#include "Game/ThumbCache.h"
 #include "Graphics/GraphicsDevice.h"
 #include "Graphics/Mesh.h"
 #include "Graphics/Renderer.h" // MaterialParams
@@ -66,6 +67,8 @@ public:
 
 	Mode CurrentMode() const { return m_mode; }
 	const std::string& Selected() const { return m_selected; }
+	// Tile images held (the dev `assetpicker status` readout).
+	size_t ThumbCount() const { return m_thumbs.Size(); }
 
 	// Modal input: search box, grid, filters, footer. Also ages the thumbnail
 	// cache (one tick per frame).
@@ -130,16 +133,15 @@ private:
 		bool m_hot = false;
 	};
 
-	// A tile's image plus when it was last on screen (the eviction key). A model
-	// tile also holds the mesh its icon was baked from — the bake only RECORDS a
-	// draw, so the mesh must outlive the frame, and both die together.
+	// A tile's image (ThumbCache keeps when it was last seen and whether it was
+	// tried). A model tile also holds the mesh its icon was baked from — the bake
+	// only RECORDS a draw, so the mesh must outlive the frame, and both die
+	// together.
 	struct Thumb {
 		std::unique_ptr<gfx::Texture> texture;
 		std::unique_ptr<gfx::Mesh> mesh; // models only: kept alive for the bake
 		Vec3 lo{}, hi{};                 // models only: bounds for the fit
 		bool needsBake = false;          // target + mesh ready, draw not recorded
-		u64 lastSeen = 0;
-		bool tried = false; // a failed load isn't retried every frame
 	};
 
 	// Readies up to `max` model tiles for baking: loads the mesh, measures it and
@@ -161,8 +163,7 @@ private:
 	// Loads a tile image: the set's .dds trimmed to its small mips. Null when
 	// the set has no baked chain (a PNG-only set falls back to the full PNG).
 	std::unique_ptr<gfx::Texture> LoadThumb(const std::string& name) const;
-	const gfx::Texture* ThumbFor(const std::string& name); // caches + marks seen
-	void EvictThumbs();                                    // over the cap, oldest first
+	const gfx::Texture* ThumbFor(const std::string& name); // marks seen, never loads
 
 	// The tiles currently inside the grid's view — the deferred loaders' work
 	// list. Read from the tiles' own PIXEL rects rather than re-derived from a
@@ -210,8 +211,7 @@ private:
 	bool m_previewDirty = false;
 	bool m_factsDirty = false;
 
-	std::unordered_map<std::string, Thumb> m_thumbs;
-	u64 m_frame = 0; // ages the cache
+	ThumbCache<Thumb> m_thumbs; // the shared load / age / evict rules
 
 	// Widgets the picker reads back (all owned by m_ui, dead after a Clear).
 	ui::TextField* m_searchField = nullptr;

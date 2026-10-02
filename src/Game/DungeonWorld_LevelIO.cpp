@@ -178,6 +178,9 @@ static std::string SerializeMapStatic(const std::string& stem,
 			m += std::format(" ambient={:g}", map.AmbientScale());
 		m += '\n';
 	}
+	// The UI material override (DungeonMap::UiStone) - absent unless the level
+	// sets its own, so it follows its dungeon's.
+	if (!map.UiStone().empty()) m += std::format("uistone {}\n", map.UiStone());
 	m += ";\n";
 
 	// Grid: 'P' start, '#' wall, 'D' authored-dusty floor, '.' floor. Fixtures

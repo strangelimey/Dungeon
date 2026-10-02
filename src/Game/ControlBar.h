@@ -59,6 +59,14 @@ struct ControlBarDeps {
 	const ItemIconBank* icons = nullptr;
 	const gfx::Texture* chevron = nullptr;  // step/strafe face
 	const gfx::Texture* chevron2 = nullptr; // turn face (double chevron)
+	// The cut-stone pad (more-ui-updates): each direction's etched symbol and
+	// its gold-lit twin, in the pad's order (turn left, forward, turn right /
+	// strafe left, back, strafe right). The chevrons stay the flat fallback.
+	const gfx::Texture* moveEtch[6] = {};
+	const gfx::Texture* moveEtchLit[6] = {};
+	// The party's Act count and last action (Party::ActCount): when it moves
+	// the pad presses that stone, so a KEY move is seen like a click.
+	std::function<unsigned(MoveAction& last)> lastMove;
 	// The docks' minimize button: the square "-" box (null = text) and its
 	// tooltip.
 	const gfx::Texture* boxMinus = nullptr;
@@ -113,8 +121,11 @@ struct ControlBarDeps {
 };
 
 // 3x2 grid of movement buttons: turn-left / forward / turn-right over
-// strafe-left / back / strafe-right. One chevron asset serves every direction
-// (Button::iconTurns rotates it in quarter turns).
+// strafe-left / back / strafe-right. Each is a CUT STONE (more-ui-updates): its
+// own square block with the direction etched in, gold in the groove, acting on
+// the PRESS - and pressed too when the KEYBOARD moves the party (the pad watches
+// the party's Act count). Without the skin they fall back to one chevron asset
+// for every direction (Button::iconTurns rotates it in quarter turns).
 class MovementPad : public ui::Widget {
 public:
 	MovementPad(const gfx::Rect& rect, const ControlBarDeps& deps);
@@ -126,6 +137,14 @@ public:
 
 private:
 	void LayoutSelf(ui::UIContext& ctx) override;
+	// Presses the stone a move used, when the party's Act count moves.
+	void UpdateSelf(ui::UIContext& ctx) override;
+
+	std::function<unsigned(MoveAction&)> m_lastMove;
+	ui::Button* m_buttons[6] = {};
+	MoveAction m_actions[6] = {};
+	unsigned m_seenActs = 0;
+	bool m_seenAny = false; // the first read only syncs (no press)
 };
 
 // One member's two hand boxes side by side, with the stance slider spanning

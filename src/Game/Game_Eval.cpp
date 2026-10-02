@@ -32,6 +32,9 @@ namespace dungeon::game {
 // PUT THE GAME WHERE `newgame` WOULD, WITHOUT THE LEVEL LOAD — the world
 // recycling a long run rests on (~340 ms against ~12 s).
 bool Game::ResetForEval() {
+	// A suite starts from the DEFAULT four, whatever a previous one built with
+	// `newparty` and never started (party creation).
+	m_startParty.reset();
 	if (!m_gameLoaded) {
 		// THE FIRST TEST IN A BATCH: nothing to recycle, so run a real new game
 		// — THROUGH THE UI CALLBACK, not StartNewGame(). From a cold boot the HUD
@@ -58,7 +61,7 @@ bool Game::ResetForEval() {
 		return true;
 	}
 	m_world->ResetForEval();
-	ResetRoster();  // fresh members, keeping each slot's loaded portrait
+	ResetRoster();  // fresh members, default portraits (reloaded only if changed)
 	m_ui.RefreshSheet();
 	m_ui.ClearLog();
 	ApplyPartySpeed();

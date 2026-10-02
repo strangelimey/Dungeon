@@ -5,6 +5,7 @@
 #include "Game/CharacterSheet.h"
 #include "Game/CharacterSheetLayout.h"
 #include "Game/PartyHudDraw.h"
+#include "UI/Skin.h"
 
 #include "Core/Loc.h"
 
@@ -26,8 +27,8 @@ CharacterSheet::CharacterSheet(const gfx::Rect& rect,
 							   const ItemWeightBank* weights,
 							   const ItemIconBank* slotIcons,
 							   const ItemCategoryBank* categories,
-							   HeldItem* held)
-	: m_roster(roster), m_barStyle(barStyle),
+							   HeldItem* held, bool card)
+	: m_roster(roster), m_card(card), m_barStyle(barStyle),
 	  m_icons(icons), m_weights(weights), m_slotIcons(slotIcons),
 	  m_categories(categories), m_held(held),
 	  m_healthLabel(loc::Tr("bar.health")),
@@ -66,12 +67,22 @@ CharacterSheet::CharacterSheet(const gfx::Rect& rect,
 // The three LIST tabs each get a SheetList, which is where the shared scroll
 // lives (see the header).
 void CharacterSheet::BuildParts() {
-	Add<SheetPortrait>(gfx::Rect{kPortraitX, kPortraitY, kPortraitW, kPortraitH},
-					   m_roster, &m_member);
+	// A card has neither: the party window shows the members' names on the
+	// cards and keeps one row of tab stones for all four.
+	if (!m_card) {
+		Add<SheetPortrait>(gfx::Rect{kPortraitX, kPortraitY, kPortraitW, kPortraitH},
+						   m_roster, &m_member);
+		ui::Button* change = Add<ui::Button>(
+			gfx::Rect{kPortraitBtnX, kPortraitBtnY, kPortraitBtnW, kPortraitBtnH},
+			loc::Tr("sheet.portrait.change"), [this] {
+				if (onChangePortrait) onChangePortrait();
+			});
+		change->debugName = "change-portrait";
 
-	const float stripW = kModeCount * kModeBtnW + (kModeCount - 1) * kModeBtnGap;
-	Add<ModeSelector>(gfx::Rect{kModeBtnX, kModeBtnY, stripW, kModeBtnH},
-					  kModeCount, &m_modeIndex, [this](int i) { SelectMode(i); });
+		const float stripW = kModeCount * kModeBtnW + (kModeCount - 1) * kModeBtnGap;
+		m_modeStrip = Add<ModeSelector>(gfx::Rect{kModeBtnX, kModeBtnY, stripW, kModeBtnH},
+										kModeCount, &m_modeIndex, [this](int i) { SelectMode(i); });
+	}
 
 	// One list per scrolling tab, filling the sheet; each positions its heading
 	// and scrolling band from the shared layout table.
@@ -212,13 +223,39 @@ void CharacterSheet::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const ui::Theme& theme = ctx.GetTheme();
 	const gfx::Rect px = Body();
 
+	if (m_card) {
+		// A card sits on the party window's stone: a darker well, the member's
+		// name over it, and a hairline in the member's colour under the name.
+		const gfx::Rect& card = Pixel();
+		batch.DrawRect(card, {0.0f, 0.0f, 0.0f, 0.22f});
+		ui::DrawBorder(batch, card, theme.panelBorder);
+		if (!m_character) return;
+		const ui::Font& nameFont = ctx.FontAt(ui::FontRole::Display, Em(1.5f));
+		const float band = Em(kCardNameEm);
+		// On the Inventory tab the name lines up with the squares (em from the
+		// card's corner); elsewhere with the tab's own left margin.
+		const bool squares = m_mode == Mode::Inventory;
+		const float left = squares ? card.x + Em(kCardInvPadEm) : Ax(px, kLeft);
+		const float right = squares ? card.x + card.w - Em(kCardInvPadEm) : Ax(px, 1.0f - kLeft);
+		nameFont.Draw(batch, m_character->name, left,
+					  card.y + (band - nameFont.Height()) * 0.5f, theme.accent);
+		const Vec4& c = m_character->portraitColor;
+		batch.DrawRect({left, card.y + band - 2.0f, right - left, 1.0f}, {c.x, c.y, c.z, 0.7f});
+		switch (m_mode) {
+		case Mode::Inventory: DrawInventory(ctx, batch, px); break;
+		case Mode::Stats:     DrawStats(ctx, batch, px); break;
+		default:              break;
+		}
+		return;
+	}
+
 	// The whole card, status band included.
 	ui::DrawPanelFace(ctx, batch, Pixel(), opacity ? *opacity : 1.0f);
 	if (!m_character) return;
 	DrawStatus(ctx, batch);
 
 	// --- header band: the name (the portrait is a child) --------------------
-	ctx.FontAt(ui::FontRole::Display, Rem(kHeadingRem))
+	ctx.FontAt(ui::FontRole::Display, Em(kHeadingRem))
 		.Draw(batch, m_character->name, Ax(px, kNameX), Ay(px, kNameY),
 			  theme.accent);
 
@@ -250,7 +287,7 @@ SheetPortrait::SheetPortrait(const gfx::Rect& rect,
 void SheetPortrait::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	if (const Character* c = RosterMember(m_roster, *m_member))
 		DrawPortrait(batch, Pixel(), *c,
-					 ctx.FontAt(ui::FontRole::Display, Rem(kHeadingRem)),
+					 ctx.FontAt(ui::FontRole::Display, Em(kHeadingRem)),
 					 ctx.GetTheme());
 }
 
@@ -258,29 +295,33 @@ void SheetPortrait::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 
 ModeButton::ModeButton(const gfx::Rect& rect, int index, const int* activeIndex,
 					   std::function<void(int)> onSelect)
-	: m_index(index), m_active(activeIndex), m_onSelect(std::move(onSelect)) {
-	bounds = rect;
+	: ui::Button(rect, std::string(),
+				 [onSelect = std::move(onSelect), index] {
+					 if (onSelect) onSelect(index);
+				 }),
+	  m_index(index), m_active(activeIndex) {
 	debugName = "ModeButton";
+	fireOnPress = true; // a tab changes the page on the press (Michael)
 }
 
 void ModeButton::UpdateSelf(ui::UIContext& ctx) {
-	m_hot = false;
-	const Input* input = ctx.CurrentInput();
-	if (!input) return;
-	m_hot = !ctx.IsMouseConsumed() &&
-			Pixel().Contains(input->MouseX(), input->MouseY());
-	if (!m_hot) return;
-	ctx.ConsumeMouse();
-	if (input->WasMousePressed(MouseButton::Left) && m_onSelect) m_onSelect(m_index);
+	ui::Button::UpdateSelf(ctx);
+	// The current tab is held down and lit - however it got there: a click, or
+	// Tab / Shift+Tab stepping onto it.
+	active = *m_active == m_index;
 }
 
 void ModeButton::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
+	if (const ui::Skin* skin = ctx.GetSkin(); etch && skin && skin->block.texture) {
+		ui::Button::DrawSelf(ctx, batch); // the cut stone
+		return;
+	}
+	// The flat look (no skin, or uiskin=0): the hand-drawn glyph.
 	const ui::Theme& theme = ctx.GetTheme();
 	const gfx::Rect& r = Pixel();
 	const int i = m_index;
-	const bool active = *m_active == i;
 	batch.DrawRect(r, active ? theme.controlActive
-							 : (m_hot ? theme.controlHot : theme.control));
+							 : (Hot() ? theme.controlHot : theme.control));
 	ui::DrawBorder(batch, r, active ? theme.accent : theme.panelBorder);
 	const Vec4 ink = active ? theme.text : theme.textDim;
 	const float cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f;
@@ -322,8 +363,17 @@ ModeSelector::ModeSelector(const gfx::Rect& rect, int count,
 										   (span - 1.0f) * sheet::kModeBtnGap);
 	const float w = (1.0f - gap * (span - 1.0f)) / span;
 	for (int i = 0; i < count; ++i)
-		Add<ModeButton>(gfx::Rect{(w + gap) * static_cast<float>(i), 0.0f, w, 1.0f},
-						i, activeIndex, onSelect);
+		m_buttons.push_back(
+			Add<ModeButton>(gfx::Rect{(w + gap) * static_cast<float>(i), 0.0f, w, 1.0f}, i,
+							activeIndex, onSelect));
+}
+
+void ModeSelector::SetEtches(std::span<const gfx::Texture* const> etch,
+							 std::span<const gfx::Texture* const> lit) {
+	for (size_t i = 0; i < m_buttons.size(); ++i) {
+		m_buttons[i]->etch = i < etch.size() ? etch[i] : nullptr;
+		m_buttons[i]->etchLit = i < lit.size() ? lit[i] : nullptr;
+	}
 }
 
 } // namespace dungeon::game

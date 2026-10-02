@@ -13,6 +13,17 @@ assets/models/*.dds
 assets/textures/*.png
 docs/*.png
 
+# The party portrait sets (thousands of bought images; Corax's license also
+# forbids redistributing its files) are extracted from OneDrive\DungeonAssets by
+# tools/FetchPortraits.ps1. Only the catalog and the starter party's four
+# defaults (all Magory) are committed, so a fresh clone has faces.
+assets/portraits/*.png
+assets/portraits/*.dds
+!assets/portraits/portrait018.png
+!assets/portraits/portrait398.png
+!assets/portraits/portrait1419.png
+!assets/portraits/b045.png
+
 # Authored multi-material models (bought packs) carry embedded textures, so the
 # .glb is heavy — regenerated from OneDrive\DungeonAssets by tools/FetchModels.ps1
 # (committed models stay .gltf). See the fab.com mesh pipeline.

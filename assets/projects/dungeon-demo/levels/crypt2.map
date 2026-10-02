@@ -9,6 +9,7 @@ stairfacing arrive
 stairs stairs_up 1 1 south dest=crypt1 destx=1 destz=1
 stairs stairs_exit 10 6 north dest=crypt_back destx=0 destz=0
 atmosphere dust=0.09 haze=0.9 ambient=1.2
+uistone rubble
 ;
 ############
 #..........#

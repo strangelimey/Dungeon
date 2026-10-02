@@ -91,9 +91,12 @@ and scene.hlsl's `DustDensity` adds them to the turbidity as soft spheres 1.5
 squares across. Nothing is stored, so nothing can drift.
 
 The turbidity GRID itself (a fire's ring of smoke while it burns) is refreshed IN
-PLACE when a fire changes: `Texture::UpdateLevel0` writes mip 0 through the
-frame's upload arena, flagged by `m_turbidityDirty` - no texture rebuilt, no GPU
-stall. A fire changed in PLAY recomputes the map's turbidity without bumping
+PLACE when a fire changes: `DungeonWorld::RefreshTurbidity` refills the kept
+pixels and flags `m_turbidityDirty`, and the next RenderScene copies them into
+the existing texture through `Renderer::UpdateTexture` - no texture rebuilt, no
+GPU stall. (The breakables thread built the same path for a smashed fixture at
+the same time; the merge kept that one and dropped this thread's
+`Texture::UpdateLevel0`.) A fire changed in PLAY recomputes the map's turbidity without bumping
 `DungeonMap::Revision()` (`RecomputeTurbidity`): the revision keys the AI's
 walkability grid, the shadow-cube cache and the editor's undo, and a bump rebuilt
 the AI grid on every hand spell. Editor edits to a fixture still bump it.

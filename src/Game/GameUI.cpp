@@ -8,6 +8,7 @@
 #include "Game/AssetUtil.h"
 #include "Game/HudTray.h"
 #include "Game/MemberCards.h"
+#include "Game/MenuPanel.h"
 #include "Game/PartyHudDraw.h" // the resource bars' heartbeat (TickResourceBars)
 #include "Game/Project.h"
 #include "Game/SaveGame.h"
@@ -30,6 +31,14 @@ std::string WorldTitle(const std::string& folder) {
 		Project::ReadName(Project::FolderFor(paths::Asset("projects"), folder));
 	return title.empty() ? folder : title;
 }
+
+// The movement stones' etched symbols (assets/ui/etch_move_<name>.png), in the
+// MovementPad's order: turn left, forward, turn right / strafe left, back,
+// strafe right.
+constexpr const char* kMoveEtches[] = {"turn_left",   "forward", "turn_right",
+									   "strafe_left", "back",	 "strafe_right"};
+// The sheet's tab stones (assets/ui/etch_tab_<name>.png), in its Mode order.
+constexpr const char* kTabEtches[] = {"inventory", "stats", "skills", "spells", "effects"};
 
 // Font pixel heights at the 900px-tall design window (the layouts in
 // BuildMenu/BuildHud are authored against the same design size). UpdateFonts
@@ -56,10 +65,13 @@ constexpr float kMenuTitleY = 0.16f;
 constexpr float kMenuSubtitleY = kMenuTitleY + 74.0f / kFontDesignWindowH;
 constexpr float kMenuContentY =
 	kMenuSubtitleY + (kMenuFontH + 20.0f) / kFontDesignWindowH;
-// Where the saves page parks its Back button. The list above it is SIZED from
-// this rather than authored separately, so moving the content start can never
-// push the button off the bottom.
-constexpr float kSavesBackY = 0.85f;
+// The bottom of the save / load / world pages' stone card. Everything on the
+// card is stacked inside it, so nothing can be pushed off its foot.
+constexpr float kSavesCardBottom = 0.95f;
+// One slot on those pages, in rem, gap included (SlotList::rowHeight): its
+// stone is the height of a menu entry's (MenuPanel::kEntryRem), and the save
+// name's field and the Save / Back stones match it.
+constexpr float kSlotRowRem = 2.1f;
 
 // Widget bounds are normalized fractions [0..1] of their container
 // (see Widget.h). Layouts are authored directly in those fractions — never
@@ -141,6 +153,13 @@ void GameUI::BuildStaticUi() {
 	// a shared registry by the CONTROL, so it has to be installed before any
 	// page — or any editor dialog — draws one.
 	LoadSharedControlIcons(m_device);
+	// And the sheet's tab stones (tools/BuildEtchGlyphs.py), for the same
+	// reason: BuildCharacterSheet hands their pointers to the tabs.
+	for (size_t i = 0; i < std::size(kTabEtches); ++i) {
+		const std::string stem = std::string("ui\\etch_tab_") + kTabEtches[i];
+		m_tabEtch[i] = TryLoadTextureFile(m_device, paths::Asset(stem));
+		m_tabEtchLit[i] = TryLoadTextureFile(m_device, paths::Asset(stem + "_lit"));
+	}
 	BuildMenu();
 	BuildPauseMenu();
 	BuildCharacterSheet();
@@ -148,6 +167,9 @@ void GameUI::BuildStaticUi() {
 	m_itemDetails = std::make_unique<ItemDetailsDialog>(m_device, m_fonts);
 	m_itemDetails->onMemorize = [this] { MemorizeFromDetails(); };
 	m_detailsItem.reserve(64); // assigned in a guarded frame (a right-click)
+	// The portrait picker, likewise (Game::LoadPortraitCatalog fills it).
+	m_portraitPicker = std::make_unique<PortraitPicker>(m_device, m_fonts);
+	m_partyPage = std::make_unique<PartyCreationPage>(m_device);
 	ApplyTheme(); // again, now the dialog exists to receive it (the skin
 				  // arrives with LoadTitleArt, whose ApplySkin reaches it too)
 }
@@ -167,6 +189,9 @@ void GameUI::LoadTitleArt() {
 	m_frameButtonDownTex = TryLoadTextureFile(m_device, paths::Asset("ui\\frame_button_down"));
 	m_frameSlotTex = TryLoadTextureFile(m_device, paths::Asset("ui\\frame_slot"));
 	m_sheenTex = TryLoadTextureFile(m_device, paths::Asset("ui\\sheen_panel"));
+	// The cut-stone block's chamfer, up and pressed (same script).
+	m_frameBlockTex = TryLoadTextureFile(m_device, paths::Asset("ui\\frame_block"));
+	m_frameBlockDownTex = TryLoadTextureFile(m_device, paths::Asset("ui\\frame_block_down"));
 	// The resource bars' iron frame (tools/CutBarFrame.py). Optional too:
 	// without it the bars draw flat.
 	m_barFrameTex = TryLoadTextureFile(m_device, paths::Asset("ui\\bar_frame"));
@@ -185,6 +210,14 @@ void GameUI::LoadTitleArt() {
 	// quarter turns per direction by ui::Button::iconTurns.
 	m_chevronTex = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_chevron"));
 	m_chevron2Tex = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_chevron2"));
+	// ...and their CUT-STONE symbols (tools/BuildEtchGlyphs.py), one per
+	// direction plus a lit twin, in the pad's order. The chevrons above stay
+	// the fallback for the flat debug look.
+	for (size_t i = 0; i < std::size(kMoveEtches); ++i) {
+		const std::string stem = std::string("ui\\etch_move_") + kMoveEtches[i];
+		m_moveEtch[i] = TryLoadTextureFile(m_device, paths::Asset(stem));
+		m_moveEtchLit[i] = TryLoadTextureFile(m_device, paths::Asset(stem + "_lit"));
+	}
 	// The soft glow behind a SET hand box (tools/BuildGlow.py). Optional: without
 	// it a set hand shows the flat tint alone.
 	m_glowTex = TryLoadTextureFile(m_device, paths::Asset("ui\\glow_radial"));
@@ -200,24 +233,12 @@ void GameUI::LoadTitleArt() {
 	m_skin.buttonDown = {m_frameButtonDownTex.get(), 16.0f, 0.5f, true, 8.0f};
 	m_skin.slot = {m_frameSlotTex.get(), 16.0f, 0.5f, true, 8.0f};
 	m_skin.sheen = {m_sheenTex.get(), 0.0f, 1.0f, true};
-	LoadStone(m_settings.uiStone);
+	// The block's visible edge is its joint + chamfer (outline 2 + band 11).
+	m_skin.block = {m_frameBlockTex.get(), 16.0f, 0.5f, true, 13.0f};
+	m_skin.blockDown = {m_frameBlockDownTex.get(), 16.0f, 0.5f, true, 10.0f};
+	ApplyStone(); // the pinned material, or the place's (GameUI_Stone.cpp)
 	UpdateSkinScale();
 	ApplySkin();
-}
-
-// The stone every skinned face is cut from: assets/ui/stones/<name>.png
-// (tools/BuildUiStones.py). A missing one is logged and leaves the faces on the
-// skin's flat fallback colour - still chrome, just without grain.
-//
-// Also the Settings dropdown's live switch, so it may replace a stone frames
-// still in flight are sampling: the GPU is drained before the old texture is
-// released (the SRV rule - its slot recycles and its resource dies with it).
-void GameUI::LoadStone(const std::string& name) {
-	auto tex = TryLoadTextureFile(m_device, paths::Asset("ui\\stones\\" + name));
-	if (!tex) log::Warn("UI stone missing: ui/stones/{}.png - faces draw without grain", name);
-	if (m_stoneTex) m_device.WaitIdle();
-	m_stoneTex = std::move(tex);
-	m_skin.stone = m_stoneTex.get();
 }
 
 // The frames and the stone grain track the window like the fonts do, so a
@@ -226,6 +247,7 @@ void GameUI::LoadStone(const std::string& name) {
 void GameUI::UpdateSkinScale() {
 	const float s = 0.5f * m_fontScale;
 	m_skin.panel.scale = m_skin.button.scale = m_skin.buttonDown.scale = m_skin.slot.scale = s;
+	m_skin.block.scale = m_skin.blockDown.scale = s;
 	m_skin.stoneTile = 1024.0f * m_fontScale;
 }
 
@@ -235,6 +257,7 @@ void GameUI::ApplyTheme() {
 		  &m_confirmUi})
 		ctx->SetTheme(m_settings.theme);
 	if (m_itemDetails) m_itemDetails->UI().SetTheme(m_settings.theme);
+	if (m_portraitPicker) m_portraitPicker->UI().SetTheme(m_settings.theme);
 }
 
 void GameUI::ApplySkin() {
@@ -245,6 +268,7 @@ void GameUI::ApplySkin() {
 		  &m_confirmUi})
 		ctx->SetSkin(skin);
 	if (m_itemDetails) m_itemDetails->UI().SetSkin(skin);
+	if (m_portraitPicker) m_portraitPicker->UI().SetSkin(skin);
 }
 
 void GameUI::Click(float volume) { m_audio.Play(m_sounds.click, volume); }
@@ -328,11 +352,12 @@ void GameUI::BuildMenuList() {
 	// +1 for Exit, which is always present: it is the ONLY pointer-driven way out
 	// of the title screen now that Esc no longer quits (see Game.cpp's Menu case).
 	const int itemCount = (hasSaves ? 5 : 3) + 1; // Editor sits under Start
-	constexpr float kMenuW = 0.26f;   // ~420/1600
-	constexpr float kItemH = 0.064f;  // ~58/900
-	const float menuH = kItemH * static_cast<float>(itemCount);
-	auto* menu = m_menuUi.Add<ui::MenuList>(gfx::Rect{(1.0f - kMenuW) * 0.5f, 0.42f, kMenuW, menuH},
-		1.0f / static_cast<float>(itemCount));
+	// The same stone card as the pause menu (Michael chose both), untitled:
+	// the game's own title stays over the art, and the card starts just under
+	// its subtitle.
+	auto* panel = m_menuUi.Add<MenuPanel>(std::string(), static_cast<size_t>(itemCount),
+										  kMenuContentY + 0.02f);
+	ui::MenuList* menu = panel->List();
 
 	// Order: Continue / Load (only when a save exists), then Start New Game just
 	// above Settings. Continue loads the most recent save outright (no browser).
@@ -358,6 +383,7 @@ void GameUI::BuildMenuList() {
 	menu->AddItem(loc::Tr("menu.settings"), [this] {
 		Click();
 		m_menuPage = MenuPage::Settings;
+		SyncMemberColorPickers();
 	});
 	// Exit LAST, the way the pause menu ends with it. Deliberately the only click
 	// that quits from here, since Esc no longer does.
@@ -390,6 +416,7 @@ void GameUI::BuildSettings() {
 	ui::Stack* vf = SettingsTab(*tabs, tabVideo);
 	ui::Stack* af = SettingsTab(*tabs, tabAudio);
 	ui::Stack* uf = SettingsTab(*tabs, tabUi);
+	BuildStoneTab(*tabs); // the sixth tab, GameUI_Stone.cpp
 
 	// Game: language. The language list is whatever assets/lang holds;
 	// selecting one defers to Game (settings save + string reload +
@@ -681,34 +708,7 @@ void GameUI::BuildSettings() {
 			m_settings.Save();
 		});
 
-	// UI → Stone: what the chrome is cut from. The list is whatever
-	// assets/ui/stones holds (tools/BuildUiStones.py is the curated set),
-	// scanned when the page is built, never per frame; each is named by its
-	// stone.<name> lang key. Live: only the skin's stone pointer changes.
-	uf->Row<ui::Label>(ui::Len::Fixed(kSetLabel), loc::Tr("settings.ui_stone"))->dim = true;
-	m_stoneNames.clear();
-	std::error_code scanError;
-	for (const auto& entry :
-		 std::filesystem::directory_iterator(paths::Asset("ui\\stones"), scanError))
-		if (entry.path().extension() == ".png")
-			m_stoneNames.push_back(entry.path().stem().string());
-	std::sort(m_stoneNames.begin(), m_stoneNames.end());
-	std::vector<std::string> stoneLabels;
-	int stoneIndex = 0;
-	for (size_t i = 0; i < m_stoneNames.size(); ++i) {
-		stoneLabels.push_back(loc::Tr("stone." + m_stoneNames[i]));
-		if (m_stoneNames[i] == m_settings.uiStone) stoneIndex = static_cast<int>(i);
-	}
-	uf->Row<ui::DropDown>(
-		ui::Len::Fixed(kSetCtrl), std::move(stoneLabels), stoneIndex, [this](int index) {
-			Click();
-			if (index < 0 || index >= static_cast<int>(m_stoneNames.size())) return;
-			const std::string& name = m_stoneNames[static_cast<size_t>(index)];
-			if (name == m_settings.uiStone) return;
-			m_settings.uiStone = name;
-			LoadStone(name);
-			m_settings.Save();
-		});
+	// (The Stone choice is its own tab now - GameUI_Stone.cpp.)
 
 	// UI → Head bob: the walking camera's footfall dip/sway. Off for motion-
 	// sensitive players; pushed to the Party via onHeadBobChanged.
@@ -720,6 +720,22 @@ void GameUI::BuildSettings() {
 			if (onHeadBobChanged) onHeadBobChanged();
 			m_settings.Save();
 		});
+
+	// UI → Resource bars: the fills' brightness and saturation. Read live each
+	// frame (TickResourceBars hands them to the sprite batch), so dragging
+	// needs no apply step; persisted on release.
+	uf->Space(ui::Len::Fixed(kSetGroup));
+	uf->Row<ui::Label>(ui::Len::Fixed(kSetLabel), loc::Tr("settings.resource_bars"));
+	auto* barBright = uf->Row<ui::Slider>(
+		ui::Len::Fixed(kSetSlider),
+		loc::Tr("settings.bar_brightness"), 0.3f, 1.0f, m_settings.barBrightness,
+		[this](float v) { m_settings.barBrightness = v; });
+	barBright->onRelease = [this] { m_settings.Save(); };
+	auto* barSat = uf->Row<ui::Slider>(
+		ui::Len::Fixed(kSetSlider),
+		loc::Tr("settings.bar_saturation"), 0.0f, 1.0f, m_settings.barSaturation,
+		[this](float v) { m_settings.barSaturation = v; });
+	barSat->onRelease = [this] { m_settings.Save(); };
 
 	// UI → HUD panels: every floating panel's scale and background opacity
 	// (kHudPanelFields), above them the layout lock and the reset. The panels
@@ -825,25 +841,25 @@ void GameUI::BuildSettings() {
 	});
 
 	// UI → Party Colors: one picker per roster slot — the member's identity
-	// color (portrait border, hand stripe, log tint). Edits land in the
-	// settings (the master, member_<n>= in the ini) AND on the live roster,
-	// so the HUD recolors immediately; persists when the popup closes.
+	// color (portrait border, hand stripe, log tint). Party creation (phase 4):
+	// a member's colour is THEIRS, saved with the game, and the ini's
+	// member_<n>= is the colour a NEW member in slot n starts with. So with a
+	// party in play a row shows and edits that member (the HUD recolours at
+	// once) and keeps the slot's default in step; on the title, or for a slot
+	// the party does not fill, it edits only the default. Labels and swatches
+	// follow the party through SyncMemberColorPickers; persists on close.
 	section(*uf, "settings.party_colors");
 	colorGrid(*uf, kMemberColorCount, [&](ui::Stack& row, size_t i) {
-		// Label with the member's name when the roster has the slot (proper
-		// nouns, not localized); a slot number otherwise.
-		const std::string label =
-			i < m_characters.size() ? m_characters[i].name
-									: loc::Format("settings.member_n", i + 1);
 		auto* picker = row.Row<ui::ColorPicker>(
-			ui::Len::Fill(), label, m_settings.memberColors[i],
+			ui::Len::Fill(), loc::Format("settings.member_n", i + 1), m_settings.memberColors[i],
 			[this, i](const Vec4& color) {
 				m_settings.memberColors[i] = color;
-				if (i < m_characters.size())
-					m_characters[i].portraitColor = color;
+				if (MemberColorInPlay(i)) m_characters[i].portraitColor = color;
 			});
 		picker->onClose = [this] { m_settings.Save(); };
+		m_memberColorPickers[i] = picker;
 	});
+	SyncMemberColorPickers();
 
 	m_settingsUi.Add<ui::Button>(gfx::Rect{(1.0f - 0.14f) * 0.5f, kTabsY + kTabsH + 0.03f, 0.14f, 0.05f},
 		loc::Tr("menu.back"), [this] {
@@ -865,11 +881,12 @@ void GameUI::BuildPauseMenu() {
 	const bool hasSaves = !ListSaves().empty();
 	m_menuHasSaves = hasSaves;
 	const int itemCount = hasSaves ? 6 : 5;
-	constexpr float kMenuW = 0.26f;
-	constexpr float kItemH = 0.064f;
-	const float menuH = kItemH * static_cast<float>(itemCount);
-	auto* menu = m_pauseUi.Add<ui::MenuList>(gfx::Rect{(1.0f - kMenuW) * 0.5f, 0.42f, kMenuW, menuH},
-		1.0f / static_cast<float>(itemCount));
+	// A stone card, centred, with the title carved on it and the entries as
+	// cut stones (Game/MenuPanel.h; more-ui-updates Phase 4). RenderPauseOverlay
+	// no longer draws the title above it on this page.
+	auto* panel = m_pauseUi.Add<MenuPanel>(loc::Tr("pause.title"),
+										   static_cast<size_t>(itemCount), -1.0f);
+	ui::MenuList* menu = panel->List();
 	menu->AddItem(loc::Tr("menu.save"), [this] {
 		Click();
 		OpenSavesPage(SavesMode::Save);
@@ -883,6 +900,7 @@ void GameUI::BuildPauseMenu() {
 	menu->AddItem(loc::Tr("menu.settings"), [this] {
 		Click();
 		m_menuPage = MenuPage::Settings;
+		SyncMemberColorPickers();
 	});
 	// Out of THIS game and back to the title (Michael, 2026-09-24) — just above
 	// Exit, the other way out. The game stays loaded, as after a party wipe, so
@@ -918,16 +936,18 @@ void GameUI::OpenSavesPage(SavesMode mode) {
 
 	const std::vector<SaveSlot> slots = ListSaves();
 
-	// Column as window fractions (~720/1600 wide, centered).
-	constexpr float kColW = 0.45f;
-	constexpr float kColX = (1.0f - kColW) * 0.5f;
-	constexpr float kRowH = 0.05f;
-	constexpr float kLabelH = 0.032f;
+	// The page is a stone card with its title carved on it and its rows in one
+	// Stack (more-ui-updates: the same treatment as the pause and title menus).
+	// The slots are cut stones that press and act on release; Save and Back are
+	// carved stones. Nothing below writes a coordinate.
+	ui::Stack* col = SavesCard(mode == SavesMode::Save ? "saves.title_save" : "saves.title_load");
 
-	// Builds the slots into a scroll box at [ly, ly+lh] (window fractions).
-	// Added LAST by the caller so its modal dialog claims the mouse first.
-	auto buildList = [&](float ly, float lh) {
-		auto* list = m_savesUi.Add<ui::SlotList>(gfx::Rect{kColX, ly, kColW, lh});
+	// Builds the slots into the column's filling row. The list sits ABOVE the
+	// Back row in add order, so Back is updated first: the list's delete confirm
+	// takes the pointer through ClaimPopup, not by being added last.
+	auto buildList = [&] {
+		auto* list = col->Row<ui::SlotList>(ui::Len::Fill());
+		list->rowHeight = kSlotRowRem;
 		list->deleteIcon = m_deleteIcon.get();
 		list->confirmPrompt = loc::Tr("saves.delete_prompt");
 		list->deleteLabel = loc::Tr("saves.delete");
@@ -962,60 +982,64 @@ void GameUI::OpenSavesPage(SavesMode mode) {
 		}
 	};
 
-	float backY = 0.0f;
-	bool wantList = false;
-	float listY = 0.0f, listH = 0.0f;
 	if (mode == SavesMode::Save) {
-		float y = kMenuContentY;
-		m_saveField = m_savesUi.Add<ui::TextField>(gfx::Rect{kColX, y, kColW, kRowH},
+		m_saveField = col->Row<ui::TextField>(ui::Len::Fixed(kSlotRowRem - 0.2f),
 			loc::Format("saves.default_name", slots.size() + 1));
 		m_saveField->placeholder = loc::Tr("saves.name_placeholder");
 		m_saveField->onChange = [this] { DisarmOverwrite(); };
 		m_saveField->onSubmit = [this] { CommitSave(); };
 		m_saveField->SetFocused(true);
-		y += 0.07f;
 
-		m_saveButton = m_savesUi.Add<ui::Button>(gfx::Rect{kColX, y, kColW, kRowH}, loc::Tr("menu.save"),
+		m_saveButton = col->Row<ui::Button>(ui::Len::Fixed(kSlotRowRem - 0.2f), loc::Tr("menu.save"),
 			[this] { CommitSave(); });
-		y += 0.085f;
+		m_saveButton->carved = true;
 
 		if (slots.empty()) {
-			backY = y;
+			col->Space(ui::Len::Fill());
 		} else {
-			m_savesUi.Add<ui::Label>(gfx::Rect{kColX, y, kColW, kLabelH},
-									 loc::Tr("saves.overwrite_label"))
-				->dim = true;
-			listY = y + 0.04f;
-			// Fill what is left above the Back button instead of authoring a
-			// height here too: the two would drift the moment either moves.
-			listH = kSavesBackY - 0.02f - listY;
-			wantList = true;
-			backY = kSavesBackY;
+			col->Row<ui::Label>(ui::Len::Fixed(1.25f), loc::Tr("saves.overwrite_label"))->dim = true;
+			buildList();
 		}
+	} else if (slots.empty()) {
+		col->Row<ui::Label>(ui::Len::Fixed(1.25f), loc::Tr("saves.none"))->dim = true;
+		col->Space(ui::Len::Fill());
 	} else {
-		listY = kMenuContentY;
-		if (slots.empty()) {
-			m_savesUi.Add<ui::Label>(gfx::Rect{kColX, listY, kColW, kLabelH},
-									 loc::Tr("saves.none"))
-				->dim = true;
-			backY = listY + 0.06f;
-		} else {
-			listH = kSavesBackY - 0.02f - listY;
-			wantList = true;
-			backY = kSavesBackY;
-		}
+		buildList();
 	}
-
-	constexpr float kBackW = 0.14f;
-	m_savesUi.Add<ui::Button>(gfx::Rect{(1.0f - kBackW) * 0.5f, backY, kBackW, kRowH}, loc::Tr("menu.back"),
-		[this] {
-			Click();
-			m_menuPage = MenuPage::Main;
-		});
-
-	if (wantList) buildList(listY, listH);
+	SavesBackRow(*col);
 
 	m_menuPage = MenuPage::Saves;
+}
+
+// The card the save, load and world pages stand on, and the column inside it:
+// centred under the big title. The card carries the page's own title, so these
+// pages draw no subtitle and the card starts where it would have been.
+ui::Stack* GameUI::SavesCard(const char* titleKey) {
+	auto* col = AddPageCard(0.50f, titleKey)->Add<ui::Stack>(gfx::Rect{0, 0, 1, 1});
+	col->gapRem = 0.4f;
+	return col;
+}
+
+// A page card `width` of the window wide (the party page needs more than the
+// lists), into m_savesUi: centred under the big title, or from `top` (a window
+// fraction) on a page that draws no big title.
+PageCard* GameUI::AddPageCard(float width, const char* titleKey, float top) {
+	const float cardTop = top >= 0.0f ? top : kMenuSubtitleY;
+	constexpr float kCardBottom = kSavesCardBottom;
+	return m_savesUi.Add<PageCard>(
+		gfx::Rect{(1.0f - width) * 0.5f, cardTop, width, kCardBottom - cardTop},
+		loc::Tr(titleKey));
+}
+
+// A carved Back stone, centred, as the page's last row.
+void GameUI::SavesBackRow(ui::Stack& col) {
+	auto* row = col.Row<ui::Stack>(ui::Len::Fixed(kSlotRowRem - 0.2f), true);
+	row->Space(ui::Len::Fill());
+	row->Row<ui::Button>(ui::Len::Fixed(8.0f), loc::Tr("menu.back"), [this] {
+		Click();
+		m_menuPage = MenuPage::Main;
+	})->carved = true;
+	row->Space(ui::Len::Fill());
 }
 
 void GameUI::BeginNewGame(bool editor) {
@@ -1032,6 +1056,13 @@ void GameUI::BeginNewGame(bool editor) {
 	}
 	Click(0.6f);
 	if (onEditorOnArrival) onEditorOnArrival(editor);
+	// A new GAME builds its party first (party creation); the editor starts
+	// with the default four, as it always has.
+	if (!editor && onOpenPartyCreation) {
+		m_partyFromWorlds = false;
+		onOpenPartyCreation(worlds.size() == 1 ? worlds.front().folder : std::string());
+		return;
+	}
 	// One world: straight into THAT one - which is not necessarily the default
 	// a harness start would open.
 	if (worlds.size() == 1 && onStartNewGameIn) onStartNewGameIn(worlds.front().folder);
@@ -1048,12 +1079,9 @@ void GameUI::OpenWorldsPage() {
 	const std::vector<WorldChoice> worlds =
 		onListWorlds ? onListWorlds() : std::vector<WorldChoice>{};
 
-	constexpr float kColW = 0.45f;
-	constexpr float kColX = (1.0f - kColW) * 0.5f;
-	constexpr float kRowH = 0.05f;
-	constexpr float kBackW = 0.14f;
-	auto* list = m_savesUi.Add<ui::SlotList>(
-		gfx::Rect{kColX, kMenuContentY, kColW, kSavesBackY - 0.02f - kMenuContentY});
+	ui::Stack* col = SavesCard("worlds.title");
+	auto* list = col->Row<ui::SlotList>(ui::Len::Fill());
+	list->rowHeight = kSlotRowRem;
 	for (const WorldChoice& w : worlds) {
 		ui::SlotList::Row row;
 		row.primary = w.display.empty() ? w.folder : w.display;
@@ -1062,17 +1090,19 @@ void GameUI::OpenWorldsPage() {
 		row.secondary = row.primary == w.folder ? std::string() : w.folder;
 		row.onActivate = [this, folder = w.folder] {
 			Click(0.6f);
-			m_menuPage = MenuPage::Main;
 			if (onEditorOnArrival) onEditorOnArrival(m_worldsForEditor);
+			if (!m_worldsForEditor && onOpenPartyCreation) {
+				// The page replaces this one next frame (it borrows this context).
+				m_partyFromWorlds = true;
+				onOpenPartyCreation(folder);
+				return;
+			}
+			m_menuPage = MenuPage::Main;
 			onStartNewGameIn(folder);
 		};
 		list->AddRow(std::move(row)); // onDelete left null: no delete icon
 	}
-	m_savesUi.Add<ui::Button>(gfx::Rect{(1.0f - kBackW) * 0.5f, kSavesBackY, kBackW, kRowH},
-							  loc::Tr("menu.back"), [this] {
-								  Click();
-								  m_menuPage = MenuPage::Main;
-							  });
+	SavesBackRow(*col);
 	m_menuPage = MenuPage::Worlds;
 }
 
@@ -1159,6 +1189,14 @@ void GameUI::BuildCharacterSheet() {
 											&m_barStyle, m_itemIcons,
 											m_itemWeights, m_slotIcons,
 											m_itemCategories, m_held);
+	{
+		std::array<const gfx::Texture*, 5> etch{}, lit{};
+		for (size_t i = 0; i < etch.size(); ++i) {
+			etch[i] = m_tabEtch[i].get();
+			lit[i] = m_tabEtchLit[i].get();
+		}
+		m_sheet->SetModeEtches(etch, lit);
+	}
 	// A pack refused the held item: a soft thud + a "won't fit" log line. Item
 	// names follow the item.<id> loc convention (same as ItemKind::nameKey).
 	m_sheet->onRejectDrop = [this](const std::string& item, const std::string& pack) {
@@ -1185,6 +1223,9 @@ void GameUI::BuildCharacterSheet() {
 	m_sheet->onItemUse = [this](ItemPlace place) {
 		if (m_sheetMenu) OpenItemUseMenu(m_sheetIndex, place, *m_sheetMenu);
 	};
+	m_sheet->onChangePortrait = [this] {
+		if (onChangePortrait) onChangePortrait(m_sheetIndex);
+	};
 	// The Spells tab resolves learned-spell ids through the same registry the
 	// spellbook uses (deferred so spellDefs is wired by cast time).
 	m_sheet->spells = [this] {
@@ -1207,8 +1248,8 @@ void GameUI::BuildCharacterSheet() {
 	window->Add<ui::Button>(gfx::Rect{1.0f - btnW, btnY, btnW, btnH}, ">", [this] {
 		onOpenSheet((m_sheetIndex + 1) % m_characters.size());
 	})->icon = ToolbarIcon(m_device, "box_right");
-	// "All" → the combined party-backpacks view (for cross-character swaps).
-	window->Add<ui::Button>(gfx::Rect{0.06f / kSheetW, btnY, 0.08f / kSheetW, btnH},
+	// "All" → the party window, every member on this tab (Game/PartyWindow.h).
+	m_sheetAll = window->Add<ui::Button>(gfx::Rect{0.06f / kSheetW, btnY, 0.08f / kSheetW, btnH},
 							loc::Tr("ui.inv_all"), [this] {
 								Click();
 								if (onShowPartyInventory) onShowPartyInventory();
@@ -1241,6 +1282,7 @@ void GameUI::BuildCharacterSheet() {
 void GameUI::RebuildForLanguage() {
 	m_menuUi.Clear();
 	m_settingsUi.Clear();
+	m_stonePicker = nullptr; // died with the page; BuildStoneTab sets it again
 	m_pauseUi.Clear();
 	m_savesUi.Clear();
 	m_sheetUi.Clear();
@@ -1250,6 +1292,10 @@ void GameUI::RebuildForLanguage() {
 	if (m_itemDetails) { // its row labels are localized; what it showed is stale
 		m_itemDetails->Close();
 		m_itemDetails->Build();
+	}
+	if (m_portraitPicker) { // its filter words are localized; the title is stale
+		m_portraitPicker->Close();
+		m_portraitPicker->Build();
 	}
 	// The saves page is built on demand; repopulate it in the new language if
 	// it happens to be open (OpenSavesPage leaves m_menuPage on Saves).
@@ -1432,6 +1478,7 @@ void GameUI::ApplyPendingVideoRebuild() {
 	m_videoRebuildPending = false;
 	const int active = m_settingsTabs ? m_settingsTabs->ActiveTab() : 0;
 	m_settingsUi.Clear();
+	m_stonePicker = nullptr; // died with the page; BuildStoneTab sets it again
 	BuildSettings(); // preserves the staged m_sel* (no SeedVideoStaging)
 	if (m_settingsTabs) m_settingsTabs->SetActiveTab(active);
 }
@@ -1444,7 +1491,11 @@ void GameUI::ShowSheet(size_t index) {
 	if (m_sheetMenu) m_sheetMenu->Close();
 }
 
-void GameUI::RefreshSheet() { m_sheet->SetCharacter(m_sheetIndex); }
+void GameUI::RefreshSheet() {
+	m_sheet->SetCharacter(m_sheetIndex);
+	// The party window shows the same things, a card per member.
+	if (m_inventory && m_inventory->IsOpen()) m_inventory->Open(m_inventory->CurrentMode());
+}
 
 bool GameUI::OpenSpellbook(size_t i) { return m_spellbook && m_spellbook->Open(i); }
 
@@ -1669,6 +1720,13 @@ void GameUI::BuildHud() {
 	deps.icons = m_itemIcons;
 	deps.chevron = m_chevronTex.get();
 	deps.chevron2 = m_chevron2Tex.get();
+	for (size_t i = 0; i < m_moveEtch.size(); ++i) {
+		deps.moveEtch[i] = m_moveEtch[i].get();
+		deps.moveEtchLit[i] = m_moveEtchLit[i].get();
+	}
+	deps.lastMove = [this](MoveAction& action) -> unsigned {
+		return moveCounter ? moveCounter(action) : 0u;
+	};
 	deps.boxMinus = ToolbarIcon(m_device, "box_minus");
 	deps.minimizeTip = loc::Tr("hud.minimize");
 	deps.onMove = [this](MoveAction action) { onMoveAction(action); };
@@ -1773,33 +1831,70 @@ void GameUI::BuildHud() {
 		};
 	}
 
-	// The party inventory: a floating WINDOW (P3b) - the last panel on the
-	// layer, so it draws over the others, and shown only while open. Centred
-	// until moved; the world stays clickable around it.
+	// The party window (more-ui-updates Phase 5, Game/PartyWindow.h): a
+	// floating WINDOW (P3b) - the last panel on the layer, so it draws over the
+	// others, and shown only while open. Centred until moved; the world stays
+	// clickable around it. Sized in its own em, so its shape holds at any scale.
 	ui::FloatingPanel* inventoryPanel = makePanel(kHudInventory, "InventoryPanel");
-	inventoryPanel->size = [](ui::UIContext& ctx, float s) {
-		return Vec2{InventoryWindow::kWidthFrac * s * ctx.Width(),
-					InventoryWindow::kHeightFrac * s * ctx.Height()};
+	// Its size follows the TAB (Phase 6): the Inventory cards carry the sheet's
+	// own squares, so the window grows on that tab and shrinks back after.
+	inventoryPanel->size = [this, inventoryPanel](ui::UIContext& ctx, float s) {
+		const float em = inventoryPanel->EmAt(ctx, s);
+		return m_inventory ? m_inventory->PanelSize(ctx, s, em, m_inventory->CurrentMode())
+						   : PartyWindow::SizeForEm(em);
 	};
+	// Centred at its OTHER-tabs size, so its top-left - and with it the row of
+	// tab stones - stays put while the size changes under a tab switch.
 	inventoryPanel->defaultPos = [inventoryPanel](ui::UIContext& ctx) {
-		const Vec2 size = inventoryPanel->size(ctx, inventoryPanel->Scale());
+		const Vec2 size = PartyWindow::SizeForEm(inventoryPanel->EmAt(ctx, inventoryPanel->Scale()));
 		return Vec2{(ctx.Width() - size.x) * 0.5f, (ctx.Height() - size.y) * 0.5f};
 	};
 	inventoryPanel->shownWhen = [this] { return m_inventory && m_inventory->IsOpen(); };
-	m_inventory = inventoryPanel->Add<InventoryWindow>(&m_characters, m_itemIcons, m_held,
-													   m_closeIcon, [this] {
-														   Click();
-														   CloseInventory();
-													   });
+	m_inventory = inventoryPanel->Add<PartyWindow>(
+		inventoryPanel, &m_characters, &m_barStyle, m_itemIcons, m_itemWeights, m_slotIcons,
+		m_itemCategories, m_held, m_closeIcon, [this] {
+			Click();
+			CloseInventory();
+		});
 	m_inventory->bounds = {0, 0, 1, 1};
+	m_inventory->squareDesign = [this] { return m_sheetUi.DesignHeight(); };
 	m_inventory->opacity = &m_settings.hudInventory.opacity;
-	// The item mouse buttons inside the party inventory, as on the sheet.
-	m_inventory->onItemDetails = [this](size_t member, int slot) {
-		OpenItemDetails(member, {ItemPlace::Kind::Pack, slot});
-	};
-	m_inventory->onItemUse = [this](size_t member, int slot) {
-		if (m_handMenu) OpenItemUseMenu(member, {ItemPlace::Kind::Pack, slot}, *m_handMenu);
-	};
+	{
+		std::array<const gfx::Texture*, 5> etch{}, lit{};
+		for (size_t i = 0; i < etch.size(); ++i) {
+			etch[i] = m_tabEtch[i].get();
+			lit[i] = m_tabEtchLit[i].get();
+		}
+		m_inventory->SetModeEtches(etch, lit);
+	}
+	// Each card is wired as the sheet is, but for ITS member: the item mouse
+	// buttons (right = details, middle = the use menu), the refusals, the
+	// defense readouts and the spell registry.
+	for (size_t i = 0; i < PartyWindow::kMaxCards; ++i) {
+		CharacterSheet* card = m_inventory->Card(i);
+		card->onItemDetails = [this, i](ItemPlace place) { OpenItemDetails(i, place); };
+		card->onItemUse = [this, i](ItemPlace place) {
+			if (m_handMenu) OpenItemUseMenu(i, place, *m_handMenu);
+		};
+		card->onRejectDrop = [this](const std::string& item, const std::string& pack) {
+			m_audio.Play(m_sounds.bump, 0.5f);
+			AddLogLine(loc::FormatLine("log.pack_rejects", loc::ViewKey("item.", item),
+									   loc::ViewKey("item.", pack)));
+		};
+		card->onRejectHold = [this](const std::string& item) {
+			m_audio.Play(m_sounds.bump, 0.5f);
+			AddLogLine(loc::FormatLine("log.cant_hold", loc::ViewKey("item.", item)));
+		};
+		card->defenseFor = [this](const Character& c) {
+			return defenseFor ? defenseFor(c) : DefenseReadout{};
+		};
+		card->defenseWith = [this](const Character& c, const std::string& id) {
+			return defenseWith ? defenseWith(c, id) : DefenseReadout{};
+		};
+		card->spells = [this] {
+			return spellDefs ? spellDefs() : std::span<const std::unique_ptr<Spell>>{};
+		};
+	}
 
 	m_spellbook = docks.spellbook;
 	m_spellbook->onClick = [this] { Click(); };
@@ -1826,9 +1921,30 @@ void GameUI::BuildHud() {
 	m_handMenuItem.reserve(64);
 }
 
-void GameUI::OpenInventory() { if (m_inventory) m_inventory->Open(); }
+void GameUI::OpenInventory(CharacterSheet::Mode mode) {
+	if (m_inventory) m_inventory->Open(mode);
+}
 void GameUI::CloseInventory() { if (m_inventory) m_inventory->Close(); }
 bool GameUI::InventoryOpen() const { return m_inventory && m_inventory->IsOpen(); }
+CharacterSheet::Mode GameUI::InventoryMode() const {
+	return m_inventory ? m_inventory->CurrentMode() : CharacterSheet::Mode::Inventory;
+}
+std::string_view GameUI::InventoryStatusName() const {
+	return m_inventory ? m_inventory->StatusName() : std::string_view{};
+}
+std::string_view GameUI::InventoryStatusText() const {
+	return m_inventory ? m_inventory->StatusText() : std::string_view{};
+}
+unsigned GameUI::InventoryOpens() const { return m_inventory ? m_inventory->Opens() : 0; }
+gfx::Rect GameUI::InventoryStoneRect(size_t i) const {
+	return m_inventory ? m_inventory->StoneRect(i) : gfx::Rect{};
+}
+bool GameUI::InventorySlotRect(size_t member, int slot, gfx::Rect& out) const {
+	const CharacterSheet* card = m_inventory ? m_inventory->Card(member) : nullptr;
+	if (!card || !card->visible) return false;
+	out = card->PackSlotRect(slot);
+	return true;
+}
 
 // A panel was dragged or resized: save, and mark the Settings sliders behind
 // the scale the corner grip left (a slider and the grip edit one number). NOT
@@ -1932,6 +2048,7 @@ void GameUI::TickResourceBars(float dt, bool noticed) {
 	// the fills jump once at the wrap, which nobody watching a bar will catch.
 	m_barStyle.clock = std::fmod(m_barStyle.clock + dt, 3600.0f);
 	m_spriteBatch.SetTime(m_barStyle.clock);
+	m_spriteBatch.SetBarLook(m_settings.barBrightness, m_settings.barSaturation);
 	for (size_t i = 0; i < ResourceBarStyle::kMaxMembers; ++i) {
 		const Character* c = RosterMember(&m_characters, i);
 		const float target = !c ? 0.0f
@@ -2020,14 +2137,23 @@ void GameUI::RefreshMenuEntriesIfDirty() {
 	BuildPauseMenu();
 }
 
-void GameUI::UpdateMenu(const Input& input) {
+void GameUI::UpdateMenu(const Input& input, float dt) {
 	RefreshSavesIfDirty();
 	RefreshMenuEntriesIfDirty();
+	RefreshPartyPageIfDirty();
 	SyncHudPanelSlidersIfStale();
 	if (m_confirmActive) { // modal: freeze the page beneath it
 		m_confirmUi.Update(input, WindowW(), WindowH());
 		ResolveConfirm();
 		return;
+	}
+	if (PartyPageOpen()) {
+		// The face picker over the page is modal for the mouse, as over the sheet.
+		if (PortraitPickerOpen()) {
+			m_portraitPicker->Update(input, WindowW(), WindowH(), dt);
+			return;
+		}
+		m_partyPage->Tick();
 	}
 	MenuContext().Update(input, WindowW(), WindowH());
 }
@@ -2050,7 +2176,11 @@ void GameUI::UpdateSheet(const Input& input, float dt) {
 	m_hudMouseY = input.MouseY();
 	// The item details dialog is modal for the mouse: while it is up it gets the
 	// update and the sheet under it holds still (the world does not - Game runs
-	// it either way).
+	// it either way). The portrait picker is the same.
+	if (PortraitPickerOpen()) {
+		m_portraitPicker->Update(input, WindowW(), WindowH(), dt);
+		return;
+	}
 	if (ItemDetailsOpen()) {
 		m_itemDetails->Update(input, WindowW(), WindowH(), dt);
 		return;
@@ -2078,9 +2208,12 @@ void GameUI::UpdateSheet(const Input& input, float dt) {
 void GameUI::UpdateHud(const Input& input, float dt) {
 	m_hudMouseX = input.MouseX(); // stashed for the held-item cursor in RenderHud
 	m_hudMouseY = input.MouseY();
-	if (ItemDetailsOpen()) {
+	if (PortraitPickerOpen() || ItemDetailsOpen()) {
 		// Modal for the mouse, as over the sheet; the log still ticks its fades.
-		m_itemDetails->Update(input, WindowW(), WindowH(), dt);
+		if (PortraitPickerOpen())
+			m_portraitPicker->Update(input, WindowW(), WindowH(), dt);
+		else
+			m_itemDetails->Update(input, WindowW(), WindowH(), dt);
 		if (m_log) m_log->Tick(dt);
 		return;
 	}
@@ -2138,6 +2271,14 @@ bool GameUI::CloseSettingsPage() {
 		return true;
 	}
 	if (m_menuPage == MenuPage::Main) return false;
+	if (m_menuPage == MenuPage::Party) {
+		// The face picker first, then an open list or colour picker (which
+		// closes itself on the same Esc), then the page (back to where it came
+		// from).
+		if (PortraitPickerOpen()) ClosePortraitPicker();
+		else if (!m_savesUi.PopupOpen()) LeavePartyPage();
+		return true;
+	}
 	m_menuPage = MenuPage::Main;
 	return true;
 }
@@ -2263,22 +2404,24 @@ void GameUI::RenderMenuOverlay() {
 							 {1, 1, 1, 1});
 	m_spriteBatch.DrawRect({0, 0, w, h}, {0, 0, 0, 0.30f});
 
-	// Title + subtitle.
-	DrawCenteredTitle(loc::View("title"), h * kMenuTitleY);
+	// Title + subtitle. The party page is the exception: its card needs the
+	// height, and carries its own title.
+	if (m_menuPage != MenuPage::Party) DrawCenteredTitle(loc::View("title"), h * kMenuTitleY);
 
-	const char* subKey = "menu.subtitle";
-	if (m_menuPage == MenuPage::Settings) subKey = "menu.subtitle_settings";
-	else if (m_menuPage == MenuPage::Worlds) subKey = "menu.subtitle_worlds";
-	else if (m_menuPage == MenuPage::Saves)
-		subKey = m_savesMode == SavesMode::Save ? "menu.subtitle_save"
-												: "menu.subtitle_load";
-	const std::string_view subtitle = loc::View(subKey);
-	ui::Font& font = m_menuUi.GetFont();
-	const float subW = font.MeasureWidth(subtitle);
-	font.Draw(m_spriteBatch, subtitle, (w - subW) * 0.5f,
-			  h * kMenuSubtitleY, theme.textDim);
+	// The saves and worlds pages carry their title on their stone card
+	// (SavesCard), which stands where the subtitle would.
+	if (m_menuPage != MenuPage::Saves && m_menuPage != MenuPage::Worlds &&
+		m_menuPage != MenuPage::Party) {
+		const char* subKey = m_menuPage == MenuPage::Settings ? "menu.subtitle_settings" : "menu.subtitle";
+		const std::string_view subtitle = loc::View(subKey);
+		ui::Font& font = m_menuUi.GetFont();
+		const float subW = font.MeasureWidth(subtitle);
+		font.Draw(m_spriteBatch, subtitle, (w - subW) * 0.5f,
+				  h * kMenuSubtitleY, theme.textDim);
+	}
 
 	MenuContext().Render(m_spriteBatch, w, h);
+	if (PartyPageOpen()) RenderPortraitPicker(); // a member's face, over the page
 	RenderConfirmOverlay();
 }
 
@@ -2302,13 +2445,13 @@ void GameUI::RenderPauseOverlay() {
 
 	m_spriteBatch.DrawRect({0, 0, w, h}, {0, 0, 0, 0.55f});
 
-	DrawCenteredTitle(loc::View("pause.title"), h * kMenuTitleY);
+	// The main page's title is carved on its stone card (MenuPanel); the
+	// settings and saves pages keep the floating one above them.
+	if (m_menuPage != MenuPage::Main) DrawCenteredTitle(loc::View("pause.title"), h * kMenuTitleY);
 
-	if (m_menuPage != MenuPage::Main) {
-		const char* subKey = "menu.subtitle_load";
-		if (m_menuPage == MenuPage::Settings) subKey = "menu.subtitle_settings";
-		else if (m_savesMode == SavesMode::Save) subKey = "menu.subtitle_save";
-		const std::string_view subtitle = loc::View(subKey);
+	// Only Settings has a subtitle now: the saves page's title is on its card.
+	if (m_menuPage == MenuPage::Settings) {
+		const std::string_view subtitle = loc::View("menu.subtitle_settings");
 		ui::Font& font = m_pauseUi.GetFont();
 		const float subW = font.MeasureWidth(subtitle);
 		font.Draw(m_spriteBatch, subtitle, (w - subW) * 0.5f,

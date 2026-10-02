@@ -1,7 +1,7 @@
 // ============================================================================
 // Game/PartyHudDraw.h — shared draw helpers for the party HUD widgets.
 //
-// Free functions (not a class): CharacterPanel, HandSlot, InventoryWindow, and
+// Free functions (not a class): CharacterPanel, HandSlot, the party window, and
 // CharacterSheet all paint slots / portraits / resource bars the same way.
 // ============================================================================
 #pragma once

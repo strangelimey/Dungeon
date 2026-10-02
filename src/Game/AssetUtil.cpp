@@ -59,7 +59,7 @@ std::unique_ptr<gfx::Texture> TryLoadTextureFile(gfx::GraphicsDevice& device,
 }
 
 std::unique_ptr<gfx::Texture> LoadTextureThumb(gfx::GraphicsDevice& device,
-											   const std::string& stemPath, u32 maxPx) {
+											   const std::string& stemPath, u32 maxPx, bool srgb) {
 	// The baked chain, with its big levels dropped: a thumbnail wants maxPx,
 	// not the 2048px the set installs at. Same file, a sliver of the memory.
 	if (auto chain = assets::LoadDdsFile(stemPath + ".dds")) {
@@ -74,11 +74,11 @@ std::unique_ptr<gfx::Texture> LoadTextureThumb(gfx::GraphicsDevice& device,
 			thumb.levels.push_back(level);
 		}
 		if (!thumb.levels.empty())
-			return std::make_unique<gfx::Texture>(device, thumb, /*srgb*/ true);
+			return std::make_unique<gfx::Texture>(device, thumb, srgb);
 	}
 	// No baked chain (a source-only set): the PNG, at whatever size it is.
 	if (auto img = assets::LoadImageFile(stemPath + ".png"))
-		return std::make_unique<gfx::Texture>(device, *img, /*srgb*/ true);
+		return std::make_unique<gfx::Texture>(device, *img, srgb);
 	return nullptr;
 }
 
@@ -316,6 +316,18 @@ std::vector<std::string> InstalledModels() {
 		// types — they are never what a catalog's `model` field names.
 		return !stem.starts_with("worn_");
 	});
+}
+
+std::vector<std::string> InstalledUiStones() {
+	std::vector<std::string> out;
+	std::error_code ec;
+	// Not recursive: thumbs/ beside the tiles holds a same-named copy of each.
+	for (const auto& entry :
+		 std::filesystem::directory_iterator(paths::Asset("ui\\stones"), ec))
+		if (entry.is_regular_file() && entry.path().extension() == ".png")
+			out.push_back(entry.path().stem().string());
+	std::ranges::sort(out);
+	return out;
 }
 
 std::vector<std::string> InstalledFonts() {

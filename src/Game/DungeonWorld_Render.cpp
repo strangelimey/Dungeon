@@ -153,10 +153,10 @@ void DungeonWorld::RenderScene(ID3D12GraphicsCommandList* list) {
 	atmo.sightCell = m_sightCell;
 	atmo.sightTint = m_sightTint;
 	atmo.sightHole = m_sightHole;
-	// A fire lit or put out in play changed the haze grid: copy it into the
-	// texture before the pass that marches it, in place (RefreshTurbidityGrid).
+	// A haze change since the last frame (RefreshTurbidity) lands before the pass
+	// that samples it.
 	if (m_turbidityDirty && m_turbidityMap) {
-		m_turbidityMap->UpdateLevel0(list, m_renderer.FrameUpload(), m_turbidityPixels.data());
+		m_renderer.UpdateTexture(list, *m_turbidityMap, m_turbidityPixels);
 		m_turbidityDirty = false;
 	}
 	// The brief haze over doused fires, read off their smoke effects.

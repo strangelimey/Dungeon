@@ -736,6 +736,13 @@ void DungeonWorld::SpendExertion(Character& member, float points) {
 
 void DungeonWorld::SeedPartySkills() {
 	if (!m_roster) return;
+	const std::vector<std::string> ids = TrainableSkills();
+	for (Character& member : *m_roster)
+		for (const std::string& id : ids)
+			if (!member.skillXp.contains(id)) member.skillXp[id] = 0.0f;
+}
+
+std::vector<std::string> DungeonWorld::TrainableSkills() const {
 	// Built fresh rather than cached: a project reload or an editor catalog edit
 	// can add a weapon class, and this runs once per new game / load.
 	std::vector<std::string> ids;
@@ -755,12 +762,10 @@ void DungeonWorld::SeedPartySkills() {
 		if (const char* skill = ArmorSkillId(static_cast<ArmorClass>(c)); *skill)
 			ids.emplace_back(skill);
 	for (const CatalogEntry* item : m_project.AllItems())
-		if (std::string skill = CatalogGet(item, "skill", ""); !skill.empty())
+		if (std::string skill = CatalogGet(item, "skill", "");
+			!skill.empty() && std::ranges::find(ids, skill) == ids.end())
 			ids.push_back(std::move(skill));
-
-	for (Character& member : *m_roster)
-		for (const std::string& id : ids)
-			if (!member.skillXp.contains(id)) member.skillXp[id] = 0.0f;
+	return ids;
 }
 
 void DungeonWorld::RecomputePartyMaxima() {
@@ -1208,6 +1213,18 @@ bool DungeonWorld::ApplyEffectAhead(std::string_view id, float magnitude,
 		return true;
 	}
 	return false;
+}
+
+int DungeonWorld::ApplyEffectToBreakables(int x, int z, std::string_view id,
+										  float magnitude, float seconds) {
+	const fx::EffectKind* kind = m_effects.Find(id);
+	if (!kind) return -1;
+	int n = 0;
+	ForEachBreakableAt(x, z, [&](BreakableTarget& t) {
+		fx::Apply(t.Effects(), *kind, kind->DefaultSchool(), magnitude, seconds);
+		++n;
+	});
+	return n;
 }
 
 const fx::Inst* DungeonWorld::PlumeEffect(const Monster& monster) {
@@ -2224,6 +2241,9 @@ void DungeonWorld::BreakableTarget::Wound(float amount, fx::DamageEvent& ev) {
 	if (m_brk.hp > 0.0f) return;
 	m_brk.hp = 0.0f;
 	m_brk.broken = true;
+	// A wreck carries nothing - the Extinguish rule for a corpse. Safe mid-tick:
+	// TickEffects deals its bites only after it has finished walking the list.
+	m_brk.effects.clear();
 	ev.slew = true; // this is the blow that finished it
 	// The CONSEQUENCE is the owner's, not the pipeline's: a door's way opens for
 	// good, a prop vanishes, a brazier goes dark.
@@ -2241,7 +2261,7 @@ void DungeonWorld::BreakableTarget::Absorb(float amount, fx::DamageEvent& ev) {
 }
 
 loc::Line DungeonWorld::BreakableTarget::Name() const {
-	return loc::View(m_nameKey);
+	return loc::ViewKey(m_namePrefix, m_nameId);
 }
 
 void DungeonWorld::BreakableTarget::Say(std::string_view line) const {
@@ -2262,50 +2282,125 @@ void DungeonWorld::ForEachBreakableAt(
 	// kind reaches blasts, bolts and anything later, all at once.
 	for (Door& d : m_doors) {
 		if (d.x != x || d.z != z || !d.brk.Alive()) continue;
-		BreakableTarget t{*this, d.brk, "door." + d.type, "log.door_broken", [&d] {
-							  // The way is open FOR GOOD. Not `open = true` alone:
-							  // a smashed door must not be closeable again, which is
-							  // the whole difference from opening one. STATE only —
-							  // the line is the caller's (see BrokenKey).
-							  d.open = true;
-							  d.openT = 1.0f;
-						  }};
+		BreakableTarget t = DoorTarget(d);
 		fn(t);
 	}
 	for (Decoration& p : m_decorations) {
 		if (p.x != x || p.z != z || !p.brk.Alive()) continue;
-		// A smashed prop STAYS IN THE LIST, flagged broken, rather than being
-		// erased. Two reasons, the second load-bearing: erasing while the adapter
-		// still holds a reference into the vector would dangle it, and the SAVE has
-		// to be able to name what was broken afterwards — an erased record cannot be
-		// reported. Draw, collision and the map all skip a broken prop instead
-		// (Decoration::Gone / ::Blocks), so nothing else has to know.
-		BreakableTarget t{*this, p.brk, "decoration." + p.kind->id,
-						  "log.prop_broken", nullptr};
+		BreakableTarget t = DecorationTarget(p);
 		fn(t);
 	}
-	// FIXTURES, from the side-table rather than the map: their records are static,
-	// so their damage state lives beside them (see FixtureBreak). Breaking one puts
-	// its light out.
 	for (FixtureBreak& fb : m_fixtureBreaks) {
 		if (fb.x != x || fb.z != z || !fb.brk.Alive()) continue;
-		BreakableTarget t{*this, fb.brk, "fixture." + fb.type, "log.fixture_broken",
-						  [this, &fb] { DouseFixture(fb); }};
+		BreakableTarget t = FixtureTarget(fb);
 		fn(t);
 	}
 }
 
+DungeonWorld::BreakableTarget DungeonWorld::DoorTarget(Door& d) {
+	return {*this, d.brk, "door.", d.type, "log.door_broken", [&d] {
+				// The way is open FOR GOOD. Not `open = true` alone: a smashed
+				// door must not be closeable again, which is the whole difference
+				// from opening one. STATE only - the line is the caller's (see
+				// BrokenKey).
+				d.open = true;
+				d.openT = 1.0f;
+			}};
+}
+
+DungeonWorld::BreakableTarget DungeonWorld::DecorationTarget(Decoration& p) {
+	// A smashed prop STAYS IN THE LIST, flagged broken, rather than being erased.
+	// Two reasons, the second load-bearing: erasing while the adapter still holds a
+	// reference into the vector would dangle it, and the SAVE has to be able to
+	// name what was broken afterwards - an erased record cannot be reported. Draw,
+	// collision and the map all skip a broken prop instead (Decoration::Gone /
+	// ::Blocks), so nothing else has to know.
+	return {*this, p.brk, "decoration.", p.kind->id, "log.prop_broken", nullptr};
+}
+
+DungeonWorld::BreakableTarget DungeonWorld::FixtureTarget(FixtureBreak& fb) {
+	// FIXTURES come from the side-table rather than the map: their records are
+	// static, so their damage state lives beside them (see FixtureBreak). Breaking
+	// one puts its light out.
+	return {*this, fb.brk, "fixture.", fb.type, "log.fixture_broken",
+			[this, &fb] { DouseFixture(fb); }};
+}
+
+void DungeonWorld::TickBreakables(float dt) {
+	// The same TickEffects a member and a monster run, so a burn on a door bites
+	// through fx::Deal (resisted as it bites, accounted by the ledger) and runs out
+	// on the same clock. Before this, nothing aged these lists: a door left alight
+	// by a blast never took a point of its burn and carried it forever.
+	const auto tick = [this, dt](Breakable& brk, auto makeTarget) {
+		if (brk.effects.empty()) return;
+		// A wreck carries nothing (BreakableTarget::Wound clears the list on the
+		// blow that breaks it; this catches a proc that landed after).
+		if (!brk.Alive()) {
+			brk.effects.clear();
+			return;
+		}
+		BreakableTarget t = makeTarget();
+		++m_harness.tally.sceneryTicks;
+		TickEffects(t, brk.effects, dt, [&](const fx::Inst& e) {
+			if (!onMessage) return;
+			onMessage(e.Is("burn")
+						  ? loc::FormatLine("log.monster_burns_out", t.Name())
+						  : loc::FormatLine("log.effect_fades", t.Name(),
+											loc::View(e.NameKey())));
+		});
+		// A DoT that finished it says so - the line a blow's caller would have
+		// said (NarrateBreak), and the consequence already ran inside Wound.
+		if (brk.broken && onMessage)
+			onMessage(loc::FormatLine(t.BrokenKey(), t.Name()));
+	};
+	for (Door& d : m_doors) tick(d.brk, [&] { return DoorTarget(d); });
+	for (Decoration& p : m_decorations)
+		tick(p.brk, [&] { return DecorationTarget(p); });
+	for (FixtureBreak& fb : m_fixtureBreaks)
+		tick(fb.brk, [&] { return FixtureTarget(fb); });
+}
+
 int DungeonWorld::SmashAt(int x, int z, float amount) {
 	int struck = 0;
-	// A BLOW, not a burst: rolled and soaked like any swing, so a door's `armor`
-	// and its resists both answer it. Bash, because smashing is what this is.
+	// AN IMPACT: unrolled, but soaked AND resisted, so a door's `armor` and its
+	// resists both answer it and the number typed is the number that lands before
+	// them. Bash, because smashing is what this is. It used to be a rolled Blow with
+	// a +500 attack bonus to guarantee the hit - and the opposed roll's MARGIN
+	// multiplier then always hit its cap, so `smash 3` dealt 7.7.
 	ForEachBreakableAt(x, z, [&](BreakableTarget& t) {
 		++struck;
-		fx::DamageEvent ev = fx::DamageEvent::Blow(m_bashType, amount, 500.0f, -1);
+		fx::DamageEvent ev = fx::DamageEvent::Impact(m_bashType, amount, -1);
 		fx::Deal(ev, t, m_balance.Strike(), m_combatRng);
 		NarrateBreak(t, ev);
 	});
 	return struck;
+}
+
+std::vector<std::string> DungeonWorld::BreakableReport(int x, int z) const {
+	std::vector<std::string> out;
+	const auto line = [&](std::string_view kind, std::string_view type, int cx,
+						  int cz, const Breakable& brk) {
+		if (!brk.Damageable()) return;
+		if (x >= 0 && (cx != x || cz != z)) return;
+		std::string s = std::format("{} {} @ {},{} hp={:.1f}/{:.0f}{}", kind, type,
+									cx, cz, brk.hp, brk.maxHp,
+									brk.broken ? " broken" : "");
+		s += " effects=";
+		if (brk.effects.empty()) s += "none";
+		for (size_t i = 0; i < brk.effects.size(); ++i) {
+			const fx::Inst& e = brk.effects[i];
+			s += std::format("{}{}({:.1f} {:.1f}s)", i ? "," : "", e.Id(), e.magnitude,
+							 e.timeLeft);
+		}
+		out.push_back(std::move(s));
+	};
+	for (const Door& d : m_doors) line("door", d.type, d.x, d.z, d.brk);
+	for (const Decoration& p : m_decorations)
+		line("decoration", p.kind ? std::string_view(p.kind->id) : "?", p.x, p.z,
+			 p.brk);
+	for (const FixtureBreak& fb : m_fixtureBreaks)
+		line("fixture", fb.type, fb.x, fb.z, fb.brk);
+	return out;
 }
 
 void DungeonWorld::NarrateBreak(const BreakableTarget& t,
@@ -2368,6 +2463,7 @@ void DungeonWorld::DouseFixture(const FixtureBreak& fb) {
 	// flame until the next level load, and the edit leaked into `savemap` as an
 	// authored change. Burning() is runtime state now; the record is left alone.
 	SetFireBurning(fb.x, fb.z, fb.wall, false);
+	++m_harness.tally.fixturesDoused;
 }
 
 void DungeonWorld::SeedBreakable(Breakable& brk, const DecorationKind& kind) {
@@ -2561,7 +2657,7 @@ void DungeonWorld::ApplyBlastHit(const blast::Hit& c,
 	}
 	// Whatever pieces of DUNGEON stand here take it too — a blast is the first
 	// thing that reaches them, and it reaches them through the same pipeline.
-	ForEachBreakableAt(c.x, c.z, [&](BreakableTarget& t) {
+	const auto strike = [&](BreakableTarget& t) {
 		fx::DamageEvent ev = fx::DamageEvent::Burst(type, dmg, attacker);
 		fx::Deal(ev, t, m_balance.Strike(), m_combatRng);
 		// A door the blast washed over is left ALIGHT, and burns down on its own.
@@ -2570,12 +2666,70 @@ void DungeonWorld::ApplyBlastHit(const blast::Hit& c,
 						   attacker, m_effects, m_combatRng);
 		if (!active.lingering) NarrateBreak(t, ev);
 		else if (ev.slew && onMessage) onMessage(loc::FormatLine(t.BrokenKey(), t.Name()));
-	});
+	};
+	ForEachBreakableAt(c.x, c.z, strike);
+	// A SHUT DOOR STOPS A BLAST; IT DOES NOT ESCAPE IT. The propagation treats a
+	// closed door as a wall (Detonate), so the blast never ENTERS its square - but
+	// the face of the door is right there in the square it did reach, and takes
+	// that square's hit. Without this a fire burst against a wooden door did
+	// nothing at all, and only an OPEN door could ever catch fire. Only the door
+	// itself: a sconce on the doorway's wall is behind the panel. A doorway's
+	// flanks are solid, so a walkable neighbour is always one of its two faces.
+	for (Door& d : m_doors) {
+		if (d.open || !d.brk.Alive()) continue;
+		if (std::abs(d.x - c.x) + std::abs(d.z - c.z) != 1) continue;
+		BreakableTarget t = DoorTarget(d);
+		strike(t);
+	}
 }
 
 // ============================================================================
 // Expiry — a carrier that stopped without striking anything
 // ============================================================================
+
+bool DungeonWorld::StrikeDoorWithBolt(int cx, int cz, const ProjectileExpiry& expiry) {
+	// WHAT A BOLT DOES TO A DOOR DEPENDS ON THE DOOR AND THE SPELL (Michael,
+	// 2026-10-01): a fire bolt may set a wooden door alight, an earth bolt may
+	// batter it - and most doors shrug off both. All of that is DATA already: a
+	// door is hurt at all only if doors.cat says `destructible = 1` (OFF by
+	// default, so keys and switches keep mattering), and how much each element
+	// does is its `armor` and `resists`. An immune door is simply not a target -
+	// the bolt goes out against it as it always did.
+	for (Door& d : m_doors) {
+		if (d.x != cx || d.z != cz || d.open || !d.brk.Alive()) continue;
+		BreakableTarget t = DoorTarget(d);
+		// The bolt's damage with the caster's - or the shooting monster's - potency
+		// for its element, as ResolveSpellHit would deal it to a monster. But NOT
+		// ROLLED: the bolt has already stopped against the panel, so there is no
+		// hit to roll for, and a rolled strike lost the opposed roll to an inert
+		// door about half the time. Soaked and resisted, so the door's armour and
+		// its resists for this element decide what lands.
+		fx::DamageEvent ev = fx::DamageEvent::Bolt(
+			expiry.atk.type,
+			m_balance.Potent(expiry.atk.damage,
+							 AttackerPowers(expiry.attacker, expiry.shooter),
+							 expiry.atk.type),
+			expiry.atk.attackBonus, expiry.attacker);
+		ev.rolled = false;
+		fx::Deal(ev, t, m_balance.Strike(), m_combatRng);
+		m_audio.Play(m_sounds.spellImpact, 0.7f);
+		if (onMessage) {
+			if (ev.dealt >= 0.5f)
+				onMessage(loc::FormatLine("log.bolt_hits_door", t.Name(),
+										  static_cast<int>(ev.dealt + 0.5f)));
+			else
+				onMessage(loc::FormatLine("log.monster_unharmed", t.Name()));
+			if (ev.slew) onMessage(loc::FormatLine(t.BrokenKey(), t.Name()));
+		}
+		// What the bolt leaves behind - a fire bolt's burn, rolled at its chance,
+		// is how a wooden door catches. A door the bolt broke carries nothing.
+		if (!ev.slew && !expiry.payload.Empty())
+			fx::ApplyProcs(t, expiry.payload.Procs(), expiry.payload.flavour,
+						   expiry.attacker, m_effects, m_combatRng);
+		return true;
+	}
+	return false;
+}
 
 void DungeonWorld::ResolveProjectileExpiry(const ProjectileExpiry& expiry) {
 	const int bx = static_cast<int>(std::floor(expiry.pos.x / kCellSize));
@@ -2589,6 +2743,10 @@ void DungeonWorld::ResolveProjectileExpiry(const ProjectileExpiry& expiry) {
 		Detonate(bx, bz, expiry.payload, expiry.atk.type, expiry.attacker);
 		return; // the blast IS the effect; no separate cell-wide proc pass
 	}
+	// A BOLT THAT BREAKS AGAINST A SHUT DOOR STRIKES IT. A shut door stops a bolt
+	// in its own square (isBlocked), so this is where the bolt meets the panel.
+	if (expiry.cause == ExpiryCause::Wall && StrikeDoorWithBolt(bx, bz, expiry))
+		return; // nothing else stands in a shut door's square
 	m_audio.Play(m_sounds.spellFizzle, 0.6f); // the soft fizzle, as before
 	if (expiry.payload.Empty()) return;       // a plain bolt just goes out
 

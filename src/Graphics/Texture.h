@@ -24,8 +24,6 @@
 #include <vector>
 
 namespace dungeon::gfx {
-class UploadAllocator;
-
 class Texture {
 public:
 	// `srgb` selects an sRGB view (gamma-decoded on sample) — set it for color
@@ -44,16 +42,6 @@ public:
 	// barrier back to PIXEL_SHADER_RESOURCE) and sample it like any other Texture
 	// (GpuHandle()). Used for baked 3D item-icon thumbnails.
 	static std::unique_ptr<Texture> RenderTarget(GraphicsDevice& device, u32 size);
-
-	// THE ONE EXCEPTION TO "IMMUTABLE": rewrites mip 0 of an uncompressed RGBA8
-	// texture from `rgba` (Width() x Height(), tightly packed), recorded on
-	// `list` through this frame's upload arena - no staging buffer, no stall, no
-	// heap allocation, so it can run in a guarded frame. The lower mips are left
-	// as they were, so it is only for a texture its shader samples at level 0
-	// (the turbidity grid, whose fires can be lit and doused in play). The GPU
-	// copy lands in queue order, after every earlier frame's reads of it.
-	void UpdateLevel0(ID3D12GraphicsCommandList* list, UploadAllocator& upload,
-					  const u8* rgba);
 
 	D3D12_GPU_DESCRIPTOR_HANDLE GpuHandle() const { return m_srv.gpu; }
 	D3D12_CPU_DESCRIPTOR_HANDLE Rtv() const {

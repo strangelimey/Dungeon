@@ -41,6 +41,7 @@ namespace dungeon::ui {
 struct Len {
 	float rem = 0.0f;  // fixed extent, in rem (0 unless Fixed)
 	float fill = 0.0f; // share of the leftover (0 unless Fill)
+	bool fit = false;  // the row's widget says (Fit)
 
 	// n rem along the axis — the row is sized to the type it holds. One line of
 	// text is 1.25rem (Font::LineAdvance); a control with comfortable air around
@@ -49,6 +50,12 @@ struct Len {
 	// A share of what the fixed rows left over, weighted against the other
 	// fills. One Fill row takes everything that remains.
 	static Len Fill(float weight = 1.0f) { return {0.0f, weight}; }
+	// As long as the row's widget needs at the width it is given: the stack
+	// asks Widget::FitExtent. For content that WRAPS - a grid of tiles whose
+	// row count depends on how many fit across - which no fixed rem can
+	// describe at every window shape. Counts as a fixed row everywhere else
+	// (it takes no share of the leftover, and squeezes like one).
+	static Len Fit() { return {0.0f, 0.0f, true}; }
 };
 
 // A plain container: no look of its own, just an area for children to resolve

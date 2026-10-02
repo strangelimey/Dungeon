@@ -137,14 +137,24 @@ struct GameSettings {
 	// deliberately as a DEBUG MODE (widget containment/extents read at a
 	// glance). Settings → UI checkbox; ini uiskin=.
 	bool uiSkin = true;
-	// The stone that chrome is cut from: an assets/ui/stones/<name>.png stem
-	// (tools/BuildUiStones.py). Settings → UI dropdown; ini ui_stone=.
-	std::string uiStone = "granite_grey";
+	// The material that chrome is cut from: an assets/ui/stones/<name>.png stem
+	// (tools/BuildUiStones.py) PINS one; kUiStoneFollow (the default) lets the
+	// place decide - the level's `uistone`, else its dungeon's `ui_stone`, else
+	// kDefaultUiStone. Settings -> Material tab; ini ui_stone=.
+	static constexpr const char* kUiStoneFollow = "follow";
+	static constexpr const char* kDefaultUiStone = "granite_grey";
+	std::string uiStone = kUiStoneFollow;
 	// Walking head bob (Party::EyePosition's footfall dip + sway). Off for
 	// motion-sensitive players — the eye glides dead level. Settings → UI
 	// checkbox; ini headbob=.
 	bool headBob = true;
-	ui::Theme theme;              // the 8 user-editable control colors
+	// The resource bars' procedural fills (assets/shaders/bar.hlsl): overall
+	// brightness, and how much of their colour survives toward grey (1 =
+	// untouched). Settings -> UI sliders; ini bar_brightness= / bar_saturation=.
+	// 0.7 was picked from a side-by-side: at 1 the fills read cartoonish.
+	float barBrightness = 0.7f;
+	float barSaturation = 1.0f;
+	ui::Theme theme;             // the 8 user-editable control colors
 	// Per-slot party identity colors (see kDefaultMemberColors above).
 	std::array<Vec4, kMemberColorCount> memberColors{
 		kDefaultMemberColors[0], kDefaultMemberColors[1],

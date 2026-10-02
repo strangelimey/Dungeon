@@ -79,6 +79,14 @@ public:
 	// ignored while a move or turn is in flight or during the blocked-move
 	// cooldown, so a mashed HUD button can't outrun the grid.
 	void Act(MoveAction action);
+	// How many Acts there have been - from ANY source: a key, a pad click, the
+	// harness - and the last one's action. The HUD's movement pad presses the
+	// matching stone whenever this moves, so a key move looks like a click
+	// (more-ui-updates). Read once a frame; never allocates.
+	unsigned ActCount(MoveAction& last) const {
+		last = m_lastAct;
+		return m_actCount;
+	}
 	void Update(float dt);
 
 	// Pace multiplier from the slowest party member (1 = baseline). Scales
@@ -254,6 +262,8 @@ private:
 	// actually drawn with — the base curve, or a linear-edge variant while a
 	// same-kind action is chained in front of/behind it.
 	std::optional<MoveAction> m_buffered;
+	unsigned m_actCount = 0;                   // see ActCount
+	MoveAction m_lastAct = MoveAction::Forward;
 	Easing m_activeMoveEasing = Easing::EaseInOut;
 	Easing m_activeTurnEasing = Easing::EaseInOut;
 	bool m_moveStartLinear = false; // current move began as a linear continuation

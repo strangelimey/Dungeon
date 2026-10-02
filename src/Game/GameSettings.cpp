@@ -232,6 +232,8 @@ void GameSettings::Load() {
 	ParseIniBool(text, "uiskin=", uiSkin);
 	ParseIniString(text, "ui_stone=", uiStone);
 	ParseIniBool(text, "headbob=", headBob);
+	ParseIniFloat(text, "bar_brightness=", barBrightness, 0.3f, 1.0f);
+	ParseIniFloat(text, "bar_saturation=", barSaturation, 0.0f, 1.0f);
 	ParseIniBool(text, "usemenu_execute=", useMenuExecutes);
 	ParseIniInt(text, "spell_mru=", spellMruCount);
 	spellMruCount = std::clamp(spellMruCount, 1, 10);
@@ -320,6 +322,8 @@ void GameSettings::Save() const {
 	text += std::format("uiskin={}\n", uiSkin ? 1 : 0);
 	text += std::format("ui_stone={}\n", uiStone);
 	text += std::format("headbob={}\n", headBob ? 1 : 0);
+	text += std::format("bar_brightness={:.2f}\nbar_saturation={:.2f}\n", barBrightness,
+						barSaturation);
 	text += std::format("usemenu_execute={}\n", useMenuExecutes ? 1 : 0);
 	text += std::format("spell_mru={}\n", spellMruCount);
 	text += std::format("project={}\n", projectName);

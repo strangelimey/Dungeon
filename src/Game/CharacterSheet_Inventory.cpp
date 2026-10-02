@@ -54,7 +54,26 @@ gfx::Rect CharacterSheet::EquipRect(const gfx::Rect& px, int i) const {
 			  kEquipW, kEquipH);
 }
 
+// A CARD's Inventory tab (party window, Phase 6) lays its squares out in em
+// from the card's own corner - the pack row under the name band, the contents
+// under that - rather than in fractions of a sheet body: there is no doll to
+// share the width with, and the squares must be the sheet's size, not the
+// card's proportion of it.
+namespace {
+gfx::Rect CardSquare(const gfx::Rect& card, float em, int col, int row, float top) {
+	const float s = CharacterSheet::kCardSlotEm * em;
+	const float step = s + CharacterSheet::kCardSlotGapEm * em;
+	return {card.x + CharacterSheet::kCardInvPadEm * em + static_cast<float>(col) * step,
+			top + static_cast<float>(row) * step, s, s};
+}
+} // namespace
+
 gfx::Rect CharacterSheet::PackRect(const gfx::Rect& px, int i) const {
+	if (m_card) {
+		const gfx::Rect& card = Pixel();
+		const float top = card.y + Em(kCardNameEm + kCardSlotGapEm + kCardSlotEm + kCardInvSepEm);
+		return CardSquare(card, Em(), i % kCardInvCols, i / kCardInvCols, top);
+	}
 	const float x =
 		kPackX + static_cast<float>(i % kPackCols) * (kPackW + kPackGapX);
 	const float y =
@@ -62,6 +81,10 @@ gfx::Rect CharacterSheet::PackRect(const gfx::Rect& px, int i) const {
 	return At(px, x, y, kPackW, kPackH);
 }
 gfx::Rect CharacterSheet::PackRowRect(const gfx::Rect& px, int i) const {
+	if (m_card) {
+		const gfx::Rect& card = Pixel();
+		return CardSquare(card, Em(), i, 0, card.y + Em(kCardNameEm + kCardSlotGapEm));
+	}
 	const float x = kPackX + static_cast<float>(i) * (kPackW + kPackGapX);
 	return At(px, x, kPackRowY, kPackW, kPackH);
 }
@@ -129,7 +152,8 @@ void CharacterSheet::TrackInventoryHover(ui::UIContext& ctx, const gfx::Rect& px
 	const Input* input = ctx.CurrentInput();
 	if (!pointerFree || !input || !m_character || m_mode != Mode::Inventory) return;
 	const float mx = input->MouseX(), my = input->MouseY();
-	for (int i = 0; i < kDollCellCount; ++i)
+	const int dollCells = m_card ? 0 : kDollCellCount; // a card shows no doll
+	for (int i = 0; i < dollCells; ++i)
 		if (EquipRect(px, i).Contains(mx, my)) { m_hoverDoll = i; return; }
 	const auto& contents = m_character->inventory.SelectedContents();
 	for (int i = 0; i < static_cast<int>(contents.size()); ++i)
@@ -144,7 +168,8 @@ void CharacterSheet::UpdateInventory(ui::UIContext& ctx, const gfx::Rect& px,
 
 	// Item slots are only live (and only hit-tested) in Inventory mode.
 	if (clicked && !ctx.IsMouseConsumed()) {
-		for (int i = 0; i < kDollCellCount; ++i)
+		const int dollCells = m_card ? 0 : kDollCellCount; // a card shows no doll
+		for (int i = 0; i < dollCells; ++i)
 			if (EquipRect(px, i).Contains(mx, my)) {
 				const size_t s = static_cast<size_t>(kDollCells[i].slot);
 				// EVERY doll slot is now checked, not just the hands. A hand
@@ -221,8 +246,9 @@ void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	const ui::Theme& theme = ctx.GetTheme();
 	const ui::Font& font = TextFont();
 
-	// --- equipment paper doll (left) ----------------------------------------
-	for (int i = 0; i < kDollCellCount; ++i) {
+	// --- equipment paper doll (left; a card has none) -----------------------
+	const int dollCells = m_card ? 0 : kDollCellCount;
+	for (int i = 0; i < dollCells; ++i) {
 		const size_t slot = static_cast<size_t>(kDollCells[i].slot);
 		const gfx::Rect r = EquipRect(px, i);
 		ui::DrawSlotFace(ctx, batch, r, kSlotBg);
@@ -261,7 +287,15 @@ void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	const std::string_view maxStr(maxBuf, static_cast<size_t>(maxEnd - maxBuf));
 	const loc::Line loadText = loc::FormatLine("sheet.load", loadStr, maxStr);
 	const Vec4 loadColor = load > maxLoad ? Vec4{0.85f, 0.25f, 0.2f, 1.0f} : theme.accent;
-	font.Draw(batch, loadText, Ax(px, kPackX), Ay(px, kHeaderY), loadColor);
+	if (m_card) {
+		// On a card it shares the name's band, right-aligned over the squares.
+		const gfx::Rect& card = Pixel();
+		const float right = PackRect(px, kCardInvCols - 1).x + PackRect(px, kCardInvCols - 1).w;
+		font.Draw(batch, loadText, right - font.MeasureWidth(loadText),
+				  card.y + (Em(kCardNameEm) - font.Height()) * 0.5f, loadColor);
+	} else {
+		font.Draw(batch, loadText, Ax(px, kPackX), Ay(px, kHeaderY), loadColor);
+	}
 
 	const Inventory& inv = m_character->inventory;
 	auto drawIcon = [&](const gfx::Rect& r, const std::string& typeId) {
@@ -276,10 +310,12 @@ void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 		drawIcon(r, inv.packs[static_cast<size_t>(i)].typeId);
 	}
 
-	// Divider rule between the pack row and its contents (1px tall chrome).
-	const float gridW = static_cast<float>(kPackCols) * kPackW +
-						static_cast<float>(kPackCols - 1) * kPackGapX;
-	batch.DrawRect({Ax(px, kPackX), Ay(px, kPackSepY), gridW * px.w, 1.0f},
+	// Divider rule between the pack row and its contents (1px tall chrome),
+	// halfway between them and as wide as the grid - true of both layouts.
+	const gfx::Rect firstRow = PackRowRect(px, 0), firstSlot = PackRect(px, 0);
+	const gfx::Rect lastCol = PackRect(px, kPackCols - 1);
+	batch.DrawRect({firstSlot.x, (firstRow.y + firstRow.h + firstSlot.y) * 0.5f,
+					lastCol.x + lastCol.w - firstSlot.x, 1.0f},
 				   theme.panelBorder);
 
 	const auto& pack = inv.SelectedContents();
@@ -354,7 +390,7 @@ void CharacterSheet::DrawArmorTip(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 
 	const ui::Font& font = TextFont();
 	const ui::Theme& theme = ctx.GetTheme();
-	const float rem = Rem();
+	const float rem = Em(); // the sheet's em: on the sheet, its rem; a card's is smaller
 	const float pad = kTipPadRem * rem, row = kTipRowRem * rem;
 
 	struct Row {

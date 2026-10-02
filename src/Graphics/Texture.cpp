@@ -1,7 +1,5 @@
 #include "Graphics/Texture.h"
 
-#include "Graphics/UploadAllocator.h"
-
 #include <algorithm>
 #include <cstring>
 #include <vector>
@@ -169,41 +167,6 @@ void Texture::Upload(GraphicsDevice& device, const assets::MipChain& chain, bool
 	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 	srvDesc.Texture2D.MipLevels = mipCount;
 	device.Device()->CreateShaderResourceView(m_resource.Get(), &srvDesc, m_srv.cpu);
-}
-
-void Texture::UpdateLevel0(ID3D12GraphicsCommandList* list, UploadAllocator& upload,
-						   const u8* rgba) {
-	const D3D12_RESOURCE_DESC desc = m_resource->GetDesc();
-	DN_ASSERT(desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM ||
-				  desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
-			  "UpdateLevel0 is for uncompressed RGBA8 textures");
-	D3D12_PLACED_SUBRESOURCE_FOOTPRINT fp{};
-	UINT rows = 0;
-	UINT64 rowSize = 0, total = 0;
-	m_device->Device()->GetCopyableFootprints(&desc, 0, 1, 0, &fp, &rows, &rowSize, &total);
-	const UploadAllocation alloc =
-		upload.Allocate(total, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
-	for (UINT y = 0; y < rows; ++y)
-		std::memcpy(static_cast<u8*>(alloc.cpu) + static_cast<size_t>(y) * fp.Footprint.RowPitch,
-					rgba + static_cast<size_t>(y) * rowSize, static_cast<size_t>(rowSize));
-	// The footprint's offset is where the bytes sit in the arena's buffer.
-	fp.Offset = alloc.gpu - upload.Resource()->GetGPUVirtualAddress();
-
-	const auto toCopy = Transition(m_resource.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
-								   D3D12_RESOURCE_STATE_COPY_DEST);
-	list->ResourceBarrier(1, &toCopy);
-	D3D12_TEXTURE_COPY_LOCATION dst{};
-	dst.pResource = m_resource.Get();
-	dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-	dst.SubresourceIndex = 0;
-	D3D12_TEXTURE_COPY_LOCATION src{};
-	src.pResource = upload.Resource();
-	src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-	src.PlacedFootprint = fp;
-	list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
-	const auto toRead = Transition(m_resource.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
-								   D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-	list->ResourceBarrier(1, &toRead);
 }
 
 } // namespace dungeon::gfx

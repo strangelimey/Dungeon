@@ -39,8 +39,8 @@ void CharacterSheet::BakeStats() {}
 // the status bar hit-tests the same rows the draw lays out.
 CharacterSheet::StatRows CharacterSheet::StatRowsFor(ui::UIContext& ctx,
 													 const gfx::Rect& px) const {
-	const ui::Font& font = ctx.FontAt(ui::FontRole::Body, Rem(kStatRem));
-	return {Ay(px, kHeaderY) + font.LineAdvance() + Rem(0.4f), kStatRowH * px.h};
+	const ui::Font& font = ctx.FontAt(ui::FontRole::Body, Em(kStatRem));
+	return {Ay(px, kHeaderY) + font.LineAdvance() + Em(0.4f), kStatRowH * px.h};
 }
 
 void CharacterSheet::DrawStats(ui::UIContext& ctx, gfx::SpriteBatch& batch,
@@ -48,7 +48,7 @@ void CharacterSheet::DrawStats(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	const ui::Theme& theme = ctx.GetTheme();
 	// Enlarged (kStatRem) with the row pitch and bar height to match, so the
 	// values still sit inside the bars they label.
-	const ui::Font& font = ctx.FontAt(ui::FontRole::Body, Rem(kStatRem));
+	const ui::Font& font = ctx.FontAt(ui::FontRole::Body, Em(kStatRem));
 
 	// --- attributes (left column) -------------------------------------------
 	font.Draw(batch, m_attributesLabel, Ax(px, kLeft), Ay(px, kHeaderY), theme.accent);

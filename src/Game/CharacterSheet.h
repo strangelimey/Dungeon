@@ -36,9 +36,12 @@ private:
 	const size_t* m_member; // the sheet's live selection
 };
 
-// One button of the mode strip: a hand-drawn glyph (grid / bars / star / gem /
-// hourglass), owning its own hover, pressed while its mode is the active one.
-class ModeButton : public ui::Widget {
+// One button of the mode strip. A CUT STONE (more-ui-updates Phase 3): a
+// ui::Button with its tab's symbol etched in (etch_tab_<mode>.png), acting on
+// the press, and - while its mode is the one showing - held down with its gold
+// lit. Without the skin it draws the old hand-drawn glyph (grid / bars / star /
+// gem / hourglass) on a flat fill.
+class ModeButton : public ui::Button {
 public:
 	ModeButton(const gfx::Rect& rect, int index, const int* activeIndex,
 			   std::function<void(int)> onSelect);
@@ -49,8 +52,6 @@ private:
 
 	int m_index;
 	const int* m_active; // the sheet's live mode, as an index
-	std::function<void(int)> m_onSelect;
-	bool m_hot = false;
 };
 
 // The strip of mode buttons; splits itself into even columns.
@@ -58,6 +59,17 @@ class ModeSelector : public ui::Widget {
 public:
 	ModeSelector(const gfx::Rect& rect, int count, const int* activeIndex,
 				 std::function<void(int)> onSelect);
+	// Each mode's etched symbol and its lit twin, in Mode order (null = none).
+	void SetEtches(std::span<const gfx::Texture* const> etch,
+				   std::span<const gfx::Texture* const> lit);
+	// Stone `i`'s pixel rect as of the last layout (empty past the end) - for
+	// a harness that clicks the tabs.
+	gfx::Rect ButtonRect(size_t i) const {
+		return i < m_buttons.size() ? m_buttons[i]->Pixel() : gfx::Rect{};
+	}
+
+private:
+	std::vector<ModeButton*> m_buttons;
 };
 
 // One row of a list tab. Generic: it holds its index and asks its owner to draw
@@ -170,16 +182,53 @@ public:
 	static constexpr float kBodyH = 0.62f;
 	static constexpr float kStatusH = 0.055f;
 
+	// A CARD (more-ui-updates Phase 5, the party window): the same sheet, one
+	// per member, showing only the TAB - no portrait, no tab stones, no status
+	// band (the window has one of each) - under a band with the member's name.
+	// The tab area keeps the sheet's proportions, so a card is the sheet's tab
+	// at card size, and every fraction in CharacterSheetLayout.h still holds:
+	// Body() is that area stretched back to a whole sheet body, its top above
+	// the card. These are its measures in the card's own em; the window sets
+	// the card's fontScale, which is what makes them small.
+	static constexpr float kCardWEm = 47.0f;    // the sheet's width at 16:9
+	static constexpr float kCardNameEm = 2.2f;  // the name band
+	static constexpr float kCardTabEm = 17.1f;  // (1 - kHeaderY) of the sheet's body
+	// A card's INVENTORY tab is its own layout (Phase 6, Michael: "keep the
+	// backpack squares the same size as they are in the regular backpack"): no
+	// paper doll, the carry load beside the name, then the pack row over the
+	// selected bag's contents, six across - at the SHEET'S em (the window sets
+	// the card's fontScale to it on this tab), so a square is the sheet's size.
+	static constexpr float kCardInvPadEm = 0.8f;
+	static constexpr float kCardSlotEm = 3.3f;     // the sheet's kPackW / kPackH
+	static constexpr float kCardSlotGapEm = 0.47f; // its kPackGapX / kPackGapY
+	static constexpr float kCardInvSepEm = 0.8f;   // pack row to contents
+	static constexpr int kCardInvCols = 6;
+	static constexpr float kCardInvWEm =
+		2.0f * kCardInvPadEm + kCardInvCols * kCardSlotEm + (kCardInvCols - 1) * kCardSlotGapEm;
+	// A card's height on the Inventory tab with `rows` rows of contents.
+	static constexpr float CardInventoryHEm(int rows) {
+		return kCardNameEm + kCardSlotGapEm + kCardSlotEm + kCardInvSepEm +
+			   static_cast<float>(rows) * kCardSlotEm +
+			   static_cast<float>(rows > 0 ? rows - 1 : 0) * kCardSlotGapEm + kCardInvPadEm;
+	}
 	CharacterSheet(const gfx::Rect& rect, std::vector<Character>* roster,
 				   const ResourceBarStyle* barStyle, const ItemIconBank* icons,
 				   const ItemWeightBank* weights, const ItemIconBank* slotIcons,
 				   const ItemCategoryBank* categories,
-				   HeldItem* held);
+				   HeldItem* held, bool card = false);
+	bool IsCard() const { return m_card; }
+	size_t Member() const { return m_member; }
 
 	// Re-points the sheet at roster member `member` (mutable, for inventory
 	// edits) and caches its strings. An out-of-range index leaves the sheet
 	// showing nothing (Draw bails), never a stale member.
 	void SetCharacter(size_t member);
+	// The tab stones' etched symbols (and lit twins), in Mode order. Handed in
+	// after construction: the sheet is built before the art load task runs.
+	void SetModeEtches(std::span<const gfx::Texture* const> etch,
+					   std::span<const gfx::Texture* const> lit) {
+		if (m_modeStrip) m_modeStrip->SetEtches(etch, lit);
+	}
 
 	void LayoutSelf(ui::UIContext& ctx) override;
 	void UpdateSelf(ui::UIContext& ctx) override;
@@ -193,6 +242,10 @@ public:
 	// the dev console's `sheet status`, which is how a script reads it.
 	std::string_view StatusName() const { return m_statusName.View(); }
 	std::string_view StatusText() const { return m_statusText.View(); }
+	const Vec4& StatusColor() const { return m_statusColor; }
+	// Where pack slot `i` of the shown member's selected bag is, in pixels, as
+	// of the last layout (Inventory tab). For the dev readout a harness aims by.
+	gfx::Rect PackSlotRect(int i) const { return PackRect(Body(), i); }
 	// Containers equipped into the pack row so far (see m_packEquips).
 	unsigned PackEquips() const { return m_packEquips; }
 
@@ -206,6 +259,10 @@ public:
 	// Shift+Tab (play-test #5). Goes through the same path as a mode button.
 	void StepMode(int delta);
 	Mode CurrentMode() const { return m_mode; }
+	// Switches to tab `i` (a Mode as an index), scrolling the lists to the top
+	// when it changes. The mode strip's click and StepMode both land here, and
+	// the party window's tab stones, for all four of its cards.
+	void SelectMode(int i);
 
 	// Fired when a held item is refused by the selected pack (item id, pack id) —
 	// Game wires it to a "won't fit" log line + sound.
@@ -226,6 +283,10 @@ public:
 	// shown member's inventory; GameUI resolves it.
 	std::function<void(ItemPlace)> onItemDetails;
 	std::function<void(ItemPlace)> onItemUse;
+	// The "Change portrait" button under the name (docs/portraits-plan.md P4):
+	// GameUI opens the portrait picker for the shown member. A card has no
+	// portrait and so no button.
+	std::function<void()> onChangePortrait;
 	// The card's background opacity, read live (Settings -> UI; the sheet is a
 	// floating window, ui-panels P3b). Null = opaque.
 	const float* opacity = nullptr;
@@ -263,9 +324,6 @@ private:
 	gfx::Rect PackRowRect(const gfx::Rect& px, int i) const;
 	// Builds the child widgets (portrait, mode strip, the three list tabs).
 	void BuildParts();
-	// Switches to tab `i` (a Mode as an index), scrolling the lists to the top
-	// when it changes. The mode strip's click and StepMode both land here.
-	void SelectMode(int i);
 	// The two bodies that neither scroll nor take a container of their own; they
 	// fill the sheet and draw against it directly.
 	// The armor tooltip (docs/damage-system.md). Hovering a WORN piece explains
@@ -324,6 +382,7 @@ private:
 
 	std::vector<Character>* m_roster;
 	size_t m_member = 0;
+	bool m_card = false; // a party-window card (see kCardWEm)
 	// Re-resolved from (m_roster, m_member) at the top of every Update/Draw
 	// (see CharacterPanel); the body helpers null-check it.
 	Character* m_character = nullptr;
@@ -353,6 +412,7 @@ private:
 	// The three scrolling tabs, in Mode order after Stats (Skills, Spells,
 	// Effects); only the active one is visible. Owned as children.
 	std::array<SheetList*, 3> m_lists{nullptr, nullptr, nullptr};
+	ModeSelector* m_modeStrip = nullptr; // the tab stones (a child)
 	// The Stats tab's numbers ("42 / 42", the attribute values) are formatted
 	// at DRAW time into stack buffers, not baked: the world keeps running under
 	// the sheet, so a value baked at open went stale while it was on screen.

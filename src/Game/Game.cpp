@@ -232,8 +232,30 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		std::string tags;
 		for (const std::string& tag : m_mapView.ViewedMap().Tags())
 			tags += (tags.empty() ? "" : " ") + tag;
-		m_levelSettingsDialog.Open(m_mapView.ViewedLevel(), dust, haze, ambient, tags);
+		// What "the dungeon's" means for this level - its dungeon's material,
+		// else the default - so that row's picture is what the level would wear.
+		std::string dungeonStone = GameSettings::kDefaultUiStone;
+		if (const CatalogEntry* d = m_project.DungeonOfLevel(m_mapView.ViewedLevel()))
+			dungeonStone = d->Get("ui_stone", dungeonStone);
+		m_levelSettingsDialog.Open(m_mapView.ViewedLevel(), dust, haze, ambient, tags,
+								   m_mapView.ViewedMap().UiStone(), dungeonStone);
 	};
+	m_levelSettingsDialog.thumbFor = [this](const std::string& stone) {
+		return m_ui.StoneThumb(stone);
+	};
+	m_levelSettingsDialog.stoneOrder = [this] { return m_ui.StoneOrder(); };
+	m_levelSettingsDialog.stoneFilterLabels = [this] { return m_ui.StoneFilterLabels(); };
+	m_levelSettingsDialog.stoneFilterColors = [this] { return m_ui.StoneFilterColors(); };
+	m_levelSettingsDialog.stoneFilterBits = [this](const std::string& stone) {
+		return m_ui.StoneFilterBits(stone);
+	};
+	// Picking a material shows it at once; closing without Save hands the
+	// chrome back (a Save has already re-resolved the place by then).
+	m_levelSettingsDialog.onPreviewStone = [this](const std::string& stone) {
+		if (stone.empty()) m_ui.EndStonePreview();
+		else m_ui.PreviewStone(stone);
+	};
+	m_levelSettingsDialog.sampleSkin = &m_ui.GameSkin();
 	// The Check toolbar button: run the whole-project playability check and show
 	// what it found. Reads live state, so it answers for unsaved edits too —
 	// which is exactly when you want to hear that a door just became unopenable.
@@ -280,12 +302,21 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		m_world->SetAmbientScale(ambient);
 	};
 	m_levelSettingsDialog.onSave = [this](float dust, float haze, float ambient,
-										 const std::string& tags) {
+										 const std::string& tags,
+										 const std::string& uiStone) {
 		m_world->SetLevelAtmosphere(m_levelSettingsDialog.Level(), dust, haze, ambient);
 		m_world->SetLevelTags(m_levelSettingsDialog.Level(), ParseTags(tags));
-		if (m_world->onMessage)
+		m_world->SetLevelUiStone(m_levelSettingsDialog.Level(), uiStone);
+		RefreshPlaceStone(); // the chrome follows at once if this is the active level
+		// Authoring a level's material while the player's setting is pinned to
+		// another would show nothing in play (Michael hit exactly that), so a
+		// Save hands the choice back to the place - and says so.
+		const bool unpinned = m_ui.FollowPlaceStone();
+		if (m_world->onMessage) {
 			m_world->onMessage(loc::FormatLine("map.level.applied",
 											  m_levelSettingsDialog.Level()));
+			if (unpinned) m_world->onMessage(loc::View("map.level.uistone.follow"));
+		}
 	};
 	// The editor toolbar's [+] button: the generator dialog in CREATE mode,
 	// aimed at the viewed dungeon (docs/level-building.md P1). Its Create /
@@ -424,6 +455,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	RegisterWorldCommands();
 	RegisterDiagnosticCommands();
 	RegisterPartyCommands();
+	RegisterPartyCreationCommands();
 	RegisterEvalCommands();
 	RegisterStyleCommands();
 	// THE TITLE SCREEN HAS NO WORLD (docs/world-on-demand.md), and most
@@ -440,7 +472,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 			"allocpoke", "crashpoke", "health", "throttle", "governor",
 			"threadspawn", "threadwedge", "threadprio", "threadaffinity",
 			"threadreap", "uitree", "uioverlap", "logecho", "timescale", "state",
-			"worlds", "newgame", "reset",
+			"worlds", "newgame", "reset", "newparty", "partypage",
 		};
 		for (std::string_view n : kNoWorldNeeded)
 			if (n == name) return {};
@@ -535,7 +567,8 @@ void Game::ApplyPendingWorld() {
 		m_editorOnArrival = false; // the game it was waiting for is not coming
 		return;
 	}
-	if (p.savePath.empty()) m_ui.onStartNewGame();
+	if (p.partyPage) OpenPartyCreation(p.folder);
+	else if (p.savePath.empty()) m_ui.onStartNewGame();
 	else m_ui.onLoadSave(p.savePath);
 }
 
@@ -614,6 +647,10 @@ void Game::BuildBootLoadTasks() {
 							audio::AudioEngine::kMaxVoices / formatCount);
 	}, "sounds");
 	m_loadQueue.Add(loc::Tr("load.title_art"), [this] { m_ui.LoadTitleArt(); }, "title art");
+	// The portrait CATALOG (text, no images) comes with the menu: a party is
+	// made before any game loads, and its faces are checked against it.
+	m_loadQueue.Add(loc::Tr("load.portraits"), [this] { LoadPortraitCatalog(); },
+					"portrait catalog");
 }
 
 void Game::BuildGameLoadTasks() {
@@ -704,20 +741,71 @@ void Game::LogLoadStats(bool echoToConsole) {
 						static_cast<double>(s->bytes) / (1024.0 * 1024.0), s->name));
 }
 
+void Game::LoadPortraitCatalog() {
+	m_portraitCatalog.Load(paths::Asset("portraits\\portraits.cat"));
+	if (m_portraitCatalog.Empty())
+		log::Warn("portraits.cat is missing or empty - members keep their ids, but "
+				  "nothing can be picked");
+	else
+		log::Info("portraits.cat: {} portraits", m_portraitCatalog.Entries().size());
+	if (PortraitPicker* picker = m_ui.Portraits()) picker->SetCatalog(m_portraitCatalog);
+}
+
 void Game::LoadPortraits() {
-	m_portraitTextures.clear();
-	for (Character& member : m_characters) {
-		std::string stem = "portrait_" + member.name;
-		std::ranges::transform(stem, stem.begin(), [](char c) {
-			return static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-		});
-		auto texture =
-			TryLoadTextureFile(m_device, paths::Asset("ui\\" + stem));
-		if (!texture)
-			log::Warn("missing {}.png — falling back to the initial tile", stem);
-		member.portrait = texture.get();
-		m_portraitTextures.push_back(std::move(texture));
+	// The catalog came with the boot load; a world's load re-reads it only if
+	// that found nothing (a missing file stays a warning, not a crash).
+	if (m_portraitCatalog.Empty()) LoadPortraitCatalog();
+	// Forget what is loaded so every slot reloads (SyncPortraits drains first).
+	std::ranges::fill(m_portraitIds, std::nullopt);
+	SyncPortraits();
+}
+
+void Game::SyncPortraits() {
+	const size_t n = m_characters.size();
+	bool drained = false;
+	const auto drain = [&] {
+		if (!drained) m_device.WaitIdle();
+		drained = true;
+	};
+	if (m_portraitTextures.size() > n) drain(); // a shrinking roster frees some
+	m_portraitTextures.resize(n);
+	m_portraitIds.resize(n);
+	for (size_t i = 0; i < n; ++i) {
+		Character& member = m_characters[i];
+		if (m_portraitIds[i] != member.portraitId) {
+			if (m_portraitTextures[i]) drain();
+			m_portraitTextures[i].reset();
+			if (!member.portraitId.empty()) {
+				m_portraitTextures[i] = TryLoadTextureFile(
+					m_device, paths::Asset("portraits\\" + member.portraitId));
+				if (!m_portraitTextures[i])
+					log::Warn("missing portrait {} for {} - falling back to the initial "
+							  "tile (tools\\FetchPortraits.ps1 installs the set)",
+							  member.portraitId, member.name);
+			}
+			m_portraitIds[i] = member.portraitId;
+		}
+		member.portrait = m_portraitTextures[i].get();
 	}
+}
+
+void Game::OpenPortraitPicker(size_t member) {
+	m_ui.OpenPortraitPicker(member);
+	// Opening fills strings and a filter list - allocation, in what may be a
+	// guarded frame (a click on the sheet). Like any overlay opening, the frame
+	// is not a steady one; while it stays open SteadyStateFrame keeps it so.
+	if (!m_ui.PortraitPickerOpen()) return;
+	OverlayOpenedThisFrame();
+	// After the excuse: a log line formats a string. tools\InGameTest.ps1 reads
+	// it to know its picker sweep audited the picker, not the sheet under it.
+	log::Info("portrait picker: open for {}", m_characters[member].name);
+}
+
+bool Game::SetPortrait(size_t member, const std::string& id) {
+	if (member >= m_characters.size() || !m_portraitCatalog.Find(id)) return false;
+	m_characters[member].portraitId = id;
+	SyncPortraits();
+	return true;
 }
 
 void Game::LoadHitSplats() {
@@ -871,15 +959,20 @@ void Game::LoadItemIcons() {
 // State transitions
 // ============================================================================
 
-void Game::ResetRoster() {
-	// Element-wise so the addresses the party-bar panels and the sheet point at
-	// stay valid, keeping each slot's loaded portrait (the defaults carry null).
-	const std::vector<Character> fresh = CreateDefaultParty();
-	for (size_t i = 0; i < m_characters.size() && i < fresh.size(); ++i) {
-		const gfx::Texture* portrait = m_characters[i].portrait;
-		m_characters[i] = fresh[i];
-		m_characters[i].portrait = portrait;
+void Game::ResetRoster(const std::vector<Character>* party) {
+	// Element-wise when the size holds, so the storage the party-bar panels and
+	// the sheet resolve into stays put. Each member takes its portrait id from
+	// the new party; SyncPortraits re-points the textures, reloading only a slot
+	// whose id changed. A party of another SIZE (party creation) replaces the
+	// vector - the world holds a pointer to the vector, not to its members.
+	const std::vector<Character> fresh = party ? *party : CreateDefaultParty();
+	const bool resized = fresh.size() != m_characters.size();
+	if (resized) {
+		m_characters = fresh;
+	} else {
+		for (size_t i = 0; i < m_characters.size(); ++i) m_characters[i] = fresh[i];
 	}
+	SyncPortraits();
 	// CreateDefaultParty seeds the derived maxima at k=1; re-derive under the
 	// project's live balance knobs (fresh members are at full, so top them up).
 	m_world->RecomputePartyMaxima();
@@ -898,10 +991,13 @@ void Game::ResetRoster() {
 		member.food = bal.foodMax;
 		member.water = bal.waterMax;
 	}
-	ApplyMemberColors(); // the settings palette wins over the authored defaults
+	// The default four take the Settings palette; a created party keeps the
+	// colours its members were made with (Michael: colour is the character's).
+	if (!party) ApplyMemberColors();
 	// The roster these are is not the roster the one-pipeline check was watching
 	// (Game/DamageLedger.h) — same storage, replaced contents.
 	m_world->RebaseDamageLedger();
+	if (resized) m_ui.RebuildForRoster();
 }
 
 void Game::ApplyMemberColors() {
@@ -935,7 +1031,10 @@ bool Game::OpenInLevel(const std::string& level, int x, int z) {
 void Game::StartNewGame() {
 	m_world->ResetForNewGame();
 	ResetWorldState();
-	ResetRoster(); // fresh members carry empty inventories + no known symbols
+	// Fresh members carry empty inventories + no known symbols. The party is the
+	// one party creation made, once (consumed here), else the default four.
+	ResetRoster(m_startParty ? &*m_startParty : nullptr);
+	m_startParty.reset();
 	m_ui.RefreshSheet();
 	ApplyPartySpeed();
 
@@ -1097,6 +1196,17 @@ bool Game::SaveGame(const std::string& name) {
 		c.hasSupplies = true; // food and water (v25)
 		c.food = member.food;
 		c.water = member.water;
+		c.portrait = member.portraitId;
+		// Who they are (party creation).
+		c.name = member.name;
+		c.race = member.raceId;
+		c.hasColor = true;
+		c.color[0] = member.portraitColor.x;
+		c.color[1] = member.portraitColor.y;
+		c.color[2] = member.portraitColor.z;
+		c.color[3] = member.portraitColor.w;
+		c.hasPace = true;
+		c.pace = member.moveSpeed;
 		data.characters.push_back(std::move(c));
 	}
 	return WriteSave(data, SaveSlotPath(name));
@@ -1117,6 +1227,13 @@ bool Game::LoadGame(const std::string& path) {
 	// reset), then lay the save on top.
 	m_world->ResetForNewGame();
 	ResetRoster();
+	// THE PARTY'S SIZE (party creation). A save that names one cuts the default
+	// four down to it before anything is laid on top; the members' own lines then
+	// say who they are. A save without one (older than party creation) is four.
+	const bool resized = data->rosterSize >= party::kMinMembers &&
+						 data->rosterSize <= party::kMaxMembers &&
+						 data->rosterSize != m_characters.size();
+	if (resized) m_characters.resize(data->rosterSize);
 	// The global tier is stored WHOLE rather than as a diff, so it is simply
 	// taken (a fresh baseline first, so a save that predates a field gets the
 	// new-game value for it rather than the last session's).
@@ -1132,6 +1249,15 @@ bool Game::LoadGame(const std::string& path) {
 	}
 	for (size_t i = 0; i < m_characters.size() && i < data->characters.size(); ++i) {
 		const SaveData::CharState& c = data->characters[i];
+		// WHO THEY ARE first (party creation) - each absent in an older save,
+		// which keeps the default member's. The resists are not saved: they come
+		// back from the race.
+		if (!c.name.empty()) m_characters[i].name = c.name;
+		if (!c.race.empty()) m_characters[i].raceId = c.race;
+		if (c.hasColor)
+			m_characters[i].portraitColor = {c.color[0], c.color[1], c.color[2], c.color[3]};
+		if (c.hasPace) m_characters[i].moveSpeed = c.pace;
+		ApplyRaceResists(m_characters[i]);
 		m_characters[i].health = c.health;     m_characters[i].maxHealth = c.maxHealth;
 		m_characters[i].stamina = c.stamina;   m_characters[i].maxStamina = c.maxStamina;
 		m_characters[i].mana = c.mana;         m_characters[i].maxMana = c.maxMana;
@@ -1243,7 +1369,19 @@ bool Game::LoadGame(const std::string& path) {
 		// (an unconscious member starts their safe count fresh on load).
 		member.dead = c.dead;
 		member.stabilize = 0.0f;
+		// The portrait. Absent (an older save) keeps the default ResetRoster gave;
+		// an id the catalog no longer lists is refused the same way, out loud,
+		// rather than drawing the tinted initial for a portrait that was dropped.
+		if (!c.portrait.empty()) {
+			if (m_portraitCatalog.Find(c.portrait))
+				member.portraitId = c.portrait;
+			else
+				log::Warn("LoadGame: {}'s portrait {} is not in portraits.cat - "
+						  "keeping {}", member.name, c.portrait, member.portraitId);
+		}
 	}
+	SyncPortraits();
+	if (resized) m_ui.RebuildForRoster(); // a load runs outside the HUD's walk
 	m_world->ApplyState(*data); // fills the per-level store + party pose/torch
 	// Restored hit points are not writes to explain (Game/DamageLedger.h): the
 	// values they replaced belong to a session that is over.
@@ -1528,7 +1666,10 @@ void Game::UpdateGovernor(float dt) {
 // really is steady: AllocTest.ps1 -Wounded / -Melee / -Cast.
 bool Game::SteadyStateFrame() {
 	constexpr u32 kWarmupFrames = 120;
+	// An open portrait picker streams thumbnails in as it scrolls: loading, not a
+	// steady state (its opening frame is excused by Game::OpenPortraitPicker).
 	const bool quiet = GuardedState() && !m_console.IsOpen() && !EvalRunning() &&
+					   !m_ui.PortraitPickerOpen() &&
 					   !m_mapView.IsOpen() && !m_baking && m_pendingLanguage.empty() &&
 					   !m_pendingQuality;
 	m_steadyFrames = quiet ? m_steadyFrames + 1 : 0;
@@ -1593,6 +1734,8 @@ void Game::UpdateAllocTest(float dt, bool steady) {
 			DungeonWorld::Harness& h = m_world->GetHarness();
 			h.tally = {};
 			h.autoCast.held = false;
+			MoveAction last{};
+			m_allocTestActsAt = m_world->GetParty().ActCount(last);
 		}
 		m_allocTestRemaining -= dt;
 		++m_allocTestFrames;
@@ -1610,11 +1753,16 @@ void Game::UpdateAllocTest(float dt, bool steady) {
 	const alloc::Excused excuse;
 	// One machine-readable line: tools\AllocTest.ps1 greps for it and nothing
 	// else, so the format is part of the contract.
+	// moves= is the party's Acts inside the window (Party::ActCount): -Walk's
+	// proof that its key presses moved the party, and with it the movement pad.
+	MoveAction lastMove{};
+	const unsigned moves =
+		m_world ? m_world->GetParty().ActCount(lastMove) - m_allocTestActsAt : 0u;
 	const std::string line =
 		std::format("alloctest RESULT={} frames={} violations={} violating_frames={} "
-					"transitions={}{}",
+					"transitions={} moves={}{}",
 					timedOut ? "SKIP" : (violations == 0 ? "PASS" : "FAIL"),
-					m_allocTestFrames, violations, badFrames, m_allocTestTransitions,
+					m_allocTestFrames, violations, badFrames, m_allocTestTransitions, moves,
 					timedOut ? " reason=never_reached_a_steady_frame" : "");
 	log::Info("{}", line);
 	m_console.Print(line);
@@ -1672,6 +1820,18 @@ void Game::Update(float dt) {
 	}
 }
 
+void Game::RefreshPlaceStone() {
+	m_placeStoneLevel = m_world ? m_world->CurrentLevel() : std::string();
+	m_placeStoneRev = m_world ? m_world->EditRevision() : 0;
+	// The level's own override, else its dungeon's, else none (GameUI then
+	// falls back to the default material).
+	std::string stone = m_world ? m_world->Map().UiStone() : std::string();
+	if (stone.empty() && !m_placeStoneLevel.empty())
+		if (const CatalogEntry* d = m_project.DungeonOfLevel(m_placeStoneLevel))
+			stone = d->Get("ui_stone", "");
+	m_ui.SetPlaceStone(stone);
+}
+
 void Game::UpdateStates(float dt) {
 	// World dt: the dev console's `timescale`, times the REST multiplier
 	// (docs/health-and-healing.md). Rest is folded in HERE, at the one place the
@@ -1701,6 +1861,16 @@ void Game::UpdateStates(float dt) {
 	// A Video-tab adapter/monitor change last frame repopulates the settings page
 	// now, for the same reason: the rebuild destroys the dropdown that triggered it.
 	m_ui.ApplyPendingVideoRebuild();
+
+	// The UI material follows the PLACE (more-ui-updates): re-resolved when the
+	// party changes level or the editor changes anything, never every frame -
+	// the lookup reads the catalogs. A settled frame only compares.
+	{
+		const std::string_view level =
+			m_world ? std::string_view(m_world->CurrentLevel()) : std::string_view();
+		const u64 rev = m_world ? m_world->EditRevision() : 0;
+		if (level != m_placeStoneLevel || rev != m_placeStoneRev) RefreshPlaceStone();
+	}
 
 	{
 		DN_PROFILE_ZONE_L(prof::kLevelSystem, "fonts");
@@ -1802,6 +1972,12 @@ void Game::UpdateStates(float dt) {
 	if (m_ui.ItemDetailsOpen() && m_state != AppState::Playing &&
 		m_state != AppState::CharacterSheet)
 		m_ui.CloseItemDetails();
+	// The portrait picker likewise - except over the party creation page, its
+	// other home, on the title screen.
+	if (m_ui.PortraitPickerOpen() && m_state != AppState::Playing &&
+		m_state != AppState::CharacterSheet &&
+		!(m_state == AppState::Menu && m_ui.PartyPageOpen()))
+		m_ui.ClosePortraitPicker();
 
 	switch (m_state) {
 	case AppState::Loading:
@@ -1831,7 +2007,7 @@ void Game::UpdateStates(float dt) {
 		// (Key-bind capture still swallows Esc first, to cancel the capture.)
 		if (input.WasKeyPressed(VK_ESCAPE) && !m_ui.KeyCaptureActive())
 			m_ui.CloseSettingsPage();
-		m_ui.UpdateMenu(input);
+		m_ui.UpdateMenu(input, dt);
 		return;
 
 	case AppState::LoadingGame:
@@ -2159,6 +2335,7 @@ void Game::UpdateStates(float dt) {
 		ShowMapPage(MapPage::Dungeon); // a fresh open shows where you ARE
 		OverlayOpenedThisFrame();      // as the console toggle above
 		m_ui.CloseItemDetails();       // the map takes the mouse and the screen
+		m_ui.ClosePortraitPicker();
 	}
 
 	// The editor's pause/play button freezes the world so the level can be
@@ -2609,6 +2786,10 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 			m_spriteBatch.DrawSprite(dlg.PreviewRect(), {0, 0, 1, 1}, m_modelPreview.Srv(),
 									 {1, 1, 1, 1});
 	}
+	// The portrait picker, over the sheet (or the HUD, from the console).
+	if (m_ui.PortraitPickerOpen() &&
+		(m_state == AppState::Playing || m_state == AppState::CharacterSheet))
+		m_ui.RenderPortraitPicker();
 	if (m_assetDialog.IsOpen()) {
 		// The asset dialog overlays the editor; it draws its own frame, then we
 		// blit the rendered preview model into its preview pane.

@@ -43,6 +43,7 @@
 #include "Game/AssetDialog.h"
 #include "Game/AssetPicker.h"
 #include "Game/Character.h"
+#include "Game/PartyRules.h"
 #include "Game/DevConsole.h"
 #include "Game/DungeonWorld.h"
 #include "Game/GameSettings.h"
@@ -722,7 +723,20 @@ private:
 	// once as the last task lands, and again on demand (`loadstats`, which also
 	// echoes it into the console scrollback).
 	void LogLoadStats(bool echoToConsole = false);
-	void LoadPortraits();      // baked party portraits (load task)
+	void LoadPortraitCatalog(); // portraits.cat (boot load task: party creation reads it)
+	void LoadPortraits();      // every member's portrait (game load task)
+	// Loads the portrait of every member whose portraitId differs from what is
+	// loaded for that slot (draining the GPU first, since in-flight frames still
+	// sample the old texture - the SRV recycling rule), and re-points every
+	// member's `portrait`. Cheap when nothing changed, so every path that can
+	// change an id (new game, load, SetPortrait) just calls it.
+	void SyncPortraits();
+	// Sets one member's portrait to a portraits.cat id. False (and nothing
+	// changes) for a member out of range or an id the catalog does not list.
+	bool SetPortrait(size_t member, const std::string& id);
+	// Opens the portrait picker for a member (its pick -> SetPortrait, wired as
+	// GameUI::onSetPortrait) and excuses this frame from the allocation guard.
+	void OpenPortraitPicker(size_t member);
 	void LoadHitSplats();      // hit-feedback splat icons (load task)
 	void LoadItemIcons();      // rune + placeholder item cursor/inventory icons (load task)
 
@@ -731,13 +745,45 @@ private:
 	// already held. True = a load is in flight and the caller is done.
 	bool OpenInLevel(const std::string& level, int x, int z);
 	void StartNewGame();
-	// Resets the roster to a fresh default party in place, keeping each slot's
-	// loaded portrait. The HUD/sheet widgets address members by (roster, index)
+	// Resets the roster to a fresh default party in place; each slot's portrait
+	// returns to its default id (SyncPortraits reloads only a changed one). The
+	// HUD/sheet widgets address members by (roster, index)
 	// and re-resolve every frame, so even a roster RESIZE can't dangle them —
 	// but a size change must still call GameUI::RebuildForRoster (deferred, not
 	// from a widget callback) to re-lay-out the per-member widgets. Shared by
 	// StartNewGame and LoadGame.
-	void ResetRoster();
+	// `party` is the party to start with (a CREATED one, docs/party-creation-
+	// plan.md); null = the default four. A different SIZE replaces the vector and
+	// re-lays-out the HUD (RebuildForRoster - safe here: every caller runs outside
+	// the HUD's widget walk). Only the default four take the Settings palette's
+	// colours; a created member keeps the one it was given.
+	void ResetRoster(const std::vector<Character>* party = nullptr);
+
+	// --- party creation (Game_Party.cpp) ------------------------------------
+	// One member from a spec: race (stats from PartyRules + the race's bases,
+	// pace and resists), points, portrait, colour, boosted skills, starting items
+	// placed where they go. Empty optional + `why` when the spec is refused.
+	std::optional<Character> BuildMember(const party::MemberSpec& spec, std::string& why) const;
+	// A whole party (1..4 members); false + `why` on the first refusal.
+	bool BuildParty(const std::vector<party::MemberSpec>& specs, std::vector<Character>& out,
+					std::string& why) const;
+	// natureResists from the member's race (they are not saved, so a load
+	// re-derives them; a premade or unknown race has none).
+	void ApplyRaceResists(Character& member) const;
+	// The party the NEXT new game starts with, set by party creation or the
+	// `newparty` command and consumed by StartNewGame; empty = the default four.
+	std::optional<std::vector<Character>> m_startParty;
+	void RegisterPartyCreationCommands(); // newparty / roster / partypage (Game_Party.cpp)
+	void RegisterPartyPageCommands();     // partypage (the page's dev twin)
+	// THE PAGE (phase 3): the world `folder` (empty = the resident one, else the
+	// default) is opened first - deferred a frame when it is another world, as a
+	// switch always is - then GameUI's party creation page shows what it offers.
+	void OpenPartyCreation(const std::string& folder);
+	// What the open world offers the page: races, skills, starting items, the
+	// default four as premade specs, and the build it previews with.
+	PartyCreationData PartyCreationDataFor();
+	// Start with the page's party (its Start button and `partypage start`).
+	bool StartWithParty(const std::vector<party::MemberSpec>& specs, std::string& why);
 	// Captures the live world + roster to a named slot under SaveDir. Requires
 	// the dungeon to be loaded (m_gameLoaded); no-op otherwise.
 	// False when nothing was written — no game loaded, inside a random
@@ -765,6 +811,12 @@ private:
 	// + resolution) to the window and swapchain in place. Called at boot and by
 	// the Video tab's Apply button for non-adapter changes.
 	void ApplyDisplaySettings();
+	// Resolves the UI material the PLACE asks for - the active level's
+	// `uistone` record, else its dungeon's `ui_stone`, else none - and hands it
+	// to GameUI, which applies it when the player's Material setting follows
+	// the place. Run from UpdateStates when the level or the edit revision
+	// moves, and after a Level settings save.
+	void RefreshPlaceStone();
 	// Relaunches the executable (a fresh process picks up the new adapter, the
 	// only way to switch GPUs, or a new world) and flags this instance to quit.
 	// `extraArgs` go on the new command line (`-newgame` for the world list).
@@ -834,6 +886,9 @@ private:
 	struct PendingWorld {
 		std::string folder;
 		std::string savePath;
+		// Opens the party creation page once the world is in, instead of
+		// starting a game (OpenPartyCreation).
+		bool partyPage = false;
 	};
 	std::optional<PendingWorld> m_pendingWorld;
 	// The landing page's Editor entry asked for the editor, paused, once the
@@ -855,6 +910,9 @@ private:
 	// stair load) and were disarmed for it - the evidence AllocTest.ps1 -Pause
 	// reads that a transition happened inside the window at all.
 	u32 m_allocTestTransitions = 0;
+	// The party's Act count when the window opened (Party::ActCount): the
+	// verdict's moves= is the difference, -Walk's evidence that it moved.
+	unsigned m_allocTestActsAt = 0;
 	alloc::GuardStats m_allocTestStart;
 	// `allocpoke`: allocate deliberately, every frame, for this many seconds.
 	// It exists so the guard and tools\AllocTest.ps1 can be shown to FAIL — a
@@ -934,9 +992,14 @@ private:
 	// StartNewGame resets the members in place.
 	bool m_harnessOpensInLevel = false;
 	std::vector<Character> m_characters;
-	// Baked portrait textures, parallel to m_characters (entries may be null
-	// when the asset is missing; Character::portrait points in here).
+	// Portrait textures, parallel to m_characters (entries may be null when the
+	// image is missing; Character::portrait points in here), and the id each
+	// slot's texture was loaded for - nullopt = never loaded, so a missing image
+	// is tried once rather than on every sync.
 	std::vector<std::unique_ptr<gfx::Texture>> m_portraitTextures;
+	std::vector<std::optional<std::string>> m_portraitIds;
+	// assets/portraits/portraits.cat: every portrait that ships, with its tags.
+	Catalog m_portraitCatalog;
 	// Hit-feedback splat icons (small/medium/hard) + the pointer struct the
 	// party bar reads. The struct address is stable, handed to GameUI once at
 	// construction; LoadHitSplats fills it in during the staged load.
@@ -1002,6 +1065,10 @@ private:
 	// Rebuilt rather than reset: a new object has none of the old world's
 	// caches to forget, and a world made from another shares its catalog ids.
 	std::unique_ptr<DungeonWorld> m_world;
+	// What RefreshPlaceStone last resolved for: the level and the world's edit
+	// revision. The revision starts impossible so the first frame resolves.
+	std::string m_placeStoneLevel;
+	u64 m_placeStoneRev = ~0ull;
 	// Typefaces, addressed by role (UI/FontLibrary.h). Declared BEFORE m_ui
 	// because every UIContext there borrows a Font from it, and configured from
 	// assets/fonts/fonts.cat before those contexts first resolve a role — see

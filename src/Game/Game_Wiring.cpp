@@ -87,6 +87,15 @@ void Game::WireModuleCallbacks() {
 		return worlds;
 	};
 	m_ui.onStartNewGameIn = [this](const std::string& folder) { StartNewGameIn(folder); };
+	// Party creation (docs/party-creation-plan.md phase 3): the world first, then
+	// the page; the page's Start builds the party and starts the game.
+	m_ui.onOpenPartyCreation = [this](const std::string& folder) { OpenPartyCreation(folder); };
+	m_ui.onStartParty = [this](const std::vector<party::MemberSpec>& specs, std::string& why) {
+		return StartWithParty(specs, why);
+	};
+	// The title screen's Settings edit only the new-member colours; a paused
+	// game's edit its party too (phase 4).
+	m_ui.partyInPlay = [this] { return m_gameLoaded && m_state != AppState::Menu; };
 	m_ui.onEditorOnArrival = [this](bool on) { m_editorOnArrival = on; };
 	m_ui.onQuit = [this] { m_quitRequested = true; };
 	m_ui.onResume = [this] { m_state = m_resumeState; };
@@ -123,11 +132,16 @@ void Game::WireModuleCallbacks() {
 		m_state = m_resumeState; // resume after saving from the pause menu
 	};
 	m_ui.onOpenSheet = [this](size_t index) { OpenCharacterSheet(index); };
-	// Sheet "All" button: leave the sheet and bring up the combined party
-	// backpacks (over the live world) for cross-character item swaps.
+	// A pick in the portrait picker (docs/portraits-plan.md).
+	m_ui.onSetPortrait = [this](size_t member, const std::string& id) {
+		return SetPortrait(member, id);
+	};
+	m_ui.onChangePortrait = [this](size_t member) { OpenPortraitPicker(member); };
+	// Sheet "All" button: leave the sheet and bring up the party window - every
+	// member on the sheet's tab, over the live world (Game/PartyWindow.h).
 	m_ui.onShowPartyInventory = [this] {
 		m_state = m_resumeState;
-		m_ui.OpenInventory();
+		m_ui.OpenInventory(m_ui.SheetMode()); // on the tab the sheet was showing
 	};
 	// Quality: recorded, not applied — the swap blocks for seconds, so Update
 	// runs it next frame with the "applying" notice already on screen. A
@@ -189,6 +203,9 @@ void Game::WireModuleCallbacks() {
 		// A pit fall swallows movement (the keyboard path gates in
 		// DungeonWorld::Update; this is the HUD arrow-button path).
 		if (!m_world->Falling()) m_world->GetParty().Act(action);
+	};
+	m_ui.moveCounter = [this](MoveAction& last) -> unsigned {
+		return m_world ? m_world->GetParty().ActCount(last) : 0u;
 	};
 	m_ui.onHandAttack = [this](size_t member, size_t hand, std::string_view verb) {
 		m_world->PartyAttack(member, hand, verb);
@@ -452,6 +469,7 @@ void Game::WireModuleCallbacks() {
 				}
 				return ids;
 			}
+			if (std::string_view(spec.options) == kOptUiStones) return InstalledUiStones();
 			if (std::string_view(spec.options) == kOptLocations) {
 				if (m_worldMap)
 					for (const WorldMap::Location& l : m_worldMap->Locations())

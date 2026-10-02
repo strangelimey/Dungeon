@@ -208,8 +208,63 @@ bool DungeonWorld::ResolveThrowHit(const ProjectileImpact& impact) {
 	return true;
 }
 
+bool DungeonWorld::StrikeDoorWithThrow(int cx, int cz, const ProjectileExpiry& expiry) {
+	// A thrown thing that meets a SHUT DOOR hits it, as a bolt does
+	// (StrikeDoorWithBolt) - and on the same terms: only a door doors.cat made
+	// `destructible` is a target at all, and its armour and resists decide the
+	// rest, so a rock batters a wooden door and does nothing to a stone one.
+	Door* d = DoorAt(cx, cz);
+	if (!d || d->open || !d->brk.Alive()) return false;
+	const ItemKind& kind = *static_cast<const ItemKind*>(expiry.cargo);
+	BreakableTarget t = DoorTarget(*d);
+	Character* thrower =
+		m_roster && expiry.attacker >= 0 && expiry.attacker < static_cast<int>(m_roster->size())
+			? &(*m_roster)[static_cast<size_t>(expiry.attacker)]
+			: nullptr;
+	const std::string_view who = thrower ? std::string_view(thrower->name) : std::string_view();
+	// THE BLOW the throw carries (its potency already applied at the throw),
+	// soaked and resisted - but NOT ROLLED: it has already met the panel, so there
+	// is nothing to miss, and an inert door would otherwise "win" the opposed roll
+	// about half the time. No skill is trained: a door is not an opponent.
+	fx::DamageEvent ev = fx::DamageEvent::Blow(expiry.atk.type, expiry.atk.damage,
+											   expiry.atk.attackBonus, expiry.attacker);
+	ev.rolled = false;
+	fx::Deal(ev, t, m_balance.Strike(), m_combatRng);
+	// An ENCHANTED weapon carries its element through, as on a monster.
+	float landed = ev.dealt;
+	if (!ev.slew && kind.enchanted && kind.elementBonus > 0.0f) {
+		fx::DamageEvent burst = fx::DamageEvent::Burst(m_damageTypes.ForSchool(kind.element),
+													   expiry.atk.damage * kind.elementBonus,
+													   expiry.attacker);
+		fx::Deal(burst, t, m_balance.Strike(), m_combatRng);
+		landed += burst.dealt;
+		ev.slew = ev.slew || burst.slew;
+	}
+	m_audio.Play(m_sounds.click, 0.6f); // placeholder thud
+	if (onMessage) {
+		if (landed >= 0.5f)
+			onMessage(loc::FormatLine("log.throw_hits", who, loc::View(kind.nameKey), t.Name(),
+									  static_cast<int>(landed + 0.5f)));
+		else
+			onMessage(loc::FormatLine("log.monster_unharmed", t.Name()));
+		if (ev.slew) onMessage(loc::FormatLine(t.BrokenKey(), t.Name()));
+	}
+	// What the thing leaves on what it strikes - its on_hit effects.
+	if (!ev.slew && !expiry.payload.Empty())
+		fx::ApplyProcs(t, expiry.payload.Procs(), expiry.payload.flavour, expiry.attacker,
+					   m_effects, m_combatRng);
+	return true;
+}
+
 void DungeonWorld::LandThrown(const ProjectileExpiry& expiry) {
 	const ItemKind& kind = *static_cast<const ItemKind*>(expiry.cargo);
+	// It stopped AGAINST a shut door: the door takes the blow first. Not a thing
+	// carrying a blast - a fire flask bursts in front of the door below, and that
+	// blast reaches the door's face itself (the area-carrier rule: the blast is
+	// the whole of what it does, as when one connects with a monster).
+	if (expiry.cause == ExpiryCause::Wall && !expiry.payload.blast.Any())
+		StrikeDoorWithThrow(static_cast<int>(std::floor(expiry.pos.x / kCellSize)),
+							static_cast<int>(std::floor(expiry.pos.z / kCellSize)), expiry);
 	// The last OPEN square along the flight: a wall's square (or a shut door's)
 	// is never one - the flight has already stepped into it when it stops - so
 	// back off along it, half a square at a time, to the party's own at worst.

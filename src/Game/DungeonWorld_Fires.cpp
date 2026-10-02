@@ -14,7 +14,7 @@
 // guard watches: the flame is re-lit in its reserved buffer (FireEffect::
 // Ignite), the effect list was reserved at build, the haze grid is refilled in
 // place and copied into its texture by the next scene pass
-// (RefreshTurbidityGrid / Texture::UpdateLevel0), and the puffs ride the frame
+// (RefreshTurbidity / Renderer::UpdateTexture), and the puffs ride the frame
 // constants.
 // ============================================================================
 #include "Game/DungeonWorld.h"
@@ -63,7 +63,7 @@ bool DungeonWorld::SetFireBurning(int x, int z, int wall, bool burning, bool smo
 		}
 	}
 	// Its smoke ring came or went with it (DungeonMap::RebuildTurbidity ran).
-	RefreshTurbidityGrid();
+	RefreshTurbidity();
 	return true;
 }
 
@@ -80,7 +80,7 @@ bool DungeonWorld::SetSconceEmpty(int x, int z, int wall, bool empty, bool burni
 		if (lit) fire->effect.Ignite(fire->flamePos, static_cast<u32>(fire->phase * 977.0f));
 		else fire->effect.Clear();
 	}
-	RefreshTurbidityGrid();
+	RefreshTurbidity();
 	return true;
 }
 
@@ -183,7 +183,7 @@ void DungeonWorld::SyncFiresFromMap() {
 	for (const WallSconce& s : m_map.Sconces())
 		sync(s.x, s.z, static_cast<int>(s.wall), s.Burning(), s.empty);
 	for (const FloorBrazier& b : m_map.Braziers()) sync(b.x, b.z, -1, b.Burning(), false);
-	RefreshTurbidityGrid();
+	RefreshTurbidity();
 }
 
 void DungeonWorld::UpdateFireTransients(float dt) {

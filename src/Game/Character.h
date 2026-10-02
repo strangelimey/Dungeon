@@ -6,9 +6,9 @@
 // (docs/combat.md): the stat accessors below (StatValue/StatAvg/Evasion) are
 // the character's inputs to the strike DungeonWorld assembles, and `health`
 // actually drains when a monster lands a blow.
-// Portraits are baked by AssetBaker (portrait_<name>.png); the tinted square
-// stamped with the character's initial remains as the fallback when the
-// texture is missing.
+// A member's portrait is an id into assets/portraits (portraits.cat - the
+// bought sets); the tinted square stamped with the character's initial
+// remains as the fallback when the texture is missing.
 // ============================================================================
 #pragma once
 
@@ -70,6 +70,10 @@ inline constexpr int kStatCount = 5;
 
 struct Character {
 	std::string name; // proper noun — not localized
+	// The member's people: a races.cat id (party creation). Applied once, when
+	// the member is made (stats, bases, pace, natureResists); kept so a load can
+	// re-apply the resists, which are not saved, and so the sheet can say it.
+	std::string raceId;
 
 	// Resources. The maxima are DERIVED (docs/combat.md "The resource
 	// formula"): max = base + k × statAvg, recomputed by RecomputeMaxima
@@ -407,8 +411,12 @@ struct Character {
 			   resource::SkillTerm(paceCurve, PracticeLevel(resource::Kind::Stamina));
 	}
 
-	// Baked portrait (portrait_<name>.png), wired by the Game after the
-	// texture loads; null draws the tinted-initial fallback instead.
+	// WHICH portrait: an id in assets/portraits/portraits.cat, saved per member
+	// (the "portrait" line). The default party's come from CreateDefaultParty.
+	std::string portraitId;
+	// The loaded texture for portraitId, wired by Game::SyncPortraits - the one
+	// place that loads them, so an id change always reaches the draw. Null draws
+	// the tinted-initial fallback instead.
 	const gfx::Texture* portrait = nullptr;
 	// Fallback portrait tint, also the slot's identity color.
 	Vec4 portraitColor{0.3f, 0.3f, 0.3f, 1.0f};

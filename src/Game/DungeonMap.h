@@ -22,6 +22,7 @@
 //   atmosphere [dust=] [haze=] [ambient=]  the level's mood knobs
 //   theme <wall|floor|ceiling> <x> <z> <id>  a cell showing a surface theme
 //   tags <tag> <tag> ...              the level's content lens (Tags())
+//   uistone <name>                    the UI material override (UiStone())
 //   decoration <type> <x> <z> [facing] [wall=]
 //                                     static entity (Entity.h) — and the
 //                                     FALL-THROUGH: any record matching none
@@ -349,6 +350,15 @@ public:
 	// which is what keeps this safe to change on a finished level.
 	const std::vector<std::string>& Tags() const { return m_tags; }
 	void SetTags(std::vector<std::string> tags) { m_tags = std::move(tags); }
+
+	// --- per-level UI material ----------------------------------------------
+	// The material the UI chrome is cut from while the party is HERE, when the
+	// player's Material setting follows the place (more-ui-updates): a stem in
+	// assets/ui/stones. Empty = no override - the level's dungeon decides
+	// (dungeons.cat `ui_stone`), then the default. The `uistone` record; the
+	// Level settings dialog authors it.
+	const std::string& UiStone() const { return m_uiStone; }
+	void SetUiStone(std::string name) { m_uiStone = std::move(name); }
 
 	Vec3 CellCenter(int x, int z, float y = 0.0f) const {
 		return {(static_cast<float>(x) + 0.5f) * kCellSize, y,
@@ -724,6 +734,7 @@ private:
 	// Per-level atmosphere overrides (< 0 = unset; see SetAtmosphere).
 	float m_dustDensity = -1.0f, m_hazeAmbient = -1.0f, m_ambientScale = -1.0f;
 	std::vector<std::string> m_tags; // the `tags` record's tags (see Tags())
+	std::string m_uiStone;           // the `uistone` record (see UiStone())
 	// Per-cell variant overrides, parallel to m_cells; -1 = use the hash default.
 	std::vector<int> m_wallVar, m_floorVar, m_ceilingVar;
 	std::vector<WallSconce> m_torches;

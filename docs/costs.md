@@ -70,6 +70,10 @@ surface it in an in-game credits screen / NOTICE file before shipping.
 - **Cursed Undead Soldier Rig** by **DM-913** — fab.com, CC BY 4.0
   (https://www.fab.com/listings/cf236a92-88d9-4f0d-af10-d4f878560b39).
   Ditto — archived, unused so far.
+- **500 Human Hero Fantasy Character Portraits** by **Corax Digital Art** -
+  itch.io, the pack's own license (readme): credit "Corax Digital Art" AND link
+  https://linktr.ee/coraxdigitalart. Applies as soon as any of its portraits
+  ships in the party portrait set.
 
 Scouted candidates (prices as seen 2026-06-22, not bought):
 - Fantasy Assassin Weapon Pack (Deepanshu) — **$1.99–4.99**, glb+obj+fbx, 18 meshes
@@ -82,6 +86,8 @@ Scouted candidates (prices as seen 2026-06-22, not bought):
 |---|---|---|---|---|---|---|
 | 2026-07-12 | UI Medieval RPG (+180 Medieval Fantasy RPG UI Kit, Gothic & Gold 4K) | Vill8tion | $2.70 | itch standard (commercial ok) | PNG (3072², AI-4x upscale, black bg — keyed at cut) | skin_button (slot #17) + skin_slot (slot #12) — done; bar_frame (Life Status Bars #1, the resource bars' iron frame, tools/CutBarFrame.py) - done 2026-09-30; 170+ unused variants archived (buttons/frames/bars) |
 | 2026-07-12 | Assets: UI Medieval Interface | Wenrexa | $3.99 | itch standard (commercial ok) | PNG + PSD + vector | archived (ui\wenrexa-medieval-interface) — panel candidates flatter than the current stone skin; unused so far |
+| 2026-10-01 | [Fantasy Character Portraits Pack](https://magory.itch.io/fantasy-portraits) | Magory (Tomasz Kucza) | $7.99 | any free or commercial project (readme); no NFT use, no reselling as a pack (store page). AI-assisted (Midjourney, retouched) | PNG (4 zips, ~1.5 GB): 2104 portraits + 355 bonus, each square (256/128/64/32) and tall (256x360 down), each plain + 3 dithered palettes (Endesga 32, AAP-64, Duel) | archived (ui\magory-fantasy-portraits); party portrait candidates, picks pending |
+| 2026-10-02 | [500 Human Hero Fantasy Character Portraits](https://coraxdigitalart.itch.io/500-fantasy-character-portraits-realistic-human-heroes) | Corax Digital Art | $10.00 (pay what you want; free minimum) | personal + commercial use, may modify; NO redistribution of the files (even modified), no NFT / art prints; **credit required** (Attributions). AI-generated (Midjourney) | PNG, 500 portraits at 512x512, opaque painted backgrounds (one zip, 288 MB) | archived (ui\corax-human-heroes); joins the Magory set in the portrait picker (ids `corax001`-`corax500`) |
 
 ### Fonts
 All **free**, all **SIL Open Font License 1.1**, all from the
@@ -134,14 +140,15 @@ One-off or recurring software bought for the project.
 
 ---
 
-## Totals (as of 2026-07-11)
+## Totals (as of 2026-10-02)
 - **Asset purchases:** textures.com **$39.00** (5,000-credit bundle; 3,425 left,
   ~$26.71 prepaid headroom); fab.com **$87.43 charged** (all five orders, tax
   incl.: Fantasy Assassin $2.18 + skeleton $7.65 + crawlers $16.39 + Skeleton
   Army Kit $21.87 + fixtures/torches $39.34; the CC-BY freebies cost $0);
-  itch.io **$6.69** (Medieval RPG UI kit $2.70 + Wenrexa UI $3.99); other $0.
+  itch.io **$24.68** (Medieval RPG UI kit $2.70 + Wenrexa UI $3.99 + Magory
+  portraits $7.99 + Corax portraits $10.00); other $0.
 - **AI / API:** not yet recorded.
 - **Dev tools / licenses:** $0 (all free so far).
-- **Cash out of pocket so far:** **$133.12** ($39.00 textures.com + $87.43
-  fab.com + $6.69 itch.io; fab amounts are actual charges from the Epic
+- **Cash out of pocket so far:** **$151.11** ($39.00 textures.com + $87.43
+  fab.com + $24.68 itch.io; fab amounts are actual charges from the Epic
   purchases page).

@@ -14,6 +14,37 @@ using namespace DirectX;
 
 namespace dungeon::game {
 
+namespace {
+// An effects list as it survives a save, and back - ONE conversion for a
+// monster's list and a piece of dungeon's alike (a member's goes through Game).
+void CaptureEffectList(const std::vector<fx::Inst>& from,
+					   std::vector<SaveData::EffectState>& to) {
+	for (const fx::Inst& inst : from) {
+		if (!inst.kind) continue;
+		to.push_back({inst.kind->Id(), SymbolId(inst.school), inst.timeLeft,
+					  inst.duration, inst.magnitude, inst.source,
+					  std::string(inst.NameKey())});
+	}
+}
+
+// An id the project's effect classes don't know - an older or newer save - is
+// skipped, never misread. Clears first and pushes back, so a list reserved at
+// load (fx::ReserveEffects) keeps its capacity.
+void RestoreEffectList(const fx::EffectBook& book,
+					   const std::vector<SaveData::EffectState>& from,
+					   std::vector<fx::Inst>& to) {
+	to.clear();
+	for (const SaveData::EffectState& fx : from) {
+		SpellSymbol school = SpellSymbol::Fire;
+		ParseSymbol(fx.school, school);
+		const fx::EffectKind* kind = book.FindLegacy(fx.id, school);
+		if (!kind || fx.time <= 0.0f) continue;
+		to.push_back({kind, school, fx.magnitude, fx.time,
+					  std::max(fx.duration, fx.time), fx.source});
+	}
+}
+} // namespace
+
 void DungeonWorld::ResetForNewGame() {
 	m_party.Reset(m_map.StartX(), m_map.StartZ());
 	m_leader = 0; // slot 0 (Brand) leads a new game
@@ -155,12 +186,7 @@ SaveData::LevelState DungeonWorld::SnapshotActive() const {
 	// What a monster is afflicted by (v22) — the same record a member stores, so
 	// a burn or a poison survives a save instead of quietly going out.
 	const auto captureEffects = [](const Monster& m, SaveData::EntityState& e) {
-		for (const fx::Inst& inst : m.effects) {
-			if (!inst.kind) continue;
-			e.effects.push_back({inst.kind->Id(), SymbolId(inst.school),
-								 inst.timeLeft, inst.duration, inst.magnitude,
-								 inst.source, std::string(inst.NameKey())});
-		}
+		CaptureEffectList(m.effects, e.effects);
 	};
 
 	// Monsters: a baseline gets a diff once it has moved off its spawn cell,
@@ -274,6 +300,20 @@ SaveData::LevelState DungeonWorld::SnapshotActive() const {
 			ls.fires.push_back({s.x, s.z, static_cast<int>(s.wall), s.Burning(), s.empty});
 	for (const FloorBrazier& b : m_map.Braziers())
 		if (b.flipped) ls.fires.push_back({b.x, b.z, -1, b.Burning()});
+	// Pieces HURT but standing: their hp and whatever rides them, so a door left
+	// burning is still burning - and still battered - after a load. Same key as a
+	// broken one. A piece at full hp carrying nothing writes no line.
+	const auto damaged = [&ls](const Breakable& brk, int x, int z, std::string_view type,
+							   int wall) {
+		if (!brk.Alive() || (brk.hp >= brk.maxHp && brk.effects.empty())) return;
+		SaveData::DamagedPiece d{x, z, std::string(type), wall, brk.hp, {}};
+		CaptureEffectList(brk.effects, d.effects);
+		ls.damaged.push_back(std::move(d));
+	};
+	for (const Decoration& d : m_decorations) damaged(d.brk, d.x, d.z, d.kind->id, -1);
+	for (const Door& d : m_doors) damaged(d.brk, d.x, d.z, d.type, -1);
+	for (const FixtureBreak& fb : m_fixtureBreaks)
+		damaged(fb.brk, fb.x, fb.z, fb.type, fb.wall);
 	return ls;
 }
 
@@ -326,15 +366,7 @@ void DungeonWorld::ApplyActiveSnapshot() {
 	// effect classes don't know — an older or newer save — is skipped, never
 	// misread; the plume follows automatically, since it is derived from the list.
 	const auto restoreEffects = [this](const SaveData::EntityState& e, Monster& m) {
-		m.effects.clear();
-		for (const SaveData::EffectState& fx : e.effects) {
-			SpellSymbol school = SpellSymbol::Fire;
-			ParseSymbol(fx.school, school);
-			const fx::EffectKind* kind = m_effects.FindLegacy(fx.id, school);
-			if (!kind || fx.time <= 0.0f) continue;
-			m.effects.push_back({kind, school, fx.magnitude, fx.time,
-								 std::max(fx.duration, fx.time), fx.source});
-		}
+		RestoreEffectList(m_effects, e.effects, m.effects);
 	};
 
 	for (const SaveData::EntityState& e : ls.entities) {
@@ -454,6 +486,33 @@ void DungeonWorld::ApplyActiveSnapshot() {
 				// and it comes back DARK, not merely broken (quietly: no fresh smoke)
 				SetFireBurning(fb.x, fb.z, fb.wall, false, /*smoke*/ false);
 				break;
+			}
+	}
+	// Re-hurt what was hurt: hp and the effects riding it. Like a broken entry, one
+	// naming a piece the level no longer has is dropped; one naming a piece that is
+	// no longer breakable (its type was made indestructible) is ignored.
+	for (const SaveData::DamagedPiece& s : ls.damaged) {
+		const auto restore = [&](Breakable& brk) {
+			if (!brk.Alive()) return;
+			brk.hp = std::clamp(s.hp, 0.01f, brk.maxHp);
+			RestoreEffectList(m_effects, s.effects, brk.effects);
+		};
+		bool found = false;
+		for (Decoration& d : m_decorations)
+			if (!found && d.x == s.x && d.z == s.z && d.kind->id == s.type) {
+				restore(d.brk);
+				found = true;
+			}
+		for (Door& d : m_doors)
+			if (!found && d.x == s.x && d.z == s.z && d.type == s.type) {
+				restore(d.brk);
+				found = true;
+			}
+		for (FixtureBreak& fb : m_fixtureBreaks)
+			if (!found && fb.x == s.x && fb.z == s.z && fb.type == s.type &&
+				fb.wall == s.wall) {
+				restore(fb.brk);
+				found = true;
 			}
 	}
 	m_levelStates.erase(it); // the live state is authoritative now

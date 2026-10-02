@@ -98,6 +98,9 @@ struct SaveData {
 	// The party leader's roster index (DungeonWorld::Leader). Absent in older
 	// saves = 0, which is right: slot 0 leads a new game.
 	int leader = 0;
+	// How many members the party has ("roster" line; party creation makes 1..4).
+	// 0 = a save older than party creation, which is the default four.
+	size_t rosterSize = 0;
 
 	// Per-roster-slot mutable resources, in roster order.
 	struct CharState {
@@ -161,6 +164,17 @@ struct SaveData {
 		// took deliberate overkill — never self-stabilizes. Absent = alive or
 		// unconscious.
 		bool dead = false;
+		// The portrait id ("portrait" line, portraits.cat). Empty = a save older
+		// than portraits by id, which keeps the default party's.
+		std::string portrait;
+		// WHO THEY ARE (party creation): "name", "race", "color" and "pace" lines.
+		// Each absent in an older save, which keeps the default party's value for
+		// the slot - the save never carried them because the party never varied.
+		std::string name, race;
+		bool hasColor = false;
+		float color[4] = {0, 0, 0, 1};
+		bool hasPace = false;
+		float pace = 1.0f;
 	};
 	std::vector<CharState> characters;
 
@@ -243,6 +257,20 @@ struct SaveData {
 		bool empty = false; // a wall torch taken off its bracket
 	};
 
+	// A piece of dungeon that is HURT but still standing: its hit points, and
+	// whatever is riding it (a door left alight keeps burning across a save).
+	// Keyed exactly like BrokenProp, and for the same reasons. A broken piece is
+	// a BrokenProp instead - it has no hp and carries nothing. Written as a
+	// "damaged" line with its effects hung beneath as "brkeffect" lines, the
+	// enteffect pattern; a save without them simply has nothing damaged.
+	struct DamagedPiece {
+		int x = 0, z = 0;
+		std::string type;
+		int wall = -1;
+		float hp = 0.0f;
+		std::vector<EffectState> effects;
+	};
+
 	struct LevelState {
 		std::string stem;
 		std::vector<std::pair<int, int>> seen;
@@ -250,6 +278,7 @@ struct SaveData {
 		std::vector<NicheOpen> niches;     // reveal-state diffs
 		std::vector<BrokenProp> broken;    // smashed props
 		std::vector<FireBurning> fires;    // lit/doused diffs
+		std::vector<DamagedPiece> damaged; // hurt but standing (hp + effects)
 	};
 	// One entry per VISITED level, keyed by STEM.
 	//

@@ -165,6 +165,30 @@ public:
 	// the label's colour (dimmed when disabled) and sinks with it. Put the words
 	// in `tooltip`; `text` stays the fallback when the texture is missing.
 	const gfx::Texture* faceIcon = nullptr;
+	// CUT STONE (more-ui-updates): with `etch` set and a skin that has the block
+	// part, the button IS a cut-stone block with that symbol etched into it
+	// (ui::DrawCutStone; assets/ui/etch_<name>.png). `etchLit` - the gold lit -
+	// replaces it while `active`, which also holds the block down: a current
+	// tab is both sunk and lit. The icon / label paths are the fallback (no
+	// skin, or the flat debug look).
+	const gfx::Texture* etch = nullptr;
+	const gfx::Texture* etchLit = nullptr;
+	// Fire the action on the PRESS instead of at the bottom of the sink
+	// (Michael: the movement stones and the tabs act at once). The push still
+	// plays, all of it, and never delays the action; a press dragged off before
+	// release has already acted, so it completes rather than cancelling.
+	bool fireOnPress = false;
+	// CARVED WORDS on a cut stone (more-ui-updates: the save, load and world
+	// pages - Michael: "that needs the same treatment"): with a skin that has
+	// the block part, a text button draws as the menus' entries do, its label
+	// carved in gold, lit while the pointer is over it. No skin = the plain face.
+	bool carved = false;
+	// Plays the push with no click and no action - the movement pad presses a
+	// stone when the KEYBOARD moves the party. Ignored while the mouse holds it.
+	void PressVisual();
+	// Under the pointer (and the pointer not taken) as of the last Update - for
+	// a subclass drawing its own fallback face.
+	bool Hot() const { return m_hot; }
 
 	// THE PUSH (Michael, ui-updates: "animate as pushed, execute the action,
 	// then animate back"). A click does not fire the moment the button is
@@ -186,6 +210,9 @@ private:
 
 	bool m_hot = false;
 	bool m_held = false;
+	// The push in flight has ALREADY acted (fireOnPress, or a PressVisual), so
+	// the bottom of its sink must not act again.
+	bool m_fired = false;
 	Push m_push = Push::None;
 	Clock::time_point m_pressAt{}; // the sink's start (the press)
 	Clock::time_point m_riseAt{};  // the rise's start (just after the action)
@@ -313,10 +340,54 @@ public:
 
 	std::vector<std::string> items;
 	std::function<void(int)> onSelect;
+	// Optional PICTURES, parallel to `items` (empty = a plain text list; a null
+	// entry = no picture on that row). Each draws as a square before its text,
+	// on the face and in the open list - whose rows grow to `iconRowScale` x
+	// the face's height, so the pictures are big enough to tell apart (the
+	// Level dialog's UI material thumbnails). Not owned.
+	std::vector<const gfx::Texture*> icons;
+	float iconRowScale = 2.2f;
+	// Optional CATEGORY buttons pinned along the top of the open list (Michael,
+	// for the Level dialog's materials: All / Light / Dark / Stone / Wood ...).
+	// `filterLabels` names them; `itemFilters`, parallel to `items`, says which
+	// rows each passes - bit f set = shown under button f. A row past the end
+	// of itemFilters passes them all. The pick lasts while the control does.
+	std::vector<std::string> filterLabels;
+	std::vector<unsigned> itemFilters;
+	// Each button's COLOUR CHIP, parallel to filterLabels: a small swatch
+	// before its label that hints at the category (light grey for Light, green
+	// for Forest). Alpha 0, or past the end, = no chip.
+	std::vector<Vec4> filterColors;
+	// The buttons' text size against the list's: they are captions, and at the
+	// list's own size eight of them took three lines of a dialog-sized list.
+	float filterScale = 0.68f;
+
+protected:
+	void LayoutSelf(UIContext& ctx) override;
 
 private:
 	// The selected item's text ("" for none), a reference into `items`.
 	const std::string& Current() const;
+	// An open-list row's height: the face's, or iconRowScale x it with icons.
+	float RowH() const;
+	// The picture's square in a row `rowH` tall, and how far it pushes the text
+	// right (0 with no icons). Face and list both ask, so they cannot disagree.
+	float IconSide(float rowH) const;
+	float IconLead(float rowH) const;
+	const gfx::Texture* IconAt(int index) const;
+	void DrawIcon(gfx::SpriteBatch& batch, const Theme& theme, int index,
+				  const gfx::Rect& row) const;
+	// The category filter: whether row `item` shows under the current button,
+	// and how many rows do. With no buttons every row shows.
+	bool Passes(size_t item) const;
+	size_t ShownCount() const;
+	// The category buttons, laid left to right across the top of a popup and
+	// wrapping: calls f(index, rect) for each, returns the band's height (0
+	// with no buttons). One walk serves the layout, the hit test and the draw.
+	template <class F>
+	float ForEachChip(const gfx::Rect& popup, F&& f) const;
+	// The popup below the button band - where the rows scroll.
+	gfx::Rect ListRect(const gfx::Rect& popup) const;
 	// Where the face text starts, and how wide it may run before the expander.
 	// DrawSelf, InkRect and TextOverrun all ask, so the measure is the draw.
 	float TextX() const;
@@ -326,13 +397,23 @@ private:
 	// when that side has more room), and at least as wide as its longest item
 	// (m_popupTextW) where the window allows. Everything else resolves against it.
 	gfx::Rect PopupRect(const UIContext& ctx) const;
-	gfx::Rect ItemRect(const gfx::Rect& popup, size_t index) const;
+	// The `slot`-th SHOWN row (the category filter hides some; slot counts
+	// only the ones that pass), scrolled, in the list area.
+	gfx::Rect ItemRect(const gfx::Rect& popup, size_t slot) const;
 	float MaxScroll(const gfx::Rect& popup) const;
 	gfx::Rect ScrollTrackRect(const gfx::Rect& popup) const;
 	gfx::Rect ScrollThumbRect(const gfx::Rect& popup, float maxScroll) const;
 
 	int m_selected = 0;
 	int m_hoverItem = -1;
+	int m_filter = 0;     // the category button in force
+	int m_hoverChip = -1; // the category button under the pointer
+	// The buttons' font (filterScale x this control's), resolved at Layout so
+	// the const layout walk can measure in it. Null until then / with no buttons.
+	const Font* m_chipFont = nullptr;
+	const Font& ChipFont() const { return m_chipFont ? *m_chipFont : TextFont(); }
+	bool HasChip(size_t i) const;    // button i has a colour chip
+	float ChipWidth(size_t i) const; // button i's whole width
 	bool m_open = false;
 	bool m_hot = false;
 	float m_scroll = 0.0f; // pixels scrolled down the open list
@@ -553,9 +634,11 @@ public:
 			const gfx::Texture* const* icon, std::function<void()> onDeleteClick);
 
 private:
+	using Clock = std::chrono::steady_clock;
 	void UpdateSelf(UIContext& ctx) override;
 	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 	gfx::Rect DeleteRect() const; // square icon button at the row's right end
+	float Depth() const;          // the push: 0 up .. 1 down
 
 	std::string m_primary, m_secondary;
 	std::function<void()> m_onActivate;
@@ -564,6 +647,15 @@ private:
 	bool m_deletable;
 	bool m_hot = false;
 	bool m_hotDelete = false;
+	// THE PUSH, as a menu entry has it (more-ui-updates): a press sinks the row,
+	// the RELEASE over it completes the push and the row acts at the bottom of
+	// the sink (Button's clock); released elsewhere it only rises. The delete
+	// icon is not pushed - it opens its confirm on the press, as it did.
+	bool m_held = false;
+	bool m_sinking = false;
+	bool m_rising = false;
+	Clock::time_point m_pressAt{};
+	Clock::time_point m_riseAt{};
 };
 
 class SlotList : public Widget {
@@ -625,23 +717,65 @@ public:
 	void SetLabel(size_t index, std::string label);
 
 	int Selected() const { return m_selected; }
+	size_t Count() const { return m_items.size(); }
+	const std::string& Label(size_t index) const { return m_items[index].label; }
 	void UpdateSelf(UIContext& ctx) override;
 	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
+
+	// The space between two entries, in rem.
+	float gapRem = 0.3f;
+
+	// THE PUSH (more-ui-updates Phase 4: the pause and title menus, Michael):
+	// an entry is pressed like any button - it sinks, ACTS ON RELEASE over it
+	// (drag off to cancel; Enter / Space press the selected one), and rises,
+	// on Button's clock (kSinkSeconds / kHoldSeconds / kRiseSeconds). Skinned,
+	// each entry is a CUT-STONE block with its word carved in (DrawCarvedText),
+	// the selected one's gold lit; the flat look keeps the accent bar.
 
 private:
 	struct Item {
 		std::string label;
 		std::function<void()> onActivate;
 	};
+	using Clock = std::chrono::steady_clock;
 
 	gfx::Rect ItemRect(size_t index) const;
 	void MoveSelection(int delta);
-	void Activate();
+	void Activate(int index);
+	// How far entry `index` is pushed: 0 up .. 1 down.
+	float Depth(int index) const;
 
 	std::vector<Item> m_items;
 	float m_itemHeight;
 	int m_selected = 0;
+	int m_pushItem = -1;     // the entry being pressed, or -1
+	bool m_held = false;     // the mouse still holds it
+	bool m_sinking = false;  // released / Enter: completing, then it acts
+	bool m_rising = false;   // acted (or cancelled): coming back up
+	Clock::time_point m_pressAt{};
+	Clock::time_point m_riseAt{};
 };
+
+// WORDS CARVED INTO STONE (more-ui-updates): `text` at (x, y) as an incised
+// cut lit from the top-left - its near edge in shadow, its far edge catching
+// the light - with `fill` (gold, for the menus) lying in it. The context's text
+// outline is suspended around it, since a ring round each of the three layers
+// reads as paint, not a cut. Allocation-free.
+void DrawCarvedText(gfx::SpriteBatch& batch, const Font& font, std::string_view text,
+					float x, float y, const Vec4& fill);
+// The gold in a carved word, and the same gold lit (the selected / hovered
+// stone) - one set, so every carved face in the game agrees. They follow the
+// MATERIAL (Skin::luma): pale gold sinks into a pale stone, so on a light one
+// the gold deepens toward bronze - the contrast pass (more-ui-updates). A null
+// skin gets the dark-stone colours.
+Vec4 CarvedGold(const Skin* skin);
+Vec4 CarvedLit(const Skin* skin);
+// A card's title, a shade brighter than the words under it.
+Vec4 CarvedTitle(const Skin* skin);
+// Carved but unpainted: the cut alone, its floor a little paler than a dark
+// stone (darker than a light one) - for the quieter words on a stone (a
+// save's date, a world's folder).
+Vec4 CarvedPlain(const Skin* skin);
 
 // A container that scrolls its children vertically when they overflow it.
 // Children are authored as fractions of ContentRect() — this widget's rect

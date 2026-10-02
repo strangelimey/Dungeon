@@ -1,0 +1,32 @@
+; partycreation.eval - a CREATED party survives a save and a load
+; (docs/party-creation-plan.md, phase 1).
+;
+; Run:  Dungeon.exe -headless -eval <path to this file>, then read dungeon.log.
+; What it should show:
+;   - the default four (`roster`), human, premade stats;
+;   - `newparty` makes two members: Aria (elf: stats 9,14,8,13,11 - the race's
+;     STR -1 DEX +2 VIT -2 INT +1, then DEX +2 and WIL +3 spent) and Old Tom
+;     (dwarf: 13,9,15,10,9), each with two skills at level 2 and two starting items
+;     where they belong (a weapon in a hand, armour on the body, food in the
+;     pack), their own colours and faces;
+;   - a reset puts the default four back;
+;   - loading the save brings the two back exactly as `roster` first printed
+;     them - names, races, colours, pace, stats, bases, skills and kit.
+; (A refused spec - a bad race, too many points - fails a run, so those are
+; checked by hand, not here.)
+
+logecho on
+reset
+roster
+
+newparty name=Aria race=elf portrait=portrait135 color=c04040 points=0,2,0,3,0 skills=blade,conditioning items=dagger,apple | name=Old_Tom race=dwarf portrait=b045 color=40a0c0 points=2,0,3,0,0 skills=blunt,heavy_armor items=club,padded_jack
+roster
+party
+save eval_party
+
+reset
+roster
+
+load eval_party
+roster
+party

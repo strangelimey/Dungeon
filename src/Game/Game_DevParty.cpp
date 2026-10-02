@@ -116,6 +116,96 @@ void Game::RegisterPartyCommands() {
 												   m_characters[i].IsAlive() ? "up" : "down");
 						   m_console.Print(line);
 					   });
+	// Portraits by id (portraits phase 2): bare lists every member's portrait
+	// with its tags; a member and an id sets it, as the picker will (refused
+	// for an id portraits.cat does not list). `picker` drives the picker (phase
+	// 3) for a script: open it for a member, filter it by tag words, scroll it,
+	// and read back what it shows - and the SRV gauge, since a picker that leaked
+	// thumbnails would show there first.
+	m_console.Register({.name = "portrait",
+						.group = CmdGroup::Characters,
+						.params = "[member] [id]\npicker [member|off|status]\n"
+								  "picker filter <race|any> <sex|any> <age|any>\n"
+								  "picker scroll <0..1>",
+						.summary = "report or set a member's portrait, or drive the picker"},
+					   [this](const std::vector<std::string>& args) {
+						   if (!args.empty() && args[0] == "picker") {
+							   PortraitPicker* picker = m_ui.Portraits();
+							   if (!picker) {
+								   m_console.Refuse("no picker");
+								   return;
+							   }
+							   const std::string sub = args.size() >= 2 ? args[1] : "0";
+							   if (sub == "off") {
+								   m_ui.ClosePortraitPicker();
+							   } else if (sub == "filter") {
+								   if (args.size() < 5) {
+									   m_console.RefuseUsage();
+									   return;
+								   }
+								   // A word's 1-based place in its list; 0 for "any".
+								   const auto pick = [](std::span<const char* const> words,
+														const std::string& w) {
+									   if (w == "any") return 0;
+									   for (size_t i = 0; i < words.size(); ++i)
+										   if (w == words[i]) return static_cast<int>(i) + 1;
+									   return -1;
+								   };
+								   const int r = pick(PortraitPicker::Races(), args[2]);
+								   const int s = pick(PortraitPicker::Sexes(), args[3]);
+								   const int a = pick(PortraitPicker::Ages(), args[4]);
+								   if (r < 0 || s < 0 || a < 0) {
+									   m_console.Refuse("unknown tag word");
+									   return;
+								   }
+								   picker->SetFilter(r, s, a);
+							   } else if (sub == "scroll") {
+								   if (args.size() < 3) {
+									   m_console.RefuseUsage();
+									   return;
+								   }
+								   picker->ScrollTo(static_cast<float>(std::atof(args[2].c_str())));
+							   } else if (sub != "status") {
+								   const int m = std::atoi(sub.c_str());
+								   if (m < 0 || m >= static_cast<int>(m_characters.size())) {
+									   m_console.Refuse("no such member");
+									   return;
+								   }
+								   OpenPortraitPicker(static_cast<size_t>(m));
+							   }
+							   const PortraitPicker::Status st = picker->GetStatus();
+							   m_console.Print(std::format(
+								   "picker {} shown={} of {} filter={},{},{} visible={}+{} "
+								   "thumbs={} srv={} peak={}",
+								   st.open ? "open" : "closed", st.shown, st.total, st.race,
+								   st.sex, st.age, st.firstVisible, st.visible, st.thumbs,
+								   m_device.SrvLive(), m_device.SrvHighWater()));
+							   return;
+						   }
+						   size_t first = 0, last = m_characters.size();
+						   if (!args.empty()) {
+							   const int m = std::atoi(args[0].c_str());
+							   if (m < 0 || m >= static_cast<int>(m_characters.size())) {
+								   m_console.Refuse("no such member");
+								   return;
+							   }
+							   first = static_cast<size_t>(m);
+							   last = first + 1;
+							   if (args.size() >= 2 && !SetPortrait(first, args[1])) {
+								   m_console.Refuse(std::format("{} is not in portraits.cat", args[1]));
+								   return;
+							   }
+						   }
+						   for (size_t i = first; i < last; ++i) {
+							   const Character& c = m_characters[i];
+							   const CatalogEntry* e = m_portraitCatalog.Find(c.portraitId);
+							   m_console.Print(std::format(
+								   "portrait {} {} {} [{} {} {} {}]{}", i, c.name, c.portraitId,
+								   CatalogGet(e, "source", "?"), CatalogGet(e, "race", "?"),
+								   CatalogGet(e, "sex", "?"), CatalogGet(e, "age", "?"),
+								   c.portrait ? "" : " - NOT LOADED"));
+						   }
+					   });
 	// Throwing (ui-updates Phase 10): the leader throws the item on the cursor,
 	// or a given catalog item from nowhere, straight ahead - what a click above
 	// the floor does, without having to aim one.
@@ -727,6 +817,38 @@ void Game::RegisterPartyCommands() {
 	// reports it as a screen it cannot sweep — so the one screen with the most
 	// hand-laid-out content in the game was also the one screen `uioverlap`
 	// never saw. `sheet <n>` then `uioverlap` closes half of that gap.
+	// Shows the chrome in one UI material without touching the setting - the
+	// Level dialog's preview, from the console - so every material can be
+	// looked at in turn (more-ui-updates: the contrast pass). `off` hands the
+	// chrome back to the setting and the place.
+	m_console.Register({.name = "uimaterial",
+						.group = CmdGroup::Settings,
+						.params = "<material>\n"
+								  "off\n"
+								  "list",
+						.summary = "preview a UI material (nothing saved)"},
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 1)) return;
+						   if (args[0] == "off") {
+							   m_ui.EndStonePreview();
+							   m_console.Print(std::format("uimaterial: back to {}", m_ui.ShownStone()));
+							   return;
+						   }
+						   const std::vector<std::string> order = m_ui.StoneOrder();
+						   if (args[0] == "list") {
+							   std::string line = "uimaterial:";
+							   for (const std::string& s : order) line += " " + s;
+							   m_console.Print(line);
+							   return;
+						   }
+						   if (std::ranges::find(order, args[0]) == order.end()) {
+							   m_console.Refuse("no such material - `uimaterial list`");
+							   return;
+						   }
+						   m_ui.PreviewStone(args[0]);
+						   m_console.Print(std::format("uimaterial: showing {}", args[0]));
+					   });
+
 	// The framed resource bars (docs/icon-updates-plan.md): report each member's
 	// heartbeat, sweep every bar so the dimming and the leading edge can be
 	// judged without a fight, or pin the heart rate to judge the beat.
@@ -825,6 +947,11 @@ void Game::RegisterPartyCommands() {
 									   inv.selectedPack, inv.SelectedContents().size(),
 									   m_ui.SheetPackEquips()));
 							   }
+							   // Where the "All" button is (AllocTest -All clicks it).
+							   const gfx::Rect all = m_ui.SheetAllRect();
+							   m_console.Print(std::format("sheet all: {},{}",
+														   static_cast<int>(all.x + all.w * 0.5f),
+														   static_cast<int>(all.y + all.h * 0.5f)));
 							   return;
 						   }
 						   if (!args.empty() && args[0] == "off") {
@@ -948,23 +1075,31 @@ void Game::RegisterPartyCommands() {
 			m_console.Refuse("no such panel - party, status, options, move, hands, magic, cards, inventory, tray, sheet");
 		});
 
-	// The party inventory window (every member's selected pack side by side),
+	// The party window (a card per member, on one tab - Game/PartyWindow.h),
 	// otherwise reachable only through the sheet's "All" button. It exists for
 	// tools\AllocTest.ps1 -Items, which picks an item out of a pack in this
 	// window inside a guarded frame; `status` is how it checks where the item
-	// went, since a missed click and a clean move look alike to the guard.
+	// went, since a missed click and a clean move look alike to the guard, and
+	// `slot` is where it aims (the window lays itself out in em, so a harness
+	// cannot work the slots out from window fractions).
 	m_console.Register({.name = "inventory",
 						.group = CmdGroup::Characters,
-						.params = "\n"
+						.params = "[inventory|stats|skills|spells|effects]\n"
 								  "off\n"
-								  "status",
-						.summary = "open, close or report the party inventory window"},
+								  "status\n"
+								  "slot <member> <slot>\n"
+								  "stone <tab>",
+						.summary = "open, close or report the party window"},
 					   [this](const std::vector<std::string>& args) {
+						   static constexpr const char* kTabs[] = {
+							   "inventory", "stats", "skills", "spells", "effects"};
 						   if (!args.empty() && args[0] == "status") {
 							   std::string line = std::format(
-								   "inventory: {} held={}",
+								   "inventory: {} tab {} held={} opens={}",
 								   m_ui.InventoryOpen() ? "open" : "closed",
-								   m_heldItem ? *m_heldItem : std::string("none"));
+								   kTabs[static_cast<int>(m_ui.InventoryMode())],
+								   m_heldItem ? *m_heldItem : std::string("none"),
+								   m_ui.InventoryOpens());
 							   for (size_t m = 0; m < m_characters.size(); ++m) {
 								   line += std::format(" | {}:", m);
 								   for (const ItemSlot& s :
@@ -972,6 +1107,42 @@ void Game::RegisterPartyCommands() {
 									   line += " " + (s.Empty() ? std::string("-") : s.typeId);
 							   }
 							   m_console.Print(line);
+							   // Its status line, so a script that parks the pointer on
+							   // something can read what it says.
+							   const std::string_view name = m_ui.InventoryStatusName();
+							   m_console.Print(name.empty()
+												   ? std::string("inventory bar: (empty)")
+												   : std::format("inventory bar: {} | {}", name,
+																 m_ui.InventoryStatusText()));
+							   return;
+						   }
+						   if (!args.empty() && args[0] == "slot") {
+							   if (!Need(m_console, args, 3)) return;
+							   const size_t m = static_cast<size_t>(std::atoi(args[1].c_str()));
+							   const int i = std::atoi(args[2].c_str());
+							   gfx::Rect r;
+							   if (!m_ui.InventoryOpen() || !m_ui.InventorySlotRect(m, i, r)) {
+								   m_console.Refuse("the window is closed, or no such member");
+								   return;
+							   }
+							   m_console.Print(std::format("inventory slot {} {}: {},{} {}x{}", m, i,
+														   static_cast<int>(r.x + r.w * 0.5f),
+														   static_cast<int>(r.y + r.h * 0.5f),
+														   static_cast<int>(r.w),
+														   static_cast<int>(r.h)));
+							   return;
+						   }
+						   if (!args.empty() && args[0] == "stone") {
+							   if (!Need(m_console, args, 2)) return;
+							   const gfx::Rect r = m_ui.InventoryStoneRect(
+								   static_cast<size_t>(std::atoi(args[1].c_str())));
+							   if (!m_ui.InventoryOpen() || r.w <= 0.0f) {
+								   m_console.Refuse("the window is closed, or no such stone");
+								   return;
+							   }
+							   m_console.Print(std::format("inventory stone {}: {},{}", args[1],
+														   static_cast<int>(r.x + r.w * 0.5f),
+														   static_cast<int>(r.y + r.h * 0.5f)));
 							   return;
 						   }
 						   if (!args.empty() && args[0] == "off") {
@@ -979,12 +1150,22 @@ void Game::RegisterPartyCommands() {
 							   m_console.Print("inventory closed");
 							   return;
 						   }
+						   int tab = 0;
+						   if (!args.empty()) {
+							   tab = -1;
+							   for (int t = 0; t < 5; ++t)
+								   if (args[0] == kTabs[t]) tab = t;
+							   if (tab < 0) {
+								   m_console.RefuseUsage();
+								   return;
+							   }
+						   }
 						   if (m_state != AppState::Playing) {
 							   m_console.Refuse("only over the level");
 							   return;
 						   }
-						   m_ui.OpenInventory();
-						   m_console.Print("inventory open");
+						   m_ui.OpenInventory(static_cast<CharacterSheet::Mode>(tab));
+						   m_console.Print(std::format("inventory open on {}", kTabs[tab]));
 					   });
 
 	// Open (or close) a member's spellbook in the Magic area - the selector

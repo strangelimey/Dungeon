@@ -8,6 +8,8 @@
 #include "Game/AssetUtil.h"
 #include "Game/DialogLayout.h"
 #include "UI/Controls.h"
+#include "UI/Layout.h"
+#include "UI/Skin.h"
 
 #include <algorithm>
 #include <cctype>
@@ -27,8 +29,9 @@ namespace {
 // Grown 0.48 -> 0.54 when the tags row landed. The Stack would have absorbed
 // the row into its trailing Fill without complaint, which is exactly why the
 // height is adjusted deliberately: a card that silently swallows its own slack
-// looks fine until the row after next has nowhere to go.
-constexpr gfx::Rect kPanel{0.30f, 0.24f, 0.40f, 0.54f};
+// looks fine until the row after next has nowhere to go. 0.54 -> 0.60 for the
+// UI material row, and -> 0.68 for its sample strip, for the same reason.
+constexpr gfx::Rect kPanel{0.30f, 0.16f, 0.40f, 0.68f};
 // A settings row's label column against its value column.
 constexpr float kLabelFill = 1.4f, kFieldFill = 1.0f;
 
@@ -63,13 +66,20 @@ LevelSettingsDialog::LevelSettingsDialog(gfx::GraphicsDevice& device, ui::FontLi
 }
 
 void LevelSettingsDialog::Open(const std::string& stem, float dust, float haze,
-							   float ambient, const std::string& tags) {
+							   float ambient, const std::string& tags,
+							   const std::string& uiStone,
+							   const std::string& dungeonStone) {
 	m_open = true;
 	m_stem = stem;
 	m_dust = m_oDust = dust;
 	m_haze = m_oHaze = haze;
 	m_ambient = m_oAmbient = ambient;
 	m_tags = tags;
+	m_uiStone = uiStone;
+	m_dungeonStone = dungeonStone;
+	m_stones = stoneOrder ? stoneOrder() : InstalledUiStones();
+	// The chrome wears this level's material for as long as the dialog is up.
+	if (onPreviewStone) onPreviewStone(PreviewName());
 	m_editName = false;
 	m_uiRebuild = false;
 	BuildUI();
@@ -78,6 +88,7 @@ void LevelSettingsDialog::Open(const std::string& stem, float dust, float haze,
 void LevelSettingsDialog::BuildUI() {
 	m_ui.Clear();
 	m_nameField = nullptr;
+	m_sampleBox = nullptr;
 	// The title band is the dialog's own: either the prefix + rename affordance,
 	// or the rename field standing in for it. Either way it is a WIDGET in the
 	// band the chrome reserved, so it cannot land on the rows beneath.
@@ -169,11 +180,64 @@ void LevelSettingsDialog::BuildUI() {
 			m_tags = raw->text;
 		};
 	}
+	// The UI material row: "the dungeon's" first (no override), then every
+	// installed material by its player-facing name. A stem the level names but
+	// the folder no longer holds is kept as a choice, so opening the dialog never
+	// silently changes it.
+	{
+		ui::Stack* row = chrome.body->Row<ui::Stack>(FormRow(), true);
+		row->gapRem = 0.5f;
+		row->Row<ui::Label>(ui::Len::Fill(1.0f), loc::Tr("map.level.uistone"))->centerV =
+			true;
+		if (!m_uiStone.empty() &&
+			std::find(m_stones.begin(), m_stones.end(), m_uiStone) == m_stones.end())
+			m_stones.push_back(m_uiStone);
+		// Each row shows its material's thumbnail; "the dungeon's" shows the
+		// dungeon's, so the choice reads as what it will look like.
+		std::vector<std::string> labels{loc::Tr("map.level.uistone.dungeon")};
+		std::vector<const gfx::Texture*> icons{
+			thumbFor && !m_dungeonStone.empty() ? thumbFor(m_dungeonStone) : nullptr};
+		int selected = 0;
+		for (size_t i = 0; i < m_stones.size(); ++i) {
+			labels.push_back(loc::Tr("stone." + m_stones[i]));
+			icons.push_back(thumbFor ? thumbFor(m_stones[i]) : nullptr);
+			if (m_stones[i] == m_uiStone) selected = static_cast<int>(i) + 1;
+		}
+		auto* pick = row->Row<ui::DropDown>(
+			ui::Len::Fill(1.4f), std::move(labels), selected, [this](int index) {
+				m_uiStone = index > 0 && index <= static_cast<int>(m_stones.size())
+								? m_stones[static_cast<size_t>(index - 1)]
+								: std::string();
+				if (onPreviewStone) onPreviewStone(PreviewName()); // shown at once
+			});
+		pick->icons = std::move(icons);
+		// Category buttons over the open list: all / light / dark / each kind.
+		// "The dungeon's" is a choice of who decides, so it shows under all.
+		if (stoneFilterLabels && stoneFilterBits) {
+			pick->filterLabels = stoneFilterLabels();
+			if (stoneFilterColors) pick->filterColors = stoneFilterColors();
+			pick->itemFilters.push_back(~0u);
+			for (const std::string& s : m_stones) pick->itemFilters.push_back(stoneFilterBits(s));
+		}
+		// This dialog's rows are already tall; at the default 2.2x only four of
+		// ~30 materials showed at once.
+		pick->iconRowScale = 1.5f;
+	}
+	// The sample strip: a slab of game chrome in the material being previewed
+	// (drawn in Render with the game's skin - this dialog's own look is flat),
+	// under the column the dropdown sits in.
+	{
+		ui::Stack* row = chrome.body->Row<ui::Stack>(ui::Len::Fixed(3.2f), true);
+		row->gapRem = 0.5f;
+		row->Row<ui::Box>(ui::Len::Fill(1.0f));
+		m_sampleBox = row->Row<ui::Box>(ui::Len::Fill(1.4f));
+		m_sampleBox->debugName = "MaterialSample";
+	}
 	chrome.body->Space(ui::Len::Fill()); // the rows sit at the top
 
 	chrome.footer->Space(ui::Len::Fill());
 	FooterIcon(*chrome.footer, m_device, "save", loc::Tr("map.cfg.save"), [this] {
-		if (onSave) onSave(m_dust, m_haze, m_ambient, m_tags);
+		if (onSave) onSave(m_dust, m_haze, m_ambient, m_tags, m_uiStone);
 		Close();
 	});
 	chrome.footer->Space(ui::Len::Fill());
@@ -223,7 +287,27 @@ void LevelSettingsDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th,
 	const gfx::Rect panel{kPanel.x * w, kPanel.y * h, kPanel.w * w, kPanel.h * h};
 	batch.DrawRect(panel, th.panel);
 	ui::DrawBorder(batch, panel, th.panelBorder);
+	DrawSample(batch);        // BEFORE the widgets, so an open list covers it
 	m_ui.Render(batch, w, h); // title/rename, rows, footer — all widgets
+}
+
+// A panel face holding a button face and two item slots, in the game's skin -
+// so whatever material is previewed is SEEN, inside an editor that draws its
+// own chrome flat. Its area is an empty Box row the layout placed (last
+// frame's rect, which only moves when the window does).
+void LevelSettingsDialog::DrawSample(gfx::SpriteBatch& batch) {
+	if (!sampleSkin || !m_sampleBox) return;
+	const gfx::Rect r = m_sampleBox->Pixel();
+	if (r.w <= 0.0f || r.h <= 0.0f) return;
+	ui::DrawFace(batch, r, *sampleSkin, ui::Face::Panel, {1, 1, 1, 1});
+	const float pad = r.h * 0.18f, side = r.h - 2.0f * pad;
+	const gfx::Rect button{r.x + pad, r.y + pad, std::max(0.0f, r.w - 3.0f * pad - 2.0f * side - pad), side};
+	ui::DrawFace(batch, button, *sampleSkin, ui::Face::Button, {1, 1, 1, 1});
+	for (int i = 0; i < 2; ++i)
+		ui::DrawFace(batch,
+					 {r.x + r.w - pad - side - static_cast<float>(i) * (side + pad), r.y + pad,
+					  side, side},
+					 *sampleSkin, ui::Face::Slot, {1, 1, 1, 1});
 }
 
 } // namespace dungeon::game

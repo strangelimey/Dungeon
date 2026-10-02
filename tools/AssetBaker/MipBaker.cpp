@@ -136,18 +136,26 @@ bool BakeModelImageMips(const std::string& modelsDir) {
 	return ok;
 }
 
-bool BakeAllMips(const std::string& texturesDir, const std::string& prefix) {
+bool BakeAllMips(const std::string& texturesDir, bool skipCurrent, const std::string& prefix) {
 	bool ok = true;
-	int count = 0;
+	int count = 0, fresh = 0;
 	for (const auto& entry : std::filesystem::directory_iterator(texturesDir)) {
 		if (!entry.is_regular_file() || entry.path().extension() != ".png") continue;
 		if (!entry.path().filename().string().starts_with(prefix)) continue;
 		std::filesystem::path dds = entry.path();
 		dds.replace_extension(".dds");
+		if (skipCurrent) {
+			std::error_code ec;
+			const auto ddsTime = std::filesystem::last_write_time(dds, ec);
+			if (!ec && ddsTime >= entry.last_write_time()) {
+				++fresh;
+				continue;
+			}
+		}
 		ok &= BakeMipChain(entry.path().string(), dds.string());
 		++count;
 	}
-	log::Info("Mip bake: {} textures processed", count);
+	log::Info("Mip bake: {} textures processed, {} already current", count, fresh);
 	return ok;
 }
 

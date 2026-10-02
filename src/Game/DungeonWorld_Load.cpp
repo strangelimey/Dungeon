@@ -2000,33 +2000,47 @@ void DungeonWorld::BuildFires() {
 	ReserveParticleScratch();
 }
 
-// The grid's pixels from the map's turbidity, into the buffer BuildTurbidityMap
-// sized - so a refresh in play allocates nothing - and flagged for RenderScene
-// to copy into the texture.
-void DungeonWorld::RefreshTurbidityGrid() {
+// Per-cell turbidity as a top-down density grid: one texel per dungeon cell,
+// R channel; bilinear filtering blends region borders. The scene shader
+// raymarches it (see scene.hlsl).
+void DungeonWorld::FillTurbidityPixels() {
 	const size_t w = static_cast<size_t>(m_map.Width());
-	if (m_turbidityPixels.size() != w * static_cast<size_t>(m_map.Height()) * 4) return;
-	for (int z = 0; z < m_map.Height(); ++z)
+	m_turbidityPixels.assign(w * static_cast<size_t>(m_map.Height()) * 4, 0);
+	for (int z = 0; z < m_map.Height(); ++z) {
 		for (int x = 0; x < m_map.Width(); ++x) {
 			const size_t i = (static_cast<size_t>(z) * w + x) * 4;
 			m_turbidityPixels[i + 0] = static_cast<u8>(m_map.Turbidity(x, z) * 255.0f);
 			m_turbidityPixels[i + 3] = 255;
 		}
+	}
+}
+
+void DungeonWorld::RefreshTurbidity() {
+	// The in-place path: the same pixels rewritten (assign() keeps the capacity,
+	// so a same-size map allocates nothing) and copied into the EXISTING texture
+	// by the next RenderScene. Only when the map changed SIZE - which no fixture
+	// break can do - does it fall back to building a new texture.
+	if (!m_turbidityMap ||
+		m_turbidityMap->Width() != static_cast<u32>(m_map.Width()) ||
+		m_turbidityMap->Height() != static_cast<u32>(m_map.Height())) {
+		BuildTurbidityMap();
+		return;
+	}
+	FillTurbidityPixels();
 	m_turbidityDirty = true;
 }
 
-// Per-cell turbidity as a top-down density grid: one texel per dungeon cell,
-// R channel; bilinear filtering blends region borders. The scene shader
-// raymarches it (see scene.hlsl).
 void DungeonWorld::BuildTurbidityMap() {
-	assets::ImageData grid;
+	FillTurbidityPixels();
+	// ONE mip, so RefreshTurbidity can rewrite the whole texture by its top level.
+	// The shader samples it at level 0 (SampleLevel in scene.hlsl); the box-filtered
+	// chain the ImageData constructor would build was never read.
+	assets::MipChain grid;
 	grid.width = static_cast<u32>(m_map.Width());
 	grid.height = static_cast<u32>(m_map.Height());
-	m_turbidityPixels.assign(static_cast<size_t>(grid.width) * grid.height * 4, 0);
-	RefreshTurbidityGrid();
-	m_turbidityDirty = false; // the texture is built from them below
-	grid.pixels = m_turbidityPixels;
+	grid.levels.push_back({grid.width, grid.height, m_turbidityPixels});
 	m_turbidityMap = std::make_unique<gfx::Texture>(m_device, grid);
+	m_turbidityDirty = false; // the new texture already holds these pixels
 	m_atmosphere.turbidityMap = m_turbidityMap.get();
 	m_atmosphere.worldExtent = {m_map.Width() * kCellSize,
 								m_map.Height() * kCellSize};

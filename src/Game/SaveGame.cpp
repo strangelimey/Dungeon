@@ -139,6 +139,8 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 	t += std::format("torch {}\n", data.torchPalette);
 	// The party leader (roster index); older saves lack it and load slot 0.
 	t += std::format("leader {}\n", data.leader);
+	// The party's size (party creation: 1..4). Older saves lack it: four.
+	t += std::format("roster {}\n", data.characters.size());
 
 	// Empty item ids serialize as "-" (EnTok) so slot positions are preserved.
 	// Inventory is split into its own lines (equip/pack) so the dynamic backpack
@@ -222,6 +224,22 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 		t += std::format("supply {} {:.3f} {:.3f}\n", i, c.food, c.water);
 		// "dead <i>" — the overkill flag (v18), written only when set.
 		if (c.dead) t += std::format("dead {}\n", i);
+		// "portrait <i> <id>" - the portraits.cat id. An id is one token (the
+		// catalog's ids are filenames), so it needs no escaping.
+		if (!c.portrait.empty()) t += std::format("portrait {} {}\n", i, c.portrait);
+		// Who they are (party creation). A NAME may hold spaces and a record is
+		// split on them, so a space is written as an underscore - which a name
+		// may not contain (party::NameValid) - and read back the other way.
+		if (!c.name.empty()) {
+			std::string name = c.name;
+			std::ranges::replace(name, ' ', '_');
+			t += std::format("name {} {}\n", i, name);
+		}
+		if (!c.race.empty()) t += std::format("race {} {}\n", i, c.race);
+		if (c.hasColor)
+			t += std::format("color {} {:.3f} {:.3f} {:.3f} {:.3f}\n", i, c.color[0],
+							 c.color[1], c.color[2], c.color[3]);
+		if (c.hasPace) t += std::format("pace {} {:.3f}\n", i, c.pace);
 		// "share <i> <value>" — the offense stance (v23), written only when it
 		// is off all-out. An all-out party is the overwhelming case and a line
 		// per member per save would be noise.
@@ -321,6 +339,15 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 		for (const SaveData::FireBurning& f : lvl.fires)
 			t += std::format("fire {} {} {} {} {}\n", f.x, f.z, f.wall, f.burning ? 1 : 0,
 							 f.empty ? 1 : 0);
+		// Pieces hurt but standing: hp, then what rides them, hung beneath.
+		for (const SaveData::DamagedPiece& d : lvl.damaged) {
+			t += std::format("damaged {} {} {} {} {:.3f}\n", d.x, d.z, d.type, d.wall,
+							 d.hp);
+			for (const SaveData::EffectState& fx : d.effects)
+				t += std::format("brkeffect {} {} {:.3f} {:.3f} {:.3f} {}\n",
+								 EnTok(fx.id), EnTok(fx.school), fx.time, fx.duration,
+								 fx.magnitude, fx.source);
+		}
 		if (!lvl.seen.empty()) {
 			t += "seen";
 			for (const auto& [x, z] : lvl.seen) t += std::format(" {},{}", x, z);
@@ -391,6 +418,8 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			data.torchPalette = IntOf(tok[1]);
 		} else if (kw == "leader" && tok.size() >= 2) {
 			data.leader = IntOf(tok[1]);
+		} else if (kw == "roster" && tok.size() >= 2) {
+			data.rosterSize = static_cast<size_t>(std::max(IntOf(tok[1]), 0));
 		} else if (kw == "world" && tok.size() >= 5) {
 			data.world.onWorldMap = IntOf(tok[1]) != 0;
 			data.world.x = IntOf(tok[2]);
@@ -513,6 +542,24 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 		} else if (kw == "dead" && tok.size() >= 2) {
 			// The overkill flag (v18): present = this member is DEAD.
 			CharAt(data, tok[1]).dead = true;
+		} else if (kw == "portrait" && tok.size() >= 3) {
+			// The portraits.cat id: "portrait <i> <id>". Absent = the default's.
+			CharAt(data, tok[1]).portrait = tok[2];
+		} else if (kw == "name" && tok.size() >= 3) {
+			// "name <i> <name>", spaces written as underscores (see the writer).
+			std::string name(tok[2]);
+			std::ranges::replace(name, '_', ' ');
+			CharAt(data, tok[1]).name = std::move(name);
+		} else if (kw == "race" && tok.size() >= 3) {
+			CharAt(data, tok[1]).race = tok[2];
+		} else if (kw == "color" && tok.size() >= 6) {
+			SaveData::CharState& c = CharAt(data, tok[1]);
+			c.hasColor = true;
+			for (int k = 0; k < 4; ++k) c.color[k] = FloatOf(tok[2 + k]);
+		} else if (kw == "pace" && tok.size() >= 3) {
+			SaveData::CharState& c = CharAt(data, tok[1]);
+			c.hasPace = true;
+			c.pace = FloatOf(tok[2]);
 		} else if (kw == "skill" && tok.size() >= 4) {
 			// Skill XP pairs: "skill <i> <id> <xp> ..." (v15).
 			SaveData::CharState& c = CharAt(data, tok[1]);
@@ -660,6 +707,28 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			f.burning = IntOf(tok[4]) != 0;
 			if (tok.size() >= 6) f.empty = IntOf(tok[5]) != 0; // its torch was taken
 			currentBlock().fires.push_back(f);
+		} else if (kw == "damaged" && tok.size() >= 6) {
+			// A piece hurt but standing: <x> <z> <type> <wall> <hp>.
+			SaveData::DamagedPiece d;
+			d.x = IntOf(tok[1]);
+			d.z = IntOf(tok[2]);
+			d.type = std::string(tok[3]);
+			d.wall = IntOf(tok[4]);
+			d.hp = FloatOf(tok[5]);
+			currentBlock().damaged.push_back(std::move(d));
+		} else if (kw == "brkeffect" && tok.size() >= 6) {
+			// An effect riding the piece whose "damaged" line came just above:
+			// id school time duration magnitude [source] - enteffect's shape.
+			if (!currentBlock().damaged.empty()) {
+				SaveData::EffectState fx;
+				fx.id = DeTok(tok[1]);
+				fx.school = DeTok(tok[2]);
+				fx.time = FloatOf(tok[3]);
+				fx.duration = FloatOf(tok[4]);
+				fx.magnitude = FloatOf(tok[5]);
+				if (tok.size() >= 7) fx.source = IntOf(tok[6]);
+				currentBlock().damaged.back().effects.push_back(std::move(fx));
+			}
 		} else if (kw == "seen") {
 			SaveData::LevelState& lvl = currentBlock();
 			for (size_t i = 1; i < tok.size(); ++i) {

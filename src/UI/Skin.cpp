@@ -57,6 +57,8 @@ const SkinPart& PartFor(const Skin& skin, Face face) {
 	case Face::Button: return skin.button;
 	case Face::ButtonDown: return skin.buttonDown.texture ? skin.buttonDown : skin.button;
 	case Face::Slot: return skin.slot;
+	case Face::Block: return skin.block;
+	case Face::BlockDown: return skin.blockDown.texture ? skin.blockDown : skin.block;
 	}
 	return skin.panel;
 }
@@ -68,6 +70,10 @@ float StoneTone(Face face) {
 	switch (face) {
 	case Face::Button: return 1.12f;
 	case Face::ButtonDown: return 0.95f;
+	// A block stands further proud than a button plate, and when pressed sits
+	// down in its joint, out of the light.
+	case Face::Block: return 1.16f;
+	case Face::BlockDown: return 0.90f;
 	default: return 1.0f;
 	}
 }
@@ -87,6 +93,13 @@ void DrawFace(gfx::SpriteBatch& batch, const gfx::Rect& dst, const Skin& skin, F
 		batch.DrawRect(dst, {f.x * tint.x * tone, f.y * tint.y * tone, f.z * tint.z * tone,
 							 f.w * tint.w});
 	}
+	// A busy material's grain, calmed toward its own mean (Skin::calm). Not in a
+	// slot: an item's well is dark anyway, and the grain is what reads as stone.
+	if (skin.stone && skin.calm > 0.0f && face != Face::Slot) {
+		const Vec4& m = skin.stoneMean;
+		batch.DrawRect(dst, {m.x * tint.x * tone, m.y * tint.y * tone, m.z * tint.z * tone,
+							 skin.calm * tint.w});
+	}
 	if (face == Face::Panel && skin.sheen.texture)
 		DrawNineSlice(batch, dst, skin.sheen, {1, 1, 1, tint.w});
 	// The bevel carries only light, so it takes the face's alpha, not its tint:
@@ -97,6 +110,25 @@ void DrawFace(gfx::SpriteBatch& batch, const gfx::Rect& dst, const Skin& skin, F
 float FaceInset(const Skin& skin, Face face) {
 	const SkinPart& part = PartFor(skin, face);
 	return part.texture ? part.inset * part.scale : 0.0f;
+}
+
+void DrawCutStone(gfx::SpriteBatch& batch, const gfx::Rect& dst, const Skin& skin,
+				  const gfx::Texture* etch, float depth, bool hot, const Vec4& tint) {
+	if (!skin.block.texture || dst.w <= 0.0f || dst.h <= 0.0f) return;
+	// The face flips to the pressed block for the deeper half of the motion
+	// (Button's rule), and the symbol follows the depth down by a small share
+	// of the block - the sink and the rise are both seen.
+	const float lift = hot && depth <= 0.0f ? 1.06f : 1.0f;
+	DrawFace(batch, dst, skin, depth >= 0.5f ? Face::BlockDown : Face::Block,
+			 {tint.x * lift, tint.y * lift, tint.z * lift, tint.w});
+	if (!etch) return;
+	// The symbol is authored square; on an oblong block (a sheet tab) it
+	// stays square, centred, sized by the short side.
+	const float side = std::min(dst.w, dst.h);
+	const float sink = depth * std::max(1.0f, side * 0.035f);
+	batch.DrawSprite({dst.x + (dst.w - side) * 0.5f + sink,
+					  dst.y + (dst.h - side) * 0.5f + sink, side, side},
+					 {0, 0, 1, 1}, *etch, {tint.x, tint.y, tint.z, tint.w});
 }
 
 void DrawNineSlice(gfx::SpriteBatch& batch, const gfx::Rect& dst,

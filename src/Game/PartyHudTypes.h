@@ -47,10 +47,10 @@ struct ResourceBarStyle {
 	// heartbeat at that rate instead of HeartRateTarget.
 	bool demo = false;
 	float pinnedBpm = -1.0f;
-	// The FLAT look's fills (uiskin=0, or no frame texture), and the solid fills
-	// of the two SUPPLY meters (docs/health-and-healing.md) - a placeholder until
-	// they get a look of their own. Warm bread against cold water, so a glance
-	// tells them apart without reading the labels.
+	// The FLAT look's fills (uiskin=0, or no frame texture). The framed bars
+	// draw their own procedural colours (bar.hlsl), the two SUPPLY meters
+	// included (docs/health-and-healing.md). Warm bread against cold water, so
+	// a glance tells them apart without reading the labels.
 	Vec4 health{0.62f, 0.18f, 0.14f, 1.0f};
 	Vec4 stamina{0.26f, 0.52f, 0.22f, 1.0f};
 	Vec4 mana{0.22f, 0.36f, 0.68f, 1.0f};
@@ -162,9 +162,13 @@ struct ItemCategoryBank {
 		const auto it = byType.find(typeId);
 		return it != byType.end() && it->second == category;
 	}
-	std::string CategoryOf(const std::string& typeId) const {
+	// A VIEW of the stored category (empty when unknown): it is asked on a drop
+	// into a pack, a click in a guarded frame, and a copy allocated there
+	// (more-ui-updates Phase 5: the party window's cards made the old window's
+	// unchecked drop a checked one, and AllocTest -Items found the copy).
+	std::string_view CategoryOf(const std::string& typeId) const {
 		const auto it = byType.find(typeId);
-		return it == byType.end() ? std::string() : it->second;
+		return it == byType.end() ? std::string_view() : std::string_view(it->second);
 	}
 	// Content-slot capacity for a pack id, or 0 if unknown (caller defaults).
 	int Capacity(const std::string& typeId) const {
@@ -172,7 +176,7 @@ struct ItemCategoryBank {
 		return it == capacityByType.end() ? 0 : it->second;
 	}
 	// True if pack `packId` accepts an item of `category` in its contents.
-	bool Accepts(const std::string& packId, const std::string& category) const {
+	bool Accepts(const std::string& packId, std::string_view category) const {
 		const auto it = acceptsByType.find(packId);
 		if (it == acceptsByType.end() || it->second.empty()) return true; // unrestricted
 		for (const std::string& a : it->second)
