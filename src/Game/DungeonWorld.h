@@ -659,6 +659,14 @@ public:
 	// (DungeonWorld_Ahead.cpp; Spell/Spell.h CastServices says what each does).
 	// Public so the dev console's `castsvc` can drive each one alone.
 	FireAhead FireAheadOfParty() const;
+	// Where that fire is: its square, and its wall (-1 = a brazier). False if
+	// there is none.
+	bool FireAheadCell(int& x, int& z, int& wall) const;
+	bool SetFireAhead(bool burning);
+	bool FlareFireAhead();
+	// The haze that fire's smoke effects add to its square right now (0 = none):
+	// the harness's view of a douse thinning away.
+	float FireAheadHaze() const;
 	void DropAtPartyFeet(std::string_view itemId);
 	bool ShoveAhead(int cells);
 	ProjectileSystem::Repelled RepelAhead(float power, int casterIndex);
@@ -2572,7 +2580,35 @@ private:
 		Vec3 flamePos;     // particle + light origin
 		float phase = 0;   // flicker phase
 		FireEffect effect;
+		// Which map record this is (SetFireBurning finds it by these): its square,
+		// and for a sconce the wall it hangs on (-1 for a brazier).
+		int x = 0, z = 0, wall = -1;
+		// A FLARE in progress, 1 = just fanned .. 0 = none, decaying in Update:
+		// the light swells and the flames leap while it lasts (FlareFire).
+		float flare = 0.0f;
+		// What is happening TO this fire, through the effects system like any
+		// combatant's list: the smoke it leaves when it goes out (its kind's
+		// on_douse) lands here, and the haze over its square is read off it
+		// (fx::EffectKind::Haze). Reserved at build, so a douse allocates nothing.
+		std::vector<fx::Inst> effects;
 	};
+	// Lights (and the flame + smoke of) or puts out the sconce on (x,z)/`wall`,
+	// or the brazier on (x,z) when `wall` < 0: the map record's burning state,
+	// the live fire, and the haze it feeds, together. A kind that can never
+	// burn (fixtures.cat `flame = 0`) is never lit. Going out lands the kind's
+	// on_douse effects on the fire (its smoke) - unless `smoke` is false, for a
+	// state RESTORED (a save, a broken fixture coming back dark), which went out
+	// long ago. True if anything changed.
+	bool SetFireBurning(int x, int z, int wall, bool burning, bool smoke = true);
+	// Fans a burning fire (a gust): it flares for a moment. False if there is no
+	// such fire or it is out.
+	bool FlareFire(int x, int z, int wall);
+	Fire* FindFire(int x, int z, int wall);
+	// Every live fire to its map record's burning state (after the records were
+	// set wholesale - a new game, a reset).
+	void SyncFiresFromMap();
+	// Flares dying away, dust puffs settling (DungeonWorld_Fires.cpp).
+	void UpdateFireTransients(float dt);
 
 	// --- loading ---------------------------------------------------------------
 	// The project's first level stem (the level the game opens). A static member
@@ -3431,6 +3467,18 @@ private:
 	ShadowScheduler m_shadows;
 	gfx::Atmosphere m_atmosphere; // per-cell air turbidity (dust)
 	std::unique_ptr<gfx::Texture> m_turbidityMap;
+	// The grid's pixels as last built, kept so a fire lit or doused in play can
+	// refresh the texture IN PLACE (RefreshTurbidityGrid fills them again, then
+	// RenderScene records Texture::UpdateLevel0) instead of rebuilding it - a
+	// rebuild allocates and drains the GPU, and a spell lands in a guarded frame.
+	std::vector<u8> m_turbidityPixels;
+	bool m_turbidityDirty = false;
+	void RefreshTurbidityGrid();
+	// The frame's dust puffs (gfx::Atmosphere::dustPuffs), DERIVED from the
+	// haze effects the fires carry (a doused fire's smoke) - the strongest
+	// kMaxDustPuffs of them - never stored, so they cannot drift from the
+	// effect lists that are the truth.
+	void GatherDustPuffs(gfx::Atmosphere& atmo) const;
 	// See-through peek (the Sight spell): recomputed each UpdateLights from the
 	// active Sight effects. m_sightCell xy/zw = the ghosted wall cell's world
 	// box (inactive when zw <= xy); m_sightTint rgb/a = the school ghost tint.
@@ -3869,6 +3917,10 @@ private:
 		float hp = 0.0f;
 		float soak = 0.0f;
 		ResistTable resists;
+		// What the fire takes on when it goes out, by any cause (fixtures.cat
+		// `on_douse`, the on_hit form): `smoke <power> <seconds>` is the haze its
+		// smoke leaves hanging over the square (SetFireBurning).
+		std::vector<fx::Proc> onDouse;
 	};
 
 	std::flat_map<std::string, std::unique_ptr<FixtureKind>> m_fixtureKinds;

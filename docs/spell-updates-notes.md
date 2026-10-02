@@ -67,6 +67,15 @@ Context: started from the list of current spells - 16, four schools, each a
     had left over, P - S, capped at S - a strong breeze returns it hard, a bare
     match returns it weakly.
 
+11. DOUSED-FIRE HAZE (during Phase 3): "when a torch/brazier goes out, it
+    increases the square's turbidity through the existing effects system: it
+    creates increased turbidity of x power and diminishes over y seconds."
+    BUILT: a `smoke` effect class (effects.cat `haze = 1`) lands on the FIRE's
+    own effect list when it goes out, by any cause, from its kind's
+    `on_douse = smoke <x> <y>` (fixtures.cat: sconce 0.6 / 2.5 s, brazier
+    1.0 / 4 s); the square's extra haze is read off it each frame as
+    x * time-left / y.
+
 ## Organized (2026-10-01)
 
 The dump reshapes the spell ladder into three tiers with one meaning each:

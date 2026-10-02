@@ -108,6 +108,9 @@ public:
 
 	// Call when the device frame index advances (resets that frame's allocator).
 	void NewFrame(u32 frameIndex);
+	// This frame's upload arena, for a caller recording its own copy into a
+	// texture (Texture::UpdateLevel0). Valid until the next NewFrame.
+	UploadAllocator& FrameUpload() { return *m_frameAllocators[m_frameIndex]; }
 
 private:
 	void CreateShadowResources();

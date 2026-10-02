@@ -424,7 +424,7 @@ void Game::RegisterPartyCommands() {
 	// hand spell's outcome can be pinned on the spell or on the world.
 	m_console.Register({.name = "castsvc",
 						.group = CmdGroup::Combat,
-						.params = "fire\ndrop <item>\nshove [cells]\nrepel <power> [member]\nblast <spell>",
+						.params = "fire\nlight\ndouse\nflare\ndrop <item>\nshove [cells]\nrepel <power> [member]\nblast <spell>",
 						.summary = "drive one cast service directly (the world ahead of the party)"},
 					   [this](const std::vector<std::string>& args) {
 						   if (!Need(m_console, args, 1)) return;
@@ -434,8 +434,15 @@ void Game::RegisterPartyCommands() {
 							   const char* kind = f.kind == FireAhead::Kind::WallTorch ? "walltorch"
 												: f.kind == FireAhead::Kind::Brazier ? "brazier"
 																					   : "none";
-							   m_console.Print(std::format("castsvc fire: kind={} lit={} canburn={}", kind,
-														   f.lit ? 1 : 0, f.canBurn ? 1 : 0));
+							   m_console.Print(std::format("castsvc fire: kind={} lit={} canburn={} haze={:.2f}",
+														   kind, f.lit ? 1 : 0, f.canBurn ? 1 : 0,
+														   m_world->FireAheadHaze()));
+						   } else if (what == "light" || what == "douse") {
+							   m_console.Print(std::format("castsvc {}: changed={}", what,
+														   m_world->SetFireAhead(what == "light") ? 1 : 0));
+						   } else if (what == "flare") {
+							   m_console.Print(std::format("castsvc flare: flared={}",
+														   m_world->FlareFireAhead() ? 1 : 0));
 						   } else if (what == "drop" && args.size() >= 2) {
 							   m_world->DropAtPartyFeet(args[1]);
 							   m_console.Print(std::format("castsvc drop: {} at the party's feet", args[1]));

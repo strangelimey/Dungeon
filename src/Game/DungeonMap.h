@@ -112,6 +112,12 @@ inline constexpr float kFixtureMinBrightness = 0.25f;
 // is how much haze it adds to its cell and neighbours. `type` is the
 // fixtures.cat id this instance renders as (the parser fills the default for
 // glyph shorthand, so it is never empty).
+//
+// `lit` is the AUTHORED state - what the .map says and the editor sets. Whether
+// it burns NOW is Burning(): a spell or a blow can light or douse it in play,
+// and that is recorded as `flipped` (burning is the opposite of authored), so
+// the record the level writer saves never learns of it and the save keeps it
+// as a diff, like a niche's `open` against its `hidden`.
 struct WallSconce {
 	int x = 0, z = 0;
 	Direction wall = Direction::North;
@@ -119,6 +125,8 @@ struct WallSconce {
 	float brightness = kSconceBrightness;
 	float turbidity = kSconceTurbidity;
 	std::string type = "sconce";
+	bool flipped = false; // runtime: burning differs from `lit` (see above)
+	bool Burning() const { return lit != flipped; }
 };
 
 // Per-brazier defaults (bigger reach + more smoke than a sconce), same "don't
@@ -127,13 +135,16 @@ inline constexpr float kBrazierBrightness = 6.0f; // light reach, in cells
 inline constexpr float kBrazierTurbidity = 0.38f;
 
 // A floor-standing brazier: its cell plus the same light/smoke knobs a sconce
-// has (no wall — it stands at the cell centre). `type` as on WallSconce.
+// has (no wall — it stands at the cell centre). `type`, `lit` and Burning() as
+// on WallSconce.
 struct FloorBrazier {
 	int x = 0, z = 0;
 	bool lit = true;
 	float brightness = kBrazierBrightness;
 	float turbidity = kBrazierTurbidity;
 	std::string type = "brazier";
+	bool flipped = false;
+	bool Burning() const { return lit != flipped; }
 };
 
 // A wall NICHE: a recessed pocket carved into one solid wall of a walkable cell
@@ -365,6 +376,13 @@ public:
 	bool SetSconceProps(int x, int z, Direction wall, bool lit, float brightness,
 						float turbidity);
 	bool SetBrazierProps(int x, int z, bool lit, float brightness, float turbidity);
+	// Whether the sconce on (x,z)/`wall`, or the brazier on (x,z) (`wall` < 0),
+	// burns NOW (WallSconce::Burning) - lit or put out in play, the authored
+	// `lit` untouched. Recomputes the turbidity grid and bumps Revision() when it
+	// changed; false if there is no such fixture or it already was.
+	bool SetFixtureBurning(int x, int z, int wall, bool burning);
+	// Every fixture back to its authored state (a new game). True if any changed.
+	bool ResetFixtureBurning();
 	// The brazier standing on (x,z), or null. At most one per cell (AddBrazier
 	// rejects duplicates).
 	const FloorBrazier* BrazierAt(int x, int z) const;

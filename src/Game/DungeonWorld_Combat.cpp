@@ -2355,18 +2355,16 @@ void DungeonWorld::SeedFixtureBreakables() {
 
 void DungeonWorld::DouseFixture(const FixtureBreak& fb) {
 	// Breaking a light source means THE LIGHT GOES OUT, which is the whole point of
-	// being able to break one — `lit` gates its point light, its flame particles and
-	// its smoke together, so one flag does all three. The mesh stays: a wrecked
-	// sconce is still bolted to the wall, just dark.
-	if (fb.wall >= 0)
-		m_map.SetSconceProps(fb.x, fb.z, static_cast<Direction>(fb.wall),
-							 /*lit=*/false, kSconceBrightness, kSconceTurbidity);
-	else
-		m_map.SetBrazierProps(fb.x, fb.z, /*lit=*/false, kBrazierBrightness,
-							  kBrazierTurbidity);
-	// The haze it was feeding has to go with it, or a doused brazier leaves its own
-	// god rays hanging in the air.
-	BuildTurbidityMap();
+	// being able to break one. SetFireBurning puts out the live fire (its light,
+	// flame and smoke) AND the haze it was feeding, or a doused brazier would leave
+	// its own god rays hanging in the air. The mesh stays: a wrecked sconce is
+	// still bolted to the wall, just dark.
+	//
+	// This used to write `lit = false` into the map RECORD and rebuild the haze -
+	// and nothing else, so the smashed fixture's live fire kept its light and
+	// flame until the next level load, and the edit leaked into `savemap` as an
+	// authored change. Burning() is runtime state now; the record is left alone.
+	SetFireBurning(fb.x, fb.z, fb.wall, false);
 }
 
 void DungeonWorld::SeedBreakable(Breakable& brk, const DecorationKind& kind) {

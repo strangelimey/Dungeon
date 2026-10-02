@@ -19,6 +19,9 @@ flame_out = 0.064
 destructible = 1
 hp = 6
 resists = fire 1.0, bash -0.4
+; Put out (a splash, a smashed bracket): its smoke hangs over the square
+; for a moment - power, then seconds it thins away over (effects.cat smoke).
+on_douse = smoke 0.6 2.5
 
 [brazier]
 display = Brazier
@@ -36,6 +39,8 @@ destructible = 1
 hp = 30
 armor = 4
 resists = fire 1.0, slash 0.6, bash -0.2
+; A bowl of coals smokes harder and longer than a torch when put out.
+on_douse = smoke 1.0 4
 
 [brazier_empty]
 display = Empty Brazier

@@ -231,12 +231,23 @@ struct SaveData {
 		int wall = -1;
 	};
 
+	// A wall torch or brazier lit or put out in play: burning is the opposite
+	// of its authored `lit` (DungeonMap WallSconce::Burning). Keyed by cell +
+	// wall like a niche (-1 = a brazier). Absent from older saves, which simply
+	// means every fire is as authored.
+	struct FireBurning {
+		int x = 0, z = 0;
+		int wall = -1;
+		bool burning = true;
+	};
+
 	struct LevelState {
 		std::string stem;
 		std::vector<std::pair<int, int>> seen;
 		std::vector<EntityState> entities; // all kinds, diffs + spawns
 		std::vector<NicheOpen> niches;     // reveal-state diffs
 		std::vector<BrokenProp> broken;    // smashed props
+		std::vector<FireBurning> fires;    // lit/doused diffs
 	};
 	// One entry per VISITED level, keyed by STEM.
 	//

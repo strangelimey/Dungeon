@@ -1776,6 +1776,9 @@ DungeonWorld::FixtureKind& DungeonWorld::FixtureKindFor(const std::string& type)
 			ParseResists(CatalogGet(def, "resists", ""), kind->resists,
 						 "fixtures.cat [" + type + "]", m_damageTypes);
 		}
+		// What going out leaves on the fire (`on_douse = smoke 0.8 2.5`).
+		fx::ParseProcs(CatalogGet(def, "on_douse", ""), kind->onDouse,
+					   "fixtures.cat [" + type + "] on_douse");
 		kind->model = ModelFile(model + ".gltf");
 		kind->mesh = ModelMesh(model + ".gltf");
 		kind->color = kind->model->materials[0].baseColorFactor;
@@ -1927,7 +1930,10 @@ void DungeonWorld::BuildFires() {
 		Fire fire;
 		fire.kind = &kind;
 		fire.brazier = false;
-		fire.lit = sconce.lit && !kind.flameless;
+		fire.lit = sconce.Burning() && !kind.flameless;
+		fire.x = sconce.x;
+		fire.z = sconce.z;
+		fire.wall = static_cast<int>(sconce.wall);
 		fire.lightRadius = sconce.brightness * kCellSize; // "squares" -> metres
 		const float fs = kind.modelScale; // fixtures.cat `scale`
 		XMStoreFloat4x4(&fire.world, UnitScale(fs) * XMMatrixRotationY(yaw) *
@@ -1940,6 +1946,7 @@ void DungeonWorld::BuildFires() {
 						 m.pos.z + std::cos(yaw) * kind.flame.out * kUnit * fs};
 		fire.phase = static_cast<float>(seed) * 1.7f;
 		fire.effect = FireEffect(fire.flamePos, kind.flame.scale * fs, seed++);
+		fx::ReserveEffects(fire.effects); // a douse lands its smoke here mid-play
 		m_fires.push_back(std::move(fire));
 	}
 
@@ -1949,7 +1956,9 @@ void DungeonWorld::BuildFires() {
 		Fire fire;
 		fire.kind = &kind;
 		fire.brazier = true;
-		fire.lit = b.lit && !kind.flameless;
+		fire.lit = b.Burning() && !kind.flameless;
+		fire.x = b.x;
+		fire.z = b.z;
 		fire.lightRadius = b.brightness * kCellSize; // "squares" -> metres
 		const float fs = kind.modelScale; // fixtures.cat `scale`
 		XMStoreFloat4x4(&fire.world,
@@ -1957,6 +1966,7 @@ void DungeonWorld::BuildFires() {
 		fire.flamePos = {center.x, kind.flame.height * kUnit * fs, center.z};
 		fire.phase = static_cast<float>(seed) * 1.7f;
 		fire.effect = FireEffect(fire.flamePos, kind.flame.scale * fs, seed++);
+		fx::ReserveEffects(fire.effects);
 		m_fires.push_back(std::move(fire));
 	}
 	log::Info("Lit {} fires ({} sconces, {} braziers, {} kinds)", m_fires.size(),
@@ -1968,6 +1978,21 @@ void DungeonWorld::BuildFires() {
 	ReserveParticleScratch();
 }
 
+// The grid's pixels from the map's turbidity, into the buffer BuildTurbidityMap
+// sized - so a refresh in play allocates nothing - and flagged for RenderScene
+// to copy into the texture.
+void DungeonWorld::RefreshTurbidityGrid() {
+	const size_t w = static_cast<size_t>(m_map.Width());
+	if (m_turbidityPixels.size() != w * static_cast<size_t>(m_map.Height()) * 4) return;
+	for (int z = 0; z < m_map.Height(); ++z)
+		for (int x = 0; x < m_map.Width(); ++x) {
+			const size_t i = (static_cast<size_t>(z) * w + x) * 4;
+			m_turbidityPixels[i + 0] = static_cast<u8>(m_map.Turbidity(x, z) * 255.0f);
+			m_turbidityPixels[i + 3] = 255;
+		}
+	m_turbidityDirty = true;
+}
+
 // Per-cell turbidity as a top-down density grid: one texel per dungeon cell,
 // R channel; bilinear filtering blends region borders. The scene shader
 // raymarches it (see scene.hlsl).
@@ -1975,14 +2000,10 @@ void DungeonWorld::BuildTurbidityMap() {
 	assets::ImageData grid;
 	grid.width = static_cast<u32>(m_map.Width());
 	grid.height = static_cast<u32>(m_map.Height());
-	grid.pixels.resize(static_cast<size_t>(grid.width) * grid.height * 4);
-	for (int z = 0; z < m_map.Height(); ++z) {
-		for (int x = 0; x < m_map.Width(); ++x) {
-			const size_t i = (static_cast<size_t>(z) * grid.width + x) * 4;
-			grid.pixels[i + 0] = static_cast<u8>(m_map.Turbidity(x, z) * 255.0f);
-			grid.pixels[i + 3] = 255;
-		}
-	}
+	m_turbidityPixels.assign(static_cast<size_t>(grid.width) * grid.height * 4, 0);
+	RefreshTurbidityGrid();
+	m_turbidityDirty = false; // the texture is built from them below
+	grid.pixels = m_turbidityPixels;
 	m_turbidityMap = std::make_unique<gfx::Texture>(m_device, grid);
 	m_atmosphere.turbidityMap = m_turbidityMap.get();
 	m_atmosphere.worldExtent = {m_map.Width() * kCellSize,

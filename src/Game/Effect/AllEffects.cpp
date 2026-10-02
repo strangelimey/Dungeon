@@ -10,6 +10,7 @@
 
 #include "Game/Effect/DotEffect.h"
 #include "Game/Effect/SightEffect.h"
+#include "Game/Effect/SmokeEffect.h"
 #include "Game/Effect/SupplyEffect.h"
 #include "Game/Effect/WardEffect.h"
 
@@ -34,6 +35,8 @@ std::vector<std::unique_ptr<EffectKind>> MakeAllEffects() {
 	all.push_back(std::make_unique<ParchedEffect>());
 	// The see-through mark (all four Sight spells).
 	all.push_back(std::make_unique<SightEffect>());
+	// A doused fire's smoke, borne by the fire itself (haze).
+	all.push_back(std::make_unique<SmokeEffect>());
 	return all;
 }
 

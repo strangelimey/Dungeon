@@ -222,6 +222,8 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		 },
 		 // The world in front of the party (DungeonWorld_Ahead.cpp).
 		 [this] { return FireAheadOfParty(); },
+		 [this](bool burning) { return SetFireAhead(burning); },
+		 [this] { return FlareFireAhead(); },
 		 [this](std::string_view itemId) { DropAtPartyFeet(itemId); },
 		 [this](int cells) { return ShoveAhead(cells); },
 		 [this](float power, int casterIndex) { return RepelAhead(power, casterIndex); },
@@ -465,6 +467,7 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 	m_projectiles.Update(dt); // fly bolts, resolve impacts/fizzles via the hooks
 	UpdateBlasts(dt);         // advance live blasts a tick at their own speed
 	CheckDamageLedger("projectiles and blasts");
+	UpdateFireTransients(dt); // flares dying away, dust puffs settling
 	UpdateLights(time);
 	UpdateCamera();
 
@@ -738,6 +741,9 @@ void DungeonWorld::UpdateLights(float time) {
 		const float base = fire.brazier ? 2.3f : 1.8f;
 		light.intensity = base * (0.9f + 0.1f * std::sin(time * 11.0f + fire.phase) *
 											 std::sin(time * 7.3f + fire.phase));
+		// A fanned fire (FlareFire) swells for a moment, brighter and further.
+		light.intensity *= 1.0f + 1.5f * fire.flare;
+		light.radius *= 1.0f + 0.25f * fire.flare;
 		light.flickerShadow = true; // wandering origin → throttle its shadow cube
 		light.longShadowFade = fire.brazier; // braziers fade over their long reach;
 											 // sconces keep near-field shadows crisp

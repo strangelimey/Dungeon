@@ -10,26 +10,66 @@
 
 #include "Game/Spell/Spell.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace dungeon::game {
 
-FireAhead DungeonWorld::FireAheadOfParty() const {
+bool DungeonWorld::FireAheadCell(int& x, int& z, int& wall) const {
 	const int px = m_party.GridX(), pz = m_party.GridZ();
 	const Direction facing = static_cast<Direction>(m_party.Facing());
+	// A wall torch hangs on a wall OF the party's own square: the one it faces.
+	for (const WallSconce& s : m_map.Sconces())
+		if (s.x == px && s.z == pz && s.wall == facing) {
+			x = s.x, z = s.z, wall = static_cast<int>(s.wall);
+			return true;
+		}
+	// A brazier blocks its square, so the nearest one can be is the next.
+	if (const FloorBrazier* b = m_map.BrazierAt(px + DirDX(facing), pz + DirDZ(facing))) {
+		x = b->x, z = b->z, wall = -1;
+		return true;
+	}
+	return false;
+}
+
+FireAhead DungeonWorld::FireAheadOfParty() const {
+	int x = 0, z = 0, wall = -1;
+	if (!FireAheadCell(x, z, wall)) return {};
 	const auto canBurn = [this](const std::string& type) {
 		const auto it = m_fixtureKinds.find(type);
 		return it == m_fixtureKinds.end() || !it->second->flameless;
 	};
-	// A wall torch hangs on a wall OF the party's own square: the one it faces.
-	for (const WallSconce& s : m_map.Sconces())
-		if (s.x == px && s.z == pz && s.wall == facing)
-			return {FireAhead::Kind::WallTorch, s.lit, canBurn(s.type)};
-	// A brazier blocks its square, so the nearest one can be is the next.
-	if (const FloorBrazier* b =
-			m_map.BrazierAt(px + DirDX(facing), pz + DirDZ(facing)))
-		return {FireAhead::Kind::Brazier, b->lit, canBurn(b->type)};
-	return {};
+	if (wall >= 0) {
+		for (const WallSconce& s : m_map.Sconces())
+			if (s.x == x && s.z == z && static_cast<int>(s.wall) == wall)
+				return {FireAhead::Kind::WallTorch, s.Burning(), canBurn(s.type)};
+		return {};
+	}
+	const FloorBrazier* b = m_map.BrazierAt(x, z);
+	return {FireAhead::Kind::Brazier, b->Burning(), canBurn(b->type)};
+}
+
+bool DungeonWorld::SetFireAhead(bool burning) {
+	int x = 0, z = 0, wall = -1;
+	return FireAheadCell(x, z, wall) && SetFireBurning(x, z, wall, burning);
+}
+
+bool DungeonWorld::FlareFireAhead() {
+	int x = 0, z = 0, wall = -1;
+	return FireAheadCell(x, z, wall) && FlareFire(x, z, wall);
+}
+
+float DungeonWorld::FireAheadHaze() const {
+	int x = 0, z = 0, wall = -1;
+	if (!FireAheadCell(x, z, wall)) return 0.0f;
+	float haze = 0.0f;
+	for (const Fire& f : m_fires) {
+		if (f.x != x || f.z != z || f.wall != wall) continue;
+		for (const fx::Inst& e : f.effects)
+			if (e.kind && e.kind->Haze() && e.duration > 0.0f)
+				haze += e.magnitude * std::clamp(e.timeLeft / e.duration, 0.0f, 1.0f);
+	}
+	return haze;
 }
 
 void DungeonWorld::DropAtPartyFeet(std::string_view itemId) {

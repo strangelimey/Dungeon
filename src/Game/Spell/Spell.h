@@ -76,6 +76,11 @@ struct CastServices {
 	// --- the world in front of the party (the hand spells) --------------------
 	// The fire the party faces (FireAhead above).
 	std::function<FireAhead()> fireAhead;
+	// Lights it (true) or puts it out (false): its light, flame and haze, and -
+	// going out - the smoke it leaves. True if it changed.
+	std::function<bool(bool burning)> setFireAhead;
+	// Fans it: a burning fire flares up for a moment. True if one did.
+	std::function<bool()> flareAhead;
 	// Lands `itemId` on the floor of the party's square - where a conjured item
 	// goes when both of the caster's hands are full.
 	std::function<void(std::string_view itemId)> dropAtFeet;

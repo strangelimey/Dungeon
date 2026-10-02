@@ -313,6 +313,9 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 		// v24: props smashed on this level, by cell + type (see BrokenProp).
 		for (const SaveData::BrokenProp& b : lvl.broken)
 			t += std::format("broken {} {} {} {}\n", b.x, b.z, b.type, b.wall);
+		// Fires lit or put out in play (burning != authored lit).
+		for (const SaveData::FireBurning& f : lvl.fires)
+			t += std::format("fire {} {} {} {}\n", f.x, f.z, f.wall, f.burning ? 1 : 0);
 		if (!lvl.seen.empty()) {
 			t += "seen";
 			for (const auto& [x, z] : lvl.seen) t += std::format(" {},{}", x, z);
@@ -642,6 +645,14 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			// it, or anything with no wall, reads as -1.
 			if (tok.size() >= 5) b.wall = IntOf(tok[4]);
 			currentBlock().broken.push_back(b);
+		} else if (kw == "fire" && tok.size() >= 5) {
+			// A fire lit or put out in play: <x> <z> <wall (-1 brazier)> <burning>.
+			SaveData::FireBurning f;
+			f.x = IntOf(tok[1]);
+			f.z = IntOf(tok[2]);
+			f.wall = IntOf(tok[3]);
+			f.burning = IntOf(tok[4]) != 0;
+			currentBlock().fires.push_back(f);
 		} else if (kw == "seen") {
 			SaveData::LevelState& lvl = currentBlock();
 			for (size_t i = 1; i < tok.size(); ++i) {
