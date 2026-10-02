@@ -315,7 +315,8 @@ void Button::UpdateSelf(UIContext& ctx) {
 	if (m_push == Push::Sinking && since(m_pressAt) >= kSinkSeconds + kHoldSeconds) {
 		m_push = Push::Rising;
 		m_riseAt = now;
-		if (enabled && onClick) onClick();
+		if (enabled && onClick && !m_fired) onClick();
+		m_fired = false;
 	} else if (m_push == Push::Rising && since(m_riseAt) >= kRiseSeconds) {
 		m_push = Push::None;
 	}
@@ -325,10 +326,15 @@ void Button::UpdateSelf(UIContext& ctx) {
 		if (enabled && input->WasMousePressed(MouseButton::Left)) {
 			// A click hard on the heels of the last one: that one's action runs
 			// NOW, so a quick double click is still two actions, in order.
-			if (m_push == Push::Sinking && onClick) onClick();
+			if (m_push == Push::Sinking && onClick && !m_fired) onClick();
 			m_push = Push::None;
 			m_held = true;
 			m_pressAt = now;
+			m_fired = false;
+			if (fireOnPress) { // acts now; the push plays on regardless
+				m_fired = true;
+				if (onClick) onClick();
+			}
 		}
 		ctx.ConsumeMouse();
 	}
@@ -339,8 +345,9 @@ void Button::UpdateSelf(UIContext& ctx) {
 	if (m_held && input->WasMouseReleased(MouseButton::Left)) {
 		m_held = false;
 		// Released ON the button: the push completes (fires once the face has
-		// reached the bottom). Released off it: a cancelled press just rises.
-		if (m_hot) {
+		// reached the bottom). Released off it: a cancelled press just rises -
+		// unless it already acted on the press, which is not taken back.
+		if (m_hot || m_fired) {
 			m_push = Push::Sinking;
 		} else {
 			m_push = Push::Rising;
@@ -350,6 +357,13 @@ void Button::UpdateSelf(UIContext& ctx) {
 																		  kSinkSeconds))));
 		}
 	}
+}
+
+void Button::PressVisual() {
+	if (m_held) return;
+	m_push = Push::Sinking;
+	m_pressAt = Clock::now();
+	m_fired = true; // nothing to fire at the bottom: the key already acted
 }
 
 float Button::Depth() const {
@@ -364,6 +378,14 @@ float Button::Depth() const {
 
 void Button::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const gfx::Rect& px = Pixel();
+	if (const Skin* skin = ctx.GetSkin(); etch && skin && skin->block.texture) {
+		// A cut-stone block: an active one (a current tab) is held down AND
+		// shows its gold lit; disabled dims the stone, edges kept.
+		const float dim = enabled ? 1.0f : 0.45f;
+		DrawCutStone(batch, px, *skin, active && etchLit ? etchLit : etch,
+					 active ? 1.0f : Depth(), m_hot && enabled, {dim, dim, dim, 1.0f});
+		return;
+	}
 	if (icon) {
 		// Icon-only: the round face IS the button (it carries its own chrome
 		// and alpha) — no button face behind it. Rotated in quarter turns
@@ -418,7 +440,7 @@ gfx::Rect Button::InkRect() const {
 	// Mirrors DrawButtonFace: the face fills the bounds, the label is centred on
 	// them at its measured size. An icon face is drawn inside the bounds.
 	const gfx::Rect& px = Pixel();
-	if (icon || faceIcon || text.empty()) return px;
+	if (icon || faceIcon || etch || text.empty()) return px;
 	const Font& font = TextFont();
 	const float w = font.MeasureWidth(text);
 	const float h = font.Height();

@@ -32,12 +32,15 @@ N = 64       # texture size (texels)
 CORNER = 16  # 9-slice corner (texels); the runtime's SkinPart.corner must match
 
 
-def frame(outline, band, light, shadow, centre=0.0, sunken=False, groove=0.0):
+def frame(outline, band, light, shadow, centre=0.0, sunken=False, groove=0.0,
+          light_exp=1.5, shadow_exp=1.2):
     """One bevel overlay. outline: dark rim width (texels); band: bevel width;
     light / shadow: peak alpha of the highlight / shadow at the rim, fading to 0
     across the band; centre: black alpha over the middle (a sunken well);
     sunken swaps which sides catch the light; groove: alpha of a thin dark line
-    where the bevel meets the flat."""
+    where the bevel meets the flat. light_exp / shadow_exp shape that fade: the
+    defaults round the edge off, a small exponent holds the band nearly flat -
+    a CHAMFER, the cut face of a block (frame_block)."""
     rgba = np.zeros((N, N, 4), np.float32)
     yy, xx = np.mgrid[0:N, 0:N].astype(np.float32) + 0.5
     # Distance to each edge; the NEAREST edge decides which way a texel faces,
@@ -55,8 +58,8 @@ def frame(outline, band, light, shadow, centre=0.0, sunken=False, groove=0.0):
 
     t = np.clip(1.0 - (d - outline) / band, 0.0, 1.0)  # 1 at the rim, 0 inside
     in_band = (d > outline) & (d <= outline + band)
-    a_light = light * t ** 1.5
-    a_shadow = shadow * t ** 1.2
+    a_light = light * t ** light_exp
+    a_shadow = shadow * t ** shadow_exp
     # White light over the well blends toward white; black shadow deepens it.
     for mask, colour, alpha in ((in_band & lit, 1.0, a_light), (in_band & ~lit, 0.0, a_shadow)):
         under = rgba[..., 3]
@@ -97,6 +100,16 @@ PARTS = {
     "frame_slot": lambda: frame(outline=2, band=6, light=0.16, shadow=0.70,
                                 centre=0.72, sunken=True),
     "sheen_panel": sheen,
+    # A CUT-STONE block (more-ui-updates: the movement stones, the sheet tabs,
+    # the menu entries): a wide, nearly flat chamfer - the cut face - lit hard
+    # on the top and left, in shadow on the bottom and right, inside a dark
+    # joint. Pressed, the block sits down into its joint: the chamfer flattens
+    # and the joint's top-left edge throws its shadow over it.
+    "frame_block": lambda: frame(outline=2, band=11, light=0.40, shadow=0.66,
+                                 light_exp=0.35, shadow_exp=0.35),
+    "frame_block_down": lambda: frame(outline=2, band=8, light=0.14, shadow=0.52,
+                                      centre=0.10, sunken=True,
+                                      light_exp=0.5, shadow_exp=0.5),
 }
 
 

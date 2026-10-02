@@ -57,6 +57,8 @@ const SkinPart& PartFor(const Skin& skin, Face face) {
 	case Face::Button: return skin.button;
 	case Face::ButtonDown: return skin.buttonDown.texture ? skin.buttonDown : skin.button;
 	case Face::Slot: return skin.slot;
+	case Face::Block: return skin.block;
+	case Face::BlockDown: return skin.blockDown.texture ? skin.blockDown : skin.block;
 	}
 	return skin.panel;
 }
@@ -68,6 +70,10 @@ float StoneTone(Face face) {
 	switch (face) {
 	case Face::Button: return 1.12f;
 	case Face::ButtonDown: return 0.95f;
+	// A block stands further proud than a button plate, and when pressed sits
+	// down in its joint, out of the light.
+	case Face::Block: return 1.16f;
+	case Face::BlockDown: return 0.90f;
 	default: return 1.0f;
 	}
 }
@@ -97,6 +103,21 @@ void DrawFace(gfx::SpriteBatch& batch, const gfx::Rect& dst, const Skin& skin, F
 float FaceInset(const Skin& skin, Face face) {
 	const SkinPart& part = PartFor(skin, face);
 	return part.texture ? part.inset * part.scale : 0.0f;
+}
+
+void DrawCutStone(gfx::SpriteBatch& batch, const gfx::Rect& dst, const Skin& skin,
+				  const gfx::Texture* etch, float depth, bool hot, const Vec4& tint) {
+	if (!skin.block.texture || dst.w <= 0.0f || dst.h <= 0.0f) return;
+	// The face flips to the pressed block for the deeper half of the motion
+	// (Button's rule), and the symbol follows the depth down by a small share
+	// of the block - the sink and the rise are both seen.
+	const float lift = hot && depth <= 0.0f ? 1.06f : 1.0f;
+	DrawFace(batch, dst, skin, depth >= 0.5f ? Face::BlockDown : Face::Block,
+			 {tint.x * lift, tint.y * lift, tint.z * lift, tint.w});
+	if (!etch) return;
+	const float sink = depth * std::max(1.0f, dst.h * 0.035f);
+	batch.DrawSprite({dst.x + sink, dst.y + sink, dst.w, dst.h}, {0, 0, 1, 1}, *etch,
+					 {tint.x, tint.y, tint.z, tint.w});
 }
 
 void DrawNineSlice(gfx::SpriteBatch& batch, const gfx::Rect& dst,

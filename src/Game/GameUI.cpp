@@ -31,6 +31,12 @@ std::string WorldTitle(const std::string& folder) {
 	return title.empty() ? folder : title;
 }
 
+// The movement stones' etched symbols (assets/ui/etch_move_<name>.png), in the
+// MovementPad's order: turn left, forward, turn right / strafe left, back,
+// strafe right.
+constexpr const char* kMoveEtches[] = {"turn_left",   "forward", "turn_right",
+									   "strafe_left", "back",	 "strafe_right"};
+
 // Font pixel heights at the 900px-tall design window (the layouts in
 // BuildMenu/BuildHud are authored against the same design size). UpdateFonts
 // rescales them against the live window height so text tracks the UI.
@@ -165,6 +171,9 @@ void GameUI::LoadTitleArt() {
 	m_frameButtonDownTex = TryLoadTextureFile(m_device, paths::Asset("ui\\frame_button_down"));
 	m_frameSlotTex = TryLoadTextureFile(m_device, paths::Asset("ui\\frame_slot"));
 	m_sheenTex = TryLoadTextureFile(m_device, paths::Asset("ui\\sheen_panel"));
+	// The cut-stone block's chamfer, up and pressed (same script).
+	m_frameBlockTex = TryLoadTextureFile(m_device, paths::Asset("ui\\frame_block"));
+	m_frameBlockDownTex = TryLoadTextureFile(m_device, paths::Asset("ui\\frame_block_down"));
 	// The resource bars' iron frame (tools/CutBarFrame.py). Optional too:
 	// without it the bars draw flat.
 	m_barFrameTex = TryLoadTextureFile(m_device, paths::Asset("ui\\bar_frame"));
@@ -183,6 +192,14 @@ void GameUI::LoadTitleArt() {
 	// quarter turns per direction by ui::Button::iconTurns.
 	m_chevronTex = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_chevron"));
 	m_chevron2Tex = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_chevron2"));
+	// ...and their CUT-STONE symbols (tools/BuildEtchGlyphs.py), one per
+	// direction plus a lit twin, in the pad's order. The chevrons above stay
+	// the fallback for the flat debug look.
+	for (size_t i = 0; i < std::size(kMoveEtches); ++i) {
+		const std::string stem = std::string("ui\\etch_move_") + kMoveEtches[i];
+		m_moveEtch[i] = TryLoadTextureFile(m_device, paths::Asset(stem));
+		m_moveEtchLit[i] = TryLoadTextureFile(m_device, paths::Asset(stem + "_lit"));
+	}
 	// The soft glow behind a SET hand box (tools/BuildGlow.py). Optional: without
 	// it a set hand shows the flat tint alone.
 	m_glowTex = TryLoadTextureFile(m_device, paths::Asset("ui\\glow_radial"));
@@ -198,6 +215,9 @@ void GameUI::LoadTitleArt() {
 	m_skin.buttonDown = {m_frameButtonDownTex.get(), 16.0f, 0.5f, true, 8.0f};
 	m_skin.slot = {m_frameSlotTex.get(), 16.0f, 0.5f, true, 8.0f};
 	m_skin.sheen = {m_sheenTex.get(), 0.0f, 1.0f, true};
+	// The block's visible edge is its joint + chamfer (outline 2 + band 11).
+	m_skin.block = {m_frameBlockTex.get(), 16.0f, 0.5f, true, 13.0f};
+	m_skin.blockDown = {m_frameBlockDownTex.get(), 16.0f, 0.5f, true, 10.0f};
 	ApplyStone(); // the pinned material, or the place's (GameUI_Stone.cpp)
 	UpdateSkinScale();
 	ApplySkin();
@@ -209,6 +229,7 @@ void GameUI::LoadTitleArt() {
 void GameUI::UpdateSkinScale() {
 	const float s = 0.5f * m_fontScale;
 	m_skin.panel.scale = m_skin.button.scale = m_skin.buttonDown.scale = m_skin.slot.scale = s;
+	m_skin.block.scale = m_skin.blockDown.scale = s;
 	m_skin.stoneTile = 1024.0f * m_fontScale;
 }
 
@@ -1628,6 +1649,13 @@ void GameUI::BuildHud() {
 	deps.icons = m_itemIcons;
 	deps.chevron = m_chevronTex.get();
 	deps.chevron2 = m_chevron2Tex.get();
+	for (size_t i = 0; i < m_moveEtch.size(); ++i) {
+		deps.moveEtch[i] = m_moveEtch[i].get();
+		deps.moveEtchLit[i] = m_moveEtchLit[i].get();
+	}
+	deps.lastMove = [this](MoveAction& action) -> unsigned {
+		return moveCounter ? moveCounter(action) : 0u;
+	};
 	deps.boxMinus = ToolbarIcon(m_device, "box_minus");
 	deps.minimizeTip = loc::Tr("hud.minimize");
 	deps.onMove = [this](MoveAction action) { onMoveAction(action); };

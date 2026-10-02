@@ -65,13 +65,33 @@ MovementPad::MovementPad(const gfx::Rect& rect, const ControlBarDeps& deps) {
 	// Placeholder bounds: LayoutSelf computes square cells once the pixel
 	// width is known (see HandPair - a square cannot be authored as a pair of
 	// independent axis fractions).
+	m_lastMove = deps.lastMove;
 	for (size_t i = 0; i < std::size(moves); ++i) {
 		auto* btn = Add<ui::Button>(
 			gfx::Rect{0, 0, 0.3f, 0.5f}, moves[i].glyph,
 			[onMove = deps.onMove, action = moves[i].action] { onMove(action); });
 		btn->icon = moves[i].turn ? deps.chevron2 : deps.chevron;
 		btn->iconTurns = moves[i].quarters;
+		btn->etch = deps.moveEtch[i];
+		btn->etchLit = deps.moveEtchLit[i];
+		btn->fireOnPress = true; // a step answers the press, not the release
+		m_buttons[i] = btn;
+		m_actions[i] = moves[i].action;
 	}
+}
+
+void MovementPad::UpdateSelf(ui::UIContext&) {
+	if (!m_lastMove) return;
+	MoveAction last{};
+	const unsigned count = m_lastMove(last);
+	// A new world starts its count again, so only an INCREASE is a move; the
+	// first read just syncs. A click acted through the same Act, but its stone
+	// is already held by the mouse, and PressVisual leaves a held stone be.
+	if (m_seenAny && count > m_seenActs)
+		for (size_t i = 0; i < std::size(m_actions); ++i)
+			if (m_actions[i] == last && m_buttons[i]) m_buttons[i]->PressVisual();
+	m_seenActs = count;
+	m_seenAny = true;
 }
 
 float MovementPad::CellSide(float widthPx, float emPx) {

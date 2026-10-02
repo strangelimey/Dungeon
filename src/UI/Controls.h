@@ -165,6 +165,22 @@ public:
 	// the label's colour (dimmed when disabled) and sinks with it. Put the words
 	// in `tooltip`; `text` stays the fallback when the texture is missing.
 	const gfx::Texture* faceIcon = nullptr;
+	// CUT STONE (more-ui-updates): with `etch` set and a skin that has the block
+	// part, the button IS a cut-stone block with that symbol etched into it
+	// (ui::DrawCutStone; assets/ui/etch_<name>.png). `etchLit` - the gold lit -
+	// replaces it while `active`, which also holds the block down: a current
+	// tab is both sunk and lit. The icon / label paths are the fallback (no
+	// skin, or the flat debug look).
+	const gfx::Texture* etch = nullptr;
+	const gfx::Texture* etchLit = nullptr;
+	// Fire the action on the PRESS instead of at the bottom of the sink
+	// (Michael: the movement stones and the tabs act at once). The push still
+	// plays, all of it, and never delays the action; a press dragged off before
+	// release has already acted, so it completes rather than cancelling.
+	bool fireOnPress = false;
+	// Plays the push with no click and no action - the movement pad presses a
+	// stone when the KEYBOARD moves the party. Ignored while the mouse holds it.
+	void PressVisual();
 
 	// THE PUSH (Michael, ui-updates: "animate as pushed, execute the action,
 	// then animate back"). A click does not fire the moment the button is
@@ -186,6 +202,9 @@ private:
 
 	bool m_hot = false;
 	bool m_held = false;
+	// The push in flight has ALREADY acted (fireOnPress, or a PressVisual), so
+	// the bottom of its sink must not act again.
+	bool m_fired = false;
 	Push m_push = Push::None;
 	Clock::time_point m_pressAt{}; // the sink's start (the press)
 	Clock::time_point m_riseAt{};  // the rise's start (just after the action)

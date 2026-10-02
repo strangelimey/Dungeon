@@ -46,8 +46,11 @@ struct SkinPart {
 
 // The face kinds a skin draws. ButtonDown is a held or active button (the
 // bevel inverted); Slot is an item socket, sunk into the stone with a dark well
-// the item icons read against.
-enum class Face { Panel, Button, ButtonDown, Slot };
+// the item icons read against. Block / BlockDown are a CUT-STONE block
+// (more-ui-updates): its own square of stone in a dark joint with a wide
+// chamfer for an edge, standing proud of the panel - and down in its joint when
+// pressed. See DrawCutStone.
+enum class Face { Panel, Button, ButtonDown, Slot, Block, BlockDown };
 
 // The part set the widget library knows how to use. Parts may be null
 // individually — a widget only skins itself when its part has a texture.
@@ -64,6 +67,8 @@ struct Skin {
 	SkinPart buttonDown; // held / active button; falls back to `button`
 	SkinPart slot;       // item sockets
 	SkinPart sheen;      // stretched over a panel (corner 0); optional
+	SkinPart block;      // a cut-stone block (frame_block)
+	SkinPart blockDown;  // the same, pressed; falls back to `block`
 
 	// The ring under every glyph a skinned context draws (UIContext::Render ->
 	// SpriteBatch::SetTextOutline): stone is mid-toned and busy, so light text
@@ -88,5 +93,14 @@ void DrawFace(gfx::SpriteBatch& batch, const gfx::Rect& dst, const Skin& skin,
 // where content laid on the face (a slot's icon, a member button's colour)
 // starts.
 float FaceInset(const Skin& skin, Face face);
+
+// A CUT-STONE button (more-ui-updates): a Block face, sunk into its joint by
+// `depth` (0 up .. 1 pressed - Button's push), with an ETCHED symbol over it
+// (assets/ui/etch_<name>.png, tools/BuildEtchGlyphs.py: a lit groove with gold
+// on its floor, light only, so it suits every material). The symbol moves down
+// and right with the press, as the block does. `tint` dims (a disabled
+// stone); `hot` lifts the face a touch. No-op without the block part.
+void DrawCutStone(gfx::SpriteBatch& batch, const gfx::Rect& dst, const Skin& skin,
+				  const gfx::Texture* etch, float depth, bool hot, const Vec4& tint);
 
 } // namespace dungeon::ui

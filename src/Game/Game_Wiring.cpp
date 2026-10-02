@@ -190,6 +190,9 @@ void Game::WireModuleCallbacks() {
 		// DungeonWorld::Update; this is the HUD arrow-button path).
 		if (!m_world->Falling()) m_world->GetParty().Act(action);
 	};
+	m_ui.moveCounter = [this](MoveAction& last) -> unsigned {
+		return m_world ? m_world->GetParty().ActCount(last) : 0u;
+	};
 	m_ui.onHandAttack = [this](size_t member, size_t hand, std::string_view verb) {
 		m_world->PartyAttack(member, hand, verb);
 	};

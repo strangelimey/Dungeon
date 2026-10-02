@@ -327,6 +327,9 @@ public:
 	std::function<void(int)> onFrameLimitSelected; // Video tab frame-rate dropdown
 	std::function<void(int)> onTorchPalette;    // HUD torchlight dropdown
 	std::function<void(MoveAction)> onMoveAction; // HUD movement buttons
+	// The party's Act count and last action (Party::ActCount), for the pad to
+	// press the stone a KEY move used. 0 with no world. Must not allocate.
+	std::function<unsigned(MoveAction& last)> moveCounter;
 	// The offense/defense stance slider under a member's hands: (member,
 	// share). The widget reports where it was dragged; Game owns the roster
 	// and does the writing.
@@ -667,6 +670,12 @@ private:
 	// The movement pad's chevron icon faces (single = step, double = turn).
 	std::unique_ptr<gfx::Texture> m_chevronTex;
 	std::unique_ptr<gfx::Texture> m_chevron2Tex;
+	// ...and the cut-stone pad's etched symbols, in the pad's order (plain and
+	// gold-lit), plus the block chamfer they sit on.
+	std::array<std::unique_ptr<gfx::Texture>, 6> m_moveEtch;
+	std::array<std::unique_ptr<gfx::Texture>, 6> m_moveEtchLit;
+	std::unique_ptr<gfx::Texture> m_frameBlockTex;
+	std::unique_ptr<gfx::Texture> m_frameBlockDownTex;
 	std::unique_ptr<gfx::Texture> m_glowTex; // a set hand box's centre glow
 	const gfx::Texture* m_closeIcon = nullptr; // shared, owned by AssetUtil
 

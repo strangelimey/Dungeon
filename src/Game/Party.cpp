@@ -211,6 +211,11 @@ void Party::HandleInput(const Input& input) {
 }
 
 void Party::Act(MoveAction action) {
+	// Refused during the blocked-move cooldown - and NOT counted, or a key held
+	// against a wall would press the pad's stone every frame.
+	if (!IsMoving() && m_blockCooldown > 0.0f) return;
+	++m_actCount; // taken or buffered: the pad shows the press (ActCount)
+	m_lastAct = action;
 	if (IsMoving()) {
 		// A move/turn is in flight: queue this into the single-slot buffer (a
 		// newer key overwrites an older queued one) and replay it the instant
@@ -220,7 +225,6 @@ void Party::Act(MoveAction action) {
 		RefreshChainEasing();
 		return;
 	}
-	if (m_blockCooldown > 0.0f) return;
 	BeginAction(action, false);
 }
 

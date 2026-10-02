@@ -56,6 +56,12 @@ of HUD / sheet / pause / settings on the new stone. No code allocation change.
 
 ## Phase 2 - The cut-stone button, on the movement pad (A, answers 1, 4)
 
+DONE (2026-10-01). Built as planned, with two lessons from tuning the etch: a
+blurred-mask depth is flat-topped (the gold hid the walls), and a distance
+depth normalised by its deepest texel pools the gold in the joints - so the
+depth is the distance from the cut's edge scaled by the stroke's half-width.
+Checked by the new AllocTest `-Walk` (mutation-checked).
+
 Today: MovementPad (ControlBar.cpp:52-106) is six `ui::Button`s whose face is
 a round Wenrexa disc with a baked gold chevron (icon_chevron / icon_chevron2,
 no script made them). No stone, no bevel. A click fires AFTER release, at the

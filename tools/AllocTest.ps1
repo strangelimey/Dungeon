@@ -19,6 +19,7 @@
 #   .\tools\AllocTest.ps1 -Items             # pack -> cursor -> floor -> cursor -> pack
 #   .\tools\AllocTest.ps1 -Packs             # swap a 4-slot and an 8-slot bag
 #   .\tools\AllocTest.ps1 -Throw             # lift a rock, throw it at a wall, again
+#   .\tools\AllocTest.ps1 -Walk              # key turns: the party AND the pad's stones
 #   .\tools\AllocTest.ps1 -Config release    # needs -DDN_TRACK_ALLOCS=ON
 #
 # THE RULE HAS NO EXCEPTIONS: an allocation in a settled frame is a bug, and
@@ -233,6 +234,11 @@ param(
 	# Runs whichever mode under the Minimal HUD layout (one card per member,
 	# docs/ui-panels-plan.md P4), and puts Standard back afterwards.
 	[switch]$Minimal,
+	# Turns the party by KEY inside the window - a full circle each way - so the
+	# movement pad presses its cut stones (more-ui-updates: a key move presses
+	# the matching stone, via Party::ActCount). Refuses a PASS unless the
+	# verdict's moves= counts them.
+	[switch]$Walk,
 	# Moves an item pack -> floor -> pack inside the window. See the note above.
 	[switch]$Items,
 	# The warm-up item and the measured one: two different kinds, the second
@@ -1159,6 +1165,19 @@ try {
 	# window runs. Each wait clears the console close / resume plus the guard's
 	# 120-frame warm-up, so the Esc lands in an ARMED frame; paused frames and
 	# the warm-up after a resume are not armed and cost the window nothing.
+	# -Walk: turn by key, a full circle right and one left, twice, while the
+	# window runs. TURNS, not steps, so the party ends where it began and nothing
+	# it might walk into (a wall bump, a stair) muddies what is measured: a turn
+	# is an Act like any move, and it presses a pad stone the same way.
+	if ($Walk) {
+		for ($cycle = 1; $cycle -le 2; $cycle++) {
+			Start-Sleep -Seconds 3
+			if (Select-String -Path $log -Pattern 'alloctest RESULT=' -Quiet) { break }
+			for ($t = 0; $t -lt 4; $t++) { Send-Key 0x45; Start-Sleep -Milliseconds 350 } # E
+			for ($t = 0; $t -lt 4; $t++) { Send-Key 0x51; Start-Sleep -Milliseconds 350 } # Q
+		}
+	}
+
 	if ($Pause) {
 		for ($cycle = 1; $cycle -le 3; $cycle++) {
 			Start-Sleep -Seconds 3
@@ -1280,6 +1299,16 @@ try {
 		if ((Get-LastTallyField 'blasts') -le 0) { $missing += 'no blast went off' }
 		if ($missing.Count -gt 0 -and $result -eq 'PASS') {
 			Write-Host "$($missing -join ', ') inside the window - the impact path was not measured" -ForegroundColor Yellow
+			$result = 'UNMEASURED'
+		}
+	}
+
+	# And for -Walk: no move counted means no key landed in an armed frame.
+	if ($Walk) {
+		$moves = if ($line -match '\bmoves=(\d+)') { [int]$Matches[1] } else { 0 }
+		Write-Host "  key moves inside the window: $moves"
+		if ($moves -lt 4 -and $result -eq 'PASS') {
+			Write-Host 'fewer than four key moves landed - the pad presses were not measured' -ForegroundColor Yellow
 			$result = 'UNMEASURED'
 		}
 	}

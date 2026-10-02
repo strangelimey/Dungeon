@@ -1886,6 +1886,19 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   `itemFilters` bit masks + `filterColors` chips, drawn at `filterScale`,
   pinned above the scrolling rows, the list widening so they fit two lines).
   ItemRect takes a SLOT among the shown rows, not an item index.
+  CUT STONE (more-ui-updates P2): a button with `etch` set (and a skin with the
+  `block` part) is drawn by `ui::DrawCutStone` - Face::Block / BlockDown
+  (frame_block*.png, BuildUiFrames.py: a flat CHAMFER via light_exp /
+  shadow_exp) with an etched symbol over it (etch_<name>[_lit].png,
+  tools/BuildEtchGlyphs.py: the glyph's DISTANCE-from-edge as a V-groove depth,
+  scaled by the stroke's half-width - not the deepest texel, or the gold pools
+  in the joints - lit from the top-left, gold on the floor only; light-only so
+  it suits every material). `active` holds it down AND swaps in `etchLit`.
+  `Button::fireOnPress` acts on the press (the push still plays; `m_fired`
+  stops the bottom of the sink acting again); `PressVisual()` plays it with no
+  action. The movement pad uses all three and watches `Party::ActCount` so a
+  KEY move presses its stone. Checked by `AllocTest.ps1 -Walk` (key turns in
+  the window; refuses a PASS under 4 `moves=`, a field of the verdict line).
 - AN OPEN POPUP OWNS THE CLICK (`UIContext::ClaimPopup`): the update walk visits
   children in REVERSE add order, so a control added after a drop-down saw a
   press on its open list first (picking a stone unticked Head bob). An open

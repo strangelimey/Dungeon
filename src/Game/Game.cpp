@@ -1606,6 +1606,8 @@ void Game::UpdateAllocTest(float dt, bool steady) {
 			DungeonWorld::Harness& h = m_world->GetHarness();
 			h.tally = {};
 			h.autoCast.held = false;
+			MoveAction last{};
+			m_allocTestActsAt = m_world->GetParty().ActCount(last);
 		}
 		m_allocTestRemaining -= dt;
 		++m_allocTestFrames;
@@ -1623,11 +1625,16 @@ void Game::UpdateAllocTest(float dt, bool steady) {
 	const alloc::Excused excuse;
 	// One machine-readable line: tools\AllocTest.ps1 greps for it and nothing
 	// else, so the format is part of the contract.
+	// moves= is the party's Acts inside the window (Party::ActCount): -Walk's
+	// proof that its key presses moved the party, and with it the movement pad.
+	MoveAction lastMove{};
+	const unsigned moves =
+		m_world ? m_world->GetParty().ActCount(lastMove) - m_allocTestActsAt : 0u;
 	const std::string line =
 		std::format("alloctest RESULT={} frames={} violations={} violating_frames={} "
-					"transitions={}{}",
+					"transitions={} moves={}{}",
 					timedOut ? "SKIP" : (violations == 0 ? "PASS" : "FAIL"),
-					m_allocTestFrames, violations, badFrames, m_allocTestTransitions,
+					m_allocTestFrames, violations, badFrames, m_allocTestTransitions, moves,
 					timedOut ? " reason=never_reached_a_steady_frame" : "");
 	log::Info("{}", line);
 	m_console.Print(line);

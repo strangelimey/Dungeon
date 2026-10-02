@@ -861,6 +861,9 @@ private:
 	// stair load) and were disarmed for it - the evidence AllocTest.ps1 -Pause
 	// reads that a transition happened inside the window at all.
 	u32 m_allocTestTransitions = 0;
+	// The party's Act count when the window opened (Party::ActCount): the
+	// verdict's moves= is the difference, -Walk's evidence that it moved.
+	unsigned m_allocTestActsAt = 0;
 	alloc::GuardStats m_allocTestStart;
 	// `allocpoke`: allocate deliberately, every frame, for this many seconds.
 	// It exists so the guard and tools\AllocTest.ps1 can be shown to FAIL — a
