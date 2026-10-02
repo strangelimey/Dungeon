@@ -266,7 +266,11 @@ void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 				}
 			}
 		} else {
-			DrawItemIcon(batch, r, s.typeId, m_icons); // a rune glows (PartyHudDraw)
+			// A rune in a HAND is its glyph, as in the HUD hand boxes; anywhere
+			// else on the doll, its carved tablet (PartyHudDraw).
+			const bool hand = kDollCells[i].slot == EquipSlot::LeftHand ||
+							  kDollCells[i].slot == EquipSlot::RightHand;
+			DrawItemIcon(batch, r, s.typeId, m_icons, 0.1f, /*symbolic=*/hand);
 		}
 	}
 
@@ -299,7 +303,7 @@ void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 
 	const Inventory& inv = m_character->inventory;
 	auto drawIcon = [&](const gfx::Rect& r, const std::string& typeId) {
-		DrawItemIcon(batch, r, typeId, m_icons); // a rune glows (PartyHudDraw)
+		DrawItemIcon(batch, r, typeId, m_icons); // a rune is its carved tablet
 	};
 	for (int i = 0; i < kPackRowSlots; ++i) {
 		const gfx::Rect r = PackRowRect(px, i);

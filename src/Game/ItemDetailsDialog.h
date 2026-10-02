@@ -125,6 +125,7 @@ private:
 	bool m_open = false;
 	unsigned m_opens = 0;
 	float m_spin = 0.0f;
+	float m_breath = 0.0f; // a rune tablet's groove glow, radians
 	std::array<gfx::PreviewSubmesh, kMaxSubs> m_subs{};
 	size_t m_subCount = 0;
 	Vec3 m_fitMin{}, m_fitMax{};

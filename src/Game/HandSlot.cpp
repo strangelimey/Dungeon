@@ -104,8 +104,10 @@ void HandSlot::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const ItemSlot& slot = m_character->inventory.Hand(m_hand);
 	const float pad = px.w * 0.12f;
 	const gfx::Rect inner{px.x + pad, px.y + pad, px.w - 2 * pad, px.h - 2 * pad};
-	// A rune glows in the box as it does in the Magic window (DrawItemIcon).
-	const bool drewItem = !slot.Empty() && DrawItemIcon(batch, px, slot.typeId, m_icons, 0.12f);
+	// A hand box is a CONTROL: a rune in it is its glyph, lit as the Magic
+	// window lights it - not the tablet the pack shows (Michael, 2026-10-02).
+	const bool drewItem = !slot.Empty() &&
+						  DrawItemIcon(batch, px, slot.typeId, m_icons, 0.12f, /*symbolic=*/true);
 	// An empty hand set to a verb with a picture (punch, kick) shows the ACTION
 	// (Michael, 2026-09-28: the paper doll's hand and feet slots were tried
 	// first and read as body parts, not strikes). The pictures are drawn

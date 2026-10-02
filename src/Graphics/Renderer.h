@@ -67,6 +67,11 @@ struct MaterialParams {
 	const Texture* metalRough = nullptr;
 	Vec4 baseColor{1, 1, 1, 1};
 	Vec3 emissive{0, 0, 0}; // additive self-lit glow (runes pulse; 0 = no glow)
+	// > 0: the emissive lights a rune tablet's CARVED GROOVE (crisp, plus a soft
+	// halo round it) at this strength, instead of the floor's rim aura. The
+	// groove is read from the rune set's occlusion map (RuneBaker writes
+	// 1 - 0.45 x carve there), so it means something only on a rune set.
+	float emissiveGroove = 0.0f;
 	float heightScale = 0.0f;
 	float metallic = 0.0f;
 	float roughness = 0.9f;

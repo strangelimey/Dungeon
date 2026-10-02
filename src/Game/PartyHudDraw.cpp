@@ -331,14 +331,33 @@ void DrawFlame(gfx::SpriteBatch& batch, const Vec2& head, float tall, float glow
 }
 
 bool DrawItemIcon(gfx::SpriteBatch& batch, const gfx::Rect& r, std::string_view typeId,
-				  const ItemIconBank* icons, float pad) {
+				  const ItemIconBank* icons, float pad, bool symbolic) {
 	if (typeId.empty() || !icons) return false;
 	if (SpellSymbol s; RuneSymbolFromItemId(typeId, s)) {
 		// The Magic window's slow breath, each socket a little out of step with
 		// its neighbours (keyed off where it sits, so a row shimmers).
 		constexpr float kTwoPi = 6.2831853f;
-		const float phase = batch.Time() * (kTwoPi / 3.4f) - (r.x + r.y) * 0.013f;
-		DrawRuneGlow(batch, r, s, icons, /*hot=*/false, /*disabled=*/false, phase);
+		const float phase = batch.Time() * (kTwoPi / kRuneBreathSeconds) - (r.x + r.y) * 0.013f;
+		const size_t si = static_cast<size_t>(s);
+		const gfx::Texture* tablet = icons->For(typeId);
+		const gfx::Texture* glow = si < ItemIconBank::kRuneSlots ? icons->runeGlow[si] : nullptr;
+		if (symbolic || !icons->runeTablets || !tablet || !glow) {
+			DrawRuneGlow(batch, r, s, icons, /*hot=*/false, /*disabled=*/false, phase);
+			return true;
+		}
+		// The CARVED TABLET (Michael: in the pack, the doll, on the cursor), its
+		// groove lit by the school's halo breathing over the face. The glow mask
+		// is the glyph's own cell, which the tablet's texture spans across that
+		// face, so laid over the face's box it sits in the groove.
+		const float p = r.w * pad;
+		const gfx::Rect in{r.x + p, r.y + p, r.w - 2 * p, r.h - 2 * p};
+		batch.DrawSprite(in, {0, 0, 1, 1}, *tablet, {1, 1, 1, 1});
+		const Vec2 lo = icons->runeFaceLo, hi = icons->runeFaceHi;
+		const gfx::Rect face{in.x + lo.x * in.w, in.y + lo.y * in.h, (hi.x - lo.x) * in.w,
+							 (hi.y - lo.y) * in.h};
+		const Vec4 c = RuneGlowColor(s);
+		const float pulse = 0.5f + 0.5f * std::sin(phase);
+		batch.DrawSprite(face, {0, 0, 1, 1}, *glow, {c.x, c.y, c.z, 0.12f + 0.28f * pulse});
 		return true;
 	}
 	const gfx::Texture* icon = icons->For(typeId);

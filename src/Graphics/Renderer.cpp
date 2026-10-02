@@ -556,7 +556,8 @@ void Renderer::DrawMesh(ID3D12GraphicsCommandList* list, const Mesh& mesh,
 	object.roughness = material.roughness;
 	object.useMRMap = material.metalRough != nullptr ? 1u : 0u;
 	object.alphaCutoff = material.alphaCutoff;
-	object.emissive = {material.emissive.x, material.emissive.y, material.emissive.z, 0.0f};
+	object.emissive = {material.emissive.x, material.emissive.y, material.emissive.z,
+					   material.emissiveGroove};
 	UploadAllocation objAlloc = allocator.Allocate(sizeof(ObjectConstants));
 	std::memcpy(objAlloc.cpu, &object, sizeof(object));
 	list->SetGraphicsRootConstantBufferView(1, objAlloc.gpu);

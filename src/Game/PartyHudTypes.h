@@ -131,6 +131,11 @@ struct ItemIconBank {
 	static constexpr size_t kRuneSlots = 12;
 	const gfx::Texture* runeGlyph[kRuneSlots]{};
 	const gfx::Texture* runeGlow[kRuneSlots]{};
+	// A rune TABLET's baked icon is its byType entry; this is where its carved
+	// face sits in that icon (DungeonWorld::RuneFaceUv, the same for every
+	// rune), for the glow laid over the groove. hi <= lo = not known.
+	Vec2 runeFaceLo{}, runeFaceHi{};
+	bool runeTablets = false; // byType holds baked tablets for the runes
 	// A LIT item's flame (a burning torch in a hand, on the cursor): where it
 	// stands in the item's icon (DungeonWorld::ItemFlameUv), and the sprites it
 	// is drawn with (assets/ui/flame.png from tools/BuildFlame.py, and the soft
