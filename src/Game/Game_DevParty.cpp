@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <format>
 #include <string>
@@ -1397,7 +1398,7 @@ void Game::RegisterPartyCommands() {
 	// thirty times and hoping the mana holds out.
 	m_console.Register({.name = "setskill",
 						.group = CmdGroup::Characters,
-						.params = "<member> <skill> <level>",
+						.params = "<member> <skill> <level[.fraction]>",
 						.summary = "set a member's skill level and re-derive the pools"},
 					   [this](const std::vector<std::string>& args) {
 						   if (!Need(m_console, args, 3)) return;
@@ -1407,13 +1408,16 @@ void Game::RegisterPartyCommands() {
 							   m_console.Refuse("no such member");
 							   return;
 						   }
-						   const int level = std::atoi(args[2].c_str());
-						   if (level < 0) {
+						   // A FRACTION is the way to the next level: 2.5 sits
+						   // halfway from 2 to 3 (what the sheet's skill bar shows).
+						   const float wanted = static_cast<float>(std::atof(args[2].c_str()));
+						   if (wanted < 0.0f) {
 							   m_console.Refuse("level cannot be negative");
 							   return;
 						   }
 						   Character& c = m_characters[m];
-						   const float xp = static_cast<float>(level) * level;
+						   const float level = std::floor(wanted);
+						   const float xp = level * level + (wanted - level) * (2.0f * level + 1.0f);
 						   c.skillXp[args[1]] = xp;
 						   // RE-DERIVE, for exactly the reason `setstat` already
 						   // had to: a RESOURCE practice feeds the pool maxima

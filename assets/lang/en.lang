@@ -658,6 +658,8 @@ rune.protect=Algiz
 rune.sight=Dagaz
 rune.multiple=Ingwaz
 rune.explode=Hagalaz
+; A rune's hover tip: {0} the rune's name, {1} its meaning (the symbol.* word).
+rune.tip={} - {}
 
 ; --- map overlay / editor --------------------------------------------------------
 map.title=Map

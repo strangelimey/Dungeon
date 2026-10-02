@@ -648,6 +648,7 @@ rune.protect=Альгиз
 rune.sight=Дагаз
 rune.multiple=Ингуз
 rune.explode=Хагалаз
+rune.tip={} - {}
 
 ; --- map overlay / editor --------------------------------------------------------
 map.title=Карта

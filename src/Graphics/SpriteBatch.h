@@ -39,6 +39,9 @@ struct Rect {
 // the stance's own green-to-yellow grade, or the angry body once over-exerted -
 // carried in `tint`, and `beat` holds the over-exertion (0..1) instead of a
 // heartbeat, which the shader burns across the tube from the left.
+// Progress is the sheet's skill bars - the way to the NEXT LEVEL, not a pool -
+// in the caller's colour (`tint`), and it does not dim as it empties: an empty
+// one has just levelled, which is no warning.
 enum class BarKind : u32 {
 	Solid = 0,
 	Health = 1,
@@ -46,14 +49,15 @@ enum class BarKind : u32 {
 	Mana = 3,
 	Effort = 4,
 	Food = 5,
-	Water = 6
+	Water = 6,
+	Progress = 7
 };
 struct BarFill {
 	BarKind kind = BarKind::Solid;
 	float fraction = 1.0f; // 0..1, how full the bar is
 	float beat = 0.0f;     // Health: heartbeat phase 0..1; Effort: over-exertion 0..1
 	float seed = 0.0f;     // per-bar offset, so two bars never move in lockstep
-	Vec4 tint{1, 1, 1, 1}; // Solid's and Effort's colour (the others carry their own)
+	Vec4 tint{1, 1, 1, 1}; // Solid's, Effort's and Progress's colour (the others carry their own)
 	float pulse = 0.0f;    // Effort: a full over-exertion's throb, 0..1 (CPU-timed so
 						   // the colour beats with the height the caller animates)
 };

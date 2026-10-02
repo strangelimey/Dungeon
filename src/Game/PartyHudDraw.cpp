@@ -5,6 +5,8 @@
 
 #include "Game/PartyHudTypes.h"
 
+#include "Core/Loc.h"
+
 #include <algorithm>
 #include <cmath>
 #include <string_view>
@@ -48,6 +50,37 @@ BarFrameReach FrameReach(float tubeH) {
 	const float frameW = frameH * kFrameAspect; // the image's own width at this height
 	return {kTubeLeft * frameW, kTubeRight * frameW, kTubeTop * frameH,
 			kTubeBottom * frameH};
+}
+
+gfx::Rect FitFramedTube(gfx::Rect box, float roomH, const ResourceBarStyle& style) {
+	if (!style.framed || !style.frame) return box;
+	const BarFrameReach unit = FrameReach(1.0f);
+	const float fit = roomH * kFramedRowShare / (1.0f + unit.top + unit.bottom);
+	if (box.h > fit) {
+		box.y += (box.h - fit) * 0.5f;
+		box.h = fit;
+	}
+	const BarFrameReach reach = FrameReach(box.h);
+	box.x += reach.left;
+	box.w = std::max(box.w - reach.left - reach.right, 0.0f);
+	return box;
+}
+
+void DrawProgressBar(gfx::SpriteBatch& batch, const gfx::Rect& tube, float fraction,
+					 const Vec4& tint, float seed, const ResourceBarStyle& style,
+					 const ui::Theme& theme) {
+	const float t = std::clamp(fraction, 0.0f, 1.0f);
+	if (!style.framed || !style.frame) {
+		DrawStatBar(batch, tube, t, tint, theme);
+		return;
+	}
+	gfx::BarFill fill;
+	fill.kind = gfx::BarKind::Progress;
+	fill.fraction = t;
+	fill.tint = tint;
+	fill.seed = seed;
+	batch.DrawBarFill(tube, fill);
+	DrawResourceBarFrame(batch, tube, style);
 }
 
 void DrawResourceBar(gfx::SpriteBatch& batch, const gfx::Rect& tube, ResourceBar which,
@@ -185,6 +218,23 @@ void DrawPortrait(gfx::SpriteBatch& batch, const gfx::Rect& rect,
 	const float initialW = font.MeasureWidth(initial);
 	font.Draw(batch, initial, rect.x + (rect.w - initialW) * 0.5f,
 			  rect.y + (rect.h - font.Height()) * 0.5f, theme.text);
+}
+
+void DrawRuneTip(ui::UIContext& ctx, gfx::SpriteBatch& batch, const ui::Font& font,
+				 const gfx::Rect& anchor, SpellSymbol s) {
+	const loc::Line text = loc::FormatLine("rune.tip", loc::Line(loc::View(RuneNameKey(s))),
+										   loc::ViewKey("symbol.", SymbolId(s)));
+	const float em = font.Height();
+	const float padX = em * 0.6f, padY = em * 0.35f, gapY = em * 0.3f;
+	const float w = font.MeasureWidth(text.View()) + 2.0f * padX;
+	const float h = font.Height() + 2.0f * padY;
+	const gfx::Rect tip = ui::PlaceTooltip(anchor, w, h, {0, 0, ctx.Width(), ctx.Height()},
+										   ui::TipSide::Below, gapY, padX);
+	// The hand box's tooltip face (HandSlot::DrawOverlaySelf): near-opaque, as it
+	// sits over the world view and other HUD.
+	batch.DrawRect(tip, {0.10f, 0.10f, 0.13f, 0.97f});
+	ui::DrawBorder(batch, tip, ctx.GetTheme().panelBorder);
+	font.Draw(batch, text.View(), tip.x + padX, tip.y + padY, ctx.GetTheme().text);
 }
 
 Vec4 RuneGlowColor(SpellSymbol s) {

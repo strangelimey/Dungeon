@@ -90,27 +90,13 @@ void CharacterSheet::DrawStats(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	// stays inside the column the layout gave it across, and sticks out only up
 	// and down. Three passes - fills, frames, then the text - so no frame
 	// covers its neighbour's fill and no frame covers a number.
-	const bool framed = m_barStyle->framed && m_barStyle->frame;
+	// The WHOLE frame must fit one row (Michael, ui-updates: the silver caps
+	// reach nearly a tube-height each way, and the rows are spaced by the
+	// attributes beside them) - FitFramedTube, shared with the Skills tab.
 	auto tubeOf = [&](size_t i) {
-		gfx::Rect bar{Ax(px, kBarX), rowTop + static_cast<float>(i) * rowStep,
-					  kBarW * px.w, kStatBarH * px.h};
-		if (framed) {
-			// The WHOLE frame - the glass plus its caps' reach above and below -
-			// must fit one row, or a bar's scrollwork runs into its neighbour's
-			// (Michael, ui-updates: the silver caps reach nearly a tube-height
-			// each way, and the rows are spaced by the attributes beside them).
-			// So the tube shrinks to fit and stays centred where it was.
-			const BarFrameReach unit = FrameReach(1.0f);
-			const float fit = rowStep * 0.94f / (1.0f + unit.top + unit.bottom);
-			if (bar.h > fit) {
-				bar.y += (bar.h - fit) * 0.5f;
-				bar.h = fit;
-			}
-			const BarFrameReach reach = FrameReach(bar.h);
-			bar.x += reach.left;
-			bar.w = std::max(bar.w - reach.left - reach.right, 0.0f);
-		}
-		return bar;
+		return FitFramedTube({Ax(px, kBarX), rowTop + static_cast<float>(i) * rowStep,
+							  kBarW * px.w, kStatBarH * px.h},
+							 rowStep, *m_barStyle);
 	};
 	for (size_t i = 0; i < std::size(bars); ++i)
 		DrawResourceBarFill(batch, tubeOf(i), bars[i].which,

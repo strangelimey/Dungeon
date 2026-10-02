@@ -272,6 +272,10 @@ void CharacterSheet::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 // has to be.
 void CharacterSheet::DrawOverlaySelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	if (m_mode == Mode::Inventory) DrawArmorTip(ctx, batch, Body());
+	// A Known Spells rune under the pointer (UpdateStatus found it): its name.
+	if (m_mode == Mode::Spells && m_tipRune >= 0)
+		DrawRuneTip(ctx, batch, ctx.FontAt(ui::FontRole::Body, Em(kNameRem)), m_tipRuneRect,
+					static_cast<SpellSymbol>(m_tipRune));
 }
 
 // --- SheetPortrait ---------------------------------------------------------

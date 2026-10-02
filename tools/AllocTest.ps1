@@ -1063,6 +1063,12 @@ try {
 		# land in slots 3 and 4 - the cells the clicks below aim at.
 		Send-Text 'give rune_fire 0'; Send-Key 0x0D
 		Send-Text 'give flamebrand 0'; Send-Key 0x0D
+		# Skills part-way to their next level, so the Skills tab the cycle passes
+		# through draws its framed progress bars (ui-bars-updates) - a new party
+		# has trained nothing, and an empty tab measured nothing there.
+		Send-Text 'setskill 0 blade 1.5'; Send-Key 0x0D
+		Send-Text 'setskill 0 fire 2.3'; Send-Key 0x0D
+		Send-Text 'setskill 0 conditioning 0.6'; Send-Key 0x0D
 		Send-Text 'sheet 0'; Send-Key 0x0D
 		# WARM-UP: one open of the dialog, and a moment for it to draw, bakes its
 		# fonts and glyphs - a first time for the process, outside the window.

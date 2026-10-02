@@ -2029,7 +2029,18 @@ too) are an iron FRAME around a PROCEDURAL, ANIMATED, EMISSIVE fill.
   and was true the moment a new game began beside a crypt of sleepers.
 - `ResourceBarStyle` (PartyHudTypes.h, owned by GameUI) replaced the user
   `ResourceBarColors` + `kBarFields` + the Settings > UI picker grid. uiskin=0
-  keeps the flat `DrawStatBar` look. The skill XP bars stay flat on purpose.
+  keeps the flat `DrawStatBar` look.
+- SKILL BARS (ui-bars-updates, docs/ui-bars-updates-plan.md) are PROGRESS bars
+  - the way to the next level, empty on every level gained - in the same frame
+  with their own fill, `BarKind::Progress` (`DrawProgressBar`): the caller's
+  colour as a glow brightening toward the leading edge, NOT dimmed as it empties
+  (empty = just levelled). Coloured by skill FAMILY (`SkillBarColor`,
+  CharacterSheet_Lists.cpp): magic by school, weapons steel, defence bronze,
+  each reserve its pool's colour - Michael picked it over a grade-by-fraction,
+  which was deleted. The Skills rows are SkillBand tall so the whole frame fits
+  round a glass 0.8 of the text height; any framed bar in a row goes through
+  `FitFramedTube` (the Stats tab does). `setskill <m> <skill> 2.5` sets a
+  fractional level for showing one part-full.
 - BRIGHTNESS / SATURATION are USER SETTINGS, not shader constants (Settings ->
   UI "Resource Bars"; settings.ini bar_brightness= default 0.7, bar_saturation=
   default 1 - Michael picked both from side-by-sides, 1.0 brightness read

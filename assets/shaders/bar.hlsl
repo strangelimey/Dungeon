@@ -20,8 +20,14 @@
 //   Water   - clear teal (mana owns blue), lighter at the surface, soft pools
 //             of caustic light drifting across it, a few small bubbles and a
 //             gentle slosh.
+//   Progress - the sheet's skill bars: the way to the next level, in the
+//             caller's colour (a school's, else the accent). A steady glow that
+//             brightens toward its leading edge, with a few sparks drifting
+//             FORWARD into it - the direction the bar grows. No slosh: it is a
+//             reading, not a fluid. Read on a page, so calm like Effort.
 //   Solid   - a flat tint (no caller uses it any more; kept as the fallback).
-// The animated kinds are EMISSIVE and dim as they empty. Output is
+// The animated kinds are EMISSIVE and dim as they empty - except Progress, whose
+// empty bar means "just levelled", which is no warning. Output is
 // PREMULTIPLIED (SpriteBatch's bar pipeline): the tube is opaque, alpha 1.
 //
 // Space: `p` is measured in TUBE HEIGHTS (x = uv.x * aspect, y = uv.y), so a
@@ -323,6 +329,29 @@ float3 EffortFill(float2 p, float seed, float aspect, float over, float throb, f
 	return col;
 }
 
+// Progress: the caller's colour as a glow, brighter in the tube's core and
+// toward the leading edge (`end`, tube heights), so the bar reads as moving
+// toward its next level. Sparse sparks drift forward into the edge and fade
+// before they reach the empty glass.
+float3 ProgressFill(float2 p, float seed, float end, float3 tint, out float edge) {
+	const float t = gTime * kPace;
+	const float core = exp(-pow((p.y - 0.5) / 0.32, 2.0));
+	const float grain = Calm(Fbm(p * float2(1.4, 2.8) + float2(-t * 0.15 + seed, 0.0)));
+	const float lead = smoothstep(-2.5, 0.0, p.x - end); // 0 far back, 1 at the edge
+	float3 col = tint * (0.45 + 0.35 * core + 0.2 * grain) * (0.8 + 0.35 * lead);
+	// Sparks: one chance per cell, drifting forward (+x) and wavering a little.
+	const float2 cell = float2(0.5, 0.5);
+	const float2 sp = p + float2(-t * 0.6, 0.06 * sin(t * 1.3 + p.x * 2.0)) + seed * 2.3;
+	const float2 id = floor(sp / cell);
+	const float2 f = frac(sp / cell) - 0.5;
+	const float present = step(0.72, Hash21(id + 4.1));
+	const float spark = smoothstep(0.16, 0.0, length(f * float2(1.0, 1.6))) * present;
+	col += lerp(tint, float3(1, 1, 1), 0.5) * spark * 0.3 * kSubdue *
+		   smoothstep(end, end - 0.6, p.x);
+	edge = 0.0;
+	return col;
+}
+
 float4 PSMain(PSInput input) : SV_TARGET {
 	const int kind = (int)(input.params.x + 0.5);
 	const float fraction = saturate(input.params.y);
@@ -357,6 +386,10 @@ float4 PSMain(PSInput input) : SV_TARGET {
 	} else if (kind == 6) {
 		fluid = WaterFlow(p, seed, bright, edge);
 		hue = kWaterBright;
+	} else if (kind == 7) {
+		// Not dimmed by `bright`: an empty Progress bar has just levelled.
+		fluid = ProgressFill(p, seed, fraction * aspect, input.tint.rgb, edge);
+		hue = input.tint.rgb;
 	} else {
 		fluid = input.tint.rgb;
 		hue = input.tint.rgb;

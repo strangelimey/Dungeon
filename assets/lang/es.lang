@@ -644,6 +644,7 @@ rune.protect=Algiz
 rune.sight=Dagaz
 rune.multiple=Ingwaz
 rune.explode=Hagalaz
+rune.tip={} - {}
 
 ; --- map overlay / editor --------------------------------------------------------
 map.title=Mapa
