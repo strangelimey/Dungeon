@@ -241,6 +241,14 @@ $screens = @(
 	   open = { Run-Cmd 'learn 0 fire'; Run-Cmd 'hudpanel layout minimal' }
 	   close = { Run-Cmd 'hudpanel layout standard' } }
 )
+# The screens swept on the TITLE, before the game starts - the party creation
+# page (phase 3), opened by its dev twin, which drives the page's own code.
+# Each opens on top of the one before; the run backs out after the last.
+$titleScreens = @(
+	@{ label = 'sweep_partycreation'; open = { Run-Cmd 'partypage open' } },
+	@{ label = 'sweep_partydefault';  open = { Run-Cmd 'partypage default' } },
+	@{ label = 'sweep_partypicker';   open = { Run-Cmd 'partypage picker' } }
+)
 # NOT swept, and named rather than left to be assumed. The settings page is
 # reached by menu navigation whose entry order shifts with whether a save
 # exists, and a scripted click against a moving layout is how a sweep starts
@@ -283,6 +291,18 @@ try {
 		$started = [bool](Select-String -Path $log -Pattern 'console: > logecho on' -EA SilentlyContinue)
 	}
 	if (-not $started) { throw 'the console never accepted a command on the title screen' }
+	# THE PARTY CREATION PAGE (party creation phase 3), on the title screen
+	# where it lives: a new member, the default four, and the face picker over
+	# the page. Echo off for the audits (see below); the verdict reads the
+	# page's own log line, not an echo.
+	Run-Cmd 'logecho off'
+	foreach ($s in $titleScreens) {
+		$label = if ($SelfTest) { 'sweep_never_emitted' } else { $s.label }
+		& $s.open
+		Run-Cmd "uioverlap $label"
+	}
+	Run-Cmd 'partypage back'
+	Run-Cmd 'logecho on'
 	Send-Text 'newgame'; Send-Key 0x0D
 	Start-Sleep -Milliseconds 300
 	Send-Key 0xC0; Start-Sleep -Milliseconds 400     # closed: Open-Console below reopens it
@@ -362,7 +382,7 @@ if ($lc) {
 
 # Coverage first: a screen whose label never reached the log was never audited,
 # and a sweep that quietly skipped half the screens must not read as clean.
-foreach ($s in $screens) {
+foreach ($s in @($titleScreens) + @($screens)) {
 	if ($text -match [regex]::Escape($s.label)) {
 		Write-Host "  [ok  ] swept $($s.label)"
 	} else {
@@ -382,10 +402,19 @@ if ($stairs.Count -ge 2) {
 	$failures++
 }
 # Likewise the portrait picker: without it the sweep audited the sheet beneath.
-if (@($lines | Select-String 'portrait picker: open for ').Count -ge 1) {
-	Write-Host '  [ok  ] the portrait picker opened for its sweep'
+# Twice: over the sheet, and over the party creation page.
+$pickers = @($lines | Select-String 'portrait picker: open for ').Count
+if ($pickers -ge 2) {
+	Write-Host '  [ok  ] the portrait picker opened for both its sweeps'
 } else {
-	Write-Host '  [FAIL] the portrait picker never opened - its sweep audited the sheet beneath' -ForegroundColor Red
+	Write-Host "  [FAIL] the portrait picker opened $pickers of 2 times - a sweep audited the page beneath" -ForegroundColor Red
+	$failures++
+}
+# And the party creation page, or its sweeps audited the title screen.
+if ($lines | Select-String 'party creation: the page opens for ') {
+	Write-Host '  [ok  ] the party creation page opened for its sweeps'
+} else {
+	Write-Host '  [FAIL] the party creation page never opened - its sweeps audited the title' -ForegroundColor Red
 	$failures++
 }
 

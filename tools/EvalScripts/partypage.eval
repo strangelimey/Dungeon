@@ -1,0 +1,47 @@
+; partypage.eval - a party built on the CREATION PAGE starts the game it shows
+; (docs/party-creation-plan.md, phase 3).
+;
+; Run ON ITS OWN, first thing:  Dungeon.exe -headless -eval <this file>
+; The page lives on the title screen, and `partypage open` refuses anywhere
+; else - so this cannot follow a suite that has already started a game.
+;
+; Every line is one of the page's own edits (the methods its widgets call), so
+; this is the page's code path, not a second one. What it should show:
+;   - the page opens on one new member, refusing to start ("needs a name");
+;   - Kira, an elf: STR 9 DEX 14 VIT 8 WIL 10 INT 11 after DEX +2 (the elf's
+;     DEX +2 INT +1 / VIT -2 STR -1 on 10), Blades and Throwing at level 2, a
+;     dagger in hand and a rock in the pack;
+;   - Default party replaces her with the four; Brand turned orc becomes a made
+;     member (STR 13 VIT 11 INT 8 WIL 8) with no kit; two removed;
+;   - Start: `roster` prints exactly the three the page last showed, and the
+;     game is playing.
+
+logecho on
+state
+partypage open
+partypage
+
+partypage set name=Kira race=elf portrait=portrait135
+partypage spend dex 2
+partypage skill 0 blade
+partypage skill 1 throwing
+partypage item 0 dagger
+partypage item 1 rock
+partypage
+
+partypage default
+partypage set race=orc
+partypage select 3
+partypage set name=Old_Tilo
+partypage remove 1
+partypage remove 1
+partypage add
+partypage set name=Kira race=elf portrait=portrait135
+partypage spend dex 2
+partypage skill 0 blade
+partypage item 0 dagger
+partypage
+
+partypage start
+roster
+state

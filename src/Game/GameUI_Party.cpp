@@ -6,6 +6,7 @@
 // ============================================================================
 #include "Game/GameUI.h"
 
+#include "Core/Log.h"
 #include "Game/MenuPanel.h"
 
 #include <algorithm>
@@ -111,6 +112,8 @@ void GameUI::OpenPartyPortraitPicker(size_t member, const std::string& raceTag) 
 	for (size_t i = 0; i < races.size(); ++i)
 		if (raceTag == races[i]) race = static_cast<int>(i) + 1;
 	m_portraitPicker->SetFilter(race, 0, 0);
+	// tools\InGameTest.ps1 reads this to know its sweep audited the picker.
+	log::Info("portrait picker: open for {} (party creation)", name);
 }
 
 } // namespace dungeon::game

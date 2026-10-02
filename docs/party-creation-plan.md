@@ -144,6 +144,45 @@ demands both parties were really built: PASS, all clean.
   over it); InGameTest gains `sweep_partycreation`; a scripted build through the
   page's own dev twin (`party page ...`) reaches Playing with the party it built.
 
+DONE (2026-10-02). What it came to:
+- `Game/PartyCreationPage.*` is the page (MenuPage::Party, built into the menu's
+  page context like the world list; `GameUI_Party.cpp` opens, rebuilds, leaves and
+  starts it). It edits `party::MemberSpec`s and shows a PREVIEW of each built by
+  the game's own BuildMember (+ the world's pool rules), so the numbers on the page
+  are the game's. Number edits (points, picks, a typed name) leave the tree
+  standing and Tick rewrites the live text; structural ones (select, add, remove,
+  a race that makes a premade member anew) rebuild a frame later.
+- Layout, settled by `uioverlap`: the member strip; the selected member's RACE
+  LINE across the card (a dwarf's runs ~700 px, too long for a column); three
+  columns - name / race / face / colour / pools, the stats with their stones,
+  two skill and two item drop-downs; the refusal; Default party / Back / Start.
+  The page draws no big title above its card: it needs the height (with the
+  title, the columns were starved to under 6 rem and their rows squeezed).
+- Premade members (the Default party) show their authored stats with no stones
+  and no picks; a race change makes one an ordinary made member, keeping the name,
+  face and colour. The race line is not shown for them either (a premade human
+  gets no "+2 free points").
+- The world is loaded first (`Game::OpenPartyCreation`; another world switches a
+  frame later and opens the page when it lands). Back returns to the world list
+  it came from, or the title. The Editor entry, `newgame` and `reset` skip it.
+- Esc: the face picker first, then an open list (a DropDown now closes on Esc, as
+  the colour picker did; `UIContext::PopupOpen` says one took it), then the page.
+- The dev twin is `partypage` (`party` was taken): open / add / default / back /
+  start / picker / select / remove / set k=v / spend / skill / item, every verb one
+  of the page's own edit methods. `party::ApplySpecField` (pure, RollTest) is the
+  key=value parser `newparty` and `partypage set` share.
+- Checked: tools/EvalScripts/partypage.eval (run on its own - it starts on the
+  title) PASS, the started roster exactly what the page showed; uioverlap clean
+  over a member of every race, four members, the default four and the picker over
+  the page; InGameTest sweeps `sweep_partycreation` / `sweep_partydefault` /
+  `sweep_partypicker` on the title (demanding the page and the picker really
+  opened) PASS; RollTest 354 PASS; by mouse - title -> page -> Default party ->
+  Start -> playing, a typed name, the stones, a face from the grid, a skill from a
+  list, Esc twice, and the world list -> Test-World -> Back -> Dungeon Demo.
+- Main was merged in here (c56d095): breakables, and InGameTest / ProfileTest
+  starting by `newgame` - which this page needed, since Start New Game no longer
+  starts.
+
 ## Phase 4 - colour in Settings, docs, handover
 
 - Settings -> UI's member colours edit the CURRENT party (live, saved with the

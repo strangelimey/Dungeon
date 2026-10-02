@@ -2281,6 +2281,24 @@ int main(int argc, char** argv) {
 		CheckTrue("an underscore is not (saves use it for spaces)", !NameValid("Old_Tom"));
 		CheckTrue("all spaces is not a name", !NameValid("   "));
 		CheckTrue("17 characters is too long", !NameValid("Abcdefghijklmnopq"));
+
+		// The member WORDS `newparty` and the page's `partypage set` share.
+		MemberSpec m;
+		std::string why;
+		CheckTrue("name=Old_Tom applies", ApplySpecField(m, "name", "Old_Tom", why));
+		CheckTrue("...as 'Old Tom' (underscores are spaces)", m.name == "Old Tom");
+		CheckTrue("color=c04040 applies", ApplySpecField(m, "color", "c04040", why));
+		Check("...red 0xc0 is 0.753", m.color[0], 0.7529, 0.001);
+		CheckTrue("...and marks the colour as set", m.colorSet);
+		CheckTrue("color=red is refused", !ApplySpecField(m, "color", "red", why));
+		CheckTrue("points= with four numbers is refused",
+				  !ApplySpecField(m, "points", "1,2,3,4", why));
+		CheckTrue("points=2,0,3,0,0 applies", ApplySpecField(m, "points", "2,0,3,0,0", why));
+		CheckTrue("...into the five stats in order", m.spent == StatArray{2, 0, 3, 0, 0});
+		CheckTrue("skills=blade,,conditioning drops the empty part",
+				  ApplySpecField(m, "skills", "blade,,conditioning", why) &&
+					  m.skills == std::vector<std::string>{"blade", "conditioning"});
+		CheckTrue("an unknown key is refused", !ApplySpecField(m, "class", "mage", why));
 	}
 
 	// --- verdict ------------------------------------------------------------

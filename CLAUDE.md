@@ -711,8 +711,9 @@ buffer, reused across all ~25 submissions).
   `portrait [member] [id]`; checked by `tools/EvalScripts/portraits.eval`.
   THE PICKER (Game/PortraitPicker.*): a grid of thumbnails filtered by race /
   sex / age, opened by the sheet's "Change portrait" button (under the name),
-  STANDALONE (Open(title, currentId, onPick) - party creation is its
-  real home), owned and routed by GameUI exactly like ItemDetailsDialog (built
+  STANDALONE (Open(title, currentId, onPick) - the party creation page opens
+  it too, filtered to the member's race, on the title screen), owned and
+  routed by GameUI exactly like ItemDetailsDialog (built
   once, updated instead of the page under it, DismissPopup closes it first, the
   mouse is its while open). Two rules worth knowing: the GRID IS ONE WIDGET
   (PortraitGrid sizes its bounds to every row so the ScrollArea scrolls right,
@@ -1045,6 +1046,28 @@ a RACE, the points they spend and the skills they pick, then whatever they do.
   InGameTest sweeps a party of three and of one. The four-slot tables (monster
   threat, its save line, the bar's slots) are static_asserted against
   `party::kMaxMembers`; the Magic dock draws no button for an empty slot.
+- THE PAGE (Game/PartyCreationPage.*, menu glue GameUI_Party.cpp): Start New
+  Game -> (the world list, when there is more than one) -> the party page ->
+  Start. `Game::OpenPartyCreation` LOADS THE WORLD FIRST (not its levels), so the
+  page offers that world's races / skills / `start_items`; a different world
+  switches a frame later and opens the page when it lands. The Editor entry,
+  `newgame` and `reset` skip the page and keep the default four. The page edits
+  MemberSpecs and shows a PREVIEW of each built by BuildMember plus the world's
+  pool rules, so its numbers ARE the game's. Number edits leave the tree standing
+  (Tick rewrites the live text each frame); select / add / remove / a race that
+  remakes a premade member rebuild a frame later (TakeRebuild, polled at the top
+  of UpdateMenu - the cached-pointer rule). It lives in m_savesUi like the world
+  list, draws no big title (its card needs the height), and its RACE LINE spans
+  the card (a race's line is longer than a column). Default party lays out the
+  four as PREMADE members: authored stats, no stones, no picks; another race makes
+  one anew. Esc: the face picker, then an open list (a DropDown closes on Esc now;
+  `UIContext::PopupOpen` tells the page), then the page (Back: the world list it
+  came from, else the title). Dev twin: `partypage [open|add|default|back|start|
+  picker|select|remove|set k=v...|spend|skill|item]`, every verb one of the
+  page's own edit methods, `set` through the same `party::ApplySpecField` as
+  `newparty`. Checked by `tools/EvalScripts/partypage.eval` (ON ITS OWN - it
+  starts on the title, where `partypage open` must be) and InGameTest's title
+  sweeps `sweep_partycreation` / `sweep_partydefault` / `sweep_partypicker`.
 
 The HUD's top bar shows the party — 1..4 members; party creation
 lets the player build fewer than 4, and the bar always reserves four slots
