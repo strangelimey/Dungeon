@@ -107,6 +107,26 @@ The answer to the open question, in four parts:
   when that bolt launches - a bolt still waiting in the queue makes none -
   and goes out when that bolt lands or dies, independent of its siblings.
   Nothing assumes the bolts of one cast fly together.
+- TRAILS (Michael, 2026-10-02): anything in flight can shed particles -
+  sparks, magic embers, motes, drips - through the projectile system's
+  existing SPARK pool (Projectiles.h `Spark`: pos/vel/colour/life/size/`fall`/
+  `swell`, already drawn as additive billboards by the particle batch for
+  impact bursts). New catalog `trails.cat` of named TRAIL profiles: `shape`
+  (spark / ember / mote / puff / drip), `rate` (per second, emitted by
+  distance flown so a fast bolt does not thin out), `life`, `size`, `spread`,
+  `fall` (embers rise, drips and grit fall), `swell`, `color` (default: the
+  source's light colour, so trail and light always agree). Defaults by school
+  (`trail_fire` rising embers, `trail_water` falling droplets, `trail_air`
+  swirling motes, `trail_earth` falling grit); spells.cat `trail = <id>`
+  overrides per spell, and an item kind's `trail` covers thrown items and,
+  later, magic arrows. A thrown LIT torch trails its own flame (the fixture
+  fire's particle look). Each bolt in a volley trails independently, like its
+  light.
+  Cost rules: the pool is RESERVED and never grows in a frame (the
+  allocation rule) - when it is full the oldest trail particle is recycled
+  before an impact spark is refused, since a hit must always read; a trail's
+  rate falls off with distance from the eye; a monster's shot trails too.
+  Dev: `trails` (live count, pool use, recycled this second).
 - A thrown item lights if its kind has a `light` (a thrown lit torch keeps
   lighting the corridor it flies down, and lands lit).
 - MAGIC ARROWS: no bow or arrow exists yet, so this phase builds the hook only -
