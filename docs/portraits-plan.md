@@ -37,20 +37,32 @@ so party creation (later) can open it too.
 - Defaults: Brand `portrait018`, Sera `portrait398`, Maren `portrait1419`,
   Tilo `b045`. The baked busts retire.
 - Figures (framing = figure, 72) are not shipped: 2386 portraits.
+- A SECOND SOURCE joined 2026-10-02: Corax Digital Art's 500 Human Hero
+  portraits ($10, `OneDrive\DungeonAssets\ui\corax-human-heroes\`, its own
+  `tags.tsv` with the same columns). Ids `corax001`..`corax500`, so they cannot
+  collide with Magory's. 512x512 (twice Magory's), kept at native size - the
+  draw scales and the picker's thumbnails drop mips anyway. Their LICENSE needs
+  a credit ("Corax Digital Art" + https://linktr.ee/coraxdigitalart, in
+  docs/costs.md Attributions) and forbids redistributing the files, which the
+  gitignore already honours.
 - The images stay out of git (250 MB) and are provisioned from the OneDrive
   archive; the TAGS are a committed catalog.
 
 ## Phase 1 - the portrait set
 
-- `tools/BuildPortraitCatalog.py`: reads `tags.tsv` from the archive, drops
+- `tools/BuildPortraitCatalog.py`: reads EACH SOURCE'S `tags.tsv` from the
+  archive (a small table of sources: folder, zip, member pattern -> id), drops
   figures, writes `assets/portraits/portraits.cat` - one `[id]` block per
   portrait with `race` / `sex` / `age` / `look` / `uncertain` (look is kept as
-  data though nothing filters on it yet). The script is the record of how the
+  data though nothing filters on it yet) and `source` (magory / corax, so a
+  credits screen can ask what ships). The script is the record of how the
   catalog was made; a re-tag is a re-run. File header comment explains the
   fields, as every .cat does.
-- `tools/FetchPortraits.ps1`: extracts `256square/256x256/` from the archived
-  zip into `assets/portraits/` for every id the catalog lists (so the catalog
-  decides what ships, and figures never land), then bakes BC7 `.dds` beside them.
+- `tools/FetchPortraits.ps1`: extracts from each archived zip (Magory's
+  `256square/256x256/`; Corax's `coraxdigitalart-realistic-human-heroes (N).png`
+  renamed to `coraxNNN`) into `assets/portraits/` for every id the catalog lists
+  (so the catalog decides what ships, and figures never land), then bakes BC7
+  `.dds` beside them.
   Same shape as FetchTextures: finds the archive, refuses loudly, reports a count.
   Check whether `AssetBaker mips` can be pointed at a folder other than
   `assets/textures`; if not, add that.
@@ -61,6 +73,23 @@ so party creation (later) can open it too.
 
 Checked by: the fetch's own count against the catalog's; `portraits.cat` loads
 with 2386 entries.
+
+DONE (2026-10-02). What it came to:
+- 2879 portraits: Magory 2386 (72 figures out) + Corax 493 (1 figure and 6
+  byte-identical duplicates out - the builder's DUPLICATES table).
+- `AssetBaker mips` already took any folder (`BakeAllMips(dir)`); it gained
+  `skipCurrent` and a `portrait-mips` mode (`mips` covers portraits too), so a
+  re-run costs only what changed - 0 bakes, a few seconds.
+- NEW, found on the first run: 91 Magory images are not square multiples of 4
+  (253x256, 256x250, two 182x256 tall crops), which BC7 refused, leaving them on
+  the PNG fallback and drawing stretched in a square slot. The fetch now squares
+  them: crop to the short side, centred across, TOP-anchored (a face sits high),
+  then scale. Its last check demands a .dds per image.
+- NEW, also found: zip extraction keeps the entry's old timestamp, so a
+  re-extracted image looked older than its .dds and the skip-current bake
+  skipped it. The fetch stamps every file it writes.
+- A full fetch is about two minutes. The in-game catalog load is checked in
+  phase 2, the first code that reads it.
 
 ## Phase 2 - portraits by id
 
