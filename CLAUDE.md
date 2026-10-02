@@ -2017,7 +2017,9 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
 - THE STARTER KIT (Character.cpp CreateDefaultParty): Brand a dagger in his
   right hand (his bare left is what the harness's `swing 0` uses), Sera one in
   her left and a LIT TORCH in her right (the party's only light - see FIRE AND
-  LIGHT); Maren holds fire + project, Tilo earth + protect, school rune left.
+  LIGHT); Maren holds fire + project, Tilo earth + protect, school rune left,
+  and EACH caster's backpack carries Ingwaz + Hagalaz (the tier-3 modifiers;
+  both each, since a tablet is memorized by one member and spent).
 - THE MESSAGE LOG opens only from its Log button, which sits at the bottom-left
   in every state (alone once the footer fades, in its corner while it shows,
   pressed while open); hovering does nothing (Michael: it got in the way).

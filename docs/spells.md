@@ -194,8 +194,12 @@ pending-bolt queue (`Spell::MonsterVolley`).
 
 ## Where the runes are found
 
-Placed tablets in a level, deeper and guarded - not the starter kit (Q10). The
-starter party knows its kit's runes; Ingwaz and Hagalaz are still to be placed.
+The starter kit (`CreateDefaultParty`): Maren holds Kenaz and Tiwaz, Tilo
+Berkano and Algiz, and EACH caster carries an Ingwaz and a Hagalaz tablet in the
+backpack (Michael, 2026-10-02 - this replaced Q10's "placed in a level, deeper
+and guarded"). Each gets both because a tablet is memorized by one member and
+spent. A rune in the pack is memorized from its use menu on the sheet. The other
+schools and forms are found as tablets in the levels.
 
 ## Checked by
 

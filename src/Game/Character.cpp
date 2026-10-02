@@ -130,8 +130,8 @@ std::vector<Character> CreateDefaultParty() {
 	// The two casters hold one school rune and one form rune, school in the left
 	// hand: Maren fire + project (a bolt), Tilo earth + protect (a ward). A rune
 	// in a hand is memorized from its use menu, so the magic loop (memorize,
-	// build in the spellbook, cast) is a click away in a fresh game; the rest of
-	// the runes are found.
+	// build in the spellbook, cast) is a click away in a fresh game; the other
+	// schools and forms are found.
 	party[0].inventory.Hand(1).typeId = "dagger";
 	party[1].inventory.Hand(0).typeId = "dagger";
 	// Sera carries the party's LIGHT in her free right hand (spell-updates): a
@@ -142,6 +142,15 @@ std::vector<Character> CreateDefaultParty() {
 	party[2].inventory.Hand(1).typeId = RuneItemId(SpellSymbol::Project);
 	party[3].inventory.Hand(0).typeId = RuneItemId(SpellSymbol::Earth);
 	party[3].inventory.Hand(1).typeId = RuneItemId(SpellSymbol::Protect);
+	// And each caster carries the two MODIFIER runes, Ingwaz and Hagalaz, in the
+	// backpack (Michael, spell-updates): the third tier is reachable from a fresh
+	// game - memorize them from the sheet, then volley a bolt or burst a ward.
+	// Each caster gets both, because a rune is memorized by ONE member and spent.
+	for (const int caster : {2, 3}) {
+		Inventory& inv = party[static_cast<size_t>(caster)].inventory;
+		inv.Stow(std::string(RuneItemId(SpellSymbol::Multiple)));
+		inv.Stow(std::string(RuneItemId(SpellSymbol::Explode)));
+	}
 
 	// Brand starts carrying one piece of each armor WEIGHT CLASS, for the same
 	// reason the casters start with runes: the trade the armor system is built

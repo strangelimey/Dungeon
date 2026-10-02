@@ -215,8 +215,8 @@ above. (Phase labels P1–P6 track the build-out order.)
 
 - **Runes (P1).** Nine `SpellSymbol`s across three tiers, shown by their
   Futhark names; the grammar in `Spells.h` (see "Third tier" above). Ingwaz and
-  Hagalaz tablets exist as items (`rune_multiple`, `rune_explode`) but are not
-  yet placed in a level.
+  Hagalaz tablets (`rune_multiple`, `rune_explode`) ride in both casters'
+  starting packs.
 - **What a spell can reach (P2).** `CastContext` gained the casting `hand` and
   the `party`; `CastServices` grew from "spawn a bolt, say a line" into the
   world hooks the new spells need - `fireAhead` / `setFireAhead` /
@@ -329,8 +329,8 @@ Magic is a **walled-off module** (it knows nothing of map/monsters/HUD):
   the built sequence row, Clear + Cast. Wire `GameUI.onCast`. Defer-rebuild the
   panel on any vocab change (like the language/video rebuilds). The character
   sheet's Runes section (known symbols, Memorize) is its sheet-side companion.
-- **P6 — Content + verify.** Place runes in a level's `.ent` - Ingwaz and Hagalaz
-  tablets deeper and guarded (spell-updates Q10); the starter recipes
+- **P6 — Content + verify.** Place runes in a level's `.ent` (Ingwaz and Hagalaz
+  ride in both casters' starting packs instead - docs/spells.md); the starter recipes
   already live in `spells.cat`. Full `drive.ps1` playthrough: pick up runes,
   memorize, cast at a monster, watch the bolt fly + impact; screenshots.
 
