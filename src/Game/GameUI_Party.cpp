@@ -92,6 +92,30 @@ bool GameUI::StartPartyPage(std::string& why) {
 	return onStartParty(m_partyPage->Specs(), why);
 }
 
+// --- Settings -> UI -> Party Colors (phase 4) ------------------------------------
+
+bool GameUI::MemberColorInPlay(size_t slot) const {
+	return slot < m_characters.size() && partyInPlay && partyInPlay();
+}
+
+// Each row names whoever holds its slot and shows THEIR colour - a made member's
+// is their own, not the slot default - or, with no party in play (the title) or
+// nobody in the slot, "Member n" and the default a new member there starts with.
+// Run when the page opens or is rebuilt: the party may have changed since.
+void GameUI::SyncMemberColorPickers() {
+	for (size_t i = 0; i < m_memberColorPickers.size(); ++i) {
+		ui::ColorPicker* picker = m_memberColorPickers[i];
+		if (!picker) continue;
+		if (MemberColorInPlay(i)) {
+			picker->label = m_characters[i].name;
+			picker->SetColor(m_characters[i].portraitColor);
+		} else {
+			picker->label = loc::Format("settings.member_n", i + 1);
+			picker->SetColor(m_settings.memberColors[i]);
+		}
+	}
+}
+
 void GameUI::OpenPartyPortraitPicker(size_t member, const std::string& raceTag) {
 	if (!m_portraitPicker || !m_partyPage || member >= m_partyPage->Count()) return;
 	const party::MemberSpec& spec = m_partyPage->Spec(member);

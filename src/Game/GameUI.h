@@ -346,6 +346,9 @@ public:
 	// Editor entry and the harness's `newgame` / `reset` skip the page.
 	std::function<void(const std::string& folder)> onOpenPartyCreation;
 	std::function<bool(const std::vector<party::MemberSpec>&, std::string& why)> onStartParty;
+	// Whether a game is in play (not the title screen): the Settings colour rows
+	// then edit the party's members, not only the new-member defaults.
+	std::function<bool()> partyInPlay;
 
 	// The page itself (GameUI_Party.cpp). OpenPartyPage shows it next frame,
 	// fresh (one new member); Back leaves for the world list it came from, or the
@@ -761,6 +764,11 @@ private:
 	bool m_partyFromWorlds = false; // Back returns to the world list
 	void BuildPartyPage();
 	void RefreshPartyPageIfDirty();
+	// Settings -> UI -> Party Colors (GameUI_Party.cpp): the four pickers, kept
+	// in step with whoever holds each slot.
+	std::array<ui::ColorPicker*, kMemberColorCount> m_memberColorPickers{};
+	bool MemberColorInPlay(size_t slot) const; // a member of a game in play holds it
+	void SyncMemberColorPickers();
 	SavesMode m_savesMode = SavesMode::Load;
 	// Save page widgets (live in m_savesUi, valid only while it is built): the
 	// name field and the Save button, plus whether a second click is needed to

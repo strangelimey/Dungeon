@@ -1024,6 +1024,12 @@ a RACE, the points they spend and the skills they pick, then whatever they do.
   always starts from the four). `ResetRoster(party)` replaces the vector when the
   SIZE differs and calls RebuildForRoster at once (every caller runs outside the
   HUD's widget walk); only the default four take the Settings palette's colours.
+- COLOUR is the member's own (saved with them). Settings -> UI -> Party Colors
+  FOLLOWS THE PARTY: in a game, row n names member n, shows their colour and
+  recolours them live (and sets slot n's default); on the title, or for a slot
+  a short party leaves empty, it is "Member n" and edits only the ini's
+  `member_<n>=`, the colour a new member in that slot starts with
+  (GameUI::SyncMemberColorPickers, re-run whenever the page opens).
 - SAVE: `roster <n>` plus per-member `name` (spaces as underscores), `race`,
   `color`, `pace`. A save without them is the default four, so no version bump.
   LoadGame cuts the default four down to `roster` before laying the save on top.

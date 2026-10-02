@@ -191,6 +191,21 @@ DONE (2026-10-02). What it came to:
   closed out.
 - Launch a fresh game and hand it to Michael: build a party, play, save, load.
 
+DONE (2026-10-02). Settings -> UI -> Party Colors follows the party: with a game
+in play (paused) row n names member n and shows THEIR colour, and an edit
+recolours them at once (saved with the game, as every member's colour is) and
+sets slot n's default too; on the title, or for a slot a short party leaves
+empty, the row is "Member n" and edits only the default a new member in that
+slot starts with (the page's Add uses it; the default four wear them).
+`GameUI::SyncMemberColorPickers` re-labels the rows when the page opens or is
+rebuilt; `partyInPlay` (wired by Game: loaded and not on the title) decides.
+Checked by hand: a created elf's row showed her own blue, not the slot's
+orange; raising its red gave fda0ff on her (from her blue) and member_1 in the
+ini; the title showed Member 1-4 at their defaults; uioverlap clean over the
+UI tab with a 15-character name in row 1.
+
+THE BRANCH IS DONE. What is left is the play-test.
+
 ## Not in this branch
 
 - New items (sword, healing potion, wand, ring) and an item quality field - their

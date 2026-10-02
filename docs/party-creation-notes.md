@@ -113,3 +113,10 @@ skills; and a Default party button for today's four.
 - Q6. Default party: start at once, or fill the page so it can be edited?
   ANSWER: FILL THE PAGE with today's four (names, faces, stats, kit), editable,
   then Start.
+
+## Closed out (2026-10-02)
+
+All four phases of party-creation-plan.md are built. Of the brain dump, points
+1-5 and 7-10 are in; point 6 (a voice) waits for the sound work, and the
+sword / potion / wand / ring of point 7 are their own branch, which appends to
+each world's `start_items`.

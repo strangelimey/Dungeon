@@ -93,6 +93,9 @@ void Game::WireModuleCallbacks() {
 	m_ui.onStartParty = [this](const std::vector<party::MemberSpec>& specs, std::string& why) {
 		return StartWithParty(specs, why);
 	};
+	// The title screen's Settings edit only the new-member colours; a paused
+	// game's edit its party too (phase 4).
+	m_ui.partyInPlay = [this] { return m_gameLoaded && m_state != AppState::Menu; };
 	m_ui.onEditorOnArrival = [this](bool on) { m_editorOnArrival = on; };
 	m_ui.onQuit = [this] { m_quitRequested = true; };
 	m_ui.onResume = [this] { m_state = m_resumeState; };
