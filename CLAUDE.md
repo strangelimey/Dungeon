@@ -1745,11 +1745,23 @@ Full per-phase history + gotchas live in the editor-overhaul memory.
 ## Workflow conventions used so far
 
 - Verify changes by launching the exe and driving it with PostMessage
-  keystrokes + CopyFromScreen screenshots into docs/ (dot-source
-  docs/drive.ps1: Key/Click/Shot helpers, client coords; ALWAYS send the
-  keyup or the next keydown of that key won't register as pressed).
-  Menu nav: Down/Enter; allow ~10s+ load on
+  keystrokes + PrintWindow screenshots into docs/ (dot-source
+  `docs/drive.ps1 -GamePid <pid>`: Key/Send/Click/Shot helpers, client coords;
+  ALWAYS send the keyup or the next keydown of that key won't register as
+  pressed). Menu nav: Down/Enter; allow ~10s+ load on
   High/Ultra cold cache before sending keys.
+- SEVERAL SESSIONS RUN AT ONCE (Michael, 2026-10-02), each with its own game, so
+  EVERY harness and driver: (1) sends input to a window BY PID - the game it
+  launched (keep `Start-Process -PassThru`'s Id), or one picked by THIS
+  worktree's exe path - never `Get-Process Dungeon`'s first hit, the foreground
+  window or a title search; and (2) captures screenshots with PrintWindow
+  (PW_CLIENTONLY | PW_RENDERFULLCONTENT - the second flag is what gets a D3D
+  swapchain instead of black) on that HWND, NEVER CopyFromScreen or any desktop
+  grab, which photographs whatever window is in front. Kill by PID too. A
+  harness that refuses to run beside another game must say why (ProfileTest
+  does, on purpose: a second game on the GPU would be measured). drive.ps1 is
+  the reference; it refuses rather than guess when it cannot tell which game is
+  its own.
 - TYPED TEXT IS ONE ORDERED STREAM (Platform/Input.h `TypedChars`): printable
   characters plus `Input::kTypedBack` / `kTypedEnter`, pushed by OnKey on the
   press, so a consumer applies Backspace and Enter WHERE THEY FELL (the console,
