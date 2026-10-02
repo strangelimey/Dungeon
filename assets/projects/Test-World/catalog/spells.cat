@@ -7,46 +7,41 @@
 ; end of its reach). The spell's school lends the flavour, so one authored
 ; `burn` is fire from a firebolt and frost from a waterbolt.
 
+; --- tier 1: a school rune alone is a small thing IN THE HAND (spell-updates).
+; Not weapons: power is only what a threshold below is measured against.
 [flame]
 name = spell.flame
 symbols = fire
-effect = projectile
-element = fire
 power = 8
-mana = 4
-speed = 7
-range = 8
-on_hit = burn 2 4 0.5
+mana = 2
+; an unlit brazier ahead catches only at this power or more
+brazier_power = 14
 
 [rock]
 name = spell.rock
 symbols = earth
-effect = projectile
-element = earth
-power = 12
-mana = 6
-speed = 5
-range = 7
+power = 8
+mana = 2
+; the item conjured into the hand (or at the feet, both hands full)
+conjures = pebble
 
 [gust]
 name = spell.gust
 symbols = air
-effect = projectile
-element = air
 power = 5
-mana = 3
-speed = 11
-range = 11
+mana = 2
+; at this power or more the breeze also shoves the monster ahead back `push`
+; squares and meets shots flying at the party (weakens / flings them back)
+push_power = 8
+push = 1
 
 [splash]
 name = spell.splash
 symbols = water
-effect = projectile
-element = water
 power = 7
-mana = 4
-speed = 7
-range = 9
+mana = 2
+; a burning brazier ahead goes out only at this power or more
+brazier_power = 12
 
 [fireburst]
 name = spell.fireburst

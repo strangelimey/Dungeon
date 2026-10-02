@@ -280,6 +280,7 @@ void Game::RegisterPartyCommands() {
 						   for (int i = 0; i < kEquipCount; ++i) {
 							   const EquipSlot slot = static_cast<EquipSlot>(i);
 							   if (!WearSlotFits(w, slot)) continue;
+							   c.inventory.equipment[static_cast<size_t>(i)].Clear(); // no charge left over
 							   c.inventory.equipment[static_cast<size_t>(i)].typeId = args[0];
 							   m_console.Print(std::format("{} wears {} ({})", c.name,
 														   args[0], WearSlotId(w)));
@@ -307,6 +308,7 @@ void Game::RegisterPartyCommands() {
 							   m_console.Print(std::format("no item '{}' in items/weapons/armor", args[0]));
 							   return;
 						   }
+						   m_characters[m].inventory.Hand(hand).Clear(); // no charge left over
 						   m_characters[m].inventory.Hand(hand).typeId = args[0];
 						   m_console.Print(std::format("{} {} hand = {}",
 													   m_characters[m].name,

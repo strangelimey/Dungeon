@@ -133,6 +133,22 @@ knobs, so the balance pass owns them.
   Bolt in Phase 6 (Q9 ANSWERED). Higher-level mages volley (Ingwaz) and higher
   still explode (Hagalaz) - Phase 7.
 
+### Phase 5 - as built (2026-10-01)
+
+- The four are HandSpells (Spell/HandSpell.h: OtherHands / LandingHands - a cast
+  from no hand looks in both, right first). Mana 2 each; power is only what the
+  thresholds read: Flame / Splash `brazier_power` 14 / 12, Gust `push_power` 8
+  (+ `push` 1 square). At school level 0 none reaches them; level 30 does.
+- Two new services, so a spell never learns what an item kind is: `lightItem`
+  (an item's `lit_as`) and `fillItem` (`fill_as`: empty -> half -> full
+  waterskin), both DungeonWorld::RenameHeldItem.
+- Pebble conjures `conjures = pebble` (a new throwable, 0.1 kg; the rock's model
+  for now). The skeleton mage casts fireburst until Phase 6 renames it.
+- Not built: a visible puff in the hand - every spell says what it did in the
+  message log, and the world shows it (a torch lights, a brazier flares).
+- Harness moved off Kenaz-as-a-bolt: the evals and AllocTest -Cast spell Kenaz
+  Tiwaz (with fire skill 5, so it cannot fumble); -Impact fires Water Bolts.
+
 ## Phase 6 - Tier 2 bolts (note 6)
 
 - The four Project spells become single-target bolts: no blast fields, one

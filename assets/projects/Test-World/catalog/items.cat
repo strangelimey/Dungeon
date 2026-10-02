@@ -141,6 +141,16 @@ command = eat
 nutrition = 18
 hydration = 0
 
+; Conjured by the Pebble spell (Berkano alone): a small stone, good for a throw.
+; (Wears the rock's model until it has its own.)
+[pebble]
+name = item.pebble
+category = misc
+weight = 0.1
+holdable = 1
+command = throw
+model = rock
+
 ; A waterskin holds two drinks: a drink steps it down a FILL LEVEL (drink_as)
 ; rather than using it up, and a Splash (or a stream, later) steps it back up.
 [waterskin]
@@ -155,6 +165,7 @@ drink_as = waterskin_half
 
 [waterskin_half]
 name = item.waterskin_half
+fill_as = waterskin
 category = drink
 weight = 0.8
 holdable = 1
@@ -165,6 +176,7 @@ drink_as = waterskin_empty
 
 [waterskin_empty]
 name = item.waterskin_empty
+fill_as = waterskin_half
 category = drink
 weight = 0.4
 holdable = 1

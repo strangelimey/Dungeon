@@ -301,7 +301,9 @@ struct Inventory {
 	bool AddToPack(const std::string& typeId, int p) {
 		const int i = FirstFree(p);
 		if (i < 0) return false;
-		packs[static_cast<size_t>(p)].contents[static_cast<size_t>(i)].typeId = typeId;
+		ItemSlot& slot = packs[static_cast<size_t>(p)].contents[static_cast<size_t>(i)];
+		slot.typeId = typeId;
+		slot.charge = kNoCharge; // a fresh item, whatever the slot held before
 		return true;
 	}
 	// Stows into the SELECTED pack (the active container) — the default target.

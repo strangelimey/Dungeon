@@ -92,7 +92,7 @@ movecd = 0.5
 iq = 130
 archetype = caster
 keeprange = 5
-spell = flame
+spell = fireburst
 resists = pierce 0.5, slash 0.25, bash -0.5
 ; It has no skills, so `powers` is where "this one is dangerous with fire" lives —
 ; the attacker's mirror of the resists above. Its flame bolts land harder; its

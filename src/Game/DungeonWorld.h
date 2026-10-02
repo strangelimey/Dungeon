@@ -2223,6 +2223,9 @@ private:
 		// it goes out (stowed, put down, doused) and `lit_as` the reverse.
 		float burnTime = 0.0f;
 		std::string litAs, unlitAs, spentAs;
+		// A container one fill level up (items.cat `fill_as`): what a Splash, or
+		// any later filling, makes of it. Empty = it takes no water.
+		std::string fillAs;
 		bool Lit() const { return burnTime > 0.0f; }
 		// Worn armor's WEIGHT CLASS (armor.cat `class`): what it costs to
 		// evade in, which skill it trains, and what STR it asks. The soak
@@ -2303,6 +2306,11 @@ private:
 		// (vs the static shape-aware pose). The cursor + every slot animate with it.
 		bool iconAnimated = false;
 	};
+	// Rewrites a held item as the kind its `becomes` field names (&litAs: light
+	// it; &fillAs: fill it a level), keeping its charge; returns the new kind's
+	// name key, or empty when that field is empty (the item does not take it).
+	// The cast services' lightItem / fillItem (DungeonWorld_Ahead.cpp).
+	std::string_view RenameHeldItem(ItemSlot& slot, std::string ItemKind::*becomes);
 	struct Item {
 		const ItemKind* kind = nullptr; // points into m_itemKinds (stable)
 		int id = -1;                    // source Entity::id (>= 0 = .ent baseline)
@@ -3642,6 +3650,8 @@ private:
 	// through, and the per-frame passes.
 	HeldItem* m_cursorItem = nullptr;
 	ItemSlot m_cursorScratch;
+	// DropAtPartyFeet's id, assigned rather than constructed (a guarded frame).
+	std::string m_dropIdScratch;
 	// Burns every lit torch held (hands, cursor) by `dt`, and puts out any
 	// stowed in a pack.
 	void TickCarriedLight(float dt);

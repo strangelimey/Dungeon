@@ -33,6 +33,7 @@
 namespace dungeon::game {
 
 struct Character;
+struct ItemSlot;
 struct CatalogEntry;
 
 // Reads an entry's area-blast fields (blast_force / _damage / _falloff / _rate /
@@ -86,6 +87,13 @@ struct CastServices {
 	// Lands `itemId` on the floor of the party's square - where a conjured item
 	// goes when both of the caster's hands are full.
 	std::function<void(std::string_view itemId)> dropAtFeet;
+	// What a hand spell does to a HELD item, by the item's own catalog fields
+	// (a spell never learns what an item kind is): light it (`lit_as`, an
+	// unlit torch) or fill it a level (`fill_as`, an empty or half waterskin).
+	// Each rewrites the slot in place and returns the name key of what it now
+	// holds, or empty when the item does not take it.
+	std::function<std::string_view(ItemSlot&)> lightItem;
+	std::function<std::string_view(ItemSlot&)> fillItem;
 	// Shoves whatever monster stands in the square ahead `cells` squares further
 	// away, along the party's facing (stopped early by a wall, a shut door or a
 	// packed square). True if anything moved.

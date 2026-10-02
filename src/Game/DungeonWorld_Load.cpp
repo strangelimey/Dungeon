@@ -1114,6 +1114,8 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		kind->litAs = CatalogGet(def, "lit_as", "");
 		kind->unlitAs = CatalogGet(def, "unlit_as", "");
 		kind->spentAs = CatalogGet(def, "spent_as", "");
+		// What a Splash turns it into: a container one fill level up.
+		kind->fillAs = CatalogGet(def, "fill_as", "");
 		// What its blows leave behind, named by effect id — the same authored
 		// form a monster uses. A plain weapon has none and swings as before.
 		ParseOnHit(def, kind->onHit, "weapons.cat [" + type + "]");

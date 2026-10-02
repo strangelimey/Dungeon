@@ -225,6 +225,8 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		 [this](bool burning) { return SetFireAhead(burning); },
 		 [this] { return FlareFireAhead(); },
 		 [this](std::string_view itemId) { DropAtPartyFeet(itemId); },
+		 [this](ItemSlot& slot) { return RenameHeldItem(slot, &ItemKind::litAs); },
+		 [this](ItemSlot& slot) { return RenameHeldItem(slot, &ItemKind::fillAs); },
 		 [this](int cells) { return ShoveAhead(cells); },
 		 [this](float power, int casterIndex) { return RepelAhead(power, casterIndex); },
 		 [this](const ProjectilePayload& payload, SpellSymbol school, int casterIndex) {

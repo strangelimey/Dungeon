@@ -75,8 +75,9 @@ face east
 spawn skel_warrior 16 12 west
 freeze on
 learn 3 fire
-cast 3 fire
-cast 3 fire
+learn 3 project
+cast 3 fire project
+cast 3 fire project
 step 8
 echo === 3. a bolt in flight ===
 monsters

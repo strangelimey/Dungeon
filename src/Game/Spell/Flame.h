@@ -1,19 +1,27 @@
 // ============================================================================
-// Game/Spell/Flame.h — Puff of Flame (fire): the fire school's tier-1 bolt.
+// Game/Spell/Flame.h - Puff of Flame (Kenaz alone): a puff of flame in the hand.
 //
-// Day one: a small fire bolt. Growth (docs/spells.md): lights sconces and
-// torches, a brief light flash on cast, then the fire-blast damage form —
-// that behaviour lands as a Cast() override here (base bolt + ignition).
+// NOT a bolt (spell-updates, Michael): it lights things, in this order -
+//   * an unlit torch in the OTHER hand (its `lit_as`),
+//   * else the unlit wall torch the party faces,
+//   * else the unlit brazier ahead - but only at `brazier_power` (spells.cat):
+//     a bowl of coals takes more than a flicker to catch.
+// Otherwise it flickers and goes out. It does no harm to anyone.
 // ============================================================================
 #pragma once
 
-#include "Game/Spell/BoltSpell.h"
+#include "Game/Spell/HandSpell.h"
 
 namespace dungeon::game::spells {
 
-class Flame : public BoltSpell {
+class Flame : public HandSpell {
 public:
 	Flame();
+	void Cast(CastContext& ctx) const override;
+	void ApplyOverrides(const CatalogEntry& e) override; // + brazier_power
+
+private:
+	float m_brazierPower;
 };
 
 } // namespace dungeon::game::spells

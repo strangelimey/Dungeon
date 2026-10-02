@@ -73,8 +73,22 @@ float DungeonWorld::FireAheadHaze() const {
 	return haze;
 }
 
+std::string_view DungeonWorld::RenameHeldItem(ItemSlot& slot,
+											  std::string ItemKind::*becomes) {
+	if (slot.Empty()) return {};
+	const std::string& to = ItemKindFor(slot.typeId).*becomes;
+	if (to.empty()) return {};
+	// Into the slot's own buffer, keeping its charge (a relit torch has what it
+	// had left); the new kind's name for the caster's line.
+	slot.typeId.assign(to);
+	return ItemKindFor(slot.typeId).nameKey;
+}
+
 void DungeonWorld::DropAtPartyFeet(std::string_view itemId) {
-	DropItemInCell(std::string(itemId), m_party.GridX(), m_party.GridZ());
+	// Through a kept buffer: a cast lands in a guarded frame, and constructing
+	// a string there allocates in the debug CRT whatever its length.
+	m_dropIdScratch.assign(itemId);
+	DropItemInCell(m_dropIdScratch, m_party.GridX(), m_party.GridZ());
 }
 
 bool DungeonWorld::ShoveAhead(int cells) {

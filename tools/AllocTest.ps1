@@ -728,7 +728,12 @@ try {
 		Send-Text 'logecho on'; Send-Key 0x0D
 		Send-Text 'timescale 0'; Send-Key 0x0D
 		Send-Text "learn $CastMember fire"; Send-Key 0x0D
-		Send-Text "cast $CastMember 0 fire"; Send-Key 0x0D
+		Send-Text "learn $CastMember project"; Send-Key 0x0D
+		# Enough fire skill that a two-rune cast cannot fumble (Magic.cpp: 35% a rune
+		# past the first, less 10% a level) - the run measures a bolt, not luck.
+		Send-Text "setskill $CastMember fire 5"; Send-Key 0x0D
+		# Kenaz Tiwaz: Kenaz alone is a hand spell now, with nothing in flight.
+		Send-Text "cast $CastMember 0 fire project"; Send-Key 0x0D
 		Send-Text "book $CastMember"; Send-Key 0x0D
 		Start-Sleep -Milliseconds 500
 		Send-Text 'logecho off'; Send-Key 0x0D
@@ -768,8 +773,9 @@ try {
 		# Members 0 and 1 cast down OPPOSITE lanes (front-left, front-right),
 		# so whichever lane the monster's slot is not in flies past and
 		# expires; member 2 throws the blast.
-		Send-Text "autocast 0 flame $ImpactEvery"; Send-Key 0x0D
-		Send-Text 'autocast 1 flame'; Send-Key 0x0D
+		# Single-target bolts in the two lanes (Puff of Flame is a hand spell now).
+		Send-Text "autocast 0 waterbolt $ImpactEvery"; Send-Key 0x0D
+		Send-Text 'autocast 1 waterbolt'; Send-Key 0x0D
 		Send-Text 'autocast 2 fireburst'; Send-Key 0x0D
 		Send-Text 'tally reset'; Send-Key 0x0D
 		Write-Host "  casting at a $ImpactMonster (x$ImpactStrength) from $px,$pz; waiting for a hit, an expiry and a blast (warm-up)"

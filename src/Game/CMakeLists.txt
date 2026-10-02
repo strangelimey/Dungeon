@@ -154,6 +154,7 @@ add_library(Game STATIC
 	Spell/Fireshield.cpp
 	Spell/Flame.cpp
 	Spell/Gust.cpp
+	Spell/HandSpell.cpp
 	Spell/Push.cpp
 	Spell/Rock.cpp
 	Spell/Scrying.cpp
