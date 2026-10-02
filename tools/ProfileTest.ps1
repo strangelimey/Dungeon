@@ -116,23 +116,45 @@ try {
 	}
 	if ($hwnd -eq [IntPtr]::Zero) { throw 'the game never showed a main window' }
 
-	# Landing page. Retried: one dropped PostMessage keystroke should not fail a run.
-	$loaded = $false
-	for ($try = 1; $try -le 3 -and -not $loaded; $try++) {
-		Send-Key 0x0D
-		$d2 = (Get-Date).AddSeconds(90)
-		while ((Get-Date) -lt $d2) {
-			if ($proc.HasExited) { throw 'the game exited during the dungeon load' }
-			if ((Test-Path $log) -and (Select-String -Path $log -Pattern 'Game loaded: ' -EA SilentlyContinue)) {
-				$loaded = $true; break
-			}
-			Start-Sleep -Milliseconds 400
-		}
+	# START A NEW GAME THROUGH THE CONSOLE, not the landing page. Enter there is
+	# the FIRST entry, which is Continue whenever a loadable save exists - and
+	# the eval suites and other sessions leave saves behind in the one shared
+	# Documents\DungeonSaves. So the run profiled whichever save was newest,
+	# and one whose level the world already held printed neither line waited
+	# for below. `newgame` calls the menu entry's own callback
+	# (Game_DevEval.cpp), so this is the same new game whatever the menu holds
+	# (AllocTest.ps1 made the same change). logecho first, retried, so a
+	# dropped keystroke or a console not yet taking commands cannot fail a run.
+	Send-Key 0xC0; Start-Sleep -Milliseconds 500
+	$started = $false
+	for ($try = 1; $try -le 10 -and -not $started; $try++) {
+		Send-Text 'logecho on'; Send-Key 0x0D
+		Start-Sleep -Milliseconds 500
+		$started = [bool](Select-String -Path $log -Pattern 'console: > logecho on' -EA SilentlyContinue)
 	}
-	if (-not $loaded) { throw 'the dungeon never loaded' }
+	if (-not $started) { throw 'the console never accepted a command on the title screen' }
+	Send-Text 'newgame'; Send-Key 0x0D
+	Start-Sleep -Milliseconds 300
+	Send-Key 0xC0                                     # closed: reopened below
+	# NOT 'Game loaded:' - that comes from a load TASK, before the starting
+	# level's own load has begun. A level load ends with 'Level ready:'; a new
+	# game that lands without one (a level already in memory) says 'New game
+	# started'.
+	Wait-ForLog '^\[info \] (Level ready: |New game started)' $LoadTimeoutSec 'the dungeon load' | Out-Null
 	Start-Sleep -Seconds 3
 
 	Send-Key 0xC0; Start-Sleep -Milliseconds 700     # console open, and it stays open
+	# logecho OFF again, so the log below is the one the verdict was written
+	# against and no echo lands inside a snapshot. Not straight after `newgame`
+	# - that starts a load, and a command typed into a load is refused. Retried
+	# until its own echo lands (echoed before it turns echoing off), which also
+	# proves the console is taking commands before the snapshots rely on it.
+	$quiet = $false
+	for ($try = 1; $try -le 10 -and -not $quiet; $try++) {
+		Run-Cmd 'logecho off'
+		$quiet = [bool](Select-String -Path $log -Pattern 'console: > logecho off' -EA SilentlyContinue)
+	}
+	if (-not $quiet) { throw 'the console never accepted a command after the new game' }
 	# Face down a corridor rather than into a wall a metre away: a wall is the
 	# cheapest scene in the game and would leave the quality change with almost
 	# nothing to move.

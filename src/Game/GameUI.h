@@ -19,6 +19,7 @@
 #include "Game/Character.h"
 #include "Game/GameSettings.h"
 #include "Game/ItemDetailsDialog.h"
+#include "Game/PortraitPicker.h"
 #include "Game/LoadQueue.h"
 #include "Game/MessageLog.h"
 #include "Game/Party.h"
@@ -176,7 +177,7 @@ public:
 	// also treat the click as a pick/drop). Valid after UpdateHud.
 	// The item details dialog holds the pointer while it is up, so it counts.
 	bool HudMouseConsumed() const {
-		return m_hudUi.IsMouseConsumed() || ItemDetailsOpen();
+		return m_hudUi.IsMouseConsumed() || ItemDetailsOpen() || PortraitPickerOpen();
 	}
 
 	// --- the floating HUD panels (ui-panels P3a) -------------------------------
@@ -226,6 +227,24 @@ public:
 	void RenderItemDetails();
 	// (Not `ItemDetails()`: inside the class that name would hide the struct.)
 	ItemDetailsDialog* DetailsDialog() { return m_itemDetails.get(); }
+
+	// --- the portrait picker (docs/portraits-plan.md, phase 3) -----------------
+	// Handled like the details dialog: modal for the mouse, updated instead of
+	// the page under it, closed first by DismissPopup. Opened for a roster
+	// member, whose pick goes to onSetPortrait. The OPENER must also excuse the
+	// frame (Game::OpenPortraitPicker does), since opening allocates.
+	void OpenPortraitPicker(size_t member);
+	bool PortraitPickerOpen() const { return m_portraitPicker && m_portraitPicker->IsOpen(); }
+	void ClosePortraitPicker() {
+		if (m_portraitPicker) m_portraitPicker->Close();
+	}
+	void RenderPortraitPicker();
+	PortraitPicker* Portraits() { return m_portraitPicker.get(); }
+	// A pick: (member, portraits.cat id). Game::SetPortrait.
+	std::function<bool(size_t, const std::string&)> onSetPortrait;
+	// The sheet's "Change portrait" button, for the shown member. Game opens the
+	// picker through Game::OpenPortraitPicker, which also excuses the frame.
+	std::function<void(size_t)> onChangePortrait;
 
 	// The party window (the sheet's "All"; Game/PartyWindow.h): every member's
 	// card on one tab. Non-modal; Game drives open/close (and routes Esc to
@@ -762,6 +781,8 @@ private:
 	// The item details dialog: built once in BuildStaticUi (a right-click in a
 	// guarded frame must not build a widget tree), rebuilt on a language switch.
 	std::unique_ptr<ItemDetailsDialog> m_itemDetails;
+	// The portrait picker: built once, likewise; filled by Game::LoadPortraits.
+	std::unique_ptr<PortraitPicker> m_portraitPicker;
 	// The party window (owned by m_hudUi), opened by the sheet's "All".
 	PartyWindow* m_inventory = nullptr;
 	ui::Button* m_sheetAll = nullptr; // that button (owned by m_sheetUi)

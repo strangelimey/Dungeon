@@ -113,6 +113,11 @@ $screens = @(
 	# backwards; the `sheet` dev command opens it through the same entry point
 	# the click uses, and it is swept like everything else now.
 	@{ label = 'sweep_sheet';  viaConsole = $true;  open = { Run-Cmd 'sheet 0' }; close = { Run-Cmd 'sheet off' } },
+	# The portrait picker over the sheet (docs/portraits-plan.md), opened the way
+	# the sheet's "Change portrait" button opens it.
+	@{ label = 'sweep_portraits'; viaConsole = $true
+	   open = { Run-Cmd 'sheet 0'; Run-Cmd 'portrait picker 0' }
+	   close = { Run-Cmd 'portrait picker off'; Run-Cmd 'sheet off' } },
 	# The floating HUD's other shapes (docs/ui-panels-plan.md P3b/P4): the party
 	# inventory WINDOW, and the MINIMAL layout - the party bar and the hands
 	# folded into one card per member, with the Magic dock (a member knows a
@@ -145,8 +150,9 @@ $screens = @(
 	# The STAIR inspector, both layouts: crypt1's stair down at 1,1 (destination
 	# and Go to) and its exit at 7,8 (one "leads out to" line).
 	# `editor inspect` is what a right-click on the square does. It goes to crypt1
-	# FIRST: Enter on the landing page can mean Continue, which loads whatever
-	# level the newest save names (an eval save puts it on eval_arena), and the
+	# FIRST, rather than trusting where the game started: the run used to press
+	# Enter on the landing page, which was Continue whenever a save existed and
+	# loaded whatever level it named (an eval save puts it on eval_arena), and the
 	# first version of this swept two empty squares of the arena - clean, and
 	# vacuous. The verdict below demands the dialog really opened, both times.
 	# FROZEN, because crypt1 has a monster and the world simulates under the
@@ -223,32 +229,51 @@ try {
 	}
 	if ($hwnd -eq [IntPtr]::Zero) { throw 'the game never showed a main window' }
 
-	# Landing page: with no save present the first entry is Start New Game.
-	# Retried, because one dropped PostMessage keystroke should not fail a run.
-	$loaded = $false
-	for ($try = 1; $try -le 3 -and -not $loaded; $try++) {
-		Send-Key 0x0D
-		$d2 = (Get-Date).AddSeconds(60)
-		while ((Get-Date) -lt $d2) {
-			if ($proc.HasExited) { throw 'the game exited during the dungeon load' }
-			if ((Test-Path $log) -and (Select-String -Path $log -Pattern 'Game loaded: ' -EA SilentlyContinue)) {
-				$loaded = $true; break
-			}
-			Start-Sleep -Milliseconds 400
-		}
+	# START A NEW GAME THROUGH THE CONSOLE, not the landing page. Enter there is
+	# the FIRST entry, which is Continue whenever a loadable save exists - and
+	# the eval suites and other sessions leave saves behind in the one shared
+	# Documents\DungeonSaves. So the sweep audited whichever save was newest,
+	# and one whose level the world already held printed neither line waited
+	# for below. `newgame` calls the menu entry's own callback
+	# (Game_DevEval.cpp), so this is the same new game whatever the menu holds
+	# (AllocTest.ps1 made the same change). logecho first, retried, so a
+	# dropped keystroke or a console not yet taking commands cannot fail a run.
+	Open-Console
+	$started = $false
+	for ($try = 1; $try -le 10 -and -not $started; $try++) {
+		Send-Text 'logecho on'; Send-Key 0x0D
+		Start-Sleep -Milliseconds 500
+		$started = [bool](Select-String -Path $log -Pattern 'console: > logecho on' -EA SilentlyContinue)
 	}
-	if (-not $loaded) { throw 'the dungeon never loaded' }
+	if (-not $started) { throw 'the console never accepted a command on the title screen' }
+	Send-Text 'newgame'; Send-Key 0x0D
+	Start-Sleep -Milliseconds 300
+	Send-Key 0xC0; Start-Sleep -Milliseconds 400     # closed: Open-Console below reopens it
+	# NOT 'Game loaded:' - that comes from a load TASK, before the starting
+	# level's own load has begun. A level load ends with 'Level ready:'; a new
+	# game that lands without one (a level already in memory) says 'New game
+	# started'.
+	Wait-ForLog '^\[info \] (Level ready: |New game started)' $LoadTimeoutSec 'the dungeon load' | Out-Null
 	Start-Sleep -Seconds 2
 
 	Open-Console
+	# logecho OFF again before the sweep: echoed console output would put every
+	# `uioverlap: auditing...` line into the log, and the verdict reads any
+	# uioverlap line that is not "clean" as a finding. Not straight after
+	# `newgame` - that starts a load, and a command typed into a load is
+	# refused. Retried until its own echo lands (the line is echoed before the
+	# command turns echoing off).
+	$quiet = $false
+	for ($try = 1; $try -le 10 -and -not $quiet; $try++) {
+		Run-Cmd 'logecho off'
+		$quiet = [bool](Select-String -Path $log -Pattern 'console: > logecho off' -EA SilentlyContinue)
+	}
+	if (-not $quiet) { throw 'the console never accepted a command after the new game' }
 	# RETRIED UNTIL IT ANSWERS, because the console is GATED OFF while a level
-	# load is in flight and this is the first command of the run. Pressing Enter
-	# on the landing page does not always mean "Start New Game": the eval suites
-	# leave loadable saves behind, which put Continue at the top of the list, and
-	# a save naming a different level than the one already loaded stages a
-	# transition. The suite used to pass only because those two levels happened
-	# to be the same, and reported "levelcheck never reported" the moment they
-	# were not.
+	# load is in flight. (It was first added when Enter on the landing page
+	# could mean Continue, whose save could stage a second load after the
+	# first; the run starts with `newgame` now, but a command typed into a
+	# load is still refused, so the retry stays.)
 	$answered = $false
 	for ($try = 1; $try -le 10 -and -not $answered; $try++) {
 		Run-Cmd 'levelcheck'
@@ -317,6 +342,13 @@ if ($stairs.Count -ge 2) {
 } else {
 	Write-Host "  [FAIL] the stair inspector opened $($stairs.Count) of 2 times - its sweep audited an empty editor" -ForegroundColor Red
 	$lines | Select-String 'editor inspect: ' | ForEach-Object { Write-Host "     $($_.Line)" }
+	$failures++
+}
+# Likewise the portrait picker: without it the sweep audited the sheet beneath.
+if (@($lines | Select-String 'portrait picker: open for ').Count -ge 1) {
+	Write-Host '  [ok  ] the portrait picker opened for its sweep'
+} else {
+	Write-Host '  [FAIL] the portrait picker never opened - its sweep audited the sheet beneath' -ForegroundColor Red
 	$failures++
 }
 

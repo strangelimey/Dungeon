@@ -1372,3 +1372,25 @@ wear.feet=Feet
 wear.cloak=Shoulders
 wear.amulet=Neck
 wear.ring=Finger
+; The portrait picker (docs/portraits-plan.md). The race / sex / age words are
+; portraits.cat's tags.
+portrait.pick.title=Portrait for {}
+portrait.pick.race=Race
+portrait.pick.sex=Sex
+portrait.pick.age=Age
+portrait.pick.any=Any
+portrait.pick.count={} portraits
+portrait.pick.none=No portrait matches.
+portrait.race.human=Human
+portrait.race.elf=Elf
+portrait.race.dwarf=Dwarf
+portrait.race.orc=Orc
+portrait.race.undead=Undead
+portrait.race.demon=Demon
+portrait.race.other=Other
+portrait.sex.male=Male
+portrait.sex.female=Female
+portrait.age.young=Young
+portrait.age.adult=Adult
+portrait.age.old=Old
+sheet.portrait.change=Change portrait

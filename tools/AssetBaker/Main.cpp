@@ -2,8 +2,9 @@
 //
 //   AssetBaker <assets-dir>
 //       Regenerates every procedural asset the game ships (textures, sounds,
-//       models, rune tablet). UI images (portraits, hit splats, title art, rune
-//       icons) are NOT baked — they're committed source under assets/ui/.
+//       models, rune tablet). UI images (hit splats, title art, rune icons)
+//       are NOT baked - they're committed source under assets/ui/. Nor are the
+//       party portraits: a bought set in assets/portraits (see portrait-mips).
 //
 //   AssetBaker import <source-folder> <assets-dir> <output-name> [--flip-green]
 //       Packs a downloaded PBR texture set (Poly Haven, ambientCG, Megascans,
@@ -21,6 +22,11 @@
 //   AssetBaker model-images <assets-dir>
 //       Only the embedded-image sidecars; current ones are skipped. Run after
 //       importing or re-converting a model (the game warns on a stale one).
+//
+//   AssetBaker portrait-mips <assets-dir>
+//       The .dds chains for assets/portraits (the party portrait set,
+//       extracted by tools\FetchPortraits.ps1); current ones are skipped.
+//       `mips` covers them too.
 //
 //   AssetBaker models <assets-dir>
 //       Regenerates only the .gltf models (fast — skips the texture, sound,
@@ -120,8 +126,13 @@ int main(int argc, char** argv) {
 		// chains the game loads instead of decoding PNGs.
 		bool ok = baker::BakeAllMips(std::string(argv[2]) + "\\textures");
 		ok &= baker::BakeModelImageMips(std::string(argv[2]) + "\\models");
+		if (std::filesystem::is_directory(std::string(argv[2]) + "\\portraits"))
+			ok &= baker::BakeAllMips(std::string(argv[2]) + "\\portraits", true);
 		return ok ? 0 : 1;
 	}
+
+	if (argc >= 3 && std::string(argv[1]) == "portrait-mips")
+		return baker::BakeAllMips(std::string(argv[2]) + "\\portraits", true) ? 0 : 1;
 
 	if (argc >= 3 && std::string(argv[1]) == "model-images")
 		// Only the embedded-image sidecars (fast when nothing changed: current

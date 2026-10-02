@@ -81,7 +81,7 @@ const char* SmallestRes(u32 mask) {
 } // namespace
 
 AssetPicker::AssetPicker(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)
-	: m_device(device), m_ui(fonts, ui::FontRole::Body, 18.0f) {
+	: m_device(device), m_ui(fonts, ui::FontRole::Body, 18.0f), m_thumbs(device, kThumbCap) {
 	m_ui.Root().fontScale = ui::kDialogTextScale; // inherits — see LevelSettings
 	m_closeIcon = CloseIcon(device);
 }
@@ -102,7 +102,7 @@ void AssetPicker::Open(Mode mode, const std::string& current,
 	m_used = usedAssets ? usedAssets() : std::vector<std::string>{};
 	// Thumbnails are per-pool: a model tile and a texture tile of the same name
 	// are different images, and the cache is keyed by name alone.
-	m_thumbs.clear();
+	m_thumbs.Clear();
 	ApplyFilter();
 	Rebuild();
 	m_tilesDirty = false; // ApplyFilter asks for a refill; Rebuild WAS it
@@ -263,9 +263,7 @@ const gfx::Texture* AssetPicker::ThumbFor(const std::string& name) {
 	// DRAW-TIME ONLY: this never loads. Both kinds of tile image are made in
 	// Update — textures by LoadVisibleThumbs, models by PrepareModelIcons plus
 	// the owner's bake — so a frame's drawing costs nothing but the blit.
-	Thumb& slot = m_thumbs[name];
-	slot.lastSeen = m_frame;
-	return slot.texture.get();
+	return m_thumbs.Touch(name).data.texture.get();
 }
 
 void AssetPicker::LoadVisibleThumbs(size_t max) {
@@ -275,32 +273,10 @@ void AssetPicker::LoadVisibleThumbs(size_t max) {
 		if (loaded >= max) break;
 		const std::string& name = tile->Name();
 		if (name.empty()) continue;
-		Thumb& slot = m_thumbs[name];
-		if (slot.texture || slot.tried) continue;
-		slot.tried = true; // one attempt per set, however it goes
-		slot.lastSeen = m_frame;
-		slot.texture = LoadThumb(name);
+		auto* slot = m_thumbs.BeginLoad(name); // one attempt per set, however it goes
+		if (!slot) continue;
+		slot->data.texture = LoadThumb(name);
 		++loaded;
-	}
-}
-
-void AssetPicker::EvictThumbs() {
-	if (m_thumbs.size() <= kThumbCap) return;
-	// Oldest first, and never this frame's (they are on screen right now).
-	std::vector<std::pair<u64, std::string>> aged;
-	aged.reserve(m_thumbs.size());
-	for (const auto& [name, thumb] : m_thumbs)
-		if (thumb.lastSeen != m_frame) aged.emplace_back(thumb.lastSeen, name);
-	if (aged.empty()) return;
-	std::ranges::sort(aged);
-	// About to free GPU resources that in-flight frames may still reference — a
-	// model tile's mesh is referenced by the bake recorded up to kFrameCount-1
-	// frames ago (the preview-reset rule).
-	m_device.WaitIdle();
-	for (const auto& [when, name] : aged) {
-		if (m_thumbs.size() <= kThumbCap) break;
-		// The Texture destructor returns its SRV slot to the free list.
-		m_thumbs.erase(name);
 	}
 }
 
@@ -311,10 +287,9 @@ void AssetPicker::PrepareModelIcons(size_t max) {
 		if (made >= max) break;
 		if (tile->Name().empty()) continue;
 		const AssetInfo& a = m_items[m_shown[tile->ShownIndex()]];
-		Thumb& slot = m_thumbs[a.name];
-		if (slot.texture || slot.tried) continue;
-		slot.tried = true; // one attempt per asset, however it goes
-		slot.lastSeen = m_frame;
+		auto* entry = m_thumbs.BeginLoad(a.name); // one attempt per asset, however it goes
+		if (!entry) continue;
+		Thumb& slot = entry->data;
 		auto model = assets::LoadModel(paths::Asset("models\\" + a.file));
 		if (!model || model->meshes.empty()) {
 			log::Warn("asset picker: no icon for {} (could not load)", a.file);
@@ -340,17 +315,17 @@ void AssetPicker::PrepareModelIcons(size_t max) {
 
 std::vector<AssetPicker::PendingBake> AssetPicker::PendingBakes(size_t max) const {
 	std::vector<PendingBake> out;
-	for (const auto& [name, thumb] : m_thumbs) {
-		if (out.size() >= max) break;
-		if (!thumb.needsBake || !thumb.mesh || !thumb.texture) continue;
+	m_thumbs.ForEach([&](const std::string& name, const auto& entry) {
+		const Thumb& thumb = entry.data;
+		if (out.size() >= max) return;
+		if (!thumb.needsBake || !thumb.mesh || !thumb.texture) return;
 		out.push_back({name, thumb.mesh.get(), thumb.texture.get(), thumb.lo, thumb.hi});
-	}
+	});
 	return out;
 }
 
 void AssetPicker::MarkBaked(const std::string& name) {
-	const auto it = m_thumbs.find(name);
-	if (it != m_thumbs.end()) it->second.needsBake = false;
+	if (auto* entry = m_thumbs.Find(name)) entry->data.needsBake = false;
 }
 
 // --- selection, preview, facts ----------------------------------------------
@@ -554,7 +529,7 @@ void AssetPicker::Rebuild() {
 
 void AssetPicker::Update(const Input& input, float w, float h, float dt) {
 	if (!m_open) return;
-	++m_frame;
+	m_thumbs.Tick();
 	m_time += dt;
 	m_orbit += dt * 0.6f;
 	// One font now: the title text used to be a second Font at the very same
@@ -619,7 +594,7 @@ void AssetPicker::Update(const Input& input, float w, float h, float dt) {
 		// outside the widget walk, which is where they were about to be read.
 		m_uiRebuild = true;
 	}
-	EvictThumbs();
+	m_thumbs.Evict();
 }
 
 // --- drawing -----------------------------------------------------------------
