@@ -30,14 +30,9 @@ int CountLines(const ui::Font& font, std::string_view text, float maxW) {
 	return WrapLines(font, text, maxW, [](std::string_view, int) {});
 }
 
-Vec4 Mix(const Vec4& a, const Vec4& b, float t) {
-	return {a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t, 1.0f};
-}
-
-// The skill bars' two candidate colourings (ResourceBarStyle::SkillColors).
-// First cuts, Michael's to judge side by side.
-constexpr Vec4 kGradeEmpty{0.30f, 0.30f, 0.30f, 1.0f}; // just levelled: grey
-constexpr Vec4 kGradeFull{0.30f, 0.95f, 0.35f, 1.0f};  // about to level: green
+// A skill bar's colour is its skill's FAMILY (Michael, ui-bars-updates: chosen
+// over a grey-to-green grade by fraction, which read as "sickly"): magic by
+// school, weapons steel, defence bronze, each reserve the pool it feeds.
 constexpr Vec4 kWeaponSteel{0.70f, 0.76f, 0.84f, 1.0f};
 constexpr Vec4 kDefenceBronze{0.85f, 0.62f, 0.30f, 1.0f};
 // The reserves wear the pool each one feeds (bar.hlsl's bright stops).
@@ -45,9 +40,7 @@ constexpr Vec4 kHealthRed{0.95f, 0.18f, 0.14f, 1.0f};
 constexpr Vec4 kStaminaGreen{0.35f, 0.95f, 0.45f, 1.0f};
 constexpr Vec4 kManaBlue{0.30f, 0.60f, 1.00f, 1.0f};
 
-Vec4 SkillBarColor(std::string_view id, float frac, ResourceBarStyle::SkillColors mode) {
-	if (mode == ResourceBarStyle::SkillColors::Grade)
-		return Mix(kGradeEmpty, kGradeFull, std::clamp(frac, 0.0f, 1.0f));
+Vec4 SkillBarColor(std::string_view id) {
 	if (SpellSymbol sym; ParseSymbol(id, sym)) {
 		const Vec4 c = ElementColor(sym);
 		return {c.x, c.y, c.z, 1.0f};
@@ -371,9 +364,7 @@ void CharacterSheet::DrawSkillRow(size_t i, ui::UIContext& ctx,
 		{Ax(px, kSkillBarX), r.y + (band - barH) * 0.5f, kSkillBarW * px.w, barH}, band,
 		*m_barStyle);
 	const float seed = static_cast<float>(m_member) * 1.37f + static_cast<float>(i) * 0.53f;
-	DrawProgressBar(batch, tube, row.frac,
-					SkillBarColor(row.id, row.frac, m_barStyle->skillColors), seed, *m_barStyle,
-					theme);
+	DrawProgressBar(batch, tube, row.frac, SkillBarColor(row.id), seed, *m_barStyle, theme);
 }
 
 float CharacterSheet::MeasureSpellRow(size_t i, ui::UIContext& ctx,

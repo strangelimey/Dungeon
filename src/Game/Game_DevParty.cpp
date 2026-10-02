@@ -858,25 +858,10 @@ void Game::RegisterPartyCommands() {
 						.group = CmdGroup::Characters,
 						.params = "[status]\n"
 								  "demo on|off\n"
-								  "rate <bpm|auto>\n"
-								  "skills grade|class",
+								  "rate <bpm|auto>",
 						.summary = "report, sweep or pin the party bar's resource bars"},
 					   [this](const std::vector<std::string>& args) {
 						   ResourceBarStyle& style = m_ui.BarStyle();
-						   using SkillColors = ResourceBarStyle::SkillColors;
-						   if (!args.empty() && args[0] == "skills") {
-							   // The sheet's skill bars: the two colourings on
-							   // trial (docs/ui-bars-updates-plan.md, Phase 1).
-							   if (!Need(m_console, args, 2)) return;
-							   if (args[1] == "grade") style.skillColors = SkillColors::Grade;
-							   else if (args[1] == "class") style.skillColors = SkillColors::Class;
-							   else {
-								   m_console.RefuseUsage();
-								   return;
-							   }
-							   m_console.Print(std::format("hudbars skills {}", args[1]));
-							   return;
-						   }
 						   if (!args.empty() && args[0] == "demo") {
 							   if (!Need(m_console, args, 2)) return;
 							   style.demo = args[1] == "on";
@@ -903,14 +888,13 @@ void Game::RegisterPartyCommands() {
 						   }
 						   const bool noticed = m_world && m_world->PartyNoticed();
 						   m_console.Print(std::format(
-							   "hudbars: {} | noticed {} | demo {} | rate {} | skills {}",
+							   "hudbars: {} | noticed {} | demo {} | rate {}",
 							   !style.frame     ? "no frame texture (flat)"
 							   : !style.framed ? "flat (uiskin off)"
 											   : "framed",
 							   noticed ? "yes" : "no", style.demo ? "on" : "off",
 							   style.pinnedBpm < 0.0f ? std::string("auto")
-													  : std::format("{:.0f}", style.pinnedBpm),
-							   style.skillColors == SkillColors::Grade ? "grade" : "class"));
+													  : std::format("{:.0f}", style.pinnedBpm)));
 						   for (size_t i = 0; i < m_characters.size(); ++i) {
 							   const Character& c = m_characters[i];
 							   auto pct = [](float v, float m) {

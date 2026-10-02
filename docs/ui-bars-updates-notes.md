@@ -100,6 +100,10 @@ A1. OPEN THE ROWS UP: more space between skill rows so the glass stays about as
     tall as the text (the list gets longer and scrolls sooner).
 A2. LEAVE THE CLASHES for the trial; fix them later only if CLASS wins.
 A3. DELETE THE LOSER: one scheme, one code path, and the console switch goes too.
+    PICKED (2026-10-02): CLASS. Grade "looks like it's sickly" - green, then
+    gold/silver/ember/azure/violet run from a dim shade of their own hue (a
+    grey-to-colour blend was what read as swamp water) - and class still won.
+    Grade and `hudbars skills` deleted.
 B1. NAME AND MEANING, e.g. "Kenaz - Fire" (the Futhark name alone does not say
     what the rune does).
 B2. EVERYWHERE a rune glyph shows without words: Known Spells, the Magic
