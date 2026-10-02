@@ -81,10 +81,11 @@ public:
 									  gfx::SpriteBatch&, const gfx::Rect&)>;
 
 	// `hover` is the owning list's hovered-row slot: a row under the pointer
-	// writes its index there (the status bar reads it). It claims nothing, so
-	// the wheel and the sheet behind it still see the pointer.
-	SheetRow(size_t index, DrawFn draw, int* hover)
-		: m_index(index), m_draw(std::move(draw)), m_hover(hover) {
+	// writes its index there (the status bar reads it), and its on-screen rect
+	// into `hoverRect` (what the status bar hit-tests a row's parts against). It
+	// claims nothing, so the wheel and the sheet behind it still see the pointer.
+	SheetRow(size_t index, DrawFn draw, int* hover, gfx::Rect* hoverRect)
+		: m_index(index), m_draw(std::move(draw)), m_hover(hover), m_hoverRect(hoverRect) {
 		debugName = "SheetRow";
 	}
 
@@ -94,8 +95,10 @@ private:
 	void UpdateSelf(ui::UIContext& ctx) override {
 		const Input* input = ctx.CurrentInput();
 		if (m_hover && input && !ctx.IsMouseConsumed() &&
-			Pixel().Contains(input->MouseX(), input->MouseY()))
+			Pixel().Contains(input->MouseX(), input->MouseY())) {
 			*m_hover = static_cast<int>(m_index);
+			if (m_hoverRect) *m_hoverRect = Pixel();
+		}
 	}
 	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override {
 		m_draw(m_index, ctx, batch, Pixel());
@@ -104,6 +107,7 @@ private:
 	size_t m_index;
 	DrawFn m_draw;
 	int* m_hover;
+	gfx::Rect* m_hoverRect;
 };
 
 // A scrolling list tab body: a heading, then one SheetRow per item inside a
@@ -128,6 +132,8 @@ public:
 	// has visited the list (the sheet reads it in its own UpdateSelf, which runs
 	// after its children).
 	int HoveredRow() const { return m_hoverRow; }
+	// That row's on-screen rect (meaningful only while HoveredRow() >= 0).
+	const gfx::Rect& HoveredRowRect() const { return m_hoverRect; }
 	// Room for `n` rows before the list first shows - the row widgets and the
 	// offset tables - so a tab opened mid-play builds nothing (the sheet's
 	// frames are steady-state frames; see Game::SteadyStateFrame).
@@ -171,6 +177,7 @@ private:
 	// advance so the rows can never be crowded by the heading above them.
 	float m_bandTop = 0.0f;
 	int m_hoverRow = -1; // written by the SheetRows (see HoveredRow)
+	gfx::Rect m_hoverRect{};
 };
 
 class CharacterSheet : public ui::Widget {
@@ -357,6 +364,9 @@ private:
 					  const gfx::Rect& r);
 	void DrawSpellRow(size_t i, ui::UIContext& ctx, gfx::SpriteBatch& batch,
 					  const gfx::Rect& r);
+	// Rune k of a spell row's recipe, the row at `r` - the one layout the draw
+	// and the rune tooltip's hover test share.
+	gfx::Rect SpellRuneRect(ui::UIContext& ctx, const gfx::Rect& r, size_t k) const;
 	void DrawEffectRow(size_t i, ui::UIContext& ctx, gfx::SpriteBatch& batch,
 					   const gfx::Rect& r);
 	// Which doll cell / pack slot / bag the pointer is over (m_hover*), every
@@ -405,6 +415,10 @@ private:
 	// frame the sheet is up) plus the colour the name draws in.
 	loc::Line m_statusName, m_statusText;
 	Vec4 m_statusColor{1, 1, 1, 1};
+	// The Known Spells rune under the pointer, for its tooltip (UpdateStatus
+	// finds it, the overlay pass draws it). < 0 = none.
+	int m_tipRune = -1;
+	gfx::Rect m_tipRuneRect{};
 	Vec4 m_accent{1, 1, 1, 1}; // the theme accent, captured by UpdateStatus
 	Mode m_mode = Mode::Inventory;
 	// The mode as a plain index, for the button strip to read live.

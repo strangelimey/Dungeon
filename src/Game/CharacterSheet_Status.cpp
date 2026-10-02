@@ -120,6 +120,7 @@ void CharacterSheet::SetItemStatus(const std::string& itemId,
 void CharacterSheet::UpdateStatus(ui::UIContext& ctx, bool pointerFree) {
 	m_statusName = {};
 	m_statusText = {};
+	m_tipRune = -1;
 	m_accent = ctx.GetTheme().accent;
 	if (!m_character) return;
 	const Input* input = ctx.CurrentInput();
@@ -183,7 +184,23 @@ void CharacterSheet::UpdateStatus(ui::UIContext& ctx, bool pointerFree) {
 		const int i = m_lists[1] ? m_lists[1]->HoveredRow() : -1;
 		if (i < 0 || static_cast<size_t>(i) >= m_spellRows.size()) break;
 		const SpellRow& row = m_spellRows[static_cast<size_t>(i)];
-		SetStatus(row.name, row.desc, row.tint);
+		// Over one rune of the recipe, the bar names THE RUNE - its Futhark name
+		// and its meaning - and the overlay pass draws its tip (ui-bars-updates
+		// B3); anywhere else on the row, the spell.
+		const gfx::Rect& rowRect = m_lists[1]->HoveredRowRect();
+		for (size_t k = 0; k < row.symbols.size(); ++k) {
+			const gfx::Rect cell = SpellRuneRect(ctx, rowRect, k);
+			if (!cell.Contains(mx, my)) continue;
+			const SpellSymbol s = row.symbols[k];
+			m_statusName = loc::Line(loc::View(RuneNameKey(s)));
+			m_statusText = loc::ViewKey("symbol.", SymbolId(s));
+			m_statusColor = ElementColor(s);
+			m_statusColor.w = 1.0f;
+			m_tipRune = static_cast<int>(s);
+			m_tipRuneRect = cell;
+			break;
+		}
+		if (m_tipRune < 0) SetStatus(row.name, row.desc, row.tint);
 		break;
 	}
 	case Mode::Effects: {

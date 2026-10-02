@@ -119,6 +119,8 @@ void HandSlot::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		}
 	}
 	// A spell use spells out its recipe on top.
+	m_runeArea = inner;
+	m_runesOverItem = drewItem;
 	if (use.spell) DrawSpellRunes(batch, inner, *use.spell, drewItem);
 	// No identity stripe: whose hand this is reads from the member border its
 	// HandPair draws round both hands and the effort meter (ui-updates).
@@ -135,8 +137,20 @@ void HandSlot::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 void HandSlot::DrawOverlaySelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	if (!m_hot || !m_character || !setUse) return;
 	const HandSetUse use = setUse();
-	if (!use.set || use.label.empty()) return;
 	const ui::Font& font = TextFont();
+	// Over one rune of a set spell's recipe, that rune's name REPLACES the hand's
+	// tip (ui-bars-updates B2); anywhere else on the box the hand's tip stays.
+	if (use.spell) {
+		const std::span<const SpellSymbol> runes = use.spell->Sequence();
+		for (size_t k = 0; k < runes.size(); ++k) {
+			const gfx::Rect cell = RuneCell(m_runeArea, runes.size(), k, m_runesOverItem);
+			if (cell.Contains(ctx.MouseX(), ctx.MouseY())) {
+				DrawRuneTip(ctx, batch, font, cell, runes[k]);
+				return;
+			}
+		}
+	}
+	if (!use.set || use.label.empty()) return;
 	const ui::Theme& theme = ctx.GetTheme();
 	const float padX = Em(0.6f), padY = Em(0.35f), gapY = Em(0.3f);
 	const float w = font.MeasureWidth(use.label) + 2.0f * padX;
@@ -154,8 +168,17 @@ void HandSlot::DrawOverlaySelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 void HandSlot::DrawSpellRunes(gfx::SpriteBatch& batch, const gfx::Rect& area,
 							  const Spell& spell, bool overItem) const {
 	const std::span<const SpellSymbol> runes = spell.Sequence();
-	const size_t n = runes.size();
-	if (n == 0) return;
+	// Each rune glows as the Magic window's do (Michael, ui-updates), over the
+	// set tint, pulsing out of step with its neighbours.
+	constexpr float kTwoPi = 6.2831853f;
+	for (size_t k = 0; k < runes.size(); ++k)
+		DrawRuneGlow(batch, RuneCell(area, runes.size(), k, overItem), runes[k], m_icons,
+					 /*hot=*/false, /*disabled=*/false,
+					 batch.Time() * (kTwoPi / 3.4f) - static_cast<float>(k) * 1.3f);
+}
+
+gfx::Rect HandSlot::RuneCell(const gfx::Rect& area, size_t n, size_t k, bool overItem) const {
+	if (n == 0) return {};
 	const float gap = Em(0.12f);
 	// ROWS OF TWO, every rune the size two side by side leave it (Michael,
 	// 2026-09-30): a third and fourth rune go on the next row rather than
@@ -177,17 +200,9 @@ void HandSlot::DrawSpellRunes(gfx::SpriteBatch& batch, const gfx::Rect& area,
 	const float blockH = side * static_cast<float>(rows) + gap * static_cast<float>(rows - 1);
 	const float x0 = area.x + (area.w - blockW) * 0.5f;
 	const float y0 = overItem ? area.y + area.h - blockH : area.y + (area.h - blockH) * 0.5f;
-	// Each rune glows as the Magic window's do (Michael, ui-updates), over the
-	// set tint, pulsing out of step with its neighbours.
-	constexpr float kTwoPi = 6.2831853f;
-	for (size_t k = 0; k < n; ++k) {
-		const size_t c = k % cols, r = k / cols;
-		DrawRuneGlow(batch,
-					 {x0 + static_cast<float>(c) * (side + gap),
-					  y0 + static_cast<float>(r) * (side + gap), side, side},
-					 runes[k], m_icons, /*hot=*/false, /*disabled=*/false,
-					 batch.Time() * (kTwoPi / 3.4f) - static_cast<float>(k) * 1.3f);
-	}
+	const size_t c = k % cols, r = k / cols;
+	return {x0 + static_cast<float>(c) * (side + gap), y0 + static_cast<float>(r) * (side + gap),
+			side, side};
 }
 
 } // namespace dungeon::game

@@ -90,6 +90,8 @@ public:
 	void LayoutSelf(ui::UIContext& ctx) override;
 	void UpdateSelf(ui::UIContext& ctx) override;
 	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
+	// The hovered rune's name (DrawRuneTip), over everything.
+	void DrawOverlaySelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 private:
 	// The most symbols a built sequence holds: the recipe grammar's longest
@@ -149,6 +151,11 @@ private:
 	std::array<SpellSymbol, kMaxSequence> m_sequence{};
 	size_t m_seqLen = 0; // how much of m_sequence is spelled
 	int m_hotSymbol = -1, m_hotSeq = -1;
+	// The rune under the pointer for its TOOLTIP - any known rune, grid or
+	// sequence, including a spent or out-of-turn one (which is not hot, but
+	// still shows a glyph to name). m_tipSymbol < 0 = none.
+	int m_tipSymbol = -1;
+	gfx::Rect m_tipRect{};
 	// Cast and Clear are ordinary ui::Buttons (ui-updates: they were two hand-
 	// drawn icon discs) - the settings tabs' stone face and the shared push
 	// animation, laid out each frame over CastRect / ClearRect.

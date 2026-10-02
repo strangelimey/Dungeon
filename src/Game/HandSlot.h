@@ -73,6 +73,9 @@ private:
 	// when the hand is empty, a strip along its bottom when an item is shown.
 	void DrawSpellRunes(gfx::SpriteBatch& batch, const gfx::Rect& area,
 						const Spell& spell, bool overItem) const;
+	// Rune k of an n-rune recipe inside `area` - the one layout the draw and the
+	// rune tooltip's hover test share.
+	gfx::Rect RuneCell(const gfx::Rect& area, size_t n, size_t k, bool overItem) const;
 
 	const std::vector<Character>* m_roster;
 	size_t m_member;
@@ -89,6 +92,10 @@ private:
 	std::chrono::steady_clock::time_point m_pressAt{}; // the left press
 	bool m_heldRight = false;   // right-button press latched on this slot
 	bool m_heldMiddle = false;  // middle-button press latched on this slot
+	// Where the last draw put the recipe (its area, and whether it sat over an
+	// item), so the overlay pass can hit-test the runes exactly as drawn.
+	gfx::Rect m_runeArea{};
+	bool m_runesOverItem = false;
 };
 
 // The HUD Magic-area SPELLBOOK. A row of four member-colored SELECTOR buttons

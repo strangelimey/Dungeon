@@ -349,6 +349,7 @@ bool SymbolAvailable(SpellSymbol s, std::span<const SpellSymbol> sequence) {
 void SpellbookPanel::UpdateSelf(ui::UIContext& ctx) {
 	m_hotSymbol = -1;
 	m_hotSeq = -1;
+	m_tipSymbol = -1;
 	// The selection must stay ELIGIBLE: a member who went down (or a roster
 	// that shrank) deselects — their button draws disabled, never pressed.
 	if (m_member >= 0 && !MemberEligible(static_cast<size_t>(m_member)))
@@ -381,7 +382,13 @@ void SpellbookPanel::UpdateSelf(ui::UIContext& ctx) {
 	const RuneSlotList list = RuneSlots(*c);
 	const std::span<const RuneSlot> slots = list.View();
 	for (size_t i = 0; i < slots.size(); ++i) {
-		if (!SymbolRect(px, slots[i], list.rows).Contains(mx, my)) continue;
+		const gfx::Rect cell = SymbolRect(px, slots[i], list.rows);
+		if (!cell.Contains(mx, my)) continue;
+		// Any rune with a glyph is named (an unknown school's frame has none).
+		if (slots[i].known) {
+			m_tipSymbol = static_cast<int>(slots[i].symbol);
+			m_tipRect = cell;
+		}
 		// Unknown school frames and unavailable symbols (spent, or out of
 		// turn in the recipe order) are inert - no hover, no click.
 		if (!slots[i].known || !SymbolAvailable(slots[i].symbol, Sequence()))
@@ -393,12 +400,16 @@ void SpellbookPanel::UpdateSelf(ui::UIContext& ctx) {
 		}
 	}
 	for (size_t i = 0; i < m_seqLen; ++i) {
-		if (!SequenceRect(px, i).Contains(mx, my)) continue;
+		const gfx::Rect cell = SequenceRect(px, i);
+		if (!cell.Contains(mx, my)) continue;
 		m_hotSeq = static_cast<int>(i);
+		m_tipSymbol = static_cast<int>(m_sequence[i]);
+		m_tipRect = cell;
 		if (pressed) {
 			// Remove this symbol AND everything spelled after it — the tail
 			// was built on top of it, so it goes too.
 			m_seqLen = i;
+			m_tipSymbol = -1; // the rune it named is gone
 			if (onClick) onClick();
 			break;
 		}
@@ -476,6 +487,11 @@ void SpellbookPanel::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		ui::DrawFittedText(batch, font, loc::View(def->NameKey()), x, y, room, theme.accent);
 	}
 	// (Cast / Clear are child ui::Buttons and draw themselves.)
+}
+
+void SpellbookPanel::DrawOverlaySelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
+	if (m_tipSymbol < 0 || m_member < 0) return;
+	DrawRuneTip(ctx, batch, TextFont(), m_tipRect, static_cast<SpellSymbol>(m_tipSymbol));
 }
 
 } // namespace dungeon::game

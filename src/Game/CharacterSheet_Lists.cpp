@@ -91,7 +91,7 @@ SheetList::SheetList(const gfx::Rect& rect, std::string heading,
 	m_rows = m_scroll->Add<ui::Repeater>(
 		gfx::Rect{0, 0, 1, 1},
 		[this, draw = std::move(drawRow)](size_t i) -> std::unique_ptr<ui::Widget> {
-			return std::make_unique<SheetRow>(i, draw, &m_hoverRow);
+			return std::make_unique<SheetRow>(i, draw, &m_hoverRow, &m_hoverRect);
 		},
 		[this] { return m_count ? m_count() : 0; },
 		[this](size_t i) {
@@ -383,6 +383,17 @@ float CharacterSheet::MeasureSpellRow(size_t i, ui::UIContext& ctx,
 		   kSpellRowGap * Body().h;
 }
 
+gfx::Rect CharacterSheet::SpellRuneRect(ui::UIContext& ctx, const gfx::Rect& r,
+										 size_t k) const {
+	// Squares the height of the name line (kNameRem), left of the name, a
+	// small gap apart - as DrawSpellRow lays them.
+	const ui::Font& font = ctx.FontAt(ui::FontRole::Body, Em(kNameRem));
+	const gfx::Rect px = Body();
+	const float ish = font.Height();
+	const float runeGap = 0.004f * px.w;
+	return {Ax(px, kSpellTextX) + static_cast<float>(k) * (ish + runeGap), r.y, ish, ish};
+}
+
 void CharacterSheet::DrawSpellRow(size_t i, ui::UIContext& ctx,
 								  gfx::SpriteBatch& batch, const gfx::Rect& r) {
 	if (i >= m_spellRows.size()) return;
@@ -398,8 +409,9 @@ void CharacterSheet::DrawSpellRow(size_t i, ui::UIContext& ctx,
 	const float runeGap = 0.004f * px.w;
 
 	float nameX = textX;
-	for (SpellSymbol sym : row.symbols) {
-		const gfx::Rect ir{nameX, r.y, ish, ish};
+	for (size_t k = 0; k < row.symbols.size(); ++k) {
+		const SpellSymbol sym = row.symbols[k];
+		const gfx::Rect ir = SpellRuneRect(ctx, r, k);
 		// The rune glows, as it does in every socket (DrawItemIcon).
 		if (!DrawItemIcon(batch, ir, RuneItemId(sym), m_icons, 0.0f)) {
 			const Vec4 sc = ElementColor(sym);

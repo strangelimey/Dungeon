@@ -5,6 +5,8 @@
 
 #include "Game/PartyHudTypes.h"
 
+#include "Core/Loc.h"
+
 #include <algorithm>
 #include <cmath>
 #include <string_view>
@@ -216,6 +218,23 @@ void DrawPortrait(gfx::SpriteBatch& batch, const gfx::Rect& rect,
 	const float initialW = font.MeasureWidth(initial);
 	font.Draw(batch, initial, rect.x + (rect.w - initialW) * 0.5f,
 			  rect.y + (rect.h - font.Height()) * 0.5f, theme.text);
+}
+
+void DrawRuneTip(ui::UIContext& ctx, gfx::SpriteBatch& batch, const ui::Font& font,
+				 const gfx::Rect& anchor, SpellSymbol s) {
+	const loc::Line text = loc::FormatLine("rune.tip", loc::Line(loc::View(RuneNameKey(s))),
+										   loc::ViewKey("symbol.", SymbolId(s)));
+	const float em = font.Height();
+	const float padX = em * 0.6f, padY = em * 0.35f, gapY = em * 0.3f;
+	const float w = font.MeasureWidth(text.View()) + 2.0f * padX;
+	const float h = font.Height() + 2.0f * padY;
+	const gfx::Rect tip = ui::PlaceTooltip(anchor, w, h, {0, 0, ctx.Width(), ctx.Height()},
+										   ui::TipSide::Below, gapY, padX);
+	// The hand box's tooltip face (HandSlot::DrawOverlaySelf): near-opaque, as it
+	// sits over the world view and other HUD.
+	batch.DrawRect(tip, {0.10f, 0.10f, 0.13f, 0.97f});
+	ui::DrawBorder(batch, tip, ctx.GetTheme().panelBorder);
+	font.Draw(batch, text.View(), tip.x + padX, tip.y + padY, ctx.GetTheme().text);
 }
 
 Vec4 RuneGlowColor(SpellSymbol s) {

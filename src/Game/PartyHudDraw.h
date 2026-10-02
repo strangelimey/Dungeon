@@ -108,6 +108,15 @@ void DrawRuneFace(gfx::SpriteBatch& batch, const gfx::Rect& r, SpellSymbol s,
 // for the form runes, which belong to no school (Michael, ui-updates: "for now").
 Vec4 RuneGlowColor(SpellSymbol s);
 
+// A RUNE'S HOVER TIP (ui-bars-updates P2): "Kenaz - Fire", its Futhark name and
+// its meaning (rune.tip over rune.<id> + symbol.<id>), in the tooltip face the
+// hand box's tip uses, placed by ui::PlaceTooltip off `anchor` (the rune's
+// cell), below it by preference. Every place a rune glyph shows without words
+// - Known Spells, the Magic window's grid and sequence, a set hand's recipe -
+// draws through this, in its overlay pass. Formatted inline: no allocation.
+void DrawRuneTip(ui::UIContext& ctx, gfx::SpriteBatch& batch, const ui::Font& font,
+				 const gfx::Rect& anchor, SpellSymbol s);
+
 // A rune in the MAGIC WINDOW: its glyph alone, lit in RuneGlowColor over a soft
 // halo of the same colour that PULSES slowly - `phase` in radians, so each rune
 // can sit out of step with its neighbours. The caller draws the socket under it.
