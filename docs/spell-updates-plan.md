@@ -188,6 +188,29 @@ blocks or `explode_*` fields - decided in the phase).
 - Where the runes are found (Q10 ANSWERED): placed tablets in a level (deeper,
   guarded), not the starter kit. The harness learns them with `learn`.
 
+### Phases 6 + 7 - as built together (2026-10-01)
+
+They had to land at once: Fire Burst was the only blast, and the blast suites,
+the pipeline check and AllocTest -Impact detonate one.
+- BOLTS: fireburst -> `firebolt` (one target, no blast, still ignites),
+  slingshot -> `earthbolt`, push -> `airbolt`; waterbolt kept. Classes renamed.
+- MODIFIERS are ONE class, Spell/ModifiedSpell.h, made by AllSpells.cpp for
+  every Project and Protect spell x {Ingwaz, Hagalaz}: sixteen whole spells
+  (`<bolt>_volley`, `<bolt>_burst`, `<ward>_party`, `<ward>_burst`), so
+  learning, the book, the hand menus and saves needed nothing new. Each has its
+  own spells.cat entry (power, mana, knobs). Volleys go through a fixed
+  pending-bolt queue (cast service `spawnBoltAfter`, DungeonWorld_Ahead.cpp).
+  Answered: a ward burst is the burst INSTEAD of the ward; a volley's bolts are
+  each weaker (`share` 0.6).
+- Fire Burst's blast tuning moved whole to `firebolt_burst` (the blast suites,
+  pipeline, worldpersist and AllocTest -Impact now detonate that; the fire flask
+  bursts as it). TRAP met on the way: `blast_force` counts SQUARES, not a
+  radius - a ward burst at force 3 filled three of the four squares round the
+  caster. Ward bursts are force 6-8.
+- MAGE LADDER: skel_mage casts firebolt; new skel_mage_adept (firebolt_volley)
+  and skel_magus (firebolt_burst); monsters cast a volley through
+  Spell::MonsterVolley + the same queue.
+
 ## Phase 8 - Harness and checks
 
 - AllocTest -Cast / -Impact cast `fire` / `flame` / `fireburst` as bolts and

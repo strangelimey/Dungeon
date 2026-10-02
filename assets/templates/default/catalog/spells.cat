@@ -43,45 +43,19 @@ mana = 2
 ; a burning brazier ahead goes out only at this power or more
 brazier_power = 12
 
-[fireburst]
-name = spell.fireburst
+[firebolt]
+name = spell.firebolt
 symbols = fire,project
-effect = projectile
-element = fire
 power = 14
 mana = 8
 speed = 8
 range = 8
-; It always ignites — the certainty is most of what tier 2 buys over [flame]'s
-; coin-flip. DELIBERATELY SMALLER than a single-target burn: the blast lands this
-; on everything in up to seven squares, so 2/s for 4s across a group already
-; outweighs what one bolt leaves on one body.
+; A bolt of flame at ONE target - it does not explode (spell-updates, Michael;
+; Hagalaz after it does: [firebolt_burst]). It always ignites what it strikes.
 on_hit = burn 2 4
-; ...and it BURSTS: a wavefront that expands over ticks, deflecting off walls and
-; reflecting back where it cannot (Game/Blast.h). `blast_force` is its size in
-; SQUARES, not a radius — stone consumes none of it, so the same blast fills a room
-; or runs down a corridor, and units converging on one square MULTIPLY it.
-;
-; TUNED AGAINST THE PROPAGATION, not guessed (docs/damage-system.md "Tuning"):
-;   open room        5 at the centre, 3.5 around, 7 squares — barely singes you
-;   dead end at feet 17.5 each        — painful, survivable, an obvious lesson
-;   T-junction centre 30              — lethal to the mage, and only point-blank
-; The ceiling is set by the x6 a junction can converge, not by the open case.
-;
-; A BLAST HAS NO SIDE: it catches the party too, so do not throw it at your own
-; front rank. Fire is TRANSIENT (no blast_persist) — the front passes and what it
-; set alight keeps burning through `on_hit`, which is how fire lingers without the
-; blast simulating it.
-blast_force = 7
-blast_damage = 5
-blast_falloff = 1.5
-blast_rate = 0.06
-; How it is SEEN (ui-updates: blasts drew nothing before): an orange glow -
-; fire's rune red reads as pink once it is a glow over stone.
-blast_color = 1.0, 0.45, 0.1
 
-[slingshot]
-name = spell.slingshot
+[earthbolt]
+name = spell.earthbolt
 symbols = earth,project
 effect = projectile
 element = earth
@@ -100,8 +74,8 @@ mana = 7
 speed = 9
 range = 10
 
-[push]
-name = spell.push
+[airbolt]
+name = spell.airbolt
 symbols = air,project
 effect = projectile
 element = air
@@ -182,3 +156,193 @@ element = water
 power = 1
 mana = 6
 duration = 20
+
+; --- tier 3: a form spell + a MODIFIER rune (Game/Spell/ModifiedSpell.h) ------
+; Ingwaz (multiple) on a bolt: a VOLLEY down the caster's lane - `count` bolts,
+; one more per `count_per_power` of power past `power`, at most `count_max`, each
+; at `share` of the power (Michael: each weaker). On a ward: the ward on every
+; standing member, at `share`.
+; Hagalaz (explode) on a bolt: it BURSTS on impact (blast_*, the Fire Burst
+; tuning moved here), its damage scaling as cast power against `power` and its
+; reach one square more per `blast_force_per_power` past it. On a ward: the
+; ward's power spent as a burst round the caster (their own square spared);
+; no ward is left (Michael).
+
+[firebolt_volley]
+name = spell.firebolt_volley
+symbols = fire,project,multiple
+power = 14
+mana = 14
+count = 2
+count_per_power = 10
+count_max = 5
+share = 0.6
+on_hit = burn 1 4
+
+[firebolt_burst]
+name = spell.firebolt_burst
+symbols = fire,project,explode
+power = 14
+mana = 14
+; Fire Burst's tuning, TUNED AGAINST THE PROPAGATION (docs/damage-system.md):
+;   open room        5 at the centre, 3.5 around, 7 squares
+;   dead end at feet 17.5 each
+;   T-junction centre 30 - lethal, and only point-blank
+; A BLAST HAS NO SIDE: it catches the party too.
+on_hit = burn 2 4
+blast_force = 7
+blast_damage = 5
+blast_falloff = 1.5
+blast_rate = 0.06
+blast_force_per_power = 12
+blast_color = 1.0, 0.45, 0.1
+
+[earthbolt_volley]
+name = spell.earthbolt_volley
+symbols = earth,project,multiple
+power = 18
+mana = 18
+count = 2
+count_per_power = 12
+count_max = 5
+share = 0.6
+
+[earthbolt_burst]
+name = spell.earthbolt_burst
+symbols = earth,project,explode
+power = 18
+mana = 18
+; shards of stone: a short, hard burst
+blast_force = 4
+blast_damage = 8
+blast_falloff = 2
+blast_rate = 0.05
+blast_force_per_power = 15
+blast_color = 0.75, 0.55, 0.35
+
+[waterbolt_volley]
+name = spell.waterbolt_volley
+symbols = water,project,multiple
+power = 12
+mana = 14
+count = 3
+count_per_power = 10
+count_max = 6
+share = 0.5
+
+[waterbolt_burst]
+name = spell.waterbolt_burst
+symbols = water,project,explode
+power = 12
+mana = 14
+blast_force = 5
+blast_damage = 5
+blast_falloff = 1
+blast_rate = 0.08
+blast_force_per_power = 12
+blast_color = 0.3, 0.55, 1.0
+
+[airbolt_volley]
+name = spell.airbolt_volley
+symbols = air,project,multiple
+power = 4
+mana = 12
+count = 3
+count_per_power = 6
+count_max = 6
+share = 0.6
+push = 1
+
+[airbolt_burst]
+name = spell.airbolt_burst
+symbols = air,project,explode
+power = 4
+mana = 12
+; a thunderclap: wide and weak
+blast_force = 7
+blast_damage = 2
+blast_falloff = 0.25
+blast_rate = 0.04
+blast_force_per_power = 6
+blast_color = 0.85, 0.9, 1.0
+
+[stoneskin_party]
+name = spell.stoneskin_party
+symbols = earth,protect,multiple
+power = 6
+mana = 20
+share = 0.75
+
+[stoneskin_burst]
+name = spell.stoneskin_burst
+symbols = earth,protect,explode
+power = 6
+mana = 14
+; the four squares round the caster are the first ring; force is squares
+blast_force = 6
+blast_damage = 6
+blast_falloff = 2
+blast_rate = 0.06
+blast_force_per_power = 8
+blast_color = 0.75, 0.55, 0.35
+
+[fireshield_party]
+name = spell.fireshield_party
+symbols = fire,protect,multiple
+power = 6
+mana = 20
+share = 0.75
+
+[fireshield_burst]
+name = spell.fireshield_burst
+symbols = fire,protect,explode
+power = 6
+mana = 14
+on_hit = burn 2 4
+; the four squares round the caster are the first ring; force is squares
+blast_force = 6
+blast_damage = 6
+blast_falloff = 1.5
+blast_rate = 0.06
+blast_force_per_power = 8
+blast_color = 1.0, 0.45, 0.1
+
+[waterveil_party]
+name = spell.waterveil_party
+symbols = water,protect,multiple
+power = 20
+mana = 20
+share = 0.75
+
+[waterveil_burst]
+name = spell.waterveil_burst
+symbols = water,protect,explode
+power = 20
+mana = 14
+; the four squares round the caster are the first ring; force is squares
+blast_force = 7
+blast_damage = 5
+blast_falloff = 1
+blast_rate = 0.08
+blast_force_per_power = 20
+blast_color = 0.3, 0.55, 1.0
+
+[windward_party]
+name = spell.windward_party
+symbols = air,protect,multiple
+power = 3
+mana = 20
+share = 1
+
+[windward_burst]
+name = spell.windward_burst
+symbols = air,protect,explode
+power = 3
+mana = 14
+; the four squares round the caster are the first ring; force is squares
+blast_force = 8
+blast_damage = 2
+blast_falloff = 0.25
+blast_rate = 0.04
+blast_force_per_power = 4
+blast_color = 0.85, 0.9, 1.0

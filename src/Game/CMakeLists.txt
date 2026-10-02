@@ -150,16 +150,17 @@ add_library(Game STATIC
 	Spell/BoltSpell.cpp
 	Spell/Embersight.cpp
 	Spell/Farsight.cpp
-	Spell/Fireburst.cpp
+	Spell/Firebolt.cpp
 	Spell/Fireshield.cpp
 	Spell/Flame.cpp
 	Spell/Gust.cpp
 	Spell/HandSpell.cpp
-	Spell/Push.cpp
+	Spell/ModifiedSpell.cpp
+	Spell/Airbolt.cpp
 	Spell/Rock.cpp
 	Spell/Scrying.cpp
 	Spell/SightSpell.cpp
-	Spell/Slingshot.cpp
+	Spell/Earthbolt.cpp
 	Spell/Spell.cpp
 	Spell/Splash.cpp
 	Spell/Stonesight.cpp

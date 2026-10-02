@@ -97,7 +97,7 @@ tp 10 12
 spawn skel_warrior 14 12 south
 spawn skel_warrior 13 12 south
 spawn skel_warrior 15 12 south
-blast fireburst 14 12
+blast firebolt_burst 14 12
 step 6
 echo === 4. a blast at a junction ===
 monsters

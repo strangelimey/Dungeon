@@ -42,6 +42,7 @@ void DungeonWorld::ResetForNewGame() {
 	}
 	m_partyWiped = false;
 	m_projectiles.Clear(); // drop any bolts/sparks still in flight from a prior run
+	m_pendingBoltCount = 0; // and any volley still waiting its turn
 	// Rebuild items from the .ent baseline so runes return to their spawn cells
 	// (and any dropped tablets from a prior session are forgotten).
 	m_items.clear();

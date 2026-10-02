@@ -23,6 +23,10 @@ public:
 	void Cast(CastContext& ctx) const override;
 	void ApplyOverrides(const CatalogEntry& e) override; // + duration
 
+	// This ward, at `power`, on `target` - the caster for a plain cast, every
+	// standing member for a ward cast with Ingwaz (ModifiedSpell).
+	void WardOn(CastContext& ctx, Character& target, float power) const;
+
 protected:
 	float m_duration; // ward lifetime in seconds (water/air may SPEND out early)
 };

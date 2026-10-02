@@ -1172,7 +1172,7 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		// thrown. `throw` names the ATTACK it flies as (attacks.cat - its type and
 		// numbers): absent = a weapon's first command, else `throw` (bash). What it
 		// leaves on what it strikes is its `on_hit`, or `throw_spell`'s whole
-		// payload - a fire flask carries fireburst's, blast and all. `throw_breaks`
+		// payload - a fire flask carries firebolt_burst's, blast and all. `throw_breaks`
 		// = it shatters where it stops instead of landing.
 		kind->throwAttack = CatalogGet(def, "throw", "");
 		kind->throwBreaks = CatalogBool(def, "throw_breaks", false);

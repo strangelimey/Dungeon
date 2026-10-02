@@ -78,6 +78,7 @@ void DungeonWorld::BeginLevelLoad(const std::string& stem, bool stashCurrent) {
 	m_decorations.clear();
 	m_fires.clear();
 	m_projectiles.Clear(); // bolts/sparks don't survive a level change
+	m_pendingBoltCount = 0; // and any volley still waiting its turn
 	m_pendingTransition.reset();
 	m_pendingFall.reset(); // the swap IS the fall's end
 	m_fallT = -1.0f;

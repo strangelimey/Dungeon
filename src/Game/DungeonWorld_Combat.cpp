@@ -1638,6 +1638,9 @@ void DungeonWorld::MonsterRangedAttack(Monster& monster) {
 				spell->MonsterBolt(origin, dir, monster.kind->accuracy)) {
 			bolt->shooter = monster.runtimeId; // the impact reads its threat
 			m_projectiles.Spawn(*bolt);
+			// A volley spell (Ingwaz) throws the rest a beat apart.
+			for (int i = 1; i < spell->MonsterVolley(); ++i)
+				SpawnBoltAfter(*bolt, 0.2f * static_cast<float>(i));
 			m_audio.Play(m_sounds.spellCast, 0.6f); // the cast voice
 			return;
 		}

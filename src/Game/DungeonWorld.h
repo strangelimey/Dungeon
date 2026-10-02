@@ -3652,6 +3652,18 @@ private:
 	ItemSlot m_cursorScratch;
 	// DropAtPartyFeet's id, assigned rather than constructed (a guarded frame).
 	std::string m_dropIdScratch;
+	// Bolts waiting their turn (a volley's later shots - the cast service
+	// spawnBoltAfter, and a monster mage's volley): a FIXED queue, because a
+	// cast lands in a guarded frame. Transient, like the bolts in flight: a
+	// level change or a reset drops them.
+	struct PendingBolt {
+		ProjectileSpec spec;
+		float delay = 0.0f;
+	};
+	std::array<PendingBolt, 32> m_pendingBolts{};
+	size_t m_pendingBoltCount = 0;
+	void SpawnBoltAfter(const ProjectileSpec& spec, float delay);
+	void UpdatePendingBolts(float dt);
 	// Burns every lit torch held (hands, cursor) by `dt`, and puts out any
 	// stowed in a pack.
 	void TickCarriedLight(float dt);

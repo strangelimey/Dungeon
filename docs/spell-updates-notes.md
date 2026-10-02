@@ -81,6 +81,13 @@ Context: started from the list of current spells - 16, four schools, each a
     for longer..." (torch QUALITY tiers - the bought pack has six variants -
     each with its own burn time).
 
+13. MODIFIER DETAILS (before Phases 6-7):
+    - Hagalaz after a ward: BURST INSTEAD - the ward's power is spent as a
+      burst of its element round the caster (caster's square spared); no ward
+      is left.
+    - Ingwaz on a bolt: EACH BOLT WEAKER - each carries a share of the power
+      (60% by default, a spells.cat knob), so three bolts are 1.8x one.
+
 ## Organized (2026-10-01)
 
 The dump reshapes the spell ladder into three tiers with one meaning each:

@@ -7,16 +7,20 @@
 // ============================================================================
 #include "Game/Spell/Spell.h"
 
+#include "Game/Spell/BoltSpell.h"
+#include "Game/Spell/ModifiedSpell.h"
+#include "Game/Spell/WardSpell.h"
+
 #include "Game/Spell/Embersight.h"
 #include "Game/Spell/Farsight.h"
-#include "Game/Spell/Fireburst.h"
+#include "Game/Spell/Firebolt.h"
 #include "Game/Spell/Fireshield.h"
 #include "Game/Spell/Flame.h"
 #include "Game/Spell/Gust.h"
-#include "Game/Spell/Push.h"
+#include "Game/Spell/Airbolt.h"
 #include "Game/Spell/Rock.h"
 #include "Game/Spell/Scrying.h"
-#include "Game/Spell/Slingshot.h"
+#include "Game/Spell/Earthbolt.h"
 #include "Game/Spell/Splash.h"
 #include "Game/Spell/Stonesight.h"
 #include "Game/Spell/Stoneskin.h"
@@ -30,16 +34,16 @@ namespace dungeon::game {
 
 std::vector<std::unique_ptr<Spell>> MakeAllSpells() {
 	std::vector<std::unique_ptr<Spell>> all;
-	// Tier 1 — the four one-rune school bolts.
+	// Tier 1 - the four one-rune HAND spells (HandSpell.h): a small thing in the hand.
 	all.push_back(std::make_unique<spells::Flame>());
 	all.push_back(std::make_unique<spells::Rock>());
 	all.push_back(std::make_unique<spells::Gust>());
 	all.push_back(std::make_unique<spells::Splash>());
 	// Tier 2 — the Project form ("throw it ahead") behind each school.
-	all.push_back(std::make_unique<spells::Fireburst>());
-	all.push_back(std::make_unique<spells::Slingshot>());
+	all.push_back(std::make_unique<spells::Firebolt>());
+	all.push_back(std::make_unique<spells::Earthbolt>());
 	all.push_back(std::make_unique<spells::Waterbolt>());
-	all.push_back(std::make_unique<spells::Push>());
+	all.push_back(std::make_unique<spells::Airbolt>());
 	// Tier 2 — the Protect form ("guard the caster") behind each school.
 	all.push_back(std::make_unique<spells::Stoneskin>());
 	all.push_back(std::make_unique<spells::Fireshield>());
@@ -50,6 +54,19 @@ std::vector<std::unique_ptr<Spell>> MakeAllSpells() {
 	all.push_back(std::make_unique<spells::Farsight>());
 	all.push_back(std::make_unique<spells::Stonesight>());
 	all.push_back(std::make_unique<spells::Scrying>());
+	// Tier 3 - each Project and Protect spell with each MODIFIER rune
+	// (ModifiedSpell.h): Ingwaz makes a volley / a party ward, Hagalaz a bursting
+	// bolt / a burst round the caster. Sight takes no modifier. Built from the
+	// list above (the registry owns every spell, so the borrowed base outlives
+	// its modified forms).
+	const size_t forms = all.size();
+	for (size_t i = 0; i < forms; ++i) {
+		const Spell& base = *all[i];
+		if (!dynamic_cast<const BoltSpell*>(&base) && !dynamic_cast<const WardSpell*>(&base))
+			continue;
+		for (const SpellSymbol m : {SpellSymbol::Multiple, SpellSymbol::Explode})
+			all.push_back(std::make_unique<ModifiedSpell>(base, m));
+	}
 	return all;
 }
 

@@ -134,7 +134,7 @@ holdable = 1
 command = throw
 model = rock
 
-; A flask of fire: it shatters where it stops and bursts as fireburst does -
+; A flask of fire: it shatters where it stops and bursts as firebolt_burst does -
 ; blast and all, which catches the party too if it bursts close.
 [fire_flask]
 name = item.fire_flask
@@ -142,7 +142,7 @@ category = misc
 weight = 0.6
 holdable = 1
 command = throw
-throw_spell = fireburst
+throw_spell = firebolt_burst
 throw_breaks = 1
 
 ; A flask of poison gas: it shatters where it stops and lets go a CLOUD - a

@@ -64,6 +64,9 @@ struct FireAhead {
 struct CastServices {
 	// Spawn a bolt into the moving-item engine ("onto the map").
 	std::function<void(const ProjectileSpec&)> spawnBolt;
+	// The same, `delay` seconds from now (a volley's later bolts). The host
+	// holds it in a fixed queue - a cast lands in a guarded frame.
+	std::function<void(const ProjectileSpec&, float delay)> spawnBoltAfter;
 	// A log line ABOUT a member, tinted with their identity color. Borrows the
 	// line, like every sink on the message path (docs/message-allocation.md).
 	std::function<void(const Character&, std::string_view)> message;
@@ -160,6 +163,9 @@ public:
 	virtual std::optional<ProjectileSpec> MonsterBolt(const Vec3& origin,
 													  const Vec3& dir,
 													  float accuracy) const;
+	// How many of that bolt a monster caster throws per cast, a beat apart (a
+	// volley with Ingwaz; one otherwise).
+	virtual int MonsterVolley() const { return 1; }
 
 	// Lay the project's spells.cat NUMBERS over the class defaults (matching
 	// entry by id; SpellBook::Build calls this once per load). The base takes

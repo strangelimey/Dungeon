@@ -776,7 +776,7 @@ try {
 		# Single-target bolts in the two lanes (Puff of Flame is a hand spell now).
 		Send-Text "autocast 0 waterbolt $ImpactEvery"; Send-Key 0x0D
 		Send-Text 'autocast 1 waterbolt'; Send-Key 0x0D
-		Send-Text 'autocast 2 fireburst'; Send-Key 0x0D
+		Send-Text 'autocast 2 firebolt_burst'; Send-Key 0x0D
 		Send-Text 'tally reset'; Send-Key 0x0D
 		Write-Host "  casting at a $ImpactMonster (x$ImpactStrength) from $px,$pz; waiting for a hit, an expiry and a blast (warm-up)"
 		$deadline = (Get-Date).AddSeconds(60)

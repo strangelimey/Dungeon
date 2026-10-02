@@ -15,7 +15,7 @@
 // is; and its blow goes through fx::Deal with the swing's crit, fumble and
 // enchantment rules. Its SPEED is the thrower's skill against the thing's
 // weight. What it LEAVES is the item's: its `on_hit` effects on what it strikes,
-// or a `throw_spell`'s whole payload - a fire flask bursts into fireburst's
+// or a `throw_spell`'s whole payload - a fire flask bursts into firebolt_burst's
 // blast.
 //
 // The flight is an ordinary moving item in the shared engine (Projectiles.h)

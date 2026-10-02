@@ -122,6 +122,33 @@ ProjectileSystem::Repelled DungeonWorld::RepelAhead(float power, int casterIndex
 		power, casterIndex, 4.0f * kCellSize);
 }
 
+void DungeonWorld::SpawnBoltAfter(const ProjectileSpec& spec, float delay) {
+	if (delay <= 0.0f) {
+		m_projectiles.Spawn(spec);
+		return;
+	}
+	// A full queue means a volley larger than any spell can make: the bolt goes
+	// now rather than vanishing.
+	if (m_pendingBoltCount >= m_pendingBolts.size()) {
+		m_projectiles.Spawn(spec);
+		return;
+	}
+	m_pendingBolts[m_pendingBoltCount++] = {spec, delay};
+}
+
+void DungeonWorld::UpdatePendingBolts(float dt) {
+	for (size_t i = 0; i < m_pendingBoltCount;) {
+		PendingBolt& p = m_pendingBolts[i];
+		p.delay -= dt;
+		if (p.delay > 0.0f) {
+			++i;
+			continue;
+		}
+		m_projectiles.Spawn(p.spec);
+		p = m_pendingBolts[--m_pendingBoltCount]; // swap-remove; order is the delays'
+	}
+}
+
 void DungeonWorld::BlastAroundParty(const ProjectilePayload& payload, SpellSymbol school,
 									int casterIndex) {
 	Detonate(m_party.GridX(), m_party.GridZ(), payload, m_damageTypes.ForSchool(school),

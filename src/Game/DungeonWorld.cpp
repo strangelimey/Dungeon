@@ -210,6 +210,7 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_magic.SetBalance(&m_balance);
 	m_magic.SetCastServices(
 		{[this](const ProjectileSpec& bolt) { m_projectiles.Spawn(bolt); },
+		 [this](const ProjectileSpec& bolt, float delay) { SpawnBoltAfter(bolt, delay); },
 		 [this](const Character& member, std::string_view line) {
 			 MemberMessage(member, line);
 		 },
@@ -466,6 +467,7 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 	// The busiest phase by far — monster blows, every DoT bite on both sides,
 	// regeneration, supplies, and the unconscious waking up.
 	CheckDamageLedger("monsters, effects and regeneration");
+	UpdatePendingBolts(dt);   // a volley's later bolts take their turn
 	m_projectiles.Update(dt); // fly bolts, resolve impacts/fizzles via the hooks
 	UpdateBlasts(dt);         // advance live blasts a tick at their own speed
 	CheckDamageLedger("projectiles and blasts");
