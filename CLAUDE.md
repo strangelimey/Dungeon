@@ -1818,8 +1818,9 @@ too) are an iron FRAME around a PROCEDURAL, ANIMATED, EMISSIVE fill.
   stacks draw every fill, then every frame (`DrawResourceBarFill/Frame`). Health
   = blood ebbing + a heartbeat; stamina = a breathing green glow; mana = blue
   wisps + an occasional lightning strike; food = packed grain (mottle, speckle,
-  lighter kernels, nearly still, a crumbly end with no meniscus); water = cool
-  and clear, lighter at the surface, drifting caustic light, small bubbles, a
+  lighter kernels, nearly still, a crumbly end with no meniscus); water = clear
+  TEAL (mana owns blue, a row away), lighter at the surface, soft pools of
+  caustic light (thin threads read as mana's lightning), small bubbles, a
   gentle slosh (BarKind Food = 5 / Water = 6).
   Brightness falls with the stat. Tuning lives at the top of bar.hlsl (edit +
   relaunch): `kPace` / `kSubdue` exist because the first cut was "too busy - it
