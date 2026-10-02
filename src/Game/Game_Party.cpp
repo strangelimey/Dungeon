@@ -20,6 +20,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <format>
+#include <sstream>
 #include <tuple>
 
 namespace dungeon::game {
@@ -41,39 +42,36 @@ party::RaceStats RaceStatsOf(const CatalogEntry& race) {
 	return rs;
 }
 
-// "c04040" / "#c04040" -> an opaque colour; false for anything else.
-bool ParseHexColor(std::string_view s, std::array<float, 4>& out) {
-	if (!s.empty() && s[0] == '#') s.remove_prefix(1);
-	if (s.size() != 6) return false;
-	unsigned v = 0;
-	for (char ch : s) {
-		const int d = ch >= '0' && ch <= '9'   ? ch - '0'
-					  : ch >= 'a' && ch <= 'f' ? ch - 'a' + 10
-					  : ch >= 'A' && ch <= 'F' ? ch - 'A' + 10
-											   : -1;
-		if (d < 0) return false;
-		v = v * 16 + static_cast<unsigned>(d);
-	}
-	out = {((v >> 16) & 0xff) / 255.0f, ((v >> 8) & 0xff) / 255.0f, (v & 0xff) / 255.0f, 1.0f};
-	return true;
-}
-
 std::string HexColor(const Vec4& c) {
 	const auto b = [](float f) { return static_cast<int>(std::clamp(f, 0.0f, 1.0f) * 255.0f + 0.5f); };
 	return std::format("{:02x}{:02x}{:02x}", b(c.x), b(c.y), b(c.z));
 }
 
-std::vector<std::string> SplitList(std::string_view s) {
-	std::vector<std::string> out;
-	size_t start = 0;
-	while (start <= s.size()) {
-		const size_t comma = s.find(',', start);
-		const std::string_view part =
-			s.substr(start, comma == std::string_view::npos ? std::string_view::npos : comma - start);
-		if (!part.empty()) out.emplace_back(part);
-		if (comma == std::string_view::npos) break;
-		start = comma + 1;
-	}
+// What a race does, in words, for the page: its bonuses then its weaknesses,
+// extra free points, a pace that differs, and what it resists
+// ("+2 Dexterity, +1 Intelligence, -2 Vitality, -1 Strength, quick").
+std::string RaceTraits(const CatalogEntry& race, const party::RaceStats& rs) {
+	std::vector<std::string> parts;
+	for (int sign : {+1, -1})
+		for (size_t i = 0; i < party::kStats; ++i)
+			if (rs.mods[i] * sign > 0)
+				parts.push_back(std::format("{:+} {}", rs.mods[i],
+											loc::Tr(std::format("attr.{}", kStats[i].id))));
+	if (rs.extraPoints > 0) parts.push_back(loc::Format("party.race.points", rs.extraPoints));
+	const float pace = race.GetFloat("pace", 1.0f);
+	if (pace > 1.001f) parts.push_back(loc::Tr("party.race.quick"));
+	if (pace < 0.999f) parts.push_back(loc::Tr("party.race.slow"));
+	// `resists` is damage type + fraction pairs ("earth 0.25, bash 0.1").
+	std::string words = race.Get("resists", "");
+	std::ranges::replace(words, ',', ' ');
+	std::istringstream in(words);
+	std::string type;
+	float amount = 0.0f;
+	while (in >> type >> amount)
+		parts.push_back(loc::Format("party.race.resists", loc::Tr("dmg." + type),
+									static_cast<int>(amount * 100.0f + 0.5f)));
+	std::string out;
+	for (const std::string& p : parts) out += (out.empty() ? "" : ", ") + p;
 	return out;
 }
 
@@ -222,6 +220,87 @@ bool Game::BuildParty(const std::vector<party::MemberSpec>& specs, std::vector<C
 	return true;
 }
 
+// --- the creation page (phase 3) ------------------------------------------------
+
+void Game::OpenPartyCreation(const std::string& folder) {
+	// Another world than the resident one: switch first (a frame later, as every
+	// switch is), and the switch opens the page when it lands.
+	if (!folder.empty() && (!m_world || folder != m_project.FolderName())) {
+		if (!SwitchWorld(folder)) {
+			log::Warn("party creation: world '{}' is gone", folder);
+			return;
+		}
+		if (m_pendingWorld) {
+			m_pendingWorld->partyPage = true;
+			return;
+		}
+	}
+	// The title screen with no world resident: the default one, as a plain new
+	// game would open (Game_Wiring's onStartNewGame).
+	if (!m_world && !LoadWorld(m_defaultWorld)) {
+		log::Warn("party creation: the default world '{}' could not be opened", m_defaultWorld);
+		return;
+	}
+	m_ui.OpenPartyPage(PartyCreationDataFor());
+	log::Info("party creation: the page opens for '{}' ({} races, {} skills, {} starting items)",
+			  m_project.FolderName(), m_project.races.Entries().size(),
+			  m_world->TrainableSkills().size(), m_project.startItems.size());
+}
+
+PartyCreationData Game::PartyCreationDataFor() {
+	PartyCreationData d;
+	if (!m_world) return d;
+	for (const CatalogEntry& e : m_project.races.Entries()) {
+		PartyRaceInfo r;
+		r.id = e.id;
+		r.name = loc::Tr(e.Get("name", "race." + e.id));
+		r.portraitTag = e.Get("portrait", "");
+		r.stats = RaceStatsOf(e);
+		r.traits = RaceTraits(e, r.stats);
+		d.races.push_back(std::move(r));
+	}
+	for (const std::string& id : m_world->TrainableSkills())
+		d.skills.push_back({id, loc::Tr("skill." + id)});
+	for (const std::string& id : m_project.startItems)
+		if (const CatalogEntry* e = m_project.FindItem(id))
+			d.items.push_back({id, loc::Tr(e->Get("name", "item." + id))});
+	// The default four, as they come today: their own names and faces, in the
+	// Settings palette's colours.
+	const std::vector<Character> four = CreateDefaultParty();
+	for (size_t i = 0; i < four.size() && i < party::kMaxMembers; ++i) {
+		party::MemberSpec m;
+		m.premade = static_cast<int>(i);
+		m.name = four[i].name;
+		m.portrait = four[i].portraitId;
+		const Vec4 c = i < kMemberColorCount ? m_settings.memberColors[i] : four[i].portraitColor;
+		m.color = {c.x, c.y, c.z, 1.0f};
+		m.colorSet = true;
+		d.defaults.push_back(std::move(m));
+	}
+	for (size_t i = 0; i < party::kMaxMembers; ++i)
+		d.newColors[i] = i < kMemberColorCount ? m_settings.memberColors[i] : Vec4{0.5f, 0.5f, 0.5f, 1};
+	// The preview is the member the game will start with: BuildMember, then the
+	// world's pool rules (ResetRoster re-derives the maxima the same way).
+	d.build = [this](const party::MemberSpec& spec, std::string& why) {
+		std::optional<Character> c = BuildMember(spec, why);
+		if (c && m_world) c->RecomputeMaxima(m_world->GetBalance().Resources());
+		return c;
+	};
+	return d;
+}
+
+bool Game::StartWithParty(const std::vector<party::MemberSpec>& specs, std::string& why) {
+	std::vector<Character> built;
+	if (!BuildParty(specs, built, why)) {
+		log::Warn("party creation: refused - {}", why);
+		return false;
+	}
+	log::Info("party creation: a new game with a party of {}", built.size());
+	m_startParty = std::move(built);
+	m_ui.onStartNewGame();
+	return true;
+}
+
 void Game::RegisterPartyCreationCommands() {
 	// A party from one line - the harness's way in, and the creation page's twin.
 	// Members are split by '|'; each is key=value words:
@@ -269,36 +348,10 @@ void Game::RegisterPartyCreationCommands() {
 					m_console.Refuse(std::format("'{}' is not key=value", word));
 					return;
 				}
-				const std::string key = word.substr(0, eq), val = word.substr(eq + 1);
-				party::MemberSpec& m = specs.back();
-				if (key == "name") {
-					m.name = val;
-					std::ranges::replace(m.name, '_', ' ');
-				} else if (key == "race") {
-					m.race = val;
-				} else if (key == "portrait") {
-					m.portrait = val;
-				} else if (key == "color") {
-					if (!ParseHexColor(val, m.color)) {
-						m_console.Refuse(std::format("'{}' is not a colour (rrggbb)", val));
-						return;
-					}
-					m.colorSet = true;
-				} else if (key == "points") {
-					const std::vector<std::string> p = SplitList(val);
-					if (p.size() != party::kStats) {
-						m_console.Refuse("points= takes five numbers (str,dex,vit,wil,int)");
-						return;
-					}
-					for (size_t i = 0; i < party::kStats; ++i) m.spent[i] = std::atoi(p[i].c_str());
-				} else if (key == "skills") {
-					m.skills = SplitList(val);
-				} else if (key == "items") {
-					m.items = SplitList(val);
-				} else if (key == "premade") {
-					m.premade = std::atoi(val.c_str());
-				} else {
-					m_console.Refuse(std::format("unknown key '{}'", key));
+				std::string why;
+				if (!party::ApplySpecField(specs.back(), std::string_view(word).substr(0, eq),
+										   std::string_view(word).substr(eq + 1), why)) {
+					m_console.Refuse(why);
 					return;
 				}
 			}
@@ -341,6 +394,117 @@ void Game::RegisterPartyCreationCommands() {
 					c.vitality, c.willpower, c.intelligence, c.baseHealth, c.baseStamina,
 					c.baseMana, skills.empty() ? "-" : skills, kit.empty() ? "-" : kit));
 			}
+		});
+
+	RegisterPartyPageCommands();
+}
+
+// The creation PAGE'S twin: every verb is one of the page's own edits (the
+// methods its widgets call), so a scripted build is the page's code path, not
+// a second one. The page builds its tree a frame after it opens; the edits
+// apply from the moment it is asked for.
+void Game::RegisterPartyPageCommands() {
+	m_console.Register(
+		{.name = "partypage",
+		 .group = CmdGroup::Characters,
+		 .params = "\n"
+				   "open [world]\n"
+				   "add | default | back | start | picker\n"
+				   "select <member> | remove <member>\n"
+				   "set <key=value> ...\n"
+				   "spend <stat> <points>\n"
+				   "skill <slot> <id|none> | item <slot> <id|none>",
+		 .summary = "drive the party creation page (bare = its status)"},
+		[this](const std::vector<std::string>& args) {
+			const std::string verb = args.empty() ? "status" : args[0];
+			if (verb == "open") {
+				if (m_state != AppState::Menu) {
+					m_console.Refuse("the party page opens from the title screen");
+					return;
+				}
+				OpenPartyCreation(args.size() > 1 ? args[1] : std::string());
+				m_console.Print(m_ui.PartyPageActive() ? "party page: open"
+													   : "party page: opening (switching world)");
+				return;
+			}
+			PartyCreationPage* page = m_ui.PartyPage();
+			if (!page || !m_ui.PartyPageActive()) {
+				if (verb == "status") m_console.Print("party page: closed");
+				else m_console.Refuse("the party page is not open (partypage open)");
+				return;
+			}
+			const auto index = [&](size_t at, size_t& out) {
+				if (args.size() <= at) return false;
+				out = static_cast<size_t>(std::atoi(args[at].c_str()));
+				return true;
+			};
+			bool ok = true;
+			std::string why;
+			size_t i = 0;
+			if (verb == "status") {
+				for (const std::string& line : page->StatusLines()) m_console.Print(line);
+				return;
+			} else if (verb == "add") {
+				ok = page->Add();
+				why = "a party has at most four members";
+			} else if (verb == "default") {
+				page->FillDefault();
+			} else if (verb == "back") {
+				m_ui.LeavePartyPage();
+			} else if (verb == "start") {
+				ok = m_ui.StartPartyPage(why);
+			} else if (verb == "picker") {
+				const int r = page->RaceIndex(page->SelectedIndex());
+				m_ui.OpenPartyPortraitPicker(
+					page->SelectedIndex(),
+					r >= 0 ? page->Data().races[static_cast<size_t>(r)].portraitTag : "");
+				ok = m_ui.PortraitPickerOpen();
+				why = "the face picker did not open";
+			} else if (verb == "select" && index(1, i)) {
+				ok = i < page->Count();
+				if (ok) page->Select(i);
+				why = "no such member";
+			} else if (verb == "remove" && index(1, i)) {
+				ok = page->Remove(i);
+				why = "no such member, or the last one";
+			} else if (verb == "set" && args.size() > 1) {
+				for (size_t a = 1; a < args.size() && ok; ++a) {
+					const size_t eq = args[a].find('=');
+					if (eq == std::string::npos) {
+						ok = false;
+						why = std::format("'{}' is not key=value", args[a]);
+						break;
+					}
+					ok = page->SetField(std::string_view(args[a]).substr(0, eq),
+										std::string_view(args[a]).substr(eq + 1), why);
+				}
+			} else if (verb == "spend" && args.size() > 2) {
+				const int stat = StatIndex(args[1]);
+				const int n = std::atoi(args[2].c_str());
+				ok = stat >= 0;
+				why = "no stat '" + args[1] + "'";
+				for (int k = 0; ok && k < std::abs(n); ++k) {
+					ok = page->Spend(static_cast<size_t>(stat), n > 0 ? +1 : -1);
+					why = n > 0 ? "no points left (or a premade member)" : "nothing spent there";
+				}
+			} else if ((verb == "skill" || verb == "item") && args.size() > 2 && index(1, i)) {
+				const bool skill = verb == "skill";
+				const std::vector<PartyPick>& from = skill ? page->Data().skills : page->Data().items;
+				int choice = -1;
+				for (size_t k = 0; k < from.size(); ++k)
+					if (from[k].id == args[2]) choice = static_cast<int>(k);
+				ok = args[2] == "none" || choice >= 0;
+				why = std::format("'{}' is not offered", args[2]);
+				if (ok) page->SetPick(skill, i, choice);
+			} else {
+				m_console.RefuseUsage();
+				return;
+			}
+			if (!ok) {
+				m_console.Refuse(why);
+				return;
+			}
+			m_console.Print(std::format("party page: {} ok", verb));
 		});
 }
 

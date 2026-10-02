@@ -78,6 +78,7 @@ add_library(Game STATIC
 	GameSettings.cpp
 	GameUI.cpp
 	GameUI_Items.cpp
+	GameUI_Party.cpp
 	GameUI_Stone.cpp
 	InspectPicker.cpp
 	InstanceInspector.cpp
@@ -133,6 +134,7 @@ add_library(Game STATIC
 	PartyWindow.cpp
 	ItemDetailsDialog.cpp
 	PortraitPicker.cpp
+	PartyCreationPage.cpp
 	CharacterSheet.cpp
 	CharacterSheet_Inventory.cpp
 	CharacterSheet_Stats.cpp

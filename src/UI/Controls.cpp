@@ -825,6 +825,15 @@ void DropDown::UpdateSelf(UIContext& ctx) {
 	if (!input) return;
 	const float mx = input->MouseX(), my = input->MouseY();
 
+	// Esc closes an open list and picks nothing - the colour picker's rule. The
+	// page beneath sees the popup was open (UIContext::PopupOpen) and does not
+	// also take the Esc as "back".
+	if (m_open && input->WasKeyPressed(vk::Escape)) {
+		m_open = false;
+		m_scrollDragging = false;
+		ctx.ConsumeMouse();
+		return;
+	}
 	if (m_open) {
 		// The open popup owns the mouse entirely — including the wheel, which a
 		// modal claims whether or not it scrolls: a list open over a page must

@@ -87,6 +87,12 @@ void Game::WireModuleCallbacks() {
 		return worlds;
 	};
 	m_ui.onStartNewGameIn = [this](const std::string& folder) { StartNewGameIn(folder); };
+	// Party creation (docs/party-creation-plan.md phase 3): the world first, then
+	// the page; the page's Start builds the party and starts the game.
+	m_ui.onOpenPartyCreation = [this](const std::string& folder) { OpenPartyCreation(folder); };
+	m_ui.onStartParty = [this](const std::vector<party::MemberSpec>& specs, std::string& why) {
+		return StartWithParty(specs, why);
+	};
 	m_ui.onEditorOnArrival = [this](bool on) { m_editorOnArrival = on; };
 	m_ui.onQuit = [this] { m_quitRequested = true; };
 	m_ui.onResume = [this] { m_state = m_resumeState; };

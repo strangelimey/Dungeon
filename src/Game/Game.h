@@ -773,7 +773,17 @@ private:
 	// The party the NEXT new game starts with, set by party creation or the
 	// `newparty` command and consumed by StartNewGame; empty = the default four.
 	std::optional<std::vector<Character>> m_startParty;
-	void RegisterPartyCreationCommands(); // newparty / roster (Game_Party.cpp)
+	void RegisterPartyCreationCommands(); // newparty / roster / partypage (Game_Party.cpp)
+	void RegisterPartyPageCommands();     // partypage (the page's dev twin)
+	// THE PAGE (phase 3): the world `folder` (empty = the resident one, else the
+	// default) is opened first - deferred a frame when it is another world, as a
+	// switch always is - then GameUI's party creation page shows what it offers.
+	void OpenPartyCreation(const std::string& folder);
+	// What the open world offers the page: races, skills, starting items, the
+	// default four as premade specs, and the build it previews with.
+	PartyCreationData PartyCreationDataFor();
+	// Start with the page's party (its Start button and `partypage start`).
+	bool StartWithParty(const std::vector<party::MemberSpec>& specs, std::string& why);
 	// Captures the live world + roster to a named slot under SaveDir. Requires
 	// the dungeon to be loaded (m_gameLoaded); no-op otherwise.
 	// False when nothing was written — no game loaded, inside a random
@@ -876,6 +886,9 @@ private:
 	struct PendingWorld {
 		std::string folder;
 		std::string savePath;
+		// Opens the party creation page once the world is in, instead of
+		// starting a game (OpenPartyCreation).
+		bool partyPage = false;
 	};
 	std::optional<PendingWorld> m_pendingWorld;
 	// The landing page's Editor entry asked for the editor, paused, once the

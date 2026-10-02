@@ -165,6 +165,10 @@ public:
 	// popup stops renewing it (closed, its tab hidden), so it cannot strand
 	// the page.
 	void ClaimPopup() { m_popupClaimNext = true; }
+	// Whether a popup was open as of the last update (it renewed its claim). For
+	// an owner deciding whether an Esc belongs to the popup - which closes itself
+	// on Esc - or to the page under it.
+	bool PopupOpen() const { return m_popupClaimNext; }
 
 private:
 	// Exactly one of these backs m_font: an owned Font (legacy form) or one

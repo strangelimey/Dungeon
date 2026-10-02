@@ -23,6 +23,7 @@
 #include "Game/LoadQueue.h"
 #include "Game/MessageLog.h"
 #include "Game/Party.h"
+#include "Game/PartyCreationPage.h"
 #include "Game/PartyHud.h"
 #include "Game/SoundBank.h"
 #include "Graphics/SpriteBatch.h"
@@ -46,6 +47,7 @@
 namespace dungeon::game {
 
 class StonePicker; // Game/StonePicker.h - the Material tab's grid
+class PageCard;    // Game/MenuPanel.h - the menu pages' stone card
 
 class GameUI {
 public:
@@ -120,7 +122,7 @@ public:
 	// The skin the game chrome draws with - for a sample of it inside the
 	// editor's own (unskinned) dialogs.
 	const ui::Skin& GameSkin() const { return m_skin; }
-	void UpdateMenu(const Input& input);  // landing list or settings page
+	void UpdateMenu(const Input& input, float dt); // landing list or a sub-page
 	void UpdatePause(const Input& input); // pause list or settings page
 	void UpdateSheet(const Input& input, float dt);
 	// dt advances the message footer's fades / expand animation (real frame
@@ -335,6 +337,28 @@ public:
 	};
 	std::function<std::vector<WorldChoice>()> onListWorlds;
 	std::function<void(const std::string& folder)> onStartNewGameIn;
+	// PARTY CREATION (docs/party-creation-plan.md phase 3): Start New Game,
+	// once the world is chosen, asks for the party page instead of starting -
+	// the receiver opens the world and calls OpenPartyPage with what it offers
+	// (empty folder = the resident world, else the default). The page's Start
+	// hands its specs to onStartParty, which builds the party and starts the
+	// game; false + why when it cannot (the page shows why itself first). The
+	// Editor entry and the harness's `newgame` / `reset` skip the page.
+	std::function<void(const std::string& folder)> onOpenPartyCreation;
+	std::function<bool(const std::vector<party::MemberSpec>&, std::string& why)> onStartParty;
+
+	// The page itself (GameUI_Party.cpp). OpenPartyPage shows it next frame,
+	// fresh (one new member); Back leaves for the world list it came from, or the
+	// title. Start goes through StartPartyPage, which the dev command calls too.
+	void OpenPartyPage(PartyCreationData data);
+	bool PartyPageOpen() const { return m_menuPage == MenuPage::Party; }
+	// Open, or asked for and building next frame: its edits apply either way.
+	bool PartyPageActive() const { return PartyPageOpen() || m_partyBuildPending; }
+	PartyCreationPage* PartyPage() { return m_partyPage.get(); }
+	void LeavePartyPage();                  // Back / Esc (deferred a frame)
+	bool StartPartyPage(std::string& why);  // Start: false + why if refused
+	// The face picker over the page, for one of its members.
+	void OpenPartyPortraitPicker(size_t member, const std::string& raceTag);
 	// The landing page's "Editor" entry starts a new game exactly as Start New
 	// Game does (the same world question), then opens the editor, PAUSED, the
 	// moment the game arrives. Every landing entry says which it is, so the
@@ -436,7 +460,8 @@ public:
 private:
 	// Worlds: the new-game world list. It borrows m_savesUi (both are one-list
 	// pages rebuilt on open, and only one sub-page is ever showing).
-	enum class MenuPage { Main, Settings, Saves, Worlds };
+	// Party: the party creation page, which borrows m_savesUi too.
+	enum class MenuPage { Main, Settings, Saves, Worlds, Party };
 	// The Saves sub-page serves two jobs: Load (a list of slots to load) and
 	// Save (a name field + existing slots to overwrite). m_savesMode picks.
 	enum class SavesMode { Load, Save };
@@ -470,6 +495,7 @@ private:
 	// The stone card those three pages stand on (its title from `titleKey`) and
 	// the column of rows inside it; the carved Back stone that ends the column.
 	ui::Stack* SavesCard(const char* titleKey);
+	PageCard* AddPageCard(float width, const char* titleKey, float top = -1.0f);
 	void SavesBackRow(ui::Stack& col);
 	// Start New Game and Editor share one flow; `editor` is which was clicked.
 	void BeginNewGame(bool editor);
@@ -648,6 +674,7 @@ private:
 		case MenuPage::Settings: return m_settingsUi;
 		case MenuPage::Saves:    return m_savesUi;
 		case MenuPage::Worlds:   return m_savesUi; // the list page it borrows
+		case MenuPage::Party:    return m_savesUi; // likewise
 		default:                 return m_menuUi;
 		}
 	}
@@ -725,6 +752,15 @@ private:
 	// Whether the world list was opened by Editor rather than Start New Game:
 	// the pick, not the page, is where the new game begins.
 	bool m_worldsForEditor = false;
+	// The party creation page (GameUI_Party.cpp): built next frame after
+	// OpenPartyPage or an edit that needs a new tree, and left next frame on
+	// Back (both from inside its own widgets' callbacks).
+	std::unique_ptr<PartyCreationPage> m_partyPage;
+	bool m_partyBuildPending = false;
+	bool m_partyLeavePending = false;
+	bool m_partyFromWorlds = false; // Back returns to the world list
+	void BuildPartyPage();
+	void RefreshPartyPageIfDirty();
 	SavesMode m_savesMode = SavesMode::Load;
 	// Save page widgets (live in m_savesUi, valid only while it is built): the
 	// name field and the Save button, plus whether a second click is needed to

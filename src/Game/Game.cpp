@@ -472,7 +472,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 			"allocpoke", "crashpoke", "health", "throttle", "governor",
 			"threadspawn", "threadwedge", "threadprio", "threadaffinity",
 			"threadreap", "uitree", "uioverlap", "logecho", "timescale", "state",
-			"worlds", "newgame", "reset", "newparty",
+			"worlds", "newgame", "reset", "newparty", "partypage",
 		};
 		for (std::string_view n : kNoWorldNeeded)
 			if (n == name) return {};
@@ -566,7 +566,8 @@ void Game::ApplyPendingWorld() {
 		m_editorOnArrival = false; // the game it was waiting for is not coming
 		return;
 	}
-	if (p.savePath.empty()) m_ui.onStartNewGame();
+	if (p.partyPage) OpenPartyCreation(p.folder);
+	else if (p.savePath.empty()) m_ui.onStartNewGame();
 	else m_ui.onLoadSave(p.savePath);
 }
 
@@ -1964,9 +1965,11 @@ void Game::UpdateStates(float dt) {
 	if (m_ui.ItemDetailsOpen() && m_state != AppState::Playing &&
 		m_state != AppState::CharacterSheet)
 		m_ui.CloseItemDetails();
-	// The portrait picker likewise.
+	// The portrait picker likewise - except over the party creation page, its
+	// other home, on the title screen.
 	if (m_ui.PortraitPickerOpen() && m_state != AppState::Playing &&
-		m_state != AppState::CharacterSheet)
+		m_state != AppState::CharacterSheet &&
+		!(m_state == AppState::Menu && m_ui.PartyPageOpen()))
 		m_ui.ClosePortraitPicker();
 
 	switch (m_state) {
@@ -1997,7 +2000,7 @@ void Game::UpdateStates(float dt) {
 		// (Key-bind capture still swallows Esc first, to cancel the capture.)
 		if (input.WasKeyPressed(VK_ESCAPE) && !m_ui.KeyCaptureActive())
 			m_ui.CloseSettingsPage();
-		m_ui.UpdateMenu(input);
+		m_ui.UpdateMenu(input, dt);
 		return;
 
 	case AppState::LoadingGame:

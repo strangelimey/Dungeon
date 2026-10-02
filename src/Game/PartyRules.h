@@ -16,7 +16,9 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdlib>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace dungeon::game::party {
@@ -129,6 +131,86 @@ inline bool NameValid(const std::string& name) {
 		if (c != ' ') any = true;
 	}
 	return any;
+}
+
+// --- a member as WORDS --------------------------------------------------------
+// `newparty` and the creation page's dev twin (`partypage set`) describe a member
+// in the same key=value words, parsed here so the two cannot read one differently:
+//   name=Old_Tom race=dwarf portrait=b045 color=c08040 points=2,0,3,0,0
+//   skills=blunt,conditioning items=club,padded_jack premade=1
+// A name's underscores are spaces (as in a save line).
+
+// "c04040" / "#c04040" -> an opaque colour; false for anything else.
+inline bool ParseHexColor(std::string_view s, std::array<float, 4>& out) {
+	if (!s.empty() && s[0] == '#') s.remove_prefix(1);
+	if (s.size() != 6) return false;
+	unsigned v = 0;
+	for (char ch : s) {
+		const int d = ch >= '0' && ch <= '9'   ? ch - '0'
+					  : ch >= 'a' && ch <= 'f' ? ch - 'a' + 10
+					  : ch >= 'A' && ch <= 'F' ? ch - 'A' + 10
+											   : -1;
+		if (d < 0) return false;
+		v = v * 16 + static_cast<unsigned>(d);
+	}
+	out = {static_cast<float>((v >> 16) & 0xff) / 255.0f,
+		   static_cast<float>((v >> 8) & 0xff) / 255.0f, static_cast<float>(v & 0xff) / 255.0f,
+		   1.0f};
+	return true;
+}
+
+// "a,b,,c" -> {a, b, c}: empty parts are dropped.
+inline std::vector<std::string> SplitList(std::string_view s) {
+	std::vector<std::string> out;
+	size_t start = 0;
+	while (start <= s.size()) {
+		const size_t comma = s.find(',', start);
+		const std::string_view part =
+			s.substr(start, comma == std::string_view::npos ? std::string_view::npos : comma - start);
+		if (!part.empty()) out.emplace_back(part);
+		if (comma == std::string_view::npos) break;
+		start = comma + 1;
+	}
+	return out;
+}
+
+// Applies one key=value word to `m`. False (with `why`, English - it is a dev
+// command's refusal) for an unknown key or a value of the wrong shape; whether
+// the VALUE names a real race, item or skill is Game::BuildMember's to say.
+inline bool ApplySpecField(MemberSpec& m, std::string_view key, std::string_view val,
+						   std::string& why) {
+	if (key == "name") {
+		m.name = std::string(val);
+		for (char& c : m.name)
+			if (c == '_') c = ' ';
+	} else if (key == "race") {
+		m.race = std::string(val);
+	} else if (key == "portrait") {
+		m.portrait = std::string(val);
+	} else if (key == "color") {
+		if (!ParseHexColor(val, m.color)) {
+			why = "'" + std::string(val) + "' is not a colour (rrggbb)";
+			return false;
+		}
+		m.colorSet = true;
+	} else if (key == "points") {
+		const std::vector<std::string> p = SplitList(val);
+		if (p.size() != kStats) {
+			why = "points= takes five numbers (str,dex,vit,wil,int)";
+			return false;
+		}
+		for (size_t i = 0; i < kStats; ++i) m.spent[i] = std::atoi(p[i].c_str());
+	} else if (key == "skills") {
+		m.skills = SplitList(val);
+	} else if (key == "items") {
+		m.items = SplitList(val);
+	} else if (key == "premade") {
+		m.premade = std::atoi(std::string(val).c_str());
+	} else {
+		why = "unknown key '" + std::string(key) + "'";
+		return false;
+	}
+	return true;
 }
 
 } // namespace dungeon::game::party
