@@ -187,6 +187,49 @@ Key conventions (memorize, they bite):
   Save v14/15/16 lines cover effects/skills/per-hand. Adding a spell: file
   pair + AllSpells.cpp + CMakeLists (hand-listed) + spell.<id> lang keys ×5
   (+ .desc for ward-like effects).
+  THREE TIERS (spell-updates, docs/spell-updates-plan.md): a recipe is SCHOOL,
+  then an optional FORM, then at most ONE MODIFIER - `Spells.h` TierOf /
+  SymbolMayFollow / WellFormedRecipe are the one statement of that grammar
+  (no modifier on a bare school rune or on Sight). Runes are SHOWN by their
+  Futhark names (`RuneNameKey` -> `rune.<id>`: Kenaz Berkano Ansuz Laguz /
+  Tiwaz Algiz Dagaz / Ingwaz Hagalaz); the ids stay the meanings. TIER 1 is
+  four `HandSpell`s, NOT bolts: Flame lights a held torch / the wall torch /
+  a brazier past `brazier_power`; Rock conjures a pebble into a hand or at the
+  feet; Gust flares a fire and past `push_power` shoves a monster and REPELS a
+  shot (weakened by the power, flung back if the power beats it); Splash fills
+  a held skin a step / douses the wall torch / a brazier past its power. Every
+  threshold reads CAST POWER. TIER 2 Project = single-target bolts (`firebolt`
+  `earthbolt` `waterbolt` `airbolt`; were fireburst/slingshot/push). TIER 3 is
+  ONE class, `ModifiedSpell`, which AllSpells wraps round every Bolt and Ward
+  spell: Ingwaz = a volley (each bolt weaker, the caster's own lane, a fixed
+  pending-bolt queue via `spawnBoltAfter` - a cast frame must not allocate) or
+  the ward on the whole party; Hagalaz = a burst on impact or a burst round the
+  caster sparing its square, and no ward. Sixteen whole spells with their own
+  ids and spells.cat entries, so learning / the book / saves needed nothing.
+  TRAP: `blast_force` counts SQUARES, not a radius. Monsters cast any spell id;
+  the mage ladder is skel_mage / skel_mage_adept / skel_magus (bolt, volley,
+  burst). New spell services reach the world only through CastServices (each
+  drivable bare with `castsvc`). Checked by `tools\SpellTest.py` (judges
+  spells.eval, CheckAll quick; `--selftest` cuts every cast) and `AllocTest.ps1
+  -Hand`.
+- FIRE AND LIGHT (docs/torches-and-fire.md): there is NO light at the eye - a
+  LIT TORCH held in a hand (or on the cursor) is the party's light, and an
+  ambient-0 level is pitch black. A lit torch burns while HELD (its CHARGE
+  counts down `burn_time`, it dims over its last tenth, spent it becomes
+  `spent_as`); stowed or dropped it goes out keeping what is left. CHARGE IS
+  PART OF THE ITEM everywhere it can be: `ItemSlot {typeId, charge}`, the
+  cursor's HeldItem, a floor Item, a thrown cargo, and the save (`id#charge`).
+  Lighting / dousing / filling RENAMES an item in its slot (`lit_as` /
+  `unlit_as` / `fill_as` / `drink_as`). Fires are LIVE, SAVED state: a play
+  change is a FLIP on the map's fixture (`flipped`, a sconce's `empty` - its
+  torch taken), `SetFireBurning` the one way to change it, `fire` save lines
+  the diff. A doused fire SMOKES through the effects system (`on_douse` ->
+  `smoke` haze effect -> up to 4 `dustPuffs` in the frame). TWO RULES THAT
+  BITE: the STASHED static map keeps only the AUTHORED fires (StashStaticMap
+  resets the flips; it once carried a douse into a new game), and a play-time
+  fire change must not bump `DungeonMap::Revision()` (`RecomputeTurbidity`) -
+  the revision keys the AI walkability grid, which then rebuilt (allocating) on
+  every hand spell. Dev: `torch`, `castsvc`, `equip none`.
 - COMBAT (full model: docs/combat.md — "The attack formula"; built by the
   combat-depth thread): every constant is a KNOB in the project's
   balance.cat ([formula] block → the Balance struct in Game/Balance.h;
@@ -1904,7 +1947,13 @@ Michael's notes and answers: docs/ui-updates-notes.md; the plan: -plan.md.
   Game renders it into the editor's `m_modelPreview` AFTER the scene (the editor
   dialogs' preview replaces the scene pass; this one must not) and only while no
   editor preview holds that target. Modal for the mouse, not the keyboard; the
-  world keeps running. Dev: `itemdetails <item [kg]|off|status>`.
+  world keeps running. Its footer has a MEMORIZE button (spell-updates), shown
+  only when opened on a member's own rune that member does not know. That rule
+  is `GameUI::CanMemorize`, and it is the ONE test for every place Memorize is
+  offered - the hand menu and the pack / doll menu skip the row too, and
+  `MemorizeSlot` refuses a known rune rather than spend the tablet. Dev:
+  `itemdetails <item [kg]|pack <member> <slot>|memorize|off|status>` (status
+  prints `memorize=`); judged by SpellTest's MEMORIZE checks.
 - CHECKED: `AllocTest.ps1 -Sheet` (hover, all tabs, a right-click open, the
   spin, the menu - inside the window; refuses a PASS with no open counted). It
   found `ModelPreview::Render` building its light rig every frame, which was
@@ -2139,7 +2188,7 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   skill against weight (balance.cat throw_speed*). What it leaves is ItemKind::
   throwPayload: its on_hit, its own blast (the spell blast fields + `blast_type`)
   or `throw_spell`'s whole payload; `throw_breaks = 1` shatters it instead of
-  landing (the fire flask bursts as fireburst, the poison flask lets go a
+  landing (the fire flask bursts as firebolt_burst, the poison flask lets go a
   lingering gas). The flight is a projectile carrying the item's kind as CARGO
   (Projectiles.h - opaque to the engine; no billboard, the item draws itself
   tumbling via ForEachCargo). IT IS NEVER LOST: it lands in the struck monster's
@@ -2171,7 +2220,12 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   DrawRuneFace survives only as the glow's fallback.
 - THE STARTER KIT (Character.cpp CreateDefaultParty): Brand a dagger in his
   right hand (his bare left is what the harness's `swing 0` uses), Sera one in
-  her left; Maren holds fire + project, Tilo earth + protect, school rune left.
+  her left and a LIT TORCH in her right (the party's only light - see FIRE AND
+  LIGHT); Maren holds fire + project, Tilo earth + protect, school rune left,
+  and EACH caster's backpack carries Ingwaz + Hagalaz (the tier-3 modifiers;
+  both each, since a tablet is memorized by one member and spent). That is the
+  PREMADE four; a CREATED member picks two of project.ini `start_items`, which
+  carries `torch_lit` so a party of created members is not left in the dark.
 - THE MESSAGE LOG opens only from its Log button, which sits at the bottom-left
   in every state (alone once the footer fades, in its corner while it shows,
   pressed while open); hovering does nothing (Michael: it got in the way).

@@ -1108,6 +1108,14 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		// is refused rather than silently eating a rock.
 		kind->nutrition = def ? def->GetFloat("nutrition", 0.0f) : 0.0f;
 		kind->hydration = def ? def->GetFloat("hydration", 0.0f) : 0.0f;
+		kind->drinkAs = CatalogGet(def, "drink_as", "");
+		// Light: a torch, lit or not, and what it becomes.
+		kind->burnTime = def ? def->GetFloat("burn_time", 0.0f) : 0.0f;
+		kind->litAs = CatalogGet(def, "lit_as", "");
+		kind->unlitAs = CatalogGet(def, "unlit_as", "");
+		kind->spentAs = CatalogGet(def, "spent_as", "");
+		// What a Splash turns it into: a container one fill level up.
+		kind->fillAs = CatalogGet(def, "fill_as", "");
 		// What its blows leave behind, named by effect id — the same authored
 		// form a monster uses. A plain weapon has none and swings as before.
 		ParseOnHit(def, kind->onHit, "weapons.cat [" + type + "]");
@@ -1164,7 +1172,7 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		// thrown. `throw` names the ATTACK it flies as (attacks.cat - its type and
 		// numbers): absent = a weapon's first command, else `throw` (bash). What it
 		// leaves on what it strikes is its `on_hit`, or `throw_spell`'s whole
-		// payload - a fire flask carries fireburst's, blast and all. `throw_breaks`
+		// payload - a fire flask carries firebolt_burst's, blast and all. `throw_breaks`
 		// = it shatters where it stops instead of landing.
 		kind->throwAttack = CatalogGet(def, "throw", "");
 		kind->throwBreaks = CatalogBool(def, "throw_breaks", false);
@@ -1321,11 +1329,13 @@ static bool InReach(int x, int z, int px, int pz) {
 	return std::abs(x - px) + std::abs(z - pz) <= 1;
 }
 
-const std::string* DungeonWorld::TryPickItem(float mx, float my, float w, float h) {
+const std::string* DungeonWorld::TryPickItem(float mx, float my, float w, float h,
+											 float* charge) {
 	const int best = PickItemIndex(mx, my, w, h);
 	if (best < 0) return nullptr;
 	Item& picked = m_items[static_cast<size_t>(best)];
 	picked.collected = true; // off the floor
+	if (charge) *charge = picked.charge; // what is left of it comes up too
 	++m_harness.tally.lifts;
 	m_audio.Play(m_sounds.click, 0.6f); // placeholder pickup cue
 	// The LEADER lifts it (Phase 9) - the line names them.
@@ -1392,7 +1402,7 @@ int DungeonWorld::PickItemIndex(float mx, float my, float w, float h) const {
 }
 
 bool DungeonWorld::DropItemAt(const std::string& typeId, float mx, float my,
-							  float w, float h) {
+							  float w, float h, float charge) {
 	const int px = m_party.GridX(), pz = m_party.GridZ();
 	const gfx::Camera::Ray ray = m_camera.ScreenRay(mx, my, w, h);
 	// First: does the ray land in an OPEN niche's pocket within reach? Drop into
@@ -1415,7 +1425,7 @@ bool DungeonWorld::DropItemAt(const std::string& typeId, float mx, float my,
 	if (bestNiche >= 0) {
 		const WallNiche& n = niches[static_cast<size_t>(bestNiche)];
 		ItemKind& kind = ItemKindFor(typeId);
-		PlaceDrop({&kind, m_nextDropId--, n.x, n.z, false, 0, static_cast<int>(n.wall)});
+		PlaceDrop({&kind, m_nextDropId--, n.x, n.z, false, 0, static_cast<int>(n.wall), charge});
 		++m_harness.tally.drops;
 		m_audio.Play(m_sounds.click, 0.5f);
 		if (onMessage) onMessage(loc::FormatLine("log.drop_rune", loc::View(kind.nameKey)));
@@ -1434,14 +1444,20 @@ bool DungeonWorld::DropItemAt(const std::string& typeId, float mx, float my,
 	if (!m_map.IsWalkable(cx, cz) || !IsSeen(cx, cz) || !InReach(cx, cz, px, pz)) return false;
 	ItemKind& kind = ItemKindFor(typeId);
 	const int slot = FreeItemSlotNear(cx, cz, wx, wz, -1); // the quarter under the cursor
-	PlaceDrop({&kind, m_nextDropId--, cx, cz, false, slot});
+	PlaceDrop({&kind, m_nextDropId--, cx, cz, false, slot, -1, charge});
 	++m_harness.tally.drops;
 	m_audio.Play(m_sounds.click, 0.5f);
 	if (onMessage) onMessage(loc::FormatLine("log.drop_rune", loc::View(kind.nameKey)));
 	return true;
 }
 
-void DungeonWorld::PlaceDrop(const Item& item) {
+void DungeonWorld::PlaceDrop(const Item& placed) {
+	// Anything LIT that comes to rest on the floor goes out (Michael: "placed
+	// on the floor, it is put out") - every floor placement comes through here,
+	// so this is the one place that rule lives. It keeps its charge.
+	Item item = placed;
+	if (item.kind && item.kind->Lit() && !item.kind->unlitAs.empty())
+		item.kind = &ItemKindFor(item.kind->unlitAs);
 	for (Item& dead : m_items)
 		if (dead.id < 0 && dead.collected) {
 			dead = item;
@@ -1776,10 +1792,18 @@ DungeonWorld::FixtureKind& DungeonWorld::FixtureKindFor(const std::string& type)
 			ParseResists(CatalogGet(def, "resists", ""), kind->resists,
 						 "fixtures.cat [" + type + "]", m_damageTypes);
 		}
+		// What going out leaves on the fire (`on_douse = smoke 0.8 2.5`).
+		fx::ParseProcs(CatalogGet(def, "on_douse", ""), kind->onDouse,
+					   "fixtures.cat [" + type + "] on_douse");
 		kind->model = ModelFile(model + ".gltf");
 		kind->mesh = ModelMesh(model + ".gltf");
 		kind->color = kind->model->materials[0].baseColorFactor;
 		kind->tex = LoadPropTextures(set);
+		// A takeable torch: the bare bracket left behind, and what it becomes.
+		if (const std::string empty = CatalogGet(def, "empty_model", ""); !empty.empty()) {
+			kind->meshEmpty = ModelMesh(empty + ".gltf");
+			kind->torchItem = CatalogGet(def, "torch_item", "torch");
+		}
 		// Flame attachment: catalog fields override the mount's defaults so an
 		// authored prop's fire burns where its bowl/basket actually is.
 		kind->flame = kind->wallMount
@@ -1927,10 +1951,11 @@ void DungeonWorld::BuildFires() {
 		Fire fire;
 		fire.kind = &kind;
 		fire.brazier = false;
-		fire.lit = sconce.lit && !kind.flameless;
+		fire.lit = sconce.Burning() && !kind.flameless;
 		fire.x = sconce.x;
 		fire.z = sconce.z;
 		fire.wall = static_cast<int>(sconce.wall);
+		fire.empty = sconce.empty;
 		fire.lightRadius = sconce.brightness * kCellSize; // "squares" -> metres
 		const float fs = kind.modelScale; // fixtures.cat `scale`
 		XMStoreFloat4x4(&fire.world, UnitScale(fs) * XMMatrixRotationY(yaw) *
@@ -1943,6 +1968,7 @@ void DungeonWorld::BuildFires() {
 						 m.pos.z + std::cos(yaw) * kind.flame.out * kUnit * fs};
 		fire.phase = static_cast<float>(seed) * 1.7f;
 		fire.effect = FireEffect(fire.flamePos, kind.flame.scale * fs, seed++);
+		fx::ReserveEffects(fire.effects); // a douse lands its smoke here mid-play
 		m_fires.push_back(std::move(fire));
 	}
 
@@ -1952,10 +1978,9 @@ void DungeonWorld::BuildFires() {
 		Fire fire;
 		fire.kind = &kind;
 		fire.brazier = true;
-		fire.lit = b.lit && !kind.flameless;
+		fire.lit = b.Burning() && !kind.flameless;
 		fire.x = b.x;
 		fire.z = b.z;
-		fire.wall = -1;
 		fire.lightRadius = b.brightness * kCellSize; // "squares" -> metres
 		const float fs = kind.modelScale; // fixtures.cat `scale`
 		XMStoreFloat4x4(&fire.world,
@@ -1963,6 +1988,7 @@ void DungeonWorld::BuildFires() {
 		fire.flamePos = {center.x, kind.flame.height * kUnit * fs, center.z};
 		fire.phase = static_cast<float>(seed) * 1.7f;
 		fire.effect = FireEffect(fire.flamePos, kind.flame.scale * fs, seed++);
+		fx::ReserveEffects(fire.effects);
 		m_fires.push_back(std::move(fire));
 	}
 	log::Info("Lit {} fires ({} sconces, {} braziers, {} kinds)", m_fires.size(),

@@ -165,6 +165,8 @@ void GameUI::BuildStaticUi() {
 	BuildCharacterSheet();
 	// The item details dialog, built whole now so a right-click only fills it.
 	m_itemDetails = std::make_unique<ItemDetailsDialog>(m_device, m_fonts);
+	m_itemDetails->onMemorize = [this] { MemorizeFromDetails(); };
+	m_detailsItem.reserve(64); // assigned in a guarded frame (a right-click)
 	// The portrait picker, likewise (Game::LoadPortraitCatalog fills it).
 	m_portraitPicker = std::make_unique<PortraitPicker>(m_device, m_fonts);
 	m_partyPage = std::make_unique<PartyCreationPage>(m_device);

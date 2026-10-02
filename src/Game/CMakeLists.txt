@@ -29,11 +29,14 @@ add_library(Game STATIC
 	DungeonMap.cpp
 	DungeonMeshBuilder.cpp
 	DungeonWorld.cpp
+	DungeonWorld_Ahead.cpp
 	DungeonWorld_Arena.cpp
 	DungeonWorld_Combat.cpp
 	DungeonWorld_Doors.cpp
 	DungeonWorld_Editing.cpp
+	DungeonWorld_Fires.cpp
 	DungeonWorld_Leader.cpp
+	DungeonWorld_Light.cpp
 	DungeonWorld_Ledger.cpp
 	DungeonWorld_LevelIO.cpp
 	DungeonWorld_Levels.cpp
@@ -52,6 +55,7 @@ add_library(Game STATIC
 	Effect/DotEffect.cpp
 	Effect/Effect.cpp
 	Effect/SightEffect.cpp
+	Effect/SmokeEffect.cpp
 	Effect/SupplyEffect.cpp
 	Effect/WardEffect.cpp
 	Entity.cpp
@@ -153,15 +157,17 @@ add_library(Game STATIC
 	Spell/BoltSpell.cpp
 	Spell/Embersight.cpp
 	Spell/Farsight.cpp
-	Spell/Fireburst.cpp
+	Spell/Firebolt.cpp
 	Spell/Fireshield.cpp
 	Spell/Flame.cpp
 	Spell/Gust.cpp
-	Spell/Push.cpp
+	Spell/HandSpell.cpp
+	Spell/ModifiedSpell.cpp
+	Spell/Airbolt.cpp
 	Spell/Rock.cpp
 	Spell/Scrying.cpp
 	Spell/SightSpell.cpp
-	Spell/Slingshot.cpp
+	Spell/Earthbolt.cpp
 	Spell/Spell.cpp
 	Spell/Splash.cpp
 	Spell/Stonesight.cpp

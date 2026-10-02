@@ -229,6 +229,17 @@ public:
 	void RenderItemDetails();
 	// (Not `ItemDetails()`: inside the class that name would hide the struct.)
 	ItemDetailsDialog* DetailsDialog() { return m_itemDetails.get(); }
+	// The harness's way in (`itemdetails pack` / `memorize`): the dialog on
+	// member `i`'s pack slot, exactly as a right-click there opens it, and its
+	// Memorize button pressed. False when the button is not up.
+	void OpenPackItemDetails(size_t i, int slot) {
+		OpenItemDetails(i, {ItemPlace::Kind::Pack, slot});
+	}
+	bool PressDetailsMemorize() {
+		if (!ItemDetailsOpen() || !m_itemDetails->MemorizeShown()) return false;
+		MemorizeFromDetails();
+		return true;
+	}
 
 	// --- the portrait picker (docs/portraits-plan.md, phase 3) -----------------
 	// Handled like the details dialog: modal for the mouse, updated instead of
@@ -408,7 +419,7 @@ public:
 	std::function<void(size_t, size_t, std::string_view)> onHandAttack;
 	// A hand's `throw` use (member, the item id): true = it was thrown and the
 	// hand empties; false = not now (down, or still recovering), it stays.
-	std::function<bool(size_t, const std::string&)> onHandThrow;
+	std::function<bool(size_t, const std::string&, float charge)> onHandThrow;
 	// The hand right-click menu's command list for an item id (ItemKind::commands),
 	// wired by Game to the world's item kinds — keeps the command source single.
 	// By REFERENCE: a copy per hand click was a steady-state allocation. The
@@ -433,6 +444,9 @@ public:
 	// Returns what it actually RESTORED, so the caller can refuse the action
 	// (and keep the item) when it would do nothing.
 	std::function<resource::Refill(size_t, const std::string&)> onConsume;
+	// What consuming this item LEAVES in its place (items.cat `drink_as`: a
+	// waterskin steps down a fill level); empty = it is used up.
+	std::function<std::string_view(const std::string&)> consumeLeaves;
 	// The item details dialog's two questions of the world (wired to
 	// DungeonWorld::ItemDetailsFor / ItemPreviewForType): what to say about an
 	// item type (false = no such type), and its 3D preview into a buffer
@@ -657,6 +671,14 @@ private:
 	// The shared memorize: learns `slot`'s rune symbol and consumes the tablet
 	// — a rune memorizes from WHEREVER it sits (hand or backpack).
 	void MemorizeSlot(size_t i, ItemSlot& slot);
+	// THE ONE TEST for offering Memorize (Michael, spell-updates): the item is a
+	// rune and member `i` - the one holding it - does not know it yet. Every
+	// place the option appears asks it: the hand menu, the pack / doll menu, and
+	// the details dialog's button. MemorizeSlot asks it too, so a known rune is
+	// never spent for nothing.
+	bool CanMemorize(size_t i, std::string_view itemId) const;
+	// The details dialog's Memorize: the slot it was opened on, re-checked.
+	void MemorizeFromDetails();
 	// Eats (or drinks) the item in member `i`'s hand / in `slot`, wherever it
 	// sits: the world restores what it restores and the item is consumed, or it
 	// is refused with a line when it would restore nothing.
@@ -819,6 +841,11 @@ private:
 	size_t m_handMenuHand = 0;
 	ItemPlace m_useMenuPlace;
 	std::string m_handMenuItem;
+	// What the details dialog was opened on, for its Memorize button: whose it
+	// is, where it sits, and what it was (re-checked when the button is pressed).
+	size_t m_detailsMember = 0;
+	ItemPlace m_detailsPlace;
+	std::string m_detailsItem;
 	// The SHEET's own context menu (the sheet hides the HUD, so m_handMenu
 	// can't serve it) - the same menus, in the sheet's context.
 	ui::ContextMenu* m_sheetMenu = nullptr;

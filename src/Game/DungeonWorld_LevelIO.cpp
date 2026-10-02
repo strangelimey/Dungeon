@@ -78,6 +78,7 @@ void DungeonWorld::BeginLevelLoad(const std::string& stem, bool stashCurrent) {
 	m_decorations.clear();
 	m_fires.clear();
 	m_projectiles.Clear(); // bolts/sparks don't survive a level change
+	m_pendingBoltCount = 0; // and any volley still waiting its turn
 	m_pendingTransition.reset();
 	m_pendingFall.reset(); // the swap IS the fall's end
 	m_fallT = -1.0f;
@@ -112,6 +113,13 @@ std::vector<Entity> DungeonWorld::LiveDecorationRecords() const {
 void DungeonWorld::StashStaticMap() {
 	auto copy = std::make_unique<DungeonMap>(m_map);
 	copy->SetDecorationRecords(LiveDecorationRecords());
+	// The stash is the STATIC layer, so it keeps the authored fires and niches.
+	// What play did to them (a doused torch, a taken one, a niche found) rides
+	// the level's dynamic state (SnapshotActive), which every way back in
+	// re-applies - and which a new game or a loaded save REPLACES. Left on the
+	// copy, a fire doused before a new game came back out in it.
+	copy->ResetFixtureBurning();
+	copy->ResetNicheOpen();
 	m_levelMaps.insert_or_assign(m_currentLevel, std::move(copy));
 }
 

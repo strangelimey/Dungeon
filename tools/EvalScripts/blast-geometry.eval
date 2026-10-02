@@ -1,7 +1,7 @@
 ; blast-geometry.eval — the same detonation in four geometries.
 ;
 ; A propagating blast is the kind of rule that reads correctly in a comment and
-; is wrong in a corridor. `fireburst` was tuned against a THROWAWAY harness over
+; is wrong in a corridor. `fireburst` (now `firebolt_burst`) was tuned against a THROWAWAY harness over
 ; pure geometry (docs/damage-system.md "Tuning a blast"); this measures the same
 ; thing in the REAL world, with real monsters taking real damage through the
 ; whole effects pipeline — resists, soak, on-hit procs and all.
@@ -48,7 +48,7 @@ spawn skel_warrior 15 13 south
 tally reset
 echo === open 9x9: 3x3 surround, before ===
 monsters
-blast fireburst 14 12
+blast firebolt_burst 14 12
 step 5
 echo === open 9x9: 3x3 surround, after ===
 monsters
@@ -65,7 +65,7 @@ spawn skel_warrior 16 12 south
 tally reset
 echo === corridor 11: before ===
 monsters
-blast fireburst 14 12
+blast firebolt_burst 14 12
 step 5
 echo === corridor 11: after ===
 monsters
@@ -81,7 +81,7 @@ spawn skel_warrior 16 12 south
 tally reset
 echo === dead end 7: before ===
 monsters
-blast fireburst 14 12
+blast firebolt_burst 14 12
 step 5
 echo === dead end 7: after ===
 monsters
@@ -98,7 +98,7 @@ spawn skel_warrior 14 13 south
 tally reset
 echo === t-junction: before ===
 monsters
-blast fireburst 14 12
+blast firebolt_burst 14 12
 step 5
 echo === t-junction: after ===
 monsters

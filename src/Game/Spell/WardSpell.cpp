@@ -19,9 +19,12 @@ void WardSpell::Cast(CastContext& ctx) const {
 	// sharing this spell's id — so wards still STACK across schools (all four
 	// may be up at once) while a recast refreshes only its own. The stacking
 	// rule lives in the kind now, not in a RemoveWard call here.
-	ctx.services.applyEffect(ctx.caster, Id(), School(), ctx.power, m_duration);
-	ctx.services.message(ctx.caster,
-						 loc::FormatLine("log.shield_up", ctx.caster.name));
+	WardOn(ctx, ctx.caster, ctx.power);
+}
+
+void WardSpell::WardOn(CastContext& ctx, Character& target, float power) const {
+	ctx.services.applyEffect(target, Id(), School(), power, m_duration);
+	ctx.services.message(target, loc::FormatLine("log.shield_up", target.name));
 }
 
 void WardSpell::ApplyOverrides(const CatalogEntry& e) {

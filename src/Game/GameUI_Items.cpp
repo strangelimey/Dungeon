@@ -84,7 +84,7 @@ void GameUI::OnHandLeftClick(size_t i, size_t hand) {
 			AddLogLine(loc::FormatLine("log.cant_hold", loc::ViewKey("item.", **m_held)));
 			return;
 		}
-		m_held->SwapWith(slot.typeId); // one exchange, no allocation (HeldItem)
+		m_held->SwapWith(slot); // one exchange, no allocation (HeldItem)
 		Click();
 		return;
 	}
@@ -115,7 +115,7 @@ void GameUI::OnHandHold(size_t i, size_t hand) {
 		return;
 	}
 	if (slot.Empty()) return;
-	m_held->SwapWith(slot.typeId);
+	m_held->SwapWith(slot);
 	Click();
 }
 
@@ -135,9 +135,26 @@ void GameUI::OnHandMiddleClick(size_t i, size_t hand) {
 }
 
 // RIGHT on an item in a member's inventory: what it is and what it weighs where
-// it sits (a bag counting its contents).
+// it sits (a bag counting its contents). Opened on a member's item, it knows
+// whose it is, so a rune that member can learn offers its Memorize button; the
+// floor, the cursor and the console open it with no holder, and no button.
 void GameUI::OpenItemDetails(size_t i, ItemPlace place) {
-	if (const std::string* id = ItemAt(i, place)) ShowItemDetails(*id, ItemWeightAt(i, place));
+	const std::string* id = ItemAt(i, place);
+	if (!id) return;
+	ShowItemDetails(*id, ItemWeightAt(i, place));
+	if (!ItemDetailsOpen() || !CanMemorize(i, *id)) return;
+	m_detailsMember = i;
+	m_detailsPlace = place;
+	m_detailsItem.assign(*id);
+	m_itemDetails->ShowMemorize(true);
+}
+
+void GameUI::MemorizeFromDetails() {
+	// The slot must still hold what the dialog was opened on: the world runs
+	// under it, and a slot that changed is not acted on (the use menu's rule).
+	ItemSlot* slot = SlotAt(m_detailsMember, m_detailsPlace);
+	if (slot && slot->typeId == m_detailsItem) MemorizeSlot(m_detailsMember, *slot);
+	CloseItemDetails(); // the tablet is spent, so there is nothing left to show
 }
 
 void GameUI::ShowItemDetails(const std::string& typeId, float weightKg) {
@@ -260,6 +277,7 @@ void GameUI::OpenItemUseMenu(size_t i, ItemPlace place, ui::ContextMenu& menu) {
 	const std::vector<std::string>& cmds = CommandsFor(m_handMenuItem);
 	for (size_t k = 0; k < cmds.size(); ++k) {
 		if (!IsOffHandUse(cmds[k])) continue;
+		if (cmds[k] == "memorize" && !CanMemorize(i, m_handMenuItem)) continue;
 		menu.Add(loc::ViewKey("use.", cmds[k]), kUseItemCmd + static_cast<int>(k));
 		any = true;
 	}
@@ -319,6 +337,9 @@ void GameUI::OpenHandUseMenu(size_t i, size_t hand, ui::ContextMenu& menu) {
 	bool anyItemCmd = false;
 	for (size_t k = 0; k < cmds.size(); ++k) {
 		if (!IsExecutableUse(cmds[k])) continue;
+		// A rune the member already knows offers no Memorize; with nothing else
+		// of its own, its hand falls through to the bare-hand pickers below.
+		if (cmds[k] == "memorize" && !CanMemorize(i, m_handMenuItem)) continue;
 		menu.Add(loc::ViewKey("use.", cmds[k]), kUseItemCmd + static_cast<int>(k));
 		anyItemCmd = true;
 	}
@@ -452,7 +473,7 @@ void GameUI::ExecuteUse(size_t i, size_t hand, std::string_view cmd) {
 		// the payload). The hand empties only if the throw was made; a member
 		// still recovering from the last one keeps it.
 		ItemSlot& slot = m_characters[i].inventory.Hand(static_cast<int>(hand));
-		if (!slot.Empty() && onHandThrow && onHandThrow(i, slot.typeId)) {
+		if (!slot.Empty() && onHandThrow && onHandThrow(i, slot.typeId, slot.charge)) {
 			slot.Clear();
 			RefreshSheet(); // the carry load may be on screen
 		}
@@ -545,15 +566,22 @@ void GameUI::MemorizeFromHand(size_t i, size_t hand) {
 	MemorizeSlot(i, m_characters[i].inventory.Hand(static_cast<int>(hand)));
 }
 
+bool GameUI::CanMemorize(size_t i, std::string_view itemId) const {
+	SpellSymbol sym;
+	return i < m_characters.size() && RuneSymbolFromItemId(itemId, sym) &&
+		   !m_characters[i].Knows(sym);
+}
+
 void GameUI::MemorizeSlot(size_t i, ItemSlot& slot) {
-	if (i >= m_characters.size()) return;
+	// Never spends a tablet on a rune the member already knows.
+	if (!CanMemorize(i, slot.typeId)) return;
 	SpellSymbol sym;
 	if (!RuneSymbolFromItemId(slot.typeId, sym)) return;
 	m_characters[i].Learn(sym);
 	slot.Clear(); // the tablet is consumed
 	Click();
 	AddLogLine(loc::FormatLine("log.memorize", m_characters[i].name,
-							   loc::View(SymbolKey(sym))),
+							   loc::View(RuneNameKey(sym))),
 			   m_characters[i].portraitColor);
 	RefreshSheet(); // the sheet's known symbols may be on screen later
 }
@@ -588,7 +616,15 @@ void GameUI::EatSlot(size_t i, ItemSlot& slot) {
 				   c.portraitColor);
 		return;
 	}
-	slot.Clear(); // consumed
+	// Consumed - or, for a container, stepped down a fill level (a waterskin
+	// drunk from is a half-full one now, items.cat `drink_as`). Assigned into
+	// the slot's own buffer: a shorter id never allocates.
+	if (const std::string_view leaves = consumeLeaves ? consumeLeaves(slot.typeId)
+													  : std::string_view{};
+		!leaves.empty())
+		slot.typeId.assign(leaves);
+	else
+		slot.Clear();
 	Click();
 	AddLogLine(loc::FormatLine("log.eat", c.name, foodName), c.portraitColor);
 	RefreshSheet(); // the supply bars / carry load may be on screen

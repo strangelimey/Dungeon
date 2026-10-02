@@ -1,12 +1,12 @@
 // ============================================================================
-// Game/Spell/Slingshot.cpp — see Slingshot.h.
+// Game/Spell/Earthbolt.cpp — see Earthbolt.h.
 // ============================================================================
-#include "Game/Spell/Slingshot.h"
+#include "Game/Spell/Earthbolt.h"
 
 namespace dungeon::game::spells {
 
-Slingshot::Slingshot()
-	: BoltSpell("slingshot", {SpellSymbol::Earth, SpellSymbol::Project},
+Earthbolt::Earthbolt()
+	: BoltSpell("earthbolt", {SpellSymbol::Earth, SpellSymbol::Project},
 				/*power=*/18.0f, /*mana=*/10.0f, /*speed=*/9.0f,
 				/*range=*/10.0f) {}
 

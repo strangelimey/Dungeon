@@ -129,6 +129,7 @@ bool DungeonWorld::InstallLevel(const std::string& stem, DungeonMap&& map,
 	m_walkableCache.reset(); // a grid built for the old map's bounds
 	// Transient things positioned in the level that just ceased to exist.
 	m_projectiles.Clear();
+	m_pendingBoltCount = 0; // and any volley still waiting its turn
 	m_pendingTransition.reset();
 	m_pendingFall.reset();
 	m_fallT = -1.0f;

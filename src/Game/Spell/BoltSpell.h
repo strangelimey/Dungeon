@@ -28,6 +28,11 @@ public:
 											  float accuracy) const override;
 	void ApplyOverrides(const CatalogEntry& e) override; // + speed/range/push
 
+	// The party's bolt at `power` (the caster's lane, accuracy and credit from
+	// `ctx`) - what Cast() spawns, and what a third-tier modifier
+	// (ModifiedSpell) builds its volley or its exploding bolt from.
+	ProjectileSpec PartyBolt(const CastContext& ctx, float power) const;
+
 protected:
 	// One bolt spec, shared by the party and monster doors — only the power,
 	// accuracy, and target side differ between them.

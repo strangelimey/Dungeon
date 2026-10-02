@@ -58,12 +58,13 @@ setsupply all food 20
 setsupply all water 15
 give waterskin 1
 learn 3 fire
+learn 3 project
 autoattack on
 freeze on
 tally reset
 forward 3
 step 8
-cast 3 fire
+cast 3 fire project
 step 2
 echo --- wrecked ---
 party

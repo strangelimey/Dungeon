@@ -210,6 +210,7 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_magic.SetBalance(&m_balance);
 	m_magic.SetCastServices(
 		{[this](const ProjectileSpec& bolt) { m_projectiles.Spawn(bolt); },
+		 [this](const ProjectileSpec& bolt, float delay) { SpawnBoltAfter(bolt, delay); },
 		 [this](const Character& member, std::string_view line) {
 			 MemberMessage(member, line);
 		 },
@@ -219,6 +220,18 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 				 fx::Apply(target.effects, *kind, school, magnitude, duration);
 			 else
 				 log::Warn("cast wants effect '{}', which has no kind", id);
+		 },
+		 // The world in front of the party (DungeonWorld_Ahead.cpp).
+		 [this] { return FireAheadOfParty(); },
+		 [this](bool burning) { return SetFireAhead(burning); },
+		 [this] { return FlareFireAhead(); },
+		 [this](std::string_view itemId) { DropAtPartyFeet(itemId); },
+		 [this](ItemSlot& slot) { return RenameHeldItem(slot, &ItemKind::litAs); },
+		 [this](ItemSlot& slot) { return RenameHeldItem(slot, &ItemKind::fillAs); },
+		 [this](int cells) { return ShoveAhead(cells); },
+		 [this](float power, int casterIndex) { return RepelAhead(power, casterIndex); },
+		 [this](const ProjectilePayload& payload, SpellSymbol school, int casterIndex) {
+			 BlastAroundParty(payload, school, casterIndex);
 		 }});
 
 	// Moving-item engine: wire its world seam so a projectile lives "on the map"
@@ -456,9 +469,12 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 	// The busiest phase by far — monster blows, every DoT bite on both sides,
 	// regeneration, supplies, and the unconscious waking up.
 	CheckDamageLedger("monsters, effects and regeneration");
+	UpdatePendingBolts(dt);   // a volley's later bolts take their turn
 	m_projectiles.Update(dt); // fly bolts, resolve impacts/fizzles via the hooks
 	UpdateBlasts(dt);         // advance live blasts a tick at their own speed
 	CheckDamageLedger("projectiles and blasts");
+	UpdateFireTransients(dt); // flares dying away, dust puffs settling
+	TickCarriedLight(dt);     // held torches burn down; stowed ones go out
 	UpdateLights(time);
 	UpdateCamera();
 
@@ -704,15 +720,10 @@ bool ActiveSightSchool(const std::vector<Character>* roster, SpellSymbol& out) {
 void DungeonWorld::UpdateLights(float time) {
 	m_lights.points.clear();
 
-	const Vec3 eye = PartyEye(); // the carried torch falls with the camera
-	const float flicker =
-		0.92f + 0.08f * std::sin(time * 9.0f) * std::sin(time * 13.7f + 1.3f);
-	gfx::PointLight torch;
-	torch.position = {eye.x, eye.y + 0.25f, eye.z};
-	torch.radius = 9.0f;
-	torch.color = m_torchColor;
-	torch.intensity = 2.6f * flicker;
-	m_lights.points.push_back(torch);
+	// The party's own light is the lit torches it HOLDS - none, and it sees by
+	// the level's ambient alone (DungeonWorld_Light.cpp).
+	const Vec3 eye = PartyEye();
+	AppendCarriedLights(time);
 
 	// One flickering light per fire, sitting just above its flame. Braziers
 	// burn bigger and a touch redder than the wall sconces. The light
@@ -741,6 +752,9 @@ void DungeonWorld::UpdateLights(float time) {
 		const float base = fire.brazier ? 2.3f : 1.8f;
 		light.intensity = base * (0.9f + 0.1f * std::sin(time * 11.0f + fire.phase) *
 											 std::sin(time * 7.3f + fire.phase));
+		// A fanned fire (FlareFire) swells for a moment, brighter and further.
+		light.intensity *= 1.0f + 1.5f * fire.flare;
+		light.radius *= 1.0f + 0.25f * fire.flare;
 		light.flickerShadow = true; // wandering origin → throttle its shadow cube
 		light.longShadowFade = fire.brazier; // braziers fade over their long reach;
 											 // sconces keep near-field shadows crisp
@@ -842,7 +856,7 @@ void DungeonWorld::UpdateLights(float time) {
 	// Lights, Low=16 .. Ultra=64) and shadow slots only consider those, so on a
 	// large level the fire count alone can crowd out a light pushed late (a
 	// rune glow). Keep the ones NEAREST the eye instead of the first ones
-	// pushed; the carried torch sits at the eye, so it always survives (and
+	// pushed; a held torch sits beside the eye, so it always survives (and
 	// still wins shadow slot 0 in AssignShadowSlots).
 	const size_t budget = static_cast<size_t>(
 		std::clamp(m_settings.maxPointLights, 1, static_cast<int>(gfx::kMaxPointLights)));

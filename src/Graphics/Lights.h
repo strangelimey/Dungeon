@@ -21,6 +21,10 @@ namespace dungeon::gfx {
 // lights beyond it are dropped (nearest-to-camera kept — see UpdateLights).
 inline constexpr u32 kMaxPointLights = 64;
 
+// How many transient DUST PUFFS a frame carries (Atmosphere::dustPuffs); must
+// match MAX_DUST_PUFFS in scene.hlsl.
+inline constexpr u32 kMaxDustPuffs = 4;
+
 struct PointLight {
 	Vec3 position{};
 	float radius = 8.0f;     // attenuation reaches zero here
@@ -96,6 +100,12 @@ struct Atmosphere {
 	// z = whether the face's across-axis is world X (>0.5 for N/S facing, else
 	// the across-axis is Z), w unused.
 	Vec4 sightHole{0.0f, 0.0f, 0.0f, 0.0f};
+	// Brief extra dust where something just happened (a doused fire's smoke):
+	// x, y = the centre's world X / Z, z = radius (m), w = added turbidity at
+	// the centre, fading to nothing at the radius. w = 0 = unused. Added to the
+	// grid's density in the shader, so a puff needs no texture rebuild. Set per
+	// frame by DungeonWorld, which also decays them.
+	Vec4 dustPuffs[kMaxDustPuffs]{};
 };
 
 } // namespace dungeon::gfx

@@ -136,11 +136,12 @@ bool BakeModelImageMips(const std::string& modelsDir) {
 	return ok;
 }
 
-bool BakeAllMips(const std::string& texturesDir, bool skipCurrent) {
+bool BakeAllMips(const std::string& texturesDir, bool skipCurrent, const std::string& prefix) {
 	bool ok = true;
 	int count = 0, fresh = 0;
 	for (const auto& entry : std::filesystem::directory_iterator(texturesDir)) {
 		if (!entry.is_regular_file() || entry.path().extension() != ".png") continue;
+		if (!entry.path().filename().string().starts_with(prefix)) continue;
 		std::filesystem::path dds = entry.path();
 		dds.replace_extension(".dds");
 		if (skipCurrent) {

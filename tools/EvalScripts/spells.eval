@@ -1,0 +1,351 @@
+; spells.eval - the reworked spell tiers (docs/spell-updates-plan.md), one
+; section per outcome. tools\SpellTest.py runs this and JUDGES it; on its own it
+; only reports. Every section header is `=== <name> ===` and the judge reads the
+; readouts between one header and the next, so a section must stay self-contained.
+;
+; Maren (member 2) casts unless a section says otherwise. Her hands start as the
+; starter kit has them (fire left, project right); a section that needs the right
+; hand clear puts the project rune back first. Power is moved with `setskill`:
+; school level 0 reaches no threshold, level 30 reaches all of them.
+logecho on
+reset
+timescale 0
+lockstep on
+seed 11
+goto crypt1
+learn 2 fire
+learn 2 earth
+learn 2 air
+learn 2 water
+
+; --- TIER 1: the hand spells -------------------------------------------------
+
+echo === flame-held ===
+equip torch 2 1
+cast 2 0 fire
+torch
+
+echo === flame-walltorch ===
+equip rune_project 2 1
+tp 4 3
+face n
+castsvc douse
+castsvc fire
+cast 2 0 fire
+castsvc fire
+
+echo === flame-brazier-weak ===
+tp 8 4
+face e
+castsvc douse
+cast 2 0 fire
+castsvc fire
+
+echo === flame-brazier-strong ===
+setskill 2 fire 30
+cast 2 0 fire
+castsvc fire
+
+echo === gust-flare ===
+castsvc fire
+cast 2 0 air
+castsvc fire
+
+echo === splash-brazier-weak ===
+step 2
+cast 2 0 water
+castsvc fire
+
+echo === splash-brazier-strong ===
+setskill 2 water 30
+castsvc fire
+cast 2 0 water
+castsvc fire
+
+echo === splash-walltorch ===
+setskill 2 water 0
+tp 4 3
+face n
+castsvc fire
+cast 2 0 water
+castsvc fire
+
+echo === splash-fill ===
+equip waterskin_empty 2 1
+cast 2 0 water
+torch
+cast 2 0 water
+torch
+cast 2 0 water
+torch
+equip rune_project 2 1
+
+echo === pebble-hand ===
+learn 0 earth
+cast 0 0 earth
+torch
+
+echo === pebble-feet ===
+cast 0 0 earth
+castsvc floor
+
+; Leave crypt1 with its torch still out (splash-walltorch), so the level is
+; STASHED doused; a new game must find it lit again (it once came back out - the
+; stash kept the flag). Before any save or load: this exact order is the one that
+; showed it.
+echo === newgame-relights ===
+tp 4 3
+face n
+castsvc fire
+goto eval_arena
+reset
+goto crypt1
+tp 4 3
+face n
+castsvc fire
+
+; A save made with the torch out must bring it back out over a relight.
+echo === douse-saveload ===
+castsvc douse
+save spells_douse
+castsvc light
+castsvc fire
+load spells_douse
+tp 4 3
+face n
+castsvc fire
+
+echo === gust-shove ===
+goto eval_arena
+learn 2 air
+arena open 9 9
+freeze on
+tp 14 12
+face n
+spawn skeleton 14 11 south
+cast 2 0 air
+monsters
+setskill 2 air 30
+cast 2 0 air
+monsters
+
+; --- MEMORIZE: offered only for a rune its holder does not know ----------------
+; The reset above handed Maren her kit: Ingwaz in pack slot 0, Hagalaz in 1. The
+; details dialog's button learns Ingwaz and spends it; a second Ingwaz then offers
+; no button and stays in the pack; the dialog opened on no one's item has none.
+
+echo === memorize-details ===
+itemdetails pack 2 0
+itemdetails status
+itemdetails memorize
+inventory status
+give rune_multiple 2
+itemdetails pack 2 0
+itemdetails status
+itemdetails memorize
+itemdetails off
+inventory status
+itemdetails rune_explode
+itemdetails status
+itemdetails off
+
+; --- THE GRAMMAR: school, form, then one modifier ------------------------------
+
+; The reset above forgot every rune Maren learned, so the rest relearn them.
+echo === grammar ===
+learn 2 fire
+learn 2 earth
+learn 2 project
+learn 2 protect
+learn 2 sight
+learn 2 multiple
+learn 2 explode
+setskill 2 fire 10
+setskill 2 earth 10
+cast 2 0 fire multiple
+cast 2 0 fire multiple project
+cast 2 0 fire project multiple explode
+cast 2 0 fire sight multiple
+heal
+cast 2 0 fire project
+
+; --- TIER 2 and 3: bolts and their modifiers -----------------------------------
+
+echo === firebolt ===
+arena open 9 9
+freeze on
+heal
+tp 14 14
+face n
+spawn skel_warrior 14 11 south 4
+spawn skel_warrior 13 11 south 4
+tally reset
+cast 2 0 fire project
+step 3
+tally
+monsters
+
+echo === volley ===
+arena open 9 9
+freeze on
+heal
+tp 14 14
+face n
+spawn skel_warrior 14 11 south 4
+tally reset
+cast 2 0 fire project multiple
+step 4
+tally
+
+echo === burst ===
+arena open 9 9
+freeze on
+heal
+tp 14 14
+face n
+spawn skel_warrior 14 11 south 4
+spawn skel_warrior 13 11 south 4
+tally reset
+cast 2 0 fire project explode
+step 4
+tally
+monsters
+
+echo === ward-self ===
+heal
+cast 2 0 earth protect
+char 0
+char 2
+
+echo === ward-party ===
+heal
+cast 2 0 earth protect multiple
+char 0
+char 1
+char 2
+char 3
+
+echo === ward-burst ===
+arena open 9 9
+freeze on
+tp 14 12
+face n
+heal
+spawn skeleton 14 11 south
+spawn skeleton 13 12 east
+spawn skeleton 15 12 west
+spawn skeleton 14 13 north
+tally reset
+cast 2 0 fire protect explode
+step 3
+tally
+monsters
+party
+char 2
+
+; --- MONSTER CASTERS -----------------------------------------------------------
+
+echo === adept ===
+arena open 9 9
+heal
+tp 14 14
+face n
+freeze off
+tally reset
+spawn skel_mage_adept 14 11 south
+step 6
+tally
+
+; --- REPEL: a strong gust against an arrow in flight ---------------------------
+
+echo === repel ===
+arena open 9 9
+heal
+tp 14 14
+face n
+freeze off
+spawn skel_archer 14 9 south
+tally reset
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 0.1
+castsvc repel 30 2
+step 3
+tally
+echo === end ===

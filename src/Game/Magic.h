@@ -82,9 +82,12 @@ public:
 	// power. On the non-Fumble failures nothing is deducted and the outcome
 	// explains why. `casterIndex` is the caster's roster index (-1 unknown) —
 	// it rides any spawned bolt so the impact credits its caster (threat).
+	// `hand` (0 / 1, -1 = none) and `party` are handed through to the spell
+	// (CastContext); the gates read neither.
 	CastReport Cast(Character& caster, int casterIndex,
 					std::span<const SpellSymbol> sequence, const Vec3& origin,
-					const Vec3& dir, std::mt19937& rng);
+					const Vec3& dir, int hand, std::span<Character> party,
+					std::mt19937& rng);
 
 private:
 	SpellBook m_spellBook;

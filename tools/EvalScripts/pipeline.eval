@@ -59,7 +59,7 @@ editor place fixtures sconce 10 12 west
 mappage close
 smash 17 9 9
 smash 10 12 2
-blast fireburst 13 12
+blast firebolt_burst 13 12
 breakables 17 15 burn 0.5 3
 step 6
 breakables
@@ -68,19 +68,23 @@ tp 9 12
 editor place doors wooden_door 15 12
 mappage close
 smash 15 12 5
-blast fireburst 14 12
+blast firebolt_burst 14 12
 step 12
 breakables
 ; and a BOLT that breaks against a shut door strikes it (StrikeDoorWithBolt):
-; Tilo's flame bolt, two squares short of a fresh wooden door. Then a THROWN
-; rock does the same (StrikeDoorWithThrow).
+; Tilo's Fire Bolt (Kenaz Tiwaz - Kenaz alone is a hand spell now, with
+; nothing in flight; fire skill 5 so the two-rune cast cannot fumble), two
+; squares short of a fresh wooden door. Then a THROWN rock does the same
+; (StrikeDoorWithThrow).
 arena corridor 11
 tp 13 12
 face east
 editor place doors wooden_door 15 12
 mappage close
 learn 3 fire
-cast 3 fire
+learn 3 project
+setskill 3 fire 5
+cast 3 fire project
 step 6
 breakables
 throw rock
@@ -114,8 +118,9 @@ face east
 spawn skel_warrior 16 12 west
 freeze on
 learn 3 fire
-cast 3 fire
-cast 3 fire
+learn 3 project
+cast 3 fire project
+cast 3 fire project
 step 8
 echo === 3. a bolt in flight ===
 monsters
@@ -135,7 +140,7 @@ tp 10 12
 spawn skel_warrior 14 12 south
 spawn skel_warrior 13 12 south
 spawn skel_warrior 15 12 south
-blast fireburst 14 12
+blast firebolt_burst 14 12
 step 6
 echo === 4. a blast at a junction ===
 monsters

@@ -60,9 +60,10 @@ void FireEffect::Spawn(Kind kind) {
 	switch (kind) {
 	case Kind::Flame:
 		p.life = Rand(0.40f, 0.70f);
-		p.vel = {Rand(-0.048f, 0.048f) * kU, Rand(0.26f, 0.42f) * s,
+		p.vel = {Rand(-0.048f, 0.048f) * kU,
+				 Rand(0.26f, 0.42f) * s * (1.0f + 0.7f * m_flare),
 				 Rand(-0.048f, 0.048f) * kU};
-		p.size = Rand(0.040f, 0.064f) * s;
+		p.size = Rand(0.040f, 0.064f) * s * (1.0f + 0.9f * m_flare);
 		break;
 	case Kind::Spark:
 		p.life = Rand(0.40f, 0.90f);
@@ -104,7 +105,7 @@ void FireEffect::Update(float dt) {
 	// Spawning via rate accumulators (frame-rate independent).
 	m_flameAccum += kFlameRate * m_scale * dt;
 	m_smokeAccum += kSmokeRate * m_scale * dt;
-	m_sparkAccum += kSparkRate * m_scale * dt;
+	m_sparkAccum += kSparkRate * m_scale * dt * (1.0f + 4.0f * m_flare);
 	while (m_flameAccum >= 1.0f) { Spawn(Kind::Flame); m_flameAccum -= 1.0f; }
 	while (m_smokeAccum >= 1.0f) { Spawn(Kind::Smoke); m_smokeAccum -= 1.0f; }
 	while (m_sparkAccum >= 1.0f) { Spawn(Kind::Spark); m_sparkAccum -= 1.0f; }

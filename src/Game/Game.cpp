@@ -547,6 +547,7 @@ bool Game::LoadWorld(const std::string& folder) {
 	m_world->GetParty().SetLook(m_settings.look);
 	m_world->GetParty().SetHeadBob(m_settings.headBob);
 	m_world->SetRoster(&m_characters); // combat drains these; reset in place
+	m_world->SetCursorItem(&m_heldItem); // a torch on the cursor burns and lights
 	// Doors, levers and stairs read the game's flags, and levers write them.
 	m_world->SetFlagStore(&m_worldState);
 	// AFTER SetRoster, not before: the pace rule reads the roster through the
@@ -1122,7 +1123,7 @@ bool Game::SaveGame(const std::string& name) {
 									 std::chrono::system_clock::now()));
 	// An item on the cursor is party-level state — save it as such, leaving the
 	// live session's held item untouched (restored to the cursor on load).
-	if (m_heldItem) data.heldItem = *m_heldItem;
+	if (m_heldItem) data.heldItem = ItemToken(*m_heldItem, m_heldItem.Charge());
 	// A thrown item in the air is not saved as a flight: it comes down first,
 	// and is saved where it lies (Phase 10).
 	m_world->LandThrownItems();
@@ -1136,13 +1137,14 @@ bool Game::SaveGame(const std::string& name) {
 							  member.maxStamina, member.mana, member.maxMana,
 							  member.knownSymbols};
 		// equipment[] now includes the weapon hands (EquipSlot::LeftHand/RightHand).
-		for (const ItemSlot& s : member.inventory.equipment) c.equipment.push_back(s.typeId);
+		for (const ItemSlot& s : member.inventory.equipment)
+			c.equipment.push_back(ItemToken(s.typeId, s.charge)); // `id#charge` (Inventory.h)
 		// Pack row: the container ids + each pack's contents + the selected pack.
 		c.selectedPack = member.inventory.selectedPack;
 		for (const Pack& p : member.inventory.packs) {
 			c.packTypes.push_back(p.typeId);
 			std::vector<std::string> items;
-			for (const ItemSlot& s : p.contents) items.push_back(s.typeId);
+			for (const ItemSlot& s : p.contents) items.push_back(ItemToken(s.typeId, s.charge));
 			c.packContents.push_back(std::move(items));
 		}
 		// The member's remembered per-hand, per-item default uses (hand
@@ -1238,8 +1240,13 @@ bool Game::LoadGame(const std::string& path) {
 	ResetWorldState();
 	m_worldState = data->world;
 	// Restore the cursor-held tablet (empty = nothing carried).
-	if (!data->heldItem.empty()) m_heldItem = data->heldItem;
-	else m_heldItem.reset();
+	if (!data->heldItem.empty()) {
+		ItemSlot held;
+		ItemFromToken(data->heldItem, held);
+		m_heldItem.Set(held.typeId, held.charge);
+	} else {
+		m_heldItem.reset();
+	}
 	for (size_t i = 0; i < m_characters.size() && i < data->characters.size(); ++i) {
 		const SaveData::CharState& c = data->characters[i];
 		// WHO THEY ARE first (party creation) - each absent in an older save,
@@ -1258,7 +1265,7 @@ bool Game::LoadGame(const std::string& path) {
 		// Inventory (ResetRoster gave a fresh one; lay the save's items back in).
 		Inventory& inv = m_characters[i].inventory;
 		for (size_t e = 0; e < c.equipment.size() && e < static_cast<size_t>(kEquipCount); ++e)
-			inv.equipment[e].typeId = c.equipment[e];
+			ItemFromToken(c.equipment[e], inv.equipment[e]);
 		// Restore the pack row (container ids + each pack's contents + selection).
 		for (size_t p = 0; p < c.packTypes.size() && p < static_cast<size_t>(kPackRowSlots); ++p) {
 			inv.packs[p].typeId = c.packTypes[p];
@@ -1270,7 +1277,7 @@ bool Game::LoadGame(const std::string& path) {
 				log::Warn("save: pack {} of {} holds {} slots, more than the {} a bag can have"
 						  " - the rest are dropped",
 						  p, m_characters[i].name, items.size(), slots.size());
-			for (size_t s = 0; s < slots.size(); ++s) slots[s].typeId = items[s];
+			for (size_t s = 0; s < slots.size(); ++s) ItemFromToken(items[s], slots[s]);
 		}
 		if (c.selectedPack >= 0 && c.selectedPack < kPackRowSlots)
 			inv.selectedPack = c.selectedPack;
@@ -2482,12 +2489,19 @@ void Game::UpdateStates(float dt) {
 				// THROW OR DROP (Phase 10): a click on reachable floor (or an
 				// open niche) lays it there; any other click throws it. A throw
 				// the leader cannot make yet keeps it in the hand.
-				if (m_world->DropItemAt(*m_heldItem, mx, my, w, h) ||
-					m_world->ThrowItem(*m_heldItem))
+				// A torch clicked onto the EMPTY wall bracket the party faces
+				// is mounted there instead.
+				const float charge = m_heldItem.Charge();
+				if (m_world->MountTorchAhead(*m_heldItem, mx, my, w, h) ||
+					m_world->DropItemAt(*m_heldItem, mx, my, w, h, charge) ||
+					m_world->ThrowItem(*m_heldItem, -1, charge))
 					m_heldItem.reset();
-			} else if (const std::string* picked = m_world->TryPickItem(mx, my, w, h)) {
+			} else if (float charge = kNoCharge;
+					   const std::string* picked = m_world->TryPickItem(mx, my, w, h, &charge)) {
 				OnItemFound(*picked); // quest / flag / reveal hooks
-				m_heldItem = *picked; // into the cursor's own buffer (HeldItem)
+				m_heldItem.Set(*picked, charge); // into the cursor's own buffer (HeldItem)
+			} else if (m_world->TakeTorchAhead(mx, my, w, h, m_heldItem)) {
+				// The wall torch the party faces, off its bracket onto the cursor.
 			} else if (!m_world->ToggleDoorAhead(mx, my, w, h)) {
 				// No tablet, and nothing on the door ahead that the click
 				// actually landed on: try the button on the wall the party

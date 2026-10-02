@@ -9,6 +9,7 @@
 #include <charconv>
 #include <cmath>
 #include <format>
+#include <utility>
 
 namespace dungeon::game {
 
@@ -628,21 +629,70 @@ void DungeonMap::ResolveThemeIndices() {
 // Fires raise the air turbidity of their own square and the squares nearby
 // (smoke hangs around flames). Chebyshev rings: full / half / quarter.
 void DungeonMap::RebuildTurbidity() {
+	RecomputeTurbidity();
+	++m_revision;
+}
+
+void DungeonMap::RecomputeTurbidity() {
 	// Reset to the authored dusty base ('D' cells = 1.0), then re-add fire smoke.
 	for (size_t i = 0; i < m_turbidity.size(); ++i)
 		m_turbidity[i] = m_dusty[i] ? 1.0f : 0.0f;
 	for (const FloorBrazier& b : m_braziers)
-		if (b.lit) AddFireTurbidity(b.x, b.z, b.turbidity);
+		if (b.Burning()) AddFireTurbidity(b.x, b.z, b.turbidity);
 	for (const WallSconce& s : m_torches)
-		if (s.lit) AddFireTurbidity(s.x, s.z, s.turbidity);
-	++m_revision;
+		if (s.Burning()) AddFireTurbidity(s.x, s.z, s.turbidity);
 }
 
+bool DungeonMap::SetFixtureBurning(int x, int z, int wall, bool burning) {
+	const auto set = [&](auto& f) {
+		if (f.Burning() == burning) return false;
+		f.flipped = !f.flipped;
+		RecomputeTurbidity(); // play: no Revision() bump (see the header)
+		return true;
+	};
+	if (wall < 0) {
+		for (FloorBrazier& b : m_braziers)
+			if (b.x == x && b.z == z) return set(b);
+		return false;
+	}
+	for (WallSconce& s : m_torches)
+		if (s.x == x && s.z == z && static_cast<int>(s.wall) == wall)
+			return !s.empty && set(s); // a bare bracket has nothing to light
+	return false;
+}
+
+bool DungeonMap::ResetFixtureBurning() {
+	bool changed = false;
+	for (WallSconce& s : m_torches) {
+		changed |= std::exchange(s.flipped, false);
+		changed |= std::exchange(s.empty, false);
+	}
+	for (FloorBrazier& b : m_braziers) changed |= std::exchange(b.flipped, false);
+	if (changed) RecomputeTurbidity(); // play state only: no Revision() bump
+	return changed;
+}
+
+bool DungeonMap::SetSconceEmpty(int x, int z, int wall, bool empty, bool burning) {
+	for (WallSconce& s : m_torches) {
+		if (s.x != x || s.z != z || static_cast<int>(s.wall) != wall) continue;
+		if (s.empty == empty) return false;
+		s.empty = empty;
+		// A torch put back burns as it came: lit when the torch was.
+		if (!empty) s.flipped = burning != s.lit;
+		RecomputeTurbidity(); // play: the bracket is a fire mesh, not geometry
+		return true;
+	}
+	return false;
+}
+
+// The editor's setters write the AUTHORED state, and what the editor shows is
+// what it set: any flip from play is dropped with it.
 bool DungeonMap::SetSconceProps(int x, int z, Direction wall, bool lit, float brightness,
 								float turbidity) {
 	for (WallSconce& s : m_torches)
 		if (s.x == x && s.z == z && s.wall == wall) {
 			s.lit = lit;
+			s.flipped = false;
 			s.brightness = brightness;
 			s.turbidity = turbidity;
 			RebuildTurbidity(); // bumps Revision()
@@ -655,6 +705,7 @@ bool DungeonMap::SetBrazierProps(int x, int z, bool lit, float brightness, float
 	for (FloorBrazier& b : m_braziers)
 		if (b.x == x && b.z == z) {
 			b.lit = lit;
+			b.flipped = false;
 			b.brightness = brightness;
 			b.turbidity = turbidity;
 			RebuildTurbidity(); // bumps Revision()

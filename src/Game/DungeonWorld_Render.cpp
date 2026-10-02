@@ -159,6 +159,8 @@ void DungeonWorld::RenderScene(ID3D12GraphicsCommandList* list) {
 		m_renderer.UpdateTexture(list, *m_turbidityMap, m_turbidityPixels);
 		m_turbidityDirty = false;
 	}
+	// The brief haze over doused fires, read off their smoke effects.
+	if (m_dustEnabled) GatherDustPuffs(atmo);
 	m_renderer.BeginScene(list, m_camera, m_lights, atmo, /*hdrTarget=*/true);
 	const ViewCull cull = ViewCull::FromFrustum(m_camera.ViewProj());
 	SubmitSceneGeometry(list, &cull);
@@ -566,7 +568,10 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 		gfx::MaterialParams metal;
 		ApplyPropMaterial(metal, fire.kind->tex, fire.kind->color, 0.5f);
 		if (!metal.albedo) metal.metallic = 1.0f; // flat fallback reads as metal
-		m_renderer.DrawMesh(list, *fire.kind->mesh, fire.world, metal);
+		// A wall torch whose torch was taken shows its bare bracket.
+		const gfx::Mesh& mesh =
+			fire.empty && fire.kind->meshEmpty ? *fire.kind->meshEmpty : *fire.kind->mesh;
+		m_renderer.DrawMesh(list, mesh, fire.world, metal);
 		// The optional second part (coal bed) rides the same world transform
 		// (the parts were normalized together at import, so they pre-align).
 		if (fire.kind->mesh2) {

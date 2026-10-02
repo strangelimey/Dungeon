@@ -349,6 +349,11 @@ public:
 	// it to decide what to draw, and the effect list stays the single truth of
 	// what is actually happening (effects.cat `plume`).
 	bool Plume() const { return m_plume; }
+	// Whether a bearer of this effect thickens the AIR of its square: by the
+	// instance's magnitude x the share of its duration it has left, so the haze
+	// thins to nothing as it runs out (a doused fire's smoke). Presentation only,
+	// read by the host like Plume (effects.cat `haze`).
+	bool Haze() const { return m_haze; }
 	// The lines announcing that this effect took hold, one per side (either may
 	// be empty for an effect that arrives silently). Both take the bearer's
 	// name. effects.cat apply_party / apply_monster.
@@ -376,6 +381,7 @@ protected:
 	DamageType m_damageType{};
 	SpellSymbol m_school = SpellSymbol::Fire;
 	bool m_plume = false;
+	bool m_haze = false;
 };
 
 // One live effect on one combatant. A POD by design — no string, no owning

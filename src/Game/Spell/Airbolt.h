@@ -1,5 +1,5 @@
 // ============================================================================
-// Game/Spell/Push.h — Push (air,project): the air school's directed
+// Game/Spell/Airbolt.h — Airbolt (air,project): the air school's directed
 // Project-form cast, and the engine's first DISPLACEMENT effect.
 //
 // Air's identity: its bolt MOVES the target more than it hurts it — a struck
@@ -14,9 +14,9 @@
 
 namespace dungeon::game::spells {
 
-class Push : public BoltSpell {
+class Airbolt : public BoltSpell {
 public:
-	Push();
+	Airbolt();
 };
 
 } // namespace dungeon::game::spells

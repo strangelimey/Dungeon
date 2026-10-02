@@ -92,7 +92,7 @@ movecd = 0.5
 iq = 130
 archetype = caster
 keeprange = 5
-spell = flame
+spell = firebolt
 resists = pierce 0.5, slash 0.25, bash -0.5
 ; It has no skills, so `powers` is where "this one is dangerous with fire" lives —
 ; the attacker's mirror of the resists above. Its flame bolts land harder; its
@@ -391,3 +391,49 @@ anim_attack = attack__fireball attack__zombie_attack_1 attack__zombie_attack att
 anim_defend = defend__body_block defend__dodging_right
 anim_hit = hit__big_hit_to_head_1 hit__big_hit_to_head_2 hit__big_hit_to_head hit__head_hit hit__hit_to_body
 anim_die = die__dying die__falling_back_death die__falling_forward_death die__standing_death_forward_01 die__standing_death_left_01 die__standing_react_death_backward die__standing_react_death_forward
+
+[skel_mage_adept]
+; a mage further along: its fire bolts come in VOLLEYS (Ingwaz)
+offense = 0.5
+display = Skeleton Adept
+category = skeleton
+tags = undead
+model = skeleton
+texture = skeleton
+hp = 20
+damage = 8
+accuracy = 80
+defense = 0.12
+armor = 0
+attackcd = 2.8
+aggro = 9
+movecd = 0.5
+iq = 140
+archetype = caster
+keeprange = 5
+spell = firebolt_volley
+resists = pierce 0.5, slash 0.25, bash -0.5
+powers = fire 0.5, bash -0.3
+
+[skel_magus]
+; a master: its fire bolts BURST (Hagalaz) - stay out of its line in a corridor
+offense = 0.55
+display = Skeleton Magus
+category = skeleton
+tags = undead
+model = skeleton
+texture = skeleton
+hp = 28
+damage = 8
+accuracy = 85
+defense = 0.15
+armor = 0
+attackcd = 3.2
+aggro = 10
+movecd = 0.55
+iq = 150
+archetype = caster
+keeprange = 6
+spell = firebolt_burst
+resists = pierce 0.5, slash 0.25, bash -0.5
+powers = fire 0.55, bash -0.3

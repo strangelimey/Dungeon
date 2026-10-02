@@ -2,7 +2,7 @@
 // Game/Game_DevParty.cpp — the party's dev-console commands.
 //
 // Split out of Game_DevCommands.cpp by concern: what a member knows, carries
-// and does (learn/rune/give/guard/swing/wear/equip/effect/grudges/cast), their
+// and does (learn/rune/give/guard/swing/wear/equip/effect/grudges/cast/castsvc), their
 // pools and supplies (party/regen/supplies/rest/consume/setsupply), and the
 // sheet, the party inventory window, and the dev setters that re-derive it
 // (sheet/inventory/setstat/setskill/heal/char).
@@ -12,6 +12,7 @@
 #include "Core/Log.h"
 #include "Game/DevCommandArgs.h"
 #include "Game/PartyHudDraw.h" // HeartRateTarget (hudbars)
+#include "Game/Spell/Spell.h"    // castsvc: a spell's blast payload
 
 #include <algorithm>
 #include <cctype>
@@ -27,7 +28,7 @@ using devargs::ParseSymbolArg;
 void Game::RegisterPartyCommands() {
 	m_console.Register({.name = "learn",
 						.group = CmdGroup::Characters,
-						.params = "<member> <fire|earth|air|water>",
+						.params = "<member> <symbol>",
 						.summary = "grant a spell symbol to a member"},
 					   [this](const std::vector<std::string>& args) {
 						   if (!Need(m_console, args, 2)) return;
@@ -45,7 +46,7 @@ void Game::RegisterPartyCommands() {
 					   });
 	m_console.Register({.name = "rune",
 						.group = CmdGroup::Characters,
-						.params = "<fire|earth|air|water>",
+						.params = "<symbol>",
 						.summary = "give a rune tablet to the lead member's pack"},
 					   [this](const std::vector<std::string>& args) {
 						   if (!Need(m_console, args, 1)) return;
@@ -369,6 +370,7 @@ void Game::RegisterPartyCommands() {
 						   for (int i = 0; i < kEquipCount; ++i) {
 							   const EquipSlot slot = static_cast<EquipSlot>(i);
 							   if (!WearSlotFits(w, slot)) continue;
+							   c.inventory.equipment[static_cast<size_t>(i)].Clear(); // no charge left over
 							   c.inventory.equipment[static_cast<size_t>(i)].typeId = args[0];
 							   m_console.Print(std::format("{} wears {} ({})", c.name,
 														   args[0], WearSlotId(w)));
@@ -380,8 +382,8 @@ void Game::RegisterPartyCommands() {
 	// what a combat test actually needs (no cursor drag, no HUD clicking).
 	m_console.Register({.name = "equip",
 						.group = CmdGroup::Characters,
-						.params = "<item> [member] [hand]",
-						.summary = "put an item in a member's hand"},
+						.params = "<item|none> [member] [hand]",
+						.summary = "put an item in a member's hand (none empties it)"},
 					   [this](const std::vector<std::string>& args) {
 						   if (!Need(m_console, args, 1)) return;
 						   const size_t m = args.size() > 1
@@ -392,10 +394,17 @@ void Game::RegisterPartyCommands() {
 							   m_console.Refuse("no such member");
 							   return;
 						   }
+						   if (args[0] == "none") {
+							   m_characters[m].inventory.Hand(hand).Clear();
+							   m_console.Print(std::format("{} {} hand emptied", m_characters[m].name,
+														   hand == 0 ? "left" : "right"));
+							   return;
+						   }
 						   if (!m_project.HasItem(args[0])) {
 							   m_console.Print(std::format("no item '{}' in items/weapons/armor", args[0]));
 							   return;
 						   }
+						   m_characters[m].inventory.Hand(hand).Clear(); // no charge left over
 						   m_characters[m].inventory.Hand(hand).typeId = args[0];
 						   m_console.Print(std::format("{} {} hand = {}",
 													   m_characters[m].name,
@@ -506,6 +515,118 @@ void Game::RegisterPartyCommands() {
 						   }
 						   const bool ok = m_world->CastSpell(m, seq, hand);
 						   m_console.Print(ok ? "cast away" : "no cast (fizzle / no mana / unknown)");
+					   });
+
+	// The party's LIGHT (DungeonWorld_Light.cpp): every held item with a charge,
+	// how much is left, and the wall torch the party faces - taken off its
+	// bracket or mounted back with no click.
+	m_console.Register({.name = "torch",
+						.group = CmdGroup::Party,
+						.params = "\nstatus\ntake\nmount [item]\ncharge <member> <hand> <seconds>",
+						.summary = "the held torches' charge; take / mount the wall torch ahead"},
+					   [this](const std::vector<std::string>& args) {
+						   const std::string what = args.empty() ? "status" : args[0];
+						   int x = 0, z = 0, wall = -1;
+						   if (what == "take" || what == "mount") {
+							   if (!m_world->FireAheadCell(x, z, wall) || wall < 0) {
+								   m_console.Refuse("no wall torch ahead");
+								   return;
+							   }
+							   bool ok = false;
+							   if (what == "take") {
+								   ok = m_world->TakeTorchAt(x, z, wall, m_heldItem);
+							   } else if (args.size() >= 2) { // a named torch, from nowhere
+								   ok = m_world->MountTorchAt(x, z, wall, args[1]);
+							   } else if (m_heldItem && m_world->MountTorchAt(x, z, wall, *m_heldItem)) {
+								   m_heldItem.reset(); // the cursor's torch goes in
+								   ok = true;
+							   }
+							   m_console.Print(std::format("torch {}: {}", what, ok ? "done" : "refused"));
+							   return;
+						   }
+						   if (what == "charge" && args.size() >= 4) {
+							   const size_t m = static_cast<size_t>(std::atoi(args[1].c_str()));
+							   const int hand = std::atoi(args[2].c_str());
+							   if (m >= m_characters.size() || hand < 0 || hand > 1) {
+								   m_console.Refuse("no such member or hand");
+								   return;
+							   }
+							   m_characters[m].inventory.Hand(hand).charge =
+								   static_cast<float>(std::atof(args[3].c_str()));
+							   m_console.Print("torch charge set");
+							   return;
+						   }
+						   for (size_t m = 0; m < m_characters.size(); ++m)
+							   for (int h = 0; h < 2; ++h) {
+								   const ItemSlot& s = m_characters[m].inventory.Hand(h);
+								   if (s.Empty()) continue;
+								   m_console.Print(std::format("  [{}] {} hand {}: {} charge {:.1f}", m,
+															   m_characters[m].name, h, s.typeId, s.charge));
+							   }
+						   if (m_heldItem)
+							   m_console.Print(std::format("  cursor: {} charge {:.1f}", *m_heldItem,
+														   m_heldItem.Charge()));
+						   const FireAhead f = m_world->FireAheadOfParty();
+						   m_console.Print(std::format("  wall torch ahead: {}",
+													   f.kind != FireAhead::Kind::WallTorch ? "none"
+													   : f.empty                            ? "empty bracket"
+													   : f.lit                              ? "burning"
+																							: "out"));
+					   });
+
+	// The cast services one at a time, with no spell in between: what a spell
+	// would see ahead of the party and what each world hook does to it, so a
+	// hand spell's outcome can be pinned on the spell or on the world.
+	m_console.Register({.name = "castsvc",
+						.group = CmdGroup::Combat,
+						.params = "fire\nlight\ndouse\nflare\nfloor\ndrop <item>\nshove [cells]\nrepel <power> [member]\nblast <spell>",
+						.summary = "drive one cast service directly (the world ahead of the party)"},
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 1)) return;
+						   const std::string& what = args[0];
+						   if (what == "fire") {
+							   const FireAhead f = m_world->FireAheadOfParty();
+							   const char* kind = f.kind == FireAhead::Kind::WallTorch ? "walltorch"
+												: f.kind == FireAhead::Kind::Brazier ? "brazier"
+																					   : "none";
+							   m_console.Print(std::format(
+								   "castsvc fire: kind={} lit={} canburn={} haze={:.2f} flare={:.2f}", kind,
+								   f.lit ? 1 : 0, f.canBurn ? 1 : 0, m_world->FireAheadHaze(),
+								   m_world->FireAheadFlare()));
+						   } else if (what == "floor") {
+							   const Party& p = m_world->GetParty();
+							   const std::string ids = m_world->ItemIdsAt(p.GridX(), p.GridZ());
+							   m_console.Print(std::format("castsvc floor: {}", ids.empty() ? "(none)" : ids));
+						   } else if (what == "light" || what == "douse") {
+							   m_console.Print(std::format("castsvc {}: changed={}", what,
+														   m_world->SetFireAhead(what == "light") ? 1 : 0));
+						   } else if (what == "flare") {
+							   m_console.Print(std::format("castsvc flare: flared={}",
+														   m_world->FlareFireAhead() ? 1 : 0));
+						   } else if (what == "drop" && args.size() >= 2) {
+							   m_world->DropAtPartyFeet(args[1]);
+							   m_console.Print(std::format("castsvc drop: {} at the party's feet", args[1]));
+						   } else if (what == "shove") {
+							   const int cells = args.size() >= 2 ? std::atoi(args[1].c_str()) : 1;
+							   m_console.Print(std::format("castsvc shove: moved={}",
+														   m_world->ShoveAhead(cells) ? 1 : 0));
+						   } else if (what == "repel" && args.size() >= 2) {
+							   const float power = static_cast<float>(std::atof(args[1].c_str()));
+							   const int member = args.size() >= 3 ? std::atoi(args[2].c_str()) : 0;
+							   const auto r = m_world->RepelAhead(power, member);
+							   m_console.Print(std::format("castsvc repel: weakened={} turned={}",
+														   r.weakened, r.turned));
+						   } else if (what == "blast" && args.size() >= 2) {
+							   const Spell* spell = m_world->FindSpell(args[1]);
+							   if (!spell || !spell->Blast().Any()) {
+								   m_console.Refuse("no such spell, or it does not blast");
+								   return;
+							   }
+							   m_world->BlastAroundParty(spell->MakePayload(), spell->School(), 0);
+							   m_console.Print(std::format("castsvc blast: {} round the party", args[1]));
+						   } else {
+							   m_console.RefuseUsage();
+						   }
 					   });
 
 	// The party's side of an encounter, in one machine-readable block. `monsters`
@@ -637,6 +758,8 @@ void Game::RegisterPartyCommands() {
 	m_console.Register({.name = "itemdetails",
 						.group = CmdGroup::Characters,
 						.params = "<item> [kg]\n"
+								  "pack <member> <slot>\n"
+								  "memorize\n"
 								  "off\n"
 								  "status",
 						.summary = "open, close or report the item details dialog"},
@@ -650,15 +773,33 @@ void Game::RegisterPartyCommands() {
 						   if (args[0] == "status") {
 							   const ItemDetailsDialog* dlg = m_ui.DetailsDialog();
 							   m_console.Print(std::format(
-								   "item details: {} ({} preview submeshes) opens={}",
+								   "item details: {} ({} preview submeshes) opens={} memorize={}",
 								   m_ui.ItemDetailsOpen() ? "open" : "closed",
 								   dlg ? dlg->PreviewSubs().size() : 0,
-								   dlg ? dlg->OpenCount() : 0u));
+								   dlg ? dlg->OpenCount() : 0u,
+								   dlg && dlg->MemorizeShown() ? 1 : 0));
+							   return;
+						   }
+						   if (args[0] == "memorize") {
+							   m_console.Print(m_ui.PressDetailsMemorize()
+												   ? "item details: memorized"
+												   : "item details: no Memorize button up");
 							   return;
 						   }
 						   if (m_state != AppState::Playing &&
 							   m_state != AppState::CharacterSheet) {
 							   m_console.Refuse("only over the level or the sheet");
+							   return;
+						   }
+						   if (args[0] == "pack") {
+							   if (!Need(m_console, args, 3)) return;
+							   const size_t m = static_cast<size_t>(std::atoi(args[1].c_str()));
+							   m_ui.OpenPackItemDetails(m, std::atoi(args[2].c_str()));
+							   if (!m_ui.ItemDetailsOpen())
+								   m_console.Refuse("nothing in that slot");
+							   else
+								   m_console.Print(std::format("item details: member {} pack slot {}",
+															   args[1], args[2]));
 							   return;
 						   }
 						   const float kg =
@@ -1383,6 +1524,11 @@ void Game::RegisterPartyCommands() {
 							   if (!slot.Empty())
 								   m_console.Print(std::format("    worn  {}", slot.typeId));
 						   }
+						   // What is on the member: a ward cast on the whole party
+						   // has nowhere else to be seen from the console.
+						   for (const fx::Inst& e : c.effects)
+							   m_console.Print(std::format("    effect {} {:.1f} {:.1f}s", e.Id(),
+														   e.magnitude, e.timeLeft));
 					   });
 }
 

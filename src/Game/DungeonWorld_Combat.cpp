@@ -483,14 +483,14 @@ DungeonWorld::FumbleTable(const std::vector<mishap::Entry>& own, bool severe,
 	return fallback;
 }
 
-void DungeonWorld::DropItemInCell(const std::string& typeId, int cx, int cz) {
+void DungeonWorld::DropItemInCell(const std::string& typeId, int cx, int cz, float charge) {
 	ItemKind& kind = ItemKindFor(typeId);
 	const Vec3 c = m_map.CellCenter(cx, cz);
 	const int slot = FreeItemSlotNear(cx, cz, c.x, c.z, -1);
 	// A RUNTIME drop (negative id), not an .ent record: a weapon knocked out of
 	// a hand is dynamic state that rides the save, exactly like the cursor drop
 	// beside it. Authoring a record would write it into the LEVEL.
-	PlaceDrop({&kind, m_nextDropId--, cx, cz, false, slot});
+	PlaceDrop({&kind, m_nextDropId--, cx, cz, false, slot, -1, charge});
 	MarkSeen(cx, cz);
 }
 
@@ -1655,6 +1655,9 @@ void DungeonWorld::MonsterRangedAttack(Monster& monster) {
 				spell->MonsterBolt(origin, dir, monster.kind->accuracy)) {
 			bolt->shooter = monster.runtimeId; // the impact reads its threat
 			m_projectiles.Spawn(*bolt);
+			// A volley spell (Ingwaz) throws the rest a beat apart.
+			for (int i = 1; i < spell->MonsterVolley(); ++i)
+				SpawnBoltAfter(*bolt, 0.2f * static_cast<float>(i));
 			m_audio.Play(m_sounds.spellCast, 0.6f); // the cast voice
 			return;
 		}
@@ -1947,9 +1950,12 @@ bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequenc
 	const Vec3 dir{static_cast<float>(DirDX(faced)), 0.0f,
 				   static_cast<float>(DirDZ(faced))};
 
+	// The spell learns which hand cast it - only a REAL hand; the spellbook's
+	// both-hands credit (kBookHands) and the console's -1 are no hand at all.
+	const int castHand = hand == 0 || hand == 1 ? hand : -1;
 	const MagicSystem::CastReport r =
-		m_magic.Cast(caster, static_cast<int>(member), sequence, origin, dir,
-					 m_combatRng);
+		m_magic.Cast(caster, static_cast<int>(member), sequence, origin, dir, castHand,
+					 std::span<Character>(*m_roster), m_combatRng);
 	switch (r.outcome) {
 	case MagicSystem::CastOutcome::Cast:
 		// The spell's own Cast() override has already landed the effect
@@ -2103,23 +2109,12 @@ bool DungeonWorld::ResolveSpellHit(const ProjectileImpact& impact) {
 							   impact.payload.flavour, impact.attacker, m_effects,
 							   m_combatRng);
 			// Displacement (the air-school shove): a landed hit with `push` walks
-			// the survivor up to that many cells along the bolt's travel, one
-			// StepMonsterTo per cell so occupancy commits atomically; the first
-			// blocked/occupied cell (FreeSlotInCell covers walls, closed doors,
-			// packed cells, and the party's cell) stops it early. The final step
-			// wins the visual glide, so the shove reads as one continuous slide.
+			// the survivor up to that many cells along the bolt's travel
+			// (ShoveMonster).
 			if (impact.push > 0) {
 				const int dx = impact.dir.x > 0.5f ? 1 : (impact.dir.x < -0.5f ? -1 : 0);
 				const int dz = impact.dir.z > 0.5f ? 1 : (impact.dir.z < -0.5f ? -1 : 0);
-				int pushed = 0;
-				for (int step = 0; step < impact.push; ++step) {
-					const int nx = hit->x + dx, nz = hit->z + dz;
-					const int slot = FreeSlotInCell(nx, nz, hit->kind->size, hitIndex);
-					if (slot < 0) break; // wall / door / occupied — the shove stops
-					StepMonsterTo(*hit, nx, nz, slot);
-					++pushed;
-				}
-				if (pushed > 0)
+				if (ShoveMonster(static_cast<size_t>(hitIndex), dx, dz, impact.push) > 0)
 					onMessage(loc::FormatLine("log.spell_pushes", name));
 			}
 		}
@@ -2127,6 +2122,24 @@ bool DungeonWorld::ResolveSpellHit(const ProjectileImpact& impact) {
 		onMessage(loc::FormatLine("log.spell_misses", name));
 	}
 	return true; // a monster was here, so the bolt is consumed (hit or miss)
+}
+
+int DungeonWorld::ShoveMonster(size_t index, int dx, int dz, int cells) {
+	// Displacement (the air school's shove): up to `cells` squares along
+	// (dx, dz), one StepMonsterTo per square so occupancy commits atomically;
+	// the first blocked or occupied square (FreeSlotInCell covers walls, closed
+	// doors, packed squares and the party's own) stops it early. The final step
+	// wins the visual glide, so the shove reads as one continuous slide.
+	Monster& m = m_monsters[index];
+	int pushed = 0;
+	for (int step = 0; step < cells; ++step) {
+		const int nx = m.x + dx, nz = m.z + dz;
+		const int slot = FreeSlotInCell(nx, nz, m.kind->size, static_cast<int>(index));
+		if (slot < 0) break; // wall / door / occupied - the shove stops
+		StepMonsterTo(m, nx, nz, slot);
+		++pushed;
+	}
+	return pushed;
 }
 
 bool DungeonWorld::ResolveMonsterProjectileHit(const ProjectileImpact& impact) {
@@ -2440,25 +2453,16 @@ void DungeonWorld::SeedFixtureBreakables() {
 
 void DungeonWorld::DouseFixture(const FixtureBreak& fb) {
 	// Breaking a light source means THE LIGHT GOES OUT, which is the whole point of
-	// being able to break one — `lit` gates its point light, its flame particles and
-	// its smoke together, so one flag does all three. The mesh stays: a wrecked
-	// sconce is still bolted to the wall, just dark.
-	if (fb.wall >= 0)
-		m_map.SetSconceProps(fb.x, fb.z, static_cast<Direction>(fb.wall),
-							 /*lit=*/false, kSconceBrightness, kSconceTurbidity);
-	else
-		m_map.SetBrazierProps(fb.x, fb.z, /*lit=*/false, kBrazierBrightness,
-							  kBrazierTurbidity);
-	// ...and the live FIRE built from that record, which copied `lit` when the fires
-	// were built: changing the record alone left a wrecked brazier lighting the room
-	// and smoking until the next fixture edit rebuilt the fires.
-	for (Fire& fire : m_fires)
-		if (fire.x == fb.x && fire.z == fb.z && fire.wall == fb.wall) fire.lit = false;
-	// The haze it was feeding has to go with it, or a doused brazier leaves its own
-	// god rays hanging in the air. IN PLACE: this runs mid-fight, inside the frames
-	// the allocation guard watches, and a whole new texture both allocated and
-	// drained the GPU.
-	RefreshTurbidity();
+	// being able to break one. SetFireBurning puts out the live fire (its light,
+	// flame and smoke) AND the haze it was feeding, or a doused brazier would leave
+	// its own god rays hanging in the air. The mesh stays: a wrecked sconce is
+	// still bolted to the wall, just dark.
+	//
+	// This used to write `lit = false` into the map RECORD and rebuild the haze -
+	// and nothing else, so the smashed fixture's live fire kept its light and
+	// flame until the next level load, and the edit leaked into `savemap` as an
+	// authored change. Burning() is runtime state now; the record is left alone.
+	SetFireBurning(fb.x, fb.z, fb.wall, false);
 	++m_harness.tally.fixturesDoused;
 }
 
@@ -2476,16 +2480,19 @@ void DungeonWorld::SeedBreakable(Breakable& brk, const DecorationKind& kind) {
 // ============================================================================
 
 void DungeonWorld::Detonate(int cx, int cz, const ProjectilePayload& payload,
-							DamageType type, int attacker) {
+							DamageType type, int attacker, bool spareCentre) {
 	const BlastSpec& spec = payload.blast;
 	if (!spec.rules.Any()) return;
 
 	// What a blast may enter: an open cell, no closed door. The SAME test that
 	// stops a bolt, which is why a blast cannot leak into the corridor behind a
 	// wall or through a shut door — Game/Blast.h does the geometry, this only says
-	// what counts as open.
+	// what counts as open. A spared centre counts as solid: Propagate then starts
+	// from it as a phantom (nothing standing there is hit) and a front coming back
+	// meets it as a wall.
 	ActiveBlast active;
-	active.result = blast::Propagate(cx, cz, spec.rules, [this](int x, int z) {
+	active.result = blast::Propagate(cx, cz, spec.rules, [&](int x, int z) {
+		if (spareCentre && x == cx && z == cz) return false;
 		if (!m_map.IsWalkable(x, z)) return false;
 		const Door* d = DoorAt(x, z);
 		return !d || d->open;

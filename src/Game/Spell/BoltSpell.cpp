@@ -43,13 +43,17 @@ ProjectileSpec BoltSpell::MakeBolt(const Vec3& origin, const Vec3& dir,
 	return bolt;
 }
 
-void BoltSpell::Cast(CastContext& ctx) const {
+ProjectileSpec BoltSpell::PartyBolt(const CastContext& ctx, float power) const {
 	// The bonus rides school skill and the caster's stat, both already curved
 	// by the host (CastContext::attackBonus); power arrives skill-scaled too.
-	ProjectileSpec bolt = MakeBolt(ctx.origin, ctx.dir, ctx.power,
-								   ctx.attackBonus, TargetSide::Monsters);
+	ProjectileSpec bolt =
+		MakeBolt(ctx.origin, ctx.dir, power, ctx.attackBonus, TargetSide::Monsters);
 	bolt.attacker = ctx.casterIndex; // the impact credits its caster (threat)
-	ctx.services.spawnBolt(bolt);
+	return bolt;
+}
+
+void BoltSpell::Cast(CastContext& ctx) const {
+	ctx.services.spawnBolt(PartyBolt(ctx, ctx.power));
 }
 
 std::optional<ProjectileSpec> BoltSpell::MonsterBolt(const Vec3& origin,

@@ -183,6 +183,9 @@ public:
 	// so monster melee can drain member health and party melee can read each
 	// member's derived stats. Must be set before play; null = no combat.
 	void SetRoster(std::vector<Character>* roster) { m_roster = roster; }
+	// The CURSOR's item (Game owns it): a lit torch carried on the cursor still
+	// burns and still lights the way (DungeonWorld_Light.cpp). Borrowed.
+	void SetCursorItem(HeldItem* held) { m_cursorItem = held; }
 
 	// THE PARTY LEADER (ui-updates Phase 9): the member who does what the mouse
 	// does in the world - picks up, works a door or a lever, throws. A roster
@@ -309,6 +312,11 @@ public:
 	// knows to refuse the action and keep the item. Public because the HUD
 	// raises it (GameUI::onConsume) and only the world has the catalogs.
 	resource::Refill ConsumeItem(Character& member, const std::string& typeId);
+	// What is left in the hand after consuming `typeId` (items.cat `drink_as`),
+	// or empty when it is used up. A view of the kind's own string.
+	std::string_view ConsumeLeaves(const std::string& typeId) {
+		return ItemKindFor(typeId).drinkAs;
+	}
 
 	// --- the eval harness (docs/eval-harness.md) ----------------------------
 	// Reseed the combat RNG. Every roll in the game comes off this one stream —
@@ -667,6 +675,31 @@ public:
 	// stores "cast:<id>" defaults). All the same gates apply — the member must
 	// know the recipe's symbols and afford its mana. False on an unknown id.
 	bool CastSpellById(size_t member, std::string_view id, int hand = -1);
+	// The world in front of the party, as the cast services hand it to a spell
+	// (DungeonWorld_Ahead.cpp; Spell/Spell.h CastServices says what each does).
+	// Public so the dev console's `castsvc` can drive each one alone.
+	FireAhead FireAheadOfParty() const;
+	// Where that fire is: its square, and its wall (-1 = a brazier). False if
+	// there is none.
+	bool FireAheadCell(int& x, int& z, int& wall) const;
+	// That fire when it is a WALL TORCH and the click (mx,my) lands on it.
+	bool SconceUnderCursor(float mx, float my, float w, float h, int& x, int& z,
+						   int& wall) const;
+	bool SetFireAhead(bool burning);
+	bool FlareFireAhead();
+	// The haze that fire's smoke effects add to its square right now (0 = none):
+	// the harness's view of a douse thinning away.
+	float FireAheadHaze() const;
+	// How far that fire is flared right now (0 = steady), and the ids of the
+	// items lying in a square, space-separated: two more harness views, of a
+	// gust on a fire and of a conjured item landing at the party's feet.
+	float FireAheadFlare() const;
+	std::string ItemIdsAt(int x, int z) const;
+	void DropAtPartyFeet(std::string_view itemId);
+	bool ShoveAhead(int cells);
+	ProjectileSystem::Repelled RepelAhead(float power, int casterIndex);
+	void BlastAroundParty(const ProjectilePayload& payload, SpellSymbol school,
+						  int casterIndex);
 	// The whole spell registry (the Magic menu filters it by known symbols).
 	std::span<const std::unique_ptr<Spell>> SpellDefs() const {
 		return m_magic.Book().Defs();
@@ -686,7 +719,8 @@ public:
 	// null if nothing pickable is under the cursor. The id is the kind's own, so
 	// it outlives the call and the lift copies nothing (it runs in a guarded
 	// frame). Pure query+remove - no satchel/knowledge side effects.
-	const std::string* TryPickItem(float mx, float my, float w, float h);
+	const std::string* TryPickItem(float mx, float my, float w, float h,
+								   float* charge = nullptr); // the lifted item's charge
 	// The same pick WITHOUT the lift: the type of the floor item under the
 	// cursor (the item details dialog's right-click), or null. The id lives in
 	// the item's kind, so the pointer outlives the call.
@@ -699,13 +733,14 @@ public:
 	// THROW OR DROP (ui-updates Phase 10, Grimrock's screen-height rule): a click
 	// that meets no reachable floor - above the floor's horizon, on a wall,
 	// beyond reach - drops NOTHING and returns false, and the caller throws.
-	bool DropItemAt(const std::string& typeId, float mx, float my, float w, float h);
+	bool DropItemAt(const std::string& typeId, float mx, float my, float w, float h,
+					float charge = -1.0f); // the item's charge goes down with it
 	// THROWING (DungeonWorld_Throw.cpp): a member throws an item (catalog id)
 	// straight ahead down their quadrant lane - `member` < 0 = the party LEADER
 	// (the cursor's throw), else that roster slot (a hand's `throw` use). False =
 	// nobody threw (the thrower is down, or still recovering from their last
 	// throw - throw_interval): the item stays where it was.
-	bool ThrowItem(const std::string& typeId, int member = -1);
+	bool ThrowItem(const std::string& typeId, int member = -1, float charge = -1.0f);
 	// Brings every thrown item still in the air down where it is - before a save
 	// (a flight is not saved; the item must be) and a level change.
 	void LandThrownItems() { m_projectiles.LandCargo(); }
@@ -1323,6 +1358,20 @@ public:
 	// Click interaction: presses the button on the party's OWN cell mounted on
 	// the wall the party faces. False if there isn't one.
 	bool PressButtonFacing();
+	// A wall torch, off its bracket and back (DungeonWorld_Fires.cpp). The party
+	// faces it from its square and the click lands ON it. Taking leaves the bare
+	// bracket and puts the torch - lit if it burned - in the leader's free hand,
+	// else on `cursor` (which must be empty). Mounting puts the item `itemId` (a
+	// torch, lit or not) into an EMPTY bracket. True if it happened.
+	bool TakeTorchAhead(float mx, float my, float w, float h, HeldItem& cursor);
+	bool MountTorchAhead(const std::string& itemId, float mx, float my, float w, float h);
+	// The same acts on a named sconce, with no click (the dev console's `torch`).
+	bool TakeTorchAt(int x, int z, int wall, HeldItem& cursor);
+	bool MountTorchAt(int x, int z, int wall, const std::string& itemId);
+	// Empties or refills the sconce on (x,z)/`wall` (the map record + the live
+	// fire); `burning` = the refilled torch is lit. False for a kind with no
+	// bare bracket to show (fixtures.cat `empty_model`) or no change.
+	bool SetSconceEmpty(int x, int z, int wall, bool empty, bool burning = false);
 	// Button instance surface for the inspector: presence + wiring, and the
 	// live/record edit (in-memory until savemap). `target` is the door/niche
 	// name it toggles; `needs` the flag it waits on (flag=); `sets` + `op` what
@@ -2184,6 +2233,21 @@ private:
 		// 0/0 means it feeds nobody, which is how a consume is refused.
 		float nutrition = 0.0f;
 		float hydration = 0.0f;
+		// What a consume leaves in the hand (items.cat `drink_as`): a waterskin
+		// drunk from steps down a fill level instead of being used up. Empty =
+		// the item is gone (bread is eaten).
+		std::string drinkAs;
+		// LIGHT (items.cat): `burn_time` > 0 marks a LIT item - it is the party's
+		// light while it is held, and burns for that many seconds of game time
+		// (the item's CHARGE counts them down, ItemSlot::charge), then becomes
+		// `spent_as` (a burnt-out stub). `unlit_as` is what it turns into when
+		// it goes out (stowed, put down, doused) and `lit_as` the reverse.
+		float burnTime = 0.0f;
+		std::string litAs, unlitAs, spentAs;
+		// A container one fill level up (items.cat `fill_as`): what a Splash, or
+		// any later filling, makes of it. Empty = it takes no water.
+		std::string fillAs;
+		bool Lit() const { return burnTime > 0.0f; }
 		// Worn armor's WEIGHT CLASS (armor.cat `class`): what it costs to
 		// evade in, which skill it trains, and what STR it asks. The soak
 		// itself stays per ITEM (`armor` below) — a breastplate and a mail
@@ -2263,6 +2327,11 @@ private:
 		// (vs the static shape-aware pose). The cursor + every slot animate with it.
 		bool iconAnimated = false;
 	};
+	// Rewrites a held item as the kind its `becomes` field names (&litAs: light
+	// it; &fillAs: fill it a level), keeping its charge; returns the new kind's
+	// name key, or empty when that field is empty (the item does not take it).
+	// The cast services' lightItem / fillItem (DungeonWorld_Ahead.cpp).
+	std::string_view RenameHeldItem(ItemSlot& slot, std::string ItemKind::*becomes);
 	struct Item {
 		const ItemKind* kind = nullptr; // points into m_itemKinds (stable)
 		int id = -1;                    // source Entity::id (>= 0 = .ent baseline)
@@ -2276,6 +2345,10 @@ private:
 		// item). Niche items pile at the pocket centre (NicheItemPos), ignore `slot`,
 		// and are hidden + unpickable while the niche is closed.
 		int niche = -1;
+		// The item's own charge (ItemSlot::charge - a torch's seconds left),
+		// kept while it lies here and handed back when it is lifted. LAST, so
+		// the positional inits above need not name it.
+		float charge = -1.0f;
 	};
 
 	// A wall-mounted button/lever (EntityKind::Button from the .ent layer). The
@@ -2575,16 +2648,42 @@ private:
 		bool brazier = false;    // floor-standing (light params branch on this)
 		bool lit = true;         // false: prop still drawn, but no light/flame/smoke
 		// Which map record this fire is - the FixtureBreak key (cell + wall, -1
-		// for a brazier) - so breaking a fixture can put ITS fire out. `lit` is
-		// copied from the record when the fires are built, and a record changed
-		// later (a broken brazier) did not reach the light, flame and smoke.
+		// for a brazier) - so breaking a fixture can put ITS fire out, and
+		// SetFireBurning (a spell, a save) can find it.
 		int x = 0, z = 0, wall = -1;
 		float lightRadius = 7.0f; // point-light reach in metres (sconce brightness * cell)
 		Mat4 world;        // prop transform
 		Vec3 flamePos;     // particle + light origin
 		float phase = 0;   // flicker phase
 		FireEffect effect;
+		// A wall torch whose torch was taken: the bare bracket draws, nothing burns.
+		bool empty = false;
+		// A FLARE in progress, 1 = just fanned .. 0 = none, decaying in Update:
+		// the light swells and the flames leap while it lasts (FlareFire).
+		float flare = 0.0f;
+		// What is happening TO this fire, through the effects system like any
+		// combatant's list: the smoke it leaves when it goes out (its kind's
+		// on_douse) lands here, and the haze over its square is read off it
+		// (fx::EffectKind::Haze). Reserved at build, so a douse allocates nothing.
+		std::vector<fx::Inst> effects;
 	};
+	// Lights (and the flame + smoke of) or puts out the sconce on (x,z)/`wall`,
+	// or the brazier on (x,z) when `wall` < 0: the map record's burning state,
+	// the live fire, and the haze it feeds, together. A kind that can never
+	// burn (fixtures.cat `flame = 0`) is never lit. Going out lands the kind's
+	// on_douse effects on the fire (its smoke) - unless `smoke` is false, for a
+	// state RESTORED (a save, a broken fixture coming back dark), which went out
+	// long ago. True if anything changed.
+	bool SetFireBurning(int x, int z, int wall, bool burning, bool smoke = true);
+	// Fans a burning fire (a gust): it flares for a moment. False if there is no
+	// such fire or it is out.
+	bool FlareFire(int x, int z, int wall);
+	Fire* FindFire(int x, int z, int wall);
+	// Every live fire to its map record's burning state (after the records were
+	// set wholesale - a new game, a reset).
+	void SyncFiresFromMap();
+	// Flares dying away, dust puffs settling (DungeonWorld_Fires.cpp).
+	void UpdateFireTransients(float dt);
 
 	// --- loading ---------------------------------------------------------------
 	// The project's first level stem (the level the game opens). A static member
@@ -2922,8 +3021,11 @@ private:
 	// `payload` carries both the blast's shape and what it LEAVES — a transient
 	// front's procs are how fire "catches", so a square the blast passes through
 	// keeps burning on its own through the effects pipeline.
+	// `spareCentre` leaves the detonation square itself untouched: the blast
+	// starts there and spreads outward, but treats it as solid (a ward's burst
+	// round the caster - the party's own square takes nothing).
 	void Detonate(int cx, int cz, const ProjectilePayload& payload, DamageType type,
-				  int attacker);
+				  int attacker, bool spareCentre = false);
 	// A blast PLAYING OUT. The propagation is computed once at detonation — the
 	// geometry cannot change mid-blast — and its ticks land `rate` seconds apart,
 	// which is what makes a fireball rush and a gas cloud creep.
@@ -3026,6 +3128,10 @@ private:
 	// from the current position, and arm the step cooldown. The single place a
 	// monster's step is committed (chase-path follow, kite, flee all route here).
 	void StepMonsterTo(Monster& monster, int x, int z, int slot);
+	// Shoves m_monsters[index] up to `cells` squares along (dx, dz), stopping at
+	// the first square it cannot enter. Returns how many it moved. The air bolt's
+	// push and the Puff of Wind both go through it.
+	int ShoveMonster(size_t index, int dx, int dz, int cells);
 	// Greedy local step shared by the kite/flee executors: among this monster's own
 	// cell and its four free orthogonal neighbours, step to the one MINIMISING
 	// `score(x,z)` (its own cell is the baseline, so it holds when nothing beats it).
@@ -3087,7 +3193,7 @@ private:
 	// Lay an item on the floor of a cell as a RUNTIME drop (negative id, saved
 	// as a `drop` diff) — NOT an .ent record, which is what an editor placement
 	// authors. Shared by the cursor drop and by a fumbled weapon.
-	void DropItemInCell(const std::string& typeId, int cx, int cz);
+	void DropItemInCell(const std::string& typeId, int cx, int cz, float charge = -1.0f);
 	// A landed monster blow rolls its type's on-hit DoT (Phase 6): chance,
 	// then land/refresh the effect with its log line. No-op for dps 0.
 	// Strip a monster's effects (and with them its plume) — a corpse carries
@@ -3478,6 +3584,11 @@ private:
 	// them into the existing texture - no new texture, no GPU drain, no heap.
 	std::vector<u8> m_turbidityPixels;
 	bool m_turbidityDirty = false;
+	// The frame's dust puffs (gfx::Atmosphere::dustPuffs), DERIVED from the
+	// haze effects the fires carry (a doused fire's smoke) - the strongest
+	// kMaxDustPuffs of them - never stored, so they cannot drift from the
+	// effect lists that are the truth.
+	void GatherDustPuffs(gfx::Atmosphere& atmo) const;
 	// See-through peek (the Sight spell): recomputed each UpdateLights from the
 	// active Sight effects. m_sightCell xy/zw = the ghosted wall cell's world
 	// box (inactive when zw <= xy); m_sightTint rgb/a = the school ghost tint.
@@ -3591,6 +3702,34 @@ private:
 	// Combat: the Game's roster (not owned) + the strike RNG. UpdateMonsters
 	// ticks cooldowns and runs monster melee; PartyAttack runs the party's.
 	std::vector<Character>* m_roster = nullptr;
+	// The party's own light (DungeonWorld_Light.cpp): the cursor's item
+	// (borrowed, SetCursorItem), a scratch slot the cursor's torch burns
+	// through, and the per-frame passes.
+	HeldItem* m_cursorItem = nullptr;
+	ItemSlot m_cursorScratch;
+	// DropAtPartyFeet's id, assigned rather than constructed (a guarded frame).
+	std::string m_dropIdScratch;
+	// Bolts waiting their turn (a volley's later shots - the cast service
+	// spawnBoltAfter, and a monster mage's volley): a FIXED queue, because a
+	// cast lands in a guarded frame. Transient, like the bolts in flight: a
+	// level change or a reset drops them.
+	struct PendingBolt {
+		ProjectileSpec spec;
+		float delay = 0.0f;
+	};
+	std::array<PendingBolt, 32> m_pendingBolts{};
+	size_t m_pendingBoltCount = 0;
+	void SpawnBoltAfter(const ProjectileSpec& spec, float delay);
+	void UpdatePendingBolts(float dt);
+	// Burns every lit torch held (hands, cursor) by `dt`, and puts out any
+	// stowed in a pack.
+	void TickCarriedLight(float dt);
+	// One light per lit torch held, at its member's side of the eye.
+	void AppendCarriedLights(float time);
+	// Burns one slot's torch; true if it burnt out (and became its stub).
+	bool BurnTorch(ItemSlot& slot, float dt, const Character* holder);
+	// 1 = a torch at full light, falling to a floor over its last tenth.
+	static float TorchBrightness(const ItemKind& kind, float charge);
 	WorldState* m_flagStore = nullptr; // see SetFlagStore
 	std::optional<WorldMap>* m_worldForUndo = nullptr; // borrowed; see SetWorldForUndo
 	// The project's opening, borrowed (SetOpeningForUndo), and whether a move
@@ -3909,6 +4048,12 @@ private:
 		bool flameless = false; // fixtures.cat flame = 0: never lit (empty bowl)
 		std::shared_ptr<gfx::Mesh> mesh;  // via the model cache
 		std::shared_ptr<gfx::Mesh> mesh2;
+		// A wall torch whose torch can be TAKEN (spell-updates): the bare bracket
+		// it shows once taken (fixtures.cat `empty_model`, same placement as
+		// `model`), and the item a taken torch becomes (`torch_item`, its lit
+		// form used while the sconce burns). No empty_model = the torch stays put.
+		std::shared_ptr<gfx::Mesh> meshEmpty;
+		std::string torchItem;
 		// Kept for the map-icon bake's bounds fit (shared via the model cache).
 		std::shared_ptr<const assets::ModelData> model;
 		Vec4 color{1, 1, 1, 1};
@@ -3923,6 +4068,10 @@ private:
 		float hp = 0.0f;
 		float soak = 0.0f;
 		ResistTable resists;
+		// What the fire takes on when it goes out, by any cause (fixtures.cat
+		// `on_douse`, the on_hit form): `smoke <power> <seconds>` is the haze its
+		// smoke leaves hanging over the square (SetFireBurning).
+		std::vector<fx::Proc> onDouse;
 	};
 
 	std::flat_map<std::string, std::unique_ptr<FixtureKind>> m_fixtureKinds;

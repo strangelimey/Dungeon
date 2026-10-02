@@ -13,7 +13,10 @@ bool BakeMipChain(const std::string& pngPath, const std::string& ddsPath);
 // skipCurrent leaves a .dds already newer than its .png alone - for a folder of
 // thousands (the portraits), where a re-run should cost only what changed. The
 // texture sets rebake everything, so an encoder change reaches all of them.
-bool BakeAllMips(const std::string& texturesDir, bool skipCurrent = false);
+// `prefix` limits it to the .pngs whose names start with it (empty = all): the
+// textures folder is ~640 chains, and a `runes` rebake wants `rune_`, not an hour.
+bool BakeAllMips(const std::string& texturesDir, bool skipCurrent = false,
+				 const std::string& prefix = {});
 
 // The same for the images EMBEDDED in every .gltf/.glb in <modelsDir>: one BC7
 // chain per image, beside the model as assets::EmbeddedImageSidecar names it,

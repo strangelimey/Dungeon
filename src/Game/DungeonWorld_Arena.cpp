@@ -55,6 +55,7 @@ bool DungeonWorld::BuildArena(ArenaShape shape, int w, int h, ArenaInfo& out) {
 	m_doors.clear();
 	m_buttons.clear();
 	m_projectiles.Clear();
+	m_pendingBoltCount = 0; // and any volley still waiting its turn
 
 	// --- 2. strip the map's own furniture -----------------------------------
 	// Per-cell removers rather than reaching into the vectors: they are the
@@ -127,7 +128,7 @@ bool DungeonWorld::BuildArena(ArenaShape shape, int w, int h, ArenaInfo& out) {
 	case ArenaShape::TJunction: {
 		// A bar with a stem meeting it at the middle. The junction cell is the
 		// centre, because that is the square a blast's arms reflect back onto and
-		// multiply — the worst case the fireburst tuning was pinned against.
+		// multiply — the worst case the fireburst (now firebolt_burst) tuning was pinned against.
 		const int arm = w / 2;
 		out = {cx - arm, cz, cx + arm, cz + h - 1, cx, cz};
 		carve(cx - arm, cz, cx + arm, cz);              // the bar

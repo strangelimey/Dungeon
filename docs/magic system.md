@@ -69,13 +69,47 @@ Water=Laguz, Air=Ansuz, Earth=Berkano):
 
 | Form | Glyph | Meaning | Status |
 | --- | --- | --- | --- |
-| **Project** | Tiwaz (the up arrow) | "throw it ahead" — the directed/thrown form | BUILT — see the four `<school>,project` spells in docs/spells.md |
+| **Project** | Tiwaz (the up arrow) | "throw it ahead" — the directed/thrown form: a single-target bolt | BUILT — Fire / Earth / Water / Air Bolt (docs/spells.md) |
 | **Protect** | Algiz (the warding stave) | "guard the caster" — a ward whose behaviour the school picks: earth hardens, air deflects, water absorbs, fire retaliates | BUILT — all four shields (docs/spells.md) |
 | **Sight** | Dagaz (the day-rune) | "see through the wall ahead" — a round peephole bored through the block directly in front, the school picking what it reveals: fire lights, air sees deep, earth remembers, water scrys | BUILT — the four `<school>,sight` spells (docs/spells.md) |
 
 Form runes carry no school: their tablets/UI ink use a neutral **arcane gold**
 (`ElementColor(Project)`), and a cast spell always tints by its SCHOOL — the
 first rune colours the whole spell.
+
+### Third tier - the modifiers (spell-updates, 2026-10)
+
+A third rune may follow a FORM and changes what it does - ONE of them, never on
+Sight, never on a bare school rune:
+
+| Modifier | Glyph | On a bolt (Project) | On a ward (Protect) |
+| --- | --- | --- | --- |
+| **Multiple** | Ingwaz | a VOLLEY: more bolts as power grows, each weaker, down the caster's own lane | the ward on the WHOLE PARTY |
+| **Explode** | Hagalaz | the bolt BURSTS on impact; radius and damage grow with power | a burst of the element round the caster, sparing the caster's square - and no ward |
+
+The grammar is enforced in one place, `Spells.h`: `TierOf` names each rune's
+tier (School / Form / Modifier), `SymbolMayFollow` says what may come next (the
+spellbook's buttons ask it), and `WellFormedRecipe` refuses the rest at load and
+at cast. `kMaxRecipe` is 3.
+
+### Rune names
+
+Every rune is SHOWN by its Elder Futhark name (Michael, 2026-10-01): "the names
+of the runes shouldn't be 'fire', etc. It should be the name of the Futhark rune
+with 'fire' mentioned in the description." The spellbook, the tablet items
+(`item.rune_<id>` = "Kenaz rune"), the memorize line and every other place read
+`RuneNameKey` -> `rune.<id>`. The ids stay the meanings.
+
+| Id | Name | Id | Name | Id | Name |
+| --- | --- | --- | --- | --- | --- |
+| fire | Kenaz | project | Tiwaz | multiple | Ingwaz |
+| earth | Berkano | protect | Algiz | explode | Hagalaz |
+| air | Ansuz | sight | Dagaz | | |
+| water | Laguz | | | | |
+
+The glyphs are drawn by `tools/BuildRuneIcons.py` (the UI icons) and
+`tools/BuildRuneGlow.py` (the glowing halo), and carved on the tablets by
+AssetBaker's RuneBaker; all nine sit in the Magic dock's grid, one row per tier.
 
 ## Opening the spell panel
 
@@ -177,6 +211,30 @@ above. (Phase labels P1–P6 track the build-out order.)
   (`ResolveAttack` + particle burst + log) or fizzles on a wall / at max range.
   Bolts + impact sparks render as additive billboards. Transient — **not** saved.
 
+### Built - the three tiers (spell-updates, 2026-10; docs/spell-updates-plan.md)
+
+- **Runes (P1).** Nine `SpellSymbol`s across three tiers, shown by their
+  Futhark names; the grammar in `Spells.h` (see "Third tier" above). Ingwaz and
+  Hagalaz tablets (`rune_multiple`, `rune_explode`) ride in both casters'
+  starting packs.
+- **What a spell can reach (P2).** `CastContext` gained the casting `hand` and
+  the `party`; `CastServices` grew from "spawn a bolt, say a line" into the
+  world hooks the new spells need - `fireAhead` / `setFireAhead` /
+  `flareAhead`, `lightItem` / `fillItem` (rename a held item by its `lit_as` /
+  `fill_as`, so a spell never learns what an item kind is), `dropAtFeet`,
+  `shoveAhead`, `repelAhead`, `blastAroundParty`, `spawnBoltAfter`. Each is
+  driven bare from the console by `castsvc`.
+- **Fires and torches (P3, P4).** Fires are live, saved state; the held torch is
+  the party's light and burns down; items carry a charge. docs/torches-and-fire.md.
+- **The hand spells (P5).** Flame, Rock, Gust and Splash are `HandSpell`s, no
+  longer bolts (docs/spells.md, Tier 1).
+- **Bolts and modifiers (P6, P7).** The four Project spells are single-target
+  bolts (`firebolt`, `earthbolt`, `waterbolt`, `airbolt`); `ModifiedSpell` makes
+  the sixteen tier-3 spells; monster casters may name any of them, and a volley
+  launches through a fixed pending-bolt queue.
+- **Checked (P8).** `tools\SpellTest.py` judges `spells.eval` (33 checks,
+  self-tested by cutting every cast); `AllocTest.ps1 -Hand`.
+
 ### Module layout
 
 Magic is a **walled-off module** (it knows nothing of map/monsters/HUD):
@@ -185,14 +243,16 @@ Magic is a **walled-off module** (it knows nothing of map/monsters/HUD):
   hard-coding, no Lua). `Spell` is the base — id, name/description loc keys,
   the SYMBOL RECIPE (first rune = school), mana, base power — with a pure
   virtual `Cast(CastContext&)` where each spell's behaviour lives. The shared
-  forms are intermediate classes (`BoltSpell` flies the bolt + serves
-  `MonsterBolt` for monster casters; `WardSpell` lands the school-keyed ward),
-  and every concrete spell is its own file pair (`Flame`, `Rock`, ...,
-  `Windward`) constructed with its numbers — override `Cast()` the day it
-  grows unique behaviour (Flame igniting sconces). `AllSpells.cpp` is the
-  registry list; adding a spell = file pair + one line there + CMakeLists.
-  A `Cast()` reaches the world only through `CastServices` (spawnBolt,
-  member message) the host wires once.
+  forms are intermediate classes (`HandSpell` for the tier-1 spells and the
+  hand they look in; `BoltSpell` flies the bolt + serves `MonsterBolt` for
+  monster casters; `WardSpell` lands the school-keyed ward; `SightSpell` the
+  peephole), and every concrete spell is its own file pair (`Flame`, `Rock`,
+  ..., `Windward`) constructed with its numbers. The tier-3 spells are the one
+  exception: `ModifiedSpell` WRAPS a Bolt or Ward spell with a modifier, and
+  AllSpells.cpp makes one per form spell and modifier rather than a file pair
+  each. `AllSpells.cpp` is the registry list; adding a spell = file pair + one
+  line there + CMakeLists. A `Cast()` reaches the world only through
+  `CastServices` the host wires once (see "Built - the three tiers").
 - **`Spells.h/.cpp` — the alphabet + registry.** `SpellSymbol`, shared
   `ElementColor(SpellSymbol)` (DungeonWorld::RuneGlow delegates to it), and
   the `SpellBook`: the concrete classes with the project's **spells.cat
@@ -220,8 +280,8 @@ Magic is a **walled-off module** (it knows nothing of map/monsters/HUD):
   rune, first position) is enforced in `Spells.h`/`SpellBook::Build` and the
   spellbook UI (`SymbolAvailable`: the four schools go dark once one is down;
   form runes wait until a school leads). Three shared form runes are live:
-  **Project** with its four `<school>,project` spells — including the engine's
-  first displacement effect (`push`, the air shove) — **Protect** with the
+  **Project** with its four `<school>,project` single-target bolts - Air Bolt
+  carrying the engine's first displacement effect (`push`) - **Protect** with the
   shield framework (`SpellEffect::Shield`: caster-only wards that stack
   across schools — same school recast replaces — school-keyed behaviour,
   timed fade) carrying all four shields: Stone Skin
@@ -255,8 +315,11 @@ Magic is a **walled-off module** (it knows nothing of map/monsters/HUD):
 - **Per-school caster POWER: BUILT** (docs/skills.md) — the school SKILL
   grows with successful casts; effective power scales catalog numbers by
   (1 + 0.10 × level), the skill roll can fumble higher-tier casts, and the
-  skill's associated stat creeps behind. The growth FORMS in docs/spells.md
-  (flamethrower, boulder...) still need authoring against it.
+  skill's associated stat creeps behind. Growth is now concrete (spell-updates):
+  the tier-1 spells read power against THRESHOLDS (`brazier_power`,
+  `push_power`), and the modifiers scale with it (more bolts in a volley, a
+  wider and harder burst). The older growth ideas (flamethrower, boulder) were
+  superseded by the third tier.
 
 ### Remaining work
 
@@ -266,7 +329,8 @@ Magic is a **walled-off module** (it knows nothing of map/monsters/HUD):
   the built sequence row, Clear + Cast. Wire `GameUI.onCast`. Defer-rebuild the
   panel on any vocab change (like the language/video rebuilds). The character
   sheet's Runes section (known symbols, Memorize) is its sheet-side companion.
-- **P6 — Content + verify.** Place runes in a level's `.ent`; the starter recipes
+- **P6 — Content + verify.** Place runes in a level's `.ent` (Ingwaz and Hagalaz
+  ride in both casters' starting packs instead - docs/spells.md); the starter recipes
   already live in `spells.cat`. Full `drive.ps1` playthrough: pick up runes,
   memorize, cast at a monster, watch the bolt fly + impact; screenshots.
 

@@ -123,7 +123,11 @@ int main(int argc, char** argv) {
 
 	if (argc >= 3 && std::string(argv[1]) == "mips") {
 		// Texture sets AND the images embedded in bought models - both are BC7
-		// chains the game loads instead of decoding PNGs.
+		// chains the game loads instead of decoding PNGs. `mips <assets>
+		// <prefix>` bakes only the texture sets named <prefix>... (e.g. rune_
+		// after `runes`) and leaves the models alone.
+		if (argc >= 4)
+			return baker::BakeAllMips(std::string(argv[2]) + "\\textures", false, argv[3]) ? 0 : 1;
 		bool ok = baker::BakeAllMips(std::string(argv[2]) + "\\textures");
 		ok &= baker::BakeModelImageMips(std::string(argv[2]) + "\\models");
 		if (std::filesystem::is_directory(std::string(argv[2]) + "\\portraits"))
@@ -168,7 +172,8 @@ int main(int argc, char** argv) {
 
 	if (argc >= 3 && std::string(argv[1]) == "runes") {
 		// Tablet model + carved per-element texture sets + icons. PNG only — the
-		// _2k set loads fine without a .dds; run `mips` afterward to derive them.
+		// _2k set loads fine without a .dds; run `mips <assets> rune_` afterward
+		// to derive them.
 		return baker::BakeRunes(argv[2]) ? 0 : 1;
 	}
 

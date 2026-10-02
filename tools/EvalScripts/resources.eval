@@ -87,7 +87,7 @@ cast 3 fire
 cast 3 fire
 cast 3 fire
 step 1
-echo --- after three casts (12 mana) ---
+echo --- after three casts (6 mana: Puff of Flame is a hand spell now) ---
 char 3
 regen
 

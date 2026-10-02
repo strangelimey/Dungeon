@@ -5,6 +5,7 @@
 
 #define MAX_POINT_LIGHTS 64
 #define MAX_SKIN_JOINTS 128
+#define MAX_DUST_PUFFS 4 // gfx::kMaxDustPuffs
 
 struct PointLight {
 	float4 positionRadius;  // xyz = world pos, w = radius
@@ -30,6 +31,7 @@ cbuffer FrameConstants : register(b0) {
 	float4 gSightCell;   // see-through peek: xy = cell world min XZ, zw = max (inactive when zw <= xy)
 	float4 gSightTint;   // rgb = ghost tint (school colour), a = strength
 	float4 gSightHole;   // round hole: x = centre world Y, y = radius, z = across-axis is X (>0.5)
+	float4 gDustPuffs[MAX_DUST_PUFFS]; // brief dust: xy = centre world XZ, z = radius (m), w = turbidity (0 = unused)
 	PointLight gPointLights[MAX_POINT_LIGHTS];
 };
 
@@ -263,7 +265,16 @@ float3 Shade(float3 albedo, float metallic, float roughness, float ao, float3 no
 
 float DustDensity(float3 worldPos) {
 	const float2 uv = worldPos.xz * gFogGrid.xy;
-	return gTurbidity.SampleLevel(gClampSampler, uv, 0).r * gFogGrid.z;
+	float turbidity = gTurbidity.SampleLevel(gClampSampler, uv, 0).r;
+	// A PUFF adds dust round its centre for a moment (a doused fire's smoke),
+	// full at the centre and nothing at its radius - no grid rebuild needed.
+	[unroll] for (int i = 0; i < MAX_DUST_PUFFS; ++i) {
+		const float4 puff = gDustPuffs[i];
+		if (puff.w <= 0.0) continue;
+		const float d = length(worldPos.xz - puff.xy) / max(puff.z, 1e-3);
+		turbidity += puff.w * (1.0 - smoothstep(0.0, 1.0, d));
+	}
+	return turbidity * gFogGrid.z;
 }
 
 float3 ApplyDust(float3 surfaceColor, float3 worldPos) {

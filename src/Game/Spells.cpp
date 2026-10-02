@@ -5,22 +5,30 @@
 #include "Game/Spell/Spell.h"
 
 #include <algorithm>
+#include <iterator>
 
 namespace dungeon::game {
 
 namespace {
-// Parallel to the SpellSymbol enum order.
-constexpr const char* kIds[kSymbolCount] = {"fire", "earth", "air", "water",
-											"project", "protect", "sight"};
+// Parallel to the SpellSymbol enum order. Unsized, so a symbol appended to the
+// enum without its row here fails the asserts below instead of reading a null.
+constexpr const char* kIds[] = {"fire",  "earth", "air",      "water",  "project",
+								"protect", "sight", "multiple", "explode"};
 // The rune tablets' item ids, spelled out rather than composed so RuneItemId
 // can hand back a view (see Spells.h).
-constexpr std::string_view kRuneIds[kSymbolCount] = {
-	"rune_fire", "rune_earth", "rune_air", "rune_water",
-	"rune_project", "rune_protect", "rune_sight"};
-constexpr const char* kKeys[kSymbolCount] = {"symbol.fire", "symbol.earth",
-											 "symbol.air", "symbol.water",
-											 "symbol.project", "symbol.protect",
-											 "symbol.sight"};
+constexpr std::string_view kRuneIds[] = {
+	"rune_fire",  "rune_earth", "rune_air",      "rune_water",  "rune_project",
+	"rune_protect", "rune_sight", "rune_multiple", "rune_explode"};
+constexpr const char* kKeys[] = {"symbol.fire",    "symbol.earth",   "symbol.air",
+								 "symbol.water",   "symbol.project", "symbol.protect",
+								 "symbol.sight",   "symbol.multiple", "symbol.explode"};
+// The Futhark names: Kenaz, Berkano, Ansuz, Laguz, Tiwaz, Algiz, Dagaz,
+// Ingwaz, Hagalaz.
+constexpr const char* kRuneNameKeys[] = {
+	"rune.fire",    "rune.earth", "rune.air",      "rune.water",  "rune.project",
+	"rune.protect", "rune.sight", "rune.multiple", "rune.explode"};
+static_assert(std::size(kIds) == kSymbolCount && std::size(kRuneIds) == kSymbolCount &&
+			  std::size(kKeys) == kSymbolCount && std::size(kRuneNameKeys) == kSymbolCount);
 
 // Parses a comma-separated symbol list ("fire,air") into a sequence. Returns
 // false (and leaves `out` partial) on the first unknown token; an empty / blank
@@ -50,6 +58,25 @@ bool ParseSequence(std::string_view list, std::vector<SpellSymbol>& out) {
 
 const char* SymbolId(SpellSymbol s) { return kIds[static_cast<u32>(s)]; }
 const char* SymbolKey(SpellSymbol s) { return kKeys[static_cast<u32>(s)]; }
+const char* RuneNameKey(SpellSymbol s) { return kRuneNameKeys[static_cast<u32>(s)]; }
+
+bool SymbolMayFollow(SpellSymbol s, std::span<const SpellSymbol> sequence) {
+	// Each tier may appear once, and only straight after the one before it:
+	// nothing -> school -> form -> modifier. That also rules out a repeat.
+	const SymbolTier tier = TierOf(s);
+	if (sequence.empty()) return tier == SymbolTier::School;
+	const SymbolTier last = TierOf(sequence.back());
+	if (last == SymbolTier::School) return tier == SymbolTier::Form;
+	if (last == SymbolTier::Form) return tier == SymbolTier::Modifier;
+	return false; // nothing follows a modifier
+}
+
+bool WellFormedRecipe(std::span<const SpellSymbol> sequence) {
+	if (sequence.empty()) return false;
+	for (size_t i = 0; i < sequence.size(); ++i)
+		if (!SymbolMayFollow(sequence[i], sequence.first(i))) return false;
+	return true;
+}
 
 bool ParseSymbol(std::string_view token, SpellSymbol& out) {
 	for (u32 i = 0; i < kSymbolCount; ++i)
@@ -87,7 +114,9 @@ Vec4 ElementColor(SpellSymbol s) {
 	// by Spell::School(), the first rune).
 	case SpellSymbol::Project:
 	case SpellSymbol::Protect:
-	case SpellSymbol::Sight:   return {0.92f, 0.76f, 0.30f, 0.0f}; // gold
+	case SpellSymbol::Sight:
+	case SpellSymbol::Multiple:
+	case SpellSymbol::Explode: return {0.92f, 0.76f, 0.30f, 0.0f}; // gold
 	default:                 return {1.0f, 1.0f, 1.0f, 0.0f};
 	}
 }
@@ -103,14 +132,11 @@ void SpellBook::Build(const Catalog& catalog, const DamageTypeBook& types) {
 	// Hand every spell the damage-type vocabulary before anything asks a bolt
 	// what it deals — the classes were constructed before a project existed.
 	for (const auto& spell : m_spells) spell->SetTypes(&types);
-	for (const auto& spell : m_spells) {
-		const auto seq = spell->Sequence();
-		const auto schools = std::ranges::count_if(seq, IsSchoolSymbol);
-		if (seq.empty() || schools != 1 || !IsSchoolSymbol(seq.front()))
-			log::Warn("spell class '{}' breaks the one-school rule (exactly "
-					  "one element rune, first)",
+	for (const auto& spell : m_spells)
+		if (!WellFormedRecipe(spell->Sequence()))
+			log::Warn("spell class '{}' breaks the recipe grammar (a school "
+					  "rune, then at most one form, then at most one modifier)",
 					  spell->Id());
-	}
 
 	// Lay the project's numeric overrides on top, matched by entry id. A
 	// stale `symbols` field (the recipe is class identity now) and an entry

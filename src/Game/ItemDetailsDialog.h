@@ -28,11 +28,13 @@
 #include "UI/Widget.h"
 
 #include <array>
+#include <functional>
 #include <span>
 #include <string>
 #include <string_view>
 
 namespace dungeon::ui {
+class Button;
 class Label;
 class FontLibrary;
 } // namespace dungeon::ui
@@ -55,6 +57,14 @@ public:
 	// weighs where it sits (a bag with its contents), so it is the caller's.
 	void Open(const ItemDetails& details, float weightKg);
 	void Close() { m_open = false; }
+
+	// The footer's MEMORIZE button (Michael, spell-updates): hidden by every Open,
+	// shown by the caller when the item is a rune its holder does not know yet.
+	// Built with the dialog, so showing it allocates nothing. Its press runs
+	// `onMemorize`; the owner re-checks the slot before it spends the tablet.
+	void ShowMemorize(bool shown);
+	bool MemorizeShown() const;
+	std::function<void()> onMemorize;
 	bool IsOpen() const { return m_open; }
 	// How many times it has opened this run - `itemdetails status` prints it, so
 	// tools\AllocTest.ps1 -Sheet can refuse a PASS when no open was measured.
@@ -104,6 +114,7 @@ private:
 	ui::Widget* m_pane = nullptr;
 	std::array<Row, kRowCount> m_rows{};
 	DescriptionText* m_desc = nullptr;
+	ui::Button* m_memorize = nullptr;
 
 	bool m_open = false;
 	unsigned m_opens = 0;

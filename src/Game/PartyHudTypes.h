@@ -128,7 +128,7 @@ struct ItemIconBank {
 	// The Magic window's GLOWING runes (tools/BuildRuneGlow.py), by SpellSymbol
 	// index: the glyph alone and its soft halo, both white for the draw to tint.
 	// Null = not installed, and the rune falls back to its plain icon.
-	static constexpr size_t kRuneSlots = 8;
+	static constexpr size_t kRuneSlots = 12;
 	const gfx::Texture* runeGlyph[kRuneSlots]{};
 	const gfx::Texture* runeGlow[kRuneSlots]{};
 };

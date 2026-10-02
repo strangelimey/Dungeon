@@ -205,6 +205,7 @@ struct SaveData {
 		int slot = 0;                           // sub-cell slot: item quarter (0..3)
 												// or monster slot on its size's grid
 		int niche = -1;                         // item: wall niche it sits in (-1 = floor)
+		float charge = -1.0f;                   // item: its own charge (a torch's seconds left)
 		bool activated = false;                 // button: pressed / toggled on
 		std::array<float, 4> threat{};          // monster: per-member aggro
 		int threatLock = -1;                    // monster: locked member
@@ -245,6 +246,17 @@ struct SaveData {
 		int wall = -1;
 	};
 
+	// A wall torch or brazier lit or put out in play: burning is the opposite
+	// of its authored `lit` (DungeonMap WallSconce::Burning). Keyed by cell +
+	// wall like a niche (-1 = a brazier). Absent from older saves, which simply
+	// means every fire is as authored.
+	struct FireBurning {
+		int x = 0, z = 0;
+		int wall = -1;
+		bool burning = true;
+		bool empty = false; // a wall torch taken off its bracket
+	};
+
 	// A piece of dungeon that is HURT but still standing: its hit points, and
 	// whatever is riding it (a door left alight keeps burning across a save).
 	// Keyed exactly like BrokenProp, and for the same reasons. A broken piece is
@@ -265,6 +277,7 @@ struct SaveData {
 		std::vector<EntityState> entities; // all kinds, diffs + spawns
 		std::vector<NicheOpen> niches;     // reveal-state diffs
 		std::vector<BrokenProp> broken;    // smashed props
+		std::vector<FireBurning> fires;    // lit/doused diffs
 		std::vector<DamagedPiece> damaged; // hurt but standing (hp + effects)
 	};
 	// One entry per VISITED level, keyed by STEM.

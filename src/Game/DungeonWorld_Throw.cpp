@@ -15,7 +15,7 @@
 // is; and its blow goes through fx::Deal with the swing's crit, fumble and
 // enchantment rules. Its SPEED is the thrower's skill against the thing's
 // weight. What it LEAVES is the item's: its `on_hit` effects on what it strikes,
-// or a `throw_spell`'s whole payload - a fire flask bursts into fireburst's
+// or a `throw_spell`'s whole payload - a fire flask bursts into firebolt_burst's
 // blast.
 //
 // The flight is an ordinary moving item in the shared engine (Projectiles.h)
@@ -46,7 +46,7 @@ constexpr std::string_view kThrowSkill = "throwing";
 const std::vector<std::string> kThrowStats{"str", "dex"};
 } // namespace
 
-bool DungeonWorld::ThrowItem(const std::string& typeId, int member) {
+bool DungeonWorld::ThrowItem(const std::string& typeId, int member, float charge) {
 	if (member < 0) member = m_leader;
 	if (!m_roster || member < 0 || member >= static_cast<int>(m_roster->size()))
 		return false;
@@ -108,6 +108,7 @@ bool DungeonWorld::ThrowItem(const std::string& typeId, int member) {
 	flight.attacker = member;
 	flight.payload = kind.throwPayload;
 	flight.cargo = &kind; // the kinds are stable (PreloadItemKinds)
+	flight.cargoCharge = charge; // and it lands with what it had
 	m_projectiles.Spawn(flight);
 
 	// What a throw costs, as a swing does: the wait (paced by the attack), the
@@ -134,7 +135,7 @@ bool DungeonWorld::ResolveThrowHit(const ProjectileImpact& impact) {
 	++m_harness.tally.throwStrikes;
 	// Whatever happens, the thing comes down here - or shatters here.
 	const auto comeDown = [&] {
-		if (!kind.throwBreaks) DropItemInCell(kind.id, cx, cz);
+		if (!kind.throwBreaks) DropItemInCell(kind.id, cx, cz, impact.cargoCharge);
 	};
 	// A thing that BURSTS (a flask carrying a blast) bursts on contact, and the
 	// blast is the whole of what it does - the area-carrier rule.
@@ -293,7 +294,7 @@ void DungeonWorld::LandThrown(const ProjectileExpiry& expiry) {
 		}
 		return;
 	}
-	DropItemInCell(kind.id, cx, cz);
+	DropItemInCell(kind.id, cx, cz, expiry.cargoCharge);
 	m_audio.Play(m_sounds.click, 0.4f); // placeholder thud
 }
 
