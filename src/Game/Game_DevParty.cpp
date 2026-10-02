@@ -684,6 +684,11 @@ void Game::RegisterPartyCommands() {
 									   inv.selectedPack, inv.SelectedContents().size(),
 									   m_ui.SheetPackEquips()));
 							   }
+							   // Where the "All" button is (AllocTest -All clicks it).
+							   const gfx::Rect all = m_ui.SheetAllRect();
+							   m_console.Print(std::format("sheet all: {},{}",
+														   static_cast<int>(all.x + all.w * 0.5f),
+														   static_cast<int>(all.y + all.h * 0.5f)));
 							   return;
 						   }
 						   if (!args.empty() && args[0] == "off") {
@@ -807,23 +812,31 @@ void Game::RegisterPartyCommands() {
 			m_console.Refuse("no such panel - party, status, options, move, hands, magic, cards, inventory, tray, sheet");
 		});
 
-	// The party inventory window (every member's selected pack side by side),
+	// The party window (a card per member, on one tab - Game/PartyWindow.h),
 	// otherwise reachable only through the sheet's "All" button. It exists for
 	// tools\AllocTest.ps1 -Items, which picks an item out of a pack in this
 	// window inside a guarded frame; `status` is how it checks where the item
-	// went, since a missed click and a clean move look alike to the guard.
+	// went, since a missed click and a clean move look alike to the guard, and
+	// `slot` is where it aims (the window lays itself out in em, so a harness
+	// cannot work the slots out from window fractions).
 	m_console.Register({.name = "inventory",
 						.group = CmdGroup::Characters,
-						.params = "\n"
+						.params = "[inventory|stats|skills|spells|effects]\n"
 								  "off\n"
-								  "status",
-						.summary = "open, close or report the party inventory window"},
+								  "status\n"
+								  "slot <member> <slot>\n"
+								  "stone <tab>",
+						.summary = "open, close or report the party window"},
 					   [this](const std::vector<std::string>& args) {
+						   static constexpr const char* kTabs[] = {
+							   "inventory", "stats", "skills", "spells", "effects"};
 						   if (!args.empty() && args[0] == "status") {
 							   std::string line = std::format(
-								   "inventory: {} held={}",
+								   "inventory: {} tab {} held={} opens={}",
 								   m_ui.InventoryOpen() ? "open" : "closed",
-								   m_heldItem ? *m_heldItem : std::string("none"));
+								   kTabs[static_cast<int>(m_ui.InventoryMode())],
+								   m_heldItem ? *m_heldItem : std::string("none"),
+								   m_ui.InventoryOpens());
 							   for (size_t m = 0; m < m_characters.size(); ++m) {
 								   line += std::format(" | {}:", m);
 								   for (const ItemSlot& s :
@@ -831,6 +844,42 @@ void Game::RegisterPartyCommands() {
 									   line += " " + (s.Empty() ? std::string("-") : s.typeId);
 							   }
 							   m_console.Print(line);
+							   // Its status line, so a script that parks the pointer on
+							   // something can read what it says.
+							   const std::string_view name = m_ui.InventoryStatusName();
+							   m_console.Print(name.empty()
+												   ? std::string("inventory bar: (empty)")
+												   : std::format("inventory bar: {} | {}", name,
+																 m_ui.InventoryStatusText()));
+							   return;
+						   }
+						   if (!args.empty() && args[0] == "slot") {
+							   if (!Need(m_console, args, 3)) return;
+							   const size_t m = static_cast<size_t>(std::atoi(args[1].c_str()));
+							   const int i = std::atoi(args[2].c_str());
+							   gfx::Rect r;
+							   if (!m_ui.InventoryOpen() || !m_ui.InventorySlotRect(m, i, r)) {
+								   m_console.Refuse("the window is closed, or no such member");
+								   return;
+							   }
+							   m_console.Print(std::format("inventory slot {} {}: {},{} {}x{}", m, i,
+														   static_cast<int>(r.x + r.w * 0.5f),
+														   static_cast<int>(r.y + r.h * 0.5f),
+														   static_cast<int>(r.w),
+														   static_cast<int>(r.h)));
+							   return;
+						   }
+						   if (!args.empty() && args[0] == "stone") {
+							   if (!Need(m_console, args, 2)) return;
+							   const gfx::Rect r = m_ui.InventoryStoneRect(
+								   static_cast<size_t>(std::atoi(args[1].c_str())));
+							   if (!m_ui.InventoryOpen() || r.w <= 0.0f) {
+								   m_console.Refuse("the window is closed, or no such stone");
+								   return;
+							   }
+							   m_console.Print(std::format("inventory stone {}: {},{}", args[1],
+														   static_cast<int>(r.x + r.w * 0.5f),
+														   static_cast<int>(r.y + r.h * 0.5f)));
 							   return;
 						   }
 						   if (!args.empty() && args[0] == "off") {
@@ -838,12 +887,22 @@ void Game::RegisterPartyCommands() {
 							   m_console.Print("inventory closed");
 							   return;
 						   }
+						   int tab = 0;
+						   if (!args.empty()) {
+							   tab = -1;
+							   for (int t = 0; t < 5; ++t)
+								   if (args[0] == kTabs[t]) tab = t;
+							   if (tab < 0) {
+								   m_console.RefuseUsage();
+								   return;
+							   }
+						   }
 						   if (m_state != AppState::Playing) {
 							   m_console.Refuse("only over the level");
 							   return;
 						   }
-						   m_ui.OpenInventory();
-						   m_console.Print("inventory open");
+						   m_ui.OpenInventory(static_cast<CharacterSheet::Mode>(tab));
+						   m_console.Print(std::format("inventory open on {}", kTabs[tab]));
 					   });
 
 	// Open (or close) a member's spellbook in the Magic area - the selector

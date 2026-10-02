@@ -129,7 +129,7 @@ add_library(Game STATIC
 	HandSlot.cpp
 	GuardSlider.cpp
 	SpellbookPanel.cpp
-	InventoryWindow.cpp
+	PartyWindow.cpp
 	ItemDetailsDialog.cpp
 	CharacterSheet.cpp
 	CharacterSheet_Inventory.cpp

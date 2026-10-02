@@ -162,9 +162,13 @@ struct ItemCategoryBank {
 		const auto it = byType.find(typeId);
 		return it != byType.end() && it->second == category;
 	}
-	std::string CategoryOf(const std::string& typeId) const {
+	// A VIEW of the stored category (empty when unknown): it is asked on a drop
+	// into a pack, a click in a guarded frame, and a copy allocated there
+	// (more-ui-updates Phase 5: the party window's cards made the old window's
+	// unchecked drop a checked one, and AllocTest -Items found the copy).
+	std::string_view CategoryOf(const std::string& typeId) const {
 		const auto it = byType.find(typeId);
-		return it == byType.end() ? std::string() : it->second;
+		return it == byType.end() ? std::string_view() : std::string_view(it->second);
 	}
 	// Content-slot capacity for a pack id, or 0 if unknown (caller defaults).
 	int Capacity(const std::string& typeId) const {
@@ -172,7 +176,7 @@ struct ItemCategoryBank {
 		return it == capacityByType.end() ? 0 : it->second;
 	}
 	// True if pack `packId` accepts an item of `category` in its contents.
-	bool Accepts(const std::string& packId, const std::string& category) const {
+	bool Accepts(const std::string& packId, std::string_view category) const {
 		const auto it = acceptsByType.find(packId);
 		if (it == acceptsByType.end() || it->second.empty()) return true; // unrestricted
 		for (const std::string& a : it->second)

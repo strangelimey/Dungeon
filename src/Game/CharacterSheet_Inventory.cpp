@@ -354,7 +354,7 @@ void CharacterSheet::DrawArmorTip(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 
 	const ui::Font& font = TextFont();
 	const ui::Theme& theme = ctx.GetTheme();
-	const float rem = Rem();
+	const float rem = Em(); // the sheet's em: on the sheet, its rem; a card's is smaller
 	const float pad = kTipPadRem * rem, row = kTipRowRem * rem;
 
 	struct Row {

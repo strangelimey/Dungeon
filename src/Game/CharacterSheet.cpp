@@ -27,8 +27,8 @@ CharacterSheet::CharacterSheet(const gfx::Rect& rect,
 							   const ItemWeightBank* weights,
 							   const ItemIconBank* slotIcons,
 							   const ItemCategoryBank* categories,
-							   HeldItem* held)
-	: m_roster(roster), m_barStyle(barStyle),
+							   HeldItem* held, bool card)
+	: m_roster(roster), m_card(card), m_barStyle(barStyle),
 	  m_icons(icons), m_weights(weights), m_slotIcons(slotIcons),
 	  m_categories(categories), m_held(held),
 	  m_healthLabel(loc::Tr("bar.health")),
@@ -67,12 +67,16 @@ CharacterSheet::CharacterSheet(const gfx::Rect& rect,
 // The three LIST tabs each get a SheetList, which is where the shared scroll
 // lives (see the header).
 void CharacterSheet::BuildParts() {
-	Add<SheetPortrait>(gfx::Rect{kPortraitX, kPortraitY, kPortraitW, kPortraitH},
-					   m_roster, &m_member);
+	// A card has neither: the party window shows the members' names on the
+	// cards and keeps one row of tab stones for all four.
+	if (!m_card) {
+		Add<SheetPortrait>(gfx::Rect{kPortraitX, kPortraitY, kPortraitW, kPortraitH},
+						   m_roster, &m_member);
 
-	const float stripW = kModeCount * kModeBtnW + (kModeCount - 1) * kModeBtnGap;
-	m_modeStrip = Add<ModeSelector>(gfx::Rect{kModeBtnX, kModeBtnY, stripW, kModeBtnH},
-									kModeCount, &m_modeIndex, [this](int i) { SelectMode(i); });
+		const float stripW = kModeCount * kModeBtnW + (kModeCount - 1) * kModeBtnGap;
+		m_modeStrip = Add<ModeSelector>(gfx::Rect{kModeBtnX, kModeBtnY, stripW, kModeBtnH},
+										kModeCount, &m_modeIndex, [this](int i) { SelectMode(i); });
+	}
 
 	// One list per scrolling tab, filling the sheet; each positions its heading
 	// and scrolling band from the shared layout table.
@@ -213,13 +217,35 @@ void CharacterSheet::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const ui::Theme& theme = ctx.GetTheme();
 	const gfx::Rect px = Body();
 
+	if (m_card) {
+		// A card sits on the party window's stone: a darker well, the member's
+		// name over it, and a hairline in the member's colour under the name.
+		const gfx::Rect& card = Pixel();
+		batch.DrawRect(card, {0.0f, 0.0f, 0.0f, 0.22f});
+		ui::DrawBorder(batch, card, theme.panelBorder);
+		if (!m_character) return;
+		const ui::Font& nameFont = ctx.FontAt(ui::FontRole::Display, Em(1.5f));
+		const float band = Em(kCardNameEm);
+		nameFont.Draw(batch, m_character->name, Ax(px, kLeft),
+					  card.y + (band - nameFont.Height()) * 0.5f, theme.accent);
+		const Vec4& c = m_character->portraitColor;
+		batch.DrawRect({Ax(px, kLeft), card.y + band - 2.0f, Ax(px, 1.0f - kLeft) - Ax(px, kLeft), 1.0f},
+					   {c.x, c.y, c.z, 0.7f});
+		switch (m_mode) {
+		case Mode::Inventory: DrawInventory(ctx, batch, px); break;
+		case Mode::Stats:     DrawStats(ctx, batch, px); break;
+		default:              break;
+		}
+		return;
+	}
+
 	// The whole card, status band included.
 	ui::DrawPanelFace(ctx, batch, Pixel(), opacity ? *opacity : 1.0f);
 	if (!m_character) return;
 	DrawStatus(ctx, batch);
 
 	// --- header band: the name (the portrait is a child) --------------------
-	ctx.FontAt(ui::FontRole::Display, Rem(kHeadingRem))
+	ctx.FontAt(ui::FontRole::Display, Em(kHeadingRem))
 		.Draw(batch, m_character->name, Ax(px, kNameX), Ay(px, kNameY),
 			  theme.accent);
 
@@ -251,7 +277,7 @@ SheetPortrait::SheetPortrait(const gfx::Rect& rect,
 void SheetPortrait::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	if (const Character* c = RosterMember(m_roster, *m_member))
 		DrawPortrait(batch, Pixel(), *c,
-					 ctx.FontAt(ui::FontRole::Display, Rem(kHeadingRem)),
+					 ctx.FontAt(ui::FontRole::Display, Em(kHeadingRem)),
 					 ctx.GetTheme());
 }
 

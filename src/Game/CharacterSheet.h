@@ -62,6 +62,11 @@ public:
 	// Each mode's etched symbol and its lit twin, in Mode order (null = none).
 	void SetEtches(std::span<const gfx::Texture* const> etch,
 				   std::span<const gfx::Texture* const> lit);
+	// Stone `i`'s pixel rect as of the last layout (empty past the end) - for
+	// a harness that clicks the tabs.
+	gfx::Rect ButtonRect(size_t i) const {
+		return i < m_buttons.size() ? m_buttons[i]->Pixel() : gfx::Rect{};
+	}
 
 private:
 	std::vector<ModeButton*> m_buttons;
@@ -177,11 +182,24 @@ public:
 	static constexpr float kBodyH = 0.62f;
 	static constexpr float kStatusH = 0.055f;
 
+	// A CARD (more-ui-updates Phase 5, the party window): the same sheet, one
+	// per member, showing only the TAB - no portrait, no tab stones, no status
+	// band (the window has one of each) - under a band with the member's name.
+	// The tab area keeps the sheet's proportions, so a card is the sheet's tab
+	// at card size, and every fraction in CharacterSheetLayout.h still holds:
+	// Body() is that area stretched back to a whole sheet body, its top above
+	// the card. These are its measures in the card's own em; the window sets
+	// the card's fontScale, which is what makes them small.
+	static constexpr float kCardWEm = 47.0f;    // the sheet's width at 16:9
+	static constexpr float kCardNameEm = 2.2f;  // the name band
+	static constexpr float kCardTabEm = 17.1f;  // (1 - kHeaderY) of the sheet's body
 	CharacterSheet(const gfx::Rect& rect, std::vector<Character>* roster,
 				   const ResourceBarStyle* barStyle, const ItemIconBank* icons,
 				   const ItemWeightBank* weights, const ItemIconBank* slotIcons,
 				   const ItemCategoryBank* categories,
-				   HeldItem* held);
+				   HeldItem* held, bool card = false);
+	bool IsCard() const { return m_card; }
+	size_t Member() const { return m_member; }
 
 	// Re-points the sheet at roster member `member` (mutable, for inventory
 	// edits) and caches its strings. An out-of-range index leaves the sheet
@@ -206,6 +224,10 @@ public:
 	// the dev console's `sheet status`, which is how a script reads it.
 	std::string_view StatusName() const { return m_statusName.View(); }
 	std::string_view StatusText() const { return m_statusText.View(); }
+	const Vec4& StatusColor() const { return m_statusColor; }
+	// Where pack slot `i` of the shown member's selected bag is, in pixels, as
+	// of the last layout (Inventory tab). For the dev readout a harness aims by.
+	gfx::Rect PackSlotRect(int i) const { return PackRect(Body(), i); }
 	// Containers equipped into the pack row so far (see m_packEquips).
 	unsigned PackEquips() const { return m_packEquips; }
 
@@ -219,6 +241,10 @@ public:
 	// Shift+Tab (play-test #5). Goes through the same path as a mode button.
 	void StepMode(int delta);
 	Mode CurrentMode() const { return m_mode; }
+	// Switches to tab `i` (a Mode as an index), scrolling the lists to the top
+	// when it changes. The mode strip's click and StepMode both land here, and
+	// the party window's tab stones, for all four of its cards.
+	void SelectMode(int i);
 
 	// Fired when a held item is refused by the selected pack (item id, pack id) —
 	// Game wires it to a "won't fit" log line + sound.
@@ -276,9 +302,6 @@ private:
 	gfx::Rect PackRowRect(const gfx::Rect& px, int i) const;
 	// Builds the child widgets (portrait, mode strip, the three list tabs).
 	void BuildParts();
-	// Switches to tab `i` (a Mode as an index), scrolling the lists to the top
-	// when it changes. The mode strip's click and StepMode both land here.
-	void SelectMode(int i);
 	// The two bodies that neither scroll nor take a container of their own; they
 	// fill the sheet and draw against it directly.
 	// The armor tooltip (docs/damage-system.md). Hovering a WORN piece explains
@@ -337,6 +360,7 @@ private:
 
 	std::vector<Character>* m_roster;
 	size_t m_member = 0;
+	bool m_card = false; // a party-window card (see kCardWEm)
 	// Re-resolved from (m_roster, m_member) at the top of every Update/Draw
 	// (see CharacterPanel); the body helpers null-check it.
 	Character* m_character = nullptr;

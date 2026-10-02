@@ -187,6 +187,15 @@
 # back (4 -> 8). It refuses a PASS unless `sheet status` counts two equips made
 # during the window.
 #
+# -All IS THE PARTY WINDOW (more-ui-updates Phase 5): the sheet's "All" opens a
+# card per member on the sheet's tab, each card the sheet's own code. Its four
+# cards are built and warmed with the HUD, so opening it - a click in a guarded
+# frame - must add nothing. This opens the sheet, reads where "All", the tab
+# stones and member 0's portrait are (`sheet status`, `inventory stone`,
+# `hudpanel list`), runs one cycle as a warm-up, then cycles inside the window:
+# All, every tab with a hover over each card, Esc, the portrait (the sheet
+# again). It refuses a PASS unless `inventory status` counts two opens inside.
+#
 # Every step is driven by what the log actually says rather than by sleeps, so
 # a slow cold-cache load stretches the wait instead of failing the run.
 #
@@ -229,6 +238,9 @@ param(
 	[switch]$Pause,
 	# Works the character sheet inside the window. See the note above.
 	[switch]$Sheet,
+	# Opens the PARTY WINDOW from the sheet's "All" and works every tab of it
+	# inside the window (more-ui-updates Phase 5). See the note above.
+	[switch]$All,
 	# Drags and resizes the floating HUD panels inside the window. See above.
 	[switch]$Panels,
 	# Runs whichever mode under the Minimal HUD layout (one card per member,
@@ -258,7 +270,7 @@ param(
 $ErrorActionPreference = 'Stop'
 # -Items spends about four armed seconds a round trip and needs two whole ones
 # inside the window, so its default window is longer.
-if (($Items -or $Throw) -and -not $PSBoundParameters.ContainsKey('Seconds')) { $Seconds = 20 }
+if (($Items -or $Throw -or $All) -and -not $PSBoundParameters.ContainsKey('Seconds')) { $Seconds = 20 }
 $root = Split-Path -Parent $PSScriptRoot
 $bin = Join-Path $root "build\$Config\bin"
 
@@ -362,6 +374,38 @@ function Get-PanelRow([string]$id) {
 	$rows = @(Select-String -Path $log -Pattern "console:   $id ")
 	if ($rows.Count -le $before) { throw "the console never listed the $id panel" }
 	return $rows[-1].Line
+}
+
+# The last line matching $pattern after sending $command (console open, logecho
+# on), minus the log prefix.
+function Get-ConsoleAnswer([string]$command, [string]$pattern) {
+	$before = @(Select-String -Path $log -Pattern $pattern -SimpleMatch).Count
+	Send-Text $command; Send-Key 0x0D
+	$deadline = (Get-Date).AddSeconds(5)
+	while ((Get-Date) -lt $deadline) {
+		$lines = @(Select-String -Path $log -Pattern $pattern -SimpleMatch)
+		if ($lines.Count -gt $before) { return $lines[-1].Line -replace '^.*console: ', '' }
+		Start-Sleep -Milliseconds 200
+	}
+	throw "the console never answered ``$command``"
+}
+
+# One -All cycle, starting with the sheet up and the console shut: its "All"
+# button opens the party window (on the sheet's tab), every tab stone is
+# clicked with a hover over each card after it, Esc closes the window, and a
+# click on member 0's portrait brings the sheet back. Ends as it began.
+function Invoke-AllCycle {
+	Send-Click $script:allX $script:allY
+	Start-Sleep -Milliseconds 500
+	foreach ($i in 1, 2, 3, 4, 0) {
+		Send-Click $script:stones[$i].X $script:stones[$i].Y
+		Start-Sleep -Milliseconds 250
+		foreach ($p in $script:cardPoints) { Send-Mouse $p.X $p.Y }
+	}
+	Send-Key 0x1B
+	Start-Sleep -Milliseconds 300
+	Send-Click $script:portraitX $script:portraitY
+	Start-Sleep -Milliseconds 500
 }
 
 function Get-DetailOpens {
@@ -500,21 +544,25 @@ function Get-PackSlot([string]$status, [int]$m, [string]$id) {
 	return $i
 }
 
-# The centre of member $m's pack slot $i in the party inventory window, from
-# the fractions InventoryWindow.cpp lays it out by (panel of the window, slots
-# of the panel; four member columns, two slots across).
+# The centre of member $m's pack slot $i in the party window, as the game
+# reports it (`inventory slot`; needs logecho on, the console open and the
+# window open on its Inventory tab). It used to be worked out here from the
+# old window's fractions; the party window (more-ui-updates Phase 5) lays
+# itself out in em, which a harness cannot see.
 function Get-InventorySlotPoint([int]$m, [int]$i) {
-	$pw = $script:clientW * 0.72; $ph = $script:clientH * 0.54
-	$px = ($script:clientW - $pw) / 2; $py = ($script:clientH - $ph) / 2
-	$pad = 0.025 * $pw; $gap = 0.015 * $pw
-	$colW = ($pw - 2 * $pad) / 4
-	$slotW = ($colW - 3 * $gap) / 2
-	$top = $py + (0.025 + 0.055 + 0.045) * $ph
-	$col = $i % 2; $row = [math]::Floor($i / 2)
-	return [pscustomobject]@{
-		X = [int]($px + $pad + $m * $colW + $gap + $col * ($slotW + $gap) + $slotW / 2)
-		Y = [int]($top + $row * ($slotW + $gap) + $slotW / 2)
+	$pattern = "console: inventory slot $m ${i}: "
+	$before = @(Select-String -Path $log -Pattern $pattern -SimpleMatch).Count
+	Send-Text "inventory slot $m $i"; Send-Key 0x0D
+	$deadline = (Get-Date).AddSeconds(5)
+	while ((Get-Date) -lt $deadline) {
+		$lines = @(Select-String -Path $log -Pattern $pattern -SimpleMatch)
+		if ($lines.Count -gt $before) {
+			if ($lines[-1].Line -notmatch ': (\d+),(\d+) \d+x\d+$') { throw "unreadable: $($lines[-1].Line)" }
+			return [pscustomobject]@{ X = [int]$Matches[1]; Y = [int]$Matches[2] }
+		}
+		Start-Sleep -Milliseconds 200
 	}
+	throw "the console never answered ``inventory slot $m $i`` (is the window open?)"
 }
 
 # A left click at client pixel (x, y).
@@ -893,6 +941,68 @@ try {
 		$script:slotY = [int]($rc.Bottom * 0.5033)
 	}
 
+	if ($All) {
+		Write-Host 'opening the sheet, and the party window from its All button'
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		# Every click below is read off the game, at the default layout.
+		Send-Text 'hudpanel reset'; Send-Key 0x0D
+		Send-Text 'give rune_fire 0'; Send-Key 0x0D # an item for the Inventory cards to draw
+		Send-Text 'sheet 0'; Send-Key 0x0D
+		Start-Sleep -Milliseconds 500
+		$line = Get-ConsoleAnswer 'sheet status' 'console: sheet all: '
+		if ($line -notmatch 'sheet all: (\d+),(\d+)') { throw "unreadable: $line" }
+		$script:allX = [int]$Matches[1]; $script:allY = [int]$Matches[2]
+		# Member 0's portrait: the left end of the party bar, as tall as the bar.
+		$before = @(Select-String -Path $log -Pattern 'console:   party ').Count
+		Send-Text 'hudpanel list'; Send-Key 0x0D
+		Start-Sleep -Milliseconds 500
+		$rows = @(Select-String -Path $log -Pattern 'console:   party ')
+		if ($rows.Count -le $before -or $rows[-1].Line -notmatch 'px (-?\d+),(-?\d+) (\d+)x(\d+)') {
+			throw 'no party bar rect from `hudpanel list`'
+		}
+		$script:portraitX = [int]$Matches[1] + [int]([int]$Matches[4] * 0.45)
+		$script:portraitY = [int]$Matches[2] + [int]([int]$Matches[4] * 0.5)
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 400
+		# The window, open, says where its stones and its cards are.
+		Send-Click $script:allX $script:allY
+		Start-Sleep -Milliseconds 800
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		$script:stones = @()
+		for ($i = 0; $i -lt 5; $i++) {
+			$line = Get-ConsoleAnswer "inventory stone $i" "console: inventory stone ${i}: "
+			if ($line -notmatch ': (\d+),(\d+)$') { throw "unreadable: $line" }
+			$script:stones += [pscustomobject]@{ X = [int]$Matches[1]; Y = [int]$Matches[2] }
+		}
+		$script:cardPoints = @()
+		for ($m = 0; $m -lt 4; $m++) { $script:cardPoints += Get-InventorySlotPoint $m 0 }
+		Send-Text 'inventory off'; Send-Key 0x0D
+		Send-Text 'sheet 0'; Send-Key 0x0D
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		# WARM-UP: one whole cycle, which also checks that every click landed -
+		# the window opened, closed, and the portrait brought the sheet back.
+		Invoke-AllCycle
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		$status = Get-InventoryStatus
+		$sheetLine = Get-ConsoleAnswer 'sheet status' 'console: sheet: '
+		if ($status -notmatch 'opens=(\d+)' -or [int]$Matches[1] -lt 2 -or
+			$status -notmatch '^inventory: closed' -or $sheetLine -notmatch '^sheet: open') {
+			throw "the warm-up cycle went wrong ($status; $sheetLine) - All $($script:allX),$($script:allY), " +
+				"portrait $($script:portraitX),$($script:portraitY)"
+		}
+		$status -match 'opens=(\d+)' | Out-Null
+		$script:allOpensBefore = [int]$Matches[1]
+		Write-Host "  warm-up cycle ok (All at $($script:allX),$($script:allY))"
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0 # close the console again; alloctest reopens it below
+		Start-Sleep -Milliseconds 400
+	}
+
 	if ($Panels) {
 		Write-Host 'resetting the HUD layout and warming the panel drags up'
 		Send-Key 0xC0
@@ -948,9 +1058,10 @@ try {
 		Send-Key 0xC0
 		Start-Sleep -Milliseconds 500
 		Send-Text 'hudpanel reset'; Send-Key 0x0D
-		# The party inventory window stays open through the window, so its draw
-		# (every slot of every pack, every frame) is measured too. Its default
-		# spot is clear of both grabs above.
+		# The party window stays open through the window, so its draw (every
+		# card, every frame) is measured too. Parked small at the top-left, clear
+		# of both grabs above and of the away point (its default size covers it).
+		Send-Text 'hudpanel inventory 0.05 0.02 0.6'; Send-Key 0x0D
 		Send-Text 'inventory'; Send-Key 0x0D
 		Send-Key 0xC0
 		Start-Sleep -Milliseconds 400
@@ -995,6 +1106,16 @@ try {
 		$rc = New-Object AllocTestWin+RECT
 		[AllocTestWin]::GetClientRect($hwnd, [ref]$rc) | Out-Null
 		$script:clientW = [double]$rc.Right; $script:clientH = [double]$rc.Bottom
+		# The window opens (on its Inventory tab) and lays itself out before its
+		# slots can be asked where they are. PARKED small at the top-left: at its
+		# default size it covers the floor point below.
+		Send-Text 'hudpanel reset'; Send-Key 0x0D
+		Send-Text 'hudpanel inventory 0.05 0.02 0.6'; Send-Key 0x0D
+		Send-Text 'inventory'; Send-Key 0x0D
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 600
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 400
 		$script:warmPoint = Get-InventorySlotPoint $member $warmSlot
 		$script:measurePoint = Get-InventorySlotPoint $member $measureSlot
 		# THE FLOOR POINT, from the camera: a 70 degree vertical lens with the eye
@@ -1208,6 +1329,17 @@ try {
 		}
 	}
 
+	# -All: All, every tab, Esc, the portrait - a cycle every few seconds while
+	# the window runs. The first wait clears the console close plus the guard's
+	# warm-up, so the first click on All is armed.
+	if ($All) {
+		for ($cycle = 1; $cycle -le 3; $cycle++) {
+			Start-Sleep -Seconds 3
+			if (Select-String -Path $log -Pattern 'alloctest RESULT=' -Quiet) { break }
+			Invoke-AllCycle
+		}
+	}
+
 	# -Panels: drag the Movement dock away by its title and home again, then
 	# pull the Hands dock's corner grip, while the window runs. The first wait
 	# clears the console close plus the guard's warm-up, so the drags land in
@@ -1344,6 +1476,11 @@ try {
 	# first round trip's put-back between them inside it too. Fewer means a
 	# click missed or the window closed early, and the moves were not measured.
 	if ($Items) {
+		# The party window was parked for the run; put the layout back.
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'hudpanel reset'; Send-Key 0x0D
+		Send-Key 0xC0
 		$drops = Get-LastTallyField 'drops'
 		$lifts = Get-LastTallyField 'lifts'
 		Write-Host "  floor drops / lifts inside the window: $drops / $lifts"
@@ -1382,6 +1519,23 @@ try {
 		}
 	}
 
+	# And for -All: the window must have opened inside the window, twice, or a
+	# click missed and the open path was not measured.
+	if ($All) {
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		$status = Get-InventoryStatus
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0
+		$opens = if ($status -match 'opens=(\d+)') { [int]$Matches[1] - $script:allOpensBefore } else { 0 }
+		Write-Host "  party window opens inside the window: $opens"
+		if ($opens -lt 2 -and $result -eq 'PASS') {
+			Write-Host 'fewer than two opens of the party window - it was not measured' -ForegroundColor Yellow
+			$result = 'UNMEASURED'
+		}
+	}
+
 	# And for -Panels: the drags must have LANDED - the move dock saved off its
 	# default spot and the hands dock off scale 1 - or nothing was measured.
 	if ($Panels) {
@@ -1390,6 +1544,9 @@ try {
 		Send-Text 'logecho on'; Send-Key 0x0D
 		Send-Text 'hudpanel list'; Send-Key 0x0D
 		Start-Sleep -Milliseconds 500
+		# Closed for the checks below: the reset button puts it home too, and at
+		# its default size the party window covers the Movement dock's drags.
+		Send-Text 'inventory off'; Send-Key 0x0D
 		Send-Text 'logecho off'; Send-Key 0x0D
 		Send-Key 0xC0
 		$moveRow = @(Select-String -Path $log -Pattern 'console:   move ')[-1].Line

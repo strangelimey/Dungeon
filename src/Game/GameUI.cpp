@@ -1202,8 +1202,8 @@ void GameUI::BuildCharacterSheet() {
 	window->Add<ui::Button>(gfx::Rect{1.0f - btnW, btnY, btnW, btnH}, ">", [this] {
 		onOpenSheet((m_sheetIndex + 1) % m_characters.size());
 	})->icon = ToolbarIcon(m_device, "box_right");
-	// "All" → the combined party-backpacks view (for cross-character swaps).
-	window->Add<ui::Button>(gfx::Rect{0.06f / kSheetW, btnY, 0.08f / kSheetW, btnH},
+	// "All" → the party window, every member on this tab (Game/PartyWindow.h).
+	m_sheetAll = window->Add<ui::Button>(gfx::Rect{0.06f / kSheetW, btnY, 0.08f / kSheetW, btnH},
 							loc::Tr("ui.inv_all"), [this] {
 								Click();
 								if (onShowPartyInventory) onShowPartyInventory();
@@ -1441,7 +1441,11 @@ void GameUI::ShowSheet(size_t index) {
 	if (m_sheetMenu) m_sheetMenu->Close();
 }
 
-void GameUI::RefreshSheet() { m_sheet->SetCharacter(m_sheetIndex); }
+void GameUI::RefreshSheet() {
+	m_sheet->SetCharacter(m_sheetIndex);
+	// The party window shows the same things, a card per member.
+	if (m_inventory && m_inventory->IsOpen()) m_inventory->Open(m_inventory->CurrentMode());
+}
 
 bool GameUI::OpenSpellbook(size_t i) { return m_spellbook && m_spellbook->Open(i); }
 
@@ -1777,33 +1781,63 @@ void GameUI::BuildHud() {
 		};
 	}
 
-	// The party inventory: a floating WINDOW (P3b) - the last panel on the
-	// layer, so it draws over the others, and shown only while open. Centred
-	// until moved; the world stays clickable around it.
+	// The party window (more-ui-updates Phase 5, Game/PartyWindow.h): a
+	// floating WINDOW (P3b) - the last panel on the layer, so it draws over the
+	// others, and shown only while open. Centred until moved; the world stays
+	// clickable around it. Sized in its own em, so its shape holds at any scale.
 	ui::FloatingPanel* inventoryPanel = makePanel(kHudInventory, "InventoryPanel");
-	inventoryPanel->size = [](ui::UIContext& ctx, float s) {
-		return Vec2{InventoryWindow::kWidthFrac * s * ctx.Width(),
-					InventoryWindow::kHeightFrac * s * ctx.Height()};
+	inventoryPanel->size = [inventoryPanel](ui::UIContext& ctx, float s) {
+		return PartyWindow::SizeForEm(inventoryPanel->EmAt(ctx, s));
 	};
 	inventoryPanel->defaultPos = [inventoryPanel](ui::UIContext& ctx) {
 		const Vec2 size = inventoryPanel->size(ctx, inventoryPanel->Scale());
 		return Vec2{(ctx.Width() - size.x) * 0.5f, (ctx.Height() - size.y) * 0.5f};
 	};
 	inventoryPanel->shownWhen = [this] { return m_inventory && m_inventory->IsOpen(); };
-	m_inventory = inventoryPanel->Add<InventoryWindow>(&m_characters, m_itemIcons, m_held,
-													   m_closeIcon, [this] {
-														   Click();
-														   CloseInventory();
-													   });
+	m_inventory = inventoryPanel->Add<PartyWindow>(
+		inventoryPanel, &m_characters, &m_barStyle, m_itemIcons, m_itemWeights, m_slotIcons,
+		m_itemCategories, m_held, m_closeIcon, [this] {
+			Click();
+			CloseInventory();
+		});
 	m_inventory->bounds = {0, 0, 1, 1};
 	m_inventory->opacity = &m_settings.hudInventory.opacity;
-	// The item mouse buttons inside the party inventory, as on the sheet.
-	m_inventory->onItemDetails = [this](size_t member, int slot) {
-		OpenItemDetails(member, {ItemPlace::Kind::Pack, slot});
-	};
-	m_inventory->onItemUse = [this](size_t member, int slot) {
-		if (m_handMenu) OpenItemUseMenu(member, {ItemPlace::Kind::Pack, slot}, *m_handMenu);
-	};
+	{
+		std::array<const gfx::Texture*, 5> etch{}, lit{};
+		for (size_t i = 0; i < etch.size(); ++i) {
+			etch[i] = m_tabEtch[i].get();
+			lit[i] = m_tabEtchLit[i].get();
+		}
+		m_inventory->SetModeEtches(etch, lit);
+	}
+	// Each card is wired as the sheet is, but for ITS member: the item mouse
+	// buttons (right = details, middle = the use menu), the refusals, the
+	// defense readouts and the spell registry.
+	for (size_t i = 0; i < PartyWindow::kMaxCards; ++i) {
+		CharacterSheet* card = m_inventory->Card(i);
+		card->onItemDetails = [this, i](ItemPlace place) { OpenItemDetails(i, place); };
+		card->onItemUse = [this, i](ItemPlace place) {
+			if (m_handMenu) OpenItemUseMenu(i, place, *m_handMenu);
+		};
+		card->onRejectDrop = [this](const std::string& item, const std::string& pack) {
+			m_audio.Play(m_sounds.bump, 0.5f);
+			AddLogLine(loc::FormatLine("log.pack_rejects", loc::ViewKey("item.", item),
+									   loc::ViewKey("item.", pack)));
+		};
+		card->onRejectHold = [this](const std::string& item) {
+			m_audio.Play(m_sounds.bump, 0.5f);
+			AddLogLine(loc::FormatLine("log.cant_hold", loc::ViewKey("item.", item)));
+		};
+		card->defenseFor = [this](const Character& c) {
+			return defenseFor ? defenseFor(c) : DefenseReadout{};
+		};
+		card->defenseWith = [this](const Character& c, const std::string& id) {
+			return defenseWith ? defenseWith(c, id) : DefenseReadout{};
+		};
+		card->spells = [this] {
+			return spellDefs ? spellDefs() : std::span<const std::unique_ptr<Spell>>{};
+		};
+	}
 
 	m_spellbook = docks.spellbook;
 	m_spellbook->onClick = [this] { Click(); };
@@ -1830,9 +1864,30 @@ void GameUI::BuildHud() {
 	m_handMenuItem.reserve(64);
 }
 
-void GameUI::OpenInventory() { if (m_inventory) m_inventory->Open(); }
+void GameUI::OpenInventory(CharacterSheet::Mode mode) {
+	if (m_inventory) m_inventory->Open(mode);
+}
 void GameUI::CloseInventory() { if (m_inventory) m_inventory->Close(); }
 bool GameUI::InventoryOpen() const { return m_inventory && m_inventory->IsOpen(); }
+CharacterSheet::Mode GameUI::InventoryMode() const {
+	return m_inventory ? m_inventory->CurrentMode() : CharacterSheet::Mode::Inventory;
+}
+std::string_view GameUI::InventoryStatusName() const {
+	return m_inventory ? m_inventory->StatusName() : std::string_view{};
+}
+std::string_view GameUI::InventoryStatusText() const {
+	return m_inventory ? m_inventory->StatusText() : std::string_view{};
+}
+unsigned GameUI::InventoryOpens() const { return m_inventory ? m_inventory->Opens() : 0; }
+gfx::Rect GameUI::InventoryStoneRect(size_t i) const {
+	return m_inventory ? m_inventory->StoneRect(i) : gfx::Rect{};
+}
+bool GameUI::InventorySlotRect(size_t member, int slot, gfx::Rect& out) const {
+	const CharacterSheet* card = m_inventory ? m_inventory->Card(member) : nullptr;
+	if (!card || !card->visible) return false;
+	out = card->PackSlotRect(slot);
+	return true;
+}
 
 // A panel was dragged or resized: save, and mark the Settings sliders behind
 // the scale the corner grip left (a slider and the grip edit one number). NOT

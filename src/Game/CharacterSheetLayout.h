@@ -1,6 +1,12 @@
 // ============================================================================
 // Game/CharacterSheetLayout.h — shared layout fractions for CharacterSheet*.cpp.
 // Parent-relative [0..1] of the sheet pixel rect. Not for use outside those TUs.
+//
+// The "...Rem" sizes below are measured in the sheet's EM (Widget::Em), not
+// its rem (more-ui-updates Phase 5). On the sheet the two are the same number -
+// nothing in it sets a fontScale - but the party window's cards are the same
+// class at a smaller fontScale, and their text has to shrink with the card.
+// The one exception is the scroll gutter, which ScrollArea reads in rem.
 // ============================================================================
 #pragma once
 

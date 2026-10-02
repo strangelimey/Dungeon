@@ -75,6 +75,14 @@ std::string_view FitWidth(const ui::Font& font, std::string_view text, float max
 
 gfx::Rect CharacterSheet::Body() const {
 	const gfx::Rect& px = Pixel();
+	if (m_card) {
+		// The card shows only the TAB part of a body - kHeaderY down - under its
+		// name band, so the body it resolves against is that part stretched back
+		// to a whole one, its top (where the portrait would be) above the card.
+		const float top = px.y + Em(kCardNameEm);
+		const float h = std::max(px.y + px.h - top, 0.0f) / (1.0f - kHeaderY);
+		return {px.x, top - kHeaderY * h, px.w, h};
+	}
 	return {px.x, px.y, px.w, px.h * kBodyFrac};
 }
 
@@ -142,7 +150,7 @@ void CharacterSheet::UpdateStatus(ui::UIContext& ctx, bool pointerFree) {
 	case Mode::Stats: {
 		if (!pointerFree) break;
 		const StatRows rows = StatRowsFor(ctx, px);
-		const ui::Font& font = ctx.FontAt(ui::FontRole::Body, Rem(kStatRem));
+		const ui::Font& font = ctx.FontAt(ui::FontRole::Body, Em(kStatRem));
 		for (size_t i = 0; i < std::size(kAttrIds); ++i) {
 			const float y = rows.top + static_cast<float>(i) * rows.step;
 			const gfx::Rect attr{Ax(px, kLabelX), y, (kValueRight - kLabelX) * px.w,
@@ -199,13 +207,13 @@ void CharacterSheet::DrawStatus(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	batch.DrawRect({left, band.y, right - left, 1.0f}, theme.panelBorder);
 	if (m_statusName.empty()) return;
 
-	const ui::Font& font = ctx.FontAt(ui::FontRole::Body, Rem(kStatusTextRem));
+	const ui::Font& font = ctx.FontAt(ui::FontRole::Body, Em(kStatusTextRem));
 	const float y = band.y + (band.h - font.Height()) * 0.5f;
 	char nameBuf[loc::Line::kCapacity + 4];
 	const std::string_view name = FitWidth(font, m_statusName.View(), right - left, nameBuf);
 	font.Draw(batch, name, left, y, m_statusColor);
 	if (m_statusText.empty()) return;
-	const float textX = left + font.MeasureWidth(name) + Rem(kStatusGapRem);
+	const float textX = left + font.MeasureWidth(name) + Em(kStatusGapRem);
 	if (textX >= right) return;
 	char textBuf[loc::Line::kCapacity + 4];
 	font.Draw(batch, FitWidth(font, m_statusText.View(), right - textX, textBuf), textX, y,

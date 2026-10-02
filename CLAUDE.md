@@ -2032,6 +2032,25 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   that CONTEXT'S root font size (UpdateFonts) - rem itself moves - so it sets
   `scalesText = false`. The party inventory is NON-MODAL now - no dim, the world
   clickable around it, closed by its corner box or Esc.
+  THE PARTY WINDOW (more-ui-updates P5, Game/PartyWindow.h) replaced the old
+  party-backpacks window: the sheet's "All" opens it ON THE SHEET'S TAB, with its
+  own row of tab stones and a 2x2 of CARDS. A card IS a CharacterSheet in card
+  mode (`card` ctor flag: no portrait, tab stones or status band; Body() is the
+  card's tab area stretched back to a whole sheet body, its top above the
+  card), so a card and the sheet cannot read differently. To make that work the
+  sheet measures in EM, not rem (identical on the sheet, which sets no
+  fontScale; a card's is the panel's scale x kCardScale, set by the window in
+  LayoutSelf since fontScale is ABSOLUTE, not inherited) - the scroll gutter is
+  the one rem left, because ScrollArea reads it in rem. The window is sized in
+  card em (SizeForEm), keeps the `inventory` panel slot, and draws the hovered
+  card's status line. Its four cards are built and warmed with the HUD, so an
+  open adds nothing. Dev: `inventory [tab] | off | status | slot <m> <i> |
+  stone <tab>` (status gives `tab`, `opens=` and the bar); `sheet status` gives
+  the All button's point. Checked: AllocTest `-All` (All, every tab, Esc, the
+  portrait, inside the window; mutation-checked), `-Items` now aims by `inventory
+  slot` and parks the window clear of its floor point (as `-Panels` does). The
+  card's checked drop into a pack found `ItemCategoryBank::CategoryOf` copying a
+  string (now a view).
 - MINIMAL LAYOUT (Game/MemberCards.h; ini hud_layout=1, Settings -> UI
   "Layout"): no party bar, no Hands dock - one CARD per member, the very
   CharacterPanel and HandPair the Standard layout uses (so every click and hand

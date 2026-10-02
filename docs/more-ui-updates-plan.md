@@ -161,6 +161,12 @@ AllocTest -Pause, screenshots of both menus.
 
 ## Phase 5 - The All window follows the tab (C.1, answer 6; plan answers 3, 4)
 
+DONE, one change from the plan: no separate SheetBody class. CharacterSheet
+already owned exactly what SheetBody would have (a member index, the pools,
+the lists, the hover and status), so a card is a CharacterSheet in CARD MODE
+(Game/PartyWindow.h; CLAUDE.md "THE PARTY WINDOW"). The Inventory tab shows
+the sheet's whole tab at card size until Phase 6 reworks it.
+
 Today: "All" (GameUI.cpp:1209) closes the sheet and opens InventoryWindow, a
 separate, NON-MODAL four-COLUMN window over the running world, backpacks
 only. The sheet is built for ONE member: CharacterSheet holds one m_member,

@@ -227,12 +227,24 @@ public:
 	// (Not `ItemDetails()`: inside the class that name would hide the struct.)
 	ItemDetailsDialog* DetailsDialog() { return m_itemDetails.get(); }
 
-	// Party inventory window (right-click a portrait). Non-modal; Game drives
-	// open/close (and routes Esc to close it before the pause menu). The world
-	// view's right button is mouse-look, so it no longer opens this.
-	void OpenInventory();
+	// The party window (the sheet's "All"; Game/PartyWindow.h): every member's
+	// card on one tab. Non-modal; Game drives open/close (and routes Esc to
+	// close it before the pause menu). Opens on `mode`, the tab the sheet was
+	// showing.
+	void OpenInventory(CharacterSheet::Mode mode = CharacterSheet::Mode::Inventory);
 	void CloseInventory();
 	bool InventoryOpen() const;
+	// What it shows, for the `inventory status` readout: its tab, its status
+	// line, and where member `member`'s pack slot `slot` is (false = no card).
+	CharacterSheet::Mode InventoryMode() const;
+	std::string_view InventoryStatusName() const;
+	std::string_view InventoryStatusText() const;
+	bool InventorySlotRect(size_t member, int slot, gfx::Rect& out) const;
+	// And for AllocTest -All: how often it has opened, where its tab stone `i`
+	// is, and where the sheet's "All" button is (empty rects when not laid out).
+	unsigned InventoryOpens() const;
+	gfx::Rect InventoryStoneRect(size_t i) const;
+	gfx::Rect SheetAllRect() const { return m_sheetAll ? m_sheetAll->Pixel() : gfx::Rect{}; }
 
 	// --- character sheet ---------------------------------------------------------
 	void ShowSheet(size_t index); // re-points the sheet at the member
@@ -747,8 +759,9 @@ private:
 	// The item details dialog: built once in BuildStaticUi (a right-click in a
 	// guarded frame must not build a widget tree), rebuilt on a language switch.
 	std::unique_ptr<ItemDetailsDialog> m_itemDetails;
-	// Party inventory window (owned by m_hudUi); opened on right-click-while-holding.
-	InventoryWindow* m_inventory = nullptr;
+	// The party window (owned by m_hudUi), opened by the sheet's "All".
+	PartyWindow* m_inventory = nullptr;
+	ui::Button* m_sheetAll = nullptr; // that button (owned by m_sheetUi)
 	// The Magic-area spellbook (owned by m_hudUi): opened from a hand's use
 	// menu (Magic » Spellbook), where a member builds a symbol sequence.
 	SpellbookPanel* m_spellbook = nullptr;

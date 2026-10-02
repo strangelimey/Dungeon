@@ -123,11 +123,11 @@ void Game::WireModuleCallbacks() {
 		m_state = m_resumeState; // resume after saving from the pause menu
 	};
 	m_ui.onOpenSheet = [this](size_t index) { OpenCharacterSheet(index); };
-	// Sheet "All" button: leave the sheet and bring up the combined party
-	// backpacks (over the live world) for cross-character item swaps.
+	// Sheet "All" button: leave the sheet and bring up the party window - every
+	// member on the sheet's tab, over the live world (Game/PartyWindow.h).
 	m_ui.onShowPartyInventory = [this] {
 		m_state = m_resumeState;
-		m_ui.OpenInventory();
+		m_ui.OpenInventory(m_ui.SheetMode()); // on the tab the sheet was showing
 	};
 	// Quality: recorded, not applied — the swap blocks for seconds, so Update
 	// runs it next frame with the "applying" notice already on screen. A
