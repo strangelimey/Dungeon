@@ -166,7 +166,8 @@ The bolt detonates where it strikes or where it stops: the shared blast system
 (Game/Blast.h - a wavefront that flows through open squares, round corners,
 spent by walls). Damage scales as cast power over the spell's power; reach
 grows by one square per `blast_force_per_power` past it. NOTE `blast_force`
-counts SQUARES the wave may fill, not a radius. Fire Bolt Burst carries the old
+counts SQUARES the wave may fill, not a radius. FIREBALL (`firebolt_burst`;
+Michael named it, 2026-10-02 - the others are "Bursting <bolt>") carries the old
 Fire Burst's tuned blast whole (force 7, damage 5), and the fire flask's
 `throw_spell` bursts as it.
 
