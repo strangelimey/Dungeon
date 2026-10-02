@@ -242,6 +242,9 @@ public:
 	PortraitPicker* Portraits() { return m_portraitPicker.get(); }
 	// A pick: (member, portraits.cat id). Game::SetPortrait.
 	std::function<bool(size_t, const std::string&)> onSetPortrait;
+	// The sheet's "Change portrait" button, for the shown member. Game opens the
+	// picker through Game::OpenPortraitPicker, which also excuses the frame.
+	std::function<void(size_t)> onChangePortrait;
 
 	// The party window (the sheet's "All"; Game/PartyWindow.h): every member's
 	// card on one tab. Non-modal; Game drives open/close (and routes Esc to

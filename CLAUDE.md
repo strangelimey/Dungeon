@@ -710,7 +710,8 @@ buffer, reused across all ~25 submissions).
   SetPortrait and LoadGame refuse an id portraits.cat does not list. Dev:
   `portrait [member] [id]`; checked by `tools/EvalScripts/portraits.eval`.
   THE PICKER (Game/PortraitPicker.*): a grid of thumbnails filtered by race /
-  sex / age, STANDALONE (Open(title, currentId, onPick) - party creation is its
+  sex / age, opened by the sheet's "Change portrait" button (under the name),
+  STANDALONE (Open(title, currentId, onPick) - party creation is its
   real home), owned and routed by GameUI exactly like ItemDetailsDialog (built
   once, updated instead of the page under it, DismissPopup closes it first, the
   mouse is its while open). Two rules worth knowing: the GRID IS ONE WIDGET
@@ -726,7 +727,9 @@ buffer, reused across all ~25 submissions).
   `portrait picker [member|off|status]` / `filter <race|any> <sex|any> <age|any>`
   / `scroll <0..1>` (status prints the SRV gauge: a full scroll peaks ~568, and
   closing must return to where it was), and `assetpicker textures|models|off|
-  status` for the cache's other client.
+  status` for the cache's other client. InGameTest sweeps it (`sweep_portraits`)
+  and demands the `portrait picker: open for` log line, or the audit was of the
+  sheet beneath.
 - Textures: PNG = source, .dds = derived BC7 mip chains (gitignored).
   The game loads the .dds and falls back to the PNG. TRAP, and why a rejected
   .dds now WARNS (TryLoadTextureFile): from 2026-06-11 to 2026-09-28 the DDS

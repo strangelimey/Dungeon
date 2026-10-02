@@ -127,6 +127,7 @@ void Game::WireModuleCallbacks() {
 	m_ui.onSetPortrait = [this](size_t member, const std::string& id) {
 		return SetPortrait(member, id);
 	};
+	m_ui.onChangePortrait = [this](size_t member) { OpenPortraitPicker(member); };
 	// Sheet "All" button: leave the sheet and bring up the party window - every
 	// member on the sheet's tab, over the live world (Game/PartyWindow.h).
 	m_ui.onShowPartyInventory = [this] {

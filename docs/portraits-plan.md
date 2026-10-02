@@ -194,6 +194,20 @@ DONE (2026-10-02). What it came to:
 - Launch a fresh game and hand it to Michael to judge the four defaults in the
   party bar and the sheet, and the picker itself.
 
+BUILT (2026-10-02), awaiting Michael's look:
+- "Change portrait" is a worded sheet button under the name, its foot level
+  with the portrait's (CharacterSheetLayout.h kPortraitBtn*; sheets only - a
+  party-window card has no portrait). CharacterSheet::onChangePortrait ->
+  GameUI::onChangePortrait -> Game::OpenPortraitPicker, the one opener (it
+  excuses the frame; the guard's verdict is taken at EndFrame, so disarming after
+  the picker allocated does cover the click).
+- Game::OpenPortraitPicker logs `portrait picker: open for <name>`, and
+  InGameTest's `sweep_portraits` FAILS without it - a clean audit of the sheet
+  beneath would otherwise pass for the picker's (the stair-inspector rule).
+- Checked: a scripted click on the button opened the picker for Brand and a
+  click on a tile set portrait009, shown at once on the sheet; `uioverlap` over
+  the sheet with the button is clean; InGameTest PASS with sweep_portraits.
+
 ## Not in this branch
 
 - Party creation (the picker's eventual home).

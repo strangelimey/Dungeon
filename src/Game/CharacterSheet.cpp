@@ -72,6 +72,12 @@ void CharacterSheet::BuildParts() {
 	if (!m_card) {
 		Add<SheetPortrait>(gfx::Rect{kPortraitX, kPortraitY, kPortraitW, kPortraitH},
 						   m_roster, &m_member);
+		ui::Button* change = Add<ui::Button>(
+			gfx::Rect{kPortraitBtnX, kPortraitBtnY, kPortraitBtnW, kPortraitBtnH},
+			loc::Tr("sheet.portrait.change"), [this] {
+				if (onChangePortrait) onChangePortrait();
+			});
+		change->debugName = "change-portrait";
 
 		const float stripW = kModeCount * kModeBtnW + (kModeCount - 1) * kModeBtnGap;
 		m_modeStrip = Add<ModeSelector>(gfx::Rect{kModeBtnX, kModeBtnY, stripW, kModeBtnH},

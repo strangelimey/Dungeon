@@ -113,6 +113,11 @@ $screens = @(
 	# backwards; the `sheet` dev command opens it through the same entry point
 	# the click uses, and it is swept like everything else now.
 	@{ label = 'sweep_sheet';  viaConsole = $true;  open = { Run-Cmd 'sheet 0' }; close = { Run-Cmd 'sheet off' } },
+	# The portrait picker over the sheet (docs/portraits-plan.md), opened the way
+	# the sheet's "Change portrait" button opens it.
+	@{ label = 'sweep_portraits'; viaConsole = $true
+	   open = { Run-Cmd 'sheet 0'; Run-Cmd 'portrait picker 0' }
+	   close = { Run-Cmd 'portrait picker off'; Run-Cmd 'sheet off' } },
 	# The floating HUD's other shapes (docs/ui-panels-plan.md P3b/P4): the party
 	# inventory WINDOW, and the MINIMAL layout - the party bar and the hands
 	# folded into one card per member, with the Magic dock (a member knows a
@@ -317,6 +322,13 @@ if ($stairs.Count -ge 2) {
 } else {
 	Write-Host "  [FAIL] the stair inspector opened $($stairs.Count) of 2 times - its sweep audited an empty editor" -ForegroundColor Red
 	$lines | Select-String 'editor inspect: ' | ForEach-Object { Write-Host "     $($_.Line)" }
+	$failures++
+}
+# Likewise the portrait picker: without it the sweep audited the sheet beneath.
+if (@($lines | Select-String 'portrait picker: open for ').Count -ge 1) {
+	Write-Host '  [ok  ] the portrait picker opened for its sweep'
+} else {
+	Write-Host '  [FAIL] the portrait picker never opened - its sweep audited the sheet beneath' -ForegroundColor Red
 	$failures++
 }
 

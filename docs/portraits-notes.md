@@ -61,3 +61,9 @@ the picker must be a standalone piece it can reuse.
   approves. Approved 2026-10-01 - Brand `portrait018` (helmeted knight), Sera
   `portrait398` (green hood), Maren `portrait1419` (white hood, silver circlet),
   Tilo `b045` (old, grey-bearded, red hood). The old baked busts retire.
+
+**Later (2026-10-02):** a second pack joined, Corax Digital Art's 500 human
+heroes (bought and tagged in a forked session; 493 shipped). With Magory's 2386
+that is 2879 portraits. Everything above was built as planned
+(docs/portraits-plan.md, all four phases); party creation remains the picker's
+eventual home.

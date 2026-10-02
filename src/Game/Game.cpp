@@ -781,7 +781,11 @@ void Game::OpenPortraitPicker(size_t member) {
 	// Opening fills strings and a filter list - allocation, in what may be a
 	// guarded frame (a click on the sheet). Like any overlay opening, the frame
 	// is not a steady one; while it stays open SteadyStateFrame keeps it so.
-	if (m_ui.PortraitPickerOpen()) OverlayOpenedThisFrame();
+	if (!m_ui.PortraitPickerOpen()) return;
+	OverlayOpenedThisFrame();
+	// After the excuse: a log line formats a string. tools\InGameTest.ps1 reads
+	// it to know its picker sweep audited the picker, not the sheet under it.
+	log::Info("portrait picker: open for {}", m_characters[member].name);
 }
 
 bool Game::SetPortrait(size_t member, const std::string& id) {

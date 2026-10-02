@@ -1200,6 +1200,9 @@ void GameUI::BuildCharacterSheet() {
 	m_sheet->onItemUse = [this](ItemPlace place) {
 		if (m_sheetMenu) OpenItemUseMenu(m_sheetIndex, place, *m_sheetMenu);
 	};
+	m_sheet->onChangePortrait = [this] {
+		if (onChangePortrait) onChangePortrait(m_sheetIndex);
+	};
 	// The Spells tab resolves learned-spell ids through the same registry the
 	// spellbook uses (deferred so spellDefs is wired by cast time).
 	m_sheet->spells = [this] {
