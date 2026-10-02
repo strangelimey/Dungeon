@@ -33,6 +33,7 @@
 #include "Game/Effect/Effect.h"
 #include "Graphics/ParticleBatch.h"
 
+#include <algorithm>
 #include <array>
 #include <functional>
 #include <optional>
@@ -239,6 +240,26 @@ public:
 	template <typename Fn> void ForEachCargo(Fn&& fn) const {
 		for (const Item& it : m_items)
 			if (it.cargo) fn(it.pos, it.dir, it.age, it.cargo);
+	}
+
+	// TURNS BACK every item flying at the party for which `inZone(pos)` holds: it
+	// reverses, becomes a shot at monsters credited to party member `attacker`,
+	// and has at least `minRange` metres left to fly home in. A thrown item is
+	// left alone (nothing throws one at the party). Returns how many turned. A
+	// template so the zone test is inlined: this runs inside a cast, a frame the
+	// steady-state allocation guard watches.
+	template <typename Fn> int TurnBack(Fn&& inZone, int attacker, float minRange) {
+		int turned = 0;
+		for (Item& it : m_items) {
+			if (it.target != TargetSide::Party || it.cargo || !inZone(it.pos)) continue;
+			it.dir = {-it.dir.x, -it.dir.y, -it.dir.z};
+			it.target = TargetSide::Monsters;
+			it.attacker = attacker;
+			it.shooter = 0;
+			it.rangeLeft = std::max(it.rangeLeft, minRange);
+			++turned;
+		}
+		return turned;
 	}
 
 	// --- editor introspection (transient content, shown on the map) ----------

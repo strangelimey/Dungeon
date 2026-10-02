@@ -29,6 +29,7 @@ add_library(Game STATIC
 	DungeonMap.cpp
 	DungeonMeshBuilder.cpp
 	DungeonWorld.cpp
+	DungeonWorld_Ahead.cpp
 	DungeonWorld_Arena.cpp
 	DungeonWorld_Combat.cpp
 	DungeonWorld_Doors.cpp

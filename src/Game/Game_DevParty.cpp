@@ -2,7 +2,7 @@
 // Game/Game_DevParty.cpp — the party's dev-console commands.
 //
 // Split out of Game_DevCommands.cpp by concern: what a member knows, carries
-// and does (learn/rune/give/guard/swing/wear/equip/effect/grudges/cast), their
+// and does (learn/rune/give/guard/swing/wear/equip/effect/grudges/cast/castsvc), their
 // pools and supplies (party/regen/supplies/rest/consume/setsupply), and the
 // sheet, the party inventory window, and the dev setters that re-derive it
 // (sheet/inventory/setstat/setskill/heal/char).
@@ -12,6 +12,7 @@
 #include "Core/Log.h"
 #include "Game/DevCommandArgs.h"
 #include "Game/PartyHudDraw.h" // HeartRateTarget (hudbars)
+#include "Game/Spell/Spell.h"    // castsvc: a spell's blast payload
 
 #include <algorithm>
 #include <cctype>
@@ -416,6 +417,47 @@ void Game::RegisterPartyCommands() {
 						   }
 						   const bool ok = m_world->CastSpell(m, seq, hand);
 						   m_console.Print(ok ? "cast away" : "no cast (fizzle / no mana / unknown)");
+					   });
+
+	// The cast services one at a time, with no spell in between: what a spell
+	// would see ahead of the party and what each world hook does to it, so a
+	// hand spell's outcome can be pinned on the spell or on the world.
+	m_console.Register({.name = "castsvc",
+						.group = CmdGroup::Combat,
+						.params = "fire\ndrop <item>\nshove [cells]\nrepel [member]\nblast <spell>",
+						.summary = "drive one cast service directly (the world ahead of the party)"},
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 1)) return;
+						   const std::string& what = args[0];
+						   if (what == "fire") {
+							   const FireAhead f = m_world->FireAheadOfParty();
+							   const char* kind = f.kind == FireAhead::Kind::WallTorch ? "walltorch"
+												: f.kind == FireAhead::Kind::Brazier ? "brazier"
+																					   : "none";
+							   m_console.Print(std::format("castsvc fire: kind={} lit={} canburn={}", kind,
+														   f.lit ? 1 : 0, f.canBurn ? 1 : 0));
+						   } else if (what == "drop" && args.size() >= 2) {
+							   m_world->DropAtPartyFeet(args[1]);
+							   m_console.Print(std::format("castsvc drop: {} at the party's feet", args[1]));
+						   } else if (what == "shove") {
+							   const int cells = args.size() >= 2 ? std::atoi(args[1].c_str()) : 1;
+							   m_console.Print(std::format("castsvc shove: moved={}",
+														   m_world->ShoveAhead(cells) ? 1 : 0));
+						   } else if (what == "repel") {
+							   const int member = args.size() >= 2 ? std::atoi(args[1].c_str()) : 0;
+							   m_console.Print(
+								   std::format("castsvc repel: turned={}", m_world->RepelAhead(member)));
+						   } else if (what == "blast" && args.size() >= 2) {
+							   const Spell* spell = m_world->FindSpell(args[1]);
+							   if (!spell || !spell->Blast().Any()) {
+								   m_console.Refuse("no such spell, or it does not blast");
+								   return;
+							   }
+							   m_world->BlastAroundParty(spell->MakePayload(), spell->School(), 0);
+							   m_console.Print(std::format("castsvc blast: {} round the party", args[1]));
+						   } else {
+							   m_console.RefuseUsage();
+						   }
 					   });
 
 	// The party's side of an encounter, in one machine-readable block. `monsters`

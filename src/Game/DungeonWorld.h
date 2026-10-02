@@ -655,6 +655,15 @@ public:
 	// stores "cast:<id>" defaults). All the same gates apply — the member must
 	// know the recipe's symbols and afford its mana. False on an unknown id.
 	bool CastSpellById(size_t member, std::string_view id, int hand = -1);
+	// The world in front of the party, as the cast services hand it to a spell
+	// (DungeonWorld_Ahead.cpp; Spell/Spell.h CastServices says what each does).
+	// Public so the dev console's `castsvc` can drive each one alone.
+	FireAhead FireAheadOfParty() const;
+	void DropAtPartyFeet(std::string_view itemId);
+	bool ShoveAhead(int cells);
+	int RepelAhead(int casterIndex);
+	void BlastAroundParty(const ProjectilePayload& payload, SpellSymbol school,
+						  int casterIndex);
 	// The whole spell registry (the Magic menu filters it by known symbols).
 	std::span<const std::unique_ptr<Spell>> SpellDefs() const {
 		return m_magic.Book().Defs();
@@ -2890,8 +2899,11 @@ private:
 	// `payload` carries both the blast's shape and what it LEAVES — a transient
 	// front's procs are how fire "catches", so a square the blast passes through
 	// keeps burning on its own through the effects pipeline.
+	// `spareCentre` leaves the detonation square itself untouched: the blast
+	// starts there and spreads outward, but treats it as solid (a ward's burst
+	// round the caster - the party's own square takes nothing).
 	void Detonate(int cx, int cz, const ProjectilePayload& payload, DamageType type,
-				  int attacker);
+				  int attacker, bool spareCentre = false);
 	// A blast PLAYING OUT. The propagation is computed once at detonation — the
 	// geometry cannot change mid-blast — and its ticks land `rate` seconds apart,
 	// which is what makes a fireball rush and a gas cloud creep.
@@ -2986,6 +2998,10 @@ private:
 	// from the current position, and arm the step cooldown. The single place a
 	// monster's step is committed (chase-path follow, kite, flee all route here).
 	void StepMonsterTo(Monster& monster, int x, int z, int slot);
+	// Shoves m_monsters[index] up to `cells` squares along (dx, dz), stopping at
+	// the first square it cannot enter. Returns how many it moved. The air bolt's
+	// push and the Puff of Wind both go through it.
+	int ShoveMonster(size_t index, int dx, int dz, int cells);
 	// Greedy local step shared by the kite/flee executors: among this monster's own
 	// cell and its four free orthogonal neighbours, step to the one MINIMISING
 	// `score(x,z)` (its own cell is the baseline, so it holds when nothing beats it).

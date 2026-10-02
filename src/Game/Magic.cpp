@@ -22,6 +22,7 @@ void MagicSystem::LoadSpells(const Catalog& spells, const DamageTypeBook& types)
 MagicSystem::CastReport MagicSystem::Cast(Character& caster, int casterIndex,
 										  std::span<const SpellSymbol> sequence,
 										  const Vec3& origin, const Vec3& dir,
+										  int hand, std::span<Character> party,
 										  std::mt19937& rng) {
 	if (sequence.empty()) return {CastOutcome::NoRecipe, nullptr};
 
@@ -97,8 +98,8 @@ MagicSystem::CastReport MagicSystem::Cast(Character& caster, int casterIndex,
 			CurveValue(caster.StatAvg(SchoolStats(spell->School())),
 					   m_balance->StatCurve());
 	}
-	CastContext ctx{caster,    origin,      dir,         power,
-					level,     m_services,  casterIndex, attackBonus};
+	CastContext ctx{caster,     origin,      dir,         power, level,
+					m_services, casterIndex, attackBonus, hand,  party};
 	spell->Cast(ctx);
 
 	return {CastOutcome::Cast, spell, exertion};

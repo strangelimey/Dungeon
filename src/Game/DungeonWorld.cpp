@@ -219,6 +219,14 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 				 fx::Apply(target.effects, *kind, school, magnitude, duration);
 			 else
 				 log::Warn("cast wants effect '{}', which has no kind", id);
+		 },
+		 // The world in front of the party (DungeonWorld_Ahead.cpp).
+		 [this] { return FireAheadOfParty(); },
+		 [this](std::string_view itemId) { DropAtPartyFeet(itemId); },
+		 [this](int cells) { return ShoveAhead(cells); },
+		 [this](int casterIndex) { return RepelAhead(casterIndex); },
+		 [this](const ProjectilePayload& payload, SpellSymbol school, int casterIndex) {
+			 BlastAroundParty(payload, school, casterIndex);
 		 }});
 
 	// Moving-item engine: wire its world seam so a projectile lives "on the map"

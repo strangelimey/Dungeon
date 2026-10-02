@@ -41,8 +41,23 @@ struct CatalogEntry;
 struct BlastSpec;
 void ReadBlastRules(const CatalogEntry& e, BlastSpec& spec);
 
+// What burns, or could, where the party is looking: the wall torch on the
+// wall it faces from its own square, else the brazier in the square ahead
+// (braziers block the way, so one is never IN the party's square). A spell
+// asks this rather than learning what a fixture is.
+struct FireAhead {
+	enum class Kind : u8 { None, WallTorch, Brazier };
+	Kind kind = Kind::None;
+	bool lit = false;
+	// False for a kind that can never hold a flame (fixtures.cat `flame = 0`,
+	// the empty brazier): a puff of flame finds nothing to catch.
+	bool canBurn = false;
+};
+
 // What a Cast() may DO beyond touching the caster — wired by the host once
-// (DungeonWorld ctor) and handed to every cast.
+// (DungeonWorld ctor) and handed to every cast. A Cast() that only reads or
+// edits the caster and the party (wards, held items: CastContext::party) needs
+// none of the world ones.
 struct CastServices {
 	// Spawn a bolt into the moving-item engine ("onto the map").
 	std::function<void(const ProjectileSpec&)> spawnBolt;
@@ -57,6 +72,26 @@ struct CastServices {
 	std::function<void(Character&, std::string_view id, SpellSymbol school,
 					   float magnitude, float duration)>
 		applyEffect;
+
+	// --- the world in front of the party (the hand spells) --------------------
+	// The fire the party faces (FireAhead above).
+	std::function<FireAhead()> fireAhead;
+	// Lands `itemId` on the floor of the party's square - where a conjured item
+	// goes when both of the caster's hands are full.
+	std::function<void(std::string_view itemId)> dropAtFeet;
+	// Shoves whatever monster stands in the square ahead `cells` squares further
+	// away, along the party's facing (stopped early by a wall, a shut door or a
+	// packed square). True if anything moved.
+	std::function<bool(int cells)> shoveAhead;
+	// Turns back every projectile flying AT the party in its own square or the
+	// one ahead: it reverses and flies on as the caster's (credited to
+	// `casterIndex`, aimed at monsters). Returns how many turned.
+	std::function<int(int casterIndex)> repelAhead;
+	// A blast of `payload` (its BlastSpec) as `school`'s damage, centred on the
+	// party's square and spreading from it, the square itself untouched.
+	std::function<void(const ProjectilePayload& payload, SpellSymbol school,
+					   int casterIndex)>
+		blastAroundParty;
 };
 
 // Everything a single cast knows: who, from where, at what strength. The
@@ -74,10 +109,18 @@ struct CastContext {
 	int casterIndex = -1;
 	// The caster's opposed-roll bonus in d100 POINTS, already assembled from
 	// the school skill and stat curves by the host. Handed in rather than
-	// computed here so a spell never learns what a Balance is. (LAST on
-	// purpose: the one construction site initialises this aggregate
-	// positionally, so a field inserted mid-struct silently mis-assigns.)
+	// computed here so a spell never learns what a Balance is. (New fields go
+	// at the END, below this one: the one construction site initialises this
+	// aggregate positionally, so a field inserted mid-struct silently
+	// mis-assigns.)
 	float attackBonus = 50.0f;
+	// The hand the cast came from (0 / 1), or -1 when it came from no hand (the
+	// spellbook, the console). A spell that acts on "the other hand" or puts
+	// something IN a hand reads it; a hand-less cast picks a sensible hand.
+	int hand = -1;
+	// The whole roster, the caster among it - what a spell for the whole party
+	// (a ward cast with Ingwaz) lands on. Empty when the host has none.
+	std::span<Character> party{};
 };
 
 class Spell {
