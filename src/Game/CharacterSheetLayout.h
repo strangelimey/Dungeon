@@ -109,9 +109,12 @@ inline constexpr float kTipValueRem = 5.0f;  // one value column width
 inline constexpr float kTipIconRem = 2.2f;   // the column-heading item icons
 
 // --- mode toggle buttons under the portrait ---------------------------------
+// Grown for the CUT-STONE tabs (more-ui-updates P3): at 0.038 x 0.054 a stone
+// was ~30 px and its etched symbol could not be read. Now ~43 px square at
+// 16:9, ending just above kHeaderY.
 inline constexpr int kModeCount = 5;
-inline constexpr float kModeBtnW = 0.038f * kWiden;
-inline constexpr float kModeBtnH = 0.054f;
+inline constexpr float kModeBtnW = 0.054f * kWiden;
+inline constexpr float kModeBtnH = 0.076f;
 inline constexpr float kModeBtnGap = 0.006f * kWiden;
 inline constexpr float kModeBtnX = 0.031f * kWiden;
 inline constexpr float kModeBtnY = 0.236f;

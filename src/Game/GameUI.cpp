@@ -36,6 +36,8 @@ std::string WorldTitle(const std::string& folder) {
 // strafe right.
 constexpr const char* kMoveEtches[] = {"turn_left",   "forward", "turn_right",
 									   "strafe_left", "back",	 "strafe_right"};
+// The sheet's tab stones (assets/ui/etch_tab_<name>.png), in its Mode order.
+constexpr const char* kTabEtches[] = {"inventory", "stats", "skills", "spells", "effects"};
 
 // Font pixel heights at the 900px-tall design window (the layouts in
 // BuildMenu/BuildHud are authored against the same design size). UpdateFonts
@@ -147,6 +149,13 @@ void GameUI::BuildStaticUi() {
 	// a shared registry by the CONTROL, so it has to be installed before any
 	// page — or any editor dialog — draws one.
 	LoadSharedControlIcons(m_device);
+	// And the sheet's tab stones (tools/BuildEtchGlyphs.py), for the same
+	// reason: BuildCharacterSheet hands their pointers to the tabs.
+	for (size_t i = 0; i < std::size(kTabEtches); ++i) {
+		const std::string stem = std::string("ui\\etch_tab_") + kTabEtches[i];
+		m_tabEtch[i] = TryLoadTextureFile(m_device, paths::Asset(stem));
+		m_tabEtchLit[i] = TryLoadTextureFile(m_device, paths::Asset(stem + "_lit"));
+	}
 	BuildMenu();
 	BuildPauseMenu();
 	BuildCharacterSheet();
@@ -1137,6 +1146,14 @@ void GameUI::BuildCharacterSheet() {
 											&m_barStyle, m_itemIcons,
 											m_itemWeights, m_slotIcons,
 											m_itemCategories, m_held);
+	{
+		std::array<const gfx::Texture*, 5> etch{}, lit{};
+		for (size_t i = 0; i < etch.size(); ++i) {
+			etch[i] = m_tabEtch[i].get();
+			lit[i] = m_tabEtchLit[i].get();
+		}
+		m_sheet->SetModeEtches(etch, lit);
+	}
 	// A pack refused the held item: a soft thud + a "won't fit" log line. Item
 	// names follow the item.<id> loc convention (same as ItemKind::nameKey).
 	m_sheet->onRejectDrop = [this](const std::string& item, const std::string& pack) {

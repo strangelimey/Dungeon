@@ -115,9 +115,13 @@ void DrawCutStone(gfx::SpriteBatch& batch, const gfx::Rect& dst, const Skin& ski
 	DrawFace(batch, dst, skin, depth >= 0.5f ? Face::BlockDown : Face::Block,
 			 {tint.x * lift, tint.y * lift, tint.z * lift, tint.w});
 	if (!etch) return;
-	const float sink = depth * std::max(1.0f, dst.h * 0.035f);
-	batch.DrawSprite({dst.x + sink, dst.y + sink, dst.w, dst.h}, {0, 0, 1, 1}, *etch,
-					 {tint.x, tint.y, tint.z, tint.w});
+	// The symbol is authored square; on an oblong block (a sheet tab) it
+	// stays square, centred, sized by the short side.
+	const float side = std::min(dst.w, dst.h);
+	const float sink = depth * std::max(1.0f, side * 0.035f);
+	batch.DrawSprite({dst.x + (dst.w - side) * 0.5f + sink,
+					  dst.y + (dst.h - side) * 0.5f + sink, side, side},
+					 {0, 0, 1, 1}, *etch, {tint.x, tint.y, tint.z, tint.w});
 }
 
 void DrawNineSlice(gfx::SpriteBatch& batch, const gfx::Rect& dst,

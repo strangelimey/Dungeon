@@ -181,6 +181,9 @@ public:
 	// Plays the push with no click and no action - the movement pad presses a
 	// stone when the KEYBOARD moves the party. Ignored while the mouse holds it.
 	void PressVisual();
+	// Under the pointer (and the pointer not taken) as of the last Update - for
+	// a subclass drawing its own fallback face.
+	bool Hot() const { return m_hot; }
 
 	// THE PUSH (Michael, ui-updates: "animate as pushed, execute the action,
 	// then animate back"). A click does not fire the moment the button is

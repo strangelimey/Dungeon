@@ -108,6 +108,10 @@ uioverlap hud, `/check-ingame`. Screenshot at rest, pressed, and mid-walk.
 
 ## Phase 3 - Sheet tabs in cut stone (A, answer 2)
 
+DONE (2026-10-01). ModeButton is now a ui::Button subclass (the push, fire on
+press and the cut-stone draw come with it; the hand-drawn glyphs stay as the
+flat fallback). The tabs grew 30 -> 43 px: at the old size no etch read.
+
 Today: ModeButton (CharacterSheet.cpp:259-312) draws each glyph from
 DrawRect / DrawTriangle primitives (grid, bars, star, diamond, hourglass) on
 a flat theme fill; active = controlActive fill + accent border.

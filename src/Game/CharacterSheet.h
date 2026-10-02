@@ -36,9 +36,12 @@ private:
 	const size_t* m_member; // the sheet's live selection
 };
 
-// One button of the mode strip: a hand-drawn glyph (grid / bars / star / gem /
-// hourglass), owning its own hover, pressed while its mode is the active one.
-class ModeButton : public ui::Widget {
+// One button of the mode strip. A CUT STONE (more-ui-updates Phase 3): a
+// ui::Button with its tab's symbol etched in (etch_tab_<mode>.png), acting on
+// the press, and - while its mode is the one showing - held down with its gold
+// lit. Without the skin it draws the old hand-drawn glyph (grid / bars / star /
+// gem / hourglass) on a flat fill.
+class ModeButton : public ui::Button {
 public:
 	ModeButton(const gfx::Rect& rect, int index, const int* activeIndex,
 			   std::function<void(int)> onSelect);
@@ -49,8 +52,6 @@ private:
 
 	int m_index;
 	const int* m_active; // the sheet's live mode, as an index
-	std::function<void(int)> m_onSelect;
-	bool m_hot = false;
 };
 
 // The strip of mode buttons; splits itself into even columns.
@@ -58,6 +59,12 @@ class ModeSelector : public ui::Widget {
 public:
 	ModeSelector(const gfx::Rect& rect, int count, const int* activeIndex,
 				 std::function<void(int)> onSelect);
+	// Each mode's etched symbol and its lit twin, in Mode order (null = none).
+	void SetEtches(std::span<const gfx::Texture* const> etch,
+				   std::span<const gfx::Texture* const> lit);
+
+private:
+	std::vector<ModeButton*> m_buttons;
 };
 
 // One row of a list tab. Generic: it holds its index and asks its owner to draw
@@ -180,6 +187,12 @@ public:
 	// edits) and caches its strings. An out-of-range index leaves the sheet
 	// showing nothing (Draw bails), never a stale member.
 	void SetCharacter(size_t member);
+	// The tab stones' etched symbols (and lit twins), in Mode order. Handed in
+	// after construction: the sheet is built before the art load task runs.
+	void SetModeEtches(std::span<const gfx::Texture* const> etch,
+					   std::span<const gfx::Texture* const> lit) {
+		if (m_modeStrip) m_modeStrip->SetEtches(etch, lit);
+	}
 
 	void LayoutSelf(ui::UIContext& ctx) override;
 	void UpdateSelf(ui::UIContext& ctx) override;
@@ -353,6 +366,7 @@ private:
 	// The three scrolling tabs, in Mode order after Stats (Skills, Spells,
 	// Effects); only the active one is visible. Owned as children.
 	std::array<SheetList*, 3> m_lists{nullptr, nullptr, nullptr};
+	ModeSelector* m_modeStrip = nullptr; // the tab stones (a child)
 	// The Stats tab's numbers ("42 / 42", the attribute values) are formatted
 	// at DRAW time into stack buffers, not baked: the world keeps running under
 	// the sheet, so a value baked at open went stale while it was on screen.

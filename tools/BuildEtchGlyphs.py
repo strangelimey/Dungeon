@@ -93,6 +93,25 @@ def chevrons(dx, dy, count):
     return draw
 
 
+def outline(*paths):
+    """Closed and open strokes, each a list of points (closed = repeat the
+    first point last)."""
+    def draw(d):
+        for p in paths:
+            line(d, p, STROKE)
+    return draw
+
+
+def star(cx, cy, r_out, r_in, points=5):
+    import math
+    pts = []
+    for k in range(points * 2 + 1):
+        a = -math.pi / 2 + k * math.pi / points
+        r = r_out if k % 2 == 0 else r_in
+        pts.append((cx + r * math.cos(a), cy + r * math.sin(a)))
+    return pts
+
+
 GLYPHS = {
     # The movement pad, in its own order: turn left, forward, turn right /
     # strafe left, back, strafe right. Turns are DOUBLE chevrons, as before.
@@ -102,6 +121,20 @@ GLYPHS = {
     "move_strafe_left": chevrons(-1, 0, 1),
     "move_back": chevrons(0, 1, 1),
     "move_strafe_right": chevrons(1, 0, 1),
+    # The character sheet's tabs (more-ui-updates Phase 3), in its Mode order.
+    # They are drawn small (the tab stones are ~30 px tall), so each is a BOLD
+    # outline filling most of the square - the old hand-drawn glyphs' shapes,
+    # a backpack in place of the grid.
+    "tab_inventory": outline(
+        [(38, 54), (90, 54), (95, 100), (33, 100), (38, 54)],  # the bag
+        [(50, 54), (50, 38), (78, 38), (78, 54)],               # its handle
+        [(48, 72), (80, 72)]),                                  # the flap's edge
+    "tab_stats": outline(
+        [(38, 100), (38, 78)], [(64, 100), (64, 58)], [(90, 100), (90, 34)]),
+    "tab_skills": outline(star(64, 68, 40, 17)),
+    "tab_spells": outline([(64, 26), (94, 64), (64, 102), (34, 64), (64, 26)]),
+    "tab_effects": outline(
+        [(38, 30), (90, 30), (40, 98), (88, 98), (38, 30)]),     # an hourglass
 }
 
 

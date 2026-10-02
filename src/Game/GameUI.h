@@ -674,6 +674,10 @@ private:
 	// gold-lit), plus the block chamfer they sit on.
 	std::array<std::unique_ptr<gfx::Texture>, 6> m_moveEtch;
 	std::array<std::unique_ptr<gfx::Texture>, 6> m_moveEtchLit;
+	// The sheet's tab stones' symbols, in its Mode order (loaded in
+	// BuildStaticUi, before the sheet that points at them is built).
+	std::array<std::unique_ptr<gfx::Texture>, 5> m_tabEtch;
+	std::array<std::unique_ptr<gfx::Texture>, 5> m_tabEtchLit;
 	std::unique_ptr<gfx::Texture> m_frameBlockTex;
 	std::unique_ptr<gfx::Texture> m_frameBlockDownTex;
 	std::unique_ptr<gfx::Texture> m_glowTex; // a set hand box's centre glow

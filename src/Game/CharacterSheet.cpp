@@ -5,6 +5,7 @@
 #include "Game/CharacterSheet.h"
 #include "Game/CharacterSheetLayout.h"
 #include "Game/PartyHudDraw.h"
+#include "UI/Skin.h"
 
 #include "Core/Loc.h"
 
@@ -70,8 +71,8 @@ void CharacterSheet::BuildParts() {
 					   m_roster, &m_member);
 
 	const float stripW = kModeCount * kModeBtnW + (kModeCount - 1) * kModeBtnGap;
-	Add<ModeSelector>(gfx::Rect{kModeBtnX, kModeBtnY, stripW, kModeBtnH},
-					  kModeCount, &m_modeIndex, [this](int i) { SelectMode(i); });
+	m_modeStrip = Add<ModeSelector>(gfx::Rect{kModeBtnX, kModeBtnY, stripW, kModeBtnH},
+									kModeCount, &m_modeIndex, [this](int i) { SelectMode(i); });
 
 	// One list per scrolling tab, filling the sheet; each positions its heading
 	// and scrolling band from the shared layout table.
@@ -258,29 +259,33 @@ void SheetPortrait::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 
 ModeButton::ModeButton(const gfx::Rect& rect, int index, const int* activeIndex,
 					   std::function<void(int)> onSelect)
-	: m_index(index), m_active(activeIndex), m_onSelect(std::move(onSelect)) {
-	bounds = rect;
+	: ui::Button(rect, std::string(),
+				 [onSelect = std::move(onSelect), index] {
+					 if (onSelect) onSelect(index);
+				 }),
+	  m_index(index), m_active(activeIndex) {
 	debugName = "ModeButton";
+	fireOnPress = true; // a tab changes the page on the press (Michael)
 }
 
 void ModeButton::UpdateSelf(ui::UIContext& ctx) {
-	m_hot = false;
-	const Input* input = ctx.CurrentInput();
-	if (!input) return;
-	m_hot = !ctx.IsMouseConsumed() &&
-			Pixel().Contains(input->MouseX(), input->MouseY());
-	if (!m_hot) return;
-	ctx.ConsumeMouse();
-	if (input->WasMousePressed(MouseButton::Left) && m_onSelect) m_onSelect(m_index);
+	ui::Button::UpdateSelf(ctx);
+	// The current tab is held down and lit - however it got there: a click, or
+	// Tab / Shift+Tab stepping onto it.
+	active = *m_active == m_index;
 }
 
 void ModeButton::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
+	if (const ui::Skin* skin = ctx.GetSkin(); etch && skin && skin->block.texture) {
+		ui::Button::DrawSelf(ctx, batch); // the cut stone
+		return;
+	}
+	// The flat look (no skin, or uiskin=0): the hand-drawn glyph.
 	const ui::Theme& theme = ctx.GetTheme();
 	const gfx::Rect& r = Pixel();
 	const int i = m_index;
-	const bool active = *m_active == i;
 	batch.DrawRect(r, active ? theme.controlActive
-							 : (m_hot ? theme.controlHot : theme.control));
+							 : (Hot() ? theme.controlHot : theme.control));
 	ui::DrawBorder(batch, r, active ? theme.accent : theme.panelBorder);
 	const Vec4 ink = active ? theme.text : theme.textDim;
 	const float cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f;
@@ -322,8 +327,17 @@ ModeSelector::ModeSelector(const gfx::Rect& rect, int count,
 										   (span - 1.0f) * sheet::kModeBtnGap);
 	const float w = (1.0f - gap * (span - 1.0f)) / span;
 	for (int i = 0; i < count; ++i)
-		Add<ModeButton>(gfx::Rect{(w + gap) * static_cast<float>(i), 0.0f, w, 1.0f},
-						i, activeIndex, onSelect);
+		m_buttons.push_back(
+			Add<ModeButton>(gfx::Rect{(w + gap) * static_cast<float>(i), 0.0f, w, 1.0f}, i,
+							activeIndex, onSelect));
+}
+
+void ModeSelector::SetEtches(std::span<const gfx::Texture* const> etch,
+							 std::span<const gfx::Texture* const> lit) {
+	for (size_t i = 0; i < m_buttons.size(); ++i) {
+		m_buttons[i]->etch = i < etch.size() ? etch[i] : nullptr;
+		m_buttons[i]->etchLit = i < lit.size() ? lit[i] : nullptr;
+	}
 }
 
 } // namespace dungeon::game
