@@ -231,12 +231,27 @@ struct SaveData {
 		int wall = -1;
 	};
 
+	// A piece of dungeon that is HURT but still standing: its hit points, and
+	// whatever is riding it (a door left alight keeps burning across a save).
+	// Keyed exactly like BrokenProp, and for the same reasons. A broken piece is
+	// a BrokenProp instead - it has no hp and carries nothing. Written as a
+	// "damaged" line with its effects hung beneath as "brkeffect" lines, the
+	// enteffect pattern; a save without them simply has nothing damaged.
+	struct DamagedPiece {
+		int x = 0, z = 0;
+		std::string type;
+		int wall = -1;
+		float hp = 0.0f;
+		std::vector<EffectState> effects;
+	};
+
 	struct LevelState {
 		std::string stem;
 		std::vector<std::pair<int, int>> seen;
 		std::vector<EntityState> entities; // all kinds, diffs + spawns
 		std::vector<NicheOpen> niches;     // reveal-state diffs
 		std::vector<BrokenProp> broken;    // smashed props
+		std::vector<DamagedPiece> damaged; // hurt but standing (hp + effects)
 	};
 	// One entry per VISITED level, keyed by STEM.
 	//

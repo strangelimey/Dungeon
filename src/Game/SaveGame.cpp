@@ -313,6 +313,15 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 		// v24: props smashed on this level, by cell + type (see BrokenProp).
 		for (const SaveData::BrokenProp& b : lvl.broken)
 			t += std::format("broken {} {} {} {}\n", b.x, b.z, b.type, b.wall);
+		// Pieces hurt but standing: hp, then what rides them, hung beneath.
+		for (const SaveData::DamagedPiece& d : lvl.damaged) {
+			t += std::format("damaged {} {} {} {} {:.3f}\n", d.x, d.z, d.type, d.wall,
+							 d.hp);
+			for (const SaveData::EffectState& fx : d.effects)
+				t += std::format("brkeffect {} {} {:.3f} {:.3f} {:.3f} {}\n",
+								 EnTok(fx.id), EnTok(fx.school), fx.time, fx.duration,
+								 fx.magnitude, fx.source);
+		}
 		if (!lvl.seen.empty()) {
 			t += "seen";
 			for (const auto& [x, z] : lvl.seen) t += std::format(" {},{}", x, z);
@@ -642,6 +651,28 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			// it, or anything with no wall, reads as -1.
 			if (tok.size() >= 5) b.wall = IntOf(tok[4]);
 			currentBlock().broken.push_back(b);
+		} else if (kw == "damaged" && tok.size() >= 6) {
+			// A piece hurt but standing: <x> <z> <type> <wall> <hp>.
+			SaveData::DamagedPiece d;
+			d.x = IntOf(tok[1]);
+			d.z = IntOf(tok[2]);
+			d.type = std::string(tok[3]);
+			d.wall = IntOf(tok[4]);
+			d.hp = FloatOf(tok[5]);
+			currentBlock().damaged.push_back(std::move(d));
+		} else if (kw == "brkeffect" && tok.size() >= 6) {
+			// An effect riding the piece whose "damaged" line came just above:
+			// id school time duration magnitude [source] - enteffect's shape.
+			if (!currentBlock().damaged.empty()) {
+				SaveData::EffectState fx;
+				fx.id = DeTok(tok[1]);
+				fx.school = DeTok(tok[2]);
+				fx.time = FloatOf(tok[3]);
+				fx.duration = FloatOf(tok[4]);
+				fx.magnitude = FloatOf(tok[5]);
+				if (tok.size() >= 7) fx.source = IntOf(tok[6]);
+				currentBlock().damaged.back().effects.push_back(std::move(fx));
+			}
 		} else if (kw == "seen") {
 			SaveData::LevelState& lvl = currentBlock();
 			for (size_t i = 1; i < tok.size(); ++i) {

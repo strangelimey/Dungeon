@@ -215,7 +215,7 @@ void Game::RegisterDevCommands() {
 	m_console.Register({.name = "editor",
 						.group = CmdGroup::Levels,
 						.params = "[off]\n"
-								  "place <category> <id> <x> <z>\n"
+								  "place <category> <id> <x> <z> [north|east|south|west]\n"
 								  "drag <category> <id> <x> <z> [<x> <z> ...]\n"
 								  "erase <x> <z>\n"
 								  "fill <category> <id> rect <x0> <z0> <x1> <z1>\n"
@@ -579,7 +579,43 @@ void Game::RegisterDevCommands() {
 									   args[1]));
 								   return;
 							   }
-							   m_mapEditor.Paint(x, z, /*dragging*/ false);
+							   // THE WALL a wall-mounted kind hangs on. A mouse names it by
+							   // pointing; a script names it here, or gets the first solid
+							   // face (N, E, S, W - the rule a map load uses for a 'T'
+							   // glyph). With no face at all a sconce brush refused every
+							   // time, and the command still said it had placed one.
+							   WallFace face;
+							   Direction wall = Direction::North;
+							   if (!m_mapEditor.BrushIsWallMounted()) {
+								   // a floor kind takes no face
+							   } else if (args.size() > 5 && ParseDirection(args[5], wall)) {
+								   face = {x, z, wall, true};
+							   } else {
+								   for (const Direction d : {Direction::North, Direction::East,
+															 Direction::South, Direction::West})
+									   if (!m_world->Map().IsWalkable(x + DirDX(d), z + DirDZ(d))) {
+										   face = {x, z, d, true};
+										   break;
+									   }
+							   }
+							   const u64 rev0 = m_world->EditRevision();
+							   m_mapEditor.Paint(x, z, /*dragging*/ false, face);
+							   // A PLACEMENT that changed nothing placed nothing - say so as
+							   // a refusal, so a script that meant to stage something fails
+							   // instead of measuring an empty square. A surface brush is
+							   // exempt: repainting a square its own texture is a no-op that
+							   // the editrev suite checks on purpose.
+							   const bool surface = cat == MapEditor::PaletteCat::Walls ||
+													cat == MapEditor::PaletteCat::Floors ||
+													cat == MapEditor::PaletteCat::Ceilings ||
+													cat == MapEditor::PaletteCat::Themes;
+							   if (!surface && m_world->EditRevision() == rev0) {
+								   m_console.Refuse(std::format(
+									   "editor place: no {} placed at {},{} (the editor's "
+									   "reason is in the message log)",
+									   args[2], x, z));
+								   return;
+							   }
 							   m_console.Print(std::format("editor place: {} at {},{}",
 														   args[2], x, z));
 							   return;
@@ -1035,10 +1071,50 @@ void Game::RegisterDevCommands() {
 							   args.size() > 2 ? std::strtof(args[2].c_str(), nullptr)
 											   : 100.0f;
 						   const int n = m_world->SmashAt(x, z, amount);
-						   m_console.Print(
-							   n > 0 ? std::format("struck {} breakable(s) at {},{}", n,
-												   x, z)
-									 : std::format("nothing breakable at {},{}", x, z));
+						   // A REFUSAL when it struck nothing, so a script aimed at
+						   // an empty square fails rather than measuring nothing:
+						   // pipeline.eval's breakables section smashed three empty
+						   // cells of eval_arena for its whole life and passed.
+						   if (n > 0)
+							   m_console.Print(
+								   std::format("struck {} breakable(s) at {},{}", n, x, z));
+						   else
+							   m_console.Refuse(std::format("nothing breakable at {},{}", x, z));
+					   });
+	m_console.Register({.name = "breakables",
+						.group = CmdGroup::Combat,
+						.params = "[x z]\n<x> <z> <effect> [magnitude per sec for a DoT] [seconds]",
+						.summary = "list breakable pieces (hp, broken, effects), or land an effect on a cell's"},
+					   [this](const std::vector<std::string>& args) {
+						   int x = -1, z = -1;
+						   if (args.size() >= 2) {
+							   x = std::atoi(args[0].c_str());
+							   z = std::atoi(args[1].c_str());
+						   }
+						   if (args.size() >= 3) {
+							   const float mag = args.size() > 3
+								   ? std::strtof(args[3].c_str(), nullptr) : 8.0f;
+							   const float secs = args.size() > 4
+								   ? std::strtof(args[4].c_str(), nullptr) : 60.0f;
+							   const int n =
+								   m_world->ApplyEffectToBreakables(x, z, args[2], mag, secs);
+							   if (n < 0)
+								   m_console.Refuse(std::format("no effect '{}'", args[2]));
+							   else if (n == 0)
+								   m_console.Refuse(
+									   std::format("nothing breakable at {},{}", x, z));
+							   else
+								   m_console.Print(std::format("{} breakable(s) at {},{} gain {}",
+															   n, x, z, args[2]));
+							   return;
+						   }
+						   const std::vector<std::string> list =
+							   m_world->BreakableReport(x, z);
+						   if (list.empty()) {
+							   m_console.Print("no breakables");
+							   return;
+						   }
+						   for (const std::string& l : list) m_console.Print("  " + l);
 					   });
 	// `party` honours the lever's flag= wait, as a hand would.
 	m_console.Register({.name = "press",

@@ -389,6 +389,13 @@ public:
 		// struck a monster (hit or miss) or landed without one. AllocTest
 		// -Throw must show a throw that went and came down.
 		int throws = 0, throwStrikes = 0, throwLandings = 0;
+		// THE DUNGEON'S OWN EFFECTS: frames a breakable piece had its effect
+		// list aged (TickBreakables) - one per piece per frame. AllocTest
+		// -Impact must show a crate the blasts left alight actually burned.
+		int sceneryTicks = 0;
+		// Fixtures put out by breaking (DouseFixture): the light, flame and haze
+		// change a wrecked brazier makes mid-fight. AllocTest -Impact must show one.
+		int fixturesDoused = 0;
 	};
 
 	// ========================================================================
@@ -2562,6 +2569,11 @@ private:
 		const FixtureKind* kind = nullptr; // resolved catalog id (mesh/tex/flame)
 		bool brazier = false;    // floor-standing (light params branch on this)
 		bool lit = true;         // false: prop still drawn, but no light/flame/smoke
+		// Which map record this fire is - the FixtureBreak key (cell + wall, -1
+		// for a brazier) - so breaking a fixture can put ITS fire out. `lit` is
+		// copied from the record when the fires are built, and a record changed
+		// later (a broken brazier) did not reach the light, flame and smoke.
+		int x = 0, z = 0, wall = -1;
 		float lightRadius = 7.0f; // point-light reach in metres (sconce brightness * cell)
 		Mat4 world;        // prop transform
 		Vec3 flamePos;     // particle + light origin
@@ -2788,6 +2800,10 @@ private:
 	void ForgetModelFile(const std::string& file);
 	void BuildFires();
 	void BuildTurbidityMap();
+	// The mid-frame haze change (a fixture breaking): rewrite the kept pixels and
+	// let RenderScene copy them into the existing texture. Allocation-free.
+	void RefreshTurbidity();
+	void FillTurbidityPixels(); // m_map's turbidity -> m_turbidityPixels
 	void RebuildFiresAndDust(); // WaitIdle + rebuild fires + dust (live sconce edits)
 	// A structural repaint strands whatever occupied the cell: painted solid ⇒
 	// remove the monsters/items/buttons/decorations (and their .ent records)
@@ -2876,6 +2892,13 @@ private:
 	// lands its payload on every combatant of its target side in the cell it died
 	// in — CELL-WIDE, where a hit is lane-wide (see the definition for why).
 	void ResolveProjectileExpiry(const ProjectileExpiry& expiry);
+	// A bolt that broke against a SHUT, BREAKABLE door in (cx, cz) strikes it
+	// (its damage, then its procs - a fire bolt may set it alight) and returns
+	// true. False when there is no such door: an immune door is not a target.
+	bool StrikeDoorWithBolt(int cx, int cz, const ProjectileExpiry& expiry);
+	// The same for a THROWN item (DungeonWorld_Throw.cpp): its blow, an enchanted
+	// weapon's element and its on_hit effects. The item still comes down in front.
+	bool StrikeDoorWithThrow(int cx, int cz, const ProjectileExpiry& expiry);
 	// A THROWN item's two ends (DungeonWorld_Throw.cpp). A strike: a monster in
 	// the lane takes the blow through fx::Deal as a swing's (a carried blast
 	// bursts instead), the thrower trains `throwing` on a landed one, and the
@@ -2952,6 +2975,14 @@ public:
 	// many were struck. The dev console's `smash`, and the seam a future weapon
 	// swing at scenery would use.
 	int SmashAt(int x, int z, float amount);
+	// One line per damageable piece of dungeon (all of them, or one cell's): its
+	// hp, whether it is broken, and every effect riding it with its time left -
+	// the console's `breakables`, which is how a script watches a door burn.
+	std::vector<std::string> BreakableReport(int x = -1, int z = -1) const;
+	// Land an effect on every breakable in a cell, as a proc would (its kind's own
+	// school). Returns how many took it, or -1 for an unknown effect id.
+	int ApplyEffectToBreakables(int x, int z, std::string_view id, float magnitude,
+								float seconds);
 
 private:
 	// Say what a blow did to a breakable, and what it broke — in that order.
@@ -3244,19 +3275,25 @@ private:
 	// It does not dodge: Evasion is 0 whatever arrives. An inert thing has no
 	// guard, which is the honest answer and also what makes a swing at scenery
 	// feel different from a swing at something that is trying not to be hit.
+	//
+	// It holds VIEWS, never strings: the name is a lang-key prefix plus the type id
+	// it borrows from the piece (resolved through loc::ViewKey), and the broken key
+	// is a literal. A burning piece builds one of these every frame it burns
+	// (TickBreakables), inside the frames the allocation guard watches, and the
+	// "door." + type it used to concatenate allocated each time.
 	class BreakableTarget final : public fx::ITarget {
 	public:
-		BreakableTarget(DungeonWorld& world, Breakable& brk, std::string nameKey,
-						std::string brokenKey, std::function<void()> onBroken)
-			: m_world(world), m_brk(brk), m_nameKey(std::move(nameKey)),
-			  m_brokenKey(std::move(brokenKey)),
-			  m_onBroken(std::move(onBroken)) {}
+		BreakableTarget(DungeonWorld& world, Breakable& brk, std::string_view namePrefix,
+						std::string_view nameId, std::string_view brokenKey,
+						std::function<void()> onBroken)
+			: m_world(world), m_brk(brk), m_namePrefix(namePrefix), m_nameId(nameId),
+			  m_brokenKey(brokenKey), m_onBroken(std::move(onBroken)) {}
 		// The line for "this broke", said by the CALLER once it has narrated the
 		// blow — the same rule a monster's death line follows, and for the same
 		// reason: "the barrel is smashed" has to read AFTER the hit that smashed it,
 		// and a callback fired from inside the pipeline runs before the caller has
 		// said anything at all.
-		const std::string& BrokenKey() const { return m_brokenKey; }
+		std::string_view BrokenKey() const { return m_brokenKey; }
 		float Evasion(DamageType) const override { return 0.0f; }
 		float Soak() const override { return m_brk.soak; }
 		float Resist(DamageType type) const override;
@@ -3270,10 +3307,22 @@ private:
 	private:
 		DungeonWorld& m_world;
 		Breakable& m_brk;
-		std::string m_nameKey;
-		std::string m_brokenKey;
-		std::function<void()> m_onBroken;
+		std::string_view m_namePrefix; // "door." / "decoration." / "fixture."
+		std::string_view m_nameId;     // the piece's own type id, borrowed
+		std::string_view m_brokenKey;
+		std::function<void()> m_onBroken; // small captures only: stored inline
 	};
+	// The adapter for each breakable kind - ONE place per kind says what it is
+	// called and what breaking it does, shared by ForEachBreakableAt (a blow, a
+	// blast) and TickBreakables (an effect riding it), so the two cannot drift.
+	BreakableTarget DoorTarget(Door& d);
+	BreakableTarget DecorationTarget(Decoration& p);
+	BreakableTarget FixtureTarget(FixtureBreak& fb);
+	// ONE frame of every breakable's effects: age them and let their DoTs bite,
+	// through the same TickEffects a combatant uses - so a door left alight burns
+	// DOWN, and a ward on a crate runs out. Only pieces carrying an effect build an
+	// adapter, so a dungeon with nothing alight costs a walk of three lists.
+	void TickBreakables(float dt);
 
 	// The balance knobs an effect's own maths needs, in the shape the module
 	// takes them (it never sees Balance.h).
@@ -3419,6 +3468,11 @@ private:
 	ShadowScheduler m_shadows;
 	gfx::Atmosphere m_atmosphere; // per-cell air turbidity (dust)
 	std::unique_ptr<gfx::Texture> m_turbidityMap;
+	// Its pixels, kept: a fixture breaking mid-fight changes the haze, and the
+	// in-place refresh (RefreshTurbidity) rewrites these and has the render copy
+	// them into the existing texture - no new texture, no GPU drain, no heap.
+	std::vector<u8> m_turbidityPixels;
+	bool m_turbidityDirty = false;
 	// See-through peek (the Sight spell): recomputed each UpdateLights from the
 	// active Sight effects. m_sightCell xy/zw = the ghosted wall cell's world
 	// box (inactive when zw <= xy); m_sightTint rgb/a = the school ghost tint.
@@ -3636,6 +3690,13 @@ private:
 	// Walkability grid shared into snapshots, rebuilt only when the map changes.
 	std::shared_ptr<const std::vector<uint8_t>> m_walkableCache;
 	u32 m_walkableRev = 0xFFFFFFFFu; // map Revision() the cache was built for
+	// The grids the cache is drawn from - the snapshot pool's trick for the grid.
+	// A map change in PLAY (a fixture broken and doused bumps the revision) used
+	// to make_shared a fresh grid inside a guarded frame, because the old one may
+	// still be in a worker's hands. Now a grid no one else holds (use_count == 1)
+	// is refilled in place, and a level of a new size builds a SPARE beside its
+	// grid so the first such change has one waiting.
+	std::vector<std::shared_ptr<std::vector<uint8_t>>> m_walkablePool;
 	// Snapshot pool so steady-state frames allocate nothing (CLAUDE.md memory
 	// strategy): BuildAISnapshot reuses a buffer no worker still holds (use_count
 	// == 1), zero-filling its flat grids and clear()ing its vectors in place

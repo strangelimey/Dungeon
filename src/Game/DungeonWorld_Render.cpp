@@ -153,6 +153,12 @@ void DungeonWorld::RenderScene(ID3D12GraphicsCommandList* list) {
 	atmo.sightCell = m_sightCell;
 	atmo.sightTint = m_sightTint;
 	atmo.sightHole = m_sightHole;
+	// A haze change since the last frame (RefreshTurbidity) lands before the pass
+	// that samples it.
+	if (m_turbidityDirty && m_turbidityMap) {
+		m_renderer.UpdateTexture(list, *m_turbidityMap, m_turbidityPixels);
+		m_turbidityDirty = false;
+	}
 	m_renderer.BeginScene(list, m_camera, m_lights, atmo, /*hdrTarget=*/true);
 	const ViewCull cull = ViewCull::FromFrustum(m_camera.ViewProj());
 	SubmitSceneGeometry(list, &cull);
