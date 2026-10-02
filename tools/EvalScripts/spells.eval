@@ -129,6 +129,26 @@ setskill 2 air 30
 cast 2 0 air
 monsters
 
+; --- MEMORIZE: offered only for a rune its holder does not know ----------------
+; The reset above handed Maren her kit: Ingwaz in pack slot 0, Hagalaz in 1. The
+; details dialog's button learns Ingwaz and spends it; a second Ingwaz then offers
+; no button and stays in the pack; the dialog opened on no one's item has none.
+
+echo === memorize-details ===
+itemdetails pack 2 0
+itemdetails status
+itemdetails memorize
+inventory status
+give rune_multiple 2
+itemdetails pack 2 0
+itemdetails status
+itemdetails memorize
+itemdetails off
+inventory status
+itemdetails rune_explode
+itemdetails status
+itemdetails off
+
 ; --- THE GRAMMAR: school, form, then one modifier ------------------------------
 
 ; The reset above forgot every rune Maren learned, so the rest relearn them.

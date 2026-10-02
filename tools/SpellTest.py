@@ -47,6 +47,10 @@ results = []
 # The checks that rest on no spell: with every cast cut (--selftest) these, and
 # ONLY these, may still pass.
 SPELL_FREE = {
+	"the details dialog offers Memorize for a rune its holder does not know",
+	"and pressing it learns the rune and spends the tablet",
+	"a rune its holder already knows offers no Memorize, and is not spent",
+	"the dialog opened on no one's item offers no Memorize",
 	"a torch doused before a save is out again after the load",
 	"a new game finds the torch doused in the last one lit",
 	"the adept's volleys hurt the party",
@@ -229,6 +233,27 @@ def judge(lines):
 	f = fires(get("newgame-relights"))
 	check(len(f) == 2 and out(f[0]) and lit(f[1]),
 		  "a new game finds the torch doused in the last one lit", f"{f}")
+
+	print("MEMORIZE - offered only for a rune its holder does not know")
+	sec = get("memorize-details")
+	shown = [l.endswith("memorize=1") for l in sec if l.startswith("item details: open")]
+	slot0 = []  # Maren's pack slot 0, at each `inventory status`
+	for l in sec:
+		m = re.search(r"\| 2: (\S+)", l)
+		if l.startswith("inventory:") and m:
+			slot0.append(m.group(1))
+	pressed = [l for l in sec if l.startswith("item details: memorized")
+			   or l.startswith("item details: no Memorize")]
+	check(len(shown) == 3 and shown[0],
+		  "the details dialog offers Memorize for a rune its holder does not know", f"{shown}")
+	check(pressed[:1] == ["item details: memorized"] and slot0[:1] == ["-"],
+		  "and pressing it learns the rune and spends the tablet", f"{pressed} {slot0}")
+	check(len(shown) == 3 and not shown[1] and pressed[1:2] == ["item details: no Memorize button up"]
+		  and slot0[1:2] == ["rune_multiple"],
+		  "a rune its holder already knows offers no Memorize, and is not spent",
+		  f"{shown} {pressed} {slot0}")
+	check(len(shown) == 3 and not shown[2],
+		  "the dialog opened on no one's item offers no Memorize", f"{shown}")
 
 	print("GRAMMAR - school, form, then one modifier")
 	casts = [l for l in get("grammar") if l.startswith(("cast away", "no cast"))]

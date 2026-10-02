@@ -668,6 +668,8 @@ void Game::RegisterPartyCommands() {
 	m_console.Register({.name = "itemdetails",
 						.group = CmdGroup::Characters,
 						.params = "<item> [kg]\n"
+								  "pack <member> <slot>\n"
+								  "memorize\n"
 								  "off\n"
 								  "status",
 						.summary = "open, close or report the item details dialog"},
@@ -681,15 +683,33 @@ void Game::RegisterPartyCommands() {
 						   if (args[0] == "status") {
 							   const ItemDetailsDialog* dlg = m_ui.DetailsDialog();
 							   m_console.Print(std::format(
-								   "item details: {} ({} preview submeshes) opens={}",
+								   "item details: {} ({} preview submeshes) opens={} memorize={}",
 								   m_ui.ItemDetailsOpen() ? "open" : "closed",
 								   dlg ? dlg->PreviewSubs().size() : 0,
-								   dlg ? dlg->OpenCount() : 0u));
+								   dlg ? dlg->OpenCount() : 0u,
+								   dlg && dlg->MemorizeShown() ? 1 : 0));
+							   return;
+						   }
+						   if (args[0] == "memorize") {
+							   m_console.Print(m_ui.PressDetailsMemorize()
+												   ? "item details: memorized"
+												   : "item details: no Memorize button up");
 							   return;
 						   }
 						   if (m_state != AppState::Playing &&
 							   m_state != AppState::CharacterSheet) {
 							   m_console.Refuse("only over the level or the sheet");
+							   return;
+						   }
+						   if (args[0] == "pack") {
+							   if (!Need(m_console, args, 3)) return;
+							   const size_t m = static_cast<size_t>(std::atoi(args[1].c_str()));
+							   m_ui.OpenPackItemDetails(m, std::atoi(args[2].c_str()));
+							   if (!m_ui.ItemDetailsOpen())
+								   m_console.Refuse("nothing in that slot");
+							   else
+								   m_console.Print(std::format("item details: member {} pack slot {}",
+															   args[1], args[2]));
 							   return;
 						   }
 						   const float kg =

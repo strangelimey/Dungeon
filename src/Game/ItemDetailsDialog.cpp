@@ -110,11 +110,20 @@ ItemDetailsDialog::~ItemDetailsDialog() = default;
 void ItemDetailsDialog::Build() {
 	m_ui.Clear();
 	m_rows = {};
-	DialogChrome chrome =
-		BuildDialogChrome(m_ui, kPanel, " ", m_closeIcon, [this] { Close(); },
-						  /*withFooter=*/false);
+	m_memorize = nullptr;
+	DialogChrome chrome = BuildDialogChrome(m_ui, kPanel, " ", m_closeIcon, [this] { Close(); });
 	m_title = chrome.title;
 	if (m_title) m_title->text.reserve(kValueCap);
+
+	// The footer holds the one action an item can be given from here: a rune
+	// MEMORIZED (right-aligned, the dialogs' footer convention). Hidden until the
+	// caller says the holder can use it.
+	chrome.footer->Space(ui::Len::Fill());
+	m_memorize = chrome.footer->Row<ui::Button>(FooterButton(1.6f), loc::Tr("use.memorize"),
+												[this] {
+													if (onMemorize) onMemorize();
+												});
+	m_memorize->visible = false;
 
 	ui::Stack* body = chrome.body;
 	body->horizontal = true;
@@ -228,9 +237,16 @@ void ItemDetailsDialog::Open(const ItemDetails& d, float weightKg) {
 		m_desc->text.assign(missing ? std::string_view{} : desc.View());
 	}
 	m_spin = 0.0f;
+	ShowMemorize(false); // the caller shows it, for a rune its holder can learn
 	m_open = true;
 	++m_opens;
 }
+
+void ItemDetailsDialog::ShowMemorize(bool shown) {
+	if (m_memorize) m_memorize->visible = shown;
+}
+
+bool ItemDetailsDialog::MemorizeShown() const { return m_memorize && m_memorize->visible; }
 
 void ItemDetailsDialog::Update(const Input& input, float w, float h, float dt) {
 	if (!m_open) return;

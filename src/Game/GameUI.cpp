@@ -146,6 +146,8 @@ void GameUI::BuildStaticUi() {
 	BuildCharacterSheet();
 	// The item details dialog, built whole now so a right-click only fills it.
 	m_itemDetails = std::make_unique<ItemDetailsDialog>(m_device, m_fonts);
+	m_itemDetails->onMemorize = [this] { MemorizeFromDetails(); };
+	m_detailsItem.reserve(64); // assigned in a guarded frame (a right-click)
 	ApplyTheme(); // again, now the dialog exists to receive it (the skin
 				  // arrives with LoadTitleArt, whose ApplySkin reaches it too)
 }

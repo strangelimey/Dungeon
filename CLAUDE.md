@@ -1816,7 +1816,13 @@ Michael's notes and answers: docs/ui-updates-notes.md; the plan: -plan.md.
   Game renders it into the editor's `m_modelPreview` AFTER the scene (the editor
   dialogs' preview replaces the scene pass; this one must not) and only while no
   editor preview holds that target. Modal for the mouse, not the keyboard; the
-  world keeps running. Dev: `itemdetails <item [kg]|off|status>`.
+  world keeps running. Its footer has a MEMORIZE button (spell-updates), shown
+  only when opened on a member's own rune that member does not know. That rule
+  is `GameUI::CanMemorize`, and it is the ONE test for every place Memorize is
+  offered - the hand menu and the pack / doll menu skip the row too, and
+  `MemorizeSlot` refuses a known rune rather than spend the tablet. Dev:
+  `itemdetails <item [kg]|pack <member> <slot>|memorize|off|status>` (status
+  prints `memorize=`); judged by SpellTest's MEMORIZE checks.
 - CHECKED: `AllocTest.ps1 -Sheet` (hover, all tabs, a right-click open, the
   spin, the menu - inside the window; refuses a PASS with no open counted). It
   found `ModelPreview::Render` building its light rig every frame, which was
