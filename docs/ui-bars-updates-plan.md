@@ -61,6 +61,15 @@ one of two schemes on trial.
 
 ## Phase 3 - Rune tablets in item sockets (notes C) - a trial
 
+OUTCOME (2026-10-02): built ON MAIN by another session (a1b81d3, CLAUDE.md
+6aaf35e) and merged into this branch (ba0573b); Michael kept main's. It differs
+from C1 below: the HUD hand boxes, the doll's hand cells, a set hand's recipe,
+the Magic window and Known Spells stay the GLYPH (DrawItemIcon's `symbolic`);
+the groove is lit in 3D (MaterialParams::emissiveGroove) rather than a glyph
+laid over it. This branch's own version is kept as `git stash` "ui-bars-updates
+P3 (own rune tablets)" in case anything in it is wanted. The plan below is how
+it was planned here, not what shipped.
+
 The world already draws a rune item as `rune_tablet.gltf` wearing the rune's own
 texture set (`rune_<symbol>`), pulsing in its school's colour on the floor. The
 sockets draw the flat-tile PNG's glyph instead (DrawRuneGlow).
