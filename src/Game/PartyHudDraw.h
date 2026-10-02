@@ -17,7 +17,7 @@ namespace dungeon::game {
 inline constexpr Vec4 kSlotBg{0.0f, 0.0f, 0.0f, 1.0f};
 
 // The FLAT bar: a theme-filled track, a coloured fill `fraction` wide, a 1px
-// border. The skill XP bars use it, and so does the uiskin=0 debug look.
+// border. The uiskin=0 debug look, and the fallback of the framed bars below.
 void DrawStatBar(gfx::SpriteBatch& batch, const gfx::Rect& rect, float fraction,
 				 const Vec4& color, const ui::Theme& theme);
 
@@ -49,6 +49,25 @@ struct BarFrameReach {
 	float left, right, top, bottom;
 };
 BarFrameReach FrameReach(float tubeH);
+
+// The tube for a bar laid out in `box`, when its WHOLE frame - the glass plus
+// the caps' reach above and below - must fit `roomH` (a row's pitch), or one
+// bar's scrollwork runs into its neighbour's. The tube shrinks to fit, stays
+// centred where the box was, and gives up the caps' reach across so the frame
+// stays inside the box's width. Unframed styles get the box back unchanged.
+// kFramedRowShare is how much of `roomH` the whole frame may take - a breath
+// between one frame's foot and the next one's crown; a layout sizing a row
+// for a given glass divides by it.
+inline constexpr float kFramedRowShare = 0.94f;
+gfx::Rect FitFramedTube(gfx::Rect box, float roomH, const ResourceBarStyle& style);
+
+// A PROGRESS bar (the sheet's skills: the way to the next level, not a pool) -
+// the Progress fill in `tint` inside the same frame, or the flat bar when the
+// style is unframed. Fill and frame in one call: its rows are spaced by
+// FitFramedTube, so no frame reaches a neighbour's fill.
+void DrawProgressBar(gfx::SpriteBatch& batch, const gfx::Rect& tube, float fraction,
+					 const Vec4& tint, float seed, const ResourceBarStyle& style,
+					 const ui::Theme& theme);
 
 // The heartbeat (Michael, 2026-09-30): resting, faster once the party is
 // NOTICED (a monster in aggro), and much slower NEAR DEATH - which wins over

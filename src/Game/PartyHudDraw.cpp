@@ -50,6 +50,37 @@ BarFrameReach FrameReach(float tubeH) {
 			kTubeBottom * frameH};
 }
 
+gfx::Rect FitFramedTube(gfx::Rect box, float roomH, const ResourceBarStyle& style) {
+	if (!style.framed || !style.frame) return box;
+	const BarFrameReach unit = FrameReach(1.0f);
+	const float fit = roomH * kFramedRowShare / (1.0f + unit.top + unit.bottom);
+	if (box.h > fit) {
+		box.y += (box.h - fit) * 0.5f;
+		box.h = fit;
+	}
+	const BarFrameReach reach = FrameReach(box.h);
+	box.x += reach.left;
+	box.w = std::max(box.w - reach.left - reach.right, 0.0f);
+	return box;
+}
+
+void DrawProgressBar(gfx::SpriteBatch& batch, const gfx::Rect& tube, float fraction,
+					 const Vec4& tint, float seed, const ResourceBarStyle& style,
+					 const ui::Theme& theme) {
+	const float t = std::clamp(fraction, 0.0f, 1.0f);
+	if (!style.framed || !style.frame) {
+		DrawStatBar(batch, tube, t, tint, theme);
+		return;
+	}
+	gfx::BarFill fill;
+	fill.kind = gfx::BarKind::Progress;
+	fill.fraction = t;
+	fill.tint = tint;
+	fill.seed = seed;
+	batch.DrawBarFill(tube, fill);
+	DrawResourceBarFrame(batch, tube, style);
+}
+
 void DrawResourceBar(gfx::SpriteBatch& batch, const gfx::Rect& tube, ResourceBar which,
 					 float fraction, size_t member, const ResourceBarStyle& style,
 					 const ui::Theme& theme) {

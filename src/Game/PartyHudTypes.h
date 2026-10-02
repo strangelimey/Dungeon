@@ -47,6 +47,13 @@ struct ResourceBarStyle {
 	// heartbeat at that rate instead of HeartRateTarget.
 	bool demo = false;
 	float pinnedBpm = -1.0f;
+	// How the sheet's SKILL bars (progress to the next level) are coloured - two
+	// candidates on trial (Michael, ui-bars-updates), flipped live by `hudbars
+	// skills grade|class`: GRADE greys an empty bar and greens a nearly full
+	// one; CLASS gives each skill family its own colour (magic by school,
+	// weapons steel, defence bronze, each reserve its pool's colour).
+	enum class SkillColors { Grade, Class };
+	SkillColors skillColors = SkillColors::Class;
 	// The FLAT look's fills (uiskin=0, or no frame texture). The framed bars
 	// draw their own procedural colours (bar.hlsl), the two SUPPLY meters
 	// included (docs/health-and-healing.md). Warm bread against cold water, so

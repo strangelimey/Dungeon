@@ -8,7 +8,9 @@
 // ============================================================================
 #include "Game/CharacterSheet.h"
 #include "Game/CharacterSheetLayout.h"
+#include "Game/Combat.h"
 #include "Game/PartyHudDraw.h"
+#include "Game/PartyHudTypes.h"
 #include "Game/Spell/Spell.h"
 
 #include "Core/Loc.h"
@@ -26,6 +28,57 @@ using ui::WrapLines;
 
 int CountLines(const ui::Font& font, std::string_view text, float maxW) {
 	return WrapLines(font, text, maxW, [](std::string_view, int) {});
+}
+
+Vec4 Mix(const Vec4& a, const Vec4& b, float t) {
+	return {a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t, 1.0f};
+}
+
+// The skill bars' two candidate colourings (ResourceBarStyle::SkillColors).
+// First cuts, Michael's to judge side by side.
+constexpr Vec4 kGradeEmpty{0.30f, 0.30f, 0.30f, 1.0f}; // just levelled: grey
+constexpr Vec4 kGradeFull{0.30f, 0.95f, 0.35f, 1.0f};  // about to level: green
+constexpr Vec4 kWeaponSteel{0.70f, 0.76f, 0.84f, 1.0f};
+constexpr Vec4 kDefenceBronze{0.85f, 0.62f, 0.30f, 1.0f};
+// The reserves wear the pool each one feeds (bar.hlsl's bright stops).
+constexpr Vec4 kHealthRed{0.95f, 0.18f, 0.14f, 1.0f};
+constexpr Vec4 kStaminaGreen{0.35f, 0.95f, 0.45f, 1.0f};
+constexpr Vec4 kManaBlue{0.30f, 0.60f, 1.00f, 1.0f};
+
+Vec4 SkillBarColor(std::string_view id, float frac, ResourceBarStyle::SkillColors mode) {
+	if (mode == ResourceBarStyle::SkillColors::Grade)
+		return Mix(kGradeEmpty, kGradeFull, std::clamp(frac, 0.0f, 1.0f));
+	if (SpellSymbol sym; ParseSymbol(id, sym)) {
+		const Vec4 c = ElementColor(sym);
+		return {c.x, c.y, c.z, 1.0f};
+	}
+	if (id == resource::SkillId(resource::Kind::Health)) return kHealthRed;
+	if (id == resource::SkillId(resource::Kind::Stamina)) return kStaminaGreen;
+	if (id == resource::SkillId(resource::Kind::Mana)) return kManaBlue;
+	if (id == kAvoidSkill) return kDefenceBronze;
+	for (int c = 0; c < static_cast<int>(ArmorClass::Count); ++c)
+		if (const char* skill = ArmorSkillId(static_cast<ArmorClass>(c)); *skill && id == skill)
+			return kDefenceBronze;
+	// Everything else is a way of hitting things: unarmed, throwing, and every
+	// weapon class a catalog names.
+	return kWeaponSteel;
+}
+
+// A skill bar's glass, as a share of the text height beside it (Michael, A1:
+// the rows open up so the bar stays about as tall as its text).
+constexpr float kSkillGlass = 0.8f;
+
+// The height a skill row's LINE takes: the text's line advance, or - framed -
+// enough for the whole frame round a kSkillGlass glass, whichever is taller.
+// Measure and Draw both ask, so the text, the bar and the row pitch agree.
+float SkillBand(const ui::Font& font, const ResourceBarStyle& style) {
+	float band = font.LineAdvance();
+	if (style.framed && style.frame) {
+		const BarFrameReach unit = FrameReach(1.0f);
+		band = std::max(band, kSkillGlass * font.Height() *
+								  (1.0f + unit.top + unit.bottom) / kFramedRowShare);
+	}
+	return band;
 }
 
 } // namespace
@@ -277,11 +330,13 @@ float CharacterSheet::MeasureSkillRow(size_t i, ui::UIContext& ctx,
 	// One line plus a small gap, measured — not a fixed pitch. A skill row is a
 	// single line of text, so anything more is dead space in a list that grows.
 	const ui::Font& font = ctx.FontAt(ui::FontRole::Body, Em(kSkillRem));
-	float h = font.LineAdvance() + kSkillRowGap * Body().h;
+	// A heading has no bar, so it keeps the plain line.
+	const bool header = i < m_skillRows.size() && m_skillRows[i].header;
+	float h = (header ? font.LineAdvance() : SkillBand(font, *m_barStyle)) +
+			  kSkillRowGap * Body().h;
 	// Not the FIRST heading, which would push the whole list off the tab's top
 	// edge for no gain — there is nothing above it to be separated from.
-	if (i > 0 && i < m_skillRows.size() && m_skillRows[i].header)
-		h += Em(kSkillGroupGapRem);
+	if (i > 0 && header) h += Em(kSkillGroupGapRem);
 	return h;
 }
 
@@ -301,13 +356,24 @@ void CharacterSheet::DrawSkillRow(size_t i, ui::UIContext& ctx,
 		font.Draw(batch, row.label, Ax(px, kLeft), top, theme.accent);
 		return;
 	}
-	font.Draw(batch, row.label, Ax(px, kLabelX), r.y, theme.textDim);
+	// The row's line is SkillBand tall (the frame needs more than the text); the
+	// text and the bar share its centre line.
+	const float band = SkillBand(font, *m_barStyle);
+	const float textY = r.y + (band - font.Height()) * 0.5f;
+	font.Draw(batch, row.label, Ax(px, kLabelX), textY, theme.textDim);
 	const float vw = font.MeasureWidth(row.level);
-	font.Draw(batch, row.level, Ax(px, kValueRight) - vw, r.y, theme.text);
-	// The bar stands as tall as the text beside it, so it tightens with the row
-	// instead of holding it open at the Stats tab's height.
-	DrawStatBar(batch, {Ax(px, kSkillBarX), r.y, kSkillBarW * px.w, font.Height()},
-				row.frac, row.tint.w > 0.0f ? row.tint : theme.accent, theme);
+	font.Draw(batch, row.level, Ax(px, kValueRight) - vw, textY, theme.text);
+	// Framed, the glass is kSkillGlass of the text height and the whole frame
+	// fits the band; flat, the bar stands as tall as the text, as it always did.
+	const bool framed = m_barStyle->framed && m_barStyle->frame;
+	const float barH = framed ? kSkillGlass * font.Height() : font.Height();
+	const gfx::Rect tube = FitFramedTube(
+		{Ax(px, kSkillBarX), r.y + (band - barH) * 0.5f, kSkillBarW * px.w, barH}, band,
+		*m_barStyle);
+	const float seed = static_cast<float>(m_member) * 1.37f + static_cast<float>(i) * 0.53f;
+	DrawProgressBar(batch, tube, row.frac,
+					SkillBarColor(row.id, row.frac, m_barStyle->skillColors), seed, *m_barStyle,
+					theme);
 }
 
 float CharacterSheet::MeasureSpellRow(size_t i, ui::UIContext& ctx,
