@@ -221,7 +221,10 @@ Key conventions (memorize, they bite):
   a LIT one is `element = fire`, so its fire scales with tier and skill, plus
   an `on_hit` burn. A MAGICAL torch (`torch_magic`) adds `power_level` (burn_time
   x (1 + level), folded in at load) and `flame_color` (its light AND the drawn
-  flame: icon, details dialog; ItemKind::flameColor, DrawFlame's tint). CHARGE IS
+  flame: icon, details dialog; ItemKind::flameColor, DrawFlame's tint). A wall
+  BRACKET REMEMBERS its torch: `WallSconce::torch` (unlit id, "" = the fixture's
+  own) + `torchCharge`, set by MountTorchAt, read by TakeTorchAt, reset with the
+  flips, saved as 6th/7th tokens of the `fire` line. CHARGE IS
   PART OF THE ITEM everywhere it can be: `ItemSlot {typeId, charge}`, the
   cursor's HeldItem, a floor Item, a thrown cargo, and the save (`id#charge`).
   Lighting / dousing / filling RENAMES an item in its slot (`lit_as` /

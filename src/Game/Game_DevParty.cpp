@@ -524,7 +524,7 @@ void Game::RegisterPartyCommands() {
 	// bracket or mounted back with no click.
 	m_console.Register({.name = "torch",
 						.group = CmdGroup::Party,
-						.params = "\nstatus\ntake\nmount [item]\ncharge <member> <hand> <seconds>",
+						.params = "\nstatus\ntake\nmount [item [charge]]\ncharge <member> <hand> <seconds>",
 						.summary = "the held torches' charge; take / mount the wall torch ahead"},
 					   [this](const std::vector<std::string>& args) {
 						   const std::string what = args.empty() ? "status" : args[0];
@@ -538,8 +538,12 @@ void Game::RegisterPartyCommands() {
 							   if (what == "take") {
 								   ok = m_world->TakeTorchAt(x, z, wall, m_heldItem);
 							   } else if (args.size() >= 2) { // a named torch, from nowhere
-								   ok = m_world->MountTorchAt(x, z, wall, args[1]);
-							   } else if (m_heldItem && m_world->MountTorchAt(x, z, wall, *m_heldItem)) {
+								   const float charge = args.size() >= 3
+									   ? static_cast<float>(std::atof(args[2].c_str()))
+									   : kNoCharge;
+								   ok = m_world->MountTorchAt(x, z, wall, args[1], charge);
+							   } else if (m_heldItem && m_world->MountTorchAt(x, z, wall, *m_heldItem,
+																			  m_heldItem.Charge())) {
 								   m_heldItem.reset(); // the cursor's torch goes in
 								   ok = true;
 							   }
@@ -569,11 +573,16 @@ void Game::RegisterPartyCommands() {
 							   m_console.Print(std::format("  cursor: {} charge {:.1f}", *m_heldItem,
 														   m_heldItem.Charge()));
 						   const FireAhead f = m_world->FireAheadOfParty();
-						   m_console.Print(std::format("  wall torch ahead: {}",
+						   // ...and WHICH torch is in it (the bracket remembers).
+						   std::string_view inIt;
+						   if (int fx = 0, fz = 0, fw = -1; m_world->FireAheadCell(fx, fz, fw) && fw >= 0)
+							   inIt = m_world->SconceTorch(fx, fz, fw);
+						   m_console.Print(std::format("  wall torch ahead: {}{}{}",
 													   f.kind != FireAhead::Kind::WallTorch ? "none"
 													   : f.empty                            ? "empty bracket"
 													   : f.lit                              ? "burning"
-																							: "out"));
+																							: "out",
+													   inIt.empty() ? "" : " ", inIt));
 					   });
 
 	// The cast services one at a time, with no spell in between: what a spell

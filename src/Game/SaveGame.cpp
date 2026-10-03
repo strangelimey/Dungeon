@@ -336,9 +336,14 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 		for (const SaveData::BrokenProp& b : lvl.broken)
 			t += std::format("broken {} {} {} {}\n", b.x, b.z, b.type, b.wall);
 		// Fires lit or put out in play (burning != authored lit).
-		for (const SaveData::FireBurning& f : lvl.fires)
-			t += std::format("fire {} {} {} {} {}\n", f.x, f.z, f.wall, f.burning ? 1 : 0,
+		// A bracket holding some other torch than its own adds that torch and its
+		// charge (an older reader stops at the fifth token and ignores them).
+		for (const SaveData::FireBurning& f : lvl.fires) {
+			t += std::format("fire {} {} {} {} {}", f.x, f.z, f.wall, f.burning ? 1 : 0,
 							 f.empty ? 1 : 0);
+			if (!f.torch.empty()) t += std::format(" {} {:.2f}", f.torch, f.torchCharge);
+			t += '\n';
+		}
 		// Pieces hurt but standing: hp, then what rides them, hung beneath.
 		for (const SaveData::DamagedPiece& d : lvl.damaged) {
 			t += std::format("damaged {} {} {} {} {:.3f}\n", d.x, d.z, d.type, d.wall,
@@ -706,6 +711,9 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			f.wall = IntOf(tok[3]);
 			f.burning = IntOf(tok[4]) != 0;
 			if (tok.size() >= 6) f.empty = IntOf(tok[5]) != 0; // its torch was taken
+			// Which torch is in it, when not its own (a magical one mounted there).
+			if (tok.size() >= 7) f.torch = std::string(tok[6]);
+			if (tok.size() >= 8) f.torchCharge = FloatOf(tok[7]);
 			currentBlock().fires.push_back(f);
 		} else if (kw == "damaged" && tok.size() >= 6) {
 			// A piece hurt but standing: <x> <z> <type> <wall> <hp>.

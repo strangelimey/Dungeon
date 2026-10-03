@@ -1380,12 +1380,19 @@ public:
 	// faces it from its square and the click lands ON it. Taking leaves the bare
 	// bracket and puts the torch - lit if it burned - in the leader's free hand,
 	// else on `cursor` (which must be empty). Mounting puts the item `itemId` (a
-	// torch, lit or not) into an EMPTY bracket. True if it happened.
+	// torch, lit or not) into an EMPTY bracket. True if it happened. The bracket
+	// REMEMBERS the torch and its `charge` (WallSconce::torch), so a magical or
+	// half-burnt torch comes back off it as it went in.
 	bool TakeTorchAhead(float mx, float my, float w, float h, HeldItem& cursor);
-	bool MountTorchAhead(const std::string& itemId, float mx, float my, float w, float h);
+	bool MountTorchAhead(const std::string& itemId, float mx, float my, float w, float h,
+						 float charge = kNoCharge);
 	// The same acts on a named sconce, with no click (the dev console's `torch`).
 	bool TakeTorchAt(int x, int z, int wall, HeldItem& cursor);
-	bool MountTorchAt(int x, int z, int wall, const std::string& itemId);
+	bool MountTorchAt(int x, int z, int wall, const std::string& itemId,
+					  float charge = kNoCharge);
+	// The torch in the sconce on (x,z)/`wall` as it would come off it (its unlit
+	// id), or "" when there is none (no sconce, an empty bracket).
+	std::string_view SconceTorch(int x, int z, int wall);
 	// Empties or refills the sconce on (x,z)/`wall` (the map record + the live
 	// fire); `burning` = the refilled torch is lit. False for a kind with no
 	// bare bracket to show (fixtures.cat `empty_model`) or no change.

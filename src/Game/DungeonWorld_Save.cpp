@@ -295,9 +295,12 @@ SaveData::LevelState DungeonWorld::SnapshotActive() const {
 	// Fires lit or put out in play: a diff from the authored `lit`, like a niche.
 	// (A smashed fixture is out too, but its `broken` entry already says so and
 	// restores it dark, so this records it again harmlessly.)
+	// A bracket holding a torch other than its own is a diff too (a magical torch
+	// mounted in it), even burning just as authored.
 	for (const WallSconce& s : m_map.Sconces())
-		if (s.flipped || s.empty)
-			ls.fires.push_back({s.x, s.z, static_cast<int>(s.wall), s.Burning(), s.empty});
+		if (s.flipped || s.empty || !s.torch.empty())
+			ls.fires.push_back({s.x, s.z, static_cast<int>(s.wall), s.Burning(), s.empty,
+								s.torch, s.torchCharge});
 	for (const FloorBrazier& b : m_map.Braziers())
 		if (b.flipped) ls.fires.push_back({b.x, b.z, -1, b.Burning()});
 	// Pieces HURT but standing: their hp and whatever rides them, so a door left
@@ -452,9 +455,13 @@ void DungeonWorld::ApplyActiveSnapshot() {
 			RebuildChunksAround(n.x, n.z);
 	// Fires lit or put out in play. Restored QUIETLY: a fire found out on
 	// arrival went out long ago, and its smoke with it.
-	for (const SaveData::FireBurning& f : ls.fires)
+	for (const SaveData::FireBurning& f : ls.fires) {
 		if (f.empty) SetSconceEmpty(f.x, f.z, f.wall, true); // its torch was taken
 		else SetFireBurning(f.x, f.z, f.wall, f.burning, /*smoke*/ false);
+		// ...and which torch is in it, when not its own.
+		if (!f.empty && !f.torch.empty() && f.wall >= 0)
+			m_map.SetSconceTorch(f.x, f.z, f.wall, f.torch, f.torchCharge);
+	}
 	// Re-break what was broken (v24). A saved entry naming a prop this level no
 	// longer has is simply dropped — the level was edited under the save, and a
 	// missing prop is exactly the outcome the entry wanted anyway.

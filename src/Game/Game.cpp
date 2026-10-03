@@ -2530,7 +2530,7 @@ void Game::UpdateStates(float dt) {
 				// A torch clicked onto the EMPTY wall bracket the party faces
 				// is mounted there instead.
 				const float charge = m_heldItem.Charge();
-				if (m_world->MountTorchAhead(*m_heldItem, mx, my, w, h) ||
+				if (m_world->MountTorchAhead(*m_heldItem, mx, my, w, h, charge) ||
 					m_world->DropItemAt(*m_heldItem, mx, my, w, h, charge) ||
 					m_world->ThrowItem(*m_heldItem, -1, charge))
 					m_heldItem.reset();

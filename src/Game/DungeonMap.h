@@ -130,6 +130,13 @@ struct WallSconce {
 	// Runtime: its torch was TAKEN (the bare bracket is left). An empty sconce
 	// never burns; a torch mounted back fills it again. Saved like `flipped`.
 	bool empty = false;
+	// Runtime: WHICH torch is in it, when it is not the fixture's own
+	// (fixtures.cat `torch_item`) - a magical torch mounted here comes back off
+	// it as itself. Its UNLIT id (lit or not is `flipped`'s business) and the
+	// charge it went in with (< 0 = a fresh one). "" = the fixture's own torch,
+	// fresh. Saved on the `fire` line; reset with the flips.
+	std::string torch;
+	float torchCharge = -1.0f;
 	bool Burning() const { return !empty && lit != flipped; }
 };
 
@@ -400,6 +407,12 @@ public:
 	// back. Mounting sets it burning as `burning` says (the torch put in was
 	// lit or not). Recomputes the haze; false if no such sconce or no change.
 	bool SetSconceEmpty(int x, int z, int wall, bool empty, bool burning = false);
+	// Records which torch is in the sconce on (x,z)/`wall` (WallSconce::torch;
+	// "" = the fixture's own). Play state: no Revision() bump. False if no such
+	// sconce.
+	bool SetSconceTorch(int x, int z, int wall, std::string_view torch, float charge);
+	// The sconce on (x,z)/`wall`, or null.
+	const WallSconce* SconceAt(int x, int z, int wall) const;
 	// The brazier standing on (x,z), or null. At most one per cell (AddBrazier
 	// rejects duplicates).
 	const FloorBrazier* BrazierAt(int x, int z) const;
