@@ -87,6 +87,10 @@ public:
 		// SHAPES (shapes.cat, Game/Carve.h): the Stamp brush's grids. A row ARMS
 		// it as the current stamp and picks the Stamp tool (again = off).
 		Shapes,
+		// LIGHTS (lights.cat, Game/LightProfile.h): what each kind of light
+		// looks like. Never placed - a row opens its editor; a fixture or item
+		// names one with its own `light`.
+		Lights,
 		Count
 	};
 

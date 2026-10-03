@@ -199,6 +199,8 @@ holdable = 1
 ; `burn_time` seconds of game time while it is HELD (the item's charge counts
 ; down), dims over its last tenth and becomes `spent_as`. Stowed in a pack or
 ; set down it goes out, keeping what is left; Puff of Flame lights it again.
+; `light` (a lit kind) names the lights.cat profile it gives in a hand;
+; absent = `torch`.
 [torch_crude]
 name = item.torch_crude
 category = light
@@ -214,6 +216,7 @@ weight = 0.7
 holdable = 1
 model = torch_crude
 burn_time = 600
+light = torch
 unlit_as = torch_crude
 spent_as = torch_stub
 
@@ -232,6 +235,7 @@ weight = 0.8
 holdable = 1
 model = torch
 burn_time = 900
+light = torch
 unlit_as = torch
 spent_as = torch_stub
 
@@ -250,6 +254,7 @@ weight = 1.0
 holdable = 1
 model = torch_fine
 burn_time = 1500
+light = torch
 unlit_as = torch_fine
 spent_as = torch_stub
 

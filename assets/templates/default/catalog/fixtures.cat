@@ -2,6 +2,9 @@
 ; flame_height / flame_out are UNITS (1.0 = one dungeon square), like every
 ; model on disk — they name a point ON the mesh, so they scale with it.
 ; flame_scale is a dimensionless particle-effect size (brazier 1.0, sconce ~0.55).
+; light names the lights.cat profile its fire gives (colour, brightness, pulse);
+; absent = fire_sconce on a wall, fire_brazier on the floor. A placed fire may
+; override the colour on its own .map record (`color=r,g,b`).
 
 [sconce]
 display = Wall Sconce
@@ -9,6 +12,7 @@ category = light
 model = wall_torch
 texture = wall_torch
 mount = wall
+light = fire_sconce
 flame_height = 0.68
 flame_scale = 0.55
 flame_out = 0.064
@@ -36,6 +40,7 @@ texture = brazier_bowl
 part2_model = brazier_coals
 part2_texture = brazier_coals
 mount = floor
+light = fire_brazier
 flame_height = 0.296
 flame_scale = 1.0
 ; Cast iron on three legs: far tougher than a bracket, and it takes a real blow to

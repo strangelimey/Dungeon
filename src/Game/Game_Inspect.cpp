@@ -91,8 +91,10 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		fc.x = cx;
 		fc.z = cz;
 		fc.wall = t.wall;
-		if (!m_world->TorchSettings(cx, cz, t.wall, fc.lit, fc.brightness, fc.turbidity))
+		if (!m_world->TorchSettings(cx, cz, t.wall, fc.lit, fc.brightness, fc.turbidity,
+									fc.flameColor))
 			return; // gone since the picker listed it
+		fc.kindColor = m_world->FixtureLightColor(m_world->SconceTypeAt(cx, cz, t.wall));
 		OpenFixtureInspector(fc, walls,
 							 m_world->FixturePreviewOf(m_world->SconceTypeAt(cx, cz, t.wall)));
 		break;
@@ -102,8 +104,10 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		fc.brazier = true;
 		fc.x = cx;
 		fc.z = cz;
-		if (!m_world->BrazierSettings(cx, cz, fc.lit, fc.brightness, fc.turbidity))
+		if (!m_world->BrazierSettings(cx, cz, fc.lit, fc.brightness, fc.turbidity,
+									  fc.flameColor))
 			return; // gone since the picker listed it
+		fc.kindColor = m_world->FixtureLightColor(m_world->BrazierTypeAt(cx, cz));
 		OpenFixtureInspector(fc, /*walls*/ {},
 							 m_world->FixturePreviewOf(m_world->BrazierTypeAt(cx, cz)));
 		break;
@@ -375,6 +379,7 @@ void Game::OpenFixtureInspector(const FixtureInspector::Config& fc,
 	pv.flameScale = sp.flameScale;
 	pv.showFire = fc.lit;
 	m_previewFire = FireEffect({0.0f, sp.flameHeight * sp.scale, 0.0f}, pv.flameScale, 1234);
+	m_previewFire.SetFlameColor(fc.flameColor, HasFlameColor(fc.flameColor));
 	// Delete: a sconce goes by its FACE, since a cell can ring itself with one
 	// per wall and the cell-wide call would pick arbitrarily. A brazier stands
 	// on the floor and has no face, so it takes the cell form.

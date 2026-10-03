@@ -783,6 +783,7 @@ map.tool.room=Комната - протяните прямоугольник, в
 map.tool.stamp=Штамп - щелчок ставит текущую форму (R поворачивает)
 map.tool.region=Область - протяните рамку, которую заполнит генератор, в текущем стиле
 map.cat.shapes=Формы
+map.cat.lights=Освещение
 map.shape.done=Открыто клеток: {}, окрашено: {}.
 map.tool.filllevel=Заполнить уровень - кисть на каждую клетку своего вида
 map.btn.save=Сохранить
@@ -1234,6 +1235,8 @@ map.fix.braziertitle=Жаровня — ячейка {}, {}
 map.fix.lit=Горит
 map.fix.brightness=Яркость (ячеек)
 map.fix.turbidity=Дымность
+map.fix.flamecolor=Свой цвет пламени
+map.fix.color=Цвет пламени
 map.fix.torchwall=Факел (стена: {})
 ; --- item/decoration inspector ---
 map.prop.item=Предмет: {}

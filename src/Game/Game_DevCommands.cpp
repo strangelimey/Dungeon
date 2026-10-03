@@ -1212,13 +1212,6 @@ void Game::RegisterDevCommands() {
 				m_console.Refuse("flagwire: door, lever or stair");
 			}
 		});
-	m_console.Register({.name = "lights",
-						.group = CmdGroup::Rendering,
-						.summary = "print active point-light count"},
-					   [this](const std::vector<std::string>&) {
-						   m_console.Print(std::format("{} active point lights",
-													   m_world->ActiveLightCount()));
-					   });
 	m_console.Register({.name = "ver", .group = CmdGroup::Console, .summary = "print build and GPU info"},
 					   [this](const std::vector<std::string>&) {
 #ifdef _DEBUG
@@ -1319,6 +1312,41 @@ void Game::RegisterDevCommands() {
 		[this](const std::vector<std::string>& args) { FontCommand(args); });
 
 	// --- render debug ---
+	// This frame's lights, each with where it came from and the lights.cat
+	// profile it was made from (lighting-updates Phase 2). `profiles` lists
+	// the profiles themselves, as parsed.
+	m_console.Register({.name = "lights",
+						.group = CmdGroup::Rendering,
+						.params = "\nprofiles\nreload",
+						.summary = "this frame's lights and their profiles"},
+					   [this](const std::vector<std::string>& args) {
+						   // A hand edit to lights.cat, taken live: re-read the file,
+						   // then the profiles (every light looks its own up per frame).
+						   if (!args.empty() && args[0] == "reload") {
+							   m_project.lights.Load(m_project.CatalogPath("lights.cat"));
+							   m_world->ReloadLightProfiles();
+							   m_console.Print(std::format("lights: {} profiles reloaded",
+														   m_world->LightProfiles().size()));
+							   return;
+						   }
+						   if (!args.empty() && args[0] == "profiles") {
+							   for (const light::Profile& p : m_world->LightProfiles())
+								   m_console.Print(std::format(
+									   "  {:<13} rgb {} i {:.2f} r {:.2f} sq  {} rate {:.2f} "
+									   "depth {:.2f}  wander {:.4f}  {}{}",
+									   p.id,
+									   p.sourceColor ? std::string("source")
+													 : std::format("{:.2f} {:.2f} {:.2f}", p.color.x,
+																   p.color.y, p.color.z),
+									   p.intensity, p.radius, light::PulseName(p.pulse),
+									   p.pulseRate, p.pulseDepth, p.wander,
+									   p.shadow ? "shadow" : "no shadow",
+									   p.longFade ? " long-fade" : ""));
+							   return;
+						   }
+						   for (const std::string& line : m_world->DescribeLights())
+							   m_console.Print(line);
+					   });
 	m_console.Register({.name = "shadows",
 						.group = CmdGroup::Rendering,
 						.params = "[on|off]",

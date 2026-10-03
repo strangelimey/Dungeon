@@ -105,6 +105,12 @@ inline constexpr float kSconceTurbidity = 0.16f; // smokiness added to cell + ri
 // Floor for a fixture record's bright= value: a zero-radius lit light would
 // feed 1/radius = inf into the shadow pass, so the parser clamps up to this.
 inline constexpr float kFixtureMinBrightness = 0.25f;
+// A placed fire's FLAME COLOUR (lighting-updates, Michael: "the settings for
+// any sconce/brazier should include flame color"): the light it casts AND its
+// flame particles. Unset (this value, any negative channel) = its kind's light
+// profile decides. Record key `color=r,g,b`, written only when set.
+inline constexpr Vec3 kNoFlameColor{-1.0f, -1.0f, -1.0f};
+inline bool HasFlameColor(const Vec3& c) { return c.x >= 0.0f && c.y >= 0.0f && c.z >= 0.0f; }
 
 // A wall-mounted torch sconce: its cell plus the wall it hangs on (the
 // direction from the cell to the solid neighbour it mounts against). Several
@@ -130,6 +136,7 @@ struct WallSconce {
 	// Runtime: its torch was TAKEN (the bare bracket is left). An empty sconce
 	// never burns; a torch mounted back fills it again. Saved like `flipped`.
 	bool empty = false;
+	Vec3 flameColor = kNoFlameColor; // authored; see kNoFlameColor
 	bool Burning() const { return !empty && lit != flipped; }
 };
 
@@ -148,6 +155,7 @@ struct FloorBrazier {
 	float turbidity = kBrazierTurbidity;
 	std::string type = "brazier";
 	bool flipped = false;
+	Vec3 flameColor = kNoFlameColor; // authored; see kNoFlameColor
 	bool Burning() const { return lit != flipped; }
 };
 
@@ -386,9 +394,11 @@ public:
 	bool SetSconceWall(int x, int z, Direction from, Direction to);
 	// Sets a sconce's per-torch light/smoke properties (identified by cell + wall),
 	// then recomputes the turbidity grid. Bumps Revision(); false if not found.
+	// `flameColor` = kNoFlameColor leaves the colour to the kind.
 	bool SetSconceProps(int x, int z, Direction wall, bool lit, float brightness,
-						float turbidity);
-	bool SetBrazierProps(int x, int z, bool lit, float brightness, float turbidity);
+						float turbidity, const Vec3& flameColor);
+	bool SetBrazierProps(int x, int z, bool lit, float brightness, float turbidity,
+						 const Vec3& flameColor);
 	// Whether the sconce on (x,z)/`wall`, or the brazier on (x,z) (`wall` < 0),
 	// burns NOW (WallSconce::Burning) - lit or put out in play, the authored
 	// `lit` untouched. Recomputes the turbidity grid and bumps Revision() when it

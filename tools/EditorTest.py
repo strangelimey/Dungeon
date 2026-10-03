@@ -576,12 +576,13 @@ print("12 - the category bar shows one group, both ways, and the filter sees pas
 STAGE = {"world": ["styles", "dungeons", "quests", "flags", "terrain"],
          "build": ["shapes", "themes", "walls", "floors", "ceilings", "wallfeatures",
                    "surfacefeatures", "doors", "stairs"],
-         "furnishings": ["decorations", "fixtures", "buttons"],
+         # Lights (lighting-updates Phase 2) sit beside the fixtures that give them.
+         "furnishings": ["decorations", "fixtures", "lights", "buttons"],
          "populate": ["monsters", "items", "weapons", "armor"]}
 KIND = {"surfaces": ["themes", "walls", "floors", "ceilings", "wallfeatures",
                      "surfacefeatures"],
         "structure": ["shapes", "doors", "stairs"],
-        "furnishings": ["decorations", "fixtures", "buttons"],
+        "furnishings": ["decorations", "fixtures", "lights", "buttons"],
         "creatures": ["monsters"],
         "items": ["items", "weapons", "armor"],
         "world": ["styles", "dungeons", "quests", "flags", "terrain"]}

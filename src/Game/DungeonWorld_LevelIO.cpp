@@ -215,6 +215,9 @@ static std::string SerializeMapStatic(const std::string& stem,
 		if (!s.lit) m += " lit=0";
 		if (s.brightness != kSconceBrightness) m += std::format(" bright={:g}", s.brightness);
 		if (s.turbidity != kSconceTurbidity) m += std::format(" turb={:g}", s.turbidity);
+		if (HasFlameColor(s.flameColor))
+			m += std::format(" color={:g},{:g},{:g}", s.flameColor.x, s.flameColor.y,
+							 s.flameColor.z);
 		m += '\n';
 	}
 	for (const FloorBrazier& b : map.Braziers()) {
@@ -222,6 +225,9 @@ static std::string SerializeMapStatic(const std::string& stem,
 		if (!b.lit) m += " lit=0";
 		if (b.brightness != kBrazierBrightness) m += std::format(" bright={:g}", b.brightness);
 		if (b.turbidity != kBrazierTurbidity) m += std::format(" turb={:g}", b.turbidity);
+		if (HasFlameColor(b.flameColor))
+			m += std::format(" color={:g},{:g},{:g}", b.flameColor.x, b.flameColor.y,
+							 b.flameColor.z);
 		m += '\n';
 	}
 

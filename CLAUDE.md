@@ -230,6 +230,17 @@ Key conventions (memorize, they bite):
   fire change must not bump `DungeonMap::Revision()` (`RecomputeTurbidity`) -
   the revision keys the AI walkability grid, which then rebuilt (allocating) on
   every hand spell. Dev: `torch`, `castsvc`, `equip none`.
+  WHAT A LIGHT LOOKS LIKE IS DATA (lighting-updates, docs/lighting-updates-
+  plan.md): every light is pushed through `DungeonWorld::PushLight` from a
+  named PROFILE in the project's `lights.cat` (Game/LightProfile.h, pure, in
+  RollTest: colour or `source`, intensity, radius in SQUARES, pulse steady/
+  flicker/breathe/strobe/storm + rate/depth, origin `wander`, shadow,
+  long_fade). A source NAMES one: fixtures.cat / items.cat `light`, effects.cat
+  `light` on a plume. There is no global torch palette any more (the HUD
+  Options panel is gone). A placed fire keeps its own reach (Brightness) and
+  may carry its own FLAME COLOR (`color=r,g,b` on the .map fixture record, the
+  fixture dialog's row): it colours the light AND the flames (FireEffect::
+  SetFlameColor). Dev: `lights` / `lights profiles` / `lights reload`.
 - COMBAT (full model: docs/combat.md — "The attack formula"; built by the
   combat-depth thread): every constant is a KNOB in the project's
   balance.cat ([formula] block → the Balance struct in Game/Balance.h;

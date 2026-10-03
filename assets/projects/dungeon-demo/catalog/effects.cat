@@ -66,6 +66,7 @@ stacking = refresh
 [burn]
 name = effect.burn
 plume = 1
+light = burning
 apply_party = log.member_ignites
 apply_monster = log.monster_ignites
 stacking = refresh

@@ -31,6 +31,7 @@
 #include "Game/FireEffect.h"
 #include "Game/GameSettings.h"
 #include "Game/ItemDetails.h"
+#include "Game/LightProfile.h"
 #include "Game/LoadQueue.h"
 #include "Game/Magic.h"
 #include "Game/Mishap.h" // fumble consequence tables on the kind structs
@@ -106,10 +107,23 @@ public:
 	// loaded once and cached by type name, so without this a saved edit only
 	// showed on the next level entry. `catalogKey` picks the cache.
 	void ReloadTypeKind(const std::string& catalogKey, const std::string& id);
+	// Re-reads lights.cat (lighting-updates Phase 2, Game/LightProfile.h). Every
+	// light resolves its profile by id each frame, so a saved edit shows on the
+	// next frame - nothing to respawn. Also re-reads the `light` field of the
+	// cached item kinds, which no other reload reaches.
+	void ReloadLightProfiles();
+	// The profile `id` names; the built-in warm fallback for an id the project
+	// lacks (warned once, at load), so a typo is a visible light, not darkness.
+	const light::Profile& LightProfileFor(std::string_view id) const;
+	std::span<const light::Profile> LightProfiles() const { return m_lightProfiles; }
+	// The colour a fixture kind's fire gives when its placement sets none (its
+	// light profile's) - what the fixture dialog's colour picker starts from.
+	Vec3 FixtureLightColor(const std::string& type);
+	// The `lights` dev command's readout: one line per light this frame.
+	std::vector<std::string> DescribeLights() const;
 
-	// "Start New Game": snaps the party home, re-arms the monster
-	// announcements, and resets the torch palette (which speaks via
-	// onMessage — the caller clears the log right after, as before).
+	// "Start New Game": snaps the party home and re-arms the monster
+	// announcements (the caller clears the log right after, as before).
 	void ResetForNewGame();
 
 	// One simulation step: party input/movement, animators, monster
@@ -853,16 +867,19 @@ public:
 	bool RemountSconce(int cx, int cz, Direction from, Direction to);
 	// Read/write a torch's per-instance light/smoke settings (identified by cell +
 	// wall). Set is live: the light/flame/smoke follow next frame. `brightness` is in
-	// cells, `turbidity` 0..1. Both return false if no such sconce.
+	// cells, `turbidity` 0..1, `flameColor` the light + flame tint (kNoFlameColor =
+	// the kind's). Both return false if no such sconce.
 	bool TorchSettings(int cx, int cz, Direction wall, bool& lit, float& brightness,
-					   float& turbidity) const;
+					   float& turbidity, Vec3& flameColor) const;
 	bool SetTorchSettings(int cx, int cz, Direction wall, bool lit, float brightness,
-						  float turbidity);
+						  float turbidity, const Vec3& flameColor);
 	// A floor brazier on (cx,cz)? Plus its per-instance light/smoke settings (live
 	// on Set). Both return false if no brazier is there.
 	bool BrazierAt(int cx, int cz) const;
-	bool BrazierSettings(int cx, int cz, bool& lit, float& brightness, float& turbidity) const;
-	bool SetBrazierSettings(int cx, int cz, bool lit, float brightness, float turbidity);
+	bool BrazierSettings(int cx, int cz, bool& lit, float& brightness, float& turbidity,
+						 Vec3& flameColor) const;
+	bool SetBrazierSettings(int cx, int cz, bool lit, float brightness, float turbidity,
+							const Vec3& flameColor);
 	// A fixture instance's catalog id (for the inspector's preview/title);
 	// falls back to the classic ids when the instance isn't found.
 	std::string SconceTypeAt(int cx, int cz, Direction wall) const;
@@ -1774,8 +1791,6 @@ public:
 	bool HandOnDoorAt(int x, int z, bool& open);
 	// "id @ x,z = on|off" for each live button (dev console `buttons`).
 	std::vector<std::string> ButtonList() const;
-	// Point lights submitted this frame (after UpdateLights).
-	size_t ActiveLightCount() const { return m_lights.points.size(); }
 	// Camera vertical FOV in degrees (clamped); UpdateCamera applies it.
 	void SetFov(float degrees);
 	float Fov() const { return m_fovDegrees; }
@@ -2259,6 +2274,9 @@ private:
 		// any later filling, makes of it. Empty = it takes no water.
 		std::string fillAs;
 		bool Lit() const { return burnTime > 0.0f; }
+		// The light it gives while lit in a hand (a lights.cat id; items.cat
+		// `light`, default `torch` for a lit kind, none otherwise).
+		std::string light;
 		// Worn armor's WEIGHT CLASS (armor.cat `class`): what it costs to
 		// evade in, which skill it trains, and what STR it asks. The soak
 		// itself stays per ITEM (`armor` below) — a breastplate and a mail
@@ -2663,6 +2681,9 @@ private:
 		// SetFireBurning (a spell, a save) can find it.
 		int x = 0, z = 0, wall = -1;
 		float lightRadius = 7.0f; // point-light reach in metres (sconce brightness * cell)
+		// Its placement's own flame colour (light + flames); kNoFlameColor = the
+		// kind's light profile decides.
+		Vec3 flameColor = kNoFlameColor;
 		Mat4 world;        // prop transform
 		Vec3 flamePos;     // particle + light origin
 		float phase = 0;   // flicker phase
@@ -3596,6 +3617,34 @@ private:
 	std::vector<u8> m_seen;     // fog of war, parallel to map cells (1 = revealed)
 	gfx::Camera m_camera;
 	gfx::LightSet m_lights;
+	// lights.cat, parsed (Game/LightProfile.h). Looked up BY ID every frame
+	// (LightProfileFor - a handful of profiles, so a linear scan); a reload
+	// replaces the vector, which is why nothing holds a pointer into it.
+	std::vector<light::Profile> m_lightProfiles;
+	// Where each of this frame's lights came from, parallel to m_lights.points
+	// up to the budget cut (filled beside the push; read by the `lights` dev
+	// command). Reserved to the ceiling, so filling it allocates nothing.
+	struct LightOrigin {
+		const char* source = ""; // "fire", "torch", "burning", ...
+		int profile = -1;        // index into m_lightProfiles; -1 = the fallback
+	};
+	std::vector<LightOrigin> m_lightOrigins;
+	// The budget cut (UpdateLights) keeps the nearest lights AND their origins
+	// together, through an index order and two scratch lists. All reserved or
+	// grown once, so a settled frame allocates nothing.
+	std::vector<u32> m_lightOrder;
+	std::vector<gfx::PointLight> m_lightScratch;
+	std::vector<LightOrigin> m_lightOriginScratch;
+	size_t m_lightsBeforeCut = 0;
+	// Pushes one light from `profile` at `pos` (metres), its colour `color`
+	// when the profile takes its source's, scaled by `brightness` (a torch's
+	// charge) and with `radiusMetres` overriding the profile's reach when > 0
+	// (a placed fire's own Brightness). Returns the pushed light, or null when
+	// the light is out (brightness 0).
+	gfx::PointLight* PushLight(const light::Profile& profile, const char* source,
+							   const Vec3& pos, float time, float phase,
+							   const Vec3& color = {1, 1, 1}, float brightness = 1.0f,
+							   float radiusMetres = 0.0f);
 	// Shadow-slot budgeting + cube-cache scheduling (UpdateLights feeds it the
 	// frame's lights; RenderShadowMaps asks it which cubes to redraw). See
 	// ShadowScheduler.h.
@@ -4069,6 +4118,9 @@ private:
 		std::string id;
 		bool wallMount = false; // fixtures.cat mount = wall|floor
 		bool flameless = false; // fixtures.cat flame = 0: never lit (empty bowl)
+		// The light its fire gives (a lights.cat id; fixtures.cat `light`,
+		// default fire_sconce on a wall, fire_brazier on the floor).
+		std::string light;
 		std::shared_ptr<gfx::Mesh> mesh;  // via the model cache
 		std::shared_ptr<gfx::Mesh> mesh2;
 		// A wall torch whose torch can be TAKEN (spell-updates): the bare bracket
@@ -4108,11 +4160,6 @@ private:
 	// the peak is reserved up front instead — see ReserveParticleScratch.
 	std::vector<gfx::ParticleInstance> m_particleScratch;
 	void ReserveParticleScratch();
-
-	// The warm firelight every torch and fire shares. A constant until the
-	// light profiles (lighting-updates Phase 2) give each light type its own;
-	// the HUD palette that used to change it is gone.
-	static constexpr Vec3 kTorchColor{1.0f, 0.62f, 0.28f};
 
 	// The party leader's roster index (see Leader()), and the pass that hands
 	// the lead on from a member who is no longer standing - every frame from

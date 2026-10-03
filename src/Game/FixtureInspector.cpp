@@ -12,6 +12,7 @@ void FixtureInspector::Open(const Config& cfg, const std::vector<Direction>& wal
 						   PreviewSpec preview) {
 	m_cfg = cfg;
 	m_original = cfg;
+	m_pickColor = HasFlameColor(cfg.flameColor) ? cfg.flameColor : cfg.kindColor;
 	m_walls = walls;
 	m_currentWall = cfg.wall;
 	SetFacingValue(cfg.wall);
@@ -27,7 +28,7 @@ void FixtureInspector::ApplySettings() {
 	SetShowFire(m_cfg.lit); // the preview flame follows the Lit toggle
 	if (onSettings)
 		onSettings(m_cfg.x, m_cfg.z, m_currentWall, m_cfg.brazier, m_cfg.lit, m_cfg.brightness,
-				   m_cfg.turbidity);
+				   m_cfg.turbidity, m_cfg.flameColor);
 }
 
 void FixtureInspector::BuildContent(ui::Stack& c) {
@@ -49,6 +50,21 @@ void FixtureInspector::BuildContent(ui::Stack& c) {
 						  m_cfg.turbidity = v;
 						  ApplySettings();
 					  });
+	// FLAME COLOUR: the light it casts and its flames. Off = the kind's light
+	// profile decides; picking a colour turns it on.
+	m_ownColor = c.Row<ui::Checkbox>(FormRow(), loc::Tr("map.fix.flamecolor"),
+									 HasFlameColor(m_cfg.flameColor), [this](bool on) {
+										 m_cfg.flameColor = on ? m_pickColor : kNoFlameColor;
+										 ApplySettings();
+									 });
+	c.Row<ui::ColorPicker>(FormRow(), loc::Tr("map.fix.color"),
+						   Vec4{m_pickColor.x, m_pickColor.y, m_pickColor.z, 1.0f},
+						   [this](const Vec4& v) {
+							   m_pickColor = {v.x, v.y, v.z};
+							   m_cfg.flameColor = m_pickColor;
+							   if (m_ownColor) m_ownColor->SetChecked(true);
+							   ApplySettings();
+						   });
 }
 
 void FixtureInspector::ApplyLive() { // the common Facing dropdown re-mounts the torch
@@ -73,7 +89,7 @@ void FixtureInspector::Revert() {
 		m_currentWall = m_original.wall;
 	if (onSettings)
 		onSettings(m_cfg.x, m_cfg.z, m_currentWall, m_cfg.brazier, m_original.lit,
-				   m_original.brightness, m_original.turbidity);
+				   m_original.brightness, m_original.turbidity, m_original.flameColor);
 }
 
 } // namespace dungeon::game

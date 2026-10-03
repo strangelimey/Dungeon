@@ -48,7 +48,8 @@ constexpr PC kBuild[] = {PC::Shapes,       PC::Themes,          PC::Walls,
 // What dresses a built room - props, the lights on its walls, the levers
 // (Michael, 2026-09-30: their own group in BOTH groupings). As a stage it sits
 // between the shape and what lives in it: build, furnish, populate.
-constexpr PC kFurnishings[] = {PC::Decorations, PC::Fixtures, PC::Buttons};
+// Lights sit beside the fixtures that give them (lighting-updates Phase 2).
+constexpr PC kFurnishings[] = {PC::Decorations, PC::Fixtures, PC::Lights, PC::Buttons};
 constexpr PC kPopulate[] = {PC::Monsters, PC::Items, PC::Weapons, PC::Armor};
 constexpr GroupDef kStageGroups[] = {
 	{"world", kWorld, std::size(kWorld)},

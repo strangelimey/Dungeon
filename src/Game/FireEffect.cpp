@@ -143,8 +143,17 @@ void FireEffect::AppendParticles(std::vector<gfx::ParticleInstance>& out) const 
 		switch (p.kind) {
 		case Kind::Flame: {
 			// Bright orange core cooling to deep red, shrinking as it rises.
-			const Vec3 hot{1.15f, 0.55f, 0.16f}, cool{0.50f, 0.07f, 0.02f};
 			const float glow = 1.2f * (1.0f - t) + 0.15f;
+			if (m_hasColor) {
+				// An authored flame colour: a hot, paler core of it cooling to a
+				// dark shade, the same arc the orange palette makes.
+				const Vec3 hot = Scale(Lerp(m_color, {1.0f, 1.0f, 1.0f}, 0.3f), 1.15f);
+				const Vec3 c = Lerp(hot, Scale(m_color, 0.4f), t);
+				instance.color = {c.x * glow, c.y * glow, c.z * glow, 0.0f}; // additive
+				instance.size = p.size * (1.0f - 0.55f * t);
+				break;
+			}
+			const Vec3 hot{1.15f, 0.55f, 0.16f}, cool{0.50f, 0.07f, 0.02f};
 			const Vec3 c = Lerp(hot, cool, t);
 			// (the tint recolours the fire — {1,1,1} for an ordinary one)
 			instance.color = {c.x * glow * m_tint.x, c.y * glow * m_tint.y,
@@ -154,8 +163,10 @@ void FireEffect::AppendParticles(std::vector<gfx::ParticleInstance>& out) const 
 		}
 		case Kind::Spark: {
 			const float glow = 1.0f - t;
-			instance.color = {1.3f * glow * m_tint.x, 0.75f * glow * m_tint.y,
-							  0.25f * glow * m_tint.z, 0.0f};
+			const Vec3 spark = m_hasColor ? Scale(m_color, 1.3f)
+										  : Vec3{1.3f * m_tint.x, 0.75f * m_tint.y,
+												 0.25f * m_tint.z};
+			instance.color = {spark.x * glow, spark.y * glow, spark.z * glow, 0.0f};
 			instance.size = p.size;
 			break;
 		}

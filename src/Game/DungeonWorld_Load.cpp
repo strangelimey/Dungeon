@@ -1119,6 +1119,7 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		kind->litAs = CatalogGet(def, "lit_as", "");
 		kind->unlitAs = CatalogGet(def, "unlit_as", "");
 		kind->spentAs = CatalogGet(def, "spent_as", "");
+		kind->light = CatalogGet(def, "light", kind->Lit() ? "torch" : "");
 		// What a Splash turns it into: a container one fill level up.
 		kind->fillAs = CatalogGet(def, "fill_as", "");
 		// What its blows leave behind, named by effect id — the same authored
@@ -1790,6 +1791,7 @@ DungeonWorld::FixtureKind& DungeonWorld::FixtureKindFor(const std::string& type)
 		kind->id = type;
 		kind->wallMount = CatalogGet(def, "mount", "floor") == "wall";
 		kind->flameless = !CatalogBool(def, "flame", true);
+		kind->light = CatalogGet(def, "light", kind->wallMount ? "fire_sconce" : "fire_brazier");
 		// Breakability, opt-in and OFF by default like every other kind: a torch
 		// bracket can be knocked off a wall, a heavy iron brazier takes rather more,
 		// and an empty one authored without the field cannot be touched at all.
@@ -1965,6 +1967,7 @@ void DungeonWorld::BuildFires() {
 		fire.wall = static_cast<int>(sconce.wall);
 		fire.empty = sconce.empty;
 		fire.lightRadius = sconce.brightness * kCellSize; // "squares" -> metres
+		fire.flameColor = sconce.flameColor;
 		const float fs = kind.modelScale; // fixtures.cat `scale`
 		XMStoreFloat4x4(&fire.world, UnitScale(fs) * XMMatrixRotationY(yaw) *
 										 XMMatrixTranslation(m.pos.x, 0, m.pos.z));
@@ -1976,6 +1979,7 @@ void DungeonWorld::BuildFires() {
 						 m.pos.z + std::cos(yaw) * kind.flame.out * kUnit * fs};
 		fire.phase = static_cast<float>(seed) * 1.7f;
 		fire.effect = FireEffect(fire.flamePos, kind.flame.scale * fs, seed++);
+		fire.effect.SetFlameColor(fire.flameColor, HasFlameColor(fire.flameColor));
 		fx::ReserveEffects(fire.effects); // a douse lands its smoke here mid-play
 		m_fires.push_back(std::move(fire));
 	}
@@ -1990,12 +1994,14 @@ void DungeonWorld::BuildFires() {
 		fire.x = b.x;
 		fire.z = b.z;
 		fire.lightRadius = b.brightness * kCellSize; // "squares" -> metres
+		fire.flameColor = b.flameColor;
 		const float fs = kind.modelScale; // fixtures.cat `scale`
 		XMStoreFloat4x4(&fire.world,
 						UnitScale(fs) * XMMatrixTranslation(center.x, 0, center.z));
 		fire.flamePos = {center.x, kind.flame.height * kUnit * fs, center.z};
 		fire.phase = static_cast<float>(seed) * 1.7f;
 		fire.effect = FireEffect(fire.flamePos, kind.flame.scale * fs, seed++);
+		fire.effect.SetFlameColor(fire.flameColor, HasFlameColor(fire.flameColor));
 		fx::ReserveEffects(fire.effects);
 		m_fires.push_back(std::move(fire));
 	}

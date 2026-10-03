@@ -34,6 +34,9 @@
 # Generate.cpp (tool-refinement Phase 7) for generate::Populate, the populate-
 # only pass: the level generator was always pure (Params in, a grid and records
 # out), so linking it here costs nothing and measures the shipping rules.
+# LightProfile.cpp (lighting-updates Phase 2): a light's look parsed from its
+# lights.cat fields and its pulse maths - pure, and what every light goes
+# through, so the parse and the pulses are measured where they ship.
 add_executable(RollTest
 	Main.cpp
 	${CMAKE_SOURCE_DIR}/src/Game/DamageLedger.cpp
@@ -48,6 +51,7 @@ add_executable(RollTest
 	${CMAKE_SOURCE_DIR}/src/Game/Style.cpp
 	${CMAKE_SOURCE_DIR}/src/Game/Carve.cpp
 	${CMAKE_SOURCE_DIR}/src/Game/Generate.cpp
+	${CMAKE_SOURCE_DIR}/src/Game/LightProfile.cpp
 )
 # NOT linked, and the attempt is worth recording: pulling Balance.cpp in for the
 # attacker's type axis dragged Catalog -> assets::ReadBinaryFile, i.e. the file

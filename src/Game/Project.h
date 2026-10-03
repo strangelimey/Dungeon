@@ -109,6 +109,10 @@ struct Project {
 	// grids - a round chamber, a cross hall - as `rows` of '.' (open), '#'
 	// (solid) and anything else (leave), split by '|'.
 	Catalog shapes;
+	// Light profiles (lighting-updates Phase 2, Game/LightProfile.h): what each
+	// KIND of light looks like - colour, brightness, reach, pulse, shadow. A
+	// source names one (`light = <id>` on a fixture, item or effect).
+	Catalog lights;
 	// Surface THEMES (docs/editor-themes-notes.md): a named look - `floor` /
 	// `wall` / `ceiling`, each ONE of that surface's catalog ids (empty =
 	// leave it be). World-

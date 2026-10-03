@@ -1,0 +1,86 @@
+; Lights: what each kind of light LOOKS like (docs/lighting-updates-plan.md
+; Phase 2, Game/LightProfile.h). A source names one of these - fixtures.cat,
+; items.cat, weapons.cat and armor.cat `light = <id>`, effects.cat `light` on a
+; plume effect - so its colour comes from its TYPE.
+;   color       'r, g, b' in 0..1, or `source` for the source's own colour (a
+;               burn's school, a rune's element)
+;   intensity   brightness at the source
+;   radius      reach in SQUARES. A placed sconce or brazier has its own reach
+;               (the fixture inspector's Brightness), which wins over this.
+;   pulse       steady / flicker / breathe / strobe / storm
+;   pulse_rate  how fast it pulses (1 = the pulse's own pace)
+;   pulse_depth how far it dips, 0..1
+;   wander      how far the light's origin dances, in squares (the fires'
+;               moving shadows); 0 = still
+;   shadow      1 = it may cast shadows (8 cubes go to the nearest such lights)
+;   long_fade   1 = its shadow fades over most of its reach (a brazier's)
+
+[fire_sconce]
+display = Wall sconce fire
+category = fire
+color = 1.0, 0.62, 0.28
+intensity = 1.8
+radius = 3
+pulse = flicker
+pulse_depth = 0.1
+wander = 0.0112
+shadow = 1
+
+[fire_brazier]
+display = Brazier fire
+category = fire
+color = 1.0, 0.527, 0.224
+intensity = 2.3
+radius = 6
+pulse = flicker
+pulse_depth = 0.1
+wander = 0.0168
+shadow = 1
+long_fade = 1
+
+; A torch in a hand (or on the cursor). It dims as it burns down, by its
+; charge (the last tenth of its burn_time), on top of this.
+[torch]
+display = Carried torch
+category = fire
+color = 1.0, 0.62, 0.28
+intensity = 2.6
+radius = 3.6
+pulse = flicker
+pulse_depth = 0.08
+shadow = 1
+
+; A monster on fire: a moving lamp in the colour of what lit it. Shadowless,
+; so it never takes a shadow cube from the torch and the fires.
+[burning]
+display = Burning body
+category = magic
+color = source
+intensity = 1.9
+radius = 2.2
+pulse = flicker
+pulse_rate = 1.09
+pulse_depth = 0.15
+shadow = 0
+
+; A rune or an enchanted weapon lying on the floor, breathing in its element's
+; colour in step with the tablet's own glow.
+[floor_glow]
+display = Glow on the floor
+category = magic
+color = source
+intensity = 2.415
+radius = 1.92
+pulse = breathe
+pulse_depth = 0.81
+shadow = 0
+
+; Ember Sight's fill: warm light in the room the peephole reveals.
+[ember_sight]
+display = Ember Sight
+category = magic
+color = 1.0, 0.55, 0.25
+intensity = 2.0
+radius = 2.2
+pulse = steady
+shadow = 0

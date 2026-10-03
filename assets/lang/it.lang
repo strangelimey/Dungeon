@@ -779,6 +779,7 @@ map.tool.room=Stanza - trascina un rettangolo aperto, nello stile attuale
 map.tool.stamp=Timbro - clic per posare la forma attuale (R la ruota)
 map.tool.region=Regione - trascina un riquadro che il generatore riempie, nello stile attuale
 map.cat.shapes=Forme
+map.cat.lights=Luci
 map.shape.done={} caselle aperte, {} dipinte.
 map.tool.filllevel=Riempi livello - il pennello su ogni casella del suo tipo
 map.btn.save=Salva
@@ -1230,6 +1231,8 @@ map.fix.braziertitle=Braciere — cella {}, {}
 map.fix.lit=Acceso
 map.fix.brightness=Luminosità (celle)
 map.fix.turbidity=Fumosità
+map.fix.flamecolor=Colore fiamma proprio
+map.fix.color=Colore della fiamma
 map.fix.torchwall=Torcia (parete: {})
 ; --- item/decoration inspector ---
 map.prop.item=Oggetto: {}

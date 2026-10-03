@@ -779,6 +779,7 @@ map.tool.room=Sala - arrastra un rectángulo abierto, en el estilo actual
 map.tool.stamp=Sello - coloca la forma actual con un clic (R la gira)
 map.tool.region=Región - arrastra un área que llena el generador, en el estilo actual
 map.cat.shapes=Formas
+map.cat.lights=Luces
 map.shape.done={} casilla(s) abiertas, {} pintadas.
 map.tool.filllevel=Rellenar nivel - el pincel en cada casilla de su tipo
 map.btn.save=Guardar
@@ -1230,6 +1231,8 @@ map.fix.braziertitle=Brasero — celda {}, {}
 map.fix.lit=Encendido
 map.fix.brightness=Brillo (celdas)
 map.fix.turbidity=Humo
+map.fix.flamecolor=Color de llama propio
+map.fix.color=Color de la llama
 map.fix.torchwall=Antorcha (pared: {})
 ; --- item/decoration inspector ---
 map.prop.item=Objeto: {}

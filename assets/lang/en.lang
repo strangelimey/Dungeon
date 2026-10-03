@@ -796,6 +796,7 @@ map.tool.room=Room - drag a rectangle open, in the current style
 map.tool.stamp=Stamp - click the current shape down (R turns it)
 map.tool.region=Region - drag a box for the generator to fill, in the current style
 map.cat.shapes=Shapes
+map.cat.lights=Lights
 map.shape.done=Opened {} square(s), painted {}.
 map.tool.filllevel=Fill level - the armed brush on every square of its kind
 map.btn.save=Save
@@ -1338,6 +1339,8 @@ map.fix.braziertitle=Brazier — cell {}, {}
 map.fix.lit=Lit
 map.fix.brightness=Brightness (squares)
 map.fix.turbidity=Smokiness
+map.fix.flamecolor=Own flame color
+map.fix.color=Flame color
 map.fix.torchwall=Torch ({} wall)
 ; --- item/decoration inspector ---
 map.prop.item=Item: {}

@@ -64,6 +64,7 @@ constexpr CatInfo kCategoryInfo[] = {
 	{"map.cat.flags", "flags", false, /*placeable*/ false, /*authorable*/ true},
 	{"map.cat.styles", "styles", false, /*placeable*/ false, /*authorable*/ true},
 	{"map.cat.shapes", "shapes", false, /*placeable*/ false, /*authorable*/ true},
+	{"map.cat.lights", "lights", false, /*placeable*/ false, /*authorable*/ true},
 };
 static_assert(sizeof(kCategoryInfo) / sizeof(kCategoryInfo[0]) ==
 				  static_cast<size_t>(MapEditor::PaletteCat::Count),
@@ -204,6 +205,17 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 	case PaletteCat::Flags:       return QuestSectionItems();
 	case PaletteCat::Styles:      return StyleSectionItems();
 	case PaletteCat::Shapes:      return catalogItems(proj.shapes, kFloor);
+	case PaletteCat::Lights: {
+		// Each row's swatch is the light's own colour (white for one that takes
+		// its source's), so the section reads as a row of lamps.
+		std::vector<PaletteItem> items = catalogItems(proj.lights, kTorch);
+		for (PaletteItem& it : items) {
+			const light::Profile& p = m_world->LightProfileFor(it.id);
+			it.swatch = p.sourceColor ? Vec4{0.9f, 0.9f, 0.9f, 1.0f}
+									  : Vec4{p.color.x, p.color.y, p.color.z, 1.0f};
+		}
+		return items;
+	}
 	case PaletteCat::Terrain: {
 		std::vector<PaletteItem> items = catalogItems(proj.terrain, kFloor);
 		for (PaletteItem& it : items)

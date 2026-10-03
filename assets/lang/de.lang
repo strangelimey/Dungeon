@@ -779,6 +779,7 @@ map.tool.room=Raum - ein Rechteck aufziehen, im aktuellen Stil
 map.tool.stamp=Stempel - die aktuelle Form setzen (R dreht sie)
 map.tool.region=Region - einen Bereich aufziehen, den der Generator füllt, im aktuellen Stil
 map.cat.shapes=Formen
+map.cat.lights=Lichter
 map.shape.done={} Feld(er) geöffnet, {} bemalt.
 map.tool.filllevel=Ebene füllen - der Pinsel auf jedes Feld seiner Art
 map.btn.save=Speichern
@@ -1230,6 +1231,8 @@ map.fix.braziertitle=Kohlebecken — Zelle {}, {}
 map.fix.lit=Brennt
 map.fix.brightness=Helligkeit (Felder)
 map.fix.turbidity=Rauchigkeit
+map.fix.flamecolor=Eigene Flammenfarbe
+map.fix.color=Flammenfarbe
 map.fix.torchwall=Fackel (Wand: {})
 ; --- item/decoration inspector ---
 map.prop.item=Gegenstand: {}

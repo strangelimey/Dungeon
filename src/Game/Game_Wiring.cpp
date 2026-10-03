@@ -534,8 +534,17 @@ void Game::WireModuleCallbacks() {
 			// with it takes the new definition, on every level that has one.
 			else if (cfg.catalogKey == "themes")
 				m_world->RefreshTheme(cfg.id);
-			else
+			// A light profile is looked up by id every frame: re-reading the
+			// catalog is the whole reload (lighting-updates Phase 2).
+			else if (cfg.catalogKey == "lights")
+				m_world->ReloadLightProfiles();
+			else {
 				m_world->ReloadTypeKind(cfg.catalogKey, cfg.id);
+				// An item kind outlives that reload; its `light` is re-read here.
+				if (cfg.catalogKey == "items" || cfg.catalogKey == "weapons" ||
+					cfg.catalogKey == "armor")
+					m_world->ReloadLightProfiles();
+			}
 			if (m_world->onMessage)
 				m_world->onMessage(loc::FormatLine("map.type.saved", cfg.id));
 			return;
@@ -805,9 +814,12 @@ void Game::WireModuleCallbacks() {
 		return m_world->RemountSconce(x, z, from, to);
 	};
 	m_fixtureInspector.onSettings = [this](int x, int z, Direction wall, bool brazier, bool lit,
-										   float brightness, float turbidity) {
-		if (brazier) m_world->SetBrazierSettings(x, z, lit, brightness, turbidity);
-		else m_world->SetTorchSettings(x, z, wall, lit, brightness, turbidity);
+										   float brightness, float turbidity,
+										   const Vec3& flameColor) {
+		if (brazier) m_world->SetBrazierSettings(x, z, lit, brightness, turbidity, flameColor);
+		else m_world->SetTorchSettings(x, z, wall, lit, brightness, turbidity, flameColor);
+		// The dialog's preview flame takes the colour too.
+		m_previewFire.SetFlameColor(flameColor, HasFlameColor(flameColor));
 		// (the dialog flips its own preview spec's showFire on the Lit toggle)
 	};
 	m_fixtureInspector.onSave = [this] {

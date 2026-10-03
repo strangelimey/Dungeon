@@ -46,6 +46,24 @@ default / `-Minimal` / `-Panels` PASS, an old save carrying `torch 0` loads.
 
 ## Phase 2 - every light is described by its TYPE (data, not code)
 
+DONE 2026-10-02. `lights.cat` in all three projects (dungeon-demo, Test-World,
+the world template); `Game/LightProfile.h` pure and in RollTest (18 checks:
+the flicker and the fires' wander are the OLD formulas exactly, the rune
+breath within 0.002). Every light goes through `DungeonWorld::PushLight`; the
+budget cut keeps each light's ORIGIN beside it (an index order + two reserved
+scratch lists). Placed fires keep their own reach (the inspector's Brightness)
+- a profile's `radius` serves torches and glows. The palette has a Lights
+section (Furnishings, both groupings) whose swatches are the lights' colours.
+Dev: `lights` (replaced the old count-only command - the count is its first
+line), `lights profiles`, `lights reload` (re-reads lights.cat from disk).
+Effects' `light` field takes effect on the next load (the effect registry is
+built once); lights.cat, fixtures and items are live.
+ADDED (Michael, mid-phase): a placed sconce / brazier's settings dialog has a
+FLAME COLOR - one colour for its light AND its flame particles (FireEffect::
+SetFlameColor builds the flames from it, since a multiplier over the orange
+palette cannot make a bright blue), per placement, `color=r,g,b` on the .map
+`fixture` record (written only when set), unset = the kind's profile.
+
 - New catalog `lights.cat` (each project + the world template): named light
   PROFILES. Fields: `color`, `intensity`, `radius`, `pulse` (steady / flicker /
   breathe / strobe / storm), `pulse_rate`, `pulse_depth`, `wander` (how far the

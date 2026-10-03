@@ -46,6 +46,7 @@
 #include "Game/Style.h"
 #include "Game/Carve.h"
 #include "Game/Generate.h"
+#include "Game/LightProfile.h"
 #include "Game/Resource.h"
 #include "Game/Roll.h"
 
@@ -2299,6 +2300,87 @@ int main(int argc, char** argv) {
 				  ApplySpecField(m, "skills", "blade,,conditioning", why) &&
 					  m.skills == std::vector<std::string>{"blade", "conditioning"});
 		CheckTrue("an unknown key is refused", !ApplySpecField(m, "class", "mage", why));
+	}
+
+	// --- light profiles (Game/LightProfile.h) ---------------------------------
+	// A light's look is parsed from lights.cat and its pulse is maths every
+	// light goes through. Phase 2 moved the hand-written fire flicker, the rune
+	// breath and the fires' wander into it, so the expectations below are the
+	// OLD formulas written out by hand: the move must not have changed a light.
+	{
+		std::printf("\nLight profiles (Game/LightProfile.h)\n");
+		const auto fields = [](std::vector<std::pair<std::string, std::string>> kv) {
+			return [kv](std::string_view key) -> std::string {
+				for (const auto& [k, v] : kv)
+					if (k == key) return v;
+				return {};
+			};
+		};
+		std::vector<std::string> problems;
+		const light::Profile p = light::Parse(
+			"brazier",
+			fields({{"color", "1.0, 0.527, 0.224"}, {"intensity", "2.3"}, {"radius", "6"},
+					{"pulse", "flicker"}, {"pulse_depth", "0.1"}, {"wander", "0.0168"},
+					{"shadow", "1"}, {"long_fade", "1"}}),
+			&problems);
+		CheckTrue("a full profile parses with no problems", problems.empty());
+		Check("...its colour's green is 0.527", p.color.y, 0.527, 1e-6);
+		Check("...intensity 2.3", p.intensity, 2.3, 1e-6);
+		Check("...radius 6 squares", p.radius, 6.0, 1e-6);
+		CheckTrue("...flickers, casts a shadow, fades long",
+				  p.pulse == light::Pulse::Flicker && p.shadow && p.longFade);
+		const light::Profile src = light::Parse("burning", fields({{"color", "source"}}));
+		CheckTrue("`color = source` takes the source's colour", src.sourceColor);
+		problems.clear();
+		const light::Profile typo = light::Parse(
+			"typo", fields({{"color", "1, 0.5"}, {"pulse", "wobble"}, {"radius", "far"}}), &problems);
+		Check("three unreadable fields are three problems", static_cast<double>(problems.size()), 3, 0);
+		CheckTrue("...and each keeps its default",
+				  typo.radius == light::Profile{}.radius && typo.pulse == light::Pulse::Steady &&
+					  typo.color.x == light::Profile{}.color.x);
+
+		// The pulses, against the formulas they replaced.
+		double worstFlicker = 0.0, worstBreath = 0.0, worstWander = 0.0;
+		double flickerMin = 9.0, flickerMax = -9.0;
+		int strobeFull = 0, stormHigh = 0;
+		const int kSamples = 20000;
+		for (int i = 0; i < kSamples; ++i) {
+			const float t = static_cast<float>(i) * 0.0137f;
+			const float ph = 3.4f; // a fire's phase (seed 2 x 1.7)
+			const float f = light::PulseAt(light::Pulse::Flicker, 1.0f, 0.1f, t, ph);
+			const float old = 0.9f + 0.1f * std::sin(t * 11.0f + ph) * std::sin(t * 7.3f + ph);
+			worstFlicker = std::max(worstFlicker, static_cast<double>(std::fabs(f - old)));
+			flickerMin = std::min(flickerMin, static_cast<double>(f));
+			flickerMax = std::max(flickerMax, static_cast<double>(f));
+			// A rune's light: 2.3 x (1.05 + 0.85 sin(3t + id)), now 2.415 x breathe 0.81.
+			const float breath = 2.415f * light::PulseAt(light::Pulse::Breathe, 1.0f, 0.81f, t, 7.0f);
+			const float oldBreath = 2.3f * (1.05f + 0.85f * std::sin(t * 3.0f + 7.0f));
+			worstBreath = std::max(worstBreath, static_cast<double>(std::fabs(breath - oldBreath)));
+			// A brazier's wander was 0.042 m; 0.0168 squares x 2.5 m is the same.
+			const dungeon::Vec3 w = light::WanderAt(0.0168f, t, ph);
+			const float oldX = 0.042f * std::sin(t * 7.3f + ph) * std::sin(t * 3.1f + ph * 2.0f);
+			worstWander = std::max(worstWander, static_cast<double>(std::fabs(w.x * 2.5f - oldX)));
+			if (light::PulseAt(light::Pulse::Strobe, 2.0f, 0.8f, t, 0.0f) > 0.99f) ++strobeFull;
+			if (light::PulseAt(light::Pulse::Storm, 1.0f, 0.8f, t, 1.0f) > 0.9f) ++stormHigh;
+		}
+		Check("flicker is the old fire flicker, exactly", worstFlicker, 0.0, 1e-5);
+		CheckTrue("...and stays within 0.8 .. 1.0", flickerMin >= 0.8 - 1e-5 && flickerMax <= 1.0 + 1e-5);
+		Check("a rune's breath is the old one (worst gap)", worstBreath, 0.0, 0.01);
+		Check("a brazier's wander is the old 0.042 m (worst gap, m)", worstWander, 0.0, 1e-5);
+		Check("a strobe is full 15% of the time",
+			  static_cast<double>(strobeFull) / kSamples, 0.15, 0.01);
+		const double stormShare = static_cast<double>(stormHigh) / kSamples;
+		CheckTrue("a storm flashes, but rarely (under 10% of the time)",
+				  stormShare > 0.0 && stormShare < 0.10);
+		Check("steady never moves",
+			  light::PulseAt(light::Pulse::Steady, 3.0f, 0.9f, 12.3f, 1.0f), 1.0, 0.0);
+		const dungeon::Vec3 still = light::WanderAt(0.0f, 5.0f, 1.0f);
+		CheckTrue("no wander, no movement", still.x == 0.0f && still.y == 0.0f && still.z == 0.0f);
+		light::Pulse parsed{};
+		CheckTrue("every pulse name round-trips",
+				  light::ParsePulse(light::PulseName(light::Pulse::Storm), parsed) &&
+					  parsed == light::Pulse::Storm);
+		CheckTrue("the fallback is a light, not darkness", light::Fallback().intensity > 0.0f);
 	}
 
 	// --- verdict ------------------------------------------------------------

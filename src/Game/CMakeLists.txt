@@ -114,6 +114,7 @@ add_library(Game STATIC
 	GenerateKnobs.cpp
 	Threat.cpp
 	Power.cpp
+	LightProfile.cpp
 	Validate.cpp
 	Validate_Flags.cpp
 	Validate_Styles.cpp
