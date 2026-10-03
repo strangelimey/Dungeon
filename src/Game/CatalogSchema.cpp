@@ -527,6 +527,10 @@ constexpr FieldSpec kWeaponFields[] = {
 	 .help = "Attack verbs the hand menu offers, e.g. 'stab, slash'."},
 	{.key = "holdable", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
 	 .help = "Can be held in a hand slot (weapons should be on).", .def = "1"},
+	{.key = "light", .kind = FieldKind::CatalogRef, .sectionKey = kSectionLook,
+	 .help = "The light it gives while worn or held (lights.cat) - a glowing amulet, "
+			 "a lit blade. (none) = it gives none.",
+	 .options = "lights"},
 	ITEM_QUEST,
 };
 
@@ -557,6 +561,10 @@ constexpr FieldSpec kArmorFields[] = {
 	{.key = "powers", .kind = FieldKind::Text, .sectionKey = kSectionStats,
 	 .help = "Per-type POTENCY granted, e.g. 'fire 0.3'. Sums across the wielded "
 			 "weapon and every worn piece, and scales what its bearer deals."},
+	{.key = "light", .kind = FieldKind::CatalogRef, .sectionKey = kSectionLook,
+	 .help = "The light it gives while worn or held (lights.cat) - a glowing amulet, "
+			 "a lit blade. (none) = it gives none.",
+	 .options = "lights"},
 	ITEM_QUEST,
 };
 

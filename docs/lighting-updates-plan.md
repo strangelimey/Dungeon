@@ -235,6 +235,36 @@ lands, Put out / Light / the out-of-mana refusal / Flame's refusal all read.
 
 ## Phase 5 - worn items that illuminate
 
+DONE 2026-10-03. Any item on the doll - or in a hand - whose kind names a
+`light` and does not burn gives that light, steady at full strength, from its
+member's side (`AppendCarriedLights`, `LightKind::Worn`, key member x slots +
+slot): in a hand at the torch's height, worn at the chest. Torches keep their
+own path (charge, dimming). The weapons and armor schemas gained the `light`
+row items already had. The test item is the MOONSTONE AMULET (armor.cat, `wear
+= amulet`, a new `jewelry` category), lighting with the new `moonstone`
+profile - a cool blue-white breathing slowly, shadowless, 2.2 squares. Its
+model is script-built (tools/BuildAmulet.py: a silver wire bezel, a domed
+emissive stone, a cord loop through a bail), committed beside the rock.
+Fixed on the way: the four lit-torch descriptions still said "set it down and
+it goes out", untrue since Phase 4 (x5). AllocTest gained `-Wear <item>`
+(member 0 wears it before the window; refuses to run unless the game says it
+was worn and a `worn` light shows).
+Found by `-Walk` once the debug build was current: ShadowScheduler's
+`m_prevPos` was never reserved, so the first frame with more shadowed lights in
+view than ever before grew it mid-walk (latent on main too; now reserved to
+kShadowSlots). Checked, on a debug build rebuilt for the purpose: AllocTest
+default, `-Hand`, `-Lights -Walk`, `-Walk`, `-Cast`, `-Impact`, `-Throw`, `-Throw
+-ThrowItem torch_lit`, and `-Wear moonstone_amulet` alone and with `-Sheet`,
+`-Items -MeasureItem moonstone_amulet` and `-Walk` - all PASS; SpellTest 39 and
+EditorTest PASS; `uioverlap` clean over the amulet's details dialog; RollTest
+396; seen in the window (the amulet lights a dark corridor blue-white, the
+`lights` readout lists it as `worn`).
+
+CORRECTION to Phase 4's checks: its AllocTest runs launched a STALE debug exe
+(the harness runs build\debug; only release had been rebuilt), so those passes
+measured nothing new. The reruns above, on a current build, are the real ones -
+and the Phase 4 code passed them as it stood.
+
 - items / weapons / armor .cat `light = <profile>`: an item WORN on the doll
   (or held, for a held item) is a light at its member's side, like a torch.
   One test item to see it with (e.g. a glowing amulet), with item + .desc

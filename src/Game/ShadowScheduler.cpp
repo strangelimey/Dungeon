@@ -15,6 +15,10 @@ namespace dungeon::game {
 ShadowScheduler::ShadowScheduler() {
 	// Rebuilt every frame into retained capacity — no steady-state allocation.
 	m_candidates.reserve(gfx::kMaxPointLights);
+	// Likewise the slots' positions: at most one per shadow slot. Unreserved, it
+	// grew the first time more shadowed lights came into view than ever had -
+	// mid-walk, in a guarded frame (AllocTest -Walk, lighting-updates Phase 5).
+	m_prevPos.reserve(gfx::kShadowSlots);
 }
 
 void ShadowScheduler::AssignSlots(std::span<gfx::PointLight> lights, const Vec3& eye,

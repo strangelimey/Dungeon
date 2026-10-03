@@ -224,7 +224,10 @@ Key conventions (memorize, they bite):
   shared with a torch in FLIGHT, whose flame trails behind it). The hand menu
   offers PUT OUT for a lit torch and LIGHT for a MAGICAL one (its lit kind has a
   `power_level`): Flame passes a magical torch over (`refusesFlame`, a cast
-  service) and Light costs balance.cat `torch_light_mana` per level. A torch is
+  service) and Light costs balance.cat `torch_light_mana` per level. WORN LIGHT
+  (Phase 5): any item on the doll or in a hand whose kind names a `light` and
+  does not burn (the moonstone amulet) gives it steadily at its member's side
+  (`LightKind::Worn`; `AllocTest -Wear <item>`). A torch is
   also a CLUB (`command = attack`, the `attack` verb: bash, blunt skill, STR);
   a LIT one is `element = fire`, so its fire scales with tier and skill, plus
   an `on_hit` burn. A MAGICAL torch (`torch_magic`) adds `power_level` (burn_time

@@ -407,6 +407,24 @@ void DungeonWorld::AppendCarriedLights(float time) {
 					add(kind, at, TorchBrightness(kind, slot.charge),
 						static_cast<u32>(m * 2 + static_cast<size_t>(h)));
 			}
+			// WORN LIGHT (Phase 5): anything on the doll - or in a hand - whose
+			// kind names a `light` and does not burn: a glowing amulet, a lit gem.
+			// Steady at full strength (it has no charge to spend), from the
+			// member's side like their torch: in a hand at the torch's height,
+			// worn a little lower, at the chest.
+			for (int s = 0; s < kEquipCount; ++s) {
+				const ItemSlot& slot = c.inventory.equipment[static_cast<size_t>(s)];
+				if (slot.Empty()) continue;
+				const ItemKind& kind = ItemKindFor(slot.typeId);
+				if (kind.Lit() || kind.light.empty()) continue; // a torch is the above
+				const bool held = s == static_cast<int>(EquipSlot::LeftHand) ||
+								  s == static_cast<int>(EquipSlot::RightHand);
+				const u32 key = static_cast<u32>(m * static_cast<size_t>(kEquipCount)) +
+								static_cast<u32>(s);
+				PushLight(LightProfileFor(kind.light), "worn", LightKey(LightKind::Worn, key),
+						  {at.x, held ? at.y : eye.y - 0.25f, at.z}, time,
+						  static_cast<float>(key) * 1.3f);
+			}
 		}
 	}
 	if (m_cursorItem && m_cursorItem->has_value()) {

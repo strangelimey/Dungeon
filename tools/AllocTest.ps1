@@ -21,6 +21,7 @@
 #   .\tools\AllocTest.ps1 -Packs             # swap a 4-slot and an 8-slot bag
 #   .\tools\AllocTest.ps1 -Throw             # lift a rock, throw it at a wall, again
 #   .\tools\AllocTest.ps1 -Throw -ThrowItem torch_lit   # ...a lit torch (its light and flame)
+#   .\tools\AllocTest.ps1 -Wear moonstone_amulet       # any mode with a worn light on member 0
 #   .\tools\AllocTest.ps1 -Walk              # key turns: the party AND the pad's stones
 #   .\tools\AllocTest.ps1 -Config release    # needs -DDN_TRACK_ALLOCS=ON
 #
@@ -278,6 +279,10 @@ param(
 	# trip a LIT torch's: carried on the cursor, a light and a flame in flight,
 	# and a floor torch burning where it lands - all inside the window.
 	[string]$ThrowItem = 'rock',
+	# Member 0 WEARS this item for the whole run (lighting-updates Phase 5): an
+	# item with a `light` (moonstone_amulet) is then a worn light every frame of
+	# the window. Refuses to run if the wear was refused or no worn light shows.
+	[string]$Wear = '',
 	# Starts with a CREATED party instead of the default four: a `newparty` spec
 	# (party creation, docs/party-creation-plan.md phase 2), e.g.
 	# 'premade=0 | premade=1 | premade=2' for three. Any mode runs under it; the
@@ -792,6 +797,37 @@ try {
 		Send-Text 'hudpanel layout minimal'; Send-Key 0x0D
 		Send-Key 0xC0
 		Start-Sleep -Milliseconds 600
+	}
+
+	# -Wear: member 0 puts the item on before anything else, so its light is
+	# there in every measured frame. The proof it took is the game's own lines:
+	# the wear, and a `worn` row in the light readout.
+	if ($Wear) {
+		Write-Host "member 0 wears $Wear"
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		Send-Text "wear $Wear 0"; Send-Key 0x0D
+		# Closed a moment so the world runs a few frames with it on: the light
+		# readout is the LAST frame's lights, and an open console's frames may
+		# not have refreshed them.
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 600
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 400
+		Send-Text 'lights'; Send-Key 0x0D
+		Start-Sleep -Milliseconds 600
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 400
+		if (-not (Select-String -Path $log -Pattern "wears $Wear" -SimpleMatch -Quiet)) {
+			throw "wear $Wear was refused (see dungeon.log)"
+		}
+		if (-not (Select-String -Path $log -Pattern '\] worn ' -Quiet)) {
+			Select-String -Path $log -Pattern 'console: ' | Select-Object -Last 12 |
+				ForEach-Object { Write-Host "    $($_.Line)" }
+			throw "$Wear is worn but gives no light (no 'worn' row in the light readout)"
+		}
 	}
 
 	if ($Lights) {

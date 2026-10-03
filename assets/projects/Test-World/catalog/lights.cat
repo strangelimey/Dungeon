@@ -152,3 +152,16 @@ radius = 1.6
 pulse = flicker
 pulse_depth = 0.15
 shadow = 0
+
+; A WORN light (Phase 5): an item on the doll or in a hand naming one with its
+; `light` gives it steadily at its wearer's side.
+[moonstone]
+display = Moonstone glow
+category = worn
+color = 0.62, 0.78, 1.0
+intensity = 1.3
+radius = 2.2
+pulse = breathe
+pulse_rate = 0.45
+pulse_depth = 0.15
+shadow = 0

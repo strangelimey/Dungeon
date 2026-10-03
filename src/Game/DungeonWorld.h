@@ -3688,6 +3688,7 @@ private:
 		FloorTorch, // a lit torch lying on the floor, keyed by its m_items index
 		Flash,     // the moment a lit bolt leaves where it ended, keyed by slot
 		HandGlow,  // a hand spell's puff of light (HandPuff), keyed by its slot
+		Worn,      // an item on the doll or in a hand giving light: member x slots + slot
 	};
 	static u32 LightKey(LightKind kind, u32 index) {
 		return (static_cast<u32>(kind) << 24) | (index & 0xFFFFFFu);
