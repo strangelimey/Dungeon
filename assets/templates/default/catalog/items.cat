@@ -136,6 +136,24 @@ model = rock
 
 ; A flask of fire: it shatters where it stops and bursts as firebolt_burst does -
 ; blast and all, which catches the party too if it bursts close.
+;
+; THE BOMBS COME IN THREE SIZES (transparency Phase 5), in the potions' glass: a
+; vial, the small bottle (these two, the standard size - levels and start_items
+; name them) and a round flask. `throw_scale` scales what the throw leaves: the
+; blast's damage, reach (rounded squares) and linger, and its on-hit effects.
+[fire_flask_small]
+name = item.fire_flask_small
+category = misc
+weight = 0.3
+holdable = 1
+command = throw
+throw_spell = firebolt_burst
+throw_breaks = 1
+throw_scale = 0.6
+model = potion_vial
+upright = 1
+liquid_color = 0.75, 0.22, 0.01, 0.95
+
 [fire_flask]
 name = item.fire_flask
 category = misc
@@ -144,6 +162,22 @@ holdable = 1
 command = throw
 throw_spell = firebolt_burst
 throw_breaks = 1
+model = potion_bottle
+upright = 1
+liquid_color = 0.75, 0.22, 0.01, 0.95
+
+[fire_flask_large]
+name = item.fire_flask_large
+category = misc
+weight = 1.2
+holdable = 1
+command = throw
+throw_spell = firebolt_burst
+throw_breaks = 1
+throw_scale = 1.5
+model = potion_flask
+upright = 1
+liquid_color = 0.75, 0.22, 0.01, 0.95
 
 ; A flask of poison gas: it shatters where it stops and lets go a CLOUD - a
 ; persistent blast that creeps out slowly (blast_rate s a step), fills the
@@ -166,6 +200,52 @@ blast_persist = 1
 blast_linger = 8
 blast_type = earth
 blast_color = 0.35, 0.9, 0.2
+model = potion_bottle
+upright = 1
+; murky olive: stamina owns the clean green, a shelf away
+liquid_color = 0.35, 0.38, 0.05, 0.95
+
+[poison_flask_small]
+name = item.poison_flask_small
+category = misc
+weight = 0.3
+holdable = 1
+command = throw
+throw_breaks = 1
+throw_scale = 0.6
+on_hit = poison 2 10
+blast_force = 6
+blast_damage = 1
+blast_falloff = 0.1
+blast_rate = 0.6
+blast_persist = 1
+blast_linger = 8
+blast_type = earth
+blast_color = 0.35, 0.9, 0.2
+model = potion_vial
+upright = 1
+liquid_color = 0.35, 0.38, 0.05, 0.95
+
+[poison_flask_large]
+name = item.poison_flask_large
+category = misc
+weight = 1.2
+holdable = 1
+command = throw
+throw_breaks = 1
+throw_scale = 1.5
+on_hit = poison 2 10
+blast_force = 6
+blast_damage = 1
+blast_falloff = 0.1
+blast_rate = 0.6
+blast_persist = 1
+blast_linger = 8
+blast_type = earth
+blast_color = 0.35, 0.9, 0.2
+model = potion_flask
+upright = 1
+liquid_color = 0.35, 0.38, 0.05, 0.95
 
 ; --- food and drink ---------------------------------------------------------
 ; `nutrition` and `hydration` are what CONSUMING it restores, out of 100

@@ -236,6 +236,14 @@ CLAUDE.md (Renderer features: the transparent pass and the queue; the item
 fields), docs/costs.md if anything was bought, and the regression tier
 (`/check`).
 
+AS BUILT: CLAUDE.md has a "Transparency and potions" section (the queue and
+its flush rule, dual-source glass, the generated liquid, the bottles, drinking,
+bombs, what is checked and what is not), a pointer to it under Renderer
+features and SUPPLIES, the ledger's sixth reason `drink`, and the Known-gaps
+healing line corrected. `tools/BuildTemplate.py` re-run: the template's
+items.cat gained the four new bomb sizes (additions only). Nothing was bought,
+so docs/costs.md is unchanged. `/check` quick: PASS, 5 checks.
+
 ## Open questions (asked one at a time when their phase opens)
 
 - Phase 4: can a health potion poured into a DOWNED member wake them?
