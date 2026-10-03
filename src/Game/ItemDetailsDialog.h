@@ -92,6 +92,8 @@ public:
 	// A burning item's flame head (model space), else null; Game projects it
 	// through the preview's framing and draws the flame over the image.
 	const Vec3* FlameHead() const { return m_burning ? &m_flameHead : nullptr; }
+	// A magical torch's flame colour, else null (the ordinary orange).
+	const Vec3* FlameTint() const { return m_flameTinted ? &m_flameTint : nullptr; }
 	// The model's size in the pane: a burning one is drawn smaller, leaving
 	// room above its head for the flame.
 	float PreviewScale() const { return m_burning ? 0.78f : 1.0f; }
@@ -131,6 +133,8 @@ private:
 	Vec3 m_fitMin{}, m_fitMax{};
 	bool m_burning = false;
 	Vec3 m_flameHead{};
+	bool m_flameTinted = false;
+	Vec3 m_flameTint{};
 	Mat4 m_pose{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
 };
 

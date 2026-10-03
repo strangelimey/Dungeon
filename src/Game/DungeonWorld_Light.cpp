@@ -100,11 +100,13 @@ void DungeonWorld::AppendCarriedLights(float time) {
 	const Vec3 eye = PartyEye(); // a carried light falls with the camera
 	const float flicker =
 		0.92f + 0.08f * std::sin(time * 9.0f) * std::sin(time * 13.7f + 1.3f);
-	const auto add = [&](const Vec3& at, float brightness) {
+	// A magical torch burns its own colour; an ordinary one the party's
+	// torchlight setting.
+	const auto add = [&](const Vec3& at, const ItemKind& kind, float brightness) {
 		gfx::PointLight torch;
 		torch.position = at;
 		torch.radius = kTorchRadius * (0.6f + 0.4f * brightness);
-		torch.color = m_torchColor;
+		torch.color = kind.flameTinted ? kind.flameColor : m_torchColor;
 		torch.intensity = kTorchIntensity * flicker * brightness;
 		m_lights.points.push_back(torch);
 	};
@@ -124,14 +126,15 @@ void DungeonWorld::AppendCarriedLights(float time) {
 				const ItemSlot& slot = c.inventory.Hand(h);
 				if (slot.Empty()) continue;
 				const ItemKind& kind = ItemKindFor(slot.typeId);
-				if (kind.Lit()) add(at, TorchBrightness(kind, slot.charge));
+				if (kind.Lit()) add(at, kind, TorchBrightness(kind, slot.charge));
 			}
 		}
 	}
 	if (m_cursorItem && m_cursorItem->has_value()) {
 		const ItemKind& kind = ItemKindFor(**m_cursorItem);
 		if (kind.Lit())
-			add({eye.x, eye.y + 0.2f, eye.z}, TorchBrightness(kind, m_cursorItem->Charge()));
+			add({eye.x, eye.y + 0.2f, eye.z}, kind,
+				TorchBrightness(kind, m_cursorItem->Charge()));
 	}
 }
 

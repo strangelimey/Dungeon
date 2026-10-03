@@ -997,6 +997,7 @@ bool DungeonWorld::ItemDetailsFor(const std::string& type, ItemDetails& out) {
 	out.nutrition = k.nutrition;
 	out.hydration = k.hydration;
 	out.burning = ItemFlameHead(type, out.flameHead);
+	out.flameTinted = ItemFlameTint(type, out.flameTint);
 	return true;
 }
 
@@ -1116,6 +1117,15 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		kind->drinkAs = CatalogGet(def, "drink_as", "");
 		// Light: a torch, lit or not, and what it becomes.
 		kind->burnTime = def ? def->GetFloat("burn_time", 0.0f) : 0.0f;
+		// A magical torch lasts (1 + power_level) times its authored burn. Folded
+		// in HERE, so the charge, the dimming and the save all just see a longer
+		// burn_time.
+		kind->powerLevel = def ? std::max(def->GetFloat("power_level", 0.0f), 0.0f) : 0.0f;
+		kind->burnTime *= 1.0f + kind->powerLevel;
+		if (Vec4 c; CatalogColor(def, "flame_color", c)) {
+			kind->flameColor = {c.x, c.y, c.z};
+			kind->flameTinted = true;
+		}
 		kind->litAs = CatalogGet(def, "lit_as", "");
 		kind->unlitAs = CatalogGet(def, "unlit_as", "");
 		kind->spentAs = CatalogGet(def, "spent_as", "");

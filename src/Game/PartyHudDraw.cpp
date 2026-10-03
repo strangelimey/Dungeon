@@ -281,7 +281,7 @@ void DrawRuneGlow(gfx::SpriteBatch& batch, const gfx::Rect& r, SpellSymbol s,
 }
 
 void DrawHeldFlame(gfx::SpriteBatch& batch, const gfx::Rect& in, const Vec2& at,
-				   const gfx::Texture& flame, const gfx::Texture* glow) {
+				   const gfx::Texture& flame, const gfx::Texture* glow, const Vec3* tint) {
 	// Where the head is, and how tall the flame may stand: about two fifths of
 	// the icon, but never past the top of it, so a head near the top edge
 	// burns low rather than spilling out of its socket.
@@ -290,11 +290,13 @@ void DrawHeldFlame(gfx::SpriteBatch& batch, const gfx::Rect& in, const Vec2& at,
 	const float tall = std::min(in.h * 0.42f, (by - in.y) + in.h * 0.06f);
 	// Seeded by where the socket sits, so two torches side by side do not
 	// burn in lockstep.
-	DrawFlame(batch, {bx, by}, tall, in.w * 0.50f, in.x * 0.37f + in.y * 0.11f, flame, glow);
+	DrawFlame(batch, {bx, by}, tall, in.w * 0.50f, in.x * 0.37f + in.y * 0.11f, flame, glow,
+			  tint);
 }
 
 void DrawFlame(gfx::SpriteBatch& batch, const Vec2& head, float tall, float glowSize,
-			   float seed, const gfx::Texture& flame, const gfx::Texture* glow) {
+			   float seed, const gfx::Texture& flame, const gfx::Texture* glow,
+			   const Vec3* tint) {
 	if (tall <= 1.0f) return;
 	const float bx = head.x, by = head.y;
 	// Three flickers out of step. Fast, like a real flame.
@@ -307,23 +309,36 @@ void DrawFlame(gfx::SpriteBatch& batch, const Vec2& head, float tall, float glow
 	const float sway = w * 0.08f * f3;
 	// The base sinks a little into the head, so the flame grows out of it.
 	const float base = by + h * 0.10f;
-	if (glow) {
-		const float g = glowSize * (1.0f + 0.12f * f1);
-		const float gy = base - h * 0.40f;
-		batch.DrawSprite({bx - g * 0.5f, gy - g * 0.5f, g, g}, {0, 0, 1, 1}, *glow,
-						 {1.0f, 0.55f, 0.15f, 0.30f + 0.12f * f2});
-	}
-	// Body, heart, core: each smaller, brighter, swaying a little less.
+	// Body, heart, core: each smaller, brighter, swaying a little less. A TINTED
+	// flame (a magical torch's `flame_color`) takes its body from the tint and
+	// whitens toward the core, as the authored orange does.
 	struct Layer {
 		float scale, sway;
 		Vec4 color;
 	};
-	constexpr Layer kLayers[] = {
+	Layer layers[] = {
 		{1.00f, 1.0f, {1.00f, 0.42f, 0.08f, 0.85f}},
 		{0.70f, 0.7f, {1.00f, 0.76f, 0.24f, 0.90f}},
 		{0.40f, 0.4f, {1.00f, 0.96f, 0.84f, 0.95f}},
 	};
-	for (const Layer& l : kLayers) {
+	Vec4 glowColor{1.0f, 0.55f, 0.15f, 1.0f};
+	if (tint) {
+		const auto whiten = [&](float k, float a) {
+			return Vec4{tint->x + (1.0f - tint->x) * k, tint->y + (1.0f - tint->y) * k,
+						tint->z + (1.0f - tint->z) * k, a};
+		};
+		layers[0].color = whiten(0.0f, 0.85f);
+		layers[1].color = whiten(0.45f, 0.90f);
+		layers[2].color = whiten(0.85f, 0.95f);
+		glowColor = whiten(0.1f, 1.0f);
+	}
+	if (glow) {
+		const float g = glowSize * (1.0f + 0.12f * f1);
+		const float gy = base - h * 0.40f;
+		batch.DrawSprite({bx - g * 0.5f, gy - g * 0.5f, g, g}, {0, 0, 1, 1}, *glow,
+						 {glowColor.x, glowColor.y, glowColor.z, 0.30f + 0.12f * f2});
+	}
+	for (const Layer& l : layers) {
 		const float lh = h * l.scale, lw = w * l.scale;
 		batch.DrawSprite({bx - lw * 0.5f + sway * l.sway, base - lh, lw, lh}, {0, 0, 1, 1}, flame,
 						 l.color);
@@ -366,7 +381,7 @@ bool DrawItemIcon(gfx::SpriteBatch& batch, const gfx::Rect& r, std::string_view 
 	const gfx::Rect in{r.x + p, r.y + p, r.w - 2 * p, r.h - 2 * p};
 	batch.DrawSprite(in, {0, 0, 1, 1}, *icon, {1, 1, 1, 1});
 	if (const Vec2* at = icons->FlameAt(typeId); at && icons->flame)
-		DrawHeldFlame(batch, in, *at, *icons->flame, icons->flameGlow);
+		DrawHeldFlame(batch, in, *at, *icons->flame, icons->flameGlow, icons->FlameTint(typeId));
 	return true;
 }
 

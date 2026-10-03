@@ -218,7 +218,10 @@ Key conventions (memorize, they bite):
   counts down `burn_time`, it dims over its last tenth, spent it becomes
   `spent_as`); stowed or dropped it goes out keeping what is left. A torch is
   also a CLUB (`command = attack`, the `attack` verb: bash, blunt skill, STR);
-  a LIT one is `element = fire`, so its fire scales with tier and skill. CHARGE IS
+  a LIT one is `element = fire`, so its fire scales with tier and skill, plus
+  an `on_hit` burn. A MAGICAL torch (`torch_magic`) adds `power_level` (burn_time
+  x (1 + level), folded in at load) and `flame_color` (its light AND the drawn
+  flame: icon, details dialog; ItemKind::flameColor, DrawFlame's tint). CHARGE IS
   PART OF THE ITEM everywhere it can be: `ItemSlot {typeId, charge}`, the
   cursor's HeldItem, a floor Item, a thrown cargo, and the save (`id#charge`).
   Lighting / dousing / filling RENAMES an item in its slot (`lit_as` /

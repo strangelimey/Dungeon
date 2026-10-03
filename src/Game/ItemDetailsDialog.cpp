@@ -178,6 +178,8 @@ void ItemDetailsDialog::Open(const ItemDetails& d, float weightKg) {
 	if (m_title) m_title->text.assign(loc::View(d.nameKey));
 	m_burning = d.burning;
 	m_flameHead = d.flameHead;
+	m_flameTinted = d.flameTinted;
+	m_flameTint = d.flameTint;
 	char a[32], b[32];
 
 	SetRow(kCategory, d.category.empty() ? std::string_view{}
