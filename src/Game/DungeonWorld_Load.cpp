@@ -997,6 +997,12 @@ bool DungeonWorld::ItemDetailsFor(const std::string& type, ItemDetails& out) {
 	}
 	out.nutrition = k.nutrition;
 	out.hydration = k.hydration;
+	out.restoreHealth = k.restoreHealth;
+	out.restoreStamina = k.restoreStamina;
+	out.restoreMana = k.restoreMana;
+	for (const ItemKind::Cure& cure : k.cures)
+		if (out.cureCount < out.cures.size())
+			out.cures[out.cureCount++] = {cure.effect, cure.share};
 	out.burning = ItemFlameHead(type, out.flameHead);
 	return true;
 }
@@ -1198,6 +1204,30 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		kind->nutrition = def ? def->GetFloat("nutrition", 0.0f) : 0.0f;
 		kind->hydration = def ? def->GetFloat("hydration", 0.0f) : 0.0f;
 		kind->drinkAs = CatalogGet(def, "drink_as", "");
+		// A potion (transparency Phase 4): restored at once, and the effects it
+		// treats - `cures = poison 0.5, bleed`, each an effects.cat id and the
+		// share of its bite taken away (absent = 1, lifted outright).
+		kind->restoreHealth = def ? def->GetFloat("restore_health", 0.0f) : 0.0f;
+		kind->restoreStamina = def ? def->GetFloat("restore_stamina", 0.0f) : 0.0f;
+		kind->restoreMana = def ? def->GetFloat("restore_mana", 0.0f) : 0.0f;
+		{
+			const std::string spec = CatalogGet(def, "cures", "");
+			size_t start = 0;
+			while (start < spec.size()) {
+				size_t comma = spec.find(',', start);
+				if (comma == std::string::npos) comma = spec.size();
+				const std::vector<std::string> words =
+					SplitTokens(spec.substr(start, comma - start));
+				start = comma + 1;
+				if (words.empty()) continue;
+				ItemKind::Cure cure{words[0], 1.0f};
+				if (words.size() > 1) cure.share = std::strtof(words[1].c_str(), nullptr);
+				if (!m_effects.Find(cure.effect))
+					log::Warn("items.cat [{}]: cures '{}', which is not an effect", type,
+							  cure.effect);
+				kind->cures.push_back(std::move(cure));
+			}
+		}
 		// Light: a torch, lit or not, and what it becomes.
 		kind->burnTime = def ? def->GetFloat("burn_time", 0.0f) : 0.0f;
 		kind->litAs = CatalogGet(def, "lit_as", "");
@@ -1257,6 +1287,8 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		// the hand right-click menu offers; runes implicitly gain "memorize" below.
 		for (const std::string& cmd : SplitTokens(CatalogGet(def, "command", "")))
 			kind->commands.push_back(cmd);
+		kind->drinks = std::find(kind->commands.begin(), kind->commands.end(), "drink") !=
+					   kind->commands.end();
 		// THROWING (ui-updates Phase 10; DungeonWorld_Throw.cpp). Any item can be
 		// thrown. `throw` names the ATTACK it flies as (attacks.cat - its type and
 		// numbers): absent = a weapon's first command, else `throw` (bash). What it

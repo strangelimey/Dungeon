@@ -43,6 +43,14 @@ struct ItemDetails {
 	// --- what eating it restores ---
 	float nutrition = 0.0f;
 	float hydration = 0.0f;
+	// --- a potion: what drinking it restores, and the effects it treats ---
+	float restoreHealth = 0.0f, restoreStamina = 0.0f, restoreMana = 0.0f;
+	struct Cure {
+		std::string_view effect; // effects.cat id (a view into the item kind)
+		float share = 1.0f;
+	};
+	std::array<Cure, 4> cures{};
+	size_t cureCount = 0;
 	// --- a BURNING item (a lit torch): where its flame stands, in model space
 	// (DungeonWorld::ItemFlameHead), so the turning preview burns too ---
 	bool burning = false;

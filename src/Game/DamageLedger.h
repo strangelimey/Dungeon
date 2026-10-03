@@ -85,6 +85,7 @@ enum class Reason : u8 {
 			   // creeps off exertion — which is why it is a reason of its own
 			   // rather than being lumped in with the setup paths
 	Stabilize, // the unconscious waking by themselves (docs/combat.md Phase 5)
+	Drink,     // a healing potion (items.cat restore_health, transparency Phase 4)
 	Count
 };
 // There is deliberately NO `Setup` reason. A load, a new game, a respawn or a

@@ -2248,6 +2248,18 @@ private:
 		// 0/0 means it feeds nobody, which is how a consume is refused.
 		float nutrition = 0.0f;
 		float hydration = 0.0f;
+		// A POTION (transparency Phase 4): what drinking it restores at once
+		// (items.cat `restore_health` / `restore_stamina` / `restore_mana`), and
+		// the effects it treats (`cures = poison 0.5, bleed`): a share of each
+		// one's bite taken away, 1 (the default) lifting it outright. Parsed at
+		// load, so a drink allocates nothing.
+		float restoreHealth = 0.0f, restoreStamina = 0.0f, restoreMana = 0.0f;
+		struct Cure {
+			std::string effect; // effects.cat id
+			float share = 1.0f; // of its magnitude removed; >= 1 removes it
+		};
+		std::vector<Cure> cures;
+		bool drinks = false; // `command` lists drink: the log says "drinks"
 		// What a consume leaves in the hand (items.cat `drink_as`): a waterskin
 		// drunk from steps down a fill level instead of being used up. Empty =
 		// the item is gone (bread is eaten).

@@ -153,6 +153,30 @@ Generated at item-kind load for any kind with a `liquid_color`:
 
 ## Phase 4 - drinkable potions
 
+AS BUILT (2026-10-03). Michael's answers: a potion does NOT wake the
+unconscious (later spells / items will); potions turn up in `start_items`, the
+crypt levels and generated loot.
+- items.cat `restore_health` / `restore_stamina` / `restore_mana` (at once, never
+  past the maximum) and `cures = poison 0.5, bleed` (each an effect id and the
+  share of its bite taken away; absent = lifted). Parsed at load; a drink
+  allocates nothing. `ConsumeItem` refuses the unconscious before anything
+  moves (`log.consume_downed`), and the log says "drinks" for a `command =
+  drink` item (the waterskin too, which used to be "eaten").
+- Health moves under a new ledger reason, `drink`; PipelineTest demands that
+  route be non-zero and pipeline.eval section 10 drives it (an antidote first).
+- Numbers, first cut: health / mana 10 / 25 / 50, stamina 15 / 30 / 60;
+  antidotes halve poison / lift poison / lift poison and bleeding.
+- The details dialog shows Heals / Restores stamina / Restores mana / Cures; a
+  description x5 for each of the twelve.
+- PLACEMENT: `potion_health_minor` and `potion_mana_minor` in start_items (the
+  world template too - tools/BuildTemplate.py's hardcoded list had lost
+  `torch_lit`, now restored); three potions in each crypt level; generated loot
+  already took any untagged item, and the new `loot = 0` keeps the EMPTIES out.
+- `party` now lists each member's effects. `tools/EvalScripts/potions.eval`
+  measures refusal, both antidotes, each pool, the downed refusal and the
+  ledger row. NOT covered by AllocTest: a drink from the pack in an armed frame
+  (no mode clicks the use menu's Drink row).
+
 Items (items.cat, category `potion` - the medicine pouch already accepts it,
 `command = drink`, `drink_as` = the empty container):
 

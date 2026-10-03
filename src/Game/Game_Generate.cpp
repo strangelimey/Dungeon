@@ -50,6 +50,10 @@ std::vector<std::string> PoolFor(const Catalog& cat,
 	std::vector<std::string> matched, all;
 	for (const CatalogEntry& e : cat.Entries()) {
 		if (CatalogBool(&e, "hidden", false)) continue;
+		// items.cat `loot = 0`: never generated (an empty bottle is what a drink
+		// leaves, not treasure). Absent everywhere else, so a monster pool is
+		// untouched.
+		if (!CatalogBool(&e, "loot", true)) continue;
 		all.push_back(e.id);
 		if (CatalogMatchesTags(&e, tags)) matched.push_back(e.id);
 	}

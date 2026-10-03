@@ -140,7 +140,8 @@ void ItemDetailsDialog::Build() {
 		"item.detail.speed",    "item.detail.skill",   "item.detail.reach",
 		"item.detail.element",  "item.detail.armor",   "item.detail.armorclass",
 		"item.detail.worn",     "item.detail.resists", "item.detail.nutrition",
-		"item.detail.hydration"};
+		"item.detail.hydration", "item.detail.restore_health",
+		"item.detail.restore_stamina", "item.detail.restore_mana", "item.detail.cures"};
 	for (size_t i = 0; i < kRowCount; ++i) {
 		ui::Stack* row = column->Row<ui::Stack>(FormRow(kLineRows), true);
 		row->debugName = "line";
@@ -231,6 +232,32 @@ void ItemDetailsDialog::Open(const ItemDetails& d, float weightKg) {
 										  : std::string_view{});
 	SetRow(kHydration, d.hydration > 0.0f ? std::string_view(Tenths(b, d.hydration))
 										  : std::string_view{});
+
+	// A potion: what it restores at once, and what it treats - an effect by its
+	// own name, with the share of its bite taken away when that is not all of it.
+	char h[32], s[32], m[32];
+	SetRow(kRestoreHealth, d.restoreHealth > 0.0f ? std::string_view(Tenths(h, d.restoreHealth))
+												  : std::string_view{});
+	SetRow(kRestoreStamina, d.restoreStamina > 0.0f
+								? std::string_view(Tenths(s, d.restoreStamina))
+								: std::string_view{});
+	SetRow(kRestoreMana, d.restoreMana > 0.0f ? std::string_view(Tenths(m, d.restoreMana))
+											  : std::string_view{});
+	char cures[loc::Line::kCapacity];
+	size_t c = 0;
+	for (size_t i = 0; i < d.cureCount; ++i) {
+		const ItemDetails::Cure& cure = d.cures[i];
+		const loc::Line name = Lookup("effect.", cure.effect, "");
+		const auto end =
+			cure.share >= 1.0f
+				? std::format_to_n(cures + c, static_cast<std::ptrdiff_t>(sizeof(cures) - c),
+								   "{}{}", i ? ", " : "", name.View())
+				: std::format_to_n(cures + c, static_cast<std::ptrdiff_t>(sizeof(cures) - c),
+								   "{}{} {}%", i ? ", " : "", name.View(),
+								   static_cast<int>(std::lround(cure.share * 100.0f)));
+		c = std::min(static_cast<size_t>(end.out - cures), sizeof(cures));
+	}
+	SetRow(kCures, std::string_view(cures, c));
 
 	// item.<id>.desc by the name key's convention; an item without one simply has
 	// no paragraph rather than printing its key.
