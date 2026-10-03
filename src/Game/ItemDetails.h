@@ -55,6 +55,8 @@ struct ItemDetails {
 	// (DungeonWorld::ItemFlameHead), so the turning preview burns too ---
 	bool burning = false;
 	Vec3 flameHead{};
+	bool flameTinted = false; // a magical torch's own flame colour
+	Vec3 flameTint{};
 };
 
 } // namespace dungeon::game

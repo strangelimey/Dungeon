@@ -90,17 +90,36 @@ void ProjectileSystem::SpawnSparkBurst(const Vec3& pos, const Vec4& color, int c
 }
 
 void ProjectileSystem::Puff(const Vec3& pos, const Vec4& color, int count, float spread,
-							 float life, float size) {
+							 float life, float size, float jitter) {
 	auto r = [&] { return (static_cast<float>(m_rng() & 0xFFFF) / 32768.0f) - 1.0f; };
 	for (int i = 0; i < count; ++i) {
 		Spark s;
-		s.pos = {pos.x + r() * 0.6f, pos.y + r() * 0.25f, pos.z + r() * 0.6f};
+		s.pos = {pos.x + r() * jitter, pos.y + r() * jitter * (0.25f / 0.6f), pos.z + r() * jitter};
 		s.vel = {r() * spread, 0.15f + r() * spread * 0.3f, r() * spread};
 		s.color = {color.x, color.y, color.z, 0.0f}; // additive
 		s.life = life * (0.75f + 0.25f * (r() + 1.0f));
 		s.size = size;
 		s.fall = -0.2f; // drifts up, as warm air or a cloud does
 		s.swell = true;
+		m_sparks.push_back(s);
+	}
+}
+
+void ProjectileSystem::Splash(const Vec3& pos, const Vec3& dir, const Vec4& color, int count,
+							  float speed, float life, float size) {
+	auto r = [&] { return (static_cast<float>(m_rng() & 0xFFFF) / 32768.0f) - 1.0f; };
+	for (int i = 0; i < count; ++i) {
+		Spark s;
+		s.pos = {pos.x + r() * 0.04f, pos.y + r() * 0.04f, pos.z + r() * 0.04f};
+		// Out in every direction but mostly forward and up, so it reads as a
+		// flung handful rather than a burst.
+		const float lean = 0.5f + 0.5f * (r() + 1.0f) * 0.5f;
+		s.vel = {(dir.x * lean + r() * 0.6f) * speed, (0.7f + 0.5f * r()) * speed,
+				 (dir.z * lean + r() * 0.6f) * speed};
+		s.color = {color.x, color.y, color.z, 0.0f}; // additive
+		s.life = life * (0.75f + 0.25f * (r() + 1.0f));
+		s.size = size * (0.7f + 0.3f * (r() + 1.0f) * 0.5f);
+		s.fall = 7.0f; // drops fall, and fall fast
 		m_sparks.push_back(s);
 	}
 }

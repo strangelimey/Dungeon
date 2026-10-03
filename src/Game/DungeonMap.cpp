@@ -666,10 +666,28 @@ bool DungeonMap::ResetFixtureBurning() {
 	for (WallSconce& s : m_torches) {
 		changed |= std::exchange(s.flipped, false);
 		changed |= std::exchange(s.empty, false);
+		s.torch.clear();
+		s.torchCharge = -1.0f;
 	}
 	for (FloorBrazier& b : m_braziers) changed |= std::exchange(b.flipped, false);
 	if (changed) RecomputeTurbidity(); // play state only: no Revision() bump
 	return changed;
+}
+
+bool DungeonMap::SetSconceTorch(int x, int z, int wall, std::string_view torch, float charge) {
+	for (WallSconce& s : m_torches) {
+		if (s.x != x || s.z != z || static_cast<int>(s.wall) != wall) continue;
+		s.torch.assign(torch); // into the sconce's own buffer: no allocation for a short id
+		s.torchCharge = charge;
+		return true;
+	}
+	return false;
+}
+
+const WallSconce* DungeonMap::SconceAt(int x, int z, int wall) const {
+	for (const WallSconce& s : m_torches)
+		if (s.x == x && s.z == z && static_cast<int>(s.wall) == wall) return &s;
+	return nullptr;
 }
 
 bool DungeonMap::SetSconceEmpty(int x, int z, int wall, bool empty, bool burning) {

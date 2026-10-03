@@ -414,7 +414,7 @@ struct Inst {
 // school, so thirteen is the most any body can carry today; sixteen leaves
 // room, and a future `stacking = stack` kind is the only thing that could
 // reach it. Every list's owner reserves this much when the owner is CREATED
-// (ReserveEffects - a party, a monster at spawn, a destructible piece of
+// (ReserveEffects - a party, a monster at spawn, a breakable piece of
 // dungeon), because a first effect used to grow an empty vector in the middle
 // of a fight: every monster's first burn allocated in a settled frame
 // (tools\AllocTest.ps1 -Impact found it). Apply keeps a full list at the

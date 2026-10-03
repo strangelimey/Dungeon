@@ -21,7 +21,7 @@ torch_item = torch
 ; to break, and it does not care about fire — it is already alight (`fire 1.0` is
 ; immunity). NOT every fixture opts in: [brazier_empty] below authors none of this
 ; and cannot be touched, the same way most doors cannot.
-destructible = 1
+breakable = 1
 hp = 6
 resists = fire 1.0, bash -0.4
 ; Put out (a splash, a smashed bracket): its smoke hangs over the square
@@ -40,7 +40,7 @@ flame_height = 0.296
 flame_scale = 1.0
 ; Cast iron on three legs: far tougher than a bracket, and it takes a real blow to
 ; tip over — but tipping it over is what douses it.
-destructible = 1
+breakable = 1
 hp = 30
 armor = 4
 resists = fire 1.0, slash 0.6, bash -0.2

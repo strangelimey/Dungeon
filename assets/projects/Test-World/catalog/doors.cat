@@ -44,13 +44,13 @@ trim = door_band_half
 frame = door_frame_split
 opener = door_chain
 ; THE ONE breakable door in this project, and deliberately the plain wooden one:
-; `destructible` is OFF by default precisely so a locked door's key and its switch
+; `breakable` is OFF by default precisely so a locked door's key and its switch
 ; keep mattering (Michael, 2026-08-11). Boards give way to an axe and burn well;
 ; the portcullis and the stone slab do NOT take these fields and cannot be broken
 ; at all. Breaking it opens the way FOR GOOD — it cannot be shut again.
 ; EARTH matches BASH: an earth bolt hits a door as a battering, so it is resisted
 ; as one (Michael, 2026-10-02).
-destructible = 1
+breakable = 1
 hp = 40
 armor = 2
 resists = slash -0.25, fire -0.5, bash 0.2, earth 0.2

@@ -115,14 +115,12 @@ void EffectIcon::DrawSelf(ui::UIContext&, gfx::SpriteBatch& batch) {
 	const gfx::Rect& r = Pixel();
 	const Vec4 tint = ElementColor(effect->school);
 	batch.DrawRect(r, kSlotBg);
-	const gfx::Texture* icon =
-		m_icons ? m_icons->For(effect->kind->IconItem()) : nullptr;
-	if (icon)
-		batch.DrawSprite({r.x + 1, r.y + 1, r.w - 2, r.h - 2}, {0, 0, 1, 1}, *icon,
-						 {1, 1, 1, 1});
-	else
-		batch.DrawRect({r.x + 1, r.y + 1, r.w - 2, r.h - 2},
-					   {tint.x, tint.y, tint.z, 0.5f});
+	// Symbolic: an effect is a control readout, so a rune icon is the glyph
+	// alone, never its carved tablet.
+	const gfx::Rect pic{r.x + 1, r.y + 1, r.w - 2, r.h - 2};
+	if (!DrawItemIcon(batch, pic, effect->kind->IconItem(), m_icons, 0.0f,
+					  /*symbolic=*/true))
+		batch.DrawRect(pic, {tint.x, tint.y, tint.z, 0.5f});
 	// Remaining-time sliver draining along the icon's bottom edge.
 	const float frac =
 		effect->duration > 0.0f

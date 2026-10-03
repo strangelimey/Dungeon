@@ -397,12 +397,11 @@ function Get-PanelRow([string]$id) {
 	Start-Sleep -Milliseconds 500
 	Send-Text 'logecho on'; Send-Key 0x0D
 	Send-Text 'hudpanel list'; Send-Key 0x0D
-	Start-Sleep -Milliseconds 500
+	$rows = Wait-NewLogLines "console:   $id " $before
 	Send-Text 'logecho off'; Send-Key 0x0D
 	Send-Key 0xC0
 	Start-Sleep -Milliseconds 400
-	$rows = @(Select-String -Path $log -Pattern "console:   $id ")
-	if ($rows.Count -le $before) { throw "the console never listed the $id panel" }
+	if ($rows.Count -eq 0) { throw "the console never listed the $id panel" }
 	return $rows[-1].Line
 }
 
@@ -465,6 +464,41 @@ function Wait-ForLog([string]$pattern, [int]$timeoutSec, [string]$what) {
 		Start-Sleep -Milliseconds 500
 	}
 	throw "timed out after ${timeoutSec}s waiting for $what"
+}
+
+# POLL FOR A CONSOLE ANSWER, NEVER SLEEP A FIXED TIME AND READ. A command's
+# output lands when the game gets round to it, and one heavy debug frame puts it
+# past any fixed sleep: 2026-10-02, -Hand read `autocast` 800 ms after typing it
+# and found 2 of its 4 rows, the other two written just after the read.
+#
+# The lines matching $pattern past the first $before, once there are at least
+# $count of them - or whatever there is when $timeoutSec runs out, so the
+# caller's own check (and its own failure message) still decides.
+function Wait-NewLogLines([string]$pattern, [int]$before, [int]$count = 1, [double]$timeoutSec = 5) {
+	$deadline = (Get-Date).AddSeconds($timeoutSec)
+	while ($true) {
+		$new = @(@(Select-String -Path $log -Pattern $pattern -ErrorAction SilentlyContinue) |
+			Select-Object -Skip $before)
+		if ($new.Count -ge $count -or (Get-Date) -gt $deadline) { return ,$new }
+		Start-Sleep -Milliseconds 200
+	}
+}
+
+# Whether any line matches $pattern, waiting up to $timeoutSec for one to land.
+function Wait-LogMatch([string]$pattern, [double]$timeoutSec = 5) {
+	return (Wait-NewLogLines $pattern 0 1 $timeoutSec).Count -gt 0
+}
+
+# Waits until every command typed so far has answered (console open, logecho
+# on), for output whose row count is not known up front (`torch` prints one
+# per filled hand, `hudpanel list` one per panel). A bare `logecho` is the end
+# mark: commands run in the order typed, so once its answer is in the log, so
+# is everything before it.
+function Wait-ConsoleDone {
+	$mark = 'console: logecho on$'
+	$before = @(Select-String -Path $log -Pattern $mark).Count
+	Send-Text 'logecho'; Send-Key 0x0D
+	if ((Wait-NewLogLines $mark $before).Count -eq 0) { throw 'the console never answered `logecho`' }
 }
 
 function Send-Key([int]$vk) {
@@ -802,15 +836,20 @@ try {
 		# Let the bleed run out, so only the recovery is inside the window.
 		Start-Sleep -Seconds 4
 		Send-Text 'party'; Send-Key 0x0D
-		Start-Sleep -Milliseconds 300
+		# Refuse to report on a party that is not actually hurt. Without this the
+		# switch could silently degrade into the plain run it exists to replace.
+		# Polled, not read after a fixed sleep: `party` answers when the game
+		# gets to it (see Wait-NewLogLines).
+		$deadline = (Get-Date).AddSeconds(5)
+		do {
+			$hurt = Select-String -Path $log -Pattern 'hp \d+\.\d+/\d+\.\d+' |
+				Where-Object { $_.Line -match 'hp (\d+\.\d+)/(\d+\.\d+)' -and
+							   [double]$Matches[1] -lt [double]$Matches[2] }
+			if (-not $hurt) { Start-Sleep -Milliseconds 200 }
+		} while (-not $hurt -and (Get-Date) -lt $deadline)
 		Send-Text 'logecho off'; Send-Key 0x0D
 		Send-Key 0xC0 # close the console again; alloctest reopens it below
 		Start-Sleep -Milliseconds 400
-		# Refuse to report on a party that is not actually hurt. Without this the
-		# switch could silently degrade into the plain run it exists to replace.
-		$hurt = Select-String -Path $log -Pattern 'hp \d+\.\d+/\d+\.\d+' |
-			Where-Object { $_.Line -match 'hp (\d+\.\d+)/(\d+\.\d+)' -and
-						   [double]$Matches[1] -lt [double]$Matches[2] }
 		if (-not $hurt) { throw 'the party is at full health - the wounding did not land' }
 		Write-Host "  wounded: $((($hurt | Select-Object -Last 4).Line -replace '^.*console: ', '') -join '; ')"
 	}
@@ -831,8 +870,9 @@ try {
 		foreach ($d in @(@(1, 0, 'w'), @(-1, 0, 'e'), @(0, 1, 'n'), @(0, -1, 's'))) {
 			$x = $px + $d[0]; $z = $pz + $d[1]
 			Send-Text "spawn $MeleeMonster $x $z $($d[2]) $MeleeStrength"; Send-Key 0x0D
-			Start-Sleep -Milliseconds 400
-			if (Select-String -Path $log -Pattern "spawned $MeleeMonster at $x,$z" -Quiet) {
+			# Either answer ends the wait; a refusal moves on to the next cell.
+			$answer = Wait-NewLogLines "(spawned |spawn: refused ')$MeleeMonster'? at $x,$z\b" 0
+			if ($answer.Count -gt 0 -and $answer[-1].Line -match "spawned $MeleeMonster at $x,$z") {
 				$spawnedAt = "$x,$z"; break
 			}
 		}
@@ -877,10 +917,10 @@ try {
 		# Refuse to measure unless both actually happened: a swallowed key or a
 		# fizzled cast would otherwise leave a run that looks exactly like a
 		# clean one. (A book refusal is printed as a Refuse, not 'book open'.)
-		if (-not (Select-String -Path $log -Pattern 'console: cast away' -Quiet)) {
+		if (-not (Wait-LogMatch 'console: cast away')) {
 			throw 'the cast did not go off - no bolt is in flight to measure'
 		}
-		if (-not (Select-String -Path $log -Pattern 'console: book open: ' -Quiet)) {
+		if (-not (Wait-LogMatch 'console: book open: ')) {
 			throw 'the spellbook did not open'
 		}
 	}
@@ -901,8 +941,7 @@ try {
 		Send-Text 'face n'; Send-Key 0x0D
 		Assert-PartyAt $px $pz
 		Send-Text "spawn $ImpactMonster $tx $tz s $ImpactStrength"; Send-Key 0x0D
-		Start-Sleep -Milliseconds 500
-		if (-not (Select-String -Path $log -Pattern "spawned $ImpactMonster at $tx,$tz" -Quiet)) {
+		if (-not (Wait-LogMatch "spawned $ImpactMonster at $tx,$tz")) {
 			throw "the arena would not take a $ImpactMonster at $tx,$tz"
 		}
 		# Members 0 and 1 cast down OPPOSITE lanes (front-left, front-right),
@@ -936,8 +975,7 @@ try {
 		$castPattern = 'console:   member \d+ casts \S+: \d+ cast, \d+ failed'
 		$castBefore = @(Select-String -Path $log -Pattern $castPattern).Count
 		Send-Text 'autocast'; Send-Key 0x0D
-		Start-Sleep -Milliseconds 800
-		$castRows = @(Select-String -Path $log -Pattern $castPattern) | Select-Object -Skip $castBefore
+		$castRows = Wait-NewLogLines $castPattern $castBefore 3
 		if ($castRows.Count -ne 3) { throw "``autocast`` listed $($castRows.Count) entries, not 3" }
 		foreach ($r in $castRows) {
 			if ($r.Line -match ': 0 cast,') {
@@ -972,8 +1010,7 @@ try {
 		Send-Text "tp $px $pz"; Send-Key 0x0D
 		Assert-PartyAt $px $pz
 		Send-Text "spawn $ImpactMonster $tx $tz s $ImpactStrength"; Send-Key 0x0D
-		Start-Sleep -Milliseconds 300
-		if (-not (Select-String -Path $log -Pattern "spawned $ImpactMonster at $tx,$tz" -Quiet)) {
+		if (-not (Wait-LogMatch "spawned $ImpactMonster at $tx,$tz")) {
 			throw "the arena would not take a fresh $ImpactMonster at $tx,$tz"
 		}
 		# Refuse unless it really is untouched: `monsters` lists a live effect
@@ -982,9 +1019,8 @@ try {
 		Start-Sleep -Milliseconds 500
 		$before = @(Select-String -Path $log -Pattern "console:   $ImpactMonster @ $tx,$tz ").Count
 		Send-Text 'monsters'; Send-Key 0x0D
-		Start-Sleep -Milliseconds 500
-		$row = @(Select-String -Path $log -Pattern "console:   $ImpactMonster @ $tx,$tz ")
-		if ($row.Count -le $before) { throw "``monsters`` did not list the fresh $ImpactMonster" }
+		$row = Wait-NewLogLines "console:   $ImpactMonster @ $tx,$tz " $before
+		if ($row.Count -eq 0) { throw "``monsters`` did not list the fresh $ImpactMonster" }
 		# (Past the "[info ]" the log line opens with, which is a bracket too.)
 		$listed = $row[-1].Line -replace '^.*console: ', ''
 		if ($listed -match '\[') { throw "the fresh target was touched before the window: $listed" }
@@ -997,13 +1033,11 @@ try {
 		$cx = $tx + 1
 		Send-Text "editor place decorations crate $cx $tz"; Send-Key 0x0D
 		Send-Text 'mappage close'; Send-Key 0x0D
-		Start-Sleep -Milliseconds 500
-		if (-not (Select-String -Path $log -Pattern "editor place: crate at $cx,$tz" -Quiet)) {
+		if (-not (Wait-LogMatch "editor place: crate at $cx,$tz")) {
 			throw "the arena would not take a crate at $cx,$tz"
 		}
 		Send-Text "breakables $cx $tz"; Send-Key 0x0D
-		Start-Sleep -Milliseconds 500
-		$crate = @(Select-String -Path $log -Pattern "console:   decoration crate @ $cx,$tz ")
+		$crate = Wait-NewLogLines "console:   decoration crate @ $cx,$tz " 0
 		if ($crate.Count -eq 0) { throw "the crate at $cx,$tz is not breakable" }
 		Write-Host "  fresh $($crate[-1].Line -replace '^.*console:\s+', '')"
 		# AND A LIT BRAZIER THAT BREAKS INSIDE THE WINDOW: a wrecked fixture puts
@@ -1015,8 +1049,7 @@ try {
 		$bx = $tx - 3
 		Send-Text "editor place fixtures brazier $bx $tz"; Send-Key 0x0D
 		Send-Text 'mappage close'; Send-Key 0x0D
-		Start-Sleep -Milliseconds 500
-		if (-not (Select-String -Path $log -Pattern "editor place: brazier at $bx,$tz" -Quiet)) {
+		if (-not (Wait-LogMatch "editor place: brazier at $bx,$tz")) {
 			throw "the arena would not take a brazier at $bx,$tz"
 		}
 		Send-Text "breakables $bx $tz poison 6 30"; Send-Key 0x0D
@@ -1070,8 +1103,7 @@ try {
 		$castBefore = @(Select-String -Path $log -Pattern $castPattern).Count
 		Send-Text 'autocast hold'; Send-Key 0x0D
 		Send-Text 'autocast'; Send-Key 0x0D
-		Start-Sleep -Milliseconds 800
-		$script:handRows = @(Select-String -Path $log -Pattern $castPattern) | Select-Object -Skip $castBefore
+		$script:handRows = Wait-NewLogLines $castPattern $castBefore 4
 		if ($script:handRows.Count -ne 4) { throw "``autocast`` listed $($script:handRows.Count) entries, not 4" }
 		foreach ($r in $script:handRows) {
 			if ($r.Line -match ': 0 cast,') { throw "a hand spell never cast in the warm-up: $($r.Line -replace '^.*console:\s+', '')" }
@@ -1113,7 +1145,7 @@ try {
 		Send-Text 'logecho off'; Send-Key 0x0D
 		Send-Key 0xC0 # close the console again; alloctest reopens it below
 		Start-Sleep -Milliseconds 400
-		if (-not (Select-String -Path $log -Pattern 'console: sheet open: ' -Quiet)) {
+		if (-not (Wait-LogMatch 'console: sheet open: ')) {
 			throw 'the sheet did not open'
 		}
 		# Where the two cells are, from the window's own size (the sheet lays out
@@ -1140,9 +1172,8 @@ try {
 		# Member 0's portrait: the left end of the party bar, as tall as the bar.
 		$before = @(Select-String -Path $log -Pattern 'console:   party ').Count
 		Send-Text 'hudpanel list'; Send-Key 0x0D
-		Start-Sleep -Milliseconds 500
-		$rows = @(Select-String -Path $log -Pattern 'console:   party ')
-		if ($rows.Count -le $before -or $rows[-1].Line -notmatch 'px (-?\d+),(-?\d+) (\d+)x(\d+)') {
+		$rows = Wait-NewLogLines 'console:   party ' $before
+		if ($rows.Count -eq 0 -or $rows[-1].Line -notmatch 'px (-?\d+),(-?\d+) (\d+)x(\d+)') {
 			throw 'no party bar rect from `hudpanel list`'
 		}
 		$script:portraitX = [int]$Matches[1] + [int]([int]$Matches[4] * 0.45)
@@ -1655,8 +1686,8 @@ try {
 		Send-Text 'logecho on'; Send-Key 0x0D
 		Send-Text "breakables $cx $tz"; Send-Key 0x0D
 		Send-Text "breakables $bx $tz"; Send-Key 0x0D
+		Wait-ConsoleDone
 		Send-Text 'logecho off'; Send-Key 0x0D
-		Start-Sleep -Milliseconds 500
 		Send-Key 0xC0; Start-Sleep -Milliseconds 300
 		foreach ($what in @("decoration crate @ $cx,$tz ", "fixture brazier @ $bx,$tz ")) {
 			$row = @(Select-String -Path $log -Pattern "console:   $what")
@@ -1684,7 +1715,7 @@ try {
 		$torchBefore = @(Select-String -Path $log -Pattern 'console:   \[\d\] \w+ hand \d: ').Count
 		Send-Text 'autocast'; Send-Key 0x0D
 		Send-Text 'torch'; Send-Key 0x0D
-		Start-Sleep -Milliseconds 800
+		Wait-ConsoleDone
 		Send-Text 'logecho off'; Send-Key 0x0D
 		Send-Key 0xC0
 		$after = @(Select-String -Path $log -Pattern $castPattern) | Select-Object -Skip $castBefore
@@ -1834,7 +1865,7 @@ try {
 		Start-Sleep -Milliseconds 500
 		Send-Text 'logecho on'; Send-Key 0x0D
 		Send-Text 'hudpanel list'; Send-Key 0x0D
-		Start-Sleep -Milliseconds 500
+		Wait-ConsoleDone
 		# Closed for the checks below: the reset button puts it home too, and at
 		# its default size the party window covers the Movement dock's drags.
 		Send-Text 'inventory off'; Send-Key 0x0D
@@ -1917,7 +1948,7 @@ try {
 		Start-Sleep -Milliseconds 500
 		Send-Text 'logecho on'; Send-Key 0x0D
 		Send-Text 'hudpanel list'; Send-Key 0x0D
-		Start-Sleep -Milliseconds 500
+		Wait-ConsoleDone
 		Send-Text 'hudpanel layout standard'; Send-Key 0x0D
 		Send-Text 'logecho off'; Send-Key 0x0D
 		Send-Key 0xC0

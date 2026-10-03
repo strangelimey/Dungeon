@@ -316,7 +316,7 @@ public:
 	void ClearLog();
 
 	// --- rendering (inside the caller's SpriteBatch Begin/End) -------------------
-	void RenderLoadingScreen(const LoadQueue& queue);     // boot: black + title
+	void RenderLoadingScreen(const LoadQueue& queue);     // boot: title (+ art once loaded)
 	void RenderGameLoadingScreen(const LoadQueue& queue); // title art + progress
 	void RenderMenuOverlay();
 	void RenderPauseOverlay(); // dark wash + pause menu over the frozen scene
@@ -564,9 +564,10 @@ private:
 	void SyncHudPanelSliders();
 	void SyncHudPanelSlidersIfStale();
 	void DrawLoadProgress(const LoadQueue& queue, float barY); // shared bar
-	// Title face centered horizontally at y (accent color); returns y so a
-	// subtitle can be placed relative to it. Shared by every title screen.
-	void DrawCenteredTitle(std::string_view text, float y);
+	// Title face centered at y (accent color) on centreX, a fraction of the
+	// window width. Shared by every title screen.
+	void DrawCenteredTitle(std::string_view text, float y, float centreX = 0.5f);
+	void DrawTitleBackground(float wash); // title art, cover-fitted, then a wash
 	void Click(float volume = 0.5f); // UI click feedback
 	void DrawHeldCursor();           // the cursor-carried item icon (HUD + sheet)
 

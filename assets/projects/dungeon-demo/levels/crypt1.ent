@@ -9,3 +9,4 @@ item poison_flask 8 7 east
 item potion_health_minor 12 1 south
 item potion_mana_minor 3 3 south
 item potion_antidote_minor 3 5 east
+item torch_magic 5 7 north

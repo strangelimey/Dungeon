@@ -211,7 +211,7 @@ bool DungeonWorld::ResolveThrowHit(const ProjectileImpact& impact) {
 bool DungeonWorld::StrikeDoorWithThrow(int cx, int cz, const ProjectileExpiry& expiry) {
 	// A thrown thing that meets a SHUT DOOR hits it, as a bolt does
 	// (StrikeDoorWithBolt) - and on the same terms: only a door doors.cat made
-	// `destructible` is a target at all, and its armour and resists decide the
+	// `breakable` is a target at all, and its armour and resists decide the
 	// rest, so a rock batters a wooden door and does nothing to a stone one.
 	Door* d = DoorAt(cx, cz);
 	if (!d || d->open || !d->brk.Alive()) return false;
