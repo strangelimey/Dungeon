@@ -90,11 +90,11 @@ void ProjectileSystem::SpawnSparkBurst(const Vec3& pos, const Vec4& color, int c
 }
 
 void ProjectileSystem::Puff(const Vec3& pos, const Vec4& color, int count, float spread,
-							 float life, float size) {
+							 float life, float size, float jitter) {
 	auto r = [&] { return (static_cast<float>(m_rng() & 0xFFFF) / 32768.0f) - 1.0f; };
 	for (int i = 0; i < count; ++i) {
 		Spark s;
-		s.pos = {pos.x + r() * 0.6f, pos.y + r() * 0.25f, pos.z + r() * 0.6f};
+		s.pos = {pos.x + r() * jitter, pos.y + r() * jitter * (0.25f / 0.6f), pos.z + r() * jitter};
 		s.vel = {r() * spread, 0.15f + r() * spread * 0.3f, r() * spread};
 		s.color = {color.x, color.y, color.z, 0.0f}; // additive
 		s.life = life * (0.75f + 0.25f * (r() + 1.0f));

@@ -718,6 +718,9 @@ public:
 	ProjectileSystem::Repelled RepelAhead(float power, int casterIndex);
 	void BlastAroundParty(const ProjectilePayload& payload, SpellSymbol school,
 						  int casterIndex);
+	// A puff of `school`'s element just ahead of a cast's origin (its lane at the
+	// eye) along `dir`: a knot of motes and a brief shadowless glow.
+	void HandPuff(SpellSymbol school, const Vec3& origin, const Vec3& dir);
 	// The whole spell registry (the Magic menu filters it by known symbols).
 	std::span<const std::unique_ptr<Spell>> SpellDefs() const {
 		return m_magic.Book().Defs();
@@ -3753,6 +3756,17 @@ private:
 	ItemSlot m_cursorScratch;
 	// DropAtPartyFeet's id, assigned rather than constructed (a guarded frame).
 	std::string m_dropIdScratch;
+	// The glows HandPuff leaves, each fading over its `life` (UpdateLights adds
+	// the live ones). FIXED: a cast lands in a guarded frame; a fifth puff while
+	// four still glow takes the oldest's place.
+	struct HandGlow {
+		Vec3 pos{};
+		Vec3 color{};
+		float timeLeft = 0.0f;
+		float life = 0.0f;
+	};
+	std::array<HandGlow, 4> m_handGlows{};
+	void TickHandGlows(float dt);
 	// Bolts waiting their turn (a volley's later shots - the cast service
 	// spawnBoltAfter, and a monster mage's volley): a FIXED queue, because a
 	// cast lands in a guarded frame. Transient, like the bolts in flight: a

@@ -111,6 +111,11 @@ struct CastServices {
 	std::function<void(const ProjectilePayload& payload, SpellSymbol school,
 					   int casterIndex)>
 		blastAroundParty;
+	// A small puff of `school`'s element in front of the caster's hands - a hand
+	// spell's flourish, so a cast that finds nothing to act on is still SEEN.
+	// `origin` / `dir` are the cast's (CastContext): the caster's lane at the eye
+	// and the faced cardinal. Purely visual: particles and a brief glow.
+	std::function<void(SpellSymbol school, const Vec3& origin, const Vec3& dir)> handPuff;
 };
 
 // Everything a single cast knows: who, from where, at what strength. The

@@ -590,7 +590,7 @@ void Game::RegisterPartyCommands() {
 	// hand spell's outcome can be pinned on the spell or on the world.
 	m_console.Register({.name = "castsvc",
 						.group = CmdGroup::Combat,
-						.params = "fire\nlight\ndouse\nflare\nfloor\ndrop <item>\nshove [cells]\nrepel <power> [member]\nblast <spell>",
+						.params = "fire\nlight\ndouse\nflare\nfloor\ndrop <item>\nshove [cells]\nrepel <power> [member]\nblast <spell>\npuff [school]",
 						.summary = "drive one cast service directly (the world ahead of the party)"},
 					   [this](const std::vector<std::string>& args) {
 						   if (!Need(m_console, args, 1)) return;
@@ -635,6 +635,17 @@ void Game::RegisterPartyCommands() {
 							   }
 							   m_world->BlastAroundParty(spell->MakePayload(), spell->School(), 0);
 							   m_console.Print(std::format("castsvc blast: {} round the party", args[1]));
+						   } else if (what == "puff") {
+							   // From the eye down the cell's centre line (a real cast
+							   // offsets it into the caster's lane).
+							   SpellSymbol school = SpellSymbol::Fire;
+							   if (args.size() >= 2 && !ParseSymbolArg(m_console, args[1], school)) return;
+							   const Party& p = m_world->GetParty();
+							   const Direction f = static_cast<Direction>(p.Facing());
+							   m_world->HandPuff(school, p.EyePosition(),
+												 {static_cast<float>(DirDX(f)), 0.0f,
+												  static_cast<float>(DirDZ(f))});
+							   m_console.Print(std::format("castsvc puff: {} ahead", SymbolId(school)));
 						   } else {
 							   m_console.RefuseUsage();
 						   }

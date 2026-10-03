@@ -232,6 +232,9 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		 [this](float power, int casterIndex) { return RepelAhead(power, casterIndex); },
 		 [this](const ProjectilePayload& payload, SpellSymbol school, int casterIndex) {
 			 BlastAroundParty(payload, school, casterIndex);
+		 },
+		 [this](SpellSymbol school, const Vec3& origin, const Vec3& dir) {
+			 HandPuff(school, origin, dir);
 		 }});
 
 	// Moving-item engine: wire its world seam so a projectile lives "on the map"
@@ -475,6 +478,7 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 	CheckDamageLedger("projectiles and blasts");
 	UpdateFireTransients(dt); // flares dying away, dust puffs settling
 	TickCarriedLight(dt);     // held torches burn down; stowed ones go out
+	TickHandGlows(dt);        // a hand spell's puff of light fading
 	UpdateLights(time);
 	UpdateCamera();
 
@@ -777,6 +781,20 @@ void DungeonWorld::UpdateLights(float time) {
 		glow.intensity = 1.9f * (0.85f + 0.15f * std::sin(time * 12.0f +
 														  monster.runtimeId) *
 											 std::sin(time * 8.1f + monster.runtimeId));
+		glow.castsShadow = false;
+		m_lights.points.push_back(glow);
+	}
+
+	// A hand spell's puff (HandPuff) flashes and fades. Shadowless, like every
+	// transient light here.
+	for (const HandGlow& g : m_handGlows) {
+		if (g.timeLeft <= 0.0f || g.life <= 0.0f) continue;
+		const float t = g.timeLeft / g.life; // 1 at the puff, 0 gone
+		gfx::PointLight glow;
+		glow.position = g.pos;
+		glow.radius = 3.5f;
+		glow.color = g.color;
+		glow.intensity = 1.3f * t * t;
 		glow.castsShadow = false;
 		m_lights.points.push_back(glow);
 	}
