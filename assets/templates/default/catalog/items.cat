@@ -205,6 +205,9 @@ holdable = 1
 ; fire through `element = fire` (an enchanted weapon's elemental term: a share
 ; of the landed blow's damage, so a better torch and a better blunt fighter
 ; both burn harder) - and the fire leaves with the flame when it goes out.
+; A lit torch can also SET ITS TARGET ALIGHT: `on_hit = burn <per second>
+; <seconds> <chance>`, every term rising with the tier. A magical torch is just
+; another tier with a hotter line (the flamebrand's is burn 3 6 0.5).
 [torch_crude]
 name = item.torch_crude
 category = light
@@ -234,6 +237,7 @@ stats = str
 command = attack
 element = fire
 element_bonus = 0.4
+on_hit = burn 1 4 0.15
 
 [torch]
 name = item.torch
@@ -264,6 +268,7 @@ stats = str
 command = attack
 element = fire
 element_bonus = 0.5
+on_hit = burn 1.5 5 0.25
 
 [torch_fine]
 name = item.torch_fine
@@ -294,6 +299,7 @@ stats = str
 command = attack
 element = fire
 element_bonus = 0.6
+on_hit = burn 2 6 0.35
 
 ; What a torch leaves when it burns out. Junk: it cannot be lit again. (Wears
 ; the crude torch's model until it has its own.)
