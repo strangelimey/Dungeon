@@ -475,11 +475,9 @@ void CharacterSheet::DrawEffectRow(size_t i, ui::UIContext& ctx,
 	const gfx::Rect icon{Ax(px, kEffectIconX), r.y, iconSize, iconSize};
 	const gfx::Rect well = ui::DrawSlotFace(ctx, batch, icon, kSlotBg);
 	const gfx::Rect pic{well.x + 2, well.y + 2, well.w - 4, well.h - 4};
-	const gfx::Texture* iconTex =
-		m_icons && row.kind ? m_icons->For(row.kind->IconItem()) : nullptr;
-	if (iconTex)
-		batch.DrawSprite(pic, {0, 0, 1, 1}, *iconTex, {1, 1, 1, 1});
-	else
+	// Symbolic: a rune icon is the glyph alone, never its carved tablet.
+	if (!row.kind || !DrawItemIcon(batch, pic, row.kind->IconItem(), m_icons, 0.0f,
+								   /*symbolic=*/true))
 		batch.DrawRect(pic,
 					   {row.tint.x, row.tint.y, row.tint.z, 0.5f});
 	batch.DrawRect({icon.x + 2, icon.y + icon.h - 5, (icon.w - 4) * row.frac, 3},

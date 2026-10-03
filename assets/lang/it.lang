@@ -447,6 +447,7 @@ use.hack=Fendente
 use.bash=Botta
 use.swing=Brandire
 use.melee=Colpire
+use.attack=Attaccare
 use.clear=Cancella
 ; Hand-menu default-picker groups (bare hand / no defaultable item command).
 menu.combat=Combattimento

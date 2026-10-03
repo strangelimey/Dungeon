@@ -62,6 +62,10 @@ constexpr float kFontSettleDelay = 0.25f;
 // air. A page that authors its widgets from here cannot collide with the
 // chrome, whatever the chrome later does.
 constexpr float kMenuTitleY = 0.16f;
+// The title menu's column centre, as a fraction of the window width: over the
+// near-left wall of the title art, so the figure in its centre is not covered.
+// The title and subtitle follow it on the main page only.
+constexpr float kMenuMainCentreX = 0.17f;
 constexpr float kMenuSubtitleY = kMenuTitleY + 74.0f / kFontDesignWindowH;
 constexpr float kMenuContentY =
 	kMenuSubtitleY + (kMenuFontH + 20.0f) / kFontDesignWindowH;
@@ -357,6 +361,7 @@ void GameUI::BuildMenuList() {
 	// its subtitle.
 	auto* panel = m_menuUi.Add<MenuPanel>(std::string(), static_cast<size_t>(itemCount),
 										  kMenuContentY + 0.02f);
+	panel->centreX = kMenuMainCentreX;
 	ui::MenuList* menu = panel->List();
 
 	// Order: Continue / Load (only when a save exists), then Start New Game just
@@ -2321,14 +2326,42 @@ void GameUI::DrawLoadProgress(const LoadQueue& queue, float barY) {
 // Takes a VIEW, so a caller can hand it loc::View and pay nothing. Font's own
 // Draw/MeasureWidth have always taken string_view; only this signature stood
 // between them and the table's own storage.
-void GameUI::DrawCenteredTitle(std::string_view text, float y) {
+void GameUI::DrawCenteredTitle(std::string_view text, float y, float centreX) {
 	const float titleW = m_titleFont->MeasureWidth(text);
-	m_titleFont->Draw(m_spriteBatch, text, (DeviceW() - titleW) * 0.5f, y,
+	m_titleFont->Draw(m_spriteBatch, text, DeviceW() * centreX - titleW * 0.5f, y,
 					 m_menuUi.GetTheme().accent);
 }
 
+// The title art over the whole window, COVER-fitted: scaled to fill both axes
+// and cropped centred on the long one, so a window of another aspect neither
+// stretches it nor letterboxes it. Then a black wash of `wash` opacity so the
+// text over it reads.
+void GameUI::DrawTitleBackground(float wash) {
+	if (!m_titleBackground) return;
+	const float w = DeviceW();
+	const float h = DeviceH();
+	const float texW = static_cast<float>(m_titleBackground->Width());
+	const float texH = static_cast<float>(m_titleBackground->Height());
+	gfx::Rect uv{0, 0, 1, 1};
+	if (texW > 0 && texH > 0 && w > 0 && h > 0) {
+		const float winAspect = w / h;
+		const float texAspect = texW / texH;
+		if (winAspect > texAspect) { // window wider: crop top and bottom
+			uv.h = texAspect / winAspect;
+			uv.y = (1.0f - uv.h) * 0.5f;
+		} else {                     // window taller: crop the sides
+			uv.w = winAspect / texAspect;
+			uv.x = (1.0f - uv.w) * 0.5f;
+		}
+	}
+	m_spriteBatch.DrawSprite({0, 0, w, h}, uv, *m_titleBackground, {1, 1, 1, 1});
+	m_spriteBatch.DrawRect({0, 0, w, h}, {0, 0, 0, wash});
+}
+
+// Boot: black until the title art task lands, then the art behind the bar.
 void GameUI::RenderLoadingScreen(const LoadQueue& queue) {
 	const float h = DeviceH();
+	DrawTitleBackground(0.55f);
 	DrawCenteredTitle(loc::View("title"), h * 0.32f);
 	DrawLoadProgress(queue, h * 0.52f);
 }
@@ -2340,9 +2373,7 @@ void GameUI::RenderGameLoadingScreen(const LoadQueue& queue) {
 	const float h = DeviceH();
 	const ui::Theme& theme = m_menuUi.GetTheme();
 
-	m_spriteBatch.DrawSprite({0, 0, w, h}, {0, 0, 1, 1}, *m_titleBackground,
-							 {1, 1, 1, 1});
-	m_spriteBatch.DrawRect({0, 0, w, h}, {0, 0, 0, 0.55f});
+	DrawTitleBackground(0.55f);
 
 	DrawCenteredTitle(loc::View("title"), h * kMenuTitleY);
 
@@ -2360,15 +2391,15 @@ void GameUI::RenderMenuOverlay() {
 	const float h = DeviceH();
 	const ui::Theme& theme = m_menuUi.GetTheme();
 
-	// Baked title art, stretched to the window, with a light darkening wash
-	// so the menu text stays readable over the bright portal.
-	m_spriteBatch.DrawSprite({0, 0, w, h}, {0, 0, 1, 1}, *m_titleBackground,
-							 {1, 1, 1, 1});
-	m_spriteBatch.DrawRect({0, 0, w, h}, {0, 0, 0, 0.30f});
+	// Title art with a light darkening wash so the menu text stays readable.
+	DrawTitleBackground(0.30f);
 
 	// Title + subtitle. The party page is the exception: its card needs the
 	// height, and carries its own title.
-	if (m_menuPage != MenuPage::Party) DrawCenteredTitle(loc::View("title"), h * kMenuTitleY);
+	// On the main page both stand over the menu's column, left of the art's centre.
+	const float centreX = m_menuPage == MenuPage::Main ? kMenuMainCentreX : 0.5f;
+	if (m_menuPage != MenuPage::Party)
+		DrawCenteredTitle(loc::View("title"), h * kMenuTitleY, centreX);
 
 	// The saves and worlds pages carry their title on their stone card
 	// (SavesCard), which stands where the subtitle would.
@@ -2378,7 +2409,7 @@ void GameUI::RenderMenuOverlay() {
 		const std::string_view subtitle = loc::View(subKey);
 		ui::Font& font = m_menuUi.GetFont();
 		const float subW = font.MeasureWidth(subtitle);
-		font.Draw(m_spriteBatch, subtitle, (w - subW) * 0.5f,
+		font.Draw(m_spriteBatch, subtitle, w * centreX - subW * 0.5f,
 				  h * kMenuSubtitleY, theme.textDim);
 	}
 

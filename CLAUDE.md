@@ -216,7 +216,9 @@ Key conventions (memorize, they bite):
   LIT TORCH held in a hand (or on the cursor) is the party's light, and an
   ambient-0 level is pitch black. A lit torch burns while HELD (its CHARGE
   counts down `burn_time`, it dims over its last tenth, spent it becomes
-  `spent_as`); stowed or dropped it goes out keeping what is left. CHARGE IS
+  `spent_as`); stowed or dropped it goes out keeping what is left. A torch is
+  also a CLUB (`command = attack`, the `attack` verb: bash, blunt skill, STR);
+  a LIT one is `element = fire`, so its fire scales with tier and skill. CHARGE IS
   PART OF THE ITEM everywhere it can be: `ItemSlot {typeId, charge}`, the
   cursor's HeldItem, a floor Item, a thrown cargo, and the save (`id#charge`).
   Lighting / dousing / filling RENAMES an item in its slot (`lit_as` /
@@ -1048,8 +1050,10 @@ to 2k with a warning if 4k not installed.
 
 ## Game state machine
 
-Loading (staged tasks, one per frame, progress screen) → Menu (baked title
-art title_bg, MenuList: Continue/Load/Start New Game/Settings/Exit — Continue/Load
+Loading (staged tasks, one per frame, progress screen) → Menu (title art
+assets/ui/title_bg.png, cover-fitted by GameUI::DrawTitleBackground behind the
+menu and both loading screens; the title menu stands in a LEFT column,
+kMenuMainCentreX, so the art's centre figure shows; MenuList: Continue/Load/Start New Game/Settings/Exit — Continue/Load
 appear only when a save exists; all entries work) → Playing ⇄ Paused (Esc in-game freezes
 the world and shows Save/Load/Settings/Exit/Back over the scene; Esc backs
 out / resumes). QUITTING IS ALWAYS DELIBERATE (Michael, 2026-08-11): an Exit

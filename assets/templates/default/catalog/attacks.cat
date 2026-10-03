@@ -60,6 +60,12 @@ accuracy = 0
 speed = 1.15
 stamina = 1.2
 
+[attack]
+damage = 1
+accuracy = 0
+speed = 1
+stamina = 1.1
+
 [throw]
 damage = 1
 accuracy = 0

@@ -447,6 +447,7 @@ use.hack=Hieb
 use.bash=Prügeln
 use.swing=Schwingen
 use.melee=Zuschlagen
+use.attack=Angreifen
 use.clear=Zurücksetzen
 ; Hand-menu default-picker groups (bare hand / no defaultable item command).
 menu.combat=Kampf

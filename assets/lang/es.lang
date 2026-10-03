@@ -447,6 +447,7 @@ use.hack=Tajo
 use.bash=Golpear
 use.swing=Blandir
 use.melee=Atacar
+use.attack=Atacar
 use.clear=Borrar
 ; Hand-menu default-picker groups (bare hand / no defaultable item command).
 menu.combat=Combate

@@ -26,7 +26,7 @@ namespace {
 // key.
 constexpr std::string_view kMeleeUses[] = {
 	"punch", "kick", "stab",  "slash", "chop",  "bash",
-	"swing", "jab",  "thrust", "hack", "melee"};
+	"swing", "jab",  "thrust", "hack", "melee", "attack"};
 bool IsMeleeUse(std::string_view cmd) {
 	return std::ranges::find(kMeleeUses, cmd) != std::ranges::end(kMeleeUses);
 }

@@ -32,6 +32,11 @@ public:
 
 	ui::MenuList* List() const { return m_list; }
 
+	// Where the card's centre sits across the window, as a fraction. The pause
+	// menu stays in the middle; the title menu stands to the left so the art's
+	// centre shows.
+	float centreX = 0.5f;
+
 	// The card, not the whole window, is what the panel paints.
 	gfx::Rect InkRect() const override { return Card(); }
 

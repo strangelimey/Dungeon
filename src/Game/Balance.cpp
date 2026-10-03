@@ -194,6 +194,8 @@ Balance::Balance() {
 		{"swing", "bash", {}, 1.0f, 0.0f, 1.0f, 1.2f},
 		{"punch", "bash", {}, 1.0f, 0.0f, 1.0f, 0.8f},
 		{"kick", "bash", {}, 1.15f, 0.0f, 1.15f, 1.2f},
+		// A plain clubbing blow with something not made as a weapon - a torch.
+		{"attack", "bash", {}, 1.0f, 0.0f, 1.0f, 1.1f},
 		// A THROWN thing that is not a weapon (ui-updates Phase 10): a rock, a
 		// key, a loaf. A weapon is thrown as its own first attack instead, and an
 		// item can name any of these (`throw = stab` for a throwing star).
