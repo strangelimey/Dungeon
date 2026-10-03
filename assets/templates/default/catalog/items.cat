@@ -306,6 +306,44 @@ element = fire
 element_bonus = 0.6
 on_hit = burn 2 6 0.35
 
+; THE MAGICAL TORCH: a fine torch that burns BLUE and long. `power_level` makes
+; it last (1 + power_level) times its `burn_time` - 1500 x 3 here, an hour and a
+; quarter - and `flame_color` is its flame and its light, over its light
+; profile's colour. Hits a step above the fine torch and sets alight like the
+; flamebrand does.
+[torch_magic]
+name = item.torch_magic
+category = light
+weight = 1.0
+holdable = 1
+model = torch_fine
+lit_as = torch_magic_lit
+skill = blunt
+damage = 7
+speed = 1.3
+stats = str
+command = attack
+
+[torch_magic_lit]
+name = item.torch_magic_lit
+category = light
+weight = 1.0
+holdable = 1
+model = torch_fine
+burn_time = 1500
+power_level = 2
+flame_color = 0.35, 0.6, 1.0
+unlit_as = torch_magic
+spent_as = torch_stub
+skill = blunt
+damage = 7
+speed = 1.3
+stats = str
+command = attack
+element = fire
+element_bonus = 0.8
+on_hit = burn 3 6 0.5
+
 ; What a torch leaves when it burns out. Junk: it cannot be lit again. (Wears
 ; the crude torch's model until it has its own.)
 [torch_stub]

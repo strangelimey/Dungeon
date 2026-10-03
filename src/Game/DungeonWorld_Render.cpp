@@ -824,6 +824,13 @@ bool DungeonWorld::ItemFlameHead(const std::string& typeId, Vec3& head) {
 	return true;
 }
 
+bool DungeonWorld::ItemFlameTint(const std::string& typeId, Vec3& tint) {
+	const ItemKind& kind = ItemKindFor(typeId);
+	if (!kind.Lit() || !kind.flameTinted) return false;
+	tint = kind.flameColor;
+	return true;
+}
+
 bool DungeonWorld::ItemFlameUv(const std::string& typeId, Vec2& uv) {
 	Vec3 head;
 	const ItemKind& kind = ItemKindFor(typeId);

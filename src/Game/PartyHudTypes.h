@@ -147,6 +147,12 @@ struct ItemIconBank {
 		const auto it = flameAt.find(typeId);
 		return it == flameAt.end() ? nullptr : &it->second;
 	}
+	// A magical torch's flame colour (items.cat `flame_color`); absent = orange.
+	std::flat_map<std::string, Vec3, std::less<>> flameTint;
+	const Vec3* FlameTint(std::string_view typeId) const {
+		const auto it = flameTint.find(typeId);
+		return it == flameTint.end() ? nullptr : &it->second;
+	}
 };
 
 // Item carry weights (kg) keyed by catalog id, the data behind a member's carry

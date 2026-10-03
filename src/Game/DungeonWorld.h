@@ -165,6 +165,9 @@ public:
 	// details dialog's turning preview). False for an item that is not lit or
 	// has no model.
 	bool ItemFlameHead(const std::string& typeId, Vec3& head);
+	// A magical torch's flame colour (items.cat `flame_color`). False for an
+	// ordinary flame, which draws in the default orange.
+	bool ItemFlameTint(const std::string& typeId, Vec3& tint);
 	// Where a rune tablet's carved face sits in its baked icon (uv box, 0..1 from
 	// the top-left), the same for every rune: DrawItemIcon lays the school's
 	// glow over it. False before the tablet mesh is loaded.
@@ -2277,6 +2280,13 @@ private:
 		// it goes out (stowed, put down, doused) and `lit_as` the reverse.
 		float burnTime = 0.0f;
 		std::string litAs, unlitAs, spentAs;
+		// A MAGICAL light (items.cat `power_level`, `flame_color`): the level
+		// multiplies the burn, so `burnTime` above is already burn_time x (1 +
+		// level); the colour is what its flame and its light are, instead of its
+		// light profile's colour. flameTinted=false = an ordinary flame.
+		float powerLevel = 0.0f;
+		Vec3 flameColor{1.0f, 0.62f, 0.28f};
+		bool flameTinted = false;
 		// A container one fill level up (items.cat `fill_as`): what a Splash, or
 		// any later filling, makes of it. Empty = it takes no water.
 		std::string fillAs;

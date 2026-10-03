@@ -244,9 +244,12 @@ void DungeonWorld::AppendCarriedLights(float time) {
 	const auto add = [&](const ItemKind& kind, const Vec3& at, float brightness, u32 slot) {
 		const light::Profile& profile =
 			LightProfileFor(kind.light.empty() ? std::string_view("torch") : kind.light);
-		PushLight(profile, "torch", LightKey(LightKind::Torch, slot), at, time,
-				  static_cast<float>(slot) * 1.7f, {1, 1, 1}, brightness,
-				  profile.radius * kCellSize * (0.6f + 0.4f * brightness));
+		gfx::PointLight* light =
+			PushLight(profile, "torch", LightKey(LightKind::Torch, slot), at, time,
+					  static_cast<float>(slot) * 1.7f, {1, 1, 1}, brightness,
+					  profile.radius * kCellSize * (0.6f + 0.4f * brightness));
+		// A magical torch (items.cat `flame_color`) lights in its flame's colour.
+		if (light && kind.flameTinted) light->color = kind.flameColor;
 	};
 	if (m_roster) {
 		const Direction faced = static_cast<Direction>(m_party.Facing());

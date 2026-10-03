@@ -906,11 +906,15 @@ void Game::LoadItemIcons() {
 	// it stands on the icon, and the sprites it is drawn with. White masks the
 	// draw tints, so linear.
 	m_itemIcons.flameAt.clear();
-	for (const CatalogEntry* defp : m_project.AllItems())
+	m_itemIcons.flameTint.clear();
+	for (const CatalogEntry* defp : m_project.AllItems()) {
 		if (Vec2 uv; m_world->ItemFlameUv(defp->id, uv)) {
 			m_itemIcons.flameAt[defp->id] = uv;
 			log::Info("item icon {}: flame at {:.2f},{:.2f}", defp->id, uv.x, uv.y);
 		}
+		if (Vec3 tint; m_world->ItemFlameTint(defp->id, tint))
+			m_itemIcons.flameTint[defp->id] = tint;
+	}
 	if (!m_flameTexture) {
 		m_flameTexture = TryLoadTextureFile(m_device, paths::Asset("ui\\flame"));
 		m_flameGlowTexture = TryLoadTextureFile(m_device, paths::Asset("ui\\glow_radial"));
@@ -2831,7 +2835,8 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 										   pv.w / pv.h, &dlg.FitMin(), &dlg.FitMax(),
 										   &dlg.Pose(), uv))
 				DrawFlame(m_spriteBatch, {pv.x + uv.x * pv.w, pv.y + uv.y * pv.h}, pv.h * 0.30f,
-						  pv.h * 0.36f, 0.0f, *m_flameTexture, m_flameGlowTexture.get());
+						  pv.h * 0.36f, 0.0f, *m_flameTexture, m_flameGlowTexture.get(),
+						  dlg.FlameTint());
 		}
 	}
 	// The portrait picker, over the sheet (or the HUD, from the console).
