@@ -1654,7 +1654,7 @@ void DungeonWorld::MonsterRangedAttack(Monster& monster) {
 		if (std::optional<ProjectileSpec> bolt =
 				spell->MonsterBolt(origin, dir, monster.kind->accuracy)) {
 			bolt->shooter = monster.runtimeId; // the impact reads its threat
-			m_projectiles.Spawn(*bolt);
+			Launch(*bolt);
 			// A volley spell (Ingwaz) throws the rest a beat apart.
 			for (int i = 1; i < spell->MonsterVolley(); ++i)
 				SpawnBoltAfter(*bolt, 0.2f * static_cast<float>(i));
@@ -1680,7 +1680,7 @@ void DungeonWorld::MonsterRangedAttack(Monster& monster) {
 	// bolt above takes the SPELL's payload instead — the spell is the source
 	// there, not the creature.)
 	bolt.payload = monster.kind->shotPayload; // packed at load
-	m_projectiles.Spawn(bolt);
+	Launch(bolt);
 	m_audio.Play(m_sounds.monster, 0.5f); // soft launch cue (reuse the monster voice)
 }
 

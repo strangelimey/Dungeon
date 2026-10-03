@@ -50,6 +50,7 @@ add_library(Game STATIC
 	DungeonWorld_Render.cpp
 	DungeonWorld_Save.cpp
 	DungeonWorld_Throw.cpp
+	DungeonWorld_Flight.cpp
 	DungeonWorld_Undo.cpp
 	DungeonWorld_Validate.cpp
 	Effect/AllEffects.cpp
@@ -116,6 +117,7 @@ add_library(Game STATIC
 	Threat.cpp
 	Power.cpp
 	LightProfile.cpp
+	Trail.cpp
 	Validate.cpp
 	Validate_Flags.cpp
 	Validate_Styles.cpp

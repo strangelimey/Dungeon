@@ -68,6 +68,8 @@ constexpr int kUseUnarmed = 1000; // + index into kUnarmedUses
 constexpr int kUseSpell = 2000;   // + index into spellDefs()
 constexpr int kUseClear = 3000;   // forget this hand's pick (checked FIRST)
 constexpr int kUseThrow = 4000;   // the throw every held item offers (checked next)
+constexpr int kUsePutOut = 5000;  // put out the lit torch in the hand
+constexpr int kUseLight = 5001;   // light the magical torch in the hand (costs mana)
 // The most quick-cast spells the Magic group lists (spellMruCount's clamp).
 constexpr size_t kMaxMenuSpells = 10;
 
@@ -397,6 +399,14 @@ void GameUI::OpenHandUseMenu(size_t i, size_t hand, ui::ContextMenu& menu) {
 	// that lists `command = throw` already has its row above.
 	if (!m_handMenuItem.empty() && std::ranges::find(cmds, "throw") == cmds.end())
 		menu.Add(loc::View("use.throw"), kUseThrow);
+	// A TORCH'S FLAME (Michael, 2026-10-03): Put out for a lit one, Light for a
+	// magical one (no spell's fire takes on it). Rows, not item commands, like
+	// Throw - one-shots that never become a hand's left-click.
+	if (torchActFor) {
+		const int act = torchActFor(m_handMenuItem);
+		if (act == 1) menu.Add(loc::View("use.putout"), kUsePutOut);
+		else if (act == 2) menu.Add(loc::View("use.light"), kUseLight);
+	}
 	// Clear, LAST: takes this hand back to unset. Offered only while the hand
 	// is SET (Michael, 2026-09-28) - the item's own first command is not a pick,
 	// and a stale pick already reads as unset, so neither gets the row.
@@ -414,6 +424,15 @@ void GameUI::OnHandMenuPick(int id) {
 		Click();
 	} else if (id == kUseThrow) {
 		SelectUse(i, hand, m_handMenuItem, "throw");
+	} else if (id == kUsePutOut || id == kUseLight) {
+		if (i >= m_characters.size() || hand > 1 || !onTorchAct) return;
+		// The hand must still hold what the menu was opened on (the world runs
+		// under an open menu).
+		if (m_characters[i].inventory.Hand(static_cast<int>(hand)).typeId != m_handMenuItem)
+			return;
+		onTorchAct(i, hand, id == kUseLight);
+		Click();
+		RefreshSheet(); // the mana bar may be on screen
 	} else if (id >= kUseSpell) {
 		if (!spellDefs) return;
 		const auto defs = spellDefs();

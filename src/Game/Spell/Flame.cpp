@@ -14,11 +14,18 @@ Flame::Flame()
 	  m_brazierPower(14.0f) {}
 
 void Flame::Cast(CastContext& ctx) const {
-	// A torch in the other hand first: the flame is right there.
+	// A torch in the other hand first: the flame is right there. A MAGICAL torch
+	// will not take it (Michael, 2026-10-03) - it is lit by its own word, the
+	// hand menu's Light - and is passed over, said only if nothing else caught.
 	std::array<int, 2> hands{};
 	const int n = OtherHands(ctx, hands);
+	bool refused = false;
 	for (int i = 0; i < n; ++i) {
 		ItemSlot& slot = ctx.caster.inventory.Hand(hands[static_cast<size_t>(i)]);
+		if (ctx.services.refusesFlame && ctx.services.refusesFlame(slot)) {
+			refused = true;
+			continue;
+		}
 		if (const std::string_view lit = ctx.services.lightItem(slot); !lit.empty()) {
 			Say(ctx, loc::FormatLine("log.flame_held", ctx.caster.name, loc::View(lit)));
 			return;
@@ -40,7 +47,8 @@ void Flame::Cast(CastContext& ctx) const {
 		}
 		return;
 	}
-	Say(ctx, loc::FormatLine("log.flame_nothing", ctx.caster.name));
+	Say(ctx, loc::FormatLine(refused ? "log.flame_magic_torch" : "log.flame_nothing",
+							 ctx.caster.name));
 }
 
 void Flame::ApplyOverrides(const CatalogEntry& e) {

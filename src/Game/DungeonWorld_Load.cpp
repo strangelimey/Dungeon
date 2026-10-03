@@ -1130,6 +1130,7 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		kind->unlitAs = CatalogGet(def, "unlit_as", "");
 		kind->spentAs = CatalogGet(def, "spent_as", "");
 		kind->light = CatalogGet(def, "light", kind->Lit() ? "torch" : "");
+		kind->trail = CatalogGet(def, "trail", "");
 		// What a Splash turns it into: a container one fill level up.
 		kind->fillAs = CatalogGet(def, "fill_as", "");
 		// What its blows leave behind, named by effect id — the same authored
@@ -1471,12 +1472,11 @@ bool DungeonWorld::DropItemAt(const std::string& typeId, float mx, float my,
 }
 
 void DungeonWorld::PlaceDrop(const Item& placed) {
-	// Anything LIT that comes to rest on the floor goes out (Michael: "placed
-	// on the floor, it is put out") - every floor placement comes through here,
-	// so this is the one place that rule lives. It keeps its charge.
-	Item item = placed;
-	if (item.kind && item.kind->Lit() && !item.kind->unlitAs.empty())
-		item.kind = &ItemKindFor(item.kind->unlitAs);
+	// Anything LIT that comes to rest on the floor STAYS lit now (Michael,
+	// 2026-10-03, lighting-updates Phase 4 - it used to go out here): it burns
+	// on where it lies (TickFloorTorches) and lights its square. A pack is
+	// still where a torch goes out.
+	const Item& item = placed;
 	for (Item& dead : m_items)
 		if (dead.id < 0 && dead.collected) {
 			dead = item;

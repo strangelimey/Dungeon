@@ -420,6 +420,12 @@ public:
 	// A hand's `throw` use (member, the item id): true = it was thrown and the
 	// hand empties; false = not now (down, or still recovering), it stays.
 	std::function<bool(size_t, const std::string&, float charge)> onHandThrow;
+	// What the hand menu may do to an item's flame (wired to DungeonWorld::
+	// TorchActFor): 0 nothing, 1 Put out (a lit torch), 2 Light (a magical
+	// torch, which no spell lights). onTorchAct does it to member's hand
+	// (`light` false = put out); the world says what happened.
+	std::function<int(const std::string&)> torchActFor;
+	std::function<void(size_t member, size_t hand, bool light)> onTorchAct;
 	// The hand right-click menu's command list for an item id (ItemKind::commands),
 	// wired by Game to the world's item kinds — keeps the command source single.
 	// By REFERENCE: a copy per hand click was a steady-state allocation. The

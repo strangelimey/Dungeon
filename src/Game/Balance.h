@@ -251,6 +251,9 @@ struct Balance {
 	float throwRange = 4.0f;
 	float throwStamina = 1.0f;
 	float throwInterval = 1.0f;
+	// Lighting a MAGICAL torch by its own word (the hand menu's Light): it costs
+	// the holder torch_light_mana for each of the torch's `power_level`s.
+	float torchLightMana = 5.0f;
 	// Stamina costs + exhaustion (docs/combat.md Phase 4). A swing spends
 	// (stamina_swing + stamina_weight × weapon kg) × attack.stam; a step
 	// spends stamina_step per standing member. Regen is the resource model

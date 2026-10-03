@@ -220,7 +220,7 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_magic.LoadSpells(m_project.spells, m_damageTypes);
 	m_magic.SetBalance(&m_balance);
 	m_magic.SetCastServices(
-		{[this](const ProjectileSpec& bolt) { m_projectiles.Spawn(bolt); },
+		{[this](const ProjectileSpec& bolt) { Launch(bolt); },
 		 [this](const ProjectileSpec& bolt, float delay) { SpawnBoltAfter(bolt, delay); },
 		 [this](const Character& member, std::string_view line) {
 			 MemberMessage(member, line);
@@ -239,11 +239,19 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		 [this](std::string_view itemId) { DropAtPartyFeet(itemId); },
 		 [this](ItemSlot& slot) { return RenameHeldItem(slot, &ItemKind::litAs); },
 		 [this](ItemSlot& slot) { return RenameHeldItem(slot, &ItemKind::fillAs); },
+		 [this](const ItemSlot& slot) {
+			 return !slot.Empty() && MagicalTorch(ItemKindFor(slot.typeId));
+		 },
 		 [this](int cells) { return ShoveAhead(cells); },
 		 [this](float power, int casterIndex) { return RepelAhead(power, casterIndex); },
 		 [this](const ProjectilePayload& payload, SpellSymbol school, int casterIndex) {
 			 BlastAroundParty(payload, school, casterIndex);
 		 }});
+
+	// The torch flames' pool, each at its full size now: a torch landing or
+	// lighting on the floor mid-fight then allocates nothing.
+	for (TorchFlame& f : m_torchFlames) f.effect.Reserve(kTorchFlameScale);
+	m_projectiles.trailSquare = kCellSize; // a trail's rate is per square flown
 
 	// Moving-item engine: wire its world seam so a projectile lives "on the map"
 	// without the engine depending on the map/combat. resolveHit is faction-aware —
@@ -472,11 +480,15 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 	// regeneration, supplies, and the unconscious waking up.
 	CheckDamageLedger("monsters, effects and regeneration");
 	UpdatePendingBolts(dt);   // a volley's later bolts take their turn
-	m_projectiles.Update(dt); // fly bolts, resolve impacts/fizzles via the hooks
+	// Fly bolts, resolve impacts/fizzles via the hooks; a trail thins with
+	// distance from the eye.
+	m_projectiles.SetEye(PartyEye());
+	m_projectiles.Update(dt);
 	UpdateBlasts(dt);         // advance live blasts a tick at their own speed
 	CheckDamageLedger("projectiles and blasts");
 	UpdateFireTransients(dt); // flares dying away, dust puffs settling
 	TickCarriedLight(dt);     // held torches burn down; stowed ones go out
+	TickFloorTorches(dt);     // ...and the ones lying lit on the floor
 	// The camera FIRST: the light budget culls against this frame's view, and
 	// a cull against last frame's would drop a light the turn just revealed.
 	UpdateCamera();
@@ -512,6 +524,10 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 		monster.plume.Update(dt);
 		monster.plume.AppendParticles(m_particleScratch);
 	}
+	// The torch flames: lit torches on the floor and in flight.
+	UpdateTorchFlames(dt);
+	for (const TorchFlame& f : m_torchFlames)
+		if (f.key != 0) f.effect.AppendParticles(m_particleScratch);
 	// Projectiles in flight + their impact sparks render as additive billboards
 	// alongside the flames (same premultiplied-additive blend).
 	m_projectiles.AppendBillboards(m_particleScratch);
@@ -543,7 +559,11 @@ void DungeonWorld::ReserveParticleScratch() {
 		peak += static_cast<size_t>(fire.effect.Capacity());
 	peak += m_monsters.size() *
 			static_cast<size_t>(FireEffect::CapacityFor(kPlumeScale));
-	peak += 128; // projectiles in flight + their impact sparks (bursts of 6..14)
+	// Projectiles in flight + the spark pool (impact bursts, blast puffs and the
+	// trails), which never grows past its fixed size.
+	peak += ProjectileSystem::BillboardCeiling();
+	// The torch flames (floor and thrown), each at its ceiling.
+	peak += kTorchFlames * static_cast<size_t>(FireEffect::CapacityFor(kTorchFlameScale));
 	// Headroom over the mean: spawn times and lifetimes are both random, so the
 	// live count wanders above the settled figure SteadyCount reports.
 	m_particleScratch.reserve(peak + peak / 4);
@@ -729,6 +749,10 @@ void DungeonWorld::UpdateLights(float time) {
 	// the level's ambient alone (DungeonWorld_Light.cpp).
 	const Vec3 eye = PartyEye();
 	AppendCarriedLights(time);
+	// Lit torches lying on the floor, and everything lit in flight (and the
+	// flash a lit bolt leaves where it ends) - lighting-updates Phase 4.
+	AppendFloorTorchLights(time);
+	AppendFlightLights(time);
 
 	// One light per burning fire, just above its flame, from its KIND'S profile
 	// (fixtures.cat `light`: fire_sconce / fire_brazier in lights.cat). The

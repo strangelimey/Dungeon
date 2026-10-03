@@ -68,3 +68,14 @@ shadow cubes. Answered in the plan.
   for its own behaviour, not one spell recoloured.
 - Q3 The unlisted glows (floor rune / enchanted weapon, burning monster, Ember
   Sight's fill): KEEP all three, moved onto the same per-type light data.
+
+## Added during Phase 4 (2026-10-03)
+
+- A lit torch on the FLOOR stays lit, whether thrown or set down, burns down
+  there to its stub, and lights its square (he picked this over "only thrown
+  ones" and "goes out on landing").
+- "Add a 'put-out' command option on the action menu. Note, a magical torch
+  won't light with a fire spell. It will need a 'light' command option, too.
+  Lighting it costs some mana, depending on the power of the magical torch."
+  (The magical torch landed on main the same morning: `torch_magic`, items.cat
+  `power_level` and `flame_color`.)

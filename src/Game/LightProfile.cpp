@@ -168,4 +168,8 @@ const Profile& Fallback() {
 	return kFallback;
 }
 
+bool ReadFloat(std::string_view text, float& out) { return ParseFloat(text, out); }
+bool ReadColor(std::string_view text, Vec3& out) { return ParseColor(text, out); }
+bool ReadBool(std::string_view text, bool& out) { return ParseBool(text, out); }
+
 } // namespace dungeon::game::light

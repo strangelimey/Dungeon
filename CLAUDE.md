@@ -216,7 +216,15 @@ Key conventions (memorize, they bite):
   LIT TORCH held in a hand (or on the cursor) is the party's light, and an
   ambient-0 level is pitch black. A lit torch burns while HELD (its CHARGE
   counts down `burn_time`, it dims over its last tenth, spent it becomes
-  `spent_as`); stowed or dropped it goes out keeping what is left. A torch is
+  `spent_as`); stowed in a pack it goes out keeping what is left, but ON THE
+  FLOOR IT STAYS LIT (lighting-updates Phase 4, Michael: thrown or set down) -
+  it burns on there (`TickFloorTorches`; an authored record's torch becomes a
+  drop the first time it burns, so the save carries kind and charge), lights
+  its square and burns with a small flame from a fixed pool (`m_torchFlames`,
+  shared with a torch in FLIGHT, whose flame trails behind it). The hand menu
+  offers PUT OUT for a lit torch and LIGHT for a MAGICAL one (its lit kind has a
+  `power_level`): Flame passes a magical torch over (`refusesFlame`, a cast
+  service) and Light costs balance.cat `torch_light_mana` per level. A torch is
   also a CLUB (`command = attack`, the `attack` verb: bash, blunt skill, STR);
   a LIT one is `element = fire`, so its fire scales with tier and skill, plus
   an `on_hit` burn. A MAGICAL torch (`torch_magic`) adds `power_level` (burn_time
@@ -246,6 +254,22 @@ Key conventions (memorize, they bite):
   may carry its own FLAME COLOR (`color=r,g,b` on the .map fixture record, the
   fixture dialog's row): it colours the light AND the flames (FireEffect::
   SetFlameColor). Dev: `lights` / `lights profiles` / `lights reload`.
+  THINGS IN FLIGHT (Phase 4, DungeonWorld_Flight.cpp): EVERY launch goes through
+  `DungeonWorld::Launch`, which DRESSES the spec - its light profile and its
+  TRAIL from, most particular first, the spell's own spells.cat `light`/`trail`,
+  the cargo kind's items.cat `light`/`trail`, the school's `bolt_<school>` /
+  `trail_<school>`, else `bolt_shot`/`trail_shot` for a monster's plain shot.
+  Each flight is ITS OWN light keyed by its projectile id, on from launch to
+  landing (a volley's bolts each light their own stretch; a bolt still queued in
+  `m_pendingBolts` makes none - it is dressed when queued, since its names are
+  borrowed from a spell a reload could replace), and a lit bolt's end leaves a
+  0.3 s FLASH. Trails are `trails.cat` (Game/Trail.h, pure, in RollTest: shape
+  spark/ember/mote/puff/drip, `rate` per SQUARE flown - shed by distance, thinning
+  with distance from the eye and none within half a square of it). They share
+  the projectile spark pool, which NEVER GROWS: full, it recycles its oldest
+  trail particle, and only with none left does a particle go without, so a hit
+  always reads. Dev: `trails [reload]`; checked by AllocTest `-Cast`/`-Impact`/
+  `-Throw` and `-Throw -ThrowItem torch_lit`.
 - COMBAT (full model: docs/combat.md — "The attack formula"; built by the
   combat-depth thread): every constant is a KNOB in the project's
   balance.cat ([formula] block → the Balance struct in Game/Balance.h;

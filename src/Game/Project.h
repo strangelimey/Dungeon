@@ -113,6 +113,10 @@ struct Project {
 	// KIND of light looks like - colour, brightness, reach, pulse, shadow. A
 	// source names one (`light = <id>` on a fixture, item or effect).
 	Catalog lights;
+	// Trail profiles (lighting-updates Phase 4, Game/Trail.h): what a thing in
+	// flight sheds - embers, droplets, motes, grit. A spell or item names one
+	// (`trail = <id>`); a bolt with none takes its school's `trail_<school>`.
+	Catalog trails;
 	// Surface THEMES (docs/editor-themes-notes.md): a named look - `floor` /
 	// `wall` / `ceiling`, each ONE of that surface's catalog ids (empty =
 	// leave it be). World-

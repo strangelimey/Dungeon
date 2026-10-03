@@ -104,6 +104,9 @@ throw_speed_min = 3
 throw_range = 4
 throw_stamina = 1
 throw_interval = 1
+; Lighting a magical torch by its own word costs this much mana per power
+; level of the torch (items.cat `power_level`).
+torch_light_mana = 5
 stamina_swing = 1
 stamina_weight = 0.4
 stamina_step = 0.1

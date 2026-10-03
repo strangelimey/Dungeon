@@ -142,16 +142,21 @@ ProjectileSystem::Repelled DungeonWorld::RepelAhead(float power, int casterIndex
 
 void DungeonWorld::SpawnBoltAfter(const ProjectileSpec& spec, float delay) {
 	if (delay <= 0.0f) {
-		m_projectiles.Spawn(spec);
+		Launch(spec);
 		return;
 	}
 	// A full queue means a volley larger than any spell can make: the bolt goes
 	// now rather than vanishing.
 	if (m_pendingBoltCount >= m_pendingBolts.size()) {
-		m_projectiles.Spawn(spec);
+		Launch(spec);
 		return;
 	}
-	m_pendingBolts[m_pendingBoltCount++] = {spec, delay};
+	// Dressed NOW: its light and trail names are borrowed from the spell, which
+	// a catalog reload could replace before the bolt's turn comes. It is still
+	// no light until it launches - a bolt waiting here makes none.
+	PendingBolt& p = m_pendingBolts[m_pendingBoltCount++];
+	p = {spec, delay};
+	DressFlight(p.spec);
 }
 
 void DungeonWorld::UpdatePendingBolts(float dt) {
@@ -162,7 +167,7 @@ void DungeonWorld::UpdatePendingBolts(float dt) {
 			++i;
 			continue;
 		}
-		m_projectiles.Spawn(p.spec);
+		Launch(p.spec);
 		p = m_pendingBolts[--m_pendingBoltCount]; // swap-remove; order is the delays'
 	}
 }

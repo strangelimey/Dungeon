@@ -40,6 +40,10 @@ ProjectileSpec BoltSpell::MakeBolt(const Vec3& origin, const Vec3& dir,
 	// `on_hit = burn` reads as fire on a firebolt and as frost on a waterbolt.
 	bolt.payload = MakePayload();
 	bolt.payload.flavour = School();
+	// Its light and trail, if spells.cat names its own (else the school's - the
+	// world dresses the bolt at launch).
+	bolt.lightId = m_light;
+	bolt.trailId = m_trail;
 	return bolt;
 }
 

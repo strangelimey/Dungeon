@@ -91,6 +91,9 @@ public:
 		// looks like. Never placed - a row opens its editor; a fixture or item
 		// names one with its own `light`.
 		Lights,
+		// TRAILS (trails.cat, Game/Trail.h): what a thing in flight sheds. Never
+		// placed - a row opens its editor; a spell or item names one.
+		Trails,
 		Count
 	};
 

@@ -1347,6 +1347,20 @@ void Game::RegisterDevCommands() {
 						   for (const std::string& line : m_world->DescribeLights())
 							   m_console.Print(line);
 					   });
+	// What things in flight shed (lighting-updates Phase 4): the spark pool's
+	// pressure and each trails.cat profile; `reload` takes a hand edit live.
+	m_console.Register({.name = "trails",
+						.group = CmdGroup::Rendering,
+						.params = "\nreload",
+						.summary = "the spark pool's use and the trail profiles"},
+					   [this](const std::vector<std::string>& args) {
+						   if (!args.empty() && args[0] == "reload") {
+							   m_project.trails.Load(m_project.CatalogPath("trails.cat"));
+							   m_world->ReloadLightProfiles();
+						   }
+						   for (const std::string& line : m_world->DescribeTrails())
+							   m_console.Print(line);
+					   });
 	// The light budget's measuring tools (lighting-updates Phase 3): a load of
 	// test lights round the party, and the tiled light lists on or off, so the
 	// tiles' saving can be read off `profile snap` in one build.

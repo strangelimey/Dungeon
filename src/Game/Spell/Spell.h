@@ -97,6 +97,9 @@ struct CastServices {
 	// holds, or empty when the item does not take it.
 	std::function<std::string_view(ItemSlot&)> lightItem;
 	std::function<std::string_view(ItemSlot&)> fillItem;
+	// True for a held item a spell's fire cannot light: a MAGICAL torch (its
+	// lit kind has a `power_level`), lit only by its own Light command.
+	std::function<bool(const ItemSlot&)> refusesFlame;
 	// Shoves whatever monster stands in the square ahead `cells` squares further
 	// away, along the party's facing (stopped early by a wall, a shut door or a
 	// packed square). True if anything moved.
@@ -202,8 +205,19 @@ public:
 	// that actually ships (docs/eval-harness.md).
 	const BlastSpec& Blast() const { return m_payload.blast; }
 	std::span<const fx::Proc> Procs() const { return m_payload.Procs(); }
+	// What its bolt lights and sheds in flight (spells.cat `light` / `trail`,
+	// lighting-updates Phase 4): a lights.cat / trails.cat id, empty = the
+	// school's default (`bolt_<school>`, `trail_<school>`), which the world picks.
+	const std::string& LightId() const { return m_light; }
+	const std::string& TrailId() const { return m_trail; }
 
 protected:
+	// Lays this spell's own `light` / `trail`, where it names them, over a bolt
+	// another spell built (a modifier wrapping a bolt spell).
+	void LendLook(ProjectileSpec& bolt) const {
+		if (!m_light.empty()) bolt.lightId = m_light;
+		if (!m_trail.empty()) bolt.trailId = m_trail;
+	}
 	const DamageTypeBook* m_types = nullptr;
 
 	std::string m_id;
@@ -217,6 +231,8 @@ protected:
 	// is the ward it applies) and the area burst it sets off, if any
 	// (`blast_force` and friends; zero force for a plain single-target bolt).
 	ProjectilePayload m_payload;
+	std::string m_light; // spells.cat `light` (see LightId)
+	std::string m_trail; // spells.cat `trail` (see TrailId)
 };
 
 // Every concrete spell, freshly constructed at class defaults — the registry

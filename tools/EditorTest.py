@@ -577,12 +577,12 @@ STAGE = {"world": ["styles", "dungeons", "quests", "flags", "terrain"],
          "build": ["shapes", "themes", "walls", "floors", "ceilings", "wallfeatures",
                    "surfacefeatures", "doors", "stairs"],
          # Lights (lighting-updates Phase 2) sit beside the fixtures that give them.
-         "furnishings": ["decorations", "fixtures", "lights", "buttons"],
+         "furnishings": ["decorations", "fixtures", "lights", "trails", "buttons"],
          "populate": ["monsters", "items", "weapons", "armor"]}
 KIND = {"surfaces": ["themes", "walls", "floors", "ceilings", "wallfeatures",
                      "surfacefeatures"],
         "structure": ["shapes", "doors", "stairs"],
-        "furnishings": ["decorations", "fixtures", "lights", "buttons"],
+        "furnishings": ["decorations", "fixtures", "lights", "trails", "buttons"],
         "creatures": ["monsters"],
         "items": ["items", "weapons", "armor"],
         "world": ["styles", "dungeons", "quests", "flags", "terrain"]}

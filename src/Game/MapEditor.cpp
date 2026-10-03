@@ -65,6 +65,7 @@ constexpr CatInfo kCategoryInfo[] = {
 	{"map.cat.styles", "styles", false, /*placeable*/ false, /*authorable*/ true},
 	{"map.cat.shapes", "shapes", false, /*placeable*/ false, /*authorable*/ true},
 	{"map.cat.lights", "lights", false, /*placeable*/ false, /*authorable*/ true},
+	{"map.cat.trails", "trails", false, /*placeable*/ false, /*authorable*/ true},
 };
 static_assert(sizeof(kCategoryInfo) / sizeof(kCategoryInfo[0]) ==
 				  static_cast<size_t>(MapEditor::PaletteCat::Count),
@@ -213,6 +214,17 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 			const light::Profile& p = m_world->LightProfileFor(it.id);
 			it.swatch = p.sourceColor ? Vec4{0.9f, 0.9f, 0.9f, 1.0f}
 									  : Vec4{p.color.x, p.color.y, p.color.z, 1.0f};
+		}
+		return items;
+	}
+	case PaletteCat::Trails: {
+		// The swatch is the trail's own colour, white for one that takes its
+		// light's.
+		std::vector<PaletteItem> items = catalogItems(proj.trails, kTorch);
+		for (PaletteItem& it : items) {
+			const trail::Spec& t = m_world->TrailSpecFor(it.id);
+			it.swatch = t.hasColor ? Vec4{t.color.x, t.color.y, t.color.z, 1.0f}
+								  : Vec4{0.9f, 0.9f, 0.9f, 1.0f};
 		}
 		return items;
 	}

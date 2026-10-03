@@ -121,6 +121,13 @@ public:
 	Vec3 FixtureLightColor(const std::string& type);
 	// The `lights` dev command's readout: one line per light this frame.
 	std::vector<std::string> DescribeLights() const;
+	// trails.cat (lighting-updates Phase 4, Game/Trail.h), re-read with the
+	// lights by ReloadLightProfiles. A trail is COPIED into each projectile at
+	// launch, so a reload never reaches one already in flight. The spec `id`
+	// names; one that sheds nothing for an id the project lacks.
+	const trail::Spec& TrailSpecFor(std::string_view id) const;
+	// The `trails` dev command's readout: the pool, and each profile.
+	std::vector<std::string> DescribeTrails() const;
 	// `lightstress <n> [near]`: n test lights over the level the party can
 	// reach, or (`near`) within 6 steps of it (0 = none); returns how many were
 	// placed (up to 128). A measuring load for the light budget.
@@ -776,6 +783,15 @@ public:
 	// nobody threw (the thrower is down, or still recovering from their last
 	// throw - throw_interval): the item stays where it was.
 	bool ThrowItem(const std::string& typeId, int member = -1, float charge = -1.0f);
+	// TORCH COMMANDS (DungeonWorld_Light.cpp; the hand menu's rows): what can be
+	// done to the flame of an item in a hand - put a lit torch out, or light a
+	// MAGICAL one, which takes no spell's fire and costs its holder mana
+	// (balance.cat torch_light_mana per power_level). Each acts on member
+	// `member`'s hand `hand`; false = nothing done (and, for want of mana, said).
+	enum class TorchAct { None, PutOut, Light };
+	TorchAct TorchActFor(const std::string& typeId);
+	bool PutOutTorch(size_t member, int hand);
+	bool KindleTorch(size_t member, int hand);
 	// Brings every thrown item still in the air down where it is - before a save
 	// (a flight is not saved; the item must be) and a level change.
 	void LandThrownItems() { m_projectiles.LandCargo(); }
@@ -2294,6 +2310,9 @@ private:
 		// The light it gives while lit in a hand (a lights.cat id; items.cat
 		// `light`, default `torch` for a lit kind, none otherwise).
 		std::string light;
+		// What it sheds when thrown (a trails.cat id; items.cat `trail`, none
+		// by default - a lit torch trails its own flame, see TorchFlame).
+		std::string trail;
 		// Worn armor's WEIGHT CLASS (armor.cat `class`): what it costs to
 		// evade in, which skill it trains, and what STR it asks. The soak
 		// itself stays per ITEM (`armor` below) — a breastplate and a mail
@@ -3638,6 +3657,8 @@ private:
 	// (LightProfileFor - a handful of profiles, so a linear scan); a reload
 	// replaces the vector, which is why nothing holds a pointer into it.
 	std::vector<light::Profile> m_lightProfiles;
+	// trails.cat, parsed (Game/Trail.h) - the same arrangement.
+	std::vector<trail::Profile> m_trailProfiles;
 	// Where each of this frame's lights came from, parallel to m_lights.points
 	// up to the budget cut (filled beside the push; read by the `lights` dev
 	// command). Reserved to the ceiling, so filling it allocates nothing.
@@ -3651,7 +3672,12 @@ private:
 	// kind of source it is, and which one. The shadow-cube cache and the
 	// budget fades both key on it. Never 0, and never the high bit (the
 	// scheduler's index-keyed fallback).
-	enum class LightKind : u32 { Torch = 1, Fire, Burning, Glow, Sight, Stress, Bolt };
+	enum class LightKind : u32 {
+		Torch = 1, Fire, Burning, Glow, Sight, Stress,
+		Bolt,      // a flight in the air, keyed by its projectile id
+		FloorTorch, // a lit torch lying on the floor, keyed by its m_items index
+		Flash,     // the moment a lit bolt leaves where it ended, keyed by slot
+	};
 	static u32 LightKey(LightKind kind, u32 index) {
 		return (static_cast<u32>(kind) << 24) | (index & 0xFFFFFFu);
 	}
@@ -3875,6 +3901,41 @@ private:
 	size_t m_pendingBoltCount = 0;
 	void SpawnBoltAfter(const ProjectileSpec& spec, float delay);
 	void UpdatePendingBolts(float dt);
+	// EVERY LAUNCH goes through Launch (lighting-updates Phase 4): it dresses the
+	// spec, then flies it. DressFlight resolves a spec's light and trail - the
+	// names it carries (a spell's own `light` / `trail`), else its cargo kind's,
+	// else its school's (`bolt_<school>`, `trail_<school>`) - into the handle and
+	// copied trail the engine carries, and drops the borrowed names. A spec
+	// queued for later (SpawnBoltAfter) is dressed when it is queued.
+	void DressFlight(ProjectileSpec& spec) const;
+	void Launch(ProjectileSpec spec);
+	// Each lit flight and each flash it leaves, as a light (UpdateLights).
+	void AppendFlightLights(float time);
+	// LIT TORCHES ON THE FLOOR (Michael, 2026-10-03: they stay lit, thrown or
+	// set down): each burns its charge where it lies and becomes its stub when
+	// spent. An authored record's torch becomes a drop the first time it
+	// burns, so the save carries it whole (kind and charge).
+	void TickFloorTorches(float dt);
+	// One light per lit floor torch, at its burning end.
+	void AppendFloorTorchLights(float time);
+	// Where a lit floor item's flame burns (its model's head, as it lies).
+	Vec3 FloorTorchHead(const Item& item) const;
+	// THE TORCH FLAMES: a lit torch on the floor or in flight burns with a
+	// small fixture-style flame (FireEffect), from one fixed pool - reserved
+	// at construction, so a torch catching or landing allocates nothing. In
+	// flight the flame's particles keep their own course as the emitter moves
+	// on, so a thrown torch trails its own fire. Past the pool, the furthest
+	// go without a flame (they still light).
+	static constexpr size_t kTorchFlames = 8;
+	static constexpr float kTorchFlameScale = 0.3f;
+	struct TorchFlame {
+		u32 key = 0; // LightKey of what it burns on; 0 = free
+		bool seen = false;
+		FireEffect effect;
+	};
+	std::array<TorchFlame, kTorchFlames> m_torchFlames;
+	// Lights, moves and ages the pool's flames for this frame's torches.
+	void UpdateTorchFlames(float dt);
 	// Burns every lit torch held (hands, cursor) by `dt`, and puts out any
 	// stowed in a pack.
 	void TickCarriedLight(float dt);
@@ -3884,6 +3945,9 @@ private:
 	bool BurnTorch(ItemSlot& slot, float dt, const Character* holder);
 	// 1 = a torch at full light, falling to a floor over its last tenth.
 	static float TorchBrightness(const ItemKind& kind, float charge);
+	// A torch, lit or not, whose lit kind has a `power_level`: no spell lights
+	// it (Flame passes it over), only its own Light command.
+	bool MagicalTorch(const ItemKind& kind);
 	WorldState* m_flagStore = nullptr; // see SetFlagStore
 	std::optional<WorldMap>* m_worldForUndo = nullptr; // borrowed; see SetWorldForUndo
 	// The project's opening, borrowed (SetOpeningForUndo), and whether a move

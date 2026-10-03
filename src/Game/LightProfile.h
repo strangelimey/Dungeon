@@ -85,4 +85,11 @@ Sample Evaluate(const Profile& profile, float time, float phase);
 // warm firelight, so a missing entry is visibly a light rather than darkness.
 const Profile& Fallback();
 
+// The field readers Parse uses, shared with the other small profile catalogs
+// (Game/Trail.h): a number, an "r, g, b" colour, a 1/0 flag. False (and `out`
+// untouched) for text they cannot read.
+bool ReadFloat(std::string_view text, float& out);
+bool ReadColor(std::string_view text, Vec3& out);
+bool ReadBool(std::string_view text, bool& out);
+
 } // namespace dungeon::game::light

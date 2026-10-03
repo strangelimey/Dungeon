@@ -31,6 +31,7 @@
 #include "Game/Blast.h"
 #include "Game/Combat.h"
 #include "Game/Effect/Effect.h"
+#include "Game/Trail.h"
 #include "Graphics/ParticleBatch.h"
 
 #include <algorithm>
@@ -148,6 +149,24 @@ struct ProjectileSpec {
 	// The thrown item's own charge (a torch's seconds left, -1 = none), so it
 	// lands with what it left with.
 	float cargoCharge = -1.0f;
+
+	// ITS LIGHT AND ITS TRAIL (lighting-updates Phase 4). Each flight is its own
+	// light, switched on when it launches and out when it ends - a volley's
+	// bolts each light their own stretch of corridor, however the spell spaces
+	// them. The host DRESSES a spec before it flies (DungeonWorld::DressFlight):
+	// `lightId` / `trailId` name a lights.cat / trails.cat profile, borrowed
+	// from the spell or kind that made the spec (empty = the default: the
+	// school's, the cargo kind's); dressing resolves them into the fields below
+	// and lets go of the names, so a dressed spec may wait in a queue.
+	std::string_view lightId{};
+	std::string_view trailId{};
+	bool dressed = false;
+	// The host's light-profile handle (opaque here; -1 = no light) and the
+	// colour a `color = source` profile takes.
+	int light = -1;
+	Vec3 lightColor{1.0f, 1.0f, 1.0f};
+	// What it sheds as it flies; rate 0 = nothing. Copied, never borrowed.
+	trail::Spec trail{};
 };
 
 // Everything the owner needs to resolve one impact: where it landed, the strike
@@ -229,7 +248,49 @@ public:
 	void Clear() {
 		m_items.clear();
 		m_sparks.clear();
+		m_flashes = {};
 	}
+
+	// --- light and trails (lighting-updates Phase 4) --------------------------
+	// Where the eye is, set each frame before Update: a trail thins with
+	// distance from it (a bolt down the far end of a hall sheds a quarter of
+	// what one at your shoulder does) - nobody can tell, and the pool lasts.
+	void SetEye(const Vec3& eye) { m_eye = eye; }
+	// Metres in a square: a trail's `rate` is per square flown.
+	float trailSquare = 2.5f;
+	// Every flight that carries a light: fn(id, pos, light, lightColor, cargo,
+	// cargoCharge). The host pushes each as its own light, keyed by `id`.
+	template <typename Fn> void ForEachLit(Fn&& fn) const {
+		for (const Item& it : m_items)
+			if (it.light >= 0) fn(it.id, it.pos, it.light, it.lightColor, it.cargo, it.cargoCharge);
+	}
+	// The brief FLASH a lit bolt leaves where it ends - its light lingering a
+	// fraction of a second after the bolt is gone, so a hit does not simply
+	// switch the corridor off: fn(slot, pos, light, lightColor, left) where
+	// `left` runs 1 -> 0 over the flash.
+	template <typename Fn> void ForEachFlash(Fn&& fn) const {
+		for (size_t i = 0; i < m_flashes.size(); ++i) {
+			const Flash& f = m_flashes[i];
+			if (f.light >= 0 && f.age < kFlashSeconds)
+				fn(i, f.pos, f.light, f.color, 1.0f - f.age / kFlashSeconds);
+		}
+	}
+	// The spark pool, for the `trails` readout: what is live, how much of it is
+	// trail, its fixed size, and over the last whole second how many trail
+	// particles were recycled to make room and how many particles found none.
+	struct PoolStats {
+		size_t live = 0;
+		size_t trail = 0;
+		size_t capacity = 0;
+		size_t flights = 0;
+		size_t shedding = 0; // flights with a trail
+		u32 recycled = 0;
+		u32 refused = 0;
+	};
+	PoolStats Stats() const;
+	// The most billboards AppendBillboards adds in a busy fight - the pool's
+	// fixed size plus the flights' own glows - for the caller's reserve.
+	static constexpr size_t BillboardCeiling() { return kReservedSparks + kReservedItems; }
 	// Ends every THROWN item's flight where it is (onExpire, Range) and drops
 	// it, so the host lands it rather than losing it. Call before anything that
 	// would Clear a flight the game must not forget: a save, a level change.
@@ -240,11 +301,11 @@ public:
 	// short bright flare, gas a slow lingering cloud.
 	void Puff(const Vec3& pos, const Vec4& color, int count, float spread, float life,
 			  float size);
-	// Every thrown item in flight, for the host to draw as itself:
-	// fn(pos, dir, secondsInFlight, cargo).
+	// Every thrown item in flight, for the host to draw as itself (and a lit
+	// one's flame): fn(id, pos, dir, secondsInFlight, cargo, cargoCharge).
 	template <typename Fn> void ForEachCargo(Fn&& fn) const {
 		for (const Item& it : m_items)
-			if (it.cargo) fn(it.pos, it.dir, it.age, it.cargo);
+			if (it.cargo) fn(it.id, it.pos, it.dir, it.age, it.cargo, it.cargoCharge);
 	}
 
 	// A gust against the shots flying at the party, for which `inZone(pos)` holds
@@ -325,9 +386,14 @@ private:
 		const void* cargo = nullptr; // a thrown item (ProjectileSpec::cargo)
 		float cargoCharge = -1.0f;
 		float age = 0.0f;            // seconds in flight (a thrown item tumbles by it)
+		int light = -1;              // the host's light handle (ProjectileSpec::light)
+		Vec3 lightColor{1, 1, 1};
+		trail::Spec trail{};         // what it sheds (ProjectileSpec::trail)
+		float trailDebt = 0.0f;      // particles owed for distance flown, not yet shed
 	};
-	// A short-lived impact/fizzle spark (a burst of these sells a hit). Flies out,
-	// fades over its life, additive.
+	// A short-lived particle in the shared pool: an impact/fizzle spark (a burst
+	// of these sells a hit), a blast's puff, or a TRAIL particle shed in flight.
+	// Flies out, fades over its life, additive.
 	struct Spark {
 		Vec3 pos{};
 		Vec3 vel{};
@@ -337,20 +403,51 @@ private:
 		float size = 0.1f;
 		float fall = 3.5f; // downward pull (m/s^2); a puff of gas rises (< 0)
 		bool swell = false; // grows as it fades (a puff), rather than holding
+		bool trail = false; // shed in flight: the first to go when the pool is full
+		float flicker = 0.0f; // brightness flicker depth (an ember)
+		float swirl = 0.0f;   // radians a second its drift turns (a mote)
+		float phase = 0.0f;   // its own flicker phase
+	};
+	// The light a lit bolt leaves for a moment where it ended.
+	struct Flash {
+		Vec3 pos{};
+		Vec3 color{1, 1, 1};
+		int light = -1; // -1 = an empty slot
+		float age = 0.0f;
 	};
 
 	// Room for a crowded fight: a burst is 6-14 sparks living under half a
 	// second, so 512 covers dozens of impacts landing together - and a blast's
-	// puffs (a few a square a tick, about a second each) beside them.
+	// puffs (a few a square a tick, about a second each) beside them, and the
+	// trails. The spark pool NEVER GROWS (a fight is a guarded frame): full, it
+	// recycles its oldest trail particle, and only with no trail left in it does
+	// a particle go without - so a hit always reads, at a trail's expense.
 	static constexpr size_t kReservedItems = 64;
 	static constexpr size_t kReservedSparks = 1024;
+	static constexpr size_t kFlashSlots = 16;
+	static constexpr float kFlashSeconds = 0.3f;
+	// Most trail particles one flight sheds in one frame (a long hitch would
+	// otherwise pay its whole debt at once, in one clump).
+	static constexpr int kMaxShedPerFrame = 12;
 
 	void SpawnSparkBurst(const Vec3& pos, const Vec4& color, int count);
+	// Into the pool, by its rule (see kReservedSparks). False = no room.
+	bool AddSpark(const Spark& s);
+	// Sheds `it`'s trail over the `step` metres it just flew.
+	void ShedTrail(Item& it, float step);
+	// A lit flight ended at `it.pos`: its light lingers as a flash.
+	void LeaveFlash(const Item& it);
 	// Report a flight that ended without a strike, through onExpire.
 	void Expire(const Item& it, ExpiryCause cause);
 
 	std::vector<Item> m_items;
 	std::vector<Spark> m_sparks;
+	std::array<Flash, kFlashSlots> m_flashes{};
+	Vec3 m_eye{};
+	// Pool pressure, counted per whole second (the `trails` readout).
+	float m_statClock = 0.0f;
+	u32 m_recycledNow = 0, m_refusedNow = 0;
+	u32 m_recycledLast = 0, m_refusedLast = 0;
 	u32 m_nextId = 1; // monotonic runtime-id source (0 = "none")
 	std::mt19937 m_rng{0x5EED1234u}; // spark scatter (cosmetic; not the combat RNG)
 };

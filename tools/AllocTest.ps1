@@ -20,6 +20,7 @@
 #   .\tools\AllocTest.ps1 -Items             # pack -> cursor -> floor -> cursor -> pack
 #   .\tools\AllocTest.ps1 -Packs             # swap a 4-slot and an 8-slot bag
 #   .\tools\AllocTest.ps1 -Throw             # lift a rock, throw it at a wall, again
+#   .\tools\AllocTest.ps1 -Throw -ThrowItem torch_lit   # ...a lit torch (its light and flame)
 #   .\tools\AllocTest.ps1 -Walk              # key turns: the party AND the pad's stones
 #   .\tools\AllocTest.ps1 -Config release    # needs -DDN_TRACK_ALLOCS=ON
 #
@@ -273,6 +274,10 @@ param(
 	# Lifts a rock off the floor and throws it at a wall, round and round,
 	# inside the window (ui-updates Phase 10). See the note at the setup.
 	[switch]$Throw,
+	# What -Throw throws. `torch_lit` (lighting-updates Phase 4) makes the round
+	# trip a LIT torch's: carried on the cursor, a light and a flame in flight,
+	# and a floor torch burning where it lands - all inside the window.
+	[string]$ThrowItem = 'rock',
 	# Starts with a CREATED party instead of the default four: a `newparty` spec
 	# (party creation, docs/party-creation-plan.md phase 2), e.g.
 	# 'premade=0 | premade=1 | premade=2' for three. Any mode runs under it; the
@@ -1362,7 +1367,7 @@ try {
 	# north is the far-left one: exactly -Items' floor point. So the loop needs
 	# no feedback: lift there, throw high, wait out throw_interval, again.
 	if ($Throw) {
-		Write-Host 'going to eval_arena''s north wall with a rock'
+		Write-Host "going to eval_arena's north wall with a $ThrowItem"
 		Send-Key 0xC0
 		Start-Sleep -Milliseconds 500
 		Send-Text 'logecho on'; Send-Key 0x0D
@@ -1389,7 +1394,7 @@ try {
 		# The first rock comes from nowhere: the leader throws one, and it lands
 		# where every later one will.
 		Send-Text 'tally reset'; Send-Key 0x0D
-		Send-Text 'throw rock'; Send-Key 0x0D
+		Send-Text "throw $ThrowItem"; Send-Key 0x0D
 		Send-Key 0xC0
 		Start-Sleep -Milliseconds 1500
 		# WARM-UP, and the check that the loop's clicks land: one whole cycle by

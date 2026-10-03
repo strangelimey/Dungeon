@@ -14,8 +14,12 @@
 //
 // A lit torch BURNS while it is held: its CHARGE (ItemSlot::charge) counts its
 // seconds down from the kind's `burn_time`, it dims over its last tenth, and
-// spent it becomes its `spent_as` stub. Stowed in a pack it goes out (the
-// floor's half of that rule is PlaceDrop's), keeping what is left.
+// spent it becomes its `spent_as` stub. Stowed in a pack it goes out, keeping
+// what is left. On the FLOOR it stays lit (Phase 4): it burns on where it lies
+// and lights its square, thrown or set down.
+//
+// The hand menu's TORCH COMMANDS live here too: Put out (any lit torch) and
+// Light (a magical one, which no spell's fire takes - it costs mana).
 //
 // Everything here runs every frame, so it allocates nothing: the ids it renames
 // are assigned into the slots' own buffers (always to a shorter or equal-length
@@ -77,12 +81,44 @@ void DungeonWorld::ReloadLightProfiles() {
 			log::Warn("lights.cat has no [{}]; those lights use the fallback", id);
 
 	// Item kinds are built once (PreloadItemKinds) and no other reload reaches
-	// their `light`, so re-read it here: a torch's light can be re-pointed live.
+	// their `light` or `trail`, so re-read them here: re-pointed live.
 	for (auto&& [id, kind] : m_itemKinds) {
 		const CatalogEntry* def = m_project.FindItem(id);
 		kind->light = CatalogGet(def, "light", kind->Lit() ? "torch" : "");
+		kind->trail = CatalogGet(def, "trail", "");
 	}
-	log::Info("Light profiles: {} (lights.cat)", m_lightProfiles.size());
+
+	// trails.cat (Phase 4), the same way: parsed, then every name checked.
+	m_trailProfiles.clear();
+	problems.clear();
+	for (const CatalogEntry& e : m_project.trails.Entries())
+		m_trailProfiles.push_back(trail::Parse(
+			e.id, [&e](std::string_view key) { return e.Get(key); }, &problems));
+	for (const std::string& p : problems) log::Warn("{}", p);
+	const auto knownTrail = [this](std::string_view id) {
+		for (const trail::Profile& p : m_trailProfiles)
+			if (p.id == id) return true;
+		return false;
+	};
+	for (const Catalog* cat : {&m_project.items, &m_project.weapons, &m_project.armor})
+		for (const CatalogEntry& e : cat->Entries())
+			if (const std::string id = e.Get("trail"); !id.empty() && !knownTrail(id))
+				log::Warn("[{}]: trail '{}' is not in trails.cat; it sheds nothing", e.id, id);
+	for (const CatalogEntry& e : m_project.spells.Entries()) {
+		if (const std::string id = e.Get("light"); !id.empty() && !known(id))
+			log::Warn("spells.cat [{}]: light '{}' is not in lights.cat; its bolt draws as "
+					  "the fallback warm light", e.id, id);
+		if (const std::string id = e.Get("trail"); !id.empty() && !knownTrail(id))
+			log::Warn("spells.cat [{}]: trail '{}' is not in trails.cat; its bolt sheds nothing",
+					  e.id, id);
+	}
+	// The ids a flight takes when nothing names its own (DungeonWorld_Flight.cpp).
+	for (const char* id : {"bolt_fire", "bolt_earth", "bolt_air", "bolt_water", "bolt_shot"})
+		if (!known(id)) log::Warn("lights.cat has no [{}]; those bolts use the fallback", id);
+	for (const char* id : {"trail_fire", "trail_earth", "trail_air", "trail_water", "trail_shot"})
+		if (!knownTrail(id)) log::Warn("trails.cat has no [{}]; those bolts shed nothing", id);
+	log::Info("Light profiles: {} (lights.cat), trails: {} (trails.cat)", m_lightProfiles.size(),
+			  m_trailProfiles.size());
 }
 
 const light::Profile& DungeonWorld::LightProfileFor(std::string_view id) const {
@@ -182,6 +218,55 @@ float DungeonWorld::TorchBrightness(const ItemKind& kind, float charge) {
 							  : kDimFloor + (1.0f - kDimFloor) * std::max(share, 0.0f) / kDimShare;
 }
 
+// --- torch commands (the hand menu's Put out / Light) --------------------------
+
+bool DungeonWorld::MagicalTorch(const ItemKind& kind) {
+	if (kind.Lit()) return kind.powerLevel > 0.0f;
+	return !kind.litAs.empty() && ItemKindFor(kind.litAs).powerLevel > 0.0f;
+}
+
+DungeonWorld::TorchAct DungeonWorld::TorchActFor(const std::string& typeId) {
+	if (typeId.empty()) return TorchAct::None;
+	const ItemKind& kind = ItemKindFor(typeId);
+	if (kind.Lit()) return kind.unlitAs.empty() ? TorchAct::None : TorchAct::PutOut;
+	// An ordinary torch is lit by fire (Flame, a sconce); only a magical one by
+	// its own word.
+	return MagicalTorch(kind) ? TorchAct::Light : TorchAct::None;
+}
+
+bool DungeonWorld::PutOutTorch(size_t member, int hand) {
+	if (!m_roster || member >= m_roster->size() || hand < 0 || hand > 1) return false;
+	Character& c = (*m_roster)[member];
+	ItemSlot& slot = c.inventory.Hand(hand);
+	if (TorchActFor(slot.typeId) != TorchAct::PutOut) return false;
+	// Into the slot's own buffer, keeping its charge: it relights with what it had.
+	slot.typeId.assign(ItemKindFor(slot.typeId).unlitAs);
+	MemberMessage(c, loc::FormatLine("log.torch_put_out", c.name,
+									 loc::View(ItemKindFor(slot.typeId).nameKey)));
+	return true;
+}
+
+bool DungeonWorld::KindleTorch(size_t member, int hand) {
+	if (!m_roster || member >= m_roster->size() || hand < 0 || hand > 1) return false;
+	Character& c = (*m_roster)[member];
+	if (!c.IsAlive()) return false;
+	ItemSlot& slot = c.inventory.Hand(hand);
+	if (TorchActFor(slot.typeId) != TorchAct::Light) return false;
+	const ItemKind& unlit = ItemKindFor(slot.typeId);
+	const ItemKind& lit = ItemKindFor(unlit.litAs);
+	// The mana it asks is its power: torch_light_mana for each power level.
+	const float cost = m_balance.torchLightMana * lit.powerLevel;
+	if (c.mana < cost) {
+		MemberMessage(c, loc::FormatLine("log.torch_no_mana", c.name, loc::View(unlit.nameKey),
+										 static_cast<int>(std::ceil(cost))));
+		return false;
+	}
+	c.mana -= cost;
+	slot.typeId.assign(unlit.litAs);
+	MemberMessage(c, loc::FormatLine("log.torch_kindled", c.name, loc::View(unlit.nameKey)));
+	return true;
+}
+
 bool DungeonWorld::BurnTorch(ItemSlot& slot, float dt, const Character* holder) {
 	const ItemKind& kind = ItemKindFor(slot.typeId);
 	if (!kind.Lit()) return false;
@@ -232,6 +317,57 @@ void DungeonWorld::TickCarriedLight(float dt) {
 		m_cursorItem->Id().swap(held.typeId);
 		m_cursorItem->SetCharge(held.charge);
 		held.Clear();
+	}
+}
+
+// --- lit torches on the floor (Phase 4) ----------------------------------------
+
+void DungeonWorld::TickFloorTorches(float dt) {
+	for (size_t i = 0; i < m_items.size(); ++i) {
+		if (m_items[i].collected || !m_items[i].kind || !m_items[i].kind->Lit()) continue;
+		if (m_items[i].id >= 0) {
+			// An AUTHORED torch: once it burns it is state its .ent record cannot
+			// describe, so it becomes a drop the save carries whole (kind and
+			// charge) - the record is left behind as taken. Once per torch.
+			Item drop = m_items[i];
+			drop.id = m_nextDropId--;
+			m_items[i].collected = true;
+			PlaceDrop(drop); // may append: nothing below holds a reference
+			continue;
+		}
+		Item& it = m_items[i];
+		const ItemKind& kind = *it.kind;
+		if (it.charge < 0.0f) it.charge = kind.burnTime; // a fresh one starts full
+		it.charge -= dt;
+		if (it.charge > 0.0f) continue;
+		// Burnt out where it lies: its stub, or nothing for a kind that leaves none.
+		if (kind.spentAs.empty()) {
+			it.collected = true;
+		} else {
+			it.kind = &ItemKindFor(kind.spentAs);
+			it.charge = kNoCharge;
+		}
+	}
+}
+
+void DungeonWorld::AppendFloorTorchLights(float time) {
+	for (size_t i = 0; i < m_items.size(); ++i) {
+		const Item& it = m_items[i];
+		if (it.collected || !it.kind || !it.kind->Lit()) continue;
+		// In a shut niche it is hidden, and its light with it.
+		if (it.niche >= 0 && !NicheOpenAt(it.x, it.z, static_cast<Direction>(it.niche))) continue;
+		const ItemKind& kind = *it.kind;
+		const light::Profile& profile =
+			LightProfileFor(kind.light.empty() ? std::string_view("torch") : kind.light);
+		const float brightness = TorchBrightness(kind, it.charge);
+		const Vec3 head = FloorTorchHead(it);
+		if (gfx::PointLight* l =
+				PushLight(profile, "floor", LightKey(LightKind::FloorTorch, static_cast<u32>(i)),
+						  {head.x, head.y + 0.12f, head.z}, time, static_cast<float>(i) * 1.3f,
+						  {1, 1, 1}, brightness,
+						  profile.radius * kCellSize * (0.6f + 0.4f * brightness));
+			l && kind.flameTinted)
+			l->color = kind.flameColor;
 	}
 }
 

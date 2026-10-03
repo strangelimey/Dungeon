@@ -146,6 +146,39 @@ The answer to the open question, in four parts:
 
 ## Phase 4 - lights in flight
 
+DONE 2026-10-03. Every launch goes through `DungeonWorld::Launch`, which DRESSES
+the spec (DungeonWorld_Flight.cpp): light and trail from the spell's own
+spells.cat `light` / `trail` (a modifier spell lends its own over the bolt it
+wraps, `Spell::LendLook`), else the cargo kind's items.cat `light` / `trail`,
+else the school's `bolt_<school>` / `trail_<school>`, else `bolt_shot` /
+`trail_shot` for a monster's plain shot. A queued volley bolt is dressed when
+queued (its names are borrowed from a spell) but lights nothing until it
+launches. Each flight is a light keyed `LightKind::Bolt | projectile id`; a lit
+bolt's end leaves a 0.3 s FLASH (`ProjectileSystem::ForEachFlash`, 16 slots), so
+a hit does not switch the corridor off. Changes from the plan, learned on the way:
+- `rate` is particles per SQUARE flown, not per second: the trail is shed by
+  distance, and a per-second rate would have needed a reference speed.
+- No trail within half a square of the eye: a bolt leaves from beside it, and
+  the first screenshots showed its first embers as blurred orbs filling a corner.
+- A thrown lit torch needs no `trail_torch`: it trails its OWN flame, a
+  FireEffect from the torch-flame pool whose particles keep their course as the
+  emitter tumbles on. The same pool (8, reserved) burns the floor torches.
+- Bolt brightness came down a step after the first look (fire 2.2 -> 1.7): a
+  volley beside a wall blew it out.
+Added on the way, Michael 2026-10-03 (see the items below): floor torches stay
+lit; Put out and Light in the hand menu; magical torches refuse Flame. The
+spark pool never grows now (`AddSpark`): full, it recycles the oldest trail
+particle, else refuses. `trails.cat` sits in the palette beside Lights (both
+groupings), with a type-editor schema; items.cat gained a `trail` row. Dev:
+`trails [reload]`. Checked: RollTest 396 (a Trails section), SpellTest 39,
+EditorTest (the Trails section in both palette groupings), AllocTest default,
+`-Hand`, `-Lights -Walk`, `-Cast`, `-Impact`, `-Throw` and the new `-Throw
+-ThrowItem torch_lit` (a lit
+torch carried, thrown, landing lit and lifted again, six times in the window)
+PASS; seen in the window: each school's bolt lights the corridor its colour and
+sheds its trail, a thrown torch lights the far wall and keeps burning where it
+lands, Put out / Light / the out-of-mana refusal / Flame's refusal all read.
+
 - A bolt lights in its SCHOOL'S colour by default (profiles `bolt_fire`,
   `bolt_water`, `bolt_air`, `bolt_earth`); spells.cat `light = <profile>`
   overrides it per spell. A volley is ONE LIGHT PER BOLT (Michael,
@@ -185,6 +218,18 @@ The answer to the open question, in four parts:
 - MAGIC ARROWS: no bow or arrow exists yet, so this phase builds the hook only -
   any projectile whose cargo kind names a `light` glows in flight. An arrow
   authored later needs only a catalog line.
+- FLOOR TORCHES (Michael, 2026-10-03): a lit torch on the floor STAYS LIT -
+  thrown or set down - burns its charge there, becomes its stub when spent,
+  and is a light in its square (its kind's profile, dimmed by its charge, keyed
+  by the floor item's id) with its flame drawn. PlaceDrop no longer puts it
+  out; a pack still does.
+- TORCH COMMANDS (Michael, 2026-10-03): the hand menu offers PUT OUT for any
+  lit torch in the hand (renames it to `unlit_as`, keeping its charge) and,
+  for a MAGICAL torch (its lit kind has `power_level` > 0), LIGHT. A magical
+  torch will not take Flame's fire (the spell says so); its Light costs the
+  holder mana, balance.cat `torch_light_mana` per power level, refused with a
+  line when they lack it. Both are menu-only one-shots, never a hand's left-
+  click default. use.light / use.putout + log lines x5.
 - Checks: AllocTest `-Cast` and `-Impact` (a launch inside a guarded frame),
   `-Throw`; SpellTest.py quick.
 

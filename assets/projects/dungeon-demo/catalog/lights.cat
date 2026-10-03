@@ -84,3 +84,60 @@ intensity = 2.0
 radius = 2.2
 pulse = steady
 shadow = 0
+
+; THINGS IN FLIGHT (Phase 4). Each bolt is its own light from launch to landing
+; (a volley's bolts each light their own stretch), shadowless and small so a
+; fight full of them stays cheap. A bolt takes its SCHOOL'S unless spells.cat
+; names its own (`light = <id>`); a thrown item lights by its kind's `light`.
+[bolt_fire]
+display = Fire bolt
+category = flight
+color = 1.0, 0.35, 0.15
+intensity = 1.7
+radius = 2
+pulse = flicker
+pulse_rate = 1.6
+pulse_depth = 0.2
+shadow = 0
+
+[bolt_water]
+display = Water bolt
+category = flight
+color = 0.3, 0.55, 1.0
+intensity = 1.5
+radius = 1.8
+pulse = breathe
+pulse_rate = 2.5
+pulse_depth = 0.25
+shadow = 0
+
+[bolt_air]
+display = Air bolt
+category = flight
+color = 0.85, 0.92, 1.0
+intensity = 1.4
+radius = 1.8
+pulse = storm
+pulse_rate = 2
+pulse_depth = 0.35
+shadow = 0
+
+[bolt_earth]
+display = Earth bolt
+category = flight
+color = 0.85, 0.6, 0.3
+intensity = 1.2
+radius = 1.5
+pulse = steady
+shadow = 0
+
+; A monster's plain shot (no spell): the colour of its own glow.
+[bolt_shot]
+display = Monster shot
+category = flight
+color = source
+intensity = 1.5
+radius = 1.6
+pulse = flicker
+pulse_depth = 0.15
+shadow = 0

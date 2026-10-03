@@ -67,6 +67,7 @@ void ModifiedSpell::Cast(CastContext& ctx) const {
 	if (m_bolt) {
 		if (m_modifier == SpellSymbol::Explode) {
 			ProjectileSpec bolt = m_bolt->PartyBolt(ctx, ctx.power);
+			LendLook(bolt);
 			bolt.payload.blast = ScaledBlast(ctx.power);
 			ctx.services.spawnBolt(bolt);
 			return;
@@ -77,6 +78,7 @@ void ModifiedSpell::Cast(CastContext& ctx) const {
 		const Vec3 across{ctx.dir.z, 0.0f, -ctx.dir.x};
 		for (int i = 0; i < n; ++i) {
 			ProjectileSpec bolt = m_bolt->PartyBolt(ctx, ctx.power * m_share);
+			LendLook(bolt);
 			const float side = i == 0 ? 0.0f : ((i % 2) ? 1.0f : -1.0f) * m_jitter /
 														   static_cast<float>((i + 1) / 2);
 			bolt.pos = Add(bolt.pos, Scale(across, side));
@@ -107,6 +109,7 @@ std::optional<ProjectileSpec> ModifiedSpell::MonsterBolt(const Vec3& origin, con
 	if (!m_bolt) return std::nullopt;
 	std::optional<ProjectileSpec> bolt = m_bolt->MonsterBolt(origin, dir, accuracy);
 	if (!bolt) return bolt;
+	LendLook(*bolt);
 	if (m_modifier == SpellSymbol::Explode) bolt->payload.blast = ScaledBlast(Power());
 	else bolt->atk.damage *= m_share;
 	return bolt;

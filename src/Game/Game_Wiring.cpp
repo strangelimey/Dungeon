@@ -210,6 +210,13 @@ void Game::WireModuleCallbacks() {
 	m_ui.onHandThrow = [this](size_t member, const std::string& item, float charge) {
 		return m_world->ThrowItem(item, static_cast<int>(member), charge);
 	};
+	m_ui.torchActFor = [this](const std::string& item) {
+		return m_world ? static_cast<int>(m_world->TorchActFor(item)) : 0;
+	};
+	m_ui.onTorchAct = [this](size_t member, size_t hand, bool light) {
+		if (light) m_world->KindleTorch(member, static_cast<int>(hand));
+		else m_world->PutOutTorch(member, static_cast<int>(hand));
+	};
 	// The hand right-click menu reads an item's commands from the world's item
 	// kinds (single source — ItemKindFor parses category/command + rune defaults).
 	// The return type is spelled out: deduced, it would be a COPY, and the
@@ -536,7 +543,7 @@ void Game::WireModuleCallbacks() {
 				m_world->RefreshTheme(cfg.id);
 			// A light profile is looked up by id every frame: re-reading the
 			// catalog is the whole reload (lighting-updates Phase 2).
-			else if (cfg.catalogKey == "lights")
+			else if (cfg.catalogKey == "lights" || cfg.catalogKey == "trails")
 				m_world->ReloadLightProfiles();
 			else {
 				m_world->ReloadTypeKind(cfg.catalogKey, cfg.id);

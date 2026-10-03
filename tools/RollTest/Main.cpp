@@ -47,6 +47,7 @@
 #include "Game/Carve.h"
 #include "Game/Generate.h"
 #include "Game/LightProfile.h"
+#include "Game/Trail.h"
 #include "Game/Resource.h"
 #include "Game/Roll.h"
 #include "Graphics/Camera.h"
@@ -2384,6 +2385,54 @@ int main(int argc, char** argv) {
 				  light::ParsePulse(light::PulseName(light::Pulse::Storm), parsed) &&
 					  parsed == light::Pulse::Storm);
 		CheckTrue("the fallback is a light, not darkness", light::Fallback().intensity > 0.0f);
+	}
+
+	// --- trails (Game/Trail.h) -------------------------------------------------
+	// What a thing in flight sheds, parsed from trails.cat: the shape sets the
+	// defaults, a field overrides one, a typo keeps its default and says so.
+	{
+		std::printf("\nTrails (Game/Trail.h)\n");
+		const auto fields = [](std::vector<std::pair<std::string, std::string>> kv) {
+			return [kv](std::string_view key) -> std::string {
+				for (const auto& [k, v] : kv)
+					if (k == key) return v;
+				return {};
+			};
+		};
+		namespace trail = dungeon::game::trail;
+		std::vector<std::string> problems;
+		const trail::Profile ember =
+			trail::Parse("trail_fire", fields({{"shape", "ember"}, {"rate", "12"}}), &problems);
+		CheckTrue("an ember trail parses with no problems", problems.empty());
+		const trail::Spec emberDefaults = trail::ShapeDefaults(trail::Shape::Ember);
+		CheckTrue("...takes the ember's defaults: it rises and flickers",
+				  ember.spec.fall < 0.0f && ember.spec.flicker > 0.0f &&
+					  ember.spec.life == emberDefaults.life);
+		Check("...at 12 a square", ember.spec.rate, 12.0, 1e-6);
+		CheckTrue("...and the colour of its light", !ember.spec.hasColor);
+		const trail::Profile grit = trail::Parse(
+			"trail_earth", fields({{"shape", "drip"}, {"rate", "8"}, {"fall", "9"},
+								   {"color", "0.5, 0.4, 0.3"}}));
+		Check("a field overrides its shape's default (fall 9)", grit.spec.fall, 9.0, 1e-6);
+		CheckTrue("...and a colour of its own is its own",
+				  grit.spec.hasColor && grit.spec.color.y == 0.4f);
+		CheckTrue("a drip falls, a mote swirls, a puff swells",
+				  trail::ShapeDefaults(trail::Shape::Drip).fall > 0.0f &&
+					  trail::ShapeDefaults(trail::Shape::Mote).swirl > 0.0f &&
+					  trail::ShapeDefaults(trail::Shape::Puff).swell);
+		CheckTrue("no rate, no trail (the catalog must say how dense)",
+				  !trail::Parse("bare", fields({{"shape", "mote"}})).spec.Any());
+		problems.clear();
+		const trail::Profile typo = trail::Parse(
+			"typo", fields({{"shape", "comet"}, {"rate", "lots"}, {"life", "0"}}), &problems);
+		Check("two unreadable fields are two problems", static_cast<double>(problems.size()), 2, 0);
+		CheckTrue("...a bad shape is a spark, a bad rate none",
+				  typo.spec.shape == trail::Shape::Spark && !typo.spec.Any());
+		CheckTrue("...and no life is floored (the fade divides by it)", typo.spec.life >= 0.05f);
+		trail::Shape shape{};
+		CheckTrue("every shape name round-trips",
+				  trail::ParseShape(trail::ShapeName(trail::Shape::Drip), shape) &&
+					  shape == trail::Shape::Drip);
 	}
 
 	// --- tiled light lists (Graphics/LightTiles.h) ----------------------------
