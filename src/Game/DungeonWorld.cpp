@@ -183,10 +183,14 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_lights.directional.color = {0, 0, 0}; // no sun underground
 	// Rebuilt every frame into retained capacity — no steady-state allocation.
 	m_lights.points.reserve(gfx::kMaxPointLights);
-	m_lightOrigins.reserve(gfx::kMaxPointLights);
-	m_lightScratch.reserve(gfx::kMaxPointLights);
-	m_lightOriginScratch.reserve(gfx::kMaxPointLights);
-	m_lightOrder.reserve(gfx::kMaxPointLights * 2);
+	// The candidate lists can outgrow the uploaded ceiling (every fire on a big
+	// level, a stress load); SelectLights cuts them down to it.
+	m_lights.points.reserve(kLightCandidates);
+	m_lightOrigins.reserve(kLightCandidates);
+	m_lightCandidates.reserve(kLightCandidates);
+	m_lightScratch.reserve(kLightCandidates);
+	m_lightOriginScratch.reserve(kLightCandidates);
+	m_stressLights.reserve(gfx::kMaxPointLights * 2); // SetStressLights' ceiling
 
 	// The damage types themselves (docs/damage-system.md) — the vocabulary
 	// everything below is written in, so it is built before all of it.
@@ -473,8 +477,10 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 	CheckDamageLedger("projectiles and blasts");
 	UpdateFireTransients(dt); // flares dying away, dust puffs settling
 	TickCarriedLight(dt);     // held torches burn down; stowed ones go out
-	UpdateLights(time);
+	// The camera FIRST: the light budget culls against this frame's view, and
+	// a cull against last frame's would drop a light the turn just revealed.
 	UpdateCamera();
+	UpdateLights(time);
 
 	// Advance the fires and gather their particles, sorted back-to-front so
 	// the alpha-blended smoke composites correctly (additive flames are
@@ -677,7 +683,7 @@ void DungeonWorld::UpdateCamera() {
 	m_camera.SetLens(m_fovDegrees * kPi / 180.0f,
 					 static_cast<float>(m_device.Width()) /
 						 static_cast<float>(m_device.Height()),
-					 0.05f, 100.0f);
+					 0.05f, kFarPlane);
 }
 
 // A rune's "breath": one multiplier (~0.2 dim .. ~1.9 bright, phase-offset per
@@ -730,13 +736,15 @@ void DungeonWorld::UpdateLights(float time) {
 	// cubes re-render from a moving point and the shadows flicker the way real
 	// firelight does. The REACH is the placed fire's own (its Brightness,
 	// authored per placement), not the profile's.
-	for (const Fire& fire : m_fires) {
+	for (size_t f = 0; f < m_fires.size(); ++f) {
+		const Fire& fire = m_fires[f];
 		if (!fire.lit) continue; // an unlit torch casts no light
 		const light::Profile& profile = LightProfileFor(fire.kind ? std::string_view(fire.kind->light)
 																 : std::string_view("fire_sconce"));
 		gfx::PointLight* light =
-			PushLight(profile, "fire", {fire.flamePos.x, fire.flamePos.y + 0.15f, fire.flamePos.z},
-					  time, fire.phase, {1, 1, 1}, 1.0f, fire.lightRadius);
+			PushLight(profile, "fire", LightKey(LightKind::Fire, static_cast<u32>(f)),
+					  {fire.flamePos.x, fire.flamePos.y + 0.15f, fire.flamePos.z}, time,
+					  fire.phase, {1, 1, 1}, 1.0f, fire.lightRadius);
 		// Its placement's own flame colour wins over the kind's.
 		if (HasFlameColor(fire.flameColor)) light->color = fire.flameColor;
 		// A fanned fire (FlareFire) swells for a moment, brighter and further.
@@ -755,8 +763,8 @@ void DungeonWorld::UpdateLights(float time) {
 		const Vec4& c = ElementColor(burning->school);
 		const std::string& id = burning->kind->LightId();
 		PushLight(LightProfileFor(id.empty() ? std::string_view("burning") : id), "burning",
-				  {o.x, o.y + 0.1f, o.z}, time, static_cast<float>(monster.runtimeId),
-				  {c.x, c.y, c.z});
+				  LightKey(LightKind::Burning, monster.runtimeId), {o.x, o.y + 0.1f, o.z}, time,
+				  static_cast<float>(monster.runtimeId), {c.x, c.y, c.z});
 	}
 
 	// Each uncollected rune throws a soft breathing light in its element colour
@@ -769,8 +777,27 @@ void DungeonWorld::UpdateLights(float time) {
 		if (item.collected || !(item.kind->isRune || item.kind->enchanted)) continue;
 		const Vec3 c = SlotCenter(item.x, item.z, SizeClass::Medium, item.slot);
 		const Vec4& g = item.kind->glow;
-		PushLight(floorGlow, "glow", {c.x, 0.4f, c.z}, time, static_cast<float>(item.id),
-				  {g.x, g.y, g.z});
+		PushLight(floorGlow, "glow", LightKey(LightKind::Glow, static_cast<u32>(item.id)),
+				  {c.x, 0.4f, c.z}, time, static_cast<float>(item.id), {g.x, g.y, g.z});
+	}
+
+	// `lightstress`: the measuring load, steady and shadowless (a stress light
+	// that took shadow cubes would be measuring the shadow pass instead).
+	if (!m_stressLights.empty()) {
+		// Built once: a profile holds a string, and constructing one is an
+		// allocation in a debug build.
+		static const light::Profile stress = [] {
+			light::Profile p;
+			p.id = "(stress)";
+			p.intensity = 1.6f;
+			p.radius = 2.4f;
+			p.shadow = false;
+			p.sourceColor = true;
+			return p;
+		}();
+		for (size_t s = 0; s < m_stressLights.size(); ++s)
+			PushLight(stress, "stress", LightKey(LightKind::Stress, static_cast<u32>(s)),
+					  m_stressLights[s].pos, time, 0.0f, m_stressLights[s].color);
 	}
 
 	// See-through peek (the Sight spell): recompute the ghosted wall cell from
@@ -812,43 +839,16 @@ void DungeonWorld::UpdateLights(float time) {
 				if (m_map.IsWalkable(cx, cz)) { rvx = cx; rvz = cz; revealed = true; break; }
 			}
 			if (revealed && sightSchool == SpellSymbol::Fire)
-				PushLight(LightProfileFor("ember_sight"), "sight",
+				PushLight(LightProfileFor("ember_sight"), "sight", LightKey(LightKind::Sight, 0),
 						  m_map.CellCenter(rvx, rvz, 1.2f), time, 0.0f);
 			if (revealed && sightSchool == SpellSymbol::Earth)
 				MarkSeen(rvx, rvz); // the surveyor remembers the room it read
 		}
 	}
 
-	// The renderer uploads only the active light budget (Settings → Video → Max
-	// Lights, Low=16 .. Ultra=64) and shadow slots only consider those, so on a
-	// large level the fire count alone can crowd out a light pushed late (a
-	// rune glow). Keep the ones NEAREST the eye instead of the first ones
-	// pushed; a held torch sits beside the eye, so it always survives (and
-	// still wins shadow slot 0 in AssignShadowSlots).
-	// The cut runs over an index ORDER so each kept light keeps its origin (the
-	// `lights` readout); the scratch lists hold their capacity between frames.
-	const size_t budget = static_cast<size_t>(
-		std::clamp(m_settings.maxPointLights, 1, static_cast<int>(gfx::kMaxPointLights)));
-	m_lightsBeforeCut = m_lights.points.size();
-	if (m_lights.points.size() > budget) {
-		auto distSq = [&](u32 i) {
-			const Vec3 d = Sub(m_lights.points[i].position, eye);
-			return d.x * d.x + d.y * d.y + d.z * d.z;
-		};
-		m_lightOrder.resize(m_lights.points.size());
-		for (u32 i = 0; i < m_lightOrder.size(); ++i) m_lightOrder[i] = i;
-		std::nth_element(m_lightOrder.begin(), m_lightOrder.begin() + budget,
-						 m_lightOrder.end(),
-						 [&](u32 a, u32 b) { return distSq(a) < distSq(b); });
-		m_lightScratch.clear();
-		m_lightOriginScratch.clear();
-		for (size_t k = 0; k < budget; ++k) {
-			m_lightScratch.push_back(m_lights.points[m_lightOrder[k]]);
-			m_lightOriginScratch.push_back(m_lightOrigins[m_lightOrder[k]]);
-		}
-		m_lights.points.swap(m_lightScratch);
-		m_lightOrigins.swap(m_lightOriginScratch);
-	}
+	// Which of this frame's candidates are drawn (DungeonWorld_LightBudget.cpp):
+	// the view cull, the reach cull, the ranking against Max Lights, the fades.
+	SelectLights(eye, time);
 
 	m_shadows.AssignSlots(m_lights.points, eye, m_shadowsEnabled);
 }

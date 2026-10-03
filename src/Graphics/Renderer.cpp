@@ -1,9 +1,13 @@
 #include "Graphics/Renderer.h"
 
 #include "Core/Paths.h"
+#include "Graphics/LightTiles.h"
 #include "Graphics/ShaderCompiler.h"
 
+#include <array>
+#include <bit>
 #include <cstring>
+#include <span>
 
 namespace dungeon::gfx {
 
@@ -38,7 +42,16 @@ struct FrameConstants {
 	Vec4 sightHole;   // round peephole: x = centre world Y, y = radius (m), z = across-axis is X (>0.5), w unused
 	Vec4 dustPuffs[kMaxDustPuffs]; // brief dust: xy = centre world XZ, z = radius (m), w = turbidity
 	GpuPointLight pointLights[kMaxPointLights];
+	// The tiled light lists (Graphics/LightTiles.h): x/y = the tile grid, then
+	// one 64-bit mask per tile as two u32s (lo, hi), packed two tiles to a
+	// uint4 on the HLSL side - the same bytes. LAST in the buffer, so the shadow
+	// pass's shorter copy of this layout (shadow.hlsl) still lines up.
+	Vec4 tileGrid;
+	u32 lightTiles[kLightTileCount * 2];
 };
+static_assert(kLightTileCount % 2 == 0, "two tiles pack into one HLSL uint4");
+static_assert(kLightTileCount == 576, "must match LIGHT_TILE_COUNT in scene.hlsl");
+static_assert(kMaxPointLights <= 64, "a tile mask is 64 bits, one per light");
 
 // View-projection for one face of a point light's shadow cube (standard D3D
 // cube face order/orientation, 90-degree FOV, far plane at the light radius).
@@ -428,6 +441,7 @@ void Renderer::BeginScene(ID3D12GraphicsCommandList* list, const Camera& camera,
 					  lights.directional.color.z, 0.0f};
 	frame.pointLightCount =
 		static_cast<u32>(std::min<size_t>(lights.points.size(), kMaxPointLights));
+	std::array<LightSphere, kMaxPointLights> spheres;
 	for (u32 i = 0; i < frame.pointLightCount; ++i) {
 		const PointLight& l = lights.points[i];
 		frame.pointLights[i].positionRadius = {l.position.x, l.position.y, l.position.z,
@@ -436,7 +450,26 @@ void Renderer::BeginScene(ID3D12GraphicsCommandList* list, const Camera& camera,
 											   l.intensity};
 		frame.pointLights[i].shadow = {static_cast<float>(l.shadowSlot),
 									   l.shadowStrength, 0, 0};
+		spheres[i] = {l.position, l.radius};
 	}
+	// The tile masks: each names the lights that can reach it, or - tiling off -
+	// every light, which is the old loop over all of them.
+	frame.tileGrid = {static_cast<float>(kLightTilesX), static_cast<float>(kLightTilesY), 0, 0};
+	std::array<u64, kLightTileCount> masks;
+	if (m_lightTiling) {
+		BinLights(frame.viewProj, std::span(spheres.data(), frame.pointLightCount), masks);
+	} else {
+		const u64 all = frame.pointLightCount >= 64 ? ~u64{0}
+													: (u64{1} << frame.pointLightCount) - 1;
+		masks.fill(all);
+	}
+	u32 pairs = 0;
+	for (u32 t = 0; t < kLightTileCount; ++t) {
+		frame.lightTiles[t * 2] = static_cast<u32>(masks[t]);
+		frame.lightTiles[t * 2 + 1] = static_cast<u32>(masks[t] >> 32);
+		pairs += static_cast<u32>(std::popcount(masks[t]));
+	}
+	if (hdrTarget) m_tileLightPairs = pairs; // the main view's, not a preview's
 
 	UploadAllocation alloc =
 		m_frameAllocators[m_frameIndex]->Allocate(sizeof(FrameConstants));

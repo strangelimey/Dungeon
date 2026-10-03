@@ -54,6 +54,10 @@ struct PointLight {
 	// cache throttles such cubes on a frame interval instead of re-rendering on
 	// every sub-pixel wander; steady lights (torch, glow) cache until they move.
 	bool flickerShadow = false;
+	// A STABLE identity across frames (0 = none): the light list is rebuilt
+	// every frame and its order follows a budget ranking, so the shadow cube
+	// cache keys on this rather than on the list index.
+	u32 id = 0;
 };
 
 struct DirectionalLight {

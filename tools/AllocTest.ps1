@@ -256,6 +256,12 @@ param(
 	# the matching stone, via Party::ActCount). Refuses a PASS unless the
 	# verdict's moves= counts them.
 	[switch]$Walk,
+	# Runs any mode under a LIGHT LOAD: 64 test lights over the level
+	# (`lightstress`, lighting-updates Phase 3), so the light budget's cull,
+	# ranking and fades - and the tile binning - run inside the window. With
+	# -Walk the turns sweep lights in and out of view. Refuses a PASS unless
+	# the load was placed.
+	[switch]$Lights,
 	# Moves an item pack -> floor -> pack inside the window. See the note above.
 	[switch]$Items,
 	# The warm-up item and the measured one: two different kinds, the second
@@ -747,6 +753,22 @@ try {
 		Send-Text 'hudpanel layout minimal'; Send-Key 0x0D
 		Send-Key 0xC0
 		Start-Sleep -Milliseconds 600
+	}
+
+	if ($Lights) {
+		Write-Host 'scattering 64 test lights over the level'
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		Send-Text 'lightstress 64'; Send-Key 0x0D
+		Start-Sleep -Milliseconds 600
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 400
+		$placed = Select-String -Path $log -Pattern 'console: lightstress: (\d+) test lights' |
+			Select-Object -Last 1
+		$script:stressLights = if ($placed -and $placed.Line -match 'lightstress: (\d+)') { [int]$Matches[1] } else { 0 }
+		Write-Host "  $($script:stressLights) test lights placed"
 	}
 
 	if ($Wounded) {
@@ -1650,6 +1672,13 @@ try {
 			Write-Host 'fewer than four key moves landed - the pad presses were not measured' -ForegroundColor Yellow
 			$result = 'UNMEASURED'
 		}
+	}
+
+	# And for -Lights: no load placed means the budget ran on the level's own
+	# handful of lights, which is not what the mode exists to measure.
+	if ($Lights -and $script:stressLights -lt 32 -and $result -eq 'PASS') {
+		Write-Host "only $($script:stressLights) test lights were placed - the light load was not measured" -ForegroundColor Yellow
+		$result = 'UNMEASURED'
 	}
 
 	# And for -Pause: no transition counted means no Esc landed in an armed

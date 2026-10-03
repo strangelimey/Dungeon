@@ -83,9 +83,11 @@ private:
 	std::vector<Vec3> m_prevPos;
 
 	// Per-slot cube cache: the slot's cube is reused unless a ShouldRender
-	// condition trips. Keyed by the light's index in the frame's light list.
+	// condition trips. Keyed by the light's stable id (gfx::PointLight::id), or
+	// its list index for a light with none - the budget ranking reorders the
+	// list, so an index would invalidate cubes that never changed.
 	struct SlotCache {
-		int lightId = -1;           // list index that last rendered this slot
+		u32 lightId = 0xFFFFFFFFu;  // identity that last rendered this slot
 		Vec3 pos{};                 // light position at that render
 		u32 revision = 0xFFFFFFFFu; // map geometry revision at that render
 		// When this slot last re-rendered for FLICKER. Kept apart from the other

@@ -6,6 +6,7 @@
 #define MAX_POINT_LIGHTS 64
 #define MAX_SKIN_JOINTS 128
 #define MAX_DUST_PUFFS 4 // gfx::kMaxDustPuffs
+#define LIGHT_TILE_COUNT 576 // gfx::kLightTileCount (32 x 18)
 
 struct PointLight {
 	float4 positionRadius;  // xyz = world pos, w = radius
@@ -33,6 +34,10 @@ cbuffer FrameConstants : register(b0) {
 	float4 gSightHole;   // round hole: x = centre world Y, y = radius, z = across-axis is X (>0.5)
 	float4 gDustPuffs[MAX_DUST_PUFFS]; // brief dust: xy = centre world XZ, z = radius (m), w = turbidity (0 = unused)
 	PointLight gPointLights[MAX_POINT_LIGHTS];
+	// Tiled light lists (Graphics/LightTiles.h): x/y = the tile grid; one 64-bit
+	// mask per tile, two tiles to a uint4 (xy = even tile, zw = odd).
+	float4 gTileGrid;
+	uint4 gLightTiles[LIGHT_TILE_COUNT / 2];
 };
 
 cbuffer ObjectConstants : register(b1) {
@@ -220,8 +225,41 @@ float3 BRDF(float3 albedo, float metallic, float roughness, float3 N, float3 V, 
 	return (diffuse + spec) * NdotL;
 }
 
+// The pixel's TILED LIGHT LIST (Graphics/LightTiles.h): bit i set = point
+// light i can reach this tile of the screen. The tile is found from the world
+// position's own projection, so it is the same tile the CPU binned against
+// whatever target this pass draws into. Lo 32 lights in x, hi 32 in y.
+uint2 LightMask(float3 worldPos) {
+	const float4 clip = mul(gViewProj, float4(worldPos, 1.0));
+	const float2 ndc = clip.xy / max(clip.w, 1e-4);
+	const uint tilesX = (uint)gTileGrid.x, tilesY = (uint)gTileGrid.y;
+	const uint tx = (uint)clamp(floor((ndc.x * 0.5 + 0.5) * tilesX), 0.0, tilesX - 1.0);
+	const uint ty = (uint)clamp(floor((0.5 - ndc.y * 0.5) * tilesY), 0.0, tilesY - 1.0);
+	const uint t = ty * tilesX + tx;
+	const uint4 pair = gLightTiles[t >> 1];
+	return (t & 1) ? pair.zw : pair.xy;
+}
+
+// Takes the next set bit of `mask` (lo word first) as a light index, clearing
+// it; false when none is left. Each loop body below runs once per light in the
+// pixel's tile, instead of once per light in the frame.
+bool NextLight(inout uint2 mask, out uint index) {
+	if (mask.x != 0) {
+		index = firstbitlow(mask.x);
+		mask.x &= mask.x - 1;
+		return true;
+	}
+	if (mask.y != 0) {
+		index = 32 + firstbitlow(mask.y);
+		mask.y &= mask.y - 1;
+		return true;
+	}
+	index = 0;
+	return false;
+}
+
 float3 Shade(float3 albedo, float metallic, float roughness, float ao, float3 normal,
-			 float3 worldPos) {
+			 float3 worldPos, uint2 lights) {
 	const float3 viewDir = normalize(gCameraPos.xyz - worldPos);
 	float3 color = gAmbient.rgb * albedo * ao;
 
@@ -231,8 +269,9 @@ float3 Shade(float3 albedo, float metallic, float roughness, float ao, float3 no
 		color += gDirColor.rgb * BRDF(albedo, metallic, roughness, normal, viewDir, lightDir);
 	}
 
-	// Dynamic point lights with smooth radius falloff.
-	for (uint i = 0; i < gPointLightCount; ++i) {
+	// Dynamic point lights with smooth radius falloff - only this tile's.
+	uint i;
+	[loop] while (NextLight(lights, i)) {
 		const PointLight light = gPointLights[i];
 		const float3 toLight = light.positionRadius.xyz - worldPos;
 		const float dist = length(toLight);
@@ -277,7 +316,7 @@ float DustDensity(float3 worldPos) {
 	return turbidity * gFogGrid.z;
 }
 
-float3 ApplyDust(float3 surfaceColor, float3 worldPos) {
+float3 ApplyDust(float3 surfaceColor, float3 worldPos, uint2 lights) {
 	if (gFogGrid.z <= 0.0) return surfaceColor; // atmosphere disabled
 
 	const float3 toSurface = worldPos - gCameraPos.xyz;
@@ -297,8 +336,12 @@ float3 ApplyDust(float3 surfaceColor, float3 worldPos) {
 		// Light arriving at this bit of dust (isotropic scattering). Each
 		// torch's contribution is shadow-tested at the sample point, so
 		// occluders carve visible shafts (god rays) through the haze.
+		// Every sample of this ray projects to the pixel's own tile, so its
+		// light list is exact here too.
 		float3 dustLight = gAmbient.rgb * gFogGrid.w;
-		for (uint i = 0; i < gPointLightCount; ++i) {
+		uint2 remaining = lights;
+		uint i;
+		[loop] while (NextLight(remaining, i)) {
 			const PointLight light = gPointLights[i];
 			const float3 toLight = light.positionRadius.xyz - p;
 			const float d = length(toLight);
@@ -402,7 +445,8 @@ float4 PSMain(PSInput input) : SV_TARGET {
 	}
 	roughness = clamp(roughness, 0.04, 1.0);
 
-	float3 color = Shade(albedo.rgb, metallic, roughness, ao, normal, input.worldPos);
+	const uint2 lights = LightMask(input.worldPos);
+	float3 color = Shade(albedo.rgb, metallic, roughness, ao, normal, input.worldPos, lights);
 	// Element glow as an AURA rather than a panel: weak across the face,
 	// intensifying at grazing angles (Fresnel) so the rune's silhouette/edges
 	// glow and the stone still reads as stone. Zero for everything but runes.
@@ -422,7 +466,7 @@ float4 PSMain(PSInput input) : SV_TARGET {
 		const float rim = pow(1.0 - saturate(dot(normal, viewDir)), 2.5);
 		color += gEmissive.rgb * (0.30 + 0.70 * rim);
 	}
-	color = ApplyDust(color, input.worldPos);
+	color = ApplyDust(color, input.worldPos, lights);
 
 	// See-through peek (the Sight spell): a round HOLE bored through the middle
 	// of the wall block directly ahead — not the whole face. Inside the hole the

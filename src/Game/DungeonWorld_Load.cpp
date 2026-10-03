@@ -1951,6 +1951,9 @@ DungeonWorld::WallMount DungeonWorld::MountOnWall(int x, int z, Direction wall) 
 
 void DungeonWorld::BuildFires() {
 	u32 seed = 1234;
+	// A fire's light is keyed by its index here, so a rebuilt list (a level
+	// change, an edit) starts the budget fades afresh.
+	ClearLightFades();
 
 	for (const WallSconce& sconce : m_map.Sconces()) {
 		const FixtureKind& kind = FixtureKindFor(sconce.type);

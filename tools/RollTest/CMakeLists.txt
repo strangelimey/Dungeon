@@ -37,6 +37,9 @@
 # LightProfile.cpp (lighting-updates Phase 2): a light's look parsed from its
 # lights.cat fields and its pulse maths - pure, and what every light goes
 # through, so the parse and the pulses are measured where they ship.
+# Graphics/LightTiles.cpp (Phase 3): the screen-tile light binning the scene
+# shader trusts. Its one promise - a light is never MISSING from a tile it
+# reaches - is a geometric claim, so it is checked here by sampling.
 add_executable(RollTest
 	Main.cpp
 	${CMAKE_SOURCE_DIR}/src/Game/DamageLedger.cpp
@@ -52,6 +55,7 @@ add_executable(RollTest
 	${CMAKE_SOURCE_DIR}/src/Game/Carve.cpp
 	${CMAKE_SOURCE_DIR}/src/Game/Generate.cpp
 	${CMAKE_SOURCE_DIR}/src/Game/LightProfile.cpp
+	${CMAKE_SOURCE_DIR}/src/Graphics/LightTiles.cpp
 )
 # NOT linked, and the attempt is worth recording: pulling Balance.cpp in for the
 # attacker's type axis dragged Catalog -> assets::ReadBinaryFile, i.e. the file

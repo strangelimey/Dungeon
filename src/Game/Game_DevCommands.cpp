@@ -1347,6 +1347,30 @@ void Game::RegisterDevCommands() {
 						   for (const std::string& line : m_world->DescribeLights())
 							   m_console.Print(line);
 					   });
+	// The light budget's measuring tools (lighting-updates Phase 3): a load of
+	// test lights round the party, and the tiled light lists on or off, so the
+	// tiles' saving can be read off `profile snap` in one build.
+	m_console.Register({.name = "lightstress",
+						.group = CmdGroup::Rendering,
+						.params = "<count> [near]\noff",
+						.summary = "scatter test lights over the level, or near the party (a load for the budget)"},
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 1)) return;
+						   const int n = args[0] == "off" ? 0 : std::atoi(args[0].c_str());
+						   const bool nearby = args.size() >= 2 && args[1] == "near";
+						   m_console.Print(std::format("lightstress: {} test lights{}",
+													   m_world->SetStressLights(n, nearby),
+													   nearby ? " near the party" : ""));
+					   });
+	m_console.Register({.name = "lighttiles",
+						.group = CmdGroup::Rendering,
+						.params = "[on|off]",
+						.summary = "tiled light lists in the scene shader (off = every light everywhere)"},
+					   [this](const std::vector<std::string>& args) {
+						   if (!args.empty()) m_world->SetLightTiling(ArgOn(args[0]));
+						   m_console.Print(m_world->LightTiling() ? "lighttiles on"
+																  : "lighttiles off");
+					   });
 	m_console.Register({.name = "shadows",
 						.group = CmdGroup::Rendering,
 						.params = "[on|off]",

@@ -121,6 +121,13 @@ public:
 	Vec3 FixtureLightColor(const std::string& type);
 	// The `lights` dev command's readout: one line per light this frame.
 	std::vector<std::string> DescribeLights() const;
+	// `lightstress <n> [near]`: n test lights over the level the party can
+	// reach, or (`near`) within 6 steps of it (0 = none); returns how many were
+	// placed (up to 128). A measuring load for the light budget.
+	int SetStressLights(int count, bool nearby); // (`near` is a Windows macro)
+	// The tiled light lists on or off (`lighttiles`), for measuring them.
+	void SetLightTiling(bool on) { m_renderer.SetLightTiling(on); }
+	bool LightTiling() const { return m_renderer.LightTiling(); }
 
 	// "Start New Game": snaps the party home and re-arms the monster
 	// announcements (the caller clears the log right after, as before).
@@ -3627,24 +3634,89 @@ private:
 	struct LightOrigin {
 		const char* source = ""; // "fire", "torch", "burning", ...
 		int profile = -1;        // index into m_lightProfiles; -1 = the fallback
+		float fade = 1.0f;       // the budget fade it was drawn at (SelectLights)
 	};
 	std::vector<LightOrigin> m_lightOrigins;
-	// The budget cut (UpdateLights) keeps the nearest lights AND their origins
-	// together, through an index order and two scratch lists. All reserved or
-	// grown once, so a settled frame allocates nothing.
-	std::vector<u32> m_lightOrder;
-	std::vector<gfx::PointLight> m_lightScratch;
-	std::vector<LightOrigin> m_lightOriginScratch;
-	size_t m_lightsBeforeCut = 0;
+	// A light's STABLE identity, frame to frame (gfx::PointLight::id): what
+	// kind of source it is, and which one. The shadow-cube cache and the
+	// budget fades both key on it. Never 0, and never the high bit (the
+	// scheduler's index-keyed fallback).
+	enum class LightKind : u32 { Torch = 1, Fire, Burning, Glow, Sight, Stress, Bolt };
+	static u32 LightKey(LightKind kind, u32 index) {
+		return (static_cast<u32>(kind) << 24) | (index & 0xFFFFFFu);
+	}
 	// Pushes one light from `profile` at `pos` (metres), its colour `color`
 	// when the profile takes its source's, scaled by `brightness` (a torch's
 	// charge) and with `radiusMetres` overriding the profile's reach when > 0
 	// (a placed fire's own Brightness). Returns the pushed light, or null when
 	// the light is out (brightness 0).
-	gfx::PointLight* PushLight(const light::Profile& profile, const char* source,
+	gfx::PointLight* PushLight(const light::Profile& profile, const char* source, u32 key,
 							   const Vec3& pos, float time, float phase,
 							   const Vec3& color = {1, 1, 1}, float brightness = 1.0f,
 							   float radiusMetres = 0.0f);
+
+	// --- the light budget (DungeonWorld_LightBudget.cpp, lighting-updates P3) --
+	// Every light pushed this frame is a CANDIDATE; SelectLights decides which
+	// are drawn: (1) one whose sphere reaches no pixel of the view is dropped
+	// (Graphics/LightTiles.h's own rect, so the cull and the shader agree), (2)
+	// so is one the party cannot reach on the grid - a sealed-off room's light
+	// would only bleed through its walls, (3) the rest RANK by what they add to
+	// the view and the top Max Lights are kept, a held torch always, and (4) a
+	// light crossing that budget line FADES rather than switching.
+	void SelectLights(const Vec3& eye, float time);
+	// Re-walks the party's reach (a BFS over walkable squares) when the party's
+	// square or the map's revision has changed since the last walk.
+	void RefreshReach();
+	// Whether the party can reach the square a light at `pos` stands in, within
+	// what its reach and the view's depth could ever make visible.
+	bool LightReachable(const Vec3& pos, float radius) const;
+	std::vector<u16> m_reach;       // grid steps from the party; 0xFFFF = cannot reach
+	std::vector<int> m_reachQueue;  // the BFS's queue, kept for its capacity
+	int m_reachX = -1, m_reachZ = -1;
+	u32 m_reachRevision = 0xFFFFFFFFu;
+	// A light's budget fade, by key: 1 = fully in. A light kept by the budget
+	// fades in, one it drops fades out (still drawn while there is room under
+	// the hard ceiling), one merely off-screen keeps its value - so turning
+	// round to a fire does not show it brightening.
+	struct LightFade {
+		u32 key = 0;
+		float fade = 0.0f;
+		float lastSeen = -1.0e9f;
+		bool kept = false; // in the budget last frame (the ranking's incumbents)
+	};
+	// Room for every candidate (kLightCandidates) plus a margin for lights
+	// briefly off screen, so a busy frame does not evict a fading one.
+	std::array<LightFade, 320> m_lightFades{};
+	LightFade& FadeFor(u32 key, float time, bool& fresh);
+	void ClearLightFades() { m_lightFades.fill(LightFade{}); }
+	float m_lastLightTime = -1.0f;
+	// What SelectLights did with this frame's candidates (the `lights` readout).
+	struct LightCull {
+		u32 candidates = 0, offscreen = 0, unreachable = 0, budget = 0, fadingOut = 0;
+	};
+	LightCull m_lightCull;
+	// The selection's scratch, all reserved at construction: a frame allocates
+	// nothing however many lights it pushes, up to kLightCandidates.
+	static constexpr size_t kLightCandidates = 256;
+	struct LightCandidate {
+		u32 index;
+		float score;
+		float fade;
+		bool keep;
+	};
+	std::vector<LightCandidate> m_lightCandidates;
+	std::vector<gfx::PointLight> m_lightScratch;
+	std::vector<LightOrigin> m_lightOriginScratch;
+	// `lightstress <n>`: n test lights scattered round the party (a measuring
+	// load for the budget and the tiles; never saved).
+	struct StressLight {
+		Vec3 pos;
+		Vec3 color;
+	};
+	std::vector<StressLight> m_stressLights;
+	// The view's depth in metres (the camera's far plane), which also bounds
+	// how far away on the grid a light can still matter (LightReachable).
+	static constexpr float kFarPlane = 100.0f;
 	// Shadow-slot budgeting + cube-cache scheduling (UpdateLights feeds it the
 	// frame's lights; RenderShadowMaps asks it which cubes to redraw). See
 	// ShadowScheduler.h.

@@ -526,6 +526,28 @@ that's a turbidity/ambient tuning matter, not a shadow bug (A/B: console
 at launch with an on-disk cache (shadercache/, hash-invalidated) — edit
 .hlsl and relaunch, no rebuild.
 
+THE LIGHT BUDGET (lighting-updates Phase 3, DungeonWorld_LightBudget.cpp +
+Graphics/LightTiles.h): every source PUSHES a candidate light (PushLight, with a
+stable `id` = kind << 24 | index) and SelectLights decides what is drawn - drop a
+light whose sphere reaches no pixel of the view (the renderer's own LightTiler,
+so cull and shader agree), drop one in a square the party cannot walk to (a
+BFS from its square; such a light only bled through walls), RANK the rest by
+intensity x r^2 / (r^2 + d^2) with a bonus for last frame's keepers, keep the
+top Max Lights (a held torch always), and FADE a light crossing that line over
+a quarter second (a light merely off screen keeps its fade). The scene shader
+then loops only over its TILE'S lights: 32 x 18 NDC tiles, a 64-bit mask each
+in the frame constants (`gTileGrid`, `gLightTiles`, LAST in the cbuffer so
+shadow.hlsl's shorter copy still lines up; LIGHT_TILE_COUNT mirrors
+kLightTileCount BY HAND), and the dust march reuses the pixel's mask because
+every sample on its ray projects to that pixel. KNOW THIS before expecting a
+big win from tiles: a sphere that contains the eye reaches every pixel, and in
+2.5 m squares with 7.5-15 m reaches most nearby lights do - the tiles save on
+distant lights, and Max Lights is still the real control (measured in the
+plan). The camera updates BEFORE the lights each frame for the cull. Shadow
+cubes cache by light id, not list index. Dev: `lights [profiles|reload]`,
+`lightstress <n> [near]`, `lighttiles on|off`; checked by RollTest (a light is
+never missing from a tile it reaches) and `AllocTest -Lights`.
+
 Per-frame efficiency (DungeonWorld + Renderer): surface geometry is split
 into spatial chunks (DungeonMeshBuilder GeometryChunk, kChunkCells=4, each
 with an AABB + texture variant), so the main pass frustum-culls off-screen
@@ -962,8 +984,8 @@ quality dropdown on Video (Low/Medium/High/Ultra: mesh tier low/med/high/high
 + textures 1k/1k/2k/4k + point-light budget 16/32/48/64) plus a Max Lights
 dropdown on Video (GameSettings::kLightBudgets; picking a quality resets the
 budget to its tier value via Game::SetQuality → GameUI::SyncMaxLights, then
-the dropdown can override it; DungeonWorld::UpdateLights keeps the nearest-to-
-eye lights up to the budget) plus a Frame Rate dropdown (GameSettings::
+the dropdown can override it; DungeonWorld::SelectLights keeps the lights that
+add most to the view up to the budget - see "The light budget") plus a Frame Rate dropdown (GameSettings::
 kPresentIntervals → GraphicsDevice::SetPresentInterval: present sync interval
 1..4 = full-refresh VSync down to refresh/4, a tear-free divisor cap that cuts
 GPU load; options labelled with the live rate from GraphicsDevice::RefreshHz;

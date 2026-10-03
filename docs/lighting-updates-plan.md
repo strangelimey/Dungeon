@@ -88,6 +88,33 @@ palette cannot make a bright blue), per placement, `color=r,g,b` on the .map
 
 ## Phase 3 - the budget: many lights without overloading the GPU
 
+DONE 2026-10-03. Built as planned, with two corrections learned on the way:
+- The first binning projected each sphere's bounding-box corners, and any box
+  straddling the eye's plane counted as the whole screen - in 2.5 m squares with
+  7.5-15 m reaches that was nearly every light. It now tests each sphere against
+  the tile grid's own planes (`gfx::LightTiler`, 33 column + 19 row planes
+  through the eye, built once per view), exact for a sphere and still
+  conservative. RollTest samples points inside random spheres and demands none
+  is missing from its tile (mutation-checked twice), and checks the game's own
+  mirrored camera.
+- A sphere that CONTAINS the eye really does reach every pixel (it lights the
+  haze in front of each), and with these radii most nearby lights do. So the
+  tiles mostly save on DISTANT lights. Measured (release-profile, GPU busy ms,
+  1600x900, budget 32): crypt1 view 1.51 -> 1.46; 64 test lights near the
+  party 6.24 -> 5.97; 64 spread over the level 5.68 -> 4.98. The budget (Max
+  Lights) stays the main control; each drawn nearby light costs ~0.14 ms here.
+Tiles on vs off render bit-identically (pixel diff 0 over 100k samples). The
+shadow cache now keys on a light's stable id (`gfx::PointLight::id`, kind <<
+24 | index), since the ranking reorders the list. The camera updates BEFORE the
+lights now, so the cull uses this frame's view. Fades: a budget-dropped light
+fades out while the 64 ceiling has room; one that only left the view keeps its
+fade; a light seen for the first time starts at its final value. Dev:
+`lightstress <n> [near]`, `lighttiles on|off`, and `lights` now prints the cull
+counts, tile-light pairs, the camera and each light's tile range. Checked:
+RollTest (384), AllocTest default / `-Hand` / new `-Lights -Walk` (64 test
+lights, 8 turns inside the window) PASS, InGameTest PASS, no D3D12 validation
+messages.
+
 The answer to the open question, in four parts:
 
 1. CULL WHAT CANNOT BE SEEN. A light whose sphere misses the view frustum

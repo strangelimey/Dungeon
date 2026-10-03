@@ -26,6 +26,7 @@
 
 #include "Core/Loc.h"
 #include "Core/Log.h"
+#include "Graphics/LightTiles.h"
 
 #include <algorithm>
 #include <cmath>
@@ -37,6 +38,8 @@ namespace {
 // The share of a torch's burn over which it dims, and how dim it gets.
 constexpr float kDimShare = 0.1f;
 constexpr float kDimFloor = 0.35f;
+// The cursor's torch's slot in its light key (member hands use member x 2 + hand).
+constexpr u32 kCursorTorchSlot = 255;
 } // namespace
 
 // --- light profiles (lighting-updates Phase 2) --------------------------------
@@ -93,10 +96,13 @@ Vec3 DungeonWorld::FixtureLightColor(const std::string& type) {
 }
 
 gfx::PointLight* DungeonWorld::PushLight(const light::Profile& profile, const char* source,
-										 const Vec3& pos, float time, float phase,
+										 u32 key, const Vec3& pos, float time, float phase,
 										 const Vec3& color, float brightness,
 										 float radiusMetres) {
 	if (brightness <= 0.0f) return nullptr;
+	// The candidate ceiling (the lists were reserved to it): past it a light is
+	// simply not considered, rather than growing a list inside a frame.
+	if (m_lights.points.size() >= kLightCandidates) return nullptr;
 	const light::Sample s = light::Evaluate(profile, time, phase);
 	gfx::PointLight l;
 	l.position = {pos.x + s.offset.x * kCellSize, pos.y + s.offset.y * kCellSize,
@@ -109,33 +115,58 @@ gfx::PointLight* DungeonWorld::PushLight(const light::Profile& profile, const ch
 	// A wandering origin re-renders its shadow cube on the flicker cadence
 	// rather than on every sub-pixel move (ShadowScheduler).
 	l.flickerShadow = profile.wander > 0.0f;
+	l.id = key;
 	m_lights.points.push_back(l);
-	const auto index = &profile - m_lightProfiles.data();
-	m_lightOrigins.push_back(
-		{source, index >= 0 && index < static_cast<std::ptrdiff_t>(m_lightProfiles.size())
-					 ? static_cast<int>(index)
-					 : -1});
+	// Which lights.cat profile it is, by index (-1 = one the catalog does not
+	// hold: the fallback, or a built-in like the stress light). Compared with
+	// std::less, the one pointer order defined across unrelated objects.
+	int index = -1;
+	const light::Profile* first = m_lightProfiles.data();
+	if (!m_lightProfiles.empty() && !std::less<>{}(&profile, first) &&
+		std::less<>{}(&profile, first + m_lightProfiles.size()))
+		index = static_cast<int>(&profile - first);
+	m_lightOrigins.push_back({source, index});
 	return &m_lights.points.back();
 }
 
 std::vector<std::string> DungeonWorld::DescribeLights() const {
 	std::vector<std::string> out;
 	const Vec3 eye = PartyEye();
-	out.push_back(std::format("lights: {} this frame ({} before the budget of {}), {} profiles",
-							  m_lights.points.size(), m_lightsBeforeCut,
-							  m_settings.maxPointLights, m_lightProfiles.size()));
+	const LightCull& c = m_lightCull;
+	out.push_back(std::format(
+		"lights: {} drawn of {} candidates (budget {}) - off screen {}, out of reach {}, "
+		"over budget {}, fading out {}; {} profiles",
+		m_lights.points.size(), c.candidates, m_settings.maxPointLights, c.offscreen,
+		c.unreachable, c.budget, c.fadingOut, m_lightProfiles.size()));
+	out.push_back(std::format("lights: tiles {} ({} tile-light pairs of {} untiled)",
+							  m_renderer.LightTiling() ? "on" : "off",
+							  m_renderer.TileLightPairs(),
+							  m_lights.points.size() * gfx::kLightTileCount));
+	const gfx::LightTiler tiler(m_camera.ViewProj());
+	const Vec3 cam = m_camera.Position();
+	const Vec3 fwd = m_camera.Forward();
+	out.push_back(std::format("lights: camera at {:.2f} {:.2f} {:.2f} looking {:.2f} {:.2f} {:.2f}",
+							  cam.x, cam.y, cam.z, fwd.x, fwd.y, fwd.z));
 	for (size_t i = 0; i < m_lights.points.size(); ++i) {
 		const gfx::PointLight& l = m_lights.points[i];
 		const LightOrigin origin = i < m_lightOrigins.size() ? m_lightOrigins[i] : LightOrigin{};
+		gfx::TileRange t;
+		const bool seen = tiler.Range(l.position, l.radius, t);
+		out.push_back(seen ? std::format("       tiles cols {}-{} rows {}-{} (light at {:.2f} {:.2f} {:.2f})",
+										 t.c0, t.c1, t.r0, t.r1, l.position.x, l.position.y,
+										 l.position.z)
+						   : std::format("       tiles none (light at {:.2f} {:.2f} {:.2f})",
+										 l.position.x, l.position.y, l.position.z));
 		const int p = origin.profile;
 		const char* profile = p >= 0 && p < static_cast<int>(m_lightProfiles.size())
 								  ? m_lightProfiles[static_cast<size_t>(p)].id.c_str()
-								  : "(fallback)";
+								  : "(built-in)";
 		const Vec3 d = Sub(l.position, eye);
 		out.push_back(std::format(
-			"  [{:2}] {:<8} {:<13} rgb {:.2f} {:.2f} {:.2f}  i {:.2f}  r {:.1f} m  at {:.1f} m  {}",
+			"  [{:2}] {:<8} {:<13} rgb {:.2f} {:.2f} {:.2f}  i {:.2f}  r {:.1f} m  at {:.1f} m  "
+			"fade {:.2f}  {}",
 			i, origin.source, profile, l.color.x, l.color.y, l.color.z, l.intensity, l.radius,
-			std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z),
+			std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z), origin.fade,
 			!l.castsShadow ? "no shadow"
 			: l.shadowSlot >= 0 ? std::format("shadow slot {}", l.shadowSlot)
 								: std::string("shadow (no slot)")));
@@ -208,10 +239,13 @@ void DungeonWorld::AppendCarriedLights(float time) {
 	const Vec3 eye = PartyEye(); // a carried light falls with the camera
 	// Its kind's profile (items.cat `light`), dimmed by its charge: the reach
 	// shrinks to 60% and the brightness to the dim floor over the last tenth.
-	const auto add = [&](const ItemKind& kind, const Vec3& at, float brightness, float phase) {
+	// `slot` names the hand it is in (member x 2 + hand; the cursor is its own):
+	// it keys the light and sets its flicker's phase.
+	const auto add = [&](const ItemKind& kind, const Vec3& at, float brightness, u32 slot) {
 		const light::Profile& profile =
 			LightProfileFor(kind.light.empty() ? std::string_view("torch") : kind.light);
-		PushLight(profile, "torch", at, time, phase, {1, 1, 1}, brightness,
+		PushLight(profile, "torch", LightKey(LightKind::Torch, slot), at, time,
+				  static_cast<float>(slot) * 1.7f, {1, 1, 1}, brightness,
 				  profile.radius * kCellSize * (0.6f + 0.4f * brightness));
 	};
 	if (m_roster) {
@@ -232,7 +266,7 @@ void DungeonWorld::AppendCarriedLights(float time) {
 				const ItemKind& kind = ItemKindFor(slot.typeId);
 				if (kind.Lit())
 					add(kind, at, TorchBrightness(kind, slot.charge),
-						static_cast<float>(m * 2 + h) * 1.7f);
+						static_cast<u32>(m * 2 + static_cast<size_t>(h)));
 			}
 		}
 	}
@@ -240,7 +274,7 @@ void DungeonWorld::AppendCarriedLights(float time) {
 		const ItemKind& kind = ItemKindFor(**m_cursorItem);
 		if (kind.Lit())
 			add(kind, {eye.x, eye.y + 0.2f, eye.z}, TorchBrightness(kind, m_cursorItem->Charge()),
-				0.0f);
+				kCursorTorchSlot);
 	}
 }
 

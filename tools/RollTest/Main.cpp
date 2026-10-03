@@ -49,8 +49,11 @@
 #include "Game/LightProfile.h"
 #include "Game/Resource.h"
 #include "Game/Roll.h"
+#include "Graphics/Camera.h"
+#include "Graphics/LightTiles.h"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -2381,6 +2384,103 @@ int main(int argc, char** argv) {
 				  light::ParsePulse(light::PulseName(light::Pulse::Storm), parsed) &&
 					  parsed == light::Pulse::Storm);
 		CheckTrue("the fallback is a light, not darkness", light::Fallback().intensity > 0.0f);
+	}
+
+	// --- tiled light lists (Graphics/LightTiles.h) ----------------------------
+	// The scene shader shades a pixel with ONLY the lights its tile's mask
+	// names, so the one promise that matters is that a light is never missing
+	// from a tile it reaches. Checked by sampling points inside random spheres
+	// and asking whether the tile each lands in has that sphere's bit.
+	{
+		std::printf("\nTiled light lists (Graphics/LightTiles.h)\n");
+		using namespace DirectX;
+		namespace gfx = dungeon::gfx;
+		using dungeon::u64;
+		const XMMATRIX view = XMMatrixLookToLH(XMVectorSet(3.0f, 1.6f, 2.0f, 1.0f),
+											   XMVectorSet(0.3f, -0.1f, 1.0f, 0.0f),
+											   XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f));
+		const XMMATRIX proj = XMMatrixPerspectiveFovLH(1.1f, 16.0f / 9.0f, 0.05f, 100.0f);
+		dungeon::Mat4 vp;
+		XMStoreFloat4x4(&vp, view * proj);
+		const auto project = [&](const dungeon::Vec3& p, float& nx, float& ny) {
+			const float cx = p.x * vp._11 + p.y * vp._21 + p.z * vp._31 + vp._41;
+			const float cy = p.x * vp._12 + p.y * vp._22 + p.z * vp._32 + vp._42;
+			const float cw = p.x * vp._14 + p.y * vp._24 + p.z * vp._34 + vp._44;
+			if (cw <= 0.05f) return false;
+			nx = cx / cw;
+			ny = cy / cw;
+			return nx >= -1.0f && nx <= 1.0f && ny >= -1.0f && ny <= 1.0f;
+		};
+		const gfx::LightTiler tiler(vp);
+		gfx::TileRange t;
+		CheckTrue("a light ahead is on screen", tiler.Range({3.5f, 1.5f, 8.0f}, 1.0f, t));
+		CheckTrue("...and covers only part of it",
+				  (t.c1 - t.c0 + 1) * (t.r1 - t.r0 + 1) < static_cast<int>(gfx::kLightTileCount) / 4);
+		CheckTrue("a light wholly behind the eye is not",
+				  !tiler.Range({2.0f, 1.6f, -6.0f}, 1.0f, t));
+		CheckTrue("a light far off to the side is not", !tiler.Range({40.0f, 1.6f, 4.0f}, 1.0f, t));
+		const bool around = tiler.Range({3.0f, 1.6f, 2.5f}, 2.0f, t);
+		CheckTrue("a light round the eye covers the whole screen",
+				  around && t.c0 == 0 && t.r0 == 0 && t.c1 == static_cast<int>(gfx::kLightTilesX) - 1 &&
+					  t.r1 == static_cast<int>(gfx::kLightTilesY) - 1);
+		// Beside the eye but not round it - the case the old box-corner test
+		// called "the whole screen" because its box straddled the eye's plane.
+		const bool beside = tiler.Range({1.0f, 1.6f, 2.2f}, 1.5f, t);
+		CheckTrue("a light beside the eye covers only its side",
+				  beside && (t.c1 - t.c0 + 1) < static_cast<int>(gfx::kLightTilesX));
+		// The GAME's camera (Graphics/Camera.h), which mirrors clip-space X to
+		// un-mirror its left-handed view: crypt1's brazier, 5 m ahead with a 15 m
+		// reach, seen from the square the party stands on.
+		{
+			gfx::Camera cam;
+			cam.SetPosition({7.5f * 2.5f, 1.6f, 4.5f * 2.5f});
+			cam.SetYawPitch(dungeon::kPi * 0.5f, 0.0f); // east
+			cam.SetLens(60.0f * dungeon::kPi / 180.0f, 16.0f / 9.0f, 0.05f, 100.0f);
+			const gfx::LightTiler game(cam.ViewProj());
+			const bool brazier = game.Range({9.5f * 2.5f, 0.9f, 4.5f * 2.5f}, 15.0f, t);
+			CheckTrue("the game camera: a brazier round the eye covers the screen",
+					  brazier && t.c0 == 0 && t.r0 == 0 &&
+						  t.c1 == static_cast<int>(gfx::kLightTilesX) - 1 &&
+						  t.r1 == static_cast<int>(gfx::kLightTilesY) - 1);
+			const bool ahead = game.Range({12.0f * 2.5f, 1.0f, 4.5f * 2.5f}, 1.0f, t);
+			CheckTrue("the game camera: a small light straight ahead is mid-screen",
+					  ahead && t.c0 <= 16 && t.c1 >= 15 && t.r0 <= 9 && t.r1 >= 8);
+		}
+		Check("the top-left corner is tile 0", gfx::TileOf(-1.0f, 1.0f), 0, 0);
+		Check("the bottom-right corner is the last tile", gfx::TileOf(1.0f, -1.0f),
+			  gfx::kLightTileCount - 1, 0);
+
+		std::mt19937 rng(0x7115u);
+		std::uniform_real_distribution<float> u(0.0f, 1.0f);
+		std::vector<gfx::LightSphere> spheres(64);
+		std::vector<u64> masks(gfx::kLightTileCount);
+		long missing = 0, samples = 0, setBits = 0;
+		for (int trial = 0; trial < 40; ++trial) {
+			for (gfx::LightSphere& s : spheres)
+				s = {{3.0f + (u(rng) - 0.5f) * 24.0f, u(rng) * 3.0f, 2.0f + (u(rng) - 0.4f) * 30.0f},
+					 0.3f + u(rng) * 6.0f};
+			gfx::BinLights(vp, spheres, masks);
+			for (u64 m : masks) setBits += std::popcount(m);
+			for (size_t i = 0; i < spheres.size(); ++i)
+				for (int k = 0; k < 60; ++k) {
+					// A point inside the sphere (rejection-sampled in its cube).
+					dungeon::Vec3 off{u(rng) * 2.0f - 1.0f, u(rng) * 2.0f - 1.0f, u(rng) * 2.0f - 1.0f};
+					if (off.x * off.x + off.y * off.y + off.z * off.z > 1.0f) continue;
+					const dungeon::Vec3 p{spheres[i].center.x + off.x * spheres[i].radius,
+										  spheres[i].center.y + off.y * spheres[i].radius,
+										  spheres[i].center.z + off.z * spheres[i].radius};
+					float nx = 0.0f, ny = 0.0f;
+					if (!project(p, nx, ny)) continue; // not a visible pixel
+					++samples;
+					if (!(masks[gfx::TileOf(nx, ny)] & (u64{1} << i))) ++missing;
+				}
+		}
+		CheckTrue("thousands of points sampled inside lights", samples > 10000);
+		Check("a light is never missing from a tile it reaches", static_cast<double>(missing), 0, 0);
+		// Informational: how much of the full cost the tiles keep (all 64 lights
+		// in all 576 tiles = 1.0). Scattered lights cover a fraction of the view.
+		std::printf("  (tiles keep %.1f%% of the untiled loop for 64 scattered lights)\n",
+					100.0 * static_cast<double>(setBits) / (40.0 * 64.0 * gfx::kLightTileCount));
 	}
 
 	// --- verdict ------------------------------------------------------------
