@@ -2467,6 +2467,11 @@ Judged by `tools\EditorTest.py` (phase 12 onward).
 
 ## Known gaps / natural next steps
 
+- REMINDER (Michael, 2026-10-03): crypt1.ent carries a TEMPORARY `item
+  torch_magic 5 7 north` beside the start, placed only so the magical torch can
+  be tried. REMOVE IT once there is somewhere for the player to find one later
+  in the game - it is not meant to be starting loot.
+
 - Combat is built out (see the COMBAT bullet: the attack formula, damage
   types/resists, stamina exertion, death/revive, DoTs, reach, quadrant
   lanes) but UNTUNED — every number is a first cut awaiting a balance pass
