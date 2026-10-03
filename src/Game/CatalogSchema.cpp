@@ -152,10 +152,10 @@ constexpr FieldSpec kDecorationFields[] = {
 	PROP_AUTHORED,
 	{.key = "solid", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
 	 .help = "Blocks the square (the party and monsters can't enter).", .def = "0"},
-	{.key = "destructible", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
+	{.key = "breakable", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
 	 .help = "Can be smashed. Off = scenery, which is the default: nothing in the "
 			 "dungeon is breakable unless its type says so.",
-	 .def = "0", .label = "Breakable"},
+	 .def = "0"},
 	{.key = "hp", .kind = FieldKind::Float, .sectionKey = kSectionRules,
 	 .help = "How much punishment it takes before it breaks (needs Breakable).",
 	 .lo = 0.0f, .hi = 200.0f, .step = 1.0f, .def = "10"},
@@ -187,9 +187,9 @@ constexpr FieldSpec kFixtureFields[] = {
 	PROP_MODEL,
 	PROP_TEXTURE,
 	PROP_SCALE,
-	{.key = "destructible", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
+	{.key = "breakable", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
 	 .help = "Can be broken, which PUTS ITS LIGHT OUT. Off = scenery, the default.",
-	 .def = "0", .label = "Breakable"},
+	 .def = "0"},
 	{.key = "hp", .kind = FieldKind::Float, .sectionKey = kSectionRules,
 	 .help = "How much it takes before it is wrecked (needs Breakable).",
 	 .lo = 0.0f, .hi = 200.0f, .step = 1.0f, .def = "10"},
@@ -309,11 +309,11 @@ constexpr FieldSpec kDoorFields[] = {
 	{.key = "motion", .kind = FieldKind::Enum, .sectionKey = kSectionRules,
 	 .help = "How the leaf opens: slide into the wall, rise into the ceiling, or split in two.",
 	 .options = "slide rise split", .def = "slide"},
-	{.key = "destructible", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
+	{.key = "breakable", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
 	 .help = "Can be broken down, opening the way FOR GOOD. Leave OFF for most "
 			 "doors — a breakable locked door makes its key and its switch "
 			 "pointless.",
-	 .def = "0", .label = "Breakable"},
+	 .def = "0"},
 	{.key = "hp", .kind = FieldKind::Float, .sectionKey = kSectionRules,
 	 .help = "How much it takes before it gives way (needs Breakable).",
 	 .lo = 0.0f, .hi = 400.0f, .step = 5.0f, .def = "40"},
@@ -776,10 +776,6 @@ std::string PrettyFieldName(std::string_view key) {
 	if (!out.empty())
 		out[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(out[0])));
 	return out;
-}
-
-std::string FieldLabel(const FieldSpec& spec) {
-	return spec.label ? std::string(spec.label) : PrettyFieldName(spec.key);
 }
 
 } // namespace dungeon::game

@@ -2427,7 +2427,7 @@ void DungeonWorld::SeedFixtureBreakables() {
 	const auto seed = [this, &prior](int x, int z, int wall,
 									 const std::string& type) {
 		const FixtureKind& k = FixtureKindFor(type);
-		if (!k.destructible || k.hp <= 0.0f) return; // authored as scenery
+		if (!k.breakable || k.hp <= 0.0f) return; // authored as scenery
 		FixtureBreak fb;
 		fb.x = x;
 		fb.z = z;
@@ -2484,7 +2484,7 @@ void DungeonWorld::DouseFixture(const FixtureBreak& fb) {
 }
 
 void DungeonWorld::SeedBreakable(Breakable& brk, const DecorationKind& kind) {
-	if (!kind.destructible || kind.hp <= 0.0f) return; // scenery: maxHp stays 0
+	if (!kind.breakable || kind.hp <= 0.0f) return; // scenery: maxHp stays 0
 	brk.maxHp = kind.hp;
 	brk.hp = kind.hp;
 	brk.soak = kind.soak;
@@ -2708,7 +2708,7 @@ bool DungeonWorld::StrikeDoorWithBolt(int cx, int cz, const ProjectileExpiry& ex
 	// WHAT A BOLT DOES TO A DOOR DEPENDS ON THE DOOR AND THE SPELL (Michael,
 	// 2026-10-01): a fire bolt may set a wooden door alight, an earth bolt may
 	// batter it - and most doors shrug off both. All of that is DATA already: a
-	// door is hurt at all only if doors.cat says `destructible = 1` (OFF by
+	// door is hurt at all only if doors.cat says `breakable = 1` (OFF by
 	// default, so keys and switches keep mattering), and how much each element
 	// does is its `armor` and `resists`. An immune door is simply not a target -
 	// the bolt goes out against it as it always did.

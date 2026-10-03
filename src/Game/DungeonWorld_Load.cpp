@@ -1748,8 +1748,8 @@ DungeonWorld::DecorationKind& DungeonWorld::DecorationKindFor(const std::string&
 			// type says otherwise. `hp` is how much it takes, `armor`/`resists` how
 			// it takes it — the same two fields armour wears, so a stone statue can
 			// shrug off a blade and an iron grate can drink lightning.
-			kind->destructible = CatalogBool(def, "destructible", false);
-			if (kind->destructible) {
+			kind->breakable = CatalogBreakable(def);
+			if (kind->breakable) {
 				kind->hp = def->GetFloat("hp", 10.0f);
 				kind->soak = def->GetFloat("armor", 0.0f);
 				ParseResists(CatalogGet(def, "resists", ""), kind->resists,
@@ -1803,8 +1803,8 @@ DungeonWorld::FixtureKind& DungeonWorld::FixtureKindFor(const std::string& type)
 		// Breakability, opt-in and OFF by default like every other kind: a torch
 		// bracket can be knocked off a wall, a heavy iron brazier takes rather more,
 		// and an empty one authored without the field cannot be touched at all.
-		kind->destructible = CatalogBool(def, "destructible", false);
-		if (kind->destructible && def) {
+		kind->breakable = CatalogBreakable(def);
+		if (kind->breakable && def) {
 			kind->hp = def->GetFloat("hp", 10.0f);
 			kind->soak = def->GetFloat("armor", 0.0f);
 			ParseResists(CatalogGet(def, "resists", ""), kind->resists,

@@ -76,9 +76,9 @@ void DungeonWorld::SpawnDoor(const Entity& record) {
 		// CAN IT BE BROKEN DOWN? Off unless the type says so (Michael's
 		// requirement): if doors were breakable by default, a party would chop
 		// through every locked one and keys and switches would stop mattering. A
-		// door authored `destructible = 1` is the deliberate exception — an
+		// door authored `breakable = 1` is the deliberate exception — an
 		// alternative route that costs time and noise instead of a key.
-		if (CatalogBool(def, "destructible", false)) {
+		if (CatalogBreakable(def)) {
 			door.brk.maxHp = def->GetFloat("hp", 40.0f);
 			door.brk.hp = door.brk.maxHp;
 			door.brk.soak = def->GetFloat("armor", 0.0f);

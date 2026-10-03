@@ -649,7 +649,7 @@ crate reaches the damage pipeline through the same interface a monster does, and
 everything already built works on them for free: soak, typed resists, absorption
 past 1.0, DoTs (a burning door burns *down*), and a blast.
 
-**Damageability is opt-in and OFF by default** — `destructible` in the catalog,
+**Damageability is opt-in and OFF by default** — `breakable` in the catalog,
 Michael's requirement: *"otherwise switches and keys will be useless"*. If props
 and doors were breakable unless told otherwise, a party would chop through every
 locked door the moment it could swing at one. `maxHp` of 0 means "not a target at

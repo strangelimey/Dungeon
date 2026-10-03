@@ -465,7 +465,7 @@ void DungeonWorld::ApplyActiveSnapshot() {
 	// Re-break what was broken (v24). A saved entry naming a prop this level no
 	// longer has is simply dropped — the level was edited under the save, and a
 	// missing prop is exactly the outcome the entry wanted anyway. And one naming a
-	// piece whose type is no longer `destructible` is IGNORED, as a damaged entry
+	// piece whose type is no longer `breakable` is IGNORED, as a damaged entry
 	// is below: unticked means unbreakable, and a save must not smash a door or a
 	// prop the type now says cannot be (it would open that door for good). Fixtures
 	// already hold to it - an undestructible one has no FixtureBreak to match.

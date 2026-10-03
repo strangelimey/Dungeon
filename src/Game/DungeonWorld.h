@@ -2497,7 +2497,7 @@ private:
 	// fx::ITarget adapter (BreakableTarget) serves them all, so the dungeon
 	// reaches the damage pipeline through exactly the same door a combatant does.
 	//
-	// DAMAGEABILITY IS OPT-IN AND OFF BY DEFAULT (`destructible` in the catalog,
+	// DAMAGEABILITY IS OPT-IN AND OFF BY DEFAULT (`breakable` in the catalog,
 	// Michael's requirement): if props and doors were breakable unless told
 	// otherwise, keys and switches would stop mattering the moment a party could
 	// swing at a door. maxHp of 0 means "not a target at all" and every ask below
@@ -2577,7 +2577,7 @@ private:
 		float pullT = 0.0f;        // 0 at rest .. 1 fully worked
 		bool pullRising = false;   // true while it is being pulled, false coming back
 		EaseSpan openerEase;       // the hand-hold's own shaping, from its entry
-		// Can it be broken down? OFF unless doors.cat says `destructible = 1`
+		// Can it be broken down? OFF unless doors.cat says `breakable = 1`
 		// (Michael's requirement — otherwise a party would simply chop through
 		// every locked door and keys and switches would stop mattering). A broken
 		// door's way is open FOR GOOD: it cannot be shut again, which is the
@@ -2620,10 +2620,10 @@ private:
 		// leave the resolved material alone). metallic/roughness REPLACE the draw's
 		// factors — with an ORM map the shader multiplies them over the map, flat
 		// fallbacks take them directly. tint replaces baseColor (over the albedo).
-		// Breakability, OFF unless decorations.cat says `destructible = 1` — the
+		// Breakability, OFF unless decorations.cat says `breakable = 1` — the
 		// gate, with `hp`/`armor`/`resists` for how tough it is. Copied into each
 		// instance's Breakable at placement.
-		bool destructible = false;
+		bool breakable = false;
 		float hp = 0.0f;
 		float soak = 0.0f;
 		ResistTable resists;
@@ -2657,7 +2657,7 @@ private:
 		bool wallMounted = false;        // hung on a wall (wall= record param)
 		Direction wall = Direction::North;
 		bool stair = false;              // a stair prop (written as a stairs record)
-		// Breakable if its type opted in (decorations.cat `destructible = 1`).
+		// Breakable if its type opted in (decorations.cat `breakable = 1`).
 		Breakable brk;
 
 		// A smashed prop is GONE for every purpose — not drawn, not blocking, not on
@@ -3114,7 +3114,7 @@ private:
 	// load and one placed by the editor are breakable on the same terms.
 	static void SeedBreakable(Breakable& brk, const DecorationKind& kind);
 	// Build the fixture damage side-table from the map's sconces and braziers.
-	// Called once the fixtures are placed; only destructible kinds get an entry, so
+	// Called once the fixtures are placed; only breakable kinds get an entry, so
 	// the table is empty in a dungeon that authored none.
 	void SeedFixtureBreakables();
 	// Douse a broken fixture: its light, flame and smoke all go with `lit`.
@@ -4107,8 +4107,8 @@ private:
 		float modelScale = 1.0f; // fixtures.cat `scale`, like DecorationKind's
 		FixtureFlame flame{0.0f, 0.0f, 0.0f};
 		std::unique_ptr<gfx::Texture> iconTarget; // baked map icon
-		// Breakability, off unless the type opts in (fixtures.cat `destructible`).
-		bool destructible = false;
+		// Breakability, off unless the type opts in (fixtures.cat `breakable`).
+		bool breakable = false;
 		float hp = 0.0f;
 		float soak = 0.0f;
 		ResistTable resists;
