@@ -63,6 +63,13 @@ weight = 0.5
 holdable = 1
 symbol = explode
 
+[rune_light]
+name = item.rune_light
+category = rune
+weight = 0.5
+holdable = 1
+symbol = light
+
 [backpack]
 name = item.backpack
 category = container

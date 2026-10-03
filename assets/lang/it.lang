@@ -475,6 +475,7 @@ item.rune_protect=Runa Algiz
 item.rune_sight=Runa Dagaz
 item.rune_multiple=Runa Ingwaz
 item.rune_explode=Runa Hagalaz
+item.rune_light=Runa Sowilo
 item.dagger=Pugnale
 item.khukri=Kukri
 item.flamebrand=Lama fiammante
@@ -529,6 +530,7 @@ item.rune_protect.desc=Una tavoletta con Algiz, la runa della protezione, la for
 item.rune_sight.desc=Una tavoletta con Dagaz, la runa della vista, la forma che fa di un incantesimo un modo di vedere. Memorizzarla consuma la tavoletta.
 item.rune_multiple.desc=Una tavoletta con Ingwaz, la runa della moltitudine. Segue una forma e la moltiplica: più dardi, o uno scudo per tutto il gruppo. Memorizzarla consuma la tavoletta.
 item.rune_explode.desc=Una tavoletta con Hagalaz, la runa della grandine. Segue una forma e la fa esplodere: un dardo che scoppia, o uno scudo che erompe tutt'intorno. Memorizzarla consuma la tavoletta.
+item.rune_light.desc=Una tavoletta con Sowilo, la runa del sole. Segue una scuola e fa dell'incantesimo una luce: quella del fuoco brucia e getta ombre, quella dell'acqua schiarisce l'aria, quella dell'aria arriva lontano, quella della terra si posa e resta. Memorizzarla consuma la tavoletta.
 item.dagger.desc=Un pugnale semplice e ben bilanciato. Rapido in mano, per affondi e fendenti.
 item.khukri.desc=Una lama pesante, ricurva in avanti, che morde a fondo a ogni colpo.
 item.flamebrand.desc=Un khukri forgiato in un fuoco mai del tutto spento. I suoi colpi bruciano.
@@ -638,6 +640,7 @@ symbol.protect=Protezione
 symbol.sight=Vista
 symbol.multiple=Moltitudine
 symbol.explode=Esplosione
+symbol.light=Luce
 
 ; Rune names (the Elder Futhark name; Spells.cpp RuneNameKey). The meaning is the symbol.* word above.
 rune.fire=Kenaz
@@ -649,6 +652,7 @@ rune.protect=Algiz
 rune.sight=Dagaz
 rune.multiple=Ingwaz
 rune.explode=Hagalaz
+rune.light=Sowilo
 rune.tip={} - {}
 
 ; --- map overlay / editor --------------------------------------------------------

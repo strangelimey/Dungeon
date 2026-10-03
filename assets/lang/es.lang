@@ -475,6 +475,7 @@ item.rune_protect=Runa Algiz
 item.rune_sight=Runa Dagaz
 item.rune_multiple=Runa Ingwaz
 item.rune_explode=Runa Hagalaz
+item.rune_light=Runa Sowilo
 item.dagger=Daga
 item.khukri=Kukri
 item.flamebrand=Hoja llameante
@@ -529,6 +530,7 @@ item.rune_protect.desc=Una tablilla con Algiz, la runa de la protección, la for
 item.rune_sight.desc=Una tablilla con Dagaz, la runa de la visión, la forma que convierte un hechizo en una manera de ver. Memorizarla consume la tablilla.
 item.rune_multiple.desc=Una tablilla con Ingwaz, la runa de la multitud. Sigue a una forma y la multiplica: más proyectiles, o un escudo para todo el grupo. Memorizarla consume la tablilla.
 item.rune_explode.desc=Una tablilla con Hagalaz, la runa del granizo. Sigue a una forma y la hace estallar: un proyectil que explota, o un escudo que estalla a su alrededor. Memorizarla consume la tablilla.
+item.rune_light.desc=Una tablilla con Sowilo, la runa del sol. Sigue a una escuela y hace del hechizo una luz: la del fuego quema y proyecta sombras, la del agua aclara el aire, la del aire llega lejos, la de la tierra se deja en el suelo y permanece. Memorizarla consume la tablilla.
 item.dagger.desc=Una daga sencilla y bien equilibrada. Rápida en la mano, para apuñalar y tajar.
 item.khukri.desc=Una hoja pesada y curvada hacia delante que muerde hondo con cada tajo.
 item.flamebrand.desc=Un khukri forjado en un fuego que nunca llegó a apagarse. Sus golpes queman.
@@ -638,6 +640,7 @@ symbol.protect=Protección
 symbol.sight=Visión
 symbol.multiple=Multitud
 symbol.explode=Explosión
+symbol.light=Luz
 
 ; Rune names (the Elder Futhark name; Spells.cpp RuneNameKey). The meaning is the symbol.* word above.
 rune.fire=Kenaz
@@ -649,6 +652,7 @@ rune.protect=Algiz
 rune.sight=Dagaz
 rune.multiple=Ingwaz
 rune.explode=Hagalaz
+rune.light=Sowilo
 rune.tip={} - {}
 
 ; --- map overlay / editor --------------------------------------------------------

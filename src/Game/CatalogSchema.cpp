@@ -455,7 +455,7 @@ constexpr FieldSpec kItemFields[] = {
 	 .lo = 0.0f, .hi = 100.0f, .step = 1.0f, .def = "0"},
 	{.key = "symbol", .kind = FieldKind::Enum, .sectionKey = kSectionRules,
 	 .help = "Rune symbol this item teaches (runes only).",
-	 .options = "fire earth air water project protect sight"},
+	 .options = "fire earth air water project protect sight multiple explode light"},
 	{.key = "capacity", .kind = FieldKind::Float, .sectionKey = kSectionRules,
 	 .help = "Container capacity in kilograms.", .lo = 0.0f, .hi = 50.0f, .step = 0.5f},
 	{.key = "accepts", .kind = FieldKind::Text, .sectionKey = kSectionRules,

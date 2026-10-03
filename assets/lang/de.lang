@@ -475,6 +475,7 @@ item.rune_protect=Algiz-Rune
 item.rune_sight=Dagaz-Rune
 item.rune_multiple=Ingwaz-Rune
 item.rune_explode=Hagalaz-Rune
+item.rune_light=Sowilo-Rune
 item.dagger=Dolch
 item.khukri=Khukri
 item.flamebrand=Flammenklinge
@@ -529,6 +530,7 @@ item.rune_protect.desc=Eine Tafel mit Algiz, der Rune des Schutzes, der Form, di
 item.rune_sight.desc=Eine Tafel mit Dagaz, der Rune der Sicht, der Form, die einen Zauber zu einer Art des Sehens macht. Das Einprägen verbraucht die Tafel.
 item.rune_multiple.desc=Eine Tafel mit Ingwaz, der Rune der Vielheit. Sie folgt einer Form und vervielfacht sie: mehr Geschosse oder ein Schild für die ganze Gruppe. Das Einprägen verbraucht die Tafel.
 item.rune_explode.desc=Eine Tafel mit Hagalaz, der Rune des Hagels. Sie folgt einer Form und lässt sie bersten: ein Geschoss, das explodiert, oder ein Schild, der ringsum ausbricht. Das Einprägen verbraucht die Tafel.
+item.rune_light.desc=Eine Tafel mit Sowilo, der Rune der Sonne. Sie folgt einer Schule und macht den Zauber zu einem Licht: das des Feuers brennt und wirft Schatten, das des Wassers klärt die Luft, das der Luft reicht weit, das der Erde wird abgelegt und bleibt. Das Einprägen verbraucht die Tafel.
 item.dagger.desc=Ein schlichter, gut ausgewogener Dolch. Flink in der Hand, zum Stechen und Schneiden.
 item.khukri.desc=Eine schwere, nach vorn gekrümmte Klinge, die bei jedem Hieb tief beißt.
 item.flamebrand.desc=Ein Khukri, geschmiedet in einem Feuer, das nie ganz erlosch. Seine Hiebe brennen.
@@ -638,6 +640,7 @@ symbol.protect=Schutz
 symbol.sight=Sicht
 symbol.multiple=Vielheit
 symbol.explode=Explosion
+symbol.light=Licht
 
 ; Rune names (the Elder Futhark name; Spells.cpp RuneNameKey). The meaning is the symbol.* word above.
 rune.fire=Kenaz
@@ -649,6 +652,7 @@ rune.protect=Algiz
 rune.sight=Dagaz
 rune.multiple=Ingwaz
 rune.explode=Hagalaz
+rune.light=Sowilo
 rune.tip={} - {}
 
 ; --- map overlay / editor --------------------------------------------------------

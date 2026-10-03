@@ -485,6 +485,7 @@ item.rune_protect=Algiz rune
 item.rune_sight=Dagaz rune
 item.rune_multiple=Ingwaz rune
 item.rune_explode=Hagalaz rune
+item.rune_light=Sowilo rune
 item.dagger=Dagger
 item.khukri=Khukri
 item.flamebrand=Flamebrand
@@ -540,6 +541,7 @@ item.rune_protect.desc=A tablet cut with Algiz, the rune of protection, the form
 item.rune_sight.desc=A tablet cut with Dagaz, the rune of sight, the form that turns a spell into a way of seeing. Memorizing it spends the tablet.
 item.rune_multiple.desc=A tablet cut with Ingwaz, the rune of the many. It follows a form and multiplies it: more bolts, or a ward for the whole party. Memorizing it spends the tablet.
 item.rune_explode.desc=A tablet cut with Hagalaz, the rune of hail. It follows a form and makes it burst: a bolt that explodes, or a ward that blasts all around. Memorizing it spends the tablet.
+item.rune_light.desc=A tablet cut with Sowilo, the rune of the sun. It follows a school and makes the spell a light: fire's that burns and casts shadows, water's that clears the air, air's that reaches far, earth's that is set down and stays. Memorizing it spends the tablet.
 item.dagger.desc=A plain, well-balanced dagger. Quick in the hand, for stabbing and slashing.
 item.khukri.desc=A heavy, forward-curved blade that bites deep with every chop.
 item.flamebrand.desc=A khukri forged in a fire that never quite went out. Its blows burn.
@@ -652,6 +654,7 @@ symbol.protect=Protect
 symbol.sight=Sight
 symbol.multiple=Multiple
 symbol.explode=Explode
+symbol.light=Light
 
 ; Rune names (the Elder Futhark name; Spells.cpp RuneNameKey). The meaning is the symbol.* word above.
 rune.fire=Kenaz
@@ -663,6 +666,7 @@ rune.protect=Algiz
 rune.sight=Dagaz
 rune.multiple=Ingwaz
 rune.explode=Hagalaz
+rune.light=Sowilo
 ; A rune's hover tip: {0} the rune's name, {1} its meaning (the symbol.* word).
 rune.tip={} - {}
 

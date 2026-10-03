@@ -42,6 +42,9 @@ RUNES = {
 	# Hagalaz - hail: two staves and the falling bar between them.
 	"explode": [(0.34, 0.14, 0.34, 0.86), (0.66, 0.14, 0.66, 0.86),
 				(0.34, 0.64, 0.66, 0.40)],
+	# Sowilo - the sun: a three-stroke zig-zag like a lightning flash.
+	"light": [(0.62, 0.86, 0.36, 0.58), (0.36, 0.58, 0.64, 0.42),
+			  (0.64, 0.42, 0.38, 0.14)],
 }
 CHECK = {"sight": [(0.34, 0.14, 0.34, 0.86), (0.66, 0.14, 0.66, 0.86),
 				   (0.34, 0.14, 0.66, 0.86), (0.34, 0.86, 0.66, 0.14)]}

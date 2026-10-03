@@ -3,6 +3,7 @@
 #include "Core/Log.h"
 #include "Game/Catalog.h"
 #include "Game/Spell/Spell.h"
+#include "Game/SpellIdList.h"
 
 #include <algorithm>
 #include <iterator>
@@ -12,21 +13,22 @@ namespace dungeon::game {
 namespace {
 // Parallel to the SpellSymbol enum order. Unsized, so a symbol appended to the
 // enum without its row here fails the asserts below instead of reading a null.
-constexpr const char* kIds[] = {"fire",  "earth", "air",      "water",  "project",
-								"protect", "sight", "multiple", "explode"};
+constexpr const char* kIds[] = {"fire",  "earth", "air",      "water",   "project",
+								"protect", "sight", "multiple", "explode", "light"};
 // The rune tablets' item ids, spelled out rather than composed so RuneItemId
 // can hand back a view (see Spells.h).
 constexpr std::string_view kRuneIds[] = {
 	"rune_fire",  "rune_earth", "rune_air",      "rune_water",  "rune_project",
-	"rune_protect", "rune_sight", "rune_multiple", "rune_explode"};
+	"rune_protect", "rune_sight", "rune_multiple", "rune_explode", "rune_light"};
 constexpr const char* kKeys[] = {"symbol.fire",    "symbol.earth",   "symbol.air",
 								 "symbol.water",   "symbol.project", "symbol.protect",
-								 "symbol.sight",   "symbol.multiple", "symbol.explode"};
+								 "symbol.sight",   "symbol.multiple", "symbol.explode",
+								 "symbol.light"};
 // The Futhark names: Kenaz, Berkano, Ansuz, Laguz, Tiwaz, Algiz, Dagaz,
-// Ingwaz, Hagalaz.
+// Ingwaz, Hagalaz, Sowilo.
 constexpr const char* kRuneNameKeys[] = {
-	"rune.fire",    "rune.earth", "rune.air",      "rune.water",  "rune.project",
-	"rune.protect", "rune.sight", "rune.multiple", "rune.explode"};
+	"rune.fire",    "rune.earth", "rune.air",      "rune.water",   "rune.project",
+	"rune.protect", "rune.sight", "rune.multiple", "rune.explode", "rune.light"};
 static_assert(std::size(kIds) == kSymbolCount && std::size(kRuneIds) == kSymbolCount &&
 			  std::size(kKeys) == kSymbolCount && std::size(kRuneNameKeys) == kSymbolCount);
 
@@ -116,7 +118,8 @@ Vec4 ElementColor(SpellSymbol s) {
 	case SpellSymbol::Protect:
 	case SpellSymbol::Sight:
 	case SpellSymbol::Multiple:
-	case SpellSymbol::Explode: return {0.92f, 0.76f, 0.30f, 0.0f}; // gold
+	case SpellSymbol::Explode:
+	case SpellSymbol::Light:   return {0.92f, 0.76f, 0.30f, 0.0f}; // gold
 	default:                 return {1.0f, 1.0f, 1.0f, 0.0f};
 	}
 }
@@ -160,6 +163,12 @@ void SpellBook::Build(const Catalog& catalog, const DamageTypeBook& types) {
 		spell->ApplyOverrides(e);
 	}
 	log::Info("Spellbook: {} spells", m_spells.size());
+	// A member's learned list and quick-cast lists hold at most this many: past
+	// it, a newly cast spell is silently not learned.
+	if (m_spells.size() > SpellIdList::kSlots)
+		log::Warn("the spellbook holds {} spells but a member can learn only {} "
+				  "(SpellIdList::kSlots) - raise it",
+				  m_spells.size(), SpellIdList::kSlots);
 }
 
 const Spell* SpellBook::Match(std::span<const SpellSymbol> seq) const {

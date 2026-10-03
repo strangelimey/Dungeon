@@ -282,6 +282,17 @@ committed and checked on its own:
   WellFormedRecipe), its glyph, glow and icon images and its baked tablet, the
   `rune_light` item in all three projects, lang x5, and every table sized by
   the symbol count. Ends with: learnable, memorizable, shown in the Magic panel.
+  DONE: SpellSymbol::Light APPENDED after Explode (bit 9 of knownSymbols, so
+  old saves read unchanged); the four name tables; ElementColor's form gold;
+  RuneBaker's 10th rune (Sowilo as a three-stroke zig-zag) - re-baking left
+  every other rune byte-identical; BuildRuneIcons / BuildRuneGlow; `rune_light`
+  x3; lang x5. Found on the way: SpellIdList held exactly 32 ids for exactly 32
+  spells, so the next spell would never have been LEARNED - now 64, and
+  SpellBook::Build warns if the registry outgrows it; and the items `symbol`
+  schema row lacked multiple / explode. MERGE NOTE: the tablet textures are
+  gitignored (assets/textures), so after this lands on main run `AssetBaker
+  runes assets` then `AssetBaker mips assets rune_` there - a missing tablet
+  makes EVERY rune fall back to its flat icon.
 
 6b. THE LIGHT FORM. A `LightSpell` form base (beside Bolt / Ward / Sight) and
   four classes, one file pair each (`light_fire` ... `light_earth`). The shared

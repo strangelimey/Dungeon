@@ -34,9 +34,10 @@ class DamageTypeBook; // Catalog.h — SpellBook::Build reads the spells catalog
 // caster", Sight = "see through the wall ahead"), then the tier-3 MODIFIERS
 // (Multiple = Ingwaz, "more of it"; Explode = Hagalaz, "burst") - see
 // docs/magic system.md. The enum order is the serialization order (save +
-// catalog tokens) - APPEND new symbols, never reorder.
+// catalog tokens) - APPEND new symbols, never reorder. So Light (Sowilo,
+// "make light", lighting-updates Phase 6), a FORM, comes after the modifiers.
 enum class SpellSymbol : u8 {
-	Fire, Earth, Air, Water, Project, Protect, Sight, Multiple, Explode, Count
+	Fire, Earth, Air, Water, Project, Protect, Sight, Multiple, Explode, Light, Count
 };
 
 inline constexpr u32 kSymbolCount = static_cast<u32>(SpellSymbol::Count);
