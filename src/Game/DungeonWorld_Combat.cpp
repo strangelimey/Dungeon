@@ -2465,6 +2465,22 @@ void DungeonWorld::DouseFixture(const FixtureBreak& fb) {
 	// authored change. Burning() is runtime state now; the record is left alone.
 	SetFireBurning(fb.x, fb.z, fb.wall, false);
 	++m_harness.tally.fixturesDoused;
+	// A smashed WALL BRACKET lets go of its torch: it falls to the floor of the
+	// bracket's own square (out, as anything set down is - PlaceDrop), as the
+	// torch that was in it with what was left of it, and the wreck is bare.
+	// Only a bracket that can be emptied (SetSconceEmpty: a takeable kind) - one
+	// that cannot would otherwise hand out its torch and still hold it.
+	const WallSconce* sconce = fb.wall >= 0 ? m_map.SconceAt(fb.x, fb.z, fb.wall) : nullptr;
+	const Fire* fire = sconce ? FindFire(fb.x, fb.z, fb.wall) : nullptr;
+	if (!sconce || sconce->empty || !fire || !fire->kind) return;
+	const std::string& base = sconce->torch.empty() ? fire->kind->torchItem : sconce->torch;
+	if (base.empty()) return;
+	const ItemKind& torch = ItemKindFor(base); // before the record forgets it
+	const float charge = sconce->torchCharge;
+	if (!SetSconceEmpty(fb.x, fb.z, fb.wall, true)) return;
+	m_map.SetSconceTorch(fb.x, fb.z, fb.wall, {}, kNoCharge);
+	DropItemInCell(torch.id, fb.x, fb.z, charge);
+	if (onMessage) onMessage(loc::FormatLine("log.torch_falls", loc::View(torch.nameKey)));
 }
 
 void DungeonWorld::SeedBreakable(Breakable& brk, const DecorationKind& kind) {

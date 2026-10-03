@@ -464,24 +464,30 @@ void DungeonWorld::ApplyActiveSnapshot() {
 	}
 	// Re-break what was broken (v24). A saved entry naming a prop this level no
 	// longer has is simply dropped — the level was edited under the save, and a
-	// missing prop is exactly the outcome the entry wanted anyway.
+	// missing prop is exactly the outcome the entry wanted anyway. And one naming a
+	// piece whose type is no longer `destructible` is IGNORED, as a damaged entry
+	// is below: unticked means unbreakable, and a save must not smash a door or a
+	// prop the type now says cannot be (it would open that door for good). Fixtures
+	// already hold to it - an undestructible one has no FixtureBreak to match.
 	for (const SaveData::BrokenProp& b : ls.broken) {
 		bool found = false;
 		for (Decoration& d : m_decorations)
 			if (d.x == b.x && d.z == b.z && d.kind->id == b.type) {
+				found = true;
+				if (!d.brk.Damageable()) break;
 				d.brk.broken = true;
 				d.brk.hp = 0.0f;
-				found = true;
 				break;
 			}
 		if (found) continue;
 		for (Door& d : m_doors)
 			if (d.x == b.x && d.z == b.z && d.type == b.type) {
+				found = true;
+				if (!d.brk.Damageable()) break;
 				d.brk.broken = true;
 				d.brk.hp = 0.0f;
 				d.open = true; // the way stays open, and stays unclosable
 				d.openT = 1.0f;
-				found = true;
 				break;
 			}
 		if (found) continue;

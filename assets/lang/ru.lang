@@ -332,6 +332,7 @@ log.door_broken={} срывает с петель!
 log.door_wrecked=Проём разрушен — закрывать больше нечего.
 log.prop_broken={} разлетается на куски!
 log.fixture_broken={} разрушен, и свет гаснет.
+log.torch_falls={} падает на пол.
 fixture.sconce=факельный держатель
 fixture.brazier=жаровня
 

@@ -224,7 +224,8 @@ Key conventions (memorize, they bite):
   flame: icon, details dialog; ItemKind::flameColor, DrawFlame's tint). A wall
   BRACKET REMEMBERS its torch: `WallSconce::torch` (unlit id, "" = the fixture's
   own) + `torchCharge`, set by MountTorchAt, read by TakeTorchAt, reset with the
-  flips, saved as 6th/7th tokens of the `fire` line. CHARGE IS
+  flips, saved as 6th/7th tokens of the `fire` line. A SMASHED bracket drops
+  that torch on its square (DouseFixture -> DropItemInCell) and is left bare. CHARGE IS
   PART OF THE ITEM everywhere it can be: `ItemSlot {typeId, charge}`, the
   cursor's HeldItem, a floor Item, a thrown cargo, and the save (`id#charge`).
   Lighting / dousing / filling RENAMES an item in its slot (`lit_as` /

@@ -329,6 +329,7 @@ log.door_broken=¡{} salta de su marco hecha pedazos!
 log.door_wrecked=El vano está destrozado; ya no queda nada que cerrar.
 log.prop_broken=¡{} queda destrozado!
 log.fixture_broken={} queda destrozado y su luz se apaga.
+log.torch_falls={} cae al suelo.
 fixture.sconce=candelero
 fixture.brazier=brasero
 
