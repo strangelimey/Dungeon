@@ -204,13 +204,16 @@ void DungeonWorld::HandPuff(SpellSymbol school, const Vec3& origin, const Vec3& 
 		break;
 	case SpellSymbol::Air: {
 		// A pale breath that GUSTS away from the caster down the facing: a body
-		// of wisps and a quicker leading edge, so it stretches as it goes. It
-		// starts a little nearer than the others, since it travels.
+		// of wisps and a quicker leading edge, so it stretches as it goes, each
+		// wisp curling off to one side or the other. It starts a little nearer
+		// than the others, since it travels.
 		const Vec3 from{at.x - dir.x * 0.3f, at.y, at.z - dir.z * 0.3f};
 		m_projectiles.Puff(from, {c.x * 0.3f, c.y * 0.32f, c.z * 0.36f, 0.0f}, 7, 0.25f, 0.6f,
-						   0.05f * kUnit, 0.05f * kUnit, {dir.x * 2.2f, 0.0f, dir.z * 2.2f});
+						   0.05f * kUnit, 0.05f * kUnit, {dir.x * 2.2f, 0.0f, dir.z * 2.2f},
+						   2.2f);
 		m_projectiles.Puff(from, {c.x * 0.2f, c.y * 0.22f, c.z * 0.25f, 0.0f}, 5, 0.3f, 0.5f,
-						   0.04f * kUnit, 0.05f * kUnit, {dir.x * 3.6f, 0.0f, dir.z * 3.6f});
+						   0.04f * kUnit, 0.05f * kUnit, {dir.x * 3.6f, 0.0f, dir.z * 3.6f},
+						   1.4f);
 		glow = 0.4f;
 		break;
 	}
