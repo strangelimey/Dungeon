@@ -198,7 +198,14 @@ Key conventions (memorize, they bite):
   feet; Gust flares a fire and past `push_power` shoves a monster and REPELS a
   shot (weakened by the power, flung back if the power beats it); Splash fills
   a held skin a step / douses the wall torch / a brazier past its power. Every
-  threshold reads CAST POWER. TIER 2 Project = single-target bolts (`firebolt`
+  threshold reads CAST POWER. Every hand spell is SEEN on every cast, whatever
+  it found to act on: the `handPuff` cast service (DungeonWorld::HandPuff,
+  DungeonWorld_Ahead.cpp) draws its element just ahead of the caster's lane -
+  a flame puff, a dust cloud dropping grit, a breath of air that drifts away
+  down the facing and swirls apart (Puff's `drift` / `swirl`), a splash of
+  droplets that fall (ProjectileSystem::Splash) - plus a brief shadowless
+  glow from a fixed 4-slot `m_handGlows` (a cast is a guarded frame). Dev:
+  `castsvc puff [school]`. TIER 2 Project = single-target bolts (`firebolt`
   `earthbolt` `waterbolt` `airbolt`; were fireburst/slingshot/push). TIER 3 is
   ONE class, `ModifiedSpell`, which AllSpells wraps round every Bolt and Ward
   spell: Ingwaz = a volley (each bolt weaker, the caster's own lane, a fixed
