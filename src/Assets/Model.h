@@ -44,6 +44,7 @@ struct MaterialData {
 	float metallic = 1.0f;    // scales the MR map (glTF default 1)
 	float roughness = 1.0f;   // scales the MR map (glTF default 1)
 	Vec3 emissive{0, 0, 0};   // additive self-lit factor
+	bool blend = false;       // glTF alphaMode BLEND: see-through (glass)
 };
 
 struct MeshData {

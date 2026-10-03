@@ -55,6 +55,11 @@ namespace {
 	{.key = "height_scale", .kind = FieldKind::Float, .sectionKey = kSectionMaterial, \
 	 .help = "Parallax depth of the height map, in units. 0 = flat.",               \
 	 .lo = 0.0f, .hi = 0.2f, .step = 0.005f, .neutral = "0.05"}
+#define TRANSPARENT_ROW                                                            \
+	{.key = "transparent", .kind = FieldKind::Bool, .sectionKey = kSectionMaterial, \
+	 .help = "See-through: the whole model draws as glass (its texture's alpha is " \
+			 "the opacity). Off leaves each part as its model file says.",           \
+	 .def = "0"}
 
 // A surface type's material factors. No default, because ABSENT is meaningful:
 // it leaves the set's ORM map authoritative (a value replaces the draw's factor,
@@ -175,6 +180,7 @@ constexpr FieldSpec kDecorationFields[] = {
 	 .help = "Cutout threshold for a masked texture (0 = opaque, no clip).",
 	 .lo = 0.0f, .hi = 1.0f, .step = 0.05f, .def = "0"},
 	MATERIAL_ROWS,
+	TRANSPARENT_ROW,
 };
 
 // --- fixtures ---------------------------------------------------------------
@@ -456,6 +462,7 @@ constexpr FieldSpec kItemFields[] = {
 	 .help = "Container capacity in kilograms.", .lo = 0.0f, .hi = 50.0f, .step = 0.5f},
 	{.key = "accepts", .kind = FieldKind::Text, .sectionKey = kSectionRules,
 	 .help = "Item categories a container takes, e.g. 'rune'."},
+	TRANSPARENT_ROW,
 	ITEM_QUEST,
 };
 

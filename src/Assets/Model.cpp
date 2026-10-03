@@ -285,6 +285,7 @@ std::expected<ModelData, std::string> LoadGltf(const std::string& path,
 			mat.normalImage = imageCache.Get(src.normal_texture.texture->image);
 		mat.emissive = {src.emissive_factor[0], src.emissive_factor[1],
 						src.emissive_factor[2]};
+		mat.blend = src.alpha_mode == cgltf_alpha_mode_blend;
 		model.materials.push_back(mat);
 	}
 

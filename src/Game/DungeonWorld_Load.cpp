@@ -1573,6 +1573,7 @@ void DungeonWorld::ApplyPropMaterial(gfx::MaterialParams& m,
 	if (kind.roughness >= 0.0f) m.roughness = kind.roughness;
 	if (kind.heightScale >= 0.0f && m.albedo) m.heightScale = kind.heightScale;
 	if (kind.hasTint) m.baseColor = kind.tint;
+	m.transparent = kind.transparent;
 }
 
 // Bakes a catalog entry's material overrides (metallic=/roughness=/color=, the
@@ -1587,10 +1588,14 @@ void DungeonWorld::BakeCatalogMaterial(MultiMaterialModel& model,
 	const float roughness = def->GetFloat("roughness", -1.0f);
 	Vec4 tint;
 	const bool hasTint = CatalogColor(def, "color", tint);
+	// `transparent = 1` makes the WHOLE model glass; absent leaves each part as its
+	// glTF material says (alphaMode BLEND), which is how a bottle keeps a solid cork.
+	const bool transparent = CatalogBool(def, "transparent", false);
 	for (auto& sub : model.subs) {
 		if (metallic >= 0.0f) sub.material.metallic = metallic;
 		if (roughness >= 0.0f) sub.material.roughness = roughness;
 		if (hasTint) sub.material.baseColor = tint;
+		if (transparent) sub.material.transparent = true;
 	}
 }
 
@@ -1663,6 +1668,7 @@ std::unique_ptr<DungeonWorld::MultiMaterialModel> DungeonWorld::BuildMultiMateri
 			sub.material.albedo = texAt(md.baseColorImage);
 			sub.material.normalMap = texAt(md.normalImage);
 			sub.material.metalRough = texAt(md.metalRoughImage);
+			sub.material.transparent = md.blend; // a glass part, a cork stays solid
 		}
 		out->subs.push_back(std::move(sub));
 	}
@@ -1770,6 +1776,7 @@ DungeonWorld::DecorationKind& DungeonWorld::DecorationKindFor(const std::string&
 		// Optional alpha-test cutout (a masked set like wood planks renders its
 		// gaps); absent/0 = opaque, the usual case.
 		kind->alphaCutoff = def ? def->GetFloat("alpha_test", 0.0f) : 0.0f;
+		kind->transparent = CatalogBool(def, "transparent", false);
 		kind->cullRadius = ModelOriginRadius(*kind->model) * kUnit * kind->modelScale;
 		it = m_decorationKinds.emplace(type, std::move(kind)).first;
 	}

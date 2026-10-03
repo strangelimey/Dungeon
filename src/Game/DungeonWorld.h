@@ -2590,6 +2590,7 @@ private:
 		bool authored = false;     // imported model: consistently wound -> back-cull
 		bool solidDefault = true;  // floor-standing blocks the party (passages don't)
 		float alphaCutoff = 0.0f;  // > 0: alpha-test cutout (masked set, e.g. a gate)
+		bool transparent = false;  // decorations.cat `transparent`: drawn as glass
 		// Whether the editor map draws the green facing arrow on instances of
 		// this type (catalog `facing_arrow`, default 1). Radially symmetric
 		// props — columns, pots, boulders — turn it off; the inspector's

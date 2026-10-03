@@ -165,6 +165,8 @@ void DungeonWorld::RenderScene(ID3D12GraphicsCommandList* list) {
 	m_renderer.BeginScene(list, m_camera, m_lights, atmo, /*hdrTarget=*/true);
 	const ViewCull cull = ViewCull::FromFrustum(m_camera.ViewProj());
 	SubmitSceneGeometry(list, &cull);
+	// Glass the geometry queued, farthest first, over the opaque scene.
+	m_renderer.FlushTransparent(list);
 	// Transparent flame/spark/smoke billboards last, over the opaque scene.
 	m_particleBatch->Render(list, m_camera, m_particleScratch, /*hdrTarget=*/true);
 }
@@ -962,6 +964,7 @@ void DungeonWorld::BeginItemIconBake(ID3D12GraphicsCommandList* list,
 
 void DungeonWorld::EndItemIconBake(ID3D12GraphicsCommandList* list,
 								   const gfx::Texture& target) {
+	m_renderer.FlushTransparent(list); // its glass, into its own target
 	D3D12_RESOURCE_BARRIER toSRV = gfx::Transition(
 		target.Resource(), D3D12_RESOURCE_STATE_RENDER_TARGET,
 		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
@@ -1096,6 +1099,7 @@ void DungeonWorld::BakeMeshIcon(ID3D12GraphicsCommandList* list,
 	m_renderer.BeginScene(list, cam, IconStudioLights()); // the shared studio rig
 
 	m_renderer.DrawMesh(list, mesh, world, material);
+	m_renderer.FlushTransparent(list);
 
 	D3D12_RESOURCE_BARRIER toSRV = gfx::Transition(
 		target.Resource(), D3D12_RESOURCE_STATE_RENDER_TARGET,
@@ -1177,6 +1181,7 @@ void DungeonWorld::BakeMonsterIcon(ID3D12GraphicsCommandList* list,
 	} else {
 		m_renderer.DrawMesh(list, *kind.mesh, world, mat, rest.Palette());
 	}
+	m_renderer.FlushTransparent(list);
 
 	D3D12_RESOURCE_BARRIER toSRV = gfx::Transition(
 		kind.iconTarget->Resource(), D3D12_RESOURCE_STATE_RENDER_TARGET,

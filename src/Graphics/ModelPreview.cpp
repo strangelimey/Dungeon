@@ -177,6 +177,7 @@ void ModelPreview::Render(ID3D12GraphicsCommandList* list, Renderer& renderer,
 	const Mat4 world = PreviewWorld(scale, orbit, fitMin, fitMax, orient);
 	for (const PreviewSubmesh& s : subs)
 		if (s.mesh) renderer.DrawMesh(list, *s.mesh, world, s.material, palette);
+	renderer.FlushTransparent(list);
 
 	// Optional flame/smoke billboards, drawn with the same camera after the meshes.
 	if (particles && !billboards.empty()) particles->Render(list, cam, billboards);
