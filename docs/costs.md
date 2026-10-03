@@ -111,6 +111,14 @@ instancing rationale and the Reserved Font Name audit live in
 | 2026-08-02 | JetBrains Mono | **free** | OFL 1.1 (no RFN) | Mono | instanced wght=400; audition |
 | 2026-10-01 | Spectral SemiBold | **free** | OFL 1.1 (no RFN) | Body | shipped static; the Body face since ui-updates (text on stone) |
 
+### Self-made (AI-generated)
+Art Michael generated himself. No seller and no third-party licence, so nothing
+to credit. Any tool subscription goes under AI / API usage below.
+
+| date | item | tool | cost | in-game / status |
+|---|---|---|---|---|
+| 2026-10-02 | Title / loading-screen art (skeletons in a torchlit corridor), 1792x1008 JPG | Grok (xAI) | ? (see AI / API) | `assets/ui/title_bg.png` - title menu, boot and new-game loading screens - done |
+
 ### Other asset packs (sound / music / etc.)
 | date | item | source | price | notes |
 |---|---|---|---|---|
@@ -125,6 +133,7 @@ Hard to attribute per-project precisely; record known bills/top-ups here.
 | period | service | amount | notes |
 |---|---|---|---|
 | — | Claude Code (Claude / Anthropic) | ? | _fill from billing; the project is built collaboratively with Claude_ |
+| 2026-10-02 | Grok (xAI) | ? | image generation: the title art (`assets/ui/title_bg.png`) |
 
 ---
 
