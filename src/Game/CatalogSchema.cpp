@@ -449,6 +449,19 @@ constexpr FieldSpec kItemFields[] = {
 	{.key = "hydration", .kind = FieldKind::Float, .sectionKey = kSectionStats,
 	 .help = "Water restored when consumed, out of 100. Most food gives a little.",
 	 .lo = 0.0f, .hi = 100.0f, .step = 1.0f, .def = "0"},
+	// A LIT light (a burning torch): how long it burns, and the magical torch's
+	// two knobs (docs/torches-and-fire.md; ItemKind::powerLevel / flameColor).
+	{.key = "burn_time", .kind = FieldKind::Float, .sectionKey = kSectionStats,
+	 .help = "Seconds it burns while held. Over 0 marks it as LIT (the party's "
+			 "light). Leave 0 on an unlit torch.",
+	 .lo = 0.0f, .hi = 3600.0f, .step = 30.0f, .def = "0"},
+	{.key = "power_level", .kind = FieldKind::Float, .sectionKey = kSectionStats,
+	 .help = "A magical torch's power: it burns (1 + power level) times its burn "
+			 "time. 0 = an ordinary torch.",
+	 .lo = 0.0f, .hi = 10.0f, .step = 1.0f, .def = "0"},
+	{.key = "flame_color", .kind = FieldKind::Text, .sectionKey = kSectionLook,
+	 .help = "A lit torch's flame and light colour, 'r, g, b' in 0..1 (e.g. "
+			 "0.35, 0.6, 1.0 burns blue). Empty = the ordinary orange."},
 	{.key = "symbol", .kind = FieldKind::Enum, .sectionKey = kSectionRules,
 	 .help = "Rune symbol this item teaches (runes only).",
 	 .options = "fire earth air water project protect sight"},
