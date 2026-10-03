@@ -236,6 +236,37 @@ category = drink
 weight = 0.4
 holdable = 1
 
+; --- potions ---------------------------------------------------------------
+; THE CONTAINER IS THE STRENGTH (transparency branch): a minor potion comes in a
+; vial, a standard one in the small bottle, a greater one in the round flask,
+; and drinking one leaves the empty container (drink_as). The three models are
+; script-built - tools/BuildPotion.py - glass (see-through, alphaMode BLEND in
+; the file) with a cork. `upright` stands them on the floor instead of laying
+; them along their length.
+[vial_empty]
+name = item.vial_empty
+category = potion
+weight = 0.05
+holdable = 1
+model = potion_vial
+upright = 1
+
+[bottle_empty]
+name = item.bottle_empty
+category = potion
+weight = 0.15
+holdable = 1
+model = potion_bottle
+upright = 1
+
+[flask_empty]
+name = item.flask_empty
+category = potion
+weight = 0.3
+holdable = 1
+model = potion_flask
+upright = 1
+
 ; --- light -----------------------------------------------------------------
 ; THE HELD TORCH IS THE PARTY'S LIGHT (spell-updates): with nothing lit in a
 ; hand, the party sees by the level's ambient alone. Three tiers, each an unlit

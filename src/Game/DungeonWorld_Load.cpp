@@ -1181,6 +1181,7 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		// = it shatters where it stops instead of landing.
 		kind->throwAttack = CatalogGet(def, "throw", "");
 		kind->throwBreaks = CatalogBool(def, "throw_breaks", false);
+		kind->upright = CatalogBool(def, "upright", false);
 		kind->throwPayload = PackPayload(kind->onHit, "[" + type + "]");
 		if (kind->enchanted) kind->throwPayload.flavour = kind->element;
 		// An area BLAST of its own, authored as a spell's is (blast_force ...,

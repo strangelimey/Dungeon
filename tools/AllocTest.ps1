@@ -201,8 +201,9 @@
 # -Glass IS THE TRANSPARENT QUEUE (transparency Phase 1). A see-through draw is
 # not issued but QUEUED, then sorted and drawn after the opaque scene - and no
 # other mode ever has glass on screen, so none of that would be measured. This
-# places a glass decoration (-GlassKind) in eval_arena one square ahead of the
-# party and measures with it in view. It refuses a PASS unless `glass` counts
+# places a glass kind (-GlassCategory / -GlassKind, by default the empty flask
+# item) in eval_arena one square ahead of the party and measures with it in
+# view. It refuses a PASS unless `glass` counts
 # a frame that drew glass for (nearly) every armed frame of the window.
 #
 # Every step is driven by what the log actually says rather than by sleeps, so
@@ -278,7 +279,8 @@ param(
 	# transparent queue (transparency Phase 1) queues, sorts and flushes in armed
 	# frames. See the note above.
 	[switch]$Glass,
-	[string]$GlassKind = 'glass_test',
+	[string]$GlassCategory = 'items',
+	[string]$GlassKind = 'flask_empty',
 	# Starts with a CREATED party instead of the default four: a `newparty` spec
 	# (party creation, docs/party-creation-plan.md phase 2), e.g.
 	# 'premade=0 | premade=1 | premade=2' for three. Any mode runs under it; the
@@ -1403,7 +1405,7 @@ try {
 		Send-Text 'face n'; Send-Key 0x0D
 		Start-Sleep -Milliseconds 400
 		Assert-PartyAt 14 3
-		Send-Text "editor place decorations $GlassKind 14 2"; Send-Key 0x0D
+		Send-Text "editor place $GlassCategory $GlassKind 14 2"; Send-Key 0x0D
 		Start-Sleep -Milliseconds 600
 		$placed = Select-String -Path $log -Pattern "console: editor place: $GlassKind at 14,2" -SimpleMatch -Quiet
 		if (-not $placed) { throw "the $GlassKind was not placed at 14,2 (see the message log)" }

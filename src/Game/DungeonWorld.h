@@ -2322,6 +2322,9 @@ private:
 		DamageType throwBlastType{}; // what its blast deals (blast_type / the spell's school)
 		bool throwBreaks = false;
 		bool isRune = false;
+		// items.cat `upright`: it STANDS on the floor as authored (a bottle) and
+		// its icon stands too, instead of being laid along its length.
+		bool upright = false;
 		// Uniform size trim (items.cat `scale`) over the model's authored unit
 		// size — the DecorationKind knob, for floor/niche draws. 1 = as authored.
 		float modelScale = 1.0f;
@@ -2805,7 +2808,7 @@ private:
 	// target; the bake list redirects the OM.
 	void BakeIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
 				  const MultiMaterialModel& model, const gfx::Texture& target,
-				  bool animated, float spin, bool torch = false);
+				  bool animated, float spin, bool torch = false, bool upright = false);
 	// The carved tablet's material for a HELD view (icon, details dialog):
 	// the rune's set, darker stone, the groove glowing in its school's colour.
 	void RuneTabletMaterial(gfx::MaterialParams& mat, const ItemKind& kind) const;

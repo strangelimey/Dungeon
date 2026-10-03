@@ -462,6 +462,10 @@ constexpr FieldSpec kItemFields[] = {
 	 .help = "Container capacity in kilograms.", .lo = 0.0f, .hi = 50.0f, .step = 0.5f},
 	{.key = "accepts", .kind = FieldKind::Text, .sectionKey = kSectionRules,
 	 .help = "Item categories a container takes, e.g. 'rune'."},
+	{.key = "upright", .kind = FieldKind::Bool, .sectionKey = kSectionLook,
+	 .help = "Stands on the floor as modelled (a bottle) instead of being laid "
+			 "along its length; its icon stands too.",
+	 .def = "0"},
 	TRANSPARENT_ROW,
 	ITEM_QUEST,
 };

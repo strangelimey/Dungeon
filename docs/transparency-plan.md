@@ -80,6 +80,25 @@ sort wrong; fine for bottles).
 
 ## Phase 2 - containers by script
 
+AS BUILT (2026-10-03):
+- `tools/BuildPotion.py` writes potion_vial / potion_bottle / potion_flask.glb
+  straight into assets/models (an item loads only .glb; committed by name like
+  rock.glb). The glass is a revolved CLOSED section whose inside is the outside
+  offset by the wall; every face is checked against the normal its profile
+  segment demands and flipped if not (no recalc). The glass material's
+  alphaMode / colour are patched into the .glb after export and read back.
+  `--tint` / `--density` / `--roughness` build a variant without an edit.
+- SIZE: at true size a clear bottle vanished on a 2.5 m square; `GAME_SIZE`
+  1.5 (Michael picked it over 2): vial 12 cm, bottle 18 cm, flask 27 cm.
+- EMPTY GLASS IS FROSTED (density 0.25, roughness 0.35) - Michael chose it
+  from four side-by-sides (clear / light green / frosted / deep green).
+- `upright = 1` (items.cat, type-editor row): the floor pose and the icon pose
+  keep a bottle standing instead of laying it along its length. Phase 3 needs
+  that too - liquid in a lying bottle would have to level itself.
+- Items `vial_empty` / `bottle_empty` / `flask_empty`, category `potion`, with
+  names and descriptions x5. `glass_test` removed; AllocTest -Glass now places
+  `flask_empty` (-GlassCategory / -GlassKind) and passes.
+
 `tools/BuildPotion.py`, using the profile lofter (BuildFountain.py's pattern):
 - Three containers from (radius, height) station tables: VIAL (narrow tube),
   BOTTLE (small, round-shouldered), FLASK (wide, round-bellied, long neck).

@@ -196,21 +196,6 @@ authored = 1
 category = container
 facing_arrow = 0
 
-; TEMPORARY (transparency Phase 1): the ancient pot drawn as glass, to judge the
-; transparent pass before the scripted bottles exist. Remove in Phase 2.
-[glass_test]
-display = Glass Test
-model = ancient_pot
-texture = none
-solid = 1
-authored = 1
-category = container
-facing_arrow = 0
-transparent = 1
-color = 0.85, 0.95, 1.0, 0.1
-metallic = 0
-roughness = 0.05
-
 [banner]
 display = Banner
 model = banner
