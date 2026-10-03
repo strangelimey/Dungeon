@@ -532,6 +532,10 @@ item.iron_key=Llave de hierro
 item.rock=Piedra
 item.fire_flask=Frasco de fuego
 item.poison_flask=Frasco de gas venenoso
+item.fire_flask_small=Frasco de fuego pequeño
+item.fire_flask_large=Frasco de fuego grande
+item.poison_flask_small=Frasco de gas venenoso pequeño
+item.poison_flask_large=Frasco de gas venenoso grande
 item.brass_key=Llave de latón
 ; Descripciones (item.<id>.desc) para la ventana de detalles de un objeto.
 item.rune_fire.desc=Una tablilla de piedra con Kenaz, la runa del fuego. Memorízala y el símbolo será tuyo para lanzar; la tablilla se consume al aprenderla.
@@ -595,8 +599,12 @@ item.herb.desc=Una ramita de alguna hierba amarga de la mazmorra, digna de guard
 item.mushroom.desc=Una seta pálida de la oscuridad húmeda. Mejor recogida que comida cruda.
 item.iron_key.desc=Una pesada llave de hierro, oscurecida por los años. En algún lugar una puerta la espera.
 item.rock.desc=Un trozo de piedra del tamaño de un puño, lo bastante pesado para hacer daño. Poco útil en la mochila, pero se puede lanzar.
-item.fire_flask.desc=Un frasco de barro tapado, tibio al tacto. Al lanzarlo se rompe y estalla en llamas: mantente lejos.
-item.poison_flask.desc=Un frasco sellado de vapor verde turbio. Al lanzarlo se rompe y una nube asfixiante se extiende desde donde estalló.
+item.fire_flask.desc=Una botella con corcho llena de fuego anaranjado, tibia al tacto. Al lanzarla se rompe y estalla en llamas: mantente lejos.
+item.poison_flask.desc=Una botella con corcho de un brebaje verde turbio. Al lanzarla se rompe y una nube asfixiante se extiende desde donde estalló.
+item.fire_flask_small.desc=Un vial de fuego anaranjado, tibio al tacto. Al lanzarlo se rompe en una pequeña llamarada.
+item.fire_flask_large.desc=Un matraz panzudo de fuego anaranjado, caliente en la mano. Al lanzarlo se rompe en una gran llamarada que llega lejos: mantente lejos.
+item.poison_flask_small.desc=Un vial de brebaje verde turbio. Al lanzarlo se rompe y una pequeña nube asfixiante se filtra donde estalló.
+item.poison_flask_large.desc=Un matraz panzudo de brebaje verde turbio. Al lanzarlo se rompe y una densa nube asfixiante se extiende lejos y dura mucho.
 item.brass_key.desc=Una pequeña llave de latón, con los dientes aún afilados. Encaja en una cerradura de estas salas.
 
 ; --- monsters (key suffix = the .ent type; article included, see header) ---------

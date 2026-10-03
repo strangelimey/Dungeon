@@ -467,6 +467,10 @@ constexpr FieldSpec kItemFields[] = {
 	{.key = "cures", .kind = FieldKind::Text, .sectionKey = kSectionStats,
 	 .help = "Effects it treats: \"poison 0.5, bleed\" - each an effect id and the "
 			 "share of its bite taken away (absent = all of it)."},
+	{.key = "throw_scale", .kind = FieldKind::Float, .sectionKey = kSectionRules,
+	 .help = "A bomb's size: scales what a throw leaves - its blast's damage, reach "
+			 "and linger, and its on-hit effects. 1 = as authored.",
+	 .lo = 0.25f, .hi = 3.0f, .step = 0.05f, .def = "1"},
 	{.key = "loot", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
 	 .help = "Can turn up as generated loot. Off for things like an empty bottle.",
 	 .def = "1"},

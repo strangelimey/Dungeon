@@ -205,6 +205,22 @@ Plus the empties: `vial_empty`, `bottle_empty`, `flask_empty`.
 
 ## Phase 5 - the bombs in three sizes
 
+AS BUILT (2026-10-03). Michael: no shattering effect - the blast is enough.
+- items.cat `throw_scale` (type-editor row), applied in ItemKindFor AFTER a
+  borrowed spell payload: blast damage and linger x s, blast_force (squares)
+  rounded and never below 1, on-hit effect magnitudes x s.
+- fire_flask_small / fire_flask / fire_flask_large and the poison trio, in the
+  vial / small bottle / flask (throw_scale 0.6 / 1 / 1.5, weight 0.3 / 0.6 /
+  1.2). Fire 0.75/0.22/0.01, poison a murky olive 0.35/0.38/0.05 (stamina owns
+  clean green). The flasks' old "clay flask" descriptions are glass now; names
+  and descriptions x5 for the four new sizes.
+- Measured by tools/EvalScripts/bombs.eval (a row of sturdy skeletons in the
+  open arena): fire dealt 7.8 / 24.5 / 37.5, poison 22.5 / 82.3 / 145.3 with
+  poison 1.2 / 2 / 3 per second.
+- NOT measured by AllocTest: a glass bomb in FLIGHT (-Throw throws a rock, and a
+  bomb breaks so the loop could not lift it again); its parts are covered
+  separately (-Throw the flight and landing, -Glass the transparent queue).
+
 - `fire_flask` and `poison_flask` KEEP their ids as the standard size
   (crypt1.ent and dungeon-demo's `start_items` name them), in the small
   bottle. Adding `_small` (vial) and `_large` (flask) beside them.

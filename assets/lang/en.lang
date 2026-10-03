@@ -542,6 +542,10 @@ item.iron_key=Iron key
 item.rock=Rock
 item.fire_flask=Fire flask
 item.poison_flask=Poison gas flask
+item.fire_flask_small=Small fire flask
+item.fire_flask_large=Large fire flask
+item.poison_flask_small=Small poison gas flask
+item.poison_flask_large=Large poison gas flask
 item.brass_key=Brass key
 ; An item's description (item.<id>.desc): the paragraph in its details dialog
 ; (a right-click). A new item needs one, or its dialog has no paragraph.
@@ -606,8 +610,12 @@ item.herb.desc=A sprig of some bitter dungeon herb, worth keeping for whoever kn
 item.mushroom.desc=A pale mushroom from the damp dark. Better gathered than eaten raw.
 item.iron_key.desc=A heavy iron key, dark with age. Somewhere a door is waiting for it.
 item.rock.desc=A fist-sized lump of stone, heavy enough to hurt. Not much use in a pack, but it can be thrown.
-item.fire_flask.desc=A stoppered clay flask, warm to the touch. Thrown, it shatters and bursts into flame - keep well back.
-item.poison_flask.desc=A sealed flask of murky green vapour. Thrown, it shatters and a choking cloud creeps out from where it broke.
+item.fire_flask.desc=A corked bottle of orange fire, warm to the touch. Thrown, it shatters and bursts into flame - keep well back.
+item.poison_flask.desc=A corked bottle of murky green brew. Thrown, it shatters and a choking cloud creeps out from where it broke.
+item.fire_flask_small.desc=A vial of orange fire, warm to the touch. Thrown, it shatters into a small burst of flame.
+item.fire_flask_large.desc=A round flask of orange fire, hot in the hand. Thrown, it shatters into a great burst of flame that reaches far - keep well back.
+item.poison_flask_small.desc=A vial of murky green brew. Thrown, it shatters and a little choking cloud seeps out where it broke.
+item.poison_flask_large.desc=A round flask of murky green brew. Thrown, it shatters and a thick choking cloud spreads far and lingers long.
 item.brass_key.desc=A small brass key, its teeth still sharp. It fits a lock somewhere in these halls.
 
 ; --- monsters (key suffix = the .ent type) --------------------------------------

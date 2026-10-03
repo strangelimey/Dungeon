@@ -1316,6 +1316,21 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 				log::Warn("[{}]: throw_spell '{}' is not a spell", type, spellId);
 			}
 		}
+		// `throw_scale` (transparency Phase 5): a bomb's SIZE. The fire and poison
+		// flasks come in a vial, a small bottle and a flask, and the size scales
+		// what the throw leaves - the blast's damage, its reach (blast_force counts
+		// SQUARES, so it rounds, and never below one) and how long a gas lingers,
+		// and the strength of its on-hit effects. Applied after a borrowed spell
+		// payload too, which is the case it exists for: the fire flask's numbers
+		// are firebolt_burst's.
+		if (const float s = def ? def->GetFloat("throw_scale", 1.0f) : 1.0f; s != 1.0f && s > 0.0f) {
+			blast::Rules& r = kind->throwPayload.blast.rules;
+			r.damage *= s;
+			if (r.force > 0) r.force = std::max(1, static_cast<int>(std::lround(r.force * s)));
+			r.linger *= s;
+			for (size_t i = 0; i < kind->throwPayload.count; ++i)
+				kind->throwPayload.procs[i].magnitude *= s;
+		}
 		// Placeholder look: non-rune items reuse the tablet mesh tinted by category
 		// (runes overwrite this with their element colour just below).
 		kind->glow = CategoryTint(kind->category);

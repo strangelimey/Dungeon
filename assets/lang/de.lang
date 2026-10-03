@@ -532,6 +532,10 @@ item.iron_key=Eiserner Schlüssel
 item.rock=Stein
 item.fire_flask=Feuerflasche
 item.poison_flask=Giftgasflasche
+item.fire_flask_small=Kleine Feuerflasche
+item.fire_flask_large=Große Feuerflasche
+item.poison_flask_small=Kleine Giftgasflasche
+item.poison_flask_large=Große Giftgasflasche
 item.brass_key=Messingschlüssel
 ; Beschreibungen (item.<id>.desc) für das Detailfenster eines Gegenstands.
 item.rune_fire.desc=Eine Steintafel mit Kenaz, der Rune des Feuers. Präge sie dir ein, und das Zeichen gehört dir zum Zaubern; die Tafel vergeht dabei.
@@ -595,8 +599,12 @@ item.herb.desc=Ein Zweig eines bitteren Kerkerkrauts, wert, es für jemanden auf
 item.mushroom.desc=Ein bleicher Pilz aus dem feuchten Dunkel. Besser gesammelt als roh gegessen.
 item.iron_key.desc=Ein schwerer eiserner Schlüssel, dunkel vor Alter. Irgendwo wartet eine Tür auf ihn.
 item.rock.desc=Ein faustgroßer Steinbrocken, schwer genug, um wehzutun. Im Rucksack kaum von Nutzen, aber man kann ihn werfen.
-item.fire_flask.desc=Eine verkorkte Tonflasche, warm in der Hand. Geworfen zerspringt sie und geht in Flammen auf - Abstand halten.
-item.poison_flask.desc=Eine versiegelte Flasche voll trübgrünem Dunst. Geworfen zerspringt sie, und eine erstickende Wolke kriecht von dort aus, wo sie zerbrach.
+item.fire_flask.desc=Eine verkorkte Flasche orangefarbenen Feuers, warm in der Hand. Geworfen zerspringt sie und geht in Flammen auf - Abstand halten.
+item.poison_flask.desc=Eine verkorkte Flasche trübgrünen Gebräus. Geworfen zerspringt sie, und eine erstickende Wolke kriecht von dort aus, wo sie zerbrach.
+item.fire_flask_small.desc=Eine Phiole orangefarbenen Feuers, warm in der Hand. Geworfen zerspringt sie zu einem kleinen Flammenstoß.
+item.fire_flask_large.desc=Ein bauchiger Kolben orangefarbenen Feuers, heiß in der Hand. Geworfen zerspringt er zu einer gewaltigen, weit reichenden Feuersbrunst - Abstand halten.
+item.poison_flask_small.desc=Eine Phiole trübgrünen Gebräus. Geworfen zerspringt sie, und eine kleine erstickende Wolke sickert hervor.
+item.poison_flask_large.desc=Ein bauchiger Kolben trübgrünen Gebräus. Geworfen zerspringt er, und eine dichte erstickende Wolke breitet sich weit aus und hält sich lange.
 item.brass_key.desc=Ein kleiner Messingschlüssel, die Zähne noch scharf. Er passt in ein Schloss irgendwo in diesen Hallen.
 
 ; --- monsters (key suffix = the .ent type; article included, see header) ---------

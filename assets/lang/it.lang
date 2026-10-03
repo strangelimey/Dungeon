@@ -532,6 +532,10 @@ item.iron_key=Chiave di ferro
 item.rock=Sasso
 item.fire_flask=Fiasca di fuoco
 item.poison_flask=Fiasca di gas velenoso
+item.fire_flask_small=Fiasca di fuoco piccola
+item.fire_flask_large=Fiasca di fuoco grande
+item.poison_flask_small=Fiasca di gas velenoso piccola
+item.poison_flask_large=Fiasca di gas velenoso grande
 item.brass_key=Chiave d'ottone
 ; Descrizioni (item.<id>.desc) per la finestra dei dettagli di un oggetto.
 item.rune_fire.desc=Una tavoletta di pietra incisa con Kenaz, la runa del fuoco. Imprimila nella memoria e il simbolo sarà tuo da lanciare; la tavoletta si consuma nell'apprenderla.
@@ -595,8 +599,12 @@ item.herb.desc=Un rametto di qualche erba amara del sotterraneo, da tenere per c
 item.mushroom.desc=Un fungo pallido dall'umido buio. Meglio raccolto che mangiato crudo.
 item.iron_key.desc=Una pesante chiave di ferro, scurita dagli anni. Da qualche parte una porta la aspetta.
 item.rock.desc=Un pezzo di pietra grande quanto un pugno, abbastanza pesante da far male. Poco utile nello zaino, ma si può lanciare.
-item.fire_flask.desc=Una fiasca di terracotta tappata, calda al tatto. Lanciata, si frantuma ed esplode in fiamme: state alla larga.
-item.poison_flask.desc=Una fiasca sigillata di vapore verde torbido. Lanciata, si frantuma e una nube soffocante si allarga da dove si è rotta.
+item.fire_flask.desc=Una bottiglia tappata di fuoco arancione, calda al tatto. Lanciata, si frantuma ed esplode in fiamme: state alla larga.
+item.poison_flask.desc=Una bottiglia tappata di un intruglio verde torbido. Lanciata, si frantuma e una nube soffocante si allarga da dove si è rotta.
+item.fire_flask_small.desc=Una fiala di fuoco arancione, calda al tatto. Lanciata, si frantuma in una piccola vampata.
+item.fire_flask_large.desc=Un'ampolla panciuta di fuoco arancione, bollente in mano. Lanciata, si frantuma in una grande vampata che arriva lontano: state alla larga.
+item.poison_flask_small.desc=Una fiala di intruglio verde torbido. Lanciata, si frantuma e una piccola nube soffocante filtra da dove si è rotta.
+item.poison_flask_large.desc=Un'ampolla panciuta di intruglio verde torbido. Lanciata, si frantuma e una densa nube soffocante si allarga lontano e dura a lungo.
 item.brass_key.desc=Una piccola chiave d'ottone, dai denti ancora affilati. Apre una serratura da qualche parte in queste sale.
 
 ; --- monsters (key suffix = the .ent type; article included, see header) ---------
