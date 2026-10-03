@@ -267,6 +267,132 @@ holdable = 1
 model = potion_flask
 upright = 1
 
+; The potions. `liquid_color` (r, g, b[, density]) fills the container's glass
+; with a liquid generated from its shape (Game/Liquid.h); `liquid_fill` is how
+; full, as a share of the inside's height. Colours follow the resource bars:
+; health red, stamina green, mana blue; the antidote amber. A strong colour
+; wants a DARK tint and a high density: a light one (0.8 red) lets the white
+; behind it through and the tonemap lifts it, and health read as pink.
+[potion_health_minor]
+name = item.potion_health_minor
+category = potion
+weight = 0.1
+holdable = 1
+model = potion_vial
+upright = 1
+liquid_color = 0.50, 0.01, 0.015, 0.95
+drink_as = vial_empty
+
+[potion_health]
+name = item.potion_health
+category = potion
+weight = 0.3
+holdable = 1
+model = potion_bottle
+upright = 1
+liquid_color = 0.50, 0.01, 0.015, 0.95
+drink_as = bottle_empty
+
+[potion_health_greater]
+name = item.potion_health_greater
+category = potion
+weight = 0.6
+holdable = 1
+model = potion_flask
+upright = 1
+liquid_color = 0.50, 0.01, 0.015, 0.95
+drink_as = flask_empty
+
+[potion_stamina_minor]
+name = item.potion_stamina_minor
+category = potion
+weight = 0.1
+holdable = 1
+model = potion_vial
+upright = 1
+liquid_color = 0.06, 0.42, 0.04, 0.95
+drink_as = vial_empty
+
+[potion_stamina]
+name = item.potion_stamina
+category = potion
+weight = 0.3
+holdable = 1
+model = potion_bottle
+upright = 1
+liquid_color = 0.06, 0.42, 0.04, 0.95
+drink_as = bottle_empty
+
+[potion_stamina_greater]
+name = item.potion_stamina_greater
+category = potion
+weight = 0.6
+holdable = 1
+model = potion_flask
+upright = 1
+liquid_color = 0.06, 0.42, 0.04, 0.95
+drink_as = flask_empty
+
+[potion_mana_minor]
+name = item.potion_mana_minor
+category = potion
+weight = 0.1
+holdable = 1
+model = potion_vial
+upright = 1
+liquid_color = 0.04, 0.10, 0.60, 0.95
+drink_as = vial_empty
+
+[potion_mana]
+name = item.potion_mana
+category = potion
+weight = 0.3
+holdable = 1
+model = potion_bottle
+upright = 1
+liquid_color = 0.04, 0.10, 0.60, 0.95
+drink_as = bottle_empty
+
+[potion_mana_greater]
+name = item.potion_mana_greater
+category = potion
+weight = 0.6
+holdable = 1
+model = potion_flask
+upright = 1
+liquid_color = 0.04, 0.10, 0.60, 0.95
+drink_as = flask_empty
+
+[potion_antidote_minor]
+name = item.potion_antidote_minor
+category = potion
+weight = 0.1
+holdable = 1
+model = potion_vial
+upright = 1
+liquid_color = 0.62, 0.34, 0.02, 0.95
+drink_as = vial_empty
+
+[potion_antidote]
+name = item.potion_antidote
+category = potion
+weight = 0.3
+holdable = 1
+model = potion_bottle
+upright = 1
+liquid_color = 0.62, 0.34, 0.02, 0.95
+drink_as = bottle_empty
+
+[potion_antidote_greater]
+name = item.potion_antidote_greater
+category = potion
+weight = 0.6
+holdable = 1
+model = potion_flask
+upright = 1
+liquid_color = 0.62, 0.34, 0.02, 0.95
+drink_as = flask_empty
+
 ; --- light -----------------------------------------------------------------
 ; THE HELD TORCH IS THE PARTY'S LIGHT (spell-updates): with nothing lit in a
 ; hand, the party sees by the level's ambient alone. Three tiers, each an unlit

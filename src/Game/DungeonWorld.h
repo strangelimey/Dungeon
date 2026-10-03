@@ -2789,6 +2789,9 @@ private:
 	// Lazily loads (and caches) the shared behaviour for an item type, resolved
 	// through the items catalog (category=rune → symbol + element glow colour).
 	ItemKind& ItemKindFor(const std::string& type);
+	// items.cat `liquid_color`: generates the liquid inside the kind's glass and
+	// appends it to its model as one more part (DungeonWorld_Load.cpp).
+	void AddLiquid(ItemKind& kind, const CatalogEntry& def, const std::string& modelFile);
 	// Lays a RUNTIME drop (negative id) on the floor: into the slot of a
 	// runtime drop that was picked back up (it is dead - the save skips it)
 	// when there is one, else onto the end. With ReserveDropRoom's headroom, a

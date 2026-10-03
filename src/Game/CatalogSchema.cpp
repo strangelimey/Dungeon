@@ -467,6 +467,12 @@ constexpr FieldSpec kItemFields[] = {
 			 "along its length; its icon stands too.",
 	 .def = "0"},
 	TRANSPARENT_ROW,
+	{.key = "liquid_color", .kind = FieldKind::Text, .sectionKey = kSectionLook,
+	 .help = "The liquid inside its glass: \"r, g, b\" (0..1), plus an optional "
+			 "4th, its density (default 0.85). Empty = an empty container."},
+	{.key = "liquid_fill", .kind = FieldKind::Float, .sectionKey = kSectionLook,
+	 .help = "How full, as a share of the inside's height (the neck included).",
+	 .lo = 0.05f, .hi = 1.0f, .step = 0.05f, .def = "0.6"},
 	ITEM_QUEST,
 };
 

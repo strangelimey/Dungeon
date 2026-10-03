@@ -113,6 +113,31 @@ AS BUILT (2026-10-03):
 
 ## Phase 3 - the liquid inside
 
+AS BUILT (2026-10-03):
+- `Game/Liquid.h` (pure, MeshData in and out): the shell is the glass's INNER
+  wall - triangles facing into the cavity (toward the axis, or up on the cavity
+  floor below the lip) - inset a hair, reversed and turned outward. A model with
+  no inner wall falls back to the glass shrunk toward its axis.
+- The level is a CLIP PLANE, not a cut: `MaterialParams::liquid` /
+  `liquidLevel` (object space), carried into world space through the world
+  matrix's Y row so it tilts with the bottle. A back face seen through the cut
+  is lit with the plane's normal - the surface.
+- `FlushTransparent` draws one object at a time (a run at the same distance):
+  every far wall, the liquid both ways, every near wall.
+- items.cat `liquid_color` (r, g, b[, density], default density 0.85) and
+  `liquid_fill` (0..1, default 0.6); `DungeonWorld::AddLiquid` appends the
+  shell to the kind's own model copy, so floor, niche, flight, icon and the
+  details dialog all draw it with no code of their own.
+- A FILLED bottle's glass goes CLEAR (density / roughness 0.08): the frosting is
+  for empty glass, and over a liquid it laid a white veil (health read pink).
+- COLOUR RULE (Michael: "more red", "more blue", "more green"): a DARK tint at
+  density 0.95. A light tint lets the white behind through and the tonemap lifts
+  it to pastel. Health 0.50/0.01/0.015, stamina 0.06/0.42/0.04, mana
+  0.04/0.10/0.60, antidote 0.62/0.34/0.02.
+- The twelve potion items exist already (look, names x5, `drink_as`); Phase 4
+  adds what drinking does and their descriptions. `itemcat.potion` x5 added.
+- AllocTest -Glass now places `potion_health_greater` (glass AND liquid): PASS.
+
 Generated at item-kind load for any kind with a `liquid_color`:
 - THE SHAPE: the glass submesh pulled in toward the model's vertical axis by
   the wall thickness (import-model centres XZ, so the axis is known). Measured

@@ -201,9 +201,10 @@
 # -Glass IS THE TRANSPARENT QUEUE (transparency Phase 1). A see-through draw is
 # not issued but QUEUED, then sorted and drawn after the opaque scene - and no
 # other mode ever has glass on screen, so none of that would be measured. This
-# places a glass kind (-GlassCategory / -GlassKind, by default the empty flask
-# item) in eval_arena one square ahead of the party and measures with it in
-# view. It refuses a PASS unless `glass` counts
+# places a glass kind (-GlassCategory / -GlassKind, by default a filled flask,
+# so the liquid's clip plane and the far-wall / liquid / near-wall ordering are
+# measured too) in eval_arena one square ahead of the party and measures with
+# it in view. It refuses a PASS unless `glass` counts
 # a frame that drew glass for (nearly) every armed frame of the window.
 #
 # Every step is driven by what the log actually says rather than by sleeps, so
@@ -280,7 +281,7 @@ param(
 	# frames. See the note above.
 	[switch]$Glass,
 	[string]$GlassCategory = 'items',
-	[string]$GlassKind = 'flask_empty',
+	[string]$GlassKind = 'potion_health_greater', # glass AND a liquid (Phase 3)
 	# Starts with a CREATED party instead of the default four: a `newparty` spec
 	# (party creation, docs/party-creation-plan.md phase 2), e.g.
 	# 'premade=0 | premade=1 | premade=2' for three. Any mode runs under it; the

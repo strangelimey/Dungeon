@@ -5,6 +5,7 @@
 #include "Graphics/ShaderCompiler.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace dungeon::gfx {
@@ -74,8 +75,9 @@ struct ObjectConstants {
 	u32 useMRMap;
 	float alphaCutoff; // 0 = opaque; > 0 = alpha-test cutout threshold
 	Vec4 emissive;
-	u32 transparent; // 1 = glass: premultiplied output, Fresnel opacity
+	u32 transparent; // 0 = opaque, 1 = glass, 2 = liquid (clipped at liquidPlane)
 	u32 pad1[3];
+	Vec4 liquidPlane; // world-space plane n.xyz, w = d: above it (n.p + d > 0) is clipped
 };
 
 } // namespace
@@ -634,17 +636,40 @@ void Renderer::FlushTransparent(ID3D12GraphicsCommandList* list) {
 		return da > db || (da == db && a < b);
 	});
 	const int hdr = m_hdrPass ? 1 : 0;
-	for (const u16 i : m_transparentOrder) {
-		const QueuedDraw& d = m_transparent[i];
-		// The far wall, then the near one: a bottle's back shows through its front.
-		for (int cull = 0; cull < 2; ++cull) {
-			ID3D12PipelineState* pso = m_psoGlass[hdr][cull].Get();
-			if (pso != m_currentPso) {
-				list->SetPipelineState(pso);
-				m_currentPso = pso;
-			}
-			IssueDraw(list, *d.mesh, d.world, d.material, d.paletteVa);
+	auto draw = [&](const QueuedDraw& d, int cull) {
+		ID3D12PipelineState* pso = m_psoGlass[hdr][cull].Get();
+		if (pso != m_currentPso) {
+			list->SetPipelineState(pso);
+			m_currentPso = pso;
 		}
+		IssueDraw(list, *d.mesh, d.world, d.material, d.paletteVa);
+	};
+	// One OBJECT at a time - a run of entries at the same distance, which the
+	// parts of one model are (they share its origin). Within it: every far wall
+	// (front faces culled), then the liquid both ways, then every near wall, so
+	// a bottle reads back wall, contents, front wall. With no liquid that is
+	// simply each part's far wall then its near one.
+	for (size_t r = 0; r < n;) {
+		size_t end = r + 1;
+		while (end < n && m_transparent[m_transparentOrder[end]].distance ==
+							  m_transparent[m_transparentOrder[r]].distance)
+			++end;
+		for (size_t k = r; k < end; ++k) {
+			const QueuedDraw& d = m_transparent[m_transparentOrder[k]];
+			if (!d.material.liquid) draw(d, 0);
+		}
+		for (size_t k = r; k < end; ++k) {
+			const QueuedDraw& d = m_transparent[m_transparentOrder[k]];
+			if (d.material.liquid) {
+				draw(d, 0);
+				draw(d, 1);
+			}
+		}
+		for (size_t k = r; k < end; ++k) {
+			const QueuedDraw& d = m_transparent[m_transparentOrder[k]];
+			if (!d.material.liquid) draw(d, 1);
+		}
+		r = end;
 	}
 	m_transparent.clear();
 }
@@ -680,7 +705,20 @@ void Renderer::IssueDraw(ID3D12GraphicsCommandList* list, const Mesh& mesh,
 	object.alphaCutoff = material.alphaCutoff;
 	object.emissive = {material.emissive.x, material.emissive.y, material.emissive.z,
 					   material.emissiveGroove};
-	object.transparent = material.transparent ? 1u : 0u;
+	object.transparent = !material.transparent ? 0u : material.liquid ? 2u : 1u;
+	if (material.liquid) {
+		// The level is y = liquidLevel in the mesh's space; carried into world space
+		// by the world matrix's Y row (the mesh's up, so it tilts with the bottle)
+		// and the point on that axis at the level.
+		const float ux = world._21, uy = world._22, uz = world._23;
+		const float ul = std::sqrt(ux * ux + uy * uy + uz * uz);
+		const float inv = ul > 1e-12f ? 1.0f / ul : 0.0f;
+		const float px = world._41 + ux * material.liquidLevel;
+		const float py = world._42 + uy * material.liquidLevel;
+		const float pz = world._43 + uz * material.liquidLevel;
+		const Vec3 n{ux * inv, uy * inv, uz * inv};
+		object.liquidPlane = {n.x, n.y, n.z, -(n.x * px + n.y * py + n.z * pz)};
+	}
 	UploadAllocation objAlloc = allocator.Allocate(sizeof(ObjectConstants));
 	std::memcpy(objAlloc.cpu, &object, sizeof(object));
 	list->SetGraphicsRootConstantBufferView(1, objAlloc.gpu);

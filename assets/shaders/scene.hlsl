@@ -57,8 +57,10 @@ cbuffer ObjectConstants : register(b1) {
 	float4 gEmissive;
 	// 1 = glass (MaterialParams::transparent): drawn by the blended PSOs, so
 	// the output is PREMULTIPLIED - see GlassOutput.
-	uint gTransparent;
+	uint gTransparent; // 2 = a LIQUID: glass, clipped at gLiquidPlane
 	uint3 _pad1;
+	// The liquid's level, world space: n.xyz, w = d; n.p + d > 0 is above it.
+	float4 gLiquidPlane;
 };
 
 cbuffer SkinConstants : register(b2) {
@@ -428,10 +430,16 @@ float4 ShadeSurface(PSInput input, out float3 filter) {
 	filter = 1.0;
 	float2 uv = input.uv;
 	float3 normal = normalize(input.normal);
+	// A liquid stops at its level (Game/Liquid.h): the shell runs up to the lip,
+	// and the plane cuts it where the item's fill says.
+	if (gTransparent == 2 && dot(gLiquidPlane.xyz, input.worldPos) + gLiquidPlane.w > 0.0)
+		clip(-1.0);
 	// Glass draws its far wall too (FlushTransparent's front-culled pass); that
-	// wall faces away from the eye, and is lit as the inside it is.
+	// wall faces away from the eye, and is lit as the inside it is. A LIQUID's
+	// back face is what shows through the open cut, so it is lit as the flat
+	// surface standing in that cut - the level's own up.
 	if (gTransparent != 0 && dot(normal, gCameraPos.xyz - input.worldPos) < 0.0)
-		normal = -normal;
+		normal = gTransparent == 2 ? gLiquidPlane.xyz : -normal;
 
 	if (gUseNormalMap != 0) {
 		const float3x3 tbn = CotangentFrame(normal, input.worldPos, uv);

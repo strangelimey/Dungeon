@@ -88,6 +88,13 @@ struct MaterialParams {
 	// only its specular, a little scatter and a faint sheen at grazing edges.
 	// Casts no shadow.
 	bool transparent = false;
+	// A LIQUID inside glass (Game/Liquid.h): a transparent draw clipped at the
+	// plane y = liquidLevel in the mesh's OWN space (the shader gets it in
+	// world space, so it tilts with the bottle), whose back faces seen through
+	// the cut are lit as the flat surface. FlushTransparent draws it between its
+	// container's far and near walls.
+	bool liquid = false;
+	float liquidLevel = 0.0f;
 };
 
 // What the transparent queue did, for the `glass` dev command.
