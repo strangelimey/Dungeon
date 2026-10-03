@@ -147,6 +147,12 @@ scorch_damage = 1.5
 ; out any fire on the party.
 soothe = 1
 clear_haze = 2
+; AIR's light: every crackle_every seconds a shock of crackle_damage x
+; (power / scale_power) at the nearest monster in its reach and sight; its
+; flicker runs warn_rate x fast while a monster near has noticed the party.
+crackle_every = 2
+crackle_damage = 2
+warn_rate = 3
 
 ; A light spell's flare blinds a monster: it does nothing while this lasts.
 [dazzle]

@@ -77,7 +77,10 @@ void DungeonWorld::AppendSpellLights(float time) {
 								   : kDimFloor + (1.0f - kDimFloor) * std::max(share, 0.0f) / kDimShare;
 			const u32 slot = static_cast<u32>(m * 4 + static_cast<size_t>(inst.school));
 			const Vec4 c = ElementColor(inst.school);
-			PushLight(profile, "spell", LightKey(LightKind::Spell, slot), at, time,
+			// AIR WARNS: its storm-flicker runs on a clock that speeds up while
+			// the party is noticed (TickSpellLights).
+			const float clock = inst.school == SpellSymbol::Air ? m_airPulseClock : time;
+			PushLight(profile, "spell", LightKey(LightKind::Spell, slot), at, clock,
 					  static_cast<float>(slot) * 2.1f, {c.x, c.y, c.z}, scale * dim,
 					  profile.radius * kCellSize * scale * (0.6f + 0.4f * dim));
 		}
@@ -130,6 +133,14 @@ void DungeonWorld::LightFlare(SpellSymbol school, float power, int casterIndex) 
 		for (Monster& monster : m_monsters)
 			if (monster.Alive() && IsDazzled(monster)) ScorchMonster(monster, damage, casterIndex);
 		KindleNear(kFlareSteps, power);
+		break;
+	}
+	case SpellSymbol::Air: {
+		// A shock at every monster it dazzled.
+		const float damage = kind ? kind->CrackleDamage() * power / kind->ScalePower() : 0.0f;
+		for (Monster& monster : m_monsters)
+			if (monster.Alive() && IsDazzled(monster))
+				CrackleMonster(monster, damage, casterIndex);
 		break;
 	}
 	case SpellSymbol::Water: {
@@ -231,6 +242,11 @@ void DungeonWorld::TickSpellLights(float dt) {
 	if (!m_roster) return;
 	const fx::LightEffect* kind = SpellLightKind();
 	if (!kind) return;
+	// AIR WARNS: the flicker's clock, eased toward warn_rate while something
+	// near has noticed the party and back to 1 when nothing has.
+	const float warnTarget = PartyNoticed() ? kind->WarnRate() : 1.0f;
+	m_airPulseRate += (warnTarget - m_airPulseRate) * std::min(1.0f, dt * 2.0f);
+	m_airPulseClock += dt * m_airPulseRate;
 	// WATER QUENCHES: while a Tidelight is up, nothing on the party burns.
 	if (WaterLightPower() > 0.0f) QuenchParty();
 	m_kindleClock -= dt;
@@ -257,6 +273,59 @@ void DungeonWorld::TickSpellLights(float dt) {
 			if (monster.Alive() && std::abs(monster.x - px) + std::abs(monster.z - pz) == 1)
 				ScorchMonster(monster, damage, static_cast<int>(m));
 	}
+
+	// AIR CRACKLES at foes: per member with a Skylight, a shock every
+	// crackle_every seconds at the nearest monster in its reach and sight.
+	for (size_t m = 0; m < m_roster->size() && m < m_crackleClock.size(); ++m) {
+		const fx::Inst* air = nullptr;
+		for (const fx::Inst& inst : (*m_roster)[m].effects)
+			if (inst.Is("light") && inst.school == SpellSymbol::Air) air = &inst;
+		if (!air) {
+			m_crackleClock[m] = 0.0f;
+			continue;
+		}
+		m_crackleClock[m] -= dt;
+		if (m_crackleClock[m] > 0.0f) continue;
+		m_crackleClock[m] = kind->CrackleEvery();
+		const float reach = LightProfileFor("spell_air").radius * SpellLightScale(air->magnitude);
+		CrackleNearest(reach, kind->CrackleDamage() * air->magnitude / kind->ScalePower(),
+					   static_cast<int>(m));
+	}
+}
+
+void DungeonWorld::CrackleMonster(Monster& monster, float damage, int source) {
+	if (damage <= 0.0f || !monster.Alive()) return;
+	MonsterTarget target{*this, monster};
+	fx::DamageEvent ev =
+		fx::DamageEvent::Burst(m_damageTypes.ForSchool(SpellSymbol::Air), damage, source);
+	fx::Deal(ev, target, m_balance.Strike(), m_combatRng);
+	// A spit of white sparks off the body.
+	m_projectiles.Splash(BurnOrigin(monster), {0.0f, 0.0f, 0.0f}, {1.6f, 1.7f, 2.0f, 0.0f}, 10,
+						 1.8f, 0.25f, 0.01f * kUnit);
+	if (!onMessage) return;
+	const loc::Line name = loc::ViewKey("monster.", monster.kind->name);
+	if (ev.dealt >= 0.5f)
+		onMessage(loc::FormatLine("log.light_crackles", name, static_cast<int>(ev.dealt + 0.5f)));
+	if (!monster.Alive()) onMessage(loc::FormatLine("log.monster_slain", name));
+}
+
+bool DungeonWorld::CrackleNearest(float reachSquares, float damage, int source) {
+	const int px = m_party.GridX(), pz = m_party.GridZ();
+	Monster* nearest = nullptr;
+	int best = 1 << 30;
+	for (Monster& monster : m_monsters) {
+		if (!monster.Alive()) continue;
+		const int d = std::abs(monster.x - px) + std::abs(monster.z - pz);
+		if (d < 1 || static_cast<float>(d) > reachSquares || d >= best) continue;
+		// Only what the party could see: down a shared row or column, nothing solid
+		// between (the grid's own line of sight).
+		if (!CellHasLineOfSight(px, pz, monster.x, monster.z)) continue;
+		best = d;
+		nearest = &monster;
+	}
+	if (!nearest) return false;
+	CrackleMonster(*nearest, damage, source);
+	return true;
 }
 
 } // namespace dungeon::game

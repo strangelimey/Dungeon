@@ -370,6 +370,17 @@ committed and checked on its own:
   sight takes a small air burst, with a spark. WARNS: while a monster near has
   noticed the party (`PartyNoticed`), its flicker runs faster (a pulse clock
   integrated per frame, so the change never jumps).
+  DONE: CrackleNearest every `crackle_every` 2 s per member: the nearest
+  living monster within the light's reach in squares (`spell_air` radius x
+  the power's scale) and the party's orthogonal line of sight takes
+  `crackle_damage` 2 x power/8 of air (a Burst), with a spit of white sparks.
+  WARN: m_airPulseClock advances at a rate eased toward `warn_rate` 3 while
+  PartyNoticed(), back to 1 otherwise; the Skylight's pulse reads that clock.
+  Its flare: a shock at every monster it dazzled. Measured headless: a
+  skeleton three squares off in sight went 16 -> 2.1 hp in 5 s from a level-10
+  caster (three shocks of 4.6) while one out of sight was untouched - STRONG
+  for a passive light; it is two knobs for the balance pass. AllocTest
+  `-Light` and SpellTest 39 PASS.
 
 6f. EARTH. SET DOWN: no effect on the caster - a glowing STONE left in the
   square it was cast in, part of that level's saved state (`LevelState`), its

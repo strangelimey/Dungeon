@@ -353,6 +353,7 @@ log.monsters_dazzled=Il bagliore abbaglia {} nemici.
 log.light_scorches=La luce di fuoco strina {} per {}.
 log.light_kindles=La luce di fuoco accende {} fuoco/fuochi.
 log.light_quenches=La luce di marea spegne le fiamme su {}.
+log.light_crackles=La luce del cielo crepita contro {} per {}.
 effect.dazzle=Abbagliato
 effect.dazzle.desc=Accecato da un lampo di luce: non fa nulla finché non passa.
 effect.smoke=Fumo

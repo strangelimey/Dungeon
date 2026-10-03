@@ -353,6 +353,7 @@ log.monsters_dazzled=Das Gleißen blendet {} Gegner.
 log.light_scorches=Das Feuerlicht versengt {} um {}.
 log.light_kindles=Das Feuerlicht entzündet {} Feuer.
 log.light_quenches=Das Gezeitenlicht löscht die Flammen an {}.
+log.light_crackles=Das Himmelslicht knistert gegen {} für {}.
 effect.dazzle=Geblendet
 effect.dazzle.desc=Von einem Lichtblitz geblendet: tut nichts, bis es vergeht.
 effect.smoke=Rauch

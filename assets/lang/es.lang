@@ -353,6 +353,7 @@ log.monsters_dazzled=El destello deslumbra a {} enemigos.
 log.light_scorches=La luz de fuego chamusca a {} por {}.
 log.light_kindles=La luz de fuego enciende {} fuego(s).
 log.light_quenches=La luz de marea apaga las llamas de {}.
+log.light_crackles=La luz celeste chisporrotea contra {} por {}.
 effect.dazzle=Deslumbrado
 effect.dazzle.desc=Cegado por un destello de luz: no hace nada hasta que se le pase.
 effect.smoke=Humo

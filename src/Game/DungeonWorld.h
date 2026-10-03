@@ -3984,6 +3984,14 @@ private:
 	float StaminaSoothe() const;
 	void AddClearBubble(gfx::Atmosphere& atmo) const;
 	int QuenchParty();
+	// AIR (6e): a shock at the nearest monster within `reachSquares` and the
+	// party's sight (false = none there), and the flicker clock that runs fast
+	// while the party is noticed (the WARNING), eased so it never jumps.
+	bool CrackleNearest(float reachSquares, float damage, int source);
+	void CrackleMonster(Monster& monster, float damage, int source);
+	std::array<float, 4> m_crackleClock{};
+	float m_airPulseClock = 0.0f;
+	float m_airPulseRate = 1.0f;
 	// Per-member scorch clocks, and the kindling check's (every quarter second).
 	std::array<float, 4> m_scorchClock{};
 	float m_kindleClock = 0.0f;

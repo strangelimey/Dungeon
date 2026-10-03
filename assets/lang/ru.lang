@@ -357,6 +357,7 @@ log.monsters_dazzled=Вспышка ослепляет врагов: {}.
 log.light_scorches=Огненный свет опаляет: {} ({}).
 log.light_kindles=Огненный свет разжигает огни: {}.
 log.light_quenches=Свет прилива гасит пламя: {}.
+log.light_crackles=Небесный свет бьёт разрядом: {} ({}).
 effect.dazzle=Ослеплён
 effect.dazzle.desc=Ослеплён вспышкой света: ничего не делает, пока не придёт в себя.
 effect.smoke=Дым

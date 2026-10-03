@@ -44,6 +44,12 @@ public:
 	// turbidity it takes away at the centre).
 	float Soothe() const { return m_soothe; }
 	float ClearHaze() const { return m_clearHaze; }
+	// AIR (6e): every `crackle_every` seconds a shock of `crackle_damage` x
+	// (power / scale_power) at the nearest monster in its reach and sight; while
+	// a monster near has noticed the party its flicker runs `warn_rate` x fast.
+	float CrackleEvery() const { return m_crackleEvery; }
+	float CrackleDamage() const { return m_crackleDamage; }
+	float WarnRate() const { return m_warnRate; }
 
 private:
 	// Indexed by school (Fire, Earth, Air, Water - the SpellSymbol order).
@@ -54,6 +60,9 @@ private:
 	float m_scorchDamage = 1.5f;
 	float m_soothe = 1.0f;
 	float m_clearHaze = 2.0f;
+	float m_crackleEvery = 2.0f;
+	float m_crackleDamage = 2.0f;
+	float m_warnRate = 3.0f;
 };
 
 class DazzleEffect : public EffectKind {
