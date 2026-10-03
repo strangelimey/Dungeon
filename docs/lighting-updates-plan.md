@@ -274,22 +274,64 @@ and the Phase 4 code passed them as it stood.
 
 ## Phase 6 - light spells: the Sowilo form rune
 
-- A fourth tier-2 FORM rune, `light` id, shown as SOWILO (`rune.light` ->
-  Sowilo). `Spells.h` grammar: TierOf / SymbolMayFollow / WellFormedRecipe
-  learn it. The rune tablet + glyph (RuneBaker, BuildEtchGlyphs.py).
-- A `LightSpell` form base (beside BoltSpell / WardSpell / SightSpell) and
-  FOUR classes, one per school, each its own file pair - because Michael wants
-  the schools to differ in more than colour. The shared part: an effect on the
-  caster (a `light` effect kind) carrying a profile, lasting the cast's power
-  in seconds, following the party, dimming at the end like a torch. What each
-  school ADDS beyond its colour and pulse is decided with Michael when the
-  phase opens (one question at a time) - not guessed here.
-- Modifiers: whether Ingwaz (party-wide, as for wards) / Hagalaz apply to a
-  light is part of that same conversation.
-- Content: spells.cat entries, effects.cat entries, `spell.<id>` + `.desc` and
-  `rune.light` lang keys x5, AllSpells.cpp + CMakeLists.
-- Checks: SpellTest.py (a light cast, its duration, its end), AllocTest
-  `-Cast` with a light spell, the spells eval suite.
+Michael's answers are in the notes ("Phase 6 answers"). Built in steps, each
+committed and checked on its own:
+
+6a. THE RUNE. A fourth tier-2 FORM rune, id `light`, shown as SOWILO
+  (`rune.light`): the SpellSymbol, the grammar (TierOf / SymbolMayFollow /
+  WellFormedRecipe), its glyph, glow and icon images and its baked tablet, the
+  `rune_light` item in all three projects, lang x5, and every table sized by
+  the symbol count. Ends with: learnable, memorizable, shown in the Magic panel.
+
+6b. THE LIGHT FORM. A `LightSpell` form base (beside Bolt / Ward / Sight) and
+  four classes, one file pair each (`light_fire` ... `light_earth`). The shared
+  part: a `light` EFFECT on the caster (effects.cat; an Effect class) carrying
+  the school, lasting the cast's power x `duration` seconds, its light pushed
+  every frame at the party (`LightKind::Spell`) from the school's lights.cat
+  profile (`spell_fire` ...), dimming over its last tenth like a torch. Effects
+  of different schools stack; a recast of the same school replaces it.
+  Ingwaz = ONE BIGGER LIGHT (brighter and further, as long); Hagalaz = a
+  DAZZLING FLARE (no lasting light; a flash, the monsters near DAZZLED for a few
+  seconds, and the school's effect once). ModifiedSpell learns to wrap a light.
+
+6c. FIRE. Its profile casts shadows (the brightest). KINDLES: an unlit sconce
+  or brazier within a square of the party catches as it passes (a brazier still
+  needs `brazier_power`). SCORCHES: every `scorch_rate` seconds a monster in an
+  adjacent square takes a small fire burst. With it, the data Michael asked
+  for: every skeleton kind `fire 0.75` in monsters.cat, and a new monsters.cat
+  `flammable` - ANY fire landing on a flammable monster (a bolt, a lit torch's
+  blow, the scorch) sets it burning every time. Mummies are flammable.
+
+6d. WATER. CUTS THE HAZE: a NEGATIVE dust puff centred on the party (the
+  shader's DustDensity clamps at zero), the light's reach in radius. SOOTHES:
+  stamina regenerates faster (`soothe` x) for the party while it lasts.
+  QUENCHES: a member set alight stops burning, and none can burn while it lasts.
+
+6e. AIR. REACHES FURTHEST (its profile: wide and dim). CRACKLES: every
+  `crackle_rate` seconds a monster within its reach and the party's line of
+  sight takes a small air burst, with a spark. WARNS: while a monster near has
+  noticed the party (`PartyNoticed`), its flicker runs faster (a pulse clock
+  integrated per frame, so the change never jumps).
+
+6f. EARTH. SET DOWN: no effect on the caster - a glowing STONE left in the
+  square it was cast in, part of that level's saved state (`LevelState`), its
+  light pushed from there (`LightKind::Stone`), lasting longest (`duration`).
+  MAPS: the squares within its reach are marked seen. SHOWS TRACKS (below).
+
+6g. MONSTER TRACKS. Every monster step records its square and direction and
+  the world time on the level (a per-level grid, saved in `LevelState` as ages,
+  so a load restores them), fading over `track_life` seconds. An Earth stone
+  shows the tracks within its reach as faint amber motes low on the floor.
+  FOR LATER (Michael): the PARTY leaving tracks, scent and noise that some
+  monsters can follow - the grid is built so the party can write to it too.
+
+- Content: spells.cat (4 lights + their Ingwaz and Hagalaz forms), effects.cat
+  `light`, lights.cat `spell_<school>`, `spell.<id>` + `.desc` and the rune's
+  keys x5, AllSpells.cpp + CMakeLists.
+- Checks: SpellTest.py (each light cast, its duration, its end; the flare's
+  dazzle), AllocTest `-Cast` with a light spell and `-Walk` under a light,
+  RollTest for anything pure, a save/load round trip of a stone and tracks,
+  each behaviour seen in the window - all on a CURRENT debug build.
 
 ## Docs to update as phases land
 

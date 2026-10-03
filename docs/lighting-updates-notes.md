@@ -79,3 +79,33 @@ shadow cubes. Answered in the plan.
   Lighting it costs some mana, depending on the power of the magical torch."
   (The magical torch landed on main the same morning: `torch_magic`, items.cat
   `power_level` and `flame_color`.)
+
+## Phase 6 answers (2026-10-03) - the Sowilo light spells
+
+Each school's light (school rune + Sowilo) follows the party, lasts by the
+cast's power and dims at the end; beyond its colour:
+- FIRE: casts shadows like a torch (the brightest); KINDLES unlit sconces and
+  braziers it passes (a brazier still needs the power); SCORCHES what comes
+  close. Not "unnerves the undead" - instead (his words): "Skeletons won't be
+  bothered by fire, but mummies are a human torch waiting to happen." Asked
+  how far: every skeleton kind RESISTS FIRE generally (monsters.cat, ~0.75), and
+  mummies get a new `flammable` field - ANY fire that lands sets them alight.
+- WATER: CUTS THROUGH THE HAZE (the dust pushed back in a bubble round the
+  party); SOOTHES - STAMINA comes back faster in it (his pick over mana);
+  QUENCHES fire on the party.
+- AIR: REACHES FURTHEST (wide, dim); CRACKLES at foes (a small air shock now
+  and then); WARNS of danger (its flicker quickens when a nearby monster has
+  noticed the party).
+- EARTH: SET DOWN IN PLACE (a glowing stone left where it was cast, not
+  following); LASTS LONGEST; MAPS what it shows; SHOWS TRACKS - "Monsters will
+  leave tracks that can be seen by the spell, so we'll have to add that to the
+  map as they move (and it'll have to survive a save/load)."
+- FOR LATER (his note): "the player will leave tracks, scent, noise, etc.
+  behind them as they move and some monsters will be able to follow that."
+- INGWAZ on a light: ONE BIGGER LIGHT (brighter, further, as long).
+- HAGALAZ on a light: A DAZZLING FLARE - no lasting light; one blinding flash
+  round the party that dazzles the monsters near (they lose a few seconds),
+  plus the school's effect once.
+Defaults taken without asking: lights of different schools stack and a recast
+of the same school replaces it (the ward rule); Earth's stone is saved with its
+level.
