@@ -242,6 +242,11 @@ public:
 	// of the square, a puff in the caster's hand a small knot.
 	void Puff(const Vec3& pos, const Vec4& color, int count, float spread, float life,
 			  float size, float jitter = 0.6f);
+	// A SPLASH at `pos`: `count` droplets thrown up and out at about `speed`
+	// m/s, leaning along `dir`, that fall back under gravity and stay their size
+	// (no swell) - what water does, where a Puff is what smoke and flame do.
+	void Splash(const Vec3& pos, const Vec3& dir, const Vec4& color, int count, float speed,
+				float life, float size);
 	// Every thrown item in flight, for the host to draw as itself:
 	// fn(pos, dir, secondsInFlight, cargo).
 	template <typename Fn> void ForEachCargo(Fn&& fn) const {

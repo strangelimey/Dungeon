@@ -14,6 +14,8 @@ Splash::Splash()
 	  m_brazierPower(12.0f) {}
 
 void Splash::Cast(CastContext& ctx) const {
+	// Whatever it fills or douses, the water is seen: a splash in front.
+	if (ctx.services.handPuff) ctx.services.handPuff(School(), ctx.origin, ctx.dir);
 	std::array<int, 2> hands{};
 	const int n = OtherHands(ctx, hands);
 	for (int i = 0; i < n; ++i) {

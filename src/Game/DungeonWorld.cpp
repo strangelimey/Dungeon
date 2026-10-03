@@ -794,7 +794,7 @@ void DungeonWorld::UpdateLights(float time) {
 		glow.position = g.pos;
 		glow.radius = 3.5f;
 		glow.color = g.color;
-		glow.intensity = 1.3f * t * t;
+		glow.intensity = g.intensity * t * t;
 		glow.castsShadow = false;
 		m_lights.points.push_back(glow);
 	}

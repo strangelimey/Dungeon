@@ -719,7 +719,8 @@ public:
 	void BlastAroundParty(const ProjectilePayload& payload, SpellSymbol school,
 						  int casterIndex);
 	// A puff of `school`'s element just ahead of a cast's origin (its lane at the
-	// eye) along `dir`: a knot of motes and a brief shadowless glow.
+	// eye) along `dir` - flame, dust, a breath of air, a splash of water - and a
+	// brief shadowless glow.
 	void HandPuff(SpellSymbol school, const Vec3& origin, const Vec3& dir);
 	// The whole spell registry (the Magic menu filters it by known symbols).
 	std::span<const std::unique_ptr<Spell>> SpellDefs() const {
@@ -3764,6 +3765,7 @@ private:
 		Vec3 color{};
 		float timeLeft = 0.0f;
 		float life = 0.0f;
+		float intensity = 0.0f; // at the puff; fades to nothing over `life`
 	};
 	std::array<HandGlow, 4> m_handGlows{};
 	void TickHandGlows(float dt);

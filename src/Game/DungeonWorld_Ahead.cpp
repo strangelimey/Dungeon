@@ -180,17 +180,54 @@ void DungeonWorld::HandPuff(SpellSymbol school, const Vec3& origin, const Vec3& 
 	const Vec3 at{origin.x + dir.x * kCellSize * 0.55f, origin.y - 0.1f * kUnit,
 				  origin.z + dir.z * kCellSize * 0.55f};
 	const Vec4& c = ElementColor(school);
-	// A hot core of small motes and a dimmer bloom round it - the blast puff's
-	// flare (LandBlastHit) shrunk to a fist and quicker.
-	m_projectiles.Puff(at, {c.x * 1.8f, c.y * 1.6f, c.z * 1.4f, 0.0f}, 10, 0.25f, 0.35f,
-					   0.03f * kUnit, 0.03f * kUnit);
-	m_projectiles.Puff(at, {c.x * 0.6f, c.y * 0.45f, c.z * 0.35f, 0.0f}, 4, 0.35f, 0.5f,
-					   0.06f * kUnit, 0.05f * kUnit);
+	// Each element moves as its stuff does: flame flares and rises, dust hangs
+	// and drops its grit, air is a pale breath that spreads, and water is flung
+	// and falls. Every one keeps to a fist's size - the blast puff
+	// (LandBlastHit) shrunk and quicker.
+	float glow = 0.0f; // how brightly it lights what is round it
+	switch (school) {
+	case SpellSymbol::Fire:
+		// A hot core of small motes and a dimmer bloom round it.
+		m_projectiles.Puff(at, {c.x * 1.8f, c.y * 1.6f, c.z * 1.4f, 0.0f}, 10, 0.25f, 0.35f,
+						   0.03f * kUnit, 0.03f * kUnit);
+		m_projectiles.Puff(at, {c.x * 0.6f, c.y * 0.45f, c.z * 0.35f, 0.0f}, 4, 0.35f, 0.5f,
+						   0.06f * kUnit, 0.05f * kUnit);
+		glow = 1.3f;
+		break;
+	case SpellSymbol::Earth:
+		// A slow cloud of dust, and the grit in it falling out.
+		m_projectiles.Puff(at, {c.x * 0.8f, c.y * 0.8f, c.z * 0.8f, 0.0f}, 8, 0.3f, 0.8f,
+						   0.05f * kUnit, 0.04f * kUnit);
+		m_projectiles.Splash(at, dir, {c.x * 1.2f, c.y * 1.2f, c.z * 1.2f, 0.0f}, 6, 0.8f,
+							 0.5f, 0.012f * kUnit);
+		glow = 0.4f;
+		break;
+	case SpellSymbol::Air:
+		// A pale breath, wider and quicker to thin than the flame.
+		m_projectiles.Puff(at, {c.x * 0.35f, c.y * 0.37f, c.z * 0.4f, 0.0f}, 8, 0.6f, 0.45f,
+						   0.05f * kUnit, 0.06f * kUnit);
+		glow = 0.4f;
+		break;
+	case SpellSymbol::Water:
+		// A SPLASH: a handful of droplets flung up and out that fall back, and
+		// a faint mist where they left.
+		m_projectiles.Splash(at, dir, {c.x * 1.2f, c.y * 1.2f, c.z * 1.2f, 0.0f}, 16, 1.6f,
+							 0.55f, 0.022f * kUnit);
+		m_projectiles.Puff(at, {c.x * 0.35f, c.y * 0.35f, c.z * 0.35f, 0.0f}, 3, 0.3f, 0.35f,
+						   0.05f * kUnit, 0.03f * kUnit);
+		glow = 0.7f;
+		break;
+	default:
+		m_projectiles.Puff(at, {c.x, c.y, c.z, 0.0f}, 8, 0.3f, 0.4f, 0.04f * kUnit,
+						   0.04f * kUnit);
+		glow = 0.6f;
+		break;
+	}
 	// And it lights what is round it for a moment.
 	HandGlow* slot = &m_handGlows[0];
 	for (HandGlow& g : m_handGlows)
 		if (g.timeLeft < slot->timeLeft) slot = &g;
-	*slot = {at, {c.x, c.y, c.z}, 0.5f, 0.5f};
+	*slot = {at, {c.x, c.y, c.z}, 0.5f, 0.5f, glow};
 }
 
 void DungeonWorld::TickHandGlows(float dt) {
