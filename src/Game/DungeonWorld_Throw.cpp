@@ -202,7 +202,7 @@ bool DungeonWorld::ResolveThrowHit(const ProjectileImpact& impact) {
 		// A survivor wears what the thing leaves - its on_hit effects.
 		if (!impact.payload.Empty())
 			fx::ApplyProcs(defender, impact.payload.Procs(), impact.payload.flavour,
-						   impact.attacker, m_effects, m_combatRng);
+						   impact.attacker, m_effects, m_combatRng, impact.payload.Tint());
 	}
 	comeDown();
 	return true;
@@ -252,7 +252,7 @@ bool DungeonWorld::StrikeDoorWithThrow(int cx, int cz, const ProjectileExpiry& e
 	// What the thing leaves on what it strikes - its on_hit effects.
 	if (!ev.slew && !expiry.payload.Empty())
 		fx::ApplyProcs(t, expiry.payload.Procs(), expiry.payload.flavour, expiry.attacker,
-					   m_effects, m_combatRng);
+					   m_effects, m_combatRng, expiry.payload.Tint());
 	return true;
 }
 

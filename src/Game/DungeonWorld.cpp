@@ -507,7 +507,7 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 			monster.plume.Ignite(BurnOrigin(monster), monster.runtimeId * 2654435761u);
 			monster.plumeLit = true;
 		}
-		monster.plume.SetTint(BurnTint(burning->school));
+		monster.plume.SetTint(BurnTintFor(*burning));
 		monster.plume.SetOrigin(BurnOrigin(monster));
 		monster.plume.Update(dt);
 		monster.plume.AppendParticles(m_particleScratch);
@@ -632,9 +632,13 @@ std::vector<std::string> DungeonWorld::MonsterList() const {
 		std::string line = std::format("{} @ {},{}  hp {:.1f}",
 									   m.kind ? m.kind->name : "?", m.x, m.z, m.hp);
 		if (!m.Alive()) line += " (dead)";
-		for (const fx::Inst& e : m.effects)
-			line += std::format("  [{} {:.1f} {:.1f}s]", e.Id(), e.magnitude,
-								e.timeLeft);
+		for (const fx::Inst& e : m.effects) {
+			line += std::format("  [{} {:.1f} {:.1f}s", e.Id(), e.magnitude, e.timeLeft);
+			// An effect with its own colour (a magical torch's burn) says so.
+			if (e.tinted)
+				line += std::format(" tint {:.2f},{:.2f},{:.2f}", e.tint.x, e.tint.y, e.tint.z);
+			line += ']';
+		}
 		out.push_back(std::move(line));
 	}
 	return out;
@@ -776,8 +780,7 @@ void DungeonWorld::UpdateLights(float time) {
 		gfx::PointLight glow;
 		glow.position = {o.x, o.y + 0.1f, o.z};
 		glow.radius = 5.5f;
-		const Vec4& c = ElementColor(burning->school);
-		glow.color = {c.x, c.y, c.z};
+		glow.color = BurnGlow(*burning);
 		glow.intensity = 1.9f * (0.85f + 0.15f * std::sin(time * 12.0f +
 														  monster.runtimeId) *
 											 std::sin(time * 8.1f + monster.runtimeId));

@@ -228,7 +228,11 @@ Key conventions (memorize, they bite):
   a LIT one is `element = fire`, so its fire scales with tier and skill, plus
   an `on_hit` burn. A MAGICAL torch (`torch_magic`) adds `power_level` (burn_time
   x (1 + level), folded in at load) and `flame_color` (its light AND the drawn
-  flame: icon, details dialog; ItemKind::flameColor, DrawFlame's tint). A wall
+  flame: icon, details dialog; ItemKind::flameColor, DrawFlame's tint) - and
+  what it SETS ALIGHT burns that colour too: fx::Inst carries an optional
+  `tint` (ApplyProcs' last arg; FlameTintOf on a swing, the payload's `tint` on
+  a throw), which BurnTintFor / BurnGlow read before the school's, and the
+  enteffect / brkeffect lines save as an 8th token. A wall
   BRACKET REMEMBERS its torch: `WallSconce::torch` (unlit id, "" = the fixture's
   own) + `torchCharge`, set by MountTorchAt, read by TakeTorchAt, reset with the
   flips, saved as 6th/7th tokens of the `fire` line. A SMASHED bracket drops

@@ -95,6 +95,10 @@ struct ProjectilePayload {
 	// is what a monster's plain shot does (a creature lends no element, exactly as
 	// its melee doesn't). The same rule as an enchanted weapon's `element`.
 	std::optional<SpellSymbol> flavour;
+	// A colour of its own for what it sets alight (fx::Inst::tint): a thrown
+	// magical torch burns blue where it lands its burn. Unset = the school's.
+	std::optional<Vec3> tint;
+	const Vec3* Tint() const { return tint ? &*tint : nullptr; }
 
 	bool Empty() const { return count == 0; }
 	std::span<const fx::Proc> Procs() const { return {procs.data(), count}; }

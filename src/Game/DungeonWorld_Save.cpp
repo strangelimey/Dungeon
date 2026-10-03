@@ -24,6 +24,12 @@ void CaptureEffectList(const std::vector<fx::Inst>& from,
 		to.push_back({inst.kind->Id(), SymbolId(inst.school), inst.timeLeft,
 					  inst.duration, inst.magnitude, inst.source,
 					  std::string(inst.NameKey())});
+		if (inst.tinted) {
+			to.back().tinted = true;
+			to.back().tint[0] = inst.tint.x;
+			to.back().tint[1] = inst.tint.y;
+			to.back().tint[2] = inst.tint.z;
+		}
 	}
 }
 
@@ -41,6 +47,10 @@ void RestoreEffectList(const fx::EffectBook& book,
 		if (!kind || fx.time <= 0.0f) continue;
 		to.push_back({kind, school, fx.magnitude, fx.time,
 					  std::max(fx.duration, fx.time), fx.source});
+		if (fx.tinted) {
+			to.back().tinted = true;
+			to.back().tint = {fx.tint[0], fx.tint[1], fx.tint[2]};
+		}
 	}
 }
 } // namespace

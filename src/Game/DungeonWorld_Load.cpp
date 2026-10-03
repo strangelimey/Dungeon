@@ -1209,6 +1209,9 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 				log::Warn("[{}]: throw_spell '{}' is not a spell", type, spellId);
 			}
 		}
+		// A lit torch with a flame colour of its own sets alight in that colour
+		// when THROWN too, as it does when swung (FlameTintOf).
+		if (const Vec3* tint = FlameTintOf(*kind)) kind->throwPayload.tint = *tint;
 		// Placeholder look: non-rune items reuse the tablet mesh tinted by category
 		// (runes overwrite this with their element colour just below).
 		kind->glow = CategoryTint(kind->category);

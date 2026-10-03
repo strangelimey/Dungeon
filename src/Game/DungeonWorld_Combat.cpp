@@ -1185,6 +1185,32 @@ Vec3 DungeonWorld::BurnTint(SpellSymbol school) {
 	}
 }
 
+// A burn that carries a colour of its own (fx::Inst::tint - a magical torch's
+// flame_color) recolours the same palette: the multiplier that turns the
+// flame's hot orange into that colour at the same brightness, per channel
+// against the hot core normalised to its red (FireEffect: 1.15, 0.55, 0.16).
+// Capped, so a pure colour cannot blow a channel out.
+Vec3 DungeonWorld::BurnTintFor(const fx::Inst& burning) {
+	if (!burning.tinted) return BurnTint(burning.school);
+	constexpr Vec3 kHot{1.0f, 0.55f / 1.15f, 0.16f / 1.15f};
+	constexpr float kCap = 8.0f;
+	return {std::min(burning.tint.x / kHot.x, kCap), std::min(burning.tint.y / kHot.y, kCap),
+			std::min(burning.tint.z / kHot.z, kCap)};
+}
+
+// What a burning body glows as: the burn's own colour, else its school's.
+Vec3 DungeonWorld::BurnGlow(const fx::Inst& burning) {
+	if (burning.tinted) return burning.tint;
+	const Vec4& c = ElementColor(burning.school);
+	return {c.x, c.y, c.z};
+}
+
+// The colour a held item lends what it sets alight: a LIT item's own flame
+// colour, else none.
+const Vec3* DungeonWorld::FlameTintOf(const ItemKind& kind) {
+	return kind.Lit() && kind.flameTinted ? &kind.flameColor : nullptr;
+}
+
 // The flame origin on a burning body: a third of a square up, so the plume
 // rises off the torso rather than the feet (UNITS, like every other length).
 Vec3 DungeonWorld::BurnOrigin(const Monster& monster) {
@@ -1910,11 +1936,14 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 		// its own.
 		const std::optional<SpellSymbol> flavour =
 			weapon->enchanted ? std::optional{weapon->element} : std::nullopt;
+		// A torch with a flame colour of its own sets alight in THAT colour (a
+		// magical torch burns blue on the monster too, not the fire school's).
+		const Vec3* tint = FlameTintOf(*weapon);
 		fx::ApplyProcs(defender, weapon->onHit, flavour,
-					   static_cast<int>(member), m_effects, m_combatRng);
+					   static_cast<int>(member), m_effects, m_combatRng, tint);
 		if (ev.crit)
 			fx::ApplyProcs(defender, weapon->onCrit, flavour,
-						   static_cast<int>(member), m_effects, m_combatRng);
+						   static_cast<int>(member), m_effects, m_combatRng, tint);
 	}
 	return finish();
 }

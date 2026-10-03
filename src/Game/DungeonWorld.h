@@ -3305,6 +3305,15 @@ private:
 	// orange, so fire burns untinted and the other three recolour it (a water
 	// burn is the freezing kind: the plume runs cold blue).
 	static Vec3 BurnTint(SpellSymbol school);
+	// The same for one burn: its OWN colour when it carries one (fx::Inst::tint,
+	// a magical torch's flame), else its school's. BurnTintFor is the plume's
+	// multiplier, BurnGlow the light's colour - the plume and its light ask
+	// these, so a blue torch's burn is blue in both.
+	static Vec3 BurnTintFor(const fx::Inst& burning);
+	static Vec3 BurnGlow(const fx::Inst& burning);
+	// The colour a held item lends what it sets alight (a LIT item's
+	// `flame_color`), or null for an ordinary one.
+	static const Vec3* FlameTintOf(const ItemKind& kind);
 	// The effect making this monster visibly burn (the first whose kind sets
 	// effects.cat `plume`), or null. The plume and its light both read it, so
 	// what is drawn always follows what is actually on the monster.

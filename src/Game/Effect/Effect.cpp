@@ -141,7 +141,7 @@ void ParseProcs(std::string_view spec, std::vector<Proc>& out,
 
 void ApplyProcs(ITarget& target, std::span<const Proc> procs,
 				std::optional<SpellSymbol> school, int source,
-				const EffectBook& book, std::mt19937& rng) {
+				const EffectBook& book, std::mt19937& rng, const Vec3* tint) {
 	std::uniform_real_distribution<float> roll(0.0f, 1.0f);
 	for (const Proc& proc : procs) {
 		if (proc.magnitude <= 0.0f || proc.duration <= 0.0f) continue;
@@ -165,8 +165,12 @@ void ApplyProcs(ITarget& target, std::span<const Proc> procs,
 			std::ranges::any_of(target.Effects(), [&](const Inst& e) {
 				return e.kind == kind;
 			});
-		Apply(target.Effects(), *kind, flavour, proc.magnitude, proc.duration,
-			  source);
+		Inst& landed = Apply(target.Effects(), *kind, flavour, proc.magnitude,
+							 proc.duration, source);
+		if (tint) {
+			landed.tinted = true;
+			landed.tint = *tint;
+		}
 		if (!already) target.SayApplied(*kind);
 	}
 }
