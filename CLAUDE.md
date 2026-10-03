@@ -1014,8 +1014,10 @@ to 2k with a warning if 4k not installed.
 
 ## Game state machine
 
-Loading (staged tasks, one per frame, progress screen) → Menu (baked title
-art title_bg, MenuList: Continue/Load/Start New Game/Settings/Exit — Continue/Load
+Loading (staged tasks, one per frame, progress screen) → Menu (title art
+assets/ui/title_bg.png, cover-fitted by GameUI::DrawTitleBackground behind the
+menu and both loading screens; the title menu stands in a LEFT column,
+kMenuMainCentreX, so the art's centre figure shows; MenuList: Continue/Load/Start New Game/Settings/Exit — Continue/Load
 appear only when a save exists; all entries work) → Playing ⇄ Paused (Esc in-game freezes
 the world and shows Save/Load/Settings/Exit/Back over the scene; Esc backs
 out / resumes). QUITTING IS ALWAYS DELIBERATE (Michael, 2026-08-11): an Exit

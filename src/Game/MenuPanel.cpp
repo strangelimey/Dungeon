@@ -32,7 +32,9 @@ gfx::Rect MenuPanel::Card() const {
 	// Wide enough for the longest word with a stone's worth of air either side.
 	const float w = std::max(Rem(kMinWidthRem), m_labelW + Rem(4.0f) + pad * 2.0f);
 	const float y = m_top < 0.0f ? px.y + (px.h - h) * 0.5f : px.y + px.h * m_top;
-	return {px.x + (px.w - w) * 0.5f, y, w, h};
+	const float x = std::clamp(px.x + px.w * centreX - w * 0.5f, px.x,
+							   std::max(px.x, px.x + px.w - w));
+	return {x, y, w, h};
 }
 
 void MenuPanel::LayoutSelf(ui::UIContext& ctx) {
