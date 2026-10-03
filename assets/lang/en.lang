@@ -467,6 +467,7 @@ use.hack=Hack
 use.bash=Bash
 use.swing=Swing
 use.melee=Strike
+use.attack=Attack
 ; The hand menu's last row: forget the hand's default (back to unset).
 use.clear=Clear
 ; Hand-menu default-picker groups (bare hand / no defaultable item command).

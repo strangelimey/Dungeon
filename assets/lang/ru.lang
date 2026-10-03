@@ -460,6 +460,7 @@ use.hack=Разруб
 use.bash=Ударить
 use.swing=Замахнуться
 use.melee=Атаковать
+use.attack=Атаковать
 use.clear=Сбросить
 ; Hand-menu default-picker groups (bare hand / no defaultable item command).
 menu.combat=Бой
