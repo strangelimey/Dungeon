@@ -239,9 +239,13 @@ public:
 	// rising a little, swelling as they fade over `life` seconds. Fire is a
 	// short bright flare, gas a slow lingering cloud. `jitter` is how far (m)
 	// the motes start scattered round `pos`: a square-filling blast wants most
-	// of the square, a puff in the caster's hand a small knot.
+	// of the square, a puff in the caster's hand a small knot. `drift` (m/s) is
+	// added to every mote's velocity: a gust carries its puff away with it.
+	// `swirl` (rad/s) turns each mote's path about the vertical, half of them
+	// one way and half the other, at between half and all of that rate, so a
+	// drifting puff curls out sideways as it goes.
 	void Puff(const Vec3& pos, const Vec4& color, int count, float spread, float life,
-			  float size, float jitter = 0.6f);
+			  float size, float jitter = 0.6f, const Vec3& drift = {}, float swirl = 0.0f);
 	// A SPLASH at `pos`: `count` droplets thrown up and out at about `speed`
 	// m/s, leaning along `dir`, that fall back under gravity and stay their size
 	// (no swell) - what water does, where a Puff is what smoke and flame do.
@@ -344,6 +348,7 @@ private:
 		float size = 0.1f;
 		float fall = 3.5f; // downward pull (m/s^2); a puff of gas rises (< 0)
 		bool swell = false; // grows as it fades (a puff), rather than holding
+		float spin = 0.0f;  // rad/s its velocity turns about +Y (a swirling wisp)
 	};
 
 	// Room for a crowded fight: a burst is 6-14 sparks living under half a
