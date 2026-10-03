@@ -239,9 +239,10 @@ public:
 	// rising a little, swelling as they fade over `life` seconds. Fire is a
 	// short bright flare, gas a slow lingering cloud. `jitter` is how far (m)
 	// the motes start scattered round `pos`: a square-filling blast wants most
-	// of the square, a puff in the caster's hand a small knot.
+	// of the square, a puff in the caster's hand a small knot. `drift` (m/s) is
+	// added to every mote's velocity: a gust carries its puff away with it.
 	void Puff(const Vec3& pos, const Vec4& color, int count, float spread, float life,
-			  float size, float jitter = 0.6f);
+			  float size, float jitter = 0.6f, const Vec3& drift = {});
 	// A SPLASH at `pos`: `count` droplets thrown up and out at about `speed`
 	// m/s, leaning along `dir`, that fall back under gravity and stay their size
 	// (no swell) - what water does, where a Puff is what smoke and flame do.
