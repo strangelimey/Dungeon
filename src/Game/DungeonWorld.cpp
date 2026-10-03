@@ -1015,8 +1015,9 @@ void DungeonWorld::TickParty(float dt, bool danger) {
 				// (past the exhaust_recover fraction, so it can't flicker at
 				// zero) — docs/combat.md Phase 4.
 				if (!exerting) {
+					// A Tidelight SOOTHES: stamina comes back faster in it.
 					regen(resource::Kind::Stamina, member.stamina,
-						  member.maxStamina, 1.0f);
+						  member.maxStamina, StaminaSoothe());
 					if (member.exhausted &&
 						member.stamina >=
 							m_balance.exhaustRecover * member.maxStamina) {

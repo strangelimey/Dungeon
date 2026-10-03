@@ -306,14 +306,16 @@ float DustDensity(float3 worldPos) {
 	const float2 uv = worldPos.xz * gFogGrid.xy;
 	float turbidity = gTurbidity.SampleLevel(gClampSampler, uv, 0).r;
 	// A PUFF adds dust round its centre for a moment (a doused fire's smoke),
-	// full at the centre and nothing at its radius - no grid rebuild needed.
+	// full at the centre and nothing at its radius - no grid rebuild needed. A
+	// NEGATIVE one takes it away (Tidelight clearing the haze round the party,
+	// lighting-updates Phase 6), hence the clamp below.
 	[unroll] for (int i = 0; i < MAX_DUST_PUFFS; ++i) {
 		const float4 puff = gDustPuffs[i];
 		if (puff.w <= 0.0) continue;
 		const float d = length(worldPos.xz - puff.xy) / max(puff.z, 1e-3);
 		turbidity += puff.w * (1.0 - smoothstep(0.0, 1.0, d));
 	}
-	return turbidity * gFogGrid.z;
+	return max(turbidity, 0.0) * gFogGrid.z;
 }
 
 float3 ApplyDust(float3 surfaceColor, float3 worldPos, uint2 lights) {

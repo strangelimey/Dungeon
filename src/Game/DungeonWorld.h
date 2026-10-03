@@ -753,6 +753,9 @@ public:
 	// A light spell's Hagalaz flare (DungeonWorld_SpellLight.cpp): a flash round
 	// the party, the monsters within a few steps DAZZLED, the school's light once.
 	void LightFlare(SpellSymbol school, float power, int casterIndex);
+	// What stamina regenerates at right now beyond its own rate: 1, or more in a
+	// Tidelight (it SOOTHES) - for the `regen` readout.
+	float StaminaRegenScale() const { return StaminaSoothe(); }
 	// The whole spell registry (the Magic menu filters it by known symbols).
 	std::span<const std::unique_ptr<Spell>> SpellDefs() const {
 		return m_magic.Book().Defs();
@@ -3974,6 +3977,13 @@ private:
 	// Lights every unlit fire whose square is within `steps` of the party's
 	// (a brazier only at `power` >= the light kind's kindle_brazier_power).
 	int KindleNear(int steps, float power);
+	// WATER (6d): the strongest Tidelight on the party (its power; 0 = none),
+	// the factor stamina regenerates at in it, the clear bubble it cuts in the
+	// haze (a negative dust puff, Render), and putting the party's fires out.
+	float WaterLightPower() const;
+	float StaminaSoothe() const;
+	void AddClearBubble(gfx::Atmosphere& atmo) const;
+	int QuenchParty();
 	// Per-member scorch clocks, and the kindling check's (every quarter second).
 	std::array<float, 4> m_scorchClock{};
 	float m_kindleClock = 0.0f;

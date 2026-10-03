@@ -162,6 +162,8 @@ void DungeonWorld::RenderScene(ID3D12GraphicsCommandList* list) {
 	}
 	// The brief haze over doused fires, read off their smoke effects.
 	if (m_dustEnabled) GatherDustPuffs(atmo);
+	// ...and the bubble a Tidelight clears in it (lighting-updates Phase 6).
+	if (m_dustEnabled) AddClearBubble(atmo);
 	m_renderer.BeginScene(list, m_camera, m_lights, atmo, /*hdrTarget=*/true);
 	const ViewCull cull = ViewCull::FromFrustum(m_camera.ViewProj());
 	SubmitSceneGeometry(list, &cull);

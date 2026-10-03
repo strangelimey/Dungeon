@@ -351,6 +351,7 @@ log.light_flare={}'s light flares!
 log.monsters_dazzled=The flare dazzles {} foes.
 log.light_scorches=The firelight scorches the {} for {}.
 log.light_kindles=The firelight kindles {} fire(s).
+log.light_quenches=The tidelight puts out the flames on {}.
 effect.dazzle=Dazzled
 effect.dazzle.desc=Blinded by a flare of light: it does nothing until it clears.
 effect.smoke=Smoke

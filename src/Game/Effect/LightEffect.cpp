@@ -32,6 +32,8 @@ void LightEffect::ApplyOverrides(const CatalogEntry& e, const DamageTypeBook& ty
 	m_kindleBrazierPower = e.GetFloat("kindle_brazier_power", m_kindleBrazierPower);
 	m_scorchEvery = std::max(0.2f, e.GetFloat("scorch_every", m_scorchEvery));
 	m_scorchDamage = e.GetFloat("scorch_damage", m_scorchDamage);
+	m_soothe = std::max(0.0f, e.GetFloat("soothe", m_soothe));
+	m_clearHaze = std::max(0.0f, e.GetFloat("clear_haze", m_clearHaze));
 }
 
 DazzleEffect::DazzleEffect()

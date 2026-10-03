@@ -39,6 +39,11 @@ public:
 	float KindleBrazierPower() const { return m_kindleBrazierPower; }
 	float ScorchEvery() const { return m_scorchEvery; }
 	float ScorchDamage() const { return m_scorchDamage; }
+	// WATER (6d): how much faster stamina comes back in it (`soothe`, 1 = twice
+	// as fast), and how much haze it clears round the party (`clear_haze`, the
+	// turbidity it takes away at the centre).
+	float Soothe() const { return m_soothe; }
+	float ClearHaze() const { return m_clearHaze; }
 
 private:
 	// Indexed by school (Fire, Earth, Air, Water - the SpellSymbol order).
@@ -47,6 +52,8 @@ private:
 	float m_kindleBrazierPower = 14.0f;
 	float m_scorchEvery = 1.5f;
 	float m_scorchDamage = 1.5f;
+	float m_soothe = 1.0f;
+	float m_clearHaze = 2.0f;
 };
 
 class DazzleEffect : public EffectKind {

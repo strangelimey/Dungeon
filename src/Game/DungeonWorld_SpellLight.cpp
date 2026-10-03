@@ -132,11 +132,68 @@ void DungeonWorld::LightFlare(SpellSymbol school, float power, int casterIndex) 
 		KindleNear(kFlareSteps, power);
 		break;
 	}
+	case SpellSymbol::Water: {
+		// Every fire on the party out, and a draught of breath: stamina back.
+		QuenchParty();
+		if (m_roster)
+			for (Character& c : *m_roster)
+				if (c.IsAlive()) c.stamina = std::min(c.maxStamina, c.stamina + power);
+		break;
+	}
 	default: break;
 	}
 }
 
 // --- what each school's light DOES ---------------------------------------------
+
+float DungeonWorld::WaterLightPower() const {
+	float power = 0.0f;
+	if (m_roster)
+		for (const Character& c : *m_roster)
+			for (const fx::Inst& inst : c.effects)
+				if (inst.Is("light") && inst.school == SpellSymbol::Water)
+					power = std::max(power, inst.magnitude);
+	return power;
+}
+
+float DungeonWorld::StaminaSoothe() const {
+	const fx::LightEffect* kind = SpellLightKind();
+	return kind && WaterLightPower() > 0.0f ? 1.0f + kind->Soothe() : 1.0f;
+}
+
+void DungeonWorld::AddClearBubble(gfx::Atmosphere& atmo) const {
+	const float power = WaterLightPower();
+	const fx::LightEffect* kind = SpellLightKind();
+	if (power <= 0.0f || !kind || kind->ClearHaze() <= 0.0f) return;
+	// As far as the light reaches, centred on the party: the weakest smoke puff
+	// gives up its slot when all four are taken (the party's own air wins).
+	const float radius =
+		LightProfileFor("spell_water").radius * kCellSize * SpellLightScale(power);
+	size_t slot = 0;
+	for (size_t i = 0; i < gfx::kMaxDustPuffs; ++i) {
+		if (atmo.dustPuffs[i].w <= 0.0f) {
+			slot = i;
+			break;
+		}
+		if (atmo.dustPuffs[i].w < atmo.dustPuffs[slot].w) slot = i;
+	}
+	const Vec3 eye = PartyEye();
+	atmo.dustPuffs[slot] = {eye.x, eye.z, radius, -kind->ClearHaze()};
+}
+
+int DungeonWorld::QuenchParty() {
+	if (!m_roster) return 0;
+	int quenched = 0;
+	for (Character& c : *m_roster) {
+		const size_t before = c.effects.size();
+		std::erase_if(c.effects, [](const fx::Inst& e) { return e.kind && e.kind->Plume(); });
+		if (c.effects.size() != before) {
+			++quenched;
+			MemberMessage(c, loc::FormatLine("log.light_quenches", c.name));
+		}
+	}
+	return quenched;
+}
 
 void DungeonWorld::ScorchMonster(Monster& monster, float damage, int source) {
 	if (damage <= 0.0f || !monster.Alive()) return;
@@ -174,6 +231,8 @@ void DungeonWorld::TickSpellLights(float dt) {
 	if (!m_roster) return;
 	const fx::LightEffect* kind = SpellLightKind();
 	if (!kind) return;
+	// WATER QUENCHES: while a Tidelight is up, nothing on the party burns.
+	if (WaterLightPower() > 0.0f) QuenchParty();
 	m_kindleClock -= dt;
 	const bool kindleDue = m_kindleClock <= 0.0f;
 	if (kindleDue) m_kindleClock = 0.25f;

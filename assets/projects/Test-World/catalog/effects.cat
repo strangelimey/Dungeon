@@ -142,6 +142,11 @@ scale_power = 8
 kindle_brazier_power = 14
 scorch_every = 1.5
 scorch_damage = 1.5
+; WATER's light: stamina comes back `soothe` x faster in it (1 = twice as
+; fast), it clears `clear_haze` of turbidity round the party, and it puts
+; out any fire on the party.
+soothe = 1
+clear_haze = 2
 
 ; A light spell's flare blinds a monster: it does nothing while this lasts.
 [dazzle]

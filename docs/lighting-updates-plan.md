@@ -354,6 +354,16 @@ committed and checked on its own:
   shader's DustDensity clamps at zero), the light's reach in radius. SOOTHES:
   stamina regenerates faster (`soothe` x) for the party while it lasts.
   QUENCHES: a member set alight stops burning, and none can burn while it lasts.
+  DONE: the bubble is a NEGATIVE dust puff (`clear_haze` 2) at the eye, the
+  light's reach in radius, taking a free puff slot or the weakest smoke's;
+  scene.hlsl's DustDensity now clamps at zero. Soothe scales stamina's regen
+  call by 1 + `soothe` (1: twice as fast; the exerting gate still wins), shown
+  by `regen` as "stamina x2.00 in a Tidelight". Quench erases every plume
+  effect from the party each frame a Tidelight is up (with a line per member
+  put out). Its flare: the party quenched and `power` stamina back each.
+  Checked headless: a burning Tilo put out within a second of the cast; in the
+  window, a corridor at `dust 0.6` cleared round the party. AllocTest `-Light`
+  and SpellTest 39 PASS.
 
 6e. AIR. REACHES FURTHEST (its profile: wide and dim). CRACKLES: every
   `crackle_rate` seconds a monster within its reach and the party's line of
