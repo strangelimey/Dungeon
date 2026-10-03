@@ -51,10 +51,12 @@ add_library(Game STATIC
 	DungeonWorld_Save.cpp
 	DungeonWorld_Throw.cpp
 	DungeonWorld_Flight.cpp
+	DungeonWorld_SpellLight.cpp
 	DungeonWorld_Undo.cpp
 	DungeonWorld_Validate.cpp
 	Effect/AllEffects.cpp
 	Effect/DotEffect.cpp
+	Effect/LightEffect.cpp
 	Effect/Effect.cpp
 	Effect/SightEffect.cpp
 	Effect/SmokeEffect.cpp
@@ -163,17 +165,22 @@ add_library(Game STATIC
 	Spell/Farsight.cpp
 	Spell/Firebolt.cpp
 	Spell/Fireshield.cpp
+	Spell/Firelight.cpp
 	Spell/Flame.cpp
 	Spell/Gust.cpp
 	Spell/HandSpell.cpp
+	Spell/LightSpell.cpp
 	Spell/ModifiedSpell.cpp
 	Spell/Airbolt.cpp
 	Spell/Rock.cpp
 	Spell/Scrying.cpp
+	Spell/Skylight.cpp
 	Spell/SightSpell.cpp
 	Spell/Earthbolt.cpp
 	Spell/Spell.cpp
 	Spell/Splash.cpp
+	Spell/Tidelight.cpp
+	Spell/Stonelight.cpp
 	Spell/Stonesight.cpp
 	Spell/Stoneskin.cpp
 	Spell/WardSpell.cpp

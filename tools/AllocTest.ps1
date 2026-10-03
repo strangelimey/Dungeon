@@ -13,6 +13,7 @@
 #   .\tools\AllocTest.ps1 -Cast              # a bolt in flight + an open spellbook
 #   .\tools\AllocTest.ps1 -Impact            # bolts landing, expiring, a blast, a crate alight
 #   .\tools\AllocTest.ps1 -Hand              # the hand spells: light, douse, flare, fill, pebble
+#   .\tools\AllocTest.ps1 -Light             # the Sowilo lights: cast, stacked, grown, a flare's dazzle
 #   .\tools\AllocTest.ps1 -Pause             # Esc to the pause menu and back
 #   .\tools\AllocTest.ps1 -Sheet             # the sheet: hover, tabs, item dialog
 #   .\tools\AllocTest.ps1 -Panels            # drag and resize the floating HUD
@@ -241,6 +242,9 @@ param(
 	# Casts the four hand spells at a wall torch inside the window (spell-updates
 	# Phase 8). See the note at the setup.
 	[switch]$Hand,
+	# Casts the Sowilo LIGHT spells inside the window (lighting-updates Phase 6):
+	# a light, another school's, an Ingwaz one and a Hagalaz flare at a mummy.
+	[switch]$Light,
 	# Pauses (Esc) and resumes inside the window. See the note above.
 	[switch]$Pause,
 	# Works the character sheet inside the window. See the note above.
@@ -1146,6 +1150,51 @@ try {
 		Start-Sleep -Milliseconds 400
 	}
 
+	# -Light: THE SOWILO LIGHTS (lighting-updates Phase 6). Each member casts a
+	# different one from a world frame (`autocast`, the harness pays the mana):
+	# a plain Firelight and Tidelight (a light effect landing, refreshed each
+	# time - the per-school stacking), an Ingwaz Skylight (one bigger light), and
+	# a Hagalaz Firelight FLARE at a mummy two squares off (the flash, the dazzle
+	# landing on a monster). The world is frozen, so the mummy only stands there.
+	if ($Light) {
+		Write-Host 'casting the light spells in crypt1, a mummy two squares off'
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		Enter-FrozenArena 'crypt1'
+		Send-Text 'tp 7 7'; Send-Key 0x0D
+		Send-Text 'face n'; Send-Key 0x0D
+		Assert-PartyAt 7 7
+		Send-Text 'spawn mummy 7 5 s'; Send-Key 0x0D
+		foreach ($m in 0, 1, 2, 3) {
+			foreach ($s in 'fire', 'water', 'air', 'earth', 'light', 'multiple', 'explode') {
+				Send-Text "learn $m $s"; Send-Key 0x0D
+			}
+		}
+		Send-Text 'setskill 0 fire 10'; Send-Key 0x0D
+		Send-Text 'setskill 1 water 10'; Send-Key 0x0D
+		Send-Text 'setskill 2 air 10'; Send-Key 0x0D
+		Send-Text 'setskill 3 fire 10'; Send-Key 0x0D
+		Send-Text 'autocast 0 firelight 0.5'; Send-Key 0x0D
+		Send-Text 'autocast 1 tidelight'; Send-Key 0x0D
+		Send-Text 'autocast 2 skylight_bright'; Send-Key 0x0D
+		Send-Text 'autocast 3 firelight_flare'; Send-Key 0x0D
+		Write-Host '  warming the rotation up'
+		Start-Sleep -Seconds 6
+		$castPattern = 'console:   member \d+ casts \S+: \d+ cast, \d+ failed'
+		$castBefore = @(Select-String -Path $log -Pattern $castPattern).Count
+		Send-Text 'autocast hold'; Send-Key 0x0D
+		Send-Text 'autocast'; Send-Key 0x0D
+		$script:lightRows = Wait-NewLogLines $castPattern $castBefore 4
+		if ($script:lightRows.Count -ne 4) { throw "``autocast`` listed $($script:lightRows.Count) entries, not 4" }
+		foreach ($r in $script:lightRows) {
+			if ($r.Line -match ': 0 cast,') { throw "a light spell never cast in the warm-up: $($r.Line -replace '^.*console:\s+', '')" }
+		}
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0 # close the console again; alloctest reopens it below
+		Start-Sleep -Milliseconds 400
+	}
+
 	if ($Sheet) {
 		Write-Host 'opening the sheet with a rune and a blade in the pack'
 		Send-Key 0xC0
@@ -1732,6 +1781,39 @@ try {
 		if (($short.Count -gt 0 -or $used.Count -gt 0 -or $after.Count -ne 4) -and $result -eq 'PASS') {
 			if ($short.Count -gt 0) { Write-Host "too few casts after the warm-up: $($short -join ', ')" -ForegroundColor Yellow }
 			if ($used.Count -gt 0) { Write-Host "$($used -join ', ') - the item paths were not measured" -ForegroundColor Yellow }
+			$result = 'UNMEASURED'
+		}
+	}
+
+	# And for -Light: every light in the rotation cast again inside the window,
+	# and the flare's dazzle is on the mummy.
+	if ($Light) {
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		Send-Text 'autocast hold'; Send-Key 0x0D
+		$castPattern = 'console:   member \d+ casts \S+: \d+ cast, \d+ failed'
+		$castBefore = @(Select-String -Path $log -Pattern $castPattern).Count
+		$monBefore = @(Select-String -Path $log -Pattern 'console:   mummy @').Count
+		Send-Text 'autocast'; Send-Key 0x0D
+		Send-Text 'monsters'; Send-Key 0x0D
+		Wait-ConsoleDone
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0
+		$after = @(Select-String -Path $log -Pattern $castPattern) | Select-Object -Skip $castBefore
+		$mummy = (@(Select-String -Path $log -Pattern 'console:   mummy @') | Select-Object -Skip $monBefore |
+			ForEach-Object { $_.Line -replace '^.*console:\s+', '' }) -join '; '
+		$short = @()
+		for ($i = 0; $i -lt $after.Count -and $i -lt $script:lightRows.Count; $i++) {
+			$was = if ($script:lightRows[$i].Line -match ': (\d+) cast,') { [int]$Matches[1] } else { 0 }
+			$now = if ($after[$i].Line -match ': (\d+) cast,') { [int]$Matches[1] } else { 0 }
+			Write-Host "  $($after[$i].Line -replace '^.*console:\s+', '') ($($now - $was) since the warm-up)"
+			if ($now - $was -lt 3) { $short += ($after[$i].Line -replace '^.*casts (\S+):.*$', '$1') }
+		}
+		Write-Host "  the mummy: $mummy"
+		if (($short.Count -gt 0 -or $after.Count -ne 4 -or $mummy -notmatch '\[dazzle ') -and $result -eq 'PASS') {
+			if ($short.Count -gt 0) { Write-Host "too few casts after the warm-up: $($short -join ', ')" -ForegroundColor Yellow }
+			if ($mummy -notmatch '\[dazzle ') { Write-Host 'the flare dazzled nothing - its monster path was not measured' -ForegroundColor Yellow }
 			$result = 'UNMEASURED'
 		}
 	}

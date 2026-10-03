@@ -122,3 +122,22 @@ stacking = school
 name = effect.smoke
 haze = 1
 stacking = refresh
+
+; --- the Sowilo lights (lighting-updates Phase 6) ---------------------------
+; One kind for the four light spells, named by school like [sight]. It does
+; nothing to its bearer: the world lights the party from it. `scale_power` is
+; the cast power at which the light is its profile's own size.
+[light]
+name = spell.firelight
+name_fire = spell.firelight
+name_earth = spell.stonelight
+name_air = spell.skylight
+name_water = spell.tidelight
+icon = rune_light
+stacking = school
+scale_power = 8
+
+; A light spell's flare blinds a monster: it does nothing while this lasts.
+[dazzle]
+name = effect.dazzle
+stacking = refresh

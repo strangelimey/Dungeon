@@ -16,10 +16,14 @@
 //   Hagalaz + a ward: the ward's power spent as a BURST of its element round
 //           the caster, whose own square is spared - and no ward is left
 //           (Michael: "burst instead").
+//   Ingwaz  + a light (Sowilo, lighting-updates Phase 6): ONE BIGGER LIGHT - the
+//           light at `grow` x the power, lasting what the plain power buys.
+//   Hagalaz + a light: a DAZZLING FLARE - no lasting light; a flash round the
+//           party that dazzles the monsters near, and the school's effect once.
 //
 // A modified spell is a whole spell in the registry (AllSpells.cpp makes one
 // per form spell per modifier): its own id (`<base>_volley`, `_burst`,
-// `_party`), its own name, its own spells.cat entry for the knobs above and its
+// `_party`; a light's `_bright` and `_flare`), its own name, its own spells.cat entry for the knobs above and its
 // mana - so learning it, the spellbook, the hand menus and saves need nothing
 // new. The FORM spell it modifies is borrowed (the registry owns both).
 // ============================================================================
@@ -30,11 +34,13 @@
 namespace dungeon::game {
 
 class BoltSpell;
+class LightSpell;
 class WardSpell;
 
 class ModifiedSpell : public Spell {
 public:
-	// `base` must be a BoltSpell or a WardSpell (the forms a modifier changes);
+	// `base` must be a BoltSpell, a WardSpell or a LightSpell (the forms a
+	// modifier changes);
 	// `modifier` Multiple or Explode.
 	ModifiedSpell(const Spell& base, SpellSymbol modifier);
 
@@ -57,7 +63,10 @@ private:
 
 	const BoltSpell* m_bolt = nullptr;
 	const WardSpell* m_ward = nullptr;
+	const LightSpell* m_light = nullptr;
 	SpellSymbol m_modifier;
+	// Ingwaz on a light: how much bigger (the power it is cast at).
+	float m_grow = 2.0f;
 	// Ingwaz: bolts / members, and each one's share of the power.
 	int m_count = 2;
 	float m_countPerPower = 10.0f; // one more bolt per this much power

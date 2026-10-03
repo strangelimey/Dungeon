@@ -304,6 +304,26 @@ committed and checked on its own:
   Ingwaz = ONE BIGGER LIGHT (brighter and further, as long); Hagalaz = a
   DAZZLING FLARE (no lasting light; a flash, the monsters near DAZZLED for a few
   seconds, and the school's effect once). ModifiedSpell learns to wrap a light.
+  DONE: Spell/LightSpell + Firelight / Tidelight / Skylight / Stonelight (ids
+  firelight ...; Stonelight 150 s, the others 60 s at power 8, in proportion
+  past it); Effect/LightEffect.h holds the `light` kind (per-school names,
+  `scale_power` 8: size = sqrt(power / 8) within 0.7..1.8) and `dazzle`. The
+  world side is DungeonWorld_SpellLight.cpp: a light per (member, school) above
+  the party a fifth of a square ahead (`LightKind::Spell`), dimming over its
+  last tenth; `LightFlare` (a new cast service, at the END of CastServices) a
+  0.7 s `spell_flare` flash in a hand-glow slot, a mote cloud, and `dazzle` on
+  every monster within 3 walking steps (the light budget's reach map) for
+  1.5 + power/4 s (2..8); a dazzled monster skips its turn at the harness
+  `freeze` seam. ModifiedSpell: `<id>_bright` (Ingwaz, `grow` 2: cast at twice
+  the power, lasting what the plain power buys) and `<id>_flare` (no blast).
+  Measured headless: a mummy two squares off sat dazzled 6.2 s where an
+  undazzled one walked up; a level-10 Firelight is power 18.2 for 137 s. NOTE
+  the console `heal` CLEARS EFFECTS - a test that heals between casts sees one
+  light. Found: de/es/it/ru have no strings for the four Sight spells or
+  `log.sight_up` (older than this branch; they show as keys). Checked: AllocTest
+  `-Light` (new: each member casts a different light from a world frame, the
+  flare at a frozen mummy; refuses a PASS unless all four cast again in the
+  window and the mummy carries a dazzle), SpellTest 39, RollTest 396.
 
 6c. FIRE. Its profile casts shadows (the brightest). KINDLES: an unlit sconce
   or brazier within a square of the party catches as it passes (a brazier still

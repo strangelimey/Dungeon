@@ -119,6 +119,11 @@ struct CastServices {
 	// `origin` / `dir` are the cast's (CastContext): the caster's lane at the eye
 	// and the faced cardinal. Purely visual: particles and a brief glow.
 	std::function<void(SpellSymbol school, const Vec3& origin, const Vec3& dir)> handPuff;
+	// A light spell's Hagalaz FLARE (lighting-updates Phase 6): a flash of
+	// `school`'s light round the party that DAZZLES the monsters near - they do
+	// nothing for a time that grows with `power` - and the school's light does
+	// its thing once. Credited to `casterIndex`.
+	std::function<void(SpellSymbol school, float power, int casterIndex)> lightFlare;
 };
 
 // Everything a single cast knows: who, from where, at what strength. The

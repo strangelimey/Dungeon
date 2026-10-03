@@ -64,6 +64,10 @@
 #include <utility>
 #include <vector>
 
+namespace dungeon::game::fx {
+class LightEffect;
+}
+
 namespace dungeon::game {
 
 // Non-rune items reuse the rune tablet mesh as a placeholder, rendered at this
@@ -746,6 +750,9 @@ public:
 	// eye) along `dir` - flame, dust, a breath of air, a splash of water - and a
 	// brief shadowless glow.
 	void HandPuff(SpellSymbol school, const Vec3& origin, const Vec3& dir);
+	// A light spell's Hagalaz flare (DungeonWorld_SpellLight.cpp): a flash round
+	// the party, the monsters within a few steps DAZZLED, the school's light once.
+	void LightFlare(SpellSymbol school, float power, int casterIndex);
 	// The whole spell registry (the Magic menu filters it by known symbols).
 	std::span<const std::unique_ptr<Spell>> SpellDefs() const {
 		return m_magic.Book().Defs();
@@ -3690,6 +3697,7 @@ private:
 		Flash,     // the moment a lit bolt leaves where it ended, keyed by slot
 		HandGlow,  // a hand spell's puff of light (HandPuff), keyed by its slot
 		Worn,      // an item on the doll or in a hand giving light: member x slots + slot
+		Spell,     // a Sowilo light on a member: member x 4 + school
 	};
 	static u32 LightKey(LightKind kind, u32 index) {
 		return (static_cast<u32>(kind) << 24) | (index & 0xFFFFFFu);
@@ -3911,6 +3919,7 @@ private:
 		float timeLeft = 0.0f;
 		float life = 0.0f;
 		float intensity = 0.0f; // at the puff; fades to nothing over `life`
+		bool flare = false;     // a light spell's flare (`spell_flare`), not a puff
 	};
 	std::array<HandGlow, 4> m_handGlows{};
 	void TickHandGlows(float dt);
@@ -3943,6 +3952,15 @@ private:
 	void TickFloorTorches(float dt);
 	// One light per lit floor torch, at its burning end.
 	void AppendFloorTorchLights(float time);
+	// THE SOWILO LIGHTS (DungeonWorld_SpellLight.cpp): one per member's `light`
+	// effect per school, from `spell_<school>`, sized by the cast's power.
+	void AppendSpellLights(float time);
+	const fx::LightEffect* SpellLightKind() const;
+	// How much bigger than its profile a light of `power` is (the effect kind's
+	// `scale_power` is size 1).
+	float SpellLightScale(float power) const;
+	// A flare's dazzle: the monster does nothing while it lasts.
+	static bool IsDazzled(const Monster& monster);
 	// Where a lit floor item's flame burns (its model's head, as it lies).
 	Vec3 FloorTorchHead(const Item& item) const;
 	// THE TORCH FLAMES: a lit torch on the floor or in flight burns with a

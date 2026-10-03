@@ -249,6 +249,9 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		 },
 		 [this](SpellSymbol school, const Vec3& origin, const Vec3& dir) {
 			 HandPuff(school, origin, dir);
+		 },
+		 [this](SpellSymbol school, float power, int casterIndex) {
+			 LightFlare(school, power, casterIndex);
 		 }});
 
 	// The torch flames' pool, each at its full size now: a torch landing or
@@ -757,6 +760,8 @@ void DungeonWorld::UpdateLights(float time) {
 	// flash a lit bolt leaves where it ends) - lighting-updates Phase 4.
 	AppendFloorTorchLights(time);
 	AppendFlightLights(time);
+	// The Sowilo light spells on the party (DungeonWorld_SpellLight.cpp).
+	AppendSpellLights(time);
 
 	// One light per burning fire, just above its flame, from its KIND'S profile
 	// (fixtures.cat `light`: fire_sconce / fire_brazier in lights.cat). The
@@ -797,13 +802,18 @@ void DungeonWorld::UpdateLights(float time) {
 
 	// A hand spell's puff (HandPuff) flashes and fades (`hand_puff`, its
 	// colour the school's): its brightness falls as the square of what is left.
-	const light::Profile& puff = LightProfileFor("hand_puff");
+	// A light spell's flare uses the same slots with its own, bigger profile.
+	const light::Profile& handPuff = LightProfileFor("hand_puff");
+	const light::Profile& flare = LightProfileFor("spell_flare");
 	for (size_t i = 0; i < m_handGlows.size(); ++i) {
 		const HandGlow& g = m_handGlows[i];
 		if (g.timeLeft <= 0.0f || g.life <= 0.0f) continue;
 		const float t = g.timeLeft / g.life; // 1 at the puff, 0 gone
-		const float scale = puff.intensity > 0.0f ? g.intensity / puff.intensity : 0.0f;
-		PushLight(puff, "puff", LightKey(LightKind::HandGlow, static_cast<u32>(i)), g.pos,
+		const light::Profile& puff = g.flare ? flare : handPuff;
+		const float scale = g.flare ? g.intensity
+						   : puff.intensity > 0.0f ? g.intensity / puff.intensity
+												   : 0.0f;
+		PushLight(puff, g.flare ? "flare" : "puff", LightKey(LightKind::HandGlow, static_cast<u32>(i)), g.pos,
 				  time, 0.0f, g.color, scale * t * t);
 	}
 
@@ -1262,6 +1272,9 @@ void DungeonWorld::UpdateMonsters(float dt) {
 		// and then maul the party, so the table described where they ended up
 		// rather than what the blast did to where they were.
 		if (m_harness.frozen) continue;
+		// DAZZLED by a light spell's flare (lighting-updates Phase 6): the same
+		// seam - it animates, burns and can be struck, and does nothing else.
+		if (IsDazzled(monster)) continue;
 
 		if (monster.intent.mode == ai::Intent::Mode::Idle) {
 			// Idle behaviour: a patroller walks its route (which also carries it back

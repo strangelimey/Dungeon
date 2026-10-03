@@ -10,20 +10,25 @@
 #include "Game/Spell/BoltSpell.h"
 #include "Game/Spell/ModifiedSpell.h"
 #include "Game/Spell/WardSpell.h"
+#include "Game/Spell/LightSpell.h"
 
 #include "Game/Spell/Embersight.h"
 #include "Game/Spell/Farsight.h"
 #include "Game/Spell/Firebolt.h"
+#include "Game/Spell/Firelight.h"
 #include "Game/Spell/Fireshield.h"
 #include "Game/Spell/Flame.h"
 #include "Game/Spell/Gust.h"
 #include "Game/Spell/Airbolt.h"
 #include "Game/Spell/Rock.h"
 #include "Game/Spell/Scrying.h"
+#include "Game/Spell/Skylight.h"
 #include "Game/Spell/Earthbolt.h"
 #include "Game/Spell/Splash.h"
+#include "Game/Spell/Stonelight.h"
 #include "Game/Spell/Stonesight.h"
 #include "Game/Spell/Stoneskin.h"
+#include "Game/Spell/Tidelight.h"
 #include "Game/Spell/Waterbolt.h"
 #include "Game/Spell/Waterveil.h"
 #include "Game/Spell/Windward.h"
@@ -54,15 +59,23 @@ std::vector<std::unique_ptr<Spell>> MakeAllSpells() {
 	all.push_back(std::make_unique<spells::Farsight>());
 	all.push_back(std::make_unique<spells::Stonesight>());
 	all.push_back(std::make_unique<spells::Scrying>());
-	// Tier 3 - each Project and Protect spell with each MODIFIER rune
-	// (ModifiedSpell.h): Ingwaz makes a volley / a party ward, Hagalaz a bursting
-	// bolt / a burst round the caster. Sight takes no modifier. Built from the
+	// Tier 2 - the Light form, Sowilo ("make light"), behind each school
+	// (lighting-updates Phase 6).
+	all.push_back(std::make_unique<spells::Firelight>());
+	all.push_back(std::make_unique<spells::Stonelight>());
+	all.push_back(std::make_unique<spells::Skylight>());
+	all.push_back(std::make_unique<spells::Tidelight>());
+	// Tier 3 - each Project, Protect and Light spell with each MODIFIER rune
+	// (ModifiedSpell.h): Ingwaz makes a volley / a party ward / one bigger light,
+	// Hagalaz a bursting bolt / a burst round the caster / a dazzling flare. Sight
+	// takes no modifier. Built from the
 	// list above (the registry owns every spell, so the borrowed base outlives
 	// its modified forms).
 	const size_t forms = all.size();
 	for (size_t i = 0; i < forms; ++i) {
 		const Spell& base = *all[i];
-		if (!dynamic_cast<const BoltSpell*>(&base) && !dynamic_cast<const WardSpell*>(&base))
+		if (!dynamic_cast<const BoltSpell*>(&base) && !dynamic_cast<const WardSpell*>(&base) &&
+			!dynamic_cast<const LightSpell*>(&base))
 			continue;
 		for (const SpellSymbol m : {SpellSymbol::Multiple, SpellSymbol::Explode})
 			all.push_back(std::make_unique<ModifiedSpell>(base, m));

@@ -7,6 +7,7 @@
 #include "Game/Catalog.h"
 #include "Game/Character.h"
 #include "Game/Spell/BoltSpell.h"
+#include "Game/Spell/LightSpell.h"
 #include "Game/Spell/WardSpell.h"
 
 #include <algorithm>
@@ -24,6 +25,8 @@ std::vector<SpellSymbol> WithModifier(std::span<const SpellSymbol> base, SpellSy
 
 std::string ModifiedSpell::IdFor(const Spell& base, SpellSymbol modifier) {
 	const bool ward = dynamic_cast<const WardSpell*>(&base) != nullptr;
+	if (dynamic_cast<const LightSpell*>(&base))
+		return base.Id() + (modifier == SpellSymbol::Explode ? "_flare" : "_bright");
 	if (modifier == SpellSymbol::Explode) return base.Id() + "_burst";
 	return base.Id() + (ward ? "_party" : "_volley");
 }
@@ -32,10 +35,12 @@ ModifiedSpell::ModifiedSpell(const Spell& base, SpellSymbol modifier)
 	: Spell(IdFor(base, modifier), WithModifier(base.Sequence(), modifier), base.Power(),
 			base.Mana() * 2.0f),
 	  m_bolt(dynamic_cast<const BoltSpell*>(&base)),
-	  m_ward(dynamic_cast<const WardSpell*>(&base)), m_modifier(modifier) {
+	  m_ward(dynamic_cast<const WardSpell*>(&base)),
+	  m_light(dynamic_cast<const LightSpell*>(&base)), m_modifier(modifier) {
 	// A burst's first-cut rules, until spells.cat says otherwise: a small fire-
-	// ball's shape, damage near the base spell's power.
-	if (modifier == SpellSymbol::Explode) {
+	// ball's shape, damage near the base spell's power. (A light's flare is no
+	// blast: it dazzles - LightSpell::Flare.)
+	if (modifier == SpellSymbol::Explode && !m_light) {
 		blast::Rules& r = m_payload.blast.rules;
 		r.force = 3;
 		r.damage = base.Power() * 0.6f;
@@ -64,6 +69,13 @@ BlastSpec ModifiedSpell::ScaledBlast(float power) const {
 }
 
 void ModifiedSpell::Cast(CastContext& ctx) const {
+	if (m_light) {
+		// Ingwaz: one bigger light for as long as the plain cast would last;
+		// Hagalaz: the flare, and no light left.
+		if (m_modifier == SpellSymbol::Multiple) m_light->LightOn(ctx, ctx.power * m_grow, ctx.power);
+		else m_light->Flare(ctx, ctx.power);
+		return;
+	}
 	if (m_bolt) {
 		if (m_modifier == SpellSymbol::Explode) {
 			ProjectileSpec bolt = m_bolt->PartyBolt(ctx, ctx.power);
@@ -126,6 +138,7 @@ void ModifiedSpell::ApplyOverrides(const CatalogEntry& e) {
 	m_gap = e.GetFloat("gap", m_gap);
 	m_jitter = e.GetFloat("jitter", m_jitter);
 	m_forcePerPower = e.GetFloat("blast_force_per_power", m_forcePerPower);
+	m_grow = e.GetFloat("grow", m_grow);
 }
 
 } // namespace dungeon::game
