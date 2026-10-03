@@ -14,6 +14,8 @@ Rock::Rock()
 	  m_conjures("pebble") {}
 
 void Rock::Cast(CastContext& ctx) const {
+	// The pebble comes out of a puff of dust.
+	if (ctx.services.handPuff) ctx.services.handPuff(School(), ctx.origin, ctx.dir);
 	for (const int h : LandingHands(ctx)) {
 		ItemSlot& slot = ctx.caster.inventory.Hand(h);
 		if (!slot.Empty()) continue;

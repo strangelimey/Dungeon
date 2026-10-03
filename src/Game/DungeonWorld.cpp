@@ -802,8 +802,9 @@ void DungeonWorld::UpdateLights(float time) {
 		const HandGlow& g = m_handGlows[i];
 		if (g.timeLeft <= 0.0f || g.life <= 0.0f) continue;
 		const float t = g.timeLeft / g.life; // 1 at the puff, 0 gone
+		const float scale = puff.intensity > 0.0f ? g.intensity / puff.intensity : 0.0f;
 		PushLight(puff, "puff", LightKey(LightKind::HandGlow, static_cast<u32>(i)), g.pos,
-				  time, 0.0f, g.color, t * t);
+				  time, 0.0f, g.color, scale * t * t);
 	}
 
 	// Each uncollected rune throws a soft breathing light in its element colour

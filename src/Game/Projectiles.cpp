@@ -207,6 +207,25 @@ void ProjectileSystem::Puff(const Vec3& pos, const Vec4& color, int count, float
 	}
 }
 
+void ProjectileSystem::Splash(const Vec3& pos, const Vec3& dir, const Vec4& color, int count,
+							  float speed, float life, float size) {
+	auto r = [&] { return (static_cast<float>(m_rng() & 0xFFFF) / 32768.0f) - 1.0f; };
+	for (int i = 0; i < count; ++i) {
+		Spark s;
+		s.pos = {pos.x + r() * 0.04f, pos.y + r() * 0.04f, pos.z + r() * 0.04f};
+		// Out in every direction but mostly forward and up, so it reads as a
+		// flung handful rather than a burst.
+		const float lean = 0.5f + 0.5f * (r() + 1.0f) * 0.5f;
+		s.vel = {(dir.x * lean + r() * 0.6f) * speed, (0.7f + 0.5f * r()) * speed,
+				 (dir.z * lean + r() * 0.6f) * speed};
+		s.color = {color.x, color.y, color.z, 0.0f}; // additive
+		s.life = life * (0.75f + 0.25f * (r() + 1.0f));
+		s.size = size * (0.7f + 0.3f * (r() + 1.0f) * 0.5f);
+		s.fall = 7.0f; // drops fall, and fall fast
+		if (!AddSpark(s)) return; // the pool never grows (AddSpark)
+	}
+}
+
 void ProjectileSystem::Expire(const Item& it, ExpiryCause cause) {
 	if (!onExpire) return;
 	onExpire({it.pos, it.dir, cause, it.target, it.atk, it.payload, it.attacker,

@@ -14,6 +14,8 @@ Gust::Gust()
 	  m_pushPower(8.0f), m_pushCells(1) {}
 
 void Gust::Cast(CastContext& ctx) const {
+	// Whatever it moves, the breath is seen.
+	if (ctx.services.handPuff) ctx.services.handPuff(School(), ctx.origin, ctx.dir);
 	bool did = false;
 	if (ctx.services.flareAhead()) {
 		Say(ctx, loc::FormatLine("log.gust_flare"));
