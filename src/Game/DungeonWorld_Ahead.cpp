@@ -211,8 +211,10 @@ void DungeonWorld::HandPuff(SpellSymbol school, const Vec3& origin, const Vec3& 
 	case SpellSymbol::Water:
 		// A SPLASH: a handful of droplets flung up and out that fall back, and
 		// a faint mist where they left.
-		m_projectiles.Splash(at, dir, {c.x * 1.2f, c.y * 1.2f, c.z * 1.2f, 0.0f}, 16, 1.6f,
-							 0.55f, 0.022f * kUnit);
+		// Small and bright, washed toward white: a soft mote this size reads as
+		// a crisp drop catching the light, where a bigger dim one reads as a blob.
+		m_projectiles.Splash(at, dir, {0.45f + c.x, 0.55f + c.y * 1.3f, 0.6f + c.z * 1.4f, 0.0f},
+							 22, 1.6f, 0.55f, 0.009f * kUnit);
 		m_projectiles.Puff(at, {c.x * 0.35f, c.y * 0.35f, c.z * 0.35f, 0.0f}, 3, 0.3f, 0.35f,
 						   0.05f * kUnit, 0.03f * kUnit);
 		glow = 0.7f;
