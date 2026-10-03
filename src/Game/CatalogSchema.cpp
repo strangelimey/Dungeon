@@ -155,9 +155,9 @@ constexpr FieldSpec kDecorationFields[] = {
 	{.key = "destructible", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
 	 .help = "Can be smashed. Off = scenery, which is the default: nothing in the "
 			 "dungeon is breakable unless its type says so.",
-	 .def = "0"},
+	 .def = "0", .label = "Breakable"},
 	{.key = "hp", .kind = FieldKind::Float, .sectionKey = kSectionRules,
-	 .help = "How much punishment it takes before it breaks (needs Destructible).",
+	 .help = "How much punishment it takes before it breaks (needs Breakable).",
 	 .lo = 0.0f, .hi = 200.0f, .step = 1.0f, .def = "10"},
 	{.key = "armor", .kind = FieldKind::Float, .sectionKey = kSectionRules,
 	 .help = "Flat soak off every blow — stone shrugs where a crate splinters.",
@@ -189,9 +189,9 @@ constexpr FieldSpec kFixtureFields[] = {
 	PROP_SCALE,
 	{.key = "destructible", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
 	 .help = "Can be broken, which PUTS ITS LIGHT OUT. Off = scenery, the default.",
-	 .def = "0"},
+	 .def = "0", .label = "Breakable"},
 	{.key = "hp", .kind = FieldKind::Float, .sectionKey = kSectionRules,
-	 .help = "How much it takes before it is wrecked (needs Destructible).",
+	 .help = "How much it takes before it is wrecked (needs Breakable).",
 	 .lo = 0.0f, .hi = 200.0f, .step = 1.0f, .def = "10"},
 	{.key = "armor", .kind = FieldKind::Float, .sectionKey = kSectionRules,
 	 .help = "Flat soak off every blow — cast iron blunts what a bracket won't.",
@@ -313,9 +313,9 @@ constexpr FieldSpec kDoorFields[] = {
 	 .help = "Can be broken down, opening the way FOR GOOD. Leave OFF for most "
 			 "doors — a breakable locked door makes its key and its switch "
 			 "pointless.",
-	 .def = "0"},
+	 .def = "0", .label = "Breakable"},
 	{.key = "hp", .kind = FieldKind::Float, .sectionKey = kSectionRules,
-	 .help = "How much it takes before it gives way (needs Destructible).",
+	 .help = "How much it takes before it gives way (needs Breakable).",
 	 .lo = 0.0f, .hi = 400.0f, .step = 5.0f, .def = "40"},
 	{.key = "armor", .kind = FieldKind::Float, .sectionKey = kSectionRules,
 	 .help = "Flat soak off every blow — a bound oak door blunts what a plank won't.",
@@ -776,6 +776,10 @@ std::string PrettyFieldName(std::string_view key) {
 	if (!out.empty())
 		out[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(out[0])));
 	return out;
+}
+
+std::string FieldLabel(const FieldSpec& spec) {
+	return spec.label ? std::string(spec.label) : PrettyFieldName(spec.key);
 }
 
 } // namespace dungeon::game

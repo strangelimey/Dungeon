@@ -92,6 +92,9 @@ struct FieldSpec {
 	// Text only: the longest value the field accepts (0 = the dialog's 64). A
 	// generator settings line runs to a couple of hundred characters.
 	int maxLen = 0;
+	// What the form calls the field, when that is not its key prettified (the
+	// `destructible` key reads "Breakable"). Null = PrettyFieldName(key).
+	const char* label = nullptr;
 };
 
 // The rows for a project catalog key ("walls", "monsters", ...); empty for a
@@ -100,6 +103,8 @@ std::span<const FieldSpec> SchemaFor(std::string_view catalogKey);
 
 // "height_scale" -> "Height scale": the label shown for a field key.
 std::string PrettyFieldName(std::string_view key);
+// The name a form row shows: the spec's `label`, else its key prettified.
+std::string FieldLabel(const FieldSpec& spec);
 
 // Section loc keys, in tab order (the dialog walks the schema in this order).
 inline constexpr const char* kSectionIdentity = "map.type.sec.identity";

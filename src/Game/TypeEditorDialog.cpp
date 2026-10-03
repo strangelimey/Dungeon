@@ -326,7 +326,7 @@ void TypeEditorDialog::BuildUI() {
 										 return std::string_view(s) == spec.sectionKey;
 									 });
 		ui::Stack& page = *pages[static_cast<size_t>(it - m_sections.begin())];
-		const std::string label = PrettyFieldName(spec.key);
+		const std::string label = FieldLabel(spec);
 		const std::string value = ValueOf(spec);
 		// A labelled control: the name on the left, the control on the right.
 		auto labelled = [&](ui::Len rowLen) -> ui::Stack* {
@@ -725,7 +725,7 @@ void TypeEditorDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th, floa
 		y += lineH * 1.5f;
 		for (const FieldSpec& spec : m_schema) {
 			if (std::string_view(spec.sectionKey) != std::string_view(section)) continue;
-			m_ui.GetFont().Draw(batch, PrettyFieldName(spec.key), help.x + pad, y, th.text);
+			m_ui.GetFont().Draw(batch, FieldLabel(spec), help.x + pad, y, th.text);
 			y += lineH;
 			// Greedy word wrap into the card width.
 			std::string line;
