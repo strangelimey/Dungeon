@@ -114,6 +114,8 @@ constexpr BalanceField kBalanceFields[] = {
 	{"throw_stamina", &Balance::throwStamina},
 	{"throw_interval", &Balance::throwInterval},
 	{"torch_light_mana", &Balance::torchLightMana},
+	{"ignite_burn", &Balance::igniteBurn},
+	{"ignite_seconds", &Balance::igniteSeconds},
 	{"stamina_swing", &Balance::staminaSwing},
 	{"stamina_weight", &Balance::staminaWeight},
 	{"stamina_step", &Balance::staminaStep},

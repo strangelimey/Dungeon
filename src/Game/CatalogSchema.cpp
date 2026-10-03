@@ -292,6 +292,10 @@ constexpr FieldSpec kMonsterFields[] = {
 	 .lo = 0.0f, .hi = 200.0f, .step = 5.0f, .def = "100"},
 	{.key = "faces", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
 	 .help = "Has a facing (off hides the editor's facing arrow for it).", .def = "1"},
+	{.key = "flammable", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
+	 .help = "Any fire that lands on it sets it burning, every time (balance.cat "
+			 "ignite_burn / ignite_seconds) - a mummy's wrappings.",
+	 .def = "0"},
 };
 
 // --- buttons ----------------------------------------------------------------

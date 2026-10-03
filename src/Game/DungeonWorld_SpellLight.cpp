@@ -120,6 +120,84 @@ void DungeonWorld::LightFlare(SpellSymbol school, float power, int casterIndex) 
 		++dazzled;
 	}
 	if (dazzled > 0 && onMessage) onMessage(loc::FormatLine("log.monsters_dazzled", dazzled));
+
+	// THE SCHOOL'S LIGHT, ONCE, over the flare's reach.
+	const fx::LightEffect* kind = SpellLightKind();
+	switch (school) {
+	case SpellSymbol::Fire: {
+		// Every monster it dazzled is scorched, and every fire in reach catches.
+		const float damage = kind ? kind->ScorchDamage() * power / kind->ScalePower() : 0.0f;
+		for (Monster& monster : m_monsters)
+			if (monster.Alive() && IsDazzled(monster)) ScorchMonster(monster, damage, casterIndex);
+		KindleNear(kFlareSteps, power);
+		break;
+	}
+	default: break;
+	}
+}
+
+// --- what each school's light DOES ---------------------------------------------
+
+void DungeonWorld::ScorchMonster(Monster& monster, float damage, int source) {
+	if (damage <= 0.0f || !monster.Alive()) return;
+	MonsterTarget target{*this, monster};
+	fx::DamageEvent ev =
+		fx::DamageEvent::Burst(m_damageTypes.ForSchool(SpellSymbol::Fire), damage, source);
+	fx::Deal(ev, target, m_balance.Strike(), m_combatRng);
+	const Vec3 at = BurnOrigin(monster);
+	const Vec4 c = ElementColor(SpellSymbol::Fire);
+	m_projectiles.Puff(at, {c.x * 1.6f, c.y * 3.0f, c.z * 2.0f, 0.0f}, 6, 0.3f, 0.4f,
+					   0.04f * kUnit, 0.08f * kUnit);
+	if (!onMessage) return;
+	const loc::Line name = loc::ViewKey("monster.", monster.kind->name);
+	if (ev.dealt >= 0.5f)
+		onMessage(loc::FormatLine("log.light_scorches", name, static_cast<int>(ev.dealt + 0.5f)));
+	if (!monster.Alive()) onMessage(loc::FormatLine("log.monster_slain", name));
+}
+
+int DungeonWorld::KindleNear(int steps, float power) {
+	const fx::LightEffect* kind = SpellLightKind();
+	const float brazierPower = kind ? kind->KindleBrazierPower() : 14.0f;
+	const int px = m_party.GridX(), pz = m_party.GridZ();
+	int kindled = 0;
+	for (Fire& fire : m_fires) {
+		if (fire.lit || fire.empty || (fire.kind && fire.kind->flameless)) continue;
+		if (std::abs(fire.x - px) + std::abs(fire.z - pz) > steps) continue;
+		if (fire.brazier && power < brazierPower) continue;
+		if (SetFireBurning(fire.x, fire.z, fire.wall, true)) ++kindled;
+	}
+	if (kindled > 0 && onMessage) onMessage(loc::FormatLine("log.light_kindles", kindled));
+	return kindled;
+}
+
+void DungeonWorld::TickSpellLights(float dt) {
+	if (!m_roster) return;
+	const fx::LightEffect* kind = SpellLightKind();
+	if (!kind) return;
+	m_kindleClock -= dt;
+	const bool kindleDue = m_kindleClock <= 0.0f;
+	if (kindleDue) m_kindleClock = 0.25f;
+	const int px = m_party.GridX(), pz = m_party.GridZ();
+	for (size_t m = 0; m < m_roster->size() && m < m_scorchClock.size(); ++m) {
+		const fx::Inst* fire = nullptr;
+		for (const fx::Inst& inst : (*m_roster)[m].effects)
+			if (inst.Is("light") && inst.school == SpellSymbol::Fire) fire = &inst;
+		if (!fire) {
+			m_scorchClock[m] = 0.0f; // the next light scorches at once
+			continue;
+		}
+		const float power = fire->magnitude;
+		// KINDLES what it passes: a fire in the party's square or one beside it.
+		if (kindleDue) KindleNear(1, power);
+		// SCORCHES what comes close: each monster in a square beside the party.
+		m_scorchClock[m] -= dt;
+		if (m_scorchClock[m] > 0.0f) continue;
+		m_scorchClock[m] = kind->ScorchEvery();
+		const float damage = kind->ScorchDamage() * power / kind->ScalePower();
+		for (Monster& monster : m_monsters)
+			if (monster.Alive() && std::abs(monster.x - px) + std::abs(monster.z - pz) == 1)
+				ScorchMonster(monster, damage, static_cast<int>(m));
+	}
 }
 
 } // namespace dungeon::game

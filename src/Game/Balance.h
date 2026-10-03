@@ -254,6 +254,10 @@ struct Balance {
 	// Lighting a MAGICAL torch by its own word (the hand menu's Light): it costs
 	// the holder torch_light_mana for each of the torch's `power_level`s.
 	float torchLightMana = 5.0f;
+	// A FLAMMABLE monster (monsters.cat `flammable`) set alight by any fire that
+	// lands on it: it burns ignite_burn a second for ignite_seconds.
+	float igniteBurn = 2.0f;
+	float igniteSeconds = 6.0f;
 	// Stamina costs + exhaustion (docs/combat.md Phase 4). A swing spends
 	// (stamina_swing + stamina_weight × weapon kg) × attack.stam; a step
 	// spends stamina_step per standing member. Regen is the resource model

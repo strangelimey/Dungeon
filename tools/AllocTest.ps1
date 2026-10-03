@@ -1154,10 +1154,11 @@ try {
 	# different one from a world frame (`autocast`, the harness pays the mana):
 	# a plain Firelight and Tidelight (a light effect landing, refreshed each
 	# time - the per-school stacking), an Ingwaz Skylight (one bigger light), and
-	# a Hagalaz Firelight FLARE at a mummy two squares off (the flash, the dazzle
-	# landing on a monster). The world is frozen, so the mummy only stands there.
+	# a Hagalaz Firelight FLARE at a mummy beside the party (the flash, the dazzle
+	# landing on a monster, Firelight's scorch and the flammable mummy catching).
+	# The world is frozen, so the mummy only stands there.
 	if ($Light) {
-		Write-Host 'casting the light spells in crypt1, a mummy two squares off'
+		Write-Host 'casting the light spells in crypt1, a mummy beside the party'
 		Send-Key 0xC0
 		Start-Sleep -Milliseconds 500
 		Send-Text 'logecho on'; Send-Key 0x0D
@@ -1165,7 +1166,9 @@ try {
 		Send-Text 'tp 7 7'; Send-Key 0x0D
 		Send-Text 'face n'; Send-Key 0x0D
 		Assert-PartyAt 7 7
-		Send-Text 'spawn mummy 7 5 s'; Send-Key 0x0D
+		# Beside the party, so Firelight's scorch (and the mummy catching fire) lands in
+		# the window too; tough enough (x400) to outlive it.
+		Send-Text 'spawn mummy 7 6 s 400'; Send-Key 0x0D
 		foreach ($m in 0, 1, 2, 3) {
 			foreach ($s in 'fire', 'water', 'air', 'earth', 'light', 'multiple', 'explode') {
 				Send-Text "learn $m $s"; Send-Key 0x0D

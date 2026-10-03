@@ -693,6 +693,7 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 			if (assets->archetype == ai::Archetype::Caster && assets->spell.empty())
 				log::Warn("monsters.cat [{}]: archetype=caster but no spell= set", type);
 			assets->facesTarget = def->GetBool("faces", true);
+			assets->flammable = def->GetBool("flammable", false);
 			assets->fallbackRoughness = def->GetFloat("roughness", 0.9f);
 			// Imported-model fixups (degrees in the catalog -> radians here).
 			assets->modelYaw = def->GetFloat("modelyaw", 0.0f) * (kPi / 180.0f);

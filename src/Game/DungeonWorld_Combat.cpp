@@ -1164,6 +1164,20 @@ void DungeonWorld::MonsterTarget::Wound(float amount, fx::DamageEvent& ev) {
 		++m_world.m_harness.tally.monstersSlain;
 	} else if (!ev.Quiet()) {
 		m_monster.hitReq = true; // survivor flinches (a fatal blow plays Die)
+		// A FLAMMABLE body that fire reaches CATCHES, every time (Michael: "a
+		// human torch waiting to happen") - a bolt, a lit torch's blow, a light's
+		// scorch alike, since every one of them lands here. Not from a tick (the
+		// burn's own bite is fire), and not when it already burns.
+		if (amount > 0.0f && m_monster.kind && m_monster.kind->flammable &&
+			ev.type == m_world.m_damageTypes.ForSchool(SpellSymbol::Fire) &&
+			!PlumeEffect(m_monster))
+			if (const fx::EffectKind* burn = m_world.m_effects.Find("burn")) {
+				fx::Apply(m_monster.effects, *burn, SpellSymbol::Fire,
+						  m_world.m_balance.igniteBurn, m_world.m_balance.igniteSeconds, ev.source);
+				if (m_world.onMessage)
+					m_world.onMessage(loc::FormatLine("log.monster_ignites",
+													  loc::ViewKey("monster.", m_monster.kind->name)));
+			}
 	}
 }
 

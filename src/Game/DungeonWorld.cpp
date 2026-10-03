@@ -496,6 +496,7 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 	TickCarriedLight(dt);     // held torches burn down; stowed ones go out
 	TickFloorTorches(dt);     // ...and the ones lying lit on the floor
 	TickHandGlows(dt);        // a hand spell's puff of light fading
+	TickSpellLights(dt);      // what the Sowilo lights do: kindle, scorch, ...
 	// The camera FIRST: the light budget culls against this frame's view, and
 	// a cull against last frame's would drop a light the turn just revealed.
 	UpdateCamera();

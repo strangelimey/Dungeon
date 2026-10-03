@@ -136,6 +136,12 @@ name_water = spell.tidelight
 icon = rune_light
 stacking = school
 scale_power = 8
+; FIRE's light kindles an unlit fire within a step (a brazier only at
+; kindle_brazier_power) and every scorch_every seconds burns each monster
+; beside the party for scorch_damage x (power / scale_power).
+kindle_brazier_power = 14
+scorch_every = 1.5
+scorch_damage = 1.5
 
 ; A light spell's flare blinds a monster: it does nothing while this lasts.
 [dazzle]

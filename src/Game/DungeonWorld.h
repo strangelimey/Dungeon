@@ -2061,6 +2061,10 @@ private:
 		// Behaviour/appearance, data-driven from the catalog so AI and the
 		// flat-material fallback never branch on the type name.
 		bool facesTarget = true;     // turn to face the party once engaged
+		// monsters.cat `flammable` (lighting-updates Phase 6, Michael: "mummies
+		// are a human torch waiting to happen"): ANY fire that lands sets it
+		// burning, every time - not the usual chance (MonsterTarget::Wound).
+		bool flammable = false;
 		// (radially-symmetric models like the blob set faces=false to skip it)
 		float fallbackRoughness = 0.9f; // flat-material roughness when no PBR set
 		// Render-only orientation/size fixups for imported models that don't ship
@@ -3961,6 +3965,18 @@ private:
 	float SpellLightScale(float power) const;
 	// A flare's dazzle: the monster does nothing while it lasts.
 	static bool IsDazzled(const Monster& monster);
+	// What each school's light DOES beyond its colour, ticked every frame
+	// (DungeonWorld_SpellLight.cpp). Fire: KINDLES unlit fires within a step of
+	// the party, SCORCHES monsters beside it every `scorch_every` seconds.
+	void TickSpellLights(float dt);
+	// Fire's scorch on one monster: a small fire burst credited to `source`.
+	void ScorchMonster(Monster& monster, float damage, int source);
+	// Lights every unlit fire whose square is within `steps` of the party's
+	// (a brazier only at `power` >= the light kind's kindle_brazier_power).
+	int KindleNear(int steps, float power);
+	// Per-member scorch clocks, and the kindling check's (every quarter second).
+	std::array<float, 4> m_scorchClock{};
+	float m_kindleClock = 0.0f;
 	// Where a lit floor item's flame burns (its model's head, as it lies).
 	Vec3 FloorTorchHead(const Item& item) const;
 	// THE TORCH FLAMES: a lit torch on the floor or in flight burns with a

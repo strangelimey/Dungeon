@@ -249,10 +249,12 @@ freeze on
 tp 14 12
 face n
 heal
-spawn skeleton 14 11 south
-spawn skeleton 13 12 east
-spawn skeleton 15 12 west
-spawn skeleton 14 13 north
+; Mummies, not skeletons: since lighting-updates Phase 6 every skeleton
+; resists fire (0.75), and this burst is fire.
+spawn mummy 14 11 south
+spawn mummy 13 12 east
+spawn mummy 15 12 west
+spawn mummy 14 13 north
 tally reset
 cast 2 0 fire protect explode
 step 3

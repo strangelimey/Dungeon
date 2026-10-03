@@ -332,6 +332,23 @@ committed and checked on its own:
   for: every skeleton kind `fire 0.75` in monsters.cat, and a new monsters.cat
   `flammable` - ANY fire landing on a flammable monster (a bolt, a lit torch's
   blow, the scorch) sets it burning every time. Mummies are flammable.
+  DONE: TickSpellLights (every frame): KindleNear(1, power) each quarter second
+  (party square or one beside; a brazier at effects.cat [light]
+  `kindle_brazier_power` 14), and per member a scorch every `scorch_every` 1.5 s
+  of `scorch_damage` 1.5 x power/8 fire (a Burst: resisted, not soaked) on each
+  monster orthogonally beside the party, with a puff. The flare's fire once:
+  every dazzled monster scorched, every fire within 3 steps kindled. FLAMMABLE
+  lives in MonsterTarget::Wound - the one seam every hit on a monster crosses -
+  so a bolt, a torch's blow and the scorch all ignite: a non-tick fire hit on a
+  flammable monster not already burning applies `burn` at balance.cat
+  `ignite_burn` 2 / `ignite_seconds` 6. All 12 skeleton kinds `fire 0.75`;
+  `[mummy] flammable = 1`; a monsters schema row. Measured headless: a doused
+  wall torch beside the party relit within a second of Firelight; a mummy
+  beside a level-10 caster caught and died in 4 s (double fire damage plus the
+  burn); a skeleton lost 1.7 of 16. SpellTest's ward-burst section burst FIRE at
+  four skeletons, which now shrug it off - its probes are mummies now.
+  Checked: AllocTest `-Light` (its mummy beside the party now, x400 hp, so the
+  scorch and the ignite land in the window) PASS, SpellTest 39, PipelineTest.
 
 6d. WATER. CUTS THE HAZE: a NEGATIVE dust puff centred on the party (the
   shader's DustDensity clamps at zero), the light's reach in radius. SOOTHES:

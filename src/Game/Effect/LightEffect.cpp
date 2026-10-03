@@ -5,6 +5,8 @@
 
 #include "Game/Catalog.h"
 
+#include <algorithm>
+
 namespace dungeon::game::fx {
 
 LightEffect::LightEffect()
@@ -27,6 +29,9 @@ void LightEffect::ApplyOverrides(const CatalogEntry& e, const DamageTypeBook& ty
 		m_schoolNames[i] = e.Get(kSchoolKeys[i], m_schoolNames[i]);
 	m_scalePower = e.GetFloat("scale_power", m_scalePower);
 	if (m_scalePower <= 0.0f) m_scalePower = 8.0f;
+	m_kindleBrazierPower = e.GetFloat("kindle_brazier_power", m_kindleBrazierPower);
+	m_scorchEvery = std::max(0.2f, e.GetFloat("scorch_every", m_scorchEvery));
+	m_scorchDamage = e.GetFloat("scorch_damage", m_scorchDamage);
 }
 
 DazzleEffect::DazzleEffect()

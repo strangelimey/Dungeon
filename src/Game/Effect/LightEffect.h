@@ -32,11 +32,21 @@ public:
 	// The power at which the light is its profile's own size; a stronger one is
 	// bigger (as the square root of the ratio, within limits).
 	float ScalePower() const { return m_scalePower; }
+	// FIRE (lighting-updates Phase 6c): the power a light needs to kindle a
+	// brazier (a sconce takes any), and its scorch - every `scorch_every`
+	// seconds, `scorch_damage` x (power / scale_power) of fire on each monster
+	// beside the party.
+	float KindleBrazierPower() const { return m_kindleBrazierPower; }
+	float ScorchEvery() const { return m_scorchEvery; }
+	float ScorchDamage() const { return m_scorchDamage; }
 
 private:
 	// Indexed by school (Fire, Earth, Air, Water - the SpellSymbol order).
 	std::array<std::string, 4> m_schoolNames;
 	float m_scalePower = 8.0f;
+	float m_kindleBrazierPower = 14.0f;
+	float m_scorchEvery = 1.5f;
+	float m_scorchDamage = 1.5f;
 };
 
 class DazzleEffect : public EffectKind {
