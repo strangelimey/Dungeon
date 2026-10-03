@@ -294,9 +294,12 @@ SaveData::LevelState DungeonWorld::SnapshotActive() const {
 	// Fires lit or put out in play: a diff from the authored `lit`, like a niche.
 	// (A smashed fixture is out too, but its `broken` entry already says so and
 	// restores it dark, so this records it again harmlessly.)
+	// A bracket holding a torch other than its own is a diff too (a magical torch
+	// mounted in it), even burning just as authored.
 	for (const WallSconce& s : m_map.Sconces())
-		if (s.flipped || s.empty)
-			ls.fires.push_back({s.x, s.z, static_cast<int>(s.wall), s.Burning(), s.empty});
+		if (s.flipped || s.empty || !s.torch.empty())
+			ls.fires.push_back({s.x, s.z, static_cast<int>(s.wall), s.Burning(), s.empty,
+								s.torch, s.torchCharge});
 	for (const FloorBrazier& b : m_map.Braziers())
 		if (b.flipped) ls.fires.push_back({b.x, b.z, -1, b.Burning()});
 	// Pieces HURT but standing: their hp and whatever rides them, so a door left
@@ -451,29 +454,39 @@ void DungeonWorld::ApplyActiveSnapshot() {
 			RebuildChunksAround(n.x, n.z);
 	// Fires lit or put out in play. Restored QUIETLY: a fire found out on
 	// arrival went out long ago, and its smoke with it.
-	for (const SaveData::FireBurning& f : ls.fires)
+	for (const SaveData::FireBurning& f : ls.fires) {
 		if (f.empty) SetSconceEmpty(f.x, f.z, f.wall, true); // its torch was taken
 		else SetFireBurning(f.x, f.z, f.wall, f.burning, /*smoke*/ false);
+		// ...and which torch is in it, when not its own.
+		if (!f.empty && !f.torch.empty() && f.wall >= 0)
+			m_map.SetSconceTorch(f.x, f.z, f.wall, f.torch, f.torchCharge);
+	}
 	// Re-break what was broken (v24). A saved entry naming a prop this level no
 	// longer has is simply dropped — the level was edited under the save, and a
-	// missing prop is exactly the outcome the entry wanted anyway.
+	// missing prop is exactly the outcome the entry wanted anyway. And one naming a
+	// piece whose type is no longer `breakable` is IGNORED, as a damaged entry
+	// is below: unticked means unbreakable, and a save must not smash a door or a
+	// prop the type now says cannot be (it would open that door for good). Fixtures
+	// already hold to it - an undestructible one has no FixtureBreak to match.
 	for (const SaveData::BrokenProp& b : ls.broken) {
 		bool found = false;
 		for (Decoration& d : m_decorations)
 			if (d.x == b.x && d.z == b.z && d.kind->id == b.type) {
+				found = true;
+				if (!d.brk.Damageable()) break;
 				d.brk.broken = true;
 				d.brk.hp = 0.0f;
-				found = true;
 				break;
 			}
 		if (found) continue;
 		for (Door& d : m_doors)
 			if (d.x == b.x && d.z == b.z && d.type == b.type) {
+				found = true;
+				if (!d.brk.Damageable()) break;
 				d.brk.broken = true;
 				d.brk.hp = 0.0f;
 				d.open = true; // the way stays open, and stays unclosable
 				d.openT = 1.0f;
-				found = true;
 				break;
 			}
 		if (found) continue;

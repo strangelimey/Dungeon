@@ -322,6 +322,7 @@ log.door_broken=The {} is smashed from its frame!
 log.door_wrecked=The doorway is wrecked — there is nothing left to close.
 log.prop_broken=The {} is smashed to pieces!
 log.fixture_broken=The {} is wrecked, and its light dies.
+log.torch_falls=The {} falls to the floor.
 fixture.sconce=sconce
 fixture.brazier=brazier
 

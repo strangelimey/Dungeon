@@ -64,6 +64,15 @@ inline std::string CatalogGet(const CatalogEntry* e, std::string_view key,
 inline bool CatalogBool(const CatalogEntry* e, std::string_view key, bool fallback) {
 	return e ? e->GetBool(key, fallback) : fallback;
 }
+// Can a piece of this type be broken (decorations / fixtures / doors
+// `breakable`)? OFF unless it says so. The key was `destructible` until
+// 2026-10-03, and a catalog still spelling it that way is read the same -
+// a world made before the rename must not quietly turn unbreakable.
+inline bool CatalogBreakable(const CatalogEntry* e) {
+	if (!e) return false;
+	if (e->Find("breakable")) return e->GetBool("breakable", false);
+	return e->GetBool("destructible", false);
+}
 
 // --- tags --------------------------------------------------------------------
 // `tags` is a free-form, space-separated, case-insensitive set naming the WORLD

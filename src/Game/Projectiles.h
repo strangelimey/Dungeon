@@ -298,9 +298,11 @@ public:
 	// A soft glowing PUFF at `pos` - what a blast filling a square looks like
 	// (DungeonWorld::UpdateBlasts): `count` motes drifting out `spread` m/s and
 	// rising a little, swelling as they fade over `life` seconds. Fire is a
-	// short bright flare, gas a slow lingering cloud.
+	// short bright flare, gas a slow lingering cloud. `jitter` is how far (m)
+	// the motes start scattered round `pos`: a square-filling blast wants most
+	// of the square, a puff in the caster's hand a small knot.
 	void Puff(const Vec3& pos, const Vec4& color, int count, float spread, float life,
-			  float size);
+			  float size, float jitter = 0.6f);
 	// Every thrown item in flight, for the host to draw as itself (and a lit
 	// one's flame): fn(id, pos, dir, secondsInFlight, cargo, cargoCharge).
 	template <typename Fn> void ForEachCargo(Fn&& fn) const {

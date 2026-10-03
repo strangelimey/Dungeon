@@ -14,6 +14,8 @@ Flame::Flame()
 	  m_brazierPower(14.0f) {}
 
 void Flame::Cast(CastContext& ctx) const {
+	// Whatever it lights, the flame is seen: a puff in front of the caster.
+	if (ctx.services.handPuff) ctx.services.handPuff(School(), ctx.origin, ctx.dir);
 	// A torch in the other hand first: the flame is right there. A MAGICAL torch
 	// will not take it (Michael, 2026-10-03) - it is lit by its own word, the
 	// hand menu's Light - and is passed over, said only if nothing else caught.

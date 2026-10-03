@@ -76,7 +76,7 @@ void DungeonWorld::ReloadLightProfiles() {
 	check(m_project.effects, "effects.cat");
 	// The ids the code names when a source names none.
 	for (const char* id : {"fire_sconce", "fire_brazier", "torch", "burning", "floor_glow",
-						   "ember_sight"})
+						   "ember_sight", "hand_puff"})
 		if (!known(id))
 			log::Warn("lights.cat has no [{}]; those lights use the fallback", id);
 

@@ -178,4 +178,28 @@ void DungeonWorld::BlastAroundParty(const ProjectilePayload& payload, SpellSymbo
 			 casterIndex, /*spareCentre*/ true);
 }
 
+void DungeonWorld::HandPuff(SpellSymbol school, const Vec3& origin, const Vec3& dir) {
+	// Under half a square ahead of the eye and a little below it, where the
+	// caster's hands would be: near enough to read as theirs, far enough that
+	// the motes are not clipped by the near plane.
+	const Vec3 at{origin.x + dir.x * kCellSize * 0.55f, origin.y - 0.1f * kUnit,
+				  origin.z + dir.z * kCellSize * 0.55f};
+	const Vec4& c = ElementColor(school);
+	// A hot core of small motes and a dimmer bloom round it - the blast puff's
+	// flare (LandBlastHit) shrunk to a fist and quicker.
+	m_projectiles.Puff(at, {c.x * 1.8f, c.y * 1.6f, c.z * 1.4f, 0.0f}, 10, 0.25f, 0.35f,
+					   0.03f * kUnit, 0.03f * kUnit);
+	m_projectiles.Puff(at, {c.x * 0.6f, c.y * 0.45f, c.z * 0.35f, 0.0f}, 4, 0.35f, 0.5f,
+					   0.06f * kUnit, 0.05f * kUnit);
+	// And it lights what is round it for a moment.
+	HandGlow* slot = &m_handGlows[0];
+	for (HandGlow& g : m_handGlows)
+		if (g.timeLeft < slot->timeLeft) slot = &g;
+	*slot = {at, {c.x, c.y, c.z}, 0.5f, 0.5f};
+}
+
+void DungeonWorld::TickHandGlows(float dt) {
+	for (HandGlow& g : m_handGlows) g.timeLeft = std::max(0.0f, g.timeLeft - dt);
+}
+
 } // namespace dungeon::game

@@ -229,7 +229,11 @@ Key conventions (memorize, they bite):
   a LIT one is `element = fire`, so its fire scales with tier and skill, plus
   an `on_hit` burn. A MAGICAL torch (`torch_magic`) adds `power_level` (burn_time
   x (1 + level), folded in at load) and `flame_color` (its light AND the drawn
-  flame: icon, details dialog; ItemKind::flameColor, DrawFlame's tint). CHARGE IS
+  flame: icon, details dialog; ItemKind::flameColor, DrawFlame's tint). A wall
+  BRACKET REMEMBERS its torch: `WallSconce::torch` (unlit id, "" = the fixture's
+  own) + `torchCharge`, set by MountTorchAt, read by TakeTorchAt, reset with the
+  flips, saved as 6th/7th tokens of the `fire` line. A SMASHED bracket drops
+  that torch on its square (DouseFixture -> DropItemInCell) and is left bare. CHARGE IS
   PART OF THE ITEM everywhere it can be: `ItemSlot {typeId, charge}`, the
   cursor's HeldItem, a floor Item, a thrown cargo, and the save (`id#charge`).
   Lighting / dousing / filling RENAMES an item in its slot (`lit_as` /
@@ -2522,6 +2526,11 @@ Judged by `tools\EditorTest.py` (phase 12 onward).
   and `m_typeOverBalance` rebuilds the tab when it closes).
 
 ## Known gaps / natural next steps
+
+- REMINDER (Michael, 2026-10-03): crypt1.ent carries a TEMPORARY `item
+  torch_magic 5 7 north` beside the start, placed only so the magical torch can
+  be tried. REMOVE IT once there is somewhere for the player to find one later
+  in the game - it is not meant to be starting loot.
 
 - Combat is built out (see the COMBAT bullet: the attack formula, damage
   types/resists, stamina exertion, death/revive, DoTs, reach, quadrant

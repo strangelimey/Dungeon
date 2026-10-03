@@ -111,12 +111,18 @@ bool DungeonWorld::TakeTorchAhead(float mx, float my, float w, float h, HeldItem
 
 bool DungeonWorld::TakeTorchAt(int x, int z, int wall, HeldItem& cursor) {
 	const Fire* fire = FindFire(x, z, wall);
-	if (!fire || fire->empty || !fire->kind || fire->kind->torchItem.empty()) return false;
-	// What comes off the wall: the kind's torch, lit when the sconce was.
-	const ItemKind& torch = ItemKindFor(fire->kind->torchItem);
+	const WallSconce* sconce = m_map.SconceAt(x, z, wall);
+	if (!fire || fire->empty || !fire->kind || !sconce) return false;
+	// What comes off the wall: the torch that went in (the kind's own when none
+	// was recorded), lit when the sconce was, with the charge it went in with.
+	const std::string& base = sconce->torch.empty() ? fire->kind->torchItem : sconce->torch;
+	if (base.empty()) return false;
+	const ItemKind& torch = ItemKindFor(base);
+	const float charge = sconce->torchCharge;
 	const bool lit = fire->lit;
 	const std::string& id = lit && !torch.litAs.empty() ? torch.litAs : torch.id;
 	if (!SetSconceEmpty(x, z, wall, true)) return false;
+	m_map.SetSconceTorch(x, z, wall, {}, kNoCharge); // the bracket is bare now
 	// Into the LEADER's free hand (right, then left); with both full, onto the
 	// cursor as anything lifted is.
 	Character* leader = m_roster && m_leader >= 0 && static_cast<size_t>(m_leader) < m_roster->size()
@@ -127,10 +133,10 @@ bool DungeonWorld::TakeTorchAt(int x, int z, int wall, HeldItem& cursor) {
 		for (int h = 1; h >= 0 && !inHand; --h)
 			if (ItemSlot& slot = leader->inventory.Hand(h); slot.Empty()) {
 				slot.typeId.assign(id);
-				slot.charge = kNoCharge;
+				slot.charge = charge;
 				inHand = true;
 			}
-	if (!inHand) cursor.Set(id, kNoCharge);
+	if (!inHand) cursor.Set(id, charge);
 	m_audio.Play(m_sounds.click, 0.6f);
 	if (onMessage)
 		onMessage(loc::FormatLine("log.take_item", LeaderName(),
@@ -139,21 +145,39 @@ bool DungeonWorld::TakeTorchAt(int x, int z, int wall, HeldItem& cursor) {
 }
 
 bool DungeonWorld::MountTorchAhead(const std::string& itemId, float mx, float my, float w,
-								   float h) {
+								   float h, float charge) {
 	int x = 0, z = 0, wall = -1;
 	return !itemId.empty() && SconceUnderCursor(mx, my, w, h, x, z, wall) &&
-		   MountTorchAt(x, z, wall, itemId);
+		   MountTorchAt(x, z, wall, itemId, charge);
 }
 
-bool DungeonWorld::MountTorchAt(int x, int z, int wall, const std::string& itemId) {
+bool DungeonWorld::MountTorchAt(int x, int z, int wall, const std::string& itemId,
+								float charge) {
 	const Fire* fire = FindFire(x, z, wall);
-	if (!fire || !fire->empty) return false;
+	if (!fire || !fire->empty || !fire->kind) return false;
 	// Any torch that can burn - lit or not - goes in; a stub does not.
 	const ItemKind& kind = ItemKindFor(itemId);
 	if (!kind.Lit() && kind.litAs.empty()) return false;
 	if (!SetSconceEmpty(x, z, wall, false, kind.Lit())) return false;
+	// Remember WHICH torch: its unlit id (whether it burns is the sconce's
+	// state) and its charge, which a bracket does not burn down. The fixture's
+	// own torch, fresh, is the default and records nothing, so a bracket that
+	// got its own torch back saves no line.
+	const std::string& base = kind.Lit() && !kind.unlitAs.empty() ? kind.unlitAs : kind.id;
+	if (base == fire->kind->torchItem && charge < 0.0f)
+		m_map.SetSconceTorch(x, z, wall, {}, kNoCharge);
+	else
+		m_map.SetSconceTorch(x, z, wall, base, charge);
 	m_audio.Play(m_sounds.click, 0.5f);
 	return true;
+}
+
+std::string_view DungeonWorld::SconceTorch(int x, int z, int wall) {
+	const Fire* fire = FindFire(x, z, wall);
+	const WallSconce* sconce = m_map.SconceAt(x, z, wall);
+	if (!fire || fire->empty || !fire->kind || !sconce) return {};
+	return sconce->torch.empty() ? std::string_view(fire->kind->torchItem)
+								 : std::string_view(sconce->torch);
 }
 
 bool DungeonWorld::FlareFire(int x, int z, int wall) {

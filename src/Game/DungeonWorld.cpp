@@ -246,6 +246,9 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		 [this](float power, int casterIndex) { return RepelAhead(power, casterIndex); },
 		 [this](const ProjectilePayload& payload, SpellSymbol school, int casterIndex) {
 			 BlastAroundParty(payload, school, casterIndex);
+		 },
+		 [this](SpellSymbol school, const Vec3& origin, const Vec3& dir) {
+			 HandPuff(school, origin, dir);
 		 }});
 
 	// The torch flames' pool, each at its full size now: a torch landing or
@@ -489,6 +492,7 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 	UpdateFireTransients(dt); // flares dying away, dust puffs settling
 	TickCarriedLight(dt);     // held torches burn down; stowed ones go out
 	TickFloorTorches(dt);     // ...and the ones lying lit on the floor
+	TickHandGlows(dt);        // a hand spell's puff of light fading
 	// The camera FIRST: the light budget culls against this frame's view, and
 	// a cull against last frame's would drop a light the turn just revealed.
 	UpdateCamera();
@@ -789,6 +793,17 @@ void DungeonWorld::UpdateLights(float time) {
 		PushLight(LightProfileFor(id.empty() ? std::string_view("burning") : id), "burning",
 				  LightKey(LightKind::Burning, monster.runtimeId), {o.x, o.y + 0.1f, o.z}, time,
 				  static_cast<float>(monster.runtimeId), {c.x, c.y, c.z});
+	}
+
+	// A hand spell's puff (HandPuff) flashes and fades (`hand_puff`, its
+	// colour the school's): its brightness falls as the square of what is left.
+	const light::Profile& puff = LightProfileFor("hand_puff");
+	for (size_t i = 0; i < m_handGlows.size(); ++i) {
+		const HandGlow& g = m_handGlows[i];
+		if (g.timeLeft <= 0.0f || g.life <= 0.0f) continue;
+		const float t = g.timeLeft / g.life; // 1 at the puff, 0 gone
+		PushLight(puff, "puff", LightKey(LightKind::HandGlow, static_cast<u32>(i)), g.pos,
+				  time, 0.0f, g.color, t * t);
 	}
 
 	// Each uncollected rune throws a soft breathing light in its element colour

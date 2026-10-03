@@ -2427,7 +2427,7 @@ void DungeonWorld::SeedFixtureBreakables() {
 	const auto seed = [this, &prior](int x, int z, int wall,
 									 const std::string& type) {
 		const FixtureKind& k = FixtureKindFor(type);
-		if (!k.destructible || k.hp <= 0.0f) return; // authored as scenery
+		if (!k.breakable || k.hp <= 0.0f) return; // authored as scenery
 		FixtureBreak fb;
 		fb.x = x;
 		fb.z = z;
@@ -2465,10 +2465,26 @@ void DungeonWorld::DouseFixture(const FixtureBreak& fb) {
 	// authored change. Burning() is runtime state now; the record is left alone.
 	SetFireBurning(fb.x, fb.z, fb.wall, false);
 	++m_harness.tally.fixturesDoused;
+	// A smashed WALL BRACKET lets go of its torch: it falls to the floor of the
+	// bracket's own square (out, as anything set down is - PlaceDrop), as the
+	// torch that was in it with what was left of it, and the wreck is bare.
+	// Only a bracket that can be emptied (SetSconceEmpty: a takeable kind) - one
+	// that cannot would otherwise hand out its torch and still hold it.
+	const WallSconce* sconce = fb.wall >= 0 ? m_map.SconceAt(fb.x, fb.z, fb.wall) : nullptr;
+	const Fire* fire = sconce ? FindFire(fb.x, fb.z, fb.wall) : nullptr;
+	if (!sconce || sconce->empty || !fire || !fire->kind) return;
+	const std::string& base = sconce->torch.empty() ? fire->kind->torchItem : sconce->torch;
+	if (base.empty()) return;
+	const ItemKind& torch = ItemKindFor(base); // before the record forgets it
+	const float charge = sconce->torchCharge;
+	if (!SetSconceEmpty(fb.x, fb.z, fb.wall, true)) return;
+	m_map.SetSconceTorch(fb.x, fb.z, fb.wall, {}, kNoCharge);
+	DropItemInCell(torch.id, fb.x, fb.z, charge);
+	if (onMessage) onMessage(loc::FormatLine("log.torch_falls", loc::View(torch.nameKey)));
 }
 
 void DungeonWorld::SeedBreakable(Breakable& brk, const DecorationKind& kind) {
-	if (!kind.destructible || kind.hp <= 0.0f) return; // scenery: maxHp stays 0
+	if (!kind.breakable || kind.hp <= 0.0f) return; // scenery: maxHp stays 0
 	brk.maxHp = kind.hp;
 	brk.hp = kind.hp;
 	brk.soak = kind.soak;
@@ -2692,7 +2708,7 @@ bool DungeonWorld::StrikeDoorWithBolt(int cx, int cz, const ProjectileExpiry& ex
 	// WHAT A BOLT DOES TO A DOOR DEPENDS ON THE DOOR AND THE SPELL (Michael,
 	// 2026-10-01): a fire bolt may set a wooden door alight, an earth bolt may
 	// batter it - and most doors shrug off both. All of that is DATA already: a
-	// door is hurt at all only if doors.cat says `destructible = 1` (OFF by
+	// door is hurt at all only if doors.cat says `breakable = 1` (OFF by
 	// default, so keys and switches keep mattering), and how much each element
 	// does is its `armor` and `resists`. An immune door is simply not a target -
 	// the bolt goes out against it as it always did.

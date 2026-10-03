@@ -742,6 +742,9 @@ public:
 	ProjectileSystem::Repelled RepelAhead(float power, int casterIndex);
 	void BlastAroundParty(const ProjectilePayload& payload, SpellSymbol school,
 						  int casterIndex);
+	// A puff of `school`'s element just ahead of a cast's origin (its lane at the
+	// eye) along `dir`: a knot of motes and a brief shadowless glow.
+	void HandPuff(SpellSymbol school, const Vec3& origin, const Vec3& dir);
 	// The whole spell registry (the Magic menu filters it by known symbols).
 	std::span<const std::unique_ptr<Spell>> SpellDefs() const {
 		return m_magic.Book().Defs();
@@ -1416,12 +1419,19 @@ public:
 	// faces it from its square and the click lands ON it. Taking leaves the bare
 	// bracket and puts the torch - lit if it burned - in the leader's free hand,
 	// else on `cursor` (which must be empty). Mounting puts the item `itemId` (a
-	// torch, lit or not) into an EMPTY bracket. True if it happened.
+	// torch, lit or not) into an EMPTY bracket. True if it happened. The bracket
+	// REMEMBERS the torch and its `charge` (WallSconce::torch), so a magical or
+	// half-burnt torch comes back off it as it went in.
 	bool TakeTorchAhead(float mx, float my, float w, float h, HeldItem& cursor);
-	bool MountTorchAhead(const std::string& itemId, float mx, float my, float w, float h);
+	bool MountTorchAhead(const std::string& itemId, float mx, float my, float w, float h,
+						 float charge = kNoCharge);
 	// The same acts on a named sconce, with no click (the dev console's `torch`).
 	bool TakeTorchAt(int x, int z, int wall, HeldItem& cursor);
-	bool MountTorchAt(int x, int z, int wall, const std::string& itemId);
+	bool MountTorchAt(int x, int z, int wall, const std::string& itemId,
+					  float charge = kNoCharge);
+	// The torch in the sconce on (x,z)/`wall` as it would come off it (its unlit
+	// id), or "" when there is none (no sconce, an empty bracket).
+	std::string_view SconceTorch(int x, int z, int wall);
 	// Empties or refills the sconce on (x,z)/`wall` (the map record + the live
 	// fire); `burning` = the refilled torch is lit. False for a kind with no
 	// bare bracket to show (fixtures.cat `empty_model`) or no change.
@@ -2530,7 +2540,7 @@ private:
 	// fx::ITarget adapter (BreakableTarget) serves them all, so the dungeon
 	// reaches the damage pipeline through exactly the same door a combatant does.
 	//
-	// DAMAGEABILITY IS OPT-IN AND OFF BY DEFAULT (`destructible` in the catalog,
+	// DAMAGEABILITY IS OPT-IN AND OFF BY DEFAULT (`breakable` in the catalog,
 	// Michael's requirement): if props and doors were breakable unless told
 	// otherwise, keys and switches would stop mattering the moment a party could
 	// swing at a door. maxHp of 0 means "not a target at all" and every ask below
@@ -2610,7 +2620,7 @@ private:
 		float pullT = 0.0f;        // 0 at rest .. 1 fully worked
 		bool pullRising = false;   // true while it is being pulled, false coming back
 		EaseSpan openerEase;       // the hand-hold's own shaping, from its entry
-		// Can it be broken down? OFF unless doors.cat says `destructible = 1`
+		// Can it be broken down? OFF unless doors.cat says `breakable = 1`
 		// (Michael's requirement — otherwise a party would simply chop through
 		// every locked door and keys and switches would stop mattering). A broken
 		// door's way is open FOR GOOD: it cannot be shut again, which is the
@@ -2653,10 +2663,10 @@ private:
 		// leave the resolved material alone). metallic/roughness REPLACE the draw's
 		// factors — with an ORM map the shader multiplies them over the map, flat
 		// fallbacks take them directly. tint replaces baseColor (over the albedo).
-		// Breakability, OFF unless decorations.cat says `destructible = 1` — the
+		// Breakability, OFF unless decorations.cat says `breakable = 1` — the
 		// gate, with `hp`/`armor`/`resists` for how tough it is. Copied into each
 		// instance's Breakable at placement.
-		bool destructible = false;
+		bool breakable = false;
 		float hp = 0.0f;
 		float soak = 0.0f;
 		ResistTable resists;
@@ -2690,7 +2700,7 @@ private:
 		bool wallMounted = false;        // hung on a wall (wall= record param)
 		Direction wall = Direction::North;
 		bool stair = false;              // a stair prop (written as a stairs record)
-		// Breakable if its type opted in (decorations.cat `destructible = 1`).
+		// Breakable if its type opted in (decorations.cat `breakable = 1`).
 		Breakable brk;
 
 		// A smashed prop is GONE for every purpose — not drawn, not blocking, not on
@@ -3150,7 +3160,7 @@ private:
 	// load and one placed by the editor are breakable on the same terms.
 	static void SeedBreakable(Breakable& brk, const DecorationKind& kind);
 	// Build the fixture damage side-table from the map's sconces and braziers.
-	// Called once the fixtures are placed; only destructible kinds get an entry, so
+	// Called once the fixtures are placed; only breakable kinds get an entry, so
 	// the table is empty in a dungeon that authored none.
 	void SeedFixtureBreakables();
 	// Douse a broken fixture: its light, flame and smoke all go with `lit`.
@@ -3677,6 +3687,7 @@ private:
 		Bolt,      // a flight in the air, keyed by its projectile id
 		FloorTorch, // a lit torch lying on the floor, keyed by its m_items index
 		Flash,     // the moment a lit bolt leaves where it ended, keyed by slot
+		HandGlow,  // a hand spell's puff of light (HandPuff), keyed by its slot
 	};
 	static u32 LightKey(LightKind kind, u32 index) {
 		return (static_cast<u32>(kind) << 24) | (index & 0xFFFFFFu);
@@ -3889,6 +3900,17 @@ private:
 	ItemSlot m_cursorScratch;
 	// DropAtPartyFeet's id, assigned rather than constructed (a guarded frame).
 	std::string m_dropIdScratch;
+	// The glows HandPuff leaves, each fading over its `life` (UpdateLights adds
+	// the live ones). FIXED: a cast lands in a guarded frame; a fifth puff while
+	// four still glow takes the oldest's place.
+	struct HandGlow {
+		Vec3 pos{};
+		Vec3 color{};
+		float timeLeft = 0.0f;
+		float life = 0.0f;
+	};
+	std::array<HandGlow, 4> m_handGlows{};
+	void TickHandGlows(float dt);
 	// Bolts waiting their turn (a volley's later shots - the cast service
 	// spawnBoltAfter, and a monster mage's volley): a FIXED queue, because a
 	// cast lands in a guarded frame. Transient, like the bolts in flight: a
@@ -4284,8 +4306,8 @@ private:
 		float modelScale = 1.0f; // fixtures.cat `scale`, like DecorationKind's
 		FixtureFlame flame{0.0f, 0.0f, 0.0f};
 		std::unique_ptr<gfx::Texture> iconTarget; // baked map icon
-		// Breakability, off unless the type opts in (fixtures.cat `destructible`).
-		bool destructible = false;
+		// Breakability, off unless the type opts in (fixtures.cat `breakable`).
+		bool breakable = false;
 		float hp = 0.0f;
 		float soak = 0.0f;
 		ResistTable resists;

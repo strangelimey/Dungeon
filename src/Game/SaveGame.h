@@ -254,6 +254,10 @@ struct SaveData {
 		int wall = -1;
 		bool burning = true;
 		bool empty = false; // a wall torch taken off its bracket
+		// The torch mounted in it when not the fixture's own (WallSconce::torch,
+		// its unlit id) and its charge. Absent from an older line = the own one.
+		std::string torch;
+		float torchCharge = -1.0f;
 	};
 
 	// A piece of dungeon that is HURT but still standing: its hit points, and

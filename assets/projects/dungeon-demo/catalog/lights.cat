@@ -85,6 +85,17 @@ radius = 2.2
 pulse = steady
 shadow = 0
 
+; A hand spell's puff of its element (Puff of Flame cast at nothing): a flash in
+; the school's colour that falls away over half a second.
+[hand_puff]
+display = Hand spell puff
+category = magic
+color = source
+intensity = 1.3
+radius = 1.4
+pulse = steady
+shadow = 0
+
 ; THINGS IN FLIGHT (Phase 4). Each bolt is its own light from launch to landing
 ; (a volley's bolts each light their own stretch), shadowless and small so a
 ; fight full of them stays cheap. A bolt takes its SCHOOL'S unless spells.cat
