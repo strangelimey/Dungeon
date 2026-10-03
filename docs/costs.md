@@ -117,7 +117,7 @@ to credit. Any tool subscription goes under AI / API usage below.
 
 | date | item | tool | cost | in-game / status |
 |---|---|---|---|---|
-| 2026-10-02 | Title / loading-screen art (skeletons in a torchlit corridor), 1792x1008 JPG | Grok (xAI) | ? (see AI / API) | `assets/ui/title_bg.png` - title menu, boot and new-game loading screens - done |
+| 2026-10-02 | Title / loading-screen art (skeletons in a torchlit corridor), 1792x1008 JPG | Grok (xAI) | covered by the $30/month Grok subscription (AI / API) | `assets/ui/title_bg.png` - title menu, boot and new-game loading screens - done |
 
 ### Other asset packs (sound / music / etc.)
 | date | item | source | price | notes |
@@ -133,7 +133,7 @@ Hard to attribute per-project precisely; record known bills/top-ups here.
 | period | service | amount | notes |
 |---|---|---|---|
 | — | Claude Code (Claude / Anthropic) | ? | _fill from billing; the project is built collaboratively with Claude_ |
-| 2026-10-02 | Grok (xAI) | ? | image generation: the title art (`assets/ui/title_bg.png`) |
+| 2026-10-02 | Grok (xAI) | **$30/month** subscription | image generation: the title art (`assets/ui/title_bg.png`). Recurring, and not bought for this project alone |
 
 ---
 
@@ -156,7 +156,8 @@ One-off or recurring software bought for the project.
   Army Kit $21.87 + fixtures/torches $39.34; the CC-BY freebies cost $0);
   itch.io **$24.68** (Medieval RPG UI kit $2.70 + Wenrexa UI $3.99 + Magory
   portraits $7.99 + Corax portraits $10.00); other $0.
-- **AI / API:** not yet recorded.
+- **AI / API:** Grok **$30/month** (recurring, not counted in the one-off
+  total below); Claude usage not yet recorded.
 - **Dev tools / licenses:** $0 (all free so far).
 - **Cash out of pocket so far:** **$151.11** ($39.00 textures.com + $87.43
   fab.com + $24.68 itch.io; fab amounts are actual charges from the Epic
