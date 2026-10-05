@@ -59,7 +59,14 @@ bool Animator::Play(const std::string& name, bool loop, float fade) {
 	m_current = next;
 	m_loop = loop;
 	m_time = 0.0f;
+	MeasureRootTravel();
 	return true;
+}
+
+void Animator::LockRootTravel(float oneShotReach) {
+	m_root = HasSkeleton() ? m_skeleton->RootJoint() : -1;
+	m_rootReach = std::max(oneShotReach, 0.0f);
+	MeasureRootTravel(); // a clip already playing is held to it from now on
 }
 
 void Animator::Update(float dt) {
@@ -72,8 +79,10 @@ void Animator::Update(float dt) {
 			m_time = std::min(m_time, m_current->duration);
 	}
 
-	// Active clip's local pose into the working arrays.
+	// Active clip's local pose into the working arrays, its root travel taken
+	// out BEFORE the blend so the frozen snapshot of a later fade is locked too.
 	SampleClip(m_current, m_time, m_translations, m_rotations, m_scales);
+	ApplyRootLock();
 
 	// Blend in the frozen snapshot while fading (snapshot → active as w: 0 → 1).
 	if (m_fadeDuration > 0.0f) {
@@ -115,6 +124,50 @@ KeyLerp FindKeys(std::span<const float> times, float time) {
 }
 
 } // namespace
+
+// ----------------------------------------------------------------------------
+// Root travel (see LockRootTravel). The root's translation channel is read
+// straight off its first and last keys: where the clip starts the body and
+// where it leaves it. Height is not travel - a fall to the floor or a rise from
+// it is the clip's to keep - so y is zeroed out of the measure.
+// ----------------------------------------------------------------------------
+void Animator::MeasureRootTravel() {
+	m_rootStart = {};
+	m_rootTravel = {};
+	m_rootEnd = 0.0f;
+	m_rootScale = 1.0f;
+	if (m_root < 0 || !m_current) return;
+	for (const auto& ch : m_current->channels) {
+		if (ch.joint != m_root || ch.path != assets::ChannelPath::Translation) continue;
+		const std::span<const float> times = m_current->Times(ch);
+		const std::span<const Vec4> values = m_current->Values(ch);
+		if (times.empty() || values.empty()) return;
+		const Vec4& a = values.front();
+		const Vec4& b = values.back();
+		m_rootStart = {a.x, a.y, a.z};
+		m_rootTravel = {b.x - a.x, 0.0f, b.z - a.z};
+		m_rootEnd = times.back();
+		break;
+	}
+	const float travel =
+		std::sqrt(m_rootTravel.x * m_rootTravel.x + m_rootTravel.z * m_rootTravel.z);
+	if (!m_loop && travel > m_rootReach) m_rootScale = m_rootReach / travel;
+}
+
+void Animator::ApplyRootLock() {
+	if (m_root < 0 || !m_current) return;
+	Vec3& t = m_translations[m_root];
+	if (m_loop) {
+		// The drift, a straight line from the first key to the last: all of it
+		// gone at the loop point, so the cycle closes where it began.
+		const float f = m_rootEnd > 0.0f ? std::min(m_time / m_rootEnd, 1.0f) : 1.0f;
+		t.x -= f * m_rootTravel.x;
+		t.z -= f * m_rootTravel.z;
+	} else if (m_rootScale < 1.0f) {
+		t.x = m_rootStart.x + (t.x - m_rootStart.x) * m_rootScale;
+		t.z = m_rootStart.z + (t.z - m_rootStart.z) * m_rootScale;
+	}
+}
 
 // ----------------------------------------------------------------------------
 // Clip sampling. Channels are sparse: a clip may animate only some joints and

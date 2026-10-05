@@ -1,0 +1,143 @@
+; rootmotion.eval - how far a monster's body strays from where the game put it.
+;
+; The skeleton kit's Mixamo clips carry ROOT MOTION: a walk carries the hips
+; ~0.77 units forward per cycle, a death up to ~0.6 to one side. The world moves
+; a monster itself, so a clip that travelled too slid the body ahead of its
+; square and snapped it back every loop (measured before the fix: `root` climbed
+; 0.03 -> 0.755 over a walk__walking cycle, then dropped to 0.014).
+; Animator::LockRootTravel takes the drift out of loops and holds a one-shot to
+; DungeonWorld::kMonsterRootReach (0.08). `monsters` prints, per monster, the
+; clip and `root` - the rig root's horizontal distance from its rest, in model
+; units - which is that stray.
+;
+; The monster is held through its spawn clip (up to 14 s; a rising monster no
+; longer acts on its own, so the `freeze` is now belt and braces) and then let go
+; at distance 7, which it notices. The death is a burn: dealt through the pipeline, and its plume rides
+; the root joint, so a body that strays drags the fire with it.
+
+logecho on
+reset
+timescale 0
+lockstep on
+seed 11
+arena open 9 9
+tp 14 16
+face n
+freeze on
+spawn skel_warrior 14 9 s
+step 16
+freeze off
+echo --- walk ---
+step 0.1
+monsters
+step 0.1
+monsters
+step 0.1
+monsters
+step 0.1
+monsters
+step 0.1
+monsters
+step 0.1
+monsters
+step 0.1
+monsters
+step 0.1
+monsters
+step 0.1
+monsters
+step 0.1
+monsters
+step 0.1
+monsters
+step 0.1
+monsters
+step 0.1
+monsters
+step 0.1
+monsters
+step 0.1
+monsters
+step 0.1
+monsters
+step 0.1
+monsters
+step 0.1
+monsters
+step 0.1
+monsters
+step 0.1
+monsters
+step 0.1
+monsters
+step 0.1
+monsters
+step 0.1
+monsters
+step 0.1
+monsters
+step 0.1
+monsters
+step 0.1
+monsters
+step 0.1
+monsters
+step 0.1
+monsters
+step 0.1
+monsters
+step 0.1
+monsters
+echo --- death ---
+freeze on
+effect burn ahead 200 5
+step 0.2
+monsters
+step 0.2
+monsters
+step 0.2
+monsters
+step 0.2
+monsters
+step 0.2
+monsters
+step 0.2
+monsters
+step 0.2
+monsters
+step 0.2
+monsters
+step 0.2
+monsters
+step 0.2
+monsters
+step 0.2
+monsters
+step 0.2
+monsters
+step 0.2
+monsters
+step 0.2
+monsters
+step 0.2
+monsters
+step 0.2
+monsters
+step 0.2
+monsters
+step 0.2
+monsters
+step 0.2
+monsters
+step 0.2
+monsters
+step 0.2
+monsters
+step 0.2
+monsters
+step 0.2
+monsters
+step 0.2
+monsters
+step 0.2
+monsters

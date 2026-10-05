@@ -186,6 +186,11 @@ $suites = @(
 		measure = '===|  \[[0-9]\]|TALLY |roster [0-9]|rested [0-9.]+s|state '
 	},
 	@{
+		name = 'rootmotion'; script = 'rootmotion.eval'
+		what = 'a walking, then dying, kit skeleton: how far its body strays from its square'
+		measure = '--- |  skel_warrior @ '
+	},
+	@{
 		name = 'spawnrise'; script = 'spawnrise.eval'
 		what = 'a freshly spawned skeleton holds its square until it is up'
 		# The cell must read 14,9 on every line that also says `rising`.

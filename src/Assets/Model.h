@@ -76,7 +76,8 @@ struct SkeletonData {
 	std::vector<JointData> joints;
 
 	// The rig's ROOT joint: the first parentless one (joints are parent-first),
-	// -1 = no skeleton.
+	// -1 = no skeleton. The world (MonsterKind::rigRoot) and the Animator's
+	// root-travel lock both ask here.
 	int RootJoint() const {
 		for (size_t j = 0; j < joints.size(); ++j)
 			if (joints[j].parent < 0) return static_cast<int>(j);

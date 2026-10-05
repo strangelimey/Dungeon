@@ -65,6 +65,7 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 			pv.clips = d.clips;
 			pv.idleClip = d.idleClip;
 			m_previewAnim = anim::Animator(d.skeleton, d.clips);
+			m_previewAnim.LockRootTravel(DungeonWorld::kMonsterRootReach); // as in the world
 			if (!pv.idleClip.empty()) m_previewAnim.Play(pv.idleClip, /*loop*/ true);
 		}
 		m_inspectPreview = pv; // cached so route-laying can re-pass it on reopen

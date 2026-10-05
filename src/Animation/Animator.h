@@ -18,6 +18,7 @@
 #include "Core/MathTypes.h"
 
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace dungeon::anim {
@@ -41,9 +42,32 @@ public:
 	// restart.
 	bool Play(const std::string& name = {}, bool loop = true, float fade = 0.0f);
 
+	// ROOT TRAVEL. Bought Mixamo clips carry ROOT MOTION: a walk moves the
+	// root joint ~0.77 units forward per cycle (a run up to ~1.3), a death
+	// carries the body up to ~0.6 units off. The game already moves the
+	// creature itself (a monster glides cell to cell), so a clip that ALSO
+	// travels slides the body ahead of its square and snaps it back on every
+	// loop. Locked, the root's HORIZONTAL (x, z) travel is taken out - its
+	// height (the walk's bob, a fall to the floor) and every rotation are left
+	// as authored, so is anything else a clip does in place:
+	//   - a LOOPING clip loses its drift: the straight line from where the
+	//     root starts to where it ends is subtracted over the cycle, so the
+	//     loop closes and the sway and surge within a stride survive (measured
+	//     on the skeleton kit: 0.02 units left in a walk, 0.08 in a run);
+	//   - a ONE-SHOT keeps the SHAPE of its travel, scaled so the root ends no
+	//     farther than `oneShotReach` from where it began - a body still lurches
+	//     the way it falls, but stays in its own square.
+	// A clip that does not travel is untouched either way. Measured per clip at
+	// Play, applied per Update; allocates nothing.
+	void LockRootTravel(float oneShotReach);
+
 	void Update(float dt);
 
 	bool Fading() const { return m_fadeDuration > 0.0f; }
+	// The active clip's name ("" before the first Play) - a readout's word.
+	std::string_view CurrentClip() const {
+		return m_current ? std::string_view(m_current->name) : std::string_view{};
+	}
 
 	const std::vector<Mat4>& Palette() const { return m_palette; }
 	size_t JointCount() const { return m_palette.size(); }
@@ -63,12 +87,24 @@ private:
 					std::vector<Vec3>& outS) const;
 	// Builds m_globals + m_palette from the current local TRS arrays.
 	void BuildPalette();
+	// Measures the active clip's root travel (LockRootTravel); Play calls it.
+	void MeasureRootTravel();
+	// Takes that travel back out of m_translations[m_root] at m_time.
+	void ApplyRootLock();
 
 	const assets::SkeletonData* m_skeleton = nullptr;
 	const std::vector<assets::AnimationClipData>* m_clips = nullptr;
 	const assets::AnimationClipData* m_current = nullptr;
 	bool m_loop = true;
 	float m_time = 0.0f;
+
+	// Root travel (LockRootTravel). m_root < 0 = clips play as authored.
+	int m_root = -1;
+	float m_rootReach = 0.0f;
+	Vec3 m_rootStart{};   // the active clip's root at its first key
+	Vec3 m_rootTravel{};  // ...and from there to its last, y zeroed
+	float m_rootEnd = 0.0f; // the time of that last key
+	float m_rootScale = 1.0f; // a one-shot's travel kept (1 = all of it)
 
 	// Cross-fade: a frozen snapshot of the pose at the moment Play(fade>0) was
 	// called, blended toward the active clip as m_fade ramps to m_fadeDuration.
