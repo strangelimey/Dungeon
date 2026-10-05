@@ -58,11 +58,12 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		if (m_world->MonsterModelAvailable(c.type)) {
 			const auto d = m_world->MonsterPreviewFor(c.type);
 			pv.subs = d.subs; // one entry, or one per primitive (multi-material)
-			pv.scale = d.modelScale;
+			pv.scale = d.scale;
 			pv.yaw = d.modelYaw;
+			pv.pivot = d.pivot;
 			pv.skeleton = d.skeleton;
 			pv.clips = d.clips;
-			if (d.clips && !d.clips->empty()) pv.idleClip = d.clips->front().name;
+			pv.idleClip = d.idleClip;
 			m_previewAnim = anim::Animator(d.skeleton, d.clips);
 			if (!pv.idleClip.empty()) m_previewAnim.Play(pv.idleClip, /*loop*/ true);
 		}

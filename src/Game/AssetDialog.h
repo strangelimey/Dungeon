@@ -117,6 +117,8 @@ public:
 	const gfx::Mesh& PreviewMesh() const { return *m_previewMesh; }
 	const gfx::MaterialParams& PreviewMaterial() const { return m_material; }
 	float Orbit() const { return m_orbit; }
+	// Where the previewed model stands and turns (a rig's root; zero otherwise).
+	Vec3 PreviewPivot() const { return m_previewModel.skeleton.RootRest(); }
 	gfx::Rect PreviewRect(float width, float height) const;
 
 	// Fired by the Create button with the gathered form.

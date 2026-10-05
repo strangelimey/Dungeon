@@ -74,6 +74,23 @@ struct JointData {
 // and remaps vertex joint indices to match.
 struct SkeletonData {
 	std::vector<JointData> joints;
+
+	// The rig's ROOT joint: the first parentless one (joints are parent-first),
+	// -1 = no skeleton.
+	int RootJoint() const {
+		for (size_t j = 0; j < joints.size(); ++j)
+			if (joints[j].parent < 0) return static_cast<int>(j);
+		return -1;
+	}
+	// Where that root stands at rest, in MODEL space (it has no parent, so its
+	// local rest translation is model space); zero without a skeleton. A bought
+	// rig need not rest on its file's origin (the skeleton kit stands ~(0.34,
+	// 0.43) off it), so the game draws and previews a rigged model centred on
+	// this point's XZ - one rule, asked here.
+	Vec3 RootRest() const {
+		const int r = RootJoint();
+		return r >= 0 ? joints[static_cast<size_t>(r)].restTranslation : Vec3{};
+	}
 };
 
 enum class ChannelPath { Translation, Rotation, Scale };

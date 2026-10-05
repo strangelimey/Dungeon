@@ -703,6 +703,10 @@ buffer, reused across all ~25 submissions).
   (`DungeonWorld::MonsterModelWorld`, `MonsterKind::rigRest`; a load logs any
   rig resting > 0.05 off), and a burn plume rides that root joint's live pose
   (`BurnOrigin`) - so a new draw of a monster model goes through that helper.
+  The editor previews take the same point as `gfx::ModelPreview::Render`'s
+  `pivot` (`SkeletonData::RootRest` is the one statement of it), and a monster
+  preview draws in METRES (`MonsterPreviewData::scale` = kUnit x modelscale,
+  capped to fit the pane) - the preview camera frames metres, models are units.
   Paste the emitted rows into the creature's monsters.cat [id] — or just check
   the boxes in the editor's monster config dialog (it auto-discovers the model's
   clips). Humanoid Mixamo defaults (mesh +90 yaw to co-face the armature, finger

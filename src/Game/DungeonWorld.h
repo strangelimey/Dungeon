@@ -943,8 +943,17 @@ public:
 		// primitive for a multi-material rig. Consumers draw these (with the
 		// palette); mesh/material above remain the meshes[0] view.
 		std::vector<gfx::PreviewSubmesh> subs;
-		float modelScale = 1.0f;
+		// The model's size IN METRES (kUnit x modelscale), which is what the
+		// preview camera frames - the model itself is authored in units, so a
+		// bare modelscale drew a 1.9 m skeleton at 0.77 m. Capped so a big
+		// creature still fits the pane (MonsterPreviewFor).
+		float scale = 1.0f;
 		float modelYaw = 0.0f; // render-time facing fixup, so the preview matches in-world
+		Vec3 pivot{}; // the rig root's rest point (MonsterKind::rigRest): the preview's centre
+		// What a still preview plays: the kind's first Idle clip, else the
+		// model's first clip (which for the skeleton kit is a lie-on-the-floor
+		// spawn, so it must not be the default when an idle exists).
+		std::string idleClip;
 	};
 	MonsterPreviewData MonsterPreviewFor(const std::string& type); // force-loads the kind
 	// Whether a monster type's <model>.gltf exists (so the editor can guard the

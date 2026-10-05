@@ -82,6 +82,8 @@ public:
 	const gfx::Mesh& PreviewMesh() const { return *m_previewMesh; }
 	const gfx::MaterialParams& PreviewMaterial() const { return m_material; }
 	float Orbit() const { return m_orbit; }
+	// Where the previewed model stands and turns (a rig's root; zero otherwise).
+	Vec3 PreviewPivot() const { return m_previewModel.skeleton.RootRest(); }
 	gfx::Rect PreviewRect(float width, float height) const;
 
 	// The Choose button (and a double-click on a tile): the picked name.

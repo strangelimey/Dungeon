@@ -56,19 +56,25 @@ public:
 	// `orient` (auto-fit only): a rotation applied to the centred model before the
 	// spin, which is then about +Y ALONE - a turntable. Without it the fit tumbles
 	// on two axes, so a flat prop is never edge-on for long (the editor's look).
+	// `pivot` (grounded view only): the model-space point whose XZ the model
+	// stands and turns on, in place of the origin - a rig that rests off its
+	// file's origin (the skeleton kit) passes its root joint's rest position, so
+	// it is centred in the pane as it is on its square (DungeonWorld::
+	// MonsterModelWorld). Its Y is ignored: the model stays grounded.
 	void Render(ID3D12GraphicsCommandList* list, Renderer& renderer,
 				std::span<const PreviewSubmesh> subs, float scale, float orbit,
 				float aspect = 1.0f, std::span<const Mat4> palette = {},
 				ParticleBatch* particles = nullptr,
 				std::span<const ParticleInstance> billboards = {},
 				const Vec3* fitMin = nullptr, const Vec3* fitMax = nullptr,
-				const Mat4* orient = nullptr);
+				const Mat4* orient = nullptr, const Vec3* pivot = nullptr);
 	// Convenience single-mesh overload (delegates to the span version).
 	void Render(ID3D12GraphicsCommandList* list, Renderer& renderer, const Mesh& mesh,
 				const MaterialParams& material, float scale, float orbit,
 				float aspect = 1.0f, std::span<const Mat4> palette = {},
 				ParticleBatch* particles = nullptr,
-				std::span<const ParticleInstance> billboards = {});
+				std::span<const ParticleInstance> billboards = {},
+				const Vec3* pivot = nullptr);
 
 	// Where model-space point `p` lands in the image (uv, 0..1 from the top-left)
 	// when Render is given the same scale / orbit / aspect / fit / orient - the
@@ -85,7 +91,7 @@ public:
 private:
 	static Camera PreviewCamera(float aspect);
 	static Mat4 PreviewWorld(float scale, float orbit, const Vec3* fitMin, const Vec3* fitMax,
-							 const Mat4* orient);
+							 const Mat4* orient, const Vec3* pivot = nullptr);
 
 	GraphicsDevice& m_device;
 	u32 m_size;
