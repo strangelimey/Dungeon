@@ -255,8 +255,24 @@ public:
 			const bool hung = lo.y > 0.05f && hi.y >= 0.95f;
 			return h >= kSlender * w || (hung && h >= kHungSlender * w);
 		}
-		void FrameSlenderTop() { lo.y = hi.y - kSlenderTop * (hi.y - lo.y); }
+		// The frame is also capped at kMaxFrameAspect times the model's width
+		// (the cap a wall fixture's tile takes too): 40% of the door chain was
+		// still 3x as tall as it is wide, a narrow column in a square tile.
+		// With a CONTEXT (a chain on its socket) the frame starts at the
+		// context's top when that is lower: what the subject hangs FROM is where
+		// it starts, and the loop of chain over the socket's lip spent the top
+		// of the frame on its least telling part.
+		void FrameSlenderTop() {
+			const float w = std::max(hi.x - lo.x, hi.z - lo.z);
+			const float span = std::min(kSlenderTop * (hi.y - lo.y), kMaxFrameAspect * w);
+			hi.y = std::min(hi.y, contextTop);
+			lo.y = std::max(lo.y, hi.y - span);
+		}
+		float contextTop = 1e9f; // AddContext: the merged context's top
 		static constexpr float kSlender = 6.0f, kHungSlender = 3.5f, kSlenderTop = 0.4f;
+		// The tallest a TILE's frame may be, as a multiple of what it shows's
+		// widest horizontal extent - the slender crop and the wall fixture's.
+		static constexpr float kMaxFrameAspect = 2.2f;
 		static constexpr float kContextShade = 0.45f;
 		// Re-measures lo/hi with the parts posed by `palette` (CPU skinning, the
 		// shader's sum), so a view fits the pose it shows rather than the
@@ -363,17 +379,16 @@ public:
 		// matters sticking OUT of it - the bracket's ring - which near face-on
 		// foreshortens into a loop on a strap; kSideYaw shows it in profile.
 		static constexpr float kSideYaw = 1.2f;
-		// A wall fixture's TILE frames at most kFixtureFrame times its widest
+		// A wall fixture's TILE frames at most kMaxFrameAspect times its widest
 		// horizontal extent, centred on `projectY` - the mean height of what
 		// sticks out of the wall (its outer half in z), measured by the loader.
 		// The bare bracket is a strap 4.3x taller than wide: fitted whole it was
-		// a sliver; framed on its ring it is 1.7x bigger and only the strap's
+		// a sliver; framed on its ring it is ~2x bigger and only the strap's
 		// plain ends run off. The sconce (2.0) is under the cap and unchanged.
-		static constexpr float kFixtureFrame = 2.5f;
 		float projectY = 0.0f;
 		void FrameWallFixture() {
 			if (mount != Mount::WallFixture) return;
-			const float span = kFixtureFrame * std::max(hi.x - lo.x, hi.z - lo.z);
+			const float span = kMaxFrameAspect * std::max(hi.x - lo.x, hi.z - lo.z);
 			if (hi.y - lo.y <= span) return;
 			lo.y = std::max(lo.y, projectY - 0.5f * span);
 			hi.y = lo.y + span;

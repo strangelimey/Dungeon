@@ -480,6 +480,7 @@ void DungeonWorld::PoolModelLook::AddContext(PoolModelLook&& context) {
 								   part.material.baseColor.z * s, part.material.baseColor.w};
 		parts.push_back(part);
 	}
+	contextTop = context.hi.y;
 	textures.insert(textures.end(), context.textures.begin(), context.textures.end());
 	meshes.insert(meshes.end(), context.meshes.begin(), context.meshes.end());
 	lo = {std::min(lo.x, context.lo.x), std::min(lo.y, context.lo.y),

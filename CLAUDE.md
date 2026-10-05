@@ -1696,8 +1696,9 @@ fixture's. A PLATE (flat and broad on both horizontal axes - the grate, the coal
 bed) is seen three-quarter from above. `sinks` needs 0.1 below the floor, not a
 sliver (the door chain dips 0.027 and was looked at end-on, a dot). A SLENDER
 model's TILE (6x taller than wide - only the door chain, 7.7; next is 4.8) frames
-its top 40% (`FrameSlenderTop`): mount and first links, readable; the preview
-still shows it whole. A HUNG model (off the floor, reaching the ceiling at y = 1 -
+its top 40% (`FrameSlenderTop`), capped at `kMaxFrameAspect` (2.2) x its width
+and starting at its context's top (the socket, not the loop of chain over it):
+mount and first links, readable; the preview still shows it whole. A HUNG model (off the floor, reaching the ceiling at y = 1 -
 the hanging chain, 4.8) qualifies from 3.5:1 (`PoolModelLook::Slender`); ratio
 alone cannot pick it, since the potion vial is 4.7 and must stay whole. A GLASS
 model some item fills (items.cat `liquid_color`; `AssetPicker::liquidFor`, the
@@ -1706,8 +1707,9 @@ same `DungeonWorld::BuildLiquid` / `ClearGlassForLiquid` that `AddLiquid` uses.
 A fixture ON a wall (fixtures.cat `mount = wall`: its model and `empty_model`;
 `Mount::WallFixture`) tiles from the side (`ViewYaw` -> `kSideYaw`, 1.2 rad), so
 what sticks out of the wall - the bracket's ring - shows in profile; its TILE
-frames at most 2.5x its widest horizontal extent, centred on that projecting part
-(`FrameWallFixture`, `projectY`), so the 4.3:1 bracket is 1.7x bigger. An opener's `mount` wears the opener's set. Survey all
+frames at most `kMaxFrameAspect` x its widest horizontal extent, centred on that
+projecting part (`FrameWallFixture`, `projectY`), so the 4.3:1 bracket is ~2x
+bigger. An opener's `mount` wears the opener's set. Survey all
 89 tiles when changing any of this: open the picker on every eighth model.
 A surface or wall feature has no set of its own, so it is shown in the project's
 first floor / ceiling / wall type, what it wears in a level. A feature's INSIDE
