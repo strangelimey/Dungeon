@@ -1667,22 +1667,26 @@ its bind pose: the preview plays it looping, a tile bakes its first frame, and
 both fit the POSED bounds (`PoolModelLook::FitToPose`, CPU skinning). The idle is
 the catalog's (`AssetPicker::idleClipFor`, monsters.cat `anim_idle`), else an
 `idle` / `idle__...` clip - never the first clip, which for the kit is a spawn
-lying on the floor. A model that SINKS below the floor (a pit, a stairwell) is
-looked down into, as it is in play: its framed box stops half a footprint below
-y = 0 (`FrameAboveFloor`) and both views tip it ~86 degrees toward the camera
-(`kFromAboveTilt`, steep enough to hide a shaft of radius 0.22 under its tile).
-A FLOOR FEATURE is instead CUT at that framed depth (`ClipBelow` in
-DungeonWorld_Models.cpp, the picture only - the drain and recess shafts run four
-squares deep on purpose, and the models are untouched) and shown at a
-three-quarter view from above (`kFloorFeatureTilt`, ~63 degrees): the slab and
-its hole, the short stub of shaft tucked under the tile.
+lying on the floor. A floor-mounted model (a floor feature, the floor block, and a
+stairs.cat entry with `hole = floor` - the pit and the stairwells) has two cases.
+A SHAFT deeper than a square (the drain and recess, four squares on purpose) is
+framed and CUT at half a square (`FrameAboveFloor`, `ClipBelow` in
+DungeonWorld_Models.cpp - the picture only, the models untouched) and shown at a
+three-quarter view from above (`kFloorFeatureTilt`, ~63 degrees). A WELL within a
+square (`PoolModelLook::Well` - the pit, the stairwells) is kept whole and seen
+almost straight down (`kFromAboveTilt`, ~86): its walls sit near the cell's edge,
+so at any oblique angle a band of wall shows under the tile's near edge - its
+outer skin, or with that dropped (`DropWellSkin`) the far wall's inside - and
+hiding it takes tan(tilt) >= depth / (0.5 - wall radius).
 A surface or wall feature has no set of its own, so it is shown in the project's
 first floor / ceiling / wall type, what it wears in a level. A feature's INSIDE
 (every triangle more than 0.05 behind its mounting plane - below y = 0 for a
 floor feature, toward -z for a wall one; `PoolModelLook::Mount`, from
-`AssetPicker::mountFor`) is split off and drawn at `kInsideShade`, standing in for
-the shadows the icon rig does not have: a niche lit as evenly as its wall, in the
-same brick, read as a flat panel. The 0.05 clears surface relief (cracked paving
+`AssetPicker::mountFor`) is split off, back faces culled, and drawn in DEPTH BANDS
+from `kInsideShadeTop` at the mouth to `kInsideShade` at the bottom, standing in
+for the shadows the icon rig does not have: a niche lit as evenly as its wall, in
+the same brick, read as a flat panel, and one flat shade made a stairwell's treads
+a single dark sheet - the gradient is what says they go down. The 0.05 clears surface relief (cracked paving
 sinks 0.04 and went blotchy at 0.01). A wall feature's preview SWINGS across its
 face rather than spinning onto its back. The clean SURFACE BLOCKS (floor_block,
 wall_block, ceiling_block - no catalog draws them) are mounted by name in

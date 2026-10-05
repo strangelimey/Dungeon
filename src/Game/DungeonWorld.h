@@ -238,11 +238,12 @@ public:
 		// shader's sum), so a view fits the pose it shows rather than the
 		// T-pose's outstretched arms.
 		void FitToPose(std::span<const Mat4> palette);
-		// lo/hi are the box a VIEW frames, not the whole mesh: below the floor
-		// plane (y < 0) it reaches at most half the model's footprint. Nothing
-		// down there is seen in play except through a mouth - a floor drain's
-		// shaft runs four squares deep on purpose, so you cannot find its
-		// bottom - and framing all of it drew a feature as a tall white stick.
+		// lo/hi are the box a VIEW frames, not the whole mesh: a shaft running
+		// more than a footprint below the floor is framed to half a footprint.
+		// Nothing down there is seen in play except through a mouth - a floor
+		// drain's shaft runs four squares deep on purpose, so you cannot find its
+		// bottom - and framing all of it drew a feature as a tall white stick. A
+		// well within a square (the pit, a stairwell) is framed whole.
 		void FrameAboveFloor();
 		// It lies FLAT (a blade, a grate, a floor tile): its framed height is
 		// under 0.35 of its longest side. A rigged model never is - a creature
@@ -273,7 +274,11 @@ public:
 		// neither, so a recess lit as evenly as its wall, in the same brick, read
 		// as a flat panel. The shading stands in for them.
 		enum class Mount : u8 { Free, Floor, Wall, Ceiling };
-		static constexpr float kInsideShade = 0.35f;
+		// The inside grades from kInsideShadeTop at the mouth to kInsideShade at
+		// its deepest, in kInsideBands steps (see the loader).
+		static constexpr float kInsideShade = 0.3f;
+		static constexpr float kInsideShadeTop = 0.65f;
+		static constexpr int kInsideBands = 4;
 		Mount mount = Mount::Free;
 		// Where a view stands: ABOVE anything in a floor (or reaching below it),
 		// BELOW anything in a ceiling - the way a player meets it - else level.
@@ -288,8 +293,21 @@ public:
 		// enough that the half-square stub of shaft stays tucked under the tile
 		// (radius up to ~0.24 at that depth), which straight down did not show.
 		static constexpr float kFloorFeatureTilt = 1.1f;
+		// A WELL - kept whole, deeper than a quarter square, walls near the
+		// cell's edge (the pit, the stairwells) - cannot take that view: at any
+		// oblique angle the band of wall below the tile's near edge shows, as
+		// a skin or (that culled) the far wall's inside. Hiding it takes
+		// tan(tilt) >= depth / (0.5 - wall radius): ~83 degrees for the pit,
+		// near 90 for the stairs. So a well is seen straight down, and its
+		// inside shading (Mount) is what makes it read - rim lit, shaft dark,
+		// the treads lit going down.
+		bool cutAway = false; // the loader cut it at its framed depth (ClipBelow)
+		bool Well() const {
+			const float footprint = std::max(hi.x - lo.x, hi.z - lo.z);
+			return !cutAway && -lo.y > 0.25f * footprint;
+		}
 		float ViewTilt(float ordinary) const {
-			if (mount == Mount::Floor) return kFloorFeatureTilt;
+			if (mount == Mount::Floor) return Well() ? kFromAboveTilt : kFloorFeatureTilt;
 			if (sinks) return kFromAboveTilt;
 			if (mount == Mount::Ceiling) return -kFromBelowTilt;
 			return ordinary;

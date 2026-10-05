@@ -75,6 +75,44 @@ bool ClipBelow(assets::MeshData& mesh, float cutY) {
 	}
 	return cut;
 }
+
+// Drops the OUTER SKIN of a well's inside: the faces on its outer hull - the
+// cell's box (|x| or |z| at its half-extent) or the outermost cylinder (the
+// largest radius any inside vertex reaches) - that face outward. The pit's and
+// stairwells' walls are solid boxes and drums, so culling back faces leaves
+// their outsides, which then hang under the tile; in play that side is rock and
+// never seen. Only whole triangles on the hull and facing out go, so a stair's
+// risers and the walls' inner faces stay.
+void DropWellSkin(assets::MeshData& mesh) {
+	if (mesh.indices.empty()) return;
+	float hx = 0.0f, hz = 0.0f, rmax = 0.0f;
+	for (const u32 i : mesh.indices) {
+		const Vec3& p = mesh.vertices[i].position;
+		hx = std::max(hx, std::abs(p.x));
+		hz = std::max(hz, std::abs(p.z));
+		rmax = std::max(rmax, std::sqrt(p.x * p.x + p.z * p.z));
+	}
+	constexpr float kOnHull = 0.01f;
+	auto onHull = [&](const Vec3& p) {
+		return std::abs(p.x) >= hx - kOnHull || std::abs(p.z) >= hz - kOnHull ||
+			   std::sqrt(p.x * p.x + p.z * p.z) >= rmax - kOnHull;
+	};
+	const std::vector<u32> tris = std::move(mesh.indices);
+	mesh.indices.clear();
+	for (size_t t = 0; t + 2 < tris.size(); t += 3) {
+		const assets::Vertex& a = mesh.vertices[tris[t]];
+		const assets::Vertex& b = mesh.vertices[tris[t + 1]];
+		const assets::Vertex& c = mesh.vertices[tris[t + 2]];
+		const float cx = (a.position.x + b.position.x + c.position.x) / 3.0f;
+		const float cz = (a.position.z + b.position.z + c.position.z) / 3.0f;
+		const float nx = a.normal.x + b.normal.x + c.normal.x;
+		const float nz = a.normal.z + b.normal.z + c.normal.z;
+		const bool outward = nx * cx + nz * cz > 0.0f;
+		if (outward && onHull(a.position) && onHull(b.position) && onHull(c.position))
+			continue;
+		mesh.indices.insert(mesh.indices.end(), {tris[t], tris[t + 1], tris[t + 2]});
+	}
+}
 } // namespace
 
 std::shared_ptr<const assets::ModelData> DungeonWorld::ModelFile(const std::string& file) {
@@ -216,6 +254,7 @@ std::unique_ptr<DungeonWorld::PoolModelLook> DungeonWorld::LoadPoolModelLook(
 			// (kFloorFeatureTilt) instead of straight down a well.
 			const bool clipped =
 				mount == PoolModelLook::Mount::Floor && ClipBelow(outside, look->lo.y);
+			look->cutAway = look->cutAway || clipped;
 			const std::vector<u32> src = std::move(outside.indices);
 			assets::MeshData inside = outside;
 			outside.indices.clear();
@@ -235,18 +274,53 @@ std::unique_ptr<DungeonWorld::PoolModelLook> DungeonWorld::LoadPoolModelLook(
 				auto& into = depth < kBehind ? inside.indices : outside.indices;
 				into.insert(into.end(), {src[t], src[t + 1], src[t + 2]});
 			}
+			if (mount == PoolModelLook::Mount::Floor) DropWellSkin(inside);
 			if (!inside.indices.empty() && !outside.indices.empty()) {
 				auto outMesh = std::make_shared<gfx::Mesh>(device, outside);
-				auto inMesh = std::make_shared<gfx::Mesh>(device, inside);
-				gfx::MaterialParams shaded = sub.material;
-				shaded.baseColor = {shaded.baseColor.x * PoolModelLook::kInsideShade,
-									shaded.baseColor.y * PoolModelLook::kInsideShade,
-									shaded.baseColor.z * PoolModelLook::kInsideShade,
-									shaded.baseColor.w};
 				look->meshes.push_back(outMesh);
-				look->meshes.push_back(inMesh);
 				look->parts.push_back({outMesh.get(), sub.material});
-				look->parts.push_back({inMesh.get(), shaded});
+				// The inside in DEPTH BANDS, lighter at the mouth and darker
+				// down (kInsideShadeTop -> kInsideShade): one flat shade made a
+				// stairwell's treads a single dark sheet, and a gradient is what
+				// says they go DOWN. Banded by triangle centroid, since the mesh
+				// carries no vertex colour to grade it smoothly.
+				auto depthOf = [&](size_t t) {
+					const Vec3& a = inside.vertices[inside.indices[t]].position;
+					const Vec3& b = inside.vertices[inside.indices[t + 1]].position;
+					const Vec3& c = inside.vertices[inside.indices[t + 2]].position;
+					return mount == PoolModelLook::Mount::Floor ? -(a.y + b.y + c.y) / 3.0f
+																: -(a.z + b.z + c.z) / 3.0f;
+				};
+				float deepest = 0.0f;
+				for (size_t t = 0; t + 2 < inside.indices.size(); t += 3)
+					deepest = std::max(deepest, depthOf(t));
+				constexpr int kBands = PoolModelLook::kInsideBands;
+				std::array<assets::MeshData, kBands> bands;
+				for (assets::MeshData& band : bands) band.vertices = inside.vertices;
+				for (size_t t = 0; t + 2 < inside.indices.size(); t += 3) {
+					const float f = deepest > 0.0f ? depthOf(t) / deepest : 1.0f;
+					const int k = std::clamp(static_cast<int>(f * kBands), 0, kBands - 1);
+					bands[k].indices.insert(bands[k].indices.end(),
+											{inside.indices[t], inside.indices[t + 1],
+											 inside.indices[t + 2]});
+				}
+				for (int k = 0; k < kBands; ++k) {
+					if (bands[k].indices.empty()) continue;
+					const float s = PoolModelLook::kInsideShadeTop +
+									(PoolModelLook::kInsideShade - PoolModelLook::kInsideShadeTop) *
+										static_cast<float>(k) / (kBands - 1);
+					gfx::MaterialParams shaded = sub.material;
+					shaded.baseColor = {shaded.baseColor.x * s, shaded.baseColor.y * s,
+										shaded.baseColor.z * s, shaded.baseColor.w};
+					// An inside is only ever met from WITHIN - in play there is
+					// rock behind it - so its back faces are culled: seen from
+					// outside the tile a well's walls vanish rather than hang
+					// under it as a box.
+					shaded.doubleSided = false;
+					auto bandMesh = std::make_shared<gfx::Mesh>(device, bands[k]);
+					look->meshes.push_back(bandMesh);
+					look->parts.push_back({bandMesh.get(), shaded});
+				}
 				continue;
 			}
 			if (clipped) { // all on one side, but cut: draw the cut mesh, never the whole
@@ -297,8 +371,13 @@ void DungeonWorld::PoolModelLook::FitToPose(std::span<const Mat4> palette) {
 }
 
 void DungeonWorld::PoolModelLook::FrameAboveFloor() {
+	// A WELL within a square of depth (the pit, a stairwell) is framed whole -
+	// its steps are the point. Only a SHAFT deeper than that (the drain's and
+	// recess's four squares) is framed, and for a floor feature cut, at half a
+	// square: deep enough to show the throat, never the stick.
 	const float footprint = std::max(hi.x - lo.x, hi.z - lo.z);
-	lo.y = std::max(lo.y, std::min(0.0f, hi.y) - 0.5f * footprint);
+	const float top = std::min(0.0f, hi.y);
+	if (lo.y < top - footprint) lo.y = top - 0.5f * footprint;
 }
 
 } // namespace dungeon::game

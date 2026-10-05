@@ -671,6 +671,11 @@ void Game::WireModuleCallbacks() {
 				return e.Get("surface", "floor") == "ceiling" ? Mount::Ceiling : Mount::Floor;
 		for (const CatalogEntry& e : m_project.wallfeatures.Entries())
 			if (e.Get("model", e.id) == model) return Mount::Wall;
+		// A pit or stairwell replaces the floor block it opens (`hole = floor`),
+		// as a floor feature does.
+		for (const CatalogEntry& e : m_project.stairs.Entries())
+			if (e.Get("model", e.id) == model && e.Get("hole", "none") == "floor")
+				return Mount::Floor;
 		return Mount::Free;
 	};
 	// A rig's idle: the first `anim_idle` clip of a monster drawn with it.
