@@ -306,6 +306,11 @@ public:
 		// inside shading (Mount) is what makes it read - rim lit, shaft dark,
 		// the treads lit going down.
 		bool cutAway = false; // the loader cut it at its framed depth (ClipBelow)
+		// A wall-sized panel: the loader set the dark beyond behind its back
+		// face (what shows through an arch is a dark passage, not the icon's
+		// halo), so a view must stay on its FRONT - a preview swings across it
+		// instead of turning onto the backdrop.
+		bool backed = false;
 		bool Well() const {
 			const float footprint = std::max(hi.x - lo.x, hi.z - lo.z);
 			return !cutAway && -lo.y > 0.25f * footprint;

@@ -445,7 +445,9 @@ void AssetPicker::RefreshPreview() {
 	// tumbles; anything else (or anything rigged) turns upright.
 	m_viewTilt = m_previewLook->ViewTilt(0.0f);
 	m_stands = m_viewTilt != 0.0f || !m_previewLook->Flat(); // looked at from above / below
-	m_previewWall = m_previewLook->mount == DungeonWorld::PoolModelLook::Mount::Wall;
+	// A wall feature or a backed panel: keep to its face.
+	m_previewWall = m_previewLook->backed ||
+					m_previewLook->mount == DungeonWorld::PoolModelLook::Mount::Wall;
 }
 
 std::string AssetPicker::SetStemFor(const std::string& modelName) const {

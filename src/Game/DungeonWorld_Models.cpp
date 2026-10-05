@@ -342,6 +342,46 @@ std::unique_ptr<DungeonWorld::PoolModelLook> DungeonWorld::LoadPoolModelLook(
 		look->meshes.push_back(sub.mesh);
 		look->parts.push_back({sub.mesh.get(), sub.material});
 	}
+
+	// THE DARK BEYOND. A wall-sized panel (a square wide and tall, a fraction
+	// deep - an arch, the archway, a door frame) stands IN a wall, and what
+	// shows through its opening in play is the dark passage or room beyond. In
+	// a tile it was the icon's light halo, so an arch's opening read as a grey
+	// blob and the stonework round it as nothing much - the three arches tiled
+	// alike. A near-black backdrop just behind the back face fixes that: hidden
+	// wherever the panel is solid, seen only through holes. NOT for a wall
+	// feature: its inside is already shaded (Mount), and a window's bore runs
+	// half a square back, which put the backdrop out past the panel as a slab.
+	const Vec3& bmin = multi->boundsMin;
+	const Vec3& bmax = multi->boundsMax;
+	const bool panel = bmax.x - bmin.x >= 0.9f && bmax.y - bmin.y >= 0.9f &&
+					   bmax.z - bmin.z <= 0.35f;
+	if (!look->rigged && panel && mount != PoolModelLook::Mount::Wall) {
+		assets::MeshData back;
+		const float z = bmin.z - 0.005f;
+		back.vertices.resize(4);
+		// Inset from the sides and top - a frame's back can be narrower than its
+		// bounds, and an edge of black peeked past the door frame's jamb - but
+		// not the bottom: an arch's opening runs down to the floor.
+		constexpr float kInset = 0.04f;
+		const float xs[4] = {bmin.x + kInset, bmax.x - kInset, bmax.x - kInset, bmin.x + kInset};
+		const float ys[4] = {bmin.y, bmin.y, bmax.y - kInset, bmax.y - kInset};
+		for (int k = 0; k < 4; ++k) {
+			back.vertices[k].position = {xs[k], ys[k], z};
+			back.vertices[k].normal = {0.0f, 0.0f, 1.0f}; // toward the room
+			back.vertices[k].uv = {k == 1 || k == 2 ? 1.0f : 0.0f, k >= 2 ? 0.0f : 1.0f};
+		}
+		back.indices = {0, 1, 2, 0, 2, 3};
+		gfx::MaterialParams dark;
+		dark.baseColor = {0.025f, 0.025f, 0.03f, 1.0f};
+		dark.metallic = 0.0f;
+		dark.roughness = 1.0f;
+		dark.doubleSided = true;
+		auto mesh = std::make_shared<gfx::Mesh>(device, back);
+		look->meshes.push_back(mesh);
+		look->parts.push_back({mesh.get(), dark});
+		look->backed = true;
+	}
 	return look;
 }
 

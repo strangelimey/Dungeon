@@ -1680,7 +1680,12 @@ outer skin, or with that dropped (`DropWellSkin`) the far wall's inside - and
 hiding it takes tan(tilt) >= depth / (0.5 - wall radius). A ceiling hole that is
 scenery (stairs.cat `hole = ceiling` + `traverse = 0`, pit_ceiling) is that well
 turned over - `Mount::CeilingWell`: its inside lies above its rim (the model's
-lowest point), it is seen straight up, and it grades darker going up.
+lowest point), it is seen straight up, and it grades darker going up. A
+WALL-SIZED PANEL (a square wide and tall, at most 0.35 deep - the arches, the
+archway, the door frames; not a wall feature) gets THE DARK BEYOND: a near-black
+backdrop just behind its back face (inset at the sides and top, not the bottom),
+so its opening reads as a passage instead of showing the tile's light halo, and
+its preview swings across its face (`PoolModelLook::backed`).
 A surface or wall feature has no set of its own, so it is shown in the project's
 first floor / ceiling / wall type, what it wears in a level. A feature's INSIDE
 (every triangle more than 0.05 behind its mounting plane - below y = 0 for a
