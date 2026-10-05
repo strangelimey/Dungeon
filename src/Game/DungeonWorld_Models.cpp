@@ -455,12 +455,6 @@ void DungeonWorld::PoolModelLook::AddContext(PoolModelLook&& context) {
 		  std::max(hi.z, context.hi.z)};
 }
 
-void DungeonWorld::PoolModelLook::FrameSlenderTop() {
-	const float h = hi.y - lo.y, w = std::max(hi.x - lo.x, hi.z - lo.z);
-	if (rigged || w <= 0.0f || h < kSlender * w) return;
-	lo.y = hi.y - kSlenderTop * h;
-}
-
 void DungeonWorld::PoolModelLook::FrameAboveFloor() {
 	// A WELL within a square of depth (the pit, a stairwell) is framed whole -
 	// its steps are the point. Only a SHAFT deeper than that (the drain's and

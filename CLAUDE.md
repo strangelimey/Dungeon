@@ -1697,7 +1697,9 @@ bed) is seen three-quarter from above. `sinks` needs 0.1 below the floor, not a
 sliver (the door chain dips 0.027 and was looked at end-on, a dot). A SLENDER
 model's TILE (6x taller than wide - only the door chain, 7.7; next is 4.8) frames
 its top 40% (`FrameSlenderTop`): mount and first links, readable; the preview
-still shows it whole. An opener's `mount` wears the opener's set. Survey all
+still shows it whole. A HUNG model (off the floor, reaching the ceiling at y = 1 -
+the hanging chain, 4.8) qualifies from 3.5:1 (`PoolModelLook::Slender`); ratio
+alone cannot pick it, since the potion vial is 4.7 and must stay whole. An opener's `mount` wears the opener's set. Survey all
 89 tiles when changing any of this: open the picker on every eighth model.
 A surface or wall feature has no set of its own, so it is shown in the project's
 first floor / ceiling / wall type, what it wears in a level. A feature's INSIDE

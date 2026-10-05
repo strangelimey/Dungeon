@@ -244,8 +244,19 @@ public:
 		// its top kSlenderTop of height instead - its mount and first links,
 		// big enough to read, the rest running off the tile's foot. Tiles only;
 		// the preview pane is tall enough to show it whole.
-		void FrameSlenderTop();
-		static constexpr float kSlender = 6.0f, kSlenderTop = 0.4f;
+		// A HUNG model (off the floor and reaching the ceiling, y = 1: the
+		// hanging chain, 4.8) qualifies from kHungSlender: its top is its
+		// anchor, so its top is what to show. Ratio alone could not pick it -
+		// the potion vial is 4.7 and must stay whole; the torch bracket floats
+		// too but stops at 0.66 and stays whole.
+		bool Slender() const {
+			const float h = hi.y - lo.y, w = std::max(hi.x - lo.x, hi.z - lo.z);
+			if (rigged || w <= 0.0f) return false;
+			const bool hung = lo.y > 0.05f && hi.y >= 0.95f;
+			return h >= kSlender * w || (hung && h >= kHungSlender * w);
+		}
+		void FrameSlenderTop() { lo.y = hi.y - kSlenderTop * (hi.y - lo.y); }
+		static constexpr float kSlender = 6.0f, kHungSlender = 3.5f, kSlenderTop = 0.4f;
 		static constexpr float kContextShade = 0.45f;
 		// Re-measures lo/hi with the parts posed by `palette` (CPU skinning, the
 		// shader's sum), so a view fits the pose it shows rather than the

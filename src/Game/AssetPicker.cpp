@@ -453,12 +453,7 @@ std::unique_ptr<DungeonWorld::PoolModelLook> AssetPicker::LoadLook(const std::st
 		idleClipFor ? idleClipFor(modelName) : std::string(), MountOf(modelName));
 	if (!look) return look;
 	// Slenderness is the SUBJECT's, measured before any context widens it.
-	const bool slender = thumbPx > 0 && [&] {
-		const Vec3 &lo = look->lo, &hi = look->hi;
-		const float w = std::max(hi.x - lo.x, hi.z - lo.z);
-		return !look->rigged && w > 0.0f &&
-			   hi.y - lo.y >= DungeonWorld::PoolModelLook::kSlender * w;
-	}();
+	const bool slender = thumbPx > 0 && look->Slender();
 	if (contextFor) {
 		const std::string context = contextFor(modelName);
 		const auto it = context.empty() ? m_items.end()
