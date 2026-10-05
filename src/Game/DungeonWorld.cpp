@@ -632,6 +632,8 @@ std::vector<std::string> DungeonWorld::MonsterList() const {
 		std::string line = std::format("{} @ {},{}  hp {:.1f}",
 									   m.kind ? m.kind->name : "?", m.x, m.z, m.hp);
 		if (!m.Alive()) line += " (dead)";
+		// Still getting up: it neither turns nor acts until this runs out.
+		else if (m.spawnAnim > 0.0f) line += std::format("  rising {:.1f}s", m.spawnAnim);
 		for (const fx::Inst& e : m.effects) {
 			line += std::format("  [{} {:.1f} {:.1f}s", e.Id(), e.magnitude, e.timeLeft);
 			// An effect with its own colour (a magical torch's burn) says so.
@@ -1169,6 +1171,16 @@ void DungeonWorld::UpdateMonsters(float dt) {
 			UpdateThreatLock(monster, false);
 		}
 
+		// RISING: a monster playing its spawn clip (a skeleton getting up off the
+		// floor, 9.5 to 14.3 s in the bought kit) neither turns nor acts until the
+		// clip ends - it used to glide several squares toward the party still lying
+		// down, because the AI's orders were executed under the held Spawn state.
+		// It is still in the world: it blocks its square, takes blows and burns,
+		// and a glide already in flight (a Gust shove) still finishes below.
+		// spawnAnim is armed by DriveMonsterAnim above from the clip it chose, so a
+		// kind with no spawn clip is never held.
+		const bool rising = monster.spawnAnim > 0.0f;
+
 		// Advance an in-flight glide; the logical cell already moved when the
 		// step committed, so the tween just slides visualPos to the new anchor
 		// (cell centre for a lone idle wanderer, else the slot centre).
@@ -1195,7 +1207,7 @@ void DungeonWorld::UpdateMonsters(float dt) {
 			const int cap = SlotsPerCell(monster.kind->size);
 			const int adjDist = std::max(std::abs(monster.x - m_party.GridX()),
 										 std::abs(monster.z - m_party.GridZ()));
-			if (monster.aware && cap > 1 && adjDist <= 1 &&
+			if (!rising && monster.aware && cap > 1 && adjDist <= 1 &&
 				AliveInGroup(monster.groupId) >= 2) {
 				u32 used = 0; // slots held by other live same-size monsters here
 				for (size_t j = 0; j < m_monsters.size(); ++j) {
@@ -1241,7 +1253,7 @@ void DungeonWorld::UpdateMonsters(float dt) {
 		// party; otherwise it holds its resting facing (so a group can stand facing
 		// away while the party sneaks up). The visual yaw eases toward the target so
 		// turns glide. Radially-symmetric monsters (faces=false, the blob) never turn.
-		if (monster.kind->facesTarget) {
+		if (monster.kind->facesTarget && !rising) {
 			if (monster.moving) {
 				const Vec3 dest = MonsterStepTarget(monster);
 				const float dx = dest.x - monster.moveFrom.x;
@@ -1265,7 +1277,7 @@ void DungeonWorld::UpdateMonsters(float dt) {
 		// two of its nine warriors walk out of the squares they were measuring
 		// and then maul the party, so the table described where they ended up
 		// rather than what the blast did to where they were.
-		if (m_harness.frozen) continue;
+		if (m_harness.frozen || rising) continue;
 
 		if (monster.intent.mode == ai::Intent::Mode::Idle) {
 			// Idle behaviour: a patroller walks its route (which also carries it back

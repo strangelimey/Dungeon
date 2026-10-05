@@ -381,6 +381,15 @@ void DungeonWorld::ApplyActiveSnapshot() {
 	const auto restoreEffects = [this](const SaveData::EntityState& e, Monster& m) {
 		RestoreEffectList(m_effects, e.effects, m.effects);
 	};
+	// A monster the snapshot carries was placed by hand or has been met, moved or
+	// hurt - it is already up. Without this a recreated one would lie back down
+	// and replay its spawn clip, and a rising monster does not act, so a reload
+	// mid-fight would buy 10-14 s of free blows. (An untouched baseline monster
+	// has no snapshot row and still rises at its post, as on a first visit.)
+	const auto alreadyUp = [](Monster& m) {
+		m.spawnReq = false;
+		m.spawnAnim = 0.0f;
+	};
 
 	for (const SaveData::EntityState& e : ls.entities) {
 		switch (e.kind) {
@@ -401,6 +410,7 @@ void DungeonWorld::ApplyActiveSnapshot() {
 				m.threat = e.threat; // v19 (older saves: zeroes / -1)
 				m.threatLock = e.threatLock;
 				restoreEffects(e, m);
+				alreadyUp(m);
 				m.visualPos = SlotCenter(m.x, m.z, m.kind->size, m.slot);
 				m_monsters.push_back(std::move(m));
 			} else {
@@ -417,6 +427,7 @@ void DungeonWorld::ApplyActiveSnapshot() {
 						m.threat = e.threat; // v19 (older saves: zeroes / -1)
 						m.threatLock = e.threatLock;
 						restoreEffects(e, m);
+						alreadyUp(m);
 						m.visualPos = SlotCenter(m.x, m.z, m.kind->size, m.slot);
 						break;
 					}
