@@ -1677,7 +1677,10 @@ square (`PoolModelLook::Well` - the pit, the stairwells) is kept whole and seen
 almost straight down (`kFromAboveTilt`, ~86): its walls sit near the cell's edge,
 so at any oblique angle a band of wall shows under the tile's near edge - its
 outer skin, or with that dropped (`DropWellSkin`) the far wall's inside - and
-hiding it takes tan(tilt) >= depth / (0.5 - wall radius).
+hiding it takes tan(tilt) >= depth / (0.5 - wall radius). A ceiling hole that is
+scenery (stairs.cat `hole = ceiling` + `traverse = 0`, pit_ceiling) is that well
+turned over - `Mount::CeilingWell`: its inside lies above its rim (the model's
+lowest point), it is seen straight up, and it grades darker going up.
 A surface or wall feature has no set of its own, so it is shown in the project's
 first floor / ceiling / wall type, what it wears in a level. A feature's INSIDE
 (every triangle more than 0.05 behind its mounting plane - below y = 0 for a

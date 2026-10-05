@@ -273,7 +273,11 @@ public:
 		// and dust darken a niche's recess or a drain's throat; the icon rig has
 		// neither, so a recess lit as evenly as its wall, in the same brick, read
 		// as a flat panel. The shading stands in for them.
-		enum class Mount : u8 { Free, Floor, Wall, Ceiling };
+		// CeilingWell is the floor well turned over: a shaft rising above a
+		// ceiling hole (pit_ceiling), its rim at the model's lowest point, its
+		// inside above it - seen straight up, graded darker going up. A plain
+		// Ceiling (the block, the vault) has no inside and a gentler view.
+		enum class Mount : u8 { Free, Floor, Wall, Ceiling, CeilingWell };
 		// The inside grades from kInsideShadeTop at the mouth to kInsideShade at
 		// its deepest, in kInsideBands steps (see the loader).
 		static constexpr float kInsideShade = 0.3f;
@@ -309,6 +313,7 @@ public:
 		float ViewTilt(float ordinary) const {
 			if (mount == Mount::Floor) return Well() ? kFromAboveTilt : kFloorFeatureTilt;
 			if (sinks) return kFromAboveTilt;
+			if (mount == Mount::CeilingWell) return -kFromAboveTilt; // straight up it
 			if (mount == Mount::Ceiling) return -kFromBelowTilt;
 			return ordinary;
 		}

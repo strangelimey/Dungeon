@@ -672,10 +672,15 @@ void Game::WireModuleCallbacks() {
 		for (const CatalogEntry& e : m_project.wallfeatures.Entries())
 			if (e.Get("model", e.id) == model) return Mount::Wall;
 		// A pit or stairwell replaces the floor block it opens (`hole = floor`),
-		// as a floor feature does.
-		for (const CatalogEntry& e : m_project.stairs.Entries())
-			if (e.Get("model", e.id) == model && e.Get("hole", "none") == "floor")
-				return Mount::Floor;
+		// as a floor feature does. A ceiling hole that is SCENERY (`hole =
+		// ceiling`, `traverse = 0` - the pit's pair) is that well turned over; a
+		// staircase up stands on the floor and is left Free.
+		for (const CatalogEntry& e : m_project.stairs.Entries()) {
+			if (e.Get("model", e.id) != model) continue;
+			const std::string hole = e.Get("hole", "none");
+			if (hole == "floor") return Mount::Floor;
+			if (hole == "ceiling" && e.Get("traverse", "1") == "0") return Mount::CeilingWell;
+		}
 		return Mount::Free;
 	};
 	// A rig's idle: the first `anim_idle` clip of a monster drawn with it.

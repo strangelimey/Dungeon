@@ -232,8 +232,21 @@ std::unique_ptr<DungeonWorld::PoolModelLook> DungeonWorld::LoadPoolModelLook(
 		// A feature's inside drawn as its own, darker part (Mount). The split
 		// is by triangle centroid against the mounting plane, on the vertices
 		// as BuildMultiMaterialModel uploaded them (node transform baked).
-		if ((mount == PoolModelLook::Mount::Floor || mount == PoolModelLook::Mount::Wall) &&
-			i < source.meshes.size() && !source.meshes[i].skinned) {
+		const bool hasInside = mount == PoolModelLook::Mount::Floor ||
+							   mount == PoolModelLook::Mount::Wall ||
+							   mount == PoolModelLook::Mount::CeilingWell;
+		if (hasInside && i < source.meshes.size() && !source.meshes[i].skinned) {
+			// How far a point sits BEHIND the mounting plane (positive = inside):
+			// below the floor at y = 0, behind the wall face at z = 0, or above a
+			// ceiling hole's rim - its lowest point, where the ceiling is.
+			const float rimY = multi->boundsMin.y;
+			auto behind = [&](const Vec3& a, const Vec3& b, const Vec3& c) {
+				switch (mount) {
+				case PoolModelLook::Mount::Floor: return -(a.y + b.y + c.y) / 3.0f;
+				case PoolModelLook::Mount::Wall: return -(a.z + b.z + c.z) / 3.0f;
+				default: return (a.y + b.y + c.y) / 3.0f - rimY;
+				}
+			};
 			assets::MeshData outside = source.meshes[i];
 			const XMMATRIX node = XMLoadFloat4x4(&outside.worldTransform);
 			for (assets::Vertex& v : outside.vertices) {
@@ -263,18 +276,15 @@ std::unique_ptr<DungeonWorld::PoolModelLook> DungeonWorld::LoadPoolModelLook(
 			// Past surface relief - cracked paving sinks its slabs 0.04, and at
 			// -0.01 whole stones went dark - but short of every real hole: the
 			// drain's throat starts at 0.035, a niche is 0.22 deep.
-			constexpr float kBehind = -0.05f;
+			constexpr float kBehind = 0.05f;
 			for (size_t t = 0; t + 2 < src.size(); t += 3) {
 				const Vec3& a = outside.vertices[src[t]].position;
 				const Vec3& b = outside.vertices[src[t + 1]].position;
 				const Vec3& c = outside.vertices[src[t + 2]].position;
-				const float depth = mount == PoolModelLook::Mount::Floor
-										? (a.y + b.y + c.y) / 3.0f
-										: (a.z + b.z + c.z) / 3.0f;
-				auto& into = depth < kBehind ? inside.indices : outside.indices;
+				auto& into = behind(a, b, c) > kBehind ? inside.indices : outside.indices;
 				into.insert(into.end(), {src[t], src[t + 1], src[t + 2]});
 			}
-			if (mount == PoolModelLook::Mount::Floor) DropWellSkin(inside);
+			if (mount != PoolModelLook::Mount::Wall) DropWellSkin(inside);
 			if (!inside.indices.empty() && !outside.indices.empty()) {
 				auto outMesh = std::make_shared<gfx::Mesh>(device, outside);
 				look->meshes.push_back(outMesh);
@@ -285,11 +295,9 @@ std::unique_ptr<DungeonWorld::PoolModelLook> DungeonWorld::LoadPoolModelLook(
 				// says they go DOWN. Banded by triangle centroid, since the mesh
 				// carries no vertex colour to grade it smoothly.
 				auto depthOf = [&](size_t t) {
-					const Vec3& a = inside.vertices[inside.indices[t]].position;
-					const Vec3& b = inside.vertices[inside.indices[t + 1]].position;
-					const Vec3& c = inside.vertices[inside.indices[t + 2]].position;
-					return mount == PoolModelLook::Mount::Floor ? -(a.y + b.y + c.y) / 3.0f
-																: -(a.z + b.z + c.z) / 3.0f;
+					return behind(inside.vertices[inside.indices[t]].position,
+								  inside.vertices[inside.indices[t + 1]].position,
+								  inside.vertices[inside.indices[t + 2]].position);
 				};
 				float deepest = 0.0f;
 				for (size_t t = 0; t + 2 < inside.indices.size(); t += 3)
