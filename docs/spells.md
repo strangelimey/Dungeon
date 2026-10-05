@@ -10,7 +10,7 @@ Rules of the system (see `docs/magic system.md` for the full model):
 
 - A spell is a SEQUENCE of runes read like a sentence: a SCHOOL rune (one of
   four, mandatory, first - it picks the school and the spell's colour), then
-  optionally a FORM rune (Project, Protect, Sight), then optionally ONE
+  optionally a FORM rune (Project, Protect, Sight, Light), then optionally ONE
   MODIFIER rune (Ingwaz, Hagalaz). Nothing else is well formed: no modifier on
   a bare school rune or on Sight, no second modifier, nothing out of order
   (`WellFormedRecipe`, Spells.h; the spellbook greys out a rune that may not
@@ -37,6 +37,7 @@ The runes:
 | project | Tiwaz | form | throw it ahead |
 | protect | Algiz | form | guard the caster |
 | sight | Dagaz | form | see through the wall ahead |
+| light | Sowilo | form | make light |
 | multiple | Ingwaz | modifier | more of it: more bolts, or the whole party |
 | explode | Hagalaz | modifier | it bursts: on impact, or round the caster |
 
@@ -141,14 +142,40 @@ the save on the effects line. Sight takes NO modifier.
 | Stone Sight | `stonesight` | writes the revealed room into the map's fog of war; lasts longest |
 | Scrying | `scrying` | a wider, clearer window (its "reveal the hidden" identity waits for secret content) |
 
+### Light (Sowilo) - the lights (lighting-updates Phase 6)
+
+A light round the party for a while: a `light` effect on the CASTER (one kind,
+told apart by school, so lights of different schools stack and a recast
+replaces its own), lit from lights.cat `spell_<school>` above the party a little
+ahead, bigger with the cast power (sqrt(power / `scale_power`), 0.7..1.8) and
+dimming over its last tenth like a torch. It lasts spells.cat `duration` at the
+spell's power, in proportion past it. Each school's light DOES something beyond
+its colour (Michael's picks); the knobs are effects.cat [light]:
+
+| Spell | Id | Lasts | What it does |
+| --- | --- | --- | --- |
+| Firelight | `firelight` | 60 s | casts shadows like a torch; KINDLES an unlit fire within a step (a brazier only from `kindle_brazier_power`); SCORCHES each monster beside the party every `scorch_every` s (`scorch_damage` x power / 8 of fire) |
+| Tidelight | `tidelight` | 60 s | cuts a CLEAR bubble in the haze (`clear_haze`); SOOTHES - stamina regenerates `soothe` x faster; QUENCHES any fire on the party, and none catches while it lasts |
+| Skylight | `skylight` | 60 s | REACHES furthest (wide and dim); CRACKLES - every `crackle_every` s a shock (`crackle_damage` x power / 8 of air) at the nearest monster in its reach and the party's sight; WARNS - its flicker runs `warn_rate` x faster while a monster near has noticed the party |
+| Stonelight | `stonelight` | 150 s | is SET DOWN, not carried: a glowing stone in the square it was cast in (drawn as `stone_item`, the rock), part of that level's saved state, up to 8 a level; MAPS every square its light reaches in walking steps; SHOWS the TRACKS monsters have left within its reach as amber footprints drifting the way they went (fading over balance.cat `track_life`) |
+
+Fire alongside it: every SKELETON resists fire (`fire 0.75` in monsters.cat),
+and a monster marked `flammable` (the MUMMY) catches from ANY fire that lands on
+it - a bolt, a torch's blow, a scorch - burning balance.cat `ignite_burn` a
+second for `ignite_seconds` (Michael: "mummies are a human torch waiting to
+happen"). Tracks are written by every monster step (`StepMonsterTo`) and saved
+per level as ages; the grid records who made each one, so the PARTY can leave
+tracks, scent and noise for monsters to follow later.
+
 ## Tier 3 - the modifiers
 
-A modifier follows a FORM rune: `<school>,project,<modifier>` or
-`<school>,protect,<modifier>`. ONE class makes them all
-(`Spell/ModifiedSpell.h`): AllSpells.cpp wraps every Project and Protect spell
-with each modifier, giving sixteen whole spells with their own ids, names and
-spells.cat entries - so learning, the spellbook, the hand menus and saves treat
-them like any other spell. Each costs about twice its base (spells.cat `mana`).
+A modifier follows a FORM rune: `<school>,project,<modifier>`,
+`<school>,protect,<modifier>` or `<school>,light,<modifier>`. ONE class makes
+them all (`Spell/ModifiedSpell.h`): AllSpells.cpp wraps every Project, Protect
+and Light spell with each modifier, giving twenty-four whole spells with their
+own ids, names and spells.cat entries - so learning, the spellbook, the hand
+menus and saves treat them like any other spell. Each costs about twice its
+base (spells.cat `mana`).
 
 ### Ingwaz (multiple) on a bolt - the VOLLEY (`<bolt>_volley`)
 
@@ -184,6 +211,22 @@ as impassable, so the wave starts beside it) - and NO WARD is left (Michael:
 "burst instead"). Force 6 to 8: the four squares round the caster are the
 first ring, and force 3 once left one of them untouched.
 
+### Ingwaz on a light - ONE BIGGER LIGHT (`<light>_bright`)
+
+The same light cast at `grow` (2) x the power - brighter and further - for the
+time the plain power would buy (Michael: "one bigger light"). A Stonelight's
+stone is the bigger one.
+
+### Hagalaz on a light - the FLARE (`<light>_flare`)
+
+No lasting light: a 0.7 s flash round the party (`spell_flare`, a hand-glow
+slot) and a cloud of motes, and every monster within 3 walking steps DAZZLED -
+the `dazzle` effect, under which it does nothing - for 1.5 + power / 4 seconds
+(2..8). Then the school's light acts ONCE over that reach: fire scorches every
+dazzled monster and kindles every fire within 3 steps; water quenches the party
+and gives each member `power` stamina; air shocks every dazzled monster; earth
+maps every square its light would reach and shows the tracks in them.
+
 ## Monster casters
 
 `monsters.cat` `spell` names any spell id, a modified one included. The mage
@@ -200,12 +243,15 @@ Berkano and Algiz, and EACH caster carries an Ingwaz and a Hagalaz tablet in the
 backpack (Michael, 2026-10-02 - this replaced Q10's "placed in a level, deeper
 and guarded"). Each gets both because a tablet is memorized by one member and
 spent. A rune in the pack is memorized from its use menu on the sheet. The other
-schools and forms are found as tablets in the levels.
+schools and forms are found as tablets in the levels. NOT YET: no Sowilo tablet
+(`rune_light`) is placed in a level or a starting pack, so in play the light
+spells come only from the console (`learn <member> light`).
 
 ## Checked by
 
 `tools\SpellTest.py` (runs `tools\EvalScripts\spells.eval` and judges 33 checks,
 one per outcome above; `--selftest` cuts every cast and demands exactly the
 spell-free checks still pass) and `tools\AllocTest.ps1 -Hand` (the hand spells
-inside a guarded window), `-Cast` (a bolt in flight + an open book) and
-`-Impact` (bolts landing, a burst).
+inside a guarded window), `-Cast` (a bolt in flight + an open book),
+`-Impact` (bolts landing, a burst) and `-Light` (each light cast in the window,
+a flare dazzling a mummy, a stone showing planted tracks).

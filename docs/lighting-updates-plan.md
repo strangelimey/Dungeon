@@ -454,3 +454,8 @@ committed and checked on its own:
 
 CLAUDE.md (the FIRE AND LIGHT bullet, the HUD description, Renderer features
 for the tiled lists), docs/torches-and-fire.md, docs/magic system.md.
+DONE: phases 1-5 landed in CLAUDE.md (FIRE AND LIGHT, the light budget, the HUD)
+and docs/torches-and-fire.md as they went; Phase 6 at the end - CLAUDE.md's
+MAGIC bullet (THE LIGHT FORM paragraph), docs/magic system.md (the form and
+modifier tables, rune names, "Built - the lights") and docs/spells.md (the
+Light section, Ingwaz / Hagalaz on a light, where the tablet is not yet found).

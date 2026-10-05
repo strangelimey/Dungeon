@@ -169,8 +169,8 @@ Key conventions (memorize, they bite):
   callbacks, both wired in the Game constructor.
 - MAGIC (full model: docs/magic system.md + spells.md + skills.md): every
   spell is a CLASS in src/Game/Spell/ (one file pair per spell; Spell base →
-  BoltSpell/WardSpell/SightSpell forms — the shared tier-2 form runes Project/
-  Protect/Sight; behaviour = the Cast() override, reaching the
+  BoltSpell/WardSpell/SightSpell/LightSpell forms — the shared tier-2 form runes
+  Project/Protect/Sight/Light; behaviour = the Cast() override, reaching the
   world only through host-wired CastServices) — spells.cat is NUMERIC
   OVERRIDES only, the class recipe is identity. MagicSystem runs the common
   gates (vocab, mana, skill/fumble roll, power ×(1+0.10×school level) ×
@@ -192,7 +192,7 @@ Key conventions (memorize, they bite):
   SymbolMayFollow / WellFormedRecipe are the one statement of that grammar
   (no modifier on a bare school rune or on Sight). Runes are SHOWN by their
   Futhark names (`RuneNameKey` -> `rune.<id>`: Kenaz Berkano Ansuz Laguz /
-  Tiwaz Algiz Dagaz / Ingwaz Hagalaz); the ids stay the meanings. TIER 1 is
+  Tiwaz Algiz Dagaz Sowilo / Ingwaz Hagalaz); the ids stay the meanings. TIER 1 is
   four `HandSpell`s, NOT bolts: Flame lights a held torch / the wall torch /
   a brazier past `brazier_power`; Rock conjures a pebble into a hand or at the
   feet; Gust flares a fire and past `push_power` shoves a monster and REPELS a
@@ -200,11 +200,11 @@ Key conventions (memorize, they bite):
   a held skin a step / douses the wall torch / a brazier past its power. Every
   threshold reads CAST POWER. TIER 2 Project = single-target bolts (`firebolt`
   `earthbolt` `waterbolt` `airbolt`; were fireburst/slingshot/push). TIER 3 is
-  ONE class, `ModifiedSpell`, which AllSpells wraps round every Bolt and Ward
-  spell: Ingwaz = a volley (each bolt weaker, the caster's own lane, a fixed
+  ONE class, `ModifiedSpell`, which AllSpells wraps round every Bolt, Ward and
+  Light spell (the lights' pair: see THE LIGHT FORM below): Ingwaz = a volley (each bolt weaker, the caster's own lane, a fixed
   pending-bolt queue via `spawnBoltAfter` - a cast frame must not allocate) or
   the ward on the whole party; Hagalaz = a burst on impact or a burst round the
-  caster sparing its square, and no ward. Sixteen whole spells with their own
+  caster sparing its square, and no ward. Twenty-four whole spells with their own
   ids and spells.cat entries, so learning / the book / saves needed nothing.
   TRAP: `blast_force` counts SQUARES, not a radius. Monsters cast any spell id;
   the mage ladder is skel_mage / skel_mage_adept / skel_magus (bolt, volley,
@@ -212,6 +212,36 @@ Key conventions (memorize, they bite):
   drivable bare with `castsvc`). Checked by `tools\SpellTest.py` (judges
   spells.eval, CheckAll quick; `--selftest` cuts every cast) and `AllocTest.ps1
   -Hand`.
+  THE LIGHT FORM (lighting-updates Phase 6): a fourth form rune, SOWILO
+  (`SpellSymbol::Light`, APPENDED - bit 9 of knownSymbols, old saves unchanged;
+  `SpellIdList` is 64 now - it was exactly full at 32, so a 33rd spell could never
+  be learned). `Spell/LightSpell` + Firelight / Tidelight / Skylight /
+  Stonelight land ONE effect kind, `light` (Effect/LightEffect, knobs on
+  effects.cat [light]), on the CASTER with the school on the instance - schools
+  stack, a recast replaces its own - and the world reads it every frame
+  (DungeonWorld_SpellLight.cpp): a `LightKind::Spell` light per (member, school)
+  from lights.cat `spell_<school>`, sized by the cast power. Each school DOES
+  something: fire kindles fires within a step and scorches monsters beside the
+  party; water clears a bubble in the haze (a NEGATIVE dust puff - the shader's
+  DustDensity clamps at zero), doubles stamina regen and quenches the party;
+  air shocks the nearest monster in reach and sight and flickers faster while
+  the party is noticed; EARTH is not carried but SET DOWN - a stone in the
+  cast's square (`placeLightStone`; a fixed `m_lightStones` of 8 a level, saved
+  as `lightstone` lines in its LevelState) that maps every square its light
+  reaches in walking steps and shows MONSTER TRACKS there. TRACKS: `m_tracks`,
+  one cell per square sized with the fog mask (FitTracksToMap - a NEW site that
+  resizes m_seen must call it), written in `StepMonsterTo`, fading over
+  balance.cat `track_life`, saved per level as AGES on a `tracks` line; each
+  records its MAKER so the party can leave tracks / scent / noise later.
+  Ingwaz on a light = one bigger light (`grow` x the power); Hagalaz = a FLARE
+  (the `lightFlare` service: a flash, `dazzle` on monsters within 3 steps - a
+  dazzled monster skips its turn - and the school's light acting once). With
+  it: every skeleton resists fire 0.75, and a monsters.cat `flammable` monster
+  (the mummy) catches from ANY fire that lands on it - the one seam is
+  `MonsterTarget::Wound` (balance.cat `ignite_burn` / `ignite_seconds`). Dev:
+  `lightstones [clear]`, `tracks [clear | add <x> <z> <dir>]`; checked by
+  `AllocTest.ps1 -Light` (refuses a PASS without the flare's dazzle or the
+  stone's track motes). No `rune_light` tablet is placed in play yet.
 - FIRE AND LIGHT (docs/torches-and-fire.md): there is NO light at the eye - a
   LIT TORCH held in a hand (or on the cursor) is the party's light, and an
   ambient-0 level is pitch black. A lit torch burns while HELD (its CHARGE
