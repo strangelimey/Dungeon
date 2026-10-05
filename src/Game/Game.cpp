@@ -2636,13 +2636,21 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	const Vec3* pvFitMin = nullptr;             // auto-fit AABB (small items)
 	const Vec3* pvFitMax = nullptr;
 	Vec3 pvPivot{}; // the point a grounded model stands and turns on (a rig's root)
+	const Mat4* pvOrient = nullptr; // a fitted model's pose: set = a Y-only turntable
+	static const Mat4 kUpright = Mat4Identity();
 	if (m_assetPicker.IsOpen() && m_assetPicker.HasPreview()) {
 		// The picker is above the type editor and above the create dialog, so it
-		// claims the shared preview RT first.
-		pvMesh = &m_assetPicker.PreviewMesh();
-		pvMat = m_assetPicker.PreviewMaterial();
+		// claims the shared preview RT first. The model (or, for a texture set,
+		// the wall block wearing it) is fitted to the pane and turns upright on a
+		// turntable, or tumbles if it lies flat.
+		pvSubs = m_assetPicker.PreviewParts();
 		pvOrbit = m_assetPicker.Orbit();
-		pvPivot = m_assetPicker.PreviewPivot();
+		pvFitMin = m_assetPicker.PreviewFitMin();
+		pvFitMax = m_assetPicker.PreviewFitMax();
+		if (m_assetPicker.PreviewStands()) pvOrient = &kUpright;
+		const gfx::Rect pv = m_assetPicker.PreviewRect(static_cast<float>(m_device.Width()),
+														static_cast<float>(m_device.Height()));
+		pvAspect = pv.h > 0.0f ? pv.w / pv.h : 1.0f;
 	} else if (m_assetDialog.IsOpen() && m_assetDialog.HasPreview()) {
 		pvMesh = &m_assetDialog.PreviewMesh();
 		pvMat = m_assetDialog.PreviewMaterial();
@@ -2695,7 +2703,7 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	if (!pvSubs.empty()) { // per-instance dialog preview (one or many submeshes)
 		if (pvParticles) pvParticles->NewFrame(m_device.FrameIndex());
 		m_modelPreview.Render(list, m_renderer, pvSubs, pvScale, pvOrbit, pvAspect, pvPalette,
-							  pvParticles, pvBillboards, pvFitMin, pvFitMax, nullptr, &pvPivot);
+							  pvParticles, pvBillboards, pvFitMin, pvFitMax, pvOrient, &pvPivot);
 		m_device.BindBackBuffer(list);
 	} else if (pvMesh) {
 		m_modelPreview.Render(list, m_renderer, *pvMesh, pvMat, pvScale, pvOrbit, pvAspect,
@@ -2762,7 +2770,7 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	if (m_assetPicker.IsOpen()) {
 		bool baked = false;
 		for (const AssetPicker::PendingBake& bake : m_assetPicker.PendingBakes(2)) {
-			m_world->BakeIconFor(list, m_spriteBatch, *bake.mesh, bake.lo, bake.hi,
+			m_world->BakeIconFor(list, m_spriteBatch, bake.parts, bake.lo, bake.hi,
 								*bake.target);
 			m_assetPicker.MarkBaked(bake.name);
 			baked = true;

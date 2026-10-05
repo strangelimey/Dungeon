@@ -1555,6 +1555,16 @@ hard way: create the render target in UPDATE, never mid-recording (gfx::Texture:
 RenderTarget drains the GPU), and REBIND THE BACK BUFFER after baking or the 2D
 pass draws itself into the last icon at its 256px viewport. Tiles evict
 least-recently-seen past a cap (drain before freeing — the SRV rule).
+A model tile and the preview show the model AS THE WORLD DRAWS IT, through ONE
+loader, `DungeonWorld::LoadPoolModelLook`: every primitive with its own glTF
+material and embedded maps (the baked .dds sidecars), and the texture set a
+catalog binds to it (`AssetPicker::textureFor`, the ModelAndTexture rule) - on a
+single-primitive .gltf the set WINS (the world's single-mesh path), elsewhere it
+only fills an untextured part. A tile drops that model's meshes and textures
+kFrameCount Ticks after its bake (`Thumb::bakedAt`), keeping only the 256 px
+image, so browsing never parks a rig's maps on the SRV heap. The preview is
+FITTED to the pane (a dagger to a staircase); a flat model tumbles, a standing or
+rigged one turns upright (`PreviewStands`).
 RIGHT-CLICKING a palette row opens the per-TYPE catalog editor
 (TypeEditorDialog) for EVERY category — one dialog, because it renders its form
 from a SCHEMA: Game/CatalogSchema.h is a FieldSpec table per catalog (key, kind,

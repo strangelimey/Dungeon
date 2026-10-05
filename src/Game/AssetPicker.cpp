@@ -99,6 +99,12 @@ void AssetPicker::Open(Mode mode, const std::string& current,
 	m_lastClickTile = -1;
 	m_theme = theme;
 	m_items = mode == Mode::Textures ? InstalledTextureSetInfo() : InstalledModelInfo();
+	// A model is drawn in its bound set; which sets exist (and at what size) is
+	// one walk here rather than a probe per tile.
+	m_setRes.clear();
+	if (mode == Mode::Models)
+		for (const AssetInfo& set : InstalledTextureSetInfo())
+			m_setRes.emplace(set.name, set.resolutions);
 	m_used = usedAssets ? usedAssets() : std::vector<std::string>{};
 	// Thumbnails are per-pool: a model tile and a texture tile of the same name
 	// are different images, and the cache is keyed by name alone.
@@ -282,6 +288,14 @@ void AssetPicker::LoadVisibleThumbs(size_t max) {
 
 void AssetPicker::PrepareModelIcons(size_t max) {
 	if (m_mode != Mode::Models) return;
+	// Drop the sources of bakes every frame in flight has finished with: once a
+	// frame slot has come round again (kFrameCount Ticks), the frame that
+	// recorded the draw is done, and the tile needs only its image.
+	m_thumbs.ForEach([&](const std::string&, auto& entry) {
+		Thumb& t = entry.data;
+		if (t.look && !t.needsBake && m_thumbs.Frame() > t.bakedAt + gfx::kFrameCount)
+			t.look.reset();
+	});
 	size_t made = 0;
 	for (const AssetTile* tile : VisibleTiles()) {
 		if (made >= max) break;
@@ -290,21 +304,17 @@ void AssetPicker::PrepareModelIcons(size_t max) {
 		auto* entry = m_thumbs.BeginLoad(a.name); // one attempt per asset, however it goes
 		if (!entry) continue;
 		Thumb& slot = entry->data;
-		auto model = assets::LoadModel(paths::Asset("models\\" + a.file));
-		if (!model || model->meshes.empty()) {
+		// The whole model as the preview shows it, its bound set trimmed to a
+		// tile. The baked image sidecars load, not the PNGs inside the file: a
+		// bought rig's six 2k decodes took long enough that a screenful of its
+		// tiles was still blank seconds after opening.
+		slot.look = DungeonWorld::LoadPoolModelLook(m_device,
+													paths::Asset("models\\" + a.file),
+													SetStemFor(a.name), DungeonWorld::kIconSize);
+		if (!slot.look) {
 			log::Warn("asset picker: no icon for {} (could not load)", a.file);
 			continue;
 		}
-		const assets::MeshData& data = model->meshes[0];
-		slot.lo = {1e9f, 1e9f, 1e9f};
-		slot.hi = {-1e9f, -1e9f, -1e9f};
-		for (const auto& v : data.vertices) {
-			slot.lo = {std::min(slot.lo.x, v.position.x), std::min(slot.lo.y, v.position.y),
-					   std::min(slot.lo.z, v.position.z)};
-			slot.hi = {std::max(slot.hi.x, v.position.x), std::max(slot.hi.y, v.position.y),
-					   std::max(slot.hi.z, v.position.z)};
-		}
-		slot.mesh = std::make_unique<gfx::Mesh>(m_device, data);
 		// The bake's viewport and shared depth target are DungeonWorld::kIconSize,
 		// so a target we create ourselves has to be exactly that.
 		slot.texture = gfx::Texture::RenderTarget(m_device, DungeonWorld::kIconSize);
@@ -318,14 +328,18 @@ std::vector<AssetPicker::PendingBake> AssetPicker::PendingBakes(size_t max) cons
 	m_thumbs.ForEach([&](const std::string& name, const auto& entry) {
 		const Thumb& thumb = entry.data;
 		if (out.size() >= max) return;
-		if (!thumb.needsBake || !thumb.mesh || !thumb.texture) return;
-		out.push_back({name, thumb.mesh.get(), thumb.texture.get(), thumb.lo, thumb.hi});
+		if (!thumb.needsBake || !thumb.look || !thumb.texture) return;
+		out.push_back({name, thumb.look->parts, thumb.texture.get(), thumb.look->lo,
+					   thumb.look->hi});
 	});
 	return out;
 }
 
 void AssetPicker::MarkBaked(const std::string& name) {
-	if (auto* entry = m_thumbs.Find(name)) entry->data.needsBake = false;
+	if (auto* entry = m_thumbs.Find(name)) {
+		entry->data.needsBake = false;
+		entry->data.bakedAt = m_thumbs.Frame(); // its source goes once the GPU is done
+	}
 }
 
 // --- selection, preview, facts ----------------------------------------------
@@ -345,12 +359,13 @@ gfx::Rect AssetPicker::PreviewRect(float, float) const {
 
 void AssetPicker::RefreshPreview() {
 	// In-flight frames may still reference the old resources (the SRV rule).
-	if (m_previewMesh || m_previewAlbedo) m_device.WaitIdle();
+	if (m_previewMesh || m_previewAlbedo || m_previewLook) m_device.WaitIdle();
 	m_previewMesh.reset();
 	m_previewAlbedo.reset();
 	m_previewNormal.reset();
 	m_previewMr.reset();
-	m_material = {};
+	m_previewLook.reset();
+	m_previewParts.clear();
 	if (m_selected.empty()) return;
 
 	if (m_mode == Mode::Textures) {
@@ -367,22 +382,48 @@ void AssetPicker::RefreshPreview() {
 		if (!model || model->meshes.empty()) return;
 		m_previewModel = std::move(*model);
 		m_previewMesh = std::make_unique<gfx::Mesh>(m_device, m_previewModel.meshes[0]);
-		m_material.albedo = m_previewAlbedo.get();
-		m_material.normalMap = m_previewNormal.get();
-		m_material.metalRough = m_previewMr.get();
+		gfx::MaterialParams material;
+		material.albedo = m_previewAlbedo.get();
+		material.normalMap = m_previewNormal.get();
+		material.metalRough = m_previewMr.get();
+		m_previewParts.push_back({m_previewMesh.get(), material});
+		m_fitLo = {1e9f, 1e9f, 1e9f};
+		m_fitHi = {-1e9f, -1e9f, -1e9f};
+		for (const assets::Vertex& v : m_previewModel.meshes[0].vertices) {
+			m_fitLo = {std::min(m_fitLo.x, v.position.x), std::min(m_fitLo.y, v.position.y),
+					   std::min(m_fitLo.z, v.position.z)};
+			m_fitHi = {std::max(m_fitHi.x, v.position.x), std::max(m_fitHi.y, v.position.y),
+					   std::max(m_fitHi.z, v.position.z)};
+		}
+		m_stands = true;
 		return;
 	}
 
-	// A model previews itself, with whatever its own glTF material says.
+	// A model previews ALL of itself as the world draws it: every primitive with
+	// its own material and embedded maps, plus the set a catalog binds to it on
+	// whatever it does not texture itself. It used to be meshes[0] alone with a
+	// blank material - a bought skeleton came out as one white shoulder plate.
 	const auto it = std::ranges::find(m_items, m_selected, &AssetInfo::name);
 	const std::string file = it == m_items.end() ? m_selected + ".gltf" : it->file;
-	auto model = assets::LoadModel(paths::Asset("models\\" + file));
-	if (!model || model->meshes.empty()) {
+	m_previewLook = DungeonWorld::LoadPoolModelLook(
+		m_device, paths::Asset("models\\" + file), SetStemFor(m_selected));
+	if (!m_previewLook) {
 		log::Warn("asset picker: could not load {}", file);
 		return;
 	}
-	m_previewModel = std::move(*model);
-	m_previewMesh = std::make_unique<gfx::Mesh>(m_device, m_previewModel.meshes[0]);
+	m_previewParts = m_previewLook->parts;
+	m_fitLo = m_previewLook->lo;
+	m_fitHi = m_previewLook->hi;
+	const float longest =
+		std::max({m_fitHi.x - m_fitLo.x, m_fitHi.y - m_fitLo.y, m_fitHi.z - m_fitLo.z});
+	m_stands = m_previewLook->rigged || m_fitHi.y - m_fitLo.y >= 0.35f * longest;
+}
+
+std::string AssetPicker::SetStemFor(const std::string& modelName) const {
+	const std::string set = textureFor ? textureFor(modelName) : modelName;
+	const auto it = m_setRes.find(set);
+	if (set.empty() || it == m_setRes.end()) return {};
+	return paths::Asset("textures\\" + set + SmallestRes(it->second));
 }
 
 void AssetPicker::RefreshFacts() {

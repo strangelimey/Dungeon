@@ -1039,8 +1039,8 @@ void DungeonWorld::UpdateMapIcons(ID3D12GraphicsCommandList* list,
 				mat.alphaCutoff = kind->alphaCutoff;
 				Vec3 lo, hi;
 				meshBounds(kind->model->meshes[0], lo, hi);
-				BakeMeshIcon(list, sprites, *kind->mesh, mat, lo, hi,
-							 *kind->iconTarget);
+				const gfx::PreviewSubmesh part{kind->mesh.get(), mat};
+				BakeMeshIcon(list, sprites, {&part, 1}, lo, hi, *kind->iconTarget);
 			} else {
 				continue;
 			}
@@ -1060,8 +1060,8 @@ void DungeonWorld::UpdateMapIcons(ID3D12GraphicsCommandList* list,
 			if (!mat.albedo) mat.metallic = 1.0f; // flat fallback reads as metal
 			Vec3 lo, hi;
 			meshBounds(kind->model->meshes[0], lo, hi);
-			BakeMeshIcon(list, sprites, *kind->mesh, mat, lo, hi,
-						 *kind->iconTarget);
+			const gfx::PreviewSubmesh part{kind->mesh.get(), mat};
+			BakeMeshIcon(list, sprites, {&part, 1}, lo, hi, *kind->iconTarget);
 			any = true;
 		}
 		m_fixtureIconsBaked = true;
@@ -1070,24 +1070,20 @@ void DungeonWorld::UpdateMapIcons(ID3D12GraphicsCommandList* list,
 	if (any) m_device.BindBackBuffer(list); // the bakes redirected the OM
 }
 
-// Bakes ONE pool mesh into a caller-owned icon target — the asset picker's model
+// Bakes ONE pool model into a caller-owned icon target — the asset picker's model
 // tiles. The map icons bake per KIND and cache on the kind; a picker tile is any
 // file in the pool, kind or not, so the picker owns the target and its eviction.
 void DungeonWorld::BakeIconFor(ID3D12GraphicsCommandList* list,
-							   gfx::SpriteBatch& sprites, const gfx::Mesh& mesh,
-							   const Vec3& lo, const Vec3& hi,
-							   const gfx::Texture& target) {
+							   gfx::SpriteBatch& sprites,
+							   std::span<const gfx::PreviewSubmesh> parts, const Vec3& lo,
+							   const Vec3& hi, const gfx::Texture& target) {
 	EnsureIconBakeTargets();
-	gfx::MaterialParams mat; // the mesh's own glTF material, studio-lit
-	mat.doubleSided = false;
-	mat.metallic = 0.0f;
-	mat.roughness = 0.7f;
-	BakeMeshIcon(list, sprites, mesh, mat, lo, hi, target);
+	BakeMeshIcon(list, sprites, parts, lo, hi, target);
 }
 
 void DungeonWorld::BakeMeshIcon(ID3D12GraphicsCommandList* list,
-								gfx::SpriteBatch& sprites, const gfx::Mesh& mesh,
-								const gfx::MaterialParams& material, const Vec3& lo,
+								gfx::SpriteBatch& sprites,
+								std::span<const gfx::PreviewSubmesh> parts, const Vec3& lo,
 								const Vec3& hi, const gfx::Texture& target) {
 	D3D12_RESOURCE_BARRIER toRT = gfx::Transition(
 		target.Resource(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
@@ -1125,7 +1121,8 @@ void DungeonWorld::BakeMeshIcon(ID3D12GraphicsCommandList* list,
 
 	m_renderer.BeginScene(list, cam, IconStudioLights()); // the shared studio rig
 
-	m_renderer.DrawMesh(list, mesh, world, material);
+	for (const gfx::PreviewSubmesh& part : parts)
+		if (part.mesh) m_renderer.DrawMesh(list, *part.mesh, world, part.material);
 	m_renderer.FlushTransparent(list);
 
 	D3D12_RESOURCE_BARRIER toSRV = gfx::Transition(

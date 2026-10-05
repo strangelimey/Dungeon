@@ -52,4 +52,72 @@ void DungeonWorld::ForgetModelFile(const std::string& file) {
 	m_modelCache.erase(file);
 }
 
+// --- the asset picker's view of a pool file ---------------------------------
+// Deliberately NOT through the cache: the picker browses every file in the pool,
+// most of which no level uses, and caching them would keep each one's textures
+// in VRAM for the session. The picker owns the result and drops it.
+std::unique_ptr<DungeonWorld::PoolModelLook> DungeonWorld::LoadPoolModelLook(
+	gfx::GraphicsDevice& device, const std::string& modelPath, const std::string& setStem,
+	u32 thumbPx) {
+	auto data = assets::LoadModel(modelPath, {.bakedImages = true});
+	if (!data || data->meshes.empty()) return nullptr;
+	std::unique_ptr<MultiMaterialModel> multi = BuildMultiMaterialModel(device, *data);
+
+	auto look = std::make_unique<PoolModelLook>();
+	look->textures = std::move(multi->textures);
+	look->lo = multi->boundsMin;
+	look->hi = multi->boundsMax;
+	look->rigged = data->skeleton.RootJoint() >= 0;
+
+	// Which material wins, by the world's own split: a single-primitive .gltf is
+	// drawn by its catalog set (MonsterKindFor takes the multi-material path only
+	// past one primitive, which is why the giant spider is orange in play and
+	// its embedded map is pale), while a .glb or a many-part model wears its own
+	// materials (the item and decoration loaders' .glb path) and the set only
+	// fills a part with no image. Loaded only if something will wear it.
+	const bool setWins = multi->subs.size() == 1 && modelPath.ends_with(".gltf");
+	std::shared_ptr<gfx::Texture> albedo, normal, mr;
+	const bool wantsSet = !setStem.empty() &&
+						  (setWins || std::ranges::any_of(multi->subs,
+														  [](const MultiMaterialModel::Sub& s) {
+															  return s.material.albedo == nullptr;
+														  }));
+	if (wantsSet) {
+		auto load = [&](const std::string& stem, bool srgb) -> std::shared_ptr<gfx::Texture> {
+			return thumbPx > 0 ? LoadTextureThumb(device, stem, thumbPx, srgb)
+							   : TryLoadTextureFile(device, stem, srgb);
+		};
+		albedo = load(setStem, /*srgb*/ true);
+		if (albedo) {
+			normal = load(setStem + "_n", false);
+			mr = load(setStem + "_mr", false);
+			for (const auto& t : {albedo, normal, mr})
+				if (t) look->textures.push_back(t);
+		}
+	}
+
+	for (MultiMaterialModel::Sub& sub : multi->subs) {
+		if (setWins && albedo) {
+			// As the world's single-mesh draw builds it: a fresh material with
+			// the set on it (ApplyPropMaterial), none of the file's factors.
+			gfx::MaterialParams m;
+			m.doubleSided = true;
+			ApplyPbr(m, albedo.get(), normal.get(), mr.get(), 0.0f, {1, 1, 1, 1}, 0.9f);
+			sub.material = m;
+		} else if (!sub.material.albedo) {
+			// A part the model does not texture: the set as a prop draw applies
+			// it (ApplyPbr), else the glTF's flat colour. Double-sided, since
+			// such a part is usually hand-built geometry (the scene's default
+			// PSO for those is CULL_NONE too).
+			sub.material.doubleSided = true;
+			if (albedo)
+				ApplyPbr(sub.material, albedo.get(), normal.get(), mr.get(), 0.0f,
+						 sub.material.baseColor, sub.material.roughness);
+		}
+		look->meshes.push_back(sub.mesh);
+		look->parts.push_back({sub.mesh.get(), sub.material});
+	}
+	return look;
+}
+
 } // namespace dungeon::game

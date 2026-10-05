@@ -174,9 +174,32 @@ public:
 	// the CALLER's because creating one drains the GPU (gfx::Texture::
 	// RenderTarget), which must not happen while a frame is being recorded.
 	// LIFETIME: this only RECORDS the draw, so `mesh` must outlive the frame.
+	// The parts are drawn as given (the caller resolved their materials -
+	// PoolModelLook below).
 	void BakeIconFor(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
-					 const gfx::Mesh& mesh, const Vec3& lo, const Vec3& hi,
-					 const gfx::Texture& target);
+					 std::span<const gfx::PreviewSubmesh> parts, const Vec3& lo,
+					 const Vec3& hi, const gfx::Texture& target);
+	// A POOL model as the editor's asset picker shows it, preview and tile alike:
+	// every primitive (not just meshes[0]) with its own glTF material and
+	// embedded textures (the baked .dds sidecars, as the game loads them), node
+	// transforms baked in - the multi-material path the world draws bought
+	// models with - and, on any part with no image of its own, the texture set a
+	// catalog binds to it (`setStem`, a resolution-tagged path stem; "" = none),
+	// as the world draws a prop. Owns its GPU resources: a holder must let every
+	// frame that drew it finish before dropping it (the SRV rule).
+	struct PoolModelLook {
+		std::vector<std::shared_ptr<gfx::Texture>> textures;
+		std::vector<std::shared_ptr<gfx::Mesh>> meshes;
+		std::vector<gfx::PreviewSubmesh> parts; // point into the two above
+		Vec3 lo{}, hi{};                        // bounds of the baked geometry
+		bool rigged = false;                    // it carries a skeleton (a creature)
+	};
+	// Null when the file will not load. `thumbPx` > 0 loads the bound set's
+	// maps trimmed to that size (a tile), else at the stem's full resolution.
+	static std::unique_ptr<PoolModelLook> LoadPoolModelLook(gfx::GraphicsDevice& device,
+															const std::string& modelPath,
+															const std::string& setStem,
+															u32 thumbPx = 0);
 	// The baked icons for already-loaded kinds, or null (not loaded / not baked
 	// yet) — the map overlay then falls back to its square markers. These never
 	// force-load a model (browse markers may name unloaded types).
@@ -3793,10 +3816,11 @@ private:
 	// One kind's head-shot bake: rest-pose mesh, framed on the model's top.
 	void BakeMonsterIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
 						 const MonsterKind& kind);
-	// A static mesh baked whole (fit by its bounds): decorations, fixtures.
+	// A static model baked whole (fit by its bounds): decorations, fixtures, the
+	// asset picker's tiles. One part for a plain mesh, one per primitive else.
 	void BakeMeshIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
-					  const gfx::Mesh& mesh, const gfx::MaterialParams& material,
-					  const Vec3& lo, const Vec3& hi, const gfx::Texture& target);
+					  std::span<const gfx::PreviewSubmesh> parts, const Vec3& lo,
+					  const Vec3& hi, const gfx::Texture& target);
 	std::vector<Item> m_items;
 	std::vector<Button> m_buttons; // .ent buttons (toggle wired doors by name)
 	std::vector<Door> m_doors;     // .ent doors (live open/anim state)
