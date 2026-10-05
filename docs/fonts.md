@@ -390,7 +390,10 @@ matches IM Fell's x-height, 0.370 vs 0.332 of ascent-to-descent, which is what
 stb_truetype's ScaleForPixelHeight sizes by). Coverage of the shipped faces,
 Cyrillic: Alegreya, Bitter, Gentium Book Plus, JetBrains Mono, Spectral - and
 NOT Cinzel (Display), IM Fell, Grenze Gotisch, Marcellus, Petit Formal Script.
-OPEN: Russian Display text (title, pause, page titles) still needs a face.
+Russian's Display role -> FORUM (downloaded for it, `ofl/forum/`, OFL, static,
+full Cyrillic): Roman capitals like Cinzel, at 0.87 to match Cinzel's cap height
+(0.519 vs 0.598 of ascent-to-descent). It has a true lowercase where Cinzel's
+is small caps.
 
 ## Traps
 

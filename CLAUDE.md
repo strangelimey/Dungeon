@@ -583,8 +583,8 @@ Key conventions (memorize, they bite):
   A FACE MUST ALSO HAVE THE SCRIPT: a .lang file names its own face for a role
   that lacks it - `lang.font.<role> = <file under assets/>` + optional
   `.scale` (Game::ApplyLanguageFonts; docs/fonts.md Phase 6). ru.lang draws the
-  Script role in Alegreya, since IM Fell English has no Cyrillic. Cinzel
-  (Display) has none either, so Russian titles still draw as boxes.
+  Script role in Alegreya, since IM Fell English has no Cyrillic, and the
+  Display role in Forum (assets/fonts/Forum), since Cinzel has none either.
 
 ## Renderer features (assets/shaders/scene.hlsl)
 

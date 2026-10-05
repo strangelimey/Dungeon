@@ -110,6 +110,7 @@ instancing rationale and the Reserved Font Name audit live in
 | 2026-08-02 | Petit Formal Script | **free** | OFL 1.1 (RFN, unmodified) | Script | audition |
 | 2026-08-02 | JetBrains Mono | **free** | OFL 1.1 (no RFN) | Mono | instanced wght=400; audition |
 | 2026-10-01 | Spectral SemiBold | **free** | OFL 1.1 (no RFN) | Body | shipped static; the Body face since ui-updates (text on stone) |
+| 2026-10-05 | Forum | **free** | OFL 1.1 (RFN "Forum", unmodified) | Display (Russian) | shipped static; Cinzel has no Cyrillic, so ru.lang draws titles in it |
 
 ### Self-made (AI-generated)
 Art Michael generated himself. No seller and no third-party licence, so nothing

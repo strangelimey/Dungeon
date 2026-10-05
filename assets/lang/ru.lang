@@ -18,6 +18,11 @@ lang.name=Русский
 ; IM Fell's x-height (0.370 vs 0.332 of the line).
 lang.font.script=fonts/Alegreya/Alegreya-Regular.ttf
 lang.font.script.scale=1.1
+; Cinzel (the Display role: titles, headings) has none either; Forum is a
+; Roman-capital face with Cyrillic, scaled to Cinzel's cap height (0.519 vs
+; 0.598 of the line). Forum has a true lowercase where Cinzel's is small caps.
+lang.font.display=fonts/Forum/Forum-Regular.ttf
+lang.font.display.scale=0.87
 
 ; --- titles / page chrome ---------------------------------------------------
 title=ПОДЗЕМЕЛЬЕ

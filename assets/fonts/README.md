@@ -17,6 +17,7 @@ part of the gitignored-asset provisioning dance.
 | Alegreya | Alegreya-Regular.ttf | `ofl/alegreya/Alegreya[wght].ttf` | instanced wght=400 |
 | Bitter | Bitter-Regular.ttf | `ofl/bitter/Bitter[wght].ttf` | instanced wght=400 |
 | Cinzel | Cinzel-Regular.ttf | `ofl/cinzel/Cinzel[wght].ttf` | instanced wght=400 |
+| Forum | Forum-Regular.ttf (Russian's Display face, ru.lang `lang.font.display`, 2026-10-05) | `ofl/forum/` | no - shipped static |
 | GentiumBookPlus | GentiumBookPlus-Regular.ttf | `ofl/gentiumbookplus/` | no — shipped static |
 | GrenzeGotisch | GrenzeGotisch-Regular.ttf | `ofl/grenzegotisch/GrenzeGotisch[wght].ttf` | instanced wght=400 |
 | IMFellEnglish | IMFeENrm28P.ttf, IMFeENit28P.ttf | `ofl/imfellenglish/` | no — shipped static |
@@ -63,6 +64,7 @@ Cross-referencing what we modified against what declares an RFN:
 | GentiumBookPlus | "Gentium", "SIL" | no | none needed |
 | Marcellus | "Marcellus" | no | none needed |
 | PetitFormalScript | "Petit Formal Script" | no | none needed |
+| Forum | "Forum" | no | none needed |
 | Alegreya, Cinzel, GrenzeGotisch, IMFellEnglish, JetBrainsMono, Spectral | none | — | none needed |
 
 **Bitter is the only face that is both modified and RFN-bearing.** Its reserved
