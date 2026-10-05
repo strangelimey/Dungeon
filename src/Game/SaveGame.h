@@ -67,6 +67,10 @@ struct SaveData {
 		float magnitude = 0.0f;
 		int source = -1;
 		std::string nameKey;
+		// A colour of its own (fx::Inst::tint - a magical torch's burn). Rides
+		// enteffect / brkeffect lines as an 8th token, written only when set.
+		bool tinted = false;
+		float tint[3] = {0.0f, 0.0f, 0.0f};
 	};
 
 	// The GLOBAL tier: what is true of the game rather than of one dungeon —

@@ -1,0 +1,44 @@
+; spawnrise.eval - a freshly spawned skeleton holds its square while it gets up.
+;
+; The skeleton kit's Spawn clips (spawn__getting_up*, spawn__standing_up) run
+; 9.5 to 14.3 s. The AI used to execute its orders under the held Spawn state,
+; so the monster glided 14,9 -> 14,15 toward the party still lying down. A
+; RISING monster now neither turns nor acts until the clip ends: `monsters`
+; prints `rising Ns` while it holds, and the cell must stay 14,9 until that
+; reads nothing, then advance.
+
+logecho on
+reset
+timescale 0
+lockstep on
+seed 7
+
+arena open 9 9
+mapinfo
+tp 14 16
+face n
+spawn skel_warrior 14 9 s
+
+echo --- rising ---
+monsters
+step 1
+monsters
+step 3
+monsters
+step 3
+monsters
+step 2
+monsters
+step 2
+monsters
+step 2
+monsters
+step 2
+echo --- up ---
+monsters
+step 2
+monsters
+step 2
+monsters
+step 2
+monsters

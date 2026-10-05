@@ -531,7 +531,7 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 			monster.plume.Ignite(BurnOrigin(monster), monster.runtimeId * 2654435761u);
 			monster.plumeLit = true;
 		}
-		monster.plume.SetTint(BurnTint(burning->school));
+		monster.plume.SetTint(BurnTintFor(*burning));
 		monster.plume.SetOrigin(BurnOrigin(monster));
 		monster.plume.Update(dt);
 		monster.plume.AppendParticles(m_particleScratch);
@@ -664,9 +664,25 @@ std::vector<std::string> DungeonWorld::MonsterList() const {
 		std::string line = std::format("{} @ {},{}  hp {:.1f}",
 									   m.kind ? m.kind->name : "?", m.x, m.z, m.hp);
 		if (!m.Alive()) line += " (dead)";
-		for (const fx::Inst& e : m.effects)
-			line += std::format("  [{} {:.1f} {:.1f}s]", e.Id(), e.magnitude,
-								e.timeLeft);
+		// Still getting up: it neither turns nor acts until this runs out.
+		else if (m.spawnAnim > 0.0f) line += std::format("  rising {:.1f}s", m.spawnAnim);
+		// The clip playing and how far its rig root stands from the monster's
+		// own position, horizontally, in model units - the body's distance from
+		// where the game put it (Animator::LockRootTravel keeps this small).
+		if (m.kind && m.kind->rigRoot >= 0 &&
+			static_cast<size_t>(m.kind->rigRoot) < m.animator.JointCount()) {
+			const Vec3 p = m.animator.JointPosition(static_cast<size_t>(m.kind->rigRoot));
+			const float dx = p.x - m.kind->rigRest.x, dz = p.z - m.kind->rigRest.z;
+			line += std::format("  anim {} root {:.3f}", m.animator.CurrentClip(),
+								std::sqrt(dx * dx + dz * dz));
+		}
+		for (const fx::Inst& e : m.effects) {
+			line += std::format("  [{} {:.1f} {:.1f}s", e.Id(), e.magnitude, e.timeLeft);
+			// An effect with its own colour (a magical torch's burn) says so.
+			if (e.tinted)
+				line += std::format(" tint {:.2f},{:.2f},{:.2f}", e.tint.x, e.tint.y, e.tint.z);
+			line += ']';
+		}
 		out.push_back(std::move(line));
 	}
 	return out;
@@ -799,11 +815,12 @@ void DungeonWorld::UpdateLights(float time) {
 		const fx::Inst* burning = PlumeEffect(monster);
 		if (!burning) continue;
 		const Vec3 o = BurnOrigin(monster);
-		const Vec4& c = ElementColor(burning->school);
-		const std::string& id = burning->kind->LightId();
-		PushLight(LightProfileFor(id.empty() ? std::string_view("burning") : id), "burning",
-				  LightKey(LightKind::Burning, monster.runtimeId), {o.x, o.y + 0.1f, o.z}, time,
-				  static_cast<float>(monster.runtimeId), {c.x, c.y, c.z});
+		PushLight(LightProfileFor(burning->kind->LightId().empty()
+								  ? std::string_view("burning")
+								  : std::string_view(burning->kind->LightId())),
+				  "burning", LightKey(LightKind::Burning, monster.runtimeId),
+				  {o.x, o.y + 0.1f, o.z}, time, static_cast<float>(monster.runtimeId),
+				  BurnGlow(*burning));
 	}
 
 	// A hand spell's puff (HandPuff) flashes and fades (`hand_puff`, its
@@ -1182,6 +1199,16 @@ void DungeonWorld::UpdateMonsters(float dt) {
 			UpdateThreatLock(monster, false);
 		}
 
+		// RISING: a monster playing its spawn clip (a skeleton getting up off the
+		// floor, 9.5 to 14.3 s in the bought kit) neither turns nor acts until the
+		// clip ends - it used to glide several squares toward the party still lying
+		// down, because the AI's orders were executed under the held Spawn state.
+		// It is still in the world: it blocks its square, takes blows and burns,
+		// and a glide already in flight (a Gust shove) still finishes below.
+		// spawnAnim is armed by DriveMonsterAnim above from the clip it chose, so a
+		// kind with no spawn clip is never held.
+		const bool rising = monster.spawnAnim > 0.0f;
+
 		// Advance an in-flight glide; the logical cell already moved when the
 		// step committed, so the tween just slides visualPos to the new anchor
 		// (cell centre for a lone idle wanderer, else the slot centre).
@@ -1208,7 +1235,7 @@ void DungeonWorld::UpdateMonsters(float dt) {
 			const int cap = SlotsPerCell(monster.kind->size);
 			const int adjDist = std::max(std::abs(monster.x - m_party.GridX()),
 										 std::abs(monster.z - m_party.GridZ()));
-			if (monster.aware && cap > 1 && adjDist <= 1 &&
+			if (!rising && monster.aware && cap > 1 && adjDist <= 1 &&
 				AliveInGroup(monster.groupId) >= 2) {
 				u32 used = 0; // slots held by other live same-size monsters here
 				for (size_t j = 0; j < m_monsters.size(); ++j) {
@@ -1254,7 +1281,7 @@ void DungeonWorld::UpdateMonsters(float dt) {
 		// party; otherwise it holds its resting facing (so a group can stand facing
 		// away while the party sneaks up). The visual yaw eases toward the target so
 		// turns glide. Radially-symmetric monsters (faces=false, the blob) never turn.
-		if (monster.kind->facesTarget) {
+		if (monster.kind->facesTarget && !rising) {
 			if (monster.moving) {
 				const Vec3 dest = MonsterStepTarget(monster);
 				const float dx = dest.x - monster.moveFrom.x;
@@ -1278,7 +1305,7 @@ void DungeonWorld::UpdateMonsters(float dt) {
 		// two of its nine warriors walk out of the squares they were measuring
 		// and then maul the party, so the table described where they ended up
 		// rather than what the blast did to where they were.
-		if (m_harness.frozen) continue;
+		if (m_harness.frozen || rising) continue;
 		// DAZZLED by a light spell's flare (lighting-updates Phase 6): the same
 		// seam - it animates, burns and can be struck, and does nothing else.
 		if (IsDazzled(monster)) continue;

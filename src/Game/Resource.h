@@ -128,7 +128,16 @@ float DrainPerSec(const SupplyRules& rules, float practice);
 // between them and belongs to neither.
 struct Refill {
 	float food = 0.0f, water = 0.0f;
-	bool Any() const { return food > 0.0f || water > 0.0f; }
+	// A potion's (items.cat restore_* / cures): what it actually restored, and
+	// how many effects it lifted or weakened.
+	float health = 0.0f, stamina = 0.0f, mana = 0.0f;
+	int cured = 0;
+	bool downed = false; // the member is unconscious and cannot drink (Michael)
+	bool drink = false;  // the item is drunk (command = drink), for the log's verb
+	bool Any() const {
+		return food > 0.0f || water > 0.0f || health > 0.0f || stamina > 0.0f ||
+			   mana > 0.0f || cured > 0;
+	}
 };
 
 // All three pools' knobs together. Bundled because they are always needed

@@ -120,6 +120,7 @@ add_library(Game STATIC
 	Power.cpp
 	LightProfile.cpp
 	Trail.cpp
+	Liquid.cpp
 	Validate.cpp
 	Validate_Flags.cpp
 	Validate_Styles.cpp

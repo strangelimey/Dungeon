@@ -52,7 +52,8 @@ MANIFEST = (
     "default_brazier = brazier\r\n"
     "\r\n"
     "; What a new party member may pick as their two starting items (party creation).\r\n"
-    "start_items = dagger, club, padded_jack, tunic, rock, apple, bread, waterskin\r\n"
+    "start_items = dagger, club, padded_jack, tunic, rock, apple, bread, waterskin, "
+    "torch_lit, potion_health_minor, potion_mana_minor\r\n"
 )
 
 

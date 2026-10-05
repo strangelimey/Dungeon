@@ -606,6 +606,20 @@ void Game::WireModuleCallbacks() {
 				}
 		return out;
 	};
+	// The set a model is drawn in: the first catalog entry drawing that model
+	// names it, by the world's own rule (ModelAndTexture: `model` and `texture`
+	// each default to the entry's id; a second part pairs part2_model with
+	// part2_texture). A model no entry uses falls back to a set of its own name,
+	// the import convention.
+	m_assetPicker.textureFor = [this](const std::string& model) {
+		for (const Catalog* cat : m_project.AllCatalogs())
+			for (const CatalogEntry& e : cat->Entries()) {
+				if (e.Get("model", e.id) == model) return e.Get("texture", e.id);
+				const std::string part2 = e.Get("part2_model", "");
+				if (!part2.empty() && part2 == model) return e.Get("part2_texture", "");
+			}
+		return model;
+	};
 	// Provenance, for the details pane: what the editor's own imports recorded.
 	m_assetPicker.sourceOf = [this](const std::string& name) {
 		// Texture sets install resolution-tagged, and that is the key the

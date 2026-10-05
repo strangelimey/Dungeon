@@ -1,0 +1,89 @@
+; potions.eval - what drinking a potion does (transparency Phase 4).
+;
+; Run:  Dungeon.exe -eval tools\EvalScripts\potions.eval
+;
+; A MEASUREMENT, not a pass/fail. What a reader is looking for, by section:
+;
+;   1. A FULL MEMBER IS REFUSED and keeps the potion: "gains nothing".
+;   2. THE ANTIDOTES: the minor one halves the poison (`cured 1`, the effect
+;      still listed with half its bite), the standard one lifts it.
+;   3. EACH POOL: a healing potion moves health, a stamina potion stamina, a mana
+;      potion mana - each by what is missing, never past the maximum.
+;   4. THE DOWNED DRINK NOTHING (Michael: a potion does not wake them).
+;   5. The `drink` row of the one-pipeline readout is non-zero.
+
+logecho on
+reset
+
+timescale 0
+lockstep on
+seed 7
+arena open 9 9
+
+echo === 1. a full member is refused ===
+consume potion_health 0
+
+echo === 2. the antidotes ===
+effect poison 0 3 30
+step 2
+party
+consume potion_antidote_minor 0
+party
+consume potion_antidote 0
+party
+
+echo === 3. each pool ===
+party
+consume potion_health_minor 0
+consume potion_health_greater 0
+; Stamina spent by marching (every step bills stamina_step), mana by casting
+; with the runes learned and a trained hand so the casts do not fizzle.
+forward 6
+step 1
+party
+consume potion_stamina 0
+learn 2 fire
+learn 2 project
+setskill 2 fire 30
+cast 2 0 fire project
+step 1
+cast 2 0 fire project
+step 1
+cast 2 0 fire project
+party
+consume potion_mana_minor 2
+party
+
+echo === 4. the downed drink nothing ===
+; Brand emptied by over-exertion (pipeline.eval section 7's recipe), which by
+; design can down him but never kill him.
+heal
+tp 14 14
+face north
+spawn skel_warrior 14 13 south
+setskill 0 unarmed 12
+guard 2 0
+swing 0
+swing 0
+swing 0
+swing 0
+swing 0
+swing 0
+swing 0
+swing 0
+swing 0
+swing 0
+swing 0
+swing 0
+swing 0
+swing 0
+swing 0
+swing 0
+swing 0
+swing 0
+step 4
+party
+consume potion_health 0
+
+echo === 5. the ledger ===
+pipeline

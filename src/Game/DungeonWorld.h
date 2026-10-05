@@ -206,9 +206,32 @@ public:
 	// the CALLER's because creating one drains the GPU (gfx::Texture::
 	// RenderTarget), which must not happen while a frame is being recorded.
 	// LIFETIME: this only RECORDS the draw, so `mesh` must outlive the frame.
+	// The parts are drawn as given (the caller resolved their materials -
+	// PoolModelLook below).
 	void BakeIconFor(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
-					 const gfx::Mesh& mesh, const Vec3& lo, const Vec3& hi,
-					 const gfx::Texture& target);
+					 std::span<const gfx::PreviewSubmesh> parts, const Vec3& lo,
+					 const Vec3& hi, const gfx::Texture& target);
+	// A POOL model as the editor's asset picker shows it, preview and tile alike:
+	// every primitive (not just meshes[0]) with its own glTF material and
+	// embedded textures (the baked .dds sidecars, as the game loads them), node
+	// transforms baked in - the multi-material path the world draws bought
+	// models with - and, on any part with no image of its own, the texture set a
+	// catalog binds to it (`setStem`, a resolution-tagged path stem; "" = none),
+	// as the world draws a prop. Owns its GPU resources: a holder must let every
+	// frame that drew it finish before dropping it (the SRV rule).
+	struct PoolModelLook {
+		std::vector<std::shared_ptr<gfx::Texture>> textures;
+		std::vector<std::shared_ptr<gfx::Mesh>> meshes;
+		std::vector<gfx::PreviewSubmesh> parts; // point into the two above
+		Vec3 lo{}, hi{};                        // bounds of the baked geometry
+		bool rigged = false;                    // it carries a skeleton (a creature)
+	};
+	// Null when the file will not load. `thumbPx` > 0 loads the bound set's
+	// maps trimmed to that size (a tile), else at the stem's full resolution.
+	static std::unique_ptr<PoolModelLook> LoadPoolModelLook(gfx::GraphicsDevice& device,
+															const std::string& modelPath,
+															const std::string& setStem,
+															u32 thumbPx = 0);
 	// The baked icons for already-loaded kinds, or null (not loaded / not baked
 	// yet) — the map overlay then falls back to its square markers. These never
 	// force-load a model (browse markers may name unloaded types).
@@ -1004,10 +1027,27 @@ public:
 		// primitive for a multi-material rig. Consumers draw these (with the
 		// palette); mesh/material above remain the meshes[0] view.
 		std::vector<gfx::PreviewSubmesh> subs;
-		float modelScale = 1.0f;
+		// The model's size IN METRES (kUnit x modelscale), which is what the
+		// preview camera frames - the model itself is authored in units, so a
+		// bare modelscale drew a 1.9 m skeleton at 0.77 m. Capped so a big
+		// creature still fits the pane (MonsterPreviewFor).
+		float scale = 1.0f;
 		float modelYaw = 0.0f; // render-time facing fixup, so the preview matches in-world
+		Vec3 pivot{}; // the rig root's rest point (MonsterKind::rigRest): the preview's centre
+		// What a still preview plays: the kind's first Idle clip, else the
+		// model's first clip (which for the skeleton kit is a lie-on-the-floor
+		// spawn, so it must not be the default when an idle exists).
+		std::string idleClip;
 	};
 	MonsterPreviewData MonsterPreviewFor(const std::string& type); // force-loads the kind
+	// How far a ONE-SHOT clip (a death, a rise) may carry a monster's rig root
+	// sideways, in model units (a square at modelscale 1): every monster animator,
+	// and the previews of one, run with Animator::LockRootTravel(this). The
+	// skeleton kit's deaths travel up to 0.6, which laid a body half a square
+	// into a wall or the party's square. Its hips sit 0.34 below the crown and
+	// ~0.42 above the toes, so a body whose hips end within 0.08 of where the
+	// fall began lies inside its own square's 0.5 half-width either way round.
+	static constexpr float kMonsterRootReach = 0.08f;
 	// Whether a monster type's <model>.gltf exists (so the editor can guard the
 	// right-click force-load and warn instead of aborting on a missing asset).
 	bool MonsterModelAvailable(const std::string& type) const;
@@ -2091,6 +2131,21 @@ private:
 		// uniform visual scale about the model's foot. Both default to no-op.
 		float modelYaw = 0.0f;
 		float modelScale = 1.0f;
+		// The rig's ROOT joint (-1 = no skeleton) and where it stands at rest, in
+		// model units. A model is drawn CENTRED on that joint's rest XZ (see
+		// MonsterModelWorld), because a bought Mixamo rig need not be centred on
+		// its file's origin: the four skeleton-kit models stand ~(0.34, 0.43) off
+		// it, so they were drawn half a unit beside their own square - and turned
+		// round it with the facing - while everything placed AT the monster (its
+		// burn plume and glow, hits, lanes) stayed on the square. The baker rigs
+		// and the bought creatures root on the origin already, so for them this
+		// is a no-op. The plume also rides the root joint's LIVE pose
+		// (BurnOrigin), so it follows the body through a lunge or a fall.
+		// What a clip may do to that joint horizontally is held down by the
+		// Animator (LockRootTravel, kMonsterRootReach), so the root stays within
+		// a lurch of its rest and the two above stay true while it walks.
+		int rigRoot = -1;
+		Vec3 rigRest{};
 		// Sub-cell occupancy (monsters.cat `size=`, default large). Decides the
 		// monster's footprint + how many share a cell — see Game/SlotGrid.h.
 		SizeClass size = SizeClass::Large;
@@ -2325,6 +2380,18 @@ private:
 		// 0/0 means it feeds nobody, which is how a consume is refused.
 		float nutrition = 0.0f;
 		float hydration = 0.0f;
+		// A POTION (transparency Phase 4): what drinking it restores at once
+		// (items.cat `restore_health` / `restore_stamina` / `restore_mana`), and
+		// the effects it treats (`cures = poison 0.5, bleed`): a share of each
+		// one's bite taken away, 1 (the default) lifting it outright. Parsed at
+		// load, so a drink allocates nothing.
+		float restoreHealth = 0.0f, restoreStamina = 0.0f, restoreMana = 0.0f;
+		struct Cure {
+			std::string effect; // effects.cat id
+			float share = 1.0f; // of its magnitude removed; >= 1 removes it
+		};
+		std::vector<Cure> cures;
+		bool drinks = false; // `command` lists drink: the log says "drinks"
 		// What a consume leaves in the hand (items.cat `drink_as`): a waterskin
 		// drunk from steps down a fill level instead of being used up. Empty =
 		// the item is gone (bread is eaten).
@@ -2412,6 +2479,9 @@ private:
 		DamageType throwBlastType{}; // what its blast deals (blast_type / the spell's school)
 		bool throwBreaks = false;
 		bool isRune = false;
+		// items.cat `upright`: it STANDS on the floor as authored (a bottle) and
+		// its icon stands too, instead of being laid along its length.
+		bool upright = false;
 		// Uniform size trim (items.cat `scale`) over the model's authored unit
 		// size — the DecorationKind knob, for floor/niche draws. 1 = as authored.
 		float modelScale = 1.0f;
@@ -2680,6 +2750,7 @@ private:
 		bool authored = false;     // imported model: consistently wound -> back-cull
 		bool solidDefault = true;  // floor-standing blocks the party (passages don't)
 		float alphaCutoff = 0.0f;  // > 0: alpha-test cutout (masked set, e.g. a gate)
+		bool transparent = false;  // decorations.cat `transparent`: drawn as glass
 		// Whether the editor map draws the green facing arrow on instances of
 		// this type (catalog `facing_arrow`, default 1). Radially symmetric
 		// props — columns, pots, boulders — turn it off; the inspector's
@@ -2878,6 +2949,9 @@ private:
 	// Lazily loads (and caches) the shared behaviour for an item type, resolved
 	// through the items catalog (category=rune → symbol + element glow colour).
 	ItemKind& ItemKindFor(const std::string& type);
+	// items.cat `liquid_color`: generates the liquid inside the kind's glass and
+	// appends it to its model as one more part (DungeonWorld_Load.cpp).
+	void AddLiquid(ItemKind& kind, const CatalogEntry& def, const std::string& modelFile);
 	// Lays a RUNTIME drop (negative id) on the floor: into the slot of a
 	// runtime drop that was picked back up (it is dead - the save skips it)
 	// when there is one, else onto the end. With ReserveDropRoom's headroom, a
@@ -2897,7 +2971,7 @@ private:
 	// target; the bake list redirects the OM.
 	void BakeIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
 				  const MultiMaterialModel& model, const gfx::Texture& target,
-				  bool animated, float spin, bool torch = false);
+				  bool animated, float spin, bool torch = false, bool upright = false);
 	// The carved tablet's material for a HELD view (icon, details dialog):
 	// the rune's set, darker stone, the groove glowing in its school's colour.
 	void RuneTabletMaterial(gfx::MaterialParams& mat, const ItemKind& kind) const;
@@ -3370,13 +3444,27 @@ private:
 	// (they are nearly always one, and threat is a coarse signal — the point
 	// is that a hit-and-run torch keeps the grudge alive).
 	static int DotSource(const std::vector<fx::Inst>& effects);
-	// Where a burning body's flames rise from (torso height above visualPos):
-	// the per-frame plume origin and the glow agree because both ask here.
+	// Where a burning body's flames rise from (torso height above visualPos,
+	// moved with the rig's root joint as the body animates): the per-frame
+	// plume origin and the glow agree because both ask here.
 	static Vec3 BurnOrigin(const Monster& monster);
+	// A monster's model space -> world: centred on its rig root (MonsterKind::
+	// rigRest), scaled, faced, stood on visualPos. The ONE statement of where a
+	// monster's model is, for the draw and for anything attached to the body.
+	static Mat4 MonsterModelWorld(const Monster& monster);
 	// How the flames READ per school — the FireEffect palette is authored
 	// orange, so fire burns untinted and the other three recolour it (a water
 	// burn is the freezing kind: the plume runs cold blue).
 	static Vec3 BurnTint(SpellSymbol school);
+	// The same for one burn: its OWN colour when it carries one (fx::Inst::tint,
+	// a magical torch's flame), else its school's. BurnTintFor is the plume's
+	// multiplier, BurnGlow the light's colour - the plume and its light ask
+	// these, so a blue torch's burn is blue in both.
+	static Vec3 BurnTintFor(const fx::Inst& burning);
+	static Vec3 BurnGlow(const fx::Inst& burning);
+	// The colour a held item lends what it sets alight (a LIT item's
+	// `flame_color`), or null for an ordinary one.
+	static const Vec3* FlameTintOf(const ItemKind& kind);
 	// The effect making this monster visibly burn (the first whose kind sets
 	// effects.cat `plume`), or null. The plume and its light both read it, so
 	// what is drawn always follows what is actually on the monster.
@@ -3904,10 +3992,11 @@ private:
 	// One kind's head-shot bake: rest-pose mesh, framed on the model's top.
 	void BakeMonsterIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
 						 const MonsterKind& kind);
-	// A static mesh baked whole (fit by its bounds): decorations, fixtures.
+	// A static model baked whole (fit by its bounds): decorations, fixtures, the
+	// asset picker's tiles. One part for a plain mesh, one per primitive else.
 	void BakeMeshIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
-					  const gfx::Mesh& mesh, const gfx::MaterialParams& material,
-					  const Vec3& lo, const Vec3& hi, const gfx::Texture& target);
+					  std::span<const gfx::PreviewSubmesh> parts, const Vec3& lo,
+					  const Vec3& hi, const gfx::Texture& target);
 	std::vector<Item> m_items;
 	std::vector<Button> m_buttons; // .ent buttons (toggle wired doors by name)
 	std::vector<Door> m_doors;     // .ent doors (live open/anim state)

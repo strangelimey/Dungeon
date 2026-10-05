@@ -626,6 +626,11 @@ void GameUI::EatSlot(size_t i, ItemSlot& slot) {
 	// seam, like SpendStamina's creep.
 	const resource::Refill got =
 		onConsume ? onConsume(i, slot.typeId) : resource::Refill{};
+	if (got.downed) {
+		// Unconscious: nothing is swallowed and the item stays where it was.
+		AddLogLine(loc::FormatLine("log.consume_downed", c.name), c.portraitColor);
+		return;
+	}
 	if (!got.Any()) {
 		// It fed nobody — either the item has no nutrition at all, or this
 		// member is already full. Refuse rather than silently eating it: losing
@@ -645,7 +650,8 @@ void GameUI::EatSlot(size_t i, ItemSlot& slot) {
 	else
 		slot.Clear();
 	Click();
-	AddLogLine(loc::FormatLine("log.eat", c.name, foodName), c.portraitColor);
+	AddLogLine(loc::FormatLine(got.drink ? "log.drink" : "log.eat", c.name, foodName),
+			   c.portraitColor);
 	RefreshSheet(); // the supply bars / carry load may be on screen
 }
 

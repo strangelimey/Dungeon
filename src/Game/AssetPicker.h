@@ -28,6 +28,7 @@
 #include "Assets/Model.h"
 #include "Game/AssetUtil.h"
 #include "Game/DialogLayout.h" // PreviewPane, the card chrome
+#include "Game/DungeonWorld.h"  // PoolModelLook, kIconSize
 #include "Game/ThumbCache.h"
 #include "Graphics/GraphicsDevice.h"
 #include "Graphics/Mesh.h"
@@ -37,8 +38,10 @@
 #include "UI/Font.h"
 #include "UI/UIContext.h"
 
+#include <algorithm>
 #include <functional>
 #include <memory>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -77,12 +80,28 @@ public:
 	// preview into PreviewRect afterwards, as it does for AssetDialog.
 	void Render(gfx::SpriteBatch& batch, float width, float height);
 
-	// --- the shared 3D preview seam (AssetDialog's, verbatim) ----------------
-	bool HasPreview() const { return m_previewMesh != nullptr; }
-	const gfx::Mesh& PreviewMesh() const { return *m_previewMesh; }
-	const gfx::MaterialParams& PreviewMaterial() const { return m_material; }
+	// --- the shared 3D preview seam -------------------------------------------
+	// Every part of the selection: the wall block wearing a texture set, or a
+	// model's every primitive with its own materials (DungeonWorld::
+	// LoadPoolModelLook). A model is FITTED to the pane (PreviewFit): the pool
+	// runs from a dagger to a staircase, and no single grounded scale suits both.
+	bool HasPreview() const { return !m_previewParts.empty(); }
+	std::span<const gfx::PreviewSubmesh> PreviewParts() const { return m_previewParts; }
 	float Orbit() const { return m_orbit; }
+	// The bounds the preview is fitted on: the model's, or the wall block's for a
+	// texture set (null until something is previewed).
+	const Vec3* PreviewFitMin() const { return HasPreview() ? &m_fitLo : nullptr; }
+	const Vec3* PreviewFitMax() const { return HasPreview() ? &m_fitHi : nullptr; }
+	// Whether the fitted model STANDS (turns upright on a turntable) or lies flat
+	// - a blade, a grate - and so tumbles, as the item preview does, rather than
+	// spend most of its turn edge-on. A rigged model always stands: a creature
+	// is long and low (the spider) but is not something to roll over.
+	bool PreviewStands() const { return m_stands; }
 	gfx::Rect PreviewRect(float width, float height) const;
+	// Which texture set a catalog draws a model with (the owner searches its
+	// catalogs; "" = none bound). The preview and tiles put it on the parts the
+	// model does not texture itself, as the world does.
+	std::function<std::string(const std::string&)> textureFor;
 
 	// The Choose button (and a double-click on a tile): the picked name.
 	std::function<void(const std::string&)> onChoose;
@@ -100,7 +119,7 @@ public:
 	// same frame). The owner's icon pass then records the draw and marks it done.
 	struct PendingBake {
 		std::string name;
-		const gfx::Mesh* mesh = nullptr;
+		std::span<const gfx::PreviewSubmesh> parts;
 		gfx::Texture* target = nullptr;
 		Vec3 lo, hi; // model bounds, for the whole-model fit
 	};
@@ -134,20 +153,26 @@ private:
 	};
 
 	// A tile's image (ThumbCache keeps when it was last seen and whether it was
-	// tried). A model tile also holds the mesh its icon was baked from — the bake
-	// only RECORDS a draw, so the mesh must outlive the frame, and both die
-	// together.
+	// tried). A model tile also holds the model its icon is baked from - the bake
+	// only RECORDS a draw, so it must outlive the frame - but only that long: its
+	// meshes and textures (a bought rig carries six 2k maps) are dropped once the
+	// frames that drew it are done, so a screenful of tiles never sits in VRAM or
+	// on the SRV heap. Only the 256 px image stays.
 	struct Thumb {
 		std::unique_ptr<gfx::Texture> texture;
-		std::unique_ptr<gfx::Mesh> mesh; // models only: kept alive for the bake
-		Vec3 lo{}, hi{};                 // models only: bounds for the fit
-		bool needsBake = false;          // target + mesh ready, draw not recorded
+		std::unique_ptr<DungeonWorld::PoolModelLook> look; // models: the bake's source
+		bool needsBake = false; // target + model ready, draw not recorded
+		u64 bakedAt = 0;        // ThumbCache frame the draw was recorded on
 	};
 
-	// Readies up to `max` model tiles for baking: loads the mesh, measures it and
-	// creates the icon target. Called from Update — never while a frame is being
+	// Readies up to `max` model tiles for baking: loads the model, its materials
+	// and bound set, and creates the icon target; and drops the sources of bakes
+	// the GPU has finished. Called from Update - never while a frame is being
 	// recorded (see PendingBake).
 	void PrepareModelIcons(size_t max);
+	// The path stem of the set a model is drawn with, at its smallest installed
+	// resolution ("" = none bound, or not installed).
+	std::string SetStemFor(const std::string& modelName) const;
 
 	void Rebuild();          // (re)builds the whole widget tree
 	// Refills the grid's rows from m_shown. Separate from Rebuild because the
@@ -227,10 +252,18 @@ private:
 
 	// Preview resources (the AssetDialog pattern: the dialog owns them, the
 	// owner renders them into its RT and blits).
+	// A texture set: the wall block + the set's three maps.
 	assets::ModelData m_previewModel;
 	std::unique_ptr<gfx::Mesh> m_previewMesh;
 	std::unique_ptr<gfx::Texture> m_previewAlbedo, m_previewNormal, m_previewMr;
-	gfx::MaterialParams m_material;
+	// A model: all of it.
+	std::unique_ptr<DungeonWorld::PoolModelLook> m_previewLook;
+	std::vector<gfx::PreviewSubmesh> m_previewParts; // what the owner draws
+	Vec3 m_fitLo{}, m_fitHi{}; // the fit's bounds (PreviewFitMin / Max)
+	bool m_stands = true;      // PreviewStands
+	// Installed texture sets by name -> resolution bits, for SetStemFor (read
+	// once per Open in model mode; the directory walk is not per tile).
+	std::unordered_map<std::string, u32> m_setRes;
 	float m_orbit = 0.0f;
 };
 

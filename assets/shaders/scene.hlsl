@@ -60,6 +60,12 @@ cbuffer ObjectConstants : register(b1) {
 	// Additive emissive radiance (rgb), added after shading — a self-lit glow
 	// independent of scene lights (the runes pulse in their element colour).
 	float4 gEmissive;
+	// 1 = glass (MaterialParams::transparent): drawn by the blended PSOs, so
+	// the output is PREMULTIPLIED - see GlassOutput.
+	uint gTransparent; // 2 = a LIQUID: glass, clipped at gLiquidPlane
+	uint3 _pad1;
+	// The liquid's level, world space: n.xyz, w = d; n.p + d > 0 is above it.
+	float4 gLiquidPlane;
 };
 
 cbuffer SkinConstants : register(b2) {
@@ -410,9 +416,75 @@ float3 AcesTonemap(float3 x) {
 	return saturate((x * (a * x + b)) / (x * (c * x + d) + e));
 }
 
-float4 PSMain(PSInput input) : SV_TARGET {
+// Glass. Drawn by PSGlass through DUAL-SOURCE blending:
+//   result = ADDED + behind x FILTER        (per channel)
+// Glass does not paint a colour over what is behind it, it FILTERS it - so the
+// background is multiplied by the glass's tint, channel by channel, and the
+// glass itself only ADDS light: its specular reflection, a little scatter and a
+// sheen at grazing angles. An ordinary alpha blend can only cover the
+// background and paint the glass's own lit colour over it, which read as milky
+// (Michael: "a ghost"); a red potion needs the filter to come out red.
+//
+// The material: baseColor/albedo RGB = the TINT (white = clear), alpha = its
+// DENSITY (how strongly it filters and scatters; a thin pane ~0.1, a potion
+// near 1).
+//
+// THE GRAZING EDGE stays as clear as the face. Real glass turns to a mirror
+// there (Fresnel), but with no picture of the room to put in the mirror the rim
+// has to be filled with something invented, and every fill tried (the dark
+// body, then the light arriving) drew an outline. So the edge gains only a
+// faint additive SHEEN of the light arriving there (the body's brightness over
+// the albedo's): a torch-lit rim glints, a dark one stays clear.
+//
+// The specular is the same Shade with a black albedo (F0 stays 0.04 for a
+// dielectric): a second light loop, paid on glass pixels only, which keeps the
+// loop itself untouched.
+static const float kRimSheen = 0.15;  // the edge's sheen
+// How much of the lit tint a FULLY dense glass adds. Scaled by density SQUARED,
+// so a thin clear pane (0.1) adds almost nothing - linear, it laid a milky veil
+// over the room - while a potion (0.9) keeps its body.
+static const float kGlassScatter = 0.5;
+
+float3 GlassOutput(float3 lit, float3 albedo, float density, float metallic,
+				   float roughness, float ao, float3 normal, float3 worldPos,
+				   uint2 lights, out float3 filter) {
+	const float3 spec = Shade(0.0, metallic, roughness, ao, normal, worldPos, lights);
+	const float3 body = max(lit - spec, 0.0);
+	const float3 V = normalize(gCameraPos.xyz - worldPos);
+	const float NdotV = saturate(dot(normal, V));
+	const float fresnel = pow(1.0 - NdotV, 5.0);
+	const float3 kLum = float3(0.2126, 0.7152, 0.0722);
+	const float arriving = dot(body, kLum) / max(dot(albedo, kLum), 0.05);
+	density = saturate(density);
+	filter = lerp(1.0, saturate(albedo), density);
+	const float3 added =
+		body * (density * density * kGlassScatter) + arriving * fresnel * kRimSheen + spec;
+	// Dust: what the glass adds is dimmed by the air in front of it like anything
+	// else, but the haze between it and the eye is already in what lies BEHIND it
+	// (that march covered the same stretch) and passes the filter with it - so
+	// this layer adds only the share of the in-scatter its filter takes away, or
+	// the haze would count twice.
+	const float3 inscatter = ApplyDust(0.0, worldPos, lights);
+	return ApplyDust(added, worldPos, lights) - filter * inscatter;
+}
+
+// The whole surface shader, shared by both entry points below. `filter` is
+// what glass multiplies the background by (white = passes all); opaque draws
+// leave it white and PSMain ignores it.
+float4 ShadeSurface(PSInput input, out float3 filter) {
+	filter = 1.0;
 	float2 uv = input.uv;
 	float3 normal = normalize(input.normal);
+	// A liquid stops at its level (Game/Liquid.h): the shell runs up to the lip,
+	// and the plane cuts it where the item's fill says.
+	if (gTransparent == 2 && dot(gLiquidPlane.xyz, input.worldPos) + gLiquidPlane.w > 0.0)
+		clip(-1.0);
+	// Glass draws its far wall too (FlushTransparent's front-culled pass); that
+	// wall faces away from the eye, and is lit as the inside it is. A LIQUID's
+	// back face is what shows through the open cut, so it is lit as the flat
+	// surface standing in that cut - the level's own up.
+	if (gTransparent != 0 && dot(normal, gCameraPos.xyz - input.worldPos) < 0.0)
+		normal = gTransparent == 2 ? gLiquidPlane.xyz : -normal;
 
 	if (gUseNormalMap != 0) {
 		const float3x3 tbn = CotangentFrame(normal, input.worldPos, uv);
@@ -468,7 +540,11 @@ float4 PSMain(PSInput input) : SV_TARGET {
 		const float rim = pow(1.0 - saturate(dot(normal, viewDir)), 2.5);
 		color += gEmissive.rgb * (0.30 + 0.70 * rim);
 	}
-	color = ApplyDust(color, input.worldPos, lights);
+	if (gTransparent != 0)
+		color = GlassOutput(color, albedo.rgb, albedo.a, metallic, roughness, ao, normal,
+							input.worldPos, lights, filter);
+	else
+		color = ApplyDust(color, input.worldPos, lights);
 
 	// See-through peek (the Sight spell): a round HOLE bored through the middle
 	// of the wall block directly ahead — not the whole face. Inside the hole the
@@ -509,5 +585,28 @@ float4 PSMain(PSInput input) : SV_TARGET {
 		color = AcesTonemap(color);
 		color = pow(color, 1.0 / 2.2);
 	}
-	return float4(color, albedo.a);
+	// Glass: alpha is its coverage, how much of what is behind it is filtered
+	// away (an icon bake's transparent background keeps that much).
+	const float alpha = gTransparent != 0 ? 1.0 - dot(filter, 1.0 / 3.0) : albedo.a;
+	return float4(color, alpha);
+}
+
+float4 PSMain(PSInput input) : SV_TARGET {
+	float3 filter;
+	return ShadeSurface(input, filter);
+}
+
+// The transparent PSOs' entry: dual-source blending, result = SV_Target0 +
+// behind x SV_Target1 (see GlassOutput).
+struct GlassTargets {
+	float4 added : SV_Target0;
+	float4 filter : SV_Target1;
+};
+
+GlassTargets PSGlass(PSInput input) {
+	GlassTargets o;
+	float3 filter;
+	o.added = ShadeSurface(input, filter);
+	o.filter = float4(filter, 1.0 - o.added.a);
+	return o;
 }

@@ -96,6 +96,10 @@ struct ProjectilePayload {
 	// is what a monster's plain shot does (a creature lends no element, exactly as
 	// its melee doesn't). The same rule as an enchanted weapon's `element`.
 	std::optional<SpellSymbol> flavour;
+	// A colour of its own for what it sets alight (fx::Inst::tint): a thrown
+	// magical torch burns blue where it lands its burn. Unset = the school's.
+	std::optional<Vec3> tint;
+	const Vec3* Tint() const { return tint ? &*tint : nullptr; }
 
 	bool Empty() const { return count == 0; }
 	std::span<const fx::Proc> Procs() const { return {procs.data(), count}; }
@@ -300,9 +304,13 @@ public:
 	// rising a little, swelling as they fade over `life` seconds. Fire is a
 	// short bright flare, gas a slow lingering cloud. `jitter` is how far (m)
 	// the motes start scattered round `pos`: a square-filling blast wants most
-	// of the square, a puff in the caster's hand a small knot.
+	// of the square, a puff in the caster's hand a small knot. `drift` (m/s) is
+	// added to every mote's velocity: a gust carries its puff away with it.
+	// `swirl` (rad/s) turns each mote's path about the vertical, half of them
+	// one way and half the other, at between half and all of that rate, so a
+	// drifting puff curls out sideways as it goes.
 	void Puff(const Vec3& pos, const Vec4& color, int count, float spread, float life,
-			  float size, float jitter = 0.6f);
+			  float size, float jitter = 0.6f, const Vec3& drift = {}, float swirl = 0.0f);
 	// A SPLASH at `pos`: `count` droplets thrown up and out at about `speed`
 	// m/s, leaning along `dir`, that fall back under gravity and stay their size
 	// (no swell) - what water does, where a Puff is what smoke and flame do.

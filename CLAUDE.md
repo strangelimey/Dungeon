@@ -198,7 +198,14 @@ Key conventions (memorize, they bite):
   feet; Gust flares a fire and past `push_power` shoves a monster and REPELS a
   shot (weakened by the power, flung back if the power beats it); Splash fills
   a held skin a step / douses the wall torch / a brazier past its power. Every
-  threshold reads CAST POWER. TIER 2 Project = single-target bolts (`firebolt`
+  threshold reads CAST POWER. Every hand spell is SEEN on every cast, whatever
+  it found to act on: the `handPuff` cast service (DungeonWorld::HandPuff,
+  DungeonWorld_Ahead.cpp) draws its element just ahead of the caster's lane -
+  a flame puff, a dust cloud dropping grit, a breath of air that drifts away
+  down the facing and swirls apart (Puff's `drift` / `swirl`), a splash of
+  droplets that fall (ProjectileSystem::Splash) - plus a brief shadowless
+  glow from a fixed 4-slot `m_handGlows` (a cast is a guarded frame). Dev:
+  `castsvc puff [school]`. TIER 2 Project = single-target bolts (`firebolt`
   `earthbolt` `waterbolt` `airbolt`; were fireburst/slingshot/push). TIER 3 is
   ONE class, `ModifiedSpell`, which AllSpells wraps round every Bolt, Ward and
   Light spell (the lights' pair: see THE LIGHT FORM below): Ingwaz = a volley (each bolt weaker, the caster's own lane, a fixed
@@ -262,7 +269,11 @@ Key conventions (memorize, they bite):
   a LIT one is `element = fire`, so its fire scales with tier and skill, plus
   an `on_hit` burn. A MAGICAL torch (`torch_magic`) adds `power_level` (burn_time
   x (1 + level), folded in at load) and `flame_color` (its light AND the drawn
-  flame: icon, details dialog; ItemKind::flameColor, DrawFlame's tint). A wall
+  flame: icon, details dialog; ItemKind::flameColor, DrawFlame's tint) - and
+  what it SETS ALIGHT burns that colour too: fx::Inst carries an optional
+  `tint` (ApplyProcs' last arg; FlameTintOf on a swing, the payload's `tint` on
+  a throw), which BurnTintFor / BurnGlow read before the school's, and the
+  enteffect / brkeffect lines save as an 8th token. A wall
   BRACKET REMEMBERS its torch: `WallSconce::torch` (unlit id, "" = the fixture's
   own) + `torchCharge`, set by MountTorchAt, read by TakeTorchAt, reset with the
   flips, saved as 6th/7th tokens of the `fire` line. A SMASHED bracket drops
@@ -383,7 +394,8 @@ Key conventions (memorize, they bite):
   water heavier than food (sweat). Eating is `nutrition`/`hydration` on any
   items.cat entry, and `eat`/`drink` are ONE handler because an apple does both;
   `GameUI::onConsume` → `DungeonWorld::ConsumeItem`, which refuses (keeping the
-  item) when it would restore nothing. AN EMPTY METER KILLS: `starving`/`parched`
+  item) when it would restore nothing (POTIONS go through the same handler -
+  see "Transparency and potions"). AN EMPTY METER KILLS: `starving`/`parched`
   are ordinary DoT effects dealing a `starve` damage type nothing resists, so a
   Tick on a downed member is lethal under the existing overkill rule and NO new
   death path exists. **The effect is the METER'S SHADOW** — `TickSupplies` tops
@@ -530,12 +542,12 @@ Key conventions (memorize, they bite):
   reach a BASELINE, anything allowed to move it declares itself through a
   `ledger::Explained` scope naming a `Reason`, and four checkpoints a frame
   demand the arithmetic come out — a leftover is a write that went around
-  `fx::Deal`. FIVE sanctioned reasons: `pipeline` (the adapters), `exertion`
+  `fx::Deal`. SIX sanctioned reasons: `pipeline` (the adapters), `exertion`
   (over-exertion's health half, a DECLARED exception — not resisted, soaked or
   warded, because collapsing under your own effort is not something armour
   turns), `regen`, `growth` (a stat or resource-practice level raises a ceiling
   and carries the current value up — this one fires MID-FIGHT, and the check
-  found it), `stabilize`. Wholesale replacement (load / respawn / `heal`)
+  found it), `stabilize`, `drink` (a potion). Wholesale replacement (load / respawn / `heal`)
   REBASES instead of crediting, which is why there is deliberately no `setup`
   reason. IT IS A RUNTIME CHECK BECAUSE A GREP CANNOT WORK: regeneration writes
   health through a lambda taking `float&`, so the identifier never appears on
@@ -613,6 +625,10 @@ plan). The camera updates BEFORE the lights each frame for the cull. Shadow
 cubes cache by light id, not list index. Dev: `lights [profiles|reload]`,
 `lightstress <n> [near]`, `lighttiles on|off`; checked by RollTest (a light is
 never missing from a tile it reaches) and `AllocTest -Lights`.
+TRANSPARENCY (glass and the liquid in it) is a QUEUED pass: a draw whose
+material is `transparent` is not issued but queued, sorted far to near and
+FLUSHED at the end of the pass - see "Transparency and potions" below for the
+rules, which bite.
 
 Per-frame efficiency (DungeonWorld + Renderer): surface geometry is split
 into spatial chunks (DungeonMeshBuilder GeometryChunk, kChunkCells=4, each
@@ -771,7 +787,26 @@ buffer, reused across all ~25 submissions).
   constant 2.000 and five bought skeletons baked in metre space, 4.8 m tall in a
   2.5 m room. Any whole-scene measurement in a Blender tool needs the scene
   purged BY HAND first (read_factory_settings clears the startup file, not an
-  importer's leftovers).
+  importer's leftovers). The bake grounds but does NOT centre XZ: the four
+  skeleton-kit rigs rest ~(0.34, 0.43) units off their origin. The GAME centres
+  every monster model on its rig root's rest XZ at draw time
+  (`DungeonWorld::MonsterModelWorld`, `MonsterKind::rigRest`; a load logs any
+  rig resting > 0.05 off), and a burn plume rides that root joint's live pose
+  (`BurnOrigin`) - so a new draw of a monster model goes through that helper.
+  The editor previews take the same point as `gfx::ModelPreview::Render`'s
+  `pivot` (`SkeletonData::RootRest` is the one statement of it), and a monster
+  preview draws in METRES (`MonsterPreviewData::scale` = kUnit x modelscale,
+  capped to fit the pane) - the preview camera frames metres, models are units.
+  The kit's clips also carry ROOT MOTION (a walk moves the hips ~0.77 units a
+  cycle, a run ~1.3, a death up to 0.6), which slid a walking skeleton ahead of
+  its square and snapped it back every loop. The bake keeps it; the PLAYER
+  removes it: `Animator::LockRootTravel` (every monster animator and both
+  editor previews) subtracts a LOOP's straight-line drift so the cycle closes
+  with its sway intact, and scales a ONE-SHOT's travel so the root ends within
+  `DungeonWorld::kMonsterRootReach` (0.08) of where it began - a body still
+  falls the way it falls, inside its own square. Height is never touched. A new
+  Animator for a monster must call it. Measured by the `rootmotion` eval suite
+  (`monsters` prints each one's clip and `root` stray).
   Paste the emitted rows into the creature's monsters.cat [id] — or just check
   the boxes in the editor's monster config dialog (it auto-discovers the model's
   clips). Humanoid Mixamo defaults (mesh +90 yaw to co-face the armature, finger
@@ -1612,6 +1647,16 @@ hard way: create the render target in UPDATE, never mid-recording (gfx::Texture:
 RenderTarget drains the GPU), and REBIND THE BACK BUFFER after baking or the 2D
 pass draws itself into the last icon at its 256px viewport. Tiles evict
 least-recently-seen past a cap (drain before freeing — the SRV rule).
+A model tile and the preview show the model AS THE WORLD DRAWS IT, through ONE
+loader, `DungeonWorld::LoadPoolModelLook`: every primitive with its own glTF
+material and embedded maps (the baked .dds sidecars), and the texture set a
+catalog binds to it (`AssetPicker::textureFor`, the ModelAndTexture rule) - on a
+single-primitive .gltf the set WINS (the world's single-mesh path), elsewhere it
+only fills an untextured part. A tile drops that model's meshes and textures
+kFrameCount Ticks after its bake (`Thumb::bakedAt`), keeping only the 256 px
+image, so browsing never parks a rig's maps on the SRV heap. The preview is
+FITTED to the pane (a dagger to a staircase); a flat model tumbles, a standing or
+rigged one turns upright (`PreviewStands`).
 RIGHT-CLICKING a palette row opens the per-TYPE catalog editor
 (TypeEditorDialog) for EVERY category — one dialog, because it renders its form
 from a SCHEMA: Game/CatalogSchema.h is a FieldSpec table per catalog (key, kind,
@@ -2558,6 +2603,77 @@ Judged by `tools\EditorTest.py` (phase 12 onward).
   editor's input check now comes before the Balance dialog's in Game::Update,
   and `m_typeOverBalance` rebuilds the tab when it closes).
 
+## Transparency and potions (transparency branch; docs/transparency-plan.md)
+
+Started from bought glass bottles the renderer could not draw. Michael's notes
+and answers: docs/transparency-notes.md; each phase's AS BUILT is in the plan.
+- THE QUEUE (Renderer): `MaterialParams::transparent` makes DrawMesh QUEUE the
+  draw (`QueuedDraw`, a fixed 256 reserved at startup - a full queue drops and
+  counts, it never grows) instead of issuing it; the shadow pass skips glass.
+  `FlushTransparent` sorts by squared distance (`std::sort` with an index tie
+  break - `stable_sort` may allocate) and draws far to near PER OBJECT: every
+  far wall (front faces culled), then its liquid both ways, then every near
+  wall. A pass that can draw glass MUST flush at its end: RenderScene (before
+  the particles), EndItemIconBake, BakeMeshIcon, BakeMonsterIcon, ModelPreview.
+  A draw left over is dropped at BeginScene with one warning - that warning
+  means a new pass forgot its flush. A skinned draw's palette is uploaded at
+  QUEUE time (the animator's buffer may move on). Dev: `glass [status]`.
+- GLASS FILTERS, IT DOES NOT PAINT (Michael judged three rounds). `PSGlass` uses
+  DUAL-SOURCE blending (`SRC1_COLOR`): result = added + behind x filter, per
+  channel. Material RGB is the TINT (white = clear), alpha the DENSITY; filter =
+  lerp(1, tint, density); added = body x density^2 x kGlassScatter + arriving x
+  fresnel x kRimSheen + specular. OPACITY IS FLAT at every angle: any Fresnel
+  rim that raises opacity reads as an OUTLINE whatever fills it (a dark body
+  drew black edges, a light estimate "a ghost"). Specular is a second `Shade`
+  with a black albedo, so the light loop itself is untouched. A glTF material
+  with `alphaMode BLEND` loads as transparent (`MaterialData::blend`); a
+  catalog `transparent = 1` (decorations and items) forces it.
+- THE LIQUID is GENERATED (`Game/Liquid.h`, pure): the glass mesh's INNER-WALL
+  triangles (radial normal pointing in, or a floor), inset into the cavity and
+  turned outward. The fill level is a WORLD-space clip plane built from the
+  world matrix's Y row; a back face
+  seen through the cut is lit with the plane's normal, which is what makes the
+  cut read as a surface. Object constants carry `transparent` (0 opaque, 1
+  glass, 2 liquid) and `liquidPlane`. items.cat: `liquid_color = r, g, b
+  [, density]` (density 0.85 if absent), `liquid_fill` (default 0.6). Filled
+  glass is forced CLEAR (density / roughness 0.08) so the colour is the
+  liquid's. COLOUR RULE he steered to: a DARK tint at density 0.95 - a light
+  tint lets the white behind through and the tonemap lifts it to pastel (the
+  health potion read PINK).
+- THE BOTTLES are script-built, `tools/BuildPotion.py` -> assets/models/
+  potion_vial / potion_bottle / potion_flask.glb (committed by .gitignore
+  exceptions): profile-lofted closed sections, the cork sized to the neck, the
+  glTF's alpha settings patched after export and verified. 1.5x real size (true
+  size vanished on the floor); EMPTY glass is FROSTED (density 0.25, roughness
+  0.35). `--tint/--density/--roughness` override. items.cat `upright = 1`
+  stands an item on the floor as authored (the flat-item rule laid bottles on
+  their side) and frames its icon unstretched.
+- DRINKING: items.cat `restore_health / _stamina / _mana` and `cures = poison
+  0.5, bleed` (a share scales the effect's magnitude by 1 - share; a whole
+  share, or a magnitude near zero, lifts it). One `eat`/`drink` handler,
+  `ConsumeItem`; the bottle becomes its `drink_as` empty. A DOWNED member
+  cannot drink (Michael: revival is for later spells and items) - `got.downed`,
+  `log.consume_downed`. Health from a potion moves under the ledger reason
+  `drink` (SIX sanctioned reasons now), and PipelineTest demands that route
+  move. The details dialog shows the restores and cures. Potions: health /
+  stamina / mana / antidote, each minor (vial) / standard (bottle) / greater
+  (flask); they sit in `start_items`, crypt1 / crypt2 and the generator's loot
+  (`loot = 0` keeps the empty containers out of it).
+- BOMBS: `fire_flask` / `poison_flask` with `_small` and `_large` beside them.
+  items.cat `throw_scale` scales whatever the throw delivers - blast damage and
+  linger, `blast_force` (rounded, never below 1 square) and on-hit magnitudes -
+  applied AFTER a borrowed `throw_spell` payload, which is the case it exists
+  for. No shatter effect (Michael: the blast is enough).
+- CHECKED: `AllocTest.ps1 -Glass` (a potion in view, queued every armed frame;
+  refuses a PASS with fewer glass frames than armed ones; mutation-checked both
+  ways), PipelineTest's `drink` route (pipeline.eval section 10), and the eval
+  scripts tools/EvalScripts/potions.eval and bombs.eval (a measurement of the
+  three sizes, not a pass/fail). NOT covered: a drink from the pack inside an
+  armed frame, and a glass bomb in flight (-Throw throws a rock).
+- OVERLAP: the `lighting-updates` branch rewrites scene.hlsl's light loop; the
+  glass code sits OUTSIDE the loop on purpose (GlassOutput, ShadeSurface), so a
+  merge should only need the loop's own conflicts resolved.
+
 ## Known gaps / natural next steps
 
 - REMINDER (Michael, 2026-10-03): crypt1.ent carries a TEMPORARY `item
@@ -2569,9 +2685,10 @@ Judged by `tools\EditorTest.py` (phase 12 onward).
   types/resists, stamina exertion, death/revive, DoTs, reach, quadrant
   lanes) but UNTUNED — every number is a first cut awaiting a balance pass
   (the editor's Balance dialog / balance.cat + attacks.cat). No polearm or
-  ranged weapon is authored yet (the reach/lane plumbing is ready); no
-  healing source exists beyond unconscious self-stabilize (potions and a
-  heal spell are queued in the magic backlog). Portraits are the bought sets
+  ranged weapon is authored yet (the reach/lane plumbing is ready). Healing
+  is regen, unconscious self-stabilize and the POTIONS (transparency branch);
+  nothing yet revives a downed member but time (a heal spell and reviving
+  items are queued). Portraits are the bought sets
   (see the asset pipeline); the tinted-initial fallback draws if an image is
   missing.
 - Monster models are still simple procedural rigs (tapered-tube limbs + a

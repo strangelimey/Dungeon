@@ -111,7 +111,8 @@ private:
 	};
 	enum RowId {
 		kCategory, kWeight, kDamage, kSpeed, kSkill, kReach, kElement,
-		kArmor, kArmorClass, kWorn, kResists, kNutrition, kHydration, kRowCount
+		kArmor, kArmorClass, kWorn, kResists, kNutrition, kHydration,
+		kRestoreHealth, kRestoreStamina, kRestoreMana, kCures, kRowCount
 	};
 	void SetRow(RowId id, std::string_view text);
 

@@ -98,7 +98,14 @@ public:
 	void ForEach(F&& f) const {
 		for (const auto& [key, e] : m_entries) f(key, e);
 	}
+	template <typename F>
+	void ForEach(F&& f) {
+		for (auto& [key, e] : m_entries) f(key, e);
+	}
 	size_t Size() const { return m_entries.size(); }
+	// The Tick count: a client that must hold something for a few frames (a
+	// bake's source, until the GPU has drawn it) dates it with this.
+	u64 Frame() const { return m_frame; }
 
 private:
 	gfx::GraphicsDevice& m_device;

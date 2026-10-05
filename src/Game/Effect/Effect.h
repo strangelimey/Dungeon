@@ -24,6 +24,7 @@
 #pragma once
 
 #include "Core/Loc.h"   // loc::Line (ITarget::Name)
+#include "Core/MathTypes.h" // Vec3 (an instance's lent colour)
 #include "Core/Types.h"
 #include "Game/Combat.h" // DamageType, StrikeRules, the strike resolver
 #include "Game/Spells.h" // SpellSymbol (an effect's school: tint + flavour)
@@ -406,6 +407,11 @@ struct Inst {
 	// Who applied it: a roster index for a party source, -1 for none/unknown.
 	// Threat credit for a DoT tick reads it (P3); nothing else yet.
 	int source = -1;
+	// A COLOUR of its own, lent by a source that has one (a magical torch's
+	// `flame_color`): a burning body's plume and light take it instead of the
+	// school's. tinted=false = the school's colours, as ever. Saved.
+	bool tinted = false;
+	Vec3 tint{};
 
 	std::string_view Id() const { return kind ? std::string_view(kind->Id()) : std::string_view(); }
 	std::string_view NameKey() const { return kind ? kind->NameKey(*this) : std::string_view(); }
@@ -449,10 +455,11 @@ float EffectResist(const std::vector<Inst>& effects, DamageType type,
 // `school` flavours them when the source has an element to lend (a weapon's);
 // without one each effect falls back to its own default. A target IMMUNE to
 // what a DoT deals never catches it at all. `source` is the roster index to
-// credit the ticks to, or -1.
+// credit the ticks to, or -1. `tint` (null = none) is a colour the source lends
+// what it lands (Inst::tint) - a magical torch's flame colour on its burn.
 void ApplyProcs(ITarget& target, std::span<const Proc> procs,
 				std::optional<SpellSymbol> school, int source,
-				const EffectBook& book, std::mt19937& rng);
+				const EffectBook& book, std::mt19937& rng, const Vec3* tint = nullptr);
 
 // THE path damage takes: walk `ev` through stages 1-5 against `target` —
 // deflect, strike, mitigate, absorb, apply. Everything is reported back in

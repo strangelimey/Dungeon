@@ -40,6 +40,9 @@ struct PreviewSpec {
 	std::vector<gfx::PreviewSubmesh> subs; // the mesh(es); empty = no preview pane
 	float scale = 1.0f;
 	float yaw = 0.0f; // model facing fixup, so a front-on view matches in-world
+	// The model-space point the grounded view stands and turns on (a monster's
+	// rig root - gfx::ModelPreview::Render's `pivot`); zero = the origin.
+	Vec3 pivot{};
 	// Skinned animation: the owner builds an Animator over these and plays idleClip.
 	const assets::SkeletonData* skeleton = nullptr;
 	const std::vector<assets::AnimationClipData>* clips = nullptr;

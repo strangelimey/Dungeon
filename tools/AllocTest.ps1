@@ -201,6 +201,15 @@
 # All, every tab with a hover over each card, Esc, the portrait (the sheet
 # again). It refuses a PASS unless `inventory status` counts two opens inside.
 #
+# -Glass IS THE TRANSPARENT QUEUE (transparency Phase 1). A see-through draw is
+# not issued but QUEUED, then sorted and drawn after the opaque scene - and no
+# other mode ever has glass on screen, so none of that would be measured. This
+# places a glass kind (-GlassCategory / -GlassKind, by default a filled flask,
+# so the liquid's clip plane and the far-wall / liquid / near-wall ordering are
+# measured too) in eval_arena one square ahead of the party and measures with
+# it in view. It refuses a PASS unless `glass` counts
+# a frame that drew glass for (nearly) every armed frame of the window.
+#
 # Every step is driven by what the log actually says rather than by sleeps, so
 # a slow cold-cache load stretches the wait instead of failing the run.
 #
@@ -287,6 +296,12 @@ param(
 	# item with a `light` (moonstone_amulet) is then a worn light every frame of
 	# the window. Refuses to run if the wear was refused or no worn light shows.
 	[string]$Wear = '',
+	# Stands the party facing a GLASS decoration for the whole window, so the
+	# transparent queue (transparency Phase 1) queues, sorts and flushes in armed
+	# frames. See the note above.
+	[switch]$Glass,
+	[string]$GlassCategory = 'items',
+	[string]$GlassKind = 'potion_health_greater', # glass AND a liquid (Phase 3)
 	# Starts with a CREATED party instead of the default four: a `newparty` spec
 	# (party creation, docs/party-creation-plan.md phase 2), e.g.
 	# 'premade=0 | premade=1 | premade=2' for three. Any mode runs under it; the
@@ -540,6 +555,24 @@ function Get-TallyField([string]$field) {
 	throw 'the console never answered `tally` - is logecho on?'
 }
 
+# `glass`'s frames= field: main-scene frames that drew any glass since launch
+# (needs logecho on and the console open). Counts lines first, like the tally.
+function Get-GlassFrames {
+	$pattern = 'console: glass queued='
+	$before = @(Select-String -Path $log -Pattern $pattern -SimpleMatch).Count
+	Send-Text 'glass'; Send-Key 0x0D
+	$deadline = (Get-Date).AddSeconds(10)
+	while ((Get-Date) -lt $deadline) {
+		$lines = @(Select-String -Path $log -Pattern $pattern -SimpleMatch)
+		if ($lines.Count -gt $before) {
+			if ($lines[-1].Line -match '\bframes=(\d+)') { return [int]$Matches[1] }
+			throw "glass printed no frames=: $($lines[-1].Line)"
+		}
+		Start-Sleep -Milliseconds 200
+	}
+	throw 'the console never answered `glass` - is logecho on?'
+}
+
 # Throws unless the party stands on x,z facing north (asks `pos`; needs logecho
 # on). -Impact's whole geometry hangs on it: a `tp` or `face` swallowed by a
 # busy console leaves the party firing somewhere else, and the barrage then
@@ -774,7 +807,6 @@ try {
 	# tools\InGameTest.ps1 learned the same thing; this is the same answer: open
 	# the console once, retry a harmless command until the log echoes it, then
 	# shut it so everything below starts from a closed console as before.
-	# (`$answered`, not `$ready`: -Melee reads the party's cell off $ready.)
 	Start-Sleep -Seconds 2
 	Send-Key 0xC0
 	Start-Sleep -Milliseconds 500
@@ -889,14 +921,23 @@ try {
 	}
 
 	if ($Melee) {
-		if ($ready -notmatch 'Level ready: \S+ at (\d+),(\d+)') {
-			throw 'the new game did not open in a level - there is no party cell to fight beside'
-		}
-		$px = [int]$Matches[1]; $pz = [int]$Matches[2]
-		Write-Host "putting a $MeleeMonster (x$MeleeStrength) beside the party at $px,$pz"
+		# ASK THE GAME where the party stands (`pos`), never parse it off the load
+		# line: which line a new game ends on depends on the path it took. The
+		# console `newgame` (c8c28aa) logs 'New game started in <dungeon> (<level>
+		# at X,Z)' and never 'Level ready:', so a regex on $ready found no cell and
+		# -Melee died in setup on every run. `pos` answers on every path.
 		Send-Key 0xC0
 		Start-Sleep -Milliseconds 500
 		Send-Text 'logecho on'; Send-Key 0x0D
+		$posPattern = 'console: (\d+),(\d+) facing (north|east|south|west)$'
+		$posBefore = @(Select-String -Path $log -Pattern $posPattern -EA SilentlyContinue).Count
+		Send-Text 'pos'; Send-Key 0x0D
+		$posLine = Wait-NewLogLines $posPattern $posBefore
+		if ($posLine.Count -eq 0 -or $posLine[-1].Line -notmatch $posPattern) {
+			throw 'the console never answered `pos` - there is no party cell to fight beside'
+		}
+		$px = [int]$Matches[1]; $pz = [int]$Matches[2]
+		Write-Host "putting a $MeleeMonster (x$MeleeStrength) beside the party at $px,$pz"
 		# The first orthogonal neighbour `spawn` accepts (it refuses a wall or a
 		# taken cell, and says so) - no cell of any one level is hardcoded. It is
 		# spawned FACING the party (+z is south), as arena.eval does.
@@ -1514,6 +1555,40 @@ try {
 		Start-Sleep -Milliseconds 400
 	}
 
+	# -Glass: eval_arena, the party one square back from the north wall, and the
+	# glass kind on the square between them, in full view.
+	if ($Glass) {
+		Write-Host "standing in front of a $GlassKind in eval_arena"
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		Enter-FrozenArena
+		Send-Text 'tp 14 3'; Send-Key 0x0D
+		Send-Text 'face n'; Send-Key 0x0D
+		Start-Sleep -Milliseconds 400
+		Assert-PartyAt 14 3
+		Send-Text "editor place $GlassCategory $GlassKind 14 2"; Send-Key 0x0D
+		Start-Sleep -Milliseconds 600
+		$placed = Select-String -Path $log -Pattern "console: editor place: $GlassKind at 14,2" -SimpleMatch -Quiet
+		if (-not $placed) { throw "the $GlassKind was not placed at 14,2 (see the message log)" }
+		Send-Text 'editor off'; Send-Key 0x0D
+		Send-Key 0xC0 # close the console
+		Start-Sleep -Milliseconds 400
+		Send-Key 0x4D # M closes the map overlay the editor left open
+		Start-Sleep -Seconds 1
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 400
+		$script:glassBefore = Get-GlassFrames
+		Start-Sleep -Seconds 1
+		$warm = (Get-GlassFrames) - $script:glassBefore
+		if ($warm -le 0) { throw "no frame drew glass with the $GlassKind in view - is it marked transparent?" }
+		$script:glassBefore = Get-GlassFrames
+		Write-Host "  glass in view ($warm frames drew it in the warm-up second)"
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0 # close the console again; alloctest reopens it below
+		Start-Sleep -Milliseconds 400
+	}
+
 	if ($Packs) {
 		Write-Host 'putting an ammo pouch in the pack row and a herb pouch on the cursor'
 		Send-Key 0xC0
@@ -1911,6 +1986,23 @@ try {
 		Write-Host "  lifts / throws / came down inside the window: $lifts / $throws / $landed"
 		if (($lifts -lt 2 -or $throws -lt 2 -or $landed -lt 2) -and $result -eq 'PASS') {
 			Write-Host 'fewer than two whole throws inside the window - throwing was not measured' -ForegroundColor Yellow
+			$result = 'UNMEASURED'
+		}
+	}
+
+	# And for -Glass: the glass must have been drawn through the window - a frame
+	# count that did not move means it left the view and nothing was measured.
+	if ($Glass) {
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		$glassFrames = (Get-GlassFrames) - $script:glassBefore
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0
+		$windowFrames = if ($line -match '\bframes=(\d+)') { [int]$Matches[1] } else { 0 }
+		Write-Host "  frames that drew glass: $glassFrames (window: $windowFrames armed frames)"
+		if ($glassFrames -lt $windowFrames -and $result -eq 'PASS') {
+			Write-Host 'glass was not in view for the whole window - the transparent queue was not measured' -ForegroundColor Yellow
 			$result = 'UNMEASURED'
 		}
 	}

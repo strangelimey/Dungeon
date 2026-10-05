@@ -119,8 +119,19 @@ category = key
 weight = 0.1
 holdable = 1
 
-; A stone to throw (ui-updates Phase 10): anything can be thrown, and this is
-; what is lying about for it. Bash by weight (balance.cat throw_base /
+; THROWING (ui-updates Phase 10). Anything can be thrown; a throw is an attack.
+;   throw        = the attacks.cat attack it flies as - its damage TYPE and
+;                  numbers (absent: a weapon's first command, else `throw`,
+;                  bash). A throwing star would say `throw = stab` (pierce).
+;   throw_spell  = a spell whose payload it carries (its on_hit and blast)
+;                  instead of its own on_hit: a fire flask bursts into fire.
+;   throw_breaks = 1: it shatters where it stops instead of landing.
+;   command      = throw: what a hand holding it does on a click (the hand's
+;                  default use) - THAT member throws it. Anything on the cursor
+;                  can be thrown either way.
+; Speed is the thrower's skill against the weight (balance.cat throw_speed*).
+;
+; A stone to throw: what is lying about for it. Bash by weight (throw_base /
 ; throw_weight). The model is script-built: tools/BuildRock.py.
 [rock]
 name = item.rock
@@ -129,6 +140,119 @@ weight = 1.5
 holdable = 1
 command = throw
 model = rock
+
+; A flask of fire: it shatters where it stops and bursts as firebolt_burst does -
+; blast and all, which catches the party too if it bursts close.
+;
+; THE BOMBS COME IN THREE SIZES (transparency Phase 5), in the potions' glass: a
+; vial, the small bottle (these two, the standard size - levels and start_items
+; name them) and a round flask. `throw_scale` scales what the throw leaves: the
+; blast's damage, reach (rounded squares) and linger, and its on-hit effects.
+[fire_flask_small]
+name = item.fire_flask_small
+category = misc
+weight = 0.3
+holdable = 1
+command = throw
+throw_spell = firebolt_burst
+throw_breaks = 1
+throw_scale = 0.6
+model = potion_vial
+upright = 1
+liquid_color = 0.75, 0.22, 0.01, 0.95
+
+[fire_flask]
+name = item.fire_flask
+category = misc
+weight = 0.6
+holdable = 1
+command = throw
+throw_spell = firebolt_burst
+throw_breaks = 1
+model = potion_bottle
+upright = 1
+liquid_color = 0.75, 0.22, 0.01, 0.95
+
+[fire_flask_large]
+name = item.fire_flask_large
+category = misc
+weight = 1.2
+holdable = 1
+command = throw
+throw_spell = firebolt_burst
+throw_breaks = 1
+throw_scale = 1.5
+model = potion_flask
+upright = 1
+liquid_color = 0.75, 0.22, 0.01, 0.95
+
+; A flask of poison gas: it shatters where it stops and lets go a CLOUD - a
+; persistent blast that creeps out slowly (blast_rate s a step), fills the
+; squares it reaches and keeps biting in them, a whiff of damage each time and a
+; poisoning that each breath refreshes. Poison is earth here (effects.cat). A
+; cloud in a corridor runs along it; keep the party out of it.
+[poison_flask]
+name = item.poison_flask
+category = misc
+weight = 0.6
+holdable = 1
+command = throw
+throw_breaks = 1
+on_hit = poison 2 10
+blast_force = 6
+blast_damage = 1
+blast_falloff = 0.1
+blast_rate = 0.6
+blast_persist = 1
+blast_linger = 8
+blast_type = earth
+blast_color = 0.35, 0.9, 0.2
+model = potion_bottle
+upright = 1
+; murky olive: stamina owns the clean green, a shelf away
+liquid_color = 0.35, 0.38, 0.05, 0.95
+
+[poison_flask_small]
+name = item.poison_flask_small
+category = misc
+weight = 0.3
+holdable = 1
+command = throw
+throw_breaks = 1
+throw_scale = 0.6
+on_hit = poison 2 10
+blast_force = 6
+blast_damage = 1
+blast_falloff = 0.1
+blast_rate = 0.6
+blast_persist = 1
+blast_linger = 8
+blast_type = earth
+blast_color = 0.35, 0.9, 0.2
+model = potion_vial
+upright = 1
+liquid_color = 0.35, 0.38, 0.05, 0.95
+
+[poison_flask_large]
+name = item.poison_flask_large
+category = misc
+weight = 1.2
+holdable = 1
+command = throw
+throw_breaks = 1
+throw_scale = 1.5
+on_hit = poison 2 10
+blast_force = 6
+blast_damage = 1
+blast_falloff = 0.1
+blast_rate = 0.6
+blast_persist = 1
+blast_linger = 8
+blast_type = earth
+blast_color = 0.35, 0.9, 0.2
+model = potion_flask
+upright = 1
+liquid_color = 0.35, 0.38, 0.05, 0.95
 
 ; --- food and drink ---------------------------------------------------------
 ; `nutrition` and `hydration` are what CONSUMING it restores, out of 100
@@ -198,6 +322,191 @@ fill_as = waterskin_half
 category = drink
 weight = 0.4
 holdable = 1
+
+; --- potions ---------------------------------------------------------------
+; THE CONTAINER IS THE STRENGTH (transparency branch): a minor potion comes in a
+; vial, a standard one in the small bottle, a greater one in the round flask,
+; and drinking one leaves the empty container (drink_as). The three models are
+; script-built - tools/BuildPotion.py - glass (see-through, alphaMode BLEND in
+; the file) with a cork. `upright` stands them on the floor instead of laying
+; them along their length. `loot = 0` keeps the empties out of the level
+; generator's loot: an empty bottle is what a drink leaves, not treasure.
+[vial_empty]
+name = item.vial_empty
+category = potion
+weight = 0.05
+holdable = 1
+model = potion_vial
+upright = 1
+loot = 0
+
+[bottle_empty]
+name = item.bottle_empty
+category = potion
+weight = 0.15
+holdable = 1
+model = potion_bottle
+upright = 1
+loot = 0
+
+[flask_empty]
+name = item.flask_empty
+category = potion
+weight = 0.3
+holdable = 1
+model = potion_flask
+upright = 1
+loot = 0
+
+; The potions. `liquid_color` (r, g, b[, density]) fills the container's glass
+; with a liquid generated from its shape (Game/Liquid.h); `liquid_fill` is how
+; full, as a share of the inside's height. Colours follow the resource bars:
+; health red, stamina green, mana blue; the antidote amber. A strong colour
+; wants a DARK tint and a high density: a light one (0.8 red) lets the white
+; behind it through and the tonemap lifts it, and health read as pink.
+[potion_health_minor]
+name = item.potion_health_minor
+command = drink
+restore_health = 10
+category = potion
+weight = 0.1
+holdable = 1
+model = potion_vial
+upright = 1
+liquid_color = 0.50, 0.01, 0.015, 0.95
+drink_as = vial_empty
+
+[potion_health]
+name = item.potion_health
+command = drink
+restore_health = 25
+category = potion
+weight = 0.3
+holdable = 1
+model = potion_bottle
+upright = 1
+liquid_color = 0.50, 0.01, 0.015, 0.95
+drink_as = bottle_empty
+
+[potion_health_greater]
+name = item.potion_health_greater
+command = drink
+restore_health = 50
+category = potion
+weight = 0.6
+holdable = 1
+model = potion_flask
+upright = 1
+liquid_color = 0.50, 0.01, 0.015, 0.95
+drink_as = flask_empty
+
+[potion_stamina_minor]
+name = item.potion_stamina_minor
+command = drink
+restore_stamina = 15
+category = potion
+weight = 0.1
+holdable = 1
+model = potion_vial
+upright = 1
+liquid_color = 0.06, 0.42, 0.04, 0.95
+drink_as = vial_empty
+
+[potion_stamina]
+name = item.potion_stamina
+command = drink
+restore_stamina = 30
+category = potion
+weight = 0.3
+holdable = 1
+model = potion_bottle
+upright = 1
+liquid_color = 0.06, 0.42, 0.04, 0.95
+drink_as = bottle_empty
+
+[potion_stamina_greater]
+name = item.potion_stamina_greater
+command = drink
+restore_stamina = 60
+category = potion
+weight = 0.6
+holdable = 1
+model = potion_flask
+upright = 1
+liquid_color = 0.06, 0.42, 0.04, 0.95
+drink_as = flask_empty
+
+[potion_mana_minor]
+name = item.potion_mana_minor
+command = drink
+restore_mana = 10
+category = potion
+weight = 0.1
+holdable = 1
+model = potion_vial
+upright = 1
+liquid_color = 0.04, 0.10, 0.60, 0.95
+drink_as = vial_empty
+
+[potion_mana]
+name = item.potion_mana
+command = drink
+restore_mana = 25
+category = potion
+weight = 0.3
+holdable = 1
+model = potion_bottle
+upright = 1
+liquid_color = 0.04, 0.10, 0.60, 0.95
+drink_as = bottle_empty
+
+[potion_mana_greater]
+name = item.potion_mana_greater
+command = drink
+restore_mana = 50
+category = potion
+weight = 0.6
+holdable = 1
+model = potion_flask
+upright = 1
+liquid_color = 0.04, 0.10, 0.60, 0.95
+drink_as = flask_empty
+
+[potion_antidote_minor]
+name = item.potion_antidote_minor
+command = drink
+cures = poison 0.5
+category = potion
+weight = 0.1
+holdable = 1
+model = potion_vial
+upright = 1
+liquid_color = 0.62, 0.34, 0.02, 0.95
+drink_as = vial_empty
+
+[potion_antidote]
+name = item.potion_antidote
+command = drink
+cures = poison
+category = potion
+weight = 0.3
+holdable = 1
+model = potion_bottle
+upright = 1
+liquid_color = 0.62, 0.34, 0.02, 0.95
+drink_as = bottle_empty
+
+[potion_antidote_greater]
+name = item.potion_antidote_greater
+command = drink
+cures = poison, bleed
+category = potion
+weight = 0.6
+holdable = 1
+model = potion_flask
+upright = 1
+liquid_color = 0.62, 0.34, 0.02, 0.95
+drink_as = flask_empty
 
 ; --- light -----------------------------------------------------------------
 ; THE HELD TORCH IS THE PARTY'S LIGHT (spell-updates): with nothing lit in a

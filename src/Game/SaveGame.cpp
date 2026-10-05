@@ -36,6 +36,30 @@ std::string DeTok(std::string_view sv) {
 	return sv == "-" ? std::string() : std::string(sv);
 }
 
+// An effect's own colour (EffectState::tint) as the optional LAST token of an
+// enteffect / brkeffect line: " r,g,b", or nothing for an untinted one - so an
+// older reader, which stops at the source, never sees it.
+std::string TintTok(const SaveData::EffectState& fx) {
+	return fx.tinted ? std::format(" {:.3f},{:.3f},{:.3f}", fx.tint[0], fx.tint[1], fx.tint[2])
+					 : std::string();
+}
+void ParseTintTok(std::string_view sv, SaveData::EffectState& fx) {
+	float c[3] = {};
+	for (int i = 0; i < 3; ++i) {
+		const size_t comma = sv.find(',');
+		c[i] = FloatOf(sv.substr(0, comma));
+		if (comma == std::string_view::npos) {
+			if (i < 2) return; // fewer than three numbers: not a tint
+			break;
+		}
+		sv.remove_prefix(comma + 1);
+	}
+	fx.tinted = true;
+	fx.tint[0] = c[0];
+	fx.tint[1] = c[1];
+	fx.tint[2] = c[2];
+}
+
 // Almost every per-character line starts the same way: token 1 is the roster
 // index, and a save may name members in any order (or skip one), so the vector
 // grows to fit rather than being sized up front.
@@ -305,9 +329,9 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 				// entity line just written — the reader hangs them on the last
 				// entity it saw, so no index has to be kept in step.
 				for (const SaveData::EffectState& fx : e.effects)
-					t += std::format("enteffect {} {} {:.3f} {:.3f} {:.3f} {}\n",
+					t += std::format("enteffect {} {} {:.3f} {:.3f} {:.3f} {}{}\n",
 									 EnTok(fx.id), EnTok(fx.school), fx.time,
-									 fx.duration, fx.magnitude, fx.source);
+									 fx.duration, fx.magnitude, fx.source, TintTok(fx));
 				break;
 			case EntityKind::Item:
 				if (e.id >= 0) // baseline rune lifted off the floor: a one-bit diff
@@ -349,9 +373,9 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 			t += std::format("damaged {} {} {} {} {:.3f}\n", d.x, d.z, d.type, d.wall,
 							 d.hp);
 			for (const SaveData::EffectState& fx : d.effects)
-				t += std::format("brkeffect {} {} {:.3f} {:.3f} {:.3f} {}\n",
+				t += std::format("brkeffect {} {} {:.3f} {:.3f} {:.3f} {}{}\n",
 								 EnTok(fx.id), EnTok(fx.school), fx.time, fx.duration,
-								 fx.magnitude, fx.source);
+								 fx.magnitude, fx.source, TintTok(fx));
 		}
 		// Earth lights set down: square, power, time left, of how long.
 		for (const SaveData::LightStone& s : lvl.stones)
@@ -640,6 +664,7 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 				fx.duration = FloatOf(tok[4]);
 				fx.magnitude = FloatOf(tok[5]);
 				if (tok.size() >= 7) fx.source = IntOf(tok[6]);
+				if (tok.size() >= 8) ParseTintTok(tok[7], fx);
 				currentBlock().entities.back().effects.push_back(std::move(fx));
 			}
 		} else if (kw == "monster" && tok.size() >= 9) {
@@ -748,6 +773,7 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 				fx.duration = FloatOf(tok[4]);
 				fx.magnitude = FloatOf(tok[5]);
 				if (tok.size() >= 7) fx.source = IntOf(tok[6]);
+				if (tok.size() >= 8) ParseTintTok(tok[7], fx);
 				currentBlock().damaged.back().effects.push_back(std::move(fx));
 			}
 		} else if (kw == "lightstone" && tok.size() >= 6) {

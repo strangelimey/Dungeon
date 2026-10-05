@@ -55,6 +55,11 @@ namespace {
 	{.key = "height_scale", .kind = FieldKind::Float, .sectionKey = kSectionMaterial, \
 	 .help = "Parallax depth of the height map, in units. 0 = flat.",               \
 	 .lo = 0.0f, .hi = 0.2f, .step = 0.005f, .neutral = "0.05"}
+#define TRANSPARENT_ROW                                                            \
+	{.key = "transparent", .kind = FieldKind::Bool, .sectionKey = kSectionMaterial, \
+	 .help = "See-through: the whole model draws as glass (its texture's alpha is " \
+			 "the opacity). Off leaves each part as its model file says.",           \
+	 .def = "0"}
 
 // A surface type's material factors. No default, because ABSENT is meaningful:
 // it leaves the set's ORM map authoritative (a value replaces the draw's factor,
@@ -175,6 +180,7 @@ constexpr FieldSpec kDecorationFields[] = {
 	 .help = "Cutout threshold for a masked texture (0 = opaque, no clip).",
 	 .lo = 0.0f, .hi = 1.0f, .step = 0.05f, .def = "0"},
 	MATERIAL_ROWS,
+	TRANSPARENT_ROW,
 };
 
 // --- fixtures ---------------------------------------------------------------
@@ -457,6 +463,38 @@ constexpr FieldSpec kItemFields[] = {
 	{.key = "hydration", .kind = FieldKind::Float, .sectionKey = kSectionStats,
 	 .help = "Water restored when consumed, out of 100. Most food gives a little.",
 	 .lo = 0.0f, .hi = 100.0f, .step = 1.0f, .def = "0"},
+	{.key = "restore_health", .kind = FieldKind::Float, .sectionKey = kSectionStats,
+	 .help = "Health a drink restores at once (a potion). Not for the unconscious.",
+	 .lo = 0.0f, .hi = 200.0f, .step = 1.0f, .def = "0"},
+	{.key = "restore_stamina", .kind = FieldKind::Float, .sectionKey = kSectionStats,
+	 .help = "Stamina a drink restores at once.",
+	 .lo = 0.0f, .hi = 200.0f, .step = 1.0f, .def = "0"},
+	{.key = "restore_mana", .kind = FieldKind::Float, .sectionKey = kSectionStats,
+	 .help = "Mana a drink restores at once.",
+	 .lo = 0.0f, .hi = 200.0f, .step = 1.0f, .def = "0"},
+	{.key = "cures", .kind = FieldKind::Text, .sectionKey = kSectionStats,
+	 .help = "Effects it treats: \"poison 0.5, bleed\" - each an effect id and the "
+			 "share of its bite taken away (absent = all of it)."},
+	{.key = "throw_scale", .kind = FieldKind::Float, .sectionKey = kSectionRules,
+	 .help = "A bomb's size: scales what a throw leaves - its blast's damage, reach "
+			 "and linger, and its on-hit effects. 1 = as authored.",
+	 .lo = 0.25f, .hi = 3.0f, .step = 0.05f, .def = "1"},
+	{.key = "loot", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
+	 .help = "Can turn up as generated loot. Off for things like an empty bottle.",
+	 .def = "1"},
+	// A LIT light (a burning torch): how long it burns, and the magical torch's
+	// two knobs (docs/torches-and-fire.md; ItemKind::powerLevel / flameColor).
+	{.key = "burn_time", .kind = FieldKind::Float, .sectionKey = kSectionStats,
+	 .help = "Seconds it burns while held. Over 0 marks it as LIT (the party's "
+			 "light). Leave 0 on an unlit torch.",
+	 .lo = 0.0f, .hi = 3600.0f, .step = 30.0f, .def = "0"},
+	{.key = "power_level", .kind = FieldKind::Float, .sectionKey = kSectionStats,
+	 .help = "A magical torch's power: it burns (1 + power level) times its burn "
+			 "time. 0 = an ordinary torch.",
+	 .lo = 0.0f, .hi = 10.0f, .step = 1.0f, .def = "0"},
+	{.key = "flame_color", .kind = FieldKind::Text, .sectionKey = kSectionLook,
+	 .help = "A lit torch's flame and light colour, 'r, g, b' in 0..1 (e.g. "
+			 "0.35, 0.6, 1.0 burns blue). Empty = the ordinary orange."},
 	{.key = "symbol", .kind = FieldKind::Enum, .sectionKey = kSectionRules,
 	 .help = "Rune symbol this item teaches (runes only).",
 	 .options = "fire earth air water project protect sight multiple explode light"},
@@ -472,6 +510,17 @@ constexpr FieldSpec kItemFields[] = {
 	 .help = "What it sheds when thrown (trails.cat). (none) = nothing; a lit torch "
 			 "trails its own flame regardless.",
 	 .options = "trails"},
+	{.key = "upright", .kind = FieldKind::Bool, .sectionKey = kSectionLook,
+	 .help = "Stands on the floor as modelled (a bottle) instead of being laid "
+			 "along its length; its icon stands too.",
+	 .def = "0"},
+	TRANSPARENT_ROW,
+	{.key = "liquid_color", .kind = FieldKind::Text, .sectionKey = kSectionLook,
+	 .help = "The liquid inside its glass: \"r, g, b\" (0..1), plus an optional "
+			 "4th, its density (default 0.85). Empty = an empty container."},
+	{.key = "liquid_fill", .kind = FieldKind::Float, .sectionKey = kSectionLook,
+	 .help = "How full, as a share of the inside's height (the neck included).",
+	 .lo = 0.05f, .hi = 1.0f, .step = 0.05f, .def = "0.6"},
 	ITEM_QUEST,
 };
 

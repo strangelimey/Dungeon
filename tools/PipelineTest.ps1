@@ -22,8 +22,8 @@
 #
 #   1. the final PIPELINE line says PASS with violations=0
 #   2. the app is still `playing` - nothing voided the back half of the run
-#   3. every sanctioned ROUTE moved health: pipeline, exertion, regen, growth
-#      and stabilize each have a non-zero total
+#   3. every sanctioned ROUTE moved health: pipeline, exertion, regen, growth,
+#      stabilize and drink each have a non-zero total
 #
 # (3) is what makes the pass mean something. Each row is a route the suite
 # claims to exercise, and a zero in any of them is a section that quietly
@@ -60,7 +60,8 @@ $routes = @(
 	@{ name = 'exertion';  what = 'over-exertion (the DECLARED exception to the rule)' },
 	@{ name = 'regen';     what = 'resource regeneration' },
 	@{ name = 'growth';    what = 'a stat or practice level growing the pool' },
-	@{ name = 'stabilize'; what = 'an unconscious member coming round' }
+	@{ name = 'stabilize'; what = 'an unconscious member coming round' },
+	@{ name = 'drink';     what = 'a healing potion' }
 )
 
 if (-not (Test-Path $exe)) {

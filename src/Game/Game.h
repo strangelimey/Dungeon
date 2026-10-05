@@ -1193,6 +1193,7 @@ private:
 	std::vector<gfx::PreviewSubmesh> m_previewMonSubs;
 	float m_previewMonScale = 1.0f;
 	float m_previewMonYaw = 0.0f; // modelyaw fixup, so the preview faces like in-world
+	Vec3 m_previewMonPivot{};     // its rig root's rest point, so it is centred in the pane
 
 	// Live 3D preview for the per-INSTANCE edit dialogs. Each dialog OWNS a
 	// PreviewSpec (built here in OpenInspectorFor, from the world's meshes) and the

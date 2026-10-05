@@ -32,6 +32,10 @@ assets/models/*.glb
 # clone needs the file, and it is small (tools/BuildRock.py writes it).
 !assets/models/rock.glb
 !assets/models/moonstone_amulet.glb
+# (tools/BuildPotion.py writes these three)
+!assets/models/potion_vial.glb
+!assets/models/potion_bottle.glb
+!assets/models/potion_flask.glb
 # Bought rigged monsters land as .gltf (the monster loader's name convention)
 # but are heavy embedded-texture GLBs inside — regenerable the same way, so
 # ignored by NAME (the baked procedural .gltf models stay committed).
