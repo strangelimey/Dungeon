@@ -2636,6 +2636,7 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	const Vec3* pvFitMin = nullptr;             // auto-fit AABB (small items)
 	const Vec3* pvFitMax = nullptr;
 	Vec3 pvPivot{}; // the point a grounded model stands and turns on (a rig's root)
+	float pvViewTilt = 0.0f; // a fitted model looked down on (a floor feature)
 	const Mat4* pvOrient = nullptr; // a fitted model's pose: set = a Y-only turntable
 	static const Mat4 kUpright = Mat4Identity();
 	if (m_assetPicker.IsOpen() && m_assetPicker.HasPreview()) {
@@ -2649,6 +2650,10 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		pvFitMin = m_assetPicker.PreviewFitMin();
 		pvFitMax = m_assetPicker.PreviewFitMax();
 		if (m_assetPicker.PreviewStands()) pvOrient = &kUpright;
+		pvViewTilt = m_assetPicker.PreviewViewTilt();
+		// Seen from above, a square cell turns through its DIAGONAL: fit that
+		// (1/sqrt 2), or its corners leave the pane every quarter turn.
+		if (pvViewTilt > 0.0f) pvScale = 0.7f;
 		const gfx::Rect pv = m_assetPicker.PreviewRect(static_cast<float>(m_device.Width()),
 														static_cast<float>(m_device.Height()));
 		pvAspect = pv.h > 0.0f ? pv.w / pv.h : 1.0f;
@@ -2704,7 +2709,8 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	if (!pvSubs.empty()) { // per-instance dialog preview (one or many submeshes)
 		if (pvParticles) pvParticles->NewFrame(m_device.FrameIndex());
 		m_modelPreview.Render(list, m_renderer, pvSubs, pvScale, pvOrbit, pvAspect, pvPalette,
-							  pvParticles, pvBillboards, pvFitMin, pvFitMax, pvOrient, &pvPivot);
+							  pvParticles, pvBillboards, pvFitMin, pvFitMax, pvOrient, &pvPivot,
+							  pvViewTilt);
 		m_device.BindBackBuffer(list);
 	} else if (pvMesh) {
 		m_modelPreview.Render(list, m_renderer, *pvMesh, pvMat, pvScale, pvOrbit, pvAspect,
@@ -2772,7 +2778,7 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		bool baked = false;
 		for (const AssetPicker::PendingBake& bake : m_assetPicker.PendingBakes(2)) {
 			m_world->BakeIconFor(list, m_spriteBatch, bake.parts, bake.lo, bake.hi,
-								*bake.target, bake.palette);
+								*bake.target, bake.palette, bake.tilt);
 			m_assetPicker.MarkBaked(bake.name);
 			baked = true;
 		}

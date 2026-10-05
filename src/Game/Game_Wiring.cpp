@@ -612,6 +612,20 @@ void Game::WireModuleCallbacks() {
 	// part2_texture). A model no entry uses falls back to a set of its own name,
 	// the import convention.
 	m_assetPicker.textureFor = [this](const std::string& model) {
+		// A FEATURE has no set of its own: it is stamped in place of a surface
+		// block and wears that cell's texture. Show it in the project's first
+		// type of that surface, which is what it will look like in a level.
+		auto firstOf = [](const Catalog& surfaces) {
+			const auto& entries = surfaces.Entries();
+			return entries.empty() ? std::string()
+								   : entries.front().Get("texture", entries.front().id);
+		};
+		for (const CatalogEntry& e : m_project.surfacefeatures.Entries())
+			if (e.Get("model", e.id) == model)
+				return firstOf(e.Get("surface", "floor") == "ceiling" ? m_project.ceilings
+																	  : m_project.floors);
+		for (const CatalogEntry& e : m_project.wallfeatures.Entries())
+			if (e.Get("model", e.id) == model) return firstOf(m_project.walls);
 		for (const Catalog* cat : m_project.AllCatalogs())
 			for (const CatalogEntry& e : cat->Entries()) {
 				if (e.Get("model", e.id) == model) return e.Get("texture", e.id);

@@ -1192,16 +1192,16 @@ void DungeonWorld::BakeIconFor(ID3D12GraphicsCommandList* list,
 							   gfx::SpriteBatch& sprites,
 							   std::span<const gfx::PreviewSubmesh> parts, const Vec3& lo,
 							   const Vec3& hi, const gfx::Texture& target,
-							   std::span<const Mat4> palette) {
+							   std::span<const Mat4> palette, float tilt) {
 	EnsureIconBakeTargets();
-	BakeMeshIcon(list, sprites, parts, lo, hi, target, palette);
+	BakeMeshIcon(list, sprites, parts, lo, hi, target, palette, tilt);
 }
 
 void DungeonWorld::BakeMeshIcon(ID3D12GraphicsCommandList* list,
 								gfx::SpriteBatch& sprites,
 								std::span<const gfx::PreviewSubmesh> parts, const Vec3& lo,
 								const Vec3& hi, const gfx::Texture& target,
-								std::span<const Mat4> palette) {
+								std::span<const Mat4> palette, float tilt) {
 	D3D12_RESOURCE_BARRIER toRT = gfx::Transition(
 		target.Resource(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
 		D3D12_RESOURCE_STATE_RENDER_TARGET);
@@ -1220,14 +1220,15 @@ void DungeonWorld::BakeMeshIcon(ID3D12GraphicsCommandList* list,
 	sprites.End();
 
 	// Whole-model fit: centre at the origin, longest extent to ~82% of the
-	// frame, a gentle 3/4 yaw + downward tilt (props are upright objects).
+	// frame, a gentle 3/4 yaw + downward tilt (props are upright objects; a
+	// floor feature passes a steep one and is looked down into).
 	const Vec3 c{(lo.x + hi.x) * 0.5f, (lo.y + hi.y) * 0.5f, (lo.z + hi.z) * 0.5f};
 	const Vec3 ext{hi.x - lo.x, hi.y - lo.y, hi.z - lo.z};
 	const float longest = std::max({ext.x, ext.y, ext.z, 1e-3f});
 	const float s = 1.15f / longest;
 	const XMMATRIX worldX = XMMatrixTranslation(-c.x, -c.y, -c.z) *
 							XMMatrixScaling(s, s, s) *
-							XMMatrixRotationY(kPi + 0.5f) * XMMatrixRotationX(-0.3f);
+							XMMatrixRotationY(kPi + 0.5f) * XMMatrixRotationX(-tilt);
 	Mat4 world;
 	XMStoreFloat4x4(&world, worldX);
 

@@ -103,6 +103,10 @@ public:
 	// spend most of its turn edge-on. A rigged model always stands: a creature
 	// is long and low (the spider) but is not something to roll over.
 	bool PreviewStands() const { return m_stands; }
+	// Radians a from-above view tips the turning model toward the camera: a
+	// thing that sinks below the floor (PoolModelLook::sinks) is looked down
+	// into, as it is in play; 0 for anything else.
+	float PreviewViewTilt() const { return m_viewTilt; }
 	gfx::Rect PreviewRect(float width, float height) const;
 	// Which texture set a catalog draws a model with (the owner searches its
 	// catalogs; "" = none bound). The preview and tiles put it on the parts the
@@ -132,6 +136,7 @@ public:
 		gfx::Texture* target = nullptr;
 		Vec3 lo, hi; // model bounds (as posed), for the whole-model fit
 		std::span<const Mat4> palette; // a rigged model's idle frame; else empty
+		float tilt = 0.3f;             // the map icons' gentle tilt, or a from-above one
 	};
 	std::vector<PendingBake> PendingBakes(size_t max) const;
 	void MarkBaked(const std::string& name);
@@ -276,6 +281,7 @@ private:
 	bool m_previewPosed = false; // m_previewAnim is playing an idle
 	Vec3 m_fitLo{}, m_fitHi{}; // the fit's bounds (PreviewFitMin / Max)
 	bool m_stands = true;      // PreviewStands
+	float m_viewTilt = 0.0f;   // PreviewViewTilt
 	// Installed texture sets by name -> resolution bits, for SetStemFor (read
 	// once per Open in model mode; the directory walk is not per tile).
 	std::unordered_map<std::string, u32> m_setRes;

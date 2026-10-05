@@ -209,10 +209,12 @@ public:
 	// The parts are drawn as given (the caller resolved their materials -
 	// PoolModelLook below).
 	// `palette` poses a rigged model (its idle frame; empty = as modelled).
+	// `tilt` tips its top toward the camera, in radians (the map icons' gentle
+	// 0.3, or PoolModelLook::kFromAboveTilt for a thing seen from above).
 	void BakeIconFor(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
 					 std::span<const gfx::PreviewSubmesh> parts, const Vec3& lo,
 					 const Vec3& hi, const gfx::Texture& target,
-					 std::span<const Mat4> palette = {});
+					 std::span<const Mat4> palette = {}, float tilt = 0.3f);
 	// A POOL model as the editor's asset picker shows it, preview and tile alike:
 	// every primitive (not just meshes[0]) with its own glTF material and
 	// embedded textures (the baked .dds sidecars, as the game loads them), node
@@ -236,6 +238,32 @@ public:
 		// shader's sum), so a view fits the pose it shows rather than the
 		// T-pose's outstretched arms.
 		void FitToPose(std::span<const Mat4> palette);
+		// lo/hi are the box a VIEW frames, not the whole mesh: below the floor
+		// plane (y < 0) it reaches at most half the model's footprint. Nothing
+		// down there is seen in play except through a mouth - a floor drain's
+		// shaft runs four squares deep on purpose, so you cannot find its
+		// bottom - and framing all of it drew a feature as a tall white stick.
+		void FrameAboveFloor();
+		// It lies FLAT (a blade, a grate, a floor tile): its framed height is
+		// under 0.35 of its longest side. A rigged model never is - a creature
+		// is long and low but is not something to roll over or look down on.
+		// A flat model's tile is baked looking down at it, and its preview
+		// tumbles rather than turning edge-on.
+		bool Flat() const {
+			const float longest = std::max({hi.x - lo.x, hi.y - lo.y, hi.z - lo.z});
+			return !rigged && hi.y - lo.y < 0.35f * longest;
+		}
+		// The mesh reaches BELOW the floor plane: a surface feature (a recess,
+		// a drain, cracked paving), a pit, a stairwell. Such a thing is only
+		// ever seen from above, through its mouth, so a view of it looks almost
+		// straight down (kFromAboveTilt) - at any ordinary angle a four-square
+		// shaft pokes out past the tile's near edge.
+		bool sinks = false;
+		// How far a from-above view tips the model's top toward the camera
+		// (radians; ~86 degrees). Steep enough to hide a shaft of radius 0.22
+		// four squares deep under its tile - the drain's is 0.17, the recess's
+		// 0.20.
+		static constexpr float kFromAboveTilt = 1.5f;
 	};
 	// Null when the file will not load. `thumbPx` > 0 loads the bound set's
 	// maps trimmed to that size (a tile), else at the stem's full resolution.
@@ -4012,7 +4040,7 @@ private:
 	void BakeMeshIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
 					  std::span<const gfx::PreviewSubmesh> parts, const Vec3& lo,
 					  const Vec3& hi, const gfx::Texture& target,
-					  std::span<const Mat4> palette = {});
+					  std::span<const Mat4> palette = {}, float tilt = 0.3f);
 	std::vector<Item> m_items;
 	std::vector<Button> m_buttons; // .ent buttons (toggle wired doors by name)
 	std::vector<Door> m_doors;     // .ent doors (live open/anim state)

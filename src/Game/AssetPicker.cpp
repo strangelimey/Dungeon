@@ -341,7 +341,8 @@ std::vector<AssetPicker::PendingBake> AssetPicker::PendingBakes(size_t max) cons
 		if (out.size() >= max) return;
 		if (!thumb.needsBake || !thumb.look || !thumb.texture) return;
 		out.push_back({name, thumb.look->parts, thumb.texture.get(), thumb.look->lo,
-					   thumb.look->hi, thumb.palette});
+					   thumb.look->hi, thumb.palette,
+					   thumb.look->sinks ? DungeonWorld::PoolModelLook::kFromAboveTilt : 0.3f});
 	});
 	return out;
 }
@@ -409,6 +410,7 @@ void AssetPicker::RefreshPreview() {
 					   std::max(m_fitHi.z, v.position.z)};
 		}
 		m_stands = true;
+		m_viewTilt = 0.0f;
 		return;
 	}
 
@@ -437,9 +439,10 @@ void AssetPicker::RefreshPreview() {
 	}
 	m_fitLo = m_previewLook->lo;
 	m_fitHi = m_previewLook->hi;
-	const float longest =
-		std::max({m_fitHi.x - m_fitLo.x, m_fitHi.y - m_fitLo.y, m_fitHi.z - m_fitLo.z});
-	m_stands = m_previewLook->rigged || m_fitHi.y - m_fitLo.y >= 0.35f * longest;
+	// A thing in the floor is looked down into on a turntable; a flat thing
+	// tumbles; anything else (or anything rigged) turns upright.
+	m_stands = m_previewLook->sinks || !m_previewLook->Flat();
+	m_viewTilt = m_previewLook->sinks ? DungeonWorld::PoolModelLook::kFromAboveTilt : 0.0f;
 }
 
 std::string AssetPicker::SetStemFor(const std::string& modelName) const {

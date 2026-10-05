@@ -61,13 +61,17 @@ public:
 	// file's origin (the skeleton kit) passes its root joint's rest position, so
 	// it is centred in the pane as it is on its square (DungeonWorld::
 	// MonsterModelWorld). Its Y is ignored: the model stays grounded.
+	// `viewTilt` (auto-fit only): radians the spinning model's top is tipped
+	// toward the camera AFTER the spin, so a floor feature turns on its
+	// turntable while seen from above, rather than wobbling.
 	void Render(ID3D12GraphicsCommandList* list, Renderer& renderer,
 				std::span<const PreviewSubmesh> subs, float scale, float orbit,
 				float aspect = 1.0f, std::span<const Mat4> palette = {},
 				ParticleBatch* particles = nullptr,
 				std::span<const ParticleInstance> billboards = {},
 				const Vec3* fitMin = nullptr, const Vec3* fitMax = nullptr,
-				const Mat4* orient = nullptr, const Vec3* pivot = nullptr);
+				const Mat4* orient = nullptr, const Vec3* pivot = nullptr,
+				float viewTilt = 0.0f);
 	// Convenience single-mesh overload (delegates to the span version).
 	void Render(ID3D12GraphicsCommandList* list, Renderer& renderer, const Mesh& mesh,
 				const MaterialParams& material, float scale, float orbit,
@@ -91,7 +95,8 @@ public:
 private:
 	static Camera PreviewCamera(float aspect);
 	static Mat4 PreviewWorld(float scale, float orbit, const Vec3* fitMin, const Vec3* fitMax,
-							 const Mat4* orient, const Vec3* pivot = nullptr);
+							 const Mat4* orient, const Vec3* pivot = nullptr,
+							 float viewTilt = 0.0f);
 
 	GraphicsDevice& m_device;
 	u32 m_size;

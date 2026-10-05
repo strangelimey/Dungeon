@@ -69,6 +69,8 @@ std::unique_ptr<DungeonWorld::PoolModelLook> DungeonWorld::LoadPoolModelLook(
 	look->textures = std::move(multi->textures);
 	look->lo = multi->boundsMin;
 	look->hi = multi->boundsMax;
+	look->sinks = look->lo.y < -0.01f;
+	look->FrameAboveFloor();
 	look->rigged = data->skeleton.RootJoint() >= 0;
 	if (look->rigged && !data->clips.empty()) {
 		// The idle: the catalog's, else the library's `idle__` clips or a plain
@@ -171,7 +173,13 @@ void DungeonWorld::PoolModelLook::FitToPose(std::span<const Mat4> palette) {
 	if (h.x >= l.x) {
 		lo = l;
 		hi = h;
+		FrameAboveFloor();
 	}
+}
+
+void DungeonWorld::PoolModelLook::FrameAboveFloor() {
+	const float footprint = std::max(hi.x - lo.x, hi.z - lo.z);
+	lo.y = std::max(lo.y, std::min(0.0f, hi.y) - 0.5f * footprint);
 }
 
 } // namespace dungeon::game
