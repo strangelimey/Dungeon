@@ -43,6 +43,13 @@ constexpr float kStoneLightHeight = 0.15f;
 // and still shed them (the spark pool is shared with everything in flight).
 constexpr float kStoneMoteEvery = 0.4f;
 constexpr int kStoneMoteSquares = 8;
+// TRACKS (6g): how often a stone shows the tracks in its reach, how long a
+// track's mote lasts, how fast it drifts the way its maker went (m/s), and how
+// bright a fresh one is.
+constexpr float kTrackShowEvery = 0.3f;
+constexpr float kTrackMoteLife = 1.3f;
+constexpr float kTrackDrift = 0.12f;
+constexpr float kTrackBright = 0.9f;
 
 // How bright a light is with `timeLeft` of `duration` to go: full, then dimming
 // to kDimFloor over its last tenth.
@@ -158,8 +165,10 @@ void DungeonWorld::LightFlare(SpellSymbol school, float power, int casterIndex) 
 		break;
 	}
 	case SpellSymbol::Earth:
-		// What the light would show, mapped: every square it reaches.
-		MapAroundParty(static_cast<int>(std::ceil(StoneReach(power))));
+		// What the light would show, mapped - every square it reaches - and the
+		// tracks in them, all at once.
+		MapStoneReach(m_party.GridX(), m_party.GridZ(), power);
+		ShowTracks(m_party.GridX(), m_party.GridZ(), power, 1.0f);
 		break;
 	case SpellSymbol::Water: {
 		// Every fire on the party out, and a draught of breath: stamina back.
@@ -353,18 +362,46 @@ float DungeonWorld::StoneReach(float power) const {
 	return LightProfileFor("spell_earth").radius * SpellLightScale(power);
 }
 
-int DungeonWorld::MapAroundParty(int steps) {
-	RefreshReach();
+int DungeonWorld::StoneReachCells(int x, int z, float power, StoneCells& out) const {
 	const int w = m_map.Width(), h = m_map.Height();
-	if (m_reach.size() != static_cast<size_t>(w) * static_cast<size_t>(h)) return 0;
-	int mapped = 0;
-	for (int z = 0; z < h; ++z)
-		for (int x = 0; x < w; ++x)
-			if (m_reach[static_cast<size_t>(z) * w + x] <= steps) {
-				MarkSeen(x, z); // the square and the walls round it
-				++mapped;
-			}
-	return mapped;
+	if (x < 0 || z < 0 || x >= w || z >= h) return 0;
+	const int steps =
+		std::clamp(static_cast<int>(std::ceil(StoneReach(power))), 0, kStoneSteps);
+	// A breadth-first walk in a window round the stone: `out` doubles as the
+	// queue, the window's distances say where the walk has been.
+	constexpr u8 kUnwalked = 0xFF;
+	std::array<u8, kStoneWindow * kStoneWindow> dist;
+	dist.fill(kUnwalked);
+	const auto local = [&](int cx, int cz) {
+		return (cz - z + kStoneSteps) * kStoneWindow + (cx - x + kStoneSteps);
+	};
+	int count = 0;
+	dist[static_cast<size_t>(local(x, z))] = 0;
+	out[static_cast<size_t>(count++)] = z * w + x;
+	for (int head = 0; head < count; ++head) {
+		const int c = out[static_cast<size_t>(head)];
+		const int cx = c % w, cz = c / w;
+		const u8 d = dist[static_cast<size_t>(local(cx, cz))];
+		if (d >= steps) continue;
+		constexpr int kDX[4] = {0, 1, 0, -1}, kDZ[4] = {-1, 0, 1, 0};
+		for (int k = 0; k < 4; ++k) {
+			const int nx = cx + kDX[k], nz = cz + kDZ[k];
+			if (!m_map.IsWalkable(nx, nz)) continue; // also false off the map
+			u8& slot = dist[static_cast<size_t>(local(nx, nz))];
+			if (slot != kUnwalked) continue;
+			slot = static_cast<u8>(d + 1);
+			out[static_cast<size_t>(count++)] = nz * w + nx;
+		}
+	}
+	return count;
+}
+
+int DungeonWorld::MapStoneReach(int x, int z, float power) {
+	StoneCells cells;
+	const int count = StoneReachCells(x, z, power, cells);
+	const int w = m_map.Width();
+	for (int i = 0; i < count; ++i) MarkSeen(cells[i] % w, cells[i] / w); // and the walls round it
+	return count;
 }
 
 void DungeonWorld::PlaceLightStone(float power, float seconds) {
@@ -379,9 +416,9 @@ void DungeonWorld::PlaceLightStone(float power, float seconds) {
 		for (LightStone& s : m_lightStones)
 			if (s.timeLeft < slot->timeLeft) slot = &s;
 	}
-	*slot = {px, pz, power, seconds, seconds, 0.0f};
+	*slot = {px, pz, power, seconds, seconds, 0.0f, 0.0f};
 	// MAPS what it shows: every square its light reaches.
-	MapAroundParty(static_cast<int>(std::ceil(StoneReach(power))));
+	MapStoneReach(px, pz, power);
 	// Set down with a breath of amber dust.
 	const light::Profile& profile = LightProfileFor("spell_earth");
 	const Vec3 at = m_map.CellCenter(px, pz, 0.1f * kUnit);
@@ -396,16 +433,105 @@ void DungeonWorld::TickLightStones(float dt) {
 		if (s.timeLeft <= 0.0f) continue;
 		s.timeLeft = std::max(0.0f, s.timeLeft - dt);
 		if (s.timeLeft <= 0.0f) continue; // spent: the slot is free
-		// The odd mote rising off it, while the party is near enough to see it.
+		// Only while the party is near enough to see it: the odd mote rising off
+		// it, and the tracks within its reach (6g).
 		s.moteClock -= dt;
-		if (s.moteClock > 0.0f) continue;
-		s.moteClock = kStoneMoteEvery;
+		s.trackClock -= dt;
 		if (std::abs(s.x - px) + std::abs(s.z - pz) > kStoneMoteSquares) continue;
 		const float dim = DimFor(s.timeLeft, s.duration);
+		if (s.trackClock <= 0.0f) {
+			s.trackClock = kTrackShowEvery;
+			ShowTracks(s.x, s.z, s.power, dim);
+		}
+		if (s.moteClock > 0.0f) continue;
+		s.moteClock = kStoneMoteEvery;
 		m_projectiles.Puff(m_map.CellCenter(s.x, s.z, 0.08f * kUnit),
 						   {profile.color.x * dim, profile.color.y * dim, profile.color.z * dim, 0.0f},
 						   1, 0.05f, 1.8f, 0.015f * kUnit, 0.12f * kUnit);
 	}
+}
+
+// --- MONSTER TRACKS (6g) ----------------------------------------------------------
+
+void DungeonWorld::FitTracksToMap() {
+	// Sized with the fog mask, at a load or an edit - never in a settled frame.
+	m_tracks.assign(static_cast<size_t>(m_map.Width()) * static_cast<size_t>(m_map.Height()),
+					Track{});
+}
+
+void DungeonWorld::ClearTracks() { std::fill(m_tracks.begin(), m_tracks.end(), Track{}); }
+
+void DungeonWorld::RecordTrack(int x, int z, Direction dir, TrackMaker maker) {
+	const int w = m_map.Width();
+	if (x < 0 || z < 0 || x >= w || z >= m_map.Height()) return;
+	const size_t cell = static_cast<size_t>(z) * static_cast<size_t>(w) + static_cast<size_t>(x);
+	if (cell >= m_tracks.size()) return; // not fitted yet: nothing to write into
+	m_tracks[cell] = {m_trackClock, dir, maker};
+}
+
+float DungeonWorld::TrackAge(const Track& t) const {
+	if (t.maker == TrackMaker::None) return -1.0f;
+	const float age = static_cast<float>(m_trackClock - t.stamp);
+	return age < m_balance.trackLife ? std::max(age, 0.0f) : -1.0f;
+}
+
+void DungeonWorld::ShowTracks(int x, int z, float power, float strength) {
+	if (m_tracks.empty() || m_balance.trackLife <= 0.0f) return;
+	StoneCells cells;
+	const int count = StoneReachCells(x, z, power, cells);
+	const light::Profile& profile = LightProfileFor("spell_earth");
+	const int w = m_map.Width();
+	// A cheap hash for which tracks show this time and where on the square.
+	const auto next = [this] {
+		m_trackSeed = m_trackSeed * 1664525u + 1013904223u;
+		return static_cast<float>(m_trackSeed >> 8) / 16777216.0f; // 0..1
+	};
+	for (int i = 0; i < count; ++i) {
+		const size_t cell = static_cast<size_t>(cells[i]);
+		if (cell >= m_tracks.size()) continue;
+		const Track& t = m_tracks[cell];
+		if (t.maker != TrackMaker::Monster) continue; // the party's own are for later
+		const float age = TrackAge(t);
+		if (age < 0.0f) continue;
+		// Fresher shows more often and brighter; an old one is a rare faint glint.
+		const float fresh = 1.0f - age / m_balance.trackLife;
+		if (next() > strength * (0.3f + 0.7f * fresh)) continue;
+		// A footprint: along the line it walked, a little to one side or the
+		// other, drifting slowly on the way it went.
+		const float fx = static_cast<float>(DirDX(t.dir)), fz = static_cast<float>(DirDZ(t.dir));
+		const float along = (next() - 0.5f) * 0.7f * kCellSize;
+		const float side = (next() < 0.5f ? -0.1f : 0.1f) * kCellSize;
+		const Vec3 c = m_map.CellCenter(static_cast<int>(cell % static_cast<size_t>(w)),
+										static_cast<int>(cell / static_cast<size_t>(w)),
+										0.02f * kUnit);
+		const Vec3 at{c.x + fx * along - fz * side, c.y, c.z + fz * along + fx * side};
+		const float b = kTrackBright * (0.3f + 0.7f * fresh) * strength;
+		if (!m_projectiles.Mote(at, {fx * kTrackDrift, 0.02f, fz * kTrackDrift},
+								{profile.color.x * b, profile.color.y * b, profile.color.z * b, 0.0f},
+								kTrackMoteLife, 0.012f * kUnit))
+			return; // the pool is full: the rest wait for the next showing
+	}
+}
+
+std::vector<std::string> DungeonWorld::DescribeTracks() const {
+	// A readout, not a frame: it may allocate.
+	std::vector<std::pair<float, size_t>> live;
+	for (size_t i = 0; i < m_tracks.size(); ++i)
+		if (const float age = TrackAge(m_tracks[i]); age >= 0.0f) live.emplace_back(age, i);
+	std::sort(live.begin(), live.end());
+	static constexpr const char* kDirNames[] = {"north", "east", "south", "west"};
+	std::vector<std::string> out;
+	out.push_back(std::format("tracks: {} on {} (fading over {:.0f} s, clock {:.1f})",
+							  live.size(), m_currentLevel, m_balance.trackLife, m_trackClock));
+	const size_t w = static_cast<size_t>(std::max(m_map.Width(), 1));
+	for (size_t i = 0; i < live.size() && i < 8; ++i) {
+		const Track& t = m_tracks[live[i].second];
+		out.push_back(std::format("  {},{} going {}  {:.1f} s old  ({})", live[i].second % w,
+								  live[i].second / w, kDirNames[static_cast<int>(t.dir) & 3],
+								  live[i].first,
+								  t.maker == TrackMaker::Party ? "party" : "monster"));
+	}
+	return out;
 }
 
 void DungeonWorld::AppendStoneLights(float time) {

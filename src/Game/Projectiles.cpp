@@ -226,6 +226,19 @@ void ProjectileSystem::Splash(const Vec3& pos, const Vec3& dir, const Vec4& colo
 	}
 }
 
+bool ProjectileSystem::Mote(const Vec3& pos, const Vec3& vel, const Vec4& color, float life,
+							float size) {
+	Spark s;
+	s.pos = pos;
+	s.vel = vel;
+	s.color = {color.x, color.y, color.z, 0.0f}; // additive
+	s.life = life;
+	s.size = size;
+	s.fall = 0.0f;
+	s.trail = true; // the first to go when the pool is full
+	return AddSpark(s);
+}
+
 void ProjectileSystem::Expire(const Item& it, ExpiryCause cause) {
 	if (!onExpire) return;
 	onExpire({it.pos, it.dir, cause, it.target, it.atk, it.payload, it.attacker,

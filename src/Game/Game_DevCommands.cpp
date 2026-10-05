@@ -1371,6 +1371,28 @@ void Game::RegisterDevCommands() {
 						   for (const std::string& line : m_world->DescribeLightStones())
 							   m_console.Print(line);
 					   });
+	// The tracks monsters have left on this level (lighting-updates 6g): how
+	// many still show and the freshest, each with the way its maker went.
+	m_console.Register({.name = "tracks",
+						.group = CmdGroup::Monsters,
+						.params = "[clear]\nadd <x> <z> <n|e|s|w>",
+						.summary = "the tracks monsters have left on this level"},
+					   [this](const std::vector<std::string>& args) {
+						   if (!args.empty() && args[0] == "clear") m_world->ClearTracks();
+						   // A fresh monster track planted by hand, for a frozen test.
+						   if (!args.empty() && args[0] == "add") {
+							   if (!Need(m_console, args, 4)) return;
+							   const std::string& d = args[3];
+							   const Direction dir = d == "e"   ? Direction::East
+													 : d == "s" ? Direction::South
+													 : d == "w" ? Direction::West
+																: Direction::North;
+							   m_world->AddTrack(std::atoi(args[1].c_str()),
+												 std::atoi(args[2].c_str()), dir);
+						   }
+						   for (const std::string& line : m_world->DescribeTracks())
+							   m_console.Print(line);
+					   });
 	// The light budget's measuring tools (lighting-updates Phase 3): a load of
 	// test lights round the party, and the tiled light lists on or off, so the
 	// tiles' saving can be read off `profile snap` in one build.

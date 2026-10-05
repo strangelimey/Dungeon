@@ -284,6 +284,17 @@ struct SaveData {
 		float duration = 0.0f;
 	};
 
+	// A TRACK on a square (lighting-updates 6g): which way its maker went
+	// (Direction), who made it (1 monster, 2 party) and how many seconds old it
+	// is - an AGE, so a load restores it against whatever the clock reads then.
+	// All of a level's ride one "tracks" line, `seen`'s shape.
+	struct TrackState {
+		int x = 0, z = 0;
+		int dir = 0;
+		int maker = 1;
+		float age = 0.0f;
+	};
+
 	struct LevelState {
 		std::string stem;
 		std::vector<std::pair<int, int>> seen;
@@ -293,6 +304,7 @@ struct SaveData {
 		std::vector<FireBurning> fires;    // lit/doused diffs
 		std::vector<DamagedPiece> damaged; // hurt but standing (hp + effects)
 		std::vector<LightStone> stones;    // Earth lights set down
+		std::vector<TrackState> tracks;    // monster tracks not yet faded
 	};
 	// One entry per VISITED level, keyed by STEM.
 	//

@@ -762,6 +762,12 @@ public:
 	// clearing them all.
 	std::vector<std::string> DescribeLightStones() const;
 	void ClearLightStones() { m_lightStones = {}; }
+	// The monster tracks on this level (6g): how many still show, and the
+	// freshest few (the `tracks` readout); and wiping them.
+	std::vector<std::string> DescribeTracks() const;
+	void ClearTracks();
+	// A fresh monster track on (x, z) going `dir` (the `tracks add` command).
+	void AddTrack(int x, int z, Direction dir) { RecordTrack(x, z, dir, TrackMaker::Monster); }
 	// What stamina regenerates at right now beyond its own rate: 1, or more in a
 	// Tidelight (it SOOTHES) - for the `regen` readout.
 	float StaminaRegenScale() const { return StaminaSoothe(); }
@@ -4015,7 +4021,8 @@ private:
 		float power = 0.0f;
 		float timeLeft = 0.0f;
 		float duration = 0.0f;
-		float moteClock = 0.0f; // the next mote off it (not saved)
+		float moteClock = 0.0f;  // the next mote off it (not saved)
+		float trackClock = 0.0f; // the next showing of the tracks round it (not saved)
 	};
 	static constexpr size_t kLightStones = 8;
 	std::array<LightStone, kLightStones> m_lightStones{};
@@ -4028,12 +4035,44 @@ private:
 	void AppendStoneLights(float time);
 	// The stones themselves, as `stone_item`'s model glowing (Render).
 	void DrawLightStones(ID3D12GraphicsCommandList* list, const ViewCull* cull);
-	// MAPS what it shows: every square within `steps` walking steps of the
-	// party (the light budget's reach map, so a wall stops it) marked seen,
-	// with the walls round them.
-	int MapAroundParty(int steps);
 	// How far, in squares, an Earth light of `power` reaches.
 	float StoneReach(float power) const;
+	// THE SQUARES AN EARTH LIGHT REACHES from (x, z) at `power`: every one within
+	// its reach in WALKING steps (so a wall stops it), as map cell indices into
+	// `out`, walked in a fixed window round the stone (no allocation; the reach
+	// is cut at kStoneSteps). Returns how many.
+	static constexpr int kStoneSteps = 8;
+	static constexpr int kStoneWindow = 2 * kStoneSteps + 1;
+	using StoneCells = std::array<int, kStoneWindow * kStoneWindow>;
+	int StoneReachCells(int x, int z, float power, StoneCells& out) const;
+	// MAPS what it shows: those squares marked seen, with the walls round them.
+	int MapStoneReach(int x, int z, float power);
+
+	// MONSTER TRACKS (lighting-updates 6g): every monster step marks the square it
+	// steps onto with the world's track clock, the way it was going and who made
+	// it, fading over balance.cat `track_life`. One cell per square, sized with
+	// the fog mask (FitTracksToMap), so writing one never allocates. Saved per
+	// level as AGES (a `tracks` line), so a load restores how old each was; a
+	// level left behind keeps its tracks as they were, like its stones.
+	// FOR LATER (Michael): the PARTY leaving tracks, scent and noise that some
+	// monsters can follow - `maker` is there so the party can write here too.
+	enum class TrackMaker : u8 { None, Monster, Party };
+	struct Track {
+		double stamp = 0.0; // m_trackClock when it was made
+		Direction dir = Direction::North;
+		TrackMaker maker = TrackMaker::None;
+	};
+	std::vector<Track> m_tracks;
+	double m_trackClock = 0.0; // simulated seconds, advanced in Update
+	u32 m_trackSeed = 0x9E3779B9u;
+	void FitTracksToMap();
+	void RecordTrack(int x, int z, Direction dir, TrackMaker maker);
+	// Seconds since the track was made; < 0 for none, or one already faded.
+	float TrackAge(const Track& t) const;
+	// Shows the tracks within an Earth light's reach from (x, z): a faint amber
+	// mote on each, drifting the way its maker went, fewer and dimmer as the
+	// track ages. `strength` 0..1 scales how many (a stone's dimming).
+	void ShowTracks(int x, int z, float power, float strength);
 	// Where a lit floor item's flame burns (its model's head, as it lies).
 	Vec3 FloorTorchHead(const Item& item) const;
 	// THE TORCH FLAMES: a lit torch on the floor or in flight burns with a

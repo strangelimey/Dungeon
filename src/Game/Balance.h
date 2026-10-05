@@ -258,6 +258,10 @@ struct Balance {
 	// lands on it: it burns ignite_burn a second for ignite_seconds.
 	float igniteBurn = 2.0f;
 	float igniteSeconds = 6.0f;
+	// How long a TRACK lasts (lighting-updates 6g): seconds after a monster
+	// stepped on a square before its track has faded away (an Earth stone shows
+	// the ones within its reach).
+	float trackLife = 300.0f;
 	// Stamina costs + exhaustion (docs/combat.md Phase 4). A swing spends
 	// (stamina_swing + stamina_weight × weapon kg) × attack.stam; a step
 	// spends stamina_step per standing member. Regen is the resource model

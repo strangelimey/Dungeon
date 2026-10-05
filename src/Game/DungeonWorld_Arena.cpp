@@ -147,6 +147,7 @@ bool DungeonWorld::BuildArena(ArenaShape shape, int w, int h, ArenaInfo& out) {
 	// The whole arena revealed: fog is a PLAYER concern, and an eval that could
 	// not see what it built would be reading a blank map overlay.
 	m_seen.assign(static_cast<size_t>(W) * H, 0);
+	FitTracksToMap(); // the track grid is parallel to the cells too (6g)
 	for (int z = out.z0; z <= out.z1; ++z)
 		for (int x = out.x0; x <= out.x1; ++x) MarkSeen(x, z);
 	MarkSeen(out.cx, out.cz);

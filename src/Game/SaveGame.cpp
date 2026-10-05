@@ -9,6 +9,7 @@
 #include "Game/Entity.h" // ReadLevelLines, SplitRecordTokens
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
@@ -356,6 +357,13 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 		for (const SaveData::LightStone& s : lvl.stones)
 			t += std::format("lightstone {} {} {:.3f} {:.3f} {:.3f}\n", s.x, s.z, s.power,
 							 s.timeLeft, s.duration);
+		// Monster tracks not yet faded: x,z,dir,maker,age each.
+		if (!lvl.tracks.empty()) {
+			t += "tracks";
+			for (const SaveData::TrackState& tr : lvl.tracks)
+				t += std::format(" {},{},{},{},{:.1f}", tr.x, tr.z, tr.dir, tr.maker, tr.age);
+			t += '\n';
+		}
 		if (!lvl.seen.empty()) {
 			t += "seen";
 			for (const auto& [x, z] : lvl.seen) t += std::format(" {},{}", x, z);
@@ -751,6 +759,26 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			s.timeLeft = FloatOf(tok[4]);
 			s.duration = FloatOf(tok[5]);
 			currentBlock().stones.push_back(s);
+		} else if (kw == "tracks") {
+			// Monster tracks: x,z,dir,maker,age per token; a malformed one skipped.
+			SaveData::LevelState& lvl = currentBlock();
+			for (size_t i = 1; i < tok.size(); ++i) {
+				std::array<std::string_view, 5> part{};
+				std::string_view rest = tok[i];
+				size_t n = 0;
+				for (; n < part.size(); ++n) {
+					const size_t comma = rest.find(',');
+					part[n] = rest.substr(0, comma);
+					if (comma == std::string_view::npos) {
+						++n;
+						break;
+					}
+					rest = rest.substr(comma + 1);
+				}
+				if (n != part.size()) continue;
+				lvl.tracks.push_back({IntOf(part[0]), IntOf(part[1]), IntOf(part[2]),
+									  IntOf(part[3]), FloatOf(part[4])});
+			}
 		} else if (kw == "seen") {
 			SaveData::LevelState& lvl = currentBlock();
 			for (size_t i = 1; i < tok.size(); ++i) {

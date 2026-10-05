@@ -111,6 +111,9 @@ torch_light_mana = 5
 ; lands: it burns ignite_burn a second for ignite_seconds.
 ignite_burn = 2
 ignite_seconds = 6
+; A monster's TRACK on a square fades over track_life seconds (an Earth
+; light shows the ones within its reach).
+track_life = 300
 stamina_swing = 1
 stamina_weight = 0.4
 stamina_step = 0.1

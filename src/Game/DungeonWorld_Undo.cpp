@@ -95,6 +95,7 @@ void DungeonWorld::RestoreEditorState(EditorSnapshot snap) {
 	if (const size_t cells = static_cast<size_t>(m_map.Width()) * m_map.Height();
 		m_seen.size() != cells)
 		m_seen.assign(cells, 0);
+	if (m_tracks.size() != m_seen.size()) FitTracksToMap(); // the tracks too (6g)
 
 	// Dynamic layer: respawn from the records, then apply the captured live
 	// diffs — the same flow a level re-entry uses (editor-placed monsters ride

@@ -1505,6 +1505,15 @@ void DungeonWorld::OnFallImpact() {
 // snap the instant the step commits (so occupancy is atomic, like the party),
 // while visualPos glides from where it stood over moveInterval.
 void DungeonWorld::StepMonsterTo(Monster& monster, int x, int z, int slot) {
+	// It leaves a TRACK on the square it steps onto, the way it went (6g). A
+	// shuffle between slots in its own square leaves none.
+	if (x != monster.x || z != monster.z) {
+		const int dx = x - monster.x, dz = z - monster.z;
+		const Direction way = std::abs(dx) >= std::abs(dz)
+								  ? (dx > 0 ? Direction::East : Direction::West)
+								  : (dz > 0 ? Direction::South : Direction::North);
+		RecordTrack(x, z, way, TrackMaker::Monster);
+	}
 	monster.moveFrom = monster.visualPos;
 	monster.x = x;
 	monster.z = z;

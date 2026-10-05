@@ -416,6 +416,31 @@ committed and checked on its own:
   shows the tracks within its reach as faint amber motes low on the floor.
   FOR LATER (Michael): the PARTY leaving tracks, scent and noise that some
   monsters can follow - the grid is built so the party can write to it too.
+  DONE: `m_tracks`, one cell per square (sized with the fog mask by
+  FitTracksToMap at every one of its five sites, so a step never allocates):
+  the track clock's time (`m_trackClock`, simulated seconds), the way it went
+  and its MAKER (Monster now; Party is there for later). Written in
+  StepMonsterTo, the one place a monster's step commits, onto the square it
+  steps to; a slot shuffle in its own square leaves none. Fades over balance.cat
+  `track_life` 300 s. SAVED per level as ages: one `tracks x,z,dir,maker,age
+  ...` line (`seen`'s shape), captured in SnapshotActive, restored against the
+  clock in ApplyActiveSnapshot, cleared for a new game. SHOWN by a stone every
+  0.3 s while the party is within 8 squares: for each track in its reach (now a
+  walk in a fixed 17x17 window round the STONE - StoneReachCells - which also
+  does the mapping, replacing the party-centred reach map), a faint amber
+  ProjectileSystem::Mote at a footprint - along the line it walked, a little to
+  one side - drifting the way it went, fewer and dimmer as it ages. A mote is
+  TRAIL-flagged, the first thing the pool gives up. The Earth flare shows every
+  track in its reach at once. Dev `tracks [clear] | add <x> <z> <n|e|s|w>`.
+  Measured headless: a skeleton walking to the party left 4 tracks going east;
+  they came back a second older after save -> reset -> load, and unchanged
+  from crypt2. Seen in the window: a double row of amber footprints from the
+  party to the skeleton that made them. Checked: AllocTest `-Light` plants three
+  tracks in the stone's reach and refuses a PASS without track motes in the pool
+  (mutation-checked: ShowTracks cut -> "0 motes", UNMEASURED); default, -Walk,
+  -Cast, -Impact (one run measured only 304 frames and exited without its
+  closing line; two reruns PASS); SpellTest 39, PipelineTest, RollTest 396,
+  EditorTest; release builds.
 
 - Content: spells.cat (4 lights + their Ingwaz and Hagalaz forms), effects.cat
   `light`, lights.cat `spell_<school>`, `spell.<id>` + `.desc` and the rune's

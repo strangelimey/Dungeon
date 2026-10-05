@@ -308,6 +308,11 @@ public:
 	// (no swell) - what water does, where a Puff is what smoke and flame do.
 	void Splash(const Vec3& pos, const Vec3& dir, const Vec4& color, int count, float speed,
 				float life, float size);
+	// ONE quiet MOTE at `pos`, drifting at `vel` (no pull either way) and fading
+	// over `life` seconds: a monster's track shown by an Earth stone. Decoration
+	// only, so it is the first thing the pool gives up, like a trail's sparks.
+	// False when there was no room for it.
+	bool Mote(const Vec3& pos, const Vec3& vel, const Vec4& color, float life, float size);
 	// Every thrown item in flight, for the host to draw as itself (and a lit
 	// one's flame): fn(id, pos, dir, secondsInFlight, cargo, cargoCharge).
 	template <typename Fn> void ForEachCargo(Fn&& fn) const {

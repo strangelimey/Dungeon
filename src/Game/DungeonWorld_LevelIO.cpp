@@ -70,6 +70,7 @@ void DungeonWorld::BeginLevelLoad(const std::string& stem, bool stashCurrent) {
 	// push_back); the surface chunks/blocks/textures self-reset when the caller
 	// re-runs AppendLoadTasks.
 	m_seen.assign(static_cast<size_t>(m_map.Width()) * m_map.Height(), 0);
+	FitTracksToMap(); // the track grid is parallel to the cells too (6g)
 	m_monsters.clear(); // new monsters get fresh runtimeIds; stale plans find no match
 	m_walkableCache.reset(); // force a fresh walkability grid for the new level's map
 	m_items.clear();

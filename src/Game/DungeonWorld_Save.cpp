@@ -75,6 +75,7 @@ void DungeonWorld::ResetForNewGame() {
 	m_projectiles.Clear(); // drop any bolts/sparks still in flight from a prior run
 	m_pendingBoltCount = 0; // and any volley still waiting its turn
 	m_lightStones = {};     // and any Earth light set down (a level's own state)
+	ClearTracks();          // and the tracks monsters left (6g)
 	// Rebuild items from the .ent baseline so runes return to their spawn cells
 	// (and any dropped tablets from a prior session are forgotten).
 	m_items.clear();
@@ -320,6 +321,16 @@ SaveData::LevelState DungeonWorld::SnapshotActive() const {
 	// Earth lights set down (6f): each still burning, with what it has left.
 	for (const LightStone& s : m_lightStones)
 		if (s.timeLeft > 0.0f) ls.stones.push_back({s.x, s.z, s.power, s.timeLeft, s.duration});
+	// Monster tracks not yet faded (6g), as AGES against the clock now.
+	const int w = std::max(m_map.Width(), 1);
+	for (size_t i = 0; i < m_tracks.size(); ++i) {
+		const Track& t = m_tracks[i];
+		const float age = TrackAge(t);
+		if (age < 0.0f) continue;
+		ls.tracks.push_back({static_cast<int>(i % static_cast<size_t>(w)),
+							 static_cast<int>(i / static_cast<size_t>(w)), static_cast<int>(t.dir),
+							 static_cast<int>(t.maker), age});
+	}
 	return ls;
 }
 
@@ -473,7 +484,20 @@ void DungeonWorld::ApplyActiveSnapshot() {
 	for (const SaveData::LightStone& s : ls.stones) {
 		if (stoneSlot >= m_lightStones.size() || s.timeLeft <= 0.0f) continue;
 		if (s.x < 0 || s.z < 0 || s.x >= m_map.Width() || s.z >= m_map.Height()) continue;
-		m_lightStones[stoneSlot++] = {s.x, s.z, s.power, s.timeLeft, s.duration, 0.0f};
+		m_lightStones[stoneSlot++] = {s.x, s.z, s.power, s.timeLeft, s.duration, 0.0f, 0.0f};
+	}
+	// Monster tracks (6g), each as old as it was when the level was left or
+	// saved. One off the map, or naming no maker this build knows, is dropped.
+	ClearTracks();
+	for (const SaveData::TrackState& t : ls.tracks) {
+		if (t.maker < static_cast<int>(TrackMaker::Monster) ||
+			t.maker > static_cast<int>(TrackMaker::Party) || t.dir < 0 || t.dir > 3)
+			continue;
+		RecordTrack(t.x, t.z, static_cast<Direction>(t.dir), static_cast<TrackMaker>(t.maker));
+		const size_t cell = static_cast<size_t>(t.z) * static_cast<size_t>(m_map.Width()) +
+							static_cast<size_t>(t.x);
+		if (t.x >= 0 && t.z >= 0 && t.x < m_map.Width() && cell < m_tracks.size())
+			m_tracks[cell].stamp = m_trackClock - static_cast<double>(t.age);
 	}
 	// Re-break what was broken (v24). A saved entry naming a prop this level no
 	// longer has is simply dropped — the level was edited under the save, and a

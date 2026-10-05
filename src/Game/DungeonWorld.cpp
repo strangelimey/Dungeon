@@ -174,6 +174,7 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	// Fog of war: nothing revealed until the party stands somewhere. Seed the
 	// start cell so the map isn't blank the moment it opens.
 	m_seen.assign(static_cast<size_t>(m_map.Width()) * m_map.Height(), 0);
+	FitTracksToMap(); // the track grid is parallel to the cells too (6g)
 	MarkSeen(m_party.GridX(), m_party.GridZ());
 
 	// The unlit ambient fill (kBaseAmbient above); the dev console's
@@ -499,6 +500,7 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 	TickHandGlows(dt);        // a hand spell's puff of light fading
 	TickSpellLights(dt);      // what the Sowilo lights do: kindle, scorch, ...
 	TickLightStones(dt);      // ...and the Earth stones set down on this level
+	m_trackClock += dt;       // the clock monster tracks age by (6g)
 	// The camera FIRST: the light budget culls against this frame's view, and
 	// a cull against last frame's would drop a light the turn just revealed.
 	UpdateCamera();

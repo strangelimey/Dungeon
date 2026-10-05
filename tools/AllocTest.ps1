@@ -1157,7 +1157,8 @@ try {
 	# a Hagalaz Firelight FLARE at a mummy beside the party (the flash, the dazzle
 	# landing on a monster, Firelight's scorch and the flammable mummy catching),
 	# and a Stonelight (6f: the stone SET DOWN, replacing the last in its square,
-	# and the squares it reaches mapped).
+	# and the squares it reaches mapped; 6g: the monster tracks in its reach
+	# shown - three planted up the doorway, since a frozen world walks none).
 	# The world is frozen, so the mummy only stands there.
 	if ($Light) {
 		Write-Host 'casting the light spells in crypt1, a mummy beside the party'
@@ -1171,6 +1172,8 @@ try {
 		# Beside the party, so Firelight's scorch (and the mummy catching fire) lands in
 		# the window too; tough enough (x400) to outlive it.
 		Send-Text 'spawn mummy 7 6 s 400'; Send-Key 0x0D
+		Send-Text 'tracks clear'; Send-Key 0x0D
+		foreach ($z in 4, 5, 6) { Send-Text "tracks add 7 $z s"; Send-Key 0x0D }
 		foreach ($m in 0, 1, 2, 3) {
 			foreach ($s in 'fire', 'water', 'air', 'earth', 'light', 'multiple', 'explode') {
 				Send-Text "learn $m $s"; Send-Key 0x0D
@@ -1802,7 +1805,13 @@ try {
 		$castPattern = 'console:   member \d+ casts \S+: \d+ cast, \d+ failed'
 		$castBefore = @(Select-String -Path $log -Pattern $castPattern).Count
 		$monBefore = @(Select-String -Path $log -Pattern 'console:   mummy @').Count
+		$tracksBefore = @(Select-String -Path $log -Pattern 'console: tracks: \d+ on').Count
+		$trailsBefore = @(Select-String -Path $log -Pattern 'console: trails: ').Count
 		Send-Text 'autocast'; Send-Key 0x0D
+		Send-Text 'tracks'; Send-Key 0x0D
+		# Nothing flies in this mode, so the spark pool's TRAIL motes are the
+		# tracks the stone is showing.
+		Send-Text 'trails'; Send-Key 0x0D
 		Send-Text 'monsters'; Send-Key 0x0D
 		Wait-ConsoleDone
 		Send-Text 'logecho off'; Send-Key 0x0D
@@ -1818,7 +1827,13 @@ try {
 			if ($now - $was -lt 3) { $short += ($after[$i].Line -replace '^.*casts (\S+):.*$', '$1') }
 		}
 		Write-Host "  the mummy: $mummy"
-		if (($short.Count -gt 0 -or $after.Count -ne 5 -or $mummy -notmatch '\[dazzle ') -and $result -eq 'PASS') {
+		$trackLine = @(Select-String -Path $log -Pattern 'console: tracks: \d+ on') | Select-Object -Skip $tracksBefore -First 1
+		$trackCount = if ($trackLine -and $trackLine.Line -match 'tracks: (\d+) on') { [int]$Matches[1] } else { 0 }
+		$trailLine = @(Select-String -Path $log -Pattern 'console: trails: ') | Select-Object -Skip $trailsBefore -First 1
+		$trackMotes = if ($trailLine -and $trailLine.Line -match '(\d+) of them trail') { [int]$Matches[1] } else { 0 }
+		Write-Host "  monster tracks in the stone's reach: $trackCount, $trackMotes motes showing them"
+		if (($short.Count -gt 0 -or $after.Count -ne 5 -or $mummy -notmatch '\[dazzle ' -or $trackCount -lt 3 -or $trackMotes -lt 1) -and $result -eq 'PASS') {
+			if ($trackCount -lt 3 -or $trackMotes -lt 1) { Write-Host 'the stone showed no tracks - ShowTracks was not measured' -ForegroundColor Yellow }
 			if ($short.Count -gt 0) { Write-Host "too few casts after the warm-up: $($short -join ', ')" -ForegroundColor Yellow }
 			if ($mummy -notmatch '\[dazzle ') { Write-Host 'the flare dazzled nothing - its monster path was not measured' -ForegroundColor Yellow }
 			$result = 'UNMEASURED'
