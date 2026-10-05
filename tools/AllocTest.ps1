@@ -787,7 +787,6 @@ try {
 	# tools\InGameTest.ps1 learned the same thing; this is the same answer: open
 	# the console once, retry a harmless command until the log echoes it, then
 	# shut it so everything below starts from a closed console as before.
-	# (`$answered`, not `$ready`: -Melee reads the party's cell off $ready.)
 	Start-Sleep -Seconds 2
 	Send-Key 0xC0
 	Start-Sleep -Milliseconds 500
@@ -855,14 +854,23 @@ try {
 	}
 
 	if ($Melee) {
-		if ($ready -notmatch 'Level ready: \S+ at (\d+),(\d+)') {
-			throw 'the new game did not open in a level - there is no party cell to fight beside'
-		}
-		$px = [int]$Matches[1]; $pz = [int]$Matches[2]
-		Write-Host "putting a $MeleeMonster (x$MeleeStrength) beside the party at $px,$pz"
+		# ASK THE GAME where the party stands (`pos`), never parse it off the load
+		# line: which line a new game ends on depends on the path it took. The
+		# console `newgame` (c8c28aa) logs 'New game started in <dungeon> (<level>
+		# at X,Z)' and never 'Level ready:', so a regex on $ready found no cell and
+		# -Melee died in setup on every run. `pos` answers on every path.
 		Send-Key 0xC0
 		Start-Sleep -Milliseconds 500
 		Send-Text 'logecho on'; Send-Key 0x0D
+		$posPattern = 'console: (\d+),(\d+) facing (north|east|south|west)$'
+		$posBefore = @(Select-String -Path $log -Pattern $posPattern -EA SilentlyContinue).Count
+		Send-Text 'pos'; Send-Key 0x0D
+		$posLine = Wait-NewLogLines $posPattern $posBefore
+		if ($posLine.Count -eq 0 -or $posLine[-1].Line -notmatch $posPattern) {
+			throw 'the console never answered `pos` - there is no party cell to fight beside'
+		}
+		$px = [int]$Matches[1]; $pz = [int]$Matches[2]
+		Write-Host "putting a $MeleeMonster (x$MeleeStrength) beside the party at $px,$pz"
 		# The first orthogonal neighbour `spawn` accepts (it refuses a wall or a
 		# taken cell, and says so) - no cell of any one level is hardcoded. It is
 		# spawned FACING the party (+z is south), as arena.eval does.
