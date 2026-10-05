@@ -1,7 +1,8 @@
 // ============================================================================
 // RuneBaker.cpp — rune-item assets (the carved-stone tablets the party finds).
 //
-// One shared tablet MODEL plus four per-element TEXTURE sets and four ICONS:
+// One shared tablet MODEL plus a TEXTURE set and an ICON per rune (ten: the four
+// schools, the four forms, the two modifiers):
 //   * rune_tablet.gltf — a small standing stone slab. Only the broad front and
 //     back faces carry the carved-rune UVs (full 0..1); the thin edges take the
 //     plain stone strips round the texture's border, so the glyph shows once on
@@ -17,7 +18,8 @@
 // Glyph → symbol: Fire=Kenaz, Water=Laguz, Air=Ansuz, Earth=Berkano; the shared
 // tier-2 form runes follow — Project=Tiwaz (the arrow: "throw it ahead"),
 // Protect=Algiz (the warding stave: raised arms), Sight=Dagaz; then the
-// third-tier modifiers, Multiple=Ingwaz and Explode=Hagalaz. Each is a short list of
+// third-tier modifiers, Multiple=Ingwaz and Explode=Hagalaz, and the last form
+// added, Light=Sowilo (the sun). Each is a short list of
 // straight strokes (Elder Futhark is all straight lines), shared by the tablet
 // textures and the icons. Purely deterministic.
 // ============================================================================
@@ -60,7 +62,7 @@ struct RuneSpec {
 // Coordinates picked to read as the named Futhark rune at a glance.
 // tools/BuildRuneIcons.py draws the icons of the runes with no hand-made one
 // from the SAME strokes - keep the two tables in step.
-const std::array<RuneSpec, 9> kRunes = {{
+const std::array<RuneSpec, 10> kRunes = {{
 	// Fire — Kenaz "<" (beacon/torch).
 	{"fire", {0.55f, 0.42f, 0.36f}, {0.95f, 0.45f, 0.18f},
 	 {{0.58f, 0.84f, 0.40f, 0.50f}, {0.40f, 0.50f, 0.58f, 0.16f}}},
@@ -110,6 +112,12 @@ const std::array<RuneSpec, 9> kRunes = {{
 	 {{0.34f, 0.14f, 0.34f, 0.86f},
 	  {0.66f, 0.14f, 0.66f, 0.86f},
 	  {0.34f, 0.64f, 0.66f, 0.40f}}},
+	// Light (shared tier-2 form, lighting-updates Phase 6) - Sowilo: the sun, a
+	// three-stroke zig-zag like a lightning flash. The forms' stone + gold.
+	{"light", {0.48f, 0.47f, 0.44f}, {0.92f, 0.76f, 0.30f},
+	 {{0.62f, 0.86f, 0.36f, 0.58f},
+	  {0.36f, 0.58f, 0.64f, 0.42f},
+	  {0.64f, 0.42f, 0.38f, 0.14f}}},
 }};
 
 // Distance from point (px,py) to segment (a→b), all in uv space.
@@ -460,7 +468,7 @@ bool BakeRunes(const std::string& assetsDir) {
 	// its end.
 	const float offsets[kRunes.size()][2] = {
 		{0.0f, 0.0f},   {0.5f, 0.13f},  {0.21f, 0.57f}, {0.63f, 0.38f}, {0.34f, 0.81f},
-		{0.77f, 0.66f}, {0.09f, 0.29f}, {0.45f, 0.49f}, {0.88f, 0.17f}};
+		{0.77f, 0.66f}, {0.09f, 0.29f}, {0.45f, 0.49f}, {0.88f, 0.17f}, {0.27f, 0.93f}};
 	for (const RuneSpec& r : kRunes) {
 		ok &= BakeRuneTextureSet(textures, r, seed, stone, offsets[e][0], offsets[e][1]);
 		seed += 31u;

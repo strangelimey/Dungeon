@@ -7,7 +7,8 @@
 // every state - opens it upward so the player can scroll back through history
 // (aging freezes while open so messages stay readable), and closes it again.
 // Hovering does nothing (Michael, ui-updates: an expand on hover got in the
-// way). Each message holds at full opacity, then fades over a few seconds;
+// way). Rest and Help sit beside it in the same corner row (cornerButtons).
+// Each message holds at full opacity, then fades over a few seconds;
 // once every message has faded and the history is closed, the footer fades
 // out and leaves the button alone. A new line (AddLine) fades the footer back
 // in automatically.
@@ -39,6 +40,7 @@
 #include "UI/UIContext.h"
 #include "UI/Widget.h"
 
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -72,6 +74,20 @@ public:
 	// table, so the owner localizes it).
 	std::string restoreLabel = "Log";
 
+	// THE CORNER ROW (lighting-updates Phase 1): more buttons to the right of
+	// the Log button, drawn and hit like it in every state - Rest and Help moved
+	// here when the HUD's Options panel went. Both captions are built when the
+	// button is added, and `alt` picks between them, so a label that follows the
+	// world (Rest / Wake) changes without building a string. Added once, while
+	// the HUD is built; never resized after.
+	struct CornerButton {
+		std::string label;
+		std::string altLabel; // shown while `alt`; empty = `label` always
+		std::function<void()> onClick;
+		bool alt = false;
+	};
+	std::vector<CornerButton> cornerButtons;
+
 private:
 	struct Msg {
 		loc::Line text;            // inline, so a slot never reaches the heap
@@ -82,7 +98,12 @@ private:
 	static constexpr size_t kMaxLines = 200; // ring capacity = history depth
 
 	gfx::Rect FooterRect(ui::UIContext& ctx) const;  // animated, bottom-anchored
-	gfx::Rect RestoreRect(ui::UIContext& ctx) const; // the Log button, bottom-left
+	// Button `i` of the corner row: 0 = the Log button, then cornerButtons[i - 1],
+	// left to right. CornerRow is the rect round all of them.
+	gfx::Rect CornerRect(ui::UIContext& ctx, size_t i) const;
+	gfx::Rect CornerRow(ui::UIContext& ctx) const;
+	size_t CornerCount() const { return 1 + cornerButtons.size(); }
+	const std::string& CornerLabel(size_t i) const;
 	float MsgAlpha(const Msg& msg) const;            // per-message fade [0,1]
 	// Faded out: only the restore button is live, and it is what `bounds` holds.
 	bool Dormant() const { return m_chromeAlpha < 0.5f && !m_expanded; }
@@ -107,7 +128,7 @@ private:
 	float m_scroll = 0.0f;       // lines scrolled back (0 = newest)
 
 	bool m_expanded = false;     // the history is open (toggled by the Log button)
-	bool m_restoreHot = false;   // pointer over the Log button this frame
+	int m_hot = -1;              // corner button under the pointer this frame (-1 none)
 };
 
 } // namespace dungeon::game

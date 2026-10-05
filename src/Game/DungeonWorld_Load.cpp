@@ -14,6 +14,7 @@
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
 #include "Game/DungeonMeshBuilder.h"
+#include "Game/Effect/LightEffect.h"
 #include "Game/Liquid.h"
 
 #include <algorithm>
@@ -703,6 +704,7 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 			if (assets->archetype == ai::Archetype::Caster && assets->spell.empty())
 				log::Warn("monsters.cat [{}]: archetype=caster but no spell= set", type);
 			assets->facesTarget = def->GetBool("faces", true);
+			assets->flammable = def->GetBool("flammable", false);
 			assets->fallbackRoughness = def->GetFloat("roughness", 0.9f);
 			// Imported-model fixups (degrees in the catalog -> radians here).
 			assets->modelYaw = def->GetFloat("modelyaw", 0.0f) * (kPi / 180.0f);
@@ -1279,6 +1281,8 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		kind->litAs = CatalogGet(def, "lit_as", "");
 		kind->unlitAs = CatalogGet(def, "unlit_as", "");
 		kind->spentAs = CatalogGet(def, "spent_as", "");
+		kind->light = CatalogGet(def, "light", kind->Lit() ? "torch" : "");
+		kind->trail = CatalogGet(def, "trail", "");
 		// What a Splash turns it into: a container one fill level up.
 		kind->fillAs = CatalogGet(def, "fill_as", "");
 		// What its blows leave behind, named by effect id — the same authored
@@ -1642,12 +1646,11 @@ bool DungeonWorld::DropItemAt(const std::string& typeId, float mx, float my,
 }
 
 void DungeonWorld::PlaceDrop(const Item& placed) {
-	// Anything LIT that comes to rest on the floor goes out (Michael: "placed
-	// on the floor, it is put out") - every floor placement comes through here,
-	// so this is the one place that rule lives. It keeps its charge.
-	Item item = placed;
-	if (item.kind && item.kind->Lit() && !item.kind->unlitAs.empty())
-		item.kind = &ItemKindFor(item.kind->unlitAs);
+	// Anything LIT that comes to rest on the floor STAYS lit now (Michael,
+	// 2026-10-03, lighting-updates Phase 4 - it used to go out here): it burns
+	// on where it lies (TickFloorTorches) and lights its square. A pack is
+	// still where a torch goes out.
+	const Item& item = placed;
 	for (Item& dead : m_items)
 		if (dead.id < 0 && dead.collected) {
 			dead = item;
@@ -1670,6 +1673,12 @@ void DungeonWorld::ReserveDropRoom() {
 
 void DungeonWorld::PreloadItemKinds() {
 	for (const CatalogEntry* def : m_project.AllItems()) ItemKindFor(def->id);
+	// What an Earth light's stone draws as, found once here: looking a kind up
+	// by name builds a string, and the stones draw every frame.
+	m_stoneKind = nullptr;
+	if (const fx::LightEffect* light = SpellLightKind();
+		light && m_project.HasItem(light->StoneItem()))
+		m_stoneKind = &ItemKindFor(std::string(light->StoneItem()));
 }
 
 // Floor items occupy the Medium 2x2 quarter grid (up to 4 per cell). Pick the
@@ -1979,6 +1988,7 @@ DungeonWorld::FixtureKind& DungeonWorld::FixtureKindFor(const std::string& type)
 		kind->id = type;
 		kind->wallMount = CatalogGet(def, "mount", "floor") == "wall";
 		kind->flameless = !CatalogBool(def, "flame", true);
+		kind->light = CatalogGet(def, "light", kind->wallMount ? "fire_sconce" : "fire_brazier");
 		// Breakability, opt-in and OFF by default like every other kind: a torch
 		// bracket can be knocked off a wall, a heavy iron brazier takes rather more,
 		// and an empty one authored without the field cannot be touched at all.
@@ -2138,6 +2148,9 @@ DungeonWorld::WallMount DungeonWorld::MountOnWall(int x, int z, Direction wall) 
 
 void DungeonWorld::BuildFires() {
 	u32 seed = 1234;
+	// A fire's light is keyed by its index here, so a rebuilt list (a level
+	// change, an edit) starts the budget fades afresh.
+	ClearLightFades();
 
 	for (const WallSconce& sconce : m_map.Sconces()) {
 		const FixtureKind& kind = FixtureKindFor(sconce.type);
@@ -2154,6 +2167,7 @@ void DungeonWorld::BuildFires() {
 		fire.wall = static_cast<int>(sconce.wall);
 		fire.empty = sconce.empty;
 		fire.lightRadius = sconce.brightness * kCellSize; // "squares" -> metres
+		fire.flameColor = sconce.flameColor;
 		const float fs = kind.modelScale; // fixtures.cat `scale`
 		XMStoreFloat4x4(&fire.world, UnitScale(fs) * XMMatrixRotationY(yaw) *
 										 XMMatrixTranslation(m.pos.x, 0, m.pos.z));
@@ -2165,6 +2179,7 @@ void DungeonWorld::BuildFires() {
 						 m.pos.z + std::cos(yaw) * kind.flame.out * kUnit * fs};
 		fire.phase = static_cast<float>(seed) * 1.7f;
 		fire.effect = FireEffect(fire.flamePos, kind.flame.scale * fs, seed++);
+		fire.effect.SetFlameColor(fire.flameColor, HasFlameColor(fire.flameColor));
 		fx::ReserveEffects(fire.effects); // a douse lands its smoke here mid-play
 		m_fires.push_back(std::move(fire));
 	}
@@ -2179,12 +2194,14 @@ void DungeonWorld::BuildFires() {
 		fire.x = b.x;
 		fire.z = b.z;
 		fire.lightRadius = b.brightness * kCellSize; // "squares" -> metres
+		fire.flameColor = b.flameColor;
 		const float fs = kind.modelScale; // fixtures.cat `scale`
 		XMStoreFloat4x4(&fire.world,
 						UnitScale(fs) * XMMatrixTranslation(center.x, 0, center.z));
 		fire.flamePos = {center.x, kind.flame.height * kUnit * fs, center.z};
 		fire.phase = static_cast<float>(seed) * 1.7f;
 		fire.effect = FireEffect(fire.flamePos, kind.flame.scale * fs, seed++);
+		fire.effect.SetFlameColor(fire.flameColor, HasFlameColor(fire.flameColor));
 		fx::ReserveEffects(fire.effects);
 		m_fires.push_back(std::move(fire));
 	}

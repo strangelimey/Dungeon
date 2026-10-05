@@ -9,6 +9,7 @@
 #include "Game/Entity.h" // ReadLevelLines, SplitRecordTokens
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
@@ -160,7 +161,6 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 	// Tablet on the mouse cursor (party-level, not in any pack). Omitted when the
 	// hand is empty; older saves lack it and default to no held item.
 	if (!data.heldItem.empty()) t += std::format("held {}\n", data.heldItem);
-	t += std::format("torch {}\n", data.torchPalette);
 	// The party leader (roster index); older saves lack it and load slot 0.
 	t += std::format("leader {}\n", data.leader);
 	// The party's size (party creation: 1..4). Older saves lack it: four.
@@ -377,6 +377,17 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 								 EnTok(fx.id), EnTok(fx.school), fx.time, fx.duration,
 								 fx.magnitude, fx.source, TintTok(fx));
 		}
+		// Earth lights set down: square, power, time left, of how long.
+		for (const SaveData::LightStone& s : lvl.stones)
+			t += std::format("lightstone {} {} {:.3f} {:.3f} {:.3f}\n", s.x, s.z, s.power,
+							 s.timeLeft, s.duration);
+		// Monster tracks not yet faded: x,z,dir,maker,age each.
+		if (!lvl.tracks.empty()) {
+			t += "tracks";
+			for (const SaveData::TrackState& tr : lvl.tracks)
+				t += std::format(" {},{},{},{},{:.1f}", tr.x, tr.z, tr.dir, tr.maker, tr.age);
+			t += '\n';
+		}
 		if (!lvl.seen.empty()) {
 			t += "seen";
 			for (const auto& [x, z] : lvl.seen) t += std::format(" {},{}", x, z);
@@ -443,8 +454,10 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			data.looking = IntOf(tok[3]) != 0;
 		} else if (kw == "held" && tok.size() >= 2) {
 			data.heldItem = std::string(tok[1]);
-		} else if (kw == "torch" && tok.size() >= 2) {
-			data.torchPalette = IntOf(tok[1]);
+		} else if (kw == "torch") {
+			// The HUD torchlight palette, gone with the Options panel
+			// (lighting-updates Phase 1). An older save still carries the line;
+			// it is read past, so the save loads with no version bump.
 		} else if (kw == "leader" && tok.size() >= 2) {
 			data.leader = IntOf(tok[1]);
 		} else if (kw == "roster" && tok.size() >= 2) {
@@ -762,6 +775,35 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 				if (tok.size() >= 7) fx.source = IntOf(tok[6]);
 				if (tok.size() >= 8) ParseTintTok(tok[7], fx);
 				currentBlock().damaged.back().effects.push_back(std::move(fx));
+			}
+		} else if (kw == "lightstone" && tok.size() >= 6) {
+			// An Earth light set down: <x> <z> <power> <time left> <duration>.
+			SaveData::LightStone s;
+			s.x = IntOf(tok[1]);
+			s.z = IntOf(tok[2]);
+			s.power = FloatOf(tok[3]);
+			s.timeLeft = FloatOf(tok[4]);
+			s.duration = FloatOf(tok[5]);
+			currentBlock().stones.push_back(s);
+		} else if (kw == "tracks") {
+			// Monster tracks: x,z,dir,maker,age per token; a malformed one skipped.
+			SaveData::LevelState& lvl = currentBlock();
+			for (size_t i = 1; i < tok.size(); ++i) {
+				std::array<std::string_view, 5> part{};
+				std::string_view rest = tok[i];
+				size_t n = 0;
+				for (; n < part.size(); ++n) {
+					const size_t comma = rest.find(',');
+					part[n] = rest.substr(0, comma);
+					if (comma == std::string_view::npos) {
+						++n;
+						break;
+					}
+					rest = rest.substr(comma + 1);
+				}
+				if (n != part.size()) continue;
+				lvl.tracks.push_back({IntOf(part[0]), IntOf(part[1]), IntOf(part[2]),
+									  IntOf(part[3]), FloatOf(part[4])});
 			}
 		} else if (kw == "seen") {
 			SaveData::LevelState& lvl = currentBlock();

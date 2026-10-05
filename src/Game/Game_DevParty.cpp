@@ -726,6 +726,9 @@ void Game::RegisterPartyCommands() {
 						   m_console.Print(std::format(
 							   "  party pace {:.2f} (the slowest member's)",
 							   m_world->GetParty().Speed()));
+						   if (const float soothe = m_world->StaminaRegenScale(); soothe > 1.0f)
+							   m_console.Print(std::format(
+								   "  stamina x{:.2f} in a Tidelight (while not exerting)", soothe));
 						   // The reference rows. Each pool is sized at the same
 						   // investment it is being rated at, so the per-max term
 						   // is honest rather than borrowed from someone else's
@@ -1063,7 +1066,7 @@ void Game::RegisterPartyCommands() {
 					m_console.Print(std::format("{} {}", field.id, hide ? "minimized" : "restored"));
 					return;
 				}
-				m_console.Refuse("usage: hudpanel hide|show <id> - party, status, options, move, hands, magic, cards");
+				m_console.Refuse("usage: hudpanel hide|show <id> - party, status, move, hands, magic, cards");
 				return;
 			}
 			if (args[0] == "reset") {

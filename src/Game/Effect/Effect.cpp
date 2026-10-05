@@ -36,6 +36,7 @@ void EffectKind::ApplyOverrides(const CatalogEntry& e, const DamageTypeBook& typ
 	m_applyParty = e.Get("apply_party", m_applyParty);
 	m_applyMonster = e.Get("apply_monster", m_applyMonster);
 	m_plume = e.GetBool("plume", m_plume);
+	m_light = e.Get("light", m_light);
 	m_haze = e.GetBool("haze", m_haze);
 	if (const std::string type = e.Get("damage_type", ""); !type.empty()) {
 		if (types.Find(type, m_damageType))

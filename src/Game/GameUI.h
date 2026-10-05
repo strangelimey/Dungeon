@@ -395,7 +395,6 @@ public:
 	std::function<void()> onShowPartyInventory; // sheet "All" -> combined backpacks
 	std::function<void(int)> onQualitySelected; // Video tab quality dropdown
 	std::function<void(int)> onFrameLimitSelected; // Video tab frame-rate dropdown
-	std::function<void(int)> onTorchPalette;    // HUD torchlight dropdown
 	std::function<void(MoveAction)> onMoveAction; // HUD movement buttons
 	// The party's Act count and last action (Party::ActCount), for the pad to
 	// press the stone a KEY move used. 0 with no world. Must not allocate.
@@ -421,6 +420,12 @@ public:
 	// A hand's `throw` use (member, the item id): true = it was thrown and the
 	// hand empties; false = not now (down, or still recovering), it stays.
 	std::function<bool(size_t, const std::string&, float charge)> onHandThrow;
+	// What the hand menu may do to an item's flame (wired to DungeonWorld::
+	// TorchActFor): 0 nothing, 1 Put out (a lit torch), 2 Light (a magical
+	// torch, which no spell lights). onTorchAct does it to member's hand
+	// (`light` false = put out); the world says what happened.
+	std::function<int(const std::string&)> torchActFor;
+	std::function<void(size_t member, size_t hand, bool light)> onTorchAct;
 	// The hand right-click menu's command list for an item id (ItemKind::commands),
 	// wired by Game to the world's item kinds — keeps the command source single.
 	// By REFERENCE: a copy per hand click was a steady-state allocation. The
@@ -818,8 +823,9 @@ private:
 	MessageLog* m_log = nullptr;
 	ui::Label* m_compass = nullptr;
 	ui::Label* m_position = nullptr;
-	ui::Button* m_restButton = nullptr; // Options panel; label tracks the world
-	bool m_restLabelState = false;      // what the label currently says
+	// The log's corner row after its Log button (MessageLog::cornerButtons), by
+	// index: Rest, whose label tracks the world (SetResting), then Help.
+	static constexpr size_t kCornerRest = 0, kCornerHelp = 1, kCornerCount = 2;
 	CharacterSheet* m_sheet = nullptr;
 	size_t m_sheetIndex = 0; // member shown by the character sheet
 
@@ -907,10 +913,6 @@ private:
 	// The Material tab's grid, while the settings page stands - so a place
 	// change can update its "follow" tile. Dies with the page (UIContext rule).
 	StonePicker* m_stonePicker = nullptr;
-
-	// Last torchlight dropdown selection, so a HUD rebuild (language change)
-	// recreates the dropdown showing the palette that is actually active.
-	int m_torchPalette = 0;
 
 	// The floating HUD (UI/FloatingPanel.h): the layer every movable panel sits
 	// on, and the panels by kHudPanelFields index (null until BuildHud). The

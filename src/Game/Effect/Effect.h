@@ -350,6 +350,9 @@ public:
 	// it to decide what to draw, and the effect list stays the single truth of
 	// what is actually happening (effects.cat `plume`).
 	bool Plume() const { return m_plume; }
+	// The light a plume gives (a lights.cat id, effects.cat `light`); empty =
+	// the host's default for a burning body.
+	const std::string& LightId() const { return m_light; }
 	// Whether a bearer of this effect thickens the AIR of its square: by the
 	// instance's magnitude x the share of its duration it has left, so the haze
 	// thins to nothing as it runs out (a doused fire's smoke). Presentation only,
@@ -377,6 +380,7 @@ protected:
 	std::string m_iconItem;
 	std::string m_applyParty, m_applyMonster;
 	std::string m_damageTypeId; // resolved into m_damageType at ApplyOverrides
+	std::string m_light;        // lights.cat id (effects.cat `light`)
 	Category m_category;
 	Stacking m_stacking;
 	DamageType m_damageType{};

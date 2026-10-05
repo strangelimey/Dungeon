@@ -162,6 +162,8 @@ void DungeonWorld::RenderScene(ID3D12GraphicsCommandList* list) {
 	}
 	// The brief haze over doused fires, read off their smoke effects.
 	if (m_dustEnabled) GatherDustPuffs(atmo);
+	// ...and the bubble a Tidelight clears in it (lighting-updates Phase 6).
+	if (m_dustEnabled) AddClearBubble(atmo);
 	m_renderer.BeginScene(list, m_camera, m_lights, atmo, /*hdrTarget=*/true);
 	const ViewCull cull = ViewCull::FromFrustum(m_camera.ViewProj());
 	SubmitSceneGeometry(list, &cull);
@@ -257,6 +259,95 @@ static Mat4 ThrownItemWorld(const Vec3& bmin, const Vec3& bmax, float scale, con
 	Mat4 w;
 	XMStoreFloat4x4(&w, world);
 	return w;
+}
+
+// The burning end of a lit item's model, in its own space: the top of its
+// longest axis (the torches are authored head up), centred across the other
+// two. The one rule for the icon's flame, the floor's and the thrown torch's.
+static Vec3 BurningEnd(const Vec3& lo, const Vec3& hi) {
+	Vec3 head{(lo.x + hi.x) * 0.5f, (lo.y + hi.y) * 0.5f, (lo.z + hi.z) * 0.5f};
+	const Vec3 ext{hi.x - lo.x, hi.y - lo.y, hi.z - lo.z};
+	if (ext.y >= ext.x && ext.y >= ext.z) head.y = hi.y - ext.y * 0.04f;
+	else if (ext.x >= ext.z) head.x = hi.x - ext.x * 0.04f;
+	else head.z = hi.z - ext.z * 0.04f;
+	return head;
+}
+
+// A point through a world matrix (row vectors: v' = v * M).
+static Vec3 TransformPoint(const Mat4& m, const Vec3& p) {
+	return {p.x * m._11 + p.y * m._21 + p.z * m._31 + m._41,
+			p.x * m._12 + p.y * m._22 + p.z * m._32 + m._42,
+			p.x * m._13 + p.y * m._23 + p.z * m._33 + m._43};
+}
+
+Vec3 DungeonWorld::FloorTorchHead(const Item& item) const {
+	const Vec3 c = item.niche >= 0
+					   ? NicheItemPos(item.x, item.z, static_cast<Direction>(item.niche))
+					   : SlotCenter(item.x, item.z, SizeClass::Medium, item.slot);
+	if (!item.kind || !item.kind->model) return {c.x, c.y + 0.1f * kUnit, c.z};
+	const MultiMaterialModel& mm = *item.kind->model;
+	// Where the floor draw lays it (FloorItemWorld), so the flame sits on it.
+	return TransformPoint(FloorItemWorld(mm.boundsMin, mm.boundsMax,
+										 kUnit * item.kind->modelScale, c.x, c.y, c.z),
+						  BurningEnd(mm.boundsMin, mm.boundsMax));
+}
+
+void DungeonWorld::UpdateTorchFlames(float dt) {
+	for (TorchFlame& f : m_torchFlames) f.seen = false;
+	// The flame keyed `key`, burning at `at` in `kind`'s colour: the one it had
+	// last frame, else a free one lit now (pre-warmed), else none.
+	const auto burn = [&](u32 key, const Vec3& at, const ItemKind& kind) {
+		TorchFlame* slot = nullptr;
+		TorchFlame* free = nullptr;
+		for (TorchFlame& f : m_torchFlames) {
+			if (f.key == key) {
+				slot = &f;
+				break;
+			}
+			if (!free && f.key == 0) free = &f;
+		}
+		if (!slot) {
+			if (!free) return;
+			slot = free;
+			slot->key = key;
+			slot->effect.Ignite(at, key * 2654435761u);
+		}
+		slot->seen = true;
+		slot->effect.SetFlameColor(kind.flameColor, kind.flameTinted);
+		slot->effect.SetOrigin(at);
+		slot->effect.Update(dt);
+	};
+	// IN FLIGHT first: at the tumbling head, and the flames already in the air
+	// keep their own course, so the torch trails its own fire.
+	m_projectiles.ForEachCargo([&](u32 id, const Vec3& pos, const Vec3& dir, float age,
+								   const void* cargo, float) {
+		const ItemKind& kind = *static_cast<const ItemKind*>(cargo);
+		if (!kind.Lit() || !kind.model) return;
+		const MultiMaterialModel& mm = *kind.model;
+		burn(LightKey(LightKind::Bolt, id),
+			 TransformPoint(ThrownItemWorld(mm.boundsMin, mm.boundsMax, kUnit * kind.modelScale,
+											pos, dir, age),
+							BurningEnd(mm.boundsMin, mm.boundsMax)),
+			 kind);
+	});
+	// Then those on the floor within sight of a flame that size.
+	const Vec3 eye = PartyEye();
+	constexpr float kFlameSight = 8.0f * kCellSize;
+	for (size_t i = 0; i < m_items.size(); ++i) {
+		const Item& it = m_items[i];
+		if (it.collected || !it.kind || !it.kind->Lit()) continue;
+		if (it.niche >= 0 && !NicheOpenAt(it.x, it.z, static_cast<Direction>(it.niche))) continue;
+		const Vec3 head = FloorTorchHead(it);
+		const Vec3 d = Sub(head, eye);
+		if (d.x * d.x + d.y * d.y + d.z * d.z > kFlameSight * kFlameSight) continue;
+		burn(LightKey(LightKind::FloorTorch, static_cast<u32>(i)), head, *it.kind);
+	}
+	// What burned last frame and not this one goes out.
+	for (TorchFlame& f : m_torchFlames)
+		if (f.key != 0 && !f.seen) {
+			f.effect.Clear();
+			f.key = 0;
+		}
 }
 
 // The rig root's rest XZ is moved onto the origin FIRST, so the model stands on
@@ -523,10 +614,13 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 		}
 	}
 
+	// Earth lights set down (Stonelight): each stone glowing where it lies.
+	DrawLightStones(list, cull);
+
 	// THROWN ITEMS in flight (Phase 10): the item itself, tumbling - its model,
 	// or the floor's tablet in its own look - never a glow.
-	m_projectiles.ForEachCargo([&](const Vec3& pos, const Vec3& dir, float age,
-								   const void* cargo) {
+	m_projectiles.ForEachCargo([&](u32, const Vec3& pos, const Vec3& dir, float age,
+								   const void* cargo, float) {
 		const ItemKind& kind = *static_cast<const ItemKind*>(cargo);
 		if (!visible(pos, 0.35f * kUnit)) return;
 		if (kind.model) {
@@ -597,6 +691,34 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 			gfx::MaterialParams coals;
 			ApplyPropMaterial(coals, fire.kind->tex2, fire.kind->color2, 0.9f);
 			m_renderer.DrawMesh(list, *fire.kind->mesh2, fire.world, coals);
+		}
+	}
+}
+
+void DungeonWorld::DrawLightStones(ID3D12GraphicsCommandList* list, const ViewCull* cull) {
+	const ItemKind* stone = m_stoneKind;
+	if (!stone || !stone->model) return; // the light alone, then
+	const MultiMaterialModel& mm = *stone->model;
+	const light::Profile& profile = LightProfileFor("spell_earth");
+	for (const LightStone& s : m_lightStones) {
+		if (s.timeLeft <= 0.0f) continue;
+		const Vec3 c = m_map.CellCenter(s.x, s.z);
+		if (cull && !cull->TestSphere({c.x, 0.1f * kUnit, c.z}, 0.3f * kUnit)) continue;
+		// It glows in the light's own colour, fading as the light does.
+		const float share = s.duration > 0.0f ? s.timeLeft / s.duration : 1.0f;
+		const float glow = 0.35f + 0.65f * std::min(1.0f, share * 10.0f);
+		const Mat4 world = FloorItemWorld(mm.boundsMin, mm.boundsMax,
+										  kUnit * stone->modelScale, c.x, 0.0f, c.z);
+		// Tinted toward the light's colour as well as glowing in it - a full-strength
+		// glow over grey stone came out nearly white in its own pool of light.
+		constexpr float kGlow = 0.5f;
+		const Vec3& col = profile.color;
+		for (const MultiMaterialModel::Sub& sub : mm.subs) {
+			gfx::MaterialParams mat = sub.material;
+			mat.baseColor = {mat.baseColor.x * col.x, mat.baseColor.y * col.y,
+							 mat.baseColor.z * col.z, mat.baseColor.w};
+			mat.emissive = {col.x * glow * kGlow, col.y * glow * kGlow, col.z * glow * kGlow};
+			m_renderer.DrawMesh(list, *sub.mesh, world, mat);
 		}
 	}
 }
@@ -834,14 +956,7 @@ static gfx::Camera IconCamera() {
 bool DungeonWorld::ItemFlameHead(const std::string& typeId, Vec3& head) {
 	const ItemKind& kind = ItemKindFor(typeId);
 	if (!kind.Lit() || !kind.model) return false;
-	const Vec3 lo = kind.model->boundsMin, hi = kind.model->boundsMax;
-	// The burning end: the top of the model's longest axis (the torches are
-	// authored head up), centred across the other two.
-	head = {(lo.x + hi.x) * 0.5f, (lo.y + hi.y) * 0.5f, (lo.z + hi.z) * 0.5f};
-	const Vec3 ext{hi.x - lo.x, hi.y - lo.y, hi.z - lo.z};
-	if (ext.y >= ext.x && ext.y >= ext.z) head.y = hi.y - ext.y * 0.04f;
-	else if (ext.x >= ext.z) head.x = hi.x - ext.x * 0.04f;
-	else head.z = hi.z - ext.z * 0.04f;
+	head = BurningEnd(kind.model->boundsMin, kind.model->boundsMax);
 	return true;
 }
 

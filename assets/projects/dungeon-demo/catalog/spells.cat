@@ -157,6 +157,43 @@ power = 1
 mana = 6
 duration = 20
 
+[firelight]
+name = spell.firelight
+symbols = fire,light
+effect = light
+element = fire
+power = 8
+mana = 5
+duration = 60
+
+[tidelight]
+name = spell.tidelight
+symbols = water,light
+effect = light
+element = water
+power = 8
+mana = 5
+duration = 60
+
+[skylight]
+name = spell.skylight
+symbols = air,light
+effect = light
+element = air
+power = 8
+mana = 5
+duration = 60
+
+; Earth's light is set down, not carried, and lasts longest.
+[stonelight]
+name = spell.stonelight
+symbols = earth,light
+effect = light
+element = earth
+power = 8
+mana = 5
+duration = 150
+
 ; --- tier 3: a form spell + a MODIFIER rune (Game/Spell/ModifiedSpell.h) ------
 ; Ingwaz (multiple) on a bolt: a VOLLEY down the caster's lane - `count` bolts,
 ; one more per `count_per_power` of power past `power`, at most `count_max`, each
@@ -346,3 +383,60 @@ blast_falloff = 0.25
 blast_rate = 0.04
 blast_force_per_power = 4
 blast_color = 0.85, 0.9, 1.0
+
+; Ingwaz (multiple) on a light: ONE BIGGER LIGHT - cast at `grow` x the power,
+; lasting what the plain power buys. Hagalaz (explode) on a light: a DAZZLING
+; FLARE - no lasting light; the monsters within a few steps do nothing for a
+; while, and the school's light acts once (Michael, lighting-updates Phase 6).
+
+[firelight_bright]
+name = spell.firelight_bright
+symbols = fire,light,multiple
+power = 8
+mana = 10
+grow = 2
+
+[firelight_flare]
+name = spell.firelight_flare
+symbols = fire,light,explode
+power = 8
+mana = 10
+
+[tidelight_bright]
+name = spell.tidelight_bright
+symbols = water,light,multiple
+power = 8
+mana = 10
+grow = 2
+
+[tidelight_flare]
+name = spell.tidelight_flare
+symbols = water,light,explode
+power = 8
+mana = 10
+
+[skylight_bright]
+name = spell.skylight_bright
+symbols = air,light,multiple
+power = 8
+mana = 10
+grow = 2
+
+[skylight_flare]
+name = spell.skylight_flare
+symbols = air,light,explode
+power = 8
+mana = 10
+
+[stonelight_bright]
+name = spell.stonelight_bright
+symbols = earth,light,multiple
+power = 8
+mana = 10
+grow = 2
+
+[stonelight_flare]
+name = spell.stonelight_flare
+symbols = earth,light,explode
+power = 8
+mana = 10

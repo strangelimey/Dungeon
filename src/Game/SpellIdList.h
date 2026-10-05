@@ -12,8 +12,10 @@
 // even a short one, since the debug CRT allocates an iterator proxy for every
 // std::string it constructs.
 //
-// Bounded on purpose. kSlots is well past the number of spells that exist (18
-// today); a full list refuses a new id through Add (the caller says so) and
+// Bounded on purpose. kSlots is past the number of spells that exist (44 with
+// the Sowilo lights; it was 32 for exactly 32 spells until lighting-updates
+// Phase 6 found the next spell would not be learned - SpellBook::Build now
+// warns when the registry outgrows it); a full list refuses a new id through Add (the caller says so) and
 // forgets its OLDEST through Touch, which is what a recency list is for. An id
 // longer than kIdCapacity is refused rather than cut, since a cut id would name
 // a different spell.
@@ -28,7 +30,7 @@ namespace dungeon::game {
 
 class SpellIdList {
 public:
-	static constexpr size_t kSlots = 32;      // distinct spells held
+	static constexpr size_t kSlots = 64;      // distinct spells held
 	static constexpr size_t kIdCapacity = 31; // bytes of a spell id
 
 	bool Contains(std::string_view id) const { return IndexOf(id) < m_count; }

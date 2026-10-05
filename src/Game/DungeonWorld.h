@@ -31,6 +31,7 @@
 #include "Game/FireEffect.h"
 #include "Game/GameSettings.h"
 #include "Game/ItemDetails.h"
+#include "Game/LightProfile.h"
 #include "Game/LoadQueue.h"
 #include "Game/Magic.h"
 #include "Game/Mishap.h" // fumble consequence tables on the kind structs
@@ -62,6 +63,10 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+
+namespace dungeon::game::fx {
+class LightEffect;
+}
 
 namespace dungeon::game {
 
@@ -106,10 +111,37 @@ public:
 	// loaded once and cached by type name, so without this a saved edit only
 	// showed on the next level entry. `catalogKey` picks the cache.
 	void ReloadTypeKind(const std::string& catalogKey, const std::string& id);
+	// Re-reads lights.cat (lighting-updates Phase 2, Game/LightProfile.h). Every
+	// light resolves its profile by id each frame, so a saved edit shows on the
+	// next frame - nothing to respawn. Also re-reads the `light` field of the
+	// cached item kinds, which no other reload reaches.
+	void ReloadLightProfiles();
+	// The profile `id` names; the built-in warm fallback for an id the project
+	// lacks (warned once, at load), so a typo is a visible light, not darkness.
+	const light::Profile& LightProfileFor(std::string_view id) const;
+	std::span<const light::Profile> LightProfiles() const { return m_lightProfiles; }
+	// The colour a fixture kind's fire gives when its placement sets none (its
+	// light profile's) - what the fixture dialog's colour picker starts from.
+	Vec3 FixtureLightColor(const std::string& type);
+	// The `lights` dev command's readout: one line per light this frame.
+	std::vector<std::string> DescribeLights() const;
+	// trails.cat (lighting-updates Phase 4, Game/Trail.h), re-read with the
+	// lights by ReloadLightProfiles. A trail is COPIED into each projectile at
+	// launch, so a reload never reaches one already in flight. The spec `id`
+	// names; one that sheds nothing for an id the project lacks.
+	const trail::Spec& TrailSpecFor(std::string_view id) const;
+	// The `trails` dev command's readout: the pool, and each profile.
+	std::vector<std::string> DescribeTrails() const;
+	// `lightstress <n> [near]`: n test lights over the level the party can
+	// reach, or (`near`) within 6 steps of it (0 = none); returns how many were
+	// placed (up to 128). A measuring load for the light budget.
+	int SetStressLights(int count, bool nearby); // (`near` is a Windows macro)
+	// The tiled light lists on or off (`lighttiles`), for measuring them.
+	void SetLightTiling(bool on) { m_renderer.SetLightTiling(on); }
+	bool LightTiling() const { return m_renderer.LightTiling(); }
 
-	// "Start New Game": snaps the party home, re-arms the monster
-	// announcements, and resets the torch palette (which speaks via
-	// onMessage — the caller clears the log right after, as before).
+	// "Start New Game": snaps the party home and re-arms the monster
+	// announcements (the caller clears the log right after, as before).
 	void ResetForNewGame();
 
 	// One simulation step: party input/movement, animators, monster
@@ -225,10 +257,6 @@ public:
 	// the map overlay falls back to a colored marker). Kinds load lazily on
 	// first use (BuildFires / placement), so the active level's are always in.
 	const gfx::Texture* FixtureIcon(const std::string& type) const;
-
-	// Torchlight palette (the HUD dropdown): 0 warm, 1 cold blue, 2 eerie
-	// green. Announces the change through onMessage.
-	void SetTorchPalette(int index);
 
 	Party& GetParty() { return m_party; }
 
@@ -517,7 +545,7 @@ public:
 		// is never limited by the pool. Fixed capacity and the spell id held
 		// inline, so a tick allocates nothing of its own (the rule it measures).
 		struct AutoCast {
-			static constexpr int kMaxEntries = 4;
+			static constexpr int kMaxEntries = 6;
 			struct Entry {
 				int member = 0;
 				char spell[32] = {};
@@ -760,6 +788,27 @@ public:
 	// eye) along `dir` - flame, dust, a breath of air, a splash of water - and a
 	// brief shadowless glow.
 	void HandPuff(SpellSymbol school, const Vec3& origin, const Vec3& dir);
+	// A light spell's Hagalaz flare (DungeonWorld_SpellLight.cpp): a flash round
+	// the party, the monsters within a few steps DAZZLED, the school's light once.
+	void LightFlare(SpellSymbol school, float power, int casterIndex);
+	// EARTH's light SET DOWN (Stonelight, Phase 6f): a glowing stone in the
+	// party's square at `power` for `seconds` - part of this level's saved state -
+	// that maps every square it reaches. A stone already in that square is
+	// replaced; past the pool (kLightStones a level) the one nearest its end goes.
+	void PlaceLightStone(float power, float seconds);
+	// The stones on this level, one line each (the `lightstones` readout), and
+	// clearing them all.
+	std::vector<std::string> DescribeLightStones() const;
+	void ClearLightStones() { m_lightStones = {}; }
+	// The monster tracks on this level (6g): how many still show, and the
+	// freshest few (the `tracks` readout); and wiping them.
+	std::vector<std::string> DescribeTracks() const;
+	void ClearTracks();
+	// A fresh monster track on (x, z) going `dir` (the `tracks add` command).
+	void AddTrack(int x, int z, Direction dir) { RecordTrack(x, z, dir, TrackMaker::Monster); }
+	// What stamina regenerates at right now beyond its own rate: 1, or more in a
+	// Tidelight (it SOOTHES) - for the `regen` readout.
+	float StaminaRegenScale() const { return StaminaSoothe(); }
 	// The whole spell registry (the Magic menu filters it by known symbols).
 	std::span<const std::unique_ptr<Spell>> SpellDefs() const {
 		return m_magic.Book().Defs();
@@ -801,6 +850,15 @@ public:
 	// nobody threw (the thrower is down, or still recovering from their last
 	// throw - throw_interval): the item stays where it was.
 	bool ThrowItem(const std::string& typeId, int member = -1, float charge = -1.0f);
+	// TORCH COMMANDS (DungeonWorld_Light.cpp; the hand menu's rows): what can be
+	// done to the flame of an item in a hand - put a lit torch out, or light a
+	// MAGICAL one, which takes no spell's fire and costs its holder mana
+	// (balance.cat torch_light_mana per power_level). Each acts on member
+	// `member`'s hand `hand`; false = nothing done (and, for want of mana, said).
+	enum class TorchAct { None, PutOut, Light };
+	TorchAct TorchActFor(const std::string& typeId);
+	bool PutOutTorch(size_t member, int hand);
+	bool KindleTorch(size_t member, int hand);
 	// Brings every thrown item still in the air down where it is - before a save
 	// (a flight is not saved; the item must be) and a level change.
 	void LandThrownItems() { m_projectiles.LandCargo(); }
@@ -902,16 +960,19 @@ public:
 	bool RemountSconce(int cx, int cz, Direction from, Direction to);
 	// Read/write a torch's per-instance light/smoke settings (identified by cell +
 	// wall). Set is live: the light/flame/smoke follow next frame. `brightness` is in
-	// cells, `turbidity` 0..1. Both return false if no such sconce.
+	// cells, `turbidity` 0..1, `flameColor` the light + flame tint (kNoFlameColor =
+	// the kind's). Both return false if no such sconce.
 	bool TorchSettings(int cx, int cz, Direction wall, bool& lit, float& brightness,
-					   float& turbidity) const;
+					   float& turbidity, Vec3& flameColor) const;
 	bool SetTorchSettings(int cx, int cz, Direction wall, bool lit, float brightness,
-						  float turbidity);
+						  float turbidity, const Vec3& flameColor);
 	// A floor brazier on (cx,cz)? Plus its per-instance light/smoke settings (live
 	// on Set). Both return false if no brazier is there.
 	bool BrazierAt(int cx, int cz) const;
-	bool BrazierSettings(int cx, int cz, bool& lit, float& brightness, float& turbidity) const;
-	bool SetBrazierSettings(int cx, int cz, bool lit, float brightness, float turbidity);
+	bool BrazierSettings(int cx, int cz, bool& lit, float& brightness, float& turbidity,
+						 Vec3& flameColor) const;
+	bool SetBrazierSettings(int cx, int cz, bool lit, float brightness, float turbidity,
+							const Vec3& flameColor);
 	// A fixture instance's catalog id (for the inspector's preview/title);
 	// falls back to the classic ids when the instance isn't found.
 	std::string SconceTypeAt(int cx, int cz, Direction wall) const;
@@ -1847,8 +1908,6 @@ public:
 	bool HandOnDoorAt(int x, int z, bool& open);
 	// "id @ x,z = on|off" for each live button (dev console `buttons`).
 	std::vector<std::string> ButtonList() const;
-	// Point lights submitted this frame (after UpdateLights).
-	size_t ActiveLightCount() const { return m_lights.points.size(); }
 	// Camera vertical FOV in degrees (clamped); UpdateCamera applies it.
 	void SetFov(float degrees);
 	float Fov() const { return m_fovDegrees; }
@@ -2075,6 +2134,10 @@ private:
 		// Behaviour/appearance, data-driven from the catalog so AI and the
 		// flat-material fallback never branch on the type name.
 		bool facesTarget = true;     // turn to face the party once engaged
+		// monsters.cat `flammable` (lighting-updates Phase 6, Michael: "mummies
+		// are a human torch waiting to happen"): ANY fire that lands sets it
+		// burning, every time - not the usual chance (MonsterTarget::Wound).
+		bool flammable = false;
 		// (radially-symmetric models like the blob set faces=false to skip it)
 		float fallbackRoughness = 0.9f; // flat-material roughness when no PBR set
 		// Render-only orientation/size fixups for imported models that don't ship
@@ -2357,8 +2420,8 @@ private:
 		std::string litAs, unlitAs, spentAs;
 		// A MAGICAL light (items.cat `power_level`, `flame_color`): the level
 		// multiplies the burn, so `burnTime` above is already burn_time x (1 +
-		// level); the colour is what its flame and its light are, instead of the
-		// party's torchlight setting. flameTinted=false = an ordinary flame.
+		// level); the colour is what its flame and its light are, instead of its
+		// light profile's colour. flameTinted=false = an ordinary flame.
 		float powerLevel = 0.0f;
 		Vec3 flameColor{1.0f, 0.62f, 0.28f};
 		bool flameTinted = false;
@@ -2366,6 +2429,12 @@ private:
 		// any later filling, makes of it. Empty = it takes no water.
 		std::string fillAs;
 		bool Lit() const { return burnTime > 0.0f; }
+		// The light it gives while lit in a hand (a lights.cat id; items.cat
+		// `light`, default `torch` for a lit kind, none otherwise).
+		std::string light;
+		// What it sheds when thrown (a trails.cat id; items.cat `trail`, none
+		// by default - a lit torch trails its own flame, see TorchFlame).
+		std::string trail;
 		// Worn armor's WEIGHT CLASS (armor.cat `class`): what it costs to
 		// evade in, which skill it trains, and what STR it asks. The soak
 		// itself stays per ITEM (`armor` below) — a breastplate and a mail
@@ -2774,6 +2843,9 @@ private:
 		// SetFireBurning (a spell, a save) can find it.
 		int x = 0, z = 0, wall = -1;
 		float lightRadius = 7.0f; // point-light reach in metres (sconce brightness * cell)
+		// Its placement's own flame colour (light + flames); kNoFlameColor = the
+		// kind's light profile decides.
+		Vec3 flameColor = kNoFlameColor;
 		Mat4 world;        // prop transform
 		Vec3 flamePos;     // particle + light origin
 		float phase = 0;   // flicker phase
@@ -3724,6 +3796,110 @@ private:
 	std::vector<u8> m_seen;     // fog of war, parallel to map cells (1 = revealed)
 	gfx::Camera m_camera;
 	gfx::LightSet m_lights;
+	// lights.cat, parsed (Game/LightProfile.h). Looked up BY ID every frame
+	// (LightProfileFor - a handful of profiles, so a linear scan); a reload
+	// replaces the vector, which is why nothing holds a pointer into it.
+	std::vector<light::Profile> m_lightProfiles;
+	// trails.cat, parsed (Game/Trail.h) - the same arrangement.
+	std::vector<trail::Profile> m_trailProfiles;
+	// Where each of this frame's lights came from, parallel to m_lights.points
+	// up to the budget cut (filled beside the push; read by the `lights` dev
+	// command). Reserved to the ceiling, so filling it allocates nothing.
+	struct LightOrigin {
+		const char* source = ""; // "fire", "torch", "burning", ...
+		int profile = -1;        // index into m_lightProfiles; -1 = the fallback
+		float fade = 1.0f;       // the budget fade it was drawn at (SelectLights)
+	};
+	std::vector<LightOrigin> m_lightOrigins;
+	// A light's STABLE identity, frame to frame (gfx::PointLight::id): what
+	// kind of source it is, and which one. The shadow-cube cache and the
+	// budget fades both key on it. Never 0, and never the high bit (the
+	// scheduler's index-keyed fallback).
+	enum class LightKind : u32 {
+		Torch = 1, Fire, Burning, Glow, Sight, Stress,
+		Bolt,      // a flight in the air, keyed by its projectile id
+		FloorTorch, // a lit torch lying on the floor, keyed by its m_items index
+		Flash,     // the moment a lit bolt leaves where it ended, keyed by slot
+		HandGlow,  // a hand spell's puff of light (HandPuff), keyed by its slot
+		Worn,      // an item on the doll or in a hand giving light: member x slots + slot
+		Spell,     // a Sowilo light on a member: member x 4 + school
+		Stone,     // an Earth light set down (Stonelight), keyed by its m_lightStones slot
+	};
+	static u32 LightKey(LightKind kind, u32 index) {
+		return (static_cast<u32>(kind) << 24) | (index & 0xFFFFFFu);
+	}
+	// Pushes one light from `profile` at `pos` (metres), its colour `color`
+	// when the profile takes its source's, scaled by `brightness` (a torch's
+	// charge) and with `radiusMetres` overriding the profile's reach when > 0
+	// (a placed fire's own Brightness). Returns the pushed light, or null when
+	// the light is out (brightness 0).
+	gfx::PointLight* PushLight(const light::Profile& profile, const char* source, u32 key,
+							   const Vec3& pos, float time, float phase,
+							   const Vec3& color = {1, 1, 1}, float brightness = 1.0f,
+							   float radiusMetres = 0.0f);
+
+	// --- the light budget (DungeonWorld_LightBudget.cpp, lighting-updates P3) --
+	// Every light pushed this frame is a CANDIDATE; SelectLights decides which
+	// are drawn: (1) one whose sphere reaches no pixel of the view is dropped
+	// (Graphics/LightTiles.h's own rect, so the cull and the shader agree), (2)
+	// so is one the party cannot reach on the grid - a sealed-off room's light
+	// would only bleed through its walls, (3) the rest RANK by what they add to
+	// the view and the top Max Lights are kept, a held torch always, and (4) a
+	// light crossing that budget line FADES rather than switching.
+	void SelectLights(const Vec3& eye, float time);
+	// Re-walks the party's reach (a BFS over walkable squares) when the party's
+	// square or the map's revision has changed since the last walk.
+	void RefreshReach();
+	// Whether the party can reach the square a light at `pos` stands in, within
+	// what its reach and the view's depth could ever make visible.
+	bool LightReachable(const Vec3& pos, float radius) const;
+	std::vector<u16> m_reach;       // grid steps from the party; 0xFFFF = cannot reach
+	std::vector<int> m_reachQueue;  // the BFS's queue, kept for its capacity
+	int m_reachX = -1, m_reachZ = -1;
+	u32 m_reachRevision = 0xFFFFFFFFu;
+	// A light's budget fade, by key: 1 = fully in. A light kept by the budget
+	// fades in, one it drops fades out (still drawn while there is room under
+	// the hard ceiling), one merely off-screen keeps its value - so turning
+	// round to a fire does not show it brightening.
+	struct LightFade {
+		u32 key = 0;
+		float fade = 0.0f;
+		float lastSeen = -1.0e9f;
+		bool kept = false; // in the budget last frame (the ranking's incumbents)
+	};
+	// Room for every candidate (kLightCandidates) plus a margin for lights
+	// briefly off screen, so a busy frame does not evict a fading one.
+	std::array<LightFade, 320> m_lightFades{};
+	LightFade& FadeFor(u32 key, float time, bool& fresh);
+	void ClearLightFades() { m_lightFades.fill(LightFade{}); }
+	float m_lastLightTime = -1.0f;
+	// What SelectLights did with this frame's candidates (the `lights` readout).
+	struct LightCull {
+		u32 candidates = 0, offscreen = 0, unreachable = 0, budget = 0, fadingOut = 0;
+	};
+	LightCull m_lightCull;
+	// The selection's scratch, all reserved at construction: a frame allocates
+	// nothing however many lights it pushes, up to kLightCandidates.
+	static constexpr size_t kLightCandidates = 256;
+	struct LightCandidate {
+		u32 index;
+		float score;
+		float fade;
+		bool keep;
+	};
+	std::vector<LightCandidate> m_lightCandidates;
+	std::vector<gfx::PointLight> m_lightScratch;
+	std::vector<LightOrigin> m_lightOriginScratch;
+	// `lightstress <n>`: n test lights scattered round the party (a measuring
+	// load for the budget and the tiles; never saved).
+	struct StressLight {
+		Vec3 pos;
+		Vec3 color;
+	};
+	std::vector<StressLight> m_stressLights;
+	// The view's depth in metres (the camera's far plane), which also bounds
+	// how far away on the grid a light can still matter (LightReachable).
+	static constexpr float kFarPlane = 100.0f;
 	// Shadow-slot budgeting + cube-cache scheduling (UpdateLights feeds it the
 	// frame's lights; RenderShadowMaps asks it which cubes to redraw). See
 	// ShadowScheduler.h.
@@ -3871,6 +4047,7 @@ private:
 		float timeLeft = 0.0f;
 		float life = 0.0f;
 		float intensity = 0.0f; // at the puff; fades to nothing over `life`
+		bool flare = false;     // a light spell's flare (`spell_flare`), not a puff
 	};
 	std::array<HandGlow, 4> m_handGlows{};
 	void TickHandGlows(float dt);
@@ -3886,6 +4063,139 @@ private:
 	size_t m_pendingBoltCount = 0;
 	void SpawnBoltAfter(const ProjectileSpec& spec, float delay);
 	void UpdatePendingBolts(float dt);
+	// EVERY LAUNCH goes through Launch (lighting-updates Phase 4): it dresses the
+	// spec, then flies it. DressFlight resolves a spec's light and trail - the
+	// names it carries (a spell's own `light` / `trail`), else its cargo kind's,
+	// else its school's (`bolt_<school>`, `trail_<school>`) - into the handle and
+	// copied trail the engine carries, and drops the borrowed names. A spec
+	// queued for later (SpawnBoltAfter) is dressed when it is queued.
+	void DressFlight(ProjectileSpec& spec) const;
+	void Launch(ProjectileSpec spec);
+	// Each lit flight and each flash it leaves, as a light (UpdateLights).
+	void AppendFlightLights(float time);
+	// LIT TORCHES ON THE FLOOR (Michael, 2026-10-03: they stay lit, thrown or
+	// set down): each burns its charge where it lies and becomes its stub when
+	// spent. An authored record's torch becomes a drop the first time it
+	// burns, so the save carries it whole (kind and charge).
+	void TickFloorTorches(float dt);
+	// One light per lit floor torch, at its burning end.
+	void AppendFloorTorchLights(float time);
+	// THE SOWILO LIGHTS (DungeonWorld_SpellLight.cpp): one per member's `light`
+	// effect per school, from `spell_<school>`, sized by the cast's power.
+	void AppendSpellLights(float time);
+	const fx::LightEffect* SpellLightKind() const;
+	// How much bigger than its profile a light of `power` is (the effect kind's
+	// `scale_power` is size 1).
+	float SpellLightScale(float power) const;
+	// A flare's dazzle: the monster does nothing while it lasts.
+	static bool IsDazzled(const Monster& monster);
+	// What each school's light DOES beyond its colour, ticked every frame
+	// (DungeonWorld_SpellLight.cpp). Fire: KINDLES unlit fires within a step of
+	// the party, SCORCHES monsters beside it every `scorch_every` seconds.
+	void TickSpellLights(float dt);
+	// Fire's scorch on one monster: a small fire burst credited to `source`.
+	void ScorchMonster(Monster& monster, float damage, int source);
+	// Lights every unlit fire whose square is within `steps` of the party's
+	// (a brazier only at `power` >= the light kind's kindle_brazier_power).
+	int KindleNear(int steps, float power);
+	// WATER (6d): the strongest Tidelight on the party (its power; 0 = none),
+	// the factor stamina regenerates at in it, the clear bubble it cuts in the
+	// haze (a negative dust puff, Render), and putting the party's fires out.
+	float WaterLightPower() const;
+	float StaminaSoothe() const;
+	void AddClearBubble(gfx::Atmosphere& atmo) const;
+	int QuenchParty();
+	// AIR (6e): a shock at the nearest monster within `reachSquares` and the
+	// party's sight (false = none there), and the flicker clock that runs fast
+	// while the party is noticed (the WARNING), eased so it never jumps.
+	bool CrackleNearest(float reachSquares, float damage, int source);
+	void CrackleMonster(Monster& monster, float damage, int source);
+	std::array<float, 4> m_crackleClock{};
+	float m_airPulseClock = 0.0f;
+	float m_airPulseRate = 1.0f;
+	// Per-member scorch clocks, and the kindling check's (every quarter second).
+	std::array<float, 4> m_scorchClock{};
+	float m_kindleClock = 0.0f;
+	// EARTH (6f): the stones set down on THIS level - a fixed pool, so a cast in
+	// a guarded frame allocates nothing. timeLeft <= 0 is a free slot. Captured
+	// into the level's LevelState when it is left or saved (SnapshotActive) and
+	// put back when it is entered (ApplyActiveSnapshot); a level left behind is
+	// not simulated, so its stones wait for the party with the rest of it.
+	struct LightStone {
+		int x = 0, z = 0;
+		float power = 0.0f;
+		float timeLeft = 0.0f;
+		float duration = 0.0f;
+		float moteClock = 0.0f;  // the next mote off it (not saved)
+		float trackClock = 0.0f; // the next showing of the tracks round it (not saved)
+	};
+	static constexpr size_t kLightStones = 8;
+	std::array<LightStone, kLightStones> m_lightStones{};
+	// What a stone draws as (the light kind's `stone_item`, resolved once in
+	// PreloadItemKinds; null = the light alone).
+	const ItemKind* m_stoneKind = nullptr;
+	// Counts the stones down and lets the odd mote rise off each.
+	void TickLightStones(float dt);
+	// One light per stone, from `spell_earth`, dimming over its last tenth.
+	void AppendStoneLights(float time);
+	// The stones themselves, as `stone_item`'s model glowing (Render).
+	void DrawLightStones(ID3D12GraphicsCommandList* list, const ViewCull* cull);
+	// How far, in squares, an Earth light of `power` reaches.
+	float StoneReach(float power) const;
+	// THE SQUARES AN EARTH LIGHT REACHES from (x, z) at `power`: every one within
+	// its reach in WALKING steps (so a wall stops it), as map cell indices into
+	// `out`, walked in a fixed window round the stone (no allocation; the reach
+	// is cut at kStoneSteps). Returns how many.
+	static constexpr int kStoneSteps = 8;
+	static constexpr int kStoneWindow = 2 * kStoneSteps + 1;
+	using StoneCells = std::array<int, kStoneWindow * kStoneWindow>;
+	int StoneReachCells(int x, int z, float power, StoneCells& out) const;
+	// MAPS what it shows: those squares marked seen, with the walls round them.
+	int MapStoneReach(int x, int z, float power);
+
+	// MONSTER TRACKS (lighting-updates 6g): every monster step marks the square it
+	// steps onto with the world's track clock, the way it was going and who made
+	// it, fading over balance.cat `track_life`. One cell per square, sized with
+	// the fog mask (FitTracksToMap), so writing one never allocates. Saved per
+	// level as AGES (a `tracks` line), so a load restores how old each was; a
+	// level left behind keeps its tracks as they were, like its stones.
+	// FOR LATER (Michael): the PARTY leaving tracks, scent and noise that some
+	// monsters can follow - `maker` is there so the party can write here too.
+	enum class TrackMaker : u8 { None, Monster, Party };
+	struct Track {
+		double stamp = 0.0; // m_trackClock when it was made
+		Direction dir = Direction::North;
+		TrackMaker maker = TrackMaker::None;
+	};
+	std::vector<Track> m_tracks;
+	double m_trackClock = 0.0; // simulated seconds, advanced in Update
+	u32 m_trackSeed = 0x9E3779B9u;
+	void FitTracksToMap();
+	void RecordTrack(int x, int z, Direction dir, TrackMaker maker);
+	// Seconds since the track was made; < 0 for none, or one already faded.
+	float TrackAge(const Track& t) const;
+	// Shows the tracks within an Earth light's reach from (x, z): a faint amber
+	// mote on each, drifting the way its maker went, fewer and dimmer as the
+	// track ages. `strength` 0..1 scales how many (a stone's dimming).
+	void ShowTracks(int x, int z, float power, float strength);
+	// Where a lit floor item's flame burns (its model's head, as it lies).
+	Vec3 FloorTorchHead(const Item& item) const;
+	// THE TORCH FLAMES: a lit torch on the floor or in flight burns with a
+	// small fixture-style flame (FireEffect), from one fixed pool - reserved
+	// at construction, so a torch catching or landing allocates nothing. In
+	// flight the flame's particles keep their own course as the emitter moves
+	// on, so a thrown torch trails its own fire. Past the pool, the furthest
+	// go without a flame (they still light).
+	static constexpr size_t kTorchFlames = 8;
+	static constexpr float kTorchFlameScale = 0.3f;
+	struct TorchFlame {
+		u32 key = 0; // LightKey of what it burns on; 0 = free
+		bool seen = false;
+		FireEffect effect;
+	};
+	std::array<TorchFlame, kTorchFlames> m_torchFlames;
+	// Lights, moves and ages the pool's flames for this frame's torches.
+	void UpdateTorchFlames(float dt);
 	// Burns every lit torch held (hands, cursor) by `dt`, and puts out any
 	// stowed in a pack.
 	void TickCarriedLight(float dt);
@@ -3895,6 +4205,9 @@ private:
 	bool BurnTorch(ItemSlot& slot, float dt, const Character* holder);
 	// 1 = a torch at full light, falling to a floor over its last tenth.
 	static float TorchBrightness(const ItemKind& kind, float charge);
+	// A torch, lit or not, whose lit kind has a `power_level`: no spell lights
+	// it (Flame passes it over), only its own Light command.
+	bool MagicalTorch(const ItemKind& kind);
 	WorldState* m_flagStore = nullptr; // see SetFlagStore
 	std::optional<WorldMap>* m_worldForUndo = nullptr; // borrowed; see SetWorldForUndo
 	// The project's opening, borrowed (SetOpeningForUndo), and whether a move
@@ -4211,6 +4524,9 @@ private:
 		std::string id;
 		bool wallMount = false; // fixtures.cat mount = wall|floor
 		bool flameless = false; // fixtures.cat flame = 0: never lit (empty bowl)
+		// The light its fire gives (a lights.cat id; fixtures.cat `light`,
+		// default fire_sconce on a wall, fire_brazier on the floor).
+		std::string light;
 		std::shared_ptr<gfx::Mesh> mesh;  // via the model cache
 		std::shared_ptr<gfx::Mesh> mesh2;
 		// A wall torch whose torch can be TAKEN (spell-updates): the bare bracket
@@ -4250,9 +4566,6 @@ private:
 	// the peak is reserved up front instead — see ReserveParticleScratch.
 	std::vector<gfx::ParticleInstance> m_particleScratch;
 	void ReserveParticleScratch();
-
-	Vec3 m_torchColor{1.0f, 0.62f, 0.28f};
-	int m_torchPalette = 0; // index behind m_torchColor (saved/restored)
 
 	// The party leader's roster index (see Leader()), and the pass that hands
 	// the lead on from a member who is no longer standing - every frame from

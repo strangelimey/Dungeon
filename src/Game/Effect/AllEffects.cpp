@@ -9,6 +9,7 @@
 #include "Game/Effect/Effect.h"
 
 #include "Game/Effect/DotEffect.h"
+#include "Game/Effect/LightEffect.h"
 #include "Game/Effect/SightEffect.h"
 #include "Game/Effect/SmokeEffect.h"
 #include "Game/Effect/SupplyEffect.h"
@@ -37,6 +38,10 @@ std::vector<std::unique_ptr<EffectKind>> MakeAllEffects() {
 	all.push_back(std::make_unique<SightEffect>());
 	// A doused fire's smoke, borne by the fire itself (haze).
 	all.push_back(std::make_unique<SmokeEffect>());
+	// A Sowilo light on its caster (all four schools), and the dazzle its
+	// flare leaves on a monster (lighting-updates Phase 6).
+	all.push_back(std::make_unique<LightEffect>());
+	all.push_back(std::make_unique<DazzleEffect>());
 	return all;
 }
 

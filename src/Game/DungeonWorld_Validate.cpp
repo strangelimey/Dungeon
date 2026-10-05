@@ -126,10 +126,12 @@ bool DungeonWorld::InstallLevel(const std::string& stem, DungeonMap&& map,
 	// it — the fog mask first, which is indexed by MarkSeen a few lines below and
 	// asserted out of range the first time this ran against a bigger level.
 	m_seen.assign(static_cast<size_t>(m_map.Width()) * m_map.Height(), 0);
+	FitTracksToMap(); // the track grid is parallel to the cells too (6g)
 	m_walkableCache.reset(); // a grid built for the old map's bounds
 	// Transient things positioned in the level that just ceased to exist.
 	m_projectiles.Clear();
 	m_pendingBoltCount = 0; // and any volley still waiting its turn
+	m_lightStones = {};     // and any Earth light set down (a level's own state)
 	m_pendingTransition.reset();
 	m_pendingFall.reset();
 	m_fallT = -1.0f;

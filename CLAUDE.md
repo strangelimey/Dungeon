@@ -169,8 +169,8 @@ Key conventions (memorize, they bite):
   callbacks, both wired in the Game constructor.
 - MAGIC (full model: docs/magic system.md + spells.md + skills.md): every
   spell is a CLASS in src/Game/Spell/ (one file pair per spell; Spell base →
-  BoltSpell/WardSpell/SightSpell forms — the shared tier-2 form runes Project/
-  Protect/Sight; behaviour = the Cast() override, reaching the
+  BoltSpell/WardSpell/SightSpell/LightSpell forms — the shared tier-2 form runes
+  Project/Protect/Sight/Light; behaviour = the Cast() override, reaching the
   world only through host-wired CastServices) — spells.cat is NUMERIC
   OVERRIDES only, the class recipe is identity. MagicSystem runs the common
   gates (vocab, mana, skill/fumble roll, power ×(1+0.10×school level) ×
@@ -192,7 +192,7 @@ Key conventions (memorize, they bite):
   SymbolMayFollow / WellFormedRecipe are the one statement of that grammar
   (no modifier on a bare school rune or on Sight). Runes are SHOWN by their
   Futhark names (`RuneNameKey` -> `rune.<id>`: Kenaz Berkano Ansuz Laguz /
-  Tiwaz Algiz Dagaz / Ingwaz Hagalaz); the ids stay the meanings. TIER 1 is
+  Tiwaz Algiz Dagaz Sowilo / Ingwaz Hagalaz); the ids stay the meanings. TIER 1 is
   four `HandSpell`s, NOT bolts: Flame lights a held torch / the wall torch /
   a brazier past `brazier_power`; Rock conjures a pebble into a hand or at the
   feet; Gust flares a fire and past `push_power` shoves a monster and REPELS a
@@ -207,11 +207,11 @@ Key conventions (memorize, they bite):
   glow from a fixed 4-slot `m_handGlows` (a cast is a guarded frame). Dev:
   `castsvc puff [school]`. TIER 2 Project = single-target bolts (`firebolt`
   `earthbolt` `waterbolt` `airbolt`; were fireburst/slingshot/push). TIER 3 is
-  ONE class, `ModifiedSpell`, which AllSpells wraps round every Bolt and Ward
-  spell: Ingwaz = a volley (each bolt weaker, the caster's own lane, a fixed
+  ONE class, `ModifiedSpell`, which AllSpells wraps round every Bolt, Ward and
+  Light spell (the lights' pair: see THE LIGHT FORM below): Ingwaz = a volley (each bolt weaker, the caster's own lane, a fixed
   pending-bolt queue via `spawnBoltAfter` - a cast frame must not allocate) or
   the ward on the whole party; Hagalaz = a burst on impact or a burst round the
-  caster sparing its square, and no ward. Sixteen whole spells with their own
+  caster sparing its square, and no ward. Twenty-four whole spells with their own
   ids and spells.cat entries, so learning / the book / saves needed nothing.
   TRAP: `blast_force` counts SQUARES, not a radius. Monsters cast any spell id;
   the mage ladder is skel_mage / skel_mage_adept / skel_magus (bolt, volley,
@@ -219,11 +219,52 @@ Key conventions (memorize, they bite):
   drivable bare with `castsvc`). Checked by `tools\SpellTest.py` (judges
   spells.eval, CheckAll quick; `--selftest` cuts every cast) and `AllocTest.ps1
   -Hand`.
+  THE LIGHT FORM (lighting-updates Phase 6): a fourth form rune, SOWILO
+  (`SpellSymbol::Light`, APPENDED - bit 9 of knownSymbols, old saves unchanged;
+  `SpellIdList` is 64 now - it was exactly full at 32, so a 33rd spell could never
+  be learned). `Spell/LightSpell` + Firelight / Tidelight / Skylight /
+  Stonelight land ONE effect kind, `light` (Effect/LightEffect, knobs on
+  effects.cat [light]), on the CASTER with the school on the instance - schools
+  stack, a recast replaces its own - and the world reads it every frame
+  (DungeonWorld_SpellLight.cpp): a `LightKind::Spell` light per (member, school)
+  from lights.cat `spell_<school>`, sized by the cast power. Each school DOES
+  something: fire kindles fires within a step and scorches monsters beside the
+  party; water clears a bubble in the haze (a NEGATIVE dust puff - the shader's
+  DustDensity clamps at zero), doubles stamina regen and quenches the party;
+  air shocks the nearest monster in reach and sight and flickers faster while
+  the party is noticed; EARTH is not carried but SET DOWN - a stone in the
+  cast's square (`placeLightStone`; a fixed `m_lightStones` of 8 a level, saved
+  as `lightstone` lines in its LevelState) that maps every square its light
+  reaches in walking steps and shows MONSTER TRACKS there. TRACKS: `m_tracks`,
+  one cell per square sized with the fog mask (FitTracksToMap - a NEW site that
+  resizes m_seen must call it), written in `StepMonsterTo`, fading over
+  balance.cat `track_life`, saved per level as AGES on a `tracks` line; each
+  records its MAKER so the party can leave tracks / scent / noise later.
+  Ingwaz on a light = one bigger light (`grow` x the power); Hagalaz = a FLARE
+  (the `lightFlare` service: a flash, `dazzle` on monsters within 3 steps - a
+  dazzled monster skips its turn - and the school's light acting once). With
+  it: every skeleton resists fire 0.75, and a monsters.cat `flammable` monster
+  (the mummy) catches from ANY fire that lands on it - the one seam is
+  `MonsterTarget::Wound` (balance.cat `ignite_burn` / `ignite_seconds`). Dev:
+  `lightstones [clear]`, `tracks [clear | add <x> <z> <dir>]`; checked by
+  `AllocTest.ps1 -Light` (refuses a PASS without the flare's dazzle or the
+  stone's track motes). No `rune_light` tablet is placed in play yet.
 - FIRE AND LIGHT (docs/torches-and-fire.md): there is NO light at the eye - a
   LIT TORCH held in a hand (or on the cursor) is the party's light, and an
   ambient-0 level is pitch black. A lit torch burns while HELD (its CHARGE
   counts down `burn_time`, it dims over its last tenth, spent it becomes
-  `spent_as`); stowed or dropped it goes out keeping what is left. A torch is
+  `spent_as`); stowed in a pack it goes out keeping what is left, but ON THE
+  FLOOR IT STAYS LIT (lighting-updates Phase 4, Michael: thrown or set down) -
+  it burns on there (`TickFloorTorches`; an authored record's torch becomes a
+  drop the first time it burns, so the save carries kind and charge), lights
+  its square and burns with a small flame from a fixed pool (`m_torchFlames`,
+  shared with a torch in FLIGHT, whose flame trails behind it). The hand menu
+  offers PUT OUT for a lit torch and LIGHT for a MAGICAL one (its lit kind has a
+  `power_level`): Flame passes a magical torch over (`refusesFlame`, a cast
+  service) and Light costs balance.cat `torch_light_mana` per level. WORN LIGHT
+  (Phase 5): any item on the doll or in a hand whose kind names a `light` and
+  does not burn (the moonstone amulet) gives it steadily at its member's side
+  (`LightKind::Worn`; `AllocTest -Wear <item>`). A torch is
   also a CLUB (`command = attack`, the `attack` verb: bash, blunt skill, STR);
   a LIT one is `element = fire`, so its fire scales with tier and skill, plus
   an `on_hit` burn. A MAGICAL torch (`torch_magic`) adds `power_level` (burn_time
@@ -250,6 +291,33 @@ Key conventions (memorize, they bite):
   fire change must not bump `DungeonMap::Revision()` (`RecomputeTurbidity`) -
   the revision keys the AI walkability grid, which then rebuilt (allocating) on
   every hand spell. Dev: `torch`, `castsvc`, `equip none`.
+  WHAT A LIGHT LOOKS LIKE IS DATA (lighting-updates, docs/lighting-updates-
+  plan.md): every light is pushed through `DungeonWorld::PushLight` from a
+  named PROFILE in the project's `lights.cat` (Game/LightProfile.h, pure, in
+  RollTest: colour or `source`, intensity, radius in SQUARES, pulse steady/
+  flicker/breathe/strobe/storm + rate/depth, origin `wander`, shadow,
+  long_fade). A source NAMES one: fixtures.cat / items.cat `light`, effects.cat
+  `light` on a plume. There is no global torch palette any more (the HUD
+  Options panel is gone). A placed fire keeps its own reach (Brightness) and
+  may carry its own FLAME COLOR (`color=r,g,b` on the .map fixture record, the
+  fixture dialog's row): it colours the light AND the flames (FireEffect::
+  SetFlameColor). Dev: `lights` / `lights profiles` / `lights reload`.
+  THINGS IN FLIGHT (Phase 4, DungeonWorld_Flight.cpp): EVERY launch goes through
+  `DungeonWorld::Launch`, which DRESSES the spec - its light profile and its
+  TRAIL from, most particular first, the spell's own spells.cat `light`/`trail`,
+  the cargo kind's items.cat `light`/`trail`, the school's `bolt_<school>` /
+  `trail_<school>`, else `bolt_shot`/`trail_shot` for a monster's plain shot.
+  Each flight is ITS OWN light keyed by its projectile id, on from launch to
+  landing (a volley's bolts each light their own stretch; a bolt still queued in
+  `m_pendingBolts` makes none - it is dressed when queued, since its names are
+  borrowed from a spell a reload could replace), and a lit bolt's end leaves a
+  0.3 s FLASH. Trails are `trails.cat` (Game/Trail.h, pure, in RollTest: shape
+  spark/ember/mote/puff/drip, `rate` per SQUARE flown - shed by distance, thinning
+  with distance from the eye and none within half a square of it). They share
+  the projectile spark pool, which NEVER GROWS: full, it recycles its oldest
+  trail particle, and only with none left does a particle go without, so a hit
+  always reads. Dev: `trails [reload]`; checked by AllocTest `-Cast`/`-Impact`/
+  `-Throw` and `-Throw -ThrowItem torch_lit`.
 - COMBAT (full model: docs/combat.md — "The attack formula"; built by the
   combat-depth thread): every constant is a KNOB in the project's
   balance.cat ([formula] block → the Balance struct in Game/Balance.h;
@@ -335,8 +403,9 @@ Key conventions (memorize, they bite):
   "permanent effect" concept and exactly one place a member stops starving
   (`ConsumeItem` deliberately does not lift it). Dev: `supplies` (in HOURS LEFT,
   since a meter reading means nothing without its rate), `setsupply`, `consume`.
-  REST is a STATE (the HUD Options panel's Rest button, which replaced the dead
-  "Wait" placeholder; dev `rest [on|off]`, bare = REPORT not toggle). It
+  REST is a STATE (the Rest button beside the log's Log button - it was on the
+  HUD Options panel, gone in lighting-updates; dev `rest [on|off]`, bare =
+  REPORT not toggle). It
   multiplies TIME at ONE place — `Game::Update`'s `wdt` — so every rate, timer
   and cooldown accelerates together and no second set of resting rates can
   drift. **It forces LOCKSTEP AI while resting** and hands the previous mode
@@ -535,6 +604,27 @@ that's a turbidity/ambient tuning matter, not a shadow bug (A/B: console
 at launch with an on-disk cache (shadercache/, hash-invalidated) — edit
 .hlsl and relaunch, no rebuild.
 
+THE LIGHT BUDGET (lighting-updates Phase 3, DungeonWorld_LightBudget.cpp +
+Graphics/LightTiles.h): every source PUSHES a candidate light (PushLight, with a
+stable `id` = kind << 24 | index) and SelectLights decides what is drawn - drop a
+light whose sphere reaches no pixel of the view (the renderer's own LightTiler,
+so cull and shader agree), drop one in a square the party cannot walk to (a
+BFS from its square; such a light only bled through walls), RANK the rest by
+intensity x r^2 / (r^2 + d^2) with a bonus for last frame's keepers, keep the
+top Max Lights (a held torch always), and FADE a light crossing that line over
+a quarter second (a light merely off screen keeps its fade). The scene shader
+then loops only over its TILE'S lights: 32 x 18 NDC tiles, a 64-bit mask each
+in the frame constants (`gTileGrid`, `gLightTiles`, LAST in the cbuffer so
+shadow.hlsl's shorter copy still lines up; LIGHT_TILE_COUNT mirrors
+kLightTileCount BY HAND), and the dust march reuses the pixel's mask because
+every sample on its ray projects to that pixel. KNOW THIS before expecting a
+big win from tiles: a sphere that contains the eye reaches every pixel, and in
+2.5 m squares with 7.5-15 m reaches most nearby lights do - the tiles save on
+distant lights, and Max Lights is still the real control (measured in the
+plan). The camera updates BEFORE the lights each frame for the cull. Shadow
+cubes cache by light id, not list index. Dev: `lights [profiles|reload]`,
+`lightstress <n> [near]`, `lighttiles on|off`; checked by RollTest (a light is
+never missing from a tile it reaches) and `AllocTest -Lights`.
 TRANSPARENCY (glass and the liquid in it) is a QUEUED pass: a draw whose
 material is `transparent` is not issued but queued, sorted far to near and
 FLUSHED at the end of the pass - see "Transparency and potions" below for the
@@ -995,8 +1085,8 @@ quality dropdown on Video (Low/Medium/High/Ultra: mesh tier low/med/high/high
 + textures 1k/1k/2k/4k + point-light budget 16/32/48/64) plus a Max Lights
 dropdown on Video (GameSettings::kLightBudgets; picking a quality resets the
 budget to its tier value via Game::SetQuality → GameUI::SyncMaxLights, then
-the dropdown can override it; DungeonWorld::UpdateLights keeps the nearest-to-
-eye lights up to the budget) plus a Frame Rate dropdown (GameSettings::
+the dropdown can override it; DungeonWorld::SelectLights keeps the lights that
+add most to the view up to the budget - see "The light budget") plus a Frame Rate dropdown (GameSettings::
 kPresentIntervals → GraphicsDevice::SetPresentInterval: present sync interval
 1..4 = full-refresh VSync down to refresh/4, a tear-free divisor cap that cuts
 GPU load; options labelled with the live rate from GraphicsDevice::RefreshHz;
@@ -1183,8 +1273,10 @@ place (keeping each slot's loaded portrait); a roster SIZE change must
 call GameUI::RebuildForRoster (deferred like RebuildForLanguage, never
 from a widget callback) to re-lay-out the per-member widgets — BuildHud
 lays out whatever count it finds (hand pairs fill 2 wide, 2+1 for three). Left column under the bar: the
-facing/position panel, then the Options panel (torchlight dropdown,
-Wait/Help). Right edge: a Dungeon Master-style control panel — six movement
+facing/position panel (the Options panel under it - torchlight palette, Rest,
+Help - was REMOVED in lighting-updates Phase 1: light comes from what is lit,
+and Rest / Help sit in the log's corner row beside the Log button,
+MessageLog::cornerButtons). Right edge: a Dungeon Master-style control panel — six movement
 arrow buttons (turn/forward over strafe/back; GameUI::onMoveAction →
 Party::Act(MoveAction), the same discrete actions the bound keys map to in
 HandleInput), a left+right HandSlot (PartyHud.h) pair per member (empty
@@ -2232,7 +2324,7 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   editor's arrow flicker back. A panel claims the pointer over its whole rect (a click on
   a dock's padding used to reach the 3D view). `Scale()` clamps to the panel's own
   min/max (the sheet stops at 1.3), whatever the slider's 0.5..1.5 stored.
-  THE PANELS are kHudPanelFields (GameSettings.h: party, status, options, move,
+  THE PANELS are kHudPanelFields (GameSettings.h: party, status, move,
   hands, magic, cards, inventory, tray, sheet - the SHEET LAST, since it alone
   lives in another context and [0, kHudSheet) means "the HUD's"); each a
   HudPanelLook {x, y, scale, opacity, hidden} in settings, a Settings -> UI

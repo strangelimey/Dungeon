@@ -84,6 +84,8 @@ void DungeonWorld::ResetForNewGame() {
 	m_partyWiped = false;
 	m_projectiles.Clear(); // drop any bolts/sparks still in flight from a prior run
 	m_pendingBoltCount = 0; // and any volley still waiting its turn
+	m_lightStones = {};     // and any Earth light set down (a level's own state)
+	ClearTracks();          // and the tracks monsters left (6g)
 	// Rebuild items from the .ent baseline so runes return to their spawn cells
 	// (and any dropped tablets from a prior session are forgotten).
 	m_items.clear();
@@ -101,7 +103,6 @@ void DungeonWorld::ResetForNewGame() {
 	SyncFiresFromMap();
 	std::fill(m_seen.begin(), m_seen.end(), static_cast<u8>(0));
 	MarkSeen(m_party.GridX(), m_party.GridZ());
-	SetTorchPalette(0);
 	m_levelStates.clear(); // forget any explored levels
 	m_parked = false;
 	// Every monster is back at full and the world is a different world: the
@@ -327,6 +328,19 @@ SaveData::LevelState DungeonWorld::SnapshotActive() const {
 	for (const Door& d : m_doors) damaged(d.brk, d.x, d.z, d.type, -1);
 	for (const FixtureBreak& fb : m_fixtureBreaks)
 		damaged(fb.brk, fb.x, fb.z, fb.type, fb.wall);
+	// Earth lights set down (6f): each still burning, with what it has left.
+	for (const LightStone& s : m_lightStones)
+		if (s.timeLeft > 0.0f) ls.stones.push_back({s.x, s.z, s.power, s.timeLeft, s.duration});
+	// Monster tracks not yet faded (6g), as AGES against the clock now.
+	const int w = std::max(m_map.Width(), 1);
+	for (size_t i = 0; i < m_tracks.size(); ++i) {
+		const Track& t = m_tracks[i];
+		const float age = TrackAge(t);
+		if (age < 0.0f) continue;
+		ls.tracks.push_back({static_cast<int>(i % static_cast<size_t>(w)),
+							 static_cast<int>(i / static_cast<size_t>(w)), static_cast<int>(t.dir),
+							 static_cast<int>(t.maker), age});
+	}
 	return ls;
 }
 
@@ -483,6 +497,29 @@ void DungeonWorld::ApplyActiveSnapshot() {
 		if (!f.empty && !f.torch.empty() && f.wall >= 0)
 			m_map.SetSconceTorch(f.x, f.z, f.wall, f.torch, f.torchCharge);
 	}
+	// Earth lights set down (6f), as they were left - into the pool's first
+	// slots, the rest free. One off the map (the level was edited under the
+	// save) is dropped.
+	m_lightStones = {};
+	size_t stoneSlot = 0;
+	for (const SaveData::LightStone& s : ls.stones) {
+		if (stoneSlot >= m_lightStones.size() || s.timeLeft <= 0.0f) continue;
+		if (s.x < 0 || s.z < 0 || s.x >= m_map.Width() || s.z >= m_map.Height()) continue;
+		m_lightStones[stoneSlot++] = {s.x, s.z, s.power, s.timeLeft, s.duration, 0.0f, 0.0f};
+	}
+	// Monster tracks (6g), each as old as it was when the level was left or
+	// saved. One off the map, or naming no maker this build knows, is dropped.
+	ClearTracks();
+	for (const SaveData::TrackState& t : ls.tracks) {
+		if (t.maker < static_cast<int>(TrackMaker::Monster) ||
+			t.maker > static_cast<int>(TrackMaker::Party) || t.dir < 0 || t.dir > 3)
+			continue;
+		RecordTrack(t.x, t.z, static_cast<Direction>(t.dir), static_cast<TrackMaker>(t.maker));
+		const size_t cell = static_cast<size_t>(t.z) * static_cast<size_t>(m_map.Width()) +
+							static_cast<size_t>(t.x);
+		if (t.x >= 0 && t.z >= 0 && t.x < m_map.Width() && cell < m_tracks.size())
+			m_tracks[cell].stamp = m_trackClock - static_cast<double>(t.age);
+	}
 	// Re-break what was broken (v24). A saved entry naming a prop this level no
 	// longer has is simply dropped — the level was edited under the save, and a
 	// missing prop is exactly the outcome the entry wanted anyway. And one naming a
@@ -561,7 +598,6 @@ void DungeonWorld::CaptureState(SaveData& out, bool includeLive) const {
 	out.lookYaw = m_party.LookYaw();
 	out.lookPitch = m_party.LookPitch();
 	out.looking = m_party.IsLooking();
-	out.torchPalette = m_torchPalette;
 	out.leader = m_leader;
 
 	// Every inactive visited level, plus the live one — unless it is parked,
@@ -576,7 +612,6 @@ void DungeonWorld::ApplyState(const SaveData& in) {
 	m_party.SetFacing(in.partyFacing);
 	// Re-layer the free-look offset on the restored facing (SetFacing cleared it).
 	m_party.SetLookState(in.lookYaw, in.lookPitch, in.looking);
-	SetTorchPalette(in.torchPalette);
 	// The leader as saved; Update hands it on if the roster says they are down.
 	m_leader = in.leader;
 

@@ -1207,6 +1207,20 @@ void DungeonWorld::MonsterTarget::Wound(float amount, fx::DamageEvent& ev) {
 		++m_world.m_harness.tally.monstersSlain;
 	} else if (!ev.Quiet()) {
 		m_monster.hitReq = true; // survivor flinches (a fatal blow plays Die)
+		// A FLAMMABLE body that fire reaches CATCHES, every time (Michael: "a
+		// human torch waiting to happen") - a bolt, a lit torch's blow, a light's
+		// scorch alike, since every one of them lands here. Not from a tick (the
+		// burn's own bite is fire), and not when it already burns.
+		if (amount > 0.0f && m_monster.kind && m_monster.kind->flammable &&
+			ev.type == m_world.m_damageTypes.ForSchool(SpellSymbol::Fire) &&
+			!PlumeEffect(m_monster))
+			if (const fx::EffectKind* burn = m_world.m_effects.Find("burn")) {
+				fx::Apply(m_monster.effects, *burn, SpellSymbol::Fire,
+						  m_world.m_balance.igniteBurn, m_world.m_balance.igniteSeconds, ev.source);
+				if (m_world.onMessage)
+					m_world.onMessage(loc::FormatLine("log.monster_ignites",
+													  loc::ViewKey("monster.", m_monster.kind->name)));
+			}
 	}
 }
 
@@ -1578,6 +1592,15 @@ void DungeonWorld::OnFallImpact() {
 // snap the instant the step commits (so occupancy is atomic, like the party),
 // while visualPos glides from where it stood over moveInterval.
 void DungeonWorld::StepMonsterTo(Monster& monster, int x, int z, int slot) {
+	// It leaves a TRACK on the square it steps onto, the way it went (6g). A
+	// shuffle between slots in its own square leaves none.
+	if (x != monster.x || z != monster.z) {
+		const int dx = x - monster.x, dz = z - monster.z;
+		const Direction way = std::abs(dx) >= std::abs(dz)
+								  ? (dx > 0 ? Direction::East : Direction::West)
+								  : (dz > 0 ? Direction::South : Direction::North);
+		RecordTrack(x, z, way, TrackMaker::Monster);
+	}
 	monster.moveFrom = monster.visualPos;
 	monster.x = x;
 	monster.z = z;
@@ -1741,7 +1764,7 @@ void DungeonWorld::MonsterRangedAttack(Monster& monster) {
 		if (std::optional<ProjectileSpec> bolt =
 				spell->MonsterBolt(origin, dir, monster.kind->accuracy)) {
 			bolt->shooter = monster.runtimeId; // the impact reads its threat
-			m_projectiles.Spawn(*bolt);
+			Launch(*bolt);
 			// A volley spell (Ingwaz) throws the rest a beat apart.
 			for (int i = 1; i < spell->MonsterVolley(); ++i)
 				SpawnBoltAfter(*bolt, 0.2f * static_cast<float>(i));
@@ -1767,7 +1790,7 @@ void DungeonWorld::MonsterRangedAttack(Monster& monster) {
 	// bolt above takes the SPELL's payload instead — the spell is the source
 	// there, not the creature.)
 	bolt.payload = monster.kind->shotPayload; // packed at load
-	m_projectiles.Spawn(bolt);
+	Launch(bolt);
 	m_audio.Play(m_sounds.monster, 0.5f); // soft launch cue (reuse the monster voice)
 }
 

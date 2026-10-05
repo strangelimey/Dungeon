@@ -84,3 +84,15 @@ category = clothing
 weight = 2.0
 armor = 0.25
 resists = slash 0.05
+
+; --- jewelry -----------------------------------------------------------------
+; Worn for what it does, not what it stops. An item with a `light` (lights.cat)
+; gives it while worn on the doll or held (lighting-updates Phase 5), steady
+; at the wearer's side.
+[moonstone_amulet]
+name = item.moonstone_amulet
+wear = amulet
+category = jewelry
+weight = 0.1
+model = moonstone_amulet
+light = moonstone

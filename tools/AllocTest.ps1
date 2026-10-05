@@ -13,6 +13,7 @@
 #   .\tools\AllocTest.ps1 -Cast              # a bolt in flight + an open spellbook
 #   .\tools\AllocTest.ps1 -Impact            # bolts landing, expiring, a blast, a crate alight
 #   .\tools\AllocTest.ps1 -Hand              # the hand spells: light, douse, flare, fill, pebble
+#   .\tools\AllocTest.ps1 -Light             # the Sowilo lights: cast, stacked, grown, a flare's dazzle
 #   .\tools\AllocTest.ps1 -Pause             # Esc to the pause menu and back
 #   .\tools\AllocTest.ps1 -Sheet             # the sheet: hover, tabs, item dialog
 #   .\tools\AllocTest.ps1 -Panels            # drag and resize the floating HUD
@@ -20,6 +21,8 @@
 #   .\tools\AllocTest.ps1 -Items             # pack -> cursor -> floor -> cursor -> pack
 #   .\tools\AllocTest.ps1 -Packs             # swap a 4-slot and an 8-slot bag
 #   .\tools\AllocTest.ps1 -Throw             # lift a rock, throw it at a wall, again
+#   .\tools\AllocTest.ps1 -Throw -ThrowItem torch_lit   # ...a lit torch (its light and flame)
+#   .\tools\AllocTest.ps1 -Wear moonstone_amulet       # any mode with a worn light on member 0
 #   .\tools\AllocTest.ps1 -Walk              # key turns: the party AND the pad's stones
 #   .\tools\AllocTest.ps1 -Config release    # needs -DDN_TRACK_ALLOCS=ON
 #
@@ -248,6 +251,9 @@ param(
 	# Casts the four hand spells at a wall torch inside the window (spell-updates
 	# Phase 8). See the note at the setup.
 	[switch]$Hand,
+	# Casts the Sowilo LIGHT spells inside the window (lighting-updates Phase 6):
+	# a light, another school's, an Ingwaz one and a Hagalaz flare at a mummy.
+	[switch]$Light,
 	# Pauses (Esc) and resumes inside the window. See the note above.
 	[switch]$Pause,
 	# Works the character sheet inside the window. See the note above.
@@ -265,6 +271,12 @@ param(
 	# the matching stone, via Party::ActCount). Refuses a PASS unless the
 	# verdict's moves= counts them.
 	[switch]$Walk,
+	# Runs any mode under a LIGHT LOAD: 64 test lights over the level
+	# (`lightstress`, lighting-updates Phase 3), so the light budget's cull,
+	# ranking and fades - and the tile binning - run inside the window. With
+	# -Walk the turns sweep lights in and out of view. Refuses a PASS unless
+	# the load was placed.
+	[switch]$Lights,
 	# Moves an item pack -> floor -> pack inside the window. See the note above.
 	[switch]$Items,
 	# The warm-up item and the measured one: two different kinds, the second
@@ -276,6 +288,14 @@ param(
 	# Lifts a rock off the floor and throws it at a wall, round and round,
 	# inside the window (ui-updates Phase 10). See the note at the setup.
 	[switch]$Throw,
+	# What -Throw throws. `torch_lit` (lighting-updates Phase 4) makes the round
+	# trip a LIT torch's: carried on the cursor, a light and a flame in flight,
+	# and a floor torch burning where it lands - all inside the window.
+	[string]$ThrowItem = 'rock',
+	# Member 0 WEARS this item for the whole run (lighting-updates Phase 5): an
+	# item with a `light` (moonstone_amulet) is then a worn light every frame of
+	# the window. Refuses to run if the wear was refused or no worn light shows.
+	[string]$Wear = '',
 	# Stands the party facing a GLASS decoration for the whole window, so the
 	# transparent queue (transparency Phase 1) queues, sorts and flushes in armed
 	# frames. See the note above.
@@ -815,6 +835,53 @@ try {
 		Start-Sleep -Milliseconds 600
 	}
 
+	# -Wear: member 0 puts the item on before anything else, so its light is
+	# there in every measured frame. The proof it took is the game's own lines:
+	# the wear, and a `worn` row in the light readout.
+	if ($Wear) {
+		Write-Host "member 0 wears $Wear"
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		Send-Text "wear $Wear 0"; Send-Key 0x0D
+		# Closed a moment so the world runs a few frames with it on: the light
+		# readout is the LAST frame's lights, and an open console's frames may
+		# not have refreshed them.
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 600
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 400
+		Send-Text 'lights'; Send-Key 0x0D
+		Start-Sleep -Milliseconds 600
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 400
+		if (-not (Select-String -Path $log -Pattern "wears $Wear" -SimpleMatch -Quiet)) {
+			throw "wear $Wear was refused (see dungeon.log)"
+		}
+		if (-not (Select-String -Path $log -Pattern '\] worn ' -Quiet)) {
+			Select-String -Path $log -Pattern 'console: ' | Select-Object -Last 12 |
+				ForEach-Object { Write-Host "    $($_.Line)" }
+			throw "$Wear is worn but gives no light (no 'worn' row in the light readout)"
+		}
+	}
+
+	if ($Lights) {
+		Write-Host 'scattering 64 test lights over the level'
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		Send-Text 'lightstress 64'; Send-Key 0x0D
+		Start-Sleep -Milliseconds 600
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 400
+		$placed = Select-String -Path $log -Pattern 'console: lightstress: (\d+) test lights' |
+			Select-Object -Last 1
+		$script:stressLights = if ($placed -and $placed.Line -match 'lightstress: (\d+)') { [int]$Matches[1] } else { 0 }
+		Write-Host "  $($script:stressLights) test lights placed"
+	}
+
 	if ($Wounded) {
 		Write-Host 'wounding the party so the regeneration path actually runs'
 		Send-Key 0xC0
@@ -1124,6 +1191,61 @@ try {
 		Start-Sleep -Milliseconds 400
 	}
 
+	# -Light: THE SOWILO LIGHTS (lighting-updates Phase 6). Each member casts a
+	# different one from a world frame (`autocast`, the harness pays the mana):
+	# a plain Firelight and Tidelight (a light effect landing, refreshed each
+	# time - the per-school stacking), an Ingwaz Skylight (one bigger light), and
+	# a Hagalaz Firelight FLARE at a mummy beside the party (the flash, the dazzle
+	# landing on a monster, Firelight's scorch and the flammable mummy catching),
+	# and a Stonelight (6f: the stone SET DOWN, replacing the last in its square,
+	# and the squares it reaches mapped; 6g: the monster tracks in its reach
+	# shown - three planted up the doorway, since a frozen world walks none).
+	# The world is frozen, so the mummy only stands there.
+	if ($Light) {
+		Write-Host 'casting the light spells in crypt1, a mummy beside the party'
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		Enter-FrozenArena 'crypt1'
+		Send-Text 'tp 7 7'; Send-Key 0x0D
+		Send-Text 'face n'; Send-Key 0x0D
+		Assert-PartyAt 7 7
+		# Beside the party, so Firelight's scorch (and the mummy catching fire) lands in
+		# the window too; tough enough (x400) to outlive it.
+		Send-Text 'spawn mummy 7 6 s 400'; Send-Key 0x0D
+		Send-Text 'tracks clear'; Send-Key 0x0D
+		foreach ($z in 4, 5, 6) { Send-Text "tracks add 7 $z s"; Send-Key 0x0D }
+		foreach ($m in 0, 1, 2, 3) {
+			foreach ($s in 'fire', 'water', 'air', 'earth', 'light', 'multiple', 'explode') {
+				Send-Text "learn $m $s"; Send-Key 0x0D
+			}
+		}
+		Send-Text 'setskill 0 fire 10'; Send-Key 0x0D
+		Send-Text 'setskill 1 water 10'; Send-Key 0x0D
+		Send-Text 'setskill 2 air 10'; Send-Key 0x0D
+		Send-Text 'setskill 3 fire 10'; Send-Key 0x0D
+		Send-Text 'setskill 3 earth 10'; Send-Key 0x0D
+		Send-Text 'autocast 0 firelight 0.5'; Send-Key 0x0D
+		Send-Text 'autocast 1 tidelight'; Send-Key 0x0D
+		Send-Text 'autocast 2 skylight_bright'; Send-Key 0x0D
+		Send-Text 'autocast 3 firelight_flare'; Send-Key 0x0D
+		Send-Text 'autocast 3 stonelight'; Send-Key 0x0D
+		Write-Host '  warming the rotation up'
+		Start-Sleep -Seconds 6
+		$castPattern = 'console:   member \d+ casts \S+: \d+ cast, \d+ failed'
+		$castBefore = @(Select-String -Path $log -Pattern $castPattern).Count
+		Send-Text 'autocast hold'; Send-Key 0x0D
+		Send-Text 'autocast'; Send-Key 0x0D
+		$script:lightRows = Wait-NewLogLines $castPattern $castBefore 5
+		if ($script:lightRows.Count -ne 5) { throw "``autocast`` listed $($script:lightRows.Count) entries, not 5" }
+		foreach ($r in $script:lightRows) {
+			if ($r.Line -match ': 0 cast,') { throw "a light spell never cast in the warm-up: $($r.Line -replace '^.*console:\s+', '')" }
+		}
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0 # close the console again; alloctest reopens it below
+		Start-Sleep -Milliseconds 400
+	}
+
 	if ($Sheet) {
 		Write-Host 'opening the sheet with a rune and a blade in the pack'
 		Send-Key 0xC0
@@ -1381,7 +1503,7 @@ try {
 	# north is the far-left one: exactly -Items' floor point. So the loop needs
 	# no feedback: lift there, throw high, wait out throw_interval, again.
 	if ($Throw) {
-		Write-Host 'going to eval_arena''s north wall with a rock'
+		Write-Host "going to eval_arena's north wall with a $ThrowItem"
 		Send-Key 0xC0
 		Start-Sleep -Milliseconds 500
 		Send-Text 'logecho on'; Send-Key 0x0D
@@ -1408,7 +1530,7 @@ try {
 		# The first rock comes from nowhere: the leader throws one, and it lands
 		# where every later one will.
 		Send-Text 'tally reset'; Send-Key 0x0D
-		Send-Text 'throw rock'; Send-Key 0x0D
+		Send-Text "throw $ThrowItem"; Send-Key 0x0D
 		Send-Key 0xC0
 		Start-Sleep -Milliseconds 1500
 		# WARM-UP, and the check that the loop's clicks land: one whole cycle by
@@ -1748,6 +1870,51 @@ try {
 		}
 	}
 
+	# And for -Light: every light in the rotation cast again inside the window,
+	# and the flare's dazzle is on the mummy.
+	if ($Light) {
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		Send-Text 'autocast hold'; Send-Key 0x0D
+		$castPattern = 'console:   member \d+ casts \S+: \d+ cast, \d+ failed'
+		$castBefore = @(Select-String -Path $log -Pattern $castPattern).Count
+		$monBefore = @(Select-String -Path $log -Pattern 'console:   mummy @').Count
+		$tracksBefore = @(Select-String -Path $log -Pattern 'console: tracks: \d+ on').Count
+		$trailsBefore = @(Select-String -Path $log -Pattern 'console: trails: ').Count
+		Send-Text 'autocast'; Send-Key 0x0D
+		Send-Text 'tracks'; Send-Key 0x0D
+		# Nothing flies in this mode, so the spark pool's TRAIL motes are the
+		# tracks the stone is showing.
+		Send-Text 'trails'; Send-Key 0x0D
+		Send-Text 'monsters'; Send-Key 0x0D
+		Wait-ConsoleDone
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0
+		$after = @(Select-String -Path $log -Pattern $castPattern) | Select-Object -Skip $castBefore
+		$mummy = (@(Select-String -Path $log -Pattern 'console:   mummy @') | Select-Object -Skip $monBefore |
+			ForEach-Object { $_.Line -replace '^.*console:\s+', '' }) -join '; '
+		$short = @()
+		for ($i = 0; $i -lt $after.Count -and $i -lt $script:lightRows.Count; $i++) {
+			$was = if ($script:lightRows[$i].Line -match ': (\d+) cast,') { [int]$Matches[1] } else { 0 }
+			$now = if ($after[$i].Line -match ': (\d+) cast,') { [int]$Matches[1] } else { 0 }
+			Write-Host "  $($after[$i].Line -replace '^.*console:\s+', '') ($($now - $was) since the warm-up)"
+			if ($now - $was -lt 3) { $short += ($after[$i].Line -replace '^.*casts (\S+):.*$', '$1') }
+		}
+		Write-Host "  the mummy: $mummy"
+		$trackLine = @(Select-String -Path $log -Pattern 'console: tracks: \d+ on') | Select-Object -Skip $tracksBefore -First 1
+		$trackCount = if ($trackLine -and $trackLine.Line -match 'tracks: (\d+) on') { [int]$Matches[1] } else { 0 }
+		$trailLine = @(Select-String -Path $log -Pattern 'console: trails: ') | Select-Object -Skip $trailsBefore -First 1
+		$trackMotes = if ($trailLine -and $trailLine.Line -match '(\d+) of them trail') { [int]$Matches[1] } else { 0 }
+		Write-Host "  monster tracks in the stone's reach: $trackCount, $trackMotes motes showing them"
+		if (($short.Count -gt 0 -or $after.Count -ne 5 -or $mummy -notmatch '\[dazzle ' -or $trackCount -lt 3 -or $trackMotes -lt 1) -and $result -eq 'PASS') {
+			if ($trackCount -lt 3 -or $trackMotes -lt 1) { Write-Host 'the stone showed no tracks - ShowTracks was not measured' -ForegroundColor Yellow }
+			if ($short.Count -gt 0) { Write-Host "too few casts after the warm-up: $($short -join ', ')" -ForegroundColor Yellow }
+			if ($mummy -notmatch '\[dazzle ') { Write-Host 'the flare dazzled nothing - its monster path was not measured' -ForegroundColor Yellow }
+			$result = 'UNMEASURED'
+		}
+	}
+
 	# And for -Walk: no move counted means no key landed in an armed frame.
 	if ($Walk) {
 		$moves = if ($line -match '\bmoves=(\d+)') { [int]$Matches[1] } else { 0 }
@@ -1756,6 +1923,13 @@ try {
 			Write-Host 'fewer than four key moves landed - the pad presses were not measured' -ForegroundColor Yellow
 			$result = 'UNMEASURED'
 		}
+	}
+
+	# And for -Lights: no load placed means the budget ran on the level's own
+	# handful of lights, which is not what the mode exists to measure.
+	if ($Lights -and $script:stressLights -lt 32 -and $result -eq 'PASS') {
+		Write-Host "only $($script:stressLights) test lights were placed - the light load was not measured" -ForegroundColor Yellow
+		$result = 'UNMEASURED'
 	}
 
 	# And for -Pause: no transition counted means no Esc landed in an armed

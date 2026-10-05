@@ -66,6 +66,7 @@ stacking = refresh
 [burn]
 name = effect.burn
 plume = 1
+light = burning
 apply_party = log.member_ignites
 apply_monster = log.monster_ignites
 stacking = refresh
@@ -120,4 +121,44 @@ stacking = school
 [smoke]
 name = effect.smoke
 haze = 1
+stacking = refresh
+
+; --- the Sowilo lights (lighting-updates Phase 6) ---------------------------
+; One kind for the four light spells, named by school like [sight]. It does
+; nothing to its bearer: the world lights the party from it. `scale_power` is
+; the cast power at which the light is its profile's own size.
+[light]
+name = spell.firelight
+name_fire = spell.firelight
+name_earth = spell.stonelight
+name_air = spell.skylight
+name_water = spell.tidelight
+icon = rune_light
+stacking = school
+scale_power = 8
+; FIRE's light kindles an unlit fire within a step (a brazier only at
+; kindle_brazier_power) and every scorch_every seconds burns each monster
+; beside the party for scorch_damage x (power / scale_power).
+kindle_brazier_power = 14
+scorch_every = 1.5
+scorch_damage = 1.5
+; WATER's light: stamina comes back `soothe` x faster in it (1 = twice as
+; fast), it clears `clear_haze` of turbidity round the party, and it puts
+; out any fire on the party.
+soothe = 1
+clear_haze = 2
+; AIR's light: every crackle_every seconds a shock of crackle_damage x
+; (power / scale_power) at the nearest monster in its reach and sight; its
+; flicker runs warn_rate x fast while a monster near has noticed the party.
+crackle_every = 2
+crackle_damage = 2
+warn_rate = 3
+; EARTH's light is not carried: it is a stone SET DOWN where it is cast,
+; drawn as the `stone_item` item's model glowing in its colour (an item the
+; world lacks = the light alone), and every square its light reaches is mapped.
+stone_item = rock
+
+; A light spell's flare blinds a monster: it does nothing while this lasts.
+[dazzle]
+name = effect.dazzle
 stacking = refresh

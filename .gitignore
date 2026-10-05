@@ -31,6 +31,7 @@ assets/models/*.glb
 # ...except the script-built ITEMS: an item loads only <model>.glb, so a fresh
 # clone needs the file, and it is small (tools/BuildRock.py writes it).
 !assets/models/rock.glb
+!assets/models/moonstone_amulet.glb
 # (tools/BuildPotion.py writes these three)
 !assets/models/potion_vial.glb
 !assets/models/potion_bottle.glb

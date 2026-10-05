@@ -207,7 +207,9 @@ struct GameSettings {
 	// rows and Reset. The party bar's scale and opacity were barscale= /
 	// baropacity= before it floated, and the two docks' hud_move_collapsed= /
 	// hud_magic_collapsed= became their _hidden; those still load.
-	HudPanelLook hudParty, hudStatus, hudOptions, hudMove, hudHands, hudMagic;
+	// (The Options plate went in lighting-updates Phase 1; an old ini's
+	// hud_options_* lines are simply not read.)
+	HudPanelLook hudParty, hudStatus, hudMove, hudHands, hudMagic;
 	// The two floating WINDOWS (P3b): the party inventory and the sheet.
 	HudPanelLook hudInventory, hudSheet;
 	// The closed-panels TRAY (ui-updates Phase 8, Game/HudTray.h): a button per
@@ -278,7 +280,6 @@ struct HudPanelField {
 inline constexpr HudPanelField kHudPanelFields[] = {
 	{"party", "settings.party_bar", &GameSettings::hudParty, "panel_party"},
 	{"status", "settings.status_panel", &GameSettings::hudStatus, "panel_status"},
-	{"options", "settings.options_panel", &GameSettings::hudOptions, "panel_options"},
 	{"move", "settings.move_panel", &GameSettings::hudMove, "panel_move"},
 	{"hands", "settings.hands_panel", &GameSettings::hudHands, "panel_hands"},
 	{"magic", "settings.magic_panel", &GameSettings::hudMagic, "panel_magic"},
@@ -290,7 +291,7 @@ inline constexpr HudPanelField kHudPanelFields[] = {
 // Their indices, for code that needs one panel by name. The sheet stays LAST:
 // it alone lives in another UI context, and [0, kHudSheet) is "the HUD's".
 enum HudPanelIndex : size_t {
-	kHudParty, kHudStatus, kHudOptions, kHudMove, kHudHands, kHudMagic,
+	kHudParty, kHudStatus, kHudMove, kHudHands, kHudMagic,
 	kHudCards, kHudInventory, kHudTray, kHudSheet
 };
 static_assert(std::size(kHudPanelFields) == kHudSheet + 1);

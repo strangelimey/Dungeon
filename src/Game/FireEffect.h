@@ -69,6 +69,14 @@ public:
 	// palette, so {1,1,1} is an ordinary fire and a cold blue makes it a
 	// freezing one. Smoke is left alone (smoke is smoke).
 	void SetTint(const Vec3& tint) { m_tint = tint; }
+	// A placed fire's own FLAME COLOUR (its settings dialog): the flames and
+	// sparks are built from it instead of the orange palette - a white-hot core
+	// cooling to a dark shade of it - since a multiplier over orange cannot make
+	// a bright blue. `on` = false goes back to the palette (and the tint).
+	void SetFlameColor(const Vec3& color, bool on) {
+		m_color = color;
+		m_hasColor = on;
+	}
 	// A FLARE, 0 = none .. 1 = full (a gust fanning the flames): new flames are
 	// born bigger and rise faster, and sparks fly a few times as often. The
 	// caller decays it. It stays inside CapacityFor - the sparks are the only
@@ -92,6 +100,8 @@ private:
 
 	Vec3 m_origin{};
 	Vec3 m_tint{1.0f, 1.0f, 1.0f};
+	Vec3 m_color{1.0f, 0.62f, 0.28f};
+	bool m_hasColor = false;
 	float m_scale = 1.0f;
 	float m_flare = 0.0f;
 	// minstd, not mt19937: particle jitter needs no more than this, and the

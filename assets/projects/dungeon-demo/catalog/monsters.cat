@@ -48,7 +48,7 @@ aggro = 6
 movecd = 0.45
 iq = 135
 fleebelow = 0.3
-resists = pierce 0.5, slash 0.25, bash -0.5
+resists = pierce 0.5, slash 0.25, bash -0.5, fire 0.75
 dmgtype = slash
 
 [skel_archer]
@@ -70,7 +70,7 @@ movecd = 0.45
 iq = 120
 archetype = skirmisher
 keeprange = 4
-resists = pierce 0.5, slash 0.25, bash -0.5
+resists = pierce 0.5, slash 0.25, bash -0.5, fire 0.75
 dmgtype = pierce
 
 [skel_mage]
@@ -93,7 +93,7 @@ iq = 130
 archetype = caster
 keeprange = 5
 spell = firebolt
-resists = pierce 0.5, slash 0.25, bash -0.5
+resists = pierce 0.5, slash 0.25, bash -0.5, fire 0.75
 ; It has no skills, so `powers` is where "this one is dangerous with fire" lives —
 ; the attacker's mirror of the resists above. Its flame bolts land harder; its
 ; feeble staff does not.
@@ -117,7 +117,7 @@ aggro = 8
 movecd = 0.4
 iq = 130
 fleebelow = 2.0
-resists = pierce 0.5, slash 0.25, bash -0.5
+resists = pierce 0.5, slash 0.25, bash -0.5, fire 0.75
 
 [skel_swarm]
 ; numbers, not self-preservation
@@ -138,7 +138,7 @@ movecd = 0.35
 iq = 120
 size = medium
 archetype = swarm
-resists = pierce 0.5, slash 0.25, bash -0.5
+resists = pierce 0.5, slash 0.25, bash -0.5, fire 0.75
 dmgtype = slash
 
 [skel_lurker]
@@ -159,7 +159,7 @@ aggro = 9
 movecd = 0.4
 iq = 130
 archetype = lurker
-resists = pierce 0.5, slash 0.25, bash -0.5
+resists = pierce 0.5, slash 0.25, bash -0.5, fire 0.75
 dmgtype = slash
 on_hit = bleed 2 10 0.5
 
@@ -204,6 +204,9 @@ aggro = 5
 movecd = 0.7
 iq = 100
 resists = pierce 0.4, slash 0.1, fire -1.0
+; any fire that lands on it sets it burning (Michael: a human
+; torch waiting to happen)
+flammable = 1
 dmgtype = bash
 
 [giant_spider]
@@ -288,7 +291,7 @@ aggro = 7
 movecd = 0.5
 iq = 125
 size = large
-resists = pierce 0.5, slash 0.25, bash -0.5
+resists = pierce 0.5, slash 0.25, bash -0.5, fire 0.75
 dmgtype = slash
 states = spawn idle incombat walk run attack defend hit die
 anim_spawn = spawn__getting_up_1 spawn__getting_up_2 spawn__getting_up spawn__standing_up
@@ -318,7 +321,7 @@ aggro = 7
 movecd = 0.45
 iq = 100
 size = large
-resists = pierce 0.5, slash 0.25, bash -0.5
+resists = pierce 0.5, slash 0.25, bash -0.5, fire 0.75
 dmgtype = slash
 states = spawn idle incombat walk run attack defend hit die
 anim_spawn = spawn__getting_up_1 spawn__getting_up_2 spawn__getting_up spawn__standing_up
@@ -348,7 +351,7 @@ aggro = 8
 movecd = 0.45
 iq = 110
 size = large
-resists = pierce 0.5, slash 0.25, bash -0.5
+resists = pierce 0.5, slash 0.25, bash -0.5, fire 0.75
 dmgtype = slash
 states = spawn idle incombat walk run attack defend hit die
 anim_spawn = spawn__getting_up_1 spawn__getting_up_2 spawn__getting_up spawn__standing_up
@@ -379,7 +382,7 @@ movecd = 0.5
 iq = 115
 reach = 2
 size = large
-resists = pierce 0.5, slash 0.25, bash -0.5
+resists = pierce 0.5, slash 0.25, bash -0.5, fire 0.75
 dmgtype = pierce
 states = spawn idle incombat walk run attack defend hit die
 anim_spawn = spawn__getting_up_1 spawn__getting_up_2 spawn__getting_up spawn__standing_up
@@ -412,7 +415,7 @@ iq = 140
 archetype = caster
 keeprange = 5
 spell = firebolt_volley
-resists = pierce 0.5, slash 0.25, bash -0.5
+resists = pierce 0.5, slash 0.25, bash -0.5, fire 0.75
 powers = fire 0.5, bash -0.3
 
 [skel_magus]
@@ -435,5 +438,5 @@ iq = 150
 archetype = caster
 keeprange = 6
 spell = firebolt_burst
-resists = pierce 0.5, slash 0.25, bash -0.5
+resists = pierce 0.5, slash 0.25, bash -0.5, fire 0.75
 powers = fire 0.55, bash -0.3

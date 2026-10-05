@@ -98,7 +98,6 @@ struct SaveData {
 	// state, not anyone's inventory — born at runtime, stored whole.
 	std::string heldItem;
 
-	int torchPalette = 0; // HUD torchlight index (0 warm, 1 cold, 2 eerie)
 	// The party leader's roster index (DungeonWorld::Leader). Absent in older
 	// saves = 0, which is right: slot 0 leads a new game.
 	int leader = 0;
@@ -279,6 +278,27 @@ struct SaveData {
 		std::vector<EffectState> effects;
 	};
 
+	// An Earth light SET DOWN on the level (Stonelight, lighting-updates 6f):
+	// its square, the power it was cast at and how long it has left of how
+	// long. A "lightstone" line; a save without them has none.
+	struct LightStone {
+		int x = 0, z = 0;
+		float power = 0.0f;
+		float timeLeft = 0.0f;
+		float duration = 0.0f;
+	};
+
+	// A TRACK on a square (lighting-updates 6g): which way its maker went
+	// (Direction), who made it (1 monster, 2 party) and how many seconds old it
+	// is - an AGE, so a load restores it against whatever the clock reads then.
+	// All of a level's ride one "tracks" line, `seen`'s shape.
+	struct TrackState {
+		int x = 0, z = 0;
+		int dir = 0;
+		int maker = 1;
+		float age = 0.0f;
+	};
+
 	struct LevelState {
 		std::string stem;
 		std::vector<std::pair<int, int>> seen;
@@ -287,6 +307,8 @@ struct SaveData {
 		std::vector<BrokenProp> broken;    // smashed props
 		std::vector<FireBurning> fires;    // lit/doused diffs
 		std::vector<DamagedPiece> damaged; // hurt but standing (hp + effects)
+		std::vector<LightStone> stones;    // Earth lights set down
+		std::vector<TrackState> tracks;    // monster tracks not yet faded
 	};
 	// One entry per VISITED level, keyed by STEM.
 	//

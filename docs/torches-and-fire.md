@@ -36,8 +36,23 @@ the item in its slot, so nothing is created or destroyed.
 
 Put out, a torch KEEPS what it had left:
 - stowed in a pack, it goes out (`TickCarriedLight`);
-- dropped on the floor, it goes out (`PlaceDrop`'s `unlit_as`);
+- put out from the hand menu's PUT OUT (`DungeonWorld::PutOutTorch`);
 - thrown, it flies with its charge (`Projectile::cargoCharge`) and lands with it.
+
+On the FLOOR it STAYS LIT (lighting-updates Phase 4, Michael 2026-10-03 - it used
+to go out in `PlaceDrop`): thrown or set down, it burns on where it lies
+(`TickFloorTorches`), becomes its stub when spent, lights its square from its
+kind's profile dimmed by its charge, and burns with a small flame
+(`UpdateTorchFlames`, a fixed pool of 8 shared with torches in flight). An
+authored `.ent` torch becomes a drop the first time it burns, so the save carries
+its kind and charge whole. In FLIGHT a lit torch lights the corridor it flies
+down and its flame trails behind it.
+
+A MAGICAL torch (its lit kind has a `power_level`) will not take a spell's fire:
+Flame passes it over and says so. It is lit by the hand menu's LIGHT
+(`KindleTorch`), which costs the holder balance.cat `torch_light_mana` (5) per
+power level - 10 mana for `torch_magic` - and is refused with a line when they
+lack it.
 
 ## Charge is part of the item, everywhere
 

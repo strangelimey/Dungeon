@@ -2,6 +2,7 @@ add_library(Graphics STATIC
 	DisplayEnum.cpp
 	GpuProfiler.cpp
 	GraphicsDevice.cpp
+	LightTiles.cpp
 	Mesh.cpp
 	ModelPreview.cpp
 	ParticleBatch.cpp

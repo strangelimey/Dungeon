@@ -64,6 +64,7 @@ void DungeonMap::Parse(const std::vector<u8>& bytesIn, FixtureTypes fixtures,
 		float brightness = kSconceBrightness;
 		float turbidity = kSconceTurbidity;
 		std::string type = "sconce"; // fixtures.cat id (glyphs take the default)
+		Vec3 flameColor = kNoFlameColor;
 	};
 	std::vector<RawSconce> rawSconces;
 	// A record's kind token routes by the catalog's mount field (wall-mount ids
@@ -132,6 +133,7 @@ void DungeonMap::Parse(const std::vector<u8>& bytesIn, FixtureTypes fixtures,
 		}
 		if (record.starts_with("fixture")) {
 			// fixture <sconce|brazier> <x> <z> [facing] [lit=0|1] [bright=<cells>] [turb=<f>]
+			//         [color=<r>,<g>,<b>]
 			// (facing names the wall a sconce mounts on; a brazier has no wall and
 			// ignores it — tolerated so the two kinds share one grammar).
 			const std::vector<std::string_view> tok = SplitRecordTokens(record);
@@ -164,7 +166,7 @@ void DungeonMap::Parse(const std::vector<u8>& bytesIn, FixtureTypes fixtures,
 				return v;
 			};
 			const auto fireKey = [&](std::string_view t, bool& lit, float& brightness,
-									 float& turbidity) {
+									 float& turbidity, Vec3& color) {
 				const size_t eq = t.find('=');
 				DN_ASSERT(eq != std::string_view::npos,
 						  std::format("expected facing or key=value, got \"{}\": \"{}\" in {}",
@@ -174,7 +176,20 @@ void DungeonMap::Parse(const std::vector<u8>& bytesIn, FixtureTypes fixtures,
 														val.front() != 'f' && val.front() != 'F');
 				else if (key == "bright") brightness = std::max(num(val), kFixtureMinBrightness);
 				else if (key == "turb") turbidity = std::clamp(num(val), 0.0f, 1.0f);
-				else
+				else if (key == "color") {
+					// Three comma-separated channels, each clamped to 0..1.
+					float c[3];
+					std::string_view rest = val;
+					for (int i = 0; i < 3; ++i) {
+						const size_t comma = rest.find(',');
+						DN_ASSERT((comma == std::string_view::npos) == (i == 2),
+								  std::format("fixture color takes r,g,b: \"{}\" in {}", record,
+											  path));
+						c[i] = std::clamp(num(rest.substr(0, comma)), 0.0f, 1.0f);
+						if (comma != std::string_view::npos) rest.remove_prefix(comma + 1);
+					}
+					color = {c[0], c[1], c[2]};
+				} else
 					DN_ASSERT(false, std::format("unknown fixture key \"{}\": \"{}\" in {}",
 												 key, record, path));
 			};
@@ -192,7 +207,7 @@ void DungeonMap::Parse(const std::vector<u8>& bytesIn, FixtureTypes fixtures,
 						rs.hasWall = true;
 						continue;
 					}
-					fireKey(tok[i], rs.lit, rs.brightness, rs.turbidity);
+					fireKey(tok[i], rs.lit, rs.brightness, rs.turbidity, rs.flameColor);
 				}
 				rawSconces.push_back(std::move(rs));
 			} else {
@@ -201,7 +216,7 @@ void DungeonMap::Parse(const std::vector<u8>& bytesIn, FixtureTypes fixtures,
 				for (size_t i = 4; i < tok.size(); ++i) {
 					Direction d;
 					if (ParseDirection(tok[i], d)) continue; // no wall to mount on — ignored
-					fireKey(tok[i], b.lit, b.brightness, b.turbidity);
+					fireKey(tok[i], b.lit, b.brightness, b.turbidity, b.flameColor);
 				}
 				m_braziers.push_back(std::move(b));
 			}
@@ -442,8 +457,9 @@ void DungeonMap::Parse(const std::vector<u8>& bytesIn, FixtureTypes fixtures,
 					break;
 				}
 		}
-		m_torches.push_back(
-			{rs.x, rs.z, wall, rs.lit, rs.brightness, rs.turbidity, rs.type});
+		WallSconce s{rs.x, rs.z, wall, rs.lit, rs.brightness, rs.turbidity, rs.type};
+		s.flameColor = rs.flameColor;
+		m_torches.push_back(std::move(s));
 	}
 
 	// Fires thicken the air around them (braziers more than sconces); recomputed
@@ -706,26 +722,29 @@ bool DungeonMap::SetSconceEmpty(int x, int z, int wall, bool empty, bool burning
 // The editor's setters write the AUTHORED state, and what the editor shows is
 // what it set: any flip from play is dropped with it.
 bool DungeonMap::SetSconceProps(int x, int z, Direction wall, bool lit, float brightness,
-								float turbidity) {
+								float turbidity, const Vec3& flameColor) {
 	for (WallSconce& s : m_torches)
 		if (s.x == x && s.z == z && s.wall == wall) {
 			s.lit = lit;
 			s.flipped = false;
 			s.brightness = brightness;
 			s.turbidity = turbidity;
+			s.flameColor = flameColor;
 			RebuildTurbidity(); // bumps Revision()
 			return true;
 		}
 	return false;
 }
 
-bool DungeonMap::SetBrazierProps(int x, int z, bool lit, float brightness, float turbidity) {
+bool DungeonMap::SetBrazierProps(int x, int z, bool lit, float brightness, float turbidity,
+								 const Vec3& flameColor) {
 	for (FloorBrazier& b : m_braziers)
 		if (b.x == x && b.z == z) {
 			b.lit = lit;
 			b.flipped = false;
 			b.brightness = brightness;
 			b.turbidity = turbidity;
+			b.flameColor = flameColor;
 			RebuildTurbidity(); // bumps Revision()
 			return true;
 		}

@@ -215,6 +215,10 @@ constexpr FieldSpec kFixtureFields[] = {
 	{.key = "flame", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
 	 .help = "This kind burns; off places it unlit, with no light or particles.",
 	 .def = "1"},
+	{.key = "light", .kind = FieldKind::CatalogRef, .sectionKey = kSectionLook,
+	 .help = "The light its fire gives (lights.cat). (none) = fire_sconce on a wall, "
+			 "fire_brazier on the floor.",
+	 .options = "lights"},
 	{.key = "flame_height", .kind = FieldKind::Float, .sectionKey = kSectionRules,
 	 .help = "Height of the flame origin on the mesh, in units.",
 	 .lo = 0.0f, .hi = 1.5f, .step = 0.002f},
@@ -294,6 +298,10 @@ constexpr FieldSpec kMonsterFields[] = {
 	 .lo = 0.0f, .hi = 200.0f, .step = 5.0f, .def = "100"},
 	{.key = "faces", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
 	 .help = "Has a facing (off hides the editor's facing arrow for it).", .def = "1"},
+	{.key = "flammable", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
+	 .help = "Any fire that lands on it sets it burning, every time (balance.cat "
+			 "ignite_burn / ignite_seconds) - a mummy's wrappings.",
+	 .def = "0"},
 };
 
 // --- buttons ----------------------------------------------------------------
@@ -489,11 +497,19 @@ constexpr FieldSpec kItemFields[] = {
 			 "0.35, 0.6, 1.0 burns blue). Empty = the ordinary orange."},
 	{.key = "symbol", .kind = FieldKind::Enum, .sectionKey = kSectionRules,
 	 .help = "Rune symbol this item teaches (runes only).",
-	 .options = "fire earth air water project protect sight"},
+	 .options = "fire earth air water project protect sight multiple explode light"},
 	{.key = "capacity", .kind = FieldKind::Float, .sectionKey = kSectionRules,
 	 .help = "Container capacity in kilograms.", .lo = 0.0f, .hi = 50.0f, .step = 0.5f},
 	{.key = "accepts", .kind = FieldKind::Text, .sectionKey = kSectionRules,
 	 .help = "Item categories a container takes, e.g. 'rune'."},
+	{.key = "light", .kind = FieldKind::CatalogRef, .sectionKey = kSectionLook,
+	 .help = "The light it gives while it burns in a hand (lights.cat; a lit item "
+			 "with none gives `torch`).",
+	 .options = "lights"},
+	{.key = "trail", .kind = FieldKind::CatalogRef, .sectionKey = kSectionLook,
+	 .help = "What it sheds when thrown (trails.cat). (none) = nothing; a lit torch "
+			 "trails its own flame regardless.",
+	 .options = "trails"},
 	{.key = "upright", .kind = FieldKind::Bool, .sectionKey = kSectionLook,
 	 .help = "Stands on the floor as modelled (a bottle) instead of being laid "
 			 "along its length; its icon stands too.",
@@ -564,6 +580,10 @@ constexpr FieldSpec kWeaponFields[] = {
 	 .help = "Attack verbs the hand menu offers, e.g. 'stab, slash'."},
 	{.key = "holdable", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
 	 .help = "Can be held in a hand slot (weapons should be on).", .def = "1"},
+	{.key = "light", .kind = FieldKind::CatalogRef, .sectionKey = kSectionLook,
+	 .help = "The light it gives while worn or held (lights.cat) - a glowing amulet, "
+			 "a lit blade. (none) = it gives none.",
+	 .options = "lights"},
 	ITEM_QUEST,
 };
 
@@ -594,6 +614,10 @@ constexpr FieldSpec kArmorFields[] = {
 	{.key = "powers", .kind = FieldKind::Text, .sectionKey = kSectionStats,
 	 .help = "Per-type POTENCY granted, e.g. 'fire 0.3'. Sums across the wielded "
 			 "weapon and every worn piece, and scales what its bearer deals."},
+	{.key = "light", .kind = FieldKind::CatalogRef, .sectionKey = kSectionLook,
+	 .help = "The light it gives while worn or held (lights.cat) - a glowing amulet, "
+			 "a lit blade. (none) = it gives none.",
+	 .options = "lights"},
 	ITEM_QUEST,
 };
 
@@ -613,6 +637,10 @@ constexpr FieldSpec kEffectFields[] = {
 	{.key = "plume", .kind = FieldKind::Bool, .sectionKey = kSectionLook,
 	 .help = "Its bearer visibly burns: a flame plume and its own coloured light.",
 	 .def = "0"},
+	{.key = "light", .kind = FieldKind::CatalogRef, .sectionKey = kSectionLook,
+	 .help = "With Plume: the light the burning body gives (lights.cat; none = "
+			 "`burning`).",
+	 .options = "lights"},
 	// NOTE the shown value is the schema default when the entry omits the field,
 	// and `burn` omits it deliberately — its class resolves the type per
 	// instance. Hence the second sentence: without it the row reads as a claim
@@ -760,6 +788,86 @@ constexpr FieldSpec kQuestFields[] = {
 			 "those)."},
 };
 
+// Light profiles (lighting-updates Phase 2, Game/LightProfile.h): what a kind
+// of light looks like. Sources name one with their own `light` row.
+constexpr FieldSpec kLightFields[] = {
+	{.key = "display", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,
+	 .help = "The light's name, as the editor lists it."},
+	IDENTITY_CATEGORY,
+	{.key = "color", .kind = FieldKind::Text, .sectionKey = kSectionLook,
+	 .help = "'r, g, b' in 0..1 - or 'source' to take the colour of what gives it "
+			 "(a burn's school, a rune's element)."},
+	{.key = "intensity", .kind = FieldKind::Float, .sectionKey = kSectionLook,
+	 .help = "Brightness at the source.",
+	 .lo = 0.0f, .hi = 6.0f, .step = 0.05f, .def = "1"},
+	{.key = "radius", .kind = FieldKind::Float, .sectionKey = kSectionLook,
+	 .help = "Reach, in squares. A placed sconce or brazier keeps its own reach "
+			 "(the fixture's Brightness), which wins over this.",
+	 .lo = 0.0f, .hi = 10.0f, .step = 0.1f, .def = "3"},
+	{.key = "pulse", .kind = FieldKind::Enum, .sectionKey = kSectionLook,
+	 .help = "How the brightness moves: flicker (fire), breathe (a slow swell), strobe "
+			 "(a beat), storm (sudden flashes), or steady.",
+	 .options = "steady flicker breathe strobe storm", .def = "steady"},
+	{.key = "pulse_rate", .kind = FieldKind::Float, .sectionKey = kSectionLook,
+	 .help = "How fast it pulses; 1 is the pulse's own pace.",
+	 .lo = 0.0f, .hi = 4.0f, .step = 0.05f, .def = "1"},
+	{.key = "pulse_depth", .kind = FieldKind::Float, .sectionKey = kSectionLook,
+	 .help = "How far the pulse dips, 0 (not at all) to 1 (to dark).",
+	 .lo = 0.0f, .hi = 1.0f, .step = 0.01f, .def = "0.1"},
+	{.key = "wander", .kind = FieldKind::Float, .sectionKey = kSectionLook,
+	 .help = "How far the light's origin dances, in squares - a fire's moving shadows. "
+			 "0 = still.",
+	 .lo = 0.0f, .hi = 0.05f, .step = 0.0004f, .def = "0"},
+	{.key = "shadow", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
+	 .help = "May cast shadows. The few shadow cubes go to the nearest such lights; a "
+			 "small or passing light is better without.",
+	 .def = "1"},
+	{.key = "long_fade", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
+	 .help = "Its shadow fades in over most of its reach rather than only the edge - "
+			 "for a big light like a brazier.",
+	 .def = "0"},
+};
+
+// Trail profiles (lighting-updates Phase 4, Game/Trail.h): what a thing in
+// flight sheds. Spells and items name one with their own `trail`.
+constexpr FieldSpec kTrailFields[] = {
+	{.key = "display", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,
+	 .help = "The trail's name, as the editor lists it."},
+	IDENTITY_CATEGORY,
+	{.key = "shape", .kind = FieldKind::Enum, .sectionKey = kSectionLook,
+	 .help = "The kind of particle, which sets the defaults below: spark (flung back, "
+			 "falling), ember (rising, flickering), mote (hanging, swirling), puff (swells "
+			 "as it fades), drip (falling fast).",
+	 .options = "spark ember mote puff drip", .def = "spark"},
+	{.key = "rate", .kind = FieldKind::Float, .sectionKey = kSectionLook,
+	 .help = "Particles shed per square flown - by distance, so a fast bolt's trail is "
+			 "as dense as a slow one's. 0 = none.",
+	 .lo = 0.0f, .hi = 60.0f, .step = 0.5f, .def = "0"},
+	{.key = "life", .kind = FieldKind::Float, .sectionKey = kSectionLook,
+	 .help = "Seconds a particle lasts.",
+	 .lo = 0.05f, .hi = 3.0f, .step = 0.05f},
+	{.key = "size", .kind = FieldKind::Float, .sectionKey = kSectionLook,
+	 .help = "A particle's half-width, in metres.",
+	 .lo = 0.005f, .hi = 0.3f, .step = 0.005f},
+	{.key = "spread", .kind = FieldKind::Float, .sectionKey = kSectionLook,
+	 .help = "How fast a particle scatters from the path, in metres a second.",
+	 .lo = 0.0f, .hi = 3.0f, .step = 0.05f},
+	{.key = "fall", .kind = FieldKind::Float, .sectionKey = kSectionLook,
+	 .help = "Downward pull in m/s^2; below 0 it rises (embers, smoke).",
+	 .lo = -3.0f, .hi = 10.0f, .step = 0.1f},
+	{.key = "flicker", .kind = FieldKind::Float, .sectionKey = kSectionLook,
+	 .help = "How deep its brightness flickers, 0..1 (an ember's).",
+	 .lo = 0.0f, .hi = 1.0f, .step = 0.05f},
+	{.key = "swirl", .kind = FieldKind::Float, .sectionKey = kSectionLook,
+	 .help = "How fast its drift turns, in radians a second (a mote's).",
+	 .lo = 0.0f, .hi = 12.0f, .step = 0.25f},
+	{.key = "swell", .kind = FieldKind::Bool, .sectionKey = kSectionLook,
+	 .help = "Grows as it fades, like a puff of smoke."},
+	{.key = "color", .kind = FieldKind::Text, .sectionKey = kSectionLook,
+	 .help = "'r, g, b' in 0..1 - or 'source' (the default) to take the colour of the "
+			 "light it flies with, so trail and light agree."},
+};
+
 // Flags (tool-refinement Phase 4): a name and a scope. The on/off value is
 // save state; this says what the flag IS and whose it is.
 constexpr FieldSpec kFlagFields[] = {
@@ -800,6 +908,8 @@ std::span<const FieldSpec> SchemaFor(std::string_view catalogKey) {
 	if (catalogKey == "flags") return kFlagFields;
 	if (catalogKey == "styles") return kStyleFields;
 	if (catalogKey == "shapes") return kShapeFields;
+	if (catalogKey == "lights") return kLightFields;
+	if (catalogKey == "trails") return kTrailFields;
 	if (catalogKey == "walls") return kWallFields;
 	if (catalogKey == "floors") return kFloorFields;
 	if (catalogKey == "ceilings") return kCeilingFields;

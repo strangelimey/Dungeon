@@ -46,10 +46,15 @@
 #include "Game/Style.h"
 #include "Game/Carve.h"
 #include "Game/Generate.h"
+#include "Game/LightProfile.h"
+#include "Game/Trail.h"
 #include "Game/Resource.h"
 #include "Game/Roll.h"
+#include "Graphics/Camera.h"
+#include "Graphics/LightTiles.h"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -2299,6 +2304,232 @@ int main(int argc, char** argv) {
 				  ApplySpecField(m, "skills", "blade,,conditioning", why) &&
 					  m.skills == std::vector<std::string>{"blade", "conditioning"});
 		CheckTrue("an unknown key is refused", !ApplySpecField(m, "class", "mage", why));
+	}
+
+	// --- light profiles (Game/LightProfile.h) ---------------------------------
+	// A light's look is parsed from lights.cat and its pulse is maths every
+	// light goes through. Phase 2 moved the hand-written fire flicker, the rune
+	// breath and the fires' wander into it, so the expectations below are the
+	// OLD formulas written out by hand: the move must not have changed a light.
+	{
+		std::printf("\nLight profiles (Game/LightProfile.h)\n");
+		const auto fields = [](std::vector<std::pair<std::string, std::string>> kv) {
+			return [kv](std::string_view key) -> std::string {
+				for (const auto& [k, v] : kv)
+					if (k == key) return v;
+				return {};
+			};
+		};
+		std::vector<std::string> problems;
+		const light::Profile p = light::Parse(
+			"brazier",
+			fields({{"color", "1.0, 0.527, 0.224"}, {"intensity", "2.3"}, {"radius", "6"},
+					{"pulse", "flicker"}, {"pulse_depth", "0.1"}, {"wander", "0.0168"},
+					{"shadow", "1"}, {"long_fade", "1"}}),
+			&problems);
+		CheckTrue("a full profile parses with no problems", problems.empty());
+		Check("...its colour's green is 0.527", p.color.y, 0.527, 1e-6);
+		Check("...intensity 2.3", p.intensity, 2.3, 1e-6);
+		Check("...radius 6 squares", p.radius, 6.0, 1e-6);
+		CheckTrue("...flickers, casts a shadow, fades long",
+				  p.pulse == light::Pulse::Flicker && p.shadow && p.longFade);
+		const light::Profile src = light::Parse("burning", fields({{"color", "source"}}));
+		CheckTrue("`color = source` takes the source's colour", src.sourceColor);
+		problems.clear();
+		const light::Profile typo = light::Parse(
+			"typo", fields({{"color", "1, 0.5"}, {"pulse", "wobble"}, {"radius", "far"}}), &problems);
+		Check("three unreadable fields are three problems", static_cast<double>(problems.size()), 3, 0);
+		CheckTrue("...and each keeps its default",
+				  typo.radius == light::Profile{}.radius && typo.pulse == light::Pulse::Steady &&
+					  typo.color.x == light::Profile{}.color.x);
+
+		// The pulses, against the formulas they replaced.
+		double worstFlicker = 0.0, worstBreath = 0.0, worstWander = 0.0;
+		double flickerMin = 9.0, flickerMax = -9.0;
+		int strobeFull = 0, stormHigh = 0;
+		const int kSamples = 20000;
+		for (int i = 0; i < kSamples; ++i) {
+			const float t = static_cast<float>(i) * 0.0137f;
+			const float ph = 3.4f; // a fire's phase (seed 2 x 1.7)
+			const float f = light::PulseAt(light::Pulse::Flicker, 1.0f, 0.1f, t, ph);
+			const float old = 0.9f + 0.1f * std::sin(t * 11.0f + ph) * std::sin(t * 7.3f + ph);
+			worstFlicker = std::max(worstFlicker, static_cast<double>(std::fabs(f - old)));
+			flickerMin = std::min(flickerMin, static_cast<double>(f));
+			flickerMax = std::max(flickerMax, static_cast<double>(f));
+			// A rune's light: 2.3 x (1.05 + 0.85 sin(3t + id)), now 2.415 x breathe 0.81.
+			const float breath = 2.415f * light::PulseAt(light::Pulse::Breathe, 1.0f, 0.81f, t, 7.0f);
+			const float oldBreath = 2.3f * (1.05f + 0.85f * std::sin(t * 3.0f + 7.0f));
+			worstBreath = std::max(worstBreath, static_cast<double>(std::fabs(breath - oldBreath)));
+			// A brazier's wander was 0.042 m; 0.0168 squares x 2.5 m is the same.
+			const dungeon::Vec3 w = light::WanderAt(0.0168f, t, ph);
+			const float oldX = 0.042f * std::sin(t * 7.3f + ph) * std::sin(t * 3.1f + ph * 2.0f);
+			worstWander = std::max(worstWander, static_cast<double>(std::fabs(w.x * 2.5f - oldX)));
+			if (light::PulseAt(light::Pulse::Strobe, 2.0f, 0.8f, t, 0.0f) > 0.99f) ++strobeFull;
+			if (light::PulseAt(light::Pulse::Storm, 1.0f, 0.8f, t, 1.0f) > 0.9f) ++stormHigh;
+		}
+		Check("flicker is the old fire flicker, exactly", worstFlicker, 0.0, 1e-5);
+		CheckTrue("...and stays within 0.8 .. 1.0", flickerMin >= 0.8 - 1e-5 && flickerMax <= 1.0 + 1e-5);
+		Check("a rune's breath is the old one (worst gap)", worstBreath, 0.0, 0.01);
+		Check("a brazier's wander is the old 0.042 m (worst gap, m)", worstWander, 0.0, 1e-5);
+		Check("a strobe is full 15% of the time",
+			  static_cast<double>(strobeFull) / kSamples, 0.15, 0.01);
+		const double stormShare = static_cast<double>(stormHigh) / kSamples;
+		CheckTrue("a storm flashes, but rarely (under 10% of the time)",
+				  stormShare > 0.0 && stormShare < 0.10);
+		Check("steady never moves",
+			  light::PulseAt(light::Pulse::Steady, 3.0f, 0.9f, 12.3f, 1.0f), 1.0, 0.0);
+		const dungeon::Vec3 still = light::WanderAt(0.0f, 5.0f, 1.0f);
+		CheckTrue("no wander, no movement", still.x == 0.0f && still.y == 0.0f && still.z == 0.0f);
+		light::Pulse parsed{};
+		CheckTrue("every pulse name round-trips",
+				  light::ParsePulse(light::PulseName(light::Pulse::Storm), parsed) &&
+					  parsed == light::Pulse::Storm);
+		CheckTrue("the fallback is a light, not darkness", light::Fallback().intensity > 0.0f);
+	}
+
+	// --- trails (Game/Trail.h) -------------------------------------------------
+	// What a thing in flight sheds, parsed from trails.cat: the shape sets the
+	// defaults, a field overrides one, a typo keeps its default and says so.
+	{
+		std::printf("\nTrails (Game/Trail.h)\n");
+		const auto fields = [](std::vector<std::pair<std::string, std::string>> kv) {
+			return [kv](std::string_view key) -> std::string {
+				for (const auto& [k, v] : kv)
+					if (k == key) return v;
+				return {};
+			};
+		};
+		namespace trail = dungeon::game::trail;
+		std::vector<std::string> problems;
+		const trail::Profile ember =
+			trail::Parse("trail_fire", fields({{"shape", "ember"}, {"rate", "12"}}), &problems);
+		CheckTrue("an ember trail parses with no problems", problems.empty());
+		const trail::Spec emberDefaults = trail::ShapeDefaults(trail::Shape::Ember);
+		CheckTrue("...takes the ember's defaults: it rises and flickers",
+				  ember.spec.fall < 0.0f && ember.spec.flicker > 0.0f &&
+					  ember.spec.life == emberDefaults.life);
+		Check("...at 12 a square", ember.spec.rate, 12.0, 1e-6);
+		CheckTrue("...and the colour of its light", !ember.spec.hasColor);
+		const trail::Profile grit = trail::Parse(
+			"trail_earth", fields({{"shape", "drip"}, {"rate", "8"}, {"fall", "9"},
+								   {"color", "0.5, 0.4, 0.3"}}));
+		Check("a field overrides its shape's default (fall 9)", grit.spec.fall, 9.0, 1e-6);
+		CheckTrue("...and a colour of its own is its own",
+				  grit.spec.hasColor && grit.spec.color.y == 0.4f);
+		CheckTrue("a drip falls, a mote swirls, a puff swells",
+				  trail::ShapeDefaults(trail::Shape::Drip).fall > 0.0f &&
+					  trail::ShapeDefaults(trail::Shape::Mote).swirl > 0.0f &&
+					  trail::ShapeDefaults(trail::Shape::Puff).swell);
+		CheckTrue("no rate, no trail (the catalog must say how dense)",
+				  !trail::Parse("bare", fields({{"shape", "mote"}})).spec.Any());
+		problems.clear();
+		const trail::Profile typo = trail::Parse(
+			"typo", fields({{"shape", "comet"}, {"rate", "lots"}, {"life", "0"}}), &problems);
+		Check("two unreadable fields are two problems", static_cast<double>(problems.size()), 2, 0);
+		CheckTrue("...a bad shape is a spark, a bad rate none",
+				  typo.spec.shape == trail::Shape::Spark && !typo.spec.Any());
+		CheckTrue("...and no life is floored (the fade divides by it)", typo.spec.life >= 0.05f);
+		trail::Shape shape{};
+		CheckTrue("every shape name round-trips",
+				  trail::ParseShape(trail::ShapeName(trail::Shape::Drip), shape) &&
+					  shape == trail::Shape::Drip);
+	}
+
+	// --- tiled light lists (Graphics/LightTiles.h) ----------------------------
+	// The scene shader shades a pixel with ONLY the lights its tile's mask
+	// names, so the one promise that matters is that a light is never missing
+	// from a tile it reaches. Checked by sampling points inside random spheres
+	// and asking whether the tile each lands in has that sphere's bit.
+	{
+		std::printf("\nTiled light lists (Graphics/LightTiles.h)\n");
+		using namespace DirectX;
+		namespace gfx = dungeon::gfx;
+		using dungeon::u64;
+		const XMMATRIX view = XMMatrixLookToLH(XMVectorSet(3.0f, 1.6f, 2.0f, 1.0f),
+											   XMVectorSet(0.3f, -0.1f, 1.0f, 0.0f),
+											   XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f));
+		const XMMATRIX proj = XMMatrixPerspectiveFovLH(1.1f, 16.0f / 9.0f, 0.05f, 100.0f);
+		dungeon::Mat4 vp;
+		XMStoreFloat4x4(&vp, view * proj);
+		const auto project = [&](const dungeon::Vec3& p, float& nx, float& ny) {
+			const float cx = p.x * vp._11 + p.y * vp._21 + p.z * vp._31 + vp._41;
+			const float cy = p.x * vp._12 + p.y * vp._22 + p.z * vp._32 + vp._42;
+			const float cw = p.x * vp._14 + p.y * vp._24 + p.z * vp._34 + vp._44;
+			if (cw <= 0.05f) return false;
+			nx = cx / cw;
+			ny = cy / cw;
+			return nx >= -1.0f && nx <= 1.0f && ny >= -1.0f && ny <= 1.0f;
+		};
+		const gfx::LightTiler tiler(vp);
+		gfx::TileRange t;
+		CheckTrue("a light ahead is on screen", tiler.Range({3.5f, 1.5f, 8.0f}, 1.0f, t));
+		CheckTrue("...and covers only part of it",
+				  (t.c1 - t.c0 + 1) * (t.r1 - t.r0 + 1) < static_cast<int>(gfx::kLightTileCount) / 4);
+		CheckTrue("a light wholly behind the eye is not",
+				  !tiler.Range({2.0f, 1.6f, -6.0f}, 1.0f, t));
+		CheckTrue("a light far off to the side is not", !tiler.Range({40.0f, 1.6f, 4.0f}, 1.0f, t));
+		const bool around = tiler.Range({3.0f, 1.6f, 2.5f}, 2.0f, t);
+		CheckTrue("a light round the eye covers the whole screen",
+				  around && t.c0 == 0 && t.r0 == 0 && t.c1 == static_cast<int>(gfx::kLightTilesX) - 1 &&
+					  t.r1 == static_cast<int>(gfx::kLightTilesY) - 1);
+		// Beside the eye but not round it - the case the old box-corner test
+		// called "the whole screen" because its box straddled the eye's plane.
+		const bool beside = tiler.Range({1.0f, 1.6f, 2.2f}, 1.5f, t);
+		CheckTrue("a light beside the eye covers only its side",
+				  beside && (t.c1 - t.c0 + 1) < static_cast<int>(gfx::kLightTilesX));
+		// The GAME's camera (Graphics/Camera.h), which mirrors clip-space X to
+		// un-mirror its left-handed view: crypt1's brazier, 5 m ahead with a 15 m
+		// reach, seen from the square the party stands on.
+		{
+			gfx::Camera cam;
+			cam.SetPosition({7.5f * 2.5f, 1.6f, 4.5f * 2.5f});
+			cam.SetYawPitch(dungeon::kPi * 0.5f, 0.0f); // east
+			cam.SetLens(60.0f * dungeon::kPi / 180.0f, 16.0f / 9.0f, 0.05f, 100.0f);
+			const gfx::LightTiler game(cam.ViewProj());
+			const bool brazier = game.Range({9.5f * 2.5f, 0.9f, 4.5f * 2.5f}, 15.0f, t);
+			CheckTrue("the game camera: a brazier round the eye covers the screen",
+					  brazier && t.c0 == 0 && t.r0 == 0 &&
+						  t.c1 == static_cast<int>(gfx::kLightTilesX) - 1 &&
+						  t.r1 == static_cast<int>(gfx::kLightTilesY) - 1);
+			const bool ahead = game.Range({12.0f * 2.5f, 1.0f, 4.5f * 2.5f}, 1.0f, t);
+			CheckTrue("the game camera: a small light straight ahead is mid-screen",
+					  ahead && t.c0 <= 16 && t.c1 >= 15 && t.r0 <= 9 && t.r1 >= 8);
+		}
+		Check("the top-left corner is tile 0", gfx::TileOf(-1.0f, 1.0f), 0, 0);
+		Check("the bottom-right corner is the last tile", gfx::TileOf(1.0f, -1.0f),
+			  gfx::kLightTileCount - 1, 0);
+
+		std::mt19937 rng(0x7115u);
+		std::uniform_real_distribution<float> u(0.0f, 1.0f);
+		std::vector<gfx::LightSphere> spheres(64);
+		std::vector<u64> masks(gfx::kLightTileCount);
+		long missing = 0, samples = 0, setBits = 0;
+		for (int trial = 0; trial < 40; ++trial) {
+			for (gfx::LightSphere& s : spheres)
+				s = {{3.0f + (u(rng) - 0.5f) * 24.0f, u(rng) * 3.0f, 2.0f + (u(rng) - 0.4f) * 30.0f},
+					 0.3f + u(rng) * 6.0f};
+			gfx::BinLights(vp, spheres, masks);
+			for (u64 m : masks) setBits += std::popcount(m);
+			for (size_t i = 0; i < spheres.size(); ++i)
+				for (int k = 0; k < 60; ++k) {
+					// A point inside the sphere (rejection-sampled in its cube).
+					dungeon::Vec3 off{u(rng) * 2.0f - 1.0f, u(rng) * 2.0f - 1.0f, u(rng) * 2.0f - 1.0f};
+					if (off.x * off.x + off.y * off.y + off.z * off.z > 1.0f) continue;
+					const dungeon::Vec3 p{spheres[i].center.x + off.x * spheres[i].radius,
+										  spheres[i].center.y + off.y * spheres[i].radius,
+										  spheres[i].center.z + off.z * spheres[i].radius};
+					float nx = 0.0f, ny = 0.0f;
+					if (!project(p, nx, ny)) continue; // not a visible pixel
+					++samples;
+					if (!(masks[gfx::TileOf(nx, ny)] & (u64{1} << i))) ++missing;
+				}
+		}
+		CheckTrue("thousands of points sampled inside lights", samples > 10000);
+		Check("a light is never missing from a tile it reaches", static_cast<double>(missing), 0, 0);
+		// Informational: how much of the full cost the tiles keep (all 64 lights
+		// in all 576 tiles = 1.0). Scattered lights cover a fraction of the view.
+		std::printf("  (tiles keep %.1f%% of the untiled loop for 64 scattered lights)\n",
+					100.0 * static_cast<double>(setBits) / (40.0 * 64.0 * gfx::kLightTileCount));
 	}
 
 	// --- verdict ------------------------------------------------------------

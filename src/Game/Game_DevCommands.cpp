@@ -1212,13 +1212,6 @@ void Game::RegisterDevCommands() {
 				m_console.Refuse("flagwire: door, lever or stair");
 			}
 		});
-	m_console.Register({.name = "lights",
-						.group = CmdGroup::Rendering,
-						.summary = "print active point-light count"},
-					   [this](const std::vector<std::string>&) {
-						   m_console.Print(std::format("{} active point lights",
-													   m_world->ActiveLightCount()));
-					   });
 	m_console.Register({.name = "ver", .group = CmdGroup::Console, .summary = "print build and GPU info"},
 					   [this](const std::vector<std::string>&) {
 #ifdef _DEBUG
@@ -1319,6 +1312,111 @@ void Game::RegisterDevCommands() {
 		[this](const std::vector<std::string>& args) { FontCommand(args); });
 
 	// --- render debug ---
+	// This frame's lights, each with where it came from and the lights.cat
+	// profile it was made from (lighting-updates Phase 2). `profiles` lists
+	// the profiles themselves, as parsed.
+	m_console.Register({.name = "lights",
+						.group = CmdGroup::Rendering,
+						.params = "\nprofiles\nreload",
+						.summary = "this frame's lights and their profiles"},
+					   [this](const std::vector<std::string>& args) {
+						   // A hand edit to lights.cat, taken live: re-read the file,
+						   // then the profiles (every light looks its own up per frame).
+						   if (!args.empty() && args[0] == "reload") {
+							   m_project.lights.Load(m_project.CatalogPath("lights.cat"));
+							   m_world->ReloadLightProfiles();
+							   m_console.Print(std::format("lights: {} profiles reloaded",
+														   m_world->LightProfiles().size()));
+							   return;
+						   }
+						   if (!args.empty() && args[0] == "profiles") {
+							   for (const light::Profile& p : m_world->LightProfiles())
+								   m_console.Print(std::format(
+									   "  {:<13} rgb {} i {:.2f} r {:.2f} sq  {} rate {:.2f} "
+									   "depth {:.2f}  wander {:.4f}  {}{}",
+									   p.id,
+									   p.sourceColor ? std::string("source")
+													 : std::format("{:.2f} {:.2f} {:.2f}", p.color.x,
+																   p.color.y, p.color.z),
+									   p.intensity, p.radius, light::PulseName(p.pulse),
+									   p.pulseRate, p.pulseDepth, p.wander,
+									   p.shadow ? "shadow" : "no shadow",
+									   p.longFade ? " long-fade" : ""));
+							   return;
+						   }
+						   for (const std::string& line : m_world->DescribeLights())
+							   m_console.Print(line);
+					   });
+	// What things in flight shed (lighting-updates Phase 4): the spark pool's
+	// pressure and each trails.cat profile; `reload` takes a hand edit live.
+	m_console.Register({.name = "trails",
+						.group = CmdGroup::Rendering,
+						.params = "\nreload",
+						.summary = "the spark pool's use and the trail profiles"},
+					   [this](const std::vector<std::string>& args) {
+						   if (!args.empty() && args[0] == "reload") {
+							   m_project.trails.Load(m_project.CatalogPath("trails.cat"));
+							   m_world->ReloadLightProfiles();
+						   }
+						   for (const std::string& line : m_world->DescribeTrails())
+							   m_console.Print(line);
+					   });
+	// The Earth lights set down on this level (Stonelight, lighting-updates 6f).
+	m_console.Register({.name = "lightstones",
+						.group = CmdGroup::Rendering,
+						.params = "[clear]",
+						.summary = "the Earth light stones set down on this level"},
+					   [this](const std::vector<std::string>& args) {
+						   if (!args.empty() && args[0] == "clear") m_world->ClearLightStones();
+						   for (const std::string& line : m_world->DescribeLightStones())
+							   m_console.Print(line);
+					   });
+	// The tracks monsters have left on this level (lighting-updates 6g): how
+	// many still show and the freshest, each with the way its maker went.
+	m_console.Register({.name = "tracks",
+						.group = CmdGroup::Monsters,
+						.params = "[clear]\nadd <x> <z> <n|e|s|w>",
+						.summary = "the tracks monsters have left on this level"},
+					   [this](const std::vector<std::string>& args) {
+						   if (!args.empty() && args[0] == "clear") m_world->ClearTracks();
+						   // A fresh monster track planted by hand, for a frozen test.
+						   if (!args.empty() && args[0] == "add") {
+							   if (!Need(m_console, args, 4)) return;
+							   const std::string& d = args[3];
+							   const Direction dir = d == "e"   ? Direction::East
+													 : d == "s" ? Direction::South
+													 : d == "w" ? Direction::West
+																: Direction::North;
+							   m_world->AddTrack(std::atoi(args[1].c_str()),
+												 std::atoi(args[2].c_str()), dir);
+						   }
+						   for (const std::string& line : m_world->DescribeTracks())
+							   m_console.Print(line);
+					   });
+	// The light budget's measuring tools (lighting-updates Phase 3): a load of
+	// test lights round the party, and the tiled light lists on or off, so the
+	// tiles' saving can be read off `profile snap` in one build.
+	m_console.Register({.name = "lightstress",
+						.group = CmdGroup::Rendering,
+						.params = "<count> [near]\noff",
+						.summary = "scatter test lights over the level, or near the party (a load for the budget)"},
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 1)) return;
+						   const int n = args[0] == "off" ? 0 : std::atoi(args[0].c_str());
+						   const bool nearby = args.size() >= 2 && args[1] == "near";
+						   m_console.Print(std::format("lightstress: {} test lights{}",
+													   m_world->SetStressLights(n, nearby),
+													   nearby ? " near the party" : ""));
+					   });
+	m_console.Register({.name = "lighttiles",
+						.group = CmdGroup::Rendering,
+						.params = "[on|off]",
+						.summary = "tiled light lists in the scene shader (off = every light everywhere)"},
+					   [this](const std::vector<std::string>& args) {
+						   if (!args.empty()) m_world->SetLightTiling(ArgOn(args[0]));
+						   m_console.Print(m_world->LightTiling() ? "lighttiles on"
+																  : "lighttiles off");
+					   });
 	m_console.Register({.name = "glass",
 						.group = CmdGroup::Rendering,
 						.params = "[status]",

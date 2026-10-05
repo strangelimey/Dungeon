@@ -10,7 +10,8 @@
 // .hlsl and relaunch, no C++ rebuild needed).
 //
 // Root signature layout (must match scene.hlsl / shadow.hlsl):
-//   0  b0  frame constants   (root CBV — camera, ambient, lights, fog)
+//   0  b0  frame constants   (root CBV — camera, ambient, lights, fog, and
+//          the tiled light masks, Graphics/LightTiles.h)
 //   1  b1  object constants  (root CBV — world, color, flags, height scale)
 //   2  b2  skinning palette  (root CBV — kMaxSkinJoints matrices)
 //   3  t0  base color texture     (descriptor table)
@@ -121,6 +122,17 @@ public:
 					const LightSet& lights, const Atmosphere& atmosphere = {},
 					bool hdrTarget = false);
 
+	// TILED LIGHT LISTS (Graphics/LightTiles.h, lighting-updates Phase 3): on,
+	// each screen tile's mask names only the lights whose spheres reach it, and
+	// the scene shader loops over those; off, every tile names every light -
+	// the old cost, kept switchable so the two can be measured in one build
+	// (dev console `lighttiles on|off`).
+	void SetLightTiling(bool on) { m_lightTiling = on; }
+	bool LightTiling() const { return m_lightTiling; }
+	// The last BeginScene's binning: how many (tile, light) pairs were set -
+	// the loop iterations a frame's pixels can take, summed over tiles.
+	u32 TileLightPairs() const { return m_tileLightPairs; }
+
 	// --- shadow pass ---------------------------------------------------------
 	// Renders cube distance maps before the scene pass. For each light that
 	// holds a shadow slot, call BeginShadowFace for faces 0..5 and submit the
@@ -181,6 +193,8 @@ private:
 	std::unique_ptr<Texture> m_flatNormalMap;
 	std::unique_ptr<Texture> m_blackTexture;   // "clear air" turbidity fallback
 	std::unique_ptr<Texture> m_defaultMRTexture; // AO=1, rough=1, metal=0
+	bool m_lightTiling = true;
+	u32 m_tileLightPairs = 0;
 	bool m_shadowPass = false;                 // DrawMesh skips PSO swap in shadow pass
 	bool m_hdrPass = false;                    // DrawMesh picks the HDR PSO pair
 	ID3D12PipelineState* m_currentPso = nullptr; // bound PSO, to skip redundant swaps

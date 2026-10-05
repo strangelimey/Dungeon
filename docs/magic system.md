@@ -72,6 +72,7 @@ Water=Laguz, Air=Ansuz, Earth=Berkano):
 | **Project** | Tiwaz (the up arrow) | "throw it ahead" — the directed/thrown form: a single-target bolt | BUILT — Fire / Earth / Water / Air Bolt (docs/spells.md) |
 | **Protect** | Algiz (the warding stave) | "guard the caster" — a ward whose behaviour the school picks: earth hardens, air deflects, water absorbs, fire retaliates | BUILT — all four shields (docs/spells.md) |
 | **Sight** | Dagaz (the day-rune) | "see through the wall ahead" — a round peephole bored through the block directly in front, the school picking what it reveals: fire lights, air sees deep, earth remembers, water scrys | BUILT — the four `<school>,sight` spells (docs/spells.md) |
+| **Light** | Sowilo (the sun) | "make light" - a light round the party for a while, the school picking what it does beyond its colour: fire kindles and scorches, water clears the haze, soothes and quenches, air reaches furthest, crackles and warns, earth is SET DOWN as a stone that maps what it shows and shows the tracks monsters left | BUILT - the four `<school>,light` spells (lighting-updates, docs/spells.md) |
 
 Form runes carry no school: their tablets/UI ink use a neutral **arcane gold**
 (`ElementColor(Project)`), and a cast spell always tints by its SCHOOL — the
@@ -82,10 +83,10 @@ first rune colours the whole spell.
 A third rune may follow a FORM and changes what it does - ONE of them, never on
 Sight, never on a bare school rune:
 
-| Modifier | Glyph | On a bolt (Project) | On a ward (Protect) |
-| --- | --- | --- | --- |
-| **Multiple** | Ingwaz | a VOLLEY: more bolts as power grows, each weaker, down the caster's own lane | the ward on the WHOLE PARTY |
-| **Explode** | Hagalaz | the bolt BURSTS on impact; radius and damage grow with power | a burst of the element round the caster, sparing the caster's square - and no ward |
+| Modifier | Glyph | On a bolt (Project) | On a ward (Protect) | On a light (Light) |
+| --- | --- | --- | --- | --- |
+| **Multiple** | Ingwaz | a VOLLEY: more bolts as power grows, each weaker, down the caster's own lane | the ward on the WHOLE PARTY | ONE BIGGER LIGHT: cast at twice the power, lasting what the plain power buys |
+| **Explode** | Hagalaz | the bolt BURSTS on impact; radius and damage grow with power | a burst of the element round the caster, sparing the caster's square - and no ward | a DAZZLING FLARE: no lasting light; the monsters within 3 steps do nothing for a few seconds, and the school's light acts once |
 
 The grammar is enforced in one place, `Spells.h`: `TierOf` names each rune's
 tier (School / Form / Modifier), `SymbolMayFollow` says what may come next (the
@@ -105,11 +106,13 @@ with 'fire' mentioned in the description." The spellbook, the tablet items
 | fire | Kenaz | project | Tiwaz | multiple | Ingwaz |
 | earth | Berkano | protect | Algiz | explode | Hagalaz |
 | air | Ansuz | sight | Dagaz | | |
-| water | Laguz | | | | |
+| water | Laguz | light | Sowilo | | |
 
 The glyphs are drawn by `tools/BuildRuneIcons.py` (the UI icons) and
 `tools/BuildRuneGlow.py` (the glowing halo), and carved on the tablets by
-AssetBaker's RuneBaker; all nine sit in the Magic dock's grid, one row per tier.
+AssetBaker's RuneBaker; all ten sit in the Magic dock's grid, one row per tier.
+Sowilo (`SpellSymbol::Light`) was APPENDED after Hagalaz, so it is bit 9 of
+`knownSymbols` and every older save reads unchanged.
 
 ## Opening the spell panel
 
@@ -234,6 +237,42 @@ above. (Phase labels P1–P6 track the build-out order.)
   launches through a fixed pending-bolt queue.
 - **Checked (P8).** `tools\SpellTest.py` judges `spells.eval` (33 checks,
   self-tested by cutting every cast); `AllocTest.ps1 -Hand`.
+
+### Built - the lights (lighting-updates Phase 6, 2026-10; docs/lighting-updates-plan.md)
+
+- **The rune (6a).** Sowilo, a fourth FORM rune; `SpellIdList` grew from 32 ids
+  to 64 (it held exactly 32 for exactly 32 spells, so the next spell would never
+  have been learned) and `SpellBook::Build` warns if the registry outgrows it.
+  MERGE NOTE: the tablet textures are gitignored, so after a merge run
+  `AssetBaker runes assets` then `AssetBaker mips assets rune_`.
+- **The light form (6b).** `Spell/LightSpell` + Firelight / Tidelight /
+  Skylight / Stonelight. A light is ONE effect kind, `light` (effects.cat;
+  `Effect/LightEffect`), landing on the CASTER with the school on the instance
+  (so schools stack, a recast replaces its own), magnitude = the cast power.
+  The world reads it every frame (`DungeonWorld_SpellLight.cpp`): a light per
+  (member, school) above the party from lights.cat `spell_<school>`, sized
+  sqrt(power / `scale_power`) within 0.7..1.8, dimming over its last tenth;
+  duration = spells.cat `duration` x power / the spell's power (never under
+  half). `ModifiedSpell` learned to wrap a light (`<id>_bright`, `<id>_flare`);
+  the flare is the `lightFlare` cast service and `dazzle`, an effect under which
+  a monster skips its turn.
+- **What each school does (6c-6g),** all knobs on effects.cat [light]: FIRE
+  kindles unlit fires within a step and scorches each monster beside the party;
+  every skeleton resists fire (0.75) and a `flammable` monster (the mummy)
+  catches from ANY fire that lands on it (`MonsterTarget::Wound`, balance.cat
+  `ignite_burn` / `ignite_seconds`). WATER cuts a clear bubble in the haze (a
+  negative dust puff), doubles stamina regen, and puts out any fire on the
+  party. AIR reaches furthest, shocks the nearest monster in reach and sight,
+  and flickers faster while the party is noticed. EARTH is SET DOWN: a stone in
+  the cast's square (`placeLightStone`, a fixed 8 a level, saved with the
+  level) that maps every square its light reaches and shows the TRACKS monsters
+  left there (`m_tracks`, written in `StepMonsterTo`, fading over balance.cat
+  `track_life`, saved as ages).
+- **Checked.** `AllocTest.ps1 -Light` (the whole rotation cast inside the
+  window, the flare's dazzle on a mummy, the stone showing planted tracks);
+  SpellTest 39.
+- **Not yet:** no `rune_light` tablet is placed in a level or in a starting
+  pack, so in play Sowilo can only come from the console (`learn`, `give`).
 
 ### Module layout
 

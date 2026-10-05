@@ -70,6 +70,7 @@ void DungeonWorld::BeginLevelLoad(const std::string& stem, bool stashCurrent) {
 	// push_back); the surface chunks/blocks/textures self-reset when the caller
 	// re-runs AppendLoadTasks.
 	m_seen.assign(static_cast<size_t>(m_map.Width()) * m_map.Height(), 0);
+	FitTracksToMap(); // the track grid is parallel to the cells too (6g)
 	m_monsters.clear(); // new monsters get fresh runtimeIds; stale plans find no match
 	m_walkableCache.reset(); // force a fresh walkability grid for the new level's map
 	m_items.clear();
@@ -79,6 +80,7 @@ void DungeonWorld::BeginLevelLoad(const std::string& stem, bool stashCurrent) {
 	m_fires.clear();
 	m_projectiles.Clear(); // bolts/sparks don't survive a level change
 	m_pendingBoltCount = 0; // and any volley still waiting its turn
+	m_lightStones = {};     // and any Earth light set down (a level's own state)
 	m_pendingTransition.reset();
 	m_pendingFall.reset(); // the swap IS the fall's end
 	m_fallT = -1.0f;
@@ -215,6 +217,9 @@ static std::string SerializeMapStatic(const std::string& stem,
 		if (!s.lit) m += " lit=0";
 		if (s.brightness != kSconceBrightness) m += std::format(" bright={:g}", s.brightness);
 		if (s.turbidity != kSconceTurbidity) m += std::format(" turb={:g}", s.turbidity);
+		if (HasFlameColor(s.flameColor))
+			m += std::format(" color={:g},{:g},{:g}", s.flameColor.x, s.flameColor.y,
+							 s.flameColor.z);
 		m += '\n';
 	}
 	for (const FloorBrazier& b : map.Braziers()) {
@@ -222,6 +227,9 @@ static std::string SerializeMapStatic(const std::string& stem,
 		if (!b.lit) m += " lit=0";
 		if (b.brightness != kBrazierBrightness) m += std::format(" bright={:g}", b.brightness);
 		if (b.turbidity != kBrazierTurbidity) m += std::format(" turb={:g}", b.turbidity);
+		if (HasFlameColor(b.flameColor))
+			m += std::format(" color={:g},{:g},{:g}", b.flameColor.x, b.flameColor.y,
+							 b.flameColor.z);
 		m += '\n';
 	}
 

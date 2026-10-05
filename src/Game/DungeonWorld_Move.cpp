@@ -287,7 +287,8 @@ bool DungeonWorld::MoveObject(const MoveTarget& t, int tx, int tz) {
 		const FloorBrazier copy = *b;
 		m_map.RemoveFixtureAt(t.x, t.z); // takes the brazier first (the cell has one)
 		m_map.AddBrazier(tx, tz, copy.type, copy.lit);
-		m_map.SetBrazierProps(tx, tz, copy.lit, copy.brightness, copy.turbidity);
+		m_map.SetBrazierProps(tx, tz, copy.lit, copy.brightness, copy.turbidity,
+							  copy.flameColor);
 		RebuildFiresAndDust();
 		return done();
 	}
@@ -306,11 +307,12 @@ bool DungeonWorld::MoveObject(const MoveTarget& t, int tx, int tz) {
 			!m_map.AddSconce(tx, tz, copy.type, copy.lit)) {
 			m_map.AddSconce(copy.x, copy.z, copy.type, copy.lit, copy.wall); // put it back
 			m_map.SetSconceProps(copy.x, copy.z, copy.wall, copy.lit, copy.brightness,
-								 copy.turbidity);
+								 copy.turbidity, copy.flameColor);
 			return refuse("map.move.nowall");
 		}
 		const Direction wall = m_map.Sconces().back().wall; // the one just added
-		m_map.SetSconceProps(tx, tz, wall, copy.lit, copy.brightness, copy.turbidity);
+		m_map.SetSconceProps(tx, tz, wall, copy.lit, copy.brightness, copy.turbidity,
+							 copy.flameColor);
 		RebuildFiresAndDust();
 		return done();
 	}

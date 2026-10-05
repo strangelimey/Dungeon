@@ -169,9 +169,6 @@ void Game::WireModuleCallbacks() {
 		m_settings.Save();
 		RestartApp();
 	};
-	m_ui.onTorchPalette = [this](int index) {
-		if (m_world) m_world->SetTorchPalette(index);
-	};
 	// The sheet's defense breakdown: only the world can resolve worn items,
 	// balance knobs and the live evasion formula.
 	m_ui.defenseFor = [this](const Character& c) { return m_world->DefenseFor(c); };
@@ -212,6 +209,13 @@ void Game::WireModuleCallbacks() {
 	};
 	m_ui.onHandThrow = [this](size_t member, const std::string& item, float charge) {
 		return m_world->ThrowItem(item, static_cast<int>(member), charge);
+	};
+	m_ui.torchActFor = [this](const std::string& item) {
+		return m_world ? static_cast<int>(m_world->TorchActFor(item)) : 0;
+	};
+	m_ui.onTorchAct = [this](size_t member, size_t hand, bool light) {
+		if (light) m_world->KindleTorch(member, static_cast<int>(hand));
+		else m_world->PutOutTorch(member, static_cast<int>(hand));
 	};
 	// The hand right-click menu reads an item's commands from the world's item
 	// kinds (single source — ItemKindFor parses category/command + rune defaults).
@@ -537,8 +541,17 @@ void Game::WireModuleCallbacks() {
 			// with it takes the new definition, on every level that has one.
 			else if (cfg.catalogKey == "themes")
 				m_world->RefreshTheme(cfg.id);
-			else
+			// A light profile is looked up by id every frame: re-reading the
+			// catalog is the whole reload (lighting-updates Phase 2).
+			else if (cfg.catalogKey == "lights" || cfg.catalogKey == "trails")
+				m_world->ReloadLightProfiles();
+			else {
 				m_world->ReloadTypeKind(cfg.catalogKey, cfg.id);
+				// An item kind outlives that reload; its `light` is re-read here.
+				if (cfg.catalogKey == "items" || cfg.catalogKey == "weapons" ||
+					cfg.catalogKey == "armor")
+					m_world->ReloadLightProfiles();
+			}
 			if (m_world->onMessage)
 				m_world->onMessage(loc::FormatLine("map.type.saved", cfg.id));
 			return;
@@ -832,9 +845,12 @@ void Game::WireModuleCallbacks() {
 		return m_world->RemountSconce(x, z, from, to);
 	};
 	m_fixtureInspector.onSettings = [this](int x, int z, Direction wall, bool brazier, bool lit,
-										   float brightness, float turbidity) {
-		if (brazier) m_world->SetBrazierSettings(x, z, lit, brightness, turbidity);
-		else m_world->SetTorchSettings(x, z, wall, lit, brightness, turbidity);
+										   float brightness, float turbidity,
+										   const Vec3& flameColor) {
+		if (brazier) m_world->SetBrazierSettings(x, z, lit, brightness, turbidity, flameColor);
+		else m_world->SetTorchSettings(x, z, wall, lit, brightness, turbidity, flameColor);
+		// The dialog's preview flame takes the colour too.
+		m_previewFire.SetFlameColor(flameColor, HasFlameColor(flameColor));
 		// (the dialog flips its own preview spec's showFire on the Lit toggle)
 	};
 	m_fixtureInspector.onSave = [this] {

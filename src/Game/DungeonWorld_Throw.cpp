@@ -109,7 +109,9 @@ bool DungeonWorld::ThrowItem(const std::string& typeId, int member, float charge
 	flight.payload = kind.throwPayload;
 	flight.cargo = &kind; // the kinds are stable (PreloadItemKinds)
 	flight.cargoCharge = charge; // and it lands with what it had
-	m_projectiles.Spawn(flight);
+	// It lights if its kind does (a lit torch keeps lighting the corridor it
+	// flies down) and sheds its kind's `trail` - Launch dresses it.
+	Launch(flight);
 
 	// What a throw costs, as a swing does: the wait (paced by the attack), the
 	// stamina (by weight, shaded by the attack) and any over-exertion.

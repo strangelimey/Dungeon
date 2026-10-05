@@ -1,0 +1,54 @@
+; Trails: what a thing in flight SHEDS (docs/lighting-updates-plan.md Phase 4,
+; Game/Trail.h). A spell names one with spells.cat `trail = <id>`, an item with
+; items.cat `trail = <id>` (for when it is thrown); a bolt that names none takes
+; its school's trail_<school>, a monster's plain shot trail_shot. A lit torch
+; needs none - it trails its own flame.
+;   shape    spark / ember / mote / puff / drip - sets the defaults below
+;   rate     particles per SQUARE flown (by distance: a fast bolt is as dense)
+;   life     seconds a particle lasts
+;   size     a particle's half-width, in metres
+;   spread   how fast it scatters off the path, m/s
+;   fall     downward pull, m/s^2 (below 0 it rises)
+;   flicker  0..1, how deep its brightness flickers (an ember's)
+;   swirl    radians a second its drift turns (a mote's)
+;   swell    1 = it grows as it fades (a puff)
+;   color    'r, g, b', or `source` (the default): the colour of the light it
+;            flies with, so trail and light agree
+
+; Fire: embers drifting up off the bolt, flickering out.
+[trail_fire]
+display = Fire embers
+category = flight
+shape = ember
+rate = 12
+
+; Water: droplets falling away below it.
+[trail_water]
+display = Water droplets
+category = flight
+shape = drip
+rate = 10
+
+; Air: motes that hang and swirl in its wake.
+[trail_air]
+display = Air motes
+category = flight
+shape = mote
+rate = 12
+
+; Earth: grit falling from it.
+[trail_earth]
+display = Earth grit
+category = flight
+shape = drip
+rate = 8
+size = 0.035
+spread = 0.4
+fall = 9
+
+; A monster's plain shot: a few sparks flung back.
+[trail_shot]
+display = Monster shot sparks
+category = flight
+shape = spark
+rate = 6

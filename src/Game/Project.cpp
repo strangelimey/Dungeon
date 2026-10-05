@@ -59,6 +59,12 @@ const CatalogSlot kCatalogs[] = {
 	 "Shapes (docs/tool-refinement-plan.md Phase 6, Game/Carve.h): the Stamp brush's grids. "
 	 "`rows` is the grid, rows split by '|': '.' opens a square, '#' makes it solid, "
 	 "anything else leaves it. Placed centred on the square clicked; R turns it."},
+	{"lights.cat", &Project::lights,
+	 "Lights (docs/lighting-updates-plan.md Phase 2, Game/LightProfile.h): what each "
+	 "kind of light looks like. A source names one with `light = <id>`."},
+	{"trails.cat", &Project::trails,
+	 "Trails (docs/lighting-updates-plan.md Phase 4, Game/Trail.h): what a thing in "
+	 "flight sheds. A spell or item names one with `trail = <id>`."},
 	{"themes.cat", &Project::themes,
 	 "Surface themes: a named look - floor / wall / ceiling, each ONE of that "
 	 "surface's catalog ids (empty = leave that surface alone). Cells reference one "
@@ -238,6 +244,8 @@ Catalog* Project::CatalogForKey(const std::string& key) {
 	if (key == "flags") return &flags;
 	if (key == "styles") return &styles;
 	if (key == "shapes") return &shapes;
+	if (key == "lights") return &lights;
+	if (key == "trails") return &trails;
 	if (key == "walls") return &walls;
 	if (key == "floors") return &floors;
 	if (key == "ceilings") return &ceilings;
@@ -268,7 +276,7 @@ std::vector<const Catalog*> Project::AllCatalogs() const {
 			&monsters, &doors, &stairs,   &buttons,      &items,
 			&weapons, &armor,  &spells,   &effects,      &attacks,
 			&balance, &damagetypes, &wallfeatures, &surfacefeatures,
-			&terrain, &dungeons, &quests, &flags, &styles, &shapes, &themes};
+			&terrain, &dungeons, &quests, &flags, &styles, &shapes, &lights, &trails, &themes};
 }
 
 const CatalogEntry* Project::FindItem(std::string_view id) const {

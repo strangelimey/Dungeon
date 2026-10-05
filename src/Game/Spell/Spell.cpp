@@ -36,6 +36,8 @@ void Spell::ApplyOverrides(const CatalogEntry& e) {
 		m_payload.blast = blast;
 	}
 	ReadBlastRules(e, m_payload.blast);
+	m_light = e.Get("light", m_light);
+	m_trail = e.Get("trail", m_trail);
 }
 
 // The AREA blast, if an entry authors one. `blast_force` in squares is the gate;

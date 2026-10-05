@@ -174,6 +174,7 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	// Fog of war: nothing revealed until the party stands somewhere. Seed the
 	// start cell so the map isn't blank the moment it opens.
 	m_seen.assign(static_cast<size_t>(m_map.Width()) * m_map.Height(), 0);
+	FitTracksToMap(); // the track grid is parallel to the cells too (6g)
 	MarkSeen(m_party.GridX(), m_party.GridZ());
 
 	// The unlit ambient fill (kBaseAmbient above); the dev console's
@@ -183,6 +184,14 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_lights.directional.color = {0, 0, 0}; // no sun underground
 	// Rebuilt every frame into retained capacity — no steady-state allocation.
 	m_lights.points.reserve(gfx::kMaxPointLights);
+	// The candidate lists can outgrow the uploaded ceiling (every fire on a big
+	// level, a stress load); SelectLights cuts them down to it.
+	m_lights.points.reserve(kLightCandidates);
+	m_lightOrigins.reserve(kLightCandidates);
+	m_lightCandidates.reserve(kLightCandidates);
+	m_lightScratch.reserve(kLightCandidates);
+	m_lightOriginScratch.reserve(kLightCandidates);
+	m_stressLights.reserve(gfx::kMaxPointLights * 2); // SetStressLights' ceiling
 
 	// The damage types themselves (docs/damage-system.md) — the vocabulary
 	// everything below is written in, so it is built before all of it.
@@ -205,11 +214,14 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	// Game/Effect/ plus the project's effects.cat overrides. Built BEFORE the
 	// cast services, which hand spells an applyEffect resolving through it.
 	m_effects.Build(m_project.effects, m_damageTypes);
+	// What every light looks like (lights.cat) - after the effects, whose
+	// plume `light` ids it checks.
+	ReloadLightProfiles();
 
 	m_magic.LoadSpells(m_project.spells, m_damageTypes);
 	m_magic.SetBalance(&m_balance);
 	m_magic.SetCastServices(
-		{[this](const ProjectileSpec& bolt) { m_projectiles.Spawn(bolt); },
+		{[this](const ProjectileSpec& bolt) { Launch(bolt); },
 		 [this](const ProjectileSpec& bolt, float delay) { SpawnBoltAfter(bolt, delay); },
 		 [this](const Character& member, std::string_view line) {
 			 MemberMessage(member, line);
@@ -228,6 +240,9 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		 [this](std::string_view itemId) { DropAtPartyFeet(itemId); },
 		 [this](ItemSlot& slot) { return RenameHeldItem(slot, &ItemKind::litAs); },
 		 [this](ItemSlot& slot) { return RenameHeldItem(slot, &ItemKind::fillAs); },
+		 [this](const ItemSlot& slot) {
+			 return !slot.Empty() && MagicalTorch(ItemKindFor(slot.typeId));
+		 },
 		 [this](int cells) { return ShoveAhead(cells); },
 		 [this](float power, int casterIndex) { return RepelAhead(power, casterIndex); },
 		 [this](const ProjectilePayload& payload, SpellSymbol school, int casterIndex) {
@@ -235,7 +250,16 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		 },
 		 [this](SpellSymbol school, const Vec3& origin, const Vec3& dir) {
 			 HandPuff(school, origin, dir);
-		 }});
+		 },
+		 [this](SpellSymbol school, float power, int casterIndex) {
+			 LightFlare(school, power, casterIndex);
+		 },
+		 [this](float power, float seconds) { PlaceLightStone(power, seconds); }});
+
+	// The torch flames' pool, each at its full size now: a torch landing or
+	// lighting on the floor mid-fight then allocates nothing.
+	for (TorchFlame& f : m_torchFlames) f.effect.Reserve(kTorchFlameScale);
+	m_projectiles.trailSquare = kCellSize; // a trail's rate is per square flown
 
 	// Moving-item engine: wire its world seam so a projectile lives "on the map"
 	// without the engine depending on the map/combat. resolveHit is faction-aware —
@@ -374,15 +398,6 @@ void DungeonWorld::MarkSeen(int x, int z) {
 	}
 }
 
-void DungeonWorld::SetTorchPalette(int index) {
-	m_torchPalette = index;
-	switch (index) {
-	case 1:  m_torchColor = {0.45f, 0.65f, 1.0f}; onMessage(loc::View("log.torch_cold")); break;
-	case 2:  m_torchColor = {0.55f, 1.0f, 0.45f}; onMessage(loc::View("log.torch_eerie")); break;
-	default: m_torchColor = {1.0f, 0.62f, 0.28f}; onMessage(loc::View("log.torch_warm")); break;
-	}
-}
-
 // How long the pit-fall camera drop takes once the step glide has finished.
 static constexpr float kPitFallSeconds = 0.55f;
 
@@ -473,14 +488,23 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 	// regeneration, supplies, and the unconscious waking up.
 	CheckDamageLedger("monsters, effects and regeneration");
 	UpdatePendingBolts(dt);   // a volley's later bolts take their turn
-	m_projectiles.Update(dt); // fly bolts, resolve impacts/fizzles via the hooks
+	// Fly bolts, resolve impacts/fizzles via the hooks; a trail thins with
+	// distance from the eye.
+	m_projectiles.SetEye(PartyEye());
+	m_projectiles.Update(dt);
 	UpdateBlasts(dt);         // advance live blasts a tick at their own speed
 	CheckDamageLedger("projectiles and blasts");
 	UpdateFireTransients(dt); // flares dying away, dust puffs settling
 	TickCarriedLight(dt);     // held torches burn down; stowed ones go out
+	TickFloorTorches(dt);     // ...and the ones lying lit on the floor
 	TickHandGlows(dt);        // a hand spell's puff of light fading
-	UpdateLights(time);
+	TickSpellLights(dt);      // what the Sowilo lights do: kindle, scorch, ...
+	TickLightStones(dt);      // ...and the Earth stones set down on this level
+	m_trackClock += dt;       // the clock monster tracks age by (6g)
+	// The camera FIRST: the light budget culls against this frame's view, and
+	// a cull against last frame's would drop a light the turn just revealed.
 	UpdateCamera();
+	UpdateLights(time);
 
 	// Advance the fires and gather their particles, sorted back-to-front so
 	// the alpha-blended smoke composites correctly (additive flames are
@@ -512,6 +536,10 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 		monster.plume.Update(dt);
 		monster.plume.AppendParticles(m_particleScratch);
 	}
+	// The torch flames: lit torches on the floor and in flight.
+	UpdateTorchFlames(dt);
+	for (const TorchFlame& f : m_torchFlames)
+		if (f.key != 0) f.effect.AppendParticles(m_particleScratch);
 	// Projectiles in flight + their impact sparks render as additive billboards
 	// alongside the flames (same premultiplied-additive blend).
 	m_projectiles.AppendBillboards(m_particleScratch);
@@ -543,7 +571,11 @@ void DungeonWorld::ReserveParticleScratch() {
 		peak += static_cast<size_t>(fire.effect.Capacity());
 	peak += m_monsters.size() *
 			static_cast<size_t>(FireEffect::CapacityFor(kPlumeScale));
-	peak += 128; // projectiles in flight + their impact sparks (bursts of 6..14)
+	// Projectiles in flight + the spark pool (impact bursts, blast puffs and the
+	// trails), which never grows past its fixed size.
+	peak += ProjectileSystem::BillboardCeiling();
+	// The torch flames (floor and thrown), each at its ceiling.
+	peak += kTorchFlames * static_cast<size_t>(FireEffect::CapacityFor(kTorchFlameScale));
 	// Headroom over the mean: spawn times and lifetimes are both random, so the
 	// live count wanders above the settled figure SteadyCount reports.
 	m_particleScratch.reserve(peak + peak / 4);
@@ -699,7 +731,7 @@ void DungeonWorld::UpdateCamera() {
 	m_camera.SetLens(m_fovDegrees * kPi / 180.0f,
 					 static_cast<float>(m_device.Width()) /
 						 static_cast<float>(m_device.Height()),
-					 0.05f, 100.0f);
+					 0.05f, kFarPlane);
 }
 
 // A rune's "breath": one multiplier (~0.2 dim .. ~1.9 bright, phase-offset per
@@ -739,98 +771,106 @@ bool ActiveSightSchool(const std::vector<Character>* roster, SpellSymbol& out) {
 
 void DungeonWorld::UpdateLights(float time) {
 	m_lights.points.clear();
+	m_lightOrigins.clear();
 
 	// The party's own light is the lit torches it HOLDS - none, and it sees by
 	// the level's ambient alone (DungeonWorld_Light.cpp).
 	const Vec3 eye = PartyEye();
 	AppendCarriedLights(time);
+	// Lit torches lying on the floor, and everything lit in flight (and the
+	// flash a lit bolt leaves where it ends) - lighting-updates Phase 4.
+	AppendFloorTorchLights(time);
+	AppendFlightLights(time);
+	// The Sowilo light spells on the party (DungeonWorld_SpellLight.cpp).
+	AppendSpellLights(time);
+	AppendStoneLights(time);
 
-	// One flickering light per fire, sitting just above its flame. Braziers
-	// burn bigger and a touch redder than the wall sconces. The light
-	// POSITION wanders too (incommensurate sine products, per-fire phase):
-	// the shadow cubes re-render from the moved origin every frame, so the
-	// shadows themselves dance the way real firelight does.
-	for (const Fire& fire : m_fires) {
+	// One light per burning fire, just above its flame, from its KIND'S profile
+	// (fixtures.cat `light`: fire_sconce / fire_brazier in lights.cat). The
+	// profile's `wander` makes the origin dance (per-fire phase), so the shadow
+	// cubes re-render from a moving point and the shadows flicker the way real
+	// firelight does. The REACH is the placed fire's own (its Brightness,
+	// authored per placement), not the profile's.
+	for (size_t f = 0; f < m_fires.size(); ++f) {
+		const Fire& fire = m_fires[f];
 		if (!fire.lit) continue; // an unlit torch casts no light
-		gfx::PointLight light;
-		const float amp = fire.brazier ? 0.042f : 0.028f;
-		const float wx = amp * std::sin(time * 7.3f + fire.phase) *
-						 std::sin(time * 3.1f + fire.phase * 2.0f);
-		const float wy = amp * 0.6f * std::sin(time * 9.1f + fire.phase * 1.3f);
-		const float wz = amp * std::sin(time * 6.7f + fire.phase * 0.7f) *
-						 std::sin(time * 2.6f + fire.phase);
-		light.position = {fire.flamePos.x + wx, fire.flamePos.y + 0.15f + wy,
-						  fire.flamePos.z + wz};
-		// Braziers reach ~6 cells (14.4 m) so their shadow has room to fade in
-		// gently over distance (AssignShadowSlots); inverse-square falloff keeps
-		// the far tail dim, so this widens the lit pool without blowing out up
-		// close. Wall sconces stay tighter.
-		light.radius = fire.lightRadius;
-		light.color = fire.brazier
-						  ? Vec3{m_torchColor.x, m_torchColor.y * 0.85f, m_torchColor.z * 0.8f}
-						  : m_torchColor;
-		const float base = fire.brazier ? 2.3f : 1.8f;
-		light.intensity = base * (0.9f + 0.1f * std::sin(time * 11.0f + fire.phase) *
-											 std::sin(time * 7.3f + fire.phase));
+		const light::Profile& profile = LightProfileFor(fire.kind ? std::string_view(fire.kind->light)
+																 : std::string_view("fire_sconce"));
+		gfx::PointLight* light =
+			PushLight(profile, "fire", LightKey(LightKind::Fire, static_cast<u32>(f)),
+					  {fire.flamePos.x, fire.flamePos.y + 0.15f, fire.flamePos.z}, time,
+					  fire.phase, {1, 1, 1}, 1.0f, fire.lightRadius);
+		// Its placement's own flame colour wins over the kind's.
+		if (HasFlameColor(fire.flameColor)) light->color = fire.flameColor;
 		// A fanned fire (FlareFire) swells for a moment, brighter and further.
-		light.intensity *= 1.0f + 1.5f * fire.flare;
-		light.radius *= 1.0f + 0.25f * fire.flare;
-		light.flickerShadow = true; // wandering origin → throttle its shadow cube
-		light.longShadowFade = fire.brazier; // braziers fade over their long reach;
-											 // sconces keep near-field shadows crisp
-		m_lights.points.push_back(light);
+		light->intensity *= 1.0f + 1.5f * fire.flare;
+		light->radius *= 1.0f + 0.25f * fire.flare;
 	}
 
-	// A burning monster is a moving lamp: its own flickering glow in the
-	// element's colour, so a torched skeleton lights the room it runs through.
-	// Shadowless (like the rune glows) — a transient light must not steal a
-	// shadow cube from the torch and the fires.
+	// A burning monster is a moving lamp: its own glow in the colour of the
+	// element that lit it (the plume effect's `light`, `burning` by default,
+	// whose `color = source` takes the school), so a torched skeleton lights
+	// the room it runs through.
 	for (const Monster& monster : m_monsters) {
 		const fx::Inst* burning = PlumeEffect(monster);
 		if (!burning) continue;
 		const Vec3 o = BurnOrigin(monster);
-		gfx::PointLight glow;
-		glow.position = {o.x, o.y + 0.1f, o.z};
-		glow.radius = 5.5f;
-		glow.color = BurnGlow(*burning);
-		glow.intensity = 1.9f * (0.85f + 0.15f * std::sin(time * 12.0f +
-														  monster.runtimeId) *
-											 std::sin(time * 8.1f + monster.runtimeId));
-		glow.castsShadow = false;
-		m_lights.points.push_back(glow);
+		PushLight(LightProfileFor(burning->kind->LightId().empty()
+								  ? std::string_view("burning")
+								  : std::string_view(burning->kind->LightId())),
+				  "burning", LightKey(LightKind::Burning, monster.runtimeId),
+				  {o.x, o.y + 0.1f, o.z}, time, static_cast<float>(monster.runtimeId),
+				  BurnGlow(*burning));
 	}
 
-	// A hand spell's puff (HandPuff) flashes and fades. Shadowless, like every
-	// transient light here.
-	for (const HandGlow& g : m_handGlows) {
+	// A hand spell's puff (HandPuff) flashes and fades (`hand_puff`, its
+	// colour the school's): its brightness falls as the square of what is left.
+	// A light spell's flare uses the same slots with its own, bigger profile.
+	const light::Profile& handPuff = LightProfileFor("hand_puff");
+	const light::Profile& flare = LightProfileFor("spell_flare");
+	for (size_t i = 0; i < m_handGlows.size(); ++i) {
+		const HandGlow& g = m_handGlows[i];
 		if (g.timeLeft <= 0.0f || g.life <= 0.0f) continue;
 		const float t = g.timeLeft / g.life; // 1 at the puff, 0 gone
-		gfx::PointLight glow;
-		glow.position = g.pos;
-		glow.radius = 3.5f;
-		glow.color = g.color;
-		glow.intensity = g.intensity * t * t;
-		glow.castsShadow = false;
-		m_lights.points.push_back(glow);
+		const light::Profile& puff = g.flare ? flare : handPuff;
+		const float scale = g.flare ? g.intensity
+						   : puff.intensity > 0.0f ? g.intensity / puff.intensity
+												   : 0.0f;
+		PushLight(puff, g.flare ? "flare" : "puff", LightKey(LightKind::HandGlow, static_cast<u32>(i)), g.pos,
+				  time, 0.0f, g.color, scale * t * t);
 	}
 
-	// Each uncollected rune throws a soft pulsing light in its element colour,
-	// breathing in lockstep with the tablet's emissive glow (same RunePulse).
-	// An ENCHANTED weapon lying on the floor does the same in its own element —
-	// the tell that this blade is the fiery one. Pure fill light —
-	// castsShadow=false keeps the cluster near the start from stealing the few
-	// shadow cubes from the torch/fires.
+	// Each uncollected rune throws a soft breathing light in its element colour
+	// (`floor_glow`), in step with the tablet's emissive glow: both are a sine at
+	// the same frequency with the item's id as the phase. An ENCHANTED weapon on
+	// the floor does the same in its own element - the tell that this blade is
+	// the fiery one.
+	const light::Profile& floorGlow = LightProfileFor("floor_glow");
 	for (const Item& item : m_items) {
 		if (item.collected || !(item.kind->isRune || item.kind->enchanted)) continue;
 		const Vec3 c = SlotCenter(item.x, item.z, SizeClass::Medium, item.slot);
-		gfx::PointLight glow;
-		glow.position = {c.x, 0.4f, c.z};
-		glow.radius = 4.8f;
 		const Vec4& g = item.kind->glow;
-		glow.color = {g.x, g.y, g.z};
-		glow.intensity = 2.3f * RunePulse(time, item.id);
-		glow.castsShadow = false;
-		m_lights.points.push_back(glow);
+		PushLight(floorGlow, "glow", LightKey(LightKind::Glow, static_cast<u32>(item.id)),
+				  {c.x, 0.4f, c.z}, time, static_cast<float>(item.id), {g.x, g.y, g.z});
+	}
+
+	// `lightstress`: the measuring load, steady and shadowless (a stress light
+	// that took shadow cubes would be measuring the shadow pass instead).
+	if (!m_stressLights.empty()) {
+		// Built once: a profile holds a string, and constructing one is an
+		// allocation in a debug build.
+		static const light::Profile stress = [] {
+			light::Profile p;
+			p.id = "(stress)";
+			p.intensity = 1.6f;
+			p.radius = 2.4f;
+			p.shadow = false;
+			p.sourceColor = true;
+			return p;
+		}();
+		for (size_t s = 0; s < m_stressLights.size(); ++s)
+			PushLight(stress, "stress", LightKey(LightKind::Stress, static_cast<u32>(s)),
+					  m_stressLights[s].pos, time, 0.0f, m_stressLights[s].color);
 	}
 
 	// See-through peek (the Sight spell): recompute the ghosted wall cell from
@@ -871,40 +911,17 @@ void DungeonWorld::UpdateLights(float time) {
 				const int cx = gx + kFrontDX[f] * i, cz = gz + kFrontDZ[f] * i;
 				if (m_map.IsWalkable(cx, cz)) { rvx = cx; rvz = cz; revealed = true; break; }
 			}
-			if (revealed && sightSchool == SpellSymbol::Fire) {
-				gfx::PointLight lp;
-				lp.position = m_map.CellCenter(rvx, rvz, 1.2f);
-				lp.radius = kCellSize * 2.2f;
-				lp.color = {1.0f, 0.55f, 0.25f}; // warm ember
-				lp.intensity = 2.0f;
-				lp.castsShadow = false; // fill only — no cube stolen
-				m_lights.points.push_back(lp);
-			}
+			if (revealed && sightSchool == SpellSymbol::Fire)
+				PushLight(LightProfileFor("ember_sight"), "sight", LightKey(LightKind::Sight, 0),
+						  m_map.CellCenter(rvx, rvz, 1.2f), time, 0.0f);
 			if (revealed && sightSchool == SpellSymbol::Earth)
 				MarkSeen(rvx, rvz); // the surveyor remembers the room it read
 		}
 	}
 
-	// The renderer uploads only the active light budget (Settings → Video → Max
-	// Lights, Low=16 .. Ultra=64) and shadow slots only consider those, so on a
-	// large level the fire count alone can crowd out a light pushed late (a
-	// rune glow). Keep the ones NEAREST the eye instead of the first ones
-	// pushed; a held torch sits beside the eye, so it always survives (and
-	// still wins shadow slot 0 in AssignShadowSlots).
-	const size_t budget = static_cast<size_t>(
-		std::clamp(m_settings.maxPointLights, 1, static_cast<int>(gfx::kMaxPointLights)));
-	if (m_lights.points.size() > budget) {
-		auto distSq = [&](const gfx::PointLight& l) {
-			const Vec3 d = Sub(l.position, eye);
-			return d.x * d.x + d.y * d.y + d.z * d.z;
-		};
-		std::nth_element(m_lights.points.begin(),
-						 m_lights.points.begin() + budget, m_lights.points.end(),
-						 [&](const gfx::PointLight& a, const gfx::PointLight& b) {
-							 return distSq(a) < distSq(b);
-						 });
-		m_lights.points.resize(budget);
-	}
+	// Which of this frame's candidates are drawn (DungeonWorld_LightBudget.cpp):
+	// the view cull, the reach cull, the ranking against Max Lights, the fades.
+	SelectLights(eye, time);
 
 	m_shadows.AssignSlots(m_lights.points, eye, m_shadowsEnabled);
 }
@@ -1020,8 +1037,9 @@ void DungeonWorld::TickParty(float dt, bool danger) {
 				// (past the exhaust_recover fraction, so it can't flicker at
 				// zero) — docs/combat.md Phase 4.
 				if (!exerting) {
+					// A Tidelight SOOTHES: stamina comes back faster in it.
 					regen(resource::Kind::Stamina, member.stamina,
-						  member.maxStamina, 1.0f);
+						  member.maxStamina, StaminaSoothe());
 					if (member.exhausted &&
 						member.stamina >=
 							m_balance.exhaustRecover * member.maxStamina) {
@@ -1288,6 +1306,9 @@ void DungeonWorld::UpdateMonsters(float dt) {
 		// and then maul the party, so the table described where they ended up
 		// rather than what the blast did to where they were.
 		if (m_harness.frozen || rising) continue;
+		// DAZZLED by a light spell's flare (lighting-updates Phase 6): the same
+		// seam - it animates, burns and can be struck, and does nothing else.
+		if (IsDazzled(monster)) continue;
 
 		if (monster.intent.mode == ai::Intent::Mode::Idle) {
 			// Idle behaviour: a patroller walks its route (which also carries it back
@@ -1641,20 +1662,22 @@ bool DungeonWorld::RemountSconce(int cx, int cz, Direction from, Direction to) {
 }
 
 bool DungeonWorld::TorchSettings(int cx, int cz, Direction wall, bool& lit, float& brightness,
-								 float& turbidity) const {
+								 float& turbidity, Vec3& flameColor) const {
 	for (const WallSconce& s : m_map.Sconces())
 		if (s.x == cx && s.z == cz && s.wall == wall) {
 			lit = s.lit;
 			brightness = s.brightness;
 			turbidity = s.turbidity;
+			flameColor = s.flameColor;
 			return true;
 		}
 	return false;
 }
 
 bool DungeonWorld::SetTorchSettings(int cx, int cz, Direction wall, bool lit, float brightness,
-									float turbidity) {
-	if (!m_map.SetSconceProps(cx, cz, wall, lit, brightness, turbidity)) return false;
+									float turbidity, const Vec3& flameColor) {
+	if (!m_map.SetSconceProps(cx, cz, wall, lit, brightness, turbidity, flameColor))
+		return false;
 	RebuildFiresAndDust();
 	return true;
 }
@@ -1670,12 +1693,13 @@ bool DungeonWorld::SolidDecorationAt(int cx, int cz) const {
 }
 
 bool DungeonWorld::BrazierSettings(int cx, int cz, bool& lit, float& brightness,
-								   float& turbidity) const {
+								   float& turbidity, Vec3& flameColor) const {
 	const FloorBrazier* b = m_map.BrazierAt(cx, cz);
 	if (!b) return false;
 	lit = b->lit;
 	brightness = b->brightness;
 	turbidity = b->turbidity;
+	flameColor = b->flameColor;
 	return true;
 }
 
@@ -1691,8 +1715,8 @@ std::string DungeonWorld::BrazierTypeAt(int cx, int cz) const {
 }
 
 bool DungeonWorld::SetBrazierSettings(int cx, int cz, bool lit, float brightness,
-									  float turbidity) {
-	if (!m_map.SetBrazierProps(cx, cz, lit, brightness, turbidity)) return false;
+									  float turbidity, const Vec3& flameColor) {
+	if (!m_map.SetBrazierProps(cx, cz, lit, brightness, turbidity, flameColor)) return false;
 	RebuildFiresAndDust();
 	return true;
 }

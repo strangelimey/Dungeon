@@ -15,6 +15,10 @@ namespace dungeon::game {
 ShadowScheduler::ShadowScheduler() {
 	// Rebuilt every frame into retained capacity — no steady-state allocation.
 	m_candidates.reserve(gfx::kMaxPointLights);
+	// Likewise the slots' positions: at most one per shadow slot. Unreserved, it
+	// grew the first time more shadowed lights came into view than ever had -
+	// mid-walk, in a guarded frame (AllocTest -Walk, lighting-updates Phase 5).
+	m_prevPos.reserve(gfx::kShadowSlots);
 }
 
 void ShadowScheduler::AssignSlots(std::span<gfx::PointLight> lights, const Vec3& eye,
@@ -135,11 +139,14 @@ bool ShadowScheduler::ShouldRender(const gfx::PointLight& light, size_t lightInd
 		flickerDue = true;
 		--m_flickerLeft;
 	}
-	const bool needsRender = cache.lightId != static_cast<int>(lightIndex) ||
+	// Who this is: its stable id, else (high bit set, so the two never collide)
+	// its index in this frame's list.
+	const u32 identity = light.id != 0 ? light.id : 0x80000000u | static_cast<u32>(lightIndex);
+	const bool needsRender = cache.lightId != identity ||
 							 cache.revision != mapRevision || animatedCasterNear ||
 							 (light.flickerShadow ? flickerDue : moved);
 	if (needsRender) {
-		cache.lightId = static_cast<int>(lightIndex);
+		cache.lightId = identity;
 		cache.pos = light.position;
 		cache.revision = mapRevision;
 		// Only a FLICKER render re-paces the flicker clock. A cube re-rendered
