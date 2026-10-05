@@ -2317,6 +2317,7 @@ void Game::UpdateStates(float dt) {
 			m_previewMonScale = d.modelScale;
 			m_previewMonYaw = d.modelYaw;
 			m_previewAnim = anim::Animator(d.skeleton, d.clips);
+			m_previewAnim.LockRootTravel(DungeonWorld::kMonsterRootReach); // as in the world
 			m_previewAnim.Play(clip, /*loop*/ true);
 			m_previewType = type;
 			m_previewClip = clip;

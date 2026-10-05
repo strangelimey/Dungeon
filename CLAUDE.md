@@ -703,6 +703,16 @@ buffer, reused across all ~25 submissions).
   (`DungeonWorld::MonsterModelWorld`, `MonsterKind::rigRest`; a load logs any
   rig resting > 0.05 off), and a burn plume rides that root joint's live pose
   (`BurnOrigin`) - so a new draw of a monster model goes through that helper.
+  The kit's clips also carry ROOT MOTION (a walk moves the hips ~0.77 units a
+  cycle, a run ~1.3, a death up to 0.6), which slid a walking skeleton ahead of
+  its square and snapped it back every loop. The bake keeps it; the PLAYER
+  removes it: `Animator::LockRootTravel` (every monster animator and both
+  editor previews) subtracts a LOOP's straight-line drift so the cycle closes
+  with its sway intact, and scales a ONE-SHOT's travel so the root ends within
+  `DungeonWorld::kMonsterRootReach` (0.08) of where it began - a body still
+  falls the way it falls, inside its own square. Height is never touched. A new
+  Animator for a monster must call it. Measured by the `rootmotion` eval suite
+  (`monsters` prints each one's clip and `root` stray).
   Paste the emitted rows into the creature's monsters.cat [id] — or just check
   the boxes in the editor's monster config dialog (it auto-discovers the model's
   clips). Humanoid Mixamo defaults (mesh +90 yaw to co-face the armature, finger

@@ -184,6 +184,11 @@ $suites = @(
 		name = 'parties'; script = 'smallparty.eval'
 		what = 'parties of one, three and two: who the formation lets a monster reach'
 		measure = '===|  \[[0-9]\]|TALLY |roster [0-9]|rested [0-9.]+s|state '
+	},
+	@{
+		name = 'rootmotion'; script = 'rootmotion.eval'
+		what = 'a walking, then dying, kit skeleton: how far its body strays from its square'
+		measure = '--- |  skel_warrior @ '
 	}
 )
 

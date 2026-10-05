@@ -632,6 +632,16 @@ std::vector<std::string> DungeonWorld::MonsterList() const {
 		std::string line = std::format("{} @ {},{}  hp {:.1f}",
 									   m.kind ? m.kind->name : "?", m.x, m.z, m.hp);
 		if (!m.Alive()) line += " (dead)";
+		// The clip playing and how far its rig root stands from the monster's
+		// own position, horizontally, in model units - the body's distance from
+		// where the game put it (Animator::LockRootTravel keeps this small).
+		if (m.kind && m.kind->rigRoot >= 0 &&
+			static_cast<size_t>(m.kind->rigRoot) < m.animator.JointCount()) {
+			const Vec3 p = m.animator.JointPosition(static_cast<size_t>(m.kind->rigRoot));
+			const float dx = p.x - m.kind->rigRest.x, dz = p.z - m.kind->rigRest.z;
+			line += std::format("  anim {} root {:.3f}", m.animator.CurrentClip(),
+								std::sqrt(dx * dx + dz * dz));
+		}
 		for (const fx::Inst& e : m.effects) {
 			line += std::format("  [{} {:.1f} {:.1f}s", e.Id(), e.magnitude, e.timeLeft);
 			// An effect with its own colour (a magical torch's burn) says so.

@@ -947,6 +947,14 @@ public:
 		float modelYaw = 0.0f; // render-time facing fixup, so the preview matches in-world
 	};
 	MonsterPreviewData MonsterPreviewFor(const std::string& type); // force-loads the kind
+	// How far a ONE-SHOT clip (a death, a rise) may carry a monster's rig root
+	// sideways, in model units (a square at modelscale 1): every monster animator,
+	// and the previews of one, run with Animator::LockRootTravel(this). The
+	// skeleton kit's deaths travel up to 0.6, which laid a body half a square
+	// into a wall or the party's square. Its hips sit 0.34 below the crown and
+	// ~0.42 above the toes, so a body whose hips end within 0.08 of where the
+	// fall began lies inside its own square's 0.5 half-width either way round.
+	static constexpr float kMonsterRootReach = 0.08f;
 	// Whether a monster type's <model>.gltf exists (so the editor can guard the
 	// right-click force-load and warn instead of aborting on a missing asset).
 	bool MonsterModelAvailable(const std::string& type) const;
@@ -2038,6 +2046,9 @@ private:
 		// and the bought creatures root on the origin already, so for them this
 		// is a no-op. The plume also rides the root joint's LIVE pose
 		// (BurnOrigin), so it follows the body through a lunge or a fall.
+		// What a clip may do to that joint horizontally is held down by the
+		// Animator (LockRootTravel, kMonsterRootReach), so the root stays within
+		// a lurch of its rest and the two above stay true while it walks.
 		int rigRoot = -1;
 		Vec3 rigRest{};
 		// Sub-cell occupancy (monsters.cat `size=`, default large). Decides the

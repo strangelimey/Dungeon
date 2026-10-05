@@ -611,16 +611,11 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 		assets->name = type; // catalog id — drives the monster.<id> loc key
 		assets->mesh = ModelMesh(model + ".gltf");
 		// The rig's root joint and its rest position: the model is drawn centred
-		// on it (MonsterModelWorld) and a burn rides it (BurnOrigin). Joints are
-		// sorted parent-first, so the first parentless one is THE root; it has
-		// no parent, so its local rest translation is already model space.
-		for (size_t j = 0; j < assets->model->skeleton.joints.size(); ++j) {
-			const assets::JointData& joint = assets->model->skeleton.joints[j];
-			if (joint.parent >= 0) continue;
-			assets->rigRoot = static_cast<int>(j);
-			assets->rigRest = joint.restTranslation;
-			break;
-		}
+		// on it (MonsterModelWorld) and a burn rides it (BurnOrigin); the
+		// Animator keeps its clips from carrying it away (LockRootTravel).
+		assets->rigRoot = assets->model->skeleton.RootJoint();
+		if (assets->rigRoot >= 0)
+			assets->rigRest = assets->model->skeleton.joints[assets->rigRoot].restTranslation;
 		if (std::abs(assets->rigRest.x) > 0.05f || std::abs(assets->rigRest.z) > 0.05f)
 			log::Info("monster model {}: rig root rests at ({:.3f}, {:.3f}) units off the "
 					  "origin - drawn centred on it",
@@ -1040,6 +1035,8 @@ DungeonWorld::Monster DungeonWorld::MakeMonster(MonsterKind& kind, int id, int x
 	monster.slot = std::max(0, FreeSlotInCell(x, z, kind.size, -1));
 	monster.visualPos = SlotCenter(x, z, kind.size, monster.slot);
 	monster.animator = anim::Animator(&kind.model->skeleton, &kind.model->clips);
+	// The world moves the monster; its clips only animate it in place.
+	monster.animator.LockRootTravel(kMonsterRootReach);
 	// Initial resting pose; DriveMonsterAnim takes over next frame (and plays the
 	// spawn clip first if the kind has one, via the default spawnReq).
 	const std::string idle = PickClip(kind, anim::CreatureState::Idle);

@@ -74,6 +74,16 @@ struct JointData {
 // and remaps vertex joint indices to match.
 struct SkeletonData {
 	std::vector<JointData> joints;
+
+	// THE root joint: the first parentless one (the sort puts parents first),
+	// -1 when there are no joints. It has no parent, so its translation is
+	// already model space - where the body stands. The one statement of the
+	// rule for the world (MonsterKind::rigRoot) and the Animator alike.
+	int RootJoint() const {
+		for (size_t j = 0; j < joints.size(); ++j)
+			if (joints[j].parent < 0) return static_cast<int>(j);
+		return -1;
+	}
 };
 
 enum class ChannelPath { Translation, Rotation, Scale };
