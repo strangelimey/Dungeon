@@ -1685,7 +1685,17 @@ WALL-SIZED PANEL (a square wide and tall, at most 0.35 deep - the arches, the
 archway, the door frames; not a wall feature) gets THE DARK BEYOND: a near-black
 backdrop just behind its back face (inset at the sides and top, not the bottom),
 so its opening reads as a passage instead of showing the tile's light halo, and
-its preview swings across its face (`PoolModelLook::backed`).
+its preview swings across its face (`PoolModelLook::backed`). A BORED wall feature
+(a window, its tube more than 0.3 deep) is cut 0.15 behind its face (`ClipBelow`
+on z) with the dark beyond at the cut, inset 0.12 all round so the preview's
+swing never shows its edge. Parts that only make sense ON something are shown
+with it, dimmed (`AssetPicker::contextFor` -> `PoolModelLook::AddContext`): a
+door's `trim` on its leaf, an opener on its `mount`. The rune tablet wears the
+first rune's set (a rune names no model), a fixture's `empty_model` its
+fixture's. A PLATE (flat and broad on both horizontal axes - the grate, the coal
+bed) is seen three-quarter from above. `sinks` needs 0.1 below the floor, not a
+sliver (the door chain dips 0.027 and was looked at end-on, a dot). Survey all
+89 tiles when changing any of this: open the picker on every eighth model.
 A surface or wall feature has no set of its own, so it is shown in the project's
 first floor / ceiling / wall type, what it wears in a level. A feature's INSIDE
 (every triangle more than 0.05 behind its mounting plane - below y = 0 for a

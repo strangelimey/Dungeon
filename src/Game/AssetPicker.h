@@ -124,6 +124,9 @@ public:
 	// What a model is stamped into when a feature catalog uses it (floor / wall;
 	// Free otherwise) - its inside is then shaded (PoolModelLook::Mount).
 	std::function<DungeonWorld::PoolModelLook::Mount(const std::string&)> mountFor;
+	// The model a part belongs ON (a door trim's leaf, an opener's mount; ""
+	// = none) - shown with it, dimmed (PoolModelLook::AddContext).
+	std::function<std::string(const std::string&)> contextFor;
 
 	// The Choose button (and a double-click on a tile): the picked name.
 	std::function<void(const std::string&)> onChoose;
@@ -198,6 +201,10 @@ private:
 	// The path stem of the set a model is drawn with, at its smallest installed
 	// resolution ("" = none bound, or not installed).
 	std::string SetStemFor(const std::string& modelName) const;
+	// Loads `modelName`'s look - with its context merged in when it has one -
+	// for a tile (thumbPx > 0) or the preview. Null when the file will not load.
+	std::unique_ptr<DungeonWorld::PoolModelLook> LoadLook(const std::string& modelName,
+														  const std::string& file, u32 thumbPx);
 	DungeonWorld::PoolModelLook::Mount MountOf(const std::string& modelName) const {
 		return mountFor ? mountFor(modelName) : DungeonWorld::PoolModelLook::Mount::Free;
 	}

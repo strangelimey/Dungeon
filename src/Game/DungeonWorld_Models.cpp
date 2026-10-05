@@ -28,21 +28,23 @@ using namespace DirectX;
 
 namespace dungeon::game {
 namespace {
-// Clips `mesh` to the half-space y >= cutY: whole triangles below are dropped,
-// a straddling one is cut along the plane (one or two triangles, new vertices
-// interpolated on the crossing edges), winding kept. Returns whether anything
-// was cut. For a picture only (the asset picker's floor features) - the
-// vertices it adds are never welded.
-bool ClipBelow(assets::MeshData& mesh, float cutY) {
+// Clips `mesh` to the half-space where coordinate `axis` (0 x, 1 y, 2 z) is >=
+// `cutAt`: whole triangles below are dropped, a straddling one is cut along the
+// plane (one or two triangles, new vertices interpolated on the crossing edges),
+// winding kept. Returns whether anything was cut. For a picture only (the asset
+// picker's floor features and window bores) - the vertices it adds are never
+// welded.
+bool ClipBelow(assets::MeshData& mesh, float cutAt, int axis = 1) {
 	const std::vector<u32> tris = std::move(mesh.indices);
 	mesh.indices.clear();
 	bool cut = false;
+	auto along = [axis](const Vec3& p) { return axis == 0 ? p.x : axis == 1 ? p.y : p.z; };
 	auto crossing = [&](u32 a, u32 b) {
 		const assets::Vertex va = mesh.vertices[a], vb = mesh.vertices[b];
-		const float t = (cutY - va.position.y) / (vb.position.y - va.position.y);
+		const float t = (cutAt - along(va.position)) / (along(vb.position) - along(va.position));
 		assets::Vertex v = t < 0.5f ? va : vb; // joints/weights from the nearer end
 		v.position = Lerp(va.position, vb.position, t);
-		v.position.y = cutY;
+		(axis == 0 ? v.position.x : axis == 1 ? v.position.y : v.position.z) = cutAt;
 		XMStoreFloat3(&v.normal,
 					  XMVector3Normalize(XMLoadFloat3(&va.normal) * (1.0f - t) +
 										 XMLoadFloat3(&vb.normal) * t));
@@ -54,7 +56,7 @@ bool ClipBelow(assets::MeshData& mesh, float cutY) {
 		const u32 v[3] = {tris[t], tris[t + 1], tris[t + 2]};
 		bool keep[3];
 		int kept = 0;
-		for (int k = 0; k < 3; ++k) kept += (keep[k] = mesh.vertices[v[k]].position.y >= cutY);
+		for (int k = 0; k < 3; ++k) kept += (keep[k] = along(mesh.vertices[v[k]].position) >= cutAt);
 		if (kept == 3) {
 			mesh.indices.insert(mesh.indices.end(), {v[0], v[1], v[2]});
 			continue;
@@ -156,7 +158,10 @@ std::unique_ptr<DungeonWorld::PoolModelLook> DungeonWorld::LoadPoolModelLook(
 	look->textures = std::move(multi->textures);
 	look->lo = multi->boundsMin;
 	look->hi = multi->boundsMax;
-	look->sinks = look->lo.y < -0.01f;
+	// A real depth, not a sliver: the door chain dips 0.027 below its origin,
+	// and at -0.01 that counted as sinking and the tile looked straight down
+	// the length of the chain - a dot.
+	look->sinks = look->lo.y < -0.1f;
 	look->mount = mount;
 	look->FrameAboveFloor();
 	look->rigged = data->skeleton.RootJoint() >= 0;
@@ -209,6 +214,16 @@ std::unique_ptr<DungeonWorld::PoolModelLook> DungeonWorld::LoadPoolModelLook(
 				if (t) look->textures.push_back(t);
 		}
 	}
+
+	// A wall feature BORED through the wall (a window: its tube runs half a
+	// square back, out to the other side) is cut a little behind its face and
+	// the dark beyond set at the cut. Whole, the tube was a thin notch at the
+	// tile's angle and its far end poked out past the panel's edge. A niche
+	// (0.22, closed at the back) is shallower and kept.
+	constexpr float kBoreDeeper = 0.3f, kBoreCut = -0.15f;
+	const bool bored =
+		mount == PoolModelLook::Mount::Wall && -multi->boundsMin.z > kBoreDeeper;
+	if (bored) look->lo.z = std::max(look->lo.z, kBoreCut);
 
 	for (size_t i = 0; i < multi->subs.size(); ++i) {
 		MultiMaterialModel::Sub& sub = multi->subs[i];
@@ -266,7 +281,8 @@ std::unique_ptr<DungeonWorld::PoolModelLook> DungeonWorld::LoadPoolModelLook(
 			// for - with them gone it can be shown at a three-quarter view
 			// (kFloorFeatureTilt) instead of straight down a well.
 			const bool clipped =
-				mount == PoolModelLook::Mount::Floor && ClipBelow(outside, look->lo.y);
+				(mount == PoolModelLook::Mount::Floor && ClipBelow(outside, look->lo.y)) ||
+				(bored && ClipBelow(outside, kBoreCut, /*z*/ 2));
 			look->cutAway = look->cutAway || clipped;
 			const std::vector<u32> src = std::move(outside.indices);
 			assets::MeshData inside = outside;
@@ -349,23 +365,29 @@ std::unique_ptr<DungeonWorld::PoolModelLook> DungeonWorld::LoadPoolModelLook(
 	// a tile it was the icon's light halo, so an arch's opening read as a grey
 	// blob and the stonework round it as nothing much - the three arches tiled
 	// alike. A near-black backdrop just behind the back face fixes that: hidden
-	// wherever the panel is solid, seen only through holes. NOT for a wall
-	// feature: its inside is already shaded (Mount), and a window's bore runs
-	// half a square back, which put the backdrop out past the panel as a slab.
+	// wherever the panel is solid, seen only through holes. Not for a plain wall
+	// feature (its inside is already shaded, and a niche is closed) - but for a
+	// BORED one, at the bore's cut: set at the far end of a window's half-square
+	// tube it stood out past the panel as a slab.
 	const Vec3& bmin = multi->boundsMin;
 	const Vec3& bmax = multi->boundsMax;
 	const bool panel = bmax.x - bmin.x >= 0.9f && bmax.y - bmin.y >= 0.9f &&
 					   bmax.z - bmin.z <= 0.35f;
-	if (!look->rigged && panel && mount != PoolModelLook::Mount::Wall) {
+	if (!look->rigged && ((panel && mount != PoolModelLook::Mount::Wall) || bored)) {
 		assets::MeshData back;
-		const float z = bmin.z - 0.005f;
+		const float z = (bored ? kBoreCut : bmin.z) - 0.005f;
 		back.vertices.resize(4);
 		// Inset from the sides and top - a frame's back can be narrower than its
 		// bounds, and an edge of black peeked past the door frame's jamb - but
 		// not the bottom: an arch's opening runs down to the floor.
-		constexpr float kInset = 0.04f;
-		const float xs[4] = {bmin.x + kInset, bmax.x - kInset, bmax.x - kInset, bmin.x + kInset};
-		const float ys[4] = {bmin.y, bmin.y, bmax.y - kInset, bmax.y - kInset};
+		// A bore's backdrop sits 0.15 behind the face, and the preview's swing
+		// (+-0.7 rad) slides it ~0.1 sideways - so it is inset past that, on
+		// every side (a window does not reach the floor).
+		const float inset = bored ? 0.12f : 0.04f;
+		const float insetBottom = bored ? inset : 0.0f;
+		const float xs[4] = {bmin.x + inset, bmax.x - inset, bmax.x - inset, bmin.x + inset};
+		const float ys[4] = {bmin.y + insetBottom, bmin.y + insetBottom, bmax.y - inset,
+							 bmax.y - inset};
 		for (int k = 0; k < 4; ++k) {
 			back.vertices[k].position = {xs[k], ys[k], z};
 			back.vertices[k].normal = {0.0f, 0.0f, 1.0f}; // toward the room
@@ -416,6 +438,21 @@ void DungeonWorld::PoolModelLook::FitToPose(std::span<const Mat4> palette) {
 		hi = h;
 		FrameAboveFloor();
 	}
+}
+
+void DungeonWorld::PoolModelLook::AddContext(PoolModelLook&& context) {
+	for (gfx::PreviewSubmesh part : context.parts) {
+		const float s = kContextShade;
+		part.material.baseColor = {part.material.baseColor.x * s, part.material.baseColor.y * s,
+								   part.material.baseColor.z * s, part.material.baseColor.w};
+		parts.push_back(part);
+	}
+	textures.insert(textures.end(), context.textures.begin(), context.textures.end());
+	meshes.insert(meshes.end(), context.meshes.begin(), context.meshes.end());
+	lo = {std::min(lo.x, context.lo.x), std::min(lo.y, context.lo.y),
+		  std::min(lo.z, context.lo.z)};
+	hi = {std::max(hi.x, context.hi.x), std::max(hi.y, context.hi.y),
+		  std::max(hi.z, context.hi.z)};
 }
 
 void DungeonWorld::PoolModelLook::FrameAboveFloor() {

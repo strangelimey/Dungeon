@@ -310,10 +310,7 @@ void AssetPicker::PrepareModelIcons(size_t max) {
 		// tile. The baked image sidecars load, not the PNGs inside the file: a
 		// bought rig's six 2k decodes took long enough that a screenful of its
 		// tiles was still blank seconds after opening.
-		slot.look = DungeonWorld::LoadPoolModelLook(
-			m_device, paths::Asset("models\\" + a.file), SetStemFor(a.name),
-			DungeonWorld::kIconSize, idleClipFor ? idleClipFor(a.name) : std::string(),
-			MountOf(a.name));
+		slot.look = LoadLook(a.name, a.file, DungeonWorld::kIconSize);
 		if (!slot.look) {
 			log::Warn("asset picker: no icon for {} (could not load)", a.file);
 			continue;
@@ -422,9 +419,7 @@ void AssetPicker::RefreshPreview() {
 	// blank material - a bought skeleton came out as one white shoulder plate.
 	const auto it = std::ranges::find(m_items, m_selected, &AssetInfo::name);
 	const std::string file = it == m_items.end() ? m_selected + ".gltf" : it->file;
-	m_previewLook = DungeonWorld::LoadPoolModelLook(
-		m_device, paths::Asset("models\\" + file), SetStemFor(m_selected), 0,
-		idleClipFor ? idleClipFor(m_selected) : std::string(), MountOf(m_selected));
+	m_previewLook = LoadLook(m_selected, file, 0);
 	if (!m_previewLook) {
 		log::Warn("asset picker: could not load {}", file);
 		return;
@@ -448,6 +443,24 @@ void AssetPicker::RefreshPreview() {
 	// A wall feature or a backed panel: keep to its face.
 	m_previewWall = m_previewLook->backed ||
 					m_previewLook->mount == DungeonWorld::PoolModelLook::Mount::Wall;
+}
+
+std::unique_ptr<DungeonWorld::PoolModelLook> AssetPicker::LoadLook(const std::string& modelName,
+																   const std::string& file,
+																   u32 thumbPx) {
+	auto look = DungeonWorld::LoadPoolModelLook(
+		m_device, paths::Asset("models\\" + file), SetStemFor(modelName), thumbPx,
+		idleClipFor ? idleClipFor(modelName) : std::string(), MountOf(modelName));
+	if (!look || !contextFor) return look;
+	const std::string context = contextFor(modelName);
+	if (context.empty()) return look;
+	const auto it = std::ranges::find(m_items, context, &AssetInfo::name);
+	if (it == m_items.end()) return look; // the leaf / mount is not installed
+	auto ctx = DungeonWorld::LoadPoolModelLook(m_device, paths::Asset("models\\" + it->file),
+											   SetStemFor(context), thumbPx, {},
+											   MountOf(context));
+	if (ctx) look->AddContext(std::move(*ctx));
+	return look;
 }
 
 std::string AssetPicker::SetStemFor(const std::string& modelName) const {

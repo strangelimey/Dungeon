@@ -654,11 +654,28 @@ void Game::WireModuleCallbacks() {
 			if (e.Get("model", e.id) == model) return firstOf(m_project.walls);
 		for (const Catalog* cat : m_project.AllCatalogs())
 			for (const CatalogEntry& e : cat->Entries()) {
-				if (e.Get("model", e.id) == model) return e.Get("texture", e.id);
+				// A rune names no model: every rune is the shared tablet in its
+				// own set (ItemKindFor's isRune path), so the tablet shows in the
+				// first rune's.
+				const std::string drawn =
+					e.Get("model", e.Get("category", "") == "rune" ? "rune_tablet" : e.id);
+				if (drawn == model) return e.Get("texture", e.id);
 				const std::string part2 = e.Get("part2_model", "");
 				if (!part2.empty() && part2 == model) return e.Get("part2_texture", "");
+				// A fixture's bare bracket, its torch taken, wears the fixture's set.
+				if (e.Get("empty_model", "") == model) return e.Get("texture", e.id);
 			}
 		return model;
+	};
+	// A part that only makes sense ON something: a door's TRIM (its straps, its
+	// bosses) is shown on the leaf it is drawn with, an OPENER on the mount it
+	// hangs from (doors.cat). "" = it stands alone.
+	m_assetPicker.contextFor = [this](const std::string& model) {
+		for (const CatalogEntry& e : m_project.doors.Entries()) {
+			if (e.Get("trim", "") == model) return e.Get("model", e.id);
+			if (e.Find("style") && e.Get("model", e.id) == model) return e.Get("mount", "");
+		}
+		return std::string();
 	};
 	// A feature's mount, from the catalog that stamps it (a ceiling feature is
 	// left Free: its geometry rises into the vault, not behind a plane at 0).

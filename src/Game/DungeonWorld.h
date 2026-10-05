@@ -234,6 +234,12 @@ public:
 		// borrows, `idleClip` is what it plays ("" = no idle; the rest pose).
 		std::shared_ptr<const assets::ModelData> data;
 		std::string idleClip;
+		// Draws `context` - the thing this part belongs ON (a door trim's leaf,
+		// an opener's mount) - with it, every context part dimmed to
+		// kContextShade so the subject stands out, and fits the view to both.
+		// A door's iron straps or bronze bosses alone were scattered specks.
+		void AddContext(PoolModelLook&& context);
+		static constexpr float kContextShade = 0.45f;
 		// Re-measures lo/hi with the parts posed by `palette` (CPU skinning, the
 		// shader's sum), so a view fits the pose it shows rather than the
 		// T-pose's outstretched arms.
@@ -315,9 +321,18 @@ public:
 			const float footprint = std::max(hi.x - lo.x, hi.z - lo.z);
 			return !cutAway && -lo.y > 0.25f * footprint;
 		}
+		// A PLATE: flat, and broad on BOTH horizontal axes (a grate, a slab
+		// lying down) - edge-on at an ordinary tilt it is a line, so it is seen
+		// three-quarter from above like a floor feature. A blade is flat but
+		// long on one axis only, and keeps the ordinary view.
+		bool Plate() const {
+			const float longest = std::max({hi.x - lo.x, hi.y - lo.y, hi.z - lo.z});
+			return Flat() && std::min(hi.x - lo.x, hi.z - lo.z) >= 0.5f * longest;
+		}
 		float ViewTilt(float ordinary) const {
 			if (mount == Mount::Floor) return Well() ? kFromAboveTilt : kFloorFeatureTilt;
 			if (sinks) return kFromAboveTilt;
+			if (Plate() && mount == Mount::Free) return kFloorFeatureTilt;
 			if (mount == Mount::CeilingWell) return -kFromAboveTilt; // straight up it
 			if (mount == Mount::Ceiling) return -kFromBelowTilt;
 			return ordinary;
