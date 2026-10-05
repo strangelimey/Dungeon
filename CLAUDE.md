@@ -1705,7 +1705,9 @@ first such item) is shown FILLED, glass cleared, as play draws it - through the
 same `DungeonWorld::BuildLiquid` / `ClearGlassForLiquid` that `AddLiquid` uses.
 A fixture ON a wall (fixtures.cat `mount = wall`: its model and `empty_model`;
 `Mount::WallFixture`) tiles from the side (`ViewYaw` -> `kSideYaw`, 1.2 rad), so
-what sticks out of the wall - the bracket's ring - shows in profile. An opener's `mount` wears the opener's set. Survey all
+what sticks out of the wall - the bracket's ring - shows in profile; its TILE
+frames at most 2.5x its widest horizontal extent, centred on that projecting part
+(`FrameWallFixture`, `projectY`), so the 4.3:1 bracket is 1.7x bigger. An opener's `mount` wears the opener's set. Survey all
 89 tiles when changing any of this: open the picker on every eighth model.
 A surface or wall feature has no set of its own, so it is shown in the project's
 first floor / ceiling / wall type, what it wears in a level. A feature's INSIDE

@@ -467,6 +467,7 @@ std::unique_ptr<DungeonWorld::PoolModelLook> AssetPicker::LoadLook(const std::st
 		}
 	}
 	if (slender) look->FrameSlenderTop();
+	if (thumbPx > 0) look->FrameWallFixture(); // tiles only, like the slender crop
 	return look;
 }
 

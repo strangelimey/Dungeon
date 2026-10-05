@@ -363,6 +363,21 @@ public:
 		// matters sticking OUT of it - the bracket's ring - which near face-on
 		// foreshortens into a loop on a strap; kSideYaw shows it in profile.
 		static constexpr float kSideYaw = 1.2f;
+		// A wall fixture's TILE frames at most kFixtureFrame times its widest
+		// horizontal extent, centred on `projectY` - the mean height of what
+		// sticks out of the wall (its outer half in z), measured by the loader.
+		// The bare bracket is a strap 4.3x taller than wide: fitted whole it was
+		// a sliver; framed on its ring it is 1.7x bigger and only the strap's
+		// plain ends run off. The sconce (2.0) is under the cap and unchanged.
+		static constexpr float kFixtureFrame = 2.5f;
+		float projectY = 0.0f;
+		void FrameWallFixture() {
+			if (mount != Mount::WallFixture) return;
+			const float span = kFixtureFrame * std::max(hi.x - lo.x, hi.z - lo.z);
+			if (hi.y - lo.y <= span) return;
+			lo.y = std::max(lo.y, projectY - 0.5f * span);
+			hi.y = lo.y + span;
+		}
 		float ViewYaw(float ordinary) const {
 			return mount == Mount::WallFixture ? kSideYaw : ordinary;
 		}

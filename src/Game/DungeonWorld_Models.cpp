@@ -188,6 +188,28 @@ std::unique_ptr<DungeonWorld::PoolModelLook> DungeonWorld::LoadPoolModelLook(
 	}
 	// The CPU copy, wherever it now lives (a rig's moved into the look).
 	const assets::ModelData& source = look->data ? *look->data : *data;
+	// A wall fixture: where its projecting part is (FrameWallFixture) - the mean
+	// height of the vertices in its outer half from the wall face (z = 0).
+	if (mount == PoolModelLook::Mount::WallFixture) {
+		const float outer = 0.5f * multi->boundsMax.z;
+		double sum = 0.0;
+		size_t n = 0;
+		for (const assets::MeshData& mesh : source.meshes) {
+			const XMMATRIX node = XMLoadFloat4x4(&mesh.worldTransform);
+			for (const assets::Vertex& v : mesh.vertices) {
+				XMFLOAT3 p;
+				XMStoreFloat3(&p, XMVector3Transform(
+									  XMVectorSet(v.position.x, v.position.y, v.position.z, 1.0f),
+									  node));
+				if (p.z >= outer) {
+					sum += p.y;
+					++n;
+				}
+			}
+		}
+		look->projectY = n ? static_cast<float>(sum / static_cast<double>(n))
+						   : 0.5f * (look->lo.y + look->hi.y);
+	}
 
 	// Which material wins, by the world's own split: a single-primitive .gltf is
 	// drawn by its catalog set (MonsterKindFor takes the multi-material path only
