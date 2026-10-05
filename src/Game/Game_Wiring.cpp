@@ -669,6 +669,13 @@ void Game::WireModuleCallbacks() {
 			}
 		return model;
 	};
+	// The first item (items / weapons / armor, catalog order) drawn with this
+	// model that fills it with a liquid.
+	m_assetPicker.liquidFor = [this](const std::string& model) -> const CatalogEntry* {
+		for (const CatalogEntry* e : m_project.AllItems())
+			if (e->Get("model", e->id) == model && e->Find("liquid_color")) return e;
+		return nullptr;
+	};
 	// A part that only makes sense ON something: a door's TRIM (its straps, its
 	// bosses) is shown on the leaf it is drawn with, an OPENER on the mount it
 	// hangs from (doors.cat). "" = it stands alone.

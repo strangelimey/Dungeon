@@ -1154,10 +1154,10 @@ static assets::MeshData BakeNodeTransform(const assets::MeshData& mesh) {
 // `liquid_fill` is how full, 0..1 of the cavity's height.
 static constexpr float kFilledGlassDensity = 0.08f;   // clear glass round a liquid
 static constexpr float kFilledGlassRoughness = 0.08f;
-void DungeonWorld::AddLiquid(ItemKind& kind, const CatalogEntry& def,
-							 const std::string& modelFile) {
+bool DungeonWorld::BuildLiquid(gfx::GraphicsDevice& device, const assets::ModelData& file,
+								const CatalogEntry& def, LiquidPart& out) {
 	Vec4 color;
-	if (!kind.model || !CatalogColor(&def, "liquid_color", color)) return;
+	if (!CatalogColor(&def, "liquid_color", color)) return false;
 	// Three numbers = a colour with no density given: a potion is nearly opaque
 	// with its colour (CatalogColor would have made it fully opaque).
 	const std::string spec = def.Get("liquid_color", "");
@@ -1169,43 +1169,58 @@ void DungeonWorld::AddLiquid(ItemKind& kind, const CatalogEntry& def,
 		inNumber = !sep;
 	}
 	if (numbers < 4) color.w = 0.85f;
-	const auto file = ModelFile(modelFile);
-	if (!file) return;
 	const assets::MeshData* glass = nullptr;
-	for (const assets::MeshData& m : file->meshes)
-		if (m.material >= 0 && m.material < static_cast<int>(file->materials.size()) &&
-			file->materials[static_cast<size_t>(m.material)].blend) {
+	for (const assets::MeshData& m : file.meshes)
+		if (m.material >= 0 && m.material < static_cast<int>(file.materials.size()) &&
+			file.materials[static_cast<size_t>(m.material)].blend) {
 			glass = &m;
 			break;
 		}
-	if (!glass) {
-		log::Warn("[{}]: liquid_color, but {} has no see-through part to hold it",
+	if (!glass) return false;
+	const liquid::Shell shell = liquid::Build(BakeNodeTransform(*glass));
+	if (shell.mesh.indices.empty()) return false;
+	out.mesh = std::make_shared<gfx::Mesh>(device, shell.mesh);
+	out.material = {};
+	out.material.transparent = true;
+	out.material.liquid = true;
+	out.material.doubleSided = false;
+	out.material.baseColor = color;   // RGB the tint, alpha the density
+	out.material.metallic = 0.0f;
+	out.material.roughness = 0.15f;   // a wet surface: a tight highlight
+	out.material.liquidLevel = liquid::Level(shell, def.GetFloat("liquid_fill", 0.6f));
+	out.fromInnerWall = shell.fromInnerWall;
+	return true;
+}
+
+// A FILLED bottle's glass goes clear. The frosting (tools/BuildPotion.py) is
+// there so EMPTY glass reads on a dark floor (Michael's pick); in front of a
+// liquid it scatters a white veil over it - under the icon rig's bright lights
+// a healing potion came out pink - and the liquid gives the bottle all the
+// presence it needs.
+void DungeonWorld::ClearGlassForLiquid(gfx::MaterialParams& glass) {
+	if (!glass.transparent) return;
+	glass.baseColor.w = std::min(glass.baseColor.w, kFilledGlassDensity);
+	glass.roughness = std::min(glass.roughness, kFilledGlassRoughness);
+}
+
+void DungeonWorld::AddLiquid(ItemKind& kind, const CatalogEntry& def,
+							 const std::string& modelFile) {
+	if (!kind.model || !def.Find("liquid_color")) return;
+	const auto file = ModelFile(modelFile);
+	if (!file) return;
+	LiquidPart part;
+	if (!BuildLiquid(m_device, *file, def, part)) {
+		log::Warn("[{}]: liquid_color does not parse, or {} has no see-through part "
+				  "to hold it",
 				  kind.id, modelFile);
 		return;
 	}
-	const liquid::Shell shell = liquid::Build(BakeNodeTransform(*glass));
-	if (shell.mesh.indices.empty()) return;
+	for (MultiMaterialModel::Sub& s : kind.model->subs) ClearGlassForLiquid(s.material);
 	MultiMaterialModel::Sub sub;
-	sub.mesh = std::make_shared<gfx::Mesh>(m_device, shell.mesh);
-	sub.material.transparent = true;
-	sub.material.liquid = true;
-	sub.material.doubleSided = false;
-	sub.material.baseColor = color;   // RGB the tint, alpha the density
-	sub.material.metallic = 0.0f;
-	sub.material.roughness = 0.15f;   // a wet surface: a tight highlight
-	sub.material.liquidLevel = liquid::Level(shell, def.GetFloat("liquid_fill", 0.6f));
-	// A FILLED bottle's glass goes clear. The frosting (tools/BuildPotion.py) is
-	// there so EMPTY glass reads on a dark floor (Michael's pick); in front of a
-	// liquid it scatters a white veil over it - under the icon rig's bright
-	// lights a healing potion came out pink - and the liquid gives the bottle
-	// all the presence it needs.
-	for (MultiMaterialModel::Sub& s : kind.model->subs) {
-		if (!s.material.transparent) continue;
-		s.material.baseColor.w = std::min(s.material.baseColor.w, kFilledGlassDensity);
-		s.material.roughness = std::min(s.material.roughness, kFilledGlassRoughness);
-	}
+	sub.mesh = std::move(part.mesh);
+	sub.material = part.material;
 	kind.model->subs.push_back(std::move(sub));
-	if (!shell.fromInnerWall)
+	if (!part.fromInnerWall)
 		log::Info("[{}]: {} has no inner wall; its liquid is the glass shrunk", kind.id,
 				  modelFile);
 }

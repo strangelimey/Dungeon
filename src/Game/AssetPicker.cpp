@@ -450,7 +450,8 @@ std::unique_ptr<DungeonWorld::PoolModelLook> AssetPicker::LoadLook(const std::st
 																   u32 thumbPx) {
 	auto look = DungeonWorld::LoadPoolModelLook(
 		m_device, paths::Asset("models\\" + file), SetStemFor(modelName), thumbPx,
-		idleClipFor ? idleClipFor(modelName) : std::string(), MountOf(modelName));
+		idleClipFor ? idleClipFor(modelName) : std::string(), MountOf(modelName),
+		liquidFor ? liquidFor(modelName) : nullptr);
 	if (!look) return look;
 	// Slenderness is the SUBJECT's, measured before any context widens it.
 	const bool slender = thumbPx > 0 && look->Slender();

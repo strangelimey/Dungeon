@@ -127,6 +127,9 @@ public:
 	// The model a part belongs ON (a door trim's leaf, an opener's mount; ""
 	// = none) - shown with it, dimmed (PoolModelLook::AddContext).
 	std::function<std::string(const std::string&)> contextFor;
+	// The item that FILLS a glass model (its liquid_color; null = none) - the
+	// glass is shown filled with it, as in play.
+	std::function<const CatalogEntry*(const std::string&)> liquidFor;
 
 	// The Choose button (and a double-click on a tile): the picked name.
 	std::function<void(const std::string&)> onChoose;

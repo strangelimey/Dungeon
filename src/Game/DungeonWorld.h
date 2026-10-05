@@ -367,7 +367,8 @@ public:
 															u32 thumbPx = 0,
 															const std::string& idleHint = {},
 															PoolModelLook::Mount mount =
-																PoolModelLook::Mount::Free);
+																PoolModelLook::Mount::Free,
+															const CatalogEntry* liquid = nullptr);
 	// The baked icons for already-loaded kinds, or null (not loaded / not baked
 	// yet) — the map overlay then falls back to its square markers. These never
 	// force-load a model (browse markers may name unloaded types).
@@ -3088,6 +3089,19 @@ private:
 	// items.cat `liquid_color`: generates the liquid inside the kind's glass and
 	// appends it to its model as one more part (DungeonWorld_Load.cpp).
 	void AddLiquid(ItemKind& kind, const CatalogEntry& def, const std::string& modelFile);
+	// AddLiquid's core, shared with the asset picker (LoadPoolModelLook) so a
+	// potion shows filled there exactly as in play: the liquid part generated
+	// from `file`'s see-through part with `def`'s liquid_color / liquid_fill.
+	// False when the colour is absent or the model has no glass.
+	struct LiquidPart {
+		std::shared_ptr<gfx::Mesh> mesh;
+		gfx::MaterialParams material;
+		bool fromInnerWall = true;
+	};
+	static bool BuildLiquid(gfx::GraphicsDevice& device, const assets::ModelData& file,
+							const CatalogEntry& def, LiquidPart& out);
+	// A FILLED bottle's glass goes clear (see AddLiquid).
+	static void ClearGlassForLiquid(gfx::MaterialParams& glass);
 	// Lays a RUNTIME drop (negative id) on the floor: into the slot of a
 	// runtime drop that was picked back up (it is dead - the save skips it)
 	// when there is one, else onto the end. With ReserveDropRoom's headroom, a

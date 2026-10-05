@@ -149,7 +149,8 @@ void DungeonWorld::ForgetModelFile(const std::string& file) {
 // in VRAM for the session. The picker owns the result and drops it.
 std::unique_ptr<DungeonWorld::PoolModelLook> DungeonWorld::LoadPoolModelLook(
 	gfx::GraphicsDevice& device, const std::string& modelPath, const std::string& setStem,
-	u32 thumbPx, const std::string& idleHint, PoolModelLook::Mount mount) {
+	u32 thumbPx, const std::string& idleHint, PoolModelLook::Mount mount,
+	const CatalogEntry* liquid) {
 	auto data = assets::LoadModel(modelPath, {.bakedImages = true});
 	if (!data || data->meshes.empty()) return nullptr;
 	std::unique_ptr<MultiMaterialModel> multi = BuildMultiMaterialModel(device, *data);
@@ -357,6 +358,16 @@ std::unique_ptr<DungeonWorld::PoolModelLook> DungeonWorld::LoadPoolModelLook(
 		}
 		look->meshes.push_back(sub.mesh);
 		look->parts.push_back({sub.mesh.get(), sub.material});
+	}
+
+	// A GLASS some item fills (items.cat liquid_color): shown filled, as every
+	// place in play draws it (AddLiquid's core). Empty, the vial's frosted glass
+	// was a pale tube on the tile's light halo.
+	LiquidPart fill;
+	if (liquid && BuildLiquid(device, source, *liquid, fill)) {
+		for (gfx::PreviewSubmesh& part : look->parts) ClearGlassForLiquid(part.material);
+		look->meshes.push_back(fill.mesh);
+		look->parts.push_back({fill.mesh.get(), fill.material});
 	}
 
 	// THE DARK BEYOND. A wall-sized panel (a square wide and tall, a fraction
