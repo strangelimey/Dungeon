@@ -259,6 +259,21 @@ static Mat4 ThrownItemWorld(const Vec3& bmin, const Vec3& bmax, float scale, con
 	return w;
 }
 
+// The rig root's rest XZ is moved onto the origin FIRST, so the model stands on
+// visualPos and turns about its own body rather than about wherever its file
+// put the origin (MonsterKind::rigRest). Height is left alone: the bake grounds
+// the feet on y = 0.
+Mat4 DungeonWorld::MonsterModelWorld(const Monster& monster) {
+	const MonsterKind& kind = *monster.kind;
+	const Vec3& pos = monster.visualPos;
+	Mat4 w;
+	XMStoreFloat4x4(&w, XMMatrixTranslation(-kind.rigRest.x, 0.0f, -kind.rigRest.z) *
+							UnitScale(kind.modelScale) *
+							XMMatrixRotationY(monster.yaw + kind.modelYaw) *
+							XMMatrixTranslation(pos.x, 0.0f, pos.z));
+	return w;
+}
+
 void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 									  const ViewCull* cull) {
 	// A discrete mesh draws only if its bounding sphere passes the cull (camera
@@ -547,10 +562,7 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 		const MonsterKind& kind = *monster.kind;
 		const Vec3 pos = monster.visualPos; // glides between cells while chasing
 		if (!visible({pos.x, 0.4f * kUnit, pos.z}, 0.65f * kUnit)) continue;
-		Mat4 world;
-		XMStoreFloat4x4(&world, UnitScale(kind.modelScale) *
-									XMMatrixRotationY(monster.yaw + kind.modelYaw) *
-									XMMatrixTranslation(pos.x, 0, pos.z));
+		const Mat4 world = MonsterModelWorld(monster);
 		if (kind.multi) {
 			// Authored multi-material rig: every primitive with its own glTF
 			// material (bones/armor/weapons), all skinned by the same palette.

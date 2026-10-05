@@ -2028,6 +2028,18 @@ private:
 		// uniform visual scale about the model's foot. Both default to no-op.
 		float modelYaw = 0.0f;
 		float modelScale = 1.0f;
+		// The rig's ROOT joint (-1 = no skeleton) and where it stands at rest, in
+		// model units. A model is drawn CENTRED on that joint's rest XZ (see
+		// MonsterModelWorld), because a bought Mixamo rig need not be centred on
+		// its file's origin: the four skeleton-kit models stand ~(0.34, 0.43) off
+		// it, so they were drawn half a unit beside their own square - and turned
+		// round it with the facing - while everything placed AT the monster (its
+		// burn plume and glow, hits, lanes) stayed on the square. The baker rigs
+		// and the bought creatures root on the origin already, so for them this
+		// is a no-op. The plume also rides the root joint's LIVE pose
+		// (BurnOrigin), so it follows the body through a lunge or a fall.
+		int rigRoot = -1;
+		Vec3 rigRest{};
 		// Sub-cell occupancy (monsters.cat `size=`, default large). Decides the
 		// monster's footprint + how many share a cell — see Game/SlotGrid.h.
 		SizeClass size = SizeClass::Large;
@@ -3317,9 +3329,14 @@ private:
 	// (they are nearly always one, and threat is a coarse signal — the point
 	// is that a hit-and-run torch keeps the grudge alive).
 	static int DotSource(const std::vector<fx::Inst>& effects);
-	// Where a burning body's flames rise from (torso height above visualPos):
-	// the per-frame plume origin and the glow agree because both ask here.
+	// Where a burning body's flames rise from (torso height above visualPos,
+	// moved with the rig's root joint as the body animates): the per-frame
+	// plume origin and the glow agree because both ask here.
 	static Vec3 BurnOrigin(const Monster& monster);
+	// A monster's model space -> world: centred on its rig root (MonsterKind::
+	// rigRest), scaled, faced, stood on visualPos. The ONE statement of where a
+	// monster's model is, for the draw and for anything attached to the body.
+	static Mat4 MonsterModelWorld(const Monster& monster);
 	// How the flames READ per school — the FireEffect palette is authored
 	// orange, so fire burns untinted and the other three recolour it (a water
 	// burn is the freezing kind: the plume runs cold blue).

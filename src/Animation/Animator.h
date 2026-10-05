@@ -47,6 +47,13 @@ public:
 
 	const std::vector<Mat4>& Palette() const { return m_palette; }
 	size_t JointCount() const { return m_palette.size(); }
+	// Where joint i stands in the current pose, in MODEL space (the rest pose
+	// until the first Update). Lets a host attach something to the body - a
+	// burning monster's plume rides its root joint.
+	Vec3 JointPosition(size_t i) const {
+		const Mat4& g = m_globals[i];
+		return {g._41, g._42, g._43};
+	}
 
 private:
 	// Samples `clip` (null = rest pose) at `time` into the given local TRS

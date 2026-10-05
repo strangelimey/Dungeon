@@ -610,6 +610,21 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 		assets->model = ModelFile(model + ".gltf"); // shared by every kind on the file
 		assets->name = type; // catalog id — drives the monster.<id> loc key
 		assets->mesh = ModelMesh(model + ".gltf");
+		// The rig's root joint and its rest position: the model is drawn centred
+		// on it (MonsterModelWorld) and a burn rides it (BurnOrigin). Joints are
+		// sorted parent-first, so the first parentless one is THE root; it has
+		// no parent, so its local rest translation is already model space.
+		for (size_t j = 0; j < assets->model->skeleton.joints.size(); ++j) {
+			const assets::JointData& joint = assets->model->skeleton.joints[j];
+			if (joint.parent >= 0) continue;
+			assets->rigRoot = static_cast<int>(j);
+			assets->rigRest = joint.restTranslation;
+			break;
+		}
+		if (std::abs(assets->rigRest.x) > 0.05f || std::abs(assets->rigRest.z) > 0.05f)
+			log::Info("monster model {}: rig root rests at ({:.3f}, {:.3f}) units off the "
+					  "origin - drawn centred on it",
+					  model, assets->rigRest.x, assets->rigRest.z);
 		// A bound PBR set serves the single-mesh path; an authored
 		// multi-material rig carries its textures EMBEDDED and its entry
 		// usually names no set — don't warn-hunt one by the id (the skeleton

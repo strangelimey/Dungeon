@@ -697,7 +697,12 @@ buffer, reused across all ~25 submissions).
   constant 2.000 and five bought skeletons baked in metre space, 4.8 m tall in a
   2.5 m room. Any whole-scene measurement in a Blender tool needs the scene
   purged BY HAND first (read_factory_settings clears the startup file, not an
-  importer's leftovers).
+  importer's leftovers). The bake grounds but does NOT centre XZ: the four
+  skeleton-kit rigs rest ~(0.34, 0.43) units off their origin. The GAME centres
+  every monster model on its rig root's rest XZ at draw time
+  (`DungeonWorld::MonsterModelWorld`, `MonsterKind::rigRest`; a load logs any
+  rig resting > 0.05 off), and a burn plume rides that root joint's live pose
+  (`BurnOrigin`) - so a new draw of a monster model goes through that helper.
   Paste the emitted rows into the creature's monsters.cat [id] — or just check
   the boxes in the editor's monster config dialog (it auto-discovers the model's
   clips). Humanoid Mixamo defaults (mesh +90 yaw to co-face the armature, finger

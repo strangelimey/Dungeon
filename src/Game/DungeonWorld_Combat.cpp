@@ -1255,10 +1255,28 @@ const Vec3* DungeonWorld::FlameTintOf(const ItemKind& kind) {
 }
 
 // The flame origin on a burning body: a third of a square up, so the plume
-// rises off the torso rather than the feet (UNITS, like every other length).
+// rises off the torso rather than the feet (UNITS, like every other length),
+// carried by however far the rig's root joint has travelled from its rest pose
+// - so it stays on the body through a lunge, a stagger or a fall, and walks
+// with the body when a clip carries it forward. At rest the delta is zero and
+// this is the plain point over visualPos, where the (centred) model stands.
 Vec3 DungeonWorld::BurnOrigin(const Monster& monster) {
-	return {monster.visualPos.x, monster.visualPos.y + 0.34f * kUnit,
-			monster.visualPos.z};
+	Vec3 o{monster.visualPos.x, monster.visualPos.y + 0.34f * kUnit, monster.visualPos.z};
+	const MonsterKind& kind = *monster.kind;
+	if (kind.rigRoot >= 0 &&
+		static_cast<size_t>(kind.rigRoot) < monster.animator.JointCount()) {
+		const Vec3 now = monster.animator.JointPosition(static_cast<size_t>(kind.rigRoot));
+		// The travel through the model's own scale and facing (a direction, so
+		// the transform's translation drops out).
+		const Mat4 world = MonsterModelWorld(monster);
+		Vec3 d;
+		XMStoreFloat3(&d, XMVector3TransformNormal(
+							  XMVectorSet(now.x - kind.rigRest.x, now.y - kind.rigRest.y,
+										  now.z - kind.rigRest.z, 0.0f),
+							  XMLoadFloat4x4(&world)));
+		o = {o.x + d.x, o.y + d.y, o.z + d.z};
+	}
+	return o;
 }
 
 void DungeonWorld::Extinguish(Monster& monster) {
