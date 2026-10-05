@@ -374,6 +374,8 @@ log.shield_soaks=Водяная пелена {} поглощает удар!
 log.shield_bursts=Водяная пелена {} лопается!
 log.shield_deflects=Ветер отводит снаряд от {}!
 log.shield_stills=Ветер вокруг {} стихает.
+log.sight_up={} видит сквозь камень впереди.
+log.sight_fades={}: камень снова непроницаем для взгляда.
 ; Spell display names (spells.cat ids -> spell.<id>).
 spell.flame=Язычок пламени
 spell.rock=Камешек
@@ -451,11 +453,19 @@ spell.stoneskin=Каменная кожа
 spell.fireshield=Огненный щит
 spell.waterveil=Водяная пелена
 spell.windward=Заслон ветра
+spell.embersight=Огненное зрение
+spell.farsight=Дальнее зрение
+spell.stonesight=Каменное зрение
+spell.scrying=Ясновидение
 ; Effect descriptions (sheet Effects tab; <nameKey>.desc, {} = magnitude).
 spell.stoneskin.desc=Каменная кожа — поглощает {} урона от каждого удара.
 spell.fireshield.desc=Объят пламенем — удар обжигает нападающего на {}.
 spell.waterveil.desc=Водяная пелена поглощает следующие {} урона, затем лопается.
 spell.windward.desc=Ветер отводит следующие {} снарядов.
+spell.embersight.desc=Живое тепло светится сквозь стену впереди.
+spell.farsight.desc=Взгляд уходит вдоль прохода, сквозь стену за стеной.
+spell.stonesight.desc=Камень впереди читается как книга - и всё увиденное запоминается.
+spell.scrying.desc=Открывает то, что скрыто в стене впереди.
 ; Status-effect hover label: effect name, seconds left.
 hud.effect_time={} — {} с
 ; Skill display names (docs/skills.md): the four schools + weapon classes.
@@ -696,6 +706,8 @@ sheet.skills.reserves=Резервы
 sheet.no_skills=Пока нет навыков.
 sheet.effects=Эффекты
 sheet.no_effects=Нет активных эффектов.
+sheet.spells=Известные заклинания
+sheet.no_spells=Заклинания ещё не выучены.
 sheet.effect_time={} с
 sheet.nothing_carried=Ничего нет.
 equip.head=Голова

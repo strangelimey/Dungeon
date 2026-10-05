@@ -370,6 +370,8 @@ log.shield_soaks=¡El velo de agua de {} absorbe el golpe!
 log.shield_bursts=¡El velo de agua de {} estalla!
 log.shield_deflects=¡El viento desvía el proyectil lejos de {}!
 log.shield_stills=El viento alrededor de {} se calma.
+log.sight_up=La vista de {} atraviesa la piedra que tiene delante.
+log.sight_fades=La piedra vuelve a cerrarse a la vista de {}.
 ; Spell display names (spells.cat ids -> spell.<id>).
 spell.flame=Soplo de fuego
 spell.rock=Guijarro
@@ -447,11 +449,19 @@ spell.stoneskin=Piel de piedra
 spell.fireshield=Escudo de fuego
 spell.waterveil=Velo de agua
 spell.windward=Escudo de viento
+spell.embersight=Vista de brasa
+spell.farsight=Vista lejana
+spell.stonesight=Vista de piedra
+spell.scrying=Clarividencia
 ; Effect descriptions (sheet Effects tab; <nameKey>.desc, {} = magnitude).
 spell.stoneskin.desc=Piel de piedra — absorbe {} de daño de cada golpe.
 spell.fireshield.desc=Envuelto en llamas — un golpe certero quema al atacante por {}.
 spell.waterveil.desc=Un velo de agua absorbe los próximos {} de daño y luego estalla.
 spell.windward.desc=El viento desvía los próximos {} proyectiles.
+spell.embersight.desc=Ve el calor vivo brillar a través del muro de delante.
+spell.farsight.desc=La vista recorre el pasillo, muro tras muro.
+spell.stonesight.desc=Lee la piedra de delante y recuerda lo que hay allí.
+spell.scrying.desc=Revela lo que se oculta en el muro de delante.
 ; Status-effect hover label: effect name, seconds left.
 hud.effect_time={} — {} s
 ; Skill display names (docs/skills.md): the four schools + weapon classes.
@@ -692,6 +702,8 @@ sheet.skills.reserves=Reservas
 sheet.no_skills=Aún no hay habilidades.
 sheet.effects=Efectos
 sheet.no_effects=Sin efectos activos.
+sheet.spells=Hechizos conocidos
+sheet.no_spells=Ningún hechizo aprendido todavía.
 sheet.effect_time={} s
 sheet.nothing_carried=No lleva nada.
 equip.head=Cabeza
