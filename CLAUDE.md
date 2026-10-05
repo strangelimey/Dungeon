@@ -1680,7 +1680,12 @@ floor feature, toward -z for a wall one; `PoolModelLook::Mount`, from
 the shadows the icon rig does not have: a niche lit as evenly as its wall, in the
 same brick, read as a flat panel. The 0.05 clears surface relief (cracked paving
 sinks 0.04 and went blotchy at 0.01). A wall feature's preview SWINGS across its
-face rather than spinning onto its back.
+face rather than spinning onto its back. The clean SURFACE BLOCKS (floor_block,
+wall_block, ceiling_block - no catalog draws them) are mounted by name in
+Game_Wiring's `kSurfaceBlocks` table: each wears its surface's first type and is
+seen as a player meets it - a floor from above, a wall face-on, a ceiling (and a
+ceiling feature) from below at ~50 degrees (`kFromBelowTilt`; straight up, a
+vault's curve flattens). `PoolModelLook::ViewTilt` is the one statement of that.
 RIGHT-CLICKING a palette row opens the per-TYPE catalog editor
 (TypeEditorDialog) for EVERY category — one dialog, because it renders its form
 from a SCHEMA: Game/CatalogSchema.h is a FieldSpec table per catalog (key, kind,

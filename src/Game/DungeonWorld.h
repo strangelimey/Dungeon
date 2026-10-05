@@ -264,15 +264,29 @@ public:
 		// four squares deep under its tile - the drain's is 0.17, the recess's
 		// 0.20.
 		static constexpr float kFromAboveTilt = 1.5f;
-		// What the model is stamped into, if it is a FEATURE: a floor (surface
-		// at y = 0, its hole below) or a wall (face at z = 0, its recess behind,
-		// toward -z). A feature's INSIDE - every triangle behind that plane -
-		// is split into a part of its own and drawn at kInsideShade. In play the
-		// scene's shadows and dust darken a niche's recess or a drain's throat;
-		// the icon rig has neither, so a recess lit as evenly as its wall, in the
-		// same brick, read as a flat panel. The shading stands in for them.
-		enum class Mount : u8 { Free, Floor, Wall };
+		// What the model is stamped into, if it is a FEATURE or a surface BLOCK:
+		// a floor (surface at y = 0, its hole below), a wall (face at z = 0, its
+		// recess behind, toward -z) or a ceiling (met from below). A floor or wall
+		// feature's INSIDE - every triangle behind that plane - is split into a
+		// part of its own and drawn at kInsideShade. In play the scene's shadows
+		// and dust darken a niche's recess or a drain's throat; the icon rig has
+		// neither, so a recess lit as evenly as its wall, in the same brick, read
+		// as a flat panel. The shading stands in for them.
+		enum class Mount : u8 { Free, Floor, Wall, Ceiling };
 		static constexpr float kInsideShade = 0.35f;
+		Mount mount = Mount::Free;
+		// Where a view stands: ABOVE anything in a floor (or reaching below it),
+		// BELOW anything in a ceiling - the way a player meets it - else level.
+		// The signed tilt a view tips the model's top toward the camera by:
+		// +kFromAboveTilt, -kFromBelowTilt, or the caller's ordinary one. From
+		// below is shallower (~50 degrees): a ceiling has no shaft to hide, and
+		// straight up a vault's curve flattens into a plain rhombus.
+		static constexpr float kFromBelowTilt = 0.9f;
+		float ViewTilt(float ordinary) const {
+			if (sinks || mount == Mount::Floor) return kFromAboveTilt;
+			if (mount == Mount::Ceiling) return -kFromBelowTilt;
+			return ordinary;
+		}
 	};
 	// Null when the file will not load. `thumbPx` > 0 loads the bound set's
 	// maps trimmed to that size (a tile), else at the stem's full resolution.

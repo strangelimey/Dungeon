@@ -2689,9 +2689,9 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		pvFitMax = m_assetPicker.PreviewFitMax();
 		if (m_assetPicker.PreviewStands()) pvOrient = &kUpright;
 		pvViewTilt = m_assetPicker.PreviewViewTilt();
-		// Seen from above, a square cell turns through its DIAGONAL: fit that
-		// (1/sqrt 2), or its corners leave the pane every quarter turn.
-		if (pvViewTilt > 0.0f) pvScale = 0.7f;
+		// Seen from above (or below), a square cell turns through its DIAGONAL:
+		// fit that (1/sqrt 2), or its corners leave the pane every quarter turn.
+		if (pvViewTilt != 0.0f) pvScale = 0.7f;
 		const gfx::Rect pv = m_assetPicker.PreviewRect(static_cast<float>(m_device.Width()),
 														static_cast<float>(m_device.Height()));
 		pvAspect = pv.h > 0.0f ? pv.w / pv.h : 1.0f;

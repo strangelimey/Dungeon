@@ -16,6 +16,22 @@
 #include <utility>
 
 namespace dungeon::game {
+namespace {
+// The clean SURFACE BLOCKS (AssetBaker's block family; *_block.gltf). No catalog
+// draws them, so the asset picker dresses each in the project's first type of
+// its surface and views it from where a player meets that surface.
+struct SurfaceBlock {
+	const char* model;
+	DungeonWorld::PoolModelLook::Mount mount;
+	Catalog Project::*surfaces;
+};
+constexpr SurfaceBlock kSurfaceBlocks[] = {
+	{"floor_block", DungeonWorld::PoolModelLook::Mount::Floor, &Project::floors},
+	{"wall_block", DungeonWorld::PoolModelLook::Mount::Wall, &Project::walls},
+	{"ceiling_block", DungeonWorld::PoolModelLook::Mount::Ceiling, &Project::ceilings},
+};
+} // namespace
+
 // The callbacks that live ON the world object, so they are wired each time a
 // world is built (LoadWorld) rather than once: world feedback goes to the HUD.
 void Game::WireWorldCallbacks() {
@@ -620,6 +636,8 @@ void Game::WireModuleCallbacks() {
 			return entries.empty() ? std::string()
 								   : entries.front().Get("texture", entries.front().id);
 		};
+		for (const SurfaceBlock& b : kSurfaceBlocks)
+			if (model == b.model) return firstOf(m_project.*b.surfaces);
 		for (const CatalogEntry& e : m_project.surfacefeatures.Entries())
 			if (e.Get("model", e.id) == model)
 				return firstOf(e.Get("surface", "floor") == "ceiling" ? m_project.ceilings
@@ -638,9 +656,11 @@ void Game::WireModuleCallbacks() {
 	// left Free: its geometry rises into the vault, not behind a plane at 0).
 	m_assetPicker.mountFor = [this](const std::string& model) {
 		using Mount = DungeonWorld::PoolModelLook::Mount;
+		for (const SurfaceBlock& b : kSurfaceBlocks)
+			if (model == b.model) return b.mount;
 		for (const CatalogEntry& e : m_project.surfacefeatures.Entries())
 			if (e.Get("model", e.id) == model)
-				return e.Get("surface", "floor") == "ceiling" ? Mount::Free : Mount::Floor;
+				return e.Get("surface", "floor") == "ceiling" ? Mount::Ceiling : Mount::Floor;
 		for (const CatalogEntry& e : m_project.wallfeatures.Entries())
 			if (e.Get("model", e.id) == model) return Mount::Wall;
 		return Mount::Free;

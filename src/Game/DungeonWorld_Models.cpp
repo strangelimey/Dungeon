@@ -70,6 +70,7 @@ std::unique_ptr<DungeonWorld::PoolModelLook> DungeonWorld::LoadPoolModelLook(
 	look->lo = multi->boundsMin;
 	look->hi = multi->boundsMax;
 	look->sinks = look->lo.y < -0.01f;
+	look->mount = mount;
 	look->FrameAboveFloor();
 	look->rigged = data->skeleton.RootJoint() >= 0;
 	if (look->rigged && !data->clips.empty()) {
@@ -144,8 +145,8 @@ std::unique_ptr<DungeonWorld::PoolModelLook> DungeonWorld::LoadPoolModelLook(
 		// A feature's inside drawn as its own, darker part (Mount). The split
 		// is by triangle centroid against the mounting plane, on the vertices
 		// as BuildMultiMaterialModel uploaded them (node transform baked).
-		if (mount != PoolModelLook::Mount::Free && i < source.meshes.size() &&
-			!source.meshes[i].skinned) {
+		if ((mount == PoolModelLook::Mount::Floor || mount == PoolModelLook::Mount::Wall) &&
+			i < source.meshes.size() && !source.meshes[i].skinned) {
 			assets::MeshData outside = source.meshes[i];
 			const XMMATRIX node = XMLoadFloat4x4(&outside.worldTransform);
 			for (assets::Vertex& v : outside.vertices) {
