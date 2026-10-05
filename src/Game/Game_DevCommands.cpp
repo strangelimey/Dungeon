@@ -1319,6 +1319,16 @@ void Game::RegisterDevCommands() {
 		[this](const std::vector<std::string>& args) { FontCommand(args); });
 
 	// --- render debug ---
+	m_console.Register({.name = "glass",
+						.group = CmdGroup::Rendering,
+						.params = "[status]",
+						.summary = "the transparent queue: queued, frames, peak, overflows, dropped"},
+					   [this](const std::vector<std::string>&) {
+						   const gfx::TransparentStats& s = m_renderer.Stats();
+						   m_console.Print(std::format(
+							   "glass queued={} frames={} peak={} overflows={} dropped={}",
+							   s.queued, s.frames, s.peak, s.overflows, s.dropped));
+					   });
 	m_console.Register({.name = "shadows",
 						.group = CmdGroup::Rendering,
 						.params = "[on|off]",

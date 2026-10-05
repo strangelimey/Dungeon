@@ -1,0 +1,121 @@
+; bombs.eval - the fire and poison bombs in their three sizes (transparency
+; Phase 5).
+;
+; Run:  Dungeon.exe -eval tools\EvalScripts\bombs.eval
+;
+; A MEASUREMENT, not a pass/fail. Each size is thrown down a row of sturdy
+; skeletons in the open arena; `monsters` before and after shows how far its
+; blast reached and how hard it bit, and `tally` counts the blast. What a reader
+; is looking for: the vial reaches fewer skeletons and bites less than the small
+; bottle, and the flask more than both (throw_scale 0.6 / 1 / 1.5 over the
+; blast's damage, reach and linger and the on-hit effects).
+
+logecho on
+reset
+timescale 0
+lockstep on
+seed 5
+
+echo === fire: vial / bottle / flask ===
+arena open 9 9
+heal
+tp 10 12
+face east
+spawn skel_warrior 13 12 south 50
+spawn skel_warrior 14 12 south 50
+spawn skel_warrior 15 12 south 50
+spawn skel_warrior 16 12 south 50
+spawn skel_warrior 17 12 south 50
+freeze on
+tally reset
+throw fire_flask_small
+step 6
+echo --- fire_flask_small ---
+monsters
+tally
+
+arena open 9 9
+heal
+tp 10 12
+face east
+spawn skel_warrior 13 12 south 50
+spawn skel_warrior 14 12 south 50
+spawn skel_warrior 15 12 south 50
+spawn skel_warrior 16 12 south 50
+spawn skel_warrior 17 12 south 50
+freeze on
+tally reset
+throw fire_flask
+step 6
+echo --- fire_flask ---
+monsters
+tally
+
+arena open 9 9
+heal
+tp 10 12
+face east
+spawn skel_warrior 13 12 south 50
+spawn skel_warrior 14 12 south 50
+spawn skel_warrior 15 12 south 50
+spawn skel_warrior 16 12 south 50
+spawn skel_warrior 17 12 south 50
+freeze on
+tally reset
+throw fire_flask_large
+step 6
+echo --- fire_flask_large ---
+monsters
+tally
+
+echo === poison: vial / bottle / flask ===
+arena open 9 9
+heal
+tp 10 12
+face east
+spawn skel_warrior 13 12 south 50
+spawn skel_warrior 14 12 south 50
+spawn skel_warrior 15 12 south 50
+spawn skel_warrior 16 12 south 50
+spawn skel_warrior 17 12 south 50
+freeze on
+tally reset
+throw poison_flask_small
+step 15
+echo --- poison_flask_small ---
+monsters
+tally
+
+arena open 9 9
+heal
+tp 10 12
+face east
+spawn skel_warrior 13 12 south 50
+spawn skel_warrior 14 12 south 50
+spawn skel_warrior 15 12 south 50
+spawn skel_warrior 16 12 south 50
+spawn skel_warrior 17 12 south 50
+freeze on
+tally reset
+throw poison_flask
+step 15
+echo --- poison_flask ---
+monsters
+tally
+
+arena open 9 9
+heal
+tp 10 12
+face east
+spawn skel_warrior 13 12 south 50
+spawn skel_warrior 14 12 south 50
+spawn skel_warrior 15 12 south 50
+spawn skel_warrior 16 12 south 50
+spawn skel_warrior 17 12 south 50
+freeze on
+tally reset
+throw poison_flask_large
+step 15
+echo --- poison_flask_large ---
+monsters
+tally

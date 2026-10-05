@@ -2262,6 +2262,18 @@ private:
 		// 0/0 means it feeds nobody, which is how a consume is refused.
 		float nutrition = 0.0f;
 		float hydration = 0.0f;
+		// A POTION (transparency Phase 4): what drinking it restores at once
+		// (items.cat `restore_health` / `restore_stamina` / `restore_mana`), and
+		// the effects it treats (`cures = poison 0.5, bleed`): a share of each
+		// one's bite taken away, 1 (the default) lifting it outright. Parsed at
+		// load, so a drink allocates nothing.
+		float restoreHealth = 0.0f, restoreStamina = 0.0f, restoreMana = 0.0f;
+		struct Cure {
+			std::string effect; // effects.cat id
+			float share = 1.0f; // of its magnitude removed; >= 1 removes it
+		};
+		std::vector<Cure> cures;
+		bool drinks = false; // `command` lists drink: the log says "drinks"
 		// What a consume leaves in the hand (items.cat `drink_as`): a waterskin
 		// drunk from steps down a fill level instead of being used up. Empty =
 		// the item is gone (bread is eaten).
@@ -2343,6 +2355,9 @@ private:
 		DamageType throwBlastType{}; // what its blast deals (blast_type / the spell's school)
 		bool throwBreaks = false;
 		bool isRune = false;
+		// items.cat `upright`: it STANDS on the floor as authored (a bottle) and
+		// its icon stands too, instead of being laid along its length.
+		bool upright = false;
 		// Uniform size trim (items.cat `scale`) over the model's authored unit
 		// size — the DecorationKind knob, for floor/niche draws. 1 = as authored.
 		float modelScale = 1.0f;
@@ -2611,6 +2626,7 @@ private:
 		bool authored = false;     // imported model: consistently wound -> back-cull
 		bool solidDefault = true;  // floor-standing blocks the party (passages don't)
 		float alphaCutoff = 0.0f;  // > 0: alpha-test cutout (masked set, e.g. a gate)
+		bool transparent = false;  // decorations.cat `transparent`: drawn as glass
 		// Whether the editor map draws the green facing arrow on instances of
 		// this type (catalog `facing_arrow`, default 1). Radially symmetric
 		// props — columns, pots, boulders — turn it off; the inspector's
@@ -2806,6 +2822,9 @@ private:
 	// Lazily loads (and caches) the shared behaviour for an item type, resolved
 	// through the items catalog (category=rune → symbol + element glow colour).
 	ItemKind& ItemKindFor(const std::string& type);
+	// items.cat `liquid_color`: generates the liquid inside the kind's glass and
+	// appends it to its model as one more part (DungeonWorld_Load.cpp).
+	void AddLiquid(ItemKind& kind, const CatalogEntry& def, const std::string& modelFile);
 	// Lays a RUNTIME drop (negative id) on the floor: into the slot of a
 	// runtime drop that was picked back up (it is dead - the save skips it)
 	// when there is one, else onto the end. With ReserveDropRoom's headroom, a
@@ -2825,7 +2844,7 @@ private:
 	// target; the bake list redirects the OM.
 	void BakeIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
 				  const MultiMaterialModel& model, const gfx::Texture& target,
-				  bool animated, float spin, bool torch = false);
+				  bool animated, float spin, bool torch = false, bool upright = false);
 	// The carved tablet's material for a HELD view (icon, details dialog):
 	// the rune's set, darker stone, the groove glowing in its school's colour.
 	void RuneTabletMaterial(gfx::MaterialParams& mat, const ItemKind& kind) const;

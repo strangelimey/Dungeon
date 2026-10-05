@@ -255,6 +255,23 @@ echo === 9. starving ===
 party
 supplies
 
+; --- 10. A HEALING POTION ---------------------------------------------------
+; The one route where a member HEALS at once (transparency Phase 4): a potion's
+; restore_health moves health under its own sanctioned reason, `drink`. Poisoned
+; first so there is something to heal - and the antidote is measured on the way:
+; it lifts the poison (`cured 1`), which stops the bite this section relies on
+; being the last damage before the drink.
+heal
+setsupply 0 food 100
+setsupply 0 water 100
+effect poison 0 3 20
+step 4
+echo === 10. a potion ===
+consume potion_antidote 0
+consume potion_health 0
+party
+pipeline
+
 ; --- the verdict ----------------------------------------------------------
 ; PipelineTest.ps1 reads the RESULT= line, and reads the per-route totals to
 ; confirm the suite actually ran damage rather than passing by doing nothing.

@@ -668,6 +668,14 @@ void Game::RegisterPartyCommands() {
 								   c.maxStamina, c.mana, c.maxMana, c.offenseShare,
 								   c.dead ? "  DEAD" : (c.IsAlive() ? "" : "  DOWN"),
 								   c.exhausted ? "  EXHAUSTED" : ""));
+							   // What is on them: id, raw magnitude, seconds left - so
+							   // a cure (potions.eval) can be seen to halve or lift one.
+							   if (c.effects.empty()) continue;
+							   std::string line = "      effects:";
+							   for (const fx::Inst& e : c.effects)
+								   line += std::format(" {} {:.2f}/{:.0f}s", e.Id(), e.magnitude,
+													   e.timeLeft);
+							   m_console.Print(line);
 						   }
 					   });
 
@@ -1329,11 +1337,19 @@ void Game::RegisterPartyCommands() {
 						   }
 						   const resource::Refill got =
 							   m_world->ConsumeItem(m_characters[m], args[0]);
+						   if (got.downed) {
+							   m_console.Print(std::format("{} is down and drinks nothing",
+														   m_characters[m].name));
+							   return;
+						   }
 						   m_console.Print(
 							   got.Any()
-								   ? std::format("{} consumes {}: food +{:.1f} water +{:.1f}",
-												 m_characters[m].name, args[0],
-												 got.food, got.water)
+								   ? std::format("{} consumes {}: food +{:.1f} water +{:.1f} "
+												 "health +{:.1f} stamina +{:.1f} mana +{:.1f} "
+												 "cured {}",
+												 m_characters[m].name, args[0], got.food,
+												 got.water, got.health, got.stamina, got.mana,
+												 got.cured)
 								   : std::format("{} gains nothing from {} "
 												 "(not consumable, or already full)",
 												 m_characters[m].name, args[0]));

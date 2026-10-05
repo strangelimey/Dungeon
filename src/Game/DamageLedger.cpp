@@ -12,6 +12,7 @@ const char* ReasonName(Reason reason) {
 	case Reason::Regen: return "regen";
 	case Reason::Growth: return "growth";
 	case Reason::Stabilize: return "stabilize";
+	case Reason::Drink: return "drink";
 	default: return "?";
 	}
 }

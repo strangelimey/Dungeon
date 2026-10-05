@@ -21,4 +21,7 @@
 ;   levels   space-separated level stems, in depth order. Every stem must exist
 ;            in project.ini.
 ;   tags     flavour, for later content matching (Catalog.h tags).
+;   ui_stone the material the UI is cut from here, for a player whose Material
+;            setting follows the place (assets/ui/stones; a level's `uistone`
+;            record overrides it).
 

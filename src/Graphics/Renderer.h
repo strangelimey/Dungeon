@@ -80,6 +80,30 @@ struct MaterialParams {
 	// planks) read as empty space. Uses the opaque PSO; no blending/sorting.
 	float alphaCutoff = 0.0f;
 	bool doubleSided = true;
+	// See-through (glass). The draw is QUEUED, not issued: FlushTransparent
+	// draws the queue after the opaque scene, farthest first, each entry twice
+	// (back faces, then front), with no depth write. It FILTERS what is behind
+	// it (dual-source blending): albedo x baseColor RGB is the tint (white =
+	// clear) and its alpha the density, the same at every angle; the glass adds
+	// only its specular, a little scatter and a faint sheen at grazing edges.
+	// Casts no shadow.
+	bool transparent = false;
+	// A LIQUID inside glass (Game/Liquid.h): a transparent draw clipped at the
+	// plane y = liquidLevel in the mesh's OWN space (the shader gets it in
+	// world space, so it tilts with the bottle), whose back faces seen through
+	// the cut are lit as the flat surface. FlushTransparent draws it between its
+	// container's far and near walls.
+	bool liquid = false;
+	float liquidLevel = 0.0f;
+};
+
+// What the transparent queue did, for the `glass` dev command.
+struct TransparentStats {
+	u32 queued = 0;    // draws the main scene flushed last frame
+	u32 frames = 0;    // main-scene frames that drew any glass, ever (AllocTest -Glass)
+	u32 peak = 0;      // most ever queued between two flushes
+	u32 overflows = 0; // draws past the queue's capacity, drawn at once unsorted
+	u32 dropped = 0;   // draws a pass queued and never flushed (a missing flush)
 };
 
 // Forward 3D pass: one pipeline, per-frame light constants, optional texture
@@ -107,9 +131,18 @@ public:
 	void EndShadows(ID3D12GraphicsCommandList* list);
 
 	// Draws a mesh; `palette` is empty for static meshes or the skinning
-	// palette for skinned ones.
+	// palette for skinned ones. A `transparent` material is queued instead (and
+	// skipped outright in the shadow pass) - see FlushTransparent.
 	void DrawMesh(ID3D12GraphicsCommandList* list, const Mesh& mesh, const Mat4& world,
 				  const MaterialParams& material, std::span<const Mat4> palette = {});
+
+	// Draws every transparent mesh queued since BeginScene, farthest from the
+	// camera first. EVERY pass that may draw one calls this at its end, with its
+	// own target still bound: the main scene (before the particles), the icon
+	// bakes and the model preview. A pass that forgets loses its glass - the next
+	// BeginScene drops the leftovers and counts them in Stats().dropped.
+	void FlushTransparent(ID3D12GraphicsCommandList* list);
+	const TransparentStats& Stats() const { return m_transparentStats; }
 
 	// Call when the device frame index advances (resets that frame's allocator).
 	void NewFrame(u32 frameIndex);
@@ -125,6 +158,12 @@ public:
 
 private:
 	void CreateShadowResources();
+	// Uploads the object constants (and binds the palette + textures) for one
+	// draw, then issues it with whatever PSO is bound.
+	void IssueDraw(ID3D12GraphicsCommandList* list, const Mesh& mesh, const Mat4& world,
+				   const MaterialParams& material, D3D12_GPU_VIRTUAL_ADDRESS paletteVa);
+	// The skinning palette's GPU address this frame (uploaded once, cached).
+	D3D12_GPU_VIRTUAL_ADDRESS UploadPalette(std::span<const Mat4> palette);
 
 	GraphicsDevice& m_device;
 	ComPtr<ID3D12RootSignature> m_rootSignature;
@@ -133,6 +172,9 @@ private:
 	// Same pair targeting kSceneColorFormat (the PostProcess HDR intermediate).
 	ComPtr<ID3D12PipelineState> m_psoHdr;
 	ComPtr<ID3D12PipelineState> m_psoCullHdr;
+	// Transparent: premultiplied blend, depth test without write. [hdr][cull]
+	// where cull 0 = front faces culled (draws the BACK faces), 1 = back culled.
+	ComPtr<ID3D12PipelineState> m_psoGlass[2][2];
 	ComPtr<ID3D12PipelineState> m_shadowPso;
 	std::unique_ptr<UploadAllocator> m_frameAllocators[kFrameCount];
 	std::unique_ptr<Texture> m_whiteTexture;
@@ -149,6 +191,23 @@ private:
 	// reserve in NewFrame, not a limit — every monster on screen at once, with room.
 	static constexpr size_t kPaletteCacheReserve = 64;
 	std::vector<std::pair<const void*, D3D12_GPU_VIRTUAL_ADDRESS>> m_paletteCache;
+
+	// The transparent queue: FIXED capacity, reserved in the constructor, so
+	// queueing and sorting allocate nothing (std::sort on it does not either).
+	// The palette rides as its uploaded GPU address, not a span - an icon bake's
+	// rest-pose animator is a temporary that is gone by the flush.
+	struct QueuedDraw {
+		const Mesh* mesh = nullptr;
+		Mat4 world;
+		MaterialParams material;
+		D3D12_GPU_VIRTUAL_ADDRESS paletteVa = 0;
+		float distance = 0.0f; // squared, camera to the draw's origin
+	};
+	static constexpr size_t kTransparentCapacity = 256;
+	std::vector<QueuedDraw> m_transparent;     // capacity kTransparentCapacity, never grown
+	std::vector<u16> m_transparentOrder;       // sort scratch, same capacity
+	Vec3 m_cameraPos{};                        // the current pass's eye, for the sort
+	TransparentStats m_transparentStats;
 
 	// Shadow cube targets (R16_FLOAT distance) + shared per-slot depth.
 	ComPtr<ID3D12Resource> m_shadowCube[kShadowSlots];

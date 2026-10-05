@@ -360,6 +360,13 @@ resource::Refill DungeonWorld::ConsumeItem(Character& member,
 										   const std::string& typeId) {
 	resource::Refill got;
 	const ItemKind& kind = ItemKindFor(typeId);
+	got.drink = kind.drinks;
+	// The unconscious drink nothing (Michael: a potion does not wake them - a
+	// later spell or item will). Refused before anything moves.
+	if (member.health <= 0.0f) {
+		got.downed = true;
+		return got;
+	}
 	const resource::SupplyRules foodRules = m_balance.SupplyOf(resource::Supply::Food);
 	const resource::SupplyRules waterRules = m_balance.SupplyOf(resource::Supply::Water);
 	// What it RESTORED, not what it was worth: a full member gains nothing from
@@ -370,6 +377,42 @@ resource::Refill DungeonWorld::ConsumeItem(Character& member,
 	member.water = std::clamp(member.water + kind.hydration, 0.0f, waterRules.max);
 	got.food = member.food - beforeFood;
 	got.water = member.water - beforeWater;
+	// A POTION (transparency Phase 4). Health moves through the ledger under its
+	// own sanctioned reason - a heal is not damage and does not go through
+	// fx::Deal, so it declares itself like regeneration does.
+	if (kind.restoreHealth > 0.0f) {
+		const ledger::Explained accounted{m_damageLedger, member.health, ledger::Reason::Drink};
+		const float before = member.health;
+		member.health = std::min(member.health + kind.restoreHealth, member.maxHealth);
+		got.health = member.health - before;
+	}
+	if (kind.restoreStamina > 0.0f) {
+		const float before = member.stamina;
+		member.stamina = std::min(member.stamina + kind.restoreStamina, member.maxStamina);
+		got.stamina = member.stamina - before;
+	}
+	if (kind.restoreMana > 0.0f) {
+		const float before = member.mana;
+		member.mana = std::min(member.mana + kind.restoreMana, member.maxMana);
+		got.mana = member.mana - before;
+	}
+	// A cure takes its share off each matching effect's bite; a whole share (or
+	// a bite weakened to nothing) lifts it. Erasing from the reserved list frees
+	// nothing and allocates nothing.
+	for (const ItemKind::Cure& cure : kind.cures) {
+		for (auto it = member.effects.begin(); it != member.effects.end();) {
+			if (!it->Is(cure.effect)) {
+				++it;
+				continue;
+			}
+			++got.cured;
+			it->magnitude *= std::max(0.0f, 1.0f - cure.share);
+			if (cure.share >= 1.0f || it->magnitude <= 1e-4f)
+				it = member.effects.erase(it);
+			else
+				++it;
+		}
+	}
 	// The starving/parched effects are NOT cleared here — TickSupplies sees the
 	// refilled meter next frame and lifts them, with their relief lines, from
 	// the one place that owns that transition.

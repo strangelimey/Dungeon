@@ -14,6 +14,7 @@
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
 #include "Game/DungeonMeshBuilder.h"
+#include "Game/Liquid.h"
 
 #include <algorithm>
 #include <cctype>
@@ -996,6 +997,12 @@ bool DungeonWorld::ItemDetailsFor(const std::string& type, ItemDetails& out) {
 	}
 	out.nutrition = k.nutrition;
 	out.hydration = k.hydration;
+	out.restoreHealth = k.restoreHealth;
+	out.restoreStamina = k.restoreStamina;
+	out.restoreMana = k.restoreMana;
+	for (const ItemKind::Cure& cure : k.cures)
+		if (out.cureCount < out.cures.size())
+			out.cures[out.cureCount++] = {cure.effect, cure.share};
 	out.burning = ItemFlameHead(type, out.flameHead);
 	out.flameTinted = ItemFlameTint(type, out.flameTint);
 	return true;
@@ -1082,6 +1089,89 @@ void DungeonWorld::LoadMonsters() {
 	}
 }
 
+// A glTF mesh with its node transform baked into the vertices, which is the
+// space a MultiMaterialModel's parts live in (BuildMultiMaterialModel does the
+// same for each part it uploads).
+static assets::MeshData BakeNodeTransform(const assets::MeshData& mesh) {
+	assets::MeshData baked = mesh;
+	const XMMATRIX node = XMLoadFloat4x4(&mesh.worldTransform);
+	for (assets::Vertex& v : baked.vertices) {
+		XMFLOAT3 pf, nf;
+		XMStoreFloat3(&pf, XMVector3Transform(
+							   XMVectorSet(v.position.x, v.position.y, v.position.z, 1.0f), node));
+		XMStoreFloat3(&nf, XMVector3Normalize(XMVector3TransformNormal(
+							   XMVectorSet(v.normal.x, v.normal.y, v.normal.z, 0.0f), node)));
+		v.position = {pf.x, pf.y, pf.z};
+		v.normal = {nf.x, nf.y, nf.z};
+	}
+	baked.worldTransform = Mat4Identity();
+	return baked;
+}
+
+// items.cat `liquid_color` (r, g, b[, density]) on an item whose model has a
+// see-through part: the liquid inside it, generated from that glass
+// (Game/Liquid.h) and appended to the kind's own copy of the model as one more
+// part, so every place that draws the item - the floor, a niche, in flight, the
+// icon, the details dialog - draws its contents with no code of its own.
+// `liquid_fill` is how full, 0..1 of the cavity's height.
+static constexpr float kFilledGlassDensity = 0.08f;   // clear glass round a liquid
+static constexpr float kFilledGlassRoughness = 0.08f;
+void DungeonWorld::AddLiquid(ItemKind& kind, const CatalogEntry& def,
+							 const std::string& modelFile) {
+	Vec4 color;
+	if (!kind.model || !CatalogColor(&def, "liquid_color", color)) return;
+	// Three numbers = a colour with no density given: a potion is nearly opaque
+	// with its colour (CatalogColor would have made it fully opaque).
+	const std::string spec = def.Get("liquid_color", "");
+	int numbers = 0;
+	bool inNumber = false;
+	for (const char ch : spec) {
+		const bool sep = std::isspace(static_cast<unsigned char>(ch)) || ch == ',';
+		if (!sep && !inNumber) ++numbers;
+		inNumber = !sep;
+	}
+	if (numbers < 4) color.w = 0.85f;
+	const auto file = ModelFile(modelFile);
+	if (!file) return;
+	const assets::MeshData* glass = nullptr;
+	for (const assets::MeshData& m : file->meshes)
+		if (m.material >= 0 && m.material < static_cast<int>(file->materials.size()) &&
+			file->materials[static_cast<size_t>(m.material)].blend) {
+			glass = &m;
+			break;
+		}
+	if (!glass) {
+		log::Warn("[{}]: liquid_color, but {} has no see-through part to hold it",
+				  kind.id, modelFile);
+		return;
+	}
+	const liquid::Shell shell = liquid::Build(BakeNodeTransform(*glass));
+	if (shell.mesh.indices.empty()) return;
+	MultiMaterialModel::Sub sub;
+	sub.mesh = std::make_shared<gfx::Mesh>(m_device, shell.mesh);
+	sub.material.transparent = true;
+	sub.material.liquid = true;
+	sub.material.doubleSided = false;
+	sub.material.baseColor = color;   // RGB the tint, alpha the density
+	sub.material.metallic = 0.0f;
+	sub.material.roughness = 0.15f;   // a wet surface: a tight highlight
+	sub.material.liquidLevel = liquid::Level(shell, def.GetFloat("liquid_fill", 0.6f));
+	// A FILLED bottle's glass goes clear. The frosting (tools/BuildPotion.py) is
+	// there so EMPTY glass reads on a dark floor (Michael's pick); in front of a
+	// liquid it scatters a white veil over it - under the icon rig's bright
+	// lights a healing potion came out pink - and the liquid gives the bottle
+	// all the presence it needs.
+	for (MultiMaterialModel::Sub& s : kind.model->subs) {
+		if (!s.material.transparent) continue;
+		s.material.baseColor.w = std::min(s.material.baseColor.w, kFilledGlassDensity);
+		s.material.roughness = std::min(s.material.roughness, kFilledGlassRoughness);
+	}
+	kind.model->subs.push_back(std::move(sub));
+	if (!shell.fromInnerWall)
+		log::Info("[{}]: {} has no inner wall; its liquid is the glass shrunk", kind.id,
+				  modelFile);
+}
+
 DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 	auto it = m_itemKinds.find(type);
 	if (it == m_itemKinds.end()) {
@@ -1115,6 +1205,30 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		kind->nutrition = def ? def->GetFloat("nutrition", 0.0f) : 0.0f;
 		kind->hydration = def ? def->GetFloat("hydration", 0.0f) : 0.0f;
 		kind->drinkAs = CatalogGet(def, "drink_as", "");
+		// A potion (transparency Phase 4): restored at once, and the effects it
+		// treats - `cures = poison 0.5, bleed`, each an effects.cat id and the
+		// share of its bite taken away (absent = 1, lifted outright).
+		kind->restoreHealth = def ? def->GetFloat("restore_health", 0.0f) : 0.0f;
+		kind->restoreStamina = def ? def->GetFloat("restore_stamina", 0.0f) : 0.0f;
+		kind->restoreMana = def ? def->GetFloat("restore_mana", 0.0f) : 0.0f;
+		{
+			const std::string spec = CatalogGet(def, "cures", "");
+			size_t start = 0;
+			while (start < spec.size()) {
+				size_t comma = spec.find(',', start);
+				if (comma == std::string::npos) comma = spec.size();
+				const std::vector<std::string> words =
+					SplitTokens(spec.substr(start, comma - start));
+				start = comma + 1;
+				if (words.empty()) continue;
+				ItemKind::Cure cure{words[0], 1.0f};
+				if (words.size() > 1) cure.share = std::strtof(words[1].c_str(), nullptr);
+				if (!m_effects.Find(cure.effect))
+					log::Warn("items.cat [{}]: cures '{}', which is not an effect", type,
+							  cure.effect);
+				kind->cures.push_back(std::move(cure));
+			}
+		}
 		// Light: a torch, lit or not, and what it becomes.
 		kind->burnTime = def ? def->GetFloat("burn_time", 0.0f) : 0.0f;
 		// A magical torch lasts (1 + power_level) times its authored burn. Folded
@@ -1183,6 +1297,8 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		// the hand right-click menu offers; runes implicitly gain "memorize" below.
 		for (const std::string& cmd : SplitTokens(CatalogGet(def, "command", "")))
 			kind->commands.push_back(cmd);
+		kind->drinks = std::find(kind->commands.begin(), kind->commands.end(), "drink") !=
+					   kind->commands.end();
 		// THROWING (ui-updates Phase 10; DungeonWorld_Throw.cpp). Any item can be
 		// thrown. `throw` names the ATTACK it flies as (attacks.cat - its type and
 		// numbers): absent = a weapon's first command, else `throw` (bash). What it
@@ -1191,6 +1307,7 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		// = it shatters where it stops instead of landing.
 		kind->throwAttack = CatalogGet(def, "throw", "");
 		kind->throwBreaks = CatalogBool(def, "throw_breaks", false);
+		kind->upright = CatalogBool(def, "upright", false);
 		kind->throwPayload = PackPayload(kind->onHit, "[" + type + "]");
 		if (kind->enchanted) kind->throwPayload.flavour = kind->element;
 		// An area BLAST of its own, authored as a spell's is (blast_force ...,
@@ -1209,6 +1326,21 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 				log::Warn("[{}]: throw_spell '{}' is not a spell", type, spellId);
 			}
 		}
+		// `throw_scale` (transparency Phase 5): a bomb's SIZE. The fire and poison
+		// flasks come in a vial, a small bottle and a flask, and the size scales
+		// what the throw leaves - the blast's damage, its reach (blast_force counts
+		// SQUARES, so it rounds, and never below one) and how long a gas lingers,
+		// and the strength of its on-hit effects. Applied after a borrowed spell
+		// payload too, which is the case it exists for: the fire flask's numbers
+		// are firebolt_burst's.
+		if (const float s = def ? def->GetFloat("throw_scale", 1.0f) : 1.0f; s != 1.0f && s > 0.0f) {
+			blast::Rules& r = kind->throwPayload.blast.rules;
+			r.damage *= s;
+			if (r.force > 0) r.force = std::max(1, static_cast<int>(std::lround(r.force * s)));
+			r.linger *= s;
+			for (size_t i = 0; i < kind->throwPayload.count; ++i)
+				kind->throwPayload.procs[i].magnitude *= s;
+		}
 		// A lit torch with a flame colour of its own sets alight in that colour
 		// when THROWN too, as it does when swung (FlameTintOf).
 		if (const Vec3* tint = FlameTintOf(*kind)) kind->throwPayload.tint = *tint;
@@ -1224,6 +1356,7 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 			// kind's own copy, so its overrides touch nothing else.
 			kind->model = ModelMulti(modelName + ".glb");
 			BakeCatalogMaterial(*kind->model, def); // dialog material overrides
+			if (def) AddLiquid(*kind, *def, modelName + ".glb");
 		}
 		// Every item draws as the shared carved-stone tablet (loaded once) — runes
 		// carve their element's set in; other categories ride the flat tint above.
@@ -1586,6 +1719,7 @@ void DungeonWorld::ApplyPropMaterial(gfx::MaterialParams& m,
 	if (kind.roughness >= 0.0f) m.roughness = kind.roughness;
 	if (kind.heightScale >= 0.0f && m.albedo) m.heightScale = kind.heightScale;
 	if (kind.hasTint) m.baseColor = kind.tint;
+	m.transparent = kind.transparent;
 }
 
 // Bakes a catalog entry's material overrides (metallic=/roughness=/color=, the
@@ -1600,10 +1734,14 @@ void DungeonWorld::BakeCatalogMaterial(MultiMaterialModel& model,
 	const float roughness = def->GetFloat("roughness", -1.0f);
 	Vec4 tint;
 	const bool hasTint = CatalogColor(def, "color", tint);
+	// `transparent = 1` makes the WHOLE model glass; absent leaves each part as its
+	// glTF material says (alphaMode BLEND), which is how a bottle keeps a solid cork.
+	const bool transparent = CatalogBool(def, "transparent", false);
 	for (auto& sub : model.subs) {
 		if (metallic >= 0.0f) sub.material.metallic = metallic;
 		if (roughness >= 0.0f) sub.material.roughness = roughness;
 		if (hasTint) sub.material.baseColor = tint;
+		if (transparent) sub.material.transparent = true;
 	}
 }
 
@@ -1676,6 +1814,7 @@ std::unique_ptr<DungeonWorld::MultiMaterialModel> DungeonWorld::BuildMultiMateri
 			sub.material.albedo = texAt(md.baseColorImage);
 			sub.material.normalMap = texAt(md.normalImage);
 			sub.material.metalRough = texAt(md.metalRoughImage);
+			sub.material.transparent = md.blend; // a glass part, a cork stays solid
 		}
 		out->subs.push_back(std::move(sub));
 	}
@@ -1783,6 +1922,7 @@ DungeonWorld::DecorationKind& DungeonWorld::DecorationKindFor(const std::string&
 		// Optional alpha-test cutout (a masked set like wood planks renders its
 		// gaps); absent/0 = opaque, the usual case.
 		kind->alphaCutoff = def ? def->GetFloat("alpha_test", 0.0f) : 0.0f;
+		kind->transparent = CatalogBool(def, "transparent", false);
 		kind->cullRadius = ModelOriginRadius(*kind->model) * kUnit * kind->modelScale;
 		it = m_decorationKinds.emplace(type, std::move(kind)).first;
 	}

@@ -165,6 +165,8 @@ void DungeonWorld::RenderScene(ID3D12GraphicsCommandList* list) {
 	m_renderer.BeginScene(list, m_camera, m_lights, atmo, /*hdrTarget=*/true);
 	const ViewCull cull = ViewCull::FromFrustum(m_camera.ViewProj());
 	SubmitSceneGeometry(list, &cull);
+	// Glass the geometry queued, farthest first, over the opaque scene.
+	m_renderer.FlushTransparent(list);
 	// Transparent flame/spark/smoke billboards last, over the opaque scene.
 	m_particleBatch->Render(list, m_camera, m_particleScratch, /*hdrTarget=*/true);
 }
@@ -193,9 +195,10 @@ void DungeonWorld::DrawMultiMaterial(ID3D12GraphicsCommandList* list,
 // After any tip it re-grounds (min-y to the rest height cy — 0 on the floor,
 // the pocket-floor height for an item sitting in a wall niche) and re-centres
 // the footprint over the slot, so no per-item authoring is needed and every
-// current or future item lands right.
+// current or future item lands right. An UPRIGHT kind (items.cat `upright`, a
+// bottle) skips all of that and stands as authored.
 static Mat4 FloorItemWorld(const Vec3& bmin, const Vec3& bmax, float scale,
-						   float cx, float cy, float cz) {
+						   float cx, float cy, float cz, bool upright = false) {
 	const float ex = bmax.x - bmin.x;
 	const float ey = bmax.y - bmin.y;
 	const float ez = bmax.z - bmin.z;
@@ -203,7 +206,9 @@ static Mat4 FloorItemWorld(const Vec3& bmin, const Vec3& bmax, float scale,
 	const float hi3 = std::max({ex, ey, ez});           // longest extent
 	const float mid = ex + ey + ez - lo3 - hi3;         // the middle extent
 	XMMATRIX rot = XMMatrixIdentity();
-	if (hi3 > mid * 1.5f) {
+	if (upright) {
+		// as authored
+	} else if (hi3 > mid * 1.5f) {
 		// Rod / blade: lay it along its length. Only a VERTICAL long axis needs
 		// tipping; a horizontal one (dagger) is already resting right.
 		if (ey == hi3) rot = XMMatrixRotationX(XM_PIDIV2); // long Y -> horizontal
@@ -467,7 +472,8 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 				DrawMultiMaterial(
 					list, mm,
 					FloorItemWorld(mm.boundsMin, mm.boundsMax,
-								   kUnit * item.kind->modelScale, c.x, c.y, c.z));
+								   kUnit * item.kind->modelScale, c.x, c.y, c.z,
+								   item.kind->upright));
 				continue;
 			}
 			// Non-rune placeholders render scaled UP (kItemPlaceholderScale) — bigger
@@ -686,7 +692,7 @@ void DungeonWorld::UpdateItemIcons(ID3D12GraphicsCommandList* list,
 		if (m_itemIconsBaked && !kind->iconAnimated) continue; // static, already baked
 		if (kind->model)
 			BakeIcon(list, sprites, *kind->model, *kind->iconTarget, kind->iconAnimated, spin,
-					 /*torch=*/kind->Lit() || !kind->litAs.empty());
+					 /*torch=*/kind->Lit() || !kind->litAs.empty(), kind->upright);
 		else if (kind->isRune && m_runeMesh)
 			BakeRuneIcon(list, sprites, *kind, *kind->iconTarget);
 		else
@@ -728,7 +734,7 @@ static const gfx::LightSet& IconStudioLights() {
 // by the bake and ItemFlameUv, so a flame drawn over the icon lands on the
 // very spot the bake put the torch head.
 static XMMATRIX ItemIconWorld(const Vec3& lo, const Vec3& hi, bool animated, float spin,
-							  bool torch) {
+							  bool torch, bool upright = false) {
 	// Centre the model at the origin and scale its LONGEST extent to fill the icon
 	// frame's DIAGONAL — a long thin weapon laid corner-to-corner (the classic RPG
 	// look) reads big in a square, where filling only the height leaves a thin
@@ -759,7 +765,10 @@ static XMMATRIX ItemIconWorld(const Vec3& lo, const Vec3& hi, bool animated, flo
 	else if (ext.y <= ext.x && ext.y <= ext.z) align = XMMatrixRotationX(kPi * 0.5f);
 	float sorted[3] = {ext.x, ext.y, ext.z};
 	std::sort(sorted, sorted + 3);
-	const bool elongated = sorted[2] > sorted[1] * 2.0f;
+	// An UPRIGHT item (a bottle) stands in its icon as it stands on the floor:
+	// never laid corner to corner, and fitted to the frame's HEIGHT (~1.39).
+	const bool elongated = !upright && sorted[2] > sorted[1] * 2.0f;
+	if (upright) s = 1.25f / longest;
 
 	if (torch && !animated) {
 		// A TORCH (anything that can burn): upright with a slight lean, smaller
@@ -848,10 +857,11 @@ bool DungeonWorld::ItemFlameUv(const std::string& typeId, Vec2& uv) {
 
 void DungeonWorld::BakeIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
 							const MultiMaterialModel& model, const gfx::Texture& target,
-							bool animated, float spin, bool torch) {
+							bool animated, float spin, bool torch, bool upright) {
 	BeginItemIconBake(list, sprites, target);
 	Mat4 world;
-	XMStoreFloat4x4(&world, ItemIconWorld(model.boundsMin, model.boundsMax, animated, spin, torch));
+	XMStoreFloat4x4(&world, ItemIconWorld(model.boundsMin, model.boundsMax, animated, spin, torch,
+										  upright));
 	DrawMultiMaterial(list, model, world);
 	EndItemIconBake(list, target);
 }
@@ -969,6 +979,7 @@ void DungeonWorld::BeginItemIconBake(ID3D12GraphicsCommandList* list,
 
 void DungeonWorld::EndItemIconBake(ID3D12GraphicsCommandList* list,
 								   const gfx::Texture& target) {
+	m_renderer.FlushTransparent(list); // its glass, into its own target
 	D3D12_RESOURCE_BARRIER toSRV = gfx::Transition(
 		target.Resource(), D3D12_RESOURCE_STATE_RENDER_TARGET,
 		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
@@ -1103,6 +1114,7 @@ void DungeonWorld::BakeMeshIcon(ID3D12GraphicsCommandList* list,
 	m_renderer.BeginScene(list, cam, IconStudioLights()); // the shared studio rig
 
 	m_renderer.DrawMesh(list, mesh, world, material);
+	m_renderer.FlushTransparent(list);
 
 	D3D12_RESOURCE_BARRIER toSRV = gfx::Transition(
 		target.Resource(), D3D12_RESOURCE_STATE_RENDER_TARGET,
@@ -1184,6 +1196,7 @@ void DungeonWorld::BakeMonsterIcon(ID3D12GraphicsCommandList* list,
 	} else {
 		m_renderer.DrawMesh(list, *kind.mesh, world, mat, rest.Palette());
 	}
+	m_renderer.FlushTransparent(list);
 
 	D3D12_RESOURCE_BARRIER toSRV = gfx::Transition(
 		kind.iconTarget->Resource(), D3D12_RESOURCE_STATE_RENDER_TARGET,

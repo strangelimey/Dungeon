@@ -1,8 +1,11 @@
 #include "Graphics/Renderer.h"
 
+#include "Core/Log.h"
 #include "Core/Paths.h"
 #include "Graphics/ShaderCompiler.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace dungeon::gfx {
@@ -72,6 +75,9 @@ struct ObjectConstants {
 	u32 useMRMap;
 	float alphaCutoff; // 0 = opaque; > 0 = alpha-test cutout threshold
 	Vec4 emissive;
+	u32 transparent; // 0 = opaque, 1 = glass, 2 = liquid (clipped at liquidPlane)
+	u32 pad1[3];
+	Vec4 liquidPlane; // world-space plane n.xyz, w = d: above it (n.p + d > 0) is clipped
 };
 
 } // namespace
@@ -214,6 +220,38 @@ Renderer::Renderer(GraphicsDevice& device) : m_device(device) {
 	culledPso.RTVFormats[0] = kSceneColorFormat;
 	DN_HR(m_device.Device()->CreateGraphicsPipelineState(&culledPso,
 														 IID_PPV_ARGS(&m_psoCullHdr)));
+
+	// Transparent: DUAL-SOURCE blending, result = added + behind x filter per
+	// channel (scene.hlsl PSGlass / GlassOutput) - glass FILTERS what is behind
+	// it rather than painting over it, so a red potion tints the room red and
+	// clear glass passes it untouched. Depth TESTED against the opaque scene but
+	// not written, so glass behind glass still draws. Two cull modes, used in
+	// turn per entry by FlushTransparent: front-culled draws the far wall,
+	// back-culled the near one. FrontCounterClockwise as the culled opaque PSO
+	// (the scene camera's mirrored X), so "back" means the same thing to both.
+	ComPtr<ID3DBlob> psGlass = CompileShader(shaderPath, "PSGlass", "ps_5_1");
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC glassPso = culledPso;
+	glassPso.PS = {psGlass->GetBufferPointer(), psGlass->GetBufferSize()};
+	D3D12_RENDER_TARGET_BLEND_DESC& blend = glassPso.BlendState.RenderTarget[0];
+	blend.BlendEnable = TRUE;
+	blend.SrcBlend = D3D12_BLEND_ONE;
+	blend.DestBlend = D3D12_BLEND_SRC1_COLOR;
+	blend.BlendOp = D3D12_BLEND_OP_ADD;
+	blend.SrcBlendAlpha = D3D12_BLEND_ONE;
+	blend.DestBlendAlpha = D3D12_BLEND_SRC1_ALPHA;
+	blend.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+	glassPso.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+	for (int hdr = 0; hdr < 2; ++hdr) {
+		glassPso.RTVFormats[0] = hdr ? kSceneColorFormat : kBackBufferFormat;
+		for (int cull = 0; cull < 2; ++cull) {
+			glassPso.RasterizerState.CullMode =
+				cull ? D3D12_CULL_MODE_BACK : D3D12_CULL_MODE_FRONT;
+			DN_HR(m_device.Device()->CreateGraphicsPipelineState(
+				&glassPso, IID_PPV_ARGS(&m_psoGlass[hdr][cull])));
+		}
+	}
+	m_transparent.reserve(kTransparentCapacity);
+	m_transparentOrder.reserve(kTransparentCapacity);
 
 	// Shadow pass pipeline: same root signature and input layout, writing
 	// normalized light->fragment distance into an R16_FLOAT cube face.
@@ -442,6 +480,17 @@ void Renderer::BeginScene(ID3D12GraphicsCommandList* list, const Camera& camera,
 		m_frameAllocators[m_frameIndex]->Allocate(sizeof(FrameConstants));
 	std::memcpy(alloc.cpu, &frame, sizeof(frame));
 
+	// Glass queued by a pass that never flushed belongs to a target that is no
+	// longer bound; drawing it here would paint it into this one.
+	if (!m_transparent.empty()) {
+		if (m_transparentStats.dropped == 0)
+			log::Warn("transparent draws dropped: a pass queued glass and never "
+					  "called FlushTransparent");
+		m_transparentStats.dropped += static_cast<u32>(m_transparent.size());
+		m_transparent.clear();
+	}
+	m_cameraPos = cam;
+
 	m_shadowPass = false;
 	m_hdrPass = hdrTarget;
 	ID3D12PipelineState* pso = hdrTarget ? m_psoHdr.Get() : m_pso.Get();
@@ -530,7 +579,27 @@ void Renderer::EndShadows(ID3D12GraphicsCommandList* list) {
 void Renderer::DrawMesh(ID3D12GraphicsCommandList* list, const Mesh& mesh,
 						const Mat4& world, const MaterialParams& material,
 						std::span<const Mat4> palette) {
-	UploadAllocator& allocator = *m_frameAllocators[m_frameIndex];
+	if (material.transparent) {
+		if (m_shadowPass) return; // glass casts no shadow
+		const D3D12_GPU_VIRTUAL_ADDRESS paletteVa =
+			palette.empty() ? 0 : UploadPalette(palette);
+		if (m_transparent.size() >= kTransparentCapacity) {
+			// Full: draw it now, unsorted, rather than grow (which would allocate in
+			// a settled frame). Wrong order beats missing; `glass` counts it.
+			++m_transparentStats.overflows;
+			for (int cull = 0; cull < 2; ++cull) {
+				ID3D12PipelineState* pso = m_psoGlass[m_hdrPass ? 1 : 0][cull].Get();
+				list->SetPipelineState(pso);
+				m_currentPso = pso;
+				IssueDraw(list, mesh, world, material, paletteVa);
+			}
+			return;
+		}
+		const float dx = world._41 - m_cameraPos.x, dy = world._42 - m_cameraPos.y,
+					dz = world._43 - m_cameraPos.z;
+		m_transparent.push_back({&mesh, world, material, paletteVa, dx * dx + dy * dy + dz * dz});
+		return;
+	}
 
 	// Authored (single-sided) meshes back-face cull; procedural geometry stays
 	// double-sided. Never swap during the shadow pass (it owns m_shadowPso), and
@@ -544,12 +613,90 @@ void Renderer::DrawMesh(ID3D12GraphicsCommandList* list, const Mesh& mesh,
 			m_currentPso = want;
 		}
 	}
+	IssueDraw(list, mesh, world, material, palette.empty() ? 0 : UploadPalette(palette));
+}
+
+void Renderer::FlushTransparent(ID3D12GraphicsCommandList* list) {
+	const size_t n = m_transparent.size();
+	// The main scene is the one HDR pass; a bake or preview flush must not
+	// overwrite what the world drew.
+	if (m_hdrPass) {
+		m_transparentStats.queued = static_cast<u32>(n);
+		if (n > 0) ++m_transparentStats.frames;
+	}
+	m_transparentStats.peak = std::max(m_transparentStats.peak, static_cast<u32>(n));
+	if (n == 0) return;
+	m_transparentOrder.clear();
+	for (size_t i = 0; i < n; ++i) m_transparentOrder.push_back(static_cast<u16>(i));
+	// Farthest first, so each layer blends over what is behind it. Ties (the
+	// submeshes of one model share its origin) keep submission order; that is
+	// the tie-break rather than std::stable_sort, which may allocate a buffer.
+	std::sort(m_transparentOrder.begin(), m_transparentOrder.end(), [&](u16 a, u16 b) {
+		const float da = m_transparent[a].distance, db = m_transparent[b].distance;
+		return da > db || (da == db && a < b);
+	});
+	const int hdr = m_hdrPass ? 1 : 0;
+	auto draw = [&](const QueuedDraw& d, int cull) {
+		ID3D12PipelineState* pso = m_psoGlass[hdr][cull].Get();
+		if (pso != m_currentPso) {
+			list->SetPipelineState(pso);
+			m_currentPso = pso;
+		}
+		IssueDraw(list, *d.mesh, d.world, d.material, d.paletteVa);
+	};
+	// One OBJECT at a time - a run of entries at the same distance, which the
+	// parts of one model are (they share its origin). Within it: every far wall
+	// (front faces culled), then the liquid both ways, then every near wall, so
+	// a bottle reads back wall, contents, front wall. With no liquid that is
+	// simply each part's far wall then its near one.
+	for (size_t r = 0; r < n;) {
+		size_t end = r + 1;
+		while (end < n && m_transparent[m_transparentOrder[end]].distance ==
+							  m_transparent[m_transparentOrder[r]].distance)
+			++end;
+		for (size_t k = r; k < end; ++k) {
+			const QueuedDraw& d = m_transparent[m_transparentOrder[k]];
+			if (!d.material.liquid) draw(d, 0);
+		}
+		for (size_t k = r; k < end; ++k) {
+			const QueuedDraw& d = m_transparent[m_transparentOrder[k]];
+			if (d.material.liquid) {
+				draw(d, 0);
+				draw(d, 1);
+			}
+		}
+		for (size_t k = r; k < end; ++k) {
+			const QueuedDraw& d = m_transparent[m_transparentOrder[k]];
+			if (!d.material.liquid) draw(d, 1);
+		}
+		r = end;
+	}
+	m_transparent.clear();
+}
+
+D3D12_GPU_VIRTUAL_ADDRESS Renderer::UploadPalette(std::span<const Mat4> palette) {
+	// A skinned mesh holds the same pose across all of a frame's submissions
+	// (shadow faces + scene), so upload its palette once and reuse the address.
+	for (const auto& [key, va] : m_paletteCache)
+		if (key == palette.data()) return va;
+	const size_t count = std::min<size_t>(palette.size(), kMaxSkinJoints);
+	UploadAllocation skinAlloc =
+		m_frameAllocators[m_frameIndex]->Allocate(kMaxSkinJoints * sizeof(Mat4));
+	std::memcpy(skinAlloc.cpu, palette.data(), count * sizeof(Mat4));
+	m_paletteCache.emplace_back(palette.data(), skinAlloc.gpu);
+	return skinAlloc.gpu;
+}
+
+void Renderer::IssueDraw(ID3D12GraphicsCommandList* list, const Mesh& mesh,
+						 const Mat4& world, const MaterialParams& material,
+						 D3D12_GPU_VIRTUAL_ADDRESS paletteVa) {
+	UploadAllocator& allocator = *m_frameAllocators[m_frameIndex];
 
 	ObjectConstants object{};
 	object.world = world;
 	object.baseColor = material.baseColor;
 	object.useTexture = material.albedo != nullptr ? 1u : 0u;
-	object.skinned = palette.empty() ? 0u : 1u;
+	object.skinned = paletteVa != 0 ? 1u : 0u;
 	object.useNormalMap = material.normalMap != nullptr ? 1u : 0u;
 	object.heightScale = material.heightScale;
 	object.metallic = material.metallic;
@@ -558,28 +705,26 @@ void Renderer::DrawMesh(ID3D12GraphicsCommandList* list, const Mesh& mesh,
 	object.alphaCutoff = material.alphaCutoff;
 	object.emissive = {material.emissive.x, material.emissive.y, material.emissive.z,
 					   material.emissiveGroove};
+	object.transparent = !material.transparent ? 0u : material.liquid ? 2u : 1u;
+	if (material.liquid) {
+		// The level is y = liquidLevel in the mesh's space; carried into world space
+		// by the world matrix's Y row (the mesh's up, so it tilts with the bottle)
+		// and the point on that axis at the level.
+		const float ux = world._21, uy = world._22, uz = world._23;
+		const float ul = std::sqrt(ux * ux + uy * uy + uz * uz);
+		const float inv = ul > 1e-12f ? 1.0f / ul : 0.0f;
+		const float px = world._41 + ux * material.liquidLevel;
+		const float py = world._42 + uy * material.liquidLevel;
+		const float pz = world._43 + uz * material.liquidLevel;
+		const Vec3 n{ux * inv, uy * inv, uz * inv};
+		object.liquidPlane = {n.x, n.y, n.z, -(n.x * px + n.y * py + n.z * pz)};
+	}
 	UploadAllocation objAlloc = allocator.Allocate(sizeof(ObjectConstants));
 	std::memcpy(objAlloc.cpu, &object, sizeof(object));
 	list->SetGraphicsRootConstantBufferView(1, objAlloc.gpu);
 
 	// The palette CBV must always be bound; reuse the object CB when unskinned.
-	// A skinned mesh holds the same pose across all of a frame's submissions
-	// (shadow faces + scene), so upload its palette once and reuse the address.
-	if (!palette.empty()) {
-		D3D12_GPU_VIRTUAL_ADDRESS gpu = 0;
-		for (const auto& [key, va] : m_paletteCache)
-			if (key == palette.data()) { gpu = va; break; }
-		if (gpu == 0) {
-			const size_t count = std::min<size_t>(palette.size(), kMaxSkinJoints);
-			UploadAllocation skinAlloc = allocator.Allocate(kMaxSkinJoints * sizeof(Mat4));
-			std::memcpy(skinAlloc.cpu, palette.data(), count * sizeof(Mat4));
-			gpu = skinAlloc.gpu;
-			m_paletteCache.emplace_back(palette.data(), gpu);
-		}
-		list->SetGraphicsRootConstantBufferView(2, gpu);
-	} else {
-		list->SetGraphicsRootConstantBufferView(2, objAlloc.gpu);
-	}
+	list->SetGraphicsRootConstantBufferView(2, paletteVa != 0 ? paletteVa : objAlloc.gpu);
 
 	// The shadow pass reads no material textures (BeginShadowFace already bound
 	// safe defaults to every table), so skip the per-draw texture binds there.
