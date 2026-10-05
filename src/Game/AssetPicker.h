@@ -39,6 +39,7 @@
 #include "UI/UIContext.h"
 
 #include <algorithm>
+#include <cmath>
 #include <functional>
 #include <memory>
 #include <span>
@@ -93,7 +94,12 @@ public:
 		return m_previewPosed ? std::span<const Mat4>(m_previewAnim.Palette())
 							  : std::span<const Mat4>();
 	}
-	float Orbit() const { return m_orbit; }
+	// The preview's turn: a full spin, except for a WALL feature, which has a
+	// back no one sees (its recess is a box behind the face) - it swings to and
+	// fro across its face instead.
+	float Orbit() const {
+		return m_previewWall ? kPi + 0.7f * std::sin(m_orbit) : m_orbit;
+	}
 	// The bounds the preview is fitted on: the model's, or the wall block's for a
 	// texture set (null until something is previewed).
 	const Vec3* PreviewFitMin() const { return HasPreview() ? &m_fitLo : nullptr; }
@@ -115,6 +121,9 @@ public:
 	// The clip a catalog names as a rigged model's idle (monsters.cat
 	// `anim_idle`; "" = none named, so the loader looks for an idle by name).
 	std::function<std::string(const std::string&)> idleClipFor;
+	// What a model is stamped into when a feature catalog uses it (floor / wall;
+	// Free otherwise) - its inside is then shaded (PoolModelLook::Mount).
+	std::function<DungeonWorld::PoolModelLook::Mount(const std::string&)> mountFor;
 
 	// The Choose button (and a double-click on a tile): the picked name.
 	std::function<void(const std::string&)> onChoose;
@@ -189,6 +198,9 @@ private:
 	// The path stem of the set a model is drawn with, at its smallest installed
 	// resolution ("" = none bound, or not installed).
 	std::string SetStemFor(const std::string& modelName) const;
+	DungeonWorld::PoolModelLook::Mount MountOf(const std::string& modelName) const {
+		return mountFor ? mountFor(modelName) : DungeonWorld::PoolModelLook::Mount::Free;
+	}
 
 	void Rebuild();          // (re)builds the whole widget tree
 	// Refills the grid's rows from m_shown. Separate from Rebuild because the
@@ -282,6 +294,7 @@ private:
 	Vec3 m_fitLo{}, m_fitHi{}; // the fit's bounds (PreviewFitMin / Max)
 	bool m_stands = true;      // PreviewStands
 	float m_viewTilt = 0.0f;   // PreviewViewTilt
+	bool m_previewWall = false; // the selection is a wall feature (Orbit swings)
 	// Installed texture sets by name -> resolution bits, for SetStemFor (read
 	// once per Open in model mode; the directory walk is not per tile).
 	std::unordered_map<std::string, u32> m_setRes;

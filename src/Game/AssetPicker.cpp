@@ -312,7 +312,8 @@ void AssetPicker::PrepareModelIcons(size_t max) {
 		// tiles was still blank seconds after opening.
 		slot.look = DungeonWorld::LoadPoolModelLook(
 			m_device, paths::Asset("models\\" + a.file), SetStemFor(a.name),
-			DungeonWorld::kIconSize, idleClipFor ? idleClipFor(a.name) : std::string());
+			DungeonWorld::kIconSize, idleClipFor ? idleClipFor(a.name) : std::string(),
+			MountOf(a.name));
 		if (!slot.look) {
 			log::Warn("asset picker: no icon for {} (could not load)", a.file);
 			continue;
@@ -380,6 +381,7 @@ void AssetPicker::RefreshPreview() {
 	m_previewPosed = false;
 	m_previewLook.reset();
 	m_previewParts.clear();
+	m_previewWall = false;
 	if (m_selected.empty()) return;
 
 	if (m_mode == Mode::Textures) {
@@ -422,7 +424,7 @@ void AssetPicker::RefreshPreview() {
 	const std::string file = it == m_items.end() ? m_selected + ".gltf" : it->file;
 	m_previewLook = DungeonWorld::LoadPoolModelLook(
 		m_device, paths::Asset("models\\" + file), SetStemFor(m_selected), 0,
-		idleClipFor ? idleClipFor(m_selected) : std::string());
+		idleClipFor ? idleClipFor(m_selected) : std::string(), MountOf(m_selected));
 	if (!m_previewLook) {
 		log::Warn("asset picker: could not load {}", file);
 		return;
@@ -443,6 +445,7 @@ void AssetPicker::RefreshPreview() {
 	// tumbles; anything else (or anything rigged) turns upright.
 	m_stands = m_previewLook->sinks || !m_previewLook->Flat();
 	m_viewTilt = m_previewLook->sinks ? DungeonWorld::PoolModelLook::kFromAboveTilt : 0.0f;
+	m_previewWall = MountOf(m_selected) == DungeonWorld::PoolModelLook::Mount::Wall;
 }
 
 std::string AssetPicker::SetStemFor(const std::string& modelName) const {

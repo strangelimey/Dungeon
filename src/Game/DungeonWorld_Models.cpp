@@ -60,7 +60,7 @@ void DungeonWorld::ForgetModelFile(const std::string& file) {
 // in VRAM for the session. The picker owns the result and drops it.
 std::unique_ptr<DungeonWorld::PoolModelLook> DungeonWorld::LoadPoolModelLook(
 	gfx::GraphicsDevice& device, const std::string& modelPath, const std::string& setStem,
-	u32 thumbPx, const std::string& idleHint) {
+	u32 thumbPx, const std::string& idleHint, PoolModelLook::Mount mount) {
 	auto data = assets::LoadModel(modelPath, {.bakedImages = true});
 	if (!data || data->meshes.empty()) return nullptr;
 	std::unique_ptr<MultiMaterialModel> multi = BuildMultiMaterialModel(device, *data);
@@ -92,6 +92,8 @@ std::unique_ptr<DungeonWorld::PoolModelLook> DungeonWorld::LoadPoolModelLook(
 		}
 		look->data = std::make_shared<const assets::ModelData>(std::move(*data));
 	}
+	// The CPU copy, wherever it now lives (a rig's moved into the look).
+	const assets::ModelData& source = look->data ? *look->data : *data;
 
 	// Which material wins, by the world's own split: a single-primitive .gltf is
 	// drawn by its catalog set (MonsterKindFor takes the multi-material path only
@@ -120,7 +122,8 @@ std::unique_ptr<DungeonWorld::PoolModelLook> DungeonWorld::LoadPoolModelLook(
 		}
 	}
 
-	for (MultiMaterialModel::Sub& sub : multi->subs) {
+	for (size_t i = 0; i < multi->subs.size(); ++i) {
+		MultiMaterialModel::Sub& sub = multi->subs[i];
 		if (setWins && albedo) {
 			// As the world's single-mesh draw builds it: a fresh material with
 			// the set on it (ApplyPropMaterial), none of the file's factors.
@@ -137,6 +140,58 @@ std::unique_ptr<DungeonWorld::PoolModelLook> DungeonWorld::LoadPoolModelLook(
 			if (albedo)
 				ApplyPbr(sub.material, albedo.get(), normal.get(), mr.get(), 0.0f,
 						 sub.material.baseColor, sub.material.roughness);
+		}
+		// A feature's inside drawn as its own, darker part (Mount). The split
+		// is by triangle centroid against the mounting plane, on the vertices
+		// as BuildMultiMaterialModel uploaded them (node transform baked).
+		if (mount != PoolModelLook::Mount::Free && i < source.meshes.size() &&
+			!source.meshes[i].skinned) {
+			assets::MeshData outside = source.meshes[i];
+			const XMMATRIX node = XMLoadFloat4x4(&outside.worldTransform);
+			for (assets::Vertex& v : outside.vertices) {
+				XMFLOAT3 p, n;
+				XMStoreFloat3(&p, XMVector3Transform(
+									  XMVectorSet(v.position.x, v.position.y, v.position.z, 1.0f),
+									  node));
+				XMStoreFloat3(&n, XMVector3Normalize(XMVector3TransformNormal(
+									  XMVectorSet(v.normal.x, v.normal.y, v.normal.z, 0.0f),
+									  node)));
+				v.position = {p.x, p.y, p.z};
+				v.normal = {n.x, n.y, n.z};
+			}
+			assets::MeshData inside = outside;
+			outside.indices.clear();
+			inside.indices.clear();
+			const auto& src = source.meshes[i].indices;
+			// How far behind the plane (units) a triangle must sit to be INSIDE.
+			// Past surface relief - cracked paving sinks its slabs 0.04, and at
+			// -0.01 whole stones went dark - but short of every real hole: the
+			// drain's throat starts at 0.035, a niche is 0.22 deep.
+			constexpr float kBehind = -0.05f;
+			for (size_t t = 0; t + 2 < src.size(); t += 3) {
+				const Vec3& a = outside.vertices[src[t]].position;
+				const Vec3& b = outside.vertices[src[t + 1]].position;
+				const Vec3& c = outside.vertices[src[t + 2]].position;
+				const float depth = mount == PoolModelLook::Mount::Floor
+										? (a.y + b.y + c.y) / 3.0f
+										: (a.z + b.z + c.z) / 3.0f;
+				auto& into = depth < kBehind ? inside.indices : outside.indices;
+				into.insert(into.end(), {src[t], src[t + 1], src[t + 2]});
+			}
+			if (!inside.indices.empty() && !outside.indices.empty()) {
+				auto outMesh = std::make_shared<gfx::Mesh>(device, outside);
+				auto inMesh = std::make_shared<gfx::Mesh>(device, inside);
+				gfx::MaterialParams shaded = sub.material;
+				shaded.baseColor = {shaded.baseColor.x * PoolModelLook::kInsideShade,
+									shaded.baseColor.y * PoolModelLook::kInsideShade,
+									shaded.baseColor.z * PoolModelLook::kInsideShade,
+									shaded.baseColor.w};
+				look->meshes.push_back(outMesh);
+				look->meshes.push_back(inMesh);
+				look->parts.push_back({outMesh.get(), sub.material});
+				look->parts.push_back({inMesh.get(), shaded});
+				continue;
+			}
 		}
 		look->meshes.push_back(sub.mesh);
 		look->parts.push_back({sub.mesh.get(), sub.material});

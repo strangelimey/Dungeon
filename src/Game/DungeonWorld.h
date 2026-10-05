@@ -264,6 +264,15 @@ public:
 		// four squares deep under its tile - the drain's is 0.17, the recess's
 		// 0.20.
 		static constexpr float kFromAboveTilt = 1.5f;
+		// What the model is stamped into, if it is a FEATURE: a floor (surface
+		// at y = 0, its hole below) or a wall (face at z = 0, its recess behind,
+		// toward -z). A feature's INSIDE - every triangle behind that plane -
+		// is split into a part of its own and drawn at kInsideShade. In play the
+		// scene's shadows and dust darken a niche's recess or a drain's throat;
+		// the icon rig has neither, so a recess lit as evenly as its wall, in the
+		// same brick, read as a flat panel. The shading stands in for them.
+		enum class Mount : u8 { Free, Floor, Wall };
+		static constexpr float kInsideShade = 0.35f;
 	};
 	// Null when the file will not load. `thumbPx` > 0 loads the bound set's
 	// maps trimmed to that size (a tile), else at the stem's full resolution.
@@ -274,7 +283,9 @@ public:
 															const std::string& modelPath,
 															const std::string& setStem,
 															u32 thumbPx = 0,
-															const std::string& idleHint = {});
+															const std::string& idleHint = {},
+															PoolModelLook::Mount mount =
+																PoolModelLook::Mount::Free);
 	// The baked icons for already-loaded kinds, or null (not loaded / not baked
 	// yet) — the map overlay then falls back to its square markers. These never
 	// force-load a model (browse markers may name unloaded types).

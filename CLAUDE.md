@@ -1668,7 +1668,14 @@ footprint below y = 0 (`FrameAboveFloor` - the drain and recess shafts run four
 squares deep on purpose) and both views tip it ~86 degrees toward the camera
 (`kFromAboveTilt`, steep enough to hide a shaft of radius 0.22 under its tile).
 A surface or wall feature has no set of its own, so it is shown in the project's
-first floor / ceiling / wall type, what it wears in a level.
+first floor / ceiling / wall type, what it wears in a level. A feature's INSIDE
+(every triangle more than 0.05 behind its mounting plane - below y = 0 for a
+floor feature, toward -z for a wall one; `PoolModelLook::Mount`, from
+`AssetPicker::mountFor`) is split off and drawn at `kInsideShade`, standing in for
+the shadows the icon rig does not have: a niche lit as evenly as its wall, in the
+same brick, read as a flat panel. The 0.05 clears surface relief (cracked paving
+sinks 0.04 and went blotchy at 0.01). A wall feature's preview SWINGS across its
+face rather than spinning onto its back.
 RIGHT-CLICKING a palette row opens the per-TYPE catalog editor
 (TypeEditorDialog) for EVERY category — one dialog, because it renders its form
 from a SCHEMA: Game/CatalogSchema.h is a FieldSpec table per catalog (key, kind,

@@ -634,6 +634,17 @@ void Game::WireModuleCallbacks() {
 			}
 		return model;
 	};
+	// A feature's mount, from the catalog that stamps it (a ceiling feature is
+	// left Free: its geometry rises into the vault, not behind a plane at 0).
+	m_assetPicker.mountFor = [this](const std::string& model) {
+		using Mount = DungeonWorld::PoolModelLook::Mount;
+		for (const CatalogEntry& e : m_project.surfacefeatures.Entries())
+			if (e.Get("model", e.id) == model)
+				return e.Get("surface", "floor") == "ceiling" ? Mount::Free : Mount::Floor;
+		for (const CatalogEntry& e : m_project.wallfeatures.Entries())
+			if (e.Get("model", e.id) == model) return Mount::Wall;
+		return Mount::Free;
+	};
 	// A rig's idle: the first `anim_idle` clip of a monster drawn with it.
 	m_assetPicker.idleClipFor = [this](const std::string& model) {
 		for (const CatalogEntry& e : m_project.monsters.Entries()) {
