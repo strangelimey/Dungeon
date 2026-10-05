@@ -214,7 +214,7 @@ public:
 	void BakeIconFor(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
 					 std::span<const gfx::PreviewSubmesh> parts, const Vec3& lo,
 					 const Vec3& hi, const gfx::Texture& target,
-					 std::span<const Mat4> palette = {}, float tilt = 0.3f);
+					 std::span<const Mat4> palette = {}, float tilt = 0.3f, float yaw = 0.5f);
 	// A POOL model as the editor's asset picker shows it, preview and tile alike:
 	// every primitive (not just meshes[0]) with its own glTF material and
 	// embedded textures (the baked .dds sidecars, as the game loads them), node
@@ -301,7 +301,9 @@ public:
 		// ceiling hole (pit_ceiling), its rim at the model's lowest point, its
 		// inside above it - seen straight up, graded darker going up. A plain
 		// Ceiling (the block, the vault) has no inside and a gentler view.
-		enum class Mount : u8 { Free, Floor, Wall, Ceiling, CeilingWell };
+		// WallFixture sits ON a wall face (fixtures.cat `mount = wall`), out
+		// into the room - unlike Wall, a feature cut INTO it; it has no inside.
+		enum class Mount : u8 { Free, Floor, Wall, Ceiling, CeilingWell, WallFixture };
 		// The inside grades from kInsideShadeTop at the mouth to kInsideShade at
 		// its deepest, in kInsideBands steps (see the loader).
 		static constexpr float kInsideShade = 0.3f;
@@ -354,6 +356,15 @@ public:
 			if (mount == Mount::CeilingWell) return -kFromAboveTilt; // straight up it
 			if (mount == Mount::Ceiling) return -kFromBelowTilt;
 			return ordinary;
+		}
+		// How far round from face-on a tile looks at it (radians; the map icons'
+		// 0.5 is a gentle three-quarter). A thing ON a wall (WallFixture: a
+		// sconce, its bare bracket) is authored against the face with what
+		// matters sticking OUT of it - the bracket's ring - which near face-on
+		// foreshortens into a loop on a strap; kSideYaw shows it in profile.
+		static constexpr float kSideYaw = 1.2f;
+		float ViewYaw(float ordinary) const {
+			return mount == Mount::WallFixture ? kSideYaw : ordinary;
 		}
 	};
 	// Null when the file will not load. `thumbPx` > 0 loads the bound set's
@@ -4147,7 +4158,7 @@ private:
 	void BakeMeshIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
 					  std::span<const gfx::PreviewSubmesh> parts, const Vec3& lo,
 					  const Vec3& hi, const gfx::Texture& target,
-					  std::span<const Mat4> palette = {}, float tilt = 0.3f);
+					  std::span<const Mat4> palette = {}, float tilt = 0.3f, float yaw = 0.5f);
 	std::vector<Item> m_items;
 	std::vector<Button> m_buttons; // .ent buttons (toggle wired doors by name)
 	std::vector<Door> m_doors;     // .ent doors (live open/anim state)

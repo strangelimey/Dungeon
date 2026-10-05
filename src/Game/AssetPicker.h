@@ -152,6 +152,7 @@ public:
 		Vec3 lo, hi; // model bounds (as posed), for the whole-model fit
 		std::span<const Mat4> palette; // a rigged model's idle frame; else empty
 		float tilt = 0.3f;             // the map icons' gentle tilt, or a from-above one
+		float yaw = 0.5f;              // three-quarter, or a wall fixture's side view
 	};
 	std::vector<PendingBake> PendingBakes(size_t max) const;
 	void MarkBaked(const std::string& name);

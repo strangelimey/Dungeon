@@ -2816,7 +2816,7 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		bool baked = false;
 		for (const AssetPicker::PendingBake& bake : m_assetPicker.PendingBakes(2)) {
 			m_world->BakeIconFor(list, m_spriteBatch, bake.parts, bake.lo, bake.hi,
-								*bake.target, bake.palette, bake.tilt);
+								*bake.target, bake.palette, bake.tilt, bake.yaw);
 			m_assetPicker.MarkBaked(bake.name);
 			baked = true;
 		}

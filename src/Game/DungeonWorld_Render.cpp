@@ -1192,16 +1192,16 @@ void DungeonWorld::BakeIconFor(ID3D12GraphicsCommandList* list,
 							   gfx::SpriteBatch& sprites,
 							   std::span<const gfx::PreviewSubmesh> parts, const Vec3& lo,
 							   const Vec3& hi, const gfx::Texture& target,
-							   std::span<const Mat4> palette, float tilt) {
+							   std::span<const Mat4> palette, float tilt, float yaw) {
 	EnsureIconBakeTargets();
-	BakeMeshIcon(list, sprites, parts, lo, hi, target, palette, tilt);
+	BakeMeshIcon(list, sprites, parts, lo, hi, target, palette, tilt, yaw);
 }
 
 void DungeonWorld::BakeMeshIcon(ID3D12GraphicsCommandList* list,
 								gfx::SpriteBatch& sprites,
 								std::span<const gfx::PreviewSubmesh> parts, const Vec3& lo,
 								const Vec3& hi, const gfx::Texture& target,
-								std::span<const Mat4> palette, float tilt) {
+								std::span<const Mat4> palette, float tilt, float yaw) {
 	D3D12_RESOURCE_BARRIER toRT = gfx::Transition(
 		target.Resource(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
 		D3D12_RESOURCE_STATE_RENDER_TARGET);
@@ -1228,7 +1228,7 @@ void DungeonWorld::BakeMeshIcon(ID3D12GraphicsCommandList* list,
 	const float s = 1.15f / longest;
 	const XMMATRIX worldX = XMMatrixTranslation(-c.x, -c.y, -c.z) *
 							XMMatrixScaling(s, s, s) *
-							XMMatrixRotationY(kPi + 0.5f) * XMMatrixRotationX(-tilt);
+							XMMatrixRotationY(kPi + yaw) * XMMatrixRotationX(-tilt);
 	Mat4 world;
 	XMStoreFloat4x4(&world, worldX);
 

@@ -340,7 +340,7 @@ std::vector<AssetPicker::PendingBake> AssetPicker::PendingBakes(size_t max) cons
 		if (!thumb.needsBake || !thumb.look || !thumb.texture) return;
 		out.push_back({name, thumb.look->parts, thumb.texture.get(), thumb.look->lo,
 					   thumb.look->hi, thumb.palette,
-					   thumb.look->ViewTilt(0.3f)});
+					   thumb.look->ViewTilt(0.3f), thumb.look->ViewYaw(0.5f)});
 	});
 	return out;
 }
