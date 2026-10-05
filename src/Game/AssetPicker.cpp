@@ -293,8 +293,10 @@ void AssetPicker::PrepareModelIcons(size_t max) {
 	// recorded the draw is done, and the tile needs only its image.
 	m_thumbs.ForEach([&](const std::string&, auto& entry) {
 		Thumb& t = entry.data;
-		if (t.look && !t.needsBake && m_thumbs.Frame() > t.bakedAt + gfx::kFrameCount)
+		if (t.look && !t.needsBake && m_thumbs.Frame() > t.bakedAt + gfx::kFrameCount) {
 			t.look.reset();
+			t.palette = {};
+		}
 	});
 	size_t made = 0;
 	for (const AssetTile* tile : VisibleTiles()) {
@@ -308,12 +310,21 @@ void AssetPicker::PrepareModelIcons(size_t max) {
 		// tile. The baked image sidecars load, not the PNGs inside the file: a
 		// bought rig's six 2k decodes took long enough that a screenful of its
 		// tiles was still blank seconds after opening.
-		slot.look = DungeonWorld::LoadPoolModelLook(m_device,
-													paths::Asset("models\\" + a.file),
-													SetStemFor(a.name), DungeonWorld::kIconSize);
+		slot.look = DungeonWorld::LoadPoolModelLook(
+			m_device, paths::Asset("models\\" + a.file), SetStemFor(a.name),
+			DungeonWorld::kIconSize, idleClipFor ? idleClipFor(a.name) : std::string());
 		if (!slot.look) {
 			log::Warn("asset picker: no icon for {} (could not load)", a.file);
 			continue;
+		}
+		// A rigged model's tile is its idle's first frame, fitted to that pose.
+		if (slot.look->data && !slot.look->idleClip.empty()) {
+			anim::Animator pose(&slot.look->data->skeleton, &slot.look->data->clips);
+			if (pose.Play(slot.look->idleClip, /*loop*/ false)) {
+				pose.Update(0.0f);
+				slot.palette = pose.Palette();
+				slot.look->FitToPose(slot.palette);
+			}
 		}
 		// The bake's viewport and shared depth target are DungeonWorld::kIconSize,
 		// so a target we create ourselves has to be exactly that.
@@ -330,7 +341,7 @@ std::vector<AssetPicker::PendingBake> AssetPicker::PendingBakes(size_t max) cons
 		if (out.size() >= max) return;
 		if (!thumb.needsBake || !thumb.look || !thumb.texture) return;
 		out.push_back({name, thumb.look->parts, thumb.texture.get(), thumb.look->lo,
-					   thumb.look->hi});
+					   thumb.look->hi, thumb.palette});
 	});
 	return out;
 }
@@ -364,6 +375,8 @@ void AssetPicker::RefreshPreview() {
 	m_previewAlbedo.reset();
 	m_previewNormal.reset();
 	m_previewMr.reset();
+	m_previewAnim = {}; // borrows the look's skeleton: goes first
+	m_previewPosed = false;
 	m_previewLook.reset();
 	m_previewParts.clear();
 	if (m_selected.empty()) return;
@@ -406,12 +419,22 @@ void AssetPicker::RefreshPreview() {
 	const auto it = std::ranges::find(m_items, m_selected, &AssetInfo::name);
 	const std::string file = it == m_items.end() ? m_selected + ".gltf" : it->file;
 	m_previewLook = DungeonWorld::LoadPoolModelLook(
-		m_device, paths::Asset("models\\" + file), SetStemFor(m_selected));
+		m_device, paths::Asset("models\\" + file), SetStemFor(m_selected), 0,
+		idleClipFor ? idleClipFor(m_selected) : std::string());
 	if (!m_previewLook) {
 		log::Warn("asset picker: could not load {}", file);
 		return;
 	}
 	m_previewParts = m_previewLook->parts;
+	// A rigged model stands in its idle and breathes, as it will in the world,
+	// fitted to that pose (the T-pose's arms would leave it small in the pane).
+	if (m_previewLook->data && !m_previewLook->idleClip.empty()) {
+		m_previewAnim =
+			anim::Animator(&m_previewLook->data->skeleton, &m_previewLook->data->clips);
+		m_previewPosed = m_previewAnim.Play(m_previewLook->idleClip, /*loop*/ true);
+		m_previewAnim.Update(0.0f);
+		if (m_previewPosed) m_previewLook->FitToPose(m_previewAnim.Palette());
+	}
 	m_fitLo = m_previewLook->lo;
 	m_fitHi = m_previewLook->hi;
 	const float longest =
@@ -573,6 +596,7 @@ void AssetPicker::Update(const Input& input, float w, float h, float dt) {
 	m_thumbs.Tick();
 	m_time += dt;
 	m_orbit += dt * 0.6f;
+	if (m_previewPosed) m_previewAnim.Update(dt);
 	// One font now: the title text used to be a second Font at the very same
 	// size as this context's. GameUI::UpdateFonts commits every library font
 	// once per frame, so there is nothing to flush here either.
