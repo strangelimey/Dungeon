@@ -271,8 +271,8 @@ above. (Phase labels P1–P6 track the build-out order.)
 - **Checked.** `AllocTest.ps1 -Light` (the whole rotation cast inside the
   window, the flare's dazzle on a mummy, the stone showing planted tracks);
   SpellTest 39.
-- **Not yet:** no `rune_light` tablet is placed in a level or in a starting
-  pack, so in play Sowilo can only come from the console (`learn`, `give`).
+- **For now** each caster starts with a Sowilo tablet (`rune_light`) in the
+  backpack (Michael, 2026-10-05); no level places one yet.
 
 ### Module layout
 

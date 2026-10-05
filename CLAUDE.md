@@ -248,7 +248,8 @@ Key conventions (memorize, they bite):
   `MonsterTarget::Wound` (balance.cat `ignite_burn` / `ignite_seconds`). Dev:
   `lightstones [clear]`, `tracks [clear | add <x> <z> <dir>]`; checked by
   `AllocTest.ps1 -Light` (refuses a PASS without the flare's dazzle or the
-  stone's track motes). No `rune_light` tablet is placed in play yet.
+  stone's track motes). For now each caster STARTS with a Sowilo tablet in the
+  pack (CreateDefaultParty); none is placed in a level yet.
 - FIRE AND LIGHT (docs/torches-and-fire.md): there is NO light at the eye - a
   LIT TORCH held in a hand (or on the cursor) is the party's light, and an
   ambient-0 level is pitch black. A lit torch burns while HELD (its CHARGE
@@ -2414,7 +2415,8 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   her left and a LIT TORCH in her right (the party's only light - see FIRE AND
   LIGHT); Maren holds fire + project, Tilo earth + protect, school rune left,
   and EACH caster's backpack carries Ingwaz + Hagalaz (the tier-3 modifiers;
-  both each, since a tablet is memorized by one member and spent). That is the
+  both each, since a tablet is memorized by one member and spent) and, FOR NOW
+  (Michael, 2026-10-05), a Sowilo tablet - until a level has one to find. That is the
   PREMADE four; a CREATED member picks two of project.ini `start_items`, which
   carries `torch_lit` so a party of created members is not left in the dark.
 - THE MESSAGE LOG opens only from its Log button, which sits at the bottom-left

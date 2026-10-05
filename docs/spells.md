@@ -243,9 +243,10 @@ Berkano and Algiz, and EACH caster carries an Ingwaz and a Hagalaz tablet in the
 backpack (Michael, 2026-10-02 - this replaced Q10's "placed in a level, deeper
 and guarded"). Each gets both because a tablet is memorized by one member and
 spent. A rune in the pack is memorized from its use menu on the sheet. The other
-schools and forms are found as tablets in the levels. NOT YET: no Sowilo tablet
-(`rune_light`) is placed in a level or a starting pack, so in play the light
-spells come only from the console (`learn <member> light`).
+schools and forms are found as tablets in the levels. FOR NOW (Michael,
+2026-10-05) each caster also starts with a Sowilo tablet (`rune_light`) in the
+backpack, since no level places one yet; move it into a level once there is
+somewhere for the player to find it.
 
 ## Checked by
 

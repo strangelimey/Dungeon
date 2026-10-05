@@ -158,10 +158,13 @@ std::vector<Character> CreateDefaultParty() {
 	// backpack (Michael, spell-updates): the third tier is reachable from a fresh
 	// game - memorize them from the sheet, then volley a bolt or burst a ward.
 	// Each caster gets both, because a rune is memorized by ONE member and spent.
+	// And, FOR NOW (Michael, 2026-10-05), a Sowilo tablet each, so the light
+	// spells are reachable until there is somewhere in the levels to find one.
 	for (const int caster : {2, 3}) {
 		Inventory& inv = party[static_cast<size_t>(caster)].inventory;
 		inv.Stow(std::string(RuneItemId(SpellSymbol::Multiple)));
 		inv.Stow(std::string(RuneItemId(SpellSymbol::Explode)));
+		inv.Stow(std::string(RuneItemId(SpellSymbol::Light)));
 	}
 
 	// Brand starts carrying one piece of each armor WEIGHT CLASS, for the same
