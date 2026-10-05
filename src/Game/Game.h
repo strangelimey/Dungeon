@@ -1076,6 +1076,18 @@ private:
 	// assets/fonts/fonts.cat before those contexts first resolve a role — see
 	// MakeFontLibrary in Game.cpp.
 	ui::FontLibrary m_fonts;
+	// A LANGUAGE'S OWN FACES (docs/fonts.md Phase 6): a .lang file may name a
+	// face for a role (`lang.font.<role>` = a file under assets/, plus an optional
+	// `lang.font.<role>.scale`) when the shipped one lacks its script - Russian
+	// names a Cyrillic face for Script, since IM Fell English has none. Each
+	// overridden role keeps the face it had (fonts.cat's, or an audition's), so a
+	// switch to a language without one puts it back, and `font save` writes that
+	// face, never the language's. Empty = the role is not overridden.
+	std::array<std::optional<ui::FaceSpec>, ui::kFontRoleCount> m_langFontBase;
+	// Lays the loaded language's faces over the roles (ApplyLanguage calls it).
+	void ApplyLanguageFonts();
+	// The face a role has apart from any language override (`font save`).
+	const ui::FaceSpec& BaseFace(ui::FontRole role) const;
 	GameUI m_ui;
 	// Map/editor overlay (toggle with `M` while playing). Like the console it
 	// does NOT pause the world — the party keeps walking; the overlay only

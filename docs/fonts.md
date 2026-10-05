@@ -378,6 +378,20 @@ Let a `.lang` file name a font override (`lang.font = <family>`), the same
 self-describing idiom as `lang.name`, so a script the chosen families do not
 cover — CJK above all — can point at one that does. Then CLAUDE.md and this doc.
 
+BUILT (2026-10-05), per ROLE rather than per language, since a face usually
+lacks a script in one role only: `lang.font.<role> = <file under assets/>` and
+an optional `lang.font.<role>.scale` (Game::ApplyLanguageFonts, run by every
+ApplyLanguage). The role's own face is kept aside while the override is up, so
+switching to a language without one restores it, `font save` writes it (never
+the language's), and a `font <role> ...` audition replaces it. A file that is
+not installed is warned about and the role left alone. First user: ru.lang's
+Script role -> Alegreya at 1.1 (IM Fell English has no Cyrillic; the scale
+matches IM Fell's x-height, 0.370 vs 0.332 of ascent-to-descent, which is what
+stb_truetype's ScaleForPixelHeight sizes by). Coverage of the shipped faces,
+Cyrillic: Alegreya, Bitter, Gentium Book Plus, JetBrains Mono, Spectral - and
+NOT Cinzel (Display), IM Fell, Grenze Gotisch, Marcellus, Petit Formal Script.
+OPEN: Russian Display text (title, pause, page titles) still needs a face.
+
 ## Traps
 
 **Variable fonts.** stb_truetype has no font-variations support

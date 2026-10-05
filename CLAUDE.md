@@ -580,6 +580,11 @@ Key conventions (memorize, they bite):
   dropdown; an in-game switch clears the HUD message log). ui::Font bakes
   Latin-1 (32..255) and Draw/MeasureWidth decode UTF-8, so Western European
   scripts work out of the box; other scripts need a wider bake range.
+  A FACE MUST ALSO HAVE THE SCRIPT: a .lang file names its own face for a role
+  that lacks it - `lang.font.<role> = <file under assets/>` + optional
+  `.scale` (Game::ApplyLanguageFonts; docs/fonts.md Phase 6). ru.lang draws the
+  Script role in Alegreya, since IM Fell English has no Cyrillic. Cinzel
+  (Display) has none either, so Russian titles still draw as boxes.
 
 ## Renderer features (assets/shaders/scene.hlsl)
 

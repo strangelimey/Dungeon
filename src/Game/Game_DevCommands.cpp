@@ -1558,6 +1558,8 @@ void Game::FontCommand(const std::vector<std::string>& args) {
 		ui::FaceSpec spec = m_fonts.Face(role);
 		spec.scale = static_cast<float>(std::atof(args[2].c_str()));
 		m_fonts.SetFace(role, spec);
+		// An audition over a language's face becomes the role's own face.
+		m_langFontBase[static_cast<size_t>(role)].reset();
 		describe(role);
 		return;
 	}
@@ -1625,6 +1627,7 @@ void Game::FontCommand(const std::vector<std::string>& args) {
 	}
 
 	m_fonts.SetFace(role, spec);
+	m_langFontBase[static_cast<size_t>(role)].reset(); // as `font scale` above
 	describe(role);
 }
 
@@ -1637,7 +1640,8 @@ bool Game::SaveFontCatalog() {
 	cat.Load(binPath);
 	for (int i = 0; i < ui::kFontRoleCount; ++i) {
 		const auto role = static_cast<ui::FontRole>(i);
-		const ui::FaceSpec& spec = m_fonts.Face(role);
+		// The role's own face, never one the current LANGUAGE lays over it.
+		const ui::FaceSpec& spec = BaseFace(role);
 		CatalogEntry entry;
 		if (const CatalogEntry* existing = cat.Find(ui::FontRoleName(role)))
 			entry = *existing;

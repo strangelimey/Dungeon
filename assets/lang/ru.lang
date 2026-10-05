@@ -13,6 +13,11 @@
 ; ============================================================================
 
 lang.name=Русский
+; Faces this language needs (docs/fonts.md): the Script role's IM Fell English
+; has no Cyrillic, so descriptions draw in Alegreya instead, scaled to match
+; IM Fell's x-height (0.370 vs 0.332 of the line).
+lang.font.script=fonts/Alegreya/Alegreya-Regular.ttf
+lang.font.script.scale=1.1
 
 ; --- titles / page chrome ---------------------------------------------------
 title=ПОДЗЕМЕЛЬЕ

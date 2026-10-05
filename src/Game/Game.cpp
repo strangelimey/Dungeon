@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -1565,7 +1566,44 @@ void Game::ApplyLanguage(bool rebuild) {
 		// renders as the raw key in the UI, so name them in the log.
 		loc::LogMissingKeys(paths::Asset("lang\\en.lang"));
 	}
+	ApplyLanguageFonts();
 	if (rebuild) m_ui.RebuildForLanguage();
+}
+
+void Game::ApplyLanguageFonts() {
+	for (int i = 0; i < ui::kFontRoleCount; ++i) {
+		const auto role = static_cast<ui::FontRole>(i);
+		std::optional<ui::FaceSpec>& base = m_langFontBase[static_cast<size_t>(i)];
+		// The last language's face off first: the role is fonts.cat's again.
+		if (base) {
+			m_fonts.SetFace(role, *base);
+			base.reset();
+		}
+		const std::string key = std::format("lang.font.{}", ui::FontRoleName(role));
+		const std::string_view file = loc::View(key); // the key itself when absent
+		if (file.empty() || file == key) continue;
+		ui::FaceSpec spec;
+		spec.path = paths::Asset(std::string(file));
+		if (!std::filesystem::exists(spec.path)) {
+			log::Warn("language {}: {} names {}, which is not installed - keeping {}",
+					  m_settings.language, key, file,
+					  m_fonts.Face(role).path.empty() ? "the fallback" : m_fonts.Face(role).path);
+			continue;
+		}
+		const std::string scaleKey = key + ".scale";
+		const std::string_view scale = loc::View(scaleKey);
+		spec.scale = scale == scaleKey ? 1.0f : std::strtof(std::string(scale).c_str(), nullptr);
+		if (spec.scale <= 0.0f) spec.scale = 1.0f;
+		base = m_fonts.Face(role);
+		log::Info("language {}: the {} role draws in {} (scale {:.2f})", m_settings.language,
+				  ui::FontRoleName(role), file, spec.scale);
+		m_fonts.SetFace(role, std::move(spec));
+	}
+}
+
+const ui::FaceSpec& Game::BaseFace(ui::FontRole role) const {
+	const std::optional<ui::FaceSpec>& base = m_langFontBase[static_cast<size_t>(role)];
+	return base ? *base : m_fonts.Face(role);
 }
 
 void Game::DrawBusyNotice(const std::string& text, float dw, float dh) {
