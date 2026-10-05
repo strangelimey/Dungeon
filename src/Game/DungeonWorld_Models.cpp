@@ -27,6 +27,55 @@
 using namespace DirectX;
 
 namespace dungeon::game {
+namespace {
+// Clips `mesh` to the half-space y >= cutY: whole triangles below are dropped,
+// a straddling one is cut along the plane (one or two triangles, new vertices
+// interpolated on the crossing edges), winding kept. Returns whether anything
+// was cut. For a picture only (the asset picker's floor features) - the
+// vertices it adds are never welded.
+bool ClipBelow(assets::MeshData& mesh, float cutY) {
+	const std::vector<u32> tris = std::move(mesh.indices);
+	mesh.indices.clear();
+	bool cut = false;
+	auto crossing = [&](u32 a, u32 b) {
+		const assets::Vertex va = mesh.vertices[a], vb = mesh.vertices[b];
+		const float t = (cutY - va.position.y) / (vb.position.y - va.position.y);
+		assets::Vertex v = t < 0.5f ? va : vb; // joints/weights from the nearer end
+		v.position = Lerp(va.position, vb.position, t);
+		v.position.y = cutY;
+		XMStoreFloat3(&v.normal,
+					  XMVector3Normalize(XMLoadFloat3(&va.normal) * (1.0f - t) +
+										 XMLoadFloat3(&vb.normal) * t));
+		v.uv = {va.uv.x + (vb.uv.x - va.uv.x) * t, va.uv.y + (vb.uv.y - va.uv.y) * t};
+		mesh.vertices.push_back(v);
+		return static_cast<u32>(mesh.vertices.size() - 1);
+	};
+	for (size_t t = 0; t + 2 < tris.size(); t += 3) {
+		const u32 v[3] = {tris[t], tris[t + 1], tris[t + 2]};
+		bool keep[3];
+		int kept = 0;
+		for (int k = 0; k < 3; ++k) kept += (keep[k] = mesh.vertices[v[k]].position.y >= cutY);
+		if (kept == 3) {
+			mesh.indices.insert(mesh.indices.end(), {v[0], v[1], v[2]});
+			continue;
+		}
+		cut = true;
+		if (kept == 0) continue;
+		// Rotate so the odd one out comes first, keeping the winding.
+		int r = 0;
+		for (int k = 0; k < 3; ++k)
+			if (keep[k] == (kept == 1)) r = k;
+		const u32 a = v[r], b = v[(r + 1) % 3], c = v[(r + 2) % 3];
+		const u32 ab = crossing(a, b), ac = crossing(a, c);
+		if (kept == 1) { // a alone survives: a, ab, ac
+			mesh.indices.insert(mesh.indices.end(), {a, ab, ac});
+		} else { // a alone is cut away: ab, b, c and ab, c, ac
+			mesh.indices.insert(mesh.indices.end(), {ab, b, c, ab, c, ac});
+		}
+	}
+	return cut;
+}
+} // namespace
 
 std::shared_ptr<const assets::ModelData> DungeonWorld::ModelFile(const std::string& file) {
 	CachedModel& entry = m_modelCache[file];
@@ -160,10 +209,17 @@ std::unique_ptr<DungeonWorld::PoolModelLook> DungeonWorld::LoadPoolModelLook(
 				v.position = {p.x, p.y, p.z};
 				v.normal = {n.x, n.y, n.z};
 			}
+			// A floor feature is CUT at its framed depth (FrameAboveFloor): the
+			// drain's and recess's shafts run four squares down so that no one in
+			// play can find the bottom, which a picture of the tile has no use
+			// for - with them gone it can be shown at a three-quarter view
+			// (kFloorFeatureTilt) instead of straight down a well.
+			const bool clipped =
+				mount == PoolModelLook::Mount::Floor && ClipBelow(outside, look->lo.y);
+			const std::vector<u32> src = std::move(outside.indices);
 			assets::MeshData inside = outside;
 			outside.indices.clear();
 			inside.indices.clear();
-			const auto& src = source.meshes[i].indices;
 			// How far behind the plane (units) a triangle must sit to be INSIDE.
 			// Past surface relief - cracked paving sinks its slabs 0.04, and at
 			// -0.01 whole stones went dark - but short of every real hole: the
@@ -191,6 +247,13 @@ std::unique_ptr<DungeonWorld::PoolModelLook> DungeonWorld::LoadPoolModelLook(
 				look->meshes.push_back(inMesh);
 				look->parts.push_back({outMesh.get(), sub.material});
 				look->parts.push_back({inMesh.get(), shaded});
+				continue;
+			}
+			if (clipped) { // all on one side, but cut: draw the cut mesh, never the whole
+				assets::MeshData& only = inside.indices.empty() ? outside : inside;
+				auto mesh = std::make_shared<gfx::Mesh>(device, only);
+				look->meshes.push_back(mesh);
+				look->parts.push_back({mesh.get(), sub.material});
 				continue;
 			}
 		}

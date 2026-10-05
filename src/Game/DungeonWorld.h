@@ -282,8 +282,15 @@ public:
 		// below is shallower (~50 degrees): a ceiling has no shaft to hide, and
 		// straight up a vault's curve flattens into a plain rhombus.
 		static constexpr float kFromBelowTilt = 0.9f;
+		// A FLOOR feature (and the floor block) is cut at its framed depth by
+		// the loader, so nothing deep is left to hide: it takes a three-quarter
+		// view from above (~63 degrees) that shows the slab AND the hole - steep
+		// enough that the half-square stub of shaft stays tucked under the tile
+		// (radius up to ~0.24 at that depth), which straight down did not show.
+		static constexpr float kFloorFeatureTilt = 1.1f;
 		float ViewTilt(float ordinary) const {
-			if (sinks || mount == Mount::Floor) return kFromAboveTilt;
+			if (mount == Mount::Floor) return kFloorFeatureTilt;
+			if (sinks) return kFromAboveTilt;
 			if (mount == Mount::Ceiling) return -kFromBelowTilt;
 			return ordinary;
 		}

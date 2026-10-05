@@ -1667,11 +1667,15 @@ its bind pose: the preview plays it looping, a tile bakes its first frame, and
 both fit the POSED bounds (`PoolModelLook::FitToPose`, CPU skinning). The idle is
 the catalog's (`AssetPicker::idleClipFor`, monsters.cat `anim_idle`), else an
 `idle` / `idle__...` clip - never the first clip, which for the kit is a spawn
-lying on the floor. A model that SINKS below the floor (a surface feature, a pit,
-a stairwell) is looked down into, as it is in play: its framed box stops half a
-footprint below y = 0 (`FrameAboveFloor` - the drain and recess shafts run four
-squares deep on purpose) and both views tip it ~86 degrees toward the camera
+lying on the floor. A model that SINKS below the floor (a pit, a stairwell) is
+looked down into, as it is in play: its framed box stops half a footprint below
+y = 0 (`FrameAboveFloor`) and both views tip it ~86 degrees toward the camera
 (`kFromAboveTilt`, steep enough to hide a shaft of radius 0.22 under its tile).
+A FLOOR FEATURE is instead CUT at that framed depth (`ClipBelow` in
+DungeonWorld_Models.cpp, the picture only - the drain and recess shafts run four
+squares deep on purpose, and the models are untouched) and shown at a
+three-quarter view from above (`kFloorFeatureTilt`, ~63 degrees): the slab and
+its hole, the short stub of shaft tucked under the tile.
 A surface or wall feature has no set of its own, so it is shown in the project's
 first floor / ceiling / wall type, what it wears in a level. A feature's INSIDE
 (every triangle more than 0.05 behind its mounting plane - below y = 0 for a
