@@ -614,8 +614,7 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 		// on it (MonsterModelWorld) and a burn rides it (BurnOrigin); the
 		// Animator keeps its clips from carrying it away (LockRootTravel).
 		assets->rigRoot = assets->model->skeleton.RootJoint();
-		if (assets->rigRoot >= 0)
-			assets->rigRest = assets->model->skeleton.joints[assets->rigRoot].restTranslation;
+		assets->rigRest = assets->model->skeleton.RootRest();
 		if (std::abs(assets->rigRest.x) > 0.05f || std::abs(assets->rigRest.z) > 0.05f)
 			log::Info("monster model {}: rig root rests at ({:.3f}, {:.3f}) units off the "
 					  "origin - drawn centred on it",
@@ -836,8 +835,33 @@ DungeonWorld::MonsterPreviewData DungeonWorld::MonsterPreviewFor(const std::stri
 	d.mesh = kind.mesh.get();
 	d.skeleton = &kind.model->skeleton;
 	d.clips = &kind.model->clips;
-	d.modelScale = kind.modelScale;
+	// True size (metres), unless that overflows the pane: the preview camera
+	// frames ~2.7 m of height and ~2 m of width at the model, which a humanoid
+	// fits at true size and a giant spider (two squares of legs) does not. The
+	// cap reads the bind-pose bounds of every primitive, horizontal extent over
+	// both axes since a yaw fixup may turn either one to face the camera.
+	constexpr float kPaneHeightM = 2.2f, kPaneWidthM = 2.0f;
+	Vec3 lo{1e9f, 1e9f, 1e9f}, hi{-1e9f, -1e9f, -1e9f};
+	for (const auto& meshData : kind.model->meshes)
+		for (const auto& v : meshData.vertices) {
+			lo = {std::min(lo.x, v.position.x), std::min(lo.y, v.position.y),
+				  std::min(lo.z, v.position.z)};
+			hi = {std::max(hi.x, v.position.x), std::max(hi.y, v.position.y),
+				  std::max(hi.z, v.position.z)};
+		}
+	d.scale = kUnit * kind.modelScale;
+	if (hi.y > lo.y) {
+		const float h = hi.y - lo.y;
+		const float w = std::max(hi.x - lo.x, hi.z - lo.z);
+		d.scale = std::min({d.scale, kPaneHeightM / h, w > 0.0f ? kPaneWidthM / w : d.scale});
+	}
 	d.modelYaw = kind.modelYaw;
+	d.pivot = kind.rigRest;
+	const auto& idle = kind.animClips[static_cast<int>(anim::CreatureState::Idle)];
+	if (!idle.empty())
+		d.idleClip = idle.front();
+	else if (!kind.model->clips.empty())
+		d.idleClip = kind.model->clips.front().name;
 	ApplyPropMaterial(d.material, kind.tex, kind.model->materials[0].baseColorFactor,
 					  kind.fallbackRoughness);
 	if (kind.multi) { // one drawable per primitive, each with its own material

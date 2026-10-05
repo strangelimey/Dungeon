@@ -44,7 +44,7 @@ Camera ModelPreview::PreviewCamera(float aspect) {
 }
 
 Mat4 ModelPreview::PreviewWorld(float scale, float orbit, const Vec3* fitMin,
-								const Vec3* fitMax, const Mat4* orient) {
+								const Vec3* fitMax, const Mat4* orient, const Vec3* pivot) {
 	using namespace DirectX;
 	Mat4 world;
 	if (fitMin && fitMax) {
@@ -62,7 +62,11 @@ Mat4 ModelPreview::PreviewWorld(float scale, float orbit, const Vec3* fitMin,
 									XMMatrixRotationY(orbit) * XMMatrixScaling(k, k, k) *
 									XMMatrixTranslation(0.0f, kLookHeight, 0.0f));
 	} else {
-		XMStoreFloat4x4(&world, XMMatrixScaling(scale, scale, scale) * XMMatrixRotationY(orbit));
+		// Grounded: stand the pivot's XZ on the origin, then scale and turn.
+		const float px = pivot ? pivot->x : 0.0f, pz = pivot ? pivot->z : 0.0f;
+		XMStoreFloat4x4(&world, XMMatrixTranslation(-px, 0.0f, -pz) *
+									XMMatrixScaling(scale, scale, scale) *
+									XMMatrixRotationY(orbit));
 	}
 	return world;
 }
@@ -150,17 +154,17 @@ void ModelPreview::Render(ID3D12GraphicsCommandList* list, Renderer& renderer,
 						  const Mesh& mesh, const MaterialParams& material, float scale,
 						  float orbit, float aspect, std::span<const Mat4> palette,
 						  ParticleBatch* particles,
-						  std::span<const ParticleInstance> billboards) {
+						  std::span<const ParticleInstance> billboards, const Vec3* pivot) {
 	const PreviewSubmesh one{&mesh, material};
 	Render(list, renderer, std::span<const PreviewSubmesh>{&one, 1}, scale, orbit, aspect,
-		   palette, particles, billboards);
+		   palette, particles, billboards, nullptr, nullptr, nullptr, pivot);
 }
 
 void ModelPreview::Render(ID3D12GraphicsCommandList* list, Renderer& renderer,
 						  std::span<const PreviewSubmesh> subs, float scale, float orbit,
 						  float aspect, std::span<const Mat4> palette, ParticleBatch* particles,
 						  std::span<const ParticleInstance> billboards, const Vec3* fitMin,
-						  const Vec3* fitMax, const Mat4* orient) {
+						  const Vec3* fitMax, const Mat4* orient, const Vec3* pivot) {
 	using namespace DirectX;
 
 	D3D12_RESOURCE_BARRIER toRT = Transition(m_color.Get(),
@@ -174,7 +178,7 @@ void ModelPreview::Render(ID3D12GraphicsCommandList* list, Renderer& renderer,
 
 	const Camera cam = PreviewCamera(aspect);
 	renderer.BeginScene(list, cam, m_lights);
-	const Mat4 world = PreviewWorld(scale, orbit, fitMin, fitMax, orient);
+	const Mat4 world = PreviewWorld(scale, orbit, fitMin, fitMax, orient, pivot);
 	for (const PreviewSubmesh& s : subs)
 		if (s.mesh) renderer.DrawMesh(list, *s.mesh, world, s.material, palette);
 	renderer.FlushTransparent(list);

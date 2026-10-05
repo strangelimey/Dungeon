@@ -75,14 +75,22 @@ struct JointData {
 struct SkeletonData {
 	std::vector<JointData> joints;
 
-	// THE root joint: the first parentless one (the sort puts parents first),
-	// -1 when there are no joints. It has no parent, so its translation is
-	// already model space - where the body stands. The one statement of the
-	// rule for the world (MonsterKind::rigRoot) and the Animator alike.
+	// The rig's ROOT joint: the first parentless one (joints are parent-first),
+	// -1 = no skeleton. The world (MonsterKind::rigRoot) and the Animator's
+	// root-travel lock both ask here.
 	int RootJoint() const {
 		for (size_t j = 0; j < joints.size(); ++j)
 			if (joints[j].parent < 0) return static_cast<int>(j);
 		return -1;
+	}
+	// Where that root stands at rest, in MODEL space (it has no parent, so its
+	// local rest translation is model space); zero without a skeleton. A bought
+	// rig need not rest on its file's origin (the skeleton kit stands ~(0.34,
+	// 0.43) off it), so the game draws and previews a rigged model centred on
+	// this point's XZ - one rule, asked here.
+	Vec3 RootRest() const {
+		const int r = RootJoint();
+		return r >= 0 ? joints[static_cast<size_t>(r)].restTranslation : Vec3{};
 	}
 };
 

@@ -1099,15 +1099,17 @@ void Game::RegisterWorldCommands() {
 	m_console.Register(
 		{.name = "assetpicker",
 		 .group = CmdGroup::Types,
-		 .params = "textures|models|off|status",
+		 .params = "textures|models [name]\noff|status",
 		 .summary = "open the asset pool browser (in the editor), or report it"},
 		[this](const std::vector<std::string>& args) {
 			const std::string sub = args.empty() ? "status" : args[0];
 			if (sub == "textures" || sub == "models") {
 				m_pickApply = nullptr; // a pick goes nowhere
+				// A name opens on that asset, selected and previewed, as a field
+				// naming it would.
 				m_assetPicker.Open(sub == "textures" ? AssetPicker::Mode::Textures
 													 : AssetPicker::Mode::Models,
-								   "", loc::Tr(sub == "textures" ? "map.type.texture"
+								   args.size() > 1 ? args[1] : std::string(), loc::Tr(sub == "textures" ? "map.type.texture"
 																 : "map.type.model"),
 								   m_settings.theme);
 			} else if (sub == "off") {

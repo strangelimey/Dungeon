@@ -2314,8 +2314,9 @@ void Game::UpdateStates(float dt) {
 			m_previewMonMesh = d.mesh;
 			m_previewMonMat = d.material;
 			m_previewMonSubs = d.subs; // multi-material rigs preview every piece
-			m_previewMonScale = d.modelScale;
+			m_previewMonScale = d.scale;
 			m_previewMonYaw = d.modelYaw;
+			m_previewMonPivot = d.pivot;
 			m_previewAnim = anim::Animator(d.skeleton, d.clips);
 			m_previewAnim.LockRootTravel(DungeonWorld::kMonsterRootReach); // as in the world
 			m_previewAnim.Play(clip, /*loop*/ true);
@@ -2634,16 +2635,19 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	std::span<const gfx::PreviewSubmesh> pvSubs; // per-instance dialog (multi-material)
 	const Vec3* pvFitMin = nullptr;             // auto-fit AABB (small items)
 	const Vec3* pvFitMax = nullptr;
+	Vec3 pvPivot{}; // the point a grounded model stands and turns on (a rig's root)
 	if (m_assetPicker.IsOpen() && m_assetPicker.HasPreview()) {
 		// The picker is above the type editor and above the create dialog, so it
 		// claims the shared preview RT first.
 		pvMesh = &m_assetPicker.PreviewMesh();
 		pvMat = m_assetPicker.PreviewMaterial();
 		pvOrbit = m_assetPicker.Orbit();
+		pvPivot = m_assetPicker.PreviewPivot();
 	} else if (m_assetDialog.IsOpen() && m_assetDialog.HasPreview()) {
 		pvMesh = &m_assetDialog.PreviewMesh();
 		pvMat = m_assetDialog.PreviewMaterial();
 		pvOrbit = m_assetDialog.Orbit();
+		pvPivot = m_assetDialog.PreviewPivot();
 	} else if (m_monsterDialog.IsOpen() && m_previewMonMesh) {
 		// The monster-config dialog's live animation: a fixed front-on view (the
 		// mesh faces +Z / the camera is at -Z, so ~π turns it toward the camera),
@@ -2654,6 +2658,7 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		pvSubs = m_previewMonSubs;
 		pvScale = m_previewMonScale;
 		pvOrbit = kPi + m_previewMonYaw; // face the camera + the model's facing fixup
+		pvPivot = m_previewMonPivot;
 		pvAspect = pv.h > 0.0f ? pv.w / pv.h : 1.0f;
 		pvPalette = m_previewAnim.Palette();
 	} else if (InstanceInspector* ii = ActiveInstanceInspector(); ii && ii->HasPreview()) {
@@ -2666,6 +2671,7 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		pvSubs = sp.subs;
 		pvScale = sp.scale;
 		pvOrbit = kPi + sp.yaw + (sp.spin ? m_previewSpin : 0.0f);
+		pvPivot = sp.pivot;
 		pvAspect = pv.h > 0.0f ? pv.w / pv.h : 1.0f;
 		if (sp.skeleton) pvPalette = m_previewAnim.Palette();
 		if (sp.autoFit) {
@@ -2689,11 +2695,11 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	if (!pvSubs.empty()) { // per-instance dialog preview (one or many submeshes)
 		if (pvParticles) pvParticles->NewFrame(m_device.FrameIndex());
 		m_modelPreview.Render(list, m_renderer, pvSubs, pvScale, pvOrbit, pvAspect, pvPalette,
-							  pvParticles, pvBillboards, pvFitMin, pvFitMax);
+							  pvParticles, pvBillboards, pvFitMin, pvFitMax, nullptr, &pvPivot);
 		m_device.BindBackBuffer(list);
 	} else if (pvMesh) {
 		m_modelPreview.Render(list, m_renderer, *pvMesh, pvMat, pvScale, pvOrbit, pvAspect,
-							  pvPalette);
+							  pvPalette, nullptr, {}, &pvPivot);
 		m_device.BindBackBuffer(list);
 	}
 	// The 3D scene draws during play and under the pause menu (frozen) and the

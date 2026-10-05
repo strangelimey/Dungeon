@@ -703,6 +703,10 @@ buffer, reused across all ~25 submissions).
   (`DungeonWorld::MonsterModelWorld`, `MonsterKind::rigRest`; a load logs any
   rig resting > 0.05 off), and a burn plume rides that root joint's live pose
   (`BurnOrigin`) - so a new draw of a monster model goes through that helper.
+  The editor previews take the same point as `gfx::ModelPreview::Render`'s
+  `pivot` (`SkeletonData::RootRest` is the one statement of it), and a monster
+  preview draws in METRES (`MonsterPreviewData::scale` = kUnit x modelscale,
+  capped to fit the pane) - the preview camera frames metres, models are units.
   The kit's clips also carry ROOT MOTION (a walk moves the hips ~0.77 units a
   cycle, a run ~1.3, a death up to 0.6), which slid a walking skeleton ahead of
   its square and snapped it back every loop. The bake keeps it; the PLAYER
