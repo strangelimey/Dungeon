@@ -187,9 +187,13 @@ void Game::WireModuleCallbacks() {
 	};
 	// The sheet's defense breakdown: only the world can resolve worn items,
 	// balance knobs and the live evasion formula.
-	m_ui.defenseFor = [this](const Character& c) { return m_world->DefenseFor(c); };
+	// The sheet is rebuilt on a LANGUAGE SWITCH, which can happen on the title
+	// screen with no world resident yet - so its reads answer "nothing" then.
+	m_ui.defenseFor = [this](const Character& c) {
+		return m_world ? m_world->DefenseFor(c) : DefenseReadout{};
+	};
 	m_ui.defenseWith = [this](const Character& c, const std::string& id) {
-		return m_world->DefenseWith(c, id);
+		return m_world ? m_world->DefenseWith(c, id) : DefenseReadout{};
 	};
 	// The stance slider under a member's hands (docs/damage-system.md). Its
 	// stance runs PAST 1, as far as exert_max: over-exertion costs something now
@@ -243,7 +247,11 @@ void Game::WireModuleCallbacks() {
 	// The hand menu's Magic group enumerates the recipe table (filtered by the
 	// member's vocabulary in GameUI); a picked "cast:<id>" default casts through
 	// the world's façade — the same vocab/mana gates as the dev `cast` command.
-	m_ui.spellDefs = [this] { return m_world->SpellDefs(); };
+	// No world (a language switch on the title screen rebuilds the sheet, which
+	// bakes its spell list): no spells.
+	m_ui.spellDefs = [this] {
+		return m_world ? m_world->SpellDefs() : std::span<const std::unique_ptr<Spell>>{};
+	};
 	m_ui.onCastSpell = [this](size_t member, std::string_view id, size_t hand) {
 		m_world->CastSpellById(member, id, static_cast<int>(hand));
 	};
