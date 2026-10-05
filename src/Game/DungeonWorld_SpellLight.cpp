@@ -24,6 +24,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <format>
 
 namespace dungeon::game {
 
@@ -35,6 +36,22 @@ constexpr float kDimFloor = 0.35f;
 // How far round the party a flare dazzles, in walking steps (the light
 // budget's reach map, so a wall between keeps a monster out of it).
 constexpr u16 kFlareSteps = 3;
+// A stone's light sits a little above it, so it pools on the floor round the
+// stone and climbs the walls from below.
+constexpr float kStoneLightHeight = 0.15f;
+// How often a mote rises off a stone, and how far from the party a stone may be
+// and still shed them (the spark pool is shared with everything in flight).
+constexpr float kStoneMoteEvery = 0.4f;
+constexpr int kStoneMoteSquares = 8;
+
+// How bright a light is with `timeLeft` of `duration` to go: full, then dimming
+// to kDimFloor over its last tenth.
+float DimFor(float timeLeft, float duration) {
+	const float share = duration > 0.0f ? timeLeft / duration : 1.0f;
+	return share >= kDimShare
+			   ? 1.0f
+			   : kDimFloor + (1.0f - kDimFloor) * std::max(share, 0.0f) / kDimShare;
+}
 
 std::string_view SpellLightId(SpellSymbol school) {
 	switch (school) {
@@ -71,10 +88,7 @@ void DungeonWorld::AppendSpellLights(float time) {
 			if (!inst.Is("light") || inst.school == SpellSymbol::Earth) continue;
 			const light::Profile& profile = LightProfileFor(SpellLightId(inst.school));
 			const float scale = SpellLightScale(inst.magnitude);
-			const float share = inst.duration > 0.0f ? inst.timeLeft / inst.duration : 1.0f;
-			const float dim =
-				share >= kDimShare ? 1.0f
-								   : kDimFloor + (1.0f - kDimFloor) * std::max(share, 0.0f) / kDimShare;
+			const float dim = DimFor(inst.timeLeft, inst.duration);
 			const u32 slot = static_cast<u32>(m * 4 + static_cast<size_t>(inst.school));
 			const Vec4 c = ElementColor(inst.school);
 			// AIR WARNS: its storm-flicker runs on a clock that speeds up while
@@ -143,12 +157,17 @@ void DungeonWorld::LightFlare(SpellSymbol school, float power, int casterIndex) 
 				CrackleMonster(monster, damage, casterIndex);
 		break;
 	}
+	case SpellSymbol::Earth:
+		// What the light would show, mapped: every square it reaches.
+		MapAroundParty(static_cast<int>(std::ceil(StoneReach(power))));
+		break;
 	case SpellSymbol::Water: {
 		// Every fire on the party out, and a draught of breath: stamina back.
 		QuenchParty();
 		if (m_roster)
-			for (Character& c : *m_roster)
-				if (c.IsAlive()) c.stamina = std::min(c.maxStamina, c.stamina + power);
+			for (Character& member : *m_roster)
+				if (member.IsAlive())
+					member.stamina = std::min(member.maxStamina, member.stamina + power);
 		break;
 	}
 	default: break;
@@ -326,6 +345,98 @@ bool DungeonWorld::CrackleNearest(float reachSquares, float damage, int source) 
 	if (!nearest) return false;
 	CrackleMonster(*nearest, damage, source);
 	return true;
+}
+
+// --- EARTH: the stone set down (6f) ---------------------------------------------
+
+float DungeonWorld::StoneReach(float power) const {
+	return LightProfileFor("spell_earth").radius * SpellLightScale(power);
+}
+
+int DungeonWorld::MapAroundParty(int steps) {
+	RefreshReach();
+	const int w = m_map.Width(), h = m_map.Height();
+	if (m_reach.size() != static_cast<size_t>(w) * static_cast<size_t>(h)) return 0;
+	int mapped = 0;
+	for (int z = 0; z < h; ++z)
+		for (int x = 0; x < w; ++x)
+			if (m_reach[static_cast<size_t>(z) * w + x] <= steps) {
+				MarkSeen(x, z); // the square and the walls round it
+				++mapped;
+			}
+	return mapped;
+}
+
+void DungeonWorld::PlaceLightStone(float power, float seconds) {
+	const int px = m_party.GridX(), pz = m_party.GridZ();
+	// A stone already in this square gives way to the new one; else a free slot,
+	// else the stone nearest its end.
+	LightStone* slot = nullptr;
+	for (LightStone& s : m_lightStones)
+		if (s.timeLeft > 0.0f && s.x == px && s.z == pz) slot = &s;
+	if (!slot) {
+		slot = &m_lightStones[0];
+		for (LightStone& s : m_lightStones)
+			if (s.timeLeft < slot->timeLeft) slot = &s;
+	}
+	*slot = {px, pz, power, seconds, seconds, 0.0f};
+	// MAPS what it shows: every square its light reaches.
+	MapAroundParty(static_cast<int>(std::ceil(StoneReach(power))));
+	// Set down with a breath of amber dust.
+	const light::Profile& profile = LightProfileFor("spell_earth");
+	const Vec3 at = m_map.CellCenter(px, pz, 0.1f * kUnit);
+	m_projectiles.Puff(at, {profile.color.x * 1.4f, profile.color.y * 1.4f, profile.color.z * 1.4f, 0.0f},
+					   14, 0.5f, 0.9f, 0.03f * kUnit, 0.15f * kUnit);
+}
+
+void DungeonWorld::TickLightStones(float dt) {
+	const light::Profile& profile = LightProfileFor("spell_earth");
+	const int px = m_party.GridX(), pz = m_party.GridZ();
+	for (LightStone& s : m_lightStones) {
+		if (s.timeLeft <= 0.0f) continue;
+		s.timeLeft = std::max(0.0f, s.timeLeft - dt);
+		if (s.timeLeft <= 0.0f) continue; // spent: the slot is free
+		// The odd mote rising off it, while the party is near enough to see it.
+		s.moteClock -= dt;
+		if (s.moteClock > 0.0f) continue;
+		s.moteClock = kStoneMoteEvery;
+		if (std::abs(s.x - px) + std::abs(s.z - pz) > kStoneMoteSquares) continue;
+		const float dim = DimFor(s.timeLeft, s.duration);
+		m_projectiles.Puff(m_map.CellCenter(s.x, s.z, 0.08f * kUnit),
+						   {profile.color.x * dim, profile.color.y * dim, profile.color.z * dim, 0.0f},
+						   1, 0.05f, 1.8f, 0.015f * kUnit, 0.12f * kUnit);
+	}
+}
+
+void DungeonWorld::AppendStoneLights(float time) {
+	const light::Profile& profile = LightProfileFor("spell_earth");
+	for (size_t i = 0; i < m_lightStones.size(); ++i) {
+		const LightStone& s = m_lightStones[i];
+		if (s.timeLeft <= 0.0f) continue;
+		const float scale = SpellLightScale(s.power);
+		const float dim = DimFor(s.timeLeft, s.duration);
+		PushLight(profile, "stone", LightKey(LightKind::Stone, static_cast<u32>(i)),
+				  m_map.CellCenter(s.x, s.z, kStoneLightHeight * kUnit), time,
+				  static_cast<float>(i) * 1.7f, profile.color, scale * dim,
+				  profile.radius * kCellSize * scale * (0.6f + 0.4f * dim));
+	}
+}
+
+std::vector<std::string> DungeonWorld::DescribeLightStones() const {
+	std::vector<std::string> out;
+	for (size_t i = 0; i < m_lightStones.size(); ++i) {
+		const LightStone& s = m_lightStones[i];
+		if (s.timeLeft <= 0.0f) continue;
+		out.push_back(std::format("  stone {}: square {},{}  power {:.1f}  {:.0f} of {:.0f} s  "
+								  "reach {:.1f} sq",
+								  i, s.x, s.z, s.power, s.timeLeft, s.duration,
+								  StoneReach(s.power)));
+	}
+	// With how much of the level is mapped, so a stone's mapping can be read off.
+	const size_t seen = static_cast<size_t>(std::count(m_seen.begin(), m_seen.end(), 1));
+	out.insert(out.begin(), std::format("lightstones: {} on {} (of {}); {} squares mapped",
+										out.size(), m_currentLevel, kLightStones, seen));
+	return out;
 }
 
 } // namespace dungeon::game

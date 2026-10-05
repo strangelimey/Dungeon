@@ -348,6 +348,7 @@ effect.bleed.desc=Una ferita aperta — perde {} salute al secondo finché non s
 effect.burn=In fiamme
 effect.burn.desc=Avvolto dalle fiamme — perde {} salute al secondo finché il fuoco non si spegne.
 log.light_up={} evoca una luce.
+log.light_stone={} posa una pietra luminosa.
 log.light_flare=La luce di {} divampa!
 log.monsters_dazzled=Il bagliore abbaglia {} nemici.
 log.light_scorches=La luce di fuoco strina {} per {}.

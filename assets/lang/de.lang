@@ -348,6 +348,7 @@ effect.bleed.desc=Eine offene Wunde — verliert {} Leben pro Sekunde, bis sie s
 effect.burn=Brennend
 effect.burn.desc=In Flammen — verliert {} Leben pro Sekunde, bis das Feuer erlischt.
 log.light_up={} ruft ein Licht herbei.
+log.light_stone={} legt einen leuchtenden Stein nieder.
 log.light_flare={}s Licht gleißt auf!
 log.monsters_dazzled=Das Gleißen blendet {} Gegner.
 log.light_scorches=Das Feuerlicht versengt {} um {}.

@@ -274,6 +274,16 @@ struct SaveData {
 		std::vector<EffectState> effects;
 	};
 
+	// An Earth light SET DOWN on the level (Stonelight, lighting-updates 6f):
+	// its square, the power it was cast at and how long it has left of how
+	// long. A "lightstone" line; a save without them has none.
+	struct LightStone {
+		int x = 0, z = 0;
+		float power = 0.0f;
+		float timeLeft = 0.0f;
+		float duration = 0.0f;
+	};
+
 	struct LevelState {
 		std::string stem;
 		std::vector<std::pair<int, int>> seen;
@@ -282,6 +292,7 @@ struct SaveData {
 		std::vector<BrokenProp> broken;    // smashed props
 		std::vector<FireBurning> fires;    // lit/doused diffs
 		std::vector<DamagedPiece> damaged; // hurt but standing (hp + effects)
+		std::vector<LightStone> stones;    // Earth lights set down
 	};
 	// One entry per VISITED level, keyed by STEM.
 	//

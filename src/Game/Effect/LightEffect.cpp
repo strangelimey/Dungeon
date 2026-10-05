@@ -37,6 +37,7 @@ void LightEffect::ApplyOverrides(const CatalogEntry& e, const DamageTypeBook& ty
 	m_crackleEvery = std::max(0.2f, e.GetFloat("crackle_every", m_crackleEvery));
 	m_crackleDamage = e.GetFloat("crackle_damage", m_crackleDamage);
 	m_warnRate = std::max(1.0f, e.GetFloat("warn_rate", m_warnRate));
+	m_stoneItem = e.Get("stone_item", m_stoneItem);
 }
 
 DazzleEffect::DazzleEffect()

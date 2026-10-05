@@ -1155,7 +1155,9 @@ try {
 	# a plain Firelight and Tidelight (a light effect landing, refreshed each
 	# time - the per-school stacking), an Ingwaz Skylight (one bigger light), and
 	# a Hagalaz Firelight FLARE at a mummy beside the party (the flash, the dazzle
-	# landing on a monster, Firelight's scorch and the flammable mummy catching).
+	# landing on a monster, Firelight's scorch and the flammable mummy catching),
+	# and a Stonelight (6f: the stone SET DOWN, replacing the last in its square,
+	# and the squares it reaches mapped).
 	# The world is frozen, so the mummy only stands there.
 	if ($Light) {
 		Write-Host 'casting the light spells in crypt1, a mummy beside the party'
@@ -1178,18 +1180,20 @@ try {
 		Send-Text 'setskill 1 water 10'; Send-Key 0x0D
 		Send-Text 'setskill 2 air 10'; Send-Key 0x0D
 		Send-Text 'setskill 3 fire 10'; Send-Key 0x0D
+		Send-Text 'setskill 3 earth 10'; Send-Key 0x0D
 		Send-Text 'autocast 0 firelight 0.5'; Send-Key 0x0D
 		Send-Text 'autocast 1 tidelight'; Send-Key 0x0D
 		Send-Text 'autocast 2 skylight_bright'; Send-Key 0x0D
 		Send-Text 'autocast 3 firelight_flare'; Send-Key 0x0D
+		Send-Text 'autocast 3 stonelight'; Send-Key 0x0D
 		Write-Host '  warming the rotation up'
 		Start-Sleep -Seconds 6
 		$castPattern = 'console:   member \d+ casts \S+: \d+ cast, \d+ failed'
 		$castBefore = @(Select-String -Path $log -Pattern $castPattern).Count
 		Send-Text 'autocast hold'; Send-Key 0x0D
 		Send-Text 'autocast'; Send-Key 0x0D
-		$script:lightRows = Wait-NewLogLines $castPattern $castBefore 4
-		if ($script:lightRows.Count -ne 4) { throw "``autocast`` listed $($script:lightRows.Count) entries, not 4" }
+		$script:lightRows = Wait-NewLogLines $castPattern $castBefore 5
+		if ($script:lightRows.Count -ne 5) { throw "``autocast`` listed $($script:lightRows.Count) entries, not 5" }
 		foreach ($r in $script:lightRows) {
 			if ($r.Line -match ': 0 cast,') { throw "a light spell never cast in the warm-up: $($r.Line -replace '^.*console:\s+', '')" }
 		}
@@ -1814,7 +1818,7 @@ try {
 			if ($now - $was -lt 3) { $short += ($after[$i].Line -replace '^.*casts (\S+):.*$', '$1') }
 		}
 		Write-Host "  the mummy: $mummy"
-		if (($short.Count -gt 0 -or $after.Count -ne 4 -or $mummy -notmatch '\[dazzle ') -and $result -eq 'PASS') {
+		if (($short.Count -gt 0 -or $after.Count -ne 5 -or $mummy -notmatch '\[dazzle ') -and $result -eq 'PASS') {
 			if ($short.Count -gt 0) { Write-Host "too few casts after the warm-up: $($short -join ', ')" -ForegroundColor Yellow }
 			if ($mummy -notmatch '\[dazzle ') { Write-Host 'the flare dazzled nothing - its monster path was not measured' -ForegroundColor Yellow }
 			$result = 'UNMEASURED'

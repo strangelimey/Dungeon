@@ -1361,6 +1361,16 @@ void Game::RegisterDevCommands() {
 						   for (const std::string& line : m_world->DescribeTrails())
 							   m_console.Print(line);
 					   });
+	// The Earth lights set down on this level (Stonelight, lighting-updates 6f).
+	m_console.Register({.name = "lightstones",
+						.group = CmdGroup::Rendering,
+						.params = "[clear]",
+						.summary = "the Earth light stones set down on this level"},
+					   [this](const std::vector<std::string>& args) {
+						   if (!args.empty() && args[0] == "clear") m_world->ClearLightStones();
+						   for (const std::string& line : m_world->DescribeLightStones())
+							   m_console.Print(line);
+					   });
 	// The light budget's measuring tools (lighting-updates Phase 3): a load of
 	// test lights round the party, and the tiled light lists on or off, so the
 	// tiles' saving can be read off `profile snap` in one build.

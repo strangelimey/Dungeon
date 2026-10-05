@@ -50,6 +50,9 @@ public:
 	float CrackleEvery() const { return m_crackleEvery; }
 	float CrackleDamage() const { return m_crackleDamage; }
 	float WarnRate() const { return m_warnRate; }
+	// EARTH (6f): the item whose model the set-down stone draws as (`stone_item`,
+	// glowing in the light's colour; absent from the project = the light alone).
+	std::string_view StoneItem() const { return m_stoneItem; }
 
 private:
 	// Indexed by school (Fire, Earth, Air, Water - the SpellSymbol order).
@@ -63,6 +66,7 @@ private:
 	float m_crackleEvery = 2.0f;
 	float m_crackleDamage = 2.0f;
 	float m_warnRate = 3.0f;
+	std::string m_stoneItem = "rock";
 };
 
 class DazzleEffect : public EffectKind {

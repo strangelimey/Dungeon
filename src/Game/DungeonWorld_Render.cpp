@@ -593,6 +593,9 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 		}
 	}
 
+	// Earth lights set down (Stonelight): each stone glowing where it lies.
+	DrawLightStones(list, cull);
+
 	// THROWN ITEMS in flight (Phase 10): the item itself, tumbling - its model,
 	// or the floor's tablet in its own look - never a glow.
 	m_projectiles.ForEachCargo([&](u32, const Vec3& pos, const Vec3& dir, float age,
@@ -670,6 +673,34 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 			gfx::MaterialParams coals;
 			ApplyPropMaterial(coals, fire.kind->tex2, fire.kind->color2, 0.9f);
 			m_renderer.DrawMesh(list, *fire.kind->mesh2, fire.world, coals);
+		}
+	}
+}
+
+void DungeonWorld::DrawLightStones(ID3D12GraphicsCommandList* list, const ViewCull* cull) {
+	const ItemKind* stone = m_stoneKind;
+	if (!stone || !stone->model) return; // the light alone, then
+	const MultiMaterialModel& mm = *stone->model;
+	const light::Profile& profile = LightProfileFor("spell_earth");
+	for (const LightStone& s : m_lightStones) {
+		if (s.timeLeft <= 0.0f) continue;
+		const Vec3 c = m_map.CellCenter(s.x, s.z);
+		if (cull && !cull->TestSphere({c.x, 0.1f * kUnit, c.z}, 0.3f * kUnit)) continue;
+		// It glows in the light's own colour, fading as the light does.
+		const float share = s.duration > 0.0f ? s.timeLeft / s.duration : 1.0f;
+		const float glow = 0.35f + 0.65f * std::min(1.0f, share * 10.0f);
+		const Mat4 world = FloorItemWorld(mm.boundsMin, mm.boundsMax,
+										  kUnit * stone->modelScale, c.x, 0.0f, c.z);
+		// Tinted toward the light's colour as well as glowing in it - a full-strength
+		// glow over grey stone came out nearly white in its own pool of light.
+		constexpr float kGlow = 0.5f;
+		const Vec3& col = profile.color;
+		for (const MultiMaterialModel::Sub& sub : mm.subs) {
+			gfx::MaterialParams mat = sub.material;
+			mat.baseColor = {mat.baseColor.x * col.x, mat.baseColor.y * col.y,
+							 mat.baseColor.z * col.z, mat.baseColor.w};
+			mat.emissive = {col.x * glow * kGlow, col.y * glow * kGlow, col.z * glow * kGlow};
+			m_renderer.DrawMesh(list, *sub.mesh, world, mat);
 		}
 	}
 }

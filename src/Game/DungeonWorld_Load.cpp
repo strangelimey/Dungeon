@@ -14,6 +14,7 @@
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
 #include "Game/DungeonMeshBuilder.h"
+#include "Game/Effect/LightEffect.h"
 
 #include <algorithm>
 #include <cctype>
@@ -1500,6 +1501,12 @@ void DungeonWorld::ReserveDropRoom() {
 
 void DungeonWorld::PreloadItemKinds() {
 	for (const CatalogEntry* def : m_project.AllItems()) ItemKindFor(def->id);
+	// What an Earth light's stone draws as, found once here: looking a kind up
+	// by name builds a string, and the stones draw every frame.
+	m_stoneKind = nullptr;
+	if (const fx::LightEffect* light = SpellLightKind();
+		light && m_project.HasItem(light->StoneItem()))
+		m_stoneKind = &ItemKindFor(std::string(light->StoneItem()));
 }
 
 // Floor items occupy the Medium 2x2 quarter grid (up to 4 per cell). Pick the

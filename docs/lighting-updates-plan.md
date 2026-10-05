@@ -386,6 +386,29 @@ committed and checked on its own:
   square it was cast in, part of that level's saved state (`LevelState`), its
   light pushed from there (`LightKind::Stone`), lasting longest (`duration`).
   MAPS: the squares within its reach are marked seen. SHOWS TRACKS (below).
+  DONE: Stonelight overrides LightOn - nothing lands on the caster; the new
+  `placeLightStone` cast service (at the END of CastServices) sets a stone in
+  the party's square. The world holds a FIXED pool of 8 a level
+  (`m_lightStones`: square, power, time left, duration): a stone already in that
+  square gives way, past the pool the one nearest its end. Each pushes
+  `LightKind::Stone` from `spell_earth` a little above the floor (dimming over
+  its last tenth), sheds the odd amber mote while the party is within 8 squares,
+  and draws as effects.cat [light] `stone_item` (the rock; resolved ONCE in
+  PreloadItemKinds, since a lookup by name builds a string) tinted and glowing
+  amber. MAPS: every square within the light's reach in WALKING steps (the light
+  budget's reach map, so a wall stops it) is marked seen with the walls round
+  it - also the Earth flare's once-effect. SAVED: SaveData::LevelState::stones,
+  a `lightstone x z power left duration` line, captured in SnapshotActive and
+  restored in ApplyActiveSnapshot, cleared with the pending volleys; a level
+  left behind is not simulated, so its stones wait. Dev `lightstones [clear]`
+  (with how many squares the level has mapped). `autocast` holds 6 entries now.
+  Measured headless: a level-10 stone (power 18.7, 351 s, reach 4.9 squares)
+  took crypt1 from 9 squares mapped to 58; it survived save -> reset -> load and
+  a trip to crypt2 and back. Seen in the window: a small amber stone in its own
+  pool of light, motes rising, the room mapped. Checked: AllocTest `-Light` (a
+  Stonelight now in the rotation, 6 casts in the window), default, `-Cast`,
+  `-Walk`, `-Light -Walk`; SpellTest 39, PipelineTest, RollTest 396; release
+  builds. NOT YET: a stone has no map marker.
 
 6g. MONSTER TRACKS. Every monster step records its square and direction and
   the world time on the level (a per-level grid, saved in `LevelState` as ages,

@@ -352,6 +352,10 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 								 EnTok(fx.id), EnTok(fx.school), fx.time, fx.duration,
 								 fx.magnitude, fx.source);
 		}
+		// Earth lights set down: square, power, time left, of how long.
+		for (const SaveData::LightStone& s : lvl.stones)
+			t += std::format("lightstone {} {} {:.3f} {:.3f} {:.3f}\n", s.x, s.z, s.power,
+							 s.timeLeft, s.duration);
 		if (!lvl.seen.empty()) {
 			t += "seen";
 			for (const auto& [x, z] : lvl.seen) t += std::format(" {},{}", x, z);
@@ -738,6 +742,15 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 				if (tok.size() >= 7) fx.source = IntOf(tok[6]);
 				currentBlock().damaged.back().effects.push_back(std::move(fx));
 			}
+		} else if (kw == "lightstone" && tok.size() >= 6) {
+			// An Earth light set down: <x> <z> <power> <time left> <duration>.
+			SaveData::LightStone s;
+			s.x = IntOf(tok[1]);
+			s.z = IntOf(tok[2]);
+			s.power = FloatOf(tok[3]);
+			s.timeLeft = FloatOf(tok[4]);
+			s.duration = FloatOf(tok[5]);
+			currentBlock().stones.push_back(s);
 		} else if (kw == "seen") {
 			SaveData::LevelState& lvl = currentBlock();
 			for (size_t i = 1; i < tok.size(); ++i) {

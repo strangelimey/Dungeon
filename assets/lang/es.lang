@@ -348,6 +348,7 @@ effect.bleed.desc=Una herida abierta — pierde {} de salud por segundo hasta qu
 effect.burn=Ardiendo
 effect.burn.desc=En llamas — pierde {} de salud por segundo hasta que el fuego se apague.
 log.light_up={} invoca una luz.
+log.light_stone={} deja una piedra luminosa.
 log.light_flare=¡La luz de {} destella!
 log.monsters_dazzled=El destello deslumbra a {} enemigos.
 log.light_scorches=La luz de fuego chamusca a {} por {}.

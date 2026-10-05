@@ -130,6 +130,7 @@ bool DungeonWorld::InstallLevel(const std::string& stem, DungeonMap&& map,
 	// Transient things positioned in the level that just ceased to exist.
 	m_projectiles.Clear();
 	m_pendingBoltCount = 0; // and any volley still waiting its turn
+	m_lightStones = {};     // and any Earth light set down (a level's own state)
 	m_pendingTransition.reset();
 	m_pendingFall.reset();
 	m_fallT = -1.0f;

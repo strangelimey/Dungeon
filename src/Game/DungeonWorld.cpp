@@ -252,7 +252,8 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		 },
 		 [this](SpellSymbol school, float power, int casterIndex) {
 			 LightFlare(school, power, casterIndex);
-		 }});
+		 },
+		 [this](float power, float seconds) { PlaceLightStone(power, seconds); }});
 
 	// The torch flames' pool, each at its full size now: a torch landing or
 	// lighting on the floor mid-fight then allocates nothing.
@@ -497,6 +498,7 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 	TickFloorTorches(dt);     // ...and the ones lying lit on the floor
 	TickHandGlows(dt);        // a hand spell's puff of light fading
 	TickSpellLights(dt);      // what the Sowilo lights do: kindle, scorch, ...
+	TickLightStones(dt);      // ...and the Earth stones set down on this level
 	// The camera FIRST: the light budget culls against this frame's view, and
 	// a cull against last frame's would drop a light the turn just revealed.
 	UpdateCamera();
@@ -763,6 +765,7 @@ void DungeonWorld::UpdateLights(float time) {
 	AppendFlightLights(time);
 	// The Sowilo light spells on the party (DungeonWorld_SpellLight.cpp).
 	AppendSpellLights(time);
+	AppendStoneLights(time);
 
 	// One light per burning fire, just above its flame, from its KIND'S profile
 	// (fixtures.cat `light`: fire_sconce / fire_brazier in lights.cat). The

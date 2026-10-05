@@ -56,6 +56,7 @@ bool DungeonWorld::BuildArena(ArenaShape shape, int w, int h, ArenaInfo& out) {
 	m_buttons.clear();
 	m_projectiles.Clear();
 	m_pendingBoltCount = 0; // and any volley still waiting its turn
+	m_lightStones = {};     // and any Earth light set down (a level's own state)
 
 	// --- 2. strip the map's own furniture -----------------------------------
 	// Per-cell removers rather than reaching into the vectors: they are the

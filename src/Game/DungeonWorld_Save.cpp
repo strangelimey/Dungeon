@@ -74,6 +74,7 @@ void DungeonWorld::ResetForNewGame() {
 	m_partyWiped = false;
 	m_projectiles.Clear(); // drop any bolts/sparks still in flight from a prior run
 	m_pendingBoltCount = 0; // and any volley still waiting its turn
+	m_lightStones = {};     // and any Earth light set down (a level's own state)
 	// Rebuild items from the .ent baseline so runes return to their spawn cells
 	// (and any dropped tablets from a prior session are forgotten).
 	m_items.clear();
@@ -316,6 +317,9 @@ SaveData::LevelState DungeonWorld::SnapshotActive() const {
 	for (const Door& d : m_doors) damaged(d.brk, d.x, d.z, d.type, -1);
 	for (const FixtureBreak& fb : m_fixtureBreaks)
 		damaged(fb.brk, fb.x, fb.z, fb.type, fb.wall);
+	// Earth lights set down (6f): each still burning, with what it has left.
+	for (const LightStone& s : m_lightStones)
+		if (s.timeLeft > 0.0f) ls.stones.push_back({s.x, s.z, s.power, s.timeLeft, s.duration});
 	return ls;
 }
 
@@ -460,6 +464,16 @@ void DungeonWorld::ApplyActiveSnapshot() {
 		// ...and which torch is in it, when not its own.
 		if (!f.empty && !f.torch.empty() && f.wall >= 0)
 			m_map.SetSconceTorch(f.x, f.z, f.wall, f.torch, f.torchCharge);
+	}
+	// Earth lights set down (6f), as they were left - into the pool's first
+	// slots, the rest free. One off the map (the level was edited under the
+	// save) is dropped.
+	m_lightStones = {};
+	size_t stoneSlot = 0;
+	for (const SaveData::LightStone& s : ls.stones) {
+		if (stoneSlot >= m_lightStones.size() || s.timeLeft <= 0.0f) continue;
+		if (s.x < 0 || s.z < 0 || s.x >= m_map.Width() || s.z >= m_map.Height()) continue;
+		m_lightStones[stoneSlot++] = {s.x, s.z, s.power, s.timeLeft, s.duration, 0.0f};
 	}
 	// Re-break what was broken (v24). A saved entry naming a prop this level no
 	// longer has is simply dropped — the level was edited under the save, and a

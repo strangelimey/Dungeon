@@ -352,6 +352,7 @@ effect.bleed.desc=Открытая рана — теряет {} здоровья
 effect.burn=Горение
 effect.burn.desc=В огне — теряет {} здоровья в секунду, пока пламя не погаснет.
 log.light_up={} вызывает свет.
+log.light_stone={} кладёт светящийся камень.
 log.light_flare=Свет ({}) вспыхивает!
 log.monsters_dazzled=Вспышка ослепляет врагов: {}.
 log.light_scorches=Огненный свет опаляет: {} ({}).

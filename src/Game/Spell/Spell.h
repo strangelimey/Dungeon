@@ -124,6 +124,10 @@ struct CastServices {
 	// nothing for a time that grows with `power` - and the school's light does
 	// its thing once. Credited to `casterIndex`.
 	std::function<void(SpellSymbol school, float power, int casterIndex)> lightFlare;
+	// An Earth light SET DOWN (Phase 6f): a glowing stone left in the party's
+	// square at `power` for `seconds`, part of that level's state, mapping the
+	// squares it reaches.
+	std::function<void(float power, float seconds)> placeLightStone;
 };
 
 // Everything a single cast knows: who, from where, at what strength. The

@@ -507,7 +507,7 @@ public:
 		// is never limited by the pool. Fixed capacity and the spell id held
 		// inline, so a tick allocates nothing of its own (the rule it measures).
 		struct AutoCast {
-			static constexpr int kMaxEntries = 4;
+			static constexpr int kMaxEntries = 6;
 			struct Entry {
 				int member = 0;
 				char spell[32] = {};
@@ -753,6 +753,15 @@ public:
 	// A light spell's Hagalaz flare (DungeonWorld_SpellLight.cpp): a flash round
 	// the party, the monsters within a few steps DAZZLED, the school's light once.
 	void LightFlare(SpellSymbol school, float power, int casterIndex);
+	// EARTH's light SET DOWN (Stonelight, Phase 6f): a glowing stone in the
+	// party's square at `power` for `seconds` - part of this level's saved state -
+	// that maps every square it reaches. A stone already in that square is
+	// replaced; past the pool (kLightStones a level) the one nearest its end goes.
+	void PlaceLightStone(float power, float seconds);
+	// The stones on this level, one line each (the `lightstones` readout), and
+	// clearing them all.
+	std::vector<std::string> DescribeLightStones() const;
+	void ClearLightStones() { m_lightStones = {}; }
 	// What stamina regenerates at right now beyond its own rate: 1, or more in a
 	// Tidelight (it SOOTHES) - for the `regen` readout.
 	float StaminaRegenScale() const { return StaminaSoothe(); }
@@ -3705,6 +3714,7 @@ private:
 		HandGlow,  // a hand spell's puff of light (HandPuff), keyed by its slot
 		Worn,      // an item on the doll or in a hand giving light: member x slots + slot
 		Spell,     // a Sowilo light on a member: member x 4 + school
+		Stone,     // an Earth light set down (Stonelight), keyed by its m_lightStones slot
 	};
 	static u32 LightKey(LightKind kind, u32 index) {
 		return (static_cast<u32>(kind) << 24) | (index & 0xFFFFFFu);
@@ -3995,6 +4005,35 @@ private:
 	// Per-member scorch clocks, and the kindling check's (every quarter second).
 	std::array<float, 4> m_scorchClock{};
 	float m_kindleClock = 0.0f;
+	// EARTH (6f): the stones set down on THIS level - a fixed pool, so a cast in
+	// a guarded frame allocates nothing. timeLeft <= 0 is a free slot. Captured
+	// into the level's LevelState when it is left or saved (SnapshotActive) and
+	// put back when it is entered (ApplyActiveSnapshot); a level left behind is
+	// not simulated, so its stones wait for the party with the rest of it.
+	struct LightStone {
+		int x = 0, z = 0;
+		float power = 0.0f;
+		float timeLeft = 0.0f;
+		float duration = 0.0f;
+		float moteClock = 0.0f; // the next mote off it (not saved)
+	};
+	static constexpr size_t kLightStones = 8;
+	std::array<LightStone, kLightStones> m_lightStones{};
+	// What a stone draws as (the light kind's `stone_item`, resolved once in
+	// PreloadItemKinds; null = the light alone).
+	const ItemKind* m_stoneKind = nullptr;
+	// Counts the stones down and lets the odd mote rise off each.
+	void TickLightStones(float dt);
+	// One light per stone, from `spell_earth`, dimming over its last tenth.
+	void AppendStoneLights(float time);
+	// The stones themselves, as `stone_item`'s model glowing (Render).
+	void DrawLightStones(ID3D12GraphicsCommandList* list, const ViewCull* cull);
+	// MAPS what it shows: every square within `steps` walking steps of the
+	// party (the light budget's reach map, so a wall stops it) marked seen,
+	// with the walls round them.
+	int MapAroundParty(int steps);
+	// How far, in squares, an Earth light of `power` reaches.
+	float StoneReach(float power) const;
 	// Where a lit floor item's flame burns (its model's head, as it lies).
 	Vec3 FloorTorchHead(const Item& item) const;
 	// THE TORCH FLAMES: a lit torch on the floor or in flight burns with a
