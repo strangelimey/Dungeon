@@ -239,6 +239,13 @@ public:
 		// kContextShade so the subject stands out, and fits the view to both.
 		// A door's iron straps or bronze bosses alone were scattered specks.
 		void AddContext(PoolModelLook&& context);
+		// A SLENDER model (kSlender times taller than it is wide - the door
+		// chain, 7.7) fitted whole into a square tile is a hairline: framed on
+		// its top kSlenderTop of height instead - its mount and first links,
+		// big enough to read, the rest running off the tile's foot. Tiles only;
+		// the preview pane is tall enough to show it whole.
+		void FrameSlenderTop();
+		static constexpr float kSlender = 6.0f, kSlenderTop = 0.4f;
 		static constexpr float kContextShade = 0.45f;
 		// Re-measures lo/hi with the parts posed by `palette` (CPU skinning, the
 		// shader's sum), so a view fits the pose it shows rather than the

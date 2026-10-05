@@ -662,8 +662,10 @@ void Game::WireModuleCallbacks() {
 				if (drawn == model) return e.Get("texture", e.id);
 				const std::string part2 = e.Get("part2_model", "");
 				if (!part2.empty() && part2 == model) return e.Get("part2_texture", "");
-				// A fixture's bare bracket, its torch taken, wears the fixture's set.
+				// A fixture's bare bracket, its torch taken, wears the fixture's set;
+				// an opener's mount (the chain's socket) the opener's.
 				if (e.Get("empty_model", "") == model) return e.Get("texture", e.id);
+				if (e.Find("style") && e.Get("mount", "") == model) return e.Get("texture", e.id);
 			}
 		return model;
 	};

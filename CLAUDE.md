@@ -1694,7 +1694,10 @@ door's `trim` on its leaf, an opener on its `mount`. The rune tablet wears the
 first rune's set (a rune names no model), a fixture's `empty_model` its
 fixture's. A PLATE (flat and broad on both horizontal axes - the grate, the coal
 bed) is seen three-quarter from above. `sinks` needs 0.1 below the floor, not a
-sliver (the door chain dips 0.027 and was looked at end-on, a dot). Survey all
+sliver (the door chain dips 0.027 and was looked at end-on, a dot). A SLENDER
+model's TILE (6x taller than wide - only the door chain, 7.7; next is 4.8) frames
+its top 40% (`FrameSlenderTop`): mount and first links, readable; the preview
+still shows it whole. An opener's `mount` wears the opener's set. Survey all
 89 tiles when changing any of this: open the picker on every eighth model.
 A surface or wall feature has no set of its own, so it is shown in the project's
 first floor / ceiling / wall type, what it wears in a level. A feature's INSIDE

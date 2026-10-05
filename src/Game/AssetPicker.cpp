@@ -451,15 +451,26 @@ std::unique_ptr<DungeonWorld::PoolModelLook> AssetPicker::LoadLook(const std::st
 	auto look = DungeonWorld::LoadPoolModelLook(
 		m_device, paths::Asset("models\\" + file), SetStemFor(modelName), thumbPx,
 		idleClipFor ? idleClipFor(modelName) : std::string(), MountOf(modelName));
-	if (!look || !contextFor) return look;
-	const std::string context = contextFor(modelName);
-	if (context.empty()) return look;
-	const auto it = std::ranges::find(m_items, context, &AssetInfo::name);
-	if (it == m_items.end()) return look; // the leaf / mount is not installed
-	auto ctx = DungeonWorld::LoadPoolModelLook(m_device, paths::Asset("models\\" + it->file),
-											   SetStemFor(context), thumbPx, {},
-											   MountOf(context));
-	if (ctx) look->AddContext(std::move(*ctx));
+	if (!look) return look;
+	// Slenderness is the SUBJECT's, measured before any context widens it.
+	const bool slender = thumbPx > 0 && [&] {
+		const Vec3 &lo = look->lo, &hi = look->hi;
+		const float w = std::max(hi.x - lo.x, hi.z - lo.z);
+		return !look->rigged && w > 0.0f &&
+			   hi.y - lo.y >= DungeonWorld::PoolModelLook::kSlender * w;
+	}();
+	if (contextFor) {
+		const std::string context = contextFor(modelName);
+		const auto it = context.empty() ? m_items.end()
+										: std::ranges::find(m_items, context, &AssetInfo::name);
+		if (it != m_items.end()) { // the leaf / mount, when installed
+			auto ctx = DungeonWorld::LoadPoolModelLook(
+				m_device, paths::Asset("models\\" + it->file), SetStemFor(context), thumbPx,
+				{}, MountOf(context));
+			if (ctx) look->AddContext(std::move(*ctx));
+		}
+	}
+	if (slender) look->FrameSlenderTop();
 	return look;
 }
 
