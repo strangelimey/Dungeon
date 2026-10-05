@@ -607,6 +607,16 @@ void Game::WireModuleCallbacks() {
 			}
 		return model;
 	};
+	// A rig's idle: the first `anim_idle` clip of a monster drawn with it.
+	m_assetPicker.idleClipFor = [this](const std::string& model) {
+		for (const CatalogEntry& e : m_project.monsters.Entries()) {
+			if (e.Get("model", e.id) != model) continue;
+			const std::string idle = e.Get("anim_idle", "");
+			const size_t end = idle.find_first_of(" \t,");
+			if (!idle.empty()) return idle.substr(0, end);
+		}
+		return std::string();
+	};
 	// Provenance, for the details pane: what the editor's own imports recorded.
 	m_assetPicker.sourceOf = [this](const std::string& name) {
 		// Texture sets install resolution-tagged, and that is the key the

@@ -176,9 +176,11 @@ public:
 	// LIFETIME: this only RECORDS the draw, so `mesh` must outlive the frame.
 	// The parts are drawn as given (the caller resolved their materials -
 	// PoolModelLook below).
+	// `palette` poses a rigged model (its idle frame; empty = as modelled).
 	void BakeIconFor(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
 					 std::span<const gfx::PreviewSubmesh> parts, const Vec3& lo,
-					 const Vec3& hi, const gfx::Texture& target);
+					 const Vec3& hi, const gfx::Texture& target,
+					 std::span<const Mat4> palette = {});
 	// A POOL model as the editor's asset picker shows it, preview and tile alike:
 	// every primitive (not just meshes[0]) with its own glTF material and
 	// embedded textures (the baked .dds sidecars, as the game loads them), node
@@ -193,13 +195,26 @@ public:
 		std::vector<gfx::PreviewSubmesh> parts; // point into the two above
 		Vec3 lo{}, hi{};                        // bounds of the baked geometry
 		bool rigged = false;                    // it carries a skeleton (a creature)
+		// A rigged model is SHOWN in its idle, not its bind pose (a T-pose for
+		// the bought kit): `data` keeps the skeleton and clips an Animator
+		// borrows, `idleClip` is what it plays ("" = no idle; the rest pose).
+		std::shared_ptr<const assets::ModelData> data;
+		std::string idleClip;
+		// Re-measures lo/hi with the parts posed by `palette` (CPU skinning, the
+		// shader's sum), so a view fits the pose it shows rather than the
+		// T-pose's outstretched arms.
+		void FitToPose(std::span<const Mat4> palette);
 	};
 	// Null when the file will not load. `thumbPx` > 0 loads the bound set's
 	// maps trimmed to that size (a tile), else at the stem's full resolution.
+	// `idleHint` is the clip a catalog names as the model's idle (monsters.cat
+	// `anim_idle`); without one, a clip named idle (`idle__...`, the library's
+	// state prefix) is used.
 	static std::unique_ptr<PoolModelLook> LoadPoolModelLook(gfx::GraphicsDevice& device,
 															const std::string& modelPath,
 															const std::string& setStem,
-															u32 thumbPx = 0);
+															u32 thumbPx = 0,
+															const std::string& idleHint = {});
 	// The baked icons for already-loaded kinds, or null (not loaded / not baked
 	// yet) — the map overlay then falls back to its square markers. These never
 	// force-load a model (browse markers may name unloaded types).
@@ -3820,7 +3835,8 @@ private:
 	// asset picker's tiles. One part for a plain mesh, one per primitive else.
 	void BakeMeshIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
 					  std::span<const gfx::PreviewSubmesh> parts, const Vec3& lo,
-					  const Vec3& hi, const gfx::Texture& target);
+					  const Vec3& hi, const gfx::Texture& target,
+					  std::span<const Mat4> palette = {});
 	std::vector<Item> m_items;
 	std::vector<Button> m_buttons; // .ent buttons (toggle wired doors by name)
 	std::vector<Door> m_doors;     // .ent doors (live open/anim state)

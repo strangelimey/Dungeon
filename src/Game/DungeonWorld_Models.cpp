@@ -24,6 +24,8 @@
 #include "Game/AssetUtil.h"
 #include "Game/DungeonWorld.h"
 
+using namespace DirectX;
+
 namespace dungeon::game {
 
 std::shared_ptr<const assets::ModelData> DungeonWorld::ModelFile(const std::string& file) {
@@ -58,7 +60,7 @@ void DungeonWorld::ForgetModelFile(const std::string& file) {
 // in VRAM for the session. The picker owns the result and drops it.
 std::unique_ptr<DungeonWorld::PoolModelLook> DungeonWorld::LoadPoolModelLook(
 	gfx::GraphicsDevice& device, const std::string& modelPath, const std::string& setStem,
-	u32 thumbPx) {
+	u32 thumbPx, const std::string& idleHint) {
 	auto data = assets::LoadModel(modelPath, {.bakedImages = true});
 	if (!data || data->meshes.empty()) return nullptr;
 	std::unique_ptr<MultiMaterialModel> multi = BuildMultiMaterialModel(device, *data);
@@ -68,6 +70,26 @@ std::unique_ptr<DungeonWorld::PoolModelLook> DungeonWorld::LoadPoolModelLook(
 	look->lo = multi->boundsMin;
 	look->hi = multi->boundsMax;
 	look->rigged = data->skeleton.RootJoint() >= 0;
+	if (look->rigged && !data->clips.empty()) {
+		// The idle: the catalog's, else the library's `idle__` clips or a plain
+		// `idle` (the baker's rigs). Never just the FIRST clip - the kit's first
+		// is a spawn that starts lying on the floor.
+		auto has = [&](const std::string& name) {
+			return std::ranges::any_of(data->clips, [&](const assets::AnimationClipData& c) {
+				return c.name == name;
+			});
+		};
+		if (!idleHint.empty() && has(idleHint)) {
+			look->idleClip = idleHint;
+		} else {
+			for (const assets::AnimationClipData& c : data->clips)
+				if (c.name == "idle" || c.name.starts_with("idle__")) {
+					look->idleClip = c.name;
+					break;
+				}
+		}
+		look->data = std::make_shared<const assets::ModelData>(std::move(*data));
+	}
 
 	// Which material wins, by the world's own split: a single-primitive .gltf is
 	// drawn by its catalog set (MonsterKindFor takes the multi-material path only
@@ -118,6 +140,38 @@ std::unique_ptr<DungeonWorld::PoolModelLook> DungeonWorld::LoadPoolModelLook(
 		look->parts.push_back({sub.mesh.get(), sub.material});
 	}
 	return look;
+}
+
+void DungeonWorld::PoolModelLook::FitToPose(std::span<const Mat4> palette) {
+	if (!data || palette.empty()) return;
+	Vec3 l{1e9f, 1e9f, 1e9f}, h{-1e9f, -1e9f, -1e9f};
+	for (const assets::MeshData& mesh : data->meshes) {
+		// The node transform first, as BuildMultiMaterialModel baked it into the
+		// uploaded vertices, then the skinning sum the scene shader does.
+		const XMMATRIX node = XMLoadFloat4x4(&mesh.worldTransform);
+		for (const assets::Vertex& v : mesh.vertices) {
+			const XMVECTOR p = XMVector3Transform(
+				XMVectorSet(v.position.x, v.position.y, v.position.z, 1.0f), node);
+			XMVECTOR s = XMVectorZero();
+			float total = 0.0f;
+			for (int i = 0; i < 4; ++i) {
+				if (v.weights[i] <= 0.0f || v.joints[i] >= palette.size()) continue;
+				s = XMVectorAdd(s, XMVectorScale(XMVector3Transform(
+													 p, XMLoadFloat4x4(&palette[v.joints[i]])),
+												 v.weights[i]));
+				total += v.weights[i];
+			}
+			if (total <= 0.0f) s = p; // an unweighted vertex stays put
+			XMFLOAT3 f;
+			XMStoreFloat3(&f, s);
+			l = {std::min(l.x, f.x), std::min(l.y, f.y), std::min(l.z, f.z)};
+			h = {std::max(h.x, f.x), std::max(h.y, f.y), std::max(h.z, f.z)};
+		}
+	}
+	if (h.x >= l.x) {
+		lo = l;
+		hi = h;
+	}
 }
 
 } // namespace dungeon::game

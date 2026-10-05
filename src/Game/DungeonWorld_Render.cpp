@@ -1076,15 +1076,17 @@ void DungeonWorld::UpdateMapIcons(ID3D12GraphicsCommandList* list,
 void DungeonWorld::BakeIconFor(ID3D12GraphicsCommandList* list,
 							   gfx::SpriteBatch& sprites,
 							   std::span<const gfx::PreviewSubmesh> parts, const Vec3& lo,
-							   const Vec3& hi, const gfx::Texture& target) {
+							   const Vec3& hi, const gfx::Texture& target,
+							   std::span<const Mat4> palette) {
 	EnsureIconBakeTargets();
-	BakeMeshIcon(list, sprites, parts, lo, hi, target);
+	BakeMeshIcon(list, sprites, parts, lo, hi, target, palette);
 }
 
 void DungeonWorld::BakeMeshIcon(ID3D12GraphicsCommandList* list,
 								gfx::SpriteBatch& sprites,
 								std::span<const gfx::PreviewSubmesh> parts, const Vec3& lo,
-								const Vec3& hi, const gfx::Texture& target) {
+								const Vec3& hi, const gfx::Texture& target,
+								std::span<const Mat4> palette) {
 	D3D12_RESOURCE_BARRIER toRT = gfx::Transition(
 		target.Resource(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
 		D3D12_RESOURCE_STATE_RENDER_TARGET);
@@ -1122,7 +1124,7 @@ void DungeonWorld::BakeMeshIcon(ID3D12GraphicsCommandList* list,
 	m_renderer.BeginScene(list, cam, IconStudioLights()); // the shared studio rig
 
 	for (const gfx::PreviewSubmesh& part : parts)
-		if (part.mesh) m_renderer.DrawMesh(list, *part.mesh, world, part.material);
+		if (part.mesh) m_renderer.DrawMesh(list, *part.mesh, world, part.material, palette);
 	m_renderer.FlushTransparent(list);
 
 	D3D12_RESOURCE_BARRIER toSRV = gfx::Transition(

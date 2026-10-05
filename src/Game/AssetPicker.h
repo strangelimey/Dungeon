@@ -87,6 +87,12 @@ public:
 	// runs from a dagger to a staircase, and no single grounded scale suits both.
 	bool HasPreview() const { return !m_previewParts.empty(); }
 	std::span<const gfx::PreviewSubmesh> PreviewParts() const { return m_previewParts; }
+	// A rigged model plays its idle (looping, advanced by Update); empty for
+	// anything else, which draws as modelled.
+	std::span<const Mat4> PreviewPalette() const {
+		return m_previewPosed ? std::span<const Mat4>(m_previewAnim.Palette())
+							  : std::span<const Mat4>();
+	}
 	float Orbit() const { return m_orbit; }
 	// The bounds the preview is fitted on: the model's, or the wall block's for a
 	// texture set (null until something is previewed).
@@ -102,6 +108,9 @@ public:
 	// catalogs; "" = none bound). The preview and tiles put it on the parts the
 	// model does not texture itself, as the world does.
 	std::function<std::string(const std::string&)> textureFor;
+	// The clip a catalog names as a rigged model's idle (monsters.cat
+	// `anim_idle`; "" = none named, so the loader looks for an idle by name).
+	std::function<std::string(const std::string&)> idleClipFor;
 
 	// The Choose button (and a double-click on a tile): the picked name.
 	std::function<void(const std::string&)> onChoose;
@@ -121,7 +130,8 @@ public:
 		std::string name;
 		std::span<const gfx::PreviewSubmesh> parts;
 		gfx::Texture* target = nullptr;
-		Vec3 lo, hi; // model bounds, for the whole-model fit
+		Vec3 lo, hi; // model bounds (as posed), for the whole-model fit
+		std::span<const Mat4> palette; // a rigged model's idle frame; else empty
 	};
 	std::vector<PendingBake> PendingBakes(size_t max) const;
 	void MarkBaked(const std::string& name);
@@ -161,6 +171,7 @@ private:
 	struct Thumb {
 		std::unique_ptr<gfx::Texture> texture;
 		std::unique_ptr<DungeonWorld::PoolModelLook> look; // models: the bake's source
+		std::vector<Mat4> palette; // a rigged model's idle frame (dropped with look)
 		bool needsBake = false; // target + model ready, draw not recorded
 		u64 bakedAt = 0;        // ThumbCache frame the draw was recorded on
 	};
@@ -259,6 +270,10 @@ private:
 	// A model: all of it.
 	std::unique_ptr<DungeonWorld::PoolModelLook> m_previewLook;
 	std::vector<gfx::PreviewSubmesh> m_previewParts; // what the owner draws
+	// A rigged model's idle. Borrows m_previewLook->data, so it is reset BEFORE
+	// the look whenever the selection changes.
+	anim::Animator m_previewAnim;
+	bool m_previewPosed = false; // m_previewAnim is playing an idle
 	Vec3 m_fitLo{}, m_fitHi{}; // the fit's bounds (PreviewFitMin / Max)
 	bool m_stands = true;      // PreviewStands
 	// Installed texture sets by name -> resolution bits, for SetStemFor (read

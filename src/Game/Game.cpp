@@ -2644,6 +2644,7 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		// the wall block wearing it) is fitted to the pane and turns upright on a
 		// turntable, or tumbles if it lies flat.
 		pvSubs = m_assetPicker.PreviewParts();
+		pvPalette = m_assetPicker.PreviewPalette(); // a rig in its idle
 		pvOrbit = m_assetPicker.Orbit();
 		pvFitMin = m_assetPicker.PreviewFitMin();
 		pvFitMax = m_assetPicker.PreviewFitMax();
@@ -2771,7 +2772,7 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		bool baked = false;
 		for (const AssetPicker::PendingBake& bake : m_assetPicker.PendingBakes(2)) {
 			m_world->BakeIconFor(list, m_spriteBatch, bake.parts, bake.lo, bake.hi,
-								*bake.target);
+								*bake.target, bake.palette);
 			m_assetPicker.MarkBaked(bake.name);
 			baked = true;
 		}

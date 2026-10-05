@@ -1564,7 +1564,12 @@ only fills an untextured part. A tile drops that model's meshes and textures
 kFrameCount Ticks after its bake (`Thumb::bakedAt`), keeping only the 256 px
 image, so browsing never parks a rig's maps on the SRV heap. The preview is
 FITTED to the pane (a dagger to a staircase); a flat model tumbles, a standing or
-rigged one turns upright (`PreviewStands`).
+rigged one turns upright (`PreviewStands`). A RIGGED model shows its IDLE, not
+its bind pose: the preview plays it looping, a tile bakes its first frame, and
+both fit the POSED bounds (`PoolModelLook::FitToPose`, CPU skinning). The idle is
+the catalog's (`AssetPicker::idleClipFor`, monsters.cat `anim_idle`), else an
+`idle` / `idle__...` clip - never the first clip, which for the kit is a spawn
+lying on the floor.
 RIGHT-CLICKING a palette row opens the per-TYPE catalog editor
 (TypeEditorDialog) for EVERY category — one dialog, because it renders its form
 from a SCHEMA: Game/CatalogSchema.h is a FieldSpec table per catalog (key, kind,
