@@ -320,6 +320,12 @@ range bonus on top; the Generate button gets a die.
   archer 7.08 -> 9.06, lurker 13.93 -> 15.74 (now the top, by its bleed), blob
   10.89 -> 12.72, centipede 9.85 -> 11.57 and giant spider 11.75 -> 13.01 (their
   poison); a kind with no shot, no `powers` and no on-hit effect is unchanged.
+  A BURST bolt is priced by its BLAST (code-review C1, when the burst started
+  going off on the party it reaches): the detonation square's damage, NOT rolled,
+  on every member in the square (`threat::kRefMembers` = 4, its DoTs likewise),
+  with none of the shooter's `powers` (a blast carries none yet - C2). skel_magus
+  23.14 -> 30.70 (shot 8.09 -> 14.25); the order is unchanged, so the generator
+  picks as before, but the bands re-cut against the new top.
 - **A reroll keeps every way in.** `Game::ArrivalsOn(stem)` lists the squares
   the game's opening (project `start_x/z`) and world-map doorways (`entryx/z`)
   land on, and `RegenerateViewedLevel` keeps them open like stairs. When no

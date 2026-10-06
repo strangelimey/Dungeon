@@ -36,6 +36,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <functional>
 #include <optional>
 #include <random>
@@ -110,6 +111,18 @@ struct ProjectilePayload {
 		if (count >= procs.size()) return false;
 		procs[count++] = p;
 		return true;
+	}
+	// Scales what it delivers by `s`: the blast's damage, its reach (blast_force
+	// counts SQUARES, so it rounds, and never below one) and how long a gas
+	// lingers, and the strength of every effect it leaves. A bomb's SIZE (items.cat
+	// `throw_scale`) and what a gust leaves of a shot (ProjectileSystem::Repel)
+	// are both this.
+	void Scale(float s) {
+		blast::Rules& r = blast.rules;
+		r.damage *= s;
+		if (r.force > 0) r.force = std::max(1, static_cast<int>(std::lround(static_cast<float>(r.force) * s)));
+		r.linger *= s;
+		for (size_t i = 0; i < count; ++i) procs[i].magnitude *= s;
 	}
 };
 
@@ -339,33 +352,61 @@ public:
 	// minus strength, never more than the shot had) - so a strong gust returns
 	// it hard and a bare match returns it spent. Flung back, it is a shot at
 	// monsters credited to party member `attacker`, with at least `minRange`
-	// metres to fly home in; one left with nothing in it falls where it is. A
-	// thrown item is left alone (nothing throws one at the party). A template
-	// so the zone test is inlined: this runs inside a cast, a frame the
-	// steady-state allocation guard watches.
+	// metres to fly home in. A thrown item is left alone (nothing throws one at
+	// the party). A template so the zone test is inlined: this runs inside a
+	// cast, a frame the steady-state allocation guard watches.
+	//
+	// WHAT IT CARRIES WEAKENS WITH IT: the share of its strength the gust leaves
+	// is the share of its blast and of its effects' strength it keeps
+	// (ProjectilePayload::Scale), so a magus's burst bolt slowed to half bursts at
+	// half, and a firebolt's burn lands at half. Only the direct damage used to
+	// move, and a "weakened" burst still went off at full force (code-review C18).
+	// One left with NOTHING in it falls where it is, and is gone: no expiry, so a
+	// spent burst never goes off - the bare match used to leave it a range of 0,
+	// and its expiry burst it at full force in or beside the party's square.
 	struct Repelled {
 		int weakened = 0; // flew on, lighter
-		int turned = 0;   // flung back
+		int turned = 0;   // flung back (or, with nothing left, fell)
+		int spent = 0;    // of the turned, the ones that fell
 	};
 	template <typename Fn>
 	Repelled Repel(Fn&& inZone, float power, int attacker, float minRange) {
 		Repelled out;
+		bool spent = false;
 		for (Item& it : m_items) {
 			if (it.target != TargetSide::Party || it.cargo || !inZone(it.pos)) continue;
 			const float strength = it.atk.damage;
 			if (power < strength) {
 				it.atk.damage = strength - power;
+				it.payload.Scale(it.atk.damage / strength);
 				++out.weakened;
 				continue;
 			}
-			it.atk.damage = std::min(power - strength, strength);
+			++out.turned;
+			const float left = std::min(power - strength, strength);
+			if (!(left > 0.0f)) {
+				// Nothing left to fly or to deliver: it falls, fizzling, and is
+				// dropped below without reaching onExpire.
+				SpawnSparkBurst(it.pos, it.color, 6);
+				LeaveFlash(it);
+				it.rangeLeft = -1.0f;
+				spent = true;
+				++out.spent;
+				continue;
+			}
+			it.payload.Scale(left / strength);
+			it.atk.damage = left;
 			it.dir = {-it.dir.x, -it.dir.y, -it.dir.z};
 			it.target = TargetSide::Monsters;
 			it.attacker = attacker;
 			it.shooter = 0;
-			it.rangeLeft = it.atk.damage > 0.0f ? std::max(it.rangeLeft, minRange) : 0.0f;
-			++out.turned;
+			it.rangeLeft = std::max(it.rangeLeft, minRange);
 		}
+		// Between Updates no live item has a negative range (Update erases every
+		// one it marks), so these are exactly the shots that fell. Erasing keeps
+		// the vector's capacity: nothing is allocated mid-cast. (Repel is never
+		// reached from inside Update's own walk - no hook casts a gust.)
+		if (spent) std::erase_if(m_items, [](const Item& it) { return it.rangeLeft < 0.0f; });
 		return out;
 	}
 

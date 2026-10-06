@@ -668,6 +668,14 @@ public:
 		// drove UNDER the armour. tools\CombatTest.py weighs the armour lessons a
 		// piercing attacker taught against these (code-review C11).
 		int struck = 0, pierced = 0;
+		// SHOTS AT THE PARTY (code-review C1, C18): burst bolts that went off on
+		// contact with the party (ResolveMonsterProjectileHit's area branch), the
+		// monster bolts a Wind Ward turned there, and what a gust's repel did to the
+		// shots it met (RepelAhead) - weakened and flown on, flung back, or left with
+		// nothing so it fell (`repelSpent`, not counted in `repelTurned`).
+		// tools\AllocTest.ps1 -Burst must show each one happened in its window.
+		int partyBursts = 0, wardTurns = 0;
+		int repelWeakened = 0, repelTurned = 0, repelSpent = 0;
 	};
 
 	// ========================================================================
@@ -727,12 +735,25 @@ public:
 		// the mana (the caster is topped up before each cast), so a measurement
 		// is never limited by the pool. Fixed capacity and the spell id held
 		// inline, so a tick allocates nothing of its own (the rule it measures).
+		//
+		// An entry may instead be a SHOT AT THE PARTY (`autocast bolt`), which no
+		// party cast makes: `spell`'s bolt launched from (x, z) down roster slot
+		// `slot`'s lane as a monster casts it (ShootSpellBolt, the `bolt` command),
+		// and with `repel` > 0 met on the same tick by a gust's repel of exactly that
+		// power, credited to `member` (RepelAhead, the `castsvc repel` service). An
+		// exact power is the point: only a gust of the shot's own strength leaves it
+		// nothing, and a real gust's power is whatever the caster's skill and stats
+		// make it. tools\AllocTest.ps1 -Burst puts all of that inside a guarded window.
 		struct AutoCast {
 			static constexpr int kMaxEntries = 6;
 			struct Entry {
 				int member = 0;
 				char spell[32] = {};
 				u8 len = 0;
+				bool bolt = false;   // a shot at the party, not a member's cast
+				int x = 0, z = 0;    // bolt: the square it flies from
+				int slot = -1;       // bolt: the lane (a roster slot), -1 = the middle
+				float repel = 0.0f;  // bolt: a repel of this power at launch, 0 = none
 				// What each attempt came to (CastSpell's verdict), so a rotation
 				// that stopped producing bolts says so in `autocast`.
 				int cast = 0, failed = 0;

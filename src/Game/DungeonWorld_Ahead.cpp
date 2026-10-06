@@ -131,13 +131,17 @@ ProjectileSystem::Repelled DungeonWorld::RepelAhead(float power, int casterIndex
 	// The zone is the party's square and the one it faces: a shot already that
 	// close is one the breeze can still catch. Flung back, it has at least the
 	// two squares it came through plus two more to fly home in.
-	return m_projectiles.Repel(
+	const ProjectileSystem::Repelled r = m_projectiles.Repel(
 		[&](const Vec3& p) {
 			const int cx = static_cast<int>(std::floor(p.x / kCellSize));
 			const int cz = static_cast<int>(std::floor(p.z / kCellSize));
 			return (cx == px && cz == pz) || (cx == ax && cz == az);
 		},
 		power, casterIndex, 4.0f * kCellSize);
+	m_harness.tally.repelWeakened += r.weakened;
+	m_harness.tally.repelTurned += r.turned - r.spent;
+	m_harness.tally.repelSpent += r.spent;
+	return r;
 }
 
 void DungeonWorld::SpawnBoltAfter(const ProjectileSpec& spec, float delay) {

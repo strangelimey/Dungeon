@@ -507,6 +507,7 @@ Paths are under `src/Game/` unless shown otherwise. "Judge" names the existing c
 - Judge: ADD:
   - AllocTest -Effects: `autocast hold` with a ward, released on the first armed frame. It refuses a PASS unless a member's effect count rose. Run it under -Minimal too;
   - an AllocTest -Party run that grows the roster (a party of 1, then `newparty default`) and lands an effect on member 4.
+- Also: drop AllocTest -Burst's effect-strip pre-growth (batch 24 added it to stand C219 aside; its setup says so), and -Burst must still PASS.
 - Look: no.
 
 **42. Text capacity** - C220, C371 (0d)

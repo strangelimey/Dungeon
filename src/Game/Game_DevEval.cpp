@@ -355,10 +355,14 @@ void Game::RegisterEvalCommands() {
 	// seconds of SIM time, so a frozen world casts nothing. The member is taught
 	// the spell's symbols here, and the harness pays the mana at each cast -
 	// the rotation measures what a cast DOES, not whether it can be afforded.
+	// `bolt` adds a SHOT AT THE PARTY instead: `bolt`'s launch, optionally met by
+	// `castsvc repel`'s, on the same clock - a world frame, which the console's
+	// own never is (tools\AllocTest.ps1 -Burst).
 	m_console.Register(
 		{.name = "autocast",
 		 .group = CmdGroup::Simulation,
 		 .params = "[<member> <spell> [every]]\n"
+				   "bolt <spell> <x> <z> <slot -1..3> [repel <power> <member>] [every]\n"
 				   "hold\n"
 				   "off",
 		 .summary = "cast spells in a round-robin on a sim-time clock"},
@@ -383,9 +387,78 @@ void Game::RegisterEvalCommands() {
 											ac.count, ac.every));
 				for (int i = 0; i < ac.count; ++i) {
 					const auto& e = ac.entries[static_cast<size_t>(i)];
-					m_console.Print(std::format("  member {} casts {}: {} cast, {} failed",
-												e.member, e.Spell(), e.cast, e.failed));
+					if (e.bolt)
+						m_console.Print(std::format(
+							"  bolt {} from {},{} in slot {}{}: {} shot, {} failed", e.Spell(),
+							e.x, e.z, e.slot,
+							e.repel > 0.0f ? std::format(" repel {:.2f} by member {}",
+														 e.repel, e.member)
+										   : std::string(),
+							e.cast, e.failed));
+					else
+						m_console.Print(std::format("  member {} casts {}: {} cast, {} failed",
+													e.member, e.Spell(), e.cast, e.failed));
 				}
+				return;
+			}
+			using Entry = DungeonWorld::Harness::AutoCast::Entry;
+			if (args[0] == "bolt") {
+				// bolt <spell> <x> <z> <slot> [repel <power> <member>] [every]
+				if (args.size() < 5) {
+					m_console.RefuseUsage();
+					return;
+				}
+				size_t at = 5;
+				float power = 0.0f;
+				int member = 0;
+				if (args.size() > at && args[at] == "repel") {
+					if (args.size() < at + 3) {
+						m_console.RefuseUsage();
+						return;
+					}
+					power = static_cast<float>(std::atof(args[at + 1].c_str()));
+					member = std::atoi(args[at + 2].c_str());
+					if (!(power > 0.0f)) {
+						m_console.Refuse("autocast bolt: a repel's power must be positive");
+						return;
+					}
+					at += 3;
+				}
+				if (args.size() > at + 1) {
+					m_console.RefuseUsage();
+					return;
+				}
+				const int slot = std::atoi(args[4].c_str());
+				if (slot < -1 || slot > 3 || member < 0 ||
+					static_cast<size_t>(member) >= m_characters.size()) {
+					m_console.Refuse("autocast bolt: a slot is -1..3 and a repel's member "
+									 "is in the party");
+					return;
+				}
+				if (!m_world->FindSpell(args[1])) {
+					m_console.Refuse("autocast: no spell '" + args[1] + "'");
+					return;
+				}
+				if (ac.count == DungeonWorld::Harness::AutoCast::kMaxEntries ||
+					args[1].size() >= sizeof(Entry::spell)) {
+					m_console.Refuse("autocast: rotation full (or id too long)");
+					return;
+				}
+				Entry& e = ac.entries[static_cast<size_t>(ac.count++)];
+				e = {};
+				e.bolt = true;
+				e.member = member;
+				std::memcpy(e.spell, args[1].data(), args[1].size());
+				e.len = static_cast<u8>(args[1].size());
+				e.x = std::atoi(args[2].c_str());
+				e.z = std::atoi(args[3].c_str());
+				e.slot = slot;
+				e.repel = power;
+				ac.every = args.size() > at ? static_cast<float>(std::atof(args[at].c_str()))
+											: (ac.every > 0.0f ? ac.every : 0.5f);
+				ac.timer = 0.0f;
+				m_console.Print(std::format("autocast += bolt {} from {},{} (every {:.2f}s, {} in rotation)",
+											args[1], e.x, e.z, ac.every, ac.count));
 				return;
 			}
 			const int m = std::atoi(args[0].c_str());
@@ -398,7 +471,6 @@ void Game::RegisterEvalCommands() {
 				m_console.Refuse("autocast: no spell '" + args[1] + "'");
 				return;
 			}
-			using Entry = DungeonWorld::Harness::AutoCast::Entry;
 			if (ac.count == DungeonWorld::Harness::AutoCast::kMaxEntries ||
 				args[1].size() >= sizeof(Entry::spell)) {
 				m_console.Refuse("autocast: rotation full (or id too long)");
@@ -456,6 +528,12 @@ void Game::RegisterEvalCommands() {
 						   //           square the last one stopped IN (`-`
 						   //           with none) - not the open square in
 						   //           front, where its flight ended.
+						   //   partybursts/wardturns  burst bolts that went
+						   //           off on contact with the party, and the
+						   //           monster bolts a Wind Ward turned there.
+						   //   repelweakened/repelturned/repelspent  what a
+						   //           gust's repel did to each shot it met;
+						   //           a spent one fell and is not in turned.
 						   m_console.Print(TallyLine());
 					   });
 
@@ -605,12 +683,14 @@ std::string Game::TallyLine() const {
 		"crits={} fumbles={} slain={} downed={} secs={:.1f} bolthits={} "
 		"boltmisses={} expired={} blasts={} drops={} lifts={} throws={} "
 		"throwstrikes={} throwlandings={} sceneryticks={} doused={} struck={} "
-		"pierced={} wallstops={} stoppedin={}",
+		"pierced={} wallstops={} stoppedin={} partybursts={} wardturns={} "
+		"repelweakened={} repelturned={} repelspent={}",
 		t.dealt, t.taken, swings, t.hits, t.misses, rate, t.crits, t.fumbles,
 		t.monstersSlain, t.membersDowned, t.seconds, t.boltHits, t.boltMisses,
 		t.expiries, t.blasts, t.drops, t.lifts, t.throws, t.throwStrikes,
 		t.throwLandings, t.sceneryTicks, t.fixturesDoused, t.struck, t.pierced,
-		t.wallStops, stoppedIn);
+		t.wallStops, stoppedIn, t.partyBursts, t.wardTurns, t.repelWeakened,
+		t.repelTurned, t.repelSpent);
 }
 
 } // namespace dungeon::game

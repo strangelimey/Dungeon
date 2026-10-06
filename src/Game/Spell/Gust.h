@@ -5,8 +5,8 @@
 // party faces into a brief flare, and at `push_power` (spells.cat) or more it
 // also shoves back whatever stands in the square ahead (`push` squares) and
 // meets the shots flying at the party - a gust of its power weakens a stronger
-// shot and flings back one it outweighs (ProjectileSystem::Repel). "Other
-// than that, it's not much use."
+// shot, its blast and what it leaves burning with it, and flings back one it
+// outweighs (ProjectileSystem::Repel). "Other than that, it's not much use."
 // ============================================================================
 #pragma once
 

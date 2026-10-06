@@ -648,7 +648,10 @@ but **not soaked**: plate turns a blade, not a blast.
 Authored on a spell as `blast_force` (squares — the gate; 0 means "not an area
 effect"), `blast_damage` and `blast_falloff`. `fireburst` is the first, and the
 carrier detonates at **either** of its two moments: a bomb that connects explodes
-where it touched, and one that breaks against a wall or a shut door explodes in
+where it touched - a monster's burst bolt reaching a member's lane included,
+which used to strike that member as a plain bolt and lose its blast (code-review
+C1; a Wind Ward on the member it would strike turns it first, and then nothing
+goes off) - and one that breaks against a wall or a shut door explodes in
 front of it, in the last open square of its flight (`FlightEnd`, code-review
 C43). It used to explode INSIDE the stone: a solid centre is a phantom that
 emits all four ways, so a one-thick wall or a shut door was burst through and

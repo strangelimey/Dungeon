@@ -50,6 +50,13 @@ only the default):
   caster joins the held rotation only after the warm-up. It refuses a PASS unless
   the window's own tally (logged by the verdict frame) shows a hit, an expiry and
   a blast
+- `.\tools\AllocTest.ps1 -Burst` - shots AT the party, which -Impact never
+  fires: the skel_magus's burst bolt going off on contact with the party (every
+  member hurt and left burning), a Wind Ward turning one, and a gust's repel
+  weakening one, flinging one back and spending one so it falls - all fired from
+  a world frame by `autocast bolt` (the console's frames are never measured). It
+  refuses a PASS unless the window's tally counts each (`partybursts=`,
+  `wardturns=`, `repelweakened=`, `repelturned=`, `repelspent=`)
 - `.\tools\AllocTest.ps1 -Pause` - Esc into the pause menu and back, three
   times inside the window. The frame that leaves Playing is a transition and is
   disarmed (docs/ARCHITECTURE.md "Checking the rule"); this checks that rule,

@@ -246,7 +246,10 @@ Key conventions (memorize, they bite):
   four `HandSpell`s, NOT bolts: Flame lights a held torch / the wall torch /
   a brazier past `brazier_power`; Rock conjures a pebble into a hand or at the
   feet; Gust flares a fire and past `push_power` shoves a monster and REPELS a
-  shot (weakened by the power, flung back if the power beats it); Splash fills
+  shot (weakened by the power, flung back if the power beats it - its blast and
+  on-hit effects keep the share of its strength it keeps, `ProjectilePayload::
+  Scale`, and one left with nothing falls with no expiry, so it never bursts:
+  code-review C18); Splash fills
   a held skin a step / douses the wall torch / a brazier past its power. Every
   threshold reads CAST POWER. Every hand spell is SEEN on every cast, whatever
   it found to act on: the `handPuff` cast service (DungeonWorld::HandPuff,
@@ -265,10 +268,16 @@ Key conventions (memorize, they bite):
   ids and spells.cat entries, so learning / the book / saves needed nothing.
   TRAP: `blast_force` counts SQUARES, not a radius. Monsters cast any spell id;
   the mage ladder is skel_mage / skel_mage_adept / skel_magus (bolt, volley,
-  burst). New spell services reach the world only through CastServices (each
-  drivable bare with `castsvc`). Checked by `tools\SpellTest.py` (judges
-  spells.eval, CheckAll quick; `--selftest` cuts every cast) and `AllocTest.ps1
-  -Hand`.
+  burst). A monster's burst bolt that reaches a member's lane GOES OFF in the
+  party's square (ResolveMonsterProjectileHit; code-review C1) unless the Wind
+  Ward on the member it would strike turns it - a turned bolt does not land
+  (`fx::Deflect`, stage 1 alone) - and `threat` prices it by that blast, on
+  every member, unrolled. New spell services reach the world only through
+  CastServices (each drivable bare with `castsvc`). Checked by `tools\SpellTest.py` (judges
+  spells.eval, CheckAll quick; `--selftest` cuts every cast), `tools\CombatTest.py`
+  (the burst on the party, the ward and the gust), `AllocTest.ps1 -Hand` and
+  `AllocTest.ps1 -Burst` (the burst, the ward and every repel outcome inside a
+  guarded window, fired by `autocast bolt ... [repel <power> <member>]`).
   THE LIGHT FORM (lighting-updates Phase 6): a fourth form rune, SOWILO
   (`SpellSymbol::Light`, APPENDED - bit 9 of knownSymbols, old saves unchanged;
   `SpellIdList` is 64 now - it was exactly full at 32, so a 33rd spell could never
@@ -525,7 +534,8 @@ Key conventions (memorize, they bite):
   member, `DungeonWorld::m_harness` (`struct Harness`: tally / autoAttack /
   frozen + frozenHeld / pendingSteps / autoCast), touched in a handful of places
   in the simulation (autoCast is `TickAutoCast`, the `autocast` round-robin that
-  puts a LAUNCH inside a guarded window - see AllocTest.ps1 -Impact; `freeze
+  puts a LAUNCH inside a guarded window - see AllocTest.ps1 -Impact - and, as
+  `autocast bolt`, a shot AT the party and a repel of an exact power - -Burst; `freeze
   hold` keeps monsters from even noticing the party until an `alloctest` window
   opens, so -Melee's first notice and first blow land inside it), each reading
   `m_harness.x` so it says what it is; `ResetForEval` is `m_harness = {}`. The

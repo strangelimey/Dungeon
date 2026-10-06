@@ -72,7 +72,13 @@ bigger and brighter for a moment). At cast power >= `push_power` (8) it also:
 - REPELS a shot in the square ahead: against a projectile of strength S, a gust
   of power P < S weakens it to S - P and it flies on; P >= S flings it back the
   way it came carrying min(P - S, S) (Michael, 2026-10-01). Arrows, bolts,
-  thrown items - anything in flight.
+  thrown items - anything in flight. WHAT IT CARRIES GOES WITH IT
+  (code-review C18): the share of S it keeps is the share of its blast (damage,
+  reach in squares, linger) and of its on-hit effects' strength it keeps, so a
+  magus's burst bolt slowed to half bursts at half and its burn lands at half
+  (`ProjectilePayload::Scale`, the rule `throw_scale` uses). A shot left with
+  nothing (P = S exactly) falls where it is, and nothing it carried goes off.
+  (Thrown items are in fact left alone - nothing throws one at the party.)
 Otherwise not much use, as designed.
 
 ### Water - Splash (`splash`, Laguz)
@@ -234,7 +240,12 @@ LADDER is authored as three kinds rather than a per-instance level (monsters hav
 none): `skel_mage` casts `firebolt`, `skel_mage_adept` casts `firebolt_volley`,
 `skel_magus` casts `firebolt_burst` (Michael: "higher level mages shoot with
 Ingwaz, and even higher ones do Hagalaz"). A monster volley rides the same
-pending-bolt queue (`Spell::MonsterVolley`).
+pending-bolt queue (`Spell::MonsterVolley`). A monster's BURST bolt that reaches
+a member's lane goes off in the party's square, on every member there, as a
+party burst does on a monster - it used to strike one member as a plain bolt and
+be retired with its blast unspent (code-review C1). A Wind Ward on the member it
+would strike turns it first, and a turned bolt does not land, so nothing goes off
+(Michael). `threat` prices the magus by that blast: on every member, unrolled.
 
 ## Where the runes are found
 

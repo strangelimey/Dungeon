@@ -39,7 +39,9 @@ double PhysicalResist(const std::string& field) {
 }
 
 double Offence(const Attack& a, double attackcd, double& hit) {
-	hit = Beats(kRefDefense - a.accuracy);
+	// An unrolled attack (a blast) is not dodged: the roll's 5..95 band is the
+	// combat model's for a blow, and a blast is not one.
+	hit = a.rolled ? Beats(kRefDefense - a.accuracy) : 1.0;
 	double dps = hit * std::max(0.0, a.damage) / attackcd;
 	// Each DoT runs for the share of the fight it is kept up: re-landed before
 	// it lapses, it is simply on (see the header).
@@ -48,7 +50,9 @@ double Offence(const Attack& a, double attackcd, double& hit) {
 			std::min(1.0, std::max(0.0, d.seconds) * hit * std::clamp(d.chance, 0.0, 1.0) / attackcd);
 		dps += std::max(0.0, d.rate) * uptime;
 	}
-	return dps;
+	// Every member it reaches takes all of it: a blast's damage and what it
+	// leaves burning, once each.
+	return dps * std::max(1.0, a.targets);
 }
 
 } // namespace

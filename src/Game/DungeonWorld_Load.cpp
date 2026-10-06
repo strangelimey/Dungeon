@@ -587,7 +587,20 @@ threat::Profile DungeonWorld::ThreatProfile(const CatalogEntry& def) const {
 	const Spell* spell = spellId.empty() ? nullptr : m_magic.FindSpell(spellId);
 	std::optional<ProjectileSpec> bolt;
 	if (spell) bolt = spell->MonsterBolt(Vec3{}, Vec3{1.0f, 0.0f, 0.0f}, accuracy);
-	if (bolt) { // a caster's spell: its power, its school's type, its payload
+	if (bolt && bolt->payload.blast.Any()) {
+		// A BURST (Hagalaz) bolt is priced by its BLAST, which is what lands once
+		// it reaches a member's lane (ResolveMonsterProjectileHit, code-review C1):
+		// the detonation square's damage on EVERY member there, not rolled, each
+		// left with the payload's effects. Its strike does not land at all. The
+		// open-room figure - a corridor's reflections only add to it. No powers:
+		// a blast goes off with none of its shooter's (ApplyBlastHit; code-review
+		// C2 carries the shooter into it, and this follows).
+		const blast::Rules& r = bolt->payload.blast.rules;
+		shot.damage = m_balance.Potent(r.damage, ResistTable{}, bolt->atk.type);
+		shot.dots = dotsOf(bolt->payload.Procs());
+		shot.rolled = false;
+		shot.targets = threat::kRefMembers;
+	} else if (bolt) { // a caster's spell: its power, its school's type, its payload
 		shot.damage = m_balance.Potent(bolt->atk.damage, powers, bolt->atk.type);
 		shot.dots = dotsOf(bolt->payload.Procs());
 	} else { // a plain bolt carries the kind's melee numbers and on-hit effects
@@ -1480,15 +1493,10 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		// SQUARES, so it rounds, and never below one) and how long a gas lingers,
 		// and the strength of its on-hit effects. Applied after a borrowed spell
 		// payload too, which is the case it exists for: the fire flask's numbers
-		// are firebolt_burst's.
-		if (const float s = def ? def->GetFloat("throw_scale", 1.0f) : 1.0f; s != 1.0f && s > 0.0f) {
-			blast::Rules& r = kind->throwPayload.blast.rules;
-			r.damage *= s;
-			if (r.force > 0) r.force = std::max(1, static_cast<int>(std::lround(r.force * s)));
-			r.linger *= s;
-			for (size_t i = 0; i < kind->throwPayload.count; ++i)
-				kind->throwPayload.procs[i].magnitude *= s;
-		}
+		// are firebolt_burst's. (ProjectilePayload::Scale, the rule a gust's toll
+		// on a shot uses too.)
+		if (const float s = def ? def->GetFloat("throw_scale", 1.0f) : 1.0f; s != 1.0f && s > 0.0f)
+			kind->throwPayload.Scale(s);
 		// A lit torch with a flame colour of its own sets alight in that colour
 		// when THROWN too, as it does when swung (FlameTintOf).
 		if (const Vec3* tint = FlameTintOf(*kind)) kind->throwPayload.tint = *tint;

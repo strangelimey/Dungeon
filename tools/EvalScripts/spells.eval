@@ -368,4 +368,22 @@ step 0.1
 castsvc repel 30 2
 step 3
 tally
+
+; --- THE MAGUS'S BURST REACHES THE PARTY (code-review C1) -----------------------
+; Its bolt BURSTS: one that reaches the party is its blast, going off in the
+; party's square - it used to strike one member as a plain firebolt and be
+; retired with the blast unspent. Three squares off, since a firebolt flies 8 m.
+; A bolt that flew past the party and burst on the wall behind would count a
+; blast too, but with an expiry, so the judge reads both. Last, so the fights
+; above draw the combat RNG exactly as they did before it was added.
+echo === magus ===
+arena open 9 9
+heal
+tp 14 14
+face n
+freeze off
+tally reset
+spawn skel_magus 14 11 south
+step 6
+tally
 echo === end ===

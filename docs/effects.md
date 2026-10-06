@@ -50,7 +50,10 @@ the stages they care about. Every behaviour that exists today lands on
 exactly one stage — that is the test of whether the stage list is right.
 
 1. **Deflect** — the event may be cancelled outright, before any roll.
-   *(Wind Ward: turns the bolt aside, spends a charge.)*
+   *(Wind Ward: turns the bolt aside, spends a charge.)* `fx::Deflect` is
+   this stage alone, for a carrier whose landing is not a blow: a monster's
+   burst bolt reaching the party is its blast, but the ward turns it first,
+   and a turned bolt does not land, so nothing goes off (code-review C1).
 2. **Strike** — the to-hit roll: accuracy vs evasion, `ResolveAttack`'s
    existing job. Skipped for events flagged `unavoidable` (DoT ticks,
    retaliation, a wall bump).
@@ -606,7 +609,9 @@ it was built with.
 Left undone, deliberately:
 - The **wind ward deflecting a real bolt** has never been observed live —
   the test level's one caster never fires before the swarms close. It
-  wants a scratch level with a single ranged monster.
+  wants a scratch level with a single ranged monster. (The harness has since
+  seen it: tools\CombatTest.py's windward sections turn a skel_archer's
+  volley, and its burst-ward section a skel_magus's burst bolt.)
 - **Party poison and bleed are now resisted** (P3's per-tick rule), which
   they never were. Nothing in the current content has enough earth or
   pierce resistance for it to show, but it is a live balance change.

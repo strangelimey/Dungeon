@@ -662,7 +662,11 @@ bucket's new plans and drops them, so nothing notices the party until an
 `alloctest` window releases it - `AllocTest.ps1 -Melee`, 2026-10-05),
 one guard on `TickAutoAttack`, `TickAutoCast` (the `autocast` round-robin,
 added 2026-09-28 so `AllocTest.ps1 -Impact` can put a bolt's launch AND landing
-inside a guarded window - the console's own frame never is one), and three
+inside a guarded window - the console's own frame never is one; since code-review
+batch 24 an `autocast bolt` entry fires a spell's bolt AT the party, as `bolt`
+does, and may meet it with a repel of an exact power, as `castsvc repel` does, for
+`AllocTest.ps1 -Burst`), the shot-at-the-party counts in
+`ResolveMonsterProjectileHit` and `RepelAhead` (the tally), and three
 lines feeding queued steps. Every one of them reads `m_harness.something` and
 says what it is.
 `ResetForEval` is `m_harness = {}`, so a field added to the struct is reset for

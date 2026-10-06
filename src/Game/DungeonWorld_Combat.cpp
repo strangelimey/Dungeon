@@ -2361,11 +2361,31 @@ bool DungeonWorld::ResolveMonsterProjectileHit(const ProjectileImpact& impact) {
 						 AttackerPowers(impact.attacker, impact.shooter),
 						 impact.atk.type),
 		impact.atk.attackBonus);
+	// AN AREA CARRIER THAT CONNECTS EXPLODES, as a party burst does on a monster
+	// (ResolveSpellHit): the blast is the whole of what it does, on every member
+	// in the square, so no strike rides with it. It used to strike the member as
+	// a plain bolt and be retired with its blast unspent - a skel_magus played as
+	// a plain firebolt caster (code-review C1). Asked only once someone stands in
+	// its lane, so a burst flying past the party still flies on. A WIND WARD on
+	// the member it would strike turns it first, and a turned bolt does not land,
+	// so nothing goes off (Michael): stage 1 alone, spending the ward's charge.
+	if (impact.payload.blast.Any()) {
+		if (fx::Deflect(ev, defender)) { // spent against the wind
+			++m_harness.tally.wardTurns;
+			return true;
+		}
+		++m_harness.tally.partyBursts;
+		Detonate(cx, cz, impact.payload, impact.atk.type, impact.attacker);
+		return true;
+	}
 	fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
 	// Spent against the wind - and BEFORE the lesson: the ward turned it, so the
 	// member neither dodged it nor wore it, and it teaches nothing (code-review
 	// C11; TrainDefense says the same rule itself).
-	if (ev.deflected) return true;
+	if (ev.deflected) {
+		++m_harness.tally.wardTurns;
+		return true;
+	}
 	TrainDefense(target, ev); // a dodged bolt teaches too
 	if (!ev.hit) {
 		MemberMessage(target, loc::FormatLine("log.monster_ranged_misses", target.name));

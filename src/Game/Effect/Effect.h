@@ -486,6 +486,15 @@ void ApplyProcs(ITarget& target, std::span<const Proc> procs,
 void Deal(DamageEvent& ev, ITarget& target, const StrikeRules& rules,
 		  std::mt19937& rng);
 
+// Stage 1 ALONE: may an effect on `target` turn `ev` aside before anything is
+// rolled? Sets ev.deflected and spends what turned it (a Wind Ward's charge),
+// exactly as Deal's own first stage does - Deal calls it. Called on its own by a
+// carrier whose landing is not a blow it strikes with: a burst bolt reaching the
+// party is its BLAST (DungeonWorld::ResolveMonsterProjectileHit), but the ward
+// on the member it would strike still turns it first, and a turned bolt does
+// not land, so nothing goes off (Michael, code-review C1).
+bool Deflect(DamageEvent& ev, ITarget& target);
+
 // Stage 6, split out so the CALLER can narrate first: a reaction writes its own
 // line ("the blob is scorched by the fire shield") and that has to read after
 // the blow it answers, not before it. Call it once the blow itself has been

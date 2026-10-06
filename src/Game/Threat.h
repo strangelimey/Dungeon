@@ -12,7 +12,8 @@
 //
 //   offence   = P(hit) x damage / attackcd + each DoT's rate x its uptime,
 //               for the better of its two attacks, x kRangedEdge when that
-//               one is a shot
+//               one is a shot - both x the members it reaches, which is one
+//               but for a BLAST (every member in the square, P(hit) = 1)
 //   uptime    = min(1, seconds x P(hit) x chance / attackcd)
 //
 // A DoT counts as a RATE, not as its total per hit, because every effect a
@@ -65,6 +66,12 @@ struct Attack {
 	double damage = 0;   // per landed blow, its `powers` already applied
 	double accuracy = 0; // d100 points it attacks with (melee: after the stance)
 	std::vector<Dot> dots;
+	// A BLAST is neither rolled nor aimed at one member: it lands on every member
+	// sharing the square it fills (a skel_magus's burst bolt, code-review C1). So
+	// it lands for certain - `rolled` false - and its damage and its DoTs count
+	// once per member caught (`targets`, kRefMembers for a blast on the party).
+	bool rolled = true;
+	double targets = 1;
 };
 
 // Everything a kind can do to the party.
@@ -87,6 +94,7 @@ struct Parts {
 inline constexpr double kRefDefense = 30.0;  // d100 points of guard
 inline constexpr double kRefAccuracy = 60.0; // d100 points of attack
 inline constexpr double kRefBlow = 10.0;     // raw damage per landed blow
+inline constexpr double kRefMembers = 4.0;   // members sharing the square a blast fills
 
 // What shooting from range is worth on top of the damage itself: a kiter lands
 // shots while the party closes the gap, backs off to keep landing them, and is

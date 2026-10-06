@@ -248,4 +248,117 @@ step 3
 tally
 char 0
 
+; --- A BURST BOLT THAT REACHES THE PARTY GOES OFF (code-review C1, C18) -------
+; A burst (Hagalaz) bolt that reaches a member's lane is its BLAST: it goes off in
+; the party's square, on every member there, and no strike rides with it. It used
+; to strike one member as a plain firebolt and be retired with the blast unspent,
+; so a skel_magus played as a plain firebolt caster. `bolt firebolt_burst` is the
+; magus's own bolt (the spell's MonsterBolt), launched from the square ahead down
+; Brand's lane (slot 0); a firebolt flies 8 m, so it reaches the party from there,
+; in 10 ticks. The readouts come 0.2 s in: the detonation square's tick has
+; landed, the burn it left has barely bitten, and the burst's next tick (0.06 s
+; on) is spreading through the squares round the party. The judge demands the
+; bolt went off WITHOUT expiring: one that flew past the party and burst on the
+; wall behind counts a blast too, with an expiry. This is also the control for
+; the three sections after it, which change one thing each.
+
+echo === burst-party ===
+reset
+timescale 0
+lockstep on
+seed 24
+goto eval_arena
+arena open 9 9
+heal
+tp 14 14
+face n
+party
+tally reset
+bolt firebolt_burst 14 13 0
+step 0.2
+tally
+party
+char 0
+char 1
+char 2
+char 3
+
+; THE WIND WARD TURNS IT, AND A TURNED BOLT DOES NOT LAND (Michael): the ward on
+; whichever lane member it would strike turns it before anything goes off -
+; one charge spent, no blast, nobody touched.
+
+echo === burst-ward ===
+reset
+timescale 0
+lockstep on
+seed 24
+goto eval_arena
+arena open 9 9
+heal
+tp 14 14
+face n
+effect windward 0 99 60
+effect windward 1 99 60
+effect windward 2 99 60
+effect windward 3 99 60
+party
+tally reset
+bolt firebolt_burst 14 13 0
+step 0.2
+tally
+party
+char 0
+char 1
+char 2
+char 3
+
+; A GUST SHRINKS WHAT IT CARRIES (code-review C18): a gust of power 7 meets the
+; 14-strength bolt in the square ahead and leaves it half its strength - and half
+; its blast and half its burn with it. It still flies on, reaches the party and
+; goes off, for half the damage and a burn of half the magnitude.
+
+echo === burst-gust ===
+reset
+timescale 0
+lockstep on
+seed 24
+goto eval_arena
+arena open 9 9
+heal
+tp 14 14
+face n
+party
+tally reset
+bolt firebolt_burst 14 13 0
+castsvc repel 7 2
+step 0.2
+tally
+party
+char 0
+char 1
+char 2
+char 3
+
+; A gust exactly its strength leaves it NOTHING: it falls where it is and is
+; gone. It used to be left with a range of 0, expire on the next tick and burst
+; at full force in the square ahead, reaching the party.
+
+echo === burst-spent ===
+reset
+timescale 0
+lockstep on
+seed 24
+goto eval_arena
+arena open 9 9
+heal
+tp 14 14
+face n
+party
+tally reset
+bolt firebolt_burst 14 13 0
+castsvc repel 14 2
+step 2
+tally
+party
+
 echo === end ===

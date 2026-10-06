@@ -23,6 +23,7 @@
 // ============================================================================
 #include "Game/DungeonWorld.h"
 
+#include "Core/AllocTrack.h"
 #include "Core/Log.h"
 
 namespace dungeon::game {
@@ -186,8 +187,12 @@ bool DungeonWorld::DetonateSpell(std::string_view spellId, int cx, int cz) {
 }
 
 bool DungeonWorld::ShootSpellBolt(std::string_view spellId, int x, int z, int slot) {
+	// Each refusal's warning EXCUSES itself: an `autocast bolt` entry fires from
+	// a world frame, which the allocation guard may be watching, and a log line
+	// formats a string. The launch below is not excused - it is what is measured.
 	const Spell* spell = m_magic.FindSpell(spellId);
 	if (!spell) {
+		const alloc::Excused excuse;
 		log::Warn("bolt: no spell '{}'", spellId);
 		return false;
 	}
@@ -200,6 +205,7 @@ bool DungeonWorld::ShootSpellBolt(std::string_view spellId, int x, int z, int sl
 	else if (x == px && z != pz)
 		dir.z = pz > z ? 1.0f : -1.0f;
 	else {
+		const alloc::Excused excuse;
 		log::Warn("bolt: {},{} is not on the party's row or column ({},{})", x, z, px, pz);
 		return false;
 	}
@@ -209,6 +215,7 @@ bool DungeonWorld::ShootSpellBolt(std::string_view spellId, int x, int z, int sl
 	std::optional<ProjectileSpec> bolt = spell->MonsterBolt(origin, dir, kHarnessBoltAccuracy);
 	if (!bolt) {
 		// A ward, a light, a hand spell: nothing that flies.
+		const alloc::Excused excuse;
 		log::Warn("bolt: spell '{}' has no bolt", spellId);
 		return false;
 	}
@@ -231,6 +238,18 @@ void DungeonWorld::TickAutoCast(float dt) {
 	Harness::AutoCast::Entry& e = ac.entries[static_cast<size_t>(ac.next)];
 	ac.next = (ac.next + 1) % ac.count;
 	if (e.member < 0 || static_cast<size_t>(e.member) >= m_roster->size()) return;
+	// A SHOT AT THE PARTY (see AutoCast): launched, then met at once by the
+	// repel when the entry names one. The repel's zone is the party's square and
+	// the one it faces, so a shot launched from that square is caught as it flies.
+	if (e.bolt) {
+		if (!ShootSpellBolt(e.Spell(), e.x, e.z, e.slot)) {
+			++e.failed;
+			return;
+		}
+		++e.cast;
+		if (e.repel > 0.0f) RepelAhead(e.repel, e.member);
+		return;
+	}
 	// Looked up by id at every cast rather than held as a pointer: an editor
 	// catalog save rebuilds the spell book under a running rotation.
 	const Spell* spell = m_magic.FindSpell(e.Spell());

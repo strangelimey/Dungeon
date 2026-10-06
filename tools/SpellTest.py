@@ -22,7 +22,8 @@
 #           bolt; Hagalaz bursts, reaching the square beside the target; Ingwaz
 #           on a ward wards all four; Hagalaz on a ward kills what stands round
 #           the caster, harms no one in the party, and leaves no ward.
-#   MONSTERS the adept's spell hurts the party, and the ladder is authored.
+#   MONSTERS the adept's spell hurts the party, the ladder is authored, and the
+#           magus's burst bolt goes off on the party it reaches (code-review C1).
 #   REPEL   a strong gust turns arrows back, and they kill the archer.
 #
 # --selftest runs the same script with every `cast` line removed and demands
@@ -59,6 +60,7 @@ SPELL_FREE = {
 	"a new game finds the torch doused in the last one lit",
 	"the adept's volleys hurt the party",
 	"mage, adept and magus cast bolt, volley and burst",
+	"the magus's burst bolt goes off on the party it reaches",
 	"a strong gust turns an arrow back",
 	"and the turned arrows kill the archer",
 	"the script ran to its end",
@@ -323,6 +325,14 @@ def judge(lines):
 	ladder = (spell_of.get("skel_mage"), spell_of.get("skel_mage_adept"), spell_of.get("skel_magus"))
 	check(ladder == ("firebolt", "firebolt_volley", "firebolt_burst"),
 		  "mage, adept and magus cast bolt, volley and burst", f"{ladder}")
+	# Every monster bolt that ENDS without reaching anyone is an expiry, and a burst
+	# one bursts there; one that reaches the party bursts too, with no expiry. So
+	# more blasts than expiries is a burst that went off on the party - which the
+	# magus's never did, its bolt striking one member as a plain firebolt (C1).
+	t = tally(get("magus"))
+	check(num(t, "blasts") > num(t, "expired") and num(t, "taken") > 0,
+		  "the magus's burst bolt goes off on the party it reaches",
+		  f"blasts={t.get('blasts')} expired={t.get('expired')} taken={t.get('taken')}")
 
 	print("REPEL - a strong gust against arrows")
 	sec = get("repel")

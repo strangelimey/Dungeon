@@ -198,15 +198,19 @@ void DropSpent(std::vector<Inst>& effects) {
 }
 } // namespace
 
-void Deal(DamageEvent& ev, ITarget& target, const StrikeRules& rules,
-		  std::mt19937& rng) {
-	// --- 1. deflect: an effect may turn it aside before anything is rolled ---
+bool Deflect(DamageEvent& ev, ITarget& target) {
 	for (Inst& e : target.Effects()) {
 		if (e.kind) e.kind->OnDeflect(e, ev, target);
 		if (ev.deflected) break;
 	}
 	DropSpent(target.Effects());
-	if (ev.deflected) return;
+	return ev.deflected;
+}
+
+void Deal(DamageEvent& ev, ITarget& target, const StrikeRules& rules,
+		  std::mt19937& rng) {
+	// --- 1. deflect: an effect may turn it aside before anything is rolled ---
+	if (Deflect(ev, target)) return;
 
 	// --- 2/3. strike and mitigate -------------------------------------------
 	// A rolled event goes through the shared resolver, which does the hit roll,

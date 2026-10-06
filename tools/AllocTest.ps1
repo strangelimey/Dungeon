@@ -14,6 +14,7 @@
 #   .\tools\AllocTest.ps1 -RestReach         # resting, a frozen monster with a way through
 #   .\tools\AllocTest.ps1 -Cast              # a bolt in flight + an open spellbook
 #   .\tools\AllocTest.ps1 -Impact            # bolts landing, expiring, a blast, a crate alight
+#   .\tools\AllocTest.ps1 -Burst             # burst bolts on the party, a ward, a gust's repel
 #   .\tools\AllocTest.ps1 -Hand              # the hand spells: light, douse, flare, fill, pebble
 #   .\tools\AllocTest.ps1 -Light             # the Sowilo lights: cast, stacked, grown, a flare's dazzle
 #   .\tools\AllocTest.ps1 -Pause             # Esc to the pause menu and back
@@ -157,6 +158,31 @@
 # steps aside to a new, untouched target, and alloctest's first ARMED frame
 # releases the barrage and restarts the tally; the verdict frame logs that
 # tally, which is what the refusal reads.
+#
+# -Burst IS THE OTHER SIDE OF -Impact: SHOTS AT THE PARTY (code-review C1, C18).
+# -Impact has the party cast at a monster, so nothing ever reaches the party:
+# a burst bolt going off on contact with it (ResolveMonsterProjectileHit's area
+# branch, then the blast's PARTY branch - every member hurt, narrated, left
+# burning), a Wind Ward turning one there, and a gust's repel - weakening a shot,
+# flinging one back, or leaving one nothing so it falls and is erased from the
+# flight list - all stayed outside every window, and could allocate and pass.
+# Nothing in the console's frames is measured, so the harness fires them from a
+# world frame: `autocast bolt` launches the skel_magus's own burst bolt at the
+# party from the square ahead, as `bolt` does, and an entry naming `repel` meets
+# it on the same tick with a repel of an exact power, as `castsvc repel` does -
+# exact because only a gust of the shot's own strength leaves it nothing. In an
+# emptied eval_arena the rotation (held, so the window's first armed frame
+# starts it) is: a plain bolt, one a repel of half its strength weakens, one its
+# equal spends and one twice it flings back, a cast every 2 s - sparse so that
+# the party lives through the window (Tilo has 24 hp; a burst and its burn take
+# about 13 of them). Both members of the bolts' lane carry a Wind Ward of ONE
+# charge, so the first bolt to connect is turned whoever it picks and a later
+# one goes off. NO WARM-UP, the -Melee rule: a session's first burst on the
+# party is paid in its first fight with a magus. The one thing grown before the
+# window is the party bar's effect strip, a known defect scheduled elsewhere
+# (code-review C219, batch 41 - see the setup). It refuses a PASS unless the
+# window's tally counts a burst on the party, a ward turn, and a repel that
+# weakened, one that turned and one that spent.
 #
 # -Pause IS THE OTHER HALF OF THE RULE: WHICH FRAMES IT COVERS. The guard judges
 # a frame on the state at its top, so the frame Esc is pressed in starts as
@@ -303,6 +329,9 @@ param(
 	[double]$ImpactStrength = 400,
 	# Seconds between casts, round-robin over the rotation below.
 	[double]$ImpactEvery = 0.4,
+	# Measures SHOTS AT THE PARTY: a burst bolt going off on it, a ward turning
+	# one, a gust's repel weakening, turning and spending them. See the note above.
+	[switch]$Burst,
 	# Casts the four hand spells at a wall torch inside the window (spell-updates
 	# Phase 8). See the note at the setup.
 	[switch]$Hand,
@@ -1300,8 +1329,9 @@ try {
 		# the process's first detonation come with the window. Refuse if anything
 		# has burst already: that first time would be outside it again.
 		Send-Text 'autocast 2 firebolt_burst'; Send-Key 0x0D
-		$burst = Get-TallyField 'blasts'
-		if ($burst -gt 0) { throw "a blast went off before the window ($burst) - the first detonation would go unmeasured" }
+		# (Not `$burst`: PowerShell names ignore case, and that is the -Burst switch.)
+		$blastsSoFar = Get-TallyField 'blasts'
+		if ($blastsSoFar -gt 0) { throw "a blast went off before the window ($blastsSoFar) - the first detonation would go unmeasured" }
 		$px -= 4; $tx -= 4
 		Send-Text "tp $px $pz"; Send-Key 0x0D
 		Assert-PartyAt $px $pz
@@ -1349,6 +1379,71 @@ try {
 			throw "the arena would not take a brazier at $bx,$tz"
 		}
 		Send-Text "breakables $bx $tz poison 6 30"; Send-Key 0x0D
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0 # close the console again; alloctest reopens it below
+		Start-Sleep -Milliseconds 400
+	}
+
+	# -Burst: shots at the party from a world frame (see the note at the top).
+	if ($Burst) {
+		Write-Host 'going to an emptied eval_arena: burst bolts at the party'
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		Enter-FrozenArena
+		# Emptied, so nothing but the party is there to be hit, and a flung-back
+		# bolt flies home into open air. The centre is read back, not assumed.
+		$arenaBefore = @(Select-String -Path $log -Pattern 'console: arena open ').Count
+		Send-Text 'arena open 9 9'; Send-Key 0x0D
+		$arena = Wait-NewLogLines 'console: arena open ' $arenaBefore 1 30
+		if ($arena.Count -eq 0 -or $arena[-1].Line -notmatch 'centre (\d+),(\d+)') {
+			throw 'the arena was not carved (no `arena open` line with a centre)'
+		}
+		$bpx = [int]$Matches[1]; $bpz = [int]$Matches[2]
+		$bfz = $bpz - 1 # the square ahead, facing north: where every bolt flies from
+		Send-Text "tp $bpx $bpz"; Send-Key 0x0D
+		Send-Text 'face n'; Send-Key 0x0D
+		Assert-PartyAt $bpx $bpz
+		# THE PARTY BAR'S EFFECT STRIP IS PRE-GROWN, and that is a KNOWN DEFECT
+		# stood aside, not a warm-up: the strip builds an icon widget the first
+		# time a member shows N effects (code-review C219), so the window's first
+		# burn on Sera and Tilo allocated there, in the HUD, whatever brought the
+		# effect. C219 is batch 41's (Warm(fx::kMaxEffects), judged by its own
+		# -Effects mode), so until it lands every member shows two effects for a
+		# moment here - the most any shows in the window (a ward and a burn) - and
+		# `heal` clears them. DROP THIS once C219 is in.
+		foreach ($m in 0..3) {
+			Send-Text "effect burn $m 0.01 60"; Send-Key 0x0D
+			Send-Text "effect bleed $m 0.01 60"; Send-Key 0x0D
+		}
+		Start-Sleep -Milliseconds 800 # frames, so the HUD lays the icons out
+		Send-Text 'heal'; Send-Key 0x0D
+		# One charge each on the two members of slot 0's lane (front-left and
+		# rear-left): the first bolt to connect is turned whichever it picks, and
+		# of the next two at most one more can be.
+		Send-Text 'effect windward 0 1 60'; Send-Key 0x0D
+		Send-Text 'effect windward 2 1 60'; Send-Key 0x0D
+		# HELD before the first entry goes in: the world runs with the console
+		# open, and an entry fires as soon as it is added.
+		Send-Text 'autocast off'; Send-Key 0x0D
+		Send-Text 'autocast hold'; Send-Key 0x0D
+		# The magus's burst bolt is 14 strong: 7 weakens it to half, 14 spends it,
+		# 21 flings it back with half.
+		Send-Text "autocast bolt firebolt_burst $bpx $bfz 0 2"; Send-Key 0x0D
+		Send-Text "autocast bolt firebolt_burst $bpx $bfz 0 repel 7 1"; Send-Key 0x0D
+		Send-Text "autocast bolt firebolt_burst $bpx $bfz 0 repel 14 1"; Send-Key 0x0D
+		Send-Text "autocast bolt firebolt_burst $bpx $bfz 0 repel 21 1"; Send-Key 0x0D
+		$boltPattern = 'console:   bolt firebolt_burst from \d+,\d+ in slot 0'
+		$boltBefore = @(Select-String -Path $log -Pattern $boltPattern).Count
+		Send-Text 'autocast'; Send-Key 0x0D
+		$boltRows = Wait-NewLogLines $boltPattern $boltBefore 4
+		if ($boltRows.Count -ne 4) { throw "``autocast`` listed $($boltRows.Count) bolt entries, not 4" }
+		foreach ($r in $boltRows) {
+			if ($r.Line -notmatch ': 0 shot, 0 failed') {
+				throw "an entry fired before the window: $($r.Line -replace '^.*console:\s+', '')"
+			}
+		}
+		Write-Host "  party at $bpx,$bpz facing north, four bolt entries from $bpx,$bfz, held"
 		Send-Text 'logecho off'; Send-Key 0x0D
 		Send-Key 0xC0 # close the console again; alloctest reopens it below
 		Start-Sleep -Milliseconds 400
@@ -2012,9 +2107,25 @@ try {
 	# logs the harness tally, which the window's first ARMED frame restarted.
 	# (Asking `tally` afterwards used to count the console's frames, the
 	# guard's warm-up and whatever landed while the question was being typed.)
-	if ($Melee -or $Impact -or $Items -or $Throw) {
+	if ($Melee -or $Impact -or $Burst -or $Items -or $Throw) {
 		$script:lastTally = (Wait-ForLog 'alloctest window TALLY ' 10 'the window tally') -replace '^.*TALLY ', 'TALLY '
 		Write-Host "  in the window: $script:lastTally"
+	}
+
+	# -Burst: every shot-at-the-party path it exists to measure, counted by the
+	# window's own tally. A bolt entry that failed, a lane nobody stood in or a
+	# repel that met nothing would otherwise report exactly like a clean run.
+	if ($Burst) {
+		$missing = @()
+		if ((Get-LastTallyField 'partybursts') -le 0) { $missing += 'no burst went off on the party' }
+		if ((Get-LastTallyField 'wardturns') -le 0) { $missing += 'no ward turned a bolt' }
+		if ((Get-LastTallyField 'repelweakened') -le 0) { $missing += 'no repel weakened a bolt' }
+		if ((Get-LastTallyField 'repelturned') -le 0) { $missing += 'no repel flung a bolt back' }
+		if ((Get-LastTallyField 'repelspent') -le 0) { $missing += 'no repel spent a bolt' }
+		if ($missing.Count -gt 0 -and $result -eq 'PASS') {
+			Write-Host "$($missing -join ', ') inside the window - the shots at the party were not measured" -ForegroundColor Yellow
+			$result = 'UNMEASURED'
+		}
 	}
 
 	# A melee PASS counts only if the swing path actually ran inside the window.

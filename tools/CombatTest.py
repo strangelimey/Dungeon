@@ -29,6 +29,14 @@
 #              the flight STOPPED in the door or the rock (the tally's
 #              `wallstops=` / `stoppedin=`), since one whose reach ran out just
 #              short ends in the same open square and passes under the old code.
+#   BURST      a skel_magus's burst bolt (`bolt firebolt_burst`) that reaches the
+#              party goes off there, on contact, on every member (C1) - and a
+#              Wind Ward turns it first, so nothing goes off (Michael: a turned
+#              bolt does not land).
+#   GUST       a gust of half the bolt's strength leaves half its blast and half
+#              its burn (C18), and one of its full strength leaves nothing: the
+#              bolt falls without an expiry, so it never bursts in the party's
+#              face at full force.
 #
 # Each later combat batch adds its sections to combat.eval and its checks here.
 #
@@ -171,6 +179,44 @@ def stopped_in(t):
 	flight ended (DungeonWorld::Tally::wallStops)."""
 	m = re.match(r"(\d+),(\d+)$", t.get("stoppedin", ""))
 	return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def party_reads(sec):
+	"""Every `party` readout in the section, in order: a dict per readout of
+	member name -> hp. A readout starts at slot 0 (a member's effects line may
+	sit between two members' rows)."""
+	out = []
+	for l in sec:
+		m = re.match(r"  \[(\d)\] (\w+)\s+hp ([\d.-]+)/", l)
+		if not m:
+			continue
+		if m.group(1) == "0" or not out:
+			out.append({})
+		out[-1][m.group(2)] = float(m.group(3))
+	return out
+
+
+def repel(sec):
+	"""The section's `castsvc repel` readout as (weakened, turned), or None."""
+	for l in sec:
+		m = re.match(r"castsvc repel: weakened=(\d+) turned=(\d+)$", l)
+		if m:
+			return int(m.group(1)), int(m.group(2))
+	return None
+
+
+def losses(sec):
+	"""What each member lost between the section's first and last `party`
+	readouts, or None without two."""
+	reads = party_reads(sec)
+	if len(reads) < 2 or set(reads[0]) != set(reads[-1]):
+		return None
+	return {n: reads[0][n] - reads[-1][n] for n in reads[0]}
+
+
+def burns(sec):
+	"""{member: burn magnitude} over the section's `char` readouts (0 = none)."""
+	return {c["name"]: c["effects"].get("burn", 0.0) for c in chars(sec)}
 
 
 def party_pos(sec):
@@ -359,6 +405,65 @@ def judge(lines):
 	check(flew_past and "burn" in brand["effects"],
 		  "its burn caught him in the last open square, his own",
 		  f"effects {brand['effects'] if brand else None}")
+
+	print("BURST ON THE PARTY - a magus's burst bolt that reaches the party goes off (C1)")
+	sec = get("burst-party")
+	t = tally(sec)
+	ctl_loss, ctl_burn = losses(sec), burns(sec)
+	# Went off on CONTACT: a blast with no expiry. A bolt that flew past and burst
+	# on the wall behind counts a blast too, with an expiry; one struck as a plain
+	# bolt (the old way) counts neither.
+	burst = num(t, "blasts") == 1 and num(t, "expired") == 0
+	check(burst, "the burst bolt that reached the party went off, on contact",
+		  f"blasts={t.get('blasts')} expired={t.get('expired')}")
+	check(burst and ctl_loss is not None and len(ctl_loss) == 4
+		  and all(v > 0.0 for v in ctl_loss.values())
+		  and len(ctl_burn) == 4 and all(v > 0.0 for v in ctl_burn.values()),
+		  "on every member in the square, each left burning",
+		  f"lost {ctl_loss} burn {ctl_burn}")
+
+	print("BURST ON THE PARTY - the Wind Ward turns it, and a turned bolt does not land")
+	sec = get("burst-ward")
+	t = tally(sec)
+	cs = chars(sec)
+	turned = sum(99.0 - c["effects"]["windward"] for c in cs if "windward" in c["effects"])
+	ward_turned = len(cs) == 4 and turned == 1.0 and num(t, "expired") == 0
+	check(ward_turned, "the ward on the member it would strike turned it (one charge)",
+		  f"charges spent {turned} over {len(cs)} readouts, expired={t.get('expired')}")
+	wl = losses(sec)
+	check(ward_turned and num(t, "blasts") == 0 and num(t, "taken") == 0
+		  and wl is not None and not any(wl.values()) and not any(burns(sec).values()),
+		  "and nothing went off: no blast, nobody hurt, nobody burning",
+		  f"blasts={t.get('blasts')} taken={t.get('taken')} lost {wl} burn {burns(sec)}")
+
+	print("THE GUST - a weakened burst bolt keeps the share of its blast and burn it keeps of itself (C18)")
+	sec = get("burst-gust")
+	t = tally(sec)
+	gl, gb = losses(sec), burns(sec)
+	slowed = repel(sec) == (1, 0) and num(t, "blasts") == 1 and num(t, "expired") == 0
+	check(slowed, "a gust of half its strength slowed it, and it still went off on the party",
+		  f"repel {repel(sec)} blasts={t.get('blasts')} expired={t.get('expired')}")
+	# Half its strength left, so half its blast: what each member lost at the
+	# detonation square (and two ticks of the burn after it) is half the control's.
+	ratio = ({n: gl[n] / ctl_loss[n] for n in gl}
+			 if slowed and gl and ctl_loss and set(gl) == set(ctl_loss)
+			 and all(v > 0.0 for v in ctl_loss.values()) else None)
+	check(ratio is not None and len(ratio) == 4 and all(0.4 <= r <= 0.6 for r in ratio.values()),
+		  "its blast landed at half: each member lost half what the control's took",
+		  f"lost {gl} against {ctl_loss}")
+	check(slowed and len(gb) == 4 and len(ctl_burn) == 4 and all(v > 0.0 for v in ctl_burn.values())
+		  and all(abs(gb[n] - 0.5 * ctl_burn.get(n, 0.0)) < 0.05 for n in gb),
+		  "and its burn at half the magnitude", f"burn {gb} against {ctl_burn}")
+
+	print("THE GUST - a gust its equal leaves it nothing, and it falls (C18)")
+	sec = get("burst-spent")
+	t = tally(sec)
+	sl = losses(sec)
+	fell = repel(sec) == (0, 1) and num(t, "expired") == 0 and num(t, "blasts") == 0
+	check(fell, "spent, it fell without expiring and without going off",
+		  f"repel {repel(sec)} expired={t.get('expired')} blasts={t.get('blasts')}")
+	check(fell and num(t, "taken") == 0 and sl is not None and not any(sl.values()),
+		  "and nothing reached the party", f"taken={t.get('taken')} lost {sl}")
 	check("end" in s, "the script ran to its end")
 
 
