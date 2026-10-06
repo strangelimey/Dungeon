@@ -1274,9 +1274,22 @@ void Game::RegisterPartyCommands() {
 	m_console.Register({.name = "rest",
 						.group = CmdGroup::Characters,
 						.params = "[on|off]\n"
-								  "until [secs]",
+								  "until [secs]\n"
+								  "button",
 						.summary = "report or set the rest state, or rest until it ends"},
 					   [this](const std::vector<std::string>& args) {
+						   // `rest button` - where the HUD's Rest button is, so a
+						   // harness can start a rest the way a player does: a click
+						   // in an ordinary frame, which the allocation guard arms,
+						   // rather than a command in the console's, which it never
+						   // does (AllocTest -Rest).
+						   if (!args.empty() && args[0] == "button") {
+							   const gfx::Rect r = m_ui.RestButtonRect();
+							   m_console.Print(std::format("rest button: {},{}",
+														   static_cast<int>(r.x + r.w * 0.5f),
+														   static_cast<int>(r.y + r.h * 0.5f)));
+							   return;
+						   }
 						   // `rest until` — enter rest AND run the world until it
 						   // ends. This is the form a script wants, and the reason
 						   // it exists is a trap worth recording: `rest on` followed
@@ -1392,6 +1405,56 @@ void Game::RegisterPartyCommands() {
 						   m_console.Print(std::format("{} {} = {:.1f}",
 													   all ? "party" : m_characters[one].name,
 													   args[1], v));
+					   });
+
+	// Seeding a POOL, setsupply's twin for health, stamina and mana: a value set
+	// outright, clamped to the member's maximum. It exists for the state no other
+	// command reaches cleanly - a member at 0 health, UNCONSCIOUS but not dead,
+	// which AllocTest -Rest needs: the downed wait out the stabilize clock, a
+	// monster in aggro resets it, so a rest beside one cannot end by itself.
+	// (A bleed downs a member only to finish them on its next tick; over-exertion
+	// needs a monster to swing at.) A health write is a harness fiat, not a game
+	// rule, so it REBASES the damage ledger, as `heal` does. The dead are left
+	// alone: a pool does not raise them, `heal` does.
+	m_console.Register({.name = "setpool",
+						.group = CmdGroup::Characters,
+						.params = "<member|all> <health|stamina|mana> <n>",
+						.summary = "set a member's or the party's health, stamina or mana"},
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 3)) return;
+						   const bool all = args[0] == "all";
+						   const size_t one =
+							   static_cast<size_t>(std::atoi(args[0].c_str()));
+						   if (!all && one >= m_characters.size()) {
+							   m_console.Refuse("no such member");
+							   return;
+						   }
+						   const std::string& pool = args[1];
+						   if (pool != "health" && pool != "stamina" && pool != "mana") {
+							   m_console.Refuse("expected health, stamina or mana");
+							   return;
+						   }
+						   const float want =
+							   std::max(0.0f, static_cast<float>(std::atof(args[2].c_str())));
+						   int set = 0;
+						   for (size_t i = 0; i < m_characters.size(); ++i) {
+							   if (!all && i != one) continue;
+							   Character& c = m_characters[i];
+							   if (c.dead) continue;
+							   if (pool == "health") c.health = std::min(want, c.maxHealth);
+							   else if (pool == "stamina") c.stamina = std::min(want, c.maxStamina);
+							   else c.mana = std::min(want, c.maxMana);
+							   ++set;
+						   }
+						   if (set == 0) {
+							   m_console.Refuse("setpool: nobody to set (the dead keep no "
+												"pools; `heal` raises them)");
+							   return;
+						   }
+						   if (pool == "health") m_world->RebaseDamageLedger();
+						   m_console.Print(std::format("{} {} = {:.1f}",
+													   all ? "party" : m_characters[one].name,
+													   pool, want));
 					   });
 
 	// --- seeding a rung (docs/eval-harness.md) ------------------------------

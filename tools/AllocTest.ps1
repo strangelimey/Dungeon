@@ -10,6 +10,8 @@
 #   .\tools\AllocTest.ps1 -Seconds 30
 #   .\tools\AllocTest.ps1 -Wounded           # the REGENERATING steady state
 #   .\tools\AllocTest.ps1 -Melee             # a monster swinging at the party
+#   .\tools\AllocTest.ps1 -Rest              # resting, a monster behind a shut door
+#   .\tools\AllocTest.ps1 -RestReach         # resting, a frozen monster with a way through
 #   .\tools\AllocTest.ps1 -Cast              # a bolt in flight + an open spellbook
 #   .\tools\AllocTest.ps1 -Impact            # bolts landing, expiring, a blast, a crate alight
 #   .\tools\AllocTest.ps1 -Hand              # the hand spells: light, douse, flare, fill, pebble
@@ -77,6 +79,41 @@
 # "warm-up", and that hid TrainDefense building its stat lists on it and the
 # formation list growing for the first aware monster - a first time every
 # session pays in its first fight, which is not warm-up.
+#
+# -Rest IS WHERE THE AI THINKS IN A GUARDED FRAME (code-review C62). The bucket
+# workers' searches are not checked - they run on their own threads - but REST
+# forces lockstep, and lockstep runs those very searches INLINE, on the main
+# thread, in frames the guard arms. The case that ends worst is ordinary play:
+# resting behind a shut door while a monster that has seen the party waits on
+# the other side. Its search fails every frame, and the search allocated a
+# std::queue (a deque) every time. This carves a corridor (`arena corridor 11`),
+# shuts a door two squares east of the party, stands a skeleton two beyond it
+# facing them, and waits until it has NOTICED them (`hudbars`). It then wounds
+# the party and puts one member at 0 health (`setpool`): unconscious, they wait
+# out the stabilize clock, which a monster in aggro keeps resetting, so this rest
+# cannot end by itself - a party merely wounded is healed in about a second at
+# 60x, and the window would measure a party standing about.
+#   THE REST STARTS INSIDE THE WINDOW, from the HUD's Rest button (`rest
+# button` says where), as a player starts one. Typed `rest on`, the first
+# inline thinks - the ones that would grow anything left unsized - ran in the
+# console's frames, which the guard never arms, and a 120-frame warm-up then
+# passed before the window opened; deleting the level-load pre-size of the
+# inline brain still read PASS.
+#   -RestReach is the other half: no door, and the monster FROZEN (`freeze on`),
+# so every think finds a path to the party that it never walks - a search's
+# OUTPUT, a plan's path, which a door that always fails never makes. (Unfrozen it
+# would walk up, swing and end the rest.)
+#   Both refuse a PASS unless the rest outlasted the window, the monster was
+# still engaged (and so still searching) at its end, and `lockstep stats` shows
+# the inline compute ran - and, for -RestReach, that its thinks found paths.
+#
+# AND IN EVERY MODE: the AI's snapshot and walkability-grid pools are filled at
+# level load to as many buffers as can ever be in use at once (C66). They used to
+# grow lazily, which could first land minutes in, in whichever guarded frame the
+# thread scheduler chose, so a window caught it only by luck. A pool that grows
+# now logs `AI pool grew:` once, and that line fails the run wherever it landed.
+# So does any growth of what lockstep's inline compute uses - its brain's search
+# scratch, its plan batches and their paths - which is sized at level load too.
 #
 # -Cast, AND AGAIN (2026-09-28). No run ever cast a spell or opened a book, so a
 # bolt copied its payload - four std::string effect ids, which the debug CRT
@@ -240,6 +277,13 @@ param(
 	# Scales the spawned monster's hp AND damage (the `spawn` 5th argument), so
 	# it keeps swinging for the whole window without wiping the party.
 	[double]$MeleeStrength = 0.3,
+	# Measures a party RESTING beside a monster it cannot reach: the AI thinking
+	# on the main thread, in guarded frames. See the note above.
+	[switch]$Rest,
+	# -Rest with no door and the monster frozen, so its every think finds a path
+	# (implies -Rest). See the note above.
+	[switch]$RestReach,
+	[string]$RestMonster = 'skeleton',
 	# Measures a bolt IN FLIGHT and an OPEN SPELLBOOK. See the note above.
 	[switch]$Cast,
 	# The caster: Maren, a rear-rank caster, by default.
@@ -322,6 +366,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if ($RestReach) { $Rest = $true } # -RestReach is -Rest with the way left open
 # -Items spends about four armed seconds a round trip and needs two whole ones
 # inside the window, so its default window is longer. So does -Impact since
 # batch 21: its burst caster joins only when the window opens (so the first
@@ -887,6 +932,70 @@ try {
 		$taken = Get-TallyField 'taken'
 		if ($taken -gt 0) { throw "the party was struck before the window opened (taken=$taken)" }
 		Write-Host "  spawned at $spawnedAt, held: nothing has noticed the party, nothing has struck it"
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0 # close the console again; alloctest reopens it below
+		Start-Sleep -Milliseconds 400
+	}
+
+	if ($Rest) {
+		if ($RestReach) {
+			Write-Host "a corridor, a frozen $RestMonster down it with a way through; the party wounded, one member down"
+		} else {
+			Write-Host "a corridor, a shut door, a $RestMonster behind it; the party wounded, one member down"
+		}
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		# The arena's cells are printed, never assumed (it is centred on whatever
+		# map is loaded): the party stands on the centre, the corridor runs east-west.
+		# The `1` is the height the size check reads: left out it defaults to the
+		# length, and an 11-tall box does not fit crypt1's 14x10.
+		$arenaPattern = 'console: arena corridor \d+x1  floor \d+,\d+\.\.\d+,\d+  centre (\d+),(\d+)'
+		$before = @(Select-String -Path $log -Pattern $arenaPattern -EA SilentlyContinue).Count
+		Send-Text 'arena corridor 11 1'; Send-Key 0x0D
+		$got = Wait-NewLogLines $arenaPattern $before
+		if ($got.Count -eq 0 -or $got[-1].Line -notmatch $arenaPattern) { throw 'the corridor arena was refused (see dungeon.log)' }
+		$cx = [int]$Matches[1]; $cz = [int]$Matches[2]
+		$doorX = $cx + 2; $monX = $cx + 4
+		if ($RestReach) {
+			# No door: the way is open, and the monster is FROZEN before it can
+			# take it, so it thinks - and finds a path - every time, and never
+			# walks up to swing (a landed blow would end the rest).
+			$frozen = Get-ConsoleAnswer 'freeze on' 'console: freeze ' # not the echo, `> freeze on`
+			if ($frozen -notmatch '^freeze on') { throw "the monsters were not frozen: $frozen" }
+		} else {
+			$placed = Get-ConsoleAnswer "editor place doors wooden_door $doorX $cz" 'editor place: '
+			if ($placed -notmatch "wooden_door at $doorX,$cz") { throw "the door was not placed at $doorX,${cz}: $placed" }
+			Send-Text 'mappage close'; Send-Key 0x0D
+		}
+		# Facing the party (west) and standing at once (`up`), so it can see them
+		# down the corridor - through the door's square, which is floor to sight.
+		$spawned = Get-ConsoleAnswer "spawn $RestMonster $monX $cz w 1 up" " at $monX,$cz "
+		if ($spawned -notmatch "spawned $RestMonster at $monX,$cz") { throw "the $RestMonster was not spawned at $monX,${cz}: $spawned" }
+		# Noticed = a monster AWARE of the party and acting on it, which is what
+		# makes it search for a way round every think.
+		$deadline = (Get-Date).AddSeconds(30)
+		do {
+			$bars = Get-ConsoleAnswer 'hudbars' 'hudbars: '
+			if ($bars -match 'noticed yes') { break }
+			Start-Sleep -Milliseconds 500
+		} while ((Get-Date) -lt $deadline)
+		if ($bars -notmatch 'noticed yes') { throw "the $RestMonster never noticed the party: $bars" }
+		Send-Text 'setpool all health 5'; Send-Key 0x0D
+		$down = Get-ConsoleAnswer 'setpool 1 health 0' 'health = '
+		if ($down -notmatch 'health = 0\.0') { throw "member 1 was not put down: $down" }
+		# NOT `rest on`: the rest starts INSIDE the window, from the HUD's button
+		# (see the note above). Where it is, read off the game.
+		$button = Get-ConsoleAnswer 'rest button' 'rest button: '
+		if ($button -notmatch 'rest button: (\d+),(\d+)') { throw "unreadable: $button" }
+		$script:restX = [int]$Matches[1]; $script:restY = [int]$Matches[2]
+		if ($script:restX -le 0 -or $script:restY -le 0) { throw "the HUD has no Rest button: $button" }
+		# (`(world x` and not `rest `: the console's echo of the command itself,
+		# `> rest`, would match that.)
+		$awake = Get-ConsoleAnswer 'rest' '(world x'
+		if ($awake -notmatch '^rest off \(world x') { throw "the party is resting already: $awake" }
+		$where = if ($RestReach) { 'no door' } else { "door at $doorX,$cz" }
+		Write-Host "  $where, the $RestMonster at $monX,$cz; Rest button at $($script:restX),$($script:restY)"
 		Send-Text 'logecho off'; Send-Key 0x0D
 		Send-Key 0xC0 # close the console again; alloctest reopens it below
 		Start-Sleep -Milliseconds 400
@@ -1605,6 +1714,14 @@ try {
 		}
 	}
 
+	# -Rest: lie down from the HUD's Rest button, once, inside the window. The
+	# wait clears the console close plus the guard's 120-frame warm-up, so the
+	# click lands in an ARMED frame, and so does lockstep's first inline think.
+	if ($Rest) {
+		Start-Sleep -Seconds 3
+		Send-Click $script:restX $script:restY
+	}
+
 	if ($Pause) {
 		for ($cycle = 1; $cycle -le 3; $cycle++) {
 			Start-Sleep -Seconds 3
@@ -1723,6 +1840,41 @@ try {
 		$taken = Get-LastTallyField 'taken'
 		if ($taken -le 0 -and $result -eq 'PASS') {
 			Write-Host 'the monster landed no blow inside the window - the swing path was not measured' -ForegroundColor Yellow
+			$result = 'UNMEASURED'
+		}
+	}
+
+	# And for -Rest: the window measured a REST only if the party was still
+	# resting at its end (the click in the window started it), and the AI's inline
+	# search only if the monster was still engaged (noticed) - a monster that lost
+	# interest would sit idle and search for nothing, and a rest that ended would
+	# leave a party standing about. `lockstep stats` (counted since the click
+	# turned lockstep on) must show the inline compute ran; and for -RestReach,
+	# that its thinks found paths, or the search's output was never measured.
+	if ($Rest) {
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		$restLine = Get-ConsoleAnswer 'rest' '(world x'
+		$bars = Get-ConsoleAnswer 'hudbars' 'hudbars: '
+		$monLine = (Get-ConsoleAnswer 'monsters' "$RestMonster @ ").Trim()
+		$stats = Get-ConsoleAnswer 'lockstep stats' 'lockstep stats: '
+		Send-Text 'rest off'; Send-Key 0x0D
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0
+		Write-Host "  after the window: $restLine; $($bars -replace '\s*\|\s*demo.*$', ''); $monLine"
+		Write-Host "  $stats"
+		$ticks = 0; $paths = 0
+		if ($stats -match 'ticks=(\d+) plans=(\d+) paths=(\d+)') {
+			$ticks = [int]$Matches[1]; $paths = [int]$Matches[3]
+		}
+		$short = @()
+		if ($restLine -notmatch '^rest on ') { $short += 'the party was not resting (the click missed, or the rest ended)' }
+		if ($bars -notmatch 'noticed yes') { $short += 'the monster was no longer engaged' }
+		if ($ticks -le 0) { $short += 'the AI never thought on the main thread' }
+		if ($RestReach -and $paths -le 0) { $short += 'no inline think found a path' }
+		if ($short.Count -gt 0 -and $result -eq 'PASS') {
+			Write-Host "$($short -join ', ') - the resting AI was not measured" -ForegroundColor Yellow
 			$result = 'UNMEASURED'
 		}
 	}
@@ -2067,6 +2219,21 @@ try {
 		if ($cardsRow -notmatch 'cards +shown' -and $result -eq 'PASS') {
 			Write-Host 'the party cards were not up - the Minimal layout was not measured' -ForegroundColor Yellow
 			$result = 'UNMEASURED'
+		}
+	}
+
+	# EVERY MODE: an AI pool that GREW in play fails the run, wherever it grew -
+	# inside the window, in the warm-up or in a console frame. The pools are
+	# filled at level load to as many buffers as can be in use at once (C66), so
+	# growth means a fill that fell short or a reader that never gave its mark
+	# back; and it used to land in whichever guarded frame the threads chose,
+	# which a window caught only by luck. The game logs it once per pool.
+	$grew = @(Select-String -Path $log -Pattern 'AI pool grew:' -SimpleMatch -EA SilentlyContinue)
+	if ($grew.Count -gt 0) {
+		foreach ($g in $grew) { Write-Host "  $($g.Line)" -ForegroundColor Red }
+		if ($result -eq 'PASS') {
+			Write-Host 'an AI pool grew in play (see above)' -ForegroundColor Red
+			$result = 'FAIL'
 		}
 	}
 

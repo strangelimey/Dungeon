@@ -29,6 +29,18 @@ only the default):
   narration of each blow. It is spawned HELD (`freeze hold`), so its first
   notice of the party and its first blow fall INSIDE the window: a fight's first
   blow is paid by every session, so it is not warm-up
+- `.\tools\AllocTest.ps1 -Rest` - the party resting with a member down, a
+  skeleton that has seen them waiting behind a shut door. Rest forces lockstep,
+  so the AI's search runs on the main thread in guarded frames, and fails every
+  frame. The rest starts INSIDE the window, from a click on the HUD's Rest
+  button (`rest button`), so lockstep's first inline thinks are measured too. It
+  refuses a PASS unless the rest outlasted the window, the monster was still
+  engaged at its end and `lockstep stats` counts inline thinks (also `CheckAll
+  -Only alloc-rest`)
+- `.\tools\AllocTest.ps1 -RestReach` - the same with no door and the monster
+  frozen (`freeze on`), so every think FINDS a path it never walks: the search's
+  output, a plan's path. It refuses a PASS unless `lockstep stats` counts paths
+  (also `CheckAll -Only alloc-rest-reach`)
 - `.\tools\AllocTest.ps1 -Cast` - a bolt frozen in flight and a spellbook held
   open (the launch itself happens in the console's unguarded frame)
 - `.\tools\AllocTest.ps1 -Impact` - the world running: bolts launched by the
@@ -55,6 +67,14 @@ only the default):
 - `.\tools\AllocTest.ps1 -Packs` - a 4-slot and an 8-slot bag swapped in the
   sheet's pack row, so a bag GROWS inside the window. It refuses a PASS unless
   `sheet status` counts two equips made during it (`equips=`)
+
+Every mode also fails on an `AI pool grew:` line anywhere in `dungeon.log`. The
+AI's snapshot and walkability-grid pools are filled at level load to as many
+buffers as can be in use at once, so a pool that grows in play is a defect even
+outside the window; it used to grow in whichever guarded frame the thread
+scheduler happened to pick. The same line reports any growth of what lockstep's
+inline compute uses - its brain's search scratch, its plan batches and their
+paths - which is sized at level load (and when a monster is added) as well.
 
 ## Reading a failure
 

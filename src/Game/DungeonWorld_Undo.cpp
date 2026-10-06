@@ -142,6 +142,9 @@ void DungeonWorld::RespawnFromRecords(bool geometryToo) {
 	LoadDecorations();
 	LoadStairs();
 	LoadMonsters();
+	// A regenerate (InstallLevel) can hand back a map of another size, and any
+	// caller a longer monster list: the AI pools follow both (C66).
+	ReserveAIPools();
 	LoadItems();
 	LoadButtons();
 	LoadDoors();

@@ -27,10 +27,14 @@
 
 #include "Core/ThreadManager.h"
 
+#include <array>
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <span>
 #include <stop_token>
+#include <utility>
 #include <vector>
 
 namespace dungeon::ai {
@@ -39,6 +43,34 @@ namespace dungeon::ai {
 struct Cell {
 	int x = 0;
 	int z = 0;
+};
+
+// ----------------------------------------------------------------------------
+// THE HAND-BACK MARK a pooled buffer carries (code-review C70). A pool reuses a
+// buffer once nobody else is reading it. That used to be read off
+// `shared_ptr::use_count() == 1`, which the standard gives NO ordering: seeing
+// the count drop says nothing about whether the reader's last loads of the
+// buffer happen before the owner's next writes. (MSVC's interlocked decrement
+// made it safe in practice; a rule the code relies on is not the toolchain's to
+// keep.) Now a reader TAKES the mark while it is handed the buffer - under the
+// hand-off mutex, so the take is ordered before any later publish - and GIVES it
+// back with a RELEASE when it is done, and the owner reuses a buffer only once
+// an ACQUIRE load reads the mark back at zero. That pair is exactly the
+// happens-before a reuse needs, every reader's last read before the owner's
+// first write. It COUNTS rather than flags because one snapshot is read by
+// several workers at once. shared_ptr still carries the LIFETIME (a buffer the
+// pool has let go of stays alive while a reader holds it); it no longer decides
+// reuse. A force-killed worker never gives its mark back, so that buffer stays
+// marked for good and its pool grows by one - and says so (see the pools).
+// ----------------------------------------------------------------------------
+class HandBack {
+public:
+	void Take() const { m_readers.fetch_add(1, std::memory_order_relaxed); }
+	void Give() const { m_readers.fetch_sub(1, std::memory_order_release); }
+	bool Idle() const { return m_readers.load(std::memory_order_acquire) == 0; }
+
+private:
+	mutable std::atomic<int> m_readers{0};
 };
 
 // ----------------------------------------------------------------------------
@@ -152,6 +184,10 @@ struct Snapshot {
 	// per publish for the same reason. count == 0 = no monsters there.
 	std::vector<CellOcc> occ;
 	std::vector<Agent> monsters; // the agents to think for (each carries a stable id)
+	// Taken by each worker tick (and the inline compute) that reads this snapshot,
+	// for the length of the tick; the publisher reuses a pooled snapshot only once
+	// it is unpublished and this reads idle (HandBack, C70).
+	HandBack mark;
 };
 
 // ----------------------------------------------------------------------------
@@ -199,7 +235,8 @@ struct Scheduler {
 
 // ----------------------------------------------------------------------------
 // One monster's reasoning. Stateless except the BFS scratch it owns, so each
-// worker thread keeps its OWN Brain (the scratch must not be shared).
+// worker thread keeps its OWN Brain (the scratch must not be shared). A search
+// allocates nothing once the scratch has met a map that size.
 // ----------------------------------------------------------------------------
 class Brain {
 public:
@@ -219,8 +256,22 @@ public:
 				  const IWorldView& world, const std::stop_token& stop,
 				  std::vector<Cell>& outPath);
 
+	// Sizes the BFS scratch for a map of `cells` squares now, so no search on a
+	// map that size grows it. FindPath grows it on its own at a first bigger
+	// map; this is for the INLINE brain, whose searches run on the main thread
+	// in guarded frames while resting (code-review C62), sized at level load.
+	void Reserve(size_t cells);
+	// Both scratch buffers' capacity, summed: it only ever grows, so a change
+	// across a search means the search grew one (AsyncDirector::ComputeInline).
+	size_t Capacity() const { return m_pathFrom.capacity() + m_open.capacity(); }
+
 private:
 	std::vector<int> m_pathFrom; // BFS predecessor scratch, reused across calls
+	// The BFS open list, walked by a head index rather than popped. Every cell
+	// enters it at most once (it is marked visited as it is pushed), so the
+	// map's cell count is its true ceiling and, reserved, it never grows mid-
+	// search. It was a std::queue, a deque that allocated on every search (C62).
+	std::vector<int> m_open;
 };
 
 // ----------------------------------------------------------------------------
@@ -245,12 +296,72 @@ public:
 
 	// Main thread: the most recent plan batch for a bucket, plus a sequence
 	// number that increments on each publish (so the caller can tell new from
-	// already-applied). Either field may be null/0 before the first compute.
+	// already-applied). `seq` is 0, and `plans` empty, before the first compute.
+	// A Batch HOLDS its plans' hand-back mark (HandBack) until it is destroyed,
+	// so the bucket's producer cannot refill them under a reader: keep one only
+	// as long as it is being read. Move-only for that reason.
+	//
+	// `plans` is a VIEW of that tick's plans, not the vector they sit in: a
+	// pooled batch keeps every plan slot it has ever filled, past the tick's
+	// count, because destroying a plan frees its path and making one allocates
+	// (in a debug build even an empty vector allocates its iterator proxy) -
+	// which, in the inline compute, would land in a guarded frame. The view is
+	// good while the Batch lives: it keeps the batch alive.
 	struct Batch {
-		std::shared_ptr<const std::vector<Plan>> plans;
+		std::span<const Plan> plans;
 		uint64_t seq = 0;
+
+		Batch() = default;
+		Batch(Batch&& o) noexcept
+			: plans(std::exchange(o.plans, {})), seq(o.seq), m_keep(std::move(o.m_keep)),
+			  m_mark(std::exchange(o.m_mark, nullptr)) {}
+		Batch& operator=(Batch&& o) noexcept {
+			if (this != &o) {
+				if (m_mark) m_mark->Give();
+				plans = std::exchange(o.plans, {});
+				seq = o.seq;
+				m_keep = std::move(o.m_keep);
+				m_mark = std::exchange(o.m_mark, nullptr);
+			}
+			return *this;
+		}
+		Batch(const Batch&) = delete;
+		Batch& operator=(const Batch&) = delete;
+		// Given back BEFORE `m_keep` lets go, while the batch is still alive.
+		~Batch() {
+			if (m_mark) m_mark->Give();
+		}
+
+	private:
+		friend class AsyncDirector;
+		std::shared_ptr<const std::vector<Plan>> m_keep; // the batch `plans` views
+		const HandBack* m_mark = nullptr;
 	};
 	Batch TakePlans(int bucket) const;
+
+	// Main thread, at level load and whenever a monster is added: size the
+	// INLINE compute for a map of `cells` squares with `slots[b]` monsters in
+	// bucket b - its brain's BFS scratch (Brain::Reserve) and its own plan
+	// batches, a slot per monster with its path at the map's cell count (a
+	// route cannot revisit a square, so that is the true ceiling). Lockstep runs
+	// that compute in guarded frames - rest forces lockstep - so nothing it
+	// touches may first grow there (code-review C62); a buffer that grows anyway
+	// logs `AI pool grew:` once (ComputeInline). Never call it while holding a
+	// Batch: it can move the plans one views. The WORKER pools are not sized
+	// here: a worker grows its own on its own thread, which no guard arms, and
+	// sizing them from this one would race the worker that owns them.
+	void ReserveInline(size_t cells, const std::array<size_t, Scheduler::kBucketCount>& slots);
+
+	// What the inline compute has done since lockstep last came on (`lockstep
+	// stats`): AllocTest -Rest refuses a PASS unless the AI thought on the main
+	// thread inside its window, and -RestReach unless a think found a path.
+	struct InlineStats {
+		uint64_t ticks = 0;  // bucket computes run inline
+		uint64_t plans = 0;  // plans they published
+		uint64_t paths = 0;  // of which carried a path
+		size_t longest = 0;  // the longest of those paths, in squares
+	};
+	const InlineStats& Inline() const { return m_inlineStats; }
 
 	// --- LOCKSTEP (the eval harness; docs/eval-harness.md) -------------------
 	// OFF, the four bucket workers tick on WALL-CLOCK at their prime-millisecond
@@ -276,13 +387,50 @@ public:
 	void ComputeInline(int bucket);
 
 private:
-	// One bucket's compute pass — the body the worker runs each tick (reads the
-	// snapshot, thinks + paths this bucket's monsters, publishes a plan batch).
+	// A pooled plan batch and the mark its readers hold (HandBack). Published as
+	// an ALIASING shared_ptr to `plans`, which shares this object's control block
+	// - no allocation - so the vector the consumer reads keeps the batch alive.
+	struct PlanBatch {
+		// Every plan SLOT the batch has ever had; the tick that built it filled
+		// the first `count`, and a consumer sees only those (Batch::plans). The
+		// vector NEVER SHRINKS: a tick planning for fewer monsters than the last
+		// leaves the tail's plans standing, paths and all, because destroying one
+		// frees its path and making one allocates - even an empty vector does in
+		// a debug build, its iterator proxy - so a slot sized once stays sized.
+		std::vector<Plan> plans;
+		size_t count = 0;
+		HandBack mark;
+
+		// At least `slots` plan slots, each path holding `cells` squares
+		// (ReserveInline). Main thread, never while a Batch of it is held: it can
+		// move the plans, and a Batch views them.
+		void Reserve(size_t slots, size_t cells);
+		// How much the batch holds: its slots plus every buffer's capacity. None
+		// of it ever shrinks, so a change across a tick means the tick grew - or
+		// made - something.
+		size_t Capacity() const;
+	};
+
+	// A bucket's plan batches and the producer that owns them: a pool is
+	// touched by ONE thread only - so it needs no lock - and the batches it
+	// can refill are the ones not on show whose mark reads idle.
+	struct PlanPool {
+		std::vector<std::shared_ptr<PlanBatch>> batches;
+		const char* owner = ""; // "worker" / "inline", for its growth warning
+		bool warned = false;    // that warning has been given
+	};
+
+	// One bucket's compute pass - the body the worker runs each tick (reads the
+	// snapshot, thinks + paths this bucket's monsters, publishes a plan batch
+	// drawn from `pool`, which it returns; null when it published nothing).
 	// `brain` is per-worker scratch (the BFS buffer must not be shared). Checks
 	// `stop` between monsters (and the BFS checks it internally) so a stop request
 	// abandons the in-flight tick promptly, making cooperative Restart/Kill work
 	// even under a heavy bucket — no force-terminate of an allocating worker.
-	void ComputeBucket(int bucket, Brain& brain, const std::stop_token& stop);
+	const PlanBatch* ComputeBucket(int bucket, Brain& brain, PlanPool& pool,
+								   const std::stop_token& stop);
+	// Logs `AI pool grew:` for a plan pool, once per pool; `what` says what grew.
+	void WarnPlanPoolGrew(PlanPool& pool, int bucket, const char* what);
 
 	threads::Manager& m_manager;
 	threads::WorkerId m_workers[Scheduler::kBucketCount];
@@ -295,7 +443,9 @@ private:
 	// mid-BFS, and an inline call on the main thread has nobody to cancel it.
 	bool m_lockstep = false;
 	Brain m_inlineBrain;
+	bool m_inlineBrainWarned = false; // its scratch grew in a compute, and said so
 	std::stop_source m_neverStops;
+	InlineStats m_inlineStats;
 
 	mutable std::mutex m_snapMutex;
 	std::shared_ptr<const Snapshot> m_snapshot;
@@ -303,13 +453,34 @@ private:
 	mutable std::mutex m_planMutex;
 	std::shared_ptr<const std::vector<Plan>> m_plans[Scheduler::kBucketCount];
 	uint64_t m_planSeq[Scheduler::kBucketCount] = {};
+	// The batch m_plans[b] shows, and its mark, under m_planMutex: TakePlans
+	// takes the mark there, and the producer reads which batch is out there.
+	// Either pool's: a bucket's batches come from its worker's or the inline one.
+	const PlanBatch* m_published[Scheduler::kBucketCount] = {};
 
-	// Per-bucket plan-batch pool, mirroring the host's snapshot pool: a worker
-	// reuses a batch whose only ref is the pool's (use_count == 1) instead of
-	// make_shared-ing one per tick, so steady-state ticks allocate nothing.
-	// Each bucket's pool is touched ONLY by that bucket's worker (ticks per
-	// bucket are serial, even across a Restart), so it needs no lock.
-	std::vector<std::shared_ptr<std::vector<Plan>>> m_planPool[Scheduler::kBucketCount];
+	// The plan-batch pools, mirroring the host's snapshot pool: a producer
+	// reuses a batch that is not the published one and whose mark is idle,
+	// instead of make_shared-ing one per tick, and plan slots are overwritten in
+	// place, so a steady-state tick allocates nothing. TWO per bucket, because a
+	// pool must have ONE producer and a bucket has two: its worker, and the
+	// inline compute lockstep runs on the main thread. They never share a batch -
+	// not even when lockstep begins while the worker is still mid-tick, which it
+	// can be, since Pause only sets a flag (C63, batch 34) - so neither pool
+	// needs a lock or a claim, and the inline one can be sized at level load
+	// from the main thread (ReserveInline) without racing anybody.
+	//  * The WORKER's: filled in the constructor to kPlanPoolDepth - the
+	//    published batch, one a consumer is still reading, the one being built.
+	//    Its plans and paths grow as they first need to, on the worker's thread.
+	//  * The INLINE one: kInlinePoolDepth - the published batch and the one being
+	//    built. No consumer can be reading a third: the consumer is the main
+	//    thread too, and ConsumeAIPlans drops every Batch it takes before the
+	//    next frame's compute. Sized for the level's monsters (ReserveInline).
+	// A pool that has to add a batch, or an inline one whose plans or paths
+	// grow, warns once (`AI pool grew:`).
+	static constexpr size_t kPlanPoolDepth = 3;
+	static constexpr size_t kInlinePoolDepth = 2;
+	PlanPool m_planPool[Scheduler::kBucketCount];
+	PlanPool m_inlinePool[Scheduler::kBucketCount];
 };
 
 // ----------------------------------------------------------------------------

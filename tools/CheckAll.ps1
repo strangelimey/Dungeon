@@ -158,6 +158,22 @@ $checks = @(
 		selfTest = { & (Join-Path $root 'tools\AllocTest.ps1') -Config $Config -Hand -SelfTest | Out-Host; $LASTEXITCODE }
 	},
 	@{
+		name = 'alloc-rest'; tier = 'full'; needs = "build-$Config"
+		what = 'resting, a monster behind a shut door: its inline searches allocate nothing'
+		# Rest forces lockstep, so the AI's searches run on the main thread in
+		# guarded frames (code-review C62); a failed search was a deque a frame.
+		run      = { & (Join-Path $root 'tools\AllocTest.ps1') -Config $Config -Rest | Out-Host; $LASTEXITCODE }
+		selfTest = { & (Join-Path $root 'tools\AllocTest.ps1') -Config $Config -Rest -SelfTest | Out-Host; $LASTEXITCODE }
+	},
+	@{
+		name = 'alloc-rest-reach'; tier = 'full'; needs = "build-$Config"
+		what = 'resting, a frozen monster with a way through: its inline paths allocate nothing'
+		# -Rest's other half: a search that FINDS a path writes a plan's path,
+		# which the inline compute's batches are sized for at level load.
+		run      = { & (Join-Path $root 'tools\AllocTest.ps1') -Config $Config -RestReach | Out-Host; $LASTEXITCODE }
+		selfTest = { & (Join-Path $root 'tools\AllocTest.ps1') -Config $Config -RestReach -SelfTest | Out-Host; $LASTEXITCODE }
+	},
+	@{
 		name = 'typing'; tier = 'full'; needs = "build-$Config"
 		what = 'typed console text arrives whole and in order (focus loss, heavy frames)'
 		# Every harness here drives the game by typing, so a dropped character

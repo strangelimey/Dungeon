@@ -19,6 +19,8 @@ Adds the rows marked `full` to the quick tier:
   threads        full   self-testable  ThreadManager + AI buckets under load: no force-terminate, clean reboots
   alloc          full   self-testable  a steady-state frame allocates nothing on the heap
   alloc-hand     full   self-testable  the hand spells (light, douse, flare, fill, pebble) allocate nothing
+  alloc-rest     full   self-testable  resting, a monster behind a shut door: its inline searches allocate nothing
+  alloc-rest-reach full   self-testable  resting, a frozen monster with a way through: its inline paths allocate nothing
   typing         full   self-testable  typed console text arrives whole and in order (focus loss, heavy frames)
   health         full   self-testable  crashes, faults and stalls are caught, recorded and explained
   evalrunner     full   no self-test   the eval runner: reset = new game, batched = solo, headless = windowed, knobs move numbers

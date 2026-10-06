@@ -839,6 +839,9 @@ public:
 		for (float& c : m_bucketClock) c = 0.0f;
 	}
 	bool LockstepAI() const { return m_director.Lockstep(); }
+	// What lockstep's inline compute has done since it last came on (`lockstep
+	// stats`, which AllocTest -Rest reads).
+	const ai::AsyncDirector::InlineStats& LockstepStats() const { return m_director.Inline(); }
 	// The live combat tuning (balance.cat + attacks.cat knobs, Balance.h). The
 	// editor's Balance dialog edits it in place and Save()s it via the project.
 	Balance& GetBalance() { return m_balance; }
@@ -4557,15 +4560,45 @@ private:
 	// The grids the cache is drawn from - the snapshot pool's trick for the grid.
 	// A map change in PLAY (a fixture broken and doused bumps the revision) used
 	// to make_shared a fresh grid inside a guarded frame, because the old one may
-	// still be in a worker's hands. Now a grid no one else holds (use_count == 1)
-	// is refilled in place, and a level of a new size builds a SPARE beside its
-	// grid so the first such change has one waiting.
+	// still be in a worker's hands. Now a grid nobody can be reading (AIGridFree)
+	// is refilled in place, from a pool filled at level load (ReserveAIPools).
 	std::vector<std::shared_ptr<std::vector<uint8_t>>> m_walkablePool;
 	// Snapshot pool so steady-state frames allocate nothing (CLAUDE.md memory
-	// strategy): BuildAISnapshot reuses a buffer no worker still holds (use_count
-	// == 1), zero-filling its flat grids and clear()ing its vectors in place
-	// (capacity retained) instead of make_shared.
+	// strategy): BuildAISnapshot reuses a snapshot nobody can be reading
+	// (AISnapshotFree), zero-filling its flat grids and clear()ing its vectors in
+	// place (capacity retained) instead of make_shared.
 	std::vector<std::shared_ptr<ai::Snapshot>> m_snapshotPool;
+	// The snapshot BuildAISnapshot published last: in use by definition, whatever
+	// its mark says, until the next publish replaces it. Only compared, never
+	// dereferenced (it may have left the pool; the director keeps it alive).
+	const ai::Snapshot* m_publishedSnapshot = nullptr;
+	// HOW DEEP both pools are filled (code-review C66): as many buffers as can be
+	// in use at once - the snapshot on show and one per worker still reading an
+	// older one - plus the one being built. The grids obey the same bound, since a
+	// worker reads a grid only through a snapshot it holds.
+	static constexpr size_t kAIPoolDepth = ai::Scheduler::kBucketCount + 2;
+	// Room in each snapshot's monster list beyond the level's own monsters, for
+	// ones added in play (a spawn, an editor placement), before the list grows.
+	static constexpr size_t kAIAgentHeadroom = 32;
+	// Room in each of the inline compute's plan batches beyond a bucket's own
+	// monsters. Small, because each slot carries a whole map's worth of path,
+	// and because adding a monster sizes for it at once (AddMonster).
+	static constexpr size_t kAIPlanHeadroom = 2;
+	// Whether each pool (0 snapshots, 1 grids) has warned of growing; once each.
+	bool m_aiPoolWarned[2] = {};
+	// Fills both pools for the current map and monsters, and sizes the inline
+	// compute - lockstep's, which rest runs in guarded frames: its brain's BFS
+	// scratch and its plan batches (code-review C62, C66). At level load,
+	// wherever the map's size or the monster list is replaced, and when a
+	// monster is added; idempotent.
+	void ReserveAIPools();
+	// Whether a pooled snapshot / walkability grid can be reused: nobody is (or
+	// can start) reading it. See ai::HandBack for why this is not use_count().
+	bool AISnapshotFree(const ai::Snapshot& s) const;
+	bool AIGridFree(const std::vector<uint8_t>* grid) const;
+	// The once-per-pool warning that a pool grew in play: a fill that was too
+	// shallow, or a mark never given back. AllocTest fails a run that logs it.
+	void WarnAIPoolGrew(int pool, const char* what, size_t now);
 	// AssignFormation's aware-attacker index list — member scratch so the
 	// every-frame formation pass doesn't heap-allocate (cleared, not freed), and
 	// reserved for every monster at spawn (MakeMonster) so a fight's first aware

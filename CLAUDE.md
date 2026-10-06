@@ -437,20 +437,23 @@ Key conventions (memorize, they bite):
   its `timeLeft` up while empty and erases it when fed, so there is no
   "permanent effect" concept and exactly one place a member stops starving
   (`ConsumeItem` deliberately does not lift it). Dev: `supplies` (in HOURS LEFT,
-  since a meter reading means nothing without its rate), `setsupply`, `consume`.
+  since a meter reading means nothing without its rate), `setsupply`, `consume`,
+  and `setpool` (health/stamina/mana set outright; health 0 = unconscious, the
+  state AllocTest -Rest needs, and a health write rebases the ledger like `heal`).
   REST is a STATE (the Rest button beside the log's Log button - it was on the
   HUD Options panel, gone in lighting-updates; dev `rest [on|off]`, bare =
-  REPORT not toggle). It
+  REPORT not toggle; `rest button` = where that button is, for a harness). It
   multiplies TIME at ONE place — `Game::Update`'s `wdt` — so every rate, timer
   and cooldown accelerates together and no second set of resting rates can
   drift. **It forces LOCKSTEP AI while resting** and hands the previous mode
   back: the AI buckets are WALL-CLOCK paced, so a 60x world would give a monster
   1/60th the thinking per simulated second and it would chase stale paths — the
   harness's own "stale orders are worse than frozen" lesson. Ends three ways
-  (`RestEndReason()`): `recovered` (nothing left to gain; only STANDING members
-  counted), `attacked` (a blow — a DoT does NOT break it, `WoundMember`'s
-  `quiet` flag is exactly that line), `hungry` (an empty meter). Transient: not
-  saved. NOTE `step` advances SIM seconds, so the harness cannot see the
+  (`RestEndReason()`): `recovered` (nothing left to gain; a DOWNED member is not
+  full, so the rest goes on until they come round on the stabilize clock - only
+  the DEAD are left out), `attacked` (a blow — a DoT does NOT break it,
+  `WoundMember`'s `quiet` flag is exactly that line), `hungry` (an empty meter).
+  Transient: not saved. NOTE `step` advances SIM seconds, so the harness cannot see the
   multiplier at all — it measures the STATE's rules instead.
   PACE: conditioning ADDS to a member's authored `moveSpeed` (class identity,
   like baseHealth) through `pace_slope`/`pace_cap`; the party still moves at its
@@ -1438,9 +1441,36 @@ strategy; the blocked/occupancy sets are FLAT mapW*mapH grids, not node-based
 containers, so clear-and-refill really is allocation-free — anything that
 hand-builds a Snapshot, e.g. tools/ThreadStress, must size those grids) and the
 workers post ai::Plan batches (intent + path; batches and their path vectors are
-pooled per bucket with the same use_count()==1 reuse as the snapshots) the main
-thread consumes and executes (popping path cells, re-validating each against LIVE
-occupancy). Plans are keyed by a STABLE per-monster runtimeId (DungeonWorld
+pooled per bucket the same way) the main thread consumes and executes (popping
+path cells, re-validating each against LIVE occupancy). THE POOLS (code-review
+C62/C66/C70): a buffer is reused when it is not the one on show and its
+ai::HandBack mark reads idle - a reader TAKES the mark under the hand-off mutex
+and GIVES it back with a release, the owner checks it with an acquire; NOT
+`use_count()==1`, which the standard gives no ordering. The snapshot and grid
+pools are FILLED at level load (DungeonWorld::ReserveAIPools) to kBucketCount + 2
+- the snapshot on show, one per worker, the one being built - and never grow in
+play. A POOL HAS ONE PRODUCER: each bucket has a worker plan pool (3 batches,
+filled in the director's ctor; its plans and paths grow on the worker's own,
+unguarded, thread) and an INLINE one (2 batches) for lockstep's main-thread
+compute, which REST forces into guarded frames. The two never share a batch -
+not even when lockstep starts while a worker is still mid-tick, since Pause only
+sets a flag (C63) - so the inline pool can be SIZED from the main thread: at level
+load and on every AddMonster, ReserveAIPools sizes the inline brain's BFS scratch
+and gives every monster of a bucket (+2) a plan slot with a whole map's worth of
+path. A batch NEVER SHRINKS: it publishes a COUNT and the consumer's Batch is a
+span of that many, since destroying a plan frees its path and making one
+allocates (in debug even an empty vector, its iterator proxy - the first run of
+-RestReach caught exactly that). Anything that grows anyway - a pool, a
+snapshot's buffers, the inline brain's scratch or an inline batch's plans - logs
+`AI pool grew:` once, wherever it landed, and AllocTest fails any run that logs
+it. The BFS open list is a Brain member walked by a head index (it was a
+std::queue, a deque per search). `AllocTest -Rest` presses the HUD's Rest button
+INSIDE the window, behind a shut door from a monster that has seen the party
+(its search fails every frame); `-RestReach` leaves the corridor open and
+freezes the monster, so every think finds a path it never walks. Both read
+`lockstep stats` (inline ticks / plans / paths since lockstep came on) and
+refuse a PASS without the thinking they exist for. Plans are keyed by a STABLE
+per-monster runtimeId (DungeonWorld
 assigns from m_nextMonsterId, never reused) — NOT an array index — so a plan
 whose monster died / changed bucket / was erased simply finds no match
 (MonsterByRuntimeId) and is dropped, never misapplied to a neighbour that shifted

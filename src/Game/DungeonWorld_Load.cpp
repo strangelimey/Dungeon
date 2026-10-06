@@ -200,6 +200,7 @@ void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 		loc::Tr("load.monsters"),
 		[this] {
 			LoadMonsters();
+			ReserveAIPools(); // the map and its monsters are both known now
 			LoadItems();
 			LoadButtons();
 		},
@@ -1070,9 +1071,11 @@ DungeonWorld::Monster DungeonWorld::MakeMonster(MonsterKind& kind, int id, int x
 	// The chase route is REFILLED by ConsumeAIPlans every time this monster's
 	// bucket publishes, and a copy into a vector too small to hold it allocates —
 	// in the middle of a settled frame, whenever a monster first gets a longer
-	// path than it has ever held. The producer side already pools its path
-	// vectors so a worker tick allocates nothing (AsyncDirector::ComputeBucket);
-	// this is the same promise kept on the consumer side. A BFS route cannot
+	// path than it has ever held. On the producer side a pooled plan keeps its
+	// path's capacity from tick to tick (AsyncDirector::ComputeBucket) - a
+	// worker's grows on the worker's own thread, the inline compute's is sized
+	// at level load like this one (ReserveAIPools) - and this is the same
+	// promise kept on the consumer side. A BFS route cannot
 	// revisit a cell, so the cell count is the true ceiling and not an estimate —
 	// a few KB per monster, taken at spawn where allocating costs nothing.
 	monster.aiPath.reserve(
@@ -1135,6 +1138,86 @@ void DungeonWorld::LoadMonsters() {
 		monster.animator.Update(static_cast<float>(phase++) * 0.7f); // desync idles
 		m_monsters.push_back(std::move(monster));
 	}
+}
+
+// --- the AI's pools, filled for the level (code-review C62, C66) ------------
+// BuildAISnapshot reuses pooled snapshots and walkability grids instead of
+// allocating each frame. How many can be in use at once is fixed by the
+// threads (kAIPoolDepth), so both pools are filled HERE, each buffer sized to
+// this map and these monsters, and never grow in play. They used to grow
+// lazily to that high-water mark - which could first be reached minutes in,
+// inside a guarded frame, whenever the thread scheduler happened to line the
+// workers up - and AllocTest could only catch it by luck.
+//
+// A buffer still in use from before (the snapshot on show, a worker mid-tick)
+// cannot be resized under its reader. One that is SHORT of this level is
+// dropped from its pool instead - its reader's shared_ptr keeps it alive until
+// the tick ends - and a fresh one takes its place. A dropped snapshot takes its
+// grid out of the grid pool with it: that grid is in use too, and once the
+// snapshot has left the pool nothing would know it. SHORT means it cannot hold
+// what is there NOW (this map, every monster in the list): only a monster
+// added later could outgrow one that can, and adding one calls this again
+// (AddMonster), which keeps every pooled snapshot able to hold them all. So a
+// spawn does not throw away the snapshots in use for want of headroom.
+void DungeonWorld::ReserveAIPools() {
+	const size_t cells = static_cast<size_t>(m_map.Width()) * m_map.Height();
+	const size_t agents = m_monsters.size() + kAIAgentHeadroom;
+	const auto size = [&](ai::Snapshot& s) {
+		s.blocked.reserve(cells);
+		s.occ.reserve(cells);
+		s.monsters.reserve(agents);
+	};
+	const auto fits = [&](const ai::Snapshot& s) {
+		return s.blocked.capacity() >= cells && s.occ.capacity() >= cells &&
+			   s.monsters.capacity() >= m_monsters.size();
+	};
+
+	// 1. Snapshots: the free ones sized, the busy ones that fall short dropped.
+	for (size_t i = 0; i < m_snapshotPool.size();) {
+		ai::Snapshot& s = *m_snapshotPool[i];
+		if (AISnapshotFree(s)) {
+			size(s);
+		} else if (!fits(s)) {
+			const std::vector<uint8_t>* grid = s.walkable.get();
+			std::erase_if(m_walkablePool, [grid](const auto& g) { return g.get() == grid; });
+			m_snapshotPool.erase(m_snapshotPool.begin() + static_cast<ptrdiff_t>(i));
+			continue;
+		}
+		++i;
+	}
+	m_snapshotPool.reserve(kAIPoolDepth * 2); // a growth past the depth (warned) needs no regrow
+	while (m_snapshotPool.size() < kAIPoolDepth) {
+		auto s = std::make_shared<ai::Snapshot>();
+		size(*s);
+		m_snapshotPool.push_back(std::move(s));
+	}
+
+	// 2. Grids: the free ones sized to this map, the busy ones of another size
+	//    dropped (a busy one of this size is simply still in use, and frees itself).
+	for (size_t i = 0; i < m_walkablePool.size();) {
+		std::vector<uint8_t>& g = *m_walkablePool[i];
+		if (AIGridFree(&g)) {
+			g.resize(cells);
+		} else if (g.size() != cells) {
+			m_walkablePool.erase(m_walkablePool.begin() + static_cast<ptrdiff_t>(i));
+			continue;
+		}
+		++i;
+	}
+	m_walkablePool.reserve(kAIPoolDepth * 2);
+	while (m_walkablePool.size() < kAIPoolDepth)
+		m_walkablePool.push_back(std::make_shared<std::vector<uint8_t>>(cells));
+
+	// 3. The inline compute, which runs in guarded frames while resting: its
+	//    brain's scratch, and a plan slot - each with a whole map's worth of
+	//    path - for every monster of each bucket, plus a little headroom. Its
+	//    plans used to start empty, so the first think that found a path grew
+	//    one inside the frame (code-review C62).
+	std::array<size_t, ai::Scheduler::kBucketCount> slots{};
+	for (const Monster& m : m_monsters)
+		if (m.kind) ++slots[static_cast<size_t>(ai::Scheduler::BucketForIq(m.kind->iq))];
+	for (size_t& s : slots) s += kAIPlanHeadroom;
+	m_director.ReserveInline(cells, slots);
 }
 
 // A glTF mesh with its node transform baked into the vertices, which is the

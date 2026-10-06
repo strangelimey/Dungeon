@@ -3,6 +3,7 @@
 // ============================================================================
 #include "Game/DungeonWorld.h"
 
+#include "Core/AllocTrack.h"
 #include "Core/Loc.h"
 #include "Core/Log.h"
 #include "Core/Profile.h"
@@ -2055,30 +2056,23 @@ void DungeonWorld::BuildAISnapshot() {
 	// Rebuild the shared grid when the map changed OR its size no longer matches
 	// (a level swap can reuse the same Revision() value but different dimensions —
 	// reusing a stale grid there would read out of bounds on the worker thread).
+	const size_t cellCount = static_cast<size_t>(W) * H;
 	if (m_walkableRev != m_map.Revision() || !m_walkableCache ||
-		m_walkableCache->size() != static_cast<size_t>(W) * H) {
-		const size_t cells = static_cast<size_t>(W) * H;
-		// An IDLE pooled snapshot (only the pool holds it) still points at the grid
-		// it was last published with, which would keep that grid's count up for
-		// good. No worker reads an idle one, so let go of its grid first.
-		for (auto& s : m_snapshotPool)
-			if (s.use_count() == 1) s->walkable.reset();
-		// A grid nobody else holds - not the cache, not a snapshot in flight.
+		m_walkableCache->size() != cellCount) {
+		// A grid nobody can be reading - not the cache, not one an in-use
+		// snapshot points at (AIGridFree). The pool was filled at level load to
+		// as many grids as can ever be in use at once plus this one, so a free
+		// one is always there; growing past it means a mark was never given back.
 		std::shared_ptr<std::vector<uint8_t>> grid;
-		for (auto& g : m_walkablePool)
-			if (g.use_count() == 1 && g->size() == cells) {
+		for (const auto& g : m_walkablePool)
+			if (g->size() == cellCount && AIGridFree(g.get())) {
 				grid = g;
 				break;
 			}
 		if (!grid) {
-			// A level of a NEW SIZE (load time), or every grid still in flight. The
-			// old size's free grids go, and this one comes with a spare beside it.
-			std::erase_if(m_walkablePool, [cells](const auto& g) {
-				return g.use_count() == 1 && g->size() != cells;
-			});
-			grid = std::make_shared<std::vector<uint8_t>>(cells);
+			grid = std::make_shared<std::vector<uint8_t>>(cellCount);
 			m_walkablePool.push_back(grid);
-			m_walkablePool.push_back(std::make_shared<std::vector<uint8_t>>(cells));
+			WarnAIPoolGrew(1, "walkability grids", m_walkablePool.size());
 		}
 		// Braziers block like walls (the party bumps them too) — bake them into
 		// the grid so monsters don't path through the fire. Placement/removal
@@ -2091,19 +2085,34 @@ void DungeonWorld::BuildAISnapshot() {
 		m_walkableRev = m_map.Revision();
 	}
 
-	// Reuse a pooled snapshot that no worker (or the director) still holds — its
-	// only ref is the pool's (use_count == 1). It is therefore not the published
-	// snapshot and not in any worker's hands, so mutating it before we publish is
-	// safe. The flat grids are zero-FILLED in place (assign reuses their buffers)
-	// and clear() keeps the vectors' capacity, so steady-state frames do not
-	// allocate. The pool grows to the in-flight high-water mark (~workers+1).
+	// Reuse a pooled snapshot nobody can be reading: not the one out on show,
+	// and no worker tick (or inline compute) still holding its mark (AISnapshot-
+	// Free; ai::HandBack). Mutating it before we publish is therefore safe. The
+	// flat grids are zero-FILLED in place (assign reuses their buffers) and
+	// clear() keeps the vectors' capacity, so steady-state frames do not
+	// allocate. The pool was FILLED at level load (ReserveAIPools) to as many
+	// snapshots as can be in use at once plus this one, each sized to the map;
+	// it used to grow lazily to that high-water mark, which could first happen
+	// minutes into play, inside a guarded frame, at the thread scheduler's whim
+	// (code-review C66). Growing now means a mark leaked, and says so.
 	std::shared_ptr<ai::Snapshot> snap;
-	for (auto& s : m_snapshotPool)
-		if (s.use_count() == 1) { snap = s; break; }
+	for (const auto& s : m_snapshotPool)
+		if (AISnapshotFree(*s)) {
+			snap = s;
+			break;
+		}
 	if (!snap) {
 		snap = std::make_shared<ai::Snapshot>();
 		m_snapshotPool.push_back(snap);
+		WarnAIPoolGrew(0, "snapshots", m_snapshotPool.size());
 	}
+	// ...and one whose buffers are short of this map or its monsters grows them
+	// below, which is the same failure in smaller print: say so too. Capacity
+	// only ever grows, so the sum moves exactly when a buffer did.
+	const auto capacities = [](const ai::Snapshot& s) {
+		return s.blocked.capacity() + s.occ.capacity() + s.monsters.capacity();
+	};
+	const size_t capacityBefore = capacities(*snap);
 	snap->monsters.clear();
 
 	snap->partyX = m_party.GridX();
@@ -2111,7 +2120,6 @@ void DungeonWorld::BuildAISnapshot() {
 	snap->mapW = m_map.Width();
 	snap->mapH = m_map.Height();
 	snap->walkable = m_walkableCache;
-	const size_t cellCount = static_cast<size_t>(W) * H;
 	snap->blocked.assign(cellCount, 0);
 	snap->occ.assign(cellCount, ai::CellOcc{});
 	// Party cell is a hard block. Monster crowding is capacity-based: each live
@@ -2174,7 +2182,35 @@ void DungeonWorld::BuildAISnapshot() {
 										   .leashZ = m.leashZ,
 										   .leashRange = m.leashRange});
 	}
+	if (capacities(*snap) != capacityBefore)
+		WarnAIPoolGrew(0, "a snapshot's grids or monster list", m_snapshotPool.size());
 	m_director.Publish(snap); // pass a copy — the pool keeps its own ref
+	m_publishedSnapshot = snap.get();
+}
+
+bool DungeonWorld::AISnapshotFree(const ai::Snapshot& s) const {
+	return &s != m_publishedSnapshot && s.mark.Idle();
+}
+
+bool DungeonWorld::AIGridFree(const std::vector<uint8_t>* grid) const {
+	if (grid == m_walkableCache.get()) return false;
+	// A worker reads a grid only through a snapshot it holds, so a grid is in
+	// use exactly when a snapshot that is in use points at it. (A snapshot
+	// ReserveAIPools dropped while in use took its grid out of the pool too.)
+	for (const auto& s : m_snapshotPool)
+		if (s->walkable.get() == grid && !AISnapshotFree(*s)) return false;
+	return true;
+}
+
+void DungeonWorld::WarnAIPoolGrew(int pool, const char* what, size_t now) {
+	if (m_aiPoolWarned[pool]) return;
+	m_aiPoolWarned[pool] = true;
+	// The report excuses ITSELF (log::Write formats a string); the growth it
+	// reports does not, so a guarded frame still counts it.
+	alloc::Excused excuse;
+	log::Warn("AI pool grew: {} (pool now {}; filled to {} at level load - "
+			  "ReserveAIPools)",
+			  what, now, kAIPoolDepth);
 }
 
 // Adopt the freshest plan batch from each bucket into the matching monsters. We
@@ -2207,12 +2243,13 @@ void DungeonWorld::TickLockstepAI(float dt) {
 void DungeonWorld::ConsumeAIPlans() {
 	for (int b = 0; b < ai::Scheduler::kBucketCount; ++b) {
 		const ai::AsyncDirector::Batch batch = m_director.TakePlans(b);
-		if (!batch.plans || batch.seq == m_lastPlanSeq[b]) continue; // nothing new
+		// seq 0 = nothing published yet; an equal one = already applied.
+		if (batch.seq == 0 || batch.seq == m_lastPlanSeq[b]) continue;
 		m_lastPlanSeq[b] = batch.seq;
 		// A held freeze (Harness::frozenHeld): taken and dropped, so nothing
 		// notices the party before the measurement that releases it.
 		if (m_harness.frozenHeld) continue;
-		for (const ai::Plan& plan : *batch.plans) {
+		for (const ai::Plan& plan : batch.plans) {
 			Monster* monster = MonsterByRuntimeId(plan.id);
 			if (!monster) continue; // its monster is gone — drop the plan
 			// First time the brain decides to act on the party (engage OR kite), the

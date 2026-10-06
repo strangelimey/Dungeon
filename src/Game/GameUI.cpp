@@ -2228,6 +2228,11 @@ void GameUI::SetResting(bool resting) {
 		m_log->cornerButtons[kCornerRest].alt = resting;
 }
 
+gfx::Rect GameUI::RestButtonRect() {
+	if (!m_log || m_log->cornerButtons.size() <= kCornerRest) return {};
+	return m_log->CornerButtonRect(m_hudUi, 1 + kCornerRest); // 0 is the Log button
+}
+
 void GameUI::ResetHudStatus() { m_lastFacing = m_lastGridX = m_lastGridZ = -1; }
 
 // Backs out of any open sub-page (Settings or Saves) to the main list,

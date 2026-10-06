@@ -456,6 +456,10 @@ bool DungeonWorld::AddMonster(const std::string& type, int x, int z,
 	// stores these whole (a "monster" row) rather than as a diff, so they
 	// round-trip — see SnapshotActive / ApplyActiveSnapshot.
 	m_monsters.push_back(MakeMonster(kind, -1, x, z, facing));
+	// Sized for at once - here, in the editor's or the console's frame - so its
+	// first think while resting does not grow the AI's buffers in a guarded one.
+	// A no-op while everything already fits.
+	ReserveAIPools();
 	MarkSeen(x, z);
 	return true;
 }

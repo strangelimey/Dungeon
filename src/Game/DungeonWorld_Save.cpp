@@ -482,6 +482,7 @@ void DungeonWorld::ApplyActiveSnapshot() {
 		}
 	}
 	ReserveDropRoom(); // the saved drops took some of LoadItems' headroom
+	ReserveAIPools();  // ...and its placed monsters some of the AI pools'
 	// Wall-niche reveal state: set each saved niche's open flag, then re-stamp its
 	// wall (a no-op if the geometry isn't built yet — the load's mesh bake then
 	// reads the restored open state directly).

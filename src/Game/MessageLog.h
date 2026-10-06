@@ -87,6 +87,9 @@ public:
 		bool alt = false;
 	};
 	std::vector<CornerButton> cornerButtons;
+	// Where corner button `i` is (0 = the Log button), in window pixels - for a
+	// harness that clicks one (AllocTest -Rest presses Rest).
+	gfx::Rect CornerButtonRect(ui::UIContext& ctx, size_t i) const { return CornerRect(ctx, i); }
 
 private:
 	struct Msg {

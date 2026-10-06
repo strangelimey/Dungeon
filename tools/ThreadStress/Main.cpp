@@ -51,6 +51,7 @@
 #include <cstdlib>
 #include <iterator>
 #include <memory>
+#include <span>
 #include <string>
 #include <thread>
 #include <vector>
@@ -322,12 +323,12 @@ static void AuditBatch(const ai::Snapshot& s, int bucket,
 		if (ai::Scheduler::BucketForIq(m.iq) == bucket) ++owed;
 	if (owed > 0) pa.owes[bucket] = true;
 
-	if (!batch.plans || batch.seq == pa.lastSeq[bucket]) return;
+	if (batch.seq == 0 || batch.seq == pa.lastSeq[bucket]) return; // none yet / seen
 	pa.lastSeq[bucket] = batch.seq;
 	const bool mayBeStale = pa.mayBeStale[bucket];
 	pa.mayBeStale[bucket] = false;
 
-	const std::vector<ai::Plan>& plans = *batch.plans;
+	const std::span<const ai::Plan> plans = batch.plans;
 	pa.seen.assign(s.monsters.size(), 0);
 	int fresh = 0, older = 0, twice = 0, foreign = 0;
 	for (const ai::Plan& plan : plans) {

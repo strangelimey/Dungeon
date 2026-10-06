@@ -98,11 +98,32 @@ subsystem:
   calls `StopAll()` so app shutdown never leaves a voice reading freed
   sample memory (the engine outlives Game).
 - **Async AI — buffer pools, flat grids.** The per-frame `ai::Snapshot` the
-  main thread publishes to the AI workers comes from a pool reused when
-  `use_count()==1` (no worker still holds the buffer); its blocked/occupancy
-  sets are flat `mapW*mapH` grids rather than node-based containers, so the
-  per-publish clear-and-refill allocates nothing. The workers' `ai::Plan`
-  batches (and their path vectors) are pooled per IQ bucket the same way.
+  main thread publishes to the AI workers comes from a pool reused when no
+  worker can be reading the buffer: it is not the snapshot on show, and its
+  `ai::HandBack` mark reads idle (a reader takes the mark under the hand-off
+  mutex and gives it back with a release; the owner checks it with an acquire -
+  `use_count()==1`, the old signal, carries no ordering in the standard). Its
+  blocked/occupancy sets are flat `mapW*mapH` grids rather than node-based
+  containers, so the per-publish clear-and-refill allocates nothing. The
+  workers' `ai::Plan` batches (and their path vectors) are pooled per IQ bucket
+  the same way. The snapshot and walkability-grid pools are FILLED at level load
+  (`DungeonWorld::ReserveAIPools`) to as many buffers as can be in use at once -
+  the one on show, one per worker, the one being built - so they never grow in
+  play; growing used to happen lazily, in whichever guarded frame the thread
+  scheduler lined it up for. Each pool has ONE producer, so each bucket has two
+  plan pools: its worker's (filled in the director's constructor; its plans and
+  paths grow on the worker's own thread, which no guard arms) and an INLINE one
+  for the compute lockstep runs on the main thread - which rest forces into
+  guarded frames. Nothing else touches the inline pool, so the main thread can
+  size it: at level load and on every added monster, `ReserveAIPools` sizes the
+  inline brain's BFS scratch and gives each bucket's monsters a plan slot whose
+  path holds the whole map. A batch never shrinks - it publishes a count, and a
+  consumer's `Batch` is a span of that many plans - because destroying a plan
+  frees its path and making one allocates (in a debug build even an empty
+  vector allocates its iterator proxy). A pool that grows - or a snapshot's
+  buffers, the inline brain's scratch, an inline batch's plans - logs `AI pool
+  grew:` once, and `AllocTest.ps1` fails any run that logs it. The BFS's open
+  list is a reused `Brain` member.
   Anything that hand-builds a `Snapshot` (e.g. `tools/ThreadStress`) must
   size the flat grids itself.
 - **Shader-visible descriptors — free list.** The CBV/SRV heap
@@ -198,7 +219,14 @@ std::string&` bound to a ternary whose other arm was `""` (so it bound to a
 *copy*) in `ui::DropDown::DrawSelf`, a per-sample buffer in
 `PerfMonitor::SampleGpu`, and `DungeonWorld::PickClip` returning `std::string`
 by value. After those, 21,338 armed frames with the party idle allocate nothing,
-and the AI workers total 8–50 allocations for a whole session.
+and the AI workers total 8–50 allocations for a whole session. (That figure was
+taken with IDLE monsters, and it hid the search: `Brain::FindPath` built a
+`std::queue` - a deque - on every search, so every engaged monster allocated on
+every think. On the workers that goes unchecked; while RESTING it ran on the
+main thread in guarded frames (code-review C62). The open list is a reused
+member now, the search's OUTPUT - a plan's path - is sized for the inline
+compute at level load, and `AllocTest.ps1 -Rest` / `-RestReach` start a rest
+inside the window, a failing search and a finding one.)
 
 Four boundaries worth stating, because they are policy and not oversight:
 
@@ -219,7 +247,7 @@ Four boundaries worth stating, because they are policy and not oversight:
   unarmed. The eval simulation is not checked incidentally in their place: a
   `step` runs thousands of ticks inside one frame, which is no steady-state
   frame either. Simulation event paths are checked where the frame really is
-  steady - `AllocTest.ps1 -Wounded / -Melee / -Cast`.
+  steady - `AllocTest.ps1 -Wounded / -Melee / -Rest / -Cast`.
 - **A frame that LEAVES the guarded states is a transition.** The guard is armed
   at the top of `Update` on the state at that instant, so the frame Esc is
   pressed in starts as Playing and ends as Paused - having rebuilt the pause

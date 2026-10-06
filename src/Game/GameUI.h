@@ -280,6 +280,9 @@ public:
 	unsigned InventoryOpens() const;
 	gfx::Rect InventoryStoneRect(size_t i) const;
 	gfx::Rect SheetAllRect() const { return m_sheetAll ? m_sheetAll->Pixel() : gfx::Rect{}; }
+	// And for AllocTest -Rest: where the log's Rest button is (empty before the
+	// HUD is built), so a run can start a rest the way a player does.
+	gfx::Rect RestButtonRect();
 
 	// --- character sheet ---------------------------------------------------------
 	void ShowSheet(size_t index); // re-points the sheet at the member

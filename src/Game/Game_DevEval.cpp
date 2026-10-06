@@ -447,12 +447,25 @@ void Game::RegisterEvalCommands() {
 	// monsters think perhaps twice. See ai::AsyncDirector::SetLockstep.
 	m_console.Register({.name = "lockstep",
 						.group = CmdGroup::Monsters,
-						.params = "[on|off]",
+						.params = "[on|off]\n"
+								  "stats",
 						.summary = "drive monster AI from sim time, not the wall clock"},
 					   [this](const std::vector<std::string>& args) {
 						   if (args.empty()) {
 							   m_console.Print(std::format(
 								   "lockstep {}", m_world->LockstepAI() ? "on" : "off"));
+							   return;
+						   }
+						   // What the inline compute has done since lockstep last came
+						   // on - rest turns it on too - so a harness can tell an AI
+						   // that thought on the main thread, and found paths, from
+						   // one that sat idle (AllocTest -Rest).
+						   if (args[0] == "stats") {
+							   const ai::AsyncDirector::InlineStats& s = m_world->LockstepStats();
+							   m_console.Print(std::format(
+								   "lockstep stats: {} ticks={} plans={} paths={} longest={}",
+								   m_world->LockstepAI() ? "on" : "off", s.ticks, s.plans,
+								   s.paths, s.longest));
 							   return;
 						   }
 						   const bool on = args[0] == "on" || args[0] == "1";
