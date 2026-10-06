@@ -131,18 +131,29 @@ void DungeonWorld::GrantSkillXp(Character& member, std::string_view skillId,
 // work. Call this once per resolved attack against a member.
 void DungeonWorld::TrainDefense(Character& member, const fx::DamageEvent& ev) {
 	if (!member.IsAlive()) return;
+	// Whether the dice were actually rolled. `ev.rolled` says what KIND of event
+	// it is; a bolt the wind ward turned is a rolled kind, but the deflect stage
+	// stopped it before the strike, so nobody evaded it and nothing blunted it
+	// (code-review C11 - it used to teach `avoid`, and creep DEX, for the ward's
+	// work). The resolver also returns before calling this for a turned bolt;
+	// this says the rule where it lives.
+	const bool rolled = ev.rolled && !ev.deflected;
 	// An early-out, not the rule: LessonFrom is still the authority on `rolled`,
 	// but returning here saves an unrolled event (a DoT tick, a bump, a fall)
 	// walking the equipment twice to be told it teaches nothing.
-	if (!ev.rolled) return;
+	if (!rolled) return;
 	const ArmorClass worn = WornArmorClass(member);
 	constexpr float kXp = 1.0f; // the same unit a landed blow trains at
+	// The soak this blow MET, not the soak worn: a piercing critical went under
+	// the armour, and teaches it nothing (defense::SoakMet, the resolver's rule).
+	const float met = ev.soaked ? defense::SoakMet(PartyTarget{*this, member}.Soak(),
+												   ev.crit, ev.pierceOnCrit)
+								: 0.0f;
 
 	// WHICH loop this blow feeds is defense::LessonFrom's decision — the two
 	// train on opposite outcomes, and that rule is measured rather than reread
 	// here. This function only pays out whatever it is told.
-	switch (defense::LessonFrom(ev.rolled, ev.hit, worn,
-								PartyTarget{*this, member}.Soak())) {
+	switch (defense::LessonFrom(rolled, ev.hit, worn, met)) {
 	case defense::Lesson::Nothing:
 		return;
 	case defense::Lesson::Avoid:
@@ -864,24 +875,31 @@ void DungeonWorld::ApplyPartyPace() {
 // EFFECT term is no longer a hard-coded Stone Skin branch but a sum over
 // whatever effects the target happens to carry.
 
+// The one hand rule (see the declaration). HANDS DON'T COUNT: they are part of
+// the equipment array, so without this a cuirass carried in a fist would hand
+// you heavy armor's whole penalty for holding it, and its soak and resists for
+// nothing. A piece defends you when it is WORN. A held SHIELD, the day one is
+// authored, is a flag on its kind tested here and nowhere else - and so is
+// every other exception, which is the point of there being one walk.
+template <class Fn>
+void DungeonWorld::ForEachWornPiece(const Character& member, Fn&& fn) {
+	for (int i = 0; i < kEquipCount; ++i) {
+		if (i == static_cast<int>(EquipSlot::LeftHand) ||
+			i == static_cast<int>(EquipSlot::RightHand))
+			continue;
+		const ItemSlot& slot = member.inventory.equipment[static_cast<size_t>(i)];
+		if (!slot.Empty()) fn(static_cast<const ItemKind&>(ItemKindFor(slot.typeId)));
+	}
+}
+
 // The heaviest armor a member is wearing, which is the class that governs
 // them: a plate cuirass over leather greaves is heavy armor with extra padding,
 // not an average of the two.
 ArmorClass DungeonWorld::WornArmorClass(const Character& member) {
 	ArmorClass worst = ArmorClass::None;
-	for (int i = 0; i < kEquipCount; ++i) {
-		// HANDS DON'T COUNT. They are part of the equipment array, so a
-		// cuirass carried in a fist would otherwise hand you heavy armor's
-		// whole penalty for holding it. (Soak has always summed the hands
-		// too, which is the same bug being quieter about it.)
-		if (i == static_cast<int>(EquipSlot::LeftHand) ||
-			i == static_cast<int>(EquipSlot::RightHand))
-			continue;
-		const ItemSlot& slot = member.inventory.equipment[static_cast<size_t>(i)];
-		if (slot.Empty()) continue;
-		const ArmorClass c = ItemKindFor(slot.typeId).armorClass;
-		if (static_cast<int>(c) > static_cast<int>(worst)) worst = c;
-	}
+	ForEachWornPiece(member, [&](const ItemKind& k) {
+		if (static_cast<int>(k.armorClass) > static_cast<int>(worst)) worst = k.armorClass;
+	});
 	return worst;
 }
 
@@ -913,8 +931,10 @@ DefenseReadout DungeonWorld::DefenseFor(const Character& member) {
 	r.stat = CurveValue(static_cast<float>(member.dexterity), b.StatCurve());
 	r.strength = member.strength;
 
-	for (const ItemSlot& slot : member.inventory.equipment)
-		if (!slot.Empty()) r.soak += ItemKindFor(slot.typeId).armor;
+	// The soak IS the pipeline's (it used to be summed again here, hands and
+	// all, beside a class that skipped them - code-review C12).
+	const PartyTarget live{*this, const_cast<Character&>(member)};
+	r.soak = live.Soak();
 
 	if (r.armorClass == ArmorClass::None) {
 		r.skillLevel = member.SkillLevel(kAvoidSkill);
@@ -924,19 +944,16 @@ DefenseReadout DungeonWorld::DefenseFor(const Character& member) {
 		r.armorPenalty = ArmorPenalty(member, r.armorClass);
 		r.strengthNeeded = static_cast<int>(b.Armor(r.armorClass).strength);
 		r.skillLevel = member.SkillLevel(ArmorSkillId(r.armorClass));
-		// Name the piece that decided the class, not merely the class.
-		for (const ItemSlot& slot : member.inventory.equipment) {
-			if (slot.Empty()) continue;
-			const ItemKind& k = ItemKindFor(slot.typeId);
-			if (k.armorClass == r.armorClass) {
+		// Name the piece that decided the class, not merely the class - one of
+		// the pieces the class was taken from, so never something held.
+		ForEachWornPiece(member, [&](const ItemKind& k) {
+			if (r.armorName.empty() && k.armorClass == r.armorClass)
 				r.armorName = loc::View(k.nameKey);
-				break;
-			}
-		}
+		});
 	}
 	// A PHYSICAL blow is the case worth showing: it is what the stance guards
 	// with a weapon and what armor is for.
-	r.total = PartyTarget{*this, const_cast<Character&>(member)}.Evasion(m_bashType);
+	r.total = live.Evasion(m_bashType);
 	// Whatever the total is not otherwise accounted for IS the stance guard —
 	// derived by subtraction so it cannot drift from the live formula if a term
 	// is added there and forgotten here.
@@ -970,6 +987,14 @@ DefenseReadout DungeonWorld::DefenseWith(const Character& member,
 	const DefenseReadout r = DefenseFor(live);
 	slot->typeId.swap(m_defenseScratch);
 	return r;
+}
+
+float DungeonWorld::PipelineSoak(const Character& member) {
+	return PartyTarget{*this, const_cast<Character&>(member)}.Soak();
+}
+
+float DungeonWorld::PipelineResist(const Character& member, DamageType type) {
+	return PartyTarget{*this, const_cast<Character&>(member)}.Resist(type);
 }
 
 // THE ADAPTER, and only that: resolve this member and this damage type into the
@@ -1067,17 +1092,17 @@ ResistTable DungeonWorld::AttackerPowers(int attacker, u32 shooter) {
 	return {};
 }
 
+// What is WORN blunts and resists; what is held does not (ForEachWornPiece).
 float DungeonWorld::PartyTarget::Soak() const {
 	float soak = 0.0f;
-	for (const ItemSlot& slot : m_member.inventory.equipment)
-		if (!slot.Empty()) soak += m_world.ItemKindFor(slot.typeId).armor;
+	m_world.ForEachWornPiece(m_member, [&](const ItemKind& k) { soak += k.armor; });
 	return soak;
 }
 
 float DungeonWorld::PartyTarget::Resist(DamageType type) const {
 	float resist = m_member.natureResists[type]; // the race layer
-	for (const ItemSlot& slot : m_member.inventory.equipment)
-		if (!slot.Empty()) resist += m_world.ItemKindFor(slot.typeId).resists[type];
+	m_world.ForEachWornPiece(m_member,
+							 [&](const ItemKind& k) { resist += k.resists[type]; });
 	resist += fx::EffectResist(m_member.effects, type, m_world.EffectKnobs());
 	return m_world.m_balance.ClampResist(resist, m_member.natureResists[type]);
 }
@@ -1502,11 +1527,15 @@ void DungeonWorld::MonsterAttack(Monster& monster) {
 		m_balance.Potent(monster.kind->damage * monster.strength,
 						 monster.kind->powers, monster.kind->damageType),
 		monster.kind->accuracy * monster.kind->offense,
-		monster.kind->damageType, monster.kind->critPierce};
+		monster.kind->damageType, monster.kind->critPierce || monster.piercing};
 	fx::DamageEvent ev =
 		fx::DamageEvent::Blow(atk.type, atk.damage, atk.attackBonus, victim);
 	ev.pierceOnCrit = atk.pierceOnCrit;
 	fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
+	// The eval tally's side of the armour lesson below: what landed, and what
+	// of it went under the armour.
+	if (ev.hit) ++m_harness.tally.struck;
+	if (ev.hit && ev.crit && ev.pierceOnCrit) ++m_harness.tally.pierced;
 	TrainDefense(target, ev); // avoid on a miss, armor on a blunted hit
 
 	if (ev.fumble) {
@@ -2326,8 +2355,11 @@ bool DungeonWorld::ResolveMonsterProjectileHit(const ProjectileImpact& impact) {
 						 impact.atk.type),
 		impact.atk.attackBonus);
 	fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
+	// Spent against the wind - and BEFORE the lesson: the ward turned it, so the
+	// member neither dodged it nor wore it, and it teaches nothing (code-review
+	// C11; TrainDefense says the same rule itself).
+	if (ev.deflected) return true;
 	TrainDefense(target, ev); // a dodged bolt teaches too
-	if (ev.deflected) return true; // spent against the wind
 	if (!ev.hit) {
 		MemberMessage(target, loc::FormatLine("log.monster_ranged_misses", target.name));
 		return true;

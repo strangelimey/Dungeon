@@ -1557,9 +1557,12 @@ void Game::RegisterPartyCommands() {
 							   "    hp {:.1f}/{:.1f}  st {:.1f}/{:.1f}  mp {:.1f}/{:.1f}",
 							   c.health, c.maxHealth, c.stamina, c.maxStamina, c.mana,
 							   c.maxMana));
+						   // Two places: a lesson can pay under half a point (heavy
+						   // armour's 0.45), and tools\CombatTest.py counts lessons
+						   // out of the xp.
 						   for (const auto& [id, xp] : c.skillXp)
 							   if (xp > 0.0f) // the untrained rest is the seed, not news
-								   m_console.Print(std::format("    skill {:<12} level {} ({:.1f} xp)",
+								   m_console.Print(std::format("    skill {:<12} level {} ({:.2f} xp)",
 															   id, Character::LevelForXp(xp), xp));
 						   // THE CREEP POOLS, and they are here for one reason:
 						   // the resource practices must creep NOTHING
@@ -1597,6 +1600,27 @@ void Game::RegisterPartyCommands() {
 								   static_cast<size_t>(e)];
 							   if (!slot.Empty())
 								   m_console.Print(std::format("    worn  {}", slot.typeId));
+						   }
+						   // THE DEFENSE AS EACH READER SEES IT, side by side: the
+						   // class (WornArmorClass), the pipeline's soak
+						   // (PartyTarget::Soak) beside the sheet's (DefenseFor),
+						   // and every resist the pipeline would apply. They once
+						   // disagreed about the hands (code-review C12), and
+						   // nothing but a line like this could show it.
+						   if (m_world) {
+							   const DamageTypeBook& types = m_world->DamageTypes();
+							   std::string resists;
+							   for (size_t t = 0; t < types.Count(); ++t) {
+								   const DamageType type{static_cast<u8>(t)};
+								   const float r = m_world->PipelineResist(c, type);
+								   if (r != 0.0f)
+									   resists += std::format(" {}={:.2f}", types.Id(type), r);
+							   }
+							   m_console.Print(std::format(
+								   "    defense class {} soak {:.1f} sheet {:.1f} resist{}",
+								   ArmorClassId(m_world->WornArmorClass(c)),
+								   m_world->PipelineSoak(c), m_world->DefenseFor(c).soak,
+								   resists.empty() ? std::string(" -") : resists));
 						   }
 						   // What is on the member: a ward cast on the whole party
 						   // has nowhere else to be seen from the console.

@@ -164,7 +164,7 @@ so a crash in an unattended headless-ish run was a two-minute diagnosis.
 
 ```
 arena <open|corridor|deadend|tjunction> [w] [h]
-spawn <type> <x> <z> [n|e|s|w] [strength] [up]
+spawn <type> <x> <z> [n|e|s|w] [strength] [up] [pierce]
 ```
 
 `up` stands the monster up at once. A kit skeleton otherwise spends the 9.5-14 s
@@ -172,6 +172,13 @@ of its rise clip lying still (spawnrise.eval), which a fight placed beside the
 party does not survive: the respond suite's defence arms read `taken` 0 until
 they said `up`. A rung measuring a FIGHT wants it; one measuring an arrival does
 not.
+
+`pierce` gives that one monster a piercing edge, as `crit = pierce` would its
+kind: its criticals go under armour. No authored monster has one, and the rule
+for such a blow - the armour it skipped learns nothing from it (code-review C11)
+- lives at a call site no pure test reaches, so combat.eval needs one to measure
+it. The tally's `struck=` / `pierced=` count the monsters' melee blows that
+landed on a member and the criticals among them a piercing edge drove under.
 
 Every attempt to verify P1 against the **showcase** level fought back: a monster
 already standing adjacent so it had nothing to walk toward, a target cell that

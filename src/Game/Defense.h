@@ -18,7 +18,10 @@
 //
 // Deliberately NOT here: the parts that are lookups rather than decisions —
 // WornArmorClass (walks equipment), Soak (sums armour), Resist (sums nature +
-// worn + effects). Those have nothing to get wrong that a test would catch.
+// worn + effects). They are not quite free of decisions: all four defensive sums
+// (DefenseFor too) once disagreed about whether the HANDS count, so they now
+// walk one helper, DungeonWorld::ForEachWornPiece, which is the one statement of
+// that rule (code-review C12).
 // ============================================================================
 #pragma once
 
@@ -217,13 +220,40 @@ struct GuardInputs {
 // The defender's total, in d100 points.
 float Guard(const GuardInputs& in);
 
+// THE MITIGATE STAGE (docs/effects.md; code-review C0): `raw` blunted by `soak`,
+// then scaled by `resist`. ONE rule for both of fx::Deal's branches - the rolled
+// one (ResolveAttack) and the unrolled one - which had drifted apart: the rolled
+// branch let a blow weaker than the armour go NEGATIVE, Deal handed that to the
+// absorb stage, and plate healed the man wearing it.
+//
+// SOAK BLUNTS AND NEVER INVERTS: raw - soak floors at zero. A resist past 1 is
+// then the one way a blow turns into a heal (absorption: the target drinks the
+// element), which is right because a resist says what a target IS, while soak is
+// only what it wears.
+//
+// The wound floor is deliberately NOT here. It belongs to a ROLLED blow that got
+// through (ResolveAttack), never to an unrolled event: a tick bites every frame
+// for a sliver, and a floor there would turn a burn into a point a frame.
+float Mitigate(float raw, float soak, float resist);
+
+// THE SOAK A BLOW MET (code-review C11): all of it, or none when a critical with
+// a piercing edge (`crit = pierce`) went UNDER the armour. The one statement of
+// that rule - the resolver subtracts what this returns, and the armour lesson
+// asks it whether the armour did anything at all (LessonFrom's `soak`).
+float SoakMet(float soak, bool crit, bool pierceOnCrit);
+
 // What a resolved defensive event teaches its defender.
 //
 // THE TWO LOOPS TRAIN ON OPPOSITE OUTCOMES, so no single blow can train both: a
 // miss while unarmored teaches `avoid`, a landed blow that armor actually
 // blunted teaches that armor class. You learn what you actually survive. Only
 // ROLLED events count — a bump, a fall and a poison tick were never evaded and
-// never turned, so they teach nothing.
+// never turned, so they teach nothing; and neither does a bolt the wind ward
+// turned aside, which the deflect stage stops before any dice are rolled (the
+// caller passes `rolled` false for it).
+//
+// `soak` is the soak the blow MET (SoakMet), not the soak worn: a piercing
+// critical that went under the plate taught the plate nothing.
 enum class Lesson : u8 {
 	Nothing, // rolled nothing, or the outcome teaches neither loop
 	Avoid,   // a miss while wearing nothing

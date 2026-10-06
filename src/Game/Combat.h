@@ -245,7 +245,9 @@ struct StrikeRules {
 // One resolved strike.
 struct AttackResult {
 	bool hit = false;
-	float damage = 0.0f; // damage to apply (>= 0; 0 on a miss)
+	// Damage to apply: 0 on a miss or a blow the armour stopped whole, NEGATIVE
+	// only when a resist past 1 makes the target drink it (defense::Mitigate).
+	float damage = 0.0f;
 	// What the dice did, for the narration and for the crit/fumble hooks (P8).
 	bool crit = false;   // the attack roll went open-ended
 	bool fumble = false; // the attack's first face was <= fumbleThreshold
@@ -266,10 +268,11 @@ struct AttackResult {
 // Resolves a single strike with `rng`: an opposed roll of `dice` (the game
 // passes rules.Dice()), a fumble deciding the exchange, then on a hit the
 // damage is multiplied by the margin, jittered, soaked and resisted - final =
-// (rolled - soak) x (1 - resist) - and floored so a landed blow always stings.
-// The dice are the CALLER'S, not rebuilt here from `rules`, so a harness that
-// injects a broken die reaches the strike too. No game state is touched - the
-// caller applies the result.
+// max(0, rolled - soak) x (1 - resist), defense::Mitigate - and a blow that got
+// through is floored at the wound floor so it always stings. The dice are the
+// CALLER'S, not rebuilt here from `rules`, so a harness that injects a broken
+// die reaches the strike too. No game state is touched - the caller applies the
+// result.
 AttackResult ResolveAttack(const AttackProfile& atk, const DefenseProfile& def,
 						   const StrikeRules& rules, const RollRules& dice,
 						   std::mt19937& rng);

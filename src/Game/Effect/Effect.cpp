@@ -5,6 +5,7 @@
 
 #include "Core/Log.h"
 #include "Game/Catalog.h"
+#include "Game/Defense.h" // Mitigate
 
 #include <algorithm>
 #include <array>
@@ -228,11 +229,12 @@ void Deal(DamageEvent& ev, ITarget& target, const StrikeRules& rules,
 		damage = r.damage;
 	} else {
 		ev.hit = true;
-		damage = ev.amount;
 		// Soak can only blunt, never invert — armour does not heal you. Resist
 		// CAN invert: past 1 the target drinks this element (see ClampResist).
-		if (ev.soaked) damage = std::max(0.0f, damage - target.Soak());
-		if (ev.resisted) damage *= 1.0f - target.Resist(ev.type);
+		// The SAME rule the rolled branch's resolver uses (defense::Mitigate);
+		// the two kept their own copies once and disagreed (code-review C0).
+		damage = defense::Mitigate(ev.amount, ev.soaked ? target.Soak() : 0.0f,
+								   ev.resisted ? target.Resist(ev.type) : 0.0f);
 	}
 	if (!ev.hit) return;
 

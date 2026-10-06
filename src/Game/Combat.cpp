@@ -3,6 +3,7 @@
 // ============================================================================
 #include "Game/Combat.h"
 
+#include "Game/Defense.h" // Mitigate, SoakMet
 #include "Game/Roll.h"
 
 namespace dungeon::game {
@@ -108,14 +109,18 @@ AttackResult ResolveAttack(const AttackProfile& atk, const DefenseProfile& def,
 	// UNDER the armour, so soak is not subtracted at all. Resist still answers
 	// it — soak is a thing you WEAR and a gap can be found in it, while a
 	// resist is what the target IS and no edge finds a gap in that.
-	const float soak = (result.crit && atk.pierceOnCrit) ? 0.0f : def.soak;
-	float dmg =
-		(atk.damage * marginMul * jitter(rng) - soak) * (1.0f - def.resist);
-	// A landed blow always stings — but only a blow that got THROUGH. At resist
-	// 1 the result is exactly nothing (a fire golem takes no fire), and past 1
-	// it goes NEGATIVE: the target drinks the element and is healed by it.
-	// Flooring unconditionally, as this once did, quietly turned immunity into
-	// "one point every time" and made absorption impossible to express.
+	const float soak = defense::SoakMet(def.soak, result.crit, atk.pierceOnCrit);
+	// Soak blunts and never inverts; only a resist past 1 turns a blow into a
+	// heal (defense::Mitigate, shared with fx::Deal's unrolled branch - this one
+	// used to subtract unfloored, so a blow under the armour healed its target).
+	float dmg = defense::Mitigate(atk.damage * marginMul * jitter(rng), soak,
+								  def.resist);
+	// A landed blow always stings - but only a blow that got THROUGH. One the
+	// armour stopped whole does nothing; at resist 1 the result is exactly
+	// nothing (a fire golem takes no fire), and past 1 it goes NEGATIVE: the
+	// target drinks the element and is healed by it. Flooring unconditionally,
+	// as this once did, quietly turned immunity into "one point every time" and
+	// made absorption impossible to express.
 	if (dmg > 0.0f && dmg < rules.woundFloor) dmg = rules.woundFloor;
 
 	result.hit = true;

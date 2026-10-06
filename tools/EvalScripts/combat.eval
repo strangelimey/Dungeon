@@ -1,0 +1,148 @@
+; combat.eval - the combat rules the code review fixed (docs/code-review-plan.md
+; Phase 0c), one section per claim. tools\CombatTest.py runs this and JUDGES it;
+; on its own it only reports. Every section header is `=== <name> ===` and the
+; judge reads the readouts between one header and the next, so a section must
+; stay self-contained: each opens with `reset` and its own seed.
+;
+; The starter four wear nothing (Brand only CARRIES his armour), so every one of
+; them trains `avoid` on a miss - which is what the wind ward sections lean on.
+logecho on
+
+; --- THE WIND WARD: a turned bolt teaches nothing (code-review C11) -----------
+; An archer shoots at a party warded four times over. Every bolt that reaches a
+; member is turned at the deflect stage, before any dice are rolled, so it is
+; neither evaded nor blunted: no `avoid` xp, no DEX creep. The ward's charges
+; are the count of bolts it turned.
+
+echo === windward ===
+reset
+timescale 0
+lockstep on
+seed 22
+goto eval_arena
+arena open 9 9
+heal
+tp 14 14
+face n
+freeze off
+effect windward 0 99 60
+effect windward 1 99 60
+effect windward 2 99 60
+effect windward 3 99 60
+spawn skel_archer 14 9 south
+tally reset
+step 10
+tally
+char 0
+char 1
+char 2
+char 3
+
+; The same volley with no ward: what reaches the party is rolled, and a miss
+; teaches its target `avoid`. Without this the section above could pass because
+; the archer's bolts never trained anything at all.
+echo === windward-control ===
+reset
+timescale 0
+lockstep on
+seed 22
+goto eval_arena
+arena open 9 9
+heal
+tp 14 14
+face n
+freeze off
+spawn skel_archer 14 9 south
+tally reset
+step 10
+tally
+char 0
+char 1
+char 2
+char 3
+
+; --- ARMOUR IN A HAND: one hand rule for every defensive sum (code-review C12) --
+; `char`'s defense line puts the readers side by side: the class
+; (WornArmorClass), the pipeline's soak (PartyTarget::Soak) beside the sheet's
+; (DefenseFor), and every resist the pipeline would apply. A cuirass carried in
+; a hand (`equip` skips the holdable check, so it lands in the hand slot) must
+; leave all of them where they were; worn, it must move all of them.
+
+echo === hand-armor ===
+reset
+timescale 0
+char 0
+equip plate_cuirass 0 0
+char 0
+equip none 0 0
+wear plate_cuirass 0
+char 0
+wear none 0
+
+; --- A PIERCING CRITICAL TEACHES THE PLATE NOTHING (code-review C11) ----------
+; The armour lesson reads the soak a blow MET (defense::SoakMet), not the soak
+; worn: a critical whose piercing edge went under the plate met none of it. All
+; four in plate, a bone swarm beside them. Every blow that lands on a standing
+; member in plate teaches heavy armour one lesson's xp - except, with `pierce`,
+; a critical. `tally` counts the blows that landed (struck) and the criticals
+; that went under (pierced); the judge counts the lessons in the xp. The
+; control (no `pierce`) is what one lesson pays. Five minutes, because a
+; critical that lands is rare against plate (one in 64 blows at seed 22).
+
+echo === pierce-control ===
+reset
+timescale 0
+lockstep on
+seed 22
+goto eval_arena
+arena open 9 9
+heal
+tp 14 14
+face n
+freeze off
+wear plate_cuirass 0
+wear plate_cuirass 1
+wear plate_cuirass 2
+wear plate_cuirass 3
+char 0
+char 1
+char 2
+char 3
+spawn skel_swarm 14 13 south 1 up
+tally reset
+step 300
+tally
+char 0
+char 1
+char 2
+char 3
+
+echo === pierce-crit ===
+reset
+timescale 0
+lockstep on
+seed 22
+goto eval_arena
+arena open 9 9
+heal
+tp 14 14
+face n
+freeze off
+wear plate_cuirass 0
+wear plate_cuirass 1
+wear plate_cuirass 2
+wear plate_cuirass 3
+char 0
+char 1
+char 2
+char 3
+spawn skel_swarm 14 13 south 1 up pierce
+tally reset
+step 300
+tally
+char 0
+char 1
+char 2
+char 3
+
+echo === end ===

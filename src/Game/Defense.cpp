@@ -138,6 +138,17 @@ float Guard(const GuardInputs& in) {
 	return guard;
 }
 
+float Mitigate(float raw, float soak, float resist) {
+	// The floor sits on the SOAK's result, before the resist: flooring the
+	// product instead would also floor away absorption, and leaving it off is
+	// exactly what let a blow under the armour heal (code-review C0).
+	return std::max(0.0f, raw - soak) * (1.0f - resist);
+}
+
+float SoakMet(float soak, bool crit, bool pierceOnCrit) {
+	return crit && pierceOnCrit ? 0.0f : soak;
+}
+
 Lesson LessonFrom(bool rolled, bool hit, ArmorClass worn, float soak) {
 	if (!rolled) return Lesson::Nothing; // never evaded, never turned
 	if (!hit) {

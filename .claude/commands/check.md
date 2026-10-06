@@ -30,6 +30,7 @@ harness refuses a stale exe on its own (exit 4).
   ingame         quick  self-testable  level files + installed models, and a uioverlap sweep of every screen
   pipeline       quick  self-testable  every source of damage goes through fx::Deal; nothing else writes health
   spells         quick  self-testable  every spell tier does what it says: hand spells, bolts, modifiers, wards
+  combat         quick  self-testable  the combat rules the code review fixed, judged from combat.eval
   alloc          full   self-testable  a steady-state frame allocates nothing on the heap
   alloc-hand     full   self-testable  the hand spells (light, douse, flare, fill, pebble) allocate nothing
   typing         full   self-testable  typed console text arrives whole and in order (focus loss, heavy frames)

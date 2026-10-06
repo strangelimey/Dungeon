@@ -137,6 +137,15 @@ $checks = @(
 		selfTest = { python (Join-Path $root 'tools\SpellTest.py') --selftest | Out-Host; $LASTEXITCODE }
 	},
 	@{
+		name = 'combat'; tier = 'quick'; needs = 'build-debug'
+		what = 'the combat rules the code review fixed, judged from combat.eval'
+		# The debug build only, like SpellTest. combat.eval's sections each make one
+		# claim; the self-test cuts every effect / spawn / equip / wear line and
+		# demands exactly the checks resting on one fail.
+		run      = { python (Join-Path $root 'tools\CombatTest.py') | Out-Host; $LASTEXITCODE }
+		selfTest = { python (Join-Path $root 'tools\CombatTest.py') --selftest | Out-Host; $LASTEXITCODE }
+	},
+	@{
 		name = 'alloc'; tier = 'full'; needs = "build-$Config"
 		what = 'a steady-state frame allocates nothing on the heap'
 		run      = { & (Join-Path $root 'tools\AllocTest.ps1') -Config $Config -Seconds 10 | Out-Host; $LASTEXITCODE }

@@ -654,6 +654,11 @@ public:
 		// Fixtures put out by breaking (DouseFixture): the light, flame and haze
 		// change a wrecked brazier makes mid-fight. AllocTest -Impact must show one.
 		int fixturesDoused = 0;
+		// THE MONSTERS' MELEE on the party (MonsterAttack): blows that landed on
+		// a member, and of those the criticals a piercing edge (`crit = pierce`)
+		// drove UNDER the armour. tools\CombatTest.py weighs the armour lessons a
+		// piercing attacker taught against these (code-review C11).
+		int struck = 0, pierced = 0;
 	};
 
 	// ========================================================================
@@ -786,6 +791,14 @@ public:
 		m.spawnReq = false;
 		m.spawnAnim = 0.0f;
 	}
+	// Give the MOST RECENTLY SPAWNED monster a piercing edge (`spawn ...
+	// pierce`): its criticals go under armour as a `crit = pierce` kind's do. No
+	// authored monster has one, and the armour lesson's rule for such a blow
+	// (TrainDefense, code-review C11) cannot be measured without one.
+	void PierceLastMonster() {
+		if (m_monsters.empty()) return;
+		m_monsters.back().piercing = true;
+	}
 
 	// DETONATE A NAMED SPELL'S BLAST at a cell, with no caster, no mana, no
 	// skill roll and no bolt flight — the eval harness's way of asking a
@@ -912,9 +925,14 @@ public:
 	// disagree. (It used to copy the whole Character, every frame the tooltip
 	// was up; the swap goes through m_defenseScratch and allocates nothing.)
 	DefenseReadout DefenseWith(const Character& member, const std::string& itemId);
+	// What fx::Deal sees of a member's armour: PartyTarget's own Soak and Resist,
+	// for a readout (`char`) that must not re-derive them.
+	float PipelineSoak(const Character& member);
+	float PipelineResist(const Character& member, DamageType type);
 
 	// Trains `avoid` on an evaded blow or the worn armor on a blunted one —
-	// call once per RESOLVED attack against a member.
+	// call once per RESOLVED attack against a member. A bolt the wind ward
+	// turned was never rolled, and teaches nothing.
 	void TrainDefense(Character& member, const fx::DamageEvent& ev);
 	// Land an effect on the monster the party faces (dev console). False if
 	// there is nothing ahead or no such effect. The monster side of the effect
@@ -2507,6 +2525,11 @@ private:
 		// types, where a result points at a monster that does not exist and so
 		// says where to author one rather than what to fix.
 		float strength = 1.0f;
+		// PER-INSTANCE PIERCING EDGE (the eval harness's `spawn ... pierce`):
+		// this creature's criticals go under armour as though its kind said
+		// `crit = pierce`. Read beside the kind's flag in MonsterAttack; not
+		// saved, like `strength`.
+		bool piercing = false;
 		float MaxHp() const {
 			return (kind ? kind->maxHp : 1.0f) * strength;
 		}
@@ -3145,6 +3168,12 @@ private:
 	// Lazily loads (and caches) the shared behaviour for an item type, resolved
 	// through the items catalog (category=rune → symbol + element glow colour).
 	ItemKind& ItemKindFor(const std::string& type);
+	// THE WORN PIECES (code-review C12): every doll slot that DEFENDS - the hands
+	// excepted - handed to `fn` as its item kind. The ONE hand rule for every
+	// defensive sum (WornArmorClass, PartyTarget::Soak and ::Resist, DefenseFor),
+	// which used to disagree: the class skipped the hands while soak and resists
+	// counted them. Defined in DungeonWorld_Combat.cpp, its only user.
+	template <class Fn> void ForEachWornPiece(const Character& member, Fn&& fn);
 	// items.cat `liquid_color`: generates the liquid inside the kind's glass and
 	// appends it to its model as one more part (DungeonWorld_Load.cpp).
 	void AddLiquid(ItemKind& kind, const CatalogEntry& def, const std::string& modelFile);

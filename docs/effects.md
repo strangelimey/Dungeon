@@ -48,7 +48,12 @@ exactly one stage — that is the test of whether the stage list is right.
 3. **Mitigate** — soak, then resist for the event's damage type. The
    resist is summed from *every* contributor: nature, worn gear, and any
    effect that offers one. *(Stone Skin becomes a contributor instead of
-   a special case inside `PartyDefense`.)*
+   a special case inside `PartyDefense`.)* One rule for rolled and
+   unrolled events alike, `defense::Mitigate` = max(0, raw - soak) x
+   (1 - resist): soak never inverts, so only a resist past 1 heals
+   (code-review C0 - the rolled path once let a blow weaker than the
+   armour go negative, and plate healed its wearer). Worn gear is the
+   doll, never the hands (`DungeonWorld::ForEachWornPiece`, C12).
 4. **Absorb** — pooled effects eat what is left. *(Water Veil, which
    dies by spending rather than by timing out.)*
 5. **Apply** — hp, the splat, unconscious/overkill/death, the slain

@@ -246,16 +246,19 @@ void Game::RegisterEvalCommands() {
 	// the one the script described.
 	// `up` (any word after the cell) stands it up at once: a kit skeleton
 	// otherwise spends 9.5-14 s rising and holding still (StandLastMonster).
+	// `pierce` gives it a piercing edge, its criticals going under armour
+	// (PierceLastMonster) - no authored monster has one.
 	m_console.Register({.name = "spawn",
 						.group = CmdGroup::Monsters,
-						.params = "<type> <x> <z> [n|e|s|w] [strength] [up]",
+						.params = "<type> <x> <z> [n|e|s|w] [strength] [up] [pierce]",
 						.summary = "place a monster live, optionally scaling its hp and damage"},
 					   [this](const std::vector<std::string>& given) {
 						   if (!Need(m_console, given, 3)) return;
 						   std::vector<std::string> args;
-						   bool up = false;
+						   bool up = false, pierce = false;
 						   for (size_t i = 0; i < given.size(); ++i) {
 							   if (i >= 3 && given[i] == "up") up = true;
+							   else if (i >= 3 && given[i] == "pierce") pierce = true;
 							   else args.push_back(given[i]);
 						   }
 						   const int x = std::atoi(args[1].c_str());
@@ -288,8 +291,10 @@ void Game::RegisterEvalCommands() {
 						   if (strength > 0.0f && strength != 1.0f)
 						   m_world->ScaleLastMonster(strength);
 						   if (up) m_world->StandLastMonster();
-					   m_console.Print(std::format("spawned {} at {},{} x{:.2f}{}",
-											   args[0], x, z, strength, up ? " up" : ""));
+						   if (pierce) m_world->PierceLastMonster();
+					   m_console.Print(std::format("spawned {} at {},{} x{:.2f}{}{}",
+											   args[0], x, z, strength, up ? " up" : "",
+											   pierce ? " pierce" : ""));
 					   });
 
 	// --- measuring an encounter (docs/eval-harness.md) ----------------------
@@ -411,6 +416,9 @@ void Game::RegisterEvalCommands() {
 						   //   downed  distinct MEMBERS, not falls.
 						   //   bolthits/boltmisses/expired/blasts  the carriers
 						   //           (DungeonWorld::Tally says which count what).
+						   //   struck/pierced  the MONSTERS' melee blows that
+						   //           landed on a member, and the criticals among
+						   //           them a piercing edge drove under the armour.
 						   m_console.Print(TallyLine());
 					   });
 
@@ -541,11 +549,12 @@ std::string Game::TallyLine() const {
 		"TALLY dealt={:.1f} taken={:.1f} swings={} hits={} misses={} hitrate={} "
 		"crits={} fumbles={} slain={} downed={} secs={:.1f} bolthits={} "
 		"boltmisses={} expired={} blasts={} drops={} lifts={} throws={} "
-		"throwstrikes={} throwlandings={} sceneryticks={} doused={}",
+		"throwstrikes={} throwlandings={} sceneryticks={} doused={} struck={} "
+		"pierced={}",
 		t.dealt, t.taken, swings, t.hits, t.misses, rate, t.crits, t.fumbles,
 		t.monstersSlain, t.membersDowned, t.seconds, t.boltHits, t.boltMisses,
 		t.expiries, t.blasts, t.drops, t.lifts, t.throws, t.throwStrikes,
-		t.throwLandings, t.sceneryTicks, t.fixturesDoused);
+		t.throwLandings, t.sceneryTicks, t.fixturesDoused, t.struck, t.pierced);
 }
 
 } // namespace dungeon::game

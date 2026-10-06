@@ -1388,6 +1388,72 @@ int main(int argc, char** argv) {
 		}
 	}
 
+	// --- soak never inverts; a pierce teaches the armour nothing ------------------
+	// code-review C0 and C11. defense::Mitigate is the ONE rule both of fx::Deal's
+	// branches mitigate by; the rolled one used to subtract the soak unfloored, so
+	// a blow weaker than the armour went NEGATIVE and plate healed its wearer.
+	// defense::SoakMet is the one statement of "a piercing critical went under the
+	// armour": the resolver subtracts what it returns, and the armour lesson reads
+	// it, so a blow the plate never met cannot train the plate.
+	{
+		std::printf("\n--- soak never inverts; a pierce teaches the armour nothing ---\n");
+		// The rule itself, over soak from none to well past the blow and resist
+		// across vulnerability, mitigation, immunity and absorption.
+		bool negative = false, wholeIsZero = true, drinks = false;
+		for (const float raw : {0.5f, 4.0f, 12.0f})
+			for (const float soak : {0.0f, 3.0f, 7.0f, 20.0f})
+				for (const float resist : {-0.5f, 0.0f, 0.5f, 1.0f, 1.5f}) {
+					const float m = defense::Mitigate(raw, soak, resist);
+					if (resist <= 1.0f && m < 0.0f) negative = true;
+					if (soak >= raw && m != 0.0f) wholeIsZero = false;
+					if (resist > 1.0f && raw > soak && m < 0.0f) drinks = true;
+				}
+		CheckTrue("soak past the blow never heals (resist <= 1)", !negative);
+		CheckTrue("...a blow the soak stops whole does nothing", wholeIsZero);
+		// Non-vacuous the other way: a floor on the whole product would pass both
+		// checks above and quietly delete absorption.
+		CheckTrue("...yet a resist past 1 still drinks", drinks);
+
+		// The SHIPPING resolver, on the case that found it: Brand's plate (soak 7,
+		// slash 0.5) against a skel_swarm's 4 slash. The margin and its cap are
+		// switched off so every landed blow stays under the soak.
+		StrikeRules flat;
+		flat.marginDamage = 0.0f;
+		flat.marginCap = 1.0f;
+		std::mt19937 rng(20261005u);
+		int landed = 0, healed = 0, stung = 0;
+		for (int i = 0; i < 4000; ++i) {
+			const AttackResult a = ResolveAttack({4.0f, 400.0f, DamageType{}, false},
+												 {0.0f, 7.0f, 0.5f}, flat, kStrikeDice, rng);
+			if (!a.hit) continue;
+			++landed;
+			if (a.damage < 0.0f) ++healed;
+			if (a.damage > 0.0f) ++stung; // the wound floor is for blows that got through
+		}
+		CheckTrue("the plate sample landed blows", landed > 3000);
+		Check("a blow under the armour heals no one", healed, 0, 0);
+		Check("...and is not floored into a wound", stung, 0, 0);
+		// And absorption still reaches the resolver: soak 0, resist 1.5.
+		int fed = 0;
+		for (int i = 0; i < 200; ++i) {
+			const AttackResult a = ResolveAttack({4.0f, 400.0f, DamageType{}, false},
+												 {0.0f, 0.0f, 1.5f}, flat, kStrikeDice, rng);
+			if (a.hit && a.damage < 0.0f) ++fed;
+		}
+		CheckTrue("a resist past 1 still feeds through the resolver", fed > 150);
+
+		using defense::Lesson;
+		CheckTrue("a piercing critical teaches the plate nothing",
+				  defense::LessonFrom(true, true, ArmorClass::Heavy,
+									  defense::SoakMet(7.0f, true, true)) == Lesson::Nothing);
+		CheckTrue("...an ordinary critical it blunted does",
+				  defense::LessonFrom(true, true, ArmorClass::Heavy,
+									  defense::SoakMet(7.0f, true, false)) == Lesson::Armor);
+		CheckTrue("...and so does a piercing edge's ordinary hit",
+				  defense::LessonFrom(true, true, ArmorClass::Heavy,
+									  defense::SoakMet(7.0f, false, true)) == Lesson::Armor);
+	}
+
 	// --- the fumble face travels ------------------------------------------------
 	// The plumbing the whole severity rule stands on: ResolveAttack must report
 	// WHICH face fumbled, and must report 0 when nothing did. A silent 0 here would

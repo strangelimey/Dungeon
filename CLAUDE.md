@@ -356,12 +356,18 @@ Key conventions (memorize, they bite):
   (BoltSpell::MakeBolt), monster melee by `dmgtype`. Attack side: damage =
   (weapon damage, or the unarmed knobs, + stat_damage × avg of items.cat
   `stats`) × attack numbers × (1 + skill_damage × level); ACCURACY IS
-  ALWAYS DEX. Defender side: evasion, then (rolled − soak) × (1 −
-  resist[type]) floored - resists SUM nature (monsters.cat `resists`; a
+  ALWAYS DEX. Defender side: evasion, then max(0, rolled - soak) x (1 -
+  resist[type]) (`defense::Mitigate`, ONE rule for both of fx::Deal's branches:
+  soak never inverts, only a resist past 1 heals), a blow that got through
+  floored at wound_floor - resists SUM nature (monsters.cat `resists`; a
   member's Character::natureResists is its race's races.cat `resists`, set by
   Game::ApplyRaceResists) + worn equipment
-  (`resists`/`armor`) + Stone Skin as physical, clamped ±resist_clamp
-  (a nature cell of 1.0 = immunity). Resources DERIVE — see RESOURCES below,
+  (`resists`/`armor`; WORN = the doll, never the hands, one walk for every
+  defensive sum: `DungeonWorld::ForEachWornPiece`) + Stone Skin as physical,
+  clamped ±resist_clamp (a nature cell of 1.0 = immunity). A bolt the Wind
+  Ward turns was never rolled and trains nothing; a piercing crit trains no
+  armour (`defense::SoakMet`). Checked by `tools\CombatTest.py`
+  (combat.eval). Resources DERIVE - see RESOURCES below,
   which superseded the old flat `max = base + k × statAvg`. STAMINA is the
   exertion meter (swings spend
   (stamina_swing + stamina_weight×kg) × the attack's stamina column, steps

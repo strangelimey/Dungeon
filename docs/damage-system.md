@@ -525,7 +525,24 @@ offset curve for the logarithmic form, so the armor section cannot pass vacuousl
 while only the dice prove themselves.
 
 Lookups stayed in the world on purpose (`WornArmorClass`, `Soak`, `Resist`):
-they have nothing to get wrong that a test would catch.
+they have nothing to get wrong that a test would catch - except the one rule
+they share, which they got wrong between them. The class skipped the hands
+while soak, resists and the sheet's soak counted them, so a cuirass carried in
+a fist gave its soak and resists for nothing (code-review C12). All four now
+walk one helper, `DungeonWorld::ForEachWornPiece` - the doll, never the hands -
+and `char` prints the class, the pipeline's soak beside the sheet's, and the
+resists on one line, which `tools\CombatTest.py` checks with a cuirass in a hand.
+
+The mitigation itself is pure and here: `defense::Mitigate` is max(0, raw -
+soak) x (1 - resist), the one rule for both of `fx::Deal`'s branches, so soak
+never inverts and only a resist past 1 heals (C0 - the rolled branch subtracted
+the soak unfloored, and plate healed its wearer). `defense::SoakMet` says when a
+piercing critical skipped the soak, for the resolver and for `LessonFrom` alike,
+so a blow the plate never met does not train the plate (C11). RollTest checks
+the rule; the WIRING - TrainDefense handing `LessonFrom` the soak met rather than
+the soak worn - is out of its reach, so `tools\CombatTest.py` checks that in
+play: a swarm spawned `pierce` against a party in plate, the heavy-armour
+lessons counted out of the xp against the tally's `struck=` and `pierced=`.
 
 ### It immediately found a real bug
 
