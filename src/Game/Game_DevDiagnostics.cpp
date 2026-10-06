@@ -8,6 +8,7 @@
 // ============================================================================
 #include "Game/Game.h"
 
+#include "Assets/File.h"
 #include "Core/AllocTrack.h"
 #include "Core/Assert.h"
 #include "Core/Diagnostics.h"
@@ -89,6 +90,25 @@ void Game::RegisterDiagnosticCommands() {
 										  0.1f, 60.0f);
 			m_console.Print(std::format("inputpoke: dropping typed text for {:.1f}s",
 										m_inputPokeRemaining));
+		});
+	// The file layer's own answer for one path (code-review C231, C384):
+	// tools\PathsTest.ps1 reads a file and a directory in a folder outside ASCII
+	// through it. The rest of the line is the path, so one holding single spaces
+	// survives the console's word split.
+	m_console.Register(
+		{.name = "readfile",
+		 .group = CmdGroup::Diagnostics,
+		 .params = "<path>",
+		 .summary = "read a file through assets::ReadBinaryFile; print its size or why not"},
+		[this](const std::vector<std::string>& args) {
+			if (!Need(m_console, args, 1)) return;
+			std::string path = args[0];
+			for (size_t i = 1; i < args.size(); ++i) path += ' ' + args[i];
+			const auto bytes = assets::ReadBinaryFile(path);
+			if (bytes)
+				m_console.Print(std::format("readfile: {} bytes from {}", bytes->size(), path));
+			else
+				m_console.Print(std::format("readfile: none - {}", bytes.error()));
 		});
 	// --- the one-pipeline check (Game/DamageLedger.h, docs/effects.md) --------
 	// The same three-command shape the allocation guard uses, for the same

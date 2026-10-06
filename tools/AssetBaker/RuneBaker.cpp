@@ -25,6 +25,7 @@
 // ============================================================================
 #include "RuneBaker.h"
 
+#include "Assets/Image.h"
 #include "Assets/Model.h"
 #include "Core/Log.h"
 #include "Core/MathTypes.h"
@@ -38,6 +39,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -184,26 +186,27 @@ StoneMaps LoadStoneMaps(const std::string& texturesDir) {
 	StoneMaps s;
 	int w = 0, h = 0, n = 0;
 	const std::string albPath = texturesDir + "\\runestone.png";
-	u8* alb = stbi_load(albPath.c_str(), &w, &h, &n, 4);
+	// Each buffer owned at once: the resize / assign beside it can throw
+	// (code-review C231).
+	using StbPixels = std::unique_ptr<u8, assets::StbImageFree>;
+	const StbPixels alb(stbi_load(albPath.c_str(), &w, &h, &n, 4));
 	if (!alb) {
-		log::Warn("RuneBaker: no {} — falling back to procedural stone", albPath);
+		log::Warn("RuneBaker: no {} - falling back to procedural stone", albPath);
 		return s;
 	}
 	s.w = w;
 	s.h = h;
 	s.albedo.resize(static_cast<size_t>(w) * h * 3);
 	for (size_t i = 0; i < static_cast<size_t>(w) * h; ++i)
-		for (int k = 0; k < 3; ++k) s.albedo[i * 3 + k] = alb[i * 4 + k] / 255.0f;
-	stbi_image_free(alb);
+		for (int k = 0; k < 3; ++k) s.albedo[i * 3 + k] = alb.get()[i * 4 + k] / 255.0f;
 
 	// Height rides in the normal map's alpha (the importer packs it there).
 	int wn = 0, hn = 0, nn = 0;
-	u8* nrm = stbi_load((texturesDir + "\\runestone_n.png").c_str(), &wn, &hn, &nn, 4);
+	const StbPixels nrm(stbi_load((texturesDir + "\\runestone_n.png").c_str(), &wn, &hn, &nn, 4));
 	s.height.assign(static_cast<size_t>(w) * h, 0.6f);
 	if (nrm && wn == w && hn == h)
 		for (size_t i = 0; i < static_cast<size_t>(w) * h; ++i)
-			s.height[i] = nrm[i * 4 + 3] / 255.0f;
-	if (nrm) stbi_image_free(nrm);
+			s.height[i] = nrm.get()[i * 4 + 3] / 255.0f;
 	log::Info("RuneBaker: carved from worn-stone scan {} ({}x{})", albPath, w, h);
 	return s;
 }

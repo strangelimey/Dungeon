@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+  src/Core/Utf8CodePage.manifest - every executable of this project runs with
+  UTF-8 as its ANSI code page (code-review C384).
+
+  The engine keeps every string as UTF-8, file names included: Paths builds
+  them with str::Narrow, the file dialog returns them that way, typed text is
+  encoded that way. But a char* handed to fopen, CreateFileA, std::ifstream,
+  std::filesystem::path, stb_image, cgltf or dr_wav is read in the PROCESS
+  code page, which was CP1252 - so a UTF-8 name past ASCII opened the wrong
+  file, and path::string() threw on any character the code page could not
+  hold. Declaring UTF-8 here makes every one of those read UTF-8, third-party
+  code included, with no wide-character twin of each call site to keep.
+
+  Added to EVERY executable by the root CMakeLists (dn_utf8_executables), so a
+  new tool gets it without asking; the linker merges it with its own manifest
+  and with any other .manifest a target lists. tools\PathsTest.ps1 reads it back
+  out of every exe in bin, and runs the game and AssetBaker from a folder whose
+  name is not ASCII. Needs Windows 10 1903 or later; older systems ignore it.
+-->
+<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
+	<application>
+		<windowsSettings>
+			<activeCodePage xmlns="http://schemas.microsoft.com/SMI/2019/WindowsSettings">UTF-8</activeCodePage>
+		</windowsSettings>
+	</application>
+</assembly>

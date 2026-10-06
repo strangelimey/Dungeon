@@ -167,7 +167,9 @@ Key conventions (memorize, they bite):
   playback is ZERO-COPY from SoundBank memory and the engine outlives
   Game; preview-mesh resets (dev console `preview`, AssetDialog) WaitIdle
   first since up to kFrameCount-1 in-flight frames still reference the
-  buffers; C-API boundaries (cgltf, FILE*, shell COM) are RAII-wrapped —
+  buffers; C-API boundaries (cgltf, FILE*, stb / dr_wav buffers, XAudio2,
+  shell COM) are RAII-wrapped from the moment they are created (code-review
+  C231: an allocation between create and free used to leak them on a throw) -
   keep new ones that way. The MAIN THREAD MUST STAY STA-CAPABLE: never
   CoInitializeEx it into the MTA (AudioEngine's ctor used to, for XAudio2,
   which needs no COM since 2.8). A thread's apartment is fixed once joined,
@@ -176,6 +178,24 @@ Key conventions (memorize, they bite):
   window ever shown. Platform/FileDialog now refuses (logged) rather than
   hanging if it ever happens again; running the picker on a private STA
   thread does NOT help, since Show() messages the owner window.
+- PATHS ARE UTF-8, every one (code-review C384). Core/Paths builds them with
+  str::Narrow - never path::string(), which went through CP1252 and THREW on a
+  character it could not hold, from crash::Install before any handler was up -
+  and the file dialog, the command line and typed text are UTF-8 too. Every
+  EXE carries src/Core/Utf8CodePage.manifest (activeCodePage UTF-8; the root
+  CMakeLists adds it to each executable target it finds, so a new tool cannot
+  miss it), which makes fopen, std::ifstream, std::filesystem, stb, cgltf and
+  dr_wav read a char* as UTF-8. So a narrow path needs no conversion; only a
+  WIDE Win32 call takes str::Widen. The game warns at boot if its code page is
+  not 65001. Checked by `tools\PathsTest.ps1` (CheckAll full tier): the
+  manifest read back out of every exe, then the game (headless, an eval) and an
+  AssetBaker import and import-model run from `%TEMP%\dn-paths-<pid>-<a name in
+  Latin-1, Cyrillic, CJK and U+10348>`; `-SelfTest` strips the code page from
+  those copies and every case must fail FOR THAT REASON: the game exits 2 (its
+  eval script did not open - so it got past crash::Install, where a
+  path::string() in Core/Paths would have thrown and aborted) and the imports
+  exit 1. Dev: `readfile <path>`, the answer of assets::ReadBinaryFile (a
+  directory is an error, never a buffer).
 - Constants that must match HLSL: kMaxPointLights=64 (the point-light array
   CEILING = the Ultra tier; the per-frame count is a runtime budget,
   GameSettings::maxPointLights, Low=16..Ultra=64 — see the quality system),

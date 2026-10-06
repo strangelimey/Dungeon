@@ -157,8 +157,10 @@ subsystem:
 - **Load-time data** (mesh/image/clip vectors, D3D resource creation, the
   one-shot `ExecuteImmediate` upload path) deliberately uses plain ownership —
   it runs once at startup, where clarity beats allocator ceremony. C-API
-  boundaries (cgltf, `FILE*`, shell COM) ride RAII wrappers so even an
-  exception mid-parse can't leak. Plain does not mean unmeasured: `LoadQueue`
+  boundaries (cgltf, `FILE*`, stb / dr_wav buffers, XAudio2, shell COM) ride
+  RAII wrappers from the moment they are created, so even an exception
+  mid-parse can't leak (code-review C231 closed the last raw ones, the
+  tools' included). Plain does not mean unmeasured: `LoadQueue`
   times and counts every staged task and dumps a table to `dungeon.log` when
   the last one lands (`loadstats` reprints it), and `assets::LoadGltf` reports
   allocations and bytes per model on its own log line. When first measured,

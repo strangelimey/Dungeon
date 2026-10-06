@@ -10,6 +10,7 @@
 #include "Core/Log.h"
 #include "Core/Paths.h"
 #include "Core/Profile.h"
+#include "Core/StringUtil.h"
 #include "Game/AssetUtil.h"
 #include "Game/GenerateKnobs.h"
 #include "Game/PartyHudDraw.h" // DrawFlame (the details dialog's burning torch)
@@ -108,10 +109,10 @@ std::string Game::ChooseProjectFolder() {
 			if (std::wstring_view(argv[i]) == L"-eval") harness = true;
 		for (int i = 1; i + 1 < argc; ++i)
 			if (std::wstring_view(argv[i]) == L"-project") {
-				const std::wstring wide(argv[i + 1]);
-				// World names are ASCII (CreateWorld filters them), so a
-				// narrowing per character loses nothing.
-				for (const wchar_t ch : wide) name += static_cast<char>(ch);
+				// UTF-8 like every name here (Core/Paths.h). World names are
+				// ASCII (CreateWorld filters them), so anything else simply
+				// matches no world and falls back below.
+				name = str::Narrow(argv[i + 1]);
 				break;
 			}
 		LocalFree(argv);

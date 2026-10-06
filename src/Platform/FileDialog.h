@@ -5,7 +5,10 @@
 // pick a source model file or a texture folder to hand to AssetBaker. Both
 // block the message pump while shown (the editor is paused anyway) and return
 // the chosen path as UTF-8, or empty on cancel. `owner` parents the dialog for
-// correct modality; nothing outside Platform sees a Win32/COM type.
+// correct modality; nothing outside Platform sees a Win32/COM type. UTF-8 is
+// what every path in the engine is, and what the narrow file APIs read since
+// the exe manifest made it the code page (Core/Paths.h) - before that a folder
+// picked with an accented name imported nothing (code-review C384).
 // ============================================================================
 #pragma once
 

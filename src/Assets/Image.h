@@ -44,6 +44,13 @@ struct MipChain {
 std::expected<ImageData, std::string> LoadImageFile(const std::string& path);
 std::expected<ImageData, std::string> LoadImageMemory(const u8* bytes, size_t size);
 
+// Frees a buffer stb_image returned (stbi_load, _16, _from_memory). Held in a
+// std::unique_ptr from the moment it comes back, so a throw while copying out
+// of it - the copy allocates - cannot leak it (code-review C231).
+struct StbImageFree {
+	void operator()(void* pixels) const;
+};
+
 // Halve an RGBA8 image with a 2x2 box filter (odd sizes clamp, so a 1px
 // dimension stays 1). Good enough for albedo and for normal maps too, since the
 // shader renormalizes after sampling.

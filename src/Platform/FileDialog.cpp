@@ -10,9 +10,15 @@
 #include <shobjidl.h>
 #include <wrl/client.h>
 
+#include <memory>
+
 namespace dungeon::platform {
 
 namespace {
+
+struct CoTaskMemDeleter {
+	void operator()(wchar_t* p) const { CoTaskMemFree(p); }
+};
 
 std::string RunDialog(HWND__* owner, bool pickFolder, const std::wstring& label,
 					  const std::wstring& pattern) {
@@ -50,10 +56,11 @@ std::string RunDialog(HWND__* owner, bool pickFolder, const std::wstring& label,
 			if (SUCCEEDED(dialog->Show(owner))) {
 				ComPtr<IShellItem> item;
 				if (SUCCEEDED(dialog->GetResult(&item))) {
-					PWSTR path = nullptr;
-					if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
-						result = str::Narrow(path);
-						CoTaskMemFree(path);
+					PWSTR raw = nullptr;
+					if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &raw))) {
+						// Owned before the copy, which allocates (code-review C231).
+						const std::unique_ptr<wchar_t, CoTaskMemDeleter> path(raw);
+						result = str::Narrow(path.get());
 					}
 				}
 			}

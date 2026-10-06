@@ -24,6 +24,7 @@
 #include <cstdio>
 #include <cstring>
 #include <format>
+#include <memory>
 #include <mutex>
 #include <string>
 
@@ -427,6 +428,10 @@ TraceStats DumpTrace(const char* path) {
 		log::Write(log::Level::Warn, std::format("Profile: cannot write trace to {}", path));
 		return stats;
 	}
+	// Owned from here, so the handle cannot outlive a throw (code-review C231);
+	// closed by hand below once the last line is out. `f` stays the name the
+	// writes use.
+	std::unique_ptr<std::FILE, decltype(&std::fclose)> owned(f, &std::fclose);
 	std::fputs("{\"traceEvents\":[\n", f);
 
 	bool first = true;
@@ -502,7 +507,7 @@ TraceStats DumpTrace(const char* path) {
 	}
 
 	std::fputs("\n]}\n", f);
-	std::fclose(f);
+	owned.reset(); // closed, so the file is whole before the line saying so
 
 	stats.ok = true;
 	stats.spanMs = maxTsc > minTsc

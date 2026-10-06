@@ -89,26 +89,29 @@ AudioEngine::AudioEngine() {
 	// once joined, so Platform/FileDialog's CoInitializeEx(APARTMENTTHREADED) got
 	// RPC_E_CHANGED_MODE and IFileOpenDialog::Show deadlocked from the MTA — the
 	// editor's "Browse Folder..." wedged the process with no window ever shown.
-	if (FAILED(XAudio2Create(&m_xaudio, 0, XAUDIO2_DEFAULT_PROCESSOR))) {
-		log::Warn("XAudio2 unavailable — running silent");
-		m_xaudio = nullptr;
+	if (FAILED(XAudio2Create(m_xaudio.ReleaseAndGetAddressOf(), 0, XAUDIO2_DEFAULT_PROCESSOR))) {
+		log::Warn("XAudio2 unavailable - running silent");
+		m_xaudio.Reset();
 		return;
 	}
-	if (FAILED(m_xaudio->CreateMasteringVoice(&m_master))) {
-		log::Warn("No audio output device — running silent");
-		m_xaudio->Release();
-		m_xaudio = nullptr;
+	IXAudio2MasteringVoice* master = nullptr;
+	if (FAILED(m_xaudio->CreateMasteringVoice(&master))) {
+		log::Warn("No audio output device - running silent");
+		m_xaudio.Reset();
 		return;
 	}
-	m_voices.reserve(kMaxVoices);
+	m_master.reset(master);
+	m_voices.reserve(kMaxVoices); // may throw: the members above still clean up
 	log::Info("Audio engine initialized (voice pool, max {})", kMaxVoices);
 }
 
-AudioEngine::~AudioEngine() {
-	m_voices.clear(); // destroy source voices before the engine
-	if (m_master) m_master->DestroyVoice();
-	if (m_xaudio) m_xaudio->Release();
+void DestroyMasterVoice::operator()(IXAudio2MasteringVoice* voice) const {
+	voice->DestroyVoice();
 }
+
+// Nothing to do by hand: the members tear down in reverse declaration order -
+// source voices, mastering voice, engine (see the header).
+AudioEngine::~AudioEngine() = default;
 
 void AudioEngine::StopAll() {
 	// DestroyVoice (via ~PooledVoice) blocks until the mixer thread has
@@ -141,7 +144,7 @@ void AudioEngine::Play(const assets::SoundData& sound, float volume, float pan,
 		if (it == m_voices.end()) return; // every voice busy — drop the sound
 		slot = &*it;
 	}
-	*slot = std::make_unique<PooledVoice>(m_xaudio, sound.channels, sound.sampleRate);
+	*slot = std::make_unique<PooledVoice>(m_xaudio.Get(), sound.channels, sound.sampleRate);
 	if (!(*slot)->IsValid()) {
 		m_voices.erase(m_voices.begin() + (slot - m_voices.data()));
 		return;
@@ -154,7 +157,7 @@ void AudioEngine::Reserve(u32 channels, u32 sampleRate, size_t count) {
 	size_t have = static_cast<size_t>(std::ranges::count_if(
 		m_voices, [&](const auto& v) { return v->MatchesFormat(channels, sampleRate); }));
 	while (have < count && m_voices.size() < kMaxVoices) {
-		auto voice = std::make_unique<PooledVoice>(m_xaudio, channels, sampleRate);
+		auto voice = std::make_unique<PooledVoice>(m_xaudio.Get(), channels, sampleRate);
 		if (!voice->IsValid()) return; // Play still creates one on demand
 		m_voices.push_back(std::move(voice));
 		++have;

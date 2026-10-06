@@ -15,10 +15,10 @@
 // ============================================================================
 #include "GltfWriter.h"
 
+#include "Assets/File.h"
 #include "Core/Log.h"
 
 #include <algorithm>
-#include <cstdio>
 #include <format>
 #include <string>
 #include <vector>
@@ -256,13 +256,13 @@ bool WriteGltf(const assets::ModelData& model, const std::string& path) {
 		accIndices, buffer.bytes.size(), Base64(buffer.bytes),
 		Join(buffer.bufferViews), Join(buffer.accessors));
 
-	std::FILE* f = nullptr;
-	if (fopen_s(&f, path.c_str(), "wb") != 0 || !f) {
+	// Through the engine's one owned writer (code-review C231): the handle is
+	// closed whatever happens, and a short write or a failed closing flush - a
+	// full disk shows there - is an error rather than a "Wrote" line.
+	if (!assets::WriteBinaryFile(path, json.data(), json.size())) {
 		log::Error("Cannot write {}", path);
 		return false;
 	}
-	std::fwrite(json.data(), 1, json.size(), f);
-	std::fclose(f);
 	log::Info("Wrote {} ({} verts, {} joints, {} clips)", path, vertexCount,
 			  model.skeleton.joints.size(), model.clips.size());
 	return true;

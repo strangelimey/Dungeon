@@ -4,23 +4,28 @@
 
 #include <algorithm>
 #include <format>
+#include <memory>
 
 namespace dungeon::assets {
 
+void StbImageFree::operator()(void* pixels) const { stbi_image_free(pixels); }
+
 namespace {
-ImageData FromStb(unsigned char* data, int w, int h) {
+using StbPixels = std::unique_ptr<unsigned char, StbImageFree>;
+
+ImageData FromStb(const StbPixels& data, int w, int h) {
 	ImageData img;
 	img.width = static_cast<u32>(w);
 	img.height = static_cast<u32>(h);
-	img.pixels.assign(data, data + static_cast<size_t>(w) * h * 4);
-	stbi_image_free(data);
+	img.pixels.assign(data.get(), data.get() + static_cast<size_t>(w) * h * 4);
 	return img;
 }
 } // namespace
 
 std::expected<ImageData, std::string> LoadImageFile(const std::string& path) {
 	int w = 0, h = 0, comp = 0;
-	unsigned char* data = stbi_load(path.c_str(), &w, &h, &comp, 4);
+	// stb opens `path` with the narrow fopen, which reads UTF-8 (Core/Paths.h).
+	const StbPixels data(stbi_load(path.c_str(), &w, &h, &comp, 4));
 	if (!data)
 		return std::unexpected(
 			std::format("failed to load image {}: {}", path, stbi_failure_reason()));
@@ -29,8 +34,8 @@ std::expected<ImageData, std::string> LoadImageFile(const std::string& path) {
 
 std::expected<ImageData, std::string> LoadImageMemory(const u8* bytes, size_t size) {
 	int w = 0, h = 0, comp = 0;
-	unsigned char* data =
-		stbi_load_from_memory(bytes, static_cast<int>(size), &w, &h, &comp, 4);
+	const StbPixels data(
+		stbi_load_from_memory(bytes, static_cast<int>(size), &w, &h, &comp, 4));
 	if (!data)
 		return std::unexpected(
 			std::format("failed to decode embedded image: {}", stbi_failure_reason()));

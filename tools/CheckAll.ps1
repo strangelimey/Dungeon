@@ -219,6 +219,15 @@ $checks = @(
 		selfTest = { & (Join-Path $root 'tools\QuitTest.ps1') -Config $Config -SelfTest | Out-Host; $LASTEXITCODE }
 	},
 	@{
+		name = 'paths'; tier = 'full'; needs = "build-$Config"
+		what = 'the game and an AssetBaker import run from a folder outside ASCII (UTF-8 code page)'
+		# Copies of the two exes in %TEMP%, so nothing beside bin is touched. Its
+		# self-test strips the UTF-8 code page from those copies' manifests and
+		# demands every case fail.
+		run      = { & (Join-Path $root 'tools\PathsTest.ps1') -Config $Config | Out-Host; $LASTEXITCODE }
+		selfTest = { & (Join-Path $root 'tools\PathsTest.ps1') -Config $Config -SelfTest | Out-Host; $LASTEXITCODE }
+	},
+	@{
 		name = 'stale'; tier = 'full'; needs = 'build-debug'
 		what = 'a harness refuses a stale exe, and CheckAll builds what it runs (StaleTest)'
 		run = { & (Join-Path $root 'tools\StaleTest.ps1') | Out-Host; $LASTEXITCODE }

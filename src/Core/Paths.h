@@ -2,6 +2,10 @@
 
 #include <string>
 
+// EVERY PATH IS UTF-8 (code-review C384): built with str::Narrow, never
+// path::string(), and read back as UTF-8 by the narrow file APIs because each
+// exe declares UTF-8 its code page (src/Core/Utf8CodePage.manifest). A path
+// handed to a WIDE API goes through str::Widen.
 namespace dungeon::paths {
 
 // Directory containing the running executable (no trailing slash). Per-config

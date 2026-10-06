@@ -30,6 +30,7 @@
 #include <cstdio>
 #include <cstring>
 #include <format>
+#include <memory>
 #include <optional>
 #include <share.h>
 #include <string>
@@ -84,16 +85,17 @@ void Say(const char* title) { std::printf("\n%s\n", title); }
 // holding the log open for writing, so fopen_s fails on its own log every time.
 std::optional<std::vector<std::string>> LogLines(const char* needle) {
 	const std::string& path = log::FilePath();
-	FILE* f = _fsopen(path.c_str(), "r", _SH_DENYNO);
+	// Owned from the open, like every FILE* in the codebase (code-review C231).
+	const std::unique_ptr<FILE, decltype(&std::fclose)> f(
+		_fsopen(path.c_str(), "r", _SH_DENYNO), &std::fclose);
 	if (!f) {
 		Check(false, std::format("the log can be read back ({})", path));
 		return std::nullopt;
 	}
 	std::vector<std::string> lines;
 	char buf[1024];
-	while (std::fgets(buf, sizeof(buf), f))
+	while (std::fgets(buf, sizeof(buf), f.get()))
 		if (std::strstr(buf, needle)) lines.emplace_back(buf);
-	std::fclose(f);
 	return lines;
 }
 

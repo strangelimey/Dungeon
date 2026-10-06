@@ -13,6 +13,8 @@
 #include "Assets/Wav.h"
 #include "Core/Types.h"
 
+#include <wrl/client.h>
+
 #include <memory>
 #include <vector>
 
@@ -22,6 +24,11 @@ struct IXAudio2MasteringVoice;
 namespace dungeon::audio {
 
 class PooledVoice;
+
+// The mastering voice is not COM (no Release): it ends with DestroyVoice.
+struct DestroyMasterVoice {
+	void operator()(IXAudio2MasteringVoice* voice) const;
+};
 
 // XAudio2-backed sound-effect playback. Source voices are pooled and reused
 // by format, and playback references the caller's sample memory directly
@@ -60,8 +67,12 @@ public:
 	float MasterVolume() const { return m_masterVolume; }
 
 private:
-	IXAudio2* m_xaudio = nullptr;
-	IXAudio2MasteringVoice* m_master = nullptr;
+	// OWNED, so a throw part-way through the constructor - whose destructor then
+	// never runs - still releases what was made (code-review C231). DECLARATION
+	// ORDER IS TEARDOWN ORDER, reversed: the source voices go first, then the
+	// mastering voice, then the engine, which is the order XAudio2 requires.
+	Microsoft::WRL::ComPtr<IXAudio2> m_xaudio;
+	std::unique_ptr<IXAudio2MasteringVoice, DestroyMasterVoice> m_master;
 	float m_masterVolume = 1.0f;
 	std::vector<std::unique_ptr<PooledVoice>> m_voices; // grows up to kMaxVoices
 };

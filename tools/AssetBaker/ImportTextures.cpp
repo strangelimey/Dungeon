@@ -28,6 +28,7 @@
 #include <cctype>
 #include <filesystem>
 #include <initializer_list>
+#include <memory>
 #include <optional>
 #include <vector>
 
@@ -52,15 +53,17 @@ struct HeightMap {
 
 std::optional<HeightMap> LoadHeightMap(const std::string& path) {
 	int w = 0, h = 0, comp = 0;
-	stbi_us* data = stbi_load_16(path.c_str(), &w, &h, &comp, 1);
-	if (!data) return std::nullopt;
+	// Owned at once: the resize below can throw (code-review C231).
+	const std::unique_ptr<stbi_us, assets::StbImageFree> owned(
+		stbi_load_16(path.c_str(), &w, &h, &comp, 1));
+	if (!owned) return std::nullopt;
+	const stbi_us* data = owned.get();
 
 	const size_t count = static_cast<size_t>(w) * h;
 	const auto [minIt, maxIt] = std::minmax_element(data, data + count);
 	const float lo = *minIt;
 	const float range = static_cast<float>(*maxIt) - lo;
 	if (range < 656.0f) { // < 1% of 16-bit: a flat export, no usable relief
-		stbi_image_free(data);
 		log::Warn("Height map is (near-)constant, treating as absent: {}", path);
 		return std::nullopt;
 	}
@@ -70,7 +73,6 @@ std::optional<HeightMap> LoadHeightMap(const std::string& path) {
 	map.height = static_cast<u32>(h);
 	map.values.resize(count);
 	for (size_t i = 0; i < count; ++i) map.values[i] = (data[i] - lo) / range;
-	stbi_image_free(data);
 	return map;
 }
 

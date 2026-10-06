@@ -99,5 +99,31 @@ add_subdirectory(tools/DiagTest)
 add_subdirectory(tools/RollTest)
 add_subdirectory(tools/ThreadStress)
 
+# ============================================================================
+# Every executable runs in the UTF-8 code page (code-review C384).
+#
+# The engine's strings are UTF-8, file names included, and a char* handed to
+# fopen, std::filesystem, stb_image, cgltf or dr_wav is read in the PROCESS code
+# page - so each exe carries src/Core/Utf8CodePage.manifest, which says that
+# page is UTF-8 (the file explains the rest). Walked from the directory tree
+# rather than listed, so a new tool cannot be forgotten: a missing manifest
+# would only show as a file that will not open from a folder outside ASCII.
+# tools\PathsTest.ps1 reads it back out of every exe in bin.
+# ============================================================================
+function(dn_utf8_executables dir)
+	get_property(targets DIRECTORY "${dir}" PROPERTY BUILDSYSTEM_TARGETS)
+	foreach(target IN LISTS targets)
+		get_target_property(type ${target} TYPE)
+		if(type STREQUAL "EXECUTABLE")
+			target_sources(${target} PRIVATE "${CMAKE_SOURCE_DIR}/src/Core/Utf8CodePage.manifest")
+		endif()
+	endforeach()
+	get_property(subdirs DIRECTORY "${dir}" PROPERTY SUBDIRECTORIES)
+	foreach(sub IN LISTS subdirs)
+		dn_utf8_executables("${sub}")
+	endforeach()
+endfunction()
+dn_utf8_executables("${CMAKE_SOURCE_DIR}")
+
 # Visual Studio solution: open with the game as the startup project.
 set_property(DIRECTORY ${CMAKE_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT Dungeon)

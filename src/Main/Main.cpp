@@ -8,6 +8,7 @@
 #include "Core/Log.h"
 #include "Core/Profile.h"
 #include "Core/StackTrace.h"
+#include "Core/StringUtil.h"
 #include "Core/Time.h"
 #include "Game/Game.h"
 #include "Game/GameSettings.h"
@@ -73,6 +74,15 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 	crash::Install();
 
 	log::Info("Dungeon starting...");
+	// Every narrow path is UTF-8 and is opened through the narrow file APIs,
+	// which only read it right when the exe's manifest has made UTF-8 the code
+	// page (src/Core/Utf8CodePage.manifest). Without it a folder outside ASCII
+	// opens the wrong file, so a build that lost it says so here, first thing.
+	if (GetACP() != CP_UTF8)
+		log::Warn("the process code page is {}, not UTF-8 (65001): the exe was linked "
+				  "without src/Core/Utf8CodePage.manifest, and a path outside ASCII "
+				  "will not open",
+				  GetACP());
 
 	// Display config is needed before the window/device exist, so read settings
 	// here too; Game loads its own (live) copy from the same file.
@@ -145,8 +155,10 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 			if (std::wstring_view(argv[i]) != L"-eval") continue;
 			// Consume every following argument that is not itself a flag.
 			for (int j = i + 1; j < argc && argv[j][0] != L'-'; ++j) {
-				const std::wstring wide(argv[j]);
-				const std::string path(wide.begin(), wide.end()); // ASCII paths only
+				// UTF-8, like every path in the engine (Core/Paths.h). It used to
+				// copy each UTF-16 unit into a char, so a script in a folder
+				// outside ASCII was a file that did not exist.
+				const std::string path = str::Narrow(argv[j]);
 				if (first) {
 					bad = !game.LoadEvalScript(path);
 					first = false;
