@@ -44,6 +44,14 @@ struct MipChain {
 std::expected<ImageData, std::string> LoadImageFile(const std::string& path);
 std::expected<ImageData, std::string> LoadImageMemory(const u8* bytes, size_t size);
 
+// The one PNG writer (RGBA8, `width * 4` bytes a row): encoded in memory and
+// written through WriteBinaryFile (Assets/File.h), so a failed open, a short
+// write or a failed closing flush is a false with `why` set - stbi_write_png
+// checked none of them, and the asset baker's three PNG writers each called it
+// (code-review C416). Only the baker writes PNGs; the game reads them.
+bool WritePngFile(const std::string& path, u32 width, u32 height, const u8* rgba,
+				  std::string* why = nullptr);
+
 // Frees a buffer stb_image returned (stbi_load, _16, _from_memory). Held in a
 // std::unique_ptr from the moment it comes back, so a throw while copying out
 // of it - the copy allocates - cannot leak it (code-review C231).

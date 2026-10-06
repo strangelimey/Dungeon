@@ -1201,6 +1201,18 @@ sixteen kinds in another kind's pose; each kind now owns its icon pose).
   FetchAnimLibrary and ReplayImports call the baker through ONE wrapper, `tools\Pipeline.ps1`
   (`Find-AssetBaker`, `Invoke-Baker` - exit code only, so a stderr warning
   cannot abort a batch under 'Stop').
+- EVERY FILE THE BAKER WRITES goes through `assets::WriteBinaryFile` (a PNG
+  through `assets::WritePngFile`, a WAV built in memory first; code-review
+  C416), which checks the folder, the open, the write and the closing flush and,
+  given `why`, says which failed and the system's reason. So a read-only,
+  locked or full target is an error line naming the file ("could not open ...
+  for writing: Permission denied"), the bake carries on with the rest, and the
+  exit code is 1 - it used to print "Wrote" over a truncated .gltf that only
+  aborted a level load later. Joint and clip names are JSON-escaped, a map an
+  import FINDS but cannot load is said (with the loader's reason and the default
+  its channel takes), and a short WAV frame count refuses the file. Checked by
+  `tools\BakerWriteTest.py` (CheckAll `bakerwrites`; `AssetBaker rig-names` is
+  its fixture, since every name a bake writes is the baker's own).
 - PARTY PORTRAITS are BOUGHT, not baked (portraits branch, docs/portraits-
   plan.md; the old SDF-bust PortraitBaker is long gone). Two packs, both
   AI-made, in docs/costs.md: Magory (2386 shipped) and Corax Digital Art (493;

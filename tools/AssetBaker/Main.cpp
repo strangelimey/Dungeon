@@ -59,9 +59,24 @@
 //       Regenerates the rune tablet model + carved per-element texture sets,
 //       and their .dds chains (as `import` does). It used to write the PNGs
 //       only, and the game drew the old .dds beside them (code-review C410).
+//
+//   AssetBaker rig-names <out.gltf> <names-file>
+//       A FIXTURE, not an asset: one joint per line of <names-file> (UTF-8; a
+//       chain, and a clip of the same name for each), written through the one
+//       glTF writer. Every name a bake writes is the baker's own, so this is
+//       how tools\BakerWriteTest.py hands the writer quotes, backslashes and
+//       control characters to escape (code-review C416).
+//
+// Every write goes through assets::WriteBinaryFile (code-review C416): a file
+// that cannot be written - read-only, locked, a full disk - is an error line
+// naming it and saying why, the bake carries on with the rest, and the exit
+// code is 1.
 
+#include "Assets/File.h"
+#include "Assets/Model.h"
 #include "Assets/WornSets.h"
 #include "Core/Log.h"
+#include "GltfWriter.h"
 #include "ImportTextures.h"
 #include "MipBaker.h"
 #include "ModelBaker.h"
@@ -74,6 +89,73 @@
 #include <cstdlib>
 #include <filesystem>
 #include <string>
+#include <vector>
+
+namespace {
+
+// `rig-names`: the joint chain and clips named by the lines of a file (see the
+// header). A triangle skinned to the root makes it a model the writer takes.
+bool WriteNamedRig(const std::string& out, const std::string& namesFile) {
+	using namespace dungeon;
+	const auto text = assets::ReadBinaryFile(namesFile);
+	if (!text) {
+		log::Error("rig-names: {}", text.error());
+		return false;
+	}
+	std::vector<std::string> names;
+	std::string line;
+	for (const u8 b : *text) {
+		if (b != '\n') {
+			line.push_back(static_cast<char>(b));
+			continue;
+		}
+		if (!line.empty() && line.back() == '\r') line.pop_back();
+		if (!line.empty()) names.push_back(line);
+		line.clear();
+	}
+	if (!line.empty() && line.back() == '\r') line.pop_back();
+	if (!line.empty()) names.push_back(line);
+	if (names.empty()) {
+		log::Error("rig-names: {} names nothing", namesFile);
+		return false;
+	}
+
+	assets::ModelData model;
+	for (size_t i = 0; i < names.size(); ++i) {
+		assets::JointData joint;
+		joint.name = names[i];
+		joint.parent = static_cast<int>(i) - 1;
+		joint.restTranslation = {0.0f, i ? 0.1f : 0.0f, 0.0f};
+		model.skeleton.joints.push_back(joint);
+
+		assets::AnimationClipData clip;
+		clip.name = names[i];
+		clip.duration = 1.0f;
+		assets::ChannelKeys keys;
+		keys.joint = static_cast<int>(i);
+		keys.path = assets::ChannelPath::Rotation;
+		keys.times = {0.0f, 1.0f};
+		keys.values = {{0, 0, 0, 1}, {0, 0.7071068f, 0, 0.7071068f}};
+		clip.Add(keys);
+		model.clips.push_back(std::move(clip));
+	}
+	assets::MeshData mesh;
+	mesh.skinned = true;
+	mesh.material = 0;
+	for (const Vec3 p : {Vec3{0, 0, 0}, Vec3{0.1f, 0, 0}, Vec3{0, 0.1f, 0}}) {
+		assets::Vertex v;
+		v.position = p;
+		v.normal = {0, 0, 1};
+		v.weights[0] = 1.0f;
+		mesh.vertices.push_back(v);
+	}
+	mesh.indices = {0, 1, 2};
+	model.meshes.push_back(std::move(mesh));
+	model.materials.push_back({});
+	return baker::WriteGltf(model, out);
+}
+
+} // namespace
 
 int main(int argc, char** argv) {
 	using namespace dungeon;
@@ -202,8 +284,13 @@ int main(int argc, char** argv) {
 			if (std::string(argv[i]) == "--out") out = argv[i + 1];
 		std::error_code ec;
 		std::filesystem::create_directories(out, ec);
-		return baker::BakeModels(out, assets + "\\textures") ? 0 : 1;
+		if (baker::BakeModels(out, assets + "\\textures")) return 0;
+		log::Error("Model bake FAILED - a file above could not be written or baked.");
+		return 1;
 	}
+
+	if (argc >= 4 && std::string(argv[1]) == "rig-names")
+		return WriteNamedRig(argv[2], argv[3]) ? 0 : 1;
 
 	if (argc >= 2 && std::string(argv[1]) == "wornsets") {
 		// Plain stdout, not the log: this is read by a script.
@@ -262,10 +349,11 @@ int main(int argc, char** argv) {
 	}
 
 	if (argc >= 3 && std::string(argv[1]) == "sounds") {
-		// Synthesized WAVs only (no mip/texture work) — fast.
-		std::error_code ec;
-		std::filesystem::create_directories(std::string(argv[2]) + "\\sounds", ec);
-		return baker::BakeSounds(std::string(argv[2]) + "\\sounds") ? 0 : 1;
+		// Synthesized WAVs only (no mip/texture work) - fast. WriteBinaryFile makes
+		// the folders.
+		if (baker::BakeSounds(std::string(argv[2]) + "\\sounds")) return 0;
+		log::Error("Sound bake FAILED - a file above could not be written.");
+		return 1;
 	}
 
 	if (argc < 2) {

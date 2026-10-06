@@ -1,6 +1,8 @@
 #include "Assets/File.h"
 
+#include <cerrno>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <format>
 #include <memory>
@@ -22,6 +24,15 @@ FilePtr Open(const std::string& path, const char* mode) {
 	std::FILE* raw = nullptr;
 	if (fopen_s(&raw, path.c_str(), mode) != 0) return nullptr;
 	return FilePtr(raw);
+}
+
+// The C runtime's words for an errno ("Permission denied", "No space left on
+// device") - what a write's error line ends with.
+std::string Reason(int err) {
+	char text[128] = {};
+	if (err == 0 || strerror_s(text, sizeof text, err) != 0 || !text[0])
+		return "no reason given";
+	return text;
 }
 
 } // namespace
@@ -50,17 +61,32 @@ std::expected<std::vector<u8>, std::string> ReadBinaryFile(const std::string& pa
 	return data;
 }
 
-bool WriteBinaryFile(const std::string& path, const void* data, size_t size) {
+bool WriteBinaryFile(const std::string& path, const void* data, size_t size,
+					 std::string* why) {
+	const auto fail = [&](std::string reason) {
+		if (why) *why = std::move(reason);
+		return false;
+	};
+	// The folder first: an fopen into a folder that could not be made says only
+	// "No such file or directory", which hides the real cause.
 	std::error_code ec;
-	std::filesystem::create_directories(std::filesystem::path(path).parent_path(), ec);
+	const std::filesystem::path folder = std::filesystem::path(path).parent_path();
+	if (!folder.empty() && !std::filesystem::create_directories(folder, ec) && ec)
+		return fail(std::format("could not make the folder of {}: {}", path, ec.message()));
 
-	FilePtr f = Open(path, "wb");
-	if (!f) return false;
-	const bool wrote = std::fwrite(data, 1, size, f.get()) == size;
+	std::FILE* raw = nullptr;
+	if (const errno_t err = fopen_s(&raw, path.c_str(), "wb"); err != 0 || !raw)
+		return fail(std::format("could not open {} for writing: {}", path, Reason(err)));
+	FilePtr f(raw);
+	if (std::fwrite(data, 1, size, f.get()) != size)
+		return fail(std::format("short write on {}: {}", path, Reason(errno)));
 	// Closed by hand to read the result: buffered bytes are written HERE, so a
 	// full disk shows at the close, not at the fwrite. Nothing between the two
 	// can throw, so taking the handle back out of its owner is safe.
-	return std::fclose(f.release()) == 0 && wrote;
+	if (std::fclose(f.release()) != 0)
+		return fail(std::format("could not finish writing {} (the closing flush): {}", path,
+								Reason(errno)));
+	return true;
 }
 
 bool BakedIsCurrent(const std::string& baked, const std::string& source) {

@@ -13,11 +13,10 @@
 // ============================================================================
 #include "TextureBaker.h"
 
+#include "Assets/Image.h"
 #include "Core/Log.h"
 #include "Core/Types.h"
 #include "Noise.h"
-
-#include <stb_image_write.h>
 
 #include <algorithm>
 #include <cmath>
@@ -45,11 +44,15 @@ struct Rgb {
 	float r, g, b;
 };
 
+// Through the one checked PNG writer (code-review C416).
 bool SavePng(const std::string& path, const std::vector<u8>& rgba) {
-	const int ok = stbi_write_png(path.c_str(), kSize, kSize, 4, rgba.data(), kSize * 4);
-	if (!ok) log::Error("Failed to write {}", path);
-	else log::Info("Wrote {}", path);
-	return ok != 0;
+	std::string why;
+	if (!assets::WritePngFile(path, kSize, kSize, rgba.data(), &why)) {
+		log::Error("Cannot write the texture: {}", why);
+		return false;
+	}
+	log::Info("Wrote {}", path);
+	return true;
 }
 
 // Albedo = per-pixel color function modulated by height-based shading plus

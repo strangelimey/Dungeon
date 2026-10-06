@@ -368,6 +368,24 @@ $checks = @(
 		}
 	},
 	@{
+		name = 'bakerwrites'; tier = 'full'; needs = 'build-release'
+		what = 'the asset baker fails loudly: a read-only target is an error saying why, names are escaped, a bad map is said'
+		# tools\BakerWriteTest.py (code-review C416) runs the RELEASE baker into a
+		# scratch folder: `models`, `sounds` and an `import` over a read-only target
+		# each exit non-zero naming it and why and leave it alone; the WAVs stay
+		# the committed bytes; a found map that will not load is said; `rig-names`
+		# writes strict JSON. Its self-test gives every check group a fault and
+		# demands exactly those checks fail.
+		run      = {
+			$l = @(python (Join-Path $root 'tools\BakerWriteTest.py') | ForEach-Object { Write-Host $_; $_ })
+			Confirm-Verdict $l 'bakerwritetest' $LASTEXITCODE
+		}
+		selfTest = {
+			$l = @(python (Join-Path $root 'tools\BakerWriteTest.py') --selftest | ForEach-Object { Write-Host $_; $_ })
+			Confirm-Verdict $l 'bakerwritetest' $LASTEXITCODE -SelfTest
+		}
+	},
+	@{
 		name = 'bc7'; tier = 'full'; needs = 'build-release'
 		what = 'the BC7 encoder error estimate against an independent decoder'
 		# Release on purpose: the debug encoder is too slow to be worth the wait,

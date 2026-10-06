@@ -7,6 +7,7 @@
 // ============================================================================
 #include "SoundBaker.h"
 
+#include "Assets/File.h"
 #include "Core/Log.h"
 #include "Core/Types.h"
 
@@ -14,8 +15,8 @@
 
 #include <algorithm>
 #include <cmath>
-#include <filesystem>
 #include <random>
+#include <string>
 #include <vector>
 
 namespace dungeon::baker {
@@ -37,6 +38,23 @@ struct Noise {
 	}
 };
 
+// dr_wav's memory stream, owned from the moment it is created: the buffer is
+// dr_wav's (it reallocates it as the file grows), so it goes back through
+// drwav_free whatever happens (code-review C231's rule for a C boundary).
+struct WavBuffer {
+	void* data = nullptr;
+	size_t size = 0;
+	WavBuffer() = default;
+	WavBuffer(const WavBuffer&) = delete;
+	WavBuffer& operator=(const WavBuffer&) = delete;
+	~WavBuffer() { drwav_free(data, nullptr); }
+};
+
+// Built in memory, then written through assets::WriteBinaryFile (code-review
+// C416): drwav_init_file_write's own writes went unchecked, and so did the
+// frame count drwav_write_pcm_frames returns - a short one left a WAV whose
+// header promised samples it did not hold. The bytes are the ones the file
+// writer produced (the same RIFF layout, its sizes patched in at the uninit).
 bool WriteWav(const std::string& path, const std::vector<i16>& samples) {
 	drwav_data_format format{};
 	format.container = drwav_container_riff;
@@ -45,13 +63,30 @@ bool WriteWav(const std::string& path, const std::vector<i16>& samples) {
 	format.sampleRate = kRate;
 	format.bitsPerSample = 16;
 
+	WavBuffer buffer;
 	drwav wav;
-	if (!drwav_init_file_write(&wav, path.c_str(), &format, nullptr)) {
-		log::Error("Cannot write {}", path);
+	if (!drwav_init_memory_write(&wav, &buffer.data, &buffer.size, &format, nullptr)) {
+		log::Error("Cannot start the WAV for {}", path);
 		return false;
 	}
-	drwav_write_pcm_frames(&wav, samples.size(), samples.data());
-	drwav_uninit(&wav);
+	// Nothing from here to the uninit can throw: C calls only.
+	const drwav_uint64 written = drwav_write_pcm_frames(&wav, samples.size(), samples.data());
+	const drwav_result closed = drwav_uninit(&wav);
+	if (written != samples.size()) {
+		log::Error("Cannot write {}: {} of its {} frames went into the WAV", path, written,
+				   samples.size());
+		return false;
+	}
+	if (closed != DRWAV_SUCCESS || !buffer.data) {
+		log::Error("Cannot write {}: the WAV could not be finished (dr_wav result {})", path,
+				   static_cast<int>(closed));
+		return false;
+	}
+	std::string why;
+	if (!assets::WriteBinaryFile(path, buffer.data, buffer.size, &why)) {
+		log::Error("Cannot write the sound: {}", why);
+		return false;
+	}
 	log::Info("Wrote {}", path);
 	return true;
 }
@@ -202,9 +237,7 @@ bool BakeSounds(const std::string& dir) {
 	ok &= WriteWav(dir + "\\monster.wav", MonsterGroan());
 	ok &= WriteWav(dir + "\\oof.wav", Oof());
 
-	// Spell effects live in a dedicated subfolder.
-	std::error_code ec;
-	std::filesystem::create_directories(dir + "\\spells", ec);
+	// Spell effects live in a dedicated subfolder (WriteBinaryFile makes it).
 	ok &= WriteWav(dir + "\\spells\\cast.wav", SpellCast());
 	ok &= WriteWav(dir + "\\spells\\impact.wav", SpellImpact());
 	ok &= WriteWav(dir + "\\spells\\fizzle.wav", SpellFizzle());

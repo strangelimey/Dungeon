@@ -1,6 +1,9 @@
 #include "Assets/Image.h"
 
+#include "Assets/File.h"
+
 #include <stb_image.h>
+#include <stb_image_write.h>
 
 #include <algorithm>
 #include <cmath>
@@ -41,6 +44,36 @@ std::expected<ImageData, std::string> LoadImageMemory(const u8* bytes, size_t si
 		return std::unexpected(
 			std::format("failed to decode embedded image: {}", stbi_failure_reason()));
 	return FromStb(data, w, h);
+}
+
+bool WritePngFile(const std::string& path, u32 width, u32 height, const u8* rgba,
+				  std::string* why) {
+	// Encoded in memory - the encoder stbi_write_png runs, so the same bytes -
+	// and written through the checked writer; stbi_write_png's own fwrite and
+	// fclose went unchecked. The copy out of stb's buffer allocates, and a throw
+	// must not cross the C encoder (it would leak that buffer), so the sink
+	// catches and the failure is reported after it returns.
+	struct Sink {
+		std::vector<u8> bytes;
+		bool failed = false;
+	} sink;
+	const auto append = [](void* context, void* data, int size) {
+		auto& s = *static_cast<Sink*>(context);
+		const auto* b = static_cast<const u8*>(data);
+		try {
+			s.bytes.insert(s.bytes.end(), b, b + size);
+		} catch (...) {
+			s.failed = true;
+		}
+	};
+	if (!stbi_write_png_to_func(append, &sink, static_cast<int>(width),
+								static_cast<int>(height), 4, rgba,
+								static_cast<int>(width) * 4) ||
+		sink.failed) {
+		if (why) *why = std::format("could not encode {} as a PNG ({}x{})", path, width, height);
+		return false;
+	}
+	return WriteBinaryFile(path, sink.bytes.data(), sink.bytes.size(), why);
 }
 
 // ---- The sRGB curve, for the mip filter ---------------------------------------

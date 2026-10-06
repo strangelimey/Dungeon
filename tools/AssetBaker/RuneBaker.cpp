@@ -34,7 +34,6 @@
 #include "Noise.h"
 
 #include <stb_image.h>
-#include <stb_image_write.h>
 
 #include <algorithm>
 #include <array>
@@ -213,11 +212,15 @@ StoneMaps LoadStoneMaps(const std::string& texturesDir) {
 
 // --- image plumbing ----------------------------------------------------------
 
+// Through the one checked PNG writer (code-review C416).
 bool SaveRgba(const std::string& path, u32 size, const std::vector<u8>& rgba) {
-	const int ok = stbi_write_png(path.c_str(), size, size, 4, rgba.data(), size * 4);
-	if (ok) log::Info("Wrote {}", path);
-	else log::Error("Failed to write {}", path);
-	return ok != 0;
+	std::string why;
+	if (!assets::WritePngFile(path, size, size, rgba.data(), &why)) {
+		log::Error("Cannot write the texture: {}", why);
+		return false;
+	}
+	log::Info("Wrote {}", path);
+	return true;
 }
 
 u8 ToU8(float v) { return static_cast<u8>(std::clamp(v, 0.0f, 1.0f) * 255.0f + 0.5f); }

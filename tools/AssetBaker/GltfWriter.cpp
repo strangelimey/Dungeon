@@ -12,6 +12,10 @@
 //
 // Matrix layout: our row-major Mat4 bytes equal glTF's column-major layout
 // for the same transform, so inverse binds are written verbatim.
+//
+// Names (joints, clips) are JSON-escaped (JsonEscaped), and the file goes out
+// through assets::WriteBinaryFile, so a failed write is an error line saying
+// why and a false - never a "Wrote" line over a truncated file.
 // ============================================================================
 #include "GltfWriter.h"
 
@@ -21,6 +25,7 @@
 #include <algorithm>
 #include <format>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace dungeon::baker {
@@ -70,6 +75,34 @@ struct BufferBuilder {
 		return accessorIndex;
 	}
 };
+
+// A name as the body of a JSON string: the quote, the backslash and the
+// control characters escaped (the short forms where JSON has one), everything
+// else - UTF-8 included - as it is. Joint and clip names went in raw
+// (code-review C416), so one with a quote in it wrote a file no JSON reader
+// can open; every name the bakes write is the baker's own today, which is why
+// `AssetBaker rig-names` exists to hand it others.
+std::string JsonEscaped(std::string_view text) {
+	std::string out;
+	out.reserve(text.size());
+	for (const char c : text) {
+		switch (c) {
+		case '"': out += "\\\""; break;
+		case '\\': out += "\\\\"; break;
+		case '\b': out += "\\b"; break;
+		case '\f': out += "\\f"; break;
+		case '\n': out += "\\n"; break;
+		case '\r': out += "\\r"; break;
+		case '\t': out += "\\t"; break;
+		default:
+			if (static_cast<unsigned char>(c) < 0x20)
+				out += std::format("\\u{:04x}", static_cast<unsigned>(static_cast<unsigned char>(c)));
+			else
+				out.push_back(c);
+		}
+	}
+	return out;
+}
 
 std::string Join(const std::vector<std::string>& parts) {
 	std::string out;
@@ -151,7 +184,7 @@ bool WriteGltf(const assets::ModelData& model, const std::string& path) {
 			const auto& joint = skel[j];
 			std::string node = std::format(
 				R"({{"name":"{}","translation":[{},{},{}],"rotation":[{},{},{},{}],"scale":[{},{},{}])",
-				joint.name, joint.restTranslation.x, joint.restTranslation.y,
+				JsonEscaped(joint.name), joint.restTranslation.x, joint.restTranslation.y,
 				joint.restTranslation.z, joint.restRotation.x, joint.restRotation.y,
 				joint.restRotation.z, joint.restRotation.w, joint.restScale.x,
 				joint.restScale.y, joint.restScale.z);
@@ -220,7 +253,7 @@ bool WriteGltf(const assets::ModelData& model, const std::string& path) {
 					samplerIndex, ch.joint + 1, pathName));
 			}
 			anims.push_back(std::format(
-				R"({{"name":"{}","samplers":[{}],"channels":[{}]}})", clip.name,
+				R"({{"name":"{}","samplers":[{}],"channels":[{}]}})", JsonEscaped(clip.name),
 				Join(samplers), Join(channels)));
 		}
 		animJson = std::format(R"("animations":[{}],)", Join(anims));
@@ -258,9 +291,11 @@ bool WriteGltf(const assets::ModelData& model, const std::string& path) {
 
 	// Through the engine's one owned writer (code-review C231): the handle is
 	// closed whatever happens, and a short write or a failed closing flush - a
-	// full disk shows there - is an error rather than a "Wrote" line.
-	if (!assets::WriteBinaryFile(path, json.data(), json.size())) {
-		log::Error("Cannot write {}", path);
+	// full disk shows there - is an error rather than a "Wrote" line, saying why
+	// (C416: a read-only or locked target is "Permission denied").
+	std::string why;
+	if (!assets::WriteBinaryFile(path, json.data(), json.size(), &why)) {
+		log::Error("Cannot write the model: {}", why);
 		return false;
 	}
 	log::Info("Wrote {} ({} verts, {} joints, {} clips)", path, vertexCount,

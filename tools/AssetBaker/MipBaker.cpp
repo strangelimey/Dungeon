@@ -37,7 +37,7 @@ using assets::Downsample; // the shared 2x2 box filter (Assets/Image.h) — the
 						  // one, so a chain is identical whichever built it
 
 bool WriteDdsBc7(const std::string& path, u32 width, u32 height,
-				 const std::vector<std::vector<u8>>& levels) {
+				 const std::vector<std::vector<u8>>& levels, std::string* why) {
 	// Standard DDS: magic + 124-byte header + 20-byte DX10 extension.
 	u32 header[31]{};
 	header[0] = 124;                                // dwSize
@@ -60,7 +60,7 @@ bool WriteDdsBc7(const std::string& path, u32 width, u32 height,
 	for (const auto& level : levels)
 		file.insert(file.end(), level.begin(), level.end());
 
-	return assets::WriteBinaryFile(path, file.data(), file.size());
+	return assets::WriteBinaryFile(path, file.data(), file.size(), why);
 }
 
 } // namespace
@@ -85,8 +85,9 @@ static bool BakeImageChain(assets::ImageData image, bool srgb, const std::string
 		level = Downsample(level, srgb);
 	}
 
-	if (!WriteDdsBc7(ddsPath, width, height, levels)) {
-		log::Error("Failed to write {}", ddsPath);
+	std::string why;
+	if (!WriteDdsBc7(ddsPath, width, height, levels, &why)) {
+		log::Error("Cannot write the mip chain: {}", why); // why names it (C416)
 		return false;
 	}
 	log::Info("Wrote {} ({} BC7 mips)", ddsPath, levels.size());

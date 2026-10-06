@@ -22,7 +22,6 @@
 #include "Core/Types.h"
 
 #include <stb_image.h>
-#include <stb_image_write.h>
 
 #include <algorithm>
 #include <cctype>
@@ -56,7 +55,12 @@ std::optional<HeightMap> LoadHeightMap(const std::string& path) {
 	// Owned at once: the resize below can throw (code-review C231).
 	const std::unique_ptr<stbi_us, assets::StbImageFree> owned(
 		stbi_load_16(path.c_str(), &w, &h, &comp, 1));
-	if (!owned) return std::nullopt;
+	if (!owned) {
+		// Found by its name and then unreadable - said, with stb's reason, where
+		// it used to vanish into the caller's "no usable height data" (C416).
+		log::Warn("Height map found but not loaded: {} ({})", path, stbi_failure_reason());
+		return std::nullopt;
+	}
 	const stbi_us* data = owned.get();
 
 	const size_t count = static_cast<size_t>(w) * h;
@@ -106,13 +110,13 @@ float SampleChannel(const assets::ImageData& image, u32 channel, float u, float 
 }
 
 bool SavePng(const std::string& path, const assets::ImageData& image) {
-	const int ok = stbi_write_png(path.c_str(), static_cast<int>(image.width),
-								  static_cast<int>(image.height), 4,
-								  image.pixels.data(),
-								  static_cast<int>(image.width) * 4);
-	if (ok) log::Info("Wrote {}", path);
-	else log::Error("Failed to write {}", path);
-	return ok != 0;
+	std::string why;
+	if (!assets::WritePngFile(path, image.width, image.height, image.pixels.data(), &why)) {
+		log::Error("Cannot write the texture: {}", why);
+		return false;
+	}
+	log::Info("Wrote {}", path);
+	return true;
 }
 
 } // namespace
@@ -231,14 +235,21 @@ bool ImportPbrTextureSet(const std::string& sourceDir, const std::string& textur
 	orm.width = albedo->width;
 	orm.height = albedo->height;
 	orm.pixels.assign(static_cast<size_t>(orm.width) * orm.height * 4, 255);
-	auto loadOpt = [](const std::string& p) -> std::optional<assets::ImageData> {
+	// A map FOUND by its name that will not load is said, with the loader's
+	// reason and the default its channel falls back to (code-review C416): it
+	// used to be dropped in silence, so a corrupt roughness map baked a set as
+	// rough as possible and nothing told you why.
+	auto loadOpt = [](const std::string& p, const char* role,
+					  const char* fallback) -> std::optional<assets::ImageData> {
 		if (p.empty()) return std::nullopt;
-		if (auto img = assets::LoadImageFile(p)) return std::move(*img);
+		auto img = assets::LoadImageFile(p);
+		if (img) return std::move(*img);
+		log::Warn("{} map found but not loaded, {} - {}", role, fallback, img.error());
 		return std::nullopt;
 	};
-	const auto ao = loadOpt(found.ao);
-	const auto rough = loadOpt(found.roughness);
-	const auto metal = loadOpt(found.metallic);
+	const auto ao = loadOpt(found.ao, "Occlusion", "ORM.r left at 1 (no occlusion)");
+	const auto rough = loadOpt(found.roughness, "Roughness", "ORM.g left at 1 (fully rough)");
+	const auto metal = loadOpt(found.metallic, "Metallic", "ORM.b left at 0 (not metal)");
 	if (ao) log::Info("Occlusion: {} (ORM.r)", found.ao);
 	if (rough) log::Info("Roughness: {} (ORM.g)", found.roughness);
 	if (metal) log::Info("Metallic: {} (ORM.b)", found.metallic);

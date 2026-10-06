@@ -14,8 +14,14 @@ namespace dungeon::assets {
 std::expected<std::vector<u8>, std::string> ReadBinaryFile(const std::string& path);
 
 // Writes (replaces) a file; creates parent directories as needed. False when
-// the open, the write or the closing flush fails.
-bool WriteBinaryFile(const std::string& path, const void* data, size_t size);
+// the folder, the open, the write or the closing flush fails - and then `why`,
+// when given, says which and the system's reason, naming the path as
+// ReadBinaryFile's errors do ("could not open <path> for writing: Permission
+// denied"), so a caller's log line can say why and not only what (code-review
+// C416: a baker write that failed used to read "Cannot write <path>", or
+// nothing at all).
+bool WriteBinaryFile(const std::string& path, const void* data, size_t size,
+					 std::string* why = nullptr);
 
 // Whether a DERIVED file may stand in for its source: a .dds mip chain for the
 // PNG beside it, a model's embedded-image sidecar (EmbeddedImageSidecar) for
