@@ -693,6 +693,12 @@ public:
 		// known cells to read a blast's falloff otherwise walk off those cells
 		// mid-measurement and report where they ended up instead.
 		bool frozen = false;
+		// A HELD freeze (`freeze hold`): frozen, AND their AI plans are dropped,
+		// so not one monster notices the party - until `alloctest`'s first ARMED
+		// frame releases both (AutoCast::held's rule). That puts a fight's FIRST
+		// notice, first formation pass and first blow inside a measurement, where
+		// a warm-up would have swallowed them (tools\AllocTest.ps1 -Melee).
+		bool frozenHeld = false;
 		// Queued walking steps (`forward`). They CANNOT simply be applied in a
 		// loop: Party::Act starts a tween and refuses a new move while one is in
 		// flight, so nine calls in a single frame perform ONE step and silently
@@ -3450,7 +3456,15 @@ private:
 	};
 	// One blast square landing, seen and felt: its puff, then ApplyBlastHit.
 	void LandBlastHit(const blast::Hit& h, const ActiveBlast& a);
-	std::vector<ActiveBlast> m_activeBlasts;
+	// The live blasts, in the order they went off: a FIXED table (m_pendingBolts'
+	// rule), because a detonation lands in a guarded frame and an ActiveBlast is
+	// ~6.5 KB - the vector this was grew on the first blast of every session and
+	// on every new peak of overlapping ones (code-review C49, C71). A live blast
+	// is NEVER evicted to make room, or a lingering gas would silently stop
+	// biting: with the table full, the new one lands whole at once (Detonate).
+	static constexpr size_t kMaxActiveBlasts = 32;
+	std::array<ActiveBlast, kMaxActiveBlasts> m_activeBlasts{};
+	size_t m_activeBlastCount = 0;
 	// Advance every live blast and apply whatever has come due. Called per frame.
 	void UpdateBlasts(float dt);
 	// Apply one tick's worth at one square: monsters, the party (friendly fire),
@@ -3585,7 +3599,8 @@ private:
 	// change lands on the next swing rather than on the next level load.
 	// A VIEW, copying nothing: onto `own`, or onto `fallback` (the caller's
 	// inline default table, filled here), since a fumble is a steady-state event.
-	std::span<const mishap::Entry> FumbleTable(const std::vector<mishap::Entry>& own,
+	// `own` is a span too, so bare hands pass an empty one rather than a vector.
+	std::span<const mishap::Entry> FumbleTable(std::span<const mishap::Entry> own,
 											   bool severe,
 											   mishap::DefaultTable& fallback) const;
 	// Lay an item on the floor of a cell as a RUNTIME drop (negative id, saved
@@ -4523,7 +4538,9 @@ private:
 	// (capacity retained) instead of make_shared.
 	std::vector<std::shared_ptr<ai::Snapshot>> m_snapshotPool;
 	// AssignFormation's aware-attacker index list — member scratch so the
-	// every-frame formation pass doesn't heap-allocate (cleared, not freed).
+	// every-frame formation pass doesn't heap-allocate (cleared, not freed), and
+	// reserved for every monster at spawn (MakeMonster) so a fight's first aware
+	// monster does not grow it either.
 	std::vector<int> m_formationScratch;
 
 	// Build the immutable snapshot the AI workers read, and hand it over. Cheap:

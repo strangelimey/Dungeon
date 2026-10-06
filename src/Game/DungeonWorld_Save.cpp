@@ -147,7 +147,7 @@ void DungeonWorld::ResetForEval() {
 
 	// A blast is a wavefront mid-flight; a `step` that ends between its ticks
 	// leaves one live, and it would detonate into the next test.
-	m_activeBlasts.clear();
+	m_activeBlastCount = 0;
 	// Damage done to the DUNGEON (save v24). A smashed decoration KEEPS its
 	// record — the adapter holds a reference and the save has to be able to name
 	// what broke — so the flag is lifted rather than the entry erased. Fixtures

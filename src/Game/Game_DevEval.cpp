@@ -191,19 +191,27 @@ void Game::RegisterEvalCommands() {
 
 	// Monsters hold still while everything that happens TO them keeps running.
 	// A geometry probe's instruments must not wander off the cells they measure.
+	// `hold` also keeps every monster from NOTICING the party, and an `alloctest`
+	// window's first armed frame lets them go (Harness::frozenHeld).
 	m_console.Register({.name = "freeze",
 						.group = CmdGroup::Monsters,
-						.params = "[on|off]",
+						.params = "[on|off|hold]",
 						.summary = "stop monsters acting while effects on them keep running"},
 					   [this](const std::vector<std::string>& args) {
+						   DungeonWorld::Harness& h = m_world->GetHarness();
 						   if (args.empty()) {
 							   m_console.Print(std::format(
-								   "freeze {}",
-								   m_world->GetHarness().frozen ? "on" : "off"));
+								   "freeze {}", h.frozenHeld ? "held" : (h.frozen ? "on" : "off")));
+							   return;
+						   }
+						   if (args[0] == "hold") {
+							   h.frozen = h.frozenHeld = true;
+							   m_console.Print("freeze held until an alloctest window opens");
 							   return;
 						   }
 						   const bool on = args[0] == "on" || args[0] == "1";
-						   m_world->GetHarness().frozen = on;
+						   h.frozen = on;
+						   h.frozenHeld = false;
 						   m_console.Print(std::format("freeze {}", on ? "on" : "off"));
 					   });
 

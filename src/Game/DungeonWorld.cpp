@@ -1963,7 +1963,9 @@ void DungeonWorld::AssignFormation() {
 	if (sideCount == 0) return;
 
 	// Aware attackers, sorted nearest-to-party first. Member scratch, reused
-	// frame to frame (clear keeps capacity) — no per-frame allocation.
+	// frame to frame (clear keeps capacity), with room for every monster made at
+	// spawn (MakeMonster) - so not even the first aware monster of a fight grows
+	// it; reuse alone left that first growth inside a guarded frame (C71).
 	std::vector<int>& idx = m_formationScratch;
 	idx.clear();
 	for (size_t i = 0; i < m_monsters.size(); ++i)
@@ -2207,6 +2209,9 @@ void DungeonWorld::ConsumeAIPlans() {
 		const ai::AsyncDirector::Batch batch = m_director.TakePlans(b);
 		if (!batch.plans || batch.seq == m_lastPlanSeq[b]) continue; // nothing new
 		m_lastPlanSeq[b] = batch.seq;
+		// A held freeze (Harness::frozenHeld): taken and dropped, so nothing
+		// notices the party before the measurement that releases it.
+		if (m_harness.frozenHeld) continue;
 		for (const ai::Plan& plan : *batch.plans) {
 			Monster* monster = MonsterByRuntimeId(plan.id);
 			if (!monster) continue; // its monster is gone — drop the plan

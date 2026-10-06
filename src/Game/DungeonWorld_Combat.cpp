@@ -11,6 +11,7 @@
 #include "Game/Defense.h"
 #include "Game/Facing.h"
 
+#include "Core/AllocTrack.h"
 #include "Core/Loc.h"
 
 #include <algorithm>
@@ -24,6 +25,12 @@ namespace dungeon::game {
 namespace {
 // How long a hit-feedback splat stays over a struck member's portrait.
 constexpr float kHitFlashSeconds = 0.7f;
+// The stats a defensive lesson creeps (TrainDefense). Built at static
+// initialization, NOT as function-local statics: those were constructed on the
+// first blow a member took or dodged - mid-fight, in a frame the allocation
+// guard watches (code-review C35; Balance.cpp's stat lists are the same rule).
+const std::vector<std::string> kDexStat{"dexterity"};
+const std::vector<std::string> kStrStat{"strength"};
 } // namespace
 void DungeonWorld::MemberMessage(const Character& member,
 								 std::string_view line) const {
@@ -134,8 +141,6 @@ void DungeonWorld::TrainDefense(Character& member, const fx::DamageEvent& ev) {
 	// WHICH loop this blow feeds is defense::LessonFrom's decision — the two
 	// train on opposite outcomes, and that rule is measured rather than reread
 	// here. This function only pays out whatever it is told.
-	static const std::vector<std::string> kDexStat{"dexterity"};
-	static const std::vector<std::string> kStrStat{"strength"};
 	switch (defense::LessonFrom(ev.rolled, ev.hit, worn,
 								PartyTarget{*this, member}.Soak())) {
 	case defense::Lesson::Nothing:
@@ -515,7 +520,7 @@ float DungeonWorld::SpendStamina(Character& member, float points) {
 // ============================================================================
 
 std::span<const mishap::Entry>
-DungeonWorld::FumbleTable(const std::vector<mishap::Entry>& own, bool severe,
+DungeonWorld::FumbleTable(std::span<const mishap::Entry> own, bool severe,
 						  mishap::DefaultTable& fallback) const {
 	// An authored table REPLACES the default rather than adding to it — a table
 	// you cannot turn off is not a table. So a weapon that authors only
@@ -639,11 +644,14 @@ void DungeonWorld::PartyFumble(Character& attacker, size_t hand,
 			}
 			}
 	};
-	static const std::vector<mishap::Entry> kNone; // bare hands author nothing
+	// Bare hands author nothing: an EMPTY SPAN, not an empty static vector - the
+	// debug CRT allocates even an empty vector's iterator proxy, and a
+	// function-local one was built on the first bare-handed fumble, mid-fight (C35).
+	using Table = std::span<const mishap::Entry>;
 	mishap::DefaultTable fallback;
-	run(FumbleTable(weapon ? weapon->fumble : kNone, false, fallback));
+	run(FumbleTable(weapon ? Table(weapon->fumble) : Table(), false, fallback));
 	if (severe)
-		run(FumbleTable(weapon ? weapon->fumbleSevere : kNone, true, fallback));
+		run(FumbleTable(weapon ? Table(weapon->fumbleSevere) : Table(), true, fallback));
 }
 
 void DungeonWorld::MonsterFumble(Monster& monster, const AttackProfile& atk,
@@ -2658,13 +2666,28 @@ void DungeonWorld::Detonate(int cx, int cz, const ProjectilePayload& payload,
 		active.color = ElementColor(school);
 	active.persistent = spec.rules.persistence == blast::Persistence::Persistent;
 	active.linger = active.persistent ? std::max(0.0f, spec.rules.linger) : 0.0f;
-	m_activeBlasts.push_back(std::move(active));
 	m_audio.Play(m_sounds.spellImpact, 0.9f);
+	// A FULL TABLE means more blasts at once than any fight makes. No live one
+	// is evicted for it (a lingering gas would stop biting with no word), so the
+	// new one LANDS WHOLE, NOW - every square at once, and no linger - rather than
+	// vanishing: the pending-bolt queue's rule (SpawnBoltAfter).
+	if (m_activeBlastCount == m_activeBlasts.size()) {
+		{
+			const alloc::Excused excuse; // a warning formats a string, mid-fight
+			log::Warn("blast table full ({} live): the one at {},{} lands whole, now",
+					  m_activeBlasts.size(), cx, cz);
+		}
+		active.linger = 0.0f;
+		for (int i = 0; i < active.result.count; ++i)
+			LandBlastHit(active.result.hits[static_cast<size_t>(i)], active);
+		return;
+	}
+	m_activeBlasts[m_activeBlastCount++] = active;
 	UpdateBlasts(0.0f); // tick 0 now, not next frame
 }
 
 void DungeonWorld::UpdateBlasts(float dt) {
-	for (size_t b = 0; b < m_activeBlasts.size();) {
+	for (size_t b = 0; b < m_activeBlastCount;) {
 		ActiveBlast& a = m_activeBlasts[b];
 		a.elapsed += dt;
 		// Everything whose tick has come due. A rate of 0 means the whole thing
@@ -2695,10 +2718,18 @@ void DungeonWorld::UpdateBlasts(float dt) {
 				}
 			}
 		}
-		if (a.next >= a.result.count && a.linger <= 0.0f)
-			m_activeBlasts.erase(m_activeBlasts.begin() + static_cast<long>(b));
-		else
+		if (a.next >= a.result.count && a.linger <= 0.0f) {
+			// Removed IN ORDER - the later ones shift down a slot - not swap-
+			// removed: two blasts coming due in one frame land, and draw from the
+			// combat RNG, in the order they went off.
+			const auto first = m_activeBlasts.begin();
+			std::move(first + static_cast<std::ptrdiff_t>(b + 1),
+					  first + static_cast<std::ptrdiff_t>(m_activeBlastCount),
+					  first + static_cast<std::ptrdiff_t>(b));
+			--m_activeBlastCount;
+		} else {
 			++b;
+		}
 	}
 }
 

@@ -1810,11 +1810,13 @@ void Game::UpdateAllocTest(float dt, bool steady) {
 		// measurement rather than in the console's frames or the warm-up, and a
 		// held autocast is released, so a barrage's very first cast is measured
 		// (tools\AllocTest.ps1 -Impact: a fresh monster's first burn is a cost
-		// every monster pays once, and the warm-up would have swallowed it).
+		// every monster pays once, and the warm-up would have swallowed it), and a
+		// held freeze, so a fight's first notice and first blow are (-Melee).
 		if (m_allocTestFrames == 0 && m_world) {
 			DungeonWorld::Harness& h = m_world->GetHarness();
 			h.tally = {};
 			h.autoCast.held = false;
+			if (h.frozenHeld) h.frozen = h.frozenHeld = false;
 			MoveAction last{};
 			m_allocTestActsAt = m_world->GetParty().ActCount(last);
 		}

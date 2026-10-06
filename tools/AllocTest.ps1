@@ -67,12 +67,16 @@
 # start inside the window, so MonsterAttack - its name lookup and its narration
 # - went unmeasured, and every swing allocated three times (a concatenated
 # "monster." key, loc::Tr's copy, the string local) while every run passed.
-# This spawns a weakened monster beside the party, waits for its first blow to
-# LAND (one-time warm-up - a sound's first voice of its format, a member's first
-# entry in a skill table - stays outside the window), then measures with it
-# still swinging, and refuses a PASS unless the tally shows the party was
-# actually hit INSIDE the window. Swings are events, and since the message path
-# stopped allocating (docs/message-allocation.md) events get no exemption.
+# This spawns a weakened monster beside the party HELD (`freeze hold`: it
+# neither acts nor notices the party until alloctest's first armed frame lets it
+# go), so its first notice, the first formation pass and its first blow all land
+# INSIDE the window, and refuses a PASS unless the tally shows the party was
+# actually hit there. Swings are events, and since the message path stopped
+# allocating (docs/message-allocation.md) events get no exemption. NOR DOES A
+# FIRST BLOW (code-review batch 21): this mode used to wait for one to land as
+# "warm-up", and that hid TrainDefense building its stat lists on it and the
+# formation list growing for the first aware monster - a first time every
+# session pays in its first fight, which is not warm-up.
 #
 # -Cast, AND AGAIN (2026-09-28). No run ever cast a spell or opened a book, so a
 # bolt copied its payload - four std::string effect ids, which the debug CRT
@@ -98,10 +102,13 @@
 # the blast's force is spent before it reaches back three squares. (A bolt's
 # `range` is in METRES, so five squares out, the first try, was out of reach
 # of everything and measured nothing but expiries.) A launch now happens in a world
-# frame, so the window holds launches AND landings. It waits until each of the
-# three has happened once (first times are warm-up), then measures, and
-# refuses a PASS unless the tally shows a bolt hit, an expiry and a blast
-# INSIDE the window.
+# frame, so the window holds launches AND landings. It waits until a bolt has hit
+# and one has expired (first times for the process), then measures, and refuses
+# a PASS unless the tally shows a bolt hit, an expiry and a blast INSIDE the
+# window. THE BLAST GETS NO WARM-UP: the Fire Burst caster joins the rotation
+# only once it is held, so the first detonation of the process lands in the
+# window. Counting it as warm-up hid the blast list growing by ~6 KB inside a
+# guarded frame (code-review C49) - every session pays that in its first fight.
 #
 # AND IT MEASURES A FRESH MONSTER. Warm-up may only absorb a first time for the
 # PROCESS; a first time for a MONSTER is paid again by every monster in play.
@@ -680,7 +687,7 @@ function Get-LastTallyField([string]$field) {
 	throw "tally printed no '$field': $script:lastTally"
 }
 
-# The three things -Impact must see happen, from one fresh `tally`.
+# What -Impact counts (hits, expiries, blasts), from one fresh `tally`.
 function Get-ImpactCounts {
 	Get-TallyField 'bolthits' | Out-Null
 	return [pscustomobject]@{
@@ -829,14 +836,26 @@ try {
 			throw 'the console never answered `pos` - there is no party cell to fight beside'
 		}
 		$px = [int]$Matches[1]; $pz = [int]$Matches[2]
-		Write-Host "putting a $MeleeMonster (x$MeleeStrength) beside the party at $px,$pz"
+		Write-Host "putting a HELD $MeleeMonster (x$MeleeStrength) beside the party at $px,$pz"
+		# HELD FIRST (`freeze hold`): no monster acts, or even notices the party,
+		# until alloctest's first ARMED frame lets them go - so the first notice,
+		# the first formation pass and the first blow of the process all land
+		# inside the window. There is no warm-up: a first blow is a first time
+		# every fight pays, and the warm-up this mode used to wait out hid the
+		# stat lists TrainDefense built on it and the formation list growing
+		# (code-review C35, C71).
+		Send-Text 'freeze hold'; Send-Key 0x0D
+		if (-not (Wait-LogMatch 'console: freeze held until an alloctest window opens')) {
+			throw 'the freeze was not held'
+		}
 		# The first orthogonal neighbour `spawn` accepts (it refuses a wall or a
 		# taken cell, and says so) - no cell of any one level is hardcoded. It is
-		# spawned FACING the party (+z is south), as arena.eval does.
+		# spawned FACING the party (+z is south), as arena.eval does, and `up`, so
+		# it is not still rising off the floor when the window opens.
 		$spawnedAt = $null
 		foreach ($d in @(@(1, 0, 'w'), @(-1, 0, 'e'), @(0, 1, 'n'), @(0, -1, 's'))) {
 			$x = $px + $d[0]; $z = $pz + $d[1]
-			Send-Text "spawn $MeleeMonster $x $z $($d[2]) $MeleeStrength"; Send-Key 0x0D
+			Send-Text "spawn $MeleeMonster $x $z $($d[2]) $MeleeStrength up"; Send-Key 0x0D
 			# Either answer ends the wait; a refusal moves on to the next cell.
 			$answer = Wait-NewLogLines "(spawned |spawn: refused ')$MeleeMonster'? at $x,$z\b" 0
 			if ($answer.Count -gt 0 -and $answer[-1].Line -match "spawned $MeleeMonster at $x,$z") {
@@ -844,20 +863,26 @@ try {
 			}
 		}
 		if (-not $spawnedAt) { throw "no cell beside $px,$pz would take a $MeleeMonster" }
-		Write-Host "  spawned at $spawnedAt; waiting for its first blow to land (warm-up)"
-		Send-Text 'tally reset'; Send-Key 0x0D
-		$deadline = (Get-Date).AddSeconds(60)
-		while ((Get-TallyField 'taken') -le 0) {
-			if ((Get-Date) -gt $deadline) {
-				Send-Text 'monsters'; Send-Key 0x0D # what it was doing, into the log
-				throw 'the monster never landed a blow (its state is in dungeon.log)'
-			}
-			Start-Sleep -Seconds 1
+		# Refuse unless nothing has noticed the party yet: a monster already aware
+		# would have run its first notice, and maybe its first blow, outside the
+		# window. A few seconds first, so a plan that was going to latch has had
+		# the chance (the slowest AI bucket thinks every two).
+		Start-Sleep -Seconds 3
+		$noticePattern = 'console: hudbars: .* \| noticed (yes|no) \|'
+		$noticeBefore = @(Select-String -Path $log -Pattern $noticePattern -EA SilentlyContinue).Count
+		Send-Text 'hudbars'; Send-Key 0x0D
+		$notice = Wait-NewLogLines $noticePattern $noticeBefore
+		if ($notice.Count -eq 0) { throw 'the console never answered `hudbars`' }
+		if ($notice[-1].Line -notmatch '\| noticed no \|') {
+			throw 'a monster noticed the party before the window opened - the first notice would go unmeasured'
 		}
-		# A few more swings, so each outcome's first time (a miss line, a second
-		# member struck) is also warm-up rather than window.
-		Start-Sleep -Seconds 4
-		Send-Text 'tally reset'; Send-Key 0x0D
+		# NO `tally reset` before this read: the tally has counted since this
+		# script's own game began, so `taken` is every blow the party has had,
+		# and a reset here would zero the very count being checked. The window's
+		# first armed frame restarts the tally itself (Game::UpdateAllocTest).
+		$taken = Get-TallyField 'taken'
+		if ($taken -gt 0) { throw "the party was struck before the window opened (taken=$taken)" }
+		Write-Host "  spawned at $spawnedAt, held: nothing has noticed the party, nothing has struck it"
 		Send-Text 'logecho off'; Send-Key 0x0D
 		Send-Key 0xC0 # close the console again; alloctest reopens it below
 		Start-Sleep -Milliseconds 400
@@ -913,17 +938,17 @@ try {
 		}
 		# Members 0 and 1 cast down OPPOSITE lanes (front-left, front-right),
 		# so whichever lane the monster's slot is not in flies past and
-		# expires; member 2 throws the blast.
+		# expires; member 2 throws the blast - but only once the rotation is
+		# held below, so the process's first detonation is inside the window.
 		# Single-target bolts in the two lanes (Puff of Flame is a hand spell now).
 		Send-Text "autocast 0 waterbolt $ImpactEvery"; Send-Key 0x0D
 		Send-Text 'autocast 1 waterbolt'; Send-Key 0x0D
-		Send-Text 'autocast 2 firebolt_burst'; Send-Key 0x0D
 		Send-Text 'tally reset'; Send-Key 0x0D
-		Write-Host "  casting at a $ImpactMonster (x$ImpactStrength) from $px,$pz; waiting for a hit, an expiry and a blast (warm-up)"
+		Write-Host "  casting at a $ImpactMonster (x$ImpactStrength) from $px,$pz; waiting for a hit and an expiry (warm-up)"
 		$deadline = (Get-Date).AddSeconds(60)
 		while ($true) {
 			$c = Get-ImpactCounts
-			if ($c.Hits -gt 0 -and $c.Expired -gt 0 -and $c.Blasts -gt 0) { break }
+			if ($c.Hits -gt 0 -and $c.Expired -gt 0) { break }
 			if ((Get-Date) -gt $deadline) {
 				# Into the log: where everything stands, and what each caster's
 				# attempts came to (a rotation entry that only fails says so).
@@ -931,19 +956,19 @@ try {
 				Send-Text 'autocast'; Send-Key 0x0D
 				Send-Text 'party'; Send-Key 0x0D
 				Start-Sleep -Milliseconds 500
-				throw "the warm-up never saw all three (last: $script:lastTally)"
+				throw "the warm-up never saw both (last: $script:lastTally)"
 			}
 			Start-Sleep -Seconds 1
 		}
-		# EVERY CASTER MUST HAVE CAST. The three counts above can all arrive
-		# with one entry of the rotation refused throughout (a downed member),
-		# and then the lane pattern the window depends on is not the one this
-		# header describes. Failures alone prove nothing - a fumble is one.
+		# EVERY CASTER MUST HAVE CAST. The counts above can both arrive with one
+		# entry of the rotation refused throughout (a downed member), and then
+		# the lane pattern the window depends on is not the one this header
+		# describes. Failures alone prove nothing - a fumble is one.
 		$castPattern = 'console:   member \d+ casts \S+: \d+ cast, \d+ failed'
 		$castBefore = @(Select-String -Path $log -Pattern $castPattern).Count
 		Send-Text 'autocast'; Send-Key 0x0D
-		$castRows = Wait-NewLogLines $castPattern $castBefore 3
-		if ($castRows.Count -ne 3) { throw "``autocast`` listed $($castRows.Count) entries, not 3" }
+		$castRows = Wait-NewLogLines $castPattern $castBefore 2
+		if ($castRows.Count -ne 2) { throw "``autocast`` listed $($castRows.Count) entries, not 2" }
 		foreach ($r in $castRows) {
 			if ($r.Line -match ': 0 cast,') {
 				Send-Text 'party'; Send-Key 0x0D
@@ -951,8 +976,9 @@ try {
 			}
 		}
 		# A few more rounds, so each outcome's first time in the PROCESS (a
-		# miss line, a sound's first voice, the first detonation) is warm-up
-		# rather than window.
+		# miss line, a sound's first voice) is warm-up rather than window. NOT
+		# the first detonation: nothing has burst yet, and nothing will until the
+		# window opens (C49).
 		Start-Sleep -Seconds 4
 		# THEN A FRESH TARGET. What the warm-up absorbs must be a first time
 		# for the process, never a first time for a MONSTER - every monster
@@ -973,6 +999,12 @@ try {
 		# window's. The pause lets bolts already in flight land on the old one.
 		Send-Text 'autocast hold'; Send-Key 0x0D
 		Start-Sleep -Seconds 1
+		# NOW the Fire Burst joins, into the HELD rotation, so its first cast and
+		# the process's first detonation come with the window. Refuse if anything
+		# has burst already: that first time would be outside it again.
+		Send-Text 'autocast 2 firebolt_burst'; Send-Key 0x0D
+		$burst = Get-TallyField 'blasts'
+		if ($burst -gt 0) { throw "a blast went off before the window ($burst) - the first detonation would go unmeasured" }
 		$px -= 4; $tx -= 4
 		Send-Text "tp $px $pz"; Send-Key 0x0D
 		Assert-PartyAt $px $pz

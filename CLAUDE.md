@@ -476,9 +476,11 @@ Key conventions (memorize, they bite):
   WHAT THE HARNESS COSTS THE SHIPPING CODE (audited 2026-08-15, docs/eval-
   harness.md "What the harness costs"): ALL harness state the world holds is ONE
   member, `DungeonWorld::m_harness` (`struct Harness`: tally / autoAttack /
-  frozen / pendingSteps / autoCast), touched in a handful of places in the
-  simulation (autoCast is `TickAutoCast`, the `autocast` round-robin that puts a
-  LAUNCH inside a guarded window - see AllocTest.ps1 -Impact), each reading
+  frozen + frozenHeld / pendingSteps / autoCast), touched in a handful of places
+  in the simulation (autoCast is `TickAutoCast`, the `autocast` round-robin that
+  puts a LAUNCH inside a guarded window - see AllocTest.ps1 -Impact; `freeze
+  hold` keeps monsters from even noticing the party until an `alloctest` window
+  opens, so -Melee's first notice and first blow land inside it), each reading
   `m_harness.x` so it says what it is; `ResetForEval` is `m_harness = {}`. The
   script runner is its own TU, `Game_Eval.cpp`. Headless is one branch in Main.
   NOT harness machinery despite appearances: lockstep AI (SetResting uses it —

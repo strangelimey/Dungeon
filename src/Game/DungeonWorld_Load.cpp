@@ -1083,6 +1083,11 @@ DungeonWorld::Monster DungeonWorld::MakeMonster(MonsterKind& kind, int id, int x
 	// ...and for the effect list that lights it: a monster's first burn lands
 	// in the middle of a fight (fx::kMaxEffects).
 	fx::ReserveEffects(monster.effects);
+	// ...and for the WORLD's formation list, which holds every aware monster:
+	// grown here, room for every monster there is plus this one (it is not in
+	// m_monsters yet), it never grows when the first of them notices the party
+	// mid-fight, or a new peak of them does (code-review C71).
+	m_formationScratch.reserve(m_monsters.size() + 1);
 	return monster;
 }
 

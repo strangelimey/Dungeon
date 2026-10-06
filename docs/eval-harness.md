@@ -368,7 +368,7 @@ played one never does.
 
 ```
 blast  <spell id> <x> <z>
-freeze on|off
+freeze on|off|hold
 ```
 
 `blast` detonates a spell's **authored** rules at a cell — no caster, no mana, no
@@ -384,7 +384,10 @@ straight off. `freeze` is what makes that honest: the first run had two of nine
 warriors walk out of the squares being measured and then maul the party, so the
 table described where they ended up rather than what the blast did to where they
 were. Frozen monsters still burn, still take the blast and still die — they
-simply do not act.
+simply do not act. (`freeze hold` goes further for tools\AllocTest.ps1 -Melee:
+their AI plans are dropped too, so nothing even notices the party, until an
+`alloctest` window's first armed frame lets them go - the fight's first notice
+and first blow are then inside the measurement.)
 
 A blast plays out over **ticks**, so a script must `step` after detonating;
 reading `monsters` in the same breath measures the moment before it went off.
@@ -622,10 +625,13 @@ auditable in one read rather than trusted.
 
 **All harness STATE the world holds is one member**, `DungeonWorld::m_harness`
 (`struct Harness`): the encounter `tally`, `autoAttack`, `frozen`,
-`pendingSteps` and `autoCast`. It is touched in a handful of places in the
-simulation - the two `fx::ITarget` adapters and `ResolveAttack` (the tally),
-the carrier counts in `ResolveSpellHit` / `ResolveProjectileExpiry` /
-`Detonate` (the tally again), one `continue` in the monster loop (`frozen`),
+`frozenHeld`, `pendingSteps` and `autoCast`. It is touched in a handful of
+places in the simulation - the two `fx::ITarget` adapters and `ResolveAttack`
+(the tally), the carrier counts in `ResolveSpellHit` / `ResolveProjectileExpiry`
+/ `Detonate` (the tally again), one `continue` in the monster loop (`frozen`),
+one `continue` in `ConsumeAIPlans` (`frozenHeld`: a held freeze takes each
+bucket's new plans and drops them, so nothing notices the party until an
+`alloctest` window releases it - `AllocTest.ps1 -Melee`, 2026-10-05),
 one guard on `TickAutoAttack`, `TickAutoCast` (the `autocast` round-robin,
 added 2026-09-28 so `AllocTest.ps1 -Impact` can put a bolt's launch AND landing
 inside a guarded window - the console's own frame never is one), and three

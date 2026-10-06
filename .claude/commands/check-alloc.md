@@ -26,14 +26,18 @@ only the default):
 - `.\tools\AllocTest.ps1 -Wounded` - the regeneration tick (a full-health party
   never runs it)
 - `.\tools\AllocTest.ps1 -Melee` - a monster swinging at the party, and the
-  narration of each blow
+  narration of each blow. It is spawned HELD (`freeze hold`), so its first
+  notice of the party and its first blow fall INSIDE the window: a fight's first
+  blow is paid by every session, so it is not warm-up
 - `.\tools\AllocTest.ps1 -Cast` - a bolt frozen in flight and a spellbook held
   open (the launch itself happens in the console's unguarded frame)
 - `.\tools\AllocTest.ps1 -Impact` - the world running: bolts launched by the
   harness (`autocast`), striking a FRESH monster (its first burn is a cost every
   monster pays once, so it must not fall in the warm-up), expiring past it, and
-  a Fire Burst detonating. It refuses a PASS unless the window's own tally
-  (logged by the verdict frame) shows a hit, an expiry and a blast
+  a Fire Burst detonating - the process's FIRST detonation, since the burst
+  caster joins the held rotation only after the warm-up. It refuses a PASS unless
+  the window's own tally (logged by the verdict frame) shows a hit, an expiry and
+  a blast
 - `.\tools\AllocTest.ps1 -Pause` - Esc into the pause menu and back, three
   times inside the window. The frame that leaves Playing is a transition and is
   disarmed (docs/ARCHITECTURE.md "Checking the rule"); this checks that rule,
