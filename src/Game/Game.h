@@ -177,7 +177,9 @@ public:
 	// A ceiling PER CALL, not per second: a script asking for an hour by mistake
 	// should come back and say how far it got, rather than appearing to hang
 	// with a black window and no way to interrupt it.
-	static constexpr int kStepTicksPerSecond = 60;
+	// The world's own fixed tick (DungeonWorld::kTick), which a resting frame's
+	// long dt runs in too - so a rest and a `step` simulate alike.
+	static constexpr int kStepTicksPerSecond = DungeonWorld::kTicksPerSecond;
 	static constexpr int kMaxStepTicks = 200000; // ~55 minutes of sim
 	static constexpr float kMaxStepSeconds =
 		static_cast<float>(kMaxStepTicks) / kStepTicksPerSecond;
@@ -715,6 +717,11 @@ private:
 	// Everything Update does per state, below the allocation guard's bookkeeping
 	// (which has to see the frame's END, past all of this function's returns).
 	void UpdateStates(float dt);
+	// A frame's `dt` real seconds as WORLD seconds: times `timeScale` (the dev
+	// console's; the `frames` command passes 1) and the rest multiplier. THE ONE
+	// PLACE rest multiplies time (docs/health-and-healing.md); the world then
+	// runs a long result in fixed ticks (DungeonWorld::kTick).
+	float WorldDt(float dt, float timeScale) const;
 	// Advances a running `alloctest` window and reports when it closes. The
 	// window is measured in ARMED frames, so time spent loading, warming up or
 	// with the console open does not spend it. Its first armed frame OPENS the

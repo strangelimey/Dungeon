@@ -259,6 +259,14 @@ public:
 
 	// Advances live items (flight + impact/fizzle via the hooks) and ages the
 	// impact sparks. Call once per frame.
+	//
+	// A flight moves in steps of AT MOST HALF A SQUARE (`squareSize`), each
+	// tested for a wall and a target where it ends, however long `dt` is
+	// (code-review C48). Testing only where a whole frame's travel ended let a
+	// long dt - rest's 60x handed this a second, three squares of flight -
+	// jump the party's square, a monster in the lane, or a wall one square
+	// thick. Half a square because flight is along an axis: no square on the
+	// way can then be stepped over.
 	void Update(float dt);
 
 	// Appends the live item + spark billboards (premultiplied additive) to the
@@ -277,8 +285,9 @@ public:
 	// distance from it (a bolt down the far end of a hall sheds a quarter of
 	// what one at your shoulder does) - nobody can tell, and the pool lasts.
 	void SetEye(const Vec3& eye) { m_eye = eye; }
-	// Metres in a square: a trail's `rate` is per square flown.
-	float trailSquare = 2.5f;
+	// Metres in a square: a trail's `rate` is per square flown, and a flight
+	// steps at most half of one at a time (Update).
+	float squareSize = 2.5f;
 	// Every flight that carries a light: fn(id, pos, light, lightColor, cargo,
 	// cargoCharge). The host pushes each as its own light, keyed by `id`.
 	template <typename Fn> void ForEachLit(Fn&& fn) const {
@@ -491,8 +500,8 @@ private:
 	static constexpr size_t kReservedSparks = 1024;
 	static constexpr size_t kFlashSlots = 16;
 	static constexpr float kFlashSeconds = 0.3f;
-	// Most trail particles one flight sheds in one frame (a long hitch would
-	// otherwise pay its whole debt at once, in one clump).
+	// Most trail particles one flight sheds in one step of its flight (a long
+	// hitch would otherwise pay its whole debt at once, in one clump).
 	static constexpr int kMaxShedPerFrame = 12;
 
 	void SpawnSparkBurst(const Vec3& pos, const Vec4& color, int count);
@@ -500,6 +509,9 @@ private:
 	bool AddSpark(const Spark& s);
 	// Sheds `it`'s trail over the `step` metres it just flew.
 	void ShedTrail(Item& it, float step);
+	// One step of `it`'s flight: `step` metres over `dt` seconds, then the
+	// wall, target and range tests where it ends. True when the flight ended.
+	bool Fly(Item& it, float step, float dt);
 	// A lit flight ended at `it.pos`: its light lingers as a flash.
 	void LeaveFlash(const Item& it);
 	// Report a flight that ended without a strike, through onExpire.

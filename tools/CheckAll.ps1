@@ -197,10 +197,10 @@ $checks = @(
 	},
 	@{
 		name = 'ai'; tier = 'quick'; needs = 'build-debug'
-		what = 'monsters stand where they can (sides, kiters, pits); a new game or load forgets the last fight; a world switch leaves no dead AI worker'
-		# The debug build only, like SpellTest. Two scripts, two processes (the
-		# async one needs a cold start). Its self-test cuts the scripts' steps (no
-		# time passes) and demands exactly the time-free checks pass.
+		what = 'monsters stand where they can (sides, kiters, pits); a new game or load forgets the last fight; a world switch leaves no dead AI worker; a resting chaser walks and thinks as an awake one, and a 60x shot skips neither the party nor a wall'
+		# The debug build only, like SpellTest. Three scripts, three processes (the
+		# async one needs a cold start). Its self-test cuts the scripts' steps and
+		# play frames (no time passes) and demands exactly the time-free checks pass.
 		run      = { python (Join-Path $root 'tools\AITest.py') | Out-Host; $LASTEXITCODE }
 		selfTest = { python (Join-Path $root 'tools\AITest.py') --selftest | Out-Host; $LASTEXITCODE }
 	},

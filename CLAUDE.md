@@ -510,9 +510,21 @@ Key conventions (memorize, they bite):
   REST is a STATE (the Rest button beside the log's Log button - it was on the
   HUD Options panel, gone in lighting-updates; dev `rest [on|off]`, bare =
   REPORT not toggle; `rest button` = where that button is, for a harness). It
-  multiplies TIME at ONE place — `Game::Update`'s `wdt` — so every rate, timer
-  and cooldown accelerates together and no second set of resting rates can
-  drift. **It forces LOCKSTEP AI while resting** and hands the previous mode
+  multiplies TIME at ONE place - `Game::WorldDt`, the frame's `wdt` - so every
+  rate, timer and cooldown accelerates together and no second set of resting
+  rates can drift. THE WORLD RUNS THAT TIME IN FIXED TICKS (code-review C64): a
+  world dt over `DungeonWorld::kMaxWholeStep` (0.1 s - no ordinary frame, which
+  Core/Time clamps there, and no `step` tick) runs as `kTick` = 1/60 s ticks,
+  the remainder carried, at most `kMaxTicksPerUpdate` (90) a frame with the
+  rest DROPPED (Michael: a slow frame rests slightly slower; 90 holds 60x down
+  to 40 fps), stopping early when the rest ends, the level changes or the party
+  is wiped (`AdvanceSimulation` / `Tick` / `PresentFrame`, which draws once a
+  frame). One step of a whole second had every timer act at most once in it: a
+  fast AI bucket thought once where awake it thinks four times, a skeleton
+  walked one square where it walks two. Flights are ALSO stepped at most half a
+  square at a time whatever the dt (`ProjectileSystem::Update`, C48), so a long
+  step cannot carry a shot over the party or through a one-thick wall. **It
+  forces LOCKSTEP AI while resting** and hands the previous mode
   back: the AI buckets are WALL-CLOCK paced, so a 60x world would give a monster
   1/60th the thinking per simulated second and it would chase stale paths — the
   harness's own "stale orders are worse than frozen" lesson. Ends three ways
@@ -520,8 +532,14 @@ Key conventions (memorize, they bite):
   full, so the rest goes on until they come round on the stabilize clock - only
   the DEAD are left out), `attacked` (a blow — a DoT does NOT break it,
   `WoundMember`'s `quiet` flag is exactly that line), `hungry` (an empty meter).
-  Transient: not saved. NOTE `step` advances SIM seconds, so the harness cannot see the
-  multiplier at all — it measures the STATE's rules instead.
+  Transient: not saved. NOTE `step` advances SIM seconds, so it cannot see the
+  multiplier at all - rest.eval measures the STATE's rules with it. `frames <n>
+  [fps] [whole]` runs PLAY frames through `WorldDt` instead (the dev timescale
+  left out), so it sees the multiplier: tools\AITest.py's restpace.eval checks a
+  resting chaser walks and thinks a simulated second as an awake one, and with
+  `whole` (each frame ONE step, the pre-C64 world - `Harness::wholeSteps`) that
+  a 60x shot still lands on the resting party (`shot <x> <z> <dir>`, a plain
+  monster shot from no monster) and stops in a one-thick wall (tally `expat=`).
   PACE: conditioning ADDS to a member's authored `moveSpeed` (class identity,
   like baseHealth) through `pace_slope`/`pace_cap`; the party still moves at its
   SLOWEST member's, so training the fastest buys nothing. `DungeonWorld::
@@ -559,12 +577,13 @@ Key conventions (memorize, they bite):
   WHAT THE HARNESS COSTS THE SHIPPING CODE (audited 2026-08-15, docs/eval-
   harness.md "What the harness costs"): ALL harness state the world holds is ONE
   member, `DungeonWorld::m_harness` (`struct Harness`: tally / autoAttack /
-  frozen + frozenHeld / pendingSteps / autoCast), touched in a handful of places
-  in the simulation (autoCast is `TickAutoCast`, the `autocast` round-robin that
-  puts a LAUNCH inside a guarded window - see AllocTest.ps1 -Impact - and, as
-  `autocast bolt`, a shot AT the party and a repel of an exact power - -Burst; `freeze
-  hold` keeps monsters from even noticing the party until an `alloctest` window
-  opens, so -Melee's first notice and first blow land inside it), each reading
+  frozen + frozenHeld / pendingSteps / autoCast / wholeSteps), touched in a handful
+  of places in the simulation (autoCast is `TickAutoCast`, the `autocast`
+  round-robin that puts a LAUNCH inside a guarded window - see AllocTest.ps1
+  -Impact - and, as `autocast bolt`, a shot AT the party and a repel of an exact
+  power - -Burst; `freeze hold` keeps monsters from even noticing the party until
+  an `alloctest` window opens, so -Melee's first notice and first blow land inside
+  it; wholeSteps is `frames ... whole`, a frame's dt taken as ONE step), each reading
   `m_harness.x` so it says what it is; `ResetForEval` is `m_harness = {}`. The
   script runner is its own TU, `Game_Eval.cpp`. Headless is one branch in Main.
   NOT harness machinery despite appearances: lockstep AI (SetResting uses it —
@@ -674,8 +693,8 @@ Key conventions (memorize, they bite):
   THE ONE-PIPELINE RULE IS CHECKED, not held (docs/effects.md "The invariant,
   CHECKED"): `Game/DamageLedger.h` gives every health value the pipeline can
   reach a BASELINE, anything allowed to move it declares itself through a
-  `ledger::Explained` scope naming a `Reason`, and four checkpoints a frame
-  demand the arithmetic come out — a leftover is a write that went around
+  `ledger::Explained` scope naming a `Reason`, and checkpoints (one a frame,
+  three a world tick) demand the arithmetic come out - a leftover is a write that went around
   `fx::Deal`. SIX sanctioned reasons: `pipeline` (the adapters), `exertion`
   (over-exertion's health half, a DECLARED exception — not resisted, soaked or
   warded, because collapsing under your own effort is not something armour

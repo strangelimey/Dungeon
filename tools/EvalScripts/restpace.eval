@@ -1,0 +1,131 @@
+; restpace.eval - rest at its REAL 60x (code-review batch 35: C64, C48).
+; tools\AITest.py runs this and JUDGES it; on its own it only reports. Every
+; section header is `=== <name> ===`, as in ai.eval.
+;
+; `step` cannot see rest's multiplier: it feeds the world fixed ticks of sim
+; time and never asks how much a frame is worth. `frames` runs PLAY frames
+; instead - a sixtieth of a second each through the one multiplier site, into
+; the world's Update - so a resting frame here hands the world a second, as it
+; does in play. `frames ... whole` takes each frame's second as ONE step, the
+; world's fixed ticks bypassed: what every resting frame did before C64.
+;
+; Lockstep at timescale 0, so nothing moves between lines.
+logecho on
+reset
+timescale 0
+lockstep on
+seed 5
+
+; --- C64: a chaser, awake and at rest ------------------------------------------
+; The same two seconds three times: a skeleton six squares down a corridor,
+; facing the party - its aggro, so its first think sees the party and every
+; one after chases - walks at it while the party stands still. Awake, then
+; resting at 60x, then resting with each frame's second taken as one step. The
+; judge compares the squares it walked and the AI's thinks (the `frames` line's
+; `AI thinks`: lockstep's inline computes, all four buckets, inside those
+; frames alone) per simulated second. The party is wounded each time, so a
+; rest has something to gain and does not end by itself, and `lockstep on`
+; before the awake window zeroes the bucket clocks exactly as `rest on` does.
+; Two seconds because it is a step short of the party by then.
+;   arena corridor 24: floor 2..25 x 12; the party at 3,12, the skeleton at 9.
+echo === pace-awake ===
+goto eval_arena
+arena corridor 24 1
+heal
+setpool all health 20
+tp 3 12
+face e
+spawn skeleton 9 12 west 1 up
+lockstep on
+monsters
+frames 120 60
+monsters
+rest
+
+echo === pace-rest ===
+arena corridor 24 1
+heal
+setpool all health 20
+tp 3 12
+face e
+spawn skeleton 9 12 west 1 up
+rest on
+monsters
+frames 2 60
+monsters
+rest
+rest off
+
+; The defect itself, kept as the measurement's own proof that it can see one.
+echo === pace-whole ===
+arena corridor 24 1
+heal
+setpool all health 20
+tp 3 12
+face e
+spawn skeleton 9 12 west 1 up
+rest on
+monsters
+frames 2 60 whole
+monsters
+rest
+rest off
+
+; The cap. A frame at 20 a second hands a resting world three seconds; it takes
+; 90 ticks (a second and a half) and DROPS the rest, so it leaves the next frame
+; nothing owed. Read off that frame's own `owed`, never a second `frames` line:
+; the runner's frames between two lines are zero-dt whole steps at timescale 0,
+; and a whole step clears the carry, so the next line would owe nothing however
+; the cap behaved. A frame at 70 a second hands the world 6/7 s - 51 ticks and
+; three sevenths of one - and must leave that part OWED, which is what shows the
+; readout sees the carry at all.
+echo === cap ===
+arena corridor 24 1
+heal
+setpool all health 20
+tp 3 12
+rest on
+frames 1 20
+frames 1 70
+rest
+rest off
+
+; --- C48: one 60x frame as ONE step ---------------------------------------------
+; crypt1, the party resting at 5,4 facing east. Two shots loosed from 6,4 west
+; at it: a second's flight is 6 m, which from the next square's centre ends at
+; 4,4 - beyond the party. Only a flight stepped half a square at a time meets
+; the party's square on the way, and lands, and ends the rest as `attacked`.
+; Two shots so a fumble (a 1-in-20 automatic miss) cannot leave the party
+; unhit; the seed fixes which faces come up.
+echo === rest-shot ===
+reset
+goto crypt1
+heal
+setpool all health 20
+tp 5 4
+face e
+rest on
+tally reset
+shot 6 4 w 2
+shot 6 4 w 2
+frames 1 60 whole
+rest
+tally
+
+; A shot loosed from 10,4 east: the wall at 11,4 is one square thick, with the
+; room's outer corridor open at 12,4 beyond it, and a second's flight would end
+; there. Stepped, it stops IN the wall (`expat=11,4`) and nothing flies on.
+echo === wall-shot ===
+heal
+setpool all health 20
+tp 5 4
+face e
+rest on
+tally reset
+shot 10 4 e 2
+frames 1 60 whole
+rest
+tally
+
+echo === end ===
+state

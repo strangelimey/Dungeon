@@ -75,10 +75,12 @@ mode and cannot be: async plan latency depends on thread scheduling, so "the sam
 as async" is not a well-defined target. Lockstep is the *reproducible* version —
 the same decisions at the same sim cadence, with the wall-clock jitter removed.
 
-One think per bucket per frame, with the remainder **carried** so the long-run
-rate is exactly the bucket's cadence. Deliberately not a catch-up loop: thinking
-twice against one frame's world yields two identical plans, because a monster
-does not *move* until its executor runs later in that same update.
+One think per bucket per world step, with the remainder **carried** so the
+long-run rate is exactly the bucket's cadence. Deliberately not a catch-up loop:
+thinking twice against one step's world yields two identical plans, because a
+monster does not *move* until its executor runs later in that same step. That
+is why every long dt must arrive as small steps - `step`'s ticks below, and the
+world's own for rest's 60x (code-review C64).
 
 ### `step <seconds>`
 
@@ -106,6 +108,30 @@ report `rested 0.00s - still resting (hit the cap)` - and names each stop where
 it used to call a level change and a wipe "hit the cap". `Eval.ps1 -SelfTest`
 steps across a wipe (`selftest-wipe.eval`) and demands the stop, a tally whose
 seconds match it, and the refusal.
+
+The world takes the SAME ticks for any long dt of its own - rest's 60x, a
+`timescale` - (`DungeonWorld::AdvanceSimulation`, code-review C64), so a rest
+in play and a `step` simulate alike.
+
+### `frames <n> [fps] [whole]`
+
+`step` never applies rest's multiplier, so whatever the multiplier does to a
+frame is invisible to it. `frames` runs PLAY frames instead: `1/fps` real
+seconds each through `Game::WorldDt` - the one multiplier site, the dev
+`timescale` left out since a script holds it at 0 - into the world's Update,
+exactly the call a playing frame makes. Its line reports the world seconds and
+steps run, frames the tick cap cut, the world time the last frame left `owed`
+to the next (the carry), the AI's inline thinks inside those frames alone, what
+is still in flight and the wall time a frame took. Read the carry THERE, never
+off a second `frames` line: at timescale 0 the runner's frames between two
+script lines are zero-dt whole steps, and a whole step clears it. `whole` takes
+each frame's dt as ONE step (`Harness::wholeSteps`), what every resting frame did
+before C64, so a check can hand a 60x dt to what must cope with one on its own.
+`tools\EvalScripts\restpace.eval` (judged by `tools\AITest.py`) uses both: a
+resting chaser walks and thinks a simulated second as an awake one, and with
+`whole`, a shot loosed by `shot <x> <z> <dir>` (a plain monster shot from no
+monster) still lands on the resting party and stops in a one-thick wall (the
+tally's `expat=`).
 
 ### `seed <n>`
 
@@ -695,22 +721,23 @@ auditable in one read rather than trusted.
 
 **All harness STATE the world holds is one member**, `DungeonWorld::m_harness`
 (`struct Harness`): the encounter `tally`, `autoAttack`, `frozen`,
-`frozenHeld`, `pendingSteps` and `autoCast`. It is touched in a handful of
-places in the simulation - the two `fx::ITarget` adapters and `ResolveAttack`
-(the tally), the carrier counts in `ResolveSpellHit` / `ResolveProjectileExpiry`
-/ `Detonate` (the tally again), one `continue` in the monster loop (`frozen`),
-one `continue` in `ConsumeAIPlans` (`frozenHeld`: a held freeze takes each
-bucket's new plans and drops them, so nothing notices the party until an
-`alloctest` window releases it - `AllocTest.ps1 -Melee`, 2026-10-05),
-one guard on `TickAutoAttack`, `TickAutoCast` (the `autocast` round-robin,
-added 2026-09-28 so `AllocTest.ps1 -Impact` can put a bolt's launch AND landing
-inside a guarded window - the console's own frame never is one; since code-review
-batch 24 an `autocast bolt` entry fires a spell's bolt AT the party, as `bolt`
-does, and may meet it with a repel of an exact power, as `castsvc repel` does, for
-`AllocTest.ps1 -Burst`), the shot-at-the-party counts in
-`ResolveMonsterProjectileHit` and `RepelAhead` (the tally), and three
-lines feeding queued steps. Every one of them reads `m_harness.something` and
-says what it is.
+`frozenHeld`, `pendingSteps`, `autoCast` and `wholeSteps`. It is touched in a
+handful of places in the simulation - the two `fx::ITarget` adapters and
+`ResolveAttack` (the tally), the carrier counts in `ResolveSpellHit` /
+`ResolveProjectileExpiry` / `Detonate` (the tally again), one `continue` in the
+monster loop (`frozen`), one `continue` in `ConsumeAIPlans` (`frozenHeld`: a
+held freeze takes each bucket's new plans and drops them, so nothing notices the
+party until an `alloctest` window releases it - `AllocTest.ps1 -Melee`,
+2026-10-05), one guard on `TickAutoAttack`, `TickAutoCast` (the `autocast`
+round-robin, added 2026-09-28 so `AllocTest.ps1 -Impact` can put a bolt's launch
+AND landing inside a guarded window - the console's own frame never is one; since
+code-review batch 24 an `autocast bolt` entry fires a spell's bolt AT the party,
+as `bolt` does, and may meet it with a repel of an exact power, as `castsvc
+repel` does, for `AllocTest.ps1 -Burst`), the shot-at-the-party counts in
+`ResolveMonsterProjectileHit` and `RepelAhead` (the tally), three lines feeding
+queued steps, and one test in `AdvanceSimulation` (`wholeSteps`: `frames ...
+whole` takes each frame's dt as one step, code-review C48). Every one of them
+reads `m_harness.something` and says what it is.
 `ResetForEval` is `m_harness = {}`, so a field added to the struct is reset for
 free — the four loose bools this replaced were four chances to forget one.
 

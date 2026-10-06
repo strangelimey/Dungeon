@@ -268,11 +268,28 @@ something awake is genuinely risky with no wandering-monster mechanic to build.
 
 ### As built
 
-Rest folds into the world dt at **one place** — `Game::Update`'s `wdt` — rather
-than into any particular rate, which is what makes "a time multiplier, not a
-regen multiplier" true of the code and not just of this document. Health,
-stamina, mana, food, water, effect timers, monster cooldowns and the AI's own
-cadence all accelerate together because they all read that number.
+Rest folds into the world dt at **one place** - `Game::WorldDt`, the frame's
+`wdt` - rather than into any particular rate, which is what makes "a time
+multiplier, not a regen multiplier" true of the code and not just of this
+document. Health, stamina, mana, food, water, effect timers, monster cooldowns
+and the AI's own cadence all accelerate together because they all read that
+number.
+
+**THAT TIME RUNS IN FIXED TICKS** (code-review C64). At 60x a frame hands the
+world about a second, and everything that paces the game counts a timer down by
+dt and acts at most once a step - so one step of a whole second gave a fast AI
+bucket one think where an awake second gives it four, and a skeleton one square
+where it walks two: the monsters a resting party meets were slower and duller
+than awake ones. The world now runs any dt longer than an ordinary frame
+(`DungeonWorld::kMaxWholeStep`, 0.1 s, Core/Time's own clamp) as 1/60 s ticks,
+the harness `step`'s own, carrying the remainder - so a rest and a `step`
+simulate alike. At most 90 ticks a frame, and what that cuts is DROPPED rather
+than owed: a slow frame rests a little slower (Michael's call), and 90 keeps
+the full 60x down to 40 frames a second. Flights are stepped at most half a
+square at a time as well, whatever the dt (C48), so a long step cannot carry a
+shot over the party or through a wall one square thick. Measured by
+tools\AITest.py (restpace.eval, which runs PLAY frames with `frames` - `step`
+cannot see the multiplier at all).
 
 **THE AI GOES INTO LOCKSTEP WHILE RESTING**, and this is the part that makes the
 whole thing safe to build. `ai::AsyncDirector` paces its bucket workers in
@@ -283,7 +300,7 @@ simply be walking a stale path toward where the party used to be. That is the
 precise failure the eval harness already paid for once: *a stale-but-plausible
 behaviour is far worse than a dead one, because nothing about it looks wrong.*
 Lockstep runs each bucket's thinking off SIM time, so 60x thinks as often per
-simulated second as 1x. **The mode built to make the harness reproducible turns
+simulated second as 1x (once the second is run in ticks, above). **The mode built to make the harness reproducible turns
 out to be the thing that makes a fast-forward honest** — and the danger the
 design wants from "the world runs while you rest" is real rather than
 decorative. The previous mode is remembered and handed back, not assumed off.

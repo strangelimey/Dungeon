@@ -69,18 +69,18 @@ bool ProjectileSystem::AddSpark(const Spark& s) {
 
 void ProjectileSystem::ShedTrail(Item& it, float step) {
 	const trail::Spec& t = it.trail;
-	if (!t.Any() || step <= 0.0f || trailSquare <= 0.0f) return;
+	if (!t.Any() || step <= 0.0f || squareSize <= 0.0f) return;
 	// Full near the eye, thinning to a quarter by twelve squares off - and
 	// nothing at all within arm's reach of it: a bolt leaves from beside the
 	// eye, and a particle a hand's width from the lens is a blurred orb filling
 	// a corner of the screen, not a trail.
 	const Vec3 d = Sub(it.pos, m_eye);
 	const float dist = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
-	if (dist < 0.5f * trailSquare) return;
-	const float nearM = 3.0f * trailSquare, farM = 12.0f * trailSquare;
+	if (dist < 0.5f * squareSize) return;
+	const float nearM = 3.0f * squareSize, farM = 12.0f * squareSize;
 	const float thin =
 		dist <= nearM ? 1.0f : std::max(0.25f, 1.0f - 0.75f * (dist - nearM) / (farM - nearM));
-	it.trailDebt += t.rate * thin * step / trailSquare;
+	it.trailDebt += t.rate * thin * step / squareSize;
 
 	auto r = [&] { return (static_cast<float>(m_rng() & 0xFFFF) / 32768.0f) - 1.0f; };
 	const Vec3 c = t.hasColor ? t.color : it.lightColor;
@@ -277,41 +277,58 @@ void ProjectileSystem::Update(float dt) {
 	// Fly each item: a wall/out-of-range EXPIRES it, a target on its side in its
 	// cell takes a strike. Both moments deliver the payload — the owner decides
 	// what each means. rangeLeft < 0 marks an item spent (erased below).
+	//
+	// In steps of at most half a square (see the declaration). An ordinary
+	// frame's flight is a few centimetres, so it is one step and nothing about
+	// it changed; only a long dt is cut up.
+	const float maxStep = 0.5f * squareSize;
 	for (Item& it : m_items) {
-		const float step = it.speed * dt;
-		it.pos = Add(it.pos, Scale(it.dir, step));
-		it.rangeLeft -= step;
-		it.age += dt;
-
-		// Stepped, THEN tested: an item that met a wall or a shut door is already
-		// inside it here, and so is the position its expiry carries. The host
-		// ends the flight in the last open square in front (DungeonWorld::
-		// FlightEnd - code-review C43, C44); nothing here moves it back.
-		if (isBlocked && isBlocked(it.pos, it.dir)) { // hit a wall (or left the map)
-			SpawnSparkBurst(it.pos, it.color, 8);
-			LeaveFlash(it);
-			Expire(it, ExpiryCause::Wall);
-			it.rangeLeft = -1.0f;
-			continue;
-		}
-
-		if (resolveHit &&
-			resolveHit(it.target, {it.pos, it.dir, it.atk, it.push, it.attacker,
-								   it.shooter, it.payload, it.cargo, it.cargoCharge})) { // struck a target
-			SpawnSparkBurst(it.pos, it.color, 14);
-			LeaveFlash(it);
-			it.rangeLeft = -1.0f;
-			continue;
-		}
-
-		ShedTrail(it, step);
-		if (it.rangeLeft <= 0.0f) { // ran out of reach in open air
-			SpawnSparkBurst(it.pos, it.color, 6);
-			LeaveFlash(it);
-			Expire(it, ExpiryCause::Range);
-		}
+		const float travel = it.speed * dt;
+		const int steps = maxStep > 0.0f && travel > maxStep
+							  ? static_cast<int>(std::ceil(travel / maxStep))
+							  : 1;
+		const float step = travel / static_cast<float>(steps);
+		const float stepDt = dt / static_cast<float>(steps);
+		for (int s = 0; s < steps; ++s)
+			if (Fly(it, step, stepDt)) break;
 	}
 	std::erase_if(m_items, [](const Item& it) { return it.rangeLeft <= 0.0f; });
+}
+
+bool ProjectileSystem::Fly(Item& it, float step, float dt) {
+	it.pos = Add(it.pos, Scale(it.dir, step));
+	it.rangeLeft -= step;
+	it.age += dt;
+
+	// Stepped, THEN tested: an item that met a wall or a shut door is already
+	// inside it here, and so is the position its expiry carries. The host
+	// ends the flight in the last open square in front (DungeonWorld::
+	// FlightEnd - code-review C43, C44); nothing here moves it back.
+	if (isBlocked && isBlocked(it.pos, it.dir)) { // hit a wall (or left the map)
+		SpawnSparkBurst(it.pos, it.color, 8);
+		LeaveFlash(it);
+		Expire(it, ExpiryCause::Wall);
+		it.rangeLeft = -1.0f;
+		return true;
+	}
+
+	if (resolveHit &&
+		resolveHit(it.target, {it.pos, it.dir, it.atk, it.push, it.attacker,
+							   it.shooter, it.payload, it.cargo, it.cargoCharge})) { // struck a target
+		SpawnSparkBurst(it.pos, it.color, 14);
+		LeaveFlash(it);
+		it.rangeLeft = -1.0f;
+		return true;
+	}
+
+	ShedTrail(it, step);
+	if (it.rangeLeft <= 0.0f) { // ran out of reach in open air
+		SpawnSparkBurst(it.pos, it.color, 6);
+		LeaveFlash(it);
+		Expire(it, ExpiryCause::Range);
+		return true;
+	}
+	return false;
 }
 
 void ProjectileSystem::AppendBillboards(std::vector<gfx::ParticleInstance>& out) const {

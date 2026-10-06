@@ -1932,7 +1932,7 @@ void Game::RefreshPlaceStone() {
 	m_ui.SetPlaceStone(stone);
 }
 
-void Game::UpdateStates(float dt) {
+float Game::WorldDt(float dt, float timeScale) const {
 	// World dt: the dev console's `timescale`, times the REST multiplier
 	// (docs/health-and-healing.md). Rest is folded in HERE, at the one place the
 	// world's clock is set, rather than into any particular rate — which is what
@@ -1940,8 +1940,19 @@ void Game::UpdateStates(float dt) {
 	// and not just of the doc. Health, supplies, effect timers, monster
 	// cooldowns and the AI's own cadence all accelerate together because they
 	// all read this number.
+	//
+	// The world takes a result this long - about a second a frame at rest - as
+	// fixed ticks, not one step (DungeonWorld::AdvanceSimulation, code-review
+	// C64): everything that reads it counts a timer down and acts at most once a
+	// step, so one whole second was one think and one square for a monster that
+	// awake gets four and two. At most kMaxTicksPerUpdate a frame, so a slow
+	// frame rests a little slower.
 	// (No world on the title screen: time runs at the plain rate there.)
-	const float wdt = dt * m_timeScale * (m_world ? m_world->RestTimeScale() : 1.0f);
+	return dt * timeScale * (m_world ? m_world->RestTimeScale() : 1.0f);
+}
+
+void Game::UpdateStates(float dt) {
+	const float wdt = WorldDt(dt, m_timeScale);
 	m_time += wdt;
 
 	ApplyPendingWorld(); // a world switch asked for last frame (see Game.h)

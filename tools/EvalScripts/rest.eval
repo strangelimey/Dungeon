@@ -7,8 +7,10 @@
 ; construction: `step` advances SIM seconds directly, so it is already a
 ; fast-forward of its own. `rest on; step 300` is five minutes of dungeon time
 ; whether the multiplier is 60 or 6000. The multiplier is a NORMAL-PLAY concern
-; (how long the player sits watching) and the harness quite properly cannot see
-; it; what it CAN see is reported by the `rest` command's `world x60`.
+; (how long the player sits watching) and `step` quite properly cannot see it;
+; what it CAN see is reported by the `rest` command's `world x60`. What the
+; multiplier does to a play frame is restpace.eval's (`frames`, judged by
+; tools\AITest.py).
 ;
 ; So what is measured here is the STATE, which is the half with rules in it:
 ;

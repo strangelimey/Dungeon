@@ -149,14 +149,51 @@ public:
 	// announcements (the caller clears the log right after, as before).
 	void ResetForNewGame();
 
-	// One simulation step: party input/movement, animators, monster
-	// announcements, lights (with shadow-slot assignment), camera, and the
-	// fire particles (gathered back-to-front for the smoke blend).
+	// One frame of the world: party input, then `dt` of simulation (party
+	// movement, animators, monsters, projectiles, effects - see the fixed ticks
+	// below), then what the frame shows of it - lights (with shadow-slot
+	// assignment), camera, and the fire particles (gathered back-to-front for
+	// the smoke blend).
 	// acceptInput=false simulates the world but ignores party movement keys —
 	// used while the dev console is open (the world keeps running, the party
 	// stays put). Everything else (physics, monsters, lights, particles)
 	// updates regardless.
 	void Update(const Input& input, float dt, float time, bool acceptInput = true);
+
+	// THE WORLD'S FIXED TICKS (code-review C64). A `dt` no longer than
+	// kMaxWholeStep is simulated as ONE step: every ordinary frame (Core/Time
+	// clamps a frame at 0.1 s) and every harness `step` tick, so play is exactly
+	// what it was. A longer one - rest's 60x, which hands the world about a
+	// second a frame, or a dev `timescale` - runs as fixed ticks of kTick, the
+	// harness's own 60 Hz, the remainder carried to the next frame. One step of
+	// a whole second let a monster think once and walk one square in it, because
+	// everything that paces this game counts a timer down by dt and acts at most
+	// once a step; ticks give it the thinks and the steps an awake second would.
+	//
+	// AT MOST kMaxTicksPerUpdate A FRAME, and the time past that is DROPPED, not
+	// owed: a frame too slow to fit its ticks rests a little slower rather than
+	// owing the next frame more ticks than it has time for (Michael: a slow
+	// frame rests slightly slower). 90 keeps the full 60x down to 40 frames a
+	// second.
+	//
+	// The ticks STOP EARLY when the frame's rest ends, the party changes level
+	// or the party is wiped: what was left was rest's time, or a world the host
+	// is about to leave.
+	static constexpr int kTicksPerSecond = 60;
+	static constexpr float kTick = 1.0f / kTicksPerSecond;
+	static constexpr float kMaxWholeStep = 0.1f;
+	static constexpr int kMaxTicksPerUpdate = 90;
+	// What the last Update simulated: how many steps (a whole step is one), how
+	// many world seconds they covered, whether the cap cut it short, and the
+	// world time it left owed to the next Update (the carry - zero after a whole
+	// step, a cap or a stop). The `frames` command's readout.
+	struct UpdateRun {
+		int ticks = 0;
+		float seconds = 0.0f;
+		bool capped = false;
+		float owed = 0.0f;
+	};
+	const UpdateRun& LastUpdate() const { return m_lastUpdate; }
 
 	// Per-frame arena rotation for the world-owned batches (safe pre-load).
 	void NewFrame(u32 frameIndex);
@@ -735,6 +772,11 @@ public:
 		// shattering one burst (LandThrown); -1 = none since the reset. A burst
 		// leaves nothing on the floor to find it by.
 		int landX = -1, landZ = -1;
+		// The square the LAST carrier that stopped without striking stopped in
+		// (ResolveProjectileExpiry) - a wall's own square when it broke on one;
+		// -1 = none since the reset. What says a shot stopped AT a wall rather
+		// than past it (code-review C48).
+		int expireX = -1, expireZ = -1;
 	};
 
 	// ========================================================================
@@ -832,6 +874,12 @@ public:
 			// that - the guard's warm-up is counted in frames.
 			bool held = false;
 		} autoCast;
+		// Every Update runs its dt as ONE step, however long (`frames ...
+		// whole`): the world's fixed ticks bypassed, which is what every
+		// resting frame did before code-review C64. Kept so a check can put a
+		// 60x dt in front of what must cope with one on its own - a flight's
+		// half-square steps (ProjectileSystem::Update, C48).
+		bool wholeSteps = false;
 	};
 	Harness& GetHarness() { return m_harness; }
 	const Harness& GetHarness() const { return m_harness; }
@@ -921,6 +969,12 @@ public:
 	// with no bolt, or a cell off the party's row and column.
 	bool ShootSpellBolt(std::string_view spellId, int x, int z, int slot);
 	static constexpr float kHarnessBoltAccuracy = 75.0f; // a skel_mage's
+	// A PLAIN MONSTER SHOT from no monster (`shot <x> <z> <dir>`): the ember
+	// bolt a skirmisher looses (EmberShot), launched from the centre of (x, z)
+	// along `dir` at the party's side, with the caller's damage and accuracy -
+	// a shot whose flight a check can place to the square (code-review C48).
+	// False off the map or inside rock.
+	bool LaunchShot(int x, int z, Direction dir, float damage, float accuracy);
 
 	// (The four pieces of harness STATE those used to be are fields on
 	// `Harness` above; the operations that need the world — an arena, a spawn,
@@ -3815,6 +3869,12 @@ private:
 	// Launches a monster bolt from `monster` toward the party through the shared
 	// moving-item engine (TargetSide::Party); sets the attack cooldown + swing gesture.
 	void MonsterRangedAttack(Monster& monster);
+	// The plain ember bolt a monster with no spell looses at the party: from
+	// `origin` along `dir`, flying `range` metres, striking with `atk`. Shared
+	// by MonsterRangedAttack and the harness's LaunchShot, so a check flies the
+	// shot the game does.
+	static ProjectileSpec EmberShot(const Vec3& origin, const Vec3& dir, float range,
+									const AttackProfile& atk);
 	// True if an unobstructed line runs between cells (x0,z0)->(x1,z1) over the LIVE
 	// map (walls block). The host mirror of ai::SnapshotView::HasLineOfSight, used by
 	// the kiter for firing + repositioning; endpoints never block.
@@ -4847,6 +4907,19 @@ private:
 	// enabling it does not immediately fire every bucket with a debt of
 	// whatever wall-clock time happened to have passed.
 	float m_bucketClock[ai::Scheduler::kBucketCount] = {};
+	// THE FIXED TICKS (see kTick): world time owed but short of a tick, carried
+	// to the next frame's ticks; zero whenever a frame is a whole step.
+	float m_tickCarry = 0.0f;
+	UpdateRun m_lastUpdate;
+	// One tick of simulation - everything Update advances by dt except what
+	// the frame shows (PresentFrame). Update calls it once, or once a tick.
+	void Tick(float dt);
+	// Runs `dt` as one step or as fixed ticks (see kTick); returns the world
+	// seconds actually simulated.
+	float AdvanceSimulation(float dt);
+	// What the frame shows of the `dt` just simulated: camera, lights, and the
+	// fire / plume / flight particles.
+	void PresentFrame(float dt, float time);
 	// EVERY eval-harness field the world holds, in one member (see `Harness`).
 	// Four bools-and-counters that used to sit loose among the world's own state
 	// reading like something nobody had got round to explaining.

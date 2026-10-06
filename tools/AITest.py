@@ -1,10 +1,11 @@
 # tools/AITest.py - the monster AI's checks (code-review batch 33: where a
 # monster can stand, and where a thing can come to rest - C58, C57, C74; batch
-# 34: the AI director's lifetime - C52, C69).
+# 34: the AI director's lifetime - C52, C69; batch 35: rest at its real 60x -
+# C64, C48).
 #
 # Run:  python tools\AITest.py [--selftest]   (needs a debug build)
 #
-# Runs two scripts headless, each in its own process, and JUDGES what they
+# Runs three scripts headless, each in its own process, and JUDGES what they
 # printed. The eval runner's own verdict only says every line named a command;
 # a monster that never moved reads PASS there.
 #
@@ -48,10 +49,33 @@
 #            SHOVED toward the pit stops short of it - FreeSlotInCell's refusal on
 #            its own, which the walk cannot isolate (C74).
 #
-# --selftest runs the same scripts with their `step` lines removed - no time
-# passes, so no monster thinks, walks or swings and nothing in flight lands -
-# and demands that EXACTLY the checks resting on time fail (STEP_FREE names the
-# rest, which must still pass), so no check is satisfied by nothing happening.
+# tools\EvalScripts\restpace.eval runs PLAY frames (`frames`) rather than
+# `step`, because `step` never applies rest's multiplier:
+#
+#   PACE     a skeleton chasing a resting party at the real 60x - a second of
+#            world a frame - walks as many squares and the AI thinks as often a
+#            simulated second as awake (within PACE_TOLERANCE), since the world
+#            runs that second as sixty fixed ticks; a frame's second taken as
+#            ONE step (`frames ... whole`, the world before C64) must read well
+#            under awake on both - two resting seconds that walked a square and
+#            thought, the rest still on, or a rest that never took would read
+#            "short" on nothing - or the measurement could not see the defect;
+#            and a resting frame too slow for its ticks (20 fps) runs the cap's
+#            90 and DROPS the rest, owing the next frame nothing, read off that
+#            frame's own `owed` (the runner's zero-dt frames between script
+#            lines clear the carry, so the next line cannot show it), while a
+#            70 fps frame's part-tick stays owed (C64).
+#   SHOT     one 60x frame as ONE step, the ticks bypassed: shots loosed at the
+#            resting party from the next square still land and end the rest as
+#            `attacked`, and a shot at a wall one square thick stops IN it with
+#            nothing flying on - a flight is stepped half a square at a time
+#            whatever its dt (C48).
+#
+# --selftest runs the same scripts with their `step` and `frames` lines removed
+# - no time passes, so no monster thinks, walks or swings and nothing in flight
+# lands - and demands that EXACTLY the checks resting on time fail (STEP_FREE
+# names the rest, which must still pass), so no check is satisfied by nothing
+# happening.
 # The one step it keeps is the party's walk up to the pit (WALK_SECTIONS). The
 # C52 claims are tied to the fight having happened, so they fail with it; the
 # wall-clock waits, the in-place new game and the world switch rest on no step,
@@ -70,6 +94,7 @@ EXE = os.path.join(ROOT, r"build\debug\bin\Dungeon.exe")
 LOG = os.path.join(ROOT, r"build\debug\bin\dungeon.log")
 SCRIPT = os.path.join(ROOT, r"tools\EvalScripts\ai.eval")
 ASYNC_SCRIPT = os.path.join(ROOT, r"tools\EvalScripts\aiasync.eval")
+PACE_SCRIPT = os.path.join(ROOT, r"tools\EvalScripts\restpace.eval")
 
 # crypt1's geometry the script relies on (assets/projects/dungeon-demo/levels):
 # the party at 8,4 has open squares N, S and W and the brazier E.
@@ -93,6 +118,18 @@ BUCKETS = [f"ai.bucket{b}" for b in range(4)]
 PROJECT = ("-project", "dungeon-demo")
 SETTINGS = os.path.join(os.path.dirname(EXE), "settings.ini")
 SWITCHED_TO = "Test-World"  # aiasync.eval's `worlds load`
+# restpace.eval: how far a resting chaser's squares and the AI's thinks a
+# simulated second may sit from awake's. Ticks make the two the same run, so
+# they agree exactly today; the slack is for a rest-only rule someday nudging a
+# step. A frame's second taken as one step must read under DEFECT_CEILING of
+# awake on both, or the measurement could not tell the defect from the fix.
+PACE_TOLERANCE = 0.15
+DEFECT_CEILING = 0.75
+MAX_TICKS = 90  # DungeonWorld::kMaxTicksPerUpdate
+# What a resting 70 fps frame leaves owed: 60/70 s of world is 51 ticks of 1/60
+# s and three sevenths of a 52nd.
+CARRY_70 = 60.0 / 70.0 - 51.0 / 60.0
+WALL = (11, 4)  # crypt1's one-thick wall east of the room, open floor at 12,4
 
 results = []
 
@@ -115,6 +152,8 @@ STEP_FREE = {
 	"newgame: Start New Game reset crypt1 in place (no level load)",
 	"a world switch leaves exactly the new director's four ai.bucket workers, none Dead",
 	"the world switch left settings.ini's last world as it was",
+	"the game ran restpace.eval to its verdict",
+	"the rest-pace script ran to its end",
 }
 # Sections whose steps --selftest keeps: the party's walk to the pit, which only
 # sets the drops up (a drop needs its square seen, and only a step reveals one).
@@ -413,9 +452,143 @@ def judge(lines):
 	check("end" in s, "the script ran to its end")
 
 
+def frames_lines(sec):
+	"""Every `frames` readout in the section, in order, as dicts."""
+	out = []
+	for l in sec:
+		m = re.match(r"frames: ran (\d+) of (\d+) at (\d+) fps( whole)?: world ([\d.]+)s in "
+					 r"(\d+) steps, (\d+) capped, ([\d.]+)s owed, (\d+) AI thinks, "
+					 r"(\d+) in flight, ([\d.]+) ms a frame(.*)$", l)
+		if m:
+			out.append({"ran": int(m.group(1)), "of": int(m.group(2)), "fps": int(m.group(3)),
+						"whole": bool(m.group(4)), "world": float(m.group(5)),
+						"steps": int(m.group(6)), "capped": int(m.group(7)),
+						"owed": float(m.group(8)), "thinks": int(m.group(9)),
+						"flying": int(m.group(10)), "ms": float(m.group(11)),
+						"tail": m.group(12)})
+	return out
+
+
+def frames_line(sec):
+	"""The section's first `frames` readout, or None when none ran."""
+	return next(iter(frames_lines(sec)), None)
+
+
+def rest_line(sec):
+	"""The first `rest` readout AFTER the section's `frames` line: (on, last
+	ended), or None when no frames ran or nothing read the rest after them."""
+	after = None
+	for l in sec:
+		if l.startswith("frames: "):
+			after = True
+			continue
+		m = re.match(r"rest (on|off) \(world x\d+\)(?:  last ended: (\w+))?$", l)
+		if after and m:
+			return m.group(1) == "on", m.group(2)
+	return None
+
+
+def judge_pace(lines):
+	"""restpace.eval: rest at its real 60x (C64, C48)."""
+	s = sections(lines)
+	get = lambda name: s.get(name, [])
+
+	def pace(name):
+		"""(squares a sim second, thinks a sim second, the frames readout, the
+		rest readout) for one chase, or Nones when it did not run."""
+		sec = get(name)
+		walk = cells(sec, "skeleton")
+		f = frames_line(sec)
+		if not f or len(walk) < 2 or f["world"] <= 0.0:
+			return None, None, f, rest_line(sec)
+		moved = abs(walk[0][0] - walk[-1][0]) + abs(walk[0][1] - walk[-1][1])
+		return moved / f["world"], f["thinks"] / f["world"], f, rest_line(sec)
+
+	def near(a, b):
+		return a is not None and b is not None and b > 0 and abs(a - b) <= PACE_TOLERANCE * b
+
+	print("PACE - a resting chaser walks and thinks as an awake one (C64)")
+	aw_sq, aw_th, aw_f, _ = pace("pace-awake")
+	check(aw_f is not None and aw_f["world"] >= 1.99 and aw_sq is not None and
+		  aw_sq * aw_f["world"] >= 3 and aw_th * aw_f["world"] >= 10,
+		  "awake, the chaser closes three squares or more in two seconds and the AI thinks",
+		  f"frames {aw_f}; squares/s {aw_sq}, thinks/s {aw_th}")
+	re_sq, re_th, re_f, re_rest = pace("pace-rest")
+	check(re_f is not None and re_f["ran"] == 2 and abs(re_f["world"] - 2.0) < 0.01 and
+		  re_f["steps"] == 120 and re_f["capped"] == 0 and
+		  re_rest is not None and re_rest[0],
+		  "resting, two play frames hand the world two seconds as 120 fixed ticks, and the rest holds",
+		  f"frames {re_f}; rest after them {re_rest}")
+	check(near(re_sq, aw_sq),
+		  "resting at the real 60x, the chaser walks as many squares a simulated second as awake",
+		  f"resting {re_sq} squares/s, awake {aw_sq}")
+	check(near(re_th, aw_th),
+		  "resting at the real 60x, the AI thinks as often a simulated second as awake",
+		  f"resting {re_th} thinks/s, awake {aw_th}")
+	wh_sq, wh_th, wh_f, wh_rest = pace("pace-whole")
+	# The numbers themselves, every run: the measurement, not only its verdict.
+	fmt = lambda v: "-" if v is None else f"{v:.2f}"
+	print(f"         squares/s and thinks/s: awake {fmt(aw_sq)} {fmt(aw_th)}; resting at 60x "
+		  f"{fmt(re_sq)} {fmt(re_th)} ({fmt(re_f['ms'] if re_f else None)} ms a frame); "
+		  f"one step a frame {fmt(wh_sq)} {fmt(wh_th)}")
+	# Tied to the two steps having been a resting second EACH, the rest holding,
+	# and the chaser having walked and the AI thought in them: a rest that did not
+	# take runs two 1/60 s steps, in which nothing has thought or walked yet, and
+	# 0 squares and 0 thinks sit under any ceiling.
+	check(wh_f is not None and wh_f["whole"] and wh_f["steps"] == 2 and
+		  abs(wh_f["world"] - 2.0) < 0.01 and wh_rest is not None and wh_rest[0] and
+		  wh_sq is not None and wh_sq * wh_f["world"] >= 1 and wh_th * wh_f["world"] >= 1 and
+		  aw_sq and aw_th and
+		  wh_sq <= DEFECT_CEILING * aw_sq and wh_th <= DEFECT_CEILING * aw_th,
+		  "the measurement sees the defect: a frame's second as one step walks and thinks well short of awake",
+		  f"frames {wh_f}; rest after them {wh_rest}; one step a frame: {wh_sq} squares/s, "
+		  f"{wh_th} thinks/s; awake {aw_sq}, {aw_th}")
+	# The per-frame cap: a 20 fps frame hands a resting world three seconds; it
+	# takes MAX_TICKS of them and DROPS the rest, leaving the next frame nothing
+	# owed. Read off the slow frame's own `owed`: the runner's zero-dt frames
+	# between two script lines clear the carry, so a second `frames` line would
+	# owe nothing however the cap behaved.
+	sec = get("cap")
+	fs = frames_lines(sec)
+	slow, carry = (fs + [None, None])[:2]
+	rest = rest_line(sec)
+	check(slow is not None and slow["fps"] == 20 and
+		  slow["steps"] == MAX_TICKS and slow["capped"] == 1 and
+		  abs(slow["world"] - MAX_TICKS / 60.0) < 0.01 and slow["owed"] == 0.0 and
+		  rest is not None and rest[0],
+		  f"a resting frame too slow for its ticks runs {MAX_TICKS} and drops the rest, owing the next frame nothing",
+		  f"the slow frame {slow}; rest after it {rest}")
+	# And the readout sees a carry: 70 fps hands the world 6/7 s, 51 ticks and
+	# three sevenths of one, and that part stays owed - or `owed 0` above would
+	# prove nothing.
+	check(carry is not None and carry["fps"] == 70 and carry["steps"] == 51 and
+		  carry["capped"] == 0 and abs(carry["owed"] - CARRY_70) < 0.0002,
+		  "a resting frame that ends part-way through a tick leaves that part owed to the next",
+		  f"the 70 fps frame {carry}; it should owe {CARRY_70:.4f}s")
+
+	print("SHOT - a 60x frame as one step still meets what is in a flight's way (C48)")
+	sec = get("rest-shot")
+	f = frames_line(sec)
+	t = tally(sec)
+	rest = rest_line(sec)
+	check(f is not None and f["whole"] and f["steps"] == 1 and abs(f["world"] - 1.0) < 0.01 and
+		  num(t, "taken") > 0 and rest == (False, "attacked"),
+		  "one 60x frame as one step: shots from the next square land on the resting party and end the rest as attacked",
+		  f"frames {f}; taken={t.get('taken')}; rest {rest}")
+	sec = get("wall-shot")
+	f = frames_line(sec)
+	t = tally(sec)
+	check(f is not None and f["whole"] and f["steps"] == 1 and f["flying"] == 0 and
+		  num(t, "expired") >= 1 and t.get("expat") == f"{WALL[0]},{WALL[1]}",
+		  "and a shot at a one-thick wall stops in it, nothing flying on past it",
+		  f"frames {f}; expired={t.get('expired')} expat={t.get('expat')}")
+	check("end" in s, "the rest-pace script ran to its end")
+
+
 def cut_steps(path):
-	"""A copy of the script with its `step` lines removed (but for the walk the
-	pit drops need - WALK_SECTIONS), in a temp file the caller deletes."""
+	"""A copy of the script with its `step` and `frames` lines removed (but for
+	the walk the pit drops need - WALK_SECTIONS), in a temp file the caller
+	deletes."""
 	text = io.open(path, encoding="utf-8").read()
 	kept, section = [], None
 	for l in text.splitlines():
@@ -425,7 +598,7 @@ def cut_steps(path):
 		# Every step but the walk that brings the party beside the pit for the
 		# drops (WALK_SECTIONS): that one is set-up, not a measured stretch of
 		# time, and a party left where it was could not reach the squares.
-		drop = l.startswith("step ") and section not in WALK_SECTIONS
+		drop = (l.startswith("step ") or l.startswith("frames ")) and section not in WALK_SECTIONS
 		kept.append("echo skipped" if drop else l)
 	fd, cut = tempfile.mkstemp(suffix=".eval")
 	with os.fdopen(fd, "w", encoding="utf-8") as fh:
@@ -443,22 +616,21 @@ def main():
 	# -project, which is the world an -eval run opens anyway, because its
 	# `worlds load Test-World` would otherwise remember Test-World in
 	# settings.ini as the last world played - the developer's next launch.
-	for path, name, extra, judge_it in (
-			(ASYNC_SCRIPT, "aiasync.eval", PROJECT, judge_async),
-			(SCRIPT, "ai.eval", (), None)):
+	for path, name, extra, judge_it, switches_world in (
+			(ASYNC_SCRIPT, "aiasync.eval", PROJECT, judge_async, True),
+			(SCRIPT, "ai.eval", (), lambda lines, log: judge(lines), False),
+			(PACE_SCRIPT, "restpace.eval", (), lambda lines, log: judge_pace(lines), False)):
 		script = cut_steps(path) if selftest else path
 		world_before = last_world()
 		verdict, lines, log = run(script, name, extra)
 		print(f"{name}: {verdict.split('] ', 1)[-1] if verdict else '(no verdict line)'}")
-		if judge_it:
-			judge_it(lines, log)
+		judge_it(lines, log)
+		if switches_world:
 			world_after = last_world()
 			check(world_after == world_before or world_after != SWITCHED_TO,
 				  "the world switch left settings.ini's last world as it was",
 				  f"project= was {world_before}, is {world_after} - the developer's next launch "
 				  f"opens {world_after}")
-		else:
-			judge(lines)
 		if selftest:
 			os.remove(script)
 	failed = sum(1 for _, ok in results if not ok)

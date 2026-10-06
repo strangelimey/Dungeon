@@ -260,7 +260,8 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	// The torch flames' pool, each at its full size now: a torch landing or
 	// lighting on the floor mid-fight then allocates nothing.
 	for (TorchFlame& f : m_torchFlames) f.effect.Reserve(kTorchFlameScale);
-	m_projectiles.trailSquare = kCellSize; // a trail's rate is per square flown
+	// A trail's rate is per square flown, and a flight steps half of one at most.
+	m_projectiles.squareSize = kCellSize;
 
 	// Moving-item engine: wire its world seam so a projectile lives "on the map"
 	// without the engine depending on the map/combat. resolveHit is faction-aware —
@@ -476,10 +477,11 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 
 	m_time = time; // drives the rune emissive pulse in SubmitSceneGeometry
 
-	// THE ONE-PIPELINE CHECK (Game/DamageLedger.h), four checkpoints a frame.
-	// A violation is found at a checkpoint, long after the stack that caused it
-	// has gone, so the boundaries are placed where the phases genuinely divide:
-	// the phase name plus the victim is what stands in for a stack.
+	// THE ONE-PIPELINE CHECK (Game/DamageLedger.h), one checkpoint a frame and
+	// three a tick. A violation is found at a checkpoint, long after the stack
+	// that caused it has gone, so the boundaries are placed where the phases
+	// genuinely divide: the phase name plus the victim is what stands in for a
+	// stack.
 	//
 	// This first one covers the gap OUTSIDE the world update — a hand-slot click
 	// resolving a swing, a dev command, an editor edit — which is where a party
@@ -493,9 +495,56 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 		m_fellPending = false;
 		OnFallImpact();
 	}
+	// The frame's input once, ahead of all its ticks: a key press is one act
+	// however many ticks the frame runs.
 	if (acceptInput && !m_pendingFall) m_party.HandleInput(input);
+	PresentFrame(AdvanceSimulation(dt), time);
+}
+
+float DungeonWorld::AdvanceSimulation(float dt) {
+	// An ordinary frame, a harness `step` tick, or a harness run that asked for
+	// whole steps (`frames ... whole`): ONE step, as the world always took.
+	if (dt <= kMaxWholeStep || m_harness.wholeSteps) {
+		m_tickCarry = 0.0f;
+		Tick(dt);
+		m_lastUpdate = {1, dt, false, m_tickCarry};
+		return dt;
+	}
+	// A long one - rest's 60x, a dev `timescale` - in fixed ticks (see kTick).
+	// The carry is what an earlier frame left short of a whole tick, so the
+	// long-run rate is exactly the multiplier's until the cap bites.
+	const float owed = m_tickCarry + dt;
+	// A thousandth of a tick of slack: a second is sixty ticks, not fifty-nine
+	// and a carry that float rounding left a hair short of the sixtieth.
+	int ticks = static_cast<int>(owed / kTick + 0.001f);
+	const bool capped = ticks > kMaxTicksPerUpdate;
+	if (capped) ticks = kMaxTicksPerUpdate;
+	const bool wasResting = m_resting;
+	const bool wasWiped = m_partyWiped;
+	int ran = 0;
+	bool stopped = false;
+	while (ran < ticks) {
+		Tick(kTick);
+		++ran;
+		// A world the host is about to leave, or a rest that is over: the rest
+		// of this frame's time was rest's to spend, and nothing is owed for it.
+		if (m_pendingTransition || (m_partyWiped && !wasWiped) || (wasResting && !m_resting)) {
+			stopped = true;
+			break;
+		}
+	}
+	// The cap DROPS what it cut (see kMaxTicksPerUpdate), and so does a stop.
+	m_tickCarry = capped || stopped
+					  ? 0.0f
+					  : std::max(0.0f, owed - static_cast<float>(ticks) * kTick);
+	const float simulated = static_cast<float>(ran) * kTick;
+	m_lastUpdate = {ran, simulated, capped, m_tickCarry};
+	return simulated;
+}
+
+void DungeonWorld::Tick(float dt) {
 	m_party.Update(dt);
-	// A leader who fell last frame - to anything - hands the lead on.
+	// A leader who fell last step - to anything - hands the lead on.
 	PassLeadIfDown(true);
 	// Every member's wait after a throw runs down on world time.
 	for (float& wait : m_throwCooldown) wait = std::max(0.0f, wait - dt);
@@ -574,6 +623,9 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 	TickSpellLights(dt);      // what the Sowilo lights do: kindle, scorch, ...
 	TickLightStones(dt);      // ...and the Earth stones set down on this level
 	m_trackClock += dt;       // the clock monster tracks age by (6g)
+}
+
+void DungeonWorld::PresentFrame(float dt, float time) {
 	// The camera FIRST: the light budget culls against this frame's view, and
 	// a cull against last frame's would drop a light the turn just revealed.
 	UpdateCamera();
@@ -2328,17 +2380,18 @@ void DungeonWorld::TickLockstepAI(float dt) {
 		if (interval <= 0.0f) continue;
 		m_bucketClock[b] += dt;
 		if (m_bucketClock[b] < interval) continue;
-		// ONE think per bucket per frame, with the remainder CARRIED rather than
+		// ONE think per bucket per step, with the remainder CARRIED rather than
 		// dropped, so the long-run rate is exactly the bucket's cadence.
 		//
-		// Deliberately not a catch-up loop. Thinking twice against one frame's
+		// Deliberately not a catch-up loop. Thinking twice against one step's
 		// world would produce two identical plans, because a monster does not
-		// MOVE until its executor runs later in this same update — so the second
+		// MOVE until its executor runs later in this same step - so the second
 		// pass would reason from the positions the first one did. The rate is
-		// kept honest instead by `step` feeding small fixed dt (see
-		// Game::StepWorld): a bucket owed forty thinks gets them across forty
-		// steps, which is also the only way the movement and attack cooldowns
-		// those thinks feed can pace correctly.
+		// kept honest instead by small fixed dt: `step`'s ticks (Game::StepWorld)
+		// and the world's own for any long dt - rest's 60x, a `timescale`
+		// (DungeonWorld::AdvanceSimulation, code-review C64). A bucket owed forty
+		// thinks gets them across forty ticks, which is also the only way the
+		// movement and attack cooldowns those thinks feed can pace correctly.
 		m_bucketClock[b] -= interval;
 		m_director.ComputeInline(b);
 	}

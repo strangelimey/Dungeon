@@ -312,6 +312,40 @@ void Game::RegisterEvalCommands() {
 															 args[0], x, z));
 					   });
 
+	// Loose a monster's plain shot at the party's side from a square's centre -
+	// no monster, so nothing kites, cools down or decides when. A check places a
+	// flight to the square with it (code-review C48: a 60x frame must not carry a
+	// shot over the party or through a wall). Damage 1 and accuracy 1000 by
+	// default: a shot that lands but for a fumble, and hurts nobody much.
+	m_console.Register({.name = "shot",
+						.group = CmdGroup::Combat,
+						.params = "<x> <z> <n|e|s|w> [damage] [accuracy]",
+						.summary = "loose a plain monster shot from a square, at the party's side"},
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 3)) return;
+						   const int x = std::atoi(args[0].c_str());
+						   const int z = std::atoi(args[1].c_str());
+						   const char d = args[2].empty() ? '?' : static_cast<char>(
+																	  std::tolower(static_cast<unsigned char>(args[2][0])));
+						   const char* kDirs = "nesw";
+						   const char* at = std::strchr(kDirs, d);
+						   if (!at || d == '\0') {
+							   m_console.RefuseUsage();
+							   return;
+						   }
+						   const auto dir = static_cast<Direction>(at - kDirs);
+						   const float damage =
+							   args.size() > 3 ? static_cast<float>(std::atof(args[3].c_str())) : 1.0f;
+						   const float accuracy =
+							   args.size() > 4 ? static_cast<float>(std::atof(args[4].c_str())) : 1000.0f;
+						   if (!m_world->LaunchShot(x, z, dir, damage, accuracy)) {
+							   m_console.Refuse(std::format("shot: {},{} is not open floor", x, z));
+							   return;
+						   }
+						   m_console.Print(std::format("shot from {},{} {} (damage {:.1f}, accuracy {:.0f})",
+													   x, z, args[2], damage, accuracy));
+					   });
+
 	// Place a monster, live. The editor's placement path (AddMonster) refuses an
 	// unwalkable or occupied cell, and so does this — reported rather than
 	// silent, because a spawn that did not happen is an encounter that is not
@@ -590,6 +624,9 @@ void Game::RegisterEvalCommands() {
 						   //           kiter fires them.
 						   //   landat  the square the last throw came down on
 						   //           (landed or burst), `-` for none.
+						   //   expat   the square the last carrier that stopped
+						   //           without striking stopped in - a wall's
+						   //           own square when it broke on one.
 						   m_console.Print(TallyLine());
 					   });
 
@@ -770,6 +807,89 @@ void Game::RegisterEvalCommands() {
 								   "the script believes; split it across calls",
 								   secs, kMaxStepSeconds, secs - got));
 					   });
+
+	// PLAY FRAMES, where `step` runs sim seconds (code-review C64). `step` feeds
+	// the world its fixed ticks directly and never applies rest's multiplier, so
+	// what that multiplier does to a frame was invisible to every script. This
+	// runs `n` frames as a playing frame runs the world: `1/fps` real seconds
+	// through Game::WorldDt - the one multiplier site - into the world's Update,
+	// which takes a long result in fixed ticks. The dev `timescale` is left out
+	// (a script holds it at 0 between lines). `whole` runs each frame's world dt
+	// as ONE step, the ticks bypassed - what every resting frame did before C64 -
+	// so a check can hand a 60x dt to what must cope with one on its own (a
+	// flight's half-square steps, C48). Stops early, and says why, when a rest
+	// that was on ends or the party changes level. The wall time a frame took is
+	// in the line: the cost the tick cap bounds. So is what the LAST frame left
+	// owed to the next (`owed`, the world's carry), and it has to be read here:
+	// the runner's frames between two script lines are zero-dt whole steps at
+	// timescale 0, which clear the carry, so a second `frames` line never sees
+	// what the first one left.
+	m_console.Register({.name = "frames",
+						.group = CmdGroup::Simulation,
+						.params = "<n> [fps] [whole]",
+						.summary = "run n play frames of the world through the rest multiplier"},
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 1)) return;
+						   const int n = std::atoi(args[0].c_str());
+						   float fps = 60.0f;
+						   bool whole = false;
+						   for (size_t i = 1; i < args.size(); ++i) {
+							   if (args[i] == "whole") whole = true;
+							   else fps = static_cast<float>(std::atof(args[i].c_str()));
+						   }
+						   if (n < 1 || fps <= 0.0f) {
+							   m_console.RefuseUsage();
+							   return;
+						   }
+						   if (std::string_view(StateName()) != "playing") {
+							   m_console.Refuse(std::format(
+								   "frames: not playing (state: {}) - nothing ran", StateName()));
+							   return;
+						   }
+						   static const Input kNoInput;
+						   const bool resting = m_world->Resting();
+						   // The AI's thinks inside these frames alone (lockstep's
+						   // inline computes): `lockstep stats` on the next line would
+						   // also count the frames that run the script's lines between.
+						   const uint64_t thinksBefore = m_world->LockstepStats().ticks;
+						   m_world->GetHarness().wholeSteps = whole;
+						   int ran = 0, ticks = 0, capped = 0;
+						   float world = 0.0f;
+						   std::string stop;
+						   const auto t0 = std::chrono::steady_clock::now();
+						   while (ran < n) {
+							   const float wdt = WorldDt(1.0f / fps, 1.0f);
+							   m_world->Update(kNoInput, wdt, m_time, /*acceptInput=*/false);
+							   m_time += wdt;
+							   ++ran;
+							   const DungeonWorld::UpdateRun& u = m_world->LastUpdate();
+							   ticks += u.ticks;
+							   world += u.seconds;
+							   capped += u.capped ? 1 : 0;
+							   // Followed nowhere, as `step` does: a run that changed
+							   // level is no longer measuring what it set up.
+							   if (m_world->ConsumeLevelTransition()) {
+								   stop = " - stopped: the party changed level";
+								   break;
+							   }
+							   if (resting && !m_world->Resting()) {
+								   stop = std::format(" - rest ended: {}", m_world->RestEndReason());
+								   break;
+							   }
+						   }
+						   m_world->GetHarness().wholeSteps = false;
+						   const double ms = std::chrono::duration<double, std::milli>(
+												 std::chrono::steady_clock::now() - t0)
+												 .count();
+						   m_console.Print(std::format(
+							   "frames: ran {} of {} at {:.0f} fps{}: world {:.2f}s in {} steps, "
+							   "{} capped, {:.4f}s owed, {} AI thinks, {} in flight, {:.2f} ms a "
+							   "frame{}",
+							   ran, n, fps, whole ? " whole" : "", world, ticks, capped,
+							   m_world->LastUpdate().owed,
+							   m_world->LockstepStats().ticks - thinksBefore,
+							   m_world->LiveProjectiles().size(), ms / ran, stop));
+					   });
 }
 
 std::string Game::TallyLine() const {
@@ -802,14 +922,15 @@ std::string Game::TallyLine() const {
 		"throwstrikes={} throwlandings={} sceneryticks={} doused={} struck={} "
 		"pierced={} wallstops={} stoppedin={} partybursts={} wardturns={} "
 		"repelweakened={} repelturned={} repelspent={} mswings={} mshots={} "
-		"landat={}",
+		"landat={} expat={}",
 		t.dealt, t.taken, swings, t.hits, t.misses, rate, t.crits, t.fumbles,
 		t.monstersSlain, t.membersDowned, t.seconds, t.boltHits, t.boltMisses,
 		t.expiries, t.blasts, t.drops, t.lifts, t.throws, t.throwStrikes,
 		t.throwLandings, t.sceneryTicks, t.fixturesDoused, t.struck, t.pierced,
 		t.wallStops, stoppedIn, t.partyBursts, t.wardTurns, t.repelWeakened,
 		t.repelTurned, t.repelSpent, t.monsterSwings, t.monsterShots,
-		t.landX < 0 ? std::string("-") : std::format("{},{}", t.landX, t.landZ));
+		t.landX < 0 ? std::string("-") : std::format("{},{}", t.landX, t.landZ),
+		t.expireX < 0 ? std::string("-") : std::format("{},{}", t.expireX, t.expireZ));
 }
 
 } // namespace dungeon::game

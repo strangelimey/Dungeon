@@ -231,6 +231,15 @@ void DungeonWorld::GrantResourceXp(Character& member, resource::Kind kind,
 // honest — and the danger the design wants from "the world runs while you rest"
 // is real rather than decorative.
 //
+// That holds because the second a resting frame hands the world is run as
+// fixed ticks (DungeonWorld::AdvanceSimulation, code-review C64): lockstep
+// thinks at most once per bucket per STEP, and a monster steps and swings at
+// most once per step, so a whole second taken in one step gave a fast bucket
+// one think where an awake second gives it four, and a skeleton one square
+// where it walks two. Measured by tools\AITest.py (restpace.eval): squares
+// walked and thinks per simulated second, resting at the real 60x against
+// awake.
+//
 // The PREVIOUS mode is remembered rather than assumed: an eval run may already
 // be in lockstep, and rest must hand it back what it found.
 void DungeonWorld::SetResting(bool on) {
@@ -1869,18 +1878,12 @@ void DungeonWorld::MonsterRangedAttack(Monster& monster) {
 			return;
 		}
 	}
-	ProjectileSpec bolt;
-	bolt.pos = origin;
-	bolt.dir = dir;
-	bolt.target = TargetSide::Party;
-	bolt.speed = 6.0f;
-	bolt.range = (monster.kind->aggroRange + 1.0f) * kCellSize; // a bit past aggro
 	// The plain ember bolt types as the monster's melee (its dmgtype); a real
 	// spell bolt above types by its school inside MakeBolt.
-	bolt.atk = {monster.kind->damage, monster.kind->accuracy,
-				monster.kind->damageType};
-	bolt.color = {1.6f, 0.5f, 0.2f, 0.0f}; // ember-orange additive
-	bolt.size = 0.18f;
+	ProjectileSpec bolt = EmberShot(origin, dir,
+									(monster.kind->aggroRange + 1.0f) * kCellSize, // a bit past aggro
+									{monster.kind->damage, monster.kind->accuracy,
+									 monster.kind->damageType});
 	bolt.shooter = monster.runtimeId; // the impact reads its threat
 	// A shot leaves what its melee leaves: `on_hit` is what this creature's
 	// attacks carry, and a venomous thing's dart is venomous too. (A CASTER's
@@ -1889,6 +1892,36 @@ void DungeonWorld::MonsterRangedAttack(Monster& monster) {
 	bolt.payload = monster.kind->shotPayload; // packed at load
 	Launch(bolt);
 	m_audio.Play(m_sounds.monster, 0.5f); // soft launch cue (reuse the monster voice)
+}
+
+ProjectileSpec DungeonWorld::EmberShot(const Vec3& origin, const Vec3& dir, float range,
+									   const AttackProfile& atk) {
+	ProjectileSpec bolt;
+	bolt.pos = origin;
+	bolt.dir = dir;
+	bolt.target = TargetSide::Party;
+	bolt.speed = 6.0f;
+	bolt.range = range;
+	bolt.atk = atk;
+	bolt.color = {1.6f, 0.5f, 0.2f, 0.0f}; // ember-orange additive
+	bolt.size = 0.18f;
+	return bolt;
+}
+
+bool DungeonWorld::LaunchShot(int x, int z, Direction dir, float damage, float accuracy) {
+	if (x < 0 || z < 0 || x >= m_map.Width() || z >= m_map.Height() ||
+		!m_map.IsWalkable(x, z))
+		return false;
+	// From the square's centre at a monster's shooting height, so its lane runs
+	// down the middle of the row or column - the lane every member of a party
+	// standing in it reaches (kLaneHalfWidth).
+	const Vec3 origin = m_map.CellCenter(x, z, 0.6f);
+	const Vec3 heading{static_cast<float>(DirDX(dir)), 0.0f, static_cast<float>(DirDZ(dir))};
+	// The range a skirmisher's own shot carries (aggro 6, a bit past it), and a
+	// dart's damage type.
+	Launch(EmberShot(origin, heading, 7.0f * kCellSize,
+					 {damage, accuracy, m_damageTypes.FindOr("pierce")}));
+	return true;
 }
 
 bool DungeonWorld::CellHasLineOfSight(int x0, int z0, int x1, int z1) const {
@@ -3044,6 +3077,11 @@ void DungeonWorld::ResolveProjectileExpiry(const ProjectileExpiry& expiry) {
 	int cx = bx, cz = bz;
 	FlightEnd(expiry, cx, cz);
 	++m_harness.tally.expiries;
+	// Where the LAST expiry, of any cause, stopped (the tally's `expat`): what
+	// says a 60x frame did not carry a shot over the party or through a wall
+	// (code-review C48).
+	m_harness.tally.expireX = bx;
+	m_harness.tally.expireZ = bz;
 	if (expiry.cause == ExpiryCause::Wall) {
 		++m_harness.tally.wallStops;
 		m_harness.tally.wallStopX = bx;

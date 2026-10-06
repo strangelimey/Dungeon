@@ -33,7 +33,7 @@ harness refuses a stale exe on its own (exit 4).
   pipeline       quick  self-testable  every source of damage goes through fx::Deal; nothing else writes health
   spells         quick  self-testable  every spell tier does what it says: hand spells, bolts, modifiers, wards
   combat         quick  self-testable  the combat rules the code review fixed, judged from combat.eval
-  ai             quick  self-testable  monsters stand where they can (sides, kiters, pits); a new game or load forgets the last fight; a world switch leaves no dead AI worker
+  ai             quick  self-testable  monsters stand where they can (sides, kiters, pits); a new game or load forgets the last fight; a world switch leaves no dead AI worker; a resting chaser walks and thinks as an awake one, and a 60x shot skips neither the party nor a wall
   alloc          full   self-testable  a steady-state frame allocates nothing on the heap
   alloc-hand     full   self-testable  the hand spells (light, douse, flare, fill, pebble) allocate nothing
   alloc-rest     full   self-testable  resting, a monster behind a shut door: its inline searches allocate nothing
