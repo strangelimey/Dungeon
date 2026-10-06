@@ -65,6 +65,11 @@ seed 7
 ; That is the comparison, and it is the same one either way round.
 echo === BASELINE A (after a real load) ===
 state
+; THE LOG THE PARTY ARRIVES TO (code-review C364): a new game opens with its
+; lines whether it loaded its level or found it in hand, and the recycle below
+; begins play the same way (Game::BeginPlay). Without this readout the blocks
+; could agree on everything but the first thing a player reads.
+messages 10
 party
 supplies
 regen
@@ -201,6 +206,7 @@ reset
 seed 7
 echo === BASELINE B (after reset) ===
 state
+messages 10
 party
 supplies
 regen

@@ -46,6 +46,7 @@ saves.overwrite_confirm=Erneut klicken zum Überschreiben
 saves.delete=Löschen
 saves.cancel=Abbrechen
 saves.delete_prompt=Diesen Spielstand löschen?
+saves.delete_failed={} konnte nicht gelöscht werden (Fehler {}).
 
 ; --- loading steps ------------------------------------------------------------
 load.echoes=Echos werden gestimmt

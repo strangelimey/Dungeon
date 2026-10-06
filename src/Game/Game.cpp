@@ -439,10 +439,9 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_defaultWorld = std::filesystem::path(ChooseProjectFolder()).filename().string();
 
 	// Read once: a `-project` launch has its world decided already, so the
-	// new-game list does not ask...
+	// new-game list does not ask, and its saves are the world in hand's alone
+	// (SaveListWorld - asked each time, so it follows a switch).
 	m_worldFromCommandLine = CommandLineHas(L"-project");
-	// ...and its saves are that world's alone (SaveGame.h SetSaveWorldFilter).
-	if (m_worldFromCommandLine) SetSaveWorldFilter(m_defaultWorld);
 
 	// The console's section states round-trip settings.ini (console_*_expanded).
 	m_console.SetSections({m_settings.consolePerfExpanded, m_settings.consoleProfileExpanded,
@@ -693,6 +692,7 @@ void Game::BeginLevelTransition(const std::string& stem, int x, int z,
 	m_pendingLookYaw = m_pendingLookPitch = 0.0f;
 	m_pendingLooking = false;
 	m_pendingWorldMap = m_pendingWorldPark = false;
+	m_pendingArrival = Arrival::Level; // a new game or a load says so after the call
 	m_state = AppState::LoadingLevel;
 	m_stateFrameMark = m_framesRendered;
 }
@@ -1106,9 +1106,17 @@ void Game::StartNewGame() {
 	m_worldState.atLocation.clear(); // begun here, not entered from anywhere
 	m_worldState.onWorldMap = false;
 
+	// A level that has to LOAD first begins play when it lands - the LoadingLevel
+	// completion calls BeginPlay with what is recorded here - and one already in
+	// hand begins it at the bottom. Either way the same opening (C364).
+	const auto staged = [this](const std::string& level, int x, int z) {
+		if (!OpenInLevel(level, x, z)) return false;
+		m_pendingArrival = Arrival::NewGame;
+		return true;
+	};
 	if (m_harnessOpensInLevel) {
 		const std::string ground = HarnessLevel();
-		if (OpenInLevel(ground, -1, -1)) return;
+		if (staged(ground, -1, -1)) return;
 		log::Info("New game started on the harness ground ({})", ground);
 	} else if (!m_project.startDungeon.empty()) {
 		const std::string level =
@@ -1116,7 +1124,7 @@ void Game::StartNewGame() {
 				? (m_project.levels.empty() ? std::string("level1")
 											: m_project.levels.front())
 				: m_project.startLevel;
-		if (OpenInLevel(level, m_project.startX, m_project.startZ)) return;
+		if (staged(level, m_project.startX, m_project.startZ)) return;
 		log::Info("New game started in {} ({} at {},{})", m_project.startDungeon,
 				  level, m_project.startX, m_project.startZ);
 	} else if (m_worldMap) {
@@ -1136,18 +1144,35 @@ void Game::StartNewGame() {
 		const std::string first = m_project.levels.empty()
 									  ? std::string("level1")
 									  : m_project.levels.front();
-		if (OpenInLevel(first, -1, -1)) return;
+		if (staged(first, -1, -1)) return;
 		log::Info("New game started (already on {})", first);
 	}
 
-	m_ui.ClearLog();
-	m_ui.AddLogLine(loc::View("log.descend"));
-	m_ui.AddLogLine(loc::View("log.shuffle"));
-	m_ui.AddLogLine(m_settings.MoveKeysHelp());
-
-	m_ui.ResetHudStatus();
-	m_state = AppState::Playing;
+	BeginPlay(Arrival::NewGame);
 	log::Info("New game started");
+}
+
+void Game::BeginPlay(Arrival how) {
+	m_ui.ClearLog();
+	switch (how) {
+	case Arrival::NewGame:
+		m_ui.AddLogLine(loc::View("log.descend"));
+		m_ui.AddLogLine(loc::View("log.shuffle"));
+		m_ui.AddLogLine(m_settings.MoveKeysHelp());
+		break;
+	case Arrival::LoadedGame:
+		m_ui.AddLogLine(loc::View("log.descend"));
+		break;
+	case Arrival::Level: // a stair or a goto: the log starts afresh, and says nothing
+		break;
+	}
+	m_ui.ResetHudStatus(); // the compass and position labels re-derive next frame
+	m_state = AppState::Playing;
+}
+
+std::string Game::SaveListWorld() const {
+	if (!m_worldFromCommandLine) return {};
+	return m_world ? m_project.FolderName() : m_defaultWorld;
 }
 
 bool Game::SaveGame(const std::string& name) {
@@ -1264,7 +1289,11 @@ bool Game::SaveGame(const std::string& name) {
 		c.pace = member.moveSpeed;
 		data.characters.push_back(std::move(c));
 	}
-	return WriteSave(data, SaveSlotPath(name));
+	if (!WriteSave(data, SaveSlotPath(name))) return false;
+	// Every way a save is written flags what depends on WHICH saves exist - the
+	// Save page and the console's `save` alike (the first save grows a Load).
+	m_ui.MarkSavesChanged();
+	return true;
 }
 
 bool Game::LoadGame(const std::string& path) {
@@ -1471,6 +1500,7 @@ bool Game::LoadGame(const std::string& path) {
 		m_pendingLooking = data->looking;
 		m_pendingWorldMap = onWorld;
 		m_pendingWorldPark = parked;
+		m_pendingArrival = Arrival::LoadedGame; // its completion begins play as below
 		log::Info("Loaded game from {} (loading {})", path, data->currentLevel);
 		return true;
 	}
@@ -1480,12 +1510,7 @@ bool Game::LoadGame(const std::string& path) {
 	// cleanly if the button isn't actually held.
 	m_looking = m_world->GetParty().IsLooking();
 	m_world->ApplyActiveSnapshot(); // restore the active level's fog + entity diff
-	m_ui.ClearLog(); // a loaded game starts its log afresh
-	m_ui.AddLogLine(loc::View("log.descend"));
-	const Party& party = m_world->GetParty();
-	m_ui.ResetHudStatus();
-	m_ui.SetHudStatus(party);
-	m_state = AppState::Playing;
+	BeginPlay(Arrival::LoadedGame); // a loaded game starts its log afresh
 	if (onWorld) ResumeOnWorldMap(parked);
 	log::Info("Loaded game from {}", path);
 	return true;
@@ -1547,7 +1572,9 @@ void Game::ReturnToTitle(const char* why) {
 					   // one would only reappear over the next game
 	m_editorOnArrival = false;
 	m_state = AppState::Menu;
-	m_ui.ResetToMainPage();
+	// The title's own page, its list rebuilt from the saves on disk: a game
+	// saved since it was built must offer Continue and Load (C366).
+	m_ui.ShowTitle();
 }
 
 // The party moves as fast as its slowest member. The rule itself moved to
@@ -2216,8 +2243,9 @@ void Game::UpdateStates(float dt) {
 			m_world->GetParty().SetLookState(m_pendingLookYaw, m_pendingLookPitch,
 											m_pendingLooking);
 			m_looking = m_pendingLooking;
-			m_ui.ClearLog();
-			m_state = AppState::Playing;
+			// Play begins as the path that staged this load would have begun it
+			// (C364): a new game's opening, a load's line, a stair's silence.
+			BeginPlay(std::exchange(m_pendingArrival, Arrival::Level));
 			// The moment a level is PLAYABLE. "Game loaded" is logged by a load
 			// task, so since the world loads on demand it lands before this level's
 			// own load has even begun; a script that waits on it types into a

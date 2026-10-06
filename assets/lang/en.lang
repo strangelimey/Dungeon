@@ -45,6 +45,9 @@ saves.overwrite_confirm=Click again to overwrite
 saves.delete=Delete
 saves.cancel=Cancel
 saves.delete_prompt=Delete this save?
+; A delete that did not happen: the save's name, then the system's error code
+; (the reason is in dungeon.log).
+saves.delete_failed=Could not delete {} (error {}).
 
 ; --- loading steps ------------------------------------------------------------
 load.echoes=Tuning the echoes

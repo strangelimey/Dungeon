@@ -114,13 +114,15 @@ Game::EvalReset Game::ResetForEval(std::string& detail) {
 	m_world->ResetForEval();
 	ResetRoster();  // fresh members, default portraits (reloaded only if changed)
 	m_ui.RefreshSheet();
-	m_ui.ClearLog();
 	ApplyPartySpeed();
-	m_ui.ResetHudStatus(); // the compass/position labels re-derive next frame
-	// A wipe left the app on the TITLE SCREEN, and dev commands answer perfectly
-	// normally from there — so a reset that did not come back to Playing would
-	// hand the next test a world that never simulates, reported as clean rungs.
-	m_state = AppState::Playing;
+	// A NEW GAME'S TAIL, as the switched reset above gets through StartNewGame:
+	// its opening lines in the log, the HUD's labels re-derived, and Playing (C364
+	// - the two reset paths used to agree on an empty log only because a new game
+	// that loaded its level said nothing either). A wipe left the app on the TITLE
+	// SCREEN, and dev commands answer perfectly normally from there - so a reset
+	// that did not come back to Playing would hand the next test a world that
+	// never simulates, reported as clean rungs.
+	BeginPlay(Arrival::NewGame);
 	// The world tier is reset too, or a script that travelled would hand the
 	// next one a party recorded as being out on the map while it stands in a
 	// level. This path RECYCLES the loaded level rather than transitioning —

@@ -124,10 +124,32 @@ void Game::RegisterEvalCommands() {
 	// reason `newgame` goes through the title's. What it exists to reach is the
 	// frozen stretch between a game and the next one, where the AI workers keep
 	// thinking from the last fight (code-review C52; tools/AITest.py).
+	// `status` reads what the title and pause lists HOLD, beside how many saves
+	// they list from (code-review C366: a title built before a save kept saying
+	// there was nothing to continue), and the state it was asked in: the title
+	// list catches up behind the pause menu as well, and only a reading taken
+	// there tells that apart from the way back, which rebuilds the title anyway.
 	m_console.Register({.name = "title",
 						.group = CmdGroup::SaveLoad,
+						.params = "[status]",
 						.summary = "return to the title screen, as the pause menu's entry does"},
-					   [this](const std::vector<std::string>&) {
+					   [this](const std::vector<std::string>& args) {
+						   if (!args.empty() && args[0] == "status") {
+							   const std::string world = SaveListWorld();
+							   const size_t saves = ListSaves(world).size();
+							   m_console.Print(std::format(
+								   "title: entries [{}] - {} save(s) listed for {} (asked while {})",
+								   m_ui.MenuEntries(false), saves,
+								   world.empty() ? std::string("every world") : "'" + world + "'",
+								   StateName()));
+							   m_console.Print(std::format("pause: entries [{}]",
+														   m_ui.MenuEntries(true)));
+							   return;
+						   }
+						   if (!args.empty()) {
+							   m_console.RefuseUsage();
+							   return;
+						   }
 						   if (!m_gameLoaded || !m_ui.onReturnToMain) {
 							   m_console.Refuse("title: no game to leave");
 							   return;

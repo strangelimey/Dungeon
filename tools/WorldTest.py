@@ -2,7 +2,7 @@
 #
 # Run:  python tools\WorldTest.py      (needs a debug build)
 #
-# Twenty phases, all built on one principle: a check that never fires reports
+# Twenty-two phases, all built on one principle: a check that never fires reports
 # "clean" just as loudly as one that works, so every expectation here is paired
 # with something that makes it fail.
 #
@@ -60,6 +60,13 @@
 #  20. THE DEAD STAY DEAD — a monster killed in a dungeon is still dead after
 #      leaving and coming back: straight in, via an ambush on the road, and via
 #      a save made on the world map (which must also load ONTO the world map).
+#  21. THE CHARACTER SHEET - not a pause, and paging keeps its close box.
+#  22. SAVES AND A NEW GAME (code-review batch 52) - after a world switch the
+#      lists show the world in hand's saves and the editor's sweep finds them
+#      (C207); a hand-edited save naming member -1 or pack -1 is refused and
+#      the game goes on (C349); a save held open is not deleted, and says so
+#      with its error code (C367); and Start New Game from crypt2 opens with
+#      the same lines as on the level in hand (C364).
 #
 # NOTHING HERE TOUCHES THE REAL WORLD (code-review C431). Every phase runs in
 # wt_demo, a scratch copy of dungeon-demo made at the start and deleted at the
@@ -75,6 +82,7 @@ import io
 import os
 import re
 import shutil
+import stat
 import sys
 
 import harness_game
@@ -93,9 +101,15 @@ EXE = os.path.join(ROOT, r"build\debug\bin\Dungeon.exe")
 LOG = os.path.join(ROOT, r"build\debug\bin\dungeon.log")
 SCRIPTS = os.path.join(ROOT, r"tools\EvalScripts")
 COPIES = os.path.join(ROOT, r"build\harness-scripts\worldtest")
+# Phase 22's second world, named for THIS worktree like its saves: a -project
+# run lists the saves that name the world in hand, and the folder is shared, so
+# under a fixed name a second run's save there (another worktree's at the same
+# moment, or a killed run's) was counted in this one's "1 save(s)".
+SAVES_WORLD = "wt_saves_" + harness_game.worktree_tag(ROOT)
 # Every world a phase makes, and the scratch one: cleared at the start (what a
 # killed run left) and at the end.
-WORLDS = (SCRATCH, "wt_scratch", "wt_dlg", "wt_del", "wt_del2", "wt_dng", "wt_ren", "wt_swap")
+WORLDS = (SCRATCH, "wt_scratch", "wt_dlg", "wt_del", "wt_del2", "wt_dng", "wt_ren", "wt_swap",
+          SAVES_WORLD)
 
 # Never a stale exe, and never beside this worktree's own game, which shares
 # the log every phase reads (tools/harness_game.py).
@@ -106,7 +120,8 @@ harness_game.refuse_if_running(EXE)
 # <worktree>_<hash>): the saves folder is shared with every other session and
 # with Michael's own play, and this suite downgrades one and deletes them all.
 SAVES = {n: harness_game.save_name(ROOT, n)
-         for n in ("worldtrip", "encountertrip", "questtrip", "worldpersist")}
+         for n in ("worldtrip", "encountertrip", "questtrip", "worldpersist",
+                   "worldsaves_a", "worldsaves_b", "worldsaves_bad")}
 SAVE = harness_game.save_path(SAVES["worldtrip"])
 
 failures = 0
@@ -290,10 +305,15 @@ try:
                   f"-> {floor_minus_one})")
             write(SAVE, downgraded)
             log = run("worldload.eval")
+            # The refusal line alone cannot say the LOAD read this file: the boot's
+            # save listing reads every header and logs it too. The load's own
+            # failure names its path, so a probe that loaded some other slot (a
+            # missing one, as it did until batch 52 renamed the probe's) fails.
             check(f"{os.path.basename(SAVE)} is version {floor_minus_one}, older than the "
                   f"minimum" in log,
                   "the log says THIS save was refused, and what the floor is")
-            check("LoadGame: could not read" in log, "and the load did not happen")
+            check(f"LoadGame: could not read {SAVE}" in log,
+                  "and the load of THIS save did not happen")
             check("eval RESULT=PASS" in log, "while the game itself kept running")
         finally:
             shutil.move(SAVE + ".bak", SAVE)
@@ -310,7 +330,7 @@ try:
             write(SAVE, re.sub(r"save world=[^\r\n]*\r?\n", "", text, count=1))
             log = run("worldload.eval")
             check(f"{os.path.basename(SAVE)} names no world - refusing it" in log and
-                  "LoadGame: could not read" in log,
+                  f"LoadGame: could not read {SAVE}" in log,
                   "one that names no world is refused, not loaded into this one")
         finally:
             shutil.move(SAVE + ".bak", SAVE)
@@ -1204,6 +1224,113 @@ try:
           "after paging through members, closing returns to the level, and on the "
           "world map to the world map", f"states {states[20:]}")
     check("eval RESULT=PASS script=worldsheet.eval" in log, "the script ran clean")
+
+    # --- phase 22: saves and a new game (code-review batch 52) ---------------
+    print("\n22 - saves follow the world in hand; a bad one is refused; a held one says "
+          "so; a new game opens alike everywhere")
+
+    def sections_of(text, marker):
+        """The text between each `echo --- <marker>: <name> ---` and the next."""
+        out = {}
+        for part in text.split(f"console: --- {marker}: ")[1:]:
+            name, _, body = part.partition(" ---")
+            out[name] = body
+        return out
+
+    # C207: the -project run switches world, saves there, and every list follows.
+    save_a, save_b = SAVES["worldsaves_a"], SAVES["worldsaves_b"]
+    log = run("worldsaves.eval", words={"wt_saves": SAVES_WORLD})
+    sec = sections_of(log, "saves")
+    listed = sec.get("listed after the switch", "")
+    names = re.findall(r"console:\s+(\S+) \[", listed)
+    # THE CONTROL is A, saved before the switch: listed, the rule was gone; B
+    # missing, the list was the launch world's (the bug).
+    check(save_b in names and save_a not in names,
+          "after a switch, `load` lists the world in hand's save and not the launch "
+          "world's", f"listed: {names}")
+    check(f"1 save(s) listed for '{SAVES_WORLD}'" in listed,
+          "...and the title lists from the same world", listed.strip()[:300])
+    typ = sec.get("a type only a save names", "")
+    check("monsters 'blob': 0 level record(s), 0 other reference(s)" in typ,
+          "the blob type is named by nothing in the new world but the save",
+          typ.strip()[:300])
+    check(f"Save file(s) still reference type 'blob': {save_b}" in typ,
+          "deleting it warns that the world in hand's save still names it (the sweep "
+          "found the save)", typ.strip()[:400])
+    check("eval RESULT=PASS script=worldsaves.eval" in log, "the script ran clean")
+
+    # C349: a copy of the good save with ONE hand-edited line, member -1 then
+    # pack -1. The good save loading first is the control.
+    good = harness_game.save_path(save_a)
+    bad = harness_game.save_path(SAVES["worldsaves_bad"])
+    if not os.path.isfile(good):
+        check(False, "worldsaves.eval left a save to break", good)
+    else:
+        text = read(good)
+        anchor = re.search(r"^char 0 [^\r\n]*\r?\n", text, re.M)
+        check(anchor is not None, "the save has a member line to set the bad one beside")
+        for what, line, says in (("member -1", "char -1 10 10 10 10 10 10 0", "names member -1"),
+                                 ("pack -1", "packc 0 -1 -", "names pack -1")):
+            if anchor is None:
+                break
+            write(bad, text[:anchor.end()] + line + "\n" + text[anchor.end():])
+            log = run("worldbadsave.eval")
+            check(f"console: loaded: {save_a}" in log,
+                  f"{what}: the good save loads (the control)")
+            check(f"'{line}' {says}" in log and f"LoadGame: could not read {bad}" in log,
+                  f"{what}: the save is refused, naming the line, and not loaded")
+            check("console: state playing" in log and
+                  "eval RESULT=PASS script=worldbadsave.eval" in log,
+                  f"{what}: and the game goes on (no abort, the probe refused as written)")
+        harness_game.remove_saves([SAVES["worldsaves_bad"]])
+
+    # C367: A held open by this process for the length of the run, B read-only.
+    held = harness_game.save_path(save_a)
+    ro = harness_game.save_path(save_b)
+    if not (os.path.isfile(held) and os.path.isfile(ro)):
+        check(False, "worldsaves.eval left both saves for the delete check", f"{held} / {ro}")
+    else:
+        os.chmod(ro, stat.S_IREAD)
+        try:
+            with open(held, "rb"):
+                log = run("savedelete.eval", words={"worldsaves_a": save_a,
+                                                    "worldsaves_b": save_b})
+        finally:
+            for p in (held, ro):
+                if os.path.exists(p):
+                    os.chmod(p, stat.S_IREAD | stat.S_IWRITE)
+        sec = sections_of(log, "delete")
+        # The control: a delete works at all - and past the read-only attribute,
+        # which the library's remove ignores, so read-only is not a failure mode.
+        check(f"console: deleted: {save_b}" in sec.get("a read-only save", "") and
+              not os.path.exists(ro),
+              "a read-only save is deleted (the control that a delete works)")
+        heldsec = sec.get("a save held open", "")
+        code = re.search(r"deletesave: " + re.escape(f"Could not delete {save_a} (error ")
+                         + r"(\d+)\)\.", heldsec)
+        check(code is not None,
+              "a save held open is refused with the page's line: its name and the error code",
+              heldsec.strip()[:400])
+        check(re.search(r"Could not delete save \S*" + re.escape(os.path.basename(held)) +
+                        r": .+ \(error \d+\)", heldsec) is not None,
+              "...and the log says why, in the system's words")
+        check(os.path.isfile(held), "...and the save is still there")
+        check("eval RESULT=PASS script=savedelete.eval" in log, "the script ran clean")
+
+    # C364: Start New Game opens alike on the level in hand and from another.
+    log = run("newgameintro.eval")
+    sec = sections_of(log, "intro")
+    opening = ("You descend into the dungeon", "Something shuffles in the dark")
+
+    def opens(name):
+        return all(o in sec.get(name, "") for o in opening)
+    check(opens("in hand"), "a new game on the level in hand opens with the opening (the control)")
+    check(not opens("after a goto"),
+          "a plain level change starts the log afresh, so the next lines are the new game's")
+    check(opens("from crypt2"),
+          "Start New Game from crypt2, which loads its level first, opens with the same lines",
+          sec.get("from crypt2", "").strip()[:400])
+    check("eval RESULT=PASS script=newgameintro.eval" in log, "the script ran clean")
 
 except Stop as why:
     # Already counted as a failure where it was found: a game RAN, so this is a

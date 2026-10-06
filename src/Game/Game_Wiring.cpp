@@ -142,6 +142,7 @@ void Game::WireModuleCallbacks() {
 			m_stateFrameMark = m_framesRendered;
 		}
 	};
+	m_ui.saveWorld = [this] { return SaveListWorld(); };
 	m_ui.onSaveSlot = [this](const std::string& name) {
 		// Resume EITHER WAY: a refused save (inside a random encounter) must
 		// not also strand the player on the save page with no explanation —

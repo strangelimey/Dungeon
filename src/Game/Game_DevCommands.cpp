@@ -22,6 +22,7 @@
 #include <cctype>
 #include <chrono>
 #include <cstdlib>
+#include <filesystem>
 #include <format>
 #include <optional>
 #include <string>
@@ -134,7 +135,8 @@ void Game::RegisterDevCommands() {
 						.summary = "load a save by name, or list the saves"},
 					   [this](const std::vector<std::string>& args) {
 						   if (args.empty()) {
-							   const std::vector<SaveSlot> slots = ListSaves();
+							   // The list the Load page shows (SaveListWorld).
+							   const std::vector<SaveSlot> slots = ListSaves(SaveListWorld());
 							   if (slots.empty()) {
 								   m_console.Print("no saves");
 								   return;
@@ -151,6 +153,26 @@ void Game::RegisterDevCommands() {
 							   m_console.Print("loaded: " + name);
 						   else
 							   m_console.Refuse("load failed (see log)");
+					   });
+	// The Save / Load page's Delete, by name: the row's own call (GameUI::
+	// DeleteSaveSlot), so a delete that fails leaves the page saying so and the
+	// reason in the log, and the refusal here is that same sentence.
+	m_console.Register({.name = "deletesave",
+						.group = CmdGroup::SaveLoad,
+						.params = "<name>",
+						.summary = "delete a save by name, as its row's Delete does"},
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 1)) return;
+						   const std::string name = JoinArgs(args);
+						   const std::string path = SaveSlotPath(name);
+						   if (!std::filesystem::exists(path)) {
+							   m_console.Refuse("deletesave: no save named '" + name + "'");
+							   return;
+						   }
+						   if (m_ui.DeleteSaveSlot(path, name))
+							   m_console.Print("deleted: " + name);
+						   else
+							   m_console.Refuse("deletesave: " + m_ui.SaveNotice());
 					   });
 
 	// --- diagnostics (read-only) ---

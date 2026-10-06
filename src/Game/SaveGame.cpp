@@ -7,10 +7,13 @@
 #include "Core/Log.h"
 #include "Core/Paths.h"
 #include "Game/Entity.h" // ReadLevelLines, SplitRecordTokens
+#include "Game/Inventory.h" // kPackRowSlots
+#include "Game/PartyRules.h" // party::kMaxMembers
 
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <charconv>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -60,11 +63,30 @@ void ParseTintTok(std::string_view sv, SaveData::EffectState& fx) {
 	fx.tint[2] = c[2];
 }
 
-// Almost every per-character line starts the same way: token 1 is the roster
-// index, and a save may name members in any order (or skip one), so the vector
-// grows to fit rather than being sized up front.
-SaveData::CharState& CharAt(SaveData& data, std::string_view indexTok) {
-	const size_t idx = static_cast<size_t>(IntOf(indexTok));
+// An index token, whole: digits only and below `limit`. std::from_chars rather
+// than atoi, which read "-1" as -1 - a size_t near 2^64 once cast, so a resize
+// to it plus one emptied the party and the next subscript read past it - and
+// "x" or "2x" as a number (code-review C349).
+bool IndexOf(std::string_view tok, size_t limit, size_t& out) {
+	size_t v = 0;
+	const char* const end = tok.data() + tok.size();
+	const auto [at, ec] = std::from_chars(tok.data(), end, v);
+	if (ec != std::errc() || at != end || v >= limit) return false;
+	out = v;
+	return true;
+}
+
+// The lines that belong to ONE MEMBER: token 1 is their roster index, checked
+// once for all of them before the line is read (ReadSave).
+constexpr std::string_view kMemberLines[] = {
+	"char", "equip", "packs", "usedef", "learned", "effect", "shield", "attr", "share",
+	"base", "supply", "dead", "portrait", "name", "race", "color", "pace", "skill",
+	"statxp", "mru", "packc"};
+
+// A save may name members in any order (or skip one), so the vector grows to
+// fit rather than being sized up front. `idx` is already checked against the
+// party's slots, so it grows by at most that much.
+SaveData::CharState& CharAt(SaveData& data, size_t idx) {
 	if (idx >= data.characters.size()) data.characters.resize(idx + 1);
 	return data.characters[idx];
 }
@@ -444,6 +466,27 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 		if (tok.empty()) continue;
 		const std::string_view kw = tok[0];
 
+		// A MEMBER'S LINE names a member the party can have, and a `packc` line a
+		// slot of the pack row - checked here, once, so no branch below can grow
+		// the party to a hand-edited index. A bad one REFUSES the save rather than
+		// loading the rest of it around a hole (code-review C349). Only a full
+		// read finds it, so the Load list still shows such a save, and a load of
+		// it says why it went no further.
+		size_t member = 0, pack = 0;
+		if (tok.size() >= 2 && std::ranges::find(kMemberLines, kw) != std::end(kMemberLines)) {
+			const bool memberOk = IndexOf(tok[1], party::kMaxMembers, member);
+			const bool packOk = kw != "packc" || tok.size() < 3 ||
+								IndexOf(tok[2], static_cast<size_t>(kPackRowSlots), pack);
+			if (!memberOk || !packOk) {
+				WarnRefusalOnce(std::format(
+					"Save {}: '{}' names {} {} - a party has members 0..{} and a pack row "
+					"0..{}; refusing the save rather than loading it around the hole",
+					path, line, memberOk ? "pack" : "member", memberOk ? tok[2] : tok[1],
+					party::kMaxMembers - 1, kPackRowSlots - 1));
+				return std::nullopt;
+			}
+		}
+
 		if (kw == "party" && tok.size() >= 4) {
 			data.partyX = IntOf(tok[1]);
 			data.partyZ = IntOf(tok[2]);
@@ -484,7 +527,7 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 		} else if (kw == "flag" && tok.size() >= 3) {
 			data.world.flags.emplace_back(std::string(tok[1]), DeTok(tok[2]));
 		} else if (kw == "char" && tok.size() >= 8) {
-			SaveData::CharState& c = CharAt(data, tok[1]);
+			SaveData::CharState& c = CharAt(data, member);
 			c.health = FloatOf(tok[2]);    c.maxHealth = FloatOf(tok[3]);
 			c.stamina = FloatOf(tok[4]);   c.maxStamina = FloatOf(tok[5]);
 			c.mana = FloatOf(tok[6]);      c.maxMana = FloatOf(tok[7]);
@@ -492,11 +535,11 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 				c.knownSymbols = static_cast<u32>(IntOf(tok[8]));
 		} else if (kw == "equip" && tok.size() >= 2) {
 			// Worn doll + the two weapon hands (EquipSlot order); "-" = empty.
-			SaveData::CharState& c = CharAt(data, tok[1]);
+			SaveData::CharState& c = CharAt(data, member);
 			for (size_t i = 2; i < tok.size(); ++i) c.equipment.push_back(DeTok(tok[i]));
 		} else if (kw == "packs" && tok.size() >= 3) {
 			// Pack-row containers + selection: "packs <i> <selected> <types...>".
-			SaveData::CharState& c = CharAt(data, tok[1]);
+			SaveData::CharState& c = CharAt(data, member);
 			c.selectedPack = IntOf(tok[2]);
 			for (size_t i = 3; i < tok.size(); ++i) c.packTypes.push_back(DeTok(tok[i]));
 			c.packContents.resize(c.packTypes.size());
@@ -505,7 +548,7 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			// pre-v16 had no hand token ("usedef <i> <item> <cmd> ...") — an
 			// item id can't be "0"/"1", so the token disambiguates — and a
 			// flat line seeds BOTH hands.
-			SaveData::CharState& c = CharAt(data, tok[1]);
+			SaveData::CharState& c = CharAt(data, member);
 			const bool perHand = tok[2] == "0" || tok[2] == "1";
 			const size_t first = perHand ? 3 : 2;
 			for (size_t i = first; i + 1 < tok.size(); i += 2) {
@@ -520,13 +563,13 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			}
 		} else if (kw == "learned" && tok.size() >= 3) {
 			// Learned spells: "learned <i> <spell> ..." (v11).
-			SaveData::CharState& c = CharAt(data, tok[1]);
+			SaveData::CharState& c = CharAt(data, member);
 			for (size_t i = 2; i < tok.size(); ++i)
 				c.learnedSpells.emplace_back(tok[i]);
 		} else if (kw == "effect" && tok.size() >= 7) {
 			// Status effect: "effect <i> <kind> <school> <time> <duration>
 			// <magnitude> <nameKey>" (v14); "-" = empty token.
-			SaveData::CharState& c = CharAt(data, tok[1]);
+			SaveData::CharState& c = CharAt(data, member);
 			SaveData::EffectState e;
 			e.id = DeTok(tok[2]);
 			e.school = DeTok(tok[3]);
@@ -540,7 +583,7 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			// ward effect — duration = the remaining time (the HUD fraction
 			// starts full), display name derived from the school (the four
 			// Protect shields are the only wards a v13 save can carry).
-			SaveData::CharState& c = CharAt(data, tok[1]);
+			SaveData::CharState& c = CharAt(data, member);
 			SaveData::EffectState e;
 			e.id = "ward";
 			e.school = std::string(tok[2]);
@@ -554,7 +597,7 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			c.effects.push_back(std::move(e));
 		} else if (kw == "attr" && tok.size() >= 7) {
 			// The five attributes: "attr <i> <str> <dex> <vit> <will> <int>" (v15).
-			SaveData::CharState& c = CharAt(data, tok[1]);
+			SaveData::CharState& c = CharAt(data, member);
 			c.hasAttrs = true;
 			c.strength = IntOf(tok[2]);
 			c.dexterity = IntOf(tok[3]);
@@ -566,57 +609,57 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			// pre-v23 save meant. A 4-token form was written briefly while the
 			// share was per HAND; its first value is the same stance, so those
 			// saves read correctly by simply ignoring the extra token.
-			SaveData::CharState& c = CharAt(data, tok[1]);
+			SaveData::CharState& c = CharAt(data, member);
 			c.offenseShare = FloatOf(tok[2]);
 		} else if (kw == "base" && tok.size() >= 5) {
 			// Resource bases: "base <i> <health> <stamina> <mana>" (v17).
-			SaveData::CharState& c = CharAt(data, tok[1]);
+			SaveData::CharState& c = CharAt(data, member);
 			c.hasBases = true;
 			c.baseHealth = FloatOf(tok[2]);
 			c.baseStamina = FloatOf(tok[3]);
 			c.baseMana = FloatOf(tok[4]);
 		} else if (kw == "supply" && tok.size() >= 4) {
 			// Food and water: "supply <i> <food> <water>" (v25).
-			SaveData::CharState& c = CharAt(data, tok[1]);
+			SaveData::CharState& c = CharAt(data, member);
 			c.hasSupplies = true;
 			c.food = FloatOf(tok[2]);
 			c.water = FloatOf(tok[3]);
 		} else if (kw == "dead" && tok.size() >= 2) {
 			// The overkill flag (v18): present = this member is DEAD.
-			CharAt(data, tok[1]).dead = true;
+			CharAt(data, member).dead = true;
 		} else if (kw == "portrait" && tok.size() >= 3) {
 			// The portraits.cat id: "portrait <i> <id>". Absent = the default's.
-			CharAt(data, tok[1]).portrait = tok[2];
+			CharAt(data, member).portrait = tok[2];
 		} else if (kw == "name" && tok.size() >= 3) {
 			// "name <i> <name>", spaces written as underscores (see the writer).
 			std::string name(tok[2]);
 			std::ranges::replace(name, '_', ' ');
-			CharAt(data, tok[1]).name = std::move(name);
+			CharAt(data, member).name = std::move(name);
 		} else if (kw == "race" && tok.size() >= 3) {
-			CharAt(data, tok[1]).race = tok[2];
+			CharAt(data, member).race = tok[2];
 		} else if (kw == "color" && tok.size() >= 6) {
-			SaveData::CharState& c = CharAt(data, tok[1]);
+			SaveData::CharState& c = CharAt(data, member);
 			c.hasColor = true;
 			for (int k = 0; k < 4; ++k) c.color[k] = FloatOf(tok[2 + k]);
 		} else if (kw == "pace" && tok.size() >= 3) {
-			SaveData::CharState& c = CharAt(data, tok[1]);
+			SaveData::CharState& c = CharAt(data, member);
 			c.hasPace = true;
 			c.pace = FloatOf(tok[2]);
 		} else if (kw == "skill" && tok.size() >= 4) {
 			// Skill XP pairs: "skill <i> <id> <xp> ..." (v15).
-			SaveData::CharState& c = CharAt(data, tok[1]);
+			SaveData::CharState& c = CharAt(data, member);
 			for (size_t i = 2; i + 1 < tok.size(); i += 2)
 				c.skills.emplace_back(std::string(tok[i]), FloatOf(tok[i + 1]));
 		} else if (kw == "statxp" && tok.size() >= 4) {
 			// Stat-creep pools: "statxp <i> <stat> <progress> ..." (v15).
-			SaveData::CharState& c = CharAt(data, tok[1]);
+			SaveData::CharState& c = CharAt(data, member);
 			for (size_t i = 2; i + 1 < tok.size(); i += 2)
 				c.statProgress.emplace_back(std::string(tok[i]), FloatOf(tok[i + 1]));
 		} else if (kw == "mru" && tok.size() >= 3) {
 			// Spell MRU, newest first. v16: "mru <i> <hand> <spell> ...";
 			// pre-v16 had no hand token (spell ids can't be "0"/"1") — a flat
 			// line seeds BOTH hands.
-			SaveData::CharState& c = CharAt(data, tok[1]);
+			SaveData::CharState& c = CharAt(data, member);
 			const bool perHand = tok[2] == "0" || tok[2] == "1";
 			for (size_t i = perHand ? 3 : 2; i < tok.size(); ++i) {
 				if (perHand)
@@ -625,12 +668,12 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 					for (auto& hand : c.mruSpells) hand.emplace_back(tok[i]);
 			}
 		} else if (kw == "packc" && tok.size() >= 3) {
-			// One pack's contents: "packc <i> <packIdx> <items...>".
-			SaveData::CharState& c = CharAt(data, tok[1]);
-			const size_t p = static_cast<size_t>(IntOf(tok[2]));
-			if (p >= c.packContents.size()) c.packContents.resize(p + 1);
+			// One pack's contents: "packc <i> <packIdx> <items...>" (the index
+			// checked above, so this grows the row by at most its slots).
+			SaveData::CharState& c = CharAt(data, member);
+			if (pack >= c.packContents.size()) c.packContents.resize(pack + 1);
 			for (size_t i = 3; i < tok.size(); ++i)
-				c.packContents[p].push_back(DeTok(tok[i]));
+				c.packContents[pack].push_back(DeTok(tok[i]));
 		} else if (kw == "level" && tok.size() >= 2) {
 			data.levels.push_back({std::string(tok[1]), {}, {}});
 			cur = &data.levels.back();
@@ -843,13 +886,7 @@ std::optional<SaveHeader> ReadSaveHeader(const std::string& path) {
 	return head;
 }
 
-namespace {
-std::string g_saveWorldFilter; // see SetSaveWorldFilter
-} // namespace
-
-void SetSaveWorldFilter(std::string world) { g_saveWorldFilter = std::move(world); }
-
-std::vector<SaveSlot> ListSaves() {
+std::vector<SaveSlot> ListSaves(std::string_view world) {
 	std::vector<SaveSlot> slots;
 	std::error_code ec;
 	const std::filesystem::path dir(paths::SaveDir());
@@ -861,8 +898,7 @@ std::vector<SaveSlot> ListSaves() {
 			continue;
 		const std::string path = entry.path().string();
 		if (auto head = ReadSaveHeader(path)) {
-			if (!g_saveWorldFilter.empty() && head->world != g_saveWorldFilter)
-				continue;
+			if (!world.empty() && head->world != world) continue;
 			slots.push_back({std::move(head->world), std::move(head->name),
 							 std::move(head->level), std::move(head->timestamp), path});
 		}
@@ -870,6 +906,19 @@ std::vector<SaveSlot> ListSaves() {
 	// Newest first — the timestamp strings sort lexicographically by time.
 	std::ranges::sort(slots, std::ranges::greater{}, &SaveSlot::timestamp);
 	return slots;
+}
+
+int DeleteSave(const std::string& path, std::string& why) {
+	why.clear();
+	std::error_code ec;
+	std::filesystem::remove(path, ec);
+	if (!ec) return 0; // removed, or already gone
+	// The system's own sentence and its code: "being used by another process"
+	// (32) reads differently from "access is denied" (5), and the code is what a
+	// search finds.
+	why = ec.message();
+	log::Warn("Could not delete save {}: {} (error {})", path, why, ec.value());
+	return ec.value(); // never 0: a set error_code holds a non-zero value
 }
 
 } // namespace dungeon::game

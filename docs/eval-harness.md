@@ -773,7 +773,11 @@ kindle clock - what a reset must clear and no other readout shows. It is the
 judge for the reset leaks code-review batches 77-79 close, each of which injects
 its leak into the wrecking. Its first run caught one with nothing injected: the
 kindle clock runs every frame, so a reset handed the next test whatever phase
-the last one ended on (0.100 against a new game's 0.250).
+the last one ended on (0.100 against a new game's 0.250). Both blocks also
+print **`messages`**, the HUD log the party arrives to, demanded non-empty:
+since code-review C364 a new game - loaded or found in hand - and the recycle
+all begin play through `Game::BeginPlay`, so the reset's log is a new game's
+opening, and two empty logs would agree while saying nothing.
 
 ### A load and a stair clear what a reset clears (code-review C292, C293)
 

@@ -46,6 +46,7 @@ saves.overwrite_confirm=Pulsa de nuevo para sobrescribir
 saves.delete=Eliminar
 saves.cancel=Cancelar
 saves.delete_prompt=¿Eliminar esta partida?
+saves.delete_failed=No se pudo eliminar {} (error {}).
 
 ; --- loading steps ------------------------------------------------------------
 load.echoes=Afinando los ecos

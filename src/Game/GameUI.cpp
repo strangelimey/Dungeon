@@ -379,8 +379,8 @@ void GameUI::BuildMenuList() {
 	// Continue and Load only appear when at least one save exists, so the list
 	// is sized to whatever entries are present (one quarter each with all four,
 	// half each with just Start + Settings). Bounds are window fractions.
-	const bool hasSaves = !ListSaves().empty();
-	m_menuHasSaves = hasSaves;
+	const bool hasSaves = !SaveList().empty();
+	m_titleHasSaves = hasSaves;
 	// +1 for Exit, which is always present: it is the ONLY pointer-driven way out
 	// of the title screen now that Esc no longer quits (see Game.cpp's Menu case).
 	const int itemCount = (hasSaves ? 5 : 3) + 1; // Editor sits under Start
@@ -391,12 +391,13 @@ void GameUI::BuildMenuList() {
 										  kMenuContentY + 0.02f);
 	panel->centreX = kMenuMainCentreX;
 	ui::MenuList* menu = panel->List();
+	m_titleList = menu;
 
 	// Order: Continue / Load (only when a save exists), then Start New Game just
 	// above Settings. Continue loads the most recent save outright (no browser).
 	if (hasSaves) {
 		menu->AddItem(loc::Tr("menu.continue"), [this] {
-			const std::vector<SaveSlot> slots = ListSaves();
+			const std::vector<SaveSlot> slots = SaveList();
 			if (slots.empty()) return; // raced with a deletion
 			Click(0.6f);
 			m_menuPage = MenuPage::Main;
@@ -911,8 +912,8 @@ void GameUI::BuildPauseMenu() {
 	m_pauseUi.Clear(); // the list is this context's only content
 	// Load only appears when at least one save exists; the list is sized to the
 	// entries actually present (six with Load, five without).
-	const bool hasSaves = !ListSaves().empty();
-	m_menuHasSaves = hasSaves;
+	const bool hasSaves = !SaveList().empty();
+	m_pauseHasSaves = hasSaves;
 	const int itemCount = hasSaves ? 6 : 5;
 	// A stone card, centred, with the title carved on it and the entries as
 	// cut stones (Game/MenuPanel.h; more-ui-updates Phase 4). RenderPauseOverlay
@@ -920,6 +921,7 @@ void GameUI::BuildPauseMenu() {
 	auto* panel = m_pauseUi.Add<MenuPanel>(loc::Tr("pause.title"),
 										   static_cast<size_t>(itemCount), -1.0f);
 	ui::MenuList* menu = panel->List();
+	m_pauseList = menu;
 	menu->AddItem(loc::Tr("menu.save"), [this] {
 		Click();
 		OpenSavesPage(SavesMode::Save);
@@ -960,20 +962,25 @@ void GameUI::BuildPauseMenu() {
 // m_savesDirty). Both modes show the slots in a scrolling SlotList with a
 // per-row Delete: Load activates a row to load it; Save fills the name field
 // from a row to overwrite it, above the name field + Save button.
-void GameUI::OpenSavesPage(SavesMode mode) {
+void GameUI::OpenSavesPage(SavesMode mode, bool keepNotice) {
 	m_savesMode = mode;
 	m_overwriteArmed = false;
 	m_saveField = nullptr;
 	m_saveButton = nullptr;
+	if (!keepNotice) m_saveNotice.clear();
 	m_savesUi.Clear();
 
-	const std::vector<SaveSlot> slots = ListSaves();
+	const std::vector<SaveSlot> slots = SaveList();
 
 	// The page is a stone card with its title carved on it and its rows in one
 	// Stack (more-ui-updates: the same treatment as the pause and title menus).
 	// The slots are cut stones that press and act on release; Save and Back are
 	// carved stones. Nothing below writes a coordinate.
 	ui::Stack* col = SavesCard(mode == SavesMode::Save ? "saves.title_save" : "saves.title_load");
+	// A delete that did not happen says so first, in the accent: the row it was
+	// for is still in the list below, and without this it simply came back.
+	if (!m_saveNotice.empty())
+		col->Row<ui::Label>(ui::Len::Fixed(1.25f), m_saveNotice)->accent = true;
 
 	// Builds the slots into the column's filling row. The list sits ABOVE the
 	// Back row in add order, so Back is updated first: the list's delete confirm
@@ -1005,11 +1012,9 @@ void GameUI::OpenSavesPage(SavesMode mode) {
 					m_menuPage = MenuPage::Main;
 					onLoadSave(path);
 				};
-			row.onDelete = [this, path = slot.path] {
+			row.onDelete = [this, path = slot.path, name = slot.name] {
 				Click(0.4f);
-				std::error_code ec;
-				std::filesystem::remove(path, ec);
-				MarkSavesChanged(); // caught up next frame, never from here
+				DeleteSaveSlot(path, name); // the page catches up next frame
 			};
 			list->AddRow(std::move(row));
 		}
@@ -1155,8 +1160,7 @@ void GameUI::CommitSave() {
 	}
 	Click(0.6f);
 	m_menuPage = MenuPage::Main;
-	MarkSavesChanged(); // the first save has to make Load appear
-	onSaveSlot(name);
+	onSaveSlot(name); // a save written marks the saves changed (Game::SaveGame)
 }
 
 void GameUI::DisarmOverwrite() {
@@ -2121,12 +2125,41 @@ void GameUI::MarkSavesChanged() {
 }
 
 // A deletion last frame asks for a fresh page; rebuild here, before any widget
-// updates, so the list isn't cleared from inside its own callback.
+// updates, so the list isn't cleared from inside its own callback. What the
+// page said about that deletion stays on it.
 void GameUI::RefreshSavesIfDirty() {
 	if (m_savesDirty && m_menuPage == MenuPage::Saves) {
 		m_savesDirty = false;
-		OpenSavesPage(m_savesMode);
+		OpenSavesPage(m_savesMode, /*keepNotice=*/true);
 	}
+}
+
+std::vector<SaveSlot> GameUI::SaveList() const {
+	return ListSaves(saveWorld ? saveWorld() : std::string());
+}
+
+bool GameUI::DeleteSaveSlot(const std::string& path, const std::string& name) {
+	std::string why;
+	const int code = DeleteSave(path, why);
+	// The page says it in a line: the name and the system's code. The sentence
+	// that code stands for is in the log, where there is room for it.
+	m_saveNotice = code == 0 ? std::string() : loc::Format("saves.delete_failed", name, code);
+	MarkSavesChanged(); // caught up next frame, never from a row's own callback
+	return code == 0;
+}
+
+void GameUI::ShowTitle() {
+	m_menuPage = MenuPage::Main;
+	m_menuEntriesDirty = false; // caught up here, whatever was pending
+	BuildMenuList();
+}
+
+std::string GameUI::MenuEntries(bool pause) const {
+	const ui::MenuList* list = pause ? m_pauseList : m_titleList;
+	std::string out;
+	for (size_t i = 0; list && i < list->Count(); ++i)
+		out += (i ? ", " : "") + list->Label(i);
+	return out;
 }
 
 // Continue / Load (landing) and Load (pause) are hidden when no save exists,
@@ -2139,13 +2172,18 @@ void GameUI::RefreshSavesIfDirty() {
 // callbacks. Gated on the list page actually being the one showing, which also
 // means a browser the player is still looking at is never yanked away — the
 // flag simply waits until they come back.
+//
+// EACH LIST AGAINST ITS OWN FLAG (code-review C366): the pause list is rebuilt
+// on every Esc, and while the two shared one flag that rebuild "caught up" the
+// title too - so save, Esc, Return to Main Menu showed a title with no Continue
+// and no Load. (ShowTitle rebuilds the title on the way back as well.)
 void GameUI::RefreshMenuEntriesIfDirty() {
 	if (!m_menuEntriesDirty || m_menuPage != MenuPage::Main) return;
 	m_menuEntriesDirty = false;
-	const bool hasSaves = !ListSaves().empty();
-	if (hasSaves == m_menuHasSaves) return; // the entries would come out the same
-	BuildMenuList();
-	BuildPauseMenu();
+	const bool hasSaves = !SaveList().empty();
+	// Each is skipped when its entries would come out the same.
+	if (hasSaves != m_titleHasSaves) BuildMenuList();
+	if (hasSaves != m_pauseHasSaves) BuildPauseMenu();
 }
 
 void GameUI::UpdateMenu(const Input& input, float dt) {

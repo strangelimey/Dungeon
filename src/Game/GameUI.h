@@ -51,6 +51,7 @@ namespace dungeon::game {
 
 class StonePicker; // Game/StonePicker.h - the Material tab's grid
 class PageCard;    // Game/MenuPanel.h - the menu pages' stone card
+struct SaveSlot;   // Game/SaveGame.h - one listed save
 
 class GameUI {
 public:
@@ -162,6 +163,24 @@ public:
 	// whether a save exists (saves come and go during play). Call before
 	// opening the pause menu.
 	void RebuildPauseMenu();
+	// Back on the title: its main page, with its list REBUILT from the saves on
+	// disk (Game::ReturnToTitle). The backstop for Continue / Load, whatever the
+	// dirty flags missed on the way (code-review C366). Never from inside the
+	// title list's own walk - every caller is a world tick or a pause-menu answer.
+	void ShowTitle();
+	// Flags everything that depends on WHICH saves exist. Call from any path
+	// that writes or removes one (Game::SaveGame does, for every way in).
+	void MarkSavesChanged();
+	// A save row's Delete, and the console's `deletesave`: removes the file and
+	// re-lists the saves next frame; when the file stays, the Save / Load page
+	// says so above its list, with the system's error code (SaveNotice), and
+	// the reason is logged (code-review C367). True when the save is gone.
+	bool DeleteSaveSlot(const std::string& path, const std::string& name);
+	// What the Save / Load page says above its list ("" = nothing).
+	const std::string& SaveNotice() const { return m_saveNotice; }
+	// The title's or the pause menu's entries as they are built, joined with
+	// ", " - the console's `title status` (an InGameTest row reads it).
+	std::string MenuEntries(bool pause) const;
 	// True while a Settings key-bind box is armed ("press a key...") — Esc
 	// then cancels the capture instead of leaving the settings page.
 	bool KeyCaptureActive() const;
@@ -420,6 +439,9 @@ public:
 	// The player named and confirmed a save (pause Save). Argument is the
 	// display name; the receiver writes it and resumes play.
 	std::function<void(const std::string&)> onSaveSlot;
+	// Which world's saves the menus list (a world folder; "" = every world's) -
+	// Game::SaveListWorld, asked on every build so it follows a world switch.
+	std::function<std::string()> saveWorld;
 	std::function<void(size_t)> onOpenSheet;    // portrait click, prev/next
 	std::function<void()> onShowPartyInventory; // sheet "All" -> combined backpacks
 	std::function<void(int)> onQualitySelected; // Video tab quality dropdown
@@ -542,7 +564,9 @@ private:
 	// Rebuilds the (dynamic) save-slot browser from the files on disk and
 	// switches to the Saves page in the given mode. Shared by the landing/pause
 	// Load entries and the pause Save entry; widgets live in m_savesUi.
-	void OpenSavesPage(SavesMode mode);
+	// `keepNotice` is the rebuild a delete asks for, which keeps what the page
+	// says about it; opened afresh, the page starts with nothing to say.
+	void OpenSavesPage(SavesMode mode, bool keepNotice = false);
 	// The new-game world list (MenuPage::Worlds), built into m_savesUi.
 	void OpenWorldsPage();
 	// The stone card those three pages stand on (its title from `titleKey`) and
@@ -559,12 +583,11 @@ private:
 	// Rebuilds the Saves page if a deletion flagged it dirty (deferred so the
 	// SlotList isn't cleared from inside its own row callback).
 	void RefreshSavesIfDirty();
-	// Flags everything that depends on WHICH saves exist. Call from any path
-	// that writes or removes one.
-	void MarkSavesChanged();
 	// Re-filters the landing and pause lists (Continue / Load appear only with
 	// a save) once the saves have changed. Deferred like RefreshSavesIfDirty.
 	void RefreshMenuEntriesIfDirty();
+	// The saves the menus offer: ListSaves of the world `saveWorld` names.
+	std::vector<SaveSlot> SaveList() const;
 	// Pushes the settings theme into every UIContext (each owns a copy).
 	void ApplyTheme();
 	// Pushes the skin (or null, per settings.uiSkin) into every UIContext.
@@ -850,9 +873,21 @@ private:
 	// up at different moments: the browser while it is open, these once the
 	// player is back on the list page.
 	bool m_menuEntriesDirty = false;
-	// Whether those lists were built WITH the save-only entries, so a rebuild
-	// is skipped when deleting one of several saves changes nothing.
-	bool m_menuHasSaves = false;
+	// Whether EACH list was built WITH the save-only entries, so a rebuild is
+	// skipped when deleting one of several saves changes nothing. One flag per
+	// list (code-review C366): they were one, and the pause list rebuilt on
+	// every Esc set it for both - so after a first save the title kept its
+	// save-less list, no Continue, no Load, until the next launch.
+	bool m_titleHasSaves = false;
+	bool m_pauseHasSaves = false;
+	// The two lists as built (in m_menuUi / m_pauseUi, valid until the next
+	// build), for MenuEntries.
+	ui::MenuList* m_titleList = nullptr;
+	ui::MenuList* m_pauseList = nullptr;
+	// What the Save / Load page says above its list: a delete that failed.
+	// Kept across the rebuild the delete itself asks for, cleared when the page
+	// is opened afresh.
+	std::string m_saveNotice;
 
 	// Widgets the game updates later; the UIContexts own them.
 	MessageLog* m_log = nullptr;

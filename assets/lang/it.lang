@@ -46,6 +46,7 @@ saves.overwrite_confirm=Clicca di nuovo per sovrascrivere
 saves.delete=Elimina
 saves.cancel=Annulla
 saves.delete_prompt=Eliminare questo salvataggio?
+saves.delete_failed=Impossibile eliminare {} (errore {}).
 
 ; --- loading steps ------------------------------------------------------------
 load.echoes=Accordando gli echi

@@ -338,13 +338,18 @@ def remove_saves(names):
                 pass
 
 
-_COMMAND_SAVE = re.compile(r"^(\s*)(save|load)(\s+)(\S+)(\s*)$")
+# A `save` / `load` line, bare or as an `expect-refuse` probe. The probe form was
+# missed when the probes arrived (code-review C442): WorldTest phase 3's
+# `expect-refuse load worldtrip` kept the shared name, loaded a slot that did not
+# exist and was refused for THAT - its checks were met by other lines.
+_COMMAND_SAVE = re.compile(r"^(\s*(?:expect-refuse\s+)?)(save|load)(\s+)(\S+)(\s*)$")
 
 
 def eval_script(src, out_dir, saves=None, words=None):
     """A copy of eval script `src` for this run, written to out_dir under the
     SAME file name (the verdict line names a script by its file name):
-    - `saves`: {name: new} renames the slot of a `save` / `load` line;
+    - `saves`: {name: new} renames the slot of a `save` / `load` line (an
+      `expect-refuse` one too);
     - `words`: {word: new} replaces that whole word (a world's id, say) in
       every command line.
     Comment lines are copied as they are. Returns src itself when nothing

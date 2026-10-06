@@ -72,7 +72,8 @@
 # its two scripts must show a step stopping at a party wipe (the tally's clock
 # with it) and a console-thrown torch landing with the charge it had. A reset
 # must equal a new game twice over: resettest.eval's two baselines (each with the
-# `transients` readout) match each other alone, and match again when the script
+# `transients` readout and a non-empty `messages` one) match each other alone,
+# and match again when the script
 # runs batched after selftest-leavelevel.eval, which carves the harness level and
 # leaves the party off it - the reset must come back to it and forget the carved
 # stash, which that script must be seen holding (code-review C300). Its wrecking
@@ -595,6 +596,11 @@ if ($SelfTest) {
 	# that lost it cannot go on comparing blocks blind to the leaks it is for.
 	$hasTransients = [bool](@($solo.A | Where-Object { $_ -cmatch '^transients on \S+$' }).Count)
 	if ($diff -eq '' -and -not $hasTransients) { $diff = 'no transients readout in the baseline' }
+	# ...and the HUD log the party arrives to (code-review C364: the recycle and
+	# a new game begin play through one tail). Demanded NON-EMPTY: a new game
+	# opens with lines, and two empty logs would compare equal saying nothing.
+	$hasMessages = [bool](@($solo.A | Where-Object { $_ -cmatch '^messages: [1-9]\d*$' }).Count)
+	if ($diff -eq '' -and -not $hasMessages) { $diff = 'no non-empty messages readout in the baseline' }
 	$resetOk = $resetRan -and ($diff -eq '')
 	Write-Host ("  {0} baseline lines compared - {1}" -f $solo.A.Count,
 		$(if ($resetOk) { 'identical' } else { $diff }))

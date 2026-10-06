@@ -1,0 +1,15 @@
+; worldbadsave.eval - a save naming a member or a pack the party cannot have is
+; refused, and the game goes on (code-review C349). Judged by tools/WorldTest.py
+; phase 22, which writes the bad slot between runs: a copy of a good save with
+; one hand-edited line added - `char -1 ...` on one run, `packc 0 -1 ...` on the
+; next.
+;
+; Such a line used to resize the party to its index plus one (a -1 emptied it)
+; and the next subscript read past the end: a debug abort, undefined in release.
+; The good save loads first, as the control: the bad one differs from it by that
+; one line alone.
+logecho on
+reset
+load worldsaves_a
+expect-refuse load worldsaves_bad
+state

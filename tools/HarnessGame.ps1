@@ -144,6 +144,26 @@ function Assert-ExeCurrent([string]$exe) {
 }
 
 # ---------------------------------------------------------------------------
+# Names this worktree owns
+# ---------------------------------------------------------------------------
+
+# A short name for this checkout: its folder name plus a hash of its path, spelt
+# exactly as tools\harness_game.py worktree_tag spells it (two checkouts may
+# share a folder name under different parents). Whatever a harness leaves where
+# every session looks carries it - a save in Documents\DungeonSaves, and the
+# world such a save names, since a -project run's lists pick saves BY that world
+# (code-review batch 52: a fixed world name counted another worktree's saves).
+function Get-WorktreeTag([string]$root) {
+	$full = [System.IO.Path]::GetFullPath($root).TrimEnd('\', '/')
+	$base = ((Split-Path $full -Leaf).ToLower() -replace '[^a-z0-9]+', '_').Trim('_')
+	# os.path.normcase on Windows: lower case, backslashes.
+	$key = [System.Text.Encoding]::UTF8.GetBytes($full.ToLowerInvariant().Replace('/', '\'))
+	$sha = [System.Security.Cryptography.SHA1]::Create()
+	try { $digest = $sha.ComputeHash($key) } finally { $sha.Dispose() }
+	return $base + '_' + (-join ($digest[0..2] | ForEach-Object { $_.ToString('x2') }))
+}
+
+# ---------------------------------------------------------------------------
 # Launch and stop
 # ---------------------------------------------------------------------------
 

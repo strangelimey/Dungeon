@@ -46,7 +46,10 @@ cleared, since they are keyed by the old world's ids.
 - **P1 — saves know their world.** A `world=` header line; `SaveSlot::world`;
   version 2, floor 2. The Load page shows the world beside the time. A
   `-project` run sees only that world's saves (it is how a harness opens a
-  world, and a Continue must not carry it off into another).
+  world, and a Continue must not carry it off into another). Since code-review
+  C207 "that world" is the one IN HAND, asked on every list (Game::
+  SaveListWorld, passed to `ListSaves(world)`): it was a process-wide filter
+  latched at launch, so after a switch every list showed the first world's.
 - **P2 — the world is built on demand.** `m_world` an owned pointer, created by
   `Game::LoadWorld(folder)` and destroyed by `UnloadWorld()` (GPU drained first:
   in-flight frames still reference its buffers). `MapView` / `MapEditor` take a

@@ -2659,7 +2659,11 @@ Full per-phase history + gotchas live in the editor-overhaul memory.
   had lost. A judge's saves are THIS WORKTREE'S (`save_name`:
   `worldtrip_<worktree>_<hash>`, written into a copy of the script by
   `eval_script`) - Documents\DungeonSaves is shared with every session and
-  Michael's play - and only those are deleted. Each ends with `harness_game.RealTree.check`, whose
+  Michael's play - and only those are deleted. So is the world such a save
+  NAMES when a check counts saves: a -project run lists the saves naming the
+  world in hand, so a fixed name counts another worktree's (`wt_saves_<tag>`,
+  `wt_igttitle_<tag>`; `worktree_tag`, and `Get-WorktreeTag` in
+  HarnessGame.ps1, spelt alike). Each ends with `harness_game.RealTree.check`, whose
   baseline is taken BEFORE the run clears up after a killed one (taken after,
   a damaging recovery became the baseline and passed): every other real world
   and the library byte for byte as found (a library whose backup stood: as the

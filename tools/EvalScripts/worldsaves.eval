@@ -1,0 +1,33 @@
+; worldsaves.eval - the saves a list shows follow the world in hand (code-review
+; C207). Judged by tools/WorldTest.py phase 22, which runs it with -project on
+; its scratch world.
+;
+; A `-project` run used to fix its save filter to the LAUNCH world for the whole
+; process, so after a switch every list - Load, Continue, `load`, the editor's
+; save sweeps - showed the first world's saves and none of the world in hand's.
+; So: a save in the launch world (A), a switch to a new world, a save there (B)
+; with a blob placed live (a spawn row naming its type), then
+;   - `load` and `title status` must list B and not A (the -project rule still
+;     holds, for the world the run is now in);
+;   - the blob type, which nothing else in the new world names, is deleted, and
+;     the delete must WARN that B still names it - the editor's sweep has to
+;     find a save of the world in hand.
+; WorldTest makes nothing of A here; phase 22 uses both saves after this run.
+; It renames the saves AND the new world to this worktree's (wt_saves_<tag>):
+; the lists pick saves by the world they name, in a folder every session shares.
+logecho on
+reset
+save worldsaves_a
+worlds new wt_saves
+worlds load wt_saves
+state
+freeze on
+spawn blob 7 7
+save worldsaves_b
+echo --- saves: listed after the switch ---
+load
+title status
+echo --- saves: a type only a save names ---
+reset
+typerefs monsters blob
+typeset delete monsters blob

@@ -816,6 +816,22 @@ private:
 	// already held. True = a load is in flight and the caller is done.
 	bool OpenInLevel(const std::string& level, int x, int z);
 	void StartNewGame();
+	// How the party came to be standing in a level, which decides what the log
+	// says when play begins: a stair says nothing, a new game the opening and the
+	// keys, a loaded game where it is.
+	enum class Arrival { Level, NewGame, LoadedGame };
+	// THE ONE TAIL of every way into play in a level (code-review C364): the log
+	// the player arrives to, the HUD's position re-derived, and Playing. A new
+	// game or a load that had to load its level first used to return early and
+	// leave the level's completion to clear the log - so Start New Game from
+	// crypt2 began in silence while the same click on crypt1 showed the opening.
+	void BeginPlay(Arrival how);
+	// Which world's saves the menus, `load` and Continue list (ListSaves): in a
+	// `-project` run the world in hand (the default one while none is loaded) -
+	// that flag is how a harness or a scenario opens a world, and a Continue must
+	// not carry it off into another - else every world's (code-review C207: this
+	// was latched at launch and went stale after a switch).
+	std::string SaveListWorld() const;
 	// Resets the roster to a fresh party: `party` (a CREATED one, docs/party-
 	// creation-plan.md), or the default four when null. The same SIZE is assigned
 	// member by member, in place; a different size replaces the vector and
@@ -1081,6 +1097,10 @@ private:
 	// A save made on the world map is loading onto a different level: when the
 	// load lands, ResumeOnWorldMap(m_pendingWorldPark) instead of playing on.
 	bool m_pendingWorldMap = false, m_pendingWorldPark = false;
+	// What the level load in flight is FOR, so its completion begins play the way
+	// that path would have (BeginPlay). Set by StartNewGame / LoadGame after
+	// they stage the load; a plain transition (BeginLevelTransition) resets it.
+	Arrival m_pendingArrival = Arrival::Level;
 
 	// --- modules (construction order matters: settings load first, the world
 	// and UI reference settings/sounds/characters) -------------------------------

@@ -60,6 +60,7 @@ saves.overwrite_confirm=Нажмите ещё раз, чтобы перезап�
 saves.delete=Удалить
 saves.cancel=Отмена
 saves.delete_prompt=Удалить это сохранение?
+saves.delete_failed=Не удалось удалить {} (ошибка {}).
 
 ; --- loading steps ------------------------------------------------------------
 load.echoes=Настраиваем эхо

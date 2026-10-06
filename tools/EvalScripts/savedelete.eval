@@ -1,0 +1,16 @@
+; savedelete.eval - a save that cannot be deleted says so (code-review C367).
+; Judged by tools/WorldTest.py phase 22, which holds worldsaves_a OPEN for the
+; length of the run (another process's handle, as a sync client or an editor
+; would hold it) and has made worldsaves_b read-only.
+;
+; The row's Delete used to throw the error away, so the save just came back in
+; the list with nothing said. `deletesave` is that row's own call: the read-only
+; save goes (the library deletes past the attribute - the control that a
+; delete works at all), and the open one is refused with the page's own line,
+; the system's error code in it and its sentence in the log.
+logecho on
+reset
+echo --- delete: a read-only save ---
+deletesave worldsaves_b
+echo --- delete: a save held open ---
+expect-refuse deletesave worldsaves_a

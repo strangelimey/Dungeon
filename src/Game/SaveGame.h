@@ -26,6 +26,7 @@
 #include <array>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -357,7 +358,10 @@ std::string SaveSlotPath(const std::string& name);
 
 // Serialize / parse one save file. WriteSave creates SaveDir as needed and
 // returns false on write failure; ReadSave returns nullopt for a missing or
-// unparseable file.
+// unparseable file, and REFUSES (logged once, like the header's refusals) one
+// whose per-member line names a member outside the party's slots or a pack
+// outside the pack row - a hand edit, which used to resize the party to fit
+// whatever the line said (code-review C349).
 bool WriteSave(const SaveData& data, const std::string& path);
 std::optional<SaveData> ReadSave(const std::string& path);
 // Reads ONLY the header, stopping at the first record, and applies the same
@@ -369,13 +373,24 @@ std::optional<SaveData> ReadSave(const std::string& path);
 // time.
 std::optional<SaveHeader> ReadSaveHeader(const std::string& path);
 
-// Every "*.dsav" in SaveDir, newest first (by timestamp string). Files that
-// are refused (see ReadSaveHeader) are skipped. Empty if the folder doesn't
-// exist yet. Header reads only, so it is cheap enough to ask on every menu build.
-std::vector<SaveSlot> ListSaves();
-// Limits ListSaves to one world's saves, for the whole process ("" = every
-// world). A `-project` run sets it: that flag is how a harness or a test
-// scenario opens a world, and a Continue must not carry it off into another.
-void SetSaveWorldFilter(std::string world);
+// Every "*.dsav" in SaveDir, newest first (by timestamp string) - only `world`'s
+// when one is named (a world FOLDER, SaveSlot::world), every world's when it is
+// empty. Files that are refused (see ReadSaveHeader) are skipped. Empty if the
+// folder doesn't exist yet. Header reads only, so it is cheap enough to ask on
+// every menu build.
+//
+// WHICH WORLD is the caller's to say (code-review C207). It used to be a
+// process-wide filter set once at launch from `-project`, so after a world
+// switch every list - Load, Continue, `load`, the editor's save sweeps - still
+// showed the launch world's saves and none of the world in hand.
+std::vector<SaveSlot> ListSaves(std::string_view world = {});
+
+// Deletes one save file: 0 when it is gone (a file already gone is not a
+// failure - there was nothing left to delete), else the system's error code,
+// with its sentence in `why` and a log line naming both - a file held open by
+// another process, say (code-review C367: the row's delete threw the error away
+// and the save simply came back). NOT the read-only attribute: the library's
+// remove deletes past it.
+int DeleteSave(const std::string& path, std::string& why);
 
 } // namespace dungeon::game

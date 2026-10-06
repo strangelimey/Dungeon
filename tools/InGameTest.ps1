@@ -30,6 +30,14 @@
 #               pass - not the parked dungeon. A drawing fact, so only a run
 #               that renders can check it; it is those two screens' status.
 #
+#   the title   (code-review C366) after a first save, Esc and Return to Main
+#               Menu, the title offers Continue and Load - in a world of its
+#               own, whose title first offers neither. `title status` is that
+#               screen's status, read on the title before, BEHIND THE PAUSE
+#               MENU (the way back rebuilds the title whatever its flags say,
+#               so only that reading sees them) and on the title after; the
+#               screen is the last, since it switches world.
+#
 # COVERAGE IS SELF-VERIFYING, and a label alone does not verify it: the game
 # logs `uioverlap [<label>] --- state <s>` the moment the command runs, whether
 # or not the screen opened (code-review C427). So each screen is judged on four
@@ -96,16 +104,19 @@ function Open-Console { Send-Key $VK_CONSOLE; Start-Sleep -Milliseconds 600 }
 function Run-Cmd([string]$c) { Send-Text $c; Send-Key $VK_RETURN; Start-Sleep -Seconds 2 }
 # A marker or a probe: it only prints, so there is nothing to wait out.
 function Run-Quick([string]$c) { Send-Text $c; Send-Key $VK_RETURN; Start-Sleep -Milliseconds 400 }
-# A new game with a CREATED party (party creation, docs/party-creation-plan.md
-# phase 2), waited out: `newparty` restarts the game, and a command typed while
-# its level loads is refused - so wait for the level, then for the console.
-function Run-Party([string]$spec) {
+# A command that starts a game (`newgame`, a world switch, `newparty`), waited
+# out: a command typed while its level loads is refused - so wait for the level
+# (or the world map), then for the console.
+function Run-Load([string]$c) {
 	$ready = '^\[info \] (Level ready: |New game started)'
 	$before = Get-LogMatchCount $ready
-	Run-Cmd "newparty $spec"
-	Wait-ForNewLog $ready $LoadTimeoutSec "the new game of '$spec'" $before | Out-Null
-	if (-not (Wait-ConsoleReady)) { throw "the console never answered after newparty $spec" }
+	Run-Cmd $c
+	Wait-ForNewLog $ready $LoadTimeoutSec "the game '$c' starts" $before | Out-Null
+	if (-not (Wait-ConsoleReady)) { throw "the console never answered after $c" }
 }
+# A new game with a CREATED party (party creation, docs/party-creation-plan.md
+# phase 2).
+function Run-Party([string]$spec) { Run-Load "newparty $spec" }
 
 # Status-line patterns: Answer = a console answer (mirrored by logecho, so never
 # the `console: > ...` echo of the typed line), Logged = a line the game logs
@@ -122,6 +133,17 @@ function Logged([string]$s) {
 # The id sweep_longtitle gives a dungeon: 32 characters, the type editor's own
 # rename limit (TypeEditorDialog's name field maxLength).
 $longTitleId = 'sweep_long_dungeon_identifier_32'
+
+# sweep_titlesaved's world and save, BOTH named for this worktree (Get-WorktreeTag,
+# tools/harness_game.py save_name's rule). The save because the saves folder is
+# shared with every session and with Michael's own play; the world because a
+# `-project` run lists the saves that NAME the world in hand, so under a fixed
+# name another worktree's save - a killed run's, or one written by a sweep
+# running at the same time - would be counted in this row's "0 saves" control.
+# In a world of its own the row starts with no saves; both go on its way out.
+$worktreeTag = Get-WorktreeTag $root
+$titleWorld = "wt_igttitle_$worktreeTag"
+$titleSave = "igt_titlesaved_$worktreeTag"
 
 # The game window's CLIENT area, read and resized from here as dragging its edge
 # would resize it (WM_SIZE: the swapchain and the fonts follow). For the hand
@@ -441,7 +463,42 @@ $screens = @(
 	@{ label = 'sweep_party1minimal'; state = 'playing'; viaConsole = $true
 	   open = { Run-Cmd 'learn 0 fire'; Run-Cmd 'hudpanel layout minimal' }
 	   close = { Run-Cmd 'hudpanel layout standard' }
-	   probe = @('hudpanel list'); status = @((Answer 'hud layout minimal, ')) }
+	   probe = @('hudpanel list'); status = @((Answer 'hud layout minimal, ')) },
+	# THE TITLE AFTER A FIRST SAVE (code-review C366). The pause list rebuilt on
+	# every Esc and shared the title's has-saves flag, so save, Esc, Return to
+	# Main Menu showed a title with no Continue and no Load. In a world of its own
+	# (no saves): the title first lists neither - the control - then a new game,
+	# a save, Esc to the pause menu, back to the title, which must now offer
+	# Continue and Load. Its status is the three `title status` readings, each
+	# naming the state it was asked in. The one BEHIND THE PAUSE MENU is the
+	# check of the fix: the title list catches up there (UpdatePause), from the
+	# save's own mark and the title's own flag, while Return to Main Menu
+	# rebuilds the title whatever either says - so the reading on the title
+	# after it cannot fail on them.
+	# LAST, because it switches world: the close deletes its save, switches back
+	# to a new game in dungeon-demo and deletes the world it made.
+	@{ label = 'sweep_titlesaved'; state = 'menu'; viaConsole = $true
+	   open = {
+		   # What a killed run left, first (each refused when there is none).
+		   Run-Cmd "deletesave $titleSave"; Run-Cmd "worlds delete $titleWorld $titleWorld"
+		   Run-Cmd "worlds new $titleWorld"
+		   Run-Load "worlds load $titleWorld"
+		   Run-Cmd 'title'; Run-Quick 'title status'
+		   Run-Load 'newgame'
+		   Run-Cmd "save $titleSave"
+		   Send-Key $VK_CONSOLE; Start-Sleep -Milliseconds 400
+		   Send-Key $VK_ESCAPE; Start-Sleep -Milliseconds 800
+		   Open-Console
+		   Run-Quick 'title status'
+		   Run-Cmd 'title' }
+	   close = {
+		   Run-Cmd "deletesave $titleSave"
+		   Run-Load 'worlds load dungeon-demo'
+		   Run-Cmd "worlds delete $titleWorld $titleWorld" }
+	   probe = @('title status')
+	   status = @((Answer "title: entries \[(?!Continue)[^\]]*\] - 0 save\(s\) listed for '$titleWorld' \(asked while menu\)"),
+				  (Answer "title: entries \[Continue, Load, [^\]]*\] - 1 save\(s\) listed for '$titleWorld' \(asked while paused\)"),
+				  (Answer "title: entries \[Continue, Load, [^\]]*\] - 1 save\(s\) listed for '$titleWorld' \(asked while menu\)")) }
 )
 # The screens swept on the TITLE, before the game starts - the party creation
 # page (phase 3), opened by its dev twin, which drives the page's own code.

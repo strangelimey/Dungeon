@@ -1,0 +1,24 @@
+; newgameintro.eval - a new game opens with its opening lines wherever the
+; party was (code-review C364). Judged by tools/WorldTest.py phase 22.
+;
+; StartNewGame returned as soon as it had to LOAD the level it opens on, and
+; that load's completion only cleared the log - so Start New Game from crypt2
+; began in silence, while the same start on the level already in hand showed
+; the opening. Three readouts of the HUD's message log:
+;   1. a new game on the harness level, already in hand - the opening (what
+;      the third must show);
+;   2. after `goto crypt2`, a plain level change - an empty log, so whatever
+;      the third shows is not the first one's lines left over;
+;   3. a new game from crypt2, which has to load the harness level first.
+logecho on
+reset
+echo --- intro: in hand ---
+newgame
+messages 6
+echo --- intro: after a goto ---
+goto crypt2
+messages 6
+echo --- intro: from crypt2 ---
+newgame
+messages 6
+state

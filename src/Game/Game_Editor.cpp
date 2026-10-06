@@ -1026,8 +1026,10 @@ int Game::SweepCatalogRefs(const std::string& catalogKey, const std::string& id,
 
 std::vector<std::string> Game::SavesReferencingType(const std::string& id) const {
 	std::vector<std::string> names;
-	for (const SaveSlot& slot : ListSaves()) {
-		if (slot.world != m_project.FolderName()) continue; // another world's ids
+	// THIS world's saves, named rather than filtered after the fact: the list
+	// used to be cut to the LAUNCH world first, so after a switch this found
+	// none of the world in hand's (code-review C207).
+	for (const SaveSlot& slot : ListSaves(m_project.FolderName())) {
 		const std::optional<SaveData> data = ReadSave(slot.path);
 		if (!data) continue;
 		bool hit = false;
@@ -1275,8 +1277,7 @@ void Game::WarnSavesInLevels(const std::vector<std::string>& stems) {
 		return std::find(stems.begin(), stems.end(), stem) != stems.end();
 	};
 	std::string list;
-	for (const SaveSlot& slot : ListSaves()) {
-		if (slot.world != m_project.FolderName()) continue; // another world's levels
+	for (const SaveSlot& slot : ListSaves(m_project.FolderName())) { // this world's (C207)
 		const std::optional<SaveData> data = ReadSave(slot.path);
 		if (!data) continue;
 		bool hit = gone(data->currentLevel);
