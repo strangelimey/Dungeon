@@ -1092,6 +1092,11 @@ private:
 	// click in the warm-up passed with its line unchecked (code-review C210, C217).
 	u32 m_allocTestHelps = 0;
 	u32 m_allocTestFalls = 0;
+	// AllocTest -Lever's, counted the same way: lever presses (Harness::
+	// leverPresses) and the presses that flipped a niche (Harness::nicheFlips) -
+	// one wired to no niche and a reveal, each checked (code-review C211).
+	u32 m_allocTestLevers = 0;
+	u32 m_allocTestNiches = 0;
 	// The party's Act count when the window opened (Party::ActCount): the
 	// verdict's moves= is the difference, -Walk's evidence that it moved.
 	unsigned m_allocTestActsAt = 0;

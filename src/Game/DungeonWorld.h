@@ -982,6 +982,20 @@ public:
 		// `alloctest` window - as the verdict's `falls=`, AllocTest -Exit's proof
 		// that the step it exists for was checked (code-review C210).
 		u32 fallsBegun = 0;
+		// LEVER PRESSES (PressButton, whatever the lever is wired to) and the ones
+		// that FLIPPED A NICHE (ToggleNichesNamed found the name). Counted like
+		// fallsBegun - differenced across a frame by Game::Update, kept only in a
+		// measured one - as the verdict's `levers=` and `niches=`: AllocTest
+		// -Lever's proof that a press wired to no niche and a reveal were both
+		// checked (code-review C211).
+		u32 leverPresses = 0;
+		u32 nicheFlips = 0;
+		// The presses whose reveal REBUILT chunks in play - a chunk it reaches
+		// held no look to swap in (past kNicheLookNames, or buckets that differ):
+		// the old drain, build and upload. `niche looks` prints it, and EditorTest
+		// phase 55 wants none, including where a niche reaches a chunk with no
+		// walls at all (the review of code-review C211's first cut).
+		u32 nicheRebuilds = 0;
 	};
 	Harness& GetHarness() { return m_harness; }
 	const Harness& GetHarness() const { return m_harness; }
@@ -2084,8 +2098,13 @@ public:
 	// Target dropdown lists these alongside door names (a button reveals either).
 	std::vector<std::string> NicheNames() const;
 	// A button targeting `name` flips every niche with that name open/closed and
-	// re-stamps their walls (the secret-niche reveal). False if none matched.
-	bool ToggleNichesNamed(const std::string& name);
+	// swaps in the walls pre-built for it (the secret-niche reveal; see
+	// "Pre-built niche walls" below). False if none matched. Allocates nothing:
+	// it runs in the press's frame, which the allocation guard arms (C211).
+	bool ToggleNichesNamed(std::string_view name);
+	// What the pre-built niche walls hold, one line per chunk a lever-named niche
+	// reaches: its names, the look on show, how many are held (`niche looks`).
+	std::vector<std::string> NicheLooksReport() const;
 	// One niche face: its floor cell + the wall it is carved into. A niche is
 	// SELECTABLE from either side — clicking its floor cell or the wall block.
 	struct NicheFace {
@@ -4598,8 +4617,58 @@ private:
 	// geometry is built. The full (re)bake lives in BuildDungeonMeshes (load /
 	// quality hot-swap).
 	void RebuildChunksAround(int x, int z);
-	// Rebuilds the single chunk region (chunkX, chunkZ) in place.
+	// Rebuilds the single chunk region (chunkX, chunkZ) in place, and its
+	// pre-built niche walls (PrebuildNicheLooks) from the map as it now stands.
 	void RebuildChunkRegion(int chunkX, int chunkZ);
+	// The region builder with the world's blocks, holes and feature meshes, as
+	// the map stands: what RebuildChunkRegion uploads and a niche look is made of.
+	DungeonGeometry BuildChunkGeometry(int chunkX, int chunkZ);
+
+	// --- pre-built niche walls (code-review C211) ------------------------------
+	// A named niche's open state decides its own wall panel and the pins of the
+	// two panels beside it along its wall, so a lever's reveal used to rebuild
+	// those chunks IN PLAY: a GPU drain, a region build and an upload, in a frame
+	// the allocation guard arms - the only play-time geometry change there is.
+	// Each chunk such a niche reaches now keeps its WALL chunks for every
+	// combination of the lever names reaching it, built with the surfaces
+	// (BuildDungeonMeshes) and again whenever an edit rebuilds the chunk
+	// (RebuildChunkRegion), and a press SWAPS the matching look into
+	// m_walls.chunks: unique_ptrs moved, nothing built, freed or waited on - the
+	// look it replaces is kept for the next press. Keyed by NAME, not by niche,
+	// because a press flips every niche of a name at once; a chunk reached by k
+	// names holds 2^k looks, counted from the state it was built in. Floors and
+	// ceilings never depend on a niche, so only the walls are held, and a chunk
+	// with no walls in any state (reached through rock or open floor) holds none.
+	static constexpr int kNicheLookNames = 4; // names per chunk: 16 looks at most
+	struct NicheLooks {
+		int chunk = -1;
+		// The lever names that reach this chunk's walls, in niche order. Past
+		// kNicheLookNames the chunk holds no looks (`prebuilt` false): a press
+		// there rebuilds it the old way, which the build warns about and the
+		// allocation guard reports - an authoring limit, never a silent cost.
+		std::vector<std::string> names;
+		bool prebuilt = false;
+		// Bit i set = names[i] flipped an odd number of times since the build.
+		u32 live = 0;
+		// looks[state] = this chunk's wall SurfaceChunks in that state, in the
+		// order m_walls.chunks holds the chunk's own (variant order: a niche
+		// stamps into its wall's bucket, so every state fills the same buckets).
+		// looks[live] is empty - those meshes are the live ones.
+		std::array<std::vector<SurfaceChunk>, 1u << kNicheLookNames> looks;
+	};
+	std::vector<NicheLooks> m_nicheLooks;
+	// The chunks a niche's state reaches: its own cell's, and those of the two
+	// cells beside it along its wall (their panels pin against its face).
+	// Returns how many distinct ones it wrote.
+	int NicheChunksOf(const WallNiche& n, int (&out)[3]) const;
+	// Every chunk's looks again (the full bake), or one chunk's (an edit's
+	// rebuild). The caller has drained the GPU: the looks dropped may have been
+	// on show in a frame still in flight.
+	void PrebuildNicheLooks();
+	void PrebuildNicheLooks(int chunk);
+	// Puts look `state` on show for `nl`'s chunk and keeps the one it replaces.
+	// False (nothing moved) when the chunk holds no such look.
+	bool SwapNicheLook(NicheLooks& nl, u32 state);
 	// While a chunk batch is open (m_chunkBatch > 0), RebuildChunksAround only
 	// RECORDS the chunks it would rebuild; EndChunkBatch rebuilds each once.
 	int m_chunkBatch = 0;

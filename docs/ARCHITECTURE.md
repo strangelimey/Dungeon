@@ -163,6 +163,19 @@ subsystem:
   which makes them de-facto pools of their elements.
 - **Strings.** HUD label text is reformatted only when the underlying value
   changes, never per frame.
+- **Geometry play can change - pre-built.** A lever revealing a secret niche is
+  the one geometry change play makes, and it used to rebuild the chunks round
+  the niche in the press's frame: a GPU drain, a region build and an upload
+  (code-review C211). Each chunk a lever-named niche reaches now keeps its wall
+  chunks for every combination of the names reaching it, built with the
+  surfaces and again whenever an edit rebuilds the chunk
+  (`DungeonWorld::PrebuildNicheLooks`), and the press swaps the matching look
+  into the live list - mesh pointers moved, the look it replaces kept for the
+  next press, so nothing is built, freed or waited on (a chunk with no walls in
+  any state keeps nothing). `AllocTest.ps1 -Lever` presses one on eval_arena and
+  checks the walls on show match a fresh bake's layout, with the swapped look on
+  show in every chunk the niche reaches; EditorTest phase 55 adds a new game, a
+  load and a niche beside a chunk with no walls.
 - **Load-time data** (mesh/image/clip vectors, D3D resource creation, the
   one-shot `ExecuteImmediate` upload path) deliberately uses plain ownership —
   it runs once at startup, where clarity beats allocator ceremony. C-API
@@ -214,7 +227,9 @@ subsystem:
   GPU work may still reference a resource; every destroy-or-replace path
   (quality swap, level load, chunk edit rebuild, undo restore, font atlas
   swap, editor preview-mesh reset) calls `WaitIdle` first, and all run from
-  `Update`, before the frame's command list opens. Where a function both
+  `Update`, before the frame's command list opens. (A lever's niche reveal
+  is not one of them: it swaps pre-built meshes and frees none - see above.)
+  Where a function both
   frees and has more than one caller, IT drains, not the callers:
   `BuildDungeonMeshes` (the full surface bake) waits before it clears the old
   chunks, because `arena` and the eval `reset` called it with nothing drained

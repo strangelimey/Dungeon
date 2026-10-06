@@ -1953,17 +1953,20 @@ void Game::UpdateAllocTest(float dt, bool steady) {
 	// prompts= is the armed frames that opened a prompt over play: -Exit's proof
 	// that the exit stair asked inside the window. helps= and falls= are the Help
 	// presses and pit steps made in MEASURED frames (see Update): its proof that
-	// the Help line and the fall's step were checked, not merely made.
+	// the Help line and the fall's step were checked, not merely made. levers= and
+	// niches= are lever presses and the presses that flipped a niche, counted the
+	// same way: -Lever's proof that a press wired to no niche and a reveal were
+	// both checked (code-review C211).
 	MoveAction lastMove{};
 	const unsigned moves =
 		m_world ? m_world->GetParty().ActCount(lastMove) - m_allocTestActsAt : 0u;
 	const std::string line =
 		std::format("alloctest RESULT={} frames={} violations={} violating_frames={} "
-					"transitions={} moves={} prompts={} helps={} falls={}{}",
+					"transitions={} moves={} prompts={} helps={} falls={} levers={} niches={}{}",
 					timedOut ? "SKIP" : (violations == 0 ? "PASS" : "FAIL"),
 					m_allocTestFrames, violations, badFrames, m_allocTestTransitions, moves,
-					m_allocTestPrompts, m_allocTestHelps, m_allocTestFalls,
-					timedOut ? " reason=never_reached_a_steady_frame" : "");
+					m_allocTestPrompts, m_allocTestHelps, m_allocTestFalls, m_allocTestLevers,
+					m_allocTestNiches, timedOut ? " reason=never_reached_a_steady_frame" : "");
 	log::Info("{}", line);
 	m_console.Print(line);
 	// What the harness counted over exactly those frames (reset on the first).
@@ -2007,12 +2010,15 @@ void Game::Update(float dt) {
 			m_inputPokeMidLine = !input.DiscardTypedForTest(/*throughEnter=*/!open);
 	}
 
-	// What AllocTest -Exit must show was checked, read before the frame's work
-	// and differenced after it (the end of this function): a Help press and a pit
-	// fall's step count only in a frame that is still armed when it ends.
+	// What AllocTest -Exit and -Lever must show was checked, read before the
+	// frame's work and differenced after it (the end of this function): a Help
+	// press, a pit fall's step and a lever press count only in a frame that is
+	// still armed when it ends.
 	const u32 helpsAtTop = m_ui.HelpPresses();
 	const DungeonWorld* worldAtTop = m_world.get();
 	const u32 fallsAtTop = worldAtTop ? worldAtTop->GetHarness().fallsBegun : 0u;
+	const u32 leversAtTop = worldAtTop ? worldAtTop->GetHarness().leverPresses : 0u;
+	const u32 nichesAtTop = worldAtTop ? worldAtTop->GetHarness().nicheFlips : 0u;
 
 	UpdateStates(dt);
 
@@ -2061,8 +2067,12 @@ void Game::Update(float dt) {
 	// passed with the line unchecked (code-review C210, C217).
 	if (m_allocTestRemaining > 0.0f && alloc::FrameArmed()) {
 		m_allocTestHelps += m_ui.HelpPresses() - helpsAtTop;
-		if (m_world && m_world.get() == worldAtTop)
-			m_allocTestFalls += m_world->GetHarness().fallsBegun - fallsAtTop;
+		if (m_world && m_world.get() == worldAtTop) {
+			const DungeonWorld::Harness& h = m_world->GetHarness();
+			m_allocTestFalls += h.fallsBegun - fallsAtTop;
+			m_allocTestLevers += h.leverPresses - leversAtTop;
+			m_allocTestNiches += h.nicheFlips - nichesAtTop;
+		}
 	}
 }
 

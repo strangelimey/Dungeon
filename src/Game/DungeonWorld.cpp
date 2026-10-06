@@ -400,10 +400,8 @@ bool DungeonWorld::CeilingHoleAt(int x, int z) const {
 	return CatalogGet(m_project.stairs.Find(s->type), "hole", "none") == "ceiling";
 }
 
-void DungeonWorld::RebuildChunkRegion(int chunkX, int chunkZ) {
-	const int chunksX = (m_map.Width() + kChunkCells - 1) / kChunkCells;
-	const int chunkIndex = chunkZ * chunksX + chunkX;
-	DungeonGeometry r = BuildDungeonRegion(
+DungeonGeometry DungeonWorld::BuildChunkGeometry(int chunkX, int chunkZ) {
+	return BuildDungeonRegion(
 		m_map, m_wallBlocks, m_floorBlocks, m_ceilingBlocks, m_walls.uAspect,
 		m_floors.uAspect, m_ceilings.uAspect, chunkX, chunkZ,
 		[this](int x, int z) {
@@ -413,10 +411,20 @@ void DungeonWorld::RebuildChunkRegion(int chunkX, int chunkZ) {
 		[this](const std::string& type) { return BoreMeshFor(type); },
 		[this](const std::string& type) { return FloorFeatureMeshFor(type); },
 		[this](const std::string& type) { return CeilingFeatureMeshFor(type); });
+}
+
+void DungeonWorld::RebuildChunkRegion(int chunkX, int chunkZ) {
+	const int chunksX = (m_map.Width() + kChunkCells - 1) / kChunkCells;
+	const int chunkIndex = chunkZ * chunksX + chunkX;
+	DungeonGeometry r = BuildChunkGeometry(chunkX, chunkZ);
 	for (Surface* surface : {&m_walls, &m_floors, &m_ceilings})
 		std::erase_if(surface->chunks,
 					  [&](const SurfaceChunk& sc) { return sc.chunk == chunkIndex; });
 	AppendSurfaceChunks(r);
+	// The looks a lever can swap in were built against the walls just replaced:
+	// build them again from the map as it now stands (an edit may have named,
+	// moved or removed a niche, or repainted the wall it is cut into).
+	PrebuildNicheLooks(chunkIndex);
 }
 
 void DungeonWorld::RebuildChunksAround(int x, int z) {

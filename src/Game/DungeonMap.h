@@ -511,9 +511,18 @@ public:
 	// Resets every niche to its authored open default (open = !hidden) — a new
 	// game re-hides any secret niche opened this session. True if any changed.
 	bool ResetNicheOpen();
-	// Flips `open` on every niche named `name` (a button press). Returns the cells
-	// touched so the caller can rebuild their chunks. Bumps Revision().
-	std::vector<std::pair<int, int>> ToggleNichesNamed(const std::string& name);
+	// Flips `open` on every niche named `name` (a lever's press) and returns how
+	// many it flipped: 0, with nothing touched and no Revision() bump, when none
+	// carries the name (or it is empty). Bumps Revision() when any flipped - the
+	// walls changed, and the shadow cache keys on it. Allocation-free (code-
+	// review C211): it used to hand back the touched cells in a fresh vector, so
+	// every lever press built one, a press wired to no niche included. The world
+	// needs no cells - it swaps in the walls it pre-built for the name.
+	int ToggleNichesNamed(std::string_view name);
+	// The same flip WITHOUT the Revision() bump: what a press WOULD show, for the
+	// world's pre-built walls (DungeonWorld::PrebuildNicheLooks), which flips the
+	// name back before it returns. Never a state anything may keep.
+	int FlipNichesNamedUnrecorded(std::string_view name);
 	// Distinct non-empty niche names on the level (the button inspector's targets).
 	std::vector<std::string> NicheNames() const;
 

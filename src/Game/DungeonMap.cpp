@@ -1084,16 +1084,21 @@ bool DungeonMap::ResetNicheOpen() {
 	return changed;
 }
 
-std::vector<std::pair<int, int>> DungeonMap::ToggleNichesNamed(const std::string& name) {
-	std::vector<std::pair<int, int>> touched;
-	if (name.empty()) return touched;
+int DungeonMap::FlipNichesNamedUnrecorded(std::string_view name) {
+	if (name.empty()) return 0; // an unwired lever names nothing
+	int flipped = 0;
 	for (WallNiche& n : m_niches)
 		if (n.name == name) {
 			n.open = !n.open;
-			touched.emplace_back(n.x, n.z);
+			++flipped;
 		}
-	if (!touched.empty()) ++m_revision;
-	return touched;
+	return flipped;
+}
+
+int DungeonMap::ToggleNichesNamed(std::string_view name) {
+	const int flipped = FlipNichesNamedUnrecorded(name);
+	if (flipped > 0) ++m_revision;
+	return flipped;
 }
 
 const WallBore* DungeonMap::BoreAlong(int x, int z, int axis) const {

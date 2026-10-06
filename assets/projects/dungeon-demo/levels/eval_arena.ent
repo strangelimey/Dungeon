@@ -8,3 +8,9 @@ monster skel_archer 25 7 south
 monster skel_warrior 23 9 south
 monster skel_mage 24 10 south
 monster skel_swarm 13 13 south
+;
+; The levers' corner (code-review C211, see eval_arena.map): the lever at 1,22
+; is wired to nothing, the one at 2,22 reveals the secret niche at 3,22. After
+; the monsters, so their record ids are what they always were.
+button lever 1 22 south
+button lever 2 22 south target=arena_secret

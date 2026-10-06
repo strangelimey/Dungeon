@@ -507,13 +507,195 @@ void DungeonWorld::ToggleDoorsNamed(const std::string& name) {
 		if (door.name == name) ToggleDoor(door);
 }
 
-// A button targeting `name` also opens/closes any niche with that name — the
-// secret-niche reveal. Flips the map's runtime `open` and re-stamps each touched
-// cell's wall panel (blank ⇄ recessed pocket).
-bool DungeonWorld::ToggleNichesNamed(const std::string& name) {
-	const std::vector<std::pair<int, int>> touched = m_map.ToggleNichesNamed(name);
-	for (const auto& [x, z] : touched) RebuildChunksAround(x, z);
-	return !touched.empty();
+// A button targeting `name` also opens/closes any niche with that name - the
+// secret-niche reveal. Flips the map's runtime `open` and puts each touched
+// chunk's pre-built walls on show (blank wall <-> recessed pocket): the press's
+// frame is one the allocation guard arms, so nothing here builds, frees or
+// waits (code-review C211 - it used to rebuild the chunks, drain and upload).
+bool DungeonWorld::ToggleNichesNamed(std::string_view name) {
+	if (m_map.ToggleNichesNamed(name) == 0) return false; // no niche carries it
+	++m_harness.nicheFlips;
+	bool rebuild = false;
+	for (NicheLooks& nl : m_nicheLooks) {
+		const auto it = std::find(nl.names.begin(), nl.names.end(), name);
+		if (it == nl.names.end()) continue;
+		const u32 bit = 1u << static_cast<u32>(it - nl.names.begin());
+		if (!nl.prebuilt || !SwapNicheLook(nl, nl.live ^ bit)) rebuild = true;
+	}
+	// A chunk past the pre-built names (warned when it was built): the old way,
+	// a rebuild round every niche of the name - which allocates, and the guard
+	// says so. Each chunk rebuilt builds its looks again from the new state.
+	if (rebuild) {
+		++m_harness.nicheRebuilds;
+		BeginChunkBatch();
+		for (const WallNiche& n : m_map.Niches())
+			if (n.name == name) RebuildChunksAround(n.x, n.z);
+		EndChunkBatch();
+	}
+	return true;
+}
+
+// ============================================================================
+// Pre-built niche walls (code-review C211; see the DungeonWorld.h block). A
+// chunk's looks are its WALL chunks with each combination of the lever names
+// reaching it flipped, built by the same region builder an edit's rebuild uses,
+// so a look on show is exactly what a fresh bake of the map would give - which
+// `geomhash` checks (its layout line), and AllocTest -Lever reads after a press.
+// ============================================================================
+int DungeonWorld::NicheChunksOf(const WallNiche& n, int (&out)[3]) const {
+	const int chunksX = (m_map.Width() + kChunkCells - 1) / kChunkCells;
+	// Along the wall: a north or south wall runs east-west, an east or west one
+	// north-south. The cells beside the niche's own pin their panels against it.
+	const int ax = std::abs(DirDZ(n.wall)), az = std::abs(DirDX(n.wall));
+	const int cells[3][2] = {{n.x, n.z}, {n.x - ax, n.z - az}, {n.x + ax, n.z + az}};
+	int count = 0;
+	for (const auto& c : cells) {
+		if (c[0] < 0 || c[1] < 0 || c[0] >= m_map.Width() || c[1] >= m_map.Height()) continue;
+		const int chunk = (c[1] / kChunkCells) * chunksX + c[0] / kChunkCells;
+		if (std::find(out, out + count, chunk) == out + count) out[count++] = chunk;
+	}
+	return count;
+}
+
+void DungeonWorld::PrebuildNicheLooks() {
+	m_nicheLooks.clear();
+	if (m_walls.chunks.empty()) return; // no walls built to swap against yet
+	std::vector<int> chunks; // every chunk a lever-named niche reaches, once
+	for (const WallNiche& n : m_map.Niches()) {
+		if (n.name.empty()) continue; // no lever can flip it in play
+		int c[3];
+		const int k = NicheChunksOf(n, c);
+		chunks.insert(chunks.end(), c, c + k);
+	}
+	std::sort(chunks.begin(), chunks.end());
+	chunks.erase(std::unique(chunks.begin(), chunks.end()), chunks.end());
+	for (const int chunk : chunks) PrebuildNicheLooks(chunk);
+	if (m_nicheLooks.empty()) return;
+	size_t looks = 0;
+	for (const NicheLooks& nl : m_nicheLooks)
+		for (const std::vector<SurfaceChunk>& l : nl.looks) looks += l.empty() ? 0 : 1;
+	log::Info("niche looks: {} chunk(s) a lever can change, {} look(s) pre-built",
+			  m_nicheLooks.size(), looks);
+}
+
+void DungeonWorld::PrebuildNicheLooks(int chunk) {
+	std::erase_if(m_nicheLooks, [&](const NicheLooks& nl) { return nl.chunk == chunk; });
+	if (m_walls.chunks.empty()) return;
+	NicheLooks nl;
+	nl.chunk = chunk;
+	for (const WallNiche& n : m_map.Niches()) {
+		if (n.name.empty()) continue;
+		int c[3];
+		const int k = NicheChunksOf(n, c);
+		if (std::find(c, c + k, chunk) == c + k) continue;
+		if (std::find(nl.names.begin(), nl.names.end(), n.name) == nl.names.end())
+			nl.names.push_back(n.name);
+	}
+	if (nl.names.empty()) return; // nothing a lever can change here
+	const int chunksX = (m_map.Width() + kChunkCells - 1) / kChunkCells;
+	const int cx = chunk % chunksX, cz = chunk / chunksX;
+	if (nl.names.size() > static_cast<size_t>(kNicheLookNames)) {
+		log::Warn("niche looks: chunk {},{} is reached by {} lever names, past the {} "
+				  "pre-built - a press there rebuilds it in play",
+				  cx, cz, nl.names.size(), kNicheLookNames);
+		m_nicheLooks.push_back(std::move(nl));
+		return;
+	}
+
+	// The live chunk's wall buckets, in the order m_walls.chunks holds them; every
+	// look must fill the same ones, or a swap would pair the wrong meshes.
+	std::vector<int> liveVariants;
+	for (const SurfaceChunk& sc : m_walls.chunks)
+		if (sc.chunk == chunk) liveVariants.push_back(sc.variant);
+
+	// Every state but the live one: the names its bits name flipped - UNRECORDED,
+	// so the map's real state and its Revision() never move - the region built,
+	// and the same names flipped back.
+	const u32 states = 1u << nl.names.size();
+	std::vector<DungeonGeometry> built(states);
+	for (u32 s = 1; s < states; ++s) {
+		const auto flip = [&] {
+			for (size_t i = 0; i < nl.names.size(); ++i)
+				if (s & (1u << i)) m_map.FlipNichesNamedUnrecorded(nl.names[i]);
+		};
+		flip();
+		built[s] = BuildChunkGeometry(cx, cz);
+		flip();
+		bool same = built[s].walls.size() == liveVariants.size();
+		for (size_t i = 0; same && i < liveVariants.size(); ++i)
+			same = built[s].walls[i].variant == liveVariants[i];
+		if (!same) {
+			log::Warn("niche looks: chunk {},{} fills other wall buckets in look {} - "
+					  "a press there rebuilds it in play", cx, cz, s);
+			m_nicheLooks.push_back(std::move(nl));
+			return;
+		}
+	}
+	// A chunk the niche reaches only through a square with no wall on that side
+	// (rock, or open floor - a niche in a pillar, a dead-end corridor) has no
+	// walls in ANY state, and so nothing a press could change: it holds no entry.
+	// One with nothing on show used to read as a failed swap at every press,
+	// which then rebuilt the chunks round the niche in play.
+	if (liveVariants.empty()) return;
+
+	// One upload for every look (gfx::CreateMeshes), parallel to the input.
+	std::vector<const assets::MeshData*> data;
+	for (u32 s = 1; s < states; ++s)
+		for (const GeometryChunk& gc : built[s].walls) data.push_back(&gc.mesh);
+	std::vector<std::unique_ptr<gfx::Mesh>> meshes = gfx::CreateMeshes(m_device, data);
+	size_t next = 0;
+	for (u32 s = 1; s < states; ++s) {
+		nl.looks[s].reserve(built[s].walls.size());
+		for (const GeometryChunk& gc : built[s].walls) {
+			SurfaceChunk sc;
+			sc.variant = gc.variant;
+			sc.chunk = gc.chunk;
+			sc.boundsMin = gc.boundsMin;
+			sc.boundsMax = gc.boundsMax;
+			sc.mesh = std::move(meshes[next++]);
+			nl.looks[s].push_back(std::move(sc));
+		}
+	}
+	nl.prebuilt = true;
+	m_nicheLooks.push_back(std::move(nl));
+}
+
+bool DungeonWorld::SwapNicheLook(NicheLooks& nl, u32 state) {
+	if (state == nl.live) return true;
+	if (!nl.prebuilt || state >= nl.looks.size()) return false;
+	std::vector<SurfaceChunk>& next = nl.looks[state];
+	// Counted first: a look that does not line up with the chunk on show moves
+	// nothing, rather than half of it (the build checked the buckets match). An
+	// empty look onto a chunk with no walls on show lines up - nothing to move.
+	size_t onShow = 0;
+	for (const SurfaceChunk& sc : m_walls.chunks)
+		if (sc.chunk == nl.chunk) ++onShow;
+	if (onShow != next.size()) return false;
+	size_t k = 0;
+	for (SurfaceChunk& sc : m_walls.chunks)
+		if (sc.chunk == nl.chunk) std::swap(sc, next[k++]);
+	// `next` now holds what was on show: the look of the state being left.
+	std::swap(nl.looks[state], nl.looks[nl.live]);
+	nl.live = state;
+	return true;
+}
+
+std::vector<std::string> DungeonWorld::NicheLooksReport() const {
+	std::vector<std::string> out;
+	const int chunksX = (m_map.Width() + kChunkCells - 1) / kChunkCells;
+	for (const NicheLooks& nl : m_nicheLooks) {
+		std::string names;
+		for (const std::string& n : nl.names) names += (names.empty() ? "" : ",") + n;
+		size_t held = 0;
+		for (const std::vector<SurfaceChunk>& l : nl.looks) held += l.empty() ? 0 : 1;
+		out.push_back(std::format("niche looks chunk {},{} names={} live={} held={}{}",
+								  nl.chunk % chunksX, nl.chunk / chunksX, names, nl.live,
+								  held, nl.prebuilt ? "" : " NOT PREBUILT"));
+	}
+	if (out.empty()) out.push_back("niche looks: none - no lever-named niche on this level");
+	// And how many presses found a chunk with no look to swap in, and rebuilt.
+	out.push_back(std::format("niche looks: presses rebuilt in play {}", m_harness.nicheRebuilds));
+	return out;
 }
 
 std::vector<std::string> DungeonWorld::NicheNames() const { return m_map.NicheNames(); }
@@ -752,6 +934,7 @@ bool DungeonWorld::PressButtonFacing() {
 }
 
 void DungeonWorld::PressButton(Button& b) {
+	++m_harness.leverPresses; // AllocTest -Lever's `levers=` (see Harness)
 	b.activated = !b.activated;
 	// The handle snaps to its other pose (code-review C178).
 	const WallMount mount = MountOnWall(b.x, b.z, b.facing);

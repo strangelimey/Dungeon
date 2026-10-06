@@ -224,6 +224,19 @@
 #      console is followed there - an exit's question goes up and holds the
 #      world, a stair down lands the party on crypt2 with the console still up
 #      (the console used to leave either latched).
+#  55. A LEVER'S REVEAL SWAPS IN PRE-BUILT WALLS (code-review C211; phases 28-54
+#      are other lanes'): eval_arena's lever wired to nothing moves no wall; the
+#      one naming the hidden niche opens it, shuts it, and shuts it again after
+#      the niche was opened by hand; and reveals it after the wall it is cut into
+#      was repainted - each time with the walls on show matching a fresh bake
+#      (`geomhash`'s layout line) and the look on show flipped in BOTH chunks the
+#      niche reaches (`niche looks`); a real new game (`newgame`, not `reset`,
+#      which re-reads the map) shuts it and starts the looks over, and a load of
+#      a save made with it open restores it - the batched re-stamps of
+#      ResetForNewGame and ApplyActiveSnapshot. A pillar written into the scratch
+#      eval_arena puts a niche beside a chunk with NO walls: that chunk holds no
+#      look, and no press in the run rebuilds walls in play. AllocTest -Lever
+#      measures the corner's presses' frames.
 #  60. THE DOOR INSPECTOR'S OPEN (code-review C356): it edits the AUTHORED
 #      state, and the leaf follows only when it can - a smashed door's Open
 #      ticked then unticked leaves the wreck standing open (it used to shut it,
@@ -243,10 +256,10 @@
 # run leaves a scratch folder, which the next run clears. The style library has
 # one fixed home (assets/library), so phase 16 still changes it - behind a
 # backup that only the restore that used it deletes (harness_game.back_up). The
-# save phase 15 makes is this worktree's (harness_game.save_name). The run ends
-# by checking the real worlds and the library are byte for byte as it found
-# them - BEFORE it cleared up after a killed run, so the clean-up is judged too
-# - and that git status shows nothing new and nothing of this judge's worlds.
+# saves phases 15 and 55 make are this worktree's (harness_game.save_name). The
+# run ends by checking the real worlds and the library are byte for byte as it
+# found them - BEFORE it cleared up after a killed run, so the clean-up is judged
+# too - and that git status shows nothing new and nothing of this judge's worlds.
 import hashlib
 import io
 import os
@@ -304,9 +317,10 @@ import harness_game
 harness_game.refuse_if_stale(EXE)
 harness_game.refuse_if_running(EXE)
 
-# flags.eval's save slot, renamed to this worktree's: the saves folder is
-# shared with every other session and with Michael's own play.
-SAVES = {"flagtest": harness_game.save_name(ROOT, "flagtest")}
+# flags.eval's and nichelooks.eval's save slots, renamed to this worktree's: the
+# saves folder is shared with every other session and with Michael's own play.
+SAVES = {"flagtest": harness_game.save_name(ROOT, "flagtest"),
+         "nichelooks": harness_game.save_name(ROOT, "nichelooks")}
 
 
 def cleanup():
@@ -3257,6 +3271,143 @@ finally:
         io.open(SETTINGS, "wb").write(settings_before)
     elif os.path.isfile(SETTINGS):
         os.remove(SETTINGS)
+
+
+# --- phase 55: a lever's reveal swaps in pre-built walls ---------------------------
+print("55 - a lever's niche reveal swaps in pre-built walls, a fresh bake's every time")
+LOOKS = re.compile(r"niche looks chunk (\d+,\d+) names=(\S+) live=(\d+) held=(\d+)$")
+REBUILT = re.compile(r"niche looks: presses rebuilt in play (\d+)$")
+WALLS = re.compile(r"geomhash \S+ walls=([0-9a-f]+) ")
+LAYOUT = re.compile(r"geomlayout \S+ fresh=\S+ live=\S+ (\w+)$")
+
+
+def listings(lines):
+    """Each `niche looks` listing in `lines`, in order: its chunk rows as
+    (chunk, names, live, held)."""
+    out, cur = [], []
+    for l in lines:
+        m = LOOKS.match(l)
+        if m:
+            cur.append(m.groups())
+        elif cur:
+            out.append(cur)
+            cur = []
+    return out + [cur] if cur else out
+
+
+def niche_state(lines, niche_at="niche 3,22 s: "):
+    """A section's last niche reading, `niche looks` lines (the last listing),
+    and geomhash's wall print and layout verdict."""
+    niche = [l.split(": ", 1)[1] for l in lines if l.startswith(niche_at)]
+    found = listings(lines)
+    looks = found[-1] if found else []
+    walls = [m.group(1) for m in map(WALLS.match, lines) if m]
+    layout = [m.group(1) for m in map(LAYOUT.match, lines) if m]
+    return (niche[-1] if niche else None, looks, walls[-1] if walls else None,
+            layout[-1] if layout else None)
+
+
+def lives(looks, name="arena_secret"):
+    """{chunk: live} of the chunks a looks listing names `name` in, or {} if any
+    of them is reached by another name too or holds other than one look."""
+    mine = [l for l in looks if name in l[1].split(",")]
+    if any(n != name or h != "1" for _, n, _, h in mine):
+        return {}
+    return {c: int(v) for c, _, v, _ in mine}
+
+
+def add_pillar(levels):
+    """The pillar nichelooks.eval ends on, written into the scratch copy of
+    eval_arena (no suite's ground has one): a pillar at 8,7, a hidden niche
+    `arena_pillar` on its south face opening onto 8,8, and a lever at 8,6 on its
+    north face. The niche's west neighbour 7,8 lies in chunk 1,2 (x 4..7, z
+    8..11), where no floor square borders rock - a chunk with no walls at all."""
+    path = os.path.join(levels, "eval_arena.map")
+    text = io.open(path, encoding="utf-8", newline="").read()
+    eol = "\r\n" if "\r\n" in text else "\n"
+    lines = text.splitlines(keepends=True)
+    grid = [i for i, l in enumerate(lines) if l.startswith("#")]
+    body = lines[grid[7]].rstrip("\r\n")
+    if body[7:10] != "...":
+        raise RuntimeError(f"eval_arena row 7 is not open round 8,7: {body!r}")
+    lines[grid[7]] = body[:8] + "#" + body[9:] + lines[grid[7]][len(body):]
+    if not lines[-1].endswith("\n"):
+        lines[-1] += eol
+    lines.append("niche niche 8 8 north name=arena_pillar hidden=1" + eol)
+    io.open(path, "w", encoding="utf-8", newline="").write("".join(lines))
+    path = os.path.join(levels, "eval_arena.ent")
+    text = io.open(path, encoding="utf-8", newline="").read()
+    if text and not text.endswith("\n"):
+        text += eol
+    io.open(path, "w", encoding="utf-8", newline="").write(
+        text + "button lever 8 6 south target=arena_pillar" + eol)
+
+
+fresh()
+try:
+    add_pillar(os.path.join(PROJ, "levels"))
+    log = run("nichelooks.eval")
+    check(passed(log), "the script ran clean")
+    sec = console_sections(log)
+    read = {k: niche_state(sec.get(k, [])) for k in
+            ("loaded", "the lever wired to nothing", "the reveal", "shut again",
+             "opened by hand, shut by the lever", "the wall repainted under it, then the reveal",
+             "a new game", "revealed for the save", "a load")}
+    shut0, looks0, walls0, lay0 = read["loaded"]
+    check(shut0 == "shut" and lives(looks0) == {"0,5": 0, "1,5": 0} and lay0 == "match",
+          "loaded: the niche is shut, both chunks it reaches hold one look, the walls are the map's",
+          str(read["loaded"]))
+    check(lives(looks0, "arena_pillar") == {"2,2": 0},
+          "...and of the pillar's niche's two chunks only 2,2 holds a look: 1,2 has no walls in "
+          "any state", str(looks0))
+    rebuilt = {k: [int(m.group(1)) for m in map(REBUILT.match, sec.get(k, [])) if m] for k in sec}
+    check(all(rebuilt.get(k) for k in ("loaded", "the pillar")) and
+          all(n == 0 for v in rebuilt.values() for n in v),
+          "no press rebuilt walls in play, in any section", str(rebuilt))
+    for name, want, live, same in (("the lever wired to nothing", "shut", 0, True),
+                                   ("the reveal", "open", 1, False),
+                                   ("shut again", "shut", 0, True),
+                                   ("opened by hand, shut by the lever", "shut", 1, True),
+                                   ("the wall repainted under it, then the reveal", "open", 1, False)):
+        state, looks, walls, layout = read[name]
+        check(state == want and lives(looks) == {"0,5": live, "1,5": live} and layout == "match"
+              and (walls == walls0) == same,
+              f"{name}: the niche {want}, look {live} on show in both chunks, the walls a fresh "
+              f"bake's{' and as loaded' if same else ' and moved'}", str(read[name]))
+    # Between the hand and the lever: the hand's rebuild built the looks again
+    # from the open state, so the lever's press is the FIRST flip of those.
+    hand = listings(sec.get("opened by hand, shut by the lever", []))
+    check(hand and lives(hand[0]) == {"0,5": 0, "1,5": 0},
+          "a niche opened by hand rebuilds its chunks and their looks from that state", str(hand))
+    paint = listings(sec.get("the wall repainted under it, then the reveal", []))
+    check(paint and lives(paint[0]) == {"0,5": 0, "1,5": 0},
+          "so does repainting the wall it is cut into", str(paint))
+    # A REAL new game (`newgame`, StartNewGame): the live map still has the niche
+    # open, so it is ResetForNewGame's batched re-stamp that shuts the walls.
+    state, looks, walls, layout = read["a new game"]
+    check(state == "shut" and lives(looks) == {"0,5": 0, "1,5": 0} and layout == "match",
+          "a new game shuts it and starts the looks over (its batched re-stamp)",
+          str(read["a new game"]))
+    # A load of a save made with it open: ResetForNewGame shuts it, then
+    # ApplyActiveSnapshot opens it again - each re-stamp batched, and the looks
+    # built again from the open state the load leaves.
+    state, _, walls_r, layout = read["revealed for the save"]
+    check(state == "open" and layout == "match", "revealed again for the save",
+          str(read["revealed for the save"]))
+    state, looks, walls, layout = read["a load"]
+    check(state == "open" and lives(looks) == {"0,5": 0, "1,5": 0} and layout == "match"
+          and walls == walls_r,
+          "a load restores it open, the walls a fresh bake's and as saved, the looks built "
+          "again from that state", str(read["a load"]))
+    state, looks, walls, layout = niche_state(sec.get("the pillar", []), "niche 8,8 n: ")
+    check(state == "open" and lives(looks, "arena_pillar") == {"2,2": 1} and layout == "match"
+          and walls != read["a load"][2],
+          "the pillar's niche: revealed by its lever with the look flipped in 2,2, the walls a "
+          "fresh bake's - and (above) nothing rebuilt for 1,2, which has no walls",
+          str((state, looks, walls, layout)))
+    check("end" in sec, "the script ran to its end")
+finally:
+    drop()
 
 
 # --- phase 60: the door inspector's Open on a leaf that cannot shut ---------------

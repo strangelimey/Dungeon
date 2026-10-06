@@ -339,14 +339,20 @@ std::vector<Issue> Run(const std::vector<LevelView>& levels,
 							  "map.check.doorlocked", d.key});
 		}
 
-		// A button wired to a name no door carries: a rename or delete that did
-		// not sweep. Silent in play — the lever throws and nothing happens.
+		// A button wired to a name no door or niche carries: a rename or delete
+		// that did not sweep. Silent in play - the lever throws and nothing
+		// happens. A NICHE's name counts: a lever reveals a secret niche of its
+		// name (DungeonWorld::ToggleNichesNamed), and one wired to a niche alone
+		// was reported dead (found by code-review C211's lever in eval_arena).
 		for (const auto& [ck, target] : L.buttons) {
 			if (target.empty()) continue;
 			bool found = false;
 			for (const Level& other : lv) {
 				for (const auto& [dk, d] : other.doors)
 					if (d.name == target) { found = true; break; }
+				if (!found && other.view->map)
+					for (const WallNiche& n : other.view->map->Niches())
+						if (n.name == target) { found = true; break; }
 				if (found) break;
 			}
 			if (!found)

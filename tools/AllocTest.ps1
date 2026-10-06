@@ -20,6 +20,7 @@
 #   .\tools\AllocTest.ps1 -Light             # the Sowilo lights: cast, stacked, grown, a flare's dazzle
 #   .\tools\AllocTest.ps1 -Pause             # Esc to the pause menu and back
 #   .\tools\AllocTest.ps1 -Exit              # Help clicked, an exit stair's "Leave?" answered No, a pit fall
+#   .\tools\AllocTest.ps1 -Lever             # a lever wired to nothing, then one revealing a secret niche
 #   .\tools\AllocTest.ps1 -Sheet             # the sheet: hover, tabs, item dialog
 #   .\tools\AllocTest.ps1 -Panels            # drag and resize the floating HUD
 #   .\tools\AllocTest.ps1 -Minimal [-Sheet]  # any mode, under the party-card layout
@@ -245,6 +246,28 @@
 # frame rate, and a press counted since launch passed it with the Help line
 # unchecked. A send that misses its armed frames reads UNMEASURED, never PASS.
 #
+# -Lever IS A LEVER'S PRESS (code-review C211). Every press built a vector of
+# the niches it touched - even one wired to no niche, in debug - and a press that
+# REVEALED a secret niche rebuilt the walls round it in play: a GPU drain, a
+# region build and an upload, the only play-time geometry change there is. Now
+# the press counts the niches it flips, and each chunk a lever-named niche
+# reaches keeps its walls pre-built for every state the lever names can put it
+# in (DungeonWorld::PrebuildNicheLooks); the reveal swaps them in. No level
+# shipped a lever or a niche, so nothing ran it: eval_arena now carries a corner
+# for it (its .map / .ent) - a lever at 1,22 wired to nothing, and one at 2,22
+# whose target is the hidden niche `arena_secret` in the south wall at 3,22.
+# The party stands at 1,22 facing the south wall; inside the window it clicks
+# the view (the world click's last resort is the lever the party faces), steps
+# east (A: strafe left, facing south) and clicks again. It refuses a PASS unless
+# the verdict counts, in MEASURED frames (the -Exit rule), a press that flipped
+# no niche and one that flipped one (`levers=`, `niches=`). After the window the
+# WALLS on show must be what the map holds: the niche reads open, `geomhash`'s
+# layout line matches a fresh bake and its wall hash moved, and `niche looks`
+# has the revealed look on show in BOTH chunks the niche reaches with no press
+# rebuilt in play - else the result is WALLS, a FAIL (a swap of the wrong look,
+# or none, allocates nothing either). The layout sees chunk 0,5's swap only:
+# in 1,5 the niche moves a panel's pin, not its triangle count.
+#
 # -Sheet IS THE CHARACTER SHEET'S TURN (docs/ui-updates-plan.md). The sheet is a
 # guarded state, and since ui-updates it does things every frame the pointer
 # moves: the status bar names whatever is under it, on every tab. A right-click
@@ -426,6 +449,9 @@ param(
 	# Clicks the log's Help button, steps onto crypt1's exit stair and answers
 	# its "Leave?" No, then falls down a pit, inside the window. See above.
 	[switch]$Exit,
+	# Presses eval_arena's lever wired to nothing, then the one revealing its
+	# secret niche, inside the window (code-review C211). See above.
+	[switch]$Lever,
 	# Works the character sheet inside the window. See the note above.
 	[switch]$Sheet,
 	# Opens the PARTY WINDOW from the sheet's "All" and works every tab of it
@@ -510,8 +536,9 @@ if ($RestReach) { $Rest = $true } # -RestReach is -Rest with the way left open
 # the brazier broke just after the window and the run refused its PASS).
 # -Exit's window has to outlast its steps, the prompt's unarmed frames and the
 # warm-up after it, and the plunge - then the level load to crypt2 - so it is
-# longer too.
-if (($Items -or $Throw -or $All -or $Impact -or $Exit) -and -not $PSBoundParameters.ContainsKey('Seconds')) { $Seconds = 20 }
+# longer too. -Lever's two presses come after a wait that clears the warm-up
+# at a slow frame rate, and must both land well before the window closes.
+if (($Items -or $Throw -or $All -or $Impact -or $Exit -or $Lever) -and -not $PSBoundParameters.ContainsKey('Seconds')) { $Seconds = 20 }
 if ($ShadowSelfTest -and -not $Lights) { throw '-ShadowSelfTest mutates the shadow checks, which only -Lights runs' }
 $root = Split-Path -Parent $PSScriptRoot
 $bin = Join-Path $root "build\$Config\bin"
@@ -533,7 +560,7 @@ if ($memberCount -lt 1 -or $memberCount -gt 4) { throw "-Party names $memberCoun
 
 # -PartyPage starts no game, and every other mode needs one.
 if ($PartyPage) {
-	$withGame = @('Wounded', 'Melee', 'Cast', 'Impact', 'Hand', 'Light', 'Pause', 'Exit', 'Sheet', 'All',
+	$withGame = @('Wounded', 'Melee', 'Cast', 'Impact', 'Hand', 'Light', 'Pause', 'Exit', 'Lever', 'Sheet', 'All',
 		'Panels', 'Minimal', 'Walk', 'Lights', 'Items', 'Packs', 'Throw', 'Glass', 'Party', 'Wear') |
 		Where-Object { $PSBoundParameters.ContainsKey($_) }
 	if ($withGame) { throw "-PartyPage runs on the title screen with no game; it does not combine with -$($withGame -join ', -')" }
@@ -632,6 +659,35 @@ function Get-ConsoleAnswer([string]$command, [string]$pattern) {
 		Start-Sleep -Milliseconds 200
 	}
 	throw "the console never answered ``$command``"
+}
+
+# `niche looks`, minus the log prefix: one line per chunk a lever-named niche
+# reaches, with its names, the look on show and how many are held (console
+# open, logecho on). -Lever reads it before and after its window.
+function Get-NicheLooks {
+	$pattern = 'console: niche looks'
+	$before = @(Select-String -Path $log -Pattern $pattern -SimpleMatch).Count
+	Send-Text 'niche looks'; Send-Key 0x0D
+	Wait-ConsoleDone
+	return @(Select-String -Path $log -Pattern $pattern -SimpleMatch | Select-Object -Skip $before |
+		ForEach-Object { $_.Line -replace '^.*console: ', '' })
+}
+
+# `geomhash`: the walls' fingerprint of a fresh bake and the layout verdict
+# (uploaded chunks against that bake: match / STALE / deferred), console open,
+# logecho on. -Lever reads it on both sides of its presses.
+function Get-WallsPrint {
+	$before = @(Select-String -Path $log -Pattern 'console: geomlayout ' -SimpleMatch).Count
+	Send-Text 'geomhash'; Send-Key 0x0D
+	$rows = Wait-NewLogLines 'console: geomlayout ' $before 1 30 # a whole fresh bake, in debug
+	if ($rows.Count -eq 0) { throw 'the console never answered `geomhash`' }
+	$hash = @(Select-String -Path $log -Pattern 'console: geomhash ' -SimpleMatch)[-1].Line
+	$layout = $rows[-1].Line -replace '^.*console: ', ''
+	return [pscustomobject]@{
+		Walls = if ($hash -match '\bwalls=([0-9a-f]+)') { $Matches[1] } else { '' }
+		Layout = if ($layout -match ' (\w+)$') { $Matches[1] } else { '' }
+		Line = $layout
+	}
 }
 
 # One -All cycle, starting with the sheet up and the console shut: its "All"
@@ -1130,8 +1186,8 @@ function Test-ItemPose {
 # on). -Impact's whole geometry hangs on it: a `tp` or `face` swallowed by a
 # busy console leaves the party firing somewhere else, and the barrage then
 # measures bolts expiring into a far wall.
-function Assert-PartyAt([int]$x, [int]$z) {
-	$want = "console: $x,$z facing north"
+function Assert-PartyAt([int]$x, [int]$z, [string]$facing = 'north') {
+	$want = "console: $x,$z facing $facing"
 	$before = @(Select-String -Path $log -Pattern $want -SimpleMatch).Count
 	Send-Text 'pos'; Send-Key 0x0D
 	$deadline = (Get-Date).AddSeconds(5)
@@ -1140,7 +1196,7 @@ function Assert-PartyAt([int]$x, [int]$z) {
 		Start-Sleep -Milliseconds 200
 	}
 	$got = Select-String -Path $log -Pattern 'console: \d+,\d+ facing ' | Select-Object -Last 1
-	throw "the party is not at $x,$z facing north (pos: $(if ($got) { $got.Line } else { 'no answer' }))"
+	throw "the party is not at $x,$z facing $facing (pos: $(if ($got) { $got.Line } else { 'no answer' }))"
 }
 
 # Goes to eval_arena, freezes its monsters and heals the party (needs logecho on
@@ -1961,6 +2017,48 @@ try {
 		Start-Sleep -Milliseconds 400
 	}
 
+	# -Lever: eval_arena's levers' corner (see the note at the top). Frozen, so
+	# no monster walks into the corner; a real load (Enter-FrozenArena's `goto`),
+	# so the walls a press swaps in were pre-built by the load itself.
+	if ($Lever) {
+		Write-Host "eval_arena's corner: a lever wired to nothing at 1,22, one at 2,22 revealing the niche at 3,22"
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		Enter-FrozenArena
+		Send-Text 'tp 1 22'; Send-Key 0x0D
+		Send-Text 'face s'; Send-Key 0x0D
+		Assert-PartyAt 1 22 'south'
+		$looks = Get-NicheLooks
+		foreach ($l in $looks) { Write-Host "  $l" }
+		# BOTH chunks the niche reaches (0,5 holds it and the cell west of it, 1,5
+		# the cell east), each holding the one other look: the walls after the
+		# window are judged chunk by chunk from these, since geomhash cannot see
+		# 1,5's (below).
+		$missing = @(foreach ($c in '0,5', '1,5') {
+			if (-not ($looks | Where-Object { $_ -match "^niche looks chunk $c names=arena_secret live=0 held=1$" })) { $c }
+		})
+		if ($missing.Count -gt 0 -or ($looks | Where-Object { $_ -match 'NOT PREBUILT' })) {
+			throw "the secret niche's walls were not pre-built at the load (chunk $($missing -join ', ')): $($looks -join ' | ')"
+		}
+		$shut = Get-ConsoleAnswer 'niche 3 22 s' 'niche 3,22 s: '
+		if ($shut -notmatch ': shut$') { throw "the secret niche is not shut before the press: $shut" }
+		$script:wallsBefore = Get-WallsPrint
+		if ($script:wallsBefore.Layout -ne 'match') {
+			throw "the walls on show are not the map's before the press: $($script:wallsBefore.Line)"
+		}
+		# The click: the middle of the 3D view, clear of every HUD panel and of
+		# anything the world click tries before a lever (a floor item, a wall
+		# torch, a door - the corner has none).
+		$rc = New-Object HarnessWin+RECT
+		[HarnessWin]::GetClientRect($hwnd, [ref]$rc) | Out-Null
+		$script:leverX = [int]($rc.Right * 0.5); $script:leverY = [int]($rc.Bottom * 0.45)
+		Write-Host "  party at 1,22 facing south; walls $($script:wallsBefore.Walls); the click at $($script:leverX),$($script:leverY)"
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0 # close the console again; alloctest reopens it below
+		Start-Sleep -Milliseconds 400
+	}
+
 	# -Hand: THE HAND SPELLS (spell-updates Phase 8). A tier-1 spell changes the
 	# WORLD AHEAD and the ITEMS IN HAND, not a monster: Kenaz lights a held torch
 	# (an item renamed in its slot) and the wall torch ahead (a fire's state, the
@@ -2556,6 +2654,21 @@ try {
 		}
 	}
 
+	# -Lever: the lever wired to nothing, a step east, the one that reveals the
+	# niche. The first wait clears the console close plus the guard's warm-up (4 s
+	# at 30 fps) with a second to spare; only the verdict's levers= / niches= say
+	# whether each press landed in a measured frame.
+	if ($Lever) {
+		Start-Sleep -Seconds 5
+		if (-not (Select-String -Path $log -Pattern 'alloctest RESULT=' -Quiet)) {
+			Send-Click $script:leverX $script:leverY # the lever at 1,22: wired to nothing
+			Start-Sleep -Milliseconds 1500
+			Send-Key 0x41                            # A: strafe left - facing south, east - to 2,22
+			Start-Sleep -Milliseconds 1500
+			Send-Click $script:leverX $script:leverY # the lever at 2,22: the niche at 3,22 opens
+		}
+	}
+
 	# -Sheet: work the sheet while the window runs. The first wait clears the
 	# console close plus the guard's 120-frame warm-up, so the clicks land in
 	# ARMED frames. Esc closes whichever popup is up (the dialog, the menu) -
@@ -2926,6 +3039,58 @@ try {
 		}
 	}
 
+	# And for -Lever: both presses from the VERDICT LINE, in measured frames (the
+	# -Exit rule) - levers= every press, niches= the ones that flipped a niche, so
+	# the difference is the press wired to nothing. Then the walls: the niche must
+	# read open, the walls on show must match a fresh bake's LAYOUT (geomhash: per
+	# chunk its buckets and index counts) and the fresh bake's wall hash must have
+	# moved, and BOTH chunks the niche reaches must have the other look on show
+	# (`niche looks` live=1) with no press rebuilt in play. The layout sees chunk
+	# 0,5's swap, whose niche panel has its own index count, but not 1,5's: there
+	# the niche moves only the pin of 4,22's panel, the same triangles displaced
+	# otherwise, so its swap is judged by the look on show. A swap of the wrong
+	# look, or of none, allocates nothing either, so the guard cannot see it:
+	# that is WALLS, a FAIL of its own.
+	if ($Lever) {
+		$levers = if ($line -match '\blevers=(\d+)') { [int]$Matches[1] } else { 0 }
+		$niches = if ($line -match '\bniches=(\d+)') { [int]$Matches[1] } else { 0 }
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		$open = Get-ConsoleAnswer 'niche 3 22 s' 'niche 3,22 s: '
+		$where = Get-ConsoleAnswer 'pos' ' facing '
+		$wallsAfter = Get-WallsPrint
+		$looks = Get-NicheLooks
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0
+		Write-Host "  in measured frames - lever presses / niche flips: $levers / $niches"
+		Write-Host "  after the window: $where; $open; walls $($script:wallsBefore.Walls) -> $($wallsAfter.Walls); $($wallsAfter.Line)"
+		foreach ($l in $looks) { Write-Host "  $l" }
+		$short = @()
+		if ($levers - $niches -lt 1) { $short += 'no press wired to no niche in a measured frame' }
+		if ($niches -lt 1) { $short += 'no niche revealed in a measured frame' }
+		if ($short.Count -gt 0 -and $result -eq 'PASS') {
+			Write-Host "$($short -join ', ') - the lever presses were not measured" -ForegroundColor Yellow
+			$result = 'UNMEASURED'
+		}
+		$wrong = @()
+		if ($open -notmatch ': open$') { $wrong += 'the niche did not open' }
+		if ($wallsAfter.Layout -ne 'match') { $wrong += "the walls on show are not a fresh bake's ($($wallsAfter.Layout))" }
+		if ($wallsAfter.Walls -eq $script:wallsBefore.Walls) { $wrong += 'the walls did not change' }
+		foreach ($c in '0,5', '1,5') {
+			if (-not ($looks | Where-Object { $_ -match "^niche looks chunk $c names=arena_secret live=1 held=1$" })) {
+				$wrong += "chunk $c does not have the revealed look on show"
+			}
+		}
+		$rebuilt = @($looks | Where-Object { $_ -match '^niche looks: presses rebuilt in play (\d+)$' } |
+			ForEach-Object { [int]($_ -replace '^.* (\d+)$', '$1') })
+		if ($rebuilt.Count -ne 1 -or $rebuilt[0] -ne 0) { $wrong += "a press rebuilt walls in play ($($rebuilt -join ','))" }
+		if ($wrong.Count -gt 0) {
+			Write-Host "$($wrong -join ', ')" -ForegroundColor Red
+			if ($result -eq 'PASS' -or $result -eq 'UNMEASURED') { $result = 'WALLS' }
+		}
+	}
+
 	# And for -Packs: two equips made during the window (one each way), or the
 	# clicks missed and the growth was not measured.
 	if ($Packs) {
@@ -3267,6 +3432,9 @@ try {
 		}
 		'PICKS' {
 			Write-Host 'FAIL - an item pose or click pick check failed: a niche glow shut or out of its pocket, or a target missed where it is drawn (see above)' -ForegroundColor Red
+		}
+		'WALLS' {
+			Write-Host 'FAIL - after the lever, the walls on show are not what the map holds (see above)' -ForegroundColor Red
 		}
 		default {
 			Write-Host "$result - the game never reached a steady frame" -ForegroundColor Yellow

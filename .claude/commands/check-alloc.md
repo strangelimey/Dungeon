@@ -81,6 +81,19 @@ only the default):
   only in MEASURED frames (armed to the end of their Update, inside the window),
   since the harness can only time its sends and a click in the warm-up checks
   nothing
+- `.\tools\AllocTest.ps1 -Lever` - eval_arena's levers' corner, inside the
+  window: a click on the lever at 1,22, wired to nothing, a step east and a
+  click on the one at 2,22, whose press reveals the secret niche at 3,22. A
+  press used to build a vector of the niches it touched, and a reveal rebuilt
+  the walls round it in play (a drain, a build, an upload); the press now counts
+  and the reveal swaps in walls pre-built at the load (code-review C211). It
+  refuses a PASS unless the verdict counts, in measured frames, a press that
+  flipped no niche and one that flipped one (`levers=`, `niches=`), and fails as
+  WALLS unless afterwards the niche is open, the walls on show match a fresh
+  bake's layout (`geomhash`) and moved, and both chunks the niche reaches have
+  the revealed look on show with no press rebuilt in play (`niche looks`). The
+  layout sees the niche's own chunk; the one east of it changes only a panel's
+  pin, so its swap is judged by the look `niche looks` says is on show
 - `.\tools\AllocTest.ps1 -Sheet` - the character sheet: hover (the status bar),
   every tab, a right-click opening the item details dialog, the use menu. It
   refuses a PASS unless `itemdetails status` counts an open made in the window

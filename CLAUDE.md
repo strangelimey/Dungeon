@@ -1850,7 +1850,8 @@ wall torch - is one ball test, `Camera::Ray::HitsSphere`, sized in units x kUnit
 through the real tests - an item's drawn box is its model's bounds through the
 pose's matrix, never the pick's own inputs (`floorHeight`, the slot's quarter),
 since a probe built from those intersects at the height it projected from and
-hits for any camera; `niche <x> <z> <dir> [open|shut|put <item>]`. Checked by
+hits for any camera; `niche <x> <z> <dir> [open|shut|put <item>]` (and `niche
+looks`, the walls a lever can swap in - see the MapView section). Checked by
 AllocTest -Items (tools/EvalScripts/itempose.eval, before its window), which
 also wants an open niche's glow over its rune, in the pocket.
 
@@ -2582,7 +2583,20 @@ A structural paint → DungeonWorld::EditCell → DungeonMap::SetCell (bumps
 Revision()) → RebuildChunksAround(x,z), which rebuilds ONLY the touched chunk +
 its orthogonal-neighbour chunks (≤5), not the whole map — so paints are near-
 instant (the old whole-map RebuildGeometry is gone; BuildDungeonMeshes is the full
-bake for load/quality-swap). Placement appends to the live world lists (and
+bake for load/quality-swap). The ONE play-time geometry change, a lever revealing
+a secret niche, rebuilds nothing (code-review C211): each chunk a lever-NAMED
+niche reaches keeps its WALL chunks pre-built for every combination of the names
+reaching it (DungeonWorld::PrebuildNicheLooks - BuildDungeonMeshes builds them,
+and every RebuildChunkRegion again from the map as it stands), and a press swaps
+the matching look in: no drain, no build, nothing freed. A chunk with no walls in
+any state (the niche reaches it through rock or open floor) keeps none. At most 4
+names a chunk (16 looks); past that the build warns and a press there rebuilds as
+before, which the allocation guard reports. Dev `niche looks` (its last line counts
+the presses that rebuilt); checked by `AllocTest.ps1 -Lever` on eval_arena's
+levers' corner (1..3,22) and EditorTest phase 55, whose scratch copy adds a pillar
+niche beside a wall-less chunk and reaches the new game's and the load's batched
+re-stamps (`newgame`, a save and load - `reset` re-reads the map and reaches
+neither). Placement appends to the live world lists (and
 DungeonMap for fixtures), drawn next frame. Markers draw from the LIVE world
 (MonsterMarkers/DecorationMarkers), so placed/erased entities show immediately.
 Both modes can BROWSE other levels: [^]/[v] arrows top-left of the grid step the

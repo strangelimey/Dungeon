@@ -88,6 +88,7 @@ void Game::RegisterDiagnosticCommands() {
 			m_allocTestTransitions = 0;
 			m_allocTestPrompts = 0;
 			m_allocTestHelps = m_allocTestFalls = 0;
+			m_allocTestLevers = m_allocTestNiches = 0;
 			m_allocTestStart = alloc::Stats();
 			m_console.Print(std::format(
 				"alloctest: {:.0f}s of steady frames — closing the console (frames only "

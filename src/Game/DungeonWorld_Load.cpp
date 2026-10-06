@@ -546,6 +546,10 @@ void DungeonWorld::BuildDungeonMeshes() {
 	m_floors.chunks.clear();
 	m_ceilings.chunks.clear();
 	AppendSurfaceChunks(geo);
+	// And every wall look a lever can swap in, so a press builds nothing
+	// (code-review C211). After the drain: the looks it drops may have been on
+	// show in a frame still in flight.
+	PrebuildNicheLooks();
 	m_geometryDirty = false; // any full bake pays the deferred-undo debt
 }
 

@@ -1337,12 +1337,18 @@ void Game::RegisterDevCommands() {
 	// A niche's runtime open state, or set it: a lever's reveal (ToggleNichesNamed)
 	// without a lever wired to a named niche - a test can shut what it placed.
 	// `put` lays an item in it (AddNicheItem), which the editor's item brush
-	// cannot reach until code-review C351 lands (batch 82).
+	// cannot reach until code-review C351 lands (batch 82). `looks` lists the
+	// walls pre-built for the lever names (code-review C211): a press swaps one in.
 	m_console.Register({.name = "niche",
 						.group = CmdGroup::Levels,
-						.params = "<x> <z> <n|e|s|w> [open|shut]\n<x> <z> <n|e|s|w> put <item>",
+						.params = "<x> <z> <n|e|s|w> [open|shut]\n<x> <z> <n|e|s|w> put <item>\nlooks",
 						.summary = "a wall niche's open state; open or shut it, or lay an item in it"},
 					   [this](const std::vector<std::string>& args) {
+						   if (args.size() == 1 && args[0] == "looks") {
+							   for (const std::string& line : m_world->NicheLooksReport())
+								   m_console.Print(line);
+							   return;
+						   }
 						   if (!Need(m_console, args, 3)) return;
 						   const int x = std::atoi(args[0].c_str());
 						   const int z = std::atoi(args[1].c_str());

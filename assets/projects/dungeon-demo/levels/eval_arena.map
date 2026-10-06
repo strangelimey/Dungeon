@@ -40,3 +40,10 @@ atmosphere dust=0.05 haze=0.6 ambient=1.5
 #..........................#
 #..........................#
 ############################
+;
+; THE LEVERS' CORNER (code-review C211, tools\AllocTest.ps1 -Lever): a SECRET
+; niche in the south wall at 3,22, named for the lever beside it at 2,22 (its
+; .ent record), whose press reveals it. Hidden, so until then the wall reads
+; plain - and the geometry is the same as without it. The lever at 1,22 is
+; wired to nothing. Away from every square a suite stands on or carves.
+niche niche 3 22 south name=arena_secret hidden=1

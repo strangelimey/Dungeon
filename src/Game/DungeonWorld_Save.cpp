@@ -169,8 +169,12 @@ void DungeonWorld::ResetForNewGame() {
 	// mending it is lifting the flag; the save's `broken` lines re-break it.
 	for (Decoration& deco : m_decorations) deco.brk.Mend();
 	// Re-hide any secret niche opened this session; re-stamp the changed walls.
-	if (m_map.ResetNicheOpen())
+	// One batch: each chunk rebuilds once, its pre-built niche looks with it.
+	if (m_map.ResetNicheOpen()) {
+		BeginChunkBatch();
 		for (const WallNiche& n : m_map.Niches()) RebuildChunksAround(n.x, n.z);
+		EndChunkBatch();
+	}
 	// Every fire back to how the level was authored, and nothing left smoking.
 	m_map.ResetFixtureBurning();
 	SyncFiresFromMap();
@@ -620,10 +624,12 @@ void DungeonWorld::ApplyActiveSnapshot() {
 	ReserveAIPools();  // ...and its placed monsters some of the AI pools'
 	// Wall-niche reveal state: set each saved niche's open flag, then re-stamp its
 	// wall (a no-op if the geometry isn't built yet — the load's mesh bake then
-	// reads the restored open state directly).
+	// reads the restored open state directly). One batch, as on a new game.
+	BeginChunkBatch();
 	for (const SaveData::NicheOpen& n : ls.niches)
 		if (m_map.SetNicheOpenAt(n.x, n.z, static_cast<Direction>(n.wall), n.open))
 			RebuildChunksAround(n.x, n.z);
+	EndChunkBatch();
 	// Fires lit or put out in play. Restored QUIETLY: a fire found out on
 	// arrival went out long ago, and its smoke with it.
 	for (const SaveData::FireBurning& f : ls.fires) {

@@ -1,0 +1,82 @@
+; nichelooks.eval - a lever's secret-niche reveal swaps in walls pre-built at
+; the load (code-review C211), judged by tools\EditorTest.py phase 55.
+;
+; eval_arena's levers' corner: a lever at 1,22 wired to nothing, one at 2,22
+; whose target is the hidden niche `arena_secret` in the south wall at 3,22.
+; The niche's state reaches two chunks (0,5 holds it and the cell west of it,
+; 1,5 the cell east), so `niche looks` lists both. After every press `geomhash`
+; prints the walls of a FRESH bake and whether the uploaded chunks' LAYOUT
+; matches it (per chunk, its buckets and index counts): a swap of the wrong
+; look, or of none, in 0,5 reads STALE there, while in 1,5 - where the niche
+; moves only the pin of 4,22's panel, not its triangles - it shows only in the
+; look `niche looks` says is on show (live=). Between presses the state is moved
+; the other ways a niche can move - by hand (`niche ... open`, a rebuild that
+; builds the looks again from that state), by repainting the wall it is cut
+; into (an edit's rebuild), by a new game (ResetForNewGame's batched re-stamp)
+; and by loading a save made with it open (that re-stamp, then
+; ApplyActiveSnapshot's). `reset` re-reads the map from its file, so it reaches
+; neither batch: the new game here is `newgame`.
+;
+; THE PILLAR is EditorTest's, written into its scratch copy of eval_arena (no
+; suite's ground has one): a pillar at 8,7, a hidden niche `arena_pillar` on its
+; south face opening onto 8,8, and a lever at 8,6 on its north face. The
+; niche's west neighbour 7,8 lies in chunk 1,2, which has no walls at all: it
+; must hold no look, and the press must rebuild nothing (`niche looks`' last
+; line counts the presses that did).
+logecho on
+reset
+timescale 0
+echo --- loaded ---
+niche looks
+niche 3 22 s
+geomhash
+echo --- the lever wired to nothing ---
+press 1 22
+niche 3 22 s
+niche looks
+geomhash
+echo --- the reveal ---
+press 2 22
+niche 3 22 s
+niche looks
+geomhash
+echo --- shut again ---
+press 2 22
+niche 3 22 s
+niche looks
+geomhash
+echo --- opened by hand, shut by the lever ---
+niche 3 22 s open
+niche looks
+press 2 22
+niche 3 22 s
+niche looks
+geomhash
+echo --- the wall repainted under it, then the reveal ---
+editor fill walls wall_brick_old rect 2 23 4 23
+niche looks
+press 2 22
+niche 3 22 s
+niche looks
+geomhash
+echo --- a new game ---
+newgame
+niche looks
+niche 3 22 s
+geomhash
+echo --- revealed for the save ---
+press 2 22
+niche 3 22 s
+geomhash
+save nichelooks
+echo --- a load ---
+load nichelooks
+niche looks
+niche 3 22 s
+geomhash
+echo --- the pillar ---
+press 8 6
+niche 8 8 n
+niche looks
+geomhash
+echo --- end ---
