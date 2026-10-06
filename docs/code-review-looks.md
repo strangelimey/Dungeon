@@ -26,6 +26,11 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   animation clip choice now draws from its own cosmetic random stream, so every
   seeded eval sequence shifted once. Nothing was tuned back.
 
+- **The live-blast ceiling** (batch 21). Live blasts are now a fixed table of 32
+  (a first fight allocated nothing after this). A 33rd blast while 32 are still
+  spreading lands WHOLE at once, with no linger, and logs a warning - normal play
+  should never get there. Say if you would rather it replace the oldest.
+
 ## Follow-ups the batches found (not in the plan)
 
 - **Fixed save names in the shared save folder** (batch 4, cde991c8). The

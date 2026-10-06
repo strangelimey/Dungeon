@@ -323,8 +323,12 @@ param(
 
 $ErrorActionPreference = 'Stop'
 # -Items spends about four armed seconds a round trip and needs two whole ones
-# inside the window, so its default window is longer.
-if (($Items -or $Throw -or $All) -and -not $PSBoundParameters.ContainsKey('Seconds')) { $Seconds = 20 }
+# inside the window, so its default window is longer. So does -Impact since
+# batch 21: its burst caster joins only when the window opens (so the first
+# detonation is inside it), and a brazier must then break AND go out inside the
+# window - in 10 s that happened only on an idle machine (503 frames under load:
+# the brazier broke just after the window and the run refused its PASS).
+if (($Items -or $Throw -or $All -or $Impact) -and -not $PSBoundParameters.ContainsKey('Seconds')) { $Seconds = 20 }
 $root = Split-Path -Parent $PSScriptRoot
 $bin = Join-Path $root "build\$Config\bin"
 
