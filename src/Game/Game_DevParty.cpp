@@ -921,15 +921,30 @@ void Game::RegisterPartyCommands() {
 	// Shows the chrome in one UI material without touching the setting - the
 	// Level dialog's preview, from the console - so every material can be
 	// looked at in turn (more-ui-updates: the contrast pass). `off` hands the
-	// chrome back to the setting and the place.
+	// chrome back to the setting and the place. `sweep` logs how every
+	// material's inks read - the carved gold and the etched symbols' (code-review
+	// C204) - without showing any of them, and `drawn` what the etches on show
+	// were really painted with; tools\InGameTest.ps1 judges both.
 	m_console.Register({.name = "uimaterial",
 						.group = CmdGroup::Settings,
 						.params = "<material>\n"
 								  "off\n"
-								  "list",
+								  "list\n"
+								  "sweep\n"
+								  "drawn",
 						.summary = "preview a UI material (nothing saved)"},
 					   [this](const std::vector<std::string>& args) {
 						   if (!Need(m_console, args, 1)) return;
+						   if (args[0] == "sweep") {
+							   const int n = m_ui.SweepMaterials();
+							   m_console.Print(std::format(
+								   "uimaterial: swept {} materials' inks - see dungeon.log", n));
+							   return;
+						   }
+						   if (args[0] == "drawn") {
+							   m_console.Print(m_ui.ReportEtchDrawn());
+							   return;
+						   }
 						   if (args[0] == "off") {
 							   m_ui.EndStonePreview();
 							   m_console.Print(std::format("uimaterial: back to {}", m_ui.ShownStone()));

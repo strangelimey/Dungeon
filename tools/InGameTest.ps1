@@ -1,8 +1,9 @@
 # ============================================================================
 # tools\InGameTest.ps1 - the audits that need a running game.
 #
-# Two checks that were built but never automated, sharing one launch because
-# the expensive part is loading the dungeon, not running them:
+# Checks that were built but never automated (the first two), and one since,
+# sharing one launch because the expensive part is loading the dungeon, not
+# running them:
 #
 #   levelcheck  every level file is present and every model a catalog type
 #               names is installed. The baked pool is GITIGNORED, so a fresh
@@ -15,6 +16,14 @@
 #               manual sweep found four defects nobody had reported. The command
 #               was written to log its findings with a label precisely so a
 #               scripted sweep would be collectable, and then nothing ever swept.
+#
+#   etched gold `uimaterial sweep` (code-review C204): on every UI material the
+#               etched symbols' gold follows the ink solve the carved words take,
+#               every etch measured; `uimaterial drawn`: on a snow material and
+#               a dark stone the etches were really PAINTED in those inks; and
+#               the movement pad is photographed on the snow into
+#               build\<cfg>\bin\shots for a look. Run-wide checks, before the
+#               screens.
 #
 #   backdrop    (code-review C365) what Render drew behind the pause menu and
 #               the sheet opened from the world map: the world map, with no 3D
@@ -145,6 +154,59 @@ function Set-ClientSize([int]$w, [int]$h) {
 	# SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS.
 	[IgtWin]::SetWindowPos($hwnd, [IntPtr]::Zero, 0, 0, $cx, $cy, 0x4016) | Out-Null
 	Start-Sleep -Milliseconds 800
+}
+
+# THE ETCHED GOLD (code-review C204): the material the movement pad is shown and
+# photographed on - a snow, the lightest kind, where the old baked gold read
+# worst - and where the pictures go (beside the exe, so never into git).
+$etchMaterial = 'snow_packed'
+# ...and a dark stone the draw record is read on too: there the solve keeps the
+# authored gold, and its lit slope (the ink x the sheen) is not clamped white as
+# on the snow, so a slope drawn in the bare tint shows.
+$sheenMaterial = 'granite_grey'
+$shotDir = Join-Path $bin 'shots'
+# A PrintWindow of THIS game's client area (PW_CLIENTONLY | PW_RENDERFULLCONTENT:
+# the second flag is what captures a D3D swapchain - never a screen grab, which
+# photographs whatever window is in front), saved whole to $path and, cut to
+# $rect (x, y, w, h in client px) and doubled, to $cropPath. Returns the cut's
+# luminance spread (standard deviation, 0..255) - a blank or failed capture is
+# flat - or -1 when nothing was captured.
+function Save-PadShot([string]$path, [int[]]$rect, [string]$cropPath) {
+	Add-Type -AssemblyName System.Drawing
+	$r = New-Object HarnessWin+RECT
+	[HarnessWin]::GetClientRect($hwnd, [ref]$r) | Out-Null
+	if ($r.Right -le 0 -or $r.Bottom -le 0) { return -1 }
+	$bmp = New-Object System.Drawing.Bitmap($r.Right, $r.Bottom)
+	$g = [System.Drawing.Graphics]::FromImage($bmp)
+	$hdc = $g.GetHdc()
+	$ok = [HarnessWin]::PrintWindow($hwnd, $hdc, 3)
+	$g.ReleaseHdc($hdc); $g.Dispose()
+	try {
+		if (-not $ok) { return -1 }
+		New-Item -ItemType Directory -Force $shotDir | Out-Null
+		$bmp.Save($path)
+		$x = [Math]::Max(0, $rect[0]); $y = [Math]::Max(0, $rect[1])
+		$w = [Math]::Min($rect[2], $bmp.Width - $x); $h = [Math]::Min($rect[3], $bmp.Height - $y)
+		if ($w -le 0 -or $h -le 0) { return -1 }
+		$crop = New-Object System.Drawing.Bitmap(($w * 2), ($h * 2))
+		$cg = [System.Drawing.Graphics]::FromImage($crop)
+		$cg.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::NearestNeighbor
+		$cg.DrawImage($bmp, (New-Object System.Drawing.Rectangle(0, 0, ($w * 2), ($h * 2))),
+			(New-Object System.Drawing.Rectangle($x, $y, $w, $h)), [System.Drawing.GraphicsUnit]::Pixel)
+		$cg.Dispose(); $crop.Save($cropPath); $crop.Dispose()
+		$sum = 0.0; $sq = 0.0; $n = 0
+		for ($py = $y; $py -lt $y + $h; $py += 3) {
+			for ($px = $x; $px -lt $x + $w; $px += 3) {
+				$c = $bmp.GetPixel($px, $py)
+				$l = 0.2126 * $c.R + 0.7152 * $c.G + 0.0722 * $c.B
+				$sum += $l; $sq += $l * $l; $n++
+			}
+		}
+		$mean = $sum / $n
+		return [Math]::Sqrt([Math]::Max(0.0, $sq / $n - $mean * $mean))
+	} finally {
+		$bmp.Dispose()
+	}
 }
 
 # The screens this sweeps, and how each is reached. Keyboard only: scripted
@@ -471,6 +533,43 @@ try {
 	# Retried until it answers, counting only a NEW report.
 	Wait-ConsoleReady 'levelcheck' 'levelcheck RESULT=' 10 4000 | Out-Null
 
+	# THE ETCHED GOLD (code-review C204): every material's inks swept into the log
+	# (judged below), then the movement pad shown on a snow material and
+	# photographed - the picture is Michael's look, the verdict only that it was
+	# taken. The pad's place comes from `hudpanel list` (logecho is on all run).
+	Run-Cmd 'uimaterial sweep'
+	$switched = Get-LogMatchCount "ui material ${etchMaterial}:"
+	Run-Cmd "uimaterial $etchMaterial"
+	Wait-NewLogLines "ui material ${etchMaterial}:" $switched 1 10 | Out-Null
+	$padPattern = 'console:\s+move\s+shown\s+px (-?\d+),(-?\d+) (\d+)x(\d+)'
+	$listed = Get-LogMatchCount $padPattern
+	Run-Cmd 'hudpanel list'
+	$padLine = @(Wait-NewLogLines $padPattern $listed 1 10)
+	$padRect = $null; $padSpread = -1
+	if ($padLine.Count -gt 0) {
+		$m = $padLine[-1].Matches[0].Groups
+		$padRect = @([int]$m[1].Value, [int]$m[2].Value, [int]$m[3].Value, [int]$m[4].Value)
+		Send-Key 0xC0; Start-Sleep -Milliseconds 1500   # shut, so the HUD shows alone
+		$padShot = Join-Path $shotDir "ingametest-movepad-$etchMaterial.png"
+		$padSpread = Save-PadShot (Join-Path $shotDir "ingametest-hud-$etchMaterial.png") $padRect $padShot
+		Open-Console
+	}
+	# ...and what the etches were PAINTED with there: the sheet open, so its
+	# current tab draws its lit twin beside the plain stones, then the draw
+	# record (judged below against the solved inks). The console SHUT a moment
+	# first: an open console owns the frame and the UI is drawn but not updated,
+	# so no tab is ever marked current and nothing draws lit (the first run of
+	# this check read `lit=1 draws=0` exactly so). Then the same on the dark stone.
+	Run-Cmd 'sheet 0'
+	foreach ($mat in $etchMaterial, $sheenMaterial) {
+		if ($mat -ne $etchMaterial) { Run-Cmd "uimaterial $mat" }
+		Send-Key 0xC0; Start-Sleep -Milliseconds 1500
+		Open-Console
+		Run-Cmd 'uimaterial drawn'
+	}
+	Run-Cmd 'sheet off'
+	Run-Cmd 'uimaterial off'
+
 	foreach ($s in $screens) { Sweep-Screen $s }
 
 	# Where the sweep ENDED: still in the game, or every screen after the one
@@ -583,6 +682,121 @@ if ($endMarker -lt 0 -or -not $endState) {
 	$global++
 } else {
 	Write-Host "  [ok  ] the sweep ended in the game ($($endState -replace '^\[info \] console: ', ''))"
+}
+
+# THE ETCHED GOLD FOLLOWS THE MATERIAL (code-review C204). The sweep logged every
+# material its header counted, and on each the etched symbols' gold reads at
+# least as well as the authored dark-stone gold would there - and BETTER wherever
+# the ink solve moved the gold, which is the etch following the material (the
+# baked gold it replaced read 1.2:1 on the snows). With no material moved, the
+# follow check would prove nothing, so one must be. And EVERY etch was measured:
+# the rows take the weakest of whichever loaded, so a missing or refused one
+# (its stone left on the fallback, one warning at load) would read clean.
+$etchProblems = @()
+$sweepHead = @($lines | Select-String 'uimaterial sweep: (\d+) materials, etches (\d+)/(\d+) lit (\d+)/(\d+)$') |
+	Select-Object -Last 1
+if (-not $sweepHead) {
+	$etchProblems += 'the material sweep never ran'
+} else {
+	$hg = $sweepHead.Matches[0].Groups
+	if ([int]$hg[3].Value -lt 1 -or $hg[2].Value -ne $hg[3].Value -or $hg[4].Value -ne $hg[5].Value) {
+		$etchProblems += "measured $($hg[2].Value) of $($hg[3].Value) etches and $($hg[4].Value) of $($hg[5].Value) lit ones"
+		foreach ($w in @($lines | Select-String 'etched symbol')) { $etchProblems += "  $($w.Line)" }
+	}
+	$want = [int]$hg[1].Value
+	$rows = @($lines | Select-String ('uimaterial sweep: (\S+) carved=([\d.]+) etched=([\d.]+) lit=([\d.]+) ' +
+		'authored=([\d.]+) authoredlit=([\d.]+) moved=(\d) litmoved=(\d)'))
+	if ($want -lt 1 -or $rows.Count -ne $want) { $etchProblems += "the sweep logged $($rows.Count) of $want materials" }
+	$moved = 0
+	foreach ($r in $rows) {
+		$g = $r.Matches[0].Groups
+		$name = $g[1].Value
+		$e = [double]$g[3].Value; $l = [double]$g[4].Value; $a = [double]$g[5].Value; $al = [double]$g[6].Value
+		if ($e -lt $a - 0.005 -or $l -lt $al - 0.005) {
+			$etchProblems += "${name}: the etched gold reads worse than the authored gold would ($e vs $a, lit $l vs $al)"
+		}
+		if ($g[7].Value -eq '1') {
+			$moved++
+			if ($e -lt $a + 0.01) { $etchProblems += "${name}: the ink solve moved the gold and the etch did not follow ($e vs $a)" }
+		}
+		if ($g[8].Value -eq '1' -and $l -lt $al + 0.01) {
+			$etchProblems += "${name}: the ink solve moved the lit gold and the lit etch did not follow ($l vs $al)"
+		}
+	}
+	if ($moved -eq 0) { $etchProblems += 'the solve moved no material''s gold - the follow check proved nothing' }
+}
+if ($etchProblems.Count -eq 0) {
+	Write-Host "  [ok  ] the etched gold followed the material on all $($rows.Count) materials ($moved moved)"
+} else {
+	Write-Host '  [FAIL] the etched gold does not follow the material:' -ForegroundColor Red
+	$etchProblems | ForEach-Object { Write-Host "     $_" }
+	$global++
+}
+# ...and the movement pad was photographed on the snow: the switch landed (its
+# own ink line), the pad was found shown with a size, and the picture is not
+# flat (a failed PrintWindow comes back blank).
+$snowLine = $lines | Select-String "ui material ${etchMaterial}:" | Select-Object -Last 1
+if ($snowLine -and $padRect -and $padRect[2] -gt 0 -and $padRect[3] -gt 0 -and $padSpread -gt 4) {
+	Write-Host "  [ok  ] the movement pad photographed on $etchMaterial (spread $([Math]::Round($padSpread, 1))): $padShot"
+} else {
+	$why = if (-not $snowLine) { "$etchMaterial never showed" } elseif (-not $padRect) { 'the pad was not found shown' }
+		   else { "the picture is blank (spread $([Math]::Round($padSpread, 1)))" }
+	Write-Host "  [FAIL] no picture of the movement pad on ${etchMaterial}: $why" -ForegroundColor Red
+	$global++
+}
+# ...and the etches were PAINTED in those inks. The sweep reads the inks the draw
+# is meant to use, through the draw's own EtchInk, so it cannot see a draw that
+# stopped using them; nor can the photo, whose only test is that it is not flat.
+# `uimaterial drawn` is DrawCutStone's record of its last plain and lit etch on
+# each material (the sheet open, so its current tab drew lit): each drew all
+# three panels from their own thirds of the strip, the groove in the call's tint,
+# the gold floor in the SOLVED ink x tint and its lit slope in that ink lifted by
+# the sheen x tint. On the snow the solved ink is not the authored one, or the
+# floor could not tell them apart; on the dark stone the slope is not clamped
+# white, or it could not tell the lifted ink from the bare tint.
+$drawnProblems = @()
+foreach ($mat in $etchMaterial, $sheenMaterial) {
+	foreach ($k in 0, 1) {
+		$kind = if ($k) { 'lit' } else { 'plain' }
+		$d = @($lines | Select-String ("uimaterial drawn: $mat lit=$k draws=(\d+) ink=(\S+) authored=(\S+) " +
+			'sheen=(\S+) tint=(\S+) uv=(\S+) groove=(\S+) floor=(\S+) slope=(\S+)')) | Select-Object -Last 1
+		if (-not $d) { $drawnProblems += "${mat}: no record of a $kind etch"; continue }
+		$g = $d.Matches[0].Groups
+		if ([int]$g[1].Value -lt 1) { $drawnProblems += "${mat}: no $kind etch was drawn"; continue }
+		$v = @{}
+		foreach ($i in 2, 3, 5, 7, 8, 9) { $v[$i] = @($g[$i].Value.Split(',') | ForEach-Object { [double]$_ }) }
+		$ink = $v[2]; $auth = $v[3]; $tint = $v[5]; $sheen = [double]$g[4].Value
+		if ($mat -eq $etchMaterial) {
+			$off = 0.0; foreach ($c in 0..2) { $off += [Math]::Abs($ink[$c] - $auth[$c]) }
+			if ($off -lt 0.01) { $drawnProblems += "${mat}: the solve kept the authored $kind gold - the floor check proves nothing" }
+		} elseif (@(0..2 | Where-Object { $ink[$_] * $sheen -lt 0.99 }).Count -eq 0) {
+			$drawnProblems += "${mat}: the $kind slope is clamped white - the slope check proves nothing"
+		}
+		$wantGroove = @(0..2 | ForEach-Object { $tint[$_] })
+		$wantFloor = @(0..2 | ForEach-Object { $ink[$_] * $tint[$_] })
+		$wantSlope = @(0..2 | ForEach-Object { [Math]::Min(1.0, $ink[$_] * $sheen) * $tint[$_] })
+		foreach ($p in @(@('groove', $v[7], $wantGroove), @('gold floor', $v[8], $wantFloor), @('lit slope', $v[9], $wantSlope))) {
+			$bad = $false; foreach ($c in 0..2) { if ([Math]::Abs($p[1][$c] - $p[2][$c]) -gt 0.001) { $bad = $true } }
+			if ($bad) {
+				$drawnProblems += "${mat}: the $kind $($p[0]) was drawn $($p[1] -join ','), not $(($p[2] | ForEach-Object { [Math]::Round($_, 4) }) -join ',')"
+			}
+		}
+		$uvs = @($g[6].Value.Split('/'))
+		for ($i = 0; $i -lt 3; $i++) {
+			$u = if ($i -lt $uvs.Count) { @($uvs[$i].Split(',') | ForEach-Object { [double]$_ }) } else { @() }
+			if ($u.Count -ne 4 -or [Math]::Abs($u[0] - $i / 3.0) -gt 0.001 -or [Math]::Abs($u[1]) -gt 0.001 -or
+				[Math]::Abs($u[2] - 1 / 3.0) -gt 0.001 -or [Math]::Abs($u[3] - 1.0) -gt 0.001) {
+				$drawnProblems += "${mat}: the $kind etch's panel $i was drawn from $($uvs[$i]), not its own third of the strip"
+			}
+		}
+	}
+}
+if ($drawnProblems.Count -eq 0) {
+	Write-Host "  [ok  ] the etches were painted in the solved inks, plain and lit, on $etchMaterial and $sheenMaterial"
+} else {
+	Write-Host '  [FAIL] the etches were not painted in the solved inks:' -ForegroundColor Red
+	$drawnProblems | ForEach-Object { Write-Host "     $_" }
+	$global++
 }
 
 Write-Host ''

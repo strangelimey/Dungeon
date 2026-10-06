@@ -2807,8 +2807,17 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   shadow_exp) with an etched symbol over it (etch_<name>[_lit].png,
   tools/BuildEtchGlyphs.py: the glyph's DISTANCE-from-edge as a V-groove depth,
   scaled by the stroke's half-width - not the deepest texel, or the gold pools
-  in the joints - lit from the top-left, gold on the floor only; light-only so
-  it suits every material). `active` holds it down AND swaps in `etchLit`.
+  in the joints - lit from the top-left, gold on the floor only). THE GOLD IS NOT
+  BAKED IN (code-review C204; it used to be, the dark-stone gold, so the etches
+  skipped the ink solve and read 1.2:1 on the snows): each PNG is THREE square
+  panels side by side - the groove (grey + alpha, light only), a white mask of
+  the gold floor, a white mask of its lit slope - and DrawCutStone draws them in
+  turn over one square, the masks tinted `ui::EtchInk` (= CarvedGold, CarvedLit
+  for a lit tab) and `EtchSheen` (that ink x `kEtchSheen`, which MUST equal the
+  script's TONE_MAX). The script SOLVES the panels from the one-image look, so
+  any ink draws what the baked etch drew with it (`--check`: exact to 0.84/255
+  where no channel clips, and that the files are current). `active` holds it
+  down AND swaps in `etchLit`.
   `Button::fireOnPress` acts on the press (the push still plays; `m_fired`
   stops the bottom of the sink acting again); `PressVisual()` plays it with no
   action. The movement pad uses all three and watches `Party::ActCount` so a
@@ -2825,13 +2834,28 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   the party page's buttons - the old brightness-only rule darkened it on the
   mid-toned materials, the wrong way, and left the snows at 1.2:1). Hover stays
   brighter than the gold; disabled fades toward the stone (`CarvedDisabled`).
-  The solve logs `ui material <name>: gold r,g,b reads N:1` on every change, and
-  `uimaterial <name>` previews one. GameUI::ApplyLegibility also rings small text
-  harder there and sets `Skin::calm`, a wash of the stone's own mean colour over
+  The solve logs `ui material <name>: gold r,g,b reads N:1` on every change - with
+  the weakest etched symbol's gold floor beside it, as drawn and as the authored
+  gold would draw it (ui::MeasureEtchFloor, taken from each etch PNG as it
+  loads) - and `uimaterial <name>` previews one; `uimaterial sweep` logs every
+  material's line without showing any (its header counts the etches measured,
+  so a missing or refused one cannot hide), and InGameTest judges it (every etch
+  measured; on every material the etch reads no worse than the authored gold,
+  and better wherever the solve moved the gold). The sweep reads the inks
+  through EtchInk and never sees a sprite, so DrawCutStone also RECORDS what it
+  last painted, plain and lit (`ui::LastEtchDrawn`, reset on a material change),
+  and `uimaterial drawn` prints it beside the solved inks: on snow_packed
+  InGameTest photographs the movement pad into build\<cfg>\bin\shots (a look,
+  judged only as taken), then opens the sheet (its current tab draws lit) and
+  holds each panel's window and colour to them there - where the gold moved -
+  and on granite_grey, where the lit slope is not clamped white. The console
+  must be SHUT a moment first: an open console owns the frame, the UI is drawn
+  but not updated, and no tab is ever current. GameUI::ApplyLegibility also
+  rings small text harder there and sets `Skin::calm`, a wash of the stone's own mean colour over
   every face but a slot, from stones.cat `detail` (a band-pass of the baked tile
   at glyph scale; `BuildUiStones.py --index-only` rewrites mean + detail from the
   tiles on disk, no archive needed). Dark calm materials are untouched. Dev
-  `uimaterial <name>|off|list` previews one without saving. The pause and title menus are
+  `uimaterial <name>|off|list|sweep|drawn` previews one without saving. The pause and title menus are
   `Game/MenuPanel` (a card sized in rem from its entries, the pause title carved
   on it) holding a skinned `ui::MenuList`: cut stones that sink on the press and
   ACT ON RELEASE (drag off cancels; Enter presses the selected one), the

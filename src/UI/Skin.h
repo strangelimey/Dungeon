@@ -24,7 +24,10 @@
 // ============================================================================
 #pragma once
 
+#include "Core/Types.h"
 #include "Graphics/SpriteBatch.h"
+
+#include <span>
 
 namespace dungeon::ui {
 
@@ -84,7 +87,8 @@ struct Skin {
 	float luma = 0.20f;
 	float calm = 0.0f;
 	Vec4 stoneMean{0.2f, 0.2f, 0.2f, 1.0f};
-	// The carved INKS on this material (ui::CarvedGold & co. return them), SOLVED
+	// The carved INKS on this material (ui::CarvedGold & co. return them; the
+	// etched symbols' gold is the same two, EtchInk), SOLVED
 	// against `stoneMean` by ui::ResolveInks whenever the material changes: each
 	// is the authored gold kept wherever it already reads, and otherwise moved
 	// toward pale gold or dark bronze until it clears a contrast ratio (Michael:
@@ -118,11 +122,76 @@ float FaceInset(const Skin& skin, Face face);
 
 // A CUT-STONE button (more-ui-updates): a Block face, sunk into its joint by
 // `depth` (0 up .. 1 pressed - Button's push), with an ETCHED symbol over it
-// (assets/ui/etch_<name>.png, tools/BuildEtchGlyphs.py: a lit groove with gold
-// on its floor, light only, so it suits every material). The symbol moves down
-// and right with the press, as the block does. `tint` dims (a disabled
-// stone); `hot` lifts the face a touch. No-op without the block part.
+// (see below). The symbol moves down and right with the press, as the block
+// does. `tint` dims (a disabled stone); `hot` lifts the face a touch; `lit`
+// paints the etch's gold with the lit ink (a current tab - pass the _lit
+// twin). No-op without the block part.
 void DrawCutStone(gfx::SpriteBatch& batch, const gfx::Rect& dst, const Skin& skin,
-				  const gfx::Texture* etch, float depth, bool hot, const Vec4& tint);
+				  const gfx::Texture* etch, float depth, bool hot, const Vec4& tint,
+				  bool lit = false);
+
+// ---------------------------------------------------------------------------
+// The ETCHED symbol (assets/ui/etch_<name>.png, tools/BuildEtchGlyphs.py).
+//
+// Its gold follows the MATERIAL (code-review C204). It used to be baked into
+// the image - the dark-stone gold - so an etched symbol never went through
+// ResolveInks and stayed at the dark stones' gold on the light ones. An etch is
+// now kEtchPanels square panels side by side, drawn over one square in turn:
+// the GROOVE (grey and alpha - only light, so it suits every material), then a
+// white mask of the GOLD on the groove's floor tinted with EtchInk, then a
+// white mask of that floor's LIT SLOPE tinted with EtchSheen. The script
+// solves the panels from the one-image look, so for any ink they draw what the
+// baked etch drew with that ink.
+// ---------------------------------------------------------------------------
+
+inline constexpr int kEtchPanels = 3;
+// How far the floor's lit slope brightens the ink. The script's TONE_MAX: the
+// two must match, or the lit slope reads too dull or too bright.
+inline constexpr float kEtchSheen = 1.35f;
+
+// The gold an etch on `skin` is painted with: the carved words' gold
+// (Skin::inkGold, CarvedGold), or their lit gold (inkLit, CarvedLit) for a lit
+// one. DrawCutStone's ink and the material report's.
+Vec4 EtchInk(const Skin& skin, bool lit);
+// The colour the floor's lit slope reaches: the ink x kEtchSheen, each channel
+// clamped as the render target clamps it.
+Vec4 EtchSheen(const Vec4& ink);
+
+// What an etch's gold FLOOR shows, measured once from its image so the
+// material report (GameUI's `ui material` line, `uimaterial sweep`) reads the
+// panels the game draws. Over a stone, the mean colour of the floor - every
+// texel at least half covered by gold - is
+//   EtchSheen(ink) x sheen + ink x ink + grey + stone x through.
+struct EtchFloor {
+	float sheen = 0.0f;
+	float ink = 0.0f;
+	float grey = 0.0f;
+	float through = 1.0f;
+	bool valid = false; // false: not an etch of this shape, or no gold in it
+};
+// From an etch's RGBA8 texels (`width` = kEtchPanels x `height`).
+EtchFloor MeasureEtchFloor(std::span<const u8> rgba, u32 width, u32 height);
+// The floor's mean colour on `stone`, painted with `ink` (alpha 1).
+Vec4 EtchFloorSeen(const EtchFloor& floor, const Vec4& ink, const Vec4& stone);
+
+// What DrawCutStone last PAINTED an etch with, plain and lit kept apart: each
+// panel's texture window and colour exactly as they went to the sprite batch,
+// that call's tint, and how many calls drew one since ResetEtchDrawn. The
+// material report above reads the inks through EtchInk and never sees a sprite,
+// so a draw that stopped following them (the gold tinted with `tint` alone, a
+// lit twin painted in the plain gold, one sprite over the whole strip) would
+// leave it reading clean. GameUI's `uimaterial drawn` prints this beside the
+// material's solved inks for tools\InGameTest.ps1 (code-review C204). Main
+// thread only, like every draw.
+struct EtchDrawn {
+	u32 draws = 0;
+	gfx::Rect uv[kEtchPanels]{};
+	Vec4 color[kEtchPanels]{};
+	Vec4 tint{};
+};
+const EtchDrawn& LastEtchDrawn(bool lit);
+// Forgets both records. GameUI calls it when the material on show changes, so
+// a record only ever names draws on that material.
+void ResetEtchDrawn();
 
 } // namespace dungeon::ui

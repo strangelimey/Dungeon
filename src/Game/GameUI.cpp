@@ -3,7 +3,9 @@
 // ============================================================================
 #include "Game/GameUI.h"
 
+#include "Assets/Image.h"
 #include "Core/Loc.h"
+#include "Core/Log.h"
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
 #include "Game/HudTray.h"
@@ -39,6 +41,30 @@ constexpr const char* kMoveEtches[] = {"turn_left",   "forward", "turn_right",
 									   "strafe_left", "back",	 "strafe_right"};
 // The sheet's tab stones (assets/ui/etch_tab_<name>.png), in its Mode order.
 constexpr const char* kTabEtches[] = {"inventory", "stats", "skills", "spells", "effects"};
+
+// An etched symbol (tools/BuildEtchGlyphs.py: its groove, gold floor and that
+// floor's sheen as three panels side by side), loaded from its PNG and MEASURED
+// on the way - ui::MeasureEtchFloor, what the material report says its gold
+// reads. One of any other shape is refused with a warning, since DrawCutStone
+// would cut it in thirds; a refused or missing one leaves its stone to the
+// fallback (the pad's chevron, the tab's flat glyph).
+std::unique_ptr<gfx::Texture> LoadEtch(gfx::GraphicsDevice& device, const std::string& stem,
+									   ui::EtchFloor& floor) {
+	floor = {};
+	auto image = assets::LoadImageFile(stem + ".png");
+	if (!image) {
+		log::Warn("etched symbol missing: {}.png - its stone draws without it", stem);
+		return nullptr;
+	}
+	floor = ui::MeasureEtchFloor(image->pixels, image->width, image->height);
+	if (!floor.valid) {
+		log::Warn("etched symbol {}.png is {}x{}, not {} square panels with gold on the floor - "
+				  "re-run tools/BuildEtchGlyphs.py",
+				  stem, image->width, image->height, ui::kEtchPanels);
+		return nullptr;
+	}
+	return std::make_unique<gfx::Texture>(device, *image, /*srgb*/ false);
+}
 
 // Font pixel heights at the 900px-tall design window (the layouts in
 // BuildMenu/BuildHud are authored against the same design size). UpdateFonts
@@ -158,11 +184,13 @@ void GameUI::BuildStaticUi() {
 	// page — or any editor dialog — draws one.
 	LoadSharedControlIcons(m_device);
 	// And the sheet's tab stones (tools/BuildEtchGlyphs.py), for the same
-	// reason: BuildCharacterSheet hands their pointers to the tabs.
+	// reason: BuildCharacterSheet hands their pointers to the tabs. Their floors
+	// follow the pad's six in m_etchFloor.
 	for (size_t i = 0; i < std::size(kTabEtches); ++i) {
-		const std::string stem = std::string("ui\\etch_tab_") + kTabEtches[i];
-		m_tabEtch[i] = TryLoadTextureFile(m_device, paths::Asset(stem));
-		m_tabEtchLit[i] = TryLoadTextureFile(m_device, paths::Asset(stem + "_lit"));
+		const std::string stem = paths::Asset(std::string("ui\\etch_tab_") + kTabEtches[i]);
+		const size_t at = m_moveEtch.size() + i;
+		m_tabEtch[i] = LoadEtch(m_device, stem, m_etchFloor[at]);
+		m_tabEtchLit[i] = LoadEtch(m_device, stem + "_lit", m_etchFloorLit[at]);
 	}
 	BuildMenu();
 	BuildPauseMenu();
@@ -218,9 +246,9 @@ void GameUI::LoadTitleArt() {
 	// direction plus a lit twin, in the pad's order. The chevrons above stay
 	// the fallback for the flat debug look.
 	for (size_t i = 0; i < std::size(kMoveEtches); ++i) {
-		const std::string stem = std::string("ui\\etch_move_") + kMoveEtches[i];
-		m_moveEtch[i] = TryLoadTextureFile(m_device, paths::Asset(stem));
-		m_moveEtchLit[i] = TryLoadTextureFile(m_device, paths::Asset(stem + "_lit"));
+		const std::string stem = paths::Asset(std::string("ui\\etch_move_") + kMoveEtches[i]);
+		m_moveEtch[i] = LoadEtch(m_device, stem, m_etchFloor[i]);
+		m_moveEtchLit[i] = LoadEtch(m_device, stem + "_lit", m_etchFloorLit[i]);
 	}
 	// The soft glow behind a SET hand box (tools/BuildGlow.py). Optional: without
 	// it a set hand shows the flat tint alone.

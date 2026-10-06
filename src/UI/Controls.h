@@ -171,7 +171,8 @@ public:
 	const gfx::Texture* faceIcon = nullptr;
 	// CUT STONE (more-ui-updates): with `etch` set and a skin that has the block
 	// part, the button IS a cut-stone block with that symbol etched into it
-	// (ui::DrawCutStone; assets/ui/etch_<name>.png). `etchLit` - the gold lit -
+	// (ui::DrawCutStone; assets/ui/etch_<name>.png), its gold the material's
+	// solved ink like a carved word's. `etchLit` - the gold lit, in CarvedLit -
 	// replaces it while `active`, which also holds the block down: a current
 	// tab is both sunk and lit. The icon / label paths are the fallback (no
 	// skin, or the flat debug look).

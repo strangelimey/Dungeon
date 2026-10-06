@@ -112,8 +112,13 @@ float FaceInset(const Skin& skin, Face face) {
 	return part.texture ? part.inset * part.scale : 0.0f;
 }
 
+namespace {
+// What DrawCutStone last painted (LastEtchDrawn): [0] a plain etch, [1] a lit one.
+EtchDrawn g_etchDrawn[2];
+} // namespace
+
 void DrawCutStone(gfx::SpriteBatch& batch, const gfx::Rect& dst, const Skin& skin,
-				  const gfx::Texture* etch, float depth, bool hot, const Vec4& tint) {
+				  const gfx::Texture* etch, float depth, bool hot, const Vec4& tint, bool lit) {
 	if (!skin.block.texture || dst.w <= 0.0f || dst.h <= 0.0f) return;
 	// The face flips to the pressed block for the deeper half of the motion
 	// (Button's rule), and the symbol follows the depth down by a small share
@@ -126,9 +131,90 @@ void DrawCutStone(gfx::SpriteBatch& batch, const gfx::Rect& dst, const Skin& ski
 	// stays square, centred, sized by the short side.
 	const float side = std::min(dst.w, dst.h);
 	const float sink = depth * std::max(1.0f, side * 0.035f);
-	batch.DrawSprite({dst.x + (dst.w - side) * 0.5f + sink,
-					  dst.y + (dst.h - side) * 0.5f + sink, side, side},
-					 {0, 0, 1, 1}, *etch, {tint.x, tint.y, tint.z, tint.w});
+	const gfx::Rect at{dst.x + (dst.w - side) * 0.5f + sink, dst.y + (dst.h - side) * 0.5f + sink,
+					   side, side};
+	// The groove (light: the tint only dims it), then the gold on its floor and
+	// that floor's lit slope, in this material's inks. Each panel's border texels
+	// are clear, so a sample straddling two panels picks up nothing.
+	constexpr float kPanel = 1.0f / static_cast<float>(kEtchPanels);
+	const Vec4 ink = EtchInk(skin, lit);
+	const Vec4 sheen = EtchSheen(ink);
+	const gfx::Rect uv[kEtchPanels] = {{0.0f, 0.0f, kPanel, 1.0f},
+									   {kPanel, 0.0f, kPanel, 1.0f},
+									   {2.0f * kPanel, 0.0f, kPanel, 1.0f}};
+	const Vec4 color[kEtchPanels] = {
+		tint,
+		{ink.x * tint.x, ink.y * tint.y, ink.z * tint.z, tint.w},
+		{sheen.x * tint.x, sheen.y * tint.y, sheen.z * tint.z, tint.w}};
+	// Drawn from the very table the record copies, so the record is what was drawn.
+	EtchDrawn& drawn = g_etchDrawn[lit ? 1 : 0];
+	for (int i = 0; i < kEtchPanels; ++i) {
+		batch.DrawSprite(at, uv[i], *etch, color[i]);
+		drawn.uv[i] = uv[i];
+		drawn.color[i] = color[i];
+	}
+	drawn.tint = tint;
+	++drawn.draws;
+}
+
+const EtchDrawn& LastEtchDrawn(bool lit) { return g_etchDrawn[lit ? 1 : 0]; }
+
+void ResetEtchDrawn() {
+	g_etchDrawn[0] = {};
+	g_etchDrawn[1] = {};
+}
+
+Vec4 EtchInk(const Skin& skin, bool lit) { return lit ? skin.inkLit : skin.inkGold; }
+
+Vec4 EtchSheen(const Vec4& ink) {
+	return {std::min(1.0f, ink.x * kEtchSheen), std::min(1.0f, ink.y * kEtchSheen),
+			std::min(1.0f, ink.z * kEtchSheen), ink.w};
+}
+
+EtchFloor MeasureEtchFloor(std::span<const u8> rgba, u32 width, u32 height) {
+	EtchFloor out;
+	if (height == 0 || width != height * kEtchPanels ||
+		rgba.size() < static_cast<size_t>(width) * height * 4)
+		return out;
+	// A texel's alpha, and its grey (the mean of r, g, b), in 0..1.
+	const auto alpha = [&](u32 x, u32 y) {
+		return rgba[(static_cast<size_t>(y) * width + x) * 4 + 3] / 255.0;
+	};
+	const auto grey = [&](u32 x, u32 y) {
+		const size_t i = (static_cast<size_t>(y) * width + x) * 4;
+		return (rgba[i] + rgba[i + 1] + rgba[i + 2]) / (3.0 * 255.0);
+	};
+	double sheen = 0.0, ink = 0.0, under = 0.0, through = 0.0;
+	u64 count = 0;
+	for (u32 y = 0; y < height; ++y)
+		for (u32 x = 0; x < height; ++x) {
+			const double a = alpha(x, y), b = alpha(x + height, y), c = alpha(x + 2 * height, y);
+			if (1.0 - (1.0 - b) * (1.0 - c) < 0.5) continue; // not the floor
+			// DrawCutStone's three layers, unrolled: sheen over ink over groove.
+			sheen += c * grey(x + 2 * height, y);
+			ink += (1.0 - c) * b * grey(x + height, y);
+			under += (1.0 - c) * (1.0 - b) * a * grey(x, y);
+			through += (1.0 - c) * (1.0 - b) * (1.0 - a);
+			++count;
+		}
+	if (count == 0) return out;
+	const double n = static_cast<double>(count);
+	out.sheen = static_cast<float>(sheen / n);
+	out.ink = static_cast<float>(ink / n);
+	out.grey = static_cast<float>(under / n);
+	out.through = static_cast<float>(through / n);
+	out.valid = true;
+	return out;
+}
+
+Vec4 EtchFloorSeen(const EtchFloor& floor, const Vec4& ink, const Vec4& stone) {
+	const Vec4 sheen = EtchSheen(ink);
+	const auto channel = [&](float s, float i, float st) {
+		return std::clamp(s * floor.sheen + i * floor.ink + floor.grey + st * floor.through, 0.0f,
+						  1.0f);
+	};
+	return {channel(sheen.x, ink.x, stone.x), channel(sheen.y, ink.y, stone.y),
+			channel(sheen.z, ink.z, stone.z), 1.0f};
 }
 
 void DrawNineSlice(gfx::SpriteBatch& batch, const gfx::Rect& dst,

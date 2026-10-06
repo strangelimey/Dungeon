@@ -118,6 +118,19 @@ public:
 	// back to whatever the setting and the place decide.
 	void PreviewStone(std::string name);
 	void EndStonePreview();
+	// `uimaterial sweep` (code-review C204): solves every material's inks as a
+	// switch to it would (nothing is loaded or shown) and logs one line each -
+	// the carved gold's contrast and the weakest etched symbol's, as drawn and in
+	// the authored gold. Returns how many materials it logged. Its header also
+	// counts the etches measured, plain and lit, so one that failed to load
+	// cannot hide behind the others.
+	int SweepMaterials();
+	// `uimaterial drawn`: logs what DrawCutStone last painted an etch with,
+	// plain and lit (ui::LastEtchDrawn, reset whenever the material changes),
+	// beside the shown material's solved inks and the authored ones - the
+	// sweep reads the inks the draw is meant to use, this what it did use.
+	// Returns the console's summary line.
+	std::string ReportEtchDrawn() const;
 	// Sets the player's Material setting to follow the place (and saves it).
 	// The Level dialog's Save calls this (Michael: authoring a level's material
 	// while pinned to another showed nothing in play). False = already did.
@@ -568,8 +581,9 @@ private:
 	// Reads the curated stones (assets/ui/stones: the tiles, stones.cat, the
 	// thumbnails) into m_stones - once; a page rebuild reuses them.
 	void ScanStones();
-	// Sets the skin's legibility knobs (luma, calm, stoneMean, the text ring)
-	// for the material on show - GameUI_Stone.cpp.
+	// Sets the skin's legibility knobs (luma, calm, stoneMean, the text ring,
+	// the solved inks) for the material on show, and logs how its inks read -
+	// GameUI_Stone.cpp.
 	void ApplyLegibility();
 	// Scales the skin's frames and stone grain with the window, like the fonts.
 	void UpdateSkinScale();
@@ -792,6 +806,11 @@ private:
 	// BuildStaticUi, before the sheet that points at them is built).
 	std::array<std::unique_ptr<gfx::Texture>, 5> m_tabEtch;
 	std::array<std::unique_ptr<gfx::Texture>, 5> m_tabEtchLit;
+	// What every etch's gold floor shows (ui::MeasureEtchFloor, taken as each
+	// loads), plain and lit: the pad's six, then the tabs' five. The material
+	// report reads them (GameUI_Stone.cpp).
+	std::array<ui::EtchFloor, 6 + 5> m_etchFloor{};
+	std::array<ui::EtchFloor, 6 + 5> m_etchFloorLit{};
 	std::unique_ptr<gfx::Texture> m_frameBlockTex;
 	std::unique_ptr<gfx::Texture> m_frameBlockDownTex;
 	std::unique_ptr<gfx::Texture> m_glowTex; // a set hand box's centre glow

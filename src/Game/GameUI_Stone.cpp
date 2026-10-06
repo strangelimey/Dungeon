@@ -31,9 +31,12 @@
 #include "Game/StonePicker.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <format>
 #include <iterator>
+#include <span>
 
 namespace dungeon::game {
 
@@ -41,6 +44,70 @@ namespace {
 // The families stones.cat names, in the filter's (and the grid's) order. Each
 // has a settings.stone.kind.<family> label.
 constexpr const char* kStoneFamilies[] = {"stone", "wood", "forest", "snow", "rock"};
+
+// Sets `skin`'s legibility knobs for one material - its toned luminance, mean
+// colour and grain (stones.cat `detail`) - and solves its inks. The live switch
+// (ApplyLegibility) and `uimaterial sweep` both come through here, so the sweep
+// reports exactly what a switch would draw.
+void SetLegibility(ui::Skin& skin, float luma, const Vec4& mean, float detail) {
+	skin.luma = luma;
+	skin.stoneMean = mean;
+	// Detail 0.024 is about the default granite's: nothing is calmed below it,
+	// and the busiest leaves (0.05) take a wash of a little under half.
+	const float busy = std::clamp((detail - 0.024f) / 0.026f, 0.0f, 1.0f);
+	skin.calm = 0.45f * busy;
+	// The ring under small text: as authored on dark stone, solid on the snows.
+	skin.textOutline.w = 0.85f + 0.15f * std::clamp((luma - 0.22f) / 0.20f, 0.0f, 1.0f);
+	ui::ResolveInks(skin);
+}
+
+// How a material's inks read, as WCAG contrast ratios against its mean colour:
+// the carved gold, and the WEAKEST etched symbol's gold floor (plain and lit)
+// as DrawCutStone paints it (ui::EtchInk) and as the authored dark-stone gold
+// would paint it - which is what every etch showed before its gold followed
+// the material (code-review C204). `moved`: the solve moved that ink at all.
+struct InkReading {
+	float carved = 0.0f;
+	float etched = 0.0f;
+	float lit = 0.0f;
+	float authored = 0.0f;
+	float authoredLit = 0.0f;
+	bool measured = false; // some etch was measured; else the etch numbers mean nothing
+	bool moved = false;
+	bool litMoved = false;
+};
+
+InkReading ReadInks(const ui::Skin& skin, std::span<const ui::EtchFloor> plain,
+					std::span<const ui::EtchFloor> lit) {
+	const ui::Skin authored; // the dark-stone inks the defaults carry
+	const Vec4 mean{skin.stoneMean.x, skin.stoneMean.y, skin.stoneMean.z, 1.0f};
+	InkReading r;
+	r.carved = ui::ContrastRatio(skin.inkGold, mean);
+	// The weakest of `floors` painted with `from`'s ink; false = none measured.
+	const auto weakest = [&](std::span<const ui::EtchFloor> floors, const ui::Skin& from,
+							 bool isLit, float& out) {
+		bool any = false;
+		for (const ui::EtchFloor& f : floors) {
+			if (!f.valid) continue;
+			const float c =
+				ui::ContrastRatio(ui::EtchFloorSeen(f, ui::EtchInk(from, isLit), mean), mean);
+			out = any ? std::min(out, c) : c;
+			any = true;
+		}
+		return any;
+	};
+	const bool plainSeen = weakest(plain, skin, false, r.etched);
+	const bool litSeen = weakest(lit, skin, true, r.lit);
+	weakest(plain, authored, false, r.authored);
+	weakest(lit, authored, true, r.authoredLit);
+	r.measured = plainSeen && litSeen;
+	const auto differs = [](const Vec4& a, const Vec4& b) {
+		return std::abs(a.x - b.x) + std::abs(a.y - b.y) + std::abs(a.z - b.z) > 1e-4f;
+	};
+	r.moved = differs(skin.inkGold, authored.inkGold);
+	r.litMoved = differs(skin.inkLit, authored.inkLit);
+	return r;
+}
 } // namespace
 
 // The stone every skinned face is cut from: assets/ui/stones/<name>.png
@@ -93,25 +160,79 @@ void GameUI::ApplyStone() {
 // 1.2:1); a LIGHT one rings small text harder; a BUSY
 // one (leaves, lava - stones.cat `detail`) has its grain calmed by a wash of
 // its own mean colour, so text stops competing with it. A material the index
-// does not know keeps the dark-stone settings.
+// does not know keeps the dark-stone settings. The etched symbols' gold takes
+// the same inks (ui::EtchInk), so the log line says how they read too.
 void GameUI::ApplyLegibility() {
 	ScanStones();
 	const StoneInfo* info = nullptr;
 	for (const StoneInfo& s : m_stones)
 		if (s.name == m_shownStone) info = &s;
-	const float luma = info ? info->luminance : 0.20f;
-	m_skin.luma = luma;
-	m_skin.stoneMean = info ? info->mean : Vec4{0.2f, 0.2f, 0.2f, 1.0f};
-	// Detail 0.024 is about the default granite's: nothing is calmed below it,
-	// and the busiest leaves (0.05) take a wash of a little under half.
-	const float busy = info ? std::clamp((info->detail - 0.024f) / 0.026f, 0.0f, 1.0f) : 0.0f;
-	m_skin.calm = 0.45f * busy;
-	// The ring under small text: as authored on dark stone, solid on the snows.
-	m_skin.textOutline.w = 0.85f + 0.15f * std::clamp((luma - 0.22f) / 0.20f, 0.0f, 1.0f);
-	ui::ResolveInks(m_skin);
-	log::Info("ui material {}: gold {:.2f},{:.2f},{:.2f} reads {:.1f}:1 on its mean", m_shownStone,
-			  m_skin.inkGold.x, m_skin.inkGold.y, m_skin.inkGold.z,
-			  ui::ContrastRatio(m_skin.inkGold, m_skin.stoneMean));
+	SetLegibility(m_skin, info ? info->luminance : 0.20f,
+				  info ? info->mean : Vec4{0.2f, 0.2f, 0.2f, 1.0f}, info ? info->detail : 0.0f);
+	ui::ResetEtchDrawn(); // `uimaterial drawn` counts this material's draws only
+	const InkReading r = ReadInks(m_skin, m_etchFloor, m_etchFloorLit);
+	log::Info("ui material {}: gold {:.2f},{:.2f},{:.2f} reads {:.1f}:1 on its mean; etched gold "
+			  "{:.1f}:1 (lit {:.1f}:1), authored gold would read {:.1f}:1 (lit {:.1f}:1){}",
+			  m_shownStone, m_skin.inkGold.x, m_skin.inkGold.y, m_skin.inkGold.z, r.carved, r.etched,
+			  r.lit, r.authored, r.authoredLit, r.measured ? "" : " - NO etch measured");
+}
+
+int GameUI::SweepMaterials() {
+	ScanStones();
+	// The header names the counts, so a reader can tell a whole sweep from a cut
+	// one - the materials, and the etches measured of those there are: ReadInks
+	// takes the weakest of whichever loaded, so a missing or refused etch (its
+	// stone left on the fallback, one warning at load) would otherwise read as
+	// clean. Each line is key=value for the harness (tools\InGameTest.ps1).
+	const auto valid = [](std::span<const ui::EtchFloor> floors) {
+		return std::ranges::count_if(floors, [](const ui::EtchFloor& f) { return f.valid; });
+	};
+	log::Info("uimaterial sweep: {} materials, etches {}/{} lit {}/{}", m_stones.size(),
+			  valid(m_etchFloor), m_etchFloor.size(), valid(m_etchFloorLit), m_etchFloorLit.size());
+	for (const StoneInfo& s : m_stones) {
+		ui::Skin skin = m_skin; // the live skin's parts; only the knobs change
+		SetLegibility(skin, s.luminance, s.mean, s.detail);
+		const InkReading r = ReadInks(skin, m_etchFloor, m_etchFloorLit);
+		if (!r.measured) {
+			log::Warn("uimaterial sweep: {} carved={:.2f} - no etched symbol measured", s.name,
+					  r.carved);
+			continue;
+		}
+		log::Info("uimaterial sweep: {} carved={:.2f} etched={:.2f} lit={:.2f} authored={:.2f} "
+				  "authoredlit={:.2f} moved={:d} litmoved={:d}",
+				  s.name, r.carved, r.etched, r.lit, r.authored, r.authoredLit, r.moved ? 1 : 0,
+				  r.litMoved ? 1 : 0);
+	}
+	return static_cast<int>(m_stones.size());
+}
+
+std::string GameUI::ReportEtchDrawn() const {
+	const ui::Skin authored; // the dark-stone inks the defaults carry
+	// Four decimals: the harness recomputes the floor (ink x tint) and the slope
+	// (the sheen-lifted ink x tint) from these and holds the draw to them.
+	const auto rgb = [](const Vec4& c) {
+		return std::format("{:.4f},{:.4f},{:.4f}", c.x, c.y, c.z);
+	};
+	u32 draws[2] = {};
+	for (int k = 0; k < 2; ++k) {
+		const bool lit = k == 1;
+		const ui::EtchDrawn& d = ui::LastEtchDrawn(lit);
+		draws[k] = d.draws;
+		std::string uv;
+		for (int i = 0; i < ui::kEtchPanels; ++i)
+			uv += std::format("{}{:.4f},{:.4f},{:.4f},{:.4f}", i ? "/" : "", d.uv[i].x, d.uv[i].y,
+							  d.uv[i].w, d.uv[i].h);
+		// The solved ink is read off the skin's own field, not through EtchInk:
+		// it is the draw's path that is being held to it.
+		log::Info("uimaterial drawn: {} lit={} draws={} ink={} authored={} sheen={:.4f} tint={} "
+				  "uv={} groove={} floor={} slope={}",
+				  m_shownStone, k, d.draws, rgb(lit ? m_skin.inkLit : m_skin.inkGold),
+				  rgb(lit ? authored.inkLit : authored.inkGold), ui::kEtchSheen, rgb(d.tint), uv,
+				  rgb(d.color[0]), rgb(d.color[1]), rgb(d.color[2]));
+	}
+	return std::format("uimaterial: {} - etches drawn since it showed: {} plain, {} lit - see "
+					   "dungeon.log",
+					   m_shownStone, draws[0], draws[1]);
 }
 
 const gfx::Texture* GameUI::StoneThumb(std::string_view name) {

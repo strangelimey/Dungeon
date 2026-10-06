@@ -381,10 +381,12 @@ void Button::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const gfx::Rect& px = Pixel();
 	if (const Skin* skin = ctx.GetSkin(); etch && skin && skin->block.texture) {
 		// A cut-stone block: an active one (a current tab) is held down AND
-		// shows its gold lit; disabled dims the stone, edges kept.
+		// shows its gold lit; disabled dims the stone, edges kept. The gold is
+		// the material's (EtchInk), like a carved word's.
 		const float dim = enabled ? 1.0f : 0.45f;
-		DrawCutStone(batch, px, *skin, active && etchLit ? etchLit : etch,
-					 active ? 1.0f : Depth(), m_hot && enabled, {dim, dim, dim, 1.0f});
+		const bool lit = active && etchLit;
+		DrawCutStone(batch, px, *skin, lit ? etchLit : etch, active ? 1.0f : Depth(),
+					 m_hot && enabled, {dim, dim, dim, 1.0f}, lit);
 		return;
 	}
 	if (const Skin* skin = ctx.GetSkin(); carved && skin && skin->block.texture) {
