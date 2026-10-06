@@ -57,7 +57,7 @@ LevelStore. 11 last.
 
 Goal: stop every live bug and rule-break that needs no refactor (answer 1), with the judges made honest first. Each batch is a commit. Paths are under src/Game/ unless shown.
 
-There are 96 batches (89 numbered in order, then 5a and 90-96 added for the tools issues assigned late). Of the 213 issues first batched, 212 are placed below; the additions place 20 more. C46 is moved out, and C34 and C227 are in batches but held for Michael's answer. The batches run in this order:
+There are 96 batches (89 numbered in order, then 5a and 90-96 added for the tools issues assigned late). Of the 213 issues first batched, 212 are placed below; the additions place 20 more. C46 is moved out. Every decision the batches waited on is answered (see "Questions this plan raised"). The batches run in this order:
 
 1. 0a (the judges and harnesses).
 2. Two pieces of judge infrastructure: guard evidence, and a hidden headless window.
@@ -334,7 +334,7 @@ Paths are under `src/Game/` unless shown otherwise. "Judge" names the existing c
 - Judge: SpellTest, PipelineTest, AllocTest -Hand / -Impact. ADD:
   - spells.eval case: skel_magus's burst bolt hits the party and `blasts=` moves;
   - eval: a gust that weakens a magus burst bolt shrinks its blast and procs.
-- Question for Michael: does a Wind Ward that deflects a burst bolt also stop its blast? The proposed answer is yes, because a turned bolt does not land.
+- A Wind Ward that deflects a burst bolt stops its blast too (Michael: a turned bolt does not land). ADD an eval case for it.
 - Look: yes, magus fights get harder.
 
 **25. Spells and effects** - C9, C17, C19, C279
@@ -364,7 +364,7 @@ Paths are under `src/Game/` unless shown otherwise. "Judge" names the existing c
 **27. Throws and the fumble** - C10, C40, C47 (0h)
 - Files: DungeonWorld_Combat.cpp, DungeonWorld_Throw.cpp, DungeonWorld_Save.cpp, Projectiles.cpp, Game.cpp, CLAUDE.md.
 - C10: a severe fumble drops the held item with its charge and its kind's id, clears the hand, and logs from kind.nameKey.
-- C40: throwing xp is awarded on contact, before the Detonate branch. A wall shatter does not count unless Michael says so.
+- C40: throwing xp is awarded on contact, before the Detonate branch. A wall shatter does not count (Michael: only contact trains).
 - C47: a save writes in-flight cargo as a floor item at its landing square, without landing the live flight. Update CLAUDE.md THROWING to match.
 - Judge: bombs.eval. ADD:
   - eval: a forced severe fumble with a part-burnt torch drops it with its charge;
@@ -382,13 +382,13 @@ Paths are under `src/Game/` unless shown otherwise. "Judge" names the existing c
   - a seeded sweep with one extra cosmetic clip on a monster matches the sweep without it.
 - Look: no.
 
-**29. A missed attack is noticed** - C34 (HOLD for Michael)
+**29. A missed attack is noticed** - C34 (Michael: yes, both halves)
 - Files: Effect/Effect.h/.cpp, DungeonWorld_Combat.cpp, CLAUDE.md.
 - C34: after Deal, an ITarget::Noticed(ev) hook runs for every non-Tick event that reached a target. A monster provokes and credits threat; the party breaks rest.
 - Judge: PipelineTest. ADD:
   - eval: a missed shot wakes an asleep monster;
   - rest.eval: a missed or turned swing ends rest as `attacked`.
-- This changes CLAUDE.md's definition of rest's `attacked` ("a blow"). If Michael keeps that definition, land only the provoke half.
+- This changes CLAUDE.md's definition of rest's `attacked` ("a blow") to "an attack that reached the party"; update that paragraph in the same commit.
 - Look: yes, stealth.
 
 **30. Resource rule defaults** - C361, C362
@@ -484,7 +484,7 @@ Paths are under `src/Game/` unless shown otherwise. "Judge" names the existing c
 
 **39. Levers and niches** - C211
 - Files: DungeonWorld_Doors.cpp, DungeonMap.cpp/.h, DungeonWorld.cpp, tools/AllocTest.ps1, an eval_arena addition.
-- C211: ToggleNichesNamed returns a count into a fixed buffer. For the reveal, prefer a pre-built opened chunk. A once-per-niche alloc::Excused is the fallback, and it needs Michael's OK because it is an event exemption.
+- C211: ToggleNichesNamed returns a count into a fixed buffer. The reveal swaps in an opened chunk pre-built at load. There is no excuse fallback (Michael: pre-build only, no event exemption) - if pre-building proves hard, find another allocation-free way.
 - Judge: ADD AllocTest -Lever (P2's mode): one press that matches no niche and one that reveals a named niche. It refuses a PASS unless both landed.
 - Look: no.
 
@@ -538,11 +538,11 @@ Paths are under `src/Game/` unless shown otherwise. "Judge" names the existing c
   - an AllocTest run under language=ru, and under en hovering an em-dash tooltip.
 - Look: yes. Text holds its size during a panel drag.
 
-**45. Conjured pebbles** - C227 (HOLD for Michael)
+**45. Conjured pebbles** - C227 (Michael: recycle)
 - Files: DungeonWorld_Load.cpp, Spell/Rock.cpp, DungeonWorld.h, tools/AllocTest.ps1.
 - C227: a fixed recycle pool for conjured drops that reuses the oldest uncollected pebble.
 - Judge: ADD an AllocTest -Hand variant that casts Rock with full hands past 64 drops.
-- If Michael rejects recycling, this becomes P2's self-reporting reserve.
+- Only conjured pebbles recycle; a real item on the floor is never reused.
 - Look: no.
 
 **0d - platform and UI**
@@ -1077,13 +1077,8 @@ Paths are under `src/Game/` unless shown otherwise. "Judge" names the existing c
 - **C136's EditHistory -> P10.**
 - **Dead UI code -> P7 (C92).** That covers C455's dead helpers (DialogTitleFont, the panel-rect AddCloseButton, CloseButtonRect) and C456's TextOutput.
 - **C451's StatBonus/SpeedScale hook decision -> 5g.**
-- **Held for Michael's answer:**
-  - C34: changing rest's "attacked". If he says no, land only the provoke half.
-  - C227: recycling pebbles. If he says no, it moves to P2.
-  - C1: does a Wind Ward stop a burst?
-  - C211: the once-per-niche excuse fallback.
-  - C40: does a wall shatter train throwing?
-- **C64:** findings put it in P6 step 6. It is standalone, but the per-frame cap changes how fast rest runs, so Michael should feel it.
+- **Decisions the batches waited on, now answered:** C34 lands whole (a miss wakes and ends rest); C227 recycles conjured pebbles; C1's Wind Ward stops the burst; C211 has no excuse fallback; C40 trains only on contact.
+- **C64:** findings put it in P6 step 6. It is standalone and lands in batch 35 (Michael: yes); the per-frame cap changes how fast rest runs, so Michael tries the feel.
 
 #### Must land together
 **One commit:**
@@ -1130,7 +1125,7 @@ Michael chose all six targets now (answer 5). Closes C118, C120, C121, C122, C12
 
 The whole Game library has only six include edges that point the wrong way. Six small cut commits fix them, then six build commits create the targets. The first build commit adds a layer check that runs as part of the build.
 
-Method: I collected every quoted `#include` in `src/Game` (1,215 edges, 665 of them `Game/` to `Game/`) and checked them against the assignment below. I also checked every free-function declaration and definition across files, and every `Class::` definition site. No call crosses a layer without an include, so the include edges are the complete list.
+Method: every quoted `#include` in `src/Game` (1,215 edges, 665 of them `Game/` to `Game/`) was collected and checked against the assignment below, along with every free-function declaration and definition across files and every `Class::` definition site. No call crosses a layer without an include, so the include edges are the complete list.
 
 ### 1. Targets
 
@@ -1526,28 +1521,31 @@ index below.
 
 ## Questions this plan raised
 
-These are asked one at a time; the answers are recorded here.
+Asked one at a time on 2026-10-05; Michael's answers are in bold.
 
 1. **Does a Wind Ward that deflects a burst bolt also stop its blast?**
-   (batch 24, C1) Proposed: yes - a turned bolt does not land.
-2. **Does a miss or a turned blow end rest as "attacked" and wake the
-   monster?** (batch 29, C34) Today only a landed blow does. Proposed: yes for
-   both, which changes CLAUDE.md's definition of rest's `attacked`.
+   (batch 24, C1) **Yes - a turned bolt does not land, so nothing
+   detonates.**
+2. **Does a miss or a turned blow wake the monster and end rest as
+   "attacked"?** (batch 29, C34) Today only a landed blow does. **Yes, both.**
+   Batch 29 lands whole, and CLAUDE.md's definition of rest's `attacked`
+   changes from "a blow" to "an attack that reached the party".
 3. **Should conjured pebbles recycle?** (batch 45, C227) Rock with full hands
-   drops a pebble each cast; past the 64-drop pool it allocates. Proposed:
-   reuse the oldest uncollected pebble.
-4. **May a secret-niche reveal excuse itself once?** (batch 39, C211) The
-   preferred fix pre-builds the opened chunk; the fallback is one
-   alloc::Excused per niche, which is an event exemption.
+   drops a pebble each cast; past the 64-drop pool it allocates. **Yes -
+   recycle the oldest uncollected conjured pebble; real items never
+   recycle.**
+4. **May a secret-niche reveal excuse itself once?** (batch 39, C211)
+   **No - pre-build only.** The reveal must not allocate; if pre-building the
+   opened chunk is hard, find another way. There is no event exemption.
 5. **Does a flask that shatters on a wall train throwing?** (batch 27, C40)
-   Proposed: no - only contact with a monster.
-6. **Should monster shots pay the offense stance?** (phase 5c, C2) Melee pays
-   it and the guard bonus assumes it; shots do not. Paying it cuts caster
-   accuracy from about 75-85 to 34-47 and moves threat, pools and evals.
-   The alternative is to make the guard bonus melee-only.
-7. **Rest at 60x in fixed sub-steps** (batch 35, C64): monsters then think at
-   their real rate while the party rests, but a slow frame caps how fast rest
-   runs. Proposed: yes, and Michael feels it in game.
+   **No - only contact with a monster trains.**
+6. **Should monster shots pay the offense stance?** (phase 5c, C2) **Yes -
+   one rule for every monster attack.** Low-offense casters lose accuracy
+   (about 75-85 down to 34-47) and keep their guard; the moved threat, pool
+   and eval numbers are reported, not tuned.
+7. **Rest at 60x in fixed sub-steps?** (batch 35, C64) **Yes.** Monsters think
+   and shots fly as they would awake; a slow frame rests slightly slower.
+   Michael tries the feel in game.
 
 ## Index - where each issue is closed
 
