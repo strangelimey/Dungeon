@@ -22,6 +22,7 @@
 #include <cctype>
 #include <chrono>
 #include <cstdlib>
+#include <exception>
 #include <format>
 #include <stdexcept>
 #include <string>
@@ -401,7 +402,8 @@ void Game::RegisterDiagnosticCommands() {
 				   "worker\n"
 				   "fault\n"
 				   "overflow\n"
-				   "assert",
+				   "assert\n"
+				   "devremoved [assert|fault|terminate]",
 		 .summary = "break something on purpose (proves the health record catches it)"},
 		[this](const std::vector<std::string>& args) {
 			const std::string what = args.empty() ? "throw" : args[0];
@@ -474,7 +476,49 @@ void Game::RegisterDiagnosticCommands() {
 				DN_ASSERT(false, "crashpoke: a deliberate assertion failure");
 				return;
 			}
+			// A TDR's shape without hanging a GPU (code-review C195): the device is
+			// removed, and the next checked D3D12 call - this frame's Present - fails.
+			// The report must carry the HRESULT, the removal reason and DRED's
+			// record (Graphics/D3DUtil.cpp).
+			//
+			// The second word dies AT ONCE instead, in this command, before any D3D12
+			// call can fail - an assert, a fault, a terminate: the ways a TDR surfaces
+			// when it is not a failed HRESULT. The removal then arrives only through
+			// the crash handler's FATAL NOTE (crash::SetFatalNote), and each is one
+			// HealthTest case, since each is one of the note's three call sites.
+			if (what == "devremoved") {
+				const std::string then = args.size() > 1 ? args[1] : "";
+				if (!then.empty() && then != "assert" && then != "fault" && then != "terminate") {
+					m_console.RefuseUsage();
+					return;
+				}
+				m_console.Print("crashpoke: removing the D3D12 device - expect a crash report");
+				if (!m_device.RemoveDeviceForTest()) {
+					m_console.Refuse("crashpoke devremoved: this runtime has no "
+									 "ID3D12Device5, so a device cannot be removed on purpose");
+					return;
+				}
+				if (then == "assert")
+					DN_ASSERT(false, "crashpoke: an assertion after the device was removed");
+				if (then == "fault") {
+					volatile int* p = nullptr;
+					*p = 1;
+				}
+				if (then == "terminate") std::terminate();
+				return;
+			}
 			m_console.RefuseUsage(); // the registered forms (C442)
+		});
+	// The removal readout's breadcrumb half, which `crashpoke devremoved` cannot
+	// reach: an asked-for removal leaves DRED no list in flight. HealthTest's
+	// `devremoved` case runs this first (Graphics/D3DUtil.h LogDredSample).
+	m_console.Register(
+		{.name = "dredpoke",
+		 .group = CmdGroup::Diagnostics,
+		 .summary = "log a made-up DRED record through the GPU-removal readout"},
+		[this](const std::vector<std::string>&) {
+			gfx::LogDredSample();
+			m_console.Print("dredpoke: a made-up DRED record is in dungeon.log");
 		});
 	m_console.Register(
 		{.name = "health",

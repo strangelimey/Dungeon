@@ -62,6 +62,15 @@ constexpr ULONG kStackGuarantee = 64 * 1024;
 // thread holds - and the process ends with the record and, by then, the dump.
 constexpr DWORD kReportWaitMs = 30'000;
 
+// The fatal note (SetFatalNote): a plain function pointer in an atomic, so a
+// report reads it with no lock and no heap.
+constinit std::atomic<FatalNote> g_note{nullptr};
+
+// Runs the note, if one is installed. Always the LAST step of a report.
+void RunNote() {
+	if (const FatalNote note = g_note.load()) note();
+}
+
 void CopyFixed(char* dst, size_t cap, std::string_view src) {
 	const size_t n = src.size() < cap - 1 ? src.size() : cap - 1;
 	if (n) std::memcpy(dst, src.data(), n);
@@ -290,6 +299,11 @@ LONG WINAPI FaultFilter(EXCEPTION_POINTERS* info) {
 			 .fate = "the process is going down",
 			 .walkContext = true});
 
+	// After even the walk: a fault inside a GPU driver is often the first sign of
+	// a removed device, and the note asks that device why - a call into the very
+	// library that may have faulted, so nothing the report needs comes after it.
+	RunNote();
+
 	// EXECUTE_HANDLER, not CONTINUE_SEARCH: the report is written, and letting
 	// it fall through would hand the process to the OS error dialog with nothing
 	// gained. The process ends here, deliberately, with evidence on disk.
@@ -322,6 +336,7 @@ void TerminateHandler() {
 			 .tag = "terminate",
 			 .lead = "TERMINATE: ",
 			 .fate = "std::terminate, the process aborts"});
+	RunNote(); // last, as in FaultFilter
 	std::abort();
 }
 
@@ -400,6 +415,11 @@ void ReportFatal(std::string_view what) {
 			 .kind = diag::Kind::Fatal,
 			 .what = msg,
 			 .tag = "fatal"});
+	RunNote(); // last, as in FaultFilter
+}
+
+void SetFatalNote(FatalNote note) {
+	g_note.store(note);
 }
 
 } // namespace dungeon::crash

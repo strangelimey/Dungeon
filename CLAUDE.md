@@ -2178,7 +2178,35 @@ hang and a reboot must each leave EVIDENCE.
   worker and the supervisor), and the dump, the line and the walk run on a
   REPORTER thread made at Install while the failing thread waits (30 s, then it
   ends anyway - so a thread that faulted holding the log's, DbgHelp's or the
-  heap's lock no longer deadlocks its own report).
+  heap's lock no longer deadlocks its own report). A library can add a FATAL
+  NOTE (crash::SetFatalNote, one slot) that every report runs LAST, on the
+  failing thread once its report is written.
+- THE GPU (code-review C195). DN_HR used to be a bare DN_ASSERT on the
+  expression text, so an out-of-memory and a removed device read the same and a
+  TDR left no evidence. Now a failed HRESULT goes through gfx::FailHr
+  (Graphics/D3DUtil.cpp): the call with its HRESULT in hex AND by name, then the
+  device's state (GetDeviceRemovedReason - "not removed" says the call failed on
+  its own), then for a removed device what DRED recorded: the command lists in
+  flight with the op each stopped at (a window of four either side, marker
+  context strings beside them; a list with NONE completed - queued behind the
+  hung one, or stopped in its first op, which DRED cannot tell apart - is one
+  line and no stop marker, which goes only on a list the GPU was part-way
+  through, or a TDR would point at every queued `frame`) and a page fault's GPU
+  address with the allocations live and recently freed there - and only then
+  ReportFatal and the abort. DRED is switched on before the device is made in EVERY build
+  (GraphicsDevice::EnableDred; `DRED enabled:` at boot), since a release TDR is
+  the one most worth explaining. GraphicsDevice hands its device to
+  gfx::WatchDevice, which installs the fatal note, so an assert or a driver
+  fault AFTER a removal reports the removal too (a removal is logged once, so a
+  DN_HR's report prints it BEFORE its FATAL line and the note then adds nothing).
+  The queue and both command lists are NAMED (`direct queue`, `frame`,
+  `immediate`) because the breadcrumbs print them by name. TRAP when testing
+  it: an asked-for removal (ID3D12Device5::RemoveDevice) leaves DRED NO list in
+  flight - measured straight after a submit and with the list held behind an
+  unsignalled fence - so `dredpoke` puts a made-up record (a list stopped
+  part-way, the next frame's queued behind it, a finished one, a page fault)
+  through the same readout (LogDredRecord), and only a real TDR reaches it
+  otherwise.
 - THE STACKS (Core/StackTrace, lifted out of AllocTrack's private symbolizer;
   AllocTrack keeps its own SeenSet so crash sites and allocation sites cannot
   mask each other). THE HARD PART: at a `catch` site the stack has ALREADY
@@ -2240,7 +2268,7 @@ hang and a reboot must each leave EVIDENCE.
   its stack once). And the crash handlers' QUIET record (test 13): in the
   record, not in the log, until LogRecorded writes it once with its stack - and
   no part of the repeat collapse. `tools\HealthTest.
-  ps1` breaks the REAL game eleven ways and reads dungeon.log and nothing else -
+  ps1` breaks the REAL game fifteen ways and reads dungeon.log and nothing else -
   if the answer is not in the file you open after a crash, it does not count.
   `-SelfTest` skips every injection and REQUIRES every case to fail on EACH of
   its expectations (no pattern met, no dump) and for no other reason - a harness
@@ -2250,17 +2278,24 @@ hang and a reboot must each leave EVIDENCE.
   Every event kind is covered: the Killed kind by the `kill` case, through
   `threadkill` (it was a panel button only). A frame expectation is anchored
   UNDER its own event's line (HealthTest's `After`), since a stall, a kill and a
-  probe of one wedged worker all log the same frames. The three that end the
-  process (`fault`, `overflow` - a deliberate stack overflow - and `assert`)
-  each want ONE report line naming the dump's status, and the dump. Two of the
-  eleven (`uiclip`, `uinest`; code-review C208) read what a caught
+  probe of one wedged worker all log the same frames. The three plain crashes
+  (`fault`, `overflow` - a deliberate stack overflow - and `assert`) each want
+  ONE report line naming the dump's status, and the dump. `devremoved` removes
+  the D3D12 device (`dredpoke` first) and needs the HRESULT, then the reason and
+  DRED's readout BETWEEN the failed call's line and the FATAL one (`InOrder`:
+  FailHr's own report, since the note prints the same lines after FATAL).
+  `devassert` / `devfault` / `devterminate` remove it and die AT ONCE, before
+  any call fails, so the removal reaches the log only through the fatal note -
+  one case per place a report runs it, each anchored to that report's last own
+  line. Two of the fifteen (`uiclip`, `uinest`; code-review C208) read what a caught
   throw leaves BEHIND - the UI walk's clip, which a throw used to leave in force
   in every context, so a later click outside it was lost. Each checks its own
   premise: `uiclip`'s throw names the clip in force and the button outside it
   only when both hold (a scroll area that stops overflowing clips nothing, and
   the click would land under the old walk too), `uinest` refuses a tree that
   did not nest two clips.
-  Dev: `crashpoke <throw|uiclip|worker|fault|overflow|assert>`, `clippoke`, `threadwedge`,
+  Dev: `crashpoke <throw|uiclip|worker|fault|overflow|assert|devremoved
+  [assert|fault|terminate]>`, `dredpoke`, `clippoke`, `threadwedge`,
   `threadkill <id|name>`, `threadspawn <ms>`.
 
 ## Map overlay / editor (MapView)

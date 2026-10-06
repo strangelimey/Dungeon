@@ -28,6 +28,7 @@ GraphicsDevice::GraphicsDevice(HWND__* hwnd, u32 width, u32 height,
 		}
 	}
 #endif
+	EnableDred();
 	DN_HR(CreateDXGIFactory2(factoryFlags, IID_PPV_ARGS(&m_factory)));
 
 	// Creates the device on `adapter` and records its identity; returns false
@@ -87,11 +88,16 @@ GraphicsDevice::GraphicsDevice(HWND__* hwnd, u32 width, u32 height,
 			log::Warn("Using WARP software rasterizer");
 	}
 
+	// From here on a fatal report describes this device: its removal reason and
+	// DRED's record, whichever way the process goes down (D3DUtil.h).
+	WatchDevice(m_device.Get());
 	InstallDebugMessageLog();
 
 	D3D12_COMMAND_QUEUE_DESC queueDesc{};
 	queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
 	DN_HR(m_device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_queue)));
+	// Names are what DRED's breadcrumbs print a list and its queue by.
+	m_queue->SetName(L"direct queue");
 
 	DXGI_SWAP_CHAIN_DESC1 scDesc{};
 	scDesc.Width = width;
@@ -138,6 +144,7 @@ GraphicsDevice::GraphicsDevice(HWND__* hwnd, u32 width, u32 height,
 	DN_HR(m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
 									  m_allocators[0].Get(), nullptr,
 									  IID_PPV_ARGS(&m_commandList)));
+	m_commandList->SetName(L"frame");
 	DN_HR(m_commandList->Close());
 
 	DN_HR(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence)));
@@ -171,6 +178,61 @@ GraphicsDevice::~GraphicsDevice() {
 		if (SUCCEEDED(m_device.As(&q1))) q1->UnregisterMessageCallback(m_msgCookie);
 		m_msgCookie = 0;
 	}
+	// Before m_device releases its reference: a report must never ask a freed
+	// device for its removal reason.
+	UnwatchDevice(m_device.Get());
+}
+
+// ----------------------------------------------------------------------------
+// DRED - Device Removed Extended Data (code-review C195). Switched on before
+// the device exists, in EVERY build: a TDR in a release build is the one most
+// worth explaining, and without DRED a removal reports only its reason - which
+// says the GPU hung, never on what. Auto-breadcrumbs record each op a command
+// list submits and how far the GPU got; page-fault reporting records the GPU
+// address a fault hit and the allocations around it; breadcrumb context keeps
+// the marker strings with them. The cost is a GPU-side write per op, and it has
+// not been profiled yet. D3DUtil.cpp reads it all back at a removal.
+//
+// It needs no debug layer: the settings interface is the runtime's own. Its
+// absence is logged, so a removal that reports no breadcrumbs is never mistaken
+// for one that had none.
+// ----------------------------------------------------------------------------
+void GraphicsDevice::EnableDred() {
+	ComPtr<ID3D12DeviceRemovedExtendedDataSettings1> dred1;
+	if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&dred1)))) {
+		dred1->SetAutoBreadcrumbsEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+		dred1->SetPageFaultEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+		dred1->SetBreadcrumbContextEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+		log::Info("DRED enabled: auto-breadcrumbs, page faults, breadcrumb context");
+		return;
+	}
+	ComPtr<ID3D12DeviceRemovedExtendedDataSettings> dred;
+	if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&dred)))) {
+		dred->SetAutoBreadcrumbsEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+		dred->SetPageFaultEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+		log::Info("DRED enabled: auto-breadcrumbs, page faults (no breadcrumb context "
+				  "on this runtime)");
+		return;
+	}
+	log::Warn("DRED unavailable on this runtime: a device removal will report its "
+			  "reason but no breadcrumbs or page fault");
+}
+
+// `crashpoke devremoved` (HealthTest's `devremoved` case): the removal a TDR
+// is, asked for, so the evidence a real one leaves can be checked without
+// hanging a GPU. Nothing comes back - the next checked call (this frame's
+// Present) fails, and DN_HR reports it.
+//
+// What it CANNOT show is a breadcrumb trail: an asked-for removal leaves DRED
+// holding no command list in flight, measured both straight after a submit and
+// with the submitted list held behind an unsignalled fence. `dredpoke` puts a
+// made-up record through the same readout instead (D3DUtil.h LogDredSample).
+bool GraphicsDevice::RemoveDeviceForTest() {
+	ComPtr<ID3D12Device5> device5;
+	if (FAILED(m_device.As(&device5))) return false;
+	log::Warn("gpu: removing the D3D12 device on purpose (crashpoke devremoved)");
+	device5->RemoveDevice();
+	return true;
 }
 
 void GraphicsDevice::CreateSizeDependentResources() {
@@ -693,6 +755,7 @@ void GraphicsDevice::ExecuteImmediate(
 										   IID_PPV_ARGS(&allocator)));
 	DN_HR(m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator.Get(),
 									  nullptr, IID_PPV_ARGS(&list)));
+	list->SetName(L"immediate");
 	record(list.Get());
 	DN_HR(list->Close());
 	ID3D12CommandList* lists[] = {list.Get()};

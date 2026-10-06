@@ -176,7 +176,16 @@ public:
 	// finishes it. Used for resource uploads at load time.
 	void ExecuteImmediate(const std::function<void(ID3D12GraphicsCommandList*)>& record);
 
+	// Removes the device ON PURPOSE (ID3D12Device5::RemoveDevice) - what a TDR
+	// does to a process, for `crashpoke devremoved` to check the evidence one
+	// leaves (code-review C195). The process does not survive it: the next
+	// checked call fails and DN_HR reports. False when the runtime has no
+	// ID3D12Device5, and nothing happened.
+	bool RemoveDeviceForTest();
+
 private:
+	// Switches DRED on before the device is made (see the definition).
+	static void EnableDred();
 	void CreateSizeDependentResources();
 	void ReleaseSizeDependentResources();
 	// Routes the debug layer's validation messages into dungeon.log. See the

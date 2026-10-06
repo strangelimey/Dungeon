@@ -73,6 +73,20 @@ void SetUnattended();
 // repeat-limit shutdown wants an orderly exit.
 void ReportFatal(std::string_view what);
 
+// A FATAL NOTE: what one library alone knows about a dying process, added to
+// every fatal report - ReportFatal, the fault filter and the terminate handler.
+// Graphics installs one (gfx::WatchDevice) that logs a removed GPU device's
+// reason and DRED's breadcrumbs (code-review C195), because a TDR surfaces
+// wherever the next GPU-touching call happens to be: a failed HRESULT, but as
+// often an assert or a fault inside the driver. ONE slot; null removes it.
+//
+// It runs LAST in each report - after the record, the dump and the log line,
+// and after a fault's stack walk - since it calls into a library that may be
+// the thing that broke: a note that hangs or faults costs only itself. It must
+// not throw.
+using FatalNote = void (*)();
+void SetFatalNote(FatalNote note);
+
 // The handlers write a minidump beside the exe, <exe>-<tag>-<pid>-<n>.dmp, with
 // the failing thread's exception context when there is one (an SEH fault) - the
 // faulting register state - and every thread's stack either way. At most this

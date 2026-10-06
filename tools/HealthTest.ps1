@@ -39,6 +39,15 @@
 # C385), and a dump on disk. `overflow` is a deliberate stack overflow on the main
 # thread: the fault whose report needs a stack of its own (C388).
 #
+# Four cases break the GPU (code-review C195). `devremoved` removes the D3D12
+# device on purpose - a TDR's shape without hanging a GPU on a shared machine -
+# and needs the failed call's HRESULT by name, the removal reason and DRED's
+# record in the log BEFORE the FATAL line, after `dredpoke` has put a made-up
+# record through the same readout (an asked-for removal leaves DRED no command
+# list in flight). `devassert`, `devfault` and `devterminate` remove it and die
+# at once, before any call fails, so the removal can only reach the log through
+# the crash handler's fatal note - one case per place a report runs it.
+#
 # ASCII ONLY, deliberately: PowerShell 5.1 reads a BOM-less .ps1 as ANSI, so a
 # stray em-dash in a comment is a parse error, not a cosmetic issue.
 # ============================================================================
@@ -95,6 +104,19 @@ function Once([string]$text) {
 	return "(?s)\A(?!.*?(?:$text).*?(?:$text)).*?(?:$text)"
 }
 
+# A pattern for log lines met IN ORDER, each within the eighty lines after the
+# one before it - for a report whose ORDER is the claim. The GPU cases need it
+# (code-review C195): a removal is logged BEFORE ReportFatal's FATAL line when
+# a failed HRESULT reports it, and AFTER a crash's own lines when the fatal note
+# does, and `After` alone would pass a line printed on the wrong side of the
+# FATAL one. Eighty lines a hop, not forty: a hop may cross a recorded stack (32
+# frames) or a fault's walked one (up to 62, cut at wWinMain).
+function InOrder([string[]]$lines) {
+	$p = $lines[0]
+	for ($i = 1; $i -lt $lines.Count; $i++) { $p += "[^\n]*(?:\n[^\n]*){0,80}?\n[^\n]*$($lines[$i])" }
+	return $p
+}
+
 # ---------------------------------------------------------------------------
 # THE CASES. `inject` is the console line that breaks something; `expect` is
 # what must appear in dungeon.log afterwards; `survives` says whether the
@@ -105,6 +127,15 @@ function Once([string]$text) {
 # Every event kind is covered. The Killed kind is driven by `threadkill`, the
 # THREADS panel's kill button as a command - which is all it lacked before.
 # ---------------------------------------------------------------------------
+
+# A removed device's report, as Graphics/D3DUtil.cpp logs it. The page-fault
+# line names its two real answers: a bare 'DRED page fault: ' would also take
+# the 'unavailable' line a runtime prints when page faults were never switched
+# on, and so pass with DRED half off.
+$removedLine = 'gpu device removed: reason 0x887A00[0-9A-F]{2} \(DXGI_ERROR_'
+$crumbsLine = 'DRED auto-breadcrumbs: (\d+ command list\(s\)|more than \d+ command lists) in flight'
+$pageFaultLine = 'DRED page fault: (none - |GPU virtual address 0x)'
+
 $cases = @(
 	@{
 		name = 'throw'
@@ -274,6 +305,95 @@ $cases = @(
 		expect = @(
 			"FATAL on 'main': Assertion failed[^\n]*minidump \d of \d written",
 			(Once 'crashpoke: a deliberate assertion failure')
+		)
+		dump = $true
+	},
+	@{
+		name = 'devremoved'
+		desc = 'a removed GPU device - a TDR, asked for - reports the HRESULT, the removal reason and DRED''s record'
+		# ID3D12Device5::RemoveDevice: the next checked D3D12 call fails, and the
+		# report must say why (code-review C195). Before, it named only the call:
+		# "Assertion failed: SUCCEEDED(hr_)" and the expression, the same line an
+		# out-of-memory left. An asked-for removal leaves DRED no command list in
+		# flight, so `dredpoke` first puts a made-up record through the same
+		# readout - the breadcrumb lines only a real TDR would otherwise reach. Its
+		# expectations sit under its own line, the removal's after the failed call.
+		inject = @('dredpoke', 'crashpoke devremoved')
+		settle = 5
+		survives = $false
+		# The queued 'frame' list (0 completed) must be ONE line with no op window
+		# and no stop marker: the next line is the immediate list's. The removal's
+		# lines must fall BETWEEN the failed call and the FATAL line - FailHr's own
+		# report; the fatal note would print the same lines after FATAL (the three
+		# cases below check that path).
+		expect = @(
+			(After 'dredpoke: a made-up DRED record' 'DRED auto-breadcrumbs: 3 command list\(s\) in flight'),
+			(After 'dredpoke: a made-up DRED record' "list 'frame' on queue 'direct queue': 14 ops, 7 completed - stopped at #7 DrawIndexedInstanced"),
+			(After 'dredpoke: a made-up DRED record' '#3 DrawInstanced\n'),
+			(After 'dredpoke: a made-up DRED record' '#6 SetMarker "scene"'),
+			(After 'dredpoke: a made-up DRED record' '#7 DrawIndexedInstanced   <- the GPU stopped here'),
+			(After 'dredpoke: a made-up DRED record' '#11 ResourceBarrier \(not completed\)'),
+			(After 'dredpoke: a made-up DRED record' "list 'frame' on queue 'direct queue': 14 ops, none completed - not started, or stopped at its first op \(#0 ResourceBarrier\)\n[^\n]*list 'immediate'"),
+			(After 'dredpoke: a made-up DRED record' "list 'immediate' on queue 'direct queue': 3 ops, all completed"),
+			(After 'dredpoke: a made-up DRED record' 'DRED page fault: GPU virtual address 0x0000000012340000'),
+			(After 'dredpoke: a made-up DRED record' "live resource 'scene color'"),
+			(After 'dredpoke: a made-up DRED record' "recently freed resource 'shadow cube 3'"),
+			'D3D12 call failed at \S+\.cpp:\d+: .+ returned 0x887A000[5-7] \(DXGI_ERROR_DEVICE_(REMOVED|HUNG|RESET)\)',
+			(InOrder @('D3D12 call failed at', $removedLine, "FATAL on 'main': D3D12 call failed")),
+			(InOrder @('D3D12 call failed at', $crumbsLine, "FATAL on 'main': D3D12 call failed")),
+			(InOrder @('D3D12 call failed at', $pageFaultLine, "FATAL on 'main': D3D12 call failed")),
+			"FATAL on 'main': D3D12 call failed: 0x887A000[5-7] DXGI_ERROR_DEVICE_"
+		)
+		dump = $true
+	},
+	# The removal with NO failed HRESULT to report it: the same command dies at
+	# once, before any D3D12 call can fail, so the reason and DRED's record can
+	# only come from the FATAL NOTE (crash::SetFatalNote) - one case for each of
+	# its three call sites, each anchored to that site's last own line so the
+	# note is seen to run LAST.
+	@{
+		name = 'devassert'
+		desc = 'an assert straight after a removal reports the removal too, through the fatal note'
+		inject = @('crashpoke devremoved assert')
+		settle = 5
+		survives = $false
+		# ReportFatal: the FATAL line (written after the dump, naming it - C385) and
+		# its stack, then the note.
+		expect = @(
+			"FATAL on 'main': Assertion failed[^\n]*minidump \d of \d written",
+			(InOrder @("FATAL on 'main': Assertion failed[^\n]*minidump \d of \d written", $removedLine)),
+			(InOrder @("FATAL on 'main': Assertion failed", $removedLine, $crumbsLine)),
+			(InOrder @("FATAL on 'main': Assertion failed", $removedLine, $pageFaultLine))
+		)
+		dump = $true
+	},
+	@{
+		name = 'devfault'
+		desc = 'a fault straight after a removal reports the removal too, after its own stack'
+		inject = @('crashpoke devremoved fault')
+		settle = 5
+		survives = $false
+		# The fault filter: the CRASH line (after the dump), the walked stack, the note.
+		expect = @(
+			"CRASH: fault on 'main': access violation writing 0x0[^\n]*minidump \d of \d written",
+			(InOrder @("CRASH: fault on 'main': access violation", 'faulting stack:', $removedLine)),
+			(InOrder @("CRASH: fault on 'main': access violation", $removedLine, $crumbsLine)),
+			(InOrder @("CRASH: fault on 'main': access violation", $removedLine, $pageFaultLine))
+		)
+		dump = $true
+	},
+	@{
+		name = 'devterminate'
+		desc = 'a std::terminate straight after a removal reports the removal too'
+		inject = @('crashpoke devremoved terminate')
+		settle = 5
+		survives = $false
+		# The terminate handler: the TERMINATE line (after the dump), the note.
+		expect = @(
+			"TERMINATE: FATAL on 'main': std::terminate called with no exception in flight[^\n]*minidump \d of \d written",
+			(InOrder @("TERMINATE: FATAL on 'main': std::terminate called", $removedLine)),
+			(InOrder @("TERMINATE: FATAL on 'main': std::terminate called", $removedLine, $crumbsLine)),
+			(InOrder @("TERMINATE: FATAL on 'main': std::terminate called", $removedLine, $pageFaultLine))
 		)
 		dump = $true
 	}

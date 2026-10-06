@@ -1,11 +1,12 @@
 # Diagnostics: exceptions, stalls and thread health
 
 **Status:** BUILT (Michael, 2026-08-10), branch `exception-handling`. All six
-phases are done and checked:
+phases are done and checked (a seventh, the GPU's removal evidence, came with
+code-review batch 67):
 
 ```
 diagtest   RESULT=PASS checks=71 failures=0     # the record, incl. torn-read detection
-healthtest RESULT=PASS cases=11 failures=0      # the real game, broken on purpose
+healthtest RESULT=PASS cases=15 failures=0      # the real game, broken on purpose
 healthtest RESULT=FAIL ... self_test=1          # and the harness proven able to fail
 alloctest  RESULT=PASS frames=1921 violations=0 # the symbolizer lift changed nothing
 ```
@@ -168,7 +169,8 @@ nothing is built untested.
    die-after-10-consecutive policy. `Core/CrashHandler` adds what no catch can
    see — `SetUnhandledExceptionFilter` for SEH faults, `set_terminate`,
    `DN_ASSERT` routed through `ReportFatal`, and minidumps (capped at 3 a run).
-   Injected with the `crashpoke <throw|worker|fault|assert>` dev command and
+   Injected with the `crashpoke <throw|worker|fault|assert>` dev command (and
+   since then `uiclip` and `devremoved [assert|fault|terminate]`) and
    read back with `health`. Measured against the running game:
 
    | injection | before | after |
@@ -325,6 +327,67 @@ nothing is built untested.
    been written after the dump, and the fault's text exactly once (the script's
    `Once`): the handlers used to log the crash before the dump and again beside
    it (C385).
+
+   Fifteen since code-review batch 67: `devremoved`, `devassert`, `devfault`
+   and `devterminate` (below).
+
+7. **The GPU - DONE (code-review batch 67, C195).** A TDR is the most common
+   way a D3D12 game dies, and it left no evidence: the device was removed, the
+   next `DN_HR`'d call (the frame's `Present`) failed, and `DN_HR` was a bare
+   `DN_ASSERT` on the expression text - the same line an `E_OUTOFMEMORY` left.
+   Now `gfx::FailHr` (Graphics/D3DUtil.cpp) logs, before `ReportFatal`:
+
+   ```
+   D3D12 call failed at GraphicsDevice.cpp:596: m_swapchain->Present(m_presentInterval, 0) returned 0x887A0005 (DXGI_ERROR_DEVICE_REMOVED)
+   gpu device removed: reason 0x887A0005 (DXGI_ERROR_DEVICE_REMOVED)
+   DRED device state: unknown
+   DRED auto-breadcrumbs: 0 command list(s) in flight
+   DRED page fault: none - the GPU did not fault on an address
+   FATAL on 'main': D3D12 call failed: 0x887A0005 DXGI_ERROR_DEVICE_REMOVED (GraphicsDevice.cpp:596)
+   ```
+
+   DRED (auto-breadcrumbs, page faults, breadcrumb context) is switched on
+   before the device is made in every build, release included. The breadcrumbs
+   print each command list still in flight by name (the queue and both lists
+   are named for it), the op the GPU stopped at and four either side; a page
+   fault prints its GPU address and the allocations live and recently freed
+   there. A list with NONE completed is one line and gets no stop marker: DRED
+   cannot tell a list the GPU never began - one queued behind the hung frame,
+   and with three frames in flight there can be two, every one named `frame` -
+   from one that stopped inside its first op, so the marker goes only on a list
+   the GPU was part-way through (UE's DRED dump skips such nodes for the same
+   reason). `Core/CrashHandler` gained a FATAL NOTE (`crash::SetFatalNote`) that
+   every report runs last, after the record, the dump and a fault's stack walk;
+   the device installs one, so an assert or a driver fault after a removal
+   reports the removal too (measured: with `DN_HR` mutated back to the bare
+   assert, the assert's report still carried the reason and DRED's lines). A
+   removal is logged once, so a `DN_HR` failure prints it BEFORE its FATAL line
+   and the note then adds nothing.
+
+   `crashpoke devremoved` (`ID3D12Device5::RemoveDevice`) is HealthTest's
+   `devremoved` case. An asked-for removal leaves DRED no command list in
+   flight - measured straight after a submit, and with the submitted list held
+   behind a fence nothing signals - so the case first runs `dredpoke`, which
+   puts a made-up record through the same readout (`LogDredRecord`): a list
+   stopped mid-draw beside a marker, the next frame's recording of it queued
+   behind and never begun, a finished list, and a page fault. Only a real TDR
+   reaches that code otherwise, and hanging the GPU of a machine other sessions
+   share is not something a harness may do. The removal's own lines are checked
+   IN ORDER - between the failed call's line and the FATAL one - since the note
+   would print the same lines after FATAL and a window below the failed call
+   reaches past it. `crashpoke devremoved assert|fault|terminate` removes the
+   device and dies AT ONCE, before any call can fail, so the removal reaches the
+   log only through the note: HealthTest's `devassert`, `devfault` and
+   `devterminate`, one per place a report runs it, each anchored to that
+   report's last own line (the FATAL line, which since C385 carries the dump's
+   status; the walked stack; the TERMINATE line). Measured by mutation: with FailHr's own device report removed,
+   `devremoved` fails its three order checks (the old window checks passed it,
+   the note's copy landing within reach); with the note's body removed the three
+   new cases fail on every removal line while `devremoved` still passes; with
+   page faults never switched on the readout prints `DRED page fault:
+   unavailable, 0x887A0004 (DXGI_ERROR_UNSUPPORTED)`, and the page-fault check -
+   which names its two real answers, `none -` and `GPU virtual address 0x` -
+   fails on it (the bare `DRED page fault: ` it replaced matched it).
 
 ## The harness
 

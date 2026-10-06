@@ -475,7 +475,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		static constexpr std::string_view kNoWorldNeeded[] = {
 			"help", "clear", "echo", "profile", "quit", "exit", "fps", "framecap",
 			"lang", "quality", "fonts", "font", "ver", "loadstats", "allocguard",
-			"allocpoke", "crashpoke", "health", "throttle", "governor",
+			"allocpoke", "crashpoke", "dredpoke", "health", "throttle", "governor",
 			"threads", "threadspawn", "threadwedge", "threadkill", "threadprio",
 			"threadaffinity", "threadreap", "uitree", "uioverlap", "clippoke", "logecho",
 			"timescale", "state",
