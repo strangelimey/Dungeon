@@ -920,4 +920,164 @@ monsterclips skeleton attack attack walk
 sweep 4 rungs/clips-skeleton.eval
 monsterclips skeleton attack attack
 
+; --- AN ATTACK IS NOTICED, LANDED OR NOT (code-review C34) ----------------------
+; Waking a monster and ending a rest used to happen only where an attack WOUNDED
+; (the apply stage), which a miss, a ward's turn and a blow drunk whole all stop
+; short of. Now fx::Deal tells the target it was attacked however the stages end
+; (ITarget::Noticed), every event but a DoT's tick.
+;
+; A MISSED SHOT WAKES A SLEEPER. A lurking skeleton three squares north of the
+; party, beyond its 2-square ambush trigger, so it lies dormant (`monsters` ends
+; each row `aware=`): Maren's firebolt down her lane at it, which at seed 31
+; MISSES (the TALLY's `boltmisses=1 bolthits=0` - the judge demands it, since a
+; bolt that landed woke it under the old code too). `freeze on` keeps it where
+; it lies - but it does NOT stop the brain latching `aware` (only `freeze hold`
+; drops its plans), so its two dormant seconds before the shot prove nothing
+; about the two after it. The CONTROL is wake-still below: the same lurker, the
+; same seed and the same four seconds with no shot, which must end still asleep.
+; Without it, anything else that woke the lurker in that window would pass for
+; the miss.
+
+echo === wake-miss ===
+reset
+timescale 0
+lockstep on
+seed 31
+goto eval_arena
+arena open 9 9
+heal
+tp 14 14
+face n
+freeze on
+spawn skel_lurker 14 11 south up
+learn 2 fire
+learn 2 project
+step 2
+monsters
+tally reset
+cast 2 fire project
+step 2
+tally
+monsters
+
+; The control: wake-miss line for line, the shot left out.
+
+echo === wake-still ===
+reset
+timescale 0
+lockstep on
+seed 31
+goto eval_arena
+arena open 9 9
+heal
+tp 14 14
+face n
+freeze on
+spawn skel_lurker 14 11 south up
+learn 2 fire
+learn 2 project
+step 2
+monsters
+tally reset
+step 2
+tally
+monsters
+
+; A SWING THAT MISSES ENDS A REST (Michael: an attack that reached the party
+; ends it as `attacked`, landed or not). Brand hurt, so the rest does not end
+; `recovered` at once; a skeleton beside the party swings within the first
+; second, and at seed 31 its first swing MISSES. `rest until` stops the clock
+; the moment the rest ends, so the TALLY says what ended it: one swing
+; (`mswings=1`), none landed (`struck=0`), nobody hurt. Under the old rule that
+; swing let the party sleep on until one landed.
+
+echo === rest-miss ===
+reset
+timescale 0
+lockstep on
+seed 31
+goto eval_arena
+arena open 9 9
+heal
+tp 14 14
+face n
+setpool 0 health 10
+spawn skeleton 14 13 south up
+tally reset
+rest until 10
+tally
+rest
+
+; A SWING TURNED TO NOTHING ENDS IT TOO: the front pair under a deep water veil
+; (a pool of 999), which drinks the skeleton's first blow whole. It LANDED
+; (`struck=1`) but dealt nothing (`taken=0`), so nothing wounded anyone - the
+; only thing that used to end a rest. `char` shows the veil it drank from.
+
+echo === rest-veil ===
+reset
+timescale 0
+lockstep on
+seed 29
+goto eval_arena
+arena open 9 9
+heal
+tp 14 14
+face n
+setpool 0 health 10
+effect waterveil 0 999 60
+effect waterveil 1 999 60
+spawn skeleton 14 13 south up
+tally reset
+rest until 10
+tally
+rest
+char 0
+char 1
+
+; A BOLT THE WIND WARD TURNS ends it: a firebolt from two squares north down
+; Brand's lane (slot 0 - Brand and Maren's), both warded. Turned at stage 1, it
+; never reaches a roll (`wardturns=1`, nobody hurt).
+
+echo === rest-ward ===
+reset
+timescale 0
+lockstep on
+seed 29
+goto eval_arena
+arena open 9 9
+heal
+tp 14 14
+face n
+setpool 0 health 10
+effect windward 0 99 60
+effect windward 2 99 60
+bolt firebolt 14 12 0
+tally reset
+rest until 5
+tally
+rest
+
+; ...and so does a BURST bolt the ward turns - the one carrier answered by stage
+; 1 alone, outside fx::Deal (fx::Deflect; a turned burst does not go off, C1),
+; which must say it was an attack all the same (`blasts=0`).
+
+echo === rest-burst ===
+reset
+timescale 0
+lockstep on
+seed 29
+goto eval_arena
+arena open 9 9
+heal
+tp 14 14
+face n
+setpool 0 health 10
+effect windward 0 99 60
+effect windward 2 99 60
+bolt firebolt_burst 14 13 0
+tally reset
+rest until 5
+tally
+rest
+
 echo === end ===

@@ -257,7 +257,8 @@ Implications to work through:
   (~120°, i.e. ±60° of its facing). A per-monster sticky **`aware`** flag, once
   set, keeps the monster engaged even if the party slips behind it (no instant
   un-noticing). `aware` is set when the brain first engages via the cone, or
-  immediately on a hit (provoke). It is **persisted** in the save (monster diff),
+  immediately when it is attacked, hit or miss (provoke - a miss counts since
+  code-review C34). It is **persisted** in the save (monster diff),
   so a reloaded alerted monster stays alerted.
 - Facing is already per-monster (`Monster.yaw`); keep it that way — no shared
   group yaw. `faces=false` monsters (the blob) never rotate (radially symmetric)
@@ -551,7 +552,8 @@ direction while moving, the party while aware, else their resting facing.
 Engagement now goes through perception in `Brain::Think` — within `aggroRange`
 AND (already `aware`, OR omnidirectional, OR the party inside a ±60° frontal
 sight cone). `aware` is sticky, latched when the brain first engages or via
-`ProvokeMonster` on a hit (melee/spell), and is persisted in the save (monster
+`ProvokeMonster` on a hit (melee/spell; on a miss too since code-review C34),
+and is persisted in the save (monster
 diff gained an `aware` token; `ResetForNewGame` clears it). Verified in-game:
 skeletons facing away stayed idle while the party approached from behind
 (docs/phase1_19_sneak_rear.png), then noticed, turned, and engaged when

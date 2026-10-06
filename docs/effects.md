@@ -81,6 +81,16 @@ exactly one stage — that is the test of whether the stage list is right.
 An event that deals no damage still runs the stages — a deflect or a full
 absorb is a legitimate outcome, and stage 6 must know it did not land.
 
+And whatever the stages made of it, `Deal` ends by telling the target it was
+ATTACKED: `fx::Notice` calls `ITarget::Noticed(ev)` for every event but a DoT's
+Tick. A miss, a turn and a blow drunk whole are attacks too - a monster wakes
+and turns on the party (`ProvokeMonster`), a resting party is roused. Both used
+to live in the apply stage, which those outcomes never reach, so a missed shot
+left a sleeper asleep and a swing that missed let a resting party sleep on
+(code-review C34). What answers HARM - threat, the flinch, the fall - stays in
+`Wound`. A site that answers an attack without `Deal` (a burst bolt turned by
+`fx::Deflect` alone; the harness's loaded fumble) calls `fx::Notice` itself.
+
 ### Effects are KINDS + instances (the flyweight)
 
 Following the settled precedent — spells are CLASSES, `spells.cat` is
@@ -131,9 +141,10 @@ existing behaviour moved, not new code. (Thirteen now - see the status line.)
 `Evasion()`, `Wound(amount, flags)`, `IsDown()`, `Name()`, `Message()`.
 `DungeonWorld` implements it twice, over `Character&` and over `Monster&`.
 (As built: `Evasion(type)`, `Soak()`, a FINAL `Resist(type)` the adapter
-assembles, `Effects()`, `Wound(amount, ev)` and its mirror `Absorb`, `Name()`,
+assembles, `Effects()`, `Wound(amount, ev)` and its mirror `Absorb`,
+`Noticed(ev)` (an attack reached it, landed or not - code-review C34), `Name()`,
 `Say()` and `SayApplied(kind)` - and a third adapter, `BreakableTarget`, for
-the pieces of dungeon that can be hurt.)
+the pieces of dungeon that can be hurt, which notices nothing.)
 
 The module is walled off exactly like `MagicSystem` and `ai::` — it knows
 nothing of `DungeonWorld`, the map, or the party, and reaches the world

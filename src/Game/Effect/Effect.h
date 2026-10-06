@@ -264,6 +264,15 @@ public:
 	// is healed by `amount` instead of hurt. Capped at its maximum, and it
 	// announces itself — being fed by a blow is worth saying out loud.
 	virtual void Absorb(float amount, DamageEvent& ev) = 0;
+	// After the stages: an ATTACK REACHED this combatant, whatever came of it -
+	// it missed, a ward turned it, a veil drank it whole, it wounded. Notice
+	// (below) calls it for every event but a DoT's tick. It is how a side
+	// answers being attacked rather than being HURT, which the apply stage
+	// alone could only do: a monster wakes and turns on the party, a resting
+	// party is roused - so a missed shot is no longer a free look at a sleeper,
+	// and a swing that misses still ends a rest (code-review C34). Harm's own
+	// consequences (threat, the flinch, the fall) stay with Wound.
+	virtual void Noticed(const DamageEvent& ev) = 0;
 
 	// For the lines effects write about their bearer. An inline loc::Line, not a
 	// std::string: it is called on per-hit paths (a fire shield naming the
@@ -489,7 +498,9 @@ void ApplyProcs(ITarget& target, std::span<const Proc> procs,
 
 // THE path damage takes: walk `ev` through stages 1-5 against `target` —
 // deflect, strike, mitigate, absorb, apply. Everything is reported back in
-// `ev` (deflected / hit / dealt / slew); the caller narrates from that.
+// `ev` (deflected / hit / dealt / slew); the caller narrates from that. On its
+// way out, whatever the stages made of it, it tells the target it was attacked
+// (Notice).
 //
 // (Whoever DEALT it matters only to the react stage, which is React's job, so
 // it is not a parameter here; the target's own adapter applies the knobs when
@@ -505,6 +516,14 @@ void Deal(DamageEvent& ev, ITarget& target, const StrikeRules& rules,
 // on the member it would strike still turns it first, and a turned bolt does
 // not land, so nothing goes off (Michael, code-review C1).
 bool Deflect(DamageEvent& ev, ITarget& target);
+
+// Tell `target` an attack reached it (ITarget::Noticed) - unless `ev` is a DoT's
+// TICK, the one event nobody notices: a burn's bite is no news, a monster does
+// not wake to it and a party may rest through it. THE one statement of that
+// rule. Deal calls it; so does a site that answers an attack without Deal - a
+// burst bolt stage 1 turned on its own (Deflect above), a swing the harness's
+// loaded die fumbled without a roll - so neither reads as no attack at all.
+void Notice(const DamageEvent& ev, ITarget& target);
 
 // Stage 6, split out so the CALLER can narrate first: a reaction writes its own
 // line ("the blob is scorched by the fire shield") and that has to read after

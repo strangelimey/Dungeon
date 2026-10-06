@@ -566,8 +566,12 @@ Key conventions (memorize, they bite):
   harness's own "stale orders are worse than frozen" lesson. Ends three ways
   (`RestEndReason()`): `recovered` (nothing left to gain; a DOWNED member is not
   full, so the rest goes on until they come round on the stabilize clock - only
-  the DEAD are left out), `attacked` (a blow — a DoT does NOT break it,
-  `WoundMember`'s `quiet` flag is exactly that line), `hungry` (an empty meter).
+  the DEAD are left out), `attacked` (an attack that reached the party,
+  whatever came of it - a swing that missed, a bolt the Wind Ward turned, a
+  blow a veil drank whole, as well as a wound - strictly any pipeline event
+  but a Tick, so a wall bumped into as well: `PartyTarget::Noticed`,
+  code-review C34; a DoT does NOT break it, since `fx::Notice` leaves a Tick
+  out, and nor does a member's own over-exertion), `hungry` (an empty meter).
   Transient: not saved. NOTE `step` advances SIM seconds, so it cannot see the
   multiplier at all - rest.eval measures the STATE's rules with it. `frames <n>
   [fps] [whole]` runs PLAY frames through `WorldDt` instead (the dev timescale
@@ -704,7 +708,15 @@ Key conventions (memorize, they bite):
   the caller narrates and calls `fx::React` (stage 6 is split out so a
   reaction's line reads AFTER the blow it answers — the same reason
   `WoundMember` returns a `Fall` the caller says, and a monster's slain LINE
-  stays at its call site while the death PATH lives in the adapter). A
+  stays at its call site while the death PATH lives in the adapter). However
+  the stages end - a miss, a ward's turn, a blow drunk whole, a wound - `Deal`
+  then tells the target it was ATTACKED (`fx::Notice` -> `ITarget::Noticed`,
+  every event but a DoT's Tick): a monster wakes (`ProvokeMonster`), a resting
+  party is roused. It lived in the apply stage, so a missed shot left a
+  sleeper asleep (code-review C34); a site answering an attack without `Deal`
+  (a burst bolt turned by `fx::Deflect` alone, the harness's loaded fumble)
+  calls `fx::Notice` itself. Threat stays with the WOUND (harm, ticks
+  included). A
   REPRISAL is itself a `Deal`, so the react hook takes an `fx::ReactCtx`
   (strike knobs + RNG, built by DungeonWorld::Reaction) and a fire shield's
   burn is deflected/absorbed/DRUNK like any other damage; cascade is
@@ -744,7 +756,8 @@ Key conventions (memorize, they bite):
   only floors a blow that got through) and past 1.0 the target DRINKS that
   element and is healed by it (`fire 1.5` = half again as healing). Both escape
   the ±resist_clamp, which only caps STACKED mitigation. ITarget::Absorb is the
-  mirror of Wound: capped at max, provokes a monster but earns no threat, can
+  mirror of Wound: capped at max, earns no threat (the monster is still
+  provoked - it was attacked, and Noticed says so), can
   wake the unconscious but never the dead; a blow that does nothing says
   "unharmed" rather than "for 0 damage", and a feeding TICK says nothing.
   DoTs store RAW magnitude and

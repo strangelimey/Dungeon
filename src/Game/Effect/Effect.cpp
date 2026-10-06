@@ -209,8 +209,15 @@ bool Deflect(DamageEvent& ev, ITarget& target) {
 	return ev.deflected;
 }
 
-void Deal(DamageEvent& ev, ITarget& target, const StrikeRules& rules,
-		  std::mt19937& rng) {
+void Notice(const DamageEvent& ev, ITarget& target) {
+	if (!ev.Quiet()) target.Noticed(ev);
+}
+
+namespace {
+// Stages 1-5, each of which may end the walk early (a deflect, a miss). Deal
+// wraps it so that however it ends, the target hears it was attacked.
+void Stages(DamageEvent& ev, ITarget& target, const StrikeRules& rules,
+			std::mt19937& rng) {
 	// --- 1. deflect: an effect may turn it aside before anything is rolled ---
 	if (Deflect(ev, target)) return;
 
@@ -263,6 +270,17 @@ void Deal(DamageEvent& ev, ITarget& target, const StrikeRules& rules,
 	if (damage > 0.0f) target.Wound(damage, ev);
 	else if (damage < 0.0f) target.Absorb(-damage, ev);
 	// (stage 6 is React, below — the caller runs it once it has said its piece)
+}
+} // namespace
+
+void Deal(DamageEvent& ev, ITarget& target, const StrikeRules& rules,
+		  std::mt19937& rng) {
+	Stages(ev, target, rules, rng);
+	// WHATEVER CAME OF IT, it was an attack. Waking and rousing used to live in
+	// the apply stage, which a miss, a turned bolt and a blow drunk whole all
+	// return before - so a missed shot at a sleeper left it asleep, and a swing
+	// that missed a resting party let it sleep on (code-review C34).
+	Notice(ev, target);
 }
 
 void React(const DamageEvent& ev, ITarget& target, ITarget* attacker,

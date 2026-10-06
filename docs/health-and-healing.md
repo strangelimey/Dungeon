@@ -340,7 +340,7 @@ log where a script cannot read it:
 | reason | why |
 |---|---|
 | `recovered` | nothing left to gain; continuing burns supplies for nothing, and the player cannot see the instant it stops paying. Only STANDING members count — a downed one recovers through the stabilize clock first (resting through that wait is exactly what the state is for) and a dead one would never be full and would rest forever |
-| `attacked` | a blow landed. **A DoT does NOT break rest** — `WoundMember`'s `quiet` flag already draws exactly that line, so you can rest through a poison and simply pay for it, but you cannot sleep through a sword |
+| `attacked` | an attack reached the party, whatever came of it - a swing that missed, a bolt the Wind Ward turned, a blow a water veil drank whole, as well as one that wounded (`PartyTarget::Noticed`; it used to take a landed blow, code-review C34). **A DoT does NOT break rest** - `fx::Notice` leaves a Tick out, so you can rest through a poison and simply pay for it, but you cannot sleep through a sword, even one that misses |
 | `hungry` | a meter is empty. Resting then spends health to pass time you are already losing health for — the one configuration where the state is purely harmful. Eat first |
 
 ## Movement

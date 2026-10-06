@@ -3808,9 +3808,12 @@ private:
 	const std::string& PickClip(const MonsterKind& kind, anim::CreatureState state);
 	// Duration (seconds) of a named clip in the kind's model, or 0 if absent.
 	float ClipDuration(const MonsterKind& kind, const std::string& name) const;
-	// Wakes a struck monster: latches awareness (sticky) and engages it toward the
-	// party THIS frame, independent of its neighbours. Called where party damage
-	// (melee or spell) lands on a monster.
+	// Wakes an attacked monster: latches awareness (sticky) and engages it toward
+	// the party THIS frame, independent of its neighbours. Called by
+	// MonsterTarget::Noticed alone, so for EVERY attack that reaches the monster
+	// (fx::Notice: anything but a DoT's tick), landed or not - a miss, a deflect,
+	// a blow soaked or drunk to nothing as surely as a wound - and from any
+	// source, a monster's blast or wild swing included (code-review C34).
 	void ProvokeMonster(Monster& monster);
 	// --- threat (aggro; see the Monster::threat comment) ----------------------
 	// Accrues member-dealt damage onto the monster's threat table (× balance
@@ -4262,8 +4265,9 @@ private:
 	// not resting, so the ordinary frame pays a bool for it.
 	void UpdateRest();
 	// End rest because something happened, saying why. Safe to call when not
-	// resting (it does nothing), which is what lets the wound path call it
-	// unconditionally rather than testing the flag at the call site.
+	// resting (it does nothing), which is what lets every attack that reaches a
+	// member (PartyTarget::Noticed) call it unconditionally rather than testing
+	// the flag at the call site.
 	void BreakRest(const char* reason, const char* reasonKey);
 	// How long a starving/parched instance is given each frame it is held open.
 	// Nominal — long enough that the aging loop can never expire it between two
@@ -4284,7 +4288,9 @@ private:
 	// The one genuinely per-side stage is Wound: a member has splats, the
 	// unconscious/overkill rules and the wipe latch; a monster has threat
 	// credit, a flinch and a slain line. Everything before it — deflect,
-	// strike, mitigate, absorb — is shared.
+	// strike, mitigate, absorb — is shared. After it comes Noticed, the other
+	// per-side answer: to being ATTACKED at all, landed or not (a monster
+	// wakes, a resting party is roused).
 	class PartyTarget final : public fx::ITarget {
 	public:
 		PartyTarget(DungeonWorld& world, Character& member)
@@ -4295,6 +4301,8 @@ private:
 		std::vector<fx::Inst>& Effects() override { return m_member.effects; }
 		void Wound(float amount, fx::DamageEvent& ev) override;
 		void Absorb(float amount, fx::DamageEvent& ev) override;
+		// An attack reached a member, landed or not: it ends a rest.
+		void Noticed(const fx::DamageEvent& ev) override;
 		loc::Line Name() const override { return loc::Line{m_member.name}; }
 		void Say(std::string_view line) const override;
 		void SayApplied(const fx::EffectKind& kind) const override;
@@ -4321,6 +4329,9 @@ private:
 		std::vector<fx::Inst>& Effects() override { return m_monster.effects; }
 		void Wound(float amount, fx::DamageEvent& ev) override;
 		void Absorb(float amount, fx::DamageEvent& ev) override;
+		// An attack reached a living monster, landed or not: it wakes and turns
+		// on the party (ProvokeMonster).
+		void Noticed(const fx::DamageEvent& ev) override;
 		loc::Line Name() const override;
 		void Say(std::string_view line) const override;
 		void SayApplied(const fx::EffectKind& kind) const override;
@@ -4370,6 +4381,8 @@ private:
 		std::vector<fx::Inst>& Effects() override { return m_brk.effects; }
 		void Wound(float amount, fx::DamageEvent& ev) override;
 		void Absorb(float amount, fx::DamageEvent& ev) override;
+		// Nothing: a door does not wake, and only its wounds change it.
+		void Noticed(const fx::DamageEvent&) override {}
 		loc::Line Name() const override;
 		void Say(std::string_view line) const override;
 		void SayApplied(const fx::EffectKind& kind) const override;

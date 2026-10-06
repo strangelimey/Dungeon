@@ -101,8 +101,10 @@ knows how to execute*.
    else `Engage`. The goal is the cell the host's formation pass assigned.
 
 Awareness latches when the host consumes a non-Idle plan (`ConsumeAIPlans`) and
-when the monster is hit (`ProvokeMonster`, which sets Engage at once); only a new
-game or a reload clears it. **A hit wakes only the monster struck** - see "Not
+when an attack reaches the monster, hit or MISS (`MonsterTarget::Noticed` ->
+`ProvokeMonster`, which sets Engage at once - a missed shot at an `asleep`
+monster or a dormant lurker wakes it, code-review C34); only a new game or a
+reload clears it. **An attack wakes only the monster attacked** - see "Not
 built" below.
 
 **Intent vocabulary** - four modes (`ai::Intent::Mode`). Only Engage carries a
@@ -188,11 +190,12 @@ walk > idle`, cross-faded; degrades gracefully when a rig lacks a clip.
 ### Not built
 
 - **Call for help** (decision 5): a provoked monster does not wake its group -
-  `ProvokeMonster` sets only the monster struck aware. A "group" today is only
+  `ProvokeMonster` sets only the monster attacked aware. A "group" today is only
   the monsters sharing a cell (`ReconcileGroups`, rebuilt every frame), used for
   slot placement; there is no leader / follower either.
 - **Hearing / noise** (`hearing` in the Layer 1 sketch): nothing wakes a monster
-  but range + line + cone, a hit, or its own trigger. (The light stones' monster
+  but range + line + cone, an attack that reaches it (hit or miss, code-review
+  C34), or its own trigger. (The light stones' monster
   tracks record their MAKER, so party noise and scent can join them later.)
 - **An authorable cone or sight range** (`sightcone` / `sightrange`): the cone
   is ±60° / ±90° in `Brain::Think`, the range is `aggro`.
@@ -379,7 +382,7 @@ The open questions have been answered; these constraints now drive the build.
    "call for help" (a provoked monster propagates awareness to its group) are
    archetype fields/flags, not a separate concern. Groups are already derived
    every frame in `ReconcileGroups`, so the executor keys off that.
-   **NOT BUILT** - neither half: `ProvokeMonster` wakes only the monster struck,
+   **NOT BUILT** - neither half: `ProvokeMonster` wakes only the monster attacked,
    and a `ReconcileGroups` group is only the monsters sharing a cell.
 6. **Editor inspector: Layer 1 first (type-only), Layer 2 later.** Start by
    surfacing the new typed fields in the asset-creation dialog (type-level); the

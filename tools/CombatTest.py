@@ -89,6 +89,18 @@
 #              again with a second attack clip (`monsterclips`), which draws a
 #              variation every swing it starts (TALLY `clipdraws=`) - and
 #              every other TALLY field matches, sample for sample.
+#   NOTICED    an attack is noticed whatever came of it (C34): a firebolt that
+#              MISSED a lurker lying dormant beyond its trigger wakes it (aware
+#              0 -> 1, the tally's `boltmisses=1 bolthits=0`, since a bolt that
+#              landed woke it under the old rule too) while its twin with no
+#              shot sleeps through the same window (the control: `freeze on`
+#              does not stop the brain latching `aware`), and a RESTING party is
+#              roused as `attacked` (`rest until`'s stop and the `rest`
+#              readout) at the first attack that reaches it: a skeleton's swing
+#              that missed (one swing, none landed), one that landed but a water
+#              veil drank whole (nobody hurt, the veil drawn on), a bolt the
+#              Wind Ward turned, and a BURST bolt it turned - the one carrier
+#              answered outside fx::Deal - with no blast.
 #
 # And the script as a whole must run CLEAN - its verdict a PASS, nothing in it
 # refused or unknown - since a refused line (a save that failed, say) prints a
@@ -250,16 +262,19 @@ def grudges(sec):
 def monster_rows(sec, kind):
 	"""Every `monsters` row for monsters of `kind` in the section, in order: a
 	dict per row with its cell, hp, its slot in the square (None for a size
-	that has only one), whether it is dead, its effects {id: magnitude} and each
+	that has only one), whether it is dead, whether it is AWARE of the party
+	(None if the row does not say), its effects {id: magnitude} and each
 	effect's school {id: school}."""
 	out = []
 	for l in sec:
 		m = re.match(r"\s+(\S+) @ (\d+),(\d+)\s+hp ([\d.-]+)(.*)$", l)
 		if m and m.group(1) == kind:
 			slot = re.match(r"\s+slot (\d+)", m.group(5))
+			aware = re.search(r"\baware=([01])\b", m.group(5))
 			out.append({"cell": (int(m.group(2)), int(m.group(3))), "hp": float(m.group(4)),
 						"slot": int(slot.group(1)) if slot else None,
 						"dead": "(dead)" in m.group(5),
+						"aware": aware.group(1) == "1" if aware else None,
 						"effects": {k: float(v) for k, v in
 									re.findall(r"\[(\w+) ([\d.-]+) ", m.group(5))},
 						"schools": dict(re.findall(r"\[(\w+) [\d.-]+ [\d.-]+s (\w+)", m.group(5)))})
@@ -398,6 +413,17 @@ def front_in_lane(facing, member, slots, dim=2):
 		oz = ((s // dim) + 0.5) / dim - 0.5
 		return (round(ox * dx + oz * dz, 6), round(abs(ox * left[0] + oz * left[1] - lane), 6))
 	return min(slots, key=key) if slots else None
+
+
+def rest_end(sec):
+	"""How the section's rest ended, read twice: the reason `rest until` gave
+	for stopping the clock (None if it ran to its cap, or printed no line) and
+	the reason the bare `rest` readout names after it (None if it names none)."""
+	stopped = next((m.group(1) for m in (re.match(r"rested [\d.]+s - rest ended: (\w+)$", l)
+										 for l in sec) if m), None)
+	named = next((m.group(1) for m in (re.match(r"rest off \(world x\d+\)\s+last ended: (\w+)$", l)
+									   for l in sec) if m), None)
+	return stopped, named
 
 
 def clip_lists(sec, state):
@@ -907,6 +933,58 @@ def judge(lines, text):
 		  "and every combat number of the sweep matched, sample for sample",
 		  f"seeds that differ {differ}: " +
 		  "; ".join(f"{strip(plain[i - 1])} vs {strip(extra[i - 1])}" for i in differ[:1]))
+
+	print("NOTICED - a missed shot wakes a sleeper (C34)")
+	sec = get("wake-miss")
+	t = tally(sec)
+	rows = monster_rows(sec, "skel_lurker")
+	# The shot MISSED: one that landed woke it under the old rule as well, so a
+	# hit would make the claim below pass having tested nothing.
+	missed = (len(rows) == 2 and rows[0]["aware"] is False and num(t, "boltmisses") == 1
+			  and num(t, "bolthits") == 0)
+	check(missed, "Maren's firebolt missed the lurker lying dormant beyond its trigger",
+		  f"lurker before/after {rows} bolthits={t.get('bolthits')} boltmisses={t.get('boltmisses')}")
+	# The CONTROL: `freeze on` does not stop the brain latching `aware`, so what
+	# says the MISS woke it is the twin with no shot sleeping through the same
+	# window - else a think or a timer would pass for the miss.
+	still = monster_rows(get("wake-still"), "skel_lurker")
+	quiet = len(still) == 2 and all(r["aware"] is False for r in still)
+	check(quiet, "the control: with no shot, the same lurker lay dormant through the same four seconds",
+		  f"lurker before/after {still}")
+	check(missed and quiet and rows[1]["aware"] is True and rows[1]["hp"] == rows[0]["hp"],
+		  "and the miss woke it, unharmed", f"lurker before/after {rows}")
+
+	print("NOTICED - an attack that reached the resting party ends the rest, landed or not (C34)")
+	# Each rest ends at its FIRST attack, as `attacked`: `rest until` stops the
+	# clock the moment it ends, so the TALLY counts only what came before.
+	ended = lambda sec: rest_end(sec) == ("attacked", "attacked")
+	sec = get("rest-miss")
+	t = tally(sec)
+	one_miss = num(t, "mswings") == 1 and num(t, "struck") == 0 and num(t, "taken") == 0
+	check(one_miss and ended(sec),
+		  "a skeleton's swing that MISSED ended the rest as `attacked` (one swing, none landed)",
+		  f"mswings={t.get('mswings')} struck={t.get('struck')} taken={t.get('taken')} "
+		  f"rest ended {rest_end(sec)} - under the old rule it slept on until a blow landed")
+	sec = get("rest-veil")
+	t = tally(sec)
+	cs = chars(sec)
+	drank = sum(999.0 - c["effects"]["waterveil"] for c in cs if "waterveil" in c["effects"])
+	drunk = (num(t, "mswings") == 1 and num(t, "struck") == 1 and num(t, "taken") == 0
+			 and len(cs) == 2 and drank > 0.0)
+	check(drunk and ended(sec),
+		  "a swing that LANDED but the water veil drank whole ended it too, with nobody hurt",
+		  f"mswings={t.get('mswings')} struck={t.get('struck')} taken={t.get('taken')} "
+		  f"veil drank {drank:.1f} over {len(cs)} readouts, rest ended {rest_end(sec)}")
+	for name, what, extra in (("rest-ward", "a bolt the Wind Ward turned", ()),
+							  ("rest-burst", "a BURST bolt the Wind Ward turned, so nothing went off,",
+							   ("blasts",))):
+		sec = get(name)
+		t = tally(sec)
+		turned = (num(t, "wardturns") == 1 and num(t, "taken") == 0
+				  and all(num(t, k) == 0 for k in extra))
+		check(turned and ended(sec), f"{what} ended it as `attacked`",
+			  f"wardturns={t.get('wardturns')} taken={t.get('taken')} blasts={t.get('blasts')} "
+			  f"rest ended {rest_end(sec)}")
 	check("end" in s, "the script ran to its end")
 
 

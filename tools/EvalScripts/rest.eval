@@ -20,8 +20,12 @@
 ;   2. THE THREE WAYS IT ENDS BY ITSELF: fully recovered, out of food, attacked.
 ;      A state with no duration has to be able to stop, and each of these exists
 ;      to stop it quietly costing something.
-;   3. A DoT DOES NOT BREAK IT but a BLOW DOES — the `quiet` line. You can rest
-;      through a poison and simply pay for it; you cannot sleep through a sword.
+;   3. A DoT DOES NOT BREAK IT but an ATTACK DOES - any attack that reaches the
+;      party, landed or not (fx::Notice leaves only a tick out; code-review
+;      C34). You can rest through a poison and simply pay for it; you cannot
+;      sleep through a sword, even one that misses. The miss, the blow a veil
+;      drinks whole and the bolt a ward turns are JUDGED by tools\CombatTest.py
+;      (combat.eval's rest-* sections) - this suite only reports.
 ;
 ; Lockstep is ON from the start, which also exercises the thing rest does to the
 ; AI: it forces lockstep while resting and must hand back what it FOUND, not

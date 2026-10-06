@@ -56,16 +56,13 @@ DungeonWorld::Fall DungeonWorld::WoundMember(Character& target, float damage,
 	const bool wasDown = !target.IsAlive();
 	target.health -= damage;
 	if (target.health < 0.0f) target.health = 0.0f;
+	// (Rest is not broken HERE any more: an attack that misses or is turned never
+	// reaches this, and it ends a rest too - PartyTarget::Noticed, code-review C34.
+	// Nor is over-exertion's own wound, the one caller outside the pipeline, an
+	// attack: a member spending their own health is acting, not being attacked.)
 	if (!quiet) {
 		target.hitFlash = kHitFlashSeconds;
 		target.hitSeverity = damage < 5.0f ? 0 : (damage < 10.0f ? 1 : 2);
-		// A BLOW BREAKS REST, and `quiet` is exactly the right line to draw it
-		// on: it is set for a Tick, so a poison or a burn does NOT wake the
-		// party — you can rest through those, and they simply cost you — while
-		// anything swung, shot or dropped on you does. Being hit while the world
-		// runs at 60x is how a rest becomes a wipe with no input, which is the
-		// one thing a state with no duration has to defend against.
-		BreakRest("attacked", "log.rest_attacked");
 	}
 	if (target.IsAlive()) return Fall::None;
 	target.stabilize = 0.0f; // the wound that downed them restarts the clock
@@ -1200,6 +1197,19 @@ void DungeonWorld::PartyTarget::Wound(float amount, fx::DamageEvent& ev) {
 	}
 }
 
+// AN ATTACK BREAKS REST - every one that reaches a member, whatever came of it:
+// a swing that missed, a bolt the Wind Ward turned, a blow a water veil drank
+// whole, as surely as one that wounds (Michael, code-review C34). It used to be
+// broken only by a wound, so a party could sleep through any attack that
+// happened to fail. fx::Notice draws the line a DoT stays behind: a poison or a
+// burn does NOT wake the party - you can rest through those, and they simply
+// cost you. Being attacked while the world runs at 60x is how a rest becomes a
+// wipe with no input, which is the one thing a state with no duration has to
+// defend against.
+void DungeonWorld::PartyTarget::Noticed(const fx::DamageEvent&) {
+	m_world.BreakRest("attacked", "log.rest_attacked");
+}
+
 // Fed rather than hurt: a member whose nature DRINKS this element (a resist
 // past 1). It cannot raise the dead — a corpse drinks nothing — but it will
 // bring someone back from unconscious, which is the point of being made of the
@@ -1266,16 +1276,15 @@ void DungeonWorld::MonsterTarget::SayApplied(const fx::EffectKind& kind) const {
 	if (!key.empty()) Say(loc::FormatLine(key, Name()));
 }
 
-// The monster mirror: a fire golem drinking a fire bolt. It still PROVOKES —
-// you just made it stronger and it noticed — but earns its feeder no threat,
-// since threat is a record of harm done.
+// The monster mirror: a fire golem drinking a fire bolt. It is still PROVOKED -
+// you just made it stronger and it noticed (Noticed, as every attack does) - but
+// earns its feeder no threat, since threat is a record of harm done.
 void DungeonWorld::MonsterTarget::Absorb(float amount, fx::DamageEvent& ev) {
 	if (!m_monster.Alive() || amount <= 0.0f) return;
 	const ledger::Explained accounted{m_world.m_damageLedger, m_monster.hp,
 									  ledger::Reason::Pipeline};
 	m_monster.hp = std::min(m_monster.MaxHp(), m_monster.hp + amount);
 	if (ev.Quiet()) return; // a tick feeding it is a trickle, not news
-	m_world.ProvokeMonster(m_monster);
 	m_world.onMessage(loc::FormatLine("log.monster_absorbs", Name(),
 									  static_cast<int>(amount + 0.5f)));
 }
@@ -1310,15 +1319,18 @@ void DungeonWorld::MonsterTarget::Wound(float amount, fx::DamageEvent& ev) {
 		// No grudge and no provoke for the blow that KILLS: threat is how a monster
 		// picks whom to turn on, and a corpse turns on nobody. Taken first, it
 		// announced "The skeleton warrior turns on Sera!" over the blow that
-		// felled it (C5 again - the threat that lands on the dead).
+		// felled it (C5 again - the threat that lands on the dead). (Noticed, which
+		// does the provoking, asks Alive too.)
 		return;
 	}
+	// THREAT IS HARM'S, so it is credited here, by the amount - a DoT's tick
+	// included, which is how a hit-and-run torch keeps its grudge alive
+	// (DotSource). A miss harms nothing and credits nothing; what a miss DOES
+	// do - wake the monster - is Noticed's (code-review C34).
 	if (ev.source >= 0)
 		m_world.AddThreat(m_monster, static_cast<size_t>(ev.source), amount);
-	// A per-frame tick doesn't re-provoke or re-flinch every frame; anything
-	// else wakes the monster and turns it on whoever struck.
+	// A per-frame tick doesn't flinch every frame; anything else does.
 	if (!ev.Quiet()) {
-		m_world.ProvokeMonster(m_monster);
 		m_monster.hitReq = true; // survivor flinches (a fatal blow plays Die)
 		// A FLAMMABLE body that fire reaches CATCHES, every time (Michael: "a
 		// human torch waiting to happen") - a bolt, a lit torch's blow, a light's
@@ -1335,6 +1347,20 @@ void DungeonWorld::MonsterTarget::Wound(float amount, fx::DamageEvent& ev) {
 													  loc::ViewKey("monster.", m_monster.kind->name)));
 			}
 	}
+}
+
+// AN ATTACK WAKES IT - every one that reaches it, whatever came of it: a shot
+// that missed, a blow its armour or its nature turned to nothing, one it drank,
+// as surely as one that wounds (Michael, code-review C34). The provoke used to
+// live in Wound and Absorb, which a miss and a blow dealing exactly 0 never
+// reach, so a missed shot at an `asleep` monster - or a lurker beyond its
+// trigger - left it dormant, and an ambush could be shot at for free.
+// fx::Notice leaves a DoT's tick out: a burn does not re-provoke every frame.
+// Only this monster wakes; its neighbours stay oblivious (docs/ai.md).
+void DungeonWorld::MonsterTarget::Noticed(const fx::DamageEvent&) {
+	// The blow that killed it, or a corpse struck again: nobody left to wake (C5).
+	if (!m_monster.Alive()) return;
+	m_world.ProvokeMonster(m_monster);
 }
 
 // --- burning bodies -----------------------------------------------------------
@@ -2150,8 +2176,12 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 	ev.pierceOnCrit = atk.pierceOnCrit;
 	ev.fumbleExtra = atk.fumbleExtra;
 	// A swing the harness LOADED (`fumble`) is a fumble without a roll; any other
-	// is dealt.
-	if (!TakeLoadedFumble(member, hand, atk, ev))
+	// is dealt. The loaded one is noticed as Deal notices a rolled fumble - it
+	// was swung at the monster all the same (code-review C34) - so a loaded die
+	// differs from the dice in nothing but the roll.
+	if (TakeLoadedFumble(member, hand, atk, ev))
+		fx::Notice(ev, defender);
+	else
 		fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
 	// The dice half of the eval tally. Counted for the PARTY's swings only: a
 	// hit rate that mixed both sides together would answer no question anyone
@@ -2519,6 +2549,9 @@ bool DungeonWorld::ResolveMonsterProjectileHit(const ProjectileImpact& impact) {
 	if (impact.payload.blast.Any()) {
 		if (fx::Deflect(ev, defender)) { // spent against the wind
 			++m_harness.tally.wardTurns;
+			// Turned, but it REACHED them: an attack all the same, as Deal would
+			// have said of a plain bolt turned there (code-review C34).
+			fx::Notice(ev, defender);
 			return true;
 		}
 		++m_harness.tally.partyBursts;
