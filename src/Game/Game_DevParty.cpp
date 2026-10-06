@@ -1832,11 +1832,15 @@ void Game::RegisterPartyCommands() {
 									   "    creep {:<12} {:.3f} toward the next point",
 									   kStats[static_cast<size_t>(s)].id,
 									   c.statProgress[static_cast<size_t>(s)]));
+						   // And the skill each hand PARRIES with: a key in the
+						   // hand is held, not wielded, and parries unarmed
+						   // (code-review C39) - a rule nothing else shows.
 						   for (int h = 0; h < 2; ++h) {
 							   const ItemSlot& slot = c.inventory.Hand(h);
 							   m_console.Print(std::format(
-								   "    hand{} {}", h,
-								   slot.Empty() ? "(empty)" : slot.typeId));
+								   "    hand{} {} parries {}", h,
+								   slot.Empty() ? "(empty)" : slot.typeId,
+								   m_world ? m_world->ParrySkill(c, h) : std::string_view("?")));
 						   }
 						   for (int e = 0; e < kEquipCount; ++e) {
 							   // The HANDS are equipment slots too (Inventory::

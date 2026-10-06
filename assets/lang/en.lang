@@ -473,12 +473,8 @@ skill.blade=Blades
 skill.blunt=Bludgeons
 skill.unarmed=Unarmed
 skill.throwing=Throwing
-; Stats the skills creep forward (log.stat_up inserts these).
-stat.strength=Strength
-stat.dexterity=Dexterity
-stat.stamina=Stamina
-stat.health=Health
 ; Skill/stat growth + cast-failure log lines: (name, skill/stat, value) / (name).
+; log.stat_up names the stat by its attr.<id> below, as the sheet does.
 log.skill_up={}'s {} skill rises to {}.
 log.stat_up={}'s {} rises to {}.
 log.cast_fumble=The spell slips from {}'s grasp!

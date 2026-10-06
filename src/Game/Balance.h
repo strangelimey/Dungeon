@@ -179,6 +179,17 @@ std::span<const BalanceField> BalanceFields();
 const std::vector<std::string>& SchoolStats(SpellSymbol school);
 // The unarmed source's associated stats ({"strength"}).
 const std::vector<std::string>& UnarmedStats();
+// A thrown non-weapon's associated stats ({"strength", "dexterity"}): a throw is
+// arm and eye. FULL ids, like every list here (code-review C36: the throw's own
+// abbreviated list was the one that printed as `stat.str`).
+const std::vector<std::string>& ThrowStats();
+
+// --- the bare hand's attacks ---------------------------------------------------
+// Punch and kick: every hand offers them whatever it holds (the hand menu's
+// Combat group), and they swing, and train, UNARMED whatever it holds - the fist,
+// not the key in it (code-review C39). One list, read by the menu and the swing.
+std::span<const std::string_view> UnarmedAttacks();
+bool IsUnarmedAttack(std::string_view verb);
 
 // --- catalog field parsing ----------------------------------------------------
 // "str, dex" → {"strength", "dexterity"} (full names pass through; unknown

@@ -488,12 +488,8 @@ skill.blade=Клинки
 skill.blunt=Дробящее оружие
 skill.unarmed=Безоружный бой
 skill.throwing=Метание
-; Stats the skills creep forward (log.stat_up inserts these).
-stat.strength=Сила
-stat.dexterity=Ловкость
-stat.stamina=Выносливость
-stat.health=Здоровье
 ; Skill/stat growth + cast-failure log lines: (name, skill/stat, value) / (name).
+; log.stat_up names the stat by its attr.<id> below, as the sheet does.
 log.skill_up={}: навык «{}» растёт до {}.
 log.stat_up={}: {} растёт до {}.
 log.cast_fumble=Заклинание ускользает от {}!

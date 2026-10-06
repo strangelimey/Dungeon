@@ -415,7 +415,13 @@ Key conventions (memorize, they bite):
   (BoltSpell::MakeBolt), monster melee by `dmgtype`. Attack side: damage =
   (weapon damage, or the unarmed knobs, + stat_damage × avg of items.cat
   `stats`) × attack numbers × (1 + skill_damage × level); ACCURACY IS
-  ALWAYS DEX. Defender side: evasion, then max(0, rolled - soak) x (1 -
+  ALWAYS DEX. Punch and Kick (Balance's `UnarmedAttacks`, which the hand menu
+  reads too) and a hand holding NO weapon (an item with no `damage` of its own:
+  a key, a tablet - `DungeonWorld::HandWeapon`, the same `damage > 0` test a
+  throw and the details dialog make) swing, train and parry `unarmed`, with no
+  hand powers; a weapon naming no `skill` swings as itself and trains `unarmed`
+  (`WeaponSkill`; the editor's "+ New..." weapon is one) (code-review C39).
+  Defender side: evasion, then max(0, rolled - soak) x (1 -
   resist[type]) (`defense::Mitigate`, ONE rule for both of fx::Deal's branches:
   soak never inverts, only a resist past 1 heals), a blow that got through
   floored at wound_floor - resists SUM nature (monsters.cat `resists`; a
@@ -453,7 +459,10 @@ Key conventions (memorize, they bite):
   `element = fire` + `element_bonus` — a landed blow adds elemental damage
   through the target's resist for that element (no soak, no separate to-hit
   roll), and the element becomes the FLAVOUR its on-hit effects arrive with.
-  Dev: `equip <item> [member] [hand]`.
+  NOT after a blow that killed (`ev.slew`), swung or thrown: the burst used to
+  wound the corpse and count the kill twice (code-review C5). MonsterTarget::
+  Wound refuses the dead, and the blow that KILLS earns no threat and provokes
+  nothing - a corpse turns on nobody. Dev: `equip <item> [member] [hand]`.
 - RESOURCES (full model: docs/health-and-healing.md; all of it built - the
   pools, food/water, rest, pace and the sheet; the balance pass is what is
   left). Every pool has an APTITUDE

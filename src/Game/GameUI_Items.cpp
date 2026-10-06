@@ -8,6 +8,7 @@
 #include "Game/GameUI.h"
 
 #include "Core/Loc.h"
+#include "Game/Balance.h" // UnarmedAttacks
 #include "Game/HandSlot.h" // OpenHandMenuAtBox finds the box it opens at
 #include "Game/Spell/Spell.h"
 
@@ -31,9 +32,10 @@ constexpr std::string_view kMeleeUses[] = {
 bool IsMeleeUse(std::string_view cmd) {
 	return std::ranges::find(kMeleeUses, cmd) != std::ranges::end(kMeleeUses);
 }
-// The bare hand's combat verbs — the "Combat" group of the default-picker
-// menu, and always-valid defaults regardless of what the hand holds.
-constexpr std::string_view kUnarmedUses[] = {"punch", "kick"};
+// The bare hand's combat verbs are Balance's UnarmedAttacks - one list, which the
+// swing reads too and swings unarmed whatever the hand holds: the "Combat" group
+// of the default-picker menu, and always-valid defaults regardless of what the
+// hand holds.
 // A spell default is stored as "cast:<spells.cat id>" so it rides the same
 // per-item-type default map (and save lines) as the weapon verbs.
 constexpr std::string_view kCastPrefix = "cast:";
@@ -65,7 +67,7 @@ const std::vector<std::string> kNoCommands;
 // The hand menu's row ids (ui::ContextMenu rows carry an int, not a closure):
 // the range names the kind of use, the offset indexes that kind's own list.
 constexpr int kUseItemCmd = 0;    // + index into the item's commands
-constexpr int kUseUnarmed = 1000; // + index into kUnarmedUses
+constexpr int kUseUnarmed = 1000; // + index into UnarmedAttacks()
 constexpr int kUseSpell = 2000;   // + index into spellDefs()
 constexpr int kUseClear = 3000;   // forget this hand's pick (checked FIRST)
 constexpr int kUseThrow = 4000;   // the throw every held item offers (checked next)
@@ -409,8 +411,9 @@ void GameUI::OpenHandUseMenu(size_t i, size_t hand, ui::ContextMenu& menu) {
 		const bool hasMagic = spellCount > 0;
 		const int combat = hasMagic ? menu.AddGroup(loc::View("menu.combat"))
 									: ui::ContextMenu::kTopLevel;
-		for (size_t k = 0; k < std::size(kUnarmedUses); ++k)
-			menu.Add(loc::ViewKey("use.", kUnarmedUses[k]),
+		const std::span<const std::string_view> unarmed = UnarmedAttacks();
+		for (size_t k = 0; k < unarmed.size(); ++k)
+			menu.Add(loc::ViewKey("use.", unarmed[k]),
 					 kUseUnarmed + static_cast<int>(k), combat);
 		if (hasMagic) {
 			const int magic = menu.AddGroup(loc::View("menu.magic"));
@@ -475,7 +478,8 @@ void GameUI::OnHandMenuPick(int id) {
 		SelectUse(i, hand, m_handMenuItem, {buf, kCastPrefix.size() + n});
 	} else if (id >= kUseUnarmed) {
 		const size_t k = static_cast<size_t>(id - kUseUnarmed);
-		if (k < std::size(kUnarmedUses)) SelectUse(i, hand, m_handMenuItem, kUnarmedUses[k]);
+		if (k < UnarmedAttacks().size())
+			SelectUse(i, hand, m_handMenuItem, UnarmedAttacks()[k]);
 	} else {
 		const std::vector<std::string>& cmds = CommandsFor(m_handMenuItem);
 		const size_t k = static_cast<size_t>(id - kUseItemCmd);
@@ -605,7 +609,7 @@ bool GameUI::UseValidFor(const Character& c, const std::vector<std::string>& cmd
 	// hand's throw does nothing - ExecuteUse finds the hand empty).
 	if (cmd == "throw") return true;
 	// The bare-hand combat verbs are pickable for any hand contents.
-	return std::ranges::find(kUnarmedUses, cmd) != std::ranges::end(kUnarmedUses);
+	return IsUnarmedAttack(cmd);
 }
 
 void GameUI::MemorizeFromHand(size_t i, size_t hand) {

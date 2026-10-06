@@ -540,12 +540,13 @@ constexpr FieldSpec kWeaponFields[] = {
 	PROP_SCALE,
 	ITEM_WEIGHT,
 	{.key = "damage", .kind = FieldKind::Float, .sectionKey = kSectionStats,
-	 .help = "Base weapon damage, before stats and skill.",
+	 .help = "Base weapon damage, before stats and skill. 0 = no weapon: its hand "
+			 "swings bare.",
 	 .lo = 0.0f, .hi = 50.0f, .step = 1.0f, .def = "5"},
 	{.key = "speed", .kind = FieldKind::Float, .sectionKey = kSectionStats,
 	 .help = "Swing pace multiplier (higher = slower).", .lo = 0.1f, .hi = 3.0f, .step = 0.05f, .def = "1"},
 	{.key = "skill", .kind = FieldKind::Text, .sectionKey = kSectionStats,
-	 .help = "Weapon class trained + scaled by (e.g. blade, blunt); empty trains nothing."},
+	 .help = "Weapon class trained + scaled by (e.g. blade, blunt); empty = unarmed."},
 	{.key = "stats", .kind = FieldKind::Text, .sectionKey = kSectionStats,
 	 .help = "Attributes whose average boosts its damage, e.g. 'str dex'."},
 	// Enchantment (docs/effects.md): an element riding every landed blow — bonus

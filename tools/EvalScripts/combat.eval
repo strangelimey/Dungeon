@@ -453,4 +453,194 @@ effect stoneskin ahead 5 60
 effect fireshield ahead 5 60
 monsters
 
+; --- THE BLOW THAT KILLS IS THE LAST (code-review C5) ---------------------------
+; A lit torch is ENCHANTED (fire, element_bonus 0.5): a blow that lands carries a
+; second, fire event. It used to land on the monster the blow had just killed -
+; the corpse was wounded again (`slain` counted the kill twice), its damage went
+; into the "hits for N" line, and the threat of both landed on the dead. A
+; skeleton warrior (threat_threshold 0.6, so one torch blow is enough to lock it)
+; scaled to a twentieth of its hp dies to the first blow that lands; Sera swings
+; her torch (hand 1) until it does. `slain` must move by exactly one, the corpse
+; must hold no grudge (`grudges`), and no line may say it turns on anyone.
+
+echo === torch-kill ===
+reset
+timescale 0
+lockstep on
+seed 26
+goto eval_arena
+arena open 9 9
+heal
+tp 14 14
+face n
+freeze on
+char 1
+spawn skel_warrior 14 13 south 0.05 up
+monsters
+tally reset
+swing 1 1 attack
+step 2
+swing 1 1 attack
+step 2
+swing 1 1 attack
+step 2
+swing 1 1 attack
+step 2
+tally
+monsters
+grudges
+messages 12
+
+; The same on a THROW (ResolveThrowHit carries the enchantment through as a
+; swing does): Brand, the leader, throws lit torches at the same weakened warrior
+; until one connects.
+
+echo === torch-throw ===
+reset
+timescale 0
+lockstep on
+seed 26
+goto eval_arena
+arena open 9 9
+heal
+tp 14 14
+face n
+freeze on
+spawn skel_warrior 14 13 south 0.05 up
+monsters
+tally reset
+throw torch_lit
+step 2
+throw torch_lit
+step 2
+throw torch_lit
+step 2
+throw torch_lit
+step 2
+tally
+monsters
+grudges
+messages 12
+
+; --- A STAT POINT NAMES ITS STAT (code-review C36) -------------------------------
+; A whole stat point prints "<name>'s <stat> rises to <n>." The stat used to be
+; looked up under a `stat` prefix by the id as passed, and the lang files defined
+; only strength, dexterity, stamina and health there - so every INT or WIL point
+; a caster earned printed its raw lang key. Maren casts the party wards (20 mana,
+; 5 school xp each, creeping the school's one stat by 0.2) until a point lands:
+; Stone Skin over the party for INT (earth), Wind Ward for WIL (air). Skill 8 in
+; both schools makes a three-rune cast certain; a heal between casts refills the
+; mana. The HUD log (`messages`) is the only place the line goes.
+
+echo === stat-names ===
+reset
+timescale 0
+lockstep on
+seed 26
+goto eval_arena
+arena open 9 9
+heal
+tp 14 14
+face n
+freeze on
+learn 2 earth
+learn 2 air
+learn 2 protect
+learn 2 multiple
+setskill 2 earth 8
+setskill 2 air 8
+char 2
+cast 2 earth protect multiple
+heal
+cast 2 earth protect multiple
+heal
+cast 2 earth protect multiple
+heal
+cast 2 earth protect multiple
+heal
+cast 2 earth protect multiple
+heal
+cast 2 earth protect multiple
+heal
+messages 60
+cast 2 air protect multiple
+heal
+cast 2 air protect multiple
+heal
+cast 2 air protect multiple
+heal
+cast 2 air protect multiple
+heal
+cast 2 air protect multiple
+heal
+cast 2 air protect multiple
+heal
+messages 60
+char 2
+
+; --- A PUNCH IS A PUNCH, WHATEVER THE HAND HOLDS (code-review C39) --------------
+; Punch and Kick are the bare hand's attacks - the hand menu's Combat group for a
+; hand whose item offers nothing of its own, a key or a tablet: an item with no
+; `skill`. Both, and the key's own swing, used to take the HELD item's skill,
+; which for a key is "", so the blow trained nothing at all. Now they swing, and
+; train, unarmed. Brand takes an iron key in his bare left hand (hand 0), a sturdy
+; skeleton ahead: four punches, then four of the key's own (neutral) swings. Every
+; blow that lands trains `unarmed` by one xp, so the xp gained is the hits counted.
+; `char` also names the skill each hand PARRIES with: the key's hand, unarmed.
+; Then four punches with his DAGGER hand (hand 1): a punch is the bare hand's
+; whatever it holds, so they train `unarmed` too and `blade` not at all. The key
+; alone cannot tell that apart from "a key is no weapon" - a key's hand is bare
+; under either rule; the dagger's is not.
+
+echo === punch-key ===
+reset
+timescale 0
+lockstep on
+seed 26
+goto eval_arena
+arena open 9 9
+heal
+tp 14 14
+face n
+freeze on
+equip iron_key 0 0
+spawn skeleton 14 13 south 6 up
+char 0
+tally reset
+swing 0 0 punch
+step 2
+swing 0 0 punch
+step 2
+swing 0 0 punch
+step 2
+swing 0 0 punch
+step 2
+tally
+char 0
+tally reset
+swing 0 0
+step 2
+swing 0 0
+step 2
+swing 0 0
+step 2
+swing 0 0
+step 2
+tally
+char 0
+equip dagger 0 1
+char 0
+tally reset
+swing 0 1 punch
+step 2
+swing 0 1 punch
+step 2
+swing 0 1 punch
+step 2
+swing 0 1 punch
+step 2
+tally
+char 0
+monsters
+
 echo === end ===

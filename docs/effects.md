@@ -70,7 +70,9 @@ exactly one stage — that is the test of whether the stage list is right.
    dies by spending rather than by timing out.)*
 5. **Apply** — hp, the splat, unconscious/overkill/death, the slain
    message, the party-wipe latch, threat credit. One implementation,
-   parameterised by the target adapter.
+   parameterised by the target adapter. A monster already dead takes
+   nothing, and the blow that kills it earns no threat (code-review C5:
+   an enchanted blade's burst used to wound the corpse it had just made).
 6. **React** — what the landed blow *causes*: on-hit procs from the
    attacker's side (the fire sword's ignite, a monster's poison), and
    on-struck effects from the defender's side *(Fire Shield's scorch)*,

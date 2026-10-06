@@ -17,12 +17,20 @@ A skill is a named proficiency a member trains BY USING it. Two families:
 | `fire` / `earth` / `air` / `water` | Magic (one per school) | successfully casting that school's spells | fire→strength, air→dexterity, earth→max stamina, water→max health |
 | `blade` | Weapon class | landing a blow with a bladed weapon (catalog `skill = blade`) | dexterity |
 | `blunt` | Weapon class | landing a blow with a bludgeon (no weapons authored yet) | strength |
-| `unarmed` | Weapon class | landing a bare-handed blow (punch/kick) | strength |
+| `unarmed` | Weapon class | landing a punch or a kick (whatever the hand holds), any blow from a hand holding no weapon, or a blow with a weapon that names no class | strength |
 
 - Magic skill ids are the school symbol ids — one namespace, no mapping.
-- A weapon names its class in items.cat (`skill = blade`); a weapon without
-  the field trains nothing (it still swings). New classes are data + one
-  row here.
+- A weapon names its class in items.cat (`skill = blade`). A weapon
+  without the field still swings as itself (its damage, pace, stats and
+  powers) and trains `unarmed` - the editor's "+ New..." weapon starts
+  that way, with `damage = 5` and no class. An item with no `damage` of
+  its own is no weapon - a key, a tablet: its hand is HELD, not wielded,
+  so it swings, trains and parries `unarmed` with nothing of the item's,
+  and Punch and Kick are the bare hand's own attacks whatever the hand
+  holds (code-review C39; they used to take the held item's empty skill
+  and train nothing). `damage > 0` is the one test - the swing's
+  (DungeonWorld::HandWeapon), a throw's and the details dialog's. New
+  classes are data + one row here.
 - The school↔stat pairs follow the magic-system table (Earth/Stamina,
   Air/Agility, Fire/Strength, Water/Health); stamina/health creep raises
   the MAX (and current with it).
@@ -49,7 +57,8 @@ XP awards (the feedback loop; all award sites are main-thread world code):
 
 **Stat creep**: every XP award also drips into the skill's associated stat:
 `statProgress[stat] += xp × 0.04` — when the pool passes 1.0 the stat gains
-a point (log.stat_up) and the pool keeps the remainder. Roughly: 25 blade
+a point (log.stat_up, naming it by its `attr.<id>`, as the sheet does) and
+the pool keeps the remainder. Roughly: 25 blade
 hits = +1 dexterity; ~12 tier-2 casts = +1 of the school's stat. Saved
 per member (v15 "statxp" lines).
 

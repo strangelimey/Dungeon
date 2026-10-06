@@ -465,7 +465,10 @@ optional (no `element` line = an ordinary weapon, both terms skipped):
   assembled damage, dealt AS that element: through the target's resist
   for the element but NOT its soak (plate turns a blade, not a flame),
   and with no accuracy roll of its own — it rides the physical hit. A
-  fire-vulnerable mummy (`resists = ... fire -1.0`) takes it doubled.
+  fire-vulnerable mummy (`resists = ... fire -1.0`) takes it doubled. A
+  blow that KILLS carries none: there is nothing left for it to ride into
+  (code-review C5 - it used to wound the corpse, counting the kill twice;
+  swung and thrown alike, and MonsterTarget::Wound now refuses the dead).
 - `element_dot = <dps> <seconds> [chance]` — the same authored line as a
   monster's `poison`/`bleed` (one shared parser, DungeonWorld::
   ParseHitEffect). A landed blow rolls the chance and leaves the survivor

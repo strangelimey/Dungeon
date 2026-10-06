@@ -31,6 +31,10 @@ constexpr float kHitFlashSeconds = 0.7f;
 // guard watches (code-review C35; Balance.cpp's stat lists are the same rule).
 const std::vector<std::string> kDexStat{"dexterity"};
 const std::vector<std::string> kStrStat{"strength"};
+// The bare hand's weapon class - a fist, a kick, anything held that is no
+// weapon (DungeonWorld::HandWeapon) and a weapon naming no `skill`
+// (DungeonWorld::WeaponSkill) swing, train and parry with it.
+constexpr std::string_view kUnarmedSkill = "unarmed";
 } // namespace
 void DungeonWorld::MemberMessage(const Character& member,
 								 std::string_view line) const {
@@ -451,8 +455,13 @@ void DungeonWorld::GrantStatPoint(Character& member, std::string_view stat) {
 	const ledger::Explained accounted{m_damageLedger, member.health,
 									  ledger::Reason::Growth};
 	member.RecomputeMaxima(m_balance.Resources());
+	// Named through the TABLE's id, as the sheet names it (attr.<id>): the key used
+	// to be built from the id AS PASSED, under a `stat.` prefix the lang files
+	// defined for only two of the five, so an INT or WIL point - or any point a
+	// throw's abbreviated list earned - printed its raw key (code-review C36).
 	MemberMessage(member, loc::FormatLine("log.stat_up", member.name,
-										  loc::ViewKey("stat.", stat), value));
+										  loc::ViewKey("attr.", kStats[static_cast<size_t>(i)].id),
+										  value));
 }
 
 // Exertion (docs/combat.md part 3 + Phase 4): stamina is the exertion meter —
@@ -816,7 +825,7 @@ std::vector<std::string> DungeonWorld::TrainableSkills() const {
 	}
 	for (int k = 0; k < static_cast<int>(resource::Kind::Count); ++k)
 		ids.emplace_back(resource::SkillId(static_cast<resource::Kind>(k)));
-	ids.emplace_back("unarmed"); // the bare-hand class, which no catalog entry names
+	ids.emplace_back(kUnarmedSkill); // the bare-hand class, which no catalog entry names
 	ids.emplace_back("throwing"); // anything thrown (Phase 10) - no item names it either
 	// The DEFENSIVE skills (TrainDefense above). Easy to forget precisely because
 	// nothing in a catalog names them — the guard caught their absence the first
@@ -1039,24 +1048,44 @@ float DungeonWorld::PartyTarget::Evasion(DamageType type) const {
 	if (hasSchool)
 		in.schoolLevel = static_cast<float>(m_member.SkillLevel(SymbolId(school)));
 
-	// A held item to the skill it parries off; an empty hand parries `unarmed`.
-	// Resolved only for a PHYSICAL blow — Guard ignores these otherwise, so this
-	// is purely about not paying for two catalog lookups per firebolt. The rule
-	// still lives in Guard; this only declines to compute what it will not read.
+	// A held weapon to the skill it parries off; an empty hand - or one holding no
+	// weapon, a key - parries `unarmed` (ParrySkill). Resolved only for a PHYSICAL
+	// blow - Guard ignores these otherwise, so this is purely about not paying for
+	// two catalog lookups per firebolt. The rule still lives in Guard; this only
+	// declines to compute what it will not read.
 	if (in.kind == defense::GuardKind::Physical) {
 		const auto handLevel = [&](int hand) {
-			const ItemSlot& slot = m_member.inventory.Hand(hand);
-			const ItemKind* weapon =
-				slot.Empty() ? nullptr : &m_world.ItemKindFor(slot.typeId);
-			return static_cast<float>(m_member.SkillLevel(
-				weapon ? std::string_view(weapon->skill)
-					   : std::string_view("unarmed")));
+			return static_cast<float>(
+				m_member.SkillLevel(m_world.ParrySkill(m_member, hand)));
 		};
 		in.leftLevel = handLevel(0);
 		in.rightLevel = handLevel(1);
 	}
 
 	return defense::Guard(in);
+}
+
+const DungeonWorld::ItemKind* DungeonWorld::HandWeapon(const Character& member, int hand) {
+	const ItemSlot& held = member.inventory.Hand(hand);
+	if (held.Empty()) return nullptr;
+	const ItemKind& kind = ItemKindFor(held.typeId);
+	// A thing with no damage of its own is HELD, not wielded: a key, a tablet, a
+	// loaf. Its hand fights bare - swings, trains and parries unarmed (code-review
+	// C39). `damage > 0` is the same test a throw (ThrowItem) and the details
+	// dialog make, so an item is a weapon swung, thrown and inspected alike. A
+	// weapon with damage but no `skill` - the editor's "+ New..." stamps damage 5
+	// and leaves the class empty - still swings as itself: only its CLASS falls
+	// back to unarmed (WeaponSkill).
+	return kind.damage > 0.0f ? &kind : nullptr;
+}
+
+std::string_view DungeonWorld::WeaponSkill(const ItemKind* weapon) {
+	return weapon && !weapon->skill.empty() ? std::string_view(weapon->skill)
+											: kUnarmedSkill;
+}
+
+std::string_view DungeonWorld::ParrySkill(const Character& member, int hand) {
+	return WeaponSkill(HandWeapon(member, hand));
 }
 
 ResistTable DungeonWorld::PartyPowers(const Character& member, int hand) {
@@ -1223,6 +1252,12 @@ void DungeonWorld::MonsterTarget::Absorb(float amount, fx::DamageEvent& ev) {
 // "slain" / "destroyed" / "burns away" depending on what did it, and has to
 // come after the caller's own "hits for N").
 void DungeonWorld::MonsterTarget::Wound(float amount, fx::DamageEvent& ev) {
+	// A CORPSE TAKES NOTHING MORE. The second event riding a blow - an enchanted
+	// weapon's burst - used to land on the monster that blow had just killed: a
+	// second kill counted, its damage added to the "hits for N" line, threat on
+	// the dead (code-review C5). The callers skip such an event on `ev.slew`; this
+	// is the backstop, as Absorb's guard is.
+	if (!m_monster.Alive()) return;
 	const ledger::Explained accounted{m_world.m_damageLedger, m_monster.hp,
 									  ledger::Reason::Pipeline};
 	m_monster.hp -= amount;
@@ -1230,11 +1265,6 @@ void DungeonWorld::MonsterTarget::Wound(float amount, fx::DamageEvent& ev) {
 	// death check below, so the blow that kills is still counted as damage
 	// dealt rather than vanishing into the kill.
 	m_world.m_harness.tally.dealt += amount;
-	if (ev.source >= 0)
-		m_world.AddThreat(m_monster, static_cast<size_t>(ev.source), amount);
-	// A per-frame tick doesn't re-provoke or re-flinch every frame; anything
-	// else wakes the monster and turns it on whoever struck.
-	if (!ev.Quiet()) m_world.ProvokeMonster(m_monster);
 	if (!m_monster.Alive()) {
 		m_monster.hp = 0.0f; // a downed monster stays in the list (save restore)
 		Extinguish(m_monster); // a corpse stops burning
@@ -1243,7 +1273,18 @@ void DungeonWorld::MonsterTarget::Wound(float amount, fx::DamageEvent& ev) {
 		m_world.NoteMonsterCaster(m_monster);
 		ev.slew = true;
 		++m_world.m_harness.tally.monstersSlain;
-	} else if (!ev.Quiet()) {
+		// No grudge and no provoke for the blow that KILLS: threat is how a monster
+		// picks whom to turn on, and a corpse turns on nobody. Taken first, it
+		// announced "The skeleton warrior turns on Sera!" over the blow that
+		// felled it (C5 again - the threat that lands on the dead).
+		return;
+	}
+	if (ev.source >= 0)
+		m_world.AddThreat(m_monster, static_cast<size_t>(ev.source), amount);
+	// A per-frame tick doesn't re-provoke or re-flinch every frame; anything
+	// else wakes the monster and turns it on whoever struck.
+	if (!ev.Quiet()) {
+		m_world.ProvokeMonster(m_monster);
 		m_monster.hitReq = true; // survivor flinches (a fatal blow plays Die)
 		// A FLAMMABLE body that fire reaches CATCHES, every time (Michael: "a
 		// human torch waiting to happen") - a bolt, a lit torch's blow, a light's
@@ -1925,8 +1966,13 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 	// below; its `skill` is the weapon class (docs/skills.md) — a bare hand
 	// swings, and trains, unarmed. The class level scales the profile, the
 	// landed blow below trains the class + creeps its associated stats.
-	const ItemSlot& held = attacker.inventory.Hand(static_cast<int>(hand));
-	const ItemKind* weapon = held.Empty() ? nullptr : &ItemKindFor(held.typeId);
+	// A PUNCH OR A KICK is the bare hand's own attack whatever the hand holds, and
+	// a held thing with no damage of its own (a key, a tablet) is no weapon
+	// (HandWeapon): both swing, and train, unarmed. They used to take the held
+	// item's skill - "" for a key - so the blow trained nothing at all
+	// (code-review C39). A weapon naming no class trains unarmed (WeaponSkill).
+	const ItemKind* weapon =
+		IsUnarmedAttack(verb) ? nullptr : HandWeapon(attacker, static_cast<int>(hand));
 
 	// The rear rank can't reach (Phase 7): roster slots 0-1 are the FRONT
 	// line, 2-3 the REAR — a rear member swings only a polearm (`reach =
@@ -1937,8 +1983,7 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 		return true;
 	}
 
-	const std::string_view skillId =
-		weapon ? std::string_view(weapon->skill) : std::string_view("unarmed");
+	const std::string_view skillId = WeaponSkill(weapon);
 	const int level = attacker.SkillLevel(skillId);
 	// The attack formula (docs/combat.md part 5). The ATTACK (the executed
 	// verb) supplies the damage type + its three numbers; the weapon supplies
@@ -2001,12 +2046,12 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 	PartyTarget striker{*this, attacker};
 	MonsterTarget defender{*this, *target};
 	// The attacker's type axis: potency summed from THIS hand's weapon and every
-	// worn piece (PartyPowers). A character has no innate cell — their own axis is
-	// skill — so this is entirely what they carry.
+	// worn piece (PartyPowers). A character has no innate cell - their own axis is
+	// skill - so this is entirely what they carry. A fist lends nothing from what
+	// the hand happens to hold: only a wielded weapon is this swing's.
+	const int wielded = weapon ? static_cast<int>(hand) : -1;
 	fx::DamageEvent ev = fx::DamageEvent::Blow(
-		atk.type,
-		m_balance.Potent(atk.damage, PartyPowers(attacker, static_cast<int>(hand)),
-						 atk.type),
+		atk.type, m_balance.Potent(atk.damage, PartyPowers(attacker, wielded), atk.type),
 		atk.attackBonus, static_cast<int>(member));
 	ev.pierceOnCrit = atk.pierceOnCrit;
 	ev.fumbleExtra = atk.fumbleExtra;
@@ -2042,9 +2087,11 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 	// through as well — a SECOND event of that element, `element_bonus` of the
 	// assembled damage. It rides the physical hit, so it is neither rolled nor
 	// soaked (plate turns a blade, not a flame) but the target's resist for the
-	// element still answers it.
+	// element still answers it. Not after a blow that KILLED: it rides the blow,
+	// and there is nothing left for it to ride into (code-review C5 - it wounded
+	// the corpse, counting the kill twice).
 	float elemental = 0.0f;
-	if (weapon && weapon->enchanted && weapon->elementBonus > 0.0f) {
+	if (!ev.slew && weapon && weapon->enchanted && weapon->elementBonus > 0.0f) {
 		// The enchantment gets the type axis too, and in ITS OWN element rather than
 		// the blade's physical one — which is the case the whole feature is for: a
 		// fire-attuned wielder's burning sword burns hotter.
@@ -2052,7 +2099,7 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 		fx::DamageEvent burst = fx::DamageEvent::Burst(
 			elemType,
 			m_balance.Potent(atk.damage * weapon->elementBonus,
-							 PartyPowers(attacker, static_cast<int>(hand)), elemType),
+							 PartyPowers(attacker, wielded), elemType),
 			static_cast<int>(member));
 		fx::Deal(burst, defender, m_balance.Strike(), m_combatRng);
 		elemental = burst.dealt;

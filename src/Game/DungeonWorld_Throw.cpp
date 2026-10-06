@@ -41,11 +41,9 @@
 namespace dungeon::game {
 
 namespace {
-// The skill a throw trains, and the stats a non-weapon throw averages (and
-// creeps on a landed hit): a throw is arm and eye. Built at start-up, not on the
-// first throw - that lands in a frame the allocation guard watches.
+// The skill a throw trains. The stats a non-weapon throw averages (and creeps on
+// a landed hit) are Balance's ThrowStats: a throw is arm and eye.
 constexpr std::string_view kThrowSkill = "throwing";
-const std::vector<std::string> kThrowStats{"str", "dex"};
 } // namespace
 
 bool DungeonWorld::ThrowItem(const std::string& typeId, int member, float charge) {
@@ -71,7 +69,7 @@ bool DungeonWorld::ThrowItem(const std::string& typeId, int member, float charge
 	if (!spec) spec = &m_balance.Neutral();
 	const std::span<const std::string> stats =
 		weapon && !kind.stats.empty() ? std::span<const std::string>(kind.stats)
-									  : std::span<const std::string>(kThrowStats);
+									  : std::span<const std::string>(ThrowStats());
 	const int level = thrower.SkillLevel(kThrowSkill);
 	const float base =
 		weapon ? kind.damage : m_balance.throwBase + m_balance.throwWeight * kind.weight;
@@ -174,9 +172,10 @@ bool DungeonWorld::ResolveThrowHit(const ProjectileImpact& impact) {
 		comeDown();
 		return true;
 	}
-	// An ENCHANTED weapon carries its element through on a landed throw too.
+	// An ENCHANTED weapon carries its element through on a landed throw too - but
+	// not into a monster the blow just killed (code-review C5), as at the door.
 	float elemental = 0.0f;
-	if (kind.enchanted && kind.elementBonus > 0.0f) {
+	if (!ev.slew && kind.enchanted && kind.elementBonus > 0.0f) {
 		const DamageType elemType = m_damageTypes.ForSchool(kind.element);
 		fx::DamageEvent burst = fx::DamageEvent::Burst(elemType,
 													   impact.atk.damage * kind.elementBonus,
@@ -195,7 +194,7 @@ bool DungeonWorld::ResolveThrowHit(const ProjectileImpact& impact) {
 	if (thrower) {
 		const std::span<const std::string> stats =
 			kind.damage > 0.0f && !kind.stats.empty() ? std::span<const std::string>(kind.stats)
-													  : std::span<const std::string>(kThrowStats);
+													  : std::span<const std::string>(ThrowStats());
 		GrantSkillXp(*thrower, kThrowSkill, 1.0f, stats);
 	}
 	fx::React(ev, defender, nullptr, Reaction()); // no reprisal reaches across the room

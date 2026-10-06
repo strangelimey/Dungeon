@@ -1045,6 +1045,11 @@ public:
 	// for a readout (`char`) that must not re-derive them.
 	float PipelineSoak(const Character& member);
 	float PipelineResist(const Character& member, DamageType type);
+	// The skill a hand PARRIES with - its weapon's class (HandWeapon,
+	// WeaponSkill), else `unarmed`, which a key in the hand is too (code-review
+	// C39). What PartyTarget::Evasion reads, and what `char` prints beside each
+	// hand.
+	std::string_view ParrySkill(const Character& member, int hand);
 
 	// Trains `avoid` on an evaded blow or the worn armor on a blunted one —
 	// call once per RESOLVED attack against a member. A bolt the wind ward
@@ -2773,10 +2778,10 @@ private:
 		std::string nameKey;     // loc key for the display name ("item.rune_fire")
 		std::string category;    // rune|weapon|armor|clothing|food|misc (free-form)
 		std::string skill;       // weapon class this item trains/uses (catalog
-								 // `skill`, docs/skills.md); "" = untrained swing
-		// Weapon stats (docs/combat.md Phase 1). 0 = unstated: the swing falls
-		// back to the attacker's unarmed numbers (the unarmed_* knobs), so
-		// non-weapon holdables swing unchanged.
+								 // `skill`, docs/skills.md); "" = `unarmed`
+		// Weapon stats (docs/combat.md Phase 1). A `damage` of 0 is NO WEAPON: the
+		// hand holding it swings bare (DungeonWorld::HandWeapon), and a speed of 0
+		// falls back to the attacker's unarmed pace (the unarmed_* knobs).
 		float damage = 0.0f;     // base damage of a clean hit with this weapon
 		float speed = 0.0f;      // seconds between swings (before dexterity)
 		// The associated stats (docs/combat.md part 2, catalog `stats = str,
@@ -3759,6 +3764,15 @@ private:
 	// PartyTarget::Resist sums the defender's. Characters have no innate cell; what
 	// they carry is what they get, because their own axis is skill.
 	ResistTable PartyPowers(const Character& member, int hand);
+	// The weapon a hand swings and parries with: what it holds, or nullptr for a
+	// bare hand - and for a held thing that is no weapon (no `damage` of its own:
+	// a key, a tablet), which is held, not wielded (code-review C39). The same
+	// `damage > 0` test as ThrowItem's and the details dialog's. Non-const:
+	// ItemKindFor caches.
+	const ItemKind* HandWeapon(const Character& member, int hand);
+	// The class a weapon swings, trains and parries with: its `skill`, else
+	// `unarmed` - for a bare hand (nullptr) and for a weapon naming no class.
+	static std::string_view WeaponSkill(const ItemKind* weapon);
 	// The party attack formula - damage, attack bonus, type, crit pierce and the
 	// over-exertion fumble band - shared by a swing (PartyAttack) and a throw
 	// (ThrowItem), so the two can never drift apart.

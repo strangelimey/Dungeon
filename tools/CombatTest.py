@@ -46,6 +46,18 @@
 #              through the rock.
 #   WARDS      `effect <ward> ahead` lands each ward in its own school (C279):
 #              a stone skin as earth, a fire shield as fire.
+#   KILL       the blow that kills is the last (C5): a lit torch's fire burst,
+#              swung or thrown, never lands on the corpse - `slain` moves by
+#              exactly one, the corpse holds no grudge and no line says it
+#              turned on anyone.
+#   STATS      a stat point names its stat (C36): an INT and a WIL point earned
+#              casting read "Intelligence" / "Willpower", and no `stat.` key
+#              reaches the log anywhere in the run.
+#   PUNCH      Punch, and the own swing of a held item with no damage, fight
+#              unarmed (C39): with a key in the hand, every blow that lands
+#              trains `unarmed` (xp gained = hits), and that hand parries
+#              unarmed; a punch with the DAGGER hand trains unarmed too, and
+#              blade not at all.
 #
 # Each later combat batch adds its sections to combat.eval and its checks here.
 #
@@ -99,7 +111,7 @@ def run(script):
 		  f"exit code {code}, no verdict line")
 	verdict = next((l for l in log if "eval RESULT=" in l), "")
 	said = [l.split("console: ", 1)[1] for l in log if "console: " in l]
-	return code, verdict, [l for l in said if not l.startswith("> ")]
+	return code, verdict, [l for l in said if not l.startswith("> ")], text
 
 
 def sections(lines):
@@ -116,14 +128,18 @@ def sections(lines):
 
 def chars(sec):
 	"""Every `char` block in the section, in order: a dict per block with the
-	member's name, skills {id: xp}, creep {stat: pool}, effects {id: magnitude},
-	hands [id, id] and the defense line's fields (or None if it printed none)."""
+	member's name, stats {str/dex/vit/wil/int: value}, skills {id: xp}, creep
+	{stat: pool}, effects {id: magnitude}, hands [id, id], the skill each hand
+	parries with [skill, skill] (None where the line names none) and the defense
+	line's fields (or None if it printed none)."""
 	out, cur = [], None
 	for l in sec:
-		m = re.match(r"  (\w+)  str \d+", l)
+		m = re.match(r"  (\w+)  str (\d+) dex (\d+) vit (\d+) wil (\d+) int (\d+)", l)
 		if m:
 			cur = {"name": m.group(1), "skills": {}, "creep": {}, "effects": {},
-				   "hands": [], "defense": None}
+				   "hands": [], "parries": [], "defense": None,
+				   "stats": dict(zip(("str", "dex", "vit", "wil", "int"),
+									 (int(g) for g in m.groups()[1:])))}
 			out.append(cur)
 			continue
 		if cur is None:
@@ -140,9 +156,10 @@ def chars(sec):
 		if m:
 			cur["effects"][m.group(1)] = float(m.group(2))
 			continue
-		m = re.match(r"    hand\d (\S+)", l)
+		m = re.match(r"    hand\d (\S+)(?: parries (\S+))?", l)
 		if m:
 			cur["hands"].append(m.group(1))
+			cur["parries"].append(m.group(2))
 			continue
 		m = re.match(r"    defense class (\w+) soak ([\d.-]+) sheet ([\d.-]+) resist (.*)$", l)
 		if m:
@@ -158,6 +175,27 @@ def tally(sec):
 		if l.startswith("TALLY "):
 			return {k: v for k, v in re.findall(r"(\w+)=(\S+)", l)}
 	return {}
+
+
+def tallies(sec):
+	"""Every TALLY line in the section, in order."""
+	return [{k: v for k, v in re.findall(r"(\w+)=(\S+)", l)} for l in sec if l.startswith("TALLY ")]
+
+
+def messages(sec):
+	"""The HUD message log lines every `messages` readout in the section
+	printed, in order (a line printed by two readouts appears twice)."""
+	return [l[4:] for l in sec if l.startswith("  | ")]
+
+
+def grudges(sec):
+	"""The section's `grudges` readout: one row per monster holding threat
+	(`<kind>#<id> [a b c d] lock=<name>`), [] for "no threat anywhere", None
+	if the section printed neither."""
+	rows = [l.strip() for l in sec if re.match(r"\s+\S+#\d+ \[", l)]
+	if rows:
+		return rows
+	return [] if "no threat anywhere" in sec else None
 
 
 def monster_rows(sec, kind):
@@ -288,7 +326,7 @@ def lessons(gains, lesson):
 	return counts
 
 
-def judge(lines):
+def judge(lines, text):
 	s = sections(lines)
 	get = lambda name: s.get(name, [])
 
@@ -533,6 +571,79 @@ def judge(lines):
 		  and last["schools"].get("fireshield") == "fire",
 		  "`effect stoneskin ahead` lands as earth, `effect fireshield ahead` as fire",
 		  f"{rows}")
+
+	print("THE KILLING BLOW - an enchanted torch's burst never lands on the corpse (C5)")
+	for name, how, landed_key in (("torch-kill", "swung", "hits"),
+								  ("torch-throw", "thrown", "throwstrikes")):
+		sec = get(name)
+		t = tally(sec)
+		rows = monster_rows(sec, "skel_warrior")
+		cs = chars(sec)
+		# Sera's torch, for the swing: the claim is about an ENCHANTED blow.
+		armed = how == "thrown" or (len(cs) == 1 and cs[0]["hands"][1:2] == ["torch_lit"])
+		killed = (armed and len(rows) == 2 and not rows[0]["dead"] and rows[1]["dead"]
+				  and num(t, landed_key) >= 1)
+		check(killed, f"a {how} lit torch killed the weakened skeleton warrior",
+			  f"hands {[c['hands'] for c in cs]} warrior before/after {rows} "
+			  f"{landed_key}={t.get(landed_key)}")
+		check(killed and num(t, "slain") == 1, f"and `slain` moved by exactly one ({how})",
+			  f"slain={t.get('slain')} - two is the burst wounding the corpse again")
+		g = grudges(sec)
+		check(killed and g == [], f"the corpse holds no grudge ({how})", f"grudges {g}")
+		said = messages(sec)
+		# The readout is read: the kill's own line is in it.
+		check(killed and any(m == "The skeleton warrior is slain!" for m in said)
+			  and not any(" turns on " in m for m in said),
+			  f"and no line said it turned on anyone ({how})", f"messages {said}")
+
+	print("STAT POINTS - a point names its stat (C36)")
+	sec = get("stat-names")
+	said = messages(sec)
+	cs = chars(sec)
+	gained = (lambda s: len(cs) == 2 and cs[1]["stats"][s] > cs[0]["stats"][s])
+	int_line = [m for m in said if re.fullmatch(r"Maren's Intelligence rises to \d+\.", m)]
+	wil_line = [m for m in said if re.fullmatch(r"Maren's Willpower rises to \d+\.", m)]
+	ups = [m for m in said if re.fullmatch(r"Maren's (?!.* skill ).+ rises to \d+\.", m)]
+	check(gained("int") and bool(int_line),
+		  "an INT point earned casting reads \"Intelligence\"",
+		  f"stats {[c['stats'] for c in cs]} stat lines {ups}")
+	check(gained("wil") and bool(wil_line),
+		  "a WIL point earned casting reads \"Willpower\"",
+		  f"stats {[c['stats'] for c in cs]} stat lines {ups}")
+	strays = sorted(set(re.findall(r"\bstat\.[a-z]\w*", text)))
+	check(bool(int_line) and bool(wil_line) and not strays,
+		  "and no `stat.` key reached the log anywhere in the run", f"keys {strays}")
+
+	print("PUNCH - a punch, and a key's own swing, fight unarmed (C39)")
+	sec = get("punch-key")
+	cs = chars(sec)
+	ts = tallies(sec)
+	# Five `char` blocks: before, after the punches, after the key's swings, with
+	# the dagger in hand 1, after the dagger hand's punches; three tallies.
+	keyed = (len(cs) == 5 and all(c["hands"][:1] == ["iron_key"] for c in cs)
+			 and len(ts) == 3)
+	xp = [c["skills"].get("unarmed", 0.0) for c in cs] if keyed else []
+	blade = [c["skills"].get("blade", 0.0) for c in cs] if keyed else []
+	hits = [num(x, "hits") for x in ts] if keyed else []
+	check(keyed and hits[0] >= 1 and abs((xp[1] - xp[0]) - hits[0]) < 0.05,
+		  "every punch that landed with a key in the hand trained unarmed (xp gained = hits)",
+		  f"hands {[c['hands'] for c in cs]} unarmed xp {xp} hits {hits}")
+	check(keyed and hits[1] >= 1 and abs((xp[2] - xp[1]) - hits[1]) < 0.05,
+		  "and so did every landed swing of the key itself, which has no damage of its own",
+		  f"unarmed xp {xp} hits {hits}")
+	check(keyed and cs[0]["parries"][:1] == ["unarmed"],
+		  "the hand holding the key parries unarmed",
+		  f"parries {[c['parries'] for c in cs]}")
+	# The DAGGER hand is what tells "a punch is the bare hand's whatever it holds"
+	# from "a key is no weapon": a key's hand is bare under either rule. Its hand
+	# parries blade (so the dagger IS wielded there), yet its punches train
+	# unarmed by exactly the hits and blade not at all.
+	armed = keyed and cs[3]["hands"][1:2] == ["dagger"] and cs[3]["parries"][1:2] == ["blade"]
+	check(armed and hits[2] >= 1 and abs((xp[4] - xp[3]) - hits[2]) < 0.05
+		  and abs(blade[4] - blade[3]) < 0.005,
+		  "a punch with the dagger hand trains unarmed (xp gained = hits), never blade",
+		  f"hands {[c['hands'] for c in cs]} parries {[c['parries'] for c in cs]} "
+		  f"unarmed xp {xp} blade xp {blade} hits {hits}")
 	check("end" in s, "the script ran to its end")
 
 
@@ -548,9 +659,9 @@ def main():
 		fd, script = tempfile.mkstemp(suffix=".eval")
 		with os.fdopen(fd, "w", encoding="utf-8") as fh:
 			fh.write(cut + "\n")
-	code, verdict, lines = run(script)
+	code, verdict, lines, text = run(script)
 	print(f"eval: {verdict.split('] ', 1)[-1] if verdict else '(no verdict line)'}")
-	judge(lines)
+	judge(lines, text)
 	if selftest:
 		os.remove(script)
 	failed = sum(1 for _, ok in results if not ok)

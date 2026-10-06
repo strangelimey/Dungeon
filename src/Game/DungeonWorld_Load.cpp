@@ -1357,10 +1357,11 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		// Shared, data-driven fields: category, carry weight, hand commands.
 		kind->category = CatalogGet(def, "category", "misc");
 		// Weapon class (docs/skills.md): the skill a swing with this item
-		// trains and is scaled by. Absent = the swing trains nothing.
+		// trains and is scaled by. Absent = `unarmed` (DungeonWorld::WeaponSkill).
 		kind->skill = CatalogGet(def, "skill", "");
 		// The attack formula's fields (docs/combat.md): weapon damage/speed
-		// (absent = 0 = the unarmed knobs), associated stats (`stats = str,
+		// (absent damage = no weapon, the hand swings bare - HandWeapon; absent
+		// speed = the unarmed pace), associated stats (`stats = str,
 		// dex`; absent = the unarmed default), and the worn defender side
 		// (per-type `resists` cells + a small flat `armor` soak).
 		kind->damage = def ? def->GetFloat("damage", 0.0f) : 0.0f;

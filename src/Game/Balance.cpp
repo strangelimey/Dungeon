@@ -9,6 +9,7 @@
 #include "Game/Catalog.h"
 #include "Game/Character.h" // the one stat table (kStats / StatIndex)
 
+#include <algorithm>
 #include <charconv>
 #include <format>
 
@@ -361,6 +362,8 @@ namespace {
 const std::vector<std::string> kIntStats{"intelligence"};
 const std::vector<std::string> kWilStats{"willpower"};
 const std::vector<std::string> kStrStats{"strength"};
+const std::vector<std::string> kThrowStats{"strength", "dexterity"};
+constexpr std::string_view kUnarmedAttacks[] = {"punch", "kick"};
 } // namespace
 
 const std::vector<std::string>& SchoolStats(SpellSymbol school) {
@@ -373,6 +376,14 @@ const std::vector<std::string>& SchoolStats(SpellSymbol school) {
 }
 
 const std::vector<std::string>& UnarmedStats() { return kStrStats; }
+
+const std::vector<std::string>& ThrowStats() { return kThrowStats; }
+
+std::span<const std::string_view> UnarmedAttacks() { return kUnarmedAttacks; }
+
+bool IsUnarmedAttack(std::string_view verb) {
+	return std::ranges::find(kUnarmedAttacks, verb) != std::ranges::end(kUnarmedAttacks);
+}
 
 std::vector<std::string> ParseStatList(std::string_view spec,
 									   std::string_view owner) {
