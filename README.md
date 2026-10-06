@@ -50,21 +50,25 @@ dependency rules.
 |------|----------|
 | `src/Core` … `src/Main` | engine + game modules (one static lib each) |
 | `external/` | vendored single-header libraries (cgltf, stb, dr_wav) |
-| `assets/` | shaders, maps, glTF models, PNG textures (+`_n` normal/height maps), WAV sounds |
+| `assets/` | shaders, worlds (`projects/`: catalogs + levels), glTF models, PNG textures (+`_n` normal/height maps), WAV sounds |
 | `tools/AssetBaker` | offline generator/importer for everything under `assets/` |
 
 ## Asset pipeline
 
 The game loads only files from `assets/` — nothing is generated at runtime.
-Levels are plain ASCII text under `assets/maps/` (see `level1.map` for the
-glyph legend) — edit the file and relaunch, no rebuild needed.
+A world is a folder under `assets/projects/<name>/`: its catalogs
+(`catalog/*.cat`, the types a level places) and its levels, plain ASCII text in
+`levels/<stem>.map` (the static grid) + `.ent` (what lives on it) - edit them in
+the in-game editor or by hand and relaunch, no rebuild needed.
 
-The scanned texture sets are not committed: the raw Poly Haven downloads
-live in `OneDrive\DungeonAssets\<1k|2k|4k>\<material>\`, and
-`tools\FetchTextures.ps1` imports them all into `assets/textures` (packed
-PNG + BC7 DDS). Run it once after cloning (optionally
-`-Resolutions 1k,2k` to skip the 4K Ultra sets — the game falls back to 2K
-when they are absent).
+The scanned texture sets are not committed: the raw downloads live in
+`OneDrive\DungeonAssets\<1k|2k|4k>\<category>\<material>\`, and
+`tools\FetchTextures.ps1` imports every set the catalogs name (plus the
+prop sets the game binds by name, and the rune sets it carves) into
+`assets/textures` (packed PNG + BC7 DDS). Run it once after cloning
+(optionally `-Resolutions 1k,2k` to skip the 4K Ultra sets - the game falls
+back to 2K when they are absent);
+`tools\FetchModels.ps1` installs the bought models and their sets.
 
 Textures come in albedo + `_n` pairs (`_n` holds the tangent-space normal in
 RGB and a height field in alpha, used for bump and parallax mapping). Dungeon
@@ -103,5 +107,6 @@ AO into the albedo, flips OpenGL-style normals to the DirectX convention
 (automatic when the filename says GL, forced with --flip-green), and packs
 height into the normal map's alpha for parallax. Use an existing material
 name (e.g. `wall_brick_2k`) as the output to replace a material, or a new
-name and add it to a texture set in Game::LoadSurfaces. The shipped material
-sources are listed in `assets/textures/SOURCES.txt`.
+name and point a catalog type's `texture` at its base (`wall_brick`) - the
+editor's "+ New" dialog does both. The shipped material sources are listed in
+`assets/textures/SOURCES.txt`.

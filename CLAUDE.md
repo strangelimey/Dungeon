@@ -1067,7 +1067,19 @@ sixteen kinds in another kind's pose; each kind now owns its icon pose).
   items.cat) and place it in a level. ConvertMesh.py needs Blender (auto-found
   the NEWEST %ProgramFiles%\Blender Foundation\Blender <ver>, or -Blender
   <path>; the version is discovered, never hardcoded — a pinned list silently
-  skips every import the day Blender self-updates).
+  skips every import the day Blender self-updates). EVERY headless Blender run
+  passes `--python-exit-code 1` (FetchModels, FetchAnimLibrary): without it a
+  Python TRACEBACK exits 0, so a convert that died half way read as clean and
+  failed later as "No rigged glb produced" (code-review C434). And a Blender
+  script reads an action's curves through `all_fcurves` (ConvertMesh,
+  ImportAnimLibrary), never `action.fcurves`, which 5.x removed for slotted
+  actions - ConvertMesh's is_skeletal (it picks the rig's action when an FBX
+  take arrives on two objects) read it until C434. `tools\ConvertMeshTest.ps1`
+  (CheckAll `convertmesh`, full, self-testable) builds that shape with
+  `tools\BuildRigFixture.py` (a rig plus an unskinned stowaway sharing one take;
+  the fixture refuses unless its re-import reaches is_skeletal), converts it
+  through FetchModels' own Invoke-Convert (lifted by the parser) and demands a
+  rigged .glb with the one skeletal clip, and that a raising script fails.
 - `tools\ImportAnimLibrary.py` + `tools\FetchAnimLibrary.ps1` — the ANIMATION
   side of the monster pipeline: bake a creature's STATE-ORGANIZED clip library
   onto its mesh. The library is one folder PER CreatureState (Idle/ InCombat/
@@ -1301,12 +1313,28 @@ sixteen kinds in another kind's pose; each kind now owns its icon pose).
   (walls, floors, rocks, metals, ...) plus ceilings. Contents: 7 Poly Haven
   CC0 sets (all three res) + the FreePBR Premium pack (~620 sets, almost
   all 2k native; the models/ and bonus/ categories carry .obj prop meshes
-  with their textures). `tools\FetchTextures.ps1` imports the materials the
-  maps' `textures` records reference PLUS a fixed `$propSets` table — the
-  code-bound prop/creature sets (sconce/brazier/skeleton/mummy/blob,
-  renamed from their archive folders, 2k-native) — since those load by code
-  convention, not a map record (override: -Materials list skips props, -All
-  for everything - slow, hundreds of BC7 bakes; -Resolutions 1k,2k,4k). Both
+  with their textures). `tools\FetchTextures.ps1` imports every set a
+  catalog NAMES - each `texture` / `part2_texture` field of every world's,
+  the style library's and the template's catalogs - PLUS a fixed `$propSets`
+  table: the prop/creature sets renamed from their archive folders
+  (sconce/brazier/skeleton/mummy/blob/boulder/pot/ancient_pot..., 2k-native;
+  `runestone` lands BARE, the name RuneBaker reads - it went in as
+  runestone_2k, so a fresh clone's `runes` carved procedural stone), and then
+  runs `AssetBaker runes`, which carves the rune_<symbol>_2k sets the game
+  binds in code (a fresh clone drew every rune flat). A name the catalogs give
+  that neither the archive nor `$propSets` holds is an ERROR before anything
+  bakes, unless FetchModels' table (read out of FetchModels.ps1 by the parser)
+  or a world's imports.cat installs it - those are listed as left to that
+  script. It used to read the `textures` records of `assets\maps\*.map`, the
+  old one-level format nothing parsed any more (deleted in code-review C402),
+  so a fresh clone got 2 of the 12 sets the crypts draw and reported success;
+  `tools\UsageLinesTest.ps1` now demands the default fetch select every set a
+  level palette draws, and FAILs a palette READING it cannot judge by (no
+  level found, a map without all three `palette` records, no set) or a run in
+  which that rule judged no line, since an empty reading would pass it the
+  same way (its verdict carries `palettes=` / `judged=`). Override: -Materials
+  list skips props and SAYS a name the archive lacks, -All for everything -
+  slow, hundreds of BC7 bakes; -Resolutions 1k,2k,4k. Both
   it and FetchModels.ps1 take -WhatIf (list what would import, bake nothing),
   and their usage lines are in the `powershell -Command "& { ... }"` form, since
   a comma list through -File imports nothing (see SortTextureDownloads below);
@@ -1315,7 +1343,10 @@ sixteen kinds in another kind's pose; each kind now owns its icon pose).
   invoking a script through `powershell -File` with a comma list or through
   `-Command` in a shape it cannot run - a line the judge cannot read is a FAIL,
   not a skip (`-SelfTest` runs each line as written as a CONTROL, then plants
-  the -File form, a name the archive lacks, and bad shapes). A full
+  the -File form, a name the archive lacks, bad shapes, and three mutated
+  scratch copies of a real level: one more palette id, which the default line
+  must miss, a renamed `palette` record and a moved levels folder, which the
+  reading must refuse). A full
   pre-history-rewrite git bundle also lives there.
   - Mixed source formats: Poly Haven / FreePBR ship loose PNG/JPG maps the
     importer reads directly. textures.com PBR sets instead ship TIFF (8/16-bit),
@@ -1379,16 +1410,20 @@ sixteen kinds in another kind's pose; each kind now owns its icon pose).
     a set imported later is right for free. NOTE when testing this: a feature
     replaces the WHOLE wall panel for its edge, so a mismatch squishes the
     entire face, not just the recess — and no level currently places one.
-- Maps are two files per level, split static vs dynamic for the future
-  save system (saves will only ever store the dynamic side):
-  - assets/maps/level1.map — STATIC layer (DungeonMap): ASCII grid, ';'
+- Maps are two files per level, split static vs dynamic (saves only ever
+  store the dynamic side), in a world's folder:
+  assets/projects/<world>/levels/<stem>.map + .ent (see "Project & catalogs";
+  the old assets/maps/level1.* one-level format was deleted in code-review
+  C402).
+  - <stem>.map - STATIC layer (DungeonMap): ASCII grid, ';'
     comments, glyphs '#' rock '.' floor 'D' dusty 'T' sconce 'F' brazier
     (blocks movement) 'P' start. Lines starting lowercase are records
-    (grid glyphs are never lowercase): `textures <wall|floor|ceiling>
-    <set> ...` declares the level's surface palette — MANDATORY, the game
-    loads only those sets + their worn meshes, order = variant index —
-    plus `decoration <type> <x> <z> [facing]` and `fixture <id> <x> <z>
-    [facing]` records — the kind token is a fixtures.cat id, EVERY entry is
+    (grid glyphs are never lowercase): `palette <wall|floor|ceiling>
+    <type id> ...` declares the level's surface palette (catalog ids) -
+    MANDATORY, the game loads only those types' sets + their worn meshes,
+    order = variant index - plus `decoration <type> <x> <z> [facing]` and
+    `fixture <id> <x> <z> [facing]` records - the kind token is a fixtures.cat
+    id, EVERY entry is
     placeable (per-record FIXTURE KINDS: DungeonWorld::FixtureKind caches
     id→mesh/tex/flame like DecorationKind; the parser routes wall-vs-floor
     via the FixtureTypes info DungeonWorld passes at every DungeonMap
@@ -1406,7 +1441,7 @@ sixteen kinds in another kind's pose; each kind now owns its icon pose).
     the map overlay edge-draws both. Wall-mounted decorations default non-solid
     (they're on the wall, floor stays clear). The `banner` model is authored
     wall-backed for this; other wall-mounted props should be too.
-  - assets/maps/level1.ent — DYNAMIC layer (DungeonEntities): monsters,
+  - <stem>.ent - DYNAMIC layer (DungeonEntities): monsters,
     items, buttons; one record per line, `<kind> <type> <x> <z> [facing]
     [key=value ...]` (Entity.h). Monster type → model: <type>.gltf.
     Records validate against the map at load (bounds, walkability,
@@ -2619,7 +2654,8 @@ worn_*, lang, shaders — what AssetBaker emits):
   `variant <wall|floor|ceiling> <x> <z> <index>`, and `atmosphere [dust=…]
   [haze=…] [ambient=…]` (per-level mood knobs, authored by the editor's Level
   settings dialog) records. (The old `assets/maps/level1.*` with `textures`
-  records is dead — superseded by the project copies.)
+  records is GONE - deleted in code-review C402, after FetchTextures was found
+  still building its list from it.)
 - FEATURES are the one kind of content that is not a prop: a mesh stamped IN
   PLACE OF a surface block, into that block's own variant bucket, so it wears
   the cell's texture and IS the surface rather than sitting on it. Two
@@ -2731,9 +2767,10 @@ Full per-phase history + gotchas live in the editor-overhaul memory.
   that decay. A tool's own extra self-test conditions go INTO the summary
   (`verdict::CaughtExactly`'s `otherMisses`, Bc7Test's raised baseline), so the
   `SELF-TEST PASS|FAIL` line never contradicts the `caught=` after it.
-  WHAT THE TIERS RUN is `CheckAll.ps1 -List` (quick adds RollTest, `docs`, `verdict` and `lang`;
-  full adds Eval's runner self-test, EditorTest, WorldTest, LevelBuildTest,
-  QuitTest and StaleTest), and the /check-* command files carry those lists GENERATED by
+  WHAT THE TIERS RUN is `CheckAll.ps1 -List` (quick adds RollTest, `docs`, `verdict`, `lang`
+  and `template`; full adds Eval's runner self-test, EditorTest, WorldTest,
+  LevelBuildTest, QuitTest, StaleTest and `convertmesh`), and the /check-*
+  command files carry those lists GENERATED by
   `tools\CheckDocs.ps1` - after changing a row, run it with `-Write`, or the
   quick tier's `docs` check fails.
   A PYTHON JUDGE NEVER EDITS THE REAL WORLD (code-review C431): EditorTest
@@ -2849,7 +2886,12 @@ Full per-phase history + gotchas live in the editor-overhaul memory.
   regenerable alternative is `tools\FetchTextures.ps1` + `FetchModels.ps1` +
   `FetchAnimLibrary.ps1` (the ONLY source of the gitignored skel_* monsters; it
   needs Blender) (+ `FetchPortraits.ps1`) in the background (needs
-  `build\<cfg>\bin\AssetBaker.exe` first, so build once). Symptom
+  `build\<cfg>\bin\AssetBaker.exe` first, so build once). Checked from a
+  fresh worktree (code-review C402): FetchTextures alone, `-Resolutions 1k,2k`
+  (18 min, 132 sets plus the carved runes), then the models copied and
+  FetchModels' six sets, loaded crypt1 and crypt2 with no texture warning at
+  all. 409 of the 414 imported PNGs and all 30 carved rune PNGs are byte for
+  byte a provisioned tree's (the other five are older imports). Symptom
   decoder: magenta scene = missing textures; hard abort on a `.glb` = missing
   models.
 - AFTER a branch is merged to main, TIDY UP its worktree so the drive doesn't
@@ -2940,7 +2982,15 @@ the rules it rests on:
   a third, unrelated meaning and stays.
 - WORLDS: `assets/templates/default` (built by `tools/BuildTemplate.py` from
   dungeon-demo, minus places/provenance/quest hooks; outside projects/, so never
-  listed) is what a BLANK world starts from. `Game::CreateWorld(name,
+  listed) is what a BLANK world starts from. Its manifest's `default_sconce` /
+  `default_brazier` / `start_items` are READ from dungeon-demo's project.ini,
+  never retyped (a hand-kept start_items lacked fire_flask, code-review C439);
+  `tools\TemplateTest.py` (CheckAll `template`, quick) builds it into a scratch
+  folder (`--out`) and holds it to those fields, to items its catalogs define
+  and to the template ON DISK byte for byte (not the git index - the build reads
+  dungeon-demo's working tree, where an editor save lands) - so after changing
+  dungeon-demo's catalogs or manifest, re-run BuildTemplate.py, which clears the
+  FAIL, and commit the rebuilt template with the change. `Game::CreateWorld(name,
   NewWorldSpec)` (Game_NewWorld.cpp): blank / copy this world (unsaved edits
   written into the COPY via `DungeonWorld::LevelTextFor`, never saved here) /
   copy one level (stairs replaced by one exit) / WIZARD (template content + one

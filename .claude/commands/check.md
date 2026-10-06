@@ -29,6 +29,7 @@ harness refuses a stale exe on its own (exit 4).
   docs           quick  self-testable  the /check-* commands list what CheckAll -List and Eval -List print
   verdict        quick  self-testable  the native judges' last-line reader refuses every bad or contradictory line
   lang           quick  self-testable  every language key the code names is in every .lang file, holes matching
+  template       quick  self-testable  the new-world template is what BuildTemplate.py makes of dungeon-demo: its picks, its items, byte for byte
   threads        full   self-testable  ThreadManager + AI buckets under load: no force-terminate, clean reboots
   ingame         quick  self-testable  level files + installed models, and a uioverlap sweep of every screen
   pipeline       quick  self-testable  every source of damage goes through fx::Deal; nothing else writes health
@@ -55,6 +56,7 @@ harness refuses a stale exe on its own (exit 4).
   profile        full   self-testable  the frame budget still adds up, and the verdict still reacts to load
   worn           full   self-testable  the worn-block bake has one authority: models = wornblock = the committed files; wear 0 is flat
   bakerwrites    full   self-testable  the asset baker fails loudly: a read-only target is an error saying why, names are escaped, a bad map is said
+  convertmesh    full   self-testable  ConvertMesh --keep-rig keeps the skeletal one of a take's two actions, and FetchModels hears a traceback
   bc7            full   self-testable  the BC7 encoder error estimate against an independent decoder
 ```
 <!-- END generated -->

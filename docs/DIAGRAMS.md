@@ -69,11 +69,12 @@ graph TD
 
 ## 2. Startup
 
-`wWinMain` builds the engine modules, constructs `Game` (which parses the map
-files in its member initializers and registers the dev console), then the loop
-runs the *boot* load tasks one-per-frame behind a progress screen. The boot
-list is the bare minimum to reach the landing menu fast — the dungeon itself is
-not loaded until the player starts a game (see diagram 3).
+`wWinMain` builds the engine modules, constructs `Game` (which registers the
+dev console and opens no world - a world, `assets/projects/<world>/`, opens on
+demand through `Game::LoadWorld`, its levels `levels/<stem>.map` + `.ent`),
+then the loop runs the *boot* load tasks one-per-frame behind a progress
+screen. The boot list is the bare minimum to reach the landing menu fast -
+the dungeon itself is not loaded until the player starts a game (see diagram 3).
 
 ```mermaid
 sequenceDiagram
@@ -91,7 +92,7 @@ sequenceDiagram
     Main->>Dev: GraphicsDevice / Renderer / SpriteBatch / AudioEngine
     Main->>Game: construct
     activate Game
-    Note over World: member init parses<br/>level1.map + level1.ent,<br/>builds Party, seeds fog, sets ambient
+    Note over World: no world yet - Game::LoadWorld opens one<br/>(projects/dungeon-demo) on demand, its levels<br/>levels/crypt1.map + .ent and the rest
     Game->>Game: settings.Load() + ApplyLanguage()
     Game->>Game: CreateDefaultParty() + ApplyPartySpeed()
     Game->>Game: wire callbacks (world↔UI↔state machine)

@@ -167,6 +167,25 @@ $checks = @(
 		selfTest = { python (Join-Path $root 'tools\LangTest.py') --selftest | Out-Host; $LASTEXITCODE }
 	},
 	@{
+		name = 'template'; tier = 'quick'
+		what = 'the new-world template is what BuildTemplate.py makes of dungeon-demo: its picks, its items, byte for byte'
+		# tools\TemplateTest.py (code-review C439) runs BuildTemplate.py into a
+		# scratch folder - seconds, no build - and holds it to dungeon-demo's
+		# inherited manifest fields, to items its catalogs define and to the
+		# template on disk (not the git index: both sides are the working tree).
+		# A FAIL after a dungeon-demo change means: re-run BuildTemplate.py, which
+		# clears it, and commit the rebuilt template with the change. Its
+		# self-test plants a fault per check group.
+		run      = {
+			$l = @(python (Join-Path $root 'tools\TemplateTest.py') | ForEach-Object { Write-Host $_; $_ })
+			Confirm-Verdict $l 'templatetest' $LASTEXITCODE
+		}
+		selfTest = {
+			$l = @(python (Join-Path $root 'tools\TemplateTest.py') --selftest | ForEach-Object { Write-Host $_; $_ })
+			Confirm-Verdict $l 'templatetest' $LASTEXITCODE -SelfTest
+		}
+	},
+	@{
 		name = 'threads'; tier = 'full'; needs = "build-$Config"
 		what = 'ThreadManager + AI buckets under load: no force-terminate, clean reboots'
 		run      = { Invoke-NativeJudge 'ThreadStress.exe' 'threadstress' }
@@ -383,6 +402,23 @@ $checks = @(
 		selfTest = {
 			$l = @(python (Join-Path $root 'tools\BakerWriteTest.py') --selftest | ForEach-Object { Write-Host $_; $_ })
 			Confirm-Verdict $l 'bakerwritetest' $LASTEXITCODE -SelfTest
+		}
+	},
+	@{
+		name = 'convertmesh'; tier = 'full'
+		what = 'ConvertMesh --keep-rig keeps the skeletal one of a take''s two actions, and FetchModels hears a traceback'
+		# tools\ConvertMeshTest.ps1 (code-review C434) needs Blender (discovered,
+		# never pinned; exit 2 without one) and no build: a fixture FBX from
+		# BuildRigFixture.py, converted through FetchModels' own Invoke-Convert.
+		# Its self-test plants the old is_skeletal and a Blender call without
+		# --python-exit-code and demands exactly the four checks resting on them fail.
+		run      = {
+			$l = @(& (Join-Path $root 'tools\ConvertMeshTest.ps1') 6>&1 | ForEach-Object { Write-Host $_; "$_" })
+			Confirm-Verdict $l 'convertmeshtest' $LASTEXITCODE
+		}
+		selfTest = {
+			$l = @(& (Join-Path $root 'tools\ConvertMeshTest.ps1') -SelfTest 6>&1 | ForEach-Object { Write-Host $_; "$_" })
+			Confirm-Verdict $l 'convertmeshtest' $LASTEXITCODE -SelfTest
 		}
 	},
 	@{

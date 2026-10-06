@@ -11,7 +11,7 @@
 # bake embeds (<Name>.gltf.<index>.dds).
 #
 # Every Mixamo clip shares one standard skeleton, so a single rigid bind takes any
-# number of clips — populate the state folders and re-run; no re-binding.
+# number of clips - populate the state folders and re-run; no re-binding.
 #
 # ARCHIVE LAYOUT (not committed; the raw .fbx live in OneDrive):
 #   OneDrive\DungeonAssets\anim\<library>\         <- shared/humanoid clip library
@@ -67,13 +67,14 @@ $baker = $null
 if (-not $Plan) { $baker = Find-AssetBaker $repo }
 
 # Run Blender headless; key success off the exit code only (its stderr warnings
-# would otherwise abort under -ErrorActionPreference Stop). Same as FetchModels.
+# would otherwise abort under -ErrorActionPreference Stop). Same as FetchModels,
+# --python-exit-code included: without it a Python traceback exits 0 (C434).
 function Invoke-Blender {
     param([Parameter(ValueFromRemainingArguments = $true)] $scriptArgs)
     $prev = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
-        & $Blender --background --factory-startup --python $script -- @scriptArgs 2>&1 |
+        & $Blender --background --factory-startup --python-exit-code 1 --python $script -- @scriptArgs 2>&1 |
             ForEach-Object { Write-Host "$_" }
     } finally { $ErrorActionPreference = $prev }
     return $LASTEXITCODE
@@ -106,25 +107,25 @@ $animSets = @(
     # the bought and the built skeletons see eye to eye in the same room.
     #
     # RETIRED 2026-08-04: the lowpoly-human-skeleton pack ("skel_human", Bone
-    # Knight). It is an ANATOMICAL skeleton — 81 loose islands, no connective
-    # tissue — and nothing we tried bound it cleanly: the scripted bind's
+    # Knight). It is an ANATOMICAL skeleton - 81 loose islands, no connective
+    # tissue - and nothing we tried bound it cleanly: the scripted bind's
     # per-vertex fallback shredded the ribcage and flipped the scapulae up like
     # wings, forcing every island rigid left it stiff and still wrong, and the
     # pack's Mixamo rig only ships as .glb, which imports with bone orientations
     # and a scale that do not match the .fbx clip library. The Skeleton Army kit
     # covers the same role. Rebuild the entry from git history if the pack is
-    # ever revisited — it wants a rigged FBX downloaded from Mixamo.
+    # ever revisited - it wants a rigged FBX downloaded from Mixamo.
 
     # Skeleton Army Kit (Konjo Design, fab 2026-07-10): four PRE-BUILT armed
     # variants. The unrigged A-pose OBJs defeated the scripted rigid bind
     # (shield bound to the pelvis; the arm-drop re-rest stole hip geometry), so
     # each variant goes through MIXAMO'S AUTO-RIGGER instead: upload FBXs live
     # in the archive's mixamo_upload\, the skinned T-pose downloads in
-    # mixamo_rigged\<name>_rigged.fbx (Skinned=$true skips the bind — the clip
+    # mixamo_rigged\<name>_rigged.fbx (Skinned=$true skips the bind - the clip
     # actions attach straight onto the download's own Mixamo skeleton).
     # Textures maps material slot -> albedo[:normal] under TexDir (the kit's
     # MTLs point at the author's desktop and omit normals); the bake keeps the
-    # material slots and embeds the images — the engine's multi-material
+    # material slots and embeds the images - the engine's multi-material
     # monster path renders one primitive per material.
     $(
         $kitTex = @{
@@ -135,15 +136,15 @@ $animSets = @(
         }
         $kitDir = "fab\monsters\skeleton-army"
         # Per-variant island overrides (--islands; keys = min vertex index, per
-        # that variant's rigged FBX — read them off the [rigid] log; bone SIDES
+        # that variant's rigged FBX - read them off the [rigid] log; bone SIDES
         # are authored POST-mirror). Warrior: the art carries its sword in the
         # off hand, so it MIRRORS (the library's attack clips lead right); its
         # strapped SHIELD is six islands (face 86, edge plate 123, straps
         # 537/779, grip bars 658/900) that nearest-segment scatters across the
-        # arm — all ride the (post-mirror LEFT) forearm as one rigid assembly —
+        # arm - all ride the (post-mirror LEFT) forearm as one rigid assembly -
         # and wrist cuff 4698 mirror-matches its twin on the forearm side of
         # the joint.
-        # `=soft` keeps Mixamo's blended weights for bones that BRIDGE joints —
+        # `=soft` keeps Mixamo's blended weights for bones that BRIDGE joints -
         # rigid-snapped they follow one bone and float free of the other end:
         # the VERTEBRAL COLUMN (pelvis to neck, folds with hit reacts), the
         # CLAVICLES (sternum to shoulder) and the SCAPULAE (glide on the ribs
@@ -164,7 +165,7 @@ $animSets = @(
         }
         $kitMirror = @{ 'skel_warrior' = $true }
         # Variants Mixamo's auto-rigger refuses ("unknown error while
-        # generating motion", markers verified): skip Mixamo — bind the
+        # generating motion", markers verified): skip Mixamo - bind the
         # variant's UNRIGGED upload to a sibling download's fitted armature
         # (kit variants share one body) with the weights transferred by
         # nearest vertex (--rig-from).
@@ -184,7 +185,7 @@ $animSets = @(
                RigidIslands = $true; # bones + plate: every island is a hard piece
                # The clean pre-Mixamo art: repairs rest positions Mixamo's
                # weight-driven re-posing displaced (arm plates at the chest).
-               # (A --rig-from variant IS its original — no repair needed.)
+               # (A --rig-from variant IS its original - no repair needed.)
                Original = if ($rigFrom) { $null }
                           else { "$kitDir\mixamo_upload\$($v)_mixamo_upload.fbx" };
                Textures = $kitTex;

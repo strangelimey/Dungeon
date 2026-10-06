@@ -23,7 +23,14 @@
 # The template is DEFINED BY THIS SCRIPT (the Build*.py rule): to change what a
 # new world starts with, change dungeon-demo's catalogs or the rules below and
 # re-run. Files are copied byte for byte apart from the lines removed, so
-# their CRLF endings and header comments come across as they are.
+# their CRLF endings and header comments come across as they are. So are the
+# manifest fields a new world inherits (SOURCE_FIELDS): they are READ from
+# dungeon-demo's project.ini, never retyped here - a hand-kept start_items once
+# lost fire_flask (code-review C439).
+#
+# --out <dir> writes the template somewhere else (a judge's scratch folder)
+# instead of replacing assets\templates\default.
+import argparse
 import io
 import os
 import shutil
@@ -31,6 +38,11 @@ import shutil
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SOURCE = os.path.join(ROOT, r"assets\projects\dungeon-demo")
 OUT = os.path.join(ROOT, r"assets\templates\default")
+
+# The source manifest's fields a new world keeps, in this order: the default
+# fixture ids and the starting-item picks. Everything else in it (the level
+# list, the start, the eval level) names this world's own places.
+SOURCE_FIELDS = ("default_sconce", "default_brazier", "start_items")
 
 # Catalogs whose ENTRIES are places or provenance: only their header comment
 # (everything before the first [id]) comes across, so the file still explains
@@ -40,7 +52,7 @@ HEADER_ONLY = {"dungeons.cat", "quests.cat", "flags.cat", "imports.cat"}
 STRIP = {"items.cat": ("quest", "reveals", "flag"), "weapons.cat": ("quest", "reveals", "flag"),
          "armor.cat": ("quest", "reveals", "flag")}
 
-MANIFEST = (
+MANIFEST_HEAD = (
     "; The TEMPLATE a blank new world starts from (docs/editor-updates-plan.md P4).\r\n"
     "; Built by tools/BuildTemplate.py - edit the script, not this file.\r\n"
     ";\r\n"
@@ -48,13 +60,11 @@ MANIFEST = (
     "; from it is given its own name, one starter room and an overworld.\r\n"
     "\r\n"
     "name = New World\r\n"
-    "default_sconce = sconce\r\n"
-    "default_brazier = brazier\r\n"
-    "\r\n"
-    "; What a new party member may pick as their two starting items (party creation).\r\n"
-    "start_items = dagger, club, padded_jack, tunic, rock, apple, bread, waterskin, "
-    "torch_lit, potion_health_minor, potion_mana_minor\r\n"
 )
+# A comment written above a copied field.
+FIELD_NOTES = {
+    "start_items": "; What a new party member may pick as their two starting items (party creation).\r\n",
+}
 
 
 def field_name(line):
@@ -64,11 +74,45 @@ def field_name(line):
     return s.split("=", 1)[0].strip()
 
 
+def source_fields():
+    """SOURCE_FIELDS as dungeon-demo's project.ini has them: {key: value}. A
+    field the source does not set is left out, so the game's default applies to
+    a new world exactly as it does to the source (Project.cpp)."""
+    found = {}
+    path = os.path.join(SOURCE, "project.ini")
+    for line in io.open(path, encoding="utf-8").read().splitlines():
+        key = field_name(line)
+        if key in SOURCE_FIELDS and key not in found:
+            found[key] = line.split("=", 1)[1].strip()
+    return found
+
+
+def manifest():
+    fields = source_fields()
+    text = MANIFEST_HEAD
+    for key in SOURCE_FIELDS:
+        if key not in fields:
+            continue
+        if key in FIELD_NOTES:
+            text += "\r\n" + FIELD_NOTES[key]
+        text += "%s = %s\r\n" % (key, fields[key])
+    return text
+
+
 def main():
-    if os.path.isdir(OUT):
-        shutil.rmtree(OUT)
-    os.makedirs(os.path.join(OUT, "catalog"))
-    io.open(os.path.join(OUT, "project.ini"), "w", encoding="utf-8", newline="").write(MANIFEST)
+    parser = argparse.ArgumentParser(description="Builds the new-world template from dungeon-demo.")
+    parser.add_argument("--out", default=OUT, help="where to write it (default: assets\\templates\\default)")
+    out = os.path.abspath(parser.parse_args().out)
+    # The folder is REPLACED, so it must be a template (or empty), never a world.
+    projects = os.path.normcase(os.path.join(ROOT, "assets", "projects")) + os.sep
+    if os.path.normcase(out + os.sep).startswith(projects):
+        raise SystemExit("BuildTemplate: refusing to write over a world: " + out)
+    if os.path.isdir(out) and os.listdir(out) and not os.path.isfile(os.path.join(out, "project.ini")):
+        raise SystemExit("BuildTemplate: %s is not empty and holds no project.ini - not replacing it" % out)
+    if os.path.isdir(out):
+        shutil.rmtree(out)
+    os.makedirs(os.path.join(out, "catalog"))
+    io.open(os.path.join(out, "project.ini"), "w", encoding="utf-8", newline="").write(manifest())
     src = os.path.join(SOURCE, "catalog")
     for name in sorted(os.listdir(src)):
         if not name.endswith(".cat"):
@@ -83,10 +127,10 @@ def main():
             lines = head
         elif name in STRIP:
             lines = [l for l in lines if field_name(l) not in STRIP[name]]
-        io.open(os.path.join(OUT, "catalog", name), "w", encoding="utf-8", newline="").write(
+        io.open(os.path.join(out, "catalog", name), "w", encoding="utf-8", newline="").write(
             "".join(lines))
         print("  " + name)
-    print("wrote", os.path.relpath(OUT, ROOT))
+    print("wrote", out)
 
 
 if __name__ == "__main__":

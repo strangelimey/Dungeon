@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg viewBox="0 0 760 660" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, sans-serif" role="img">
 <title>Dungeon startup flow</title>
-<desc>From wWinMain to the landing menu. wWinMain creates the window and graphics modules, constructs Game (whose member initializers parse the map files and build the party), Game loads settings, wires callbacks, registers console commands, builds the static UI and the boot load tasks, then the main loop runs the boot tasks one per frame behind a progress screen until the state becomes Menu.</desc>
+<desc>From wWinMain to the landing menu. wWinMain creates the window and graphics modules, constructs Game (which opens no world: Game::LoadWorld opens a world and its levels on demand, when a game starts), Game loads settings, wires callbacks, registers console commands, builds the static UI and the boot load tasks, then the main loop runs the boot tasks one per frame behind a progress screen until the state becomes Menu.</desc>
 <defs>
 <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
 <path d="M0 0 L10 5 L0 10 z" fill="var(--color-border-secondary, #6b6b6b)"/>
@@ -38,14 +38,14 @@
 <text class="s" x="56" y="264">ui.BuildStaticUi (theme/menu/pause/sheet)</text>
 <text class="s" x="56" y="282">BuildBootLoadTasks (sounds, title art)</text>
 <line x1="56" y1="294" x2="344" y2="294" stroke="var(--color-border-tertiary,#555)" stroke-dasharray="3 3"/>
-<text class="note" x="56" y="312">member init parses level1.map/.ent, builds Party</text>
+<text class="note" x="56" y="312">opens no world: one loads on demand (LoadWorld)</text>
 
 <rect class="b f2" x="420" y="170" width="300" height="90"/>
-<text class="t" x="436" y="192">DungeonWorld (member init)</text>
-<text class="s" x="436" y="212">parse map + entities · build Party</text>
-<text class="s" x="436" y="230">wire party hooks · seed fog of war</text>
-<text class="s" x="436" y="248">set ambient (no sun underground)</text>
-<path class="fl" d="M420 215 L362 215"/>
+<text class="t" x="436" y="192">DungeonWorld (not yet)</text>
+<text class="s" x="436" y="212">made by Game::LoadWorld, on demand</text>
+<text class="s" x="436" y="230">projects/&lt;world&gt;: catalogs + levels</text>
+<text class="s" x="436" y="248">levels/&lt;stem&gt;.map + .ent</text>
+<path class="fl" d="M420 215 L362 215" stroke-dasharray="4 3"/>
 
 <path class="fl" d="M200 328 L200 352"/>
 

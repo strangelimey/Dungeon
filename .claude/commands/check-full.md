@@ -37,6 +37,7 @@ Adds the rows marked `full` to the quick tier:
   profile        full   self-testable  the frame budget still adds up, and the verdict still reacts to load
   worn           full   self-testable  the worn-block bake has one authority: models = wornblock = the committed files; wear 0 is flat
   bakerwrites    full   self-testable  the asset baker fails loudly: a read-only target is an error saying why, names are escaped, a bad map is said
+  convertmesh    full   self-testable  ConvertMesh --keep-rig keeps the skeletal one of a take's two actions, and FetchModels hears a traceback
   bc7            full   self-testable  the BC7 encoder error estimate against an independent decoder
 ```
 <!-- END generated -->

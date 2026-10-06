@@ -476,9 +476,13 @@ def main():
         # rest, and strip the pipe prefix — so the glTF clip names match the take
         # names exactly (monsters.cat anim rows + the editor clip list key off
         # them) with no junk duplicates alongside.
+        # all_fcurves, never action.fcurves: Blender 5.x removed the flat list
+        # for slotted actions, and this runs only when two takes share a base
+        # name - so the AttributeError slept until a pack had one (code-review
+        # C434; tools\ConvertMeshTest.ps1 builds such a pack).
         def is_skeletal(action):
             return any(fc.data_path.startswith("pose.bones")
-                       for fc in action.fcurves)
+                       for fc in all_fcurves(action))
 
         by_base = {}
         for action in list(bpy.data.actions):

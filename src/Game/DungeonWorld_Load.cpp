@@ -362,10 +362,13 @@ bool DungeonWorld::FeatureIsCeiling(const std::string& type) const {
 }
 
 // Loads a PBR set (albedo sRGB + normal/height + ORM) by base name at the
-// current quality tier. Higher tiers' sets are fetchable content
-// (tools/FetchTextures.ps1), so a missing one drops to the always-present 2k
-// set. `required` (surfaces) never returns without an albedo: absent even at
-// 2k, it is the magenta checker placeholder and a warning (LoadTextureFile).
+// current quality tier. Every set is fetched content (tools/FetchTextures.ps1
+// installs what the catalogs name; FetchModels.ps1 the bought models' sets),
+// and 2k is the resolution every shipped set has - the prop sets come at 2k
+// alone - so a set missing at the tier drops to its 2k. `required`
+// (surfaces) never returns without an albedo: absent even at 2k (never
+// fetched), it is the magenta checker placeholder and a warning
+// (LoadTextureFile).
 // Otherwise (props) a missing set returns maps with a null albedo and the
 // caller keeps its flat color. The single source of the res->2k fallback,
 // shared by surfaces and props.

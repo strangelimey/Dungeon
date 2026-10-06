@@ -343,8 +343,11 @@ broken asset:
   falls back `_1k` → `_2k` → `_4k`.
 
 Limitation: the manifest only knows about imports made from now on. The ~270
-sets already installed are covered by `FetchTextures.ps1` (`$propSets` plus the
-levels' palette records), which remains the way to rebuild those.
+sets already installed are covered by `FetchTextures.ps1` (`$propSets` plus
+every set a catalog's `texture` names - it read the dead `assets\maps\*.map`
+format until code-review C402, so this line's "palette records" were never
+what it fetched), which remains the way to rebuild those; a set the catalogs
+name that no fetch can install is an error there, before anything bakes.
 
 ---
 

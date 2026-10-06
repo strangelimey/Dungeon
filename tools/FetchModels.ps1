@@ -74,14 +74,18 @@ try { $baker = Find-AssetBaker $repo } catch { if (-not $WhatIfPreference) { thr
 # import the day Blender updates itself (it went 5.1 -> 5.2 mid-session once).
 if (-not $Blender) { $Blender = Find-Blender }
 
-# Run Blender's ConvertMesh.py headless; same exit-code-only discipline.
+# Run Blender's ConvertMesh.py headless; same exit-code-only discipline. Blender
+# exits 0 after a Python TRACEBACK unless told otherwise, so without
+# --python-exit-code a script that died half way read as a clean convert and the
+# failure surfaced later, as "No rigged glb produced" (code-review C434).
+# tools\ConvertMeshTest.ps1 runs this very function, lifted out of this file.
 function Invoke-Convert {
     param([Parameter(ValueFromRemainingArguments = $true)] $scriptArgs)
     if (-not $Blender) { throw "Blender not found - pass -Blender <path> for fbx/usd/Split sources" }
     $prev = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
-        & $Blender --background --factory-startup --python $convert -- @scriptArgs 2>&1 |
+        & $Blender --background --factory-startup --python-exit-code 1 --python $convert -- @scriptArgs 2>&1 |
             ForEach-Object { Write-Host "$_" }
     } finally { $ErrorActionPreference = $prev }
     return $LASTEXITCODE
@@ -114,7 +118,7 @@ function Find-Mesh {
 #   Object     (Split only) the split glb basename (lowercased object name) to
 #              import as Name.
 #   FlipGreen  $true if the PBR normals are OpenGL (most fab/textures.com sets).
-#   Height     UNITS (1.0 = one dungeon square — see game::kUnit); 0 = auto-fit
+#   Height     UNITS (1.0 = one dungeon square - see game::kUnit); 0 = auto-fit
 #              (import-model fits the largest extent to ~0.8 of a square). Every
 #              size below is units: the pipeline's normalizers (ConvertMesh
 #              --height/--fit, import-model --height/--lift) just scale the mesh
@@ -179,13 +183,13 @@ $modelSets = @(
     # Assets Animated rigged crawlers (fab, 2026-07-10): one mesh + one material
     # each, the 4K PBR maps EMBEDDED in the FBX (the Rig path dumps + imports
     # them), full motion libraries as named actions (Atk/Dead/Hit/Idle/Walk/...).
-    # Crawlers size by FIT (longest extent — leg span / body length inside the
+    # Crawlers size by FIT (longest extent - leg span / body length inside the
     # 2 m cell), not standing height; fine-tune per type with the catalog's
     # modelscale field in the editor's monster dialog.
     @{ Src = "fab\monsters\centipede";    Name = "centipede";    Rig = $true; Fit = 0.72; FlipGreen = $true }
     @{ Src = "fab\monsters\giant_spider"; Name = "giant_spider"; Rig = $true; Fit = 0.68; FlipGreen = $true }
 
-    # Perunir "Medieval Stylized Torch" (fab, 2026-07-11) — the authored wall
+    # Perunir "Medieval Stylized Torch" (fab, 2026-07-11) - the authored wall
     # sconce (fixtures.cat [sconce]): bracket (Holder) + torch, the decorative
     # flame shells + coal dropped (the engine's particle flame burns at the
     # catalog's flame_* point). One material for both kept meshes; the pack's
@@ -195,10 +199,10 @@ $modelSets = @(
        Objects = "Holder,Torch"; Height = 0.26; Lift = 0.44; Wall = $true
        TexDir = "..\textures"; TexPrefix = "T_Torch" }
 
-    # Mavas3D "Fantastic brazier lamp" (fab, 2026-07-11) — the authored brazier
+    # Mavas3D "Fantastic brazier lamp" (fab, 2026-07-11) - the authored brazier
     # (fixtures.cat [brazier]), TWO co-located parts with separate materials:
     # the ornate metal bowl + the hot-coals insert (its own set, emissive map
-    # unused — the particle fire + light sell the glow). SplitWhole keeps the
+    # unused - the particle fire + light sell the glow). SplitWhole keeps the
     # coals seated in the bowl (each piece re-fit on its own bounds would blow
     # the 0.08 m coal bed up to bowl height); Raw imports trust that placement.
     # The vendor's texture names cross: Brazier_* = the BOWL, Brazier_lamp_* =
@@ -211,9 +215,9 @@ $modelSets = @(
        Object = "hot_coals"; SplitWhole = $true; Raw = $true; Height = 0.30
        TexDir = "Textures_brazier_lamp_2K"; TexPrefix = "Brazier_lamp_" }
 
-    # Mavas3D "Fantastic brazier" (fab, 2026-07-11) — the same bowl WITHOUT
+    # Mavas3D "Fantastic brazier" (fab, 2026-07-11) - the same bowl WITHOUT
     # coals, one mesh + one set. Imported as spare assets (the world loads ONE
-    # brazier kind — the default id's — so this can't coexist as a separate
+    # brazier kind - the default id's - so this can't coexist as a separate
     # placeable fixture yet; swap fixtures.cat [brazier] model/texture to use).
     @{ Src = "fab\props\brazier_fbx\extracted"; Name = "brazier_empty"; Height = 0.30
        TexDir = "Textures_brazier_2K" }
@@ -285,7 +289,7 @@ foreach ($m in $modelSets) {
         # standing creatures).
         $sizeArgs = if ($m.Fit) { @('--fit', $m.Fit) }
                     else { @('--height', $(if ($m.Height) { $m.Height } else { 0.72 })) } # units
-        # fab monster FBXs usually EMBED their PBR maps — have the convert dump
+        # fab monster FBXs usually EMBED their PBR maps - have the convert dump
         # them as loose PNGs so the set import below has something to pack.
         $texDump = Join-Path $stage "dumped_textures"
         if ((Invoke-Convert $mesh $stage "--keep-rig" @sizeArgs `
