@@ -69,9 +69,18 @@ Key conventions (memorize, they bite):
 - DirectXMath ROW-vector convention: v' = v*M, translation in row 4
   (_41.._43); matrices uploaded raw; HLSL always uses mul(matrix, vector).
   glTF column-major memcpy is CORRECT under this pairing (same bytes).
-- Left-handed, +Y up, camera forward = (sin yaw, 0, cos yaw). Facing index
-  +1 is on-screen LEFT (see Party.cpp comment — controls were once reversed
-  because of this).
+- Left-handed, +Y up, camera forward = (sin yaw, 0, cos yaw); the world
+  compass is east = +X, north = -Z, and Camera::ViewProj negates clip X so the
+  view is not mirrored (it matches the map overlay). Facing index +1 is
+  CLOCKWISE = the on-screen RIGHT (TurnRight, StrafeRight, the right-hand
+  roster column's lane), +3 the left, and the yaw FALLS as the facing climbs.
+  `Game/Facing.h` (facing::Right / Left / StepX / StepZ / Yaw / SlotSide, and
+  ForAction - what each MoveAction does, the whole of Party::BeginAction's
+  decision; MoveAction is declared there) is the one statement of it -
+  Party.cpp, Entity.cpp's DirDX/DirDZ/DirYaw, the cast / throw / held-light
+  lanes and PickMeleeVictim's flank files all go through it - and RollTest's
+  "Facing" section pins it against the game camera (controls were once
+  reversed, and this line once said LEFT).
 - All indentation is TABS (see .editorconfig). Comments use file banners +
   section dividers; keep that style.
 - Per-frame GPU transients come from UploadAllocator arenas (one per frame
@@ -109,13 +118,20 @@ Key conventions (memorize, they bite):
   times/counts every task and dumps a table when the last lands (`loadstats`
   reprints; each Add takes an English dev name beside its localized label),
   and LoadGltf reports allocs/MB per model. TRAP when reading those numbers:
-  DEBUG allocation counts are NOT release ones — MSVC iterator debugging makes
-  vector's move ctor allocate a proxy (so it isn't noexcept, so push_back
-  growth COPIES elements; each copied anim channel re-allocates both its
-  buffers). Same load: 223k allocs debug vs 43k release. Reserving the clip
-  vectors fixed the copies (debug → 129k); the residue is the per-move proxy
-  and is intrinsic to the debug CRT. 80% of the load is four rigged skeletons
-  (40 clips × 99 channels × 2 buffers = the floor for that layout).
+  DEBUG allocation counts are NOT release ones - MSVC's iterator debugging
+  allocates a container PROXY for every std::vector / std::string it
+  constructs, the MOVE constructor included. That move is still `noexcept`
+  (the proxy is allocated inside a noexcept body), so a growing vector of
+  vectors MOVES its elements in debug exactly as in release; the proxies are
+  the whole debug-vs-release gap, and intrinsic to the debug CRT. Keep
+  reserving the clip vectors (LoadGltf's `model.clips.reserve` and each
+  clip's pools): a regrow moves every element, and every move costs debug a
+  proxy. A `static_assert(std::is_nothrow_move_constructible_v<
+  AnimationClipData>)` beside that reserve makes a member that would turn
+  growth into COPIES a compile error. A clip's keys are POOLED
+  (AnimationClipData::times / values; a channel is two ranges into them and
+  owns no buffer), which took a rigged model's debug load from ~24k
+  allocations to under 900 (skel_warrior 24,351 -> 875).
   One convention carries an invariant no compiler checks: cached
   UIContext widget pointers die on Clear(), so any callback that triggers
   a page rebuild must DEFER it a frame (the m_pendingLanguage /
@@ -326,14 +342,19 @@ Key conventions (memorize, they bite):
   (per-attack numbers; IDENTITY — attack id + damage type — is the typed
   C++ table in Balance's ctor, the spells.cat pattern). Both edit LIVE in
   the editor map's Balance header-button dialog (Formula/Attacks tabs, "?"
-  explains the columns; Save writes the catalogs). Seven damage types
-  (slash/pierce/bash + the four elements): spells type by school
+  explains the columns; Save writes the catalogs). DAMAGE TYPES ARE DATA, the
+  project's damagetypes.cat (Combat.h's DamageTypeBook; a type is an opaque
+  index, kMaxDamageTypes = 16 a ceiling, not a count): eight ship -
+  slash/pierce/bash (`physical = 1`), the four elements (`school = ...`) and
+  `starve` (an empty meter's bite: no school, not physical, so nothing
+  resists it unless it says so). Spells type by school
   (BoltSpell::MakeBolt), monster melee by `dmgtype`. Attack side: damage =
   (weapon damage, or the unarmed knobs, + stat_damage × avg of items.cat
   `stats`) × attack numbers × (1 + skill_damage × level); ACCURACY IS
   ALWAYS DEX. Defender side: evasion, then (rolled − soak) × (1 −
-  resist[type]) floored — resists SUM nature (monsters.cat `resists`;
-  Character::natureResists is the future race layer) + worn equipment
+  resist[type]) floored - resists SUM nature (monsters.cat `resists`; a
+  member's Character::natureResists is its race's races.cat `resists`, set by
+  Game::ApplyRaceResists) + worn equipment
   (`resists`/`armor`) + Stone Skin as physical, clamped ±resist_clamp
   (a nature cell of 1.0 = immunity). Resources DERIVE — see RESOURCES below,
   which superseded the old flat `max = base + k × statAvg`. STAMINA is the
@@ -664,9 +685,16 @@ buffer, reused across all ~25 submissions).
 
 ## Asset pipeline (everything loads from assets/, nothing generated at runtime)
 
-- `AssetBaker <assets>` — regenerates all procedural assets (block models
-  incl. worn tiers, monsters, sconce/brazier, sounds, title art,
-  party portraits) and ends with a mip bake.
+- `AssetBaker <assets>` - the full bake, in this order (tools/AssetBaker/
+  Main.cpp): BakeTextures (TextureBaker's procedural stone sets - bare
+  `<name>.png` / `_n.png` with no resolution tag, which nothing loads any
+  more, since LoadPbrSet asks for `<name>_<res>`), BakeSounds, BakeModels (the
+  clean surface blocks and the worn ones at 3 tiers, the wall features,
+  sconce/brazier, the procedural props, stairs/pit shafts, door parts and the
+  procedural monsters), BakeRunes (the tablet + carved per-element sets), then
+  BakeAllMips over assets/textures and BakeModelImageMips (the embedded-image
+  sidecars). Title art (assets/ui/title_bg.png) and the party portraits are
+  NOT baked: the one is committed art, the others bought (see below).
 - `AssetBaker import <folder> <assets> <name> [--flip-green]` — packs a
   downloaded PBR set into three files: <name>.png (albedo), <name>_n.png
   (normal, height in alpha), <name>_mr.png (ORM: R=occlusion, G=roughness,
@@ -1943,10 +1971,17 @@ worn_*, lang, shaders — what AssetBaker emits):
   records is dead — superseded by the project copies.)
 - FEATURES are the one kind of content that is not a prop: a mesh stamped IN
   PLACE OF a surface block, into that block's own variant bucket, so it wears
-  the cell's texture and IS the surface rather than sitting on it. Two flavours,
-  the same idea turned 90 degrees: `niche <type> <x> <z> [facing]` replaces a
-  wall panel (wallfeatures.cat), and `floorfeature <type> <x> <z>` replaces a
-  cell's FLOOR block (floorfeatures.cat, `[recess]`). REACH FOR A FEATURE, NOT A
+  the cell's texture and IS the surface rather than sitting on it. Two
+  catalogs, the same idea turned 90 degrees: `niche <type> <x> <z> [facing]`
+  replaces a wall panel and `bore <type> <x> <z> <axis>` a whole wall block
+  with a see-through window (wallfeatures.cat; a `bore = 1` entry is the
+  latter), and `floorfeature <type> <x> <z>` / `ceilingfeature <type> <x>
+  <z>` replace a cell's FLOOR or CEILING block (surfacefeatures.cat - ONE
+  catalog for both, its `surface = floor|ceiling` field the only difference:
+  `recess`, `drain`, `cracked` below, the `vault` above; the RECORD keyword
+  names the surface so DungeonMap's parser stays catalog-blind, and an
+  untyped record is `recess`). `pit_ceiling` is not one of these - it is a
+  stairs.cat type. REACH FOR A FEATURE, NOT A
   PROP, whenever the thing is a hole: a floor grate modelled as a prop can only
   ever be a box parked on the floor, because the floor is a displaced grid and
   nothing below y=0 is visible — Michael rejected exactly that on sight, and the
@@ -1957,7 +1992,8 @@ worn_*, lang, shaders — what AssetBaker emits):
   (PinRamp), the same property that lets them tile at all;
   `tools/BuildFloorRecess.py` asserts both and is the reference. A feature is ONE
   mesh shared by all 54 surfaces, so like the wall features it takes the 2:1
-  aspect correction at STAMP time (`floorUAspect`), never baked. And because it
+  aspect correction at STAMP time (`floorUAspect` / `ceilingUAspect`), never
+  baked. And because it
   rides the variant bucket it can only wear the cell's texture — so anything
   needing its OWN material composes on top as a decoration, which is why an iron
   grate is two records: `floorfeature recess` plus `decoration floor_grate`.

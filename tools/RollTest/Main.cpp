@@ -47,6 +47,7 @@
 #include "Game/Curve.h"
 #include "Game/DamageLedger.h"
 #include "Game/Defense.h"
+#include "Game/Facing.h"
 #include "Game/Mishap.h"
 #include "Game/PartyRules.h"
 #include "Game/Power.h"
@@ -2630,6 +2631,88 @@ int main(int argc, char** argv) {
 		// in all 576 tiles = 1.0). Scattered lights cover a fraction of the view.
 		std::printf("  (tiles keep %.1f%% of the untiled loop for 64 scattered lights)\n",
 					100.0 * static_cast<double>(setBits) / (40.0 * 64.0 * gfx::kLightTileCount));
+	}
+
+	// --- facing (Game/Facing.h) ---------------------------------------------
+	// Which way +1 turns. CLAUDE.md said "+1 is on-screen LEFT" while the code
+	// turned right, and a session trusting it writes strafe or lane code
+	// inverted - so the rule is checked against the GAME camera rather than
+	// restated: a sign flip in the step, the step table, the yaw table,
+	// Camera's clip-X un-mirror or the action binding Party::BeginAction reads
+	// (facing::ForAction) trips one of these.
+	{
+		std::printf("\nFacing (Game/Facing.h)\n");
+		namespace gfx = dungeon::gfx;
+		const auto fl = [](int v) { return static_cast<float>(v); };
+		int notInverse = 0, notClockwise = 0, yawOff = 0, turnOff = 0, screenOff = 0, sideOff = 0;
+		int plusOff = 0, bindOff = 0, turnYawOff = 0;
+		for (int f = 0; f < 4; ++f) {
+			const int r = facing::Right(f), l = facing::Left(f);
+			if (facing::Left(r) != f || facing::Right(l) != f || r == f || l == r) ++notInverse;
+			// CLOCKWISE in world space: seen from above with north (-Z) up and
+			// east (+X) right - the map overlay's view - the step of Right(f) is
+			// the step of f turned a quarter clockwise, (x, z) -> (-z, x).
+			if (facing::StepX(r) != -facing::StepZ(f) || facing::StepZ(r) != facing::StepX(f))
+				++notClockwise;
+			// The yaw looks along the step: forward = (sin yaw, 0, cos yaw).
+			const float yaw = facing::Yaw(f);
+			if (std::fabs(std::sin(yaw) - fl(facing::StepX(f))) > 1e-5f ||
+				std::fabs(std::cos(yaw) - fl(facing::StepZ(f))) > 1e-5f)
+				++yawOff;
+			// A right turn moves the yaw by kTurnRightYaw.
+			const float turn = std::remainder(facing::Yaw(r) - (yaw + facing::kTurnRightYaw),
+											  2.0f * dungeon::kPi);
+			if (std::fabs(turn) > 1e-5f) ++turnOff;
+			// THE BINDING Party::BeginAction runs (facing::ForAction): TurnRight
+			// and StrafeRight both go +1, written as a literal so a swapped
+			// Right/Left above cannot hide it; the left pair +3; Forward/Back walk
+			// f and f + 2; a step keeps the facing; a turn's yaw lands on its new
+			// facing's yaw (so a turn paired with the other side's yaw fails).
+			const auto act = [&](MoveAction a) { return facing::ForAction(f, a); };
+			const auto tr = act(MoveAction::TurnRight), tl = act(MoveAction::TurnLeft);
+			const auto sr = act(MoveAction::StrafeRight), sl = act(MoveAction::StrafeLeft);
+			const auto fw = act(MoveAction::Forward), bk = act(MoveAction::Back);
+			if (tr.after != (f + 1) % 4 || tr.step != -1 || sr.step != (f + 1) % 4 || sr.after != f)
+				++plusOff;
+			if (tl.after != (f + 3) % 4 || tl.step != -1 || sl.step != (f + 3) % 4 || sl.after != f ||
+				fw.step != f || fw.after != f || bk.step != (f + 2) % 4 || bk.after != f)
+				++bindOff;
+			for (const facing::Move& t : {tr, tl})
+				if (std::fabs(std::remainder(yaw + t.yaw - facing::Yaw(t.after),
+											 2.0f * dungeon::kPi)) > 1e-5f)
+					++turnYawOff;
+			// ON SCREEN: the game camera looking along f sees a point a square
+			// ahead and a little to the Right(f) side right of centre, and one to
+			// the Left(f) side left of it.
+			gfx::Camera cam;
+			cam.SetPosition({0.0f, 1.6f, 0.0f});
+			cam.SetYawPitch(yaw, 0.0f);
+			const dungeon::Mat4 vp = cam.ViewProj();
+			const auto ndcX = [&](int side) {
+				const float px = 2.5f * fl(facing::StepX(f)) + 0.6f * fl(facing::StepX(side));
+				const float pz = 2.5f * fl(facing::StepZ(f)) + 0.6f * fl(facing::StepZ(side));
+				const float py = 1.6f;
+				const float cx = px * vp._11 + py * vp._21 + pz * vp._31 + vp._41;
+				const float cw = px * vp._14 + py * vp._24 + pz * vp._34 + vp._44;
+				return cx / cw;
+			};
+			if (!(ndcX(r) > 0.1f && ndcX(l) < -0.1f)) ++screenOff;
+			// The roster's columns: slots 0 and 2 on the left, 1 and 3 on the right.
+			if (facing::SlotSide(f, 0) != l || facing::SlotSide(f, 2) != l ||
+				facing::SlotSide(f, 1) != r || facing::SlotSide(f, 3) != r)
+				++sideOff;
+		}
+		Check("facings where Left does not undo Right", notInverse, 0, 0);
+		Check("facings whose right is not clockwise from above", notClockwise, 0, 0);
+		Check("facings whose yaw does not look along the step", yawOff, 0, 0);
+		Check("facings a right turn's yaw does not reach", turnOff, 0, 0);
+		Check("facings whose right is not screen-right", screenOff, 0, 0);
+		Check("facings whose roster columns are swapped", sideOff, 0, 0);
+		Check("facings where TurnRight/StrafeRight miss +1", plusOff, 0, 0);
+		Check("facings where another action is bound wrong", bindOff, 0, 0);
+		Check("facings whose turn yaw misses its new facing", turnYawOff, 0, 0);
+		CheckTrue("+1 from north is east, +X",
+				  facing::Right(0) == 1 && facing::StepX(1) == 1 && facing::StepZ(0) == -1);
 	}
 
 	// --- verdict ------------------------------------------------------------

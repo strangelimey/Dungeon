@@ -4,7 +4,7 @@
 #   blender --background --factory-startup --python tools\BuildFloorGrate.py -- <out.glb>
 #   AssetBaker import-model <out.glb> <assets> floor_grate --raw --texture-set rusted_iron
 #
-# JUST THE BARS. The hole they cover is a FLOOR FEATURE (floorfeatures.cat
+# JUST THE BARS. The hole they cover is a FLOOR FEATURE (surfacefeatures.cat
 # `recess`, tools/BuildFloorRecess.py), which replaces the cell's floor block and
 # so wears that cell's floor texture. The bars cannot live in that mesh — it
 # rides the floor's variant bucket and would draw them in stone — so a grate is

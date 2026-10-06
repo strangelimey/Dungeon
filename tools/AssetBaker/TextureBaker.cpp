@@ -30,8 +30,8 @@ namespace {
 
 constexpr u32 kSize = 1024;
 
-// Noise helpers (Hash / ValueNoise / Fbm) are shared with the title baker —
-// see Noise.h.
+// Noise helpers (Hash / ValueNoise / Fbm) are shared with ModelBaker and
+// RuneBaker - see Noise.h.
 
 // --- height field + image plumbing -------------------------------------------
 

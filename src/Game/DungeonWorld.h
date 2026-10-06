@@ -3366,8 +3366,9 @@ private:
 	int PickMeleeVictim(Monster& monster);
 	// A standing member's facing-relative sub-cell position (the quadrant the
 	// portraits read: front pair a quarter-cell toward the facing, rear away,
-	// even indices the on-screen-LEFT column). Shared by the projectile lane
-	// test, the ranged lane aim, and the melee near-row math.
+	// even indices the on-screen-LEFT column, facing::SlotSide). Shared by a
+	// monster shot's lane test, the ranged lane aim and a crowding monster's
+	// slot pick; PickMeleeVictim reads SlotSide itself.
 	Vec3 PartyMemberSubPos(size_t member) const;
 	// Resolves a spell bolt reaching `impact.pos` with its strike profile: finds
 	// a live monster in that cell, runs the strike (combat + log + slain), and

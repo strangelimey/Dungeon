@@ -1,28 +1,18 @@
 #include "Game/Entity.h"
 
 #include "Core/Assert.h"
-#include "Core/MathTypes.h"
+#include "Game/Facing.h"
 
 #include <charconv>
 #include <format>
 
 namespace dungeon::game {
 
-int DirDX(Direction d) {
-	switch (d) {
-	case Direction::East: return 1;
-	case Direction::West: return -1;
-	default: return 0;
-	}
-}
+// The compass itself is Game/Facing.h's (pinned by RollTest); a Direction is a
+// facing index in the same order.
+int DirDX(Direction d) { return facing::StepX(static_cast<int>(d)); }
 
-int DirDZ(Direction d) {
-	switch (d) {
-	case Direction::North: return -1;
-	case Direction::South: return 1;
-	default: return 0;
-	}
-}
+int DirDZ(Direction d) { return facing::StepZ(static_cast<int>(d)); }
 
 Direction DirOpposite(Direction d) {
 	switch (d) {
@@ -33,14 +23,7 @@ Direction DirOpposite(Direction d) {
 	}
 }
 
-float DirYaw(Direction d) {
-	switch (d) {
-	case Direction::North: return kPi;
-	case Direction::East: return kPi * 0.5f;
-	case Direction::West: return -kPi * 0.5f;
-	default: return 0.0f; // south
-	}
-}
+float DirYaw(Direction d) { return facing::Yaw(static_cast<int>(d)); }
 
 const char* FacingLocKey(Direction d) {
 	switch (d) {

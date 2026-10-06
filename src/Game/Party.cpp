@@ -1,6 +1,7 @@
 #include "Game/Party.h"
 
 #include "Core/Easing.h"
+#include "Game/Facing.h"
 
 #include <algorithm>
 #include <cmath>
@@ -10,8 +11,6 @@ namespace dungeon::game {
 namespace {
 constexpr float kMoveDuration = 0.28f;  // seconds per step
 constexpr float kTurnDuration = 0.25f;  // seconds per 90° turn
-constexpr int kDirX[4] = {0, 1, 0, -1}; // N E S W
-constexpr int kDirZ[4] = {-1, 0, 1, 0};
 
 // Blocked-move recoil. The lunge reaches kBumpPeak of the way to the blocked
 // cell (at the normal step rate, replaying the real move curve), then bounces
@@ -34,9 +33,9 @@ constexpr float kLookPitchMax = kPi * 0.40f;
 constexpr float kBobDip = 0.02f * kUnit;
 constexpr float kBobSway = 0.0088f * kUnit;
 
-float YawForFacing(int facing) {
+float YawForFacing(int f) {
 	// Camera forward is (sin(yaw), 0, cos(yaw)): N=-Z, E=+X, S=+Z, W=-X.
-	return kPi - static_cast<float>(facing) * (kPi * 0.5f);
+	return facing::Yaw(f);
 }
 
 bool IsTurnAction(MoveAction a) {
@@ -128,17 +127,17 @@ void Party::AddLook(float dYaw, float dPitch) {
 	// yaw (m_currentYaw + m_lookYaw) is unchanged at the seam — the view glides on
 	// while the ordinal facing has rotated under it. A loop covers a big delta.
 	while (m_lookYaw >= kLookSnap) { // looked left past 45° -> turn left
-		m_facing = (m_facing + 3) & 3;
-		m_currentYaw += kPi * 0.5f;
-		m_lookYaw -= kPi * 0.5f;
+		m_facing = facing::Left(m_facing);
+		m_currentYaw += facing::kTurnLeftYaw;
+		m_lookYaw -= facing::kTurnLeftYaw;
 		m_targetYaw = m_currentYaw;
 		m_turning = false;
 		if (onTurn) onTurn();
 	}
 	while (m_lookYaw <= -kLookSnap) { // looked right past 45° -> turn right
-		m_facing = (m_facing + 1) & 3;
-		m_currentYaw -= kPi * 0.5f;
-		m_lookYaw += kPi * 0.5f;
+		m_facing = facing::Right(m_facing);
+		m_currentYaw += facing::kTurnRightYaw;
+		m_lookYaw -= facing::kTurnRightYaw;
 		m_targetYaw = m_currentYaw;
 		m_turning = false;
 		if (onTurn) onTurn();
@@ -269,35 +268,15 @@ void Party::BeginAction(MoveAction action, bool startLinear) {
 		if (onTurn) onTurn();
 	};
 
-	const int f = m_facing;
-	switch (action) {
-	case MoveAction::Forward:
-		stepStart(kDirX[f], kDirZ[f]);
-		break;
-	case MoveAction::Back:
-		stepStart(-kDirX[f], -kDirZ[f]);
-		break;
-	case MoveAction::StrafeLeft: { // strafe left
-		// The camera is un-mirrored (Camera::ViewProj), so facing turns the
-		// natural way: +1 is clockwise (the on-screen RIGHT direction), -1
-		// (== +3) is counter-clockwise (left). Compass offsets apply directly.
-		const int left = (f + 3) & 3;
-		stepStart(kDirX[left], kDirZ[left]);
-		break;
-	}
-	case MoveAction::StrafeRight: { // strafe right
-		const int right = (f + 1) & 3;
-		stepStart(kDirX[right], kDirZ[right]);
-		break;
-	}
-	case MoveAction::TurnLeft: // turn left (counter-clockwise)
-		m_facing = (m_facing + 3) & 3;
-		turnStart(kPi * 0.5f);
-		break;
-	case MoveAction::TurnRight: // turn right (clockwise)
-		m_facing = (m_facing + 1) & 3;
-		turnStart(-kPi * 0.5f);
-		break;
+	// WHICH way each action goes is facing::ForAction's (Game/Facing.h): +1 is
+	// clockwise, the on-screen RIGHT, for a turn and a strafe alike - stated
+	// once there and pinned by RollTest against the game camera.
+	const facing::Move move = facing::ForAction(m_facing, action);
+	if (move.step >= 0) {
+		stepStart(facing::StepX(move.step), facing::StepZ(move.step));
+	} else {
+		m_facing = move.after;
+		turnStart(move.yaw);
 	}
 }
 

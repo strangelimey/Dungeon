@@ -348,8 +348,9 @@ struct Character {
 	// stay authored). Type-agnostic — the first defense gate.
 
 	// The RACE/NATURE defense layer (docs/combat.md part 4): per-damage-type
-	// resists summed with equipment and wards. All zero for the default human
-	// party; the proper race system arrives with party creation.
+	// resists summed with equipment and wards. The member's races.cat `resists`
+	// (Game::ApplyRaceResists, when the member is made and again on load - it
+	// is not saved); all zero for a race that authors none, such as human.
 	ResistTable natureResists;
 
 	// A stat's live value by its id ("strength", ... "intelligence"); 0 for an

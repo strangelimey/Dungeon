@@ -6,7 +6,7 @@
 #
 # Broken paving: a patch of the cell where the slabs have settled, tilted and
 # lost a couple of their number, showing the bed beneath. Like floor_recess and
-# floor_drain this REPLACES the cell's floor block (floorfeatures.cat) and wears
+# floor_drain this REPLACES the cell's floor block (surfacefeatures.cat) and wears
 # the cell's own floor texture — so the broken paving is the SAME STONE as the
 # paving around it, which is the whole reason to do this as a feature.
 #

@@ -5,7 +5,7 @@
 #   AssetBaker import-model <out.glb> <assets> floor_drain --raw
 #
 # A dished drain whose throat drops a full storey into darkness. Like
-# floor_recess this REPLACES the cell's floor block (floorfeatures.cat), so it
+# floor_recess this REPLACES the cell's floor block (surfacefeatures.cat), so it
 # wears whatever floor texture the cell wears — see that script's header for the
 # extent/UV contract, which this asserts too.
 #

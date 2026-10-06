@@ -27,9 +27,9 @@
 // ResistTable rides Character, MonsterKind and ItemKind. Making it a runtime
 // vector would put a heap allocation on those and break the steady-state rule
 // (docs/ARCHITECTURE.md "Memory strategy"), so it is a fixed ceiling with a
-// runtime count — the same trade as kMaxPointLights and kMaxSkinJoints. The
-// live count is 7; arriving at the ceiling is an authoring error the book
-// reports, not a limit to design around.
+// runtime count - the same trade as kMaxPointLights and kMaxSkinJoints. How
+// many a project defines is its damagetypes.cat's business; arriving at the
+// ceiling is an authoring error the book reports, not a limit to design around.
 // ============================================================================
 #pragma once
 

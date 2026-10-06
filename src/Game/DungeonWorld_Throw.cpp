@@ -32,6 +32,7 @@
 
 #include "Core/Loc.h"
 #include "Game/Defense.h"
+#include "Game/Facing.h"
 
 #include <algorithm>
 #include <cmath>
@@ -85,8 +86,8 @@ bool DungeonWorld::ThrowItem(const std::string& typeId, int member, float charge
 	// Down the THROWER's quadrant lane along the grid facing - the cast's rule
 	// (CastSpell), so a throw from the left pair flies the left side.
 	const Direction faced = static_cast<Direction>(m_party.Facing());
-	const Direction lateral = static_cast<Direction>(
-		(static_cast<int>(faced) + (who % 2 == 0 ? 3 : 1)) % 4);
+	const Direction lateral =
+		static_cast<Direction>(facing::SlotSide(static_cast<int>(faced), who));
 	Vec3 origin = m_party.EyePosition();
 	origin.x += static_cast<float>(DirDX(lateral)) * (kCellSize * 0.25f);
 	origin.z += static_cast<float>(DirDZ(lateral)) * (kCellSize * 0.25f);

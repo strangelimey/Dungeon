@@ -30,6 +30,7 @@
 
 #include "Core/Loc.h"
 #include "Core/Log.h"
+#include "Game/Facing.h"
 #include "Graphics/LightTiles.h"
 
 #include <algorithm>
@@ -395,8 +396,8 @@ void DungeonWorld::AppendCarriedLights(float time) {
 			if (!c.IsAlive()) continue;
 			// At the member's own side of the eye, as their casts and throws leave
 			// from (the quadrant lane), a little lower than the old eye light.
-			const Direction lateral = static_cast<Direction>(
-				(static_cast<int>(faced) + (m % 2 == 0 ? 3 : 1)) % 4);
+			const Direction lateral =
+				static_cast<Direction>(facing::SlotSide(static_cast<int>(faced), m));
 			const Vec3 at{eye.x + static_cast<float>(DirDX(lateral)) * kCellSize * 0.15f,
 						  eye.y + 0.2f,
 						  eye.z + static_cast<float>(DirDZ(lateral)) * kCellSize * 0.15f};

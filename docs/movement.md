@@ -21,7 +21,10 @@ cell and faces one of four compass directions (0 = N/−Z, 1 = E/+X, 2 = S/+Z,
 `MoveAction` — `Forward, Back, StrafeLeft, StrafeRight, TurnLeft, TurnRight`.
 The bound keys (`MoveKeys`, default QWEASD) map onto these in
 `Party::HandleInput`; the HUD's six arrow buttons feed the same actions straight
-into `Party::Act`. One action at a time.
+into `Party::Act`. One action at a time. What each one does to the facing and
+which way it steps is `facing::ForAction` in the pure `src/Game/Facing.h`
+(where `MoveAction` is declared), pinned by RollTest's "Facing" section: +1 is
+clockwise, the on-screen right, for TurnRight and StrafeRight alike.
 
 - **Logical vs visual split.** The logical cell/facing snaps **instantly**; the
   visual position/yaw then interpolates over ~0.3 s (eased + head bob), which is

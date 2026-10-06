@@ -131,25 +131,29 @@ subsystem:
   exception mid-parse can't leak. Plain does not mean unmeasured: `LoadQueue`
   times and counts every staged task and dumps a table to `dungeon.log` when
   the last one lands (`loadstats` reprints it), and `assets::LoadGltf` reports
-  allocations and bytes per model on its own log line. The showcase level's
-  load is 22 tasks, ~41k allocations and 2.0 GB requested in Release (~129k in
-  Debug — see below), 680 MB peak working set.
-  **80% of it is four rigged skeletons**: 40 Mixamo clips × 99 animation
-  channels each, and a channel needs a `times` and a `values` buffer, so 7,920
-  allocations per model is the floor for this data layout. Going below it means
-  flattening a clip's channels into one arena and teaching the sampler to index
-  it — not worth it for a path that runs once per level.
+  allocations and bytes per model on its own log line. When first measured,
+  the showcase level's load was 22 tasks, ~41k allocations and 2.0 GB
+  requested in Release (~129k in Debug), 680 MB peak working set, and 80% of
+  it was four rigged skeletons: 40 Mixamo clips x 99 animation channels, each
+  channel then owning a `times` and a `values` buffer. That layout is gone - a
+  clip now holds two POOLED arrays (`AnimationClipData::times` / `values`) and
+  a channel is two ranges into them - which took a rigged model's Debug load
+  from ~24k allocations to under 900 (skel_warrior 24,351 -> 875,
+  2026-09-28).
   Two things found while measuring, both worth remembering:
   - **Debug allocation counts are not release allocation counts.** MSVC's
-    iterator debugging gives `std::vector` a move constructor that allocates an
-    iterator-debug proxy, so it is not `noexcept`, so `move_if_noexcept` makes
-    every `push_back` re-allocation *copy* its elements instead of moving them
-    — and each copied animation channel re-allocates both its buffers. The same
-    load measured 223k allocations in Debug against 43k in Release. Reserving
-    both clip vectors (`LoadGltf`) removed the copies and took Debug to 129k;
-    the rest of the gap is the per-move proxy, which is intrinsic to the debug
-    CRT. Time is inflated in Debug too, but by a different factor — compare
-    like with like.
+    iterator debugging allocates a proxy for every `std::vector` and
+    `std::string` it constructs, in the MOVE constructor too. That constructor
+    is still `noexcept` (the proxy is allocated inside a noexcept body), so a
+    growing vector of vectors moves its elements in Debug exactly as in
+    Release; the proxies are the gap, and intrinsic to the debug CRT. (This
+    note used to say the move was not noexcept, so growth copied - both
+    installed toolsets declare it noexcept.) Reserving the clip vectors
+    (`LoadGltf`) still pays in Debug, since a regrow moves every element and
+    every move costs a proxy, and a `static_assert` on
+    `std::is_nothrow_move_constructible_v<AnimationClipData>` beside that
+    reserve keeps growth a move. Time is inflated in Debug too, but by a
+    different factor - compare like with like.
   - The dagger models load **twice**, once as `weapons.cat` items and once as
     `decorations.cat` props, because each catalog caches kinds separately. It
     is a few hundred allocations and a few MB, so it stays on the list rather

@@ -33,6 +33,7 @@
 #include <cstring>
 #include <filesystem>
 #include <memory>
+#include <type_traits>
 #include <unordered_map>
 
 namespace dungeon::assets {
@@ -255,7 +256,15 @@ std::expected<ModelData, std::string> LoadGltf(const std::string& path,
 		return std::unexpected(std::format("failed to load glTF buffers: {}", path));
 
 	ModelData model;
-	model.clips.reserve(data->animations_count); // see the clip loop below
+	// Reserved so pushing the clips never regrows the vector (see the clip loop
+	// below). Were it to regrow, the clips would still MOVE, not copy, in a debug
+	// build as in release: MSVC's iterator debugging allocates a proxy inside
+	// each container's move constructor, but that constructor stays noexcept.
+	// Checked here, so a member that would make a clip copy on growth - one with
+	// a throwing move - fails to compile instead of quietly copying every
+	// clip's key pools each time the vector grows.
+	static_assert(std::is_nothrow_move_constructible_v<AnimationClipData>);
+	model.clips.reserve(data->animations_count);
 	ImageCache imageCache{data, std::filesystem::path(path).parent_path(), &model, path,
 						  opts.bakedImages};
 	if (opts.bakedImages) {

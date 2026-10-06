@@ -49,11 +49,19 @@ per-weapon-per-attack to balance: tune an attack once and every weapon
 carrying it follows. Built up in parts; part 1 (types + tables) settled
 below, the next parts extend this section.
 
-### Damage types (7)
+### Damage types
 
-| Physical | Elemental |
-|---|---|
-| slash, pierce, bash | fire, earth, air, water |
+The list is data - the project's `damagetypes.cat` (Combat.h's
+`DamageTypeBook`), so a project adds or removes one without a rebuild. The
+shipped catalogs define eight:
+
+| Physical | Elemental | Neither |
+|---|---|---|
+| slash, pierce, bash | fire, earth, air, water | starve |
+
+`starve` is what an empty food or water meter deals
+(docs/health-and-healing.md): not physical and of no school, so armour does
+not answer it and nothing resists it unless it authors `starve` itself.
 
 ### Attacks (global; one damage type each)
 
@@ -188,8 +196,10 @@ A defender's response is three gates, in order:
 
        final = (rolled − soak) × (1 − resist[type]),  floor 1 on a hit
 
-   Every defender carries one seven-cell RESIST table (the damage
-   types). Positive = shrugged off, NEGATIVE = vulnerability — the
+   Every defender carries one RESIST table, a cell per damage type
+   (Combat.h `ResistTable`: `kMaxDamageTypes` = 16 cells, a ceiling - the
+   shipped damagetypes.cat fills eight). Positive = shrugged off,
+   NEGATIVE = vulnerability - the
    payoff of damage types (the skeleton laughs at your stab; bring the
    club). Summed resists clamp to ±0.8; only an authored NATURE cell of
    1.0 (a fire elemental vs fire) reaches immunity.
@@ -201,8 +211,10 @@ Resist/soak sources just sum into the same cells:
   bash -0.5` on the skeleton; the mummy takes `fire -1.0`; absent = 0)
   plus the existing flat `armor` as the monster's soak. THE PARTY GETS A
   NATURE LAYER TOO — race resists (a minotaur is a lot tougher than a
-  ratling): authored per member now, the proper race system arrives with
-  party creation; the summing treats it as just another source.
+  ratling): the member's race's races.cat `resists` (dwarf `earth 0.25`,
+  orc `bash 0.15`), written into `Character::natureResists` by
+  `Game::ApplyRaceResists` when the member is made and again on load - it is
+  not saved; the summing treats it as just another source.
 - **Equipment** — armor pieces author their resist cells (leather ~
   `slash 0.2, pierce 0.1, bash 0.1`) plus a small flat `armor` soak;
   worn pieces sum. This IS Phase 3's equipment armor.

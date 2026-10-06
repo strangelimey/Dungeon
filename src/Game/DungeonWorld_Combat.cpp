@@ -9,6 +9,7 @@
 #include "Game/Blast.h"
 #include "Game/Curve.h"
 #include "Game/Defense.h"
+#include "Game/Facing.h"
 
 #include "Core/Loc.h"
 
@@ -1356,16 +1357,18 @@ Vec3 DungeonWorld::PartyMemberSubPos(size_t member) const {
 	// The facing-relative quadrant the portraits read (front-left/front-right/
 	// rear-left/rear-right; Michael, 2026-07-10): the front pair stands a
 	// quarter-cell toward the facing, the rear pair away, even indices in the
-	// faced+3 column and odd in faced+1 (the projectile lane idiom — one home
-	// for the handedness, shared by the lane test, the ranged aim, and the
-	// melee near-row math).
+	// faced+3 (left) column and odd in faced+1 (right) - facing::SlotSide, the
+	// one home for the handedness, shared with the cast, throw and held-light
+	// lanes and PickMeleeVictim's flank files. This position feeds a monster
+	// shot's lane test (ResolveMonsterProjectileHit), the ranged aim
+	// (MonsterRangedAttack) and a crowding monster's choice of sub-cell slot.
 	const Direction faced = static_cast<Direction>(m_party.Facing());
 	const float q = kCellSize * 0.25f;
 	const Vec3 center{(static_cast<float>(m_party.GridX()) + 0.5f) * kCellSize,
 					  0.0f,
 					  (static_cast<float>(m_party.GridZ()) + 0.5f) * kCellSize};
-	const Direction lateral = static_cast<Direction>(
-		(static_cast<int>(faced) + (member % 2 == 0 ? 3 : 1)) % 4);
+	const Direction lateral =
+		static_cast<Direction>(facing::SlotSide(static_cast<int>(faced), member));
 	const float row = member < 2 ? q : -q; // front pair toward the facing
 	return {center.x + static_cast<float>(DirDX(faced)) * row +
 				static_cast<float>(DirDX(lateral)) * q,
@@ -1393,9 +1396,10 @@ int DungeonWorld::PickMeleeVictim(Monster& monster) {
 	// by the other file's blocker). A pike (reach 2) skewers past blocking
 	// entirely; ranged/casters never come through here. Approach is the
 	// dominant-axis cardinal from the party cell toward the monster, relative
-	// to the party facing (rel 0 = ahead ... 2 = behind); the file pairing
-	// comes from the quadrant math's lateral idiom (even members hold the
-	// faced+3 column, odd faced+1 — PartyMemberSubPos).
+	// to the party facing (rel 0 = ahead ... 2 = behind). From a flank the near
+	// column is the one standing on the approach's side - facing::SlotSide, the
+	// same handedness PartyMemberSubPos and the lanes use, so the two cannot
+	// disagree about which column a flank meets.
 	const bool blocking = monster.kind->reach < 2;
 	std::array<int, 2> nearPair{-1, -1};
 	bool rowPair = true; // near pair is a rank (file mate = ^2) vs column (^1)
@@ -1407,13 +1411,18 @@ int DungeonWorld::PickMeleeVictim(Monster& monster) {
 			approach = dx >= 0 ? Direction::East : Direction::West;
 		else
 			approach = dz > 0 ? Direction::South : Direction::North;
-		const int rel =
-			(static_cast<int>(approach) - m_party.Facing() + 4) % 4;
-		switch (rel) {
-		case 0: nearPair = {0, 1}; rowPair = true; break;  // the front line
-		case 2: nearPair = {2, 3}; rowPair = true; break;  // from behind
-		case 1: nearPair = {1, 3}; rowPair = false; break; // faced+1 column
-		default: nearPair = {0, 2}; rowPair = false; break; // faced+3 column
+		const int faced = m_party.Facing();
+		const int rel = (static_cast<int>(approach) - faced + 4) % 4;
+		if (rel == 0) {
+			nearPair = {0, 1}; // the front line
+		} else if (rel == 2) {
+			nearPair = {2, 3}; // from behind
+		} else {
+			// A flank: the column whose slots stand on the approach's side.
+			const int first =
+				facing::SlotSide(faced, 0) == static_cast<int>(approach) ? 0 : 1;
+			nearPair = {first, first + 2};
+			rowPair = false;
 		}
 	}
 	auto standing = [&](int i) {
@@ -2055,8 +2064,8 @@ bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequenc
 	// holds (their bolts spawn at their sub-cell slot); a future ranged
 	// weapon fires from the same lane.
 	const Direction faced = static_cast<Direction>(m_party.Facing());
-	const Direction lateral = static_cast<Direction>(
-		(static_cast<int>(faced) + (member % 2 == 0 ? 3 : 1)) % 4);
+	const Direction lateral =
+		static_cast<Direction>(facing::SlotSide(static_cast<int>(faced), member));
 	Vec3 origin = m_party.EyePosition();
 	origin.x += static_cast<float>(DirDX(lateral)) * (kCellSize * 0.25f);
 	origin.z += static_cast<float>(DirDZ(lateral)) * (kCellSize * 0.25f);

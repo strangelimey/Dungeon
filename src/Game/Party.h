@@ -16,6 +16,7 @@
 #include "Core/Easing.h"
 #include "Core/MathTypes.h"
 #include "Game/DungeonMap.h"
+#include "Game/Facing.h"
 #include "Platform/Input.h"
 
 #include <functional>
@@ -49,9 +50,8 @@ struct LookSettings {
 	Easing moveEasing = Easing::EaseInOut;   // move-triggered straighten curve
 };
 
-// One discrete party action. HandleInput maps the bound keys onto these; the
-// HUD's movement buttons feed them straight into Party::Act.
-enum class MoveAction { Forward, Back, StrafeLeft, StrafeRight, TurnLeft, TurnRight };
+// MoveAction (one discrete party action) is declared in Game/Facing.h beside
+// facing::ForAction, the pure statement of what each one does.
 
 class Party {
 public:
