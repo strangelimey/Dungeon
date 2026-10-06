@@ -163,8 +163,8 @@ gfx::Rect MapView::WorldButton(const gfx::Rect& panel) const {
 	// TOP-LEFT, and that is the whole point: WorldMapView puts the way back at
 	// its own top-left, and in Player mode neither view has a left dock — so
 	// the two land on the SAME PIXELS and the pair reads as one control that
-	// stays put. (The right edge cannot do that: this view's key dock sits
-	// there, and its width changes with a persisted collapse flag.)
+	// stays put. (The top-right corner is the close box's, this square
+	// mirrored, on the same pixels in both views.)
 	// A square: the globe box (its name is the hover tip). It was a word
 	// button three sides wide - WorldMapView's twin changed with it.
 	const gfx::Rect g = GridArea(panel);
@@ -1570,9 +1570,9 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			// The close box in the far corner (the shared dialog icon).
 			if (ShowCloseButton())
 				arrow(CloseButton(panel), m_icoClose, "x", HoverBtn::Close);
-			// ...and the way to the world map, at the grid's far end: the globe
-			// box, named by a tip under it while hovered (the text face, name
-			// and all, when the art is missing).
+			// ...and the way to the world map, top-left ahead of the arrows: the
+			// globe box, named by a tip under it while hovered (the text face,
+			// name and all, when the art is missing).
 			if (ShowWorldButton()) {
 				const gfx::Rect wr = WorldButton(panel);
 				const std::string name = loc::Tr("map.btn.showworld");
@@ -1710,7 +1710,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		}
 	}
 
-	// Player title, centered over the grid area (clear of the key dock).
+	// Player title, centered over the grid area (the whole panel: no docks).
 	if (m_mode == Mode::Player) {
 		const std::string title = loc::Tr("map.title");
 		m_font->Draw(batch, title,

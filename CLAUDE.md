@@ -142,7 +142,7 @@ Key conventions (memorize, they bite):
   a page rebuild must DEFER it a frame (the m_pendingLanguage /
   m_videoRebuildPending pattern). The party roster is resize-safe: the
   HUD/sheet widgets address Game::m_characters by (vector, index) and
-  RE-RESOLVE the member every Update/Draw (PartyHud.h RosterMember), so a
+  RE-RESOLVE the member every Update/Draw (PartyHudTypes.h RosterMember), so a
   party of 1..4 members — or a future resize — can't dangle them; a roster
   SIZE change still needs GameUI::RebuildForRoster (deferred, never from a
   widget callback) to re-lay-out the per-member widgets.
@@ -184,7 +184,9 @@ Key conventions (memorize, they bite):
   + wiring; GameSettings (ini round-trip, quality tier, the kThemeFields/
   kKeyFields tables), SoundBank, LoadQueue (staged loading),
   DungeonWorld (world state, simulation, both render passes), GameUI (all
-  five UIContexts: menus, settings page, HUD, sheet, overlays), AssetUtil
+  seven of its UIContexts - HUD, landing menu, settings page, pause menu,
+  saves (save/load, the world list, party creation), character sheet, Yes/No
+  confirm - plus the item-details and portrait-picker dialogs'), AssetUtil
   (load-or-die helpers). World→log feedback flows through
   DungeonWorld::onMessage; UI→state-machine actions through GameUI's on*
   callbacks, both wired in the Game constructor.
@@ -536,7 +538,7 @@ Key conventions (memorize, they bite):
   about). A headless run is also UNATTENDED (`crash::SetUnattended`: a fatal
   error records, dumps and EXITS - no CRT abort box waits); `-unattended` gives
   a run that draws the same, and `harness_game.run_eval` passes it on every run,
-  windowed ones included (EditorTest phase 19's swatch check draws). `-eval`
+  windowed ones included (EditorTest phase 20's swatch check draws). `-eval`
   does not imply it: a developer watching a script may want the box.
 - EFFECTS (full model: docs/effects.md — the system every source of damage
   goes through; built in six phases 2026-07-24): ONE pipeline for everything
@@ -1130,27 +1132,31 @@ buffer, reused across all ~25 submissions).
 
 ## Quality system
 
-Settings page (landing page) is tabbed Game/Controls/Video/Audio/UI via
-ui::TabControl. The whole page is authored in design px against a 900px-tall
-window and SCALED by the live window height (GameUI::BuildSettings uiScale =
-h/kFontDesignWindowH) because the page fonts scale that same way (UpdateFonts);
-a fixed-pixel page would let the font outgrow its row at taller resolutions and
-collide — so any new settings geometry must scale by uiScale too (the `page`
-rect passed to children stays unscaled design units; only the TabControl's pixel
-size scales, carrying the children with it). The confirm modal scales likewise.
-Each tab stacks its rows with a Flow helper (GameUI.cpp, anon namespace) — a
-vertical layout with CSS-style COLLAPSING margins: the gap between two items is
-max(upper.marginBottom, lower.marginTop), not the sum, so equal margins on
-neighbours overlap into one (constants mTight label→control, mRow list rows,
-mGroup between settings/sections). ui::Slider is self-contained (label on the
-top line, track in the band beneath, all inside its bounds) so it lays out by
-its box like every other control. Sections are divided by ui::Separator (a 1px
-horizontal rule, like HTML <hr>, placed through the Flow with mGroup both sides).
-(pages scroll: children authored past the page bottom — bounds fraction > 1 —
-trigger a per-tab scrollbar, wheel or thumb drag, page-scissored; the strip
-sizes each tab to its label and grows + recenters the control to fit
-[TabControl::LayoutStrip], and the content area is inset from the frame
-[TabControl::ContentRect]):
+Settings page (the landing menu and the pause menu share it: m_settingsUi,
+GameUI::BuildSettings) is SIX tabs - Game / Controls / Video / Audio / UI and
+Material (GameUI_Stone.cpp's BuildStoneTab) - in one ui::TabControl placed at
+window fractions, with the Back button under it likewise. INSIDE A TAB NOTHING
+IS PLACED: each tab's rows go in a content-sized ui::Stack from GameUI.cpp's
+SettingsTab() (fitContent, padRem 1.0, gapRem 0.42; BuildStoneTab builds the
+Material tab's the same way), and every row says only how TALL it is, in REM,
+through the kSet* constants beside it - kSetLabel 1.05 (a heading / field
+name), kSetCtrl 1.45 (a dropdown, checkbox, key bind, a button row), kSetSlider
+1.85 (label over track), kSetPicker 2.6 (a colour swatch with its label),
+kSetGroup 0.85 (the Space between sections) and kSetRule 0.15 (a ui::Separator's
+own row). A section break is Space(kSetGroup) + Separator + Space(kSetGroup); a
+colour grid is rows of three, each a horizontal Stack. Rem is the settings
+context's root font (kMenuFontH 28 px at kFontDesignWindowH 900, rescaled with
+the window height by GameUI::UpdateFonts), so the rows grow with their text.
+A NEW SETTING IS A Row WITH A kSet* LENGTH, never a coordinate, a pixel or a
+fraction of the page (the old Flow helper and its design-px `uiScale` are gone
+- docs/ui-hierarchy.md). ui::Slider is self-contained (label on the top line,
+track in the band beneath, all inside its bounds). A tab's page is the
+TabControl's ScrollArea, so a tab longer than the page scrolls (wheel or thumb,
+page-scissored); the strip sizes each tab to its label and grows + recenters
+the control to fit [TabControl::LayoutStrip], and the content area is inset from
+the frame [TabControl::ContentRect]. The Yes/No confirm modal (GameUI::
+OpenConfirm, m_confirmUi) is the exception still hand-placed at window
+fractions (code-review C91). On the tabs:
 quality dropdown on Video (Low/Medium/High/Ultra: mesh tier low/med/high/high
 + textures 1k/1k/2k/4k + point-light budget 16/32/48/64) plus a Max Lights
 dropdown on Video (GameSettings::kLightBudgets; picking a quality resets the
@@ -1179,14 +1185,16 @@ Changing the adapter/monitor dropdown also repopulates the dependent lists by
 rebuilding the settings page next frame (GameUI::m_videoRebuildPending →
 ApplyPendingVideoRebuild, deferred like the language switch since the rebuild
 destroys the live dropdown; BuildSettings is split out of BuildMenu for this).
-master-volume slider on Audio, a STONE tab of its own (see "Stone chrome"
-below), and on UI the HUD layout
+master-volume slider on Audio, the MATERIAL tab (the stone picker, see "Stone
+chrome" below), and on UI the Textured UI and Head bob checkboxes, the Resource
+Bars brightness / saturation sliders, the HUD layout
 (Standard / Minimal), Lock / Reset HUD layout and a scale + background-opacity
 pair for every floating HUD panel (see "Stone chrome, floating panels,
 Minimal layout" below - the party bar's old pair is one of them)
 plus a color-picker grid for Theme Colors (the 8 ui::Theme
-colors — GameSettings owns the master theme, GameUI::ApplyTheme pushes it
-into all five UIContexts live). The ColorPicker control's swatch opens an R/G/B/A
+colors - GameSettings owns the master theme, GameUI::ApplyTheme pushes it
+into all seven of GameUI's UIContexts and the two dialogs' own, live) and one
+for Party Colors (see PARTY CREATION). The ColorPicker control's swatch opens an R/G/B/A
 slider popup; kThemeFields in GameSettings.h drives the grid and the ini
 round-trip. (The Resource Bars picker grid is GONE - the fills are procedural,
 see RESOURCE BARS; an old ini's bar_<name>= lines are ignored.) Controls tab: movement key bindings via ui::KeyBind rows
@@ -1331,31 +1339,41 @@ a RACE, the points they spend and the skills they pick, then whatever they do.
 
 The HUD's top bar shows the party — 1..4 members; party creation
 lets the player build fewer than 4, and the bar always reserves four slots
-so a short roster keeps its slot size (Character.h roster, widgets in
-PartyHud.h: portrait, name, health/stamina/mana bars); clicking a portrait
+so a short roster keeps its slot size (Character.h roster; the bar is
+PartyBar.h, one CharacterPanel.h per slot - portrait, name, effects,
+health/stamina/mana bars - and PartyHud.h is only the umbrella header that
+includes the party widgets); clicking a portrait
 opens the character details page (AppState::CharacterSheet). It is NOT a
 pause (Michael, 2026-09-28: only the pause menu and the editor's pause button
 stop the game): over a level the world keeps simulating under it, while the
 input stays the sheet's, so the party does not walk off under an open page (prev/next cycle members modulo the live roster
 size, Esc/Back resumes). The per-member widgets (CharacterPanel, HandSlot,
 CharacterSheet) hold NO Character* across frames: they address
-Game::m_characters by (roster, index) and re-resolve through PartyHud.h's
+Game::m_characters by (roster, index) and re-resolve through PartyHudTypes.h's
 RosterMember at the top of every Update/Draw — an index past the roster's
 end just goes inert (no draw, no mouse) — so a roster of any size, or a
 resize, can't dangle them. StartNewGame/LoadGame still reset members in
 place (keeping each slot's loaded portrait); a roster SIZE change must
 call GameUI::RebuildForRoster (deferred like RebuildForLanguage, never
 from a widget callback) to re-lay-out the per-member widgets — BuildHud
-lays out whatever count it finds (hand pairs fill 2 wide, 2+1 for three). Left column under the bar: the
-facing/position panel (the Options panel under it - torchlight palette, Rest,
-Help - was REMOVED in lighting-updates Phase 1: light comes from what is lit,
-and Rest / Help sit in the log's corner row beside the Log button,
-MessageLog::cornerButtons). Right edge: a Dungeon Master-style control panel — six movement
-arrow buttons (turn/forward over strafe/back; GameUI::onMoveAction →
+lays out whatever count it finds (hand pairs fill 2 wide, 2+1 for three).
+EVERY PIECE OF THE HUD BUT THE MESSAGE LOG IS A FLOATING PANEL (ui-panels, see
+"Stone chrome, floating panels, Minimal layout" below; kHudPanelFields: party,
+status, move, hands, magic, cards, inventory, tray, sheet), and the layout
+described here is only where each one DEFAULTS. Left column under the bar: the
+STATUS panel (facing + position, GameUI's m_compass / m_position; the Options
+panel that sat under it - torchlight palette, Rest, Help - was REMOVED in
+lighting-updates Phase 1: light comes from what is lit, and Rest / Help sit in
+the log's corner row beside the Log button, MessageLog::cornerButtons). Right
+column: three DOCKS (Game/ControlBar.h - the Dungeon Master control panel was
+one framed box; it is three floating panels now, each minimizable to the tray):
+MOVEMENT (a MovementPad, 3x2 turn / step buttons: GameUI::onMoveAction ->
 Party::Act(MoveAction), the same discrete actions the bound keys map to in
-HandleInput), a left+right HandSlot (PartyHud.h) pair per member (empty
-boxes with the character's identity stripe; clicking logs "hands are empty"
-until items exist), and a reserved Magic area below.
+HandleInput), HANDS (a HandsArea, one HandPair per member, each two HandSlots -
+HandSlot.h - with the member's identity stripe; a click USES the hand, see
+"HAND BOXES" below) and MAGIC (the SpellbookPanel, shown only once a member
+knows a symbol). The Minimal layout replaces the bar and the Hands dock with one
+card per member (Game/MemberCards.h).
 
 In the 3D view the mouse does three things (Game::Update, gated by
 GameUI::HudMouseConsumed so HUD widgets win the click): LEFT-click picks a floor
@@ -1592,12 +1610,20 @@ rect comes from Game::MapPanel (mode-aware).
 - Player mode (`M` toggles open/closed; Esc also closes — both handled before
   the Esc→Paused branch in Game::Update): the in-game map. An 80%-centered
   panel drawn over the HUD behind a dim wash (so the scene shows around it).
-  Fog of war — only revealed cells and their contents draw — plus a centered
-  title and a right-docked symbol KEY (a trimmed subset: party/start/torch/
-  brazier/monster/item/button, dropping the obvious wall/floor rows). The key
-  collapses like the editor docks (own persisted flag map_player_key_collapsed).
-  No brush dock / editing. The `M` key is hardcoded (kKeyFields is MoveKeys-
-  only; a bindable map key needs a separate UI-keybinds table).
+  Fog of war - only revealed cells and their contents draw. NO DOCKS AT ALL:
+  both docks are Editor-only (Michael, 2026-09-23: the key is for building, not
+  for playing), so in Player mode GridArea is the whole panel. The symbol key
+  and its own `map_player_key_collapsed` flag went with it (MapView.cpp's
+  LegendCollapsed: one flag, mapLegendCollapsed, the editor's). Around the grid:
+  a centered title; TOP-LEFT the world-map globe when the world has one
+  (ShowWorldButton; MapView::WorldButton - the corner WorldMapView puts its
+  way back, so the pair reads as one control that stays put), then the [^]/[v]
+  level-browse arrows beside it (LevelUpButton steps right of the globe, or
+  takes the corner when there is none) and the viewed level's stem; the shared
+  close box top-right, the globe's square mirrored (ShowCloseButton); and a
+  footer of the pan/zoom hint and the party's square. No brush dock / editing.
+  The `M` key is hardcoded (kKeyFields is MoveKeys-only; a bindable map key
+  needs a separate UI-keybinds table).
 - Editor mode (dev console: `editor` opens/flips into it, `editor off` returns
   to Player without disturbing the view; reachable in all builds): the
   dungeon-builder. FULL-SCREEN and drawn alone — Game skips the shadow/scene
@@ -1817,19 +1843,22 @@ RIGHT-CLICKING a palette row opens the per-TYPE catalog editor
 from a SCHEMA: Game/CatalogSchema.h is a FieldSpec table per catalog (key, kind,
 section, range/step, options, one-line help), so exposing a field is one table
 row and a new category is one table (the kBalanceFields idiom). Sections become
-tabs, kinds become widgets (Bool→checkbox, Float→snapped slider, Enum/
-DamageType/CatalogRef→dropdown filled by Game through optionsFor, TextureSet/
-Model→a button opening the asset picker below), and "?" explains the active
-tab's fields. The kind switch names EVERY FieldKind with NO default, and the Game
-lib builds with C4062 as an ERROR (src/Game/CMakeLists.txt): a new kind fails the
-build at every switch that must learn it. Before that, DamageType built no widget
-at all and two catalog fields silently could not be authored (code-review C101).
-`typeset dialog rows [all]` prints what each schema row built, read off the
-widget tree, and EditorTest phase 19 demands a control for every row of every
-category. A theme member row's SWATCH is asked of `swatchFor` each time it DRAWS
-and never kept (ui::Checkbox::swatch is a function): it is the world's albedo,
-and a quality change reloads it under an open dialog, which drew freed textures
-(C235). NO live apply (a type is referenced by every placement
+tabs, kinds become widgets (Bool -> checkbox; Float -> snapped slider; Text ->
+text field; Enum / DamageType / CatalogRef -> dropdown, a CatalogRef's ids from
+Game through optionsFor; TextureSet / Model -> NOT a dropdown but a button
+showing the value that opens the ASSET PICKER through onPickAsset - see above;
+CatalogRefPick -> a ticked list with swatches; QuestStages / WeightedRefs ->
+rows of their own), and "?" explains the active tab's fields. The kind switch
+names EVERY FieldKind with NO default, and the Game lib builds with C4062 as an
+ERROR (src/Game/CMakeLists.txt): a new kind fails the build at every switch that
+must learn it. Before that, DamageType built no widget at all and two catalog
+fields silently could not be authored (code-review C101). `typeset dialog rows
+[all]` prints what each schema row built, read off the widget tree, and
+EditorTest phase 20 demands a control for every row of every category. A theme
+member row's SWATCH is asked of `swatchFor` each time it DRAWS and never kept
+(ui::Checkbox::swatch is a function): it is the world's albedo, and a quality
+change reloads it under an open dialog, which drew freed textures (C235). NO
+live apply (a type is referenced by every placement
 and, for surfaces, by baked geometry): Save writes the .cat and, when a touched
 field is `rebakes` (a surface's texture/relief/wear), re-runs the wornblock bake
 behind the busy overlay. A surface's PER-DRAW knobs are the exception —
@@ -1838,10 +1867,12 @@ behind the busy overlay. A surface's PER-DRAW knobs are the exception —
 ApplySurfaceFactors), so saving them pushes at the live scene through
 DungeonWorld::RefreshSurfaceMaterials: no reload, no rebuild. The factors follow
 the PROP rule — absent = -1 = the set's ORM map stays authoritative, a value
-REPLACES the draw's factor (which the shader multiplies over the map). Wart: an
-absent factor draws as 0.00 on its slider, indistinguishable from an explicit 0
-(only TOUCHED fields are written, so the behaviour is right — the display just
-doesn't say "map-driven"). Only fields the user TOUCHED are written and an empty
+REPLACES the draw's factor (which the shader multiplies over the map). An
+OPTIONAL float (no schema default) that is absent shows as a CHECKBOX, "...: from
+the texture's map" (or, for a `derivedFor` field such as a monster's `power`,
+the derived value), until unticked into a slider, and a set one carries a clear
+disc that removes it again - so "map-driven" is never confused with an explicit
+0. Only fields the user TOUCHED are written and an empty
 value REMOVES the field, so rows the schema doesn't cover survive — including the
 ones MonsterConfigDialog owns and rewrites (states/anim_*/archetype/threat_*),
 which is why the monster schema omits them and offers an "Animation..." button
@@ -1933,8 +1964,9 @@ also stashed on every level swap so unsaved edits survive, live decoration
 placements synced back into records first) and m_levelEnts (.ent records,
 created on demand; record ids stay stable across removals so the per-id
 dynamic diffs in m_levelStates remain valid) — and MapView rebuilds the browse
-snapshot after each paint. Entering a level consumes its stashes; the Select
-tool's inspectors still need the level active (no live instances remotely).
+snapshot after each paint. Entering a level consumes its stashes; the
+right-click inspectors (MapEditor::InspectAt) still need the level active (no
+live instances remotely - a browsed square only reports its static base).
 DOORS are functional (doors.cat, EntityKind::Door, .ent record `door <type>
 <x> <z> <facing> [name=] [open=1]`): a door fills a DOORWAY cell (solid walls
 flanking exactly one axis — the brush auto-detects the orientation, no facing
@@ -3053,30 +3085,39 @@ and answers: docs/transparency-notes.md; each phase's AS BUILT is in the plan.
   sizes off `UIContext::DesignHeight()`, NOT GetFont().Height(): the library
   applies the role's optical scale inside Get, so multiplying an already-scaled
   height applies it twice (they agree for a Body root and diverge for any other).
-  Editor dialogs read at `ui::kDialogTitleScale` / `kDialogTextScale` (widgets via
-  fontScale, raw draws via the DialogTitleFont / DialogTextFont helpers); numeric
-  readouts take NEITHER — sized to their digits, document size, Mono. And MEASURE
-  IN THE FACE AND SIZE YOU DRAW IN, or a row will not fit its own contents.
-  That rule has a STANDING CONSEQUENCE for the editor dialogs, which author their
-  regions as window FRACTIONS: every one of the eight was authored when titles
-  drew at 1x, and when the fonts thread took them to kDialogTitleScale nothing
-  re-derived a single band — so all eight drew their title down through the row,
-  tab strip or preview header beneath it. `ui::kDialogTitleBandH` (0.075 of the
-  window height) is that gap DERIVED ONCE — the contexts all size their font
-  clamp(h*0.020, 12, 24) and a title's line advance is that x2.9 x1.25 = 0.0725h,
-  the clamp only making it easier above h=1200 — and it is the ADVANCE, not the
-  ink, that has to clear or the next row sits on the descenders. Place whatever
-  follows a title at `kTitle.y + kDialogTitleBandH`; take the title's rect from
-  `ui::DialogTitleBand(panel, left, top)`, which also stops it short of the CLOSE
-  BOX (the same top-right corner the title line runs toward — "the full inner
-  width" silently means "under the close button"); and draw through
-  `ui::FitDialogTitle`, which shrinks for height then WIDTH and only ellipsises
-  once it has run out of shrink. Shrinking before cutting matters because two of
-  those titles carry the object's id AND are the click-to-rename affordance — and
-  there the hit-target rect and the draw must ask ONE function for the fitted
-  font (TypeEditorDialog::TitleFont / LevelSettingsDialog::TitleFont), since the
-  size now depends on the text. The same audit found ProjectileInspector's ROW
-  PITCH short for the same reason; a row's advance is 0.020 x 2.0 x 1.25 = 0.050h.
+  Editor dialogs read at `ui::kDialogTitleScale` (2.9) / `kDialogTextScale` (2.0),
+  both through Widget::fontScale (a dialog context's root carries the text scale
+  for its rows, the title widgets the title scale); numeric readouts take
+  NEITHER - sized to their digits, document size, Mono. And MEASURE IN THE FACE
+  AND SIZE YOU DRAW IN, or a row will not fit its own contents. THE CARD IS
+  game::BuildDialogChrome (Game/DialogLayout.h), which 16 dialogs build on (the
+  editor's, the asset and portrait pickers, the item details): one ui::Stack in
+  the panel rect - a title ROW (its height derived from kDialogTitleScale, so the
+  title's ADVANCE clears and nothing sits on its descenders) holding the title's
+  SLOT and, beside it, the close box's OWN slot, then the body (Fill) and an
+  optional footer row. A dialog hands over a panel rect and a title and fills the
+  body it gets back with rows sized by game::FormRow(lines) (rem x
+  kDialogTextScale, the one place that knows the factor) and footer actions by
+  FooterIcon / FooterButton; it writes no coordinate, so nothing can land under
+  the title or the close box (the window-fraction bands every dialog used to
+  author were exactly how eight titles came to draw through the row beneath
+  them). A PLAIN title is a ui::Label at kDialogTitleScale, which draws its
+  whole string - a long one ESCAPES its slot and `uioverlap` says so; keep it
+  short. A title that carries an object's ID and IS its click-to-rename
+  affordance (TypeEditorDialog, LevelSettingsDialog) is a game::EditableTitle in
+  that slot (BuildDialogChrome given an empty title): ONE widget for the plain
+  prefix and the clickable name, so the hit box is the measured text, and it FITS
+  ITSELF - LayoutSelf shrinks it for height, then for WIDTH (one computed size,
+  quantized to 2px, never below the document size), and only past that floor
+  cuts the NAME's tail with ui::FitText's "..", reporting the cut through
+  TextOverrun so `uioverlap` lists it. SHRINK BEFORE CUT because the tail of an id
+  is the part that says WHICH type or level is open. Checked by InGameTest's
+  `sweep_longtitle` (a 32-character dungeon id in the type editor must audit
+  clean). The helpers this paragraph used to teach - kDialogTitleBandH,
+  DialogTitleBand, FitDialogTitle, the dialogs' own TitleFont - are GONE;
+  ui::DialogTitleFont / DialogTextFont and the panel-rect AddCloseButton /
+  CloseButtonRect survive with NO CALLER until code-review C92 deletes them, so
+  do not build on them.
 - The clean (non-worn) block set is baked but unused — intended for newer
   dungeon areas, needs per-region block-set selection in DungeonMeshBuilder.
 - Texture sets are now installed at 1k/2k/4k with ORM maps, so Low/Medium and
@@ -3125,10 +3166,13 @@ and answers: docs/transparency-notes.md; each phase's AS BUILT is in the plan.
   RemoveDecorationByIndex, undo-bracketed), closing = top-right "x" or Esc.
   DIALOG CLOSE CONVENTION (all of them, editor AND main game): the close
   affordance is the shared box icon (assets/ui/icon_close.png) in the panel's
-  TOP-RIGHT CORNER, never a footer "Close"/"Cancel"/"Back" button —
-  ui::AddCloseButton(ctx, panelRect, icon, onClose) places it identically
-  everywhere (it's a ui::Button with the icon; text "x" is the missing-asset
-  fallback). ONE texture serves them all: AssetUtil's CloseIcon(device) loads
+  TOP-RIGHT CORNER, never a footer "Close"/"Cancel"/"Back" button -
+  ui::AddCloseButton(slot, icon, onClose) puts it IN A SLOT the layout reserved
+  for it (BuildDialogChrome's title row for every editor dialog; the sheet's and
+  the party window's own - GameUI.cpp BuildCharacterSheet, PartyWindow.cpp),
+  so it is the same everywhere and nothing can sit under it (it's a ui::Button
+  with the icon; text "x" is the missing-asset fallback). ONE texture serves
+  them all: AssetUtil's CloseIcon(device) loads
   it on the first ask and each dialog borrows a `const gfx::Texture*
   m_closeIcon`; ~Game calls ReleaseSharedIcons() while the device is still
   alive, since a gfx::Texture returns its SRV slot on destruction. Each dialog
@@ -3139,12 +3183,14 @@ and answers: docs/transparency-notes.md; each phase's AS BUILT is in the plan.
   have loaded the icon ALREADY — the sheet is built from Game's ctor
   (BuildStaticUi) while GameUI only loaded it in the LoadTitleArt load task, so
   it captured a null and drew the "x" fallback forever. Load in BuildStaticUi,
-  not in a load task. Footer keeps only ACTION buttons
-  (Save/Delete/Remove/Animation/?), right-aligned to the panel's inner edge so
-  nothing overruns it. Covered: the InstanceInspector base (all 7 per-instance
-  inspectors; the stair one joined 2026-09-25 - right-clicking a stair used to
-  open nothing, because AnyInspectableAt never listed stairs), TypeEditorDialog, AssetDialog, BalanceDialog, MonsterConfigDialog,
-  LevelSettingsDialog, ProjectileInspector, InspectPicker, and the character
-  sheet (GameUI). NOT touched: Yes/No confirm modals (their explicit choice
+  not in a load task. Footer keeps only ACTION buttons (FooterIcon discs:
+  Save/Delete/Remove/Animation/?), in the card's footer row so nothing overruns
+  it. Covered: every dialog on BuildDialogChrome - the InstanceInspector base
+  (all 7 per-instance inspectors; the stair one joined 2026-09-25 -
+  right-clicking a stair used to open nothing, because AnyInspectableAt never
+  listed stairs), TypeEditorDialog, AssetDialog, BalanceDialog,
+  MonsterConfigDialog, LevelSettingsDialog, ProjectileInspector, InspectPicker
+  and the rest - plus the character sheet and the party window. NOT touched:
+  Yes/No confirm modals (their explicit choice
   buttons aren't a "Close") and the full-screen menu/settings/save PAGES (Back
   is page navigation, not a dialog dismiss).

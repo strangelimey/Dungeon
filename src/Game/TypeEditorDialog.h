@@ -3,12 +3,12 @@
 // category.
 //
 // The per-INSTANCE half of the editor has had proper dialogs for a while
-// (InstanceInspector + its six subclasses); this is their opposite number:
+// (InstanceInspector + its seven subclasses); this is their opposite number:
 // right-click a palette ROW and edit the catalog entry behind it. One dialog
-// serves all ten categories because it does not know any of them — it renders
-// its form from CatalogSchema's FieldSpec table (sections become tabs, kinds
-// become widgets), so a new field is one table row and a new category is one
-// table.
+// serves every palette category (MapEditor's kCategoryInfo, 24 of them) because
+// it does not know any of them - it renders its form from CatalogSchema's
+// FieldSpec table (sections become tabs, kinds become widgets), so a new field
+// is one table row and a new category is one table.
 //
 // Editing model, deliberately unlike the instance inspectors: NO live apply.
 // A type is referenced by every placement of it (and, for surfaces, by baked
@@ -18,9 +18,10 @@
 // other fields — hand-authored, or owned by another dialog like
 // MonsterConfigDialog's animation rows — round-trip untouched.
 //
-// The owner supplies the dropdown contents (installed texture sets and models,
-// another catalog's ids) through optionsFor, since the pool and the project are
-// Game's to know, not the dialog's.
+// The owner supplies what the pool and the project hold, since they are Game's
+// to know, not the dialog's: a CatalogRef dropdown's ids through optionsFor,
+// and a TextureSet / Model field's pick - a button showing the value, not a
+// dropdown - through onPickAsset, which opens the asset picker.
 // ============================================================================
 #pragma once
 

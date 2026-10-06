@@ -7,16 +7,15 @@
 // mouse, for panning/zooming/editing). Two modes:
 //   Player (M key)       — an 80%-centered overlay; fog of war (only revealed
 //                          cells and their contents draw, DungeonWorld::IsSeen).
-//                          Carries a right-docked symbol key (a trimmed subset
-//                          of the editor's), collapsible like the editor docks.
+//                          No docks: the grid is the whole panel (GridArea).
 //   Editor (`editor` cmd)— full-screen and drawn alone; the whole map and
 //                          every creature/item draw regardless of fog, with a
-//                          brush palette docked left and a full symbol key
-//                          docked right. Every dock collapses to a single
+//                          brush palette docked left and the overview + symbol
+//                          key docked right. Every dock collapses to a single
 //                          flip-arrow button (state persisted in GameSettings).
 //
 // MapView is the shared VIEWPORT — pan/zoom, the cell/marker/party render, fog,
-// and the right symbol key (both modes). The editor's brush palette and brush-
+// and the right dock (Editor mode). The editor's brush palette and brush-
 // apply logic live in a separate collaborator, MapEditor (NOT a subclass — that
 // would fight the in-place Player<->Editor mode flip): set it once via
 // SetEditor and MapView drives it while in Editor mode. The left dock's frame,
@@ -336,11 +335,11 @@ private:
 
 	// Docks (resolution independent — all sized from the panel, so Update and
 	// Render agree). Each collapses to a thin strip showing only its flip-arrow
-	// button. The left brush palette is Editor-only; the right symbol key shows
-	// in both modes (full set in Editor, trimmed in Player). Collapse flags live
-	// in GameSettings — the right key's flag is per mode, via Legend*().
+	// button. BOTH are Editor-only - the player's map is all grid (GridArea) -
+	// the left brush palette and the right overview + symbol key. Collapse
+	// flags live in GameSettings, one per dock (the right one's via Legend*()).
 	gfx::Rect LeftDockRect(const gfx::Rect& panel) const;   // brush palette
-	gfx::Rect RightDockRect(const gfx::Rect& panel) const;  // symbol key
+	gfx::Rect RightDockRect(const gfx::Rect& panel) const;  // overview + symbol key
 	// The TOOL STRIP (Editor only, MapView_Tools.cpp): a column of tool discs
 	// between the palette dock and the grid - paint, rectangle, flood, area,
 	// eyedropper, then Fill level. Its own column rather than rows in the dock
@@ -383,7 +382,7 @@ private:
 	bool m_updatedSinceRender = false; // see RenderIssueTooltip
 	gfx::Rect LeftCollapseButton(const gfx::Rect& panel) const;
 	gfx::Rect RightCollapseButton(const gfx::Rect& panel) const;
-	bool LegendCollapsed() const; // the right key dock's collapse flag for the mode
+	bool LegendCollapsed() const; // the right dock's collapse flag
 	void ToggleLegend();          // flips that flag and persists
 
 	// --- docks, continued (MapView_Docks.cpp) ----------------------------------
@@ -586,7 +585,7 @@ private:
 	gfx::Rect LevelPickRect(const gfx::Rect& panel) const;
 	gfx::Rect LevelItemRect(int index, const gfx::Rect& panel) const;
 	gfx::Rect NewLevelButton(const gfx::Rect& panel) const; // [+], right of it
-	// The player map's way to the WORLD page, top-right of the grid — the
+	// The player map's way to the WORLD page, top-left of the grid - the
 	// same corner WorldMapView puts the way back, so the pair reads as one
 	// control that stays put rather than two that swap places.
 	gfx::Rect WorldButton(const gfx::Rect& panel) const;

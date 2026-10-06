@@ -4,7 +4,7 @@
 //   Panel       framed background rectangle (add first so it draws beneath)
 //   Separator   horizontal rule (like HTML <hr>) dividing sections
 //   Label       single line of text; `dim` switches to the muted color
-//   TextOutput  scrolling message log; AddLine appends, wheel scrolls
+//   TextOutput  scrolling text log - NO CALLER (the HUD's is game::MessageLog)
 //   Button      click callback; hot/held visual states
 //   Slider      horizontal drag, value in [min, max], change callback
 //   DropDown    popup list; overlay-drawn so it covers later widgets
@@ -15,10 +15,12 @@
 //   TabControl  tab strip + a framed ScrollArea page per tab
 //   Repeater    container whose children come from a per-frame count
 //
-// All bounds are normalized fractions (0..1) of the containing widget or
-// window (see Widget.h) — the UI scales with the screen. Fixed-pixel detail
-// (1px borders, text padding, the slider thumb) and font sizes do NOT scale.
-// Colors come from the shared Theme.
+// All bounds are normalized fractions (0..1) of the containing widget's
+// ContentRect, down from a window-sized root (see Widget.h). The DETAIL inside
+// a control - padding, row heights, a scrollbar's width, a thumb's minimum - is
+// in REM (UI/Units.h: the context's root font size, which tracks the window
+// height), so it scales with the text beside it. The only raw pixels are
+// hairlines: 1px borders and the 2px caret. Colors come from the shared Theme.
 // ============================================================================
 #pragma once
 
@@ -102,8 +104,10 @@ public:
 	bool centerV = false;
 };
 
-// Scrolling multi-line text log (message window). New lines append at the
-// bottom; the mouse wheel scrolls when hovered.
+// Scrolling multi-line text log. New lines append at the bottom; the mouse
+// wheel scrolls when hovered. NO CALLER: the HUD's message log is
+// game::MessageLog (a fixed ring - this keeps a std::string per line, which
+// would allocate in a guarded frame), and code-review C92 deletes this.
 class TextOutput : public Widget {
 public:
 	explicit TextOutput(const gfx::Rect& rect, size_t maxLines = 200)
@@ -683,7 +687,8 @@ public:
 
 private:
 	// Stacks the rows down the scrolling area (their bounds are fractions of
-	// it, and rowHeight is in pixels, so they are assigned per layout).
+	// it, and rowHeight is in rem, which is known only at layout, so they are
+	// assigned per layout).
 	void LayoutSelf(UIContext& ctx) override;
 	// The modal runs BEFORE the rows so it can take the mouse from them.
 	void UpdateBeforeChildren(UIContext& ctx) override;
@@ -1080,43 +1085,40 @@ void DrawDropDownExpander(gfx::SpriteBatch& batch, const Font& font,
 // as the draw, which is what keeps the two in step.
 float DropDownTextRight(const Font& font, const gfx::Rect& rect);
 
-// The standard close affordance every dialog uses: a small square button in the
-// top-right CORNER of `panel` (window-fraction space, like the widgets it joins).
-// `icon` is the shared close box (assets/ui/icon_close); a null icon falls back
-// to a text "x". Returns the button (owned by `ui`). The rule is one place so
-// every dialog closes the same way — top-right, never a footer button.
+// The PANEL-FRACTION form of the close box: a small square button floated into
+// the top-right corner of `panel` (window fractions). NO CALLER - every close
+// box now sits in a slot its layout reserved (the overload below; an editor
+// dialog's comes from game::BuildDialogChrome), and code-review C92 deletes
+// these two. Do not revive them: a floated button lands on whatever is beneath
+// it, which is a collision waiting for a longer title.
 gfx::Rect CloseButtonRect(const gfx::Rect& panel);
 Button* AddCloseButton(UIContext& ui, const gfx::Rect& panel,
 					   const gfx::Texture* icon, std::function<void()> onClose);
 
-// The same affordance, placed INSIDE a slot a layout reserved for it (a Stack's
-// Space — UI/Layout.h). Prefer this wherever the dialog's chrome is stacked: the
-// panel-fraction form floats the button over whatever happens to be beneath it,
-// which is a collision waiting for a longer title, while a slot is an area the
-// layout has already kept clear. The icon self-squares inside the slot.
+// The standard close affordance every dialog uses, placed INSIDE a slot a
+// layout reserved for it (a Stack's Space - UI/Layout.h), so it is an area the
+// layout has already kept clear. `icon` is the shared close box
+// (assets/ui/icon_close, AssetUtil's CloseIcon); a null icon falls back to a
+// text "x". The icon self-squares inside the slot. One helper so every dialog
+// closes the same way - top-right, never a footer button.
 Button* AddCloseButton(Widget& slot, const gfx::Texture* icon,
 					   std::function<void()> onClose);
 
 // How much larger than its context an editor dialog sets its two kinds of text.
 // Constants rather than a size each dialog picks, for the same reason
 // AddCloseButton is one helper: every dialog then reads at the same two sizes.
-// Widgets take these through Widget::fontScale; raw draws take them through the
-// two font helpers below. The dialogs' numeric readouts deliberately take
-// NEITHER — they are sized to their digits and stay at the document size.
+// Widgets take these through Widget::fontScale (game::BuildDialogChrome's title
+// Label and game::EditableTitle, a dialog context's root for its rows). The
+// dialogs' numeric readouts deliberately take NEITHER - they are sized to their
+// digits and stay at the document size.
 inline constexpr float kDialogTitleScale = 2.9f;
 inline constexpr float kDialogTextScale = 2.0f;
 
-// A dialog's TITLE face: the context's own text, enlarged. One helper for the
-// same reason AddCloseButton is one helper — every dialog's title is then the
-// same size — and because a title is sometimes a HIT TARGET (the level and type
-// dialogs make their name a click-to-rename affordance). Measuring that in one
-// size and drawing it in another puts the click somewhere the text is not, so
-// the rect and the draw must ask the same function.
+// The same two sizes as faces, for a RAW draw. NO CALLER: every dialog draws
+// its title and rows through widgets now (a title that is a click-to-rename
+// affordance is game::EditableTitle, which fits its own face and measures its
+// hit box in it), and code-review C92 deletes these two.
 const Font& DialogTitleFont(const UIContext& ctx);
-
-// A dialog's FORM face — setting names and footer buttons. The same size a
-// widget gets from `fontScale = kDialogTextScale`, for the dialogs that draw
-// their rows straight to the batch instead of through Label widgets.
 const Font& DialogTextFont(const UIContext& ctx);
 
 } // namespace dungeon::ui

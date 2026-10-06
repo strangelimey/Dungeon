@@ -150,7 +150,7 @@ private:
 		bool enabled = true;
 	};
 	std::vector<ToolButton> ToolbarButtons(const gfx::Rect& panel) const;
-	// The overlay's way back to the dungeon map, top-right of the grid — the
+	// The overlay's way back to the dungeon map, top-left of the grid - the
 	// SAME corner MapView puts its way here, so the pair reads as one control
 	// that stays put rather than two buttons that swap places.
 	gfx::Rect DungeonButton(const gfx::Rect& panel) const;

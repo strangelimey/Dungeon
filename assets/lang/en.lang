@@ -227,7 +227,6 @@ log.rest_end=The party rouses.
 log.rest_done=Rested, and there is nothing more to be gained here.
 log.rest_attacked=Something is attacking!
 log.rest_hungry=No one can rest on an empty stomach.
-log.hands_empty={}'s hands are empty.
 log.bump=You bump into a wall.
 log.bump_hurt=The party lurches into the obstacle and is jarred for {} damage.
 log.fall_hurt=The party hits the stone floor below, taking {} damage.

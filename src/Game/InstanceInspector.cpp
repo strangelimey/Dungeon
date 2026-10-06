@@ -53,12 +53,10 @@ constexpr float kPaneFill = 0.40f;
 constexpr float kGutterRow = 1.0f;
 } // namespace
 
-ui::Len InstanceInspector::FormRow(float lines) { return game::FormRow(lines); }
-
 InstanceInspector::InstanceInspector(gfx::GraphicsDevice& device,
 									 ui::FontLibrary& fonts)
 	: m_device(device), m_ui(fonts, ui::FontRole::Body, 18.0f) {
-	// Covers all six per-instance inspectors: they build into THIS context.
+	// Covers all seven per-instance inspectors: they build into THIS context.
 	m_ui.Root().fontScale = ui::kDialogTextScale; // inherits — see LevelSettings
 	m_closeIcon = CloseIcon(device);
 }

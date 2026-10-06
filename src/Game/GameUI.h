@@ -1,11 +1,14 @@
 // ============================================================================
 // Game/GameUI.h — every 2D surface the game shows.
 //
-// Owns the five UIContexts (HUD, landing menu, shared settings page, pause
-// menu, character sheet), the title font and landing art, and all the
-// widgets in them. Builds the static pages up front (BuildStaticUi) and the
-// HUD as a load task (BuildHud, once the roster's portraits exist); renders
-// the loading screens, menu/pause/sheet overlays, and the in-game HUD.
+// Owns the seven UIContexts (the HUD with its floating panels and the party
+// window, landing menu, shared settings page, pause menu, the saves context -
+// save / load pages, the world list and the party creation page - the
+// character sheet, and the Yes/No confirm), the two dialogs that bring their
+// own (ItemDetailsDialog, PortraitPicker), the title font and landing art, and
+// all the widgets in them. Builds the static pages up front (BuildStaticUi) and the HUD as a load
+// task (BuildHud, once the roster's portraits exist); renders the loading
+// screens, menu/pause/sheet overlays, and the in-game HUD.
 //
 // GameUI edits GameSettings directly (it hosts the Settings page) and saves
 // it on the same triggers as before (sliders on release, pickers when their

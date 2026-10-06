@@ -1139,7 +1139,8 @@ void GameUI::DisarmOverwrite() {
 
 // Character details page (clicking a party-bar portrait): the sheet widget
 // draws the page itself; prev/next buttons cycle the roster and Back (or
-// Esc) resumes play. Like the pause menu it overlays the frozen scene.
+// Esc) resumes play. Unlike the pause menu it is NOT a pause: over a level
+// the world keeps running under it (Game::Update's CharacterSheet case).
 void GameUI::BuildCharacterSheet() {
 	// Parent-relative layout (fractions of the window) — no design-pixel Norm.
 	// Centered panel, slightly above geometric center so the footer buttons fit.
@@ -1526,8 +1527,9 @@ std::string GameUI::UiTreeNames() {
 }
 
 // ============================================================================
-// HUD — authored in design pixels from the initial window size, stored as
-// window fractions (Norm), so it scales with the screen. Widgets the game
+// HUD - FLOATING PANELS (UI/FloatingPanel.h) on one FloatingLayer: each sits at
+// its saved spot or its default (window fractions, kBarTop and friends) and is
+// its content's size at its scale, the detail inside in rem. Widgets the game
 // updates later are kept as raw pointers (m_log, m_compass, m_position); the
 // UIContext owns all widgets.
 // ============================================================================
@@ -2455,8 +2457,9 @@ void GameUI::RenderPauseOverlay() {
 	RenderConfirmOverlay();
 }
 
-// Portrait click: the frozen scene under a dark wash, with the sheet page
-// (and its prev/next/Back buttons) on top.
+// Portrait click: the live scene - the world keeps running, the sheet is not
+// a pause - under a dark wash, with the sheet page (and its prev/next/Back
+// buttons) on top.
 void GameUI::RenderCharacterSheetOverlay() {
 	const float w = DeviceW();
 	const float h = DeviceH();
@@ -2467,7 +2470,7 @@ void GameUI::RenderCharacterSheetOverlay() {
 }
 
 // A carried tablet rides the cursor: paint its element icon at the mouse, over
-// everything. Shared by the HUD and the (frozen) sheet so dropping works on both.
+// everything. Shared by the HUD and the sheet so dropping works on both.
 void GameUI::DrawHeldCursor() {
 	if (!m_held || !m_held->has_value() || !m_itemIcons) return;
 	const float s = DeviceH() * 0.072f; // ~20% larger than a slot icon reads

@@ -642,7 +642,12 @@ void GameUI::EatSlot(size_t i, ItemSlot& slot) {
 	}
 	// Consumed - or, for a container, stepped down a fill level (a waterskin
 	// drunk from is a half-full one now, items.cat `drink_as`). Assigned into
-	// the slot's own buffer: a shorter id never allocates.
+	// the slot's own buffer, so it allocates only when the new id outgrows that
+	// buffer's capacity. The potions shrink (potion_health_minor -> vial_empty),
+	// but the waterskin GROWS - waterskin -> waterskin_half -> waterskin_empty,
+	// 9 -> 14 -> 15 characters - and is safe only because 15 still fits MSVC's
+	// small-string buffer. A `drink_as` id longer than 15 characters and than
+	// the id it replaces would allocate here.
 	if (const std::string_view leaves = consumeLeaves ? consumeLeaves(slot.typeId)
 													  : std::string_view{};
 		!leaves.empty())

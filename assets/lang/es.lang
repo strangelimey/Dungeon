@@ -228,7 +228,6 @@ log.rest_end=El grupo se levanta.
 log.rest_done=Descansados; aquí ya no queda nada que ganar.
 log.rest_attacked=¡Algo está atacando!
 log.rest_hungry=Nadie descansa con el estómago vacío.
-log.hands_empty=Las manos de {} están vacías.
 log.bump=Chocáis contra un muro.
 log.bump_hurt=El grupo se estrella contra el obstáculo y sufre {} de daño.
 log.fall_hurt=El grupo golpea el suelo de piedra y sufre {} de daño.

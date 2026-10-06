@@ -5,6 +5,9 @@
 
 #include "Game/AssetUtil.h" // ToolbarIcon (FooterIcon)
 
+#include <algorithm>
+#include <cmath>
+
 namespace dungeon::game {
 
 namespace {
@@ -25,12 +28,91 @@ EditableTitle::EditableTitle(const gfx::Rect& rect, std::string prefix,
 	fontScale = ui::kDialogTitleScale;
 }
 
+void EditableTitle::LayoutSelf(ui::UIContext& ctx) {
+	const gfx::Rect& px = Pixel();
+	const ui::FontRole role = ResolvedRole();
+	m_face = &TextFont();
+	m_prefixKeep = prefix.size();
+	m_nameKeep = name.size();
+	m_prefixMark = m_nameMark = false;
+	m_overrun = 0.0f;
+	if (px.w <= 0.0f || px.h <= 0.0f) return; // not laid out yet: nothing to fit
+
+	// Sizes are what FontAt is ASKED for (DesignHeight-based, UIContext.h), and
+	// each step scales the request by what the FACE measured, so the role's
+	// optical scale - applied inside the library - is never counted twice. Every
+	// computed size is QUANTIZED to 2px: the FontLibrary bakes an atlas per
+	// distinct rounded height, and sizing continuously to the text would mint
+	// one per id length. Never below the document size - under that it stops
+	// reading as a title, and a slot that tight is a layout bug, not this
+	// widget's.
+	const float floorPx = ctx.DesignHeight();
+	auto shrunk = [floorPx](float size, float ratio) {
+		return std::max(std::floor(size * ratio * 0.5f) * 2.0f, floorPx);
+	};
+	float size = ctx.DesignHeight() * fontScale.value_or(1.0f);
+
+	// HEIGHT first: a line advance is 1.25x the face, and it is the ADVANCE that
+	// has to fit the slot or the row below is drawn through.
+	if (const float advance = m_face->Height() * 1.25f; advance > px.h) {
+		size = shrunk(size, px.h / advance);
+		m_face = &ctx.FontAt(role, size);
+	}
+
+	// Then WIDTH, by shrinking before cutting. Glyph widths scale with the pixel
+	// height, so the size that fits is about size * room / measured - ABOUT,
+	// because the glyphs are rasterized at whole pixels and their advances do
+	// not scale exactly (measured: a 32-character id came out 3px over). So the
+	// estimate is the first guess and the re-measure decides, stepping down a
+	// quantum at a time until it fits; only the floor can leave it over, and
+	// then the name is cut.
+	auto wide = [&](const ui::Font& f) {
+		return f.MeasureWidth(prefix) + f.MeasureWidth(name);
+	};
+	if (const float w = wide(*m_face); w > px.w) {
+		size = shrunk(size, px.w / w);
+		m_face = &ctx.FontAt(role, size);
+		while (wide(*m_face) > px.w && size > floorPx) {
+			size = std::max(size - 2.0f, floorPx);
+			m_face = &ctx.FontAt(role, size);
+		}
+	}
+	const float need = wide(*m_face);
+	if (need <= px.w) return;
+
+	// Out of shrink: CUT THE NAME'S TAIL (the prefix is the plain half), and say
+	// so - the layout did not give the title room for what it shows. Only when
+	// the prefix leaves no room for even the mark does the name go whole, and
+	// the prefix is cut to leave one mark standing for both.
+	m_overrun = need - px.w;
+	const float mark = m_face->MeasureWidth(ui::kTrimMark);
+	const float room = px.w - m_face->MeasureWidth(prefix);
+	if (room >= mark) {
+		m_nameKeep = ui::FitText(*m_face, name, room, &m_nameMark).size();
+	} else {
+		m_nameKeep = 0;
+		m_prefixMark = mark <= px.w; // a slot narrower than ".." paints nothing
+		m_prefixKeep = m_prefixMark ? ui::FitText(*m_face, prefix, px.w - mark).size() : 0;
+	}
+}
+
+std::string_view EditableTitle::ShownPrefix() const {
+	return std::string_view(prefix).substr(0, m_prefixKeep);
+}
+
+std::string_view EditableTitle::ShownName() const {
+	return std::string_view(name).substr(0, m_nameKeep);
+}
+
 gfx::Rect EditableTitle::NamePixels() const {
-	const ui::Font& font = TextFont();
+	const ui::Font& font = Face();
 	const gfx::Rect& px = Pixel();
 	const float h = font.Height();
-	return {px.x + font.MeasureWidth(prefix), px.y + (px.h - h) * 0.5f,
-			font.MeasureWidth(name), h};
+	const float mark = font.MeasureWidth(ui::kTrimMark);
+	const float x = px.x + font.MeasureWidth(ShownPrefix()) + (m_prefixMark ? mark : 0.0f);
+	// The click target is the name AS DRAWN, its trim mark included.
+	const float w = font.MeasureWidth(ShownName()) + (m_nameMark ? mark : 0.0f);
+	return {x, px.y + (px.h - h) * 0.5f, w, h};
 }
 
 gfx::Rect EditableTitle::InkRect() const {
@@ -51,10 +133,17 @@ void EditableTitle::UpdateSelf(ui::UIContext& ctx) {
 
 void EditableTitle::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const ui::Theme& th = ctx.GetTheme();
-	const ui::Font& font = TextFont();
+	const ui::Font& font = Face();
 	const gfx::Rect n = NamePixels();
-	font.Draw(batch, prefix, Pixel().x, n.y, th.text);
-	font.Draw(batch, name, n.x, n.y, m_hot ? th.accent : th.text);
+	const std::string_view shownPrefix = ShownPrefix(), shownName = ShownName();
+	font.Draw(batch, shownPrefix, Pixel().x, n.y, th.text);
+	if (m_prefixMark)
+		font.Draw(batch, ui::kTrimMark, Pixel().x + font.MeasureWidth(shownPrefix), n.y,
+				  th.text);
+	const Vec4& nameColor = m_hot ? th.accent : th.text;
+	font.Draw(batch, shownName, n.x, n.y, nameColor);
+	if (m_nameMark)
+		font.Draw(batch, ui::kTrimMark, n.x + font.MeasureWidth(shownName), n.y, nameColor);
 	// The hint underline: this half is clickable, the prefix is not.
 	batch.DrawRect({n.x, n.y + n.h + 1.0f, n.w, 1.0f},
 				   m_hot ? th.accent : th.textDim);

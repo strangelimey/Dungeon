@@ -63,6 +63,15 @@ protected:
 //
 // `onClick` fires from inside the tree walk, so a handler that rebuilds the UI
 // must DEFER it a frame (the m_uiRebuild pattern).
+//
+// FITTED, SHRINK BEFORE CUT. The title starts at ui::kDialogTitleScale and,
+// when prefix + name are wider than the slot, SHRINKS (never below the
+// document size) before it trims anything: the name is the object's id AND the
+// rename affordance, so its tail is the part that says which type or level is
+// open, and a smaller title still says all of it. Only past that floor is the
+// NAME cut (ui::FitText's ".."), and then the widget reports the cut through
+// TextOverrun so the `uioverlap` audit lists it. The fitted face is chosen in
+// LayoutSelf and is the one the hit box, the ink and the draw all measure in.
 class EditableTitle : public ui::Widget {
 public:
 	EditableTitle(const gfx::Rect& rect, std::string prefix, std::string name,
@@ -72,13 +81,27 @@ public:
 	std::function<void()> onClick;
 
 	gfx::Rect InkRect() const override;
+	float TextOverrun() const override { return m_overrun; }
 
 protected:
+	void LayoutSelf(ui::UIContext& ctx) override;
 	void UpdateSelf(ui::UIContext& ctx) override;
 	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 private:
+	// The face the title is drawn in: the fitted one once laid out.
+	const ui::Font& Face() const { return m_face ? *m_face : TextFont(); }
+	// What is drawn of each half: a whole string, or a prefix of it followed by
+	// ui::kTrimMark. LENGTHS, not views, so a caller reassigning `name` between
+	// layouts can never leave a dangling view - the next layout re-fits.
+	std::string_view ShownPrefix() const;
+	std::string_view ShownName() const;
 	gfx::Rect NamePixels() const;
+
+	const ui::Font* m_face = nullptr;
+	size_t m_prefixKeep = 0, m_nameKeep = 0;
+	bool m_prefixMark = false, m_nameMark = false; // a ".." follows that half
+	float m_overrun = 0.0f; // px of text the fit could not show (0 = all of it)
 	bool m_hot = false;
 };
 

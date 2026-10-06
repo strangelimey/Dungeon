@@ -27,7 +27,6 @@ constexpr gfx::Rect kPanel{0.26f, 0.12f, 0.48f, 0.76f};
 
 // A field row's label column against its control column.
 constexpr float kLabelFill = 1.0f, kFieldFill = 1.5f;
-constexpr float kLabelW = 0.34f, kFieldX = 0.40f, kFieldW = 0.56f;
 
 // "1"/"0" the way the catalogs write booleans.
 const char* BoolText(bool on) { return on ? "1" : "0"; }

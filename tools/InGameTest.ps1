@@ -77,6 +77,10 @@ function Run-Party([string]$spec) {
 	Run-Cmd 'logecho off'
 }
 
+# The id sweep_longtitle gives a dungeon: 32 characters, the type editor's own
+# rename limit (TypeEditorDialog's name field maxLength).
+$longTitleId = 'sweep_long_dungeon_identifier_32'
+
 # The screens this sweeps, and how each is reached. Keyboard only: scripted
 # mouse clicks proved unreliable against a layout whose rows move.
 #
@@ -169,6 +173,17 @@ $screens = @(
 	@{ label = 'sweep_dungeondelete'; viaConsole = $true
 	   open = { Run-Cmd 'editor'; Run-Cmd 'newtype dungeons'; Run-Cmd 'dungeons dialog dungeon1'; Run-Cmd 'dungeons dialog delete' }
 	   close = { Run-Cmd 'dungeons dialog off'; Run-Cmd 'dungeons delete dungeon1 dungeon1'; Run-Cmd 'editor off' } },
+	# A LONG ID IN THE TYPE EDITOR'S TITLE (code-review C455): the title is the
+	# id's rename affordance (game::EditableTitle), and at full title size a
+	# 32-character id runs past its slot - it must SHRINK to fit, not escape and
+	# not cut (an id's tail is what names it). An empty dungeon of its own,
+	# renamed long and deleted on the way out, as above. The dialog's own line is
+	# echoed to the log (logecho on for that one command) so the verdict can
+	# demand it opened on the long id - a sweep of the bare editor would be clean.
+	@{ label = 'sweep_longtitle'; viaConsole = $true
+	   open = { Run-Cmd 'editor'; Run-Cmd 'newtype dungeons'; Run-Cmd "dungeons rename dungeon1 $longTitleId"
+				Run-Cmd 'logecho on'; Run-Cmd "dungeons dialog $longTitleId"; Run-Cmd 'logecho off' }
+	   close = { Run-Cmd 'dungeons dialog off'; Run-Cmd "dungeons delete $longTitleId $longTitleId"; Run-Cmd 'editor off' } },
 	# The NEW WORLD dialog (editor-updates P4), from the level editor's toolbar:
 	# with "Copy one level" picked, so its level dropdown row is the live one...
 	@{ label = 'sweep_newworld'; viaConsole = $true
@@ -330,6 +345,13 @@ if ($pickers -ge 2) {
 	Write-Host '  [ok  ] the portrait picker opened for both its sweeps'
 } else {
 	Write-Host "  [FAIL] the portrait picker opened $pickers of 2 times - a sweep audited the page beneath" -ForegroundColor Red
+	$failures++
+}
+# And the type editor on the long id, or sweep_longtitle audited the editor.
+if ($lines | Select-String ([regex]::Escape("dungeons dialog: open '$longTitleId'"))) {
+	Write-Host '  [ok  ] the type editor opened on the long id for sweep_longtitle'
+} else {
+	Write-Host "  [FAIL] the type editor never opened on '$longTitleId' - sweep_longtitle audited the editor beneath" -ForegroundColor Red
 	$failures++
 }
 # And the party creation page, or its sweeps audited the title screen.

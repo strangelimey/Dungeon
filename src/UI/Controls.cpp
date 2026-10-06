@@ -1837,8 +1837,8 @@ void SlotList::AddRow(Row row) {
 						   [this, index] { m_confirmRow = static_cast<int>(index); });
 }
 
-// rowHeight is in pixels and the rows are fractions of the scrolling area, so
-// the stack is assigned per layout. A left inset keeps them off the frame; the
+// rowHeight is in rem (known only at layout) and the rows are fractions of the
+// scrolling area, so the stack is assigned per layout. A left inset keeps them off the frame; the
 // area's gutter already holds the scrollbar clear.
 void SlotList::LayoutSelf(UIContext&) {
 	// gutter is in REM (Controls.h) — ScrollArea multiplies it by its own root

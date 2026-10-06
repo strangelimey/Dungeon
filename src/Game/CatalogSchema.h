@@ -36,8 +36,11 @@ enum class FieldKind {
 	Bool,       // checkbox; written as 1 / 0
 	Float,      // slider between lo and hi
 	Enum,       // dropdown over `options` (space-separated tokens)
-	TextureSet, // dropdown over the installed texture sets (assets/textures)
-	Model,      // dropdown over the installed models (assets/models)
+	// A POOL asset: NOT a dropdown but a button showing the value, which opens
+	// the asset picker (TypeEditorDialog::onPickAsset; Game/AssetPicker.h) -
+	// a searchable thumbnail grid of what is installed.
+	TextureSet, // an installed texture set (assets/textures)
+	Model,      // an installed model (assets/models)
 	CatalogRef, // dropdown over the ids of the catalog named by `options`
 	// ONE id from the catalog named by `options`, like CatalogRef, but picked
 	// from a list of rows that shows each candidate's face (a theme's floor /

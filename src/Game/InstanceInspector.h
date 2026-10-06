@@ -14,6 +14,7 @@
 #pragma once
 
 #include "Assets/Model.h" // SkeletonData, AnimationClipData (animated preview)
+#include "Game/DialogLayout.h" // FormRow - what BuildContent sizes its rows by
 #include "Game/Entity.h"  // Direction
 #include "Graphics/GraphicsDevice.h"
 #include "Graphics/ModelPreview.h" // gfx::PreviewSubmesh
@@ -125,17 +126,13 @@ protected:
 	// Add type-specific rows to `content` — a ui::Stack, so a dialog says how
 	// TALL each row is and never where it sits (UI/Layout.h). Rows are added in
 	// order, sized in rem, and cannot overlap each other or the chrome the base
-	// stacked above and below them. Use kFormRow for a one-line control;
-	// ui::Len::Fill() for something that should take the rest (a tab control).
+	// stacked above and below them. Use game::FormRow (Game/DialogLayout.h, the
+	// one every editor dialog sizes its rows by: 1 line = a label, a dropdown, a
+	// checkbox; ~1.9 = a Slider, which stacks its label over its track) for a
+	// control, ui::Len::Fill() for something that should take the rest (a tab
+	// control).
 	virtual void BuildContent(ui::Stack& /*content*/) {}
 
-	// The extent a control of `lines` text lines wants in these dialogs' stacks
-	// (1 = a label, a dropdown, a checkbox; ~1.8 = a Slider, which stacks its
-	// label over its track). Rem is the CONTEXT's document size while an editor
-	// dialog draws at ui::kDialogTextScale times it, so a row's height in rem is
-	// its height in lines times the scale it is actually drawn at — one place
-	// that knows it, rather than the factor written out at every row.
-	static ui::Len FormRow(float lines = 1.0f);
 	// Push the working values (incl. facing) to the live object — called on
 	// every edit. Persist writes to disk (Save button); Revert restores the
 	// pre-edit state (Close/Esc).

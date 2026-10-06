@@ -355,7 +355,11 @@ per-row collapsing margins, where a row carried two numbers describing its
 NEIGHBOURS rather than itself; a Stack has one gap and a section break adds a
 `Space`.
 
-Nothing in the project hand-places rows any more.
+Two places still hand-place their rows, both queued for the dialog work
+(code-review C91): `GameUI::OpenConfirm`, the Yes/No modal, puts its title,
+body and two buttons at window fractions, and `SlotList`'s delete confirm draws
+its prompt and buttons straight to the batch at rects it computes itself.
+Everything else stacks.
 
 **P8 — the wheel is its own claim. DONE.** `ConsumeMouse` meant "I am using the
 mouse", and a `Slider` calls it on HOVER — correctly, so a click cannot also land
