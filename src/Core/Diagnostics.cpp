@@ -65,8 +65,14 @@ struct Entry {
 	//
 	// IDENTICAL consecutive events collapse to powers of ten: a worker throwing
 	// the same thing every tick writes four lines a minute, not four thousand.
+	// `repeat` is the run's length, and its lines say it ("repeated 100 times").
+	// `collapsed` is the repeats since the run's last line, which no power of
+	// ten may ever say - a run of 57 stops between 10 and 100 - so when the run
+	// ends (a different event) or its thread unregisters, they get a closing
+	// line of their own. A collapsed repeat is NOT a rate-limited event below.
 	std::atomic<u64> lastHash{0};
 	std::atomic<u64> repeat{0};
+	std::atomic<u64> collapsed{0};
 
 	// DISTINCT ones are rate-limited per thread. The collapse above is blind to
 	// a message carrying a tick number or a coordinate, so a worker failing a
@@ -74,9 +80,12 @@ struct Entry {
 	// dungeon.log is the surface the crash is meant to be found on, so burying
 	// it under a thousand lines of the same bug is its own way of failing.
 	// Measured: 16k distinct events wrote a 1.2 MB log before this existed.
+	// `rateLimited` counts only what the budget refused, since its line is
+	// labelled "(rate limit)": an event whose line was refused, and the
+	// collapsed repeats a refused line would have said, which go with it.
 	std::atomic<i64> windowStartNs{0};
 	std::atomic<u32> windowLogged{0};
-	std::atomic<u64> suppressed{0};
+	std::atomic<u64> rateLimited{0};
 
 	// Table bookkeeping, written under g_mx. Read unlocked by Record and by the
 	// readouts: `used` only ever goes false→true, and a stale `live` costs a
@@ -112,28 +121,48 @@ bool IsLogPoint(u64 n) {
 	return n == 1;
 }
 
-// The per-thread log budget: kLogBurst lines a window, everything past that
-// counted and dropped. Deliberately generous — the first few lines of a new
-// failure are the ones worth having, and a burst that fits under the limit is
-// never delayed.
-constexpr u32 kLogBurst = 8;
-constexpr i64 kLogWindowNs = 1'000'000'000;
-
+// The per-thread log budget (kLogBurst lines a window of kLogWindowNs, in the
+// header): everything past it counted and dropped. Deliberately generous: the
+// first few lines of a new failure are the ones worth having, and a burst that
+// fits under the limit is never delayed.
+//
 // Claims one line of this thread's budget. On rolling into a new window it
-// hands back however many were suppressed in the last one, so the log says how
-// much it swallowed instead of quietly losing it. Racy between concurrent
-// writers on one slot, and deliberately so: the cost of losing that race is a
-// spare log line, and a lock here is the thing a Kill could leak.
+// hands back however many the rate limit held back in the last one, so the log
+// says how much it swallowed instead of quietly losing it. Racy between
+// concurrent writers on one slot, and deliberately so: the cost of losing that
+// race is a spare log line, and a lock here is the thing a Kill could leak.
 bool TakeLogBudget(auto& e, i64 nowNs, u64& flushed) {
 	const i64 start = e.windowStartNs.load(std::memory_order_relaxed);
 	if (start == 0 || nowNs - start > kLogWindowNs) {
 		e.windowStartNs.store(nowNs, std::memory_order_relaxed);
 		e.windowLogged.store(0, std::memory_order_relaxed);
-		flushed = e.suppressed.exchange(0, std::memory_order_relaxed);
+		flushed = e.rateLimited.exchange(0, std::memory_order_relaxed);
 	}
 	if (e.windowLogged.load(std::memory_order_relaxed) >= kLogBurst) return false;
 	e.windowLogged.fetch_add(1, std::memory_order_relaxed);
 	return true;
+}
+
+// The rate limit's own line: how many events the log swallowed on one thread.
+// Written when the next window opens and when the thread unregisters, so a
+// burst that ends with its thread is still accounted for. Excuses its own
+// allocations, like LogEvent below.
+void LogRateLimited(const char* name, u64 count) {
+	alloc::Excused excuse;
+	log::Warn("diag · {} further events on '{}' were not logged (rate limit); the "
+			  "record kept them all",
+			  count, name);
+}
+
+// The collapse's closing line: the repeats after a run's last line, which no
+// power of ten will now say, and the run's whole length. Written when a
+// different event ends the run and when the thread unregisters. Excuses its own
+// allocations, like LogEvent below.
+void LogRunTail(const char* name, u64 tail, u64 run, const char* why) {
+	alloc::Excused excuse;
+	log::Warn("diag · {} further repeats on '{}' were not logged ({} in the run; {}); "
+			  "the record kept them all",
+			  tail, name, run, why);
 }
 
 bool NameMatches(const Entry& e, std::string_view name) {
@@ -150,13 +179,20 @@ void SetName(Entry& e, std::string_view name) {
 
 // Wipes a slot being handed to a thread it did not belong to. NOT used when a
 // same-named worker reboots into its own slot: keeping that history is the
-// point (see the header note on reboots).
+// point (see the header note on reboots). Every per-thread field goes, the log
+// throttle's included: a window left behind would cost the new owner its first
+// lines against a budget it never spent, and a held-back count would be written
+// later as though the new owner had swallowed it.
 void ResetEntry(Entry& e) {
 	for (EventSlot& s : e.events) s.seq.store(0, std::memory_order_relaxed);
 	e.written.store(0, std::memory_order_relaxed);
 	for (std::atomic<u64>& c : e.counts) c.store(0, std::memory_order_relaxed);
 	e.lastHash.store(0, std::memory_order_relaxed);
 	e.repeat.store(0, std::memory_order_relaxed);
+	e.collapsed.store(0, std::memory_order_relaxed);
+	e.windowStartNs.store(0, std::memory_order_relaxed);
+	e.windowLogged.store(0, std::memory_order_relaxed);
+	e.rateLimited.store(0, std::memory_order_relaxed);
 }
 
 // The log line. Excuses its own allocations: log::Write formats a std::string,
@@ -321,10 +357,30 @@ Slot FindThread(std::string_view name) {
 }
 
 void UnregisterThisThread() {
-	std::lock_guard lock(g_mx);
-	if (t_slot == kInvalidSlot) return;
-	g_entries[t_slot].live.store(false);
-	t_slot = kInvalidSlot;
+	// What the log still owes this thread is taken with the slot - the repeats
+	// after its current run's last line, and what the rate limit is holding back
+	// - and written after the table lock is let go (log::Write takes its own).
+	// Left for later, both would wait for an event that a thread on its way out
+	// never records, and a run or a burst followed by exit would never reach the
+	// log. The run itself is kept: a same-named successor still failing the same
+	// way continues it (the reboot rule), counting on from here.
+	char name[sizeof(Entry::name)] = {};
+	u64 tail = 0;
+	u64 run = 0;
+	u64 held = 0;
+	{
+		std::lock_guard lock(g_mx);
+		if (t_slot == kInvalidSlot) return;
+		Entry& e = g_entries[t_slot];
+		tail = e.collapsed.exchange(0, std::memory_order_relaxed);
+		run = e.repeat.load(std::memory_order_relaxed);
+		held = e.rateLimited.exchange(0, std::memory_order_relaxed);
+		std::memcpy(name, e.name, sizeof(name));
+		e.live.store(false);
+		t_slot = kInvalidSlot;
+	}
+	if (tail) LogRunTail(name, tail, run, "the thread unregistered");
+	if (held) LogRateLimited(name, held);
 }
 
 // ----------------------------------------------------------------------------
@@ -378,29 +434,47 @@ void RecordFor(Slot slot, const Event& ev) {
 	const u64 h = HashEvent(ev.kind, s.message);
 	u64 repeat = 1;
 	bool identical = false;
+	u64 endedRun = 0;
+	u64 endedTail = 0;
 	if (e.lastHash.load(std::memory_order_relaxed) == h) {
 		repeat = e.repeat.fetch_add(1, std::memory_order_relaxed) + 1;
 		identical = true;
 	} else {
+		// A different event ENDS the run before it. What came after that run's
+		// last line is taken now, since no power of ten will ever say it.
 		e.lastHash.store(h, std::memory_order_relaxed);
-		e.repeat.store(1, std::memory_order_relaxed);
+		endedRun = e.repeat.exchange(1, std::memory_order_relaxed);
+		endedTail = e.collapsed.exchange(0, std::memory_order_relaxed);
 	}
+	// A collapsed repeat waits in `collapsed` for the next power of ten's line,
+	// or for the line that closes its run. It is not a rate-limited event.
 	if (identical && !IsLogPoint(repeat)) {
-		e.suppressed.fetch_add(1, std::memory_order_relaxed);
+		e.collapsed.fetch_add(1, std::memory_order_relaxed);
 		return;
 	}
 
+	// The ended run's closing line spends the budget like any other line, so
+	// failures that alternate cannot use it to outrun the rate limit. Refused,
+	// its repeats join the rate limit's count, whose line then says them.
 	u64 flushed = 0;
+	if (endedTail) {
+		if (TakeLogBudget(e, s.wallNs, flushed)) {
+			if (flushed) LogRateLimited(e.name, flushed);
+			flushed = 0;
+			LogRunTail(e.name, endedTail, endedRun, "the run ended");
+		} else {
+			e.rateLimited.fetch_add(endedTail, std::memory_order_relaxed);
+		}
+	}
+
+	// A power of ten's line says every repeat collapsed before it; refused, it
+	// takes them into the rate limit's count with it.
+	const u64 unsaid = identical ? e.collapsed.exchange(0, std::memory_order_relaxed) : 0;
 	if (!TakeLogBudget(e, s.wallNs, flushed)) {
-		e.suppressed.fetch_add(1, std::memory_order_relaxed);
+		e.rateLimited.fetch_add(1 + unsaid, std::memory_order_relaxed);
 		return;
 	}
-	if (flushed) {
-		alloc::Excused excuse;
-		log::Warn("diag · {} further events on '{}' were not logged (rate limit); the "
-				  "record kept them all",
-				  flushed, e.name);
-	}
+	if (flushed) LogRateLimited(e.name, flushed);
 	LogEvent(e, s, repeat);
 }
 

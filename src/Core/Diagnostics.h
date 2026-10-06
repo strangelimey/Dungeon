@@ -72,6 +72,13 @@ inline constexpr int kMessageMax = 192;
 static_assert((kEventsPerThread & (kEventsPerThread - 1)) == 0,
 			  "ring depth must be a power of two: the write index is masked");
 
+// The LOG's per-thread budget: kLogBurst lines a window of kLogWindowNs, past
+// which events are counted and dropped from the log (never from the record),
+// and the count is written as one line when the next window opens or the thread
+// unregisters. Public so DiagTest checks the real numbers rather than a copy.
+inline constexpr u32 kLogBurst = 8;
+inline constexpr i64 kLogWindowNs = 1'000'000'000;
+
 using Slot = u32;
 inline constexpr Slot kInvalidSlot = ~0u;
 
@@ -134,7 +141,9 @@ void Init();
 // is dropped rather than fatal — the thread simply cannot be reported, which is
 // the same bargain the allocation counters make. A slot left by a thread that
 // unregistered is reused by a same-named successor, and the successor KEEPS the
-// predecessor's events (see the header note on reboots).
+// predecessor's events (see the header note on reboots). Once every slot has
+// been used, a NEW name takes a dormant slot of another name and starts it
+// clean - no events, no counts, and a fresh log window.
 Slot RegisterThread(std::string_view name);
 
 // The calling thread's slot, or kInvalidSlot if it never registered.
@@ -148,7 +157,10 @@ Slot FindThread(std::string_view name);
 // Marks the calling thread's slot dormant, keeping its events readable and
 // freeing the name for a successor. A thread that is force-terminated never
 // reaches this, so its slot stays live — deliberately, since the events it died
-// holding are the reason to look.
+// holding are the reason to look. Writes the log lines for what the log still
+// owes the thread - the repeats after its current run's last "repeated N times"
+// line, and any events the rate limit is holding back - since no later event of
+// its own will.
 void UnregisterThisThread();
 
 // ----------------------------------------------------------------------------

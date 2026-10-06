@@ -39,12 +39,16 @@ const char* Prefix(Level level) {
 // bc7test.log, threadstress.log.
 FILE* LogFile() {
 	static const std::unique_ptr<FILE, decltype(&fclose)> file(
-		fopen((paths::ExecutableDir() + "\\" + paths::ExecutableName() + ".log").c_str(),
-			  "w"),
-		&fclose);
+		fopen(FilePath().c_str(), "w"), &fclose);
 	return file.get();
 }
 } // namespace
+
+const std::string& FilePath() {
+	static const std::string path =
+		paths::ExecutableDir() + "\\" + paths::ExecutableName() + ".log";
+	return path;
+}
 
 void UseUtf8Console() { SetConsoleOutputCP(CP_UTF8); }
 

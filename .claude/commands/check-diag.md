@@ -3,7 +3,8 @@ description: The health record's ring — wrap, cross-thread writes, torn reads
 allowed-tools: PowerShell, Read, Grep, Glob
 ---
 
-Exercise `Core/Diagnostics` directly. 35 checks, about two seconds.
+Exercise `Core/Diagnostics` directly. 54 checks, about four seconds (tests 9
+and 11 each wait one log window out).
 
 ```
 .\tools\CheckAll.ps1 -Only diag
@@ -21,6 +22,14 @@ Normally ~16k writes against ~40k live reads, 0 torn. If that one fails, the
 publish ordering or the sequence check is broken and nothing else in the suite
 should be trusted either — the health record is what `/check-threads` and
 `/check-health` both read their verdicts from.
+
+Tests 8 to 11 check the LOG throttle against the real `diagtest.log`, found
+through `log::FilePath()`: the exact per-window budget, one swallowed-count line
+with the right count once a window rolls, the lines a thread's exit writes, a
+repeat run of 57 and of 150 each writing one closing line for the repeats after
+its last power of ten, a run in a spent window losing none of its events, and a
+33rd thread name taking a dormant slot with a clean window. An unreadable log is
+a `[FAIL] the log can be read back`, never a skip.
 
 ## Reading the output
 

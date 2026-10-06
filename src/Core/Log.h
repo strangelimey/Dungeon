@@ -16,6 +16,7 @@
 #pragma once
 
 #include <format>
+#include <string>
 #include <string_view>
 
 namespace dungeon::log {
@@ -23,6 +24,12 @@ namespace dungeon::log {
 enum class Level { Debug, Info, Warn, Error };
 
 void Write(Level level, std::string_view message);
+
+// The file this process logs to: <exe dir>\<exe name>.log (dungeon.log for the
+// game, diagtest.log for DiagTest). A tool that reads its own log back asks here
+// rather than rebuilding the path, so the two cannot drift apart. The file is
+// opened by the first Write, so before that it may not exist yet.
+const std::string& FilePath();
 
 // Sets the attached console's output code page to UTF-8. Call once from an
 // entry point, before any logging. Deliberately NOT done inside Write: a tool

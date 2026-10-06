@@ -33,7 +33,7 @@ Built collaboratively with Claude across sessions; this file is the handoff.
 - The full log also writes to `dungeon.log` NEXT TO THE EXE (truncated per
   run, flushed per line so the tail survives a crash/abort) — read that
   instead of scraping the console window. The file is named after the RUNNING
-  EXE (Core/Log.cpp via paths::ExecutableName), so the tools that also link
+  EXE (`log::FilePath()`, via paths::ExecutableName), so the tools that also link
   Core get `assetbaker.log`, `bc7test.log`, `threadstress.log`. That matters
   because they all share `build\<cfg>\bin`: with the old hardcoded name an
   asset import silently truncated the GAME's log and wrote its own output
@@ -1499,7 +1499,18 @@ hang and a reboot must each leave EVIDENCE.
   carrying a tick number — measured, 16k such events wrote a 1.2 MB log, and
   2.7 KB after. The RECORD still takes every event; only the log is throttled.
   Anything added here must key on the thread, not the message: the message is
-  exactly the part a failing worker varies.
+  exactly the part a failing worker varies. EVERY EVENT IS A LINE OR IN A COUNT,
+  and the two counts are kept apart. The collapse's: `collapsed`, the repeats
+  since a run's last line - a run of 57 has lines at 1 and 10 and no power of
+  ten will ever say the other 47 - written as a closing "N further repeats ...
+  (57 in the run; ...)" line when a different event ends the run AND when the
+  thread unregisters. The rate limit's: `rateLimited`, only what the BUDGET
+  refused (an event's line, or a refused line's collapsed repeats, which go
+  with it), written when the next window opens AND at unregister, or a burst
+  followed by exit never reached the log. A closing line spends the budget like
+  any line, or alternating failures would outrun it. A slot handed to a NEW name
+  (ResetEntry) starts with a clean window and no counts; `kLogBurst` /
+  `kLogWindowNs` are in Diagnostics.h so DiagTest checks them.
 - THE CAPTURE SITES — ThreadManager's worker catch (records kind/worker/tick/
   message); the supervisor, which records the STALL and the REBOOT as two
   separate facts, once per stall EPISODE (it polls at 100 ms; a minute-long
@@ -1553,9 +1564,15 @@ hang and a reboot must each leave EVIDENCE.
   threw 18 times reads `sleeping · it 18 · 2.00hz`, every column normal), and
   `health` / `health <thread>` / `health probe <id|name>`.
 - CHECKED, NOT ASSUMED. `DiagTest.exe` (tools/DiagTest) exercises the ring
-  directly — 35 checks, including the one that matters: four writers hammering
+  directly — 54 checks, including the one that matters: four writers hammering
   one slot while a reader walks it, every event self-describing so a torn read
-  cannot pass (measured 16k writes, 39k live reads, 0 torn). `tools\HealthTest.
+  cannot pass (measured 16k writes, 39k live reads, 0 torn). Its LOG checks read
+  the real file back through `log::FilePath()` (the path the sink opened, never
+  a copy) and an unreadable log is a FAIL, not a skip: the exact budget, one
+  swallowed-count line with the right count after a window rolls, the lines a
+  thread's exit writes, runs of 57 and 150 closing with their tails (100, the
+  one shape needing none, cannot be the only run tried), a run in a spent
+  window losing nothing, and a 33rd name taking a dormant slot clean. `tools\HealthTest.
   ps1` breaks the REAL game seven ways and reads dungeon.log and nothing else —
   if the answer is not in the file you open after a crash, it does not count.
   `-SelfTest` skips every injection and requires FAIL, and all 7 cases plus

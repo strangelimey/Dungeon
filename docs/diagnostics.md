@@ -4,7 +4,7 @@
 phases are done and checked:
 
 ```
-diagtest   RESULT=PASS checks=35 failures=0     # the record, incl. torn-read detection
+diagtest   RESULT=PASS checks=54 failures=0     # the record, incl. torn-read detection
 healthtest RESULT=PASS cases=7  failures=0      # the real game, broken on purpose
 healthtest RESULT=FAIL ... self_test=1          # and the harness proven able to fail
 alloctest  RESULT=PASS frames=1921 violations=0 # the symbolizer lift changed nothing
@@ -289,6 +289,26 @@ first. So there are now TWO layers — identical repeats collapse to powers of
 ten, and *distinct* events are rate-limited per thread (8 lines a second, with
 a line saying how many were swallowed). The RECORD still takes every event; only
 the log is throttled. Same run afterwards: **2.7 KB**.
+
+Two gaps in that line were found by the code review (C420, C389) and closed,
+each with a DiagTest check that reads the real log back. The swallowed count
+was written only when a LATER event opened a new window, so a burst followed by
+the thread's exit never reached the log; unregistering writes it now. And the
+count was fed by collapsed repeats too, though its line says "(rate limit)".
+The two layers now keep separate counts, and every event is either a line or
+in one of them. The rate limit's counts only what the budget refused - an
+event's line, or a refused line's collapsed repeats, which go with it. The
+collapse's counts the repeats since a run's last line, because the "repeated N
+times" lines say a run only up to its last power of ten: a run of 57 has lines
+at 1 and 10, and no line will ever say the other 47. When a different event
+ends the run, and when the thread unregisters, they get a closing line:
+`47 further repeats on '<thread>' were not logged (57 in the run; the run
+ended)`. That line spends the budget like any other (refused, its repeats join
+the rate limit's count), or failures that alternate would outrun the limit. A
+run still going when its thread never unregisters (the main thread at a clean
+exit) is the one case left with no closing line; the record has it. A slot
+handed to a new name also clears the throttle, or the newcomer's first lines
+were charged to its predecessor's spent window.
 
 The lesson generalises to phase 2, where the capture sites land: throttling has
 to key on the THREAD, not on the message, because the message is exactly the

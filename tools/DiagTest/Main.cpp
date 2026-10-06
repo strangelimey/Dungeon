@@ -12,20 +12,29 @@
 // message encodes the very fields it arrived with). A torn read — half of one
 // event and half of the next — cannot pass that, which is the whole point.
 //
+// The LOG checks (8 to 11) read this process's real log back, from the path the
+// sink itself opened (log::FilePath), and an unreadable log FAILS them: a check
+// that skips when its evidence is missing passes on nothing. Tests 9 and 11
+// each wait one log window out, which is most of the run's few seconds.
+//
 // One machine-readable verdict line, like `alloctest`:  diagtest RESULT=PASS
 // Exit code 0 = PASS.
 // ============================================================================
 #include "Core/Diagnostics.h"
 #include "Core/Log.h"
-#include "Core/Paths.h"
 
 #include <atomic>
+#include <cctype>
+#include <charconv>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <format>
+#include <optional>
 #include <share.h>
 #include <string>
+#include <string_view>
+#include <system_error>
 #include <thread>
 #include <vector>
 
@@ -63,26 +72,120 @@ diag::ThreadHealth HealthOf(diag::Slot slot) {
 
 void Say(const char* title) { std::printf("\n%s\n", title); }
 
-// Counts log lines containing `needle`. The sink is still open for writing and
-// flushed per line, so it can be read back in place. -1 = could not be read.
+// Every log line containing `needle`. The sink is still open for writing and
+// flushed per line, so it can be read back in place.
+//
+// An unreadable log is a FAIL, recorded here, and returns nothing so the
+// caller's own checks stop: every one of them would otherwise pass, or fail
+// confusingly, on no evidence at all.
 //
 // _fsopen with _SH_DENYNO, NOT fopen_s: the secure variant opens with
-// _SH_SECURE, which denies write sharing — and this very process is already
+// _SH_SECURE, which denies write sharing - and this very process is already
 // holding the log open for writing, so fopen_s fails on its own log every time.
-int CountLogLines(const char* needle) {
-	const std::string path =
-		paths::ExecutableDir() + "\\" + paths::ExecutableName() + ".log";
+std::optional<std::vector<std::string>> LogLines(const char* needle) {
+	const std::string& path = log::FilePath();
 	FILE* f = _fsopen(path.c_str(), "r", _SH_DENYNO);
 	if (!f) {
-		std::printf("  [skip] could not reopen %s to count log lines\n", path.c_str());
-		return -1;
+		Check(false, std::format("the log can be read back ({})", path));
+		return std::nullopt;
 	}
-	int lines = 0;
+	std::vector<std::string> lines;
 	char buf[1024];
 	while (std::fgets(buf, sizeof(buf), f))
-		if (std::strstr(buf, needle)) ++lines;
+		if (std::strstr(buf, needle)) lines.emplace_back(buf);
 	std::fclose(f);
 	return lines;
+}
+
+// How many log lines contain `needle`; -1 when the log could not be read (and
+// that has already FAILED).
+int CountLogLines(const char* needle) {
+	const auto lines = LogLines(needle);
+	return lines ? static_cast<int>(lines->size()) : -1;
+}
+
+// The count on every rate-limit line naming `thread`, oldest first:
+//   diag · 192 further events on 't.varied' were not logged (rate limit); ...
+// A line whose count cannot be read gives 0, which no check here wants.
+std::optional<std::vector<u64>> RateLimitCounts(const char* thread) {
+	const std::string tail = std::format(" further events on '{}' were not logged", thread);
+	const auto lines = LogLines(tail.c_str());
+	if (!lines) return std::nullopt;
+	std::vector<u64> counts;
+	for (const std::string& line : *lines) {
+		const size_t at = line.find(tail);
+		size_t from = at;
+		while (from > 0 && std::isdigit(static_cast<unsigned char>(line[from - 1]))) --from;
+		counts.push_back(from < at ? std::stoull(line.substr(from, at - from)) : 0);
+	}
+	return counts;
+}
+
+std::string Join(const std::vector<u64>& values) {
+	std::string s;
+	for (const u64 v : values) s += (s.empty() ? "" : ", ") + std::to_string(v);
+	return s.empty() ? "none" : s;
+}
+
+// The digits of `text`, or 0 when it is not wholly digits (no check wants 0).
+u64 Number(std::string_view text) {
+	u64 value = 0;
+	const auto [end, ec] = std::from_chars(text.data(), text.data() + text.size(), value);
+	return ec == std::errc{} && end == text.data() + text.size() ? value : 0;
+}
+
+// One closing line of a repeat run, the collapse's own accounting:
+//   diag · 47 further repeats on 't.run57' were not logged (57 in the run;
+//   the thread unregistered); the record kept them all
+struct RunTail {
+	u64 tail = 0;    // the repeats after the run's last line
+	u64 run = 0;     // the run's whole length
+	std::string why; // "the run ended" or "the thread unregistered"
+};
+
+// Every closing line naming `thread`, oldest first. A field that cannot be read
+// stays 0 / empty, which no check here wants.
+std::optional<std::vector<RunTail>> RunTails(const char* thread) {
+	const std::string mid = std::format(" further repeats on '{}' were not logged (", thread);
+	const auto lines = LogLines(mid.c_str());
+	if (!lines) return std::nullopt;
+	std::vector<RunTail> tails;
+	for (const std::string& line : *lines) {
+		RunTail t;
+		const size_t at = line.find(mid);
+		size_t from = at;
+		while (from > 0 && std::isdigit(static_cast<unsigned char>(line[from - 1]))) --from;
+		t.tail = Number(std::string_view(line).substr(from, at - from));
+		const size_t open = at + mid.size();
+		const size_t sep = line.find(" in the run; ", open);
+		const size_t close = line.find(')', open);
+		if (sep != std::string::npos && close != std::string::npos && sep < close) {
+			t.run = Number(std::string_view(line).substr(open, sep - open));
+			const size_t whyAt = sep + std::strlen(" in the run; ");
+			t.why = line.substr(whyAt, close - whyAt);
+		}
+		tails.push_back(t);
+	}
+	return tails;
+}
+
+std::string Join(const std::vector<RunTail>& tails) {
+	std::string s;
+	for (const RunTail& t : tails)
+		s += std::format("{}{} of {} ({})", s.empty() ? "" : ", ", t.tail, t.run, t.why);
+	return s.empty() ? "none" : s;
+}
+
+// Exactly one closing line, with these numbers and this reason.
+bool OneRunTail(const std::vector<RunTail>& tails, u64 tail, u64 run, const char* why) {
+	return tails.size() == 1 && tails[0].tail == tail && tails[0].run == run &&
+		   tails[0].why == why;
+}
+
+// Sleeps until the log throttle's window has certainly rolled over.
+void WaitOutLogWindow() {
+	std::this_thread::sleep_for(std::chrono::nanoseconds(diag::kLogWindowNs) +
+								std::chrono::milliseconds(200));
 }
 
 // --------------------------------------------------------------------------
@@ -323,15 +426,23 @@ void TestMergeOrder() {
 }
 
 // --------------------------------------------------------------------------
-// 8 — a repeating failure floods the RECORD but not the LOG.
+// 8 — a repeating failure floods the RECORD but not the LOG. A run that stops
+//     BETWEEN two powers of ten still accounts for its tail: a run of 57 has
+//     lines at 1 and 10, and the 47 after are written as one closing line when
+//     the run ends (a different event) or its thread unregisters. 100 is the
+//     one shape that needs no closing line, so it cannot be the only one tried.
 void TestLogThrottle() {
-	Say("8 - identical repeats are logged at powers of ten only");
+	Say("8 - identical repeats are logged at powers of ten, and a run's tail when it ends");
 	std::jthread([] {
 		diag::RegisterThread("t.flood");
 		for (int i = 0; i < 100; ++i)
 			diag::Record({.kind = diag::Kind::Exception,
 						  .message = "the same failure every tick",
 						  .captureStack = false});
+		// Writes whatever the log still owes the thread - and for a run that
+		// stopped ON a power of ten that is nothing: "repeated 100 times" said
+		// them, and the collapse kept none from the rate limit.
+		diag::UnregisterThisThread();
 	}).join();
 
 	const int lines = CountLogLines("the same failure every tick");
@@ -341,32 +452,265 @@ void TestLogThrottle() {
 	Check(lines == 3, std::format("100 repeats produced {} log lines (want 3)", lines));
 	Check(HealthOf(SlotNamed("t.flood")).Count(diag::Kind::Exception) == 100,
 		  "all 100 still counted in the record");
+
+	const auto limited = RateLimitCounts("t.flood");
+	if (!limited) return;
+	Check(limited->empty(),
+		  std::format("the collapsed repeats are not reported as rate-limited "
+					  "(rate-limit lines: {})",
+					  Join(*limited)));
+	const auto floodTails = RunTails("t.flood");
+	if (!floodTails) return;
+	Check(floodTails->empty(),
+		  std::format("a run that stopped on a power of ten writes no closing line "
+					  "(closing lines: {})",
+					  Join(*floodTails)));
+
+	// 57, then the thread goes: the exit writes the tail.
+	std::jthread([] {
+		diag::RegisterThread("t.run57");
+		for (int i = 0; i < 57; ++i)
+			diag::Record({.kind = diag::Kind::Exception,
+						  .message = "a run of fifty-seven",
+						  .captureStack = false});
+		diag::UnregisterThisThread();
+	}).join();
+	const int lines57 = CountLogLines("a run of fifty-seven");
+	const auto tails57 = RunTails("t.run57");
+	const auto limited57 = RateLimitCounts("t.run57");
+	if (lines57 < 0 || !tails57 || !limited57) return;
+	Check(lines57 == 2, std::format("57 repeats produced {} log lines (want 2: 1, 10)", lines57));
+	Check(OneRunTail(*tails57, 47, 57, "the thread unregistered"),
+		  std::format("the exit wrote one closing line, 47 after the 10th of 57 (got: {})",
+					  Join(*tails57)));
+	Check(limited57->empty(),
+		  std::format("and none of it as rate-limited (rate-limit lines: {})", Join(*limited57)));
+
+	// 150, then a different event: the event that ends the run writes the tail,
+	// and the exit after it owes nothing.
+	std::jthread([] {
+		diag::RegisterThread("t.run150");
+		for (int i = 0; i < 150; ++i)
+			diag::Record({.kind = diag::Kind::Exception,
+						  .message = "a run of a hundred and fifty",
+						  .captureStack = false});
+		diag::Record({.kind = diag::Kind::Exception,
+					  .message = "the event that ends the run",
+					  .captureStack = false});
+		diag::UnregisterThisThread();
+	}).join();
+	const int lines150 = CountLogLines("a run of a hundred and fifty");
+	const int ender = CountLogLines("the event that ends the run");
+	const auto tails150 = RunTails("t.run150");
+	if (lines150 < 0 || ender < 0 || !tails150) return;
+	Check(lines150 == 3 && ender == 1,
+		  std::format("150 repeats produced {} log lines (want 3), the ending event {} (want 1)",
+					  lines150, ender));
+	Check(OneRunTail(*tails150, 50, 150, "the run ended"),
+		  std::format("the run's end wrote one closing line, 50 after the 100th of 150, and "
+					  "the exit none (got: {})",
+					  Join(*tails150)));
 }
 
 // --------------------------------------------------------------------------
 // 9 — a thread failing a DIFFERENT way every tick is rate-limited too. The
 //     repeat-collapse above is blind to a message carrying a tick number, and
-//     without this a bad worker buries the crash worth finding.
+//     without this a bad worker buries the crash worth finding. What it held
+//     back is written by the NEXT window's first event, so the test waits the
+//     window out and records one more.
 void TestRateLimit() {
 	Say("9 - distinct messages are rate-limited per thread");
 	constexpr int kBurst = 200;
-	std::jthread([] {
+	int burstLines = -1;
+	std::jthread([&burstLines] {
 		diag::RegisterThread("t.varied");
 		for (int i = 0; i < kBurst; ++i)
 			diag::Record({.kind = diag::Kind::Fault,
 						  .message = std::format("distinct failure {}", i),
 						  .captureStack = false});
+		burstLines = CountLogLines("distinct failure ");
+		WaitOutLogWindow();
+		diag::Record({.kind = diag::Kind::Fault,
+					  .message = "the first failure of the next window",
+					  .captureStack = false});
+	}).join();
+	if (burstLines < 0) return;
+
+	// One window's budget, exactly, against 200 events.
+	Check(burstLines == static_cast<int>(diag::kLogBurst),
+		  std::format("{} events in one window wrote {} log lines (want the budget, {})",
+					  kBurst, burstLines, diag::kLogBurst));
+	Check(HealthOf(SlotNamed("t.varied")).Count(diag::Kind::Fault) == kBurst + 1,
+		  std::format("all {} still counted in the record", kBurst + 1));
+
+	const int next = CountLogLines("the first failure of the next window");
+	if (next < 0) return;
+	Check(next == 1, "the event after the window was logged");
+
+	const auto limited = RateLimitCounts("t.varied");
+	if (!limited) return;
+	const u64 want = static_cast<u64>(kBurst - burstLines);
+	Check(limited->size() == 1 && (*limited)[0] == want,
+		  std::format("one rate-limit line, counting the {} swallowed (got: {})", want,
+					  Join(*limited)));
+}
+
+// --------------------------------------------------------------------------
+// 10 - a burst that ends with its thread is still accounted for. No later
+//      window opens on a thread that has gone, so unregistering writes the
+//      held-back count itself. And a repeat run in a SPENT window loses nothing
+//      either: a refused "repeated 10 times" takes the repeats it would have
+//      said into the rate limit's count, and so does a refused closing line.
+void TestExitFlush() {
+	Say("10 - a thread's exit writes what the rate limit held back");
+	constexpr int kBurst = 50;
+	std::jthread([] {
+		diag::RegisterThread("t.parting");
+		for (int i = 0; i < kBurst; ++i)
+			diag::Record({.kind = diag::Kind::Exception,
+						  .message = std::format("parting failure {}", i),
+						  .captureStack = false});
+		diag::UnregisterThisThread();
 	}).join();
 
-	const int lines = CountLogLines("distinct failure ");
+	const int lines = CountLogLines("parting failure ");
 	if (lines < 0) return;
+	const auto limited = RateLimitCounts("t.parting");
+	if (!limited) return;
+	const u64 want = static_cast<u64>(kBurst - lines);
+	Check(want > 0 && limited->size() == 1 && (*limited)[0] == want,
+		  std::format("one rate-limit line at exit, counting the {} swallowed (got: {})",
+					  want, Join(*limited)));
 
-	// One second's budget plus at most a summary or two, against 200 events.
-	Check(lines > 0 && lines <= 12,
-		  std::format("{} events wrote {} log lines (want 1..12)", kBurst, lines));
-	Check(HealthOf(SlotNamed("t.varied")).Count(diag::Kind::Fault) == kBurst,
-		  std::format("all {} still counted in the record", kBurst));
-	Check(CountLogLines("were not logged (rate limit)") >= 0, "the log says what it swallowed");
+	// The budget spent on distinct events, then a run of 15 the budget refuses
+	// at 1 and at 10, ended by one more event. Every one of the 24 is either a
+	// line or in the one count: 8 lines, 16 counted, no closing line (refused,
+	// its 5 joined the count), and the exit owes no tail (the last run is 1).
+	constexpr int kRun = 15;
+	std::jthread([] {
+		diag::RegisterThread("t.cutshort");
+		for (u32 i = 0; i < diag::kLogBurst; ++i)
+			diag::Record({.kind = diag::Kind::Exception,
+						  .message = std::format("spending the budget {}", i),
+						  .captureStack = false});
+		for (int i = 0; i < kRun; ++i)
+			diag::Record({.kind = diag::Kind::Exception,
+						  .message = "a run past a spent budget",
+						  .captureStack = false});
+		diag::Record({.kind = diag::Kind::Exception,
+					  .message = "the event after the cut-short run",
+					  .captureStack = false});
+		diag::UnregisterThisThread();
+	}).join();
+	const int spent = CountLogLines("spending the budget ");
+	const int runLines = CountLogLines("a run past a spent budget");
+	const auto cutLimited = RateLimitCounts("t.cutshort");
+	const auto cutTails = RunTails("t.cutshort");
+	if (spent < 0 || runLines < 0 || !cutLimited || !cutTails) return;
+	const u64 total = diag::kLogBurst + kRun + 1;
+	Check(spent == static_cast<int>(diag::kLogBurst) && runLines == 0,
+		  std::format("the budget took {} lines (want {}) and the run {} (want 0)", spent,
+					  diag::kLogBurst, runLines));
+	Check(cutLimited->size() == 1 && (*cutLimited)[0] == total - diag::kLogBurst,
+		  std::format("one rate-limit line counting the other {} of {} (got: {})",
+					  total - diag::kLogBurst, total, Join(*cutLimited)));
+	Check(cutTails->empty(),
+		  std::format("the refused closing line was counted, not written (closing lines: {})",
+					  Join(*cutTails)));
+}
+
+// --------------------------------------------------------------------------
+// 11 - a slot handed to a NEW name starts with a clean log throttle. Once all
+//      32 slots have been used, a 33rd name takes a dormant slot of another
+//      name. The predecessor here leaves its window spent and a count held
+//      back; the new owner must inherit neither - its first event is logged at
+//      once, and no rate-limit line ever counts events it never had. This
+//      fills the table, so it runs LAST.
+void TestSlotReuse() {
+	Say("11 - a 33rd name takes a dormant slot with a clean log throttle");
+
+	// Every slot but the predecessor's must be live, so the new name has exactly
+	// one place to go. Earlier tests left some slots dormant; their own names
+	// adopt them again and keep them (a thread that never unregisters).
+	diag::ThreadHealth all[diag::kMaxThreads];
+	int used = diag::SnapshotThreads(all, diag::kMaxThreads);
+	for (int i = 0; i < used; ++i)
+		if (!all[i].live) {
+			const std::string name = all[i].name;
+			std::jthread([&name] { diag::RegisterThread(name); }).join();
+		}
+	Check(used < diag::kMaxThreads,
+		  std::format("setup: the table has room ({} of {} slots used)", used,
+					  diag::kMaxThreads));
+	if (used >= diag::kMaxThreads) return;
+	// Then every never-used slot but one, which the predecessor takes.
+	for (int i = used; i < diag::kMaxThreads - 1; ++i)
+		std::jthread([i] { diag::RegisterThread(std::format("t.fill{}", i)); }).join();
+
+	// The predecessor spends its window and unregisters (writing what it held
+	// back). Then a cross-thread report lands on its DORMANT slot - RecordFor
+	// does not ask whether the owner still runs, which is the supervisor's case
+	// - and is held back in that still-spent window, pending.
+	constexpr int kBurst = 20;
+	constexpr int kLate = 5;
+	diag::Slot old = diag::kInvalidSlot;
+	std::jthread([&old] {
+		old = diag::RegisterThread("t.oldowner");
+		for (int i = 0; i < kBurst; ++i)
+			diag::Record({.kind = diag::Kind::Exception,
+						  .message = std::format("old owner failure {}", i),
+						  .captureStack = false});
+		diag::UnregisterThisThread();
+	}).join();
+	for (int i = 0; i < kLate; ++i)
+		diag::RecordFor(old, {.kind = diag::Kind::Stall,
+							  .message = std::format("late report {}", i),
+							  .captureStack = false});
+	const int late = CountLogLines("late report ");
+	if (late < 0) return;
+	Check(old != diag::kInvalidSlot && late == 0,
+		  std::format("setup: the late reports on the dormant slot were held back "
+					  "({} of {} logged)",
+					  late, kLate));
+
+	used = diag::SnapshotThreads(all, diag::kMaxThreads);
+	int dormant = 0;
+	for (int i = 0; i < used; ++i)
+		if (!all[i].live) ++dormant;
+	Check(used == diag::kMaxThreads && dormant == 1,
+		  std::format("setup: all {} slots used, one dormant ({} used, {} dormant)",
+					  diag::kMaxThreads, used, dormant));
+
+	diag::Slot fresh = diag::kInvalidSlot;
+	int firstLogged = -1;
+	std::jthread([&fresh, &firstLogged] {
+		fresh = diag::RegisterThread("t.newowner");
+		diag::Record({.kind = diag::Kind::Exception,
+					  .message = "the first event of the new owner",
+					  .captureStack = false});
+		firstLogged = CountLogLines("the first event of the new owner");
+		// The predecessor's held-back count would surface when a new window
+		// opens, so open one.
+		WaitOutLogWindow();
+		diag::Record({.kind = diag::Kind::Exception,
+					  .message = "the second event of the new owner",
+					  .captureStack = false});
+	}).join();
+
+	Check(fresh == old && fresh != diag::kInvalidSlot,
+		  "the 33rd name took the predecessor's dormant slot");
+	Check(firstLogged == 1,
+		  std::format("its first event was logged at once: a fresh window, not the "
+					  "predecessor's spent one ({} lines)",
+					  firstLogged));
+	const auto limited = RateLimitCounts("t.newowner");
+	if (!limited) return;
+	Check(limited->empty(),
+		  std::format("no rate-limit line for events the new owner never had "
+					  "(rate-limit lines: {})",
+					  Join(*limited)));
+	Check(HealthOf(fresh).total == 2,
+		  std::format("its record holds its own 2 events only (got {})", HealthOf(fresh).total));
 }
 
 } // namespace
@@ -389,6 +733,8 @@ int main() {
 	TestMergeOrder();
 	TestLogThrottle();
 	TestRateLimit();
+	TestExitFlush();
+	TestSlotReuse(); // last: it fills the slot table
 
 	const diag::Totals t = diag::ProcessTotals();
 	std::printf("\nprocess totals: %llu events (%llu exception, %llu stall, %llu restart, "
