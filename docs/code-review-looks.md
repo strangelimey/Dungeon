@@ -267,11 +267,19 @@ raised that is yours, not a fix. Each line names the batch and its commit.
 - **The Help line's key names** (batch 38, 7d8246d2) are cached when settings
   load and on every rebind, so a keyboard LAYOUT switch while the game runs
   keeps the old names until the next rebind or relaunch.
-
+- **The door inspector's Open** (batch 31, f6999207) now shows and edits the
+  door's AUTHORED state, not its state in play (a door the party opened shows
+  unticked if it is authored shut). Unticking it with anyone - a monster or the
+  party - in the doorway is refused outright: the box ticks itself again, the
+  record is unchanged, and the log says "Something is blocking the doorway."
+  A wrecked door takes the close in its record while the wreck stays open. And
+  the live check warns about a lever standing in the doorway of a door it
+  targets, which could never shut it.
 - **A stale .dds is refused** (batch 92, 7795ba11). The game now draws a
   texture's PNG, with a warning, when its .dds is OLDER than the PNG, and says
   once a model when its baked images are missing or stale. Your tree in
-  C:\Dev\Dungeon will warn wherever a PNG is newer than its bake: run
+  C:\Dev\Dungeon had none (checked: all 648 texture .dds are newer than their
+  PNGs), but its .dds still carry the OLD mip filter until re-baked: run
   `build\release\bin\AssetBaker.exe mips assets --force` (about an hour), or
   copy the re-baked .dds from the code-review worktree. Seven models had no
   baked images anywhere (the three potions, the rock, the three torches) -
