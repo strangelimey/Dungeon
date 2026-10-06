@@ -35,7 +35,10 @@ using System;
 using System.Runtime.InteropServices;
 using System.Text;
 public class HarnessWin {
-	[DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
+	// PostMessageW: the game's window is Unicode, and through the A form a WM_CHAR
+	// past ASCII is converted from the ANSI code page on the way (TypingTest's
+	// UNICODE phase types Cyrillic and a surrogate pair).
+	[DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
 	[DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr h, out RECT r);
 	[DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr hdc, uint flags);
 	[DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
@@ -211,7 +214,9 @@ function Send-Key([int]$vk) {
 }
 
 # WM_CHAR per character - what the console and text fields read, shifted
-# characters included. -BlurAt posts WM_KILLFOCUS straight after that
+# characters included. Per UTF-16 UNIT, as a keyboard sends them: a character
+# past U+FFFF is a surrogate pair and goes as two. -BlurAt posts WM_KILLFOCUS
+# straight after that
 # character, with no pause, so both land in one frame (TypingTest's FOCUS
 # phase).
 function Send-Text([string]$text, [int]$ms = $HarnessCharMs, [int]$BlurAt = -1) {

@@ -1,5 +1,6 @@
 #include "UI/Controls.h"
 
+#include "Core/Utf8.h"
 #include "UI/ControlIcons.h"
 #include "UI/Skin.h"
 #include "UI/Units.h"
@@ -1606,19 +1607,24 @@ void TextField::UpdateSelf(UIContext& ctx) {
 	// The typed text in order (Input::TypedChars): Backspace where it fell, and
 	// an Enter ends this frame's typing - submitting usually closes whatever the
 	// field is on, so nothing typed after it is applied to the old text.
+	// WHOLE CHARACTERS (C383): Backspace takes the last character however many
+	// bytes it is, and maxLength counts characters, so a full field refuses a
+	// letter whole rather than keeping half of it.
 	bool changed = false;
 	bool submit = false;
-	for (const char c : input->TypedChars()) {
-		if (c == Input::kTypedEnter) {
+	const std::string_view typed = input->TypedChars();
+	for (size_t i = 0; i < typed.size();) {
+		const std::string_view ch = utf8::CharAt(typed, i);
+		i += ch.size();
+		if (ch[0] == Input::kTypedEnter) {
 			submit = true;
 			break;
 		}
-		if (c == Input::kTypedBack) {
-			if (text.empty()) continue;
-			text.pop_back();
+		if (ch[0] == Input::kTypedBack) {
+			if (!utf8::PopBack(text)) continue;
 		} else {
-			if (text.size() >= maxLength) continue;
-			text.push_back(c);
+			if (utf8::Length(text) >= maxLength) continue;
+			text.append(ch);
 		}
 		changed = true;
 	}

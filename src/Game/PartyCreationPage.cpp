@@ -284,7 +284,9 @@ void PartyCreationPage::SetPick(bool skill, size_t slot, int choice) {
 
 void PartyCreationPage::SetName(std::string_view name) {
 	if (m_selected >= m_specs.size()) return;
-	m_specs[m_selected].name = std::string(name.substr(0, party::kMaxNameLength));
+	// Cut by CHARACTERS (C383): a byte cut kept half a Russian name, ending in
+	// half a letter.
+	m_specs[m_selected].name = std::string(utf8::Prefix(name, party::kMaxNameLength));
 	Touch();
 }
 

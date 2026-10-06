@@ -14,6 +14,8 @@
 // ============================================================================
 #pragma once
 
+#include "Core/Utf8.h"
+
 #include <array>
 #include <cstddef>
 #include <cstdlib>
@@ -120,14 +122,18 @@ struct MemberSpec {
 	int premade = -1;
 };
 
-// A name a member may have: 1..kMaxNameLength characters, no underscore (a save
-// line stores a name with its spaces as underscores) and not all spaces.
+// A name a member may have: 1..kMaxNameLength CHARACTERS of well-formed UTF-8, no
+// underscore (a save line stores a name with its spaces as underscores), no
+// control character and not all spaces. Characters, not bytes (code-review
+// C383): counting bytes let a Russian name have only half the letters, and let
+// the garbage the old one-byte typing made through to the save.
 inline constexpr size_t kMaxNameLength = 16;
 inline bool NameValid(const std::string& name) {
-	if (name.empty() || name.size() > kMaxNameLength) return false;
+	if (name.empty() || !utf8::Valid(name) || utf8::Length(name) > kMaxNameLength) return false;
 	bool any = false;
 	for (char c : name) {
-		if (c == '_' || c == '\t' || c == '\n' || c == '\r') return false;
+		const unsigned char u = static_cast<unsigned char>(c);
+		if (c == '_' || u < 0x20 || u == 0x7F) return false;
 		if (c != ' ') any = true;
 	}
 	return any;

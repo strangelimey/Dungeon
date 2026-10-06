@@ -2105,8 +2105,19 @@ Full per-phase history + gotchas live in the editor-overhaul memory.
   PumpMessages); EndFrame clears only what the frame showed, and focus loss
   (ClearAll) never clears it - clearing it there drops exactly one queued
   character, the likeliest cause of `sheet status` arriving as `shee status`
-  on 2026-09-30 (another session's harness taking the foreground). Checked by `tools\TypingTest.ps1` (CheckAll full tier;
-  `-SelfTest` uses the `inputpoke` dev command).
+  on 2026-09-30 (another session's harness taking the foreground). THE TEXT IS
+  WHOLE UTF-8 CHARACTERS (code-review C383): OnChar joins a surrogate pair and
+  encodes it, where it used to keep the UTF-16 unit's low byte (u-umlaut drew '?',
+  Cyrillic became control bytes, c-caron U+010D was an Enter). A consumer walks
+  `utf8::CharAt` (Core/Utf8.h, pure, in RollTest), deletes with `utf8::PopBack`
+  and caps with `utf8::Length` - a TextField's `maxLength` and a member name
+  (`party::NameValid`) count CHARACTERS; text set from outside a box (the
+  palette filter's `SetFilter`, the party page's `SetName`) is cut with
+  `utf8::Prefix`, never `substr`. Checked by `tools\TypingTest.ps1`
+  (CheckAll full tier; FOCUS / ORDER / UNICODE phases; `-SelfTest` uses the
+  `inputpoke` dev command and demands every phase catch it). The harnesses post
+  through PostMessageW, or a WM_CHAR past ASCII is converted from the ANSI code
+  page on the way.
 - Commit per feature with detailed messages; push to origin/main. Long
   commit messages via a temp file + `git commit -F` (PowerShell mangles
   embedded quotes).

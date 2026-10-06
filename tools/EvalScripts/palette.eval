@@ -10,6 +10,9 @@
 ;   --- filter ---     a filter from inside Creatures reaches the rest, and
 ;                      clearing it hands the list back to the bar
 ;   --- refuse ---     a group the grouping does not have
+;   --- utf8 ---       a filter of 13 characters but 25 bytes ("a" and 12
+;                      Cyrillic letters) is kept whole: the cap counts
+;                      characters, so no letter is cut in half (C383)
 ;   --- persist ---    left on kind / items, for the next run to find
 
 logecho on
@@ -36,5 +39,8 @@ editor palette filter marble
 editor palette filter
 echo --- refuse ---
 editor palette group build
+echo --- utf8 ---
+editor palette filter aабвгдежзийкл
+editor palette filter
 echo --- persist ---
 editor palette group items

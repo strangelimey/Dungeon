@@ -22,6 +22,13 @@
 #             sheet, rebuilding the HUD) is exactly what batches them. This
 #             phase types the heavy commands back to back, each starting the
 #             instant the previous Enter is posted.
+#   UNICODE - a typed character was cut to the low byte of its UTF-16 unit
+#             (code-review C383): u-umlaut became a byte the font drew as '?',
+#             Cyrillic became control bytes, and c-caron (U+010D) and
+#             C-circumflex (U+0108) became Enter and Backspace. This phase types
+#             `echo` lines holding u-umlaut, Cyrillic, both of those, a surrogate
+#             pair (U+10348, two WM_CHARs), and Backspaces that must take a
+#             whole Cyrillic letter and a whole surrogate pair.
 #
 # Every line must come back in the log's echo (`console: > <line>`, logecho on)
 # EXACTLY as typed, in order. And the run must neither load nor write a save:
@@ -84,9 +91,28 @@ function Send-RushedLine([string]$text) {
 	$script:typed += $text
 }
 
-# Every console echo in the log from line $from on, prefix stripped.
+# UNICODE phase: typed at the plain pace, then Enter. $keys may hold a Backspace
+# as [char]8 - sent as the KEY (OnKey's kTypedBack), never as a WM_CHAR, the way
+# a keyboard does it. $want is what the echo must say.
+function Send-UnicodeLine([string]$keys, [string]$want) {
+	$run = ''
+	foreach ($c in $keys.ToCharArray()) {
+		if ([int]$c -eq 8) {
+			if ($run) { Send-Text $run; $run = '' }
+			Send-Key 0x08
+		} else {
+			$run += $c
+		}
+	}
+	if ($run) { Send-Text $run }
+	Send-Key $VK_RETURN
+	$script:typed += $want
+}
+
+# Every console echo in the log from line $from on, prefix stripped. Read as
+# UTF-8, which the log is: PS 5.1 would read it as ANSI.
 function Get-Echoes([int]$from) {
-	$lines = @(Get-Content $log)
+	$lines = @(Get-Content -Encoding UTF8 $log)
 	$out = @()
 	for ($i = $from; $i -lt $lines.Count; $i++) {
 		if ($lines[$i] -match 'console: > (.*)$') { $out += $Matches[1] }
@@ -94,7 +120,19 @@ function Get-Echoes([int]$from) {
 	return ,$out
 }
 
-# Compares what was typed with what the console echoed; returns the mismatches.
+# A line for the report: anything past ASCII as <U+XXXX>, since this console's
+# code page would draw it as '?' and hide exactly the difference being shown.
+function Format-Line([string]$s) {
+	$sb = New-Object Text.StringBuilder
+	foreach ($c in $s.ToCharArray()) {
+		if ([int]$c -ge 0x20 -and [int]$c -lt 0x7F) { [void]$sb.Append($c) }
+		else { [void]$sb.AppendFormat('<U+{0:X4}>', [int]$c) }
+	}
+	return $sb.ToString()
+}
+
+# Compares what was typed with what the console echoed (case and all); returns
+# the mismatches.
 function Compare-Phase([string]$name, [int]$from) {
 	Start-Sleep -Seconds 2
 	$echoes = Get-Echoes $from
@@ -103,8 +141,8 @@ function Compare-Phase([string]$name, [int]$from) {
 	for ($i = 0; $i -lt $n; $i++) {
 		$want = if ($i -lt $script:typed.Count) { $script:typed[$i] } else { '<nothing>' }
 		$got = if ($i -lt $echoes.Count) { $echoes[$i] } else { '<nothing>' }
-		if ($want -ne $got) {
-			if ($bad -lt 6) { Write-Host "  line $($i + 1): typed '$want', the console got '$got'" -ForegroundColor Red }
+		if ($want -cne $got) {
+			if ($bad -lt 6) { Write-Host "  line $($i + 1): typed '$(Format-Line $want)', the console got '$(Format-Line $got)'" -ForegroundColor Red }
 			$bad++
 		}
 	}
@@ -160,24 +198,56 @@ try {
 	}
 	$badOrder = Compare-Phase 'ORDER' $from
 
+	# Built from code points: this file is ASCII. [char]8 is a Backspace key.
+	$uu = [string][char]0x00FC                                           # u-umlaut
+	$zhuk = (@(0x0416, 0x0443, 0x043A) | ForEach-Object { [char]$_ }) -join ''  # "zhuk", Cyrillic
+	$zhe = [string][char]0x0416
+	$ccaron = [string][char]0x010D  # its low byte is 0x0D, Enter
+	$ccirc = [string][char]0x0108   # its low byte is 0x08, Backspace
+	$hwair = [char]::ConvertFromUtf32(0x10348)  # past U+FFFF: a surrogate pair
+	$bs = [string][char]8
+	$unicode = @(
+		@("echo gr${uu}n ${zhuk}", "echo gr${uu}n ${zhuk}"),
+		@("echo ${ccaron}ech ${ccirc}a ${ccaron}", "echo ${ccaron}ech ${ccirc}a ${ccaron}"),
+		@("echo ${hwair} hwair", "echo ${hwair} hwair"),
+		@("echo ab${zhe}${bs}c", 'echo abc'),
+		@("echo ${zhuk}${hwair}${bs}${bs}ok", "echo $($zhuk.Substring(0, 2))ok")
+	)
+	Write-Host "UNICODE: $Rounds rounds of u-umlaut, Cyrillic, U+010D, U+0108, a surrogate pair and Backspace"
+	$from = @(Get-Content $log).Count
+	$script:typed = @()
+	for ($r = 1; $r -le $Rounds; $r++) {
+		foreach ($pair in $unicode) {
+			if ($SelfTest) { Send-Text 'inputpoke'; Send-Key 0x0D; $script:typed += 'inputpoke' }
+			Send-UnicodeLine $pair[0] $pair[1]
+		}
+	}
+	$badUnicode = Compare-Phase 'UNICODE' $from
+
 	# The run must not have touched a save: no Continue, no save written. Read
 	# from THIS game's log, so another session writing to the shared
 	# DungeonSaves meanwhile cannot fail it.
 	$saveLines = @(Select-String -Path $log -Pattern 'Loaded game from |Saved game to ' -EA SilentlyContinue)
 	foreach ($s in $saveLines) { Write-Host "  the run touched a save: $($s.Line)" -ForegroundColor Red }
 
-	$result = if ($badFocus -eq 0 -and $badOrder -eq 0 -and $saveLines.Count -eq 0) { 'PASS' } else { 'FAIL' }
+	$result = if ($badFocus -eq 0 -and $badOrder -eq 0 -and $badUnicode -eq 0 -and $saveLines.Count -eq 0) { 'PASS' } else { 'FAIL' }
 	if ($SelfTest) {
-		if ($result -eq 'FAIL') {
-			Write-Host 'TYPINGTEST SELFTEST PASS - the harness caught the dropped characters' -ForegroundColor Green
+		# EVERY phase must have caught it: a phase that passes with text thrown
+		# away has stopped looking, however loudly the others fail.
+		$blind = @()
+		if ($badFocus -eq 0) { $blind += 'FOCUS' }
+		if ($badOrder -eq 0) { $blind += 'ORDER' }
+		if ($badUnicode -eq 0) { $blind += 'UNICODE' }
+		if ($blind.Count -eq 0) {
+			Write-Host 'TYPINGTEST SELFTEST PASS - every phase caught the dropped characters' -ForegroundColor Green
 			$code = 0
 		} else {
-			Write-Host 'TYPINGTEST SELFTEST FAIL - text was dropped on purpose and the run still passed' -ForegroundColor Red
+			Write-Host "TYPINGTEST SELFTEST FAIL - text was dropped on purpose and $($blind -join ', ') still passed" -ForegroundColor Red
 			$code = 1
 		}
 	} else {
 		$color = if ($result -eq 'PASS') { 'Green' } else { 'Red' }
-		Write-Host "TYPINGTEST $result focus_wrong=$badFocus order_wrong=$badOrder saves_touched=$($saveLines.Count)" -ForegroundColor $color
+		Write-Host "TYPINGTEST $result focus_wrong=$badFocus order_wrong=$badOrder unicode_wrong=$badUnicode saves_touched=$($saveLines.Count)" -ForegroundColor $color
 		$code = if ($result -eq 'PASS') { 0 } else { 1 }
 	}
 } finally {

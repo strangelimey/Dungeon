@@ -12,6 +12,7 @@
 
 #include "Core/Log.h"
 #include "Core/Profile.h"
+#include "Core/Utf8.h"
 #include "UI/Controls.h" // ui::DrawBorder
 
 #include <Windows.h> // VK_* codes
@@ -277,10 +278,12 @@ void DevConsole::Update(const Input& input, float dt, float windowW, float windo
 	// toggle key so `~`/backtick never self-types. Any edit re-opens the
 	// type-ahead list; see m_suggestOpen for why a history recall does not.
 	// Indexed afresh each step, not range-for: Enter runs a command, and the
-	// view must not be held across whatever that command does.
-	for (size_t i = 0; i < input.TypedChars().size(); ++i) {
-		const char c = input.TypedChars()[i];
-		if (c == Input::kTypedEnter) {
+	// view must not be held across whatever that command does. A step is one
+	// whole UTF-8 character (C383), so Backspace never leaves half a letter.
+	for (size_t i = 0; i < input.TypedChars().size();) {
+		const std::string_view ch = utf8::CharAt(input.TypedChars(), i);
+		i += ch.size();
+		if (ch[0] == Input::kTypedEnter) {
 			SubmitLine();
 			// A command that shut the console (alloctest, allocpoke) takes the
 			// rest of the frame's typing with it - there is nothing open to type
@@ -288,12 +291,11 @@ void DevConsole::Update(const Input& input, float dt, float windowW, float windo
 			if (!m_open) return;
 			continue;
 		}
-		if (c == Input::kTypedBack) {
-			if (m_input.empty()) continue;
-			m_input.pop_back();
+		if (ch[0] == Input::kTypedBack) {
+			if (!utf8::PopBack(m_input)) continue;
 		} else {
-			if (c == '`' || c == '~') continue;
-			m_input.push_back(c);
+			if (ch == "`" || ch == "~") continue;
+			m_input.append(ch);
 		}
 		m_suggestOpen = true;
 		m_suggestSel = 0;

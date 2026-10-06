@@ -57,8 +57,9 @@
 #  12. THE PALETTE'S CATEGORY BAR (tool-refinement Phase 1): both groupings
 #      are the designed tables, each group lists exactly its sections, effects
 #      are in none; the world sections list their entries; a filter from inside
-#      one group finds matches in the others and drops sections with none; and
-#      the grouping survives a restart through settings.ini.
+#      one group finds matches in the others and drops sections with none; a
+#      filter is capped in characters, never cut inside one (C383); and the
+#      grouping survives a restart through settings.ini.
 #  13. MONSTER POWER (Phase 2): unset, a kind's power is its derived threat;
 #      the bands are the fifths of the project's range (recomputed here, not
 #      read back) and the palette's rows wear them; an override moves that
@@ -706,6 +707,13 @@ try:
               "clearing the filter hands the list back to the bar", str(after))
     check(any("no group 'build' when grouped by kind" in l for l in sec.get("refuse", [])),
           "a group the grouping lacks is refused by name")
+    # C383: "a" and 12 Cyrillic letters is 13 characters but 25 bytes. A cap in
+    # bytes keeps half the last letter (a lone lead byte, read back as U+FFFD).
+    wide = "a" + "".join(chr(0x430 + i) for i in range(12))
+    uf = [shown(l) for l in sec.get("utf8", []) if shown(l)]
+    check(len(uf) == 2 and uf[0][2] == wide and uf[1][2] == "",
+          "a 13-character filter of 25 bytes is kept whole, not cut at a byte",
+          ascii([u[2] for u in uf]))
     ini = io.open(SETTINGS, encoding="utf-8").read() if os.path.isfile(SETTINGS) else ""
     check("map_palette_group=1" in ini and "map_palette_kind=4" in ini,
           "the grouping and its group are saved to settings.ini")

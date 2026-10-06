@@ -2348,6 +2348,52 @@ int main(int argc, char** argv) {
 			  static_cast<double>(generate::Populate(low, W, H, walk, walk, 2, 3).report.monsters), 0.0, 0.0);
 	}
 
+	// --- UTF-8 text (Core/Utf8.h) ----------------------------------------------
+	// What typed text is made of since code-review C383: Input::OnChar encodes a
+	// WM_CHAR with Append, and every text box deletes with PopBack and counts
+	// with Length. The bytes are written out by hand from the encoding, never
+	// produced by the encoder under test. Spelled as escapes: this file is ASCII.
+	{
+		std::printf("\nUTF-8 text (Core/Utf8.h)\n");
+		namespace utf8 = dungeon::utf8;
+		const auto enc = [](char32_t cp) {
+			std::string s;
+			utf8::Append(s, cp);
+			return s;
+		};
+		CheckTrue("u-umlaut U+00FC is C3 BC", enc(0x00FC) == "\xC3\xBC");
+		CheckTrue("Cyrillic Zhe U+0416 is D0 96", enc(0x0416) == "\xD0\x96");
+		CheckTrue("c-caron U+010D is C4 8D, never a lone 0D (Enter)", enc(0x010D) == "\xC4\x8D");
+		CheckTrue("C-circumflex U+0108 is C4 88, never a lone 08 (Backspace)",
+				  enc(0x0108) == "\xC4\x88");
+		CheckTrue("Euro U+20AC is E2 82 AC", enc(0x20AC) == "\xE2\x82\xAC");
+		CheckTrue("Gothic hwair U+10348 (a surrogate pair) is F0 90 8D 88",
+				  enc(0x10348) == "\xF0\x90\x8D\x88");
+		CheckTrue("a lone surrogate half appends nothing", enc(0xD800).empty());
+		CheckTrue("past U+10FFFF appends nothing", enc(0x110000).empty());
+		// "Gr<u-umlaut>n <Zhe>" - 6 characters in 8 bytes.
+		const std::string mixed = "Gr\xC3\xBCn \xD0\x96";
+		Check("'Gr<u>n <Zhe>' is 6 characters (8 bytes)", static_cast<double>(utf8::Length(mixed)), 6.0, 0.0);
+		Check("...and its first 4 are 5 bytes", static_cast<double>(utf8::Prefix(mixed, 4).size()), 5.0, 0.0);
+		std::string edit = mixed;
+		CheckTrue("Backspace takes the whole Zhe", utf8::PopBack(edit) && edit == "Gr\xC3\xBCn ");
+		edit = "Gr\xC3\xBC";
+		CheckTrue("...and the whole u-umlaut", utf8::PopBack(edit) && edit == "Gr");
+		edit = "a\xF0\x90\x8D\x88";
+		CheckTrue("...and a whole four-byte character", utf8::PopBack(edit) && edit == "a");
+		edit = "ab\xD0";
+		CheckTrue("a lead byte cut short is one character of its own",
+				  utf8::Length(edit) == 3 && utf8::PopBack(edit) && edit == "ab");
+		edit.clear();
+		CheckTrue("Backspace on nothing says so", !utf8::PopBack(edit));
+		CheckTrue("a cut-short sequence never swallows the next character",
+				  utf8::CharAt("\xD0" "a", 0).size() == 1);
+		CheckTrue("well-formed text is Valid", utf8::Valid(mixed));
+		CheckTrue("a lone lead byte is not", !utf8::Valid("ab\xD0"));
+		CheckTrue("an overlong '/' (C0 AF) is not", !utf8::Valid("\xC0\xAF"));
+		CheckTrue("an encoded surrogate (ED A0 80) is not", !utf8::Valid("\xED\xA0\x80"));
+	}
+
 	// --- party creation (Game/PartyRules.h) ---------------------------------
 	// The numbers a created member is made from. Expectations are written out
 	// by hand from the rules in docs/party-creation-plan.md, never read back
@@ -2387,6 +2433,15 @@ int main(int argc, char** argv) {
 		CheckTrue("an underscore is not (saves use it for spaces)", !NameValid("Old_Tom"));
 		CheckTrue("all spaces is not a name", !NameValid("   "));
 		CheckTrue("17 characters is too long", !NameValid("Abcdefghijklmnopq"));
+		// Names count CHARACTERS (C383). Zhe (D0 96) is one character in two bytes.
+		std::string zhe16, zhe17;
+		for (int k = 0; k < 16; ++k) zhe16 += "\xD0\x96";
+		zhe17 = zhe16 + "\xD0\x96";
+		CheckTrue("16 Cyrillic letters (32 bytes) is a name", NameValid(zhe16));
+		CheckTrue("17 Cyrillic letters is too long", !NameValid(zhe17));
+		CheckTrue("'J<u-umlaut>rgen' is a name", NameValid("J\xC3\xBCrgen"));
+		CheckTrue("half a letter (a lone D0) is not a name", !NameValid("Ann\xD0"));
+		CheckTrue("a control character is not", !NameValid("Ann\x16" "a"));
 
 		// The member WORDS `newparty` and the page's `partypage set` share.
 		MemberSpec m;

@@ -52,9 +52,17 @@ public:
 	}
 
 	// The text typed this frame, IN THE ORDER IT HAPPENED: printable characters
-	// (WM_CHAR, UTF-8/ASCII) plus kTypedBack for each Backspace press and
-	// kTypedEnter for each Enter press. Lets a text field (the dev console)
-	// accumulate input without decoding virtual keys itself.
+	// as UTF-8 plus kTypedBack for each Backspace press and kTypedEnter for each
+	// Enter press. Lets a text field (the dev console) accumulate input without
+	// decoding virtual keys itself.
+	//
+	// WHOLE UTF-8 CHARACTERS (code-review C383). OnChar encodes each WM_CHAR,
+	// a surrogate pair included, so a u-umlaut is two bytes and a Cyrillic
+	// letter two, never one byte cut from the UTF-16 unit - which drew '?', put
+	// control bytes in a Russian name, and made c-caron (U+010D) an Enter. The
+	// only bytes under 0x20 are kTypedBack and kTypedEnter, which no multi-byte
+	// sequence contains, so a consumer walks utf8::CharAt (Core/Utf8.h), tests
+	// a character's first byte for the two, and deletes with utf8::PopBack.
 	//
 	// ONE stream rather than characters plus key edges, because the edges carry
 	// no order: a frame that took `...t<Enter>s` (a heavy frame batches them)
@@ -80,7 +88,7 @@ public:
 
 	// --- driven by Window --------------------------------------------------
 	void OnKey(int vkey, bool down);
-	void OnChar(unsigned int codepoint); // WM_CHAR: appends printable chars
+	void OnChar(unsigned int unit); // WM_CHAR (a UTF-16 unit): appends printable chars
 	void OnMouseButton(MouseButton b, bool down);
 	void OnMouseMove(float x, float y);
 	void OnWheel(float delta);
@@ -129,13 +137,15 @@ private:
 	std::array<bool, 3> m_mouseReleased{};
 	std::string m_typed;     // typed text not yet cleared, in arrival order
 	size_t m_typedFrame = 0; // how much of it this frame shows (BeginFrame)
+	unsigned int m_highSurrogate = 0; // the first half of a pair, until the second
 	float m_mouseX = 0.0f;
 	float m_mouseY = 0.0f;
 	float m_wheel = 0.0f;
 };
 
 // Human-readable name for a virtual-key code ("W", "Space", "Caps Lock"),
-// from the active keyboard layout — what the Settings key-bind boxes show.
+// from the active keyboard layout - what the Settings key-bind boxes show. UTF-8,
+// like every string the font draws (a Russian layout names its keys in Cyrillic).
 std::string KeyName(int vkey);
 
 } // namespace dungeon

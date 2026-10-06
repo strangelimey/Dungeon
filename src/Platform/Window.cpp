@@ -145,6 +145,8 @@ i64 Window::HandleMessage(u32 msg, u64 wparam, i64 lparam) {
 		m_input.OnKey(static_cast<int>(wparam), false);
 		return 0;
 	case WM_CHAR:
+		// A Unicode window: one UTF-16 unit, half of a surrogate pair for a
+		// character past U+FFFF. Input::OnChar joins the halves and encodes UTF-8.
 		m_input.OnChar(static_cast<unsigned int>(wparam));
 		return 0;
 

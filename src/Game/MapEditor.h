@@ -653,6 +653,9 @@ private:
 
 	std::string m_filter;         // case-insensitive substring, "" = off
 	bool m_filterFocused = false; // typed chars land in the box
+	// The filter's length in CHARACTERS (UTF-8, C383), for the box and for
+	// SetFilter alike: a byte cut could keep half a letter that never matches.
+	static constexpr size_t kFilterMaxChars = 24;
 	// Whether surfaces show the whole catalog vs the level's palette lives on
 	// GameSettings (m_settings.mapShowCatalog) so it PERSISTS in settings.ini
 	// like the dock-collapse flags — a workflow preference, not per-session

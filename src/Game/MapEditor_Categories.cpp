@@ -13,6 +13,7 @@
 #include "Game/MapEditor.h"
 
 #include "Core/Loc.h"
+#include "Core/Utf8.h"
 #include "Game/DungeonWorld.h"
 #include "Game/GameSettings.h"
 #include "Game/MapColors.h"
@@ -189,7 +190,7 @@ void MapEditor::RevealCategory(PaletteCat cat) {
 }
 
 void MapEditor::SetFilter(std::string_view text) {
-	m_filter = std::string(text.substr(0, 24)); // the box's own limit
+	m_filter = std::string(utf8::Prefix(text, kFilterMaxChars)); // the box's own limit
 	m_paletteScroll = 0.0f;
 }
 

@@ -9,6 +9,7 @@
 #include "Game/MapEditor.h"
 
 #include "Core/Loc.h"
+#include "Core/Utf8.h"
 #include "Game/Area.h"               // the area fill's room/corridor
 #include "Game/DungeonMeshBuilder.h" // ResolveSurfaceVariant (eyedropper/flood key)
 #include "Game/DungeonWorld.h"
@@ -424,19 +425,24 @@ void MapEditor::HandleTyping(const Input& input) {
 	// The typed text in order (Input::TypedChars). Esc/Enter release the
 	// keyboard back to the game (Game gates the party keys and its own Esc/M on
 	// KeyboardCaptured while we hold it), so typing after an Enter is not ours.
+	// Whole UTF-8 characters (C383): Backspace takes the last one, and the cap
+	// is kFilterMaxChars CHARACTERS, refusing a letter whole rather than keeping
+	// half of it.
 	bool edited = false;
-	for (const char c : input.TypedChars()) {
-		if (c == Input::kTypedEnter) {
+	const std::string_view typed = input.TypedChars();
+	for (size_t i = 0; i < typed.size();) {
+		const std::string_view ch = utf8::CharAt(typed, i);
+		i += ch.size();
+		if (ch[0] == Input::kTypedEnter) {
 			m_filterFocused = false;
 			break;
 		}
-		if (c == Input::kTypedBack) {
-			if (m_filter.empty()) continue;
-			m_filter.pop_back();
+		if (ch[0] == Input::kTypedBack) {
+			if (!utf8::PopBack(m_filter)) continue;
 		} else {
-			if (static_cast<unsigned char>(c) < 0x20) continue; // printable only
-			if (m_filter.size() >= 24) continue;
-			m_filter.push_back(c);
+			if (static_cast<unsigned char>(ch[0]) < 0x20) continue; // printable only
+			if (utf8::Length(m_filter) >= kFilterMaxChars) continue;
+			m_filter.append(ch);
 		}
 		edited = true;
 	}

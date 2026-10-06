@@ -493,10 +493,10 @@ private:
 };
 
 // Single-line text input. Click to focus; while focused it takes printable
-// characters (WM_CHAR via Input::TypedChars), Backspace deletes the last one,
-// and Enter fires onSubmit. Clicking outside the box unfocuses it. A solid
-// caret marks focus (no blink — widget Update has no time step). The owner
-// reads/sets `text` directly; onChange fires whenever it changes by input.
+// characters (WM_CHAR via Input::TypedChars, UTF-8), Backspace deletes the last
+// whole character, and Enter fires onSubmit. Clicking outside the box unfocuses
+// it. A solid caret marks focus (no blink - widget Update has no time step). The
+// owner reads/sets `text` directly; onChange fires whenever it changes by input.
 class TextField : public Widget {
 public:
 	TextField(const gfx::Rect& rect, std::string text = "")
@@ -512,7 +512,7 @@ public:
 
 	std::string text;
 	std::string placeholder;          // shown dimmed when text is empty
-	size_t maxLength = 32;
+	size_t maxLength = 32;            // in CHARACTERS, not bytes (utf8::Length)
 	std::function<void()> onChange;   // text changed via keyboard
 	std::function<void()> onSubmit;   // Enter while focused
 
