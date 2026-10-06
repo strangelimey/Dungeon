@@ -1194,6 +1194,28 @@ void Game::RegisterDevCommands() {
 							   else m_console.Refuse("project save failed");
 						   }
 					   });
+	// WHAT THE NEXT savemap WRITES BESIDES THE ACTIVE LEVEL (code-review C298,
+	// C307, C308): each level whose map or .ent is stashed - every one of them
+	// the save rewrites - and those whose dynamic state is held; then whether
+	// the active level's map and records differ from its files. A level only
+	// visited, or only read, must appear in neither stash list.
+	m_console.Register({.name = "stashes",
+						.group = CmdGroup::Levels,
+						.summary = "list the levels the next savemap writes, and why"},
+					   [this](const std::vector<std::string>&) {
+						   if (!m_world) {
+							   m_console.Refuse("stashes: no world loaded");
+							   return;
+						   }
+						   const DungeonWorld::StashReport s = m_world->Stashes();
+						   m_console.Print(std::format("stashes: maps={} ents={} states={}", s.maps,
+													   s.ents, s.states));
+						   m_console.Print(std::format("stashes: active {} map={} ents={}{}",
+													   m_world->CurrentLevel(),
+													   s.mapEdited ? "edited" : "clean",
+													   s.entsEdited ? "edited" : "clean",
+													   s.parked ? " parked" : ""));
+					   });
 	m_console.Register({.name = "synctosource",
 						.group = CmdGroup::Levels,
 						.summary = "copy the active project (edits) into the repo source tree"},

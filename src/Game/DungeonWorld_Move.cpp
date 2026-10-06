@@ -360,18 +360,19 @@ bool DungeonWorld::MoveStair(const MoveTarget& t, int tx, int tz) {
 	const bool exit = CatalogBool(m_project.stairs.Find(link.type), "exit", false);
 	const bool destIsLevel = std::find(m_project.levels.begin(), m_project.levels.end(),
 									   link.destLevel) != m_project.levels.end();
-	DungeonMap* other = nullptr;
+	// Looked for, and its square checked, as that level READS; stashed only
+	// once both halves will move (a refused move used to leave the stash behind
+	// for savemap to rewrite: C307).
+	bool paired = false;
 	if (!exit && destIsLevel && link.destLevel != m_currentLevel) {
-		DungeonMap& dst = EnsureMapStash(link.destLevel);
-		const StairLink* p = dst.StairAt(link.destX, link.destZ);
-		if (p && p->destLevel == m_currentLevel && p->destX == t.x && p->destZ == t.z)
-			other = &dst;
+		const StairLink* p = LevelForReading(link.destLevel).map->StairAt(link.destX, link.destZ);
+		paired = p && p->destLevel == m_currentLevel && p->destX == t.x && p->destZ == t.z;
 	}
-	if (other && (!other->IsWalkable(tx, tz) || other->StairAt(tx, tz) ||
-				  other->BrazierAt(tx, tz))) {
+	if (paired && !CellFreeForStair(link.destLevel, tx, tz)) {
 		say(loc::Format("map.stairs.destblocked", tx, tz, link.destLevel));
 		return false;
 	}
+	DungeonMap* other = paired ? &EnsureMapStash(link.destLevel) : nullptr;
 
 	// A facing that still steps off onto floor is kept; one that would now step
 	// into rock takes the square's first open side (DungeonMap::OpenFacing).

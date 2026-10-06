@@ -353,11 +353,13 @@ bool DungeonWorld::AddPaletteEntryRemote(const std::string& stem, SurfaceSel sel
 										 const std::string& id) {
 	if (!SurfaceCatalog(sel).Contains(id)) return false;
 	// No texture/mesh work: a browsed level isn't rendered in 3D. Its assets are
-	// checked when the party (or the editor) enters it.
-	DungeonMap& map = EnsureMapStash(stem);
-	return sel == SurfaceSel::Wall	  ? map.AddToWallPalette(id)
-		   : sel == SurfaceSel::Floor ? map.AddToFloorPalette(id)
-									  : map.AddToCeilingPalette(id);
+	// checked when the party (or the editor) enters it. Stashed only when the
+	// palette really grows (C307).
+	return EditMapStash(stem, [&](DungeonMap& map) {
+		return sel == SurfaceSel::Wall	  ? map.AddToWallPalette(id)
+			   : sel == SurfaceSel::Floor ? map.AddToFloorPalette(id)
+										  : map.AddToCeilingPalette(id);
+	});
 }
 
 int DungeonWorld::EnsureSurfaceVariant(const std::string& stem, SurfaceSel sel,
@@ -374,11 +376,13 @@ int DungeonWorld::EnsureSurfaceVariant(const std::string& stem, SurfaceSel sel,
 		if (!AddPaletteEntry(sel, id)) return -1; // assets missing / unknown
 		return indexIn(m_map);
 	}
-	// A browsed level: the stash is truth (ViewedMap is a snapshot copy that
-	// only refreshes after the paint, so read the stash directly here).
-	if (const int i = indexIn(EnsureMapStash(stem)); i >= 0) return i;
+	// A browsed level: its stash, else its file, is truth (ViewedMap is a
+	// snapshot copy that only refreshes after the paint). READ, not stashed: a
+	// type it already has is a lookup, and the paint that follows stashes the
+	// level only if it changes a square (C307).
+	if (const int i = indexIn(*LevelForReading(stem).map); i >= 0) return i;
 	if (!AddPaletteEntryRemote(stem, sel, id)) return -1;
-	return indexIn(EnsureMapStash(stem));
+	return indexIn(*LevelForReading(stem).map);
 }
 
 int DungeonWorld::EnsureThemeVariant(const std::string& stem, const std::string& id) {
@@ -391,8 +395,15 @@ int DungeonWorld::EnsureThemeVariant(const std::string& stem, const std::string&
 	for (int s = 0; s < 3; ++s)
 		if (const std::string& member = members[static_cast<size_t>(s)]; !member.empty())
 			EnsureSurfaceVariant(stem, static_cast<SurfaceSel>(s), member);
-	DungeonMap& map = stem == m_currentLevel ? m_map : EnsureMapStash(stem);
-	return DungeonMap::ThemeVariant(map.ThemeSlot(id, members));
+	if (stem == m_currentLevel) return DungeonMap::ThemeVariant(m_map.ThemeSlot(id, members));
+	// A browsed level that already holds the theme as it is: a lookup, no stash
+	// (C307). Otherwise the slot is added, or its members brought up to date.
+	const DungeonMap& read = *LevelForReading(stem).map;
+	for (size_t i = 0; i < read.ThemeCount(); ++i)
+		if (read.ThemeId(static_cast<int>(i)) == id &&
+			read.ThemeMemberIds(static_cast<int>(i)) == members)
+			return DungeonMap::ThemeVariant(static_cast<int>(i));
+	return DungeonMap::ThemeVariant(EnsureMapStash(stem).ThemeSlot(id, members));
 }
 
 void DungeonWorld::RefreshTheme(const std::string& id) {
@@ -405,11 +416,7 @@ void DungeonWorld::RefreshTheme(const std::string& id) {
 	};
 	for (const std::string& stem : m_project.levels) {
 		const bool active = stem == m_currentLevel;
-		const auto stash = m_levelMaps.find(stem);
-		const bool used = active                        ? uses(m_map)
-						  : stash != m_levelMaps.end() ? uses(*stash->second)
-													   : uses(*ReadOnlyLevelOf(stem).map);
-		if (!used) continue;
+		if (!uses(*LevelForReading(stem).map)) continue; // read, never stashed (C307)
 		for (int s = 0; s < 3; ++s)
 			if (const std::string& member = members[static_cast<size_t>(s)]; !member.empty())
 				EnsureSurfaceVariant(stem, static_cast<SurfaceSel>(s), member);

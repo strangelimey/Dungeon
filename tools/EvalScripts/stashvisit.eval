@@ -1,0 +1,52 @@
+; stashvisit.eval - a level only VISITED, or only READ, is not stashed, so the
+; next savemap does not rewrite it (code-review C308, C307). Judged by
+; tools/EditorTest.py phase 31, on a scratch copy of dungeon-demo.
+;
+; 1. THE VISIT (C308). eval_arena -> crypt1 -> crypt2 -> crypt1, no edit
+;    anywhere. Leaving a level used to stash its map whatever had happened to
+;    it, and savemap writes every stash: crypt2.map came back rewritten (its
+;    comments gone) though nobody had touched it. Each `stashes` must list no
+;    map and no .ent, only the dynamic states the stairs keep, and savemap must
+;    write crypt1 - the level stood on - alone.
+; 2. THE QUERIES (C307). A dungeon delete ASKED (`dungeons what`) and one
+;    started in the type editor and cancelled both walk every surviving level
+;    for a stair leading in - and used to stash each one to read it. A fresh
+;    dungeon with one empty level (dungeon1 / dungeon11) is the one whose
+;    refusal gets that far: crypt and eval are refused before it (the party's
+;    level, the opening, the harness level).
+; 3. THE RENAME (C307). Renaming crypt2 repoints crypt1's stair (crypt1 is the
+;    level stood on, so it is written at once), and every other level used to
+;    be stashed just to look for a stair naming crypt2. Renamed back after.
+; EditorTest compares crypt2's and eval_arena's files with the copy's as made:
+; byte for byte, whatever the readouts said.
+
+logecho on
+reset
+echo --- start ---
+stashes
+goto crypt1
+goto crypt2
+echo --- on crypt2 ---
+stashes
+goto crypt1
+echo --- back ---
+stashes
+savemap
+echo --- queries ---
+newtype dungeons
+levels new dungeon1
+stashes
+dungeons what dungeon1
+dungeons dialog dungeon1
+dungeons dialog delete
+dungeons dialog off
+echo --- after queries ---
+stashes
+echo --- rename ---
+levelrename crypt2 crypt2b
+stashes
+levelrename crypt2b crypt2
+echo --- renamed back ---
+stashes
+savemap
+echo --- end ---

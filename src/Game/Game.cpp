@@ -1517,7 +1517,9 @@ bool Game::LoadGame(const std::string& path) {
 
 	// Route to the saved level. If it is the one already active, restore its
 	// live state inline; otherwise load it (arriving at the saved pose, without
-	// stashing the throwaway baseline) and let the loader finish the restore.
+	// stashing the throwaway baseline's dynamic state - its unsaved editor work
+	// IS stashed, whoever leaves: code-review C298) and let the loader finish
+	// the restore.
 	if (m_world->CurrentLevel() != data->currentLevel) {
 		m_ui.ClearLog();
 		BeginLevelTransition(data->currentLevel, data->partyX, data->partyZ,

@@ -88,19 +88,9 @@ const std::vector<DungeonWorld::LevelCensus>& DungeonWorld::Census() {
 	for (const std::string& stem : m_project.levels) {
 		// The level as it IS now: live if active, else its unsaved stash, else
 		// the files read-only (Validate's walk - never stash to read).
-		const DungeonMap* map = nullptr;
-		const DungeonEntities* ents = nullptr;
-		if (stem == m_currentLevel) {
-			map = &m_map;
-			ents = &m_entities;
-		} else {
-			const auto ms = m_levelMaps.find(stem);
-			const auto es = m_levelEnts.find(stem);
-			const ReadOnlyLevel* ro = nullptr;
-			if (ms == m_levelMaps.end() || es == m_levelEnts.end()) ro = &ReadOnlyLevelOf(stem);
-			map = ms != m_levelMaps.end() ? ms->second.get() : ro->map.get();
-			ents = es != m_levelEnts.end() ? es->second.get() : ro->ents.get();
-		}
+		const LevelRead level = LevelForReading(stem);
+		const DungeonMap* map = level.map;
+		const DungeonEntities* ents = level.ents;
 		LevelCensus c;
 		c.stem = stem;
 		if (const CatalogEntry* d = m_project.DungeonOfLevel(stem)) c.dungeon = d->id;

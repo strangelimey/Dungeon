@@ -225,6 +225,24 @@
 #      among them, are byte for byte as they were, while this one's floors.cat
 #      gains the two types and its imports.cat the import's one record (the
 #      installed set's type records none), and nothing else moves.
+#  31. THE STASH RULES (code-review C308, C298, C307): a level stashed is a
+#      level savemap rewrites, so only an EDITED one may be. A walk eval_arena
+#      -> crypt1 -> crypt2 -> crypt1 stashes no map and no .ent and its save
+#      writes crypt1 alone; so do a dungeon delete asked and one cancelled, and
+#      a level rename (which writes crypt1, the one level whose stair it
+#      repoints) - crypt2's and eval_arena's files byte for byte as made. A
+#      wall painted on crypt1 and then a save LOADED on another level: the
+#      paint is stashed, saved and found again on the way back (the measure
+#      reads edited, clean after an undo, edited again). On a browsed level an
+#      erase of nothing, on a level with no stash yet, stashes neither layer, a
+#      wall paint stashes the map and not the .ent, an item erased stashes the
+#      .ent and not the map - and the files say so: crypt2.ent and crypt1.map
+#      untouched. A wall painted on crypt1, the level PARKED by a walk out to
+#      the world and a save made there loaded back IN PLACE: nothing of crypt1
+#      is left stashed, so with the square put back as filed a savemap writes it
+#      once, the stairs stash nothing and the wall does not come back; then a
+#      wall painted and a NEW GAME begun elsewhere: the paint is stashed, saved
+#      and found again.
 #  40. ONE WORLD TICK (code-review C78, C125), read off the world's own update
 #      count (`worldclock`): a paused editor stays paused through a bare
 #      `editor`, `editor pick` and `editor issues` - each asks for Editor mode,
@@ -343,9 +361,12 @@ import harness_game
 harness_game.refuse_if_stale(EXE)
 harness_game.refuse_if_running(EXE)
 
-# flags.eval's and nichelooks.eval's save slots, renamed to this worktree's: the
-# saves folder is shared with every other session and with Michael's own play.
+# flags.eval's, stashload.eval's, stashpark.eval's and nichelooks.eval's save
+# slots, renamed to this worktree's: the saves folder is shared with every other
+# session and with Michael's own play.
 SAVES = {"flagtest": harness_game.save_name(ROOT, "flagtest"),
+         "stashtest": harness_game.save_name(ROOT, "stashtest"),
+         "stashpark": harness_game.save_name(ROOT, "stashpark"),
          "nichelooks": harness_game.save_name(ROOT, "nichelooks")}
 
 
@@ -3216,6 +3237,280 @@ try:
 finally:
     drop()
     harness_game.remove_world(ROOT, OTHER_WORLD)
+
+
+# --- phase 31: the stash rules ------------------------------------------------------
+print("31 - a level visited or read is not stashed; unsaved work survives a load elsewhere")
+
+STASH_LISTS = re.compile(r"stashes: maps=(\S+) ents=(\S+) states=(\S+)$")
+STASH_ACTIVE = re.compile(r"stashes: active (\S+) map=(\w+) ents=(\w+)( parked)?$")
+MAPINFO = re.compile(r"\d+x\d+ map, start \d+,\d+, (\d+) walkable")
+
+
+def stash_reads(lines):
+    """Every `stashes` answer in a section, in order, as a dict: the three lists
+    as sets of stems, then the active level, its map's and records' word and
+    whether it is parked."""
+    out, lists = [], None
+    for line in lines:
+        m = STASH_LISTS.match(line)
+        if m:
+            lists = [set() if g == "none" else set(g.split(",")) for g in m.groups()]
+            continue
+        m = STASH_ACTIVE.match(line)
+        if m and lists is not None:
+            out.append({"maps": lists[0], "ents": lists[1], "states": lists[2],
+                        "active": m.group(1), "map": m.group(2), "rec": m.group(3),
+                        "parked": bool(m.group(4))})
+            lists = None
+    return out
+
+
+def first_read(sec, name):
+    reads = stash_reads(sec.get(name, []))
+    return reads[0] if reads else {}
+
+
+def saved_lists(log):
+    """Each savemap's written stems, in order."""
+    return [[s.strip() for s in m.group(1).split(",")]
+            for m in re.finditer(r"console: saved levels: (.*)", log)]
+
+
+def walkable_in(lines):
+    got = [int(m.group(1)) for m in (MAPINFO.match(l) for l in lines) if m]
+    return got[0] if got else None
+
+
+def grid_cell(files, stem, x, z):
+    """The glyph a level file's grid has at (x, z), or None."""
+    text = files.get(stem + ".map", b"").decode("utf-8")
+    rows = [l for l in text.splitlines() if l and l[0] in "#.PDTF"]
+    return rows[z][x] if z < len(rows) and x < len(rows[z]) else None
+
+
+def ent_records(files, stem):
+    """The set of (kind, type, x, z) records of a level's .ent bytes."""
+    text = files.get(stem + ".ent", b"").decode("utf-8")
+    return {tuple(l.split()[:4]) for l in text.splitlines()
+            if l and not l.startswith(";") and len(l.split()) >= 4}
+
+
+def moved(before, after, names):
+    """Which of `names` are not byte for byte as they were."""
+    return [n for n in names if before.get(n) != after.get(n)]
+
+
+# 1. THE VISIT, THE QUERIES AND THE RENAME (C308, C307).
+fresh()
+try:
+    before = level_files(SCRATCH)
+    log = run("stashvisit.eval")
+    check(passed(log), "the script ran clean")
+    sec = console_sections(log)
+    check("end" in sec, "the script ran to its end")
+    start, there, back = (first_read(sec, n) for n in ("start", "on crypt2", "back"))
+    check(start.get("active") == "eval_arena" and not start.get("maps", {1})
+          and not start.get("ents", {1}) and start.get("map") == "clean",
+          "after the reset: on eval_arena, nothing stashed, its map as filed", str(start))
+    # THE CONTROL: the walk really happened - each readout stands where it says,
+    # with the dynamic state of the levels just left held, as a stair holds it.
+    check(there.get("active") == "crypt2" and {"crypt1", "eval_arena"} <= there.get("states", set())
+          and back.get("active") == "crypt1" and {"crypt2", "eval_arena"} <= back.get("states", set()),
+          "the walk happened: on crypt2, then crypt1, each level left holding its dynamic state",
+          f"{there} | {back}")
+    check(not there.get("maps", {1}) and not there.get("ents", {1})
+          and not back.get("maps", {1}) and not back.get("ents", {1}),
+          "...and no map or .ent was stashed by it (a level only visited is not an edit)",
+          f"{there} | {back}")
+    check(there.get("map") == "clean" and back.get("map") == "clean",
+          "each level stood on reads clean against its file", f"{there} | {back}")
+    saves = saved_lists(log)
+    check(len(saves) == 2 and saves[0] == ["crypt1"],
+          "savemap after the walk writes crypt1, the level stood on, alone", str(saves[:1]))
+
+    queries, after_q = stash_reads(sec.get("queries", [])), first_read(sec, "after queries")
+    q_lines = sec.get("queries", [])
+    check("delete 'dungeon1': allowed" in q_lines,
+          "`dungeons what dungeon1` got as far as the stair walk (its last rule) and allowed it",
+          str([l for l in q_lines if l.startswith("delete")]))
+    check(any(l.startswith("dungeons dialog: open 'dungeon1' confirming") for l in q_lines)
+          and any(l.startswith("dungeons dialog: closed") for l in q_lines),
+          "the type editor's Delete asked the same (it went on to confirm), and was cancelled",
+          str([l for l in q_lines if l.startswith("dungeons dialog")]))
+    check(bool(queries) and not queries[0]["maps"] and not queries[0]["ents"]
+          and not after_q.get("maps", {1}) and not after_q.get("ents", {1}),
+          "...and neither the question nor the cancelled delete stashed a level",
+          f"{queries[:1]} | {after_q}")
+
+    renamed, back_again = first_read(sec, "rename"), first_read(sec, "renamed back")
+    check("renamed level 'crypt2' -> 'crypt2b'" in sec.get("rename", [])
+          and "renamed level 'crypt2b' -> 'crypt2'" in sec.get("rename", []),
+          "crypt2 was renamed, and back", str([l for l in log.splitlines() if "renamed level" in l]))
+    check(log.count("rename level: repointed stairs written in crypt1") == 2,
+          "each rename repointed crypt1's stair and wrote crypt1 at once - the level that changed",
+          str(log.count("rename level: repointed stairs written in")))
+    check("crypt2b" in renamed.get("states", set()) and not renamed.get("maps", {1})
+          and not renamed.get("ents", {1}) and not back_again.get("maps", {1})
+          and not back_again.get("ents", {1}),
+          "...and no other level was stashed to look for a stair (the states follow the name)",
+          f"{renamed} | {back_again}")
+    check(len(saves) == 2 and saves[1] == ["crypt1"],
+          "the last savemap still writes crypt1 alone", str(saves))
+
+    after = level_files(SCRATCH)
+    untouched = ["crypt2.map", "crypt2.ent", "eval_arena.map", "eval_arena.ent"]
+    check(not moved(before, after, untouched),
+          "crypt2's and eval_arena's files are byte for byte as the copy was made",
+          str(moved(before, after, untouched)))
+    check(b"stairs stairs_down 1 1 south dest=crypt2 " in after.get("crypt1.map", b"")
+          and not any(n.startswith("crypt2b") for n in after),
+          "crypt1's stair names crypt2 again, and no crypt2b file is left")
+finally:
+    drop()
+
+# 2. UNSAVED WORK SURVIVES A SAVE LOADED ON ANOTHER LEVEL (C298).
+fresh()
+try:
+    before = level_files(SCRATCH)
+    log = run("stashload.eval")
+    check(passed(log), "the script ran clean")
+    sec = console_sections(log)
+    check("end" in sec, "the script ran to its end")
+    w0, w1, w2 = (walkable_in(sec.get(n, [])) for n in ("before", "painted", "returned"))
+    pre, painted, undone, repainted = (first_read(sec, n)
+                                       for n in ("before", "painted", "undone", "repainted"))
+    check(pre.get("active") == "crypt1" and pre.get("map") == "clean",
+          "on crypt1 before the paint, its map as filed", str(pre))
+    check(w0 is not None and w1 == w0 - 1 and painted.get("map") == "edited",
+          "the wall at 9,1 took a floor square, and the map reads edited", f"{w0} -> {w1}, {painted}")
+    check(undone.get("map") == "clean" and repainted.get("map") == "edited",
+          "THE MEASURE: clean again after the undo, edited again after the repaint",
+          f"{undone} | {repainted}")
+    loaded = first_read(sec, "loaded")
+    check(any(l.startswith("loaded: " + SAVES["stashtest"]) for l in sec.get("repainted", []) +
+              sec.get("loaded", [])) and loaded.get("active") == "eval_arena",
+          "the save made on eval_arena loaded there", str(loaded))
+    check(loaded.get("maps") == {"crypt1"},
+          "...and crypt1's map was stashed on the way out, though the load drops its dynamic state",
+          str(loaded))
+    saves = saved_lists(log)
+    check(saves[:1] == [["eval_arena", "crypt1"]],
+          "savemap writes eval_arena and crypt1, from the stash", str(saves))
+    back_on = first_read(sec, "returned")
+    check(back_on.get("active") == "crypt1" and w2 == w1,
+          "going back to crypt1 finds the wall", f"{w2} walkable, painted {w1}")
+    after = level_files(SCRATCH)
+    check(grid_cell(before, "crypt1", 9, 1) == "." and grid_cell(after, "crypt1", 9, 1) == "#",
+          "crypt1.map on disk carries the wall at 9,1",
+          f"{grid_cell(before, 'crypt1', 9, 1)} -> {grid_cell(after, 'crypt1', 9, 1)}")
+finally:
+    drop()
+
+# 3. A BROWSED LEVEL STASHES ONLY THE LAYER AN EDIT CHANGES (C307).
+fresh()
+try:
+    before = level_files(SCRATCH)
+    log = run("stashremote.eval")
+    check(passed(log), "the script ran clean (the erase of nothing refused)")
+    sec = console_sections(log)
+    check("end" in sec, "the script ran to its end")
+    empty, painted, item = (first_read(sec, n) for n in ("empty erase", "painted", "item erase"))
+    # FIRST, on a level holding no stash: a later edit's stash cannot stand in
+    # for one the erase made, so each map rung (the props, the looks) is judged
+    # as well as the records one - after the paint, the map half could not fail.
+    check("refused, as expected: 'editor erase 4 1'" in log and empty.get("active") == "eval_arena"
+          and empty.get("maps") == set() and empty.get("ents") == set(),
+          "an erase of nothing on crypt2, which held no stash, is refused and stashes neither "
+          "layer (every rung tried on a copy)", str(empty))
+    check(painted.get("active") == "eval_arena" and painted.get("maps") == {"crypt2"}
+          and painted.get("ents") == set(),
+          "a wall painted on crypt2 stashes its map and not its .ent", str(painted))
+    check(any(l.startswith("editor erase: 12,1") for l in sec.get("painted", []) +
+              sec.get("item erase", [])) and item.get("maps") == {"crypt2"}
+          and item.get("ents") == {"crypt1"},
+          "an item erased on crypt1 stashes its .ent and not its map", str(item))
+    saves = saved_lists(log)
+    check(saves == [["eval_arena", "crypt1", "crypt2"]],
+          "savemap writes eval_arena (stood on), crypt1 and crypt2", str(saves))
+    after = level_files(SCRATCH)
+    check(not moved(before, after, ["crypt2.ent", "crypt1.map"]),
+          "crypt2.ent and crypt1.map are byte for byte as the copy was made",
+          str(moved(before, after, ["crypt2.ent", "crypt1.map"])))
+    check(grid_cell(before, "crypt2", 3, 1) == "." and grid_cell(after, "crypt2", 3, 1) == "#",
+          "crypt2.map carries the wall at 3,1")
+    gone = ent_records(before, "crypt1") - ent_records(after, "crypt1")
+    check(gone == {("item", "potion_health_minor", "12", "1")}
+          and ent_records(after, "crypt1") <= ent_records(before, "crypt1"),
+          "crypt1.ent lost the potion at 12,1 and nothing else", str(gone))
+finally:
+    drop()
+
+# 4. A PARKED LEVEL LIVE AGAIN IN PLACE KEEPS NO STASH OF ITSELF; A GAME BEGUN
+#    ELSEWHERE KEEPS THE EDIT IT LEFT (C298's second trigger).
+fresh()
+try:
+    before = level_files(SCRATCH)
+    log = run("stashpark.eval")
+    check(passed(log), "the script ran clean")
+    sec = console_sections(log)
+    check("end" in sec, "the script ran to its end")
+    w0, w1, w_put, w_back, w_again, w_ret = (
+        walkable_in(sec.get(n, [])) for n in ("before", "painted", "put back", "back",
+                                               "painted again", "returned"))
+    pre, painted, parked, loaded, put, left, back, again, newgame, ret = (
+        first_read(sec, n) for n in ("before", "painted", "parked", "loaded", "put back", "left",
+                                     "back", "painted again", "new game", "returned"))
+    check(pre.get("active") == "crypt1" and pre.get("map") == "clean" and not pre.get("maps", {1}),
+          "on crypt1 before the paint, its map as filed and nothing stashed", str(pre))
+    check(w0 is not None and w1 == w0 - 1 and painted.get("map") == "edited",
+          "the wall at 9,1 took a floor square, and the map reads edited", f"{w0} -> {w1}, {painted}")
+    # THE CONTROL: the park really happened, and stashed what it should.
+    check(parked.get("active") == "crypt1" and parked.get("parked") is True
+          and parked.get("maps") == {"crypt1"},
+          "walking out to the world parked crypt1 and stashed its edited map", str(parked))
+    check(any(l.startswith("loaded: " + SAVES["stashpark"]) for l in sec.get("parked", []) +
+              sec.get("loaded", [])) and loaded.get("active") == "crypt1"
+          and loaded.get("parked") is False,
+          "the save made on crypt1 loaded there, in place, and crypt1 is no longer parked",
+          str(loaded))
+    check(not loaded.get("maps", {1}) and not loaded.get("ents", {1}),
+          "...and nothing of crypt1 is left stashed: the live level is the level again",
+          str(loaded))
+    check(put.get("map") == "clean" and w_put == w0,
+          "THE PREMISE: the square put back as filed - the map reads clean, the floor is back",
+          f"{w_put} walkable (filed {w0}), {put}")
+    saves = saved_lists(log)
+    check(saves[:1] == [["crypt1"]],
+          "a savemap during the stay writes crypt1 once (the park's copy no longer goes "
+          "over it)", str(saves[:1]))
+    check(left.get("active") == "crypt2" and not left.get("maps", {1})
+          and not left.get("ents", {1}),
+          "leaving crypt1 clean by the stairs stashes nothing of it", str(left))
+    check(back.get("active") == "crypt1" and w_back == w0 and back.get("map") == "clean",
+          "going back to crypt1 finds the floor, not the wall the park stashed",
+          f"{w_back} walkable (filed {w0}), {back}")
+    check(w_again == w0 - 1 and again.get("map") == "edited",
+          "a wall painted at 10,1, and the map reads edited", f"{w_again}, {again}")
+    check(newgame.get("active") == "eval_arena" and newgame.get("maps") == {"crypt1"}
+          and not newgame.get("ents", {1}),
+          "a new game begun on eval_arena stashed crypt1's map on the way out, not its .ent",
+          str(newgame))
+    check(saves[1:2] == [["eval_arena", "crypt1"]],
+          "savemap writes eval_arena and crypt1, from the stash", str(saves))
+    check(ret.get("active") == "crypt1" and w_ret == w0 - 1,
+          "going back to crypt1 finds the wall at 10,1", f"{w_ret} walkable, painted {w_again}")
+    after = level_files(SCRATCH)
+    check(grid_cell(after, "crypt1", 9, 1) == "." and grid_cell(before, "crypt1", 10, 1) == "."
+          and grid_cell(after, "crypt1", 10, 1) == "#",
+          "crypt1.map on disk: a floor at 9,1 as filed, the wall at 10,1",
+          f"9,1 {grid_cell(after, 'crypt1', 9, 1)}, 10,1 {grid_cell(before, 'crypt1', 10, 1)} -> "
+          f"{grid_cell(after, 'crypt1', 10, 1)}")
+    check(not moved(before, after, ["crypt2.map", "crypt2.ent"]),
+          "crypt2's files, a level only visited, are byte for byte as the copy was made",
+          str(moved(before, after, ["crypt2.map", "crypt2.ent"])))
+finally:
+    drop()
 
 
 # --- phase 40: one world tick ----------------------------------------------------

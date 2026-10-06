@@ -375,6 +375,12 @@ public:
 	const std::string& UiStone() const { return m_uiStone; }
 	void SetUiStone(std::string name) { m_uiStone = std::move(name); }
 
+	// The file this was read from is in a form the writer no longer writes (its
+	// stairs in the old travel-facing meaning - see Parse), so it means the same
+	// as the map but does not SAY it the way a save would: a level read so is
+	// one the next save rewrites, edited or not (DungeonWorld::m_mapAsFiled).
+	bool ReadInOldForm() const { return m_oldForm; }
+
 	Vec3 CellCenter(int x, int z, float y = 0.0f) const {
 		return {(static_cast<float>(x) + 0.5f) * kCellSize, y,
 				(static_cast<float>(z) + 0.5f) * kCellSize};
@@ -771,6 +777,7 @@ private:
 	float m_dustDensity = -1.0f, m_hazeAmbient = -1.0f, m_ambientScale = -1.0f;
 	std::vector<std::string> m_tags; // the `tags` record's tags (see Tags())
 	std::string m_uiStone;           // the `uistone` record (see UiStone())
+	bool m_oldForm = false;          // see ReadInOldForm()
 	// Per-cell variant overrides, parallel to m_cells; -1 = use the hash default.
 	std::vector<int> m_wallVar, m_floorVar, m_ceilingVar;
 	std::vector<WallSconce> m_torches;

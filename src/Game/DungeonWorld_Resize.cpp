@@ -23,7 +23,6 @@
 
 #include <algorithm>
 #include <functional>
-#include <optional>
 
 namespace dungeon::game {
 
@@ -45,22 +44,13 @@ bool DungeonWorld::ResizeLevel(const std::string& stem, int x0, int z0, int x1,
 		return false;
 	}
 	const bool live = stem == m_currentLevel;
-	if (!live) {
-		EnsureMapStash(stem);
-		EnsureEntStash(stem);
-	}
-	// A level as it stands, for READING: live, stashed, or parsed from its file
-	// into `temp` WITHOUT stashing it. The scan below reads every level (a stair
-	// anywhere may point here), and a stash is a level with edits - every one
-	// would be rewritten by the next save for nothing. Only the levels that
-	// actually change are stashed, at the commit.
-	auto readMap = [&](const std::string& level,
-					   std::optional<DungeonMap>& temp) -> const DungeonMap& {
-		if (level == m_currentLevel) return m_map;
-		if (auto it = m_levelMaps.find(level); it != m_levelMaps.end()) return *it->second;
-		temp.emplace(m_project.LevelMapPath(level), FixtureTypesOf(m_project));
-		return *temp;
-	};
+	// Every level is READ (LevelForReading: live, stashed, or its files read-only)
+	// until the commit. The scan below reads every level (a stair anywhere may
+	// point here), and a stash is a level with edits - every one would be
+	// rewritten by the next save for nothing. Only the levels that actually
+	// change are stashed, at the commit; the resized one is stashed by
+	// InstallLevel, so a refusal - too big, a floor square cut off, a pair that
+	// does not fit - leaves no stash at all (it used to leave this level's: C307).
 	// For WRITING, once every level that changes has been stashed (a stash is
 	// created by inserting into a flat_map, which would invalidate a reference
 	// taken to another - so none is taken before then).
@@ -71,11 +61,11 @@ bool DungeonWorld::ResizeLevel(const std::string& stem, int x0, int z0, int x1,
 	// The level as it stands. The live one as its SAVE would write it - the
 	// decorations synced back into records, and the .ent re-parsed from the text
 	// SaveLevel writes, which is the one place that has every monster as it stands
-	// (an editor-placed one has no record at all). A browsed one is its stash.
-	DungeonMap map = mapOf(stem);
-	if (live) map.SetDecorationRecords(LiveDecorationRecords());
+	// (an editor-placed one has no record at all). A browsed one as it reads.
+	const LevelRead read = LevelForReading(stem);
+	DungeonMap map = live ? ActiveStaticCopy() : *read.map;
 	DungeonEntities ents = live ? DungeonEntities::FromText(ActiveEntText(), map, stem)
-								: *m_levelEnts.find(stem)->second;
+								: *read.ents;
 	const int ow = map.Width(), oh = map.Height();
 	if (x0 == 0 && z0 == 0 && x1 == ow && z1 == oh) return false; // nothing to do
 
@@ -111,8 +101,7 @@ bool DungeonWorld::ResizeLevel(const std::string& stem, int x0, int z0, int x1,
 	if (shifted)
 		for (const std::string& level : m_project.levels) {
 			if (level == stem) continue;
-			std::optional<DungeonMap> temp;
-			const DungeonMap& other = readMap(level, temp);
+			const DungeonMap& other = *LevelForReading(level).map;
 			for (const StairLink& s : other.Stairs()) {
 				if (s.destLevel != stem ||
 					CatalogBool(m_project.stairs.Find(s.type), "exit", false))

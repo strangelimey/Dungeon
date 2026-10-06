@@ -2642,8 +2642,8 @@ swap/fixture-rebuild — the dev console dust/haze/ambient knobs override live
 but are reset by that application). The dialog's title stem is a RENAME
 affordance: click it, edit inline ([A-Za-z0-9_-]), Enter commits —
 Game::RenameLevel (manifest + browse fix-up) + DungeonWorld::RenameLevel
-(file moves, stash rekeys, stair dest= sweep via lazy EnsureMapStash, undo
-history drop). Old SAVE FILES keep the old stem and won't load past a
+(file moves, stash rekeys, stair dest= sweep - each level READ, and only one
+whose stair names the old stem stashed and written - undo history drop). Old SAVE FILES keep the old stem and won't load past a
 rename (dev-cycle cost).
 A structural paint → DungeonWorld::EditCell → DungeonMap::SetCell (bumps
 Revision()) → RebuildChunksAround(x,z), which rebuilds ONLY the touched chunk +
@@ -2677,10 +2677,12 @@ EDITOR mode the brush EDITS the browsed level too (the editor edits ANY level):
 MapEditor routes those edits to DungeonWorld's remote seam (EditCellRemote /
 EditVariantRemote / Add{Decoration,Monster,Fixture}Remote / EraseRemote /
 AddStairAt), which mutates the level's in-memory stashes — m_levelMaps (static;
-also stashed on every level swap so unsaved edits survive, live decoration
-placements synced back into records first) and m_levelEnts (.ent records,
-created on demand; record ids stay stable across removals so the per-id
-dynamic diffs in m_levelStates remain valid) — and MapView rebuilds the browse
+also stashed on a level swap when it differs from its file, so unsaved edits
+survive and a level only visited is not rewritten, live decoration placements
+synced back into records first) and m_levelEnts (.ent records, created on
+demand; record ids stay stable across removals so the per-id dynamic diffs in
+m_levelStates remain valid); each made only by an edit that changes it (see
+NEVER STASH TO READ) - and MapView rebuilds the browse
 snapshot after each paint. Entering a level consumes its stashes; the
 right-click inspectors (MapEditor::InspectAt) still need the level active (no
 live instances remotely - a browsed square only reports its static base).
@@ -3085,10 +3087,32 @@ the rules it rests on:
   steps, undo/redo, history clears AND the unbracketed edits (inspector apply,
   type writes); a new edit path that takes no undo step must `NoteEdit()`.
 - NEVER STASH TO READ. A stashed level is one `savemap` rewrites, so anything
-  that only READS other levels (Validate, `typerefs`/delete refusal counts,
-  RefreshTheme's "who uses this?") goes through `m_readOnlyLevels`
-  (ReadOnlyLevelOf, re-parsed when the file's write time moves). Both Check and
-  the type-usage count used to stash every level.
+  that only READS other levels goes through `DungeonWorld::LevelForReading`
+  (live, else each layer's edit stash, else `m_readOnlyLevels` - ReadOnlyLevelOf,
+  re-parsed when the file's write time moves): Validate, the census, `typerefs`
+  and a delete's refusal count, RefreshTheme's "who uses this?", a dungeon
+  delete's stair walk (StairsInto), a level rename's (only a level whose stair
+  names it is stashed), the generator's palette donor (MapOf), a resize's scan.
+  A REMOTE EDIT stashes only the LAYER it changes, and only when it changes it
+  (`EditMapStash` / `EditEntStash` try a copy first): a wall paint stashes no
+  .ent, an item erased no map, a refusal or a no-op nothing; the two stashes are
+  written apart (code-review C307). And LEAVING a level stashes only what
+  differs from its files, by whatever way it is left - a save loaded or a game
+  begun elsewhere included (C298): the map by COMPARISON against its file's text
+  (`ActiveMapEdited` vs `m_mapAsFiled`, so a visit is not an edit and an undo
+  back reads clean; C308), the records by `m_entsDirty` - and a layer that
+  reads clean DROPS a stash still under its stem. A world-map PARK stashes the
+  level's edited layers as copies of the live ones, so the level live again IN
+  PLACE (a save loaded or a game begun on it, a regenerate) drops them
+  (`Unpark`): left standing, savemap wrote the copy over the live level and an
+  edit undone since came back on the next visit. Dev `stashes` lists what the
+  next savemap writes. EditorTest phase 31 judges: the visit; a dungeon delete's
+  stair walk, asked and cancelled; a rename whose one referring level is the
+  active one; a save loaded and a game begun on another level; a park undone by
+  a load in place; and on browsed levels a wall paint, an erase of nothing and an
+  item erase. The other readers above and the other remote edits (doors, levers,
+  items placed, the Level dialog's fields, the stair brush's refusals) go the
+  same way and are NOT judged - reverting one leaves phase 31 green.
 - Multi-cell fills batch chunk rebuilds (`BeginChunkBatch/EndChunkBatch`,
   nesting): ~10x on an 80-square fill.
 - TOOL STRIP (MapView_Tools.cpp): Paint / Rectangle (drag) / Flood / Area /

@@ -1,0 +1,35 @@
+; stashremote.eval - an edit of a BROWSED level stashes only the layer it
+; changes (code-review C307). Judged by tools/EditorTest.py phase 31, on a
+; scratch copy of dungeon-demo; the party stays on eval_arena throughout.
+;
+; 1. AN ERASE OF NOTHING at 4,1 on crypt2, which holds no stash yet - refused,
+;    and stashing neither layer. It climbs the whole ladder - a stair, a record,
+;    a prop or fixture, the square's looks - each tried on a copy of the level
+;    as it reads (it used to stash both layers up front). First, so that no
+;    stash a later edit made can stand in for one this made.
+; 2. A WALL PAINTED on crypt2 at 3,1, a square nothing stands on. The paint
+;    changes the map; it used to stash crypt2's .ent as well (the prune that
+;    buries what stood on a painted square created the stash before looking),
+;    so the save rewrote an .ent nobody had changed.
+; 3. AN ITEM ERASED on crypt1 at 12,1: the .ent changes and the map does not,
+;    so crypt1's .ent is written and its .map is not - every .ent stash used to
+;    bring a map stash with it.
+; EditorTest reads the files: crypt2.ent and crypt1.map byte for byte as the
+; copy was made; crypt2.map walled at 3,1; crypt1.ent without the potion.
+
+logecho on
+reset
+editor
+levels view crypt2
+expect-refuse editor erase 4 1
+echo --- empty erase ---
+stashes
+editor drag walls wall_marble 3 1
+echo --- painted ---
+stashes
+levels view crypt1
+editor erase 12 1
+echo --- item erase ---
+stashes
+savemap
+echo --- end ---

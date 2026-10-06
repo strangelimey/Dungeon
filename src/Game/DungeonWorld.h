@@ -683,6 +683,21 @@ public:
 		float kindleClock = 0.0f;  // the firelight's kindling check (6d)
 	};
 	TransientReport Transients() const;
+	// What the next `savemap` writes besides the active level, and whether the
+	// active level's own editor layers differ from its files (the console's
+	// `stashes`; code-review C298, C307, C308). Every stashed map or .ent is a
+	// level the save rewrites, so a READ that leaves one here broke "never stash
+	// to read", and a level that was only visited must not appear.
+	struct StashReport {
+		std::string maps, ents, states; // stems, comma-joined; "none" when empty
+		bool mapEdited = false;         // ActiveMapEdited
+		bool entsEdited = false;        // m_entsDirty
+		bool parked = false;
+	};
+	StashReport Stashes() const;
+	// The active level's MAP differs from its file - measured, not latched (see
+	// m_mapAsFiled), so an undo back to the file's state reads clean again.
+	bool ActiveMapEdited() const;
 	// --- rest (docs/health-and-healing.md "Rest is a STATE") ------------------
 	// A STATE you enter and leave, not a command with a duration (Michael's
 	// call): time runs fast until you stop it, so you watch the meters fill and
@@ -1667,9 +1682,14 @@ public:
 	// PlacePartyAt for the arrival cell. Drains the GPU first. Relies on m_map /
 	// m_entities being move-assignable into the existing objects so Party's map
 	// reference stays valid.
-	// `stashCurrent` saves the level being left into the in-memory per-level
-	// store (so returning restores its fog/progress); pass false when the active
-	// level is a throwaway baseline (e.g. loading a save onto a different level).
+	// `stashCurrent` saves the level being left's DYNAMIC state into the
+	// in-memory per-level store (so returning restores its fog/progress); pass
+	// false when that state is a throwaway baseline (e.g. loading a save onto a
+	// different level). Its EDITOR layers are another matter: whatever the caller
+	// passes, the map is stashed when it differs from its file (ActiveMapEdited)
+	// and the records when m_entsDirty says so - unsaved editor work is never a
+	// throwaway (code-review C298), and a level only visited is not stashed at
+	// all, so savemap does not rewrite it (C308). StashEditedLayers.
 	void BeginLevelLoad(const std::string& stem, bool stashCurrent = true);
 	// Places the party at a cell + facing (the stair arrival point), revealing it.
 	void PlacePartyAt(int x, int z, Direction facing);
@@ -1681,9 +1701,13 @@ public:
 	// PARKS the active level: the party has walked OUT of it (to the world map)
 	// while it stays loaded underneath. Its state is stashed NOW, exactly as a
 	// stair would stash it, because whatever replaces it next — a doorway, a
-	// random encounter, a load — does so without stashing (those paths replace
-	// a throwaway baseline, and cannot tell one from a level the party left).
-	// Idempotent; any level load or install ends it.
+	// random encounter, a load - does so without stashing its dynamic state
+	// (those paths replace a throwaway baseline, and cannot tell one from a level
+	// the party left). Its editor layers go by the stair's rule too: only what
+	// differs from the files. Idempotent; any level load or install ends it, and
+	// so do a save loaded and a game begun on this same level, in place - which
+	// drop what it stashed of the editor layers, the live ones being the level
+	// again (Unpark).
 	void ParkActive();
 	bool Parked() const { return m_parked; }
 
@@ -1873,7 +1897,7 @@ public:
 	// Could a stair stand on (x,z) of `stem`? Walkable, and nothing already
 	// there that a stair cannot share a square with. Public so the generator's
 	// seam can find a cell that suits BOTH levels of a link before authoring it.
-	// Loads the level on demand, like every other cross-level query here.
+	// Reads the level (LevelForReading), as every cross-level query here does.
 	bool CellFreeForStair(const std::string& stem, int x, int z);
 	// Where on `stem` a stair DOWN to a new floor should go: a square a stair
 	// can stand on, as many steps from the level's start as its floor reaches
@@ -1884,11 +1908,10 @@ public:
 	// layouts rarely share a free one (docs/level-building.md P1).
 	std::pair<int, int> FarthestStairCell(const std::string& stem);
 	// Any level's static map, for READING - the live one for the active level,
-	// else its stash (parsed on first use, as every cross-level query here
-	// does). The generator copies a chosen level's surface palette from it.
-	const DungeonMap& MapOf(const std::string& stem) {
-		return stem == m_currentLevel ? m_map : EnsureMapStash(stem);
-	}
+	// else its stash, else its file read-only (LevelForReading; it used to make
+	// a stash, which the next savemap rewrote: C307). The generator copies a
+	// chosen level's surface palette from it.
+	const DungeonMap& MapOf(const std::string& stem) { return *LevelForReading(stem).map; }
 
 	// Replace a level's CONTENT wholesale — the generator's regenerate.
 	//
@@ -2362,7 +2385,8 @@ public:
 	bool EraseRemote(const std::string& stem, int x, int z);
 
 	// Saves every level with unsaved edits: the active one (SaveLevel) plus
-	// each stashed level (WriteStashedLevel). Returns the stems written.
+	// each level with a stashed map or .ent (WriteStashedLevel). Returns the
+	// stems written.
 	std::vector<std::string> SaveAllLevels();
 	// The text `savemap` WOULD write for level `stem`, WITHOUT writing it - a
 	// world copy puts it in the new world's folder, so the unsaved edits come
@@ -2379,9 +2403,9 @@ public:
 
 	// Renames a level's world-side state: moves the .map/.ent files, rekeys
 	// the three per-level stashes (+ the active stem), and repoints every
-	// stair dest= across all levels (disk-only ones via a lazy stash, so the
-	// fix persists on the next savemap). Drops the undo history (its
-	// snapshots are keyed by the old stem). The MANIFEST is the owner's:
+	// stair dest= across all levels, writing each level that has one at once
+	// (a level with none is only READ, never stashed: C307). Drops the undo
+	// history (its snapshots are keyed by the old stem). The MANIFEST is the owner's:
 	// Game updates Project::levels + saves it after this returns true.
 	// Existing save files keep the old stem and won't load — dev-cycle cost.
 	bool RenameLevel(const std::string& oldStem, const std::string& newStem);
@@ -2395,8 +2419,8 @@ public:
 		int x = 0, z = 0;
 		std::string destLevel;
 	};
-	// Walks every level NOT in `dying` (the live one, the stashes, and any not
-	// yet in memory — parsed on demand, like the type sweep) for a traversable
+	// Walks every level NOT in `dying` (each as it reads - LevelForReading, so
+	// asking stashes nothing: C307) for a traversable
 	// stair whose dest names a level in `dying`. EXIT stairs are skipped: their
 	// dest is a world LOCATION, and a location that shares a stem's spelling is
 	// not a way into that level.
@@ -2497,8 +2521,9 @@ public:
 	// Writes the active level back to the project's .map + .ent files,
 	// reconstructing records from the live state (grid + variant overrides +
 	// palette/fixtures/stairs + decorations + monsters), so editor edits persist
-	// across a relaunch. Returns false if either file could not be written.
-	bool SaveLevel() const;
+	// across a relaunch. Returns false if either file could not be written. Not
+	// const: a map written is a map that now matches its file (m_mapAsFiled).
+	bool SaveLevel();
 
 	// --- dev console hooks ---------------------------------------------------
 	// "kind @ x,z" for each live monster.
@@ -5568,18 +5593,23 @@ private:
 	// STATIC layer of inactive levels — the static twin of m_levelStates, so
 	// UNSAVED editor edits (cells, variants, fixtures, stairs, decorations)
 	// survive a level swap in memory instead of being dropped by the disk
-	// re-parse. Stashed on leave (StashStaticMap), consumed on entry
-	// (BeginLevelLoad), CREATED ON DEMAND by remote-level editing
-	// (EnsureMapStash — the map overlay can edit any level, not just the active
-	// one). unique_ptr so references survive sibling insertions. `savemap`
-	// (SaveAllLevels) writes every stashed level back to its files.
+	// re-parse. Stashed on leave when EDITED (StashEditedLayers), consumed on
+	// entry (BeginLevelLoad), CREATED ON DEMAND by remote-level editing
+	// (EditMapStash / EnsureMapStash - the map overlay can edit any level, not
+	// just the active one) and ONLY by an edit: `savemap` (SaveAllLevels) writes
+	// every stashed level back to its files, so a stash made to READ a level is
+	// a file rewritten for nothing (code-review C307, "never stash to read" -
+	// LevelForReading is the way to look). unique_ptr so references survive
+	// sibling insertions.
 	std::flat_map<std::string, std::unique_ptr<DungeonMap>> m_levelMaps;
 	// The .ent-record twin of m_levelMaps: baseline records of inactive levels
 	// whose RECORDS were edited (remote placements/erases, or active-level
 	// prunes carried out by structural paints). Record ids are stable across
 	// removals, so m_levelStates' per-id dynamic diffs stay valid against a
 	// stashed baseline. Only edited levels get an entry (m_entsDirty tracks the
-	// active level) — an untouched .ent file is never rewritten.
+	// active level) - an untouched .ent file is never rewritten. The two stashes
+	// are INDEPENDENT: an item erased stashes the records and not the map, a
+	// wall painted the map and not the records, and each is written on its own.
 	std::flat_map<std::string, std::unique_ptr<DungeonEntities>> m_levelEnts;
 	// READ-ONLY copies of level files, for the checker (Validate) alone. NOT an
 	// edit stash - nothing here is ever written back, which is the whole point:
@@ -5595,20 +5625,97 @@ private:
 	// reference is only good until the next call (flat_map storage moves); the
 	// map/ents it points AT are heap-owned and stay put.
 	const ReadOnlyLevel& ReadOnlyLevelOf(const std::string& stem);
+	// A level as it IS now, for READING (code-review C307): the live map and
+	// records for the active level, else each layer's edit stash, else its file
+	// read-only (ReadOnlyLevelOf). NEVER creates a stash. The one copy of the
+	// lookup the checker, the census, the generator's palette donor, the stair
+	// walks and every remote edit's validation share. The pointers stay good
+	// until that level's stash is made or dropped, or its files change and are
+	// read again.
+	struct LevelRead {
+		const DungeonMap* map = nullptr;
+		const DungeonEntities* ents = nullptr;
+	};
+	LevelRead LevelForReading(const std::string& stem);
+	// An edit of a level that is NOT the active one, landing in its stash only
+	// when it CHANGES something (C307). With a stash already there it is simply
+	// applied; with none, it is tried on a COPY of the level as it reads, and
+	// that copy becomes the stash only if `edit` reports a change - so a refused
+	// or no-op edit leaves no stash, and savemap rewrites nothing for it.
+	// `edit(DungeonMap&) -> bool` / `edit(DungeonEntities&, const DungeonMap&)
+	// -> bool` (the map the records validate against: the level's as it reads).
+	template <class Edit> bool EditMapStash(const std::string& stem, Edit&& edit) {
+		if (const auto it = m_levelMaps.find(stem); it != m_levelMaps.end())
+			return edit(*it->second);
+		auto probe = std::make_unique<DungeonMap>(*LevelForReading(stem).map);
+		if (!edit(*probe)) return false;
+		m_levelMaps.insert_or_assign(stem, std::move(probe));
+		return true;
+	}
+	template <class Edit> bool EditEntStash(const std::string& stem, Edit&& edit) {
+		const LevelRead read = LevelForReading(stem);
+		if (const auto it = m_levelEnts.find(stem); it != m_levelEnts.end())
+			return edit(*it->second, *read.map);
+		auto probe = std::make_unique<DungeonEntities>(*read.ents);
+		if (!edit(*probe, *read.map)) return false;
+		m_levelEnts.insert_or_assign(stem, std::move(probe));
+		return true;
+	}
 	// The active level's m_entities records diverged from the .ent file on disk
 	// (a prune/re-face edited them); stash them on leave so the divergence
 	// survives the swap and savemap writes it.
 	bool m_entsDirty = false;
+	// THE ACTIVE LEVEL'S MAP AS ITS FILE HOLDS IT (code-review C308): the
+	// StaticLayerText of the map when it was read from its file, or when a save
+	// last wrote it. ActiveMapEdited compares the map as it stands against this,
+	// and a level is stashed on the way out only when they differ - so a level
+	// merely visited is not stashed, and savemap does not rewrite it (which, for
+	// a hand-written file, also lost its comments). MEASURED rather than a latch
+	// every edit sets, as m_entsDirty is: an edit path that forgot the latch
+	// would have its edits dropped at the next stair (C298's loss again), where
+	// a comparison cannot miss one - and an undo back to the file reads clean.
+	// Empty = not known to match a file (a level that came back from a stash, an
+	// ambush, a file in an old form the next save must rewrite): edited, and
+	// stashed on the way out, as every level used to be.
+	std::string m_mapAsFiled;
+	// A map's static layer as the stash writer writes it, under no stem (a
+	// renamed level is not an edited one) and with PLAY's fires and niches put
+	// back as authored: what play did to them is the level's dynamic state.
+	static std::string StaticLayerText(DungeonMap map);
+	// m_mapAsFiled for a map JUST READ from its file: its StaticLayerText - or
+	// empty when the file is in an old form (DungeonMap::ReadInOldForm), which
+	// a save must rewrite whether or not anything was edited.
+	static std::string AsFiledText(const DungeonMap& justRead);
+	// The active map with the live decoration placements synced back into its
+	// records (AddDecoration only appends a live instance) - what a stash holds.
+	DungeonMap ActiveStaticCopy() const;
 	// The active level is PARKED (ParkActive): stashed, with the party outside it.
 	bool m_parked = false;
+	// The live level is the authority again, IN PLACE - a save loaded or a game
+	// begun on the level that was parked, a regenerate of it. What the park
+	// stashed of its editor layers was a COPY of these live ones, so it is
+	// dropped: left under the live level's own stem it outlived them - savemap
+	// writes every stash after the live level (the copy over what had just been
+	// written), and an edit undone in the meantime came back on the next visit.
+	void Unpark();
 	// Copies the active map into m_levelMaps, first syncing the live decoration
 	// placements back into its records (AddDecoration only appends a live
 	// instance; LoadDecorations rebuilds from records on return).
 	void StashStaticMap();
-	// The stash for `stem`, parsing the level's files on first use. The map
-	// variant also creates nothing else; the ents variant needs the map for
-	// record validation (soft: stale records skip with a warning). Never call
-	// for the ACTIVE level (its truth is m_map/m_entities).
+	// Stashes the active level's EDITOR layers that differ from its files - the
+	// map when ActiveMapEdited, the records when m_entsDirty - on every way out
+	// of it (a stair, a park, a save loaded or a game begun elsewhere; C298,
+	// C308), and DROPS a stash already held under its stem for a layer that
+	// does not: what is held for a level left is exactly what differs from its
+	// files. A level that is not the project's (an ambush's ground, which has no
+	// file and is thrown away, never returned to) stashes nothing.
+	void StashEditedLayers();
+	// The stash for `stem`, parsing the level's files on first use - for an edit
+	// that is about to change it (a READ goes through LevelForReading, and an
+	// edit that may change nothing through EditMapStash / EditEntStash). Each
+	// creates its own layer and no other: the records validate against the
+	// level's map as it reads (soft: stale records skip with a warning). Never
+	// call for the ACTIVE level (its truth is m_map/m_entities).
 	DungeonMap& EnsureMapStash(const std::string& stem);
 	DungeonEntities& EnsureEntStash(const std::string& stem);
 	// Removes the paired return stair that `removed` (just taken off level
@@ -5623,8 +5730,10 @@ private:
 	// records are left to the soft loaders (skip + warn) — they re-resolve on
 	// the next entry.
 	void PruneStashRecordsForCell(const std::string& stem, int x, int z);
-	// Serializes a stashed level back to its .map (+ .ent when its records were
-	// edited). The static writer is shared with SaveLevel.
+	// Serializes a stashed level back to its files: the .map when its map is
+	// stashed, the .ent when its records are - each layer on its own, an
+	// untouched one left byte for byte. False when neither is stashed or a write
+	// failed. The static writer is shared with SaveLevel.
 	bool WriteStashedLevel(const std::string& stem) const;
 
 	// --- editor undo/redo internals (see the public section) ------------------

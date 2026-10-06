@@ -19,13 +19,15 @@
 
 namespace dungeon::game {
 
+// Both READ the level (C307): a link that fails after asking them left a stash
+// behind, a level the next savemap rewrote. AddStairAt stashes what it writes.
 bool DungeonWorld::CellFreeForStair(const std::string& stem, int x, int z) {
-	const DungeonMap& m = stem == m_currentLevel ? m_map : EnsureMapStash(stem);
+	const DungeonMap& m = *LevelForReading(stem).map;
 	return m.IsWalkable(x, z) && !m.StairAt(x, z) && !m.BrazierAt(x, z);
 }
 
 std::pair<int, int> DungeonWorld::FarthestStairCell(const std::string& stem) {
-	const DungeonMap& m = stem == m_currentLevel ? m_map : EnsureMapStash(stem);
+	const DungeonMap& m = *LevelForReading(stem).map;
 	const int w = m.Width(), h = m.Height();
 	// Breadth-first over walkable squares (4-connected, the grid's only kind of
 	// step), keeping the LAST stair-worthy square reached: BFS visits in
@@ -101,6 +103,7 @@ bool DungeonWorld::InstallLevelFromText(const std::string& stem,
 	// when the last one had its name.
 	ClearUndoHistory();
 	m_currentLevel = stem;
+	m_mapAsFiled.clear(); // no file to match (and never stashed: StashEditedLayers)
 	return InstallLevel(stem, std::move(map), std::move(ents));
 }
 
@@ -108,10 +111,9 @@ bool DungeonWorld::InstallLevel(const std::string& stem, DungeonMap&& map,
 								DungeonEntities&& ents) {
 	if (stem != m_currentLevel) {
 		// An inactive level is just its stash — the ordinary remote-edit path.
-		EnsureMapStash(stem); // create the slots before taking references
-		EnsureEntStash(stem);
-		*m_levelMaps.find(stem)->second = std::move(map);
-		*m_levelEnts.find(stem)->second = std::move(ents);
+		// Both layers replaced outright: nothing of the files is read to do it.
+		m_levelMaps.insert_or_assign(stem, std::make_unique<DungeonMap>(std::move(map)));
+		m_levelEnts.insert_or_assign(stem, std::make_unique<DungeonEntities>(std::move(ents)));
 		return true;
 	}
 
@@ -121,7 +123,10 @@ bool DungeonWorld::InstallLevel(const std::string& stem, DungeonMap&& map,
 	// because any cell may differ and the full-screen editor hides the scene
 	// meanwhile (FlushGeometry pays for it once, on the way out).
 	m_device.WaitIdle();
-	m_parked = false; // whatever was parked here has been replaced
+	// A level parked under this stem has been replaced, and the stash of it goes
+	// too. An ambush names its own stem first, so the dungeon parked under the
+	// world map keeps its stash for the way back.
+	Unpark();
 	const bool paletteChanged = m_map.WallPalette() != map.WallPalette() ||
 								m_map.FloorPalette() != map.FloorPalette() ||
 								m_map.CeilingPalette() != map.CeilingPalette();
@@ -188,6 +193,21 @@ const DungeonMap* DungeonWorld::LevelMapAsItIs(const std::string& stem) {
 	return ReadOnlyLevelOf(stem).map.get();
 }
 
+DungeonWorld::LevelRead DungeonWorld::LevelForReading(const std::string& stem) {
+	if (stem == m_currentLevel) return {&m_map, &m_entities};
+	// An edit stash wins (its unsaved edits are what the level IS now), layer by
+	// layer - a level may have its records stashed and not its map, or the
+	// reverse; otherwise a read-only copy of the files. Never EnsureMapStash:
+	// a stash is a level the next savemap rewrites (C307).
+	const auto ms = m_levelMaps.find(stem);
+	const auto es = m_levelEnts.find(stem);
+	const ReadOnlyLevel* ro = nullptr;
+	if (ms == m_levelMaps.end() || es == m_levelEnts.end())
+		ro = &ReadOnlyLevelOf(stem); // used before the next insertion
+	return {ms != m_levelMaps.end() ? ms->second.get() : ro->map.get(),
+			es != m_levelEnts.end() ? es->second.get() : ro->ents.get()};
+}
+
 std::vector<validate::Issue> DungeonWorld::Validate(const validate::WorldView& world) {
 	// The catalog half of the rules. Both are id SETS rather than lookups so the
 	// inner flood never touches a Catalog.
@@ -208,21 +228,12 @@ std::vector<validate::Issue> DungeonWorld::Validate(const validate::WorldView& w
 	for (const std::string& stem : m_project.levels) {
 		validate::LevelView v;
 		v.stem = stem;
-		if (stem == m_currentLevel) {
-			v.map = &m_map;
-			v.ents = &m_entities;
-		} else {
-			// An edit stash wins (its unsaved edits are what the level IS now);
-			// otherwise a read-only copy of the files. Never EnsureMapStash: see
-			// the header - stashing is what makes savemap rewrite a level.
-			const auto ms = m_levelMaps.find(stem);
-			const auto es = m_levelEnts.find(stem);
-			const ReadOnlyLevel* ro = nullptr;
-			if (ms == m_levelMaps.end() || es == m_levelEnts.end())
-				ro = &ReadOnlyLevelOf(stem); // used before the next insertion
-			v.map = ms != m_levelMaps.end() ? ms->second.get() : ro->map.get();
-			v.ents = es != m_levelEnts.end() ? es->second.get() : ro->ents.get();
-		}
+		// Live, else its edit stash, else the files read-only. Never a stash
+		// made to read: see the header - stashing is what makes savemap rewrite
+		// a level.
+		const LevelRead level = LevelForReading(stem);
+		v.map = level.map;
+		v.ents = level.ents;
 		views.push_back(std::move(v));
 	}
 

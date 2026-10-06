@@ -431,8 +431,10 @@ void DungeonMap::Parse(const std::vector<u8>& bytesIn, FixtureTypes fixtures,
 	// arrive facing the way you did. They do not LOOK as they did: the prop used
 	// to draw inverted (see DungeonWorld::StairPropWorld), so an old stair now
 	// shows the way its facing always claimed. The next save writes them in the
-	// new form.
+	// new form - and a level read so counts as differing from its file, so it is
+	// stashed and written even when nothing else changed (ReadInOldForm).
 	if (!arrivalFacing && !m_stairs.empty()) {
+		m_oldForm = true;
 		for (StairLink& s : m_stairs) s.facing = DirOpposite(s.facing);
 		log::Info("{}: {} stair(s) in the old travel-facing form, read as arrival facing",
 				  path, m_stairs.size());

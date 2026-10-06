@@ -26,19 +26,18 @@ void DungeonWorld::BeginLevelLoad(const std::string& stem, bool stashCurrent) {
 	ClearUndoHistory();
 
 	// Save the level we're leaving so a later return restores its fog/progress
-	// AND its unsaved edits (skip for a throwaway baseline being replaced by a
-	// save's level). The .ent records stash only when they diverged from disk
-	// (a prune/re-face edited them) — else the file re-parse is identical.
+	// (skip for a throwaway baseline being replaced by a save's level) AND its
+	// unsaved edits, which are never a throwaway: a save loaded or a game begun
+	// on another level used to drop a painted wall with no word (code-review
+	// C298). Only what differs from the files is stashed, so a level merely
+	// visited is not, and savemap does not rewrite it (C308).
 	// A PARKED level was stashed when the party walked out of it, so it is
 	// stashed whatever the caller asked: the callers that pass false believe
 	// they are replacing a throwaway baseline, and a parked level is not one.
 	// (Not stashed AGAIN: nothing has moved in it since — the party was away.)
-	if (stashCurrent && !m_parked) {
-		StashActive();
-		StashStaticMap();
-		if (m_entsDirty)
-			m_levelEnts.insert_or_assign(
-				m_currentLevel, std::make_unique<DungeonEntities>(m_entities));
+	if (!m_parked) {
+		if (stashCurrent) StashActive();
+		StashEditedLayers();
 	}
 
 	m_parked = false;
@@ -50,8 +49,12 @@ void DungeonWorld::BeginLevelLoad(const std::string& stem, bool stashCurrent) {
 	if (auto it = m_levelMaps.find(stem); it != m_levelMaps.end()) {
 		m_map = std::move(*it->second);
 		m_levelMaps.erase(it);
+		m_mapAsFiled.clear(); // still diverged from the file; re-stash on leave
 	} else {
 		m_map = DungeonMap(m_project.LevelMapPath(stem), FixtureTypesOf(m_project));
+		// Measured from the records as read: the live decorations are built from
+		// exactly these (LoadDecorations), so an untouched level compares equal.
+		m_mapAsFiled = AsFiledText(m_map);
 	}
 	if (auto it = m_levelEnts.find(stem); it != m_levelEnts.end()) {
 		m_entities = std::move(*it->second);
@@ -111,9 +114,41 @@ std::vector<Entity> DungeonWorld::LiveDecorationRecords() const {
 	return records;
 }
 
+DungeonMap DungeonWorld::ActiveStaticCopy() const {
+	DungeonMap copy(m_map);
+	copy.SetDecorationRecords(LiveDecorationRecords());
+	return copy;
+}
+
+std::string DungeonWorld::StaticLayerText(DungeonMap map) {
+	// The same reset StashStaticMap makes on its copy (see there); the text
+	// leaves the burning state out anyway, which is the point - only an EDIT may
+	// tell a level from its file.
+	map.ResetFixtureBurning();
+	map.ResetNicheOpen();
+	return StashedMapText({}, map);
+}
+
+std::string DungeonWorld::AsFiledText(const DungeonMap& justRead) {
+	return justRead.ReadInOldForm() ? std::string() : StaticLayerText(justRead);
+}
+
+bool DungeonWorld::ActiveMapEdited() const {
+	return m_mapAsFiled.empty() || StaticLayerText(ActiveStaticCopy()) != m_mapAsFiled;
+}
+
+DungeonWorld::StashReport DungeonWorld::Stashes() const {
+	const auto stems = [](const auto& stash) {
+		std::string s;
+		for (const auto& [stem, held] : stash) s += (s.empty() ? "" : ",") + stem;
+		return s.empty() ? std::string("none") : s;
+	};
+	return {stems(m_levelMaps), stems(m_levelEnts), stems(m_levelStates), ActiveMapEdited(),
+			m_entsDirty, m_parked};
+}
+
 void DungeonWorld::StashStaticMap() {
-	auto copy = std::make_unique<DungeonMap>(m_map);
-	copy->SetDecorationRecords(LiveDecorationRecords());
+	auto copy = std::make_unique<DungeonMap>(ActiveStaticCopy());
 	// The stash is the STATIC layer, so it keeps the authored fires and niches.
 	// What play did to them (a doused torch, a taken one, a niche found) rides
 	// the level's dynamic state (SnapshotActive), which every way back in
@@ -122,6 +157,27 @@ void DungeonWorld::StashStaticMap() {
 	copy->ResetFixtureBurning();
 	copy->ResetNicheOpen();
 	m_levelMaps.insert_or_assign(m_currentLevel, std::move(copy));
+}
+
+void DungeonWorld::StashEditedLayers() {
+	// An ambush's ground (InstallLevelFromText) is not a level of the project:
+	// no file to write it to, and nobody comes back for it.
+	if (std::find(m_project.levels.begin(), m_project.levels.end(), m_currentLevel) ==
+		m_project.levels.end())
+		return;
+	// What is held for the level once it is left is exactly what differs from its
+	// files NOW. A stash already under its stem for a layer that reads clean is
+	// stale - one a park took of edits since put back - and kept, it would bring
+	// them back on the next visit and savemap would write them.
+	if (ActiveMapEdited()) StashStaticMap();
+	else m_levelMaps.erase(m_currentLevel);
+	// The .ent records stash only when they diverged from disk (a prune/re-face
+	// edited them) - else the file re-parse is identical.
+	if (m_entsDirty)
+		m_levelEnts.insert_or_assign(m_currentLevel,
+									 std::make_unique<DungeonEntities>(m_entities));
+	else
+		m_levelEnts.erase(m_currentLevel);
 }
 
 std::optional<DungeonWorld::LevelTransition> DungeonWorld::ConsumeLevelTransition() {
@@ -281,7 +337,7 @@ static std::string SerializeRecord(const char* kind, const Entity& e) {
 	return line;
 }
 
-bool DungeonWorld::SaveLevel() const {
+bool DungeonWorld::SaveLevel() {
 	const std::string m = ActiveMapText();
 	const std::string e = ActiveEntText();
 
@@ -292,6 +348,8 @@ bool DungeonWorld::SaveLevel() const {
 											   mOut.data(), mOut.size());
 	const bool okEnt = assets::WriteBinaryFile(m_project.LevelEntPath(m_currentLevel),
 											   eOut.data(), eOut.size());
+	// The file holds the map as it stands now: nothing left to stash (C308).
+	if (okMap) m_mapAsFiled = StaticLayerText(ActiveStaticCopy());
 	if (okMap && okEnt)
 		log::Info("Saved level {}: {} decorations, {} monsters", m_currentLevel,
 				  m_decorations.size(), m_monsters.size());
@@ -393,15 +451,19 @@ std::string DungeonWorld::ActiveEntText() const {
 }
 
 bool DungeonWorld::WriteStashedLevel(const std::string& stem) const {
+	// Each layer is written only when it was edited (its stash exists); an
+	// untouched one keeps its file byte-identical. The two are independent: an
+	// item erased on a browsed level stashes its records alone, and used to
+	// bring a map stash with it - the .map rewritten for nothing (C307).
 	const auto ms = m_levelMaps.find(stem);
-	if (ms == m_levelMaps.end()) return false;
-	const std::string m = serialize::NormalizeEol(StashedMapText(stem, *ms->second));
-	bool ok = assets::WriteBinaryFile(m_project.LevelMapPath(stem), m.data(),
-									  m.size());
-
-	// The .ent is rewritten only when its records were edited (a stash exists);
-	// an untouched dynamic layer keeps its file byte-identical.
-	if (const auto es = m_levelEnts.find(stem); es != m_levelEnts.end()) {
+	const auto es = m_levelEnts.find(stem);
+	if (ms == m_levelMaps.end() && es == m_levelEnts.end()) return false;
+	bool ok = true;
+	if (ms != m_levelMaps.end()) {
+		const std::string m = serialize::NormalizeEol(StashedMapText(stem, *ms->second));
+		ok &= assets::WriteBinaryFile(m_project.LevelMapPath(stem), m.data(), m.size());
+	}
+	if (es != m_levelEnts.end()) {
 		const std::string e = serialize::NormalizeEol(StashedEntText(stem, *es->second));
 		ok &= assets::WriteBinaryFile(m_project.LevelEntPath(stem), e.data(),
 									  e.size());

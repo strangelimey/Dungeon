@@ -737,7 +737,9 @@ private:
 	// doorway, the opening, `play` - and faces whatever stair stands on the
 	// landing square (DungeonWorld::ArrivalFacingAt); only a save load and a pit
 	// fall bring a facing of their own. `stashCurrent` saves the level being left
-	// for a later return; pass false when leaving a throwaway baseline (save load).
+	// (its dynamic state) for a later return; pass false when leaving a throwaway
+	// baseline (save load). Its unsaved editor work is stashed either way
+	// (DungeonWorld::BeginLevelLoad; code-review C298).
 	void BeginLevelTransition(const std::string& stem, int x, int z,
 							  std::optional<Direction> facing, bool stashCurrent = true);
 	// True when the frame now starting is one the steady-state allocation rule

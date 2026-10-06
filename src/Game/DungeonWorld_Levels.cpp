@@ -22,7 +22,15 @@ namespace dungeon::game {
 std::vector<std::string> DungeonWorld::SaveAllLevels() {
 	std::vector<std::string> saved;
 	if (SaveLevel()) saved.push_back(m_currentLevel);
-	for (const auto& [stem, map] : m_levelMaps)
+	// Every level with a stashed map OR stashed records: the two are made apart
+	// (an item erased stashes the records alone), so walking the maps alone
+	// would leave a records-only edit unsaved. Both are sorted; merged here.
+	std::vector<std::string> stems;
+	for (const auto& [stem, map] : m_levelMaps) stems.push_back(stem);
+	for (const auto& [stem, ents] : m_levelEnts) stems.push_back(stem);
+	std::sort(stems.begin(), stems.end());
+	stems.erase(std::unique(stems.begin(), stems.end()), stems.end());
+	for (const std::string& stem : stems)
 		if (WriteStashedLevel(stem)) saved.push_back(stem);
 	return saved;
 }
@@ -70,11 +78,13 @@ bool DungeonWorld::RenameLevel(const std::string& oldStem,
 	if (m_currentLevel == oldStem) m_currentLevel = newStem;
 
 	// Repoint every stair dest= that names the old stem: the active map is
-	// fixed live, every other level via its stash — EnsureMapStash lazily
-	// parses disk-only levels. (The caller updates Project::levels after this
-	// returns, so the walk still sees the OLD stem in the list — map it to the
-	// new one.) EXITS ARE SKIPPED: their dest is a world location, and one
-	// spelled like the old stem is not the thing being renamed (W11).
+	// fixed live, every other level via its stash - made only for a level that
+	// HAS such a stair. Each is READ first (LevelForReading): stashing every
+	// level just to look made the next savemap rewrite all of them (C307).
+	// (The caller updates Project::levels after this returns, so the walk still
+	// sees the OLD stem in the list - map it to the new one.) EXITS ARE SKIPPED:
+	// their dest is a world location, and one spelled like the old stem is not
+	// the thing being renamed (W11).
 	std::vector<std::string> exits;
 	for (const CatalogEntry& e : m_project.stairs.Entries())
 		if (CatalogBool(&e, "exit", false)) exits.push_back(e.id);
@@ -88,9 +98,16 @@ bool DungeonWorld::RenameLevel(const std::string& oldStem,
 	if (m_map.RenameStairDest(oldStem, newStem, exits) > 0) {
 		if (SaveLevel()) touched.push_back(m_currentLevel);
 	}
+	const auto namesOld = [&](const DungeonMap& map) {
+		for (const StairLink& s : map.Stairs())
+			if (s.destLevel == oldStem &&
+				std::find(exits.begin(), exits.end(), s.type) == exits.end())
+				return true;
+		return false;
+	};
 	for (const std::string& stem : m_project.levels) {
 		const std::string& actual = stem == oldStem ? newStem : stem;
-		if (actual == m_currentLevel) continue;
+		if (actual == m_currentLevel || !namesOld(*LevelForReading(actual).map)) continue;
 		if (EnsureMapStash(actual).RenameStairDest(oldStem, newStem, exits) > 0 &&
 			WriteStashedLevel(actual))
 			touched.push_back(actual);
@@ -128,8 +145,10 @@ DungeonWorld::StairsInto(const std::vector<std::string>& dying) {
 		// A stair INSIDE the dungeon being deleted goes with it — that is the
 		// dungeon's own plumbing, not a reference into it.
 		if (isDying(stem)) continue;
-		if (stem == m_currentLevel) scan(stem, m_map);
-		else scan(stem, EnsureMapStash(stem));
+		// READ, never stashed (C307): this runs when a delete is merely asked
+		// (`dungeons what`, the type editor's Delete before its confirmation),
+		// and a stash is a level the next savemap rewrites.
+		scan(stem, *LevelForReading(stem).map);
 	}
 	return found;
 }

@@ -181,7 +181,7 @@ void DungeonWorld::ResetForNewGame() {
 	std::fill(m_seen.begin(), m_seen.end(), static_cast<u8>(0));
 	MarkSeen(m_party.GridX(), m_party.GridZ());
 	m_levelStates.clear(); // forget any explored levels
-	m_parked = false;
+	Unpark(); // a level parked here is the live one again (its stash goes too)
 	// Everything above snapped back with no travel for the shadow cubes to see
 	// (code-review C178): a same-level new game starts them over too.
 	m_shadows.InvalidateCubes();
@@ -220,7 +220,9 @@ void DungeonWorld::ResetForEval() {
 	// load costs are MODELS AND TEXTURES, and those are cached by now.
 	m_map = DungeonMap(m_project.LevelMapPath(m_currentLevel),
 					   FixtureTypesOf(m_project));
+	m_mapAsFiled = AsFiledText(m_map); // the file's map again: nothing to stash
 	m_entities = DungeonEntities(m_project.LevelEntPath(m_currentLevel), m_map);
+	m_entsDirty = false; // ...and the file's records
 	// Every live object re-placed from those records. Also the reason harness
 	// `spawn`s disappear: they were never records, only instances.
 	RespawnFromRecords(/*geometryToo=*/false);
@@ -490,19 +492,27 @@ void DungeonWorld::StashActive() {
 void DungeonWorld::ParkActive() {
 	if (m_parked) return;
 	// The same three layers a stair stashes (BeginLevelLoad): the dynamic state
-	// (the dead stay dead), the static map (unsaved editor work), and the .ent
-	// records when they have drifted from the file.
+	// (the dead stay dead), and the static map and the .ent records when they
+	// have drifted from the files (unsaved editor work; C298, C308).
 	StashActive();
-	StashStaticMap();
-	if (m_entsDirty)
-		m_levelEnts.insert_or_assign(m_currentLevel,
-									 std::make_unique<DungeonEntities>(m_entities));
+	StashEditedLayers();
 	m_parked = true;
+}
+
+void DungeonWorld::Unpark() {
+	// Only a park puts a stash under the LIVE level's own stem (an edit of the
+	// active level is live, never stashed), so only a park is undone here. Its
+	// dynamic state is the caller's to apply or replace.
+	if (m_parked) {
+		m_levelMaps.erase(m_currentLevel);
+		m_levelEnts.erase(m_currentLevel);
+	}
+	m_parked = false;
 }
 
 void DungeonWorld::ApplyActiveSnapshot() {
 	auto it = m_levelStates.find(m_currentLevel);
-	m_parked = false; // the live level is the authority again from here
+	Unpark(); // the live level is the authority again from here
 	if (it == m_levelStates.end()) {
 		// First visit — nothing to restore, but the level is still a NEW WORLD
 		// to the one-pipeline check. Its monsters were rebuilt in the storage

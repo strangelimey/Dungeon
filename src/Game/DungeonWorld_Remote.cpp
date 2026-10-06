@@ -42,7 +42,10 @@ DungeonMap& DungeonWorld::EnsureMapStash(const std::string& stem) {
 DungeonEntities& DungeonWorld::EnsureEntStash(const std::string& stem) {
 	auto it = m_levelEnts.find(stem);
 	if (it == m_levelEnts.end()) {
-		const DungeonMap& map = EnsureMapStash(stem);
+		// Validated against the map as the level READS - its stash when it has
+		// one, else its file. It used to be the map's stash, made here, so every
+		// records-only edit rewrote the .map as well (C307).
+		const DungeonMap& map = *LevelForReading(stem).map;
 		it = m_levelEnts
 				 .insert_or_assign(stem, std::make_unique<DungeonEntities>(
 											 m_project.LevelEntPath(stem), map))
@@ -71,12 +74,13 @@ bool DungeonWorld::AddStairAt(const std::string& stem, const std::string& type,
 	// inspector's location list), which the world map, not this class, knows.
 	if (CatalogBool(entry, "exit", false)) {
 		const bool live = stem == m_currentLevel;
-		if (!live) EnsureMapStash(stem);
-		DungeonMap& map = live ? m_map : *m_levelMaps.find(stem)->second;
-		if (!map.IsWalkable(x, z) || map.StairAt(x, z) || map.BrazierAt(x, z)) {
+		// Checked as the level READS; stashed only once the stair will land (a
+		// refusal used to leave a stash behind for savemap to rewrite: C307).
+		if (!CellFreeForStair(stem, x, z)) {
 			say(loc::Format("map.place.blocked", entry->Display()));
 			return false;
 		}
+		DungeonMap& map = live ? m_map : EnsureMapStash(stem);
 		StairLink link;
 		link.type = type;
 		link.x = x;
@@ -142,6 +146,18 @@ bool DungeonWorld::AddStairAt(const std::string& stem, const std::string& type,
 		return false;
 	}
 
+	// Both squares checked as the levels READ, before anything is stashed: a
+	// refused link used to leave both stashes behind (C307).
+	if (!CellFreeForStair(stem, x, z)) {
+		say(loc::Format("map.place.blocked", entry->Display()));
+		return false;
+	}
+	// The pair lands on the SAME cell one level up/down.
+	if (!CellFreeForStair(dest, x, z)) {
+		say(loc::Format("map.stairs.destblocked", x, z, dest));
+		return false;
+	}
+
 	// Each side's authoritative map: the LIVE one for the active level, the
 	// level's stash otherwise (created from the file on first edit). Both
 	// stashes are ensured BEFORE taking references — a flat_map insertion
@@ -152,16 +168,6 @@ bool DungeonWorld::AddStairAt(const std::string& stem, const std::string& type,
 	if (!dstLive) EnsureMapStash(dest);
 	DungeonMap& src = srcLive ? m_map : *m_levelMaps.find(stem)->second;
 	DungeonMap& dst = dstLive ? m_map : *m_levelMaps.find(dest)->second;
-
-	if (!src.IsWalkable(x, z) || src.StairAt(x, z) || src.BrazierAt(x, z)) {
-		say(loc::Format("map.place.blocked", entry->Display()));
-		return false;
-	}
-	// The pair lands on the SAME cell one level up/down.
-	if (!dst.IsWalkable(x, z) || dst.StairAt(x, z) || dst.BrazierAt(x, z)) {
-		say(loc::Format("map.stairs.destblocked", x, z, dest));
-		return false;
-	}
 
 	StairLink link;
 	link.type = type;
@@ -225,9 +231,11 @@ bool DungeonWorld::RemovePairedStair(const std::string& fromStem,
 		RebuildChunksAround(removed.destX, removed.destZ);
 		return true;
 	}
-	DungeonMap& dst = EnsureMapStash(removed.destLevel);
-	if (!matches(dst.StairAt(removed.destX, removed.destZ))) return false;
-	return dst.RemoveStair(removed.destX, removed.destZ);
+	// Looked for as the level READS, and stashed only to take it away (C307).
+	return EditMapStash(removed.destLevel, [&](DungeonMap& dst) {
+		return matches(dst.StairAt(removed.destX, removed.destZ)) &&
+			   dst.RemoveStair(removed.destX, removed.destZ);
+	});
 }
 
 bool DungeonWorld::RemoveStairAt(int x, int z) {
@@ -249,187 +257,219 @@ bool DungeonWorld::RemoveStairAt(int x, int z) {
 
 // ============================================================================
 // Remote level editing — the map overlay edits ANY level. Every op targets the
-// level's in-memory stashes; `savemap` (SaveAllLevels) persists them.
+// level's in-memory stashes; `savemap` (SaveAllLevels) persists them. A stash is
+// made only by an edit that CHANGES its layer (EditMapStash / EditEntStash):
+// a refusal or a no-op leaves the level as its files have it, and a records
+// edit never stashes the map, nor a map edit the records (C307).
 // ============================================================================
 void DungeonWorld::EditCellRemote(const std::string& stem, int x, int z,
 								  Cell cell) {
-	DungeonMap& map = EnsureMapStash(stem);
-	const u32 rev = map.Revision();
-	map.SetCell(x, z, cell);
-	if (map.Revision() == rev) return; // unchanged / out of bounds
-	map.PruneFixturesForCell(x, z);
-	PruneStashRecordsForCell(stem, x, z);
+	const bool changed = EditMapStash(stem, [&](DungeonMap& map) {
+		const u32 rev = map.Revision();
+		map.SetCell(x, z, cell);
+		if (map.Revision() == rev) return false; // unchanged / out of bounds
+		map.PruneFixturesForCell(x, z);
+		return true;
+	});
+	if (changed) PruneStashRecordsForCell(stem, x, z);
 }
 
 void DungeonWorld::EditVariantRemote(const std::string& stem, int x, int z,
 									 SurfaceSel sel, int variant) {
-	DungeonMap& map = EnsureMapStash(stem);
-	// Same cell-type gate as EditVariant: walls on solid cells, the rest on
-	// floor cells.
-	if ((sel == SurfaceSel::Wall) == map.IsWalkable(x, z)) return;
-	switch (sel) {
-	case SurfaceSel::Wall:    map.SetWallVariant(x, z, variant); break;
-	case SurfaceSel::Floor:   map.SetFloorVariant(x, z, variant); break;
-	case SurfaceSel::Ceiling: map.SetCeilingVariant(x, z, variant); break;
-	}
+	EditMapStash(stem, [&](DungeonMap& map) {
+		// Same cell-type gate as EditVariant: walls on solid cells, the rest on
+		// floor cells. The setters bump the revision only on a change.
+		if ((sel == SurfaceSel::Wall) == map.IsWalkable(x, z)) return false;
+		const u32 rev = map.Revision();
+		switch (sel) {
+		case SurfaceSel::Wall:    map.SetWallVariant(x, z, variant); break;
+		case SurfaceSel::Floor:   map.SetFloorVariant(x, z, variant); break;
+		case SurfaceSel::Ceiling: map.SetCeilingVariant(x, z, variant); break;
+		}
+		return map.Revision() != rev;
+	});
 }
 
 bool DungeonWorld::AddDecorationRemote(const std::string& stem,
 									   const std::string& type, int x, int z) {
-	DungeonMap& map = EnsureMapStash(stem);
-	if (!map.IsWalkable(x, z) || !m_project.decorations.Contains(type))
-		return false;
-	Entity e;
-	e.kind = EntityKind::Decoration;
-	e.type = type;
-	e.x = x;
-	e.z = z;
-	map.AddDecorationRecord(std::move(e));
-	return true;
+	if (!m_project.decorations.Contains(type)) return false;
+	return EditMapStash(stem, [&](DungeonMap& map) {
+		if (!map.IsWalkable(x, z)) return false;
+		Entity e;
+		e.kind = EntityKind::Decoration;
+		e.type = type;
+		e.x = x;
+		e.z = z;
+		map.AddDecorationRecord(std::move(e));
+		return true;
+	});
 }
 
 bool DungeonWorld::AddDecorationRemote(const std::string& stem,
 									   const std::string& type, int x, int z,
 									   Direction wall) {
-	DungeonMap& map = EnsureMapStash(stem);
-	if (!map.IsWalkable(x, z) || !m_project.decorations.Contains(type))
-		return false;
-	if (map.IsWalkable(x + DirDX(wall), z + DirDZ(wall))) return false; // nothing to hang on
-	Entity e;
-	e.kind = EntityKind::Decoration;
-	e.type = type;
-	e.x = x;
-	e.z = z;
-	e.facing = wall;
-	e.params.emplace_back("wall", DirToken(wall)); // hangs flat on that wall
-	map.AddDecorationRecord(std::move(e));
-	return true;
+	if (!m_project.decorations.Contains(type)) return false;
+	return EditMapStash(stem, [&](DungeonMap& map) {
+		if (!map.IsWalkable(x, z)) return false;
+		if (map.IsWalkable(x + DirDX(wall), z + DirDZ(wall))) return false; // nothing to hang on
+		Entity e;
+		e.kind = EntityKind::Decoration;
+		e.type = type;
+		e.x = x;
+		e.z = z;
+		e.facing = wall;
+		e.params.emplace_back("wall", DirToken(wall)); // hangs flat on that wall
+		map.AddDecorationRecord(std::move(e));
+		return true;
+	});
 }
 
 bool DungeonWorld::AddMonsterRemote(const std::string& stem,
 									const std::string& type, int x, int z) {
-	DungeonEntities& ents = EnsureEntStash(stem);
-	const DungeonMap& map = *m_levelMaps.find(stem)->second;
-	if (!map.IsWalkable(x, z) || !m_project.monsters.Contains(type)) return false;
-	for (const Entity& e : ents.At(x, z))
-		if (e.kind == EntityKind::Monster) return false; // one monster per cell
-	Entity e;
-	e.kind = EntityKind::Monster;
-	e.type = type;
-	e.x = x;
-	e.z = z;
-	ents.Add(std::move(e));
-	return true;
+	if (!m_project.monsters.Contains(type)) return false;
+	return EditEntStash(stem, [&](DungeonEntities& ents, const DungeonMap& map) {
+		if (!map.IsWalkable(x, z)) return false;
+		for (const Entity& e : ents.At(x, z))
+			if (e.kind == EntityKind::Monster) return false; // one monster per cell
+		Entity e;
+		e.kind = EntityKind::Monster;
+		e.type = type;
+		e.x = x;
+		e.z = z;
+		ents.Add(std::move(e));
+		return true;
+	});
 }
 
 bool DungeonWorld::AddFixtureRemote(const std::string& stem,
 									const std::string& type, int x, int z) {
-	DungeonMap& map = EnsureMapStash(stem);
 	const CatalogEntry* def = m_project.fixtures.Find(type);
 	if (!def) return false;
 	const bool lit = CatalogBool(def, "flame", true);
 	// AddSconce/AddBrazier validate the cell themselves (and rebuild the map's
 	// turbidity); the live-only fire/particle rebuild does not apply here.
-	return def->Get("mount", "floor") == "wall"
-			   ? map.AddSconce(x, z, type, lit)
-			   : map.AddBrazier(x, z, type, lit);
+	const bool wall = def->Get("mount", "floor") == "wall";
+	return EditMapStash(stem, [&](DungeonMap& map) {
+		return wall ? map.AddSconce(x, z, type, lit) : map.AddBrazier(x, z, type, lit);
+	});
 }
 
 bool DungeonWorld::AddFixtureRemote(const std::string& stem,
 									const std::string& type, int x, int z,
 									Direction wall) {
-	DungeonMap& map = EnsureMapStash(stem);
 	const CatalogEntry* def = m_project.fixtures.Find(type);
 	if (!def) return false;
 	// Only a wall kind has a face; a floor kind ignores the pick (see AddFixture).
 	if (def->Get("mount", "floor") != "wall")
 		return AddFixtureRemote(stem, type, x, z);
-	return map.AddSconce(x, z, type, CatalogBool(def, "flame", true), wall);
+	const bool lit = CatalogBool(def, "flame", true);
+	return EditMapStash(stem, [&](DungeonMap& map) { return map.AddSconce(x, z, type, lit, wall); });
 }
 
 bool DungeonWorld::AddNicheRemote(const std::string& stem, const std::string& type,
 								  int x, int z) {
 	// Edits the level's stashed map; MapView rebuilds the browse snapshot after.
-	return EnsureMapStash(stem).AddNiche(x, z, type);
+	return EditMapStash(stem, [&](DungeonMap& map) { return map.AddNiche(x, z, type); });
 }
 
 bool DungeonWorld::AddNicheRemote(const std::string& stem, const std::string& type,
 								  int x, int z, Direction wall) {
-	return EnsureMapStash(stem).AddNiche(x, z, type, wall);
+	return EditMapStash(stem, [&](DungeonMap& map) { return map.AddNiche(x, z, type, wall); });
 }
 
 bool DungeonWorld::AddSurfaceFeatureRemote(const std::string& stem,
 										   const std::string& type, int x, int z) {
-	return EnsureMapStash(stem).AddFeature(x, z, type, FeatureIsCeiling(type));
+	const bool ceiling = FeatureIsCeiling(type);
+	return EditMapStash(stem,
+						[&](DungeonMap& map) { return map.AddFeature(x, z, type, ceiling); });
 }
 
 bool DungeonWorld::EraseRemote(const std::string& stem, int x, int z) {
 	auto say = [&](const std::string& s) {
 		if (onMessage) onMessage(s);
 	};
-	DungeonEntities& ents = EnsureEntStash(stem);
-	DungeonMap& map = *m_levelMaps.find(stem)->second;
-
+	// The ladder is climbed as the level READS, and each rung that takes
+	// something stashes only the layer it takes it from: an erase used to
+	// stash both layers before looking, so an erase of nothing - or of a
+	// record - rewrote a .map and an .ent nobody had changed (C307).
 	StairLink removed;
-	if (map.RemoveStair(x, z, &removed)) {
+	if (EditMapStash(stem, [&](DungeonMap& map) { return map.RemoveStair(x, z, &removed); })) {
 		const bool pair = RemovePairedStair(stem, removed);
 		say(pair ? loc::Format("map.stairs.removed", removed.destLevel)
 				 : loc::Tr("map.erase.removed"));
 		return true;
 	}
-	for (const Entity& e : ents.At(x, z))
-		if (e.kind == EntityKind::Monster || e.kind == EntityKind::Door ||
-			e.kind == EntityKind::Button || e.kind == EntityKind::Item) {
-			ents.RemoveById(e.id);
-			say(loc::Tr("map.erase.removed"));
-			return true;
-		}
-	if (map.RemoveDecorationRecordAt(x, z) || map.RemoveFixtureAt(x, z) ||
-		map.RemoveNicheFacingWall(x, z) || map.RemoveAnyFeature(x, z)) {
+	if (EditEntStash(stem, [&](DungeonEntities& ents, const DungeonMap&) {
+			for (const Entity& e : ents.At(x, z))
+				if (e.kind == EntityKind::Monster || e.kind == EntityKind::Door ||
+					e.kind == EntityKind::Button || e.kind == EntityKind::Item) {
+					ents.RemoveById(e.id);
+					return true;
+				}
+			return false;
+		})) {
 		say(loc::Tr("map.erase.removed"));
 		return true;
 	}
-	const u32 rev = map.Revision(); // the setters bump it only on a change
-	map.SetWallVariant(x, z, -1);
-	map.SetFloorVariant(x, z, -1);
-	map.SetCeilingVariant(x, z, -1);
+	if (EditMapStash(stem, [&](DungeonMap& map) {
+			return map.RemoveDecorationRecordAt(x, z) || map.RemoveFixtureAt(x, z) ||
+				   map.RemoveNicheFacingWall(x, z) || map.RemoveAnyFeature(x, z);
+		})) {
+		say(loc::Tr("map.erase.removed"));
+		return true;
+	}
+	const bool reset = EditMapStash(stem, [&](DungeonMap& map) {
+		const u32 rev = map.Revision(); // the setters bump it only on a change
+		map.SetWallVariant(x, z, -1);
+		map.SetFloorVariant(x, z, -1);
+		map.SetCeilingVariant(x, z, -1);
+		return map.Revision() != rev;
+	});
 	say(loc::Format("map.erase.reset", x, z));
-	return map.Revision() != rev;
+	return reset;
 }
 
 void DungeonWorld::PruneStashRecordsForCell(const std::string& stem, int x,
 											int z) {
-	DungeonEntities& ents = EnsureEntStash(stem);
-	DungeonMap& map = *m_levelMaps.find(stem)->second;
+	// Called after a paint CHANGED the cell, so the map is stashed already; the
+	// records are stashed only when one of them has to go or turn (C307 - the
+	// .ent of every remote paint used to be rewritten).
+	DungeonMap& map = EnsureMapStash(stem);
 	if (!map.IsWalkable(x, z)) {
 		// Painted solid: nothing can keep standing on the cell. Stairs go
 		// through the pair helper so the other level's half dies too.
 		StairLink removed;
 		if (map.RemoveStair(x, z, &removed)) RemovePairedStair(stem, removed);
 		map.RemoveDecorationRecordsAt(x, z);
-		ents.RemoveAt(x, z);
+		EditEntStash(stem, [&](DungeonEntities& ents, const DungeonMap&) {
+			return ents.RemoveAt(x, z) > 0;
+		});
 		return;
 	}
 	// Painted open: re-face button records that mounted on this cell onto
 	// another solid wall of their own cell, else drop them (the live prune's
 	// record half; wall-mounted decoration records re-resolve via the soft
 	// loader on the next entry).
-	std::vector<int> dropIds;
-	for (const Entity& e : ents.All()) {
-		if (e.kind != EntityKind::Button) continue;
-		if (e.x + DirDX(e.facing) != x || e.z + DirDZ(e.facing) != z) continue;
-		bool refaced = false;
-		constexpr Direction kScan[4] = {Direction::North, Direction::East,
-										Direction::South, Direction::West};
-		for (const Direction d : kScan)
-			if (!map.IsWalkable(e.x + DirDX(d), e.z + DirDZ(d))) {
-				if (Entity* mut = ents.MutableById(e.id)) mut->facing = d;
-				refaced = true;
-				break;
-			}
-		if (!refaced) dropIds.push_back(e.id);
-	}
-	for (const int id : dropIds) ents.RemoveById(id);
+	EditEntStash(stem, [&](DungeonEntities& ents, const DungeonMap& level) {
+		std::vector<int> dropIds;
+		bool changed = false;
+		for (const Entity& e : ents.All()) {
+			if (e.kind != EntityKind::Button) continue;
+			if (e.x + DirDX(e.facing) != x || e.z + DirDZ(e.facing) != z) continue;
+			bool refaced = false;
+			constexpr Direction kScan[4] = {Direction::North, Direction::East,
+											Direction::South, Direction::West};
+			for (const Direction d : kScan)
+				if (!level.IsWalkable(e.x + DirDX(d), e.z + DirDZ(d))) {
+					if (Entity* mut = ents.MutableById(e.id)) mut->facing = d;
+					refaced = changed = true;
+					break;
+				}
+			if (!refaced) dropIds.push_back(e.id);
+		}
+		for (const int id : dropIds) ents.RemoveById(id);
+		return changed || !dropIds.empty();
+	});
 }
 
 std::unique_ptr<DungeonWorld::LevelBrowse> DungeonWorld::BrowseLevel(

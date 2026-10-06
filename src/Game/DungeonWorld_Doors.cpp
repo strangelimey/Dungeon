@@ -203,24 +203,25 @@ bool DungeonWorld::AddDoor(const std::string& type, int x, int z,
 
 bool DungeonWorld::AddDoorRemote(const std::string& stem,
 								 const std::string& type, int x, int z) {
-	DungeonEntities& ents = EnsureEntStash(stem);
-	const DungeonMap& map = *m_levelMaps.find(stem)->second;
 	if (!m_project.doors.Contains(type)) return false;
-	Direction facing;
-	if (!DungeonMap::DoorwayFacing(map, x, z, facing)) {
-		if (onMessage) onMessage(loc::View("map.door.nodoorway"));
-		return false;
-	}
-	for (const Entity& e : ents.At(x, z))
-		if (e.kind == EntityKind::Door) return false; // one door per cell
-	Entity record;
-	record.kind = EntityKind::Door;
-	record.type = type;
-	record.x = x;
-	record.z = z;
-	record.facing = facing;
-	ents.Add(std::move(record));
-	return true;
+	// The records stashed only when the door lands (C307).
+	return EditEntStash(stem, [&](DungeonEntities& ents, const DungeonMap& map) {
+		Direction facing;
+		if (!DungeonMap::DoorwayFacing(map, x, z, facing)) {
+			if (onMessage) onMessage(loc::View("map.door.nodoorway"));
+			return false;
+		}
+		for (const Entity& e : ents.At(x, z))
+			if (e.kind == EntityKind::Door) return false; // one door per cell
+		Entity record;
+		record.kind = EntityKind::Door;
+		record.type = type;
+		record.x = x;
+		record.z = z;
+		record.facing = facing;
+		ents.Add(std::move(record));
+		return true;
+	});
 }
 
 bool DungeonWorld::DoorwayOccupied(int x, int z) const {
@@ -796,33 +797,35 @@ bool DungeonWorld::AddButton(const std::string& type, int x, int z) {
 
 bool DungeonWorld::AddButtonRemote(const std::string& stem,
 								   const std::string& type, int x, int z) {
-	DungeonEntities& ents = EnsureEntStash(stem);
-	const DungeonMap& map = *m_levelMaps.find(stem)->second;
-	if (!m_project.buttons.Contains(type) || !map.IsWalkable(x, z)) return false;
-	for (const Entity& e : ents.At(x, z))
-		if (e.kind == EntityKind::Button) return false;
-	constexpr Direction kScan[4] = {Direction::North, Direction::East,
-									Direction::South, Direction::West};
-	Direction wall = Direction::North;
-	bool found = false;
-	for (const Direction d : kScan)
-		if (!map.IsWalkable(x + DirDX(d), z + DirDZ(d))) {
-			wall = d;
-			found = true;
-			break;
+	if (!m_project.buttons.Contains(type)) return false;
+	// The records stashed only when the lever lands (C307).
+	return EditEntStash(stem, [&](DungeonEntities& ents, const DungeonMap& map) {
+		if (!map.IsWalkable(x, z)) return false;
+		for (const Entity& e : ents.At(x, z))
+			if (e.kind == EntityKind::Button) return false;
+		constexpr Direction kScan[4] = {Direction::North, Direction::East,
+										Direction::South, Direction::West};
+		Direction wall = Direction::North;
+		bool found = false;
+		for (const Direction d : kScan)
+			if (!map.IsWalkable(x + DirDX(d), z + DirDZ(d))) {
+				wall = d;
+				found = true;
+				break;
+			}
+		if (!found) {
+			if (onMessage) onMessage(loc::View("map.button.nowall"));
+			return false;
 		}
-	if (!found) {
-		if (onMessage) onMessage(loc::View("map.button.nowall"));
-		return false;
-	}
-	Entity record;
-	record.kind = EntityKind::Button;
-	record.type = type;
-	record.x = x;
-	record.z = z;
-	record.facing = wall;
-	ents.Add(std::move(record));
-	return true;
+		Entity record;
+		record.kind = EntityKind::Button;
+		record.type = type;
+		record.x = x;
+		record.z = z;
+		record.facing = wall;
+		ents.Add(std::move(record));
+		return true;
+	});
 }
 
 bool DungeonWorld::AddItem(const std::string& type, int x, int z, int slot) {
@@ -900,20 +903,22 @@ bool DungeonWorld::AddNicheItem(const std::string& type, int x, int z, Direction
 
 bool DungeonWorld::AddItemRemote(const std::string& stem,
 								 const std::string& type, int x, int z) {
-	DungeonEntities& ents = EnsureEntStash(stem);
-	const DungeonMap& map = *m_levelMaps.find(stem)->second;
-	if (!m_project.HasItem(type) || !map.IsWalkable(x, z)) return false;
-	int here = 0;
-	for (const Entity& e : ents.At(x, z))
-		if (e.kind == EntityKind::Item) ++here;
-	if (here >= 4) return false; // one per quarter, like the live rule
-	Entity record;
-	record.kind = EntityKind::Item;
-	record.type = type;
-	record.x = x;
-	record.z = z;
-	ents.Add(std::move(record));
-	return true;
+	if (!m_project.HasItem(type)) return false;
+	// The records stashed only when the item lands (C307).
+	return EditEntStash(stem, [&](DungeonEntities& ents, const DungeonMap& map) {
+		if (!map.IsWalkable(x, z)) return false;
+		int here = 0;
+		for (const Entity& e : ents.At(x, z))
+			if (e.kind == EntityKind::Item) ++here;
+		if (here >= 4) return false; // one per quarter, like the live rule
+		Entity record;
+		record.kind = EntityKind::Item;
+		record.type = type;
+		record.x = x;
+		record.z = z;
+		ents.Add(std::move(record));
+		return true;
+	});
 }
 
 bool DungeonWorld::PressButtonFacing() {

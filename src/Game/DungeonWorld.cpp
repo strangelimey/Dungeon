@@ -80,6 +80,7 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_entities(project.LevelEntPath(FirstLevel(project)), m_map),
 	  m_party(m_map, m_map.StartX(), m_map.StartZ()), m_director(threadManager) {
 	m_currentLevel = FirstLevel(project);
+	m_mapAsFiled = AsFiledText(m_map); // just read: the file's map (C308)
 	// Resolve the level's palette ids → texture set names + height scales before
 	// any load task runs (SurfaceDefs and LoadDungeonBlocks read the results).
 	ResolveSurfacePalettes();
@@ -754,7 +755,15 @@ void DungeonWorld::SetLevelAtmosphere(const std::string& stem, float dust,
 		m_atmosphere.hazeAmbient = haze;
 		SetAmbientScale(ambient);
 	} else {
-		EnsureMapStash(stem).SetAtmosphere(dust, haze, ambient);
+		// Stashed only when a knob really moved: Save on an unchanged dialog
+		// is not an edit (C307).
+		EditMapStash(stem, [&](DungeonMap& map) {
+			if (map.DustDensity() == dust && map.HazeAmbient() == haze &&
+				map.AmbientScale() == ambient)
+				return false;
+			map.SetAtmosphere(dust, haze, ambient);
+			return true;
+		});
 	}
 }
 
@@ -767,7 +776,11 @@ void DungeonWorld::SetLevelTags(const std::string& stem,
 	if (stem == m_currentLevel)
 		m_map.SetTags(std::move(tags));
 	else
-		EnsureMapStash(stem).SetTags(std::move(tags));
+		EditMapStash(stem, [&](DungeonMap& map) {
+			if (map.Tags() == tags) return false; // not an edit (C307)
+			map.SetTags(std::move(tags));
+			return true;
+		});
 }
 
 // The UI material's counterpart: only the chrome reads it, and Game resolves
@@ -776,7 +789,11 @@ void DungeonWorld::SetLevelUiStone(const std::string& stem, std::string name) {
 	if (stem == m_currentLevel)
 		m_map.SetUiStone(std::move(name));
 	else
-		EnsureMapStash(stem).SetUiStone(std::move(name));
+		EditMapStash(stem, [&](DungeonMap& map) {
+			if (map.UiStone() == name) return false; // not an edit (C307)
+			map.SetUiStone(std::move(name));
+			return true;
+		});
 }
 
 // See the header for why the cooldowns move with the latch, and why only when

@@ -1,0 +1,42 @@
+; stashload.eval - unsaved editor work survives a save LOADED on another level
+; (code-review C298). Judged by tools/EditorTest.py phase 31, on a scratch copy
+; of dungeon-demo; `stashtest` is renamed to this worktree's save.
+;
+; A save made on eval_arena; then crypt1, where a wall is painted at 9,1 and
+; not saved. Loading the save lands on eval_arena, which leaves crypt1 by the
+; "throwaway baseline" door: its DYNAMIC state is rightly dropped, but its map
+; used to go with it - the paint gone, with no prompt and no log line. Now the
+; map is stashed whoever is leaving, when it differs from its file: savemap
+; writes crypt1 from that stash, and going back to crypt1 finds the wall.
+;
+; THE CONTROL on the measure itself: the active map reads `edited` after the
+; paint, `clean` after an undo puts the file's square back (a comparison, not a
+; latch an edit sets), and `edited` again after the paint is redone.
+
+logecho on
+reset
+save stashtest
+goto crypt1
+echo --- before ---
+mapinfo
+stashes
+editor drag walls wall_marble 9 1
+echo --- painted ---
+mapinfo
+stashes
+undo
+echo --- undone ---
+stashes
+editor drag walls wall_marble 9 1
+echo --- repainted ---
+stashes
+mappage close
+load stashtest
+echo --- loaded ---
+stashes
+savemap
+goto crypt1
+echo --- returned ---
+mapinfo
+stashes
+echo --- end ---

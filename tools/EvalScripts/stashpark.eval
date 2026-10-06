@@ -1,0 +1,69 @@
+; stashpark.eval - a level PARKED and then live again IN PLACE keeps no stash of
+; itself, and a game begun on ANOTHER level keeps the edit it left behind
+; (code-review C298, C308). Judged by tools/EditorTest.py phase 31, on a scratch
+; copy of dungeon-demo; `stashpark` is renamed to this worktree's save.
+;
+; 1. PARKED, THEN BACK IN PLACE. A save made on crypt1; a wall painted at 9,1,
+;    not saved; then `leave` for the world map, which PARKS crypt1 and stashes
+;    its map (it differs from its file). Loading the save lands on crypt1
+;    itself, in place, so no level load consumes that stash - and it used to
+;    stand all the while, under the live level's own stem. The square is put
+;    back as filed (its looks erased, floor and ceiling repainted as the file
+;    has them), so the level reads clean; a savemap then wrote the stale stash
+;    over what it had just written of the live level, the stairs stashed nothing
+;    to replace it, and going back brought the wall back. Now the load in place
+;    drops it: nothing is stashed after the load, the savemap writes crypt1
+;    once, the stairs stash nothing and going back finds the floor.
+; 2. A GAME BEGUN ELSEWHERE (C298's second trigger). A wall painted at 10,1 on
+;    crypt1, then `newgame`, which begins on eval_arena by the "throwaway
+;    baseline" door that used to drop the map with the dynamic state: crypt1's
+;    map is stashed on the way out, savemap writes it, going back finds it.
+; EditorTest reads crypt1.map: 9,1 a floor again, 10,1 a wall.
+
+logecho on
+reset
+goto crypt1
+save stashpark
+echo --- before ---
+mapinfo
+stashes
+editor drag walls wall_marble 9 1
+mappage close
+echo --- painted ---
+mapinfo
+stashes
+leave
+echo --- parked ---
+stashes
+load stashpark
+echo --- loaded ---
+stashes
+editor erase 9 1
+editor drag floors floor_cobble_mossy 9 1
+editor drag ceilings ceiling_rock_layered 9 1
+mappage close
+echo --- put back ---
+mapinfo
+stashes
+savemap
+goto crypt2
+echo --- left ---
+stashes
+goto crypt1
+echo --- back ---
+mapinfo
+stashes
+editor drag walls wall_marble 10 1
+mappage close
+echo --- painted again ---
+mapinfo
+stashes
+newgame
+echo --- new game ---
+stashes
+savemap
+goto crypt1
+echo --- returned ---
+mapinfo
+stashes
+echo --- end ---
