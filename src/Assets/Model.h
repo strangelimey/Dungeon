@@ -51,9 +51,29 @@ struct MeshData {
 	std::vector<Vertex> vertices;
 	std::vector<u32> indices;
 	int material = -1;
-	Mat4 worldTransform = Mat4Identity(); // baked node transform for static meshes
+	// The glTF node's world transform; the vertices are still in NODE space.
+	// Bake it with BakeNodeTransform (below), never by hand.
+	Mat4 worldTransform = Mat4Identity();
 	bool skinned = false;
 };
+
+// --- the node transform (NodeTransform.cpp) -----------------------------------
+// One rule for every consumer that wants a mesh in its MODEL's space - the
+// world's loaders, the asset picker, import-model (code-review C253: seven hand
+// copies of the bake shared two flaws, and three bought daggers carry the
+// non-uniform and mirrored nodes they get wrong).
+//
+// What a mesh's node does to it: worldTransform - or the IDENTITY for a skinned
+// mesh, whose node transform glTF says to ignore (its joints place it). A
+// positions-only pass (bounds, a measurement) transforms by this.
+Mat4 NodeTransform(const MeshData& mesh);
+// Bakes NodeTransform into the vertices and resets worldTransform to the
+// identity, so a second bake is a no-op: positions through the matrix, NORMALS
+// through its inverse-transpose (renormalized - the plain matrix skews them under
+// a non-uniform scale), and under a MIRROR (a negative determinant) every
+// triangle's winding reversed, or a back-culled draw shows the mesh inside out.
+// A skinned mesh is left exactly as it is.
+void BakeNodeTransform(MeshData& mesh);
 
 // --- animation data (pure data; runtime logic lives in the Animation module) ---
 

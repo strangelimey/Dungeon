@@ -1526,15 +1526,16 @@ void Game::RegisterWorldCommands() {
 				// THE BRIGHTNESS SURVEY (code-review C158): each texture tile in view,
 				// where its image was drawn and its set's stored mean - what a correct
 				// (linear) draw of it averages to. A harness photographs the window
-				// and sets the two side by side (InGameTest).
-				if (m_assetPicker.CurrentMode() != AssetPicker::Mode::Textures) {
-					m_console.Refuse("assetpicker survey: texture tiles only (models are baked renders)");
-					return;
-				}
+				// and sets the two side by side (InGameTest). On the MODEL grid each
+				// tile's rect alone (`assetpicker model`, mean `-`): a model tile is
+				// a render, compared with the same tile from another build
+				// (code-review C253's survey of every model the node bake touches).
+				const bool models = m_assetPicker.CurrentMode() == AssetPicker::Mode::Models;
 				const std::vector<AssetPicker::SurveyTile> tiles = m_assetPicker.SurveyTiles();
 				m_console.Print(std::format("assetpicker survey: {} tiles", tiles.size()));
 				for (const AssetPicker::SurveyTile& t : tiles)
-					PrintThumbSurveyLine("assetpicker tile", t.name, t.stem, t.img, t.drawn);
+					PrintThumbSurveyLine(models ? "assetpicker model" : "assetpicker tile", t.name,
+										 t.stem, t.img, t.drawn);
 				return;
 			} else if (sub == "textures" || sub == "models") {
 				m_pickApply = nullptr; // a pick goes nowhere
@@ -1641,7 +1642,7 @@ void Game::RegisterWorldCommands() {
 		 .group = CmdGroup::Types,
 		 .params = "<category> installed <asset> <id>\n<category> pick <asset> <id>\n"
 				   "<category> import <folder|file> <id>\ncreate\n"
-				   "plan <category> <asset>\nstatus | off",
+				   "plan <category> <asset>\npreview\nstatus | off",
 		 .summary = "the create dialog's Use installed or Import: pick, type the id, click "
 					"Create; or what adopting a texture set would do"},
 		[this](const std::vector<std::string>& args) {
@@ -1727,6 +1728,18 @@ void Game::RegisterWorldCommands() {
 					return;
 				}
 				create();
+				return;
+			}
+			if (args.size() == 1 && args[0] == "preview") {
+				// What the preview pane was handed, in the model's own units: a
+				// bought .glb's node baked or not (code-review C253; Eval.ps1
+				// -SelfTest reads it beside `decokind`).
+				if (!m_assetDialog.IsOpen() || !m_assetDialog.HasPreview()) {
+					m_console.Refuse("newasset: no create dialog with a preview is open");
+					return;
+				}
+				m_console.Print(std::format("newasset preview {} radius={:.4f}",
+											m_assetDialog.Asset(), m_assetDialog.PreviewRadius()));
 				return;
 			}
 			if (args.size() == 1 && args[0] == "off") m_assetDialog.Close();

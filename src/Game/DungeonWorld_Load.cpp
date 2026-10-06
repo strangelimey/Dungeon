@@ -1314,25 +1314,6 @@ void DungeonWorld::ReserveAIPools() {
 	m_director.ReserveInline(cells, slots);
 }
 
-// A glTF mesh with its node transform baked into the vertices, which is the
-// space a MultiMaterialModel's parts live in (BuildMultiMaterialModel does the
-// same for each part it uploads).
-static assets::MeshData BakeNodeTransform(const assets::MeshData& mesh) {
-	assets::MeshData baked = mesh;
-	const XMMATRIX node = XMLoadFloat4x4(&mesh.worldTransform);
-	for (assets::Vertex& v : baked.vertices) {
-		XMFLOAT3 pf, nf;
-		XMStoreFloat3(&pf, XMVector3Transform(
-							   XMVectorSet(v.position.x, v.position.y, v.position.z, 1.0f), node));
-		XMStoreFloat3(&nf, XMVector3Normalize(XMVector3TransformNormal(
-							   XMVectorSet(v.normal.x, v.normal.y, v.normal.z, 0.0f), node)));
-		v.position = {pf.x, pf.y, pf.z};
-		v.normal = {nf.x, nf.y, nf.z};
-	}
-	baked.worldTransform = Mat4Identity();
-	return baked;
-}
-
 // items.cat `liquid_color` (r, g, b[, density]) on an item whose model has a
 // see-through part: the liquid inside it, generated from that glass
 // (Game/Liquid.h) and appended to the kind's own copy of the model as one more
@@ -1364,7 +1345,11 @@ bool DungeonWorld::BuildLiquid(gfx::GraphicsDevice& device, const assets::ModelD
 			break;
 		}
 	if (!glass) return false;
-	const liquid::Shell shell = liquid::Build(BakeNodeTransform(*glass));
+	// In the space a MultiMaterialModel's parts live in - its node baked, as
+	// BuildMultiMaterialModel uploads the glass beside it.
+	assets::MeshData bakedGlass = *glass;
+	assets::BakeNodeTransform(bakedGlass);
+	const liquid::Shell shell = liquid::Build(bakedGlass);
 	if (shell.mesh.indices.empty()) return false;
 	out.mesh = std::make_shared<gfx::Mesh>(device, shell.mesh);
 	out.material = {};
@@ -2118,28 +2103,23 @@ std::unique_ptr<DungeonWorld::MultiMaterialModel> DungeonWorld::BuildMultiMateri
 		return img >= 0 ? out->textures[static_cast<size_t>(img)].get() : nullptr;
 	};
 	Vec3 lo{1e9f, 1e9f, 1e9f}, hi{-1e9f, -1e9f, -1e9f};
-	for (const assets::MeshData& mesh : model.meshes) {
+	// Each part in the MODEL's space: its glTF node transform baked into the
+	// vertices (it carries ConvertMesh's normalization scale and placement).
+	// The loader keeps the node beside the mesh and leaves the vertices in node
+	// space; import-model does this same bake when merging, and here each part
+	// keeps its own. The baked parts are kept for the handle measurement below,
+	// so it reads the vertices exactly as they were uploaded.
+	std::vector<assets::MeshData> baked(model.meshes.begin(), model.meshes.end());
+	for (size_t i = 0; i < baked.size(); ++i) {
+		const assets::MeshData& mesh = model.meshes[i];
 		DungeonWorld::MultiMaterialModel::Sub sub;
-		// Bake the glTF node transform into the vertices (it carries ConvertMesh's
-		// normalization scale/placement). The loader stores it but leaves the
-		// vertices in local space — import-model does this same bake when merging;
-		// here we keep the submeshes separate, so each bakes its own node.
-		assets::MeshData baked = mesh;
-		const XMMATRIX node = XMLoadFloat4x4(&mesh.worldTransform);
-		for (assets::Vertex& v : baked.vertices) {
-			XMFLOAT3 pf, nf;
-			XMStoreFloat3(&pf, XMVector3Transform(
-								   XMVectorSet(v.position.x, v.position.y, v.position.z, 1.0f),
-								   node));
-			XMStoreFloat3(&nf, XMVector3Normalize(XMVector3TransformNormal(
-								   XMVectorSet(v.normal.x, v.normal.y, v.normal.z, 0.0f),
-								   node)));
-			v.position = {pf.x, pf.y, pf.z};
-			v.normal = {nf.x, nf.y, nf.z};
-			lo = {std::min(lo.x, pf.x), std::min(lo.y, pf.y), std::min(lo.z, pf.z)};
-			hi = {std::max(hi.x, pf.x), std::max(hi.y, pf.y), std::max(hi.z, pf.z)};
+		assets::BakeNodeTransform(baked[i]);
+		for (const assets::Vertex& v : baked[i].vertices) {
+			const Vec3& p = v.position;
+			lo = {std::min(lo.x, p.x), std::min(lo.y, p.y), std::min(lo.z, p.z)};
+			hi = {std::max(hi.x, p.x), std::max(hi.y, p.y), std::max(hi.z, p.z)};
 		}
-		sub.mesh = std::make_unique<gfx::Mesh>(device, baked);
+		sub.mesh = std::make_unique<gfx::Mesh>(device, baked[i]);
 		sub.material.doubleSided = false; // authored, consistently wound -> back-cull
 		if (mesh.material >= 0 &&
 			mesh.material < static_cast<int>(model.materials.size())) {
@@ -2171,36 +2151,15 @@ std::unique_ptr<DungeonWorld::MultiMaterialModel> DungeonWorld::BuildMultiMateri
 	const int thin = ext[b] <= ext[d] ? b : d;
 	const float c[3] = {(lo.x + hi.x) * 0.5f, (lo.y + hi.y) * 0.5f, (lo.z + hi.z) * 0.5f};
 	float reach[2] = {0.0f, 0.0f}; // [0] the negative half, [1] the positive half
-	for (const assets::MeshData& mesh : model.meshes) {
-		const XMMATRIX node = XMLoadFloat4x4(&mesh.worldTransform);
+	for (const assets::MeshData& mesh : baked)
 		for (const assets::Vertex& v : mesh.vertices) {
-			XMFLOAT3 pf;
-			XMStoreFloat3(&pf, XMVector3Transform(
-								   XMVectorSet(v.position.x, v.position.y, v.position.z, 1.0f),
-								   node));
-			const float p[3] = {pf.x, pf.y, pf.z};
+			const float p[3] = {v.position.x, v.position.y, v.position.z};
 			float& r = reach[p[a] >= c[a] ? 1 : 0];
 			r = std::max(r, std::abs(p[thin] - c[thin]));
 		}
-	}
 	out->longAxis = a;
 	out->handleSign = reach[1] >= reach[0] ? 1.0f : -1.0f;
 	return out;
-}
-
-// Farthest vertex from the model's own origin, in model UNITS. Props are
-// authored grounded (min y = 0) and XZ-centred, so the origin sits at the base
-// centre and a sphere about it covers the whole mesh however the placement
-// rotates it — no per-instance bounds bookkeeping, and never a false cull.
-static float ModelOriginRadius(const assets::ModelData& model) {
-	float worst = 0.0f;
-	for (const assets::MeshData& mesh : model.meshes)
-		for (const assets::Vertex& v : mesh.vertices) {
-			const float d2 = v.position.x * v.position.x + v.position.y * v.position.y +
-							 v.position.z * v.position.z;
-			worst = std::max(worst, d2);
-		}
-	return std::sqrt(worst);
 }
 
 // Each decoration type resolves through the decorations catalog: its model
@@ -2257,7 +2216,11 @@ DungeonWorld::DecorationKind& DungeonWorld::DecorationKindFor(const std::string&
 			kind->multi = ModelMulti(file); // shared GPU, own materials
 			BakeCatalogMaterial(*kind->multi, def); // overrides baked per submesh
 			kind->solidDefault = CatalogBool(def, "solid", true);
-			kind->cullRadius = ModelOriginRadius(*kind->model) * kUnit * kind->modelScale;
+			// From the bounds of what was UPLOADED (node transforms baked). The raw
+			// vertices are in node space: a bought dagger normalized by its node's
+			// scale read ~115 times too big, so it was never culled (C253).
+			kind->cullRadius = OriginRadius(kind->multi->boundsMin, kind->multi->boundsMax) *
+							   kUnit * kind->modelScale;
 			it = m_decorationKinds.emplace(type, std::move(kind)).first;
 			return *it->second;
 		}

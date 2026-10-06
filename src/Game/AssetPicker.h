@@ -176,12 +176,14 @@ public:
 		ThumbCounts counts;
 	};
 	ThumbStatus GetThumbStatus() const;
-	// Each texture tile whose image is WHOLLY in view, where that image was last
-	// DRAWN (device px) and the stem it was loaded from - so a survey can
-	// photograph the grid and set each tile's mean beside its set's (code-review
-	// C158). `drawn` is false for a tile still showing its placeholder. Textures
-	// mode only (empty for models, whose tiles are baked renders, not a set's
-	// albedo).
+	// Each tile whose image is WHOLLY in view, where that image was last DRAWN
+	// (device px) and, for a texture tile, the stem it was loaded from - so a
+	// survey can photograph the grid and set each tile's mean beside its set's
+	// (code-review C158). `drawn` is false for a tile still showing its
+	// placeholder, and for a model tile until its render has BAKED. A model
+	// tile has no stem (it is a render, not a set's albedo): its survey is a
+	// photograph compared with another build's (code-review C253, the node
+	// transforms every model tile is baked through).
 	struct SurveyTile {
 		std::string name, stem;
 		gfx::Rect img{};

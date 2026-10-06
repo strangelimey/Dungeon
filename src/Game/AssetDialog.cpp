@@ -550,6 +550,12 @@ void AssetDialog::RefreshPreview() {
 		return;
 	}
 	m_previewModel = std::move(*model);
+	// Into the MODEL's space before it is uploaded: a bought .glb's mesh is still
+	// in its node's (viking_dagger's node scales it down 15 to 98 times by axis,
+	// and french_dagger's mirrors), and the preview draws what it is handed -
+	// the dagger's first part came out ~77 times too big and skewed (code-review
+	// C253; `newasset preview`).
+	assets::BakeNodeTransform(m_previewModel.meshes[0]);
 	m_previewMesh = std::make_unique<gfx::Mesh>(m_device, m_previewModel.meshes[0]);
 	if (!m_previewModel.materials.empty()) {
 		m_material.baseColor = m_previewModel.materials[0].baseColorFactor;
@@ -557,6 +563,15 @@ void AssetDialog::RefreshPreview() {
 		// persists to the catalog if the user then changes it.
 		m_neutral.baseColor = m_material.baseColor;
 	}
+}
+
+float AssetDialog::PreviewRadius() const {
+	if (!m_previewMesh || m_previewModel.meshes.empty()) return 0.0f;
+	float worst = 0.0f;
+	for (const assets::Vertex& v : m_previewModel.meshes[0].vertices)
+		worst = std::max(worst, v.position.x * v.position.x + v.position.y * v.position.y +
+									v.position.z * v.position.z);
+	return std::sqrt(worst);
 }
 
 void AssetDialog::Update(const Input& input, float width, float height, float dt) {

@@ -3,6 +3,7 @@ add_library(Assets STATIC
 	File.cpp
 	Image.cpp
 	Model.cpp
+	NodeTransform.cpp
 	ObjLoader.cpp
 	PbrMaps.cpp
 	Wav.cpp

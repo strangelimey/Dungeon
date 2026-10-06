@@ -68,26 +68,21 @@ bool ImportModel(const std::string& sourcePath, const std::string& assetsDir,
 	const assets::ModelData& src = *loaded;
 
 	// --- merge every mesh/primitive into one, baking node transforms ---------
+	// Through the runtime's one rule (assets::BakeNodeTransform: normals by the
+	// inverse-transpose, a mirrored node's winding put back, a skinned mesh's
+	// node ignored as glTF says - it imports in its bind pose), then the joints
+	// stripped: what comes out is static.
 	assets::MeshData merged;
 	for (const assets::MeshData& m : src.meshes) {
-		const XMMATRIX node = XMLoadFloat4x4(&m.worldTransform);
+		assets::MeshData baked = m;
+		assets::BakeNodeTransform(baked);
 		const u32 base = static_cast<u32>(merged.vertices.size());
-		for (const assets::Vertex& v : m.vertices) {
-			assets::Vertex out = v;
+		for (assets::Vertex out : baked.vertices) {
 			out.joints[0] = out.joints[1] = out.joints[2] = out.joints[3] = 0;
 			out.weights[0] = out.weights[1] = out.weights[2] = out.weights[3] = 0;
-			const XMVECTOR p = XMVector3Transform(
-				XMVectorSet(v.position.x, v.position.y, v.position.z, 1.0f), node);
-			const XMVECTOR n = XMVector3Normalize(XMVector3TransformNormal(
-				XMVectorSet(v.normal.x, v.normal.y, v.normal.z, 0.0f), node));
-			XMFLOAT3 pf, nf;
-			XMStoreFloat3(&pf, p);
-			XMStoreFloat3(&nf, n);
-			out.position = {pf.x, pf.y, pf.z};
-			out.normal = {nf.x, nf.y, nf.z};
 			merged.vertices.push_back(out);
 		}
-		for (u32 i : m.indices) merged.indices.push_back(base + i);
+		for (u32 i : baked.indices) merged.indices.push_back(base + i);
 	}
 	if (merged.vertices.empty()) {
 		log::Error("Model has no geometry: {}", modelFile);

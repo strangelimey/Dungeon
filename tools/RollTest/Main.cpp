@@ -50,6 +50,7 @@
 // it cannot tell which sections the fault actually reached. Its verdict line
 // reads RESULT=FAIL (the checks did fail) with caught=1, and exits 0.
 // ============================================================================
+#include "Assets/Model.h"
 #include "Common/Verdict.h"
 #include "Game/BalanceKnobs.h"
 #include "Game/Blast.h"
@@ -3052,6 +3053,191 @@ int main(int argc, char** argv) {
 		Check("facings whose turn yaw misses its new facing", turnYawOff, 0, 0);
 		CheckTrue("+1 from north is east, +X",
 				  facing::Right(0) == 1 && facing::StepX(1) == 1 && facing::StepZ(0) == -1);
+	}
+
+	// --- node transforms (Assets/NodeTransform.cpp) ---------------------------
+	// code-review C253: the one bake every model consumer goes through. A
+	// MIRRORED, NON-UNIFORMLY scaled node - french_dagger's kind: its node scales
+	// x by 0.0085 against 0.0122 and mirrors - is baked into a closed
+	// tetrahedron, flat-shaded, each face wound so its corners' cross product
+	// agrees with its normal. The bake must keep positions at p * M, every
+	// normal unit, perpendicular to its baked face and pointing OUT of the baked
+	// solid, and each face's winding agreeing with its normal as before (a
+	// mirror reverses the winding, and a back-culled draw then shows the inside).
+	// A DEGENERATE node gives zero normals, never NaN, and a skinned mesh is not
+	// baked at all. Die-free, so --self-test cannot reach it: NON-VACUOUS BY
+	// MUTATION (normals through the plain matrix, no winding flip, a skinned
+	// mesh baked, NaN written into every vertex, the normal matrix by division -
+	// each fails its own checks).
+	{
+		std::printf("\nNode transforms (Assets/NodeTransform.cpp)\n");
+		namespace assets = dungeon::assets;
+		using namespace DirectX;
+		const XMMATRIX rotate = XMMatrixRotationRollPitchYaw(0.3f, 0.7f, 0.2f);
+		const XMMATRIX place = XMMatrixTranslation(1.0f, 2.0f, 3.0f);
+		const XMMATRIX mirrored = XMMatrixScaling(-2.0f, 0.5f, 3.0f) * rotate * place;
+		const XMMATRIX unmirrored = XMMatrixScaling(2.0f, 0.5f, 3.0f) * rotate * place;
+		const XMFLOAT3 corners[4] = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+		const int faces[4][3] = {{0, 1, 2}, {0, 1, 3}, {0, 2, 3}, {1, 2, 3}};
+		const auto solid = [&](const XMMATRIX& node) {
+			assets::MeshData tet;
+			const XMVECTOR centre = XMVectorSet(0.25f, 0.25f, 0.25f, 0.0f);
+			for (const auto& f : faces) {
+				int order[3] = {f[0], f[1], f[2]};
+				const XMVECTOR a = XMLoadFloat3(&corners[order[0]]);
+				XMVECTOR n = XMVector3Normalize(XMVector3Cross(
+					XMLoadFloat3(&corners[order[1]]) - a, XMLoadFloat3(&corners[order[2]]) - a));
+				const XMVECTOR mid = (a + XMLoadFloat3(&corners[order[1]]) +
+									  XMLoadFloat3(&corners[order[2]])) / 3.0f;
+				if (XMVectorGetX(XMVector3Dot(n, mid - centre)) < 0.0f) {
+					std::swap(order[1], order[2]); // wound outward
+					n = -n;
+				}
+				for (const int k : order) {
+					assets::Vertex v;
+					v.position = corners[k];
+					XMStoreFloat3(&v.normal, n);
+					tet.indices.push_back(static_cast<dungeon::u32>(tet.vertices.size()));
+					tet.vertices.push_back(v);
+				}
+			}
+			XMStoreFloat4x4(&tet.worldTransform, node);
+			return tet;
+		};
+		// What the bake of `tet` under `node` left wrong, measured on `out`. A NaN
+		// is a fault like any other and must not slip past: std::max(worst, NaN)
+		// keeps `worst` (it compares false), and `x <= 0` is false for a NaN, so
+		// a bake writing NaN everywhere read as perfect. `Worse` keeps a NaN once
+		// it has one (and Check fails on it), the face tests count what is NOT
+		// strictly right, and `nonFinite` counts the vertices outright.
+		struct Faults {
+			float pos = 0.0f, perp = 0.0f, unit = 0.0f;
+			int inward = 0, wound = 0, nonFinite = 0;
+		};
+		const auto worse = [](float& worst, float v) {
+			if (!std::isnan(worst) && !(v <= worst)) worst = v; // a NaN v sticks
+		};
+		const auto finite = [](const XMFLOAT3& p) {
+			return std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z);
+		};
+		const auto measure = [&](const assets::MeshData& tet, const XMMATRIX& node,
+								 const assets::MeshData& out) {
+			Faults f;
+			XMVECTOR centre = XMVectorZero();
+			for (const XMFLOAT3& c : corners)
+				centre += XMVector3Transform(XMLoadFloat3(&c), node) * 0.25f;
+			for (size_t i = 0; i < out.vertices.size(); ++i) {
+				const XMVECTOR want = XMVector3Transform(XMLoadFloat3(&tet.vertices[i].position), node);
+				worse(f.pos, XMVectorGetX(XMVector3Length(
+								 XMLoadFloat3(&out.vertices[i].position) - want)));
+				worse(f.unit, std::fabs(XMVectorGetX(XMVector3Length(
+								  XMLoadFloat3(&out.vertices[i].normal))) - 1.0f));
+				if (!finite(out.vertices[i].position) || !finite(out.vertices[i].normal))
+					++f.nonFinite;
+			}
+			for (size_t t = 0; t + 2 < out.indices.size(); t += 3) {
+				const assets::Vertex& va = out.vertices[out.indices[t]];
+				const XMVECTOR a = XMLoadFloat3(&va.position);
+				const XMVECTOR b = XMLoadFloat3(&out.vertices[out.indices[t + 1]].position);
+				const XMVECTOR c = XMLoadFloat3(&out.vertices[out.indices[t + 2]].position);
+				const XMVECTOR n = XMLoadFloat3(&va.normal); // flat: one normal a face
+				for (const XMVECTOR& e : {b - a, c - a, c - b})
+					worse(f.perp, std::fabs(XMVectorGetX(XMVector3Dot(n, XMVector3Normalize(e)))));
+				if (!(XMVectorGetX(XMVector3Dot(n, (a + b + c) / 3.0f - centre)) > 0.0f)) ++f.inward;
+				if (!(XMVectorGetX(XMVector3Dot(n, XMVector3Cross(b - a, c - a))) > 0.0f)) ++f.wound;
+			}
+			return f;
+		};
+		const auto sameMesh = [](const assets::MeshData& x, const assets::MeshData& y) {
+			return x.vertices.size() == y.vertices.size() && x.indices == y.indices &&
+				   std::memcmp(x.vertices.data(), y.vertices.data(),
+							   x.vertices.size() * sizeof(assets::Vertex)) == 0 &&
+				   std::memcmp(&x.worldTransform, &y.worldTransform, sizeof(dungeon::Mat4)) == 0;
+		};
+
+		const assets::MeshData tet = solid(mirrored);
+		assets::MeshData baked = tet;
+		assets::BakeNodeTransform(baked);
+		const Faults m = measure(tet, mirrored, baked);
+		Check("mirrored: vertices not finite", m.nonFinite, 0, 0);
+		Check("mirrored: positions off p * M by", m.pos, 0, 1e-5);
+		Check("mirrored: normals off unit length by", m.unit, 0, 1e-5);
+		Check("mirrored: normals off perpendicular (cos)", m.perp, 0, 1e-5);
+		Check("mirrored: faces whose normal points in", m.inward, 0, 0);
+		Check("mirrored: faces wound against their normal", m.wound, 0, 0);
+		const dungeon::Mat4 ident = dungeon::Mat4Identity();
+		CheckTrue("a baked mesh's node is the identity",
+				  std::memcmp(&baked.worldTransform, &ident, sizeof(ident)) == 0);
+		assets::MeshData twice = baked;
+		assets::BakeNodeTransform(twice);
+		CheckTrue("a second bake changes nothing", sameMesh(twice, baked));
+
+		const assets::MeshData plain = solid(unmirrored);
+		assets::MeshData plainBaked = plain;
+		assets::BakeNodeTransform(plainBaked);
+		const Faults u = measure(plain, unmirrored, plainBaked);
+		Check("unmirrored: vertices not finite", u.nonFinite, 0, 0);
+		Check("unmirrored: normals off perpendicular (cos)", u.perp, 0, 1e-5);
+		Check("unmirrored: faces wound against their normal", u.wound, 0, 0);
+		CheckTrue("unmirrored: the winding is kept", plainBaked.indices == plain.indices);
+
+		// A DEGENERATE node (determinant 0) - the case the cofactor form exists for:
+		// no division, so a zero normal where the node leaves a face no direction,
+		// never a NaN (an inverse-transpose by division is Inf/NaN here). FLATTENED
+		// (z scaled to 0): the faces that keep an area lie in one plane and take
+		// its normal, the two collapsed to a line take zero. COLLAPSED to a line (y
+		// and z scaled to 0): every normal is zero. Positions stay p * M either way.
+		const auto degenerate = [&](const XMMATRIX& node, int& nonFinite, float& posOff,
+									int& neither, int& offPlane, int& nonZero) {
+			const assets::MeshData flat = solid(node);
+			assets::MeshData flatBaked = flat;
+			assets::BakeNodeTransform(flatBaked);
+			const XMVECTOR plane = XMVector3Normalize(XMVector3Cross(node.r[0], node.r[1]));
+			nonFinite = neither = offPlane = nonZero = 0;
+			posOff = 0.0f;
+			for (size_t i = 0; i < flatBaked.vertices.size(); ++i) {
+				const assets::Vertex& v = flatBaked.vertices[i];
+				if (!finite(v.position) || !finite(v.normal)) ++nonFinite;
+				worse(posOff, XMVectorGetX(XMVector3Length(
+								  XMLoadFloat3(&v.position) -
+								  XMVector3Transform(XMLoadFloat3(&flat.vertices[i].position), node))));
+				const float len = XMVectorGetX(XMVector3Length(XMLoadFloat3(&v.normal)));
+				const bool zero = len < 1e-6f;
+				if (!zero) ++nonZero;
+				if (!zero && !(std::fabs(len - 1.0f) <= 1e-5f)) ++neither;
+				if (!zero && !(1.0f - std::fabs(XMVectorGetX(XMVector3Dot(
+										  XMLoadFloat3(&v.normal), plane))) <= 1e-5f))
+					++offPlane;
+			}
+		};
+		int flatNan = 0, flatNeither = 0, flatOff = 0, flatLit = 0;
+		float flatPos = 0.0f;
+		degenerate(XMMatrixScaling(2.0f, 0.5f, 0.0f) * rotate * place, flatNan, flatPos,
+				   flatNeither, flatOff, flatLit);
+		Check("flattened (det 0): vertices not finite", flatNan, 0, 0);
+		Check("flattened (det 0): positions off p * M by", flatPos, 0, 1e-5);
+		Check("flattened (det 0): normals neither 0 nor unit", flatNeither, 0, 0);
+		Check("flattened (det 0): normals off its plane's", flatOff, 0, 0);
+		Check("flattened (det 0): vertices with a normal", flatLit, 6, 0);
+		int lineNan = 0, lineNeither = 0, lineOff = 0, lineLit = 0;
+		float linePos = 0.0f;
+		degenerate(XMMatrixScaling(2.0f, 0.0f, 0.0f) * rotate * place, lineNan, linePos,
+				   lineNeither, lineOff, lineLit);
+		Check("a line (det 0): vertices not finite", lineNan, 0, 0);
+		Check("a line (det 0): positions off p * M by", linePos, 0, 1e-5);
+		Check("a line (det 0): normals not zero", lineLit, 0, 0);
+
+		assets::MeshData skin = tet;
+		skin.skinned = true;
+		const assets::MeshData skinBefore = skin;
+		assets::BakeNodeTransform(skin);
+		CheckTrue("a skinned mesh is left exactly as it is", sameMesh(skin, skinBefore));
+		const dungeon::Mat4 skinNode = assets::NodeTransform(skin);
+		const dungeon::Mat4 tetNode = assets::NodeTransform(tet);
+		CheckTrue("a skinned mesh's node is the identity",
+				  std::memcmp(&skinNode, &ident, sizeof(ident)) == 0);
+		CheckTrue("a static mesh's node is its own",
+				  std::memcmp(&tetNode, &tet.worldTransform, sizeof(tetNode)) == 0);
 	}
 
 	// --- verdict ------------------------------------------------------------

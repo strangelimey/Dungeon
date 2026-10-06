@@ -42,6 +42,10 @@
 # reaches - is a geometric claim, so it is checked here by sampling.
 # Trail.cpp (Phase 4): what a thing in flight sheds, parsed from trails.cat,
 # and each shape's defaults - pure, beside the light profile it reads with.
+# Assets/NodeTransform.cpp (code-review C253): the one bake of a glTF node's
+# transform into its mesh - normals by the inverse-transpose, a mirror's
+# winding put back, a skinned mesh left alone. Its own TU so it links here
+# without the loader (cgltf, the image decoders) coming with it.
 add_executable(RollTest
 	Main.cpp
 	${CMAKE_SOURCE_DIR}/src/Game/DamageLedger.cpp
@@ -59,6 +63,7 @@ add_executable(RollTest
 	${CMAKE_SOURCE_DIR}/src/Game/LightProfile.cpp
 	${CMAKE_SOURCE_DIR}/src/Game/Trail.cpp
 	${CMAKE_SOURCE_DIR}/src/Graphics/LightTiles.cpp
+	${CMAKE_SOURCE_DIR}/src/Assets/NodeTransform.cpp
 )
 # NOT linked, and the attempt is worth recording: pulling Balance.cpp in for the
 # attacker's type axis dragged Catalog -> assets::ReadBinaryFile, i.e. the file

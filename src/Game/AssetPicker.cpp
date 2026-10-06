@@ -330,7 +330,8 @@ AssetPicker::ThumbStatus AssetPicker::GetThumbStatus() const {
 
 std::vector<AssetPicker::SurveyTile> AssetPicker::SurveyTiles() const {
 	std::vector<SurveyTile> out;
-	if (m_mode != Mode::Textures || !m_grid) return out;
+	if (!m_grid) return out;
+	const bool textures = m_mode == Mode::Textures;
 	// Only an image WHOLLY inside the view (the grid's clip): a row half scrolled
 	// under the search box is cut by the scissor, and a photograph of its rect
 	// would average the panel behind it in.
@@ -340,7 +341,10 @@ std::vector<AssetPicker::SurveyTile> AssetPicker::SurveyTiles() const {
 		if (tile->Name().empty() || img.x < view.x || img.y < view.y ||
 			img.x + img.w > view.x + view.w || img.y + img.h > view.y + view.h)
 			continue;
-		out.push_back({tile->Name(), ThumbStem(tile->Name()), img, tile->ImageDrawn()});
+		// A model tile's render target is drawn from the frame it is made, empty
+		// until the owner bakes it: drawn only once TileImage has the bake.
+		out.push_back({tile->Name(), textures ? ThumbStem(tile->Name()) : std::string(), img,
+					   tile->ImageDrawn() && (textures || TileImage(tile->Name()))});
 	}
 	return out;
 }

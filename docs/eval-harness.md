@@ -1056,15 +1056,28 @@ on WARP, and nothing at all on the GPU.
 through `reset` and `arena`; the model cache holding no CPU image bytes after the
 load (`modelcache`); a Low -> Ultra -> Low quality round trip leaving every texture
 set at its tier and the SRV gauge, live and peak, where the load left it
-(`textures`); and a planted set with no normal map named by `levelcheck` and
-loaded flat with one warning. Two of those needed a second look to be able to
-fail. The SRV baseline is read right after the load, before any swap, and the run
+(`textures`); a planted set with no normal map named by `levelcheck` and
+loaded flat with one warning; and `decokind viking_dagger` and `khukri` (code-review
+C253): a multi-material decoration's cull sphere must be its BAKED bounds' - their
+farthest corner from the origin x unit x scale - and those bounds a tenth or less
+of the node-space radius the sphere used to be read from (viking_dagger's node
+scales it down 15-98x by axis, so the old sphere was ~115 times too big); then the create
+dialog's "Use installed" on viking_dagger (`newasset pick`, never Create), whose
+preview mesh (`newasset preview`) must lie inside those bounds - it used to be
+drawn in node space. Three of those needed a second look to be able to fail. The SRV
+baseline is read right after the load, before any swap, and the run
 pins the starting quality to Medium (Low's 1k tier) whatever the ini holds:
 started at High or Ultra, the first `quality 0` is a full swap of its own, and a
 baseline read after it already carries any peak a load-before-free swap adds.
 And `levelcheck`'s list must be EXACTLY the pool's albedos with no `_n` beside
 them, worked out by the harness from the disk - naming the plant alone would
-pass a check that listed every albedo in the pool.
+pass a check that listed every albedo in the pool. And the farthest corner is
+worked out by the harness from the printed corners, never read off the engine's
+own `bounds_radius`: that is the function that set the sphere, so a regression
+in it (a corner on the negative side ignored, a radius about the box's centre)
+moved both, and the row agreed with a sphere too small for the dagger. khukri is
+there because viking_dagger cannot see the first of those: its box is symmetric
+about the origin in x and z, so losing the negative side changes nothing on it.
 
 ## The one suite that is not a measurement
 

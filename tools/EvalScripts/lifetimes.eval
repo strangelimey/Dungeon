@@ -21,6 +21,15 @@
 ;   C193  `reset` and `arena`, the two full surface bakes that freed the chunk
 ;         meshes with nothing drained, each with frames drawn either side - the
 ;         D3D12 debug layer (debug build) names a resource freed in flight.
+;   C253  (batch 66) `decokind viking_dagger` and `khukri`: bought multi-material
+;         daggers whose nodes scale them down 15-98x. Each cull sphere must be
+;         its BAKED bounds' (their farthest corner, worked out by the harness, x
+;         unit x scale), far inside the node-space radius it used to be read
+;         from - khukri because its box is not symmetric about the origin, so a
+;         radius that lost a negative side shows on it. Then the create dialog's
+;         "Use installed" on viking_dagger (`newasset pick`, never Create -
+;         nothing is written): `newasset preview` must report a mesh inside its
+;         bounds, its node baked.
 ;
 ; One line runs per frame. A `quality` applies on the frame after it, so an
 ; `echo` sits between it and the readout; the `echo frame` runs elsewhere are
@@ -76,3 +85,12 @@ echo frame
 echo frame
 echo --- done ---
 modelcache
+
+echo --- decoration kinds ---
+decokind viking_dagger
+decokind khukri
+
+echo --- the create dialog's preview ---
+newasset decorations pick viking_dagger zz_preview_probe
+newasset preview
+newasset off

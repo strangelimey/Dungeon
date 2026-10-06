@@ -984,6 +984,24 @@ sixteen kinds in another kind's pose; each kind now owns its icon pose).
   type and renders it back-face culled (authored=true). `--texture-set <name>`
   skips the per-call PBR import and points the model at an already-imported set
   instead, so every item split out of one multi-mesh pack shares a single set.
+  NODE TRANSFORMS: the glTF loader leaves each mesh in its node's space with
+  the node beside it (MeshData::worldTransform), and every consumer of a file
+  that can carry a node - this merge, BuildMultiMaterialModel (every bought
+  .glb the game draws), the asset picker's looks, the create dialog's preview,
+  a liquid's glass - bakes it through `assets::BakeNodeTransform`
+  (Assets/NodeTransform.cpp; positions-only passes take
+  `assets::NodeTransform`), never a loop of its own: normals go through the
+  INVERSE-TRANSPOSE, a mirrored node's winding is put back, and a SKINNED
+  mesh's node is ignored, as glTF says (code-review C253 - seven hand copies
+  got the first two wrong, the create dialog drew the node-space mesh, and the
+  bought daggers carry non-uniform nodes, french_dagger's mirrored; RollTest's
+  "Node transforms" section). The EXCEPTION is the single-mesh `.gltf` loaders
+  (ModelMesh, the surface blocks and features, the dev `preview`), which upload
+  meshes[0] as the file holds it: AssetBaker's WriteGltf gives its one mesh
+  node no transform, and all 8 non-identity nodes in assets/models are in
+  `.glb` files (C253's survey of 596) - a `.gltf` that carried one would need
+  the bake there too. A multi-material decoration's cull sphere is its baked
+  bounds' (dev `decokind <type>`).
 - `tools\Build*.py` — SCRIPT-AUTHORED props, the default way to make new
   architecture (docs/authoring-scale.md; Michael does not hand-model). Each is
   run headless — `blender --background --factory-startup --python

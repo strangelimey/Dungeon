@@ -1590,7 +1590,8 @@ public:
 	}
 	// The box `model`'s vertices fill when the scene shader poses them with
 	// `palette` (CPU skinning, the shader's weighted sum; an empty palette = as
-	// modelled). `nodeBaked`: each mesh's node transform first, as
+	// modelled). `nodeBaked`: each mesh's node transform first
+	// (assets::NodeTransform - none for a skinned mesh), as
 	// BuildMultiMaterialModel bakes it into the uploaded vertices - pass whether
 	// the geometry drawn came from there. False for an empty model.
 	static bool PosedBounds(const assets::ModelData& model, std::span<const Mat4> palette,
@@ -2582,6 +2583,15 @@ public:
 	// reads at all. A later ModelMulti of such a file re-reads it (and says so).
 	// Returns the bytes released.
 	u64 ReleaseModelImages();
+	// A decoration kind's model as the world holds it (dev console `decokind`,
+	// code-review C253): whether it is multi-material, its bounds and their
+	// origin radius in UNITS (node transforms baked - what was drawn), the cull
+	// radius in metres, and `node_space_radius`, the farthest vertex BEFORE the
+	// nodes are baked - what a multi-material cull sphere used to be read from
+	// (viking_dagger's ~115 times too big). Loads the kind if it is not loaded;
+	// empty when the decorations catalog has no such type (a missing type would
+	// fall back to <type>.gltf, and a missing model aborts).
+	std::string DescribeDecorationKind(const std::string& type);
 	// Toggle volumetric dust (off feeds the renderer clear air).
 	void SetDustEnabled(bool on) { m_dustEnabled = on; }
 	bool DustEnabled() const { return m_dustEnabled; }
@@ -3532,7 +3542,9 @@ private:
 		// `modelscale`; multiplied into UnitScale at every draw.
 		float modelScale = 1.0f;
 		// World-space cull radius: the farthest vertex from the model's OWN
-		// ORIGIN, carried through kUnit and modelScale (DecorationKindFor).
+		// ORIGIN - for a multi-material model the farthest corner of its baked
+		// bounds (OriginRadius) - carried through kUnit and modelScale
+		// (DecorationKindFor).
 		// Origin-centred rather than AABB-centred, so an instance's translation
 		// is a valid sphere centre under any yaw the placement applied — a
 		// little conservative, correct by construction. This replaced a
@@ -3910,6 +3922,17 @@ private:
 	// and reloads them. Every draw of an item's parts goes through this
 	// (DrawMultiMaterial, the item preview, a light stone).
 	static gfx::MaterialParams PartMaterial(const MultiMaterialModel::Sub& sub);
+	// A decoration's CULL SPHERE about its model's own origin, in model UNITS
+	// (DungeonWorld_Models.cpp). Props are authored grounded (min y = 0) and
+	// XZ-centred, so the origin sits at the base centre and a sphere about it
+	// covers the whole mesh however a placement turns it - correct by
+	// construction, never a false cull. OriginRadius: the farthest corner of a
+	// box, the multi-material path's (MultiMaterialModel::boundsMin/Max, its
+	// node transforms baked - code-review C253). ModelOriginRadius: the farthest
+	// RAW vertex, right for a single-mesh model drawn as it is in the file
+	// (meshes[0], an identity node) and wrong for anything carrying a node.
+	static float OriginRadius(const Vec3& lo, const Vec3& hi);
+	static float ModelOriginRadius(const assets::ModelData& model);
 	// THE MODEL CACHE (DungeonWorld_Models.cpp). The kind caches are keyed by
 	// CATALOG ID, and many ids share one file - six monster kinds on
 	// skeleton.gltf, five armours on leather_armor.glb, each enchanted blade on

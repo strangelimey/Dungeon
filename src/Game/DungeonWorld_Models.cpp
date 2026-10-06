@@ -214,6 +214,52 @@ std::vector<std::string> DungeonWorld::DescribeModelCache() const {
 	return out;
 }
 
+// --- a decoration's cull sphere (code-review C253) ----------------------------
+float DungeonWorld::OriginRadius(const Vec3& lo, const Vec3& hi) {
+	if (hi.x < lo.x) return 0.0f; // empty bounds
+	const float x = std::max(std::abs(lo.x), std::abs(hi.x));
+	const float y = std::max(std::abs(lo.y), std::abs(hi.y));
+	const float z = std::max(std::abs(lo.z), std::abs(hi.z));
+	return std::sqrt(x * x + y * y + z * z);
+}
+
+float DungeonWorld::ModelOriginRadius(const assets::ModelData& model) {
+	float worst = 0.0f;
+	for (const assets::MeshData& mesh : model.meshes)
+		for (const assets::Vertex& v : mesh.vertices) {
+			const float d2 = v.position.x * v.position.x + v.position.y * v.position.y +
+							 v.position.z * v.position.z;
+			worst = std::max(worst, d2);
+		}
+	return std::sqrt(worst);
+}
+
+std::string DungeonWorld::DescribeDecorationKind(const std::string& type) {
+	if (!m_project.decorations.Find(type)) return {};
+	const DecorationKind& kind = DecorationKindFor(type, m_project.decorations);
+	// The bounds the kind was DRAWN with: a multi-material model's own (its
+	// nodes baked), else the raw vertices, which is what meshes[0] uploads.
+	Vec3 lo{1e9f, 1e9f, 1e9f}, hi{-1e9f, -1e9f, -1e9f};
+	if (kind.multi) {
+		lo = kind.multi->boundsMin;
+		hi = kind.multi->boundsMax;
+	} else {
+		for (const assets::MeshData& mesh : kind.model->meshes)
+			for (const assets::Vertex& v : mesh.vertices) {
+				const Vec3& p = v.position;
+				lo = {std::min(lo.x, p.x), std::min(lo.y, p.y), std::min(lo.z, p.z)};
+				hi = {std::max(hi.x, p.x), std::max(hi.y, p.y), std::max(hi.z, p.z)};
+			}
+	}
+	// key=value, the line a harness reads (Eval.ps1 -SelfTest, lifetimes.eval).
+	return std::format("decokind {} multi={} scale={:.3f} unit={:.3f} cull={:.4f} "
+					   "bounds={:.4f},{:.4f},{:.4f}..{:.4f},{:.4f},{:.4f} bounds_radius={:.4f} "
+					   "node_space_radius={:.4f}",
+					   type, kind.multi ? 1 : 0, kind.modelScale, kUnit, kind.cullRadius, lo.x,
+					   lo.y, lo.z, hi.x, hi.y, hi.z, OriginRadius(lo, hi),
+					   ModelOriginRadius(*kind.model));
+}
+
 // --- the texture sets loaded at a tier (`textures`) ---------------------------
 // Here beside the model cache because it answers the same question for the other
 // half of the load: what is resident, and is it what the settings ask for. A
@@ -325,12 +371,11 @@ std::unique_ptr<DungeonWorld::PoolModelLook> DungeonWorld::LoadPoolModelLook(
 		double sum = 0.0;
 		size_t n = 0;
 		for (const assets::MeshData& mesh : source.meshes) {
-			const XMMATRIX node = XMLoadFloat4x4(&mesh.worldTransform);
+			const Mat4 nodeM = assets::NodeTransform(mesh); // as BuildMultiMaterialModel baked it
+			const XMMATRIX node = XMLoadFloat4x4(&nodeM);
 			for (const assets::Vertex& v : mesh.vertices) {
 				XMFLOAT3 p;
-				XMStoreFloat3(&p, XMVector3Transform(
-									  XMVectorSet(v.position.x, v.position.y, v.position.z, 1.0f),
-									  node));
+				XMStoreFloat3(&p, XMVector3Transform(XMLoadFloat3(&v.position), node));
 				if (p.z >= outer) {
 					sum += p.y;
 					++n;
@@ -417,18 +462,7 @@ std::unique_ptr<DungeonWorld::PoolModelLook> DungeonWorld::LoadPoolModelLook(
 				}
 			};
 			assets::MeshData outside = source.meshes[i];
-			const XMMATRIX node = XMLoadFloat4x4(&outside.worldTransform);
-			for (assets::Vertex& v : outside.vertices) {
-				XMFLOAT3 p, n;
-				XMStoreFloat3(&p, XMVector3Transform(
-									  XMVectorSet(v.position.x, v.position.y, v.position.z, 1.0f),
-									  node));
-				XMStoreFloat3(&n, XMVector3Normalize(XMVector3TransformNormal(
-									  XMVectorSet(v.normal.x, v.normal.y, v.normal.z, 0.0f),
-									  node)));
-				v.position = {p.x, p.y, p.z};
-				v.normal = {n.x, n.y, n.z};
-			}
+			assets::BakeNodeTransform(outside); // the part as it was uploaded
 			// A floor feature is CUT at its framed depth (FrameAboveFloor): the
 			// drain's and recess's shafts run four squares down so that no one in
 			// play can find the bottom, which a picture of the tile has no use
@@ -583,12 +617,12 @@ bool DungeonWorld::PosedBounds(const assets::ModelData& model, std::span<const M
 	Vec3 l{1e9f, 1e9f, 1e9f}, h{-1e9f, -1e9f, -1e9f};
 	for (const assets::MeshData& mesh : model.meshes) {
 		// The node transform first, where it was baked into the uploaded
-		// vertices, then the skinning sum the scene shader does.
-		const XMMATRIX node =
-			nodeBaked ? XMLoadFloat4x4(&mesh.worldTransform) : XMMatrixIdentity();
+		// vertices (assets::NodeTransform - none for a skinned mesh, whose node
+		// glTF ignores), then the skinning sum the scene shader does.
+		const Mat4 nodeM = nodeBaked ? assets::NodeTransform(mesh) : Mat4Identity();
+		const XMMATRIX node = XMLoadFloat4x4(&nodeM);
 		for (const assets::Vertex& v : mesh.vertices) {
-			const XMVECTOR p = XMVector3Transform(
-				XMVectorSet(v.position.x, v.position.y, v.position.z, 1.0f), node);
+			const XMVECTOR p = XMVector3Transform(XMLoadFloat3(&v.position), node);
 			XMVECTOR s = XMVectorZero();
 			float total = 0.0f;
 			for (int i = 0; i < 4; ++i) {

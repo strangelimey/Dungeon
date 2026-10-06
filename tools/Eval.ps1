@@ -1085,6 +1085,15 @@ if ($SelfTest) {
 	#         levelcheck's list must be EXACTLY the pool's albedos with no `_n`
 	#         stem beside them, worked out here from the disk: naming the plant
 	#         alone would pass a check that listed every albedo in the pool.
+	#   C253  (batch 66) `decokind viking_dagger` / `khukri`: the multi-material
+	#         cull sphere is the BAKED bounds' (node transforms applied), not the
+	#         node-space vertices', which read it ~115 times too big. The radius
+	#         it must equal is worked out HERE from the printed corners (the
+	#         farthest one), never read off the engine's own `bounds_radius`:
+	#         that comes from the very function that set the sphere, so a
+	#         regression in it would move both and still agree. And `newasset
+	#         preview`: the create dialog's preview of viking_dagger is baked
+	#         too - inside its bounds, not the node-space size it was drawn at.
 	Write-Host ''
 	Write-Host '=== load-path lifetimes: a clean device on WARP, every set at its tier, no pinned images ==='
 	$texDir = Join-Path $root 'assets\textures'
@@ -1155,6 +1164,48 @@ if ($SelfTest) {
 	$probe = @($con | Where-Object { $_ -match '^textures: prop zz_selftest_nonormal ' }) | Select-Object -First 1
 	$flatWarn = @($life | Where-Object { $_ -match "texture set 'zz_selftest_nonormal' has no normal map" })
 	$checker = @($life | Where-Object { $_ -match 'Missing texture .*zz_selftest_nonormal' })
+	# C253 (batch 66): a multi-material decoration's cull sphere is its BAKED
+	# bounds' - their farthest corner x the unit x its scale - and those bounds
+	# carry the node transform: far inside the node-space radius (a dagger's node
+	# scales it down 15-98x by axis) that the sphere used to be read from. The corner is
+	# worked out HERE, per axis the larger of |lo| and |hi|, then the length -
+	# never read off the engine's `bounds_radius`, which is the very function
+	# that set the sphere: a regression in it would move both and still agree.
+	# Two daggers because one cannot see every such regression: viking_dagger's
+	# box is symmetric about the origin in x and z, so a radius that dropped the
+	# negative side would still match it; khukri's reaches further toward -z.
+	function CullCheck([string]$type) {
+		$line = @($con | Where-Object { $_ -match "^decokind $type " }) | Select-Object -First 1
+		$r = @{ ok = $false; say = "no decokind $type line"; corner = 0.0 }
+		if (-not $line) { return $r }
+		$dk = @{}
+		foreach ($kv in ([regex]::Matches($line, '(\w+)=(\S+)'))) { $dk[$kv.Groups[1].Value] = $kv.Groups[2].Value }
+		$ends = @("$($dk.bounds)" -split '\.\.')
+		$lo = @(if ($ends.Count -eq 2) { $ends[0] -split ',' }); $hi = @(if ($ends.Count -eq 2) { $ends[1] -split ',' })
+		if ($lo.Count -eq 3 -and $hi.Count -eq 3) {
+			$sum = 0.0
+			for ($axis = 0; $axis -lt 3; ++$axis) {
+				$reach = [Math]::Max([Math]::Abs([double]$lo[$axis]), [Math]::Abs([double]$hi[$axis]))
+				$sum += $reach * $reach
+			}
+			$r.corner = [Math]::Sqrt($sum)
+		}
+		$want = $r.corner * [double]$dk.unit * [double]$dk.scale
+		$r.ok = $dk.multi -eq '1' -and $r.corner -gt 0 -and
+			[Math]::Abs([double]$dk.cull - $want) -le 1e-3 * [Math]::Max(1.0, $want) -and
+			$r.corner * 10 -lt [double]$dk.node_space_radius
+		$r.say = "cull $($dk.cull) m vs farthest corner $('{0:0.0000}' -f $r.corner) x $($dk.unit) x $($dk.scale) = $('{0:0.0000}' -f $want); node space $($dk.node_space_radius)"
+		return $r
+	}
+	$viking = CullCheck 'viking_dagger'
+	$khukri = CullCheck 'khukri'
+	# The create dialog's preview of viking_dagger (`newasset preview`): its mesh
+	# baked into the model's units, so inside the bounds above (it is one of the
+	# model's parts) and nowhere near the node-space size it was drawn at.
+	$pv = @($con | Where-Object { $_ -match '^newasset preview viking_dagger ' }) | Select-Object -First 1
+	$pvR = if ($pv -match ' radius=(\S+)') { [double]$Matches[1] } else { -1.0 }
+	$pvOk = $pvR -gt 0 -and $viking.corner -gt 0 -and $pvR -le $viking.corner + 1e-3
+	$pvSay = if ($pv) { "preview radius $('{0:0.0000}' -f $pvR) vs the bounds' farthest corner $('{0:0.0000}' -f $viking.corner)" } else { 'no newasset preview line' }
 	$checks = @(
 		@{ what = 'the WARP run finished'; ok = $lifeRan -and $dev.Warp }
 		@{ what = 'C193 the debug layer listened, and saw no error'
@@ -1183,6 +1234,9 @@ if ($SelfTest) {
 		@{ what = 'C154 the props change size with the tier, and come back'
 		   ok = $moved.Count -gt 0 -and $back.Count -eq 0 -and $pl.Count -gt 0
 		   say = "$($moved.Count) of $($pl.Count) prop set(s) resized at Ultra" + $(if ($moved.Count) { " (e.g. $($moved[0]) $($pl[$moved[0]]) -> $($pu[$moved[0]]))" } else { '' }) + "; $($back.Count) not back at Low" }
+		@{ what = "C253 viking_dagger culls by its baked bounds"; ok = $viking.ok; say = $viking.say }
+		@{ what = "C253 khukri culls by its baked bounds"; ok = $khukri.ok; say = $khukri.say }
+		@{ what = "C253 the create dialog's dagger preview is baked"; ok = $pvOk; say = $pvSay }
 		@{ what = 'C154 the SRV gauge ends where the load left it'
 		   ok = $h0 -and $ha -and $h0.tier -eq '1k' -and $h0.srv_live -eq $ha.srv_live -and $h0.srv_peak -eq $ha.srv_peak
 		   say = "loaded at $($h0.tier); live $($h0.srv_live) -> $($hl.srv_live) -> $($hu.srv_live) -> $($ha.srv_live), peak $($h0.srv_peak) -> $($hl.srv_peak) -> $($hu.srv_peak) -> $($ha.srv_peak)" }

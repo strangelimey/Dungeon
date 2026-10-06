@@ -152,6 +152,9 @@ public:
 	float Orbit() const { return m_orbit; }
 	// Where the previewed model stands and turns (a rig's root; zero otherwise).
 	Vec3 PreviewPivot() const { return m_previewModel.skeleton.RootRest(); }
+	// The uploaded mesh's farthest vertex from its origin (0 with no preview):
+	// `newasset preview`, so a harness sees the node was baked (code-review C253).
+	float PreviewRadius() const;
 	gfx::Rect PreviewRect(float width, float height) const;
 
 	// Fired by the Create button with the gathered form.

@@ -5,9 +5,11 @@
 //   * A file holds buffers (raw bytes), bufferViews (slices), and accessors
 //     (typed views: "N vec3 floats at offset X"). cgltf resolves all of that;
 //     we read through cgltf_accessor_read_* and never touch offsets ourselves.
-//   * Meshes hang off NODES, which form a transform hierarchy. We bake each
-//     node's world transform into MeshData::worldTransform (static geometry)
-//     instead of keeping a scene graph.
+//   * Meshes hang off NODES, which form a transform hierarchy. We flatten each
+//     node's world transform into MeshData::worldTransform instead of keeping a
+//     scene graph, and leave the vertices in node space: a consumer bakes it
+//     with BakeNodeTransform (NodeTransform.cpp - which also knows a skinned
+//     mesh's node is ignored).
 //   * A SKIN lists joint nodes + inverse bind matrices. Vertex JOINTS_0
 //     attributes index into the skin's joint LIST ORDER ("slots"), not into
 //     any sorted order — hence the slot remap below.

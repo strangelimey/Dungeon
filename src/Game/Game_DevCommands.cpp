@@ -1764,6 +1764,28 @@ void Game::RegisterDevCommands() {
 						   for (const std::string& line : m_world->DescribeModelCache())
 							   m_console.Print(line);
 					   });
+	// A decoration kind's model as drawn (code-review C253): its bounds with
+	// the node transforms baked, the cull sphere taken from them, and the
+	// node-space radius the multi-material sphere used to be read from. Loads
+	// the kind; Eval.ps1 -SelfTest reads viking_dagger's (lifetimes.eval).
+	m_console.Register({.name = "decokind",
+						.group = CmdGroup::Rendering,
+						.params = "<decoration type>",
+						.summary = "a decoration kind's bounds and cull sphere, as drawn"},
+					   [this](const std::vector<std::string>& args) {
+						   if (!m_world) {
+							   m_console.Refuse("no world loaded");
+							   return;
+						   }
+						   if (!Need(m_console, args, 1)) return;
+						   const std::string line = m_world->DescribeDecorationKind(args[0]);
+						   if (line.empty()) {
+							   m_console.Refuse(std::format(
+								   "decokind: '{}' is not in decorations.cat", args[0]));
+							   return;
+						   }
+						   m_console.Print(line);
+					   });
 	// `status` is the shadow cache's readout (code-review C178 / C187): each
 	// slot's light and its re-renders by reason, which is how a harness sees a
 	// door's move or a walking Firelight reach a cube. `door` is the pass that
