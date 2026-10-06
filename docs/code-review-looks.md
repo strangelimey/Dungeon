@@ -11,6 +11,10 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   mode Borderless, Apply, then Alt+F4: the game should close at once - on the
   title screen and during a level load. (`quit` / `exit` in the console also
   work during a load now.) Exclusive the same way, if you use it.
+- **A long id in a dialog title** (batch 18, 61f2997b; optional). The type
+  editor's and the Level dialog's title shrink a long id to fit, and cut its
+  tail to `..` only past the smallest size. Open the type editor on a type
+  with a long id.
 
 ## Decisions
 
@@ -30,6 +34,25 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   (a first fight allocated nothing after this). A 33rd blast while 32 are still
   spreading lands WHOLE at once, with no linger, and logs a warning - normal play
   should never get there. Say if you would rather it replace the oldest.
+- **A rest with a member down** (batch 32, 9a430726). A rest with a DOWNED
+  member never ends by itself while a monster is within its aggro distance
+  (Manhattan, through walls): that monster keeps resetting the stabilize clock,
+  `recovered` waits for the downed member, and only hunger ends it (at 60x).
+  AllocTest -Rest relies on exactly that to keep its rest going. Is a rest that
+  runs until the food is gone what you want, or should rest refuse, or break,
+  when a downed member cannot stabilize?
+- **`readfile <path>`** (batch 47, 049936cd). A new dev command (Diagnostics
+  group) that PathsTest uses to read a file through the game's own UTF-8 path
+  code. Keep it there, or name a different home for that check.
+
+## Changes you will notice
+
+- **The log after a worker exits** (batch 9, 99eb0cf7). A worker that
+  unregisters now writes what the log still owed it: a "N further events ...
+  were not logged (rate limit)" line, and a closing line for the tail of a run
+  of identical repeats ("47 further repeats ... (57 in the run)"). Before, both
+  were lost if the thread ended first. A run still going on the main thread at
+  a clean exit is the one case with no closing line.
 
 ## Follow-ups the batches found (not in the plan)
 
