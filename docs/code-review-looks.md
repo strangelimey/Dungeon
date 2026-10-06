@@ -33,6 +33,10 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   now, not the T-pose. A before/after survey is in
   `%TEMP%\cr61\mapicon_survey_before_after.png`; in the game, `mapicons all`
   then `mapicons survey on` shows every icon beside its picker tile.
+- **Enchanted blades on the floor** (batch 62, 673aace6; optional). Drop a
+  flamebrand and a frostbrand in a dark spot (`editor place weapons flamebrand
+  <x> <z>`, then `mappage close`, or carry one and drop it): the floor light
+  should be red and blue, where both were steel grey.
 - **A long id in a dialog title** (batch 18, 61f2997b; optional). The type
   editor's and the Level dialog's title shrink a long id to fit, and cut its
   tail to `..` only past the smallest size. Open the type editor on a type
@@ -122,6 +126,12 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   bands re-cut against the higher top: skeleton, skel_bare, skel_spearman and
   centipede drop from band 3 to 2; warrior, berserker, lurker, adept and mage
   from 4 to 3; band 4 is now empty.
+- **Starting a rest waits for the AI** (batch 34, f95726ff). Rest (and
+  `lockstep on`) now blocks the main thread until any AI tick already running
+  finishes - about 40 ms with a deliberately heavy bucket in ThreadStress, a
+  few ms on a real level.
+- **Menus with a group row are a few pixels wider** (batch 48, 3c9df68c), so
+  the bare hand's group marker sits clear of "Combat" / "Magic" at 720p.
 - **A press during an alt-tab** (batch 8, 2be14913). Losing focus no longer
   wipes the frame's key PRESS edges, so a key or click that lands in the same
   frame as a focus change still counts once (held keys are still released, so
@@ -157,6 +167,12 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   AllocTest mode lands a monster's burst bolt on the party, or a gust on a
   shot, inside the window. The new paths are a fixed table and two erase_ifs
   that keep capacity, so they should allocate nothing, but nothing proves it.
+- **Back-to-back HealthTest runs** (seen by batch 48). A HealthTest started
+  while the previous run's last game (the `assert` case) is still exiting is
+  refused (exit 3); a moment later it runs. The race predates the batch.
+- **AITest's save** (batch 34). It leaves `aitest_async.dsav` in the shared
+  Documents\DungeonSaves, overwritten each run - one more fixed name for the
+  "fixed save names" follow-up above.
 - **/check-selftest and other sessions' games** (batch 8). ProfileTest refuses
   beside ANY running game (on purpose: a second game on the GPU would be
   measured), so the `profile` row of a full self-test run fails whenever
