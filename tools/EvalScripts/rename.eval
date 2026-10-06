@@ -17,6 +17,6 @@ worldprops
 validate
 ; Refusals: a stem that is not a file name, a level that does not exist, and
 ; one already taken.
-levelrename hall ha/ll
-levelrename nosuch other
-levelrename hall keep1
+expect-refuse levelrename hall ha/ll
+expect-refuse levelrename nosuch other
+expect-refuse levelrename hall keep1

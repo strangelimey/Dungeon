@@ -2095,9 +2095,10 @@ public:
 					   int z);
 	// The erase ladder for a remote cell, mirroring the live tool: stair (pair
 	// removed too) → one monster/door/button/item record → one decoration
-	// record → fixture → reset the cell's surface variants. Always acts (the
-	// last rung is a reset), messaging what it did.
-	void EraseRemote(const std::string& stem, int x, int z);
+	// record → fixture → reset the cell's surface variants, messaging what it
+	// did. Returns whether anything changed (the reset finds nothing to reset on
+	// a plain square).
+	bool EraseRemote(const std::string& stem, int x, int z);
 
 	// Saves every level with unsaved edits: the active one (SaveLevel) plus
 	// each stashed level (WriteStashedLevel). Returns the stems written.

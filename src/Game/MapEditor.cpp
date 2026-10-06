@@ -359,12 +359,14 @@ bool MapEditor::BeginMove(int cx, int cz) {
 	return true;
 }
 
-void MapEditor::EndMove(int cx, int cz) {
-	if (!m_moving || !m_world) return;
+bool MapEditor::EndMove(int cx, int cz) {
+	if (!m_moving || !m_world) return false;
 	m_moving = false;
-	if (cx == m_move.x && cz == m_move.z) return; // dropped where it was
+	if (cx == m_move.x && cz == m_move.z) return false; // dropped where it was
 	m_world->BeginUndoStep();
-	m_world->CommitUndoStep(m_world->MoveObject(m_move, cx, cz));
+	const bool moved = m_world->MoveObject(m_move, cx, cz);
+	m_world->CommitUndoStep(moved);
+	return moved;
 }
 
 bool MapEditor::Arm(PaletteCat cat, const std::string& id) {
@@ -1294,7 +1296,7 @@ void MapEditor::InspectAt(int cx, int cz) {
 	if (m_world->AnyInspectableAt(cx, cz) && onInspect) onInspect(cx, cz);
 }
 
-void MapEditor::EraseAt(int cx, int cz, const WallFace& face) {
+bool MapEditor::EraseAt(int cx, int cz, const WallFace& face) {
 	using SS = DungeonWorld::SurfaceSel;
 	const bool remote = m_view.Browsing();
 	const std::string& stem = m_view.ViewedLevel();
@@ -1302,8 +1304,9 @@ void MapEditor::EraseAt(int cx, int cz, const WallFace& face) {
 		if (m_world->onMessage) m_world->onMessage(s);
 	};
 	m_world->BeginUndoStep();
+	bool changed = true; // every rung but the last removes something
 	if (remote) { // the stash-side ladder messages for itself
-		m_world->EraseRemote(stem, cx, cz);
+		changed = m_world->EraseRemote(stem, cx, cz);
 	} else if (m_world->RemoveStairAt(cx, cz)) {
 		// stairs message themselves (they name the paired level's cleanup)
 	} else if (face.valid &&
@@ -1321,12 +1324,19 @@ void MapEditor::EraseAt(int cx, int cz, const WallFace& face) {
 			   m_world->RemoveFeatureAt(cx, cz)) {
 		log(loc::Tr("map.erase.removed"));
 	} else {
+		// The last rung resets the surface overrides - and a square that had
+		// none is unchanged. It used to take an undo step regardless ("the
+		// ladder always acts"), so a Ctrl+Z after it took back nothing, the
+		// paint rule's mistake (a no-op is not an edit).
+		const u32 rev = m_world->Map().Revision();
 		m_world->EditVariant(cx, cz, SS::Wall, -1);
 		m_world->EditVariant(cx, cz, SS::Floor, -1);
 		m_world->EditVariant(cx, cz, SS::Ceiling, -1);
+		changed = m_world->Map().Revision() != rev;
 		log(loc::Format("map.erase.reset", cx, cz));
 	}
-	m_world->CommitUndoStep(true); // the ladder always acts (last rung resets)
+	m_world->CommitUndoStep(changed);
+	return changed;
 }
 
 void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,

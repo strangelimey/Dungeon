@@ -361,7 +361,7 @@ bool DungeonWorld::AddSurfaceFeatureRemote(const std::string& stem,
 	return EnsureMapStash(stem).AddFeature(x, z, type, FeatureIsCeiling(type));
 }
 
-void DungeonWorld::EraseRemote(const std::string& stem, int x, int z) {
+bool DungeonWorld::EraseRemote(const std::string& stem, int x, int z) {
 	auto say = [&](const std::string& s) {
 		if (onMessage) onMessage(s);
 	};
@@ -373,24 +373,26 @@ void DungeonWorld::EraseRemote(const std::string& stem, int x, int z) {
 		const bool pair = RemovePairedStair(stem, removed);
 		say(pair ? loc::Format("map.stairs.removed", removed.destLevel)
 				 : loc::Tr("map.erase.removed"));
-		return;
+		return true;
 	}
 	for (const Entity& e : ents.At(x, z))
 		if (e.kind == EntityKind::Monster || e.kind == EntityKind::Door ||
 			e.kind == EntityKind::Button || e.kind == EntityKind::Item) {
 			ents.RemoveById(e.id);
 			say(loc::Tr("map.erase.removed"));
-			return;
+			return true;
 		}
 	if (map.RemoveDecorationRecordAt(x, z) || map.RemoveFixtureAt(x, z) ||
 		map.RemoveNicheFacingWall(x, z) || map.RemoveAnyFeature(x, z)) {
 		say(loc::Tr("map.erase.removed"));
-		return;
+		return true;
 	}
+	const u32 rev = map.Revision(); // the setters bump it only on a change
 	map.SetWallVariant(x, z, -1);
 	map.SetFloorVariant(x, z, -1);
 	map.SetCeilingVariant(x, z, -1);
 	say(loc::Format("map.erase.reset", x, z));
+	return map.Revision() != rev;
 }
 
 void DungeonWorld::PruneStashRecordsForCell(const std::string& stem, int x,

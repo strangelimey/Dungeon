@@ -17,7 +17,7 @@ worlds new nw_blank
 worlds new nw_copy copy
 worlds new nw_level level crypt1
 echo --- refusals ---
-worlds new nw_blank
-worlds new !!!
-worlds new nw_bad level nowhere
+expect-refuse worlds new nw_blank
+expect-refuse worlds new !!!
+expect-refuse worlds new nw_bad level nowhere
 worlds

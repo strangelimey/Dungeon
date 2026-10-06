@@ -3,8 +3,11 @@
 ;
 ; A SETUP line that is declined must fail the run (code-review C442): these used
 ; to decline with a Print, so a script carried on and measured a world it never
-; built. Each line here asks for a change the world refuses.
+; built. Each line here asks for a change the world refuses: a world start on
+; water, and a skill this world does not train (C446 - `fyre` used to land as a
+; key nothing reads, and the caster was measured untrained).
 logecho on
 reset
 worldprops start 0 0
+setskill 0 fyre 2
 state

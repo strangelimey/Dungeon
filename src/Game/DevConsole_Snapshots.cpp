@@ -21,14 +21,19 @@ using namespace devcon;
 // The command's three verbs. Compiled in every build because the `profile`
 // command's lambda is - a discarded `if constexpr` branch in a non-template is
 // still compiled - but without DN_PROFILE that command never gets this far.
+//
+// Every decline REFUSES (code-review C442), the rest of `profile`'s rule: a
+// snapshot that was never taken, or a diff of a misspelled one, is a reading
+// of nothing. The arity errors print the registered forms (RefuseUsage), not
+// a hand copy - that copy had already drifted (`seconds` for `secs`).
 void DevConsole::SnapCommand(const std::vector<std::string>& args) {
 	if (args[0] == "snap") {
 		if (args.size() < 2) {
-			Print("usage: profile snap <name> [seconds]");
+			RefuseUsage();
 			return;
 		}
 		if (m_snapTarget >= 0) {
-			Print("a recording is already running");
+			Refuse("a recording is already running");
 			return;
 		}
 		float secs = 3.0f;
@@ -36,7 +41,7 @@ void DevConsole::SnapCommand(const std::vector<std::string>& args) {
 			try {
 				secs = std::stof(args[2]);
 			} catch (const std::exception&) {
-				Print("seconds must be a number");
+				Refuse("seconds must be a number");
 				return;
 			}
 		}
@@ -46,9 +51,9 @@ void DevConsole::SnapCommand(const std::vector<std::string>& args) {
 		int slot = SnapSlot(args[1]);
 		if (slot < 0) slot = SnapFreeSlot();
 		if (slot < 0) {
-			Print(std::format("all {} snapshot slots are used - "
-							  "'profile snap <existing name>' overwrites one",
-							  kSnapSlots));
+			Refuse(std::format("all {} snapshot slots are used - "
+							   "'profile snap <existing name>' overwrites one",
+							   kSnapSlots));
 			return;
 		}
 		m_snaps[slot] = Snapshot{};
@@ -68,12 +73,12 @@ void DevConsole::SnapCommand(const std::vector<std::string>& args) {
 		if (n == 0) Print("no snapshots; 'profile snap <name> [secs]'");
 	} else { // diff
 		if (args.size() < 3) {
-			Print("usage: profile diff <before> <after>");
+			RefuseUsage();
 			return;
 		}
 		const int a = SnapSlot(args[1]), b = SnapSlot(args[2]);
 		if (a < 0 || b < 0) {
-			Print(std::format("unknown snapshot '{}'", a < 0 ? args[1] : args[2]));
+			Refuse(std::format("unknown snapshot '{}'", a < 0 ? args[1] : args[2]));
 			return;
 		}
 		SnapDiff(m_snaps[a], m_snaps[b]);

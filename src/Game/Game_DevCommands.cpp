@@ -55,7 +55,7 @@ void Game::RegisterDevCommands() {
 						   if (!Need(m_console, args, 1)) return;
 						   const int q = std::atoi(args[0].c_str());
 						   if (q < 0 || q > 3) {
-							   m_console.Print("quality must be 0-3");
+							   m_console.Refuse("quality must be 0-3");
 							   return;
 						   }
 						   m_pendingQuality = static_cast<Quality>(q); // applied next frame
@@ -115,7 +115,7 @@ void Game::RegisterDevCommands() {
 						.summary = "save the game to a named slot (default quicksave)"},
 					   [this](const std::vector<std::string>& args) {
 						   if (!m_gameLoaded) {
-							   m_console.Print("no game loaded");
+							   m_console.Refuse("no game loaded");
 							   return;
 						   }
 						   std::string name = JoinArgs(args);
@@ -140,10 +140,12 @@ void Game::RegisterDevCommands() {
 							   return;
 						   }
 						   const std::string name = JoinArgs(args);
+						   // A load that failed leaves the world as it was: a
+						   // script carrying on would measure that, not the save.
 						   if (LoadGame(SaveSlotPath(name)))
 							   m_console.Print("loaded: " + name);
 						   else
-							   m_console.Print("load failed (see log)");
+							   m_console.Refuse("load failed (see log)");
 					   });
 
 	// --- diagnostics (read-only) ---
@@ -290,8 +292,8 @@ void Game::RegisterDevCommands() {
 							   // drawn from its snapshot, which would still show the old
 							   // size.
 							   m_mapView.RefreshBrowse();
-							   m_console.Print(std::format("editor resize: {} {}", stem,
-														   ok ? "done" : "refused"));
+							   if (ok) m_console.Print(std::format("editor resize: {} done", stem));
+							   else m_console.Refuse(std::format("editor resize: {} refused", stem));
 							   return;
 						   }
 						   if (!args.empty() && args[0] == "move") {
@@ -304,9 +306,22 @@ void Game::RegisterDevCommands() {
 								   m_mapView.Open(MapView::Mode::Editor);
 							   const int fx = std::atoi(args[1].c_str());
 							   const int fz = std::atoi(args[2].c_str());
-							   if (m_mapEditor.BeginMove(fx, fz))
-								   m_mapEditor.EndMove(std::atoi(args[3].c_str()),
-													   std::atoi(args[4].c_str()));
+							   // THE TRUTH, not the request (C442): this said "moved"
+							   // whether or not anything was there to take or could
+							   // land where it was sent. The editor's own reason is
+							   // on its message line ("editor: ..." in the log).
+							   if (!m_mapEditor.BeginMove(fx, fz)) {
+								   m_console.Refuse(std::format(
+									   "editor move: nothing to take at {},{}", fx, fz));
+								   return;
+							   }
+							   if (!m_mapEditor.EndMove(std::atoi(args[3].c_str()),
+														std::atoi(args[4].c_str()))) {
+								   m_console.Refuse(std::format("editor move: {},{} did not go "
+																"to {},{}",
+																fx, fz, args[3], args[4]));
+								   return;
+							   }
 							   m_console.Print(std::format("editor move: {},{} -> {},{}", fx, fz,
 														   args[3], args[4]));
 							   return;
@@ -322,8 +337,8 @@ void Game::RegisterDevCommands() {
 									   if (args[1] == MapEditor::ToolName(static_cast<Tool>(i)))
 										   found = i;
 								   if (found < 0) {
-									   m_console.Print("usage: editor tool [paint|rect|flood|area|pick|"
-												   "corridor|room|stamp|region]");
+									   m_console.Refuse("usage: editor tool [paint|rect|flood|area|pick|"
+														"corridor|room|stamp|region]");
 									   return;
 								   }
 								   m_mapEditor.SetTool(static_cast<Tool>(found));
@@ -485,9 +500,9 @@ void Game::RegisterDevCommands() {
 										  areaFill = how == "area", level = how == "level";
 							   const size_t need = rect ? 8u : level ? 4u : 6u;
 							   if ((!rect && !flood && !areaFill && !level) || args.size() < need) {
-								   m_console.Print("usage: editor fill <category> <id> rect <x0> "
-												   "<z0> <x1> <z1> | flood <x> <z> | area <x> <z> "
-												   "| level");
+								   m_console.Refuse("usage: editor fill <category> <id> rect <x0> "
+													"<z0> <x1> <z1> | flood <x> <z> | area <x> <z> "
+													"| level");
 								   return;
 							   }
 							   if (m_mapView.IsOpen())
@@ -498,7 +513,7 @@ void Game::RegisterDevCommands() {
 								   MapEditor::CatForCatalogKey(args[1]);
 							   if (cat == MapEditor::PaletteCat::Count ||
 								   !m_mapEditor.Arm(cat, args[2])) {
-								   m_console.Print(std::format(
+								   m_console.Refuse(std::format(
 									   "editor fill: no palette row '{}' in '{}'", args[2],
 									   args[1]));
 								   return;
@@ -529,8 +544,8 @@ void Game::RegisterDevCommands() {
 						   // one a mouse drag gets.
 						   if (!args.empty() && args[0] == "drag") {
 							   if (args.size() < 5 || (args.size() - 3) % 2 != 0) {
-								   m_console.Print("usage: editor drag <category> <id> <x> <z> "
-												   "[<x> <z> ...]");
+								   m_console.Refuse("usage: editor drag <category> <id> <x> <z> "
+													"[<x> <z> ...]");
 								   return;
 							   }
 							   if (m_mapView.IsOpen())
@@ -541,7 +556,7 @@ void Game::RegisterDevCommands() {
 								   MapEditor::CatForCatalogKey(args[1]);
 							   if (cat == MapEditor::PaletteCat::Count ||
 								   !m_mapEditor.Arm(cat, args[2])) {
-								   m_console.Print(std::format(
+								   m_console.Refuse(std::format(
 									   "editor drag: no palette row '{}' in '{}'", args[2],
 									   args[1]));
 								   return;
@@ -570,15 +585,20 @@ void Game::RegisterDevCommands() {
 							   const int x = std::atoi(args[at].c_str());
 							   const int z = std::atoi(args[at + 1].c_str());
 							   if (!place) {
-								   m_mapEditor.EraseAt(x, z);
-								   m_console.Print(std::format("editor erase: {},{}", x, z));
+								   // The truth (C442): a square with nothing on it and
+								   // no surface override to reset erased nothing.
+								   if (m_mapEditor.EraseAt(x, z))
+									   m_console.Print(std::format("editor erase: {},{}", x, z));
+								   else
+									   m_console.Refuse(std::format(
+										   "editor erase: nothing to erase at {},{}", x, z));
 								   return;
 							   }
 							   const MapEditor::PaletteCat cat =
 								   MapEditor::CatForCatalogKey(args[1]);
 							   if (cat == MapEditor::PaletteCat::Count ||
 								   !m_mapEditor.Arm(cat, args[2])) {
-								   m_console.Print(std::format(
+								   m_console.Refuse(std::format(
 									   "editor place: no palette row '{}' in '{}'", args[2],
 									   args[1]));
 								   return;
@@ -659,6 +679,13 @@ void Game::RegisterDevCommands() {
 										 m_world->CurrentLevel());
 							   return;
 						   }
+						   // Bare opens the editor. A verb nobody wrote used to land
+						   // here too and say "map: editor mode" - a typo'd gesture
+						   // reported as a success (C442).
+						   if (!args.empty()) {
+							   m_console.RefuseUsage();
+							   return;
+						   }
 						   if (m_mapView.IsOpen())
 							   m_mapView.SetMode(MapView::Mode::Editor);
 						   else
@@ -681,7 +708,7 @@ void Game::RegisterDevCommands() {
 						   for (const std::string& l : m_project.levels)
 							   if (l == stem) known = true;
 						   if (!known) {
-							   m_console.Print("unknown level: " + stem);
+							   m_console.Refuse("unknown level: " + stem);
 							   return;
 						   }
 						   // Arrive at the level's start cell (-1 = resolve after load),
@@ -826,9 +853,8 @@ void Game::RegisterDevCommands() {
 						   if (!args.empty() && args[0] == "play") {
 							   const std::string stem =
 								   args.size() > 1 ? args[1] : m_mapView.ViewedLevel();
-							   m_console.Print(PlayLevel(stem)
-												   ? "generate: playing " + stem
-												   : "generate: cannot play " + stem);
+							   if (PlayLevel(stem)) m_console.Print("generate: playing " + stem);
+							   else m_console.Refuse("generate: cannot play " + stem);
 							   return;
 						   }
 						   // PRESETS (P4b), through the same Game functions the
@@ -839,8 +865,8 @@ void Game::RegisterDevCommands() {
 							   if (op == "save") {
 								   const std::string id =
 									   SaveGenPreset(name, m_generateDialog.Knobs());
-								   m_console.Print(id.empty() ? "preset: not saved"
-															  : "preset: saved " + id);
+								   if (id.empty()) m_console.Refuse("preset: not saved");
+								   else m_console.Print("preset: saved " + id);
 							   } else if (op == "load") {
 								   generate::Params p = m_generateDialog.Knobs();
 								   if (LoadGenPreset(name, p)) {
@@ -848,12 +874,14 @@ void Game::RegisterDevCommands() {
 									   m_console.Print("preset: loaded " + name + " (" +
 													   generate::Encode(p) + ")");
 								   } else {
-									   m_console.Print("preset: no such preset " + name);
+									   m_console.Refuse("preset: no such preset " + name);
 								   }
 							   } else if (op == "delete") {
-								   m_console.Print(DeleteGenPreset(name)
-													   ? "preset: deleted " + name
-													   : "preset: no such preset " + name);
+								   if (DeleteGenPreset(name)) m_console.Print("preset: deleted " + name);
+								   else m_console.Refuse("preset: no such preset " + name);
+							   } else if (op != "list") {
+								   m_console.RefuseUsage(); // a typo'd verb used to list
+								   return;
 							   } else {
 								   // Name AND recipe, so a harness can see exactly what
 								   // a save stored (no seed, by design).
@@ -892,7 +920,7 @@ void Game::RegisterDevCommands() {
 						   if (populate) {
 							   const int placed = PopulateViewedLevel(p);
 							   if (placed < 0) {
-								   m_console.Print("generate: populate failed");
+								   m_console.Refuse("generate: populate failed");
 								   return;
 							   }
 							   m_console.Print(std::format("generate: populated {} ({})",
@@ -911,7 +939,7 @@ void Game::RegisterDevCommands() {
 							   if (!stem.empty()) m_mapView.SetViewLevel(stem);
 						   }
 						   if (stem.empty()) {
-							   m_console.Print("generate: failed");
+							   m_console.Refuse("generate: failed");
 							   return;
 						   }
 						   m_console.Print(std::format(
@@ -982,8 +1010,10 @@ void Game::RegisterDevCommands() {
 			// is ONE history across the tiers now (a world paint and a level
 			// paint land in the same stack), so this takes back whichever came
 			// last — which is the behaviour worth being able to test.
+			// Nothing to take back is a REFUSE: a script that meant to undo an
+			// edit and found none is about to measure the edit it meant gone.
 			if (!m_world->CanUndo()) {
-				m_console.Print("nothing to undo");
+				m_console.Refuse("nothing to undo");
 				return;
 			}
 			m_world->Undo();
@@ -995,7 +1025,7 @@ void Game::RegisterDevCommands() {
 		 .summary = "redo one editor step (the toolbar's > / Ctrl+Y)"},
 		[this](const std::vector<std::string>&) {
 			if (!m_world->CanRedo()) {
-				m_console.Print("nothing to redo");
+				m_console.Refuse("nothing to redo");
 				return;
 			}
 			m_world->Redo();
@@ -1021,27 +1051,28 @@ void Game::RegisterDevCommands() {
 								   list += (list.empty() ? "" : ", ") + s;
 							   m_console.Print("saved levels: " + list);
 						   } else {
-							   m_console.Print("save failed (see log)");
+							   m_console.Refuse("save failed (see log)");
 						   }
 						   // AND THE WORLD, which is a level's peer now rather
 						   // than a hand-authored file the editor never touched.
 						   // Reported separately: "saved levels" answering for
 						   // the world too would hide a world that failed.
-						   if (m_worldMap)
-							   m_console.Print(SaveWorld() ? "saved world"
-														   : "world save failed");
+						   if (m_worldMap) {
+							   if (SaveWorld()) m_console.Print("saved world");
+							   else m_console.Refuse("world save failed");
+						   }
 						   // The opening, when a dragged stair carried it along.
-						   if (m_world->ConsumeOpeningMoved())
-							   m_console.Print(m_project.Save() ? "saved project opening"
-																: "project save failed");
+						   if (m_world->ConsumeOpeningMoved()) {
+							   if (m_project.Save()) m_console.Print("saved project opening");
+							   else m_console.Refuse("project save failed");
+						   }
 					   });
 	m_console.Register({.name = "synctosource",
 						.group = CmdGroup::Levels,
 						.summary = "copy the active project (edits) into the repo source tree"},
 					   [this](const std::vector<std::string>&) {
-						   m_console.Print(SyncProjectToSource()
-											   ? "synced project -> source"
-											   : "sync failed (see log)");
+						   if (SyncProjectToSource()) m_console.Print("synced project -> source");
+						   else m_console.Refuse("sync failed (see log)");
 					   });
 	m_console.Register({.name = "preview",
 						.group = CmdGroup::Rendering,
@@ -1059,7 +1090,7 @@ void Game::RegisterDevCommands() {
 						   if (!Need(m_console, args, 1)) return;
 						   const std::string name = JoinArgs(args);
 						   if (!assets::ReadBinaryFile(paths::Asset("models\\" + name + ".gltf"))) {
-							   m_console.Print("no model: " + name);
+							   m_console.Refuse("no model: " + name);
 							   return;
 						   }
 						   m_previewModel = LoadModelOrDie(name + ".gltf");
@@ -1164,11 +1195,14 @@ void Game::RegisterDevCommands() {
 						   const int z = std::atoi(args[1].c_str());
 						   bool on = false;
 						   const bool party = args.size() > 2 && args[2] == "party";
+						   // No button is a REFUSE (C442); a lever the party's hand
+						   // cannot move (its flag= wait) is an OUTCOME, read off
+						   // the state this reports.
 						   if (m_world->ToggleButtonAt(x, z, on, party))
 							   m_console.Print(std::format("button {},{} -> {}", x, z,
 														   on ? "on" : "off"));
 						   else
-							   m_console.Print(std::format("no button at {},{}", x, z));
+							   m_console.Refuse(std::format("no button at {},{}", x, z));
 					   });
 	m_console.Register({.name = "opendoor",
 						.group = CmdGroup::Levels,
@@ -1179,11 +1213,13 @@ void Game::RegisterDevCommands() {
 						   const int x = std::atoi(args[0].c_str());
 						   const int z = std::atoi(args[1].c_str());
 						   bool open = false;
+						   // As `press`: no door refuses; a sealed or locked one is
+						   // an outcome the reported state shows.
 						   if (m_world->HandOnDoorAt(x, z, open))
 							   m_console.Print(std::format("door {},{} -> {}", x, z,
 														   open ? "open" : "shut"));
 						   else
-							   m_console.Print(std::format("no door at {},{}", x, z));
+							   m_console.Refuse(std::format("no door at {},{}", x, z));
 					   });
 	// The door / lever / stair inspectors' flag rows, without a mouse: the SAME
 	// setters their Apply calls, reading the object's settings first so only
@@ -1640,16 +1676,18 @@ void Game::FontCommand(const std::vector<std::string>& args) {
 		return;
 	}
 
+	// Every decline below REFUSES (code-review C442): a face that was not
+	// swapped is an audition of the old one.
 	if (args[0] == "save") {
-		m_console.Print(SaveFontCatalog() ? "fonts.cat written"
-										  : "could not write fonts.cat (see the log)");
+		if (SaveFontCatalog()) m_console.Print("fonts.cat written");
+		else m_console.Refuse("could not write fonts.cat (see the log)");
 		return;
 	}
 
 	if (args[0] == "scale") {
 		ui::FontRole role{};
 		if (args.size() < 3 || !ui::FontRoleFromName(args[1], role)) {
-			m_console.Print("usage: font scale <body|display|script|mono> <n>");
+			m_console.Refuse("usage: font scale <body|display|script|mono> <n>");
 			return;
 		}
 		ui::FaceSpec spec = m_fonts.Face(role);
@@ -1663,8 +1701,8 @@ void Game::FontCommand(const std::vector<std::string>& args) {
 
 	ui::FontRole role{};
 	if (!ui::FontRoleFromName(args[0], role)) {
-		m_console.Print(std::format("unknown role '{}' (body|display|script|mono)",
-									args[0]));
+		m_console.Refuse(std::format("unknown role '{}' (body|display|script|mono)",
+									 args[0]));
 		return;
 	}
 	if (args.size() < 2) { // `font body` just reports
@@ -1692,7 +1730,7 @@ void Game::FontCommand(const std::vector<std::string>& args) {
 	} else if (std::isdigit(static_cast<unsigned char>(what[0]))) {
 		const size_t index = static_cast<size_t>(std::atoi(what.c_str()));
 		if (index >= faces.size()) {
-			m_console.Print(std::format("no face [{}] — `fonts` lists them", index));
+			m_console.Refuse(std::format("no face [{}] - `fonts` lists them", index));
 			return;
 		}
 		spec.path = paths::Asset(faces[index]);
@@ -1712,11 +1750,11 @@ void Game::FontCommand(const std::vector<std::string>& args) {
 			if (hay.find(needle) != std::string::npos) hits.push_back(f);
 		}
 		if (hits.empty()) {
-			m_console.Print(std::format("no installed face matches '{}'", what));
+			m_console.Refuse(std::format("no installed face matches '{}'", what));
 			return;
 		}
 		if (hits.size() > 1) {
-			m_console.Print(std::format("'{}' matches {} faces:", what, hits.size()));
+			m_console.Refuse(std::format("'{}' matches {} faces:", what, hits.size()));
 			for (const std::string& h : hits) m_console.Print("  " + h);
 			return;
 		}
@@ -1817,7 +1855,7 @@ void Game::PrintPalette(const std::vector<std::string>& args) {
 	if (args.size() >= 3 && args[1] == "items") {
 		const MapEditor::PaletteCat cat = MapEditor::CatForCatalogKey(args[2]);
 		if (cat == MapEditor::PaletteCat::Count) {
-			m_console.Print(std::format("editor palette: no section '{}'", args[2]));
+			m_console.Refuse(std::format("editor palette: no section '{}'", args[2]));
 			return;
 		}
 		// The head is fixed (phase 13 matches it); what a row adds goes after:
@@ -1834,7 +1872,7 @@ void Game::PrintPalette(const std::vector<std::string>& args) {
 	}
 	if (args.size() >= 3 && args[1] == "mode") {
 		if (args[2] != "stage" && args[2] != "kind") {
-			m_console.Print("usage: editor palette mode stage|kind");
+			m_console.Refuse("usage: editor palette mode stage|kind");
 			return;
 		}
 		m_mapEditor.SetPaletteGrouping(args[2] == "kind" ? G::Kind : G::Stage);
@@ -1844,8 +1882,8 @@ void Game::PrintPalette(const std::vector<std::string>& args) {
 		for (int i = 0; i < MapEditor::GroupCount(g); ++i)
 			if (args[2] == MapEditor::GroupName(g, i)) found = i;
 		if (found < 0) {
-			m_console.Print(std::format("editor palette: no group '{}' when grouped by {}",
-										args[2], modeName(g)));
+			m_console.Refuse(std::format("editor palette: no group '{}' when grouped by {}",
+										 args[2], modeName(g)));
 			return;
 		}
 		m_mapEditor.SetActiveGroup(found);
@@ -1902,6 +1940,10 @@ void Game::PrintDocks(const std::vector<std::string>& args) {
 		const MapView::Dock d = args[1] == "left"	 ? MapView::Dock::Left
 								: args[1] == "right" ? MapView::Dock::Right
 													 : MapView::Dock::None;
+		if (d == MapView::Dock::None) { // used to set nothing and print the layout
+			m_console.Refuse("usage: editor dock [left|right <px>]");
+			return;
+		}
 		m_mapView.SetDockWidth(d, static_cast<float>(std::atof(args[2].c_str())), panel);
 	}
 	const gfx::Rect g = m_mapView.GridRect(panel);

@@ -1,9 +1,30 @@
 ; selftest-refuse.eval - handed to the runner by `Eval.ps1 -SelfTest`; must PASS.
 ;
 ; The half of `expect-refuse` that keeps a probe from failing its own run: each
-; line below is refused by the command's own rule, so none of them counts.
-; (0,0 of the demo's world map is water.)
+; probe below is refused by the command's own rule, so none of them counts, and
+; each stands beside a CONTROL the same command accepts - a probe that passed
+; because the command refused everything would fail on its control.
+; (0,0 of the demo's world map is water and 6,6 its authored start, so the
+; control moves nothing; `fyre` is not a skill - C446.)
 logecho on
 reset
+worldprops start 6 6
 expect-refuse worldprops start 0 0
+expect-refuse setskill 0 fyre 2
+setskill 0 fire 2
+; The editor's erase and move report what HAPPENED (C442): a square with an
+; override pinned erases once, then has nothing left to erase; a barrel moves
+; once, then neither a drop where it lies nor a drop on rock moves it (EndMove's
+; two refusals); a square with nothing on it has nothing to move; and a verb
+; nobody wrote is refused.
+editor fill floors floor_slabs rect 3 3 3 3
+editor erase 3 3
+expect-refuse editor erase 3 3
+editor place decorations barrel 3 5
+editor move 3 5 4 5
+expect-refuse editor move 4 5 4 5
+expect-refuse editor move 4 5 0 5
+expect-refuse editor move 3 3 4 4
+expect-refuse editor nosuchverb
+editor off
 state

@@ -20,7 +20,7 @@ state
 world
 
 ; --- the gate: unknown places cannot be entered -----------------------------
-enter crypt_gate
+expect-refuse enter crypt_gate
 
 ; --- and once found, they can -----------------------------------------------
 discover crypt_gate

@@ -13,7 +13,7 @@ mapinfo
 ; In play: an in-game command answers rather than refusing.
 validate
 ; An unknown level is refused, and nothing happens.
-generate play nosuchlevel
+expect-refuse generate play nosuchlevel
 pos
 ; crypt1 carries a planted floating sconce (LevelBuildTest.py) and nothing above
 ; touches it, so make it the active level: savemap always writes that one, and

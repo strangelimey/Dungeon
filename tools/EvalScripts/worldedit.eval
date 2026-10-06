@@ -13,7 +13,7 @@ worldedit
 worldedit on
 
 ; --- arm, and refuse what does not exist ------------------------------------
-terrainbrush nonsense
+expect-refuse terrainbrush nonsense
 terrainbrush moor
 terrainbrush
 

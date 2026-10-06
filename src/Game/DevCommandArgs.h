@@ -56,9 +56,10 @@ inline std::string JoinArgs(const std::vector<std::string>& args) {
 // A toggle command's argument: "on"/"1" enable, anything else disables.
 inline bool ArgOn(const std::string& a) { return a == "on" || a == "1"; }
 
-// Parses one symbol-id arg (fire, project, explode, ...); on a bad token prints
-// the shared usage line - every id, from the table - and returns false, so a
-// command can `if (!...) return;`.
+// Parses one symbol-id arg (fire, project, explode, ...); on a bad token REFUSES
+// with the shared usage line - every id, from the table - and returns false, so a
+// command can `if (!...) return;`. A refusal, not a print: a `learn 0 fyre`
+// that taught nothing is a script measuring a caster it did not make (C442).
 inline bool ParseSymbolArg(DevConsole& console, const std::string& arg, SpellSymbol& out) {
 	if (ParseSymbol(arg, out)) return true;
 	std::string ids;
@@ -66,7 +67,7 @@ inline bool ParseSymbolArg(DevConsole& console, const std::string& arg, SpellSym
 		if (i) ids += '/';
 		ids += SymbolId(static_cast<SpellSymbol>(i));
 	}
-	console.Print("symbol must be " + ids);
+	console.Refuse("symbol must be " + ids);
 	return false;
 }
 

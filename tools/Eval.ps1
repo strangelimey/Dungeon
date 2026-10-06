@@ -302,8 +302,8 @@ if ($SelfTest) {
 		   what = 'a probe its rule refuses passes' },
 		@{ script = 'selftest-unrefused.eval'; want = 'FAIL unknown=0 refused=0 unrefused=1 endstate=playing'
 		   what = 'a probe that is not refused fails' },
-		@{ script = 'selftest-declined.eval';  want = 'FAIL unknown=0 refused=1 unrefused=0 endstate=playing'
-		   what = 'a declined setup line fails' }
+		@{ script = 'selftest-declined.eval';  want = 'FAIL unknown=0 refused=2 unrefused=0 endstate=playing'
+		   what = 'each declined setup line fails' }
 	)
 	$declineOk = $declineRan
 	foreach ($d in $declineWant) {

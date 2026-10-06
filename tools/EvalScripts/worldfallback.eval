@@ -3,6 +3,6 @@
 ; running here, so refusing it can only be the fallback rule; and wt_dlg is.
 logecho on
 reset
-worlds delete dungeon-demo dungeon-demo
-worlds delete wt_dlg wt_dlg
+expect-refuse worlds delete dungeon-demo dungeon-demo
+expect-refuse worlds delete wt_dlg wt_dlg
 worlds

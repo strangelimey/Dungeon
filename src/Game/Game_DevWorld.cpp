@@ -84,7 +84,20 @@ void Game::RegisterWorldCommands() {
 									: "in a dungeon");
 				return;
 			}
-			SetOnWorldMap(args[0] == "on" || args[0] == "1");
+			const bool on = args[0] == "on" || args[0] == "1";
+			if (!on && args[0] != "off" && args[0] != "0") {
+				m_console.RefuseUsage(); // a typo'd word used to mean "off"
+				return;
+			}
+			SetOnWorldMap(on);
+			// An `on` that did not get there REFUSES (C442): SetOnWorldMap only
+			// warns into the log, and a script that asked for the world map
+			// would go on to measure a dungeon.
+			if (on && m_state != AppState::WorldMap) {
+				m_console.Refuse(!m_worldMap ? "worldmap: the project has no world map"
+											 : "worldmap: no game in progress to travel in");
+				return;
+			}
 			m_console.Print(m_state == AppState::WorldMap
 								? "on the world map"
 								: "in a dungeon");
@@ -95,10 +108,11 @@ void Game::RegisterWorldCommands() {
 		 .params = "<n|s|e|w> [count]",
 		 .summary = "step across the world map, stopping where blocked"},
 		[this](const std::vector<std::string>& args) {
-			if (args.empty()) {
-				m_console.Print("usage: travel <n|s|e|w> [count]");
+			if (!m_worldMap) {
+				m_console.Refuse("no world map loaded");
 				return;
 			}
+			if (!Need(m_console, args, 1)) return;
 			int dx = 0, dz = 0;
 			const char d = args[0].empty() ? ' ' : args[0][0];
 			if (d == 'n') dz = -1;
@@ -106,7 +120,7 @@ void Game::RegisterWorldCommands() {
 			else if (d == 'w') dx = -1;
 			else if (d == 'e') dx = 1;
 			else {
-				m_console.Print("direction must be n, s, e or w");
+				m_console.Refuse("direction must be n, s, e or w");
 				return;
 			}
 			const int count = args.size() > 1 ? std::max(1, std::atoi(args[1].c_str())) : 1;
@@ -114,7 +128,9 @@ void Game::RegisterWorldCommands() {
 			for (int i = 0; i < count && TravelStep(dx, dz); ++i) ++moved;
 			// Reports what it DID, not what it was asked to do: a step into
 			// water stops the run, and a count that silently came up short is
-			// how a test measures the wrong journey.
+			// how a test measures the wrong journey. A BLOCKED step is the
+			// world's answer, not a decline, so it stays a Print (C442 - the
+			// locked door's rule); worldtravel.eval walks into water on purpose.
 			m_console.Print(std::format(
 				"travelled {} of {} to {},{} - {:.2f}h elapsed{}", moved, count,
 				m_worldState.x, m_worldState.z, m_worldState.time,
@@ -213,7 +229,7 @@ void Game::RegisterWorldCommands() {
 		 .summary = "camp on the world map until rest ends by itself"},
 		[this](const std::vector<std::string>&) {
 			if (!m_worldState.onWorldMap) {
-				m_console.Print("camping is a world-map action (you are in a level)");
+				m_console.Refuse("camping is a world-map action (you are in a level)");
 				return;
 			}
 			const float hours = Camp();
@@ -231,7 +247,7 @@ void Game::RegisterWorldCommands() {
 		 .summary = "force a random encounter on the party's world cell"},
 		[this](const std::vector<std::string>& args) {
 			if (!m_worldMap) {
-				m_console.Print("no world map loaded");
+				m_console.Refuse("no world map loaded");
 				return;
 			}
 			const WorldMap::Terrain& t =
@@ -239,10 +255,12 @@ void Game::RegisterWorldCommands() {
 			const float d = args.empty()
 								? m_worldMap->Difficulty(m_worldState.x, m_worldState.z)
 								: static_cast<float>(std::atof(args[0].c_str()));
-			m_console.Print(StartEncounter(d, t.tags, m_world->Rng()())
-								? std::format("encounter on {} at difficulty {:.2f}",
-											  t.id, d)
-								: "no encounter (see log)");
+			// A FORCED encounter that did not start is a setup line declined
+			// (C442): the fight a script goes on to measure is not there.
+			if (StartEncounter(d, t.tags, m_world->Rng()()))
+				m_console.Print(std::format("encounter on {} at difficulty {:.2f}", t.id, d));
+			else
+				m_console.Refuse("no encounter (see log)");
 		});
 	m_console.Register(
 		{.name = "encounters",
@@ -273,7 +291,7 @@ void Game::RegisterWorldCommands() {
 		 .summary = "enter a world location's dungeon (default: the one here)"},
 		[this](const std::vector<std::string>& args) {
 			if (!m_worldMap) {
-				m_console.Print("no world map loaded");
+				m_console.Refuse("no world map loaded");
 				return;
 			}
 			std::string id = args.empty() ? std::string() : args[0];
@@ -281,15 +299,14 @@ void Game::RegisterWorldCommands() {
 				const WorldMap::Location* l =
 					m_worldMap->LocationAt(m_worldState.x, m_worldState.z);
 				if (!l) {
-					m_console.Print(std::format("nothing at {},{}", m_worldState.x,
-												m_worldState.z));
+					m_console.Refuse(std::format("nothing at {},{}", m_worldState.x,
+												 m_worldState.z));
 					return;
 				}
 				id = l->id;
 			}
-			m_console.Print(EnterLocation(id)
-								? std::format("entering {}", id)
-								: std::format("could not enter {}", id));
+			if (EnterLocation(id)) m_console.Print(std::format("entering {}", id));
+			else m_console.Refuse(std::format("could not enter {}", id));
 		});
 	m_console.Register(
 		{.name = "leave",
@@ -303,10 +320,11 @@ void Game::RegisterWorldCommands() {
 			// cell without stepping), so this is how the two-doors rule is
 			// exercised unattended.
 			const std::string via = args.empty() ? std::string() : args[0];
-			m_console.Print(LeaveDungeon(via)
-								? std::format("back on the world at {},{}",
-											  m_worldState.x, m_worldState.z)
-								: "no world map to leave to");
+			if (LeaveDungeon(via))
+				m_console.Print(std::format("back on the world at {},{}", m_worldState.x,
+											m_worldState.z));
+			else
+				m_console.Refuse("no world map to leave to");
 		});
 	m_console.Register(
 		{.name = "worldpos",
@@ -315,19 +333,17 @@ void Game::RegisterWorldCommands() {
 		 .summary = "move the party to a world cell"},
 		[this](const std::vector<std::string>& args) {
 			if (!m_worldMap) {
-				m_console.Print("no world map loaded");
+				m_console.Refuse("no world map loaded");
 				return;
 			}
-			if (args.size() < 2) {
-				m_console.Print("usage: worldpos <x> <z>");
-				return;
-			}
+			if (!Need(m_console, args, 2)) return;
 			const int x = std::atoi(args[0].c_str());
 			const int z = std::atoi(args[1].c_str());
 			// Refuse rather than clamp: a silently corrected coordinate makes a
-			// test that asked for the wrong cell look like it passed.
+			// test that asked for the wrong cell look like it passed. (It said
+			// "refuse" here for months while it printed - C442.)
 			if (!m_worldMap->InBounds(x, z)) {
-				m_console.Print(std::format("{},{} is off the world grid", x, z));
+				m_console.Refuse(std::format("{},{} is off the world grid", x, z));
 				return;
 			}
 			m_worldState.x = x;
@@ -346,7 +362,7 @@ void Game::RegisterWorldCommands() {
 		 .summary = "mark a world location discovered; bare lists every location"},
 		[this](const std::vector<std::string>& args) {
 			if (!m_worldMap) {
-				m_console.Print("no world map loaded");
+				m_console.Refuse("no world map loaded");
 				return;
 			}
 			if (args.empty()) {
@@ -360,8 +376,8 @@ void Game::RegisterWorldCommands() {
 			for (const WorldMap::Location& l : m_worldMap->Locations())
 				if (l.id == args[0]) found = &l;
 			if (!found) {
-				m_console.Print(std::format("no location '{}' on the world map",
-											args[0]));
+				m_console.Refuse(std::format("no location '{}' on the world map",
+											 args[0]));
 				return;
 			}
 			m_console.Print(m_worldState.Discover(args[0])
@@ -432,8 +448,7 @@ void Game::RegisterWorldCommands() {
 						else if (k == "seed") spec.seed = static_cast<u32>(std::strtoul(v.c_str(), nullptr, 10));
 					}
 				} else if (a.size() >= 3 && a[2] != "blank") {
-					m_console.Print("usage: worlds new <name> [blank [style=<id>]|copy|level <stem>|wizard "
-									"[style=<id>] [tag=<tag>] [size=<n>] [difficulty=<0..1>] [seed=<n>]]");
+					m_console.RefuseUsage(); // the registered forms, not a hand copy
 					return;
 				}
 				// Blank and wizard start in a LIBRARY style (Phase 7) when asked.
@@ -443,38 +458,40 @@ void Game::RegisterWorldCommands() {
 						if (a[i].starts_with("style=")) spec.style = a[i].substr(6);
 				std::string problem;
 				const std::string made = CreateWorld(a[1], spec, &problem);
-				m_console.Print(made.empty()
-									? "could not create: " + problem
-									: std::format("created world '{}' - "
-												  "`worlds load {}` to open it",
-												  made, made));
+				if (made.empty())
+					m_console.Refuse("could not create: " + problem);
+				else
+					m_console.Print(std::format("created world '{}' - "
+												"`worlds load {}` to open it",
+												made, made));
 				return;
 			}
 			if (a[0] == "load" && a.size() >= 2) {
 				if (m_world && a[1] == m_project.FolderName()) {
-					m_console.Print("already in '" + a[1] + "'");
+					m_console.Print("already in '" + a[1] + "'"); // as asked
 					return;
 				}
 				// A new game there, from the next frame: the switch destroys this
 				// world, and a console command is running inside it.
-				m_console.Print(SwitchWorld(a[1]) ? "switching to " + a[1]
-												  : "no such world");
+				if (SwitchWorld(a[1])) m_console.Print("switching to " + a[1]);
+				else m_console.Refuse("no such world");
 				return;
 			}
 			if (a[0] == "delete" && a.size() >= 2) {
 				// The console's form of the typed confirmation: the name TWICE,
-				// matched exactly. The rules are DeleteWorld's either way.
+				// matched exactly. The rules are DeleteWorld's either way, and
+				// every one of them REFUSES (C442).
 				if (a.size() < 3 || a[2] != a[1]) {
-					m_console.Print("to delete, type the name twice: worlds delete " +
-									a[1] + " " + a[1] + " (case-sensitive)");
+					m_console.Refuse("to delete, type the name twice: worlds delete " +
+									 a[1] + " " + a[1] + " (case-sensitive)");
 					return;
 				}
 				if (const std::string why = WorldDeleteRefusal(a[1]); !why.empty()) {
-					m_console.Print(why);
+					m_console.Refuse(why);
 					return;
 				}
-				m_console.Print(DeleteWorld(a[1]) ? "deleted world '" + a[1] + "'"
-												  : "could not delete (see the log)");
+				if (DeleteWorld(a[1])) m_console.Print("deleted world '" + a[1] + "'");
+				else m_console.Refuse("could not delete (see the log)");
 				return;
 			}
 			if (a[0] == "dialog") {
@@ -486,8 +503,8 @@ void Game::RegisterWorldCommands() {
 				if (a.size() >= 2 && a[1] == "off") {
 					m_worldsDialog.Close();
 				} else if (m_state != AppState::WorldMap) {
-					m_console.Print("the worlds dialog needs the world map "
-									"(try `worldmap on`)");
+					m_console.Refuse("the worlds dialog needs the world map "
+									 "(try `worldmap on`)");
 					return;
 				} else if (!m_worldsDialog.IsOpen()) {
 					m_worldsDialog.Open(m_project.FolderName());
@@ -579,9 +596,9 @@ void Game::RegisterWorldCommands() {
 					m_console.Print(std::format("  copy level '{}'", sp.level));
 				return;
 			}
-			m_console.Print("usage: worlds [new|load] <name> | delete <name> <name> | "
-							"dialog [open|create|delete|confirm <name>|off] | newdialog "
-							"[source blank|copy|level <stem> | style <id|-> | create <name> | switch | off]");
+			// The registered forms: this hand-written line had drifted from them
+			// (no `status`, no `tags`, no wizard) - code-review C442.
+			m_console.RefuseUsage();
 		});
 	m_console.Register(
 		{.name = "mappage",
@@ -786,6 +803,20 @@ void Game::RegisterWorldCommands() {
 			if (a.size() >= 2 && a[0] == "view") {
 				// Picking a level in that dropdown: browse it, which is what
 				// the editor's Generate button (and `generate again`) acts on.
+				// Only a stem the picker OFFERS - the manifest's, as `goto`
+				// checks - and checked BEFORE the browse: SetViewLevel takes any
+				// stem, and BrowseLevel of one with no file asserts in
+				// DungeonMap's load, so asking afterwards could never refuse.
+				if (!m_world) {
+					m_console.Refuse("levels view: no world loaded");
+					return;
+				}
+				if (std::find(m_project.levels.begin(), m_project.levels.end(), a[1]) ==
+					m_project.levels.end()) {
+					m_console.Refuse(std::format("levels view: no level '{}' (viewing {})", a[1],
+												 m_mapView.ViewedLevel()));
+					return;
+				}
 				m_mapView.SetViewLevel(a[1]);
 				m_console.Print("viewing " + m_mapView.ViewedLevel());
 				return;
@@ -796,11 +827,11 @@ void Game::RegisterWorldCommands() {
 				const std::string dungeon =
 					a.size() >= 2 ? a[1] : m_mapView.ViewedDungeon();
 				const std::string stem = CreateNewLevel(dungeon);
-				m_console.Print(stem.empty()
-									? "could not create"
-									: std::format("created {} in {}", stem,
-												  dungeon.empty() ? "no dungeon"
-																  : dungeon));
+				if (stem.empty())
+					m_console.Refuse("could not create");
+				else
+					m_console.Print(std::format("created {} in {}", stem,
+												dungeon.empty() ? "no dungeon" : dungeon));
 				return;
 			}
 			for (const CatalogEntry& d : m_project.dungeons.Entries()) {
@@ -887,7 +918,7 @@ void Game::RegisterWorldCommands() {
 		 .summary = "switch the world map between edit and play mode"},
 		[this](const std::vector<std::string>& args) {
 			if (!m_worldMap) {
-				m_console.Print("no world map loaded");
+				m_console.Refuse("no world map loaded");
 				return;
 			}
 			if (!args.empty())
@@ -905,7 +936,7 @@ void Game::RegisterWorldCommands() {
 		 .summary = "arm or disarm the world terrain brush"},
 		[this](const std::vector<std::string>& args) {
 			if (!m_worldMap) {
-				m_console.Print("no world map loaded");
+				m_console.Refuse("no world map loaded");
 				return;
 			}
 			if (!args.empty()) {
@@ -918,7 +949,7 @@ void Game::RegisterWorldCommands() {
 					for (const WorldMap::Terrain& t : m_worldMap->Terrains())
 						if (t.id == args[0]) known = true;
 					if (!known) {
-						m_console.Print(std::format("no terrain '{}'", args[0]));
+						m_console.Refuse(std::format("no terrain '{}'", args[0]));
 						return;
 					}
 					m_worldMapView.ArmTerrain(args[0]);
@@ -937,18 +968,19 @@ void Game::RegisterWorldCommands() {
 			// The mouse path's rules, reachable without a mouse: same armed
 			// brush, same undo bracketing, same refusal to repaint a cell that
 			// is already that terrain.
-			if (!m_worldMap || args.size() < 2) {
-				m_console.Print("usage: paint <x> <z> (arm with terrainbrush)");
+			if (!m_worldMap) {
+				m_console.Refuse("no world map loaded");
 				return;
 			}
+			if (!Need(m_console, args, 2)) return;
 			if (m_worldMapView.ArmedTerrain().empty()) {
-				m_console.Print("no terrain armed");
+				m_console.Refuse("no terrain armed (arm with terrainbrush)");
 				return;
 			}
 			const int x = std::atoi(args[0].c_str());
 			const int z = std::atoi(args[1].c_str());
 			if (!m_worldMap->InBounds(x, z)) {
-				m_console.Print(std::format("{},{} is off the world grid", x, z));
+				m_console.Refuse(std::format("{},{} is off the world grid", x, z));
 				return;
 			}
 			const std::string was = m_worldMap->TerrainAt(x, z).id;
@@ -965,9 +997,13 @@ void Game::RegisterWorldCommands() {
 			const bool changed =
 				m_worldMap->SetTerrainAt(x, z, m_worldMapView.ArmedTerrain());
 			m_world->CommitUndoStep(changed);
-			m_console.Print(changed ? std::format("{},{} {} -> {}", x, z, was,
-												  m_worldMapView.ArmedTerrain())
-									: std::format("{},{} unchanged", x, z));
+			// "already that terrain" above is the world as asked, so it prints;
+			// a paint the map declined is a refusal (C442).
+			if (changed)
+				m_console.Print(std::format("{},{} {} -> {}", x, z, was,
+											m_worldMapView.ArmedTerrain()));
+			else
+				m_console.Refuse(std::format("{},{} unchanged", x, z));
 		});
 	m_console.Register(
 		{.name = "worldprops",
@@ -1303,21 +1339,18 @@ void Game::RegisterWorldCommands() {
 		[this](const std::vector<std::string>& args) {
 			// The palette's "+ New..." for these categories, reachable without a
 			// mouse — the harness cannot click, and this is the path W2 adds.
-			if (args.empty()) {
-				m_console.Print("usage: newtype <dungeons|terrain|quests|flags|themes>");
-				return;
-			}
+			if (!Need(m_console, args, 1)) return;
 			const MapEditor::PaletteCat cat = MapEditor::CatForCatalogKey(args[0]);
 			if (cat == MapEditor::PaletteCat::Count ||
 				!MapEditor::CategoryAuthorable(cat)) {
-				m_console.Print(std::format(
+				m_console.Refuse(std::format(
 					"'{}' is not a pure-data category (dungeons/terrain/quests/flags/themes)",
 					args[0]));
 				return;
 			}
 			const std::string id = CreateAuthoredType(cat);
-			m_console.Print(id.empty() ? "could not create"
-									   : std::format("created {} '{}'", args[0], id));
+			if (id.empty()) m_console.Refuse("could not create");
+			else m_console.Print(std::format("created {} '{}'", args[0], id));
 		});
 	m_console.Register(
 		{.name = "typeset",
@@ -1342,21 +1375,21 @@ void Game::RegisterWorldCommands() {
 			if (args.size() >= 3 && (args[0] == "rename" || args[0] == "delete")) {
 				std::string problem;
 				const bool rename = args[0] == "rename";
-				if (rename && args.size() < 4) {
-					m_console.Print("usage: typeset rename <category> <id> <new>");
+				if (rename && !Need(m_console, args, 4,
+									"usage: typeset rename <category> <id> <new>"))
 					return;
-				}
 				const bool ok = rename ? RenameType(args[1], args[2], args[3], problem)
 									   : DeleteType(args[1], args[2], problem);
-				m_console.Print(std::format("typeset {} {} '{}': {}{}", args[0], args[1],
-											args[2], ok ? "done" : "refused",
-											problem.empty() ? "" : " - " + problem));
+				// The refused half REFUSES now (C442): a rename or delete a
+				// script went on to measure the effects of had not happened.
+				const std::string line =
+					std::format("typeset {} {} '{}': {}{}", args[0], args[1], args[2],
+								ok ? "done" : "refused", problem.empty() ? "" : " - " + problem);
+				if (ok) m_console.Print(line);
+				else m_console.Refuse(line);
 				return;
 			}
-			if (args.size() < 3) {
-				m_console.Print("usage: typeset <category> <id> <field> [value...]");
-				return;
-			}
+			if (!Need(m_console, args, 3)) return;
 			const Catalog* cat = m_project.CatalogForKey(args[0]);
 			if (!cat || !cat->Find(args[1])) {
 				m_console.Refuse(std::format("typeset: no {} '{}'", args[0], args[1]));
@@ -1381,10 +1414,7 @@ void Game::RegisterWorldCommands() {
 		 .params = "<category> <id>",
 		 .summary = "count the level records and other references naming a type"},
 		[this](const std::vector<std::string>& args) {
-			if (args.size() < 2) {
-				m_console.Print("usage: typerefs <category> <id>");
-				return;
-			}
+			if (!Need(m_console, args, 2)) return;
 			// BOTH HALVES, reported separately, because they answer different
 			// questions: levels are where a placement lives, and the catalog +
 			// WORLD half is where a doorway or a hook does.
@@ -1405,10 +1435,11 @@ void Game::RegisterWorldCommands() {
 			// eval_arena. A command that does one thing can be used to check
 			// that one thing.
 			if (!m_worldMap) {
-				m_console.Print("no world map loaded");
+				m_console.Refuse("no world map loaded");
 				return;
 			}
-			m_console.Print(SaveWorld() ? "saved world" : "world save failed");
+			if (SaveWorld()) m_console.Print("saved world");
+			else m_console.Refuse("world save failed");
 		});
 }
 

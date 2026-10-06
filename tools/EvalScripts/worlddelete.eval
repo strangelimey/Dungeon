@@ -23,9 +23,10 @@ worlds
 worlds dialog confirm wt_del
 worlds
 worlds dialog off
-; The console's form: the name twice, exactly.
+; The console's form: the name twice, exactly. A mismatch, and a delete of a
+; world already gone, are REFUSED (code-review C442).
 worlds new wt_del2
-worlds delete wt_del2 WT_DEL2
+expect-refuse worlds delete wt_del2 WT_DEL2
 worlds delete wt_del2 wt_del2
 worlds
-worlds delete wt_del2 wt_del2
+expect-refuse worlds delete wt_del2 wt_del2

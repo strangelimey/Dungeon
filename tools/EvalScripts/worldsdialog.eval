@@ -9,7 +9,7 @@
 logecho on
 reset
 ; Refused in a level: the world screen is the one state that routes input to it.
-worlds dialog
+expect-refuse worlds dialog
 worldmap on
 worlds dialog
 ; Three refusals, each with its own sentence — a name that filters to nothing,

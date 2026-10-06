@@ -158,7 +158,7 @@ void Game::RegisterDiagnosticCommands() {
 					led.ResetStats();
 					m_world->RebaseDamageLedger();
 				} else {
-					m_console.Print("usage: pipelineguard [on|off|strict on|strict off|reset]");
+					m_console.RefuseUsage(); // the registered forms (C442)
 					return;
 				}
 			}
@@ -354,7 +354,7 @@ void Game::RegisterDiagnosticCommands() {
 				DN_ASSERT(false, "crashpoke: a deliberate assertion failure");
 				return;
 			}
-			m_console.Print("usage: crashpoke <throw|uiclip|worker|fault|assert>");
+			m_console.RefuseUsage(); // the registered forms (C442)
 		});
 	m_console.Register(
 		{.name = "health",
@@ -382,7 +382,7 @@ void Game::RegisterDiagnosticCommands() {
 				}
 				const threads::WorkerInfo info = m_threads.Inspect(id);
 				if (info.id == threads::kInvalidWorker) {
-					m_console.Print(std::format("no worker '{}' (see `threads`)", who));
+					m_console.Refuse(std::format("no worker '{}' (see `threads`)", who));
 					return;
 				}
 				void* frames[stack::kMaxFrames];
@@ -569,8 +569,8 @@ void Game::RegisterDiagnosticCommands() {
 				const std::string name = args.size() > 1 ? args[1] : "hud";
 				ui::UIContext* tree = m_ui.UiTree(name);
 				if (!tree) {
-					m_console.Print(std::format("unknown tree '{}'; try: {}", name,
-												GameUI::UiTreeNames()));
+					m_console.Refuse(std::format("unknown tree '{}'; try: {}", name,
+												 GameUI::UiTreeNames()));
 					return;
 				}
 				m_console.Print(std::format("--- {} ---", name));

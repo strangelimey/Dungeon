@@ -91,7 +91,7 @@ void Game::RegisterEvalCommands() {
 						.summary = "start a new game through the menu entry's own callback"},
 					   [this](const std::vector<std::string>&) {
 						   if (!m_ui.onStartNewGame) {
-							   m_console.Print("newgame: not wired yet");
+							   m_console.Refuse("newgame: not wired yet");
 							   return;
 						   }
 						   m_ui.onStartNewGame();
@@ -141,7 +141,7 @@ void Game::RegisterEvalCommands() {
 						   // its own risk and the reader should be able to see so.
 						   const auto t0 = std::chrono::steady_clock::now();
 						   if (!ResetForEval()) {
-							   m_console.Print("reset: not wired yet");
+							   m_console.Refuse("reset: not wired yet");
 							   return;
 						   }
 						   const double ms =

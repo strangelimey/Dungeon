@@ -867,6 +867,35 @@ directive to all four cases - a refused probe passes, an unrefused one and a
 gate-refused one fail, and a declined setup line fails - each on exactly its
 own counter.
 
+Then the declines themselves became refusals (the plan's second commit):
+`load`, `goto`, `press` / `opendoor` with nothing there, `generate` (play,
+presets, populate, a failed build), `stairadd`, `levelrename`, `give` / `equip`
+/ `wear` / `rune` of an unknown item or into a full pack, `effect` of an
+unknown effect, `torch take|mount` refused, `setsupply` of neither food nor
+water, `setskill` of a skill the world does not train (C446), every world-tier
+command with no world map, `worldmap on` that did not get there (no game yet),
+`worldpos` off the grid, `enter` / `leave` / `encounter` / `camp` / `discover`
+that went nowhere, the terrain brush and `paint`, `worlds` (create, load,
+delete, the dialog off the world screen), `levels new|view` (`view` checks the
+stem against the manifest BEFORE browsing - browsing a stem with no file
+asserts), `style add|save` refused, `profile snap|diff` declined (a recording
+already running, no free slot, an unknown snapshot), `newtype`, the refused
+half of `typeset`, `undo` /
+`redo` with nothing to take back, `savemap` / `saveworld` / `synctosource`
+failures, `preview` of no model, `quality` out of range, `save` with no game,
+the font audition, a bad rune id anywhere (`devargs::ParseSymbolArg`), and the
+editor's gestures - whose `move` and `erase` now report what HAPPENED (a move
+with nothing to take or nowhere to go, an erase of a square with nothing on it
+and no override, are refused; the erase no longer takes an undo step for
+nothing). An unknown `editor`, `profile` or `worldmap` verb refuses instead of
+opening the editor, expanding the panel or meaning `off`, and hand-written usage
+lines go through
+`devargs::Need` / `RefuseUsage`, the registered params. Outcomes the world
+decided stay prints: a lever the party's hand cannot move, a door that stays
+locked, a swing on cooldown, a fizzled cast, a meal that restores nothing, a
+`travel` stopped by water (it says `(blocked)` and how far it got; worldtravel
+walks into water on purpose).
+
 ### What it caught, immediately
 
 Three of the ten suites failed on the first run and all three were real. Two —

@@ -38,7 +38,7 @@ editor palette group creatures
 editor palette filter marble
 editor palette filter
 echo --- refuse ---
-editor palette group build
+expect-refuse editor palette group build
 echo --- utf8 ---
 editor palette filter aабвгдежзийкл
 editor palette filter

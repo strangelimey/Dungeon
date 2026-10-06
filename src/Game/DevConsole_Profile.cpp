@@ -186,8 +186,8 @@ bool AtMaxDetail(const ProfRow& r) {
 void DevConsole::RegisterProfileCommand() {
 	Register({.name = "profile",
 			  .group = CmdGroup::Profiling,
-			  .params = "panel\n"
-						"dump\n"
+			  .params = "[on|off|panel]\n"
+						"dump [file]\n"
 						"detail <path> <level>\n"
 						"smooth <secs>\n"
 						"snap <name> [secs]\n"
@@ -195,9 +195,12 @@ void DevConsole::RegisterProfileCommand() {
 						"diff <before> <after>",
 			  .summary = "the zone profiler: panel view, dumps, detail levels, snapshots and diffs"},
 			 [this](const std::vector<std::string>& args) {
+				 // Every decline here REFUSES (code-review C442): a dump, a
+				 // detail level or a snapshot that did not happen is a profile
+				 // read off something else.
 				 if constexpr (!prof::kEnabled) {
-					 Print("profiling is not compiled in (build debug-profile or "
-						   "release-profile)");
+					 Refuse("profiling is not compiled in (build debug-profile or "
+							"release-profile)");
 				 } else if (!args.empty() && args[0] == "dump") {
 					 // Beside the exe, next to dungeon.log, for the same reason:
 					 // per-run output, not content.
@@ -205,7 +208,7 @@ void DevConsole::RegisterProfileCommand() {
 					 const std::string path = paths::ExecutableDir() + "\\" + name;
 					 const prof::TraceStats st = prof::DumpTrace(path.c_str());
 					 if (!st.ok) {
-						 Print("trace dump FAILED (see dungeon.log)");
+						 Refuse("trace dump FAILED (see dungeon.log)");
 					 } else {
 						 Print(std::format("wrote {} events from {} threads over {:.1f} ms",
 										   st.events, st.threads, st.spanMs));
@@ -242,16 +245,16 @@ void DevConsole::RegisterProfileCommand() {
 						 try {
 							 level = std::stoi(args[2]);
 						 } catch (const std::exception&) {
-							 Print("level must be a number (-1 clears)");
+							 Refuse("level must be a number (-1 clears)");
 							 return;
 						 }
 					 }
 					 const int matched =
 						 prof::SetDetail(args[1], static_cast<i8>(std::clamp(level, -1, 127)));
 					 if (matched == 0)
-						 Print(std::format("'{}' matched no recorded node - the path must "
-										   "name a scope that has already run",
-										   args[1]));
+						 Refuse(std::format("'{}' matched no recorded node - the path must "
+											"name a scope that has already run",
+											args[1]));
 					 else
 						 Print(std::format("{} set to level {} on {} thread{}", args[1], level,
 										   matched, matched == 1 ? "" : "s"));
@@ -273,7 +276,7 @@ void DevConsole::RegisterProfileCommand() {
 						 try {
 							 secs = std::stof(args[1]);
 						 } catch (const std::exception&) {
-							 Print("seconds must be a number, or 'off'");
+							 Refuse("seconds must be a number, or 'off'");
 							 return;
 						 }
 					 }
@@ -287,8 +290,16 @@ void DevConsole::RegisterProfileCommand() {
 											 m_profSmoothSec * 1000.0f)
 							   : std::string("readout is live (unsmoothed)"));
 				 } else {
-					 if (!args.empty())
-						 m_profileExpanded = args[0] != "off" && args[0] != "0";
+					 // Bare or `panel` toggles; on/1 and off/0 set. ANY OTHER
+					 // word used to expand the panel - a typo'd verb read as a
+					 // success (C442).
+					 if (!args.empty() && args[0] != "panel" && args[0] != "on" &&
+						 args[0] != "1" && args[0] != "off" && args[0] != "0") {
+						 RefuseUsage();
+						 return;
+					 }
+					 if (!args.empty() && args[0] != "panel")
+						 m_profileExpanded = args[0] == "on" || args[0] == "1";
 					 else
 						 m_profileExpanded = !m_profileExpanded;
 					 NoteSectionsChanged();

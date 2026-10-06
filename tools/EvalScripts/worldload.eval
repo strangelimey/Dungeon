@@ -1,6 +1,9 @@
 ; worldload.eval — load a save the harness has just downgraded on disk.
 ; Paired with WorldTest.py, which rewrites the version line between runs.
+; Every way WorldTest damages the save must be REFUSED, so the load is an
+; `expect-refuse` probe (code-review C442: a failed load used to print, and the
+; script passed whether or not the save was read).
 logecho on
 reset
-load worldtrip
+expect-refuse load worldtrip
 world

@@ -57,7 +57,7 @@ void Game::RegisterPartyCommands() {
 						   const std::string typeId(RuneItemId(sym));
 						   if (m_characters.empty() ||
 							   !m_characters[0].inventory.Stow(typeId))
-							   m_console.Print("pack full (or no party)");
+							   m_console.Refuse("pack full (or no party)");
 						   else
 							   m_console.Print(std::format("pack += {}", typeId));
 					   });
@@ -73,12 +73,14 @@ void Game::RegisterPartyCommands() {
 							   m_console.Refuse("no such member");
 							   return;
 						   }
+						   // REFUSED, both: a script that gave an item nobody got
+						   // would test the quest or the fight without it (C442).
 						   if (!m_project.HasItem(args[0])) {
-							   m_console.Print(std::format("no item '{}' in items/weapons/armor", args[0]));
+							   m_console.Refuse(std::format("no item '{}' in items/weapons/armor", args[0]));
 							   return;
 						   }
 						   if (!m_characters[m].inventory.Stow(args[0])) {
-							   m_console.Print("pack full");
+							   m_console.Refuse("pack full");
 							   return;
 						   }
 						   // AND ITS HOOKS FIRE, exactly as if it had been lifted
@@ -379,7 +381,7 @@ void Game::RegisterPartyCommands() {
 							   return;
 						   }
 						   if (!m_project.HasItem(args[0])) {
-							   m_console.Print(std::format(
+							   m_console.Refuse(std::format(
 								   "no item '{}' in items/weapons/armor", args[0]));
 							   return;
 						   }
@@ -388,8 +390,8 @@ void Game::RegisterPartyCommands() {
 						   // something somewhere the UI would refuse.
 						   const WearSlot w = m_itemCategories.WornAt(args[0]);
 						   if (w == WearSlot::None) {
-							   m_console.Print(std::format(
-								   "'{}' has no `wear` slot — hold it instead (equip)",
+							   m_console.Refuse(std::format(
+								   "'{}' has no `wear` slot - hold it instead (equip)",
 								   args[0]));
 							   return;
 						   }
@@ -427,7 +429,7 @@ void Game::RegisterPartyCommands() {
 							   return;
 						   }
 						   if (!m_project.HasItem(args[0])) {
-							   m_console.Print(std::format("no item '{}' in items/weapons/armor", args[0]));
+							   m_console.Refuse(std::format("no item '{}' in items/weapons/armor", args[0]));
 							   return;
 						   }
 						   m_characters[m].inventory.Hand(hand).Clear(); // no charge left over
@@ -499,7 +501,7 @@ void Game::RegisterPartyCommands() {
 						   }
 						   const fx::EffectKind* kind = m_world->Effects().Find(args[0]);
 						   if (!kind) {
-							   m_console.Print(std::format("no effect '{}'", args[0]));
+							   m_console.Refuse(std::format("no effect '{}'", args[0]));
 							   return;
 						   }
 						   const float magnitude = args.size() > 2
@@ -573,6 +575,15 @@ void Game::RegisterPartyCommands() {
 						.summary = "the held torches' charge; take / mount the wall torch ahead"},
 					   [this](const std::vector<std::string>& args) {
 						   const std::string what = args.empty() ? "status" : args[0];
+						   // A verb nobody wrote, or `charge` short of its seconds,
+						   // used to print the status - an answer to a question
+						   // nobody asked, in place of the change that was (C442).
+						   if ((what != "status" && what != "take" && what != "mount" &&
+								what != "charge") ||
+							   (what == "charge" && args.size() < 4)) {
+							   m_console.RefuseUsage();
+							   return;
+						   }
 						   int x = 0, z = 0, wall = -1;
 						   if (what == "take" || what == "mount") {
 							   if (!m_world->FireAheadCell(x, z, wall) || wall < 0) {
@@ -592,7 +603,8 @@ void Game::RegisterPartyCommands() {
 								   m_heldItem.reset(); // the cursor's torch goes in
 								   ok = true;
 							   }
-							   m_console.Print(std::format("torch {}: {}", what, ok ? "done" : "refused"));
+							   if (ok) m_console.Print(std::format("torch {}: done", what));
+							   else m_console.Refuse(std::format("torch {}: refused", what));
 							   return;
 						   }
 						   if (what == "charge" && args.size() >= 4) {
@@ -1530,7 +1542,7 @@ void Game::RegisterPartyCommands() {
 						   if (args[1] == "food") which = resource::Supply::Food;
 						   else if (args[1] == "water") which = resource::Supply::Water;
 						   else {
-							   m_console.Print("expected food or water");
+							   m_console.Refuse("expected food or water");
 							   return;
 						   }
 						   const float max =
@@ -1655,6 +1667,16 @@ void Game::RegisterPartyCommands() {
 						   const float wanted = static_cast<float>(std::atof(args[2].c_str()));
 						   if (wanted < 0.0f) {
 							   m_console.Refuse("level cannot be negative");
+							   return;
+						   }
+						   // ONLY A SKILL THIS WORLD TRAINS (code-review C446), the
+						   // rule BuildMember already keeps: `fyre` used to land as
+						   // a key nothing reads, and the test then measured an
+						   // untrained caster under a header saying otherwise.
+						   if (const std::vector<std::string> trainable = m_world->TrainableSkills();
+							   std::ranges::find(trainable, args[1]) == trainable.end()) {
+							   m_console.Refuse(std::format("'{}' is not a skill this world trains",
+															args[1]));
 							   return;
 						   }
 						   Character& c = m_characters[m];

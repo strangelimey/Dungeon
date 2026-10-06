@@ -41,7 +41,8 @@ echo --- 3: renamed ---
 typeset rename themes marble_hall grand_hall
 editor cell 3 3
 typerefs themes grand_hall
-typeset delete themes grand_hall
+; refused while squares use it (a probe: code-review C442)
+expect-refuse typeset delete themes grand_hall
 echo --- 4: a member type renamed ---
 typeset rename floors floor_temple floor_temple_b
 editor cell 3 3

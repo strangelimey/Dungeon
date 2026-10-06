@@ -128,14 +128,12 @@ void Game::RegisterDungeonCommands() {
 		 .params = "<old> <new>",
 		 .summary = "rename a level everywhere it is named"},
 		[this](const std::vector<std::string>& a) {
-			if (a.size() < 2) {
-				m_console.Print("usage: levelrename <old> <new>");
-				return;
-			}
+			if (!Need(m_console, a, 2)) return;
 			std::string why;
-			m_console.Print(RenameLevel(a[0], a[1], &why)
-								? std::format("renamed level '{}' -> '{}'", a[0], a[1])
-								: std::format("rename level '{}': refused - {}", a[0], why));
+			if (RenameLevel(a[0], a[1], &why))
+				m_console.Print(std::format("renamed level '{}' -> '{}'", a[0], a[1]));
+			else
+				m_console.Refuse(std::format("rename level '{}': refused - {}", a[0], why));
 		});
 
 	// A stair placed from the console, as the Stairs brush places it (both
@@ -149,18 +147,17 @@ void Game::RegisterDungeonCommands() {
 		 .params = "<type> <x> <z> [level]",
 		 .summary = "place a stair pair (both halves, one undo step)"},
 		[this](const std::vector<std::string>& a) {
-			if (a.size() < 3) {
-				m_console.Print("usage: stairadd <type> <x> <z> [level]");
-				return;
-			}
+			if (!Need(m_console, a, 3)) return;
 			const std::string stem = a.size() >= 4 ? a[3] : m_world->CurrentLevel();
 			const int x = std::atoi(a[1].c_str()), z = std::atoi(a[2].c_str());
 			m_world->BeginUndoStep();
 			const bool ok = m_world->AddStairAt(stem, a[0], x, z);
 			m_world->CommitUndoStep(ok);
-			m_console.Print(ok ? std::format("stair {} placed on {} at {},{}", a[0], stem, x, z)
-							   : std::format("stair {} NOT placed on {} at {},{}", a[0],
-											 stem, x, z));
+			if (ok)
+				m_console.Print(std::format("stair {} placed on {} at {},{}", a[0], stem, x, z));
+			else
+				m_console.Refuse(std::format("stair {} NOT placed on {} at {},{}", a[0], stem,
+											 x, z));
 		});
 }
 

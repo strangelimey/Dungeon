@@ -484,15 +484,19 @@ public:
 	// → entity → fixture → reset surface variants), one undo step per click.
 	// `face` (when valid) is the wall face under the pointer, so a niche on a
 	// specific face erases precisely; invalid falls back to the cell-wide ladder.
-	void EraseAt(int cx, int cz, const WallFace& face = {});
+	// Returns whether anything changed: a square with nothing on it and no
+	// surface override erases nothing, and takes no undo step for it (the
+	// `editor erase` command reports the truth from this - code-review C442).
+	bool EraseAt(int cx, int cz, const WallFace& face = {});
 
 	// --- drag-and-drop move (play-test #2) -------------------------------------
 	// With NO brush armed, a left-drag moves the top thing on a square
 	// (DungeonWorld::TopMovableAt / MoveObject). BeginMove picks it up and says
 	// what it took (false = nothing to take, or a browsed level); EndMove drops it
-	// as one undo step; CancelMove lets go without moving anything.
+	// as one undo step and says whether it moved (false = dropped where it was,
+	// or the square refused it); CancelMove lets go without moving anything.
 	bool BeginMove(int cx, int cz);
-	void EndMove(int cx, int cz);
+	bool EndMove(int cx, int cz);
 	void CancelMove() { m_moving = false; }
 	bool Moving() const { return m_moving; }
 	int MoveFromX() const { return m_move.x; }

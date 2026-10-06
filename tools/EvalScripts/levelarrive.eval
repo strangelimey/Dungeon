@@ -14,6 +14,9 @@
 logecho on
 reset
 levels view crypt2
+; A stem the manifest lacks is refused, and the view stays on crypt2 (browsing
+; a stem with no file used to assert in DungeonMap's load - C442).
+expect-refuse levels view nosuchlevel
 generate again width:14 height:14 roommin:3 roommax:4 path:3 branches:0 branchmin:1 branchmax:1 loops:0 winding:0 irregular:0 deadends:0 locks:0 difficulty:0 density:0 ramp:0 boss:0 reward:0 seed:11
 validate
 generate again width:14 height:14 roommin:3 roommax:4 path:3 branches:0 branchmin:1 branchmax:1 loops:0 winding:0 irregular:0 deadends:0 locks:0 difficulty:0 density:0 ramp:0 boss:0 reward:0 seed:12

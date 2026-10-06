@@ -117,17 +117,26 @@ void Game::RegisterStyleCommands() {
 			} else if (verb == "add") {
 				if (!Need(m_console, args, 2, "usage: style add <id>")) return;
 				const StyleLibrary::AddResult r = AddStyleFromLibrary(args[1]);
-				m_console.Print(std::format(
+				// The same line either way; a "refused" one REFUSES (C442), so a
+				// script that went on to use the style is not counted a pass.
+				// "already" is the world answering - it has the style - not a
+				// decline.
+				const bool refused = !r.already && r.copied.empty();
+				const std::string line = std::format(
 					"style add {}: {} copied={} missing={}", args[1],
-					r.already ? "already" : r.copied.empty() ? "refused" : "added",
-					CopyList(r.copied), JoinIds(r.missingMonsters)));
+					r.already ? "already" : refused ? "refused" : "added", CopyList(r.copied),
+					JoinIds(r.missingMonsters));
+				if (refused) m_console.Refuse(line);
+				else m_console.Print(line);
 				return;
 			} else if (verb == "save") {
 				if (!Need(m_console, args, 2, "usage: style save <id>")) return;
 				std::vector<StyleLibrary::Copy> copied;
 				const bool ok = SaveStyleToLibrary(args[1], copied);
-				m_console.Print(std::format("style save {}: {} copied={}", args[1],
-											ok ? "saved" : "refused", CopyList(copied)));
+				const std::string line = std::format("style save {}: {} copied={}", args[1],
+													 ok ? "saved" : "refused", CopyList(copied));
+				if (ok) m_console.Print(line);
+				else m_console.Refuse(line);
 				return;
 			} else {
 				m_console.Refuse("style: use, add, save or row");
