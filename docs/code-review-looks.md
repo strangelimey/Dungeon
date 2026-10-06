@@ -103,6 +103,25 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   ends a rest as `attacked`: a miss, a bolt the Wind Ward turns, a blow a water
   veil drinks whole. A miss credits no threat, so the woken monster picks its
   victim with no grudge. Creep up on a sleeper, miss it, and watch it wake.
+- **The title after a save** (batch 52, ec9f4772). In the pause menu: Save, Esc,
+  Return to Main Menu - the title should show Continue and Load at once.
+- **The opening lines** (batch 52). Start New Game from crypt2 (or after loading
+  a save made on another level) now opens with the "You descend into the
+  dungeon... / Something shuffles... / keys" lines, and loading onto a
+  different level now shows "You descend" too, which it did not before. Is
+  that wanted?
+- **A save that will not delete** (batch 52). When a save cannot be deleted
+  (another program has it open, say), the Save/Load page shows an accent line
+  above the list: "Could not delete <name> (error 32)." - the system's reason
+  goes to dungeon.log. Check the wording and the place. (A read-only save still
+  deletes; the library ignores the attribute.)
+- **Distant textures** (batch 92, 7795ba11). Every mip chain is now averaged in
+  linear light and rounded, so distant albedo - fine-detailed brick and paving
+  most - may read slightly BRIGHTER than before (the old filter darkened detail
+  with distance). Walk crypt1 and crypt2 and judge the far walls and floors;
+  anything off is a filter matter, not a texture swap. And the rune tablets,
+  potions, rock and torches now load from baked images: check they look the
+  same up close.
 
 ## Decisions
 
@@ -171,6 +190,10 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   rest. And "Something is attacking!" still prints before the swing's own
   hit / miss line, because the rest breaks inside the damage pipeline. Should
   either side effect go the other way?
+- **Deleting a type a save still names** (batch 52). The plan wanted a type
+  delete REFUSED when only a save references the type. Today it deletes and
+  warns which saves still name it (the documented design), and the warning now
+  finds the saves of the world in hand. Keep the warning, or refuse?
 - **ThreadStress can HANG under heavy load** (seen by batch 36, c7d67506).
   Twice, while another worktree built debug, release and release-profile at
   once: the AI workers run below normal priority, a starved idle bucket missed
@@ -223,6 +246,22 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   code. Keep it there, or name a different home for that check.
 
 ## Changes you will notice
+
+- **A stale .dds is refused** (batch 92, 7795ba11). The game now draws a
+  texture's PNG, with a warning, when its .dds is OLDER than the PNG, and says
+  once a model when its baked images are missing or stale. Your tree in
+  C:\Dev\Dungeon will warn wherever a PNG is newer than its bake: run
+  `build\release\bin\AssetBaker.exe mips assets --force` (about an hour), or
+  copy the re-baked .dds from the code-review worktree. Seven models had no
+  baked images anywhere (the three potions, the rock, the three torches) -
+  `AssetBaker model-images` makes them.
+- **A bad save index is refused whole** (batch 52). A hand-edited save with a
+  member or pack index outside 0..3 is refused with a log line; it still shows
+  in the Load list, since only a full read finds the bad index.
+- **A curve that names no form** (batch 30). A balance.cat `skill_curve` /
+  `stat_curve` that is negative, NaN or above 2 now reads as hyperbolic or
+  logarithmic with a warning; an in-range fraction such as 1.7 still truncates
+  but warns too, and is written back as 1 at the next save.
 
 - **The log after a worker exits** (batch 9, 99eb0cf7). A worker that
   unregisters now writes what the log still owed it: a "N further events ...
@@ -315,6 +354,9 @@ raised that is yours, not a fix. Each line names the batch and its commit.
 
 ## Follow-ups the batches found (not in the plan)
 
+- **No judge checks the baker's sRGB flag per file** (found by batch 92):
+  albedo vs `_n` / `_mr` vs a model's base-colour images. The logic is small
+  (IsTextureSetAlbedo, SrgbImages), but nothing decodes a baked chain to check.
 - **Undo can lose a broken fixture** (found by batch 77). RestoreEditorState
   (undo) applies the level's saved dynamic state before RebuildFiresAndDust
   re-seeds the fixture table, so if the undo step changed the map's fixtures
