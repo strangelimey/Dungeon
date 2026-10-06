@@ -180,8 +180,9 @@ bool DevConsole::Execute(const std::string& line) {
 	return true;
 }
 
-void DevConsole::SampleHistory(float dt, const gfx::GraphicsDevice& device) {
-	SamplePerfSeries(device);
+void DevConsole::SampleHistory(float dt, const gfx::GraphicsDevice& device,
+								const gfx::SpriteBatch& sprites) {
+	SamplePerfSeries(device, sprites);
 
 	{
 		DN_PROFILE_ZONE_L(prof::kLevelDetail, "snapshot");
@@ -217,7 +218,7 @@ void DevConsole::SampleHistory(float dt, const gfx::GraphicsDevice& device) {
 }
 
 void DevConsole::Update(const Input& input, float dt, float windowW, float windowH,
-						const gfx::GraphicsDevice& device) {
+						const gfx::GraphicsDevice& device, const gfx::SpriteBatch& sprites) {
 	{
 		DN_PROFILE_ZONE_L(prof::kLevelDetail, "perfmon");
 		m_perf.Tick(dt);
@@ -226,7 +227,7 @@ void DevConsole::Update(const Input& input, float dt, float windowW, float windo
 	// twelve seconds, not start blank.
 	{
 		DN_PROFILE_ZONE_L(prof::kLevelDetail, "history");
-		SampleHistory(dt, device);
+		SampleHistory(dt, device, sprites);
 	}
 	if (!m_open) return;
 

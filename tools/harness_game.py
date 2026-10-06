@@ -161,11 +161,13 @@ def read_log(log):
     return io.open(log, encoding="utf-8", errors="replace").read()
 
 
-def run_eval(exe, cwd, log, scripts, extra=(), timeout=600):
-    """Runs the game headless on eval scripts. Returns (exit code, log text);
-    the code is -1 when the run timed out (subprocess.run kills it)."""
+def run_eval(exe, cwd, log, scripts, extra=(), timeout=600, headless=True):
+    """Runs the game on eval scripts, headless unless told otherwise (a check of
+    what a frame DRAWS needs the render half, which -headless skips). Returns
+    (exit code, log text); the code is -1 when the run timed out (subprocess.run
+    kills it)."""
     refuse_if_running(exe)
-    args = [exe, "-headless", *extra, "-eval", *scripts]
+    args = [exe, *(["-headless"] if headless else []), *extra, "-eval", *scripts]
     try:
         code = subprocess.run(args, cwd=cwd, capture_output=True, timeout=timeout).returncode
     except subprocess.TimeoutExpired:

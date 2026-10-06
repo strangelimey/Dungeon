@@ -1,0 +1,43 @@
+; spritearena.eval - the UI's sprite arena holds the editor map of the largest
+; level the generator makes (code-review C163), read by tools\EditorTest.py
+; phase 19. Run WITH the window: -headless skips the render half of the frame,
+; and the arena is filled by drawing. `sprites` reads the last FINISHED frame,
+; so each reading waits a few lines (one line runs per frame).
+;
+;   --- before ---   the plain editor on the arena level
+;   --- largest ---  a 128x128 floor generated into the viewed dungeon (the view
+;                    jumps to it at fit zoom, where every square is one quad on
+;                    screen): it must fit, nothing dropped
+;   --- grown ---    the same floor resized to 256x256, past the arena: the cell
+;                    layer is DROPPED and counted, and the game carries on
+;   --- later ---    the same view a few frames on: the last frame's drop count
+;                    is unchanged while the lifetime total has grown, so it is
+;                    one frame's count and not a running one
+logecho on
+reset
+editor
+echo frame
+echo frame
+echo --- before ---
+sprites
+generate width:128 height:128 seed:5
+editor view
+echo frame
+echo frame
+echo frame
+echo --- largest ---
+sprites
+editor view
+editor resize 0 0 256 256
+editor view
+echo frame
+echo frame
+echo frame
+echo --- grown ---
+sprites
+editor view
+echo frame
+echo frame
+echo frame
+echo --- later ---
+sprites

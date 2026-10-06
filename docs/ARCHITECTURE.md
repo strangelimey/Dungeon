@@ -80,7 +80,16 @@ subsystem:
   bump allocator over a persistently mapped upload buffer (one per frame in
   flight, reset at frame start). All per-draw constant buffers, skinning
   palettes, and the UI's dynamic vertex stream come from it; nothing per-draw
-  touches the heap or creates D3D12 resources.
+  touches the heap or creates D3D12 resources. Each arena is a FIXED size.
+  Where the use is bounded by construction (the renderer's constants, the
+  particle batch) running out asserts; the UI's is the exception, because its
+  use follows the content - the editor map draws a quad per square. Its arena
+  (`SpriteBatch::kArenaBytes`, 8 MB) is sized for the map of the largest level
+  the generator makes (`generate::kMaxSide`, 128) at fit zoom, which MapView.cpp
+  static_asserts, and a frame past it - a level resized larger - DROPS the
+  batch that does not fit and counts it (`TryAllocate`; the dev console's UI
+  gauge beside SRV, and `sprites`) rather than aborting. EditorTest phase 19
+  checks both halves (code-review C163).
 - **Audio — object pool.** `audio::AudioEngine` keeps a pool of XAudio2 source
   voices reused by sample format (capped at 32). Playback references the
   caller's PCM memory directly instead of copying it, so `Play` allocates

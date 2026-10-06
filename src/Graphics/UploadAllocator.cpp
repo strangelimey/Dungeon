@@ -13,11 +13,18 @@ UploadAllocator::UploadAllocator(ID3D12Device* device, u64 capacity)
 	DN_HR(m_buffer->Map(0, &noRead, reinterpret_cast<void**>(&m_mapped)));
 }
 
-UploadAllocation UploadAllocator::Allocate(u64 size, u64 alignment) {
+UploadAllocation UploadAllocator::TryAllocate(u64 size, u64 alignment) {
 	const u64 aligned = (m_offset + alignment - 1) & ~(alignment - 1);
-	DN_ASSERT(aligned + size <= m_capacity, "UploadAllocator exhausted for this frame");
+	// Compared as a subtraction so a huge `size` cannot wrap the sum past the end.
+	if (aligned > m_capacity || size > m_capacity - aligned) return {};
 	m_offset = aligned + size;
 	return {m_mapped + aligned, m_buffer->GetGPUVirtualAddress() + aligned};
+}
+
+UploadAllocation UploadAllocator::Allocate(u64 size, u64 alignment) {
+	const UploadAllocation alloc = TryAllocate(size, alignment);
+	DN_ASSERT(alloc.cpu != nullptr, "UploadAllocator exhausted for this frame");
+	return alloc;
 }
 
 } // namespace dungeon::gfx

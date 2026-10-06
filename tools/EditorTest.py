@@ -4,7 +4,8 @@
 # Run:  python tools\EditorTest.py      (needs a debug build)
 #
 # The eval harness REPORTS and never judges (docs/eval-harness.md); this is the
-# judge. Each phase runs a script from tools\EvalScripts headless and reads
+# judge. Each phase runs a script from tools\EvalScripts headless (phase 19 with
+# its window: it measures what a frame DRAWS, the half -headless skips) and reads
 # dungeon.log. Surfaces are read by GEOMETRY - `geomhash` fingerprints the
 # level's walls/floors/ceilings - so "put back" means the hash matches the one
 # taken before, not that a message said so.
@@ -105,6 +106,15 @@
 #      settings visit; a room, a corridor and a stamp build; Populate fills the
 #      hand-built floor from the style's list; and the overview's "what next"
 #      reads build -> populate -> check/ready, counting what the files hold.
+#  19. THE SPRITE ARENA HOLDS THE LARGEST MAP (code-review C163): a 128x128
+#      floor - the generator's largest - generated with the editor open and
+#      viewed at fit zoom, where every square is one quad on screen, draws with
+#      NOTHING dropped, and the frame really carried the whole cell layer (its
+#      bytes are read, so a frame that drew nothing cannot pass). Then the floor
+#      is resized to 256x256, past the arena: the cell layer is dropped and
+#      COUNTED - in all, and per frame (two readings over the same view: the
+#      frame's count holds while the total grows) - and the game carries on to
+#      its verdict - it used to abort.
 #
 # NOTHING HERE EDITS THE REAL WORLD (code-review C431). Each phase starts on a
 # FRESH SCRATCH COPY of dungeon-demo, et_demo, and every run opens it with
@@ -189,14 +199,16 @@ def drop():
     harness_game.remove_world(ROOT, SCRATCH)
 
 
-def run(script, project=SCRATCH):
+def run(script, project=SCRATCH, headless=True, timeout=600):
     # -project opens the scratch world, never the real one (nor whatever world
     # the developer last switched to). A run that died before its verdict
     # counts as a failure on its own, not as a log to be read as if it were
-    # whole.
+    # whole. `headless=False` for a phase that needs the window to draw (the
+    # sprite arena is only filled by a frame that renders).
     global failures
     path = harness_game.eval_script(os.path.join(SCRIPTS, script), COPIES, SAVES)
-    code, log = harness_game.run_eval(EXE, ROOT, LOG, [path], ["-project", project])
+    code, log = harness_game.run_eval(EXE, ROOT, LOG, [path], ["-project", project],
+                                      timeout=timeout, headless=headless)
     if harness_game.report_unfinished(code, log, script):
         failures += 1
     return log
@@ -1474,7 +1486,73 @@ finally:
     elif os.path.isfile(SETTINGS):
         os.remove(SETTINGS)
 
-# --- the real tree --------------------------------------------------------------
+# --- phase 19: the sprite arena holds the largest map ----------------------------
+print("19 - the editor map of a 128x128 floor fits the sprite arena; past it, drops are counted")
+# One quad a square, SpriteBatch::kQuadBytes (six 56-byte vertices).
+QUAD_BYTES = 6 * 56
+SPRITES = re.compile(r"^sprites last=(\d+) peak=(\d+) capacity=(\d+) .* lastdrops=(\d+) "
+                     r"drops=(\d+) dropvertices=(\d+)")
+VIEW = re.compile(r"^editor view: (\S+) (\d+)x(\d+) ")
+
+
+def arena(lines):
+    m = next((SPRITES.match(l) for l in lines if SPRITES.match(l)), None)
+    return tuple(int(g) for g in m.groups()) if m else None
+
+
+def viewed(lines):
+    m = next((VIEW.match(l) for l in lines if VIEW.match(l)), None)
+    return (m.group(1), int(m.group(2)), int(m.group(3))) if m else None
+
+
+settings_before = io.open(SETTINGS, "rb").read() if os.path.isfile(SETTINGS) else None
+fresh()
+try:
+    # WITH the window, and a short timeout: an arena that still aborts parks a
+    # debug build on its CRT dialog, which is a failed run, not a ten-minute wait.
+    log = run("spritearena.eval", headless=False, timeout=240)
+    check(passed(log), "the script ran clean, to its verdict (no abort)")
+    sec = console_sections(log)
+    big, grown = sec.get("largest", []), sec.get("grown", [])
+    a, v = arena(big), viewed(big)
+    check(v is not None and v[1:] == (128, 128),
+          "the editor views the generated floor, 128x128", str(v))
+    cells = 128 * 128 * QUAD_BYTES
+    # Non-vacuous: the frame must have DRAWN the cell layer - a render half that
+    # never ran, or a view of some smaller level, reads far below it.
+    check(a is not None and a[0] >= cells,
+          f"that frame carried the whole cell layer ({cells} bytes of quads)",
+          str(a))
+    check(a is not None and a[4] == 0,
+          "...and the arena dropped nothing (drops=0)", str(a))
+    g, gv = arena(grown), viewed(grown)
+    check(gv is not None and gv[1:] == (256, 256),
+          "resized past the arena, the editor views it at 256x256", str(gv))
+    check(g is not None and g[4] > 0 and g[5] >= 256 * 256 * 6,
+          "...where the cell layer is dropped and counted, not aborted on", str(g))
+    # lastdrops is ONE frame's count, closed by NewFrame. Read again a few frames
+    # on, over the same view: every frame drops the same cell layer, so it is
+    # not 0 (a count never copied reads 0) and it has not moved while the
+    # lifetime total has (a count never reset grows with every frame). Comparing
+    # it to `drops` in one reading cannot tell: a reading lands after a render
+    # that dropped again and before NewFrame closes it, so even a running count
+    # reads one below the total (measured: 5 against 6).
+    later = arena(sec.get("later", []))
+    check(g is not None and later is not None and 0 < g[3] == later[3]
+          and later[4] > g[4],
+          "...counted per frame too: the last frame's drops, not the run's",
+          f"grown {g}, later {later}")
+    warned = log.count("sprite arena full:")
+    check(warned == 1, "...and the log says so, once",
+          f"{warned} 'sprite arena full' warning(s)")
+finally:
+    drop()
+    if settings_before is not None:
+        io.open(SETTINGS, "wb").write(settings_before)
+    elif os.path.isfile(SETTINGS):
+        os.remove(SETTINGS)
+
+# --- the real tree: LAST, after every phase --------------------------------------
 print("the real tree: dungeon-demo and the library as the run found them")
 cleanup()
 real.check(check)

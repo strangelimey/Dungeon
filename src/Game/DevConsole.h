@@ -103,9 +103,10 @@ public:
 	// The device is here only so the history the graph view draws keeps filling
 	// while the console is CLOSED — two of the top gauges (VRAM, descriptor
 	// slots) are the device's to answer, and a graph you have to open the console
-	// to start recording is no use for catching what already happened.
+	// to start recording is no use for catching what already happened. The sprite
+	// batch is here for the same reason: the UI arena gauge is its to answer.
 	void Update(const Input& input, float dt, float windowW, float windowH,
-				const gfx::GraphicsDevice& device);
+				const gfx::GraphicsDevice& device, const gfx::SpriteBatch& sprites);
 	// Drawn inside the caller's SpriteBatch Begin/End, after the HUD/overlays.
 	void Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& device,
 				float width, float height);
@@ -307,10 +308,11 @@ private:
 	// The committed values for a row, or null if it has none yet.
 	const ProfSmooth* SmoothFor(u32 tid, u32 node) const;
 
-	// The six gauges at the top of the panel, given the same treatment. These
+	// The seven gauges at the top of the panel, given the same treatment. These
 	// differ from the profile series in one way that matters: each has a NATURAL
 	// maximum (the display's refresh rate, 100%, installed RAM, the VRAM budget,
-	// the descriptor ceiling), so they are drawn against a fixed scale.
+	// the descriptor ceiling, the UI's vertex arena), so they are drawn against a
+	// fixed scale.
 	// Autoscaling would redraw 3% CPU as a full graph and make idle look like a
 	// crisis. FPS is the interesting one: its ceiling is the MONITOR's refresh
 	// rate, which is the only number that makes "is this fast enough" answerable
@@ -320,8 +322,13 @@ private:
 	// the RAM gauge rather than as a second bar against the same ceiling. It sits
 	// past kPerfLines so the gauge count, the hide flags and the layout never
 	// see it.
-	enum PerfLine { kFps, kCpu, kGpu, kRam, kVram, kSrv, kPerfLines, kProc = kPerfLines,
+	// kUi is the sprite batch's per-frame vertex arena (code-review C163): a fixed
+	// ceiling with a peak, like the descriptor slots it sits beside.
+	enum PerfLine { kFps, kCpu, kGpu, kRam, kVram, kSrv, kUi, kPerfLines, kProc = kPerfLines,
 					kPerfSeriesCount };
+	// The graph view's rows: the frame rate alone across the top (the headline,
+	// and the one gauge with no partner), the rest two to a row.
+	int PerfGraphRows() const;
 	struct PerfSeries {
 		float pending = 0.0f;
 		float samples[kProfHistory] = {};
@@ -572,7 +579,8 @@ private:
 	// Accumulates history every frame, open or closed, so switching to a graph
 	// view shows the last twelve seconds rather than starting blank. The profile
 	// halves are no-ops without DN_PROFILE; the perf half always runs.
-	void SampleHistory(float dt, const gfx::GraphicsDevice& device);
+	void SampleHistory(float dt, const gfx::GraphicsDevice& device,
+					   const gfx::SpriteBatch& sprites);
 	void SampleProfileSeries();
 	void CommitProfileSeries();
 
@@ -588,7 +596,7 @@ private:
 					   u32 node);
 
 	// PERFORMANCE (DevConsole_Perf.cpp)
-	void SamplePerfSeries(const gfx::GraphicsDevice& device);
+	void SamplePerfSeries(const gfx::GraphicsDevice& device, const gfx::SpriteBatch& sprites);
 	void CommitPerfSeries();
 	float PerfSectionHeight(const PanelCtx& p) const;
 	void DrawPerfSection(const PanelCtx& p, float top);

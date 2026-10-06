@@ -22,10 +22,12 @@ constexpr const char* kTabs[] = {kShape, kComplexity, kPopulation, kTag};
 // Captureless lambdas decay to the plain function pointers Knob holds, which
 // keeps the table a constant with no per-row allocation.
 constexpr Knob kKnobs[] = {
-	{"width", "map.gen.width", kShape, KnobKind::Int, 8, 128,
+	// Generate.h's kMinSide..kMaxSide: the editor's sprite arena is sized for the
+	// largest (code-review C163), so the range is one constant, not a literal here.
+	{"width", "map.gen.width", kShape, KnobKind::Int, kMinSide, kMaxSide,
 	 [](const Params& p) -> double { return p.width; },
 	 [](Params& p, double v) { p.width = static_cast<int>(v); }},
-	{"height", "map.gen.height", kShape, KnobKind::Int, 8, 128,
+	{"height", "map.gen.height", kShape, KnobKind::Int, kMinSide, kMaxSide,
 	 [](const Params& p) -> double { return p.height; },
 	 [](Params& p, double v) { p.height = static_cast<int>(v); }},
 	// P4b: the range a room's sides are drawn from.

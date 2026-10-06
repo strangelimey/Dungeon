@@ -1,7 +1,8 @@
 // ============================================================================
 // Game/DevConsole_Perf.cpp - the console's PERFORMANCE section: the gauges at
-// the top of the panel (frame rate, CPU, GPU, memory, descriptor slots), as
-// bars or as graphs, and the history those graphs draw from.
+// the top of the panel (frame rate, CPU, GPU, memory, descriptor slots, the
+// UI's vertex arena), as bars or as graphs, and the history those graphs draw
+// from.
 // ============================================================================
 #include "Game/DevConsole_Panel.h"
 
@@ -15,7 +16,12 @@ namespace dungeon::game {
 
 using namespace devcon;
 
-void DevConsole::SamplePerfSeries(const gfx::GraphicsDevice& device) {
+namespace {
+constexpr double kMiB = 1024.0 * 1024.0;
+} // namespace
+
+void DevConsole::SamplePerfSeries(const gfx::GraphicsDevice& device,
+								  const gfx::SpriteBatch& sprites) {
 	// Each slot keeps the MAX since the last commit, so a spike survives the
 	// downsampling rather than being averaged into the baseline around it.
 	const PerfMonitor::Metrics& m = m_perf.Get();
@@ -35,6 +41,7 @@ void DevConsole::SamplePerfSeries(const gfx::GraphicsDevice& device) {
 	bump(kRam, static_cast<float>(m.sysMemUsedMB));
 	bump(kVram, static_cast<float>(vram.usedBytes) / (1024.0f * 1024.0f));
 	bump(kSrv, static_cast<float>(device.SrvLive()));
+	bump(kUi, static_cast<float>(static_cast<double>(sprites.ArenaStats().lastFrame) / kMiB));
 	bump(kProc, static_cast<float>(m.procMemMB));
 }
 
@@ -45,17 +52,25 @@ void DevConsole::CommitPerfSeries() {
 	}
 }
 
-// Header (the section name and the GPU's), then six gauges (or six graphs in
-// three two-column rows). A collapsed section is its header row and nothing else.
-// Every section can be reduced to one line, so the panel can be cut down to
-// just the thing being watched rather than scrolled past everything else.
+int DevConsole::PerfGraphRows() const {
+	int others = 0;
+	for (int i = 0; i < kPerfLines; ++i)
+		if (i != kFps && !m_perfHidden[i]) ++others;
+	return (m_perfHidden[kFps] ? 0 : 1) + (others + 1) / 2;
+}
+
+// Header (the section name and the GPU's), then seven gauges (or seven graphs:
+// the frame rate across the top, the rest in three two-column rows). A collapsed
+// section is its header row and nothing else. Every section can be reduced to
+// one line, so the panel can be cut down to just the thing being watched rather
+// than scrolled past everything else.
 float DevConsole::PerfSectionHeight(const PanelCtx& p) const {
 	const float line = p.line, graphH = p.graphH, graphGapY = p.graphGapY;
 	int perfVisible = 0;
 	for (int i = 0; i < kPerfLines; ++i)
 		if (!m_perfHidden[i]) ++perfVisible;
 	const int perfHiddenCount = kPerfLines - perfVisible;
-	const int perfGraphRows = (perfVisible + 1) / 2;
+	const int perfGraphRows = PerfGraphRows();
 	const float perfBody =
 		!m_perfExpanded ? 0.0f
 		: m_perfGraph   ? static_cast<float>(perfGraphRows) * (graphH + graphGapY) +
@@ -80,10 +95,7 @@ void DevConsole::DrawPerfSection(const PanelCtx& p, float top) {
 	const double gpuBudgetGB = static_cast<double>(vram.budgetBytes) / (1024.0 * 1024.0 * 1024.0);
 	// The same count PerfSectionHeight made, so the graph grid fills exactly the
 	// rows the layout gave it.
-	int perfVisible = 0;
-	for (bool hidden : m_perfHidden)
-		if (!hidden) ++perfVisible;
-	const int perfGraphRows = (perfVisible + 1) / 2;
+	const int perfGraphRows = PerfGraphRows();
 	float y = top + p.sy;
 
 	// A gauge may carry a SUBSET drawn first, from the left, in its own colour:
@@ -129,7 +141,7 @@ void DevConsole::DrawPerfSection(const PanelCtx& p, float top) {
 	y += line;
 	if (m_perfExpanded) y += line * 0.4f; // the header gap PerfSectionHeight counts
 
-	// The six gauges as ONE table, so the bar view and the graph view cannot
+	// The seven gauges as ONE table, so the bar view and the graph view cannot
 	// disagree about what a measure is or what it is measured against. Each
 	// carries its own SCALE — a real ceiling in every case, which is why these
 	// graph against a fixed axis while a profile timing autoscales.
@@ -138,6 +150,10 @@ void DevConsole::DrawPerfSection(const PanelCtx& p, float top) {
 	const double vramBudgetMB = gpuBudgetGB > 0 ? gpuBudgetGB * 1024.0 : 1.0;
 	const float srvLive = static_cast<float>(device.SrvLive());
 	const float srvCap = static_cast<float>(gfx::GraphicsDevice::SrvCapacity());
+	const gfx::SpriteArenaStats& arena = batch.ArenaStats();
+	const double uiMB = static_cast<double>(arena.lastFrame) / kMiB;
+	const double uiCapMB = static_cast<double>(arena.capacity) / kMiB;
+	const double uiPeakMB = static_cast<double>(arena.peak) / kMiB;
 
 	struct PerfItem {
 		const char* name;
@@ -202,15 +218,27 @@ void DevConsole::DrawPerfSection(const PanelCtx& p, float top) {
 		 std::format("SRV  {} / {} (peak {})", device.SrvLive(),
 					 gfx::GraphicsDevice::SrvCapacity(), device.SrvHighWater()),
 		 srvLive, srvCap, {0.60f, 0.75f, 0.90f, 1.0f}, srvLive / srvCap > 0.9f},
+		// The UI's vertex arena (code-review C163): the last finished frame's use
+		// against one frame's arena, with its peak, like the slots beside it. The
+		// editor map of a big level is what fills it, and a frame past it DROPS
+		// draws rather than aborting - so a drop is a warning, said in the label.
+		{"UI",
+		 arena.drops == 0
+			 ? std::format("UI   {:.1f} / {:.0f} MB (peak {:.1f})", uiMB, uiCapMB, uiPeakMB)
+			 : std::format("UI   {:.1f} / {:.0f} MB (peak {:.1f}, {} dropped)", uiMB, uiCapMB,
+						   uiPeakMB, arena.drops),
+		 static_cast<float>(uiMB), static_cast<float>(uiCapMB), {0.45f, 0.85f, 0.75f, 1.0f},
+		 arena.drops > 0 || uiMB > uiCapMB * 0.9},
 	};
 
 	// ONE display order for both views, so nothing moves when you toggle between
 	// them. It is not the order the enum declares: filling the two-column grid in
 	// declaration order put CPU beside FPS and RAM beside GPU, pairs that mean
-	// nothing next to each other. Read down the columns it is the two PROCESSORS
-	// side by side and the two MEMORIES side by side, with the frame rate and the
-	// descriptor ceiling — the only two with no natural partner — heading them.
-	constexpr PerfLine kPerfOrder[kPerfLines] = {kFps, kSrv, kGpu, kCpu, kVram, kRam};
+	// nothing next to each other. The frame rate - the headline, and the one with
+	// no natural partner - leads (alone across the top, as a graph); then the two
+	// FIXED CEILINGS with a peak side by side (descriptor slots, the UI arena),
+	// the two PROCESSORS, and the two MEMORIES.
+	constexpr PerfLine kPerfOrder[kPerfLines] = {kFps, kSrv, kUi, kGpu, kCpu, kVram, kRam};
 
 	if (!m_perfExpanded) {
 		// nothing: the header above is the whole section
@@ -241,19 +269,24 @@ void DevConsole::DrawPerfSection(const PanelCtx& p, float top) {
 		}
 	} else {
 		const float pgw = (width - pad * 6.0f) * 0.5f;
+		// The frame rate takes the first row whole (PerfGraphRows counts it so);
+		// the rest fill two columns beneath it.
+		const int lead = m_perfHidden[kFps] ? 0 : 1;
 		int shown = 0;
 		for (int oi = 0; oi < kPerfLines; ++oi) {
 			const int i = kPerfOrder[oi];
 			if (m_perfHidden[i]) continue;
 			const PerfItem& it = items[i];
-			const int col = shown % 2, gr = shown / 2;
-			++shown;
+			const bool wide = i == kFps;
+			const int col = wide ? 0 : shown % 2, gr = wide ? 0 : lead + shown / 2;
+			if (!wide) ++shown;
 			const float gx = pad * 2.0f + static_cast<float>(col) * (pgw + pad * 2.0f);
+			const float gw = wide ? pgw * 2.0f + pad * 2.0f : pgw;
 			const float gy = y + static_cast<float>(gr) * (graphH + graphGapY);
 			if (gy > panelH || gy + graphH < 0.0f) continue; // scrolled out of view
 			const float cw = DrawCheckbox(p, gx, gy, true, i, 0, 0);
 			drawLabel(it, gx + cw, gy, it.warn ? kWarn : kText, false);
-			const gfx::Rect plot{gx, gy + line, pgw, graphH - line};
+			const gfx::Rect plot{gx, gy + line, gw, graphH - line};
 			DrawSeriesGraph(batch, plot, m_perfSeries[i].samples, kProfHistory, m_profHead,
 							it.scale, it.color);
 			// The subset's band over the whole's, on the same scale - since it never

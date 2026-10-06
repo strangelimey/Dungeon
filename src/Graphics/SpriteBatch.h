@@ -10,6 +10,14 @@
 // assets/shaders/bar.hlsl); moving between the two is a flush like any other.
 // Text rendering sits one level up: ui::Font turns glyphs into DrawSprite
 // calls against its atlas texture.
+//
+// THE ARENA IS FINITE AND THE CONTENT IS NOT (code-review C163). The editor's
+// map draws a quad per square, so a frame's vertices follow the level's size:
+// kArenaBytes is sized for the largest level the generator makes, drawn whole
+// at fit zoom (MapView.cpp static_asserts the fit). A frame that still runs
+// out - a level grown past that by a resize - DROPS the batch that does not
+// fit and counts it (ArenaStats, the console's UI gauge, `sprites`) instead of
+// aborting, and the batches after it still draw.
 // ============================================================================
 #pragma once
 
@@ -62,12 +70,32 @@ struct BarFill {
 						   // the colour beats with the height the caller animates)
 };
 
+// What the vertex arena did, for the console's UI gauge and the `sprites`
+// command. A FRAME here is one SpriteBatch frame (NewFrame to NewFrame), so the
+// readings are the last FINISHED frame's: the frame in progress is still filling.
+struct SpriteArenaStats {
+	u64 capacity = 0;      // bytes a frame may use
+	u64 lastFrame = 0;     // bytes the last finished frame used
+	u64 peak = 0;          // the most any frame has used, ever
+	u32 lastDrops = 0;     // batches the last finished frame dropped
+	u64 drops = 0;         // batches dropped because the arena was full, ever
+	u64 droppedVerts = 0;  // the vertices those batches carried
+};
+
 // Batched 2D rendering in pixel coordinates (origin top-left). Used by the UI
 // module for panels, controls, and text. Draw order is submission order.
 class SpriteBatch {
 public:
+	// One frame's vertex arena (there is one per frame in flight). 8 MB: the
+	// editor map of a 128 x 128 level is 16,384 quads, 5.25 MB (a whole editor
+	// frame over it measured 5.42), and the rest is room for whatever else a
+	// frame draws over it - the console, a dialog (see MapView.cpp).
+	static constexpr u64 kArenaBytes = 8ull * 1024 * 1024;
+
 	explicit SpriteBatch(GraphicsDevice& device);
 
+	// Closes the frame that just ended (its arena use becomes ArenaStats'
+	// reading) and resets `frameIndex`'s arena for the one starting.
 	void NewFrame(u32 frameIndex);
 	void Begin(ID3D12GraphicsCommandList* list, u32 screenWidth, u32 screenHeight);
 
@@ -138,6 +166,8 @@ public:
 
 	const Texture& WhiteTexture() const { return *m_white; }
 
+	const SpriteArenaStats& ArenaStats() const { return m_arenaStats; }
+
 private:
 	// `outline` is zero for every sprite but an outlined glyph (DrawGlyph);
 	// glyph.x is that glyph's outline radius in px.
@@ -159,6 +189,12 @@ private:
 	};
 	enum class Mode { Sprite, Bar };
 
+public:
+	// What one quad costs in the arena: six vertices, two triangles. Public for
+	// the static_assert that sizes the arena against the editor map.
+	static constexpr u64 kQuadBytes = 6 * sizeof(SpriteVertex);
+
+private:
 	void Flush();
 	void UseMode(Mode mode);
 	// Uploads `bytes` of vertices and draws them under the current scissor
@@ -186,6 +222,8 @@ private:
 	D3D12_GPU_DESCRIPTOR_HANDLE m_pendingTexture{};
 	Rect m_scissor{};
 	bool m_scissorActive = false;
+	SpriteArenaStats m_arenaStats;
+	u32 m_frameDrops = 0; // batches dropped so far this frame
 };
 
 } // namespace dungeon::gfx

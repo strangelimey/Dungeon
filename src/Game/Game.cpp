@@ -2029,7 +2029,7 @@ void Game::UpdateStates(float dt) {
 		// what it reports would be worth knowing about.
 		DN_PROFILE_ZONE_L(prof::kLevelSystem, "console");
 		m_console.Update(input, dt, static_cast<float>(m_window.Width()),
-						 static_cast<float>(m_window.Height()), m_device);
+						 static_cast<float>(m_window.Height()), m_device, m_spriteBatch);
 	}
 	UpdateGovernor(dt); // adaptive thread throttle (no-op unless `governor auto`)
 	// The console owns the whole frame's input if it was open at the start (or

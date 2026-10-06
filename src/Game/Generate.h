@@ -33,6 +33,13 @@
 
 namespace dungeon::game::generate {
 
+// The sides a generated level may have (the width and height knobs' range, and
+// what Run clamps to). kMaxSide is also a RENDERING limit: the editor draws the
+// whole map at fit zoom, one sprite quad a square, and the sprite arena is sized
+// to hold the largest - MapView.cpp static_asserts it (code-review C163).
+inline constexpr int kMinSide = 8;
+inline constexpr int kMaxSide = 128;
+
 // The knobs. Everything the shape depends on lives here, so a level is exactly
 // reproducible from this struct — see the determinism note above.
 struct Params {

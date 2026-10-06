@@ -286,6 +286,10 @@ void Game::RegisterDevCommands() {
 								   stem, std::atoi(args[1].c_str()), std::atoi(args[2].c_str()),
 								   std::atoi(args[3].c_str()), std::atoi(args[4].c_str()));
 							   m_world->CommitUndoStep(ok);
+							   // As the edge drag does (MapView.cpp): a BROWSED level is
+							   // drawn from its snapshot, which would still show the old
+							   // size.
+							   m_mapView.RefreshBrowse();
 							   m_console.Print(std::format("editor resize: {} {}", stem,
 														   ok ? "done" : "refused"));
 							   return;
@@ -1426,6 +1430,22 @@ void Game::RegisterDevCommands() {
 						   m_console.Print(std::format(
 							   "glass queued={} frames={} peak={} overflows={} dropped={}",
 							   s.queued, s.frames, s.peak, s.overflows, s.dropped));
+					   });
+	// The UI's vertex arena (code-review C163): the console perf panel's UI gauge
+	// as one line. Bytes, so a harness can compare against the cell layer's size;
+	// the last FINISHED frame's, since a command runs mid-frame.
+	m_console.Register({.name = "sprites",
+						.group = CmdGroup::Rendering,
+						.summary = "the UI sprite arena: last frame's bytes, the peak, batches dropped"},
+					   [this](const std::vector<std::string>&) {
+						   const gfx::SpriteArenaStats& s = m_spriteBatch.ArenaStats();
+						   constexpr double kMB = 1024.0 * 1024.0;
+						   m_console.Print(std::format(
+							   "sprites last={} peak={} capacity={} ({:.2f} / {:.2f} MB, peak "
+							   "{:.2f}) lastdrops={} drops={} dropvertices={}",
+							   s.lastFrame, s.peak, s.capacity, s.lastFrame / kMB,
+							   s.capacity / kMB, s.peak / kMB, s.lastDrops, s.drops,
+							   s.droppedVerts));
 					   });
 	m_console.Register({.name = "shadows",
 						.group = CmdGroup::Rendering,

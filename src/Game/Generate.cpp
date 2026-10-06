@@ -513,20 +513,22 @@ Level Run(const Params& p) {
 	q.roomMin = std::clamp(std::min(p.roomMin, p.roomMax), 3, 12);
 	q.roomMax = std::clamp(std::max(p.roomMin, p.roomMax), 3, 12);
 	const bool entry = p.entryX >= 0 && p.entryZ >= 0;
+	// Inside the rock rim of the largest map.
+	constexpr int kInnerMax = kMaxSide - 2;
 	if (entry) {
-		q.entryX = std::clamp(p.entryX, 1, 126);
-		q.entryZ = std::clamp(p.entryZ, 1, 126);
+		q.entryX = std::clamp(p.entryX, 1, kInnerMax);
+		q.entryZ = std::clamp(p.entryZ, 1, kInnerMax);
 	}
 	for (auto& [x, z] : q.keepOpen) {
-		x = std::clamp(x, 1, 126);
-		z = std::clamp(z, 1, 126);
+		x = std::clamp(x, 1, kInnerMax);
+		z = std::clamp(z, 1, kInnerMax);
 	}
 	int needW = p.width, needH = p.height;
 	if (entry) needW = std::max(needW, q.entryX + 2), needH = std::max(needH, q.entryZ + 2);
 	for (const auto& [x, z] : q.keepOpen)
 		needW = std::max(needW, x + 2), needH = std::max(needH, z + 2);
-	lv.width = std::clamp(needW, 8, 128);
-	lv.height = std::clamp(needH, 8, 128);
+	lv.width = std::clamp(needW, kMinSide, kMaxSide);
+	lv.height = std::clamp(needH, kMinSide, kMaxSide);
 	// Squares nothing may be placed on: the entry and the kept-open ones are
 	// stairs, and a door or a key on a stair is nonsense.
 	std::vector<std::pair<int, int>> reserved = q.keepOpen;

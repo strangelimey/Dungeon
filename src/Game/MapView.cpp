@@ -19,6 +19,7 @@
 #include "Game/AssetUtil.h" // TryLoadTextureFile (toolbar icon discs)
 #include "Game/DungeonMeshBuilder.h" // SurfaceVariantFor (the cell fill's hash)
 #include "Game/Entity.h"
+#include "Game/Generate.h" // kMaxSide (the sprite arena's fit, before Render)
 #include "Game/MapColors.h"
 #include "Game/MapEditor.h"
 #include "UI/Controls.h" // ui::DrawBorder
@@ -886,6 +887,21 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 
 	return panel.Contains(mx, my);
 }
+
+// THE CELL LAYER FITS THE SPRITE ARENA (code-review C163). In Editor mode every
+// square is visible, and at fit zoom every one is on screen, so Render's cell
+// loop draws one quad per square of the level: culling to the grid cannot help.
+// The largest level the generator makes must therefore fit in one frame's arena
+// with room left for the rest of an editor frame - the docks' text, the toolbar,
+// the markers, the console over it (EditorTest phase 19 measures a real one). A
+// level grown past it by a resize does not abort: SpriteBatch drops the batch it
+// cannot hold and counts it (`sprites`).
+constexpr u64 kEditorFrameRoom = 2ull * 1024 * 1024;
+static_assert(static_cast<u64>(generate::kMaxSide) * generate::kMaxSide *
+						  gfx::SpriteBatch::kQuadBytes +
+					  kEditorFrameRoom <=
+				  gfx::SpriteBatch::kArenaBytes,
+			  "the editor map of the largest generated level no longer fits the sprite arena");
 
 void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 					 const gfx::Rect& panel) {

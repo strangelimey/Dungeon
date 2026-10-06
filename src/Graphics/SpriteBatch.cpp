@@ -1,8 +1,10 @@
 #include "Graphics/SpriteBatch.h"
 
+#include "Core/Log.h"
 #include "Core/Paths.h"
 #include "Graphics/ShaderCompiler.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 
@@ -122,8 +124,8 @@ SpriteBatch::SpriteBatch(GraphicsDevice& device) : m_device(device) {
 	DN_HR(m_device.Device()->CreateGraphicsPipelineState(&pso, IID_PPV_ARGS(&m_barPso)));
 
 	for (u32 i = 0; i < kFrameCount; ++i)
-		m_frameAllocators[i] =
-			std::make_unique<UploadAllocator>(m_device.Device(), 4 * 1024 * 1024);
+		m_frameAllocators[i] = std::make_unique<UploadAllocator>(m_device.Device(), kArenaBytes);
+	m_arenaStats.capacity = m_frameAllocators[0]->Capacity(); // what was made, not meant
 
 	assets::ImageData white;
 	white.width = white.height = 1;
@@ -139,6 +141,14 @@ SpriteBatch::SpriteBatch(GraphicsDevice& device) : m_device(device) {
 }
 
 void SpriteBatch::NewFrame(u32 frameIndex) {
+	// The frame that just ended is the gauge's reading: its arena is the one
+	// m_frameIndex still names, before the index moves on.
+	const u64 used = m_frameAllocators[m_frameIndex]->Used();
+	m_arenaStats.lastFrame = used;
+	m_arenaStats.peak = std::max(m_arenaStats.peak, used);
+	m_arenaStats.lastDrops = m_frameDrops;
+	m_frameDrops = 0;
+
 	m_frameIndex = frameIndex;
 	m_frameAllocators[m_frameIndex]->Reset();
 }
@@ -337,7 +347,23 @@ void SpriteBatch::Submit(const void* data, u64 bytes, u32 stride, u32 count) {
 	// after a crash. The clipping itself is correct; submitting the work was not.
 	if (scissor.right <= scissor.left || scissor.bottom <= scissor.top) return;
 
-	UploadAllocation alloc = m_frameAllocators[m_frameIndex]->Allocate(bytes, 16);
+	// A BATCH THE ARENA CANNOT HOLD IS DROPPED AND COUNTED (code-review C163), the
+	// transparent queue's bargain: it used to assert, which aborts in every build,
+	// and the editor map of a level past the arena's size (a resize allows 256 a
+	// side) reached it. A failed request takes nothing, so the batches after this
+	// one - the docks, the text - still draw. Said once in the log; the count is
+	// the console's UI gauge and `sprites`.
+	const UploadAllocation alloc = m_frameAllocators[m_frameIndex]->TryAllocate(bytes, 16);
+	if (!alloc.cpu) {
+		if (m_arenaStats.drops == 0)
+			log::Warn("sprite arena full: a {} byte batch ({} vertices) was dropped - the "
+					  "frame needs more than the {} MB arena (`sprites` counts every drop)",
+					  bytes, count, kArenaBytes / (1024 * 1024));
+		++m_arenaStats.drops;
+		m_arenaStats.droppedVerts += count;
+		++m_frameDrops;
+		return;
+	}
 	std::memcpy(alloc.cpu, data, bytes);
 
 	D3D12_VERTEX_BUFFER_VIEW vbv{};

@@ -85,7 +85,12 @@ Key conventions (memorize, they bite):
   section dividers; keep that style.
 - Per-frame GPU transients come from UploadAllocator arenas (one per frame
   in flight, kFrameCount=3); steady-state frames allocate nothing on the
-  heap (docs/ARCHITECTURE.md "Memory strategy"). A full allocation audit
+  heap (docs/ARCHITECTURE.md "Memory strategy"). An arena is a FIXED size and
+  running out asserts - EXCEPT the UI's: SpriteBatch's 8 MB is sized for the
+  editor map of the largest generated level (generate::kMaxSide = 128, a quad
+  a square at fit zoom; MapView.cpp static_asserts the fit), and a frame past
+  it DROPS the batch and counts it (`sprites`, the console's UI gauge beside
+  SRV; EditorTest phase 19, code-review C163). A full allocation audit
   (2026-07-03) verified the rule and closed its last violations (formation
   scratch, flat AI-snapshot grids, shared icon light rig — see the AI
   section). The rule is now CHECKED, not just held (docs/ARCHITECTURE.md
