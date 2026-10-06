@@ -1,0 +1,70 @@
+; worldswitch.eval - what a world switch must not carry over, and when it must
+; not happen (code-review C115, C234). Judged by tools/EditorTest.py phase 30,
+; on two scratch worlds: et_demo (opened with -project) and et_other beside it.
+;
+; 1. A QUESTION DOES NOT CROSS (C115). The exit's question is asked (`confirm
+;    leave` - what stepping onto an exit stair asks), then `worlds load
+;    et_other`. The question names this world's dungeon and its Yes would run
+;    LeaveDungeon; in the next world it must be gone, taken down by the UNLOAD
+;    - its log line names which ending took it - before that world's new game
+;    could: a switch to a world that fails to load reaches no new game. A Yes is
+;    then refused, there being nothing up to answer.
+; 2. NO SWITCH UNDER A BAKE (C234). Back in et_demo, the create dialog's "Use
+;    installed" on a floor set nobody paints and with no worn meshes
+;    (et_switch_bake) starts AssetBaker; `worlds load et_other` is refused while
+;    it runs; `bake wait` lets it land, which it does in et_demo, the world that
+;    asked for it. A type from an installed set records no import.
+; 3. ...NOR UNDER AN IMPORT (C234's other half: the imports.cat record). The
+;    create dialog's Import, Browse handed a folder EditorTest wrote (one small
+;    albedo map; ET_IMPORT_DIR is replaced by its path), bakes in TWO runs - the
+;    maps, then the worn meshes - and `worlds load et_other` is refused in each,
+;    the second after the step 0 -> 1 hand-off. Both land in et_demo: the type in
+;    floors.cat, the record in imports.cat. The script returns to et_demo first,
+;    so this half is judged on its own whatever became of the second.
+; EditorTest reads both worlds' manifests and catalogs off the disk: et_other's
+; byte for byte as they were, imports.cat among them; et_demo's floors.cat
+; gaining the two types and its imports.cat the one record, nothing else moved.
+
+logecho on
+reset
+echo --- asked ---
+confirm leave
+confirm
+echo --- switched ---
+worlds load et_other
+worlds status
+confirm
+expect-refuse confirm yes
+echo --- back ---
+worlds load et_demo
+worlds status
+; The editor open, as "+ New..." needs it.
+editor
+echo --- bake ---
+newasset floors installed et_switch_bake et_switchbake
+bake
+expect-refuse worlds load et_other
+worlds status
+bake wait 300
+echo --- landed ---
+bake
+newasset status
+worlds status
+echo --- import ---
+worlds load et_demo
+editor
+newasset floors import ET_IMPORT_DIR et_switchimp
+bake
+expect-refuse worlds load et_other
+worlds status
+bake wait 300
+echo --- import step 1 ---
+bake
+expect-refuse worlds load et_other
+worlds status
+bake wait 300
+echo --- imported ---
+bake
+newasset status
+worlds status
+echo --- end ---

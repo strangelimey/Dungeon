@@ -229,10 +229,7 @@ void Game::OpenPartyCreation(const std::string& folder) {
 	// Another world than the resident one: switch first (a frame later, as every
 	// switch is), and the switch opens the page when it lands.
 	if (!folder.empty() && (!m_world || folder != m_project.FolderName())) {
-		if (!SwitchWorld(folder)) {
-			log::Warn("party creation: world '{}' is gone", folder);
-			return;
-		}
+		if (!SwitchWorld(folder)) return; // gone, or a bake running: SwitchWorld logs why
 		if (m_pendingWorld) {
 			m_pendingWorld->partyPage = true;
 			return;

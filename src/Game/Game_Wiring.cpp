@@ -128,6 +128,12 @@ void Game::WireModuleCallbacks() {
 		const std::optional<SaveHeader> head = ReadSaveHeader(path);
 		if (!head) return; // missing, or refused (ReadSaveHeader logged why)
 		if (!m_world || head->world != m_project.FolderName()) {
+			// Not under a running bake, which lands in whatever world is loaded
+			// (code-review C234; SwitchWorld's rule, asked the same way).
+			if (const std::string busy = WorldSwitchRefusal(); !busy.empty()) {
+				log::Warn("load '{}' refused: {}", path, busy);
+				return;
+			}
 			m_pendingWorld = PendingWorld{head->world, path};
 			return;
 		}

@@ -512,9 +512,14 @@ private:
 	static constexpr const char* kDefaultProject = "dungeon-demo";
 	// Opens `name` and starts a new game in it — in the process, next frame
 	// (m_pendingWorld), no relaunch since docs/world-on-demand.md. Remembered as
-	// the last world played unless -project named this run's. False when no
-	// such world exists.
-	bool SwitchWorld(const std::string& name);
+	// the last world played unless -project named this run's. False, with the
+	// reason in `why` when given, when no such world exists or an asset BAKE is
+	// running: the bake writes its type into the world loaded when it lands, so
+	// the switch would hand it to the next world (code-review C234).
+	bool SwitchWorld(const std::string& name, std::string* why = nullptr);
+	// "" when the world may change now, else why not (a bake running). Asked by
+	// SwitchWorld and by a menu load of another world's save.
+	std::string WorldSwitchRefusal() const;
 	// Writes a NEW world beside this one and returns its name ("" on failure,
 	// with the reason in `problem` when given). HOW is the spec's (NewWorld.h):
 	// blank from the template, this world whole, or one of its levels. Every
@@ -869,6 +874,14 @@ private:
 	// not carry it off into another - else every world's (code-review C207: this
 	// was latched at launch and went stale after a switch).
 	std::string SaveListWorld() const;
+	// What GAME itself holds from the game before - the item on the cursor
+	// (code-review C296) and a Yes/No question still asked (C115) - put down, the
+	// question unanswered (`why` names the ending in its log line). The world's
+	// side is DungeonWorld::ResetForNewGame; this is the half it cannot reach.
+	// Called wherever a game begins: StartNewGame, LoadGame (once its save is
+	// read) and ResetForEval's recycle; the switch and the cold start reach
+	// StartNewGame. UnloadWorld puts both down too, and the title the question.
+	void ClearGameTransients(const char* why);
 	// Resets the roster to a fresh party: `party` (a CREATED one, docs/party-
 	// creation-plan.md), or the default four when null. The same SIZE is assigned
 	// member by member, in place; a different size replaces the vector and

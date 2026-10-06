@@ -246,12 +246,15 @@ void Game::RegisterEvalCommands() {
 							   "piece_effects={}",
 							   t.brokenFixtures, t.brokenDecorations, t.brokenDoors,
 							   t.hurtPieces, t.pieceEffects));
+						   // The cursor's item and a question still asked are GAME's,
+						   // not the world's (Game::ClearGameTransients, C296/C115).
 						   m_console.Print(std::format(
-							   "  fall={} fell={} fallT={:.2f} cursor={}",
+							   "  fall={} fell={} fallT={:.2f} cursor={} prompt={}",
 							   t.fallPending ? "pending" : "none", t.fellPending ? 1 : 0,
 							   t.fallT,
 							   m_heldItem ? ItemToken(*m_heldItem, m_heldItem.Charge())
-										  : std::string("none")));
+										  : std::string("none"),
+							   m_ui.PromptActive() ? "open" : "none"));
 						   m_console.Print(std::format(
 							   "  undo={} redo={} resting={} lockstep={} rest_ended={}", t.undo,
 							   t.redo, t.resting ? "on" : "off", t.lockstep ? "on" : "off",

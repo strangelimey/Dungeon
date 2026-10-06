@@ -442,6 +442,10 @@ void AssetDialog::Browse() {
 			? platform::PickFolder(m_window.Handle())
 			: platform::PickFile(m_window.Handle(), L"3D models", L"*.gltf;*.glb;*.obj");
 	if (path.empty()) return;
+	PickSource(path);
+}
+
+void AssetDialog::PickSource(const std::string& path) {
 	m_sourcePath = path;
 	m_error.clear();
 	if (m_textureSet) {

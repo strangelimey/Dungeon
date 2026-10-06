@@ -3,13 +3,13 @@
 //
 // Split out of Game_DevCommands.cpp (past three thousand lines) by concern:
 // travelling the overworld (world/worldmap/travel/quest/camp/encounters/
-// enter/leave/worldpos/discover), the worlds beside this one and the map's
-// pages, the project-wide file checks (catround/levels; levelcheck has its own
-// file, Game_LevelCheck.cpp), and the world editor (worldedit/worldview/
-// terrainbrush/paint/worldprops/worldloc/worldarea/worldsettings/newtype/
-// typeset/typerefs/saveworld; `typeset dialog` drives the type editor itself,
-// step by step). The dungeon tier's commands are next door in
-// Game_DevDungeons.cpp.
+// enter/leave/confirm/worldpos/discover), the worlds beside this one and the
+// map's pages, the project-wide file checks (catround/levels; levelcheck has
+// its own file, Game_LevelCheck.cpp), and the world editor (worldedit/
+// worldview/terrainbrush/paint/worldprops/worldloc/worldarea/worldsettings/
+// newtype/newasset/bake/typeset/typerefs/saveworld; `typeset dialog` drives the
+// type editor itself, step by step). The dungeon tier's commands are next door
+// in Game_DevDungeons.cpp.
 // ============================================================================
 #include "Game/Game.h"
 
@@ -21,11 +21,13 @@
 #include "Game/Serialize.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <iterator>
 #include <string>
+#include <thread>
 #include <utility>
 
 namespace dungeon::game {
@@ -328,6 +330,67 @@ void Game::RegisterWorldCommands() {
 			else
 				m_console.Refuse("no world map to leave to");
 		});
+	// THE YES/NO QUESTION (GameUI::AskYesNo): what it asks; a doorway's or an
+	// exit's raised as walking onto one does (OfferEntrance / OfferExit - `enter`
+	// and `leave` above go IN or OUT without asking); and an answer as Enter / Esc
+	// gives one. A question names the game it was asked in, so a new game, a load,
+	// a reset, the title and a world switch take it down unanswered (code-review
+	// C115; resettest.eval stages one before each, EditorTest phase 30 a switch).
+	m_console.Register(
+		{.name = "confirm",
+		 .group = CmdGroup::World,
+		 .params = "[status]\n"
+				   "enter\n"
+				   "leave [location]\n"
+				   "yes | no",
+		 .summary = "the Yes/No question: what it asks; raise a doorway's or an exit's; answer it"},
+		[this](const std::vector<std::string>& args) {
+			const std::string what = args.empty() ? "status" : args[0];
+			if (what == "yes" || what == "no") {
+				if (!m_ui.PromptActive()) {
+					m_console.Refuse("confirm: no question is up to answer");
+					return;
+				}
+				const std::string asked = m_ui.ConfirmTitle();
+				m_ui.AnswerConfirm(what == "yes");
+				m_console.Print(std::format("confirm: answered {} to '{}'", what, asked));
+				return;
+			}
+			if (what == "enter" || what == "leave") {
+				if (m_ui.PromptActive()) {
+					m_console.Refuse("confirm: a question is up already - '" +
+									 m_ui.ConfirmTitle() + "'");
+					return;
+				}
+				if (what == "enter") {
+					// The doorway the party stands on, as the step onto it asks.
+					if (m_state != AppState::WorldMap) {
+						m_console.Refuse("confirm enter: the party is not on the world map");
+						return;
+					}
+					OfferEntrance();
+					if (!m_ui.PromptActive()) {
+						m_console.Refuse(std::format("confirm enter: no doorway the party "
+													 "knows of at {},{}",
+													 m_worldState.x, m_worldState.z));
+						return;
+					}
+				} else {
+					// An exit stair's question, asked wherever the party stands.
+					if (m_state != AppState::Playing) {
+						m_console.Refuse("confirm leave: the party is not in a level");
+						return;
+					}
+					OfferExit(args.size() > 1 ? args[1] : std::string());
+				}
+			} else if (what != "status") {
+				m_console.RefuseUsage();
+				return;
+			}
+			m_console.Print(m_ui.PromptActive()
+								? std::format("confirm: open - '{}'", m_ui.ConfirmTitle())
+								: std::string("confirm: none"));
+		});
 	m_console.Register(
 		{.name = "worldpos",
 		 .group = CmdGroup::World,
@@ -475,9 +538,11 @@ void Game::RegisterWorldCommands() {
 					return;
 				}
 				// A new game there, from the next frame: the switch destroys this
-				// world, and a console command is running inside it.
-				if (SwitchWorld(a[1])) m_console.Print("switching to " + a[1]);
-				else m_console.Refuse("no such world");
+				// world, and a console command is running inside it. Refused with
+				// SwitchWorld's reason - no such world, or a bake running (C234).
+				std::string why;
+				if (SwitchWorld(a[1], &why)) m_console.Print("switching to " + a[1]);
+				else m_console.Refuse("worlds load: " + why);
 				return;
 			}
 			if (a[0] == "delete" && a.size() >= 2) {
@@ -1574,10 +1639,11 @@ void Game::RegisterWorldCommands() {
 	m_console.Register(
 		{.name = "newasset",
 		 .group = CmdGroup::Types,
-		 .params = "<category> installed <asset> <id>\n<category> pick <asset> <id>\ncreate\n"
+		 .params = "<category> installed <asset> <id>\n<category> pick <asset> <id>\n"
+				   "<category> import <folder|file> <id>\ncreate\n"
 				   "plan <category> <asset>\nstatus | off",
-		 .summary = "the create dialog's Use installed: pick, type the id, click Create; "
-					"or what adopting a texture set would do"},
+		 .summary = "the create dialog's Use installed or Import: pick, type the id, click "
+					"Create; or what adopting a texture set would do"},
 		[this](const std::vector<std::string>& args) {
 			// The palette's "+ New..." dialog without a mouse. The create goes
 			// through the dialog itself - its Validate, its Create, then onCreate -
@@ -1609,7 +1675,10 @@ void Game::RegisterWorldCommands() {
 			const auto create = [this] {
 				const std::string key = m_assetDialog.CatalogKey();
 				const std::string id = m_assetDialog.TypedName();
-				const std::string asset = m_assetDialog.Asset();
+				// What it is made from: the pool asset, or an import's folder or file.
+				const std::string asset = m_assetDialog.Asset().empty()
+											  ? m_assetDialog.SourcePath()
+											  : m_assetDialog.Asset();
 				m_assetDialog.ClickCreate();
 				const Catalog* catalog = m_project.CatalogForKey(key);
 				const char* outcome = m_baking                 ? "baking"
@@ -1636,6 +1705,22 @@ void Game::RegisterWorldCommands() {
 											problem.empty() ? std::string("ready") : problem));
 				return;
 			}
+			// IMPORT, Browse handed the folder (a texture set) or model file: a
+			// texture set bakes in two runs, its maps then its worn meshes, and
+			// lands with its imports.cat record (EditorTest phase 30 refuses a world
+			// switch across both). A path may hold spaces: every word between
+			// `import` and the id.
+			if (args.size() >= 4 && args[1] == "import") {
+				const MapEditor::PaletteCat cat = catOf(args[0]);
+				if (cat == MapEditor::PaletteCat::Count) return;
+				std::string source = args[2];
+				for (size_t i = 3; i + 1 < args.size(); ++i) source += " " + args[i];
+				OpenCreateDialog(cat, AssetDialog::Source::Import);
+				m_assetDialog.PickSource(source);
+				m_assetDialog.TypeName(args.back());
+				create();
+				return;
+			}
 			if (args.size() == 1 && args[0] == "create") {
 				if (!m_assetDialog.IsOpen()) {
 					m_console.Refuse("newasset: no create dialog is open");
@@ -1652,6 +1737,58 @@ void Game::RegisterWorldCommands() {
 			m_console.Print(m_assetDialog.IsOpen()
 								? std::format("newasset: open - {}", m_assetDialog.Problem())
 								: std::string("newasset: closed"));
+		});
+	// THE ASSET BAKE in flight (StartBakeStep's AssetBaker): what is baking, and a
+	// WALL-CLOCK wait for its baker to exit - the frame after, Update's poll lands
+	// it (FinishBake writes the type; a texture import starts its second step), so
+	// a script's next line sees the result. The `aiwait` shape: the main thread
+	// blocks, and the wait refuses rather than run on forever. What it exists for
+	// is EditorTest phase 30: a world switch asked while a bake runs is refused,
+	// and the bake lands in the world that started it (code-review C234).
+	m_console.Register(
+		{.name = "bake",
+		 .group = CmdGroup::Types,
+		 .params = "[status]\nwait [seconds]",
+		 .summary = "the running asset bake; wait on the wall clock for its baker to exit"},
+		[this](const std::vector<std::string>& args) {
+			const std::string what = args.empty() ? "status" : args[0];
+			if (what == "wait") {
+				if (!m_baking) {
+					m_console.Refuse("bake wait: no bake is running");
+					return;
+				}
+				const double limit =
+					args.size() > 1 ? std::max(1.0, std::atof(args[1].c_str())) : 300.0;
+				const auto t0 = std::chrono::steady_clock::now();
+				double secs = 0.0;
+				bool running = true;
+				while ((running = m_bake.Running()) && secs < limit) {
+					std::this_thread::sleep_for(std::chrono::milliseconds(50));
+					secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0)
+							   .count();
+				}
+				if (running) {
+					m_console.Refuse(std::format("bake wait: '{}' still baking after {:.0f} s",
+												 m_bakeReq.name, secs));
+					return;
+				}
+				// A texture import is two runs (maps, then worn meshes): its first
+				// exit starts the second, which another `bake wait` waits out.
+				const bool more = m_bakeReq.textureSet && m_bakeStep == 0 && !m_restyleBake;
+				m_console.Print(std::format("bake: the baker for '{}' exited (code {}) after "
+											"{:.1f} s - {} next frame",
+											m_bakeReq.name, m_bake.ExitCode(), secs,
+											more ? "its second step starts" : "it lands"));
+				return;
+			}
+			if (what != "status") {
+				m_console.RefuseUsage();
+				return;
+			}
+			m_console.Print(m_baking ? std::format("bake: running - {} '{}', step {}{}",
+												   m_bakeReq.catalogKey, m_bakeReq.name,
+												   m_bakeStep, m_restyleBake ? " (a restyle)" : "")
+									 : std::string("bake: idle"));
 		});
 	m_console.Register(
 		{.name = "typeset",

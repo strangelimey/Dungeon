@@ -129,11 +129,16 @@ public:
 	// Create clicked, and the line under the form - why Create is refused, or the
 	// last failure; "" when the form is ready.
 	void TypeName(const std::string& id);
+	// The folder (a texture set) or model file Browse's native picker returned,
+	// taken as Browse takes it: what the import will find, the flip-green guess,
+	// a default name and the preview (`newasset <category> import`).
+	void PickSource(const std::string& path);
 	void ClickCreate() { Create(); }
 	std::string Problem() const { return m_error.empty() ? Validate() : m_error; }
 	// What the form holds now, read before a Create to say what it made.
 	const std::string& CatalogKey() const { return m_catalogKey; }
 	const std::string& Asset() const { return m_asset; }
+	const std::string& SourcePath() const { return m_sourcePath; }
 	std::string TypedName() const;
 
 	// Live preview source (null until a model or texture set is picked).

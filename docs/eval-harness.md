@@ -854,6 +854,37 @@ encounter, before the encounter's own `leave`, none. A verdict read across the
 walk out and the encounter's leave too would let either of those, had it begun
 clearing the history, hide an ambush that stopped.
 
+### ...and so do the cursor and a question (code-review C296, C115)
+
+Two more, held by GAME rather than the world, so `ResetForNewGame` cannot reach
+them. THE ITEM ON THE CURSOR was dropped only when the world unloaded: a dagger
+lifted before Return to Main Menu came back on the new party's cursor - and on
+its own square, `ResetForNewGame` having put the floor items back, so one dagger
+became two - a lit torch there lit the next game, and the recycle `reset`
+carried one from a suite into the next. A YES/NO QUESTION still up (an exit's,
+a doorway's) was never taken down at all: after a `newgame`, a `load`, a `reset`
+or a world switch it stayed over the next game, taking all input, and its Yes ran
+`LeaveDungeon` / `EnterLocation` with the old game's ids. Both now go in
+`Game::ClearGameTransients`, which `StartNewGame`, `LoadGame` (once the save is
+read) and the recycle `reset` call; `UnloadWorld` puts both down too, and the
+title the question (`GameUI::CancelConfirm`, which logs what it took down and
+which ending did).
+
+`transients` gained `cursor=` (the item's token, `none`) and `prompt=`
+(`open` / `none`), so baseline A and B compare them, and the dev command
+`confirm` asks an exit's question (`confirm leave`) or a doorway's (`confirm
+enter`), reports one, or answers it. resettest.eval's repros 4-6 stage both with
+the rest - a wall torch taken with Brand's hands full lands on the cursor - and
+the load, the new game and the reset must leave `cursor=none prompt=none`; repro
+7 is the issue's own path, both staged, then `title` (the question goes: a
+dungeon's question means nothing over the title, which showed it as its own
+modal) and a `newgame` from there (the cursor empties - the title keeps it, as
+Continue lays a save's item over it). The wrecking before baseline B ends on
+both, for the recycle. A world switch is EditorTest's (phase 30, on scratch
+worlds): the question must be gone in the next world, its log line naming the
+UNLOAD as what took it - not the next world's new game, which a switch to a world
+that fails to load never reaches.
+
 ## What the harness costs the shipping code (audited 2026-08-15)
 
 Michael's review question was the right one: *is this magic flags and special

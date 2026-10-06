@@ -619,7 +619,9 @@ void Game::UnloadWorld() {
 	m_itemIconPlaceholders.clear();
 	m_slotIconTextures.clear();
 	m_useIconTextures.clear();
-	m_heldItem.reset();
+	// The cursor's item is the old world's kind id, and a question still up names
+	// its doorways and dungeons (C115) - both go with it, whatever comes next.
+	ClearGameTransients("the world was unloaded");
 	// A member's effects point at the old world's effect kinds.
 	for (Character& c : m_characters) c.effects.clear();
 	m_mapView.SetWorld(nullptr);
@@ -1063,6 +1065,20 @@ void Game::ApplyMemberColors() {
 		m_characters[i].portraitColor = m_settings.memberColors[i];
 }
 
+void Game::ClearGameTransients(const char* why) {
+	// THE ITEM ON THE CURSOR (code-review C296). Only UnloadWorld used to drop it,
+	// so a dagger lifted before Return to Main Menu came back on the new party's
+	// cursor - and on its own square too, ResetForNewGame having put the floor
+	// items back: one dagger, two copies. A lit torch there went on lighting
+	// (and burning in) the new game, and the harness's recycle `reset` carried
+	// it from one suite into the next.
+	m_heldItem.reset();
+	// A QUESTION STILL ASKED (C115): its answer is a closure over the game it was
+	// asked in - EnterLocation / LeaveDungeon with that game's ids - and it took
+	// all input over the new one until answered.
+	m_ui.CancelConfirm(why);
+}
+
 // Puts the party in `level` at `x,z` (-1,-1 = the level's own start cell).
 //
 // Returns TRUE when a level LOAD was staged, which the caller must treat as
@@ -1088,6 +1104,7 @@ bool Game::OpenInLevel(const std::string& level, int x, int z) {
 
 void Game::StartNewGame() {
 	m_world->ResetForNewGame();
+	ClearGameTransients("a new game began"); // the cursor and a question (C296, C115)
 	ResetWorldState();
 	// Fresh members carry empty inventories + no known symbols. The party is the
 	// one party creation made, once (consumed here), else the default four.
@@ -1320,6 +1337,10 @@ bool Game::LoadGame(const std::string& path) {
 	// where one under way ENDS - in there, with the clocks and the undo history,
 	// since a load on the same level never passes a level load (C294, C295, C297).
 	m_world->ResetForNewGame();
+	// And Game's own half (C296, C115): the cursor empty - the save's item, if it
+	// holds one, goes back on it below - and a question still up taken down. Not
+	// before the read above: a load that fails leaves the game as it was.
+	ClearGameTransients("a game was loaded");
 	ResetRoster();
 	// THE PARTY'S SIZE (party creation). A save that names one cuts the default
 	// four down to it before anything is laid on top; the members' own lines then
@@ -1333,13 +1354,12 @@ bool Game::LoadGame(const std::string& path) {
 	// new-game value for it rather than the last session's).
 	ResetWorldState();
 	m_worldState = data->world;
-	// Restore the cursor-held tablet (empty = nothing carried).
+	// Restore the cursor-held item (empty = nothing carried; ClearGameTransients
+	// emptied the cursor above).
 	if (!data->heldItem.empty()) {
 		ItemSlot held;
 		ItemFromToken(data->heldItem, held);
 		m_heldItem.Set(held.typeId, held.charge);
-	} else {
-		m_heldItem.reset();
 	}
 	for (size_t i = 0; i < m_characters.size() && i < data->characters.size(); ++i) {
 		const SaveData::CharState& c = data->characters[i];
@@ -1581,6 +1601,10 @@ void Game::ReturnToTitle(const char* why) {
 			  m_world ? m_world->CurrentLevel() : std::string("-"));
 	m_mapView.Close(); // the editor too: the title draws no overlay, so an open
 					   // one would only reappear over the next game
+	// A question about a doorway or a dungeon's exit means nothing on the title,
+	// which would show it as its own modal and run a Yes from there (C115). The
+	// cursor's item stays until a game begins: Continue lays the save's over it.
+	m_ui.CancelConfirm("back to the title");
 	m_editorOnArrival = false;
 	m_state = AppState::Menu;
 	// The title's own page, its list rebuilt from the saves on disk: a game

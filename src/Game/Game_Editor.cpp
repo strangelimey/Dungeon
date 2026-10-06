@@ -193,17 +193,35 @@ std::string Game::StyledStarterRecords(const Project& project, const std::string
 // changes until it is opened - in the process, since docs/world-on-demand.md
 // (it used to relaunch). Making one lives in Game_NewWorld.cpp.
 
-bool Game::SwitchWorld(const std::string& name) {
+std::string Game::WorldSwitchRefusal() const {
+	// A BAKE LANDS IN WHATEVER WORLD IS LOADED (code-review C234): FinishBake
+	// writes its catalog entry - and an import its imports.cat record - when the
+	// AssetBaker exits, into m_project as it is then. Switched under it, the new
+	// type went into the next world, replacing any type of the same id there.
+	// Only the console reaches this while a bake runs (the dialog is busy and
+	// modal), so it is refused rather than queued: the bake takes seconds.
+	if (m_baking)
+		return std::format("an asset bake is running ('{}') - switch worlds once it lands, "
+						   "or it lands in the next one",
+						   m_bakeReq.name);
+	return {};
+}
+
+bool Game::SwitchWorld(const std::string& name, std::string* why) {
+	const auto refuse = [&](std::string reason) {
+		log::Warn("switch to world '{}' refused: {}", name, reason);
+		if (why) *why = std::move(reason);
+		return false;
+	};
 	const std::string root = paths::Asset("projects");
 	const std::vector<std::string> found = Project::List(root);
-	if (std::find(found.begin(), found.end(), name) == found.end()) {
-		log::Warn("no world '{}' under {}", name, root);
-		return false;
-	}
+	if (std::find(found.begin(), found.end(), name) == found.end())
+		return refuse(std::format("no world '{}' under {}", name, root));
 	// ALREADY THERE means the world LOADED, not the one the setting names —
 	// a `-project` run leaves the setting alone, so comparing against it
 	// refused to leave a scenario for the world settings.ini already held.
 	if (m_world && name == m_project.FolderName()) return true;
+	if (std::string busy = WorldSwitchRefusal(); !busy.empty()) return refuse(std::move(busy));
 	// Remembered as the last world played (the next launch's default), unless
 	// this run's world was named on the command line — a scenario must not
 	// rewrite the developer's choice.
@@ -224,8 +242,7 @@ void Game::StartNewGameIn(const std::string& folder) {
 		m_ui.onStartNewGame();
 		return;
 	}
-	if (!SwitchWorld(folder))
-		log::Warn("new game: world '{}' is gone", folder);
+	SwitchWorld(folder); // a refusal (gone, or a bake running) logs its reason
 }
 
 // --- deleting a world (W9) ---------------------------------------------------

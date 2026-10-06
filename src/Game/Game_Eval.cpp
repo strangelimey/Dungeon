@@ -112,6 +112,10 @@ Game::EvalReset Game::ResetForEval(std::string& detail) {
 		return EvalReset::Switched;
 	}
 	m_world->ResetForEval();
+	// Game's own half of a new game (StartNewGame's call, which this path skips):
+	// the cursor's item and a question still up (code-review C296, C115). A
+	// suite's lifted torch used to ride into the next suite's party.
+	ClearGameTransients("the eval reset");
 	ResetRoster();  // fresh members, default portraits (reloaded only if changed)
 	m_ui.RefreshSheet();
 	ApplyPartySpeed();

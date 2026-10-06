@@ -201,6 +201,18 @@
 #      no meshes is baked, as the new kind - the only AssetBaker any create
 #      starts. Every worn mesh in the pool is fingerprinted before and after
 #      (the bake waited out): none changes and none appears but the fresh set's.
+#  30. A WORLD SWITCH CARRIES NO QUESTION AND RUNS UNDER NO BAKE (code-review
+#      C115, C234; 28 and 29 are left for other work): an exit's question asked
+#      before `worlds load` is gone in the next world, taken down by the unload
+#      itself (its log line names that ending, not the new game's), and a Yes
+#      is refused; a switch asked while a bake runs is refused - a "Use
+#      installed" bake, and an IMPORT's two runs (its maps, then its worn
+#      meshes; Browse handed a folder of one small albedo map this phase
+#      writes), refused in each - and every bake lands in the world that
+#      started it: on disk the other world's manifest and catalogs, imports.cat
+#      among them, are byte for byte as they were, while this one's floors.cat
+#      gains the two types and its imports.cat the import's one record (the
+#      installed set's type records none), and nothing else moves.
 #  40. ONE WORLD TICK (code-review C78, C125), read off the world's own update
 #      count (`worldclock`): a paused editor stays paused through a bare
 #      `editor`, `editor pick` and `editor issues` - each asks for Editor mode,
@@ -240,9 +252,11 @@ import io
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import time
+import zlib
 
 # A detail line may quote Russian (phase 26's card): on a console whose code
 # page cannot show it, a \u escape - not a UnicodeEncodeError in place of the
@@ -264,7 +278,7 @@ COPIES = os.path.join(ROOT, r"build\harness-scripts\editortest")
 # each with the .building-<name> a create killed half-way leaves.
 WORLDS = (SCRATCH, "nw_blank", "nw_copy", "nw_level", "nw_bad", ".building-nw_ghost",
           "nwd_level", "nwd_blank", "wz_a", "wz_b", "wz_c", "wz_undead", "wz_dlg",
-          "p7_world", "p7_wiz", "et_next", "et_bind")
+          "p7_world", "p7_wiz", "et_next", "et_bind", "et_other")
 # The worn meshes phase 27 puts in the pool (its fixture copy and the one bake it
 # starts) and a bake it must never start would write: its sets are all et_-named,
 # so no real set's file can match.
@@ -273,6 +287,16 @@ MODELS = os.path.join(ROOT, r"assets\models")
 
 def own_worn():
     return [f for f in os.listdir(MODELS) if f.startswith("worn_et_")] if os.path.isdir(MODELS) else []
+
+
+# ...and phase 30's import: the set it installs in the texture pool (et_-named
+# too) and the folder of source maps it hands the create dialog's Browse.
+TEXTURES = os.path.join(ROOT, r"assets\textures")
+IMPORT_SRC = os.path.join(ROOT, r"build\editortest-import")
+
+
+def own_textures():
+    return [f for f in os.listdir(TEXTURES) if f.startswith("et_")] if os.path.isdir(TEXTURES) else []
 
 # Never a stale exe, and never beside this worktree's own game, which shares
 # the log every phase reads (tools/harness_game.py).
@@ -294,6 +318,9 @@ def cleanup():
     harness_game.remove_saves(SAVES.values())
     for f in own_worn():
         os.remove(os.path.join(MODELS, f))
+    for f in own_textures():
+        os.remove(os.path.join(TEXTURES, f))
+    shutil.rmtree(IMPORT_SRC, ignore_errors=True)
 
 
 # The guard is taken BEFORE clearing up what a killed run left, so a clean-up
@@ -325,14 +352,15 @@ def drop():
     harness_game.remove_world(ROOT, SCRATCH)
 
 
-def run(script, project=SCRATCH, headless=True, timeout=600):
+def run(script, project=SCRATCH, headless=True, timeout=600, words=None):
     # -project opens the scratch world, never the real one (nor whatever world
     # the developer last switched to). A run that died before its verdict
     # counts as a failure on its own, not as a log to be read as if it were
     # whole. `headless=False` for a phase that needs the window to draw (the
-    # sprite arena is only filled by a frame that renders).
+    # sprite arena is only filled by a frame that renders). `words`: a script's
+    # placeholder words and what this run puts there (harness_game.eval_script).
     global failures
-    path = harness_game.eval_script(os.path.join(SCRIPTS, script), COPIES, SAVES)
+    path = harness_game.eval_script(os.path.join(SCRIPTS, script), COPIES, SAVES, words)
     code, log = harness_game.run_eval(EXE, ROOT, LOG, [path], ["-project", project],
                                       timeout=timeout, headless=headless)
     if harness_game.report_unfinished(code, log, script):
@@ -2933,6 +2961,157 @@ check(len(worn_before) > 100 and not changed and not added,
       f"changed: {changed[:6]} added: {added[:6]}")
 check(FRESH <= set(worn_after), "...whose three tiers the bake did write",
       str(sorted(FRESH - set(worn_after))))
+
+# --- phase 30: a world switch carries no question and runs under no bake --------
+print("30 - a world switch: no question carries over, and none happens under a bake")
+# worldswitch.eval's header says what each step stands for. The second world is a
+# scratch copy too, so the switch opens nothing real; the sets are et_-named, so
+# cleanup() takes what their bakes write into the pool (the import's maps too).
+OTHER_WORLD = "et_other"
+SWITCH_SET = "et_switch_bake"   # a floor set nobody paints, with no worn meshes
+SWITCH_TYPE = "et_switchbake"
+IMPORT_TYPE = "et_switchimp"    # imported from IMPORT_DIR: its set is <type>_2k
+IMPORT_DIR = os.path.join(IMPORT_SRC, IMPORT_TYPE)
+# The folder as the script names it: one word with FORWARD slashes, which Windows
+# reads as well, and which eval_script's word swap (a regex replacement, where a
+# backslash is an escape) puts in as written. It is what imports.cat records.
+IMPORT_WORD = IMPORT_DIR.replace("\\", "/")
+DOWNED = re.compile(r"confirm: '([^'\r\n]*)' taken down unanswered - ([^\r\n]*)")
+
+
+def write_png(path, size):
+    """A small RGB PNG, a two-tone check - all an import needs is an albedo map,
+    and a small one keeps the debug baker's BC7 pass to a moment."""
+    rows = b"".join(b"\x00" + bytes(c for x in range(size)
+                                     for c in ((150, 120, 90) if (x // 8 + y // 8) % 2 else (90, 80, 70)))
+                    for y in range(size))
+
+    def chunk(kind, data):
+        return (struct.pack(">I", len(data)) + kind + data
+                + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF))
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0))
+                + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+
+
+def world_files(world):
+    """{path under the world: bytes} - its manifest and every catalog file."""
+    folder = os.path.join(PROJECTS, world)
+    out = {"project.ini": open(os.path.join(folder, "project.ini"), "rb").read()}
+    for f in sorted(os.listdir(os.path.join(folder, "catalog"))):
+        out["catalog\\" + f] = open(os.path.join(folder, "catalog", f), "rb").read()
+    return out
+
+
+def cat_blocks(data):
+    """{id: fields} of every [id] block in a .cat file's bytes."""
+    text = data.decode("utf-8")
+    return {i: cat_block(text, i) for i in block_ids(text)}
+
+
+fresh()
+try:
+    harness_game.scratch_world(ROOT, OTHER_WORLD)
+    # The import's source: a folder of one albedo map, as a download would be.
+    shutil.rmtree(IMPORT_SRC, ignore_errors=True)
+    os.makedirs(IMPORT_DIR)
+    write_png(os.path.join(IMPORT_DIR, IMPORT_TYPE + "_albedo.png"), 64)
+    demo_before, other_before = world_files(SCRATCH), world_files(OTHER_WORLD)
+    log = run("worldswitch.eval", words={"ET_IMPORT_DIR": IMPORT_WORD})
+    check(passed(log), "the script ran clean (each of its four probes refused)")
+    sec = console_sections(log)
+    check("end" in sec, "the script ran to its end")
+
+    # 1. A question does not cross a world switch (C115).
+    asked = [l for l in sec.get("asked", []) if l.startswith("confirm: open - '")]
+    check(bool(asked), "the exit's question is up before the switch", str(sec.get("asked", [])[:4]))
+    title = asked[0][len("confirm: open - '"):-1] if asked else None
+    downs = DOWNED.findall(log)
+    check(downs == [(title, "the world was unloaded")],
+          "...and taken down unanswered by the UNLOAD - not left for the next world's new game, "
+          "which a switch to a world that fails to load never reaches", str(downs))
+    switched = sec.get("switched", [])
+    check(any(l.startswith("world et_other ") for l in switched) and "confirm: none" in switched,
+          "in et_other no question is up", str(switched[:6]))
+    check("refused, as expected: 'confirm yes'" in log, "...and a Yes is refused: nothing is up to answer")
+
+    # 2. No switch under a bake (C234).
+    bake = sec.get("bake", [])
+    check(any(l.startswith(f"newasset floors '{SWITCH_TYPE}' from {SWITCH_SET}: baking") for l in bake),
+          "\"Use installed\" on a floor set with no worn meshes starts a bake", str(bake[:3]))
+    check(any(l.startswith(f"bake: running - floors '{SWITCH_TYPE}'") for l in bake),
+          "...which `bake` sees running")
+    check(any(l.startswith(f"worlds load: an asset bake is running ('{SWITCH_TYPE}')") for l in bake)
+          and any(l.startswith("world et_demo ") for l in bake),
+          "a world switch asked meanwhile is refused, naming the bake, and et_demo stays loaded",
+          str(bake[:8]))
+    check(any(l.startswith(f"bake: the baker for '{SWITCH_TYPE}' exited (code 0)") for l in bake),
+          "the baker exits cleanly", " | ".join(l for l in bake if l.startswith("bake")))
+    landed = sec.get("landed", [])
+    check("bake: idle" in landed and "newasset: closed" in landed
+          and any(l.startswith("world et_demo ") for l in landed),
+          "it landed: no bake running, the dialog closed, et_demo still the world", str(landed))
+    check(f"Created type '{SWITCH_TYPE}' in floors" in log, "...and wrote its type, into the world loaded")
+
+    # 3. ...nor under an import, in either of its runs (C234's imports.cat half).
+    imp, step1 = sec.get("import", []), sec.get("import step 1", [])
+    check(any(l.startswith(f"newasset floors '{IMPORT_TYPE}' from {IMPORT_WORD}: baking") for l in imp),
+          "Import, Browse handed a folder of one albedo map, starts a bake", str(imp[:5]))
+    for lines, step, what in ((imp, 0, "its maps"), (step1, 1, "its worn meshes")):
+        check(any(l.startswith(f"bake: running - floors '{IMPORT_TYPE}', step {step}") for l in lines)
+              and any(l.startswith(f"worlds load: an asset bake is running ('{IMPORT_TYPE}')") for l in lines)
+              and any(l.startswith("world et_demo ") for l in lines),
+              f"while step {step} ({what}) runs, a world switch is refused naming the import, "
+              "and et_demo stays loaded", str(lines[:8]))
+    exits = [(l, s) for s, lines in ((0, imp), (1, step1)) for l in lines
+             if l.startswith(f"bake: the baker for '{IMPORT_TYPE}' exited (code 0)")]
+    check(len(exits) == 2 and "its second step starts" in exits[0][0] and exits[0][1] == 0
+          and "it lands" in exits[1][0] and exits[1][1] == 1,
+          "both runs exit cleanly, the first handing on to the second", str(exits))
+    check(log.count("refused, as expected: 'worlds load et_other'") == 3,
+          "...three switches refused in all: under the install's bake and each of the import's runs")
+    imported = sec.get("imported", [])
+    check("bake: idle" in imported and "newasset: closed" in imported
+          and any(l.startswith("world et_demo ") for l in imported),
+          "the import landed: no bake running, the dialog closed, et_demo still the world", str(imported))
+    check(f"Created type '{IMPORT_TYPE}' in floors" in log, "...and wrote its type, into the world loaded")
+    bakes = [l for l in log.splitlines() if "AssetBaker: " in l]
+    check(len(bakes) == 3 and f"wornblock floor {SWITCH_SET} " in bakes[0]
+          and f" import \"{IMPORT_WORD}\" " in bakes[1] and bakes[1].rstrip().endswith(f" {IMPORT_TYPE}_2k")
+          and f"wornblock floor {IMPORT_TYPE} " in bakes[2],
+          "the AssetBaker runs were those three: the install's floor bake, the import's maps under "
+          f"{IMPORT_TYPE}_2k, then its floor bake", " | ".join(b[:200] for b in bakes[:4]))
+
+    # ...read off the disk: the other world untouched, this one by the two types
+    # and the import's record.
+    demo_after, other_after = world_files(SCRATCH), world_files(OTHER_WORLD)
+    moved = sorted(f for f in set(other_before) | set(other_after) if other_before.get(f) != other_after.get(f))
+    check("catalog\\imports.cat" in other_after and not moved,
+          "et_other's manifest and catalogs, imports.cat among them, are byte for byte as they were",
+          str(moved))
+    moved = sorted(f for f in set(demo_before) | set(demo_after) if demo_before.get(f) != demo_after.get(f))
+    check(moved == ["catalog\\floors.cat", "catalog\\imports.cat"],
+          "et_demo's: floors.cat and imports.cat changed and no other file", str(moved))
+    before = cat_blocks(demo_before["catalog\\floors.cat"])
+    after = cat_blocks(demo_after.get("catalog\\floors.cat", b""))
+    made, made_imp = after.get(SWITCH_TYPE) or {}, after.get(IMPORT_TYPE) or {}
+    check(set(after) - set(before) == {SWITCH_TYPE, IMPORT_TYPE}
+          and all(after.get(i) == f for i, f in before.items())
+          and made.get("texture") == SWITCH_SET and made_imp.get("texture") == IMPORT_TYPE,
+          f"...floors.cat by exactly [{SWITCH_TYPE}] (texture = {SWITCH_SET}) and [{IMPORT_TYPE}] "
+          f"(texture = {IMPORT_TYPE}), every other floor as it was", f"{made} {made_imp}")
+    ib = cat_blocks(demo_before["catalog\\imports.cat"])
+    ia = cat_blocks(demo_after.get("catalog\\imports.cat", b""))
+    rec = ia.get(IMPORT_TYPE + "_2k") or {}
+    check(set(ia) - set(ib) == {IMPORT_TYPE + "_2k"} and all(ia.get(i) == f for i, f in ib.items())
+          and rec.get("kind") == "texture" and rec.get("source") == IMPORT_WORD
+          and rec.get("surface") == "floor",
+          f"...imports.cat by exactly the import's record ([{IMPORT_TYPE}_2k]: a texture, its folder, "
+          "baked as a floor), every other as it was - the installed set's type records none", str(rec))
+finally:
+    drop()
+    harness_game.remove_world(ROOT, OTHER_WORLD)
+
 
 # --- phase 40: one world tick ----------------------------------------------------
 print("40 - one world tick: the open console holds the world as play does, and follows a stair")

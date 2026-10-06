@@ -389,6 +389,17 @@ public:
 				  std::function<void()> onYes, std::function<void()> onNo = {});
 	bool PromptActive() const { return m_confirmActive; }
 	void UpdatePrompt(const Input& input);
+	// Takes the question down UNANSWERED - neither callback runs - and logs it,
+	// naming `why`, when one was up. A question belongs to the game it was asked
+	// in (a doorway's id, the dungeon being left), so whatever ends that game ends
+	// it: a new game, a load, the title, the world going (code-review C115). An
+	// answer that is running may call this; its question was taken already.
+	void CancelConfirm(const char* why);
+	// The question up now ("" when none), for the `confirm` dev command.
+	const std::string& ConfirmTitle() const { return m_confirmTitle; }
+	// Answers it as the Yes / No button would (dev `confirm yes|no`), outside any
+	// widget walk. Nothing happens when no question is up.
+	void AnswerConfirm(bool yes);
 	void RenderHud();
 
 	// --- callbacks into the app state machine -------------------------------------
@@ -962,6 +973,7 @@ private:
 	bool m_confirmActive = false;       // the Yes/No modal is up
 	std::function<void()> m_confirmYes, m_confirmNo; // its two answers
 	int m_confirmAnswer = 0;            // 1 yes / 2 no, set by a button, run by ResolveConfirm
+	std::string m_confirmTitle;         // what it asks ("" when none is up)
 
 	// Installed languages (assets/lang scan), in the Game tab dropdown's
 	// order; maps the selection index back to a language code.

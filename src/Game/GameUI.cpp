@@ -1494,6 +1494,7 @@ void GameUI::OpenConfirm(const std::string& title, const std::string& body,
 
 	m_confirmUi.SetTheme(m_settings.theme);
 	m_confirmActive = true;
+	m_confirmTitle = title;
 }
 
 void GameUI::ResolveConfirm() {
@@ -1501,12 +1502,34 @@ void GameUI::ResolveConfirm() {
 	const bool yes = m_confirmAnswer == 1;
 	m_confirmAnswer = 0;
 	m_confirmActive = false;
+	m_confirmTitle.clear();
 	// Moved out before it runs: the answer may itself ask the next question.
 	std::function<void()> answer = std::move(yes ? m_confirmYes : m_confirmNo);
 	m_confirmYes = {};
 	m_confirmNo = {};
 	Click();
 	if (answer) answer();
+}
+
+void GameUI::CancelConfirm(const char* why) {
+	if (!m_confirmActive) return;
+	// Logged, because a question that vanished is otherwise indistinguishable
+	// from one never asked - and WHICH ending took it is what EditorTest phase 30
+	// reads (the world going, before the next world's new game could).
+	log::Info("confirm: '{}' taken down unanswered - {}", m_confirmTitle, why);
+	m_confirmActive = false;
+	m_confirmAnswer = 0;
+	m_confirmTitle.clear();
+	// Dropped, never run: they name the game that is over (C115 - a Yes ran
+	// EnterLocation / LeaveDungeon with the old world's ids).
+	m_confirmYes = {};
+	m_confirmNo = {};
+}
+
+void GameUI::AnswerConfirm(bool yes) {
+	if (!m_confirmActive) return;
+	m_confirmAnswer = yes ? 1 : 2;
+	ResolveConfirm();
 }
 
 void GameUI::AskYesNo(const std::string& title, const std::string& body,

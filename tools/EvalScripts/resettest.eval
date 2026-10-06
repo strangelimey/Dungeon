@@ -61,6 +61,21 @@
 ; After each: no rest, lockstep OFF again (what the rest found), no reason
 ; recorded, no undo or redo step, no throw's wait and the kindle clock where
 ; baseline A has it. The control before shows all five staged.
+;
+; AND WHAT GAME ITSELF HOLDS (code-review batch 79, C296 / C115): the item on
+; the cursor and a Yes/No question still asked. Only a world unload dropped the
+; one and nothing took the other down, so a dagger lifted before Return to Main
+; Menu came back on the new party's cursor (and on its square: one item, two
+; copies), and an exit's question stayed up over the next game, its Yes a
+; LeaveDungeon of the old one. Repros 4-6 stage both as well - a wall torch
+; taken with Brand's hands full lands on the cursor, and `confirm leave` asks
+; the exit's question - and each way out must leave `cursor=none prompt=none`;
+; then
+;   7. the issue's own path: both staged, `title` (which takes the question
+;      down - a dungeon's question means nothing on the title, which would
+;      show it as its own modal) and a `newgame` from there (which empties the
+;      cursor; the title keeps it, as Continue lays a save's over it).
+; The wrecking before baseline B ends on both too, for the recycle `reset`.
 
 logecho on
 ; FROZEN BEFORE THE LOAD, not after it. Block B's reset happens at timescale 0
@@ -196,10 +211,19 @@ setpool 0 health 10
 save resettest
 editor place floors floor_slabs 10 12
 editor place floors floor_temple 10 12
+; A wall torch on the corridor's north wall, taken with both of Brand's hands
+; full (the dagger and a rock): it lands on the cursor. A new square for each
+; repro, since the sconce placed here outlives the load (the map is kept).
+editor place fixtures sconce 13 12 north
 mappage close
+tp 13 12
+face north
+equip rock 0 0
 step 0.15
 throw rock
 rest on
+torch take
+confirm leave
 echo --- repro: resting before the load ---
 transients
 load resettest
@@ -213,10 +237,16 @@ lockstep off
 setpool 0 health 10
 editor place floors floor_slabs 10 12
 editor place floors floor_temple 10 12
+editor place fixtures sconce 14 12 north
 mappage close
+tp 14 12
+face north
+equip rock 0 0
 step 0.15
 throw rock
 rest on
+torch take
+confirm leave
 echo --- repro: resting before the new game ---
 transients
 newgame
@@ -231,16 +261,42 @@ lockstep off
 setpool 0 health 10
 editor place floors floor_slabs 10 12
 editor place floors floor_temple 10 12
+editor place fixtures sconce 16 12 north
 mappage close
+tp 16 12
+face north
+equip rock 0 0
 step 0.15
 throw rock
 rest on
+torch take
+confirm leave
 echo --- repro: resting before the reset ---
 transients
 echo --- repro: a reset mid-rest ---
 reset
 transients
 lockstep on
+
+; --- repro 7: the cursor's item and a question, then the title and a new game -
+; The issue's own path (C296): an item lifted, Return to Main Menu, Start New
+; Game. The reset above put the authored room back, so the torch hangs on its
+; north wall (14,0 is rock, 14,1 floor).
+tp 14 1
+face north
+editor place fixtures sconce 14 1 north
+mappage close
+equip rock 0 0
+torch take
+confirm leave
+echo --- repro: on the cursor and asked, before the title ---
+transients
+title
+echo --- repro: at the title ---
+transients
+newgame
+echo --- repro: a new game from the title ---
+transients
 
 ; --- and the rest of the wrecking --------------------------------------------
 arena open 9 9
@@ -270,9 +326,17 @@ step 2
 setpool 0 health 10
 editor place floors floor_slabs 12 12
 editor place floors floor_temple 12 12
+; ...and Game's own (C296, C115): a torch from the arena's north-west corner on
+; the cursor, and the exit's question up.
+editor place fixtures sconce 10 8 north
 mappage close
+tp 10 8
+face north
+equip rock 0 0
+torch take
 throw rock
 rest on
+confirm leave
 echo --- wrecked ---
 party
 supplies

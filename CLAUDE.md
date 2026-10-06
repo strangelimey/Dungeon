@@ -632,7 +632,13 @@ Key conventions (memorize, they bite):
   history - ends in `ResetForNewGame` too, so a new game, a load and both of a
   reset's ways all end it (C294/C295/C297; resettest.eval stages each under
   lockstep OFF and ends it by a load, a newgame and a reset; an ambush drops
-  the undo history as well). TRAPS,
+  the undo history as well). What GAME itself holds - the item on the cursor
+  and a Yes/No question still asked, whose Yes is a closure over the old game's
+  ids - is `Game::ClearGameTransients`, called by StartNewGame, LoadGame and the
+  recycle `reset`; UnloadWorld puts both down, the title the question
+  (`GameUI::CancelConfirm`, which logs what it took down and why) (C296/C115;
+  `transients` prints `cursor=` and `prompt=`, resettest.eval stages both with
+  the rest, dev `confirm [enter|leave|yes|no]`). TRAPS,
   all found the hard way: the first
   reset skipped the MAP and the equivalence test passed anyway (nothing it
   printed showed geometry — `mapinfo`'s walkable count is now the only readout
@@ -2328,8 +2334,14 @@ pre-ticks the --flip-green override from the normal map's filename. The preview
 pane shows the picked mesh, or wall_block.gltf wearing the picked texture set —
 including one still loose in a download folder, since the maps are loaded from
 their source files. A failed bake now lands in the dialog with the exit code
-instead of only in the log. An import is RECORDED in the project's provenance
-manifest (`catalog/imports.cat`: pool asset name → kind / source path /
+instead of only in the log. A bake writes its type (and an import's record) into
+whatever world is loaded WHEN IT LANDS, so a world switch is REFUSED while one
+runs - `Game::SwitchWorld` / `WorldSwitchRefusal`, and a menu load of another
+world's save asks the same (code-review C234; dev `bake [wait]` and `newasset
+<cat> import <folder> <id>`, the Import with Browse's answer given; EditorTest
+phase 30 refuses a switch under an install's bake and both of an import's runs,
+then reads both worlds' catalogs and imports.cat). An import is RECORDED in the
+project's provenance manifest (`catalog/imports.cat`: pool asset name → kind / source path /
 flip_green / the surface kind its worn meshes were baked as), because the baked
 pool is gitignored — without it a created type reaches git as a catalog entry
 whose asset a fresh clone cannot rebuild. `tools\ReplayImports.ps1` replays the
@@ -2954,8 +2966,9 @@ Full per-phase history + gotchas live in the editor-overhaul memory.
 
 Built from Michael's notes after editing the crypt levels ("awkward and
 clunky"); the notes, his answers and the plan are in docs/editor-updates-*.md.
-The judge for all of it is `tools\EditorTest.py` (11 phases then, 23 now, each
-mutation-tested and each on a scratch copy of dungeon-demo - see "A PYTHON JUDGE
+The judge for all of it is `tools\EditorTest.py` (11 phases then; many more now,
+numbered with gaps - the code-review lanes each took a range - and listed in its
+header; each mutation-tested and each on a scratch copy of dungeon-demo - see "A PYTHON JUDGE
 NEVER EDITS THE REAL WORLD"; the eval harness only REPORTS). What exists now, and
 the rules it rests on:
 - ONE SURFACE RESOLVER: `ResolveSurfaceVariant` (DungeonMeshBuilder) answers
