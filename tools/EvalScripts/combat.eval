@@ -1080,4 +1080,87 @@ rest until 5
 tally
 rest
 
+; --- A DOOR NEVER SHUTS ON ANYONE IN ITS DOORWAY (code-review C357) ------------
+; A door closing checked for monsters in its doorway and not for the party, so a
+; lever standing IN a doorway and wired to that door shut it on the party, who
+; then sat in a square no bolt or blast could enter. A wooden door and a lever
+; share 15,12 of the corridor, the lever wired to the door by name (`flagwire`,
+; the inspectors' setters), and the live check names the lever (it can never
+; shut its own door). The CONTROL first: the door opened, the lever pulled from
+; beside the doorway (`press ... party` is the party's pull from anywhere) shuts
+; it - so the wiring works - and pulled again opens it. Then the party steps into
+; the doorway and pulls: the door stays open and says why (`doors`, `messages`).
+
+echo === lever-doorway ===
+reset
+timescale 0
+lockstep on
+seed 32
+goto eval_arena
+arena corridor 11
+heal
+freeze on
+tp 14 12
+face e
+editor place doors wooden_door 15 12
+editor place buttons lever 15 12
+flagwire 15 12 door name=gate31
+flagwire 15 12 lever target=gate31
+editor issues
+mappage close
+opendoor 15 12
+press 15 12 party
+doors
+press 15 12 party
+tp 15 12
+face n
+pos
+doors
+press 15 12 party
+doors
+messages 10
+
+; --- A CORPSE IN A DOORWAY JAMS NOTHING (code-review C65) ----------------------
+; The doorway test counted the DEAD - a monster killed in an open doorway is
+; never taken out of the list, and is saved with the level - so the door it fell
+; in would not shut again, through a reload too, while the party walked through
+; the very square the door called blocked. A skeleton in the open doorway first
+; JAMS it (the control: the jam rule is in force, so the corpse below is what
+; changed), then Brand's dagger kills it there. `opendoor` must shut the door,
+; and again after a save and a load that bring the corpse back.
+
+echo === door-corpse ===
+reset
+timescale 0
+lockstep on
+seed 32
+goto eval_arena
+arena corridor 11
+heal
+freeze on
+tp 14 12
+face e
+editor place doors wooden_door 15 12
+mappage close
+opendoor 15 12
+spawn skeleton 15 12 west 0.05 up
+monsters
+opendoor 15 12
+swing 0 1
+step 2
+swing 0 1
+step 2
+swing 0 1
+step 2
+swing 0 1
+step 2
+monsters
+doors
+save combat_doorcorpse
+opendoor 15 12
+load combat_doorcorpse
+monsters
+doors
+opendoor 15 12
+
 echo === end ===

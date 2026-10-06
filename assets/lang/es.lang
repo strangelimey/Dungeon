@@ -1107,6 +1107,7 @@ map.check.nostart=No se pudo leer el nivel inicial
 map.check.levellost=Nada puede llegar a este nivel
 map.check.doorlocked=Esta puerta nunca puede abrirse — '{}' no es alcanzable antes
 map.check.buttondead=Esta palanca apunta a '{}', y ninguna puerta se llama así
+map.check.leverindoorway=Esta palanca está en el umbral de '{}', la puerta que mueve - accionada desde aquí, nunca podrá cerrarla
 map.check.stairnolevel=Lleva a '{}', que no es un nivel de este proyecto
 map.check.stairblocked=Termina en roca maciza en '{}'
 map.check.arrivalblocked=El lugar '{}' da a roca maciza

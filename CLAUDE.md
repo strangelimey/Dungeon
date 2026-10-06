@@ -3814,7 +3814,13 @@ and answers: docs/transparency-notes.md; each phase's AS BUILT is in the plan.
   stairs/pits with auto-authored pairs, functional doors, level browsing +
   remote editing of any level, per-level saves, .map/.ent writers, chunk-local
   edit rebuilds (details in the MapView / Project sections above). Right-clicking a door opens the
-  DoorInspector (open/closed toggles the live panel + the record's open= param;
+  DoorInspector (Open is the record's AUTHORED open= param, and the live panel
+  follows a flip only when it can: a wrecked leaf stays open while the record
+  takes the close, and with anyone in the doorway the close is refused record
+  and all - the editor's Save writes a monster where it stands, so a shut record
+  would close the door on it at the next load - each saying why, the box reading
+  back what was kept - code-review C356; `editor
+  inspector open on|off`, `editor inspect <x> <z> door` picks the chooser's row;
   a "Requires key" dropdown lists items.cat entries with category=key — none
   exist yet, so it offers only None — and authors key=, which LOCKS the door
   against the party's click until key items + an inventory check land; wired
@@ -3827,7 +3833,13 @@ and answers: docs/transparency-notes.md; each phase's AS BUILT is in the plan.
   render's X-tilt flips the handle by `activated`); the party presses it by
   clicking while standing on its cell facing its wall (PressButtonFacing —
   the world-click chain is pick-item → door-ahead → button-facing), toggling
-  the doors its target= names; right-click opens the ButtonInspector
+  the doors its target= names. A DOOR NEVER SHUTS ON ANYONE IN ITS DOORWAY:
+  the party or a LIVING monster (`DungeonWorld::DoorwayOccupied`, the one test
+  for ToggleDoor, the inspector, AddDoor and the editor's door move - a corpse
+  is nobody, code-review C65/C357), so a lever standing in its own door's
+  doorway can never shut it, and the live check warns of one
+  (`map.check.leverindoorway`; dev `doors`, and `flagwire` takes a door's
+  `name=` and a lever's `target=`). Right-click opens the ButtonInspector
   (Target dropdown = the level's door names via DungeonWorld::DoorNames +
   None; a stale wired name stays selectable). The `press <x> <z>` dev
   command still force-toggles one. The former next-steps list is DONE: item

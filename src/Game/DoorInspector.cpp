@@ -28,6 +28,15 @@ void DoorInspector::Open(const Config& cfg,
 	OpenModal();
 }
 
+void DoorInspector::ClickOpen(bool on) {
+	m_cfg.open = on;
+	if (onApply) onApply(m_cfg);
+	// A script's call leaves the box as it was drawn: rebuilt from the working
+	// copy, it shows the state the apply KEPT - a refused close ticks it again
+	// (the base keeps the tab).
+	RequestRebuild();
+}
+
 std::string DoorInspector::Title() const {
 	return loc::Format("map.door.title", m_cfg.x, m_cfg.z);
 }
@@ -91,12 +100,10 @@ void DoorInspector::BuildContent(ui::Stack& c) {
 	ui::Stack& opener = *TabStack(*tabs, tOpener);
 
 	// --- the door itself -----------------------------------------------------
-	// Open flips the live leaf (it animates) and the record's authored state.
+	// Open is the record's authored state; the live leaf follows it if it can
+	// (DungeonWorld::SetDoorSettings).
 	door.Row<ui::Checkbox>(FormRow(), loc::Tr("map.door.open"), m_cfg.open,
-						   [this](bool on) {
-							   m_cfg.open = on;
-							   if (onApply) onApply(m_cfg);
-						   });
+						   [this](bool on) { ClickOpen(on); });
 
 	// Required key: "None" + every items.cat entry with category=key. Selecting
 	// one authors key=<id> on the record — the party's click then opens the

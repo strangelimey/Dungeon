@@ -5,11 +5,15 @@
 // doorway's own (auto-detected at placement), so there is no Facing row. The
 // body edits the door's AUTHORED state across three pages:
 //
-//   Door    Open (the leaf moves live as the checkbox flips, and the record's
-//           open= param follows), the key item it requires (items.cat entries
-//           with category=key; a keyed door opens to the party's click only
-//           while a member carries the item — see DungeonWorld::ToggleDoorAhead
-//           — while wired buttons bypass the lock), and the name a button's
+//   Door    Open - the AUTHORED state, the record's open= param. The leaf
+//           follows a flip live when it can: a wrecked leaf stays open (the
+//           record still takes the close), and with anyone in the doorway the
+//           close is refused outright, the box ticking itself again (each says
+//           why - code-review C356). The key
+//           item it requires (items.cat entries with category=key; a keyed
+//           door opens to the party's click only while a member carries the
+//           item - see DungeonWorld::ToggleDoorAhead - while wired buttons
+//           bypass the lock), and the name a button's
 //           target= points at.
 //   Motion  how long the throw takes and the two curves that shape it.
 //   Opener  which hand-hold hangs on which jamb, and its own two curves.
@@ -34,7 +38,7 @@ class DoorInspector : public InstanceInspector {
 public:
 	struct Config {
 		int x = 0, z = 0;
-		bool open = false;   // authored initial state (the live door follows)
+		bool open = false;   // authored initial state (the live door follows if it can)
 		std::string key;     // items.cat id required to open by hand ("" = none)
 		std::string flag;    // flags.cat id it waits on ("" = none)
 		std::string name;    // button-target id ("" = unwired); record-safe chars
@@ -78,9 +82,17 @@ public:
 			  std::string typeOpener, std::string typeSide, FlagChoices flags,
 			  PreviewSpec preview = {});
 
+	// --- the clicks, for the harness (`editor inspector ...`) ---------------
+	// The Open checkbox: what its callback does - the box CALLS it - so a script
+	// and a mouse take one path. The working copy is what the dialog shows.
+	void ClickOpen(bool on);
+	const Config& Current() const { return m_cfg; }
+
 	// Push the working state to the live door + its .ent record (both edits are
-	// in-memory until savemap, like every other editor edit).
-	std::function<void(const Config&)> onApply;
+	// in-memory until savemap, like every other editor edit), and write back the
+	// Open the world KEPT: a close it refused leaves the door authored open, and
+	// the box must say so rather than show a state nothing holds.
+	std::function<void(Config&)> onApply;
 	std::function<void()> onSave; // persist the level (.ent)
 
 protected:

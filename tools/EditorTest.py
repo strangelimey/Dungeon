@@ -212,6 +212,16 @@
 #      console is followed there - an exit's question goes up and holds the
 #      world, a stair down lands the party on crypt2 with the console still up
 #      (the console used to leave either latched).
+#  60. THE DOOR INSPECTOR'S OPEN (code-review C356): it edits the AUTHORED
+#      state, and the leaf follows only when it can - a smashed door's Open
+#      ticked then unticked leaves the wreck standing open (it used to shut it,
+#      and then it would not open again) while the record takes shut, and the
+#      same untick on a door with a skeleton in its doorway, picked from the
+#      chooser, is REFUSED, record and all: the box ticks itself again, the leaf
+#      stays open on the skeleton, Esc's revert is refused too, and the level
+#      saved holds open=1 beside the skeleton's record (one that took the close
+#      shut the door on it at the next load); each says why. The control: with
+#      the doorway empty the untick does shut the leaf.
 #
 # NOTHING HERE EDITS THE REAL WORLD (code-review C431). Each phase starts on a
 # FRESH SCRATCH COPY of dungeon-demo, et_demo, and every run opens it with
@@ -3068,6 +3078,111 @@ finally:
         io.open(SETTINGS, "wb").write(settings_before)
     elif os.path.isfile(SETTINGS):
         os.remove(SETTINGS)
+
+
+# --- phase 60: the door inspector's Open on a leaf that cannot shut ---------------
+print("60 - the door inspector's Open: a wrecked leaf stays open, and none shuts on a monster")
+DOORI = re.compile(r"editor inspector: door (\d+),(\d+) open=([01]) live=([01-]) broken=([01-]) tab -?\d+$")
+DOORROW = re.compile(r"\s+\d+ \S+ @ (\d+),(\d+) (open|shut) authored=(open|shut)( broken)?(?: name=\S+)?$")
+
+
+def door_inspectors(lines):
+    """Each door inspector status in `lines`: (cell, box ticked, leaf open, wrecked)."""
+    out = []
+    for l in lines:
+        m = DOORI.match(l)
+        if m:
+            out.append(((int(m.group(1)), int(m.group(2))), m.group(3) == "1", m.group(4) == "1",
+                        m.group(5) == "1"))
+    return out
+
+
+def door_rows(lines, cell):
+    """Each `doors` row for the door on `cell`: (state in play, authored, wrecked)."""
+    out = []
+    for l in lines:
+        m = DOORROW.match(l)
+        if m and (int(m.group(1)), int(m.group(2))) == cell:
+            out.append((m.group(3), m.group(4), bool(m.group(5))))
+    return out
+
+
+def hud_lines(lines):
+    """The HUD message log lines a `messages` readout printed."""
+    return [l[4:] for l in lines if l.startswith("  | ")]
+
+
+fresh()
+try:
+    log = run("doorinspector.eval")
+    check(passed(log), "the script ran clean")
+    sec = console_sections(log)
+    check("end" in sec, "the script ran to its end")
+
+    # A SMASHED DOOR: wrecked, it stands open; Open ticked then unticked.
+    sm = sec.get("smashed", [])
+    rows = door_rows(sm, (12, 12))
+    st = door_inspectors(sm)
+    wrecked = rows[:1] == [("open", "shut", True)]
+    check(wrecked, "the smashed door stands open, wrecked, its record still shut", str(rows))
+    check(wrecked and [s[1] for s in st] == [False, True, False] and all(s[0] == (12, 12) for s in st),
+          "its inspector's Open, ticked then unticked, takes the authored state both ways", str(st))
+    check(wrecked and len(st) == 3 and st[2][2] and st[2][3] and rows[1:] == [("open", "shut", True)],
+          "...and the wrecked leaf STAYS OPEN unticked (it used to shut, and then would not open)",
+          f"inspector {st} doors {rows}")
+    said = hud_lines(sm)
+    check(any(m.startswith("The doorway is wrecked") for m in said), "...saying why", str(said))
+    ent = io.open(os.path.join(PROJ, r"levels\eval_arena.ent"), encoding="utf-8").read()
+    rec = next((l.split() for l in ent.splitlines() if l.split()[:4] == ["door", "wooden_door", "12", "12"]),
+               None)
+    check(rec is not None and "open=1" not in rec,
+          "the inspector's Save wrote the authored state: the record holds no open=1",
+          " ".join(rec) if rec else "no door record at 12,12")
+
+    # A MONSTER IN THE DOORWAY: the chooser's door row, Open ticked then unticked.
+    mo = sec.get("monster", [])
+    alive = [l for l in mo if re.match(r"\s+skeleton @ 15,12\s+hp [\d.]+\s", l) and "(dead)" not in l]
+    picked = "editor inspect: inspector" in mo
+    rows = door_rows(mo, (15, 12))
+    st = door_inspectors(mo)
+    check(bool(alive) and picked and st[:1] and st[0][0] == (15, 12) and st[0][2],
+          "a skeleton stands in an open doorway, and the chooser's door row opened its inspector",
+          f"skeleton {alive} picked {picked} inspector {st[:1]}")
+    # REFUSED, the record's close too: the box ticks itself again and the door
+    # stays authored open. The leaf alone held is not enough - the Save writes
+    # the skeleton where it stands, so a record that took the close would shut
+    # the door on it at the next load.
+    check(len(st) == 3 and [s[1] for s in st] == [False, True, True] and st[2][2]
+          and rows[:1] == [("open", "open", False)],
+          "unticking Open is refused: the leaf stays open on the skeleton (it used to close on it) "
+          "and so does the authored state, the box ticked again",
+          f"inspector {st} doors {rows}")
+    check("Something is blocking the doorway." in hud_lines(mo), "...saying why", str(hud_lines(mo)))
+    # Esc reverts toward the shut it was placed as: refused the same way. Then the
+    # level, saved by `savemap` - the inspector's Save would apply the ticked box
+    # once more first and so mend a record the untick had left shut.
+    check(len(rows) == 2 and rows[1] == ("open", "open", False),
+          "...and Esc's revert to the shut it was placed as is refused too", f"doors {rows}")
+    ent = io.open(os.path.join(PROJ, r"levels\eval_arena.ent"), encoding="utf-8").read()
+    recs = [l.split() for l in ent.splitlines() if l.split()[2:4] == ["15", "12"]]
+    door = next((r for r in recs if r[:2] == ["door", "wooden_door"]), None)
+    held = [r for r in recs if r[:2] == ["monster", "skeleton"]]
+    check(any(l.startswith("saved levels: ") and "eval_arena" in l for l in mo)
+          and door is not None and "open=1" in door and len(held) == 1,
+          "the level saved holds the skeleton in the doorway beside a door record of open=1, "
+          "so the next load cannot shut the door on it",
+          f"records on 15,12: {[' '.join(r) for r in recs]}")
+
+    # THE CONTROL: nobody in the doorway, the same untick shuts the leaf.
+    em = sec.get("empty", [])
+    st = door_inspectors(em)
+    rows = door_rows(em, (18, 12))
+    check(len(st) == 3 and [s[1] for s in st] == [False, True, False] and st[1][2] and not st[2][2]
+          and rows == [("shut", "shut", False)],
+          "THE CONTROL: with the doorway empty, the same untick shuts the leaf",
+          f"inspector {st} doors {rows}")
+finally:
+    drop()
 
 # --- the real tree: LAST, after every phase --------------------------------------
 print("the real tree: dungeon-demo and the library as the run found them")

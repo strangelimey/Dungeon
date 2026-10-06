@@ -1438,7 +1438,11 @@ public:
 	void RemoveLastPatrolWaypoint(u32 runtimeId);
 	void ClearPatrol(u32 runtimeId);
 	const std::vector<ai::Cell>* MonsterPatrol(u32 runtimeId) const;
-	// The runtimeId of the first live monster at (cx,cz), or 0 — for editor selection.
+	// The runtimeId of the first monster at (cx,cz), or 0 - for editor selection and
+	// INSPECTION ONLY. It counts the dead: a corpse lies in the list, undrawn once
+	// its fall ends, and is still something to inspect or delete. Never a rule of
+	// play or placement - a door asked it whether its doorway was clear and a
+	// corpse jammed it for good (code-review C65); that is DoorwayOccupied.
 	u32 MonsterRuntimeIdAt(int cx, int cz) const;
 	// Every live monster on (cx,cz) as (runtimeId, kind catalog id) — for the editor's
 	// multi-object inspect picker (a cell may stack several monsters).
@@ -2126,11 +2130,16 @@ public:
 	std::vector<DoorMarker> DoorMarkers() const;
 
 	// Door instance surface for the editor's inspector. DoorSettings reports the
-	// door on (x,z) (false = none); SetDoorSettings applies the edit to the LIVE
-	// door (the leaf animates, initialOpen follows — the editor edits the
-	// AUTHORED state) and to its .ent record's params (in-memory until savemap,
-	// like every editor edit). `name` is what a button's target= points at
-	// (ToggleDoorsNamed).
+	// door on (x,z) (false = none); SetDoorSettings applies the edit to its .ent
+	// record's params (in-memory until savemap, like every editor edit) and the
+	// live door. `open` is the AUTHORED state (initialOpen, the record's open=):
+	// when an edit changes it the live leaf follows if it can - but a wrecked leaf
+	// stays open (the record still takes the close), and a close is REFUSED
+	// outright, record and all, while anyone stands in the doorway, since the
+	// editor's Save writes a monster where it stands and a shut record would shut
+	// the door on it at the next load; both say why (code-review C356). Read
+	// DoorSettings back for what was kept. `name` is what a button's target=
+	// points at (ToggleDoorsNamed).
 	//
 	// The OPENER fields are three-state on purpose and the empty one is not the
 	// same as "none": empty INHERITS the door type's `opener`, "none" is this
@@ -2159,6 +2168,10 @@ public:
 		// how it opens, and the pair of easing curves already carries the
 		// asymmetry that a stone slab actually needs.
 		float seconds = 0.0f;
+		// REPORTED by DoorSettings, never applied: the leaf as it stands in play
+		// and whether it is wrecked - what an `open` that did not take left.
+		bool live = false;
+		bool broken = false;
 	};
 	bool DoorSettings(int x, int z, DoorEdit& out) const;
 	void SetDoorSettings(int x, int z, const DoorEdit& in);
@@ -2467,6 +2480,10 @@ public:
 	bool HandOnDoorAt(int x, int z, bool& open);
 	// "id @ x,z = on|off" for each live button (dev console `buttons`).
 	std::vector<std::string> ButtonList() const;
+	// "id type @ x,z open|shut authored=open|shut [broken] [name=n]" for each live
+	// door (dev console `doors`): its state in play beside the record's, which an
+	// inspector edit or a wrecked leaf can set apart.
+	std::vector<std::string> DoorList() const;
 	// Camera vertical FOV in degrees (clamped); UpdateCamera applies it.
 	void SetFov(float degrees);
 	float Fov() const { return m_fovDegrees; }
@@ -3615,6 +3632,13 @@ private:
 	const Door* DoorAt(int x, int z) const;
 	// (DoorwayFacing moved to DungeonMap — it only ever read the map, and the
 	// placement resolver needs it without dragging the whole world in.)
+	// Whether anyone stands in the doorway at (x,z): the party, or a LIVING
+	// monster whose body covers the square (a Huge's 2x2 included). The one test
+	// for every way a door can come to stand shut there - ToggleDoor's close, the
+	// inspector's close, AddDoor and the editor's door move (code-review C357; the
+	// close checked monsters alone, and a lever in a doorway shut its own door on
+	// the party). A corpse is nobody (C65).
+	bool DoorwayOccupied(int x, int z) const;
 	// Toggles one door (with the doorway-occupied jam check + message/anim) /
 	// every door whose name matches a button's target.
 	bool ToggleDoor(Door& door);

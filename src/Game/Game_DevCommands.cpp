@@ -250,10 +250,11 @@ void Game::RegisterDevCommands() {
 								  "fill <category> <id> rect <x0> <z0> <x1> <z1>\n"
 								  "fill <category> <id> flood|area <x> <z>\n"
 								  "fill <category> <id> level\n"
-								  "inspect <x> <z>\n"
+								  "inspect <x> <z> [monster|door|button|stair|...]\n"
 								  "inspect off\n"
 								  "inspector [status|esc|save|tab <n>]\n"
 								  "inspector editroute|clearroute|archetype <name>\n"
+								  "inspector open on|off\n"
 								  "inspector popup [<n>]\n"
 								  "levelsettings [status|open|popup [<n>]]\n"
 								  "levelsettings dust|haze|ambient <value>\n"
@@ -747,6 +748,16 @@ void Game::RegisterDevCommands() {
 							   m_inspectPicker.Close();
 							   m_mapEditor.InspectAt(std::atoi(args[1].c_str()),
 													 std::atoi(args[2].c_str()));
+							   // A square holding several things opens the chooser;
+							   // a kind named picks its row (a door with a monster
+							   // standing in its doorway, C356).
+							   if (args.size() >= 4 && m_inspectPicker.IsOpen() &&
+								   !PickInspectTarget(args[3])) {
+								   m_console.Refuse(std::format(
+									   "editor inspect: no {} to pick at {},{}", args[3], args[1],
+									   args[2]));
+								   return;
+							   }
 							   const InstanceInspector* open = ActiveInstanceInspector();
 							   const std::string what = std::format(
 								   "editor inspect: {}", open == &m_stairInspector ? "stair"
@@ -1232,6 +1243,19 @@ void Game::RegisterDevCommands() {
 						   }
 						   for (const std::string& l : list) m_console.Print("  " + l);
 					   });
+	// Each door as it stands in play beside its record: an inspector edit that
+	// did not move the leaf, or a wrecked one, sets the two apart (C356).
+	m_console.Register({.name = "doors",
+						.group = CmdGroup::Levels,
+						.summary = "list doors (id, type, cell, open or shut, the authored state)"},
+					   [this](const std::vector<std::string>&) {
+						   const std::vector<std::string> list = m_world->DoorList();
+						   if (list.empty()) {
+							   m_console.Print("no doors");
+							   return;
+						   }
+						   for (const std::string& l : list) m_console.Print("  " + l);
+					   });
 	m_console.Register({.name = "smash",
 						.group = CmdGroup::Combat,
 						.params = "<x> <z> [amount]",
@@ -1374,24 +1398,40 @@ void Game::RegisterDevCommands() {
 	// setters their Apply calls, reading the object's settings first so only
 	// the flag wiring changes. `flag=` (or bare `flag=` to clear) is what it
 	// waits on; a lever also takes one of sets= / clears= / toggles= (or `op=`
-	// alone to clear the op).
+	// alone to clear the op). The same rows' other half of the wiring rides
+	// along: a door's `name=` and a lever's `target=` (the door name it works),
+	// so a script can wire a lever to a door it placed (code-review C357).
 	m_console.Register(
 		{.name = "flagwire",
 		 .group = CmdGroup::Levels,
-		 .params = "<x> <z> door|stair [flag=[id]]\n"
-				   "<x> <z> lever [flag=[id]] [sets=|clears=|toggles=<id>] [op=]",
-		 .summary = "wire a door's, lever's or stair's flags as its inspector does"},
+		 .params = "<x> <z> door [flag=[id]] [name=[id]]\n"
+				   "<x> <z> stair [flag=[id]]\n"
+				   "<x> <z> lever [flag=[id]] [sets=|clears=|toggles=<id>] [op=] [target=[name]]",
+		 .summary = "wire a door's, lever's or stair's flags (a door's name, a lever's target) as its inspector does"},
 		[this](const std::vector<std::string>& args) {
 			if (!Need(m_console, args, 3)) return;
 			const int x = std::atoi(args[0].c_str());
 			const int z = std::atoi(args[1].c_str());
-			std::optional<std::string> flag;
+			const std::string& what = args[2];
+			std::optional<std::string> flag, name, target;
 			std::optional<std::pair<FlagOp, std::string>> op;
 			for (size_t i = 3; i < args.size(); ++i) {
 				const size_t eq = args[i].find('=');
 				const std::string k = args[i].substr(0, eq);
 				const std::string v = eq == std::string::npos ? "" : args[i].substr(eq + 1);
+				// A name is written into a whitespace-tokenised key=value record,
+				// so it keeps to the inspector's Name field's characters.
+				const bool recordSafe = std::all_of(v.begin(), v.end(), [](char ch) {
+					return std::isalnum(static_cast<unsigned char>(ch)) || ch == '_' || ch == '-';
+				});
 				if (k == "flag") flag = v;
+				else if ((k == "name" && what == "door") || (k == "target" && what == "lever")) {
+					if (!recordSafe) {
+						m_console.Refuse(std::format("flagwire: '{}' is not a record-safe name", v));
+						return;
+					}
+					(k == "name" ? name : target) = v;
+				}
 				else if (k == "op") op = std::pair{FlagOp::None, std::string()};
 				else if (FlagOpFromKey(k) != FlagOp::None) op = std::pair{FlagOpFromKey(k), v};
 				else {
@@ -1399,7 +1439,6 @@ void Game::RegisterDevCommands() {
 					return;
 				}
 			}
-			const std::string& what = args[2];
 			if (what == "door") {
 				DungeonWorld::DoorEdit e;
 				if (!m_world->DoorSettings(x, z, e)) {
@@ -1407,8 +1446,11 @@ void Game::RegisterDevCommands() {
 					return;
 				}
 				if (flag) e.flag = *flag;
+				if (name) e.name = *name;
 				m_world->SetDoorSettings(x, z, e);
-				m_console.Print(std::format("flagwire door {},{} flag={}", x, z, e.flag));
+				// The name only when one was given: the line read back is exact.
+				m_console.Print(std::format("flagwire door {},{} flag={}{}", x, z, e.flag,
+											name ? " name=" + e.name : std::string()));
 			} else if (what == "lever") {
 				DungeonWorld::ButtonEdit e;
 				if (!m_world->ButtonSettings(x, z, e)) {
@@ -1417,10 +1459,12 @@ void Game::RegisterDevCommands() {
 				}
 				if (flag) e.needs = *flag;
 				if (op) std::tie(e.op, e.sets) = *op;
+				if (target) e.target = *target;
 				m_world->SetButtonSettings(x, z, e);
 				m_world->ButtonSettings(x, z, e); // as written
-				m_console.Print(std::format("flagwire lever {},{} flag={} {}={}", x, z, e.needs,
-											*FlagOpKey(e.op) ? FlagOpKey(e.op) : "op", e.sets));
+				m_console.Print(std::format("flagwire lever {},{} flag={} {}={}{}", x, z, e.needs,
+											*FlagOpKey(e.op) ? FlagOpKey(e.op) : "op", e.sets,
+											target ? " target=" + e.target : std::string()));
 			} else if (what == "stair") {
 				StairLink s;
 				if (!m_world->StairSettings(x, z, s)) {

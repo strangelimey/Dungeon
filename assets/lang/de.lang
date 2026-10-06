@@ -1107,6 +1107,7 @@ map.check.nostart=Die Startebene konnte nicht gelesen werden
 map.check.levellost=Diese Ebene ist unerreichbar
 map.check.doorlocked=Diese Tür lässt sich nie öffnen — '{}' ist vorher nicht erreichbar
 map.check.buttondead=Dieser Hebel zielt auf '{}', doch keine Tür trägt diesen Namen
+map.check.leverindoorway=Dieser Hebel steht im Durchgang von '{}', der Tür, die er bewegt - von hier gezogen, kann er sie nie schließen
 map.check.stairnolevel=Führt zu '{}', das keine Ebene dieses Projekts ist
 map.check.stairblocked=Endet im massiven Fels in '{}'
 map.check.arrivalblocked=Ort '{}' führt in massiven Fels

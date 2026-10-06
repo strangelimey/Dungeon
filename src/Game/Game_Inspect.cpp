@@ -113,6 +113,9 @@ void Game::InspectorCommand(const std::vector<std::string>& args) {
 			m_entityInspector.ClickEditRoute();
 		} else if (monster && verb == "clearroute") {
 			m_entityInspector.ClickClearRoute();
+		} else if (open == &m_doorInspector && verb == "open" && args.size() >= 3 &&
+				   (args[2] == "on" || args[2] == "off")) {
+			m_doorInspector.ClickOpen(args[2] == "on"); // the Open checkbox
 		} else if (monster && verb == "archetype" && args.size() >= 3) {
 			int found = -1;
 			for (int i = 0; i < static_cast<int>(std::size(ai::kArchetypeNames)); ++i)
@@ -136,6 +139,19 @@ void Game::InspectorCommand(const std::vector<std::string>& args) {
 		m_console.Print("editor inspector: closed");
 		return;
 	}
+	if (open == &m_doorInspector) {
+		// The door's: its Open checkbox (the AUTHORED state, what Save writes)
+		// beside the leaf as it stands in play and whether it is wrecked - the
+		// two an Open that did not take sets apart (code-review C356).
+		const DoorInspector::Config& c = m_doorInspector.Current();
+		DungeonWorld::DoorEdit door;
+		const bool here = m_world->DoorSettings(c.x, c.z, door);
+		m_console.Print(std::format(
+			"editor inspector: door {},{} open={} live={} broken={} tab {}", c.x, c.z,
+			c.open ? 1 : 0, here ? (door.live ? "1" : "0") : "-",
+			here ? (door.broken ? "1" : "0") : "-", open->ActiveTab()));
+		return;
+	}
 	if (open != &m_entityInspector) {
 		m_console.Print(std::format("editor inspector: open (not a monster) tab {}",
 									open->ActiveTab()));
@@ -156,6 +172,26 @@ void Game::InspectorCommand(const std::vector<std::string>& args) {
 			? ai::kArchetypeNames[arch]
 			: "?",
 		m_entityInspector.Opened().spell, c.spell, m_entityInspector.ShownSpell()));
+}
+
+bool Game::PickInspectTarget(const std::string& kind) {
+	using K = InspectTarget::Kind;
+	static constexpr std::pair<const char*, K> kNames[] = {
+		{"monster", K::Monster},	   {"sconce", K::Sconce},	{"brazier", K::Brazier},
+		{"door", K::Door},			   {"button", K::Button},	{"decoration", K::Decoration},
+		{"item", K::Item},			   {"niche", K::Niche},		{"stair", K::Stair},
+		{"projectile", K::Projectile}};
+	const auto named = std::find_if(std::begin(kNames), std::end(kNames),
+									[&](const auto& n) { return kind == n.first; });
+	if (named == std::end(kNames)) return false;
+	for (size_t i = 0; i < m_inspectTargets.size(); ++i)
+		if (m_inspectTargets[i].kind == named->second) {
+			// What the chooser's row does - the picker closes as a click on it would.
+			m_inspectPicker.Close();
+			if (m_inspectPicker.onPick) m_inspectPicker.onPick(static_cast<int>(i));
+			return true;
+		}
+	return false;
 }
 
 void Game::RouteCommand(const std::vector<std::string>& args) {

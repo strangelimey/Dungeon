@@ -352,6 +352,14 @@ std::vector<Issue> Run(const std::vector<LevelView>& levels,
 			if (!found)
 				issues.push_back({Severity::Warning, stem, KeyX(ck), KeyZ(ck),
 								  "map.check.buttondead", target});
+			// A lever standing in the doorway of a door it works (code-review
+			// C357). The party pulls a lever from its own square, so it can only
+			// ever pull this one while that door stands OPEN - and an open door
+			// will not shut with the party in its doorway. Whatever else shares
+			// the name, the lever can never shut the door it stands in.
+			if (const auto d = L.doors.find(ck); d != L.doors.end() && d->second.name == target)
+				issues.push_back({Severity::Warning, stem, KeyX(ck), KeyZ(ck),
+								  "map.check.leverindoorway", target});
 		}
 
 		// Stair pairing, checked explicitly so DRIFT is named as the cause: the

@@ -101,6 +101,15 @@
 #              veil drank whole (nobody hurt, the veil drawn on), a bolt the
 #              Wind Ward turned, and a BURST bolt it turned - the one carrier
 #              answered outside fx::Deal - with no blast.
+#   DOORWAYS   a door never shuts on anyone in its doorway (C357): a lever in a
+#              doorway, wired to that door, leaves it open while the party
+#              stands there pulling it (and says why), and shuts it pulled
+#              from beside the doorway - the control that the wiring works -
+#              while the live check names such a lever. A CORPSE is nobody
+#              (C65): a skeleton in an open doorway jams it while it lives (the
+#              control that the jam rule holds), and once killed there the
+#              party's hand shuts the door - again after a save and a load
+#              that bring the corpse back.
 #
 # And the script as a whole must run CLEAN - its verdict a PASS, nothing in it
 # refused or unknown - since a refused line (a save that failed, say) prints a
@@ -109,18 +118,24 @@
 # Each later combat batch adds its sections to combat.eval and its checks here.
 #
 # --selftest runs the same script with every line that SETS UP a claim cut (the
-# effects, spawns, equips, wears, casts, bolts, loaded fumbles, throws and clip
-# tables - CUT below) and demands that
+# effects, spawns, equips, wears, casts, bolts, loaded fumbles, throws, clip
+# tables and lever wiring - CUT below) and demands that
 # EXACTLY the checks resting on one fail (SETUP_FREE names the rest, which must
-# still pass), so no check is satisfied by nothing happening. The cut copy is
-# written beside the script, since a `sweep` path resolves against the folder of
-# the script that names it.
+# still pass), so no check is satisfied by nothing happening.
+#
+# The run plays a COPY of the script (harness_game.eval_script, in COPIES): its
+# `save` / `load` slots renamed to THIS worktree's (harness_game.save_name), since
+# Documents\DungeonSaves is shared with every other session's runs and Michael's
+# play - a fixed name was another run's file between this run's save and its
+# load, and was left behind as the newest save, which Continue loads - and its
+# `sweep` rungs named by absolute path, since a rung resolves against the folder
+# of the script that names it. The saves go when the run does, and a killed
+# run's go at the next one's start. --selftest cuts the copy.
 import io
 import math
 import os
 import re
 import sys
-import tempfile
 
 import harness_audio
 import harness_game
@@ -129,11 +144,15 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXE = os.path.join(ROOT, r"build\debug\bin\Dungeon.exe")
 LOG = os.path.join(ROOT, r"build\debug\bin\dungeon.log")
 SCRIPT = os.path.join(ROOT, r"tools\EvalScripts\combat.eval")
+COPIES = os.path.join(ROOT, r"build\harness-scripts\combattest")
+# The script's save slots, each as this worktree's.
+SAVES = {n: harness_game.save_name(ROOT, n)
+		 for n in ("combat_flask", "combat_flask_far", "combat_doorcorpse")}
 NAMES = ["Brand", "Sera", "Maren", "Tilo"]
 
 # What --selftest cuts: the lines that put a claim's cause in place.
 CUT = ("effect ", "spawn ", "equip ", "wear ", "cast ", "bolt ", "fumble ", "throw ",
-	   "monsterclips ")
+	   "monsterclips ", "flagwire ")
 
 # The checks that rest on none of the cut lines: with them cut, these, and ONLY
 # these, may still pass.
@@ -424,6 +443,23 @@ def rest_end(sec):
 	named = next((m.group(1) for m in (re.match(r"rest off \(world x\d+\)\s+last ended: (\w+)$", l)
 									   for l in sec) if m), None)
 	return stopped, named
+
+
+def door_states(sec, cell):
+	"""Every `doors` readout's row for the door on `cell` in the section, in order:
+	(state in play, authored state, its name or None) - "open" / "shut"."""
+	out = []
+	for l in sec:
+		m = re.match(r"\s+\d+ \S+ @ (\d+),(\d+) (open|shut) authored=(open|shut)(?: broken)?"
+					 r"(?: name=(\S+))?$", l)
+		if m and (int(m.group(1)), int(m.group(2))) == cell:
+			out.append((m.group(3), m.group(4), m.group(5)))
+	return out
+
+
+def hand_on_doors(sec):
+	"""What each `opendoor` left the door it worked, in order: "open" / "shut"."""
+	return [m.group(1) for m in (re.match(r"door \d+,\d+ -> (open|shut)$", l) for l in sec) if m]
 
 
 def clip_lists(sec, state):
@@ -844,7 +880,7 @@ def judge(lines, text):
 	at = party_pos(sec)
 	# Both saves were MADE in this run: a save that failed prints a refusal, and
 	# the load after it would find an earlier run's file under the same name.
-	made = "saved: combat_flask" in sec and "saved: combat_flask_far" in sec
+	made = f"saved: {SAVES['combat_flask']}" in sec and f"saved: {SAVES['combat_flask_far']}" in sec
 	# The flask was IN THE AIR at both saves: one flight, read at each.
 	aloft = (made and at is not None and len(air) == 2 and all(a[0] == "fire_flask" for a in air)
 			 and len(ts) == 3 and len(pr) == 2)
@@ -875,7 +911,7 @@ def judge(lines, text):
 	for name, want in (("near", near), ("far", far)):
 		loaded_sec = get(f"flask-save-{name}")
 		got = [r for r in floor_items(loaded_sec) if r[1] == "fire_flask"]
-		loaded = f"loaded: combat_flask{'_far' if name == 'far' else ''}" in loaded_sec
+		loaded = f"loaded: {SAVES['combat_flask_far' if name == 'far' else 'combat_flask']}" in loaded_sec
 		check(aloft and loaded and len(got) == 1 and got[0][0] == want
 			  and (name == "near" or got[0][0] != party),
 			  f"the {name} save holds the flask, whole, on the floor of the square it was over",
@@ -985,7 +1021,72 @@ def judge(lines, text):
 		check(turned and ended(sec), f"{what} ended it as `attacked`",
 			  f"wardturns={t.get('wardturns')} taken={t.get('taken')} blasts={t.get('blasts')} "
 			  f"rest ended {rest_end(sec)}")
+
+	print("DOORWAYS - a door never shuts on the party in its doorway (C357)")
+	sec = get("lever-doorway")
+	gate = (15, 12)
+	wired = ("flagwire door 15,12 flag= name=gate31" in sec
+			 and "flagwire lever 15,12 flag= op= target=gate31" in sec)
+	warned = any(re.match(r"editor box \S+ 15,12 warning map\.check\.leverindoorway$", l) for l in sec)
+	check(wired and warned,
+		  "a lever and the door it works share a doorway, and the live check names the lever",
+		  f"wired={wired} boxes {[l for l in sec if l.startswith('editor box ')]}")
+	states = door_states(sec, gate)
+	at = party_pos(sec)
+	said = messages(sec)
+	# The CONTROL first: pulled with the party beside the doorway, the lever shuts
+	# the door - so the wiring works, and a refusal below is for the party alone.
+	# It comes first so the claim cannot change it: pulled again it reopens.
+	shuts = wired and len(states) == 3 and states[0] == ("shut", "shut", "gate31")
+	check(shuts, "pulled with the party beside the doorway, the lever shuts its door",
+		  f"door readouts {states}")
+	check(shuts and at == (gate, "north") and states[1][0] == "open" and states[2][0] == "open"
+		  and "Something is blocking the doorway." in said,
+		  "pulled with the party IN the doorway, the door stays open and says why",
+		  f"party {at} door readouts {states} messages {said}")
+
+	print("DOORWAYS - a corpse in a doorway jams nothing, through a reload too (C65)")
+	sec = get("door-corpse")
+	rows = monster_rows(sec, "skeleton")
+	hands = hand_on_doors(sec)
+	states = door_states(sec, gate)
+	# The skeleton stood in the open doorway and JAMMED it while it lived (the
+	# hand left the door open) - the control that the jam rule is in force - and
+	# died there.
+	killed = (len(rows) == 3 and rows[0]["cell"] == gate and not rows[0]["dead"]
+			  and rows[1]["cell"] == gate and rows[1]["dead"] and hands[:2] == ["open", "open"])
+	check(killed, "a skeleton in the open doorway jammed it alive, and was killed there",
+		  f"skeleton readouts {rows} hand on the door {hands}")
+	check(killed and len(hands) == 4 and hands[2] == "shut" and states[:1] == [("open", "shut", None)],
+		  "dead, it jams nothing: the hand shuts the door", f"hand on the door {hands} doors {states}")
+	reloaded = (f"saved: {SAVES['combat_doorcorpse']}" in sec
+				and f"loaded: {SAVES['combat_doorcorpse']}" in sec
+				and len(rows) == 3 and rows[2]["cell"] == gate and rows[2]["dead"]
+				and states[1:2] == [("open", "shut", None)])
+	check(killed and reloaded and hands[3:] == ["shut"],
+		  "and after a save and a load that bring the corpse and the open door back, it still shuts",
+		  f"saved/loaded {reloaded} skeleton {rows[2:]} doors {states} hand on the door {hands}")
 	check("end" in s, "the script ran to its end")
+
+
+def script_for_run(selftest):
+	"""combat.eval as this run plays it: a copy in COPIES with this worktree's save
+	slots and every `sweep` rung named by absolute path (forward slashes, which
+	re.sub takes as a plain replacement and the game as a path), cut for
+	--selftest. Never written over the source: the cut goes to the copy's path."""
+	text = io.open(SCRIPT, encoding="utf-8").read()
+	here = os.path.dirname(SCRIPT)
+	rungs = {r: os.path.join(here, r).replace("\\", "/")
+			 for r in re.findall(r"^\s*sweep\s+\d+\s+(\S+)\s*$", text, re.M) if not os.path.isabs(r)}
+	path = harness_game.eval_script(SCRIPT, COPIES, SAVES, rungs)
+	if selftest:
+		copied = io.open(path, encoding="utf-8").read()
+		cut = "\n".join(("echo skipped" if l.startswith(CUT) else l) for l in copied.splitlines())
+		path = os.path.join(COPIES, os.path.basename(SCRIPT))
+		os.makedirs(COPIES, exist_ok=True)
+		with io.open(path, "w", encoding="utf-8") as fh:
+			fh.write(cut + "\n")
+	return path
 
 
 def main():
@@ -993,22 +1094,15 @@ def main():
 		print(f"no debug build at {EXE}")
 		return 2
 	selftest = "--selftest" in sys.argv
-	script = SCRIPT
-	if selftest:
-		text = io.open(SCRIPT, encoding="utf-8").read()
-		cut = "\n".join(("echo skipped" if l.startswith(CUT) else l) for l in text.splitlines())
-		# Beside the script: its `sweep` names a rung relative to its own folder.
-		fd, script = tempfile.mkstemp(suffix=".eval", dir=os.path.dirname(SCRIPT))
-		with os.fdopen(fd, "w", encoding="utf-8") as fh:
-			fh.write(cut + "\n")
+	# What a killed run left: its saves are this worktree's, so nobody else's.
+	harness_game.remove_saves(SAVES.values())
 	try:
-		code, verdict, lines, text = run(script)
+		code, verdict, lines, text = run(script_for_run(selftest))
 		print(f"eval: {verdict.split('] ', 1)[-1] if verdict else '(no verdict line)'}")
 		judge(lines, text)
 	finally:
-		# It sits in the source tree, so it goes however the run ends.
-		if selftest:
-			os.remove(script)
+		# However the run ends: left behind, the newest is what Continue loads.
+		harness_game.remove_saves(SAVES.values())
 	failed = sum(1 for _, ok in results if not ok)
 	if selftest:
 		# Every check that rests on a cut line must FAIL, and the setup-free ones

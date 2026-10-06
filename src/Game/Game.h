@@ -1410,6 +1410,10 @@ private:
 	// harness - each the call its control makes.
 	void InspectorCommand(const std::vector<std::string>& args);
 	void RouteCommand(const std::vector<std::string>& args);
+	// The chooser's row for the first target of a KIND ("door", "monster", ...)
+	// on the square it lists - `editor inspect <x> <z> <kind>`, which a click on
+	// that row would be. False when the kind is unknown or the square has none.
+	bool PickInspectTarget(const std::string& kind);
 	// `editor levelsettings|newasset|levellist|arm ...` (Game_Inspect.cpp): the
 	// editor's other dialogs and its level drop-down opened and pressed as their
 	// controls are, and where each stands - what a check of the Esc ladders

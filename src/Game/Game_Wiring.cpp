@@ -1008,11 +1008,14 @@ void Game::WireModuleCallbacks() {
 		if (!m_world->SaveLevel()) log::Warn("fixture inspector: failed to save level");
 	};
 
-	// Door inspector: Open flips the live panel + the record's authored state;
-	// the key dropdown authors the key= param (locks the party's click), and the
+	// Door inspector: Open flips the record's authored state, and the live panel
+	// follows when it can - never shutting a wrecked leaf, and a close with
+	// anyone in the doorway refused outright (SetDoorSettings, code-review C356),
+	// which is why the box reads back what was kept; the key
+	// dropdown authors the key= param (locks the party's click), and the
 	// opener rows author opener=/opener_side= (which re-resolve the live door's
 	// hand-hold — see SetDoorSettings).
-	m_doorInspector.onApply = [this](const DoorInspector::Config& c) {
+	m_doorInspector.onApply = [this](DoorInspector::Config& c) {
 		DungeonWorld::DoorEdit e;
 		e.open = c.open;
 		e.key = c.key;
@@ -1031,6 +1034,8 @@ void Game::WireModuleCallbacks() {
 		// decimals and anything finer could not survive the round trip anyway.
 		e.seconds = std::fabs(c.seconds - c.typeSeconds) < 0.005f ? 0.0f : c.seconds;
 		m_world->SetDoorSettings(c.x, c.z, e);
+		DungeonWorld::DoorEdit kept;
+		if (m_world->DoorSettings(c.x, c.z, kept)) c.open = kept.open;
 	};
 	m_doorInspector.onSave = [this] {
 		if (!m_world->SaveLevel()) log::Warn("door inspector: failed to save level");

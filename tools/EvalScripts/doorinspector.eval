@@ -1,0 +1,77 @@
+; doorinspector.eval - the door inspector's Open on a leaf that cannot shut
+; (code-review C356). Judged by tools/EditorTest.py phase 60, on its scratch
+; world. The inspector edits the AUTHORED state (the record's open=), and the
+; live leaf follows a change only when it can; it used to write the leaf's state
+; straight through, so it could shut a wrecked door (which then would not open
+; again) or close a door on a monster standing in it.
+;
+; Three wooden doors along a corridor, the party well clear of all of them.
+; `editor inspector open on|off` is the Open checkbox, and prints the inspector's
+; status after it, as the bare `editor inspector` does: the box (`open=`) beside
+; the leaf as it stands (`live=`) and `broken=`. `doors` gives each door's state
+; in play beside its authored one.
+;
+;   --- smashed ---  a door smashed down stands open. Open ticked, then
+;                    unticked: the authored state goes shut, the leaf stays
+;                    open and the log says why; saved, the record holds shut.
+;   --- monster ---  a door opened with a skeleton standing in its doorway (the
+;                    chooser lists both; `editor inspect ... door` picks the
+;                    door's row). Ticked, then unticked: the close is REFUSED,
+;                    the record's too - the box ticks itself again, the leaf
+;                    stays open on the skeleton and the log says why. Esc's
+;                    revert to the shut it was placed as is refused the same
+;                    way, and the level saved holds open=1 beside the
+;                    skeleton's record - saved with `savemap`, not the
+;                    inspector's Save, which applies the ticked box once more
+;                    on its way to the file and would mend a record the untick
+;                    had left shut. A save writes the
+;                    skeleton where it stands, so a record that took the close
+;                    would shut the door on it at the next load.
+;   --- empty ---    THE CONTROL: the same untick on an open door with nobody in
+;                    its doorway shuts the leaf - so the two above were held
+;                    open by the wreck and the skeleton, not by an inspector
+;                    that moves no leaf at all.
+
+logecho on
+reset
+timescale 0
+lockstep on
+freeze on
+arena corridor 11
+tp 10 12
+face e
+echo --- smashed ---
+editor place doors wooden_door 12 12
+smash 12 12 1000
+doors
+editor inspect 12 12
+editor inspector
+editor inspector open on
+editor inspector open off
+doors
+messages 3
+editor inspector save
+echo --- monster ---
+editor place doors wooden_door 15 12
+opendoor 15 12
+spawn skeleton 15 12 west 1 up
+monsters
+editor inspect 15 12 door
+editor inspector
+editor inspector open on
+editor inspector open off
+doors
+messages 3
+editor inspector esc
+doors
+savemap
+echo --- empty ---
+editor place doors wooden_door 18 12
+opendoor 18 12
+editor inspect 18 12
+editor inspector
+editor inspector open on
+editor inspector open off
+doors
+editor inspector esc
+echo --- end ---

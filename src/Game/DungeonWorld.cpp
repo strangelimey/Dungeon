@@ -1745,6 +1745,8 @@ const std::vector<ai::Cell>* DungeonWorld::MonsterPatrol(u32 runtimeId) const {
 }
 
 u32 DungeonWorld::MonsterRuntimeIdAt(int cx, int cz) const {
+	// The dead included, on purpose: this is what a right-click selects, and a
+	// corpse is something to inspect. Play asks DoorwayOccupied (C65).
 	for (const Monster& m : m_monsters)
 		if (m.x == cx && m.z == cz) return m.runtimeId;
 	return 0;

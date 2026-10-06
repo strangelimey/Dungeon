@@ -1121,6 +1121,7 @@ map.check.nostart=Не удалось прочитать стартовый ур
 map.check.levellost=До этого уровня нельзя добраться
 map.check.doorlocked=Эту дверь никогда не открыть — «{}» недоступен до неё
 map.check.buttondead=Рычаг указывает на «{}», но такой двери нет
+map.check.leverindoorway=Рычаг стоит в проёме «{}», двери, которой он управляет, - потянув его отсюда, её никогда не закрыть
 map.check.stairnolevel=Ведёт в «{}» — такого уровня в проекте нет
 map.check.stairblocked=Упирается в скалу на «{}»
 map.check.arrivalblocked=Место «{}» ведёт в сплошную скалу

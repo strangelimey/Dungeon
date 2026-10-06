@@ -254,10 +254,8 @@ bool DungeonWorld::MoveObject(const MoveTarget& t, int tx, int tz) {
 			return refuse("map.move.nodoorway");
 		if (DoorAt(tx, tz)) return refuse("map.move.occupied");
 		// AddDoor's rule: a closed door dropped on the party or a monster walls
-		// them in.
-		if ((tx == m_party.GridX() && tz == m_party.GridZ()) ||
-			MonsterRuntimeIdAt(tx, tz) != 0)
-			return refuse("map.move.occupied");
+		// them in. A corpse is nobody (DoorwayOccupied, code-review C65).
+		if (DoorwayOccupied(tx, tz)) return refuse("map.move.occupied");
 		Entity* r = m_entities.MutableById(t.id);
 		if (!r) return false;
 		r->x = tx;

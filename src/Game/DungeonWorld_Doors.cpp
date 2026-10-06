@@ -185,10 +185,9 @@ bool DungeonWorld::AddDoor(const std::string& type, int x, int z) {
 bool DungeonWorld::AddDoor(const std::string& type, int x, int z,
 						   Direction facing) {
 	if (!m_project.doors.Contains(type) || DoorAt(x, z)) return false;
-	// Spawning a CLOSED door under the party or a monster would wall them in.
-	if ((x == m_party.GridX() && z == m_party.GridZ()) ||
-		MonsterRuntimeIdAt(x, z) != 0)
-		return false;
+	// Spawning a CLOSED door under the party or a monster would wall them in. A
+	// corpse is nobody: it is no reason to refuse the doorway (C65).
+	if (DoorwayOccupied(x, z)) return false;
 	Entity record;
 	record.kind = EntityKind::Door;
 	record.type = type;
@@ -224,16 +223,33 @@ bool DungeonWorld::AddDoorRemote(const std::string& stem,
 	return true;
 }
 
+bool DungeonWorld::DoorwayOccupied(int x, int z) const {
+	if (x == m_party.GridX() && z == m_party.GridZ()) return true;
+	for (const Monster& m : m_monsters) {
+		// The LIVING only: the dead are never taken out of the list, and a corpse
+		// in an open doorway used to jam its door for good - through a reload
+		// too, since the corpse is saved (code-review C65).
+		if (!m.Alive() || !m.kind) continue;
+		const int f = FootprintCells(m.kind->size);
+		if (x >= m.x && x < m.x + f && z >= m.z && z < m.z + f) return true;
+	}
+	return false;
+}
+
 bool DungeonWorld::ToggleDoor(Door& door) {
-	// A BROKEN door is open for good — there is no panel left to work. This is the
-	// one place the invariant has to hold, because it covers every route in: the
-	// party's click, a wired button, and the editor's inspector all arrive here.
+	// A BROKEN door is open for good - there is no panel left to work. Every route
+	// that works a door in play arrives here: the party's click and a wired
+	// button. The editor's inspector edits the AUTHORED state instead
+	// (SetDoorSettings), and holds the same two rules: a wrecked leaf stays open,
+	// and an occupied doorway refuses the close, its record's included.
 	if (door.brk.broken) {
 		if (onMessage) onMessage(loc::View("log.door_wrecked"));
 		return false;
 	}
-	// Anything standing in the doorway jams a closing panel.
-	if (door.open && MonsterRuntimeIdAt(door.x, door.z) != 0) {
+	// Anyone standing in the doorway jams a closing panel - the party as well as
+	// a monster: a lever in the doorway wired to its own door used to shut it on
+	// the party, who then sat in a shelter no bolt or blast could enter (C357).
+	if (door.open && DoorwayOccupied(door.x, door.z)) {
 		if (onMessage) onMessage(loc::View("log.door_jammed"));
 		return false;
 	}
@@ -354,7 +370,12 @@ std::string DungeonWorld::DoorTypeAt(int x, int z) const {
 bool DungeonWorld::DoorSettings(int x, int z, DoorEdit& out) const {
 	const Door* door = DoorAt(x, z);
 	if (!door) return false;
-	out.open = door->open;
+	// The AUTHORED state, which is what the inspector edits. It reported the leaf
+	// as it stood in play, so any apply - a flag wired, a name typed - wrote a
+	// door the party had opened into its record as authored open (C356).
+	out.open = door->initialOpen;
+	out.live = door->open;
+	out.broken = door->brk.broken;
 	out.key = door->key;
 	out.flag = door->flag;
 	out.name = door->name;
@@ -390,8 +411,31 @@ void DungeonWorld::SetDoorSettings(int x, int z, const DoorEdit& in) {
 	Door* door = DoorAt(x, z);
 	if (!door) return;
 	NoteEdit(); // an inspector apply: no undo step, still a change to check
-	door->open = in.open;
-	door->initialOpen = in.open; // the editor edits the AUTHORED state
+	// The editor edits the AUTHORED state, and the live leaf follows only when
+	// that CHANGES - every control applies the whole edit, so a name typed or a
+	// curve picked must not snap a door the party worked back to its record.
+	// It wrote `open` straight through, shutting a wrecked leaf (which then would
+	// not open again) or closing one on a monster (code-review C356). Opening
+	// needs no test - a wrecked leaf is open already, and nobody is shut in by
+	// one opening. A close keeps ToggleDoor's two rules, each its own way:
+	//   - with anyone in the doorway it is REFUSED, the record included. The
+	//     editor's Save writes a monster where it stands, so a record that took
+	//     the close would shut the door on it at the next load, for good;
+	//   - a WRECKED leaf stays open, but the record takes the close: a new game
+	//     builds the door whole, and shut is then what was authored.
+	// The inspector reads back what was kept (Game_Wiring), so its box shows it.
+	bool open = in.open;
+	if (!in.open && door->initialOpen && door->open) {
+		if (DoorwayOccupied(door->x, door->z)) {
+			open = true;
+			if (onMessage) onMessage(loc::View("log.door_jammed"));
+		} else if (door->brk.broken && onMessage) {
+			onMessage(loc::View("log.door_wrecked"));
+		}
+	}
+	const bool authoredChanged = open != door->initialOpen;
+	door->initialOpen = open;
+	if (authoredChanged) door->open = open || door->brk.broken;
 	door->key = in.key;
 	door->flag = in.flag;
 	door->name = in.name;
@@ -403,7 +447,7 @@ void DungeonWorld::SetDoorSettings(int x, int z, const DoorEdit& in) {
 						  [&](const auto& p) { return p.first == k; });
 			if (!v.empty()) record->params.emplace_back(k, v);
 		};
-		set("open", in.open ? "1" : "");
+		set("open", open ? "1" : ""); // what was KEPT: a refused close leaves open=1
 		set("key", in.key);
 		set("flag", in.flag);
 		set("name", in.name);
@@ -508,6 +552,20 @@ std::vector<DungeonWorld::DoorMarker> DungeonWorld::DoorMarkers() const {
 	markers.reserve(m_doors.size());
 	for (const Door& d : m_doors) markers.push_back({d.x, d.z, d.facing, d.open});
 	return markers;
+}
+
+std::vector<std::string> DungeonWorld::DoorList() const {
+	std::vector<std::string> out;
+	out.reserve(m_doors.size());
+	for (const Door& d : m_doors) {
+		std::string line = std::format("{} {} @ {},{} {} authored={}", d.id, d.type, d.x, d.z,
+									   d.open ? "open" : "shut",
+									   d.initialOpen ? "open" : "shut");
+		if (d.brk.broken) line += " broken";
+		if (!d.name.empty()) line += " name=" + d.name;
+		out.push_back(std::move(line));
+	}
+	return out;
 }
 
 // ============================================================================
