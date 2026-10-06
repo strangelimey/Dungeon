@@ -107,6 +107,21 @@ the console, read `dungeon.log`.
 
 Every message allocation is gone. The report left is not a message — below.
 
+## A player's line is never "reporting" (code-review C217)
+
+The one policy the guard keeps is that REPORTING excuses itself: a log::
+line, a console readout, a crash record - dev-facing output, which may format
+as it likes. It is not a door for anything the player reads. The HUD's Help
+button once walked through it: its movement-keys line read the key names from
+the OS layout as strings, allocated on the click, and `MoveKeysHelp` excused
+itself "as reporting code" (recorded in docs/lighting-updates-plan.md Phase 1).
+That was the event exemption again under another name. The names are now read
+when the keys are bound (`GameSettings::RefreshKeyNames`, at load and on every
+rebind) and the line is a `loc::FormatLine`, so the click allocates nothing and
+excuses nothing; `AllocTest.ps1 -Exit` clicks Help inside its window, and
+refuses a PASS unless the verdict counts the press in a frame the guard
+measured (`helps=`).
+
 ## Still open
 
 **`AudioEngine::Play` allocates** (`AudioEngine.cpp:148`). The pool reuses an

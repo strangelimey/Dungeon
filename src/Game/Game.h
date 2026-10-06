@@ -1030,6 +1030,19 @@ private:
 	// stair load) and were disarmed for it - the evidence AllocTest.ps1 -Pause
 	// reads that a transition happened inside the window at all.
 	u32 m_allocTestTransitions = 0;
+	// Armed window frames that OPENED a Yes/No prompt over play (an exit stair's
+	// "Leave?") and were disarmed for it - AllocTest.ps1 -Exit's evidence that
+	// the prompt opened inside the window (code-review C210).
+	u32 m_allocTestPrompts = 0;
+	// What -Exit does around its prompt, counted only in MEASURED frames - armed
+	// to the end of Update (alloc::FrameArmed) and inside the window: presses of
+	// the log's Help button (GameUI::HelpPresses) and pit falls begun by a step
+	// (Harness::fallsBegun), each differenced across the frame in Update. A count
+	// since launch, or since the window opened, also took the warm-up's frames
+	// and the frames after a prompt, which the guard does not measure - a Help
+	// click in the warm-up passed with its line unchecked (code-review C210, C217).
+	u32 m_allocTestHelps = 0;
+	u32 m_allocTestFalls = 0;
 	// The party's Act count when the window opened (Party::ActCount): the
 	// verdict's moves= is the difference, -Walk's evidence that it moved.
 	unsigned m_allocTestActsAt = 0;

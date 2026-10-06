@@ -1564,9 +1564,10 @@ void Game::OpenEditorOnArrival() {
 }
 
 void Game::ReturnToTitle(const char* why) {
-	// A wipe lands inside the world update, often in a frame the guard armed,
-	// and the line below formats a string. Reporting excuses itself.
-	alloc::Excused excuse;
+	// NO EXCUSE NEEDED (code-review C217): a wipe lands inside the world update,
+	// often in a frame the guard armed, but that frame ends on the title - outside
+	// the guarded states - and Game::Update disarms a frame that leaves them,
+	// whatever it did on the way. log:: excuses its own formatting regardless.
 	log::Info("back to the title: {} (was {}, level {})", why, StateName(),
 			  m_world ? m_world->CurrentLevel() : std::string("-"));
 	m_mapView.Close(); // the editor too: the title draws no overlay, so an open
@@ -1801,6 +1802,13 @@ void Game::UpdateGovernor(float dt) {
 // `step` inside it runs thousands of simulated ticks in one frame, which is no
 // steady-state frame either. Simulation event paths are checked where the frame
 // really is steady: AllocTest.ps1 -Wounded / -Melee / -Cast.
+//
+// A YES/NO PROMPT OVER PLAY IS A PAUSE (code-review C210). An exit stair asks
+// "Leave?" while the state stays Playing, and the question freezes the world
+// the way the pause menu does - so its frames are left out on the pause menu's
+// terms: the frames under it, and the frame that answers it, which still
+// starts with the prompt up. The frame that OPENS one is disarmed at the end
+// of Update, beside the transition rule, and the warm-up starts again after.
 bool Game::SteadyStateFrame() {
 	constexpr u32 kWarmupFrames = 120;
 	// An open portrait picker streams thumbnails in as it scrolls: loading, not a
@@ -1808,9 +1816,9 @@ bool Game::SteadyStateFrame() {
 	// `mapicons survey` overlay is a dev readout drawn over everything, labels
 	// built per frame - a console session's terms, not gameplay.
 	const bool quiet = GuardedState() && !m_console.IsOpen() && !EvalRunning() &&
-					   !m_ui.PortraitPickerOpen() && !m_mapIconSurvey &&
-					   !m_mapView.IsOpen() && !m_baking && m_pendingLanguage.empty() &&
-					   !m_pendingQuality;
+					   !m_ui.PortraitPickerOpen() && !m_ui.PromptActive() &&
+					   !m_mapIconSurvey && !m_mapView.IsOpen() && !m_baking &&
+					   m_pendingLanguage.empty() && !m_pendingQuality;
 	m_steadyFrames = quiet ? m_steadyFrames + 1 : 0;
 	return m_steadyFrames > kWarmupFrames;
 }
@@ -1907,14 +1915,19 @@ void Game::UpdateAllocTest(float dt, bool steady) {
 	// else, so the format is part of the contract.
 	// moves= is the party's Acts inside the window (Party::ActCount): -Walk's
 	// proof that its key presses moved the party, and with it the movement pad.
+	// prompts= is the armed frames that opened a prompt over play: -Exit's proof
+	// that the exit stair asked inside the window. helps= and falls= are the Help
+	// presses and pit steps made in MEASURED frames (see Update): its proof that
+	// the Help line and the fall's step were checked, not merely made.
 	MoveAction lastMove{};
 	const unsigned moves =
 		m_world ? m_world->GetParty().ActCount(lastMove) - m_allocTestActsAt : 0u;
 	const std::string line =
 		std::format("alloctest RESULT={} frames={} violations={} violating_frames={} "
-					"transitions={} moves={}{}",
+					"transitions={} moves={} prompts={} helps={} falls={}{}",
 					timedOut ? "SKIP" : (violations == 0 ? "PASS" : "FAIL"),
 					m_allocTestFrames, violations, badFrames, m_allocTestTransitions, moves,
+					m_allocTestPrompts, m_allocTestHelps, m_allocTestFalls,
 					timedOut ? " reason=never_reached_a_steady_frame" : "");
 	log::Info("{}", line);
 	m_console.Print(line);
@@ -1959,6 +1972,13 @@ void Game::Update(float dt) {
 			m_inputPokeMidLine = !input.DiscardTypedForTest(/*throughEnter=*/!open);
 	}
 
+	// What AllocTest -Exit must show was checked, read before the frame's work
+	// and differenced after it (the end of this function): a Help press and a pit
+	// fall's step count only in a frame that is still armed when it ends.
+	const u32 helpsAtTop = m_ui.HelpPresses();
+	const DungeonWorld* worldAtTop = m_world.get();
+	const u32 fallsAtTop = worldAtTop ? worldAtTop->GetHarness().fallsBegun : 0u;
+
 	UpdateStates(dt);
 
 	// The pointer's shape, from what this frame's input left it over: the
@@ -1985,9 +2005,29 @@ void Game::Update(float dt) {
 	// to call it. The destination's own frames are not armed anyway (they fail
 	// GuardedState), so only this one frame was ever at issue. Moving INTO the
 	// sheet over a level stays guarded: that is a guarded state too.
-	if (steady && !GuardedState()) {
+	//
+	// A frame that OPENED A PROMPT is the same case without a state change (code-
+	// review C210): an exit stair's "Leave?" builds the confirm tree here while
+	// the state stays Playing, and the frames after it are not armed while it is
+	// up (SteadyStateFrame). One place, so every prompt over play is covered.
+	if (steady && (!GuardedState() || m_ui.PromptActive())) {
 		OverlayOpenedThisFrame();
-		if (m_allocTestRemaining > 0.0f) ++m_allocTestTransitions;
+		if (m_allocTestRemaining > 0.0f) {
+			if (GuardedState()) ++m_allocTestPrompts;
+			else ++m_allocTestTransitions;
+		}
+	}
+
+	// A MEASURED frame: armed at the top and still armed now (no overlay, prompt
+	// or transition disarmed it on the way), inside the window - the verdict
+	// frame, which sets the remaining budget to zero, already took its reading.
+	// What happened in it is what the guard checked, so it is what -Exit refuses
+	// on: a count since launch also took a Help click made in the warm-up, which
+	// passed with the line unchecked (code-review C210, C217).
+	if (m_allocTestRemaining > 0.0f && alloc::FrameArmed()) {
+		m_allocTestHelps += m_ui.HelpPresses() - helpsAtTop;
+		if (m_world && m_world.get() == worldAtTop)
+			m_allocTestFalls += m_world->GetHarness().fallsBegun - fallsAtTop;
 	}
 }
 

@@ -315,6 +315,13 @@ public:
 	// And for AllocTest -Rest: where the log's Rest button is (empty before the
 	// HUD is built), so a run can start a rest the way a player does.
 	gfx::Rect RestButtonRect();
+	// ...and for AllocTest -Exit: where its Help button is, and how many times
+	// it has been pressed since launch (`messages help`) - the click prints the
+	// movement keys line (code-review C217). Game::Update differences the count
+	// across a frame for the alloctest verdict's `helps=`, the presses made in
+	// MEASURED frames.
+	gfx::Rect HelpButtonRect();
+	u32 HelpPresses() const { return m_helpPresses; }
 
 	// --- character sheet ---------------------------------------------------------
 	void ShowSheet(size_t index); // re-points the sheet at the member
@@ -896,6 +903,7 @@ private:
 	// The log's corner row after its Log button (MessageLog::cornerButtons), by
 	// index: Rest, whose label tracks the world (SetResting), then Help.
 	static constexpr size_t kCornerRest = 0, kCornerHelp = 1, kCornerCount = 2;
+	u32 m_helpPresses = 0; // Help clicks since launch (HelpPresses)
 	CharacterSheet* m_sheet = nullptr;
 	size_t m_sheetIndex = 0; // member shown by the character sheet
 

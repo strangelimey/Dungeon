@@ -157,7 +157,10 @@ void ParseIniPair(const std::string& text, const std::string& key, float& x, flo
 
 void GameSettings::Load() {
 	auto bytes = assets::ReadBinaryFile(paths::ExecutableDir() + "\\settings.ini");
-	if (!bytes) return; // first run: keep the defaults
+	if (!bytes) { // first run: keep the defaults
+		RefreshKeyNames(); // ...and name their keys, as the end below does
+		return;
+	}
 	const std::string text(bytes->begin(), bytes->end());
 
 	const size_t qpos = text.find("quality=");
@@ -289,6 +292,7 @@ void GameSettings::Load() {
 			vkey >= 0x08 && vkey <= 0xFE) // keyboard range (no mouse codes)
 			moveKeys.*(field.field) = vkey;
 	}
+	RefreshKeyNames(); // the Help line's names, read here rather than in play
 }
 
 void GameSettings::Save() const {
@@ -401,16 +405,29 @@ const char* GameSettings::QualityLabel() const {
 	}
 }
 
-std::string GameSettings::MoveKeysHelp() const {
-	// REPORTING, so it excuses itself (the rule Save follows): the HUD's Help
-	// button prints it on one click inside a guarded frame, and the key names
-	// come from the OS keyboard layout as strings. A once-per-click line, never
-	// per frame.
-	const alloc::Excused excuse;
-	return loc::Format("log.movekeys", KeyName(moveKeys.forward),
-					   KeyName(moveKeys.back), KeyName(moveKeys.strafeLeft),
-					   KeyName(moveKeys.strafeRight), KeyName(moveKeys.turnLeft),
-					   KeyName(moveKeys.turnRight));
+void GameSettings::RefreshKeyNames() {
+	const int keys[] = {moveKeys.forward, moveKeys.back, moveKeys.strafeLeft,
+						moveKeys.strafeRight, moveKeys.turnLeft, moveKeys.turnRight};
+	static_assert(std::size(keys) == std::tuple_size_v<decltype(keyNames)>);
+	for (size_t i = 0; i < keyNames.size(); ++i) keyNames[i] = KeyName(keys[i]);
+	keyNamesFor = moveKeys;
+}
+
+loc::Line GameSettings::MoveKeysHelp() const {
+	// NOT REPORTING, so no excuse (code-review C217 - it used to claim one): the
+	// HUD's Help button prints this for the PLAYER on a click inside a guarded
+	// frame. The names were read when the keys were bound; this only formats
+	// them, into a Line, which allocates nothing.
+	if (keyNamesFor != moveKeys)
+		// A binding that moved without RefreshKeyNames: still the right text, read
+		// afresh - and in an armed frame the guard names this line, which is how a
+		// rebind path that forgot the refresh would show.
+		return loc::FormatLine("log.movekeys", KeyName(moveKeys.forward),
+							   KeyName(moveKeys.back), KeyName(moveKeys.strafeLeft),
+							   KeyName(moveKeys.strafeRight), KeyName(moveKeys.turnLeft),
+							   KeyName(moveKeys.turnRight));
+	return loc::FormatLine("log.movekeys", keyNames[0], keyNames[1], keyNames[2],
+						   keyNames[3], keyNames[4], keyNames[5]);
 }
 
 } // namespace dungeon::game

@@ -102,7 +102,10 @@ Key conventions (memorize, they bite):
   session, so the eval harness is NOT an allocation check - AllocTest is; and a
   frame that ENDS outside Playing/sheet-over-level - Esc to pause, a stair load -
   is a transition, disarmed at the end of Game::Update, `AllocTest.ps1 -Pause`;
-  the menus are not guarded, except the IDLE party creation page under
+  so is a frame that OPENS a Yes/No prompt over play - an exit stair's "Leave?",
+  the state still Playing - and the frames under it and the one answering it are
+  not armed at all (a prompt freezes the world like the pause menu; code-review
+  C210, `AllocTest.ps1 -Exit`, `prompts=`); the menus are not guarded, except the IDLE party creation page under
   AllocTest's own switch, `AllocTest.ps1 -PartyPage`),
   and a violating frame's call stacks are symbolized into dungeon.log once per
   unique site (capture starts in ArmFrame, so the first armed frame after a
@@ -128,7 +131,11 @@ Key conventions (memorize, they bite):
   log::Write and its templates do that for every caller (code-review C215), so
   what a reporter still excuses by hand is only what it builds BEFORE the call
   (a formatted argument, a console Print; `AllocTest.ps1 -OnHitTypo` swings a
-  typo'd on_hit in the window). Staged loading is measured too - LoadQueue
+  typo'd on_hit in the window). REPORTING means dev-facing output: a line the
+  PLAYER reads is never reporting and never excused (code-review C217 - the
+  log's Help button excused its key-names line as reporting; the names are now
+  read when the keys are bound, GameSettings::RefreshKeyNames, and the line is a
+  loc::FormatLine). Staged loading is measured too - LoadQueue
   times/counts every task and dumps a table when the last lands (`loadstats`
   reprints; each Add takes an English dev name beside its localized label),
   and LoadGltf reports allocs/MB per model. TRAP when reading those numbers:
@@ -2512,8 +2519,10 @@ the mesh builder skips so the type's shaft mesh shows: CellHolesFn, fed by
 DungeonWorld::FloorHoleAt/CeilingHoleAt), `traverse` = 0 (stepping on the tile
 does NOT transition — a pit's ceiling hole is scenery), `fall` = 1 (the
 transition is a PLUNGE: the step glide onto the pit finishes, then the camera
-drops through the shaft on an accelerating curve — DungeonWorld::m_pendingFall
-sequences it in Update, PartyEye applies the drop to camera + carried torch —
+drops through the shaft on an accelerating curve — DungeonWorld::m_fall (a KEPT
+transition, assigned into its reserved room, since the step and the plunge are
+armed frames: code-review C210) + m_falling sequence it in Tick, PartyEye
+applies the drop to camera + carried torch —
 then the swap fires with the party's facing preserved; movement is swallowed
 meanwhile, and the world.pitfall message plays). Meshes:
 stairs.gltf (rising flight), stairs_down.gltf (below-grade stairwell shaft),

@@ -35,6 +35,7 @@ struct MoveKeys {
 	int strafeRight = 'D';
 	int turnLeft = 'Q';
 	int turnRight = 'E';
+	bool operator==(const MoveKeys&) const = default;
 };
 
 // User-tunable right-mouse free-look feel (Settings → Controls; ini look_*).

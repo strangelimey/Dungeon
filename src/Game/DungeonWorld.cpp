@@ -118,11 +118,17 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 				}
 				if (CatalogBool(e, "fall", false)) {
 					if (onMessage) onMessage(loc::View("world.pitfall"));
-					m_pendingFall = LevelTransition{
-						s.destLevel, s.destX, s.destZ,
-						static_cast<Direction>(m_party.Facing())};
+					// Assigned into the kept m_fall, in its reserved room: this
+					// step and the plunge after it are armed frames (C210).
+					m_fall.level.assign(s.destLevel);
+					m_fall.x = s.destX;
+					m_fall.z = s.destZ;
+					m_fall.facing = static_cast<Direction>(m_party.Facing());
+					m_fall.toWorld = false;
+					m_falling = true;
 					m_fallT = -1.0f; // wait for the step glide to finish
 					m_party.ClearBufferedAction();
+					++m_harness.fallsBegun;
 				} else if (CatalogBool(e, "exit", false)) {
 					// The way OUT: `dest` names the WORLD LOCATION this exit
 					// surfaces at rather than a level ("-" is the record's
@@ -497,7 +503,7 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 	}
 	// The frame's input once, ahead of all its ticks: a key press is one act
 	// however many ticks the frame runs.
-	if (acceptInput && !m_pendingFall) m_party.HandleInput(input);
+	if (acceptInput && !m_falling) m_party.HandleInput(input);
 	PresentFrame(AdvanceSimulation(dt), time);
 }
 
@@ -585,12 +591,14 @@ void DungeonWorld::Tick(float dt) {
 
 	// Pit fall sequencing: let the step glide onto the pit play out, then run
 	// the camera drop (PartyEye applies it), then raise the latched transition.
-	if (m_pendingFall) {
+	if (m_falling) {
 		if (m_fallT < 0.0f) {
 			if (!m_party.IsMoving()) m_fallT = 0.0f;
 		} else if ((m_fallT += dt) >= kPitFallSeconds) {
-			m_pendingTransition = *m_pendingFall;
-			m_pendingFall.reset();
+			// A copy, so m_fall keeps its room: this frame leaves for a level
+			// load, which the guard disarms (Game::Update).
+			m_pendingTransition = m_fall;
+			m_falling = false;
 			m_fallT = -1.0f;
 			// The landing IS a collision (docs/effects.md) — but it is charged
 			// on the far side of the swap, not here: the host CLEARS the message
@@ -853,7 +861,7 @@ std::vector<std::string> DungeonWorld::ButtonList() const {
 
 Vec3 DungeonWorld::PartyEye() const {
 	Vec3 eye = m_party.EyePosition();
-	if (m_pendingFall && m_fallT > 0.0f) {
+	if (m_falling && m_fallT > 0.0f) {
 		// Accelerating, gravity-ish: a full storey down by the time the swap
 		// hits, so the view passes clean through the pit's shaft.
 		const float t = std::min(m_fallT / kPitFallSeconds, 1.0f);

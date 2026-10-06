@@ -282,7 +282,10 @@ Four boundaries worth stating, because they are policy and not oversight:
   and `log::Write` and its templates now do that for every caller (code-review
   C215: a typo'd `on_hit` id warned on every blow and failed the guard for it).
   What a reporter still excuses by hand is what it builds BEFORE the call: an
-  argument it formats (`LedgerSubjectName`), a console `Print`.
+  argument it formats (`LedgerSubjectName`), a console `Print`. Reporting means
+  DEV-facing output: a line the player reads is never reporting (code-review
+  C217 - the log's Help button excused its key-names line as reporting; the
+  names are read when the keys are bound now, and the line is a `FormatLine`).
 - **A running eval script is a console session.** The runner executes one
   console line per frame, and a typed command only ever runs with the console
   open, which the guard never arms. A scripted line used to be held to the rule
@@ -308,7 +311,18 @@ Four boundaries worth stating, because they are policy and not oversight:
   armed, so this excuses exactly one frame per transition; `AllocTest.ps1
   -Pause` presses Esc inside the window and refuses a PASS unless the verdict
   counts a transition (`transitions=`). Opening the SHEET is not a transition
-  out: it is a guarded state, and its opening frame stays checked.
+  out: it is a guarded state, and its opening frame stays checked. A YES/NO
+  PROMPT over play is the same case with no state change (code-review C210): an
+  exit stair asks "Leave?" while the state stays Playing, and the question
+  freezes the world as the pause menu does. So the frame that opens one is
+  disarmed by that same end-of-`Update` check, and `SteadyStateFrame` arms no
+  frame while one is up - the answer's frame included. `AllocTest.ps1 -Exit`
+  steps onto crypt1's exit stair inside the window, answers No and then falls
+  down a pit, and refuses a PASS unless the verdict counts the prompt
+  (`prompts=`), a Help press (`helps=`) and the pit step (`falls=`). The last two
+  are counted only in a MEASURED frame - one still armed when its `Update` ends
+  (`alloc::FrameArmed`), inside the window: a harness can only time what it
+  sends, and a click that lands in the warm-up checks nothing.
 - **The menus are not guarded, with one exception behind a switch.** A menu
   builds and rebuilds as a matter of course, so `GuardedState()` leaves the
   title and pause pages out. But a page standing IDLE has nothing to build, and

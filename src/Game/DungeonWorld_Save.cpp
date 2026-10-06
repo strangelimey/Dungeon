@@ -76,7 +76,7 @@ void DungeonWorld::ClearLevelTransients() {
 	// A stair or a pit under way: either would swap levels on the next frame,
 	// out of a game that has just begun or been loaded.
 	m_pendingTransition.reset();
-	m_pendingFall.reset();
+	m_falling = false; // the kept m_fall's level string stays reserved
 	m_fallT = -1.0f;
 }
 
@@ -274,7 +274,7 @@ DungeonWorld::TransientReport DungeonWorld::Transients() const {
 	for (const FixtureBreak& fb : m_fixtureBreaks) piece(fb.brk, r.brokenFixtures);
 	for (const Decoration& d : m_decorations) piece(d.brk, r.brokenDecorations);
 	for (const Door& d : m_doors) piece(d.brk, r.brokenDoors);
-	r.fallPending = m_pendingFall.has_value();
+	r.fallPending = m_falling;
 	r.fellPending = m_fellPending;
 	r.fallT = m_fallT;
 	r.undo = static_cast<int>(m_undoStack.size());

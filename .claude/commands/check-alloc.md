@@ -70,6 +70,17 @@ only the default):
   and refuses a PASS unless the verdict line counts a transition
   (`transitions=`). It does NOT cover the frames just after a resume: they fall
   inside the guard's 120-frame warm-up
+- `.\tools\AllocTest.ps1 -Exit` - on crypt1, inside the window: a click on the
+  log's Help button (its movement-keys line allocates nothing and is excused
+  nothing - a line the player reads is not reporting), a step onto the exit
+  stair beside the start whose "Leave?" is answered No (the frame that opens a
+  prompt over play is disarmed and none is armed while it is up), then a step
+  into a pit (`stairadd`) that falls to crypt2 - the step and the plunge are
+  armed frames. It refuses a PASS unless the verdict counts the prompt
+  (`prompts=`), a Help press (`helps=`) and a pit step (`falls=`) - the last two
+  only in MEASURED frames (armed to the end of their Update, inside the window),
+  since the harness can only time its sends and a click in the warm-up checks
+  nothing
 - `.\tools\AllocTest.ps1 -Sheet` - the character sheet: hover (the status bar),
   every tab, a right-click opening the item details dialog, the use menu. It
   refuses a PASS unless `itemdetails status` counts an open made in the window
@@ -122,7 +133,8 @@ MESSAGE-RATE problem, visible in the log on its own terms.
 to allocate inside an otherwise steady frame - a dev-console command, an editor
 dialog, a first-time bake - and for reporting code. `log::Write` and its
 templates excuse their own formatting; a reporter excuses only what it builds
-before the call (a formatted argument, a console `Print`).
+before the call (a formatted argument, a console `Print`). Reporting is
+DEV-facing output: a line the player reads never is (code-review C217).
 
 One thing that looks like a bug and is not:
 

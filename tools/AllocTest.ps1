@@ -19,6 +19,7 @@
 #   .\tools\AllocTest.ps1 -Hand              # the hand spells: light, douse, flare, fill, pebble
 #   .\tools\AllocTest.ps1 -Light             # the Sowilo lights: cast, stacked, grown, a flare's dazzle
 #   .\tools\AllocTest.ps1 -Pause             # Esc to the pause menu and back
+#   .\tools\AllocTest.ps1 -Exit              # Help clicked, an exit stair's "Leave?" answered No, a pit fall
 #   .\tools\AllocTest.ps1 -Sheet             # the sheet: hover, tabs, item dialog
 #   .\tools\AllocTest.ps1 -Panels            # drag and resize the floating HUD
 #   .\tools\AllocTest.ps1 -Minimal [-Sheet]  # any mode, under the party-card layout
@@ -218,6 +219,32 @@
 # a resume path that allocates there passes (code-review C216; a -Cold mode that
 # arms them is phase 2's).
 #
+# -Exit IS -Pause's CASE WITH NO STATE CHANGE, AND A PIT (code-review C210,
+# C217). An exit stair asks "Leave?" while the state stays Playing, so the
+# transition rule never saw it: the frame that built the prompt, the frames under
+# it and the frame that answered No were all armed. A prompt over play is now a
+# pause - its opening frame disarmed at the end of Update, no frame armed while it
+# is up - and the verdict line counts the openings (`prompts=`). A pit's step
+# latched its fall by constructing a fresh transition, a level name included, and
+# the plunge after it plays out in Playing; the fall is a KEPT transition now,
+# assigned into reserved room. And the log's Help button excused its key-names
+# line as "reporting" though the player reads it; the names are read when the
+# keys are bound now. NONE of it ran in any window. This goes to crypt1, not
+# eval_arena: the harness's ground has no exit stair, and a pit needs a level
+# below it, which eval_arena (the last level, a dungeon of one) does not have.
+# crypt1's own exit stands one square south of its start; `stairadd pit 7 6`
+# puts a pit one square north, over crypt2's 7,6. Inside the window: a click on
+# Help, a step back onto the exit, N for No, a step forward to the start and one
+# more into the pit - the step, the plunge and (after the load) the rest of the
+# window on crypt2. It refuses a PASS unless the verdict counts a prompt
+# (`prompts=`), a Help press (`helps=`) and a pit step (`falls=`), and the party
+# stands on crypt2 at 7,6 (a Yes would have left the dungeon). The game counts a
+# press and a step only in a MEASURED frame - armed to the end of its Update,
+# inside the window - because the harness can only time its sends: a click sent
+# a few seconds after `alloctest` lands in the guard's warm-up on a slow enough
+# frame rate, and a press counted since launch passed it with the Help line
+# unchecked. A send that misses its armed frames reads UNMEASURED, never PASS.
+#
 # -Sheet IS THE CHARACTER SHEET'S TURN (docs/ui-updates-plan.md). The sheet is a
 # guarded state, and since ui-updates it does things every frame the pointer
 # moves: the status bar names whatever is under it, on every tab. A right-click
@@ -396,6 +423,9 @@ param(
 	[switch]$Light,
 	# Pauses (Esc) and resumes inside the window. See the note above.
 	[switch]$Pause,
+	# Clicks the log's Help button, steps onto crypt1's exit stair and answers
+	# its "Leave?" No, then falls down a pit, inside the window. See above.
+	[switch]$Exit,
 	# Works the character sheet inside the window. See the note above.
 	[switch]$Sheet,
 	# Opens the PARTY WINDOW from the sheet's "All" and works every tab of it
@@ -478,7 +508,10 @@ if ($RestReach) { $Rest = $true } # -RestReach is -Rest with the way left open
 # detonation is inside it), and a brazier must then break AND go out inside the
 # window - in 10 s that happened only on an idle machine (503 frames under load:
 # the brazier broke just after the window and the run refused its PASS).
-if (($Items -or $Throw -or $All -or $Impact) -and -not $PSBoundParameters.ContainsKey('Seconds')) { $Seconds = 20 }
+# -Exit's window has to outlast its steps, the prompt's unarmed frames and the
+# warm-up after it, and the plunge - then the level load to crypt2 - so it is
+# longer too.
+if (($Items -or $Throw -or $All -or $Impact -or $Exit) -and -not $PSBoundParameters.ContainsKey('Seconds')) { $Seconds = 20 }
 if ($ShadowSelfTest -and -not $Lights) { throw '-ShadowSelfTest mutates the shadow checks, which only -Lights runs' }
 $root = Split-Path -Parent $PSScriptRoot
 $bin = Join-Path $root "build\$Config\bin"
@@ -500,7 +533,7 @@ if ($memberCount -lt 1 -or $memberCount -gt 4) { throw "-Party names $memberCoun
 
 # -PartyPage starts no game, and every other mode needs one.
 if ($PartyPage) {
-	$withGame = @('Wounded', 'Melee', 'Cast', 'Impact', 'Hand', 'Light', 'Pause', 'Sheet', 'All',
+	$withGame = @('Wounded', 'Melee', 'Cast', 'Impact', 'Hand', 'Light', 'Pause', 'Exit', 'Sheet', 'All',
 		'Panels', 'Minimal', 'Walk', 'Lights', 'Items', 'Packs', 'Throw', 'Glass', 'Party', 'Wear') |
 		Where-Object { $PSBoundParameters.ContainsKey($_) }
 	if ($withGame) { throw "-PartyPage runs on the title screen with no game; it does not combine with -$($withGame -join ', -')" }
@@ -1901,6 +1934,33 @@ try {
 		Start-Sleep -Milliseconds 400
 	}
 
+	# -Exit: the log's Help button, crypt1's exit stair and a pit (see the note at
+	# the top). crypt1 frozen: its sleepers stay asleep, and crypt2's too once the
+	# party lands there (the freeze is the world's, not the level's).
+	if ($Exit) {
+		Write-Host "crypt1: its exit stair south of the start, a pit north of it, the log's Help button"
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		Enter-FrozenArena 'crypt1'
+		Send-Text 'tp 7 7'; Send-Key 0x0D
+		Send-Text 'face n'; Send-Key 0x0D
+		Assert-PartyAt 7 7
+		# Over crypt2's 7,6: AddStairAt authors the ceiling hole there too.
+		$pit = Get-ConsoleAnswer 'stairadd pit 7 6' 'stair pit '
+		if ($pit -notmatch 'stair pit placed on crypt1 at 7,6') { throw "the pit was not placed at 7,6: $pit" }
+		$help = Get-ConsoleAnswer 'messages help' 'messages help: '
+		if ($help -notmatch 'messages help: (\d+),(\d+) presses=(\d+)') { throw "unreadable: $help" }
+		$script:helpX = [int]$Matches[1]; $script:helpY = [int]$Matches[2]
+		$script:helpBefore = [int]$Matches[3]
+		# Arrivals on crypt2 counted from here: the fall's is the only one to come.
+		$script:crypt2Before = Get-LogMatchCount '^\[info \] Level ready: crypt2 at 7,6$'
+		Write-Host "  party at 7,7 facing north, the exit at 7,8, the pit at 7,6; Help at $($script:helpX),$($script:helpY)"
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0 # close the console again; alloctest reopens it below
+		Start-Sleep -Milliseconds 400
+	}
+
 	# -Hand: THE HAND SPELLS (spell-updates Phase 8). A tier-1 spell changes the
 	# WORLD AHEAD and the ITEMS IN HAND, not a monster: Kenaz lights a held torch
 	# (an item renamed in its slot) and the wall torch ahead (a fire's state, the
@@ -2474,6 +2534,28 @@ try {
 		}
 	}
 
+	# -Exit: Help, the exit stair answered No, the pit. Each wait of 4 s is meant
+	# to clear a warm-up (the console's close, then the prompt's: 120 frames, 4 s
+	# at 30 fps), so the click, the step onto the exit and the steps to the pit
+	# land in ARMED frames. Only the game can say whether they did: the verdict
+	# counts each in a measured frame, and the checks after it refuse on those
+	# counts. The bound keys are the defaults (S back, W forward); N is the
+	# prompt's No, as Esc is.
+	if ($Exit) {
+		Start-Sleep -Seconds 4
+		if (-not (Select-String -Path $log -Pattern 'alloctest RESULT=' -Quiet)) {
+			Send-Click $script:helpX $script:helpY # the movement-keys line
+			Start-Sleep -Seconds 1
+			Send-Key 0x53                          # S: back, onto the exit stair - "Leave?"
+			Start-Sleep -Milliseconds 1500         # the world waits under the question
+			Send-Key 0x4E                          # N: No
+			Start-Sleep -Seconds 4
+			Send-Key 0x57                          # W: forward, to the start
+			Start-Sleep -Milliseconds 1200
+			Send-Key 0x57                          # W: into the pit, and down
+		}
+	}
+
 	# -Sheet: work the sheet while the window runs. The first wait clears the
 	# console close plus the guard's 120-frame warm-up, so the clicks land in
 	# ARMED frames. Esc closes whichever popup is up (the dialog, the menu) -
@@ -2570,7 +2652,7 @@ try {
 	# logs the harness tally, which the window's first ARMED frame restarted.
 	# (Asking `tally` afterwards used to count the console's frames, the
 	# guard's warm-up and whatever landed while the question was being typed.)
-	if ($Melee -or $Impact -or $Burst -or $Swing -or $Items -or $Throw -or $OnHitTypo) {
+	if ($Melee -or $Impact -or $Burst -or $Swing -or $Items -or $Throw -or $OnHitTypo -or $Exit) {
 		$script:lastTally = (Wait-ForLog 'alloctest window TALLY ' 10 'the window tally') -replace '^.*TALLY ', 'TALLY '
 		Write-Host "  in the window: $script:lastTally"
 	}
@@ -2806,6 +2888,40 @@ try {
 		Write-Host "  transitions inside the window: $transitions"
 		if ($transitions -le 0 -and $result -eq 'PASS') {
 			Write-Host 'no Esc landed in an armed frame - the pause transition was not measured' -ForegroundColor Yellow
+			$result = 'UNMEASURED'
+		}
+	}
+
+	# And for -Exit, every count from the VERDICT LINE, so each happened in a frame
+	# the guard measured: the prompt opened (prompts=), the Help click pressed the
+	# button (helps=) and the step into the pit began the fall (falls=). Then the
+	# party came down on crypt2 at 7,6 - a Yes would have left the dungeon, a
+	# swallowed N left the world frozen under the question. The presses since the
+	# set-up (`messages help`) are only printed: beside helps= they tell a click
+	# that missed the button from one that landed in an unarmed frame.
+	if ($Exit) {
+		$prompts = if ($line -match '\bprompts=(\d+)') { [int]$Matches[1] } else { 0 }
+		$helps = if ($line -match '\bhelps=(\d+)') { [int]$Matches[1] } else { 0 }
+		$falls = if ($line -match '\bfalls=(\d+)') { [int]$Matches[1] } else { 0 }
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		$help = Get-ConsoleAnswer 'messages help' 'messages help: '
+		$where = Get-ConsoleAnswer 'pos' ' facing '
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0
+		$presses = if ($help -match 'presses=(\d+)') { [int]$Matches[1] - $script:helpBefore } else { 0 }
+		$landed = (Get-LogMatchCount '^\[info \] Level ready: crypt2 at 7,6$') -gt $script:crypt2Before
+		Write-Host "  in measured frames - prompts / Help presses / pit steps: $prompts / $helps / $falls"
+		Write-Host "  Help presses since the set-up, armed or not: $presses"
+		Write-Host "  after the window: $(if ($landed) { 'on crypt2' } else { 'never reached crypt2' }), $where"
+		$short = @()
+		if ($prompts -lt 1) { $short += 'the exit stair asked nothing' }
+		if ($helps -lt 1) { $short += 'no Help press in a measured frame' }
+		if ($falls -lt 1) { $short += 'no pit step in a measured frame' }
+		if (-not $landed -or $where -notmatch '^7,6 facing ') { $short += 'the party did not come down on crypt2 at 7,6' }
+		if ($short.Count -gt 0 -and $result -eq 'PASS') {
+			Write-Host "$($short -join ', ') inside the window - the exit, the fall and the Help line were not measured" -ForegroundColor Yellow
 			$result = 'UNMEASURED'
 		}
 	}

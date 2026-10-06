@@ -226,6 +226,8 @@ void ArmFrame(bool steady) {
 	s.capturing = steady;
 }
 
+bool FrameArmed() { return Mine().armed; }
+
 FrameResult EndFrame() {
 	Slot& s = Mine();
 	FrameResult result;

@@ -648,7 +648,7 @@ public:
 		int brokenDoors = 0;
 		int hurtPieces = 0;        // breakables damaged but still standing
 		int pieceEffects = 0;      // effects riding a piece of dungeon (a door burning)
-		bool fallPending = false;  // a pit fall under way (m_pendingFall)
+		bool fallPending = false;  // a pit fall under way (m_falling)
 		bool fellPending = false;  // the landing's bruise, latched apart from it
 		float fallT = -1.0f;       // the plunge's clock (< 0 = not plunging)
 		int undo = 0, redo = 0;    // the editor's history depth
@@ -953,6 +953,14 @@ public:
 		// 60x dt in front of what must cope with one on its own - a flight's
 		// half-square steps (ProjectileSystem::Update, C48).
 		bool wholeSteps = false;
+		// PIT FALLS BEGUN: the steps onto a pit that latched a plunge (onStep),
+		// the step that assigns into the kept m_fall. Not in the tally, so the
+		// window's reset leaves it be: Game::Update differences it across one
+		// frame, and counts the
+		// falls that began in a MEASURED one - armed to its end, inside an
+		// `alloctest` window - as the verdict's `falls=`, AllocTest -Exit's proof
+		// that the step it exists for was checked (code-review C210).
+		u32 fallsBegun = 0;
 	};
 	Harness& GetHarness() { return m_harness; }
 	const Harness& GetHarness() const { return m_harness; }
@@ -1645,7 +1653,7 @@ public:
 	// A pit fall is in progress (the step glide onto the pit, then the camera
 	// drop). Movement is swallowed while it runs — the keyboard path gates in
 	// Update, the HUD arrow path gates in Game's onMoveAction callback.
-	bool Falling() const { return m_pendingFall.has_value(); }
+	bool Falling() const { return m_falling; }
 
 	// Returns and clears a transition raised since the last call (the party
 	// stepped onto a stair this frame); nullopt otherwise. Game polls this after
@@ -5281,11 +5289,24 @@ private:
 	std::vector<Decoration> m_decorations;
 	std::optional<LevelTransition> m_pendingTransition; // raised by a stair step
 	// A pit fall in flight: the transition latched when the party stepped onto
-	// a `fall` link. The step glide finishes first (m_fallT < 0 = still
-	// waiting), then the camera drops through the hole (PartyEye) and the
-	// stashed transition is raised. See Update's fall block.
-	std::optional<LevelTransition> m_pendingFall;
+	// a `fall` link (m_falling says whether one is). The step glide finishes
+	// first (m_fallT < 0 = still waiting), then the camera drops through the
+	// hole (PartyEye) and the stashed transition is raised. See Tick's fall block.
+	//
+	// A KEPT member, ASSIGNED into, never constructed (code-review C210): the
+	// step that latches it and the whole plunge are Playing frames the
+	// allocation guard arms, and a fresh LevelTransition built its level string
+	// there. LoadStairs reserves the string room for any destination the level
+	// can name (ReserveFallRoom), and nothing ever shrinks it.
+	LevelTransition m_fall;
+	bool m_falling = false;
 	float m_fallT = -1.0f;
+	// m_fall's level is reserved to the longest level name the project and the
+	// live map's stairs hold, and never less than this - room past any stem the
+	// editor can give a level made or renamed after the load (its rename field
+	// takes 24 characters).
+	static constexpr size_t kFallLevelRoom = 64;
+	void ReserveFallRoom();
 	// The plunge's IMPACT, owed on the far side of the swap: the host clears
 	// the message log as it places the party on the new level, so the bruise is
 	// charged on the first frame after they arrive rather than before they

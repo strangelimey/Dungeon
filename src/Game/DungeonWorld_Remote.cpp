@@ -184,11 +184,13 @@ bool DungeonWorld::AddStairAt(const std::string& stem, const std::string& type,
 		PlaceStairProp(link);
 		MarkSeen(x, z);
 		RebuildChunksAround(x, z);
+		ReserveFallRoom(); // a pit placed here names `dest` (C210)
 	}
 	if (dstLive) {
 		PlaceStairProp(pair);
 		MarkSeen(x, z);
 		RebuildChunksAround(x, z);
+		ReserveFallRoom();
 	}
 	say(loc::Format("map.stairs.placed", entry->Display(), dest));
 	return true;

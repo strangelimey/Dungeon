@@ -2292,6 +2292,17 @@ void DungeonWorld::LoadStairs() {
 	for (const StairLink& s : m_map.Stairs()) PlaceStairProp(s);
 	if (!m_map.Stairs().empty())
 		log::Info("Placed {} stairs", m_map.Stairs().size());
+	ReserveFallRoom();
+}
+
+// Room in the kept pit-fall transition for any level a pit here could name, so
+// the step that latches one assigns into it rather than growing it in a frame
+// the guard arms (code-review C210). Grow-only: a reserve never shrinks.
+void DungeonWorld::ReserveFallRoom() {
+	size_t room = kFallLevelRoom;
+	for (const std::string& stem : m_project.levels) room = std::max(room, stem.size());
+	for (const StairLink& s : m_map.Stairs()) room = std::max(room, s.destLevel.size());
+	m_fall.level.reserve(room);
 }
 
 // A stair's facing is the way you face stepping OFF it (StairLink::facing), and

@@ -119,6 +119,13 @@ void BeginFrame();
 void ArmFrame(bool steady);
 FrameResult EndFrame();
 
+// Whether the frame now running on this thread is ARMED - ArmFrame's latest
+// word, so a disarm part way through the frame (Game::OverlayOpenedThisFrame)
+// reads as unarmed. A harness that must show an event happened in a MEASURED
+// frame asks this rather than keeping its own idea of it, so the two cannot
+// disagree (code-review C210, C217: AllocTest -Exit's Help click and pit step).
+bool FrameArmed();
+
 // Logs a violating frame: each UNIQUE stack is symbolized once per session
 // (DbgHelp), and a frame that only repeats known stacks stays silent so a
 // standing violation cannot drown the log. A violation with NO stack to show

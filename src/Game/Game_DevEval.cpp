@@ -79,9 +79,27 @@ void Game::RegisterEvalCommands() {
 	// line a thing said (code-review C9 - a light's fade read as the Sight spell's).
 	m_console.Register({.name = "messages",
 						.group = CmdGroup::Console,
-						.params = "[n]",
+						.params = "[n]\n"
+								  "help",
 						.summary = "print the newest lines of the HUD message log"},
 					   [this](const std::vector<std::string>& args) {
+						   // `messages help` - the log's Help button: where it is, so a
+						   // harness can click it, and how often it has been pressed
+						   // since launch. Whether a press landed in a MEASURED frame
+						   // is the alloctest verdict's `helps=` (AllocTest -Exit,
+						   // code-review C217).
+						   if (!args.empty() && args[0] == "help") {
+							   const gfx::Rect r = m_ui.HelpButtonRect();
+							   if (r.w <= 0.0f) {
+								   m_console.Refuse("messages help: the HUD has no Help button");
+								   return;
+							   }
+							   m_console.Print(std::format("messages help: {},{} presses={}",
+														   static_cast<int>(r.x + r.w * 0.5f),
+														   static_cast<int>(r.y + r.h * 0.5f),
+														   m_ui.HelpPresses()));
+							   return;
+						   }
 						   const int n = args.empty() ? 10 : std::atoi(args[0].c_str());
 						   const std::vector<std::string> lines =
 							   m_ui.RecentLogLines(static_cast<size_t>(std::max(n, 0)));

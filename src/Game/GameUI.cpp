@@ -498,6 +498,7 @@ void GameUI::BuildSettings() {
 					}
 				}
 				keys.*member = vkey;
+				m_settings.RefreshKeyNames(); // the Help line's names (C217)
 				onKeysChanged();
 				m_settings.Save();
 			});
@@ -1922,8 +1923,11 @@ void GameUI::BuildHud() {
 		Click();
 		if (onToggleRest) onToggleRest();
 	}});
+	// Help prints for the PLAYER, so it allocates nothing and claims no excuse:
+	// the key names were read when the keys were bound (MoveKeysHelp, C217).
 	m_log->cornerButtons.push_back({loc::Tr("hud.help"), {}, [this] {
 		Click();
+		++m_helpPresses;
 		m_log->AddLine(m_settings.MoveKeysHelp());
 		m_log->AddLine(loc::View("log.scroll_hint"));
 	}});
@@ -2310,6 +2314,11 @@ void GameUI::SetResting(bool resting) {
 gfx::Rect GameUI::RestButtonRect() {
 	if (!m_log || m_log->cornerButtons.size() <= kCornerRest) return {};
 	return m_log->CornerButtonRect(m_hudUi, 1 + kCornerRest); // 0 is the Log button
+}
+
+gfx::Rect GameUI::HelpButtonRect() {
+	if (!m_log || m_log->cornerButtons.size() <= kCornerHelp) return {};
+	return m_log->CornerButtonRect(m_hudUi, 1 + kCornerHelp);
 }
 
 void GameUI::ResetHudStatus() { m_lastFacing = m_lastGridX = m_lastGridZ = -1; }

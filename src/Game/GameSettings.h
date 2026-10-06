@@ -14,6 +14,7 @@
 // ============================================================================
 #pragma once
 
+#include "Core/Loc.h"             // loc::Line (MoveKeysHelp)
 #include "Game/Party.h"           // MoveKeys
 #include "Game/PartyHudTypes.h"   // HudPanelLook (not the whole HUD)
 #include "Graphics/DisplayEnum.h" // gfx::FullscreenMode
@@ -264,9 +265,23 @@ struct GameSettings {
 	// full refresh) — drives the Video tab's Frame Rate dropdown selection.
 	static int PresentIntervalIndex(u32 interval);
 
-	// The log's movement help line ("W/S move, A/D strafe, Q/E turn."),
-	// built from the live bindings.
-	std::string MoveKeysHelp() const;
+	// The log's movement help line ("W/S move, A/D strafe, Q/E turn."), built
+	// from the live bindings. ALLOCATES NOTHING (code-review C217): the HUD's
+	// Help button prints it on a click inside a guarded frame, and a line the
+	// PLAYER reads is not reporting, so it gets no excuse. The key names come
+	// from the OS keyboard layout as strings, so they are read ahead of time
+	// (RefreshKeyNames) and only formatted here. A binding changed without a
+	// refresh still prints right - the names are read afresh - and the guard
+	// then reports that read if the frame was armed, which is the point.
+	loc::Line MoveKeysHelp() const;
+	// Reads the six bound keys' names into keyNames: Load, and every rebind (the
+	// Controls tab's key rows). A settings-time cost, never a play-time one.
+	void RefreshKeyNames();
+	// RefreshKeyNames' cache: the names in the help line's order (forward, back,
+	// strafe left / right, turn left / right), and the bindings they were read
+	// for (all zero = never read, so never mistaken for current).
+	std::array<std::string, 6> keyNames;
+	MoveKeys keyNamesFor{0, 0, 0, 0, 0, 0};
 };
 
 // The floating HUD panels, in the order Settings -> UI lists them: the id is

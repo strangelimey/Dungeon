@@ -26,8 +26,12 @@ DONE 2026-10-02. Rest / Help are `MessageLog::cornerButtons` (each button as
 wide as its longer caption, so Rest -> Wake never moves Help). Minimal's Magic
 default now sits under the status plate. The Help click allocated in a guarded
 frame (the key names come from the OS layout as strings) - it was the old
-button's behaviour too; `MoveKeysHelp` now excuses itself as reporting code.
-Checked: `uioverlap hud` + `settings` clean, InGameTest PASS, AllocTest
+button's behaviour too. (`MoveKeysHelp` was first made to excuse itself as
+reporting code. That was a second policy beside the one the guard keeps, since
+a line the player reads is not reporting: code-review C217 removed it. The key
+names are read when the keys are bound, `GameSettings::RefreshKeyNames`, and the
+line is a `loc::FormatLine` - nothing allocated, nothing excused; `AllocTest.ps1
+-Exit` clicks Help inside its window.) Checked: `uioverlap hud` + `settings` clean, InGameTest PASS, AllocTest
 default / `-Minimal` / `-Panels` PASS, an old save carrying `torch 0` loads.
 
 - Delete the `options` floating panel (GameUI.cpp BuildHud), its
