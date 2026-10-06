@@ -56,7 +56,7 @@ public:
 
 private:
 	// Indexed by school (Fire, Earth, Air, Water - the SpellSymbol order).
-	std::array<std::string, 4> m_schoolNames;
+	std::array<std::string, kSchoolCount> m_schoolNames;
 	float m_scalePower = 8.0f;
 	float m_kindleBrazierPower = 14.0f;
 	float m_scorchEvery = 1.5f;

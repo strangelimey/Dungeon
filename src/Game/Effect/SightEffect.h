@@ -34,7 +34,7 @@ public:
 
 private:
 	// Indexed by school (Fire, Earth, Air, Water — the SpellSymbol order).
-	std::array<std::string, 4> m_schoolNames;
+	std::array<std::string, kSchoolCount> m_schoolNames;
 };
 
 } // namespace dungeon::game::fx

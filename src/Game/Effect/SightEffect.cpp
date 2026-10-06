@@ -26,6 +26,7 @@ void SightEffect::ApplyOverrides(const CatalogEntry& e, const DamageTypeBook& ty
 	// name_fire = ... / name_earth = ... / name_air = ... / name_water = ...
 	static constexpr const char* kSchoolKeys[] = {"name_fire", "name_earth",
 												  "name_air", "name_water"};
+	static_assert(std::size(kSchoolKeys) == kSchoolCount, "a name key per school");
 	for (size_t i = 0; i < m_schoolNames.size(); ++i)
 		m_schoolNames[i] = e.Get(kSchoolKeys[i], m_schoolNames[i]);
 }

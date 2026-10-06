@@ -265,8 +265,8 @@ constexpr FieldSpec kMonsterFields[] = {
 	 .lo = 0.0f, .hi = 200.0f, .step = 5.0f, .def = "10"},
 	{.key = "offense", .kind = FieldKind::Float, .sectionKey = kSectionStats,
 	 .help = "Stance: how much of `accuracy` goes into pressing the attack, "
-			 "the rest held back to guard with. 1 = all-out. Untouched takes "
-			 "the archetype's default (brute 1.0 ... sentry 0.5).",
+			 "the rest held back to guard with. 1 = all-out, which is what an "
+			 "untouched kind gets - it is set per kind, never by the archetype.",
 	 .lo = 0.0f, .hi = 1.0f, .step = 0.05f, .def = "1"},
 	{.key = "armor", .kind = FieldKind::Float, .sectionKey = kSectionStats,
 	 .help = "Flat damage soak.", .lo = 0.0f, .hi = 20.0f, .step = 1.0f, .def = "0"},
@@ -297,7 +297,9 @@ constexpr FieldSpec kMonsterFields[] = {
 	 .help = "Thinking rate: picks its AI bucket, so a dim monster changes its mind slower.",
 	 .lo = 0.0f, .hi = 200.0f, .step = 5.0f, .def = "100"},
 	{.key = "faces", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
-	 .help = "Has a facing (off hides the editor's facing arrow for it).", .def = "1"},
+	 .help = "Has a front. Off: it has no blind spot (it still needs a clear line "
+			 "to notice the party), never turns, and the editor shows no facing arrow.",
+	 .def = "1"},
 	{.key = "flammable", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
 	 .help = "Any fire that lands on it sets it burning, every time (balance.cat "
 			 "ignite_burn / ignite_seconds) - a mummy's wrappings.",

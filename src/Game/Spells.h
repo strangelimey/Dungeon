@@ -2,12 +2,13 @@
 // Game/Spells.h — spell symbols (the casting alphabet).
 //
 // Dungeon Master style: each SYMBOL is a power, and a spell is a SEQUENCE of
-// symbols (Fire + Air = fire bolt). Tier 1 is the four elements; more tiers
-// come later. A character learns a symbol by memorizing a Rune item (the rune
-// is consumed), so vocabulary is per character — stored as a bitmask on
-// Character (knownSymbols). Recipes and behaviour live in the Spell classes
-// (Game/Spell/, one file pair per spell); the project's spells.cat only
-// OVERRIDES their numbers. This header is the symbol primitive shared by
+// symbols (Fire + Project = fire bolt). Three tiers (TierOf, below): the four
+// SCHOOL elements, the shared FORM runes, the MODIFIERS - a recipe is a school,
+// then at most one form, then at most one modifier. A character learns a
+// symbol by memorizing a Rune item (the rune is consumed), so vocabulary is
+// per character - stored as a bitmask on Character (knownSymbols). Recipes and
+// behaviour live in the Spell classes (Game/Spell/, one file pair per spell);
+// the project's spells.cat only OVERRIDES their numbers. This header is the symbol primitive shared by
 // Character, the casting UI, and the resolver, plus the registry (SpellBook)
 // that maps a sequence to its Spell.
 // ============================================================================
@@ -24,10 +25,11 @@
 
 namespace dungeon::game {
 
-class Catalog;
-// Combat.h includes THIS header, so the type book can only be forward
-// declared here — every use is by reference.
-class DamageTypeBook; // Catalog.h — SpellBook::Build reads the spells catalog.
+class Catalog; // Catalog.h - SpellBook::Build reads the spells catalog.
+// The type book is DEFINED in Combat.h, which includes THIS header (for
+// SpellSymbol), so here it can only be forward declared - every use is by
+// reference.
+class DamageTypeBook;
 
 // The spell symbols: the four tier-1 SCHOOL elements first, then the shared
 // tier-2 FORM symbols (Project = "throw it ahead", Protect = "guard the
@@ -41,6 +43,12 @@ enum class SpellSymbol : u8 {
 };
 
 inline constexpr u32 kSymbolCount = static_cast<u32>(SpellSymbol::Count);
+// How many SCHOOLS there are: the enum's first four symbols (IsSchoolSymbol).
+// What is kept per school - a Sight or Light effect's name table, the four ward
+// kinds - is counted by this (fx::kMaxEffects' worst case, AllEffects.cpp).
+inline constexpr size_t kSchoolCount = 4;
+static_assert(static_cast<size_t>(SpellSymbol::Water) + 1 == kSchoolCount,
+			  "the schools are the enum's first kSchoolCount symbols");
 
 // A symbol's TIER, which is also its place in a recipe: a spell is a school,
 // then optionally one form, then optionally one modifier (Kenaz Tiwaz Hagalaz).
@@ -82,7 +90,7 @@ inline constexpr u32 SymbolBit(SpellSymbol s) { return 1u << static_cast<u32>(s)
 // first rune picks the school). The tier-2 FORM symbols are SHARED across
 // schools — they append after the enum's first four and return false here.
 inline constexpr bool IsSchoolSymbol(SpellSymbol s) {
-	return static_cast<u32>(s) < 4;
+	return static_cast<size_t>(s) < kSchoolCount;
 }
 
 // Lowercase id token ("fire") for catalog/save/console text.

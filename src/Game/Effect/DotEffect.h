@@ -3,16 +3,19 @@
 //
 // The three share one behaviour — magnitude is damage per second, ticked while
 // the timer runs — and differ only in what they are called, what they look
-// like, and (in P2) the damage TYPE they deal, which is what a resist reads.
-// So they share a base and separate only where they must:
+// like, and the damage TYPE they deal, which is what a resist reads. So they
+// share a base and separate only where they must:
 //
 //   poison — the blob's venom            (earth green by the tint convention)
 //   bleed  — the lurker's opened wound   (fire red, ditto)
 //   burn   — an enchanted weapon's fire  (its school's colour, and a plume)
 //
-// Until P2 the party's poison/bleed still tick in DungeonWorld's effect-aging
-// loop and burn still lives in Monster's own slot; P3 is where burn becomes an
-// instance like the others and the monster side stops being special.
+// The bite is not a hook here: DungeonWorld::TickEffects ages every list,
+// member, monster and breakable alike, sums each DoT's RAW magnitude by its
+// DamageTypeOf and deals each type as one fx::DamageEvent::Tick - resisted as
+// it bites, so a ward raised mid-burn helps at once. Starving and parched
+// (SupplyEffect.h) are DoTs on this base too, held open by their meter
+// instead of a timer.
 // ============================================================================
 #pragma once
 

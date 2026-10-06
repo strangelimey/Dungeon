@@ -6,17 +6,19 @@ want to take it so behaviour becomes *content* (authored in the editor) rather
 than C++ baked into one function.
 
 Sections marked **Current implementation** record what the code actually does
-now; sections marked **Target design** are proposals to be refined together
-before any of them are built. Keep this doc in sync with the work as it lands
+now; sections marked **Target design** are the proposals it was built from (and
+what of them is still open). Keep this doc in sync with the work as it lands
 (like `docs/movement.md` and `docs/magic system.md`).
 
-The starting point for this doc: `DungeonWorld::UpdateMonsters` (and the brain it
-drives, `src/Game/MonsterAI.{h,cpp}`) is **one behaviour, hard-coded**. Every
-monster — skeleton, blob, mummy — runs the identical decision logic; only the
-*numbers* (hp, damage, aggro range, IQ, size) differ per type via the catalog.
-There is no way to say "this one keeps its distance and throws bolts" or "this
-one patrols a route and only wakes if you get close" without editing C++. This
-doc is about closing that gap.
+The starting point for this doc (2026-07-01) was that `DungeonWorld::UpdateMonsters`
+(and the brain it drives, `src/Game/MonsterAI.{h,cpp}`) was **one behaviour,
+hard-coded**: every monster ran the identical decision logic and only the
+*numbers* differed per type. Layers 1 and 2 of the target design have since been
+built - six archetypes chosen as data, four intent modes, per-instance sleep /
+leash / patrol / behaviour overrides, and an editor dialog for each layer - so
+"Current implementation" below describes that. "The gap" and "Target design" are
+kept as the plan they were; "Suggested phasing" records what landed, and what
+did not (call-for-help and the group leader, hearing, an authorable cone).
 
 ---
 
@@ -30,12 +32,20 @@ doc is about closing that gap.
   audio. It reaches the world through one read-only seam (`ai::IWorldView`) and
   flat value structs (`Agent`, `Snapshot`, `Intent`, `Plan`).
 - **`DungeonWorld::UpdateMonsters`** (`src/Game/DungeonWorld.cpp`) — the host
-  side: it builds the snapshot, consumes the brain's plans, and **executes** them
-  every frame on the main thread (movement glide, facing, slot/formation,
-  attacks, animation, cooldowns).
+  side: it builds the snapshot, consumes the brain's plans (`ConsumeAIPlans`),
+  and **executes** them every frame on the main thread (movement glide, facing,
+  slot/formation, attacks, animation, cooldowns). The executors that need no
+  path, the ranged attack and the melee pick live in `DungeonWorld_Combat.cpp`
+  (`UpdateKiter`, `UpdateFleer`, `UpdatePatroller`, `UpdateReturner`,
+  `MonsterRangedAttack`, `PickMeleeVictim`, `MonsterAttack`).
 - **`assets/projects/<project>/catalog/monsters.cat`** — the per-type data
-  (stats + a few behaviour flags), parsed in `DungeonWorld_Load.cpp`
-  (`MonsterKindFor`).
+  (stats + the behaviour fields), parsed in `DungeonWorld_Load.cpp`
+  (`MonsterKindFor`); the `.ent` record's per-instance overrides are read in
+  `LoadMonsters` beside it.
+- **The editor**: `MonsterConfigDialog` (a type's Behavior and Animation tabs,
+  writing `archetype` / `keeprange` / `fleebelow` / `spell` to monsters.cat) and
+  `EntityInspector` (a placed monster's overrides and patrol route, writing the
+  `.ent` record).
 
 ### THINK vs ACT (and why it's threaded)
 
@@ -44,8 +54,8 @@ respect: **thinking is split from acting, and thinking runs off the main
 thread.**
 
 - **THINK** (cheap, infrequent, IQ-gated): `Brain::Think` decides a monster's
-  *standing orders* — an `ai::Intent` — and `Brain::FindPath` computes a full
-  chase **path** (4-connected BFS). Both are *pure*: they only read an immutable
+  *standing orders* - an `ai::Intent` - and, for Engage, `Brain::FindPath`
+  computes a full chase **path** (4-connected BFS). Both are *pure*: they only read an immutable
   `ai::Snapshot` through `IWorldView` and write outputs, which is what makes them
   safe to run on worker threads.
 - **ACT** (every frame, at the monster's own cadence): the main thread *executes*
@@ -59,32 +69,75 @@ each waking on a prime-millisecond cadence (251/499/997/1999 ms ≈ 4/2/1/0.5 Hz
 coprime so they don't resonate). The main thread `Publish()`es a pooled snapshot
 once per frame and `TakePlans()` to adopt the freshest batch. Plans are keyed by
 a **stable `runtimeId`** so a plan whose monster died/moved buckets/was erased
-simply finds no match and is dropped. (Full threading rationale is in
+simply finds no match and is dropped. LOCKSTEP (`AsyncDirector::SetLockstep`,
+used by the eval harness and while the party rests) pauses the workers and has
+the host run each bucket inline (`ComputeInline`) on SIM time, so a fast-forwarded
+world still thinks at the bucket rates. (Full threading rationale is in
 `CLAUDE.md` → "Threading & async monster AI".)
 
 **This pipeline is infrastructure, not behaviour.** It should survive any
 redesign unchanged — what changes is *what `Think` decides* and *what the host
 knows how to execute*.
 
-### The decision logic (the hard-coded part)
+### The decision logic
 
-Everything below is fixed in code and identical for every monster type.
+`Brain::Think` decides in this order, from the `ai::Agent` the snapshot carries:
 
-**Perception** (`Brain::Think`):
-- Engage when the party is within `aggroRange` (Chebyshev cells) **and**
-  perceived.
-- Perceived = already-`aware` (sticky) **or** omnidirectional (`!directional`,
-  e.g. the blob) **or** the party is inside a **±60° frontal sight cone**. So the
-  party can sneak up behind a facing monster and it stays oblivious.
-- Awareness latches on first engage (`ConsumeAIPlans`) and on being hit
-  (`ProvokeMonster`); only a new game / reload clears it.
+1. **Leash** (per instance, `.ent` `leash` / `leashfrom`): a monster more than
+   `leash` cells (Chebyshev) from its anchor - `leashfrom`, else its spawn -
+   goes Idle, so the host walks it home. It applies even to an aware monster.
+2. **Range**: the party must be within `aggro` cells (Chebyshev). A DORMANT
+   monster - the `lurker` archetype, or a placement with `asleep=1`, until it is
+   aware - is triggered only within 2 cells (`kAmbushTrigger`), and once sprung
+   pursues at full `aggro`.
+3. **Perceived** = already `aware` (sticky - it chases round corners) **or** a
+   clear ORTHOGONAL line to the party (`IWorldView::HasLineOfSight`: a shared row
+   or column, no wall between) **and** either no front (`faces = 0`, or the
+   `swarm` archetype) or the party inside its sight cone: **±60°**, a `sentry`'s
+   **±90°**. So the party can sneak up behind a facing monster, or stay behind a
+   wall, and it stays oblivious.
+4. **Mode**: perceived and wounded below `fleebelow` (an hp fraction, 0 = never)
+   -> `Flee`, whatever the archetype; else `skirmisher` / `caster` -> `Kite`;
+   else `Engage`. The goal is the cell the host's formation pass assigned.
 
-**Intent vocabulary** — exactly two modes (`ai::Intent::Mode`):
-- `Idle` — hold position.
-- `Engage` — chase toward an assigned cell, then melee.
+Awareness latches when the host consumes a non-Idle plan (`ConsumeAIPlans`) and
+when the monster is hit (`ProvokeMonster`, which sets Engage at once); only a new
+game or a reload clears it. **A hit wakes only the monster struck** - see "Not
+built" below.
 
-That's the whole behavioural alphabet. No flee, no patrol, no ranged, no cast,
-no leash/return, no special abilities.
+**Intent vocabulary** - four modes (`ai::Intent::Mode`). Only Engage carries a
+path; the other three are host executors stepping greedily (`GreedyStep`, one
+orthogonal cell at a time) from LIVE positions:
+- `Idle` - hold, or walk a per-instance **patrol** route (`UpdatePatroller`:
+  toward the next `patrol=` waypoint, wrapping), or, leashed and displaced, walk
+  home (`UpdateReturner`).
+- `Engage` - follow `Brain::FindPath`'s BFS route to the assigned attack cell,
+  then melee.
+- `Kite` - `UpdateKiter`: hold `keeprange` from the party, preferring a cell on
+  its row or column within `aggro`, and shoot (`MonsterRangedAttack`) when the
+  line is clear, in range and off cooldown - a plain bolt for a skirmisher, the
+  named `spell` for a caster (`MagicSystem::FindSpell` -> `Spell::MonsterBolt`,
+  so a volley or a burst too: the skel_mage / skel_mage_adept / skel_magus
+  ladder). The shot flies down the shared axis, its lane slid onto the threat
+  target's quadrant.
+- `Flee` - `UpdateFleer`: step to the free neighbour farthest from the party; no
+  attack; holds when cornered.
+
+**Archetypes** (`ai::Archetype`, monsters.cat `archetype`, overridable per
+placement) - six, each a bundle of the rules above rather than code of its own:
+
+| archetype    | perception                         | mode it takes | executor   |
+|--------------|------------------------------------|---------------|------------|
+| `brute`      | ±60° cone (the default)            | Engage        | chase + melee |
+| `skirmisher` | ±60° cone                          | Kite          | hold range, plain bolt |
+| `caster`     | ±60° cone                          | Kite          | hold range, its `spell` |
+| `swarm`      | no blind spot (line still needed)  | Engage        | chase + melee |
+| `lurker`     | dormant until 2 cells, then relentless | Engage    | chase + melee |
+| `sentry`     | ±90° cone                          | Engage        | chase + melee; pairs with a patrol + leash |
+
+Things that stop a monster ACTING (it still animates, burns and can be hit): a
+flare's `dazzle` effect, the eval harness's `freeze`, and a spawn still rising
+(`Monster::spawnAnim`, a kit skeleton's spawn clip).
 
 **Formation** (`AssignFormation`, host side, main thread): aware monsters are
 spread around the party's walkable **orthogonal neighbours** ("attack cells") so
@@ -98,28 +151,66 @@ smoothstep. In-cell repositioning slides a monster toward the slot nearest the
 party (front rank). Facing eases toward direction-of-travel, or toward the party
 when stationary and aware.
 
-**Attack** (`MonsterAttack`): when a monster reaches its assigned attack cell and
-is **orthogonally adjacent** to the party (never from a diagonal), it swings at a
-**random standing member** every `attackInterval`. Melee only. Damage resolves
-through `Combat.cpp` (`AttackProfile`/`DefenseProfile`).
+**Attack** (`MonsterAttack`): when a monster stands on its assigned attack cell
+within its REACH - **orthogonally adjacent** (never from a diagonal), or, with
+`reach = 2`, from its queue post down a clear shared row or column - it swings
+every `attackcd`. WHO it swings at is `PickMeleeVictim`: the per-file blocking
+rule first (a standing near member shields the one behind; a fallen one opens
+the file; a reach-2 pike skewers past), then the member holding its THREAT lock
+once their threat crosses the threshold (`AddThreat` / `UpdateThreatLock`,
+balance.cat plus monsters.cat `threat_*`), else a uniform-random reachable
+member - so "random" holds only until somebody earns a grudge. The blow is an
+`fx::DamageEvent::Blow` through `fx::Deal` (docs/effects.md), its accuracy
+scaled by the kind's `offense` stance.
 
 **Animation** (`DriveMonsterAnim`): clip state machine, priority `die > attack >
 walk > idle`, cross-faded; degrades gracefully when a rig lacks a clip.
 
-### What's already data-driven today
+### What is data-driven
 
-`monsters.cat` per-type fields (parsed in `MonsterKindFor`): `hp`, `damage`,
-`accuracy`, `defense`, `armor`, `attackcd`, `aggro`, `movecd`, `iq`, `faces`,
-`roughness`, `size`. These are **stats and a couple of perception/render flags** —
-they tune the *one* behaviour. None of them change *what the monster decides to
-do*.
+- **Per type**, `monsters.cat` (parsed in `MonsterKindFor`): the stats (`hp`,
+  `damage`, `dmgtype`, `accuracy`, `defense`, `offense`, `armor`, `resists`,
+  `powers`, `reach`, `attackcd`, `movecd`, the `on_hit` / `on_crit` /
+  `on_fumble` procs and the `fumble` tables), the behaviour (`archetype`,
+  `keeprange`, `fleebelow`, `spell`, `aggro`, `iq`, `faces`, `threat_scale` /
+  `_threshold` / `_switch` / `_decay`) and the body (`size`, `flammable`, the
+  model and animation rows).
+- **Per placement**, the `.ent` record: `asleep`, `leash`, `leashfrom`,
+  `patrol` (`x,z;x,z;...`), and overrides of `archetype` / `keeprange` /
+  `fleebelow` / `spell` that fall back to the type's (`Monster::Archetype()` and
+  its siblings), so a type edit still reaches an un-overridden placement.
+
+### Not built
+
+- **Call for help** (decision 5): a provoked monster does not wake its group -
+  `ProvokeMonster` sets only the monster struck aware. A "group" today is only
+  the monsters sharing a cell (`ReconcileGroups`, rebuilt every frame), used for
+  slot placement; there is no leader / follower either.
+- **Hearing / noise** (`hearing` in the Layer 1 sketch): nothing wakes a monster
+  but range + line + cone, a hit, or its own trigger. (The light stones' monster
+  tracks record their MAKER, so party noise and scent can join them later.)
+- **An authorable cone or sight range** (`sightcone` / `sightrange`): the cone
+  is ±60° / ±90° in `Brain::Think`, the range is `aggro`.
+- **`Patrol` and `Cast` as intents**: patrol is an Idle behaviour of the host,
+  and a monster's cast is the Kite executor's shot - a bolt-shaped spell only
+  (`Spell::MonsterBolt`); a caster whose `spell` has no thrown form (a ward, a
+  sight, a light) falls back to its plain shot.
+- **Pathing for a patrol or a walk home**: both are greedy, so a wall between
+  two waypoints can stall a sentry - lay waypoints densely.
+- **Layer 3** (a behaviour graph): deferred, as decided.
 
 ---
 
 ## The gap
 
+*As it stood on 2026-07-01, kept as the record of what the design set out to
+close. Items 1, 2 (but call-for-help and regrouping), 4 (but the group leader)
+and 5 (ranged and cast; AoE through a caster's burst) are closed - see "Current
+implementation" and its "Not built" list. Item 3 is closed only for
+line-of-sight and leashing.*
+
 To define AI "in the editor and implement it in the world," we need a **data
-model for behaviour**, not just stats. Concretely, today's limitations:
+model for behaviour**, not just stats. Concretely, the limitations then:
 
 1. **One strategy for all.** Engage-and-melee is the only thing a monster can do.
 2. **No richer intents.** No kiting/ranged, casting, fleeing at low HP, patrol
@@ -283,6 +374,8 @@ The open questions have been answered; these constraints now drive the build.
    "call for help" (a provoked monster propagates awareness to its group) are
    archetype fields/flags, not a separate concern. Groups are already derived
    every frame in `ReconcileGroups`, so the executor keys off that.
+   **NOT BUILT** - neither half: `ProvokeMonster` wakes only the monster struck,
+   and a `ReconcileGroups` group is only the monsters sharing a cell.
 6. **Editor inspector: Layer 1 first (type-only), Layer 2 later.** Start by
    surfacing the new typed fields in the asset-creation dialog (type-level); the
    per-instance entity inspector comes with the Layer 2 `.ent` overrides.
@@ -325,7 +418,8 @@ regression guard before any new behaviour rides on it.
    keep-range/flee-below/spell controls) beside the Animation tab; edits apply live
    and Save writes the archetype/keeprange/fleebelow/spell rows to monsters.cat.
    Added a ui::Checkbox widget for the animation rows. P2 complete except `sentry`
-   (deferred — needs P3 patrol routes).
+   (deferred - needs P3 patrol routes; it landed in P3b) and the group leader /
+   call-for-help, which were never built (decision 5).
 5. **P3** — Per-instance `.ent` overrides (Layer 2). The `.ent` record already
    parses arbitrary `key=value` params (Entity.params/Param), so this is about
    CONSUMING them at spawn + an editor inspector to author them. Decisions (2026-

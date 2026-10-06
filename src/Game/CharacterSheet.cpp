@@ -47,9 +47,12 @@ CharacterSheet::CharacterSheet(const gfx::Rect& rect,
 					loc::Tr("attr.intelligence")};
 	BuildParts();
 	// Room for a member's rows before the first open (RowPool): skills are
-	// the schools + weapon classes + the three practices + two headings, and
-	// the spells are bounded by the registry (16 in the demo).
-	constexpr size_t kSkillRows = 24, kSpellRows = 32, kEffectRows = 16;
+	// the schools + weapon classes + the three practices + two headings, the
+	// spells are bounded by the registry (16 in the demo), and the effects by
+	// the list's own ceiling - fx::Apply evicts past it, so a member can never
+	// show more rows than that and the pool never grows in play.
+	constexpr size_t kSkillRows = 24, kSpellRows = 32;
+	constexpr size_t kEffectRows = fx::kMaxEffects;
 	m_skillRows.Warm(kSkillRows);
 	m_spellRows.Warm(kSpellRows);
 	m_effectRows.Warm(kEffectRows);

@@ -14,7 +14,7 @@
 #pragma once
 
 #include "Core/MathTypes.h"
-#include "Game/Spell/Spell.h"
+#include "Game/Spell/Spell.h" // Spell, CastServices, and through it Combat.h's DamageTypeBook
 #include "Game/Spells.h"
 
 #include <random>
@@ -25,9 +25,6 @@ namespace dungeon::game {
 struct Balance;
 struct Character;
 class Catalog;
-// Combat.h includes THIS header, so the type book can only be forward
-// declared here — every use is by reference.
-class DamageTypeBook;
 
 class MagicSystem {
 public:

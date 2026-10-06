@@ -1,9 +1,10 @@
 # Health, healing and supplies
 
-**Status: PART BUILT** (2026-08-13). The five open questions are answered — see
-"Settled" at the end; their answers are folded into the body, so read this top to
-bottom and treat that section as the record of what was decided rather than as a
-second source.
+**Status: BUILT** (2026-08-13; every part in the table below, and the sequence
+of fights it was designed to make measurable is measured - "Done - the sequence,
+measured"). The five open questions are answered - see "Settled" at the end;
+their answers are folded into the body, so read this top to bottom and treat
+that section as the record of what was decided rather than as a second source.
 
 | part | state |
 |---|---|
@@ -15,8 +16,9 @@ second source.
 
 **The system is complete.** What is left is not design: a balance pass over the
 numbers (see the two measurements below, both of which want playtesting rather
-than a guess), and the eval harness's ladder rung that measures a *sequence* of
-fights — the thing this whole model was designed to make answerable.
+than a guess). The eval harness's rung that measures a *sequence* of fights -
+the thing this whole model was designed to make answerable - is built: the
+`expedition` suite, read in "Done - the sequence, measured" at the end.
 
 What the built part changed that is worth knowing immediately: **health
 regenerates**, which it never did before; **mana is much slower** and no longer
@@ -614,8 +616,9 @@ mutates is a trap, and this one caught its own author within the hour. Bare
 - **Food and water bars** on the Stats tab, beneath the three pools — five bars
   against the five attributes, which is how the two halves now line up. (They
   were themed from `kBarFields`; since icon-updates every bar wears the iron
-  frame and food/water fill with a SOLID placeholder colour from
-  `ResourceBarStyle` - docs/icon-updates-plan.md.) `Character::maxFood`/`maxWater` are derived mirrors of the
+  frame, and food and water have procedural fills of their own - packed grain
+  and clear teal, `BarKind::Food` / `Water` in assets/shaders/bar.hlsl -
+  docs/icon-updates-plan.md.) `Character::maxFood`/`maxWater` are derived mirrors of the
   knobs, refreshed by `RecomputePartyMaxima`, so a reader with no `Balance` in
   reach can still draw the bar.
 - Dev: `sheet <member|off>`, and `regen` grew a pace column plus a party line.

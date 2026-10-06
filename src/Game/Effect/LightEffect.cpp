@@ -25,6 +25,7 @@ void LightEffect::ApplyOverrides(const CatalogEntry& e, const DamageTypeBook& ty
 	EffectKind::ApplyOverrides(e, types);
 	static constexpr const char* kSchoolKeys[] = {"name_fire", "name_earth", "name_air",
 												  "name_water"};
+	static_assert(std::size(kSchoolKeys) == kSchoolCount, "a name key per school");
 	for (size_t i = 0; i < m_schoolNames.size(); ++i)
 		m_schoolNames[i] = e.Get(kSchoolKeys[i], m_schoolNames[i]);
 	m_scalePower = e.GetFloat("scale_power", m_scalePower);

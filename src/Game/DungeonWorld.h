@@ -3566,10 +3566,14 @@ private:
 	// and whatever pieces of dungeon stand there.
 	void ApplyBlastHit(const blast::Hit& hit, const ActiveBlast& active);
 	// Walk every breakable piece of dungeon standing in a cell — THE one place
-	// that knows which kinds those are, so a new one reaches blasts, bolts and
-	// whatever comes later all at once. (Forward-declared: the adapter itself is
-	// defined further down beside the two combatant ones, and a reference in a
-	// std::function needs only an incomplete type.)
+	// that knows which kinds those are, so a new one reaches a blast
+	// (ApplyBlastHit) and the dev `smash` / `breakables <x> <z> <effect>` at once.
+	// NOT a projectile: a bolt or a thrown item that stops against a SHUT DOOR
+	// strikes that door alone, straight through DoorTarget (StrikeDoorWithBolt /
+	// StrikeDoorWithThrow), so a new kind reaches those only if they learn it.
+	// (Forward-declared: the adapter itself is defined further down beside the
+	// two combatant ones, and a reference in a std::function needs only an
+	// incomplete type.)
 	class BreakableTarget;
 	void ForEachBreakableAt(int x, int z,
 							const std::function<void(BreakableTarget&)>& fn);
@@ -3580,7 +3584,8 @@ private:
 	// Called once the fixtures are placed; only breakable kinds get an entry, so
 	// the table is empty in a dungeon that authored none.
 	void SeedFixtureBreakables();
-	// Douse a broken fixture: its light, flame and smoke all go with `lit`.
+	// Douse a broken fixture: its fire goes out through SetFireBurning (light,
+	// flame and haze), and a smashed wall bracket drops the torch it held.
 	void DouseFixture(const FixtureBreak& fb);
 	std::vector<FixtureBreak> m_fixtureBreaks;
 
@@ -3702,8 +3707,6 @@ private:
 	// as a `drop` diff) — NOT an .ent record, which is what an editor placement
 	// authors. Shared by the cursor drop and by a fumbled weapon.
 	void DropItemInCell(const std::string& typeId, int cx, int cz, float charge = -1.0f);
-	// A landed monster blow rolls its type's on-hit DoT (Phase 6): chance,
-	// then land/refresh the effect with its log line. No-op for dps 0.
 	// Strip a monster's effects (and with them its plume) — a corpse carries
 	// nothing. Called from the apply stage when a blow finishes it.
 	static void Extinguish(Monster& monster);
@@ -3946,8 +3949,9 @@ private:
 		std::function<void()> m_onBroken; // small captures only: stored inline
 	};
 	// The adapter for each breakable kind - ONE place per kind says what it is
-	// called and what breaking it does, shared by ForEachBreakableAt (a blow, a
-	// blast) and TickBreakables (an effect riding it), so the two cannot drift.
+	// called and what breaking it does, shared by ForEachBreakableAt (a blast,
+	// `smash`), TickBreakables (an effect riding it) and, for a door, the bolt
+	// and the throw that strike it, so they cannot drift.
 	BreakableTarget DoorTarget(Door& d);
 	BreakableTarget DecorationTarget(Decoration& p);
 	BreakableTarget FixtureTarget(FixtureBreak& fb);

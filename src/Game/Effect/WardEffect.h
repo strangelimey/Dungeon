@@ -1,20 +1,20 @@
 // ============================================================================
 // Game/Effect/WardEffect.h — the four Protect shields, one class each.
 //
-// A ward is what the Protect form rune leaves on its caster, and the SCHOOL
-// picks which of four quite different guards you get. They live together in
-// one file pair because they share everything P1 cares about (category, name
-// from their spell, the school-tinted Protect rune icon) and differ only in
-// the hook each will override in P2:
+// A ward is what the Protect form rune leaves on its caster (on the whole
+// party, cast with Ingwaz), and the SCHOOL picks which of four quite different
+// guards you get. They live together in one file pair because they share their
+// category, a name taken from their spell and the school-tinted Protect rune
+// icon, and differ only in the pipeline hook each overrides (Effect.h):
 //
-//   Stoneskin  (earth) — HARDENS: contributes physical resist   -> mitigate
-//   Fireshield (fire)  — BURNS BACK: scorches a melee attacker  -> react
-//   Waterveil  (water) — ABSORBS: a pool it spends soaking      -> absorb
-//   Windward   (air)   — DEFLECTS: charges it spends on bolts   -> deflect
+//   Stoneskin  (earth) - HARDENS: contributes physical resist   -> ResistFor
+//   Fireshield (fire)  - BURNS BACK: scorches a melee attacker  -> OnStruck
+//   Waterveil  (water) - ABSORBS: a pool it spends soaking      -> OnAbsorb
+//   Windward   (air)   - DEFLECTS: charges it spends on bolts   -> OnDeflect
 //
-// Until P2 those behaviours still live at their old sites; what these classes
-// carry today is identity. Wards stack ACROSS schools (all four at once) —
-// that falls out of them being four kinds, each refreshing only itself.
+// That hook IS the whole behaviour: no damage site names a ward. Wards stack
+// ACROSS schools (all four at once) - that falls out of them being four kinds,
+// each refreshing only itself.
 // ============================================================================
 #pragma once
 

@@ -1,6 +1,15 @@
 # The effects system
 
-**Status:** PLAN (Michael, 2026-07-24). Nothing built yet.
+**Status:** BUILT. Planned with Michael on 2026-07-24, all six phases landed
+the same day, and the one-pipeline rule has been CHECKED at runtime since P9
+(2026-08-15, "The invariant, CHECKED" below). This page keeps the plan as it
+was written with each phase's *as built* under it; where the two disagree, the
+as-built note wins, and the code is the reference: `src/Game/Effect/`
+(`Effect.h` for the hooks and the pipeline, `AllEffects.cpp` for the thirteen
+kinds). Since the six phases the list has grown - `starving` / `parched`
+(docs/health-and-healing.md), `smoke` on a doused fire, `light` and `dazzle`
+(lighting-updates) - and effects left the editor's palette for the Balance
+dialog's Effects tab (tool-refinement).
 
 One pipeline for everything that happens *to* a combatant — a sword blow,
 a fire bolt, a burn, a poison, a ward, a future slow or blessing — so
@@ -94,9 +103,12 @@ struct Inst {                         // the per-combatant POD (saved)
 
 (This sketch once carried a separate `power` beside `magnitude`. As built
 there is one number: nothing today has two, and a dead field is worse
-than a rename later. The P2 hooks are likewise absent from the class
-until P2 — inventing `DamageEvent` and `ITarget` before their callers
-exist is how you design them wrong.)
+than a rename later. The hooks as built are not the sketch's: one per stage
+an effect can act at - `OnDeflect`, `ResistFor`, `OnAbsorb`, `OnStruck` -
+and there is no `Tick` or `OnExpire`. A DoT's bite and an expiry's line are
+the host's, in `DungeonWorld::TickEffects`, which ages every list and deals
+the bites as `Tick` events. `Inst` also carries a lent colour, `tinted` /
+`tint` (a magical torch's flame on what it lights).)
 
 This is the codebase's dominant idiom (`ItemKind`/`Item`,
 `MonsterKind`/`Monster`): the fat, behaviour-carrying half is shared and
@@ -105,7 +117,7 @@ no effects costs nothing and applying one is a `push_back`.
 
 Concrete kinds at the start: `burn`, `poison`, `bleed`, `stoneskin`,
 `waterveil`, `fireshield`, `windward`, `sight`. Every one of them is an
-existing behaviour moved, not new code.
+existing behaviour moved, not new code. (Thirteen now - see the status line.)
 
 ### One target, two adapters
 
@@ -113,6 +125,10 @@ existing behaviour moved, not new code.
 `Effects()`, `NatureResist(type)`, `GearResist(type)`, `Soak()`,
 `Evasion()`, `Wound(amount, flags)`, `IsDown()`, `Name()`, `Message()`.
 `DungeonWorld` implements it twice, over `Character&` and over `Monster&`.
+(As built: `Evasion(type)`, `Soak()`, a FINAL `Resist(type)` the adapter
+assembles, `Effects()`, `Wound(amount, ev)` and its mirror `Absorb`, `Name()`,
+`Say()` and `SayApplied(kind)` - and a third adapter, `BreakableTarget`, for
+the pieces of dungeon that can be hurt.)
 
 The module is walled off exactly like `MagicSystem` and `ai::` — it knows
 nothing of `DungeonWorld`, the map, or the party, and reaches the world
@@ -228,7 +244,8 @@ wind ward deflecting an actual bolt (the test level's one caster never
 fired — the swarms always closed first), and a burn kill after the
 retiming (its `slew` mechanism is the one three other kills proved).
 
-**P2 — the pipeline, and the four wards move home.**
+*P2 as first planned* (kept for the record; the as-built note above is what
+landed, and `OnIncoming` became `OnDeflect` + `OnAbsorb`):
 `ITarget` + the two adapters, `DamageEvent`, the six stages. Every damage
 site — party melee, monster melee, both projectile resolvers, the bump,
 the DoT ticks, the fire-shield retaliation — becomes "build the event,
@@ -342,6 +359,8 @@ than as an echo.
 `effects.cat` has a `CatalogSchema` entry (name / icon / school / plume /
 damage_type / stacking / the two apply lines) and an **Effects** palette
 category, so an effect is browsable and editable like every other type.
+(Since tool-refinement Phase 1 the palette has no Effects section: the Balance
+dialog's Effects tab lists them, and each row opens this type editor over it.)
 
 The interesting part was what an effect is NOT: content you author and
 tune, never content you place. So `CatInfo` gained a `placeable` flag, and
@@ -525,7 +544,8 @@ red-handed would mean making health a guarded type, rippling through save/load,
 the UI and all of combat. So the checkpoints sit at phase boundaries and a report
 gives the phase, the victim and the amount, which between them have been enough.
 
-**The five sanctioned routes**, each one a decision rather than a permission:
+**The six sanctioned routes** (`ledger::Reason`), each one a decision rather
+than a permission:
 
 | reason | what it is |
 |---|---|
@@ -534,6 +554,7 @@ gives the phase, the victim and the amount, which between them have been enough.
 | `regen` | resource regeneration (docs/health-and-healing.md) |
 | `growth` | a stat or resource practice levelling, so `RecomputeMaxima` carries a raised ceiling onto the current value |
 | `stabilize` | the unconscious coming round by themselves |
+| `drink` | a potion's `restore_health` (docs/transparency-plan.md); a downed member cannot drink |
 
 Wholesale replacement — a load, a save restore, a respawn, a `heal` — does not
 explain its writes, it **rebases**: the values it overwrote no longer exist to be
@@ -559,9 +580,28 @@ over-exert by design and the script had used a novice.
 
 What began as "the fire sword needs somewhere to put a burn" is now one
 pipeline: every source of damage builds a `DamageEvent`, one `ITarget`
-serves members and monsters alike, effects are classes with catalog-tuned
-numbers, content names them by id, they survive a save, and they are
-editable in the editor.
+serves members and monsters alike (and, through `BreakableTarget`, doors,
+props and fixtures), effects are classes with catalog-tuned numbers, content
+names them by id, they survive a save, and they are editable in the editor.
+
+**The ceiling.** One list holds `fx::kMaxEffects` (24): every owner reserves
+it when it is made, and `fx::Apply` evicts the instance nearest its end rather
+than grow a full list mid-fight. The most a party member can carry in play is
+16 (four wards, three DoTs, two supply effects, a sight per school, a light per
+school but earth, whose light is a stone set down); that count sits beside the
+kind table in `AllEffects.cpp`, built from `kSchoolCount` and
+`resource::Supply`, and a `static_assert` holds it under the ceiling. Until the
+code review the ceiling WAS 16, with a comment claiming headroom - so a new kind
+a member can carry adds its term to that count. That count is only as good as
+the habit: a kind registered without its term leaves it green. So
+`EffectBook::Build` also bounds EVERY registered kind by its stacking, after
+effects.cat has had its say - Refresh one, school one per school, stack
+unbounded; 19 today, since smoke, dazzle and earth's light count too. A class
+past the ceiling stops the load (`DN_ASSERT`); an effects.cat `stacking`
+override past it (the type editor offers `stack`) is a warning naming the
+kinds, because a full list evicting is a defined outcome. The sheet's Effects
+tab warms its row pool to the ceiling, so no member can show more rows than
+it was built with.
 
 Left undone, deliberately:
 - The **wind ward deflecting a real bolt** has never been observed live —

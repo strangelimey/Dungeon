@@ -2448,8 +2448,9 @@ void DungeonWorld::BreakableTarget::SayApplied(const fx::EffectKind& kind) const
 void DungeonWorld::ForEachBreakableAt(
 	int x, int z, const std::function<void(BreakableTarget&)>& fn) {
 	// THE one place that knows what pieces of dungeon live in a cell and can be
-	// hurt. Every source of damage goes through it, so adding a fourth breakable
-	// kind reaches blasts, bolts and anything later, all at once.
+	// hurt, so adding a fourth breakable kind reaches a blast and the dev `smash`
+	// at once. A bolt or a thrown item does NOT come through here: it strikes
+	// only a shut door, through DoorTarget (StrikeDoorWithBolt / -WithThrow).
 	for (Door& d : m_doors) {
 		if (d.x != x || d.z != z || !d.brk.Alive()) continue;
 		BreakableTarget t = DoorTarget(d);
@@ -2641,8 +2642,11 @@ void DungeonWorld::DouseFixture(const FixtureBreak& fb) {
 	SetFireBurning(fb.x, fb.z, fb.wall, false);
 	++m_harness.tally.fixturesDoused;
 	// A smashed WALL BRACKET lets go of its torch: it falls to the floor of the
-	// bracket's own square (out, as anything set down is - PlaceDrop), as the
-	// torch that was in it with what was left of it, and the wreck is bare.
+	// bracket's own square as the torch that was in it, with what was left of
+	// it, and the wreck is bare. It lands OUT because the smash has just put its
+	// fire out and the bracket records its torch by the UNLIT id (WallSconce::
+	// torch) - not because the floor douses it: a torch set down or thrown LIT
+	// burns on where it lies (TickFloorTorches, docs/torches-and-fire.md).
 	// Only a bracket that can be emptied (SetSconceEmpty: a takeable kind) - one
 	// that cannot would otherwise hand out its torch and still hold it.
 	const WallSconce* sconce = fb.wall >= 0 ? m_map.SconceAt(fb.x, fb.z, fb.wall) : nullptr;

@@ -417,8 +417,9 @@ Key conventions (memorize, they bite):
   through the target's resist for that element (no soak, no separate to-hit
   roll), and the element becomes the FLAVOUR its on-hit effects arrive with.
   Dev: `equip <item> [member] [hand]`.
-- RESOURCES (full model: docs/health-and-healing.md; the pools half built
-  2026-08-13, food/water/rest/sheet still design). Every pool has an APTITUDE
+- RESOURCES (full model: docs/health-and-healing.md; all of it built - the
+  pools, food/water, rest, pace and the sheet; the balance pass is what is
+  left). Every pool has an APTITUDE
   (a stat — `Character::Aptitude`, the ONE home of health←VIT,
   stamina←(STR+VIT)/2, mana←(INT+WIL)/2) and a PRACTICE (a skill:
   `conditioning`/`attunement`/`constitution`). max = base + k_<r>×aptitude +
@@ -585,7 +586,18 @@ Key conventions (memorize, they bite):
   ALIKE, so a monster can be poisoned or warded. Each ward is its own kind
   overriding the stage it acts at (windward=deflect, stoneskin=mitigate,
   waterveil=absorb, fireshield=react); wards stacking across schools falls out
-  of that. `fx::Apply` owns the stacking rule. EVERYTHING IS RESISTED — the
+  of that. `fx::Apply` owns the stacking rule, and the CEILING: a list holds
+  `fx::kMaxEffects` (24), reserved when its owner is made, and a full one
+  EVICTS rather than grows. The most a member can carry in play (16: four
+  wards, three DoTs, two supply, a sight per school, a light per school but
+  earth) is counted beside the kind table in AllEffects.cpp from kSchoolCount
+  and resource::Supply, under a static_assert - A NEW KIND A MEMBER CAN CARRY
+  ADDS ITS TERM THERE, since a kind registered without one leaves it green.
+  The backstop needs no term: `EffectBook::Build` bounds EVERY registered kind
+  by its stacking (Refresh 1, school kSchoolCount, stack unbounded; 19 today)
+  and a class past the ceiling stops the load (DN_ASSERT), an effects.cat
+  `stacking` override past it warns. The sheet's Effects rows warm to the
+  ceiling. EVERYTHING IS RESISTED - the
   event PRESETS name a kind of damage and set the maths, so no caller sets
   flags by hand: Blow/Bolt (rolled+soaked+resisted), Impact (a COLLISION — a
   wall, a door, a PIT LANDING: bash damage armour blunts and Stone Skin
@@ -1470,9 +1482,13 @@ controlled live from the dev console.
 The AI itself (Game/MonsterAI.h, namespace dungeon::ai) is walled off like
 MagicSystem — it knows nothing about DungeonWorld/Party/map, reaching the world
 only through ai::IWorldView. THINKING is split from ACTING: Brain::Think (cheap,
-IQ-gated) sets a monster's standing orders (ai::Intent: idle, or engage toward a
-cell) plus a full chase PATH (Brain::FindPath, 4-connected BFS); the host
-EXECUTES those orders EVERY frame at the monster's own move/attack cadence — so a
+IQ-gated) sets a monster's standing orders - an ai::Intent::Mode of Idle, Engage,
+Kite or Flee, picked from its ai::Archetype (Brute / Skirmisher / Caster / Swarm /
+Lurker / Sentry, monsters.cat `archetype`), its per-instance leash and its
+`fleebelow` - plus, for Engage only, a full chase PATH (Brain::FindPath,
+4-connected BFS); the host EXECUTES those orders EVERY frame at the monster's own
+move/attack cadence (Kite / Flee, a patrol route and a leash's walk home are
+host executors stepping greedily from live positions - docs/ai.md), so a
 dim monster still moves and swings at full speed, only its CHANGE OF MIND lags.
 ai::AsyncDirector spawns one worker per IQ bucket (4) on the Manager. Each frame
 the main thread publishes an immutable ai::Snapshot (party cell, a revision-

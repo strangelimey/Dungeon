@@ -8,8 +8,9 @@
 //
 // THINKING vs ACTING are split, and THINKING runs on its OWN THREADS so a heavy
 // re-plan never stalls the render/sim pipeline:
-//   * Brain::Think + Brain::FindPath decide a monster's STANDING ORDERS — an
-//     ai::Intent (idle / engage-toward-a-cell) plus a full chase PATH. Both are
+//   * Brain::Think + Brain::FindPath decide a monster's STANDING ORDERS - an
+//     ai::Intent (Idle / Engage / Kite / Flee, picked from its Archetype, its
+//     leash and its flee threshold) plus, for Engage, a full chase PATH. Both are
 //     PURE: they only read an immutable ai::Snapshot through an IWorldView and
 //     write to outputs. That purity is what makes them safe to run on workers.
 //   * ai::AsyncDirector owns one worker thread PER IQ BUCKET, each waking on its
@@ -18,8 +19,11 @@
 //   * The MAIN thread publishes the snapshot once per frame (cheap) and EXECUTES
 //     the latest plans every frame at each monster's own move/attack cadence —
 //     popping path cells, validating against LIVE occupancy, committing the
-//     step, resolving attacks. All world mutation stays serial on the main
-//     thread; the workers never touch live state.
+//     step, resolving attacks. Kite, Flee, a patrol and a leash's walk home carry
+//     no path: the host's executors (DungeonWorld::UpdateKiter / UpdateFleer /
+//     UpdatePatroller / UpdateReturner) step them greedily from live positions.
+//     All world mutation stays serial on the main thread; the workers never
+//     touch live state.
 // So a dim monster (slow bucket) still moves and swings at full speed; only its
 // CHANGE OF MIND lags, and the cost of re-planning is paid on another core.
 // ============================================================================

@@ -285,24 +285,28 @@ Magic is a **walled-off module** (it knows nothing of map/monsters/HUD):
   forms are intermediate classes (`HandSpell` for the tier-1 spells and the
   hand they look in; `BoltSpell` flies the bolt + serves `MonsterBolt` for
   monster casters; `WardSpell` lands the school-keyed ward; `SightSpell` the
-  peephole), and every concrete spell is its own file pair (`Flame`, `Rock`,
-  ..., `Windward`) constructed with its numbers. The tier-3 spells are the one
-  exception: `ModifiedSpell` WRAPS a Bolt or Ward spell with a modifier, and
-  AllSpells.cpp makes one per form spell and modifier rather than a file pair
-  each. `AllSpells.cpp` is the registry list; adding a spell = file pair + one
+  peephole; `LightSpell` the Sowilo light), and every concrete spell is its own
+  file pair (`Flame`, `Rock`, ..., `Windward`) constructed with its numbers.
+  The tier-3 spells are the one exception: `ModifiedSpell` WRAPS a Bolt, Ward
+  or Light spell with a modifier, and AllSpells.cpp makes one per form spell
+  and modifier rather than a file pair each. `AllSpells.cpp` is the registry
+  list; adding a spell = file pair + one
   line there + CMakeLists. A `Cast()` reaches the world only through
   `CastServices` the host wires once (see "Built - the three tiers").
-- **`Spells.h/.cpp` — the alphabet + registry.** `SpellSymbol`, shared
-  `ElementColor(SpellSymbol)` (DungeonWorld::RuneGlow delegates to it), and
-  the `SpellBook`: the concrete classes with the project's **spells.cat
+- **`Spells.h/.cpp` - the alphabet + registry.** `SpellSymbol` (and
+  `kSchoolCount`, the four schools at its head), the shared
+  `ElementColor(SpellSymbol)` - the school tint of an effect's HUD icon, the
+  sheet's school colours, the sight rim, a burn's plume (a rune's own glow is
+  `RuneGlowColor` in PartyHudDraw, the icon art's colours) - and the
+  `SpellBook`: the concrete classes with the project's **spells.cat
   NUMERIC OVERRIDES** laid on top (matched by id — data tunes numbers, never
   redefines recipes; mismatched/stray entries are warned about). Kept
   lightweight (no gfx) because `Character.h` includes it.
 - **`Magic.h/.cpp` — `MagicSystem`** owns the `SpellBook` and runs the COMMON
   cast gates (vocabulary, mana, the skill/fumble roll, power scaling), then
   hands the landing to `spell->Cast(ctx)`. Projectiles fly in the shared
-  moving-item engine, whose three hooks (`isBlocked` / `resolveHit` /
-  `onFizzle`) the owner wires once.
+  moving-item engine (`ProjectileSystem`, Projectiles.h), whose three hooks
+  (`isBlocked` / `resolveHit` / `onExpire`) the owner wires once.
 - **`DungeonWorld`** holds a `MagicSystem m_magic`, wires the hooks + cast
   services in its ctor; `CastSpell` is a thin façade (party eye+facing →
   `m_magic.Cast` → the common aftermath: log, learning, the firing hand's
@@ -318,16 +322,19 @@ Magic is a **walled-off module** (it knows nothing of map/monsters/HUD):
 - **School-first + tier-2: BUILT.** The one-school rule (exactly one element
   rune, first position) is enforced in `Spells.h`/`SpellBook::Build` and the
   spellbook UI (`SymbolAvailable`: the four schools go dark once one is down;
-  form runes wait until a school leads). Three shared form runes are live:
+  form runes wait until a school leads). Four shared form runes are live -
+  Light, the fourth, has its own section above ("Built - the lights"):
   **Project** with its four `<school>,project` single-target bolts - Air Bolt
   carrying the engine's first displacement effect (`push`) - **Protect** with the
-  shield framework (`SpellEffect::Shield`: caster-only wards that stack
-  across schools — same school recast replaces — school-keyed behaviour,
-  timed fade) carrying all four shields: Stone Skin
-  (armor), Fire Shield (melee retaliation), Water Veil (absorb pool, bursts
-  when spent), Wind Ward (bolt deflection charges, stills when spent) — and
-  **Sight** (`StatusKind::Sight`, a caster-only timed marker like a ward) that
-  ghosts a round PEEPHOLE through the wall block directly ahead in the
+  wards (`WardSpell` lands a ward effect KIND on the caster - one class per
+  school in Effect/WardEffect.h, so wards stack across schools and a same-school
+  recast replaces; each overrides the pipeline stage it guards at, docs/
+  effects.md; timed fade) carrying all four shields: Stone Skin
+  (physical resist), Fire Shield (melee retaliation), Water Veil (absorb pool,
+  bursts when spent), Wind Ward (bolt deflection charges, stills when spent) -
+  and **Sight** (the `sight` effect, Effect/SightEffect.h: a caster-only timed
+  marker, one per school) that ghosts a round PEEPHOLE through the wall block
+  directly ahead in the
   first-person view (a scene-shader hole + thin school-tinted rim, driven by
   the `sightCell`/`sightTint`/`sightHole` frame constants — no mesh rebuild),
   carrying all four peeks: Ember Sight (fire lights the room beyond), Far Sight
@@ -337,10 +344,12 @@ Magic is a **walled-off module** (it knows nothing of map/monsters/HUD):
   sequences; that IS the model now (the grammar is authored into the recipes,
   not parsed).
 - **Status effects are a unified list, and they STACK.** A ward lives in
-  `Character::effects` (`StatusEffect`: kind + school + magnitude + time;
-  save v14 "effect" lines, v13 "shield" lines still load) — the one list
-  every future condition (poison, injury, item buff) joins. Effects of
-  different identities coexist (all four wards at once is legal); only
+  `Character::effects` (`fx::Inst`: kind + school + magnitude + time + source;
+  save "effect" lines, the old v13 "shield" and category tokens still load) -
+  the one list every condition joins: the wards, poison / bleed / burn, the
+  supply effects, sight and light (a monster carries the same list - docs/
+  effects.md). Effects of different identities coexist (all four wards at
+  once is legal); only
   recasting the SAME school replaces its ward. The party bar draws an icon
   per active effect in the member's NAME band, right-aligned and growing
   right-to-left (school-tinted border + depleting time sliver; hover names

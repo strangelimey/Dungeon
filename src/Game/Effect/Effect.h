@@ -16,10 +16,12 @@
 // effects.cat only OVERRIDES their numbers and look. An effects.cat entry
 // naming no class is a warning, never a new effect.
 //
-// P1 (docs/effects.md) builds the registry and moves Character's list onto it;
-// behaviour still lives at the sites that always had it. P2 adds the pipeline
-// hooks — deflect / mitigate / absorb / react — to this base, and the four
-// wards' scattered implementations move into their kind classes.
+// Behaviour lives in the KIND: a ward overrides the pipeline stage it acts at
+// (OnDeflect / ResistFor / OnAbsorb / OnStruck, below), and every damage
+// source walks those stages through Deal and React. What no hook covers - a
+// DoT's bite, a supply effect held open, a light or a sight the world draws -
+// the host reads off the list each frame (DungeonWorld::TickEffects and its
+// readers). docs/effects.md is the design and its as-built record.
 // ============================================================================
 #pragma once
 
@@ -49,8 +51,9 @@ namespace dungeon::game::fx {
 // save/legacy token mapping.
 enum class Category : u8 {
 	Ward,   // the Protect shields — one kind per school, four behaviours
-	Dot,    // damage over time (poison, bleed, burn)
-	Marker, // no numbers of its own; the world reads its presence (Sight)
+	Dot,    // damage over time (poison, bleed, burn; starving, parched)
+	Marker, // no pipeline hook; the world reads its presence (sight, light,
+			// dazzle, smoke)
 };
 
 // What happens when an effect lands on someone already carrying its kind.
@@ -420,17 +423,29 @@ struct Inst {
 	bool IsDot() const { return kind && kind->Kind() == Category::Dot; }
 };
 
-// THE CEILING ON ONE EFFECT LIST. Ten kinds exist and only Sight stacks per
-// school, so thirteen is the most any body can carry today; sixteen leaves
-// room, and a future `stacking = stack` kind is the only thing that could
-// reach it. Every list's owner reserves this much when the owner is CREATED
+// THE CEILING ON ONE EFFECT LIST. The most one bearer can carry in play is
+// SIXTEEN - a party member with all four wards, all three DoTs, both supply
+// effects, a sight per school and a light per school but earth. Sixteen used
+// to BE the ceiling, which left no room at all; twenty-four leaves half again.
+// TWO CHECKS hold it, because neither alone is enough:
+// - AllEffects.cpp COUNTS that worst case, a term per kind a member can carry,
+//   under a static_assert. It is tight, but it holds only while each new kind
+//   ADDS ITS TERM there - a kind registered without one leaves it green.
+// - EffectBook::Build BOUNDS every registered kind by its stacking (Refresh
+//   one, RefreshPerSchool one per school, Stack unbounded) after effects.cat
+//   has had its say - nineteen today, smoke and dazzle and earth's light
+//   included. Looser, but nobody has to remember it: a CLASS past the ceiling
+//   stops the load (DN_ASSERT), and an effects.cat `stacking` override past it
+//   - a content choice the type editor offers - is a warning.
+// Every list's owner reserves this much when the owner is CREATED
 // (ReserveEffects - a party, a monster at spawn, a breakable piece of
 // dungeon), because a first effect used to grow an empty vector in the middle
 // of a fight: every monster's first burn allocated in a settled frame
 // (tools\AllocTest.ps1 -Impact found it). Apply keeps a full list at the
 // ceiling by EVICTING the instance nearest its end, so a reserved list never
-// grows - a promise, where a reserve alone would only be an estimate.
-inline constexpr size_t kMaxEffects = 16;
+// grows - a promise, where a reserve alone would only be an estimate. The
+// sheet's Effects-tab rows are warmed to it too (CharacterSheet's ctor).
+inline constexpr size_t kMaxEffects = 24;
 inline void ReserveEffects(std::vector<Inst>& effects) { effects.reserve(kMaxEffects); }
 
 // Land `kind` on an effect list, honouring the kind's stacking policy — THE

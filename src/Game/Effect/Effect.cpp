@@ -3,6 +3,7 @@
 // ============================================================================
 #include "Game/Effect/Effect.h"
 
+#include "Core/Assert.h"
 #include "Core/Log.h"
 #include "Game/Catalog.h"
 #include "Game/Defense.h" // Mitigate
@@ -11,6 +12,7 @@
 #include <array>
 #include <cctype>
 #include <cstdlib>
+#include <format>
 
 namespace dungeon::game::fx {
 
@@ -298,13 +300,53 @@ Inst& Apply(std::vector<Inst>& effects, const EffectKind& kind,
 
 // --- EffectBook ---------------------------------------------------------------
 
+namespace {
+// The most instances of `kind` one bearer can hold, by the stacking policy
+// Apply honours: Refresh keeps one, RefreshPerSchool one per school, and Stack
+// has no bound of its own (every application lands), so it counts as past the
+// ceiling by itself.
+size_t MostHeld(const EffectKind& kind) {
+	switch (kind.Stack()) {
+	case Stacking::Refresh:          return 1;
+	case Stacking::RefreshPerSchool: return kSchoolCount;
+	case Stacking::Stack:            break;
+	}
+	return kMaxEffects + 1;
+}
+
+size_t MostHeld(const std::vector<std::unique_ptr<EffectKind>>& kinds) {
+	size_t n = 0;
+	for (const auto& k : kinds) n += MostHeld(*k);
+	return n;
+}
+
+// That bound as a log line says it: with a Stack kind among them the sum is a
+// sentinel, not a count.
+std::string HeldText(const std::vector<std::unique_ptr<EffectKind>>& kinds,
+					 size_t held) {
+	for (const auto& k : kinds)
+		if (k->Stack() == Stacking::Stack) return "any number of";
+	return std::to_string(held);
+}
+} // namespace
+
 void EffectBook::Build(const Catalog& catalog, const DamageTypeBook& types) {
 	// The classes ARE the effect table (Effect/AllEffects.cpp); the catalog
 	// gets the last word on numbers and look only.
 	m_kinds = MakeAllEffects();
+	// THE CEILING, CHECKED with nothing to remember (kMaxEffects, Effect.h).
+	// AllEffects.cpp's count is tight but holds only while each new kind adds
+	// its term there; this bound is every REGISTERED kind at its class's
+	// stacking, so a class registered without a term still cannot slip past.
+	const size_t byClass = MostHeld(m_kinds);
+	DN_ASSERT(byClass <= kMaxEffects,
+			  std::format("the effect classes let one bearer hold {} effects, past "
+						  "fx::kMaxEffects ({}) - raise the ceiling (Effect.h)",
+						  HeldText(m_kinds, byClass), kMaxEffects));
 	// Every kind resolves its damage type even when the project authors no
 	// entry for it — a class-default "fire" still has to become an index.
 	for (const auto& k : m_kinds) k->ApplyOverrides(CatalogEntry{}, types);
+	std::string raised; // kinds whose authored stacking holds more than their class
 	for (const CatalogEntry& e : catalog.Entries()) {
 		EffectKind* kind = nullptr;
 		for (const auto& k : m_kinds)
@@ -319,8 +361,21 @@ void EffectBook::Build(const Catalog& catalog, const DamageTypeBook& types) {
 					  e.id);
 			continue;
 		}
+		const size_t before = MostHeld(*kind);
 		kind->ApplyOverrides(e, types);
+		if (MostHeld(*kind) > before) {
+			if (!raised.empty()) raised += ", ";
+			raised += e.id;
+		}
 	}
+	// The catalog may change a kind's stacking (effects.cat `stacking`, which the
+	// type editor offers). That is a content choice with a defined outcome - a
+	// full list evicts - so past the ceiling it is said, not fatal.
+	if (const size_t held = MostHeld(m_kinds); held > kMaxEffects)
+		log::Warn("effects.cat: the stacking authored on {} lets one bearer hold {} "
+				  "effects, past fx::kMaxEffects ({}) - a full list will evict the "
+				  "effect nearest its end in play",
+				  raised, HeldText(m_kinds, held), kMaxEffects);
 }
 
 const EffectKind* EffectBook::Find(std::string_view id) const {
