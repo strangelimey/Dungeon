@@ -93,10 +93,17 @@ struct Bc7BlockStat {
 //   * mode 1 — two subsets with their OWN colour line each, so a block
 //     straddling two materials (brick/mortar) stops smearing one line through
 //     the middle. RGB-only, so fully-opaque blocks only.
+//   * mode 3 - mode 1's opposite trade on the same 64 partition shapes: a
+//     p-bit per endpoint (8 real bits) bought with 2-bit indices. Places its
+//     ENDPOINTS precisely where mode 1 places its pixels, so it wins where the
+//     two regions are far apart and each is smooth - and makes a flat block
+//     lossless. RGB-only, so fully-opaque blocks only.
 //   * mode 5 — RGB and ALPHA solved separately. The mode for normal+height
 //     maps, where alpha carries height uncorrelated with the normal: mode 6
 //     fits a single 4-D line through RGB and A together, so a height edge
-//     drags the normal off its line.
+//     drags the normal off its line. Its channel ROTATION lets the separate
+//     pair serve whichever channel will not lie on the line - in a normal map
+//     that is often blue, not alpha.
 // Returns ceil(w/4) * ceil(h/4) * 16 bytes. `stats`, if given, is filled with
 // one entry per block in raster order.
 std::vector<u8> EncodeBc7(const assets::ImageData& image, const Bc7Options& opt = {},

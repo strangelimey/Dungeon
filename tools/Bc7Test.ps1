@@ -11,7 +11,7 @@
 #   .\tools\Bc7Test.ps1 -Audit             # the knob-by-knob measurement table
 #   .\tools\Bc7Test.ps1 -UpdateBaseline    # record today's numbers as the bar
 #
-# Three failures are possible and they mean different things:
+# The failures mean different things:
 #   consistency_bad > 0  The encoder's own error estimate disagrees with a real
 #                        decode of the bytes it wrote. This is a CORRECTNESS
 #                        bug, not a quality one: that estimate is what picks the
@@ -22,10 +22,23 @@
 #   regressed > 0        A corpus image lost quality against the baseline.
 #                        Sometimes legitimate (a deliberate speed trade) - then
 #                        re-run with -UpdateBaseline and say so in the commit.
+#   matched = 0          Nothing in the baseline matched the corpus. The gate
+#                        checked nothing: until 2026-10-05 the loader stopped
+#                        at the file's '#' header and EVERY run was this,
+#                        reported as a pass.
+#   a syn.* gap          A synthetic image with no entry, or a syn.* entry with
+#                        no image. That corpus is the same on every machine, so
+#                        this is a lost row or a renamed/new image, and that
+#                        image is no longer gated. Real-texture rows that do not
+#                        match are only listed as notes - which textures get
+#                        sampled follows the installed pool.
 #
-# -SelfTest corrupts the encoded bytes on purpose and requires the run to come
-# back FAIL. A harness that cannot fail is not evidence of anything - the same
-# reason AllocTest.ps1 has an inverted mode.
+# -SelfTest injects two faults and requires EXACTLY the two checks they aim at
+# to fail: corrupted bytes (the consistency check) and a baseline raised 1 dB
+# (the quality check, on every matched image). The thread and baseline-reading
+# checks must still pass. A harness that cannot fail is not evidence of
+# anything - the same reason AllocTest.ps1 has an inverted mode - and one that
+# passes its self-test on ANY failure cannot show which fault it caught.
 #
 # Prefer the RELEASE build: the encode is heavily float-bound and a debug run of
 # the same corpus takes minutes rather than seconds. The output is identical.
@@ -36,8 +49,8 @@
 [CmdletBinding()]
 param(
 	[ValidateSet('debug', 'release')][string]$Config = 'release',
-	# Checks the CHECKER: damages the packed bytes and passes only if the run
-	# comes back FAIL.
+	# Checks the CHECKER: damages the packed bytes and raises the baseline, and
+	# passes only if exactly the two checks those faults aim at come back FAIL.
 	[switch]$SelfTest,
 	# Prints what each knob is worth (modes, partition-shape count, p-bit trial)
 	# instead of running the regression. Slow - it encodes the corpus many times.
@@ -64,6 +77,13 @@ if (-not (Test-Path $exe)) {
 . (Join-Path $PSScriptRoot 'HarnessGame.ps1')
 Assert-ExeCurrent $exe
 
+# The self-test proves the gates by tripping them, so it needs the regression
+# run and the baseline; with -Audit or -UpdateBaseline it would prove nothing.
+if ($SelfTest -and ($Audit -or $UpdateBaseline)) {
+	Write-Host '-SelfTest runs with neither -Audit nor -UpdateBaseline.' -ForegroundColor Red
+	exit 2
+}
+
 $bc7Args = @('--per-kind', $PerKind)
 
 # The real textures are gitignored, so a fresh clone legitimately has none. The
@@ -84,8 +104,10 @@ if ($Audit) {
 	exit $LASTEXITCODE
 }
 
+# The baseline is committed, so it is ALWAYS passed: a missing file is a FAIL
+# (nothing matched), never a run that quietly skipped the quality gate.
 if ($UpdateBaseline) { $bc7Args += @('--write-baseline', $baseline) }
-elseif (Test-Path $baseline) { $bc7Args += @('--baseline', $baseline) }
+else { $bc7Args += @('--baseline', $baseline) }
 
 if ($SelfTest) { $bc7Args += '--self-test' }
 
@@ -94,10 +116,10 @@ $code = $LASTEXITCODE
 
 Write-Host ''
 if ($code -eq 0) {
-	if ($SelfTest) { Write-Host 'SELF-TEST PASS: the harness caught deliberate corruption.' -ForegroundColor Green }
+	if ($SelfTest) { Write-Host 'SELF-TEST PASS: both deliberate faults were caught, each by its own check.' -ForegroundColor Green }
 	else { Write-Host 'PASS' -ForegroundColor Green }
 } else {
-	if ($SelfTest) { Write-Host 'SELF-TEST FAIL: corruption went UNDETECTED - the checks are not reading the bytes.' -ForegroundColor Red }
-	else { Write-Host 'FAIL - see the per-image rows above.' -ForegroundColor Red }
+	if ($SelfTest) { Write-Host 'SELF-TEST FAIL: a fault went undetected, or a check it should not reach failed - see the self-test lines above.' -ForegroundColor Red }
+	else { Write-Host 'FAIL - see the checks and the per-image rows above.' -ForegroundColor Red }
 }
 exit $code

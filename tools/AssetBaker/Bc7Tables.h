@@ -8,11 +8,20 @@
 //
 // WHY THE TEST HARNESS SHARES THIS HEADER RATHER THAN RE-DERIVING IT.
 // The harness exists to catch encoder bugs, and a shared table cannot catch a
-// typo IN that table. But these particular constants are already proven by
-// something stronger than a unit test: the GPU decodes today's shipped mode 1
-// and mode 6 blocks and the game renders correctly. A wrong partition row or a
-// wrong interpolation weight would be visible on screen. Duplicating them here
-// would add a hundred lines that only *look* like independence.
+// typo IN that table. What can is the GPU: its fixed-function decoder holds its
+// own copy, so a wrong partition row or interpolation weight here shows on
+// screen as baked surfaces that disagree with their source. Duplicating the
+// tables in the harness would add a hundred lines that only *look* like
+// independence.
+//
+// That argument was first made while it was not yet true. It said "the GPU
+// decodes today's shipped mode 1 and mode 6 blocks and the game renders
+// correctly" while the game's DDS reader was rejecting every baked file
+// (2026-06-11 to 2026-09-28) and drawing the PNG instead - so no BC7 block, and
+// none of these tables, had reached the screen. Since that fix the game draws
+// the bake, and the installed bake uses all four modes, so every scene now
+// exercises these tables - by eye only. A GPU readback check (docs/bc7.md,
+// "Still open") would make it a test.
 //
 // What the harness DOES re-derive independently is where the bugs actually
 // live: field order, bit widths, anchor-index handling, p-bit placement,

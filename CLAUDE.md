@@ -896,7 +896,15 @@ buffer, reused across all ~25 submissions).
   the error it believes each block carries, and the harness decodes the packed
   bytes with an INDEPENDENT decoder and demands exact agreement. That estimate
   is what picks the mode, so if it lies, mode selection is a coin toss and every
-  quality claim is void. `-SelfTest` corrupts the bytes and requires a FAIL.
+  quality claim is void. Quality is gated by `tools\bc7-baseline.txt`, which the
+  loader READ AS EMPTY until 2026-10-05 (its '#' header ended a `>>` loop), so
+  the gate had never fired; a baseline matching nothing now FAILs, and so does
+  ANY gap between the synthetic images and the `syn.*` rows (that corpus is the
+  same on every machine, so a gap is a lost row, never the pool), while
+  real-texture rows that do not match (the sample follows the installed pool)
+  are only listed. `-SelfTest` corrupts a copy of the bytes AND
+  raises the baseline 1 dB, and requires exactly the consistency and quality
+  checks to fail - the quality one on every matched image.
   TRAP when reading its numbers: aggregate PSNR by the MEAN of per-image PSNR,
   never by pooling squared error — pooling is dominated by whichever tile
   compresses worst (the noise tile sits ~1000x higher in MSE than a smooth one),

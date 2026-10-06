@@ -1,6 +1,9 @@
 # BC7 quality baseline - PSNR in dB per corpus image.
-# Regenerate with: Bc7Test --assets <dir> --write-baseline <this file>
+# Regenerate with: tools\Bc7Test.ps1 -UpdateBaseline (release build).
 # A drop here is a regression; a rise is an improvement worth a commit message.
+# The syn.* rows are the same on every machine and must pair up exactly
+# with the synthetic images; the rest follow the installed texture pool,
+# so another pool may match only some of them.
 syn.brick 56.31
 syn.gradient 54.69
 syn.noise 18.58
@@ -9,11 +12,11 @@ syn.normalheight 43.26
 syn.alpharamp 75.22
 syn.cutout 60.03
 ancient_pot_2k 43.75
-floor_stone_pavement_1k 52.87
-wall_brick_distorted_4k 49.60
+floor_stone_pavement_2k 51.64
+wall_brick_distorted_2k 48.92
 ancient_pot_2k_n 32.74
-floor_stone_pavement_1k_n 40.92
-wall_brick_distorted_4k_n 39.94
+floor_stone_pavement_2k_n 40.56
+wall_brick_distorted_2k_n 39.76
 ancient_pot_2k_mr 49.39
-floor_stone_pavement_1k_mr 53.03
-wall_brick_distorted_4k_mr 51.94
+floor_stone_pavement_2k_mr 52.57
+wall_brick_distorted_2k_mr 50.61

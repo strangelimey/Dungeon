@@ -10,9 +10,16 @@
 //
 // WHAT THIS CANNOT CATCH, stated plainly: a misreading of the spec shared by
 // both sides — if the encoder writes a field in the wrong order and this reads
-// it back in that same wrong order, they agree and the GPU does not. For modes
-// 1 and 6 that risk is already retired (the game renders their output). A NEW
-// mode's field layout is only proven once the GPU has drawn it.
+// it back in that same wrong order, they agree and the GPU does not. A mode's
+// field layout is only proven once the GPU has drawn it.
+//
+// This used to say that was already done for modes 1 and 6, "the game renders
+// their output". It was written while the game's DDS reader rejected every
+// baked file (2026-06-11 to 2026-09-28) and drew the PNG instead, so no BC7
+// block had reached the screen. Since that fix the game draws the bake, and the
+// installed bake uses all four modes, so every scene is evidence for each of
+// them - by eye only. The deliberate check (docs/bc7.md, "What this cannot
+// catch") has not been recorded since.
 // ============================================================================
 #pragma once
 

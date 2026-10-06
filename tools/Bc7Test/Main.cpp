@@ -22,7 +22,19 @@
 //     buffers must be identical.
 //
 //  3. QUALITY, against a recorded baseline, so a refactor that quietly loses a
-//     dB is a failure rather than a discovery six months later.
+//     dB is a failure rather than a discovery six months later. That promise
+//     was not kept for its first two months: the loader read `name >> psnr`
+//     and the file's '#' header line ended it, so every run compared against
+//     an empty baseline and the gate could never fire. A baseline that matches
+//     nothing is now a FAIL, not a quiet pass (see LoadBaseline), and so is
+//     any gap in the SYNTHETIC rows: that corpus is the same on every machine,
+//     so a synthetic image without an entry, or a syn.* entry without an image,
+//     is a lost row or a renamed image - never a pool difference.
+//
+// Every condition is a NAMED check (Check), and --self-test injects one fault
+// per check it means to prove, then demands exactly those fail and every other
+// check pass (the tools/SpellTest.py rule; see kSelfTestFails). It used to pass
+// if anything failed, which a broken run does as readily as a caught fault.
 //
 // The corpus is mostly SYNTHETIC and generated here, deterministically: the
 // real textures are gitignored, so a corpus that depended on them would not
@@ -35,7 +47,9 @@
 //   Bc7Test --assets ..\..\assets              plus a sample of real textures
 //   Bc7Test --baseline tools\bc7-baseline.txt  fail on quality regression
 //   Bc7Test --audit                            the measurement matrix
-//   Bc7Test --self-test                        corrupt the bytes; must FAIL
+//   Bc7Test --baseline <f> --self-test         corrupt the bytes and raise the
+//                                              baseline; exactly those two
+//                                              checks must FAIL
 // ============================================================================
 #include "AssetBaker/Bc7Encoder.h"
 #include "AssetBaker/Bc7Tables.h"
@@ -51,13 +65,70 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <map>
+#include <set>
+#include <sstream>
 #include <string>
 #include <vector>
 
 using namespace dungeon;
 
 namespace {
+
+// ---- The verdict ------------------------------------------------------------
+
+int g_checks = 0;
+int g_failures = 0;
+// The label of every check that failed, in order - what --self-test compares
+// against kSelfTestFails.
+std::vector<std::string> g_failedLabels;
+
+void Check(bool ok, const std::string& what) {
+	++g_checks;
+	if (!ok) {
+		++g_failures;
+		g_failedLabels.push_back(what);
+	}
+	std::printf("    [%s] %s\n", ok ? "ok  " : "FAIL", what.c_str());
+}
+
+// The labels the self-test names, kept as constants so the check and the list
+// cannot drift apart by a typo.
+constexpr const char* kCheckConsistency =
+	"consistency: every block's error estimate equals a real decode of its bytes";
+constexpr const char* kCheckThreads =
+	"threads: every image byte-identical encoded serially and fanned out";
+constexpr const char* kCheckBaselineLines =
+	"baseline: every entry line reads as <name> <psnr>, each name once";
+constexpr const char* kCheckBaselineMatch = "baseline: at least one entry matches this corpus";
+constexpr const char* kCheckBaselineSyn =
+	"baseline: every synthetic (syn.*) image has an entry";
+constexpr const char* kCheckBaselineSynRows =
+	"baseline: every syn.* entry names a synthetic image";
+constexpr const char* kCheckQuality = "quality: no image fell below its baseline PSNR";
+
+// THE SELF-TEST'S EXPECTED FAILURES, by label (the tools/SpellTest.py rule: the
+// self-test passes only when exactly these fail and every other check passes).
+// --self-test injects two faults, each aimed at ONE check:
+//   * every 97th block of a COPY of the packed bytes is corrupted, and only the
+//     consistency check reads that copy - the PSNR is the clean bytes', so the
+//     corruption cannot reach the quality check and be mistaken for its catch;
+//   * every loaded baseline value is raised by kSelfTestRaiseDb, which must
+//     fail the quality check - on EVERY matched image, not just one (checked
+//     separately at the end, since a comparison that skipped rows would still
+//     fail the check once).
+// The thread check and the baseline's own reading checks see neither fault and
+// must stay green: a loader that read nothing, or only some of the synthetic
+// rows, fails them, which is C417's bug caught by the self-test as well as by a
+// normal run. No fault is aimed at the synthetic-coverage checks on purpose - a
+// lost row then shows here as an UNEXPECTED failure instead of hiding behind an
+// injected one.
+constexpr const char* kSelfTestFails[] = {
+	kCheckConsistency,
+	kCheckQuality,
+};
+constexpr double kSelfTestRaiseDb = 1.0;
 
 struct Sample {
 	std::string name;
@@ -322,13 +393,21 @@ Result Measure(const Sample& s, const baker::Bc7Options& opt, bool selfTest,
 		r.threadMismatch = (baker::EncodeBc7(s.image, serial) != enc);
 	}
 
-	// --self-test damages the packed bytes AFTER encoding. Nothing else changes,
-	// so a harness that still says PASS is not reading the bytes at all.
-	if (selfTest)
-		for (size_t b = 0; b < stats.size(); b += 97) enc[b * 16 + 15] ^= 0x40;
-
 	const assets::ImageData dec =
 		bc7test::DecodeBc7(enc.data(), s.image.width, s.image.height);
+
+	// --self-test damages a COPY of the packed bytes after encoding, and only the
+	// consistency check below reads it: a harness that still finds every block
+	// consistent is not reading the bytes at all. The PSNR stays the clean
+	// bytes', so this fault cannot reach the quality check - which has a fault
+	// of its own (the raised baseline), and each must be caught by its own check.
+	assets::ImageData damagedDec;
+	if (selfTest) {
+		std::vector<u8> damaged = enc;
+		for (size_t b = 0; b < stats.size(); b += 97) damaged[b * 16 + 15] ^= 0x40;
+		damagedDec = bc7test::DecodeBc7(damaged.data(), s.image.width, s.image.height);
+	}
+	const assets::ImageData& checked = selfTest ? damagedDec : dec;
 
 	const u32 blocksX = (s.image.width + 3) / 4;
 	const u32 blocksY = (s.image.height + 3) / 4;
@@ -337,7 +416,7 @@ Result Measure(const Sample& s, const baker::Bc7Options& opt, bool selfTest,
 		for (u32 bx = 0; bx < blocksX; ++bx) {
 			const size_t b = static_cast<size_t>(by) * blocksX + bx;
 			++r.modeCount[static_cast<int>(stats[b].mode)];
-			if (BlockError(s.image, dec, bx, by) != stats[b].error) ++r.badBlocks;
+			if (BlockError(s.image, checked, bx, by) != stats[b].error) ++r.badBlocks;
 		}
 
 	double sum = 0;
@@ -352,14 +431,58 @@ Result Measure(const Sample& s, const baker::Bc7Options& opt, bool selfTest,
 
 // ---- Baseline ---------------------------------------------------------------
 
-std::map<std::string, double> LoadBaseline(const std::string& path) {
-	std::map<std::string, double> out;
+// The recorded PSNR per image name, plus the names in FILE order, so the run
+// can list the entries no corpus image matched in the order the file has them.
+struct Baseline {
+	bool opened = false;
+	std::vector<std::string> names;
+	std::map<std::string, double> byName;
+	int badLines = 0; // unreadable entry lines and repeated names
+};
+
+// LINE BY LINE, and that is the whole fix. This used to be `while (in >> name
+// >> psnr)` with the '#' test inside the loop - but every baseline file, and
+// every one --write-baseline produces, opens with a '#' comment, so the first
+// line read `name` = "#", the double parse failed on the word after it, and the
+// loop ended with nothing loaded. The gate then compared against an empty map
+// and reported regressed=0 on every run. Now '#' lines and blank lines are
+// skipped as LINES, each entry is parsed on its own, and a line that is
+// neither is reported rather than ending the read.
+Baseline LoadBaseline(const std::string& path) {
+	Baseline out;
 	std::ifstream in(path);
-	std::string name;
-	double psnr;
-	while (in >> name >> psnr) {
-		if (name.empty() || name[0] == '#') continue;
-		out[name] = psnr;
+	out.opened = in.is_open();
+	if (!out.opened) {
+		std::printf("baseline %s: cannot be read\n", path.c_str());
+		return out;
+	}
+	std::string line;
+	int lineNo = 0;
+	while (std::getline(in, line)) {
+		++lineNo;
+		if (!line.empty() && line.back() == '\r') line.pop_back();
+		const size_t first = line.find_first_not_of(" \t");
+		if (first == std::string::npos || line[first] == '#') continue;
+
+		std::istringstream fields(line);
+		std::string name;
+		double psnr = 0;
+		if (!(fields >> name >> psnr) || !(fields >> std::ws).eof()) {
+			std::printf("baseline %s line %d unreadable: %s\n", path.c_str(), lineNo,
+						line.c_str());
+			++out.badLines;
+			continue;
+		}
+		if (out.byName.count(name)) {
+			// A second value for one image would silently win over the first; a
+			// stale duplicate is exactly how a regression could hide.
+			std::printf("baseline %s line %d names %s again\n", path.c_str(), lineNo,
+						name.c_str());
+			++out.badLines;
+			continue;
+		}
+		out.byName[name] = psnr;
+		out.names.push_back(std::move(name));
 	}
 	return out;
 }
@@ -373,40 +496,51 @@ std::map<std::string, double> LoadBaseline(const std::string& path) {
 // whether the heuristic ever misses.
 void RunAudit(const std::vector<Sample>& corpus) {
 	struct Config {
-		const char* label;
+		std::string label;
 		baker::Bc7Options opt;
 	};
 	std::vector<Config> configs;
-	auto add = [&](const char* label, u32 modes, int shapes, bool ptrial,
-				   unsigned threads = 0,
-				   baker::Bc7Prescore pre = baker::Bc7Prescore::Scatter) {
-		baker::Bc7Options o;
-		o.modes = modes;
-		o.shapeTrials = shapes;
-		o.trialPBits = ptrial;
-		o.threads = threads;
-		o.prescore = pre;
-		configs.push_back({label, o});
-	};
 	using namespace dungeon::baker;
 	// The two historical rows are pinned to what those encoders ACTUALLY did —
 	// bounding-box prescore, 8 shapes, the cheap p-bit proxy — so the deltas
 	// below stay honest as the defaults move on underneath them.
-	add("mode6 only (the original)", kBc7Mode6, 8, false, 0, Bc7Prescore::BoundingBox);
-	add("modes 1+6 (what shipped)", kBc7Mode1 | kBc7Mode6, 8, false, 0,
-		Bc7Prescore::BoundingBox);
-	add("modes 1+5+6", kBc7Mode1 | kBc7Mode5 | kBc7Mode6, 16, true);
-	add("modes 1+3+6 (no alpha mode)", kBc7Mode1 | kBc7Mode3 | kBc7Mode6, 16, true);
-	add("all modes, shapes=8", kBc7AllModes, 8, true);
-	add("  shapes=16 (the default)", kBc7AllModes, 16, true);
-	add("  shapes=64 (exhaustive)", kBc7AllModes, 64, true);
-	add("  p-bit proxy", kBc7AllModes, 16, false);
-	add("the default, ONE thread", kBc7AllModes, 16, true, 1);
-	{
-		baker::Bc7Options o; // mode 5 without its channel rotations
-		o.trialRotations = false;
-		configs.push_back({"no mode-5 rotations", o});
-	}
+	auto historical = [&](const char* label, u32 modes) {
+		Bc7Options o;
+		o.modes = modes;
+		o.shapeTrials = 8;
+		o.trialPBits = false;
+		o.prescore = Bc7Prescore::BoundingBox;
+		configs.push_back({label, o});
+	};
+	historical("mode6 only (the original)", kBc7Mode6);
+	historical("modes 1+6 (what shipped)", kBc7Mode1 | kBc7Mode6);
+
+	// Every other row is THE DEFAULT with one thing changed, built from
+	// Bc7Options{} so no label can outlive its value. These rows used to spell
+	// each configuration out by hand, and went on calling shapes=16 "the
+	// default" after the default moved back to 8 - so the row labelled the
+	// default measured a setting nothing ships, and so did the single-thread,
+	// p-bit and mode rows measured against it.
+	const Bc7Options def{};
+	auto variant = [&](std::string label, auto change) {
+		Bc7Options o = def;
+		change(o);
+		configs.push_back({std::move(label), o});
+	};
+	variant("modes 1+5+6 (no mode 3)",
+			[](Bc7Options& o) { o.modes = kBc7Mode1 | kBc7Mode5 | kBc7Mode6; });
+	variant("modes 1+3+6 (no alpha mode)",
+			[](Bc7Options& o) { o.modes = kBc7Mode1 | kBc7Mode3 | kBc7Mode6; });
+	variant("the default (shapes=" + std::to_string(def.shapeTrials) + ")",
+			[](Bc7Options&) {});
+	for (const int shapes : {8, 16, 64})
+		if (shapes != def.shapeTrials)
+			variant("  shapes=" + std::to_string(shapes) +
+						(shapes == 64 ? " (exhaustive)" : ""),
+					[shapes](Bc7Options& o) { o.shapeTrials = shapes; });
+	variant("  p-bit proxy", [](Bc7Options& o) { o.trialPBits = false; });
+	variant("  no mode-5 rotations", [](Bc7Options& o) { o.trialRotations = false; });
+	variant("  ONE thread", [](Bc7Options& o) { o.threads = 1; });
 
 	// The prescore rows re-run the headline configuration under each shortlist
 	// score, so the comparison is like-for-like.
@@ -458,17 +592,20 @@ void RunAudit(const std::vector<Sample>& corpus) {
 				worst = std::min(worst, psnrs[i] - refPsnr[i]);
 		}
 
-		std::printf("%-28s %9.2f %+9.2f %+9.2f %8.0f\n", configs[ci].label, mean,
+		std::printf("%-28s %9.2f %+9.2f %+9.2f %8.0f\n", configs[ci].label.c_str(), mean,
 					mean - base, worst, ms);
 	}
 
 	// The p-bit trial is the one knob whose aggregate verdict is small enough to
 	// be an artefact, so it gets its own per-image column rather than a summary.
-	std::printf("\np-bit trial vs the cheap proxy, per image (shapes=16):\n");
+	// Both sides are the default but for the p-bit choice (this compared at
+	// shapes=16 while the default was 8).
 	baker::Bc7Options withTrial, proxy;
-	withTrial.shapeTrials = proxy.shapeTrials = 16;
 	withTrial.trialPBits = true;
 	proxy.trialPBits = false;
+	std::printf("\np-bit trial vs the cheap proxy, per image (otherwise the default, "
+				"shapes=%d):\n",
+				withTrial.shapeTrials);
 	for (const auto& s : corpus) {
 		const double a = Measure(s, withTrial, false, false).psnr;
 		const double b = Measure(s, proxy, false, false).psnr;
@@ -791,12 +928,16 @@ void Usage() {
 		"  --shape-trials N      mode 1 partition shapes evaluated (1..64)\n"
 		"  --no-ptrial           use the cheap p-bit proxy\n"
 		"  --threads N           encoder threads (0 = auto)\n"
-		"  --baseline <file>     fail if PSNR regresses against <file>\n"
+		"  --baseline <file>     fail if PSNR regresses against <file>, if nothing\n"
+		"                        in it matches, or if a synthetic image and its\n"
+		"                        syn.* row do not pair up exactly\n"
 		"  --write-baseline <f>  record the current PSNR as the baseline\n"
 		"  --audit               print the knob-by-knob measurement table\n"
 		"  --headroom            where the remaining error is, and what a new\n"
 		"                        mode could address (see RunHeadroom)\n"
-		"  --self-test           corrupt encoded bytes; the run MUST fail\n");
+		"  --self-test           corrupt encoded bytes and raise the baseline\n"
+		"                        1 dB (needs --baseline); exactly the consistency\n"
+		"                        and quality checks MUST fail\n");
 }
 
 } // namespace
@@ -849,7 +990,20 @@ int main(int argc, char** argv) {
 		}
 	}
 
+	// The self-test proves the gates by tripping them, so it needs every gate it
+	// names: a baseline to raise, and the regression run itself. Asked to audit,
+	// or with no baseline, it would come back 0 having proved nothing.
+	if (selfTest && (audit || headroom || baselinePath.empty() || !writeBaselinePath.empty())) {
+		std::printf("--self-test needs --baseline, and cannot run with --audit, "
+					"--headroom or --write-baseline\n");
+		return 2;
+	}
+
 	std::vector<Sample> corpus = SyntheticCorpus();
+	// The names the synthetic corpus generates - the baseline rows that must
+	// match on every machine (the real-texture rows follow the installed pool).
+	std::set<std::string> synNames;
+	for (const Sample& s : corpus) synNames.insert(s.name);
 	if (!assetsDir.empty()) {
 		auto real = RealCorpus(assetsDir, perKind, maxDim);
 		corpus.insert(corpus.end(), std::make_move_iterator(real.begin()),
@@ -875,16 +1029,39 @@ int main(int argc, char** argv) {
 		return 0;
 	}
 
-	const auto baseline = baselinePath.empty() ? std::map<std::string, double>{}
-											   : LoadBaseline(baselinePath);
+	Baseline baseline;
+	if (!baselinePath.empty()) {
+		baseline = LoadBaseline(baselinePath);
+		// The quality check's own fault: every recorded value raised past what
+		// the encoder reaches, so every matched image must read as a regression.
+		if (selfTest)
+			for (auto& [name, psnr] : baseline.byName) psnr += kSelfTestRaiseDb;
+	}
+
+	if (selfTest)
+		std::printf("SELF-TEST: every 97th block corrupted (only the consistency check "
+					"reads it) and the baseline raised %.2f dB; expecting exactly %d "
+					"checks to FAIL\n\n",
+					kSelfTestRaiseDb, static_cast<int>(std::size(kSelfTestFails)));
 
 	std::printf("%-26s %10s %7s %6s %6s %s\n", "image", "size", "PSNR", "bad", "thr",
 				"mode mix");
 	std::printf("%s\n", std::string(86, '-').c_str());
 
-	size_t badTotal = 0, threadFails = 0, baselineFails = 0;
+	size_t badTotal = 0, threadFails = 0, baselineFails = 0, matched = 0, synMatched = 0;
 	double minPsnr = 1e9;
 	std::vector<std::pair<std::string, double>> recorded;
+	std::set<std::string> corpusNames;
+	// Corpus images with no baseline entry, split by whether that can be a pool
+	// difference (a real texture) or only a defect (a synthetic image).
+	std::vector<std::string> noEntry, synNoEntry;
+	// Matched images that did NOT read as a regression, with their PSNR and the
+	// baseline they were held to - under --self-test every one is a miss.
+	struct AtBaseline {
+		std::string name;
+		double psnr, bar;
+	};
+	std::vector<AtBaseline> atBaseline;
 
 	for (const auto& s : corpus) {
 		const Result r = Measure(s, opt, selfTest, true);
@@ -892,6 +1069,7 @@ int main(int argc, char** argv) {
 		threadFails += r.threadMismatch ? 1 : 0;
 		minPsnr = std::min(minPsnr, r.psnr);
 		recorded.emplace_back(s.name, r.psnr);
+		corpusNames.insert(s.name);
 
 		std::string mix;
 		for (const auto& [mode, count] : r.modeCount) {
@@ -907,21 +1085,61 @@ int main(int argc, char** argv) {
 		std::printf("%-26s %10s %7.2f %6zu %6s %s", s.name.c_str(), size, r.psnr,
 					r.badBlocks, r.threadMismatch ? "DIFF" : "ok", mix.c_str());
 
-		const auto it = baseline.find(s.name);
-		if (it != baseline.end() && r.psnr < it->second - 0.01) {
-			std::printf(" REGRESSED (was %.2f)", it->second);
-			++baselineFails;
+		const bool synthetic = synNames.count(s.name) != 0;
+		const auto it = baseline.byName.find(s.name);
+		if (it == baseline.byName.end()) {
+			(synthetic ? synNoEntry : noEntry).push_back(s.name);
+		} else {
+			++matched;
+			if (synthetic) ++synMatched;
+			if (r.psnr < it->second - 0.01) {
+				std::printf(" REGRESSED (%s %.2f)", selfTest ? "raised to" : "was",
+							it->second);
+				++baselineFails;
+			} else {
+				atBaseline.push_back({s.name, r.psnr, it->second});
+			}
 		}
 		std::printf("\n");
+	}
+
+	size_t synStaleRows = 0;
+	if (!baselinePath.empty()) {
+		// Every image without a counterpart, both ways. The real-texture picks
+		// follow the installed pool (evenly spaced through a sorted listing), so a
+		// different pool legitimately matches different names: those are notes.
+		// The synthetic corpus is generated here and is the same on every machine,
+		// so a gap there is a lost row, a renamed image or a new one nobody
+		// re-recorded - each a FAIL, since that image is no longer gated.
+		std::printf("\nbaseline %s: %zu entries, %zu match this corpus (%zu of %zu "
+					"synthetic)\n",
+					baselinePath.c_str(), baseline.names.size(), matched, synMatched,
+					synNames.size());
+		for (const auto& name : synNoEntry)
+			std::printf("  FAIL synthetic, no baseline entry:  %s\n", name.c_str());
+		for (const auto& name : baseline.names)
+			if (name.rfind("syn.", 0) == 0 && !synNames.count(name)) {
+				std::printf("  FAIL syn.* entry, no such image:    %s\n", name.c_str());
+				++synStaleRows;
+			}
+		for (const auto& name : noEntry)
+			std::printf("  note: no baseline entry:            %s\n", name.c_str());
+		for (const auto& name : baseline.names)
+			if (name.rfind("syn.", 0) != 0 && !corpusNames.count(name))
+				std::printf("  note: in the baseline, not sampled: %s\n", name.c_str());
+	} else {
+		std::printf("\nno --baseline: quality not checked\n");
 	}
 
 	if (!writeBaselinePath.empty()) {
 		std::ofstream out(writeBaselinePath);
 		out << "# BC7 quality baseline - PSNR in dB per corpus image.\n"
-			   "# Regenerate with: Bc7Test --assets <dir> --write-baseline <this "
-			   "file>\n"
+			   "# Regenerate with: tools\\Bc7Test.ps1 -UpdateBaseline (release build).\n"
 			   "# A drop here is a regression; a rise is an improvement worth a "
-			   "commit message.\n";
+			   "commit message.\n"
+			   "# The syn.* rows are the same on every machine and must pair up exactly\n"
+			   "# with the synthetic images; the rest follow the installed texture pool,\n"
+			   "# so another pool may match only some of them.\n";
 		for (const auto& [name, psnr] : recorded) {
 			char buf[32];
 			std::snprintf(buf, sizeof buf, "%.2f", psnr);
@@ -931,18 +1149,57 @@ int main(int argc, char** argv) {
 					recorded.size());
 	}
 
-	const bool pass = badTotal == 0 && threadFails == 0 && baselineFails == 0;
+	std::printf("\nchecks:\n");
+	Check(badTotal == 0, kCheckConsistency);
+	Check(threadFails == 0, kCheckThreads);
+	if (!baselinePath.empty()) {
+		Check(baseline.badLines == 0, kCheckBaselineLines);
+		Check(matched > 0, kCheckBaselineMatch);
+		Check(synNoEntry.empty(), kCheckBaselineSyn);
+		Check(synStaleRows == 0, kCheckBaselineSynRows);
+		Check(baselineFails == 0, kCheckQuality);
+	}
+
+	const bool pass = g_failures == 0;
 	std::printf("\nBC7TEST VERDICT=%s images=%zu consistency_bad=%zu thread_diff=%zu "
-				"regressed=%zu minpsnr=%.2f\n",
+				"regressed=%zu matched=%zu minpsnr=%.2f checks=%d failures=%d "
+				"self_test=%d\n",
 				pass ? "PASS" : "FAIL", corpus.size(), badTotal, threadFails,
-				baselineFails, minPsnr);
+				baselineFails, matched, minPsnr, g_checks, g_failures, selfTest ? 1 : 0);
 
 	if (selfTest) {
-		// The checker checking itself: with the bytes corrupted, a PASS means the
-		// consistency test is not actually reading them.
-		const bool caught = !pass;
-		std::printf("BC7TEST SELFTEST=%s (corruption %s)\n", caught ? "PASS" : "FAIL",
-					caught ? "detected" : "MISSED");
+		// The checker checking itself: exactly the checks in kSelfTestFails fail
+		// and every other check passes. "Anything failed" passed a run that read
+		// no baseline at all, since the corrupted bytes failed it on their own.
+		std::vector<std::string> want(std::begin(kSelfTestFails), std::end(kSelfTestFails));
+		std::vector<std::string> got = g_failedLabels;
+		std::sort(want.begin(), want.end());
+		std::sort(got.begin(), got.end());
+		std::vector<std::string> unexpected, missed;
+		std::set_difference(got.begin(), got.end(), want.begin(), want.end(),
+							std::back_inserter(unexpected));
+		std::set_difference(want.begin(), want.end(), got.begin(), got.end(),
+							std::back_inserter(missed));
+		for (const std::string& s : unexpected)
+			std::printf("  self-test: '%s' FAILED but is not an expected failure\n", s.c_str());
+		for (const std::string& s : missed)
+			std::printf("  self-test: '%s' was expected to FAIL and passed\n", s.c_str());
+		// And the raised baseline must be caught on EVERY matched image: a
+		// comparison that skipped rows would still fail the quality check once. A
+		// miss here is either that, or an image whose PSNR has risen 1 dB past its
+		// record - an improvement to re-record. (A loader that read only some rows
+		// is not this check's to see: the synthetic-coverage checks fail on it,
+		// which this self-test reports as unexpected failures.)
+		for (const AtBaseline& a : atBaseline)
+			std::printf("  self-test: '%s' did not fall below its raised baseline "
+						"(%.2f against %.2f)\n",
+						a.name.c_str(), a.psnr, a.bar);
+		const bool caught = unexpected.empty() && missed.empty() && atBaseline.empty();
+		std::printf("SELF-TEST %s - %d of %d expected failures, %d unexpected; the raised "
+					"baseline caught on %zu of %zu matched images\n",
+					caught ? "PASS" : "FAIL", static_cast<int>(want.size() - missed.size()),
+					static_cast<int>(want.size()), static_cast<int>(unexpected.size()),
+					baselineFails, matched);
 		return caught ? 0 : 1;
 	}
 	return pass ? 0 : 1;

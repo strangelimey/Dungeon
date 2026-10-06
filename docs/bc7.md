@@ -133,28 +133,63 @@ Three checks, in increasing order of how much they would hurt:
    later. A deliberate trade re-records with `-UpdateBaseline` and says so in the
    commit message.
 
-`-SelfTest` corrupts the encoded bytes and requires the run to come back FAIL. A
-harness that cannot fail is not evidence of anything — the same reasoning as
+   For its first two months this gate could not fire. The loader read
+   `name >> psnr` in a loop and tested for `#` inside it, so the file's own
+   comment header ended the read and every run compared against an empty
+   baseline, printing `regressed=0`. It now reads line by line, skipping `#` and
+   blank lines, and names every image without a counterpart in both directions.
+   Which real textures get sampled follows the installed pool (evenly spaced
+   through a sorted listing), so those rows come and go and are only listed as
+   notes. The synthetic corpus is the same on every machine, so its rows are held
+   to more: the run FAILs when any synthetic image has no entry or any `syn.*`
+   entry names no synthetic image (a row lost by hand or in a merge, an image
+   renamed, or one added without re-recording - each leaves an image ungated),
+   when nothing matches at all, or when an entry line does not read. Holding
+   only "some synthetic image matched" would let the `syn.brick` row - the image
+   that catches the p-bit regression below - be deleted with a pass.
+   Measured once working: dropping the p-bit trial from the defaults fails 9 of
+   the 16 images, brick by 1.27 dB.
+
+`-SelfTest` injects two faults and requires **exactly** the two checks they aim at
+to fail, every other check to pass (the `tools/SpellTest.py` rule). It corrupts
+every 97th block of a *copy* of the encoded bytes, which only the consistency
+check reads, and raises every loaded baseline value by 1 dB, which must fail the
+quality check on **every** matched image - a comparison that skipped rows would
+still fail it once. The PSNR comes from the clean bytes, so neither fault can be
+caught by the other's check. No fault is aimed at the synthetic-coverage checks,
+on purpose: a lost `syn.*` row then fails the self-test too, as an unexpected
+failure, instead of hiding behind an injected one. It used to pass if anything failed, and it did pass
+with the loader reading nothing: the corrupted bytes failed the run on their own.
+A harness that cannot fail is not evidence of anything - the same reasoning as
 `AllocTest.ps1`'s inverted mode.
 
 **What this cannot catch, stated plainly.** The encoder and the harness's decoder
 are independent of each other, but they are not independent of the *spec*. If the
 encoder writes a field in the wrong order and the decoder reads it back in that
-same wrong order, they agree and the GPU does not. For modes 1 and 6 that risk is
-already retired — the game renders their output and has for months. **A new
-mode's field layout is only proven once the GPU has drawn it**, so adding a mode
-means an in-game look, not just a green harness. That check is not automatable
-without either a GPU readback harness or a DirectXTex dependency, and neither has
-earned itself yet.
+same wrong order, they agree and the GPU does not. **A mode's field layout is
+only proven once the GPU has drawn it**, so adding a mode means an in-game look,
+not just a green harness. That check is not automatable without either a GPU
+readback harness or a DirectXTex dependency, and neither has earned itself yet.
 
-Modes 5, 3 and mode 5's rotations were all cleared this way on 2026-08-04: the
-whole texture set rebaked, then the showcase level walked. Pick the surface by
-its MEASURED mode mix, not by assumption — `Bc7Test <file.png>` prints the mix
-for any image. That mattered: for plain mode 5 the obvious candidate (the brick
-wall) turned out to be 1% mode 5 while the floor was 21%, so checking the wall
-would have proved almost nothing. After rotations landed the picture inverted —
-`wall_brick_old_2k_n` became 99% mode 5 and the albedo 48% mode 3 — so the
-corridor view exercises both new layouts on nearly every visible pixel.
+**The looks this section used to cite proved nothing.** It said modes 1 and 6
+were retired because "the game renders their output and has for months", and
+that modes 5, 3 and mode 5's rotations were cleared on 2026-08-04 by rebaking the
+whole set and walking the showcase level. From 2026-06-11 to 2026-09-28 the
+game's DDS reader rejected every baked file and silently drew the PNG instead
+(CLAUDE.md, the Textures note), so none of those looks showed a single BC7 block.
+Since that fix the game does draw the bake, and the installed bake uses all four
+modes - a sample of the 648 installed `.dds` on 2026-10-05 read mode 5 in 46% of
+blocks, mode 6 20%, mode 1 18%, mode 3 16% - so every scene is now evidence for
+every mode, by eye. No deliberate look has been recorded since.
+
+The deliberate look is: a surface picked by its mode mix, seen with its `.dds`
+and then with the `.dds` moved aside (the game falls back to the PNG; `AssetBaker
+mips` rebuilds it). Pick the surface by its MEASURED mode mix, not by
+assumption: `Bc7Test <file.png>` prints the mix for any image. That matters: for plain
+mode 5 the obvious candidate (the brick wall) turned out to be 1% mode 5 while
+the floor was 21%. After rotations landed the picture inverted:
+`wall_brick_old_2k_n` became 99% mode 5 and the albedo 48% mode 3, so a corridor
+of that wall exercises both of those layouts on nearly every visible pixel.
 
 The corpus is mostly synthetic and generated in the harness, deterministically:
 the real textures are gitignored, so a corpus depending on them would not run on
@@ -184,6 +219,14 @@ content no shipped texture contains.
 
 **+7.0 dB over what shipped**, for about 3x the encode time — nearly all of which
 the fan-out gives back.
+
+That table is the 2026-08-04 measurement. A rerun today differs in the real
+rows, since which installed textures get sampled follows the pool (on
+2026-10-05 the default read 51.13 dB). Since 2026-10-05 every audit row after the
+two historical ones is built from `Bc7Options{}` with one thing changed, its
+label taken from the value: until then the rows spelled their settings out by
+hand, and the one labelled "the default" (and the single-thread, p-bit and mode
+rows beside it) ran at shapes=16 after the default had gone back to 8.
 
 A full `AssetBaker mips` over the installed set — 639 PNGs at every resolution,
 1k through 4k — takes **33.7 minutes**, against 23.6 for the three-mode encoder.
@@ -345,7 +388,9 @@ the four we have overlap heavily and mode 7 has now been measured and declined.
   not be.
 - **GPU-side verification**, the one structural hole in the harness: decode a
   block on the GPU and read it back, so a new mode's field layout is provable
-  without a human looking at the game. Deferred twice now on the same reasoning —
-  the manual check takes five minutes and has twice been sufficient — but the
-  argument weakens each time a mode is added, since the modes are getting rarer
-  and harder to find on screen. Mode 7 would be the point to build it.
+  without a human looking at the game. Deferred twice on the reasoning that the
+  manual check takes five minutes and had twice been sufficient - but both of
+  those checks were made while the game was drawing the PNG fallback (see "What
+  this cannot catch"), and no manual check with BC7 on screen has been recorded
+  since. That is the strongest argument for building this yet; mode 7 would have
+  been the point to build it anyway.
