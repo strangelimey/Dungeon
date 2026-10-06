@@ -2020,7 +2020,7 @@ void Game::UpdateStates(float dt) {
 			FinishBake();
 			m_baking = false;
 		}
-		// Reset to defaults (relief < 0 = the baker's own per-kind amplitude).
+		// Reset to defaults (relief < 0 = the texture set's own relief).
 		if (!m_baking) { m_bakeWear = 1.0f; m_bakeRelief = -1.0f; }
 	}
 

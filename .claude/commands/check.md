@@ -51,6 +51,7 @@ harness refuses a stale exe on its own (exit 4).
   stale          full   no self-test   a harness refuses a stale exe, and CheckAll builds what it runs (StaleTest)
   build-profile  full   no self-test   the release-profile build compiles clean (DN_PROFILE rots unwatched too)
   profile        full   self-testable  the frame budget still adds up, and the verdict still reacts to load
+  worn           full   self-testable  the worn-block bake has one authority: models = wornblock = the committed files; wear 0 is flat
   bc7            full   self-testable  the BC7 encoder error estimate against an independent decoder
 ```
 <!-- END generated -->

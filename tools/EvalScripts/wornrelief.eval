@@ -1,0 +1,45 @@
+; wornrelief.eval - a surface type's `relief` row names its texture SET's own
+; relief, the record `AssetBaker models` and `wornblock` bake it at
+; (Assets/WornSets.h, code-review C406). Judged by tools/EditorTest.py phase 25.
+;
+; The schema's per-kind default (0.055 / 0.045 / 0.08) used to stand there: the
+; slider started at the wrong depth for every shipped set, and an editor save
+; re-baked the set at it. Every type below binds a set whose relief is NOT that
+; default, and the wall and floor ones bind it under ANOTHER id, so neither the
+; old default nor a readout keyed on the type's own id can pass.
+;
+; EditorTest writes, before this runs (into its scratch world, never the real
+; one):
+;   [et_unlisted]  texture = et_nosuchset            - no record: the kind's
+;                                                      default (0.055)
+;   [et_tuned]     texture = wall_brick, relief = 0.07 - set, so a slider; it
+;                                                      still names the set's own
+;
+; Each section opens the type editor the palette's way, prints the derived
+; values (`typeset derived <key> = <v>`) and what the rows built.
+
+logecho on
+reset
+echo --- wall ---
+typeset dialog walls wall_cobblestone
+typeset dialog derived
+typeset dialog rows
+typeset dialog off
+echo --- floor ---
+typeset dialog floors floor_cobblestone
+typeset dialog derived
+typeset dialog off
+echo --- ceiling ---
+typeset dialog ceilings ceiling_rock_porous
+typeset dialog derived
+typeset dialog off
+echo --- unlisted ---
+typeset dialog walls et_unlisted
+typeset dialog derived
+typeset dialog off
+echo --- tuned ---
+typeset dialog walls et_tuned
+typeset dialog derived
+typeset dialog rows
+typeset dialog off
+echo --- end ---

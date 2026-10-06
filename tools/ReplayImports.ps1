@@ -13,10 +13,14 @@
 #     kind = texture           ; texture | model
 #     source = C:\Users\...\OneDrive\DungeonAssets\2k\walls\foo
 #     flip_green = 1           ; optional, textures only
+#     surface = wall           ; a surface set: the kind its worn meshes bake as
 #
 # This script replays them: for each entry whose asset is missing, it re-runs
-# the same AssetBaker command the editor ran. Sets that are already installed
-# are skipped unless -Force.
+# the same AssetBaker commands the editor ran - including the worn-block bake
+# at the RELIEF and WEAR the surface type carries in its catalog, as the
+# editor's type save passes them. Without those a replayed surface would bake at
+# the set's own record and overwrite the worn meshes its type was tuned to
+# (code-review C438). Sets that are already installed are skipped unless -Force.
 #
 # `source` is an absolute path from whichever machine did the import. If it no
 # longer exists, a path under the asset archive is RE-ROOTED onto this machine's
@@ -25,6 +29,8 @@
 #
 # Usage:  powershell -File tools\ReplayImports.ps1 [-Project dungeon-demo]
 #                    [-Force] [-WhatIf]
+#
+# ASCII ONLY: PS 5.1 reads a BOM-less .ps1 as ANSI.
 
 param(
     [string] $Project = "dungeon-demo",
@@ -35,7 +41,12 @@ param(
 $ErrorActionPreference = "Stop"
 $repo = Split-Path $PSScriptRoot -Parent
 $assets = Join-Path $repo "assets"
-$manifest = Join-Path $assets "projects\$Project\catalog\imports.cat"
+$catalogDir = Join-Path $assets "projects\$Project\catalog"
+$manifest = Join-Path $catalogDir "imports.cat"
+
+# Find-AssetBaker, Invoke-Baker (the stderr-safe call every asset script uses)
+# and Read-Blocks (the block format).
+. (Join-Path $PSScriptRoot 'Pipeline.ps1')
 
 if (-not (Test-Path $manifest)) {
     Write-Host "No imports manifest for project '$Project' - nothing to replay."
@@ -45,29 +56,9 @@ if (-not (Test-Path $manifest)) {
 $oneDrive = if ($env:OneDrive) { $env:OneDrive } else { Join-Path $env:USERPROFILE "OneDrive" }
 $archive = Join-Path $oneDrive "DungeonAssets"
 
-$baker = Join-Path $repo "build\release\bin\AssetBaker.exe"
-if (-not (Test-Path $baker)) { $baker = Join-Path $repo "build\debug\bin\AssetBaker.exe" }
-if (-not (Test-Path $baker)) { throw "Build AssetBaker first (build.cmd release)" }
+$baker = Find-AssetBaker $repo
 
-# --- parse the block format (see Game/Serialize.h) ---------------------------
-# [id] headers with "key = value" lines; ';' starts a comment on its own line.
-$entries = @()
-$current = $null
-foreach ($line in Get-Content $manifest) {
-    $t = $line.Trim()
-    if (-not $t -or $t.StartsWith(";")) { continue }
-    if ($t.StartsWith("[")) {
-        if ($current) { $entries += $current }
-        $current = [ordered]@{ id = $t.Trim('[', ']') }
-        continue
-    }
-    if (-not $current) { continue }
-    $eq = $t.IndexOf("=")
-    if ($eq -lt 0) { continue }
-    $current[$t.Substring(0, $eq).Trim()] = $t.Substring($eq + 1).Trim()
-}
-if ($current) { $entries += $current }
-
+$entries = @(Read-Blocks $manifest)
 if (-not $entries) {
     Write-Host "Manifest is empty - nothing to replay."
     exit 0
@@ -84,6 +75,32 @@ function Resolve-Source([string] $path) {
         if (Test-Path $candidate) { return $candidate }
     }
     return $null
+}
+
+# The worn-block knobs a surface set's TYPE carries: `relief` and `wear` from
+# the first entry of the kind's catalog that paints with the set (its `texture`,
+# or its own id when it names none - as the editor's save does). An absent field
+# stays absent, so the baker falls back to the set's own record
+# (Assets/WornSets.h) exactly as the editor's bake would. Types that disagree
+# are reported: the worn mesh is ONE per set, so only one of them can win.
+function Get-WornKnobs([string] $surface, [string] $set) {
+    $catalog = Join-Path $catalogDir "$($surface)s.cat"
+    $users = @(Read-Blocks $catalog | Where-Object {
+        $tex = if ($_.Contains('texture')) { $_['texture'] } else { $_['id'] }
+        $tex -eq $set
+    })
+    $knobs = @()
+    if (-not $users) { return $knobs }
+    $first = $users[0]
+    foreach ($u in @($users | Select-Object -Skip 1)) {
+        if ($u['relief'] -ne $first['relief'] -or $u['wear'] -ne $first['wear']) {
+            Write-Host ("  warning: types $($first.id) and $($u.id) bake '$set' differently " +
+                        "(relief/wear) - replaying $($first.id)'s") -ForegroundColor Yellow
+        }
+    }
+    if ($first['relief']) { $knobs += @('--relief', $first['relief']) }
+    if ($first['wear']) { $knobs += @('--wear', $first['wear']) }
+    return $knobs
 }
 
 $replayed = 0
@@ -118,21 +135,29 @@ foreach ($e in $entries) {
         if ($e.flip_green -eq "1") { $bakerArgs += "--flip-green" }
     }
 
-    Write-Host "Replaying $kind '$id' from $source"
-    if ($WhatIf) { Write-Host "  would run: AssetBaker $($bakerArgs -join ' ')"; continue }
-    & $baker @bakerArgs
-    if ($LASTEXITCODE -ne 0) { throw "AssetBaker failed for '$id' (exit $LASTEXITCODE)" }
-    $replayed++
-
     # A surface set also needs its worn block meshes - the editor's second bake
     # step. Only for the kind the set was imported as: the mesh geometry differs
     # per kind but the FILE NAME does not (worn_<set>_<tier>.gltf, one per set),
     # so baking "all three" would just overwrite twice and leave the wrong shape.
+    $wornArgs = $null
     if ($kind -eq "texture" -and $e.surface) {
         $base = $id -replace '_(1k|2k|4k)$', ''
-        & $baker wornblock $e.surface $base $assets
-        if ($LASTEXITCODE -ne 0) { throw "wornblock $($e.surface) failed for '$base'" }
+        $wornArgs = @("wornblock", $e.surface, $base, $assets) + @(Get-WornKnobs $e.surface $base)
     }
+
+    Write-Host "Replaying $kind '$id' from $source"
+    if ($WhatIf) {
+        Write-Host "  would run: AssetBaker $($bakerArgs -join ' ')"
+        if ($wornArgs) { Write-Host "  would run: AssetBaker $($wornArgs -join ' ')" }
+        continue
+    }
+    $code = Invoke-Baker @bakerArgs
+    if ($code -ne 0) { throw "AssetBaker failed for '$id' (exit $code)" }
+    if ($wornArgs) {
+        $code = Invoke-Baker @wornArgs
+        if ($code -ne 0) { throw "wornblock $($e.surface) failed for '$($wornArgs[2])' (exit $code)" }
+    }
+    $replayed++
 }
 
 Write-Host ""

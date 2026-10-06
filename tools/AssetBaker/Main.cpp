@@ -28,10 +28,22 @@
 //       extracted by tools\FetchPortraits.ps1); current ones are skipped.
 //       `mips` covers them too.
 //
-//   AssetBaker models <assets-dir>
+//   AssetBaker models <assets-dir> [--out <models-dir>]
 //       Regenerates only the .gltf models (fast — skips the texture, sound,
 //       and mip bakes). The worn blocks sample the installed texture height
-//       maps, so re-run this after FetchTextures.ps1 or an import.
+//       maps, so re-run this after FetchTextures.ps1 or an import. --out writes
+//       the models somewhere else (still reading <assets-dir>\textures), which
+//       is how tools\WornBakeTest.py compares two bakes without touching the
+//       tree.
+//
+//   AssetBaker wornblock <wall|floor|ceiling> <set> <assets-dir> [--wear <0..1>]
+//                        [--relief <metres>] [--out <models-dir>]
+//       The worn block meshes of ONE set, at its record (Assets/WornSets.h).
+//       With neither --wear nor --relief it writes exactly what `models` does.
+//
+//   AssetBaker wornsets
+//       Prints that record for every shipped set, one `<set> <kind> <relief>
+//       <seed>` line each - what tools\WornBakeTest.py walks.
 //
 //   AssetBaker rescale <assets-dir> <factor> <name> [name...]
 //       Uniformly rescales already-imported single-mesh models in place. The
@@ -42,6 +54,7 @@
 //       Regenerates the rune tablet model + carved per-element texture sets
 //       (fast; PNG only — run `mips` after to derive the .dds).
 
+#include "Assets/WornSets.h"
 #include "Core/Log.h"
 #include "ImportTextures.h"
 #include "MipBaker.h"
@@ -51,6 +64,7 @@
 #include "SoundBaker.h"
 #include "TextureBaker.h"
 
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <string>
@@ -145,19 +159,38 @@ int main(int argc, char** argv) {
 
 	if (argc >= 3 && std::string(argv[1]) == "models") {
 		const std::string assets = argv[2];
-		return baker::BakeModels(assets + "\\models", assets + "\\textures") ? 0 : 1;
+		std::string out = assets + "\\models";
+		for (int i = 3; i + 1 < argc; i += 2)
+			if (std::string(argv[i]) == "--out") out = argv[i + 1];
+		std::error_code ec;
+		std::filesystem::create_directories(out, ec);
+		return baker::BakeModels(out, assets + "\\textures") ? 0 : 1;
+	}
+
+	if (argc >= 2 && std::string(argv[1]) == "wornsets") {
+		// Plain stdout, not the log: this is read by a script.
+		for (const assets::WornSet& set : assets::ShippedWornSets()) {
+			const std::string_view kind = assets::WornKindName(set.kind);
+			std::printf("%.*s %.*s %.4f %u\n", static_cast<int>(set.texture.size()),
+						set.texture.data(), static_cast<int>(kind.size()), kind.data(),
+						static_cast<double>(set.relief), static_cast<unsigned>(set.seed));
+		}
+		return 0;
 	}
 
 	if (argc >= 2 && std::string(argv[1]) == "wornblock") {
 		if (argc < 5) {
 			log::Error("usage: AssetBaker wornblock <wall|floor|ceiling> <name> "
-					   "<assets-dir> [--wear <0..1>] [--relief <metres>]");
+					   "<assets-dir> [--wear <0..1>] [--relief <metres>] "
+					   "[--out <models-dir>]");
 			return 1;
 		}
 		// Optional surface-look flags (the editor's type dialog): relief is the
 		// displacement amplitude in metres and wear scales it (0 = flat). Relief
-		// unset (-1) keeps the per-kind default. (`--columns` retired 2026-08-05
-		// with the wall pillars; pillars are decorations now.)
+		// unset (-1) keeps the set's own (Assets/WornSets.h). (`--columns`
+		// retired 2026-08-05 with the wall pillars; pillars are decorations now.)
+		const std::string assets = argv[4];
+		std::string out = assets + "\\models";
 		float wear = 1.0f;
 		float relief = -1.0f;
 		for (int i = 5; i + 1 < argc; i += 2) {
@@ -166,8 +199,15 @@ int main(int argc, char** argv) {
 				wear = std::strtof(argv[i + 1], nullptr);
 			else if (flag == "--relief")
 				relief = std::strtof(argv[i + 1], nullptr);
+			else if (flag == "--out")
+				out = argv[i + 1];
+			else
+				log::Warn("wornblock: unknown flag '{}' ignored", flag);
 		}
-		return baker::BakeWornBlocks(argv[2], argv[3], argv[4], wear, relief) ? 0 : 1;
+		return baker::BakeWornBlocks(argv[2], argv[3], out, assets + "\\textures", wear,
+									 relief)
+				   ? 0
+				   : 1;
 	}
 
 	if (argc >= 3 && std::string(argv[1]) == "runes") {

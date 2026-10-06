@@ -60,27 +60,18 @@ function Find-Blender {
         } | Sort-Object Version -Descending | Select-Object -First 1 -ExpandProperty Path
 }
 
-$baker = Join-Path $repo "build\release\bin\AssetBaker.exe"
-if (-not (Test-Path $baker)) { $baker = Join-Path $repo "build\debug\bin\AssetBaker.exe" }
-# A -WhatIf run converts and bakes nothing, so it needs no baker.
-if (-not (Test-Path $baker) -and -not $WhatIfPreference) { throw "Build AssetBaker first (build.cmd release)" }
+# Find-AssetBaker and Invoke-Baker (keys success ONLY off the process exit code,
+# so a stderr warning cannot abort the batch under 'Stop'): tools\Pipeline.ps1,
+# shared with FetchTextures and ReplayImports. A -WhatIf run converts and bakes
+# nothing, so it needs no baker.
+. (Join-Path $PSScriptRoot 'Pipeline.ps1')
+$baker = $null
+try { $baker = Find-AssetBaker $repo } catch { if (-not $WhatIfPreference) { throw } }
 
 # Resolve Blender (only needed for fbx/usd sources or Split packs). The NEWEST
 # installed version wins - a hardcoded version list silently skips every mesh
 # import the day Blender updates itself (it went 5.1 -> 5.2 mid-session once).
 if (-not $Blender) { $Blender = Find-Blender }
-
-# Run AssetBaker keying success ONLY off the process exit code (its stderr
-# warnings would otherwise abort the batch under -ErrorActionPreference Stop).
-# Verbatim from FetchTextures.ps1.
-function Invoke-Baker {
-    param([Parameter(ValueFromRemainingArguments = $true)] $bakerArgs)
-    $prev = $ErrorActionPreference
-    $ErrorActionPreference = 'Continue'
-    try { & $baker @bakerArgs 2>&1 | ForEach-Object { Write-Host "$_" } }
-    finally { $ErrorActionPreference = $prev }
-    return $LASTEXITCODE
-}
 
 # Run Blender's ConvertMesh.py headless; same exit-code-only discipline.
 function Invoke-Convert {

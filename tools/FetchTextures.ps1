@@ -49,25 +49,13 @@ $oneDrive = if ($env:OneDrive) { $env:OneDrive } else { Join-Path $env:USERPROFI
 $archive = Join-Path $oneDrive "DungeonAssets"
 if (-not (Test-Path $archive)) { throw "Asset archive not found: $archive" }
 
-$baker = Join-Path $repo "build\release\bin\AssetBaker.exe"
-if (-not (Test-Path $baker)) { $baker = Join-Path $repo "build\debug\bin\AssetBaker.exe" }
-# A -WhatIf run bakes nothing, so it needs no baker.
-if (-not (Test-Path $baker) -and -not $WhatIfPreference) { throw "Build AssetBaker first (build.cmd release)" }
-
-# Run AssetBaker without letting its stderr abort us. AssetBaker logs warnings
-# (e.g. "No height/displacement map found") to stderr; under PS 5.1 a native
-# command's stderr is wrapped as a terminating NativeCommandError when
-# $ErrorActionPreference is Stop, which would kill the whole batch over a benign
-# warning. So merge stderr into stdout as plain text and key success ONLY off the
-# real process exit code. Returns $LASTEXITCODE.
-function Invoke-Baker {
-    param([Parameter(ValueFromRemainingArguments = $true)] $bakerArgs)
-    $prev = $ErrorActionPreference
-    $ErrorActionPreference = 'Continue'
-    try { & $baker @bakerArgs 2>&1 | ForEach-Object { Write-Host "$_" } }
-    finally { $ErrorActionPreference = $prev }
-    return $LASTEXITCODE
-}
+# Find-AssetBaker and Invoke-Baker: the baker call every asset script shares,
+# which keys success off the exit code alone so a warning on stderr cannot abort
+# the batch under 'Stop' (tools\Pipeline.ps1). A -WhatIf run bakes nothing, so it
+# needs no baker.
+. (Join-Path $PSScriptRoot 'Pipeline.ps1')
+$baker = $null
+try { $baker = Find-AssetBaker $repo } catch { if (-not $WhatIfPreference) { throw } }
 
 # TIFF -> PNG staging for textures.com sets (see header). WIC (PresentationCore)
 # decodes the TIFF and re-encodes PNG preserving the source pixel format, so a

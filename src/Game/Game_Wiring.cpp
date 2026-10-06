@@ -5,6 +5,7 @@
 // ============================================================================
 #include "Game/Game.h"
 
+#include "Assets/WornSets.h"
 #include "Core/Loc.h"
 #include "Core/Log.h"
 #include "Core/Paths.h"
@@ -548,9 +549,25 @@ void Game::WireModuleCallbacks() {
 	};
 	// A monster's `power` is derived unless overridden: the row shows what the
 	// stats come to (the SAVED stats - an unsaved change to them shows after
-	// Save). Only that field; every other optional Float keeps its own wording.
+	// Save). And a surface's `relief`: unset, it bakes at its texture SET's own
+	// relief (Assets/WornSets.h, the record `AssetBaker models` uses too), read
+	// off the set the dialog names NOW so a re-picked texture shows its own.
+	// Only those two; every other optional Float keeps its own wording.
 	m_typeDialog.derivedFor = [this](const FieldSpec& f) -> std::optional<float> {
-		if (m_typeDialog.CatalogKey() != "monsters" || std::string_view(f.key) != "power")
+		const std::string& key = m_typeDialog.CatalogKey();
+		if (std::string_view(f.key) == "relief") {
+			const std::optional<assets::WornKind> kind =
+				key == "walls"      ? std::optional(assets::WornKind::Wall)
+				: key == "floors"   ? std::optional(assets::WornKind::Floor)
+				: key == "ceilings" ? std::optional(assets::WornKind::Ceiling)
+									: std::nullopt;
+			if (!kind) return std::nullopt;
+			// As onSave names it: the `texture` field, else the type's own id.
+			const std::string* tex = serialize::Find(m_typeDialog.Fields(), "texture");
+			const std::string set = tex && !tex->empty() ? *tex : m_typeDialog.Id();
+			return assets::WornSetFor(set, *kind).relief;
+		}
+		if (key != "monsters" || std::string_view(f.key) != "power")
 			return std::nullopt;
 		const CatalogEntry* e = m_project.monsters.Find(m_typeDialog.Id());
 		if (!e) return std::nullopt;
@@ -599,8 +616,9 @@ void Game::WireModuleCallbacks() {
 		const CatalogEntry* e = m_project.CatalogForKey(cfg.catalogKey)
 									? m_project.CatalogForKey(cfg.catalogKey)->Find(cfg.id)
 									: nullptr;
-		// An unset `relief` passes -1, leaving the baker's per-kind amplitude —
-		// the depth every surface was baked at before the field existed.
+		// An unset `relief` passes -1: the baker takes the texture SET's own
+		// (Assets/WornSets.h), the depth `AssetBaker models` bakes it at, so a
+		// save that touched only `texture` or `wear` cannot reshape the set.
 		StartRestyleBake(cfg.catalogKey, CatalogGet(e, "texture", cfg.id),
 						 e ? e->GetFloat("wear", 1.0f) : 1.0f,
 						 e ? e->GetFloat("relief", -1.0f) : -1.0f);

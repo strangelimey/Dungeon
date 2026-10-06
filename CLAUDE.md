@@ -1069,7 +1069,12 @@ sixteen kinds in another kind's pose; each kind now owns its icon pose).
   and it hid a knob worth 1.35 dB on brick behind an average of +0.01 dB.
 - `AssetBaker models <assets>` — rebakes only the .gltf models (fast). Worn
   blocks sample the installed texture height maps, so rerun after
-  FetchTextures.ps1 or a texture import.
+  FetchTextures.ps1 or a texture import. `--out <dir>` (also on `wornblock`)
+  writes the models elsewhere, and `AssetBaker wornsets` lists the worn-set
+  records (see the worn-block bullet). FetchTextures, FetchModels and
+  ReplayImports call the baker through ONE wrapper, `tools\Pipeline.ps1`
+  (`Find-AssetBaker`, `Invoke-Baker` - exit code only, so a stderr warning
+  cannot abort a batch under 'Stop').
 - PARTY PORTRAITS are BOUGHT, not baked (portraits branch, docs/portraits-
   plan.md; the old SDF-bust PortraitBaker is long gone). Two packs, both
   AI-made, in docs/costs.md: Magory (2386 shipped) and Corax Digital Art (493;
@@ -1188,7 +1193,9 @@ sixteen kinds in another kind's pose; each kind now owns its icon pose).
   - A SCAN NEED NOT BE SQUARE, and ten of the installed sets are 2:1 (a
     4096x2048 tile holds two squares of stone across and one down). The worn
     bake CORRECTS for that automatically — `TextureHeight::Aspect` reads the
-    image and every U in ModelBaker is divided by it, so one repeat spans that
+    image (the first height map that LOADS, flat or not - a missing higher
+    resolution once replaced a flat but sized one and dropped the aspect to 1)
+    and every U in ModelBaker is divided by it, so one repeat spans that
     many squares of world width instead of being squashed into one. Nothing is
     authored and nothing can drift from its own texture. It went unnoticed for a
     whole texture batch because the defect reads as "these stones are a bit
@@ -1250,18 +1257,40 @@ sixteen kinds in another kind's pose; each kind now owns its icon pose).
   bricks/slabs; DungeonMeshBuilder stamps the mesh matching each cell's
   texture variant. wall_stone's Poly Haven displacement export is flat
   (detected at import), so it uses procedural wear — its 0.5x0.31 block
-  grid happens to fit that texture's large blocks anyway. TWO KNOBS, not
-  one: `relief` is the displacement AMPLITUDE in metres (how far the stones
-  stand proud) and `wear` is a 0..1 SCALE over it, both catalog fields on
-  the surface schema and both `rebakes` (`AssetBaker wornblock ... --relief
-  --wear`; an absent relief keeps the baker's per-kind default — wall 0.055
-  / floor 0.045 / ceiling 0.08 — so untouched types bake as before). Before
-  relief existed the amplitude was a baker constant and `wear` could only
-  take relief AWAY, so "wear = 1" looked like a no-op. Don't confuse either
-  with `height_scale`, which is the SHADER's parallax depth: fake, per-draw,
-  no rebake, and by construction invisible head-on (the offset scales with
-  the view's tangential component) — real silhouette relief only comes from
-  the mesh, and deep relief on the `med` tier can facet.
+  grid happens to fit that texture's large blocks anyway. ONE RECORD PER
+  SET decides how its worn meshes bake - its surface KIND, its RELIEF and its
+  noise SEED - in `Assets/WornSets.h` (code-review batch 90): `AssetBaker
+  models`, `AssetBaker wornblock` (the editor's import and type save) and the
+  type editor's relief row all read it, because the files are named by the
+  set alone and shared by every world and type. It used to be two sources -
+  the full bake's table and wornblock's per-kind default with a std::hash
+  seed - so saving ANY surface field re-baked a shipped set at another depth
+  with other noise. A set the table does not list (an editor import) gets a
+  DERIVED record (its kind's default relief, an FNV seed of its name), and
+  wornblock REFUSES a shipped set asked for as another kind. TWO KNOBS on a
+  type, not one: `relief` is the displacement AMPLITUDE in metres (how far the
+  stones stand proud) and `wear` is a 0..1 SCALE over it, both catalog fields
+  on the surface schema and both `rebakes` (`AssetBaker wornblock ...
+  --relief --wear`). They are OVERRIDES on the record: together they scale
+  the WHOLE displacement (height-map term, bowed-masonry and unevenness noise,
+  ground wear, procedural wear alike) by relief x wear / the record's relief,
+  and wear 0 is the bare quad for walls, floors AND ceilings. An absent
+  relief is the SET's own (the schema has no default; the dialog shows it as
+  "derived"), so a type that sets neither bakes byte-for-byte what `models`
+  does - `tools\WornBakeTest.py` (CheckAll `worn`) holds every shipped set to
+  that, to the files GIT holds (the index: HEAD's, or a staged re-bake - never
+  the working tree, which `models` itself rewrites, so a regressed bake would
+  be compared with its own output), to the flat quad, and procedural floors and
+  ceilings to the scale (fixtures with a flat map; no shipped one lacks a
+  height map). Committed worn files with no record are allowed only for a set
+  a committed imports.cat names (its record is derived); an editor import's
+  files not yet in git are ignored. Before relief existed
+  the amplitude was a baker constant and `wear` could only take relief AWAY,
+  so "wear = 1" looked like a no-op. Don't confuse either with
+  `height_scale`, which is the SHADER's parallax depth: fake, per-draw, no
+  rebake, and by construction invisible head-on (the offset scales with the
+  view's tangential component) - real silhouette relief only comes from the
+  mesh, and deep relief on the `med` tier can facet.
 - WALLS ARE PLAIN. The old `columns` knob baked edge pillars / border strips
   into every wall block (default ON, so 26 of 28 wall types carried them); it
   was RETIRED 2026-08-05 in favour of COMPOSITION — a pillar is a decoration you
@@ -1997,7 +2026,8 @@ flip_green / the surface kind its worn meshes were baked as), because the baked
 pool is gitignored — without it a created type reaches git as a catalog entry
 whose asset a fresh clone cannot rebuild. `tools\ReplayImports.ps1` replays the
 missing ones (re-rooting a source path from another machine onto this one's
-OneDrive archive), and `synctosource` now also copies the manifest's asset FILES
+OneDrive archive; a surface's worn bake takes the relief / wear its type's
+catalog entry carries, as the editor's save does), and `synctosource` now also copies the manifest's asset FILES
 from the exe-side pool into the source tree, so a `build/` wipe doesn't take
 them. NOTE the naming rule an editor import must follow: a PBR set installs under
 its RESOLUTION-tagged name (`<set>_2k` — LoadPbrSet's universal fallback) while
@@ -3565,7 +3595,7 @@ and answers: docs/transparency-notes.md; each phase's AS BUILT is in the plan.
   create dialog (AssetDialog) closes on Esc like the rest (it had none). The
   editor map's ladder: the level drop-down, then a drag, then the armed brush,
   then the map; the world editor's: the terrain brush, then the pause menu.
-  CHECKED by EditorTest phase 22 (tools/EvalScripts/dialogesc.eval), whose
+  CHECKED by EditorTest phase 24 (tools/EvalScripts/dialogesc.eval), whose
   Escs are KEYS: `presskey esc` presses and releases one in the frame after
   the line, so it goes through the frame's own input path rather than a
   handler called by name; a list is opened by `... popup <n>` (UIContext::

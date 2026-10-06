@@ -61,6 +61,15 @@ std::string DescribeAdded(const ui::Widget& page, size_t from) {
 	}
 	return out.empty() ? "none" : out;
 }
+
+// A derived number to the field's own granularity: a 0.005 step reads "0.060"
+// (a relief), a 0.5 step "12.5" (a power). One decimal hid a relief entirely.
+std::string DerivedText(const FieldSpec& spec, float value) {
+	int places = 1;
+	if (spec.step > 0.0f && spec.step < 1.0f)
+		places = std::clamp(static_cast<int>(std::ceil(-std::log10(spec.step) - 1e-4f)), 1, 4);
+	return std::format("{:.{}f}", value, places);
+}
 } // namespace
 
 TypeEditorDialog::TypeEditorDialog(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)
@@ -442,10 +451,9 @@ void TypeEditorDialog::BuildUI() {
 			const bool optional = !*spec.def;
 			// A DERIVED field (derivedFor answers) names the value the game uses
 			// in its place, unset or overridden alike.
-			const std::optional<float> derived =
-				optional && derivedFor ? derivedFor(spec) : std::nullopt;
+			const std::optional<float> derived = DerivedValue(spec);
 			const std::string shown =
-				derived ? label + " " + loc::Format("map.type.derived", std::format("{:.1f}", *derived))
+				derived ? label + " " + loc::Format("map.type.derived", DerivedText(spec, *derived))
 						: label;
 			if (optional && value.empty()) {
 				page.Row<ui::Checkbox>(FormRow(), derived ? shown : label + loc::Tr("map.type.frommap"),

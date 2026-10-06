@@ -171,6 +171,11 @@
 #      map an Esc closes the level list before it puts the brush down, and
 #      only then the editor; on the travel screen it puts the terrain brush
 #      down before it pauses.
+#  25. A SURFACE'S RELIEF IS ITS SET'S OWN (code-review C406): unset, a wall,
+#      floor and ceiling type's relief row names the relief the baker's record
+#      gives its texture set (`AssetBaker wornsets`), not the old per-kind
+#      default; a set no record lists names its kind's default; a type that
+#      sets one gets a slider and still names the set's.
 #
 # NOTHING HERE EDITS THE REAL WORLD (code-review C431). Each phase starts on a
 # FRESH SCRATCH COPY of dungeon-demo, et_demo, and every run opens it with
@@ -187,9 +192,10 @@
 import io
 import os
 import re
+import subprocess
 import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT =os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECTS = os.path.join(ROOT, r"assets\projects")
 SCRATCH = "et_demo"
 PROJ = os.path.join(PROJECTS, SCRATCH)
@@ -2425,6 +2431,58 @@ try:
 
     errors = [l for l in log.splitlines() if l.startswith("[ERROR]")]
     check(not errors, "no error in the log", " | ".join(e[:140] for e in errors[:3]))
+finally:
+    drop()
+
+# --- phase 25: a surface's relief is its texture set's own -----------------------
+print("25 - the type editor's relief row names the texture set's own (the baker's record)")
+# The record is the baker's (Assets/WornSets.h); `AssetBaker wornsets` prints it,
+# so the expected numbers are asked of the same binary pair rather than typed
+# here. The debug baker: this judge reads build\debug.
+BAKER = os.path.join(os.path.dirname(EXE), "AssetBaker.exe")
+ET_WORN = ("\r\n[et_unlisted]\r\ndisplay = No record\r\ntexture = et_nosuchset\r\n"
+           "\r\n[et_tuned]\r\ndisplay = Tuned brick\r\ntexture = wall_brick\r\nrelief = 0.07\r\n")
+DERIVED = re.compile(r"typeset derived (\S+) = (\S+)$")
+RELIEF_ROW = re.compile(r"typeset row walls relief float (\S+)$")
+
+
+def derived_relief(lines):
+    vals = [float(m.group(2)) for m in map(DERIVED.match, lines) if m and m.group(1) == "relief"]
+    return vals[0] if len(vals) == 1 else None
+
+
+records = {}
+r = subprocess.run([BAKER, "wornsets"], capture_output=True, text=True, errors="replace")
+for line in r.stdout.splitlines():
+    parts = line.split()
+    if len(parts) == 4:
+        records[parts[0]] = float(parts[2])
+check(r.returncode == 0 and len(records) > 40, "the baker lists its worn-set records",
+      f"exit {r.returncode}, {len(records)} records")
+fresh()
+try:
+    io.open(os.path.join(PROJ, r"catalog\walls.cat"), "a", encoding="utf-8", newline="").write(ET_WORN)
+    log = run("wornrelief.eval")
+    check(passed(log), "the script ran clean")
+    sec = console_sections(log)
+    # (section, the set its type binds, what the schema's default USED to say)
+    for name, setname, old in (("wall", "cobblestone_wall", 0.055), ("floor", "cobblestone_floor", 0.045),
+                               ("ceiling", "ceiling_rock_porous", 0.08)):
+        got = derived_relief(sec.get(name, []))
+        want = records.get(setname)
+        check(got is not None and want is not None and abs(got - want) < 5e-5 and abs(want - old) > 1e-4,
+              f"a {name} type names its set's relief ({setname} {want}, not the old default {old})",
+              f"derived {got}")
+    got = derived_relief(sec.get("unlisted", []))
+    check(got is not None and abs(got - 0.055) < 5e-5,
+          "a type on a set no record lists names its kind's default (0.055 for a wall)", f"derived {got}")
+    got = derived_relief(sec.get("tuned", []))
+    check(got is not None and abs(got - records.get("wall_brick", -1)) < 5e-5,
+          "a type that sets its own relief still names the set's beside its slider", f"derived {got}")
+    rows = {s: [m.group(1) for m in map(RELIEF_ROW.match, sec.get(s, [])) if m] for s in ("wall", "tuned")}
+    check(rows["wall"] == ["Checkbox"] and len(rows["tuned"]) == 1 and "Slider" in rows["tuned"][0],
+          "unset, the relief row is the derived checkbox; set, a slider", str(rows))
+    check("end" in sec, "the script ran to its end")
 finally:
     drop()
 

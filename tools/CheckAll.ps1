@@ -326,6 +326,23 @@ $checks = @(
 		selfTest = { & (Join-Path $root 'tools\ProfileTest.ps1') -Config release-profile -SelfTest | Out-Host; $LASTEXITCODE }
 	},
 	@{
+		name = 'worn'; tier = 'full'; needs = 'build-release'
+		what = 'the worn-block bake has one authority: models = wornblock = the committed files; wear 0 is flat'
+		# tools\WornBakeTest.py bakes into a scratch folder with the RELEASE baker
+		# (the tool everyone runs; a few seconds) and prints the shared verdict
+		# line, read back like the native judges'. "Committed" is git's copy, not
+		# the working tree a bake may have rewritten. Its self-test gives every
+		# check group a fault and demands exactly those checks fail.
+		run      = {
+			$l = @(python (Join-Path $root 'tools\WornBakeTest.py') | ForEach-Object { Write-Host $_; $_ })
+			Confirm-Verdict $l 'wornbaketest' $LASTEXITCODE
+		}
+		selfTest = {
+			$l = @(python (Join-Path $root 'tools\WornBakeTest.py') --selftest | ForEach-Object { Write-Host $_; $_ })
+			Confirm-Verdict $l 'wornbaketest' $LASTEXITCODE -SelfTest
+		}
+	},
+	@{
 		name = 'bc7'; tier = 'full'; needs = 'build-release'
 		what = 'the BC7 encoder error estimate against an independent decoder'
 		# Release on purpose: the debug encoder is too slow to be worth the wait,

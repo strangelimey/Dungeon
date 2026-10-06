@@ -316,7 +316,7 @@ private:
 	// Re-bakes a surface type's worn block meshes (its `texture` set at the
 	// type's relief/wear) and, on success, reloads the dungeon blocks in place.
 	// Launches the async wornblock bake; the caller freezes its dialog
-	// meanwhile. `relief` < 0 leaves the baker's per-kind default amplitude.
+	// meanwhile. `relief` < 0 bakes at the texture set's own (Assets/WornSets.h).
 	void StartRestyleBake(const std::string& catalogKey, const std::string& texture,
 						  float wear, float relief);
 	// Opens the type editor for a catalog id (the palette's right-click), or
@@ -1358,7 +1358,7 @@ private:
 	// Surface-look knobs for a `wornblock` bake (StartBakeStep appends them as
 	// --wear/--relief). Defaults reproduce the original worn look, so the
 	// asset-create path leaves them untouched; a type restyle sets them.
-	// Relief < 0 = unspecified: the baker keeps its per-kind default amplitude.
+	// Relief < 0 = unspecified: the baker takes the set's own (Assets/WornSets.h).
 	float m_bakeWear = 1.0f;
 	float m_bakeRelief = -1.0f;
 	// True while the running bake is a Wall Style RESTYLE (no new catalog entry;

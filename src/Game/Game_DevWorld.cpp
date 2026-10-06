@@ -1553,7 +1553,7 @@ void Game::RegisterWorldCommands() {
 		 .params = "<category> <id> <field> [value...]\n"
 				   "rename <category> <id> <new>\n"
 				   "delete <category> <id>\n"
-				   "dialog [status] | <category> <id> | off | rows [all] | fields | "
+				   "dialog [status] | <category> <id> | off | rows [all] | fields | derived | "
 				   "tab <n> | stage <n> <id> | stage add | delete | save",
 		 .summary = "the type editor's Save, Rename or Delete (no value removes a field), "
 					"or the editor itself step by step"},
@@ -1747,8 +1747,8 @@ void Game::TypesetDialog(const std::vector<std::string>& args) {
 		return;
 	}
 	const bool open = m_typeDialog.IsOpen();
-	const bool needsOpen = verb == "rows" || verb == "fields" || verb == "tab" ||
-						   verb == "stage" || verb == "delete" || verb == "save";
+	const bool needsOpen = verb == "rows" || verb == "fields" || verb == "derived" ||
+						   verb == "tab" || verb == "stage" || verb == "delete" || verb == "save";
 	if (needsOpen && !open) {
 		m_console.Refuse("typeset dialog: no type editor is open");
 		return;
@@ -1761,6 +1761,12 @@ void Game::TypesetDialog(const std::vector<std::string>& args) {
 		// The WORKING COPY, which Save writes - not the catalog.
 		for (const serialize::Field& f : m_typeDialog.Fields())
 			m_console.Print(std::format("typeset field {} = {}", f.key, f.value));
+	} else if (verb == "derived") {
+		// The value each DERIVED row names - a monster's power, a surface's relief
+		// (its texture set's own, Assets/WornSets.h) - as the form shows it.
+		for (const FieldSpec& spec : m_typeDialog.Schema())
+			if (const std::optional<float> d = m_typeDialog.DerivedValue(spec))
+				m_console.Print(std::format("typeset derived {} = {:.4f}", spec.key, *d));
 	} else if (verb == "tab" && args.size() >= 3) {
 		m_typeDialog.SelectTab(std::atoi(args[2].c_str()));
 	} else if (verb == "stage" && args.size() == 3 && args[2] == "add") {

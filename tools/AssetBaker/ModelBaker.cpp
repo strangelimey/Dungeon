@@ -23,6 +23,7 @@
 
 #include "Assets/Image.h"
 #include "Assets/WornPanel.h"
+#include "Assets/WornSets.h"
 #include "Core/Log.h"
 #include "Core/MathTypes.h"
 #include "GltfWriter.h"
@@ -34,6 +35,7 @@
 #include <format>
 #include <functional>
 #include <initializer_list>
+#include <optional>
 #include <system_error>
 #include <string>
 #include <utility>
@@ -757,6 +759,8 @@ public:
 	}
 
 	bool IsValid() const { return m_valid; }
+	// Loaded at all - flat or not, it has dimensions and so an aspect.
+	bool IsSized() const { return m_image.width > 0 && m_image.height > 0; }
 
 	// Width / height of the scan. NOT always 1: eleven of the installed sets are
 	// 2:1 tiles (a 4096x2048 scan holds two squares' worth of stone across and
@@ -766,10 +770,9 @@ public:
 	// map still has dimensions, and the aspect has to correct the painted
 	// texture whether the relief came from the scan or from procedural wear.
 	float Aspect() const {
-		return m_image.width > 0 && m_image.height > 0
-				   ? static_cast<float>(m_image.width) /
-						 static_cast<float>(m_image.height)
-				   : 1.0f;
+		return IsSized() ? static_cast<float>(m_image.width) /
+							   static_cast<float>(m_image.height)
+						 : 1.0f;
 	}
 
 	float Sample(float u, float v) const {
@@ -805,6 +808,26 @@ private:
 	assets::ImageData m_image;
 	bool m_valid = false;
 };
+
+// The set's packed normal+height map at ANY installed resolution: 1k is the
+// cheapest to sample, but a set imported from the editor only installs at _2k
+// (and a 4k-only set at _4k), and falling back beats silently baking procedural
+// wear over a scanned texture. The first map with real displacement wins; with
+// none, the FIRST THAT LOADED is kept - flat, but sized. Its aspect is the
+// texture's, and that holds whether the relief comes from the scan or from
+// procedural wear. The loop used to replace a flat but sized _1k with the next
+// resolution whatever it found, so a missing _2k/_4k left an empty image and an
+// aspect of 1, squashing a 2:1 set's worn UVs (code-review C408).
+TextureHeight LoadWornHeight(const std::string& texturesDir, const std::string& texture) {
+	TextureHeight first(std::format("{}\\{}_1k_n.png", texturesDir, texture));
+	if (first.IsValid()) return first;
+	for (const char* res : {"_2k", "_4k"}) {
+		TextureHeight next(std::format("{}\\{}{}_n.png", texturesDir, texture, res));
+		if (next.IsValid()) return next;
+		if (!first.IsSized() && next.IsSized()) first = std::move(next);
+	}
+	return first;
+}
 
 // --- procedural wear (fallback when the scanned sets are not installed) ----
 
@@ -979,8 +1002,8 @@ WearField TextureCeilingWear(const TextureHeight& height, float relief, int grid
 
 // Grid resolutions are parameters: the baker emits each worn block at three
 // complexity tiers (low/med/high) so the game can trade geometric detail for
-// performance via the Settings menu. A flat wall (wear == 0, see BakeWornTiers)
-// passes kNx = kNy = 1 so it is a bare quad, not a dense flat grid.
+// performance via the Settings menu. A flat block of any kind (wear == 0, see
+// BakeWornTiers) passes a 1x1 grid so it is a bare quad, not a dense flat grid.
 //
 // The surface spans the FULL cell and its displacement is pinned to zero at
 // every edge, so the block is watertight by itself — nothing decorative is
@@ -2407,12 +2430,20 @@ assets::ModelData BuildDoorBosses() {
 // about, and it tilted the back plate along with the handle.
 // Bakes the three worn-block tiers (low/med/high) for one surface texture set,
 // displaced by that texture's packed height map (procedural wear when absent).
-// kind: 0 = wall, 1 = floor, 2 = ceiling. Shared by the full bake and the
-// editor's per-set import (so a newly imported set gets its worn meshes).
-// `wearScale` scales the block's displacement (walls.cat `wear`; 0 = flat).
-bool BakeWornTiers(int kind, const std::string& texture, float relief, u32 seed,
-				   const std::string& modelsDir, const std::string& texturesDir,
-				   float wearScale = 1.0f) {
+// Shared by the full bake and `wornblock` (the editor's import and type save),
+// which both hand it the set's ONE record (Assets/WornSets.h: kind, relief,
+// seed) - so the two cannot bake a set differently.
+//
+// `scale` is a type's override: its relief x wear over the record's relief, 1 =
+// the record. It scales the WHOLE displacement - the height-map term, the
+// bowed-masonry and unevenness noise, the ground wear, the procedural fields -
+// by scaling the field the record describes, every term of which is linear in
+// it (the clamps scale with it too). Before, relief and wear reached only the
+// height-map term: wear 0 was flat on walls alone, floor and ceiling noise kept
+// their centimetre or so, and on a set with no height map both sliders did
+// nothing (code-review C409). At 0 every kind bakes the bare quad.
+bool BakeWornTiers(const assets::WornSet& set, const std::string& modelsDir,
+				   const std::string& texturesDir, float scale = 1.0f) {
 	struct Tier {
 		const char* suffix;
 		int wallX, wallY, floor, ceiling;
@@ -2420,24 +2451,30 @@ bool BakeWornTiers(int kind, const std::string& texture, float relief, u32 seed,
 	static const Tier tiers[] = {
 		{"low", 14, 16, 14, 12}, {"med", 34, 36, 34, 29}, {"high", 53, 56, 53, 43}};
 
-	relief *= wearScale;
-	const bool flat = wearScale <= 0.0f; // no displacement — bake a bare quad
-	// The displacement source is the set's packed normal+height map at ANY
-	// installed resolution: 1k is the cheapest to sample, but a set imported
-	// from the editor only installs at _2k (and a 4k-only set at _4k), and
-	// falling back beats silently baking procedural wear over a scanned texture.
-	TextureHeight height(std::format("{}\\{}_1k_n.png", texturesDir, texture));
-	for (const char* res : {"_2k", "_4k"}) {
-		if (height.IsValid()) break;
-		height = TextureHeight(std::format("{}\\{}{}_n.png", texturesDir, texture, res));
-	}
+	const std::string texture(set.texture);
+	const float relief = set.relief;
+	const u32 seed = set.seed;
+	const assets::WornKind kind = set.kind;
+	const bool flat = scale <= 0.0f; // no displacement - bake a bare quad
+	// The override, applied to whichever field the record gives. Not wrapped at
+	// all at 1, so `models` and a `wornblock` with no override write the same
+	// bytes rather than merely close ones.
+	const auto scaled = [scale](WearField field) -> WearField {
+		if (scale == 1.0f) return field;
+		return [field = std::move(field), scale](float a, float b) {
+			return field(a, b) * scale;
+		};
+	};
+	const WearField zero = [](float, float) { return 0.0f; };
+	const TextureHeight height = LoadWornHeight(texturesDir, texture);
 	if (!flat && !height.IsValid())
 		log::Warn("{}: no packed height map — baking procedural wear "
 				  "(run tools/FetchTextures.ps1, then rebake)", texture);
 	// A non-square scan tiles across proportionally more world width. Read from
 	// the image rather than authored, so a set cannot drift from its own texture
 	// — and note this holds even for a set baking PROCEDURAL wear, since it is
-	// the painted texture being corrected, not the displacement.
+	// the painted texture being corrected, not the displacement (LoadWornHeight
+	// keeps a sized map for exactly this).
 	const float uAspect = height.Aspect();
 	if (uAspect != 1.0f)
 		log::Info("{}: {:.2f}:1 texture — one tile spans {:.2f} squares across",
@@ -2457,8 +2494,9 @@ bool BakeWornTiers(int kind, const std::string& texture, float relief, u32 seed,
 	// The remaining exclusion is a wall with no per-cell field to continue at
 	// all: WallWearDepth samples a METRE lattice, which does not divide a 2.5 m
 	// square, so a procedurally worn set stays pinned however square it is.
-	const bool seamless = kind == 0 && !flat && height.IsValid() && wholeAspect;
-	if (kind == 0 && !flat && !seamless)
+	const bool wall = kind == assets::WornKind::Wall;
+	const bool seamless = wall && !flat && height.IsValid() && wholeAspect;
+	if (wall && !flat && !seamless)
 		log::Info("{}: wall seams stay pinned ({})", texture,
 				  height.IsValid() ? "aspect is not a whole number of squares"
 								   : "no height map");
@@ -2469,10 +2507,10 @@ bool BakeWornTiers(int kind, const std::string& texture, float relief, u32 seed,
 	for (const Tier& tier : tiers) {
 		const std::string out =
 			std::format("{}\\worn_{}_{}.gltf", modelsDir, texture, tier.suffix);
-		if (kind == 0) {
-			// Flat: a single quad spanning the panel (kNx=kNy=1) with a zero wear
-			// field, regardless of tier. Worn: the tier grid, height-map- or
-			// procedurally-displaced.
+		// Flat: a single quad spanning the block (one grid cell) with a zero wear
+		// field, regardless of tier and of kind. Worn: the tier grid, height-map-
+		// or procedurally-displaced, scaled by the type's override.
+		if (wall) {
 			const int nx = flat ? 1 : tier.wallX, ny = flat ? 1 : tier.wallY;
 			// Phase 0 fully pinned is written even when the set earns nothing
 			// else, because it is what every fallback lands on: a set that loses
@@ -2500,32 +2538,33 @@ bool BakeWornTiers(int kind, const std::string& texture, float relief, u32 seed,
 					const float uOffset =
 						static_cast<float>(phase) * kUvScale / uAspect;
 					const SidePins pins{!(open & 1), !(open & 2)};
-					WearField field =
-						flat ? WearField([](float, float) { return 0.0f; })
+					const WearField field =
+						flat ? zero
 						: height.IsValid()
-							? TextureWallWear(height, relief, tier.wallX, tier.wallY,
-											  seed, pins, uOffset)
-							: WearField(WallWearDepth);
+							? scaled(TextureWallWear(height, relief, tier.wallX,
+													 tier.wallY, seed, pins, uOffset))
+							: scaled(WearField(WallWearDepth));
 					ok &= WriteGltf(
 						BuildWornWallBlock(nx, ny, field, uAspect, uOffset), path);
 				}
 		}
-		else if (kind == 1)
-			ok &= WriteGltf(BuildWornFloorBlock(tier.floor,
-												height.IsValid()
-													? TextureFloorWear(height, relief,
-																	   tier.floor, seed)
-													: WearField(FloorWearHeight),
-												uAspect),
+		else if (kind == assets::WornKind::Floor) {
+			const WearField field =
+				flat ? zero
+				: height.IsValid()
+					? scaled(TextureFloorWear(height, relief, tier.floor, seed))
+					: scaled(WearField(FloorWearHeight));
+			ok &= WriteGltf(BuildWornFloorBlock(flat ? 1 : tier.floor, field, uAspect), out);
+		}
+		else {
+			const WearField field =
+				flat ? zero
+				: height.IsValid()
+					? scaled(TextureCeilingWear(height, relief, tier.ceiling, seed))
+					: scaled(WearField(CeilingWearDepth));
+			ok &= WriteGltf(BuildWornCeilingBlock(flat ? 1 : tier.ceiling, field, uAspect),
 							out);
-		else
-			ok &= WriteGltf(BuildWornCeilingBlock(tier.ceiling,
-												  height.IsValid()
-													  ? TextureCeilingWear(height, relief,
-																		   tier.ceiling, seed)
-													  : WearField(CeilingWearDepth),
-												  uAspect),
-							out);
+		}
 	}
 	return ok;
 }
@@ -2542,83 +2581,12 @@ bool BakeModels(const std::string& dir, const std::string& texturesDir) {
 	ok &= WriteGltf(BuildFloorBlock(), dir + "\\floor_block.gltf");
 	ok &= WriteGltf(BuildCeilingBlock(), dir + "\\ceiling_block.gltf");
 
-	// Worn blocks: one set per surface texture (0=wall/1=floor/2=ceiling), each
-	// at three complexity tiers — see BakeWornTiers. The texture names and their
-	// order must match the surface sets a level's palette references.
-	struct WornSpec {
-		int kind;
-		const char* texture;
-		float relief; // world-space displacement amplitude (meters)
-		u32 seed;
-	};
-	const WornSpec specs[] = {
-		{0, "wall_brick", 0.060f, 911u},   {0, "wall_stone", 0.055f, 921u},
-		{0, "wall_moss", 0.040f, 931u},    {1, "floor_slabs", 0.050f, 941u},
-		{1, "floor_cobble", 0.045f, 951u}, {2, "ceiling_rough", 0.100f, 961u},
-		{2, "ceiling_cracked", 0.080f, 971u},
-		// Scanned textures.com sets (each belongs to exactly one surface kind so
-		// its worn_<set>_<tier>.gltf is unambiguous). Polished marble has no
-		// height map -> procedural wear; relief is its parallax amplitude.
-		{0, "cobblestone_wall", 0.060f, 981u}, {0, "stacked_stone", 0.050f, 991u},
-		{0, "brick_red", 0.055f, 1001u},       {0, "plaster", 0.030f, 1011u},
-		{0, "rock_cliff", 0.070f, 1021u},      {0, "marble_white", 0.020f, 1031u},
-		{1, "cobblestone_floor", 0.050f, 1041u}, {1, "broken_tile", 0.040f, 1051u},
-		{1, "rubble", 0.060f, 1061u},          {1, "rock_smooth", 0.045f, 1071u},
-		{2, "limestone", 0.080f, 1081u},
-
-		// --- batch 2 (2026-08-03): 36 scanned sets ---------------------------
-		// Relief is chosen by what the stone DOES, not by a flat per-kind
-		// default: round cobbles stand proud, dressed temple ashlar barely
-		// moves, and a carved wall keeps its detail in the map rather than the
-		// mesh (displacing it would smear the carving). Floors sit LOWER than
-		// the walls throughout — relief you walk over reads as lumpy long
-		// before the same amplitude looks wrong on a wall — and ceilings sit
-		// highest, since nothing ever gets close enough to betray the silhouette.
-		{0, "wall_cobble_mixed", 0.070f, 1101u},
-		{0, "wall_cobble_mixed4", 0.065f, 1111u},
-		{0, "wall_cobble_mossy", 0.070f, 1121u},
-		{0, "wall_cobble_round", 0.075f, 1131u},
-		{0, "wall_stone_plain", 0.055f, 1141u},
-		{0, "wall_stone_granite", 0.050f, 1151u},
-		{0, "wall_stone_28", 0.060f, 1161u},
-		{0, "wall_stone_30", 0.060f, 1171u},
-		{0, "wall_stone_34", 0.055f, 1181u},
-		{0, "wall_brick_weathered", 0.050f, 1191u},
-		{0, "wall_brick_coarse", 0.055f, 1201u},
-		{0, "wall_brick_plaster", 0.040f, 1211u}, // plaster skins the courses
-		{0, "wall_brick_distorted", 0.050f, 1221u},
-		{0, "wall_brick_old", 0.045f, 1231u},
-		{0, "wall_sandstone_blocks", 0.045f, 1241u},
-		{0, "wall_sandstone_block2", 0.045f, 1251u},
-		{0, "wall_temple_sandstone", 0.040f, 1261u}, // dressed: nearly flush
-		{0, "wall_temple_ancient", 0.045f, 1271u},
-		{0, "wall_carved", 0.035f, 1281u},        // keep the carving in the map
-		{1, "floor_medieval", 0.045f, 1291u},
-		{1, "floor_cobble_path", 0.050f, 1301u},
-		{1, "floor_cobble_medieval", 0.050f, 1311u},
-		{1, "floor_cobble_mossy", 0.050f, 1321u},
-		{1, "floor_stone_pavement", 0.040f, 1331u},
-		{1, "floor_temple", 0.035f, 1341u},
-		{1, "floor_ancient_stone", 0.040f, 1351u},
-		{1, "floor_paving_mossy", 0.050f, 1361u},
-		{1, "floor_slate", 0.035f, 1371u},
-		// A stair TREAD surface first, but worn as a floor too so the brush can
-		// place it — the mesh can still bind the plain texture either way.
-		{1, "floor_stairs", 0.045f, 1381u},
-		{1, "ground_rockbed", 0.055f, 1391u},
-		{1, "ground_soil_dusty", 0.030f, 1401u}, // soil slumps; it does not jut
-		{1, "ground_soil_rocky", 0.050f, 1411u},
-		{1, "ground_gravel", 0.050f, 1421u},
-		{2, "ceiling_rock", 0.100f, 1431u},
-		{2, "ceiling_rock_layered", 0.090f, 1441u},
-		{2, "ceiling_rock_porous", 0.070f, 1451u},
-		// The three wood sets are PROP textures (door panel, crate, barrel), not
-		// cell surfaces, so they get no worn block: a worn mesh would commit
-		// them to one surface kind for nothing.
-	};
-	for (const WornSpec& spec : specs)
-		ok &= BakeWornTiers(spec.kind, spec.texture, spec.relief, spec.seed, dir,
-							texturesDir);
+	// Worn blocks: one set per surface texture, each at three complexity tiers
+	// - see BakeWornTiers. The sets and their kind / relief / seed are the ONE
+	// record `wornblock` and the editor read too (Assets/WornSets.h), so a
+	// shipped set re-baked by either comes out byte-for-byte the same.
+	for (const assets::WornSet& set : assets::ShippedWornSets())
+		ok &= BakeWornTiers(set, dir, texturesDir);
 
 	ok &= WriteGltf(BuildSconce(), dir + "\\sconce.gltf");
 	ok &= WriteGltf(BuildBrazier(), dir + "\\brazier.gltf");
@@ -2664,14 +2632,34 @@ bool BakeModels(const std::string& dir, const std::string& texturesDir) {
 }
 
 bool BakeWornBlocks(const std::string& kind, const std::string& name,
-					const std::string& assetsDir, float wearScale, float relief) {
-	const int k = kind == "floor" ? 1 : (kind == "ceiling" ? 2 : 0);
-	// Negative = unspecified: keep the per-kind default this command has always
-	// baked at, so an unset `relief` field changes nothing.
-	if (relief < 0.0f) relief = k == 2 ? 0.08f : (k == 1 ? 0.045f : 0.055f);
-	const u32 seed = static_cast<u32>(std::hash<std::string>{}(name)) | 1u;
-	return BakeWornTiers(k, name, relief, seed, assetsDir + "\\models",
-						 assetsDir + "\\textures", wearScale);
+					const std::string& modelsDir, const std::string& texturesDir,
+					float wearScale, float relief) {
+	const std::optional<assets::WornKind> asked = assets::ParseWornKind(kind);
+	if (!asked) {
+		log::Error("wornblock: '{}' is not a surface kind (wall, floor or ceiling)", kind);
+		return false;
+	}
+	const assets::WornSet set = assets::WornSetFor(name, *asked);
+	// A shipped set is ONE kind for life. Its files are named by the set alone,
+	// so baking it as another kind would reshape every type that paints with it -
+	// every wall of a wall set drawing a floor slab.
+	if (set.kind != *asked) {
+		log::Error("wornblock: {} is a {} set (Assets/WornSets.h) - refusing to bake it "
+				   "as a {}",
+				   name, assets::WornKindName(set.kind), kind);
+		return false;
+	}
+	// Unset relief (negative) = the record's own, so a type that sets neither
+	// field bakes exactly what `models` does. Written so the record's case is an
+	// exact 1, not a quotient that merely rounds to it.
+	const float wear = std::max(wearScale, 0.0f);
+	const float scale = relief < 0.0f ? wear : relief * wear / set.relief;
+	log::Info("{}: {} set, relief {:.4f} m{} x wear {:.3f}", name,
+			  assets::WornKindName(set.kind), relief < 0.0f ? set.relief : relief,
+			  relief < 0.0f ? " (the set's own)" : "", wear);
+	std::error_code ec;
+	std::filesystem::create_directories(modelsDir, ec);
+	return BakeWornTiers(set, modelsDir, texturesDir, scale);
 }
 
 } // namespace dungeon::baker

@@ -200,6 +200,12 @@ public:
 	};
 	const std::vector<BuiltRow>& BuiltRows() const { return m_built; }
 	std::span<const FieldSpec> Schema() const { return m_schema; }
+	// The DERIVED value a row's label names - derivedFor's answer, for an
+	// optional row only (a row with a default shows that instead). The one rule
+	// the form and `typeset dialog derived` both read.
+	std::optional<float> DerivedValue(const FieldSpec& spec) const {
+		return !*spec.def && derivedFor ? derivedFor(spec) : std::nullopt;
+	}
 
 	// A refusal (or any note) to show under the form until the next edit.
 	void SetNotice(std::string text) { m_notice = std::move(text); }

@@ -79,6 +79,13 @@ namespace {
 // `columns` knob (edge pillars baked into every wall) was retired 2026-08-05:
 // walls are plain now and a pillar is a DECORATION, so one pillar model serves
 // all 54 surface types instead of being baked into each of them.
+//
+// `relief` has NO default, because absent is meaningful: it bakes at the SET's
+// own relief (Assets/WornSets.h - the record `AssetBaker models` bakes it at),
+// which the dialog shows beside the row (TypeEditorDialog::derivedFor). A
+// per-kind default here once stood in for it, and was wrong for every shipped
+// set: an editor save re-baked wall_brick at 0.055 instead of its 0.060, and a
+// new type was stamped with the wrong number (code-review C406).
 constexpr FieldSpec kWallFields[] = {
 	IDENTITY_DISPLAY,
 	IDENTITY_CATEGORY,
@@ -91,8 +98,9 @@ constexpr FieldSpec kWallFields[] = {
 	 .lo = 0.0f, .hi = 0.12f, .step = 0.005f, .def = "0.055"},
 	{.key = "relief", .kind = FieldKind::Float, .sectionKey = kSectionLook,
 	 .help = "How far the stones stand proud of the panel, in metres (real "
-			 "geometry, so it shows at any angle). `wear` scales this.",
-	 .lo = 0.0f, .hi = 0.25f, .step = 0.005f, .def = "0.055", .rebakes = true},
+			 "geometry, so it shows at any angle). Unset = the texture set's own. "
+			 "`wear` scales this.",
+	 .lo = 0.0f, .hi = 0.25f, .step = 0.005f, .rebakes = true},
 	{.key = "wear", .kind = FieldKind::Float, .sectionKey = kSectionLook,
 	 .help = "Scales the relief: 0 = a flat panel, 1 = the full authored depth.",
 	 .lo = 0.0f, .hi = 1.0f, .step = 0.05f, .def = "1", .rebakes = true},
@@ -101,8 +109,7 @@ constexpr FieldSpec kWallFields[] = {
 
 // --- floors -----------------------------------------------------------------
 // Same as walls minus the pillars (a wall-block feature). Ceilings get their own
-// table below purely because they are baked at a DEEPER default relief, and a
-// `def` that doesn't match what the baker would do makes the slider lie.
+// table below for the relief row's wording: a ceiling's relief hangs DOWN.
 constexpr FieldSpec kFloorFields[] = {
 	IDENTITY_DISPLAY,
 	IDENTITY_CATEGORY,
@@ -115,8 +122,9 @@ constexpr FieldSpec kFloorFields[] = {
 	 .lo = 0.0f, .hi = 0.12f, .step = 0.005f, .def = "0.045"},
 	{.key = "relief", .kind = FieldKind::Float, .sectionKey = kSectionLook,
 	 .help = "How far the surface stands proud of the panel, in metres (real "
-			 "geometry, so it shows at any angle). `wear` scales this.",
-	 .lo = 0.0f, .hi = 0.25f, .step = 0.005f, .def = "0.045", .rebakes = true},
+			 "geometry, so it shows at any angle). Unset = the texture set's own. "
+			 "`wear` scales this.",
+	 .lo = 0.0f, .hi = 0.25f, .step = 0.005f, .rebakes = true},
 	{.key = "wear", .kind = FieldKind::Float, .sectionKey = kSectionLook,
 	 .help = "Scales the relief: 0 = a flat panel, 1 = the full authored depth.",
 	 .lo = 0.0f, .hi = 1.0f, .step = 0.05f, .def = "1", .rebakes = true},
@@ -124,8 +132,8 @@ constexpr FieldSpec kFloorFields[] = {
 };
 
 // --- ceilings ---------------------------------------------------------------
-// The floor table with a deeper default relief (a rough ceiling hangs further
-// down than a floor stands proud — BakeWornBlocks' per-kind default).
+// The floor table, its relief worded for a surface that hangs below the panel
+// (the set's own relief is deeper too - Assets/WornSets.h).
 constexpr FieldSpec kCeilingFields[] = {
 	IDENTITY_DISPLAY,
 	IDENTITY_CATEGORY,
@@ -138,8 +146,9 @@ constexpr FieldSpec kCeilingFields[] = {
 	 .lo = 0.0f, .hi = 0.12f, .step = 0.005f, .def = "0.045"},
 	{.key = "relief", .kind = FieldKind::Float, .sectionKey = kSectionLook,
 	 .help = "How far the surface hangs below the panel, in metres (real "
-			 "geometry, so it shows at any angle). `wear` scales this.",
-	 .lo = 0.0f, .hi = 0.25f, .step = 0.005f, .def = "0.08", .rebakes = true},
+			 "geometry, so it shows at any angle). Unset = the texture set's own. "
+			 "`wear` scales this.",
+	 .lo = 0.0f, .hi = 0.25f, .step = 0.005f, .rebakes = true},
 	{.key = "wear", .kind = FieldKind::Float, .sectionKey = kSectionLook,
 	 .help = "Scales the relief: 0 = a flat panel, 1 = the full authored depth.",
 	 .lo = 0.0f, .hi = 1.0f, .step = 0.05f, .def = "1", .rebakes = true},
