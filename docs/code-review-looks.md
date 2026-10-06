@@ -460,6 +460,12 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   "still running 20s after Alt+F4 in Borderless", under the lanes' build load;
   it passed alone straight after and in the same run's self-test pass. Worth
   watching for a repeat before reading it as a real regression.
+- **HealthTest's `kill` case once missed its top frame** (the second merge's
+  full run, e7792f40). The kill's stack had the `sleep_for` and
+  Game_DevDiagnostics frames but not `DelayExecution`: the wedged worker sleeps
+  50 ms at a time, so under the lanes' load the kill can catch it between two
+  sleeps (in SleepEx, before the syscall). It passed alone straight after.
+  Accepting SleepEx / Sleep as the top frame would close it; not done.
 - **Back-to-back HealthTest runs** (seen by batch 48). A HealthTest started
   while the previous run's last game (the `assert` case) is still exiting is
   refused (exit 3); a moment later it runs. The race predates the batch.
