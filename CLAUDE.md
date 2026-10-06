@@ -1565,6 +1565,26 @@ its bucket; bucket intervals are PRIME milliseconds (251/499/997/1999 ms ≈
 4/2/1/0.5 Hz; Scheduler::BucketInterval) — coprime, so the buckets almost never
 fire together (cicada pattern) instead of resonating like power-of-two harmonics.
 
+WHERE A MONSTER MAY STAND is ONE predicate, `DungeonWorld::MonsterCanStand`
+(code-review C58, C74): floor, no brazier, a floor under it (not a pit or a
+stairwell), no solid decoration, no shut door. The formation's side list,
+`FreeSlotInCell` (every step taken; `FootprintCanStand` for a Huge's 2x2) and
+`BuildAISnapshot` (every step planned) all ask it - the snapshot caches the
+map's half (`MonsterGroundAt`, keyed by map revision, and also the grid a
+monster's sight crosses, so a hole is NOT in it) and asks the predicate itself
+at every decoration, door and stair square for the rest. The lists used to
+disagree: formation handed out a brazier's, a crate's or a shut door's square as
+a side and the monster stood still for good, and nothing knew about a pit. Only
+ENGAGING monsters take sides (C57) - a kiter or a fleer took one and never
+walked to it, so in a dead end the brute behind it never closed in - but one
+STANDING on a side still fills it, and a side goes only to a body
+`FreeSlotInCell` has a slot there for (a brute sent to a cornered fleer's square
+stalled at the refused last step). Checked by tools\AITest.py (crypt1's brazier
+fight, a mage seen kiting while a brute passes it into a dead end, a brute sent
+round a dazzled coward on the party's side, a skeleton going round a pit and one
+shoved toward it stopping short; the tally's `mswings=` / `mshots=` count
+monster swings / a kiter's shots).
+
 Dev console COMMANDS (console-updates branch, docs/console-updates-plan.md): every
 command registers a `CmdInfo` - `{.name, .group (CmdGroup enum = the listing
 order), .params, .summary}`, designated initializers IN THAT ORDER. `params` is
@@ -2780,8 +2800,9 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   LeaderMember() later. Dev: `leader [member]`.
 - THROWING (ui-updates Phase 10, DungeonWorld_Throw.cpp). THROW OR DROP is
   Grimrock's screen-height rule: with an item on the cursor, a click whose ray
-  meets reachable floor (or an open niche) drops it (DropItemAt returns true);
-  any other click throws it (ThrowItem; false = the leader is not ready and the
+  meets reachable floor a thing can rest on (or an open niche) drops it
+  (DropItemAt returns true); any other click - a pit or a stairwell included -
+  throws it (ThrowItem; false = the leader is not ready and the
   item stays held). A THROW IS AN ATTACK (Michael): PartyAttackProfile - the
   swing's formula, shared - with the `throwing` skill and the ATTACK the item
   flies as (`throw = <attacks.cat id>`; absent = a weapon's first command,
@@ -2798,10 +2819,22 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   where a stopped BOLT's burst and on-hit land too, never inside the stone -
   code-review C43/C44), or where its range ran out, and a save, a
   level change (StashActive) and the inspector's Remove LAND it first
-  (LandCargo). The rock is script-built (tools/BuildRock.py -> assets/models/
-  rock.glb, committed by a .gitignore exception: an item loads only .glb). Dev:
-  `throw [item]`; tally `throws= throwstrikes= throwlandings=`. Checked by
-  AllocTest -Throw (lift, throw at eval_arena's north wall, again, by clicks).
+  (LandCargo). WHERE A THING MAY REST is one rule, `DungeonWorld::ItemCanRest`
+  (code-review C74): walkable, a floor under it (FloorHoleAt - not a pit or a
+  stairwell, where it hung in the air over the shaft) and no shut door. The
+  drop, a landing (which backs off along its flight to the first such square,
+  never past the party's own - the party can stand on a stairwell) and a
+  fumble's fling all ask it; a hole REFUSES a thing rather than sending it to
+  the level below. A SHATTERING throw leaves nothing to hang, so it bursts at
+  the first OPEN square (walkable, no shut door), a pit's included, not pulled
+  back toward the thrower. The rock is script-built (tools/BuildRock.py ->
+  assets/models/rock.glb, committed by a .gitignore exception: an item loads
+  only .glb). Dev: `throw [item]`, `drop <item> <x> <z>` (DropItemAt aimed at a
+  square's centre), `castsvc floor [x z]`; tally `throws= throwstrikes=
+  throwlandings= landat=` (where the last throw came down or burst). Checked by
+  AllocTest -Throw (lift, throw at eval_arena's north wall, again, by clicks) and
+  tools\AITest.py (a pit refuses a drop and a landing; a flask bursts over it; a
+  rock thrown from the stairwell lands on the party's square).
 - BLASTS ARE SEEN now (they drew nothing): a puff of `blast_color` (else the
   type's element colour) in each square on each tick (ProjectileSystem::Puff,
   LandBlastHit) - a fire front flares, a persistent gas rolls. And `blast_linger`

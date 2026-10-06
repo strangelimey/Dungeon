@@ -1742,17 +1742,19 @@ bool DungeonWorld::DropItemAt(const std::string& typeId, float mx, float my,
 		if (onMessage) onMessage(loc::FormatLine("log.drop_rune", loc::View(kind.nameKey)));
 		return true;
 	}
-	// Then the FLOOR: where the ray meets the floor plane, when that square is
-	// open, seen and in reach. Anything else - looking above the floor's
-	// horizon, at a wall (the plane meets the floor behind it), past reach - is
-	// not a drop: the caller throws (Phase 10; it used to fall at the feet).
+	// Then the FLOOR: where the ray meets the floor plane, when a thing can rest
+	// on that square (ItemCanRest - not a pit or a stairwell, where it would hang
+	// over the shaft, and not a shut door's square) and it is seen and in reach.
+	// Anything else - looking above the floor's horizon, at a wall (the plane
+	// meets the floor behind it), past reach, over a hole - is not a drop: the
+	// caller throws (Phase 10; it used to fall at the feet).
 	if (ray.dir.y >= -1e-3f) return false;
 	const float t = -ray.origin.y / ray.dir.y;
 	const float wx = ray.origin.x + ray.dir.x * t;
 	const float wz = ray.origin.z + ray.dir.z * t;
 	const int cx = static_cast<int>(std::floor(wx / kCellSize));
 	const int cz = static_cast<int>(std::floor(wz / kCellSize));
-	if (!m_map.IsWalkable(cx, cz) || !IsSeen(cx, cz) || !InReach(cx, cz, px, pz)) return false;
+	if (!ItemCanRest(cx, cz) || !IsSeen(cx, cz) || !InReach(cx, cz, px, pz)) return false;
 	ItemKind& kind = ItemKindFor(typeId);
 	const int slot = FreeItemSlotNear(cx, cz, wx, wz, -1); // the quarter under the cursor
 	PlaceDrop({&kind, m_nextDropId--, cx, cz, false, slot, -1, charge});
@@ -1760,6 +1762,23 @@ bool DungeonWorld::DropItemAt(const std::string& typeId, float mx, float my,
 	m_audio.Play(m_sounds.click, 0.5f);
 	if (onMessage) onMessage(loc::FormatLine("log.drop_rune", loc::View(kind.nameKey)));
 	return true;
+}
+
+bool DungeonWorld::DropItemOnSquare(const std::string& typeId, int x, int z) {
+	// A `tp` or `face` earlier this frame has not reached the camera yet.
+	UpdateCamera();
+	// The square's centre on the floor, through the camera to a pixel. Any
+	// viewport size will do: ScreenRay inverts the very projection this applies,
+	// so the click lands on the same floor point whatever the window is.
+	constexpr float kW = 1600.0f, kH = 900.0f;
+	const Vec3 c = m_map.CellCenter(x, z);
+	const Mat4 vp = m_camera.ViewProj();
+	const XMVECTOR clip =
+		XMVector4Transform(XMVectorSet(c.x, 0.0f, c.z, 1.0f), XMLoadFloat4x4(&vp));
+	const float w = XMVectorGetW(clip);
+	if (w <= 1e-4f) return false; // behind the eye: no pointer lands there
+	const float nx = XMVectorGetX(clip) / w, ny = XMVectorGetY(clip) / w;
+	return DropItemAt(typeId, (nx + 1.0f) * 0.5f * kW, (1.0f - ny) * 0.5f * kH, kW, kH);
 }
 
 void DungeonWorld::PlaceDrop(const Item& placed) {

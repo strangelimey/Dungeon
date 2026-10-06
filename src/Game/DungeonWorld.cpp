@@ -326,11 +326,63 @@ bool DungeonWorld::FloorHoleAt(int x, int z) const {
 	// A down stair / pit drops its cell's floor block: the below-grade shaft
 	// mesh (with its own collar and walls) replaces it. Absent `hole` field:
 	// any down-leading type opens the floor, an up type opens nothing.
+	// Read IN PLACE, never through CatalogGet: where a monster may stand and
+	// where a thing may come to rest ask this every frame (MonsterCanStand,
+	// ItemCanRest), and the copy CatalogGet returns allocates in a debug build
+	// whatever its length.
 	const StairLink* s = m_map.StairAt(x, z);
 	if (!s) return false;
 	const CatalogEntry* e = m_project.stairs.Find(s->type);
-	return CatalogGet(e, "hole", CatalogBool(e, "up", false) ? "none" : "floor") ==
-		   "floor";
+	if (const std::string* hole = e ? e->Find("hole") : nullptr) return *hole == "floor";
+	return !CatalogBool(e, "up", false);
+}
+
+// ============================================================================
+// Where a body may stand, and where a thing may come to rest (code-review C58,
+// C74). ONE statement each, asked by everything that places one: the formation's
+// side list, FreeSlotInCell (every step a monster takes) and BuildAISnapshot
+// (every step one plans) for a monster; the cursor drop, a throw's landing and a
+// fumble's fling for an item. Before these, each site had its own list, and the
+// lists disagreed: formation offered a brazier's square, a crate's or a shut
+// door's as a side, and the monster sent there stood still for good; nothing at
+// all knew about a pit, so a monster could stand over the shaft the party falls
+// down, and an item could hang in the air above it.
+// ============================================================================
+
+bool DungeonWorld::MonsterGroundAt(int x, int z) const {
+	// What the MAP says, and nothing else - the half the AI snapshot caches by
+	// map revision (BuildAISnapshot). A brazier is a map fixture, so it is here.
+	return m_map.IsWalkable(x, z) && !m_map.BrazierAt(x, z);
+}
+
+bool DungeonWorld::MonsterCanStand(int x, int z) const {
+	if (!MonsterGroundAt(x, z)) return false; // rock, out of bounds, a brazier
+	if (FloorHoleAt(x, z)) return false;      // a pit or a stairwell: no floor
+	if (SolidDecorationAt(x, z)) return false; // a statue, a crate, ...
+	if (const Door* d = DoorAt(x, z); d && !d->open) return false; // a shut door
+	return true;
+}
+
+bool DungeonWorld::FootprintCanStand(int x, int z, SizeClass size) const {
+	// Every square of the body - a Huge's 2x2 block from its anchor - and none
+	// of them the party's. A 1-wide corridor fails this for a Huge.
+	const int f = FootprintCells(size);
+	for (int fz = z; fz < z + f; ++fz)
+		for (int fx = x; fx < x + f; ++fx) {
+			if (!MonsterCanStand(fx, fz)) return false;
+			if (fx == m_party.GridX() && fz == m_party.GridZ()) return false;
+		}
+	return true;
+}
+
+bool DungeonWorld::ItemCanRest(int x, int z) const {
+	// Floor, with a floor under it, and not inside a shut door's leaf. On a pit
+	// or a stairwell a thing is REFUSED rather than sent to the level below:
+	// the cursor keeps it (and the click becomes a throw), and a flight that
+	// ends over a hole comes down short of it (LandThrown).
+	if (!m_map.IsWalkable(x, z) || FloorHoleAt(x, z)) return false;
+	const Door* d = DoorAt(x, z);
+	return !(d && !d->open);
 }
 
 bool DungeonWorld::CeilingHoleAt(int x, int z) const {
@@ -1959,19 +2011,29 @@ Vec3 DungeonWorld::MonsterStepTarget(const Monster& m) const {
 
 void DungeonWorld::AssignFormation() {
 	const int px = m_party.GridX(), pz = m_party.GridZ();
-	// Default: HOLD position (target = own cell). Aware monsters get an attack cell
-	// below; unaware ones aim at the party cell so cone perception can still fire;
-	// overflow (no open side) keeps holding and queues behind the front.
+	using Mode = ai::Intent::Mode;
+	// Default: HOLD position (target = own cell). Engaging monsters get an attack
+	// cell below; overflow (no open side) keeps holding and queues behind the
+	// front, and so does a kiter or a fleer - they are steered from the live party
+	// position (UpdateKiter / UpdateFleer) and never walk to a target. A monster
+	// that is not engaging at all - unaware, or aware but idle (out of range, past
+	// its leash) - aims at the party cell: an unaware one so cone perception can
+	// still fire, and either so the think that turns it to Engage already has
+	// somewhere to go, a frame before formation hands it a side.
 	for (Monster& m : m_monsters) {
 		m.targetX = m.x;
 		m.targetZ = m.z;
-		if (m.Alive() && !m.aware) {
+		if (m.Alive() && (!m.aware || m.intent.mode == Mode::Idle)) {
 			m.targetX = px;
 			m.targetZ = pz;
 		}
 	}
-	// Attack cells = the party's walkable orthogonal neighbours (the sides it can
-	// be hit from). Track how many monsters we've assigned to each, to spread them.
+	// Attack cells = the party's orthogonal neighbours a monster can STAND on (the
+	// sides it can be hit from). Not merely walkable floor: a brazier, a crate, a
+	// shut door or a pit beside the party used to be handed out, and the monster
+	// sent there stood still for good - no path reaches a brazier, and the last
+	// step onto a crate is refused, plan after plan (code-review C58).
+	// Track how many monsters we've assigned to each, to spread them.
 	// At most 4 sides, so a fixed array + count — this pass runs EVERY frame and
 	// must not heap-allocate (CLAUDE.md memory strategy).
 	struct Side {
@@ -1983,19 +2045,24 @@ void DungeonWorld::AssignFormation() {
 	static constexpr int kDZ[4] = {-1, 1, 0, 0};
 	for (int d = 0; d < 4; ++d) {
 		const int sx = px + kDX[d], sz = pz + kDZ[d];
-		if (m_map.IsWalkable(sx, sz)) sides[sideCount++] = {sx, sz, 0};
+		if (MonsterCanStand(sx, sz)) sides[sideCount++] = {sx, sz, 0};
 	}
 	if (sideCount == 0) return;
 
-	// Aware attackers, sorted nearest-to-party first. Member scratch, reused
+	// Engaging attackers, sorted nearest-to-party first. ONLY Engage: a caster or
+	// an archer (Kite) or a fleer took one of the party's sides and never walked
+	// to it, so where sides were scarce - a corridor, a dead end - a brute found
+	// them all taken and never closed in (code-review C57). Member scratch, reused
 	// frame to frame (clear keeps capacity), with room for every monster made at
-	// spawn (MakeMonster) - so not even the first aware monster of a fight grows
-	// it; reuse alone left that first growth inside a guarded frame (C71).
+	// spawn (MakeMonster) - so not even the first engaging monster of a fight
+	// grows it; reuse alone left that first growth inside a guarded frame (C71).
 	std::vector<int>& idx = m_formationScratch;
 	idx.clear();
-	for (size_t i = 0; i < m_monsters.size(); ++i)
-		if (m_monsters[i].Alive() && m_monsters[i].aware)
+	for (size_t i = 0; i < m_monsters.size(); ++i) {
+		const Monster& m = m_monsters[i];
+		if (m.Alive() && m.aware && m.intent.mode == Mode::Engage)
 			idx.push_back(static_cast<int>(i));
+	}
 	auto cheby = [](int ax, int az, int bx, int bz) {
 		return std::max(std::abs(ax - bx), std::abs(az - bz));
 	};
@@ -2018,6 +2085,19 @@ void DungeonWorld::AssignFormation() {
 				break;
 			}
 	}
+	// A body that takes no side still FILLS the one it stands on: a kiter that
+	// cannot back away, a fleer boxed in beside the party, one not engaging at
+	// all. Counted after pass 1, so an attacker sharing its square still holds
+	// it, and before pass 2, so the spread sees it (code-review C57 left these
+	// out of `idx`, and the side they stood on read as empty).
+	for (const Monster& m : m_monsters) {
+		if (!m.Alive() || (m.aware && m.intent.mode == Mode::Engage)) continue;
+		for (int s = 0; s < sideCount; ++s)
+			if (m.x == sides[s].x && m.z == sides[s].z) {
+				++sides[s].count;
+				break;
+			}
+	}
 	// Pass 2 (fill): the rest take the least-crowded side with room (empty sides
 	// before any doubles up → surround), tie-broken by the side nearest the monster.
 	for (size_t k = 0; k < idx.size(); ++k) {
@@ -2027,6 +2107,13 @@ void DungeonWorld::AssignFormation() {
 		int best = -1;
 		for (int s = 0; s < sideCount; ++s) {
 			if (sides[s].count >= cap) continue;
+			// Room for THIS body, by the rule every step obeys (FreeSlotInCell): not
+			// beside an occupant it cannot share a square with - a Large kiter or
+			// fleer standing there, a body of another size - and for a Huge, its
+			// whole 2x2 block (the west and north sides would put it over the party
+			// itself). A side it is refused is one it would walk to and never enter,
+			// plan after plan (C58's stall).
+			if (FreeSlotInCell(sides[s].x, sides[s].z, m.kind->size, idx[k]) < 0) continue;
 			if (best < 0 || sides[s].count < sides[best].count ||
 				(sides[s].count == sides[best].count &&
 				 cheby(m.x, m.z, sides[s].x, sides[s].z) <
@@ -2098,13 +2185,13 @@ void DungeonWorld::BuildAISnapshot() {
 			m_walkablePool.push_back(grid);
 			WarnAIPoolGrew(1, "walkability grids", m_walkablePool.size());
 		}
-		// Braziers block like walls (the party bumps them too) — bake them into
-		// the grid so monsters don't path through the fire. Placement/removal
-		// bumps the map Revision, so edits invalidate this cache like any paint.
+		// The MAP's half of where a monster may stand (MonsterGroundAt): floor,
+		// and no brazier (the party bumps one too). Placement/removal bumps the
+		// map Revision, so edits invalidate this cache like any paint. The rest
+		// of the rule goes in the per-frame `blocked` grid below.
 		for (int z = 0; z < H; ++z)
 			for (int x = 0; x < W; ++x)
-				(*grid)[static_cast<size_t>(z) * W + x] =
-					(m_map.IsWalkable(x, z) && !m_map.BrazierAt(x, z)) ? 1 : 0;
+				(*grid)[static_cast<size_t>(z) * W + x] = MonsterGroundAt(x, z) ? 1 : 0;
 		m_walkableCache = std::move(grid);
 		m_walkableRev = m_map.Revision();
 	}
@@ -2150,20 +2237,25 @@ void DungeonWorld::BuildAISnapshot() {
 	// monster bumps its cell's occupant count, tagged with the size's slots/cell so
 	// a worker can tell a half-full same-size group (room) from a full or foreign one.
 	snap->blocked[static_cast<size_t>(snap->partyZ) * snap->mapW + snap->partyX] = 1;
-	// Solid decorations block like braziers, but they live in the world list, not
-	// the map — placing/removing one does NOT bump the map Revision the walkable
-	// cache keys off. So they go into `blocked` (rebuilt every frame) instead of
-	// the cached grid: an editor placement takes effect on the next snapshot with
-	// no invalidation to get wrong.
-	for (const Decoration& deco : m_decorations)
-		if (deco.Blocks())
-			snap->blocked[static_cast<size_t>(deco.z) * snap->mapW + deco.x] = 1;
-	// Closed doors block like solid decorations — and for the same reason they
-	// live in the per-frame grid, not the cached one: opening one must take
-	// effect on the next snapshot with no revision bookkeeping.
-	for (const Door& door : m_doors)
-		if (!door.open)
-			snap->blocked[static_cast<size_t>(door.z) * snap->mapW + door.x] = 1;
+	// The REST of where a monster may stand - a solid decoration, a shut door, a
+	// pit or a stairwell (MonsterCanStand). Everything that rule refuses beyond
+	// the cached grid stands on one of three kinds of square, a decoration's, a
+	// door's or a stair's, so the predicate ITSELF is asked at exactly those
+	// squares: the snapshot then agrees with it everywhere, and there is no second
+	// copy of the rule here to drift from it (code-review C58).
+	// Per frame, not cached, because none of the three moves the map Revision the
+	// cache keys off (decorations and doors live in the world's lists - an editor
+	// placement or an opened door takes effect on the next snapshot with no
+	// invalidation to get wrong), and because a HOLE must not go in the cached
+	// grid: that one is also what a monster's line of sight crosses, and the party
+	// is plainly visible across a pit (C74).
+	const auto refuse = [&](int x, int z) {
+		if (x >= 0 && z >= 0 && x < W && z < H && !MonsterCanStand(x, z))
+			snap->blocked[static_cast<size_t>(z) * W + x] = 1;
+	};
+	for (const Decoration& deco : m_decorations) refuse(deco.x, deco.z);
+	for (const Door& door : m_doors) refuse(door.x, door.z);
+	for (const StairLink& stair : m_map.Stairs()) refuse(stair.x, stair.z);
 	for (const Monster& m : m_monsters) {
 		if (!m.Alive()) continue;
 		const int cap = SlotsPerCell(m.kind->size);
@@ -2374,18 +2466,10 @@ int DungeonWorld::ThreatTarget(const Monster& monster) const {
 int DungeonWorld::FreeSlotInCell(int x, int z, SizeClass size, int self) const {
 	const int f = FootprintCells(size); // 1, or 2 for Huge (a 2x2-cell block)
 	const int cap = SlotsPerCell(size);
-	// Every cell of the footprint must be in bounds, walkable, and clear of the
-	// party. A 1-wide corridor fails this for a Huge → it can't enter (item 1).
-	for (int fz = z; fz < z + f; ++fz)
-		for (int fx = x; fx < x + f; ++fx) {
-			if (fx < 0 || fz < 0 || fx >= m_map.Width() || fz >= m_map.Height())
-				return -1;
-			if (!m_map.IsWalkable(fx, fz)) return -1;
-			if (m_map.BrazierAt(fx, fz)) return -1;    // blocks monsters like the party
-			if (SolidDecorationAt(fx, fz)) return -1;  // ditto (statues, crates, ...)
-			if (const Door* d = DoorAt(fx, fz); d && !d->open) return -1; // shut door
-			if (fx == m_party.GridX() && fz == m_party.GridZ()) return -1;
-		}
+	// Every cell of the footprint must be somewhere a monster can stand, and
+	// clear of the party (FootprintCanStand). A 1-wide corridor fails this for a
+	// Huge, so it can't enter (item 1).
+	if (!FootprintCanStand(x, z, size)) return -1;
 	// Mark the slots already taken in this cell. An occupant whose footprint
 	// overlaps ours blocks the whole cell unless both are single-cell monsters of
 	// the SAME size — only those share via distinct slots (homogeneous-group rule).
@@ -2404,13 +2488,6 @@ int DungeonWorld::FreeSlotInCell(int x, int z, SizeClass size, int self) const {
 	for (int s = 0; s < cap; ++s)
 		if (!(used & (1u << s))) return s;
 	return -1;
-}
-
-bool DungeonWorld::CellFreeForMonster(int x, int z, int self) const {
-	const SizeClass size = (self >= 0 && self < static_cast<int>(m_monsters.size()))
-							   ? m_monsters[self].kind->size
-							   : SizeClass::Large;
-	return FreeSlotInCell(x, z, size, self) >= 0;
 }
 
 // One monster strike against a random standing party member. Sets the swing

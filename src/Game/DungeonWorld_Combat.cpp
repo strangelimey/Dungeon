@@ -599,15 +599,16 @@ void DungeonWorld::PartyFumble(Character& attacker, size_t hand,
 				const std::string id = held.typeId;
 				int cx = m_party.GridX(), cz = m_party.GridZ();
 				if (e.kind == mishap::Kind::Fling) {
-					// Somewhere adjacent and walkable, chosen from the cardinals
-					// that qualify — never diagonally (the grid rule), and never
-					// into stone, where it could not be picked up again.
+					// Somewhere adjacent it can rest, chosen from the cardinals
+					// that qualify - never diagonally (the grid rule), never into
+					// stone, where it could not be picked up again, and never
+					// over a pit or a stairwell (ItemCanRest, code-review C74).
 					std::array<int, 4> dirs{0, 1, 2, 3};
 					std::shuffle(dirs.begin(), dirs.end(), m_combatRng);
 					for (const int d : dirs) {
 						const int nx = cx + DirDX(static_cast<Direction>(d));
 						const int nz = cz + DirDZ(static_cast<Direction>(d));
-						if (m_map.IsWalkable(nx, nz)) { cx = nx; cz = nz; break; }
+						if (ItemCanRest(nx, nz)) { cx = nx; cz = nz; break; }
 					}
 				}
 				held = ItemSlot{};
@@ -1516,6 +1517,7 @@ void DungeonWorld::MonsterAttack(Monster& monster) {
 	if (victim < 0) return;
 	Character& target = (*m_roster)[victim];
 	monster.attackCd = monster.kind->attackInterval;
+	++m_harness.tally.monsterSwings;
 	// Request the swing animation (one-shot; DriveMonsterAnim picks the variation
 	// and times the hold, then the state machine returns to walk/idle). No attack
 	// clip authored → DesiredState still yields Attack for a frame but PickClip is
@@ -1779,6 +1781,7 @@ void DungeonWorld::UpdatePatroller(Monster& monster, int selfIndex) {
 
 void DungeonWorld::MonsterRangedAttack(Monster& monster) {
 	monster.attackCd = monster.kind->attackInterval;
+	++m_harness.tally.monsterShots;
 	monster.attackReq = true; // play the swing/cast gesture if the rig ships one
 
 	// Launch a bolt down the CARDINAL axis it shares with the party (the caller only

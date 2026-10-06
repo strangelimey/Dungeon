@@ -534,6 +534,11 @@ void Game::RegisterEvalCommands() {
 						   //   repelweakened/repelturned/repelspent  what a
 						   //           gust's repel did to each shot it met;
 						   //           a spent one fell and is not in turned.
+						   //   mswings the MONSTERS' melee swings, hit or miss.
+						   //   mshots  the MONSTERS' ranged shots - only a
+						   //           kiter fires them.
+						   //   landat  the square the last throw came down on
+						   //           (landed or burst), `-` for none.
 						   m_console.Print(TallyLine());
 					   });
 
@@ -684,13 +689,15 @@ std::string Game::TallyLine() const {
 		"boltmisses={} expired={} blasts={} drops={} lifts={} throws={} "
 		"throwstrikes={} throwlandings={} sceneryticks={} doused={} struck={} "
 		"pierced={} wallstops={} stoppedin={} partybursts={} wardturns={} "
-		"repelweakened={} repelturned={} repelspent={}",
+		"repelweakened={} repelturned={} repelspent={} mswings={} mshots={} "
+		"landat={}",
 		t.dealt, t.taken, swings, t.hits, t.misses, rate, t.crits, t.fumbles,
 		t.monstersSlain, t.membersDowned, t.seconds, t.boltHits, t.boltMisses,
 		t.expiries, t.blasts, t.drops, t.lifts, t.throws, t.throwStrikes,
 		t.throwLandings, t.sceneryTicks, t.fixturesDoused, t.struck, t.pierced,
 		t.wallStops, stoppedIn, t.partyBursts, t.wardTurns, t.repelWeakened,
-		t.repelTurned, t.repelSpent);
+		t.repelTurned, t.repelSpent, t.monsterSwings, t.monsterShots,
+		t.landX < 0 ? std::string("-") : std::format("{},{}", t.landX, t.landZ));
 }
 
 } // namespace dungeon::game

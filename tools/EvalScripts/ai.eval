@@ -1,0 +1,246 @@
+; ai.eval - where a monster can stand, and where a thing can come to rest
+; (code-review batch 33: C58, C57, C74). tools\AITest.py runs this and JUDGES
+; it; on its own it only reports. Every section header is `=== <name> ===` and
+; the judge reads the readouts between one header and the next, so a section
+; must stay self-contained.
+;
+; Everything runs in lockstep at timescale 0: nothing moves between lines, only
+; inside a `step`, so a section's readouts describe exactly the time it stepped.
+logecho on
+reset
+timescale 0
+lockstep on
+seed 11
+
+; --- C58: a brazier's square is no side ----------------------------------------
+; crypt1 as shipped. The brazier at 9,4 stands between the party at 8,4 and the
+; skeleton at 10,4 and hides the party from it, so a bolt has to wake it. The
+; brazier's square used to be handed out as the nearest side: no path reaches a
+; brazier, and the skeleton stood still for as long as the party stayed put.
+echo === brazier ===
+goto crypt1
+tp 8 4
+face e
+; Maren's Fire Bolt, learned and trained enough that it cannot fizzle.
+learn 2 fire
+learn 2 project
+setskill 2 fire 5
+monsters
+tally reset
+cast 2 0 fire project
+step 5
+monsters
+tally
+
+; --- C57: a kiter takes no side ------------------------------------------------
+; A dead end has ONE side. The mage (a caster: it kites) stands nearer the party
+; than the brute, so formation used to give it that side - which it never walks
+; to - and the brute, finding it taken, held its own square for good. Both see
+; the party down the corridor's axis from the room, so neither needs waking.
+; Sampled every second: the mage must be seen KITING - its shots, `mshots=`,
+; which only a kiter fires - while the brute is still on its way, or the brute's
+; arrival would prove nothing (a mage that never stirred takes no side under any
+; rule).
+;   arena room 9 4: room 10..18 x 8..16, corridor 14,17..20, party at 14,20
+echo === deadend ===
+goto eval_arena
+arena room 9 4
+mapinfo
+heal
+face n
+spawn skel_mage 14 15 south 1 up
+spawn skel_warrior 14 13 south 1 up
+tally reset
+step 1
+monsters
+tally
+step 1
+monsters
+tally
+step 1
+monsters
+tally
+step 1
+monsters
+tally
+step 1
+monsters
+tally
+step 1
+monsters
+tally
+step 1
+monsters
+tally
+step 1
+monsters
+tally
+step 1
+monsters
+tally
+step 1
+monsters
+tally
+
+; --- C57: a body that takes no side still fills the one it stands on -----------
+; A coward (it always flees) stands on the party's north side, dazzled so it
+; cannot run. It takes no side, but it FILLS that one: the brute coming from the
+; north, whose nearest side it is, must be sent round to another and swing from
+; there. A side the coward stood on read as empty once kiters and fleers were
+; left out of formation; the brute was sent to it, its last step was refused
+; every time, and it stood two squares off for good.
+;   arena room 9 4 again: the party at the room's centre, 14,12
+echo === sidefill ===
+arena room 9 4
+heal
+tp 14 12
+face n
+spawn skel_coward 14 11 south 1 up
+effect dazzle ahead 1 30
+spawn skel_warrior 14 8 south 1 up
+tally reset
+step 8
+monsters
+tally
+heal
+
+; --- C74: a pit is no floor to rest on -----------------------------------------
+; A pit at 3,4 in crypt1's room, against its west wall (its other half, a
+; ceiling hole, lands on crypt2 at 3,4 - in memory only, nothing is saved).
+; A drop onto it is refused (a click there would throw instead); one beside it
+; is laid. A throw that ends against the wall beyond it backs off along its
+; flight to the first square a thing can rest on, and that is not the pit.
+; The party WALKS onto 4,4 rather than `tp` there: a drop needs the square seen,
+; and only a step reveals the squares round the party.
+echo === pit-drop ===
+reset
+goto crypt1
+stairadd pit 3 4
+tp 6 4
+face w
+forward 2
+step 2
+pos
+face w
+drop rock 3 4
+face e
+drop rock 5 4
+castsvc floor 3 4
+castsvc floor 5 4
+
+echo === pit-throw ===
+tp 5 4
+face w
+tally reset
+throw rock
+step 3
+castsvc floor 3 4
+castsvc floor 4 4
+tally
+
+; A flask SHATTERS where its flight ends and leaves nothing to hang over a
+; shaft: thrown west from 4,4 it stops in the wall at 2,4 and bursts over the
+; pit at 3,4 - not pulled back onto the thrower's own square, as the rule for a
+; thing that comes to REST would have it (`landat=` is where it came down).
+echo === pit-flask ===
+tp 4 4
+face w
+heal
+tally reset
+throw fire_flask
+step 3
+tally
+heal
+
+; The party can stand on a hole: the stairwell at 1,1 is where it arrives coming
+; up from crypt2. A rock thrown north into the wall at 1,0 comes down on the
+; party's own square - never past it, behind the thrower at 1,2.
+echo === stair-throw ===
+tp 1 1
+face n
+tally reset
+throw rock
+step 3
+pos
+castsvc floor 1 1
+castsvc floor 1 2
+tally
+
+; The party at 3,5 has two open squares beside it, the pit to the north and
+; 4,5 to the east. A skeleton at 3,3 used to take the pit - the nearer side -
+; and fight from over the shaft. It must go round by 4,3 and 4,4 instead.
+; Sampled every quarter second: a step takes it about half a second.
+echo === pit-walk ===
+tp 3 5
+face n
+spawn skel_warrior 3 3 south 1 up
+tally reset
+monsters
+step 0.25
+monsters
+step 0.25
+monsters
+step 0.25
+monsters
+step 0.25
+monsters
+step 0.25
+monsters
+step 0.25
+monsters
+step 0.25
+monsters
+step 0.25
+monsters
+step 0.25
+monsters
+step 0.25
+monsters
+step 0.25
+monsters
+step 0.25
+monsters
+step 0.25
+monsters
+step 0.25
+monsters
+step 0.25
+monsters
+step 0.25
+monsters
+step 0.25
+monsters
+step 0.25
+monsters
+step 0.25
+monsters
+step 0.25
+monsters
+step 0.25
+monsters
+step 0.25
+monsters
+step 0.25
+monsters
+step 0.25
+monsters
+tally
+
+; Nothing puts a monster on a pit, whatever moves it. The Gust shove plans no
+; path: it steps a body square by square, refused by FreeSlotInCell alone - the
+; same refusal that guards every monster that never uses the BFS (a kiter, a
+; fleer). The BFS's own half (the snapshot's blocked grid) hides that one's
+; absence on the walk above, so this asks it on its own: shoved three squares
+; west from 5,4, a skeleton goes one and stops at 4,4, short of the pit at 3,4 -
+; the wall at 2,4 would have stopped it ON the pit. No time passes: the shove
+; commits its steps at once.
+echo === pit-shove ===
+tp 6 4
+face w
+spawn skel_bare 5 4 east 1 up
+monsters
+castsvc shove 3
+monsters
+
+echo === end ===
+state

@@ -139,11 +139,16 @@ Things that stop a monster ACTING (it still animates, burns and can be hit): a
 flare's `dazzle` effect, the eval harness's `freeze`, and a spawn still rising
 (`Monster::spawnAnim`, a kit skeleton's spawn clip).
 
-**Formation** (`AssignFormation`, host side, main thread): aware monsters are
-spread around the party's walkable **orthogonal neighbours** ("attack cells") so
-a group *surrounds* rather than conga-lines. Hysteresis (a monster already on a
-free side holds it) keeps a formed ring stable. Sub-cell sizes pack multiple
-monsters per cell via the slot grid (see `docs/movement.md`).
+**Formation** (`AssignFormation`, host side, main thread): aware ENGAGING
+monsters are spread around the party's **orthogonal neighbours** a monster can
+stand on ("attack cells"; `DungeonWorld::MonsterCanStand` - never a brazier's,
+a solid decoration's, a shut door's or a pit's square) so a group *surrounds*
+rather than conga-lines. A kiter or a fleer takes no side, since it never walks
+to one, but one STANDING on a side still fills it, and no attacker is sent to a
+side with no slot for its body (code-review C57, C58). Hysteresis (a monster
+already on a free side
+holds it) keeps a formed ring stable. Sub-cell sizes pack multiple monsters per
+cell via the slot grid (see `docs/movement.md`).
 
 **Movement** (`UpdateMonsters`): follow the cached BFS path one cell per
 `moveInterval`, claiming a free slot in the destination, gliding `visualPos` with

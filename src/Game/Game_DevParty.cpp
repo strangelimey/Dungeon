@@ -247,6 +247,30 @@ void Game::RegisterPartyCommands() {
 							   m_console.Refuse("not thrown (the leader is not ready)");
 						   }
 					   });
+	// The cursor drop, aimed: a given catalog item laid on a square's floor by a
+	// click at its centre (DropItemOnSquare), so a script can ask whether a thing
+	// may rest there (code-review C74). A drop the world turns down is an ANSWER,
+	// not a broken line - printed, not refused - since asking about a square that
+	// must turn it down is the point; a real click there would throw instead.
+	m_console.Register({.name = "drop",
+						.group = CmdGroup::Characters,
+						.params = "<item> <x> <z>",
+						.summary = "drop an item on a square's floor as a click at its centre would"},
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 3)) return;
+						   if (m_state != AppState::Playing) {
+							   m_console.Refuse("only over the level");
+							   return;
+						   }
+						   if (!m_project.HasItem(args[0])) {
+							   m_console.Refuse(std::format("no item '{}'", args[0]));
+							   return;
+						   }
+						   const int x = std::atoi(args[1].c_str()), z = std::atoi(args[2].c_str());
+						   const bool laid = m_world->DropItemOnSquare(args[0], x, z);
+						   m_console.Print(std::format("drop {} at {},{}: {}", args[0], x, z,
+													   laid ? "laid" : "refused"));
+					   });
 	// The offense/defense split before its slider exists
 	// (docs/damage-system.md). Worth keeping once the UI lands: setting an
 	// exact share is how the split gets MEASURED, where dragging a slider is
@@ -590,7 +614,7 @@ void Game::RegisterPartyCommands() {
 	// hand spell's outcome can be pinned on the spell or on the world.
 	m_console.Register({.name = "castsvc",
 						.group = CmdGroup::Combat,
-						.params = "fire\nlight\ndouse\nflare\nfloor\ndrop <item>\nshove [cells]\nrepel <power> [member]\nblast <spell>\npuff [school]",
+						.params = "fire\nlight\ndouse\nflare\nfloor [x z]\ndrop <item>\nshove [cells]\nrepel <power> [member]\nblast <spell>\npuff [school]",
 						.summary = "drive one cast service directly (the world ahead of the party)"},
 					   [this](const std::vector<std::string>& args) {
 						   if (!Need(m_console, args, 1)) return;
@@ -604,6 +628,12 @@ void Game::RegisterPartyCommands() {
 								   "castsvc fire: kind={} lit={} canburn={} haze={:.2f} flare={:.2f}", kind,
 								   f.lit ? 1 : 0, f.canBurn ? 1 : 0, m_world->FireAheadHaze(),
 								   m_world->FireAheadFlare()));
+						   } else if (what == "floor" && args.size() >= 3) {
+							   // Any square's, for where a drop or a throw came down.
+							   const int x = std::atoi(args[1].c_str()), z = std::atoi(args[2].c_str());
+							   const std::string ids = m_world->ItemIdsAt(x, z);
+							   m_console.Print(std::format("castsvc floor {},{}: {}", x, z,
+														   ids.empty() ? "(none)" : ids));
 						   } else if (what == "floor") {
 							   const Party& p = m_world->GetParty();
 							   const std::string ids = m_world->ItemIdsAt(p.GridX(), p.GridZ());

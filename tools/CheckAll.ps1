@@ -187,6 +187,14 @@ $checks = @(
 		selfTest = { python (Join-Path $root 'tools\CombatTest.py') --selftest | Out-Host; $LASTEXITCODE }
 	},
 	@{
+		name = 'ai'; tier = 'quick'; needs = 'build-debug'
+		what = 'monsters stand where they can: formation sides, kiters, pits; items never over a hole'
+		# The debug build only, like SpellTest. Its self-test cuts the script's
+		# steps (no time passes) and demands exactly the time-free checks pass.
+		run      = { python (Join-Path $root 'tools\AITest.py') | Out-Host; $LASTEXITCODE }
+		selfTest = { python (Join-Path $root 'tools\AITest.py') --selftest | Out-Host; $LASTEXITCODE }
+	},
+	@{
 		name = 'alloc'; tier = 'full'; needs = "build-$Config"
 		what = 'a steady-state frame allocates nothing on the heap'
 		run      = { & (Join-Path $root 'tools\AllocTest.ps1') -Config $Config -Seconds 10 | Out-Host; $LASTEXITCODE }

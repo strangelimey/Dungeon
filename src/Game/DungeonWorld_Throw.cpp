@@ -31,6 +31,7 @@
 #include "Game/DungeonWorld.h"
 
 #include "Core/Loc.h"
+#include "Game/Blast.h"
 #include "Game/Defense.h"
 #include "Game/Facing.h"
 
@@ -268,13 +269,29 @@ void DungeonWorld::LandThrown(const ProjectileExpiry& expiry) {
 	if (expiry.cause == ExpiryCause::Wall && !expiry.payload.blast.Any())
 		StrikeDoorWithThrow(static_cast<int>(std::floor(expiry.pos.x / kCellSize)),
 							static_cast<int>(std::floor(expiry.pos.z / kCellSize)), expiry);
-	// The last OPEN square along the flight: a wall's square (or a shut door's)
-	// is never one - the flight has already stepped into it when it stops - so it
-	// comes down in front (FlightEnd, the rule a bolt's end shares), at worst in
-	// the party's own square, never inside the stone where it would be lost.
-	int cx = m_party.GridX(), cz = m_party.GridZ();
-	FlightEnd(expiry, cx, cz);
+	// Where it comes down: the last OPEN square along the flight
+	// (blast::LastOpenCell, the walk-back a bolt's end shares through FlightEnd) -
+	// a wall's square (or a shut door's) is never one, the flight has already
+	// stepped into it when it stops. A thing that SHATTERS bursts in any open
+	// square (OpenSquare, a bolt's rule), over a pit as over floor, and is not
+	// pulled back toward the thrower. A thing that LANDS must also be able to
+	// REST there (ItemCanRest, the drop's own rule), so it comes down short of a
+	// pit or a stairwell rather than hang over the shaft (code-review C74). And
+	// never past the PARTY'S OWN square, whatever is under it: the party can
+	// stand on a hole (a stairwell it has just come up, a pit barred by a flag),
+	// and backing off past it would land the thing behind the thrower. With
+	// nothing open within reach it comes down in the party's square.
+	const int px = m_party.GridX(), pz = m_party.GridZ();
+	int cx = px, cz = pz;
+	blast::LastOpenCell(expiry.pos.x, expiry.pos.z, expiry.dir.x, expiry.dir.z, kCellSize,
+						[&](int x, int z) {
+							if (x == px && z == pz) return true;
+							return kind.throwBreaks ? OpenSquare(x, z) : ItemCanRest(x, z);
+						},
+						cx, cz);
 	++m_harness.tally.throwLandings;
+	m_harness.tally.landX = cx;
+	m_harness.tally.landZ = cz;
 	// A thing that SHATTERS lets go of what it carries where it stops - a fire
 	// flask's blast, a poison flask's cloud - as a spent bolt does.
 	if (kind.throwBreaks) {

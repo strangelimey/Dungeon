@@ -676,6 +676,18 @@ public:
 		// tools\AllocTest.ps1 -Burst must show each one happened in its window.
 		int partyBursts = 0, wardTurns = 0;
 		int repelWeakened = 0, repelTurned = 0, repelSpent = 0;
+		// MONSTER melee swings (MonsterAttack, hit or miss): what says a monster
+		// got where it fights from. `taken` cannot - a caster's bolts feed it too.
+		// tools\AITest.py's formation checks rest on it (code-review C57, C58).
+		int monsterSwings = 0;
+		// MONSTER ranged shots (MonsterRangedAttack, which only a kiter fires):
+		// what says a caster was KITING, so a check that a brute got past one
+		// cannot pass because the caster never stirred (code-review C57).
+		int monsterShots = 0;
+		// The square the LAST throw came down on - where it landed, or where a
+		// shattering one burst (LandThrown); -1 = none since the reset. A burst
+		// leaves nothing on the floor to find it by.
+		int landX = -1, landZ = -1;
 	};
 
 	// ========================================================================
@@ -1084,13 +1096,20 @@ public:
 	// The pick itself, shared by both: the index into m_items, or -1.
 	int PickItemIndex(float mx, float my, float w, float h) const;
 	// Drops a held item (catalog id): into an open niche the click lands in, or
-	// onto the floor where the ray meets it, when that square is walkable, in
-	// reach and seen - snapped to the quarter slot nearest the hit point.
+	// onto the floor where the ray meets it, when a thing can rest on that square
+	// (ItemCanRest - not a pit, a stairwell or a shut door's), in reach and seen
+	// - snapped to the quarter slot nearest the hit point.
 	// THROW OR DROP (ui-updates Phase 10, Grimrock's screen-height rule): a click
 	// that meets no reachable floor - above the floor's horizon, on a wall,
-	// beyond reach - drops NOTHING and returns false, and the caller throws.
+	// beyond reach, over a hole - drops NOTHING and returns false, and the caller
+	// throws.
 	bool DropItemAt(const std::string& typeId, float mx, float my, float w, float h,
 					float charge = -1.0f); // the item's charge goes down with it
+	// The harness's hand on that click (the `drop` dev command): DropItemAt aimed
+	// at the centre of square (x,z) on the floor, projected through the camera
+	// as a pointer there would be, so it is refused by exactly what refuses a
+	// player's drop. The item comes from nowhere, as `throw <item>`'s does.
+	bool DropItemOnSquare(const std::string& typeId, int x, int z);
 	// THROWING (DungeonWorld_Throw.cpp): a member throws an item (catalog id)
 	// straight ahead down their quadrant lane - `member` < 0 = the party LEADER
 	// (the cursor's throw), else that roster slot (a hand's `throw` use). False =
@@ -3312,10 +3331,12 @@ private:
 	// Count of live monsters in a group (Phase 4: gates lone front-centre + the
 	// grouped front-slot reposition).
 	int AliveInGroup(u32 group) const;
-	// Formation pass (Phase 5): assign each AWARE monster a target attack cell
-	// (a walkable orthogonal neighbour of the party), spreading them around the
-	// party (surround) before doubling up a side; overflow / not-yet-aware target
-	// the party cell. Sets Monster.targetX/targetZ; called before BuildAISnapshot.
+	// Formation pass (Phase 5): assign each aware ENGAGING monster a target attack
+	// cell (an orthogonal neighbour of the party a monster can stand on -
+	// MonsterCanStand), spreading them around the party (surround) before
+	// doubling up a side; overflow, kiters and fleers hold their own cell, and
+	// unaware or idle monsters target the party cell. Sets Monster.targetX/
+	// targetZ; called before BuildAISnapshot.
 	void AssignFormation();
 	// The world point a settled monster wants WITHIN its current cell (Phase 4):
 	// the front-centre toward the party for a lone Medium-or-smaller monster, else
@@ -4013,12 +4034,27 @@ private:
 	// Stone Skin and a water veil all answer a shaft exactly as they answer a
 	// wall, and a party already at death's door can be finished by the floor.
 	void OnFallImpact();
-	// True if a monster of `self`'s size may stand on (x,z): in bounds, walkable,
-	// not the party cell, and with a free SLOT (see FreeSlotInCell). Thin wrapper
-	// over FreeSlotInCell for callers that only need yes/no.
-	bool CellFreeForMonster(int x, int z, int self) const;
+	// WHERE A MONSTER MAY STAND (code-review C58, C74) - the one statement of
+	// it, asked by the formation's side list, FreeSlotInCell and BuildAISnapshot.
+	// A square holds a monster's body when it is floor (in bounds, walkable) with
+	// no brazier, has a floor UNDER it (not a pit or a stairwell - FloorHoleAt),
+	// and holds no solid decoration and no shut door. Occupancy (the party, other
+	// monsters, slots) is not part of it; FreeSlotInCell adds that.
+	// MonsterGroundAt is the MAP's half alone, which the AI snapshot caches by
+	// map revision; the snapshot asks MonsterCanStand for the rest.
+	bool MonsterGroundAt(int x, int z) const;
+	bool MonsterCanStand(int x, int z) const;
+	// Every square of a `size` body anchored at (x,z) - a Huge's 2x2 block - is
+	// somewhere a monster can stand, and none of them is the party's.
+	bool FootprintCanStand(int x, int z, SizeClass size) const;
+	// WHERE A THING MAY COME TO REST on the floor (C74): walkable, a floor under
+	// it (not a pit or a stairwell, where it would hang over the shaft) and no
+	// shut door. Asked by the cursor drop (DropItemAt), a throw's landing
+	// (LandThrown) and a fumble's fling, which refuse such a square rather than
+	// send the thing down to the level below.
+	bool ItemCanRest(int x, int z) const;
 	// The index of a free sub-cell SLOT for a monster of `size` standing on (x,z),
-	// or -1 if none (unwalkable, the party cell, full, or already held by a
+	// or -1 if none (FootprintCanStand refuses it, full, or already held by a
 	// different-size group). `self` (a monster array index, or -1) is excluded from
 	// the occupancy scan. Slots are filled lowest-index-first. See Game/SlotGrid.h.
 	int FreeSlotInCell(int x, int z, SizeClass size, int self) const;

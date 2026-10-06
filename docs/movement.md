@@ -327,7 +327,9 @@ relative to the party) is derived later (Phase 4/5), not baked into the index.
 ### Occupancy (slot/footprint-aware)
 
 Today occupancy is binary per cell (`CellFreeForMonster`, `Party::isOccupied`,
-the AI snapshot `blocked` set). Phase 1 makes it capacity-aware:
+the AI snapshot `blocked` set). Phase 1 makes it capacity-aware (the host's
+`CellFreeForMonster` wrapper was later deleted, uncalled - code-review C58;
+`FreeSlotInCell` and the snapshot's `SnapshotView::CellFreeForMonster` remain):
 - A cell holds up to `SlotsPerCell(size)` monsters in distinct slots.
 - `CellFreeForMonster` answers "is there a free slot for a monster of this size
   here," and the step picks the slot.
@@ -471,15 +473,29 @@ think/act split.
 
 ### Attack cells & assignment (`AssignFormation`, main thread)
 
-The party's **attack cells** are its walkable orthogonal neighbours (≤4 sides).
-Each frame, before the AI snapshot, assign every **aware** monster a target
-attack cell:
-- Process aware monsters **nearest-the-party first**.
+The party's **attack cells** are its orthogonal neighbours a monster can STAND
+on (≤4 sides): `DungeonWorld::MonsterCanStand` - floor, no brazier, a floor
+under it (not a pit or a stairwell), no solid decoration, no shut door. It used
+to be any walkable neighbour, and a monster sent to a brazier's square (which
+no path reaches) or a crate's (whose last step is refused) stood still for good
+(code-review C58). Each frame, before the AI snapshot, assign every **aware,
+engaging** monster a target attack cell - intent Engage only: a kiter or a
+fleer never walks to a side, and taking one left a brute behind it with nowhere
+to stand in a dead end (C57):
+- Process them **nearest-the-party first**.
 - Each picks the side with the **lowest current assignment count** (so empty
   sides fill before any side doubles → surround), tie-broken by nearest to that
-  monster, skipping sides already at the monster's `SlotsPerCell` capacity.
-- Overflow (every side full) or **not-yet-aware** monsters target the **party
-  cell** itself — they approach/queue behind and trigger initial cone perception.
+  monster, skipping sides already at the monster's `SlotsPerCell` capacity and
+  any side `FreeSlotInCell` gives it no slot on - an occupant it cannot share a
+  square with (a Large kiter or fleer standing there, a body of another size),
+  or for a Huge a side its whole 2x2 block does not fit.
+- A kiter, a fleer or an idle monster STANDING on a side still counts toward it
+  (after the hysteresis pass, so an attacker sharing its square keeps it): it
+  takes no side, but it fills the one it stands on, and a brute sent there would
+  stall at the last step.
+- Overflow (every side full), kiters and fleers HOLD their own cell; a
+  **not-yet-aware** or idle monster targets the **party cell** itself, so cone
+  perception can fire and its first engaging think has somewhere to go.
 
 In the open this fans a group out one-per-side (the rear members peel off to the
 flanks/rear); in a 1-wide corridor only one or two sides are walkable, so the
