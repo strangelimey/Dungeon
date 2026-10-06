@@ -146,6 +146,18 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   spell with no thrown form, so it throws its plain shot until a bolt is
   picked. Should the Caster list (and so the default) offer only spells a
   monster can throw, such as firebolt?
+- **Which monster a party swing meets when several share a square** (batch
+  28). A swing now goes to the FRONT RANK first, then the swinger's own lane.
+  So with one bone swarm back-left (Brand's lane) and another front-right,
+  Brand hits the front-right one. A monster's own melee pick works per file
+  instead - an empty near slot opens that file - and the mirror of that would
+  have Brand hit the back-left one through the gap. Keep front-rank-first, or
+  make it per file like the monsters'?
+- **A spawn clip still moves timing** (batch 28). Clip choices no longer touch
+  the combat dice, but a rising kit skeleton holds still for the length of the
+  spawn clip it picked, so authoring another SPAWN clip still changes when that
+  monster starts acting in a seeded sweep. Attack, hit and die clips are
+  animation only. Fine as it is?
 - **ThreadStress can HANG under heavy load** (seen by batch 36, c7d67506).
   Twice, while another worktree built debug, release and release-profile at
   once: the AI workers run below normal priority, a starved idle bucket missed
@@ -229,7 +241,12 @@ raised that is yours, not a fix. Each line names the batch and its commit.
 - **Throws and fumbles** (batch 27, dafd0413). A fumbled torch lands with the
   burn time it had left; a fire or poison flask that bursts on a MONSTER
   trains throwing (on a wall it trains nothing); saving with a flask in the
-  air no longer sets it off - on load it lies where it would have landed.
+  air no longer sets it off - on load it lies, whole, in the square it was over
+  when you saved (a save cannot know where the flight would have ended).
+- **Readouts every eval diff will show once** (batch 28). Every TALLY line now
+  ends `clipdraws=N`, and each `monsters` line for a Medium / Small / Tiny
+  monster shows `slot N`. New console tools: `spawn ... share` (join a square
+  others hold) and `monsterclips` (a kind's clip table, live and unsaved).
 - **`reset` after a level change is a load** (batch 12, 997868a3). A reset after
   a script left the harness level loads back to eval_arena ("reset: switched
   in N ms ..."), and reset now clears every level's stashed edits and the undo
