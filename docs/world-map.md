@@ -110,6 +110,20 @@ The world does not — there is exactly one per project — so a terrain kind
 declares its own `glyph` in terrain.cat and the grid is read through that.
 Glyphs carry no ordering, so terrain can be renamed or reordered freely.
 
+A glyph is ONE character, not a lowercase letter (records), not `;` (a row
+starting with one is a comment) and not whitespace, a control byte or anything
+past ASCII - and no two kinds share one. `WorldMap::CheckGlyph` / `CheckTerrains`
+are the one statement of that: `Load` asserts on them, the type editor's Save
+refuses by them, a "+ New" terrain is handed a free glyph (`FreeGlyph`), and the
+checker reports a catalog that got round them (code-review C345). The loaded
+world holds its own copy of the kinds, which every write of terrain.cat brings
+back into step by id (`WorldMap::SyncTerrains`, `Game::SyncWorldTerrains`; a
+rename renames the copy where it stands), so a changed glyph rewrites the grid's
+text. A kind still painted on a square cannot be deleted. And when a kind goes or
+a glyph changes, world.map is written with the catalog, whether or not the
+loaded world's text moved: the FILE is what the next launch reads, and a square
+painted over since the last save is still the old kind in it.
+
 An **area** is a rectangle: `area <id> <x> <z> <w> <h> [difficulty=]`. Areas are
 tested in file order and the LAST match wins, so a broad region can be authored
 first and exceptions carved out of it afterwards. `start <x> <z>` is where a new
@@ -304,7 +318,12 @@ authors only its own name. `level` and the cell are not optional in the same
 way: the checker names a doorway that omits them, because there is no longer
 anything sensible for them to fall back TO. Naming one of `entryx`/`entryz`
 without the other is refused outright — it would land on the level's start row
-or column and read as "the entrance moved" instead of as the slip it is.
+or column and read as "the entrance moved" instead of as the slip it is. The
+editor holds the same rule (`WorldMap::SetLocationEntry`: both or neither,
+never negative - `worldloc set <id> entry <x> <z>|none` and the settings
+dialog's landing fields both go through it): `worldloc set <id> entryx 5` on a
+doorway with no cell used to write half an entry, and the save that wrote it
+aborted on its own read-back (code-review C343).
 
 The level `.map` `P` glyph still exists and still means what it always did:
 where the EDITOR drops you, and the arrival for anything that names no cell. It

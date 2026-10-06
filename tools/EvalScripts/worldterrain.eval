@@ -1,0 +1,114 @@
+; worldterrain.eval - terrain kinds and landing cells the world can still be
+; opened with (code-review batch 89: C345, C343).
+;
+; RUN IT THROUGH tools\WorldTest.py (phase 23), NOT ON ITS OWN. It WRITES to
+; the project - terrain.cat on every terrain edit, world.map on `saveworld`, a
+; glyph change and a delete - and worldreopen.eval is the other half: a SECOND
+; launch that must open what this one left. Every fault here used to pass in
+; the session that made it and abort the next launch in WorldMap::Load, which
+; is why the reopen is the check that matters.
+logecho on
+reset
+worldedit on
+
+; --- C343: a doorway lands on a whole cell or none --------------------------
+; gate2 is new and has no landing cell, so setting one half of it is HALF AN
+; ENTRY: it used to leave entryz -1, and the save that wrote it aborted on its
+; own read-back. crypt_gate lands on 7,8: one half still moves on its own
+; there, but never below zero.
+worldloc add dungeon gate2 12 6
+worldloc set gate2 dungeon crypt
+worldloc set gate2 level crypt1
+expect-refuse worldloc set gate2 entryx 5
+expect-refuse worldloc set crypt_gate entryz -2
+expect-refuse worldloc set gate2 entry 4 -1
+worldloc set gate2 entry 4 5
+worldloc set gate2 entryx 6
+worldloc
+; the settings dialog's landing fields meet the same rule (its status row
+; says so - a field edit, not a command, so it prints rather than refuses)
+worldmap on
+worldsettings crypt_gate
+worldsettings entry 7 -3
+worldsettings entry 7 7
+worldsettings off
+worldmap off
+saveworld
+
+; --- C345: two new terrains, a glyph each ------------------------------------
+; A new kind used to get NO glyph, read as '?', so the second shared the
+; first's and the next launch aborted on the clash.
+newtype terrain
+newtype terrain
+world
+; a glyph the world could not be read with is refused, and nothing is written:
+; road's, a lowercase letter, two characters, none at all (the next `world`
+; still shows terrain2's own glyph - a refusal that wrote first would have left
+; it the '?' an empty or two-character glyph reads as)
+expect-refuse typeset terrain terrain2 glyph -
+expect-refuse typeset terrain terrain2 glyph b
+expect-refuse typeset terrain terrain2 glyph CC
+expect-refuse typeset terrain terrain2 glyph
+; a new kind can be painted at once - the world was handed it - and the world
+; is SAVED with it, so world.map now spells 6,6 with terrain2's glyph
+terrainbrush terrain2
+paint 6 6
+saveworld
+world
+; a painted kind is refused a delete, and so is the road
+expect-refuse typeset delete terrain terrain2
+expect-refuse typeset delete terrain road
+typerefs terrain terrain2
+; a CHANGED glyph reaches the squares and world.map at once: on disk the
+; square still read terrain2's OLD glyph, which terrain.cat no longer names
+typeset terrain terrain2 glyph Q
+world
+; an undo takes back the paint and KEEPS today's kinds (the snapshot still
+; held the old glyph), and the redo puts the paint back
+undo
+world
+redo
+world
+; an unused kind deletes, and the kinds after it keep their squares
+typeset delete terrain terrain1
+world
+
+; two more kinds for the world.map section below, made BEFORE the rename so
+; they take terrain1 (a free id again) and terrain3, never the id the rename
+; frees
+newtype terrain
+newtype terrain
+
+; --- C345: a RENAME reaches the world's copy of the kinds -------------------
+; terrain2 is painted on 6,6. The world syncs its copy of the kinds BY ID, so
+; a rename that did not reach that copy left the brush refusing the new id and
+; every later sync finding a painted kind gone - and a glyph changed after it
+; never reached world.map. A second square under the new name, then a new
+; glyph, which must reach both squares and the file.
+typeset rename terrain terrain2 marsh
+terrainbrush marsh
+paint 7 6
+typeset terrain marsh glyph R
+world
+
+; --- C345: world.map ON DISK, not the loaded world -------------------------
+; A square painted and SAVED, then painted over in memory only: the loaded
+; world holds none of the kind, but the file still does. A changed glyph and a
+; delete must each write world.map - they were written only when the loaded
+; world's text moved, which here it does not, and the next launch met a glyph
+; terrain.cat no longer names. The glyph first: a delete's write first would
+; have put the file right for both. And this section LAST, so nothing after it
+; writes the world and hides a write it missed from the reopen.
+terrainbrush terrain1
+paint 8 6
+terrainbrush terrain3
+paint 9 6
+saveworld
+world
+terrainbrush road
+paint 8 6
+paint 9 6
+typeset terrain terrain3 glyph S
+typeset delete terrain terrain1
+world
+validate

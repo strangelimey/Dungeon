@@ -122,6 +122,10 @@ public:
 	void SetStart(int x, int z);
 	// The Doorways tab's cell fields, for the selected doorway.
 	void MoveSelected(int x, int z);
+	// Its landing-cell checkbox and fields: (x, z) a cell of the level, (-1, -1)
+	// none. Through onEditLocation, whose owner refuses half an entry or a
+	// negative one (code-review C343); a refusal speaks in the tab's status row.
+	void SetSelectedEntry(int x, int z);
 	// The Doorways tab's "+ Add" and Delete rows. Delete clears the tab's note
 	// with the selection: it was about the doorway that is gone.
 	void AddLocation();

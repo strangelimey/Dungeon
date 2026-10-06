@@ -263,8 +263,11 @@ DungeonWorld::TypeUsage DungeonWorld::SweepTypeRefs(const std::string& catalogKe
 													const std::string& id,
 													const std::string* newId) {
 	TypeUsage usage;
-	// Which record family holds this category's ids. A category the static and
-	// dynamic layers both ignore (none today) would simply find nothing.
+	// Which record family holds this category's ids. A category no level record
+	// names finds nothing here, and that is not "unused": the world tier's -
+	// dungeons, quests, TERRAIN (a world square is one of its references) - are
+	// Game's to count, in Game::SweepCatalogRefs, beside the cross-catalog
+	// fields (code-review C345: a terrain delete was never refused).
 	using TR = DungeonMap::TypeRecords;
 	std::optional<TR> statics;
 	std::optional<EntityKind> dynamics;

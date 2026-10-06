@@ -138,6 +138,56 @@ const std::string* WorldMap::Location::Param(std::string_view key) const {
 	return nullptr;
 }
 
+// --- terrain glyphs (code-review C345) ---------------------------------------
+
+WorldMap::GlyphFault WorldMap::CheckGlyph(char c) {
+	if (c >= 'a' && c <= 'z') return GlyphFault::Lowercase;
+	// Printable ASCII past the space, and not the comment mark: ReadLevelLines
+	// drops a line that STARTS with ';', so a row whose first cell were one
+	// would vanish from the grid and every row under it would move up.
+	const unsigned char u = static_cast<unsigned char>(c);
+	if (u <= ' ' || u >= 0x7F || c == ';') return GlyphFault::Reserved;
+	return GlyphFault::None;
+}
+
+WorldMap::GlyphFault WorldMap::CheckGlyphText(std::string_view text) {
+	return text.size() == 1 ? CheckGlyph(text[0]) : GlyphFault::Length;
+}
+
+const char* WorldMap::GlyphFaultText(GlyphFault fault) {
+	switch (fault) {
+	case GlyphFault::None: return "a usable glyph";
+	case GlyphFault::Length: return "a glyph is exactly one character";
+	case GlyphFault::Lowercase: return "lowercase starts a record - grid rows are not lowercase";
+	case GlyphFault::Reserved:
+		return "';', whitespace, control bytes and non-ASCII cannot stand in a grid row";
+	case GlyphFault::Taken: return "another terrain already has it";
+	}
+	return "?";
+}
+
+char WorldMap::FreeGlyph(std::string_view taken) {
+	// The plainest characters first, so a new kind reads as a letter in the
+	// file. '?' is left out on purpose: it is what an unreadable catalog glyph
+	// falls back to (Game_World.cpp GlyphOf), and a kind handed it would share
+	// with the first broken one.
+	constexpr std::string_view kCandidates =
+		"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!$%&*+=@<>|/:";
+	for (const char c : kCandidates)
+		if (taken.find(c) == std::string_view::npos) return c;
+	return '\0';
+}
+
+WorldMap::TerrainFault WorldMap::CheckTerrains(const TerrainRules& rules) {
+	for (size_t i = 0; i < rules.size(); ++i) {
+		if (const GlyphFault f = CheckGlyph(rules[i].glyph); f != GlyphFault::None)
+			return {f, i, i};
+		for (size_t j = 0; j < i; ++j)
+			if (rules[j].glyph == rules[i].glyph) return {GlyphFault::Taken, j, i};
+	}
+	return {};
+}
+
 std::optional<WorldMap> WorldMap::Load(const std::string& path,
 									   TerrainRules terrain) {
 	auto bytes = assets::ReadBinaryFile(path);
@@ -150,17 +200,18 @@ std::optional<WorldMap> WorldMap::Load(const std::string& path,
 
 	// A glyph is how the grid names a terrain, so two kinds cannot share one and
 	// none may be lowercase — records are lowercase and grid rows are not, the
-	// rule the whole level dialect is split on.
-	for (size_t i = 0; i < w.m_terrain.size(); ++i) {
-		const char g = w.m_terrain[i].glyph;
-		DN_ASSERT(!(g >= 'a' && g <= 'z'),
-				  std::format("terrain {} has lowercase glyph '{}' — records are "
-							  "lowercase, grid rows are not",
-							  w.m_terrain[i].id, g));
-		for (size_t j = 0; j < i; ++j)
-			DN_ASSERT(w.m_terrain[j].glyph != g,
-					  std::format("terrain {} and {} share glyph '{}'",
-								  w.m_terrain[j].id, w.m_terrain[i].id, g));
+	// rule the whole level dialect is split on. The rules are CheckTerrains',
+	// which the editor refuses by and the checker reports, so nothing the
+	// editor writes can stop here.
+	if (const TerrainFault f = CheckTerrains(w.m_terrain); f.fault != GlyphFault::None) {
+		const Terrain& a = w.m_terrain[f.a];
+		const Terrain& b = w.m_terrain[f.b];
+		DN_ASSERT(false, f.fault == GlyphFault::Taken
+							 ? std::format("terrain {} and {} share glyph '{}' in {}", a.id,
+										   b.id, a.glyph, path)
+							 : std::format("terrain {} has glyph 0x{:02x} - {} ({})", a.id,
+										   static_cast<unsigned char>(a.glyph),
+										   GlyphFaultText(f.fault), path));
 	}
 
 	std::vector<std::string> rows;
@@ -308,11 +359,73 @@ bool WorldMap::SetTerrainAt(int x, int z, std::string_view terrainId) {
 	return false; // an unknown terrain would author a world Load aborts on
 }
 
+int WorldMap::TerrainCells(std::string_view id) const {
+	int n = 0;
+	for (size_t i = 0; i < m_terrain.size(); ++i)
+		if (m_terrain[i].id == id)
+			for (const u8 c : m_cells)
+				if (static_cast<size_t>(c) == i) ++n;
+	return n;
+}
+
+bool WorldMap::SyncTerrains(TerrainRules next) {
+	if (next.empty() || CheckTerrains(next).fault != GlyphFault::None) return false;
+	// Where each of today's kinds lands in `next`, by id. A kind `next` lacks
+	// maps nowhere, which is only a refusal if some cell is that kind.
+	std::vector<size_t> to(m_terrain.size(), next.size());
+	for (size_t i = 0; i < m_terrain.size(); ++i)
+		for (size_t j = 0; j < next.size(); ++j)
+			if (next[j].id == m_terrain[i].id) {
+				to[i] = j;
+				break;
+			}
+	for (const u8 c : m_cells)
+		if (static_cast<size_t>(c) >= to.size() || to[c] >= next.size()) return false;
+	for (u8& c : m_cells) c = static_cast<u8>(to[c]);
+	m_terrain = std::move(next);
+	return true;
+}
+
+bool WorldMap::RenameTerrain(std::string_view id, std::string newId) {
+	Terrain* renaming = nullptr;
+	for (Terrain& t : m_terrain) {
+		if (t.id == newId) return false;
+		if (t.id == id) renaming = &t;
+	}
+	if (!renaming) return false;
+	renaming->id = std::move(newId);
+	return true;
+}
+
+namespace {
+// An entry the loader reads back: both halves set and on the grid's side of
+// zero, or both the "none" -1 (code-review C343).
+bool EntryWhole(int x, int z) {
+	return (x >= 0 && z >= 0) || (x == -1 && z == -1);
+}
+} // namespace
+
 bool WorldMap::AddLocation(Location l) {
-	if (!InBounds(l.x, l.z)) return false;
+	if (!InBounds(l.x, l.z) || !EntryWhole(l.entryX, l.entryZ)) return false;
 	for (const Location& e : m_locations)
 		if (e.id == l.id || (e.x == l.x && e.z == l.z)) return false;
 	m_locations.push_back(std::move(l));
+	return true;
+}
+
+bool WorldMap::SetLocationEntry(std::string_view id, int x, int z) {
+	if (x < 0 || z < 0) return false;
+	Location* l = MutableLocation(id);
+	if (!l) return false;
+	l->entryX = x;
+	l->entryZ = z;
+	return true;
+}
+
+bool WorldMap::ClearLocationEntry(std::string_view id) {
+	Location* l = MutableLocation(id);
+	if (!l) return false;
+	l->entryX = l->entryZ = -1;
 	return true;
 }
 
@@ -412,7 +525,10 @@ std::string WorldMap::Serialize() const {
 		// a choice it had not.
 		if (!l.dungeon.empty()) m += " dungeon=" + l.dungeon;
 		if (!l.level.empty()) m += " level=" + l.level;
-		if (l.entryX >= 0)
+		// A WHOLE entry or none: half of one is what the loader asserts on, and
+		// writing it would have the save that wrote it abort on its own read-back
+		// (code-review C343).
+		if (l.entryX >= 0 && l.entryZ >= 0)
 			m += std::format(" entryx={} entryz={}", l.entryX, l.entryZ);
 		for (const auto& [k, v] : l.params) m += std::format(" {}={}", k, v);
 		m += '\n';

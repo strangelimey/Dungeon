@@ -232,6 +232,34 @@ public:
 	};
 	using TerrainRules = std::vector<Terrain>;
 
+	// --- terrain glyphs (code-review C345) ----------------------------------
+	// THE RULES A GLYPH KEEPS, stated once: Load asserts on them, the type
+	// editor's Save refuses by them and the checker reports them, so the three
+	// cannot drift into a world the editor wrote and the loader will not open.
+	// A glyph IS one grid cell, so it is one character, and the level dialect
+	// decides which characters are free to be one: a lowercase letter starts a
+	// record, ';' a comment, and whitespace, a control byte or anything past
+	// ASCII would not survive an editor, a code page or a trimmed line.
+	enum class GlyphFault : u8 { None, Length, Lowercase, Reserved, Taken };
+	static GlyphFault CheckGlyph(char c);
+	// The same of a glyph as AUTHORED (terrain.cat's text), which must also be
+	// exactly one character - absent, empty or "MM" is a Length fault.
+	static GlyphFault CheckGlyphText(std::string_view text);
+	// The fault in English, for a log line or an assert (the UI says it in its
+	// own words, through Loc).
+	static const char* GlyphFaultText(GlyphFault fault);
+	// The first glyph `taken` does not hold, from a fixed list of the plainest
+	// (A-Z, then the digits, then a few marks), or '\0' when every one is taken.
+	// A "+ New" terrain is given one, so two new kinds never share a default.
+	static char FreeGlyph(std::string_view taken);
+	// The first reason `rules` cannot be read as a world's terrain kinds: a kind
+	// whose glyph breaks a rule (`a`), or two sharing one (`a` and `b`, Taken).
+	struct TerrainFault {
+		GlyphFault fault = GlyphFault::None;
+		size_t a = 0, b = 0;
+	};
+	static TerrainFault CheckTerrains(const TerrainRules& rules);
+
 	// Something standing on a world cell that the party can reach. `kind` is
 	// "dungeon" today ("town" later).
 	//
@@ -253,7 +281,10 @@ public:
 		int x = 0, z = 0;
 		std::string dungeon;      // empty = same as id
 		std::string level;        // empty = the dungeon's entry level
-		int entryX = -1, entryZ = -1; // -1 = that level's own start cell
+		// -1, -1 = that level's own start cell. BOTH OR NEITHER, and never
+		// another negative: an editor changes them only through SetLocationEntry
+		// / ClearLocationEntry (code-review C343).
+		int entryX = -1, entryZ = -1;
 		std::vector<std::pair<std::string, std::string>> params;
 
 		const std::string* Param(std::string_view key) const;
@@ -319,14 +350,38 @@ public:
 	// taking an index: the caller would have to know the ordering, and the
 	// whole point of glyphs was that nothing outside has to.
 	bool SetTerrainAt(int x, int z, std::string_view terrainId);
-	// Adds a location, refusing a duplicate id or an occupied cell — the two
-	// things Load asserts on, checked here so the editor cannot author a world
-	// that will not load.
+	// How many cells are this terrain - what a delete of the kind is refused by.
+	int TerrainCells(std::string_view id) const;
+	// Replaces the terrain kinds with `next`, MATCHED BY ID (code-review C345):
+	// every cell keeps its terrain under that terrain's index in `next`, so a
+	// changed glyph rewrites the grid's text for free and an added kind changes
+	// no cell. Refuses - false, nothing changed - what Load would refuse: no
+	// kinds, a glyph breaking the rules, or a kind some cell is that `next` does
+	// not hold. The catalog is the authority: the type editor's Save, a "+ New",
+	// a delete and an undo restore all hand the world terrain.cat's kinds here.
+	bool SyncTerrains(TerrainRules next);
+	// Renames a kind where it stands - the cells hold indices, so nothing else
+	// moves. False for an unknown id or one already taken.
+	bool RenameTerrain(std::string_view id, std::string newId);
+	// Adds a location, refusing a duplicate id (Load does not check one, but the
+	// editor addresses a location by id and could not tell two apart), an
+	// occupied or off-grid cell (both of which Load asserts on), and half an
+	// entry or a negative one (which Load asserts on too).
 	bool AddLocation(Location l);
 	bool RemoveLocation(std::string_view id);
 	// Moves one to another cell. False if the id is unknown, the cell is off
 	// the grid, or another location already stands there.
 	bool MoveLocation(std::string_view id, int x, int z);
+	// WHERE A DOORWAY LANDS, both coordinates or neither (code-review C343): the
+	// one way an entry changes, because the loader asserts on half of one and
+	// Serialize can only write a whole one. Set refuses an unknown id and a
+	// negative coordinate - so setting one half of an entry that has none, its
+	// other half still -1, is refused too. Clear goes back to the level's own
+	// start cell. Each false = nothing changed.
+	bool SetLocationEntry(std::string_view id, int x, int z);
+	bool ClearLocationEntry(std::string_view id);
+	// Everything else about a location (kind, dungeon, level, params). Its
+	// entry goes through SetLocationEntry, its cell through MoveLocation.
 	Location* MutableLocation(std::string_view id);
 	// Moves where a new game puts the party. Refuses off the grid, and refuses
 	// IMPASSABLE ground — the checker calls that an error, and an editor must

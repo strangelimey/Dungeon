@@ -180,6 +180,19 @@ void WorldSettingsDialog::MoveSelected(int x, int z) {
 								   : loc::Tr("map.world.loc.refused"));
 }
 
+void WorldSettingsDialog::SetSelectedEntry(int x, int z) {
+	const WorldMap::Location* cur = Selected();
+	if (!onEditLocation || !cur) return;
+	WorldMap::Location next = *cur;
+	next.entryX = x;
+	next.entryZ = z;
+	// Written into the row, not rebuilt (SetNote): a negative typed digit by
+	// digit is judged as it goes, and the field must survive the refusal.
+	SetNote(NoteTab::Doorways, onEditLocation(m_selected, next)
+								   ? std::string()
+								   : loc::Tr("map.world.loc.badentry"));
+}
+
 void WorldSettingsDialog::DeleteSelected() {
 	if (!Selected()) return;
 	if (onDeleteLocation) onDeleteLocation(m_selected);
@@ -644,27 +657,26 @@ void WorldSettingsDialog::BuildLocationsTab(size_t tab) {
 	{ // where in that level it lands
 		// A CHECKBOX, which makes the pair rule unrepresentable-wrong: the
 		// loader asserts entryx and entryz are both set or neither, and two
-		// bare number fields let you author exactly one of them.
+		// bare number fields let you author exactly one of them. The fields
+		// still took a NEGATIVE, which the loader asserted on as well; all
+		// three go through SetSelectedEntry, the owner's one rule for an entry
+		// (code-review C343), and a refusal speaks in the status row.
 		const bool lands = sel->entryX >= 0;
 		ui::Stack* row = rows->Row<ui::Stack>(FormRow(), true);
 		row->gapRem = 0.5f;
 		row->Row<ui::Checkbox>(ui::Len::Fill(kLabelFill),
 							   loc::Tr("map.world.loc.entry"), lands,
-							   [this, edit](bool on) {
-								   edit([on](WorldMap::Location& n) {
-									   n.entryX = n.entryZ = on ? 0 : -1;
-								   });
+							   [this](bool on) {
+								   SetSelectedEntry(on ? 0 : -1, on ? 0 : -1);
 								   m_uiRebuild = true;
 							   });
 		if (lands) {
-			AddIntField(*row, ui::Len::Fill(kFieldFill), sel->entryX,
-						[edit](int v) {
-							edit([v](WorldMap::Location& n) { n.entryX = v; });
-						});
-			AddIntField(*row, ui::Len::Fill(kFieldFill), sel->entryZ,
-						[edit](int v) {
-							edit([v](WorldMap::Location& n) { n.entryZ = v; });
-						});
+			AddIntField(*row, ui::Len::Fill(kFieldFill), sel->entryX, [this](int v) {
+				if (const WorldMap::Location* c = Selected()) SetSelectedEntry(v, c->entryZ);
+			});
+			AddIntField(*row, ui::Len::Fill(kFieldFill), sel->entryZ, [this](int v) {
+				if (const WorldMap::Location* c = Selected()) SetSelectedEntry(c->entryX, v);
+			});
 		} else {
 			row->Space(ui::Len::Fill(kFieldFill * 2.0f));
 		}

@@ -111,8 +111,19 @@ struct QuestView {
 	std::vector<std::string> stages;
 };
 
+// One TERRAIN kind as terrain.cat authors it: the glyph's TEXT, not the '?' an
+// unreadable one is loaded as - that fallback is what the check is for.
+struct TerrainView {
+	std::string id;
+	std::string glyph;
+};
+
 struct WorldView {
 	const WorldMap* map = nullptr;
+	// terrain.cat as the next launch will read it, checked against the world
+	// (code-review C345): a kind's glyph breaking the rules, two kinds sharing
+	// one, or squares the catalog could not read back.
+	std::vector<TerrainView> terrains;
 	std::vector<DungeonView> dungeons;
 	std::vector<QuestView> quests;
 	std::vector<ItemHookView> itemHooks;

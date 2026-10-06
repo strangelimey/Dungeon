@@ -89,6 +89,17 @@ nothing ever refused it — `RenameType` ignored the count, so the rename went
 through and the doorways dangled. W11 applies it.) And TERRAIN is not swept
 at all, which is a property of the format: the grid names a terrain by its
 GLYPH, so renaming the id cannot orphan a cell. That is what the glyph is for.
+(HALF TRUE, found in code-review C345: the FILE cannot be orphaned, but the
+loaded world keeps its own copy of the kinds, which nothing kept in step - a
+glyph edit, a "+ New" (no glyph, read as '?', so two of them clashed) or a
+delete changed terrain.cat alone, and the next launch aborted in Load. Now the
+sweep counts a world square as a reference, so a painted kind cannot be
+deleted, a rename reaches the world's copy, and every write of terrain.cat
+hands the world the catalog's kinds by id - `Game::SyncWorldTerrains` - and
+writes world.map whenever a kind went or a glyph changed. Not "when the loaded
+world's text moved", the first cut: a square painted over and not yet saved is
+still the old kind ON DISK, so deleting that kind, or changing its glyph, left
+the file naming a glyph the saved catalog did not.)
 
 The original entry: One
 `kCategoryInfo` row and one `CatalogSchema` table each, following `effects`.

@@ -33,15 +33,23 @@ namespace {
 // startup, so the first lift in a guarded frame does not construct it.
 const std::string kNoItemHook;
 
-// A terrain kind's glyph, as authored. Exactly one character: a glyph IS one
-// grid cell, so "" or "MM" is an authoring error rather than something to
-// interpret generously.
+// A terrain kind's glyph as the world reads it: the authored character, or '?'
+// for anything that is not exactly one (absent, "", "MM").
+char ReadGlyph(const CatalogEntry& e) {
+	const std::string* g = e.Find("glyph");
+	return g && g->size() == 1 ? (*g)[0] : '?';
+}
+
+// The same, saying so when it had to fall back. Exactly one character: a glyph
+// IS one grid cell, so "" or "MM" is an authoring error rather than something
+// to interpret generously. The editor refuses to save one (TerrainSaveRefusal)
+// and the checker reports one, so only a hand edit lands here.
 char GlyphOf(const CatalogEntry& e) {
 	const std::string g = e.Get("glyph", "");
-	if (g.size() == 1) return g[0];
-	log::Warn("terrain '{}' has {} glyph — one character required, using '?'",
-			  e.id, g.empty() ? "no" : "a multi-character");
-	return '?';
+	if (g.size() != 1)
+		log::Warn("terrain '{}' has {} glyph - one character required, using '?'",
+				  e.id, g.empty() ? "no" : "a multi-character");
+	return ReadGlyph(e);
 }
 
 // How many space-separated stems a dungeon's `levels` field names.
@@ -58,7 +66,7 @@ size_t WordCount(const std::string& s) {
 
 } // namespace
 
-void Game::LoadWorldMap() {
+WorldMap::TerrainRules Game::CatalogTerrainRules() const {
 	WorldMap::TerrainRules rules;
 	rules.reserve(m_project.terrain.Entries().size());
 	for (const CatalogEntry& e : m_project.terrain.Entries()) {
@@ -72,7 +80,11 @@ void Game::LoadWorldMap() {
 		CatalogColor(&e, "color", t.color); // absent leaves the neutral default
 		rules.push_back(std::move(t));
 	}
+	return rules;
+}
 
+void Game::LoadWorldMap() {
+	WorldMap::TerrainRules rules = CatalogTerrainRules();
 	if (rules.empty()) {
 		// No terrain authored means no world can be read, and that is a normal
 		// state for a project that has not grown one yet — not a failure.
@@ -172,12 +184,74 @@ bool Game::SaveWorld() {
 	return true;
 }
 
+// --- terrain kinds, kept in step with terrain.cat (code-review C345) ---------
+// The world holds its OWN copy of the terrain kinds, read once at load, and the
+// grid holds indices into it. While nothing kept the two in step, a kind edited
+// or added in a session changed only the catalog: the world went on drawing and
+// writing the old glyphs, and the next launch met a grid the catalog could not
+// read and aborted. Every write of terrain.cat now ends here - but a rename's,
+// whose sweep renames the world's copy where it stands (SweepCatalogRefs).
+bool Game::SyncWorldTerrains() {
+	if (!m_worldMap) return true; // no world: nothing reads the kinds yet
+	WorldMap::TerrainRules next = CatalogTerrainRules();
+	// WHAT world.map ON DISK MAY SPELL THAT terrain.cat ON DISK NO LONGER READS:
+	// a kind that went, or a kind whose glyph moved. Judged on the KINDS, never on
+	// whether the loaded world's text changed - the file is not the loaded world.
+	// A square painted over since the last save is still the old kind on disk, so
+	// with no square of it left in memory, the in-memory text did not move while
+	// the file still named a glyph the saved catalog has dropped, and the next
+	// launch aborted in Load on the first one.
+	bool moved = false;
+	for (const WorldMap::Terrain& was : m_worldMap->Terrains()) {
+		const auto it = std::find_if(next.begin(), next.end(),
+									 [&](const WorldMap::Terrain& t) { return t.id == was.id; });
+		if (it == next.end() || it->glyph != was.glyph) moved = true;
+	}
+	if (!m_worldMap->SyncTerrains(std::move(next))) {
+		// Only a hand-broken catalog gets here: the editor refuses the glyphs
+		// SyncTerrains would, and a painted kind cannot be deleted.
+		log::Warn("world map: terrain.cat's kinds cannot be applied (a glyph breaks the "
+				  "rules, or a painted kind is gone) - the world keeps its own");
+		return false;
+	}
+	// ...so the world is written beside the catalog, now, from the loaded world,
+	// which spells every square with a kind the catalog holds. Like a rename's
+	// sweep, it writes whatever else the world holds unsaved - the squares
+	// painted over included, which is what takes the dropped glyph out of the file.
+	if (moved && !SaveWorld())
+		log::Warn("world map: a terrain kind went or changed its glyph, but the world "
+				  "did not save");
+	return true;
+}
+
+std::string Game::TerrainSaveRefusal(const CatalogEntry& merged) const {
+	// The glyph AS IT WOULD BE WRITTEN, judged by the rules Load asserts on.
+	const std::string glyph = merged.Get("glyph", "");
+	switch (WorldMap::CheckGlyphText(glyph)) {
+	case WorldMap::GlyphFault::Length: return loc::Format("map.type.glyph.length", glyph);
+	case WorldMap::GlyphFault::Lowercase: return loc::Format("map.type.glyph.lower", glyph);
+	case WorldMap::GlyphFault::Reserved: return loc::Tr("map.type.glyph.reserved");
+	case WorldMap::GlyphFault::None:
+	case WorldMap::GlyphFault::Taken: break;
+	}
+	// Against every OTHER kind as the world reads it (so a hand-broken one's '?'
+	// counts too): two kinds sharing a glyph cannot be told apart in the grid.
+	for (const CatalogEntry& e : m_project.terrain.Entries())
+		if (e.id != merged.id && ReadGlyph(e) == glyph[0])
+			return loc::Format("map.type.glyph.taken", glyph, e.Display());
+	return {};
+}
+
 std::vector<validate::Issue> Game::ValidateProject() {
 	// The world tier's half of the snapshot. Gathered HERE because Game is the
 	// only thing that holds both the world map and the catalogs; the checker
 	// stays free of Project and DungeonWorld stays free of the world.
 	validate::WorldView view;
 	view.map = m_worldMap ? &*m_worldMap : nullptr;
+	// The kinds as terrain.cat AUTHORS them - the glyph's text, not GlyphOf's
+	// reading of it, since "MM" read as '?' is exactly what the check is for.
+	for (const CatalogEntry& e : m_project.terrain.Entries())
+		view.terrains.push_back({e.id, e.Get("glyph", "")});
 	for (const CatalogEntry& e : m_project.dungeons.Entries()) {
 		validate::DungeonView d;
 		d.id = e.id;
@@ -787,14 +861,24 @@ void Game::WireWorldSettingsDialog() {
 		return step([&] {
 			WorldMap::Location* live = m_worldMap->MutableLocation(id);
 			if (!live) return false;
+			// WHERE IT LANDS FIRST, through the map's one rule for an entry -
+			// both coordinates or neither, never negative (code-review C343) -
+			// the rule the `worldloc set` command meets too. Its fields took a
+			// negative, which the loader asserted on; refused, nothing else in
+			// this edit happens either. (-1, -1) is the checkbox's "no cell".
+			if (next.entryX != live->entryX || next.entryZ != live->entryZ) {
+				const bool landed = next.entryX == -1 && next.entryZ == -1
+										? m_worldMap->ClearLocationEntry(id)
+										: m_worldMap->SetLocationEntry(id, next.entryX,
+																	   next.entryZ);
+				if (!landed) return false;
+			}
 			// Everything but WHERE IT STANDS and WHAT IT IS CALLED: the cell
 			// has an occupancy rule of its own (onMoveLocation), and the id is
 			// named by exit stairs and by saves, so renaming needs the sweep.
 			live->kind = next.kind;
 			live->dungeon = next.dungeon;
 			live->level = next.level;
-			live->entryX = next.entryX;
-			live->entryZ = next.entryZ;
 			return true;
 		});
 	};

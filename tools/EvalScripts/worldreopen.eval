@@ -1,0 +1,11 @@
+; worldreopen.eval - the world worldterrain.eval left opens again (code-review
+; batch 89). Run by tools\WorldTest.py phase 23, as a SECOND launch: the
+; terrain kinds and landing cells that run authored are read back here by
+; WorldMap::Load, which asserted on every fault it fixes. Reaching the end of
+; this script at all is the first check; what `world` and `worldloc` print is
+; the second, since a world that only loaded by losing a square would be worse.
+logecho on
+reset
+world
+worldloc
+validate

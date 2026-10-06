@@ -1239,7 +1239,9 @@ void Game::RegisterWorldCommands() {
 				   "add <kind> <id> <x> <z>\n"
 				   "del <id>\n"
 				   "move <id> <x> <z>\n"
-				   "set <id> <kind|dungeon|level|entryx|entryz> <value>",
+				   "set <id> <kind|dungeon|level> <value>\n"
+				   "set <id> entry <x> <z>|none\n"
+				   "set <id> entryx|entryz <value>",
 		 .summary = "list, add, remove, move or edit world locations"},
 		[this](const std::vector<std::string>& a) {
 			if (!m_worldMap) {
@@ -1297,17 +1299,55 @@ void Game::RegisterWorldCommands() {
 					m_console.Refuse("no such location");
 					return;
 				}
+				const std::string& field = a[2];
+				if (field == "entry" || field == "entryx" || field == "entryz") {
+					// WHERE IT LANDS goes through the map's one rule for an entry
+					// (code-review C343): both coordinates or neither, never below
+					// zero. `entryx 5` on a location with no entry used to leave
+					// entryz at -1, and the save that wrote it aborted on its own
+					// read-back. One half still moves on its own when the other is
+					// set - what is refused is HALF AN ENTRY, not the form.
+					int x = l->entryX, z = l->entryZ, given = 0;
+					const bool none = field == "entry" && a[3] == "none";
+					if (field == "entry" && !none) {
+						if (a.size() < 5) {
+							m_console.RefuseUsage();
+							return;
+						}
+						x = std::atoi(a[3].c_str());
+						z = std::atoi(a[4].c_str());
+						given = std::min(x, z);
+					} else if (field == "entryx") {
+						x = given = std::atoi(a[3].c_str());
+					} else if (field == "entryz") {
+						z = given = std::atoi(a[3].c_str());
+					}
+					m_world->BeginUndoStep();
+					const bool ok = none ? w.ClearLocationEntry(a[1])
+										 : w.SetLocationEntry(a[1], x, z);
+					m_world->CommitUndoStep(ok);
+					if (ok)
+						m_console.Print(none ? std::format("{}.entry = none (the level's own start)",
+														   a[1])
+											 : std::format("{}.entry = {},{}", a[1], x, z));
+					else if (given < 0)
+						m_console.Refuse("refused: an entry cell cannot be negative");
+					else
+						m_console.Refuse(std::format(
+							"refused: half an entry - {} lands on both entryx and entryz or "
+							"neither (worldloc set {} entry <x> <z>)",
+							a[1], a[1]));
+					return;
+				}
 				m_world->BeginUndoStep();
 				bool ok = true;
-				if (a[2] == "dungeon") l->dungeon = a[3];
-				else if (a[2] == "level") l->level = a[3];
-				else if (a[2] == "entryx") l->entryX = std::atoi(a[3].c_str());
-				else if (a[2] == "entryz") l->entryZ = std::atoi(a[3].c_str());
-				else if (a[2] == "kind") l->kind = a[3];
+				if (field == "dungeon") l->dungeon = a[3];
+				else if (field == "level") l->level = a[3];
+				else if (field == "kind") l->kind = a[3];
 				else ok = false;
 				m_world->CommitUndoStep(ok);
-				say(ok, std::format("{}.{} = {}", a[1], a[2], a[3]),
-					"field must be kind/dungeon/level/entryx/entryz");
+				say(ok, std::format("{}.{} = {}", a[1], field, a[3]),
+					"field must be kind/dungeon/level/entry/entryx/entryz");
 			} else {
 				m_console.RefuseUsage();
 			}
@@ -1414,6 +1454,7 @@ void Game::RegisterWorldCommands() {
 				   "status\n"
 				   "start <x> <z>\n"
 				   "move <x> <z>\n"
+				   "entry <x> <z>|none\n"
 				   "add|delete",
 		 .summary = "open, close, report or edit through the world settings dialog"},
 		[this](const std::vector<std::string>& a) {
@@ -1433,18 +1474,25 @@ void Game::RegisterWorldCommands() {
 			// for the selected doorway - the SAME member calls those fields make
 			// - and `status` prints what each tab's row SHOWS, read off its
 			// Label, so a note written into the other tab's row reads as wrong.
-			if (!a.empty() && (a[0] == "status" || a[0] == "start" || a[0] == "move")) {
+			// `entry` is the Doorways tab's landing cell (its checkbox and two
+			// fields; `none` = the box unticked), whose refusal of a negative
+			// speaks in that row too (code-review C343).
+			if (!a.empty() && (a[0] == "status" || a[0] == "start" || a[0] == "move" ||
+							   a[0] == "entry")) {
 				WorldSettingsDialog& d = m_worldSettingsDialog;
 				if (!d.IsOpen()) {
 					m_console.Refuse("world settings are not open");
 					return;
 				}
-				if (a[0] != "status") {
+				if (a[0] == "entry" && a.size() == 2 && a[1] == "none") {
+					d.SetSelectedEntry(-1, -1);
+				} else if (a[0] != "status") {
 					if (!Need(m_console, a, 3)) return;
 					const int x = std::atoi(a[1].c_str());
 					const int z = std::atoi(a[2].c_str());
 					if (a[0] == "start") d.SetStart(x, z);
-					else d.MoveSelected(x, z);
+					else if (a[0] == "move") d.MoveSelected(x, z);
+					else d.SetSelectedEntry(x, z);
 				}
 				static constexpr const char* kTab[] = {"world", "areas", "doorways"};
 				const int tab = d.ActiveTab();

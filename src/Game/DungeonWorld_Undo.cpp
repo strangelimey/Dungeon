@@ -49,7 +49,21 @@ void DungeonWorld::RestoreEditorState(EditorSnapshot snap) {
 	// THE WORLD, restored alongside the levels because an editor step may have
 	// spanned both (adding a level to a dungeon touches the manifest, the
 	// catalog and a doorway). One history means one restore.
-	if (m_worldForUndo && snap.world) *m_worldForUndo = std::move(snap.world);
+	//
+	// BUT NOT ITS TERRAIN KINDS (code-review C345). Those are terrain.cat's,
+	// which no undo step takes back, and the snapshot holds the kinds as they
+	// were when it was taken: restored whole, a glyph changed since would come
+	// back in the grid's text while the catalog on disk says the new one, and
+	// the next save would write a world the next launch cannot read. So the
+	// snapshot's squares are carried onto TODAY's kinds, by id. (A deleted kind
+	// cannot be in a snapshot: a terrain delete clears the history.)
+	if (m_worldForUndo && snap.world) {
+		if (*m_worldForUndo &&
+			!snap.world->SyncTerrains((*m_worldForUndo)->Terrains()))
+			log::Warn("undo: the world's squares name a terrain kind that is gone - "
+					  "restored with the kinds they were painted with");
+		*m_worldForUndo = std::move(snap.world);
+	}
 	// The opening, likewise (a stair move can carry it). Flagged as moved so
 	// the next save writes project.ini back to whatever the undo left.
 	if (m_openX && m_openZ && snap.openX != -2 &&

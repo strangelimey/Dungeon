@@ -770,9 +770,10 @@ constexpr FieldSpec kTerrainFields[] = {
 	{.key = "display", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,
 	 .help = "The terrain's name."},
 	{.key = "glyph", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,
-	 .help = "The ONE character standing for it in world.map. Must be unique "
-			 "and must not be lowercase (records are lowercase, grid rows are "
-			 "not)."},
+	 .help = "The ONE character standing for it in world.map. Must be unique, "
+			 "and not lowercase (records are lowercase, grid rows are not), ';' "
+			 "(a comment) or a space - Save refuses one the world could not be "
+			 "read with. A new terrain is given a free one."},
 	{.key = "tags", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,
 	 .help = "The content pool an encounter here draws from."},
 	{.key = "color", .kind = FieldKind::Text, .sectionKey = kSectionLook,

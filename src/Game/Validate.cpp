@@ -161,6 +161,35 @@ void CheckWorld(const WorldView& world, const std::vector<LevelView>& levels,
 		issues.push_back(
 			{Severity::Error, "", -1, -1, "map.check.worldstart",
 			 std::format("{},{}", world.map->StartX(), world.map->StartZ())});
+
+	// THE WORLD AS THE NEXT LAUNCH WILL READ IT (code-review C345). The loaded
+	// world keeps its own copy of the terrain kinds, so a session can go on
+	// happily while terrain.cat says something world.map cannot be read with -
+	// and the first anyone heard of it was the next launch aborting in Load.
+	// The editor refuses these on the way in; this is for a catalog that got
+	// round it (a hand edit read as '?', which Load lets through while unused).
+	for (size_t i = 0; i < world.terrains.size(); ++i) {
+		const TerrainView& t = world.terrains[i];
+		if (WorldMap::CheckGlyphText(t.glyph) != WorldMap::GlyphFault::None) {
+			issues.push_back({Severity::Error, "", -1, -1, "map.check.terrainglyph", t.id,
+							  t.glyph});
+			continue;
+		}
+		for (size_t j = 0; j < i; ++j)
+			if (world.terrains[j].glyph == t.glyph)
+				issues.push_back({Severity::Error, "", -1, -1, "map.check.terrainclash",
+								  world.terrains[j].id, t.id});
+	}
+	// Every kind a square IS must come back as itself: the catalog names it,
+	// and with the glyph the world writes it under.
+	for (const WorldMap::Terrain& k : world.map->Terrains()) {
+		if (world.map->TerrainCells(k.id) == 0) continue;
+		const auto it = std::find_if(world.terrains.begin(), world.terrains.end(),
+									 [&](const TerrainView& t) { return t.id == k.id; });
+		if (it == world.terrains.end() || it->glyph != std::string(1, k.glyph))
+			issues.push_back({Severity::Error, "", -1, -1, "map.check.terrainunread", k.id,
+							  std::string(1, k.glyph)});
+	}
 }
 
 } // namespace

@@ -630,7 +630,8 @@ void Game::WireModuleCallbacks() {
 		// (code-review C301): the reload below - or the next level load - opens
 		// it through LoadModelOrDie. The entry is judged as the Save would write
 		// it, so a model cleared back to the id, or never fixed, counts as well.
-		if (const std::string why = UnloadableModelReason(cfg.catalogKey, MergedTypeEntry(cfg));
+		// So is a terrain glyph the world could not be read with (C345).
+		if (const std::string why = TypeSaveRefusal(cfg.catalogKey, MergedTypeEntry(cfg));
 			!why.empty()) {
 			log::Warn("type editor: save of {} '{}' refused: {}", cfg.catalogKey, cfg.id, why);
 			return why;
@@ -651,7 +652,9 @@ void Game::WireModuleCallbacks() {
 			// catalog is the whole reload (lighting-updates Phase 2).
 			else if (cfg.catalogKey == "lights" || cfg.catalogKey == "trails")
 				m_world->ReloadLightProfiles();
-			else {
+			// A terrain is the world map's, handed to it by WriteTypeFields
+			// (SyncWorldTerrains); no level holds a kind of it to reload.
+			else if (cfg.catalogKey != "terrain") {
 				// The reload frees this kind's mesh and respawns EVERY object
 				// with a new id - and an open inspector, or the monster dialog,
 				// borrows that mesh for its preview and names its object by the

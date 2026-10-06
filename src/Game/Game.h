@@ -313,6 +313,11 @@ private:
 	// model. The create dialog and the type editor's Save refuse on it
 	// (code-review C301): the load is a LoadModelOrDie.
 	std::string UnloadableModelReason(const std::string& catalogKey, const CatalogEntry& e) const;
+	// Why the type editor's Save of `catalogKey` entry `merged` (as it would be
+	// written) is refused, or "": a model its category could not load
+	// (UnloadableModelReason), or a terrain glyph the world could not be read
+	// with (TerrainSaveRefusal). Both `typeset` and the dialog's Save ask it.
+	std::string TypeSaveRefusal(const std::string& catalogKey, const CatalogEntry& merged) const;
 	// What "Use installed" does with pool texture set `set` adopted as a surface
 	// of `catalogKey` (walls / floors / ceilings) - code-review C407. A set's worn
 	// meshes are ONE file per set in the shared pool, kind baked into the
@@ -361,7 +366,10 @@ private:
 	bool m_typeOverBalance = false;
 	// Creates an entry in a pure-data catalog (dungeons/terrain/quests) with a
 	// free id and the schema's defaults; the caller opens the type editor on it
-	// so the id can be renamed there. "" if the category has no catalog.
+	// so the id can be renamed there. "" if the category has no catalog. A
+	// TERRAIN also gets a glyph no other kind has, and is saved and handed to
+	// the world at once, so it can be painted (code-review C345); "" when every
+	// glyph is taken.
 	std::string CreateAuthoredType(MapEditor::PaletteCat cat);
 	// STYLES (Game_Styles.cpp): add a library style to this world (the style
 	// and whatever it points at that the world lacks, saved; monsters it lacks
@@ -427,6 +435,23 @@ private:
 	// resets m_worldMap first); leaves it empty when the project has no
 	// terrain.cat entries or no world/world.map.
 	void LoadWorldMap();
+	// terrain.cat's kinds as the world reads them (GlyphOf's '?' for a glyph
+	// that is not one character) - what LoadWorldMap parses against.
+	WorldMap::TerrainRules CatalogTerrainRules() const;
+	// Hands the loaded world terrain.cat's kinds, matched by id (WorldMap::
+	// SyncTerrains), after every write of the catalog - a Save, a "+ New", a
+	// delete - and WRITES the world when a kind went or a glyph changed, whether
+	// or not the loaded world's text moved: world.map ON DISK must spell its
+	// squares as the catalog on disk does, and a square painted over since the
+	// last save is still the old kind there, or the next launch cannot read it
+	// (code-review C345). A rename needs no sync: SweepCatalogRefs renames the
+	// world's copy. False when the catalog's kinds could not be applied (logged;
+	// only a hand edit gets there).
+	bool SyncWorldTerrains();
+	// Why a terrain entry `merged` (as the Save would write it) cannot be saved,
+	// in the dialog's words, or "": its glyph must be one character, not
+	// lowercase, not reserved (WorldMap::CheckGlyph) and no other kind's.
+	std::string TerrainSaveRefusal(const CatalogEntry& merged) const;
 	// Writes world/world.map from the loaded world, and READS IT BACK to check
 	// it round-trips. Part of `savemap`. False when there is no world, or the
 	// write failed.

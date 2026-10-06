@@ -2,11 +2,11 @@
 #
 # Run:  python tools\WorldTest.py      (needs a debug build)
 #
-# Twenty-two phases, all built on one principle: a check that never fires reports
-# "clean" just as loudly as one that works, so every expectation here is paired
-# with something that makes it fail.
+# Twenty-three phases, all built on one principle: a check that never fires
+# reports "clean" just as loudly as one that works, so every expectation here is
+# paired with something that makes it fail.
 #
-#   1. VALIDATION — break the world data nine ways, one at a time, and demand
+#   1. VALIDATION - break the world data eleven ways, one at a time, and demand
 #      the matching check fire. The baseline is asserted clean first, so a
 #      finding cannot be something that was already there.
 #   2. THE SAVE ROUND TRIP — move all three parts of the global tier OFF their
@@ -67,6 +67,16 @@
 #      the game goes on (C349); a save held open is not deleted, and says so
 #      with its error code (C367); and Start New Game from crypt2 opens with
 #      the same lines as on the level in hand (C364).
+#  23. TERRAIN KINDS AND LANDING CELLS (code-review batch 89) - two "+ New"
+#      terrains get glyphs of their own, a glyph the world could not be read
+#      with is refused WITHOUT being written, a delete of a painted kind is
+#      refused, a changed glyph reaches world.map at once and survives an undo,
+#      a glyph change or a delete writes world.map although no square in
+#      MEMORY is the kind (the file is what the next launch reads), a rename
+#      reaches the world's copy of the kinds, half a landing cell or a
+#      negative one is refused from the console and the dialog (C345, C343) -
+#      and then a SECOND launch opens what the first wrote, which is where
+#      every one of these used to abort.
 #
 # NOTHING HERE TOUCHES THE REAL WORLD (code-review C431). Every phase runs in
 # wt_demo, a scratch copy of dungeon-demo made at the start and deleted at the
@@ -96,6 +106,7 @@ SCRATCH = "wt_demo"
 PROJ = os.path.join(harness_game.projects_dir(ROOT), SCRATCH)
 WORLD = os.path.join(PROJ, r"world\world.map")
 DUNGEONS = os.path.join(PROJ, r"catalog\dungeons.cat")
+TERRAIN = os.path.join(PROJ, r"catalog\terrain.cat")
 MANIFEST = os.path.join(PROJ, "project.ini")
 EXE = os.path.join(ROOT, r"build\debug\bin\Dungeon.exe")
 LOG = os.path.join(ROOT, r"build\debug\bin\dungeon.log")
@@ -215,6 +226,13 @@ CASES = [
     ("level no dungeon claims", DUNGEONS,
      "levels = crypt1 crypt2", "levels = crypt1",
      "map.check.levelorphan"),
+    # A glyph that is not one character loads as '?' (GlyphOf) and Load lets it
+    # through while nothing is painted with it - the one terrain fault that can
+    # reach the checker from a file (code-review C345). Painted, or a second
+    # one, and the next launch aborts.
+    ("a terrain glyph the world cannot be read with", TERRAIN,
+     "[road]", "[bog]\ndisplay = Bog\nglyph = MM\n\n[road]",
+     "map.check.terrainglyph"),
 ]
 
 # The guard is taken BEFORE clearing up what a killed run left (its worlds and
@@ -225,9 +243,9 @@ for w in WORLDS:
     harness_game.remove_world(ROOT, w)
 harness_game.remove_saves(SAVES.values())
 harness_game.scratch_world(ROOT, SCRATCH)
-# The scratch world's own originals: phases 1 and 10 change these files and put
-# them back, because later phases run in the same scratch world.
-originals = {p: read(p) for p in (WORLD, DUNGEONS, MANIFEST)}
+# The scratch world's own originals: phases 1, 10, 11 and 23 change these files
+# and put them back, because later phases run in the same scratch world.
+originals = {p: read(p) for p in (WORLD, DUNGEONS, TERRAIN, MANIFEST)}
 # settings.ini is the DEVELOPER'S, not the project's: phase 16 points it at a
 # scratch world on purpose, and it must come back exactly as it was - or go
 # again, if the run found none.
@@ -599,7 +617,14 @@ try:
         write(WORLD, world_before)
     # --- phase 11: the world tier is editable content -----------------------
     print("\n11 - dungeons, terrain and quests are types you can author")
-    log = run("worldtypes.eval")
+    try:
+        log = run("worldtypes.eval")
+    finally:
+        # A "+ New" terrain is SAVED at once now (code-review C345: the world
+        # can come to name its glyph), and the save writes the dungeon made
+        # just before it too - later phases expect the scratch world's own.
+        for p in (DUNGEONS, TERRAIN):
+            write(p, originals[p])
 
     # THE SWEEP SEES THE WORLD. The crypt is referenced by its two doorways
     # and by NOTHING in any level - so the "0 level record(s)" half is the
@@ -1331,6 +1356,178 @@ try:
           "Start New Game from crypt2, which loads its level first, opens with the same lines",
           sec.get("from crypt2", "").strip()[:400])
     check("eval RESULT=PASS script=newgameintro.eval" in log, "the script ran clean")
+
+    # --- phase 23: terrain kinds and landing cells (code-review batch 89) ----
+    print("\n23 - terrain kinds and landing cells the world opens again with")
+    # From the scratch world's own files: earlier phases leave their edits in
+    # it, and this phase reads the terrain and doorways it starts from.
+    for p in (WORLD, TERRAIN):
+        write(p, originals[p])
+
+    def terrain_blocks(con):
+        """{id: (glyph, cells)} for each `world` readout, in order."""
+        out, cur = [], None
+        for l in con:
+            if l == "> world":
+                cur = {}
+                out.append(cur)
+            elif l.startswith(">"):
+                cur = None
+            elif cur is not None:
+                m = re.match(r"\s*terrain (\S+)\s+'(.)'\s+(\d+) cells", l)
+                if m:
+                    cur[m.group(1)] = (m.group(2), int(m.group(3)))
+        return out
+
+    def notes_of(con):
+        return [m.group(1) for m in (re.search(r"doorways note '(.*)'$", l) for l in con
+                                     if l.startswith("world settings open: tab")) if m]
+
+    def wrote_world(log, cmd, last=False):
+        """Did script line `cmd` write world.map before the next line ran? The
+        first such line, or the last with `last` (the script deletes terrain1
+        twice)."""
+        at = (log.rfind if last else log.find)("console: > " + cmd)
+        if at < 0:
+            return False
+        nxt = log.find("console: >", at + 1)
+        return any("Wrote " in l and l.rstrip().endswith("world.map")
+                   for l in log[at:nxt if nxt >= 0 else len(log)].splitlines())
+
+    try:
+        log = run("worldterrain.eval")
+        con = [l.split("console: ", 1)[1] for l in log.splitlines() if "console: " in l]
+
+        # C343: HALF AN ENTRY and a negative one are refused, each saying which
+        # (the expect-refuse lines already demand the refusal; this, the rule).
+        check(any(l.startswith("refused: half an entry - gate2") for l in con),
+              "`worldloc set gate2 entryx 5` on a doorway with no landing cell is refused "
+              "as half an entry")
+        check(sum(l == "refused: an entry cell cannot be negative" for l in con) == 2,
+              "and a negative Z (or either half) is refused as negative")
+        check("gate2.entry = 4,5" in con and "gate2.entry = 6,5" in con,
+              "a whole entry is taken, and then one half moves on its own (the control)")
+        notes = notes_of(con)
+        check(len(notes) == 2 and notes[0] not in ("", "-") and notes[1] == "",
+              "the dialog's landing fields refuse a negative in their status row, and take "
+              "a whole cell", f"notes {notes}")
+
+        # C345: two "+ New" terrains, a glyph each - none another kind's, no '?'.
+        blocks = terrain_blocks(con)
+        check(len(blocks) == 9, f"the script read the world nine times (got {len(blocks)})")
+        g1 = g2 = ""
+        if blocks:
+            made = blocks[0]
+            g1 = made.get("terrain1", ("", 0))[0]
+            g2 = made.get("terrain2", ("", 0))[0]
+            others = {g for k, (g, _) in made.items() if k not in ("terrain1", "terrain2")}
+            check(g1 and g2 and g1 != g2 and "?" not in (g1, g2) and not ({g1, g2} & others),
+                  "two new terrains get glyphs of their own, neither '?' nor another kind's",
+                  f"terrain1 '{g1}', terrain2 '{g2}', taken {sorted(others)}")
+        refusals = [l for l in con if l.startswith("typeset terrain 'terrain2': glyph refused")]
+        for want, what in (("already the glyph of Road", "road's glyph"),
+                           ("'b' is lowercase", "a lowercase glyph"),
+                           ("('CC' is not)", "two characters"),
+                           ("('' is not)", "no glyph at all")):
+            check(any(want in l for l in refusals), f"a save naming {what} is refused, saying so",
+                  " | ".join(refusals))
+        # ...AND NOTHING WAS WRITTEN: a refusal that wrote first would leave the
+        # empty or two-character glyph, which the world reads as '?' - so the
+        # kind still wears the glyph it was made with (the refusal lines above
+        # match the message alone, which a write-then-refuse prints too).
+        check(len(blocks) >= 2 and blocks[1].get("terrain2", ("", 0))[0] == g2 != "",
+              "and none of the four refused saves wrote the glyph: terrain2 keeps its own",
+              f"made with '{g2}', then {blocks[1:2]}")
+        check(len(blocks) >= 2 and blocks[1].get("terrain2", ("", 0))[1] == 1,
+              "the new kind paints at once (the world was handed it)")
+        check("typeset delete terrain 'terrain2': refused - Still painted on 1 world "
+              "square(s) - paint them over first." in con and
+              any(l.startswith("typeset delete terrain 'road': refused - Still painted on")
+                  for l in con),
+              "a delete of a painted kind is refused, naming its squares - the new one and road")
+        check("terrain 'terrain2': 0 level record(s), 1 other reference(s)" in con,
+              "typerefs counts a world square as a reference")
+        # A CHANGED GLYPH IS WRITTEN AT ONCE: world.map, saved with the old one a
+        # moment before, would otherwise spell 6,6 with a glyph terrain.cat no
+        # longer names - the next launch's abort.
+        check(wrote_world(log, "typeset terrain terrain2 glyph Q"),
+              "a changed glyph writes world.map in the same breath as terrain.cat")
+        check(len(blocks) >= 3 and blocks[2].get("terrain2") == ("Q", 1),
+              "and the square reads the new glyph", f"{blocks[2:3]}")
+        # The undo KEEPS TODAY'S KINDS: the snapshot still held the old glyph.
+        check(len(blocks) >= 5 and blocks[3].get("terrain2") == ("Q", 0) and
+              blocks[4].get("terrain2") == ("Q", 1),
+              "an undo takes back the paint and keeps the new glyph; the redo puts it back",
+              f"{[b.get('terrain2') for b in blocks[3:5]]}")
+        check("typeset delete terrain 'terrain1': done" in con and len(blocks) >= 6 and
+              "terrain1" not in blocks[5] and blocks[5].get("terrain2") == ("Q", 1),
+              "an unused kind deletes, and the kind after it keeps its square",
+              f"{blocks[5:6]}")
+
+        # A RENAME REACHES THE WORLD'S COPY (SweepCatalogRefs -> RenameTerrain):
+        # without it the brush refuses the new id, and the sync by id after the
+        # glyph change finds a painted kind gone, keeps the old glyph and writes
+        # nothing - the file left naming a glyph terrain.cat does not, which the
+        # reopen below aborts on. (terrain1 and terrain3 were made just before.)
+        check("typeset rename terrain 'terrain2': done" in con,
+              "the painted terrain2 is renamed marsh")
+        b6 = blocks[6] if len(blocks) >= 7 else {}
+        check("terrain2" not in b6 and b6.get("marsh") == ("R", 2),
+              "the world knows it by the new name: it paints, and both squares take its "
+              "new glyph", f"{b6}")
+        check(wrote_world(log, "typeset terrain marsh glyph R"),
+              "and that glyph reaches world.map at once")
+
+        # WORLD.MAP ON DISK, NOT THE LOADED WORLD. terrain1 (a free id again) and
+        # terrain3 were painted and SAVED, then painted over in memory only, so
+        # the loaded world's text did not move when terrain3's glyph changed or
+        # terrain1 went - but the file still spelled a square with each old glyph,
+        # and terrain.cat no longer named either: the reopen aborted on the first.
+        # Nothing writes the world after this in the script, so the reopen sees
+        # what these two left.
+        b7 = blocks[7] if len(blocks) >= 8 else {}
+        check(b7.get("terrain1", ("", 0))[1] == 1 and b7.get("terrain3", ("", 0))[1] == 1,
+              "two more new kinds, a square each, saved (the premise)", f"{b7}")
+        check(wrote_world(log, "typeset terrain terrain3 glyph S"),
+              "a glyph change writes world.map although no square in memory is the kind")
+        check(wrote_world(log, "typeset delete terrain terrain1", last=True),
+              "and so does deleting a kind no square in memory is, but one on disk was")
+        b8 = blocks[8] if len(blocks) >= 9 else {}
+        check("terrain1" not in b8 and b8.get("terrain3") == ("S", 0) and
+              b8.get("marsh") == ("R", 2),
+              "the deleted kind gone, the other under its new glyph and on no square",
+              f"{b8}")
+        check(not any("map.check.terrain" in l for l in con),
+              "and the checker finds nothing wrong with the terrain")
+
+        # THE SECOND LAUNCH. Every one of these faults used to pass in the session
+        # that made it and abort WorldMap::Load in the next; finishing is the check.
+        log = run("worldreopen.eval")
+        con = [l.split("console: ", 1)[1] for l in log.splitlines() if "console: " in l]
+        check("eval RESULT=PASS script=worldreopen.eval" in log,
+              "the world opens again in a new launch")
+        blocks = terrain_blocks(con)
+        check(len(blocks) == 1 and blocks[0].get("marsh") == ("R", 2) and
+              blocks[0].get("terrain3") == ("S", 0) and
+              not ({"terrain1", "terrain2"} & set(blocks[0])),
+              "with the renamed kind's squares under its new glyph, the other new kind "
+              "under its own, and the deleted kind gone", f"{blocks}")
+        locs = {l.split()[1]: l.split()[-1] for l in con
+                if re.match(r"\s+dungeon\s+\S+\s+\d+,\d+\s+->", l)}
+        check(locs.get("gate2") == "6,5" and locs.get("crypt_gate") == "7,7",
+              "and the landing cells as set: the console's and the dialog's", f"{locs}")
+        check(not any("map.check.terrain" in l for l in con),
+              "and the checker finds nothing wrong with the terrain it read back")
+        world = read(WORLD)
+        cat = read(TERRAIN)
+        check("location dungeon gate2 12 6 dungeon=crypt level=crypt1 entryx=6 entryz=5" in world
+              and re.search(r"\[marsh\][^\[]*\nglyph = R\r?\n", cat) and
+              re.search(r"\[terrain3\][^\[]*\nglyph = S\r?\n", cat) and
+              "[terrain1]" not in cat and "[terrain2]" not in cat,
+              "on disk: the whole entry, the new kinds with their glyphs, the deleted one gone")
+    finally:
+        for p in (WORLD, TERRAIN):
+            write(p, originals[p])
 
 except Stop as why:
     # Already counted as a failure where it was found: a game RAN, so this is a

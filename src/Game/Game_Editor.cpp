@@ -637,6 +637,15 @@ std::string Game::UnloadableModelReason(const std::string& catalogKey,
 	return {};
 }
 
+std::string Game::TypeSaveRefusal(const std::string& catalogKey,
+								  const CatalogEntry& merged) const {
+	if (std::string why = UnloadableModelReason(catalogKey, merged); !why.empty()) return why;
+	// A terrain glyph the world could not be read with (code-review C345): the
+	// Save writes terrain.cat at once, and Load asserts on the next launch.
+	if (catalogKey == "terrain") return TerrainSaveRefusal(merged);
+	return {};
+}
+
 // Opens the per-type catalog editor for a palette row. The dialog edits a COPY
 // of the entry's fields against its category's schema (CatalogSchema), so it
 // needs nothing but the entry itself; Monsters additionally get the button
@@ -703,8 +712,32 @@ std::string Game::CreateAuthoredType(MapEditor::PaletteCat cat) {
 	if (key == "flags")
 		if (const CatalogEntry* d = m_project.DungeonOfLevel(m_mapView.ViewedLevel()))
 			e.Set("dungeon", d->id);
+	// A new TERRAIN gets a glyph of its own (code-review C345). It used to get
+	// none, which reads as '?', so the second new kind shared the first's and
+	// the next launch aborted on the clash. Taken = every kind's glyph as the
+	// world reads it.
+	if (key == "terrain") {
+		std::string taken;
+		for (const CatalogEntry& t : catalog->Entries()) {
+			const std::string g = t.Get("glyph", "");
+			taken += g.size() == 1 ? g[0] : '?';
+		}
+		const char glyph = WorldMap::FreeGlyph(taken);
+		if (glyph == '\0') {
+			log::Warn("new terrain: every glyph is taken - no new kind can be told apart");
+			return {};
+		}
+		e.Set("glyph", std::string(1, glyph));
+	}
 	catalog->Add(std::move(e));
 	log::Info("new {} type '{}'", key, id);
+	// ...and is SAVED AND HANDED TO THE WORLD at once, so the brush can paint it.
+	// Once a square is painted with it, world.map names its glyph, and a catalog
+	// on disk without the kind would leave that file unreadable.
+	if (key == "terrain") {
+		if (!m_project.Save()) log::Warn("new terrain: failed to save the catalogs");
+		SyncWorldTerrains();
+	}
 	return id;
 }
 
@@ -1069,9 +1102,16 @@ int Game::SweepCatalogRefs(const std::string& catalogKey, const std::string& id,
 		++hits;
 		if (newId) m_project.startDungeon = *newId;
 	}
-	// TERRAIN IS NOT SWEPT, and that is a property of the format rather than an
-	// omission: the world grid names a terrain by its GLYPH, so renaming the
-	// id cannot orphan a cell. It is why terrain declares a glyph at all.
+	// TERRAIN: the WORLD'S SQUARES are its references (code-review C345). On
+	// disk the grid names a kind by its GLYPH, so a rename cannot orphan a cell
+	// in the file - but the loaded world holds its own copy of the kinds, which
+	// a rename must reach or the brush and the next sync (by id) lose the kind.
+	// Counting the squares is what lets a delete be refused while any is painted
+	// (DeleteType says so in its own words) and `typerefs` show the use.
+	if (catalogKey == "terrain" && m_worldMap) {
+		hits += m_worldMap->TerrainCells(id);
+		if (newId) m_worldMap->RenameTerrain(id, *newId);
+	}
 	return hits;
 }
 
@@ -1186,6 +1226,15 @@ bool Game::DeleteType(const std::string& catalogKey, const std::string& id,
 		problem = loc::Format("map.dungeon.delete.failed", id);
 		return false;
 	}
+	// A TERRAIN still painted on the world (code-review C345): the squares
+	// would be left naming a glyph no kind has, and the next launch aborts on
+	// the first one. Said in its own words before the general count below,
+	// which would call the squares "catalog entries".
+	if (catalogKey == "terrain" && m_worldMap)
+		if (const int cells = m_worldMap->TerrainCells(id); cells > 0) {
+			problem = loc::Format("map.type.inuse.world", cells);
+			return false;
+		}
 	const DungeonWorld::TypeUsage used = m_world->SweepTypeRefs(catalogKey, id);
 	if (used.Any()) {
 		std::string levels;
@@ -1200,6 +1249,17 @@ bool Game::DeleteType(const std::string& catalogKey, const std::string& id,
 	}
 	cat->Remove(id);
 	if (!m_project.Save()) log::Warn("delete type: failed to save catalogs");
+	if (catalogKey == "terrain") {
+		// The world drops the kind too (the kinds after it move down an index,
+		// which SyncTerrains carries the grid through), and world.map is written:
+		// a square painted over since the last save is still this kind in the
+		// file, which the catalog just saved could not read. The undo history goes
+		// too: a snapshot from before the last square was painted over still
+		// paints that square with the kind that is gone, and an undo would
+		// bring the abort back.
+		SyncWorldTerrains();
+		m_world->ClearUndoHistory();
+	}
 	log::Info("Deleted type '{}' from {}", id, catalogKey);
 	if (m_world->onMessage) m_world->onMessage(loc::FormatLine("map.type.deleted", id));
 	WarnStaleSaves(id); // a save's spawn rows are outside the level sweep
@@ -1359,6 +1419,10 @@ void Game::WriteTypeFields(const TypeEditorDialog::Config& cfg) {
 	cat->Add(MergedTypeEntry(cfg)); // add-or-replace by id
 	if (!m_project.Save())
 		log::Warn("type editor: failed to save project catalogs");
+	// The world reads terrain.cat's kinds through its own copy: hand it the
+	// saved ones, so a changed glyph reaches the grid's text (and world.map)
+	// rather than only the catalog (code-review C345).
+	if (cfg.catalogKey == "terrain") SyncWorldTerrains();
 }
 
 CatalogEntry Game::MergedTypeEntry(const TypeEditorDialog::Config& cfg) const {
