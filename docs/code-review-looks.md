@@ -58,6 +58,29 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   longer reaches through a shut door, no longer scorches a monster still
   dazzled from an earlier flare elsewhere, and no longer lights a wall torch
   through rock; an Earth stone's mapping and tracks stop at a shut door.
+- **Resting** (batch 35, a8fecd90). Rest now runs its 60x as 1/60 s ticks (at
+  most 90 a frame, so full speed holds down to 40 fps). Rest in play, ideally
+  with a monster awake nearby: does it feel the same speed, and do monsters
+  now arrive faster and smarter while you rest? They think and walk at awake
+  rates - about 2x the squares and 2x the thinks a simulated second.
+- **The gold in the grooves on light materials** (batch 49, 7757aa02). The
+  movement pad and the sheet's tab stones on `uimaterial snow_packed`, then
+  `limestone_pale`, `marble_white`, `desert_rock`, `granite_grey` (`uimaterial
+  off` after; `sheet 0` shows the tabs, the current one's gold lit). Pictures:
+  `build\debug\bin\shots\ingametest-movepad-snow_packed.png` (an InGameTest run
+  writes it). On the snows the etched gold went from 1.25:1 to 2.29:1.
+- **Clicking small floor items** (batch 63, b087b70d). A laid-flat torch, a rune
+  tablet, a key, an apple and an upright potion: click near the near and far
+  edges of each one's quarter of the square. The pick is measured at the item's
+  drawn middle now (a key should be easy to click where it is drawn).
+- **A glow in a wall niche** (batch 63). A rune or enchanted blade in an OPEN
+  niche glows in the pocket, not at the foot of the wall; in a SHUT niche it
+  does not glow. `editor place wallfeatures niche <x> <z> <dir>`, then `niche
+  <x> <z> <n|e|s|w> put rune_fire`, and `niche ... shut|open`.
+- **Esc in the editor's dialogs** (batch 75, 151604ec; optional). With a
+  drop-down open in an inspector or Level settings, Esc closes only the list;
+  the dialog and its edits stay. Esc closes the create dialog ("+ New..."); on
+  the editor map, Esc with the level list open closes only the list.
 - **A long id in a dialog title** (batch 18, 61f2997b; optional). The type
   editor's and the Level dialog's title shrink a long id to fit, and cut its
   tail to `..` only past the smallest size. Open the type editor on a type
@@ -94,6 +117,23 @@ raised that is yours, not a fix. Each line names the batch and its commit.
 - **Translations to check** (batch 72). `map.type.classbacked` ("The game's
   code defines this one - its entry only tunes it, so it cannot be renamed or
   deleted.") has new de / es / it / ru text written by the batch, unchecked.
+- **expedition.eval no longer measures what it was written for** (seen by
+  batch 11). Since spawn-rise, rung 4 (4x skel_warrior x2.5) does not wipe the
+  party (taken 8.0, downed 0): the skeletons spend 10-14 s of each 40 s rung
+  getting up. The script's "THE PARTY IS DEAD BY HERE", the eval-harness.md
+  expedition table and CLAUDE.md's "the party dies to DIFFICULTY long first"
+  are out of date for that reason. Part of the `spawn ... up` question above.
+- **Pale gold or dark bronze on snow** (batch 49). On snow_packed the ink solve
+  moves the gold toward PALE gold (0.99, 0.93, 0.77), so the grooves read as a
+  pale cream line. Dark bronze instead would be a ResolveInks change (it moves
+  the carved words too). To make the etches read harder on light materials,
+  the levers are the groove's floor opacity and shading (FLOOR_A / TONE_MIN in
+  tools\BuildEtchGlyphs.py), not the colour.
+- **A Caster with no spell** (batch 74, c14a2e38). Picked as Caster, a monster
+  with no spell now defaults to spells.cat's first entry, `flame` - a hand
+  spell with no thrown form, so it throws its plain shot until a bolt is
+  picked. Should the Caster list (and so the default) offer only spells a
+  monster can throw, such as firebolt?
 - **The rest of C19** (batch 25). Warn on spells.cat keys nothing reads, and
   drop the 15 dead `effect =` / `element =` lines? Not done yet.
 - **A carried Skylight's shock and a shut door** (batch 25). The flare and the
@@ -146,6 +186,21 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   Also: a bolt that flies past a lone member and breaks behind him now leaves
   its burn on him (only reachable when the column a caster aimed at falls
   while the bolt is in flight).
+- **A killing blow wakes nothing** (batch 26, a3a24f7d). A monster's killing
+  blow no longer adds threat or provokes it, so a one-blow kill cannot print
+  "The X turns on <member>!" as it falls. With a key, a tablet or any skill-less
+  item in hand, swings and parries train `unarmed`, as Punch and Kick do.
+- **`timescale` past about 6 runs in fixed ticks** (batch 35): capped at 90
+  ticks (1.5 s of world) a frame, so `timescale 100` no longer gives 100x.
+- **A step that ends on a wipe stops the clock** (batch 11, a61264c3).
+  tiers.eval's novice rung now reads "stopped: the party was wiped" after 23.68
+  s, where it ran a full 30 s; no measured number moved.
+- **A surface's Relief row** (batch 90, cf80b8d7). Unset by default now, a
+  checkbox reading e.g. "Relief (derived 0.060)" - the texture set's own depth,
+  from one record the baker and the editor share - where it was a slider at
+  the per-kind 0.055 / 0.045 / 0.08. Every committed worn mesh re-bakes
+  byte-identical, so nothing in the dungeon changed. The editor can no longer
+  create a type that re-bakes a shipped set as the wrong surface kind.
 - **The adept's threat** (batch 25). skel_mage_adept's volley bolts now carry
   their own spells.cat burn (1 4, was firebolt's 2 4), so its threat went from
   16.92 to 15.43 (shot 5.94 -> 4.94): still band 3, now just below
@@ -203,6 +258,17 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   AllocTest mode lands a monster's burst bolt on the party, or a gust on a
   shot, inside the window. The new paths are a fixed table and two erase_ifs
   that keep capacity, so they should allocate nothing, but nothing proves it.
+- **Esc on the Settings page and in the portrait picker** (seen by batch 75).
+  Both still take an Esc meant for one of their own open lists as "leave the
+  page" / "close the picker" (GameUI::CloseSettingsPage, DismissPopup). The fix
+  is the editor dialogs' (ask PopupOpen first). Schedule it?
+- **`rest on <anything>`** (seen by batch 11) still turns rest on for any word
+  but `off`; batch 10's refusal pass did not reach it.
+- **InGameTest's sweep_stair can lose a command** (seen by batch 49): `goto
+  crypt1` can outlast Run-Cmd's fixed 2 s, and the next `editor inspect 1 1`
+  is dropped (once in three runs there). It wants a wait for "Level ready".
+- **CheckAll's new rows** add time to the full tier: `alloc-items` (batch 63)
+  about 3-4 minutes, `worn` (batch 90) its release-baker re-bakes.
 - **Rear-rank members spam "no reach"** (seen by batch 15, not changed). With
   autoattack on, a rear-rank member without a polearm takes the no-reach path
   every frame (PartyAttack returns before setting the hand's cooldown), so the
