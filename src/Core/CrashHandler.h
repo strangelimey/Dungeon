@@ -9,6 +9,11 @@
 //     not C++ exceptions and no `catch` anywhere will ever see them. They are
 //     also the majority of what actually kills a game, which is why the plan
 //     scoped them in from the start rather than settling for `catch (...)`.
+//     A STACK OVERFLOW needs two things more, or its report faults on the
+//     exhausted stack and leaves nothing (code-review C388): every thread the
+//     engine starts keeps 64 KB of stack back for it (GuardThreadStack), and the
+//     heavy half of every report - the dump, the log line, the stack walk - runs
+//     on a REPORTER thread made at Install, while the failing thread waits.
 //   • std::terminate — an exception escaping a noexcept function or a thread's
 //     top level, and (before this) the way a throwing frame ended the process
 //     in silence.
@@ -16,12 +21,14 @@
 //     BEFORE abort(), which in a debug build otherwise leaves a CRT dialog and
 //     a process that looks alive.
 //
-// WHAT IT DELIBERATELY DOES NOT DO: symbolize. An SEH fault's real stack lives
-// in the CONTEXT_RECORD, not on the handler's own stack, so walking it needs
-// StackWalk64 against that context — that is phase 3. What phase 2 gives is the
-// exception code, the faulting address, and a MINIDUMP, which carries the full
-// stack for a debugger to open afterwards. The dump is the honest answer until
-// the walker exists, and stays useful after it.
+// THE ORDER, in every handler: RECORD the event quietly, write the DUMP, then
+// LOG one line - the event and what became of the dump - with the stack under
+// it, symbolized last (code-review C385). Decreasing order of how likely each
+// step is to survive: the record is a fixed buffer, the dump calls into
+// dbghelp, and the log formats, allocates and takes locks. An SEH fault's real
+// stack lives in its CONTEXT_RECORD, so it is walked (StackWalk64 against that
+// context) after the line; the MINIDUMP carries the same stack, and every
+// thread's, for a debugger.
 //
 // PATHS ARE SNAPSHOTTED AT INSTALL. paths::ExecutableDir() builds a std::string,
 // and a crash path must not touch the heap — it may be running because the heap
@@ -35,10 +42,19 @@
 
 namespace dungeon::crash {
 
-// Installs the fault filter and the terminate handler, and snapshots the paths
-// the crash path will need. Call once, early, from an entry point — after
-// diag::Init() so the record exists to write into. Idempotent.
+// Installs the fault filter and the terminate handler, starts the reporter
+// thread, snapshots the paths the crash path will need, and guards the calling
+// thread's stack (GuardThreadStack - the caller is the exe's main thread). Call
+// once, early, from an entry point - after diag::Init() so the record exists to
+// write into. Idempotent.
 void Install();
+
+// Keeps 64 KB of the CALLING thread's stack back for reporting its own stack
+// overflow (SetThreadStackGuarantee): an overflow is raised that much earlier,
+// so the fault filter has room to record it and hand the report over. Install
+// does the main thread; ThreadManager does every worker and its supervisor at
+// thread entry. Needs nothing installed.
+void GuardThreadStack();
 
 // UNATTENDED: no dialog may wait for a person. Everything that RECORDS a crash
 // is untouched (ReportFatal's record, log line and minidump all land first, as
@@ -51,24 +67,19 @@ void Install();
 // crash (docs/level-building.md P5).
 void SetUnattended();
 
-// Records a Fatal event, logs it, writes a dump and flushes — everything that
-// must happen while the process is still able to do it. Does NOT abort: the
-// caller decides, because DN_ASSERT wants abort() and a repeat-limit shutdown
-// wants an orderly exit.
+// Records a Fatal event, writes a dump, then logs one line saying both, with the
+// stack - everything that must happen while the process is still able to do it.
+// Does NOT abort: the caller decides, because DN_ASSERT wants abort() and a
+// repeat-limit shutdown wants an orderly exit.
 void ReportFatal(std::string_view what);
 
-// Writes a minidump beside the exe, named <exe>-<tag>-<pid>-<n>.dmp. `context`
-// is an EXCEPTION_POINTERS* when one is available (an SEH fault) and null
-// otherwise — without it the dump still carries every thread's stack, just not
-// the faulting register state. Returns false if dbghelp would not write it.
-//
-// Bounded per run (kMaxDumps): a repeating fault must not fill the disk, and by
-// the third dump of the same crash there is nothing new in the fourth.
-bool WriteDump(void* context, std::string_view tag);
-
+// The handlers write a minidump beside the exe, <exe>-<tag>-<pid>-<n>.dmp, with
+// the failing thread's exception context when there is one (an SEH fault) - the
+// faulting register state - and every thread's stack either way. At most this
+// many a run: a repeating fault must not fill the disk, and by the third dump of
+// the same crash there is nothing new in the fourth. (WriteDump and DumpsWritten
+// went with code-review C385: the handlers dump through the reporter, and no
+// readout ever asked for the count.)
 inline constexpr int kMaxDumps = 3;
-
-// How many dumps this run has written, for a readout to report.
-int DumpsWritten();
 
 } // namespace dungeon::crash

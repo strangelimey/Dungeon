@@ -4,6 +4,7 @@
 #include "Core/ThreadManager.h"
 
 #include "Core/AllocTrack.h"
+#include "Core/CrashHandler.h"
 #include "Core/Diagnostics.h"
 #include "Core/Log.h"
 #include "Core/Profile.h"
@@ -166,6 +167,11 @@ WorkerId Manager::Spawn(JobFn job, Options opt) {
 
 void Manager::Run(Worker* w, std::stop_token st) {
 	SetOsThreadName(w->name);
+	// Room kept back on this thread's stack for reporting its own overflow
+	// (Core/CrashHandler.h): without it the fault filter runs on the last few KB
+	// and faults again inside the report. Here, at thread entry, for the reason
+	// the registrations below are here - every managed thread gets it.
+	crash::GuardThreadStack();
 	// Same name to the allocation counters: "allocates nothing per tick" is the
 	// steady-state rule on this side too, and the AI's snapshot/plan pools exist
 	// precisely to hold it. Registering here rather than inside the job keeps the
@@ -582,6 +588,8 @@ void Manager::RestartWorker(WorkerId id, bool bySupervisor) {
 
 void Manager::SupervisorLoop(std::stop_token st) {
 	using namespace std::chrono_literals;
+	// Room on its own stack to report its own overflow, as every worker has (Run).
+	crash::GuardThreadStack();
 	while (!st.stop_requested()) {
 		std::vector<WorkerId> ids;
 		{

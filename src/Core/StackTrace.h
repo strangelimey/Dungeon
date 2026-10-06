@@ -44,8 +44,10 @@ int Capture(void** out, int max, int skip = 1);
 
 // The stack described by an SEH CONTEXT record, which is where a fault's real
 // frames live — the filter's own stack says only that a filter ran. `context`
-// is a CONTEXT*. Serializes on the DbgHelp lock.
-int WalkContext(void* context, void** out, int max);
+// is a CONTEXT*. `thread` is a HANDLE to the thread the context belongs to,
+// null for the calling thread - the crash reporter walks a fault from its own
+// thread (Core/CrashHandler). Serializes on the DbgHelp lock.
+int WalkContext(void* context, void** out, int max, void* thread = nullptr);
 
 // ANOTHER thread's stack, right now — the answer to "what is it stuck on".
 // `thread` is a HANDLE. Suspends it, walks, resumes.
@@ -122,7 +124,10 @@ private:
 
 // Logs a symbolized stack, one frame a line, at Warn. Skips the std:: plumbing
 // and stops at the entry point: a dozen frames of container internals say only
-// "something grew", and everything above wWinMain is CRT scaffolding.
+// "something grew", and everything above wWinMain is CRT scaffolding. A frame
+// repeated straight after itself is said once with a count - a stack overflow is
+// usually one function calling itself, and 60 identical lines bury the frame
+// under them that started it.
 void LogStack(void* const* frames, int depth, const char* indent = "      ");
 
 // Logs EVERY frame, unfiltered, one a line at Warn - for a stack walked from

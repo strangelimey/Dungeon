@@ -201,39 +201,47 @@ void ResetEntry(Entry& e) {
 	for (std::atomic<u32>& w : e.walkedLogged) w.store(0, std::memory_order_relaxed);
 }
 
-// The log line. Excuses its own allocations: log::Write formats a std::string,
-// and an un-excused report inside a guarded frame would be its own violation
-// (the rule Core/AllocTrack sets out).
-void LogEvent(Entry& e, const EventSlot& s, u64 repeat) {
-	alloc::Excused excuse;
-
+// One event's line, the same shape wherever the record logs it:
+//   diag 12:34:56.789 · <lead><kind> on '<thread>' (worker N, tick T): <message><tail>
+// The caller excuses the allocations.
+std::string EventLine(const char* name, Kind kind, u32 workerId, u64 iteration, i64 wallNs,
+					  const char* message, std::string_view lead, std::string_view tail) {
 	// system_clock's own duration is not nanoseconds (100 ns ticks on MSVC), so
 	// the stored figure has to be cast back into the clock's units, not just
 	// wrapped in a time_point.
 	const auto tp = std::chrono::system_clock::time_point(
 		std::chrono::duration_cast<std::chrono::system_clock::duration>(
-			std::chrono::nanoseconds(s.wallNs)));
+			std::chrono::nanoseconds(wallNs)));
 	const std::time_t t = std::chrono::system_clock::to_time_t(tp);
 	std::tm local{};
 	localtime_s(&local, &t);
 	const long long ms =
 		std::chrono::duration_cast<std::chrono::milliseconds>(
-			std::chrono::nanoseconds(s.wallNs))
+			std::chrono::nanoseconds(wallNs))
 			.count() %
 		1000;
 
 	const std::string when = std::format("{:02}:{:02}:{:02}.{:03}", local.tm_hour,
 										 local.tm_min, local.tm_sec, ms);
 	const std::string who =
-		s.workerId ? std::format("'{}' (worker {}, tick {})", e.name, s.workerId,
-								 s.iteration)
-				   : std::format("'{}'", e.name);
+		workerId ? std::format("'{}' (worker {}, tick {})", name, workerId, iteration)
+				 : std::format("'{}'", name);
+	return std::format("diag {} · {}{} on {}: {}{}", when, lead, KindName(kind), who, message,
+					   tail);
+}
+
+// The log line. Excuses its own allocations: log::Write formats a std::string,
+// and an un-excused report inside a guarded frame would be its own violation
+// (the rule Core/AllocTrack sets out).
+void LogEvent(Entry& e, const EventSlot& s, u64 repeat) {
+	alloc::Excused excuse;
+
 	const std::string again =
 		repeat > 1 ? std::format(" — repeated {} times", repeat) : std::string{};
 
 	log::Write(s.kind == Kind::Fatal ? log::Level::Error : log::Level::Warn,
-			   std::format("diag {} · {} on {}: {}{}", when, KindName(s.kind), who,
-						   s.message, again));
+			   EventLine(e.name, s.kind, s.workerId, s.iteration, s.wallNs, s.message, {},
+						 again));
 
 	// The stack, ONCE per distinct site. A failure that repeats is the ordinary
 	// case and its stack is identical every time, so printing thirty frames on
@@ -426,10 +434,10 @@ void UnregisterThisThread() {
 
 // ----------------------------------------------------------------------------
 
-void RecordFor(Slot slot, const Event& ev) {
-	if (slot >= static_cast<Slot>(kMaxThreads)) return;
+u64 RecordFor(Slot slot, const Event& ev) {
+	if (slot >= static_cast<Slot>(kMaxThreads)) return kNoEvent;
 	Entry& e = g_entries[slot];
-	if (!e.used.load(std::memory_order_relaxed)) return;
+	if (!e.used.load(std::memory_order_relaxed)) return kNoEvent;
 
 	const u64 at = e.written.fetch_add(1, std::memory_order_relaxed);
 	EventSlot& s = e.events[at & (kEventsPerThread - 1)];
@@ -474,7 +482,12 @@ void RecordFor(Slot slot, const Event& ev) {
 	e.counts[static_cast<int>(ev.kind)].fetch_add(1, std::memory_order_relaxed);
 
 	// The record is complete at this point; everything below only decides
-	// whether this event also reaches the log.
+	// whether this event also reaches the log. A QUIET record stops here, and
+	// takes no part in the collapse or the rate limit: its line, if any, comes
+	// from LogRecorded, which neither collapses nor throttles. So it is not "the
+	// last event" a later identical one would repeat, and spends no budget.
+	if (!ev.log) return at;
+
 	const u64 h = HashEvent(ev.kind, s.message);
 	u64 repeat = 1;
 	bool identical = false;
@@ -494,7 +507,7 @@ void RecordFor(Slot slot, const Event& ev) {
 	// or for the line that closes its run. It is not a rate-limited event.
 	if (identical && !IsLogPoint(repeat)) {
 		e.collapsed.fetch_add(1, std::memory_order_relaxed);
-		return;
+		return at;
 	}
 
 	// The ended run's closing line spends the budget like any other line, so
@@ -516,15 +529,40 @@ void RecordFor(Slot slot, const Event& ev) {
 	const u64 unsaid = identical ? e.collapsed.exchange(0, std::memory_order_relaxed) : 0;
 	if (!TakeLogBudget(e, s.wallNs, flushed)) {
 		e.rateLimited.fetch_add(1 + unsaid, std::memory_order_relaxed);
-		return;
+		return at;
 	}
 	if (flushed) LogRateLimited(e.name, flushed);
 	LogEvent(e, s, repeat);
+	return at;
 }
 
-void Record(const Event& ev) {
-	if (t_slot == kInvalidSlot) return; // an unregistered thread is not recorded
-	RecordFor(t_slot, ev);
+u64 Record(const Event& ev) {
+	if (t_slot == kInvalidSlot) return kNoEvent; // an unregistered thread is not recorded
+	return RecordFor(t_slot, ev);
+}
+
+bool LogRecorded(Slot slot, u64 index, std::string_view lead, std::string_view note) {
+	if (slot >= static_cast<Slot>(kMaxThreads) || index == kNoEvent) return false;
+	const Entry& e = g_entries[slot];
+	if (!e.used.load(std::memory_order_relaxed)) return false;
+	// A copy, so a writer lapping the ring meanwhile cannot tear what is logged.
+	EventView v;
+	if (!ReadSlot(e, index, v)) return false;
+
+	alloc::Excused excuse; // the line formats; symbolizing the stack allocates too
+	const std::string tail = note.empty() ? std::string{} : std::format(" - {}", note);
+	log::Write(log::Level::Error, EventLine(e.name, v.kind, v.workerId, v.iteration, v.wallNs,
+											v.message, lead, tail));
+	// The stack ALWAYS, not once per site: this is a crash's one report, and a
+	// site seen earlier in the run (an assert that also fired as a caught throw)
+	// must not leave it without one.
+	if (v.frameCount > 0) {
+		if (v.walked)
+			stack::LogEveryFrame(v.frames, v.frameCount);
+		else
+			stack::LogStack(v.frames, v.frameCount);
+	}
+	return true;
 }
 
 // ----------------------------------------------------------------------------

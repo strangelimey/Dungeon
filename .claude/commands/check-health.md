@@ -4,7 +4,9 @@ argument-hint: "[selftest|<case>]"
 allowed-tools: PowerShell, Read, Grep, Glob
 ---
 
-Break the real game ten ways and read `dungeon.log` (~10 min).
+Break the real game eleven ways and read `dungeon.log` (~11 min). Three of
+them END the process on purpose (`fault`, `overflow`, `assert`), each in a game
+of its own that the harness launched.
 
 - no argument → `.\tools\CheckAll.ps1 -Only health`
 - `selftest` → `.\tools\CheckAll.ps1 -Only health -SelfTest` (every case must
@@ -13,7 +15,7 @@ Break the real game ten ways and read `dungeon.log` (~10 min).
 - a case name → `.\tools\HealthTest.ps1 -Only <case>` for one case, much faster
 
 Cases: `throw` - `uiclip` - `uinest` - `worker` - `stall` - `probe` - `kill` -
-`restart` - `fault` - `assert`. Every event kind is covered; `kill` drives the
+`restart` - `fault` - `overflow` - `assert`. Every event kind is covered; `kill` drives the
 Killed kind through `threadkill`, the THREADS panel's kill button as a command.
 `uiclip` and `uinest` read what a caught throw leaves BEHIND in the UI walk's
 clip (code-review C208): a throw from inside a scroll area's walk, then a click
@@ -34,8 +36,15 @@ If the answer is not in the file you open after a crash, it does not count.
 The `[FAIL]` line prints the exact pattern that was missing. Then look at
 `build\debug\bin\dungeon.log` for what *did* happen:
 
-- **`fault` / `assert` failing** — check whether a `.dmp` was written beside the
-  exe. Report plus dump missing usually means `crash::Install()` is not running.
+- **`fault` / `overflow` / `assert` failing** - check whether a `.dmp` was written
+  beside the exe. Report plus dump missing usually means `crash::Install()` is
+  not running. Each wants ONE line naming the dump's status (`minidump 1 of 3
+  written`), written after the dump (code-review C385): the line present but met
+  twice means a handler logs before the dump again. `overflow` alone failing,
+  with no line and no dump, means the report ran out of stack - check
+  `crash::GuardThreadStack` and the reporter thread in Core/CrashHandler.cpp
+  (C388; dungeon.log's `crash handlers installed` line says whether the reporter
+  started).
 - **`throw` failing on the stack pattern** — the throw-time capture is the
   fragile part. A stack naming `Main.cpp` (the catch site) instead of
   `Game_DevDiagnostics.cpp` (the throw) means the vectored handler did not fire.

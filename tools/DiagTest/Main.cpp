@@ -12,12 +12,13 @@
 // message encodes the very fields it arrived with). A torn read — half of one
 // event and half of the next — cannot pass that, which is the whole point.
 //
-// The LOG checks (8 to 12) read this process's real log back, from the path the
+// The LOG checks (8 to 13) read this process's real log back, from the path the
 // sink itself opened (log::FilePath), and an unreadable log FAILS them: a check
 // that skips when its evidence is missing passes on nothing. Tests 9 and 11
 // each wait one log window out, which is most of the run's few seconds. Test 12
 // is the stack seen-set's (Core/StackTrace), which both the record's log path and
-// the allocation guard use to log a stack once.
+// the allocation guard use to log a stack once. Test 13 is the crash handlers'
+// QUIET record, logged later by LogRecorded.
 //
 // One machine-readable verdict line, the shared one (tools/Common/Verdict.h):
 //   diagtest RESULT=PASS checks=N failures=0 self_test=0
@@ -769,6 +770,62 @@ void TestSeenSetFull() {
 }
 
 // --------------------------------------------------------------------------
+// 13 - a QUIET record (Event::log = false) is the crash handlers' first step
+//      (code-review C385): in the record at once, in the log not at all until
+//      LogRecorded writes it - once, with what the handler adds either side of
+//      the message, and its stack under it. It takes no part in the repeat
+//      collapse either, so an identical event after it is a line of its own, not
+//      a "repeat" of a line nobody wrote. It records on the main thread's own
+//      slot, so it can follow test 11's full table.
+
+// The frame the quiet record's stack is told apart by. noinline, so it is a
+// frame of its own whatever the build.
+__declspec(noinline) u64 QuietRecordSite() {
+	return diag::Record(
+		{.kind = diag::Kind::Fatal, .message = "a quiet crash record", .log = false});
+}
+
+void TestQuietRecord() {
+	Say("13 - a quiet record is logged only by LogRecorded: once, with its stack");
+	const char* kMessage = "a quiet crash record";
+	const diag::Slot self = diag::ThisThread();
+	const u64 at = QuietRecordSite();
+
+	diag::EventView ev[diag::kEventsPerThread];
+	const int n = diag::ReadEvents(self, ev, diag::kEventsPerThread);
+	Check(at != diag::kNoEvent && n > 0 && ev[n - 1].index == at &&
+			  std::strcmp(ev[n - 1].message, kMessage) == 0,
+		  "the quiet event is in the record, at the index Record returned");
+	const int before = CountLogLines(kMessage);
+	if (before < 0) return;
+	Check(before == 0, std::format("...and not in the log ({} lines, want 0)", before));
+
+	Check(diag::LogRecorded(self, at, "CRASH: ", "a note written after the dump"),
+		  "LogRecorded finds it");
+	const auto lines = LogLines(kMessage);
+	if (!lines) return;
+	const char* kLine = "CRASH: FATAL on 'main': a quiet crash record - a note written after the dump";
+	const std::string first =
+		lines->empty() ? std::string("none")
+					   : (*lines)[0].substr(0, (*lines)[0].find_last_not_of("\r\n") + 1);
+	Check(lines->size() == 1 && first.find(kLine) != std::string::npos,
+		  std::format("...which writes ONE line, lead, message and note together ({} lines: {})",
+					  lines->size(), first));
+	const int site = CountLogLines("QuietRecordSite");
+	if (site < 0) return;
+	Check(site == 1, std::format("...and the stack under it ({} lines name the site, want 1)", site));
+
+	diag::Record({.kind = diag::Kind::Fatal, .message = kMessage, .captureStack = false});
+	const int after = CountLogLines(kMessage);
+	if (after < 0) return;
+	Check(after == 2, std::format("an identical event after it is logged as a new one, not "
+								  "collapsed into the quiet one ({} lines, want 2)",
+								  after));
+	Check(!diag::LogRecorded(self, diag::kNoEvent, "", ""),
+		  "LogRecorded of no event writes nothing and says so");
+}
+
+// --------------------------------------------------------------------------
 // 10 - WALKED stacks (a stall's, a forced kill's) cannot use up the log's
 //      memory of which stacks it has already shown. That memory is a SeenSet,
 //      which once full logs no further site (test 12), and a walk lands
@@ -863,6 +920,7 @@ int main() {
 	TestWalkedStacksKeepTheirOwnSet();
 	TestSlotReuse(); // it fills the slot table, so only slot-free tests follow
 	TestSeenSetFull();
+	TestQuietRecord(); // the main thread's own slot
 
 	const diag::Totals t = diag::ProcessTotals();
 	std::printf("\nprocess totals: %llu events (%llu exception, %llu stall, %llu restart, "

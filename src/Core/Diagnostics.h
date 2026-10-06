@@ -23,13 +23,17 @@
 // cannot be freed under a reader, so a force-terminated thread leaves its last
 // events behind exactly like one that exited cleanly.
 //
-// NOTHING HERE ALLOCATES OR LOCKS. Messages are copied into fixed storage and
-// stacks into a fixed array, because a report written after heap corruption —
-// or from a thread whose termination leaked the CRT heap lock — would be a
-// second crash on top of the first. Writes are claimed with one fetch_add and
-// published with a release store, so a cross-thread writer (the supervisor
-// recording a stall against the worker it watches) needs no mutex that a kill
-// could leak.
+// THE RECORD ALLOCATES NOTHING AND TAKES NO LOCK. Messages are copied into fixed
+// storage and stacks into a fixed array, because a report written after heap
+// corruption - or from a thread whose termination leaked the CRT heap lock -
+// would be a second crash on top of the first. Writes are claimed with one
+// fetch_add and published with a release store, so a cross-thread writer (the
+// supervisor recording a stall against the worker it watches) needs no mutex
+// that a kill could leak. The LOG LINE that follows a record is another matter:
+// it formats, allocates, takes the log's lock and may symbolize a stack. That is
+// why an event can be recorded QUIETLY (Event::log = false) and logged later
+// (LogRecorded) - the crash handlers record, write the dump, and only then log
+// (code-review C385).
 //
 // A REBOOT DOES NOT CLEAR THE RECORD. Core/Profile resets a rebooted worker's
 // slot so its predecessor's timings cannot bleed into it; this does the
@@ -108,6 +112,9 @@ struct Event {
 	// frame IS the diagnosis (NtWaitForSingleObject names the lock it waits on),
 	// and IsPlumbingFrame would drop exactly that.
 	bool walked = false;
+	// false = record only: no log line now, no part in the log's collapse or
+	// rate limit. The crash handlers' form - see LogRecorded.
+	bool log = true;
 };
 
 // The POD a reader gets: the same event with its storage owned rather than
@@ -175,17 +182,36 @@ Slot FindThread(std::string_view name);
 void UnregisterThisThread();
 
 // ----------------------------------------------------------------------------
-// Recording. Both forms are safe from any thread, allocate nothing, take no
-// lock and never throw.
+// Recording. Both forms are safe from any thread and never throw. The RECORD
+// allocates nothing and takes no lock; the log line after it does both (see the
+// header note), unless the event asks for none (Event::log = false).
+//
+// Both return the event's index in its thread's ring (EventView::index), for
+// LogRecorded; kNoEvent when nothing was recorded (an unregistered thread, a
+// bad slot).
+inline constexpr u64 kNoEvent = ~0ull;
 
 // Records against the CALLING thread's slot.
-void Record(const Event& e);
+u64 Record(const Event& e);
 
 // Records against ANOTHER thread's slot — the supervisor logging a stall
 // against the worker it watches, or Kill logging a termination against the
 // thread it just ended. The event lands on that thread's timeline, which is
 // where a reader looks for it, rather than on the reporter's.
-void RecordFor(Slot slot, const Event& e);
+u64 RecordFor(Slot slot, const Event& e);
+
+// Writes the log line of an event recorded QUIETLY (Event::log = false), then
+// its stack. The crash handlers' order (Core/CrashHandler): the record first,
+// the dump second, this last - because this is the step that formats,
+// allocates, takes locks and symbolizes, so it is the one least likely to
+// survive a damaged process, and the evidence before it must not wait on it.
+//
+// `lead` goes before the kind ("CRASH: fault on 'main': ..."), `note` after the
+// message, so one line says what happened AND what became of the dump. Logged
+// at Error, never collapsed or rate-limited (a crash happens once, and its line
+// is the one the log exists for), and the stack always, not once per site.
+// Returns false if the ring no longer holds that event.
+bool LogRecorded(Slot slot, u64 index, std::string_view lead, std::string_view note);
 
 // ----------------------------------------------------------------------------
 // Reading.

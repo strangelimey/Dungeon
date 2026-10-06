@@ -75,7 +75,9 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 	// The health record, then the handlers that feed it what no catch clause can
 	// see. Installed HERE, before the window and the device exist, because a
 	// fault during device creation is exactly as worth reporting as one during
-	// play — and until now was exactly as silent.
+	// play - and until now was exactly as silent. Install also starts the crash
+	// reporter thread and keeps back room on THIS thread's stack, so even a stack
+	// overflow on the main thread is reported (code-review C388).
 	diag::Init();
 	crash::Install();
 

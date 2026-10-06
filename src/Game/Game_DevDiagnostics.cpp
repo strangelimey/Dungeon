@@ -48,6 +48,21 @@ threads::WorkerId FindWorker(const threads::Manager& mgr, const std::string& who
 	}
 	return live != threads::kInvalidWorker ? live : any;
 }
+
+// `crashpoke overflow` (code-review C388): recursion with no floor, until the
+// stack runs out. Each call holds a page of stack and writes into it, and uses
+// its callee's result after the call, so no build can drop the page or turn the
+// recursion into a loop; whether to go deeper is a volatile read the optimizer
+// cannot see through, which also keeps "recursive on all control paths" (C4717)
+// quiet.
+volatile bool g_overflowDeeper = true;
+
+__declspec(noinline) int OverflowPoke(int depth) {
+	volatile char page[4096];
+	page[depth & 4095] = static_cast<char>(depth);
+	if (!g_overflowDeeper) return page[0];
+	return OverflowPoke(depth + 1) + page[depth & 4095];
+}
 } // namespace
 
 void Game::RegisterDiagnosticCommands() {
@@ -372,6 +387,7 @@ void Game::RegisterDiagnosticCommands() {
 				   "uiclip\n"
 				   "worker\n"
 				   "fault\n"
+				   "overflow\n"
 				   "assert",
 		 .summary = "break something on purpose (proves the health record catches it)"},
 		[this](const std::vector<std::string>& args) {
@@ -424,12 +440,20 @@ void Game::RegisterDiagnosticCommands() {
 				return;
 			}
 
-			// The two that END the process, which is the point: each should leave
-			// a report and a minidump where today there is silence.
+			// The three that END the process, which is the point: each should leave
+			// a report and a minidump where there used to be silence.
 			if (what == "fault") {
 				m_console.Print("crashpoke: dereferencing null — expect a crash report");
 				volatile int* p = nullptr;
 				*p = 1;
+				return;
+			}
+			// A stack overflow on the main thread: the fault whose report needs a
+			// stack of its own (Core/CrashHandler.h; HealthTest `overflow`).
+			if (what == "overflow") {
+				m_console.Print("crashpoke: recursing until the stack runs out - expect a crash "
+								"report");
+				OverflowPoke(0);
 				return;
 			}
 			if (what == "assert") {

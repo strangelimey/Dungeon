@@ -34,6 +34,11 @@
 # still land; `uinest` checks a scroll area nested in a tab page leaves its
 # siblings their clicks and their drawing.
 #
+# The cases that END the process (`fault`, `overflow`, `assert`) each want ONE
+# report line, written after the dump and naming what became of it (code-review
+# C385), and a dump on disk. `overflow` is a deliberate stack overflow on the main
+# thread: the fault whose report needs a stack of its own (C388).
+#
 # ASCII ONLY, deliberately: PowerShell 5.1 reads a BOM-less .ps1 as ANSI, so a
 # stray em-dash in a comment is a parse error, not a cosmetic issue.
 # ============================================================================
@@ -81,6 +86,13 @@ function Send-Click([int]$x, [int]$y) {
 # whichever logged first.
 function After([string]$line, [string]$frame) {
 	return "$line[^\n]*(?:\n[^\n]*){0,40}?\n[^\n]*$frame"
+}
+
+# A pattern met only when `text` is in the log exactly ONCE. A crash is reported
+# in one line, written after its dump (code-review C385): the handlers used to
+# log it first, before the dump, and then again beside the dump's status.
+function Once([string]$text) {
+	return "(?s)\A(?!.*?(?:$text).*?(?:$text)).*?(?:$text)"
 }
 
 # ---------------------------------------------------------------------------
@@ -227,11 +239,28 @@ $cases = @(
 		inject = @('crashpoke fault')
 		settle = 5
 		survives = $false
+		# ONE line, and written AFTER the dump: it says what became of the dump,
+		# which nothing before the dump could know (code-review C385).
 		expect = @(
-			"fault on 'main': access violation writing 0x0",
-			'CRASH: access violation',
-			'faulting stack:',
-			'Game_DevDiagnostics\.cpp:\d+'    # walked from the CONTEXT record
+			"CRASH: fault on 'main': access violation writing 0x0[^\n]*minidump \d of \d written",
+			(Once 'access violation writing 0x0'),
+			(After 'faulting stack:' 'Game_DevDiagnostics\.cpp:\d+')   # walked from the CONTEXT record
+		)
+		dump = $true
+	},
+	@{
+		name = 'overflow'
+		desc = 'a stack overflow - the fault with no stack left to report on - reports and dumps'
+		inject = @('crashpoke overflow')
+		settle = 6
+		survives = $false
+		# Without room kept back on the thread's stack and a reporter thread to
+		# write the dump, the report faulted again inside itself and the process
+		# ended with neither (code-review C388).
+		expect = @(
+			"CRASH: fault on 'main': stack overflow[^\n]*minidump \d of \d written",
+			(Once 'stack overflow \(code'),
+			(After 'faulting stack:' 'OverflowPoke')
 		)
 		dump = $true
 	},
@@ -241,9 +270,10 @@ $cases = @(
 		inject = @('crashpoke assert')
 		settle = 5
 		survives = $false
+		# One line again: the assertion and the dump's status together.
 		expect = @(
-			"FATAL on 'main': Assertion failed",
-			'minidump was written'
+			"FATAL on 'main': Assertion failed[^\n]*minidump \d of \d written",
+			(Once 'crashpoke: a deliberate assertion failure')
 		)
 		dump = $true
 	}
@@ -344,8 +374,15 @@ function Judge-Case($case, $r) {
 		$ok = $false
 	}
 	if ($case.dump) {
-		if ($r.dump) {
+		# A dump of the stacks and the memory they point at runs to tens of MB. A
+		# file of a few bytes is one whose writing failed half-way - what a stack
+		# overflow left when its report ran out of stack (code-review C388) - and
+		# is no dump.
+		if ($r.dump -and $r.dump.Length -ge 1MB) {
 			Write-Host "  [ok  ] minidump written ($($r.dump.Name), $([math]::Round($r.dump.Length / 1MB, 1)) MB)"
+		} elseif ($r.dump) {
+			Write-Host "  [FAIL] the minidump is $($r.dump.Length) bytes ($($r.dump.Name)) - its writing failed" -ForegroundColor Red
+			$ok = $false
 		} else {
 			Write-Host '  [FAIL] no minidump was written' -ForegroundColor Red
 			$ok = $false
@@ -402,7 +439,8 @@ foreach ($case in $cases) {
 			if (-not (Judge-SelfTestCase $case $r)) { $notAsNamed++ }
 			# The plain verdict, for the RESULT line: met everything, so a real
 			# run would have passed it.
-			if (-not ($r.control -and $r.unmet.Count -eq 0 -and (-not $case.dump -or $r.dump) -and
+			if (-not ($r.control -and $r.unmet.Count -eq 0 -and
+					  (-not $case.dump -or ($r.dump -and $r.dump.Length -ge 1MB)) -and
 					  -not ($case.survives -and $r.died))) { $failures++ }
 		} elseif (-not (Judge-Case $case $r)) {
 			$failures++

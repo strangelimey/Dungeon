@@ -3,7 +3,7 @@ description: The health record's ring — wrap, cross-thread writes, torn reads
 allowed-tools: PowerShell, Read, Grep, Glob
 ---
 
-Exercise `Core/Diagnostics` directly. 64 checks, about four seconds (tests 9
+Exercise `Core/Diagnostics` directly. 71 checks, about four seconds (tests 9
 and 11 each wait one log window out).
 
 ```
@@ -43,11 +43,27 @@ must be logged once. Walked stacks sharing the exceptions' set fill it, and a
 full set logs no further site: a FAIL there reading `0 times` is that sharing
 back (`LogEvent`, Core/Diagnostics.cpp).
 
+**Test 13 is the crash handlers' QUIET record** (`Event::log = false`,
+code-review C385): the fault filter, the terminate handler and ReportFatal
+record quietly, write the minidump, and only then log, so the record must take
+no lock and allocate nothing while the log waits. The test records one quietly
+on the main thread's own slot (so it can follow test 11's full table) and
+demands it be in the record at the index `Record` returned and in the log NOT
+AT ALL; then `diag::LogRecorded` writes ONE line - lead, kind, thread, message
+and note together (`CRASH: FATAL on 'main': ... - a note written after the
+dump`) - with the stack under it (the `QuietRecordSite` frame, once); an
+identical event recorded after it is a line of its own, never collapsed into a
+"repeat" of a line nobody wrote; and `LogRecorded` of `kNoEvent` writes nothing.
+A FAIL reading `want 0` is a quiet record that logs as it records again - the
+order HealthTest's `fault` and `assert` cases read from the game's side (the
+one line carries the dump's status, so it was written after the dump).
+
 ## Reading the output
 
 The tool logs its own synthetic failures to stderr as it runs — lines like
-`diag ... exception on 't.hammer'` are the test *working*, not a problem. The
-verdict is the `diagtest RESULT=` line.
+`diag ... exception on 't.hammer'` are the test *working*, not a problem, and
+so is test 13's `CRASH: FATAL on 'main': a quiet crash record` with a stack
+under it. The verdict is the `diagtest RESULT=` line.
 
 No self-test mode: it is a unit test whose failure mode is a `[FAIL]` line, not
 a silent green.

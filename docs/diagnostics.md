@@ -4,8 +4,8 @@
 phases are done and checked:
 
 ```
-diagtest   RESULT=PASS checks=64 failures=0     # the record, incl. torn-read detection
-healthtest RESULT=PASS cases=10 failures=0      # the real game, broken on purpose
+diagtest   RESULT=PASS checks=71 failures=0     # the record, incl. torn-read detection
+healthtest RESULT=PASS cases=11 failures=0      # the real game, broken on purpose
 healthtest RESULT=FAIL ... self_test=1          # and the harness proven able to fail
 alloctest  RESULT=PASS frames=1921 violations=0 # the symbolizer lift changed nothing
 ```
@@ -174,7 +174,7 @@ nothing is built untested.
    | injection | before | after |
    |---|---|---|
    | main-thread throw | process vanished | recorded, logged, **game keeps playing** |
-   | access violation | process vanished | `fault on 'main': access violation writing 0x0 at 0x7ff7…` + 33.6 MB dump |
+   | access violation | process vanished | `CRASH: fault on 'main': access violation writing 0x0 at 0x7ff7… - the process is going down; minidump 1 of 3 written beside the exe` + 33.6 MB dump |
    | worker throws every tick | one overwritten string, no log | every tick recorded with its number; worker keeps running |
    | assertion | log line, then a CRT dialog | FATAL recorded + dump written **before** `abort()` |
 3. **Stacks — DONE.** `Core/StackTrace` holds the capture, the DbgHelp
@@ -294,7 +294,7 @@ nothing is built untested.
    typed just before the injection) fails the self-test (code-review C419). It
    once passed on any failure at all, so a game that crashed at boot passed it.
 
-   Ten cases now: two read what a caught throw (code-review C208, 2026-10-05)
+   Ten cases by code-review batch 36: two read what a caught throw (code-review C208, 2026-10-05)
    leaves BEHIND rather than its record: `uiclip` throws from inside a clipping
    scroll area's walk (`crashpoke uiclip`, a scratch tree in Game/ClipPoke.cpp)
    and then clicks a button outside the area, which must land - and the throw
@@ -315,6 +315,16 @@ nothing is built untested.
    The `Killed` kind was not covered until code-review batch 36: a hard
    force-terminate was only the THREADS panel's kill button. `threadkill
    <id|name>` is that button as a command.
+
+   Eleven cases since code-review batch 37. `overflow` (`crashpoke overflow`, a
+   recursion with no floor on the main thread) wants the fault line, the
+   faulting stack naming the recursing function, and a dump - none of which an
+   overflow left before (C388). And the three cases that end the process
+   (`fault`, `overflow`, `assert`) each want ONE report line, carrying the
+   dump's status (`minidump 1 of 3 written beside the exe`), so it can only have
+   been written after the dump, and the fault's text exactly once (the script's
+   `Once`): the handlers used to log the crash before the dump and again beside
+   it (C385).
 
 ## The harness
 
@@ -383,6 +393,19 @@ part a failing worker varies.
   report must be flushed **before** the abort, never after.
 - **Stack overflow has no stack to walk on.** It needs a guard page and a
   separate handler stack, or the handler faults trying to report the fault.
+  This was written down from the start and still not built until the code
+  review (C388): the filter ran on the last few KB, faulted again inside its own
+  report and met the re-entrancy guard, so an overflow ended the process with no
+  dump and no line. Now every thread the engine starts keeps 64 KB back
+  (`crash::GuardThreadStack`, i.e. `SetThreadStackGuarantee`) and a REPORTER
+  thread made at Install does the dump, the line and the walk while the failing
+  thread waits; HealthTest's `overflow` case is the check.
+- **Record, dump, log - in that order, and the log once.** The comments said so
+  for years while `diag::Record` logged as it recorded, so every handler
+  formatted, allocated, took the log's lock and (for an assert) symbolized a
+  stack BEFORE the dump, then logged the crash a second time beside the dump's
+  status (C385). A handler's record is quiet now (`Event::log = false`) and
+  `diag::LogRecorded` writes its one line after the dump.
 - **Suspending a thread to walk it can deadlock** if it holds the symbol
   handler's lock. Walk raw addresses while suspended, resume, then symbolize.
 - **`DevConsole.cpp` is at 1101 lines** and phases 4–5 both add to it. Split

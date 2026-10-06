@@ -78,8 +78,9 @@ int Capture(void** out, int max, int skip) {
 		static_cast<DWORD>(skip), static_cast<DWORD>(max), out, nullptr));
 }
 
-int WalkContext(void* context, void** out, int max) {
+int WalkContext(void* context, void** out, int max, void* thread) {
 	if (!context || max <= 0) return 0;
+	const HANDLE owner = thread ? static_cast<HANDLE>(thread) : GetCurrentThread();
 	std::lock_guard lock(g_symMx);
 	EnsureSymbols();
 
@@ -107,7 +108,7 @@ int WalkContext(void* context, void** out, int max) {
 
 	int n = 0;
 	while (n < max &&
-		   StackWalk64(machine, GetCurrentProcess(), GetCurrentThread(), &frame, &ctx,
+		   StackWalk64(machine, GetCurrentProcess(), owner, &frame, &ctx,
 					   nullptr, SymFunctionTableAccess64, SymGetModuleBase64, nullptr)) {
 		if (frame.AddrPC.Offset == 0) break;
 		out[n++] = reinterpret_cast<void*>(frame.AddrPC.Offset);
@@ -216,13 +217,29 @@ bool IsPlumbingFrame(std::string_view frame) {
 
 void LogStack(void* const* frames, int depth, const char* indent) {
 	alloc::Excused excuse; // symbolizing and logging both allocate
+	std::string last;      // the frame last written
+	int again = 0;         // how many times straight after it, not yet said
+	const auto sayAgain = [&] {
+		if (again > 0)
+			log::Warn("{}  (the frame above {} more time{})", indent, again, again == 1 ? "" : "s");
+		again = 0;
+	};
 	for (int i = 0; i < depth; ++i) {
 		const std::string frame = Describe(frames[i]);
-		if (!IsPlumbingFrame(frame)) log::Warn("{}{}", indent, frame);
+		if (!IsPlumbingFrame(frame)) {
+			if (frame == last) {
+				++again;
+			} else {
+				sayAgain();
+				log::Warn("{}{}", indent, frame);
+				last = frame;
+			}
+		}
 		// Stop at the entry point: above it is CRT scaffolding that says nothing
 		// about which system failed.
 		if (frame.starts_with("wWinMain") || frame.starts_with("main")) break;
 	}
+	sayAgain();
 }
 
 void LogEveryFrame(void* const* frames, int depth, const char* indent) {

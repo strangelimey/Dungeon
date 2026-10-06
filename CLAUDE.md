@@ -1948,7 +1948,17 @@ hang and a reboot must each leave EVIDENCE.
   and minidumps capped at 3 a run. Everything there assumes a damaged process:
   no heap, no locks, paths snapshotted into fixed buffers at Install, a
   re-entrancy guard, and the record written BEFORE the dump and the dump before
-  the log — decreasing order of how likely each is to survive.
+  the log - decreasing order of how likely each is to survive. The record is
+  QUIET (`diag::Event::log = false`) and the log is ONE line after the dump,
+  saying what became of it, with the stack under it (`diag::LogRecorded`;
+  code-review C385 - it used to log before the dump, then again beside it). A
+  STACK OVERFLOW needs two things more or its report faults on the exhausted
+  stack and leaves nothing (C388): every thread the engine starts keeps 64 KB
+  back (`crash::GuardThreadStack` - Install for main, ThreadManager for each
+  worker and the supervisor), and the dump, the line and the walk run on a
+  REPORTER thread made at Install while the failing thread waits (30 s, then it
+  ends anyway - so a thread that faulted holding the log's, DbgHelp's or the
+  heap's lock no longer deadlocks its own report).
 - THE STACKS (Core/StackTrace, lifted out of AllocTrack's private symbolizer;
   AllocTrack keeps its own SeenSet so crash sites and allocation sites cannot
   mask each other). THE HARD PART: at a `catch` site the stack has ALREADY
@@ -1980,6 +1990,8 @@ hang and a reboot must each leave EVIDENCE.
   instant and a busy loop never repeats a site (the record keeps them all).
   Walked stacks get their OWN SeenSet: a full set calls every stack new, and
   stall walks filling the shared one would un-dedupe every later exception.
+  LogStack says a frame repeated straight after itself ONCE, with a count - an
+  overflow's stack is one function calling itself sixty times over.
 - THE READOUTS — the console's HEALTH section: one strip per thread that has
   failed, on the profile graphs' x-axis (240 samples x 50 ms = 12 s), marks
   coloured by kind, oldest at the left, CLICK A MARK for the event and its
@@ -1992,7 +2004,7 @@ hang and a reboot must each leave EVIDENCE.
   threw 18 times reads `sleeping · it 18 · 2.00hz`, every column normal), and
   `health` / `health <thread>` / `health probe <id|name>`.
 - CHECKED, NOT ASSUMED. `DiagTest.exe` (tools/DiagTest) exercises the ring
-  directly - 64 checks, including the one that matters: four writers hammering
+  directly - 71 checks, including the one that matters: four writers hammering
   one slot while a reader walks it, every event self-describing so a torn read
   cannot pass (measured 16k writes, 39k live reads, 0 torn). Its LOG checks read
   the real file back through `log::FilePath()` (the path the sink opened, never
@@ -2005,8 +2017,10 @@ hang and a reboot must each leave EVIDENCE.
   site, counts each offer it turns away (offers, not distinct sites) and says
   so in one line (code-review C226) - which is why walked stacks keep a set of
   their OWN (test 10: 72 walks fill theirs, and an exception site still logs
-  its stack once). `tools\HealthTest.
-  ps1` breaks the REAL game ten ways and reads dungeon.log and nothing else -
+  its stack once). And the crash handlers' QUIET record (test 13): in the
+  record, not in the log, until LogRecorded writes it once with its stack - and
+  no part of the repeat collapse. `tools\HealthTest.
+  ps1` breaks the REAL game eleven ways and reads dungeon.log and nothing else -
   if the answer is not in the file you open after a crash, it does not count.
   `-SelfTest` skips every injection and REQUIRES every case to fail on EACH of
   its expectations (no pattern met, no dump) and for no other reason - a harness
@@ -2016,15 +2030,17 @@ hang and a reboot must each leave EVIDENCE.
   Every event kind is covered: the Killed kind by the `kill` case, through
   `threadkill` (it was a panel button only). A frame expectation is anchored
   UNDER its own event's line (HealthTest's `After`), since a stall, a kill and a
-  probe of one wedged worker all log the same frames. Two of the ten (`uiclip`,
-  `uinest`; code-review C208) read what a caught
+  probe of one wedged worker all log the same frames. The three that end the
+  process (`fault`, `overflow` - a deliberate stack overflow - and `assert`)
+  each want ONE report line naming the dump's status, and the dump. Two of the
+  eleven (`uiclip`, `uinest`; code-review C208) read what a caught
   throw leaves BEHIND - the UI walk's clip, which a throw used to leave in force
   in every context, so a later click outside it was lost. Each checks its own
   premise: `uiclip`'s throw names the clip in force and the button outside it
   only when both hold (a scroll area that stops overflowing clips nothing, and
   the click would land under the old walk too), `uinest` refuses a tree that
   did not nest two clips.
-  Dev: `crashpoke <throw|uiclip|worker|fault|assert>`, `clippoke`, `threadwedge`,
+  Dev: `crashpoke <throw|uiclip|worker|fault|overflow|assert>`, `clippoke`, `threadwedge`,
   `threadkill <id|name>`, `threadspawn <ms>`.
 
 ## Map overlay / editor (MapView)
