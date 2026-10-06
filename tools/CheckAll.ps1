@@ -188,6 +188,12 @@ $checks = @(
 		run = { python (Join-Path $root 'tools\LevelBuildTest.py') | Out-Host; $LASTEXITCODE }
 	},
 	@{
+		name = 'quit'; tier = 'full'; needs = "build-$Config"
+		what = 'a load can always be quit: `quit` mid-load, Alt+F4 in Borderless'
+		run      = { & (Join-Path $root 'tools\QuitTest.ps1') -Config $Config | Out-Host; $LASTEXITCODE }
+		selfTest = { & (Join-Path $root 'tools\QuitTest.ps1') -Config $Config -SelfTest | Out-Host; $LASTEXITCODE }
+	},
+	@{
 		name = 'stale'; tier = 'full'; needs = 'build-debug'
 		what = 'a harness refuses a stale exe, and CheckAll builds what it runs (StaleTest)'
 		run = { & (Join-Path $root 'tools\StaleTest.ps1') | Out-Host; $LASTEXITCODE }

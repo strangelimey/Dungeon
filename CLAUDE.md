@@ -482,7 +482,11 @@ Key conventions (memorize, they bite):
   / harness_game.py, exit 3), and a run COUNTS only if it finished (exit 0, or
   its `eval BATCH RESULT=` line; a killed run is a failure, not a short log).
   It does NOT remove the graphics device: the swapchain is
-  bound to an HWND, so the window still exists and is merely never shown, and
+  bound to an HWND, so the window still exists and is merely never shown - and
+  NEVER means never: a hidden Window (`IsHidden`) is only resized by a mode
+  change, and Game skips applying a saved Borderless / Exclusive mode, which
+  used to show the window, black out a monitor or switch the display on every
+  run (code-review C391; Eval.ps1 -SelfTest watches IsWindowVisible) - and
   prising the device out would mean a null path at every gfx call site for no
   gain (a GPU-less machine is already covered — GraphicsDevice falls back to
   WARP). THE ONE THING THAT MADE IT NON-TRIVIAL: `Game::Render` is pure drawing
@@ -1175,9 +1179,13 @@ nothing on the landing list. It used to quit from the landing list AND from both
 LOADING states, which read as a CRASH: a party wipe drops you on the title
 screen, and a reflexive Esc at a screen that appeared by itself killed the
 process with no confirmation and no log line. During a load, where no Exit button
-is up, the ways out are the console and the WINDOW'S OWN CLOSE BUTTON — which is
-independent of all this (Platform/Window.cpp's WM_CLOSE sets m_closed), so no
-state can ever be unquittable. Everything else routes through
+is up, the ways out are the console's `quit` / `exit` (the ONE pair the loading
+gate lets through - DevConsole::SubmitLine), Alt+F4 (Window passes VK_F4 on to
+DefWindowProc, which makes it WM_CLOSE, in every display mode) and, in Windowed,
+the window's own close button. Borderless has no close box and Exclusive covers
+the screen, so before code-review C392 a load in either had no way out but Task
+Manager. WM_CLOSE sets m_closed independently of all this, so no state can ever
+be unquittable. Everything else routes through
 Game::QuitRequested, polled by the main loop. During the three
 loading states the world is only PARTIALLY built (the HUD log, meshes,
 monsters arrive task by task), so dev-console COMMANDS are gated off

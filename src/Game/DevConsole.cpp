@@ -363,7 +363,14 @@ void DevConsole::SubmitLine() {
 		// Gated while a staged load runs (see SetCommandsEnabled): the
 		// world is partially built, so no handler may touch it. The line
 		// stays in history - recall it with Up once the load finishes.
-		if (m_commandsEnabled) Execute(m_input);
+		// EXCEPT `quit` / `exit`, which touch no world: in Borderless or
+		// Exclusive there is no close box, and a load that has wedged is
+		// exactly when a way out is wanted (code-review C392).
+		const size_t from = m_input.find_first_not_of(' ');
+		const std::string_view word = from == std::string::npos
+			? std::string_view()
+			: std::string_view(m_input).substr(from, m_input.find(' ', from) - from);
+		if (m_commandsEnabled || word == "quit" || word == "exit") Execute(m_input);
 		else Print("commands are unavailable while loading");
 		m_input.clear();
 	}

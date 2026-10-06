@@ -485,7 +485,49 @@ if ($SelfTest) {
 	}
 	Write-Host ("  (second run exited {0}, first {1})" -f $second.ExitCode, $first.ExitCode)
 
-	$ok = ($p.ExitCode -eq 1) -and ($q.ExitCode -eq 2) -and $resetOk -and $batchOk -and $headOk -and $respondOk -and $guardOk
+	# --- a headless run never shows its window -------------------------------
+	# The harnesses run the build Michael plays, and share its settings.ini. With
+	# his saved display mode applied, every headless run showed its window, a
+	# saved Borderless covered a monitor in black, and a saved Exclusive switched
+	# the display (code-review C391). So under each saved mode a headless run is
+	# WATCHED: its window, found by PID and class, must exist and never be
+	# visible, and the run must finish. The ini is put back whatever happens.
+	Write-Host ''
+	Write-Host '=== a headless run never shows its window (Windowed, Borderless, Exclusive saved) ==='
+	$ini = Join-Path $bin 'settings.ini'
+	$iniBefore = if (Test-Path $ini) { [IO.File]::ReadAllText($ini) } else { $null }
+	$hiddenOk = $true
+	try {
+		foreach ($mode in 0, 1, 2) {
+			$keep = @((("$iniBefore") -split "\r?\n") | Where-Object { $_ -ne '' -and $_ -notmatch '^fullscreen=' })
+			[IO.File]::WriteAllText($ini, ((@($keep) + "fullscreen=$mode") -join "`n") + "`n")
+			Remove-Item $log -ErrorAction SilentlyContinue
+			$g = Start-Process -FilePath $exe -ArgumentList '-headless', '-eval', (Join-Path $scripts 'smoke.eval') -PassThru
+			$null = $g.Handle
+			$found = $false
+			$shown = $false
+			while (-not $g.HasExited) {
+				$h = [HarnessWin]::FindByPid([uint32]$g.Id, $HarnessWindowClass)
+				if ($h -ne [IntPtr]::Zero) {
+					$found = $true
+					if ([HarnessWin]::IsWindowVisible($h)) { $shown = $true }
+				}
+				Start-Sleep -Milliseconds 50
+			}
+			$done = [bool](ReadLog | Where-Object { $_ -match 'eval BATCH RESULT=' })
+			$fine = $found -and -not $shown -and $done
+			if (-not $fine) { $hiddenOk = $false }
+			Write-Host ("  {0,-10} window {1}, {2}, run {3}  {4}" -f @('Windowed', 'Borderless', 'Exclusive')[$mode],
+				$(if ($found) { 'found' } else { 'NEVER FOUND' }), $(if ($shown) { 'SHOWN' } else { 'never shown' }),
+				$(if ($done) { 'finished' } else { 'DID NOT FINISH' }), $(if ($fine) { 'ok' } else { 'FAIL' })) `
+				-ForegroundColor $(if ($fine) { 'Gray' } else { 'Red' })
+		}
+	} finally {
+		if ($null -eq $iniBefore) { Remove-Item $ini -ErrorAction SilentlyContinue }
+		else { [IO.File]::WriteAllText($ini, $iniBefore) }
+	}
+
+	$ok = ($p.ExitCode -eq 1) -and ($q.ExitCode -eq 2) -and $resetOk -and $batchOk -and $headOk -and $respondOk -and $guardOk -and $hiddenOk
 	Write-Host ''
 	Write-Host ("eval RESULT={0} self_test=1" -f $(if ($ok) { 'PASS' } else { 'FAIL' }))
 	if ($ok) { Write-Host 'the runner reports both failures, recycling and headless change nothing, the numbers still move, and a second or killed run does not count' }

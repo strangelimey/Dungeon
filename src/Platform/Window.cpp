@@ -23,7 +23,8 @@ const wchar_t* CursorId(Window::Cursor shape) {
 }
 }
 
-Window::Window(const WindowDesc& desc) : m_width(desc.width), m_height(desc.height) {
+Window::Window(const WindowDesc& desc)
+	: m_width(desc.width), m_height(desc.height), m_hidden(desc.hidden) {
 	const HINSTANCE instance = GetModuleHandleW(nullptr);
 
 	WNDCLASSEXW wc{};
@@ -64,15 +65,22 @@ void Window::SetWindowed(u32 width, u32 height) {
 	const int wh = rect.bottom - rect.top;
 	const int sw = GetSystemMetrics(SM_CXSCREEN);
 	const int sh = GetSystemMetrics(SM_CYSCREEN);
-	SetWindowPos(hwnd, HWND_TOP, (sw - ww) / 2, (sh - wh) / 2, ww, wh,
-				 SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+	SetWindowPos(hwnd, HWND_TOP, (sw - ww) / 2, (sh - wh) / 2, ww, wh, ShowFlags());
 }
 
 void Window::SetBorderless(int x, int y, u32 width, u32 height) {
 	const HWND hwnd = reinterpret_cast<HWND>(m_hwnd);
-	SetWindowLongPtrW(hwnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
+	SetWindowLongPtrW(hwnd, GWL_STYLE, WS_POPUP | (m_hidden ? 0 : WS_VISIBLE));
 	SetWindowPos(hwnd, HWND_TOP, x, y, static_cast<int>(width),
-				 static_cast<int>(height), SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+				 static_cast<int>(height), ShowFlags());
+}
+
+// A shown window is shown (and raised) by a mode change; a hidden one is only
+// resized - no SWP_SHOWWINDOW, and no activation to take focus from whoever is
+// working (C391: every headless run used to show its window).
+u32 Window::ShowFlags() const {
+	return m_hidden ? (SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_NOZORDER)
+					: (SWP_FRAMECHANGED | SWP_SHOWWINDOW);
 }
 
 bool Window::PumpMessages() {
@@ -122,8 +130,14 @@ i64 Window::HandleMessage(u32 msg, u64 wparam, i64 lparam) {
 		return 0;
 	}
 
-	case WM_KEYDOWN:
 	case WM_SYSKEYDOWN:
+		// Alt+F4 goes on to DefWindowProc, which makes it WM_CLOSE - in every
+		// display mode, and the only close a Borderless window (WS_POPUP, no close
+		// box) or Exclusive one has (code-review C392). Every other system key
+		// stays swallowed, so a bare Alt or F10 cannot put the window in menu mode.
+		if (wparam == VK_F4) return DefWindowProcW(reinterpret_cast<HWND>(m_hwnd), msg, wparam, lparam);
+		[[fallthrough]];
+	case WM_KEYDOWN:
 		m_input.OnKey(static_cast<int>(wparam), true);
 		return 0;
 	case WM_KEYUP:

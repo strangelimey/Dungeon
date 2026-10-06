@@ -25,6 +25,7 @@ Adds the rows marked `full` to the quick tier:
   editor         full   no self-test   the editor, phase by phase (EditorTest.py, each phase mutation-tested)
   world          full   no self-test   the world tier: saves, worlds, dungeons, the world map (WorldTest.py)
   levelbuild     full   no self-test   the level generator, measured from the files it writes (LevelBuildTest.py)
+  quit           full   self-testable  a load can always be quit: `quit` mid-load, Alt+F4 in Borderless
   stale          full   no self-test   a harness refuses a stale exe, and CheckAll builds what it runs (StaleTest)
   build-profile  full   no self-test   the release-profile build compiles clean (DN_PROFILE rots unwatched too)
   profile        full   self-testable  the frame budget still adds up, and the verdict still reacts to load

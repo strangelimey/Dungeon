@@ -485,8 +485,13 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	BuildBootLoadTasks();
 
 	// Honor a saved borderless/exclusive display mode now that the window and
-	// device exist (windowed at the default size needs nothing).
-	ApplyDisplaySettings();
+	// device exist (windowed at the default size needs nothing) - unless the
+	// window is HIDDEN (`-headless`). The harnesses run the build Michael plays,
+	// sharing its settings.ini, and applying his saved mode showed every headless
+	// run's window, covered a monitor in black for Borderless and switched the
+	// display for Exclusive (code-review C391). Exclusive goes through the
+	// swapchain, not the window, so this is the guard that covers it.
+	if (!m_window.IsHidden()) ApplyDisplaySettings();
 }
 
 Game::~Game() {

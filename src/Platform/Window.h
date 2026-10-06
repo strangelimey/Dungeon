@@ -55,9 +55,15 @@ public:
 	// resizable window of the given client size, centered on the primary monitor;
 	// SetBorderless makes a frameless window covering the given desktop rect (a
 	// monitor's virtual-screen coordinates). Both raise WM_SIZE, so the swapchain
-	// resizes through the usual onResize path.
+	// resizes through the usual onResize path. Neither SHOWS a hidden window:
+	// while IsHidden, they only resize it (code-review C391).
 	void SetWindowed(u32 width, u32 height);
 	void SetBorderless(int x, int y, u32 width, u32 height);
+
+	// Created hidden (`-headless`) and never to be shown. Game skips applying a
+	// saved display mode while this holds - the only guard that also covers
+	// Exclusive fullscreen, which goes through the swapchain, not this window.
+	bool IsHidden() const { return m_hidden; }
 
 	// Invoked when the client area changes size (not called for minimize).
 	std::function<void(u32, u32)> onResize;
@@ -77,11 +83,14 @@ private:
 	// client area — free-look, scrollbar thumbs — still deliver their button-up
 	// to us) and releases it when the last button lifts.
 	void UpdateCapture();
+	// SetWindowPos flags for a display-mode change (see Window.cpp).
+	u32 ShowFlags() const;
 
 	HWND__* m_hwnd = nullptr;
 	u32 m_width = 0;
 	u32 m_height = 0;
 	bool m_closed = false;
+	bool m_hidden = false; // WindowDesc::hidden, kept: see IsHidden
 	// True while UpdateCapture runs our own ReleaseCapture — Windows SENDS
 	// WM_CAPTURECHANGED to the releasing window synchronously, and that
 	// self-inflicted one must NOT clear the button edges (the release edge
