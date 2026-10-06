@@ -656,10 +656,12 @@ void Game::WireModuleCallbacks() {
 			// (SyncWorldTerrains); no level holds a kind of it to reload.
 			else if (cfg.catalogKey != "terrain") {
 				// The reload frees this kind's mesh and respawns EVERY object
-				// with a new id - and an open inspector, or the monster dialog,
-				// borrows that mesh for its preview and names its object by the
-				// old id. A mouse cannot get here with one open (each is modal);
-				// `typeset` can (code-review C232).
+				// with a new id - keeping what the editor and play did to the
+				// level (HoldActiveState / RestoreHeldState; C311), and only for
+				// a category whose kinds are cached (ReloadTypeKind) - and an
+				// open inspector, or the monster dialog, borrows that mesh for
+				// its preview and names its object by the old id. A mouse cannot
+				// get here with one open (each is modal); `typeset` can (C232).
 				CloseInspectors();
 				if (m_monsterDialog.IsOpen()) {
 					m_monsterDialog.Close();

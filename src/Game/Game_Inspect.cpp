@@ -107,6 +107,13 @@ void Game::InspectorCommand(const std::vector<std::string>& args) {
 			open->Cancel();
 		} else if (verb == "save") {
 			open->ClickSave();
+		} else if (verb == "delete") {
+			// The footer's Delete: exactly the inspected object, the targeted
+			// removal the erase ladder is not (code-review C355's judge).
+			if (!open->ClickDelete()) {
+				m_console.Refuse("editor inspector delete: this inspector offers no Delete");
+				return;
+			}
 		} else if (verb == "tab" && args.size() >= 3) {
 			open->SelectTab(std::atoi(args[2].c_str()));
 		} else if (monster && verb == "editroute") {

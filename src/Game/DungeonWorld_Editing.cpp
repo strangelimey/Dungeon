@@ -48,8 +48,23 @@ void DungeonWorld::PruneEntitiesForCell(int x, int z) {
 		// RemoveStairAt so the paired return record on the other level dies too;
 		// that also erases the stair prop, leaving plain decorations to the sweep.
 		if (m_map.StairAt(x, z)) RemoveStairAt(x, z);
-		std::erase_if(m_monsters,
-					  [&](const Monster& m) { return m.x == x && m.z == z; });
+		const size_t watched = m_monsters.size() + m_decorations.size() + m_doors.size();
+		// A monster standing there, and one whose SPAWN it was: its record is
+		// under the new wall either way (one walked off its square would be
+		// written back in the rock, which the next load skips with a warning).
+		// Each one's record goes with it, not only the records on this square,
+		// or a respawn raised one that had wandered in from elsewhere (C311).
+		for (auto it = m_monsters.begin(); it != m_monsters.end();) {
+			const bool buried =
+				(it->x == x && it->z == z) || (it->spawnX == x && it->spawnZ == z);
+			if (!buried) {
+				++it;
+				continue;
+			}
+			if (it->id >= 0) m_entities.RemoveById(it->id);
+			it = m_monsters.erase(it);
+			m_entsDirty = true;
+		}
 		std::erase_if(m_items, [&](const Item& i) { return i.x == x && i.z == z; });
 		std::erase_if(m_buttons,
 					  [&](const Button& b) { return b.x == x && b.z == z; });
@@ -60,6 +75,10 @@ void DungeonWorld::PruneEntitiesForCell(int x, int z) {
 		// m_entities from the file on disk — flag it so a level swap stashes
 		// them (see BeginLevelLoad) instead of re-parsing the stale file.
 		if (m_entities.RemoveAt(x, z) > 0) m_entsDirty = true;
+		// Monsters, props and doors after the erased ones slid down a slot each
+		// (C355, RebaseDamageLedger's note).
+		if (m_monsters.size() + m_decorations.size() + m_doors.size() != watched)
+			RebaseDamageLedger();
 		return;
 	}
 
@@ -91,6 +110,7 @@ void DungeonWorld::PruneEntitiesForCell(int x, int z) {
 			m_entsDirty = true;
 		}
 	}
+	bool dropped = false;
 	for (size_t i = m_decorations.size(); i-- > 0;) {
 		Decoration& deco = m_decorations[i];
 		if (!deco.wallMounted) continue;
@@ -105,8 +125,10 @@ void DungeonWorld::PruneEntitiesForCell(int x, int z) {
 								XMMatrixTranslation(m.pos.x, 0, m.pos.z));
 		} else {
 			m_decorations.erase(m_decorations.begin() + static_cast<ptrdiff_t>(i));
+			dropped = true;
 		}
 	}
+	if (dropped) RebaseDamageLedger(); // the props after it slid down (C355)
 }
 
 void DungeonWorld::EditVariant(int x, int z, SurfaceSel sel, int variant) {
@@ -226,11 +248,26 @@ bool DungeonWorld::AddPaletteEntry(SurfaceSel sel, const std::string& id) {
 
 void DungeonWorld::ReloadTypeKind(const std::string& catalogKey,
 								  const std::string& id) {
+	// Only a category whose KINDS are cached by id has anything stale to
+	// rebuild: a monster, a prop of any family (decorations, doors, levers,
+	// stairs), a fixture, a feature's mesh. An item kind outlives this (Game
+	// re-reads its light), and effects, flags, quests, the world's catalogs and
+	// the rest build nothing here - the respawn they used to get only threw the
+	// level's live state away (code-review C311).
+	static constexpr std::string_view kCached[] = {"monsters", "fixtures", "decorations",
+												   "doors",    "buttons",  "stairs",
+												   "wallfeatures", "surfacefeatures"};
+	if (std::ranges::find(kCached, std::string_view(catalogKey)) == std::end(kCached)) return;
 	// The caches are keyed by catalog id and hold GPU resources the live objects
 	// point INTO, so drop the entry only after the instances are gone — the
 	// respawn below rebuilds both. Draining first: in-flight frames may still
 	// reference the mesh/textures we are about to free.
 	m_device.WaitIdle();
+	// What the editor placed and play did is HELD first and laid back after:
+	// the respawn reads the records, which knew nothing of a monster or prop the
+	// editor placed, still held one it erased, and every one of them as it was
+	// filed - alive, shut, on the floor (C311).
+	HoldActiveState();
 	m_monsters.clear(); // they hold MonsterKind pointers
 	m_items.clear();
 	m_buttons.clear();
@@ -255,6 +292,9 @@ void DungeonWorld::ReloadTypeKind(const std::string& catalogKey,
 	// fire/turbidity path; everything else just re-spawns.
 	RespawnFromRecords(StampedIntoSurfaces(catalogKey));
 	RebuildFiresAndDust();
+	// After the fires: a fire holds its kind, which the cache just replaced, and
+	// the held state relights or douses fires as it found them.
+	RestoreHeldState();
 }
 
 // --- type rename / delete (editor) ------------------------------------------
@@ -300,11 +340,35 @@ DungeonWorld::TypeUsage DungeonWorld::SweepTypeRefs(const std::string& catalogKe
 		return flags ? ents.SweepFlagRefs(id, to) : ents.SweepTypeRefs(*dynamics, id, to);
 	};
 
-	// The ACTIVE level's decorations live as instances, not records — sync them
-	// back first (the stash/save rule) so the sweep sees the truth and the
-	// respawn afterwards reads what we wrote.
-	if (statics == TR::Decoration && newId)
-		m_map.SetDecorationRecords(LiveDecorationRecords());
+	// The ACTIVE level's monsters and props live as instances, not records: the
+	// caller syncs them back first (SyncActiveRecords - RenameType and
+	// DeleteType do), so the sweep sees the truth and the respawn after a rename
+	// reads what it wrote.
+
+	// What the levels' HELD dynamic states carry whole, by type: a monster or an
+	// item with no record (placed, dropped), a smashed or battered piece, the
+	// torch in a bracket. Retyped with the records, or a level left this session
+	// - and the active one, held across a rename's respawn - laid back a monster
+	// of a type that no longer exists, or a smashed prop whole (C311). Not
+	// counted: a delete is refused for what a level FILE names.
+	if (newId) {
+		const bool items = dynamics == EntityKind::Item;
+		const bool pieces = statics == TR::Decoration || statics == TR::Fixture ||
+							dynamics == EntityKind::Door;
+		for (auto&& [stem, held] : m_levelStates) {
+			for (SaveData::EntityState& e : held.entities)
+				if (dynamics && e.id < 0 && e.kind == *dynamics && e.type == id) e.type = *newId;
+			if (pieces) {
+				for (SaveData::BrokenProp& b : held.broken)
+					if (b.type == id) b.type = *newId;
+				for (SaveData::DamagedPiece& d : held.damaged)
+					if (d.type == id) d.type = *newId;
+			}
+			if (items)
+				for (SaveData::FireBurning& f : held.fires)
+					if (f.torch == id) f.torch = *newId;
+		}
+	}
 
 	for (const std::string& stem : m_project.levels) {
 		const bool active = stem == m_currentLevel;
@@ -624,10 +688,22 @@ bool DungeonWorld::WallSeeThrough(int x, int z, int axis) const {
 	return m_map.WallBoredAlong(x, z, axis);
 }
 
+// A monster leaves the level: its record with it, when it has one - left behind,
+// an undo or a type Save's respawn raised it again (code-review C311) - and the
+// damage ledger takes a fresh baseline, since every monster after it in the list
+// has just slid onto the address before it (C355, RebaseDamageLedger's note).
+void DungeonWorld::EraseMonster(std::vector<Monster>::iterator it) {
+	if (it->id >= 0 && m_entities.RemoveById(it->id)) m_entsDirty = true;
+	m_monsters.erase(it);
+	RebaseDamageLedger();
+}
+
 bool DungeonWorld::RemoveEntityAt(int x, int z) {
+	// Every rung that erases from a watched list rebases the damage ledger after
+	// it: what came after the erased one now stands at its address (C355).
 	for (auto it = m_monsters.begin(); it != m_monsters.end(); ++it)
 		if (it->x == x && it->z == z) {
-			m_monsters.erase(it);
+			EraseMonster(it);
 			return true;
 		}
 	for (auto it = m_doors.begin(); it != m_doors.end(); ++it)
@@ -636,6 +712,7 @@ bool DungeonWorld::RemoveEntityAt(int x, int z) {
 			m_entities.RemoveById(it->id);
 			m_entsDirty = true;
 			m_doors.erase(it);
+			RebaseDamageLedger();
 			return true;
 		}
 	for (auto it = m_buttons.begin(); it != m_buttons.end(); ++it)
@@ -648,6 +725,7 @@ bool DungeonWorld::RemoveEntityAt(int x, int z) {
 	for (auto it = m_decorations.begin(); it != m_decorations.end(); ++it)
 		if (it->x == x && it->z == z && !it->stair) { // stairs: RemoveStairAt only
 			m_decorations.erase(it);
+			RebaseDamageLedger();
 			return true;
 		}
 	for (auto it = m_items.begin(); it != m_items.end(); ++it)
@@ -679,7 +757,7 @@ bool DungeonWorld::RemoveMonsterByRuntimeId(u32 runtimeId) {
 	if (runtimeId == 0) return false;
 	for (auto it = m_monsters.begin(); it != m_monsters.end(); ++it)
 		if (it->runtimeId == runtimeId) {
-			m_monsters.erase(it);
+			EraseMonster(it);
 			return true;
 		}
 	return false;
@@ -691,6 +769,7 @@ bool DungeonWorld::RemoveDoorAt(int x, int z) {
 			m_entities.RemoveById(it->id); // record-backed, like the ladder's rung
 			m_entsDirty = true;
 			m_doors.erase(it);
+			RebaseDamageLedger(); // the doors after it slid down a slot (C355)
 			return true;
 		}
 	return false;

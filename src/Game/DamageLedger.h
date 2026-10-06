@@ -114,9 +114,17 @@ struct Stats {
 };
 
 // A sweep is the caller walking every watched value; the ledger cannot walk the
-// world itself and must not learn how. The order does not matter — entries are
-// matched by ADDRESS, so a container that reorders is handled for free, and one
-// that REALLOCATES is noticed rather than silently losing its baselines.
+// world itself and must not learn how. The order of the walk does not matter -
+// entries are matched by ADDRESS - and a container that REALLOCATES is noticed
+// (counted `dropped`) rather than silently losing its baselines. What an
+// address match CANNOT see is a value that moved onto another's address: an
+// erase from the middle of a vector slides every later element down a slot, and
+// each is then judged against its predecessor's baseline - a false violation
+// naming the erased one, an abort under strict. So a caller that erases from or
+// reorders a watched container Rebases after it (code-review C355: the editor
+// deleting a monster, a prop or a door while the world ran). Comparing the Key
+// as well would not save it: only a monster's key is an id that survives; a
+// breakable's is its index in its container, which the erase renumbers too.
 class Ledger {
 public:
 	void Arm(bool on) { m_armed = on; }
@@ -134,7 +142,8 @@ public:
 	int Checkpoint(const char* phase, std::span<Violation> out);
 	// Takes the new baseline WITHOUT judging the old one. For a path that
 	// legitimately replaces state wholesale — a level load, a save restore, a
-	// respawn, a dev-console fiat — where sanctioning each of the dozen writes
+	// respawn, a dev-console fiat, an editor removal (the note on the sweep
+	// above) - where sanctioning each of the dozen writes
 	// it makes would be pedantry: the values it replaced no longer exist to be
 	// compared against. Unlike DropAll it costs no coverage, because the sweep
 	// it consumes becomes the baseline everything after is judged against.

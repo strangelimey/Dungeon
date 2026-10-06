@@ -198,6 +198,21 @@ const char* KindName(EntityKind k) {
 }
 } // namespace
 
+std::vector<DungeonWorld::RecordReport> DungeonWorld::RecordsAt(const std::string& stem, int x,
+															   int z) {
+	const auto held = m_levelStates.find(stem);
+	std::vector<RecordReport> out;
+	for (const Entity& e : LevelForReading(stem).ents->At(x, z)) {
+		const bool diff = held != m_levelStates.end() &&
+						  std::ranges::any_of(held->second.entities,
+											  [&](const SaveData::EntityState& s) {
+												  return s.kind == e.kind && s.id == e.id;
+											  });
+		out.push_back({KindName(e.kind), e.type, e.id, diff});
+	}
+	return out;
+}
+
 // Serializes a level's static layer (.map). `decoLines` carries the decoration
 // records, pre-serialized by the caller: the ACTIVE level derives them from
 // live instances (SaveLevel), a stashed level already holds them as records
@@ -409,36 +424,45 @@ std::string DungeonWorld::ActiveMapText() const {
 	return SerializeMapStatic(m_currentLevel, m_map, deco);
 }
 
+Entity DungeonWorld::LiveMonsterRecord(const Monster& mon) const {
+	Entity e;
+	e.kind = EntityKind::Monster;
+	e.id = mon.id;
+	e.type = mon.kind ? mon.kind->name : std::string("?");
+	// The SPAWN, as the record's facing and leash anchor already were - not the
+	// square it stands on now (code-review C326).
+	e.x = mon.spawnX;
+	e.z = mon.spawnZ;
+	e.facing = mon.facing;
+	// Per-instance AI overrides (authored, round-tripped by the editor inspector).
+	if (mon.asleep) e.params.emplace_back("asleep", "1");
+	if (mon.leashRange > 0.0f) e.params.emplace_back("leash", std::format("{:g}", mon.leashRange));
+	if (mon.leashX != mon.spawnX || mon.leashZ != mon.spawnZ)
+		e.params.emplace_back("leashfrom", std::format("{},{}", mon.leashX, mon.leashZ));
+	// Per-instance behaviour overrides (only when they differ from the type).
+	if (mon.archOverride)
+		e.params.emplace_back("archetype", ai::kArchetypeNames[static_cast<int>(*mon.archOverride)]);
+	if (mon.keepOverride) e.params.emplace_back("keeprange", std::format("{:g}", *mon.keepOverride));
+	if (mon.fleeOverride) e.params.emplace_back("fleebelow", std::format("{:g}", *mon.fleeOverride));
+	if (mon.spellOverride && !mon.spellOverride->empty())
+		e.params.emplace_back("spell", *mon.spellOverride);
+	if (!mon.patrol.empty()) {
+		std::string route;
+		for (size_t k = 0; k < mon.patrol.size(); ++k)
+			route += std::format("{}{},{}", k ? ";" : "", mon.patrol[k].x, mon.patrol[k].z);
+		e.params.emplace_back("patrol", std::move(route));
+	}
+	return e;
+}
+
 // The active level's dynamic layer as .ent text: the monsters from the LIVE list
 // (an editor-placed one has no record, and patrols/overrides are edited live),
-// then the record-backed items, buttons and doors. SaveLevel writes it; a level
-// resize re-parses it, which is how it gets every monster as it stands.
+// each at its spawn, then the record-backed items, buttons and doors. SaveLevel
+// writes it; a level resize re-parses it, which is how it gets every monster.
 std::string DungeonWorld::ActiveEntText() const {
 	std::string e =
 		std::format("; {} — written by the in-game editor (dynamic layer).\n\n", m_currentLevel);
-	for (const Monster& mon : m_monsters) {
-		e += std::format("monster {} {} {} {}", mon.kind ? mon.kind->name : std::string("?"),
-						 mon.x, mon.z, DirToken(mon.facing));
-		// Per-instance AI overrides (authored, round-tripped by the editor inspector).
-		if (mon.asleep) e += " asleep=1";
-		if (mon.leashRange > 0.0f) e += std::format(" leash={:g}", mon.leashRange);
-		if (mon.leashX != mon.spawnX || mon.leashZ != mon.spawnZ)
-			e += std::format(" leashfrom={},{}", mon.leashX, mon.leashZ);
-		// Per-instance behaviour overrides (only when they differ from the type).
-		static const char* kArch[] = {"brute",   "skirmisher", "caster",
-									  "swarm", "lurker",     "sentry"};
-		if (mon.archOverride) e += std::format(" archetype={}", kArch[static_cast<int>(*mon.archOverride)]);
-		if (mon.keepOverride) e += std::format(" keeprange={:g}", *mon.keepOverride);
-		if (mon.fleeOverride) e += std::format(" fleebelow={:g}", *mon.fleeOverride);
-		if (mon.spellOverride && !mon.spellOverride->empty())
-			e += std::format(" spell={}", *mon.spellOverride);
-		if (!mon.patrol.empty()) {
-			e += " patrol=";
-			for (size_t k = 0; k < mon.patrol.size(); ++k)
-				e += std::format("{}{},{}", k ? ";" : "", mon.patrol[k].x, mon.patrol[k].z);
-		}
-		e += '\n';
-	}
+	for (const Monster& mon : m_monsters) e += SerializeRecord("monster", LiveMonsterRecord(mon));
 	// Items/buttons/doors are record-backed (placement/erase edits m_entities
 	// directly), so their records ARE current.
 	for (const Entity& ent : m_entities.All()) {

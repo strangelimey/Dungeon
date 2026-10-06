@@ -1946,6 +1946,7 @@ bool DungeonWorld::RemoveDecorationByIndex(int index) {
 	if (index < 0 || index >= static_cast<int>(m_decorations.size())) return false;
 	if (m_decorations[static_cast<size_t>(index)].stair) return false; // RemoveStairAt owns those
 	m_decorations.erase(m_decorations.begin() + index);
+	RebaseDamageLedger(); // the props after it slid down a slot (C355)
 	return true;
 }
 

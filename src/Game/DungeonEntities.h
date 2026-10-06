@@ -43,14 +43,22 @@ public:
 									const std::string& where);
 
 	const std::vector<Entity>& All() const { return m_entities; }
-	// Appends an editor-authored record (remote-level placement), assigning the
-	// next stable id above every existing one (ids are file-record order and
-	// removals never renumber, so max+1 is always fresh) and inserting at the
-	// by-cell sort position At() binary-searches. Returns the new id.
+	// Appends an editor-authored record, assigning the next stable id and
+	// inserting at the by-cell sort position At() binary-searches. Returns the
+	// new id. The ids count UP from the parse's record count and are never
+	// handed out twice, even after a removal (code-review C327): max(id)+1 gave
+	// a record placed after the last one was erased that one's id, and a level's
+	// held dynamic state is keyed by id - so the new monster arrived with the
+	// erased one's death, an item already collected.
 	int Add(Entity record);
+	// Replaces the record carrying `record.id` (a live monster synced back into
+	// its record, DungeonWorld::SyncActiveRecords), keeping the by-cell order
+	// when its cell moved. False if no such record.
+	bool Replace(Entity record);
 	// Mutable lookup by stable spawn id, for the editor's instance inspector
 	// (e.g. editing a placed item's facing). nullptr if no such entity.
 	Entity* MutableById(int id);
+	const Entity* ById(int id) const;
 	// Removes every record standing on the cell (an editor paint just buried
 	// it). Survivor ids are untouched. Returns the number removed.
 	size_t RemoveAt(int x, int z);
@@ -86,6 +94,7 @@ private:
 
 	std::vector<Entity> m_entities; // sorted by (z * map width + x)
 	int m_width = 0;
+	int m_nextId = 0; // the next id Add hands out: monotonic, never reused (C327)
 };
 
 } // namespace dungeon::game

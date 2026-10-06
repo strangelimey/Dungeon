@@ -122,7 +122,7 @@ forward 2
 step 2
 pos
 face w
-drop rock 3 4
+expect-refuse drop rock 3 4
 face e
 drop rock 5 4
 castsvc floor 3 4

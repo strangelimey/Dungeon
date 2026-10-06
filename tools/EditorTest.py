@@ -243,6 +243,21 @@
 #      once, the stairs stash nothing and the wall does not come back; then a
 #      wall painted and a NEW GAME begun elsewhere: the paint is stashed, saved
 #      and found again.
+#  32. THE RECORDS TELL THE TRUTH (code-review C326, C327, C311, C355). After a
+#      fight - a monster killed, others woken and off their squares - savemap
+#      writes eval_arena's monster lines byte for byte as filed (it wrote where
+#      each STOOD). A monster placed on a browsed level, after that level's last
+#      record (a monster the party killed) was erased, arrives alive where it was
+#      placed (it was handed the erased one's id, and its death). An undo after
+#      an erase brings the erased monster back no more, and a type Save and a
+#      Rename keep everything the editor and play did to the level - a placed
+#      monster and prop, an opened door, a dropped potion, a dead monster, an
+#      inspector's archetype - and the save after writes them; a delete of a type
+#      only an editor-placed monster uses is refused (it counted records). And under
+#      `pipelineguard strict` every way the editor removes a monster, a prop or
+#      a door (the erase ladder, an inspector's Delete, a wall painted over one)
+#      reports no violation, each staged so the object that slides up has other
+#      hit points than the one it replaces.
 #  40. ONE WORLD TICK (code-review C78, C125), read off the world's own update
 #      count (`worldclock`): a paused editor stays paused through a bare
 #      `editor`, `editor pick` and `editor issues` - each asks for Editor mode,
@@ -3509,6 +3524,306 @@ try:
     check(not moved(before, after, ["crypt2.map", "crypt2.ent"]),
           "crypt2's files, a level only visited, are byte for byte as the copy was made",
           str(moved(before, after, ["crypt2.map", "crypt2.ent"])))
+finally:
+    drop()
+
+
+# --- phase 32: the records tell the truth -------------------------------------------
+print("32 - spawns saved as filed, ids never reused, no respawn or undo loses work, "
+      "no editor removal trips the ledger")
+
+MONLINE = re.compile(r"^\s+(\S+) @ (-?\d+),(-?\d+)\s+hp (-?[\d.]+)(.*?)\s+aware=(\d)$")
+BRKLINE = re.compile(r"^\s+(door|decoration|fixture) (\S+) @ (-?\d+),(-?\d+) hp=([\d.]+)/")
+PIPE = re.compile(r"PIPELINE RESULT=(\w+) checks=(\d+) violations=(\d+)")
+
+
+def mons(lines):
+    """The `monsters` rows of a section, in list order: dicts of type, x, z, hp,
+    dead and aware."""
+    out = []
+    for l in lines:
+        m = MONLINE.match(l)
+        if m:
+            out.append({"type": m.group(1), "x": int(m.group(2)), "z": int(m.group(3)),
+                        "hp": float(m.group(4)), "dead": "(dead)" in m.group(5),
+                        "aware": m.group(6) == "1"})
+    return out
+
+
+def mon_at(rows, type_, x, z):
+    hits = [r for r in rows if r["type"] == type_ and r["x"] == x and r["z"] == z]
+    return hits[0] if hits else None
+
+
+def brks(lines):
+    """The `breakables` rows of a section, in list order: (kind, type, x, z, hp)."""
+    return [(m.group(1), m.group(2), int(m.group(3)), int(m.group(4)), float(m.group(5)))
+            for m in (BRKLINE.match(l) for l in lines) if m]
+
+
+def monster_lines(data):
+    """The `monster ...` lines of a level's .ent bytes, in file order."""
+    return [l.rstrip() for l in data.decode("utf-8").splitlines() if l.startswith("monster ")]
+
+
+def doors_said(lines):
+    return [l for l in lines if re.match(r"door \d+,\d+ -> (open|shut)$", l)]
+
+
+def archetypes(lines):
+    return re.findall(r"^editor inspector: monster \d+ (\S+) live .* archetype (\S+) ", "\n".join(lines),
+                      re.M)
+
+
+# 1. THE SPAWNS (C326).
+fresh()
+try:
+    before = level_files(SCRATCH)
+    log = run("recordspawn.eval")
+    check(passed(log), "the script ran clean")
+    sec = console_sections(log)
+    check("end" in sec, "the script ran to its end")
+    filed = monster_lines(before.get("eval_arena.ent", b""))
+    spawns = {tuple(l.split()[1:4]) for l in filed}
+    pre, post = mons(sec.get("before", [])), mons(sec.get("after", []))
+    check(len(filed) == 6 and len(pre) == 6
+          and all((r["type"], str(r["x"]), str(r["z"])) in spawns for r in pre),
+          "before: eval_arena's six monsters, each on the square its record names", str(pre))
+    # THE CONTROL: the fight happened, so the squares a save could take differ.
+    away = [r for r in post if (r["type"], str(r["x"]), str(r["z"])) not in spawns]
+    check(len(post) == 6 and bool(away) and any(r["dead"] for r in post)
+          and any(r["aware"] for r in post),
+          "after the fight: a monster off its square, one dead, one aware",
+          f"away={away} dead={[r for r in post if r['dead']]}")
+    check(any(l.startswith("saved levels: ") and "eval_arena" in l for l in sec.get("after", [])),
+          "savemap wrote eval_arena")
+    after = level_files(SCRATCH)
+    # THE PREMISE of "as filed": the save WROTE the file. One that wrote nothing
+    # leaves the filed lines in place, and they would compare equal to
+    # themselves. The filed .ent is hand-written; the writer heads its own.
+    mark = b"written by the in-game editor"
+    check(mark not in before.get("eval_arena.ent", b"") and mark in after.get("eval_arena.ent", b""),
+          "THE PREMISE: savemap rewrote eval_arena.ent (the filed one is hand-written, and the "
+          "writer heads its own)", after.get("eval_arena.ent", b"")[:120].decode("utf-8", "replace"))
+    written = monster_lines(after.get("eval_arena.ent", b""))
+    check(written == filed,
+          "eval_arena.ent's monster lines are byte for byte as filed (each at its spawn)",
+          f"{written} vs {filed}")
+finally:
+    drop()
+
+# 2. A RECORD'S ID IS NEVER HANDED ON, AND AN ERASE IS UNDONE WHOLE (C327).
+RECLINE = re.compile(r"^editor records (\S+) (\d+),(\d+): (?:(none)|(\S+) (\S+) id=(\d+) held=([01]))$")
+
+
+def records(lines):
+    """The `editor records` rows of a section: dicts of stem, x, z and - unless
+    the square held none - kind, type, id and held."""
+    out = []
+    for l in lines:
+        m = RECLINE.match(l)
+        if m:
+            row = {"stem": m.group(1), "x": int(m.group(2)), "z": int(m.group(3))}
+            if not m.group(4):
+                row.update(kind=m.group(5), type=m.group(6), id=int(m.group(7)),
+                           held=m.group(8) == "1")
+            out.append(row)
+    return out
+
+
+fresh()
+try:
+    log = run("recordarrive.eval")
+    check(passed(log), "the script ran clean")
+    sec = console_sections(log)
+    check("end" in sec, "the script ran to its end")
+    swarm = mon_at(mons(sec.get("killed", [])), "skel_swarm", 13, 13)
+    check(bool(swarm) and swarm["dead"],
+          "the swarm at 13,13 - eval_arena's last record - lies dead", str(swarm))
+    # THE PREMISE: the swarm's record, and its death held under that record's id.
+    first = records(sec.get("killed", []))
+    swarm_id = first[0].get("id") if first else None
+    check(len(first) == 1 and first[0]["stem"] == "eval_arena" and first[0].get("type") == "skel_swarm"
+          and first[0].get("held") is True,
+          "from crypt1, browsed eval_arena's 13,13 holds the swarm's record, its death held under "
+          "that record's id", str(first))
+    check(any(l == "editor erase: 13,13" for l in sec.get("killed", [])),
+          "the swarm's record erased on the browsed level", str(sec.get("killed", [])[-8:]))
+    # 1. UNDO: the record back with its id, and the held diff for that id with it
+    # (EraseRemote used to drop it, and the undo snapshot - the ACTIVE level's
+    # state alone - could not bring it back).
+    undone = records(sec.get("undone", []))
+    check(len(undone) == 1 and undone[0]["stem"] == "eval_arena" and undone[0].get("type") == "skel_swarm"
+          and undone[0].get("id") == swarm_id and undone[0].get("held") is True,
+          "UNDO: the swarm's record is back with its id, and its death is still held", str(undone))
+    back = mon_at(mons(sec.get("back", [])), "skel_swarm", 13, 13)
+    check(bool(back) and back["dead"],
+          "back on eval_arena after the undo, the swarm still lies dead (not risen)",
+          str(mons(sec.get("back", []))))
+    # 2. A NEW ID: the record placed after the swarm's erase takes an id above
+    # every one the level had - never the swarm's, which its held death names.
+    placed = sec.get("placed", [])
+    check(any(l == "editor erase: 13,13" for l in sec.get("back", []))
+          and any(l == "editor place: skeleton at 15,15" for l in sec.get("back", [])),
+          "from crypt1 again, the swarm's record erased and a skeleton placed at 15,15 on the "
+          "browsed level", str(sec.get("back", [])[-8:]))
+    after = records(placed)
+    gone = [r for r in after if (r["x"], r["z"]) == (13, 13)]
+    new = [r for r in after if (r["x"], r["z"]) == (15, 15)]
+    check(len(gone) == 1 and "id" not in gone[0], "13,13 holds no record now", str(gone))
+    check(len(new) == 1 and new[0].get("type") == "skeleton" and swarm_id is not None
+          and new[0].get("id", -1) > swarm_id and new[0].get("held") is False,
+          "the skeleton's record took a new id - above the erased swarm's, which no held diff "
+          "can name on it (max(id)+1 handed it the swarm's)", f"swarm id={swarm_id} new={new}")
+    reads = stash_reads(placed)
+    check(bool(reads) and reads[0]["active"] == "crypt1" and "eval_arena" in reads[0]["ents"]
+          and "eval_arena" in reads[0]["states"],
+          "eval_arena's records stashed and its state (the dead swarm) held, from crypt1",
+          str(reads[:1]))
+    arrived = mons(sec.get("arrived", []))
+    skel = mon_at(arrived, "skeleton", 15, 15)
+    check(bool(skel) and not skel["dead"] and skel["hp"] > 0,
+          "back on eval_arena, the skeleton stands alive at 15,15 (not dead on the swarm's square)",
+          str(arrived))
+    check(not any(r["type"] == "skel_swarm" for r in arrived) and len(arrived) == 6,
+          "the swarm is gone and the other five stand as they were", str(arrived))
+finally:
+    drop()
+
+# 3. A RESPAWN FROM THE RECORDS LOSES NOTHING; AN UNDO RAISES NOBODY (C311).
+fresh()
+try:
+    before = level_files(SCRATCH)
+    log = run("recordrespawn.eval")
+    check(passed(log), "the script ran clean")
+    sec = console_sections(log)
+    check("end" in sec, "the script ran to its end")
+    start, undone = mons(sec.get("start", [])), mons(sec.get("undone", []))
+    check(bool(mon_at(start, "skel_coward", 12, 1)), "the coward stood at 12,1 to begin with",
+          str(start))
+    check(any(b[:4] == ("decoration", "barrel", 16, 16) for b in brks(sec.get("start", []))),
+          "the barrel was placed (the edit the undo takes back)", str(brks(sec.get("start", []))))
+    check(not any(r["type"] == "skel_coward" for r in undone) and len(undone) == 5,
+          "UNDO: the barrel's undo leaves the erased coward erased", str(undone))
+    check(not any(b[1] == "barrel" for b in brks(sec.get("undone", []))),
+          "...and takes the barrel back", str(brks(sec.get("undone", []))))
+
+    def kept(name, label, skel="skeleton"):
+        lines = sec.get(name, [])
+        rows = mons(lines)
+        dead = mon_at(rows, skel, 12, 6)
+        check(bool(mon_at(rows, skel, 16, 18)) and not mon_at(rows, skel, 16, 18)["dead"],
+              f"{label}: the skeleton the editor placed at 16,18 is there", str(rows))
+        check(bool(dead) and dead["dead"], f"{label}: the skeleton killed at 12,6 is still dead",
+              str(dead))
+        check(not any(r["type"] == "skel_coward" for r in rows),
+              f"{label}: the erased coward has not come back", str(rows))
+        check(any(b[:4] == ("decoration", "crate", 18, 18) for b in brks(lines)),
+              f"{label}: the crate the editor placed at 18,18 is there", str(brks(lines)))
+        check(any(l.startswith("flooritems 14,13: potion_health ") for l in lines),
+              f"{label}: the potion dropped at 14,13 lies there",
+              str([l for l in lines if l.startswith("flooritems")]))
+        return rows
+
+    staged_skel = mon_at(kept("staged", "staged"), "skeleton", 16, 18)
+    # THE CONTROL that the type Save rebuilt anything: it raises the skeleton
+    # kind's hp from 16 to 20, and the placed skeleton - untouched, so nothing
+    # held for it - is respawned from the kind read afresh. Every check of what
+    # was KEPT would pass just as well if the Save had respawned nothing.
+    saved_skel = mon_at(mons(sec.get("type saved", [])), "skeleton", 16, 18)
+    check(bool(staged_skel) and staged_skel["hp"] == 16.0
+          and bool(saved_skel) and saved_skel["hp"] == 20.0,
+          "THE CONTROL: the placed skeleton reads hp 16 staged and hp 20 after the type Save "
+          "(the hp the Save gave its kind) - the Save respawned the level",
+          f"staged={staged_skel} saved={saved_skel}")
+    check(any(b[:4] == ("door", "wooden_door", 2, 5) for b in brks(sec.get("staged", []))),
+          "staged: the door placed at 2,5", str(brks(sec.get("staged", []))))
+    # The inspector's own readout after the pick, before its Save (the lines
+    # ahead of the "staged" header).
+    check(("skel_archer", "sentry") in archetypes(sec.get("undone", [])),
+          "staged: the archer made a sentry in its inspector",
+          str(archetypes(sec.get("undone", []))))
+    for name, label, skel in (("type saved", "after the type Save", "skeleton"),
+                              ("renamed", "after the Rename", "bones")):
+        kept(name, label, skel)
+        lines = sec.get(name, [])
+        check(("skel_archer", "sentry") in archetypes(lines),
+              f"{label}: the archer is still a sentry", str(archetypes(lines)))
+        check(doors_said(lines) == ["door 2,5 -> shut", "door 2,5 -> open"],
+              f"{label}: the door was still open (a hand on it shuts it)", str(doors_said(lines)))
+    back = mons(sec.get("renamed back", []))
+    check(bool(mon_at(back, "skeleton", 16, 18)) and not any(r["type"] == "bones" for r in back),
+          "renamed back: skeletons again", str(back))
+    refs = re.compile(r"monsters 'skel_lurker': (\d+) level record\(s\), (\d+) other")
+    before_refs = [refs.match(l).groups() for l in sec.get("renamed back", []) if refs.match(l)]
+    after_refs = [refs.match(l).groups() for l in sec.get("delete refused", []) if refs.match(l)]
+    check(before_refs == [("0", "0")],
+          "THE PREMISE: no level and no catalog names skel_lurker", str(before_refs))
+    check(any(l.startswith("typeset delete monsters 'skel_lurker': refused")
+              for l in sec.get("renamed back", [])) and after_refs == [("1", "0")],
+          "a delete of the type only an editor-placed lurker uses is refused, and its "
+          "record counts", f"{after_refs} {[l for l in sec.get('renamed back', []) if 'typeset' in l]}")
+    # THE FINAL SAVE wrote the file read below. The inspector's Save (staged)
+    # writes the level too, and its file alone holds every line looked for but
+    # the lurker's - placed after it, so only this save can have written that.
+    check(any(l.startswith("saved levels: ") and "eval_arena" in l
+              for l in sec.get("delete refused", [])),
+          "the closing savemap wrote eval_arena", str(sec.get("delete refused", [])))
+    after = level_files(SCRATCH)
+    ent = after.get("eval_arena.ent", b"").decode("utf-8")
+    lines = monster_lines(after.get("eval_arena.ent", b""))
+    check(any(l.split()[1:4] == ["skel_lurker", "20", "20"] for l in lines),
+          "the save writes the lurker placed after the inspector's Save (so it is this save's file)",
+          str(lines))
+    check(any(l.split()[1:4] == ["skeleton", "16", "18"] for l in lines)
+          and any(l.split()[1:4] == ["skeleton", "12", "6"] for l in lines)
+          and not any(l.split()[1] == "skel_coward" for l in lines),
+          "the save writes the placed skeleton and the dead one's spawn, and no coward", str(lines))
+    check(any(l.split()[1:4] == ["skel_archer", "25", "7"] and "archetype=sentry" in l.split()
+              for l in lines), "...the archer as a sentry", str(lines))
+    check(any(l.startswith("door wooden_door 2 5 ") for l in ent.splitlines()),
+          "...and the door at 2,5", ent)
+finally:
+    drop()
+
+# 4. NO EDITOR REMOVAL TRIPS THE LEDGER (C355).
+fresh()
+try:
+    log = run("recordledger.eval")
+    check(passed(log), "the script ran clean (strict: a violation would have ended it)")
+    sec = console_sections(log)
+    check("end" in sec, "the script ran to its end")
+    staged, erased = sec.get("staged", []), sec.get("erased", [])
+    ms, bs = mons(staged), brks(staged)
+    # THE PREMISE of each removal: what slides up has other hit points.
+    order = [(r["type"], r["hp"]) for r in ms]
+    check(order[:4] == [("skel_coward", 10.0), ("skeleton", 16.0), ("skel_archer", 12.0),
+                        ("skel_warrior", 22.0)],
+          "staged: the monsters in list order coward 10, skeleton 16, archer 12, warrior 22",
+          str(order))
+    props = [b for b in bs if b[0] == "decoration"]
+    doors = [b for b in bs if b[0] == "door"]
+    check([b[1] for b in props] == ["barrel", "crate", "crate"]
+          and len({b[4] for b in props}) == 3,
+          "staged: a barrel, then two crates battered apart - three hit points", str(props))
+    check([b[2:4] for b in doors] == [(2, 5), (6, 5), (10, 5)]
+          and len({b[4] for b in doors}) == 3,
+          "staged: three doors, the last two battered apart - three hit points", str(doors))
+    pipes = [PIPE.search(l) for l in staged + erased]
+    pipes = [p for p in pipes if p]
+    check(len(pipes) == 2 and all(p.group(1) == "PASS" and p.group(3) == "0" for p in pipes)
+          and int(pipes[1].group(2)) > int(pipes[0].group(2)),
+          "the ledger checked on through the removals and found no violation",
+          str([p.group(0) for p in pipes]))
+    check(any("strict=on" in l for l in erased), "...with strict on", str(erased))
+    check("one-pipeline violation" not in log, "no violation in the log",
+          str([l for l in log.splitlines() if "one-pipeline violation" in l][:3]))
+    left = mons(erased)
+    check([r["type"] for r in left] == ["skel_warrior", "skel_mage", "skel_swarm"],
+          "every removal happened: three monsters left", str(left))
+    left_b = brks(erased)
+    check([b[1:4] for b in left_b] == [("wooden_door", 10, 5), ("crate", 20, 16)],
+          "...one door and one crate left", str(left_b))
 finally:
     drop()
 

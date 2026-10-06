@@ -178,6 +178,61 @@ void DungeonWorld::RespawnFromRecords(bool geometryToo) {
 	RebaseDamageLedger();
 }
 
+// ============================================================================
+// The records brought level with the live level, and a respawn that keeps it
+// (code-review C311 - see the declarations). Interim: once placement is
+// record-first (P9) the records are the truth already and the sync goes.
+// ============================================================================
+void DungeonWorld::SyncActiveRecords() {
+	if (m_parked) return; // entering it again reads the park's stash, not these
+	// Props: the same sync a stash and an undo capture make.
+	m_map.SetDecorationRecords(LiveDecorationRecords());
+	// Monsters: each live one's record says what it does - one the editor
+	// placed gets a record (and so an id the held state can key it by), one
+	// whose spawn, facing or overrides moved has its record rewritten - and a
+	// monster record nothing live stands for goes (an erase that kept it is
+	// what an undo and a respawn raised the dead from).
+	bool changed = false;
+	std::vector<int> live;
+	live.reserve(m_monsters.size());
+	for (Monster& m : m_monsters) {
+		Entity rec = LiveMonsterRecord(m);
+		const Entity* filed = m.id >= 0 ? m_entities.ById(m.id) : nullptr;
+		if (filed && filed->kind == EntityKind::Monster) {
+			// Compared as the writer would put both, so a record the editor wrote
+			// and nothing touched since is left alone (and the level unedited).
+			if (filed->type != rec.type || filed->x != rec.x || filed->z != rec.z ||
+				filed->facing != rec.facing || filed->params != rec.params) {
+				m_entities.Replace(std::move(rec));
+				changed = true;
+			}
+		} else {
+			m.id = m_entities.Add(std::move(rec));
+			changed = true;
+		}
+		live.push_back(m.id);
+	}
+	std::vector<int> orphans;
+	for (const Entity& e : m_entities.All())
+		if (e.kind == EntityKind::Monster && std::ranges::find(live, e.id) == live.end())
+			orphans.push_back(e.id);
+	for (const int id : orphans) m_entities.RemoveById(id);
+	if (changed || !orphans.empty()) m_entsDirty = true;
+}
+
+void DungeonWorld::HoldActiveState() {
+	if (m_parked) return; // its state is held already, under its stem
+	SyncActiveRecords();
+	StashActive();
+}
+
+void DungeonWorld::RestoreHeldState() {
+	// ApplyActiveSnapshot would UNPARK the level - with the party out on the
+	// world map - so a parked one keeps the state the park stashed, which is
+	// what entering it again applies.
+	if (!m_parked) ApplyActiveSnapshot();
+}
+
 void DungeonWorld::FlushGeometry() {
 	// A restored palette needs the heavier path: re-resolve, then reload the
 	// worn meshes AND texture sets so the variant arrays match the palette

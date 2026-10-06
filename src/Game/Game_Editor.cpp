@@ -1169,6 +1169,12 @@ bool Game::RenameType(const std::string& catalogKey, const std::string& id,
 	if (m_worldMap && m_worldMap->Serialize() != worldBefore && !SaveWorld())
 		log::Warn("rename type: failed to save the world");
 
+	// The live level HELD first: its placements written into records, so the
+	// sweep retypes them too, and its state stashed, so the respawn below lays
+	// it back. A respawn from the records alone dropped every monster and prop
+	// the editor had placed, raised the dead, brought back what it had erased
+	// and shut every door (code-review C311).
+	m_world->HoldActiveState();
 	const DungeonWorld::TypeUsage used = m_world->SweepTypeRefs(catalogKey, id, &newId);
 	// Live objects still point at kinds cached under the old id (and monsters
 	// hold their type by name), so rebuild them from the records we just wrote.
@@ -1177,6 +1183,7 @@ bool Game::RenameType(const std::string& catalogKey, const std::string& id,
 	// inspector names an object the respawn replaces, so it goes first (C232).
 	CloseInspectors();
 	m_world->RespawnFromRecords(DungeonWorld::StampedIntoSurfaces(catalogKey));
+	m_world->RestoreHeldState();
 	// The undo stack holds level snapshots taken BEFORE the rename; restoring
 	// one would bring back records naming a type that no longer exists.
 	m_world->ClearUndoHistory();
@@ -1235,6 +1242,10 @@ bool Game::DeleteType(const std::string& catalogKey, const std::string& id,
 			problem = loc::Format("map.type.inuse.world", cells);
 			return false;
 		}
+	// The live level's placements counted too: the sweep reads records, and a
+	// monster or prop the editor placed had none, so its type could be deleted
+	// from under it and the next savemap wrote a record naming nothing (C311).
+	if (catalogKey == "monsters" || catalogKey == "decorations") m_world->SyncActiveRecords();
 	const DungeonWorld::TypeUsage used = m_world->SweepTypeRefs(catalogKey, id);
 	if (used.Any()) {
 		std::string levels;

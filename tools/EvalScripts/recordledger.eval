@@ -1,0 +1,66 @@
+; recordledger.eval - deleting a monster, a prop or a door in the editor is no
+; one-pipeline violation (code-review C355). Judged by tools/EditorTest.py phase
+; 32, on a scratch copy of dungeon-demo, under `pipelineguard strict`: a
+; violation is an assert, and the run ends there.
+;
+; The damage ledger knows a watched hit-point value by its ADDRESS. The editor
+; erases from the middle of the monster, prop and door lists while the world
+; runs, so the next one along slid onto the freed address and was judged
+; against the deleted one's baseline: a violation naming the deleted object,
+; or under strict an abort. Each removal here is staged so the one that slides
+; up has OTHER hit points than the one it replaces - the coward (10) before
+; the skeleton (16) before the archer (12) before the warrior (22); a barrel
+; (8) before a crate battered to 7 before one battered to 5; a door before a
+; battered one before one battered further - and each is followed by a step,
+; whose first checkpoint ("outside the world update") is where it was caught.
+; Every way the editor removes one: the erase ladder (monster, prop, door),
+; the inspectors' Delete (monster, prop, door) and a wall painted over a
+; monster.
+
+logecho on
+reset
+timescale 0
+lockstep on
+seed 11
+freeze on
+pipelineguard on
+pipelineguard strict on
+editor
+editor place decorations barrel 16 16
+editor place decorations crate 18 16
+editor place decorations crate 20 16
+smash 18 16 3
+smash 20 16 5
+editor drag walls wall_marble 1 5 3 5 5 5 7 5 9 5 11 5
+editor place doors wooden_door 2 5
+editor place doors wooden_door 6 5
+editor place doors wooden_door 10 5
+smash 6 5 6
+smash 10 5 12
+step 1
+echo --- staged ---
+monsters
+breakables
+pipeline
+editor erase 12 1
+step 1
+editor inspect 12 6
+editor inspector delete
+step 1
+editor drag walls wall_marble 25 7
+step 1
+editor erase 16 16
+step 1
+editor inspect 18 16
+editor inspector delete
+step 1
+editor erase 2 5
+step 1
+editor inspect 6 5
+editor inspector delete
+step 1
+echo --- erased ---
+monsters
+breakables
+pipeline
+echo --- end ---

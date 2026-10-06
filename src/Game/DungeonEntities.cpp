@@ -64,6 +64,9 @@ void DungeonEntities::Parse(const std::vector<u8>& bytesIn, const DungeonMap& ma
 		++counts[static_cast<size_t>(e.kind)];
 		m_entities.push_back(std::move(e));
 	}
+	// Past every id the file numbered, skipped records' included: a record the
+	// editor adds can never take one a held state still names.
+	m_nextId = fileOrder;
 
 	// Sort by cell so At() can binary-search; stable keeps file order per cell.
 	std::ranges::stable_sort(m_entities, {}, [this](const Entity& e) {
@@ -122,17 +125,41 @@ void DungeonEntities::Reframe(int dx, int dz, int newWidth) {
 }
 
 int DungeonEntities::Add(Entity record) {
-	int maxId = -1;
-	for (const Entity& e : m_entities) maxId = std::max(maxId, e.id);
-	record.id = maxId + 1;
+	// Monotonic (C327). It was max(id)+1, which a removal of the highest id
+	// turned back - and EraseRemote leaves that id's diff in the level's held
+	// state, which ApplyActiveSnapshot lays on whatever record now carries it.
+	record.id = m_nextId++;
 	const int key = record.z * m_width + record.x;
 	const auto pos = std::ranges::upper_bound(
 		m_entities, key, {}, [this](const Entity& e) { return e.z * m_width + e.x; });
 	return m_entities.insert(pos, std::move(record))->id;
 }
 
+bool DungeonEntities::Replace(Entity record) {
+	const auto it =
+		std::ranges::find_if(m_entities, [&](const Entity& e) { return e.id == record.id; });
+	if (it == m_entities.end()) return false;
+	if (it->x == record.x && it->z == record.z) {
+		*it = std::move(record);
+		return true;
+	}
+	// A new cell: out and back in at its sort position (the id goes with it).
+	m_entities.erase(it);
+	const int key = record.z * m_width + record.x;
+	const auto pos = std::ranges::upper_bound(
+		m_entities, key, {}, [this](const Entity& e) { return e.z * m_width + e.x; });
+	m_entities.insert(pos, std::move(record));
+	return true;
+}
+
 Entity* DungeonEntities::MutableById(int id) {
 	for (Entity& e : m_entities)
+		if (e.id == id) return &e;
+	return nullptr;
+}
+
+const Entity* DungeonEntities::ById(int id) const {
+	for (const Entity& e : m_entities)
 		if (e.id == id) return &e;
 	return nullptr;
 }

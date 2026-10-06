@@ -169,10 +169,8 @@ void InstanceInspector::BuildUI() {
 	FooterIcon(*chrome.footer, m_device, "save", loc::Tr("map.cfg.save"),
 			   [this] { ClickSave(); });
 	if (onDelete)
-		FooterIcon(*chrome.footer, m_device, "delete", loc::Tr("map.cfg.delete"), [this] {
-			onDelete(); // gone - no Revert
-			Close();
-		});
+		FooterIcon(*chrome.footer, m_device, "delete", loc::Tr("map.cfg.delete"),
+				   [this] { ClickDelete(); });
 	chrome.footer->Space(ui::Len::Fill());
 }
 

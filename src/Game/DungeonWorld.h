@@ -112,7 +112,11 @@ public:
 	// resolve re-reads the catalog (model, texture set, material overrides,
 	// scale, flags), then re-spawns the live objects that used it. A kind is
 	// loaded once and cached by type name, so without this a saved edit only
-	// showed on the next level entry. `catalogKey` picks the cache.
+	// showed on the next level entry. `catalogKey` picks the cache; a category
+	// with none (items, effects, flags, the world's) does nothing at all. The
+	// respawn KEEPS the level as the editor and play left it (HoldActiveState /
+	// RestoreHeldState): a placed monster or prop, an opened door, a corpse, a
+	// drop - all of which a respawn from the records alone used to lose (C311).
 	void ReloadTypeKind(const std::string& catalogKey, const std::string& id);
 	// Re-reads lights.cat (lighting-updates Phase 2, Game/LightProfile.h). Every
 	// light resolves its profile by id each frame, so a saved edit shows on the
@@ -695,6 +699,18 @@ public:
 		bool parked = false;
 	};
 	StashReport Stashes() const;
+	// The RECORDS on one square of `stem`, as the level reads (never stashed),
+	// each with its stable id and whether the level's HELD dynamic state carries
+	// a diff naming that id - the console's `editor records` (code-review C327:
+	// a new record must take an id no held diff names, and an erase undone must
+	// find its record's diff still held).
+	struct RecordReport {
+		const char* kind = "";
+		std::string type;
+		int id = -1;
+		bool held = false;
+	};
+	std::vector<RecordReport> RecordsAt(const std::string& stem, int x, int z);
 	// The active level's MAP differs from its file - measured, not latched (see
 	// m_mapAsFiled), so an undo back to the file's state reads clean again.
 	bool ActiveMapEdited() const;
@@ -1893,8 +1909,12 @@ public:
 	// records that name catalog type `id` of category `catalogKey`. With
 	// `newId`, retypes them all instead: that is the rename, and it has to be
 	// this exhaustive or a level would load a record naming a type that no
-	// longer exists. The caller re-spawns live objects afterwards
-	// (RespawnFromRecords) and saves (`savemap`) to persist.
+	// longer exists. A rename also retypes what the levels' HELD dynamic states
+	// carry whole - a placed monster or a drop with no record, a smashed prop -
+	// which the respawn after it lays back. The ACTIVE level's live placements
+	// count only once the caller has synced them into records
+	// (SyncActiveRecords); it re-spawns live objects afterwards
+	// (HoldActiveState / RestoreHeldState) and saves (`savemap`) to persist.
 	TypeUsage SweepTypeRefs(const std::string& catalogKey, const std::string& id,
 							const std::string* newId = nullptr);
 	// --- generator support ----------------------------------------------------
@@ -1967,7 +1987,9 @@ public:
 	const DungeonMap* LevelMapAsItIs(const std::string& stem);
 
 	// Rebuilds the live dynamic objects from the current records — the tail of
-	// an undo restore, reused after a type rename retypes those records.
+	// an undo restore, reused by a type Save and a type Rename between
+	// HoldActiveState and RestoreHeldState (on its own it puts the level back to
+	// its records and loses everything else: code-review C311).
 	// Surfaces are untouched (a rename doesn't move geometry) EXCEPT features,
 	// wall and surface alike, whose tiles are stamped into the chunks:
 	// `geometryToo` re-files their meshes under the catalog's ids as they are
@@ -1980,6 +2002,25 @@ public:
 	static bool StampedIntoSurfaces(std::string_view catalogKey) {
 		return catalogKey == "wallfeatures" || catalogKey == "surfacefeatures";
 	}
+	// THE RECORDS BROUGHT LEVEL WITH THE LIVE LEVEL (code-review C311). On the
+	// active level the LIVE lists are the truth for monsters and props: a
+	// placement adds an instance and nothing else, an inspector edits the
+	// instance (interim, until placement is record-first - P9). This writes them
+	// back: the props into the map's decoration records, every monster into a
+	// .ent record (LiveMonsterRecord - one the editor placed gets a record, and
+	// with it an id; a record whose monster is gone is dropped), the records
+	// marked edited when one changed. A no-op while the level is PARKED: what
+	// entering it again reads is the park's stash, not the live lists.
+	void SyncActiveRecords();
+	// A respawn from the records that KEEPS what the editor and play did to the
+	// level, for a type Save and a type Rename (not an undo, which wants the
+	// records it restores and nothing else): HoldActiveState syncs the records
+	// and stashes the dynamic state (StashActive), the caller retypes and
+	// respawns, and RestoreHeldState lays that state back on the respawned
+	// objects (ApplyActiveSnapshot) - the dead stay dead, an opened door open, a
+	// dropped item where it lies. Both are no-ops while the level is parked.
+	void HoldActiveState();
+	void RestoreHeldState();
 
 	// Live entity placement (editor). type is a catalog id (decorations.cat /
 	// monsters.cat). Each instantiates the kind (loading its model/textures on
@@ -2538,7 +2579,12 @@ public:
 	// wholesale (a load, a save restore, a respawn, a `heal`) must call
 	// RebaseDamageLedger afterwards — the values it overwrote no longer exist to
 	// be reconciled, and without a fresh baseline the next checkpoint reports the
-	// replacement itself as a violation.
+	// replacement itself as a violation. So must anything that ERASES from the
+	// middle of the monster, prop or door list (every editor removal, a moved
+	// door or stair): the ledger knows a value by its address, and each one after
+	// the erased slides onto the address before it - judged against the erased
+	// one's baseline, a violation naming it, an abort under `pipelineguard
+	// strict` (code-review C355).
 	ledger::Ledger& DamageLedger() { return m_damageLedger; }
 	void RebaseDamageLedger();
 	// The `pipeline` command's lines: the RESULT= verdict, then how much health
@@ -5745,6 +5791,18 @@ private:
 	// Live decoration placements as .map records (the SaveLevel writer's emit in
 	// record form). Shared by StashStaticMap and the undo capture.
 	std::vector<Entity> LiveDecorationRecords() const;
+	// One live monster as its .ent record - its SPAWN square and facing, and the
+	// per-instance overrides the inspector edits live - carrying its own id (-1
+	// for one the editor placed). The one statement of the live-to-record
+	// mapping: ActiveEntText writes it and SyncActiveRecords keeps the records in
+	// step with it. The spawn, never where it stands: the editor is a live view,
+	// and a save took each patrol's, chase's and corpse's current square for its
+	// authored one (code-review C326).
+	Entity LiveMonsterRecord(const Monster& m) const;
+	// An editor removal of one live monster: its .ent record goes too (one left
+	// behind came back with the next undo or respawn: C311), and the damage
+	// ledger rebases, the monsters after it having slid down a slot (C355).
+	void EraseMonster(std::vector<Monster>::iterator it);
 	// A full editor-state snapshot: the active level (map with decoration
 	// records synced, .ent records, dynamic-state diffs) + every stash. Levels
 	// are a few KB, so a copy per edit is nothing.

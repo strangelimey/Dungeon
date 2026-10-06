@@ -1,0 +1,96 @@
+; recordrespawn.eval - a type Save and a type Rename rebuild the live level
+; from its records and keep everything the editor and play did to it, and an
+; undo brings back no monster the editor erased (code-review C311). Judged by
+; tools/EditorTest.py phase 32, on a scratch copy of dungeon-demo; monsters are
+; frozen throughout, so each stays on the square it is looked for on.
+;
+; On the active level the LIVE lists were the truth for monsters and props: a
+; placement added only an instance and an erase left the record behind. Both
+; the type editor's Save (every category with a cached kind - the monster's
+; here) and a Rename rebuilt the level from those records, so:
+; 1. UNDO. The coward (12,1, an authored record) erased, a barrel placed, the
+;    barrel undone: the restore respawned from the records, coward included.
+; 2. WHAT A SAVE AND A RENAME MUST KEEP, staged first: a skeleton and a crate
+;    the editor placed (no record), a door placed and opened, a potion dropped,
+;    the authored skeleton at 12,6 killed, the archer made a sentry in its
+;    inspector. The skeleton type is then saved with its hp raised from 16 to
+;    20, and renamed to `bones` and back. Each used to drop the placed skeleton
+;    and crate, raise the dead, bring the coward back, shut the door, lose the
+;    potion and the archer's archetype. `opendoor` reads the door by turning
+;    it: `shut` means it was still open. THE CONTROL that the Save rebuilt
+;    anything at all: the placed skeleton, untouched, is respawned from the
+;    kind read afresh, so it reads hp 20 after it - with no respawn, every
+;    check of what was kept would pass on nothing done.
+; 3. A DELETE SEES WHAT THE EDITOR PLACED. A lurker - a type no level and no
+;    catalog names - placed by the editor had no record, and the delete counted
+;    records: the type went from under it, and the save wrote a monster of a
+;    type that no longer existed. Now it is refused.
+; 4. THE SAVE that follows writes the placed skeleton and the sentry, and no
+;    coward - and the lurker, placed after the inspector's Save (which writes
+;    the level too), so only this save can have written it.
+
+logecho on
+reset
+timescale 0
+lockstep on
+seed 11
+freeze on
+editor
+echo --- start ---
+monsters
+editor erase 12 1
+editor place decorations barrel 16 16
+breakables
+undo
+echo --- undone ---
+monsters
+breakables
+editor place monsters skeleton 16 18
+editor place decorations crate 18 18
+editor drag walls wall_marble 1 5 3 5
+editor place doors wooden_door 2 5
+opendoor 2 5
+tp 14 12
+face s
+drop potion_health 14 13
+tp 12 5
+face s
+effect bleed ahead 999 2
+step 1
+editor inspect 25 7
+editor inspector archetype sentry
+editor inspector save
+echo --- staged ---
+monsters
+breakables
+flooritems 14 13
+typeset monsters skeleton hp 20
+echo --- type saved ---
+monsters
+breakables
+flooritems 14 13
+editor inspect 25 7
+editor inspector
+editor inspect off
+opendoor 2 5
+opendoor 2 5
+typeset rename monsters skeleton bones
+echo --- renamed ---
+monsters
+breakables
+flooritems 14 13
+editor inspect 25 7
+editor inspector
+editor inspect off
+opendoor 2 5
+opendoor 2 5
+typeset rename monsters bones skeleton
+echo --- renamed back ---
+monsters
+typerefs monsters skel_lurker
+editor place monsters skel_lurker 20 20
+expect-refuse typeset delete monsters skel_lurker
+echo --- delete refused ---
+typerefs monsters skel_lurker
+savemap
+echo --- end ---

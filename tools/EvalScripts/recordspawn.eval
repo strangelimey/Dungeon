@@ -1,0 +1,47 @@
+; recordspawn.eval - a level saved while its monsters are up and about writes
+; each one at its SPAWN, not where it stands (code-review C326). Judged by
+; tools/EditorTest.py phase 32, on a scratch copy of dungeon-demo.
+;
+; eval_arena's six skeletons as filed, then a fight: the swarm at 13,13 killed
+; where it lies, and the party stood between the coward (12,1) and the skeleton
+; (12,6) until they have noticed it and left their squares. The editor is a
+; live view, so this is what any inspector Save or `savemap` met: the .ent
+; writer took each monster's CURRENT square while its facing and leash came
+; from the spawn, and every patrol, chase and corpse moved its authored spawn
+; in the git tree. EditorTest checks the fight happened (a monster off its
+; square, one dead, one aware), then compares eval_arena.ent's monster lines
+; with the copy's as made, byte for byte.
+
+logecho on
+reset
+timescale 0
+lockstep on
+seed 11
+echo --- before ---
+monsters
+; The swarm, killed where it lies (the party faces it from the square north).
+tp 13 12
+face s
+effect bleed ahead 999 2
+step 1
+; Among the others, healed between bouts so nobody falls.
+tp 12 3
+face s
+step 3
+heal
+step 3
+heal
+step 3
+heal
+step 3
+heal
+step 3
+heal
+step 3
+heal
+step 3
+heal
+echo --- after ---
+monsters
+savemap
+echo --- end ---

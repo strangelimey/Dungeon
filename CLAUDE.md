@@ -2621,7 +2621,17 @@ fields (stairs `pair`, doors `key`) and the project's default fixture ids
 the entry IN PLACE (Catalog::Rename — a remove + re-add would move it to the end
 of the file, dragging its lead comments, i.e. the file header, with it),
 re-spawns the live objects from the retyped records (RespawnFromRecords) and
-CLEARS the undo history (every held snapshot names the old id). A delete REFUSES
+CLEARS the undo history (every held snapshot names the old id). THE RESPAWN
+KEEPS THE LEVEL (code-review C311): a rename and a type Save (ReloadTypeKind,
+only for a category with a cached kind - monsters, props, doors, levers, stairs,
+fixtures, features) go through `HoldActiveState` first - `SyncActiveRecords`
+writes the live monsters and props into records (one the editor placed gets
+one), then the dynamic state is stashed - and `RestoreHeldState` after, so a
+placed monster, a corpse, an opened door and a drop survive; a respawn from the
+records alone lost them all and raised what the editor had erased. An editor
+removal takes the monster's record with it (else the next undo raised it), and
+rebases the damage ledger (C355). Interim until placement is record-first
+(P9). A delete REFUSES
 while anything still references the type and says which levels — a record naming
 a missing type is not a soft failure at load. `savemap` persists the touched
 levels. Each record family is a `DungeonMap::TypeRecords` value, and a catalog a
@@ -2708,7 +2718,11 @@ levers' corner (1..3,22) and EditorTest phase 55, whose scratch copy adds a pill
 niche beside a wall-less chunk and reaches the new game's and the load's batched
 re-stamps (`newgame`, a save and load - `reset` re-reads the map and reaches
 neither). Placement appends to the live world lists (and
-DungeonMap for fixtures), drawn next frame. Markers draw from the LIVE world
+DungeonMap for fixtures), drawn next frame; on the active level those lists are
+the truth for monsters and props, and the level's .ent writer
+(DungeonWorld::LiveMonsterRecord, behind ActiveEntText) writes each monster at
+its SPAWN - the editor is a live view, and it used to write where a patrol,
+chase or corpse stood, moving its authored square on every save (C326). Markers draw from the LIVE world
 (MonsterMarkers/DecorationMarkers), so placed/erased entities show immediately.
 Both modes can BROWSE other levels: [^]/[v] arrows top-left of the grid step the
 viewed level through the project's level order (an edge level hides its dead-
@@ -2726,7 +2740,14 @@ also stashed on a level swap when it differs from its file, so unsaved edits
 survive and a level only visited is not rewritten, live decoration placements
 synced back into records first) and m_levelEnts (.ent records, created on
 demand; record ids stay stable across removals so the per-id dynamic diffs in
-m_levelStates remain valid); each made only by an edit that changes it (see
+m_levelStates remain valid, and a NEW record's id is never one used before -
+DungeonEntities counts up from the file's record count, where max(id)+1 handed
+an erased last record's id, and its held death, to the next placement: C327.
+A remote erase LEAVES the erased id's held diff alone: it names no record
+now, and an undo - whose snapshot holds only the ACTIVE level's state - brings
+the record back to it; `editor records <x> <z>` prints a square's records with
+their ids and `held=1` where the held state names one);
+each made only by an edit that changes it (see
 NEVER STASH TO READ) - and MapView rebuilds the browse
 snapshot after each paint. Entering a level consumes its stashes; the
 right-click inspectors (MapEditor::InspectAt) still need the level active (no

@@ -60,8 +60,9 @@ bool DungeonWorld::ResizeLevel(const std::string& stem, int x0, int z0, int x1,
 
 	// The level as it stands. The live one as its SAVE would write it - the
 	// decorations synced back into records, and the .ent re-parsed from the text
-	// SaveLevel writes, which is the one place that has every monster as it stands
-	// (an editor-placed one has no record at all). A browsed one as it reads.
+	// SaveLevel writes, which is the one place that has every monster (an
+	// editor-placed one has no record at all), each at its spawn (C326). A
+	// browsed one as it reads.
 	const LevelRead read = LevelForReading(stem);
 	DungeonMap map = live ? ActiveStaticCopy() : *read.map;
 	DungeonEntities ents = live ? DungeonEntities::FromText(ActiveEntText(), map, stem)
@@ -166,6 +167,7 @@ bool DungeonWorld::ResizeLevel(const std::string& stem, int x0, int z0, int x1,
 				return d.stair && d.x == in.x && d.z == in.z;
 			});
 			PlaceStairProp(s);
+			RebaseDamageLedger(); // the prop out of the middle, in at the end (C355)
 			RebuildChunksAround(in.x, in.z);
 			RebuildChunksAround(s.x, s.z);
 		}

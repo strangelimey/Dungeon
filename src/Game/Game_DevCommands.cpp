@@ -251,7 +251,7 @@ void Game::RegisterDevCommands() {
 								  "fill <category> <id> level\n"
 								  "inspect <x> <z> [monster|door|button|stair|...]\n"
 								  "inspect off\n"
-								  "inspector [status|esc|save|tab <n>]\n"
+								  "inspector [status|esc|save|delete|tab <n>]\n"
 								  "inspector editroute|clearroute|archetype <name>\n"
 								  "inspector open on|off\n"
 								  "inspector popup [<n>]\n"
@@ -264,6 +264,7 @@ void Game::RegisterDevCommands() {
 								  "route key enter|esc|back\n"
 								  "pick <x> <z>\n"
 								  "cell <x> <z>\n"
+								  "records <x> <z>\n"
 								  "move <x> <z> <to-x> <to-z>\n"
 								  "resize <x0> <z0> <x1> <z1>\n"
 								  "tool [paint|rect|flood|area|pick|corridor|room|stamp|region]\n"
@@ -514,6 +515,24 @@ void Game::RegisterDevCommands() {
 													   i < pal.size() ? pal[i] : "-");
 							   }
 							   m_console.Print(line);
+							   return;
+						   }
+						   // The .ent RECORDS on one square of the VIEWED level, as it
+						   // reads (nothing stashed), each with its id and whether the
+						   // level's held state names that id (`held=1`): what tells a
+						   // placement's fresh id from an erased record's, and an
+						   // undone erase from one that lost its diff (C327).
+						   if (!args.empty() && args[0] == "records") {
+							   if (!Need(m_console, args, 3, "usage: editor records <x> <z>")) return;
+							   const std::string stem = m_mapView.ViewedLevel();
+							   const int x = std::atoi(args[1].c_str()), z = std::atoi(args[2].c_str());
+							   const auto recs = m_world->RecordsAt(stem, x, z);
+							   if (recs.empty())
+								   m_console.Print(std::format("editor records {} {},{}: none", stem, x, z));
+							   for (const DungeonWorld::RecordReport& r : recs)
+								   m_console.Print(std::format("editor records {} {},{}: {} {} id={} held={}",
+															   stem, x, z, r.kind, r.type, r.id,
+															   r.held ? 1 : 0));
 							   return;
 						   }
 						   // The eyedropper (Alt+click) on a square: says what it armed.

@@ -316,9 +316,14 @@ void Game::RegisterPartyCommands() {
 							   }
 						   }
 						   const int x = std::atoi(args[1].c_str()), z = std::atoi(args[2].c_str());
-						   const bool laid = m_world->DropItemOnSquare(args[0], x, z, quarter);
-						   m_console.Print(std::format("drop {} at {},{}: {}", args[0], x, z,
-													   laid ? "laid" : "refused"));
+						   // Not laid (out of reach, unseen, a hole) is a REFUSE, so a
+						   // script staging a floor item fails there rather than at
+						   // the check that finds no item (code-review C311's judge
+						   // dropped one on a square the party had never seen).
+						   if (m_world->DropItemOnSquare(args[0], x, z, quarter))
+							   m_console.Print(std::format("drop {} at {},{}: laid", args[0], x, z));
+						   else
+							   m_console.Refuse(std::format("drop {} at {},{}: refused", args[0], x, z));
 					   });
 	// The offense/defense split before its slider exists
 	// (docs/damage-system.md). Worth keeping once the UI lands: setting an

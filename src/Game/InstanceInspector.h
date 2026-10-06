@@ -97,6 +97,14 @@ public:
 		Persist();
 		Close();
 	}
+	// The footer's Delete (see onDelete below), which a harness presses through
+	// `editor inspector delete`. False when this open offers none.
+	bool ClickDelete() {
+		if (!onDelete) return false;
+		onDelete(); // gone - no Revert
+		Close();
+		return true;
+	}
 	// A rebuild a click queued is done by the next Update; a harness, which
 	// runs no Update while its console is up, does it now (the type editor's
 	// ApplyPending rule).

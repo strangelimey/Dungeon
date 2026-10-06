@@ -1,0 +1,56 @@
+; recordarrive.eval - a monster placed on a BROWSED level arrives as placed,
+; whatever the level's last record went through, and an erase of a record the
+; level's held state speaks for can be undone (code-review C327). Judged by
+; tools/EditorTest.py phase 32, on a scratch copy of dungeon-demo.
+;
+; eval_arena's last record is the swarm at 13,13. It is killed, the party goes
+; down to crypt1 (eval_arena's state - the swarm dead - is held for it, under
+; the swarm's record id), and from there the editor works on the browsed
+; eval_arena. `editor records` prints each record on a square with its id and
+; whether the held state names that id (held=1).
+; 1. UNDO. The swarm's record erased and the erase undone: the record is back
+;    with its id, and its held death with it - the erase used to drop the
+;    diff, which the undo snapshot (the ACTIVE level's state only) could not
+;    bring back, so the swarm stood up alive on the way back.
+; 2. A NEW ID. The swarm's record erased again and a skeleton placed at 15,15:
+;    a new record took max(id)+1, so it was handed the erased swarm's id, and
+;    on the way back the held state for that id - dead, at 13,13 - was laid on
+;    the skeleton: it arrived a corpse on the swarm's square.
+
+logecho on
+reset
+timescale 0
+lockstep on
+seed 11
+freeze on
+tp 13 12
+face s
+effect bleed ahead 999 2
+step 1
+echo --- killed ---
+monsters
+goto crypt1
+editor
+levels view eval_arena
+editor records 13 13
+editor erase 13 13
+undo
+levels view eval_arena
+echo --- undone ---
+editor records 13 13
+goto eval_arena
+echo --- back ---
+monsters
+goto crypt1
+editor
+levels view eval_arena
+editor erase 13 13
+editor place monsters skeleton 15 15
+echo --- placed ---
+editor records 13 13
+editor records 15 15
+stashes
+goto eval_arena
+echo --- arrived ---
+monsters
+echo --- end ---

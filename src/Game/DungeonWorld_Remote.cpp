@@ -227,6 +227,7 @@ bool DungeonWorld::RemovePairedStair(const std::string& fromStem,
 		std::erase_if(m_decorations, [&](const Decoration& d) {
 			return d.stair && d.x == removed.destX && d.z == removed.destZ;
 		});
+		RebaseDamageLedger(); // the props after its prop slid down a slot (C355)
 		// A removed down stair's floor hole closes with the chunk rebuild.
 		RebuildChunksAround(removed.destX, removed.destZ);
 		return true;
@@ -244,6 +245,7 @@ bool DungeonWorld::RemoveStairAt(int x, int z) {
 	std::erase_if(m_decorations, [&](const Decoration& d) {
 		return d.stair && d.x == x && d.z == z;
 	});
+	RebaseDamageLedger(); // the props after its prop slid down a slot (C355)
 	RebuildChunksAround(x, z); // a down stair's floor hole closes
 	const bool pair = RemovePairedStair(m_currentLevel, removed);
 	// Split rather than a conditional: the two arms are now a loc::Line and a
@@ -399,6 +401,12 @@ bool DungeonWorld::EraseRemote(const std::string& stem, int x, int z) {
 				 : loc::Tr("map.erase.removed"));
 		return true;
 	}
+	// The level's HELD state keeps whatever it says of the erased record's id.
+	// No record will carry that id again (DungeonEntities::Add, C327), so the
+	// diff applies to nothing - and it must stay: an undo brings the record
+	// back with its id, but the undo snapshot holds only the ACTIVE level's
+	// state, so a diff dropped here was gone for good and the monster the
+	// party had killed stood up alive on the way back.
 	if (EditEntStash(stem, [&](DungeonEntities& ents, const DungeonMap&) {
 			for (const Entity& e : ents.At(x, z))
 				if (e.kind == EntityKind::Monster || e.kind == EntityKind::Door ||

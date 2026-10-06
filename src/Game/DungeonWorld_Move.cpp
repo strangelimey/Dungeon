@@ -275,6 +275,9 @@ bool DungeonWorld::MoveObject(const MoveTarget& t, int tx, int tz) {
 		moved.open = open;
 		moved.openT = openT;
 		moved.brk = brk;
+		// Out of the middle of the list and in at its end: every door after it,
+		// and it, at another's address now (C355, RebaseDamageLedger's note).
+		RebaseDamageLedger();
 		return done();
 	}
 	case MoveTarget::Kind::Brazier: {
@@ -396,6 +399,7 @@ bool DungeonWorld::MoveStair(const MoveTarget& t, int tx, int tz) {
 	}
 	m_map.AddStair(moved);
 	PlaceStairProp(moved);
+	RebaseDamageLedger(); // its prop out of the list's middle, in at its end (C355)
 	// Holes: a down stair shows through the floor, an up one through the ceiling,
 	// so both squares re-stamp.
 	RebuildChunksAround(t.x, t.z);

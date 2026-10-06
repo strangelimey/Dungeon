@@ -581,6 +581,14 @@ explain its writes, it **rebases**: the values it overwrote no longer exist to b
 reconciled. There is deliberately no `setup` reason; one was written and removed
 when the suite showed its row could only ever be zero.
 
+So does an **erase from the middle** of the monster, prop or door list (every
+editor removal, a moved door or stair). The ledger knows a value by its address,
+and the erase slides each later one down a slot onto the address before it: with
+the world running under the editor, deleting the coward (10 hp) left the skeleton
+(16) to be judged against the coward's baseline - a false violation naming the
+deleted monster, or an abort under `pipelineguard strict` (code-review C355;
+EditorTest phase 32 runs every removal under strict).
+
 **What it found immediately.** Two of the three `growth` routes had been
 enumerated by reading the code and the third had not: a resource *practice*
 levelling mid-fight grows the pool, so a member's health rises by about a point
