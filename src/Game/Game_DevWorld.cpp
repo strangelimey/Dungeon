@@ -531,13 +531,32 @@ void Game::RegisterWorldCommands() {
 							std::strtof(a[4].c_str(), nullptr),
 							static_cast<u32>(std::strtoul(a[5].c_str(), nullptr, 10)));
 					} else if (a.size() >= 3 && a[1] == "source") {
+						// A source word, level or style the dialog does not offer is
+						// REFUSED, not taken as Blank or as a pick with nothing
+						// behind it: the UI sweep audits what is on screen after
+						// these (tools\InGameTest.ps1, code-review C427).
 						if (a[2] == "copy") m_newWorldDialog.SetSource(S::CopyWorld);
 						else if (a[2] == "wizard") m_newWorldDialog.SetSource(S::Wizard);
-						else if (a[2] == "level")
-							m_newWorldDialog.SetSource(S::CopyLevel, a.size() >= 4 ? a[3] : "");
-						else m_newWorldDialog.SetSource(S::Blank);
+						else if (a[2] == "blank") m_newWorldDialog.SetSource(S::Blank);
+						else if (a[2] == "level") {
+							const std::string stem = a.size() >= 4 ? a[3] : std::string();
+							const std::vector<std::string>& levels = m_newWorldDialog.Levels();
+							if (!stem.empty() && std::ranges::find(levels, stem) == levels.end()) {
+								m_console.Refuse("new world dialog: this world has no level '" + stem + "'");
+								return;
+							}
+							m_newWorldDialog.SetSource(S::CopyLevel, stem);
+						} else {
+							m_console.RefuseUsage();
+							return;
+						}
 					} else if (a.size() >= 3 && a[1] == "style") {
-						m_newWorldDialog.SetStyle(a[2] == "-" ? std::string() : a[2]);
+						const std::string id = a[2] == "-" ? std::string() : a[2];
+						if (!id.empty() && !m_newWorldDialog.OffersStyle(id)) {
+							m_console.Refuse("new world dialog: the library has no style '" + id + "'");
+							return;
+						}
+						m_newWorldDialog.SetStyle(id);
 					} else if (a.size() >= 3 && a[1] == "create") {
 						m_newWorldDialog.Create(a[2]);
 					} else if (a.size() >= 2 && a[1] == "switch") {
@@ -556,6 +575,8 @@ void Game::RegisterWorldCommands() {
 				if (sp.source == NewWorldSpec::Source::Wizard)
 					m_console.Print(std::format("  wizard tag '{}' size {} difficulty {:.2f} seed {}",
 												sp.tag, sp.size, sp.difficulty, sp.seed));
+				if (sp.source == NewWorldSpec::Source::CopyLevel)
+					m_console.Print(std::format("  copy level '{}'", sp.level));
 				return;
 			}
 			m_console.Print("usage: worlds [new|load] <name> | delete <name> <name> | "

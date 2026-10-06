@@ -107,7 +107,8 @@ void Input::EndFrame() {
 void Input::ClearAll() {
 	m_keys.fill(false);
 	m_mouse.fill(false);
-	ClearEdges(); // and every one-frame edge with them - but not the typed text
+	// NOT the edges, nor the typed text: a press that already arrived is as
+	// finished as a character (see the header). EndFrame clears them as usual.
 }
 
 void Input::ClearMouseButtons() {

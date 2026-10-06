@@ -7,7 +7,7 @@
 # `hudpanel layout standard` as `hudpanel layut standard` after a HUD rebuild -
 # and the run failed for a reason that had nothing to do with what it measured.
 #
-# Two ways the input layer could do that, each a phase here:
+# Four ways the input layer could do that, each a phase here:
 #
 #   FOCUS   - losing focus wiped the typed text. WM_KILLFOCUS clears the input
 #             state (a key held when focus leaves would otherwise stay down
@@ -22,6 +22,13 @@
 #             sheet, rebuilding the HUD) is exactly what batches them. This
 #             phase types the heavy commands back to back, each starting the
 #             instant the previous Enter is posted.
+#   TOGGLE  - losing focus also wiped the frame's key PRESS edges, so the
+#             console's own key, pressed in the same message pump as a focus
+#             change, vanished: the console stayed shut and every later command
+#             went nowhere (a harness error in two runs on 2026-10-05, while
+#             another session's games took the foreground). This phase reopens
+#             the console with the toggle and WM_KILLFOCUS posted back to back,
+#             then types a line only an open console can echo.
 #   UNICODE - a typed character was cut to the low byte of its UTF-16 unit
 #             (code-review C383): u-umlaut became a byte the font drew as '?',
 #             Cyrillic became control bytes, and c-caron (U+010D) and
@@ -40,9 +47,18 @@
 #   .\tools\TypingTest.ps1 -Rounds 10
 #   .\tools\TypingTest.ps1 -SelfTest       # must come back FAIL
 #
-# -SelfTest checks the checker: `inputpoke` makes the game throw away the text
-# typed during its next frames - the very loss this test exists to catch - so a
-# run that still PASSes has stopped looking.
+# -SelfTest checks the checker: `inputpoke` makes the game throw away the lines
+# typed during its next second - the very loss this test exists to catch - and it
+# is typed in EVERY phase, so EVERY phase must fail, and for no other reason
+# (SpellTest's rule; no save touched): a FAIL from FOCUS alone would say nothing
+# of whether ORDER, TOGGLE or UNICODE still count. The poke drops TEXT, not a key edge, so
+# TOGGLE fails under it through its echo line; the edge loss itself was watched
+# fail on the build before the fix (0 of 3 blurred toggles opened the console).
+# Each phase records its count where the verdict reads it (Compare-Phase), so a
+# phase the verdict ignores is one the self-test sees pass. The poke drops WHOLE
+# lines: it once left fragments, which the console's type-ahead completed into
+# commands of their own (`save inputpoke` wrote a save into the shared
+# DungeonSaves).
 #
 # The run ends on the Standard layout with the sheet shut whatever happens, and
 # repairs settings.ini if it was left on hud_layout=1, so a failure here never
@@ -131,8 +147,14 @@ function Format-Line([string]$s) {
 	return $sb.ToString()
 }
 
-# Compares what was typed with what the console echoed (case and all); returns
-# the mismatches.
+# The phases, and what each one found: Compare-Phase records here, and the
+# verdict and the self-test both read only this - a phase cannot be measured and
+# then left out of either.
+$phases = @('FOCUS', 'ORDER', 'TOGGLE', 'UNICODE')
+$script:phaseWrong = [ordered]@{}
+
+# Compares what was typed with what the console echoed (case and all), and
+# records the mismatches as that phase's count.
 function Compare-Phase([string]$name, [int]$from) {
 	Start-Sleep -Seconds 2
 	$echoes = Get-Echoes $from
@@ -147,7 +169,7 @@ function Compare-Phase([string]$name, [int]$from) {
 		}
 	}
 	Write-Host "  $name - $($script:typed.Count) lines typed, $($echoes.Count) echoed, $bad wrong"
-	return $bad
+	$script:phaseWrong[$name] = $bad
 }
 
 $heavy = @('sheet 1', 'sheet status', 'sheet off', 'hudpanel layout minimal', 'hudpanel list',
@@ -172,7 +194,7 @@ try {
 	}
 
 	if ($SelfTest) {
-		Write-Host 'SELF-TEST: the game drops the text typed during each line' -ForegroundColor Yellow
+		Write-Host 'SELF-TEST: the game drops the lines typed after each inputpoke' -ForegroundColor Yellow
 	}
 
 	Write-Host "FOCUS: $Rounds rounds, focus lost mid-word on every line"
@@ -185,7 +207,7 @@ try {
 			Send-BlurredLine $l
 		}
 	}
-	$badFocus = Compare-Phase 'FOCUS' $from
+	Compare-Phase 'FOCUS' $from
 
 	Write-Host "ORDER: $Rounds rounds of the heavy commands back to back"
 	$from = @(Get-Content $log).Count
@@ -196,7 +218,24 @@ try {
 			Send-RushedLine $l
 		}
 	}
-	$badOrder = Compare-Phase 'ORDER' $from
+	Compare-Phase 'ORDER' $from
+
+	Write-Host "TOGGLE: $Rounds rounds, the console reopened by a toggle sharing its pump with a focus loss"
+	$from = @(Get-Content $log).Count
+	$script:typed = @()
+	for ($r = 1; $r -le $Rounds; $r++) {
+		Send-Key $VK_CONSOLE; Start-Sleep -Milliseconds 400   # shut, plainly
+		# Down, focus lost, up - back to back, so one pump holds all three.
+		Send-Message $WM_KEYDOWN $VK_CONSOLE 1
+		Send-Message $WM_KILLFOCUS 0 0
+		Send-Message $WM_KEYUP $VK_CONSOLE 0xC0000001
+		Start-Sleep -Milliseconds 400
+		# Only an OPEN console echoes it; a lost toggle sends it nowhere.
+		if ($SelfTest) { Send-Text 'inputpoke'; Send-Key 0x0D; $script:typed += 'inputpoke' }
+		Send-Text "echo toggle $r"; Send-Key $VK_RETURN
+		$script:typed += "echo toggle $r"
+	}
+	Compare-Phase 'TOGGLE' $from
 
 	# Built from code points: this file is ASCII. [char]8 is a Backspace key.
 	$uu = [string][char]0x00FC                                           # u-umlaut
@@ -222,7 +261,7 @@ try {
 			Send-UnicodeLine $pair[0] $pair[1]
 		}
 	}
-	$badUnicode = Compare-Phase 'UNICODE' $from
+	Compare-Phase 'UNICODE' $from
 
 	# The run must not have touched a save: no Continue, no save written. Read
 	# from THIS game's log, so another session writing to the shared
@@ -230,24 +269,32 @@ try {
 	$saveLines = @(Select-String -Path $log -Pattern 'Loaded game from |Saved game to ' -EA SilentlyContinue)
 	foreach ($s in $saveLines) { Write-Host "  the run touched a save: $($s.Line)" -ForegroundColor Red }
 
-	$result = if ($badFocus -eq 0 -and $badOrder -eq 0 -and $badUnicode -eq 0 -and $saveLines.Count -eq 0) { 'PASS' } else { 'FAIL' }
+	# Per phase, from the record: a phase never judged is a failure, not a pass.
+	$unjudged = @($phases | Where-Object { -not $script:phaseWrong.Contains($_) })
+	$clean = @($phases | Where-Object { $script:phaseWrong.Contains($_) -and $script:phaseWrong[$_] -eq 0 })
+	$counts = (@($phases | ForEach-Object {
+		$n = if ($script:phaseWrong.Contains($_)) { $script:phaseWrong[$_] } else { 'never' }
+		"$($_.ToLower())_wrong=$n"
+	}) + "saves_touched=$($saveLines.Count)") -join ' '
+	foreach ($p in $unjudged) { Write-Host "  $p was never judged" -ForegroundColor Red }
+
+	$result = if ($unjudged.Count -eq 0 -and $clean.Count -eq $phases.Count -and
+				  $saveLines.Count -eq 0) { 'PASS' } else { 'FAIL' }
 	if ($SelfTest) {
-		# EVERY phase must have caught it: a phase that passes with text thrown
-		# away has stopped looking, however loudly the others fail.
-		$blind = @()
-		if ($badFocus -eq 0) { $blind += 'FOCUS' }
-		if ($badOrder -eq 0) { $blind += 'ORDER' }
-		if ($badUnicode -eq 0) { $blind += 'UNICODE' }
-		if ($blind.Count -eq 0) {
-			Write-Host 'TYPINGTEST SELFTEST PASS - every phase caught the dropped characters' -ForegroundColor Green
+		# SpellTest's rule: the poke reached every phase, so every phase must have
+		# failed - and nothing else may have (a touched save is the run going
+		# wrong, not the poke being caught).
+		foreach ($p in $clean) { Write-Host "  self-test: $p passed with its text dropped" -ForegroundColor Red }
+		if ($unjudged.Count -eq 0 -and $clean.Count -eq 0 -and $saveLines.Count -eq 0) {
+			Write-Host "TYPINGTEST SELFTEST PASS $counts - every phase caught the dropped characters" -ForegroundColor Green
 			$code = 0
 		} else {
-			Write-Host "TYPINGTEST SELFTEST FAIL - text was dropped on purpose and $($blind -join ', ') still passed" -ForegroundColor Red
+			Write-Host "TYPINGTEST SELFTEST FAIL $counts - text was dropped in every phase and not every phase failed for it alone" -ForegroundColor Red
 			$code = 1
 		}
 	} else {
 		$color = if ($result -eq 'PASS') { 'Green' } else { 'Red' }
-		Write-Host "TYPINGTEST $result focus_wrong=$badFocus order_wrong=$badOrder unicode_wrong=$badUnicode saves_touched=$($saveLines.Count)" -ForegroundColor $color
+		Write-Host "TYPINGTEST $result $counts" -ForegroundColor $color
 		$code = if ($result -eq 'PASS') { 0 } else { 1 }
 	}
 } finally {

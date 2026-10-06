@@ -38,6 +38,9 @@ void GenerateDialog::ClearHiddenKnobs() {
 		if (k.hidden && k.setText) k.setText(m_params, "");
 }
 
+// Built in BuildUI as one tab per knob group, then Presets.
+int GenerateDialog::TabCount() { return static_cast<int>(generate::KnobTabs().size()) + 1; }
+
 void GenerateDialog::OpenCreate(const std::string& dungeonId,
 								const std::string& where) {
 	ClearHiddenKnobs();

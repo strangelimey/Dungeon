@@ -7,7 +7,9 @@ allowed-tools: PowerShell, Read, Grep, Glob
 Break the real game seven ways and read `dungeon.log` (~7 min).
 
 - no argument → `.\tools\CheckAll.ps1 -Only health`
-- `selftest` → `.\tools\CheckAll.ps1 -Only health -SelfTest` (must FAIL)
+- `selftest` → `.\tools\CheckAll.ps1 -Only health -SelfTest` (every case must
+  fail on each of its expectations, and for no other reason - a harness error
+  or a death with nothing injected fails the self-test)
 - a case name → `.\tools\HealthTest.ps1 -Only <case>` for one case, much faster
 
 Cases: `throw` · `worker` · `stall` · `probe` · `restart` · `fault` · `assert`.

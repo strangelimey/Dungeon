@@ -158,9 +158,10 @@ i64 Window::HandleMessage(u32 msg, u64 wparam, i64 lparam) {
 	case WM_MBUTTONUP:   m_input.OnMouseButton(MouseButton::Middle, false); UpdateCapture(); return 0;
 
 	// Focus loss: the up-events for anything held right now go to whoever took
-	// focus (Alt+Tab, a stealing debug console, a popup) — drop ALL input state
+	// focus (Alt+Tab, a stealing debug console, a popup) - drop every DOWN state
 	// so no key or button stays wedged "down". Fresh messages re-arm it on
-	// return. This is deliberate whole-state hygiene, not per-key bookkeeping.
+	// return. This is deliberate whole-state hygiene, not per-key bookkeeping -
+	// but a press or a character that already arrived is kept (Input::ClearAll).
 	case WM_KILLFOCUS:
 		m_input.ClearAll();
 		return 0;

@@ -1696,8 +1696,11 @@ hang and a reboot must each leave EVIDENCE.
   window losing nothing, and a 33rd name taking a dormant slot clean. `tools\HealthTest.
   ps1` breaks the REAL game seven ways and reads dungeon.log and nothing else —
   if the answer is not in the file you open after a crash, it does not count.
-  `-SelfTest` skips every injection and requires FAIL, and all 7 cases plus
-  every expectation do fail, which is the evidence none is vacuously satisfied.
+  `-SelfTest` skips every injection and REQUIRES every case to fail on EACH of
+  its expectations (no pattern met, no dump) and for no other reason - a harness
+  error, a death with nothing injected, or a log without the control line (the
+  `logecho off` echo typed just before the injection) fails the self-test. It
+  used to pass on any failure, so a game that crashed at boot passed it.
   Dev: `crashpoke <throw|worker|fault|assert>`, `threadwedge`, `threadspawn
   <ms>`. NOT covered: the Killed kind (a hard kill is a panel button, not a
   command) — the harness says so on every run rather than leaving it to be
@@ -2296,19 +2299,24 @@ Full per-phase history + gotchas live in the editor-overhaul memory.
   PumpMessages); EndFrame clears only what the frame showed, and focus loss
   (ClearAll) never clears it - clearing it there drops exactly one queued
   character, the likeliest cause of `sheet status` arriving as `shee status`
-  on 2026-09-30 (another session's harness taking the foreground). THE TEXT IS
-  WHOLE UTF-8 CHARACTERS (code-review C383): OnChar joins a surrogate pair and
-  encodes it, where it used to keep the UTF-16 unit's low byte (u-umlaut drew '?',
-  Cyrillic became control bytes, c-caron U+010D was an Enter). A consumer walks
+  on 2026-09-30 (another session's harness taking the foreground). Nor does it
+  clear the frame's key PRESS edges (code-review batch 8): that lost a harness's
+  console toggle posted in the same pump as a focus change, leaving the console
+  shut, and every command after it went nowhere. THE TEXT IS WHOLE UTF-8
+  CHARACTERS (code-review C383): OnChar joins a surrogate pair and encodes it,
+  where it used to keep the UTF-16 unit's low byte (u-umlaut drew '?', Cyrillic
+  became control bytes, c-caron U+010D was an Enter). A consumer walks
   `utf8::CharAt` (Core/Utf8.h, pure, in RollTest), deletes with `utf8::PopBack`
   and caps with `utf8::Length` - a TextField's `maxLength` and a member name
   (`party::NameValid`) count CHARACTERS; text set from outside a box (the
   palette filter's `SetFilter`, the party page's `SetName`) is cut with
-  `utf8::Prefix`, never `substr`. Checked by `tools\TypingTest.ps1`
-  (CheckAll full tier; FOCUS / ORDER / UNICODE phases; `-SelfTest` uses the
-  `inputpoke` dev command and demands every phase catch it). The harnesses post
-  through PostMessageW, or a WM_CHAR past ASCII is converted from the ANSI code
-  page on the way.
+  `utf8::Prefix`, never `substr`. Checked by `tools\TypingTest.ps1` (FOCUS /
+  ORDER / TOGGLE / UNICODE phases; CheckAll full tier; `-SelfTest` types the
+  `inputpoke` dev command into every phase and requires EACH phase to fail, not
+  just one, with no save touched; the poke drops WHOLE lines, since a fragment
+  completed by the type-ahead once ran `save inputpoke` into the shared
+  DungeonSaves). The harnesses post through PostMessageW, or a WM_CHAR past
+  ASCII is converted from the ANSI code page on the way.
 - Commit per feature with detailed messages; push to origin/main. Long
   commit messages via a temp file + `git commit -F` (PowerShell mangles
   embedded quotes).
@@ -3160,7 +3168,12 @@ and answers: docs/transparency-notes.md; each phase's AS BUILT is in the plan.
   two-frame pass over every context that renders — no per-caller wiring, so
   whichever dialog is open is covered — and reports both SIBLINGS whose ink
   intersects and any child that ESCAPES its parent's ContentRect, to the console
-  and (labelled) to dungeon.log. Widget::InkRect is what a widget PAINTS as
+  and (labelled, `uioverlap [<label>] --- state <app state>`) to dungeon.log. A
+  label only says the command RAN: tools\InGameTest.ps1 also demands each
+  screen's own status line before its header (a refused open step audits the
+  screen beneath, clean for the wrong reason; a screen row naming no status is
+  refused before the game launches) and the state the header names, and
+  matches labels exactly. Widget::InkRect is what a widget PAINTS as
   against Pixel(), what the layout gave it: Label, Checkbox and Button measure
   their text, so a label wider than its row counts, a label in a row shorter
   than its font (a starved Stack Fill row resolves to ZERO height) counts at its

@@ -1852,10 +1852,18 @@ void Game::Update(float dt) {
 		m_allocPokeRemaining -= dt;
 		m_pokeScratch = std::make_unique<u32>(m_framesRendered);
 	}
-	// `inputpoke`: before anything reads the frame's typing.
-	if (m_inputPokeRemaining > 0.0f) {
-		m_inputPokeRemaining -= dt;
-		m_window.GetInput().DiscardTypedForTest();
+	// `inputpoke`: before anything reads the frame's typing. It drops WHOLE
+	// LINES - a window that closes mid-line takes the rest of that line too.
+	// A fragment left behind ran as a command of its own: the console's
+	// type-ahead takes its selection on Enter, so a surviving prefix became a
+	// whole command name (`ha` -> `haze`, seen) and the next line its argument
+	// - TypingTest -SelfTest ran `save inputpoke` into the shared DungeonSaves.
+	if (m_inputPokeRemaining > 0.0f || m_inputPokeMidLine) {
+		auto& input = m_window.GetInput();
+		const bool open = m_inputPokeRemaining > 0.0f;
+		if (open) m_inputPokeRemaining -= dt;
+		if (!input.TypedChars().empty())
+			m_inputPokeMidLine = !input.DiscardTypedForTest(/*throughEnter=*/!open);
 	}
 
 	UpdateStates(dt);

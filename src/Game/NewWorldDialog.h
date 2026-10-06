@@ -76,6 +76,14 @@ public:
 	const std::string& Note() const { return m_note; }
 	const std::string& Made() const { return m_made; }
 	NewWorldSpec::Source Source() const { return m_spec.source; }
+	// What the open dialog offers: the levels "Copy one level" lists, and
+	// whether the Style row lists `id` (the console refuses anything else).
+	const std::vector<std::string>& Levels() const { return m_levels; }
+	bool OffersStyle(const std::string& id) const {
+		for (const auto& choice : m_styleChoices)
+			if (choice.first == id) return true;
+		return false;
+	}
 	// Applies a rebuild the calls above deferred (the WorldsDialog reason: a
 	// console command is not inside the tree walk, and `uioverlap` after one
 	// must audit the view AFTER it).

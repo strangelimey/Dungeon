@@ -19,11 +19,27 @@
 # difference - the same loop a person uses the feature for.
 #
 #   .\tools\ProfileTest.ps1
-#   .\tools\ProfileTest.ps1 -SelfTest    # expects FAIL (see below)
+#   .\tools\ProfileTest.ps1 -SelfTest    # exit 0 = the checker works (below)
+#
+# -SELFTEST is the same real run with ONE named fault: the verdict also asks
+# for a snapshot that is never taken, and the self-test passes only if exactly
+# that coverage check fails and every other check passes (SpellTest's rule,
+# code-review C419) - so a run that recorded nothing, or died half way, fails
+# the self-test instead of passing it, and so does a harness error (a throw).
+# WHAT IT DOES NOT PROVE, said here because the old header implied more: no
+# fault is injected into the PARTITION or REACTION checks, so neither has ever
+# been watched to fail on demand. They have each failed for real during
+# development, which is weaker evidence. And two checks SKIP rather than run
+# when the machine cannot exercise them - no GPU timings (WARP), and nothing for
+# the cap to hold back (the compositor already paces at its target); each skip
+# is named in the output and counted on the verdict line.
 #
 # NEEDS A PROFILING BUILD (debug-profile / release-profile). Without DN_PROFILE
 # every zone compiles to nothing and there is no budget to check - which is why
 # the config is validated up front rather than producing an empty pass.
+#
+# Refuses to run beside ANY Dungeon.exe, not only this worktree's: a second game
+# on the GPU would be part of what it measures.
 #
 # ASCII ONLY: PS 5.1 reads a BOM-less .ps1 as ANSI.
 # ============================================================================
@@ -34,9 +50,8 @@ param(
 	# Seconds per snapshot. Four is enough to average out a hitch at any frame
 	# rate this engine reaches; the whole run is four of them plus load.
 	[double]$SnapSeconds = 4.0,
-	# Checks the CHECKER: parses for a snapshot that is never taken, so the
-	# coverage assertion must FAIL. Proves the log-parse is really reading
-	# rather than passing on an empty result.
+	# Checks the CHECKER: also asks for a snapshot that is never taken, and
+	# exactly that coverage check must fail (see the header).
 	[switch]$SelfTest
 )
 
@@ -120,10 +135,18 @@ try {
 # --- the verdict, read from the log -----------------------------------------
 $lines = if (Test-Path $log) { Get-Content $log } else { @() }
 $failures = 0
+$failedChecks = @()   # each failure's CHECK name, for the -SelfTest rule
 $skips = @()
-function Fail([string]$m) { Write-Host "  [FAIL] $m" -ForegroundColor Red; $script:failures++ }
+function Fail([string]$check, [string]$m) {
+	Write-Host "  [FAIL] $m" -ForegroundColor Red
+	$script:failures++
+	$script:failedChecks += $check
+}
 function Ok([string]$m) { Write-Host "  [ok  ] $m" }
 function Skip([string]$m) { Write-Host "  [skip] $m" -ForegroundColor Yellow; $script:skips += $m }
+# The one check -SelfTest expects to fail, and no other.
+$neverTaken = 'snapshot_never_taken'
+$selfTestExpected = @("coverage $neverTaken")
 
 # profilesnap NAME frame=.. cpu=.. wait=.. present=.. cap=.. gpu=.. rows=N samples=N secs=N
 $snaps = @{}
@@ -140,19 +163,23 @@ foreach ($l in ($lines | Select-String 'profilesnap ')) {
 
 Write-Host ''
 # COVERAGE FIRST. A snapshot that never reached the log was never taken, and a
-# run that quietly recorded nothing must not read as clean.
-$want = if ($SelfTest) { @('snapshot_never_taken') } else { $snapNames }
+# run that quietly recorded nothing must not read as clean. -SelfTest asks for
+# one more, which nothing takes.
+if ($SelfTest) { Write-Host "self-test: expecting exactly this check to fail: $($selfTestExpected -join ', ')" }
+$want = if ($SelfTest) { @($snapNames) + $neverTaken } else { $snapNames }
 foreach ($n in $want) {
 	if ($snaps.ContainsKey($n)) {
 		$s = $snaps[$n]
 		Ok ("recorded {0,-9} frame {1,6:N3}  cpu {2,5:N3}  wait {3,5:N3}  present {4,5:N3}  cap {5,5:N3}  gpu {6,5:N3}  ({7} frames)" -f `
 			$n, $s.frame, $s.cpu, $s.wait, $s.present, $s.cap, $s.gpu, $s.samples)
 	} else {
-		Fail "snapshot '$n' never reached the log - it was not recorded"
+		Fail "coverage $n" "snapshot '$n' never reached the log - it was not recorded"
 	}
 }
 
-if ($failures -eq 0) {
+# The rest needs every REAL snapshot, and runs under -SelfTest too: its fault
+# is the extra snapshot alone, and everything else must still pass.
+if (@($snapNames | Where-Object { -not $snaps.ContainsKey($_) }).Count -eq 0) {
 	# --- 1. THE PARTITION. cpu is defined as the frame minus every block, so
 	# these must sum to the frame by construction. They stop summing the moment
 	# a new blocking call is added without a zone - the failure this whole check
@@ -165,7 +192,7 @@ if ($failures -eq 0) {
 		if ($drift -le $tol) {
 			Ok ("{0,-9} budget accounts for the frame (drift {1:N4} ms)" -f $n, $drift)
 		} else {
-			Fail ("{0}: cpu+wait+present+cap = {1:N3} but frame = {2:N3} (drift {3:N3} ms > {4:N3}) - an unaccounted block" -f `
+			Fail "partition $n" ("{0}: cpu+wait+present+cap = {1:N3} but frame = {2:N3} (drift {3:N3} ms > {4:N3}) - an unaccounted block" -f `
 				$n, $sum, $s.frame, $drift, $tol)
 		}
 	}
@@ -179,7 +206,7 @@ if ($failures -eq 0) {
 	} elseif ($g1 -gt $g0 * 1.20) {
 		Ok ("ultra moved GPU work {0:N3} -> {1:N3} ms (+{2:N0}%)" -f $g0, $g1, (($g1 / $g0 - 1) * 100))
 	} else {
-		Fail ("ultra barely moved GPU work: {0:N3} -> {1:N3} ms - the GPU timings look stuck" -f $g0, $g1)
+		Fail 'gpu reacts' ("ultra barely moved GPU work: {0:N3} -> {1:N3} ms - the GPU timings look stuck" -f $g0, $g1)
 	}
 
 	# --- 3. THE FRAME CAP HOLDS. Parsed from the game's own report rather than
@@ -196,7 +223,7 @@ if ($failures -eq 0) {
 			Ok ("cap holds {0:N3} ms against a {1:N3} ms target ({2} Hz, {3:N1}% off)" -f `
 				$capped.frame, $targetMs, $capHz, ($err * 100))
 		} else {
-			Fail ("cap missed: frame {0:N3} ms against a {1:N3} ms target ({2:N1}% off)" -f `
+			Fail 'cap holds' ("cap missed: frame {0:N3} ms against a {1:N3} ms target ({2:N1}% off)" -f `
 				$capped.frame, $targetMs, ($err * 100))
 		}
 
@@ -211,7 +238,7 @@ if ($failures -eq 0) {
 			Ok ("cap did the holding: frame {0:N3} -> {1:N3} ms with {2:N3} ms in wait.cap" -f `
 				$uncapped.frame, $capped.frame, $capped.cap)
 		} else {
-			Fail ("frame changed {0:N3} -> {1:N3} ms but wait.cap only accounts for {2:N3} ms" -f `
+			Fail 'cap does it' ("frame changed {0:N3} -> {1:N3} ms but wait.cap only accounts for {2:N3} ms" -f `
 				$uncapped.frame, $capped.frame, $capped.cap)
 		}
 	}
@@ -219,24 +246,31 @@ if ($failures -eq 0) {
 
 Write-Host ''
 $verdict = if ($failures -eq 0) { 'PASS' } else { 'FAIL' }
-$wantV = if ($SelfTest) { 'FAIL' } else { 'PASS' }
 Write-Host ("profiletest RESULT={0} failures={1} skipped={2} self_test={3}" -f `
 	$verdict, $failures, $skips.Count, [int]$SelfTest.IsPresent)
+# What a green run here does NOT prove, said out loud rather than left to be
+# assumed (the header says it too): no fault is injected into the partition or
+# reaction checks, so neither has been watched to fail on demand. They have each
+# failed for real during development, which is weaker evidence than a harness
+# that can produce the failure on request.
+Write-Host 'NOT self-tested: the partition and reaction assertions (the self-test injects only a missing snapshot)'
 if ($SelfTest) {
-	if ($verdict -eq 'FAIL') {
-		Write-Host 'SELF-TEST PASSED - the coverage check reports a snapshot that was never taken' -ForegroundColor Green
+	# SpellTest's rule: exactly the injected fault fails, everything else passes.
+	$unexpected = @($failedChecks | Where-Object { $selfTestExpected -notcontains $_ })
+	$uncaught = @($selfTestExpected | Where-Object { $failedChecks -notcontains $_ })
+	foreach ($u in $uncaught) { Write-Host "  self-test: '$u' was injected but PASSED" -ForegroundColor Red }
+	foreach ($u in $unexpected) { Write-Host "  self-test: '$u' failed but was not injected" -ForegroundColor Red }
+	$asExpected = $unexpected.Count -eq 0 -and $uncaught.Count -eq 0
+	if ($asExpected) {
+		Write-Host 'SELF-TEST PASSED - exactly the snapshot that was never taken failed, and the real run passed' -ForegroundColor Green
 	} else {
-		Write-Host 'SELF-TEST FAILED - it passed with no snapshot actually recorded' -ForegroundColor Red
+		Write-Host 'SELF-TEST FAILED - the checks did not fail exactly where the fault was injected' -ForegroundColor Red
 	}
-} elseif ($verdict -eq 'PASS') {
+	exit ([int](-not $asExpected))
+}
+if ($verdict -eq 'PASS') {
 	Write-Host 'PASS' -ForegroundColor Green
 } else {
 	Write-Host "FAIL - $failures problem(s)" -ForegroundColor Red
 }
-# What a green run here does NOT prove, said out loud rather than left to be
-# assumed: -SelfTest only inverts the COVERAGE assertion, so the partition and
-# reaction checks above have never been watched to fail on demand. They have
-# each failed for real during development, which is weaker evidence than a
-# harness that can produce the failure on request.
-Write-Host 'NOT self-tested: the partition and reaction assertions (only coverage inverts)'
-exit ([int]($verdict -ne $wantV))
+exit ([int]($verdict -ne 'PASS'))

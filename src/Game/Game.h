@@ -936,8 +936,11 @@ private:
 	float m_allocPokeRemaining = 0.0f;
 	std::unique_ptr<u32> m_pokeScratch;
 	// `inputpoke`: throw the typed text away unread for this many seconds - the
-	// loss tools\TypingTest.ps1 -SelfTest must be seen to catch.
+	// loss tools\TypingTest.ps1 -SelfTest must be seen to catch - and then on
+	// to the end of the line it closed in (m_inputPokeMidLine), so no fragment
+	// survives to run as a command.
 	float m_inputPokeRemaining = 0.0f;
+	bool m_inputPokeMidLine = false;
 	// Frame count when the current loading state was entered; tasks only run
 	// once its screen has been presented at least once.
 	u32 m_stateFrameMark = 0;

@@ -102,24 +102,37 @@ public:
 	// BeginFrame is kept for the next frame.
 	void EndFrame();
 
-	// Drops ALL keyboard/mouse state — down-states included, mouse position
-	// kept. The Window calls this on focus loss: the matching up-events go to
-	// whoever took focus, so anything still "down" here would be stuck down
-	// (a party that walks forever on a swallowed W-up). Everything re-arms
-	// from fresh messages when focus returns.
+	// Drops every keyboard/mouse DOWN-state, mouse position kept. The Window
+	// calls this on focus loss: the matching up-events go to whoever took
+	// focus, so anything still "down" here would be stuck down (a party that
+	// walks forever on a swallowed W-up). Everything re-arms from fresh
+	// messages when focus returns.
 	//
-	// TYPED TEXT SURVIVES IT. A character is a finished event with nothing left
-	// to arrive, so there is nothing to wedge - and clearing it lost whatever
-	// was typed in the same frame as the focus change (any window taking the
-	// foreground: a notification, another harness launching its own game).
-	// That is how `sheet status` reached the console as `shee status`.
+	// TYPED TEXT AND THIS FRAME'S PRESS/RELEASE EDGES SURVIVE IT. A character or
+	// a press is a finished event with nothing left to arrive, so there is
+	// nothing to wedge - and clearing it lost whatever arrived in the same
+	// message pump as the focus change (any window taking the foreground: a
+	// notification, another harness launching its own game). That is how
+	// `sheet status` reached the console as `shee status`, and how a console
+	// toggle posted by a harness vanished, leaving the console shut while every
+	// later command went nowhere (tools\TypingTest.ps1 TOGGLE phase).
 	void ClearAll();
 
-	// Throws this frame's typed text away unread. For `inputpoke` ONLY - the
-	// deliberate loss tools\TypingTest.ps1 -SelfTest must be seen to catch.
-	void DiscardTypedForTest() {
-		m_typed.erase(0, m_typedFrame);
-		m_typedFrame = 0;
+	// Throws this frame's typed text away unread: all of it, or with
+	// `throughEnter` only up to and including its first Enter (the rest stays
+	// for this frame's readers). Returns whether what it threw away ENDED a
+	// line. For `inputpoke` ONLY - the deliberate loss tools\TypingTest.ps1
+	// -SelfTest must be seen to catch.
+	bool DiscardTypedForTest(bool throughEnter) {
+		size_t n = m_typedFrame;
+		if (throughEnter) {
+			const size_t enter = TypedChars().find(kTypedEnter);
+			if (enter != std::string_view::npos) n = enter + 1;
+		}
+		const bool endsLine = n > 0 && m_typed[n - 1] == kTypedEnter;
+		m_typed.erase(0, n);
+		m_typedFrame -= n;
+		return endsLine;
 	}
 	// Drops the mouse-button down-states + edges only (keyboard untouched).
 	// The Window calls this when mouse capture is torn away mid-drag — the

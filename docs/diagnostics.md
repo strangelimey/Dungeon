@@ -250,9 +250,12 @@ nothing is built untested.
    (supervisor reboot) · `fault` (report + dump) · `assert` (report + dump
    before the abort).
 
-   `-SelfTest` skips every injection and requires the run to come back FAIL.
-   Measured: all 7 cases and every single expectation fail, so no check is
-   vacuously satisfied by an ordinary run.
+   `-SelfTest` skips every injection and requires every case to fail on EACH
+   of its expectations, so no check is vacuously satisfied by an ordinary run -
+   and to fail for no other reason: a harness error, a game that died with
+   nothing injected, or a log missing the control line (the `logecho off` echo
+   typed just before the injection) fails the self-test (code-review C419). It
+   once passed on any failure at all, so a game that crashed at boot passed it.
 
    **Not covered, said out loud rather than quietly skipped:** the `Killed`
    kind. A hard force-terminate is the THREADS panel's kill button, not a
@@ -270,9 +273,10 @@ A `crashpoke <kind>` dev command injects each failure — `throw`, `fault`,
 fires each, then asserts the record came back with the right kind, the right
 thread, a non-empty stack and a dump file where one is expected.
 
-`-SelfTest` inverts the verdict, as `AllocTest` and `Bc7Test` both do: the
-harness must catch a real injected failure to pass. A checker that cannot be
-seen to fail is not evidence.
+`-SelfTest` runs every case with its injection skipped and requires each to
+fail on every one of its expectations, and for no other reason (above): the
+harness must be seen to tell an injected failure from its absence. A checker
+that cannot be seen to fail is not evidence.
 
 ## What phase 1 changed about the plan
 

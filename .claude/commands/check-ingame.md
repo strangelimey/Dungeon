@@ -7,7 +7,9 @@ allowed-tools: PowerShell, Read, Grep, Glob
 Two audits that need a running game, sharing one launch (a few minutes).
 
 - no argument → `.\tools\CheckAll.ps1 -Only ingame`
-- `selftest` → `.\tools\CheckAll.ps1 -Only ingame -SelfTest` (must FAIL)
+- `selftest` → `.\tools\CheckAll.ps1 -Only ingame -SelfTest` (a real sweep with
+  two named faults - a refused open step, a missing label - and exactly those
+  two checks must fail)
 
 ## What it is guarding
 
@@ -31,13 +33,22 @@ own `sweep_<name>` label (InGameTest.ps1 lists them).
 means a worktree was provisioned from a stale file list; re-run
 `tools\FetchModels.ps1`, or robocopy `assets\models` from a populated sibling.
 
-**`<label> never reached the log`** — the sweep did not actually open that
-screen, so it audited nothing. This is a *coverage* failure, and it is the more
-serious kind: it caught its own first version sending `Esc`/`M` while the console
-was open, which ate the keystrokes and audited the HUD three times while
-reporting four clean screens.
+**`<label>: never reached the log`** - the sweep never audited that screen. This
+is a *coverage* failure, and it is the more serious kind: it caught its own first
+version sending `Esc`/`M` while the console was open, which ate the keystrokes
+and audited the HUD three times while reporting four clean screens. Labels match
+EXACTLY (`uioverlap [<label>] ---`), so a longer sibling cannot stand in.
 
-**`uioverlap found overlaps`** — a real layout defect. The findings name both
+**`<label>: its open step never logged ...`** - the audit ran, but the screen's
+own status line (`generate dialog: regenerate tab 2`, `sheet: open member 0`...)
+never landed before it: the open step was refused or opened something else, and
+the audit saw the screen beneath. **`audited in state 'x'`** is the same failure
+seen from the app state (a party wiped mid-sweep audits the title from then on).
+Every screen in the harness's tables must name a status line; a row without one
+is refused before the game launches (`screen '<label>' needs ... at least one
+status pattern`), since it would otherwise be judged on its label alone.
+
+**`<label>: found overlaps`** - a real layout defect. The findings name both
 widgets; `uitree dump <context>` in the dev console gives the pixel rects.
 
 The **settings page is not swept** - it needs a mouse click, and a scripted

@@ -75,12 +75,14 @@ void Game::RegisterDiagnosticCommands() {
 		});
 	// The typing harness's way to fail on purpose (tools\TypingTest.ps1
 	// -SelfTest): the loss Input exists to prevent, done deliberately. The
-	// console stays open, so it is the harness's next line that goes missing.
+	// console stays open, so it is the harness's next lines that go missing -
+	// WHOLE, through the end of the line the window closes in (Game::Update),
+	// since a fragment could complete into any command, `save` included.
 	m_console.Register(
 		{.name = "inputpoke",
 		 .group = CmdGroup::Diagnostics,
 		 .params = "[seconds]",
-		 .summary = "drop typed text for a while on purpose (proves TypingTest can fail)"},
+		 .summary = "drop typed lines for a while on purpose (proves TypingTest can fail)"},
 		[this](const std::vector<std::string>& args) {
 			// SECONDS, not frames: the harness paces itself in milliseconds, and
 			// a frame count is a different length on every monitor.
@@ -88,7 +90,7 @@ void Game::RegisterDiagnosticCommands() {
 				args.empty() ? 1.0f
 							 : std::clamp(static_cast<float>(std::atof(args[0].c_str())),
 										  0.1f, 60.0f);
-			m_console.Print(std::format("inputpoke: dropping typed text for {:.1f}s",
+			m_console.Print(std::format("inputpoke: dropping typed lines for {:.1f}s",
 										m_inputPokeRemaining));
 		});
 	// The file layer's own answer for one path (code-review C231, C384):
@@ -533,7 +535,12 @@ void Game::RegisterDiagnosticCommands() {
 			// says which screen each was.
 			const std::string label = args.empty() ? std::string() : args[0];
 			m_console.Print("uioverlap: auditing the next frame's trees...");
-			if (!label.empty()) log::Info("uioverlap [{}] ---", label);
+			// The header carries the app STATE: a label only says the command
+			// ran, and a sweep that meant the paused menu or the sheet but found
+			// the title (a party wiped mid-sweep) is a clean audit of the wrong
+			// screen. tools\InGameTest.ps1 requires each label's state, and the
+			// screen's own status line before it (code-review C427).
+			if (!label.empty()) log::Info("uioverlap [{}] --- state {}", label, StateName());
 			// Verbatim: the summary line names itself and the findings are
 			// indented under the header above, so a tag here only read as
 			// "uioverlap uioverlap: clean".

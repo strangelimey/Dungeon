@@ -761,32 +761,65 @@ void Game::RegisterDevCommands() {
 						   // two toolbar buttons - so the UI sweep (InGameTest.ps1)
 						   // can audit both modes without a mouse.
 						   if (!args.empty() && args[0] == "dialog") {
+							   // REFUSED, never quietly something else: the UI sweep
+							   // (tools\InGameTest.ps1) audits whatever is on screen after
+							   // these, so a tab the form lacks, a verb nobody wrote or a
+							   // style this world does not have used to leave the dialog
+							   // as it was - or open REGENERATE for a typo - and the sweep
+							   // passed over the wrong screen (code-review C427).
 							   const std::string mode = args.size() > 1 ? args[1] : "";
-							   if (mode == "off")
+							   if (mode == "off") {
 								   m_generateDialog.Close();
-							   else if (mode == "tab" && args.size() > 2)
-								   m_generateDialog.ShowTab(std::atoi(args[2].c_str()));
-							   else if (mode == "new" && m_mapView.onNewLevel)
+							   } else if (mode == "tab") {
+								   if (!Need(m_console, args, 3)) return;
+								   if (!m_generateDialog.IsOpen() ||
+									   !m_generateDialog.ShowTab(std::atoi(args[2].c_str()))) {
+									   m_console.Refuse(std::format(
+										   "generate dialog: no tab {} to show (the dialog is {}, "
+										   "tabs 0..{})",
+										   args[2], m_generateDialog.IsOpen() ? "open" : "closed",
+										   GenerateDialog::TabCount() - 1));
+									   return;
+								   }
+							   } else if (mode == "new") {
+								   if (!m_mapView.onNewLevel) {
+									   m_console.Refuse("generate dialog: no [+] to open it from");
+									   return;
+								   }
 								   m_mapView.onNewLevel(m_mapView.ViewedDungeon());
-							   // Phase 7: its buttons and its style dropdown, as clicks.
-							   else if (mode == "create" || mode == "empty") {
+							   } else if (mode == "create" || mode == "empty") {
+								   // Phase 7: its buttons and its style dropdown, as clicks.
 								   const std::string stem = m_generateDialog.PressCreate(mode == "create");
 								   m_console.Print("generate dialog: made " + (stem.empty() ? "-" : stem));
-							   } else if (mode == "populate")
+							   } else if (mode == "populate") {
 								   m_generateDialog.PressPopulate();
-							   else if (mode == "style" && args.size() > 2)
-								   m_generateDialog.PickChoice("style", args[2] == "-" ? "" : args[2]);
-							   else if (m_mapView.onGenerate)
+							   } else if (mode == "style") {
+								   if (!Need(m_console, args, 3)) return;
+								   const std::string id = args[2] == "-" ? std::string() : args[2];
+								   if (!id.empty() && !m_project.styles.Contains(id)) {
+									   m_console.Refuse("generate dialog: this world has no style '" + id + "'");
+									   return;
+								   }
+								   m_generateDialog.PickChoice("style", id);
+							   } else if (!mode.empty()) {
+								   m_console.RefuseUsage();
+								   return;
+							   } else if (m_mapView.onGenerate) {
 								   m_mapView.onGenerate();
+							   }
+							   // The STATE after the verb, not a claim about it - and the
+							   // tab is part of it: a sweep of tab 2 that is showing tab 0
+							   // is clean for the wrong reason.
 							   const std::string& style = m_generateDialog.Knobs().style;
 							   m_console.Print(std::format(
-								   "generate dialog: {} style={} knobs {}",
+								   "generate dialog: {} tab {} style={} knobs {}",
 								   !m_generateDialog.IsOpen() ? "closed"
 								   : m_generateDialog.GetMode() ==
-										   GenerateDialog::Mode::Create
+											   GenerateDialog::Mode::Create
 									   ? "create"
 									   : "regenerate",
-								   style.empty() ? "-" : style, generate::Encode(m_generateDialog.Knobs())));
+								   m_generateDialog.ActiveTab(), style.empty() ? "-" : style,
+								   generate::Encode(m_generateDialog.Knobs())));
 							   return;
 						   }
 						   // PLAY (P5): the dialog's Play buttons, without a mouse.

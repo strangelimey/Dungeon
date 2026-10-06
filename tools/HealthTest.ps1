@@ -13,11 +13,17 @@
 #
 # Exit code 0 = PASS. One machine-readable verdict line, like alloctest.
 #
-# -SELFTEST INVERTS THE VERDICT, the same trick AllocTest.ps1 and Bc7Test.ps1
-# use. It runs every case WITHOUT injecting the failure, so every expectation
-# should go unmet and the run must come back FAIL. A checker that cannot be seen
-# to fail is not evidence: without this, a regex that matched anything - or a
-# log-parse that never ran - would report a clean sweep forever.
+# -SELFTEST runs every case WITHOUT injecting its failure and NAMES what it
+# expects: every case fails, and fails on EACH of its own expectations (no
+# pattern met, no minidump) - SpellTest's rule, code-review C419. A checker that
+# cannot be seen to fail is not evidence: without this, a regex that matched
+# anything would report a clean sweep forever. And a case that fails for the
+# WRONG reason fails the self-test: a harness error (the game died at boot, the
+# console never answered), a game that died with nothing injected, or a run
+# whose log lacks the CONTROL line - the echo of the `logecho off` typed just
+# before the injection, which proves the verdict read this run's log and the run
+# reached its injection point. Before, any failure passed: a game that crashed
+# at boot "passed" the self-test seven times over.
 #
 # Every step waits on a LOG LINE rather than sleeping, so a slow cold-cache load
 # stretches the wait instead of failing the run.
@@ -154,12 +160,16 @@ if ($Only) {
 }
 
 # ---------------------------------------------------------------------------
-# Runs one case in its own process (half of them kill the game) and returns
-# $true if every expectation was met.
-function Invoke-Case($case) {
-	Write-Host ''
-	Write-Host "[$($case.name)] $($case.desc)"
+# The CONTROL line: the echo of the `logecho off` typed just before the
+# injection (Wait-ConsoleReady waits for exactly this). It must be in the log
+# whether or not anything was injected - it is what says the verdict below read
+# THIS run's log, and that the run got as far as its injection.
+$control = '(?m)console: > logecho off\s*$'   # (?m): matched per line of the joined log too
 
+# Runs one case in its own process (half of them kill the game) and returns
+# what its log showed. Throws on a HARNESS error - a run that never reached its
+# injection - which is never a verdict about the game.
+function Invoke-Case($case) {
 	Get-ChildItem $bin -Filter *.dmp -ErrorAction SilentlyContinue | Remove-Item -Force
 
 	$script:hwnd = [IntPtr]::Zero
@@ -177,7 +187,7 @@ function Invoke-Case($case) {
 		# what the game logs on its own, and a mirrored console line must never
 		# count as evidence. Its own echo proves the console takes commands.
 		Send-Key $VK_CONSOLE; Start-Sleep -Milliseconds 600
-		if (-not (Wait-ConsoleReady 'logecho off' 'console: > logecho off\s*$')) {
+		if (-not (Wait-ConsoleReady 'logecho off' $control)) {
 			throw 'the console never accepted a command after the new game'
 		}
 
@@ -207,35 +217,39 @@ function Invoke-Case($case) {
 		Stop-HarnessGame 6000
 	}
 
-	# --- the verdict, read from the log and nowhere else --------------------
-	$lines = if (Test-Path $log) { Get-Content $log } else { @() }
-    $text = $lines -join "`n"
-	$ok = $true
+	# --- what the log says, and nowhere else ------------------------------------
+	$text = if (Test-Path $log) { (Get-Content $log) -join "`n" } else { '' }
+	return [pscustomobject]@{
+		control = $text -match $control
+		died = $script:diedEarly
+		met = @($case.expect | Where-Object { $text -match $_ })
+		unmet = @($case.expect | Where-Object { $text -notmatch $_ })
+		dump = @(Get-ChildItem $bin -Filter *.dmp -ErrorAction SilentlyContinue) | Select-Object -First 1
+	}
+}
 
+# A real run: every expectation met, the game alive if it should be, the dump
+# written if it should be. Returns whether the case passed.
+function Judge-Case($case, $r) {
+	$ok = $true
+	if (-not $r.control) {
+		Write-Host '  [FAIL] no control line - the verdict is not reading this run, or it never reached its injection' -ForegroundColor Red
+		$ok = $false
+	}
 	# `survives` is checked BEFORE the log: a case whose whole point is that the
 	# game kept playing has failed if the process died, however good its log is.
-	# Only meaningful when the failure was actually injected.
-	if (-not $SelfTest) {
-		$stillRan = -not $script:diedEarly
-		if ($case.survives -and -not $stillRan) {
-			Write-Host '  [FAIL] the game died - it was supposed to survive this' -ForegroundColor Red
-			$ok = $false
-		}
+	if ($case.survives -and $r.died) {
+		Write-Host '  [FAIL] the game died - it was supposed to survive this' -ForegroundColor Red
+		$ok = $false
 	}
-
-	foreach ($pattern in $case.expect) {
-		if ($text -match $pattern) {
-			Write-Host "  [ok  ] $pattern"
-		} else {
-			Write-Host "  [FAIL] not in the log: $pattern" -ForegroundColor Red
-			$ok = $false
-		}
+	foreach ($p in $r.met) { Write-Host "  [ok  ] $p" }
+	foreach ($p in $r.unmet) {
+		Write-Host "  [FAIL] not in the log: $p" -ForegroundColor Red
+		$ok = $false
 	}
 	if ($case.dump) {
-		$dumps = @(Get-ChildItem $bin -Filter *.dmp -ErrorAction SilentlyContinue)
-		if ($dumps.Count -gt 0) {
-			$mb = [math]::Round($dumps[0].Length / 1MB, 1)
-			Write-Host "  [ok  ] minidump written ($($dumps[0].Name), $mb MB)"
+		if ($r.dump) {
+			Write-Host "  [ok  ] minidump written ($($r.dump.Name), $([math]::Round($r.dump.Length / 1MB, 1)) MB)"
 		} else {
 			Write-Host '  [FAIL] no minidump was written' -ForegroundColor Red
 			$ok = $false
@@ -244,20 +258,67 @@ function Invoke-Case($case) {
 	return $ok
 }
 
+# A self-test run (nothing injected): the case must fail on EVERY one of its
+# expectations, and for no other reason. Returns whether it failed exactly so.
+function Judge-SelfTestCase($case, $r) {
+	$asExpected = $true
+	if (-not $r.control) {
+		Write-Host '  [FAIL] no control line - a broken run, not a caught fault' -ForegroundColor Red
+		$asExpected = $false
+	}
+	if ($r.died) {
+		Write-Host '  [FAIL] the game died with nothing injected' -ForegroundColor Red
+		$asExpected = $false
+	}
+	foreach ($p in $r.unmet) { Write-Host "  [ok  ] unmet with nothing injected: $p" }
+	foreach ($p in $r.met) {
+		Write-Host "  [FAIL] MET with nothing injected - it cannot see the fault: $p" -ForegroundColor Red
+		$asExpected = $false
+	}
+	if ($case.dump) {
+		if ($r.dump) {
+			Write-Host "  [FAIL] a minidump with nothing injected ($($r.dump.Name))" -ForegroundColor Red
+			$asExpected = $false
+		} else {
+			Write-Host '  [ok  ] no minidump with nothing injected'
+		}
+	}
+	return $asExpected
+}
+
 # ---------------------------------------------------------------------------
-$failures = 0
+if ($SelfTest) {
+	Write-Host "self-test: every case's injection is skipped, so each of these must fail on every expectation: $(($cases | ForEach-Object { $_.name }) -join ', ')"
+}
+$failures = 0        # cases a real run would fail
+$notAsNamed = 0      # -SelfTest: cases that did not fail exactly as named
+$harnessErrors = 0   # runs that never reached a verdict
 foreach ($case in $cases) {
 	$script:diedEarly = $false
 	# Cleared per case so the catch below can never act on the PREVIOUS case's
 	# process object when this one failed before Start-Process returned.
 	$script:proc = $null
+	Write-Host ''
+	Write-Host "[$($case.name)] $($case.desc)"
 	try {
-		if (-not (Invoke-Case $case)) { $failures++ }
+		$r = Invoke-Case $case
+		if ($SelfTest) {
+			if (-not (Judge-SelfTestCase $case $r)) { $notAsNamed++ }
+			# The plain verdict, for the RESULT line: met everything, so a real
+			# run would have passed it.
+			if (-not ($r.control -and $r.unmet.Count -eq 0 -and (-not $case.dump -or $r.dump) -and
+					  -not ($case.survives -and $r.died))) { $failures++ }
+		} elseif (-not (Judge-Case $case $r)) {
+			$failures++
+		}
 	} catch {
-		# An early exit is itself a result for a `survives` case, not a harness
-		# error: report it as a failed case and carry on to the next one.
-		Write-Host "  [FAIL] $($_.Exception.Message)" -ForegroundColor Red
+		# A HARNESS ERROR: the run never got to its injection (or its verdict).
+		# A failure either way - and under -SelfTest it is not the failure that
+		# was asked for, so it fails the self-test instead of passing it.
+		Write-Host "  [FAIL] harness error: $($_.Exception.Message)" -ForegroundColor Red
 		$failures++
+		$notAsNamed++
+		$harnessErrors++
 		# Only the process THIS script started. This used to be `Get-Process
 		# Dungeon | Stop-Process -Force`, which also killed every other game on
 		# the machine - another worktree's, another session's, Michael's own.
@@ -273,21 +334,23 @@ foreach ($case in $cases) {
 }
 
 Write-Host ''
-# A self-test PASSES when the run FAILS: the point is that the checker can tell
-# the difference between a failure that happened and one that did not.
+# RESULT is the plain verdict on the cases in both modes (FAIL under -SelfTest,
+# when the checker works); under -SelfTest the exit code says whether they
+# failed EXACTLY as named.
 $verdict = if ($failures -eq 0) { 'PASS' } else { 'FAIL' }
-$want = if ($SelfTest) { 'FAIL' } else { 'PASS' }
-Write-Host "healthtest RESULT=$verdict cases=$($cases.Count) failures=$failures self_test=$([int]$SelfTest.IsPresent)"
+Write-Host "healthtest RESULT=$verdict cases=$($cases.Count) failures=$failures harness_errors=$harnessErrors self_test=$([int]$SelfTest.IsPresent)"
+Write-Host 'NOTE: the Killed kind is not covered here - a hard kill is a THREADS panel button, not a command.'
 if ($SelfTest) {
-	if ($verdict -eq 'FAIL') {
-		Write-Host 'SELF-TEST PASSED - the harness reports absence as failure' -ForegroundColor Green
+	if ($notAsNamed -eq 0) {
+		Write-Host "SELF-TEST PASSED - all $($cases.Count) case(s) failed on every expectation, and for no other reason" -ForegroundColor Green
 	} else {
-		Write-Host 'SELF-TEST FAILED - the harness passed with nothing injected' -ForegroundColor Red
+		Write-Host "SELF-TEST FAILED - $notAsNamed case(s) did not fail exactly as named (a met expectation, a death, a harness error)" -ForegroundColor Red
 	}
-} elseif ($verdict -eq 'PASS') {
+	exit ([int]($notAsNamed -ne 0))
+}
+if ($failures -eq 0) {
 	Write-Host 'PASS - every failure was caught, recorded and explained' -ForegroundColor Green
 } else {
-	Write-Host "FAIL - $failures case(s) went unreported" -ForegroundColor Red
+	Write-Host "FAIL - $failures case(s) went unreported ($harnessErrors harness error(s))" -ForegroundColor Red
 }
-Write-Host 'NOTE: the Killed kind is not covered here - a hard kill is a THREADS panel button, not a command.'
-exit ([int]($verdict -ne $want))
+exit ([int]($failures -ne 0))

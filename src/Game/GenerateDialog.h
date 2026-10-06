@@ -67,12 +67,19 @@ public:
 	std::string PressCreate(bool generated);
 	void PressPopulate();
 	bool PickChoice(std::string_view key, const std::string& value);
-	// Show tab `index` (in KnobTabs order). For the UI sweep, which otherwise
-	// only ever audits the first tab's widgets.
-	void ShowTab(int index) {
+	// Show tab `index` (in KnobTabs order, then Presets). For the UI sweep, which
+	// otherwise only ever audits the first tab's widgets. False, and nothing
+	// changed, for a tab the form does not have: a sweep that asked for one must
+	// not go on to audit whichever tab was already showing.
+	bool ShowTab(int index) {
+		if (index < 0 || index >= TabCount()) return false;
 		m_activeTab = index;
 		if (m_tabs) m_tabs->SetActiveTab(index);
+		return true;
 	}
+	// The tab showing, and how many there are (one per knob group + Presets).
+	int ActiveTab() const { return m_tabs ? m_tabs->ActiveTab() : m_activeTab; }
+	static int TabCount();
 
 	// The knobs, as last set. Seeded by the owner at startup from settings.ini.
 	const generate::Params& Knobs() const { return m_params; }

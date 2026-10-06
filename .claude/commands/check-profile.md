@@ -58,10 +58,13 @@ empty result. Usually a dropped keystroke or the console not open.
 
 ## What a green run does not prove
 
-`-SelfTest` inverts only the **coverage** assertion. The partition and reaction
-checks have each failed for real during development, which is weaker evidence
-than a harness that can produce the failure on demand. The run says so on every
-invocation rather than leaving it to be assumed.
+`-SelfTest` is the real run plus ONE named fault - a snapshot nobody takes -
+and passes only if exactly that coverage check fails while every other check
+passes, so a run that recorded nothing fails it too. No fault is injected into
+the **partition and reaction** checks: they have each failed for real during
+development, which is weaker evidence than a harness that can produce the
+failure on demand. The run says so on every invocation rather than leaving it
+to be assumed.
 
 Two assertions **skip** rather than fail when the machine cannot exercise them:
 no GPU timestamps (WARP), and a single-monitor desktop where the compositor
