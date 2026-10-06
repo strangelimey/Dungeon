@@ -10,6 +10,7 @@
 #include "Game/DialogLayout.h"
 #include "Game/Style.h" // the WeightedRefs list format
 #include "UI/Controls.h"
+#include "UI/TreeInspector.h" // widget class names, for BuiltRows
 
 #include <algorithm>
 #include <cctype>
@@ -43,6 +44,24 @@ std::vector<std::string> SplitOptions(std::string_view text) {
 	}
 	return out;
 }
+
+// What a schema row added to its page, read off the tree (BuiltRow): each new
+// child by class, a Stack row as its own children joined by '+', rows by ','.
+std::string DescribeAdded(const ui::Widget& page, size_t from) {
+	std::string out;
+	const auto& rows = page.Children();
+	for (size_t i = from; i < rows.size(); ++i) {
+		if (!out.empty()) out += ',';
+		const ui::Widget& row = *rows[i];
+		if (row.Children().empty()) {
+			out += ui::inspect::Name(row);
+			continue;
+		}
+		for (size_t c = 0; c < row.Children().size(); ++c)
+			out += (c ? "+" : "") + ui::inspect::Name(*row.Children()[c]);
+	}
+	return out.empty() ? "none" : out;
+}
 } // namespace
 
 TypeEditorDialog::TypeEditorDialog(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)
@@ -66,6 +85,7 @@ void TypeEditorDialog::Open(Config cfg, std::span<const FieldSpec> schema) {
 	m_confirming = false;
 	m_deleteWhat.clear();
 	m_typed.clear();
+	m_clashNote.clear();
 	// A fresh open starts on the first tab: null the (now stale) control so
 	// BuildUI's tab-preservation reads 0, not the previously-closed dialog's tab.
 	m_tabs = nullptr;
@@ -122,21 +142,35 @@ void TypeEditorDialog::BuildStageRows(ui::Stack& page, const FieldSpec& spec) {
 		// The stage's id: record-safe, since the save and the items name it.
 		ui::TextField* id = row->Row<ui::TextField>(ui::Len::Fill(0.6f), now[i]);
 		id->maxLength = 24;
+		m_stageIds.push_back(id);
 		id->onChange = [this, s, i, id, stages, join, textOf] {
 			std::erase_if(id->text, [](char ch) {
 				const unsigned char u = static_cast<unsigned char>(ch);
 				return !(std::isalnum(u) || ch == '_' || ch == '-');
 			});
 			std::vector<std::string> list = stages();
-			// An emptied id waits for its new name rather than dropping the stage
-			// (the list is space-split, so an empty id would shift every index).
-			if (i >= list.size() || id->text.empty() || id->text == list[i]) return;
-			// The line moves with the stage.
-			const std::string text = textOf(list[i]);
-			SetField("text_" + list[i], std::string());
-			list[i] = id->text;
-			if (!text.empty()) SetField("text_" + list[i], text);
-			SetValue(*s, join(list));
+			if (i >= list.size()) return;
+			// Applied only as a NEW id no stage holds. An emptied id waits for its
+			// new name rather than dropping the stage (the list is space-split, so
+			// an empty id would shift every index). SO DOES AN ID ANOTHER STAGE
+			// HOLDS (code-review C100). An id is typed a key at a time, so renaming
+			// stage2 to stage10 passes through stage1 - and applying that keystroke
+			// moved this stage's line over stage1's, then the next carried it off
+			// to stage10 and left stage1 with nothing, which a save then removed.
+			// The typed text stays in the field; the stage keeps its last unique
+			// id, and its line.
+			const bool held = std::find(list.begin(), list.end(), id->text) != list.end();
+			if (!id->text.empty() && !held) {
+				// The line moves with the stage.
+				const std::string text = textOf(list[i]);
+				SetField("text_" + list[i], std::string());
+				list[i] = id->text;
+				if (!text.empty()) SetField("text_" + list[i], text);
+				SetValue(*s, join(list));
+			}
+			// Applied or not, the notice says what the fields now show - an id
+			// typed back to its own, or emptied, takes a "taken" notice down too.
+			RefreshStageClash(list, i);
 		};
 		// What the log says on reaching it (`text_<id>`).
 		ui::TextField* line = row->Row<ui::TextField>(ui::Len::Fill(1.4f), textOf(now[i]));
@@ -156,7 +190,7 @@ void TypeEditorDialog::BuildStageRows(ui::Stack& page, const FieldSpec& spec) {
 					m_uiRebuild = true; // deferred: inside a callback
 				});
 	}
-	page.Row<ui::Button>(FormRow(), loc::Tr("map.type.stages.add"), [this, s, stages, join] {
+	auto add = [this, s, stages, join] {
 		std::vector<std::string> list = stages();
 		// A fresh id nothing else uses: stage<N>.
 		std::string fresh;
@@ -167,7 +201,47 @@ void TypeEditorDialog::BuildStageRows(ui::Stack& page, const FieldSpec& spec) {
 		list.push_back(fresh);
 		SetValue(*s, join(list));
 		m_uiRebuild = true;
-	});
+	};
+	m_stageAdd = page.Row<ui::Button>(FormRow(), loc::Tr("map.type.stages.add"), add);
+}
+
+void TypeEditorDialog::RefreshStageClash(const std::vector<std::string>& list,
+										 size_t typed) {
+	// A row CLASHES while its field shows an id another stage holds: not empty,
+	// not its own stage's id, yet in the list. DERIVED from every row each time
+	// rather than latched by the keystroke that raised it (code-review C100's
+	// follow-up): a latch outlived the field it described - typed back to its
+	// own id, emptied, or rebuilt - and then took down notices it never put up.
+	const auto clashes = [&](size_t j) {
+		if (j >= m_stageIds.size() || j >= list.size()) return false;
+		const std::string& t = m_stageIds[j]->text;
+		return !t.empty() && t != list[j] &&
+			   std::find(list.begin(), list.end(), t) != list.end();
+	};
+	size_t row = clashes(typed) ? typed : list.size();
+	for (size_t j = 0; row == list.size() && j < list.size(); ++j)
+		if (clashes(j)) row = j;
+	if (row < list.size()) {
+		// The row just typed always speaks (the newest event takes the line);
+		// another row still clashing only keeps a line that was already the
+		// clash's, never one another owner has put up since.
+		if (row == typed || m_notice == m_clashNote) {
+			m_clashNote = loc::Format("map.type.stages.taken", m_stageIds[row]->text);
+			SetNoteInPlace(m_clashNote);
+		} else {
+			m_clashNote.clear();
+		}
+		return;
+	}
+	// Nothing clashes: the notice comes down only if it is still the clash's.
+	if (!m_clashNote.empty() && m_notice == m_clashNote) SetNoteInPlace(std::string());
+	m_clashNote.clear();
+}
+
+bool TypeEditorDialog::ClickAddStage() {
+	if (!m_stageAdd || !m_stageAdd->onClick) return false;
+	m_stageAdd->onClick();
+	return true;
 }
 
 void TypeEditorDialog::BuildWeightedRows(ui::Stack& page, const FieldSpec& spec) {
@@ -249,6 +323,14 @@ void TypeEditorDialog::BuildUI() {
 	m_nameField = nullptr;
 	m_noticeLabel = nullptr;
 	m_deleteBtn = nullptr;
+	m_stageIds.clear();
+	m_stageAdd = nullptr;
+	m_built.clear();
+	// A rebuild puts every stage's id field back to its stage's id, so nothing
+	// typed clashes any more: a "taken" notice comes down with the fields it
+	// described. One another owner has put up since stays.
+	if (!m_clashNote.empty() && m_notice == m_clashNote) m_notice.clear();
+	m_clashNote.clear();
 	if (m_confirming) {
 		BuildConfirm();
 		return;
@@ -335,7 +417,12 @@ void TypeEditorDialog::BuildUI() {
 			row->Row<ui::Label>(ui::Len::Fill(kLabelFill), label)->centerV = true;
 			return row;
 		};
+		// Where this row's widgets start on its page, for BuiltRows.
+		const size_t pageRowsBefore = page.Children().size();
 
+		// EVERY FieldKind, and no `default:` - the Game lib builds with C4062 as
+		// an error (src/Game/CMakeLists.txt), so a new kind fails the build here
+		// instead of building no widget (code-review C101).
 		switch (spec.kind) {
 		case FieldKind::Bool: {
 			const bool on = value == "1" || value == "true";
@@ -420,12 +507,14 @@ void TypeEditorDialog::BuildUI() {
 			break;
 		}
 		case FieldKind::Enum:
+		case FieldKind::DamageType:
 		case FieldKind::CatalogRef: {
-			// "(none)" is index 0 for everything but a plain Enum, so a field can
-			// be left unset (an absent catalog field is meaningful — it means
-			// "the loader's default").
+			// "(none)" is index 0 for a CatalogRef alone, so a reference can be
+			// left unset (an absent catalog field is meaningful - it means "the
+			// loader's default"). An Enum and a damage type always name one of
+			// their values: every blow and every DoT is resisted as SOME type.
 			std::vector<std::string> items;
-			const bool nullable = spec.kind != FieldKind::Enum;
+			const bool nullable = spec.kind == FieldKind::CatalogRef;
 			if (nullable) items.push_back(loc::Tr("map.type.none"));
 			std::vector<std::string> values = spec.kind == FieldKind::Enum
 												  ? SplitOptions(spec.options)
@@ -487,11 +576,15 @@ void TypeEditorDialog::BuildUI() {
 						SetValue(*s, checked ? id : std::string());
 						m_uiRebuild = true;
 					});
-				row->swatch = face.swatch;
+				// The swatch is the ROW'S QUESTION, asked each time it draws -
+				// never an answer kept from now (code-review C235; swatchFor).
+				if (swatchFor && !swatchFor(*s, id).Empty())
+					row->swatch = [this, s, id] { return swatchFor(*s, id); };
 			}
 			break;
 		}
 		}
+		m_built.push_back({s, DescribeAdded(page, pageRowsBefore)});
 	}
 
 	// A refusal (a rename collision, a type still in use) or the delete arming
@@ -501,15 +594,8 @@ void TypeEditorDialog::BuildUI() {
 	m_noticeLabel->accent = true;
 
 	// The footer's actions are icon discs named by their tooltips (FooterIcon).
-	FooterIcon(*chrome.footer, m_device, "save", loc::Tr("map.cfg.save"), [this] {
-		// A touched field that invalidates baked geometry tells the owner to
-		// re-run AssetBaker (it keeps the dialog up, busy, meanwhile).
-		m_cfg.rebake = false;
-		for (const FieldSpec& spec : m_schema)
-			if (spec.rebakes && Touched(spec.key)) m_cfg.rebake = true;
-		if (onSave) onSave(m_cfg);
-		if (!m_busy) Close(); // a launched re-bake closes us on completion
-	});
+	FooterIcon(*chrome.footer, m_device, "save", loc::Tr("map.cfg.save"),
+			   [this] { ClickSave(); });
 	// Duplicate hands off to the create dialog, so this one closes first — the
 	// same handoff the extra button makes (copy the config, close, then call:
 	// the callback may not touch this dialog's widgets after Close).
@@ -534,6 +620,28 @@ void TypeEditorDialog::BuildUI() {
 	chrome.footer->Space(ui::Len::Fill()); // help sits at the far edge
 	FooterIcon(*chrome.footer, m_device, "help", loc::Tr("map.btn.help"),
 			   [this] { m_helpOpen = true; });
+}
+
+void TypeEditorDialog::ClickSave() {
+	// A touched field that invalidates baked geometry tells the owner to
+	// re-run AssetBaker (it keeps the dialog up, busy, meanwhile).
+	m_cfg.rebake = false;
+	for (const FieldSpec& spec : m_schema)
+		if (spec.rebakes && Touched(spec.key)) m_cfg.rebake = true;
+	if (onSave) onSave(m_cfg);
+	if (!m_busy) Close(); // a launched re-bake closes us on completion
+}
+
+void TypeEditorDialog::SelectTab(int tab) {
+	if (m_tabs) m_tabs->SetActiveTab(tab);
+}
+
+bool TypeEditorDialog::TypeStageId(size_t stage, const std::string& text) {
+	if (stage >= m_stageIds.size()) return false;
+	ui::TextField* field = m_stageIds[stage];
+	field->text = text;
+	if (field->onChange) field->onChange();
+	return true;
 }
 
 // --- deleting ----------------------------------------------------------------

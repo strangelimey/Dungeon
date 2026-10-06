@@ -193,6 +193,17 @@ add_library(Game STATIC
 )
 target_link_libraries(Game PUBLIC Core Platform Assets Animation Graphics UI Audio)
 
+# C4062 - a switch with no `default:` that leaves an enumerator out - is an
+# ERROR here (code-review C101). /W4 does not include it, so when FieldKind grew
+# DamageType the type editor's switch built no widget for the new kind and
+# nothing said so: two catalog fields went unauthorable. A switch that means to
+# cover its enum names every enumerator and has NO default, so the next one
+# added fails the build at every switch that has to learn it; a switch that
+# deliberately handles a few says so with a default.
+if(MSVC)
+	target_compile_options(Game PRIVATE /we4062)
+endif()
+
 # Solution Explorer: headers visible, folders mirrored (dn_ide_layout, root
 # CMakeLists). MUST be called here — source_group is directory-scoped.
 dn_ide_layout(Game ${CMAKE_CURRENT_SOURCE_DIR})

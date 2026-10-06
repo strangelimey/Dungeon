@@ -89,15 +89,22 @@ public:
 	// the schema; CatalogRef's from the project). The empty string is prepended
 	// by the dialog itself as "(none)", so a provider only returns real values.
 	std::function<std::vector<std::string>(const FieldSpec&)> optionsFor;
-	// How a CatalogRefPick row shows one offered id: its label and swatch. The
-	// owner answers for the lists whose entries have a look (a theme's
-	// surface types, drawn as the palette draws them); unset, or an empty label
-	// back, leaves the row the bare id with no swatch.
+	// How a CatalogRefPick row names one offered id. The owner answers for the
+	// lists whose entries have a name of their own (a theme's surface types, a
+	// monster with its power); unset, or an empty label back, leaves the bare
+	// id. Asked when the form is BUILT, which happens in Update, so it may load
+	// what the row will need (a surface type's thumbnail).
 	struct RefFace {
 		std::string label;
-		ui::Swatch swatch;
 	};
 	std::function<RefFace(const FieldSpec&, const std::string& id)> faceFor;
+	// A CatalogRefPick row's swatch, asked for EVERY TIME THE ROW IS DRAWN and
+	// never kept (code-review C235): it is a texture the world owns, and a
+	// quality change reloads every surface texture under an open dialog - the
+	// rows used to hold the pointers they were built with and drew freed
+	// textures. So it runs mid-frame and must only LOOK UP, never load. An empty
+	// answer when the form is built = the row has no swatch at all.
+	std::function<ui::Swatch(const FieldSpec&, const std::string& id)> swatchFor;
 	// An optional Float whose absence means DERIVED (a monster's `power`): the
 	// owner answers with the value the game works out instead, and the row says
 	// so - "Power (derived 12.7)" - both while unset and beside the slider once
@@ -160,6 +167,32 @@ public:
 	void ApplyPending();
 	bool Confirming() const { return m_confirming; }
 	const std::string& Notice() const { return m_notice; }
+	// The footer Save's click (`typeset dialog save`).
+	void ClickSave();
+	// Brings tab `tab` (0-based, schema order) to the front, as its strip does.
+	void SelectTab(int tab);
+	// One keystroke batch into a quest stage's id field (`stage`, 0-based):
+	// sets the field's text and fires its own onChange, which is what typing
+	// does. False = no such stage row.
+	bool TypeStageId(size_t stage, const std::string& text);
+	// The quest stages' "+ Add a stage" click (`typeset dialog stage add`); the
+	// rebuild it asks for is deferred, as the mouse's is. False = no stage rows.
+	bool ClickAddStage();
+	// The working copy as it stands; Save writes its touched fields.
+	const std::vector<serialize::Field>& Fields() const { return m_cfg.fields; }
+
+	// WHAT THE FORM BUILT, row by row, for `typeset dialog rows` and the judge
+	// that demands a control for every schema row (code-review C101: a FieldKind
+	// the dialog's switch did not know built NOTHING, silently, and two catalog
+	// fields could not be authored). `widgets` is read off the tree, not claimed
+	// by the code that built it: the classes added to the page for the row, a
+	// Stack row as its children joined by '+', rows by ','; "none" for nothing.
+	struct BuiltRow {
+		const FieldSpec* spec;
+		std::string widgets;
+	};
+	const std::vector<BuiltRow>& BuiltRows() const { return m_built; }
+	std::span<const FieldSpec> Schema() const { return m_schema; }
 
 	// A refusal (or any note) to show under the form until the next edit.
 	void SetNotice(std::string text) { m_notice = std::move(text); }
@@ -176,6 +209,11 @@ private:
 	// A QuestStages field's rows: one per stage (id, the log's line, a remove
 	// box) and the add button.
 	void BuildStageRows(ui::Stack& page, const FieldSpec& spec);
+	// Puts the notice in step with the stage id fields as they stand against
+	// `list`, the stages now: a "taken" notice while any row shows an id another
+	// stage holds (row `typed`'s first, the one just edited), down when none
+	// does - but only if the notice is still the clash's.
+	void RefreshStageClash(const std::vector<std::string>& list, size_t typed);
 	// A WeightedRefs field's rows: one per entry (the id as a dropdown named
 	// through faceFor, its weight, a remove box) and the add button.
 	void BuildWeightedRows(ui::Stack& page, const FieldSpec& spec);
@@ -194,6 +232,14 @@ private:
 	std::vector<std::string> m_touched;
 	ui::TabControl* m_tabs = nullptr; // owned by m_ui; the help overlay reads its tab
 	std::vector<const char*> m_sections; // tab order, resolved from the schema
+	std::vector<BuiltRow> m_built;       // what BuildUI made, one per schema row
+	// The quest stages' id fields, in stage order: valid until the next Clear.
+	std::vector<ui::TextField*> m_stageIds;
+	ui::Button* m_stageAdd = nullptr; // "+ Add a stage"; ditto
+	// The "taken" notice this dialog last put up for a typed stage id, empty for
+	// none. The notice is the clash's only while m_notice still EQUALS it: any
+	// other notice that replaces it is left for its own owner to clear.
+	std::string m_clashNote;
 
 	// --- rename / delete ------------------------------------------------------
 	std::string m_notice;      // refusal or note, drawn under the form

@@ -833,6 +833,7 @@ map.type.stages.head=Ogni fase, e cosa dice il registro al raggiungerla
 map.type.stages.hint=Cosa dice il registro
 map.type.stages.remove=Rimuovi questa fase
 map.type.stages.add=+ Aggiungi una fase
+map.type.stages.taken=Un'altra fase si chiama già {} - l'id vale quando è unico
 map.check.flagwaits=Nulla attiva il segnale '{}', quindi questo attende per sempre
 map.check.flagunknown=Il segnale '{}' non è in flags.cat
 map.check.flagscope=Il segnale '{}' appartiene al dungeon '{}' ma è usato qui

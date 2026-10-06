@@ -30,13 +30,16 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 	// `-headless` (docs/eval-harness.md) is read FIRST, before anything opens a
 	// window: the debug console below is one, and a headless run must show
 	// nothing on anyone's desktop. See the window creation further down for
-	// what the flag does and does not remove.
-	bool headless = false;
+	// what the flag does and does not remove. `-unattended` is read with it (see
+	// crash::SetUnattended below).
+	bool headless = false, unattended = false;
 	{
 		int argc = 0;
 		LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-		for (int i = 1; argv && i < argc; ++i)
+		for (int i = 1; argv && i < argc; ++i) {
 			if (std::wstring_view(argv[i]) == L"-headless") headless = true;
+			if (std::wstring_view(argv[i]) == L"-unattended") unattended = true;
+		}
 		if (argv) LocalFree(argv);
 	}
 
@@ -93,7 +96,13 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 	//
 	// Nobody is watching a headless run, so a fatal error must END it rather
 	// than park it on a modal dialog on whoever's desktop (Core/CrashHandler.h).
-	if (headless) crash::SetUnattended();
+	// `-unattended` says the same of a run that DRAWS: a harness check whose
+	// fault is in the drawing needs the window (EditorTest phase 19), and nobody
+	// is watching it either - an assert there would otherwise wait out the
+	// harness's timeout on the CRT's abort box. It is its own flag, not one
+	// `-eval` implies, for the reason above: a developer watching a script may
+	// want that box, to attach a debugger.
+	if (headless || unattended) crash::SetUnattended();
 
 	WindowDesc desc;
 	desc.title = "Dungeon";

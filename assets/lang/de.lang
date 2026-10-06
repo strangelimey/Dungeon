@@ -833,6 +833,7 @@ map.type.stages.head=Jede Stufe und was das Protokoll beim Erreichen sagt
 map.type.stages.hint=Was das Protokoll sagt
 map.type.stages.remove=Diese Stufe entfernen
 map.type.stages.add=+ Stufe hinzufügen
+map.type.stages.taken=Eine andere Stufe heißt bereits {} - die ID gilt erst, wenn sie eindeutig ist
 map.check.flagwaits=Nichts setzt Flag '{}', also wartet dies ewig
 map.check.flagunknown=Flag '{}' steht nicht in flags.cat
 map.check.flagscope=Flag '{}' gehört zum Dungeon '{}', wird aber hier benutzt

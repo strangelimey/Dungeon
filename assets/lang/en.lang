@@ -838,6 +838,7 @@ map.type.stages.head=Each stage, and what the log says on reaching it
 map.type.stages.hint=What the log says
 map.type.stages.remove=Remove this stage
 map.type.stages.add=+ Add a stage
+map.type.stages.taken=Another stage is called {} - the id applies once it is unique
 map.check.flagwaits=Nothing sets flag '{}', so this waits forever
 map.check.flagunknown=Flag '{}' is not in flags.cat
 map.check.flagscope=Flag '{}' belongs to dungeon '{}' but is used here

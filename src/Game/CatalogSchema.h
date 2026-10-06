@@ -101,6 +101,11 @@ std::span<const FieldSpec> SchemaFor(std::string_view catalogKey);
 // "height_scale" -> "Height scale": the label shown for a field key.
 std::string PrettyFieldName(std::string_view key);
 
+// A kind's name as a console readout prints it ("damagetype"), for
+// `typeset dialog rows`. A switch over every kind with no default, so a new
+// kind is a build error here too (C4062 is an error in the Game lib).
+const char* FieldKindName(FieldKind kind);
+
 // Section loc keys, in tab order (the dialog walks the schema in this order).
 inline constexpr const char* kSectionIdentity = "map.type.sec.identity";
 inline constexpr const char* kSectionLook = "map.type.sec.look";

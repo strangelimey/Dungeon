@@ -222,8 +222,12 @@ private:
 // clicking anywhere in the row toggles it and fires onChange with the new state.
 // `highlight` draws the row selected (independent of the check) so it can double
 // as a list row. The owner reads Checked()/SetChecked() to sync external state.
-// A non-empty `swatch` draws between the box and the label, the height of the
-// row, for a list of things that have a look (textures).
+// A set `swatch` draws between the box and the label, the height of the row,
+// for a list of things that have a look (textures). It is ASKED FOR on every
+// draw, never stored: the texture is borrowed from whoever owns it, and the
+// owner may replace it under an open list (a quality change reloads every
+// surface texture - code-review C235). Set or not decides the label's place,
+// so a row whose answer is empty for a frame keeps its layout.
 class Checkbox : public Widget {
 public:
 	Checkbox(const gfx::Rect& rect, std::string label, bool checked,
@@ -242,7 +246,7 @@ public:
 	std::string label;
 	std::function<void(bool)> onChange;
 	bool highlight = false; // draw the row highlighted (e.g. selected/previewed)
-	Swatch swatch;          // empty = none
+	std::function<Swatch()> swatch; // unset = none; resolved per draw (above)
 
 private:
 	// Where the label starts, past the box and any swatch (DrawSelf and

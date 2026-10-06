@@ -546,10 +546,11 @@ void Checkbox::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 		}
 		batch.DrawRect(tick, theme.accent);
 	}
-	// The swatch: square, the row's height less a hairline inset, after the box.
-	if (!swatch.Empty()) {
+	// The swatch: square, the row's height less a hairline inset, after the box -
+	// asked for now, at the moment it is drawn (see the header).
+	if (swatch) {
 		const float side = px.h - 2.0f;
-		DrawSwatch(batch, {b.x + b.w + Rem(0.3f), px.y + 1.0f, side, side}, swatch);
+		DrawSwatch(batch, {b.x + b.w + Rem(0.3f), px.y + 1.0f, side, side}, swatch());
 	}
 	font.Draw(batch, label, TextX(px), px.y + (px.h - font.Height()) * 0.5f,
 			  (m_checked || highlight) ? theme.text : theme.textDim);
@@ -558,7 +559,7 @@ void Checkbox::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 float Checkbox::TextX(const gfx::Rect& px) const {
 	const float box = BoxSide(px);
 	float x = px.x + Rem(0.15f) + box + Rem(0.3f);
-	if (!swatch.Empty()) x += (px.h - 2.0f) + Rem(0.3f);
+	if (swatch) x += (px.h - 2.0f) + Rem(0.3f);
 	return x;
 }
 

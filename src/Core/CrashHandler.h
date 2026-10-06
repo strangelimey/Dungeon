@@ -45,9 +45,10 @@ void Install();
 // ever); this only stops the two things that then sit on the desktop waiting
 // to be clicked - the debug CRT's "abort() has been called" box and the
 // Windows crash box - so the process simply ENDS. `-headless` turns it on
-// (Main): a test run that tripped an assert used to hang on a modal dialog until
-// its timeout, on the screen of whoever was at the machine, looking exactly
-// like a real crash (docs/level-building.md P5).
+// (Main), and so does `-unattended` for a harness run that must draw: a test
+// run that tripped an assert used to hang on a modal dialog until its timeout,
+// on the screen of whoever was at the machine, looking exactly like a real
+// crash (docs/level-building.md P5).
 void SetUnattended();
 
 // Records a Fatal event, logs it, writes a dump and flushes — everything that

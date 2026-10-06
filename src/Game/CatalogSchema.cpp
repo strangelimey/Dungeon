@@ -937,4 +937,21 @@ std::string PrettyFieldName(std::string_view key) {
 	return out;
 }
 
+const char* FieldKindName(FieldKind kind) {
+	switch (kind) {
+	case FieldKind::Text: return "text";
+	case FieldKind::Bool: return "bool";
+	case FieldKind::Float: return "float";
+	case FieldKind::Enum: return "enum";
+	case FieldKind::TextureSet: return "textureset";
+	case FieldKind::Model: return "model";
+	case FieldKind::CatalogRef: return "catalogref";
+	case FieldKind::CatalogRefPick: return "catalogrefpick";
+	case FieldKind::DamageType: return "damagetype";
+	case FieldKind::QuestStages: return "queststages";
+	case FieldKind::WeightedRefs: return "weightedrefs";
+	}
+	return "?"; // an out-of-range value; every named kind returns above
+}
+
 } // namespace dungeon::game

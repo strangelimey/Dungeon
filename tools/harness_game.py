@@ -162,17 +162,25 @@ def read_log(log):
 
 
 def run_eval(exe, cwd, log, scripts, extra=(), timeout=600, headless=True):
-    """Runs the game on eval scripts, headless unless told otherwise (a check of
-    what a frame DRAWS needs the render half, which -headless skips). Returns
+    """Runs the game on eval scripts, headless unless told otherwise. Returns
     (exit code, log text); the code is -1 when the run timed out (subprocess.run
-    kills it)."""
+    kills it). headless=False is for a check whose subject is DRAWING - a
+    headless run skips the render half of every frame, so a fault there cannot
+    happen in it (EditorTest's sprite-arena and type-editor swatch phases).
+
+    EVERY run is -unattended, drawn or not: nobody watches a harness, so a fatal
+    error records, dumps and EXITS rather than parking the game on the CRT's
+    abort box until the timeout (-headless implies it; a windowed run used to
+    lose it, and a drawing fault that ended in an assert would have waited out
+    the whole timeout on someone's desktop)."""
     refuse_if_running(exe)
-    args = [exe, *(["-headless"] if headless else []), *extra, "-eval", *scripts]
+    args = [exe, "-unattended", *(["-headless"] if headless else []), *extra,
+            "-eval", *scripts]
     try:
         code = subprocess.run(args, cwd=cwd, capture_output=True, timeout=timeout).returncode
     except subprocess.TimeoutExpired:
-        # A debug assert parks the game on a CRT dialog until the timeout. It is
-        # reported as a failed run with the log's FATAL line, not a traceback.
+        # A run that HANGS (an assert no longer can - see above) is reported as
+        # a failed run with the log's FATAL line, not a traceback.
         code = -1
     return code, read_log(log)
 

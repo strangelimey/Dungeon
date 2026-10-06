@@ -1,0 +1,62 @@
+; typeeditor.eval - the type editor builds a control for EVERY schema row, and a
+; quest stage renamed a key at a time keeps every other stage's line
+; (code-review C101, C100). Judged by tools/EditorTest.py phase 19.
+;
+; EditorTest writes, before this runs (into its scratch world, never the real
+; one):
+;   [et_stages]  stages = stage1 stage2
+;                text_stage1 = The first line   text_stage2 = The second line
+;
+; 1. Every category with a schema opens on its first entry, the palette's
+;    right-click path, and each row says what it built - read off the widget
+;    tree: `typeset row <catalog> <key> <kind> <widgets>`. A kind the dialog's
+;    switch did not know built nothing (monsters' dmgtype, effects'
+;    damage_type).
+; 2. stage2 becomes stage10 one keystroke at a time: "stage", then "stage1" -
+;    another stage's id, which must be refused in the notice with nothing
+;    moved - then "stage10". The working copy, the Save, and the entry read
+;    back after it must all keep stage1's line.
+; 3. The "taken" notice says what the fields SHOW, never what they once did.
+;    Each section raises it ("stage1" typed over another stage), then:
+;    - notice own:     the id typed back to its own stage's id - it comes down;
+;    - notice rebuild: "+ Add a stage", whose rebuild resets every id field -
+;                      it comes down;
+;    - notice other:   the footer Delete's first click puts up ITS notice, then
+;                      a unique id typed on a stage row - Delete's stays up;
+;    - notice rows:    a third row still shows "stage1" while the second row
+;                      takes a unique id - it stays up; the third row's own
+;                      unique id then takes it down.
+;    Nothing here is saved: the dialog is closed with `off`, which discards.
+
+logecho on
+reset
+echo --- rows ---
+typeset dialog rows all
+echo --- stages ---
+typeset dialog quests et_stages
+typeset dialog stage 2 stage
+typeset dialog stage 2 stage1
+typeset dialog stage 2 stage10
+typeset dialog fields
+typeset dialog save
+echo --- saved ---
+typeset dialog quests et_stages
+typeset dialog fields
+echo --- notice own ---
+typeset dialog stage 2 stage1
+typeset dialog stage 2 stage10
+echo --- notice rebuild ---
+typeset dialog stage 2 stage1
+typeset dialog stage add
+echo --- notice other ---
+typeset dialog stage 2 stage1
+typeset dialog delete
+typeset dialog stage 2 stage20
+typeset dialog off
+echo --- notice rows ---
+typeset dialog quests et_stages
+typeset dialog stage add
+typeset dialog stage 3 stage1
+typeset dialog stage 2 stage20
+typeset dialog stage 3 stage30
+typeset dialog off

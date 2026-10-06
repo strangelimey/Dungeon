@@ -284,6 +284,10 @@ private:
 	// Opens the type editor for a catalog id (the palette's right-click), or
 	// does nothing when the catalog/entry is unknown.
 	void OpenTypeEditor(MapEditor::PaletteCat cat, const std::string& id);
+	// `typeset dialog ...`: the type editor driven step by step from the console
+	// (open, its rows, a tab, typing a stage id, Save), each step reporting
+	// where it stands - what a harness reads (Game_DevWorld.cpp).
+	void TypesetDialog(const std::vector<std::string>& args);
 	// The Balance dialog on the live tuning, its Effects tab filled from the
 	// project's effects.cat (the toolbar button and the console's `balance`).
 	void OpenBalanceDialog();

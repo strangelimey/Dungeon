@@ -115,6 +115,15 @@
 #      COUNTED - in all, and per frame (two readings over the same view: the
 #      frame's count holds while the total grows) - and the game carries on to
 #      its verdict - it used to abort.
+#  20. THE TYPE EDITOR (code-review C101, C100, C235): every category opened
+#      the way the palette opens it builds a CONTROL for every schema row -
+#      read off the widget tree, so a kind the dialog's switch does not know
+#      (a damage type, once) shows as a row with nothing; a quest stage renamed
+#      stage2 -> stage10 a keystroke at a time is refused at "stage1" in the
+#      notice and keeps stage1's line, in the working copy, the save and the
+#      entry read back; and, in a WINDOWED run (the fault was in the drawing),
+#      a theme open on its Floors tab through two quality changes leaves no
+#      error in the log - its swatches used to be freed textures.
 #
 # NOTHING HERE EDITS THE REAL WORLD (code-review C431). Each phase starts on a
 # FRESH SCRATCH COPY of dungeon-demo, et_demo, and every run opens it with
@@ -1545,6 +1554,156 @@ try:
     warned = log.count("sprite arena full:")
     check(warned == 1, "...and the log says so, once",
           f"{warned} 'sprite arena full' warning(s)")
+finally:
+    drop()
+    if settings_before is not None:
+        io.open(SETTINGS, "wb").write(settings_before)
+    elif os.path.isfile(SETTINGS):
+        os.remove(SETTINGS)
+
+# --- phase 20: the type editor ---------------------------------------------------
+print("20 - the type editor: a control per row, stage ids typed a key at a time, swatches")
+# What counts as a CONTROL, as the tree names the classes. A Label alone is not:
+# a row that shows a field's name and nothing to edit it with is the defect.
+CONTROLS = {"Checkbox", "Slider", "TextField", "Button", "DropDown"}
+# Every category the palette can open a type editor on, AS DESIGNED (the
+# kCategoryInfo table): the sweep must reach each, so a category that stopped
+# opening fails here instead of shrinking the sweep.
+TYPE_CATEGORIES = ("walls", "floors", "ceilings", "themes", "decorations", "fixtures",
+                   "monsters", "buttons", "doors", "stairs", "items", "weapons", "armor",
+                   "wallfeatures", "surfacefeatures", "effects", "dungeons", "terrain",
+                   "quests", "flags", "styles", "shapes", "lights", "trails")
+ROW = re.compile(r"console: typeset row (\S+) (\S+) (\S+) (\S+)\s*$")
+ROWS = re.compile(r"console: typeset rows (\S+) '[^']*': (\d+) schema row\(s\), (\d+) built")
+ET_STAGES = ("\r\n[et_stages]\r\ndisplay = Stage test\r\nstages = stage1 stage2\r\n"
+             "text_stage1 = The first line\r\ntext_stage2 = The second line\r\n")
+
+
+def type_rows(log):
+    """{catalog: [(key, kind, widgets)]} and {catalog: (schema rows, rows built)}."""
+    rows, counts = {}, {}
+    for line in log.splitlines():
+        m = ROW.search(line)
+        if m:
+            rows.setdefault(m.group(1), []).append(m.group(2, 3, 4))
+            continue
+        m = ROWS.search(line)
+        if m:
+            counts[m.group(1)] = (int(m.group(2)), int(m.group(3)))
+    return rows, counts
+
+
+def has_control(widgets):
+    return any(w in CONTROLS for w in re.split(r"[+,]", widgets))
+
+
+def fields(lines):
+    """`typeset field k = v` lines as a dict."""
+    out = {}
+    for l in lines:
+        m = re.match(r"typeset field (\S+) = ?(.*)$", l)
+        if m:
+            out[m.group(1)] = m.group(2).strip()
+    return out
+
+
+def cat_block(text, block_id):
+    """One [id] block of a .cat file as a dict (None = absent)."""
+    m = re.search(r"^\[" + re.escape(block_id) + r"\]\s*$(.*?)(?=^\[|\Z)", text, re.M | re.S)
+    if not m:
+        return None
+    return {k.strip(): v.strip() for k, v in
+            (l.split("=", 1) for l in m.group(1).splitlines() if "=" in l and not l.startswith(";"))}
+
+
+# `quality` persists to settings.ini beside the exe: the developer's copy (or its
+# absence) is put back afterwards, like phase 18's knobs.
+settings_before = io.open(SETTINGS, "rb").read() if os.path.isfile(SETTINGS) else None
+fresh()
+try:
+    quests = os.path.join(PROJ, r"catalog\quests.cat")
+    io.open(quests, "a", encoding="utf-8", newline="").write(ET_STAGES)
+    log = run("typeeditor.eval")
+    check(passed(log), "the script ran clean")
+    rows, counts = type_rows(log)
+    missing = [c for c in TYPE_CATEGORIES if c not in counts]
+    check(not missing, f"every category's type editor opened ({len(counts)} of {len(TYPE_CATEGORIES)})",
+          f"never opened: {missing}")
+    short = {c: counts[c] for c in counts if counts[c][0] != counts[c][1] or len(rows.get(c, [])) != counts[c][0]}
+    check(not short, "each reported a row for every schema row", str(short))
+    bare = [f"{c}.{k} ({kind}: {w})" for c, rs in rows.items() for k, kind, w in rs if not has_control(w)]
+    total = sum(len(rs) for rs in rows.values())
+    check(total > 200 and not bare, f"every one of the {total} schema rows built a control",
+          "; ".join(bare[:8]))
+    # The two rows the dialog used to skip (C101), named so a pass cannot be a
+    # sweep that quietly left them out.
+    dmg = [(c, k, w) for c, rs in rows.items() for k, kind, w in rs if kind == "damagetype"]
+    check({(c, k) for c, k, _ in dmg} >= {("monsters", "dmgtype"), ("effects", "damage_type")}
+          and all("DropDown" in w for _, _, w in dmg),
+          "a damage-type row is a dropdown (monsters' dmgtype, effects' damage_type)", str(dmg))
+
+    sec = console_sections(log)
+    typing, saved = sec.get("stages", []), sec.get("saved", [])
+    check(any("Another stage is called stage1" in l for l in typing),
+          "typing \"stage1\" over stage2 is refused in the notice",
+          " | ".join(l for l in typing if l.startswith("typeset dialog:")))
+    want = {"stages": "stage1 stage10", "text_stage1": "The first line",
+            "text_stage10": "The second line"}
+    now = fields(typing)
+    check(all(now.get(k) == v for k, v in want.items()),
+          "stage2 -> stage10 a key at a time keeps stage1's line (the working copy)", str(now))
+    back = fields(saved)
+    check(all(back.get(k) == v for k, v in want.items()) and "text_stage2" not in back,
+          "...and the Save wrote exactly that (the entry read back)", str(back))
+    block = cat_block(io.open(quests, encoding="utf-8").read(), "et_stages") or {}
+    check(all(block.get(k) == v for k, v in want.items()) and "text_stage2" not in block
+          and "text_stage" not in block,
+          "...and so does quests.cat on disk", str(block))
+
+    # The "taken" notice follows what the fields SHOW. Each section raises it
+    # first (checked, so a pass cannot be a notice that never went up), then
+    # does the thing a latched flag got wrong; the status line is read just
+    # before the section closes the dialog, where it does.
+    TAKEN = "Another stage is called stage1"
+    ARMED = "Click Delete again"
+
+    def notices(name):
+        """The notice after each step of section `name`: text, '' for none,
+        None where the dialog was closed."""
+        out = []
+        for l in sec.get(name, []):
+            m = re.match(r"typeset dialog: (?:open \S+ '[^']*' -(.*)|closed)$", l)
+            if m:
+                out.append(None if m.group(1) is None else m.group(1).strip())
+        return out
+
+    own, rebuild = notices("notice own"), notices("notice rebuild")
+    other, rows_n = notices("notice other"), notices("notice rows")
+    check(len(own) == 2 and TAKEN in (own[0] or "") and own[1] == "",
+          "an id typed back to its own stage's id takes the \"taken\" notice down", str(own))
+    check(len(rebuild) == 2 and TAKEN in (rebuild[0] or "") and rebuild[1] == "",
+          "...and so does a rebuild (+ Add a stage resets every id field)", str(rebuild))
+    check(len(other) == 4 and TAKEN in (other[0] or "") and ARMED in (other[1] or "")
+          and ARMED in (other[2] or ""),
+          "a unique id typed after another notice went up leaves that notice (Delete's) standing",
+          str(other))
+    check(len(rows_n) == 6 and TAKEN in (rows_n[2] or "") and TAKEN in (rows_n[3] or "")
+          and rows_n[4] == "",
+          "a row still showing a taken id keeps the notice up while another row renames; "
+          "its own unique id takes it down", str(rows_n))
+
+    # WINDOWED: a headless run never draws, and the freed swatches were a drawing
+    # fault - a d3d12 error on a 0xdd... descriptor, then an access violation.
+    # Still UNATTENDED (run_eval passes -unattended): a fault that ends in an
+    # assert must end the run, not wait out the timeout on the CRT's abort box.
+    log = run("typeswatch.eval", headless=False)
+    check("crash: unattended" in log,
+          "the windowed run is unattended (a fatal error exits; no dialog waits)")
+    check(passed(log), "the windowed script ran to its verdict (the dialog drew through both changes)")
+    check("Quality switched to Low" in log, "the textures really were reloaded under the open dialog")
+    errors = [l for l in log.splitlines() if l.startswith("[ERROR]")]
+    check(not errors, "a theme open in the type editor over a quality change leaves no fault in the log",
+          " | ".join(e[:140] for e in errors[:3]))
 finally:
     drop()
     if settings_before is not None:

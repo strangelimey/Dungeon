@@ -529,16 +529,21 @@ void Game::WireModuleCallbacks() {
 			const CatalogEntry* e = m_project.monsters.Find(id);
 			if (!e) return {};
 			return {loc::Format("map.type.monsterpower", e->Display(),
-								std::format("{:.1f}", m_world->MonsterPower(*e))),
-					{}};
+								std::format("{:.1f}", m_world->MonsterPower(*e)))};
 		}
 		const MapEditor::PaletteCat cat = MapEditor::CatForCatalogKey(spec.options);
 		if (!MapEditor::SurfaceCat(cat)) return {};
 		// The list is the whole catalogue, most of it not loaded by this level:
-		// a thumbnail first (the dialog is built in Update, where that is safe).
+		// a thumbnail first (the dialog is built in Update, where that is safe),
+		// for swatchFor to find when the row draws.
 		m_mapEditor.LoadSurfaceSwatch(cat, id);
-		const MapEditor::PaletteItem item = m_mapEditor.SurfaceItem(cat, id);
-		return {item.label, item.Swatch()};
+		return {m_mapEditor.SurfaceItem(cat, id).label};
+	};
+	// ...and its swatch, LOOKED UP each time the row draws (code-review C235):
+	// the level's loaded albedo is the world's, and a quality change replaces it.
+	m_typeDialog.swatchFor = [this](const FieldSpec& spec, const std::string& id) {
+		const MapEditor::PaletteCat cat = MapEditor::CatForCatalogKey(spec.options);
+		return MapEditor::SurfaceCat(cat) ? m_mapEditor.SurfaceSwatch(cat, id) : ui::Swatch{};
 	};
 	// A monster's `power` is derived unless overridden: the row shows what the
 	// stats come to (the SAVED stats - an unsaved change to them shows after

@@ -6,7 +6,8 @@
 // enter/leave/worldpos/discover), the worlds beside this one and the map's
 // pages, the project-wide file checks (catround/levels/levelcheck), and the
 // world editor (worldedit/terrainbrush/paint/worldprops/worldloc/worldarea/
-// worldsettings/newtype/typerefs/saveworld). The dungeon tier's commands are
+// worldsettings/newtype/typeset/typerefs/saveworld; `typeset dialog` drives the
+// type editor itself, step by step). The dungeon tier's commands are
 // next door in Game_DevDungeons.cpp.
 // ============================================================================
 #include "Game/Game.h"
@@ -1152,14 +1153,21 @@ void Game::RegisterWorldCommands() {
 		 .group = CmdGroup::Types,
 		 .params = "<category> <id> <field> [value...]\n"
 				   "rename <category> <id> <new>\n"
-				   "delete <category> <id>",
-		 .summary = "the type editor's Save, Rename or Delete; no value removes a field"},
+				   "delete <category> <id>\n"
+				   "dialog [status] | <category> <id> | off | rows [all] | fields | "
+				   "tab <n> | stage <n> <id> | stage add | delete | save",
+		 .summary = "the type editor's Save, Rename or Delete (no value removes a field), "
+					"or the editor itself step by step"},
 		[this](const std::vector<std::string>& args) {
 			// The type editor's own paths, reachable without a mouse. Save goes
 			// through m_typeDialog.onSave, not WriteTypeFields alone: the Save
 			// also APPLIES the change (a surface's materials, a prop's kind, a
 			// theme's squares on every level), and that is what a harness
 			// needs to see. Rename and Delete are the title's and footer's.
+			if (!args.empty() && args[0] == "dialog") {
+				TypesetDialog(args);
+				return;
+			}
 			if (args.size() >= 3 && (args[0] == "rename" || args[0] == "delete")) {
 				std::string problem;
 				const bool rename = args[0] == "rename";
@@ -1231,6 +1239,116 @@ void Game::RegisterWorldCommands() {
 			}
 			m_console.Print(SaveWorld() ? "saved world" : "world save failed");
 		});
+}
+
+// --- the type editor, step by step (`typeset dialog`) -------------------------
+
+void Game::TypesetDialog(const std::vector<std::string>& args) {
+	const std::string verb = args.size() >= 2 ? args[1] : std::string();
+	// What the form built for each schema row (TypeEditorDialog::BuiltRows),
+	// then a count - read off the widget tree, so a row that built nothing
+	// says "none" instead of being skipped.
+	const auto printRows = [this](const std::string& key) {
+		size_t none = 0;
+		for (const TypeEditorDialog::BuiltRow& r : m_typeDialog.BuiltRows()) {
+			if (r.widgets == "none") ++none;
+			m_console.Print(std::format("typeset row {} {} {} {}", key, r.spec->key,
+										FieldKindName(r.spec->kind), r.widgets));
+		}
+		m_console.Print(std::format("typeset rows {} '{}': {} schema row(s), {} built, {} "
+									"with nothing",
+									key, m_typeDialog.Id(), m_typeDialog.Schema().size(),
+									m_typeDialog.BuiltRows().size(), none));
+	};
+	if (verb == "rows" && args.size() >= 3 && args[2] == "all") {
+		// EVERY category with a schema, opened on its first entry the way the
+		// palette's right-click opens it: the sweep that shows each kind of row
+		// builds a control (code-review C101).
+		for (size_t c = 0; c < static_cast<size_t>(MapEditor::PaletteCat::Count); ++c) {
+			const auto cat = static_cast<MapEditor::PaletteCat>(c);
+			const std::string key = MapEditor::CategoryCatalogKey(cat);
+			if (SchemaFor(key).empty()) {
+				m_console.Print(std::format("typeset rows {}: no schema", key));
+				continue;
+			}
+			const Catalog* catalog = m_project.CatalogForKey(key);
+			if (!catalog || catalog->Entries().empty()) {
+				m_console.Refuse(std::format("typeset rows {}: no entry to open", key));
+				continue;
+			}
+			OpenTypeEditor(cat, catalog->Entries().front().id);
+			if (!m_typeDialog.IsOpen()) {
+				m_console.Refuse(std::format("typeset rows {}: the editor did not open", key));
+				continue;
+			}
+			printRows(key);
+			m_typeDialog.Close();
+		}
+		return;
+	}
+	const bool open = m_typeDialog.IsOpen();
+	const bool needsOpen = verb == "rows" || verb == "fields" || verb == "tab" ||
+						   verb == "stage" || verb == "delete" || verb == "save";
+	if (needsOpen && !open) {
+		m_console.Refuse("typeset dialog: no type editor is open");
+		return;
+	}
+	if (verb == "off") {
+		m_typeDialog.Close();
+	} else if (verb == "rows") {
+		printRows(m_typeDialog.CatalogKey());
+	} else if (verb == "fields") {
+		// The WORKING COPY, which Save writes - not the catalog.
+		for (const serialize::Field& f : m_typeDialog.Fields())
+			m_console.Print(std::format("typeset field {} = {}", f.key, f.value));
+	} else if (verb == "tab" && args.size() >= 3) {
+		m_typeDialog.SelectTab(std::atoi(args[2].c_str()));
+	} else if (verb == "stage" && args.size() == 3 && args[2] == "add") {
+		// The "+ Add a stage" click: a rebuild, which resets every id field.
+		if (!m_typeDialog.ClickAddStage()) {
+			m_console.Refuse("typeset dialog: no stage rows");
+			return;
+		}
+	} else if (verb == "stage" && args.size() >= 4) {
+		// One keystroke batch into stage <n>'s id (1 = the first stage).
+		const int n = std::atoi(args[2].c_str());
+		if (n < 1 || !m_typeDialog.TypeStageId(static_cast<size_t>(n - 1), args[3])) {
+			m_console.Refuse(std::format("typeset dialog: no stage {}", args[2]));
+			return;
+		}
+	} else if (verb == "delete") {
+		// The footer Delete's click - the FIRST of two for every category but a
+		// dungeon, so it only arms (and says so in the notice). The notice is
+		// another owner's, which a stage id typed after it must leave standing.
+		m_typeDialog.ClickDelete();
+	} else if (verb == "save") {
+		m_typeDialog.ClickSave();
+	} else if (verb.empty() || verb == "status") {
+		// Just where it stands (below) - and, run from a script, a frame drawn
+		// with the dialog as it is.
+	} else if (args.size() >= 3 && !needsOpen) {
+		const MapEditor::PaletteCat cat = MapEditor::CatForCatalogKey(args[1]);
+		if (cat == MapEditor::PaletteCat::Count) {
+			m_console.Refuse(std::format("typeset dialog: no category '{}'", args[1]));
+			return;
+		}
+		OpenTypeEditor(cat, args[2]);
+		if (!m_typeDialog.IsOpen()) {
+			m_console.Refuse(std::format("typeset dialog: no {} '{}'", args[1], args[2]));
+			return;
+		}
+	} else {
+		m_console.RefuseUsage(); // prints the registered forms
+		return;
+	}
+	// A click deferred its rebuild (it fires inside the tree walk, and the
+	// dialog's Update does not run while the console is up): apply it, so what
+	// is read next is the view the step produced.
+	m_typeDialog.ApplyPending();
+	m_console.Print(m_typeDialog.IsOpen()
+						? std::format("typeset dialog: open {} '{}' - {}", m_typeDialog.CatalogKey(),
+									  m_typeDialog.Id(), m_typeDialog.Notice())
+						: std::string("typeset dialog: closed"));
 }
 
 } // namespace dungeon::game

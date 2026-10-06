@@ -533,7 +533,11 @@ Key conventions (memorize, they bite):
   match line for line. NOT run headless on purpose: `/check-ingame` (uioverlap
   measures what widgets PAINT) and `/check-alloc` (the guard brackets update AND
   render, so a headless frame is a different frame from the one the rule is
-  about).
+  about). A headless run is also UNATTENDED (`crash::SetUnattended`: a fatal
+  error records, dumps and EXITS - no CRT abort box waits); `-unattended` gives
+  a run that draws the same, and `harness_game.run_eval` passes it on every run,
+  windowed ones included (EditorTest phase 19's swatch check draws). `-eval`
+  does not imply it: a developer watching a script may want the box.
 - EFFECTS (full model: docs/effects.md — the system every source of damage
   goes through; built in six phases 2026-07-24): ONE pipeline for everything
   that happens to a combatant. A source builds an `fx::DamageEvent` and calls
@@ -1797,9 +1801,18 @@ from a SCHEMA: Game/CatalogSchema.h is a FieldSpec table per catalog (key, kind,
 section, range/step, options, one-line help), so exposing a field is one table
 row and a new category is one table (the kBalanceFields idiom). Sections become
 tabs, kinds become widgets (Bool→checkbox, Float→snapped slider, Enum/
-TextureSet/Model/CatalogRef→dropdown filled by Game through optionsFor —
-AssetUtil::InstalledTextureSets/InstalledModels scan the pool), and "?" explains
-the active tab's fields. NO live apply (a type is referenced by every placement
+DamageType/CatalogRef→dropdown filled by Game through optionsFor, TextureSet/
+Model→a button opening the asset picker below), and "?" explains the active
+tab's fields. The kind switch names EVERY FieldKind with NO default, and the Game
+lib builds with C4062 as an ERROR (src/Game/CMakeLists.txt): a new kind fails the
+build at every switch that must learn it. Before that, DamageType built no widget
+at all and two catalog fields silently could not be authored (code-review C101).
+`typeset dialog rows [all]` prints what each schema row built, read off the
+widget tree, and EditorTest phase 19 demands a control for every row of every
+category. A theme member row's SWATCH is asked of `swatchFor` each time it DRAWS
+and never kept (ui::Checkbox::swatch is a function): it is the world's albedo,
+and a quality change reloads it under an open dialog, which drew freed textures
+(C235). NO live apply (a type is referenced by every placement
 and, for surfaces, by baked geometry): Save writes the .cat and, when a touched
 field is `rebakes` (a surface's texture/relief/wear), re-runs the wornblock bake
 behind the busy overlay. A surface's PER-DRAW knobs are the exception —

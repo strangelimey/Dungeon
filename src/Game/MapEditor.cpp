@@ -265,6 +265,14 @@ MapEditor::PaletteItem MapEditor::SurfaceItem(PaletteCat cat, const std::string&
 			CatalogMatchesTags(e, m_view.ViewedMap().Tags())};
 }
 
+ui::Swatch MapEditor::SurfaceSwatch(PaletteCat cat, const std::string& id) const {
+	if (!m_world) return {};
+	const Vec4& flat = cat == PaletteCat::Walls ? kWall
+					   : cat == PaletteCat::Floors ? kFloor
+												   : kCeiling;
+	return {m_world->SurfaceSwatchForId(SelFor(cat), id), flat};
+}
+
 void MapEditor::LoadSurfaceSwatch(PaletteCat cat, const std::string& id) {
 	if (SurfaceCat(cat)) m_world->LoadSurfaceThumb(SelFor(cat), id);
 }

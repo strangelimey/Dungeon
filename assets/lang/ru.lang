@@ -847,6 +847,7 @@ map.type.stages.head=Каждый этап и что пишет журнал п�
 map.type.stages.hint=Что пишет журнал
 map.type.stages.remove=Убрать этот этап
 map.type.stages.add=+ Добавить этап
+map.type.stages.taken=Другой этап уже называется {} - id применится, когда станет уникальным
 map.check.flagwaits=Флаг '{}' ничто не включает, так что это ждёт вечно
 map.check.flagunknown=Флага '{}' нет в flags.cat
 map.check.flagscope=Флаг '{}' принадлежит подземелью '{}', но используется здесь

@@ -700,6 +700,14 @@ route totals unchanged).
 drawing**. The simulation, the dev console and the log are unchanged;
 `Eval.ps1 -Headless` and `PipelineTest.ps1 -Headless` pass it through.
 
+It is also **unattended** (`crash::SetUnattended`): a fatal error records,
+dumps and exits instead of parking the CRT's abort box on whoever's desktop until
+the harness's timeout. `-unattended` asks the same of a run that draws, and
+`tools/harness_game.py`'s `run_eval` passes it on every run - EditorTest phase
+19's swatch check is windowed, because its fault was in the drawing. `-eval` does
+not imply it: a developer watching a script may want that box, to attach a
+debugger.
+
 **It is not really a speed switch, and it is worth saying so before somebody
 measures it hopefully.** Ten suites go **42 s → 37 s**, about 12%. The time is
 the asset load plus the `step` loops, and a `step` runs many simulated seconds

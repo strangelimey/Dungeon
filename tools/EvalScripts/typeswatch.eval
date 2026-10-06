@@ -1,0 +1,26 @@
+; typeswatch.eval - a theme open in the type editor survives a quality change
+; (code-review C235). Judged by tools/EditorTest.py phase 19, which runs it
+; WINDOWED: a headless run never draws, and the fault was in the drawing. The
+; theme's member rows kept the level albedo textures they were built with as
+; their swatches; a quality change reloads every surface texture, and the
+; still-open dialog drew the freed ones.
+;
+; The Floors tab is brought to the front so its swatch rows draw. Quality goes
+; to 2 and then to 0, so the texture resolution changes whatever settings.ini
+; held (EditorTest puts settings.ini back afterwards); each `typeset dialog`
+; after a change is a frame drawn with the dialog up.
+
+logecho on
+reset
+typeset dialog themes marble_hall
+typeset dialog tab 1
+quality 2
+typeset dialog
+typeset dialog
+typeset dialog
+quality 0
+typeset dialog
+typeset dialog
+typeset dialog
+typeset dialog rows
+typeset dialog off

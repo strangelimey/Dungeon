@@ -833,6 +833,7 @@ map.type.stages.head=Cada etapa, y lo que dice el registro al alcanzarla
 map.type.stages.hint=Lo que dice el registro
 map.type.stages.remove=Quitar esta etapa
 map.type.stages.add=+ Añadir una etapa
+map.type.stages.taken=Otra etapa ya se llama {} - el id se aplica cuando sea único
 map.check.flagwaits=Nada activa la marca '{}', así que esto espera para siempre
 map.check.flagunknown=La marca '{}' no está en flags.cat
 map.check.flagscope=La marca '{}' pertenece a la mazmorra '{}' pero se usa aquí

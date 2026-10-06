@@ -324,6 +324,11 @@ public:
 	// them exactly as the palette does. The swatch is the level's loaded albedo,
 	// else a thumbnail LoadSurfaceSwatch made (DungeonWorld::SurfaceSwatchForId).
 	PaletteItem SurfaceItem(PaletteCat cat, const std::string& id) const;
+	// Just that swatch, for a row that asks for it every time it draws and must
+	// never keep it: the albedo is the world's, and a quality change reloads it
+	// under an open dialog (code-review C235). Lookup only, safe mid-frame - a
+	// thumbnail not loaded yet is the flat colour until LoadSurfaceSwatch.
+	ui::Swatch SurfaceSwatch(PaletteCat cat, const std::string& id) const;
 	// Loads the thumbnail swatch for a surface type this level has not loaded.
 	// Uploads, so from Update only: a list about to show catalogue types (the
 	// Catalogue view, a theme's member lists) asks for them first.
