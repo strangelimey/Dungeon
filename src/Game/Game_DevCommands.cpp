@@ -278,6 +278,7 @@ void Game::RegisterDevCommands() {
 								  "overview [world|dungeon|level]\n"
 								  "overview follow <key> [world|dungeon|level]\n"
 								  "disarm\n"
+								  "pause [on|off]\n"
 								  "view\n"
 								  "issues\n"
 								  "rev",
@@ -299,6 +300,31 @@ void Game::RegisterDevCommands() {
 						   if (!args.empty() && args[0] == "disarm") {
 							   m_console.Print(m_mapEditor.Disarm() ? "editor: brush put down"
 																	: "editor: no brush armed");
+							   return;
+						   }
+						   // The toolbar's pause/play button, pressed (`on` / `off`),
+						   // or bare to say where it stands. The editor's own: with
+						   // the editor not up there is no button to press. A bare
+						   // `editor` or any subcommand after it must leave it as it
+						   // is (code-review C78).
+						   if (!args.empty() && args[0] == "pause") {
+							   const bool editing = m_mapView.IsOpen() &&
+													m_mapView.CurrentMode() == MapView::Mode::Editor;
+							   if (args.size() >= 2) {
+								   if (args[1] != "on" && args[1] != "off") {
+									   m_console.RefuseUsage();
+									   return;
+								   }
+								   if (!editing) {
+									   m_console.Refuse("editor pause: the editor is not open");
+									   return;
+								   }
+								   m_mapView.SetEditorPaused(args[1] == "on");
+							   }
+							   m_console.Print(std::format(
+								   "editor pause: {}", !editing				   ? "no editor"
+													   : m_mapView.EditorPaused() ? "paused"
+																				  : "running"));
 							   return;
 						   }
 						   // The edge drag: the new window in the viewed level's

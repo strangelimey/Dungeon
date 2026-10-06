@@ -504,7 +504,10 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 	// The frame's input once, ahead of all its ticks: a key press is one act
 	// however many ticks the frame runs.
 	if (acceptInput && !m_falling) m_party.HandleInput(input);
-	PresentFrame(AdvanceSimulation(dt), time);
+	const float simulated = AdvanceSimulation(dt);
+	++m_clock.updates;
+	m_clock.seconds += simulated;
+	PresentFrame(simulated, time);
 }
 
 float DungeonWorld::AdvanceSimulation(float dt) {

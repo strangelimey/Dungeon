@@ -203,6 +203,16 @@ public:
 		float owed = 0.0f;
 	};
 	const UpdateRun& LastUpdate() const { return m_lastUpdate; }
+	// THE WORLD CLOCK: every Update the world has taken since it was made, and
+	// the world seconds they simulated. Counted here, in the callee, so it says
+	// whether the world RAN - whoever called it (code-review C78 / C125: the open
+	// console used to run a paused editor's world and freeze the sheet's). Read
+	// by `worldclock`.
+	struct Clock {
+		u64 updates = 0;
+		double seconds = 0.0;
+	};
+	const Clock& WorldClock() const { return m_clock; }
 
 	// Per-frame arena rotation for the world-owned batches (safe pre-load).
 	void NewFrame(u32 frameIndex);
@@ -5193,6 +5203,7 @@ private:
 	// to the next frame's ticks; zero whenever a frame is a whole step.
 	float m_tickCarry = 0.0f;
 	UpdateRun m_lastUpdate;
+	Clock m_clock; // every Update, and what it simulated (WorldClock)
 	// One tick of simulation - everything Update advances by dt except what
 	// the frame shows (PresentFrame). Update calls it once, or once a tick.
 	void Tick(float dt);

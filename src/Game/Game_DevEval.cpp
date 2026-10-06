@@ -3,10 +3,10 @@
 //
 // Split out of Game_DevCommands.cpp by concern (docs/eval-harness.md): the
 // primitives that make a measurement mean anything (timescale/logecho/messages/
-// seed/lockstep/aiwait/step/state), getting into a world and out of it without
-// a mouse (newgame/reset/title),
-// and staging and reading an encounter (arena/forward/freeze/blast/spawn/
-// monsterclips/autoattack/tally).
+// seed/lockstep/aiwait/step/frames/state/worldclock/console), getting into a
+// world and out of it without a mouse (newgame/reset/title), and staging and
+// reading an encounter (arena/forward/freeze/blast/spawn/monsterclips/
+// autoattack/tally).
 // ============================================================================
 #include "Game/Game.h"
 
@@ -793,6 +793,53 @@ void Game::RegisterEvalCommands() {
 						   m_console.Print(std::format("state {}", StateName()));
 					   });
 
+	// THE WORLD CLOCK (code-review C78 / C125): how many updates the world has
+	// taken and the seconds they simulated (DungeonWorld::WorldClock, counted in
+	// the callee), with whether this frame's state lets it run and what holds it
+	// if not (WorldHeldBy), whether the console is up and how the editor stands.
+	// Two readings either side of a few frames say whether those frames ran the
+	// world - the question every freeze rule asks.
+	m_console.Register({.name = "worldclock",
+						.group = CmdGroup::Simulation,
+						.summary = "print the world's update count and simulated seconds, and "
+								   "whether it runs"},
+					   [this](const std::vector<std::string>&) {
+						   if (!m_world) {
+							   m_console.Refuse("worldclock: no world");
+							   return;
+						   }
+						   const DungeonWorld::Clock& c = m_world->WorldClock();
+						   const char* held = WorldHeldBy();
+						   m_console.Print(std::format(
+							   "worldclock updates={} seconds={:.4f} level={} state={} runs={} "
+							   "held={} console={} editor={}",
+							   c.updates, c.seconds, m_world->CurrentLevel(), StateName(),
+							   held ? "no" : "yes", held ? held : "-",
+							   m_console.IsOpen() ? "open" : "shut",
+							   !m_mapView.IsOpen()										? "shut"
+							   : m_mapView.CurrentMode() != MapView::Mode::Editor ? "player"
+							   : m_mapView.EditorPaused()							? "paused"
+																					: "running"));
+					   });
+	// The console opened or shut by a SCRIPT line, as `~` does: what the frames
+	// after it do with the console up is the thing to measure (it owns the input,
+	// never the clock - code-review C78). Bare says which.
+	m_console.Register({.name = "console",
+						.group = CmdGroup::Console,
+						.params = "[open|shut]",
+						.summary = "open or shut this console, as the ~ key does"},
+					   [this](const std::vector<std::string>& args) {
+						   if (!args.empty()) {
+							   if (args[0] != "open" && args[0] != "shut") {
+								   m_console.RefuseUsage();
+								   return;
+							   }
+							   if (m_console.IsOpen() != (args[0] == "open")) m_console.Toggle();
+						   }
+						   m_console.Print(std::format("console: {}",
+													   m_console.IsOpen() ? "open" : "shut"));
+					   });
+
 	m_console.Register({.name = "seed",
 						.group = CmdGroup::Simulation,
 						.params = "<n>",
@@ -1001,7 +1048,6 @@ void Game::RegisterEvalCommands() {
 								   "frames: not playing (state: {}) - nothing ran", StateName()));
 							   return;
 						   }
-						   static const Input kNoInput;
 						   const bool resting = m_world->Resting();
 						   // The AI's thinks inside these frames alone (lockstep's
 						   // inline computes): `lockstep stats` on the next line would

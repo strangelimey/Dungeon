@@ -1,0 +1,143 @@
+; worldtick.eval - EditorTest phase 40 (code-review C78 / C125): one world tick.
+;
+; The world runs or holds by ONE decision (Game::WorldHeldBy), asked by the one
+; tick (Game::TickWorld) whoever owns the input. Read by `worldclock`: the
+; world's own count of the updates it took (counted in DungeonWorld::Update),
+; so two readings either side of a few frames say whether those frames ran it.
+;   pause  - a paused editor stays paused through a bare `editor`, an `editor
+;            pick` (the eyedropper) and an `editor issues` - each goes through
+;            MapView::SetMode(Editor), the call that used to clear the pause, and
+;            the pause is pressed again before each, so each ask fails on its
+;            own; `editor off` and back, a real flip, clears it - the control.
+;            (`editor tool` is not one: it never asks for the mode, and it
+;            saves the picked tool to settings.ini.)
+;   frozen - the open console over the paused editor runs nothing; over the
+;            running editor it runs (the control).
+;   dialog - the open console over an editor dialog runs nothing.
+;   sheet  - the character sheet over the level runs the world, the console
+;            shut (the control) and open (it used to freeze).
+;   exit   - an exit stair stepped onto under the open console is followed: its
+;            question goes up, and holds the world.
+;   stair  - a stair down stepped onto under the open console is followed: the
+;            party arrives on crypt2 with the console still up.
+logecho on
+reset
+timescale 0
+freeze on
+
+echo --- pause ---
+editor
+editor pause on
+editor pause
+editor
+editor pause
+editor pause on
+editor pick 1 1
+editor pause
+editor disarm
+editor pause on
+editor issues
+editor pause
+editor off
+editor pause
+editor
+editor pause
+
+echo --- frozen ---
+; A headless frame is a fraction of a millisecond: at 100x a few of them still
+; read as world seconds.
+timescale 100
+editor pause on
+console open
+worldclock
+pos
+pos
+pos
+worldclock
+editor pause off
+worldclock
+pos
+pos
+pos
+worldclock
+console shut
+
+echo --- dialog ---
+editor levelsettings open
+editor levelsettings
+console open
+worldclock
+pos
+pos
+pos
+worldclock
+console shut
+presskey esc
+editor levelsettings
+worldclock
+
+echo --- sheet ---
+mappage close
+sheet 0
+worldclock
+pos
+pos
+pos
+worldclock
+console open
+worldclock
+pos
+pos
+pos
+worldclock
+console shut
+sheet off
+timescale 0
+
+echo --- exit ---
+goto crypt1
+tp 7 7
+face s
+timescale 100
+console open
+worldclock
+forward 1
+pos
+pos
+pos
+pos
+pos
+pos
+worldclock
+pos
+pos
+pos
+worldclock
+console shut
+timescale 0
+presskey esc
+worldclock
+pos
+
+echo --- stair ---
+tp 1 2
+face n
+timescale 100
+console open
+worldclock
+forward 1
+pos
+pos
+pos
+pos
+pos
+pos
+pos
+pos
+pos
+pos
+worldclock
+pos
+console shut
+timescale 0
+echo --- end ---

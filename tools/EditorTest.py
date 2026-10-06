@@ -201,6 +201,17 @@
 #      no meshes is baked, as the new kind - the only AssetBaker any create
 #      starts. Every worn mesh in the pool is fingerprinted before and after
 #      (the bake waited out): none changes and none appears but the fresh set's.
+#  40. ONE WORLD TICK (code-review C78, C125), read off the world's own update
+#      count (`worldclock`): a paused editor stays paused through a bare
+#      `editor`, `editor pick` and `editor issues` - each asks for Editor mode,
+#      with the pause pressed again before each, so each fails on its own (a
+#      real flip still clears it), and the run leaves settings.ini as it found
+#      it; the open console holds the world over the paused editor and over an
+#      editor dialog, and runs it over the character sheet (it used to run the
+#      first two and freeze the third); and a stair stepped onto under the
+#      console is followed there - an exit's question goes up and holds the
+#      world, a stair down lands the party on crypt2 with the console still up
+#      (the console used to leave either latched).
 #
 # NOTHING HERE EDITS THE REAL WORLD (code-review C431). Each phase starts on a
 # FRESH SCRATCH COPY of dungeon-demo, et_demo, and every run opens it with
@@ -2912,6 +2923,151 @@ check(len(worn_before) > 100 and not changed and not added,
       f"changed: {changed[:6]} added: {added[:6]}")
 check(FRESH <= set(worn_after), "...whose three tiers the bake did write",
       str(sorted(FRESH - set(worn_after))))
+
+# --- phase 40: one world tick ----------------------------------------------------
+print("40 - one world tick: the open console holds the world as play does, and follows a stair")
+CLOCK = re.compile(r"worldclock updates=(\d+) seconds=([\d.]+) level=(\S+) state=(\S+) runs=(\w+) "
+                   r"held=(\S+) console=(\w+) editor=(\w+)$")
+
+
+def clocks(lines):
+    """Every `worldclock` reading in a section, as a dict."""
+    keys = ("updates", "seconds", "level", "state", "runs", "held", "console", "editor")
+    out = []
+    for m in map(CLOCK.match, lines):
+        if m:
+            d = dict(zip(keys, m.groups()))
+            d["updates"], d["seconds"] = int(d["updates"]), float(d["seconds"])
+            out.append(d)
+    return out
+
+
+def brief(c):
+    return " | ".join(f"u={r['updates']} s={r['seconds']:.2f} {r['level']} {r['state']} runs={r['runs']} "
+                      f"held={r['held']} console={r['console']} editor={r['editor']}" for r in c)
+
+
+fresh()
+# The developer's settings.ini beside the exe: nothing this script does is a
+# setting (an `editor tool` would save the picked tool there), so the run must
+# leave it as it found it - checked, and put back whatever happened.
+settings_before = io.open(SETTINGS, "rb").read() if os.path.isfile(SETTINGS) else None
+try:
+    log = run("worldtick.eval")
+    check(passed(log), "the script ran clean")
+    settings_after = io.open(SETTINGS, "rb").read() if os.path.isfile(SETTINGS) else None
+    moved = sorted(set((settings_after or b"").decode("utf-8", "replace").splitlines())
+                   ^ set((settings_before or b"").decode("utf-8", "replace").splitlines()))
+    check(settings_after == settings_before, "the run left settings.ini beside the exe as it found it",
+          " | ".join(moved[:6]))
+    sec = console_sections(log)
+    check("end" in sec, "the script ran to its end")
+
+    # A paused editor stays paused through every way of asking for Editor mode
+    # it is already in; only a real flip clears it (C78). Each ask goes through
+    # MapView::SetMode(Editor), and the pause is pressed again before each, so
+    # each reading after an ask fails on its own if that ask clears it.
+    # One reading per `editor pause` line: the press and its readback, then
+    # after the bare `editor`, the re-press and `editor pick`, the re-press and
+    # `editor issues`, `editor off` and `editor` again.
+    pauses = [l.split("editor pause: ", 1)[1] for l in sec.get("pause", []) if l.startswith("editor pause: ")]
+    if len(pauses) != 9:
+        check(False, "nine readings of the editor's pause", str(pauses))
+    else:
+        check(pauses[:2] == ["paused", "paused"] and pauses[3] == pauses[5] == "paused",
+              "THE CONTROL: the pause button presses, and each re-press before an ask holds",
+              str([pauses[0], pauses[1], pauses[3], pauses[5]]))
+        check(pauses[2] == "paused", "a bare `editor` leaves the editor paused (it used to unpause it)",
+              pauses[2])
+        check(pauses[4] == "paused", "...so does `editor pick`, the eyedropper, which asks for Editor mode",
+              pauses[4])
+        check(pauses[6] == "paused", "...and `editor issues`, which asks for it too", pauses[6])
+        check(pauses[7:] == ["no editor", "running"],
+              "THE CONTROL: `editor off` and back - a real flip - still clears it", str(pauses[7:]))
+
+    # The open console over a paused editor runs nothing; over a running one it
+    # runs (the control - the readout can see a tick).
+    c = clocks(sec.get("frozen", []))
+    if len(c) != 4:
+        check(False, "four clock readings over the editor", brief(c))
+    else:
+        a, b, cc, d = c
+        check(a["console"] == "open" and a["editor"] == "paused" and a["held"] == "paused",
+              "the console is open over the paused editor, and the decision names the pause", brief(c[:1]))
+        check(b["updates"] == a["updates"] and b["seconds"] == a["seconds"],
+              "...and the world took no update in four frames (it used to run under the console)", brief(c[:2]))
+        check(cc["runs"] == "yes" and d["updates"] > cc["updates"] and d["seconds"] > cc["seconds"],
+              "THE CONTROL: unpaused, the same console's frames run the world", brief(c[2:]))
+
+    # An editor dialog holds the world under the console too.
+    lines = sec.get("dialog", [])
+    c = clocks(lines)
+    # `open` says where it stands, then the bare readings before and after Esc.
+    opened = [l for l in lines if l.startswith("editor levelsettings: ")]
+    check(len(opened) == 3 and all(l.startswith("editor levelsettings: open") for l in opened[:2])
+          and opened[2] == "editor levelsettings: closed",
+          "the Level settings dialog opened, and Esc closed it", str(opened))
+    if len(c) != 3:
+        check(False, "three clock readings round the dialog", brief(c))
+    else:
+        check(c[0]["held"] == "dialog" and c[0]["console"] == "open" and c[1]["updates"] == c[0]["updates"],
+              "the open console over an editor dialog runs nothing, and says it is the dialog", brief(c[:2]))
+        check(c[2]["runs"] == "yes" and c[2]["held"] == "-", "...and the dialog shut, the world runs",
+              brief(c[2:]))
+
+    # The sheet over a level is not a pause: the world runs under it, console
+    # shut (the control) and open (it used to freeze).
+    c = clocks(sec.get("sheet", []))
+    if len(c) != 4:
+        check(False, "four clock readings over the sheet", brief(c))
+    else:
+        h, i, j, k = c
+        check(all(r["state"] == "sheet" for r in c), "the sheet stood open for all four", brief(c))
+        check(h["console"] == "shut" and i["updates"] > h["updates"] and i["seconds"] > h["seconds"],
+              "THE CONTROL: the console shut, the world runs under the sheet", brief(c[:2]))
+        check(j["console"] == "open" and k["updates"] > j["updates"] and k["seconds"] > j["seconds"],
+              "the console open over the sheet, the world clock still advances (it used to freeze)",
+              brief(c[2:]))
+
+    # An exit stair stepped onto under the console: its question goes up, and
+    # holds the world - the console used to leave the transition latched.
+    lines = sec.get("exit", [])
+    c = clocks(lines)
+    poses = [l for l in lines if re.match(r"\d+,\d+ facing ", l)]
+    if len(c) != 4:
+        check(False, "four clock readings round the exit", brief(c))
+    else:
+        l0, m, n, o = c
+        check(l0["level"] == "crypt1" and l0["console"] == "open" and l0["runs"] == "yes",
+              "THE CONTROL: on crypt1 with the console open, before the step, the world runs", brief(c[:1]))
+        check(m["updates"] > l0["updates"], "...and it ran the step", brief(c[:2]))
+        check(m["held"] == "prompt" and m["console"] == "open" and m["state"] == "playing",
+              "the exit taken under the console was followed: its question is up (it stayed latched)",
+              brief(c[1:2]))
+        check(n["updates"] == m["updates"], "...and the question holds the world under the console",
+              brief(c[1:3]))
+        check(o["runs"] == "yes" and o["held"] == "-" and o["level"] == "crypt1",
+              "...until Esc answers No: the party stays, and the world runs", brief(c[3:]))
+    check(bool(poses) and poses[-1].startswith("7,8 "), "the party stands on the exit stair",
+          str(poses[-1:]))
+
+    # A stair down stepped onto under the console is followed at once: the
+    # party is on crypt2 while the console is still up.
+    c = clocks(sec.get("stair", []))
+    if len(c) != 2:
+        check(False, "two clock readings round the stair", brief(c))
+    else:
+        check(c[0]["level"] == "crypt1" and c[0]["console"] == "open",
+              "THE CONTROL: before the step, crypt1 with the console open", brief(c[:1]))
+        check(c[1]["level"] == "crypt2" and c[1]["console"] == "open" and c[1]["state"] == "playing",
+              "the stair taken under the console was followed: crypt2, the console still open (it stayed "
+              "latched on crypt1 until the console shut)", brief(c[1:]))
+finally:
+    drop()
+    if settings_before is not None:
+        io.open(SETTINGS, "wb").write(settings_before)
+    elif os.path.isfile(SETTINGS):
+        os.remove(SETTINGS)
 
 # --- the real tree: LAST, after every phase --------------------------------------
 print("the real tree: dungeon-demo and the library as the run found them")

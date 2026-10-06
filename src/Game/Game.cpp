@@ -80,12 +80,10 @@ ui::FontLibrary MakeFontLibrary(gfx::GraphicsDevice& device) {
 	return fonts;
 }
 
-// The world's input while the character sheet has the keyboard: nothing held.
-// At namespace scope, built at startup - as a function-local static it was
-// constructed (and allocated) on the first sheet frame, which is guarded.
-const Input kNoInput;
-
 } // namespace
+
+// See the declaration: one for the game, built at startup.
+const Input Game::kNoInput;
 
 // THE WORLD THE GAME OPENS (W7), decided before anything else exists. Three
 // sources, in order, because each answers a different question:
@@ -2186,17 +2184,15 @@ void Game::UpdateStates(float dt) {
 	// The console owns the whole frame's input if it was open at the start (or
 	// just opened) — so the very keystroke that closes it (Esc or `~`) never
 	// also reaches the pause menu / HUD this frame. Owning input is NOT a
-	// pause: a playing world keeps simulating here, and a loading state falls
-	// through to its case below so the task queue keeps pumping (an open
-	// console used to stall the load, holding the world half-built) — only
-	// its Esc-to-quit is console-gated.
+	// pause: the world runs or holds exactly as it would with the console shut
+	// (TickWorld asks WorldRuns - the sheet over a level runs, a paused editor,
+	// an editor dialog or the exit prompt holds; code-review C78), and a
+	// loading state falls through to its case below so the task queue keeps
+	// pumping (an open console used to stall the load, holding the world
+	// half-built) - only its Esc-to-quit is console-gated.
 	const bool consoleOwnsInput = m_console.IsOpen() || consoleWasOpen;
 	if (consoleOwnsInput && !loading) {
-		if (m_state == AppState::Playing) {
-			m_world->Update(input, wdt, m_time, /*acceptInput=*/false);
-			Party& party = m_world->GetParty();
-			m_ui.SetHudStatus(party);
-		}
+		TickWorld(input, wdt, /*acceptInput=*/false);
 		return;
 	}
 
@@ -2326,21 +2322,11 @@ void Game::UpdateStates(float dt) {
 		// walk and strike, effects tick, a rest keeps resting - while the INPUT
 		// stays the sheet's: the party does not walk off under an open page.
 		// (The world map simulates nothing, so a sheet opened there has nothing
-		// to run.)
-		if (m_state == AppState::CharacterSheet && m_resumeState == AppState::Playing) {
-			m_world->Update(kNoInput, wdt, m_time);
-			// Whatever the world did may end the sheet: a wipe returns to the
-			// title (the state is no longer ours), and a transition - a pit fall
-			// that was already under way - takes the party elsewhere.
-			if (m_state != AppState::CharacterSheet) return;
-			if (auto t = m_world->ConsumeLevelTransition()) {
-				m_state = AppState::Playing;
-				FollowLevelTransition(*t);
-				return;
-			}
-			m_ui.SetHudStatus(m_world->GetParty());
-			m_ui.SetResting(m_world->Resting());
-		}
+		// to run - WorldRuns says so.) Whatever the world does may end the sheet:
+		// a wipe returns to the title, and a transition - a pit fall already
+		// under way - takes the party elsewhere (TickWorld leaves the sheet for
+		// play first). A frame that closed the sheet leaves its tick to play's.
+		if (m_state == AppState::CharacterSheet) TickWorld(input, wdt, /*acceptInput=*/false);
 		return;
 
 	case AppState::WorldMap: {
@@ -2441,129 +2427,11 @@ void Game::UpdateStates(float dt) {
 		if (!m_console.IsOpen()) m_ui.UpdatePrompt(input);
 		return;
 	}
-	// The asset-creation dialog is modal over the editor: while it is up it owns
-	// input and the world/overlay are frozen.
-	// The asset picker sits ABOVE every dialog that opens it (the type editor and
-	// the create dialog), so it comes first: while it is up it owns the mouse and
-	// the keyboard (its search box types).
-	// The new-world dialog, from the level editor's toolbar: modal like the rest.
-	if (m_newWorldDialog.IsOpen()) {
-		m_newWorldDialog.Update(input, static_cast<float>(m_window.Width()),
-								static_cast<float>(m_window.Height()));
-		return;
-	}
-	if (m_assetPicker.IsOpen()) {
-		m_assetPicker.Update(input, static_cast<float>(m_window.Width()),
-							 static_cast<float>(m_window.Height()), dt);
-		return;
-	}
-	if (m_assetDialog.IsOpen()) {
-		m_assetDialog.Update(input, static_cast<float>(m_window.Width()),
-							 static_cast<float>(m_window.Height()), dt);
-		return;
-	}
-	// The per-type catalog editor is likewise modal over the editor - and it can
-	// open OVER the Balance dialog (its Effects tab), so it takes input first.
-	if (m_typeDialog.IsOpen()) {
-		m_typeDialog.Update(input, static_cast<float>(m_window.Width()),
-							static_cast<float>(m_window.Height()));
-		m_typeOverBalance = m_balanceDialog.IsOpen();
-		return;
-	}
-	if (m_typeOverBalance) { // it just closed over the Balance dialog
-		m_typeOverBalance = false;
-		if (m_balanceDialog.IsOpen()) {
-			m_balanceDialog.SetEffects(EffectRows());
-			m_balanceDialog.Rebuild();
-		}
-	}
-	// The combat-tuning dialog is likewise modal over the editor.
-	if (m_balanceDialog.IsOpen()) {
-		m_balanceDialog.Update(input, static_cast<float>(m_window.Width()),
-							   static_cast<float>(m_window.Height()));
-		return;
-	}
-	// The per-level settings dialog is likewise modal over the editor.
-	if (m_levelSettingsDialog.IsOpen()) {
-		m_levelSettingsDialog.Update(input, static_cast<float>(m_window.Width()),
-									 static_cast<float>(m_window.Height()));
-		return;
-	}
-	// The generator knobs are likewise modal over the editor.
-	if (m_generateDialog.IsOpen() && !m_validateDialog.IsOpen()) {
-		m_generateDialog.Update(input, static_cast<float>(m_window.Width()),
-								static_cast<float>(m_window.Height()));
-		return;
-	}
-	// The check report is likewise modal over the editor.
-	if (m_validateDialog.IsOpen()) {
-		m_validateDialog.Update(input, static_cast<float>(m_window.Width()),
-								static_cast<float>(m_window.Height()));
-		return;
-	}
-	// The monster-config dialog is likewise modal over the editor.
-	if (m_monsterDialog.IsOpen()) {
-		m_monsterDialog.Update(input, static_cast<float>(m_window.Width()),
-							   static_cast<float>(m_window.Height()));
-		// Drive the live preview: (re)build the Animator when the selected type/clip
-		// changes, then advance it looping so Render can blit the current pose.
-		const std::string& type = m_monsterDialog.SelectedType();
-		const std::string& clip = m_monsterDialog.PreviewClip();
-		if (clip.empty()) {
-			m_previewMonMesh = nullptr;
-		m_previewMonSubs.clear();
-			m_previewClip.clear();
-		} else if (type != m_previewType) {
-			// New type: (re)build the Animator over its skeleton/clips + cache the
-			// mesh/material/scale/yaw. A same-type clip switch is just a Play (below).
-			const auto d = m_world->MonsterPreviewFor(type);
-			m_previewMonMesh = d.mesh;
-			m_previewMonMat = d.material;
-			m_previewMonSubs = d.subs; // multi-material rigs preview every piece
-			m_previewMonScale = d.scale;
-			m_previewMonYaw = d.modelYaw;
-			m_previewMonPivot = d.pivot;
-			m_previewAnim = DungeonWorld::MonsterAnimator(d.skeleton, d.clips); // as in the world
-			m_previewAnim.Play(clip, /*loop*/ true);
-			m_previewType = type;
-			m_previewClip = clip;
-		} else if (clip != m_previewClip) {
-			m_previewAnim.Play(clip, /*loop*/ true); // same rig, just switch clips
-			m_previewClip = clip;
-		}
-		if (m_previewMonMesh) m_previewAnim.Update(dt);
-		return;
-	}
-	// The multi-object inspect chooser is modal over the editor (it precedes the
-	// inspector it opens).
-	if (m_inspectPicker.IsOpen()) {
-		m_inspectPicker.Update(input, static_cast<float>(m_window.Width()),
-							   static_cast<float>(m_window.Height()));
-		return;
-	}
-	// The per-instance edit dialogs (monster / torch / item+decoration / door /
-	// button / niche / stair) are likewise modal over the editor. They share a
-	// base, so one walk of InstanceInspectors() covers all seven, and the preview
-	// simulation is driven off the open dialog's SPEC rather than off which
-	// dialog it is — the three flags are disjoint across the six (only a monster
-	// spec carries a skeleton, only a fixture's carries fire, only a loose
-	// item's spins), so this is the per-type chain it replaces, minus the
-	// chance of adding a seventh dialog and forgetting one of its three sites.
-	if (InstanceInspector* ii = ActiveInstanceInspector()) {
-		ii->Update(input, static_cast<float>(m_window.Width()),
-				   static_cast<float>(m_window.Height()));
-		const PreviewSpec& sp = ii->Preview();
-		if (sp.skeleton) m_previewAnim.Update(dt);            // skinned idle loop
-		if (sp.fire && sp.showFire) m_previewFire.Update(dt); // lit torch flame
-		if (sp.spin) m_previewSpin += dt * 0.9f;              // turntable
-		return;
-	}
-	// And the in-flight projectile inspector (read-only details + dismiss).
-	if (m_projectileInspector.IsOpen()) {
-		m_projectileInspector.Update(input, static_cast<float>(m_window.Width()),
-									 static_cast<float>(m_window.Height()));
-		return;
-	}
+	// The editor's dialogs are modal over the editor: the topmost open one owns
+	// the frame's input, and the world and the overlay hold (EditorModal is the
+	// one list; WorldRuns asks it too, so the open console holds the world under
+	// a dialog as this does).
+	if (EditorModal(&input, dt)) return;
 
 	// Map overlay: a toggle that never pauses the world. While it is open the
 	// party still walks (keyboard) — the overlay only claims the mouse for
@@ -2582,12 +2450,6 @@ void Game::UpdateStates(float dt) {
 		m_ui.CloseItemDetails();       // the map takes the mouse and the screen
 		m_ui.ClosePortraitPicker();
 	}
-
-	// The editor's pause/play button freezes the world so the level can be
-	// edited against a still scene: no sim time step and no party input. Never
-	// set outside Editor mode (MapView::EditorPaused gates on it), and the
-	// overlay clears it on close/mode-flip, so a closed editor always runs.
-	const bool worldFrozen = m_mapView.EditorPaused();
 
 	// Deferred editor-geometry rebake: undo/redo skips the expensive surface
 	// rebuild while the full-screen editor hides the scene. The debt comes due
@@ -2657,30 +2519,9 @@ void Game::UpdateStates(float dt) {
 						  input.IsMouseDown(MouseButton::Right) ||
 						  input.IsMouseDown(MouseButton::Middle));
 		// The world keeps simulating while the map is open (the party still
-		// walks on the keyboard) — EXCEPT while the editor is PAUSED, where the
-		// whole world update is skipped so every persistent bit freezes:
-		// monster AI decisions (they act off cooldowns, not dt, so dt=0 alone
-		// wouldn't stop a ready monster), party tweens, particles, door slides,
-		// animators. Editing routes through MapEditor→DungeonWorld directly, not
-		// through Update, so it works while frozen; the full-screen editor
-		// renders no 3D scene, so the skipped camera/light refresh is unseen.
-		// The filter box eats the keyboard when it holds focus (blank Input,
-		// the file's one kNoInput).
-		if (!worldFrozen) {
-			m_world->Update(typingFilter ? kNoInput : input, wdt, m_time);
-			if (auto t = m_world->ConsumeLevelTransition()) {
-				m_mapView.Close(); // a stair step starts a new level load
-				// An EXIT stair leaves the dungeon rather than changing level,
-				// surfacing at the location its `dest` names.
-				if (t->toWorld) {
-					m_ui.SetHudStatus(m_world->GetParty()); // see the play path
-					OfferExit(t->level);
-				} else BeginLevelTransition(t->level, t->x, t->z, t->facing);
-				return;
-			}
-			Party& party = m_world->GetParty();
-			m_ui.SetHudStatus(party);
-		}
+		// walks on the keyboard) - EXCEPT while the editor is PAUSED, which
+		// WorldRuns holds. The filter box eats the keyboard when it holds focus.
+		TickWorld(input, wdt, /*acceptInput=*/!typingFilter);
 		return;
 	}
 
@@ -2793,18 +2634,176 @@ void Game::UpdateStates(float dt) {
 				m_ui.ShowItemDetails(*type, m_itemWeights.For(*type));
 		}
 	}
-	m_world->Update(input, wdt, m_time);
+	TickWorld(input, wdt, /*acceptInput=*/true);
+}
+
+const char* Game::WorldHeldBy() {
+	if (!m_world) return "noworld"; // the title screen holds no world
+	// A LEVEL behind the frame: play itself, or the sheet opened over it. The
+	// pause menu's backdrop is a level too, and it is the one thing that is a
+	// pause - so the state is asked, not BackdropState. The world map simulates
+	// nothing (a journey is resolved, not simulated).
+	const bool overLevel =
+		m_state == AppState::Playing ||
+		(m_state == AppState::CharacterSheet && m_resumeState == AppState::Playing);
+	if (!overLevel) return "notlevel";
+	// An exit's question: nothing may walk up and hit a party that is being
+	// asked whether it wants to leave.
+	if (m_ui.PromptActive()) return "prompt";
+	// An editor dialog: the level is being edited under it.
+	if (EditorModal(nullptr, 0.0f)) return "dialog";
+	// The editor's pause/play button, which freezes the world so the level can
+	// be edited against a still scene - the WHOLE update is skipped, so every
+	// persistent bit holds: monster decisions (they act off cooldowns, not dt,
+	// so dt = 0 alone would not stop a ready monster), party tweens, particles,
+	// door slides, animators. Editing reaches the world through MapEditor, not
+	// Update, so it works while frozen, and the full-screen editor draws no
+	// scene, so the skipped camera and light refresh is unseen. Never set
+	// outside Editor mode (MapView::EditorPaused), and cleared when the overlay
+	// closes or leaves Editor mode - so a closed editor always runs.
+	if (m_mapView.EditorPaused()) return "paused";
+	return nullptr;
+}
+
+void Game::TickWorld(const Input& input, float wdt, bool acceptInput) {
+	if (!WorldRuns()) return;
+	const AppState was = m_state;
+	m_world->Update(acceptInput ? input : kNoInput, wdt, m_time, acceptInput);
+	// A wipe returns to the title from inside the update (onPartyWipe ->
+	// ReturnToTitle): the frame is no longer this state's.
+	if (m_state != was) return;
 	if (auto t = m_world->ConsumeLevelTransition()) {
+		m_mapView.Close(); // a stair step starts a new level load
+		// The sheet stood over the level being left; an exit's question is
+		// asked in play.
+		if (m_state == AppState::CharacterSheet) m_state = AppState::Playing;
 		FollowLevelTransition(*t);
 		return;
 	}
-
-	Party& party = m_world->GetParty();
-	m_ui.SetHudStatus(party);
+	m_ui.SetHudStatus(m_world->GetParty());
 	// The Rest button's face, from the world rather than from its own callback:
 	// rest ends by itself as often as by a click, so the label has to follow the
 	// state and not the input that usually causes it.
 	m_ui.SetResting(m_world->Resting());
+}
+
+bool Game::EditorModal(const Input* input, float dt) {
+	const float w = static_cast<float>(m_window.Width());
+	const float h = static_cast<float>(m_window.Height());
+	// The new-world dialog, from the level editor's toolbar: modal like the rest.
+	if (m_newWorldDialog.IsOpen()) {
+		if (input) m_newWorldDialog.Update(*input, w, h);
+		return true;
+	}
+	// The asset picker sits ABOVE every dialog that opens it (the type editor and
+	// the create dialog), so it comes first: while it is up it owns the mouse and
+	// the keyboard (its search box types).
+	if (m_assetPicker.IsOpen()) {
+		if (input) m_assetPicker.Update(*input, w, h, dt);
+		return true;
+	}
+	// The asset-creation dialog.
+	if (m_assetDialog.IsOpen()) {
+		if (input) m_assetDialog.Update(*input, w, h, dt);
+		return true;
+	}
+	// The per-type catalog editor - and it can open OVER the Balance dialog (its
+	// Effects tab), so it takes input first.
+	if (m_typeDialog.IsOpen()) {
+		if (input) {
+			m_typeDialog.Update(*input, w, h);
+			m_typeOverBalance = m_balanceDialog.IsOpen();
+		}
+		return true;
+	}
+	if (input && m_typeOverBalance) { // it just closed over the Balance dialog
+		m_typeOverBalance = false;
+		if (m_balanceDialog.IsOpen()) {
+			m_balanceDialog.SetEffects(EffectRows());
+			m_balanceDialog.Rebuild();
+		}
+	}
+	// The combat-tuning dialog.
+	if (m_balanceDialog.IsOpen()) {
+		if (input) m_balanceDialog.Update(*input, w, h);
+		return true;
+	}
+	// The per-level settings dialog.
+	if (m_levelSettingsDialog.IsOpen()) {
+		if (input) m_levelSettingsDialog.Update(*input, w, h);
+		return true;
+	}
+	// The generator knobs - under the check report it can open.
+	if (m_generateDialog.IsOpen() && !m_validateDialog.IsOpen()) {
+		if (input) m_generateDialog.Update(*input, w, h);
+		return true;
+	}
+	// The check report.
+	if (m_validateDialog.IsOpen()) {
+		if (input) m_validateDialog.Update(*input, w, h);
+		return true;
+	}
+	// The monster-config dialog.
+	if (m_monsterDialog.IsOpen()) {
+		if (!input) return true;
+		m_monsterDialog.Update(*input, w, h);
+		// Drive the live preview: (re)build the Animator when the selected type/clip
+		// changes, then advance it looping so Render can blit the current pose.
+		const std::string& type = m_monsterDialog.SelectedType();
+		const std::string& clip = m_monsterDialog.PreviewClip();
+		if (clip.empty()) {
+			m_previewMonMesh = nullptr;
+			m_previewMonSubs.clear();
+			m_previewClip.clear();
+		} else if (type != m_previewType) {
+			// New type: (re)build the Animator over its skeleton/clips + cache the
+			// mesh/material/scale/yaw. A same-type clip switch is just a Play (below).
+			const auto d = m_world->MonsterPreviewFor(type);
+			m_previewMonMesh = d.mesh;
+			m_previewMonMat = d.material;
+			m_previewMonSubs = d.subs; // multi-material rigs preview every piece
+			m_previewMonScale = d.scale;
+			m_previewMonYaw = d.modelYaw;
+			m_previewMonPivot = d.pivot;
+			m_previewAnim = DungeonWorld::MonsterAnimator(d.skeleton, d.clips); // as in the world
+			m_previewAnim.Play(clip, /*loop*/ true);
+			m_previewType = type;
+			m_previewClip = clip;
+		} else if (clip != m_previewClip) {
+			m_previewAnim.Play(clip, /*loop*/ true); // same rig, just switch clips
+			m_previewClip = clip;
+		}
+		if (m_previewMonMesh) m_previewAnim.Update(dt);
+		return true;
+	}
+	// The multi-object inspect chooser (it precedes the inspector it opens).
+	if (m_inspectPicker.IsOpen()) {
+		if (input) m_inspectPicker.Update(*input, w, h);
+		return true;
+	}
+	// The per-instance edit dialogs (monster / torch / item+decoration / door /
+	// button / niche / stair). They share a base, so one walk of
+	// InstanceInspectors() covers all seven, and the preview simulation is driven
+	// off the open dialog's SPEC rather than off which dialog it is - the three
+	// flags are disjoint (only a monster spec carries a skeleton, only a fixture's
+	// carries fire, only a loose item's spins), so this is the per-type chain it
+	// replaces, minus the chance of adding a dialog and forgetting one of its
+	// three sites.
+	if (InstanceInspector* ii = ActiveInstanceInspector()) {
+		if (!input) return true;
+		ii->Update(*input, w, h);
+		const PreviewSpec& sp = ii->Preview();
+		if (sp.skeleton) m_previewAnim.Update(dt);            // skinned idle loop
+		if (sp.fire && sp.showFire) m_previewFire.Update(dt); // lit torch flame
+		if (sp.spin) m_previewSpin += dt * 0.9f;              // turntable
+		return true;
+	}
+	// And the in-flight projectile inspector (read-only details + dismiss).
+	if (m_projectileInspector.IsOpen()) {
+		if (input) m_projectileInspector.Update(*input, w, h);
+		return true;
+	}
+	return false;
 }
 
 // ============================================================================

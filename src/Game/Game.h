@@ -737,6 +737,36 @@ private:
 	// PLACE rest multiplies time (docs/health-and-healing.md); the world then
 	// runs a long result in fixed ticks (DungeonWorld::kTick).
 	float WorldDt(float dt, float timeScale) const;
+	// THE ONE WORLD TICK (code-review C125): a frame's world update, the level
+	// transition it raised followed (the map closed, the sheet left for play),
+	// and the HUD's position and Rest button refreshed - for play, the map
+	// overlay, the sheet and the open console alike. They were four copies, and
+	// they had drifted: the console's never followed a transition, the sheet
+	// froze under it, the overlay's skipped the Rest button. `acceptInput` false
+	// hands the world kNoInput (the console, the sheet and the palette's filter
+	// box own the keyboard). Does nothing unless WorldRuns.
+	void TickWorld(const Input& input, float wdt, bool acceptInput);
+	// THE ONE WORLD-FROZEN DECISION (code-review C78), asked by TickWorld and so
+	// by every path that ticks: the world runs under a LEVEL - Playing, or the
+	// sheet opened over one (the sheet is not a pause) - unless something holds
+	// it: the exit prompt, an editor dialog (EditorModal), the editor's pause
+	// button. The console owns the input, never the clock: over a paused editor
+	// or an open dialog the world used to run, and over the sheet it froze.
+	// WorldHeldBy names what holds it in one word (`worldclock` prints it), or
+	// null when it runs.
+	const char* WorldHeldBy();
+	bool WorldRuns() { return WorldHeldBy() == nullptr; }
+	// THE EDITOR'S MODAL DIALOGS, topmost first - one list for two questions.
+	// Handed the input, the topmost open one takes the frame (its Update and the
+	// preview it drives) and the answer says one did; handed null, it only says
+	// whether one is up, which is what WorldRuns asks whoever owns the input. One
+	// list, so a dialog cannot be routed and still let the world run under it.
+	bool EditorModal(const Input* input, float dt);
+	// The world's input while something else has the keyboard: nothing held.
+	// Built at startup, ONE for the game (C125) - a function-local static is
+	// constructed, and allocates, on its first use, and the sheet's first frame
+	// is a guarded one.
+	static const Input kNoInput;
 	// Advances a running `alloctest` window and reports when it closes. The
 	// window is measured in ARMED frames, so time spent loading, warming up or
 	// with the console open does not spend it. Its first armed frame OPENS the

@@ -1603,6 +1603,24 @@ light at flame) and braziers at 'F', each with FireEffect particles
 (flame/spark/smoke via gfx::ParticleBatch premultiplied billboards) and
 fire-driven turbidity rings around them.
 
+ONE WORLD TICK (code-review C125, C78): `Game::TickWorld(input, wdt,
+acceptInput)` is the only place a frame updates the world - the update, the
+level transition it raised followed (the map closed, the sheet left for play),
+the HUD's position and the Rest button - and play, the map overlay, the
+character sheet and the open console all call it. It does nothing unless
+`Game::WorldRuns` (`WorldHeldBy` names what holds it): the world runs under a
+LEVEL - Playing, or the sheet over one - unless the exit prompt, an editor
+dialog (`Game::EditorModal`, ONE list that both routes the input and answers
+"is one up") or the editor's pause holds it. The console owns the input, never
+the clock: it used to run the world through a paused editor, a dialog and
+"Leave the crypt?", freeze it under the sheet, and leave a stair stepped onto
+under it latched. `MapView::SetMode` is a FLIP - asked for the mode it is
+already in it changes nothing, so a bare `editor` or any subcommand keeps the
+pause. One `Game::kNoInput` serves every caller that hands the world no keys.
+Dev: `worldclock` (the world's own update count and seconds,
+DungeonWorld::WorldClock, plus `runs=` / `held=`), `console open|shut`,
+`editor pause [on|off]`; checked by EditorTest phase 40 (worldtick.eval).
+
 PARTY CREATION (party-creation branch, docs/party-creation-plan.md + -notes.md;
 built in phases - the page itself is phase 3). NO CLASSES (Michael): a member is
 a RACE, the points they spend and the skills they pick, then whatever they do.

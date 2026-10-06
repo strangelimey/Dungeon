@@ -149,8 +149,12 @@ public:
 		else Open(Mode::Player);
 	}
 	// Flips an already-open map's mode without disturbing the view (the dev
-	// console's `editor` / `editor off`).
+	// console's `editor` / `editor off`). A FLIP: asked for the mode it is
+	// already in, it changes nothing - every `editor` subcommand asks for
+	// Editor, and clearing the pause on each one left a paused editor running
+	// after a bare `editor` (code-review C78).
 	void SetMode(Mode mode) {
+		if (mode == m_mode) return;
 		m_mode = mode;
 		m_levelsOpen = false; // the level dropdown is Editor toolbar chrome
 		m_editorPaused = false; // leaving Editor mode resumes the world

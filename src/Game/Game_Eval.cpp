@@ -147,7 +147,7 @@ int Game::StepWorld(float seconds, StepStop& why) {
 	const int steps = want < kMaxStepTicks ? want : kMaxStepTicks;
 	// SAID, not left to be inferred from two numbers the caller must subtract.
 	if (steps < want) why = StepStop::Ceiling;
-	static const Input kNoInput; // no keys, no mouse: the script is driving
+	// No keys, no mouse (the game's one kNoInput): the script is driving.
 	// A step that BEGINS while resting ENDS when the rest does — because that is
 	// what the player does, and because it is the only way to measure what a
 	// rest actually cost. Rest stops itself the moment there is nothing left to
