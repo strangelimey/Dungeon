@@ -18,6 +18,21 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   place doors wooden_door 15 12`, `mappage close`, then click the chain (or
   `opendoor 15 12`). Also watch a skeleton's body vanish at the end of its
   death clip, and a smashed crate: neither should leave a shadow behind.
+- **A magus fight** (batch 24, b8c506ce). A burst bolt that reaches the party
+  now goes off IN the party's square: about 5 to each member in an open room
+  (more in a corridor, from reflections), and all four are left burning, where
+  before it struck one member for about 21.7. In a scratch fight (a magus three
+  squares off for 6 s) the party took 38.7 before, 52.0 after. Nothing tuned.
+- **A monster coming round a brazier** (batch 33, 45049ebe). Start a game, go
+  to crypt1's room and stand at 8,4 facing east, the brazier at 9,4 between you
+  and the skeleton at 10,4. Bolt it (Maren's Fire Bolt): it should come round
+  the brazier to 8,3 or 8,5 and fight within a couple of seconds. Before, it
+  stood still behind the fire.
+- **The editor map's monster icons** (batch 61, 93c9da37). The kit skeletons
+  (warrior, bare, berserker, spearman) are head shots in their breathing idle
+  now, not the T-pose. A before/after survey is in
+  `%TEMP%\cr61\mapicon_survey_before_after.png`; in the game, `mapicons all`
+  then `mapicons survey on` shows every icon beside its picker tile.
 - **A long id in a dialog title** (batch 18, 61f2997b; optional). The type
   editor's and the Level dialog's title shrink a long id to fit, and cut its
   tail to `..` only past the smallest size. Open the type editor on a type
@@ -54,6 +69,19 @@ raised that is yours, not a fix. Each line names the batch and its commit.
 - **Translations to check** (batch 72). `map.type.classbacked` ("The game's
   code defines this one - its entry only tunes it, so it cannot be renamed or
   deleted.") has new de / es / it / ru text written by the batch, unchecked.
+- **Monsters on an up-stair square** (batch 33). A monster may still stand on
+  an UP stair's square (a flight, with a floor under it); only floor holes
+  (pits, down stairwells) are refused. A monster parked there blocks the
+  stair. Should every traversable stair square be refused too?
+- **Things over a pit** (batch 33). A drop onto a pit is refused, and a throw
+  that ends over a pit comes down short of it; neither falls to the level
+  below. Do you want "falls down the shaft" instead? That needs a cross-level
+  drop at run time.
+- **Long, low creatures' map icons** (batch 61). The head-shot rule frames the
+  top quarter of the model, centred on its box, which for the giant spider
+  and the centipede is the middle of the back (the centipede's icon is mostly
+  empty halo). Unchanged by the batch; worth a rule for low creatures (frame
+  the front end) if you agree.
 - **A smashed bracket drops its torch unlit** (batch 19, 2828ae7f). The bracket
   remembers its torch by the UNLIT id and the smash puts the fire out first, so
   the dropped torch is dark; a torch set down or thrown while lit keeps
@@ -88,6 +116,12 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   Also: a bolt that flies past a lone member and breaks behind him now leaves
   its burn on him (only reachable when the column a caster aimed at falls
   while the bolt is in flight).
+- **The power bands re-cut** (batch 24). skel_magus's derived threat went from
+  23.14 to 30.70 (its burst now lands on the whole party). The ranking order
+  is unchanged, so the generator picks the same monsters, but the palette's
+  bands re-cut against the higher top: skeleton, skel_bare, skel_spearman and
+  centipede drop from band 3 to 2; warrior, berserker, lurker, adept and mage
+  from 4 to 3; band 4 is now empty.
 - **A press during an alt-tab** (batch 8, 2be14913). Losing focus no longer
   wipes the frame's key PRESS edges, so a key or click that lands in the same
   frame as a focus change still counts once (held keys are still released, so
@@ -119,6 +153,10 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   them back. Also: deleting a catalog's FIRST entry now moves its whole lead
   comment to the next entry (or the file header would go with it), so a
   comment only about the deleted entry may need removing by hand.
+- **No allocation check puts a monster's burst on the party** (batch 24). No
+  AllocTest mode lands a monster's burst bolt on the party, or a gust on a
+  shot, inside the window. The new paths are a fixed table and two erase_ifs
+  that keep capacity, so they should allocate nothing, but nothing proves it.
 - **/check-selftest and other sessions' games** (batch 8). ProfileTest refuses
   beside ANY running game (on purpose: a second game on the GPU would be
   measured), so the `profile` row of a full self-test run fails whenever
