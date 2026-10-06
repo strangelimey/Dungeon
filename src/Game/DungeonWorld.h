@@ -100,8 +100,9 @@ public:
 
 	// Reloads the worn block meshes and rebuilds the batched dungeon geometry in
 	// place (the ApplyQuality core). A surface type's RESTYLE (the type editor
-	// saving a `rebakes` field - Game::StartRestyleBake) calls this after
-	// re-baking a texture's worn_*.gltf, to swap the new geometry in live.
+	// saving a `rebakes` field - Game::StartRestyleBake, landed by
+	// LandRestyleBake) calls this after re-baking a texture's worn_*.gltf and
+	// writing the Save, to swap the new geometry in live.
 	void ReloadDungeonBlocks(bool textureResChanged = false);
 	// Re-reads the surface catalogs' PER-DRAW material knobs (parallax depth,
 	// metallic/roughness) and pushes them live — no reload, no rebuild. The type

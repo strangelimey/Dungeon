@@ -2214,32 +2214,26 @@ void Game::UpdateStates(float dt) {
 
 	// Poll the asset bake (P4c): non-blocking, so the "baking…" dialog stays
 	// responsive. A texture import runs a second step (worn meshes) before it's
-	// done; on success FinishBake writes the catalog entry.
-	if (m_baking && !m_bake.Running()) {
-		if (m_bake.ExitCode() != 0) {
+	// done; on success FinishBake writes the catalog entry. A type editor's
+	// restyle lands through LandRestyleBake, which writes its Save only on a
+	// clean exit (code-review C346).
+	if (m_baking && !m_bake.Running() && (!m_bakeHeld || std::exchange(m_bakeRelease, false))) {
+		if (m_bake.ExitCode() != 0) log::Warn("AssetBaker failed (exit {})", m_bake.ExitCode());
+		if (m_restyleBake) {
+			LandRestyleBake(m_bake.ExitCode());
+		} else if (m_bake.ExitCode() != 0) {
 			// Surface the failure where the user is looking: the dialog stays up
 			// with the exit code so the form can be fixed and retried (the full
-			// baker output is in dungeon.log next to the exe).
-			log::Warn("AssetBaker failed (exit {})", m_bake.ExitCode());
+			// baker output is in assetbaker.log next to the exe - the baker's own
+			// log, log::FilePath).
 			m_baking = false;
-			if (m_restyleBake) { m_restyleBake = false; m_typeDialog.Close(); }
-			else m_assetDialog.SetError(loc::Format("newasset.err.bake",
-													m_bake.ExitCode()));
+			m_assetDialog.SetError(loc::Format("newasset.err.bake", m_bake.ExitCode()));
 		} else if (m_bakeReq.textureSet && m_bakeStep == 0) {
 			m_bakeStep = 1; // textures imported — now rebake worn block meshes
 			if (!StartBakeStep()) {
 				m_baking = false;
 				m_assetDialog.SetBusy(false);
 			}
-		} else if (m_restyleBake) {
-			// Surface restyle rebake done: swap the new worn geometry in live
-			// (if the world that asked for it is still the one loaded).
-			if (m_world) m_world->ReloadDungeonBlocks();
-			m_restyleBake = false;
-			m_baking = false;
-			m_typeDialog.Close();
-			if (m_world && m_world->onMessage)
-				m_world->onMessage(loc::View("map.wallstyle.applied"));
 		} else {
 			FinishBake();
 			m_baking = false;

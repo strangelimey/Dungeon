@@ -122,7 +122,7 @@ bool SavePng(const std::string& path, const assets::ImageData& image) {
 } // namespace
 
 bool ImportPbrTextureSet(const std::string& sourceDir, const std::string& texturesDir,
-						 const std::string& outputName, bool forceFlipGreen) {
+						 const std::string& outputName, std::optional<bool> flipGreenAsked) {
 	if (!std::filesystem::is_directory(sourceDir)) {
 		log::Error("Import source is not a directory: {}", sourceDir);
 		return false;
@@ -172,7 +172,9 @@ bool ImportPbrTextureSet(const std::string& sourceDir, const std::string& textur
 
 	// --- normal + height ---------------------------------------------------------
 	assets::ImageData normal;
-	bool flipGreen = forceFlipGreen;
+	// Asked (--flip-green / --no-flip-green), else what the normal map's name
+	// says. A flat generated normal is never flipped: it has no convention.
+	bool flipGreen = false;
 	if (!found.normal.empty()) {
 		auto loaded = assets::LoadImageFile(found.normal);
 		if (!loaded) {
@@ -180,14 +182,13 @@ bool ImportPbrTextureSet(const std::string& sourceDir, const std::string& textur
 			return false;
 		}
 		normal = std::move(*loaded);
-		if (found.normalLooksGl && !forceFlipGreen) {
-			flipGreen = true;
-			log::Info("Normal: {} (OpenGL convention detected — flipping green)",
-					  found.normal);
-		} else {
-			log::Info("Normal: {}{}", found.normal,
-					  flipGreen ? " (green flip forced)" : "");
-		}
+		flipGreen = flipGreenAsked.value_or(found.normalLooksGl);
+		const char* why = !flipGreenAsked
+							  ? (flipGreen ? " (OpenGL convention by its name - flipping green)"
+										   : " (DirectX convention by its name)")
+						  : *flipGreenAsked ? " (green flip asked for)"
+											: " (no green flip, as asked)";
+		log::Info("Normal: {}{}", found.normal, why);
 	} else {
 		// Flat normal at the albedo's resolution.
 		normal.width = albedo->width;

@@ -2687,7 +2687,8 @@ void DungeonWorld::ApplyQuality(bool textureResChanged) {
 // Reloads the worn block meshes and rebuilds the batched dungeon geometry in
 // place - shared by the quality hot-swap and a surface type's RESTYLE (the type
 // editor saving a `rebakes` field: Game::StartRestyleBake re-bakes the texture's
-// worn_*.gltf, then calls this to swap it in live).
+// worn_*.gltf, and Game::LandRestyleBake writes the Save once that bake landed
+// clean, then calls this to swap it in live).
 // The map Revision is unchanged, so the cached shadow cubes are force-refreshed.
 void DungeonWorld::ReloadDungeonBlocks(bool textureResChanged) {
 	if (m_walls.chunks.empty()) return; // not built yet — the load tasks will

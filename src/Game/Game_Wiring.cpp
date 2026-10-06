@@ -512,6 +512,12 @@ void Game::WireModuleCallbacks() {
 				m_assetDialog.SetError(refused);
 			return;
 		}
+		// One baker at a time: a type editor's restyle may be running (the
+		// console can reach here under it), and m_bakeReq is that bake's.
+		if (m_baking) {
+			m_assetDialog.SetError(loc::Format("map.type.bakebusy", m_bakeReq.name));
+			return;
+		}
 		m_bakeReq = req;
 		m_bakeStep = needsWornBake ? 1 : 0;
 		if (StartBakeStep()) {
@@ -634,7 +640,8 @@ void Game::WireModuleCallbacks() {
 		return static_cast<float>(m_world->DerivedPower(*e));
 	};
 	// Save: merge the touched fields into the catalog, then apply. A surface
-	// whose look changed needs its worn meshes re-baked before it shows.
+	// whose look changed needs its worn meshes re-baked first, and is written
+	// only once they are (LandRestyleBake).
 	m_typeDialog.onSave = [this](const TypeEditorDialog::Config& cfg) -> std::string {
 		// A MODEL THE CATEGORY CANNOT LOAD is refused before anything is written
 		// (code-review C301): the reload below - or the next level load - opens
@@ -646,8 +653,8 @@ void Game::WireModuleCallbacks() {
 			log::Warn("type editor: save of {} '{}' refused: {}", cfg.catalogKey, cfg.id, why);
 			return why;
 		}
-		WriteTypeFields(cfg);
 		if (!cfg.rebake) {
+			WriteTypeFields(cfg);
 			// Nothing BAKED is stale, so the change can just take effect. A
 			// surface's per-draw knobs (parallax depth, metallic/roughness) push
 			// straight at the live scene; a prop's are baked into its cached
@@ -697,16 +704,28 @@ void Game::WireModuleCallbacks() {
 				m_world->onMessage(loc::FormatLine("map.type.saved", cfg.id));
 			return std::string();
 		}
-		const CatalogEntry* e = m_project.CatalogForKey(cfg.catalogKey)
-									? m_project.CatalogForKey(cfg.catalogKey)->Find(cfg.id)
-									: nullptr;
-		// An unset `relief` passes -1: the baker takes the texture SET's own
-		// (Assets/WornSets.h), the depth `AssetBaker models` bakes it at, so a
-		// save that touched only `texture` or `wear` cannot reshape the set.
-		StartRestyleBake(cfg.catalogKey, CatalogGet(e, "texture", cfg.id),
-						 e ? e->GetFloat("wear", 1.0f) : 1.0f,
-						 e ? e->GetFloat("relief", -1.0f) : -1.0f);
-		if (m_restyleBake) m_typeDialog.SetBusy(true); // bake launched
+		// A SURFACE'S LOOK CHANGED: its worn meshes are re-baked, and the Save is
+		// written only once they land (code-review C346 - it was written first,
+		// so a failed bake, one already running or a baker that would not start
+		// left a `texture` whose worn meshes were never made, and the next level
+		// load aborted on them). The set is judged first as "Use installed"
+		// judges it: one painted as another surface kind is refused, since its
+		// worn meshes are one file per set and the bake would reshape that kind's
+		// every square (AdoptSurfaceSet, C407).
+		const CatalogEntry merged = MergedTypeEntry(cfg);
+		const std::string set = merged.Get("texture", cfg.id);
+		std::string why = AdoptSurfaceSet(cfg.catalogKey, set).refusal;
+		if (why.empty()) why = StartRestyleBake(cfg, merged);
+		if (!why.empty()) {
+			log::Warn("type editor: save of {} '{}' refused: {}", cfg.catalogKey, cfg.id, why);
+			return why;
+		}
+		// The dialog freezes behind its "baking" notice until the bake lands -
+		// when the Save came from it: `typeset` saves with no dialog up, and an
+		// unrelated one must be left as it is.
+		m_restyleFromDialog = m_typeDialog.IsOpen() && m_typeDialog.CatalogKey() == cfg.catalogKey &&
+							  m_typeDialog.Id() == cfg.id;
+		if (m_restyleFromDialog) m_typeDialog.SetBusy(true);
 		return std::string();
 	};
 	// A `texture` / `model` field opens the POOL BROWSER rather than a dropdown.

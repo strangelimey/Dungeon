@@ -61,7 +61,8 @@ public:
 		std::string id;            // catalog id being edited
 		std::vector<serialize::Field> fields;
 		// Set on Save when a touched field carries FieldSpec::rebakes — the
-		// owner must re-run AssetBaker before the change is visible.
+		// owner must re-run AssetBaker, and writes the fields only once that
+		// bake succeeds (code-review C346).
 		bool rebake = false;
 	};
 
@@ -78,6 +79,13 @@ public:
 	// The owner sets this while an async re-bake runs: the form freezes behind a
 	// notice until the owner closes the dialog (the AssetDialog pattern).
 	void SetBusy(bool busy) { m_busy = busy; }
+	// ...or, when the bake FAILED, thaws it with `why` in the notice: nothing was
+	// saved, and the form keeps its edits to be fixed or saved again.
+	void BakeFailed(std::string why) {
+		m_busy = false;
+		m_notice = std::move(why);
+		m_uiRebuild = true; // the notice row is rebuilt from m_notice
+	}
 
 	const std::string& CatalogKey() const { return m_cfg.catalogKey; }
 	const std::string& Id() const { return m_cfg.id; }

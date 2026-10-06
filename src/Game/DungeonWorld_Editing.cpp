@@ -438,9 +438,14 @@ DungeonWorld::TypeUsage DungeonWorld::SweepTypeRefs(const std::string& catalogKe
 bool DungeonWorld::AddPaletteEntryRemote(const std::string& stem, SurfaceSel sel,
 										 const std::string& id) {
 	if (!SurfaceCatalog(sel).Contains(id)) return false;
-	// No texture/mesh work: a browsed level isn't rendered in 3D. Its assets are
-	// checked when the party (or the editor) enters it. Stashed only when the
-	// palette really grows (C307).
+	// No texture/mesh work: a browsed level isn't rendered in 3D. Nor is anything
+	// CHECKED when the party or the editor enters it - that load opens each
+	// palette entry's worn meshes through LoadModelOrDie. What makes the add
+	// safe is that a surface type never names a set whose worn meshes were not
+	// made: a create bakes them before its entry is written, and a type editor
+	// Save writes a new `texture` only once its bake has landed clean
+	// (code-review C346; it used to write first). Stashed only when the palette
+	// really grows (C307).
 	return EditMapStash(stem, [&](DungeonMap& map) {
 		return sel == SurfaceSel::Wall	  ? map.AddToWallPalette(id)
 			   : sel == SurfaceSel::Floor ? map.AddToFloorPalette(id)

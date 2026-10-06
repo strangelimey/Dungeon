@@ -1,5 +1,6 @@
 # tools/BakerWriteTest.py - the asset baker's writes fail loudly (code-review
-# batch 93: C416).
+# batch 93: C416), and an import writes the green its normal map was asked for
+# (batch 88: C393).
 #
 # Run:  python tools\BakerWriteTest.py [--selftest] [--config release|debug]
 #       (release by default, like WornBakeTest: the baker is a tool)
@@ -25,6 +26,11 @@
 #   IMPORT   a set whose roughness map is found but will not load says so - the
 #            file and the loader's reason - and still imports; over a read-only
 #            <name>_n.png the import exits non-zero naming it, and leaves it.
+#   FLIP     (code-review C393) a normal map's green is flipped by the GL token
+#            at the END of its name, past a resolution tag ("nor_gl_2k"), and
+#            not by a "gl" inside a word ("jungle_normal"); --no-flip-green
+#            keeps a GL-named map's green, --flip-green flips an unmarked one,
+#            and the two together are refused. Read off the packed _n.png.
 #   NAMES    `rig-names` writes joints and clips named with quotes,
 #            backslashes, control characters and UTF-8: the file is strict JSON
 #            and every name reads back exactly.
@@ -39,6 +45,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import zlib
 
 import harness_game
 from WornBakeTest import write_png
@@ -134,6 +141,50 @@ def wav_holds_its_frames(blob):
 	if size == 0 or size % align:
 		return False, f"{size} data bytes is not a whole number of {align}-byte frames"
 	return True, f"{size // align} frames"
+
+
+# FLIP's normal maps: a green no flip can leave where it was (255 - 100 = 155).
+GREEN_IN = 100
+
+
+def read_png(path):
+	"""The (r, g, b, a) pixels of an 8-bit RGB or RGBA PNG, non-interlaced, every
+	row filter undone - the importer's PNGs are stb's, which picks a filter a row."""
+	data = read(path)
+	pos, idat, width, height, kind = 8, b"", 0, 0, 0
+	while pos < len(data):
+		size = struct.unpack_from(">I", data, pos)[0]
+		tag, body = data[pos + 4:pos + 8], data[pos + 8:pos + 8 + size]
+		if tag == b"IHDR":
+			width, height, depth, kind, _, _, laced = struct.unpack(">IIBBBBB", body)
+			if depth != 8 or kind not in (2, 6) or laced:
+				raise ValueError(f"{path}: not an 8-bit RGB(A) non-interlaced PNG")
+		elif tag == b"IDAT":
+			idat += body
+		pos += 12 + size
+	step = 4 if kind == 6 else 3
+	raw = zlib.decompress(idat)
+	stride = width * step
+	rows, prev = [], bytearray(stride)
+	for y in range(height):
+		f, line = raw[y * (stride + 1)], bytearray(raw[y * (stride + 1) + 1:(y + 1) * (stride + 1)])
+		for i in range(stride):
+			a = line[i - step] if i >= step else 0
+			b, c = prev[i], prev[i - step] if i >= step else 0
+			if f == 1:
+				line[i] = (line[i] + a) & 0xFF
+			elif f == 2:
+				line[i] = (line[i] + b) & 0xFF
+			elif f == 3:
+				line[i] = (line[i] + (a + b) // 2) & 0xFF
+			elif f == 4:
+				p = a + b - c
+				pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+				line[i] = (line[i] + (a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 0xFF
+		rows.append(line)
+		prev = line
+	return [tuple(r[x * step:x * step + step]) + ((255,) if step == 3 else ())
+			for r in rows for x in range(width)]
 
 
 def git_blob(path):
@@ -284,6 +335,44 @@ def judge(baker, scratch, selftest):
 	check(said(out, "bwt_set_n.png", DENIED), labels[1],
 		  next((l.strip() for l in out.splitlines() if "bwt_set_n.png" in l), "no line names it"))
 	check(read(target) == SENTINEL, labels[2], f"{len(read(target))} bytes")
+
+	print("FLIP  (a normal map's green: by the GL token at the END of its name, or as asked)")
+	# Each case imports one albedo and one normal map whose green is GREEN_IN; the
+	# packed <name>_n.png comes out with that green, or its flip (code-review C393:
+	# any "gl" in the name flipped, and the editor could only ever ask for the
+	# flip ON). (label, normal map's name, flags, its name under the fault, flags
+	# under the fault, flipped?)
+	cases = (
+		("FLIP a 'gl' inside a word is not the GL token: jungle_normal keeps its green",
+		 "jungle_normal.png", [], "jungle_normal_gl.png", [], False),
+		("FLIP Poly Haven's nor_gl_2k is the GL token past its resolution tag: flipped",
+		 "rock_nor_gl_2k.png", [], "rock_nor_dx_2k.png", [], True),
+		("FLIP --no-flip-green keeps a GL-named map's green",
+		 "rock_nor_gl_2k.png", ["--no-flip-green"], "rock_nor_gl_2k.png", [], False),
+		("FLIP --flip-green flips a map its name does not mark",
+		 "jungle_normal.png", ["--flip-green"], "jungle_normal.png", ["--no-flip-green"], True),
+	)
+	for n, (label, name, flags, fault_name, fault_flags, flipped) in enumerate(cases):
+		if fault(label):
+			name, flags = fault_name, fault_flags  # FAULT: the opposite answer is right
+		source = os.path.join(scratch, f"flip_src{n}")
+		os.makedirs(source)
+		write_png(os.path.join(source, "slab_albedo.png"), 8, 8, (120, 110, 100, 255))
+		write_png(os.path.join(source, name), 8, 8, (128, GREEN_IN, 255, 255))
+		dest = os.path.join(scratch, f"flip_out{n}")
+		code, out = run(baker, "import", source, dest, "bwt_flip", *flags)
+		packed = os.path.join(dest, "textures", "bwt_flip_n.png")
+		greens = sorted({px[1] for px in read_png(packed)}) if os.path.isfile(packed) else []
+		want = 255 - GREEN_IN if flipped else GREEN_IN
+		line = next((l.strip() for l in out.splitlines() if "Normal:" in l), "no Normal: line")
+		check(code == 0 and greens == [want], label, f"exit {code}, green {greens} (want {want}); {line}")
+	label = "FLIP --flip-green and --no-flip-green together are refused, and nothing is imported"
+	source = os.path.join(scratch, "flip_src0")
+	dest = os.path.join(scratch, "flip_both")
+	flags = ["--flip-green"] if fault(label) else ["--flip-green", "--no-flip-green"]  # FAULT: one flag
+	code, out = run(baker, "import", source, dest, "bwt_flip", *flags)
+	check(code != 0 and not os.path.exists(os.path.join(dest, "textures", "bwt_flip_n.png")),
+		  label, f"exit {code}")
 
 	print("NAMES  (`rig-names`: joints and clips named to be escaped)")
 	names = ['quote"d', "back\\slash", "tab\there", "bell\x07and\x1funit", "Ægir ᚠ",

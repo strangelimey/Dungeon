@@ -301,6 +301,22 @@
 #      rename refuse an id a related catalog holds (an item's in another item
 #      catalog, a prop's in another prop catalog), each in its own words, beside
 #      a free id that is accepted, writing nothing refused.
+#  52. A SURFACE'S RE-BAKING SAVE WAITS FOR ITS BAKE (code-review C346), and an
+#      IMPORT ALWAYS SAYS ITS FLIP (C393). `typeset walls <id> texture <set>`
+#      with a set nobody paints bakes its worn meshes (it wrote the field with no
+#      bake at all); while the bake runs - HELD, `bake hold`, so the reads cannot
+#      race it - the catalog still names the old set and a second such save is
+#      refused, and landed clean it names the new one. A bake that FAILS (its low
+#      tier planted read-only, so the baker exits 1) writes nothing, through
+#      `typeset` and through the dialog's Save, whose form stays open saying why;
+#      the dialog's Save of a set nobody paints stays up, frozen, while its bake
+#      runs and CLOSES once it lands, the field written (the `typeset` landing
+#      has no dialog to close, so it cannot judge that branch); a shipped floor set as a wall's texture is refused before any bake; a
+#      field that bakes nothing is written at once. On disk the failed type's
+#      block is exactly as written. Then the create dialog's import of a normal
+#      map with "gl" inside a word is sent --no-flip-green and one ending in the
+#      GL token --flip-green - each imports.cat record saying so, each packed
+#      _n.png's green unflipped / flipped.
 #  55. A LEVER'S REVEAL SWAPS IN PRE-BUILT WALLS (code-review C211; phases 28-54
 #      are other lanes'): eval_arena's lever wired to nothing moves no wall; the
 #      one naming the hidden niche opens it, shuts it, and shuts it again after
@@ -355,6 +371,7 @@ import io
 import os
 import re
 import shutil
+import stat
 import struct
 import subprocess
 import sys
@@ -425,6 +442,9 @@ def cleanup():
         harness_game.remove_world(ROOT, w)
     harness_game.remove_saves(SAVES.values())
     for f in own_worn():
+        # Phase 52 plants one READ-ONLY (a bake that cannot write it), which a
+        # killed run leaves so: writable first, or it cannot go.
+        os.chmod(os.path.join(MODELS, f), stat.S_IREAD | stat.S_IWRITE)
         os.remove(os.path.join(MODELS, f))
     for f in own_textures():
         os.remove(os.path.join(TEXTURES, f))
@@ -3249,11 +3269,15 @@ try:
           "the import landed: no bake running, the dialog closed, et_demo still the world", str(imported))
     check(f"Created type '{IMPORT_TYPE}' in floors" in log, "...and wrote its type, into the world loaded")
     bakes = [l for l in log.splitlines() if "AssetBaker: " in l]
+    # The import's maps say their green flip either way (code-review C393): a
+    # folder with no normal map is sent --no-flip-green.
     check(len(bakes) == 3 and f"wornblock floor {SWITCH_SET} " in bakes[0]
-          and f" import \"{IMPORT_WORD}\" " in bakes[1] and bakes[1].rstrip().endswith(f" {IMPORT_TYPE}_2k")
+          and f" import \"{IMPORT_WORD}\" " in bakes[1]
+          and bakes[1].rstrip().endswith(f" {IMPORT_TYPE}_2k --no-flip-green")
           and f"wornblock floor {IMPORT_TYPE} " in bakes[2],
           "the AssetBaker runs were those three: the install's floor bake, the import's maps under "
-          f"{IMPORT_TYPE}_2k, then its floor bake", " | ".join(b[:200] for b in bakes[:4]))
+          f"{IMPORT_TYPE}_2k (sent --no-flip-green), then its floor bake",
+          " | ".join(b[:200] for b in bakes[:4]))
 
     # ...read off the disk: the other world untouched, this one by the two types
     # and the import's record.
@@ -3278,9 +3302,10 @@ try:
     rec = ia.get(IMPORT_TYPE + "_2k") or {}
     check(set(ia) - set(ib) == {IMPORT_TYPE + "_2k"} and all(ia.get(i) == f for i, f in ib.items())
           and rec.get("kind") == "texture" and rec.get("source") == IMPORT_WORD
-          and rec.get("surface") == "floor",
+          and rec.get("surface") == "floor" and rec.get("flip_green") == "0",
           f"...imports.cat by exactly the import's record ([{IMPORT_TYPE}_2k]: a texture, its folder, "
-          "baked as a floor), every other as it was - the installed set's type records none", str(rec))
+          "baked as a floor, no green flip), every other as it was - the installed set's type records "
+          "none", str(rec))
 finally:
     drop()
     harness_game.remove_world(ROOT, OTHER_WORLD)
@@ -4412,6 +4437,163 @@ finally:
         io.open(SETTINGS, "wb").write(settings_before)
     elif os.path.isfile(SETTINGS):
         os.remove(SETTINGS)
+
+
+# --- phase 52: a surface's Save is written once its bake lands; an import says its flip
+print("52 - a surface type's re-baking Save is written only once its bake lands; an import "
+      "always says its green flip")
+# typebake.eval's header says what each step stands for. Every set here is
+# et_-named, so cleanup() takes what the bakes and imports write into the pool.
+TB_WALLS = ("\r\n[et_tb_wall]\r\ndisplay = Bake test\r\ntexture = cobblestone_wall\r\n"
+            "\r\n[et_tb_other]\r\ndisplay = Bake test 2\r\ntexture = cobblestone_wall\r\n")
+TB_LOCKED = os.path.join(MODELS, "worn_et_tb_locked_low.gltf")
+TB_FRESH = {f"worn_et_tb_fresh_{t}.gltf" for t in ("low", "med", "high")}
+TB_DIALOG = {f"worn_et_tb_dialog_{t}.gltf" for t in ("low", "med", "high")}
+TB_GREEN = 100   # the import folders' normal maps; a flip leaves 155
+TB_IMPORTS = {"dx": ("glossy_slab_normal_dx.png", False),   # a "gl" inside a word
+              "gl": ("glossy_slab_normal_ogl.png", True)}   # the GL token at the end
+TB_FIELDS = re.compile(r"typeset field (\S+) = ?(.*)$")
+
+
+def solid_png(path, size, rgb):
+    """A small RGB PNG of one colour - what each import folder's maps are."""
+    rows = b"".join(b"\x00" + bytes(rgb) * size for _ in range(size))
+
+    def chunk(kind, data):
+        return (struct.pack(">I", len(data)) + kind + data
+                + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF))
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0))
+                + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+
+
+def bakes_of(log, needle):
+    """Every `AssetBaker: <command>` line naming `needle`."""
+    return [l.split("AssetBaker: ", 1)[1] for l in log.splitlines() if "AssetBaker: " in l and needle in l]
+
+
+fresh()
+try:
+    walls_path = os.path.join(PROJ, r"catalog\walls.cat")
+    io.open(walls_path, "a", encoding="utf-8", newline="").write(TB_WALLS)
+    other_before = cat_block(io.open(walls_path, encoding="utf-8").read(), "et_tb_other")
+    # The set whose bake cannot write: its low tier stands read-only.
+    with open(TB_LOCKED, "wb") as fh:
+        fh.write(b"editortest phase 52: read-only, so the bake of et_tb_locked fails\n")
+    os.chmod(TB_LOCKED, stat.S_IREAD)
+    words = {}
+    for tag, (normal, _) in TB_IMPORTS.items():
+        folder = os.path.join(IMPORT_SRC, "et_tb_" + tag)
+        os.makedirs(folder, exist_ok=True)
+        solid_png(os.path.join(folder, f"et_tb_{tag}_albedo.png"), 32, (140, 120, 100))
+        solid_png(os.path.join(folder, normal), 32, (128, TB_GREEN, 255))
+        words["ET_IMPORT_" + tag.upper()] = folder.replace("\\", "/")
+    log = run("typebake.eval", words=words)
+    check(passed(log), "the script ran clean (its two probes refused, nothing else)")
+    sec = console_sections(log)
+    check("end" in sec, "the script ran to its end")
+
+    def texture_in(name):
+        got = {m.group(1): m.group(2).strip() for m in map(TB_FIELDS.match, sec.get(name, [])) if m}
+        return got.get("texture")
+
+    # 1. `typeset` of a texture bakes, and the catalog waits for the bake.
+    check(texture_in("before") == "cobblestone_wall", "THE CONTROL: et_tb_wall names cobblestone_wall",
+          str(sec.get("before")))
+    fresh_lines = sec.get("fresh", [])
+    check(any(l.startswith("typeset walls 'et_tb_wall': texture = et_tb_fresh - baking") for l in fresh_lines)
+          and any(l.startswith("bake: running - walls 'et_tb_fresh', step 1 (a restyle)") for l in fresh_lines),
+          "`typeset walls et_tb_wall texture et_tb_fresh` starts a bake of et_tb_fresh "
+          "(it wrote the field with no bake at all)", str(fresh_lines[:4]))
+    check(texture_in("fresh") == "cobblestone_wall",
+          "...and while it runs the catalog still names cobblestone_wall (the Save waits for it)",
+          f"mid-bake texture: {texture_in('fresh')!r}")
+    check("refused, as expected: 'typeset walls et_tb_other texture et_tb_second'" in log
+          and "A bake is already running ('et_tb_fresh')" in log and not bakes_of(log, "et_tb_second"),
+          "a second re-baking save meanwhile is refused, naming the running bake, and starts nothing")
+    landed = sec.get("fresh landed", [])
+    check("bake: idle" in landed and texture_in("fresh landed") == "et_tb_fresh"
+          and "type editor: walls 'et_tb_wall' saved - its worn meshes baked" in log,
+          "landed clean: et_tb_wall names et_tb_fresh", f"{landed[:2]} texture {texture_in('fresh landed')!r}")
+    check(TB_FRESH <= set(own_worn()), "...whose three worn tiers the bake wrote",
+          str(sorted(TB_FRESH - set(own_worn()))))
+    # 2. A failed bake writes nothing - through `typeset` and the dialog's Save.
+    check(any("wornblock wall et_tb_locked " in b for b in bakes_of(log, "et_tb_locked"))
+          and len(bakes_of(log, "et_tb_locked")) == 2,
+          "et_tb_other given et_tb_locked bakes it - by `typeset` and by the dialog's Save",
+          " | ".join(bakes_of(log, "et_tb_locked")))
+    check(log.count("type editor: walls 'et_tb_other' not saved - 'et_tb_other' was not saved: "
+                    "its worn meshes did not bake (AssetBaker exit 1") == 2,
+          "...the baker exits 1 both times (its low tier is read-only), and neither save is written")
+    check(texture_in("locked landed") == "cobblestone_wall",
+          "after the `typeset` bake failed, et_tb_other still names cobblestone_wall",
+          f"texture {texture_in('locked landed')!r}")
+    shown = [l for l in sec.get("dialog landed", []) if l.startswith("typeset dialog: open walls 'et_tb_other'")]
+    check(bool(shown) and "was not saved: its worn meshes did not bake" in shown[0],
+          "the dialog whose Save failed stays open, saying why (it used to close, the field written)",
+          str(sec.get("dialog landed", [])[:3]))
+    check(texture_in("dialog landed") == "cobblestone_wall",
+          "...and reopened, et_tb_other still names cobblestone_wall", f"texture {texture_in('dialog landed')!r}")
+    # 2b. The dialog's Save that lands clean: frozen while it bakes, closed once
+    # it lands, the field written (LandRestyleBake's dialog branch - the
+    # `typeset` landing above has no dialog to close).
+    dfresh = sec.get("dialog fresh", [])
+    check(any(l.startswith("bake: running - walls 'et_tb_dialog', step 1 (a restyle)") for l in dfresh)
+          and len(bakes_of(log, "et_tb_dialog")) == 1,
+          "the dialog's Save of et_tb_wall given et_tb_dialog starts one bake of et_tb_dialog", str(dfresh[:6]))
+    status = [l for l in dfresh if l.startswith("typeset dialog: ")]
+    check(len(status) >= 2 and status[-1].startswith("typeset dialog: open walls 'et_tb_wall'"),
+          "...and while it runs the dialog stays up (frozen behind its baking notice)", str(status))
+    dlanded = sec.get("dialog fresh landed", [])
+    dstatus = [l for l in dlanded if l.startswith("typeset dialog: ")]
+    check("bake: idle" in dlanded and dstatus == ["typeset dialog: closed"]
+          and log.count("type editor: walls 'et_tb_wall' saved - its worn meshes baked") == 2,
+          "landed clean, the dialog that made the Save CLOSES and the Save is written",
+          f"{dlanded[:3]} status {dstatus}")
+    check(texture_in("dialog fresh reopened") == "et_tb_dialog",
+          "...reopened, et_tb_wall names et_tb_dialog", f"texture {texture_in('dialog fresh reopened')!r}")
+    check(TB_DIALOG <= set(own_worn()), "...whose three worn tiers the bake wrote",
+          str(sorted(TB_DIALOG - set(own_worn()))))
+    # 3. A set painted as another kind is refused before any bake.
+    check("refused, as expected: 'typeset walls et_tb_other texture floor_cobble'" in log
+          and "'floor_cobble' is a floor set" in log and not bakes_of(log, "floor_cobble"),
+          "a shipped FLOOR set as a wall's texture is refused before any bake, by its record")
+    # 4. A field that bakes nothing is written at once.
+    plain = sec.get("plain", [])
+    check("typeset walls 'et_tb_wall': height_scale = 0.03" in plain and "bake: idle" in plain,
+          "height_scale, which bakes nothing, is written at once with no bake", str(plain))
+    walls_after = io.open(walls_path, encoding="utf-8").read()
+    wall = cat_block(walls_after, "et_tb_wall") or {}
+    check(wall.get("texture") == "et_tb_dialog" and wall.get("height_scale") == "0.03",
+          "on disk: et_tb_wall names et_tb_dialog (the dialog's landed Save) with height_scale 0.03",
+          str(wall))
+    check(cat_block(walls_after, "et_tb_other") == other_before,
+          "on disk: et_tb_other is exactly as written before the run - no failed or refused save "
+          "reached it", f"{cat_block(walls_after, 'et_tb_other')} vs {other_before}")
+    # 5. An import always says its flip (C393), and the pool shows it.
+    from BakerWriteTest import read_png
+    imports = cat_blocks(io.open(os.path.join(PROJ, r"catalog\imports.cat"), "rb").read())
+    for tag, (normal, gl) in TB_IMPORTS.items():
+        tid = "et_tb_" + tag
+        sent = [b for b in bakes_of(log, f" {tid}_2k") if " import " in b]
+        flag = "--flip-green" if gl else "--no-flip-green"
+        check(len(sent) == 1 and sent[0].rstrip().endswith(f" {tid}_2k {flag}"),
+              f"the dialog's import of {normal} sends {flag}"
+              + ("" if gl else " (a 'gl' inside a word, which the old test read as OpenGL)"),
+              " | ".join(sent))
+        rec = imports.get(tid + "_2k") or {}
+        check(rec.get("flip_green") == ("1" if gl else "0"),
+              f"...and its imports.cat record says flip_green = {'1' if gl else '0'}", str(rec))
+        packed = os.path.join(TEXTURES, tid + "_2k_n.png")
+        greens = sorted({px[1] for px in read_png(packed)}) if os.path.isfile(packed) else []
+        want = 255 - TB_GREEN if gl else TB_GREEN
+        check(greens == [want], f"...and the packed {tid}_2k_n.png's green is {want}", f"greens {greens}")
+    check(f"Created type 'et_tb_dx' in walls" in log and f"Created type 'et_tb_gl' in walls" in log,
+          "both imports landed as wall types")
+finally:
+    drop()
+    if os.path.exists(TB_LOCKED):
+        os.chmod(TB_LOCKED, stat.S_IREAD | stat.S_IWRITE)
 
 
 # --- phase 55: a lever's reveal swaps in pre-built walls ---------------------------

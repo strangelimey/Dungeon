@@ -46,6 +46,11 @@
 # transform into its mesh - normals by the inverse-transpose, a mirror's
 # winding put back, a skinned mesh left alone. Its own TU so it links here
 # without the loader (cgltf, the image decoders) coming with it.
+# Assets/ImportFiles.cpp and Assets/PbrMaps.cpp (code-review C336, C393): the
+# pool files an editor import owns, which a packaged "To source" copies, and
+# the GL token a normal map's name ends in, which decides an import's green
+# flip. Both are names in, a verdict out - the standard library and nothing
+# else - so the rules are checked where they ship.
 add_executable(RollTest
 	Main.cpp
 	${CMAKE_SOURCE_DIR}/src/Game/DamageLedger.cpp
@@ -64,6 +69,8 @@ add_executable(RollTest
 	${CMAKE_SOURCE_DIR}/src/Game/Trail.cpp
 	${CMAKE_SOURCE_DIR}/src/Graphics/LightTiles.cpp
 	${CMAKE_SOURCE_DIR}/src/Assets/NodeTransform.cpp
+	${CMAKE_SOURCE_DIR}/src/Assets/ImportFiles.cpp
+	${CMAKE_SOURCE_DIR}/src/Assets/PbrMaps.cpp
 )
 # NOT linked, and the attempt is worth recording: pulling Balance.cpp in for the
 # attacker's type axis dragged Catalog -> assets::ReadBinaryFile, i.e. the file

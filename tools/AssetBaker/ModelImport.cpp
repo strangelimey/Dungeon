@@ -182,7 +182,8 @@ bool ImportModel(const std::string& sourcePath, const std::string& assetsDir,
 	const std::string folder =
 		fs::is_directory(sourcePath) ? sourcePath : fs::path(modelFile).parent_path().string();
 	const std::string texturesDir = assetsDir + "\\textures";
-	if (ImportPbrTextureSet(folder, texturesDir, name + "_2k", false)) {
+	// The green flip by the normal map's name: import-model takes no flag for it.
+	if (ImportPbrTextureSet(folder, texturesDir, name + "_2k", std::nullopt)) {
 		bool ok = BakeMipChain(texturesDir + "\\" + name + "_2k.png",
 							   texturesDir + "\\" + name + "_2k.dds", /*srgb*/ true);
 		ok &= BakeMipChain(texturesDir + "\\" + name + "_2k_n.png",

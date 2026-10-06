@@ -1,0 +1,117 @@
+; typebake.eval - a surface type's Save that re-bakes its worn meshes (a new
+; `texture`, `relief` or `wear`) is WRITTEN ONLY ONCE THE BAKE LANDS CLEAN, and
+; an import tells the baker its green flip either way (code-review C346, C393).
+; Judged by tools/EditorTest.py phase 52, on the scratch world et_demo.
+;
+; EditorTest prepares, before this runs:
+;   walls.cat  [et_tb_wall] and [et_tb_other], both texture = cobblestone_wall
+;              (a shipped wall set) and on no level's palette;
+;   the pool   worn_et_tb_locked_low.gltf, planted READ-ONLY, so a bake of the
+;              set et_tb_locked cannot write it and the baker exits 1; nothing
+;              at all for et_tb_fresh, a set nobody paints;
+;   two import folders, each an albedo and a normal map whose green is 100:
+;              ET_IMPORT_DX's normal is glossy_slab_normal_dx (a "gl" inside a
+;              word, a DirectX name), ET_IMPORT_GL's glossy_slab_normal_ogl.
+;
+; 1. `typeset` OF A TEXTURE BAKES (it wrote the field with no bake at all), and
+;    the catalog is unchanged until the bake lands: mid-bake the type still
+;    names cobblestone_wall, and a second such save is REFUSED - one baker at a
+;    time. Landed clean, the type names et_tb_fresh.
+; 2. A FAILED BAKE WRITES NOTHING: et_tb_other given et_tb_locked keeps its
+;    texture, through `typeset` and through the dialog's own Save - which stays
+;    open after the failure, saying why (it used to close, the field written).
+; 2b. THE DIALOG'S SAVE THAT LANDS CLEAN: et_tb_wall given et_tb_dialog (a set
+;    nobody paints) through the dialog's own Save - the dialog stays up, frozen,
+;    while the bake runs, then CLOSES once it lands, the field written. The
+;    `typeset` landing above has no dialog, so it cannot see this branch.
+; 3. A SET PAINTED AS ANOTHER KIND (floor_cobble, a shipped floor set) is
+;    refused before any bake, as "Use installed" refuses it (C407's rule).
+; 4. A field that bakes nothing (height_scale) is written at once, as before.
+; 5. AN IMPORT ALWAYS SAYS ITS FLIP (C393): through the create dialog, the DX
+;    folder's import is sent --no-flip-green (its name holds "gl" mid-word,
+;    which the old test read as OpenGL) and the GL folder's --flip-green; each
+;    imports.cat record carries flip_green 0 / 1, and the packed _n.png green
+;    is 100 / 155 - read off the pool by EditorTest.
+
+; Every bake is HELD (`bake hold`): a finished one lands only when `bake wait`
+; lets it, so what is read "while it runs" cannot race a ~60 ms debug bake.
+
+logecho on
+reset
+bake hold
+echo --- before ---
+typeset dialog walls et_tb_wall
+typeset dialog fields
+typeset dialog off
+echo --- fresh ---
+typeset walls et_tb_wall texture et_tb_fresh
+bake
+typeset dialog walls et_tb_wall
+typeset dialog fields
+typeset dialog off
+expect-refuse typeset walls et_tb_other texture et_tb_second
+bake wait 300
+echo --- fresh landed ---
+bake
+typeset dialog walls et_tb_wall
+typeset dialog fields
+typeset dialog off
+echo --- locked ---
+typeset walls et_tb_other texture et_tb_locked
+bake
+bake wait 300
+echo --- locked landed ---
+bake
+typeset dialog walls et_tb_other
+typeset dialog fields
+typeset dialog off
+echo --- dialog locked ---
+typeset dialog walls et_tb_other
+typeset dialog pick texture et_tb_locked
+typeset dialog save
+bake
+bake wait 300
+echo --- dialog landed ---
+bake
+typeset dialog status
+typeset dialog off
+typeset dialog walls et_tb_other
+typeset dialog fields
+typeset dialog off
+echo --- dialog fresh ---
+typeset dialog walls et_tb_wall
+typeset dialog pick texture et_tb_dialog
+typeset dialog save
+bake
+typeset dialog status
+bake wait 300
+echo --- dialog fresh landed ---
+bake
+typeset dialog status
+echo --- dialog fresh reopened ---
+typeset dialog walls et_tb_wall
+typeset dialog fields
+typeset dialog off
+echo --- other kind ---
+expect-refuse typeset walls et_tb_other texture floor_cobble
+bake
+echo --- plain ---
+typeset walls et_tb_wall height_scale 0.03
+bake
+echo --- import dx ---
+editor
+newasset walls import ET_IMPORT_DX et_tb_dx
+bake wait 300
+echo --- import dx step 1 ---
+bake wait 300
+echo --- import gl ---
+bake
+newasset walls import ET_IMPORT_GL et_tb_gl
+bake wait 300
+echo --- import gl step 1 ---
+bake wait 300
+echo --- imported ---
+bake
+newasset status
+bake hold off
+echo --- end ---

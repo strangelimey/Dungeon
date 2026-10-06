@@ -5,10 +5,12 @@
 #include "Game/Game.h"
 
 #include "Assets/File.h"
+#include "Assets/ImportFiles.h"
 #include "Assets/WornSets.h"
 #include "Core/Loc.h"
 #include "Core/Log.h"
 #include "Core/Paths.h"
+#include "Core/StringUtil.h"
 #include "Game/AssetUtil.h"
 #include "Game/Serialize.h"
 #include "Game/Style.h"
@@ -60,9 +62,11 @@ bool Game::StartBakeStep() {
 		// The catalog's `texture` field names the base, as always.
 		cmd = q(baker) + " import " + q(m_bakeReq.sourcePath) + " " + q(assets) + " " +
 			  m_bakeReq.name + "_2k";
-		// GL-convention normals (green up) need flipping; the importer sniffs the
-		// filename, and this is the dialog's override for sets that don't say so.
-		if (m_bakeReq.flipGreen) cmd += " --flip-green";
+		// GL-convention normals (green up) need flipping. The dialog's checkbox
+		// starts as the filename's guess (Assets/PbrMaps.h) and is ALWAYS sent, on
+		// or off (code-review C393): with only --flip-green to say, unticking a
+		// wrong guess left the baker to make the same guess again.
+		cmd += m_bakeReq.flipGreen ? " --flip-green" : " --no-flip-green";
 	} else {
 		// Bake worn block meshes for just the new set (its kind = the catalog).
 		// An installed set only gets here with no meshes yet and nobody painting
@@ -115,29 +119,26 @@ bool Game::SyncProjectToSource() {
 	// own pool (an editor import writes into paths::AssetsDir). They are
 	// gitignored either way, but the SOURCE tree is what a new worktree is
 	// provisioned from, so leaving them build-only loses them with the build
-	// directory. imports.cat says exactly which.
+	// directory. imports.cat says exactly which, and assets::ImportOwnsFile
+	// names each record's files exactly (code-review C336): a texture set's map
+	// trio and the worn meshes baked from it - worn_<set>_<tier>, by the set's
+	// BASE, where this looked for worn_<set>_2k* and copied none - and a model's
+	// file, its sidecars and the maps it brought in as <name>_2k. Never by a
+	// bare prefix, which took pottery's and potion's files for `pot`'s.
 	int copied = 0;
 	for (const CatalogEntry& e : m_project.imports.Entries()) {
-		const std::string kind = e.Get("kind", "texture");
-		// A texture set is its map trio (source PNG + baked DDS) plus the worn
-		// block meshes derived from it; a model is its .gltf plus the PBR set
-		// import-model brought in under <name>_2k.
-		const std::pair<const char*, std::string> globs[] = {
-			{"textures", e.id},
-			{"models", kind == "texture" ? "worn_" + e.id : e.id},
-			{"textures", kind == "model" ? e.id + "_2k" : std::string()},
-		};
-		for (const auto& [dir, prefix] : globs) {
-			if (prefix.empty()) continue;
-			const fs::path from = fs::path(paths::AssetsDir()) / dir;
-			const fs::path to = fs::path(repo) / dir;
+		const bool model = e.Get("kind", "texture") == "model";
+		for (const auto& [dir, folder] : {std::pair{assets::PoolDir::Textures, "textures"},
+										  std::pair{assets::PoolDir::Models, "models"}}) {
+			const fs::path from = fs::path(paths::AssetsDir()) / folder;
+			const fs::path to = fs::path(repo) / folder;
 			fs::create_directories(to, ec);
 			for (const auto& entry : fs::directory_iterator(from, ec)) {
 				if (ec || !entry.is_regular_file()) continue;
-				const std::string name = entry.path().filename().string();
-				if (!name.starts_with(prefix)) continue;
+				const std::string name = str::Narrow(entry.path().filename().wstring());
+				if (!assets::ImportOwnsFile(e.id, model, dir, name)) continue;
 				std::error_code copyEc;
-				fs::copy_file(entry.path(), to / name,
+				fs::copy_file(entry.path(), to / entry.path().filename(),
 							  fs::copy_options::overwrite_existing, copyEc);
 				if (!copyEc) ++copied;
 			}
@@ -852,7 +853,10 @@ void Game::RecordImport(const AssetDialog::CreateRequest& req) {
 	// knows how to re-root a path under the asset archive onto another machine,
 	// which is where that knowledge already lives (FetchTextures.ps1).
 	e.Set("source", req.sourcePath);
-	if (req.flipGreen) e.Set("flip_green", "1");
+	// The green flip the import was MADE with, on or off: the baker was told
+	// one (StartBakeStep), so a replay must be too, rather than guessing from
+	// the filename again (C393).
+	if (req.textureSet) e.Set("flip_green", req.flipGreen ? "1" : "0");
 	// A SURFACE set also has worn block meshes baked from it, and their geometry
 	// is kind-specific (a wall panel is not a floor slab) while their FILE NAME
 	// is not — worn_<set>_<tier>.gltf, one per set. So the replay has to know
@@ -1477,30 +1481,65 @@ CatalogEntry Game::MergedTypeEntry(const TypeEditorDialog::Config& cfg) const {
 	return entry;
 }
 
-// Kicks the async worn-mesh rebake for a Surface Style Save: reuses the
+// Kicks the async worn-mesh rebake for a surface type's Save: reuses the
 // asset-bake subprocess flow, jumping straight to the wornblock step.
-// m_restyleBake tells the Update poll to reload the dungeon blocks (not
-// FinishBake) on success.
-void Game::StartRestyleBake(const std::string& catalogKey, const std::string& texture,
-						   float wear, float relief) {
-	if (m_baking) {
-		log::Warn("surface style: a bake is already running — try again in a moment");
-		return;
-	}
+// m_restyleBake tells the Update poll to land it through LandRestyleBake (not
+// FinishBake), and the Save itself waits in m_restyleCfg until then.
+std::string Game::StartRestyleBake(const TypeEditorDialog::Config& cfg,
+								   const CatalogEntry& merged) {
+	// One baker at a time: m_bakeReq and m_bake are the running bake's, and a
+	// second launch would take them over.
+	if (m_baking) return loc::Format("map.type.bakebusy", m_bakeReq.name);
 	m_bakeReq = {};              // a wornblock-only bake, no CreateRequest data
 	m_bakeReq.textureSet = true; // routes StartBakeStep to the wornblock branch
-	m_bakeReq.catalogKey = catalogKey; // picks wall/floor/ceiling in StartBakeStep
-	m_bakeReq.name = texture;
-	m_bakeStep = 1;               // skip the texture-import step
-	m_bakeWear = wear;
-	m_bakeRelief = relief;
-	m_restyleBake = true;
-	if (StartBakeStep())
-		m_baking = true;
-	else {
-		log::Warn("wall style: could not launch AssetBaker");
-		m_restyleBake = false;
+	m_bakeReq.catalogKey = cfg.catalogKey; // picks wall/floor/ceiling in StartBakeStep
+	// The set as the Save would leave it: its `texture`, else the type's own id.
+	m_bakeReq.name = merged.Get("texture", cfg.id);
+	m_bakeStep = 1;              // skip the texture-import step
+	m_bakeWear = merged.GetFloat("wear", 1.0f);
+	// Unset passes -1: the baker takes the texture SET's own (Assets/WornSets.h),
+	// the depth `AssetBaker models` bakes it at, so a save that touched only
+	// `texture` or `wear` cannot reshape the set.
+	m_bakeRelief = merged.GetFloat("relief", -1.0f);
+	if (!StartBakeStep()) {
+		m_bakeWear = 1.0f;
+		m_bakeRelief = -1.0f;
+		return loc::Tr("newasset.err.launch");
 	}
+	m_baking = true;
+	m_restyleBake = true;
+	m_restyleCfg = cfg;
+	return {};
+}
+
+void Game::LandRestyleBake(int exitCode) {
+	m_baking = false;
+	m_restyleBake = false;
+	const TypeEditorDialog::Config cfg = std::exchange(m_restyleCfg, {});
+	// The dialog that made the Save, if it is still up on that type (`typeset
+	// dialog off` can close it under a bake, and open another).
+	const bool dialog = std::exchange(m_restyleFromDialog, false) && m_typeDialog.IsOpen() &&
+						m_typeDialog.CatalogKey() == cfg.catalogKey && m_typeDialog.Id() == cfg.id;
+	const Catalog* cat = m_project.CatalogForKey(cfg.catalogKey);
+	// A failed bake writes NOTHING: the catalog keeps the texture its worn meshes
+	// were baked for. So does a type renamed or deleted under the bake (only the
+	// console can), which a write would bring back under its old id.
+	if (exitCode != 0 || !cat || !cat->Find(cfg.id)) {
+		const std::string why = exitCode != 0
+									? loc::Format("map.type.bakefailed", cfg.id, exitCode)
+									: loc::Format("map.type.bakegone", cfg.id);
+		log::Warn("type editor: {} '{}' not saved - {}", cfg.catalogKey, cfg.id, why);
+		if (dialog) m_typeDialog.BakeFailed(why); // the form stays, its edits kept
+		if (m_world && m_world->onMessage) m_world->onMessage(why);
+		return;
+	}
+	WriteTypeFields(cfg);
+	log::Info("type editor: {} '{}' saved - its worn meshes baked", cfg.catalogKey, cfg.id);
+	// Swap the new worn geometry in live (if the world that asked for it is
+	// still the one loaded).
+	if (m_world) m_world->ReloadDungeonBlocks();
+	if (dialog) m_typeDialog.Close();
+	if (m_world && m_world->onMessage) m_world->onMessage(loc::View("map.wallstyle.applied"));
 }
 
 void Game::ApplyMonsterConfig(CatalogEntry& entry, const MonsterConfigDialog::Config& cfg) {

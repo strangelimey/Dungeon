@@ -389,12 +389,14 @@ $checks = @(
 	},
 	@{
 		name = 'bakerwrites'; tier = 'full'; needs = 'build-release'
-		what = 'the asset baker fails loudly: a read-only target is an error saying why, names are escaped, a bad map is said'
+		what = 'the asset baker fails loudly: a read-only target is an error saying why, names are escaped, a bad map is said; an import flips green as asked'
 		# tools\BakerWriteTest.py (code-review C416) runs the RELEASE baker into a
 		# scratch folder: `models`, `sounds` and an `import` over a read-only target
 		# each exit non-zero naming it and why and leave it alone; the WAVs stay
 		# the committed bytes; a found map that will not load is said; `rig-names`
-		# writes strict JSON. Its self-test gives every check group a fault and
+		# writes strict JSON; and (C393) an import flips a normal map's green by
+		# the GL token at the end of its name, or as --flip-green /
+		# --no-flip-green ask. Its self-test gives every check group a fault and
 		# demands exactly those checks fail.
 		run      = {
 			$l = @(python (Join-Path $root 'tools\BakerWriteTest.py') | ForEach-Object { Write-Host $_; $_ })

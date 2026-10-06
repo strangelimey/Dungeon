@@ -6,12 +6,15 @@
 //       are NOT baked - they're committed source under assets/ui/. Nor are the
 //       party portraits: a bought set in assets/portraits (see portrait-mips).
 //
-//   AssetBaker import <source-folder> <assets-dir> <output-name> [--flip-green]
+//   AssetBaker import <source-folder> <assets-dir> <output-name>
+//                     [--flip-green | --no-flip-green]
 //       Packs a downloaded PBR texture set (Poly Haven, ambientCG, Megascans,
 //       ...) into the engine format: <name>.png (albedo with AO baked in) and
 //       <name>_n.png (normal RGB + height in alpha). Maps are found by
-//       filename convention; OpenGL-style normals are flipped automatically
-//       when detectable, or forced with --flip-green.
+//       filename convention. An OpenGL-style normal map (green up) is flipped
+//       when its name ends in the GL token (Assets/PbrMaps.h), and
+//       --flip-green / --no-flip-green decide it outright either way - the
+//       editor always sends one (code-review C393).
 //
 //   AssetBaker mips <assets-dir> [<prefix>] [--force]
 //       Regenerates the derived .dds mip chains (gitignored) for every PNG in
@@ -88,6 +91,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -165,12 +169,23 @@ int main(int argc, char** argv) {
 	log::UseUtf8Console();
 
 	if (argc >= 2 && std::string(argv[1]) == "import") {
-		if (argc < 5) {
+		const auto usage = [] {
 			log::Error("usage: AssetBaker import <source-folder> <assets-dir> "
-					   "<output-name> [--flip-green]");
+					   "<output-name> [--flip-green | --no-flip-green]");
 			return 1;
+		};
+		if (argc < 5) return usage();
+		// Tri-state: asked on, asked off, or (neither) by the normal map's name.
+		// An unknown word or both flags is refused, not read as "neither".
+		std::optional<bool> flipGreen;
+		for (int i = 5; i < argc; ++i) {
+			const std::string flag = argv[i];
+			const std::optional<bool> asked = flag == "--flip-green"      ? std::optional(true)
+											  : flag == "--no-flip-green" ? std::optional(false)
+																		  : std::nullopt;
+			if (!asked || (flipGreen && *flipGreen != *asked)) return usage();
+			flipGreen = asked;
 		}
-		const bool flipGreen = argc >= 6 && std::string(argv[5]) == "--flip-green";
 		const std::string texturesDir = std::string(argv[3]) + "\\textures";
 		const std::string name = argv[4];
 		if (!baker::ImportPbrTextureSet(argv[2], texturesDir, name, flipGreen)) return 1;

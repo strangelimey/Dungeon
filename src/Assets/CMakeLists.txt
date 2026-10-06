@@ -2,6 +2,7 @@ add_library(Assets STATIC
 	Dds.cpp
 	File.cpp
 	Image.cpp
+	ImportFiles.cpp
 	Model.cpp
 	NodeTransform.cpp
 	ObjLoader.cpp

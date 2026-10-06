@@ -1817,13 +1817,29 @@ void Game::RegisterWorldCommands() {
 	// blocks, and the wait refuses rather than run on forever. What it exists for
 	// is EditorTest phase 30: a world switch asked while a bake runs is refused,
 	// and the bake lands in the world that started it (code-review C234).
+	// `bake hold` (code-review C346's judge, EditorTest phase 52): a finished bake
+	// lands only when `bake wait` lets it, one landing a wait, so what a script
+	// reads between a save and its landing cannot race a ~60 ms debug bake.
 	m_console.Register(
 		{.name = "bake",
 		 .group = CmdGroup::Types,
-		 .params = "[status]\nwait [seconds]",
-		 .summary = "the running asset bake; wait on the wall clock for its baker to exit"},
+		 .params = "[status]\nwait [seconds]\nhold [on|off]",
+		 .summary = "the running asset bake; wait on the wall clock for its baker to exit, "
+					"or hold a finished one until a wait"},
 		[this](const std::vector<std::string>& args) {
 			const std::string what = args.empty() ? "status" : args[0];
+			if (what == "hold") {
+				const std::string to = args.size() > 1 ? args[1] : "on";
+				if (to != "on" && to != "off") {
+					m_console.RefuseUsage();
+					return;
+				}
+				m_bakeHeld = to == "on";
+				m_bakeRelease = false;
+				m_console.Print(m_bakeHeld ? "bake hold: on - a finished bake lands after `bake wait`"
+										   : "bake hold: off");
+				return;
+			}
 			if (what == "wait") {
 				if (!m_baking) {
 					m_console.Refuse("bake wait: no bake is running");
@@ -1844,6 +1860,9 @@ void Game::RegisterWorldCommands() {
 												 m_bakeReq.name, secs));
 					return;
 				}
+				// Held, it lands on the next frame all the same: this wait lets ONE
+				// landing through.
+				m_bakeRelease = m_bakeHeld;
 				// A texture import is two runs (maps, then worn meshes): its first
 				// exit starts the second, which another `bake wait` waits out.
 				const bool more = m_bakeReq.textureSet && m_bakeStep == 0 && !m_restyleBake;
@@ -1857,9 +1876,10 @@ void Game::RegisterWorldCommands() {
 				m_console.RefuseUsage();
 				return;
 			}
-			m_console.Print(m_baking ? std::format("bake: running - {} '{}', step {}{}",
+			m_console.Print(m_baking ? std::format("bake: running - {} '{}', step {}{}{}",
 												   m_bakeReq.catalogKey, m_bakeReq.name,
-												   m_bakeStep, m_restyleBake ? " (a restyle)" : "")
+												   m_bakeStep, m_restyleBake ? " (a restyle)" : "",
+												   m_bakeHeld ? " [held]" : "")
 									 : std::string("bake: idle"));
 		});
 	m_console.Register(
@@ -1914,7 +1934,14 @@ void Game::RegisterWorldCommands() {
 			field.key = args[2];
 			field.value = value;
 			cfg.fields.push_back(std::move(field));
-			// The Save's own refusal (a model the category could not load, C301)
+			// A field whose schema row `rebakes` (a surface's texture, relief or
+			// wear) is a Save that bakes, as the dialog's would be (code-review
+			// C346): it used to be written with no bake at all, naming worn meshes
+			// that did not exist.
+			for (const FieldSpec& spec : SchemaFor(args[0]))
+				if (spec.rebakes && args[2] == spec.key) cfg.rebake = true;
+			// The Save's own refusal (a model the category could not load, C301; a
+			// surface set painted as another kind, or a bake already running)
 			// REFUSES here too: nothing was written.
 			if (const std::string refused =
 					m_typeDialog.onSave ? m_typeDialog.onSave(cfg) : std::string();
@@ -1923,8 +1950,16 @@ void Game::RegisterWorldCommands() {
 											 args[1], args[2], refused));
 				return;
 			}
-			m_console.Print(std::format("typeset {} '{}': {} = {}", args[0], args[1], args[2],
-										value.empty() ? "(removed)" : value));
+			// A bake launched: NOTHING is written yet - the Save lands with it, and
+			// only if it bakes clean (`bake wait`, then the next line sees it).
+			if (cfg.rebake && m_restyleBake)
+				m_console.Print(std::format("typeset {} '{}': {} = {} - baking its worn meshes; "
+											"written when the bake lands clean",
+											args[0], args[1], args[2],
+											value.empty() ? "(removed)" : value));
+			else
+				m_console.Print(std::format("typeset {} '{}': {} = {}", args[0], args[1],
+											args[2], value.empty() ? "(removed)" : value));
 		});
 	// The monster type's animation + behaviour dialog (the type editor's extra
 	// button), for a harness: the same calls its controls make (code-review

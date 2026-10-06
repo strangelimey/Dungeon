@@ -50,7 +50,9 @@
 // it cannot tell which sections the fault actually reached. Its verdict line
 // reads RESULT=FAIL (the checks did fail) with caught=1, and exits 0.
 // ============================================================================
+#include "Assets/ImportFiles.h"
 #include "Assets/Model.h"
+#include "Assets/PbrMaps.h"
 #include "Common/Verdict.h"
 #include "Core/Loc.h"
 #include "Core/Utf8.h"
@@ -3312,6 +3314,125 @@ int main(int argc, char** argv) {
 				  std::memcmp(&skinNode, &ident, sizeof(ident)) == 0);
 		CheckTrue("a static mesh's node is its own",
 				  std::memcmp(&tetNode, &tet.worldTransform, sizeof(tetNode)) == 0);
+	}
+
+	// --- an import's pool files (Assets/ImportFiles.cpp) ----------------------
+	// code-review C336: "To source" copies the files each imports.cat record
+	// owns, and found them by a bare prefix - a model `pot` took pottery's and
+	// potion's files, and a texture set's worn meshes were looked for as
+	// worn_<set>_2k*, which the baker never writes (worn_<set>_<tier>, by the
+	// BASE). Every case below is one the prefix rule got wrong or one the exact
+	// rule must keep. Die-free, so --self-test cannot reach it: NON-VACUOUS BY
+	// MUTATION (the prefix rule back, the resolution tag kept in the worn base -
+	// each fails its own rows).
+	{
+		std::printf("\nAn import's pool files (Assets/ImportFiles.cpp)\n");
+		namespace assets = dungeon::assets;
+		using assets::PoolDir;
+		struct Case {
+			const char* pool;
+			bool model;
+			PoolDir dir;
+			const char* file;
+			bool owns;
+		};
+		constexpr PoolDir kTex = PoolDir::Textures, kMod = PoolDir::Models;
+		const Case cases[] = {
+			// a MODEL import `pot`: its file, either extension, its sidecars...
+			{"pot", true, kMod, "pot.gltf", true},
+			{"pot", true, kMod, "pot.glb", true},
+			{"pot", true, kMod, "pot.gltf.3.dds", true},
+			{"pot", true, kMod, "pot.glb.12.dds", true},
+			// ...and not the models that merely start like it
+			{"pot", true, kMod, "pottery.gltf", false},
+			{"pot", true, kMod, "potion_vial.glb", false},
+			{"pot", true, kMod, "pot_lid.gltf", false},
+			{"pot", true, kMod, "pot.gltf.dds", false},
+			{"pot", true, kMod, "pot.gltf.x.dds", false},
+			{"pot", true, kMod, "pot.obj", false},
+			// its maps came in as the texture set pot_2k
+			{"pot", true, kTex, "pot_2k.png", true},
+			{"pot", true, kTex, "pot_2k_n.dds", true},
+			{"pot", true, kTex, "pot_2k_mr.png", true},
+			{"pot", true, kTex, "pottery_2k.png", false},
+			{"pot", true, kTex, "pot.png", false},
+			{"pot", true, kTex, "pot_2k_normal.png", false},
+			// a TEXTURE import pot_2k: its map trio, PNG and baked chain...
+			{"pot_2k", false, kTex, "pot_2k.png", true},
+			{"pot_2k", false, kTex, "pot_2k.dds", true},
+			{"pot_2k", false, kTex, "pot_2k_n.png", true},
+			{"pot_2k", false, kTex, "pot_2k_mr.dds", true},
+			{"pot_2k", false, kTex, "pottery_2k.png", false},
+			{"pot_2k", false, kTex, "pot_2kx.png", false},
+			{"pot_2k", false, kTex, "pot_1k.png", false},
+			// ...and the worn meshes baked from it, named by the BASE
+			{"pot_2k", false, kMod, "worn_pot_low.gltf", true},
+			{"pot_2k", false, kMod, "worn_pot_med.gltf", true},
+			{"pot_2k", false, kMod, "worn_pot_high.gltf", true},
+			{"pot_2k", false, kMod, "worn_pot_med_1lr.gltf", true},
+			{"pot_2k", false, kMod, "worn_pot_low_0l.gltf", true},
+			{"pot_2k", false, kMod, "worn_pot_high_3r.gltf", true},
+			{"pot_2k", false, kMod, "worn_pot_2k_med.gltf", false},
+			{"pot_2k", false, kMod, "worn_pottery_med.gltf", false},
+			{"pot_2k", false, kMod, "worn_pot_x_med.gltf", false},
+			{"pot_2k", false, kMod, "worn_pot_medium.gltf", false},
+			{"pot_2k", false, kMod, "worn_pot_med.glb", false},
+			{"pot_2k", false, kMod, "worn_pot_med_.gltf", false},
+			{"pot_2k", false, kMod, "worn_pot_med_1x.gltf", false},
+			{"pot_2k", false, kMod, "pot.gltf", false},
+			// a base that is another set's whole name plus more
+			{"stone_2k", false, kMod, "worn_stone_wall_med.gltf", false},
+			{"stone_wall_2k", false, kMod, "worn_stone_wall_med.gltf", true},
+		};
+		int wrong = 0;
+		for (const Case& c : cases)
+			if (assets::ImportOwnsFile(c.pool, c.model, c.dir, c.file) != c.owns) {
+				++wrong;
+				std::printf("    judged wrongly: %s import '%s', %s\\%s (should %sown it)\n",
+							c.model ? "model" : "texture", c.pool,
+							c.dir == kTex ? "textures" : "models", c.file, c.owns ? "" : "not ");
+			}
+		Check("pool files an import is judged wrongly on", wrong, 0, 0);
+		CheckTrue("a model `pot` owns pot.gltf, not pottery.gltf",
+				  assets::ImportOwnsFile("pot", true, kMod, "pot.gltf") &&
+					  !assets::ImportOwnsFile("pot", true, kMod, "pottery.gltf"));
+		CheckTrue("set pot_2k owns worn_pot_med.gltf",
+				  assets::ImportOwnsFile("pot_2k", false, kMod, "worn_pot_med.gltf"));
+		CheckTrue("set pot_2k's base is pot", assets::TextureSetBase("pot_2k") == "pot" &&
+												  assets::TextureSetBase("pot_4k") == "pot" &&
+												  assets::TextureSetBase("pot") == "pot" &&
+												  assets::TextureSetBase("_2k") == "_2k");
+	}
+
+	// --- the GL token of a normal map's name (Assets/PbrMaps.cpp) ---------------
+	// code-review C393: any "gl" anywhere in the name flipped the green, so a
+	// DirectX map of a set named for, say, a glossy tile was turned upside down.
+	// The token counts only at the END of the name, a resolution tag aside. Each
+	// name below is the shape of a real download (the archive's FreePBR "ogl",
+	// Poly Haven "nor_gl_2k" / "nor_dx_1k", ambientCG "NormalGL"). Die-free:
+	// NON-VACUOUS BY MUTATION (the old contains-"gl" test fails the "no" rows,
+	// a test that ignores the resolution tag fails Poly Haven's).
+	{
+		std::printf("\nThe GL token of a normal map's name (Assets/PbrMaps.cpp)\n");
+		const char* const gl[] = {"arch1-normal_ogl", "concrete1_Normal-ogl",
+								  "castle_brick_nor_gl_2k", "rock_face_nor_gl", "Rock023_1K_NormalGL",
+								  "tiles_normal_GL_4K"};
+		const char* const dx[] = {"jungle_normal", "glossy-marble-tile_normal-dx",
+								  "angled-tiled-floor_normal-dx", "bamboo-wood-semigloss-normal",
+								  "seaworn_stone_tiles_nor_dx_1k", "glyph_n", "normal", ""};
+		int wrongGl = 0, wrongDx = 0;
+		for (const char* s : gl)
+			if (!dungeon::assets::NormalNameLooksGl(s)) {
+				++wrongGl;
+				std::printf("    not read as GL: %s\n", s);
+			}
+		for (const char* s : dx)
+			if (dungeon::assets::NormalNameLooksGl(s)) {
+				++wrongDx;
+				std::printf("    read as GL: '%s'\n", s);
+			}
+		Check("GL-named normal maps not read as GL", wrongGl, 0, 0);
+		Check("other normal maps read as GL", wrongDx, 0, 0);
 	}
 
 	// --- verdict ------------------------------------------------------------

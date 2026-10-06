@@ -126,7 +126,9 @@ items `name = item.<id>` + `weight`/`holdable`, monsters hp/damage/iq).
 the schema; footer Save / Delete / Close; Esc closes. Writes through one shared
 `Game::WriteTypeFields(catalogKey, id, fields)` that starts from the existing
 entry so **unknown fields survive the round-trip** (the `WriteWallStyle` /
-`WriteMonsterAnim` rule). Fields flagged `rebakes` route to `StartRestyleBake`.
+`WriteMonsterAnim` rule). Fields flagged `rebakes` route to `StartRestyleBake`
+- which, since code-review C346, holds the Save until the bake lands clean
+(`LandRestyleBake`) instead of writing first and baking after.
 
 **Custom sections.** A `virtual BuildContent()`-style hook, exactly as
 `InstanceInspector` does it: Monsters embed the existing animation/behaviour tabs
@@ -323,7 +325,12 @@ already installed unless `-Force`.
 The belt: `synctosource` also copies the manifest's asset FILES out of the
 exe-side pool into the source tree. They stay gitignored, but the source tree is
 what a build copies from and what a new worktree is provisioned from — leaving
-them build-only meant the next `build/` wipe took them.
+them build-only meant the next `build/` wipe took them. (Code-review C336: it
+found them by a bare name prefix, so it looked for a set's worn meshes as
+worn_<set>_2k* and copied none, and took pottery's files for a model `pot`.
+`assets::ImportOwnsFile`, Assets/ImportFiles.h, now names each record's files
+exactly; RollTest checks it. And `flip_green` is written 1 OR 0 since C393, the
+flip the import was made with, which the replay passes back either way.)
 
 `surface` is in the manifest because the worn block meshes are baked per kind
 but named per SET (`worn_<set>_<tier>.gltf`, one per set) — the first version of

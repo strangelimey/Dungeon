@@ -61,7 +61,7 @@ PbrMapSet DiscoverPbrMaps(const std::string& sourceDir) {
 				   (ContainsAny(stem, {"normal", "_nor", "_nrm"}) ||
 					EndsWithAny(stem, {"_n"}))) {
 			found.normal = path;
-			found.normalLooksGl = ContainsAny(stem, {"gl"});
+			found.normalLooksGl = NormalNameLooksGl(stem);
 		} else if (found.height.empty() &&
 				   ContainsAny(stem, {"height", "displacement", "_disp", "bump"})) {
 			found.height = path;
@@ -84,6 +84,31 @@ PbrMapSet DiscoverPbrMaps(const std::string& sourceDir) {
 		}
 	}
 	return found;
+}
+
+bool NormalNameLooksGl(std::string_view stem) {
+	const auto separator = [](char c) { return c == '_' || c == '-' || c == '.' || c == ' '; };
+	const auto lower = [](char c) {
+		return static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+	};
+	// The stem's tokens, walked from the end; separators between them skipped.
+	size_t end = stem.size();
+	const auto previousToken = [&]() -> std::string_view {
+		while (end > 0 && separator(stem[end - 1])) --end;
+		size_t begin = end;
+		while (begin > 0 && !separator(stem[begin - 1])) --begin;
+		const std::string_view token = stem.substr(begin, end - begin);
+		end = begin;
+		return token;
+	};
+	// A resolution tag is digits and a 'k': Poly Haven names end "_nor_gl_2k".
+	const auto resolution = [&](std::string_view t) {
+		return t.size() >= 2 && lower(t.back()) == 'k' &&
+			   std::all_of(t.begin(), t.end() - 1, [](char c) { return c >= '0' && c <= '9'; });
+	};
+	std::string_view token = previousToken();
+	if (resolution(token)) token = previousToken();
+	return token.size() >= 2 && lower(token[token.size() - 2]) == 'g' && lower(token.back()) == 'l';
 }
 
 } // namespace dungeon::assets

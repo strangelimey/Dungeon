@@ -12,7 +12,9 @@
 #     [mywall_2k]              ; the POOL asset name, not the catalog id
 #     kind = texture           ; texture | model
 #     source = C:\Users\...\OneDrive\DungeonAssets\2k\walls\foo
-#     flip_green = 1           ; optional, textures only
+#     flip_green = 1           ; textures: 1 = the green was flipped, 0 = it was
+#                              ; not (absent, as in an older record: by the
+#                              ; normal map's name)
 #     surface = wall           ; a surface set: the kind its worn meshes bake as
 #
 # This script replays them: for each entry whose asset is missing, it re-runs
@@ -132,7 +134,10 @@ foreach ($e in $entries) {
         $bakerArgs = @("import-model", $source, $assets, $id)
     } else {
         $bakerArgs = @("import", $source, $assets, $id)
+        # The flip the import was made with, either way (code-review C393): the
+        # editor always tells the baker, so a replay must not guess again.
         if ($e.flip_green -eq "1") { $bakerArgs += "--flip-green" }
+        elseif ($e.flip_green -eq "0") { $bakerArgs += "--no-flip-green" }
     }
 
     # A surface set also needs its worn block meshes - the editor's second bake

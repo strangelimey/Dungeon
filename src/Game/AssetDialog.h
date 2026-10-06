@@ -25,7 +25,9 @@
 // For an import, the dialog reports what AssetBaker will find BEFORE the bake:
 // assets::DiscoverPbrMaps (the baker's own role detection, shared) lists the
 // maps it recognised, warns when the height map is missing, and offers the
-// flip-green override for GL-convention normals whose filename lacks the token.
+// flip-green checkbox, ticked when the normal map's name ends in the GL token.
+// Its state is the DECISION, sent to the baker on or off (code-review C393):
+// a GL map whose name lacks the token is ticked by hand, a wrong guess unticked.
 // The preview pane shows the picked mesh, or a block wearing the picked texture
 // set — including one that is still just PNGs in a download folder.
 //
@@ -75,7 +77,7 @@ public:
 		std::string group;       // optional `category` field (palette sub-accordion)
 		std::string sourcePath;  // Import: the picked model file or texture folder
 		std::string asset;       // Installed: pool asset name; Duplicate: source id
-		bool flipGreen = false;  // Import: force the normal map's green channel flip
+		bool flipGreen = false;  // Import: flip the normal map's green, or not - always sent
 		gfx::MaterialParams material; // metallic/roughness/height + fallback color
 		// Which sliders the user MOVED from their opening values. Untouched ones
 		// are not written to the catalog, so an imported model's own maps stay

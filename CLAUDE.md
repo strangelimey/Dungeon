@@ -979,12 +979,19 @@ sixteen kinds in another kind's pose; each kind now owns its icon pose).
   BakeAllMips over assets/textures and BakeModelImageMips (the embedded-image
   sidecars). Title art (assets/ui/title_bg.png) and the party portraits are
   NOT baked: the one is committed art, the others bought (see below).
-- `AssetBaker import <folder> <assets> <name> [--flip-green]` — packs a
-  downloaded PBR set into three files: <name>.png (albedo), <name>_n.png
+- `AssetBaker import <folder> <assets> <name> [--flip-green | --no-flip-green]`:
+  packs a downloaded PBR set into three files: <name>.png (albedo), <name>_n.png
   (normal, height in alpha), <name>_mr.png (ORM: R=occlusion, G=roughness,
   B=metallic). Auto-detects maps by filename; flips GL normals; bakes all
   three to BC7 DDS. (AO is no longer multiplied into albedo — it rides the
-  ORM map.)
+  ORM map.) THE GREEN FLIP IS TRI-STATE (code-review C393): with neither flag
+  it goes by the normal map's name - the GL token at its END, past a
+  resolution tag (`_nor_gl_2k`, `-normal-ogl`, `_NormalGL`; `assets::
+  NormalNameLooksGl`), never a "gl" inside a word, which flipped a DirectX map
+  of a set named for a glossy tile - and either flag decides it outright. The
+  editor ALWAYS sends one (its checkbox, pre-ticked by the name) and records it
+  as imports.cat `flip_green = 1|0`, which ReplayImports passes back. Checked by
+  RollTest (the token) and BakerWriteTest's FLIP group (the packed green).
 - `AssetBaker import-model <model-file|folder> <assets> <name> [--height M]
   [--yaw deg] [--up y|z]` — imports an authored/bought model (.gltf/.glb/.obj):
   merges all meshes into one (WriteGltf is single-mesh), normalizes scale
@@ -2446,7 +2453,9 @@ palette on creation (Phase 1's seam), since otherwise it would be unreachable.
 An import REPORTS what it will do first: assets::DiscoverPbrMaps (moved out of
 AssetBaker into Assets so the dialog and the baker cannot disagree) lists the
 maps recognised in the folder, warns when no height map means flat parallax, and
-pre-ticks the --flip-green override from the normal map's filename. The preview
+pre-ticks the flip-green checkbox from the normal map's name (the GL token at its
+end) - a box whose state is SENT either way, --flip-green or --no-flip-green
+(C393: only the first existed, so unticking a wrong guess did nothing). The preview
 pane shows the picked mesh, or wall_block.gltf wearing the picked texture set —
 including one still loose in a download folder, since the maps are loaded from
 their source files. A failed bake now lands in the dialog with the exit code
@@ -2465,7 +2474,12 @@ missing ones (re-rooting a source path from another machine onto this one's
 OneDrive archive; a surface's worn bake takes the relief / wear its type's
 catalog entry carries, as the editor's save does), and `synctosource` now also copies the manifest's asset FILES
 from the exe-side pool into the source tree, so a `build/` wipe doesn't take
-them. NOTE the naming rule an editor import must follow: a PBR set installs under
+them - EXACTLY a record's files, by the name each writer gives them
+(`assets::ImportOwnsFile`, Assets/ImportFiles.h, in RollTest; code-review C336):
+a set's map trio and its worn meshes worn_<BASE>_<tier>, a model's file, sidecars
+and <name>_2k maps. It matched a bare prefix: a set's worn meshes were sought as
+worn_<set>_2k*, which nothing writes, and a model `pot` took pottery's files too.
+NOTE the naming rule an editor import must follow: a PBR set installs under
 its RESOLUTION-tagged name (`<set>_2k` — LoadPbrSet's universal fallback) while
 the catalog's `texture` field names the BASE; the worn-block bake takes the base
 and finds the height map at any installed resolution. EXCEPT the three surface categories,
@@ -2597,9 +2611,20 @@ SurfaceSwatchForId, C158 - the sRGB albedo drew far too dark), for the palette,
 a theme's rows and the editor map's cell fill alike; a lookup that finds none
 ASKS for it and Game::Update loads a couple a frame (LoadWantedSwatches). NO
 live apply (a type is referenced by every placement
-and, for surfaces, by baked geometry): Save writes the .cat and, when a touched
-field is `rebakes` (a surface's texture/relief/wear), re-runs the wornblock bake
-behind the busy overlay - and REFUSES, writing nothing, an entry whose model its
+and, for surfaces, by baked geometry): Save writes the .cat - but when a touched
+field is `rebakes` (a surface's texture/relief/wear) it runs the wornblock bake
+FIRST, behind the busy overlay, and writes the Save only when that bake LANDS
+CLEAN (`Game::LandRestyleBake`; code-review C346 - it wrote first, so a bake
+that failed, one already running or a baker that would not start left a
+`texture` whose worn meshes were never made, and the next level load aborted).
+A failed bake writes nothing and leaves the form open saying why, a clean one
+writes the Save and closes the form that made it; a second
+re-baking save while a bake runs is refused, and so is a set painted as another
+surface kind (AdoptSurfaceSet's rule, C407); `typeset` of such a field bakes the
+same way (it used to write with no bake at all), and `bake hold [on|off]` keeps
+a finished bake from landing until `bake wait`, so a harness can read the
+catalog mid-bake (EditorTest phase 52). Save also REFUSES, writing nothing, an
+entry whose model its
 category could not load (code-review C301: the reason becomes the form's notice;
 `typeset` refuses with it; `typeset dialog pick <field> <asset>` is the picker's
 hand-back for a script). A surface's PER-DRAW knobs are the exception —

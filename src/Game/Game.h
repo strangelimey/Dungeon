@@ -350,12 +350,19 @@ private:
 	// The entry WriteTypeFields would write, unwritten - what the Save's model
 	// check judges before anything reaches the catalog.
 	CatalogEntry MergedTypeEntry(const TypeEditorDialog::Config& cfg) const;
-	// Re-bakes a surface type's worn block meshes (its `texture` set at the
-	// type's relief/wear) and, on success, reloads the dungeon blocks in place.
-	// Launches the async wornblock bake; the caller freezes its dialog
-	// meanwhile. `relief` < 0 bakes at the texture set's own (Assets/WornSets.h).
-	void StartRestyleBake(const std::string& catalogKey, const std::string& texture,
-						  float wear, float relief);
+	// The type editor's Save of a `rebakes` field (a surface's texture, relief
+	// or wear): launches the async wornblock bake of `merged`'s texture set at
+	// its relief/wear (relief unset bakes at the set's own, Assets/WornSets.h)
+	// and holds `cfg` UNWRITTEN until the bake lands (LandRestyleBake). Returns
+	// "" when the bake was launched, else why nothing was: a bake already
+	// running, or a baker that would not start. Writing first and baking after
+	// (code-review C346) left a failed bake's new `texture` in the catalog, and
+	// the next level load aborted on worn meshes that were never made.
+	std::string StartRestyleBake(const TypeEditorDialog::Config& cfg, const CatalogEntry& merged);
+	// The restyle bake's end, from Update's poll: on a clean exit the held Save
+	// is written and the dungeon blocks reload; on a failure NOTHING is written,
+	// and the type editor (if it made the Save) stays open saying so.
+	void LandRestyleBake(int exitCode);
 	// Opens the type editor for a catalog id (the palette's right-click), or
 	// does nothing when the catalog/entry is unknown.
 	void OpenTypeEditor(MapEditor::PaletteCat cat, const std::string& id);
@@ -1589,8 +1596,21 @@ private:
 	float m_bakeRelief = -1.0f;
 	// True while the running bake is a surface type's RESTYLE - the type editor
 	// saved a `rebakes` field (StartRestyleBake). No new catalog entry; on
-	// success reload the dungeon blocks in place instead of FinishBake.
+	// success LandRestyleBake writes the held Save and reloads the dungeon
+	// blocks in place, instead of FinishBake.
 	bool m_restyleBake = false;
+	// The Save the restyle bake is for, written only once it lands clean
+	// (C346), and whether the open type editor made it (`typeset` saves with
+	// none open, and must not close or unfreeze an unrelated one).
+	TypeEditorDialog::Config m_restyleCfg;
+	bool m_restyleFromDialog = false;
+	// HARNESS (`bake hold`): a finished bake does not land until `bake wait`
+	// releases it - one landing per wait, the hold kept for the next (an import's
+	// second run) until `bake hold off`. A debug wornblock bake takes ~60 ms, a
+	// handful of headless frames, so without it what a script reads "while the
+	// bake runs" - or a `bake wait` itself - raced the landing.
+	bool m_bakeHeld = false;
+	bool m_bakeRelease = false;
 
 	// Child process launched to restart the game on an adapter change (it
 	// outlives us; we quit right after).
