@@ -873,7 +873,7 @@ void Game::RegisterWorldCommands() {
 	m_console.Register(
 		{.name = "levelcheck",
 		 .group = CmdGroup::Levels,
-		 .summary = "check level files exist and every model a type names is installed"},
+		 .summary = "check level files, the models types name, and the pool's normal maps"},
 		[this](const std::vector<std::string>&) {
 			// WHAT THIS GUARDS, and why it is scoped this narrowly: the baked pool
 			// (assets/models, assets/textures) is GITIGNORED, so a fresh clone — or
@@ -917,12 +917,25 @@ void Game::RegisterWorldCommands() {
 				}
 			}
 
+			// THE POOL'S NORMAL MAPS (code-review C471). An albedo with no `_n`
+			// beside it at its resolution loads FLAT - no relief, no parallax, one
+			// warning at load (LoadNormalMapFile) - which is survivable, so it is
+			// counted and named rather than failed: the same asymmetry as above.
+			// The whole pool, not only the sets a catalog names, because a
+			// partly provisioned set is exactly the gap this command exists for,
+			// whichever set it hits.
+			const std::vector<std::string> flat = TextureStemsMissingNormals();
+			for (const std::string& stem : flat) {
+				m_console.Print(std::format("  NO NORMAL MAP {} - it loads flat", stem));
+				log::Warn("levelcheck: no normal map for {} (it loads flat)", stem);
+			}
+
 			const bool ok = missingModels == 0 && missingFiles == 0;
 			const std::string verdict = std::format(
 				"levelcheck RESULT={} levels={} types={} missing_models={} "
-				"missing_files={} installed_models={}",
+				"missing_files={} installed_models={} missing_normals={}",
 				ok ? "PASS" : "FAIL", m_project.levels.size(), types, missingModels,
-				missingFiles, installed.size());
+				missingFiles, installed.size(), flat.size());
 			m_console.Print(verdict);
 			log::Info("{}", verdict); // the harness reads this from dungeon.log
 		});

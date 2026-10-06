@@ -161,6 +161,36 @@ struct ModelData {
 	std::vector<AnimationClipData> clips;  // empty if no animations
 };
 
+// The CPU bytes a model's embedded images hold: the decoded `images` plus the
+// baked `imageMips` chains. Once a renderer has uploaded them nothing reads them
+// again, so a long-lived cache drops them (ReleaseImages) instead of keeping a
+// copy of VRAM in RAM for the life of the world (code-review C222).
+inline u64 ImageBytes(const ModelData& model) {
+	u64 bytes = 0;
+	for (const ImageData& img : model.images) bytes += img.pixels.size();
+	for (const MipChain& chain : model.imageMips)
+		for (const TextureLevel& level : chain.levels) bytes += level.data.size();
+	return bytes;
+}
+
+// Frees the image storage and KEEPS THE SLOTS: `images` and `imageMips` keep
+// their sizes with every entry emptied, so a material's image index still names
+// a slot rather than running off the end of a shorter vector. The model is then
+// no longer something textures can be built from (ImagesReleased).
+inline void ReleaseImages(ModelData& model) {
+	for (ImageData& img : model.images) {
+		std::vector<u8>().swap(img.pixels);
+		img.width = img.height = 0;
+	}
+	for (MipChain& chain : model.imageMips) std::vector<TextureLevel>().swap(chain.levels);
+}
+
+// Whether the images are gone (ReleaseImages ran): image slots, and not one
+// byte behind any of them.
+inline bool ImagesReleased(const ModelData& model) {
+	return !model.images.empty() && ImageBytes(model) == 0;
+}
+
 struct LoadOptions {
 	// Use each embedded image's BAKED sidecar (EmbeddedImageSidecar - a BC7 mip
 	// chain written by `AssetBaker mips`) when it is at least as new as the

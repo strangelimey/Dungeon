@@ -184,6 +184,32 @@ std::unique_ptr<gfx::Texture> LoadTextureFile(gfx::GraphicsDevice& device,
 	return MakePlaceholderTexture(device, srgb);
 }
 
+std::unique_ptr<gfx::Texture> LoadNormalMapFile(gfx::GraphicsDevice& device,
+												const std::string& albedoStem,
+												const std::string& setName, bool* flat) {
+	const std::string stem = albedoStem + "_n";
+	auto texture = TryLoadTextureFile(device, stem); // linear
+	if (flat) *flat = !texture;
+	if (texture) return texture;
+	// FLAT, not the checker: a normal map is data, and the checker's magenta and
+	// black decode to normals tilted half away from every light. 4x4 rather than
+	// 1x1 so the runtime mip build has a level to halve.
+	log::Warn("texture set '{}' has no normal map ({}) - drawn flat: no relief, no "
+			  "parallax; re-import the set to restore it",
+			  setName, stem);
+	constexpr u32 kDim = 4;
+	assets::ImageData img;
+	img.width = img.height = kDim;
+	img.pixels.resize(static_cast<size_t>(kDim) * kDim * 4);
+	for (size_t p = 0; p < img.pixels.size(); p += 4) {
+		img.pixels[p + 0] = 128; // x = 0
+		img.pixels[p + 1] = 128; // y = 0
+		img.pixels[p + 2] = 255; // z = 1: straight out of the surface
+		img.pixels[p + 3] = 255; // height 1 = the top: the parallax march stops
+	}
+	return std::make_unique<gfx::Texture>(device, img, /*srgb*/ false);
+}
+
 // --- pool listings (see the header) -----------------------------------------
 
 namespace {
@@ -289,6 +315,31 @@ std::vector<AssetInfo> InstalledTextureSetInfo() {
 		it->bytes += entry.file_size(ec);
 	}
 	std::ranges::sort(out, {}, &AssetInfo::name);
+	return out;
+}
+
+std::vector<std::string> TextureStemsMissingNormals() {
+	namespace fs = std::filesystem;
+	// Every map's stem (.dds and .png alike: either one loads), then the albedos
+	// among them asked whether their `_n` is there too.
+	std::vector<std::string> stems;
+	std::error_code ec;
+	for (const auto& entry : fs::directory_iterator(paths::Asset("textures"), ec)) {
+		if (ec || !entry.is_regular_file()) continue;
+		const std::string ext = entry.path().extension().string();
+		if (ext == ".dds" || ext == ".png") stems.push_back(entry.path().stem().string());
+	}
+	std::ranges::sort(stems);
+	std::vector<std::string> out;
+	for (const std::string& stem : stems) {
+		std::string name;
+		u32 res = 0;
+		bool normal = false, orm = false;
+		if (!SplitSetStem(stem, name, res, normal, orm) || normal || orm) continue;
+		if (!std::ranges::binary_search(stems, stem + "_n") &&
+			(out.empty() || out.back() != stem)) // a .dds and a .png: one stem
+			out.push_back(stem);
+	}
 	return out;
 }
 

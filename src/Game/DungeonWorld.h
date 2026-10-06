@@ -91,14 +91,17 @@ public:
 	// per-material tasks keep the progress bar moving through them.
 	void AppendLoadTasks(LoadQueue& queue);
 
-	// Hot-swaps the dungeon meshes (and textures, when crossing a resolution
-	// boundary) for the settings' new quality tier, if they are already
-	// built. Drains the GPU first — it may still be reading the old data.
+	// Hot-swaps the dungeon meshes for the settings' new quality tier, and when
+	// the swap crosses a resolution boundary every texture set loaded at a tier:
+	// the surfaces AND every prop set (props, doors, fixtures, monsters, runes -
+	// ReloadPropTextures, in place). Drains the GPU first - it may still be
+	// reading the old data.
 	void ApplyQuality(bool textureResChanged);
 
 	// Reloads the worn block meshes and rebuilds the batched dungeon geometry in
-	// place (the ApplyQuality core). The editor's Wall Style rebake calls this
-	// after re-baking a texture's worn_*.gltf to swap the new geometry in live.
+	// place (the ApplyQuality core). A surface type's RESTYLE (the type editor
+	// saving a `rebakes` field - Game::StartRestyleBake) calls this after
+	// re-baking a texture's worn_*.gltf, to swap the new geometry in live.
 	void ReloadDungeonBlocks(bool textureResChanged = false);
 	// Re-reads the surface catalogs' PER-DRAW material knobs (parallax depth,
 	// metallic/roughness) and pushes them live — no reload, no rebuild. The type
@@ -2429,6 +2432,32 @@ public:
 	std::string DescribeDoorShadow(int x, int z) const;
 	// The harness's mutations of the cache (ShadowScheduler::Ignore).
 	void SetShadowIgnore(bool notes, bool moves) { m_shadows.Ignore(notes, moves); }
+
+	// --- what the load paths leave resident (code-review C154, C222, C471) -----
+	// The texture readout (dev console `textures`): a head line - the tier, the
+	// SRV gauge, how many surface and prop sets are loaded and how many are
+	// STALE (loaded for a tier that is not the current one: a quality swap must
+	// leave none) - then a line per surface set and per prop set with the tier it
+	// was asked for and the size its albedo actually loaded at, a prop's normal
+	// map reading `flat` when the set has none. Eval.ps1 -SelfTest reads it
+	// across Low -> Ultra -> Low.
+	std::vector<std::string> DescribeTextures() const;
+	// Loads a texture set exactly as a prop asks for one (LoadPropTextures, so it
+	// stays cached and swaps with the rest) and returns its readout line, or a
+	// line saying it is not installed. The harness's way to load a set no level
+	// names: `textures load <set>`.
+	std::string ProbeTextureSet(const std::string& set);
+	// The model cache's readout (dev console `modelcache`): a head line - files,
+	// how many built a multi-material model, how many still PIN CPU image bytes,
+	// and those bytes - then a line per pinning file.
+	std::vector<std::string> DescribeModelCache() const;
+	// The END OF A LOAD (Game::RunLoadTasks, the frame the last task lands):
+	// drops the CPU images every cached model still holds. A multi-material
+	// model released its own the moment it was uploaded (ModelMulti); what is left
+	// here is a file only ever drawn single-mesh, whose embedded images nothing
+	// reads at all. A later ModelMulti of such a file re-reads it (and says so).
+	// Returns the bytes released.
+	u64 ReleaseModelImages();
 	// Toggle volumetric dust (off feeds the renderer clear air).
 	void SetDustEnabled(bool on) { m_dustEnabled = on; }
 	bool DustEnabled() const { return m_dustEnabled; }
@@ -3296,9 +3325,17 @@ private:
 	// carry no per-frame state and stay out of the save (static = .map only).
 	// A textured material set shared by props (loaded once per set name). Mirrors
 	// Surface but single-variant: albedo (sRGB) + normal/height + ORM, linear.
+	// Kinds hold a POINTER to one, so the entry itself never moves or dies: a
+	// quality swap replaces its maps in place (ReloadPropTextures).
 	struct PropTextures {
 		std::unique_ptr<gfx::Texture> albedo, normal, mr;
 		float heightScale = 0.0f;
+		// The tier the maps were asked for (GameSettings::TextureSuffix) - what a
+		// swap compares, as Surface::loadedRes is. A prop set installed only at
+		// 2k reads "4k" at Ultra and holds the 2k fallback; that is the tier
+		// asked for, not the size loaded (the `textures` readout shows both).
+		std::string res;
+		bool flatNormal = false; // no `_n` map: the flat placeholder (C471)
 	};
 	struct DecorationKind {
 		std::shared_ptr<const assets::ModelData> model; // via the model cache
@@ -3457,11 +3494,18 @@ private:
 	// variant arrays, props copy it into a PropTextures.
 	struct PbrMaps {
 		std::unique_ptr<gfx::Texture> albedo, normal, mr;
+		// The set has no `_n` map, so `normal` is the FLAT placeholder
+		// (LoadNormalMapFile): no relief, no parallax. One warning said so.
+		bool flatNormal = false;
 	};
 	// Loads a PBR set by base name at the current quality tier, falling back to
-	// the always-present 2k set. `required` (surfaces) dies if even the albedo is
-	// missing; otherwise (props) returns maps with a null albedo so the caller
-	// keeps its flat material. The single source of the res→2k fallback.
+	// the always-present 2k set. `required` (surfaces) never comes back without
+	// an albedo: a set missing even at 2k gets the magenta checker placeholder
+	// (LoadTextureFile) and a warning - a provisioning gap, not a crash.
+	// Otherwise (props) a missing set returns a null albedo so the caller keeps
+	// its flat material. A missing `_n` map is a flat normal and one warning
+	// (code-review C471), never the magenta checker read as a normal. The
+	// single source of the res->2k fallback.
 	PbrMaps LoadPbrSet(const std::string& name, bool required);
 
 	void LoadDungeonBlocks();      // loads the worn block set for the quality tier
@@ -3470,6 +3514,9 @@ private:
 							 float heightScale);
 	void LoadTextureSet(const SurfaceDef& def); // resets, then loads the set
 	void LoadAllSurfaceTextures(); // reloads every set (quality hot-swap)
+	// The full surface bake: builds every chunk's geometry, then DRAINS THE GPU
+	// and replaces the old chunk meshes. The drain is its own (code-review C193):
+	// a caller need not remember one, and `arena` and the eval `reset` did not.
 	void BuildDungeonMeshes();
 	void LoadMonsters();
 	void LoadItems(); // instantiates EntityKind::Item records (runes) from .ent
@@ -3633,6 +3680,14 @@ private:
 	// + linear normal/height + ORM, with the same res→2k fallback as surfaces.
 	// Returns null only if even the 2k albedo is missing.
 	const PropTextures* LoadPropTextures(const std::string& set);
+	// THE QUALITY SWAP'S HALF FOR PROPS (code-review C154): every cached prop set
+	// whose tier is not the settings' current one is reloaded IN PLACE - the
+	// entry, and so every kind's pointer to it, stays; its three maps are freed
+	// and loaded again at the new tier. Before this only the surfaces swapped, so
+	// Low -> Ultra left 1k doors beside 4k walls and Ultra -> Low kept the props'
+	// 4k VRAM. The caller DRAINS first (in-flight frames sample the old maps).
+	// Returns how many sets it reloaded.
+	int ReloadPropTextures();
 	// Binds an albedo+normal+ORM trio onto a material (factors at 1.0 so the ORM
 	// drives metallic/roughness per-texel), or a flat color + roughness fallback
 	// when there is no albedo. The shared core of every textured draw — props and
@@ -3662,7 +3717,9 @@ public:
 private:
 	// Builds an authored model's own GPU resources (one texture per embedded glTF
 	// image, one submesh per primitive with its material) for the multi-material
-	// decoration path.
+	// decoration path. `model` must still HOLD its images: a model whose images
+	// were released (assets::ReleaseImages) is refused by an assert, since it
+	// would build every texture from an empty image.
 	static std::unique_ptr<MultiMaterialModel> BuildMultiMaterialModel(
 		gfx::GraphicsDevice& device, const assets::ModelData& model);
 	// Bakes the entry's metallic=/roughness=/color= overrides into an authored
@@ -3680,7 +3737,9 @@ private:
 	std::shared_ptr<const assets::ModelData> ModelFile(const std::string& file);
 	std::shared_ptr<gfx::Mesh> ModelMesh(const std::string& file); // meshes[0]
 	// A per-kind COPY sharing the file's GPU meshes and textures, so the caller
-	// may bake its own material overrides into it.
+	// may bake its own material overrides into it. The first call uploads the
+	// file's embedded images and then RELEASES them from the cached ModelData
+	// (code-review C222): every later copy shares the GPU textures instead.
 	std::unique_ptr<MultiMaterialModel> ModelMulti(const std::string& file);
 	// Drops a file so its next use reads it off disk again (a type the editor
 	// just saved). Kinds still holding the old copy keep it until they reload.
@@ -5153,9 +5212,15 @@ private:
 	// on first ask, so a file only ever drawn as a multi-material model never
 	// uploads a single-mesh copy it would not use, and vice versa.
 	struct CachedModel {
-		std::shared_ptr<const assets::ModelData> data;
+		// NOT const here, though every kind holds it as const: the cache alone
+		// may drop the file's CPU images (assets::ReleaseImages) once they are
+		// uploaded, which no holder reads (code-review C222).
+		std::shared_ptr<assets::ModelData> data;
 		std::shared_ptr<gfx::Mesh> mesh;                 // meshes[0]
 		std::shared_ptr<const MultiMaterialModel> multi; // the template ModelMulti copies
+		// The images are gone from `data` (uploaded into `multi`, or swept at
+		// the end of a load); a multi built after that must read the file again.
+		bool imagesReleased = false;
 	};
 	std::unordered_map<std::string, CachedModel> m_modelCache;
 	std::vector<Decoration> m_decorations;

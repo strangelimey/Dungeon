@@ -60,7 +60,12 @@ class GraphicsDevice {
 public:
 	// preferredAdapterLuid selects a specific GPU by packed LUID (see
 	// DisplayEnum::PackLuid); 0 = auto-pick the highest-performance adapter.
-	GraphicsDevice(HWND__* hwnd, u32 width, u32 height, u64 preferredAdapterLuid = 0);
+	// forceWarp skips every hardware adapter for WARP, the software
+	// rasterizer (Main's `-warp`): a run whose GPU work is slow enough that
+	// frames really are still in flight when a lifetime bug frees what they
+	// read, which is what lets the debug layer catch one (code-review C193).
+	GraphicsDevice(HWND__* hwnd, u32 width, u32 height, u64 preferredAdapterLuid = 0,
+				   bool forceWarp = false);
 	~GraphicsDevice();
 
 	GraphicsDevice(const GraphicsDevice&) = delete;

@@ -167,18 +167,42 @@ Key conventions (memorize, they bite):
   SrvLive()/SrvHighWater() draw an `SRV 275 / 1024 (peak 275)` gauge in the
   console perf panel, 75%/90% crossings log a warning, and the exhaustion
   assert quotes the peak (reads as "something leaks", not "the limit is
-  1024"). Measured: showcase = 275 live, and two quality swaps (every
-  texture reloaded twice) leave live AND peak at 275. GROWING the heap is
+  1024"). A quality swap reloads every set loaded AT A TIER - the surfaces
+  AND every prop set (props, doors, fixtures, monsters, runes:
+  m_propTextures, rebuilt IN PLACE by ReloadPropTextures since kinds hold
+  pointers into it; code-review C154 - until then props kept the tier they
+  first loaded at, 1k doors beside 4k walls) - freeing each set's maps
+  before loading the next, so the swap never raises the peak. Measured
+  (crypt1, 2026-10-06): 422 live in a 1600x900 window (425 at 640x360),
+  and a Low -> Ultra -> Low round trip leaves live AND peak exactly where
+  they were; the `textures` readout prints the tier, the
+  gauge and every set's loaded size, and Eval.ps1 -SelfTest checks exactly
+  that round trip (stale=0 at each tier, a prop set resized, the gauge
+  back where it began). GROWING the heap is
   deliberately NOT built — it needs index-only SrvHandles first, since the
   absolute CPU/GPU pointers handed out today would dangle across a
-  reallocation, and 27% occupancy says that work hasn't earned itself.
+  reallocation, and 41% occupancy says that work hasn't earned itself.
 - Lifetime conventions: ~Game calls AudioEngine::StopAll() because sound
   playback is ZERO-COPY from SoundBank memory and the engine outlives
   Game; preview-mesh resets (dev console `preview`, AssetDialog) WaitIdle
   first since up to kFrameCount-1 in-flight frames still reference the
-  buffers; C-API boundaries (cgltf, FILE*, stb / dr_wav buffers, XAudio2,
-  shell COM) are RAII-wrapped from the moment they are created (code-review
-  C231: an allocation between create and free used to leak them on a throw) -
+  buffers. The full surface bake, BuildDungeonMeshes, DRAINS ITSELF before
+  it frees the old chunks (code-review C193: `arena` and the eval `reset`
+  called it with nothing drained) - the function that frees is the one that
+  drains, so no caller has to remember. That race is invisible on a real
+  GPU, whose frames finish long before; `-warp` (Main: draw on WARP, the
+  software rasterizer) keeps frames in flight, and with the drain cut out
+  the debug layer logged error 921 on WARP and nothing on the GPU - so
+  Eval.ps1 runs the bakes there (`-Warp`; its -SelfTest always) and FAILS
+  on any `d3d12 error` line. The MODEL CACHE drops a file's CPU images once
+  they are uploaded (ModelMulti; and at the end of every load, what a file
+  drawn single-mesh read and never uploaded - ReleaseModelImages): they only
+  duplicated VRAM for the life of the world (C222: 48.1 MB in 13 files on
+  crypt1, measured with the release cut out);
+  `modelcache` prints what is still pinned. C-API boundaries (cgltf, FILE*,
+  stb / dr_wav buffers, XAudio2, shell COM) are RAII-wrapped from the moment
+  they are created (code-review C231: an allocation between create and free
+  used to leak them on a throw) -
   keep new ones that way. The MAIN THREAD MUST STAY STA-CAPABLE: never
   CoInitializeEx it into the MTA (AudioEngine's ctor used to, for XAudio2,
   which needs no COM since 2.8). A thread's apartment is fixed once joined,
@@ -653,6 +677,15 @@ Key conventions (memorize, they bite):
   a run that draws the same, and `harness_game.run_eval` passes it on every run,
   windowed ones included (EditorTest phase 20's swatch check draws). `-eval`
   does not imply it: a developer watching a script may want the box.
+  WARP, the other direction: `Dungeon.exe -warp` draws on the software
+  rasterizer whatever GPU is fitted (`Eval.ps1 -Warp`, which also shrinks the
+  window to 640x360 for the run). It is for the DEVICE check every Eval.ps1 run
+  now makes (code-review batch 64): a debug build's D3D12 debug layer logs
+  every error as `d3d12 error [id]`, and one FAILS the run. On a GPU a freed
+  resource's frames have long finished, so a missing drain is silent; WARP's
+  frames are still in flight, and that is where C193 (error 921) showed.
+  `Eval.ps1 -SelfTest` runs lifetimes.eval there every time (reset, arena,
+  a quality round trip, the model cache, a planted set with no normal map).
 - EFFECTS (full model: docs/effects.md — the system every source of damage
   goes through; built in six phases 2026-07-24): ONE pipeline for everything
   that happens to a combatant. A source builds an `fx::DamageEvent` and calls
@@ -1425,7 +1458,11 @@ sliders save on release, pickers when their popup closes, key binds and language
 immediately, display fields on Apply). Main reads the display fields BEFORE the
 window/device exist (its own GameSettings::Load, same file Game re-loads).
 Quality hot-swaps in place (WaitIdle + rebuild); Ultra falls back per-material
-to 2k with a warning if 4k not installed.
+to 2k with a warning if 4k not installed. Every set loaded at a tier swaps -
+the surfaces and every prop set (DungeonWorld::ReloadPropTextures, in place);
+a multi-material model's embedded images carry no tier and stay. Dev:
+`textures` (tier, SRV gauge, each set's loaded size; STALE = still at the old
+tier), `textures load <set>`.
 
 ## Game state machine
 
@@ -2617,7 +2654,10 @@ Full per-phase history + gotchas live in the editor-overhaul memory.
   - `assets\textures` — whole dir, BOTH `.dds` (BC7) and source `.png`. The
     `.dds` is what renders; the `.png` is the source a missing or rejected
     `.dds` falls back to (the old "dds-only renders magenta" note was a symptom
-    of the reader bug below, not a rule).
+    of the reader bug below, not a rule). A set copied without its `_n` maps
+    draws FLAT (no relief, no parallax) with one warning per load, not magenta
+    (LoadNormalMapFile, code-review C471); `levelcheck` names every albedo
+    with no `_n` at its resolution (`missing_normals=` on its verdict line).
   - `assets\models` gitignored files — the imported authored meshes (`.glb`) AND
     the bought rigged monsters gitignored BY NAME despite the `.gltf` extension
     (embedded-texture GLBs inside), each often with an `.anim.cat` sidecar.

@@ -11,7 +11,6 @@
 #include "Core/Paths.h"
 
 #include <algorithm>
-#include <cstdlib> // atof — the .ent `seconds=` override
 #include <filesystem>
 #include <format>
 #include <optional>

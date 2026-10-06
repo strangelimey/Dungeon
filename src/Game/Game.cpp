@@ -697,11 +697,19 @@ void Game::BeginLevelTransition(const std::string& stem, int x, int z,
 	m_stateFrameMark = m_framesRendered;
 }
 
+// One staged load task a frame, once the state's screen has been presented;
+// true when the queue is empty.
 bool Game::RunLoadTasks() {
 	const bool wasDone = m_loadQueue.Done();
 	if (m_framesRendered > m_stateFrameMark) m_loadQueue.RunOne();
 	const bool done = m_loadQueue.Done();
-	if (done && !wasDone) LogLoadStats(); // the frame the last task landed
+	if (done && !wasDone) { // the frame the last task landed
+		// Every kind the level needs is built and uploaded by now, so whatever
+		// CPU images the model cache still holds, nothing will read (code-review
+		// C222). Before the stats, whose working set should not count them.
+		if (m_world) m_world->ReleaseModelImages();
+		LogLoadStats();
+	}
 	return done;
 }
 
@@ -1636,7 +1644,25 @@ void Game::SetQuality(Quality quality) {
 	m_settings.Save();
 	// With no world loaded there is nothing to swap: the next one loads at
 	// the tier just chosen.
-	if (m_world) m_world->ApplyQuality(textureResChanged);
+	if (!m_world) return;
+	if (textureResChanged) {
+		// The swap FREES every prop set's maps and loads them again
+		// (DungeonWorld::ReloadPropTextures, code-review C154), so whatever
+		// copied their POINTERS into a preview would draw freed textures next
+		// frame. Those are the editor's instance inspectors (and the spec cached
+		// to reopen one), the monster dialog's live rig and the item details
+		// dialog. Only the console's `quality` can swap with one of them open -
+		// the Settings page is behind the pause menu - but a typed command must
+		// not crash: the inspectors and the details dialog close, the rig is
+		// rebuilt from the swapped kind next frame.
+		for (InstanceInspector* ii : InstanceInspectors()) ii->Close();
+		m_inspectPreview = {};
+		m_ui.CloseItemDetails();
+		m_previewMonMesh = nullptr;
+		m_previewMonSubs.clear();
+		m_previewType.clear(); // the next Update re-resolves MonsterPreviewFor
+	}
+	m_world->ApplyQuality(textureResChanged);
 }
 
 void Game::ApplyDisplaySettings() {

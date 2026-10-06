@@ -141,12 +141,21 @@ subsystem:
   `SrvLive()`/`SrvHighWater()` feed an `SRV 275 / 1024 (peak 275)` gauge in the
   dev console's perf panel, crossing 75% and 90% logs a warning, and the
   exhaustion assert quotes the peak so the message reads as "something is
-  leaking" rather than "the limit is 1024". Measured: the showcase level sits
-  at 275 slots, and two full quality swaps (every texture reloaded twice)
-  leave live *and* peak unchanged at 275 — the recycling holds exactly.
+  leaking" rather than "the limit is 1024". A quality swap reloads every
+  texture set loaded AT A TIER - the surfaces and every prop set (props,
+  doors, fixtures, monsters, runes; `ReloadPropTextures` rebuilds each
+  `m_propTextures` entry in place) - freeing a set's maps before the next
+  loads. Not every texture: a model's embedded images, the UI art and the
+  baked icons carry no tier and stay. (This paragraph used to say a swap
+  reloaded "every texture"; until code-review C154 it reloaded only the
+  surfaces, and every prop kept the tier it first loaded at.) Measured
+  (crypt1, 2026-10-06): 422 slots live in a 1600x900 window (425 at 640x360),
+  and a Low -> Ultra -> Low round trip leaves live *and* peak exactly where
+  they were - the recycling holds exactly.
+  `Eval.ps1 -SelfTest` checks that round trip through the `textures` readout.
   Removing the ceiling by GROWING the heap is deliberately not done: it needs
   index-only `SrvHandle`s first (the absolute CPU/GPU pointers handed out today
-  would dangle when the heap is reallocated), and at 27% occupancy the
+  would dangle when the heap is reallocated), and at 41% occupancy the
   measurement says that work has not earned itself yet.
 - **Per-frame containers — retained capacity.** Containers rebuilt every frame
   (light list, sprite batch vertices, animator pose/palette buffers) are
@@ -172,6 +181,17 @@ subsystem:
   a channel is two ranges into them - which took a rigged model's Debug load
   from ~24k allocations to under 900 (skel_warrior 24,351 -> 875,
   2026-09-28).
+  Plain ownership is not PERMANENT ownership, though. The model cache
+  (`DungeonWorld_Models.cpp`) outlives every level, and it used to keep each
+  file's embedded IMAGES - decoded pixels and baked BC7 chains - for the life
+  of the world, a CPU copy of what was already in VRAM (code-review C222:
+  48.1 MB in 13 files after crypt1's load, read by `modelcache` with the
+  release cut out). `ModelMulti` now drops them the
+  moment the multi-material model is built (`assets::ReleaseImages`, which
+  keeps the slots so a material's index stays in range), and the end of every
+  load drops what a file drawn single-mesh read and never uploaded
+  (`ReleaseModelImages`). `modelcache` prints any still pinned; `Eval.ps1
+  -SelfTest` requires 0 after a load.
   Two things found while measuring, both worth remembering:
   - **Debug allocation counts are not release allocation counts.** MSVC's
     iterator debugging allocates a proxy for every `std::vector` and
@@ -194,7 +214,17 @@ subsystem:
   GPU work may still reference a resource; every destroy-or-replace path
   (quality swap, level load, chunk edit rebuild, undo restore, font atlas
   swap, editor preview-mesh reset) calls `WaitIdle` first, and all run from
-  `Update`, before the frame's command list opens.
+  `Update`, before the frame's command list opens. Where a function both
+  frees and has more than one caller, IT drains, not the callers:
+  `BuildDungeonMeshes` (the full surface bake) waits before it clears the old
+  chunks, because `arena` and the eval `reset` called it with nothing drained
+  (code-review C193). A missed drain is invisible on a real GPU - the frames
+  finished long before the free - so the check runs on WARP (`Dungeon.exe
+  -warp`, `Eval.ps1 -Warp`), whose frames are still in flight: with this drain
+  cut out the D3D12 debug layer logged error 921 (a resource released while
+  in-flight work referenced it) on WARP and nothing on the GPU. Every Eval.ps1
+  run now fails on a `d3d12 error` line, and its -SelfTest runs the bakes on
+  WARP.
 
 ### Checking the rule
 

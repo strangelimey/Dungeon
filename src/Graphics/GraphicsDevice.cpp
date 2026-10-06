@@ -15,7 +15,7 @@
 namespace dungeon::gfx {
 
 GraphicsDevice::GraphicsDevice(HWND__* hwnd, u32 width, u32 height,
-							   u64 preferredAdapterLuid)
+							   u64 preferredAdapterLuid, bool forceWarp)
 	: m_width(width), m_height(height), m_hwnd(hwnd) {
 	UINT factoryFlags = 0;
 #ifdef _DEBUG
@@ -49,7 +49,7 @@ GraphicsDevice::GraphicsDevice(HWND__* hwnd, u32 width, u32 height,
 	};
 
 	// A specific adapter was requested (Settings → Video): match it by LUID.
-	if (preferredAdapterLuid != 0) {
+	if (preferredAdapterLuid != 0 && !forceWarp) {
 		for (UINT i = 0; m_factory->EnumAdapters1(i, &adapter) != DXGI_ERROR_NOT_FOUND;
 			 ++i) {
 			DXGI_ADAPTER_DESC1 desc;
@@ -65,7 +65,7 @@ GraphicsDevice::GraphicsDevice(HWND__* hwnd, u32 width, u32 height,
 	}
 
 	// Otherwise (or on miss) prefer the highest-performance hardware adapter.
-	if (!m_device) {
+	if (!m_device && !forceWarp) {
 		for (UINT i = 0; m_factory->EnumAdapterByGpuPreference(
 							 i, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE,
 							 IID_PPV_ARGS(&adapter)) != DXGI_ERROR_NOT_FOUND;
@@ -81,7 +81,10 @@ GraphicsDevice::GraphicsDevice(HWND__* hwnd, u32 width, u32 height,
 								IID_PPV_ARGS(&m_device)));
 		warp.As(&m_adapter);
 		m_adapterName = "WARP (software)";
-		log::Warn("Using WARP software rasterizer");
+		if (forceWarp)
+			log::Info("Using WARP software rasterizer (-warp)");
+		else
+			log::Warn("Using WARP software rasterizer");
 	}
 
 	InstallDebugMessageLog();

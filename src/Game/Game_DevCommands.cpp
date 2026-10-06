@@ -1617,6 +1617,44 @@ void Game::RegisterDevCommands() {
 							   s.capacity / kMB, s.peak / kMB, s.lastDrops, s.drops,
 							   s.droppedVerts));
 					   });
+	// What the load paths leave resident (code-review C154 / C222 / C471). The
+	// texture readout is a quality swap's evidence - every set at the tier asked
+	// for, none STALE, and the SRV gauge back where it was after a round trip -
+	// and `load` puts a set no level names through the prop loader, which is how
+	// a harness sees a set with no normal map come back flat. Eval.ps1 -SelfTest
+	// reads both.
+	m_console.Register({.name = "textures",
+						.group = CmdGroup::Rendering,
+						.params = "\nload <set>",
+						.summary = "the texture sets loaded at a tier, their sizes and the SRV gauge"},
+					   [this](const std::vector<std::string>& args) {
+						   if (!m_world) {
+							   m_console.Print("no world loaded");
+							   return;
+						   }
+						   if (!args.empty() && args[0] == "load") {
+							   if (!Need(m_console, args, 2)) return;
+							   m_console.Print(m_world->ProbeTextureSet(args[1]));
+							   return;
+						   }
+						   if (!args.empty()) {
+							   m_console.RefuseUsage();
+							   return;
+						   }
+						   for (const std::string& line : m_world->DescribeTextures())
+							   m_console.Print(line);
+					   });
+	m_console.Register({.name = "modelcache",
+						.group = CmdGroup::Rendering,
+						.summary = "the model cache: files, and the CPU image bytes any still pin"},
+					   [this](const std::vector<std::string>&) {
+						   if (!m_world) {
+							   m_console.Print("no world loaded");
+							   return;
+						   }
+						   for (const std::string& line : m_world->DescribeModelCache())
+							   m_console.Print(line);
+					   });
 	// `status` is the shadow cache's readout (code-review C178 / C187): each
 	// slot's light and its re-renders by reason, which is how a harness sees a
 	// door's move or a walking Firelight reach a cube. `door` is the pass that

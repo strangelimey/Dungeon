@@ -7,6 +7,7 @@
 #   .\tools\Eval.ps1 -SelfTest          # the runner must FAIL on purpose
 #   .\tools\Eval.ps1 -Table             # print ONLY the measurements
 #   .\tools\Eval.ps1 -Headless          # no window, no drawing
+#   .\tools\Eval.ps1 -Warp              # draw on WARP, the software rasterizer
 #   .\tools\Eval.ps1 -OutFile before.txt # ...and SAVE it, to diff against later
 #
 # DIFFING TWO RUNS is the whole point of the numbers, and until -OutFile existed
@@ -42,6 +43,18 @@
 # were real: two had been measuring 55.6 minutes and calling it an hour, and one
 # had been printing its closing figures off a dead party.
 #
+# A FIFTH: THE DEVICE (code-review batch 64). A debug build runs the D3D12 debug
+# layer, which writes every error it sees into dungeon.log ("d3d12 error [id]"),
+# and one there FAILS the run: a script whose frames read a freed mesh measured
+# nothing worth keeping. -Warp is what gives that check teeth. On a real GPU the
+# frames a `reset` or an `arena` freed had long finished, so the race the layer
+# names never happened; WARP draws on the CPU, its frames are still in flight,
+# and C193 (the full surface bake freeing chunk meshes with nothing drained) was
+# an error 921 on WARP and silence on the GPU. -Warp also shrinks the window to
+# 640x360 for the run (settings.ini, put back after): what it needs is frames,
+# not pixels, and a full-size WARP frame turns a one-minute run into seven. A
+# release build has no layer and says so.
+#
 # THIS IS A MEASUREMENT HARNESS, NOT A PASS/FAIL ONE, and the distinction is
 # the whole reason it is not in CheckAll's tiers. A green verdict here means the
 # scripts RAN - not that the numbers are good. The numbers are the artefact:
@@ -73,6 +86,7 @@ param(
 	[switch]$SelfTest,
 	[switch]$Table,
 	[switch]$Headless,
+	[switch]$Warp,
 	[string]$OutFile = '',
 	[ValidateSet('debug', 'release')][string]$Config = 'debug'
 )
@@ -169,6 +183,58 @@ function Invoke-EvalRun([string[]]$argList) {
 	$done = [bool](ReadLog | Where-Object { $_ -match 'eval BATCH RESULT=' })
 	if (-not $done) { Write-Host ("  the game did not finish '{0}' (exit {1})" -f ($argList -join ' '), $p.ExitCode) -ForegroundColor Red }
 	return $done
+}
+
+# Invoke-EvalRun with a DEADLINE, for a run that may hit a debug assert: an
+# abort there parks a modal CRT dialog and the process looks alive forever, so
+# past $timeoutSec it is killed - by PID, never by name (other worktrees' games
+# are Dungeon.exe too) - and the run does not count.
+function Invoke-EvalRunTimed([string[]]$argList, [int]$timeoutSec) {
+	Remove-Item $log -ErrorAction SilentlyContinue
+	$p = Start-Process -FilePath $exe -ArgumentList $argList -PassThru
+	$null = $p.Handle # or ExitCode reads $null once it ends
+	if (-not $p.WaitForExit($timeoutSec * 1000)) {
+		Write-Host ("  the game was still running after {0} s - killed (pid {1})" -f $timeoutSec, $p.Id) -ForegroundColor Red
+		Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+		$p.WaitForExit(10000) | Out-Null
+		return $false
+	}
+	$done = [bool](ReadLog | Where-Object { $_ -match 'eval BATCH RESULT=' })
+	if (-not $done) { Write-Host ("  the game did not finish '{0}' (exit {1})" -f ($argList -join ' '), $p.ExitCode) -ForegroundColor Red }
+	return $done
+}
+
+# settings.ini with some keys REPLACED for the length of $body, then put back
+# byte for byte however $body ends. (The mute's `volume=` line is part of what
+# is put back; Invoke-Muted restores the real volume after the whole run.)
+$ini = Join-Path $bin 'settings.ini'
+function Invoke-WithIni([string[]]$set, [scriptblock]$body) {
+	$before = if (Test-Path $ini) { [IO.File]::ReadAllText($ini) } else { $null }
+	$keys = @($set | ForEach-Object { ($_ -split '=', 2)[0] + '=' })
+	try {
+		$keep = @((("$before") -split "\r?\n") | Where-Object {
+			$line = $_
+			$line -ne '' -and -not @($keys | Where-Object { $line.StartsWith($_) }).Count })
+		[IO.File]::WriteAllText($ini, ((@($keep) + $set) -join "`n") + "`n")
+		& $body
+	} finally {
+		if ($null -eq $before) { Remove-Item $ini -ErrorAction SilentlyContinue }
+		else { [IO.File]::WriteAllText($ini, $before) }
+	}
+}
+# What -Warp sets for a run: the 640x360 window it draws in (see the header).
+$warpIni = @('reswidth=640', 'resheight=360', 'fullscreen=0')
+
+# THE DEVICE, as the D3D12 debug layer saw it (the header's fifth condition).
+# `Layer` = the layer was listening (a debug build says so at startup - silence
+# from a layer that was never installed must not read as a clean run); `Errors`
+# = every error or corruption line it wrote; `Warp` = the run drew on WARP.
+function Get-DeviceReport([string[]]$lines) {
+	[pscustomobject]@{
+		Layer  = [bool]($lines | Where-Object { $_ -match 'D3D12 validation -> dungeon\.log' })
+		Warp   = [bool]($lines | Where-Object { $_ -match 'Using WARP software rasterizer' })
+		Errors = @($lines | Where-Object { $_ -cmatch '^\[ERROR\] d3d12 (error|CORRUPTION) ' })
+	}
 }
 
 # ---------------------------------------------------------------------------
@@ -740,10 +806,143 @@ if ($SelfTest) {
 		else { [IO.File]::WriteAllText($ini, $iniBefore) }
 	}
 
-	$ok = ($p.ExitCode -eq 1) -and ($q.ExitCode -eq 2) -and $declineOk -and $gapOk -and $resetOk -and $awayOk -and $batchOk -and $headOk -and $respondOk -and $guardOk -and $hiddenOk
+	# --- what the load paths leave resident, and what they free in flight -----
+	# code-review batch 64, one WARP run of lifetimes.eval (read its header):
+	#   C193  `reset` and `arena` rebuild the surfaces with frames in flight, and
+	#         the D3D12 debug layer must see no error. ON WARP, because on a GPU
+	#         those frames had finished long before and the race never ran: with
+	#         the drain cut out, this run logged error 921 on WARP and nothing on
+	#         the GPU.
+	#   C222  no file in the model cache pins CPU image bytes after the load, and
+	#         the load did build multi-material models (or "0 pinned" is vacuous).
+	#   C154  Low -> Ultra -> Low: each swap leaves every set at the new tier
+	#         (stale=0); a prop set's albedo changes size with the tier and comes
+	#         back to it; the SRV gauge, live and peak, ends where it stood right
+	#         after the load. That baseline is read BEFORE any swap, and the run
+	#         starts at Medium (quality=1: Low's 1k tier, checked) whatever the
+	#         ini says: started at High or Ultra, the first `quality 0` would be
+	#         a full swap of its own, so a baseline read after it would already
+	#         carry whatever peak a load-before-free swap adds, and the row could
+	#         not see one.
+	#   C471  a planted set with no normal map (zz_selftest_nonormal, a copy of a
+	#         UI icon, removed again) is named by `levelcheck`, and loads with a
+	#         FLAT normal and exactly one warning - not the magenta checker.
+	#         levelcheck's list must be EXACTLY the pool's albedos with no `_n`
+	#         stem beside them, worked out here from the disk: naming the plant
+	#         alone would pass a check that listed every albedo in the pool.
+	Write-Host ''
+	Write-Host '=== load-path lifetimes: a clean device on WARP, every set at its tier, no pinned images ==='
+	$texDir = Join-Path $root 'assets\textures'
+	$plant = Join-Path $texDir 'zz_selftest_nonormal_2k.png'
+	$plantStem = 'zz_selftest_nonormal_2k'
+	$lifeRan = $false
+	$diskNoNormal = @()
+	try {
+		Copy-Item (Join-Path $root 'assets\ui\icon_close.png') $plant -ErrorAction Stop
+		# THE DISK'S ANSWER, independent of AssetUtil: every map stem (.png and
+		# .dds alike - either loads), and the resolution-tagged albedos among
+		# them with no `<stem>_n` beside. Ordinal, as the C++ compares.
+		$stemSet = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+		foreach ($f in Get-ChildItem -LiteralPath $texDir -File) {
+			if ($f.Extension -eq '.png' -or $f.Extension -eq '.dds') { [void]$stemSet.Add($f.BaseName) }
+		}
+		$diskNoNormal = @($stemSet | Where-Object { $_ -cmatch '_(1k|2k|4k)$' -and -not $stemSet.Contains($_ + '_n') })
+		$lifeRan = Invoke-WithIni (@($warpIni) + 'quality=1') {
+			Invoke-EvalRunTimed @('-warp', '-eval', (Join-Path $scripts 'lifetimes.eval')) 600
+		}
+	} catch {
+		Write-Host ("  could not run it: {0}" -f $_.Exception.Message) -ForegroundColor Red
+	} finally {
+		Remove-Item $plant -ErrorAction SilentlyContinue
+	}
+	$life = ReadLog
+	$con = @($life | Where-Object { $_ -cmatch '^\[info \] console: (?!> )' } |
+		ForEach-Object { $_ -replace '^\[info \] console: ', '' })
+	# The readout lines after an echoed marker: its head line, then its rows.
+	function After([string]$marker) {
+		$i = [Array]::IndexOf($con, $marker)
+		if ($i -lt 0) { return @() }
+		$out = @()
+		for ($j = $i + 1; $j -lt $con.Count -and -not $con[$j].StartsWith('---'); ++$j) { $out += $con[$j] }
+		return $out
+	}
+	function Head($rows) {
+		$h = @($rows | Where-Object { $_ -match '^textures tier=' }) | Select-Object -First 1
+		if (-not $h) { return $null }
+		$o = @{}
+		foreach ($kv in ([regex]::Matches($h, '(\w+)=(\S+)'))) { $o[$kv.Groups[1].Value] = $kv.Groups[2].Value }
+		return $o
+	}
+	function Props($rows) {
+		$o = @{}
+		foreach ($r in $rows) { if ($r -match '^  prop (\S+) tier=\S+ albedo=(\S+)') { $o[$Matches[1]] = $Matches[2] } }
+		return $o
+	}
+	$dev = Get-DeviceReport $life
+	$debugCfg = $Config -eq 'debug'
+	$cache = @($con | Where-Object { $_ -match '^modelcache ' })
+	$cacheFirst = if ($cache.Count) { $cache[0] } else { '' }
+	$lc = @($con | Where-Object { $_ -match '^levelcheck RESULT=' }) | Select-Object -First 1
+	$lcCount = if ($lc -match 'missing_normals=(\d+)') { [int]$Matches[1] } else { -1 }
+	# What levelcheck named, against the disk's answer worked out before the run:
+	# `named` it listed although the disk has a normal for it (or it is no
+	# albedo at all), `missed` the disk lacks a normal for but it did not list.
+	$listed = @($con | ForEach-Object { if ($_ -cmatch '^\s*NO NORMAL MAP (\S+) - it loads flat$') { $Matches[1] } })
+	$diskSet = [Collections.Generic.HashSet[string]]::new([string[]]$diskNoNormal, [StringComparer]::Ordinal)
+	$listSet = [Collections.Generic.HashSet[string]]::new([string[]]$listed, [StringComparer]::Ordinal)
+	$named = @($listed | Where-Object { -not $diskSet.Contains($_) })
+	$missed = @($diskNoNormal | Where-Object { -not $listSet.Contains($_) })
+	$low = After '--- low ---'; $ultra = After '--- ultra ---'; $again = After '--- low again ---'
+	$h0 = Head (After '--- loaded ---'); $hl = Head $low; $hu = Head $ultra; $ha = Head $again
+	$pl = Props $low; $pu = Props $ultra; $pa = Props $again
+	$moved = @($pl.Keys | Where-Object { $pu.ContainsKey($_) -and $pu[$_] -ne $pl[$_] })
+	$back = @($pl.Keys | Where-Object { $pa[$_] -ne $pl[$_] })
+	$probe = @($con | Where-Object { $_ -match '^textures: prop zz_selftest_nonormal ' }) | Select-Object -First 1
+	$flatWarn = @($life | Where-Object { $_ -match "texture set 'zz_selftest_nonormal' has no normal map" })
+	$checker = @($life | Where-Object { $_ -match 'Missing texture .*zz_selftest_nonormal' })
+	$checks = @(
+		@{ what = 'the WARP run finished'; ok = $lifeRan -and $dev.Warp }
+		@{ what = 'C193 the debug layer listened, and saw no error'
+		   ok = (-not $debugCfg) -or ($dev.Layer -and $dev.Errors.Count -eq 0)
+		   say = $(if (-not $debugCfg) { "($Config build: no layer, not checked)" }
+				   elseif (-not $dev.Layer) { 'NO LAYER was listening' }
+				   else { "$($dev.Errors.Count) error(s)" + $(if ($dev.Errors.Count) { ': ' + ($dev.Errors[0] -replace '^\[ERROR\] ', '') } else { '' }) }) }
+		@{ what = 'C222 no CPU image bytes pinned after the load'
+		   ok = ($cacheFirst -match 'pinned_bytes=0 ') -and ($cacheFirst -match ' multi=([1-9]\d*) ') -and
+				-not @($cache | Where-Object { $_ -notmatch 'pinned_bytes=0 ' }).Count
+		   say = $cacheFirst }
+		@{ what = 'C471 levelcheck names exactly the sets with no _n'
+		   ok = $listed -ccontains $plantStem -and $named.Count -eq 0 -and $missed.Count -eq 0 -and
+				$listed.Count -eq $diskNoNormal.Count -and $lcCount -eq $listed.Count
+		   say = "$lcCount listed, $($diskNoNormal.Count) on disk" +
+				 $(if ($named.Count) { "; $($named.Count) HAVE a normal (e.g. $($named[0]))" } else { '' }) +
+				 $(if ($missed.Count) { "; $($missed.Count) MISSED (e.g. $($missed[0]))" } else { '' }) +
+				 $(if (-not ($listed -ccontains $plantStem)) { "; the plant NOT named" } else { '' }) }
+		@{ what = 'C471 it loads with a flat normal and ONE warning'
+		   ok = ($probe -match 'normal=flat') -and $flatWarn.Count -eq 1 -and $checker.Count -eq 0
+		   say = "$probe; warnings $($flatWarn.Count), checker $($checker.Count)" }
+		@{ what = 'C154 each swap leaves every set at its tier'
+		   ok = $hl -and $hu -and $ha -and $hl.tier -eq '1k' -and $hu.tier -eq '4k' -and $ha.tier -eq '1k' -and
+				$hl.stale -eq '0' -and $hu.stale -eq '0' -and $ha.stale -eq '0' -and [int]$hl.props -gt 0
+		   say = "tiers $($hl.tier) / $($hu.tier) / $($ha.tier), stale $($hl.stale) / $($hu.stale) / $($ha.stale), props $($hl.props)" }
+		@{ what = 'C154 the props change size with the tier, and come back'
+		   ok = $moved.Count -gt 0 -and $back.Count -eq 0 -and $pl.Count -gt 0
+		   say = "$($moved.Count) of $($pl.Count) prop set(s) resized at Ultra" + $(if ($moved.Count) { " (e.g. $($moved[0]) $($pl[$moved[0]]) -> $($pu[$moved[0]]))" } else { '' }) + "; $($back.Count) not back at Low" }
+		@{ what = 'C154 the SRV gauge ends where the load left it'
+		   ok = $h0 -and $ha -and $h0.tier -eq '1k' -and $h0.srv_live -eq $ha.srv_live -and $h0.srv_peak -eq $ha.srv_peak
+		   say = "loaded at $($h0.tier); live $($h0.srv_live) -> $($hl.srv_live) -> $($hu.srv_live) -> $($ha.srv_live), peak $($h0.srv_peak) -> $($hl.srv_peak) -> $($hu.srv_peak) -> $($ha.srv_peak)" }
+	)
+	$lifeOk = $true
+	foreach ($c in $checks) {
+		Write-Host ("  {0,-50} {1}  {2}" -f $c.what, $(if ($c.ok) { 'ok  ' } else { 'FAIL' }), $c.say) `
+			-ForegroundColor $(if ($c.ok) { 'Gray' } else { 'Red' })
+		if (-not $c.ok) { $lifeOk = $false }
+	}
+
+	$ok = ($p.ExitCode -eq 1) -and ($q.ExitCode -eq 2) -and $declineOk -and $gapOk -and $resetOk -and $awayOk -and $batchOk -and $headOk -and $respondOk -and $guardOk -and $hiddenOk -and $lifeOk
 	Write-Host ''
 	Write-Host ("eval RESULT={0} self_test=1" -f $(if ($ok) { 'PASS' } else { 'FAIL' }))
-	if ($ok) { Write-Host 'the runner reports both failures, counts a declined line and holds a probe to its refusal, stops the clock at a wipe, counts a gap in a batch once, recycling (from any level) and headless change nothing, the numbers still move, and a second or killed run does not count' }
+	if ($ok) { Write-Host 'the runner reports both failures, counts a declined line and holds a probe to its refusal, stops the clock at a wipe, counts a gap in a batch once, recycling (from any level) and headless change nothing, the numbers still move, a second or killed run does not count, and the load paths leave a clean device' }
 	else { Write-Host 'A RUNNER THAT CANNOT FAIL MEANS NOTHING' -ForegroundColor Red }
 	exit $(if ($ok) { 0 } else { 1 })
 }
@@ -756,14 +955,18 @@ if (-not $run) { Write-Host "eval: nothing matched -Only"; exit 2 }
 # 155s -> 37s. Each script opens with `reset`, which loads for the first one in
 # the batch and recycles for the rest (docs/eval-harness.md).
 $paths = @($run | ForEach-Object { Join-Path $scripts $_.script })
-$args = @()
-if ($Headless) { $args += '-headless' }
-$args += @('-eval') + $paths
+# NOT `$args`: that is PowerShell's automatic variable, and inside the launch
+# block below it would be the block's own (empty) argument list.
+$gameArgs = @()
+if ($Headless) { $gameArgs += '-headless' }
+if ($Warp) { $gameArgs += '-warp' }
+$gameArgs += @('-eval') + $paths
 $t0 = Get-Date
 # The log deleted first, so a game that dies before writing one leaves nothing
 # for the "did it finish" check below to mistake for this run's.
 Remove-Item $log -ErrorAction SilentlyContinue
-$p = Start-Process -FilePath $exe -ArgumentList $args -PassThru -Wait
+$launch = { Start-Process -FilePath $exe -ArgumentList $gameArgs -PassThru -Wait }
+$p = if ($Warp) { Invoke-WithIni $warpIni $launch } else { & $launch }
 $totalSecs = [int]((Get-Date) - $t0).TotalSeconds
 
 # THE MEASUREMENT. Read back from dungeon.log rather than captured from the
@@ -879,6 +1082,23 @@ foreach ($r in $results) {
 		$(if ($r.Verdict -eq 'PASS') { '' } else { 'Red' })
 }
 Say ''
+# THE DEVICE (the header's fifth condition). One line either way, so a reader can
+# tell "the layer saw nothing" from "no layer was listening".
+$device = Get-DeviceReport $logLines
+if (-not $device.Layer) {
+	Say ("d3d12 debug layer: not in this build ({0}) - the device was not checked" -f $Config) 'DarkGray'
+} elseif ($device.Errors.Count -eq 0) {
+	Say ("d3d12 debug layer: no errors{0}" -f $(if ($device.Warp) { ' (WARP)' } else { ' (GPU - run -Warp to see frames still in flight)' }))
+} else {
+	Say ("d3d12 debug layer: {0} ERROR(S){1} - the run does not count" -f $device.Errors.Count,
+		$(if ($device.Warp) { ' (WARP)' } else { '' })) 'Red'
+	$device.Errors | Select-Object -First 3 | ForEach-Object { Say ("    ! {0}" -f ($_ -replace '^\[ERROR\] ', '')) 'Red' }
+	$failed++
+}
+if ($Warp -and -not $device.Warp -and -not $runDied) {
+	Say 'asked for -Warp, but the game never said it drew on WARP - the run does not count' 'Red'
+	$failed++
+}
 if ($runDied) {
 	Say ("THE GAME DID NOT FINISH (exit code {0}): no 'eval BATCH RESULT=' line - nothing above counts" -f $p.ExitCode) 'Red'
 	$failed++

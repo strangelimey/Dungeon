@@ -268,11 +268,15 @@ $checks = @(
 	},
 	@{
 		name = 'evalrunner'; tier = 'full'; needs = "build-$Config"
-		what = 'the eval runner: reset = new game, batched = solo, headless = windowed, knobs move numbers'
+		what = 'the eval runner: reset = new game, batched = solo, headless = windowed, knobs move numbers; load paths leave a clean device on WARP'
 		# Eval.ps1's SUITES measure and stay out of every tier (check-eval.md: a
 		# green suite means it RAN). Its -SelfTest is a pass/fail check of the
 		# RUNNER, and PipelineTest's quick PASS rests on that runner (C213). It
-		# has no fail-on-purpose mode of its own: it IS one.
+		# has no fail-on-purpose mode of its own: it IS one. It also carries the
+		# load-path lifetime checks (code-review batch 64: lifetimes.eval on
+		# WARP - no D3D12 error through reset and arena, every texture set at its
+		# tier across a quality round trip, no CPU image bytes pinned, a set with
+		# no normal map loaded flat).
 		run = { & (Join-Path $root 'tools\Eval.ps1') -Config $Config -SelfTest | Out-Host; $LASTEXITCODE }
 	},
 	@{

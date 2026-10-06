@@ -37,7 +37,7 @@ checks still passed. Only the check that reads the health record caught it.
 <!-- BEGIN generated: checkall-noself (tools\CheckDocs.ps1 -Write rewrites this; CheckAll's `docs` check fails on drift) -->
 ```text
   diag           quick  no self-test   the health record: ring, wrap, cross-thread writes, torn reads
-  evalrunner     full   no self-test   the eval runner: reset = new game, batched = solo, headless = windowed, knobs move numbers
+  evalrunner     full   no self-test   the eval runner: reset = new game, batched = solo, headless = windowed, knobs move numbers; load paths leave a clean device on WARP
   editor         full   no self-test   the editor, phase by phase (EditorTest.py, each phase mutation-tested)
   world          full   no self-test   the world tier: saves, worlds, dungeons, the world map (WorldTest.py)
   levelbuild     full   no self-test   the level generator, measured from the files it writes (LevelBuildTest.py)

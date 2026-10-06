@@ -34,12 +34,18 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 	// what the flag does and does not remove. `-unattended` is read with it (see
 	// crash::SetUnattended below).
 	bool headless = false, unattended = false;
+	// `-warp`: render on WARP, the software rasterizer, whatever GPU is fitted
+	// (see GraphicsDevice's ctor). Its frames are slow enough to still be in
+	// flight when a lifetime bug frees what they read, so the debug layer can
+	// see one; Eval.ps1 -Warp passes it.
+	bool warp = false;
 	{
 		int argc = 0;
 		LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
 		for (int i = 1; argv && i < argc; ++i) {
 			if (std::wstring_view(argv[i]) == L"-headless") headless = true;
 			if (std::wstring_view(argv[i]) == L"-unattended") unattended = true;
+			if (std::wstring_view(argv[i]) == L"-warp") warp = true;
 		}
 		if (argv) LocalFree(argv);
 	}
@@ -124,7 +130,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 	Window window(desc);
 
 	gfx::GraphicsDevice device(window.Handle(), window.Width(), window.Height(),
-							   boot.adapterLuid);
+							   boot.adapterLuid, warp);
 	gfx::Renderer renderer(device);
 	gfx::SpriteBatch spriteBatch(device);
 	audio::AudioEngine audioEngine;

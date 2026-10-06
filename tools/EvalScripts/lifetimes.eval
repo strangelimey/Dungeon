@@ -1,0 +1,78 @@
+; lifetimes.eval - what the load paths leave resident, and what they free while
+; frames may still be reading it (code-review batch 64). JUDGED by
+; tools\Eval.ps1 -SelfTest ("load-path lifetimes"), which plants a texture set
+; with no normal map first (zz_selftest_nonormal_2k.png) and reads this run's
+; dungeon.log; run alone it only prints.
+;
+;   C222  `modelcache` right after the level load: no file may still pin CPU
+;         image bytes (a multi-material model drops its images once uploaded,
+;         and the end of the load drops what a single-mesh file read).
+;   C471  `levelcheck` names the planted set as having no normal map - and
+;         names only what the disk says has none - and `textures load` puts
+;         it through the prop loader: its normal comes back FLAT, with one
+;         warning.
+;   C154  a quality round trip, Low -> Ultra -> Low: after each swap every set
+;         is at the new tier (stale=0), and the SRV gauge ends where it stood
+;         after the load (`--- loaded ---`), before ANY swap. The harness pins
+;         the starting quality to Medium (1k, Low's tier) so the first
+;         `quality 0` swaps no texture; a start at High or Ultra would make it
+;         a full swap, and a baseline read after it would already hold
+;         whatever peak a swap adds.
+;   C193  `reset` and `arena`, the two full surface bakes that freed the chunk
+;         meshes with nothing drained, each with frames drawn either side - the
+;         D3D12 debug layer (debug build) names a resource freed in flight.
+;
+; One line runs per frame. A `quality` applies on the frame after it, so an
+; `echo` sits between it and the readout; the `echo frame` runs elsewhere are
+; frames drawn with the old geometry in flight.
+logecho on
+reset
+timescale 0
+
+echo --- after the load ---
+modelcache
+
+echo --- loaded ---
+textures
+
+echo --- levelcheck ---
+levelcheck
+
+quality 0
+echo frame
+echo --- low ---
+textures
+quality 3
+echo frame
+echo --- ultra ---
+textures
+quality 0
+echo frame
+echo --- low again ---
+textures
+
+echo --- the set with no normal map ---
+textures load zz_selftest_nonormal
+
+echo --- the full bakes ---
+echo frame
+echo frame
+echo frame
+reset
+echo frame
+echo frame
+echo frame
+arena open 9 9
+echo frame
+echo frame
+echo frame
+arena corridor 11
+echo frame
+echo frame
+echo frame
+reset
+echo frame
+echo frame
+echo frame
+echo --- done ---
+modelcache

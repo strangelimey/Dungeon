@@ -18,7 +18,9 @@ installed. The baked pool is gitignored, so a fresh clone or a stale worktree
 provision has entries whose assets are absent. Scoped to **models** on purpose:
 a missing texture renders magenta and is survivable, a missing model is a
 `LoadModelOrDie` that takes the process down at level load — possibly on a level
-nobody has visited in weeks.
+nobody has visited in weeks. It also NAMES every albedo in the pool with no `_n`
+normal map at its resolution (`missing_normals=` on the verdict line): such a
+set draws flat with one warning, so it is counted, not failed.
 
 **`uioverlap`** — CLAUDE.md says run it after touching any screen, and the one
 manual sweep found four defects nobody had reported. It sweeps every screen a
@@ -42,6 +44,10 @@ It is one more reason this check runs WINDOWED: a headless run renders nothing.
 **`MISSING MODEL '<x>' named by type '<y>'`** — the pool is incomplete. Usually
 means a worktree was provisioned from a stale file list; re-run
 `tools\FetchModels.ps1`, or robocopy `assets\models` from a populated sibling.
+
+**`NO NORMAL MAP <set>_<res> - it loads flat`** (not a failure) - the set was
+copied or imported without its `_n` maps, so it draws with no relief or
+parallax. Copy the set's `_n` files from a populated sibling, or re-import it.
 
 **`<label>: never reached the log`** - the sweep never audited that screen. This
 is a *coverage* failure, and it is the more serious kind: it caught its own first

@@ -1,9 +1,11 @@
 // ============================================================================
 // Game/AssetUtil.h — asset-loading helpers shared across the game layer.
 //
-// Required assets fail hard (DN_ASSERT) with the loader's reason — a missing
-// model or texture means the assets/ directory wasn't baked or copied next
-// to the exe. Sounds degrade gracefully (the game runs silent), and textures
+// A required MODEL fails hard (DN_ASSERT) with the loader's reason - a missing
+// one means the assets/ pool wasn't baked or provisioned, and there is nothing
+// to draw in its place. Everything else degrades and SAYS SO: a missing sound
+// runs silent, a missing required texture is a magenta checker placeholder, a
+// missing normal map is flat (LoadNormalMapFile), each with a warning. Textures
 // prefer the baked .dds mip chains, falling back to PNG + runtime mips so a
 // fresh checkout works before `AssetBaker mips` has run.
 // ============================================================================
@@ -54,10 +56,24 @@ std::unique_ptr<gfx::Texture> LoadTextureThumb(gfx::GraphicsDevice& device,
 											   const std::string& stemPath, u32 maxPx,
 											   bool srgb = true);
 
-// As TryLoadTextureFile, but the texture is required — missing aborts.
+// As TryLoadTextureFile, but the texture is required: a missing one does NOT
+// abort - it warns (naming what to bake) and returns a magenta/black checker
+// placeholder, so a provisioning gap renders glaringly wrong but stays playable.
 std::unique_ptr<gfx::Texture> LoadTextureFile(gfx::GraphicsDevice& device,
 											  const std::string& stemPath,
 											  bool srgb = false);
+
+// A set's NORMAL map, `<albedoStem>_n` (linear; xyz the tangent-space normal,
+// alpha the height the parallax marches). A missing one is a FLAT placeholder -
+// (128, 128, 255) with height 255, so the lighting is the geometry's and the
+// parallax march stops at once - and ONE warning naming the set (`setName`),
+// never the magenta checker LoadTextureFile would hand back, which read as a
+// normal tilts the surface in a checkerboard (code-review C471). `flat`, when
+// given, says which one came back.
+std::unique_ptr<gfx::Texture> LoadNormalMapFile(gfx::GraphicsDevice& device,
+												const std::string& albedoStem,
+												const std::string& setName,
+												bool* flat = nullptr);
 
 // --- shared UI icons --------------------------------------------------------
 // The close box every dialog draws in its top-right corner (assets/ui/
@@ -133,6 +149,12 @@ struct AssetInfo {
 // One directory walk each (plus one over models/ for the worn-mesh kinds).
 std::vector<AssetInfo> InstalledTextureSetInfo();
 std::vector<AssetInfo> InstalledModelInfo();
+
+// Every installed albedo with NO normal map beside it AT ITS RESOLUTION, as the
+// stem the loader asks for ("rusted_iron_4k"), sorted. Per resolution because
+// that is how a set loads: a 4k albedo with only a 2k `_n` still draws flat at
+// Ultra (LoadNormalMapFile). `levelcheck` lists them (code-review C471).
+std::vector<std::string> TextureStemsMissingNormals();
 
 // Resolution bits, so callers don't hand-roll the masks.
 constexpr u32 kRes1k = 1u, kRes2k = 2u, kRes4k = 4u;

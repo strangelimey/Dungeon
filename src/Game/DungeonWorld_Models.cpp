@@ -20,9 +20,18 @@
 // Lifetime: everything is shared_ptr, so the cache holding a reference only ever
 // DELAYS a free, never causes one early. The one path that drops kinds while
 // the GPU may still read them (ReloadTypeKind) drains first, as it always did.
+//
+// What is NOT kept: a file's embedded IMAGES (code-review C222). They exist to
+// be uploaded, and once they are the CPU copy only duplicates VRAM, for the life
+// of the world. ModelMulti drops them the moment the multi-material model is
+// built, and the end of every load (ReleaseModelImages) drops what a file drawn
+// single-mesh read and never uploaded. `modelcache` prints what is still pinned.
 // ============================================================================
+#include "Core/Log.h"
 #include "Game/AssetUtil.h"
 #include "Game/DungeonWorld.h"
+
+#include <format>
 
 using namespace DirectX;
 
@@ -119,8 +128,7 @@ void DropWellSkin(assets::MeshData& mesh) {
 
 std::shared_ptr<const assets::ModelData> DungeonWorld::ModelFile(const std::string& file) {
 	CachedModel& entry = m_modelCache[file];
-	if (!entry.data)
-		entry.data = std::make_shared<const assets::ModelData>(LoadModelOrDie(file));
+	if (!entry.data) entry.data = std::make_shared<assets::ModelData>(LoadModelOrDie(file));
 	return entry.data;
 }
 
@@ -133,14 +141,136 @@ std::shared_ptr<gfx::Mesh> DungeonWorld::ModelMesh(const std::string& file) {
 
 std::unique_ptr<DungeonWorld::MultiMaterialModel> DungeonWorld::ModelMulti(
 	const std::string& file) {
-	const std::shared_ptr<const assets::ModelData> data = ModelFile(file);
+	ModelFile(file); // parsed and cached, images and all
 	CachedModel& entry = m_modelCache[file];
-	if (!entry.multi) entry.multi = BuildMultiMaterialModel(m_device, *data);
+	if (!entry.multi) {
+		if (entry.imagesReleased) {
+			// The end-of-load sweep took this file's images before anything asked
+			// for it as a multi-material model (a kind built later - an editor
+			// placement, a `spawn`). Rare, so a second read rather than a third
+			// state; said, so a load that keeps paying it is visible.
+			log::Info("model cache: {} read again for its images (asked for as a "
+					  "multi-material model after a load released them)",
+					  file);
+			entry.multi = BuildMultiMaterialModel(m_device, LoadModelOrDie(file));
+		} else {
+			entry.multi = BuildMultiMaterialModel(m_device, *entry.data);
+			// UPLOADED, so the CPU copy only duplicates VRAM from here on - and
+			// for the life of the world, since the cache outlives every level
+			// (code-review C222: 48.1 MB in 13 files on crypt1). Every later kind
+			// on the file copies `multi`, never the images.
+			assets::ReleaseImages(*entry.data);
+			entry.imagesReleased = true;
+		}
+	}
 	return std::make_unique<MultiMaterialModel>(*entry.multi);
 }
 
 void DungeonWorld::ForgetModelFile(const std::string& file) {
 	m_modelCache.erase(file);
+}
+
+u64 DungeonWorld::ReleaseModelImages() {
+	u64 bytes = 0;
+	int files = 0;
+	for (auto& [file, entry] : m_modelCache) {
+		if (!entry.data || entry.imagesReleased) continue;
+		entry.imagesReleased = true;
+		const u64 held = assets::ImageBytes(*entry.data);
+		if (held == 0) continue; // no images to begin with: nothing to say
+		assets::ReleaseImages(*entry.data);
+		bytes += held;
+		++files;
+	}
+	if (bytes > 0)
+		log::Info("model cache: released {:.1f} MB of CPU images from {} file(s) drawn "
+				  "single-mesh",
+				  static_cast<double>(bytes) / (1024.0 * 1024.0), files);
+	return bytes;
+}
+
+std::vector<std::string> DungeonWorld::DescribeModelCache() const {
+	std::vector<std::string> out;
+	int multi = 0, pinning = 0;
+	u64 pinned = 0;
+	std::vector<std::pair<std::string, u64>> rows;
+	for (const auto& [file, entry] : m_modelCache) {
+		if (entry.multi) ++multi;
+		const u64 held = entry.data ? assets::ImageBytes(*entry.data) : 0;
+		if (held == 0) continue;
+		++pinning;
+		pinned += held;
+		rows.emplace_back(file, held);
+	}
+	std::ranges::sort(rows);
+	// key=value, so a harness reads the head line rather than parsing prose.
+	out.push_back(std::format("modelcache files={} multi={} pinning={} pinned_bytes={} "
+							  "({:.1f} MB)",
+							  m_modelCache.size(), multi, pinning, pinned,
+							  static_cast<double>(pinned) / (1024.0 * 1024.0)));
+	for (const auto& [file, held] : rows)
+		out.push_back(std::format("  {} pins {} bytes ({:.1f} MB)", file, held,
+								  static_cast<double>(held) / (1024.0 * 1024.0)));
+	return out;
+}
+
+// --- the texture sets loaded at a tier (`textures`) ---------------------------
+// Here beside the model cache because it answers the same question for the other
+// half of the load: what is resident, and is it what the settings ask for. A
+// quality swap's evidence (code-review C154): a STALE row is a set still holding
+// the tier it was loaded at, which is what every prop set was before the swap
+// reloaded them.
+namespace {
+std::string SizeOf(const gfx::Texture* t) {
+	return t ? std::format("{}x{}", t->Width(), t->Height()) : std::string("none");
+}
+} // namespace
+
+std::vector<std::string> DungeonWorld::DescribeTextures() const {
+	const std::string tier = m_settings.TextureSuffix();
+	std::vector<std::string> rows;
+	int surfaceSets = 0, stale = 0;
+	const std::pair<const char*, const Surface*> surfaces[] = {
+		{"wall", &m_walls}, {"floor", &m_floors}, {"ceiling", &m_ceilings}};
+	for (const auto& [label, s] : surfaces)
+		for (size_t i = 0; i < s->loadedSets.size(); ++i) {
+			++surfaceSets;
+			const bool old = s->loadedRes != tier;
+			stale += old ? 1 : 0;
+			rows.push_back(std::format(
+				"  surface {} {} tier={}{} albedo={} normal={}", label, s->loadedSets[i],
+				s->loadedRes, old ? " STALE" : "",
+				SizeOf(i < s->albedo.size() ? s->albedo[i].get() : nullptr),
+				SizeOf(i < s->normal.size() ? s->normal[i].get() : nullptr)));
+		}
+	for (const auto& [set, pt] : m_propTextures) {
+		const bool old = pt->res != tier;
+		stale += old ? 1 : 0;
+		rows.push_back(std::format("  prop {} tier={}{} albedo={} normal={} orm={}", set,
+								   pt->res, old ? " STALE" : "", SizeOf(pt->albedo.get()),
+								   pt->flatNormal ? std::string("flat")
+												  : SizeOf(pt->normal.get()),
+								   SizeOf(pt->mr.get())));
+	}
+	// key=value, the line a harness reads; the rows are for a person.
+	std::vector<std::string> out;
+	out.push_back(std::format("textures tier={} quality={} srv_live={} srv_peak={} "
+							  "surfaces={} props={} stale={}",
+							  tier, m_settings.QualityLabel(), m_device.SrvLive(),
+							  m_device.SrvHighWater(), surfaceSets, m_propTextures.size(),
+							  stale));
+	out.insert(out.end(), rows.begin(), rows.end());
+	return out;
+}
+
+std::string DungeonWorld::ProbeTextureSet(const std::string& set) {
+	const PropTextures* pt = LoadPropTextures(set);
+	if (!pt) return std::format("textures: '{}' is not installed (no albedo at {} or 2k)",
+								set, m_settings.TextureSuffix());
+	return std::format("textures: prop {} tier={} albedo={} normal={} orm={}", set, pt->res,
+					   SizeOf(pt->albedo.get()),
+					   pt->flatNormal ? std::string("flat") : SizeOf(pt->normal.get()),
+					   SizeOf(pt->mr.get()));
 }
 
 // --- the asset picker's view of a pool file ---------------------------------

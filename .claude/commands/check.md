@@ -42,7 +42,7 @@ harness refuses a stale exe on its own (exit 4).
   alloc-items    full   self-testable  moving an item allocates nothing; no glow from a shut niche; every click target hits where it is drawn
   typing         full   self-testable  typed console text arrives whole and in order (focus loss, heavy frames)
   health         full   self-testable  crashes, faults and stalls are caught, recorded and explained
-  evalrunner     full   no self-test   the eval runner: reset = new game, batched = solo, headless = windowed, knobs move numbers
+  evalrunner     full   no self-test   the eval runner: reset = new game, batched = solo, headless = windowed, knobs move numbers; load paths leave a clean device on WARP
   editor         full   no self-test   the editor, phase by phase (EditorTest.py, each phase mutation-tested)
   world          full   no self-test   the world tier: saves, worlds, dungeons, the world map (WorldTest.py)
   levelbuild     full   no self-test   the level generator, measured from the files it writes (LevelBuildTest.py)

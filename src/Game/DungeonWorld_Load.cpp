@@ -9,6 +9,7 @@
 
 #include "Assets/Image.h"
 #include "Assets/WornPanel.h"
+#include "Core/Assert.h"
 #include "Core/Loc.h"
 #include "Core/Log.h"
 #include "Core/Paths.h"
@@ -61,9 +62,6 @@ static std::vector<std::string> SplitTokens(const std::string& s) {
 	return out;
 }
 
-// monsters.cat `archetype` token -> the behaviour strategy enum. Unknown tokens
-// warn and fall back to brute (the pre-archetype behaviour), so a typo is loud but
-// never fatal and an undescribed monster keeps working.
 // Parses an "x,z" cell token (a .ent override value like leashfrom=5,7). Leaves the
 // outputs untouched and returns false on anything malformed.
 static bool ParseCell(const std::string& s, int& x, int& z) {
@@ -78,6 +76,9 @@ static bool ParseCell(const std::string& s, int& x, int& z) {
 	return true;
 }
 
+// monsters.cat `archetype` token -> the behaviour strategy enum. Unknown tokens
+// warn and fall back to brute (the pre-archetype behaviour), so a typo is loud but
+// never fatal and an undescribed monster keeps working.
 static ai::Archetype ParseArchetype(const std::string& v) {
 	if (v == "skirmisher") return ai::Archetype::Skirmisher;
 	if (v == "caster") return ai::Archetype::Caster;
@@ -365,9 +366,11 @@ bool DungeonWorld::FeatureIsCeiling(const std::string& type) const {
 // Loads a PBR set (albedo sRGB + normal/height + ORM) by base name at the
 // current quality tier. Higher tiers' sets are fetchable content
 // (tools/FetchTextures.ps1), so a missing one drops to the always-present 2k
-// set. `required` (surfaces) dies if even the albedo is absent; otherwise
-// (props) returns maps with a null albedo and the caller keeps its flat color.
-// The single source of the res→2k fallback, shared by surfaces and props.
+// set. `required` (surfaces) never returns without an albedo: absent even at
+// 2k, it is the magenta checker placeholder and a warning (LoadTextureFile).
+// Otherwise (props) a missing set returns maps with a null albedo and the
+// caller keeps its flat color. The single source of the res->2k fallback,
+// shared by surfaces and props.
 DungeonWorld::PbrMaps DungeonWorld::LoadPbrSet(const std::string& name, bool required) {
 	const char* res = m_settings.TextureSuffix();
 	std::string stem = paths::Asset(std::format("textures\\{}_{}", name, res));
@@ -376,17 +379,21 @@ DungeonWorld::PbrMaps DungeonWorld::LoadPbrSet(const std::string& name, bool req
 	if (!maps.albedo) {
 		stem = paths::Asset(std::format("textures\\{}_2k", name));
 		if (required) {
-			log::Warn("{} not found at {} — falling back to 2k", name, res);
-			maps.albedo = LoadTextureFile(m_device, stem, /*srgb*/ true); // dies if absent
+			log::Warn("{} not found at {} - falling back to 2k", name, res);
+			// The placeholder checker, not an abort, if 2k is missing too.
+			maps.albedo = LoadTextureFile(m_device, stem, /*srgb*/ true);
 		} else {
 			maps.albedo = TryLoadTextureFile(m_device, stem, /*srgb*/ true);
 			if (!maps.albedo) {
-				log::Warn("texture set '{}' not found — using flat material", name);
+				log::Warn("texture set '{}' not found - using flat material", name);
 				return maps; // null albedo: caller falls back to a flat material
 			}
 		}
 	}
-	maps.normal = LoadTextureFile(m_device, stem + "_n"); // linear
+	// Linear. A set with no `_n` draws FLAT and says so once (code-review C471):
+	// it used to get the magenta checker AS its normal map, which lit the surface
+	// as a checkerboard of normals tilted half away from the light.
+	maps.normal = LoadNormalMapFile(m_device, stem, name, &maps.flatNormal);
 	// ORM (occlusion/roughness/metallic) — present once the set is re-imported;
 	// null until then (the renderer falls back to a neutral default).
 	maps.mr = TryLoadTextureFile(m_device, stem + "_mr");
@@ -511,9 +518,9 @@ DungeonWorld::GeometryPrint DungeonWorld::GeometryFingerprint() const {
 }
 
 void DungeonWorld::BuildDungeonMeshes() {
-	// Every path that (re)builds the surfaces runs through here — the staged
-	// load, the quality swap, an undo restore — so this is the one place the
-	// per-variant material factors need refreshing.
+	// Every path that (re)builds the surfaces runs through here - the staged
+	// load, the quality swap, an undo restore, `arena`, the eval `reset` - so
+	// this is the one place the per-variant material factors need refreshing.
 	ApplySurfaceFactors();
 	DungeonGeometry geo = BuildDungeonGeometry(
 		m_map, m_wallBlocks, m_floorBlocks, m_ceilingBlocks, m_walls.uAspect,
@@ -526,6 +533,14 @@ void DungeonWorld::BuildDungeonMeshes() {
 		[this](const std::string& type) { return FloorFeatureMeshFor(type); },
 		[this](const std::string& type) { return CeilingFeatureMeshFor(type); });
 
+	// THE FUNCTION THAT FREES IS THE ONE THAT DRAINS (code-review C193). The
+	// clears below release every chunk mesh, and frames still in flight drew
+	// them; `arena` and the eval `reset` call this straight from a console line
+	// with nothing drained before it, and only a slow CPU build ahead of the
+	// clears ever let the GPU finish first. After the geometry build, so the
+	// drain waits on as little as possible; on the staged load and the swap
+	// paths, which drained already, it finds nothing to wait for.
+	m_device.WaitIdle();
 	m_walls.chunks.clear();
 	m_floors.chunks.clear();
 	m_ceilings.chunks.clear();
@@ -1881,7 +1896,31 @@ const DungeonWorld::PropTextures* DungeonWorld::LoadPropTextures(const std::stri
 	pt->normal = std::move(maps.normal);
 	pt->mr = std::move(maps.mr);
 	pt->heightScale = 0.03f;
+	pt->res = m_settings.TextureSuffix();
+	pt->flatNormal = maps.flatNormal;
 	return m_propTextures.emplace(set, std::move(pt)).first->second.get();
+}
+
+int DungeonWorld::ReloadPropTextures() {
+	const std::string tier = m_settings.TextureSuffix();
+	int reloaded = 0;
+	for (auto&& [set, pt] : m_propTextures) { // a flat_map yields proxy pairs
+		if (pt->res == tier) continue;
+		// FREE, THEN LOAD: the old maps go before the new ones arrive, so the
+		// swap never holds both tiers at once - on the SRV heap (whose peak a
+		// quality swap must not raise; docs/ARCHITECTURE.md) or in VRAM.
+		pt->albedo.reset();
+		pt->normal.reset();
+		pt->mr.reset();
+		PbrMaps maps = LoadPbrSet(set, /*required*/ false);
+		pt->albedo = std::move(maps.albedo); // null only if the files vanished:
+		pt->normal = std::move(maps.normal); // the draw then falls back to the
+		pt->mr = std::move(maps.mr);         // kind's flat colour, as at load
+		pt->flatNormal = maps.flatNormal;
+		pt->res = tier;
+		++reloaded;
+	}
+	return reloaded;
 }
 
 // Binds an albedo+normal+ORM trio onto a material (ORM drives metallic/roughness
@@ -1950,24 +1989,16 @@ void DungeonWorld::BakeCatalogMaterial(MultiMaterialModel& model,
 	}
 }
 
-
-// Loads each decoration model once (shared per type, like monsters) and bakes
-// one placed instance per .map "decoration" record. Authored facing +Z, so a
-// record's facing rotates the prop the same way a monster's does. Everything
-// is solid (blocks the party) except open passages like the archway; a
-// "solid=0"/"solid=1" param on the record overrides the default.
-// Each decoration type resolves through the decorations catalog: its model
-// (assets/models/<model>.gltf), its texture set (procedural props share a
-// dungeon-stone/wood-plank set, authored imports carry their own), whether it is
-// back-face culled (authored), and whether a floor-standing instance blocks the
-// party (passages like the archway don't). An unlisted type falls back to the
-// old convention: same-named model + set, authored, solid.
 // Builds an authored model's own GPU resources: one texture per embedded glTF
 // image (base-color maps sRGB, normal/MR linear) and one submesh per primitive,
 // each with a MaterialParams resolved from its glTF material. Lets a bought
 // multi-material model render every part with its real material.
 std::unique_ptr<DungeonWorld::MultiMaterialModel> DungeonWorld::BuildMultiMaterialModel(
 	gfx::GraphicsDevice& device, const assets::ModelData& model) {
+	// A model the cache has already taken the images from would build every
+	// texture from an empty image; ModelMulti reads the file again instead.
+	DN_ASSERT(!assets::ImagesReleased(model),
+			  "BuildMultiMaterialModel: the model's images were released");
 	auto out = std::make_unique<DungeonWorld::MultiMaterialModel>();
 	std::vector<bool> srgb(model.images.size(), false);
 	for (const assets::MaterialData& m : model.materials)
@@ -2071,6 +2102,12 @@ static float ModelOriginRadius(const assets::ModelData& model) {
 	return std::sqrt(worst);
 }
 
+// Each decoration type resolves through the decorations catalog: its model
+// (assets/models/<model>.gltf), its texture set (procedural props share a
+// dungeon-stone/wood-plank set, authored imports carry their own), whether it is
+// back-face culled (authored), and whether a floor-standing instance blocks the
+// party (passages like the archway don't). An unlisted type falls back to the
+// old convention: same-named model + set, authored, solid.
 DungeonWorld::DecorationKind& DungeonWorld::DecorationKindFor(const std::string& type,
 															 const Catalog& catalog) {
 	auto it = m_decorationKinds.find(type);
@@ -2200,6 +2237,11 @@ DungeonWorld::FixtureKind& DungeonWorld::FixtureKindFor(const std::string& type)
 	return *it->second;
 }
 
+// Loads each decoration model once (shared per type, like monsters) and bakes
+// one placed instance per .map "decoration" record. Authored facing +Z, so a
+// record's facing rotates the prop the same way a monster's does. Everything
+// is solid (blocks the party) except open passages like the archway; a
+// "solid=0"/"solid=1" param on the record overrides the default.
 void DungeonWorld::LoadDecorations() {
 	for (const Entity& record : m_map.Decorations()) {
 		DecorationKind& kind = DecorationKindFor(record.type, m_project.decorations);
@@ -2294,9 +2336,6 @@ void DungeonWorld::PlaceStairProp(const StairLink& s) {
 	m_decorations.push_back(std::move(deco));
 }
 
-// Places one Fire per sconce ('T') and brazier ('F') cell. Sconces mount on
-// the first solid neighbor wall and face into the room; braziers stand at
-// the cell center. Flame origins match the baked models (see ModelBaker).
 // Origin pushed to the wall face, +Z (authored front) turned to face the room.
 DungeonWorld::WallMount DungeonWorld::MountOnWall(int x, int z, Direction wall) const {
 	const int dx = DirDX(wall), dz = DirDZ(wall);
@@ -2306,6 +2345,9 @@ DungeonWorld::WallMount DungeonWorld::MountOnWall(int x, int z, Direction wall) 
 			std::atan2(static_cast<float>(-dx), static_cast<float>(-dz))};
 }
 
+// Places one Fire per sconce ('T') and brazier ('F') cell. Sconces mount on
+// the first solid neighbor wall and face into the room; braziers stand at
+// the cell center. Flame origins match the baked models (see ModelBaker).
 void DungeonWorld::BuildFires() {
 	u32 seed = 1234;
 	// A fire's light is keyed by its index here, so a rebuilt list (a level
@@ -2433,19 +2475,31 @@ void DungeonWorld::BuildTurbidityMap() {
 // Quality hot-swap (see GameSettings's Quality) — the worn blocks exist at
 // three baked tessellation levels and the scanned textures at three
 // resolutions; switching reloads both and rebuilds the batched dungeon
-// meshes in place (monsters and fires are unaffected).
+// meshes in place. Every texture set loaded AT A TIER swaps: the surfaces and
+// every prop set (props, doors, fixtures, monsters, runes - one cache,
+// m_propTextures). What carries no tier stays: a multi-material model's
+// embedded images, the UI art, the baked icons.
 // ============================================================================
 void DungeonWorld::ApplyQuality(bool textureResChanged) {
-	if (m_walls.chunks.empty()) return; // not built yet — the load tasks will
-	ReloadDungeonBlocks(textureResChanged);
-	log::Info("Quality switched to {} ({} meshes, {} textures)",
+	// THE PROPS FIRST, and whether or not the surfaces are built: a prop set
+	// cached at the old tier would otherwise be handed out at that tier for the
+	// rest of the session (code-review C154 - LoadPropTextures looks up by name).
+	int props = 0;
+	if (textureResChanged && !m_propTextures.empty()) {
+		m_device.WaitIdle(); // in-flight frames still sample the old maps
+		props = ReloadPropTextures();
+	}
+	if (!m_walls.chunks.empty()) // not built yet: the load tasks will
+		ReloadDungeonBlocks(textureResChanged);
+	log::Info("Quality switched to {} ({} meshes, {} textures; {} prop set(s) reloaded)",
 			  m_settings.QualityLabel(), m_settings.MeshSuffix(),
-			  m_settings.TextureSuffix());
+			  m_settings.TextureSuffix(), props);
 }
 
 // Reloads the worn block meshes and rebuilds the batched dungeon geometry in
-// place — shared by the quality hot-swap and the editor's Wall Style rebake
-// (which re-bakes a texture's worn_*.gltf then calls this to swap it in live).
+// place - shared by the quality hot-swap and a surface type's RESTYLE (the type
+// editor saving a `rebakes` field: Game::StartRestyleBake re-bakes the texture's
+// worn_*.gltf, then calls this to swap it in live).
 // The map Revision is unchanged, so the cached shadow cubes are force-refreshed.
 void DungeonWorld::ReloadDungeonBlocks(bool textureResChanged) {
 	if (m_walls.chunks.empty()) return; // not built yet — the load tasks will

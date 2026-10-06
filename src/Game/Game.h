@@ -1387,8 +1387,9 @@ private:
 	// Relief < 0 = unspecified: the baker takes the set's own (Assets/WornSets.h).
 	float m_bakeWear = 1.0f;
 	float m_bakeRelief = -1.0f;
-	// True while the running bake is a Wall Style RESTYLE (no new catalog entry;
-	// on success reload the dungeon blocks in place instead of FinishBake).
+	// True while the running bake is a surface type's RESTYLE - the type editor
+	// saved a `rebakes` field (StartRestyleBake). No new catalog entry; on
+	// success reload the dungeon blocks in place instead of FinishBake.
 	bool m_restyleBake = false;
 
 	// Child process launched to restart the game on an adapter change (it

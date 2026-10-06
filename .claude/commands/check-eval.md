@@ -12,17 +12,23 @@ scripts unattended — no clicks, no screenshots.
 - `table` → `.\tools\Eval.ps1 -Table` — the measurements alone, nothing else
 - `selftest` → `.\tools\Eval.ps1 -SelfTest` (must PASS by making the runner FAIL)
 - anything else → `.\tools\Eval.ps1 -Only <name>`
+- add `-Warp` to draw on WARP (the software rasterizer, at 640x360): what makes
+  the device check below see a resource freed with frames still in flight
 
 Needs a current debug build (a stale one is refused, exit 4); a few minutes for
-all of them, in one process.
+all of them, in one process. Every run also checks the DEVICE: a `d3d12 error`
+from the debug build's D3D12 debug layer fails it (code-review batch 64).
 
 ## THIS IS NOT A PASS/FAIL CHECK
 
 **A green verdict means the scripts RAN, not that the numbers are good.** That is
 why the suites are not in `CheckAll`'s tiers and why they have their own
 command. (`-SelfTest` is the exception: it checks the RUNNER - reset equals a new
-game, batched equals solo, headless equals windowed, a knob moves its number - so
-it is CheckAll's full-tier `evalrunner` row.)
+game, batched equals solo, headless equals windowed, a knob moves its number - and
+the load paths, on WARP (lifetimes.eval: a clean device through reset and arena,
+every texture set at its tier across a quality round trip, no CPU image bytes
+pinned, a set with no normal map loaded flat), so it is CheckAll's full-tier
+`evalrunner` row.)
 
 The numbers are the artefact — `TALLY` lines and blast tables, to be **compared
 against a previous run** after a knob changes. Nothing asserts that a balance

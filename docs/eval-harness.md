@@ -888,6 +888,39 @@ genuinely was living in the render pass.
 because the allocation guard brackets update *and* render, so a headless frame is
 a different frame from the one the rule is about.
 
+## WARP (`-warp`) and the device check (code-review batch 64)
+
+Headless's opposite: `Dungeon.exe -warp` draws EVERY frame, on WARP, the software
+rasterizer, whatever GPU is fitted; `Eval.ps1 -Warp` passes it and shrinks the
+window to 640x360 for the run (settings.ini, put back after), because what it
+needs is frames, not pixels - a full-size WARP run of `lifetimes.eval` took 397 s,
+at 640x360 60 s.
+
+It exists for the **device check every Eval.ps1 run now makes**: a debug build
+runs the D3D12 debug layer, which logs each error as `d3d12 error [id]`, and one
+FAILS the run (the report prints `d3d12 debug layer: ...` either way, so "it saw
+nothing" cannot be mistaken for "nobody was listening"; a release build has no
+layer and says so). On a GPU that check is nearly blind to the commonest lifetime
+bug, a free with frames still in flight: by the time `reset` or `arena` frees the
+old chunk meshes the GPU finished with them long ago. WARP's frames are still in
+flight. With `BuildDungeonMeshes`' drain cut out (code-review C193), `lifetimes.eval`
+logged error 921 - a resource final-released while in-flight work referenced it -
+on WARP, and nothing at all on the GPU.
+
+`-SelfTest` runs `lifetimes.eval` on WARP every time (read its header): the device
+through `reset` and `arena`; the model cache holding no CPU image bytes after the
+load (`modelcache`); a Low -> Ultra -> Low quality round trip leaving every texture
+set at its tier and the SRV gauge, live and peak, where the load left it
+(`textures`); and a planted set with no normal map named by `levelcheck` and
+loaded flat with one warning. Two of those needed a second look to be able to
+fail. The SRV baseline is read right after the load, before any swap, and the run
+pins the starting quality to Medium (Low's 1k tier) whatever the ini holds:
+started at High or Ultra, the first `quality 0` is a full swap of its own, and a
+baseline read after it already carries any peak a load-before-free swap adds.
+And `levelcheck`'s list must be EXACTLY the pool's albedos with no `_n` beside
+them, worked out by the harness from the disk - naming the plant alone would
+pass a check that listed every albedo in the pool.
+
 ## The one suite that is not a measurement
 
 `pipeline.eval` lives in `tools\EvalScripts\` and is deliberately **not** in
