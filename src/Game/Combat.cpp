@@ -34,7 +34,8 @@ bool ParseArmorClass(std::string_view token, ArmorClass& out) {
 }
 
 AttackResult ResolveAttack(const AttackProfile& atk, const DefenseProfile& def,
-						   const StrikeRules& rules, std::mt19937& rng) {
+						   const StrikeRules& rules, const RollRules& dice,
+						   std::mt19937& rng) {
 	AttackResult result;
 
 	// THE OPPOSED ROLL (docs/damage-system.md). Both sides add a d100 to a
@@ -44,10 +45,11 @@ AttackResult ResolveAttack(const AttackProfile& atk, const DefenseProfile& def,
 	// an opposed roll turns the same difference into a triangular-ish curve.
 	// The bonuses now arrive in points from the contribution curves, which is
 	// what let the bridging scale factor go.
-	RollRules rr;
-	rr.critThreshold = static_cast<int>(rules.critThreshold);
-	rr.fumbleThreshold = static_cast<int>(rules.fumbleThreshold);
-	rr.maxEscalations = static_cast<int>(rules.maxEscalations);
+	//
+	// The dice are the caller's (StrikeRules::Dice() in the game). They used to
+	// be rebuilt here from `rules`, which left tools/RollTest's injected broken
+	// die unable to reach a single strike check.
+	const RollRules& rr = dice;
 	const int atkBonus = static_cast<int>(atk.attackBonus);
 	const int defBonus = static_cast<int>(def.defenseBonus);
 

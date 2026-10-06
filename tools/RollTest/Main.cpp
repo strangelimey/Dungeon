@@ -33,7 +33,14 @@
 // a harness that cannot catch a broken distribution FAILS instead of passing
 // vacuously. It ALSO swaps the armor offset curve for the logarithmic form,
 // which passes its cap — because a self-test that only breaks the dice would
-// leave every armor check below unproven.
+// leave every armor check below unproven. The die reaches the STRIKE sections
+// too: ResolveAttack rolls the dice its caller hands it (kStrikeDice below),
+// where it once rebuilt its own from StrikeRules and so never saw the fault.
+//
+// A self-test PASSES only when exactly the checks in kSelfTestFails fail and
+// every other check still passes (the tools/SpellTest.py rule). "Something
+// failed" is not enough: it cannot tell a caught fault from a broken run, and
+// it cannot tell which sections the fault actually reached.
 // ============================================================================
 #include "Game/Blast.h"
 #include "Game/Combat.h"
@@ -58,7 +65,9 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <iterator>
 #include <random>
+#include <string>
 #include <vector>
 
 using namespace dungeon::game;
@@ -67,6 +76,9 @@ namespace {
 
 int g_checks = 0;
 int g_failed = 0;
+// The label of every check that failed, in order - what --self-test compares
+// against kSelfTestFails.
+std::vector<std::string> g_failedLabels;
 
 // One expectation. `expected` is derived, never read from the engine's own
 // constants; `tol` is set generously wide against the sample count (every
@@ -74,17 +86,76 @@ int g_failed = 0;
 void Check(const char* what, double measured, double expected, double tol) {
 	++g_checks;
 	const bool ok = std::fabs(measured - expected) <= tol;
-	if (!ok) ++g_failed;
+	if (!ok) {
+		++g_failed;
+		g_failedLabels.emplace_back(what);
+	}
 	std::printf("  %-46s %10.4f  expect %9.4f +/- %-7.4f %s\n", what, measured,
 				expected, tol, ok ? "ok" : "FAIL");
 }
 
 void CheckTrue(const char* what, bool ok) {
 	++g_checks;
-	if (!ok) ++g_failed;
+	if (!ok) {
+		++g_failed;
+		g_failedLabels.emplace_back(what);
+	}
 	std::printf("  %-46s %10s %-28s %s\n", what, ok ? "true" : "false", "",
 				ok ? "ok" : "FAIL");
 }
+
+// THE SELF-TEST'S EXPECTED FAILURES: exactly the checks the injected 90-sided
+// die and the logarithmic offset curve must trip, by label. A label listed
+// twice is a check that runs twice and must fail both times. Filled in from a
+// measured --self-test run and reviewed line by line: every entry is a check
+// whose expectation the fault really falsifies, and a check that is NOT here
+// must still pass under the fault (a die-free section breaking would mean the
+// run itself is broken, not that the fault was caught).
+constexpr const char* kSelfTestFails[] = {
+	// the plain die: a d90's mean is 45.5 and its top decile is empty
+	"mean",
+	"worst decile deviation from 0.1000",
+	// the open-ended die: no face reaches 95, and 5 of 90 faces fumble
+	"crit rate (first >= 95)",
+	"fumble rate (first <= 5)",
+	"P(2+ escalations)",
+	"mean total",
+	// bonuses: a d90 shifts the exact flat rate, and with no escalation the
+	// open-ended rate EQUALS the flat one (both drawn on one stream, so not a
+	// coin toss between two samples) instead of sitting below it
+	"attacker +30, no escalation",
+	"escalation dilutes a flat bonus",
+	// THE STRIKE SECTIONS, which the die never reached before ResolveAttack
+	// took its caller's dice: a fumble is 5 of 90 faces, not 5 of 100 (each
+	// tolerance leaves the d90's rate >= 4 sigma outside it)...
+	"an unloseable attack still fumbles",
+	"a hopeless attack lands on a fumbled guard",
+	"a plain swing fumbles 5% of the time",
+	"an untrained 100% haymaker fumbles half the time",
+	// ...and with no criticals at all there is nothing to pierce
+	"the sample found criticals of both kinds",
+	"a piercing critical beats an ordinary one",
+	"...by about the soak it ignored",
+	// armor: the logarithmic offset curve passes its cap, so every profile
+	// with anything offsettable trains past its floor ("floor==penalty" has
+	// nothing to offset, so it holds and is not listed)
+	"light: floor never passed",
+	"light: floor never reached",
+	"light: never below the floor",
+	"light: never free",
+	"medium: floor never passed",
+	"medium: floor never reached",
+	"medium: never below the floor",
+	"medium: never free",
+	"heavy: floor never passed",
+	"heavy: floor never reached",
+	"heavy: never below the floor",
+	"heavy: never free",
+	"tiny: floor never passed",
+	"tiny: floor never reached",
+	"tiny: never below the floor",
+	"tiny: never free",
+};
 
 double Pct(const std::vector<int>& sorted, double p) {
 	if (sorted.empty()) return 0.0;
@@ -101,12 +172,18 @@ int main(int argc, char** argv) {
 
 	constexpr int kSamples = 2'000'000;
 
-	RollRules rules;
-	if (selfTest) {
-		// THE INJECTED FAULT: a 90-sided die. Every expectation below still
-		// assumes 100, so the distribution checks must trip.
-		rules.sides = 90;
-	}
+	// THE INJECTED FAULT: a 90-sided die. Every expectation below still
+	// assumes 100, so the distribution checks must trip.
+	const auto inject = [selfTest](RollRules dice) {
+		if (selfTest) dice.sides = 90;
+		return dice;
+	};
+	RollRules rules = inject(RollRules{});
+	// The die every STRIKE section rolls: the shipped strike knobs' dice
+	// (StrikeRules::Dice - what fx::Deal hands ResolveAttack), carrying the
+	// same fault. Today it is the same die as `rules`; it is built from the
+	// strike knobs so a retuned StrikeRules default reaches these sections.
+	const RollRules kStrikeDice = inject(StrikeRules{}.Dice());
 
 	std::printf("RollTest — %d samples, seed 1234%s\n\n", kSamples,
 				selfTest ? "  [SELF-TEST: 90-sided die injected]" : "");
@@ -223,6 +300,13 @@ int main(int argc, char** argv) {
 	// What IS assertable is the DIRECTION: escalation fattens both sides'
 	// tails, which dilutes a fixed bonus, so the open-ended hit rate must sit
 	// below the flat one while still comfortably beating even odds.
+	//
+	// The flat and open-ended rates are measured on the SAME stream (the rng
+	// is re-seeded between them). With nothing escalating - the self-test's
+	// d90 never reaches 95 - the two loops then draw identical faces and the
+	// rates come out EQUAL, so the dilution check fails by construction. Drawn
+	// from two stretches of one stream, they would be two samples of one rate
+	// and the check a coin toss. On the real die the gap is ~0.015, ~15 sigma.
 	{
 		std::printf("\nbonuses point the right way\n");
 		constexpr int kN = 400'000;
@@ -234,6 +318,7 @@ int main(int argc, char** argv) {
 		std::mt19937 rng(7);
 		long long flatHi = 0, openHi = 0, openLo = 0;
 		for (int i = 0; i < kN; ++i) flatHi += Resolve(30, 0, flat, rng).hit;
+		rng.seed(7); // the same stream again - see above
 		for (int i = 0; i < kN; ++i) openHi += Resolve(30, 0, rules, rng).hit;
 		for (int i = 0; i < kN; ++i) openLo += Resolve(0, 30, rules, rng).hit;
 
@@ -243,7 +328,8 @@ int main(int argc, char** argv) {
 		CheckTrue("+30 attack beats +30 defense", openHi > openLo);
 		CheckTrue("escalation dilutes a flat bonus", openRate < flatRate);
 		CheckTrue("+30 still well ahead of even odds", openRate > 0.65);
-		std::printf("  (open-ended +30 measured at %.4f)\n", openRate);
+		std::printf("  (open-ended +30 measured at %.4f, flat at %.4f)\n", openRate,
+					flatRate);
 	}
 
 	// --- THE TAIL (informational) ------------------------------------------
@@ -324,7 +410,7 @@ int main(int argc, char** argv) {
 			dmg.reserve(kN);
 			for (int i = 0; i < kN; ++i) {
 				const AttackResult r = ResolveAttack({10.0f, c.atk, {}},
-													 {c.def, 0.0f, 0.0f}, sr, rng);
+													 {c.def, 0.0f, 0.0f}, sr, kStrikeDice, rng);
 				if (!r.hit) continue;
 				++hits;
 				dmg.push_back(static_cast<int>(r.damage + 0.5f));
@@ -387,7 +473,7 @@ int main(int argc, char** argv) {
 				double total = 0;
 				for (int i = 0; i < kN; ++i) {
 					const AttackResult r = ResolveAttack(
-						{6.0f, kMonster, {}}, {d.bonus, d.soak, d.resist}, sr, rng);
+						{6.0f, kMonster, {}}, {d.bonus, d.soak, d.resist}, sr, kStrikeDice, rng);
 					if (!r.hit) continue;
 					++hits;
 					total += r.damage;
@@ -414,7 +500,7 @@ int main(int argc, char** argv) {
 					double total = 0;
 					for (int i = 0; i < kN; ++i) {
 						const AttackResult r = ResolveAttack(
-							{dmg, kMonster, {}}, {d.bonus, d.soak, d.resist}, sr, rng);
+							{dmg, kMonster, {}}, {d.bonus, d.soak, d.resist}, sr, kStrikeDice, rng);
 						if (r.hit) total += r.damage;
 					}
 					std::printf(" %8.2f", total / kN);
@@ -433,7 +519,7 @@ int main(int argc, char** argv) {
 			constexpr int kN = 100'000;
 			for (int i = 0; i < kN; ++i)
 				h += ResolveAttack({10.0f, attacker(lvl, 10, 0), {}},
-								   {30.0f, 0, 0}, sr, rng)
+								   {30.0f, 0, 0}, sr, kStrikeDice, rng)
 						 .hit;
 			std::printf("L%-3.0f %.3f   ", lvl, double(h) / kN);
 		}
@@ -447,10 +533,10 @@ int main(int argc, char** argv) {
 		for (int i = 0; i < 200'000; ++i) {
 			const AttackResult a =
 				ResolveAttack({10.0f, attacker(30, 14, 0), {}}, {10.0f, 0.0f, 0.0f},
-							  sr, rng);
+							  sr, kStrikeDice, rng);
 			const AttackResult b =
 				ResolveAttack({10.0f, attacker(1, 8, 0), {}}, {60.0f, 0.0f, 0.0f},
-							  sr, rng);
+							  sr, kStrikeDice, rng);
 			hi += a.hit;
 			lo += b.hit;
 			if (a.hit) worst = std::max(worst, a.damage);
@@ -470,9 +556,9 @@ int main(int argc, char** argv) {
 			constexpr int kN = 400'000;
 			long long sure = 0, hopeless = 0;
 			for (int i = 0; i < kN; ++i) {
-				sure += ResolveAttack({10.0f, 5000.0f, {}}, {0, 0, 0}, sr, rng).hit;
+				sure += ResolveAttack({10.0f, 5000.0f, {}}, {0, 0, 0}, sr, kStrikeDice, rng).hit;
 				hopeless +=
-					ResolveAttack({10.0f, 0.0f, {}}, {5000.0f, 0, 0}, sr, rng).hit;
+					ResolveAttack({10.0f, 0.0f, {}}, {5000.0f, 0, 0}, sr, kStrikeDice, rng).hit;
 			}
 			std::printf("\nfumbles decide the exchange\n");
 			Check("an unloseable attack still fumbles", double(sure) / kN, 0.95,
@@ -1109,21 +1195,27 @@ int main(int argc, char** argv) {
 		// And the resolver actually USES it: measured, not assumed. A +45 band on
 		// the plain 5 fumbles on a first face of 50 or less - half the swings -
 		// against a plain swing's 5%. Seeded, so the numbers are stable.
+		//
+		// The plain rate's tolerance is sized against the self-test as well as
+		// the real die: at 400k swings one sigma is ~0.00034, so +/- 0.0025 is
+		// ~7 sigma, and the d90's 5/90 = 0.0556 lands ~8 sigma past it. (At
+		// 100k and +/- 0.005 the d90 cleared the band by under one sigma, so a
+		// reshuffled stream could read it as a pass.)
 		{
 			StrikeRules sr;
-			constexpr int kN = 100'000;
+			constexpr int kN = 400'000;
 			const auto fumbleRate = [&](int extra) {
 				std::mt19937 rng(8080);
 				long long fumbles = 0;
 				for (int i = 0; i < kN; ++i) {
 					AttackProfile atk{10.0f, 40.0f, {}};
 					atk.fumbleExtra = extra;
-					if (ResolveAttack(atk, {40.0f, 0.0f, 0.0f}, sr, rng).fumble)
+					if (ResolveAttack(atk, {40.0f, 0.0f, 0.0f}, sr, kStrikeDice, rng).fumble)
 						++fumbles;
 				}
 				return double(fumbles) / kN;
 			};
-			Check("a plain swing fumbles 5% of the time", fumbleRate(0), 0.05, 0.005);
+			Check("a plain swing fumbles 5% of the time", fumbleRate(0), 0.05, 0.0025);
 			Check("an untrained 100% haymaker fumbles half the time", fumbleRate(45),
 				  0.50, 0.01);
 		}
@@ -1237,8 +1329,8 @@ int main(int argc, char** argv) {
 	// middle of the damage expression, and it must skip it ONLY on a critical.
 	{
 		std::printf("\n--- a critical that pierces ---\n");
-		StrikeRules rules;
-		rules.damageJitter = 0.0f; // measure the rule, not the noise
+		StrikeRules strike;
+		strike.damageJitter = 0.0f; // measure the rule, not the noise
 		DefenseProfile def{/*defenseBonus=*/0.0f, /*soak=*/8.0f, /*resist=*/0.0f};
 
 		// A bonus high enough that the defender never wins, so every sample is a
@@ -1249,14 +1341,14 @@ int main(int argc, char** argv) {
 		int nPlainCrit = 0, nPlainNormal = 0, nPierceCrit = 0;
 		for (int i = 0; i < 20000; ++i) {
 			const AttackResult a =
-				ResolveAttack({20.0f, 400.0f, DamageType{}, false}, def, rules, rng);
+				ResolveAttack({20.0f, 400.0f, DamageType{}, false}, def, strike, kStrikeDice, rng);
 			if (!a.hit) continue;
 			if (a.crit) { plainCrit += a.damage; ++nPlainCrit; }
 			else { plainNormal += a.damage; ++nPlainNormal; }
 		}
 		for (int i = 0; i < 20000; ++i) {
 			const AttackResult a =
-				ResolveAttack({20.0f, 400.0f, DamageType{}, true}, def, rules, rng);
+				ResolveAttack({20.0f, 400.0f, DamageType{}, true}, def, strike, kStrikeDice, rng);
 			if (a.hit && a.crit) { pierceCrit += a.damage; ++nPierceCrit; }
 		}
 		CheckTrue("the sample found criticals of both kinds",
@@ -1282,9 +1374,11 @@ int main(int argc, char** argv) {
 			int nA = 0, nB = 0;
 			for (int i = 0; i < 8000; ++i) {
 				const AttackResult ra =
-					ResolveAttack({20.0f, 400.0f, DamageType{}, false}, def, rules, a);
+					ResolveAttack({20.0f, 400.0f, DamageType{}, false}, def, strike,
+								  kStrikeDice, a);
 				const AttackResult rb =
-					ResolveAttack({20.0f, 400.0f, DamageType{}, true}, def, rules, b);
+					ResolveAttack({20.0f, 400.0f, DamageType{}, true}, def, strike,
+								  kStrikeDice, b);
 				if (ra.hit && !ra.crit) { normalPlain += ra.damage; ++nA; }
 				if (rb.hit && !rb.crit) { normalPierce += rb.damage; ++nB; }
 			}
@@ -1300,17 +1394,17 @@ int main(int argc, char** argv) {
 	// own unit checks.
 	{
 		std::printf("\n--- the fumble face travels ---\n");
-		StrikeRules rules;
+		StrikeRules strike;
 		DefenseProfile def{0.0f, 0.0f, 0.0f};
 		std::mt19937 rng(4242u);
 		int fumbles = 0, faceInBand = 0, faceOnNonFumble = 0;
 		for (int i = 0; i < 20000; ++i) {
 			const AttackResult a =
-				ResolveAttack({10.0f, 50.0f, DamageType{}, false}, def, rules, rng);
+				ResolveAttack({10.0f, 50.0f, DamageType{}, false}, def, strike, kStrikeDice, rng);
 			if (a.fumble) {
 				++fumbles;
 				if (a.fumbleFace >= 1 &&
-					a.fumbleFace <= static_cast<int>(rules.fumbleThreshold))
+					a.fumbleFace <= kStrikeDice.fumbleThreshold)
 					++faceInBand;
 			} else if (a.fumbleFace != 0) {
 				++faceOnNonFumble;
@@ -1519,7 +1613,7 @@ int main(int argc, char** argv) {
 			// Entombed: nowhere to go at all. It must still burn its own square and
 			// then stop, rather than spinning on an empty frontier.
 			const PassableFn sealed = [](int x, int z) { return x == 10 && z == 10; };
-			const Result r = Propagate(10, 10, sealed ? fire : fire, sealed);
+			const Result r = Propagate(10, 10, fire, sealed);
 			Check("entombed: only its own square", r.count, 1.0, 0.0);
 			CheckTrue("entombed: force is left unspent", r.leftover > 0);
 		}
@@ -2031,9 +2125,14 @@ int main(int argc, char** argv) {
 			  FormatMonsters(p) == "skeleton 3, skel_archer, mummy 0.5" ? 1 : 0, 1, 0);
 		Check("a weight of 0 can never be chosen, so it is dropped",
 			  static_cast<double>(ParseMonsters("blob 0, mummy").size()), 1.0, 0.0);
-		Check("a bad weight reads as 1", ParseMonsters("blob x")[0].weight, 1.0, 0.0);
+		// Size-guarded like the checks above: a parser regressed to an empty
+		// result must print FAIL, not stop a debug run on the CRT's subscript
+		// assert dialog.
+		const std::vector<Pick> bad = ParseMonsters("blob x");
+		Check("a bad weight reads as 1", bad.empty() ? -1.0f : bad[0].weight, 1.0, 0.0);
+		const std::vector<Pick> twice = ParseMonsters("blob 2, blob 5");
 		Check("a repeated id keeps its first entry",
-			  ParseMonsters("blob 2, blob 5")[0].weight, 2.0, 0.0);
+			  twice.empty() ? -1.0f : twice[0].weight, 2.0, 0.0);
 		std::vector<Pick> r = ParseMonsters("skeleton 3, mummy");
 		Check("a rename finds the one entry", RenameMonster(r, "mummy", "wrapped"), 1, 0);
 		Check("...and keeps every weight",
@@ -2101,7 +2200,8 @@ int main(int argc, char** argv) {
 		Check("a quarter turn stands a 4-wide, 3-tall stamp 4 tall",
 			  static_cast<double>(t1.Height() * 10 + t1.Width()), 43.0, 0.0);
 		// Clockwise: the old bottom-left '#' becomes the new top-left.
-		Check("...turned clockwise", t1.rows[0][0] == '#' ? 1 : 0, 1, 0);
+		Check("...turned clockwise",
+			  !t1.rows.empty() && !t1.rows[0].empty() && t1.rows[0][0] == '#' ? 1 : 0, 1, 0);
 		std::vector<dungeon::u8> floor(16, 0);
 		floor[5] = floor[6] = floor[9] = floor[10] = 1; // the middle 2x2 of a 4x4
 		const Shape reg = Region(floor, 4, 4, 10, 10,
@@ -2538,11 +2638,34 @@ int main(int argc, char** argv) {
 				g_checks, g_failed);
 
 	if (selfTest) {
-		// The harness must CATCH the injected fault. A clean run here means
-		// the checks are vacuous and the whole file is worthless.
-		const bool caught = !pass;
-		std::printf("SELF-TEST %s — a broken die %s caught\n",
-					caught ? "PASS" : "FAIL", caught ? "was" : "was NOT");
+		// The harness must CATCH the injected fault, and catch it WHERE it was
+		// injected: exactly the checks in kSelfTestFails fail and every other
+		// check passes. "Anything failed" passed a broken run as readily as a
+		// caught fault, and could not show the die reached the strike sections.
+		// Compared as sorted multisets, so a check that runs twice under one
+		// label must be listed twice.
+		std::vector<std::string> want(std::begin(kSelfTestFails),
+									  std::end(kSelfTestFails));
+		std::vector<std::string> got = g_failedLabels;
+		std::sort(want.begin(), want.end());
+		std::sort(got.begin(), got.end());
+		std::vector<std::string> unexpected, missed;
+		std::set_difference(got.begin(), got.end(), want.begin(), want.end(),
+							std::back_inserter(unexpected));
+		std::set_difference(want.begin(), want.end(), got.begin(), got.end(),
+							std::back_inserter(missed));
+		for (const std::string& s : unexpected)
+			std::printf("  self-test: '%s' FAILED but is not an expected failure\n",
+						s.c_str());
+		for (const std::string& s : missed)
+			std::printf("  self-test: '%s' was expected to FAIL and passed\n",
+						s.c_str());
+		const bool caught = unexpected.empty() && missed.empty();
+		std::printf("SELF-TEST %s - %d of %d expected failures, %d unexpected\n",
+					caught ? "PASS" : "FAIL",
+					static_cast<int>(want.size() - missed.size()),
+					static_cast<int>(want.size()),
+					static_cast<int>(unexpected.size()));
 		return caught ? 0 : 1;
 	}
 	return pass ? 0 : 1;

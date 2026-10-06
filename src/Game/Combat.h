@@ -34,6 +34,7 @@
 #pragma once
 
 #include "Core/Types.h"
+#include "Game/Roll.h"   // RollRules (the dice ResolveAttack rolls)
 #include "Game/Spells.h" // SpellSymbol (a type's school, below)
 
 #include <array>
@@ -227,6 +228,18 @@ struct StrikeRules {
 	// measures the extreme margin at ~9x the typical winning one.
 	float marginDamage = 0.01f; // + this much multiplier per point of margin
 	float marginCap = 3.0f;     // ceiling on the resulting multiplier
+
+	// The dice these knobs describe, in the form Roll.h takes them. The one
+	// place the float knobs become RollRules - ResolveAttack takes the dice as
+	// its own argument, so a caller (the game passes this; tools/RollTest its
+	// own die, a broken one under --self-test) decides what is rolled.
+	RollRules Dice() const {
+		RollRules rr;
+		rr.critThreshold = static_cast<int>(critThreshold);
+		rr.fumbleThreshold = static_cast<int>(fumbleThreshold);
+		rr.maxEscalations = static_cast<int>(maxEscalations);
+		return rr;
+	}
 };
 
 // One resolved strike.
@@ -250,12 +263,15 @@ struct AttackResult {
 	int margin = 0;      // attack total - defense total (negative on a miss)
 };
 
-// Resolves a single strike with `rng`. Hit chance is (accuracy - evasion)
-// clamped to the rules' floor/ceiling; on a hit the damage is jittered, then
-// soaked and resisted — final = (rolled − soak) × (1 − resist) — and floored
-// so a landed blow always stings. No game state is touched — the caller
-// applies the result.
+// Resolves a single strike with `rng`: an opposed roll of `dice` (the game
+// passes rules.Dice()), a fumble deciding the exchange, then on a hit the
+// damage is multiplied by the margin, jittered, soaked and resisted - final =
+// (rolled - soak) x (1 - resist) - and floored so a landed blow always stings.
+// The dice are the CALLER'S, not rebuilt here from `rules`, so a harness that
+// injects a broken die reaches the strike too. No game state is touched - the
+// caller applies the result.
 AttackResult ResolveAttack(const AttackProfile& atk, const DefenseProfile& def,
-						   const StrikeRules& rules, std::mt19937& rng);
+						   const StrikeRules& rules, const RollRules& dice,
+						   std::mt19937& rng);
 
 } // namespace dungeon::game
