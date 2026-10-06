@@ -685,6 +685,9 @@ bool DungeonWorld::PressButtonFacing() {
 
 void DungeonWorld::PressButton(Button& b) {
 	b.activated = !b.activated;
+	// The handle snaps to its other pose (code-review C178).
+	const WallMount mount = MountOnWall(b.x, b.z, b.facing);
+	m_shadows.NoteCasterChanged({mount.pos.x, kEyeHeight, mount.pos.z}, 0.45f * kUnit);
 	m_audio.Play(m_sounds.bump, 0.4f); // a soft clunk until a click exists
 	if (onMessage) onMessage(loc::FormatLine("log.button_press", LeaderName()));
 	ToggleDoorsNamed(b.target);

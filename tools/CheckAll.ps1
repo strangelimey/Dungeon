@@ -181,6 +181,15 @@ $checks = @(
 		selfTest = { & (Join-Path $root 'tools\AllocTest.ps1') -Config $Config -RestReach -SelfTest | Out-Host; $LASTEXITCODE }
 	},
 	@{
+		name = 'alloc-lights'; tier = 'full'; needs = "build-$Config"
+		what = '64 lights allocate nothing; a door or a walking Firelight re-renders its shadow cube'
+		# The shadow cache's checks (code-review C178 / C187) ride -Lights. Its
+		# self-test mutates the CACHE (-ShadowSelfTest), not the guard - the
+		# 'alloc' row already hands the guard its failure.
+		run      = { & (Join-Path $root 'tools\AllocTest.ps1') -Config $Config -Lights | Out-Host; $LASTEXITCODE }
+		selfTest = { & (Join-Path $root 'tools\AllocTest.ps1') -Config $Config -Lights -ShadowSelfTest | Out-Host; $LASTEXITCODE }
+	},
+	@{
 		name = 'typing'; tier = 'full'; needs = "build-$Config"
 		what = 'typed console text arrives whole and in order (focus loss, heavy frames)'
 		# Every harness here drives the game by typing, so a dropped character

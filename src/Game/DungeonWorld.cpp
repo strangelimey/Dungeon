@@ -279,8 +279,14 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_projectiles.resolveHit = [this](TargetSide side, const ProjectileImpact& impact) {
 		switch (side) {
 		case TargetSide::Monsters:
-			// A thrown item, or a party spell, strikes a monster.
-			return impact.cargo ? ResolveThrowHit(impact) : ResolveSpellHit(impact);
+			// A thrown item, or a party spell, strikes a monster. A thrown one
+			// leaves the air (MovingCasterNear stops seeing it): the cubes it
+			// tumbled through last must drop it (code-review C178).
+			if (impact.cargo) {
+				m_shadows.NoteCasterChanged(impact.pos, kCargoCasterRadius);
+				return ResolveThrowHit(impact);
+			}
+			return ResolveSpellHit(impact);
 		case TargetSide::Party:
 			// A monster bolt strikes the party (push doesn't apply — the party
 			// isn't displaceable; a future gust trap would need its own path).
@@ -289,9 +295,15 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		return false;
 	};
 	m_projectiles.onExpire = [this](const ProjectileExpiry& expiry) {
-		// A thrown item comes down; a bolt bursts or goes out.
-		if (expiry.cargo) LandThrown(expiry);
-		else ResolveProjectileExpiry(expiry);
+		// A thrown item comes down (out of the air, so out of the cubes it was
+		// in - its landing is a floor item's note of its own); a bolt bursts or
+		// goes out.
+		if (expiry.cargo) {
+			m_shadows.NoteCasterChanged(expiry.pos, kCargoCasterRadius);
+			LandThrown(expiry);
+		} else {
+			ResolveProjectileExpiry(expiry);
+		}
 	};
 }
 
@@ -443,6 +455,7 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 	for (Door& door : m_doors) {
 		const float target = door.open ? 1.0f : 0.0f;
 		const float step = dt / door.openSeconds;
+		const float wasT = door.openT, wasPull = door.pullT;
 		if (door.openT < target)
 			door.openT = std::min(target, door.openT + step);
 		else if (door.openT > target)
@@ -459,6 +472,13 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 			}
 		} else if (door.pullT > 0.0f) {
 			door.pullT = std::max(0.0f, door.pullT - dt / kPullSeconds);
+		}
+		// Every frame the leaf or the hand-hold moved, the last one included -
+		// the frame it lands is the pose the cubes must keep (code-review C178).
+		// The next shadow pass is the first to draw it (`shadows door`).
+		if (door.openT != wasT || door.pullT != wasPull) {
+			NoteDoorCaster(door);
+			door.posePass = m_shadows.GetStats().passes + 1;
 		}
 	}
 
@@ -1455,9 +1475,13 @@ void DungeonWorld::DriveMonsterAnim(Monster& monster, float dt) {
 	constexpr float kAnimFade = 0.12f; // cross-fade window between clips
 
 	// Count down the active one-shot timers (a state holds while its timer runs).
+	const bool corpse = !monster.Alive() && monster.deathAnim > 0.0f;
 	for (float* t : {&monster.spawnAnim, &monster.attackAnim, &monster.hitAnim,
 					 &monster.deathAnim})
 		if (*t > 0.0f) *t -= dt;
+	// The death clip just ended: the body leaves the draw - and the cubes it was
+	// animating in (code-review C178).
+	if (corpse && monster.deathAnim <= 0.0f) NoteMonsterCaster(monster);
 
 	const anim::CreatureState want = DesiredState(monster);
 	if (want != monster.animState) {

@@ -50,10 +50,13 @@ struct PointLight {
 	// a caster beside it still reads instead of fading out under the brazier
 	// tuning.
 	bool longShadowFade = false;
-	// This light's position jitters every frame for flicker (fires). The shadow
-	// cache throttles such cubes on a frame interval instead of re-rendering on
-	// every sub-pixel wander; steady lights (torch, glow) cache until they move.
-	bool flickerShadow = false;
+	// How far (metres) this light's origin can move between two frames through
+	// its flicker WANDER alone (fires; 0 = a steady light). The shadow cache
+	// re-renders a wandering light's cube on its flicker cadence (25 Hz,
+	// `shadowrate`) rather than on every sub-pixel wander, and on a REAL move -
+	// a carried Firelight walking with the party - once the light has moved past
+	// this. A steady light (torch, glow) re-renders as soon as it moves 2 cm.
+	float wander = 0.0f;
 	// A STABLE identity across frames (0 = none): the light list is rebuilt
 	// every frame and its order follows a budget ranking, so the shadow cube
 	// cache keys on this rather than on the list index.

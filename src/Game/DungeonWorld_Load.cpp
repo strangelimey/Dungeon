@@ -1637,6 +1637,7 @@ const std::string* DungeonWorld::TryPickItem(float mx, float my, float w, float 
 	if (best < 0) return nullptr;
 	Item& picked = m_items[static_cast<size_t>(best)];
 	picked.collected = true; // off the floor
+	NoteItemCaster(picked);  // ...and out of the cubes it cast in (code-review C178)
 	if (charge) *charge = picked.charge; // what is left of it comes up too
 	++m_harness.tally.lifts;
 	m_audio.Play(m_sounds.click, 0.6f); // placeholder pickup cue
@@ -1759,6 +1760,9 @@ void DungeonWorld::PlaceDrop(const Item& placed) {
 	// on where it lies (TickFloorTorches) and lights its square. A pack is
 	// still where a torch goes out.
 	const Item& item = placed;
+	// Every new floor item comes through here - a drop, a throw landing, a
+	// burning torch turned drop - so its shadow joins the cubes here too.
+	NoteItemCaster(item);
 	for (Item& dead : m_items)
 		if (dead.id < 0 && dead.collected) {
 			dead = item;

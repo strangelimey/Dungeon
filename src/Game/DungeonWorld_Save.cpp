@@ -105,6 +105,9 @@ void DungeonWorld::ResetForNewGame() {
 	MarkSeen(m_party.GridX(), m_party.GridZ());
 	m_levelStates.clear(); // forget any explored levels
 	m_parked = false;
+	// Everything above snapped back with no travel for the shadow cubes to see
+	// (code-review C178): a same-level new game starts them over too.
+	m_shadows.InvalidateCubes();
 	// Every monster is back at full and the world is a different world: the
 	// baselines the one-pipeline check was holding describe state that no longer
 	// exists (Game/DamageLedger.h). Take a fresh one rather than reporting the
@@ -377,6 +380,9 @@ void DungeonWorld::ApplyActiveSnapshot() {
 		return;
 	}
 	const SaveData::LevelState& ls = it->second;
+	// Doors, levers, floor items, bodies and broken props all jump to the saved
+	// state below, with no travel for the shadow cubes to see (code-review C178).
+	m_shadows.InvalidateCubes();
 
 	std::fill(m_seen.begin(), m_seen.end(), static_cast<u8>(0));
 	for (const auto& [x, z] : ls.seen)

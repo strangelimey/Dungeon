@@ -416,7 +416,10 @@ void DungeonWorld::PlaceLightStone(float power, float seconds) {
 		for (LightStone& s : m_lightStones)
 			if (s.timeLeft < slot->timeLeft) slot = &s;
 	}
+	// The stone it replaces leaves the cubes; the new one joins them (C178).
+	if (slot->timeLeft > 0.0f) NoteCellCaster(slot->x, slot->z);
 	*slot = {px, pz, power, seconds, seconds, 0.0f, 0.0f};
+	NoteCellCaster(px, pz);
 	// MAPS what it shows: every square its light reaches.
 	MapStoneReach(px, pz, power);
 	// Set down with a breath of amber dust.
@@ -432,7 +435,10 @@ void DungeonWorld::TickLightStones(float dt) {
 	for (LightStone& s : m_lightStones) {
 		if (s.timeLeft <= 0.0f) continue;
 		s.timeLeft = std::max(0.0f, s.timeLeft - dt);
-		if (s.timeLeft <= 0.0f) continue; // spent: the slot is free
+		if (s.timeLeft <= 0.0f) { // spent: the slot is free, the stone gone from the cubes
+			NoteCellCaster(s.x, s.z);
+			continue;
+		}
 		// Only while the party is near enough to see it: the odd mote rising off
 		// it, and the tracks within its reach (6g).
 		s.moteClock -= dt;

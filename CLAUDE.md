@@ -674,7 +674,9 @@ normal + steep-parallax mapping (derivative cotangent frame, height in
 normal-map alpha), per-cell volumetric dust (turbidity grid texture t2,
 raymarched extinction + in-scattering), point-light cube shadows with
 distance-graded slots (8 slots, 512/256×3/128×4, cubes at t3..t10; slot 0 =
-nearest light, PCF; carried torch always wins slot 0; dust march samples the
+the nearest shadow-casting light, PCF - with one carried light that is it, but
+a torch AND a Firelight compete by distance, held by 0.75 m of hysteresis
+matched on the light's id; dust march samples the
 same cubes → god rays; kShadowSlots sizes the C++ side, scene.hlsl mirrors
 the registers BY HAND), fire light positions wander so shadows flicker.
 KNOW THIS about "missing" shadows: in a fire-dense room the dust in-scatter
@@ -716,11 +718,30 @@ with an AABB + texture variant), so the main pass frustum-culls off-screen
 chunks (DungeonWorld::ViewCull, Gribb-Hartmann from Camera::ViewProj) and
 each shadow cube sphere-culls out-of-range chunks; discrete meshes (props/
 monsters/fires) cull by bounding sphere too. Shadow cubes are CACHED
-per slot (ShadowSlotCache): a cube re-renders only when its light changed/
-moved (>2cm), a flicker tick is due (fire cubes throttle to half rate via
-PointLight::flickerShadow), geometry changed (map Revision), or an animating
-caster (a monster) is in range — otherwise the cube stays in its SRV
-state and is reused (the per-slot RT/SRV barrier guard makes the skip safe).
+per slot (Game/ShadowScheduler): a cube re-renders only when a new light holds
+the slot, geometry changed (map Revision, or any editor edit), a CASTER in its
+reach changed, the light moved (> 2 cm; a wandering one past what its wander
+alone could do, PointLight::wander - so a carried Firelight keeps up with a
+walk), or a flicker tick is due (a wandering fire's cube, on a 25 Hz WALL-CLOCK
+cadence, at most 2 such a frame - `shadowrate`) - otherwise the cube stays in
+its SRV state and is reused (the per-slot RT/SRV barrier guard makes the skip
+safe). A caster changes two ways (code-review C178): what moves every frame is
+the world's verdict (MovingCasterNear: a monster where its body is DRAWN - its
+visualPos, not its cell, which jumps a square when a step starts - and a thrown
+item in flight, each in the draw's own cull sphere), and
+what changes ONCE is NOTED (DungeonWorld::Note*Caster -> a fixed list of
+spheres, overflow = every cube): a door leaf each frame it travels, a lever
+thrown, a floor item lifted / set down / burnt out, a body gone, a smashed prop,
+a wall torch taken. A NEW way for something the shadow pass draws to change
+must note it, or its old shadow stays until the light moves. Dev `shadows
+status` (each slot's light, re-renders by reason, the pass of its last render
+and its light's LAG - how far it stood from its cube's pose while the cube was
+reused, in squares) and `shadows door <x> <z>` (the first pass to draw a door's
+current pose, stamped by the travel itself, never by the note); checked by
+`AllocTest -Lights` (a door opened beside a still party must re-render slot 0
+up to the pose it LANDS in and then stop; a Firelight must not re-render
+standing still, must re-render walking, and must lag its cube by at most a
+tenth of a square; `-ShadowSelfTest` mutates the cache and needs both to fail).
 DrawMesh skips redundant PSO swaps and, in the shadow pass, the texture-table
 binds; skinning palettes upload once per frame (cached by the animator's
 buffer, reused across all ~25 submissions).

@@ -2636,6 +2636,30 @@ int main(int argc, char** argv) {
 			  light::PulseAt(light::Pulse::Steady, 3.0f, 0.9f, 12.3f, 1.0f), 1.0, 0.0);
 		const dungeon::Vec3 still = light::WanderAt(0.0f, 5.0f, 1.0f);
 		CheckTrue("no wander, no movement", still.x == 0.0f && still.y == 0.0f && still.z == 0.0f);
+		// The shadow cache's slack for a wandering light (code-review C187): a move
+		// past WanderSpan is a real one, so no two moments of the wander may lie
+		// further apart than it - and some must come close, or the slack is loose
+		// and a carried Firelight's walk hides inside it.
+		{
+			std::vector<dungeon::Vec3> at;
+			for (int i = 0; i < 2000; ++i)
+				at.push_back(light::WanderAt(1.0f, static_cast<float>(i) * 0.0137f, 3.4f));
+			double widest = 0.0;
+			for (size_t i = 0; i < at.size(); ++i)
+				for (size_t j = i + 1; j < at.size(); ++j) {
+					const double dx = at[i].x - at[j].x, dy = at[i].y - at[j].y,
+								 dz = at[i].z - at[j].z;
+					widest = std::max(widest, dx * dx + dy * dy + dz * dz);
+				}
+			widest = std::sqrt(widest);
+			const double span = light::WanderSpan(1.0f);
+			std::printf("    widest wander gap %.4f of a span %.4f (%.0f%%)\n", widest, span,
+						100.0 * widest / span);
+			CheckTrue("no two moments of a wander lie further apart than WanderSpan",
+					  widest <= span + 1e-5);
+			CheckTrue("...and some come within 15% of it", widest >= 0.85 * span);
+			CheckTrue("no wander, no span", light::WanderSpan(0.0f) == 0.0f);
+		}
 		light::Pulse parsed{};
 		CheckTrue("every pulse name round-trips",
 				  light::ParsePulse(light::PulseName(light::Pulse::Storm), parsed) &&

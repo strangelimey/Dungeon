@@ -72,6 +72,9 @@ bool DungeonWorld::SetSconceEmpty(int x, int z, int wall, bool empty, bool burni
 	if (!fire || !fire->kind || !fire->kind->meshEmpty) return false; // not takeable
 	if (!m_map.SetSconceEmpty(x, z, wall, empty, burning)) return false;
 	fire->empty = empty;
+	// The bracket swaps meshes (torch in / bare), which no map revision says
+	// (code-review C178): the draw's own sphere.
+	m_shadows.NoteCasterChanged(fire->flamePos, 0.5f * kUnit);
 	const bool lit = !empty && burning && !fire->kind->flameless;
 	fire->flare = 0.0f;
 	fire->effect.SetFlare(0.0f);

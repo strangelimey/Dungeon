@@ -26,6 +26,8 @@
 #   .\tools\AllocTest.ps1 -Throw -ThrowItem torch_lit   # ...a lit torch (its light and flame)
 #   .\tools\AllocTest.ps1 -Wear moonstone_amulet       # any mode with a worn light on member 0
 #   .\tools\AllocTest.ps1 -Walk              # key turns: the party AND the pad's stones
+#   .\tools\AllocTest.ps1 -Lights            # 64 test lights; then the shadow cache's checks
+#   .\tools\AllocTest.ps1 -Lights -ShadowSelfTest   # ...those checks handed a stale cache
 #   .\tools\AllocTest.ps1 -Config release    # needs -DDN_TRACK_ALLOCS=ON
 #
 # THE RULE HAS NO EXCEPTIONS: an allocation in a settled frame is a bug, and
@@ -328,8 +330,15 @@ param(
 	# (`lightstress`, lighting-updates Phase 3), so the light budget's cull,
 	# ranking and fades - and the tile binning - run inside the window. With
 	# -Walk the turns sweep lights in and out of view. Refuses a PASS unless
-	# the load was placed.
+	# the load was placed. After the window it checks the SHADOW CACHE (see the
+	# note at that step): a door opened beside a still party re-renders slot 0,
+	# and a carried Firelight's cube keeps up with a walk.
 	[switch]$Lights,
+	# With -Lights: MUTATES the shadow cache (`shadows ignore both` - the change
+	# notes dropped, a wandering light's moves not counted, the rules before
+	# code-review C178 / C187) and passes only if BOTH shadow checks then FAIL:
+	# the proof each can see a stale cube.
+	[switch]$ShadowSelfTest,
 	# Moves an item pack -> floor -> pack inside the window. See the note above.
 	[switch]$Items,
 	# The warm-up item and the measured one: two different kinds, the second
@@ -374,6 +383,7 @@ if ($RestReach) { $Rest = $true } # -RestReach is -Rest with the way left open
 # window - in 10 s that happened only on an idle machine (503 frames under load:
 # the brazier broke just after the window and the run refused its PASS).
 if (($Items -or $Throw -or $All -or $Impact) -and -not $PSBoundParameters.ContainsKey('Seconds')) { $Seconds = 20 }
+if ($ShadowSelfTest -and -not $Lights) { throw '-ShadowSelfTest mutates the shadow checks, which only -Lights runs' }
 $root = Split-Path -Parent $PSScriptRoot
 $bin = Join-Path $root "build\$Config\bin"
 
@@ -576,6 +586,179 @@ function Get-GlassFrames {
 	throw 'the console never answered `glass` - is logecho on?'
 }
 
+# `shadows status`, parsed (needs logecho on and the console open): one object
+# per shadow slot - the light holding it this frame, its re-renders in all and
+# by reason, the pass of its last render, and its light's lag (the farthest it
+# stood from its cube's pose while the cube was reused, in squares). Counts the
+# rows first, like the tally.
+function Get-ShadowStatus {
+	$pattern = 'console: shadows slot \d+: '
+	$before = @(Select-String -Path $log -Pattern $pattern).Count
+	Send-Text 'shadows status'; Send-Key 0x0D
+	$rows = Wait-NewLogLines $pattern $before 8
+	if ($rows.Count -lt 8) { throw "``shadows status`` printed $($rows.Count) slot rows, not 8" }
+	$slots = foreach ($r in $rows[0..7]) {
+		if ($r.Line -notmatch 'shadows slot (\d+): light=(\S+) last=(\S+) renders=(\d+) new=(\d+) geometry=(\d+) caster=(\d+) moved=(\d+) flicker=(\d+) lastpass=(\d+) lag=([0-9.]+)') {
+			throw "unreadable shadow row: $($r.Line)"
+		}
+		[pscustomobject]@{
+			Slot = [int]$Matches[1]; Light = $Matches[2]; Renders = [int64]$Matches[4]
+			Caster = [int64]$Matches[7]; Moved = [int64]$Matches[8]
+			LastPass = [int64]$Matches[10]
+			Lag = [double]::Parse($Matches[11], [Globalization.CultureInfo]::InvariantCulture)
+		}
+	}
+	return ,@($slots)
+}
+
+# `shadows door <x> <z>`, parsed: the door's pose and the first shadow pass that
+# drew it (Door::posePass - stamped by the leaf's travel itself, not by its
+# caster note, so it cannot agree with a note that went missing).
+function Get-DoorShadow([int]$x, [int]$z) {
+	$pattern = "console: shadows door $x,${z}: "
+	$before = @(Select-String -Path $log -Pattern $pattern -SimpleMatch).Count
+	Send-Text "shadows door $x $z"; Send-Key 0x0D
+	$rows = Wait-NewLogLines ([regex]::Escape($pattern)) $before
+	if ($rows.Count -eq 0) { throw "``shadows door $x $z`` printed nothing" }
+	if ($rows[-1].Line -notmatch 'open=(\d) openT=([0-9.]+) pull=([0-9.]+) posepass=(\d+)') {
+		throw "unreadable door row: $($rows[-1].Line)"
+	}
+	$inv = [Globalization.CultureInfo]::InvariantCulture
+	return [pscustomobject]@{
+		Open = $Matches[1] -eq '1'; OpenT = [double]::Parse($Matches[2], $inv)
+		Pull = [double]::Parse($Matches[3], $inv); PosePass = [int64]$Matches[4]
+	}
+}
+
+# THE SHADOW CACHE (code-review C178 / C187), with the console open and logecho
+# on. A cube is re-rendered only when something it shows changed, and two kinds
+# of change used to be missed: a DOOR (its leaf moved with no map revision, so a
+# still party's torch kept the shut door's shadow until it stepped), and a
+# WANDERING light that walks - a carried Firelight ignored moves altogether and
+# kept up only on the flicker cadence. eval_arena carved to a corridor (nothing
+# else in it), a door two squares east of the party, and:
+#   DOOR: slot 0 (the held torch) must NOT re-render over a still second - else
+#     the check proves nothing - MUST re-render, for a caster, once the door is
+#     opened, its LAST render must come at or after the pass that first drew the
+#     door's landed pose (`shadows door`: one render as the leaf began to move
+#     would count as "a caster" and still keep a nearly shut leaf's shadow), and
+#     it must stop again once the door has stopped.
+#   FIRELIGHT: Maren casts one; with the flicker cadence off (`shadowrate 0`) its
+#     cube must NOT re-render for a move over a still second (a slack tighter than
+#     its own wander would re-render a standing light, the waste the slack is
+#     there to prevent), MUST re-render for a MOVE while the party walks two
+#     squares west, and its LAG - the farthest the light stood from the pose its
+#     cube showed - must stay within a tenth of a square. The lag, not a count of
+#     re-renders, is the bound on a slack too WIDE: it is read off positions, so
+#     it holds at any frame rate, where a count over the walk would move with it.
+# Returns @{ Door = PASS|FAIL|UNMEASURED; Fire = ...; Notes = what was seen }.
+function Test-ShadowCache {
+	$notes = @()
+	Send-Text 'lightstress off'; Send-Key 0x0D
+	Enter-FrozenArena 'eval_arena'
+	Send-Text 'arena corridor 11'; Send-Key 0x0D
+	Send-Text 'tp 13 12'; Send-Key 0x0D
+	Send-Text 'face east'; Send-Key 0x0D
+	Send-Text 'editor place doors wooden_door 15 12'; Send-Key 0x0D
+	Send-Text 'mappage close'; Send-Key 0x0D
+	# The flicker cadence OFF for both checks, so a re-render means a change -
+	# whatever light slot 0 holds (a wandering one would otherwise tick at 25 Hz).
+	Send-Text 'shadowrate 0'; Send-Key 0x0D
+	if ($ShadowSelfTest) { Send-Text 'shadows ignore both'; Send-Key 0x0D }
+	Wait-ConsoleDone
+	# The carve and the placement re-render every cube once; let that settle.
+	Start-Sleep -Seconds 2
+	$a = Get-ShadowStatus
+	Start-Sleep -Seconds 1
+	$b = Get-ShadowStatus
+	$door = 'UNMEASURED'
+	if ($b[0].Light -eq 'none') {
+		$notes += 'no light holds slot 0 (does anyone carry a lit torch?)'
+	} elseif ($b[0].Renders -ne $a[0].Renders) {
+		$notes += "slot 0 re-rendered $($b[0].Renders - $a[0].Renders) times over a still second - the door check would prove nothing"
+	} else {
+		$opened = 'console: door 15,12 -> open'
+		$openBefore = @(Select-String -Path $log -Pattern $opened).Count
+		Send-Text 'opendoor 15 12'; Send-Key 0x0D
+		if ((Wait-NewLogLines $opened $openBefore).Count -eq 0) {
+			$notes += 'the door at 15,12 did not open'
+		} else {
+			Start-Sleep -Seconds 2 # the leaf's 0.8 s and the chain's pull, settled
+			# ...or a little longer on a slow frame: the pose that matters is the
+			# one it LANDS in.
+			$deadline = (Get-Date).AddSeconds(5)
+			do {
+				$pose = Get-DoorShadow 15 12
+				if ($pose.OpenT -ge 1.0 -and $pose.Pull -le 0.0) { break }
+				Start-Sleep -Milliseconds 250
+			} while ((Get-Date) -lt $deadline)
+			$c = Get-ShadowStatus
+			if ($pose.OpenT -lt 1.0 -or $pose.Pull -gt 0.0) {
+				$notes += "the door at 15,12 never came to rest (openT $($pose.OpenT), pull $($pose.Pull))"
+			} elseif ($c[0].Light -ne $b[0].Light) {
+				$notes += "slot 0 changed hands as the door opened ($($b[0].Light) -> $($c[0].Light))"
+			} else {
+				$renders = $c[0].Renders - $b[0].Renders; $caster = $c[0].Caster - $b[0].Caster
+				# The cube must show the pose the door LANDED in: its last render at
+				# or after the first pass that drew it.
+				$landed = $c[0].LastPass -ge $pose.PosePass
+				# ...and once the door has stopped, so has the cube: a change noted
+				# once must not keep the cache re-rendering (the cache would be gone).
+				Start-Sleep -Seconds 1
+				$after = (Get-ShadowStatus)[0].Renders - $c[0].Renders
+				$notes += "slot 0 ($($b[0].Light)): 0 re-renders over a still second, then $renders ($caster for a caster) as the door opened, the last at pass $($c[0].LastPass) (the landed pose first drawn at pass $($pose.PosePass)), then $after over a still second"
+				$door = if ($caster -ge 1 -and $landed -and $after -eq 0) { 'PASS' } else { 'FAIL' }
+			}
+		}
+	}
+
+	# FIRELIGHT. Faced west FIRST: a turn moves a light that hangs ahead of the
+	# party, and the move this measures is the walk's. Maren casts it (the last
+	# member of a shorter -Party).
+	$m = [Math]::Min(2, $memberCount - 1)
+	Send-Text 'face west'; Send-Key 0x0D
+	Send-Text "learn $m fire"; Send-Key 0x0D
+	Send-Text "learn $m light"; Send-Key 0x0D
+	Send-Text "setskill $m fire 10"; Send-Key 0x0D
+	Send-Text 'heal'; Send-Key 0x0D
+	$castLine = 'console: (cast away|no cast)'
+	$castBefore = @(Select-String -Path $log -Pattern $castLine).Count
+	Send-Text "cast $m fire light"; Send-Key 0x0D
+	$cast = Wait-NewLogLines $castLine $castBefore
+	Wait-ConsoleDone
+	Start-Sleep -Seconds 1
+	$fire = 'UNMEASURED'
+	$d = Get-ShadowStatus
+	$spell = @($d | Where-Object { $_.Light -match '^spell:' })
+	if ($cast.Count -eq 0 -or $cast[-1].Line -notmatch 'cast away') {
+		$notes += "member $m's Firelight was not cast"
+	} elseif ($spell.Count -eq 0) {
+		$notes += 'the Firelight holds no shadow slot'
+	} else {
+		# A STILL second first: a standing Firelight's wander alone must not
+		# count as a move.
+		Start-Sleep -Seconds 1
+		$still = (Get-ShadowStatus)[$spell[0].Slot]
+		Send-Text 'forward 2'; Send-Key 0x0D
+		Start-Sleep -Seconds 3 # two steps at the party's pace
+		$e = Get-ShadowStatus
+		$after = $e[$spell[0].Slot]
+		if ($still.Light -ne $spell[0].Light -or $after.Light -ne $spell[0].Light) {
+			$notes += "the Firelight left slot $($spell[0].Slot) ($($still.Light), then $($after.Light) holds it)"
+		} else {
+			$stillMoved = $still.Moved - $spell[0].Moved
+			$moved = $after.Moved - $still.Moved
+			$lagOk = $after.Lag -le 0.1
+			$notes += "the Firelight ($($spell[0].Light), slot $($spell[0].Slot)), flicker off: $stillMoved re-renders for a move over a still second, then $moved over a two-square walk, lagging its cube by at most $($after.Lag) of a square"
+			$fire = if ($stillMoved -eq 0 -and $moved -ge 3 -and $lagOk) { 'PASS' } else { 'FAIL' }
+		}
+	}
+	Send-Text 'shadowrate 25 2'; Send-Key 0x0D
+	Send-Text 'shadows ignore none'; Send-Key 0x0D
+	Wait-ConsoleDone
+	return [pscustomobject]@{ Door = $door; Fire = $fire; Notes = $notes }
+}
+
 # Throws unless the party stands on x,z facing north (asks `pos`; needs logecho
 # on). -Impact's whole geometry hangs on it: a `tp` or `face` swallowed by a
 # busy console leaves the party firing somewhere else, and the barrage then
@@ -749,6 +932,7 @@ function Get-ImpactCounts {
 $proc = $null
 $hwnd = [IntPtr]::Zero
 $code = 1
+$shadowSelfTestFailed = $false
 try {
 	Start-HarnessGame $exe $bin $log $LoadTimeoutSec
 	# Through the console's `newgame` (or `newparty`), never the landing page -
@@ -2222,12 +2406,44 @@ try {
 		}
 	}
 
+	# And for -Lights: the SHADOW CACHE, after the window (Test-ShadowCache). Not
+	# under the guard's own -SelfTest, which is about the guard. Its verdict is
+	# its own: STALE when a cube missed a change it shows, UNMEASURED when the
+	# scene could not be set up to tell; -ShadowSelfTest mutates the cache and
+	# wants BOTH checks to fail.
+	if ($Lights -and (-not $SelfTest -or $ShadowSelfTest)) {
+		Write-Host 'checking the shadow cache: a door beside a still party, a walking Firelight'
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		$shadow = Test-ShadowCache
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0
+		foreach ($n in $shadow.Notes) { Write-Host "  $n" }
+		Write-Host "  shadow cache: door $($shadow.Door), Firelight $($shadow.Fire)"
+		if ($ShadowSelfTest) {
+			if ($shadow.Door -eq 'FAIL' -and $shadow.Fire -eq 'FAIL') {
+				Write-Host 'SHADOW SELF-TEST PASSED - both checks caught the mutated cache' -ForegroundColor Green
+			} else {
+				Write-Host 'SHADOW SELF-TEST FAILED - a check passed (or could not run) with the cache mutated' -ForegroundColor Red
+				$shadowSelfTestFailed = $true
+				if ($result -eq 'PASS') { $result = 'STALE' }
+			}
+		} elseif ($shadow.Door -eq 'FAIL' -or $shadow.Fire -eq 'FAIL') {
+			if ($result -eq 'PASS') { $result = 'STALE' }
+		} elseif ($shadow.Door -ne 'PASS' -or $shadow.Fire -ne 'PASS') {
+			Write-Host 'a shadow check could not be set up - the cache was not measured' -ForegroundColor Yellow
+			if ($result -eq 'PASS') { $result = 'UNMEASURED' }
+		}
+	}
+
 	# EVERY MODE: an AI pool that GREW in play fails the run, wherever it grew -
 	# inside the window, in the warm-up or in a console frame. The pools are
 	# filled at level load to as many buffers as can be in use at once (C66), so
 	# growth means a fill that fell short or a reader that never gave its mark
 	# back; and it used to land in whichever guarded frame the threads chose,
-	# which a window caught only by luck. The game logs it once per pool.
+	# which a window caught only by luck. The game logs it once per pool. Read
+	# LAST, so the frames -Lights' shadow checks run are covered too.
 	$grew = @(Select-String -Path $log -Pattern 'AI pool grew:' -SimpleMatch -EA SilentlyContinue)
 	if ($grew.Count -gt 0) {
 		foreach ($g in $grew) { Write-Host "  $($g.Line)" -ForegroundColor Red }
@@ -2257,11 +2473,15 @@ try {
 			}
 		}
 		'UNMEASURED' { } # already explained above
+		'STALE' {
+			Write-Host 'FAIL - a shadow cube kept a change it should have shown (see above)' -ForegroundColor Red
+		}
 		default {
 			Write-Host "$result - the game never reached a steady frame" -ForegroundColor Yellow
 		}
 	}
 	$code = if ($result -eq $want) { 0 } else { 1 }
+	if ($shadowSelfTestFailed) { $code = 1 } # whatever the guard's own self-test said
 } finally {
 	# Quit through the console so shutdown runs (it logs whole-run heap totals).
 	Stop-HarnessGame 5000 -OpenConsole

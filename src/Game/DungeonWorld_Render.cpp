@@ -97,26 +97,78 @@ void DungeonWorld::NewFrame(u32 frameIndex) {
 	if (m_particleBatch) m_particleBatch->NewFrame(frameIndex);
 }
 
-bool DungeonWorld::AnimatedCasterNear(const gfx::PointLight& light) const {
+bool DungeonWorld::MovingCasterNear(const gfx::PointLight& light) const {
 	auto inReach = [&](const Vec3& c, float r) {
 		const Vec3 d = Sub(c, light.position);
 		const float reach = light.radius + r;
 		return d.x * d.x + d.y * d.y + d.z * d.z <= reach * reach;
 	};
+	// A monster where its body is DRAWN (visualPos, the draw's own sphere), not
+	// its cell: a step moves m.x / m.z to the destination when the glide starts,
+	// so a body walking out of a light would leave the verdict a square early
+	// and the cube with its departure pose.
 	for (const Monster& m : m_monsters) {
 		if (!m.Alive() && m.deathAnim <= 0.0f) continue; // a dying monster still animates its cube
-		const Vec3 c = m_map.CellCenter(m.x, m.z);
-		if (inReach({c.x, 1.0f, c.z}, 1.5f)) return true;
+		const Vec3& p = m.visualPos;
+		if (inReach({p.x, 0.4f * kUnit, p.z}, kMonsterCasterRadius)) return true;
 	}
-	return false;
+	// A thrown item tumbling through the light (its landing is a note).
+	bool cargo = false;
+	m_projectiles.ForEachCargo([&](u32, const Vec3& pos, const Vec3&, float, const void*, float) {
+		if (!cargo && inReach(pos, kCargoCasterRadius)) cargo = true;
+	});
+	return cargo;
+}
+
+// --- changed casters (code-review C178) --------------------------------------
+// Each says where something the shadow pass draws changed, in a sphere as wide
+// as what it draws there, so the cube of every light reaching it re-renders.
+
+void DungeonWorld::NoteDoorCaster(const Door& door) {
+	const Vec3 c = m_map.CellCenter(door.x, door.z);
+	m_shadows.NoteCasterChanged({c.x, 0.0f, c.z}, DoorReach(door)); // the draw's own sphere
+}
+
+void DungeonWorld::NoteItemCaster(const Item& item) {
+	const Vec3 c = item.niche >= 0
+					   ? NicheItemPos(item.x, item.z, static_cast<Direction>(item.niche))
+					   : SlotCenter(item.x, item.z, SizeClass::Medium, item.slot);
+	m_shadows.NoteCasterChanged({c.x, c.y + 0.12f * kUnit, c.z}, 0.5f * kUnit);
+}
+
+void DungeonWorld::NoteMonsterCaster(const Monster& monster) {
+	const Vec3& p = monster.visualPos;
+	m_shadows.NoteCasterChanged({p.x, 0.4f * kUnit, p.z}, kMonsterCasterRadius);
+}
+
+void DungeonWorld::NoteCellCaster(int x, int z) {
+	const Vec3 c = m_map.CellCenter(x, z);
+	m_shadows.NoteCasterChanged({c.x, 0.5f * kUnit, c.z}, 0.75f * kUnit);
+}
+
+float DungeonWorld::DoorReach(const Door& door) {
+	// The widest of the parts, plus how far the leaf gets from its closed pose -
+	// so a frame taller or broader than a cell (the framed doorways), and an open
+	// leaf, stay whole at the screen edge and in every cube that sees them.
+	const float leafRadius = std::max(door.panel ? door.panel->cullRadius : 0.0f,
+									  door.trim ? door.trim->cullRadius : 0.0f);
+	return std::max(door.frame ? door.frame->cullRadius : 0.0f,
+					leafRadius + door.travel * kUnit);
 }
 
 // Renders the cube shadow maps for every light that holds a slot this frame.
 // Runs before the main pass with the shadow pipeline bound. A slot's cube is
 // reused from the previous frame (left in its SRV state, the barrier guard
-// skips it) unless the light changed/moved, a flicker tick is due, geometry
-// changed, or an animating caster sits within the light.
+// skips it) unless the light is new to the slot, geometry changed, a caster
+// within the light moved or changed, the light moved, or a flicker tick is due
+// (ShadowScheduler::ShouldRender).
 void DungeonWorld::RenderShadowMaps(ID3D12GraphicsCommandList* list) {
+	// An EDITOR edit (a placement, an erase, an inspector's apply) can put or
+	// take away anything the cubes draw, and is rare: every cube re-renders once.
+	if (m_editRevision != m_shadowEditRevision) {
+		m_shadowEditRevision = m_editRevision;
+		m_shadows.InvalidateCubes();
+	}
 	m_shadows.BeginPass();
 	const u32 rev = m_map.Revision();
 
@@ -124,8 +176,9 @@ void DungeonWorld::RenderShadowMaps(ID3D12GraphicsCommandList* list) {
 		const gfx::PointLight& light = m_lights.points[i];
 		if (light.shadowSlot < 0) continue;
 		// The scheduler owns the reuse decision (and records the render); we only
-		// supply the live map revision and the world's animating-caster verdict.
-		if (!m_shadows.ShouldRender(light, i, rev, AnimatedCasterNear(light)))
+		// supply the live map revision and the world's moving-caster verdict (the
+		// changes noted since the last pass it holds itself).
+		if (!m_shadows.ShouldRender(light, i, rev, MovingCasterNear(light)))
 			continue; // reuse the cube already bound as an SRV
 
 		// One per CUBE actually re-rendered, so the zone's CALL COUNT is the answer
@@ -139,6 +192,7 @@ void DungeonWorld::RenderShadowMaps(ID3D12GraphicsCommandList* list) {
 			SubmitSceneGeometry(list, &cull);
 		}
 	}
+	m_shadows.EndPass();
 	m_renderer.EndShadows(list);
 	m_device.BindBackBuffer(list); // the shadow pass redirected the OM
 }
@@ -411,16 +465,7 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 	// shadows like the decorations above.
 	for (const Door& door : m_doors) {
 		const Vec3 c = m_map.CellCenter(door.x, door.z);
-		// The widest of the parts, plus how far the leaf gets from its closed
-		// pose — so a frame taller or broader than a cell (the framed doorways
-		// this thread adds), and an open leaf, stay whole at the screen edge.
-		const float reach = door.travel;
-		const float leafRadius =
-			std::max(door.panel ? door.panel->cullRadius : 0.0f,
-					 door.trim ? door.trim->cullRadius : 0.0f);
-		const float doorRadius = std::max(door.frame ? door.frame->cullRadius : 0.0f,
-										  leafRadius + reach * kUnit);
-		if (!visible({c.x, 0.0f, c.z}, doorRadius)) continue;
+		if (!visible({c.x, 0.0f, c.z}, DoorReach(door))) continue;
 		// Frame and leaf are DecorationKinds, so they honour the catalog `scale`;
 		// they share the frame's (a mismatched pair would not meet anyway).
 		const float ds = door.frame ? door.frame->modelScale : 1.0f;
@@ -622,7 +667,7 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 	m_projectiles.ForEachCargo([&](u32, const Vec3& pos, const Vec3& dir, float age,
 								   const void* cargo, float) {
 		const ItemKind& kind = *static_cast<const ItemKind*>(cargo);
-		if (!visible(pos, 0.35f * kUnit)) return;
+		if (!visible(pos, kCargoCasterRadius)) return;
 		if (kind.model) {
 			const MultiMaterialModel& mm = *kind.model;
 			DrawMultiMaterial(list, mm,
@@ -655,7 +700,7 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 		if (!monster.Alive() && monster.deathAnim <= 0.0f) continue; // gone once death anim ends
 		const MonsterKind& kind = *monster.kind;
 		const Vec3 pos = monster.visualPos; // glides between cells while chasing
-		if (!visible({pos.x, 0.4f * kUnit, pos.z}, 0.65f * kUnit)) continue;
+		if (!visible({pos.x, 0.4f * kUnit, pos.z}, kMonsterCasterRadius)) continue;
 		const Mat4 world = MonsterModelWorld(monster);
 		if (kind.multi) {
 			// Authored multi-material rig: every primitive with its own glTF

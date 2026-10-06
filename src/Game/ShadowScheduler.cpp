@@ -12,13 +12,16 @@
 
 namespace dungeon::game {
 
+namespace {
+float Distance2(const Vec3& a, const Vec3& b) {
+	const Vec3 d = Sub(a, b);
+	return d.x * d.x + d.y * d.y + d.z * d.z;
+}
+} // namespace
+
 ShadowScheduler::ShadowScheduler() {
 	// Rebuilt every frame into retained capacity — no steady-state allocation.
 	m_candidates.reserve(gfx::kMaxPointLights);
-	// Likewise the slots' positions: at most one per shadow slot. Unreserved, it
-	// grew the first time more shadowed lights came into view than ever had -
-	// mid-walk, in a guarded frame (AllocTest -Walk, lighting-updates Phase 5).
-	m_prevPos.reserve(gfx::kShadowSlots);
 }
 
 void ShadowScheduler::AssignSlots(std::span<gfx::PointLight> lights, const Vec3& eye,
@@ -30,7 +33,7 @@ void ShadowScheduler::AssignSlots(std::span<gfx::PointLight> lights, const Vec3&
 		light.shadowStrength = 1.0f;
 	}
 	if (!shadowsEnabled) { // dev console: lights stay lit, just unshadowed
-		m_prevPos.clear();
+		m_incumbentCount = 0;
 		return;
 	}
 
@@ -40,17 +43,23 @@ void ShadowScheduler::AssignSlots(std::span<gfx::PointLight> lights, const Vec3&
 	// resolution tier that rides on the slot — back and forth as the party moves
 	// between them; the steadier slot also lets the cube cache reuse more often.
 	constexpr float kHysteresis = 0.75f; // metres of slack for a slot incumbent
-	constexpr float kReMatch2 = 0.25f;   // (0.5 m)²: "still the same light"
+	constexpr float kReMatch2 = 0.25f;   // (0.5 m)^2: an id-less light "still the same"
 
 	m_candidates.clear();
 	const size_t lightCount = std::min<size_t>(lights.size(), gfx::kMaxPointLights);
 	for (size_t i = 0; i < lightCount; ++i) {
-		if (!lights[i].castsShadow) continue; // pure fill light (runes)
-		const Vec3 d = Sub(lights[i].position, eye);
-		float dist = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
-		for (const Vec3& prev : m_prevPos) {
-			const Vec3 e = Sub(lights[i].position, prev);
-			if (e.x * e.x + e.y * e.y + e.z * e.z <= kReMatch2) {
+		const gfx::PointLight& light = lights[i];
+		if (!light.castsShadow) continue; // pure fill light (runes)
+		float dist = std::sqrt(Distance2(light.position, eye));
+		// The incumbent BY ITS ID (code-review C187): the list is rebuilt and
+		// re-ranked every frame, but the id is the same light's every frame. Only
+		// a light with no id is matched by where it stands.
+		for (size_t k = 0; k < m_incumbentCount; ++k) {
+			const Incumbent& inc = m_incumbents[k];
+			const bool same = light.id != 0
+								  ? inc.id == light.id
+								  : inc.id == 0 && Distance2(light.position, inc.pos) <= kReMatch2;
+			if (same) {
 				dist -= kHysteresis; // incumbent: bias toward keeping its slot
 				break;
 			}
@@ -71,7 +80,7 @@ void ShadowScheduler::AssignSlots(std::span<gfx::PointLight> lights, const Vec3&
 	constexpr float kEdgeFadeBand = 1.5f * kCellSize; // default: soften the outer ~1.5 cells
 
 	const size_t count = std::min<size_t>(m_candidates.size(), gfx::kShadowSlots);
-	m_prevPos.clear();
+	m_incumbentCount = 0;
 	for (size_t slot = 0; slot < count; ++slot) {
 		gfx::PointLight& light = lights[m_candidates[slot].second];
 		light.shadowSlot = static_cast<int>(slot);
@@ -80,8 +89,7 @@ void ShadowScheduler::AssignSlots(std::span<gfx::PointLight> lights, const Vec3&
 		// instead of popping when the light wins a slot.
 		{
 			// True distance, not the hysteresis-discounted sort key.
-			const Vec3 d = Sub(light.position, eye);
-			const float dist = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+			const float dist = std::sqrt(Distance2(light.position, eye));
 			const float fadeEnd = light.radius;
 			const float fadeStart = light.longShadowFade
 										? fadeEnd * kFadeStartFrac
@@ -92,13 +100,11 @@ void ShadowScheduler::AssignSlots(std::span<gfx::PointLight> lights, const Vec3&
 			light.shadowStrength = t * t * (3.0f - 2.0f * t); // smoothstep, gentler
 		}
 
-		m_prevPos.push_back(light.position);
+		m_incumbents[m_incumbentCount++] = {light.id, light.position};
 	}
 }
 
 void ShadowScheduler::BeginPass() {
-	++m_frameCounter;
-
 	// The scheduler's own wall clock. A flicker cadence is about how fast the
 	// fire LOOKS like it is moving, which is a property of seconds, not of frames
 	// or of simulation time.
@@ -112,6 +118,8 @@ void ShadowScheduler::BeginPass() {
 	// Refilled per pass. This is what stops every fire coming due on the same
 	// frame and spiking it — they end up naturally staggered instead.
 	m_flickerLeft = m_flickerBudget;
+	for (SlotCache& cache : m_cache) cache.visited = false;
+	++m_stats.passes;
 }
 
 void ShadowScheduler::SetFlickerHz(float hz, int perFrameBudget) {
@@ -119,46 +127,113 @@ void ShadowScheduler::SetFlickerHz(float hz, int perFrameBudget) {
 	if (perFrameBudget >= 0) m_flickerBudget = perFrameBudget;
 }
 
+void ShadowScheduler::NoteCasterChanged(const Vec3& center, float radius) {
+	if (m_ignoreNotes || m_noteOverflow) return;
+	// A door leaf notes itself every frame it travels; between two passes that
+	// is the same note again, and holding it twice would only fill the list.
+	for (u32 i = 0; i < m_noteCount; ++i)
+		if (m_notes[i].radius == radius && m_notes[i].center.x == center.x &&
+			m_notes[i].center.y == center.y && m_notes[i].center.z == center.z)
+			return;
+	++m_stats.notes;
+	if (m_noteCount < kMaxNotes) m_notes[m_noteCount++] = {center, radius};
+	else m_noteOverflow = true;
+}
+
+bool ShadowScheduler::NotedNear(const Vec3& center, float radius) const {
+	if (m_noteOverflow) return true;
+	for (u32 i = 0; i < m_noteCount; ++i) {
+		const float reach = radius + m_notes[i].radius;
+		if (Distance2(m_notes[i].center, center) <= reach * reach) return true;
+	}
+	return false;
+}
+
 bool ShadowScheduler::ShouldRender(const gfx::PointLight& light, size_t lightIndex,
-								   u32 mapRevision, bool animatedCasterNear) {
-	constexpr float kPosEps2 = 0.0004f; // 2 cm: a steady light re-renders once it moves
+								   u32 mapRevision, bool casterMoving) {
+	constexpr float kPosEps = 0.02f; // 2 cm: a steady light re-renders once it moves
 
 	const int slot = light.shadowSlot;
 	SlotCache& cache = m_cache[slot];
+	cache.visited = true;
 
-	const Vec3 d = Sub(light.position, cache.pos);
-	const bool moved = d.x * d.x + d.y * d.y + d.z * d.z > kPosEps2;
+	// A MOVE: past 2 cm for a steady light, and for a wandering one past what its
+	// wander alone could have done (PointLight::wander). A wandering light used
+	// to ignore moves altogether, so a carried Firelight's shadow kept up with a
+	// walking party only on the flicker cadence (code-review C187).
+	const bool wanders = light.wander > 0.0f;
+	const float slack = std::max(kPosEps, light.wander);
+	const bool moved = !(wanders && m_ignoreMoves) &&
+					   Distance2(light.position, cache.pos) > slack * slack;
 	// A wandering fire cube is due only once its interval has ELAPSED, and only
-	// while the frame still has flicker budget left. Everything else in
-	// needsRender below is correctness — a new light, moved geometry, an animating
-	// caster — and is never budgeted away.
+	// while the frame still has flicker budget left. Everything else below is
+	// correctness - a new light, moved geometry, a changed caster, a move - and
+	// is never budgeted away.
 	const f64 interval = m_flickerHz > 0.0f ? 1.0 / static_cast<f64>(m_flickerHz) : 1.0e9;
 	bool flickerDue = false;
-	if (light.flickerShadow && m_flickerLeft > 0 &&
-		m_nowSec - cache.lastFlickerSec >= interval) {
+	if (wanders && m_flickerLeft > 0 && m_nowSec - cache.lastFlickerSec >= interval) {
 		flickerDue = true;
 		--m_flickerLeft;
 	}
 	// Who this is: its stable id, else (high bit set, so the two never collide)
 	// its index in this frame's list.
 	const u32 identity = light.id != 0 ? light.id : 0x80000000u | static_cast<u32>(lightIndex);
-	const bool needsRender = cache.lightId != identity ||
-							 cache.revision != mapRevision || animatedCasterNear ||
-							 (light.flickerShadow ? flickerDue : moved);
-	if (needsRender) {
-		cache.lightId = identity;
-		cache.pos = light.position;
-		cache.revision = mapRevision;
-		// Only a FLICKER render re-paces the flicker clock. A cube re-rendered
-		// because a monster walked past should not also reset the aesthetic
-		// cadence, or a busy room would flicker faster than a quiet one.
-		if (flickerDue) cache.lastFlickerSec = m_nowSec;
+	Reason why = Reason::Count;
+	if (cache.lightId != identity) why = Reason::New;
+	else if (cache.revision != mapRevision) why = Reason::Geometry;
+	else if (casterMoving || NotedNear(light.position, light.radius)) why = Reason::Caster;
+	else if (moved) why = Reason::Moved;
+	else if (flickerDue) why = Reason::Flicker;
+	SlotStats& stats = m_stats.slots[static_cast<size_t>(slot)];
+	if (why == Reason::Count) {
+		// Reused: how far the light now stands from the pose the cube shows.
+		stats.lag = std::max(stats.lag, std::sqrt(Distance2(light.position, cache.pos)));
+		return false;
 	}
-	return needsRender;
+
+	cache.lightId = identity;
+	cache.pos = light.position;
+	cache.radius = light.radius;
+	cache.revision = mapRevision;
+	// Only a FLICKER render re-paces the flicker clock. A cube re-rendered
+	// because a monster walked past should not also reset the aesthetic
+	// cadence, or a busy room would flicker faster than a quiet one.
+	if (flickerDue) cache.lastFlickerSec = m_nowSec;
+	if (why == Reason::New) stats.lag = 0.0f; // a new light's lag starts again
+	++stats.renders;
+	++stats.by[static_cast<size_t>(why)];
+	stats.lightId = identity;
+	stats.lastPass = m_stats.passes;
+	return true;
+}
+
+void ShadowScheduler::EndPass() {
+	if (m_noteCount > 0 || m_noteOverflow) {
+		for (SlotCache& cache : m_cache) {
+			if (cache.visited || cache.lightId == kNoLight) continue;
+			if (!NotedNear(cache.pos, cache.radius)) continue;
+			cache = SlotCache{};
+			++m_stats.swept;
+		}
+	}
+	if (m_noteOverflow) ++m_stats.overflows;
+	m_noteCount = 0;
+	m_noteOverflow = false;
 }
 
 void ShadowScheduler::InvalidateCubes() {
 	for (SlotCache& cache : m_cache) cache = SlotCache{};
+}
+
+const char* ShadowScheduler::ReasonName(Reason reason) {
+	switch (reason) {
+	case Reason::New: return "new";
+	case Reason::Geometry: return "geometry";
+	case Reason::Caster: return "caster";
+	case Reason::Moved: return "moved";
+	case Reason::Flicker: return "flicker";
+	default: return "?";
+	}
 }
 
 } // namespace dungeon::game

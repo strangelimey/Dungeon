@@ -1447,11 +1447,47 @@ void Game::RegisterDevCommands() {
 							   s.capacity / kMB, s.peak / kMB, s.lastDrops, s.drops,
 							   s.droppedVerts));
 					   });
+	// `status` is the shadow cache's readout (code-review C178 / C187): each
+	// slot's light and its re-renders by reason, which is how a harness sees a
+	// door's move or a walking Firelight reach a cube. `door` is the pass that
+	// first drew a door's latest pose, which a slot's `lastpass` must reach.
+	// `ignore` is that harness's mutation switch (AllocTest -Lights
+	// -ShadowSelfTest): the change notes dropped, or a wandering light's moves
+	// not counted.
 	m_console.Register({.name = "shadows",
 						.group = CmdGroup::Rendering,
-						.params = "[on|off]",
-						.summary = "toggle shadow rendering"},
+						.params = "[on|off]\nstatus\ndoor <x> <z>\nignore notes|moves|both|none",
+						.summary = "toggle shadow rendering, or read the shadow cube cache"},
 					   [this](const std::vector<std::string>& args) {
+						   if (!args.empty() && args[0] == "status") {
+							   for (const std::string& line : m_world->DescribeShadows())
+								   m_console.Print(line);
+							   return;
+						   }
+						   if (!args.empty() && args[0] == "door") {
+							   if (args.size() < 3) {
+								   m_console.RefuseUsage();
+								   return;
+							   }
+							   const int x = std::atoi(args[1].c_str());
+							   const int z = std::atoi(args[2].c_str());
+							   const std::string line = m_world->DescribeDoorShadow(x, z);
+							   m_console.Print(line.empty() ? std::format("no door at {},{}", x, z)
+															: line);
+							   return;
+						   }
+						   if (!args.empty() && args[0] == "ignore") {
+							   const std::string what = args.size() > 1 ? args[1] : "";
+							   if (what != "notes" && what != "moves" && what != "both" &&
+								   what != "none") {
+								   m_console.RefuseUsage();
+								   return;
+							   }
+							   m_world->SetShadowIgnore(what == "notes" || what == "both",
+														what == "moves" || what == "both");
+							   m_console.Print(m_world->DescribeShadows().front());
+							   return;
+						   }
 						   if (!args.empty()) m_world->SetShadowsEnabled(ArgOn(args[0]));
 						   m_console.Print(m_world->ShadowsEnabled() ? "shadows on"
 																	: "shadows off");

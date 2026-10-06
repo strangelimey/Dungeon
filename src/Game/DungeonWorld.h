@@ -1021,7 +1021,11 @@ public:
 	// The stones on this level, one line each (the `lightstones` readout), and
 	// clearing them all.
 	std::vector<std::string> DescribeLightStones() const;
-	void ClearLightStones() { m_lightStones = {}; }
+	void ClearLightStones() {
+		for (const LightStone& s : m_lightStones)
+			if (s.timeLeft > 0.0f) NoteCellCaster(s.x, s.z); // gone from the cubes too
+		m_lightStones = {};
+	}
 	// The monster tracks on this level (6g): how many still show, and the
 	// freshest few (the `tracks` readout); and wiping them.
 	std::vector<std::string> DescribeTracks() const;
@@ -2145,6 +2149,18 @@ public:
 
 	void SetShadowsEnabled(bool on) { m_shadowsEnabled = on; }
 	bool ShadowsEnabled() const { return m_shadowsEnabled; }
+	// The shadow cache's readout (dev console `shadows status`): one line of
+	// totals, then one per slot - the light holding it this frame (kind:index),
+	// its re-renders and why (ShadowScheduler::Reason), the pass of its last
+	// render and its light's lag (in squares). AllocTest -Lights reads it to see
+	// a door's move and a walking Firelight re-render their cubes.
+	std::vector<std::string> DescribeShadows() const;
+	// The door on (x,z) as the shadow cache must see it (`shadows door`): its
+	// pose and the first shadow pass that drew it (Door::posePass); "" = no door.
+	// A slot whose last render came before that pass still shows an older pose.
+	std::string DescribeDoorShadow(int x, int z) const;
+	// The harness's mutations of the cache (ShadowScheduler::Ignore).
+	void SetShadowIgnore(bool notes, bool moves) { m_shadows.Ignore(notes, moves); }
 	// Toggle volumetric dust (off feeds the renderer clear air).
 	void SetDustEnabled(bool on) { m_dustEnabled = on; }
 	bool DustEnabled() const { return m_dustEnabled; }
@@ -2962,6 +2978,11 @@ private:
 		float pullT = 0.0f;        // 0 at rest .. 1 fully worked
 		bool pullRising = false;   // true while it is being pulled, false coming back
 		EaseSpan openerEase;       // the hand-hold's own shaping, from its entry
+		// The first shadow pass to draw the door's latest pose: stamped where the
+		// leaf or hand-hold moves in play (the travel, a smash) and never by its
+		// caster note, so `shadows door` can tell a cube that kept the pose the
+		// door LANDED in from one re-rendered only as it began to move.
+		u64 posePass = 0;
 		// Can it be broken down? OFF unless doors.cat says `breakable = 1`
 		// (Michael's requirement — otherwise a party would simply chop through
 		// every locked door and keys and switches would stop mattering). A broken
@@ -3973,10 +3994,32 @@ private:
 	// default non-solid, so only floor-standing blockers register.
 	bool SolidDecorationAt(int cx, int cz) const;
 
-	// True if a continuously-animating caster (a monster) is within the
-	// light's reach — such a cube must re-render every frame.
-	// Fed to m_shadows.ShouldRender as the world's per-light verdict.
-	bool AnimatedCasterNear(const gfx::PointLight& light) const;
+	// True if a caster that moves EVERY frame is within the light's reach - a
+	// monster (alive, or still playing its death), a thrown item in flight -
+	// so its cube must re-render. Fed to m_shadows.ShouldRender as the world's
+	// per-light verdict.
+	bool MovingCasterNear(const gfx::PointLight& light) const;
+	// A shadow caster CHANGED (code-review C178) - appeared, vanished, or moved
+	// in a way no light's own state shows - so every cube reaching it must
+	// re-render: notes to m_shadows, in a sphere as wide as what the shadow
+	// pass draws there. A door's leaf each frame it travels (and the snap of a
+	// smashed one), a lever thrown, a floor item lifted / set down / burnt out,
+	// a monster's body gone, a smashed prop, a wall torch taken or put back, an
+	// Earth stone set down or spent, a thrown item's flight ending. A NEW place
+	// where something the shadow pass draws can change (SubmitSceneGeometry)
+	// must note it too, or the shadow it left stays in the cube until the light
+	// moves (`shadows status`; AllocTest -Lights opens a door and checks).
+	void NoteDoorCaster(const Door& door);
+	void NoteItemCaster(const Item& item);
+	void NoteMonsterCaster(const Monster& monster);
+	void NoteCellCaster(int x, int z);
+	// The sphere round a door's cell that holds everything it draws (frame,
+	// leaf at any travel, trim): the draw's cull and its caster note share it.
+	static float DoorReach(const Door& door);
+	// The draw's cull spheres for a monster and a thrown item, shared with
+	// their caster tests.
+	static constexpr float kMonsterCasterRadius = 0.65f * kUnit;
+	static constexpr float kCargoCasterRadius = 0.35f * kUnit;
 
 	// Reveals a cell and its eight neighbors in the fog-of-war set.
 	void MarkSeen(int x, int z);
@@ -4174,6 +4217,9 @@ private:
 	// frame's lights; RenderShadowMaps asks it which cubes to redraw). See
 	// ShadowScheduler.h.
 	ShadowScheduler m_shadows;
+	// The edit revision the cubes were last checked against: an editor edit
+	// re-renders every cube once (RenderShadowMaps).
+	u64 m_shadowEditRevision = 0;
 	gfx::Atmosphere m_atmosphere; // per-cell air turbidity (dust)
 	std::unique_ptr<gfx::Texture> m_turbidityMap;
 	// Its pixels, kept: a fixture breaking mid-fight changes the haze, and the

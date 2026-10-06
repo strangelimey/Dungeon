@@ -36,6 +36,7 @@
 #include <algorithm>
 #include <cmath>
 #include <format>
+#include <iterator>
 
 namespace dungeon::game {
 
@@ -151,8 +152,9 @@ gfx::PointLight* DungeonWorld::PushLight(const light::Profile& profile, const ch
 	l.castsShadow = profile.shadow;
 	l.longShadowFade = profile.longFade;
 	// A wandering origin re-renders its shadow cube on the flicker cadence
-	// rather than on every sub-pixel move (ShadowScheduler).
-	l.flickerShadow = profile.wander > 0.0f;
+	// rather than on every sub-pixel move, and on a real move only past what the
+	// wander alone could do (ShadowScheduler).
+	l.wander = light::WanderSpan(profile.wander) * kCellSize;
 	l.id = key;
 	m_lights.points.push_back(l);
 	// Which lights.cat profile it is, by index (-1 = one the catalog does not
@@ -210,6 +212,57 @@ std::vector<std::string> DungeonWorld::DescribeLights() const {
 								: std::string("shadow (no slot)")));
 	}
 	return out;
+}
+
+std::vector<std::string> DungeonWorld::DescribeShadows() const {
+	// A light by its kind, as LightKind names it, and which one.
+	static constexpr const char* kKinds[] = {"?",     "torch",      "fire",  "burning",  "glow",
+											 "sight", "stress",     "bolt",  "floortorch", "flash",
+											 "handglow", "worn",    "spell", "stone"};
+	static_assert(std::size(kKinds) == static_cast<size_t>(LightKind::Stone) + 1,
+				  "a LightKind with no name in the shadow readout");
+	const auto name = [](u32 id) -> std::string {
+		if (id == 0 || id == 0xFFFFFFFFu) return "none";
+		if (id & 0x80000000u) return std::format("index:{}", id & 0x7FFFFFFFu);
+		const u32 kind = id >> 24;
+		return std::format("{}:{}", kind < std::size(kKinds) ? kKinds[kind] : "?", id & 0xFFFFFFu);
+	};
+	const ShadowScheduler::Stats& s = m_shadows.GetStats();
+	std::vector<std::string> out;
+	out.push_back(std::format(
+		"shadows: {} passes={} notes={} overflows={} swept={} rate={:.1f}hz budget={} "
+		"ignore notes={} moves={}",
+		m_shadowsEnabled ? "on" : "off", s.passes, s.notes, s.overflows, s.swept,
+		m_shadows.FlickerHz(), m_shadows.FlickerBudget(), m_shadows.IgnoresNotes() ? "on" : "off",
+		m_shadows.IgnoresMoves() ? "on" : "off"));
+	using Reason = ShadowScheduler::Reason;
+	for (size_t slot = 0; slot < s.slots.size(); ++slot) {
+		// Who holds it THIS frame, which need not be who it last rendered for.
+		u32 holder = 0;
+		for (const gfx::PointLight& l : m_lights.points)
+			if (l.shadowSlot == static_cast<int>(slot)) holder = l.id;
+		const ShadowScheduler::SlotStats& st = s.slots[slot];
+		std::string line = std::format("shadows slot {}: light={} last={} renders={}", slot,
+									   name(holder), name(st.lightId), st.renders);
+		for (size_t r = 0; r < static_cast<size_t>(Reason::Count); ++r)
+			line += std::format(" {}={}", ShadowScheduler::ReasonName(static_cast<Reason>(r)),
+								st.by[r]);
+		// When it last rendered, and how far its light has stood from that cube
+		// while it was reused - in SQUARES, so a harness's bound survives kUnit.
+		line += std::format(" lastpass={} lag={:.3f}", st.lastPass, st.lag / kCellSize);
+		out.push_back(std::move(line));
+	}
+	return out;
+}
+
+std::string DungeonWorld::DescribeDoorShadow(int x, int z) const {
+	for (const Door& d : m_doors)
+		if (d.x == x && d.z == z)
+			return std::format("shadows door {},{}: open={} openT={:.3f} pull={:.3f} posepass={} "
+							   "passes={}",
+							   x, z, d.open ? 1 : 0, d.openT, d.pullT, d.posePass,
+							   m_shadows.GetStats().passes);
+	return {};
 }
 
 float DungeonWorld::TorchBrightness(const ItemKind& kind, float charge) {
@@ -343,6 +396,8 @@ void DungeonWorld::TickFloorTorches(float dt) {
 		it.charge -= dt;
 		if (it.charge > 0.0f) continue;
 		// Burnt out where it lies: its stub, or nothing for a kind that leaves none.
+		// Either way what the cubes hold of it changes (code-review C178).
+		NoteItemCaster(it);
 		if (kind.spentAs.empty()) {
 			it.collected = true;
 		} else {

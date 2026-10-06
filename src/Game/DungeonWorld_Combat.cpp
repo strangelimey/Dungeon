@@ -1237,6 +1237,9 @@ void DungeonWorld::MonsterTarget::Wound(float amount, fx::DamageEvent& ev) {
 	if (!m_monster.Alive()) {
 		m_monster.hp = 0.0f; // a downed monster stays in the list (save restore)
 		Extinguish(m_monster); // a corpse stops burning
+		// One with no death clip (the blob) leaves the draw this very frame; one
+		// with a clip plays it first (DriveMonsterAnim notes its end).
+		m_world.NoteMonsterCaster(m_monster);
 		ev.slew = true;
 		++m_world.m_harness.tally.monstersSlain;
 	} else if (!ev.Quiet()) {
@@ -2465,13 +2468,15 @@ void DungeonWorld::ForEachBreakableAt(
 }
 
 DungeonWorld::BreakableTarget DungeonWorld::DoorTarget(Door& d) {
-	return {*this, d.brk, "door.", d.type, "log.door_broken", [&d] {
+	return {*this, d.brk, "door.", d.type, "log.door_broken", [this, &d] {
 				// The way is open FOR GOOD. Not `open = true` alone: a smashed
 				// door must not be closeable again, which is the whole difference
 				// from opening one. STATE only - the line is the caller's (see
 				// BrokenKey).
 				d.open = true;
 				d.openT = 1.0f;
+				d.posePass = m_shadows.GetStats().passes + 1;
+				NoteDoorCaster(d); // the leaf snapped away: no travel to note it
 			}};
 }
 
@@ -2482,7 +2487,11 @@ DungeonWorld::BreakableTarget DungeonWorld::DecorationTarget(Decoration& p) {
 	// name what was broken afterwards - an erased record cannot be reported. Draw,
 	// collision and the map all skip a broken prop instead (Decoration::Gone /
 	// ::Blocks), so nothing else has to know.
-	return {*this, p.brk, "decoration.", p.kind->id, "log.prop_broken", nullptr};
+	return {*this, p.brk, "decoration.", p.kind->id, "log.prop_broken", [this, &p] {
+				// Gone from the draw, so from every cube that held its shadow.
+				m_shadows.NoteCasterChanged({p.world._41, p.world._42, p.world._43},
+											p.kind->cullRadius);
+			}};
 }
 
 DungeonWorld::BreakableTarget DungeonWorld::FixtureTarget(FixtureBreak& fb) {

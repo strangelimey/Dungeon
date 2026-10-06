@@ -148,6 +148,13 @@ Vec3 WanderAt(float wander, float time, float phase) {
 			wander * std::sin(time * 6.7f + phase * 0.7f) * std::sin(time * 2.6f + phase)};
 }
 
+float WanderSpan(float wander) {
+	if (wander <= 0.0f) return 0.0f;
+	// WanderAt's axes reach +/- wander, +/- 0.6 x wander and +/- wander, so two
+	// samples differ by at most 2, 1.2 and 2 x wander along them.
+	return wander * std::sqrt(2.0f * 2.0f + 1.2f * 1.2f + 2.0f * 2.0f);
+}
+
 Sample Evaluate(const Profile& profile, float time, float phase) {
 	return {profile.intensity *
 				PulseAt(profile.pulse, profile.pulseRate, profile.pulseDepth, time, phase),

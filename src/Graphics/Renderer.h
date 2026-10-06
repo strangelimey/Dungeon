@@ -47,8 +47,10 @@ inline constexpr u32 kMaxSkinJoints = 128;
 // the game assigns slot 0 to the light nearest the camera. Eight slots so a
 // sconce-lined hall keeps most of its fires shadow-casting (with four, the
 // carried torch + three nearest fires monopolized the cubes and every other
-// light was pure fill, washing the shadows out); the ShadowSlotCache +
-// half-rate fire flicker keep the extra cubes' re-render cost down.
+// light was pure fill, washing the shadows out). The game's per-slot cube
+// cache (Game/ShadowScheduler.h) keeps the extra cubes' re-render cost down: a
+// cube re-renders only when something it shows changed, and a wandering fire's
+// on a 25 Hz wall-clock cadence, at most 2 a frame (`shadowrate`).
 inline constexpr u32 kShadowSlots = 8;
 inline constexpr u32 kShadowResolution[kShadowSlots] = {512, 256, 256, 256,
 														128, 128, 128, 128};

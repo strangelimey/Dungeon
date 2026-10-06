@@ -72,6 +72,10 @@ float PulseAt(Pulse pulse, float rate, float depth, float time, float phase);
 
 // How far the origin has wandered at `time`, in squares (zero when wander is 0).
 Vec3 WanderAt(float wander, float time, float phase);
+// The farthest two of those offsets can lie apart, in squares: what the wander
+// ALONE can move a light between any two moments. The shadow cache counts a move
+// past it as a real one (ShadowScheduler; a carried Firelight walking).
+float WanderSpan(float wander);
 
 // A profile at a moment: brightness (intensity x pulse) and the origin's
 // offset, in squares. Colour and radius need no evaluation.
