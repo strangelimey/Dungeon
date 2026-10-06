@@ -311,6 +311,13 @@ public:
 	void CloseSpellbook();
 	SpellbookPanel* Spellbook() { return m_spellbook; } // the dev `book` command
 
+	// --- the hand menu, for a check of it (the dev `handmenu` command) -------------
+	// Opens member `i`'s hand `hand` use menu as a right-click on its HUD hand box
+	// does, at that box's centre. False when no shown box is that hand's, or the
+	// hand has nothing to offer (no menu opens).
+	bool OpenHandMenuAtBox(size_t i, size_t hand);
+	ui::ContextMenu* HandMenu() { return m_handMenu; }
+
 	// --- message log ---------------------------------------------------------------
 	// Borrows the line: it is copied once, into the log's own ring slot, so
 	// printing a message allocates nothing (docs/message-allocation.md).

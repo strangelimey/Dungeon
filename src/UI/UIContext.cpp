@@ -1,10 +1,32 @@
 #include "UI/UIContext.h"
 
+#include "Core/Log.h"
 #include "UI/Skin.h"
 #include "UI/TreeInspector.h"
 #include "UI/Widget.h"
 
 namespace dungeon::ui {
+
+namespace {
+
+// Every walk starts with no clip (code-review C208). Each push restores itself
+// (ScopedClip), so a clip still in force here is a scope that never ended - a
+// walk entered from inside another, say. It is dropped either way, and said
+// ONCE, since a silent fallback is how a defect like this survives. True when
+// one was dropped.
+bool StartWalkUnclipped(const char* walk) {
+	static bool s_said = false;
+	if (!ResetClip()) return false;
+	if (!s_said) {
+		s_said = true;
+		log::Warn("ui: a clip was still in force as {} walk began - dropped (a push "
+				  "that was never restored?)",
+				  walk);
+	}
+	return true;
+}
+
+} // namespace
 
 UIContext::UIContext(gfx::GraphicsDevice& device, const std::string& fontPath,
 					 float fontHeight)
@@ -40,6 +62,7 @@ const Font& UIContext::FontAt(FontRole role, float pixelHeight) const {
 }
 
 void UIContext::Update(const Input& input, float width, float height) {
+	StartWalkUnclipped("an update");
 	m_input = &input;
 	// A popup open last frame holds the pointer from the first widget on (see
 	// ClaimPopup); it renews the claim during this walk if it is still open.
@@ -59,6 +82,9 @@ void UIContext::Update(const Input& input, float width, float height) {
 }
 
 void UIContext::Render(gfx::SpriteBatch& batch, float width, float height) {
+	// A stale clip's scissor goes with it; with none, the batch's is the
+	// caller's, and left alone.
+	if (StartWalkUnclipped("a draw")) batch.SetScissor(nullptr);
 	m_width = width;
 	m_height = height;
 	const gfx::Rect window{0, 0, width, height};

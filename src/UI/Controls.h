@@ -552,13 +552,21 @@ private:
 // draws in the OVERLAY pass, so `bounds` stays zero — a context menu must not be
 // clipped or placed by whatever happens to own it. The tree inspector therefore
 // shows it as 0x0, which is correct rather than a missing rect.
+//
+// SIZED AND DRAWN FROM ONE SET OF REM INSETS (code-review C382): the box was
+// measured in rem but its labels drawn 10 px in and a group's marker 16 px from
+// the right, so below an 18 px rem the marker ran over the widest group label.
+// TextOverrun reports any row whose text still does not fit - against the
+// marker, or past the window's edge for a menu wider than the window - so the
+// `uioverlap` audit sees it while the menu is open (overlapOk: it is a popup,
+// meant to lie over its siblings; the audit still asks it about trims).
 class ContextMenu : public Widget {
 public:
 	static constexpr size_t kMaxRows = 40;       // top level + submenus together
 	static constexpr size_t kLabelCapacity = 63; // bytes of UTF-8 per label
 	static constexpr int kTopLevel = -1;         // Add()'s "in no group"
 
-	ContextMenu() = default;
+	ContextMenu() { overlapOk = true; }
 
 	// Starts a new menu at (x,y) device pixels (clamped on screen in Update),
 	// discarding the previous rows; it stays closed until Show().
@@ -576,6 +584,15 @@ public:
 	}
 	bool IsOpen() const { return m_open; }
 
+	// For a check OF the menu (the `handmenu` dev command, InGameTest's hand
+	// menu sweep): the top level's rows and groups, the open submenu's rows (0 =
+	// none open), and a group's submenu opened as a click on its row opens it -
+	// the `n`th group from the top. False when there is no such group.
+	size_t TopRows() const { return TopCount(); }
+	size_t Groups() const;
+	size_t SubmenuRows() const { return m_openChild >= 0 ? ChildCount(m_openChild) : 0; }
+	bool OpenGroup(size_t n);
+
 	// Fired with the picked leaf's id, after the menu has closed. Set once by
 	// the owner. Capture `this` alone so it fits std::function's small buffer:
 	// a pick COPIES it (the callback may rebuild the menu's owner).
@@ -584,6 +601,9 @@ public:
 	void UpdateSelf(UIContext& ctx) override;
 	void DrawSelf(UIContext&, gfx::SpriteBatch&) override {} // overlay-only
 	void DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	// The open menu's box (and its submenu's); nothing while closed.
+	gfx::Rect InkRect() const override;
+	float TextOverrun() const override;
 
 private:
 	struct Row {
@@ -602,11 +622,23 @@ private:
 	size_t ChildCount(int group) const;
 	gfx::Rect EntryRect(size_t i) const;
 	gfx::Rect ChildRect(size_t i) const; // row i of the open group's submenu
+	// Where a row's label starts and a group row's marker starts: the draw and
+	// TextOverrun both ask, so the measure is the draw.
+	float LabelX(const gfx::Rect& row) const;
+	float MarkerX(const gfx::Rect& row) const;
+	// How far `row`'s text runs past the room its box leaves it on screen.
+	float RowOverrun(const Row& row, const gfx::Rect& rect) const;
 	void Pick(UIContext& ctx, int id);
 
 	bool m_open = false;
 	float m_x = 0.0f, m_y = 0.0f; // top-left, device pixels (clamped in Update)
 	float m_w = 0.0f, m_rowH = 0.0f; // sized from the font in Update
+	float m_screenW = 0.0f;          // the window's width as of that Update
+	// Whether Update has sized THIS menu (Begin clears it) and which group's
+	// submenu it last laid out: the audit asks between a click that opens one
+	// and the Update that sizes it, when the box still has the last one's size.
+	bool m_laidOut = false;
+	int m_childLaidOut = -1;
 	std::array<Row, kMaxRows> m_rows;
 	size_t m_count = 0;
 	int m_hover = -1; // a ROW index into m_rows, not a visual position

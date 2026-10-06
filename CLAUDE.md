@@ -1762,15 +1762,22 @@ hang and a reboot must each leave EVIDENCE.
   thread's exit writes, runs of 57 and 150 closing with their tails (100, the
   one shape needing none, cannot be the only run tried), a run in a spent
   window losing nothing, and a 33rd name taking a dormant slot clean. `tools\HealthTest.
-  ps1` breaks the REAL game seven ways and reads dungeon.log and nothing else —
+  ps1` breaks the REAL game nine ways and reads dungeon.log and nothing else -
   if the answer is not in the file you open after a crash, it does not count.
   `-SelfTest` skips every injection and REQUIRES every case to fail on EACH of
   its expectations (no pattern met, no dump) and for no other reason - a harness
   error, a death with nothing injected, or a log without the control line (the
   `logecho off` echo typed just before the injection) fails the self-test. It
   used to pass on any failure, so a game that crashed at boot passed it.
-  Dev: `crashpoke <throw|worker|fault|assert>`, `threadwedge`, `threadspawn
-  <ms>`. NOT covered: the Killed kind (a hard kill is a panel button, not a
+  Two of the nine (`uiclip`, `uinest`; code-review C208) read what a caught
+  throw leaves BEHIND - the UI walk's clip, which a throw used to leave in force
+  in every context, so a later click outside it was lost. Each checks its own
+  premise: `uiclip`'s throw names the clip in force and the button outside it
+  only when both hold (a scroll area that stops overflowing clips nothing, and
+  the click would land under the old walk too), `uinest` refuses a tree that
+  did not nest two clips.
+  Dev: `crashpoke <throw|uiclip|worker|fault|assert>`, `clippoke`, `threadwedge`,
+  `threadspawn <ms>`. NOT covered: the Killed kind (a hard kill is a panel button, not a
   command) — the harness says so on every run rather than leaving it to be
   discovered.
 
@@ -3229,7 +3236,11 @@ and answers: docs/transparency-notes.md; each phase's AS BUILT is in the plan.
   look, e.g. a slot that highlights as one piece, or a modal); DRAW self then
   children. Containers express themselves through hooks rather than driving
   children: ContentRect (padding, a tab page, a scroll offset), ChildActive
-  (culling), ChildClip (clipping, intersected and restored so clips nest).
+  (culling), ChildClip (clipping, intersected and restored so clips nest - by a
+  ui::ScopedClip in both walks, so on a throw too, and every UIContext walk
+  begins with no clip: code-review C208, where an inner clip never popped and
+  one throw left every context clipped; HealthTest `uiclip` / `uinest`, dev
+  `crashpoke uiclip`, `clippoke`).
   ui::ScrollArea owns ALL scroll/thumb/clip behaviour — nothing else may
   re-implement it — and ui::Repeater builds children from a per-frame count with
   a grow-only pool (repeated children hold an INDEX and re-resolve, never a
@@ -3240,7 +3251,9 @@ and answers: docs/transparency-notes.md; each phase's AS BUILT is in the plan.
   square sized by the parent's height; a row the height of a line advance) —
   still parent-relative, just derived. Screen-anchored popups (ContextMenu)
   keep zero bounds and draw in the overlay pass on purpose (the party
-  inventory used to as well; it is a floating window now - ui-panels).
+  inventory used to as well; it is a floating window now - ui-panels); an open
+  ContextMenu's InkRect is its box, and it is sized and drawn from one set of
+  rem insets.
   UNITS are typographic, the CSS model (UI/Units.h): bounds are [0..1] of the
   parent, but the DETAIL inside a control — padding, row heights, a scrollbar's
   width, a thumb's minimum — is in REM, where 1rem = that context's root font
@@ -3289,9 +3302,19 @@ and answers: docs/transparency-notes.md; each phase's AS BUILT is in the plan.
   and overview docks fit their names through the same helper.
   The audit gates on empty INK, not an empty Pixel(), or that zero-height
   row would be skipped outright - which is how both slipped a sweep once
-  (editor-updates 11c2144, NewWorldDialog). `overlapOk` opts out the
-  deliberately layered; a parent that CLIPS is exempt from the escape check,
-  since a scroll area's children are meant to run past it. RUN IT AFTER TOUCHING
+  (editor-updates 11c2144, NewWorldDialog). `overlapOk` opts the deliberately
+  layered out of the overlap and escape checks but NOT the trims check - an open
+  ContextMenu (overlapOk, a popup) reports a row whose text runs into its group
+  marker or off the window (code-review C382; it drew at raw 10/16 px offsets,
+  and below an 18 px rem the marker ran over the label - InGameTest's
+  `sweep_handmenu` resizes the window to 720p and opens the bare-hand menu, both
+  groups and the Magic submenu, through dev `handmenu`; the HUD sizes an open
+  menu only while the console AND the map are shut - `editor off` leaves the
+  map open in Player mode, which made the sweep's first run vacuous - and an
+  unsized menu is 0x0 and audits clean, so the sweep demands `handmenu status`
+  saw its box); a parent that CLIPS is
+  exempt from the escape check, since a scroll area's children are meant to
+  run past it. RUN IT AFTER TOUCHING
   ANY SCREEN — a full sweep (2026-08-08) found four defects nobody had reported,
   three of them placeholder bounds earlier phases had promised to fix. The rule
   it enforces has a second half in INPUT: the pointer is claimed by whoever is

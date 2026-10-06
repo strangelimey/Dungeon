@@ -25,6 +25,7 @@ namespace dungeon {
 namespace vk {
 inline constexpr int Back = 0x08;
 inline constexpr int Return = 0x0D;
+inline constexpr int Control = 0x11;
 inline constexpr int Escape = 0x1B;
 inline constexpr int Space = 0x20;
 inline constexpr int Up = 0x26;

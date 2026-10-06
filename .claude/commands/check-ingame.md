@@ -24,8 +24,9 @@ nobody has visited in weeks.
 manual sweep found four defects nobody had reported. It sweeps every screen a
 console command can open - the HUD, pause, both maps, the editor and its dialogs,
 the sheet and the party window, the party creation page and its picker, the
-generator and new-world dialogs, short parties of three and one - each under its
-own `sweep_<name>` label (InGameTest.ps1 lists them).
+generator and new-world dialogs, short parties of three and one, and a hand box's
+use menu with its Combat / Magic groups in a 720p window (code-review C382) -
+each under its own `sweep_<name>` label (InGameTest.ps1 lists them).
 
 ## Reading a failure
 
@@ -46,7 +47,11 @@ the audit saw the screen beneath. **`audited in state 'x'`** is the same failure
 seen from the app state (a party wiped mid-sweep audits the title from then on).
 Every screen in the harness's tables must name a status line; a row without one
 is refused before the game launches (`screen '<label>' needs ... at least one
-status pattern`), since it would otherwise be judged on its label alone.
+status pattern`), since it would otherwise be judged on its label alone. For
+`sweep_handmenu` the status is `handmenu status` seeing the menu LAID OUT (two
+groups or more, a submenu with rows, a box with an area, a window under 900
+high): the HUD sizes an open menu only while the console and the map are shut,
+and an unsized menu is 0x0, which the audit skips.
 
 **`<label>: found overlaps`** - a real layout defect. The findings name both
 widgets; `uitree dump <context>` in the dev console gives the pixel rects.

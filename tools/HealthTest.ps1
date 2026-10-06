@@ -28,6 +28,12 @@
 # Every step waits on a LOG LINE rather than sleeping, so a slow cold-cache load
 # stretches the wait instead of failing the run.
 #
+# Two cases look at what a caught throw leaves BEHIND rather than at its record
+# (code-review C208, the UI walk's clip - Game/ClipPoke.h): `uiclip` throws from
+# inside a scroll area's walk and then clicks a button outside it, which must
+# still land; `uinest` checks a scroll area nested in a tab page leaves its
+# siblings their clicks and their drawing.
+#
 # ASCII ONLY, deliberately: PowerShell 5.1 reads a BOM-less .ps1 as ANSI, so a
 # stray em-dash in a comment is a parse error, not a cosmetic issue.
 # ============================================================================
@@ -56,10 +62,21 @@ if (-not (Test-Path $exe)) { throw "no build at $exe - run build.cmd $Config fir
 Assert-ExeCurrent $exe
 Assert-NotRunning $exe
 
+# A left click at client point (x, y). The pointer moves there first, as a hand
+# would, so the press lands where it is aimed.
+function Send-Click([int]$x, [int]$y) {
+	$at = [int64](($y -shl 16) -bor ($x -band 0xFFFF))
+	Send-Message 0x200 0 $at; Start-Sleep -Milliseconds 150   # WM_MOUSEMOVE
+	Send-Message 0x201 1 $at; Start-Sleep -Milliseconds 60    # WM_LBUTTONDOWN
+	Send-Message 0x202 0 $at; Start-Sleep -Milliseconds 250   # WM_LBUTTONUP
+}
+
 # ---------------------------------------------------------------------------
 # THE CASES. `inject` is the console line that breaks something; `expect` is
 # what must appear in dungeon.log afterwards; `survives` says whether the
-# process is supposed to still be running when it is over.
+# process is supposed to still be running when it is over. An optional `after`
+# runs once the injections are in - in a self-test too, where it must find
+# nothing to act on.
 #
 # NOT COVERED, and said out loud rather than quietly skipped: the Killed kind
 # (a hard force-terminate) has no console command - it is the THREADS panel's
@@ -76,6 +93,48 @@ $cases = @(
 			"exception on 'main': crashpoke: a deliberate main-thread throw",
 			'Game_DevDiagnostics\.cpp:\d+'   # the THROW site, not the catch site
 		)
+		dump = $false
+	},
+	@{
+		name = 'uiclip'
+		desc = 'a throw inside a scroll area''s walk leaves no clip behind: a later click outside it lands'
+		inject = @('crashpoke uiclip')
+		# The click goes in with the console SHUT (an open console owns the
+		# input), at the point the poke logged before it threw. A self-test has
+		# no such line and clicks nothing. The console is opened again at the end
+		# for the harness's own `quit`.
+		after = {
+			$at = Select-String -Path $log -Pattern 'crashpoke uiclip: the button .* is at (\d+),(\d+)' -EA SilentlyContinue |
+				Select-Object -Last 1
+			if (-not $at) { Write-Host '  no button point in the log - nothing to click'; return }
+			$x = [int]$at.Matches[0].Groups[1].Value
+			$y = [int]$at.Matches[0].Groups[2].Value
+			Send-Key $VK_CONSOLE; Start-Sleep -Milliseconds 600
+			Write-Host "  clicking the button outside the scroll area at $x,$y"
+			Send-Click $x $y
+			Start-Sleep -Seconds 1
+			Send-Key $VK_CONSOLE; Start-Sleep -Milliseconds 600
+		}
+		settle = 2
+		survives = $true
+		# The message is the premise: the throw names the clip in force and the
+		# button outside it ONLY when both hold (Game/ClipPoke.cpp), else it says
+		# the case tests nothing. The stack line is just the throw site - the
+		# poke's whole call chain is in that file, so it cannot show the clip.
+		expect = @(
+			"exception on 'main': crashpoke: a deliberate throw inside a scroll area's walk, under its clip \[\d+,\d+ \d+x\d+\], the button \[\d+,\d+ \d+x\d+\] outside it",
+			'ClipPoke\.cpp:\d+',
+			'crashpoke uiclip: a click outside the scroll area landed'
+		)
+		dump = $false
+	},
+	@{
+		name = 'uinest'
+		desc = 'a scroll area nested in a tab page leaves its siblings their clicks and drawing'
+		inject = @('clippoke')
+		settle = 2
+		survives = $true
+		expect = @('clippoke: PASS')
 		dump = $false
 	},
 	@{
@@ -208,6 +267,7 @@ function Invoke-Case($case) {
 				Start-Sleep -Seconds 2
 			}
 		}
+		if ($case.after) { & $case.after }
 		Start-Sleep -Seconds $case.settle
 	} finally {
 		# Captured BEFORE we shut it down: whether the game was still running of

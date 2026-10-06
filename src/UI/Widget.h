@@ -34,24 +34,46 @@ namespace dungeon::ui {
 
 class UIContext;
 
-// Clips drawing to `rect` INTERSECTED with whatever clip the draw walk already
-// has in force, and restores that clip on destruction. A widget that clips its
-// own content (a text log, a list of rows) uses this rather than calling
-// SpriteBatch::SetScissor directly — a bare SetScissor(nullptr) would drop an
-// ancestor's clip and let the content spill out of a scrolled page.
+// Clips to `rect` INTERSECTED with whatever clip the walk already has in force,
+// and restores that clip on destruction - however the scope ends, a throw
+// included. A widget that clips its own content (a text log, a list of rows)
+// uses this rather than calling SpriteBatch::SetScissor directly - a bare
+// SetScissor(nullptr) would drop an ancestor's clip and let the content spill
+// out of a scrolled page.
+//
+// The walk pushes every container's ChildClip through this too (code-review
+// C208). It used to restore by hand, and only when the clip pointer had changed
+// - which, every push writing the same rect, it never had once a clip was in
+// force. So a scroll area inside a scrolled tab page cut its later siblings to
+// its own rect, and a throw under any clipping widget left every later walk, in
+// every context, clipped to it.
 class ScopedClip {
 public:
+	// The draw walk's form: the batch's scissor follows the clip.
 	ScopedClip(gfx::SpriteBatch& batch, const gfx::Rect& rect);
+	// The update walk's form: input is clipped like drawing (Widget::Update),
+	// and there is no scissor to move.
+	explicit ScopedClip(const gfx::Rect& rect);
 	~ScopedClip();
 
 	ScopedClip(const ScopedClip&) = delete;
 	ScopedClip& operator=(const ScopedClip&) = delete;
 
 private:
-	gfx::SpriteBatch& m_batch;
+	gfx::SpriteBatch* m_batch = nullptr; // null in the update walk
 	const gfx::Rect* m_outer;
 	gfx::Rect m_outerRect;
 };
+
+// The clip the walk has in force right now, or null. For a check OF the walk
+// (the `clippoke` dev command); a widget never needs it, since the walk already
+// skips, suppresses and scissors by it.
+const gfx::Rect* ActiveClip();
+
+// Drops any clip left in force, and says whether there was one. UIContext calls
+// it as each Update and Render walk begins, so a clip that outlived its scope
+// cannot follow one walk into the next - into another context's, even.
+bool ResetClip();
 
 class Widget {
 public:
@@ -240,8 +262,9 @@ protected:
 
 	// Non-null clips this widget's CHILDREN to the given pixel rect while they
 	// draw (a scrolling page). Nesting is handled by the walk: an inner clip
-	// intersects the one already in force and the outer is restored after, so a
-	// scroll area inside a scrolled page cannot widen its parent's clip.
+	// intersects the one already in force and the outer is restored after (by a
+	// ScopedClip, so on a throw too), so a scroll area inside a scrolled page can
+	// neither widen its parent's clip nor narrow its later siblings'.
 	virtual const gfx::Rect* ChildClip() const { return nullptr; }
 
 private:

@@ -64,9 +64,12 @@ std::string Name(const Widget& widget);
 // ".."). It collides with nothing, yet the layout did not give it room for
 // what it shows.
 //
-// Widgets marked `overlapOk` are skipped; so are empty INK rects, which is what
-// a screen-anchored popup has. Ink, not layout: a label in a row squeezed to
-// zero height still paints its line, and must still be compared.
+// Widgets marked `overlapOk` are spared the first two - they are MEANT to lie
+// over their siblings, or anywhere on screen - but still asked about trims: an
+// open context menu is overlapOk and reports its rows (code-review C382). Empty
+// INK rects are skipped outright, which is what a closed popup has. Ink, not
+// layout: a label in a row squeezed to zero height still paints its line, and
+// must still be compared.
 //
 // Arm it, and the next frame's contexts report through `out`.
 void ArmOverlapAudit(std::function<void(const std::string&)> out);

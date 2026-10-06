@@ -62,6 +62,7 @@
 #include "Game/AssetDialog.h"
 #include "Game/AssetPicker.h"
 #include "Game/Character.h"
+#include "Game/ClipPoke.h"
 #include "Game/PartyRules.h"
 #include "Game/DevConsole.h"
 #include "Game/DungeonWorld.h"
@@ -946,6 +947,10 @@ private:
 	// survives to run as a command.
 	float m_inputPokeRemaining = 0.0f;
 	bool m_inputPokeMidLine = false;
+	// `crashpoke uiclip`: the scratch tree whose scroll area threw mid-walk, kept
+	// up and walked every frame so a later click on its button can be seen to
+	// land (Game/ClipPoke.h). Null until the poke.
+	std::unique_ptr<ClipThrowPoke> m_clipPoke;
 	// Frame count when the current loading state was entered; tasks only run
 	// once its screen has been presented at least once.
 	u32 m_stateFrameMark = 0;

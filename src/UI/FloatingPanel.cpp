@@ -3,6 +3,8 @@
 // ============================================================================
 #include "UI/FloatingPanel.h"
 
+#include "Core/MathTypes.h" // kPi
+#include "Platform/Input.h" // vk::Control
 #include "UI/Controls.h"
 #include "UI/Skin.h"
 #include "UI/UIContext.h"
@@ -15,8 +17,6 @@ namespace dungeon::ui {
 namespace {
 constexpr float kGripRem = 1.2f;  // a grip's side
 constexpr float kSnapRem = 0.5f;  // how near an edge has to come to catch
-constexpr int kVkControl = 0x11;  // VK_CONTROL (the UI lib takes no windows.h)
-constexpr float kPi = 3.14159265f;
 }
 
 float FloatingPanel::EmAt(UIContext& ctx, float s) const {
@@ -223,7 +223,7 @@ void FloatingPanel::UpdateBeforeChildren(UIContext& ctx) {
 
 	// ARRANGING: Ctrl held over the panel. It takes the whole pointer before
 	// its content does - reset button, resize wedge, and everywhere else moves.
-	if (!input->IsKeyDown(kVkControl) || !Unlocked() || ctx.IsMouseConsumed() ||
+	if (!input->IsKeyDown(vk::Control) || !Unlocked() || ctx.IsMouseConsumed() ||
 		!px.Contains(mx, my))
 		return;
 	m_arranging = true;

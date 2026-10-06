@@ -478,7 +478,8 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 			"lang", "quality", "fonts", "font", "ver", "loadstats", "allocguard",
 			"allocpoke", "crashpoke", "health", "throttle", "governor",
 			"threads", "threadspawn", "threadwedge", "threadprio", "threadaffinity",
-			"threadreap", "uitree", "uioverlap", "logecho", "timescale", "state",
+			"threadreap", "uitree", "uioverlap", "clippoke", "logecho", "timescale",
+			"state",
 			"worlds", "newgame", "reset", "newparty", "partypage",
 		};
 		for (std::string_view n : kNoWorldNeeded)
@@ -2046,6 +2047,12 @@ void Game::UpdateStates(float dt) {
 		}
 		return;
 	}
+
+	// `crashpoke uiclip`'s tree (Game/ClipPoke.h), walked with the real input once
+	// the console has let go of it - the harness's click has to reach it.
+	if (m_clipPoke)
+		m_clipPoke->Update(input, static_cast<float>(m_window.Width()),
+						   static_cast<float>(m_window.Height()));
 
 	// An item's details belong to the page they were opened over. Anything that
 	// takes the game off it - a pause, a wipe to the title, a level load - drops

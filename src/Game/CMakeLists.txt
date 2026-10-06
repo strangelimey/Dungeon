@@ -10,6 +10,7 @@ add_library(Game STATIC
 	Catalog.cpp
 	CatalogSchema.cpp
 	Character.cpp
+	ClipPoke.cpp
 	Combat.cpp
 	Curve.cpp
 	CurvePlot.cpp

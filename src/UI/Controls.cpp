@@ -1130,6 +1130,70 @@ void DropDown::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 
 // --- ContextMenu -------------------------------------------------------------
 
+namespace {
+
+// A row's insets in REM (code-review C382), which the box is sized from AND the
+// text drawn at: the label starts kMenuLabelInset in from the row's left, the
+// text ends kMenuRightInset short of its right, and a group's marker keeps
+// kMenuMarkerGap from the label before it. Together they are the old 0.85 rem of
+// padding, so a menu without a group keeps its width.
+constexpr float kMenuLabelInset = 0.6f;
+constexpr float kMenuRightInset = 0.25f;
+constexpr float kMenuMarkerGap = 0.35f;
+constexpr float kMenuMinW = 2.85f; // a box's narrowest, label or not
+constexpr std::string_view kMenuMarker = "»";
+
+} // namespace
+
+float ContextMenu::LabelX(const gfx::Rect& row) const {
+	return row.x + Rem(kMenuLabelInset);
+}
+
+float ContextMenu::MarkerX(const gfx::Rect& row) const {
+	return row.x + row.w - Rem(kMenuRightInset) - TextFont().MeasureWidth(kMenuMarker);
+}
+
+float ContextMenu::RowOverrun(const Row& row, const gfx::Rect& rect) const {
+	// The text's room ends at the row's right inset - or at the window's edge,
+	// for a menu wider than the window (clamped to its left edge, it runs off
+	// the right).
+	const float right = std::min(rect.x + rect.w, m_screenW) - Rem(kMenuRightInset);
+	const float labelEnd = LabelX(rect) + TextFont().MeasureWidth(row.Label());
+	if (!row.isGroup) return labelEnd - right;
+	// A group's label stops short of its marker, and the marker itself, which
+	// ends at the row's inset, has to be on screen.
+	const float markerEnd = rect.x + rect.w - Rem(kMenuRightInset);
+	return std::max(labelEnd - (MarkerX(rect) - Rem(kMenuMarkerGap)), markerEnd - right);
+}
+
+gfx::Rect ContextMenu::InkRect() const {
+	if (!m_open || !m_laidOut) return Pixel();
+	gfx::Rect box{m_x, m_y, m_w, m_rowH * static_cast<float>(TopCount())};
+	if (m_openChild >= 0 && m_openChild == m_childLaidOut) {
+		const float x0 = std::min(box.x, m_childX), y0 = std::min(box.y, m_childY);
+		const float x1 = std::max(box.x + box.w, m_childX + m_childW);
+		const float y1 = std::max(box.y + box.h,
+								  m_childY + m_rowH * static_cast<float>(ChildCount(m_openChild)));
+		box = {x0, y0, x1 - x0, y1 - y0};
+	}
+	return box;
+}
+
+float ContextMenu::TextOverrun() const {
+	if (!m_open || !m_laidOut) return 0.0f;
+	const bool childShown = m_openChild >= 0 && m_openChild == m_childLaidOut;
+	float over = 0.0f;
+	size_t pos = 0, kid = 0;
+	for (size_t r = 0; r < m_count; ++r) {
+		const Row& row = m_rows[r];
+		if (row.group == kTopLevel)
+			over = std::max(over, RowOverrun(row, EntryRect(pos++)));
+		else if (childShown && row.group == m_openChild)
+			over = std::max(over, RowOverrun(row, ChildRect(kid++)));
+	}
+	return over;
+}
+
 void ContextMenu::Begin(float x, float y) {
 	m_count = 0;
 	m_x = x;
@@ -1138,6 +1202,8 @@ void ContextMenu::Begin(float x, float y) {
 	m_openChild = -1;
 	m_childHover = -1;
 	m_open = false;
+	m_laidOut = false;
+	m_childLaidOut = -1;
 }
 
 int ContextMenu::Append(std::string_view label, int id, int group, bool isGroup) {
@@ -1166,6 +1232,23 @@ int ContextMenu::AddGroup(std::string_view label) {
 
 void ContextMenu::Show() {
 	if (m_count > 0) m_open = true;
+}
+
+size_t ContextMenu::Groups() const {
+	size_t n = 0;
+	for (size_t r = 0; r < m_count; ++r)
+		if (m_rows[r].isGroup) ++n;
+	return n;
+}
+
+bool ContextMenu::OpenGroup(size_t n) {
+	for (size_t r = 0; r < m_count; ++r) {
+		if (!m_rows[r].isGroup) continue;
+		if (n-- > 0) continue;
+		m_openChild = static_cast<int>(r); // laid out by the next Update
+		return true;
+	}
+	return false;
 }
 
 size_t ContextMenu::TopPosition(int row) const {
@@ -1206,18 +1289,21 @@ void ContextMenu::UpdateSelf(UIContext& ctx) {
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
 
-	// Size to the widest label (groups reserve room for the "»" marker), then
-	// clamp the box on screen.
+	// Size to the widest label (a group's leaves room for its marker) at the
+	// insets the draw uses, then clamp the box on screen.
 	const Font& font = TextFont();
+	const float pad = Rem(kMenuLabelInset + kMenuRightInset);
+	const float marker = Rem(kMenuMarkerGap) + font.MeasureWidth(kMenuMarker);
 	m_rowH = Rem(1.45f);
-	float w = Rem(2.85f);
+	float w = Rem(kMenuMinW);
 	for (size_t r = 0; r < m_count; ++r) {
 		const Row& row = m_rows[r];
 		if (row.group != kTopLevel) continue;
-		w = std::max(w, font.MeasureWidth(row.Label()) + Rem(0.85f) +
-							(row.isGroup ? Rem(0.6f) : 0.0f));
+		w = std::max(w, font.MeasureWidth(row.Label()) + pad + (row.isGroup ? marker : 0.0f));
 	}
 	m_w = w;
+	m_screenW = ctx.Width();
+	m_laidOut = true;
 	const float menuH = m_rowH * static_cast<float>(TopCount());
 	m_x = std::clamp(m_x, 0.0f, std::max(0.0f, ctx.Width() - m_w));
 	m_y = std::clamp(m_y, 0.0f, std::max(0.0f, ctx.Height() - menuH));
@@ -1226,10 +1312,10 @@ void ContextMenu::UpdateSelf(UIContext& ctx) {
 	// the parent's right edge — flipped to the left edge when it would run off
 	// screen — with the parent still fully visible.
 	if (m_openChild >= 0) {
-		float cw = Rem(2.85f);
+		float cw = Rem(kMenuMinW);
 		for (size_t r = 0; r < m_count; ++r)
 			if (m_rows[r].group == m_openChild)
-				cw = std::max(cw, font.MeasureWidth(m_rows[r].Label()) + Rem(0.85f));
+				cw = std::max(cw, font.MeasureWidth(m_rows[r].Label()) + pad);
 		m_childW = cw;
 		m_childX = m_x + m_w;
 		if (m_childX + cw > ctx.Width()) m_childX = std::max(0.0f, m_x - cw);
@@ -1237,6 +1323,7 @@ void ContextMenu::UpdateSelf(UIContext& ctx) {
 		const float rowY =
 			m_y + m_rowH * static_cast<float>(TopPosition(m_openChild));
 		m_childY = std::clamp(rowY, 0.0f, std::max(0.0f, ctx.Height() - childH));
+		m_childLaidOut = m_openChild;
 	}
 
 	// The open menu owns the mouse. The submenu is checked first (it can
@@ -1316,10 +1403,10 @@ void ContextMenu::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 													  : theme.control));
 			DrawBorder(batch, rect, theme.panelBorder);
 		}
-		font.Draw(batch, row.Label(), rect.x + 10,
+		font.Draw(batch, row.Label(), LabelX(rect),
 				  rect.y + (rect.h - font.Height()) * 0.5f, theme.text);
 		if (row.isGroup) // group marker at the right edge
-			font.Draw(batch, "»", rect.x + rect.w - 16,
+			font.Draw(batch, kMenuMarker, MarkerX(rect),
 					  rect.y + (rect.h - font.Height()) * 0.5f,
 					  groupOpen ? theme.text : theme.textDim);
 	}
@@ -1347,7 +1434,7 @@ void ContextMenu::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 				batch.DrawRect(rect, hovered ? theme.controlHot : theme.control);
 				DrawBorder(batch, rect, theme.panelBorder);
 			}
-			font.Draw(batch, row.Label(), rect.x + 10,
+			font.Draw(batch, row.Label(), LabelX(rect),
 					  rect.y + (rect.h - font.Height()) * 0.5f, theme.text);
 		}
 	}
@@ -1944,6 +2031,12 @@ void SlotList::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 
 // --- MenuList --------------------------------------------------------------
 
+namespace {
+// The flat look's "> <" markers sit this far in from either edge of the
+// selected entry, in REM.
+constexpr float kListMarkerInset = 0.57f;
+} // namespace
+
 void MenuList::AddItem(std::string label, std::function<void()> onActivate) {
 	m_items.push_back({std::move(label), std::move(onActivate)});
 }
@@ -2190,8 +2283,13 @@ void MenuList::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 		font.Draw(batch, label, textX, textY, selected ? theme.accent : theme.text);
 
 		if (selected) {
-			font.Draw(batch, ">", rect.x + 16, textY, theme.accent);
-			font.Draw(batch, "<", rect.x + rect.w - 24, textY, theme.accent);
+			// Side markers at REM insets (code-review C382; they were 16 and 24
+			// raw pixels): the same distance in from either edge, which is what
+			// those two numbers were at the 900p menu font.
+			const float inset = Rem(kListMarkerInset);
+			font.Draw(batch, ">", rect.x + inset, textY, theme.accent);
+			font.Draw(batch, "<", rect.x + rect.w - inset - font.MeasureWidth("<"), textY,
+					  theme.accent);
 		}
 	}
 }

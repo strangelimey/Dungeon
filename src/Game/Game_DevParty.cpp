@@ -4,8 +4,8 @@
 // Split out of Game_DevCommands.cpp by concern: what a member knows, carries
 // and does (learn/rune/give/guard/swing/wear/equip/effect/grudges/cast/castsvc), their
 // pools and supplies (party/regen/supplies/rest/consume/setsupply), and the
-// sheet, the party inventory window, and the dev setters that re-derive it
-// (sheet/inventory/setstat/setskill/heal/char).
+// sheet, the party inventory window, a hand box's use menu, and the dev setters
+// that re-derive it (sheet/inventory/handmenu/setstat/setskill/heal/char).
 // ============================================================================
 #include "Game/Game.h"
 
@@ -1291,6 +1291,95 @@ void Game::RegisterPartyCommands() {
 							   return;
 						   }
 						   m_console.Print(std::format("book open: {}", m_characters[m].name));
+					   });
+
+	// A HUD hand box's use menu, opened as a right-click on the box opens it
+	// (code-review C382). It exists for tools\InGameTest.ps1's hand menu sweep:
+	// the bare-hand menu's Combat / Magic group rows are what a sub-18 px rem cut,
+	// and a scripted click on the HUD is what a sweep must not do. Spells named
+	// after the hand are credited to its quick-cast list first, as a cast from
+	// that hand credits them - the Magic group without a cast, whose fumble roll
+	// would make the sweep a coin toss. Every report also goes to dungeon.log,
+	// where the sweep's verdict reads it. The box reads 0x0 until the HUD has
+	// laid the menu out, which it does only while the console and the map are
+	// SHUT.
+	m_console.Register({.name = "handmenu",
+						.group = CmdGroup::Characters,
+						.params = "<member> <hand> [spell]...\n"
+								  "group <n>\n"
+								  "status\n"
+								  "off",
+						.summary = "open a HUD hand box's use menu, as a right-click on it does"},
+					   [this](const std::vector<std::string>& args) {
+						   ui::ContextMenu* menu = m_ui.HandMenu();
+						   const auto report = [&] {
+							   const ui::UIContext* hud = m_ui.UiTree("hud");
+							   const float rem = hud ? hud->GetFont().Height() : 0.0f;
+							   std::string line;
+							   if (menu && menu->IsOpen()) {
+								   const gfx::Rect box = menu->InkRect();
+								   line = std::format(
+									   "handmenu: open - {} rows, {} groups, submenu {} rows; box "
+									   "[{:.0f},{:.0f} {:.0f}x{:.0f}]; HUD rem {:.1f} px, window {}x{}",
+									   menu->TopRows(), menu->Groups(), menu->SubmenuRows(), box.x,
+									   box.y, box.w, box.h, rem, m_window.Width(), m_window.Height());
+							   } else {
+								   line = std::format("handmenu: closed; HUD rem {:.1f} px, window {}x{}",
+													  rem, m_window.Width(), m_window.Height());
+							   }
+							   m_console.Print(line);
+							   log::Info("{}", line);
+						   };
+						   const std::string what = args.empty() ? "status" : args[0];
+						   if (what == "status") {
+							   report();
+							   return;
+						   }
+						   if (what == "off") {
+							   if (menu) menu->Close();
+							   report();
+							   return;
+						   }
+						   if (what == "group") {
+							   if (!Need(m_console, args, 2)) return;
+							   const int n = std::atoi(args[1].c_str());
+							   if (!menu || !menu->IsOpen() || n < 0 ||
+								   !menu->OpenGroup(static_cast<size_t>(n))) {
+								   m_console.Refuse("no open hand menu has that group");
+								   return;
+							   }
+							   report();
+							   return;
+						   }
+						   if (!Need(m_console, args, 2)) return;
+						   const size_t m = static_cast<size_t>(std::atoi(args[0].c_str()));
+						   if (m >= m_characters.size() || (args[1] != "0" && args[1] != "1")) {
+							   m_console.Refuse("no such member or hand");
+							   return;
+						   }
+						   // Under the map overlay the HUD takes no input, so no click
+						   // reaches a hand box - and a menu opened anyway is never
+						   // laid out (`editor off` leaves the map open in Player mode).
+						   if (m_mapView.IsOpen()) {
+							   m_console.Refuse("the map is open - shut it first (`mappage close`)");
+							   return;
+						   }
+						   const size_t hand = args[1] == "1" ? 1 : 0;
+						   const auto defs = m_world->SpellDefs();
+						   for (size_t k = 2; k < args.size(); ++k)
+							   if (std::ranges::none_of(defs, [&](const std::unique_ptr<Spell>& d) {
+									   return d->Id() == args[k];
+								   })) {
+								   m_console.Refuse(std::format("no spell '{}'", args[k]));
+								   return;
+							   }
+						   for (size_t k = 2; k < args.size(); ++k)
+							   m_characters[m].TouchSpellMru(hand, args[k]);
+						   if (!m_ui.OpenHandMenuAtBox(m, hand)) {
+							   m_console.Refuse("no shown hand box is that hand, or it offers nothing");
+							   return;
+						   }
+						   report();
 					   });
 
 	// The rest STATE, for a script and for a quick look. It reports the world

@@ -189,10 +189,16 @@ bool Collides(const gfx::Rect& a, const gfx::Rect& b) {
 // exists to catch; a popup with zero bounds still paints nothing in the tree.
 // Only a child its parent SHOWS: InkRect measures text in the widget's resolved
 // font, which a child skipped by ChildActive never had set.
-bool Auditable(const Widget& parent, const Widget& w) {
-	if (!parent.ChildShown(w) || w.overlapOk) return false;
+bool Inked(const Widget& parent, const Widget& w) {
+	if (!parent.ChildShown(w)) return false;
 	const gfx::Rect ink = w.InkRect();
 	return ink.w > 0.0f && ink.h > 0.0f;
+}
+
+// For the overlap and escape checks: `overlapOk` opts a widget out of those two
+// (a backdrop, a popup), never out of the trims check below them.
+bool Auditable(const Widget& parent, const Widget& w) {
+	return !w.overlapOk && Inked(parent, w);
 }
 
 // How far `inner` sticks out of `outer`, in pixels, on its worst side. Slack
@@ -210,6 +216,18 @@ void AuditNode(const Widget& parent, const std::string& path,
 	const auto& kids = parent.Children();
 	const gfx::Rect content = parent.ContentRect();
 	for (size_t i = 0; i < kids.size(); ++i) {
+		if (!Inked(parent, *kids[i])) continue;
+		// TRIMS: a widget that kept to its area only by cutting its text (a
+		// drop-down's face). Nothing collides, so neither check below can see it,
+		// but the layout did not give it the room for what it shows. The same
+		// slack as an escape: a rounding hair of trim is not a cut anyone reads.
+		// Asked of an overlapOk widget too - an open context menu's rows.
+		if (const float cut = kids[i]->TextOverrun(); cut > 2.0f) {
+			std::string line =
+				std::format("  {} > {} [{}] trims its text by {:.0f}px to fit", path,
+							Name(*kids[i]), RectText(kids[i]->InkRect()), cut);
+			if (g_auditSeen.insert(line).second) out(line);
+		}
 		if (!Auditable(parent, *kids[i])) continue;
 		// Sibling collisions: two widgets in the same area.
 		for (size_t j = i + 1; j < kids.size(); ++j) {
@@ -238,16 +256,6 @@ void AuditNode(const Widget& parent, const std::string& path,
 					over);
 				if (g_auditSeen.insert(line).second) out(line);
 			}
-		}
-		// TRIMS: a widget that kept to its area only by cutting its text (a
-		// drop-down's face). Nothing collides, so neither check above can see it,
-		// but the layout did not give it the room for what it shows. The same
-		// slack as an escape: a rounding hair of trim is not a cut anyone reads.
-		if (const float cut = kids[i]->TextOverrun(); cut > 2.0f) {
-			std::string line =
-				std::format("  {} > {} [{}] trims its text by {:.0f}px to fit", path,
-							Name(*kids[i]), RectText(kids[i]->InkRect()), cut);
-			if (g_auditSeen.insert(line).second) out(line);
 		}
 	}
 	for (const auto& child : kids) {

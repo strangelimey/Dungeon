@@ -16,6 +16,8 @@
 //   Render(batch, w, h): the tree draws parent-behind-children in add order,
 //     then a second DrawOverlay pass lets popups (open drop-downs) paint above
 //     everything.
+// Both walks begin with no clip in force (ui::ResetClip), so not even a clip
+// that escaped its scope can carry from one walk, or one context, to the next.
 // ============================================================================
 #pragma once
 

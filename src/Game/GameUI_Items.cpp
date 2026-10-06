@@ -8,6 +8,7 @@
 #include "Game/GameUI.h"
 
 #include "Core/Loc.h"
+#include "Game/HandSlot.h" // OpenHandMenuAtBox finds the box it opens at
 #include "Game/Spell/Spell.h"
 
 #include <algorithm>
@@ -73,6 +74,19 @@ constexpr int kUseLight = 5001;   // light the magical torch in the hand (costs 
 // The most quick-cast spells the Magic group lists (spellMruCount's clamp).
 constexpr size_t kMaxMenuSpells = 10;
 
+// The HUD hand box showing member `i`'s hand `hand`, searched the way the passes
+// walk the tree (ChildShown), so a box they skip is not found. Null when none is.
+const HandSlot* FindHandBox(const ui::Widget& parent, size_t i, int hand) {
+	for (const auto& child : parent.Children()) {
+		if (!parent.ChildShown(*child)) continue;
+		if (const auto* box = dynamic_cast<const HandSlot*>(child.get());
+			box && box->Member() == i && box->Hand() == hand)
+			return box;
+		if (const HandSlot* found = FindHandBox(*child, i, hand)) return found;
+	}
+	return nullptr;
+}
+
 } // namespace
 
 void GameUI::OnHandLeftClick(size_t i, size_t hand) {
@@ -134,6 +148,20 @@ void GameUI::OnHandRightClick(size_t i, size_t hand) {
 // as it does everywhere else.
 void GameUI::OnHandMiddleClick(size_t i, size_t hand) {
 	if (m_handMenu) OpenHandUseMenu(i, hand, *m_handMenu);
+}
+
+// The right-click's own path, from a dev command: the menu anchors at the HUD
+// pointer, which the next UpdateHud takes from the real mouse again - so pointing
+// it at the box's centre is the click's point, and nothing else moves.
+bool GameUI::OpenHandMenuAtBox(size_t i, size_t hand) {
+	if (!m_handMenu || hand > 1) return false;
+	const HandSlot* box = FindHandBox(m_hudUi.Root(), i, static_cast<int>(hand));
+	if (!box) return false;
+	const gfx::Rect& at = box->Pixel();
+	m_hudMouseX = at.x + at.w * 0.5f;
+	m_hudMouseY = at.y + at.h * 0.5f;
+	OnHandRightClick(i, hand);
+	return m_handMenu->IsOpen();
 }
 
 // RIGHT on an item in a member's inventory: what it is and what it weighs where

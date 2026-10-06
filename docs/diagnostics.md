@@ -257,6 +257,22 @@ nothing is built untested.
    typed just before the injection) fails the self-test (code-review C419). It
    once passed on any failure at all, so a game that crashed at boot passed it.
 
+   Nine cases now: two more since (code-review C208, 2026-10-05), which read what a caught throw
+   leaves BEHIND rather than its record: `uiclip` throws from inside a clipping
+   scroll area's walk (`crashpoke uiclip`, a scratch tree in Game/ClipPoke.cpp)
+   and then clicks a button outside the area, which must land - and the throw
+   names the clip in force and the button's rect outside it only when both
+   hold, the form the case expects, since a scroll area clips only while it
+   overflows and without a clip the click lands under the old walk too (seen
+   to FAIL with the area made short enough not to scroll); `uinest` runs
+   `clippoke`, a scroll area nested in a tab page whose siblings - one added
+   before it, one after - must take their clicks and draw under the page's clip.
+   Before the fix the walk restored a clip only when the pointer changed, which
+   it never did once a clip was in force: a throw left every later walk, in every
+   context, cut to the area, and the click was lost. Both were seen to FAIL
+   against the old walk put back by mutation; the run is now `healthtest
+   RESULT=PASS cases=9 failures=0`, and its `-SelfTest` fails all nine.
+
    **Not covered, said out loud rather than quietly skipped:** the `Killed`
    kind. A hard force-terminate is the THREADS panel's kill button, not a
    console command, so it cannot be driven from a script.

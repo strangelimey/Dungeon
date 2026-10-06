@@ -51,6 +51,10 @@ public:
 	// The hover tooltip, in the overlay pass so nothing paints over it.
 	void DrawOverlaySelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 
+	// Whose hand this box shows (GameUI::OpenHandMenuAtBox finds a box by it).
+	size_t Member() const { return m_member; }
+	int Hand() const { return m_hand; }
+
 	// The hand's set use, asked every frame (so a pick, a Clear, a swapped item
 	// or a load is right with no notification). Unwired = never shown as set.
 	// Must not allocate: the HUD draws in every guarded frame.

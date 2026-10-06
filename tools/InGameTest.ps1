@@ -109,6 +109,39 @@ function Logged([string]$s) {
 # rename limit (TypeEditorDialog's name field maxLength).
 $longTitleId = 'sweep_long_dungeon_identifier_32'
 
+# The game window's CLIENT area, read and resized from here as dragging its edge
+# would resize it (WM_SIZE: the swapchain and the fonts follow). For the hand
+# menu sweep's sub-900p window. ASYNC, so a game that stopped pumping messages
+# cannot hang the run; the pause lets the fonts settle (0.25 s) before the next
+# command. Its own type, not HarnessWin, which is shared with other harnesses.
+if (-not ([System.Management.Automation.PSTypeName]'IgtWin').Type) {
+	Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public class IgtWin {
+	public struct RECT { public int Left, Top, Right, Bottom; }
+	[DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+	[DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr h, out RECT r);
+	[DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
+}
+'@
+}
+function Get-ClientSize {
+	$r = New-Object IgtWin+RECT
+	[IgtWin]::GetClientRect($hwnd, [ref]$r) | Out-Null
+	return @($r.Right, $r.Bottom)
+}
+function Set-ClientSize([int]$w, [int]$h) {
+	$outer = New-Object IgtWin+RECT; $client = New-Object IgtWin+RECT
+	[IgtWin]::GetWindowRect($hwnd, [ref]$outer) | Out-Null
+	[IgtWin]::GetClientRect($hwnd, [ref]$client) | Out-Null
+	$cx = $w + ($outer.Right - $outer.Left) - $client.Right
+	$cy = $h + ($outer.Bottom - $outer.Top) - $client.Bottom
+	# SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS.
+	[IgtWin]::SetWindowPos($hwnd, [IntPtr]::Zero, 0, 0, $cx, $cy, 0x4016) | Out-Null
+	Start-Sleep -Milliseconds 800
+}
+
 # The screens this sweeps, and how each is reached. Keyboard only: scripted
 # mouse clicks proved unreliable against a layout whose rows move.
 #
@@ -161,6 +194,33 @@ $screens = @(
 	   open = { Run-Cmd 'learn 0 fire'; Run-Cmd 'hudpanel layout minimal' }
 	   close = { Run-Cmd 'hudpanel layout standard' }
 	   probe = @('hudpanel list'); status = @((Answer 'hud layout minimal, ')) },
+	# A HUD hand box's USE MENU in a 720p window (code-review C382): the bare
+	# hand's Combat / Magic group rows are what a sub-18 px rem cut, and the Magic
+	# submenu is open too. `handmenu` opens it as a right-click on the box does,
+	# crediting two spells to the hand's quick list for the Magic group. The HUD
+	# lays a menu out only while the console is SHUT and the map is too (`editor
+	# off` above left it open in Player mode, and its first run audited a menu
+	# never sized), so both shut first. Its status is `handmenu status` seeing it
+	# LAID OUT: two groups or more, a submenu with rows, a box with an area, in a
+	# window under 900 high - unsized, the box is 0x0 and the audit skips it
+	# (clean for the wrong reason), and at 900p the old raw-pixel geometry cut a
+	# group row by about a pixel, under the audit's slack.
+	@{ label = 'sweep_handmenu'; state = 'playing'; viaConsole = $true
+	   open = {
+		   Run-Cmd 'mappage close'
+		   $script:clientBefore = Get-ClientSize
+		   Set-ClientSize 1280 720
+		   Run-Cmd 'equip none 0 0'
+		   Run-Cmd 'handmenu 0 0 firebolt earthbolt_burst'
+		   Run-Cmd 'handmenu group 1'
+		   Send-Key 0xC0; Start-Sleep -Milliseconds 800
+		   Open-Console }
+	   close = {
+		   Run-Cmd 'handmenu off'
+		   Set-ClientSize $script:clientBefore[0] $script:clientBefore[1] }
+	   probe = @('handmenu status')
+	   status = @((Answer ('handmenu: open - \d+ rows, ([2-9]|\d{2,}) groups, submenu [1-9]\d* rows; ' +
+				   'box \[-?\d+,-?\d+ [1-9]\d*x[1-9]\d*\]; HUD rem [\d.]+ px, window \d+x([1-8]\d\d|\d{1,2})\b'))) },
 	# The level generator's dialog in BOTH modes (docs/level-building.md P1):
 	# CREATE (the toolbar's [+]) and REGENERATE, each on its first tab (the
 	# dialog keeps the tab it was last left on). Opened only - nothing is

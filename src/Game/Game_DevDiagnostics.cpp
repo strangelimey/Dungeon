@@ -4,7 +4,8 @@
 // Split out of Game_DevCommands.cpp by concern: the checks that PROVE a rule
 // (the allocation guard, the one-pipeline ledger — each with a way to make it
 // fail on purpose), the thread manager's controls and stress workers, the
-// health record (crashpoke/health), and the UI tree audits (uitree/uioverlap).
+// health record (crashpoke/health), and the UI tree audits (uitree/uioverlap,
+// and clippoke for the walk's clip).
 // ============================================================================
 #include "Game/Game.h"
 
@@ -266,6 +267,7 @@ void Game::RegisterDiagnosticCommands() {
 		{.name = "crashpoke",
 		 .group = CmdGroup::Diagnostics,
 		 .params = "[throw]\n"
+				   "uiclip\n"
 				   "worker\n"
 				   "fault\n"
 				   "assert",
@@ -278,6 +280,30 @@ void Game::RegisterDiagnosticCommands() {
 			// main-thread path, not a special case built to be caught.
 			if (what == "throw")
 				throw std::runtime_error("crashpoke: a deliberate main-thread throw");
+
+			// The same throw, from INSIDE a clipping scroll area's walk (code-review
+			// C208): a scratch tree whose area throws once, beside a button outside
+			// it. The tree stays up and is walked every frame (Game::Update), so a
+			// click on the button afterwards shows whether the clip outlived the
+			// throw - before the fix it did, in every context, and the click was
+			// lost. Its point is logged first: the throw ends this command.
+			if (what == "uiclip") {
+				const ui::UIContext* hud = m_ui.UiTree("hud");
+				m_clipPoke = std::make_unique<ClipThrowPoke>(
+					m_fonts, hud ? hud->DesignHeight() : 17.0f);
+				const float w = static_cast<float>(m_window.Width());
+				const float h = static_cast<float>(m_window.Height());
+				m_clipPoke->Layout(w, h);
+				const gfx::Rect b = m_clipPoke->ButtonRect();
+				const gfx::Rect a = m_clipPoke->AreaRect();
+				log::Info("crashpoke uiclip: the button outside the scroll area "
+						  "[{:.0f},{:.0f} {:.0f}x{:.0f}] is at {:.0f},{:.0f} - click it "
+						  "once the throw is recorded",
+						  a.x, a.y, a.w, a.h, b.x + b.w * 0.5f, b.y + b.h * 0.5f);
+				m_clipPoke->Arm();
+				m_clipPoke->Update(Input{}, w, h); // throws from inside the area's clip
+				return;
+			}
 
 			// A worker failing a DIFFERENT way every tick: the case that made the
 			// log throttle key on the thread rather than the message.
@@ -309,7 +335,7 @@ void Game::RegisterDiagnosticCommands() {
 				DN_ASSERT(false, "crashpoke: a deliberate assertion failure");
 				return;
 			}
-			m_console.Print("usage: crashpoke <throw|worker|fault|assert>");
+			m_console.Print("usage: crashpoke <throw|uiclip|worker|fault|assert>");
 		});
 	m_console.Register(
 		{.name = "health",
@@ -564,6 +590,21 @@ void Game::RegisterDiagnosticCommands() {
 				m_console.Print(line);
 				log::Info("{}", line);
 			});
+		});
+	m_console.Register(
+		{.name = "clippoke",
+		 .group = CmdGroup::Diagnostics,
+		 .summary = "check a scroll area nested in a tab page leaves its siblings unclipped"},
+		[this](const std::vector<std::string>&) {
+			// A scratch tree, walked here and gone with the command (Game/
+			// ClipPoke.h). Logged as well as printed: tools\HealthTest.ps1 reads
+			// only dungeon.log, with the console's echo off.
+			const ui::UIContext* hud = m_ui.UiTree("hud");
+			const std::string line = RunNestedClipCheck(
+				m_fonts, hud ? hud->DesignHeight() : 17.0f, m_spriteBatch,
+				static_cast<float>(m_window.Width()), static_cast<float>(m_window.Height()));
+			m_console.Print(line);
+			log::Info("{}", line);
 		});
 }
 

@@ -4,7 +4,7 @@ argument-hint: "[selftest|<case>]"
 allowed-tools: PowerShell, Read, Grep, Glob
 ---
 
-Break the real game seven ways and read `dungeon.log` (~7 min).
+Break the real game nine ways and read `dungeon.log` (~9 min).
 
 - no argument → `.\tools\CheckAll.ps1 -Only health`
 - `selftest` → `.\tools\CheckAll.ps1 -Only health -SelfTest` (every case must
@@ -12,7 +12,11 @@ Break the real game seven ways and read `dungeon.log` (~7 min).
   or a death with nothing injected fails the self-test)
 - a case name → `.\tools\HealthTest.ps1 -Only <case>` for one case, much faster
 
-Cases: `throw` · `worker` · `stall` · `probe` · `restart` · `fault` · `assert`.
+Cases: `throw` · `uiclip` · `uinest` · `worker` · `stall` · `probe` · `restart` ·
+`fault` · `assert`. `uiclip` and `uinest` read what a caught throw leaves
+BEHIND in the UI walk's clip (code-review C208): a throw from inside a scroll
+area's walk, then a click outside it that must land; and a scroll area nested in
+a tab page whose siblings must still take their clicks and draw (`clippoke`).
 
 ## What it is guarding
 
@@ -35,6 +39,13 @@ The `[FAIL]` line prints the exact pattern that was missing. Then look at
   `Game_DevDiagnostics.cpp` (the throw) means the vectored handler did not fire.
 - **`stall` / `restart` failing** — stall detection must not ride the reboot
   path; a worker with no `autoRestart` still has to be recorded.
+- **`uiclip` failing only on the click** - the throw was recorded but the clip
+  it was thrown under outlived it: look at ui::ScopedClip (src/UI/Widget.cpp)
+  and the reset at the top of UIContext::Update / Render. `uiclip` failing on
+  the THROW's line, with "the case tests nothing" in the log instead, means the
+  poke lost its premise (no clip in force, or the button inside it): look at
+  Game/ClipPoke.cpp, not at the walk. `uinest` failing names which sibling
+  missed its click or was clipped.
 - **A case timing out at startup** - that is the harness, not the product. The
   new game is started through the console's `newgame` (tools\HarnessGame.ps1
   Start-NewGame) and waited for on `Level ready:`; a case is not retried, so a

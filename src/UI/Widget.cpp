@@ -14,8 +14,9 @@ namespace {
 
 // The clip currently in force during the draw OR update walk (null = none).
 // Each is a single pass on one thread and they never overlap, so one file-static
-// is the whole stack: a nested clip intersects this and restores it on the way
-// out. Input honours it for the same reason drawing does — see Widget::Update.
+// is the whole stack: a nested clip intersects this, and the ScopedClip that
+// pushed it puts the outer back on the way out. Input honours it for the same
+// reason drawing does - see Widget::Update.
 const gfx::Rect* g_clip = nullptr;
 gfx::Rect g_clipRect{};
 
@@ -34,16 +35,32 @@ bool Intersects(const gfx::Rect& a, const gfx::Rect& b) {
 } // namespace
 
 ScopedClip::ScopedClip(gfx::SpriteBatch& batch, const gfx::Rect& rect)
-	: m_batch(batch), m_outer(g_clip), m_outerRect(g_clipRect) {
-	g_clipRect = m_outer ? Intersect(rect, m_outerRect) : rect;
-	g_clip = &g_clipRect;
-	m_batch.SetScissor(g_clip);
+	: ScopedClip(rect) {
+	m_batch = &batch;
+	m_batch->SetScissor(g_clip);
 }
 
+ScopedClip::ScopedClip(const gfx::Rect& rect) : m_outer(g_clip), m_outerRect(g_clipRect) {
+	g_clipRect = m_outer ? Intersect(rect, m_outerRect) : rect;
+	g_clip = &g_clipRect;
+}
+
+// UNCONDITIONAL, and that is the fix for C208: the walk used to restore only
+// `if (g_clip != outer)`, but every push writes the same address, so once one
+// clip was in force an inner one never popped.
 ScopedClip::~ScopedClip() {
 	g_clip = m_outer;
 	g_clipRect = m_outerRect;
-	m_batch.SetScissor(g_clip);
+	if (m_batch) m_batch->SetScissor(g_clip);
+}
+
+const gfx::Rect* ActiveClip() { return g_clip; }
+
+bool ResetClip() {
+	const bool left = g_clip != nullptr;
+	g_clip = nullptr;
+	g_clipRect = {};
+	return left;
 }
 
 void Widget::Layout(const gfx::Rect& container, UIContext& ctx,
@@ -96,30 +113,31 @@ void Widget::Update(UIContext& ctx) {
 	if (g_clip && !Intersects(m_pixel, *g_clip)) return;
 
 	UpdateBeforeChildren(ctx);
-	const gfx::Rect* outer = g_clip;
-	const gfx::Rect outerRect = g_clipRect;
-	bool suppressed = false;
-	if (const gfx::Rect* clip = ChildClip()) {
-		g_clipRect = outer ? Intersect(*clip, outerRect) : *clip;
-		g_clip = &g_clipRect;
-		const Input* input = ctx.CurrentInput();
-		if (input && !g_clip->Contains(input->MouseX(), input->MouseY()) &&
-			!ctx.IsMouseConsumed()) {
-			suppressed = true; // only ever un-suppressed below
-			ctx.ConsumeMouse();
+	{
+		// Pushed for the children only, and popped however this block ends - a
+		// throw from a child included (ScopedClip, C208). This widget's own
+		// UpdateSelf below runs under the clip it was given, not the one it gives.
+		std::optional<ScopedClip> clip;
+		bool suppressed = false;
+		if (const gfx::Rect* rect = ChildClip()) {
+			clip.emplace(*rect);
+			const Input* input = ctx.CurrentInput();
+			if (input && !g_clip->Contains(input->MouseX(), input->MouseY()) &&
+				!ctx.IsMouseConsumed()) {
+				suppressed = true; // only ever un-suppressed below
+				ctx.ConsumeMouse();
+			}
 		}
-	}
-	// Children in reverse add order: the topmost child owning a pixel claims the
-	// mouse before this widget's own hit test sees it.
-	for (auto it = m_children.rbegin(); it != m_children.rend(); ++it) {
-		Widget& child = **it;
-		if (!child.visible || !ChildActive(child)) continue;
-		child.Update(ctx);
-	}
-	if (suppressed) ctx.SetMouseConsumed(false);
-	if (g_clip != outer) {
-		g_clip = outer;
-		g_clipRect = outerRect;
+		// Children in reverse add order: the topmost child owning a pixel claims
+		// the mouse before this widget's own hit test sees it.
+		for (auto it = m_children.rbegin(); it != m_children.rend(); ++it) {
+			Widget& child = **it;
+			if (!child.visible || !ChildActive(child)) continue;
+			child.Update(ctx);
+		}
+		// Not restored on a throw, and need not be: the walk is over, and the
+		// next UIContext::Update starts the pointer claim afresh.
+		if (suppressed) ctx.SetMouseConsumed(false);
 	}
 	UpdateSelf(ctx);
 }
@@ -130,22 +148,13 @@ void Widget::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 	if (m_children.empty()) return;
 
 	// Push this widget's child clip (intersected with whatever is already in
-	// force), draw the children, then restore.
-	const gfx::Rect* outer = g_clip;
-	const gfx::Rect outerRect = g_clipRect;
-	if (const gfx::Rect* clip = ChildClip()) {
-		g_clipRect = outer ? Intersect(*clip, outerRect) : *clip;
-		g_clip = &g_clipRect;
-		batch.SetScissor(g_clip);
-	}
+	// force) and draw the children; the ScopedClip restores the outer clip and
+	// the batch's scissor however the loop ends.
+	std::optional<ScopedClip> clip;
+	if (const gfx::Rect* rect = ChildClip()) clip.emplace(batch, *rect);
 	for (auto& child : m_children) {
 		if (!child->visible || !ChildActive(*child)) continue;
 		child->Draw(ctx, batch);
-	}
-	if (g_clip != outer) {
-		g_clip = outer;
-		g_clipRect = outerRect;
-		batch.SetScissor(g_clip);
 	}
 }
 
