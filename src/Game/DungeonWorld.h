@@ -777,6 +777,12 @@ public:
 		// -1 = none since the reset. What says a shot stopped AT a wall rather
 		// than past it (code-review C48).
 		int expireX = -1, expireZ = -1;
+		// THE PARTY'S FUMBLES, past the count above: the ones that went SEVERE,
+		// and the items a fumble knocked out of a hand onto the floor (a drop or
+		// a fling - not the cursor drop `drops` counts). tools\AllocTest.ps1
+		// -Swing must show a severe one put a held item down in its window
+		// (code-review C10).
+		int severeFumbles = 0, fumbleDrops = 0;
 	};
 
 	// ========================================================================
@@ -811,9 +817,22 @@ public:
 		// still being hit, which is half a fight and reads as a whole one.
 		bool autoAttack = false;
 		// A HELD autoattack (`autoattack hold`): off until `alloctest`'s first
-		// ARMED frame turns it on, so the swings it measures start inside the
-		// window (AutoCast::held's rule; tools\AllocTest.ps1 -OnHitTypo).
+		// ARMED frame turns it on, as it releases a held autocast, so the swings
+		// a measurement takes start inside its window (tools\AllocTest.ps1
+		// -OnHitTypo and -Swing).
 		bool autoAttackHeld = false;
+		// THE LOADED DIE (`fumble`): the next swing that reaches a target from
+		// member `member`'s hand `hand` (-1 = any) fumbles without a roll, on the
+		// face that makes it SEVERE or a plain one. A severe face comes up about
+		// once in a hundred swings, so without this the consequence table - a
+		// weapon or a lit torch knocked to the floor - is reachable by no script
+		// and no measurement on purpose (code-review C10). Spent by the swing it
+		// loads.
+		struct LoadedFumble {
+			bool armed = false;
+			bool severe = false;
+			int member = -1, hand = -1;
+		} loadedFumble;
 		// Monster ACTION (movement and attacks) stops while everything that
 		// HAPPENS TO them keeps running — animation, effects, blasts, damage. A
 		// geometry probe needs its instruments to hold still: monsters parked on
@@ -1158,6 +1177,13 @@ public:
 	// view of a torch burning where it fell, and of a thrown one keeping what it
 	// had (code-review C447). Empty = none.
 	std::vector<std::string> FloorTorchReport() const;
+	// The `flooritems` readout: each item lying in square (x, z) - every square
+	// for x < 0 - as `<x>,<z>: <id> slot <s> charge <c>`, and each thrown item in
+	// the air as `<id> charge <c> lands <x>,<z>` - where a save would write it
+	// (SaveFlyingCargo). Harness views of what a fumble knocked down and what a
+	// save holds; they build strings.
+	std::vector<std::string> FloorItemRows(int x, int z) const;
+	std::vector<std::string> FlyingCargoRows() const;
 	void DropAtPartyFeet(std::string_view itemId);
 	bool ShoveAhead(int cells);
 	ProjectileSystem::Repelled RepelAhead(float power, int casterIndex);
@@ -1249,9 +1275,6 @@ public:
 	TorchAct TorchActFor(const std::string& typeId);
 	bool PutOutTorch(size_t member, int hand);
 	bool KindleTorch(size_t member, int hand);
-	// Brings every thrown item still in the air down where it is - before a save
-	// (a flight is not saved; the item must be) and a level change.
-	void LandThrownItems() { m_projectiles.LandCargo(); }
 	// The thrower's wait, ticked down in Update (indexed by roster slot).
 	float ThrowCooldown(size_t member) const {
 		return member < m_throwCooldown.size() ? m_throwCooldown[member] : 0.0f;
@@ -3740,13 +3763,32 @@ private:
 	bool StrikeDoorWithThrow(int cx, int cz, const ProjectileExpiry& expiry);
 	// A THROWN item's two ends (DungeonWorld_Throw.cpp). A strike: a monster in
 	// the lane takes the blow through fx::Deal as a swing's (a carried blast
-	// bursts instead), the thrower trains `throwing` on a landed one, and the
-	// item falls in that cell either way. A landing: the item comes down in the
-	// last OPEN square it flew through (FlightEnd - a wall's square is never one),
-	// so a thrown item is never lost - unless it shatters (`throw_breaks`), when
-	// what it carried is let go there.
+	// bursts instead), the thrower trains `throwing` on CONTACT - a landed blow, or
+	// a bomb bursting on the monster (code-review C40) - and the item falls in
+	// that cell either way. A landing: the item comes down in the last OPEN square
+	// it flew through (ThrownLanding), so a thrown item is never lost - unless it
+	// shatters (`throw_breaks`), when what it carried is let go there. A landing
+	// trains nothing: only contact with a monster does (Michael).
 	bool ResolveThrowHit(const ProjectileImpact& impact);
 	void LandThrown(const ProjectileExpiry& expiry);
+	// WHERE A THROWN ITEM COMES DOWN when its flight ends without a strike: the
+	// last open square along it (blast::LastOpenCell), else the party's own square
+	// - never inside the stone, where it could not be picked up again, and never
+	// past the party's square. One that `shatters` bursts in any open square; one
+	// that lands must be able to rest there (ItemCanRest - short of a pit,
+	// code-review C74). The one statement of it for a landing and for a save,
+	// which writes a thing still in the air WHOLE, as the floor item it will be
+	// (SaveFlyingCargo, so `shatters` false).
+	void ThrownLanding(const ProjectileExpiry& expiry, bool shatters, int& cx, int& cz) const;
+	// A SAVE'S VIEW OF A THROWN ITEM IN THE AIR (code-review C47): each one, as a
+	// floor item at its landing square with its charge, appended to the live
+	// level's snapshot `ls`. The flight itself is left flying - landing it for the
+	// save resolved a shattering flask's payload in the live world, so a fire
+	// flask burst in or beside the party's square and the save held the damage.
+	void SaveFlyingCargo(SaveData::LevelState& ls) const;
+	// The training a throw earns on contact: `throwing`, and a creep of the stats
+	// it was thrown with (a weapon's own, else Balance's ThrowStats).
+	void TrainThrow(Character& thrower, const ItemKind& kind);
 	// Every member's throw wait, by roster slot (throw_interval after a throw).
 	std::array<float, 4> m_throwCooldown{};
 	// Set off an AREA blast on a cell: Game/Blast.h propagates it (a wavefront over
@@ -3945,6 +3987,12 @@ private:
 	void PartyFumble(Character& attacker, size_t hand, const ItemKind* weapon,
 					 const AttackProfile& atk, int face);
 	void MonsterFumble(Monster& monster, const AttackProfile& atk, int face);
+	// The harness's LOADED DIE (Harness::LoadedFumble): when it is armed for this
+	// member's hand, turns `ev` into a fumble on a severe face (1) or a plain one
+	// (the top of this attack's band), spends it and returns true - the caller
+	// then skips the roll. False, touching nothing, otherwise.
+	bool TakeLoadedFumble(size_t member, size_t hand, const AttackProfile& atk,
+						  fx::DamageEvent& ev);
 	// The consequence table a source actually uses: its own when it authored
 	// one, else the balance.cat default. Resolved per fumble so a Balance dialog
 	// change lands on the next swing rather than on the next level load.
@@ -3956,7 +4004,9 @@ private:
 											   mishap::DefaultTable& fallback) const;
 	// Lay an item on the floor of a cell as a RUNTIME drop (negative id, saved
 	// as a `drop` diff) — NOT an .ent record, which is what an editor placement
-	// authors. Shared by the cursor drop and by a fumbled weapon.
+	// authors. Shared by the cursor drop and by a fumbled weapon. `charge` is
+	// what the item has left: a caller dropping an item it HOLDS passes the
+	// slot's, since -1 reads as untouched and the floor refills a torch from it.
 	void DropItemInCell(const std::string& typeId, int cx, int cz, float charge = -1.0f);
 	// Strip a monster's effects (and with them its plume) — a corpse carries
 	// nothing. Called from the apply stage when a blow finishes it.

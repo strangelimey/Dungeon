@@ -625,7 +625,14 @@ void DungeonWorld::CaptureState(SaveData& out, bool includeLive) const {
 	// when the store already holds it and a second copy would be written.
 	out.levels.clear();
 	for (const auto& [stem, ls] : m_levelStates) out.levels.push_back(ls);
-	if (includeLive && !m_parked) out.levels.push_back(SnapshotActive());
+	if (includeLive && !m_parked) {
+		out.levels.push_back(SnapshotActive());
+		// A thrown thing still in the air goes in as the floor item it will be,
+		// and keeps flying here (code-review C47). Here and not in SnapshotActive,
+		// whose other callers - a level's stash, an undo step - must not see a
+		// flight as an item it would then hold twice.
+		SaveFlyingCargo(out.levels.back());
+	}
 }
 
 void DungeonWorld::ApplyState(const SaveData& in) {

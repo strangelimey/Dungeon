@@ -25,8 +25,14 @@
 // Render). And it is NEVER LOST: it comes down where its flight ends - in the
 // struck monster's square, in front of the wall it hit, or where it ran out of
 // reach - unless it is a thing that shatters (`throw_breaks`), and anything
-// that would clear flights mid-air (a save, a level change, the inspector's
-// Remove) lands it first (LandCargo).
+// that would clear flights mid-air (a level change, the inspector's Remove)
+// lands it first (LandCargo). A SAVE does not: it writes the thing as the floor
+// item it will be, at its landing square, and leaves it flying (SaveFlyingCargo;
+// landing it burst a fire flask on the party - code-review C47).
+//
+// It TRAINS `throwing` on contact with a monster - a landed blow, or a bomb
+// bursting on one - and on nothing else (Michael: a flask shattered on a wall
+// teaches nothing; code-review C40).
 // ============================================================================
 #include "Game/DungeonWorld.h"
 
@@ -135,23 +141,27 @@ bool DungeonWorld::ResolveThrowHit(const ProjectileImpact& impact) {
 	if (index < 0) return false; // open air, or only a body on the far side
 	const ItemKind& kind = *static_cast<const ItemKind*>(impact.cargo);
 	++m_harness.tally.throwStrikes;
+	Character* thrower =
+		m_roster && impact.attacker >= 0 && impact.attacker < static_cast<int>(m_roster->size())
+			? &(*m_roster)[static_cast<size_t>(impact.attacker)]
+			: nullptr;
 	// Whatever happens, the thing comes down here - or shatters here.
 	const auto comeDown = [&] {
 		if (!kind.throwBreaks) DropItemInCell(kind.id, cx, cz, impact.cargoCharge);
 	};
 	// A thing that BURSTS (a flask carrying a blast) bursts on contact, and the
-	// blast is the whole of what it does - the area-carrier rule.
+	// blast is the whole of what it does - the area-carrier rule. The contact is
+	// its landed blow, so it trains the thrower as one does: it used to return
+	// here before the award below, and a bomb never trained `throwing` at all
+	// (code-review C40). Trained BEFORE the blast, which may put the thrower down.
 	if (impact.payload.blast.Any()) {
+		if (thrower) TrainThrow(*thrower, kind);
 		Detonate(cx, cz, impact.payload, kind.throwBlastType, impact.attacker);
 		comeDown();
 		return true;
 	}
 
 	Monster& hit = m_monsters[static_cast<size_t>(index)];
-	Character* thrower =
-		m_roster && impact.attacker >= 0 && impact.attacker < static_cast<int>(m_roster->size())
-			? &(*m_roster)[static_cast<size_t>(impact.attacker)]
-			: nullptr;
 	const std::string_view who = thrower ? std::string_view(thrower->name) : std::string_view();
 	const loc::Line name = loc::ViewKey("monster.", hit.kind->name);
 	MonsterTarget defender{*this, hit};
@@ -191,12 +201,7 @@ bool DungeonWorld::ResolveThrowHit(const ProjectileImpact& impact) {
 		onMessage(loc::FormatLine("log.monster_unharmed", name));
 	m_audio.Play(m_sounds.monster, 0.7f);
 	// A landed throw trains the thrower, and creeps the stats it used.
-	if (thrower) {
-		const std::span<const std::string> stats =
-			kind.damage > 0.0f && !kind.stats.empty() ? std::span<const std::string>(kind.stats)
-													  : std::span<const std::string>(ThrowStats());
-		GrantSkillXp(*thrower, kThrowSkill, 1.0f, stats);
-	}
+	if (thrower) TrainThrow(*thrower, kind);
 	fx::React(ev, defender, nullptr, Reaction()); // no reprisal reaches across the room
 	if (!hit.Alive()) {
 		onMessage(loc::FormatLine("log.monster_slain", name));
@@ -268,31 +273,15 @@ void DungeonWorld::LandThrown(const ProjectileExpiry& expiry) {
 	if (expiry.cause == ExpiryCause::Wall && !expiry.payload.blast.Any())
 		StrikeDoorWithThrow(static_cast<int>(std::floor(expiry.pos.x / kCellSize)),
 							static_cast<int>(std::floor(expiry.pos.z / kCellSize)), expiry);
-	// Where it comes down: the last OPEN square along the flight
-	// (blast::LastOpenCell, the walk-back a bolt's end shares through FlightEnd) -
-	// a wall's square (or a shut door's) is never one, the flight has already
-	// stepped into it when it stops. A thing that SHATTERS bursts in any open
-	// square (OpenSquare, a bolt's rule), over a pit as over floor, and is not
-	// pulled back toward the thrower. A thing that LANDS must also be able to
-	// REST there (ItemCanRest, the drop's own rule), so it comes down short of a
-	// pit or a stairwell rather than hang over the shaft (code-review C74). And
-	// never past the PARTY'S OWN square, whatever is under it: the party can
-	// stand on a hole (a stairwell it has just come up, a pit barred by a flag),
-	// and backing off past it would land the thing behind the thrower. With
-	// nothing open within reach it comes down in the party's square.
-	const int px = m_party.GridX(), pz = m_party.GridZ();
-	int cx = px, cz = pz;
-	blast::LastOpenCell(expiry.pos.x, expiry.pos.z, expiry.dir.x, expiry.dir.z, kCellSize,
-						[&](int x, int z) {
-							if (x == px && z == pz) return true;
-							return kind.throwBreaks ? OpenSquare(x, z) : ItemCanRest(x, z);
-						},
-						cx, cz);
+	int cx = 0, cz = 0;
+	ThrownLanding(expiry, kind.throwBreaks, cx, cz);
 	++m_harness.tally.throwLandings;
 	m_harness.tally.landX = cx;
 	m_harness.tally.landZ = cz;
 	// A thing that SHATTERS lets go of what it carries where it stops - a fire
-	// flask's blast, a poison flask's cloud - as a spent bolt does.
+	// flask's blast, a poison flask's cloud - as a spent bolt does. It trains
+	// nothing: it met a wall or the floor, not an opponent, and only contact with
+	// a monster trains a throw (Michael, code-review C40).
 	if (kind.throwBreaks) {
 		if (!expiry.payload.Empty() || expiry.payload.blast.Any()) {
 			ProjectileExpiry burst = expiry;
@@ -304,6 +293,68 @@ void DungeonWorld::LandThrown(const ProjectileExpiry& expiry) {
 	}
 	DropItemInCell(kind.id, cx, cz, expiry.cargoCharge);
 	m_audio.Play(m_sounds.click, 0.4f); // placeholder thud
+}
+
+void DungeonWorld::ThrownLanding(const ProjectileExpiry& expiry, bool shatters, int& cx,
+								 int& cz) const {
+	// The last OPEN square along the flight (blast::LastOpenCell, the walk-back a
+	// bolt's end shares through FlightEnd): a wall's square (or a shut door's) is
+	// never one - the flight has already stepped into it when it stops. A thing
+	// that SHATTERS bursts in any open square (OpenSquare, a bolt's rule), over a
+	// pit as over floor, and is not pulled back toward the thrower. A thing that
+	// LANDS must also be able to REST there (ItemCanRest, the drop's own rule), so
+	// it comes down short of a pit or a stairwell rather than hang over the shaft
+	// (code-review C74). And never past the PARTY'S OWN square, whatever is under
+	// it: the party can stand on a hole (a stairwell it has just come up, a pit
+	// barred by a flag), and backing off past it would land the thing behind the
+	// thrower. With nothing open within reach it comes down in the party's square,
+	// never inside the stone where it could not be picked up again.
+	const int px = m_party.GridX(), pz = m_party.GridZ();
+	cx = px;
+	cz = pz;
+	blast::LastOpenCell(expiry.pos.x, expiry.pos.z, expiry.dir.x, expiry.dir.z, kCellSize,
+						[&](int x, int z) {
+							if (x == px && z == pz) return true;
+							return shatters ? OpenSquare(x, z) : ItemCanRest(x, z);
+						},
+						cx, cz);
+}
+
+void DungeonWorld::SaveFlyingCargo(SaveData::LevelState& ls) const {
+	// Where it would come down if it came down now - what LandCargo lands it as
+	// (an expiry at its position, its reach run out) - and WHOLE: a flask is
+	// saved unbroken where it would have fallen, since a save is no place for it
+	// to shatter. The flight flies on in the live game and ends as it would have.
+	m_projectiles.ForEachCargo([&](u32, const Vec3& pos, const Vec3& dir, float,
+								   const void* cargo, float charge) {
+		const ItemKind& kind = *static_cast<const ItemKind*>(cargo);
+		ProjectileExpiry at;
+		at.pos = pos;
+		at.dir = dir;
+		at.cause = ExpiryCause::Range;
+		int cx = 0, cz = 0;
+		ThrownLanding(at, /*shatters=*/false, cx, cz); // saved whole, so it must rest
+		// The row a runtime drop saves as (SnapshotActive's floor items): no
+		// .ent baseline, so stored whole, in the quarter slot it would take.
+		SaveData::EntityState e;
+		e.kind = EntityKind::Item;
+		e.id = -1;
+		e.type = kind.id;
+		e.x = cx;
+		e.z = cz;
+		const Vec3 c = m_map.CellCenter(cx, cz);
+		e.slot = FreeItemSlotNear(cx, cz, c.x, c.z, -1);
+		e.niche = -1;
+		e.charge = charge;
+		ls.entities.push_back(std::move(e));
+	});
+}
+
+void DungeonWorld::TrainThrow(Character& thrower, const ItemKind& kind) {
+	const std::span<const std::string> stats =
+		kind.damage > 0.0f && !kind.stats.empty() ? std::span<const std::string>(kind.stats)
+												  : std::span<const std::string>(ThrowStats());
+	GrantSkillXp(thrower, kThrowSkill, 1.0f, stats);
 }
 
 } // namespace dungeon::game

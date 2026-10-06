@@ -58,6 +58,18 @@
 #              trains `unarmed` (xp gained = hits), and that hand parries
 #              unarmed; a punch with the DAGGER hand trains unarmed too, and
 #              blade not at all.
+#   FUMBLE     a severe fumble drops what the hand held AS IT WAS (C10): Sera's
+#              torch, burnt to 300 s and swung on a loaded die (`fumble severe`),
+#              leaves her hand and lies in the party's square with those 300 s,
+#              less the second it burned there - never relit full - and the line
+#              names it.
+#   FLASK      a fire flask that bursts on a monster trains `throwing`, one xp a
+#              contact (C40), and one with nothing in its path, shattering where
+#              its reach runs out, trains nothing (Michael: only contact trains).
+#   SAVE       a save made with a fire flask in the air sets nothing off (C47):
+#              nobody is hurt and nothing lands or bursts at the save, the flight
+#              goes on to burst on its own, and loading the save finds the flask
+#              on the floor of the square its flight said it would come down in.
 #
 # Each later combat batch adds its sections to combat.eval and its checks here.
 #
@@ -81,7 +93,7 @@ SCRIPT = os.path.join(ROOT, r"tools\EvalScripts\combat.eval")
 NAMES = ["Brand", "Sera", "Maren", "Tilo"]
 
 # What --selftest cuts: the lines that put a claim's cause in place.
-CUT = ("effect ", "spawn ", "equip ", "wear ", "cast ", "bolt ")
+CUT = ("effect ", "spawn ", "equip ", "wear ", "cast ", "bolt ", "fumble ", "throw ")
 
 # The checks that rest on none of the cut lines: with them cut, these, and ONLY
 # these, may still pass.
@@ -276,6 +288,43 @@ def losses(sec):
 def burns(sec):
 	"""{member: burn magnitude} over the section's `char` readouts (0 = none)."""
 	return {c["name"]: c["effects"].get("burn", 0.0) for c in chars(sec)}
+
+
+def held_torches(sec):
+	"""Every `torch` readout in the section, in order: a list per readout of
+	(member, hand, id, charge), one per filled hand. A readout ends with its
+	`wall torch ahead` line."""
+	out, cur = [], []
+	for l in sec:
+		m = re.match(r"  \[(\d)\] \w+ hand (\d): (\S+) charge ([\d.-]+)$", l)
+		if m:
+			cur.append((int(m.group(1)), int(m.group(2)), m.group(3), float(m.group(4))))
+		elif l.startswith("  wall torch ahead:"):
+			out.append(cur)
+			cur = []
+	return out
+
+
+def floor_items(sec):
+	"""Every item row the section's `flooritems` readouts printed, in order:
+	(cell, id, charge)."""
+	out = []
+	for l in sec:
+		m = re.match(r"flooritems (\d+),(\d+): (\S+) slot -?\d+ charge ([\d.-]+)$", l)
+		if m:
+			out.append(((int(m.group(1)), int(m.group(2))), m.group(3), float(m.group(4))))
+	return out
+
+
+def flying(sec):
+	"""Every thrown item in the air the section's `flooritems` readouts listed:
+	(id, charge, the cell it would come down in)."""
+	out = []
+	for l in sec:
+		m = re.match(r"flooritems flying: (\S+) charge ([\d.-]+) lands (\d+),(\d+)$", l)
+		if m:
+			out.append((m.group(1), float(m.group(2)), (int(m.group(3)), int(m.group(4)))))
+	return out
 
 
 def party_pos(sec):
@@ -644,6 +693,80 @@ def judge(lines, text):
 		  "a punch with the dagger hand trains unarmed (xp gained = hits), never blade",
 		  f"hands {[c['hands'] for c in cs]} parries {[c['parries'] for c in cs]} "
 		  f"unarmed xp {xp} blade xp {blade} hits {hits}")
+
+	print("FUMBLE - a severe fumble drops the torch with what it had left (C10)")
+	sec = get("fumble-drop")
+	t = tally(sec)
+	reads = held_torches(sec)
+	sera = lambda r: [h for h in r if h[0] == 1 and h[1] == 1]
+	# Sera's torch, burnt to 300 s before the swing; the swing a SEVERE fumble
+	# (the loaded die) that put a held item down.
+	before = sera(reads[0]) if len(reads) == 2 else []
+	fumbled = (before == [(1, 1, "torch_lit", 300.0)] and num(t, "fumbles") == 1
+			   and num(t, "severefumbles") == 1 and num(t, "fumbledrops") == 1)
+	check(fumbled, "Sera's part-burnt torch, swung on the loaded die, fumbled severely",
+		  f"torch readouts {reads} fumbles={t.get('fumbles')} "
+		  f"severefumbles={t.get('severefumbles')} fumbledrops={t.get('fumbledrops')}")
+	check(fumbled and sera(reads[1]) == [], "and left her hand", f"after {reads[1:]}")
+	down = [r for r in floor_items(sec) if r[1] == "torch_lit"]
+	# 300 s when it fell, less the second it has burned on the floor since. A
+	# torch dropped with no charge reads as untouched and is relit full (~899).
+	check(fumbled and len(down) == 1 and down[0][0] == (14, 14) and 297.0 <= down[0][2] <= 300.0,
+		  "it lies in the party's square with the 300 s it had (less the second it burned there)",
+		  f"floor {floor_items(sec)} - a torch relit full would read about 899")
+	said = messages(sec)
+	check(fumbled and "Sera loses their grip on the Lit torch!" in said,
+		  "and the line names what fell", f"messages {said}")
+
+	print("FLASK - a bomb that bursts on a monster trains the throw; one that meets nothing does not (C40)")
+	sec = get("flask-contact")
+	t = tally(sec)
+	cs = chars(sec)
+	thrown = lambda c: c["skills"].get("throwing", 0.0)
+	struck = (len(cs) == 2 and cs[0]["name"] == "Brand" and num(t, "throws") == 1
+			  and num(t, "throwstrikes") == 1 and num(t, "blasts") >= 1)
+	check(struck, "Brand's fire flask burst on the skeleton",
+		  f"throws={t.get('throws')} throwstrikes={t.get('throwstrikes')} blasts={t.get('blasts')} "
+		  f"char readouts {[c['name'] for c in cs]}")
+	gain = thrown(cs[1]) - thrown(cs[0]) if len(cs) == 2 else float("nan")
+	check(struck and abs(gain - num(t, "throwstrikes")) < 0.005,
+		  "and trained `throwing`, one xp for the contact",
+		  f"throwing xp {[thrown(c) for c in cs]}, throwstrikes={t.get('throwstrikes')}")
+	sec = get("flask-nothing")
+	t = tally(sec)
+	cs = chars(sec)
+	missed = (len(cs) == 2 and num(t, "throws") == 1 and num(t, "throwstrikes") == 0
+			  and num(t, "throwlandings") == 1 and num(t, "blasts") >= 1)
+	check(missed, "a flask with nothing in its path shattered where its reach ran out",
+		  f"throws={t.get('throws')} throwstrikes={t.get('throwstrikes')} "
+		  f"throwlandings={t.get('throwlandings')} blasts={t.get('blasts')}")
+	check(missed and abs(thrown(cs[1]) - thrown(cs[0])) < 0.005,
+		  "and trained nothing: it touched no monster",
+		  f"throwing xp {[thrown(c) for c in cs]}")
+
+	print("SAVE - a save made with a flask in the air sets nothing off (C47)")
+	sec = get("flask-save")
+	ts = tallies(sec)
+	air = flying(sec)
+	pr = party_reads(sec)
+	# The flask was IN THE AIR at the save: one flight, and where it would land.
+	aloft = len(air) == 1 and air[0][0] == "fire_flask" and len(ts) == 2 and len(pr) == 2
+	check(aloft, "the fire flask was in the air when the game was saved",
+		  f"flying {air} tallies {len(ts)} party readouts {len(pr)}")
+	check(aloft and pr[0] == pr[1] and num(ts[0], "taken") == 0,
+		  "and the save hurt nobody", f"hp before/after {pr} taken={ts[0].get('taken') if ts else None}")
+	check(aloft and num(ts[0], "throwlandings") == 0 and num(ts[0], "blasts") == 0,
+		  "nor landed it, nor set it off", f"after the save {ts[0] if ts else None}")
+	# Its landing and burst came AFTER the save: none counted at it, one since.
+	check(aloft and num(ts[0], "throwlandings") == 0 and num(ts[1], "throwlandings") == 1
+		  and num(ts[0], "blasts") == 0 and num(ts[1], "blasts") >= 1,
+		  "the flight went on, and ended in a burst of its own",
+		  f"at the save {ts[0] if ts else None} later {ts[1] if len(ts) > 1 else None}")
+	loaded = "loaded: combat_flask" in sec
+	held = [r for r in floor_items(sec) if r[1] == "fire_flask"]
+	check(aloft and loaded and len(held) == 1 and held[0][0] == air[0][2],
+		  "the save holds the flask, whole, on the floor where its flight said it would land",
+		  f"loaded={loaded} floor {floor_items(sec)} flight would land {air[0][2] if air else None}")
 	check("end" in s, "the script ran to its end")
 
 

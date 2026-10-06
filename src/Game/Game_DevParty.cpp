@@ -352,6 +352,68 @@ void Game::RegisterPartyCommands() {
 											   : "that hand cannot swing now");
 					   });
 
+	// THE LOADED DIE (DungeonWorld::Harness::LoadedFumble): the next swing that
+	// reaches a target - from this member's hand, or anyone's - fumbles without
+	// a roll, severe or plain. A severe face is about one swing in a hundred, so
+	// the consequence table (a weapon, a lit torch knocked to the floor) was
+	// reachable by no script on purpose (code-review C10; AllocTest -Swing).
+	m_console.Register({.name = "fumble",
+						.group = CmdGroup::Combat,
+						.params = "\nsevere|plain [member] [hand]\noff",
+						.summary = "load the next party swing to fumble"},
+					   [this](const std::vector<std::string>& args) {
+						   DungeonWorld::Harness::LoadedFumble& die =
+							   m_world->GetHarness().loadedFumble;
+						   if (!args.empty() && args[0] == "off") {
+							   die = {};
+						   } else if (!args.empty()) {
+							   if (args[0] != "severe" && args[0] != "plain") {
+								   m_console.RefuseUsage();
+								   return;
+							   }
+							   const int m = args.size() > 1 ? std::atoi(args[1].c_str()) : -1;
+							   const int hand = args.size() > 2 ? std::atoi(args[2].c_str()) : -1;
+							   if (m >= static_cast<int>(m_characters.size()) || hand > 1) {
+								   m_console.Refuse("no such member or hand");
+								   return;
+							   }
+							   die = {true, args[0] == "severe", m, hand};
+						   }
+						   if (!die.armed) {
+							   m_console.Print("fumble: not loaded");
+							   return;
+						   }
+						   m_console.Print(std::format(
+							   "fumble: the next swing {}{} fumbles {}",
+							   die.member < 0 ? std::string("by anyone")
+											  : std::format("by member {}", die.member),
+							   die.hand < 0 ? std::string() : std::format(" hand {}", die.hand),
+							   die.severe ? "severely" : "plainly"));
+					   });
+
+	// What lies on the floor of a square, with each item's charge, and what is
+	// in the air with where it would come down - where a fumble put a torch,
+	// and what a save made mid-throw holds (code-review C10, C47).
+	m_console.Register({.name = "flooritems",
+						.group = CmdGroup::Party,
+						.params = "[x z]\nall",
+						.summary = "the items on a square's floor (the party's) and every throw in the air"},
+					   [this](const std::vector<std::string>& args) {
+						   const Party& p = m_world->GetParty();
+						   int x = p.GridX(), z = p.GridZ();
+						   if (!args.empty() && args[0] == "all") {
+							   x = z = -1;
+						   } else if (args.size() >= 2) {
+							   x = std::atoi(args[0].c_str());
+							   z = std::atoi(args[1].c_str());
+						   }
+						   const std::vector<std::string> rows = m_world->FloorItemRows(x, z);
+						   if (rows.empty()) m_console.Print("flooritems: (none)");
+						   for (const std::string& r : rows) m_console.Print("flooritems " + r);
+						   for (const std::string& r : m_world->FlyingCargoRows())
+							   m_console.Print("flooritems flying: " + r);
+					   });
+
 	// `equip` reaches a HAND; this reaches the doll — the only place worn armor
 	// counts (DungeonWorld::WornArmorClass). Without it there is no scriptable
 	// way to put armor ON a character, which made the whole armor system

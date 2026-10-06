@@ -643,4 +643,119 @@ tally
 char 0
 monsters
 
+; --- A SEVERE FUMBLE DROPS WHAT THE HAND HELD, AS IT WAS (code-review C10) -----
+; Sera swings her lit torch (hand 1) at a frozen skeleton with the die LOADED
+; (`fumble severe 1 1`: the swing fumbles without a roll, on a severe face). The
+; severe table is `drop`, so the torch goes down in the party's square. It is
+; burnt down to 300 of its 900 s first, and must land with those 300: it used to
+; land with no charge, which reads as untouched, and the floor relit it to a full
+; 900. `flooritems` reads the square a second on, the torch burning where it lies,
+; so a torch that kept its charge reads about 299 and one relit full about 899.
+
+echo === fumble-drop ===
+reset
+timescale 0
+lockstep on
+seed 27
+goto eval_arena
+arena open 9 9
+heal
+tp 14 14
+face n
+freeze on
+spawn skeleton 14 13 south 6 up
+torch charge 1 1 300
+torch
+tally reset
+fumble severe 1 1
+swing 1 1
+step 1
+tally
+torch
+flooritems
+messages 6
+
+; --- A BOMB THAT BURSTS ON A MONSTER TRAINS THE THROW (code-review C40) --------
+; Brand (the leader) throws a fire flask at a sturdy skeleton two squares north.
+; It bursts on contact, and the contact is the flask's landed blow, so it trains
+; `throwing` as a rock's does: one xp a contact (`throwstrikes`). It used to go
+; off before the award was reached, so a bomb never trained the throw at all.
+
+echo === flask-contact ===
+reset
+timescale 0
+lockstep on
+seed 27
+goto eval_arena
+arena open 9 9
+heal
+tp 14 14
+face n
+freeze on
+spawn skeleton 14 12 south 20 up
+char 0
+tally reset
+throw fire_flask
+step 3
+tally
+char 0
+
+; The same flask with nothing in its path: it shatters where its reach runs out,
+; and touched no monster, so it trains nothing (Michael: only contact with a
+; monster trains a throw; a flask broken on the floor or a wall is not contact).
+
+echo === flask-nothing ===
+reset
+timescale 0
+lockstep on
+seed 27
+goto eval_arena
+arena open 9 9
+heal
+tp 14 14
+face n
+freeze on
+char 0
+tally reset
+throw fire_flask
+step 3
+tally
+char 0
+
+; --- A SAVE MADE MID-THROW SETS NOTHING OFF (code-review C47) ------------------
+; Brand throws a fire flask and the game is saved while it is still in the
+; party's own square, 0.05 s out of his hand. A save used to LAND every thrown
+; thing first, and a flask landed is a flask going off: it burst in the party's
+; square, the party was hurt, and the save held the damage. Now the save writes
+; the flask as the floor item it will be, where it would come down (`flooritems
+; flying` says where), and the flight goes on: 0.2 s after the save nobody is
+; hurt and nothing has landed or burst; 2 s on it has flown out of reach and
+; burst there, far off. Loading the save finds the flask - whole - on the floor
+; of the square `flooritems flying` named.
+
+echo === flask-save ===
+reset
+timescale 0
+lockstep on
+seed 27
+goto eval_arena
+arena open 9 9
+heal
+tp 14 14
+face n
+freeze on
+tally reset
+throw fire_flask
+step 0.05
+flooritems
+party
+save combat_flask
+step 0.2
+tally
+party
+step 2
+tally
+load combat_flask
+flooritems all
+
 echo === end ===

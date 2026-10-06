@@ -15,6 +15,7 @@
 #   .\tools\AllocTest.ps1 -Cast              # a bolt in flight + an open spellbook
 #   .\tools\AllocTest.ps1 -Impact            # bolts landing, expiring, a blast, a crate alight
 #   .\tools\AllocTest.ps1 -Burst             # burst bolts on the party, a ward, a gust's repel
+#   .\tools\AllocTest.ps1 -Swing             # the party swinging, and a severe fumble dropping a torch
 #   .\tools\AllocTest.ps1 -Hand              # the hand spells: light, douse, flare, fill, pebble
 #   .\tools\AllocTest.ps1 -Light             # the Sowilo lights: cast, stacked, grown, a flare's dazzle
 #   .\tools\AllocTest.ps1 -Pause             # Esc to the pause menu and back
@@ -185,6 +186,23 @@
 # window's tally counts a burst on the party, a ward turn, and a repel that
 # weakened, one that turned and one that spent.
 #
+# -Swing IS THE PARTY'S OWN SWING (code-review C10). -Melee is a monster
+# swinging at the party; no mode made the PARTY swing, so PartyAttack and the
+# fumble consequences never ran in a window - and a severe fumble's drop copied
+# the held item's id into a fresh std::string (the debug CRT allocates for any)
+# in the swing's frame, and lost a torch's charge, while every run passed. This
+# empties eval_arena, stands a frozen, toughened skeleton ahead of the party and
+# turns the party's own swinging on HELD (`autoattack hold`: alloctest's first
+# armed frame releases it, as it does a held autocast), so the session's FIRST
+# party swing is inside the window - a first swing is paid by every session, so
+# it is not warm-up. The die is LOADED for Sera's lit torch (`fumble severe 1 1`,
+# the torch burnt to 300 s first): its swing fumbles severely and the default
+# severe table drops it, so the drop - and a part-burnt torch then burning on the
+# floor - happen in the window beside the ordinary blows of the other hands. It
+# refuses a PASS unless the window's tally counts a swing besides the fumble, a
+# severe fumble, and a held item it put on the floor (`severefumbles=`,
+# `fumbledrops=`).
+#
 # -Pause IS THE OTHER HALF OF THE RULE: WHICH FRAMES IT COVERS. The guard judges
 # a frame on the state at its top, so the frame Esc is pressed in starts as
 # Playing and ends as Paused - and it rebuilds the pause menu (a widget tree, and
@@ -353,6 +371,9 @@ param(
 	# Measures SHOTS AT THE PARTY: a burst bolt going off on it, a ward turning
 	# one, a gust's repel weakening, turning and spending them. See the note above.
 	[switch]$Burst,
+	# Measures the PARTY swinging, and a severe fumble dropping a part-burnt torch
+	# (code-review C10). See the note above.
+	[switch]$Swing,
 	# Casts the four hand spells at a wall torch inside the window (spell-updates
 	# Phase 8). See the note at the setup.
 	[switch]$Hand,
@@ -1789,6 +1810,55 @@ try {
 		Start-Sleep -Milliseconds 400
 	}
 
+	# -Swing: the party's own swing and a severe fumble (see the note at the top).
+	if ($Swing) {
+		Write-Host 'going to an emptied eval_arena: the party swings, and a loaded die drops a torch'
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		Enter-FrozenArena
+		# Emptied, so the skeleton below is the only thing in reach. The centre is
+		# read back, not assumed.
+		$arenaBefore = @(Select-String -Path $log -Pattern 'console: arena open ').Count
+		Send-Text 'arena open 9 9'; Send-Key 0x0D
+		$arena = Wait-NewLogLines 'console: arena open ' $arenaBefore 1 30
+		if ($arena.Count -eq 0 -or $arena[-1].Line -notmatch 'centre (\d+),(\d+)') {
+			throw 'the arena was not carved (no `arena open` line with a centre)'
+		}
+		$spx = [int]$Matches[1]; $spz = [int]$Matches[2]
+		$sfz = $spz - 1 # the square ahead, facing north
+		Send-Text "tp $spx $spz"; Send-Key 0x0D
+		Send-Text 'face n'; Send-Key 0x0D
+		Assert-PartyAt $spx $spz
+		# FROZEN (Enter-FrozenArena's `freeze on`): it takes the blows and never
+		# swings back, which is -Melee's job. Toughened, so it outlives the window.
+		Send-Text "spawn skeleton $spx $sfz s 50 up"; Send-Key 0x0D
+		if (-not (Wait-LogMatch "spawned skeleton at $spx,$sfz")) {
+			throw "the arena would not take a skeleton at $spx,$sfz"
+		}
+		# Sera's lit torch (member 1, hand 1), part-burnt, with the die loaded for
+		# its swing: a severe fumble, and the default severe table is `drop`.
+		Send-Text 'torch charge 1 1 300'; Send-Key 0x0D
+		Send-Text 'fumble severe 1 1'; Send-Key 0x0D
+		if (-not (Wait-LogMatch 'console: fumble: the next swing by member 1 hand 1 fumbles severely')) {
+			throw 'the die was not loaded for Sera''s torch'
+		}
+		# HELD: nobody swings until alloctest's first armed frame.
+		Send-Text 'autoattack hold'; Send-Key 0x0D
+		if (-not (Wait-LogMatch 'console: autoattack held until an alloctest window opens')) {
+			throw 'the party''s swinging was not held'
+		}
+		# Refuse unless the party has not swung at all this session: a first swing
+		# outside the window would be a first time gone unmeasured. (The tally has
+		# counted since this script's own game began; the window restarts it.)
+		$swungAlready = Get-TallyField 'swings'
+		if ($swungAlready -gt 0) { throw "the party swung before the window opened (swings=$swungAlready)" }
+		Write-Host "  party at $spx,$spz facing north, a frozen skeleton at $spx,$sfz, Sera's torch loaded to fumble, swinging held"
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0 # close the console again; alloctest reopens it below
+		Start-Sleep -Milliseconds 400
+	}
+
 	# -Hand: THE HAND SPELLS (spell-updates Phase 8). A tier-1 spell changes the
 	# WORLD AHEAD and the ITEMS IN HAND, not a monster: Kenaz lights a held torch
 	# (an item renamed in its slot) and the wall torch ahead (a fire's state, the
@@ -2458,7 +2528,7 @@ try {
 	# logs the harness tally, which the window's first ARMED frame restarted.
 	# (Asking `tally` afterwards used to count the console's frames, the
 	# guard's warm-up and whatever landed while the question was being typed.)
-	if ($Melee -or $Impact -or $Burst -or $Items -or $Throw -or $OnHitTypo) {
+	if ($Melee -or $Impact -or $Burst -or $Swing -or $Items -or $Throw -or $OnHitTypo) {
 		$script:lastTally = (Wait-ForLog 'alloctest window TALLY ' 10 'the window tally') -replace '^.*TALLY ', 'TALLY '
 		Write-Host "  in the window: $script:lastTally"
 	}
@@ -2489,6 +2559,21 @@ try {
 		Write-Host "  typo'd on-hit warnings inside the window: $inside"
 		if ($inside -lt 1 -and $result -eq 'PASS') {
 			Write-Host 'no club blow warned inside the window - the warning was not measured' -ForegroundColor Yellow
+			$result = 'UNMEASURED'
+		}
+	}
+
+	# -Swing: the party swung, a swing besides the loaded one, and the loaded one
+	# fumbled severely and put the torch on the floor - all inside the window. A
+	# swing that met nothing (the skeleton gone), a die spent before the window or
+	# a fumble that dropped nothing would otherwise report exactly like a clean run.
+	if ($Swing) {
+		$missing = @()
+		if ((Get-LastTallyField 'swings') -lt 2) { $missing += 'fewer than two swings reached the skeleton' }
+		if ((Get-LastTallyField 'severefumbles') -le 0) { $missing += 'no swing fumbled severely' }
+		if ((Get-LastTallyField 'fumbledrops') -le 0) { $missing += 'no fumble dropped a held item' }
+		if ($missing.Count -gt 0 -and $result -eq 'PASS') {
+			Write-Host "$($missing -join ', ') inside the window - the party's swing was not measured" -ForegroundColor Yellow
 			$result = 'UNMEASURED'
 		}
 	}

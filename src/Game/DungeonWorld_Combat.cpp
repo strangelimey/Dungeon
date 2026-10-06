@@ -583,6 +583,7 @@ void DungeonWorld::PartyFumble(Character& attacker, size_t hand,
 	const float widen = (band + static_cast<float>(atk.fumbleExtra)) / band;
 	const bool severe = mishap::Severe(
 		face, static_cast<int>(m_balance.fumbleSevereFace * widen + 0.5f));
+	if (severe) ++m_harness.tally.severeFumbles;
 
 	// The procs first — a blade that bites the hand holding it is an EFFECT, and
 	// it lands on the attacker like any other. The striker is already an
@@ -614,7 +615,10 @@ void DungeonWorld::PartyFumble(Character& attacker, size_t hand,
 				// without disarming itself.
 				ItemSlot& held = attacker.inventory.Hand(static_cast<int>(hand));
 				if (held.Empty()) break;
-				const std::string id = held.typeId;
+				// The KIND, not a copy of the id: a string built here allocates in
+				// the swing's guarded frame, and the kind's own id outlives the
+				// hand being emptied (code-review C10).
+				const ItemKind& kind = ItemKindFor(held.typeId);
 				int cx = m_party.GridX(), cz = m_party.GridZ();
 				if (e.kind == mishap::Kind::Fling) {
 					// Somewhere adjacent it can rest, chosen from the cardinals
@@ -629,14 +633,17 @@ void DungeonWorld::PartyFumble(Character& attacker, size_t hand,
 						if (ItemCanRest(nx, nz)) { cx = nx; cz = nz; break; }
 					}
 				}
-				held = ItemSlot{};
-				DropItemInCell(id, cx, cz);
+				// With what it had left: a part-burnt torch lands part-burnt. It
+				// used to land with no charge, which reads as untouched, and the
+				// floor refilled it to a full burn (C10).
+				DropItemInCell(kind.id, cx, cz, held.charge);
+				held.Clear();
+				++m_harness.tally.fumbleDrops;
 				MemberMessage(attacker,
 							  loc::FormatLine(e.kind == mishap::Kind::Fling
 											  ? "log.fumble_fling"
 											  : "log.fumble_drop",
-										  attacker.name,
-										  loc::View(ItemKindFor(id).nameKey)));
+										  attacker.name, loc::View(kind.nameKey)));
 				break;
 			}
 			case mishap::Kind::SelfHit: {
@@ -682,6 +689,24 @@ void DungeonWorld::PartyFumble(Character& attacker, size_t hand,
 	run(FumbleTable(weapon ? Table(weapon->fumble) : Table(), false, fallback));
 	if (severe)
 		run(FumbleTable(weapon ? Table(weapon->fumbleSevere) : Table(), true, fallback));
+}
+
+bool DungeonWorld::TakeLoadedFumble(size_t member, size_t hand, const AttackProfile& atk,
+									fx::DamageEvent& ev) {
+	Harness::LoadedFumble& die = m_harness.loadedFumble;
+	if (!die.armed) return false;
+	if (die.member >= 0 && static_cast<size_t>(die.member) != member) return false;
+	if (die.hand >= 0 && static_cast<size_t>(die.hand) != hand) return false;
+	// The face the dice would have shown for it: 1 is the bottom of every band,
+	// so severe at any widening (PartyFumble's rule); the top of THIS attack's
+	// band - its over-exertion faces included - is a fumble that stays plain.
+	const int band = std::max(1, static_cast<int>(m_balance.Strike().fumbleThreshold)) +
+					 atk.fumbleExtra;
+	ev.hit = false;
+	ev.fumble = true;
+	ev.fumbleFace = die.severe ? 1 : band;
+	die = {};
+	return true;
 }
 
 void DungeonWorld::MonsterFumble(Monster& monster, const AttackProfile& atk,
@@ -750,7 +775,7 @@ void DungeonWorld::MonsterFumble(Monster& monster, const AttackProfile& atk,
 }
 
 void DungeonWorld::TickAutoAttack() {
-	if (!m_harness.autoAttack || !m_roster) return;
+	if (!m_harness.autoAttack || m_harness.autoAttackHeld || !m_roster) return;
 	// NOTHING THERE, NOTHING SWUNG. A whiff at air costs the attack's pace and
 	// its full stamina bill (PartyAttack pays both before it checks for a
 	// target), so a party auto-swinging into an empty corridor would exhaust
@@ -2088,7 +2113,10 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 		atk.attackBonus, static_cast<int>(member));
 	ev.pierceOnCrit = atk.pierceOnCrit;
 	ev.fumbleExtra = atk.fumbleExtra;
-	fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
+	// A swing the harness LOADED (`fumble`) is a fumble without a roll; any other
+	// is dealt.
+	if (!TakeLoadedFumble(member, hand, atk, ev))
+		fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
 	// The dice half of the eval tally. Counted for the PARTY's swings only: a
 	// hit rate that mixed both sides together would answer no question anyone
 	// has, and the monsters' side is visible as `taken` anyway.

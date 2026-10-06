@@ -323,7 +323,9 @@ public:
 	static constexpr size_t BillboardCeiling() { return kReservedSparks + kReservedItems; }
 	// Ends every THROWN item's flight where it is (onExpire, Range) and drops
 	// it, so the host lands it rather than losing it. Call before anything that
-	// would Clear a flight the game must not forget: a save, a level change.
+	// would Clear a flight the game must not forget: a level change. NOT a save,
+	// which only reads them (ForEachCargo) - landing a shattering one is setting
+	// it off (DungeonWorld::SaveFlyingCargo, code-review C47).
 	void LandCargo();
 	// A soft glowing PUFF at `pos` - what a blast filling a square looks like
 	// (DungeonWorld::UpdateBlasts): `count` motes drifting out `spread` m/s and
@@ -348,7 +350,8 @@ public:
 	// False when there was no room for it.
 	bool Mote(const Vec3& pos, const Vec3& vel, const Vec4& color, float life, float size);
 	// Every thrown item in flight, for the host to draw as itself (and a lit
-	// one's flame): fn(id, pos, dir, secondsInFlight, cargo, cargoCharge).
+	// one's flame) and for a save to write as the item it will land as:
+	// fn(id, pos, dir, secondsInFlight, cargo, cargoCharge).
 	template <typename Fn> void ForEachCargo(Fn&& fn) const {
 		for (const Item& it : m_items)
 			if (it.cargo) fn(it.id, it.pos, it.dir, it.age, it.cargo, it.cargoCharge);

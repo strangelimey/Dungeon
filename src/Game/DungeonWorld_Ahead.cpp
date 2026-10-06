@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <format>
 
 namespace dungeon::game {
 
@@ -89,6 +90,32 @@ std::string DungeonWorld::ItemIdsAt(int x, int z) const {
 		ids += it.kind->id;
 	}
 	return ids;
+}
+
+std::vector<std::string> DungeonWorld::FloorItemRows(int x, int z) const {
+	std::vector<std::string> rows;
+	for (const Item& it : m_items) {
+		if (it.collected || !it.kind) continue;
+		if (x >= 0 && (it.x != x || it.z != z)) continue;
+		rows.push_back(std::format("{},{}: {} slot {} charge {:.1f}", it.x, it.z, it.kind->id,
+								   it.slot, it.charge));
+	}
+	return rows;
+}
+
+std::vector<std::string> DungeonWorld::FlyingCargoRows() const {
+	std::vector<std::string> rows;
+	m_projectiles.ForEachCargo([&](u32, const Vec3& pos, const Vec3& dir, float,
+								   const void* cargo, float charge) {
+		ProjectileExpiry at;
+		at.pos = pos;
+		at.dir = dir;
+		int cx = 0, cz = 0;
+		ThrownLanding(at, /*shatters=*/false, cx, cz); // where a save writes it, whole
+		rows.push_back(std::format("{} charge {:.1f} lands {},{}",
+								   static_cast<const ItemKind*>(cargo)->id, charge, cx, cz));
+	});
+	return rows;
 }
 
 std::string_view DungeonWorld::RenameHeldItem(ItemSlot& slot,

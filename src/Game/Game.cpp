@@ -1166,9 +1166,11 @@ bool Game::SaveGame(const std::string& name) {
 	// An item on the cursor is party-level state — save it as such, leaving the
 	// live session's held item untouched (restored to the cursor on load).
 	if (m_heldItem) data.heldItem = ItemToken(*m_heldItem, m_heldItem.Charge());
-	// A thrown item in the air is not saved as a flight: it comes down first,
-	// and is saved where it lies (Phase 10).
-	m_world->LandThrownItems();
+	// A thrown item in the air is not saved as a flight: CaptureState writes it
+	// as the floor item it will be, where it would come down, and the flight
+	// carries on in the game being played. It used to be LANDED here first, and
+	// a shattering flask landed is a flask going off - in or beside the party's
+	// square, with the save then holding the damage (code-review C47).
 
 	data.world = m_worldState; // the global tier (docs/world-map.md)
 	// On the world map the level underneath is not where the party IS: a parked
@@ -1799,18 +1801,15 @@ void Game::UpdateAllocTest(float dt, bool steady) {
 		// measurement rather than in the console's frames or the warm-up, and a
 		// held autocast is released, so a barrage's very first cast is measured
 		// (tools\AllocTest.ps1 -Impact: a fresh monster's first burn is a cost
-		// every monster pays once, and the warm-up would have swallowed it), and a
+		// every monster pays once, and the warm-up would have swallowed it), a
 		// held freeze, so a fight's first notice and first blow are (-Melee), and
-		// a held autoattack, so the party's swings start inside it (-OnHitTypo).
+		// a held autoattack, so the party's first swing is (-Swing, -OnHitTypo).
 		if (m_allocTestFrames == 0 && m_world) {
 			DungeonWorld::Harness& h = m_world->GetHarness();
 			h.tally = {};
 			h.autoCast.held = false;
+			h.autoAttackHeld = false; // `autoattack hold` left it on, held
 			if (h.frozenHeld) h.frozen = h.frozenHeld = false;
-			if (h.autoAttackHeld) {
-				h.autoAttack = true;
-				h.autoAttackHeld = false;
-			}
 			MoveAction last{};
 			m_allocTestActsAt = m_world->GetParty().ActCount(last);
 		}

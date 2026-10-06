@@ -408,31 +408,26 @@ void Game::RegisterEvalCommands() {
 	// PartyAttack is driven by a hand-slot click or `swing`, so the first
 	// two-tier comparison had the monster finish on full hp in both rungs and
 	// still looked like a complete result.
+	// `hold` turns it on PARKED until alloctest's first armed frame (the held
+	// autocast's rule, Harness::autoAttackHeld): tools\AllocTest.ps1 -Swing puts
+	// the party's first swing of the session inside its window that way.
 	m_console.Register({.name = "autoattack",
 						.group = CmdGroup::Simulation,
 						.params = "[on|off|hold]",
 						.summary = "make the party swing on its own whenever off cooldown"},
 					   [this](const std::vector<std::string>& args) {
 						   DungeonWorld::Harness& h = m_world->GetHarness();
-						   if (args.empty()) {
-							   m_console.Print(std::format(
-								   "autoattack {}",
-								   h.autoAttackHeld ? "held" : (h.autoAttack ? "on" : "off")));
-							   return;
+						   // `hold` leaves it ON but held (TickAutoAttack skips a
+						   // held one); the next `alloctest` window's first armed
+						   // frame clears the hold, so its swings start there.
+						   if (!args.empty()) {
+							   h.autoAttack = args[0] == "on" || args[0] == "1" || args[0] == "hold";
+							   h.autoAttackHeld = args[0] == "hold";
 						   }
-						   // Off until the next `alloctest` window opens (see
-						   // Harness::autoAttackHeld): the swings start on its
-						   // first armed frame.
-						   if (args[0] == "hold") {
-							   h.autoAttack = false;
-							   h.autoAttackHeld = true;
+						   if (h.autoAttackHeld)
 							   m_console.Print("autoattack held until an alloctest window opens");
-							   return;
-						   }
-						   const bool on = args[0] == "on" || args[0] == "1";
-						   h.autoAttack = on;
-						   h.autoAttackHeld = false;
-						   m_console.Print(std::format("autoattack {}", on ? "on" : "off"));
+						   else
+							   m_console.Print(std::format("autoattack {}", h.autoAttack ? "on" : "off"));
 					   });
 
 	// CASTING ON A CLOCK (DungeonWorld::Harness::AutoCast). Each call adds one
@@ -922,7 +917,7 @@ std::string Game::TallyLine() const {
 		"throwstrikes={} throwlandings={} sceneryticks={} doused={} struck={} "
 		"pierced={} wallstops={} stoppedin={} partybursts={} wardturns={} "
 		"repelweakened={} repelturned={} repelspent={} mswings={} mshots={} "
-		"landat={} expat={}",
+		"landat={} expat={} severefumbles={} fumbledrops={}",
 		t.dealt, t.taken, swings, t.hits, t.misses, rate, t.crits, t.fumbles,
 		t.monstersSlain, t.membersDowned, t.seconds, t.boltHits, t.boltMisses,
 		t.expiries, t.blasts, t.drops, t.lifts, t.throws, t.throwStrikes,
@@ -930,7 +925,8 @@ std::string Game::TallyLine() const {
 		t.wallStops, stoppedIn, t.partyBursts, t.wardTurns, t.repelWeakened,
 		t.repelTurned, t.repelSpent, t.monsterSwings, t.monsterShots,
 		t.landX < 0 ? std::string("-") : std::format("{},{}", t.landX, t.landZ),
-		t.expireX < 0 ? std::string("-") : std::format("{},{}", t.expireX, t.expireZ));
+		t.expireX < 0 ? std::string("-") : std::format("{},{}", t.expireX, t.expireZ),
+		t.severeFumbles, t.fumbleDrops);
 }
 
 } // namespace dungeon::game

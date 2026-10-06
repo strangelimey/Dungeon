@@ -57,6 +57,13 @@ only the default):
   a world frame by `autocast bolt` (the console's frames are never measured). It
   refuses a PASS unless the window's tally counts each (`partybursts=`,
   `wardturns=`, `repelweakened=`, `repelturned=`, `repelspent=`)
+- `.\tools\AllocTest.ps1 -Swing` - the PARTY swinging, which -Melee (a monster
+  swinging at the party) never does: the party's swings held (`autoattack hold`)
+  until the window opens, so the session's first one is measured, at a frozen
+  skeleton, with the die loaded (`fumble severe 1 1`) so Sera's part-burnt torch
+  fumbles severely and is knocked to the floor inside the window. It refuses a
+  PASS unless the window's tally counts two swings, a severe fumble and a dropped
+  item (`swings=`, `severefumbles=`, `fumbledrops=`)
 - `.\tools\AllocTest.ps1 -Pause` - Esc into the pause menu and back, three
   times inside the window. The frame that leaves Playing is a transition and is
   disarmed (docs/ARCHITECTURE.md "Checking the rule"); this checks that rule,

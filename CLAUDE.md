@@ -462,7 +462,14 @@ Key conventions (memorize, they bite):
   NOT after a blow that killed (`ev.slew`), swung or thrown: the burst used to
   wound the corpse and count the kill twice (code-review C5). MonsterTarget::
   Wound refuses the dead, and the blow that KILLS earns no threat and provokes
-  nothing - a corpse turns on nobody. Dev: `equip <item> [member] [hand]`.
+  nothing - a corpse turns on nobody. A SEVERE FUMBLE's `drop` / `fling` puts
+  the held item down AS IT WAS - its kind's id, its charge (a part-burnt torch
+  is not relit full), nothing copied in the swing's frame (code-review C10).
+  Dev: `equip <item> [member] [hand]`, `fumble severe|plain [member] [hand]`
+  (the LOADED DIE, Harness::loadedFumble: the next such swing fumbles without a
+  roll - a severe face is ~1 swing in 100), `autoattack hold` (released by
+  alloctest's first armed frame); tally `severefumbles= fumbledrops=`. Checked
+  by AllocTest -Swing and tools\CombatTest.py's FUMBLE checks.
 - RESOURCES (full model: docs/health-and-healing.md; all of it built - the
   pools, food/water, rest, pace and the sheet; the balance pass is what is
   left). Every pool has an APTITUDE
@@ -576,14 +583,17 @@ Key conventions (memorize, they bite):
   which at timescale 0 falls BETWEEN the two commands; use `rest until`.
   WHAT THE HARNESS COSTS THE SHIPPING CODE (audited 2026-08-15, docs/eval-
   harness.md "What the harness costs"): ALL harness state the world holds is ONE
-  member, `DungeonWorld::m_harness` (`struct Harness`: tally / autoAttack /
-  frozen + frozenHeld / pendingSteps / autoCast / wholeSteps), touched in a handful
-  of places in the simulation (autoCast is `TickAutoCast`, the `autocast`
-  round-robin that puts a LAUNCH inside a guarded window - see AllocTest.ps1
-  -Impact - and, as `autocast bolt`, a shot AT the party and a repel of an exact
-  power - -Burst; `freeze hold` keeps monsters from even noticing the party until
-  an `alloctest` window opens, so -Melee's first notice and first blow land inside
-  it; wholeSteps is `frames ... whole`, a frame's dt taken as ONE step), each reading
+  member, `DungeonWorld::m_harness` (`struct Harness`: tally / autoAttack +
+  autoAttackHeld / loadedFumble / frozen + frozenHeld / pendingSteps / autoCast /
+  wholeSteps), touched in a handful of places in the simulation (autoCast is
+  `TickAutoCast`, the `autocast` round-robin that puts a LAUNCH inside a guarded
+  window - see AllocTest.ps1 -Impact - and, as `autocast bolt`, a shot AT the
+  party and a repel of an exact power - -Burst; `freeze hold` keeps monsters from
+  even noticing the party until an `alloctest` window opens, so -Melee's first
+  notice and first blow land inside it, and `autoattack hold` does the same for
+  the party's own swings - -Swing, -OnHitTypo; `fumble` loads the next party
+  swing to fumble without a roll, PartyAttack's one branch; wholeSteps is
+  `frames ... whole`, a frame's dt taken as ONE step), each reading
   `m_harness.x` so it says what it is; `ResetForEval` is `m_harness = {}`. The
   script runner is its own TU, `Game_Eval.cpp`. Headless is one branch in Main.
   NOT harness machinery despite appearances: lockstep AI (SetResting uses it —
@@ -3002,9 +3012,17 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   tumbling via ForEachCargo). IT IS NEVER LOST: it lands in the struck monster's
   square, before the wall it hit (DungeonWorld::FlightEnd: the last open square,
   where a stopped BOLT's burst and on-hit land too, never inside the stone -
-  code-review C43/C44), or where its range ran out, and a save, a
-  level change (StashActive) and the inspector's Remove LAND it first
-  (LandCargo). WHERE A THING MAY REST is one rule, `DungeonWorld::ItemCanRest`
+  code-review C43/C44), or where its range ran out, and a level change
+  (StashActive) and the inspector's Remove LAND it first (LandCargo). A SAVE
+  DOES NOT LAND IT (code-review C47): landing a `throw_breaks` item is setting it
+  off, so a save made with a fire flask in the air burst it on the party and
+  saved the damage. CaptureState writes each thing in the air as the floor item
+  it will be - whole, with its charge, at its landing square (ThrownLanding, the
+  rule a landing uses, `shatters` false) - and the flight flies on in the game
+  being played (SaveFlyingCargo). TRAINING IS ON CONTACT ONLY (Michael,
+  code-review C40): a landed blow, or a bomb bursting on a monster, trains
+  `throwing`; a flask that shatters on a wall or at the end of its reach trains
+  nothing. WHERE A THING MAY REST is one rule, `DungeonWorld::ItemCanRest`
   (code-review C74): walkable, a floor under it (FloorHoleAt - not a pit or a
   stairwell, where it hung in the air over the shaft) and no shut door. The
   drop, a landing (which backs off along its flight to the first such square,
@@ -3015,11 +3033,13 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   back toward the thrower. The rock is script-built (tools/BuildRock.py ->
   assets/models/rock.glb, committed by a .gitignore exception: an item loads
   only .glb). Dev: `throw [item]`, `drop <item> <x> <z>` (DropItemAt aimed at a
-  square's centre), `castsvc floor [x z]`; tally `throws= throwstrikes=
-  throwlandings= landat=` (where the last throw came down or burst). Checked by
-  AllocTest -Throw (lift, throw at eval_arena's north wall, again, by clicks) and
-  tools\AITest.py (a pit refuses a drop and a landing; a flask bursts over it; a
-  rock thrown from the stairwell lands on the party's square).
+  square's centre), `castsvc floor [x z]`, `flooritems [x z|all]` (floor items
+  with their charge, and where each throw in the air would come down); tally
+  `throws= throwstrikes= throwlandings= landat=` (where the last throw came down
+  or burst). Checked by AllocTest -Throw (lift, throw at eval_arena's north wall,
+  again, by clicks), tools\AITest.py (a pit refuses a drop and a landing; a
+  flask bursts over it; a rock thrown from the stairwell lands on the party's
+  square) and tools\CombatTest.py's FLASK / SAVE checks.
 - BLASTS ARE SEEN now (they drew nothing): a puff of `blast_color` (else the
   type's element colour) in each square on each tick (ProjectileSystem::Puff,
   LandBlastHit) - a fire front flares, a persistent gas rolls. And `blast_linger`
