@@ -2000,9 +2000,8 @@ std::unique_ptr<DungeonWorld::MultiMaterialModel> DungeonWorld::BuildMultiMateri
 	DN_ASSERT(!assets::ImagesReleased(model),
 			  "BuildMultiMaterialModel: the model's images were released");
 	auto out = std::make_unique<DungeonWorld::MultiMaterialModel>();
-	std::vector<bool> srgb(model.images.size(), false);
-	for (const assets::MaterialData& m : model.materials)
-		if (m.baseColorImage >= 0) srgb[m.baseColorImage] = true;
+	// The same answer the mip bake used for each sidecar (assets::SrgbImages).
+	const std::vector<bool> srgb = assets::SrgbImages(model);
 	out->textures.reserve(model.images.size());
 	for (size_t i = 0; i < model.images.size(); ++i) {
 		// A baked BC7 chain (AssetBaker mips) uploads as it is; otherwise the

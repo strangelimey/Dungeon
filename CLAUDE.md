@@ -1122,10 +1122,29 @@ sixteen kinds in another kind's pose; each kind now owns its icon pose).
   ModelData::images order). The game's model loaders load those instead of
   decoding the PNG/JPEG inside a bought .glb (2k PNG decode + CPU mips was ~50 ms
   an image; skel_warrior's six cost ~320 ms of a level change, now ~50). A sidecar
-  OLDER than its model is stale: the game WARNS and decodes, so re-run
-  `AssetBaker model-images <assets>` (sidecars only, current ones skipped) after
-  importing or re-converting a model. Tools load models WITHOUT the option
-  (LoadOptions::bakedImages) because they want the real images. The encoder trials
+  MISSING or OLDER than its model is decoded instead, and the game says so ONCE
+  PER MODEL a run (`<model>: N of its M embedded images decoded at load`; a
+  missing one used to decode in silence), so re-run `AssetBaker model-images
+  <assets>` (sidecars only, current ones skipped) after importing or
+  re-converting a model - FetchModels.ps1 and FetchAnimLibrary.ps1 end with it.
+  "Current" is ONE rule, `assets::BakedIsCurrent` (Assets/File.h: the baked file
+  exists and is no older than its source), which the bakers skip by and the
+  loaders refuse by - the texture loader too (see "Textures" below). The sidecar
+  bake loads each model AS THE GAME DOES (bakedImages), so a current image is
+  never decoded just to be skipped; `--force` (on `mips`, `model-images`,
+  `portrait-mips`) re-bakes what a timestamp calls current, which is the only way
+  a FILTER or ENCODER change reaches the sidecars and portraits (the texture sets
+  always re-bake). Tools reading a model for its own sake load it WITHOUT the
+  option, for the real images. THE MIP FILTER (assets::Downsample, shared by
+  the baker and the runtime PNG fallback, so a chain is the same whichever built
+  it) averages an sRGB image's COLOUR in LINEAR light and ROUNDS every average
+  (code-review C414): averaging stored bytes took a black-and-white checker to
+  127 where its light is 188 (fine albedo darkened with distance), and the old
+  truncating `sum / 4` lost ~4 codes over a 2k chain, parallax height included.
+  The flag is the one the texture is created with: a set's albedo
+  (`<set>.png`) and a model's BASE-COLOUR images (`assets::SrgbImages`) are
+  sRGB; `_n`, `_mr`, metal-rough images and the portraits (linear UI art) are
+  not. Bc7Test checks both rules (`mips:` checks). The encoder trials
   FOUR modes per 4x4 block and keeps the lowest error: mode 6 (one RGBA line, 16
   index steps — photographic albedo), modes 1 and 3 (two subsets with a colour
   line EACH, so a block straddling brick and mortar stops smearing one line
@@ -1159,9 +1178,10 @@ sixteen kinds in another kind's pose; each kind now owns its icon pose).
   ANY gap between the synthetic images and the `syn.*` rows (that corpus is the
   same on every machine, so a gap is a lost row, never the pool), while
   real-texture rows that do not match (the sample follows the installed pool)
-  are only listed. `-SelfTest` corrupts a copy of the bytes AND
-  raises the baseline 1 dB, and requires exactly the consistency and quality
-  checks to fail - the quality one on every matched image.
+  are only listed. `-SelfTest` corrupts a copy of the bytes, raises the
+  baseline 1 dB AND runs the mip filter's sRGB half as it was before C414
+  (stored bytes averaged), and requires exactly the consistency, quality and
+  sRGB-mip checks to fail - the quality one on every matched image.
   TRAP when reading its numbers: aggregate PSNR by the MEAN of per-image PSNR,
   never by pooling squared error — pooling is dominated by whichever tile
   compresses worst (the noise tile sits ~1000x higher in MSE than a smooth one),
@@ -1170,8 +1190,8 @@ sixteen kinds in another kind's pose; each kind now owns its icon pose).
   blocks sample the installed texture height maps, so rerun after
   FetchTextures.ps1 or a texture import. `--out <dir>` (also on `wornblock`)
   writes the models elsewhere, and `AssetBaker wornsets` lists the worn-set
-  records (see the worn-block bullet). FetchTextures, FetchModels and
-  ReplayImports call the baker through ONE wrapper, `tools\Pipeline.ps1`
+  records (see the worn-block bullet). FetchTextures, FetchModels,
+  FetchAnimLibrary and ReplayImports call the baker through ONE wrapper, `tools\Pipeline.ps1`
   (`Find-AssetBaker`, `Invoke-Baker` - exit code only, so a stderr warning
   cannot abort a batch under 'Stop').
 - PARTY PORTRAITS are BOUGHT, not baked (portraits branch, docs/portraits-
@@ -1181,7 +1201,8 @@ sixteen kinds in another kind's pose; each kind now owns its icon pose).
   in `assets/portraits/<id>.png` + `.dds`, GITIGNORED except the starter party's
   four, and `tools\FetchPortraits.ps1` extracts them from the zips archived in
   OneDrive\DungeonAssets\ui\<pack>\ and bakes the BC7 chains (`AssetBaker
-  portrait-mips`, which skips a current .dds; `mips` covers them too). The
+  portrait-mips`, which skips a current .dds unless `--force`; `mips` covers
+  them too). The
   CATALOG decides what ships: `assets/portraits/portraits.cat` (committed,
   GENERATED by `tools\BuildPortraitCatalog.py` from each pack's `tags.tsv`
   beside its zips - edit a table and re-run) holds every id with source / race /
@@ -1234,6 +1255,20 @@ sixteen kinds in another kind's pose; each kind now owns its icon pose).
   pipeline never reached the screen (uncompressed RGBA8 in VRAM, mips built on
   the CPU, ~80 ms per surface set). Fixing it took the release game load from
   2.2 s to 0.5 s. A fallback that hides its own firing is how this survived.
+  A STALE .dds is refused the same way (code-review C410): one OLDER than its
+  PNG (`assets::BakedIsCurrent`) warns `<x>.dds is older than its PNG -
+  decoding the PNG instead` and the PNG is drawn, because `AssetBaker runes`
+  once rewrote only the PNGs and the game went on drawing the old tablets from
+  the .dds beside them. (`runes` now bakes its own chains, as `import` does.)
+  Checked by `tools\BakedTest.ps1` (a rune PNG made newer than its .dds must
+  warn; a model with a sidecar hidden must say so once). It REFUSES (exit 2,
+  nothing judged) a tree that is behind, never fails it: any .dds or sidecar
+  older than its source before the run, or, after it, a sidecar the game counts
+  missing that is missing on disk too (a tree provisioned without them - run
+  `model-images`); a game that ran and did not finish is a FAIL. A tree
+  provisioned by copying keeps its source timestamps, so nothing warns; a
+  tracked PNG checked out NEWER than a copied .dds does, which is the rule
+  working - re-run `mips`.
   Scanned sets are NOT in git: raw downloads live in
   OneDrive\DungeonAssets\<1k|2k|4k>\<category>\<material>\ — the res folder
   is the material's NATIVE resolution, categories mirror the FreePBR pack
@@ -2750,8 +2785,10 @@ Full per-phase history + gotchas live in the editor-overhaul memory.
   Use BACKSLASH paths (robocopy rejects forward slashes → copies nothing) and
   VERIFY with a file count afterward — robocopy returns exit 0 when it copied
   NOTHING (exit 1 = files copied), so a "successful" run can leave you empty. The
-  regenerable alternative is `tools\FetchTextures.ps1` + `FetchModels.ps1` (+
-  `FetchPortraits.ps1`) in the background (needs `build\<cfg>\bin\AssetBaker.exe` first, so build once). Symptom
+  regenerable alternative is `tools\FetchTextures.ps1` + `FetchModels.ps1` +
+  `FetchAnimLibrary.ps1` (the ONLY source of the gitignored skel_* monsters; it
+  needs Blender) (+ `FetchPortraits.ps1`) in the background (needs
+  `build\<cfg>\bin\AssetBaker.exe` first, so build once). Symptom
   decoder: magenta scene = missing textures; hard abort on a `.glb` = missing
   models.
 - AFTER a branch is merged to main, TIDY UP its worktree so the drive doesn't
@@ -2761,7 +2798,8 @@ Full per-phase history + gotchas live in the editor-overhaul memory.
   <branch>` to drop the merged branch and `git worktree prune` to clear stale
   metadata. First confirm the branch really is merged (`git branch --merged
   main`) with no uncommitted/unpushed work — the worktree's gitignored assets are
-  regenerable (FetchTextures.ps1 / FetchModels.ps1) but un-merged commits are not.
+  regenerable (FetchTextures.ps1 / FetchModels.ps1 / FetchAnimLibrary.ps1) but
+  un-merged commits are not.
 - NEVER rewrite UTF-8 files via PowerShell Get-Content/Set-Content — it
   mojibakes em-dashes (happened twice). Use the Write/Edit tools.
 - NEVER PATCH A FILE THROUGH A BASH HEREDOC (`python - <<'PY'`, `cat <<EOF >

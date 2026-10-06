@@ -7,6 +7,8 @@
 #     <mesh.fbx> + <library_root>  --(Blender ImportAnimLibrary.py)-->
 #         assets/models/<Name>.gltf   (state-named clips on the bound mesh)
 #       + <Name>.anim.cat             (the states + anim_<state> rows)
+# and ends with `AssetBaker model-images`, the BC7 sidecars of the images the
+# bake embeds (<Name>.gltf.<index>.dds).
 #
 # Every Mixamo clip shares one standard skeleton, so a single rigid bind takes any
 # number of clips — populate the state folders and re-run; no re-binding.
@@ -56,6 +58,13 @@ if (-not $Plan -and -not $Blender) {
     $Blender = Find-Blender
     if (-not $Blender) { throw "Blender not found - pass -Blender <path>" }
 }
+
+# The AssetBaker for the closing `model-images` pass (tools\Pipeline.ps1, shared
+# with FetchModels and FetchTextures), found BEFORE the long Blender bakes so a
+# missing build fails at once rather than after them. -Plan bakes nothing.
+. (Join-Path $PSScriptRoot 'Pipeline.ps1')
+$baker = $null
+if (-not $Plan) { $baker = Find-AssetBaker $repo }
 
 # Run Blender headless; key success off the exit code only (its stderr warnings
 # would otherwise abort under -ErrorActionPreference Stop). Same as FetchModels.
@@ -234,6 +243,17 @@ foreach ($c in $animSets) {
     Write-Host "  model -> models\$($c.Name).gltf"
     Write-Host "  catalog rows -> models\$($c.Name).anim.cat"
     $done++
+}
+
+# The bake EMBEDS the creature's textures in its .gltf, and the game loads those
+# images from baked BC7 sidecars (<model>.<index>.dds) - without one it decodes
+# each image at every level load (~50 ms an image, skel_warrior's six ~320 ms)
+# and says so once per model. `model-images` bakes only the missing and the
+# stale ones (code-review C437).
+if ($done -gt 0 -and -not $Plan) {
+    Write-Host ""
+    Write-Host "baking the embedded-image sidecars (AssetBaker model-images)"
+    if ((Invoke-Baker model-images $assets) -ne 0) { throw "model-images failed - see the baker's log above" }
 }
 
 Write-Host ""

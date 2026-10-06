@@ -24,7 +24,9 @@ Texture::Texture(GraphicsDevice& device, const assets::ImageData& image, bool sr
 		out.height = level.height;
 		const bool last = level.width == 1 && level.height == 1;
 		assets::ImageData next;
-		if (!last) next = Downsample(level);
+		// The texture's own colour space, as the baker passes it, so this chain
+		// is the one `AssetBaker mips` would have written.
+		if (!last) next = Downsample(level, srgb);
 		out.data = std::move(level.pixels);
 		chain.levels.push_back(std::move(out));
 		if (last) break;

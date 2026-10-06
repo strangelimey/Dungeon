@@ -4,6 +4,7 @@
 #include "Game/AssetUtil.h"
 
 #include "Assets/Dds.h"
+#include "Assets/File.h"
 #include "Assets/Image.h"
 #include "Core/Assert.h"
 #include "Core/Log.h"
@@ -41,18 +42,42 @@ assets::SoundData LoadSound(const std::string& name) {
 	return std::move(sound).value_or(assets::SoundData{});
 }
 
+namespace {
+
+// The baked chain for `stemPath`, when it may stand in for the PNG: present,
+// readable and CURRENT (assets::BakedIsCurrent - no older than the PNG). A
+// MISSING .dds is ordinary (UI art ships as PNG only; a fresh checkout has not
+// run the mip bake), so that falls back quietly. One that EXISTS but is refused
+// is not: the PNG path still draws, so nothing looks wrong. A reader bug hid
+// that way for three and a half months while every texture was decoded from
+// PNG, uncompressed, with its mips built at runtime - and a STALE one hid the
+// same way, since nothing compared the dates: a `runes` re-bake (PNGs only)
+// left the game drawing the old tablets (code-review C410).
+std::optional<assets::MipChain> CurrentDds(const std::string& stemPath) {
+	const std::string dds = stemPath + ".dds";
+	const std::string png = stemPath + ".png";
+	std::error_code ec;
+	if (!std::filesystem::exists(dds, ec)) return std::nullopt;
+	if (!assets::BakedIsCurrent(dds, png)) {
+		log::Warn("{} is older than its PNG - decoding the PNG instead; rerun "
+				  "AssetBaker mips",
+				  dds);
+		return std::nullopt;
+	}
+	auto mips = assets::LoadDdsFile(dds);
+	if (!mips) {
+		log::Warn("{} - loading the PNG instead", mips.error());
+		return std::nullopt;
+	}
+	return std::move(*mips);
+}
+
+} // namespace
+
 std::unique_ptr<gfx::Texture> TryLoadTextureFile(gfx::GraphicsDevice& device,
 												 const std::string& stemPath, bool srgb) {
-	const std::string dds = stemPath + ".dds";
-	auto mips = assets::LoadDdsFile(dds);
-	if (mips) return std::make_unique<gfx::Texture>(device, *mips, srgb);
-	// A MISSING .dds is ordinary (UI art ships as PNG only; a fresh checkout has
-	// not run the mip bake), so that falls back quietly. A .dds that EXISTS but
-	// was rejected is not: the PNG path still draws, so nothing looks wrong, and
-	// a reader bug hid that way for three and a half months while every texture
-	// was decoded from PNG, uncompressed, with its mips built at runtime.
-	if (std::filesystem::exists(dds))
-		log::Warn("{} - loading the PNG instead", mips.error());
+	if (auto mips = CurrentDds(stemPath))
+		return std::make_unique<gfx::Texture>(device, *mips, srgb);
 	if (auto image = assets::LoadImageFile(stemPath + ".png"))
 		return std::make_unique<gfx::Texture>(device, *image, srgb);
 	return nullptr;
@@ -62,7 +87,8 @@ std::unique_ptr<gfx::Texture> LoadTextureThumb(gfx::GraphicsDevice& device,
 											   const std::string& stemPath, u32 maxPx, bool srgb) {
 	// The baked chain, with its big levels dropped: a thumbnail wants maxPx,
 	// not the 2048px the set installs at. Same file, a sliver of the memory.
-	if (auto chain = assets::LoadDdsFile(stemPath + ".dds")) {
+	// Held to the same rule as a full load (CurrentDds).
+	if (auto chain = CurrentDds(stemPath)) {
 		assets::MipChain thumb;
 		thumb.format = chain->format;
 		for (const assets::TextureLevel& level : chain->levels) {

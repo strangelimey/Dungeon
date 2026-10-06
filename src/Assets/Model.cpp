@@ -23,6 +23,7 @@
 #include "Assets/Model.h"
 
 #include "Assets/Dds.h"
+#include "Assets/File.h"
 #include "Core/AllocTrack.h"
 #include "Core/Log.h"
 
@@ -33,6 +34,8 @@
 #include <cstring>
 #include <filesystem>
 #include <memory>
+#include <mutex>
+#include <set>
 #include <type_traits>
 #include <unordered_map>
 
@@ -47,36 +50,44 @@ Mat4 ToMat4(const float m[16]) {
 }
 
 // Maps a cgltf image to an index in ModelData::images, loading on first use.
-// With `bakedImages`, an image whose baked sidecar (EmbeddedImageSidecar) is at
-// least as new as the model file loads from THAT instead - a BC7 mip chain in
-// imageMips, images[i] left empty - and is never decoded. The index a sidecar
-// is named by is this same first-use order, which the baker gets by running
-// this same loader without the option, so the two cannot disagree.
+// With `bakedImages`, an image whose baked sidecar (EmbeddedImageSidecar) is
+// current (assets::BakedIsCurrent against the model file) loads from THAT
+// instead - a BC7 mip chain in imageMips, images[i] left empty - and is never
+// decoded. The index a sidecar is named by is this same first-use order, which
+// the baker gets by running this same loader, so the two cannot disagree.
 struct ImageCache {
 	const cgltf_data* data;
 	std::filesystem::path baseDir;
 	ModelData* model;
 	std::string modelPath;
 	bool bakedImages = false;
-	std::filesystem::file_time_type modelTime{};
 	std::unordered_map<const cgltf_image*, int> indices;
+	// Images decoded although the bake would have written a sidecar for them,
+	// by why: none on disk, or one older than the model (ReportUnbaked).
+	int missing = 0;
+	int stale = 0;
 
-	// The baked chain for the NEXT index, if there is a usable one.
-	std::optional<MipChain> Baked() {
+	enum class Sidecar { Missing, Stale, Rejected };
+
+	// The baked chain for the NEXT index, if there is a usable one; else why not.
+	std::optional<MipChain> Baked(Sidecar& why) {
 		const std::string sidecar = EmbeddedImageSidecar(modelPath, model->images.size());
 		std::error_code ec;
-		const auto time = std::filesystem::last_write_time(sidecar, ec);
-		if (ec) return std::nullopt; // not baked: decode, as before the bake existed
-		if (time < modelTime) {
-			// Said, not skipped: a stale sidecar is a model re-imported without a
-			// re-bake, and quietly decoding hides that the bake is out of date.
-			log::Warn("{} is older than its model - decoding instead; rerun "
-					  "AssetBaker mips", sidecar);
+		if (!std::filesystem::exists(sidecar, ec)) {
+			why = Sidecar::Missing; // not baked: decode, as before the bake existed
+			return std::nullopt;
+		}
+		if (!BakedIsCurrent(sidecar, modelPath)) {
+			// Said (ReportUnbaked), not skipped: a stale sidecar is a model
+			// re-imported without a re-bake, and quietly decoding hides that the
+			// bake is out of date.
+			why = Sidecar::Stale;
 			return std::nullopt;
 		}
 		auto chain = LoadDdsFile(sidecar);
 		if (!chain) {
 			log::Warn("{} - decoding the embedded image instead", chain.error());
+			why = Sidecar::Rejected;
 			return std::nullopt;
 		}
 		return std::move(*chain);
@@ -86,8 +97,10 @@ struct ImageCache {
 		if (!image) return -1;
 		if (auto it = indices.find(image); it != indices.end()) return it->second;
 
+		std::optional<Sidecar> unbaked;
 		if (bakedImages) {
-			if (std::optional<MipChain> chain = Baked()) {
+			Sidecar why = Sidecar::Missing;
+			if (std::optional<MipChain> chain = Baked(why)) {
 				const int index = static_cast<int>(model->images.size());
 				model->images.emplace_back(); // placeholder: imageMips carries it
 				model->imageMips.resize(model->images.size());
@@ -95,6 +108,7 @@ struct ImageCache {
 				indices[image] = index;
 				return index;
 			}
+			unbaked = why;
 		}
 
 		std::expected<ImageData, std::string> loaded =
@@ -109,6 +123,13 @@ struct ImageCache {
 
 		int index = -1;
 		if (loaded) {
+			// Counted only where the bake WOULD have written a sidecar: it skips an
+			// image whose sides are not a multiple of 4 (BC7's block), which then
+			// decodes on every load by design and is nothing to report.
+			if (unbaked && loaded->width % 4 == 0 && loaded->height % 4 == 0) {
+				if (*unbaked == Sidecar::Missing) ++missing;
+				else if (*unbaked == Sidecar::Stale) ++stale;
+			}
 			index = static_cast<int>(model->images.size());
 			model->images.push_back(std::move(*loaded));
 			if (!model->imageMips.empty()) model->imageMips.resize(model->images.size());
@@ -119,6 +140,24 @@ struct ImageCache {
 		return index;
 	}
 };
+
+// One line per MODEL, once a run, for the images it had to decode: each costs
+// ~50 ms at every load (a 2k decode plus its mips on the CPU), and nothing said
+// so for a missing sidecar - the case a fresh fetch left behind (code-review
+// C437). Once a run because a model loads again on every level that uses it,
+// and the cause is the same each time. Model loading may run off the main
+// thread, so the set of models already reported is locked.
+void ReportUnbaked(const std::string& path, int missing, int stale, size_t images) {
+	static std::mutex mx;
+	static std::set<std::string> reported;
+	{
+		const std::scoped_lock lock(mx);
+		if (!reported.insert(path).second) return;
+	}
+	log::Warn("{}: {} of its {} embedded images decoded at load - {} with no baked "
+			  "sidecar, {} older than the model; run AssetBaker model-images",
+			  path, missing + stale, images, missing, stale);
+}
 
 // ----------------------------------------------------------------------------
 // Skeleton extraction.
@@ -242,6 +281,14 @@ std::string EmbeddedImageSidecar(const std::string& modelPath, size_t index) {
 	return std::format("{}.{}.dds", modelPath, index);
 }
 
+std::vector<bool> SrgbImages(const ModelData& model) {
+	std::vector<bool> srgb(model.images.size(), false);
+	for (const MaterialData& m : model.materials)
+		if (m.baseColorImage >= 0 && static_cast<size_t>(m.baseColorImage) < srgb.size())
+			srgb[static_cast<size_t>(m.baseColorImage)] = true;
+	return srgb;
+}
+
 std::expected<ModelData, std::string> LoadGltf(const std::string& path,
 											   const LoadOptions& opts) {
 	const alloc::Counters before = alloc::ThisThread();
@@ -267,10 +314,6 @@ std::expected<ModelData, std::string> LoadGltf(const std::string& path,
 	model.clips.reserve(data->animations_count);
 	ImageCache imageCache{data, std::filesystem::path(path).parent_path(), &model, path,
 						  opts.bakedImages};
-	if (opts.bakedImages) {
-		std::error_code ec;
-		imageCache.modelTime = std::filesystem::last_write_time(path, ec);
-	}
 
 	// Materials (indices must match cgltf's so primitives can look them up).
 	for (cgltf_size m = 0; m < data->materials_count; ++m) {
@@ -473,6 +516,8 @@ std::expected<ModelData, std::string> LoadGltf(const std::string& path,
 			  model.skeleton.joints.size(), model.clips.size(), model.images.size(), baked,
 			  after.allocs - before.allocs,
 			  static_cast<double>(after.bytes - before.bytes) / (1024.0 * 1024.0));
+	if (opts.bakedImages && opts.warnUnbaked && imageCache.missing + imageCache.stale > 0)
+		ReportUnbaked(path, imageCache.missing, imageCache.stale, model.images.size());
 	return model;
 }
 

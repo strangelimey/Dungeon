@@ -33,18 +33,21 @@ image, or when the pool's sample has moved (check every row that DID match is
 unchanged first), and say which in the commit - never to clear a regression
 nobody can explain.
 
-`-SelfTest` injects two faults and requires exactly the two checks they aim at to
-fail - `consistency` (a corrupted copy of the bytes) and `quality` (the baseline
-raised 1 dB, caught on every matched image) - and every other check to pass. It
-prints `SELF-TEST: the raised baseline caught on 16 of 16 matched images`, with
-any image the raised bar missed named above it, then by name any check that
-failed or passed against expectation, and last the self-test's own verdict,
-`SELF-TEST PASS - 2 of 2 expected failures, 0 unexpected`. That line counts the
-missed images too (one miss makes it `SELF-TEST FAIL - ..., 1 other miss (named
-above)`), so it always agrees with the `caught=` on the line after it.
+`-SelfTest` injects three faults and requires exactly the three checks they aim
+at to fail - `consistency` (a corrupted copy of the bytes), `quality` (the
+baseline raised 1 dB, caught on every matched image) and the mip filter's sRGB
+check (the filter as it was before code-review C414, averaging the stored bytes,
+which takes the black-and-white checker to 128; the rounding check beside it must
+stay green) - and every other check to pass. It prints `SELF-TEST: the raised
+baseline caught on 16 of 16 matched images`, with any image the raised bar missed
+named above it, then by name any check that failed or passed against
+expectation, and last the self-test's own verdict, `SELF-TEST PASS - 3 of 3
+expected failures, 0 unexpected`. That line counts the missed images too (one
+miss makes it `SELF-TEST FAIL - ..., 1 other miss (named above)`), so it always
+agrees with the `caught=` on the line after it.
 
 The last line is the shared verdict every native judge prints
-(tools\Common\Verdict.h): `bc7test RESULT=PASS checks=7 failures=0 images=..
+(tools\Common\Verdict.h): `bc7test RESULT=PASS checks=9 failures=0 images=..
 consistency_bad=0 thread_diff=0 regressed=0 matched=.. minpsnr=.. self_test=0`.
 Under `-SelfTest` it reads `RESULT=FAIL ... self_test=1 caught=1` - the checks
 failed on the faults, exactly the expected ones. `Bc7Test.ps1` reads that line

@@ -189,11 +189,11 @@ bool ImportModel(const std::string& sourcePath, const std::string& assetsDir,
 	const std::string texturesDir = assetsDir + "\\textures";
 	if (ImportPbrTextureSet(folder, texturesDir, name + "_2k", false)) {
 		bool ok = BakeMipChain(texturesDir + "\\" + name + "_2k.png",
-							   texturesDir + "\\" + name + "_2k.dds");
+							   texturesDir + "\\" + name + "_2k.dds", /*srgb*/ true);
 		ok &= BakeMipChain(texturesDir + "\\" + name + "_2k_n.png",
-						   texturesDir + "\\" + name + "_2k_n.dds");
+						   texturesDir + "\\" + name + "_2k_n.dds", /*srgb*/ false);
 		ok &= BakeMipChain(texturesDir + "\\" + name + "_2k_mr.png",
-						   texturesDir + "\\" + name + "_2k_mr.dds");
+						   texturesDir + "\\" + name + "_2k_mr.dds", /*srgb*/ false);
 		if (!ok) log::Warn("Model textures imported but a mip bake failed");
 	} else {
 		log::Warn("No PBR maps imported for '{}' — it will draw with a flat color",

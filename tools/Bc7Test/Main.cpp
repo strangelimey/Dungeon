@@ -31,6 +31,10 @@
 //     so a synthetic image without an entry, or a syn.* entry without an image,
 //     is a lost row or a renamed image - never a pool difference.
 //
+// Beside them, the MIP FILTER every level below the first passes through before
+// it is packed (assets::Downsample): sRGB colour averaged in linear light, every
+// other average rounded (MeasureMipFilter, code-review C414).
+//
 // Every condition is a NAMED check (Check), and --self-test injects one fault
 // per check it means to prove, then demands exactly those fail and every other
 // check pass (the tools/SpellTest.py rule; see kSelfTestFails). It used to pass
@@ -47,8 +51,9 @@
 //   Bc7Test --assets ..\..\assets              plus a sample of real textures
 //   Bc7Test --baseline tools\bc7-baseline.txt  fail on quality regression
 //   Bc7Test --audit                            the measurement matrix
-//   Bc7Test --baseline <f> --self-test         corrupt the bytes and raise the
-//                                              baseline; exactly those two
+//   Bc7Test --baseline <f> --self-test         corrupt the bytes, raise the
+//                                              baseline and average sRGB mips
+//                                              as bytes; exactly those three
 //                                              checks must FAIL
 //
 // The last line is the shared verdict (tools/Common/Verdict.h), the encoder's
@@ -102,18 +107,25 @@ constexpr const char* kCheckBaselineSyn =
 constexpr const char* kCheckBaselineSynRows =
 	"baseline: every syn.* entry names a synthetic image";
 constexpr const char* kCheckQuality = "quality: no image fell below its baseline PSNR";
+constexpr const char* kCheckMipSrgb =
+	"mips: an sRGB 2x2 averages to the code nearest its mean light";
+constexpr const char* kCheckMipRound =
+	"mips: every other 2x2 average rounds to the nearest code";
 
 // THE SELF-TEST'S EXPECTED FAILURES, by label (the tools/SpellTest.py rule: the
 // self-test passes only when exactly these fail and every other check passes).
-// --self-test injects two faults, each aimed at ONE check:
+// --self-test injects three faults, each aimed at ONE check:
 //   * every 97th block of a COPY of the packed bytes is corrupted, and only the
 //     consistency check reads that copy - the PSNR is the clean bytes', so the
 //     corruption cannot reach the quality check and be mistaken for its catch;
 //   * every loaded baseline value is raised by kSelfTestRaiseDb, which must
 //     fail the quality check - on EVERY matched image, not just one (checked
 //     separately at the end, since a comparison that skipped rows would still
-//     fail the check once).
-// The thread check and the baseline's own reading checks see neither fault and
+//     fail the check once);
+//   * the sRGB half of the mip-filter check runs the filter as it was before
+//     C414, averaging the stored bytes, which must fail it - and leave the
+//     rounding check, which never asks for sRGB, green.
+// The thread check and the baseline's own reading checks see none of them and
 // must stay green: a loader that read nothing, or only some of the synthetic
 // rows, fails them, which is C417's bug caught by the self-test as well as by a
 // normal run. No fault is aimed at the synthetic-coverage checks on purpose - a
@@ -122,6 +134,7 @@ constexpr const char* kCheckQuality = "quality: no image fell below its baseline
 constexpr const char* kSelfTestFails[] = {
 	kCheckConsistency,
 	kCheckQuality,
+	kCheckMipSrgb,
 };
 constexpr double kSelfTestRaiseDb = 1.0;
 
@@ -337,6 +350,83 @@ std::vector<Sample> RealCorpus(const std::string& assetsDir, int perKind, u32 ma
 		}
 	}
 	return out;
+}
+
+// ---- The mip filter -----------------------------------------------------------
+
+// assets::Downsample builds every level below the first that the encoder packs
+// (and the runtime fallback's, so the two chains are one), so its two rules are
+// checked here beside the encoder, against the sRGB curve written out on its
+// own - not the filter's tables (code-review C414):
+//  * an sRGB image's COLOUR averages in linear light: each output is the code
+//    nearest the mean light of its 2x2 (within half a code), where averaging
+//    the stored bytes took a black-and-white checker to 127 against 188;
+//  * every other average - each channel of a linear image, an sRGB image's
+//    alpha - ROUNDS to the nearest code, where `sum / 4` truncated.
+double SrgbDecode(double c) {
+	return c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4);
+}
+
+double SrgbEncode(double l) {
+	return l <= 0.0031308 ? l * 12.92 : 1.055 * std::pow(l, 1.0 / 2.4) - 0.055;
+}
+
+struct MipFilterResult {
+	size_t srgbTexels = 0, storedTexels = 0;
+	double srgbWorst = 0;   // codes from the linear-light mean's code (<= 0.5 passes)
+	double storedWorst = 0; // codes from the rounded stored mean (0 passes)
+	int checker = -1;       // a black-and-white checker's sRGB average
+};
+
+// `srgbFlag` is what the sRGB half passes the filter: true, except under
+// --self-test, whose fault is the filter as it was (the stored bytes averaged).
+MipFilterResult MeasureMipFilter(bool srgbFlag) {
+	MipFilterResult r;
+	auto expectSrgb = [](const u8* p[4], int c) {
+		double light = 0;
+		for (int k = 0; k < 4; ++k) light += SrgbDecode(p[k][c] / 255.0);
+		return SrgbEncode(light / 4.0) * 255.0;
+	};
+	// Deterministic noise (with runs of the extremes, where the curve bends
+	// most), every 2x2 of an 8x8 image so the indexing is checked too.
+	Lcg rng{0x5eed2u};
+	for (int round = 0; round < 512; ++round) {
+		assets::ImageData img = MakeImage(8, 8);
+		for (u8& v : img.pixels) {
+			const u32 pick = rng.Next() % 8;
+			v = pick == 0 ? 0 : pick == 1 ? 255 : static_cast<u8>(rng.Next() % 256);
+		}
+		for (const bool srgb : {true, false}) {
+			const assets::ImageData half = assets::Downsample(img, srgb ? srgbFlag : false);
+			for (u32 y = 0; y < 4; ++y)
+				for (u32 x = 0; x < 4; ++x) {
+					const u8* p[4];
+					for (int k = 0; k < 4; ++k)
+						p[k] = &img.pixels[(static_cast<size_t>(y * 2 + k / 2) * 8 + x * 2 +
+											k % 2) * 4];
+					const u8* out = &half.pixels[(static_cast<size_t>(y) * 4 + x) * 4];
+					for (int c = 0; c < 4; ++c) {
+						if (srgb && c < 3) {
+							r.srgbWorst = std::max(r.srgbWorst, std::abs(out[c] - expectSrgb(p, c)));
+							++r.srgbTexels;
+						} else {
+							const int sum = p[0][c] + p[1][c] + p[2][c] + p[3][c];
+							const int want = (sum * 2 + 4) / 8; // floor(sum / 4 + 0.5)
+							r.storedWorst = std::max(r.storedWorst,
+													 static_cast<double>(std::abs(out[c] - want)));
+							++r.storedTexels;
+						}
+					}
+				}
+		}
+	}
+	assets::ImageData checker = MakeImage(2, 2);
+	Put(checker, 0, 0, 0, 0, 0, 255);
+	Put(checker, 1, 0, 255, 255, 255, 255);
+	Put(checker, 0, 1, 255, 255, 255, 255);
+	Put(checker, 1, 1, 0, 0, 0, 255);
+	r.checker = assets::Downsample(checker, srgbFlag).pixels[0];
+	return r;
 }
 
 // ---- Measurement ------------------------------------------------------------
@@ -930,9 +1020,10 @@ void Usage() {
 		"  --audit               print the knob-by-knob measurement table\n"
 		"  --headroom            where the remaining error is, and what a new\n"
 		"                        mode could address (see RunHeadroom)\n"
-		"  --self-test           corrupt encoded bytes and raise the baseline\n"
-		"                        1 dB (needs --baseline); exactly the consistency\n"
-		"                        and quality checks MUST fail\n");
+		"  --self-test           corrupt encoded bytes, raise the baseline 1 dB\n"
+		"                        (needs --baseline) and average sRGB mips as\n"
+		"                        stored bytes; exactly the consistency, quality\n"
+		"                        and sRGB mip checks MUST fail\n");
 }
 
 } // namespace
@@ -1035,8 +1126,8 @@ int main(int argc, char** argv) {
 
 	if (selfTest)
 		std::printf("SELF-TEST: every 97th block corrupted (only the consistency check "
-					"reads it) and the baseline raised %.2f dB; expecting exactly %d "
-					"checks to FAIL\n\n",
+					"reads it), the baseline raised %.2f dB and the sRGB mips averaged "
+					"as stored bytes; expecting exactly %d checks to FAIL\n\n",
 					kSelfTestRaiseDb, static_cast<int>(std::size(kSelfTestFails)));
 
 	std::printf("%-26s %10s %7s %6s %6s %s\n", "image", "size", "PSNR", "bad", "thr",
@@ -1144,9 +1235,18 @@ int main(int argc, char** argv) {
 					recorded.size());
 	}
 
+	// The filter that makes every level below the first (MeasureMipFilter).
+	const MipFilterResult mip = MeasureMipFilter(/*srgbFlag*/ !selfTest);
+	std::printf("\nmip filter: %zu sRGB colour averages, worst %.3f codes from the mean "
+				"light's (a black-and-white checker: %d); %zu stored averages, worst %.0f "
+				"codes from rounded\n",
+				mip.srgbTexels, mip.srgbWorst, mip.checker, mip.storedTexels, mip.storedWorst);
+
 	std::printf("\nchecks:\n");
 	Check(badTotal == 0, kCheckConsistency);
 	Check(threadFails == 0, kCheckThreads);
+	Check(mip.srgbTexels > 0 && mip.srgbWorst <= 0.5 + 1e-3, kCheckMipSrgb);
+	Check(mip.storedTexels > 0 && mip.storedWorst == 0.0, kCheckMipRound);
 	if (!baselinePath.empty()) {
 		Check(baseline.badLines == 0, kCheckBaselineLines);
 		Check(matched > 0, kCheckBaselineMatch);

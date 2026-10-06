@@ -38,19 +38,21 @@ std::optional<assets::ModelData> LoadModelIfPresent(const std::string& name);
 assets::SoundData LoadSound(const std::string& name);
 
 // Loads a texture by stem (no extension), preferring the baked .dds mip
-// chain (no runtime filtering); falls back to the PNG + runtime mips.
-// Returns null if neither file exists. `srgb` selects an sRGB view (set it for
-// albedo/color maps; leave false for normal/height/ORM linear data).
+// chain (no runtime filtering); falls back to the PNG + runtime mips. A .dds
+// older than its PNG (assets::BakedIsCurrent) or one the reader rejects is
+// refused with a warning, never drawn in silence. Returns null if neither
+// file exists. `srgb` selects an sRGB view (set it for albedo/color maps;
+// leave false for normal/height/ORM linear data).
 std::unique_ptr<gfx::Texture> TryLoadTextureFile(gfx::GraphicsDevice& device,
 												 const std::string& stemPath,
 												 bool srgb = false);
 
 // A THUMBNAIL of a texture: the stem's baked .dds chain with every level wider
 // than `maxPx` dropped (a 128px tile of a 2k set is ~16 KB instead of
-// megabytes), else the source PNG at whatever size it is when no chain is
-// baked. sRGB by default (an albedo); a UI image passes false, so its thumbnail
-// matches how the full image draws (the party portraits load linear). Null if
-// neither loads. It UPLOADS, which drains the GPU: call it from Update, never
+// megabytes), else the source PNG at whatever size it is when no CURRENT chain
+// is baked (the TryLoadTextureFile rule). sRGB by default (an albedo); a UI
+// image passes false, so its thumbnail matches how the full image draws (the
+// party portraits load linear). Null if neither loads. It UPLOADS, which drains the GPU: call it from Update, never
 // while a frame is being recorded. The asset picker's tiles, the editor's
 // surface swatches and the portrait picker all load here.
 std::unique_ptr<gfx::Texture> LoadTextureThumb(gfx::GraphicsDevice& device,

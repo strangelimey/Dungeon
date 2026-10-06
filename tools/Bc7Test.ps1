@@ -33,12 +33,20 @@
 #                        match are only listed as notes - which textures get
 #                        sampled follows the installed pool.
 #
-# -SelfTest injects two faults and requires EXACTLY the two checks they aim at
-# to fail: corrupted bytes (the consistency check) and a baseline raised 1 dB
-# (the quality check, on every matched image). The thread and baseline-reading
-# checks must still pass. A harness that cannot fail is not evidence of
-# anything - the same reason AllocTest.ps1 has an inverted mode - and one that
-# passes its self-test on ANY failure cannot show which fault it caught.
+#   a mips: check        The mip filter every level below the first goes through
+#                        (assets::Downsample): sRGB colour averaged in linear
+#                        light, every other average rounded (code-review C414).
+#                        A FAIL here means the baked chains and the runtime
+#                        fallback's darken or drift with distance.
+#
+# -SelfTest injects three faults and requires EXACTLY the three checks they aim
+# at to fail: corrupted bytes (the consistency check), a baseline raised 1 dB
+# (the quality check, on every matched image) and sRGB mips averaged as stored
+# bytes, the filter before C414 (the sRGB mip check). The thread, rounding and
+# baseline-reading checks must still pass. A harness that cannot fail is not
+# evidence of anything - the same reason AllocTest.ps1 has an inverted mode -
+# and one that passes its self-test on ANY failure cannot show which fault it
+# caught.
 #
 # Prefer the RELEASE build: the encode is heavily float-bound and a debug run of
 # the same corpus takes minutes rather than seconds. The output is identical.
@@ -121,7 +129,7 @@ $code = Confirm-Verdict $lines 'bc7test' $LASTEXITCODE -SelfTest:$SelfTest
 
 Write-Host ''
 if ($code -eq 0) {
-	if ($SelfTest) { Write-Host 'SELF-TEST PASS: both deliberate faults were caught, each by its own check.' -ForegroundColor Green }
+	if ($SelfTest) { Write-Host 'SELF-TEST PASS: every deliberate fault was caught, each by its own check.' -ForegroundColor Green }
 	else { Write-Host 'PASS' -ForegroundColor Green }
 } else {
 	if ($SelfTest) { Write-Host 'SELF-TEST FAIL: a fault went undetected, or a check it should not reach failed - see the self-test lines above.' -ForegroundColor Red }

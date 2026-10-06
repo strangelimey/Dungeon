@@ -322,6 +322,16 @@ $checks = @(
 		selfTest = { & (Join-Path $root 'tools\PathsTest.ps1') -Config $Config -SelfTest | Out-Host; $LASTEXITCODE }
 	},
 	@{
+		name = 'baked'; tier = 'full'; needs = "build-$Config"
+		what = 'a .dds older than its PNG, or a model sidecar missing or stale, is refused and said (once a model)'
+		# One headless level load with a rune PNG made newer than its .dds and an
+		# item model's sidecars made stale, one hidden (code-review C410 / C437);
+		# put back however it ends. Its self-test plants nothing and demands
+		# exactly the two planted checks fail.
+		run      = { & (Join-Path $root 'tools\BakedTest.ps1') -Config $Config | Out-Host; $LASTEXITCODE }
+		selfTest = { & (Join-Path $root 'tools\BakedTest.ps1') -Config $Config -SelfTest | Out-Host; $LASTEXITCODE }
+	},
+	@{
 		name = 'stale'; tier = 'full'; needs = 'build-debug'
 		what = 'a harness refuses a stale exe, and CheckAll builds what it runs (StaleTest)'
 		run = { & (Join-Path $root 'tools\StaleTest.ps1') | Out-Host; $LASTEXITCODE }

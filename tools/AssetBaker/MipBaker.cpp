@@ -7,6 +7,11 @@
 // VRAM and bandwidth of RGBA8 — see Bc7Encoder.cpp), and stores the chain as
 // a DX10-header DDS; the game then loads it with a single read
 // (Assets/Dds.cpp) and uploads straight to a BC7 resource.
+//
+// A chain is averaged in the colour space the game SAMPLES it in - linear light
+// for an sRGB albedo, the stored values for data - and rounded (code-review
+// C414), and a file is skipped only when assets::BakedIsCurrent says so, the
+// same rule the game's loaders refuse a stale one by (C410).
 // ============================================================================
 #include "MipBaker.h"
 
@@ -60,9 +65,9 @@ bool WriteDdsBc7(const std::string& path, u32 width, u32 height,
 
 } // namespace
 
-// The chain for one decoded image: box-filtered levels, each BC7-encoded.
-// `source` names it in the log.
-static bool BakeImageChain(assets::ImageData image, const std::string& source,
+// The chain for one decoded image: box-filtered levels (in linear light for an
+// sRGB image), each BC7-encoded. `source` names it in the log.
+static bool BakeImageChain(assets::ImageData image, bool srgb, const std::string& source,
 						   const std::string& ddsPath) {
 	if (image.width % 4 != 0 || image.height % 4 != 0) {
 		// D3D12 requires BC top-level dimensions to be multiples of 4.
@@ -77,7 +82,7 @@ static bool BakeImageChain(assets::ImageData image, const std::string& source,
 	while (true) {
 		levels.push_back(EncodeBc7(level));
 		if (level.width == 1 && level.height == 1) break;
-		level = Downsample(level);
+		level = Downsample(level, srgb);
 	}
 
 	if (!WriteDdsBc7(ddsPath, width, height, levels)) {
@@ -88,26 +93,36 @@ static bool BakeImageChain(assets::ImageData image, const std::string& source,
 	return true;
 }
 
-bool BakeMipChain(const std::string& pngPath, const std::string& ddsPath) {
+bool BakeMipChain(const std::string& pngPath, const std::string& ddsPath, bool srgb) {
 	auto image = assets::LoadImageFile(pngPath);
 	if (!image) {
 		log::Error("{}", image.error());
 		return false;
 	}
-	return BakeImageChain(std::move(*image), pngPath, ddsPath);
+	return BakeImageChain(std::move(*image), srgb, pngPath, ddsPath);
 }
 
-bool BakeModelImageMips(const std::string& modelsDir) {
+bool IsTextureSetAlbedo(const std::string& pngPath) {
+	const std::string stem = std::filesystem::path(pngPath).stem().string();
+	return !stem.ends_with("_n") && !stem.ends_with("_mr");
+}
+
+bool BakeModelImageMips(const std::string& modelsDir, bool force) {
 	bool ok = true;
 	int models = 0, written = 0, fresh = 0;
 	for (const auto& entry : std::filesystem::directory_iterator(modelsDir)) {
 		const std::string ext = entry.path().extension().string();
 		if (!entry.is_regular_file() || (ext != ".gltf" && ext != ".glb")) continue;
 		const std::string path = entry.path().string();
-		// Loaded WITHOUT bakedImages: the bake wants the model's real images,
-		// and walks them in the loader's own order, which is what the sidecar
-		// index means.
-		auto model = assets::LoadModel(path);
+		// Loaded as the GAME loads it, with bakedImages, unless forced: an image
+		// whose sidecar is current (the loader's own test, assets::BakedIsCurrent)
+		// arrives as that chain and is never decoded - a 2k decode was paid for
+		// every image of every model before, current or not, only to be thrown
+		// away (code-review C410). Either way the images come in the loader's own
+		// order, which is what the sidecar index means. warnUnbaked off: the
+		// images it would report are the ones about to be baked.
+		const assets::LoadOptions opts{.bakedImages = !force, .warnUnbaked = false};
+		auto model = assets::LoadModel(path, opts);
 		if (!model) {
 			log::Error("{}", model.error());
 			ok = false;
@@ -115,19 +130,16 @@ bool BakeModelImageMips(const std::string& modelsDir) {
 		}
 		if (model->images.empty()) continue;
 		++models;
-		const auto modelTime = entry.last_write_time();
+		const std::vector<bool> srgb = assets::SrgbImages(*model);
 		for (size_t i = 0; i < model->images.size(); ++i) {
-			const std::string dds = assets::EmbeddedImageSidecar(path, i);
-			// Up to date: the same test the loader applies before using it. A
-			// 2k image costs seconds to encode, and most models never change.
-			std::error_code ec;
-			if (const auto t = std::filesystem::last_write_time(dds, ec);
-				!ec && t >= modelTime) {
-				++fresh;
+			if (i < model->imageMips.size() && !model->imageMips[i].levels.empty()) {
+				++fresh; // its sidecar is current
 				continue;
 			}
-			ok &= BakeImageChain(std::move(model->images[i]),
-								 std::format("{} image {}", path, i), dds);
+			if (model->images[i].pixels.empty()) continue; // nothing decoded to bake
+			ok &= BakeImageChain(std::move(model->images[i]), srgb[i],
+								 std::format("{} image {}", path, i),
+								 assets::EmbeddedImageSidecar(path, i));
 			++written;
 		}
 	}
@@ -136,23 +148,22 @@ bool BakeModelImageMips(const std::string& modelsDir) {
 	return ok;
 }
 
-bool BakeAllMips(const std::string& texturesDir, bool skipCurrent, const std::string& prefix) {
+bool BakeAllMips(const std::string& texturesDir, MipColor color, bool skipCurrent,
+				 const std::string& prefix) {
 	bool ok = true;
 	int count = 0, fresh = 0;
 	for (const auto& entry : std::filesystem::directory_iterator(texturesDir)) {
 		if (!entry.is_regular_file() || entry.path().extension() != ".png") continue;
 		if (!entry.path().filename().string().starts_with(prefix)) continue;
+		const std::string png = entry.path().string();
 		std::filesystem::path dds = entry.path();
 		dds.replace_extension(".dds");
-		if (skipCurrent) {
-			std::error_code ec;
-			const auto ddsTime = std::filesystem::last_write_time(dds, ec);
-			if (!ec && ddsTime >= entry.last_write_time()) {
-				++fresh;
-				continue;
-			}
+		if (skipCurrent && assets::BakedIsCurrent(dds.string(), png)) {
+			++fresh;
+			continue;
 		}
-		ok &= BakeMipChain(entry.path().string(), dds.string());
+		const bool srgb = color == MipColor::TextureSets && IsTextureSetAlbedo(png);
+		ok &= BakeMipChain(png, dds.string(), srgb);
 		++count;
 	}
 	log::Info("Mip bake: {} textures processed, {} already current", count, fresh);

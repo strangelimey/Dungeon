@@ -199,6 +199,12 @@ struct LoadOptions {
 	// Decoding a 2k PNG and building its mips on the CPU cost ~50 ms an image
 	// (skel_warrior: ~320 ms of a level change).
 	bool bakedImages = false;
+	// With bakedImages: say so - one line per model, once a run - when an image
+	// had to be decoded because its sidecar is MISSING or OLDER than the model
+	// (a missing one used to decode silently, and only a stale one warned, per
+	// image: code-review C437). The baker turns it off: it asks for the baked
+	// images only to skip the current ones, and is about to bake the rest.
+	bool warnUnbaked = true;
 };
 
 // Loads .gltf / .glb (full features) or .obj (static geometry only).
@@ -210,6 +216,13 @@ std::expected<ModelData, std::string> LoadModel(const std::string& path,
 // ModelData::images order. The baker writes it, the loader reads it; both call
 // this so the name cannot drift.
 std::string EmbeddedImageSidecar(const std::string& modelPath, size_t index);
+
+// Which of a model's images are sampled as sRGB: those a material uses as its
+// BASE COLOUR (normal and metallic-roughness maps are data). Parallel to
+// ModelData::images. The game creates their textures with it and the mip bake
+// averages their levels in linear light by it (assets::Downsample), so the two
+// ask one function and a sidecar is the chain the game would have built.
+std::vector<bool> SrgbImages(const ModelData& model);
 
 // Internal entry points, split by format.
 std::expected<ModelData, std::string> LoadGltf(const std::string& path,

@@ -1,0 +1,10 @@
+; bakedload.eval - tools\BakedTest.ps1's level load (code-review C410 / C437).
+;
+; Nothing here is judged: the harness reads dungeon.log for what the LOADERS
+; said. `reset` from a cold boot is a real new game on the harness level, and a
+; level load builds every item kind (DungeonWorld::PreloadItemKinds) - so every
+; rune tablet's texture set and every item model is loaded once, and a .dds or
+; sidecar the harness made stale or hid must be refused, and said so.
+logecho on
+reset
+state

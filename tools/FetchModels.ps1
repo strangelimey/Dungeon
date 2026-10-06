@@ -7,8 +7,9 @@
 #     source mesh --(Blender ConvertMesh.py, if fbx/usd or a pack)--> .glb
 #                 --(AssetBaker import-model)--> assets/models/<name>.gltf
 #                 --(AssetBaker import)--------> assets/textures/<set>_2k.*
-# then you wire a catalog [id] at it (decorations.cat / monsters.cat / items.cat)
-# and place it in a level.
+# and ends with `AssetBaker model-images` (the BC7 sidecars of any images
+# embedded in the models). Then you wire a catalog [id] at it (decorations.cat /
+# monsters.cat / items.cat) and place it in a level.
 #
 # SELECTION RULE (read before buying): a fab listing's "Included formats" MUST
 # include glb, obj, or fbx. Unreal-Engine-ONLY listings are .uasset packs the
@@ -376,8 +377,17 @@ foreach ($m in $modelSets) {
     $installed++
 }
 
-# (AssetBaker's `import` already bakes each set's .dds mip chain, so no separate
-# mips pass is needed here.)
+# AssetBaker's `import` already bakes each texture set's .dds mip chain, but the
+# images EMBEDDED in a model (a rigged .gltf, a multi-material .glb) are another
+# matter: the game loads their baked sidecars (<model>.<index>.dds) and, without
+# one, decodes the image at every load (~50 ms an image) and says so once per
+# model. So the run ends with `model-images`, which bakes only what is missing
+# or older than its model (code-review C437).
+if ($installed -gt 0 -and -not $WhatIfPreference) {
+    Write-Host ""
+    Write-Host "baking the embedded-image sidecars (AssetBaker model-images)"
+    if ((Invoke-Baker model-images $assets) -ne 0) { throw "model-images failed - see the baker's log above" }
+}
 
 Write-Host ""
 if ($installed -eq 0) {

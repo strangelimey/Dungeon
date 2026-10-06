@@ -13,17 +13,22 @@
 //       filename convention; OpenGL-style normals are flipped automatically
 //       when detectable, or forced with --flip-green.
 //
-//   AssetBaker mips <assets-dir>
+//   AssetBaker mips <assets-dir> [<prefix>] [--force]
 //       Regenerates the derived .dds mip chains (gitignored) for every PNG in
 //       assets/textures, so the game never filters mips at load time - and the
 //       same for every image EMBEDDED in a model in assets/models
-//       (<model>.<index>.dds beside it), so it never decodes those either.
+//       (<model>.<index>.dds beside it), so it never decodes those either, and
+//       for the portraits. A <prefix> bakes only the texture-set PNGs named
+//       <prefix>... and nothing else. The texture sets always re-bake; the
+//       sidecars and portraits skip a CURRENT file unless --force (after a
+//       filter or encoder change, which no timestamp can see).
 //
-//   AssetBaker model-images <assets-dir>
+//   AssetBaker model-images <assets-dir> [--force]
 //       Only the embedded-image sidecars; current ones are skipped. Run after
-//       importing or re-converting a model (the game warns on a stale one).
+//       importing or re-converting a model (the game warns, once per model, on
+//       a missing or stale one) - FetchModels and FetchAnimLibrary end with it.
 //
-//   AssetBaker portrait-mips <assets-dir>
+//   AssetBaker portrait-mips <assets-dir> [--force]
 //       The .dds chains for assets/portraits (the party portrait set,
 //       extracted by tools\FetchPortraits.ps1); current ones are skipped.
 //       `mips` covers them too.
@@ -51,8 +56,9 @@
 //       metres-to-units migration (see docs/authoring-scale.md).
 //
 //   AssetBaker runes <assets-dir>
-//       Regenerates the rune tablet model + carved per-element texture sets
-//       (fast; PNG only — run `mips` after to derive the .dds).
+//       Regenerates the rune tablet model + carved per-element texture sets,
+//       and their .dds chains (as `import` does). It used to write the PNGs
+//       only, and the game drew the old .dds beside them (code-review C410).
 
 #include "Assets/WornSets.h"
 #include "Core/Log.h"
@@ -87,13 +93,14 @@ int main(int argc, char** argv) {
 		const std::string name = argv[4];
 		if (!baker::ImportPbrTextureSet(argv[2], texturesDir, name, flipGreen)) return 1;
 		// Bake mip chains for the freshly imported set right away (albedo,
-		// normal+height, and the ORM occlusion/roughness/metallic map).
+		// normal+height, and the ORM occlusion/roughness/metallic map). Only the
+		// albedo is sampled as sRGB.
 		bool ok = baker::BakeMipChain(texturesDir + "\\" + name + ".png",
-									  texturesDir + "\\" + name + ".dds");
+									  texturesDir + "\\" + name + ".dds", /*srgb*/ true);
 		ok &= baker::BakeMipChain(texturesDir + "\\" + name + "_n.png",
-								  texturesDir + "\\" + name + "_n.dds");
+								  texturesDir + "\\" + name + "_n.dds", /*srgb*/ false);
 		ok &= baker::BakeMipChain(texturesDir + "\\" + name + "_mr.png",
-								  texturesDir + "\\" + name + "_mr.dds");
+								  texturesDir + "\\" + name + "_mr.dds", /*srgb*/ false);
 		return ok ? 0 : 1;
 	}
 
@@ -135,27 +142,58 @@ int main(int argc, char** argv) {
 		return ok ? 0 : 1;
 	}
 
+	// The three mip commands share their tail: an optional <prefix> word (mips
+	// only) and --force, which re-bakes a file its timestamp calls current - the
+	// way a filter or encoder change reaches the sidecars and the portraits.
+	const auto mipArgs = [&](std::string& prefix, bool& force) {
+		for (int i = 3; i < argc; ++i) {
+			const std::string a = argv[i];
+			if (a == "--force") force = true;
+			else if (a.starts_with("--")) log::Warn("{}: unknown flag '{}' ignored", argv[1], a);
+			else prefix = a;
+		}
+	};
+
 	if (argc >= 3 && std::string(argv[1]) == "mips") {
 		// Texture sets AND the images embedded in bought models - both are BC7
 		// chains the game loads instead of decoding PNGs. `mips <assets>
-		// <prefix>` bakes only the texture sets named <prefix>... (e.g. rune_
-		// after `runes`) and leaves the models alone.
-		if (argc >= 4)
-			return baker::BakeAllMips(std::string(argv[2]) + "\\textures", false, argv[3]) ? 0 : 1;
-		bool ok = baker::BakeAllMips(std::string(argv[2]) + "\\textures");
-		ok &= baker::BakeModelImageMips(std::string(argv[2]) + "\\models");
-		if (std::filesystem::is_directory(std::string(argv[2]) + "\\portraits"))
-			ok &= baker::BakeAllMips(std::string(argv[2]) + "\\portraits", true);
+		// <prefix>` bakes only the texture sets named <prefix>... and leaves the
+		// models and portraits alone.
+		std::string prefix;
+		bool force = false;
+		mipArgs(prefix, force);
+		const std::string assets = argv[2];
+		if (!prefix.empty())
+			return baker::BakeAllMips(assets + "\\textures", baker::MipColor::TextureSets, false,
+									  prefix)
+					   ? 0
+					   : 1;
+		bool ok = baker::BakeAllMips(assets + "\\textures", baker::MipColor::TextureSets);
+		ok &= baker::BakeModelImageMips(assets + "\\models", force);
+		if (std::filesystem::is_directory(assets + "\\portraits"))
+			ok &= baker::BakeAllMips(assets + "\\portraits", baker::MipColor::Linear, !force);
 		return ok ? 0 : 1;
 	}
 
-	if (argc >= 3 && std::string(argv[1]) == "portrait-mips")
-		return baker::BakeAllMips(std::string(argv[2]) + "\\portraits", true) ? 0 : 1;
+	if (argc >= 3 && std::string(argv[1]) == "portrait-mips") {
+		std::string prefix;
+		bool force = false;
+		mipArgs(prefix, force);
+		return baker::BakeAllMips(std::string(argv[2]) + "\\portraits", baker::MipColor::Linear,
+								  !force, prefix)
+				   ? 0
+				   : 1;
+	}
 
-	if (argc >= 3 && std::string(argv[1]) == "model-images")
+	if (argc >= 3 && std::string(argv[1]) == "model-images") {
 		// Only the embedded-image sidecars (fast when nothing changed: current
 		// sidecars are skipped). Run after importing or re-converting a model.
-		return baker::BakeModelImageMips(std::string(argv[2]) + "\\models") ? 0 : 1;
+		std::string prefix;
+		bool force = false;
+		mipArgs(prefix, force);
+		if (!prefix.empty()) log::Warn("model-images takes no prefix; '{}' ignored", prefix);
+		return baker::BakeModelImageMips(std::string(argv[2]) + "\\models", force) ? 0 : 1;
+	}
 
 	if (argc >= 3 && std::string(argv[1]) == "models") {
 		const std::string assets = argv[2];
@@ -211,10 +249,16 @@ int main(int argc, char** argv) {
 	}
 
 	if (argc >= 3 && std::string(argv[1]) == "runes") {
-		// Tablet model + carved per-element texture sets + icons. PNG only — the
-		// _2k set loads fine without a .dds; run `mips <assets> rune_` afterward
-		// to derive them.
-		return baker::BakeRunes(argv[2]) ? 0 : 1;
+		// Tablet model + carved per-element texture sets, then their .dds chains,
+		// as `import` does. It used to stop at the PNGs and leave `mips <assets>
+		// rune_` to the user - and the game, which loads a .dds over its PNG,
+		// went on drawing the old tablets until it was run (code-review C410; the
+		// loader now refuses a .dds older than its PNG, and says so).
+		const std::string assets = argv[2];
+		bool ok = baker::BakeRunes(assets);
+		ok &= baker::BakeAllMips(assets + "\\textures", baker::MipColor::TextureSets, false,
+								 "rune_");
+		return ok ? 0 : 1;
 	}
 
 	if (argc >= 3 && std::string(argv[1]) == "sounds") {
@@ -239,7 +283,9 @@ int main(int argc, char** argv) {
 	ok &= baker::BakeSounds(assets + "\\sounds");
 	ok &= baker::BakeModels(assets + "\\models", assets + "\\textures");
 	ok &= baker::BakeRunes(assets); // tablet + carved per-element texture sets
-	ok &= baker::BakeAllMips(assets + "\\textures");
+	// Every texture set's chain, the runes' included (BakeRunes writes PNGs; the
+	// `runes` command adds the chain pass this one already is).
+	ok &= baker::BakeAllMips(assets + "\\textures", baker::MipColor::TextureSets);
 	ok &= baker::BakeModelImageMips(assets + "\\models");
 	if (ok) log::Info("Asset bake complete.");
 	else log::Error("Asset bake FAILED.");

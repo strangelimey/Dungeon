@@ -110,7 +110,8 @@ harness use one to check the other.
 .\tools\Bc7Test.ps1
 ```
 
-Three checks, in increasing order of how much they would hurt:
+Four checks. The first three guard the encoder, in increasing order of how much
+they would hurt; the fourth guards the mip chain the encoder is handed:
 
 1. **Consistency.** The harness decodes the packed bytes with its own decoder
    (`tools/Bc7Test/Bc7Decode.cpp`, written from the format's field tables rather
@@ -150,13 +151,26 @@ Three checks, in increasing order of how much they would hurt:
    Measured once working: dropping the p-bit trial from the defaults fails 9 of
    the 16 images, brick by 1.27 dB.
 
-`-SelfTest` injects two faults and requires **exactly** the two checks they aim at
-to fail, every other check to pass (the `tools/SpellTest.py` rule). It corrupts
+4. **The mip filter.** Every level below the first goes through
+   `assets::Downsample` before it is packed (and the runtime PNG fallback uses
+   the same function, so the two chains are one). Two rules, checked against
+   the sRGB curve written out on its own rather than the filter's tables
+   (code-review C414): an sRGB image's colour is averaged in LINEAR light, each
+   output within half a code of the code nearest its 2x2's mean light (averaging
+   the stored bytes took a black-and-white checker to 127, where its light is
+   188 - fine albedo darkened with distance), and every other average (a linear
+   image, an sRGB image's alpha) ROUNDS to the nearest code, where `sum / 4`
+   truncated and lost about four codes over a 2k chain.
+
+`-SelfTest` injects three faults and requires **exactly** the three checks they aim
+at to fail, every other check to pass (the `tools/SpellTest.py` rule). It corrupts
 every 97th block of a *copy* of the encoded bytes, which only the consistency
-check reads, and raises every loaded baseline value by 1 dB, which must fail the
+check reads, raises every loaded baseline value by 1 dB, which must fail the
 quality check on **every** matched image - a comparison that skipped rows would
-still fail it once. The PSNR comes from the clean bytes, so neither fault can be
-caught by the other's check. No fault is aimed at the synthetic-coverage checks,
+still fail it once - and runs the sRGB half of the mip check with the filter as
+it was before C414 (the stored bytes averaged), which must fail it and leave the
+rounding check green. The PSNR comes from the clean bytes, so no fault can be
+caught by another's check. No fault is aimed at the synthetic-coverage checks,
 on purpose: a lost `syn.*` row then fails the self-test too, as an unexpected
 failure, instead of hiding behind an injected one. It used to pass if anything failed, and it did pass
 with the loader reading nothing: the corrupted bytes failed the run on their own.

@@ -63,4 +63,13 @@ bool WriteBinaryFile(const std::string& path, const void* data, size_t size) {
 	return std::fclose(f.release()) == 0 && wrote;
 }
 
+bool BakedIsCurrent(const std::string& baked, const std::string& source) {
+	std::error_code ec;
+	const auto bakedTime = std::filesystem::last_write_time(baked, ec);
+	if (ec) return false; // not baked
+	const auto sourceTime = std::filesystem::last_write_time(source, ec);
+	if (ec) return true; // no source for it to be older than
+	return bakedTime >= sourceTime;
+}
+
 } // namespace dungeon::assets
