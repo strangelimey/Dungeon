@@ -48,6 +48,13 @@ $ErrorActionPreference = 'Continue'
 $root = Split-Path -Parent $PSScriptRoot
 $bin = Join-Path $root "build\$Config\bin"
 
+# A build row's full output, named for THIS worktree's folder: several
+# sessions run CheckAll at once, and one shared %TEMP% name made a second
+# worktree's build fail in 0 s on "being used by another process".
+function Get-BuildLog([string]$cfg) {
+	Join-Path $env:TEMP "checkall-build-$cfg-$(Split-Path -Leaf $root).txt"
+}
+
 # Muted ONCE for the whole suite; every harness below that runs this config
 # finds its bin muted and leaves the volume to this one, and one that runs
 # another config (ProfileTest on release-profile) mutes its own
@@ -70,12 +77,12 @@ $checks = @(
 	@{
 		name = 'build-debug'; tier = 'quick'; build = $true
 		what = 'the debug build compiles clean'
-		run  = { & cmd /c ".\build.cmd debug > `"$env:TEMP\checkall-build-debug.txt`" 2>&1"; $LASTEXITCODE }
+		run  = { & cmd /c ".\build.cmd debug > `"$(Get-BuildLog debug)`" 2>&1"; $LASTEXITCODE }
 	},
 	@{
 		name = 'build-release'; tier = 'full'; build = $true
 		what = 'the release build compiles clean (the config that rots unwatched)'
-		run  = { & cmd /c ".\build.cmd release > `"$env:TEMP\checkall-build-release.txt`" 2>&1"; $LASTEXITCODE }
+		run  = { & cmd /c ".\build.cmd release > `"$(Get-BuildLog release)`" 2>&1"; $LASTEXITCODE }
 	},
 	@{
 		name = 'diag'; tier = 'quick'; needs = "build-$Config"
@@ -235,7 +242,7 @@ $checks = @(
 	@{
 		name = 'build-profile'; tier = 'full'; build = $true
 		what = 'the release-profile build compiles clean (DN_PROFILE rots unwatched too)'
-		run  = { & cmd /c ".\build.cmd release-profile > `"$env:TEMP\checkall-build-profile.txt`" 2>&1"; $LASTEXITCODE }
+		run  = { & cmd /c ".\build.cmd release-profile > `"$(Get-BuildLog profile)`" 2>&1"; $LASTEXITCODE }
 	},
 	@{
 		name = 'profile'; tier = 'full'; needs = 'build-profile'

@@ -19,7 +19,9 @@ only; this is how release gets exercised without waiting for the full suite.
 
 ## Reading a failure
 
-Full output is in `%TEMP%\checkall-build-<config>.txt`. Report the first real
+Full output is in `%TEMP%\checkall-build-<config>-<worktree folder>.txt`
+(`profile` for the release-profile row; the folder name keeps two worktrees'
+builds out of each other's file). Report the first real
 error rather than the last line — MSVC template errors cascade, and the tail is
 usually the least informative part.
 
