@@ -1,6 +1,7 @@
 // ============================================================================
 // Game/Game_Wiring.cpp — split out of Game.cpp to keep files small (see Game.h).
-// Module callback wiring (the on* handlers), called from the ctor.
+// Module callback wiring (the on* handlers): WireModuleCallbacks once from the
+// ctor, WireWorldCallbacks each time LoadWorld builds a world.
 // ============================================================================
 #include "Game/Game.h"
 

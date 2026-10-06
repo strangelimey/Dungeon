@@ -211,8 +211,8 @@ void WorldsDialog::BuildConfirm(DialogChrome& chrome) {
 
 void WorldsDialog::BuildList(DialogChrome& chrome) {
 	// The worlds, one row each: the name, then either the way there or a word
-	// saying you are already in it. The running world has NO button — opening
-	// the world you are in would relaunch into exactly where you are.
+	// saying you are already in it. The running world has NO button - opening
+	// the world you are in would do nothing (SwitchWorld is already there).
 	ui::ScrollArea* scroll = chrome.body->Row<ui::ScrollArea>(ui::Len::Fill());
 	ui::Stack* rows = scroll->Add<ui::Stack>(gfx::Rect{0, 0, 1, 1});
 	rows->fitContent = true;
@@ -231,7 +231,7 @@ void WorldsDialog::BuildList(DialogChrome& chrome) {
 			continue;
 		}
 		// The first click ARMS (lit, and its name becomes the switch); the
-		// second relaunches into the world.
+		// second switches to the world.
 		const bool armed = name == m_armed;
 		RowIcon(*row, m_device, "enter",
 				loc::Tr(armed ? "map.worlds.relaunch" : "map.worlds.open"),

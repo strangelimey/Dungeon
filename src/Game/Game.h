@@ -1,39 +1,58 @@
 // ============================================================================
 // Game/Game.h — the dungeon crawler's app state machine.
 //
-// Game is the thin coordinator over the module classes — it owns them, wires
-// their callbacks together, and runs the state machine that decides what
-// updates and renders each frame:
+// Game is the coordinator over the module classes - it owns them, wires their
+// callbacks together (Game_Wiring.cpp), and runs the state machine that decides
+// what updates and renders each frame:
 //
-//   GameSettings — user options (quality, volume, theme, colors, keys),
-//                  persisted to settings.ini next to the exe
-//   SoundBank    — the loaded sound effects, shared by every system
-//   LoadQueue    — staged loading, one task per rendered frame
-//   DungeonWorld — the 3D world: map, party, monsters, fires, lights,
-//                  camera; simulation + the shadow and scene passes
-//   GameUI       — menus, the settings page, HUD, character sheet, loading
+//   GameSettings - user options (quality, display, volume, theme, colours,
+//                  keys, HUD layout), persisted to settings.ini next to the exe
+//   Project      - the open WORLD's catalogs and levels (assets/projects/
+//                  <name>), with its overworld (WorldMap) and the dynamic
+//                  WorldState beside it
+//   SoundBank    - the loaded sound effects, shared by every system
+//   LoadQueue    - staged loading, one task per rendered frame
+//   DungeonWorld - the 3D world: map, party, monsters, fires, lights, camera;
+//                  simulation + the shadow and scene passes. Built by LoadWorld
+//                  when a game starts, destroyed when another world opens, and
+//                  null on the title screen until then
+//   GameUI       - menus, the settings page, HUD, character sheet, loading
 //                  screens and overlays
+//   MapView, MapEditor and the editor dialogs - the map overlay and the editor
 //
-// App states:
-//   Loading     — boot load: just the menu essentials (title art, click
-//                 sounds), one step per frame, so the landing page appears
-//                 fast even on a cold cache
-//   Menu        — landing page over baked title art; mouse hover or
-//                 keyboard selects an entry
-//   LoadingGame — the heavy dungeon load (meshes, scanned textures, world
-//                 build), entered from "Start New Game" the first time;
-//                 staged one task per frame behind its own progress screen
-//   Playing     — the crawler: UI input → world simulation
-//   Paused      — Esc while playing: the world freezes (no simulation) and
-//                 a pause menu (Save/Load/Settings/Exit/Back) draws over
-//                 the frozen scene; Esc backs out / resumes
-//   CharacterSheet — clicking a party-bar portrait while playing: the world
-//                 freezes like Paused and the character details page draws
-//                 over it (prev/next cycle members, Esc/Back resumes)
+// App states (AppState):
+//   Loading      - boot load: just the menu essentials (sounds, title art, the
+//                  portrait catalog), one task per frame, so the landing page
+//                  appears fast even on a cold cache
+//   Menu         - the landing page over the title art; nothing simulates
+//   LoadingGame  - the world's game assets (meshes, scanned textures, the HUD),
+//                  staged behind a progress screen the first time a game starts,
+//                  continues or loads in that world
+//   LoadingLevel - a level change mid-game (a stair, a pit, a dungeon entered,
+//                  a save made on another level): only the world half re-stages
+//   Playing      - the crawler: UI input -> world simulation
+//   WorldMap     - travelling the overworld between dungeons. A STATE, not an
+//                  overlay: no level is drawn behind it and nothing simulates
+//   Paused       - Esc while playing or travelling: the world freezes and the
+//                  pause menu draws over it; Esc backs out of settings, then
+//                  resumes to m_resumeState
+//   CharacterSheet - a party portrait clicked. NOT A PAUSE: over a level the
+//                  world goes on simulating under the page while the input stays
+//                  the sheet's; Esc closes a popup first, then resumes
 //
-// Everything binary loads from the assets/ directory next to the exe
-// (regenerate with tools/AssetBaker). Engine modules know nothing about
-// dungeons — all gameplay rules live in this module.
+// ESC NEVER QUITS, in any state - it only backs out. Quitting is an Exit entry
+// (the landing list or the pause menu), the console's `quit` / `exit`, or the
+// window's own close button.
+//
+// A WORLD SWITCH happens in the process (SwitchWorld -> m_pendingWorld, applied
+// at the top of the next frame); only an adapter change relaunches the exe
+// (RestartApp). The ROSTER is 1..party::kMaxMembers members, and ResetRoster
+// replaces the vector when a new party's size differs.
+//
+// Assets load from paths::AssetsDir(): the repo's assets/ in a dev build
+// (DN_ASSETS_DIR), the copy beside the exe only in a packaged one; tools/
+// AssetBaker regenerates the baked ones. Engine modules know nothing about
+// dungeons - all gameplay rules live in this module.
 // ============================================================================
 #pragma once
 
@@ -110,7 +129,8 @@ public:
 	// finishes loading. See the definition.
 	void EndHeadlessFrame();
 
-	// Set by the pause menu's Exit entry (and Esc outside of play); the
+	// Set by an Exit entry (the landing list or the pause menu), the console's
+	// `quit` / `exit`, a finished eval batch and RestartApp - never by Esc. The
 	// main loop polls it to leave cleanly.
 	bool QuitRequested() const { return m_quitRequested; }
 
@@ -351,13 +371,11 @@ private:
 	void PrintDocks(const std::vector<std::string>& args);
 	bool SaveFontCatalog();
 
-	// The editor toolbar's [+] button: writes a minimal .map/.ent pair next to
-	// the project's other levels, appends the stem to the manifest, and returns
-	// it ("" on failure) so the map view can jump straight onto the new canvas.
 	// --- the world tier (Game_World.cpp) -----------------------------------
 	// Resolves terrain.cat into rules and loads the project's world map. Called
-	// once from the constructor; leaves m_worldMap empty when the project has
-	// no world/world.map.
+	// by LoadWorld, so once for EVERY world built or switched to (UnloadWorld
+	// resets m_worldMap first); leaves it empty when the project has no
+	// terrain.cat entries or no world/world.map.
 	void LoadWorldMap();
 	// Writes world/world.map from the loaded world, and READS IT BACK to check
 	// it round-trips. Part of `savemap`. False when there is no world, or the
@@ -441,20 +459,15 @@ private:
 	// line each. Empty-world-safe.
 	std::vector<std::string> WorldReport() const;
 
-	// Creates a level on disk (minimal .map/.ent), appends it to the manifest
-	// and — when `dungeonId` names one — to THAT DUNGEON'S level list, so a
-	// level made from the editor is not born an orphan (W5). An empty id
-	// creates it loose, which is what the manifest did for every level before
-	// the world tier existed. Returns the stem, or "" on failure.
 	// --- worlds (W7) ---------------------------------------------------------
 	// Michael's word for a project. Each is a self-contained game under
 	// assets/projects/<name>: its own overworld, dungeons, levels and content.
 	//
-	// Which one to open is decided before anything else exists, so SWITCHING
-	// RELAUNCHES — the adapter change's bargain, for the adapter change's
-	// reason: the level meshes, the surface textures, the catalogs and the
-	// world are all built from the choice at startup, and tearing that down in
-	// place would be a long tail of stale caches for a saving of ten seconds.
+	// The DEFAULT world a start opens, chosen once at startup: `-project`, else
+	// settings.ini's last world played, else kDefaultProject (see the
+	// definition). Nothing is opened until a game starts (LoadWorld), and a
+	// switch to another world happens in the process (SwitchWorld): the old one
+	// is unloaded (UnloadWorld) and the new one built from scratch.
 	static std::string ChooseProjectFolder();
 	// The world a launch falls back on when the one it asked for is missing —
 	// which is why it is also the one world that cannot be deleted.
@@ -528,9 +541,11 @@ private:
 	bool DeleteDungeon(const std::string& id);
 	void WarnSavesInLevels(const std::vector<std::string>& stems);
 	// Mint a NEW level in `dungeonId` (files + manifest + the dungeon's level
-	// list + a stair from the floor above) and return its stem, "" on failure.
-	// Generated from `params` when given, else the minimal empty box. THE ONE
-	// WRITER of new levels: the [+] dialog, the `newlevel` and `generate`
+	// list, so a level made from the editor is not born an orphan - W5) and
+	// return its stem, "" on failure. An empty id creates it loose, as `levelN`.
+	// Generated from `params` when given - with a stair from the dungeon's floor
+	// above - else the minimal empty box, joined up later with the stair brush.
+	// THE ONE WRITER of new levels: the [+] dialog, the `newlevel` and `generate`
 	// commands all come through here, so a generated level cannot be named,
 	// grouped or linked differently from an empty one.
 	// The EMPTY box takes `emptyStyle` (Phase 7: the [+] dialog's style), its
@@ -754,18 +769,16 @@ private:
 	// already held. True = a load is in flight and the caller is done.
 	bool OpenInLevel(const std::string& level, int x, int z);
 	void StartNewGame();
-	// Resets the roster to a fresh default party in place; each slot's portrait
-	// returns to its default id (SyncPortraits reloads only a changed one). The
-	// HUD/sheet widgets address members by (roster, index)
-	// and re-resolve every frame, so even a roster RESIZE can't dangle them —
-	// but a size change must still call GameUI::RebuildForRoster (deferred, not
-	// from a widget callback) to re-lay-out the per-member widgets. Shared by
-	// StartNewGame and LoadGame.
-	// `party` is the party to start with (a CREATED one, docs/party-creation-
-	// plan.md); null = the default four. A different SIZE replaces the vector and
-	// re-lays-out the HUD (RebuildForRoster - safe here: every caller runs outside
-	// the HUD's widget walk). Only the default four take the Settings palette's
-	// colours; a created member keeps the one it was given.
+	// Resets the roster to a fresh party: `party` (a CREATED one, docs/party-
+	// creation-plan.md), or the default four when null. The same SIZE is assigned
+	// member by member, in place; a different size replaces the vector and
+	// re-lays-out the HUD (GameUI::RebuildForRoster - safe here: every caller,
+	// StartNewGame, LoadGame and ResetForEval, runs outside the HUD's widget
+	// walk). The HUD/sheet widgets address members by (roster, index) and
+	// re-resolve every frame, so neither case can dangle them. Each slot's
+	// portrait follows its member's id (SyncPortraits reloads only a changed
+	// one). Only the default four take the Settings palette's colours; a created
+	// member keeps the one it was given.
 	void ResetRoster(const std::vector<Character>* party = nullptr);
 
 	// --- party creation (Game_Party.cpp) ------------------------------------
@@ -826,12 +839,12 @@ private:
 	// the place. Run from UpdateStates when the level or the edit revision
 	// moves, and after a Level settings save.
 	void RefreshPlaceStone();
-	// Relaunches the executable (a fresh process picks up the new adapter, the
-	// only way to switch GPUs, or a new world) and flags this instance to quit.
-	// `extraArgs` go on the new command line (`-newgame` for the world list).
-	void RestartApp(const std::string& extraArgs = {});
+	// Relaunches the executable and flags this instance to quit: a fresh process
+	// binds the newly chosen adapter, the only way to switch GPUs (the Video
+	// tab's Apply). Nothing else relaunches - a world switch is in-process.
+	void RestartApp();
 	// The new-game world list's pick: a new game now if it is the world
-	// running, else remember it and relaunch into a new game there.
+	// running, else a switch to it (SwitchWorld) and a new game there.
 	void StartNewGameIn(const std::string& folder);
 	// Loads the settings' language file (falling back to English when it is
 	// missing); rebuild=true also re-creates every UI page in the new
@@ -871,13 +884,6 @@ private:
 	// an unconditional "resume means Playing" would quietly teleport a
 	// travelling party into whatever level was last loaded.
 	AppState m_resumeState = AppState::Playing;
-	// THE EVAL HARNESS ASKS FOR A LEVEL (Game_Eval.cpp). `reset` means "where a
-	// new game would leave it", and since P4 that is the WORLD MAP, where
-	// nothing simulates — ten combat suites would have gone on printing
-	// plausible readouts about a party standing in a field
-	// (docs/world-map.md "Obligations"). So the harness states what it wants
-	// and StartNewGame honours it, instead of the two silently tracking each
-	// other. Never set outside the harness.
 	LoadQueue m_loadQueue;
 	bool m_gameLoaded = false; // the loaded world's game assets are resident
 	// The world a start with nothing else to go on opens: `-project`, else
@@ -996,10 +1002,20 @@ private:
 	float m_encounterRate = 0.25f;
 	bool m_encountersOff = false;
 	SoundBank m_sounds;
-	// Party roster (up to four). Filled once in the constructor and never
-	// resized — the party-bar panels and the sheet hold pointers into it, so
-	// StartNewGame resets the members in place.
+	// THE EVAL HARNESS ASKS FOR A LEVEL (Game_Eval.cpp). `reset` means "where a
+	// new game would leave it", and since P4 that is the WORLD MAP, where
+	// nothing simulates - ten combat suites would have gone on printing
+	// plausible readouts about a party standing in a field
+	// (docs/world-map.md "Obligations"). So the harness states what it wants
+	// and StartNewGame honours it, instead of the two silently tracking each
+	// other. Never set outside the harness.
 	bool m_harnessOpensInLevel = false;
+	// Party roster, 1..party::kMaxMembers members. The HUD and sheet widgets
+	// hold no pointer into it: they address it by (vector, index) and
+	// re-resolve every frame (PartyHudTypes.h RosterMember), and the world
+	// borrows the VECTOR (SetRoster). So ResetRoster assigns members in place
+	// when the size holds and replaces the vector when it does not, then calls
+	// GameUI::RebuildForRoster to re-lay-out the per-member widgets.
 	std::vector<Character> m_characters;
 	// Portrait textures, parallel to m_characters (entries may be null when the
 	// image is missing; Character::portrait points in here), and the id each
@@ -1098,9 +1114,6 @@ private:
 	// The face a role has apart from any language override (`font save`).
 	const ui::FaceSpec& BaseFace(ui::FontRole role) const;
 	GameUI m_ui;
-	// Map/editor overlay (toggle with `M` while playing). Like the console it
-	// does NOT pause the world — the party keeps walking; the overlay only
-	// claims the mouse for panning/zooming/editing.
 	// The overworld screen (docs/world-map.md). Its own class, not a third
 	// MapView mode: MapView is built around a DungeonMap and its docks,
 	// palette and brushes, none of which mean anything on the world.
@@ -1108,6 +1121,9 @@ private:
 	// A paint STROKE is open: the first changed cell began an undo step and the
 	// mouse release closes it, so one drag is one Ctrl+Z.
 	bool m_worldStroke = false;
+	// Map/editor overlay (toggle with `M` while playing). Like the console it
+	// does NOT pause the world - the party keeps walking; the overlay only
+	// claims the mouse for panning/zooming/editing.
 	MapView m_mapView;
 	// The Editor-mode brush palette + tools, driven by m_mapView while it is in
 	// Editor mode (see MapEditor.h). Declared after m_mapView so it can take a
@@ -1141,8 +1157,8 @@ private:
 	// harness level, its areas and its doorways. Opened by the world screen's
 	// toolbar, and by a right-click on a doorway (which opens it ON that one).
 	WorldSettingsDialog m_worldSettingsDialog;
-	// The worlds BESIDE this one (W8): list, open (relaunches), create. The
-	// world toolbar's leftmost disc; `worlds` is the same thing typed.
+	// The worlds BESIDE this one (W8): list, open (in the process, SwitchWorld),
+	// create. The world toolbar's leftmost disc; `worlds` is the same thing typed.
 	WorldsDialog m_worldsDialog;
 	// Making a world (P4): blank, this world whole, or one level. Opened from a
 	// disc on both editor toolbars and the Worlds dialog's "New world..."; it

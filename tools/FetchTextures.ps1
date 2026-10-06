@@ -23,9 +23,18 @@
 # --flip-green (textures.com normals are OpenGL but their filenames lack the
 # 'gl' token the importer auto-detects).
 #
-# Usage:  powershell -File tools\FetchTextures.ps1 [-Resolutions 1k,2k,4k]
-#                    [-Materials name1,name2,...] [-All]
+# Usage, from the repo root:
+#   powershell -Command "& { .\tools\FetchTextures.ps1 }"
+#   powershell -Command "& { .\tools\FetchTextures.ps1 -Materials wall_stone,floor_cobble -Resolutions 2k,4k }"
+#   powershell -Command "& { .\tools\FetchTextures.ps1 -All -Resolutions 2k }"
+# Add -WhatIf inside the braces to list what would be imported, baking nothing.
+#
+# -Command, NOT -File, for a comma list: powershell.exe -File passes `a,b,c` as
+# ONE string, which binds to [string[]] as a single element, so every name
+# matches nothing and the run ends "Nothing imported". tools\UsageLinesTest.ps1
+# dry-runs the lines above and fails if one stops selecting what it names.
 
+[CmdletBinding(SupportsShouldProcess = $true)]
 param(
     [string[]] $Resolutions = @("1k", "2k", "4k"),
     [string[]] $Materials = @(),
@@ -42,7 +51,8 @@ if (-not (Test-Path $archive)) { throw "Asset archive not found: $archive" }
 
 $baker = Join-Path $repo "build\release\bin\AssetBaker.exe"
 if (-not (Test-Path $baker)) { $baker = Join-Path $repo "build\debug\bin\AssetBaker.exe" }
-if (-not (Test-Path $baker)) { throw "Build AssetBaker first (build.cmd release)" }
+# A -WhatIf run bakes nothing, so it needs no baker.
+if (-not (Test-Path $baker) -and -not $WhatIfPreference) { throw "Build AssetBaker first (build.cmd release)" }
 
 # Run AssetBaker without letting its stderr abort us. AssetBaker logs warnings
 # (e.g. "No height/displacement map found") to stderr; under PS 5.1 a native
@@ -125,12 +135,14 @@ foreach ($res in $Resolutions) {
         foreach ($materialDir in Get-ChildItem $categoryDir.FullName -Directory) {
             if (-not $All -and -not $wanted.Contains($materialDir.Name)) { continue }
             $name = "$($materialDir.Name)_$res"
+            # Counted either way, so a -WhatIf run ends with the same verdict.
+            $imported++
+            if (-not $PSCmdlet.ShouldProcess($name, "Import from $($materialDir.FullName)")) { continue }
             Write-Host "Importing $name..."
             $conv = Convert-TiffMaps $materialDir.FullName
             $bakerArgs = @('import', $conv.Dir, $assets, $name)
             if ($conv.ForceFlipGreen) { $bakerArgs += '--flip-green' }
             if ((Invoke-Baker @bakerArgs) -ne 0) { throw "Import failed for $name" }
-            $imported++
         }
     }
 }
@@ -160,17 +172,22 @@ if ($Materials.Count -eq 0) {
     foreach ($prop in $propSets) {
         $src = Join-Path (Join-Path $archive "2k") $prop.Src
         if (-not (Test-Path $src)) { Write-Host "  $($prop.Src) missing - skipped"; continue }
+        $imported++
+        if (-not $PSCmdlet.ShouldProcess("$($prop.Name)_2k", "Import from $src")) { continue }
         Write-Host "Importing $($prop.Name)_2k..."
         $conv = Convert-TiffMaps $src
         if ((Invoke-Baker import $conv.Dir $assets "$($prop.Name)_2k" --flip-green) -ne 0) {
             throw "Import failed for $($prop.Name)_2k"
         }
-        $imported++
     }
 }
 
 if ($imported -eq 0) { throw "Nothing imported - check the material names against the archive" }
 
 Write-Host ""
-Write-Host "$imported texture sets installed. The game reads this tree directly,"
-Write-Host "so just relaunch, then pick a quality tier in Settings."
+if ($WhatIfPreference) {
+    Write-Host "$imported texture sets would be imported (-WhatIf: nothing baked)."
+} else {
+    Write-Host "$imported texture sets installed. The game reads this tree directly,"
+    Write-Host "so just relaunch, then pick a quality tier in Settings."
+}

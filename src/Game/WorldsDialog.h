@@ -7,8 +7,9 @@
 // is opened from the world screen's toolbar, the leftmost disc, because it is
 // the one tool there that is about something other than THIS world.
 //
-// OPENING ONE RELAUNCHES THE GAME (Game::SwitchWorld — everything downstream
-// is built from the choice at startup), so the click that does it is ARMED:
+// OPENING ONE ENDS THE GAME HERE (Game::SwitchWorld: this world is unloaded,
+// in the process, and a new game starts in that one - docs/world-on-demand.md;
+// it used to relaunch the exe), so the click that does it is ARMED:
 // the first click on a row's Open says what is about to happen and the second
 // does it. The TypeEditorDialog's Delete makes the same bargain for the same
 // reason — the only two buttons in the editor whose effect undo cannot reach.
@@ -58,7 +59,8 @@ public:
 	// Makes a new world; returns its name as written (the name is FILTERED to
 	// a folder-safe id), or "" when refused — the log says why.
 	std::function<std::string(const std::string& name)> onCreate;
-	// Relaunches into `name`. False when it could not (no such world).
+	// Switches to `name` (a new game there, next frame). False when it could
+	// not (no such world).
 	std::function<bool(const std::string& name)> onSwitch;
 	// The list's "New world..." button: the owner opens the NewWorldDialog
 	// (blank / copy / one level), which is where worlds are made in the UI.

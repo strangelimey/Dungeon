@@ -22,11 +22,19 @@
 # Single-object FreePBR props under DungeonAssets\2k\models\ work too (point Src
 # straight at them).
 #
-# Usage:
-#   powershell -File tools\FetchModels.ps1                 # all table entries
-#   powershell -File tools\FetchModels.ps1 -Materials dagger,kukri
-#   powershell -File tools\FetchModels.ps1 -Blender "C:\...\blender.exe"
+# Usage, from the repo root (-Materials takes the table's Name column):
+#   powershell -Command "& { .\tools\FetchModels.ps1 }"
+#   powershell -Command "& { .\tools\FetchModels.ps1 -Materials viking_dagger,khukri }"
+#   powershell -Command "& { .\tools\FetchModels.ps1 -Materials torch -Blender 'D:\Blender\blender.exe' }"
+# Add -WhatIf inside the braces to list what would be installed, converting and
+# baking nothing. -Blender is only needed when Blender is not under Program Files.
+#
+# -Command, NOT -File, for a comma list: powershell.exe -File passes `a,b` as ONE
+# string, which binds to [string[]] as a single element and matches no Name.
+# tools\UsageLinesTest.ps1 dry-runs the lines above and fails if one stops
+# selecting what it names.
 
+[CmdletBinding(SupportsShouldProcess = $true)]
 param(
     [string[]] $Materials = @(),
     [string]   $Blender = ""
@@ -54,7 +62,8 @@ function Find-Blender {
 
 $baker = Join-Path $repo "build\release\bin\AssetBaker.exe"
 if (-not (Test-Path $baker)) { $baker = Join-Path $repo "build\debug\bin\AssetBaker.exe" }
-if (-not (Test-Path $baker)) { throw "Build AssetBaker first (build.cmd release)" }
+# A -WhatIf run converts and bakes nothing, so it needs no baker.
+if (-not (Test-Path $baker) -and -not $WhatIfPreference) { throw "Build AssetBaker first (build.cmd release)" }
 
 # Resolve Blender (only needed for fbx/usd sources or Split packs). The NEWEST
 # installed version wins - a hardcoded version list silently skips every mesh
@@ -231,6 +240,12 @@ foreach ($m in $modelSets) {
     $mesh = Find-Mesh $srcDir
     if (-not $mesh) { Write-Host "$($m.Name): no mesh in $($m.Src) - skipped"; continue }
 
+    # A -WhatIf run stops here: the entry is selected and its source found.
+    if (-not $PSCmdlet.ShouldProcess($m.Name, "Install from $($m.Src) ($(Split-Path $mesh -Leaf))")) {
+        $installed++
+        continue
+    }
+
     Write-Host ""
     Write-Host "=== $($m.Name)  <-  $($m.Src) ($(Split-Path $mesh -Leaf)) ==="
     $ext = [IO.Path]::GetExtension($mesh).ToLower()
@@ -377,6 +392,8 @@ Write-Host ""
 if ($installed -eq 0) {
     Write-Host "No models installed (download a pack into $archive\fab\... first,"
     Write-Host "or check the names against the table in this script)."
+} elseif ($WhatIfPreference) {
+    Write-Host "$installed model(s) would be installed (-WhatIf: nothing converted or baked)."
 } else {
     Write-Host "$installed model(s) installed. Wire a catalog [id] at each (model=<Name>,"
     Write-Host "texture=<set>), place it in a level, then relaunch the game."

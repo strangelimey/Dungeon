@@ -1,6 +1,10 @@
 // ============================================================================
 // Game/Game.cpp — see Game.h. The module classes do the real work; this file
-// is construction wiring, the staged-load task lists, and the state machine.
+// is construction, the world's lifetime (LoadWorld / UnloadWorld), the staged-
+// load task lists, portraits and icons, new game / save / load, arming the
+// allocation guard (SteadyStateFrame, `alloctest`), and the state machine
+// (Update / UpdateStates / Render). The callback wiring is Game_Wiring.cpp;
+// each other Game_*.cpp is one subsystem hanging off the state machine.
 // ============================================================================
 #include "Game/Game.h"
 
@@ -88,9 +92,8 @@ const Input kNoInput;
 //   1. `-project <name>` on the command line — ONE RUN, touching no settings.
 //      This is how a test scenario gets its own world: the harness launches
 //      into it and the developer's own choice is left alone.
-//   2. settings.ini `project=` — the world you last switched to. Persisted
-//      rather than passed because switching RELAUNCHES (see SwitchWorld), the
-//      same bargain the adapter change makes.
+//   2. settings.ini `project=` - the world you last switched to (SwitchWorld
+//      writes it), so the next launch opens where you left off.
 //   3. dungeon-demo, the one that ships.
 // A HARNESS RUN (`-eval`) SKIPS 2. It measures a scenario, and the scenario must
 // not be whichever world the developer last switched into — the first time
@@ -509,11 +512,10 @@ Game::~Game() {
 }
 
 // ============================================================================
-// Module wiring — the world↔UI/editor callback graph and the dev-console
-// command table, split out of the constructor (which is otherwise just member
-// init) so each is browsable on its own.
+// The world's lifetime (docs/world-on-demand.md) - LoadWorld, the deferred
+// switch, UnloadWorld. (The callback wiring is Game_Wiring.cpp; each dev-console
+// Register*Commands lives in its own file - see Game.h.)
 // ============================================================================
-// --- the world's lifetime (docs/world-on-demand.md) --------------------------
 
 bool Game::LoadWorld(const std::string& folder) {
 	const std::string root = paths::Asset("projects");
@@ -697,9 +699,6 @@ void Game::BeginLevelTransition(const std::string& stem, int x, int z,
 	m_stateFrameMark = m_framesRendered;
 }
 
-// Launches the AssetBaker command for the current bake step (P4c). Models are a
-// single import-model; texture sets import the maps (step 0) then rebake the
-// worn block meshes that sample them (step 1).
 bool Game::RunLoadTasks() {
 	const bool wasDone = m_loadQueue.Done();
 	if (m_framesRendered > m_stateFrameMark) m_loadQueue.RunOne();
@@ -1481,18 +1480,6 @@ bool Game::LoadGame(const std::string& path) {
 	return true;
 }
 
-// RECYCLE THE WORLD (docs/eval-harness.md). A dungeon load is ~12 seconds and
-// 80% of what a suite costs, so a run of hundreds of tests cannot afford one per
-// test. This puts the game where `newgame` would and skips the load.
-//
-// It falls back to a REAL new game when nothing is loaded yet, which is what
-// lets every script open with `reset` and only the first one in a batch pay.
-//
-// Returns false only if it could not get to a playing state at all.
-// (ResetForEval, StepWorld and the whole eval script runner live in
-// Game_Eval.cpp — see its banner for why they are a separate TU and not an
-// #ifdef.)
-
 // A stair the world raised this frame, from play or from under the sheet.
 void Game::FollowLevelTransition(const DungeonWorld::LevelTransition& t) {
 	if (t.toWorld) {
@@ -1684,11 +1671,10 @@ void Game::ApplyDisplaySettings() {
 	}
 }
 
-void Game::RestartApp(const std::string& extraArgs) {
+void Game::RestartApp() {
 	// Leave any exclusive full-screen so the new process can claim the display.
 	m_device.SetFullscreen(false, 0, 0, 0);
-	std::string cmd = "\"" + paths::ExecutableDir() + "\\Dungeon.exe\"";
-	if (!extraArgs.empty()) cmd += " " + extraArgs;
+	const std::string cmd = "\"" + paths::ExecutableDir() + "\\Dungeon.exe\"";
 	if (!m_restart.Start(cmd)) log::Warn("Could not relaunch the game ({})", cmd);
 	m_quitRequested = true;
 }

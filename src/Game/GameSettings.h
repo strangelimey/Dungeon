@@ -170,11 +170,12 @@ struct GameSettings {
 	// dropdown, 1..10; ini spell_mru=.
 	int spellMruCount = 5;
 	// THE WORLD THE GAME OPENS (W7): a project folder name under
-	// assets/projects. Persisted rather than passed, because switching one
-	// RELAUNCHES — the same bargain the adapter change makes, and for the
-	// same reason: everything downstream of the choice is built at startup.
-	// `-project <name>` on the command line overrides it for one run, which
-	// is how a test scenario gets its own world without touching the ini.
+	// assets/projects - the world last switched to. Game::SwitchWorld writes it
+	// (the switch itself happens IN THE PROCESS, docs/world-on-demand.md; it
+	// used to relaunch) so the NEXT launch opens where you left off, and
+	// Game::ChooseProjectFolder reads it. `-project <name>` on the command line
+	// overrides it for one run without touching the ini, which is how a test
+	// scenario gets its own world; an `-eval` run ignores it.
 	std::string projectName = "dungeon-demo";
 
 	bool mapPaletteCollapsed = false;  // map editor: left brush dock collapsed

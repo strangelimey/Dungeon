@@ -200,16 +200,23 @@ Key conventions (memorize, they bite):
   CEILING = the Ultra tier; the per-frame count is a runtime budget,
   GameSettings::maxPointLights, Low=16..Ultra=64 — see the quality system),
   kMaxSkinJoints=128, root signature layout in Renderer.h header comment.
-- The Game lib is split by category: Game.cpp is just the app state machine
-  + wiring; GameSettings (ini round-trip, quality tier, the kThemeFields/
-  kKeyFields tables), SoundBank, LoadQueue (staged loading),
+- The Game lib is split by category: Game.cpp is the app state machine
+  (Update / UpdateStates / Render) plus construction, the world's lifetime
+  (LoadWorld / UnloadWorld), the staged-load task lists, new game / save /
+  load and arming the allocation guard - NOT "just the state machine"; the
+  callback wiring is Game_Wiring.cpp and each other Game_*.cpp is one
+  subsystem hanging off it (editor create/bake, eval, generate, party, the
+  world tier, the dev-command tables). Game.h's banner lists the AppStates
+  and the rules they keep. Beside it: GameSettings (ini round-trip, quality
+  tier, the kThemeFields/kKeyFields tables), SoundBank, LoadQueue (staged loading),
   DungeonWorld (world state, simulation, both render passes), GameUI (all
   seven of its UIContexts - HUD, landing menu, settings page, pause menu,
   saves (save/load, the world list, party creation), character sheet, Yes/No
   confirm - plus the item-details and portrait-picker dialogs'), AssetUtil
-  (load-or-die helpers). World→log feedback flows through
-  DungeonWorld::onMessage; UI→state-machine actions through GameUI's on*
-  callbacks, both wired in the Game constructor.
+  (load-or-die helpers). World->log feedback flows through
+  DungeonWorld::onMessage, wired by WireWorldCallbacks each time LoadWorld
+  builds a world; UI->state-machine actions through GameUI's on* callbacks,
+  wired once from the constructor (WireModuleCallbacks).
 - MAGIC (full model: docs/magic system.md + spells.md + skills.md): every
   spell is a CLASS in src/Game/Spell/ (one file pair per spell; Spell base →
   BoltSpell/WardSpell/SightSpell/LightSpell forms — the shared tier-2 form runes
@@ -1056,8 +1063,17 @@ buffer, reused across all ~25 submissions).
   code-bound prop/creature sets (sconce/brazier/skeleton/mummy/blob,
   renamed from their archive folders, 2k-native) — since those load by code
   convention, not a map record (override: -Materials list skips props, -All
-  for everything — slow, hundreds of BC7 bakes; -Resolutions 1k,2k,4k). A
-  full pre-history-rewrite git bundle also lives there.
+  for everything - slow, hundreds of BC7 bakes; -Resolutions 1k,2k,4k). Both
+  it and FetchModels.ps1 take -WhatIf (list what would import, bake nothing),
+  and their usage lines are in the `powershell -Command "& { ... }"` form, since
+  a comma list through -File imports nothing (see SortTextureDownloads below);
+  `tools\UsageLinesTest.ps1` dry-runs every such line and fails one that stops
+  selecting the sets or models it names, and fails ANY tools\*.ps1 comment line
+  invoking a script through `powershell -File` with a comma list or through
+  `-Command` in a shape it cannot run - a line the judge cannot read is a FAIL,
+  not a skip (`-SelfTest` runs each line as written as a CONTROL, then plants
+  the -File form, a name the archive lacks, and bad shapes). A full
+  pre-history-rewrite git bundle also lives there.
   - Mixed source formats: Poly Haven / FreePBR ship loose PNG/JPG maps the
     importer reads directly. textures.com PBR sets instead ship TIFF (8/16-bit),
     which stb_image (the C++ importer) can't read. FetchTextures handles this

@@ -23,8 +23,11 @@
 # Usage:  powershell -File tools\SortTextureDownloads.ps1 [-WhatIf]
 #                    [-Downloads <dir>] [-Resolution 4k] [-Copy] [-Force]
 #
-# Then:   powershell -File tools\FetchTextures.ps1 -Materials <names printed at
-#                    the end> -Resolutions 4k
+# Then import what it filed. It prints that line itself at the end, with the
+# names it filed; for two of batch 2's sets it reads:
+#   powershell -Command "& { .\tools\FetchTextures.ps1 -Resolutions 4k -Materials wall_carved,floor_slate }"
+# -Command, NOT -File: see the note above the printed line (and
+# tools\UsageLinesTest.ps1, which dry-runs this line).
 #
 # ...followed by the worn-block bake and the catalog entries; see CLAUDE.md's
 # asset pipeline section and the textures-com-sourcing notes.

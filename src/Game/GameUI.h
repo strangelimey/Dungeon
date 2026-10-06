@@ -346,9 +346,9 @@ public:
 	std::function<void()> onStartNewGame;       // a new game in the RUNNING world
 	// "Start New Game" asks WHICH WORLD first when there is more than one to
 	// choose from (Michael, 2026-09-24): onListWorlds names them, and a pick
-	// goes to onStartNewGameIn — which starts at once in the running world and
-	// relaunches into any other (the W7 bargain: a world is chosen before
-	// anything is built). One world, or none listed, skips the page entirely.
+	// goes to onStartNewGameIn - which starts at once in the running world and
+	// switches to any other in the process (Game::SwitchWorld), starting there.
+	// One world, or none listed, skips the page entirely.
 	struct WorldChoice {
 		std::string folder;  // what settings.ini stores and -project names
 		std::string display; // the manifest's `name`, what the player reads

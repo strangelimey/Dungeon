@@ -3,8 +3,8 @@
 //
 // The batch script runner, the sim-time clock it drives the world with, and the
 // world recycling that makes a long run affordable. Split out for the reason
-// every other Game_*.cpp was: Game.cpp is the app state machine plus wiring, and
-// this is a subsystem that happens to hang off it.
+// every other Game_*.cpp was: this is a subsystem that hangs off the state
+// machine, not part of it.
 //
 // IT IS NOT COMPILED OUT, and that is a decision rather than an oversight
 // (Michael, 2026-08-15, reviewing exactly this question). Behind `#ifdef DN_EVAL`
@@ -30,7 +30,10 @@
 namespace dungeon::game {
 
 // PUT THE GAME WHERE `newgame` WOULD, WITHOUT THE LEVEL LOAD — the world
-// recycling a long run rests on (~340 ms against ~12 s).
+// recycling a long run rests on (~340 ms against ~12 s). With nothing loaded
+// yet it falls back to a REAL new game, which is what lets every script open
+// with `reset` and only the first in a batch pay. False only when it could not
+// get to a playing state at all.
 bool Game::ResetForEval() {
 	// A suite starts from the DEFAULT four, whatever a previous one built with
 	// `newparty` and never started (party creation).

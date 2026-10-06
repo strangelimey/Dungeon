@@ -35,6 +35,9 @@ void Game::OpenCreateDialog(MapEditor::PaletteCat cat, AssetDialog::Source sourc
 					   m_settings.theme, source, asset);
 }
 
+// Launches the AssetBaker command for the current bake step (P4c). Models are a
+// single import-model; texture sets import the maps (step 0) then rebake the
+// worn block meshes that sample them (step 1).
 bool Game::StartBakeStep() {
 	// The baker is a sibling of this exe (per-config build output); the assets it
 	// writes into are the ONE shared tree every config reads.
@@ -290,12 +293,15 @@ bool Game::DeleteWorld(const std::string& name) {
 }
 
 // Mints a fresh level: writes a .map/.ent pair next to the project's other
-// levels - generated from the knobs, or the minimal empty box - appends the stem
-// to the manifest and its dungeon, and stairs it to the floor above. The palette
-// gate demands all three surface records; they are copied from the ACTIVE level
-// so the new one shares its look. Everything downstream (browse, remote edits,
-// stair dests, savemap) reads Project::levels or lazy-parses the files, so no
-// other state needs touching. Returns the stem, or "" on failure.
+// levels and appends the stem to the manifest and its dungeon. A GENERATED level
+// (`params`) is built round a stair square on the dungeon's floor above and
+// linked to it (LinkToFloorAbove); its palettes come from the dialog's donor
+// level, else the active one (ComposeGeneratedLevel). The EMPTY box gets no
+// stair, and its three palette records - the palette gate demands all three -
+// are the ACTIVE level's. Either way a style's themes lead where it names
+// surfaces. Everything downstream (browse, remote edits, stair dests, savemap)
+// reads Project::levels or lazy-parses the files, so no other state needs
+// touching. Returns the stem, or "" on failure.
 std::string Game::CreateNewLevel(const std::string& dungeonId,
 								 const generate::Params* params, const std::string& emptyStyle) {
 	// THE STEM IS NAMED AFTER ITS DUNGEON when it has one — crypt1, crypt2,
