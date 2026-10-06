@@ -1649,14 +1649,13 @@ void Game::SetQuality(Quality quality) {
 		// The swap FREES every prop set's maps and loads them again
 		// (DungeonWorld::ReloadPropTextures, code-review C154), so whatever
 		// copied their POINTERS into a preview would draw freed textures next
-		// frame. Those are the editor's instance inspectors (and the spec cached
-		// to reopen one), the monster dialog's live rig and the item details
-		// dialog. Only the console's `quality` can swap with one of them open -
+		// frame. Those are the editor's instance inspectors (a finished patrol
+		// route reopens one from the live monster, so no spec is cached), the
+		// monster dialog's live rig and the item details dialog. Only the console's `quality` can swap with one of them open -
 		// the Settings page is behind the pause menu - but a typed command must
 		// not crash: the inspectors and the details dialog close, the rig is
 		// rebuilt from the swapped kind next frame.
 		for (InstanceInspector* ii : InstanceInspectors()) ii->Close();
-		m_inspectPreview = {};
 		m_ui.CloseItemDetails();
 		m_previewMonMesh = nullptr;
 		m_previewMonSubs.clear();
@@ -2594,9 +2593,9 @@ void Game::UpdateStates(float dt) {
 		// animators. Editing routes through MapEditor→DungeonWorld directly, not
 		// through Update, so it works while frozen; the full-screen editor
 		// renders no 3D scene, so the skipped camera/light refresh is unseen.
-		// The filter box eats the keyboard when it holds focus (blank Input).
+		// The filter box eats the keyboard when it holds focus (blank Input,
+		// the file's one kNoInput).
 		if (!worldFrozen) {
-			static const Input kNoInput;
 			m_world->Update(typingFilter ? kNoInput : input, wdt, m_time);
 			if (auto t = m_world->ConsumeLevelTransition()) {
 				m_mapView.Close(); // a stair step starts a new level load
