@@ -134,7 +134,15 @@ Two consequences of the state existing at all, both found by adding it:
 
 - **Pause and the sheet can now be opened from two places.** `m_resumeState`
   records which, because an unconditional "resume means Playing" would quietly
-  teleport a travelling party into whatever level was last loaded.
+  teleport a travelling party into whatever level was last loaded. It decides
+  what is DRAWN behind them too: `Game::BackdropState` is the state whose
+  picture sits under the pause menu or the sheet, so from the world map they
+  draw over the world map and skip the 3D pass. Render once chose the scene
+  from the current state alone and drew the parked dungeon there instead
+  (code-review C365); the `backdrop` command reports what the last frame drew
+  (recorded in the switch case that drew it, so a frame that drew nothing
+  behind the page reads "over nothing"), and InGameTest's `sweep_worldpause` /
+  `sweep_worldsheet` check it.
 - **The eval harness's end-state guard had to learn the state.** It exists to
   catch a run that FELL OUT of the game (a wipe returns to the title screen,
   where every dev command keeps answering normally). A travelling party has

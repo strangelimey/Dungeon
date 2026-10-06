@@ -30,3 +30,30 @@ undo
 world
 redo
 world
+
+; --- the PLAYER'S map is never the editor (code-review C77, C79) ------------
+; Editor mode is still on and a terrain still armed. In a dungeon the M map's
+; world page is the same view, but it must stay play: no toolbar, the fog on, a
+; left click paints nothing (only the world map state closes a stroke, so a
+; paint here escaped the undo history), and a right-click on a doorway opens
+; nothing (only the world map state routes its dialogs, so one opened here sat
+; over the HUD and could not be closed). `worldview click` goes through the
+; view's own Update, a press and a release at the cell's centre. 7,6 is road;
+; 10,10 is the crypt_gate doorway.
+mappage open
+mappage world
+worldview
+worldview click 7 6 left
+worldview click 10 10 right
+mappage close
+
+; --- the control: the travel screen, same mode, same clicks ------------------
+; There the band is up, the fog off, the click paints (its stroke left for the
+; state to close) and the doorway opens the settings dialog - so the clicks
+; above are clicks that WOULD have done something.
+worldmap on
+worldview
+worldview click 7 6 left
+worldview click 10 10 right
+worldsettings off
+worldmap off

@@ -5,8 +5,8 @@
 // travelling the overworld (world/worldmap/travel/quest/camp/encounters/
 // enter/leave/worldpos/discover), the worlds beside this one and the map's
 // pages, the project-wide file checks (catround/levels/levelcheck), and the
-// world editor (worldedit/terrainbrush/paint/worldprops/worldloc/worldarea/
-// worldsettings/newtype/typeset/typerefs/saveworld; `typeset dialog` drives the
+// world editor (worldedit/worldview/terrainbrush/paint/worldprops/worldloc/
+// worldarea/worldsettings/newtype/typeset/typerefs/saveworld; `typeset dialog` drives the
 // type editor itself, step by step). The dungeon tier's commands are
 // next door in Game_DevDungeons.cpp.
 // ============================================================================
@@ -926,8 +926,130 @@ void Game::RegisterWorldCommands() {
 														: WorldMapView::Mode::Editor);
 			// REPORTS when bare, like `rest` and `encounters`: a mode command
 			// whose meaning depends on a state you cannot see is a coin flip.
-			m_console.Print(m_worldMapView.Editing() ? "world editing (fog off)"
-													 : "world playing (fog on)");
+			// It reports the MODE, which is the travel screen's: the player
+			// map's world page stays play in either (WorldMapView::Editing,
+			// code-review C79), and `worldview` says what is drawn.
+			const bool editor = m_worldMapView.CurrentMode() == WorldMapView::Mode::Editor;
+			m_console.Print(editor ? "world editing (fog off)" : "world playing (fog on)");
+		});
+	m_console.Register(
+		{.name = "worldview",
+		 .group = CmdGroup::World,
+		 .params = "\n"
+				   "click <x> <z> left|right",
+		 .summary = "report the world view as drawn, or click one of its cells"},
+		[this](const std::vector<std::string>& a) {
+			// The world view WHERE IT IS UP - the travel screen, or the player
+			// map's world page in a dungeon - read off the view itself, and
+			// clicked through its own Update. The page is the case that matters:
+			// it must stay play in Editor mode (code-review C77, C79), and only a
+			// click through the real input path can show that it neither paints
+			// nor opens a dialog.
+			if (!m_worldMap) {
+				m_console.Refuse("no world map loaded");
+				return;
+			}
+			const bool travel = m_state == AppState::WorldMap;
+			if (!travel && !ShowingWorldPage()) {
+				m_console.Refuse("the world view is not up (`worldmap on`, or `mappage open` "
+								 "then `mappage world`)");
+				return;
+			}
+			// The view's OWN overlay flag, as the frame before derived it
+			// (UpdateStates derives it after the console and the script have
+			// run their commands) - READ, never set. A report that set it first
+			// would read back its own write, and pass with the derivation the
+			// C79 fix rests on gone or moved after the view's Update. A view
+			// that disagrees with the screen that is up is the defect, so it
+			// refuses and says so.
+			if (m_worldMapView.IsOverlay() == travel) {
+				m_console.Refuse(std::format(
+					"the world view's overlay flag says {} but the {} is up - the "
+					"per-frame derivation did not run",
+					m_worldMapView.IsOverlay() ? "map page" : "travel screen",
+					travel ? "travel screen" : "map page"));
+				return;
+			}
+			const float w = static_cast<float>(m_window.Width());
+			const float h = static_cast<float>(m_window.Height());
+			const gfx::Rect panel = travel ? WorldPanel(w, h) : MapPanel(w, h);
+			if (!a.empty()) {
+				if (a[0] != "click" || a.size() < 4 || (a[3] != "left" && a[3] != "right")) {
+					m_console.RefuseUsage();
+					return;
+				}
+				const int x = std::atoi(a[1].c_str());
+				const int z = std::atoi(a[2].c_str());
+				Vec2 p{};
+				if (!m_worldMapView.CellPoint(*m_worldMap, panel, x, z, p)) {
+					m_console.Refuse(std::format("{},{} is off the world grid", x, z));
+					return;
+				}
+				const std::string was = m_worldMap->TerrainAt(x, z).id;
+				// TWO FRAMES of what a mouse sends: the press at the cell's
+				// centre, then the button up there. The stroke a paint opens is
+				// left for the state's own Update to close - which is the point:
+				// on the map page nothing would.
+				const MouseButton button =
+					a[3] == "right" ? MouseButton::Right : MouseButton::Left;
+				Input press;
+				press.OnMouseMove(p.x, p.y);
+				press.OnMouseButton(button, true);
+				m_worldMapView.Update(press, *m_worldMap, panel);
+				Input release;
+				release.OnMouseMove(p.x, p.y);
+				m_worldMapView.Update(release, *m_worldMap, panel);
+				std::string dialogs;
+				const auto open = [&dialogs](bool up, const char* name) {
+					if (up) dialogs += (dialogs.empty() ? "" : " ") + std::string(name);
+				};
+				open(m_worldSettingsDialog.IsOpen(), "settings");
+				open(m_worldsDialog.IsOpen(), "worlds");
+				open(m_newWorldDialog.IsOpen(), "newworld");
+				m_console.Print(std::format(
+					"worldview click {},{} {}: {} -> {}, stroke {}, dialogs {}", x, z, a[3],
+					was, m_worldMap->TerrainAt(x, z).id, m_worldStroke ? "open" : "none",
+					dialogs.empty() ? "none" : dialogs));
+				return;
+			}
+			// FOG IS WHAT RENDER DREW, recorded by WorldMapView::Render itself
+			// (LastDrawn) on the last rendered frame - not Editing() asked a
+			// second time, which would agree with `editing` whatever Render
+			// did. Only a frame that drew this view, as this page, counts: a
+			// headless run draws nothing and says "not drawn". The toolbar count
+			// is ToolbarButtons' own list.
+			const bool editor = m_worldMapView.CurrentMode() == WorldMapView::Mode::Editor;
+			const WorldMapView::Drawn& drawn = m_worldMapView.LastDrawn();
+			const bool drewThis = m_worldViewFrame != 0 && m_worldViewFrame == m_framesRendered &&
+								  drawn.overlay == !travel;
+			m_console.Print(std::format(
+				"world view: {}, mode {}, editing {}, toolbar {}, fog {}",
+				travel ? "travel screen" : "map page", editor ? "editor" : "play",
+				m_worldMapView.Editing() ? "yes" : "no", m_worldMapView.ToolCount(panel),
+				!drewThis ? "not drawn" : drawn.fogLifted ? "off" : "on"));
+		});
+	m_console.Register(
+		{.name = "backdrop",
+		 .group = CmdGroup::World,
+		 .summary = "print what the last rendered frame drew behind the app state"},
+		[this](const std::vector<std::string>&) {
+			// WHAT RENDER DID, recorded by Render itself: the state whose picture
+			// it drew behind the state's own page - set in the switch case that
+			// drew it, so a frame that drew none reads "over nothing" - and
+			// whether the 3D scene pass ran. The pause menu and the sheet opened
+			// from the world map must read "over worldmap - scene skipped"; they
+			// used to draw the parked dungeon (code-review C365). LOGGED as well
+			// as printed, because InGameTest sweeps with the console echo off and
+			// reads the log. A headless run renders nothing, and says so rather
+			// than reporting a frame that never happened.
+			const std::string line =
+				m_backdropFrame == 0
+					? std::string("backdrop: nothing rendered yet (a headless run draws nothing)")
+					: std::format("backdrop: {} over {} - scene {} (frame {})", StateName(),
+								  m_drawnBackdrop ? StateWord(*m_drawnBackdrop) : "nothing",
+								  m_drewScene ? "drawn" : "skipped", m_backdropFrame);
+			m_console.Print(line);
+			log::Info("{}", line);
 		});
 	m_console.Register(
 		{.name = "terrainbrush",
@@ -1260,17 +1382,73 @@ void Game::RegisterWorldCommands() {
 		{.name = "worldsettings",
 		 .group = CmdGroup::World,
 		 .params = "[location]\n"
-				   "off",
-		 .summary = "open or close the world settings dialog"},
+				   "off\n"
+				   "status\n"
+				   "start <x> <z>\n"
+				   "move <x> <z>\n"
+				   "add|delete",
+		 .summary = "open, close, report or edit through the world settings dialog"},
 		[this](const std::vector<std::string>& a) {
 			// The toolbar's Settings disc, reachable without a mouse. It does
 			// NOT duplicate the rules — the dialog's callbacks are the same
 			// WorldMap calls `worldprops`/`worldloc`/`worldarea` make — so this
-			// exists to open and close the thing, which is all a harness can
-			// check about a dialog anyway.
+			// opens and closes the thing, and drives the two fields whose
+			// refusals speak in a status row and the doorway rows that add and
+			// delete.
 			if (!a.empty() && a[0] == "off") {
 				m_worldSettingsDialog.Close();
 				m_console.Print("world settings closed");
+				return;
+			}
+			// THE STATUS ROWS, EACH TAB'S OWN (code-review C102). `start` is the
+			// World tab's start fields and `move` the Doorways tab's cell fields
+			// for the selected doorway - the SAME member calls those fields make
+			// - and `status` prints what each tab's row SHOWS, read off its
+			// Label, so a note written into the other tab's row reads as wrong.
+			if (!a.empty() && (a[0] == "status" || a[0] == "start" || a[0] == "move")) {
+				WorldSettingsDialog& d = m_worldSettingsDialog;
+				if (!d.IsOpen()) {
+					m_console.Refuse("world settings are not open");
+					return;
+				}
+				if (a[0] != "status") {
+					if (!Need(m_console, a, 3)) return;
+					const int x = std::atoi(a[1].c_str());
+					const int z = std::atoi(a[2].c_str());
+					if (a[0] == "start") d.SetStart(x, z);
+					else d.MoveSelected(x, z);
+				}
+				static constexpr const char* kTab[] = {"world", "areas", "doorways"};
+				const int tab = d.ActiveTab();
+				m_console.Print(std::format(
+					"world settings open: tab {} selected '{}' - world note '{}' - "
+					"doorways note '{}'",
+					tab >= 0 && tab < 3 ? kTab[tab] : "?", d.SelectedLocation(),
+					d.NoteShown(WorldSettingsDialog::NoteTab::World),
+					d.NoteShown(WorldSettingsDialog::NoteTab::Doorways)));
+				return;
+			}
+			// `add` and `delete` are the Doorways tab's "+ Add" and Delete rows,
+			// the same member calls. Both rebuild the tab a frame later (the
+			// deferred-rebuild rule), so they say only what they did, and the
+			// row they leave behind is read by a `status` on the next line - a
+			// delete must leave no note about the doorway it took.
+			if (!a.empty() && (a[0] == "add" || a[0] == "delete")) {
+				WorldSettingsDialog& d = m_worldSettingsDialog;
+				if (!d.IsOpen()) {
+					m_console.Refuse("world settings are not open");
+					return;
+				}
+				if (a[0] == "add") {
+					d.AddLocation();
+				} else if (d.SelectedLocation().empty()) {
+					m_console.Refuse("no doorway is selected to delete");
+					return;
+				} else {
+					d.DeleteSelected();
+				}
+				m_console.Print(std::format("world settings {}: selected '{}'", a[0],
+											d.SelectedLocation()));
 				return;
 			}
 			if (!m_worldMap) {

@@ -42,6 +42,7 @@
 #include "UI/Font.h"
 #include "UI/UIContext.h"
 
+#include <array>
 #include <functional>
 #include <string>
 #include <vector>
@@ -111,27 +112,47 @@ public:
 	// The footer Save: world.map and project.ini.
 	std::function<void()> onSave;
 
+	// --- the `worldsettings` command: the calls the fields make, and what
+	// --- each tab's status row shows ----------------------------------------
+	// The tabs that carry a status row. Areas has none: its rows refuse by not
+	// changing, and its one note is fixed text.
+	enum class NoteTab { World, Doorways, Count };
+	// The World tab's start-cell fields: X and Z commit TOGETHER, through this
+	// one call, because the refusal is about the CELL.
+	void SetStart(int x, int z);
+	// The Doorways tab's cell fields, for the selected doorway.
+	void MoveSelected(int x, int z);
+	// The Doorways tab's "+ Add" and Delete rows. Delete clears the tab's note
+	// with the selection: it was about the doorway that is gone.
+	void AddLocation();
+	void DeleteSelected();
+	int ActiveTab() const { return m_activeTab; }
+	const std::string& SelectedLocation() const { return m_selected; }
+	// The text that tab's status row SHOWS - the Label's own, so a note written
+	// into the wrong tab's row reads as wrong here - or "-" when the tab has no
+	// status row up.
+	std::string NoteShown(NoteTab tab) const;
+
 private:
 	void BuildUI();
 	void BuildWorldTab(size_t tab);
 	void BuildAreasTab(size_t tab);
 	void BuildLocationsTab(size_t tab);
-	// The "+ Add" rows. Both pick a fresh id that steps past collisions, and
-	// both place the new thing somewhere the world will ACCEPT — a doorway on
-	// impassable or occupied ground is refused, so "+ Add" that landed it
-	// anywhere would be a button that sometimes does nothing.
+	// The "+ Add" rows (AddLocation is public, above). Both pick a fresh id
+	// that steps past collisions, and both place the new thing somewhere the
+	// world will ACCEPT - a doorway on impassable or occupied ground is
+	// refused, so "+ Add" that landed it anywhere would be a button that
+	// sometimes does nothing.
 	void AddArea();
-	void AddLocation();
 	// The levels of `dungeonId`, or every level when it names nothing known —
 	// a location pointing at a dungeon that has since been deleted still has to
 	// show what it points at.
 	const std::vector<std::string>& LevelsOf(const std::string& dungeonId) const;
 	const WorldMap::Location* Selected() const;
-	// Sets the caption under whichever control was last edited, by WRITING INTO
-	// the label rather than rebuilding — a rebuild destroys the field being
-	// typed in, and a two-digit number cannot be typed into a box that stops
-	// existing after its first digit.
-	void SetNote(std::string text);
+	// Sets TAB's caption, by WRITING INTO its label rather than rebuilding - a
+	// rebuild destroys the field being typed in, and a two-digit number cannot
+	// be typed into a box that stops existing after its first digit.
+	void SetNote(NoteTab tab, std::string text);
 	// The World tab's resting caption: what the start cell is standing on.
 	std::string StartNote() const;
 
@@ -152,12 +173,20 @@ private:
 	std::vector<std::string> m_levels;
 	Manifest m_manifest;
 	std::string m_selected; // the doorway whose form is shown, by id
-	// The status caption: why the last edit was refused, or what the value it
-	// changed now means. `m_noteLabel` is the Label showing it, BORROWED from
-	// the live tree — valid until the next Clear, which is why BuildUI drops it
-	// and each tab re-seeds it.
-	std::string m_note;
-	ui::Label* m_noteLabel = nullptr;
+	// THE STATUS CAPTIONS, ONE PER TAB (code-review C102): why the last edit
+	// on that tab was refused, or what the value it changed now means. A note
+	// is about the edit that raised it, on the tab it was raised on - with one
+	// label shared by all three tabs, a doorway's form showed the World tab's
+	// start caption, and a refused start was written into the hidden Doorways
+	// row while the World one stayed stale. Each `label` is BORROWED from the
+	// live tree - valid until the next Clear, which is why BuildUI drops them
+	// and each tab re-seeds its own.
+	struct Note {
+		std::string text;
+		ui::Label* label = nullptr;
+	};
+	std::array<Note, static_cast<size_t>(NoteTab::Count)> m_notes;
+	Note& NoteOf(NoteTab tab) { return m_notes[static_cast<size_t>(tab)]; }
 
 	ui::TabControl* m_tabs = nullptr; // owned by m_ui; kept to restore the tab
 	int m_activeTab = 0;

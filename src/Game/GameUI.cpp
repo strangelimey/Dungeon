@@ -2439,9 +2439,10 @@ void GameUI::RenderConfirmOverlay() {
 	m_confirmUi.Render(m_spriteBatch, w, h);
 }
 
-// Esc pause: the frozen scene stays up behind a dark wash, with a menu list
-// like the landing page. The settings page is the same one the landing menu
-// uses (m_menuPage routes both).
+// Esc pause: whatever it was opened from stays up behind a dark wash - the
+// frozen scene, or the world map (Game::BackdropState draws it first) - with a
+// menu list like the landing page. The settings page is the same one the
+// landing menu uses (m_menuPage routes both).
 void GameUI::RenderPauseOverlay() {
 	const float w = DeviceW();
 	const float h = DeviceH();
@@ -2467,8 +2468,8 @@ void GameUI::RenderPauseOverlay() {
 }
 
 // Portrait click: the live scene - the world keeps running, the sheet is not
-// a pause - under a dark wash, with the sheet page (and its prev/next/Back
-// buttons) on top.
+// a pause - or the world map it was opened from, under a dark wash, with the
+// sheet page (and its prev/next/Back buttons) on top.
 void GameUI::RenderCharacterSheetOverlay() {
 	const float w = DeviceW();
 	const float h = DeviceH();

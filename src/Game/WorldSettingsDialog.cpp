@@ -113,7 +113,7 @@ void WorldSettingsDialog::Open(const WorldMap* world,
 	m_levels = std::move(levels);
 	m_manifest = std::move(manifest);
 	m_selected = selectLocation;
-	m_note.clear();
+	for (Note& n : m_notes) n.text.clear();
 	m_helpOpen = false;
 	m_uiRebuild = false;
 	// A right-click on a doorway opens the dialog ON that doorway; anything
@@ -142,7 +142,7 @@ std::string WorldSettingsDialog::StartNote() const {
 					   m_world->TerrainAt(m_world->StartX(), m_world->StartZ()).id);
 }
 
-void WorldSettingsDialog::SetNote(std::string text) {
+void WorldSettingsDialog::SetNote(NoteTab tab, std::string text) {
 	// WRITTEN INTO THE LABEL, NOT REBUILT. A rebuild destroys the field being
 	// typed in and takes the focus with it, and the note is the ONLY part of
 	// the form an edit changes — so rebuilding to show it made a two-digit
@@ -151,13 +151,50 @@ void WorldSettingsDialog::SetNote(std::string text) {
 	// bounced the field back to the old value before the 2 arrived. Nothing
 	// mid-edit is corrected now; the note says why the world has not moved,
 	// and the next parseable value that is allowed moves it.
-	m_note = std::move(text);
-	if (m_noteLabel) m_noteLabel->text = m_note;
+	// INTO THE TAB THAT RAISED IT, never another's row (code-review C102).
+	Note& note = NoteOf(tab);
+	note.text = std::move(text);
+	if (note.label) note.label->text = note.text;
+}
+
+std::string WorldSettingsDialog::NoteShown(NoteTab tab) const {
+	const Note& note = m_notes[static_cast<size_t>(tab)];
+	return note.label ? note.label->text : std::string("-");
+}
+
+void WorldSettingsDialog::SetStart(int x, int z) {
+	if (!onSetStart || !m_world) return;
+	if (onSetStart(x, z)) SetNote(NoteTab::World, StartNote());
+	else if (!m_world->InBounds(x, z))
+		SetNote(NoteTab::World, loc::Tr("map.world.start.offgrid"));
+	else
+		SetNote(NoteTab::World,
+				loc::Format("map.world.start.impassable", m_world->TerrainAt(x, z).id));
+}
+
+void WorldSettingsDialog::MoveSelected(int x, int z) {
+	// Occupancy can refuse it, which is why the cell has its own callback.
+	if (!onMoveLocation || !Selected()) return;
+	SetNote(NoteTab::Doorways, onMoveLocation(m_selected, x, z)
+								   ? std::string()
+								   : loc::Tr("map.world.loc.refused"));
+}
+
+void WorldSettingsDialog::DeleteSelected() {
+	if (!Selected()) return;
+	if (onDeleteLocation) onDeleteLocation(m_selected);
+	m_selected.clear();
+	// The tab's note was about the doorway just deleted. With nothing selected
+	// its row stands under "+ Add", where a refusal left over from that doorway
+	// would read as being about whatever is added next - so it goes with it,
+	// as it does when another doorway is selected (code-review C102).
+	SetNote(NoteTab::Doorways, std::string());
+	m_uiRebuild = true;
 }
 
 void WorldSettingsDialog::BuildUI() {
 	m_ui.Clear();
-	m_noteLabel = nullptr; // dies with the tree; each tab re-seeds it
+	for (Note& n : m_notes) n.label = nullptr; // die with the tree; each tab re-seeds its own
 	DialogChrome chrome = BuildDialogChrome(m_ui, kPanel, loc::Tr("map.world.title"),
 											m_closeIcon, [this] { Close(); });
 
@@ -188,36 +225,29 @@ void WorldSettingsDialog::BuildWorldTab(size_t tab) {
 	ui::Stack* rows = TabStack(*m_tabs, tab);
 	if (!m_world) return;
 
-	// Seeded, not carried over: a note is about the edit that raised it, and
-	// the tab it was raised on. Switching tabs is a fresh start.
-	if (m_note.empty()) m_note = StartNote();
+	// THIS TAB'S OWN NOTE, kept while the dialog is open (each tab keeps its
+	// own - code-review C102), and seeded with what the start cell is
+	// standing on when no edit here has said anything yet.
+	Note& note = NoteOf(NoteTab::World);
+	if (note.text.empty()) note.text = StartNote();
 	AddHeading(*rows, loc::Tr("map.world.start.head"));
 	{
 		ui::Stack* row = rows->Row<ui::Stack>(FormRow(), true);
 		row->gapRem = 0.5f;
 		row->Row<ui::Label>(ui::Len::Fill(kLabelFill), loc::Tr("map.world.start"))
 			->centerV = true;
-		// X and Z commit TOGETHER, through one call, because the refusal is
-		// about the CELL: an x that is only valid once z catches up must not be
-		// judged on x alone.
-		auto setStart = [this](int x, int z) {
-			if (!onSetStart) return;
-			if (onSetStart(x, z)) SetNote(StartNote());
-			else if (!m_world->InBounds(x, z))
-				SetNote(loc::Tr("map.world.start.offgrid"));
-			else
-				SetNote(loc::Format("map.world.start.impassable",
-									m_world->TerrainAt(x, z).id));
-		};
+		// X and Z commit TOGETHER, through one call (SetStart), because the
+		// refusal is about the CELL: an x that is only valid once z catches up
+		// must not be judged on x alone.
 		AddIntField(*row, ui::Len::Fill(kFieldFill), m_world->StartX(),
-					[this, setStart](int v) { setStart(v, m_world->StartZ()); });
+					[this](int v) { SetStart(v, m_world->StartZ()); });
 		AddIntField(*row, ui::Len::Fill(kFieldFill), m_world->StartZ(),
-					[this, setStart](int v) { setStart(m_world->StartX(), v); });
+					[this](int v) { SetStart(m_world->StartX(), v); });
 		row->Space(ui::Len::Fill(0.6f));
 	}
 	// THE STATUS NOTE — the one row an edit rewrites, held by pointer so it can
 	// be rewritten without a rebuild (see SetNote).
-	m_noteLabel = AddNote(*rows, m_note);
+	note.label = AddNote(*rows, note.text);
 	rows->Row<ui::Separator>(ui::Len::Fixed(0.5f));
 
 	AddHeading(*rows, loc::Tr("map.world.opening.head"));
@@ -512,7 +542,7 @@ void WorldSettingsDialog::BuildLocationsTab(size_t tab) {
 										: l.level),
 			[this, id] {
 				m_selected = id;
-				m_note.clear();
+				NoteOf(NoteTab::Doorways).text.clear(); // about the last doorway
 				m_uiRebuild = true;
 			});
 		row->active = (l.id == m_selected);
@@ -524,16 +554,21 @@ void WorldSettingsDialog::BuildLocationsTab(size_t tab) {
 		row->gapRem = 0.5f;
 		RowIcon(*row, m_device, "new", loc::Tr("map.world.loc.add"), [this] { AddLocation(); });
 		if (Selected())
-			RowIcon(*row, m_device, "delete", loc::Tr("map.world.loc.del"), [this] {
-				if (onDeleteLocation) onDeleteLocation(m_selected);
-				m_selected.clear();
-				m_uiRebuild = true;
-			});
+			RowIcon(*row, m_device, "delete", loc::Tr("map.world.loc.del"),
+					[this] { DeleteSelected(); });
 		row->Space(ui::Len::Fill());
 	}
 
+	// THIS TAB'S STATUS ROW: under the selected doorway's cell, which is what
+	// refuses most - or, with none selected, under "+ Add", whose "nowhere
+	// free" is then the only thing that can speak (it used to land on the
+	// World tab's row, the one row there was).
+	Note& note = NoteOf(NoteTab::Doorways);
 	const WorldMap::Location* sel = Selected();
-	if (!sel) return;
+	if (!sel) {
+		note.label = AddNote(*rows, note.text);
+		return;
+	}
 	rows->Row<ui::Separator>(ui::Len::Fixed(0.5f));
 	AddHeading(*rows, loc::Format("map.world.loc.head", sel->id));
 	const std::string id = sel->id;
@@ -556,20 +591,15 @@ void WorldSettingsDialog::BuildLocationsTab(size_t tab) {
 		row->gapRem = 0.5f;
 		row->Row<ui::Label>(ui::Len::Fill(kLabelFill), loc::Tr("map.world.loc.cell"))
 			->centerV = true;
-		auto move = [this, id](int x, int z) {
-			if (!onMoveLocation) return;
-			SetNote(onMoveLocation(id, x, z) ? std::string()
-											 : loc::Tr("map.world.loc.refused"));
-		};
-		AddIntField(*row, ui::Len::Fill(kFieldFill), sel->x, [this, move](int v) {
-			if (const WorldMap::Location* c = Selected()) move(v, c->z);
+		AddIntField(*row, ui::Len::Fill(kFieldFill), sel->x, [this](int v) {
+			if (const WorldMap::Location* c = Selected()) MoveSelected(v, c->z);
 		});
-		AddIntField(*row, ui::Len::Fill(kFieldFill), sel->z, [this, move](int v) {
-			if (const WorldMap::Location* c = Selected()) move(c->x, v);
+		AddIntField(*row, ui::Len::Fill(kFieldFill), sel->z, [this](int v) {
+			if (const WorldMap::Location* c = Selected()) MoveSelected(c->x, v);
 		});
 		row->Space(ui::Len::Fill(0.6f));
 	}
-	m_noteLabel = AddNote(*rows, m_note); // the status row, written by SetNote
+	note.label = AddNote(*rows, note.text); // the status row, written by SetNote
 
 	{ // what is behind the door
 		std::vector<std::string> ids{loc::Tr("map.world.loc.sameasid")};
@@ -666,7 +696,7 @@ void WorldSettingsDialog::AddLocation() {
 				placed = true;
 			}
 	if (!placed) {
-		m_note = loc::Tr("map.world.loc.nowhere");
+		SetNote(NoteTab::Doorways, loc::Tr("map.world.loc.nowhere"));
 		m_uiRebuild = true;
 		return;
 	}
@@ -676,7 +706,7 @@ void WorldSettingsDialog::AddLocation() {
 	const std::string id = l.id;
 	if (onAddLocation(std::move(l))) {
 		m_selected = id;
-		m_note.clear();
+		NoteOf(NoteTab::Doorways).text.clear();
 	}
 	m_uiRebuild = true;
 }

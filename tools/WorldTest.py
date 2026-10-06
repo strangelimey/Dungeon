@@ -31,9 +31,12 @@
 #  11. THE WORLD TIER AS CONTENT — dungeons/terrain/quests authored from the
 #      palette, and a reference sweep that can see the world.
 #  12. THE WORLD EDITOR — two modes, a terrain brush, and the world sharing
-#      the editor's single undo history.
+#      the editor's single undo history; and the player's map page in a
+#      dungeon, which stays play in Editor mode (clicked, with the travel
+#      screen as the control).
 #  13. PROPERTIES, AREAS AND DOORWAYS — the world's own settings, the area
-#      ordering rule made visible, and locations validated as the loader would.
+#      ordering rule made visible, locations validated as the loader would,
+#      and each settings tab's status row its own.
 #   4. TRAVEL — a journey costs the time its terrain says and the supplies that
 #      span buys, refuses an impassable square instead of clamping, and reveals
 #      what walking past a place should reveal. The times are read off
@@ -117,18 +120,20 @@ def write(p, s):
     io.open(p, "w", encoding="utf-8", newline="").write(s)
 
 
-def run(script, project=SCRATCH, words=None):
+def run(script, project=SCRATCH, words=None, headless=True):
     # `project` is the -project flag: which WORLD to open, for one run, leaving
     # settings.ini alone. It is how a test scenario gets a world of its own, and
     # by default it is the scratch copy; None opens what a bare harness run
     # opens (dungeon-demo), which only phase 16's control wants. `words` renames
     # whole words in the script's commands (a world it names by id).
+    # headless=False draws (a window shows for the run): only for a check that
+    # reads what was DRAWN, which a headless run never does (phase 12's fog).
     # A run that died before its verdict counts as a failure on its own, not
     # as a log to be read as if it were whole.
     global failures
     extra = ["-project", project] if project else []
     path = harness_game.eval_script(os.path.join(SCRIPTS, script), COPIES, SAVES, words)
-    code, log = harness_game.run_eval(EXE, ROOT, LOG, [path], extra)
+    code, log = harness_game.run_eval(EXE, ROOT, LOG, [path], extra, headless=headless)
     if harness_game.report_unfinished(code, log, script):
         failures += 1
     # And a run that finished FAIL counts too: the checks below read only what
@@ -597,7 +602,10 @@ try:
           "and a fresh type is referenced by nothing")
     # --- phase 12: the world can be edited ----------------------------------
     print("\n12 - the world can be painted, and taken back")
-    log = run("worldedit.eval")
+    # WINDOWED: `worldview`'s fog is what WorldMapView::Render DREW on the last
+    # frame (code-review C79), and a headless run draws nothing - it would read
+    # "fog not drawn" and prove nothing about the page.
+    log = run("worldedit.eval", headless=False)
     roads = [l.split("'-'")[-1].split("cells")[0].strip()
              for l in log.splitlines() if "terrain road" in l]
 
@@ -616,6 +624,39 @@ try:
     check(roads == ["41", "40", "41", "40"],
           "and the editor's ONE history takes it back and puts it again",
           f"road cell counts: {roads}")
+
+    # THE PLAYER'S MAP IS NEVER THE EDITOR (code-review C77, C79). With Editor
+    # mode on and a terrain armed, the M map's world page in a dungeon used to
+    # show the toolbar, lift the fog, paint a stroke nothing closed and open
+    # world dialogs nothing routed. The lines are read in order: the map page's
+    # first, then the travel screen's - the CONTROL, the same mode and the same
+    # clicks doing all four, so the page's "nothing" is the page's doing and
+    # not a click that never landed. `worldview` READS the view's overlay flag
+    # as the frame derived it (it refuses, and prints no view line, when the
+    # flag disagrees with the screen that is up), and its fog is Render's.
+    views = [l.split("console: ", 1)[1].strip() for l in log.splitlines()
+             if "console: world view:" in l or "console: worldview click" in l]
+    check(len(views) == 6, f"the script reported the view six times (got {len(views)})",
+          " | ".join(views))
+    if len(views) == 6:
+        check(views[0] == "world view: map page, mode editor, editing no, toolbar 0, fog on",
+              "in a dungeon the map's world page stays play in Editor mode: no toolbar, "
+              "the fog on", views[0])
+        check(views[1] == "worldview click 7,6 left: road -> road, stroke none, dialogs none",
+              "and a left click there paints nothing and opens no stroke", views[1])
+        check(views[2].startswith("worldview click 10,10 right:") and
+              views[2].endswith("dialogs none"),
+              "and a right-click on a doorway there opens no dialog", views[2])
+        check(views[3] == "world view: travel screen, mode editor, editing yes, toolbar 6, "
+              "fog off",
+              "the control: the travel screen in the same mode is the editor", views[3])
+        check(views[4] == "worldview click 7,6 left: road -> moor, stroke open, dialogs none",
+              "...where the same left click paints, its stroke left for the state to close",
+              views[4])
+        check(views[5].startswith("worldview click 10,10 right:") and
+              "stroke none" in views[5] and views[5].endswith("dialogs settings"),
+              "...the state closed that stroke, and the same right-click opens the doorway's "
+              "settings", views[5])
     # --- phase 13: properties, areas and doorways ---------------------------
     print("\n13 - the world's properties, its areas and its doorways")
     log = run("worldprops.eval")
@@ -671,6 +712,42 @@ try:
           "the settings dialog refuses to open off the world screen")
     check("world settings open" in log and "world settings closed" in log,
           "...and opens, and closes, on it")
+
+    # EACH TAB'S STATUS ROW IS ITS OWN (code-review C102). `worldsettings
+    # status` reads each row's LABEL, so a note written into the other tab's
+    # row shows here. Opened on a doorway: its row is empty, not the World
+    # tab's start caption. A refused start: the World row says why, the
+    # Doorways row stays empty. A refused move: the Doorways row says why, and
+    # the World row keeps its own. Then a doorway added, refused a move and
+    # DELETED: with nothing selected the Doorways row stands under "+ Add",
+    # and it must not keep the refusal about the doorway that is gone. Read by
+    # structure (which row changed), not by the English sentences.
+    notes = [re.search(r"tab (\S+) selected '([^']*)' - world note '(.*)' - "
+                       r"doorways note '(.*)'$", l)
+             for l in log.splitlines() if "console: world settings open: tab" in l]
+    notes = [m.groups() for m in notes if m]
+    check(len(notes) == 5, f"the dialog's status was read five times (got {len(notes)})")
+    if len(notes) == 5:
+        (tab0, sel0, w0, d0), (_, _, w1, d1), (_, _, w2, d2), \
+            (_, sel3, w3, d3), (_, sel4, w4, d4) = notes
+        check(tab0 == "doorways" and sel0 == "crypt_gate" and w0 not in ("", "-")
+              and d0 == "",
+              "opened on a doorway: the Doorways row is empty, the World row has its "
+              "start caption", f"{notes[0]}")
+        check("water" in w1 and w1 != w0 and d1 == "",
+              "a refused start speaks in the World row, and the Doorways row stays empty",
+              f"{notes[1]}")
+        check(d2 not in ("", "-") and d2 != w1 and w2 == w1,
+              "a refused move speaks in the Doorways row, and the World row keeps its own",
+              f"{notes[2]}")
+        check(re.search(r"console: world settings add: selected 'door\d+'", log) is not None
+              and sel3.startswith("door") and d3 not in ("", "-") and w3 == w1,
+              "an added doorway is selected, and a refused move speaks in its row",
+              f"{notes[3]}")
+        check("console: world settings delete: selected ''" in log and sel4 == ""
+              and d4 == "" and w4 == w1,
+              "deleting it takes its refusal with it: the row under \"+ Add\" is empty, "
+              "and the World row keeps its own", f"{notes[4]}")
 
     # --- W5: a level belongs to a dungeon -----------------------------------
     # The toolbar's picker is two-tier now; this is the same grouping read

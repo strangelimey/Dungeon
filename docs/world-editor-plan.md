@@ -297,6 +297,24 @@ Dev: `mappage | open | close | dungeon | world` — the M key and the toggle
 without a keyboard, reporting the page, whether the toggle is OFFERED, and
 whether the map is open, because those are three different facts.
 
+THE PAGE IS NEVER THE EDITOR (code-review C77, C79, fixed later). Editor mode
+is the TRAVEL SCREEN'S: `WorldMapView::Editing()` is Editor mode and not the
+overlay, and the toolbar, the lifted fog, paint and the right-click inspect all
+ask it. Before that, a world switched into Editor mode (the landing page's
+Editor entry on a world that starts outside, or `worldedit on`) kept it on the
+player's map page in a dungeon, where a paint opened an undo step nothing
+closed and the toolbar or a doorway right-click opened world dialogs that only
+the WorldMap state routes - drawn over the HUD, impossible to close. The
+overlay flag is DERIVED every frame in `Game::UpdateStates`, after the frame's
+commands and before the console's early return, so it also holds while the
+console is open. Dev: `worldview` reports the view (page or travel screen,
+mode, editing, toolbar, fog) - it READS the overlay flag and refuses when it
+disagrees with the screen that is up, and its fog is what `WorldMapView::Render`
+drew on the last frame (`LastDrawn`; "not drawn" in a headless run) - and
+`worldview click <x> <z> left|right` clicks a cell through the view's own
+Update; WorldTest phase 12 (windowed, for the fog) clicks both, the travel
+screen being the control.
+
 **W7 — several worlds, and a way between them.** DONE (2026-09-23). Michael:
 *"the reason I wanted to add this world map stuff is so I can create a whole
 new world, add dungeons, etc., and then switch back and forth between them.

@@ -4,7 +4,7 @@ argument-hint: "[selftest]"
 allowed-tools: PowerShell, Read, Grep, Glob
 ---
 
-Two audits that need a running game, sharing one launch (a few minutes).
+Audits that need a running game, sharing one launch (a few minutes).
 
 - no argument → `.\tools\CheckAll.ps1 -Only ingame`
 - `selftest` → `.\tools\CheckAll.ps1 -Only ingame -SelfTest` (a real sweep with
@@ -24,9 +24,18 @@ nobody has visited in weeks.
 manual sweep found four defects nobody had reported. It sweeps every screen a
 console command can open - the HUD, pause, both maps, the editor and its dialogs,
 the sheet and the party window, the party creation page and its picker, the
-generator and new-world dialogs, short parties of three and one, and a hand box's
-use menu with its Combat / Magic groups in a 720p window (code-review C382) -
-each under its own `sweep_<name>` label (InGameTest.ps1 lists them).
+generator and new-world dialogs, the pause menu and the sheet over the world map,
+short parties of three and one, and a hand box's use menu with its Combat /
+Magic groups in a 720p window (code-review C382) - each under its own
+`sweep_<name>` label (InGameTest.ps1 lists them).
+
+**`backdrop`** - the pause menu and the sheet opened from the WORLD MAP draw the
+world map behind them and skip the 3D pass; they used to draw the parked dungeon
+(code-review C365). `backdrop` logs what Render drew - recorded in the switch
+case that drew the picture, so a frame that drew none reads `over nothing` - and
+it is those sweeps' status: `paused over worldmap - scene skipped`, `sheet over
+worldmap - scene skipped`, and the control, `sheet over playing - scene drawn`.
+It is one more reason this check runs WINDOWED: a headless run renders nothing.
 
 ## Reading a failure
 

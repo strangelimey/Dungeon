@@ -31,6 +31,7 @@
 #include "UI/Font.h"
 #include "UI/UIContext.h" // ui::Theme
 
+#include <algorithm>
 #include <functional>
 #include <string>
 #include <vector>
@@ -49,6 +50,14 @@ public:
 	// Unlike MapView there is no "the world keeps simulating behind it"
 	// problem to solve: the world map is an app state that simulates nothing,
 	// so this is a mode of that state rather than an overlay over a game.
+	//
+	// THE MODE BELONGS TO THE TRAVEL SCREEN. The same view is also the player
+	// map's world page inside a dungeon (SetOverlay), and that page is never
+	// the editor, whatever the mode says: it keeps the fog, shows no toolbar
+	// and neither paints nor inspects. Only the WorldMap state routes the
+	// world dialogs and closes a paint stroke, so an editing overlay opened
+	// dialogs nothing could close and painted outside the undo history
+	// (code-review C77, C79). Editing() is the one test of that.
 	enum class Mode { Play, Editor };
 
 	// The Editor band's tools. A deliberately short list — the world screen has
@@ -63,7 +72,10 @@ public:
 
 	Mode CurrentMode() const { return m_mode; }
 	void SetMode(Mode m) { m_mode = m; }
-	bool Editing() const { return m_mode == Mode::Editor; }
+	// Editor mode AND the travel screen: the overlay page is always play (see
+	// Mode). Everything the editor adds - the toolbar, the fog lifted, paint,
+	// the right-click inspect - asks this, never the mode alone.
+	bool Editing() const { return m_mode == Mode::Editor && !m_overlay; }
 
 	// The terrain the paint brush will lay down, by id. Empty = nothing armed,
 	// and a click paints nothing — the same "nothing armed until you pick a
@@ -82,11 +94,23 @@ public:
 
 	// --- shown as the PLAYER'S map, rather than as the travel screen (W6) ---
 	// The same view, drawn into the map overlay's panel while the party is
-	// inside a dungeon. The only difference is a button back to the dungeon
-	// map — and that is exactly why it is a flag and not a mode: OUTSIDE there
-	// is no dungeon map to go back to, so the travel screen must not offer one.
+	// inside a dungeon. It adds a button back to the dungeon map and a close
+	// box - which is why it is a flag and not a mode: OUTSIDE there is no
+	// dungeon map to go back to, so the travel screen must not offer one - and
+	// it takes the editor away (Editing() is false here in either mode).
 	void SetOverlay(bool on) { m_overlay = on; }
 	bool IsOverlay() const { return m_overlay; }
+
+	// WHAT THE LAST Render DREW, recorded by Render itself rather than worked
+	// out again for a report: whether it drew as the overlay page, and whether
+	// it lifted the fog (drew every cell, discovered or not). The `worldview`
+	// command reads it, so a page that drew the whole world reads as "fog off"
+	// whatever Editing() says it should have drawn (code-review C79).
+	struct Drawn {
+		bool overlay = false;
+		bool fogLifted = false;
+	};
+	const Drawn& LastDrawn() const { return m_drawn; }
 	// That button. Null (or not an overlay) hides it.
 	std::function<void()> onShowDungeon;
 	// The overlay's close box, top-right - on MapView's close box pixels, so
@@ -123,6 +147,16 @@ public:
 	int HoverX() const { return m_hoverX; }
 	int HoverZ() const { return m_hoverZ; }
 
+	// --- for the `worldview` command ----------------------------------------
+	// How many toolbar discs the band holds in `panel` - ToolbarButtons' own
+	// count, so a report cannot disagree with what Render draws.
+	size_t ToolCount(const gfx::Rect& panel) const { return ToolbarButtons(panel).size(); }
+	// The window point at the centre of cell (x, z) in `panel`, the inverse of
+	// the pick Update makes - so a scripted click lands where a mouse would.
+	// False when the cell is off the world.
+	bool CellPoint(const WorldMap& world, const gfx::Rect& panel, int x, int z,
+				   Vec2& out);
+
 	void Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 				const WorldMap& world, const WorldState& state,
 				const gfx::Rect& panel);
@@ -133,12 +167,17 @@ private:
 		float ox = 0.0f, oy = 0.0f;
 	};
 	Transform ComputeTransform(const WorldMap& world, const gfx::Rect& panel) const;
-	// The map area: the panel minus the toolbar band on top (Editor mode only)
+	// The map area: the panel minus the toolbar band on top (while Editing)
 	// and the caption band along the bottom.
 	gfx::Rect GridArea(const gfx::Rect& panel) const;
-	// The toolbar band. Zero-height in Play mode, which is what keeps the grid
+	// The toolbar band. Zero-height unless Editing, which is what keeps the grid
 	// in the same place whether or not the band is there to push it down.
 	gfx::Rect ToolbarRect(const gfx::Rect& panel) const;
+	// The font, sized off the panel - Update, Render and CellPoint all lay out
+	// against it, so all three fit it the same way first.
+	void FitFont(const gfx::Rect& panel) {
+		SetFontHeight(std::clamp(panel.h * 0.030f, 11.0f, 30.0f));
+	}
 	bool CellAt(float px, float py, const WorldMap& world, const gfx::Rect& panel,
 				int& outX, int& outZ) const;
 
@@ -171,6 +210,7 @@ private:
 								   // render re-derives its own geometry and
 								   // matches by IDENTITY, never by coordinate
 	bool m_overlay = false;     // drawn as the player's map, not the travel screen
+	Drawn m_drawn;              // what the last Render drew (LastDrawn)
 	bool m_hoverDungeon = false; // that button's hover, tracked the same way
 	bool m_hoverClose = false;   // and the close box's
 

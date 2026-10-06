@@ -47,14 +47,15 @@ WorldMapView::WorldMapView(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)
 }
 
 gfx::Rect WorldMapView::ToolbarRect(const gfx::Rect& panel) const {
-	if (m_mode != Mode::Editor) return {panel.x, panel.y, panel.w, 0.0f};
+	// Editing(), not the mode: the overlay page has no band in either mode.
+	if (!Editing()) return {panel.x, panel.y, panel.w, 0.0f};
 	return {panel.x, panel.y, panel.w, ToolSide(panel) + ToolPad(panel) * 4};
 }
 
 std::vector<WorldMapView::ToolButton> WorldMapView::ToolbarButtons(
 	const gfx::Rect& panel) const {
 	std::vector<ToolButton> btns;
-	if (m_mode != Mode::Editor) return btns;
+	if (!Editing()) return btns;
 	const gfx::Rect tb = ToolbarRect(panel);
 	const float pad = ToolPad(panel), s = ToolSide(panel);
 	// Built right-to-left from the band's right edge, like the level editor's,
@@ -117,6 +118,15 @@ WorldMapView::Transform WorldMapView::ComputeTransform(const WorldMap& world,
 	return {cell, ox, oy};
 }
 
+bool WorldMapView::CellPoint(const WorldMap& world, const gfx::Rect& panel, int x,
+							 int z, Vec2& out) {
+	if (!world.InBounds(x, z)) return false;
+	FitFont(panel); // the grid is laid out against it (GridArea), as in Update
+	const Transform t = ComputeTransform(world, panel);
+	out = {t.ox + (x + 0.5f) * t.cell, t.oy + (z + 0.5f) * t.cell};
+	return true;
+}
+
 bool WorldMapView::CellAt(float px, float py, const WorldMap& world,
 						  const gfx::Rect& panel, int& outX, int& outZ) const {
 	const Transform t = ComputeTransform(world, panel);
@@ -134,7 +144,7 @@ void WorldMapView::Update(const Input& input, const WorldMap& world,
 	// Sized from the panel, like the dungeon map — and set in BOTH Update and
 	// Render, because the caption's band height is measured off the font and a
 	// Render that ran first would lay the grid out against a stale one.
-	SetFontHeight(std::clamp(panel.h * 0.030f, 11.0f, 30.0f));
+	FitFont(panel);
 	const float mx = input.MouseX(), my = input.MouseY();
 	const bool inPanel = mx >= panel.x && my >= panel.y &&
 						 mx < panel.x + panel.w && my < panel.y + panel.h;
@@ -208,11 +218,13 @@ void WorldMapView::Update(const Input& input, const WorldMap& world,
 		}
 	}
 
-	// --- painting (Editor mode) ---------------------------------------------
+	// --- painting (Editing: Editor mode, on the travel screen) ---------------
 	// LEFT paints the armed terrain, and a DRAG keeps painting — the owner
 	// brackets the whole stroke as one undo step, the same bargain the dungeon
 	// editor makes. Nothing armed means a click does nothing, rather than
-	// meaning "paint the first terrain".
+	// meaning "paint the first terrain". Never on the overlay page: only the
+	// WorldMap state closes the stroke, so a paint there escaped the undo
+	// history (code-review C79).
 	if (Editing() && !m_armed.empty() && onPaint) {
 		if (over && input.WasMousePressed(MouseButton::Left)) m_painting = true;
 		if (!input.IsMouseDown(MouseButton::Left)) m_painting = false;
@@ -220,9 +232,11 @@ void WorldMapView::Update(const Input& input, const WorldMap& world,
 	} else {
 		m_painting = false;
 	}
-	// RIGHT-CLICK INSPECTS rather than pans, in Editor mode — a stationary
+	// RIGHT-CLICK INSPECTS rather than pans, while Editing - a stationary
 	// click, so a right-DRAG still pans. The same gesture split the dungeon
 	// editor uses, and for the same reason: panning is too useful to give up.
+	// (On the overlay page it only pans: an inspect opens a world dialog, and
+	// only the WorldMap state routes those - code-review C77.)
 	if (Editing() && over && input.WasMousePressed(MouseButton::Right)) {
 		m_rightFrom = {mx, my};
 		m_rightDown = true;
@@ -249,7 +263,7 @@ void WorldMapView::Update(const Input& input, const WorldMap& world,
 void WorldMapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 						  const WorldMap& world, const WorldState& state,
 						  const gfx::Rect& panel) {
-	SetFontHeight(std::clamp(panel.h * 0.030f, 11.0f, 30.0f));
+	FitFont(panel);
 	const Transform t = ComputeTransform(world, panel);
 	const gfx::Rect grid = GridArea(panel);
 
@@ -272,8 +286,10 @@ void WorldMapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 
 	// FOG IS THE MODE'S DIFFERENCE. Editing draws the whole world: you cannot
 	// place what you cannot see, and an editor that hid ground behind the
-	// party's ignorance would be unusable for the one job it has.
+	// party's ignorance would be unusable for the one job it has. The player's
+	// map page keeps its fog in either mode (Editing() is false there).
 	const bool showAll = Editing();
+	m_drawn = {m_overlay, showAll}; // what this frame drew, for `worldview`
 	for (int z = 0; z < world.Height(); ++z)
 		for (int x = 0; x < world.Width(); ++x) {
 			const bool seen = showAll || state.Seen(x, z);
@@ -315,8 +331,8 @@ void WorldMapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	if (!m_font) return;
 	// The overlay's way back to the dungeon map. Drawn before the band so the
 	// Editor's toolbar wins the corner if both were ever up at once — they
-	// cannot be today (the overlay is Play mode), and a silent overlap would
-	// be worse than a stated precedence.
+	// cannot be (Editing() is false on the overlay, so it has no band), and a
+	// silent overlap would be worse than a stated precedence.
 	// The close box, top-right (the shared dialog icon, "x" without it).
 	if (ShowCloseButton()) {
 		const gfx::Rect r = CloseButton(panel);

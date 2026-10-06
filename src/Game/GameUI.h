@@ -335,7 +335,7 @@ public:
 	void RenderLoadingScreen(const LoadQueue& queue);     // boot: title (+ art once loaded)
 	void RenderGameLoadingScreen(const LoadQueue& queue); // title art + progress
 	void RenderMenuOverlay();
-	void RenderPauseOverlay(); // dark wash + pause menu over the frozen scene
+	void RenderPauseOverlay(); // dark wash + pause menu over what it paused (scene or world map)
 	void RenderCharacterSheetOverlay(); // dark wash + the details page
 	void RenderConfirmOverlay();        // dark wash + the Yes/No restart modal
 

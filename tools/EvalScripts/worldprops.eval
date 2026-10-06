@@ -89,6 +89,29 @@ expect-refuse worldsettings
 worldmap on
 worldsettings
 worldsettings off
+
+; --- each tab's status row is its own (code-review C102) ---------------------
+; Opened on a doorway, as a right-click opens it; then a start refused on the
+; World tab (0,0 is water) and a move refused on the Doorways tab (off the
+; grid), each through the call its fields make. A refusal must land in the row
+; of the tab that raised it and leave the other's alone. With one row shared by
+; the tabs, the doorway's form showed the World tab's start caption, and the
+; refused start was written into the hidden Doorways row. (`start` and `move`
+; print the rows after them, as `status` does.)
+worldsettings crypt_gate
+worldsettings status
+worldsettings start 0 0
+worldsettings move 99 99
+; ...and a DELETE takes the doorway's note with it. With nothing selected the
+; Doorways row stands under "+ Add", and a refusal about a doorway that is gone
+; would sit there. A doorway is added for it (selected), refused a move, then
+; deleted - which leaves the world as it was. Add and delete rebuild the tab a
+; frame later, so the row they leave is read by the `status` after them.
+worldsettings add
+worldsettings move 99 99
+worldsettings delete
+worldsettings status
+worldsettings off
 worldmap off
 
 ; --- W5: the picker's two tiers, and where a new level lands ----------------

@@ -16,6 +16,11 @@
 #               was written to log its findings with a label precisely so a
 #               scripted sweep would be collectable, and then nothing ever swept.
 #
+#   backdrop    (code-review C365) what Render drew behind the pause menu and
+#               the sheet opened from the world map: the world map, with no 3D
+#               pass - not the parked dungeon. A drawing fact, so only a run
+#               that renders can check it; it is those two screens' status.
+#
 # COVERAGE IS SELF-VERIFYING, and a label alone does not verify it: the game
 # logs `uioverlap [<label>] --- state <s>` the moment the command runs, whether
 # or not the screen opened (code-review C427). So each screen is judged on four
@@ -283,6 +288,25 @@ $screens = @(
 	   # The -SelfTest fault: opened, never audited - and the label that IS
 	   # audited just before it, sweep_worldsettings, contains this one.
 	   selfTestNoAudit = $true },
+	# The PAUSE MENU and the SHEET over the world map (code-review C365): each
+	# must draw the world map behind it, not the parked dungeon that stays
+	# resident under it. `backdrop` reports what Render drew, and is each row's
+	# status. Esc is a KEY, so the console shuts for it and reopens to type
+	# into. The sheet sweep reads a level's sheet first - the control, a
+	# readout that can say "scene drawn" - and demands both lines.
+	@{ label = 'sweep_worldpause'; state = 'paused'; viaConsole = $true
+	   open = { Run-Cmd 'worldmap on'; Send-Key $VK_CONSOLE; Start-Sleep -Milliseconds 400
+				Send-Key $VK_ESCAPE; Start-Sleep -Milliseconds 800; Open-Console }
+	   close = { Send-Key $VK_CONSOLE; Start-Sleep -Milliseconds 400; Send-Key $VK_ESCAPE
+				 Start-Sleep -Milliseconds 800; Open-Console; Run-Cmd 'worldmap off' }
+	   probe = @('backdrop'); status = @((Answer 'backdrop: paused over worldmap - scene skipped')) },
+	@{ label = 'sweep_worldsheet'; state = 'sheet'; viaConsole = $true
+	   open = { Run-Cmd 'sheet 0'; Run-Cmd 'backdrop'; Run-Cmd 'sheet off'
+				Run-Cmd 'worldmap on'; Run-Cmd 'sheet 0' }
+	   close = { Run-Cmd 'sheet off'; Run-Cmd 'worldmap off' }
+	   probe = @('backdrop')
+	   status = @((Answer 'backdrop: sheet over playing - scene drawn'),
+				  (Answer 'backdrop: sheet over worldmap - scene skipped')) },
 	# The delete CONFIRMATION, which needs a world that may be deleted - so it
 	# makes its own and deletes it on the way out, rather than depending on
 	# whatever worlds happen to be on this machine.

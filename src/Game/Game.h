@@ -239,6 +239,8 @@ private:
 		Paused,
 		CharacterSheet
 	};
+	// A state as StateName's word, for any state (the `backdrop` readout).
+	static const char* StateWord(AppState state);
 
 	// --- construction (called once from the ctor; see Game.cpp) -----------
 	void WireModuleCallbacks(); // the world↔UI/editor callback graph
@@ -900,6 +902,31 @@ private:
 	// an unconditional "resume means Playing" would quietly teleport a
 	// travelling party into whatever level was last loaded.
 	AppState m_resumeState = AppState::Playing;
+	// The state whose PICTURE is behind the current one. The pause menu and the
+	// sheet are drawn over whatever they were opened from, so from the world map
+	// they sit over the world map - not over the parked dungeon that stays
+	// resident under it, which Render used to draw (shadows and all) because it
+	// chose the 3D pass from m_state alone (code-review C365). Every other state
+	// is its own backdrop. Render's 3D gate and its 2D switch both ask this.
+	AppState BackdropState() const {
+		return m_state == AppState::Paused || m_state == AppState::CharacterSheet
+				   ? m_resumeState
+				   : m_state;
+	}
+	// What the last RENDERED frame drew behind the state's own 2D: the backdrop
+	// whose picture it drew - set in the case of Render's switch that DREW it,
+	// so a case that drew nothing (or the world map's with no map loaded)
+	// leaves it empty and reads as "nothing", not as whatever backdrop the
+	// switch was asked for - and whether the 3D scene pass ran. The `backdrop`
+	// command prints them, and InGameTest reads that (a headless run renders
+	// nothing).
+	std::optional<AppState> m_drawnBackdrop;
+	bool m_drewScene = false;
+	u32 m_backdropFrame = 0; // the frame (1-based) they describe; 0 = none rendered
+	// The frame (1-based, as m_backdropFrame) the world view last DREW, as the
+	// travel screen or the map's world page; 0 = never. `worldview` reports the
+	// view's LastDrawn() only when it is the last rendered frame's.
+	u32 m_worldViewFrame = 0;
 	LoadQueue m_loadQueue;
 	bool m_gameLoaded = false; // the loaded world's game assets are resident
 	// The world a start with nothing else to go on opens: `-project`, else

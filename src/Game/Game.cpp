@@ -1776,8 +1776,10 @@ void Game::OverlayOpenedThisFrame() {
 	m_steadyFrames = 0;
 }
 
-const char* Game::StateName() const {
-	switch (m_state) {
+const char* Game::StateName() const { return StateWord(m_state); }
+
+const char* Game::StateWord(AppState state) {
+	switch (state) {
 	case AppState::Loading: return "loading";
 	case AppState::Menu: return "menu";
 	case AppState::LoadingGame: return "loadinggame";
@@ -2047,6 +2049,16 @@ void Game::UpdateStates(float dt) {
 						 static_cast<float>(m_window.Height()), m_device, m_spriteBatch);
 	}
 	UpdateGovernor(dt); // adaptive thread throttle (no-op unless `governor auto`)
+	// Which of its two lives the world view is leading, recomputed every frame
+	// rather than set at the transitions: as the player's OVERLAY (the M map's
+	// world page in a dungeon) it offers a way back to the dungeon map and is
+	// never the editor (code-review C79); as the travel screen it must not
+	// offer one (there is no dungeon to go back to out there). DERIVED HERE -
+	// after this frame's console and script commands, before the console's
+	// early return below - so it holds on every frame the page can draw,
+	// console open or not: from the play path, a `mappage world` typed at the
+	// open console drew the page with the flag the travel screen had left.
+	m_worldMapView.SetOverlay(BackdropState() == AppState::Playing && ShowingWorldPage());
 	// The console owns the whole frame's input if it was open at the start (or
 	// just opened) — so the very keystroke that closes it (Esc or `~`) never
 	// also reaches the pause menu / HUD this frame. Owning input is NOT a
@@ -2467,11 +2479,8 @@ void Game::UpdateStates(float dt) {
 			m_geomNoticeLatched = true;
 		}
 	}
-	// Which of its two lives the world view is leading, recomputed every frame
-	// rather than set at the transitions: as the player's OVERLAY it offers a
-	// way back to the dungeon map, and as the travel screen it must not (there
-	// is no dungeon to go back to out there).
-	m_worldMapView.SetOverlay(ShowingWorldPage());
+	// (The world view's overlay flag was derived above, before the console's
+	// early return - see SetOverlay there.)
 	if (m_mapView.IsOpen()) {
 		// While laying a patrol route (grid clicks lay waypoints), keys finish/undo
 		// it — ahead of the overlay's own Esc-to-close.
@@ -2674,7 +2683,9 @@ void Game::UpdateStates(float dt) {
 // ============================================================================
 // Rendering — the command list arrives from GraphicsDevice::BeginFrame
 // already cleared and bound. Loading, Menu, and LoadingGame are 2D-only
-// (title art / progress screens); Playing draws the 3D scene + HUD.
+// (title art / progress screens); Playing draws the 3D scene + HUD, WorldMap
+// the overworld, and Paused / CharacterSheet draw over whichever of those two
+// they were opened from (BackdropState).
 // ============================================================================
 void Game::Render(ID3D12GraphicsCommandList* list) {
 	m_renderer.NewFrame(m_device.FrameIndex());
@@ -2685,6 +2696,10 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	// the HUD below) while it is up — nothing else needs drawing behind it.
 	const bool editorMap = m_state == AppState::Playing && m_mapView.IsOpen() &&
 						   m_mapView.CurrentMode() == MapView::Mode::Editor;
+	// Whose picture is behind this frame's 2D: the state's own, or - under the
+	// pause menu and the sheet - the one they were opened from (C365).
+	const AppState backdrop = BackdropState();
+	m_drewScene = false;
 
 	// The offscreen 3D preview feeds from the asset dialog's picked model (P4b)
 	// or the dev `preview` command (P4a). Render() redirects the OM, so rebind
@@ -2783,11 +2798,13 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		m_device.BindBackBuffer(list);
 	}
 	// The 3D scene draws during play and under the pause menu (frozen) and the
-	// character sheet (live); Loading and Menu are 2D-only. The full-screen dev
-	// preview replaces it; the editor map and dialog skip it too.
-	else if ((m_state == AppState::Playing || m_state == AppState::Paused ||
-			  m_state == AppState::CharacterSheet) &&
-			 !editorMap) {
+	// character sheet (live) opened from play - BackdropState, so the two opened
+	// from the WORLD MAP draw the world map instead and spend no 3D frame on the
+	// parked level behind it (code-review C365). Loading and Menu are 2D-only.
+	// The full-screen dev preview replaces it; the editor map and dialog skip it
+	// too.
+	else if (backdrop == AppState::Playing && !editorMap) {
+		m_drewScene = true;
 		{
 			DN_PROFILE_ZONE_L(prof::kLevelSystem, "icons");
 			m_world->UpdateItemIcons(list, m_spriteBatch); // 3D item icons (static + spin)
@@ -2819,6 +2836,11 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		// The bakes rebind the back buffer themselves when they ran.
 		m_world->UpdateItemIcons(list, m_spriteBatch);
 		m_world->UpdateMapIcons(list, m_spriteBatch);
+	} else if (m_state == AppState::CharacterSheet && m_world) {
+		// The sheet over the world map: no scene, but its pack shows item icons,
+		// and the animated ones re-bake every frame (the 3D block does this for
+		// a sheet opened in a level).
+		m_world->UpdateItemIcons(list, m_spriteBatch);
 	}
 	// The item details dialog's turning model (docs/ui-updates-plan.md P3), drawn
 	// AFTER the scene - the dialog sits over a live world, so unlike the editor
@@ -2858,12 +2880,39 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	DN_PROFILE_ZONE_L(prof::kLevelSystem, "ui2d");
 	DN_GPU_ZONE(m_device.Gpu(), list, "gpu.ui2d");
 	m_spriteBatch.Begin(list, m_device.Width(), m_device.Height());
-	switch (m_state) {
-	case AppState::Loading:     m_ui.RenderLoadingScreen(m_loadQueue); break;
-	case AppState::Menu:        m_ui.RenderMenuOverlay(); break;
-	case AppState::LoadingGame:  m_ui.RenderGameLoadingScreen(m_loadQueue); break;
-	case AppState::LoadingLevel: m_ui.RenderGameLoadingScreen(m_loadQueue); break;
+	// The BACKDROP'S picture first, then - for the pause menu and the sheet -
+	// their own page over it under a dark wash. Switching on BackdropState rather
+	// than m_state is what puts the world map, not the parked dungeon, under the
+	// two when they were opened from it (C365). `drawn` is set in the case that
+	// DREW the picture, never from `backdrop`: the `backdrop` readout must be
+	// able to say a frame drew nothing behind the pause menu.
+	std::optional<AppState> drawn;
+	switch (backdrop) {
+	case AppState::Loading:
+		m_ui.RenderLoadingScreen(m_loadQueue);
+		drawn = AppState::Loading;
+		break;
+	case AppState::Menu:
+		m_ui.RenderMenuOverlay();
+		drawn = AppState::Menu;
+		break;
+	case AppState::LoadingGame:
+		m_ui.RenderGameLoadingScreen(m_loadQueue);
+		drawn = AppState::LoadingGame;
+		break;
+	case AppState::LoadingLevel:
+		m_ui.RenderGameLoadingScreen(m_loadQueue);
+		drawn = AppState::LoadingLevel;
+		break;
 	case AppState::Playing: {
+		// Under the pause menu and the sheet the 3D scene alone stands behind
+		// their wash, as it always has - no HUD, no map. That scene IS this
+		// backdrop's picture, so it counts as drawn only if the 3D pass ran.
+		if (m_state != AppState::Playing) {
+			if (m_drewScene) drawn = AppState::Playing;
+			break;
+		}
+		drawn = AppState::Playing;
 		const float dw = static_cast<float>(m_device.Width());
 		const float dh = static_cast<float>(m_device.Height());
 		if (editorMap) {
@@ -2874,12 +2923,14 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 			if (m_mapView.IsOpen()) {
 				// Player map: dim the scene behind the 80% panel, over the HUD.
 				m_spriteBatch.DrawRect({0, 0, dw, dh}, {0, 0, 0, 0.45f});
-				if (ShowingWorldPage())
+				if (ShowingWorldPage()) {
 					m_worldMapView.Render(m_spriteBatch, m_settings.theme,
 										  *m_worldMap, m_worldState,
 										  MapPanel(dw, dh));
-				else
+					m_worldViewFrame = m_framesRendered + 1; // for `worldview`
+				} else {
 					m_mapView.Render(m_spriteBatch, m_settings.theme, MapPanel(dw, dh));
+				}
 			}
 		}
 		// The deferred-rebake notice (see Update): the frame the blocking
@@ -2889,16 +2940,30 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		break;
 	}
 	case AppState::WorldMap:
-		if (m_worldMap)
+		if (m_worldMap) {
 			m_worldMapView.Render(m_spriteBatch, m_settings.theme, *m_worldMap,
 								  m_worldState,
 								  WorldPanel(static_cast<float>(m_device.Width()),
 											 static_cast<float>(m_device.Height())));
-		m_ui.RenderConfirmOverlay(); // "Enter the Crypt?", when a step asks
+			drawn = AppState::WorldMap;
+			m_worldViewFrame = m_framesRendered + 1; // for `worldview`
+		}
+		// "Enter the Crypt?", when a step asks - on the travel screen itself,
+		// never under the pause menu (whose own confirm draws in its overlay).
+		if (m_state == AppState::WorldMap) m_ui.RenderConfirmOverlay();
 		break;
-	case AppState::Paused:      m_ui.RenderPauseOverlay(); break;
-	case AppState::CharacterSheet: m_ui.RenderCharacterSheetOverlay(); break;
+	case AppState::Paused:
+	case AppState::CharacterSheet:
+		// Never a backdrop of their own: BackdropState resolves both to where
+		// they were opened from. (Only a sheet opened over the pause menu from
+		// the console gets here, and draws its page over nothing - so `drawn`
+		// stays empty.)
+		break;
 	}
+	m_drawnBackdrop = drawn;
+	m_backdropFrame = m_framesRendered + 1; // this frame, counted at the end
+	if (m_state == AppState::Paused) m_ui.RenderPauseOverlay();
+	else if (m_state == AppState::CharacterSheet) m_ui.RenderCharacterSheetOverlay();
 	const float dw = static_cast<float>(m_device.Width());
 	const float dh = static_cast<float>(m_device.Height());
 	// The item details dialog, over the HUD or the sheet it was opened from, and
