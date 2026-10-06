@@ -55,9 +55,9 @@ bool DungeonWorld::BuildArena(ArenaShape shape, int w, int h, ArenaInfo& out) {
 	m_decorations.clear();
 	m_doors.clear();
 	m_buttons.clear();
-	m_projectiles.Clear();
-	m_pendingBoltCount = 0; // and any volley still waiting its turn
-	m_lightStones = {};     // and any Earth light set down (a level's own state)
+	// And everything the level had in flight or under way (C292): a blast left
+	// spreading would bite inside the new arena.
+	ClearLevelTransients();
 
 	// --- 2. strip the map's own furniture -----------------------------------
 	// Per-cell removers rather than reaching into the vectors: they are the

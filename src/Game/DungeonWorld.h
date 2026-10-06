@@ -149,7 +149,10 @@ public:
 	bool LightTiling() const { return m_renderer.LightTiling(); }
 
 	// "Start New Game": snaps the party home and re-arms the monster
-	// announcements (the caller clears the log right after, as before).
+	// announcements (the caller clears the log right after, as before). Also the
+	// first half of a LOAD, which lays the save on top of it - so whatever it
+	// leaves standing, a load inherits: it clears the level's transients
+	// (ClearLevelTransients) and mends every door, prop and fixture (C292, C293).
 	void ResetForNewGame();
 
 	// One frame of the world: party input, then `dt` of simulation (party
@@ -622,12 +625,15 @@ public:
 	// party stands on the harness level: a reset from anywhere else goes there by
 	// a real load instead (code-review C300).
 	void ResetForEval();
-	// The part of a reset NO LEVEL FILE PUTS BACK: a blast still spreading, the
-	// fixture damage table, a pit fall mid-plunge, the harness's modes, rest, the
-	// other levels' stashes and the undo history. ONE list, shared by both ways
-	// a reset goes - ResetForEval (the same level, re-read in place) and Game's
-	// switch to the harness level, where a staged level load does the rest - so
-	// the two cannot drift apart the way the level-reset paths did (C292).
+	// The part of a reset NO LEVEL FILE PUTS BACK, and ResetForNewGame does not
+	// (yet - rest, the clocks and the undo history are code-review batch 78's):
+	// the harness's modes, rest, the throw and kindle clocks, the other levels'
+	// stashes and the undo history. ONE list, shared by both ways a reset goes -
+	// ResetForEval (the same level, re-read in place) and Game's switch to the
+	// harness level, where a staged level load does the rest - so the two cannot
+	// drift apart. (What the LEVEL had under way - a blast, the fixture damage
+	// table, a pit fall - is ClearLevelTransients', which ResetForNewGame and
+	// every level load call, so both ways get it from there; C292.)
 	void ResetEvalTransients();
 	// What a reset is supposed to have cleared, counted (the console's
 	// `transients`; code-review batch 12). resettest.eval prints it in both of
@@ -3258,6 +3264,14 @@ private:
 
 		bool Damageable() const { return maxHp > 0.0f; }
 		bool Alive() const { return Damageable() && !broken; }
+		// Back to how its type made it: whole, at full hp, nothing riding it - a
+		// new game or a load over the same level (code-review C292). clear(), not
+		// `= {}`, so the list keeps the room fx::ReserveEffects gave it.
+		void Mend() {
+			hp = maxHp;
+			broken = false;
+			effects.clear();
+		}
 	};
 
 	// A FIXTURE's damage state, kept beside the map rather than on it. Sconces and
@@ -5256,6 +5270,24 @@ private:
 	// charged on the first frame after they arrive rather than before they
 	// leave (OnFallImpact — otherwise its line would never be read).
 	bool m_fellPending = false;
+	// THE LEVEL'S TRANSIENTS (code-review C292, C293): what is IN FLIGHT or UNDER
+	// WAY in the level and belongs to no record - shots and thrown things, a volley
+	// still queued, a blast still spreading (a poison gas hangs 8 s), an Earth
+	// light set down, the fixture damage table, the effects riding the monsters,
+	// a stair or a pit fall under way. ONE list, called wherever a level is
+	// replaced or put back: BeginLevelLoad (after the level left is stashed),
+	// InstallLevel, the harness's arena, and ResetForNewGame - a new game or a
+	// load, which on another level is a BeginLevelLoad as well. Each of those used
+	// to clear its own copy of this list, and the copies had drifted: a gas thrown
+	// before a stair bit the same squares of the next floor, a load or a new game
+	// kept it and every burning monster, and the fixture table - which a re-seed
+	// carries over BY CELL - handed a smashed sconce's wreck to whichever sconce
+	// stood on that square of the next level. So the table is EMPTIED here, and
+	// whoever puts the level back seeds it afresh.
+	// NOT m_fellPending: a pit fall's bruise is owed on the far side of the very
+	// level load that ends the fall (ResetForNewGame clears it - a fresh start
+	// owes nothing). Lists are emptied with clear(), keeping what was reserved.
+	void ClearLevelTransients();
 	// The party's eye for the camera / carried torch / particle sort:
 	// Party::EyePosition plus the pit-fall drop, so the view and the light it
 	// carries sink through the opening together.

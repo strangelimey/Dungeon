@@ -765,9 +765,25 @@ tasks means it cannot break again if that order changes — a derived table hold
 dynamic state has to preserve it across a rebuild, or the rebuild is a data-loss
 bug waiting for a reorder.
 
+The carry-over then needs the table to be THIS level's. It matches by cell, wall
+and type, with no level in the key, and nothing emptied the table when the level
+changed: a sconce smashed on 5,1 handed its wreck (and its burn) to the next
+level's sconce on 5,1, and a new game or a load over the same level kept every
+wreck - a door smashed after a save came back from the load shut and broken
+(code-review C293). So every place a level is replaced or put back empties it
+first (`DungeonWorld::ClearLevelTransients`: a level load, a regenerate, the
+arena, a new game or a load), whoever puts the level back seeds it afresh, and
+`ResetForNewGame` mends every door and prop (`Breakable::Mend`). A load re-breaks
+what its save says was broken, as before.
+
 That one also hid behind a *false positive*: a fixture missing from the table
 reports "nothing breakable" — exactly what a correctly-broken one reports. The
 control that separated them was smashing an untouched fixture in the same run.
+Emptying the table at every level change makes that false positive the easy one
+to fall into, so resettest.eval keeps the control: after the stair and after a
+load it smashes what must be there and counts it, and a load must bring back the
+wreck its save holds (docs/eval-harness.md, "A load and a stair clear what a
+reset clears").
 
 ## Two axes: the attacker's type potency
 

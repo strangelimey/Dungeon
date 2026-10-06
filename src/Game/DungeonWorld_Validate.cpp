@@ -128,13 +128,10 @@ bool DungeonWorld::InstallLevel(const std::string& stem, DungeonMap&& map,
 	m_seen.assign(static_cast<size_t>(m_map.Width()) * m_map.Height(), 0);
 	FitTracksToMap(); // the track grid is parallel to the cells too (6g)
 	m_walkableCache.reset(); // a grid built for the old map's bounds
-	// Transient things positioned in the level that just ceased to exist.
-	m_projectiles.Clear();
-	m_pendingBoltCount = 0; // and any volley still waiting its turn
-	m_lightStones = {};     // and any Earth light set down (a level's own state)
-	m_pendingTransition.reset();
-	m_pendingFall.reset();
-	m_fallT = -1.0f;
+	// Transient things positioned in the level that just ceased to exist - the
+	// fixture damage table among them, before RebuildFiresAndDust below seeds it
+	// from the new map (its re-seed carries an entry over by cell: C293).
+	ClearLevelTransients();
 	m_shadows.InvalidateCubes();
 	// The dynamic layer comes from the new records alone: a regenerate discards
 	// the old level, so there are no live diffs left worth carrying over — and

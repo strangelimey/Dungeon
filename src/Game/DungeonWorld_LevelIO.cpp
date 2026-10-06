@@ -77,12 +77,12 @@ void DungeonWorld::BeginLevelLoad(const std::string& stem, bool stashCurrent) {
 	m_doors.clear();
 	m_decorations.clear();
 	m_fires.clear();
-	m_projectiles.Clear(); // bolts/sparks don't survive a level change
-	m_pendingBoltCount = 0; // and any volley still waiting its turn
-	m_lightStones = {};     // and any Earth light set down (a level's own state)
-	m_pendingTransition.reset();
-	m_pendingFall.reset(); // the swap IS the fall's end
-	m_fallT = -1.0f;
+	// Nothing in flight or under way outlives the level it was in: shots, a
+	// blast (a gas thrown before the stair bit the same squares of the next
+	// floor), the fixture damage table (whose re-seed in the fires task carried
+	// a wreck over to the same square here), a fall - the swap IS its end
+	// (C292, C293). After the stash above, which took what the level keeps.
+	ClearLevelTransients();
 	m_shadows.InvalidateCubes();
 	ResolveSurfacePalettes();
 }

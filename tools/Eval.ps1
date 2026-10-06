@@ -75,7 +75,13 @@
 # `transients` readout) match each other alone, and match again when the script
 # runs batched after selftest-leavelevel.eval, which carves the harness level and
 # leaves the party off it - the reset must come back to it and forget the carved
-# stash, which that script must be seen holding (code-review C300).
+# stash, which that script must be seen holding (code-review C300). Its wrecking
+# opens with three repros a LOAD and a STAIR must clear as a reset does - a gas,
+# a smashed sconce and a burning brazier, a bleeding monster, a door, a sconce
+# and props wrecked after the save - each with its control and a check that what
+# reads whole is THERE (smashed again, or the saved wreck found) (code-review
+# C292, C293); the run takes a copy of the script whose save slot is named for
+# this worktree (HarnessGame.ps1 Copy-EvalScript).
 #
 # ASCII ONLY: PS 5.1 reads a BOM-less .ps1 as ANSI.
 # ============================================================================
@@ -162,6 +168,81 @@ function Get-ResetBlocks([string[]]$lines) {
 		}
 	}
 	return @{ A = $a; B = $b }
+}
+
+# resettest.eval's repros (code-review batch 77): the `transients` readout that
+# follows a `--- repro: <name> ---` echo, as numbers - level, blasts, effects
+# (on monsters), the broken fixtures, decorations and doors, the pieces hurt but
+# standing and the effects riding pieces. $null when that repro printed no whole
+# readout, which a check must read as a failure, never as zeroes.
+function Get-ReproTransients([string[]]$lines, [string]$name) {
+	$marker = '^\[info \] console: --- repro: ' + [regex]::Escape($name) + ' ---$'
+	$at = -1
+	for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -cmatch $marker) { $at = $i; break } }
+	if ($at -lt 0) { return $null }
+	$r = @{}
+	for ($i = $at + 1; $i -lt $lines.Count; $i++) {
+		$line = $lines[$i]
+		if ($line -cmatch '^\[info \] console: --- ') { break } # the next repro: this one printed none
+		if ($line -cmatch '^\[info \] console: transients on (\S+)$') { $r.level = $Matches[1] }
+		elseif ($line -cmatch '^\[info \] console:   blasts=(\d+) monster_effects=(\d+) ') {
+			$r.blasts = [int]$Matches[1]; $r.effects = [int]$Matches[2]
+		} elseif ($line -cmatch '^\[info \] console:   broken fixtures=(\d+) decorations=(\d+) doors=(\d+)  hurt=(\d+) piece_effects=(\d+)$') {
+			$r.fixtures = [int]$Matches[1]; $r.decorations = [int]$Matches[2]; $r.doors = [int]$Matches[3]
+			$r.hurt = [int]$Matches[4]; $r.pieceEffects = [int]$Matches[5]; break
+		}
+	}
+	foreach ($k in 'level', 'blasts', 'effects', 'fixtures', 'decorations', 'doors', 'hurt', 'pieceEffects') {
+		if (-not $r.ContainsKey($k)) { return $null }
+	}
+	return $r
+}
+
+# The nine repro rows for one run's log: each repro's CONTROL (what it staged
+# is really there - a repro that staged nothing must not pass), the line that
+# must read clear, and the line that tells CLEAR from GONE. Nothing broken,
+# hurt or burning is what an empty fixture table or a missing door reads as
+# too, so the stair and repro 3 smash what must still be there and count it,
+# and repro 2's load must bring back the wreck its save holds - which it can
+# only lay on a fixture table the load seeded.
+function Get-ReproChecks([string[]]$lines) {
+	$say = { param($t) if ($null -eq $t) { 'no readout' } else {
+		"on $($t.level): blasts=$($t.blasts) effects=$($t.effects) broken fixtures=$($t.fixtures) " +
+		"decorations=$($t.decorations) doors=$($t.doors) hurt=$($t.hurt) piece_effects=$($t.pieceEffects)" } }
+	# Every piece of dungeon whole, unhurt and carrying nothing.
+	$whole = { param($t) [bool]($t -and $t.fixtures -eq 0 -and $t.decorations -eq 0 -and $t.doors -eq 0 -and
+		$t.hurt -eq 0 -and $t.pieceEffects -eq 0) }
+	$s0 = Get-ReproTransients $lines 'before the stair'
+	$s1 = Get-ReproTransients $lines 'down the stair'
+	$s2 = Get-ReproTransients $lines "crypt1's own, smashed"
+	$l0 = Get-ReproTransients $lines 'before the load'
+	$l1 = Get-ReproTransients $lines 'loaded over the gas'
+	$d0 = Get-ReproTransients $lines 'smashed after the save'
+	$d1 = Get-ReproTransients $lines 'loaded over the smash'
+	$d2 = Get-ReproTransients $lines 'smashed again after the load'
+	return @(
+		@{ what = 'a gas hangs, a sconce smashed, a brazier burns'
+		   ok = $s0 -and $s0.blasts -ge 1 -and $s0.fixtures -ge 1 -and $s0.hurt -ge 1 -and $s0.pieceEffects -ge 1
+		   got = & $say $s0 },
+		@{ what = '...down a stair: none of it came'
+		   ok = (& $whole $s1) -and $s1.level -ceq 'crypt1' -and $s1.blasts -eq 0; got = & $say $s1 },
+		@{ what = "...crypt1's own were there to smash"
+		   ok = $s2 -and $s2.level -ceq 'crypt1' -and $s2.fixtures -ge 2; got = & $say $s2 },
+		@{ what = 'a gas hangs, a monster bleeds'
+		   ok = $l0 -and $l0.blasts -ge 1 -and $l0.effects -ge 1; got = & $say $l0 },
+		@{ what = '...a load: no gas, no bleeding'
+		   ok = $l1 -and $l1.blasts -eq 0 -and $l1.effects -eq 0; got = & $say $l1 },
+		@{ what = '...and the saved wreck and burn are back'
+		   ok = $l1 -and $l1.fixtures -ge 1 -and $l1.hurt -ge 1 -and $l1.pieceEffects -ge 1; got = & $say $l1 },
+		@{ what = 'door, sconce, props wrecked after the save'
+		   ok = $d0 -and $d0.doors -ge 1 -and $d0.fixtures -ge 1 -and $d0.decorations -ge 1 -and
+				$d0.hurt -ge 1 -and $d0.pieceEffects -ge 1
+		   got = & $say $d0 },
+		@{ what = '...a load: all whole, none hurt or burning'
+		   ok = & $whole $d1; got = & $say $d1 },
+		@{ what = '...and all still there to smash'
+		   ok = $d2 -and $d2.doors -ge 1 -and $d2.fixtures -ge 1 -and $d2.decorations -ge 2; got = & $say $d2 }
+	)
 }
 
 # '' when two blocks match line for line, else what differs first.
@@ -498,8 +579,16 @@ if ($SelfTest) {
 	# and a check belongs with the other checks.
 	Write-Host ''
 	Write-Host '=== reset must equal a new game ==='
-	$resetRan = Invoke-EvalRun @('-eval', (Join-Path $scripts 'resettest.eval'))
-	$solo = Get-ResetBlocks @(ReadLog)
+	# Its repros SAVE and LOAD, and the save folder is one folder every checkout
+	# shares: another worktree's run of this same script would overwrite the save
+	# between a `save` and its `load`. So the run takes a COPY of the script whose
+	# slot is named for this checkout (HarnessGame.ps1), written into this build's
+	# bin, and the save is deleted again after the second run below.
+	$resetSave = Get-HarnessSaveName $root 'resettest'
+	$resetScript = Copy-EvalScript (Join-Path $scripts 'resettest.eval') (Join-Path $bin 'eval-copies') @{ resettest = $resetSave }
+	$resetRan = Invoke-EvalRun @('-eval', $resetScript)
+	$soloLog = @(ReadLog)
+	$solo = Get-ResetBlocks $soloLog
 	$diff = Compare-Blocks $solo.A $solo.B
 	# Both baselines carry the `transients` readout (code-review batch 12): what a
 	# reset must clear that no other line shows. Demanded, so a resettest.eval
@@ -509,6 +598,29 @@ if ($SelfTest) {
 	$resetOk = $resetRan -and ($diff -eq '')
 	Write-Host ("  {0} baseline lines compared - {1}" -f $solo.A.Count,
 		$(if ($resetOk) { 'identical' } else { $diff }))
+
+	# --- ...and a LOAD or a STAIR leaves nothing behind either -------------------
+	# code-review batch 77 (C292, C293). The blocks above compare a reset with a
+	# new game, and the harness's reset cleared everything - but a real load and a
+	# stair each cleared their own hand-copied list: a gas went on biting the next
+	# floor or the loaded game, a burning monster kept burning, a door smashed
+	# after the save came back from the load wrecked, and the fixture table handed
+	# a smashed sconce's wreck to the next level's sconce on that square.
+	# resettest.eval's wrecking opens with a repro of each (read its header).
+	$reproOk = $resetRan
+	# The script's own verdict too: the repros SMASH what must be there and
+	# place what they wreck, and a smash or a placement that found nothing is a
+	# refusal - which fails the script, and nothing else here would say so in the
+	# solo run (the batched one below demands failed=0).
+	$soloVerdicts = @($soloLog | Where-Object { $_ -cmatch 'eval RESULT=\w+ script=resettest\.eval ' })
+	$reproRows = @(@{ what = 'resettest.eval: one verdict, PASS'
+		ok = ($soloVerdicts.Count -eq 1) -and ($soloVerdicts[0] -cmatch 'RESULT=PASS ')
+		got = "$($soloVerdicts.Count) verdict(s): $($soloVerdicts -join ' | ')" }) + @(Get-ReproChecks $soloLog)
+	foreach ($c in $reproRows) {
+		Write-Host ("  {0,-42} {1}" -f $c.what, $(if ($c.ok) { "ok - $($c.got)" } else { "FAIL - $($c.got)" })) `
+			-ForegroundColor $(if ($c.ok) { 'Gray' } else { 'Red' })
+		if (-not $c.ok) { $reproOk = $false }
+	}
 
 	# --- ...and a reset from ANOTHER LEVEL is the same reset ------------------
 	# code-review C300. `reset` re-read whatever level it found, so a suite
@@ -527,8 +639,13 @@ if ($SelfTest) {
 	Write-Host ''
 	Write-Host '=== a reset from another level must match a solo run ==='
 	$awayRan = Invoke-EvalRun @('-headless', '-eval', (Join-Path $scripts 'selftest-leavelevel.eval'),
-		(Join-Path $scripts 'resettest.eval'))
+		$resetScript)
+	Remove-HarnessSaves @($resetSave)
 	$al = @(ReadLog)
+	# Its repros, as in the solo run: the same nine rows must hold after the
+	# switch back from another level.
+	$awayRepro = @(Get-ReproChecks $al)
+	$awayReproBad = @($awayRepro | Where-Object { -not $_.ok })
 	$al | Where-Object { $_ -cmatch 'FATAL' } | Select-Object -First 1 |
 		ForEach-Object { Write-Host ("  {0}" -f $_) -ForegroundColor Red }
 	$away = Get-ResetBlocks $al
@@ -572,6 +689,9 @@ if ($SelfTest) {
 		@{ what = 'its baseline B matches the solo run'
 		   ok = ($awayB -eq '')
 		   got = $awayB },
+		@{ what = 'its load and stair repros hold'
+		   ok = ($awayReproBad.Count -eq 0)
+		   got = "$($awayReproBad.Count) of $($awayRepro.Count) failed, first: $(if ($awayReproBad.Count) { "$($awayReproBad[0].what) ($($awayReproBad[0].got))" })" },
 		@{ what = 'the batch counts scripts=2 failed=0'
 		   ok = [bool](@($al | Where-Object { $_ -cmatch 'eval BATCH RESULT=PASS scripts=2 failed=0$' }).Count)
 		   got = "$(@($al | Where-Object { $_ -match 'eval BATCH RESULT=' }) -join ' | ')" }
@@ -939,10 +1059,10 @@ if ($SelfTest) {
 		if (-not $c.ok) { $lifeOk = $false }
 	}
 
-	$ok = ($p.ExitCode -eq 1) -and ($q.ExitCode -eq 2) -and $declineOk -and $gapOk -and $resetOk -and $awayOk -and $batchOk -and $headOk -and $respondOk -and $guardOk -and $hiddenOk -and $lifeOk
+	$ok = ($p.ExitCode -eq 1) -and ($q.ExitCode -eq 2) -and $declineOk -and $gapOk -and $resetOk -and $reproOk -and $awayOk -and $batchOk -and $headOk -and $respondOk -and $guardOk -and $hiddenOk -and $lifeOk
 	Write-Host ''
 	Write-Host ("eval RESULT={0} self_test=1" -f $(if ($ok) { 'PASS' } else { 'FAIL' }))
-	if ($ok) { Write-Host 'the runner reports both failures, counts a declined line and holds a probe to its refusal, stops the clock at a wipe, counts a gap in a batch once, recycling (from any level) and headless change nothing, the numbers still move, a second or killed run does not count, and the load paths leave a clean device' }
+	if ($ok) { Write-Host 'the runner reports both failures, counts a declined line and holds a probe to its refusal, stops the clock at a wipe, counts a gap in a batch once, recycling (from any level) and headless change nothing, a load or a stair leaves no gas, wreck or burn behind, the numbers still move, a second or killed run does not count, and the load paths leave a clean device' }
 	else { Write-Host 'A RUNNER THAT CANNOT FAIL MEANS NOTHING' -ForegroundColor Red }
 	exit $(if ($ok) { 0 } else { 1 })
 }

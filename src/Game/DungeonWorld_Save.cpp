@@ -55,6 +55,31 @@ void RestoreEffectList(const fx::EffectBook& book,
 }
 } // namespace
 
+// See the declaration: ONE list for every place a level is replaced or put back.
+// A transient added to the level belongs here, not at a call site.
+void DungeonWorld::ClearLevelTransients() {
+	m_projectiles.Clear();  // bolts, sparks, puffs, a thrown thing still in the air
+	m_pendingBoltCount = 0; // a volley's bolts still waiting their turn
+	// A blast is a wavefront still spreading, and a poison gas then HANGS for its
+	// linger: kept, it went on biting the same coordinates of whatever level or
+	// game came next. The table is fixed (C49), so emptying it is its count.
+	m_activeBlastCount = 0;
+	m_lightStones = {};     // an Earth light set down (a level's own state, saved)
+	// Emptied, not mended: whoever puts the level back seeds it from ITS map
+	// (the load's fires task, InstallLevel's and the arena's fire rebuild,
+	// ResetForNewGame), and the seed carries an old entry over BY CELL (C293).
+	m_fixtureBreaks.clear();
+	// A burn, a poison or a bleed on a monster - the plume and its light follow,
+	// being derived from the list. A level load has already emptied m_monsters;
+	// a new game and a load over the same level keep their monsters (C292).
+	for (Monster& m : m_monsters) m.effects.clear();
+	// A stair or a pit under way: either would swap levels on the next frame,
+	// out of a game that has just begun or been loaded.
+	m_pendingTransition.reset();
+	m_pendingFall.reset();
+	m_fallT = -1.0f;
+}
+
 void DungeonWorld::ResetForNewGame() {
 	m_party.Reset(m_map.StartX(), m_map.StartZ());
 	m_leader = 0; // slot 0 (Brand) leads a new game
@@ -96,9 +121,17 @@ void DungeonWorld::ResetForNewGame() {
 		monster.aiCursor = 0;
 	}
 	m_partyWiped = false;
-	m_projectiles.Clear(); // drop any bolts/sparks still in flight from a prior run
-	m_pendingBoltCount = 0; // and any volley still waiting its turn
-	m_lightStones = {};     // and any Earth light set down (a level's own state)
+	// Everything the level had in flight or under way - shots, a volley, a blast
+	// still spreading, an Earth light, the fixture damage table, what rides the
+	// monsters, a stair or a pit fall (code-review C292). A LOAD comes through
+	// here too, so a gas thrown before it used to go on biting the loaded game.
+	ClearLevelTransients();
+	m_fellPending = false; // and a fall's bruise still owed: a fresh start owes nothing
+	// The fixture damage table again, from this same map: the level stays, so no
+	// level load re-seeds it. Fresh, since ClearLevelTransients emptied it - the
+	// re-seed carries an old entry's wreck over by cell, and this is where a
+	// smashed sconce used to survive a new game or a load (C293).
+	SeedFixtureBreakables();
 	ClearTracks();          // and the tracks monsters left (6g)
 	// Rebuild items from the .ent baseline so runes return to their spawn cells
 	// (and any dropped tablets from a prior session are forgotten).
@@ -106,9 +139,16 @@ void DungeonWorld::ResetForNewGame() {
 	LoadItems();
 	for (Button& b : m_buttons) b.activated = false; // un-press for a fresh run
 	for (Door& d : m_doors) { // back to the authored state, no ghost slide
+		// Whole again first (C293): a door smashed after a save came back from
+		// the load SHUT AND WRECKED - blocking the way, past opening or breaking.
+		// A load re-breaks what the save says was broken (ApplyActiveSnapshot).
+		d.brk.Mend();
 		d.open = d.initialOpen;
 		d.openT = d.open ? 1.0f : 0.0f;
 	}
+	// A smashed prop keeps its place in the list (DecorationTarget says why), so
+	// mending it is lifting the flag; the save's `broken` lines re-break it.
+	for (Decoration& deco : m_decorations) deco.brk.Mend();
 	// Re-hide any secret niche opened this session; re-stamp the changed walls.
 	if (m_map.ResetNicheOpen())
 		for (const WallNiche& n : m_map.Niches()) RebuildChunksAround(n.x, n.z);
@@ -135,9 +175,9 @@ void DungeonWorld::ResetForNewGame() {
 // player path has any reason to touch.
 void DungeonWorld::ResetForEval() {
 	// --- 0. what no level file puts back -----------------------------------
-	// FIRST, so the fixture table is empty before the seed below: seeding copies
-	// a broken fixture's state across from the old table by cell (C293), and
-	// this table is what a smashed sconce would otherwise come back through.
+	// The harness's modes, rest, the clocks, other levels' stashes and the undo
+	// history. What the LEVEL had under way (a blast, the fixture damage table, a
+	// fall) is ResetForNewGame's below, as it is for a real new game (C292).
 	ResetEvalTransients();
 
 	// --- 1. THE STATIC LAYER, back from the project files -------------------
@@ -160,24 +200,16 @@ void DungeonWorld::ResetForEval() {
 	// Every live object re-placed from those records. Also the reason harness
 	// `spawn`s disappear: they were never records, only instances.
 	RespawnFromRecords(/*geometryToo=*/false);
-	SeedFixtureBreakables();
 
 	// --- 2. the dynamic layer -----------------------------------------------
-	// Party pose, monster hp/threat/awareness, the wipe latch, projectiles,
-	// items, buttons, doors, niches, fog, torch palette. AFTER the map, because
-	// it puts the party on the map's start cell.
+	// Party pose, monster hp/threat/awareness, the wipe latch, the level's
+	// transients (blasts, projectiles, the fixture damage table - seeded afresh
+	// from the map just read - monster effects, a fall), items, buttons, doors
+	// and props mended, niches, fog, torch palette. AFTER the map, because it
+	// puts the party on the map's start cell. Damage done to the dungeon is
+	// mended in there too, for a new game and a load alike (C292, C293); it used
+	// to be mended here alone, so only the harness's reset saw it.
 	ResetForNewGame();
-
-	// Damage done to the DUNGEON (save v24). A smashed decoration KEEPS its
-	// record — the adapter holds a reference and the save has to be able to name
-	// what broke - so the flag is lifted rather than the entry erased. (Fixtures
-	// live in their own side-table keyed by cell+wall, emptied by
-	// ResetEvalTransients above and seeded afresh after the respawn.)
-	for (Decoration& deco : m_decorations) {
-		deco.brk.broken = false;
-		deco.brk.hp = deco.brk.maxHp;
-		deco.brk.effects.clear();
-	}
 
 	// --- 3. make it real -----------------------------------------------------
 	// The FULL bake, as `arena` does: every cell in the map may have changed.
@@ -186,20 +218,11 @@ void DungeonWorld::ResetForEval() {
 }
 
 void DungeonWorld::ResetEvalTransients() {
-	// A blast is a wavefront mid-flight; a `step` that ends between its ticks
-	// leaves one live, and it would detonate into the next test. The table is
-	// fixed (batch 21's C49), so emptying it is its count.
-	m_activeBlastCount = 0;
-	// Seeded again by whoever puts the level back: ResetForEval's respawn, or
-	// the staged load's fires task. Cleared rather than kept, because the seed
-	// copies an entry's broken state across by cell (C293).
-	m_fixtureBreaks.clear();
-
-	// A pit fall caught mid-plunge would swap levels on the first frame of the
-	// next test, and the bruise is latched separately from the transition.
-	m_pendingFall.reset();
-	m_fellPending = false;
-	m_fallT = -1.0f;
+	// A blast mid-flight, the fixture damage table and a pit fall mid-plunge used
+	// to be cleared HERE, so only the harness's reset was rid of them - a real
+	// new game, a load or a stair carried them on (code-review C292, C293). They
+	// are ClearLevelTransients' now, which both of a reset's ways reach through
+	// ResetForNewGame (and the switch through its level load as well).
 
 	// The harness's own modes. NOT `lockstep` or the RNG seed: those are how the
 	// run is DRIVEN rather than what it contains, and silently changing them

@@ -743,10 +743,14 @@ quietly loading over the same one.
 A reset now goes where a new game goes: the manifest's `eval_level`, else the
 first level (`Game::HarnessLevel`, which `StartNewGame`'s harness branch asks
 too). On that level it recycles in place as before. Anywhere else it clears what
-no level file puts back (`DungeonWorld::ResetEvalTransients`: blasts, the fixture
-damage table, a fall mid-plunge, the harness's modes, rest, the throw and kindle
-clocks) and starts a new game through the menu callback, whose staged load takes
-the party there - `reset: switched in N ms (from X to Y, by a level load)`. The
+no level file puts back (`DungeonWorld::ResetEvalTransients`: the harness's
+modes, rest, the throw and kindle clocks) and starts a new game through the menu
+callback, whose staged load takes the party there - `reset: switched in N ms
+(from X to Y, by a level load)`. (What the LEVEL had under way - a blast, the
+fixture damage table, a fall mid-plunge, the effects on its monsters - is not
+the harness's to clear: `ClearLevelTransients` does it for a new game, a load
+and every level load alike, so both of a reset's ways get it from there; see
+below.) The
 console stays gated until the load lands, so the script's next line waits for
 free. Either way it forgets every other level's stash and the undo history. A
 harness level with no file (a `~` stem, a typo in the manifest) is REFUSED with a
@@ -770,6 +774,42 @@ judge for the reset leaks code-review batches 77-79 close, each of which injects
 its leak into the wrecking. Its first run caught one with nothing injected: the
 kindle clock runs every frame, so a reset handed the next test whatever phase
 the last one ended on (0.100 against a new game's 0.250).
+
+### A load and a stair clear what a reset clears (code-review C292, C293)
+
+The reset's own list was the only COMPLETE one. A new game, a load (whose first
+half is a new game), a stair, a regenerate and the harness's arena each cleared
+a hand-copied list of what the level had under way, and the copies had drifted:
+a poison gas thrown before a stair went on biting the same squares of the next
+floor, a load kept it and every burning monster, a door smashed after a save
+came back from the load shut and wrecked (past opening or breaking), and the
+fixture damage table - whose re-seed carries an entry over BY CELL, so a
+restored wreck survives a rebuild - handed a smashed sconce's wreck to the next
+level's sconce on the same square. Now ONE call, `DungeonWorld::
+ClearLevelTransients` (shots, a queued volley, live blasts, Earth lights, the
+fixture table, monster effects, a stair or pit fall under way), runs at every
+one of those sites, and `ResetForNewGame` mends every door, prop and fixture -
+mending used to live in `ResetForEval` alone, which is why only the harness's
+reset was rid of them. The A/B blocks cannot see any of it (the reset was never
+the leaky path), so resettest.eval's wrecking OPENS with a repro of each - a gas,
+a smashed sconce and a hurt, burning brazier down a stair (`goto crypt1`, whose
+sconce on 5,1 and brazier on 9,4 share the squares), a gas and a bleeding monster
+under a load, a door, a sconce, a barrel and a crate wrecked after the save under
+a load - each printing `transients` after a `--- repro:` echo, its control line
+first. A CLEAR LINE CANNOT TELL MENDED FROM MISSING: nothing broken, hurt or
+burning is also what an empty fixture table or a door gone after the load reads,
+so each repro has a third line that can - the stair and the last repro SMASH what
+must be there afterwards (a smash that finds nothing breakable is a refusal, which
+fails the script) and count it broken, and the gas repro's load must bring back
+the wreck and the burn its save holds, which it can only lay on a fixture table
+the load seeded. `-SelfTest` reads those nine rows and the script's own PASS from
+the solo run, and demands the same rows of the batched one. (Measured: with
+`ResetForNewGame`'s seed cut, every clear line still reads clear and only the
+two "is it there" rows fail.) Its `save` / `load` slot is renamed for this worktree in a copy
+of the script (`HarnessGame.ps1 Copy-EvalScript`, harness_game.py's
+`eval_script` rule): the save folder is shared by every checkout, and another
+run of the same script would overwrite the save between a `save` and its `load`.
+A pit fall has no repro, since no harness level has a pit.
 
 ## What the harness costs the shipping code (audited 2026-08-15)
 

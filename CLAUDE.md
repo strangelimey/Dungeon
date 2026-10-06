@@ -606,7 +606,15 @@ Key conventions (memorize, they bite):
   to assert), and forgets every other level's stash and the undo history
   (code-review C300; the self-test batches selftest-leavelevel.eval - which
   CARVES the harness level before leaving, so a kept stash would differ from
-  the file - ahead of resettest.eval and demands the solo run's blocks). TRAPS,
+  the file - ahead of resettest.eval and demands the solo run's blocks). What a
+  LEVEL has under way (shots, a queued volley, blasts, Earth lights, the fixture
+  damage table, monster effects, a stair or pit fall) is cleared by ONE call,
+  `DungeonWorld::ClearLevelTransients`, wherever a level is replaced or put
+  back - a level load, a regenerate, the arena, and `ResetForNewGame` (a new
+  game, and the first half of every load), which also mends doors, props and
+  fixtures - so a NEW transient joins that list, never a call site (code-review
+  C292/C293: the hand-copied lists had drifted, and a gas followed the party
+  down a stair; resettest.eval's repros check a load and a stair). TRAPS,
   all found the hard way: the first
   reset skipped the MAP and the equivalence test passed anyway (nothing it
   printed showed geometry — `mapinfo`'s walkable count is now the only readout

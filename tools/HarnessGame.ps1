@@ -16,6 +16,9 @@
 #   Start-NewGame $LoadTimeoutSec                         # console left CLOSED
 #   ...
 #   Stop-HarnessGame                                      # quit, else kill BY PID
+#   $name = Get-HarnessSaveName $root 'resettest'        # this worktree's save
+#   Copy-EvalScript $src $outDir @{ resettest = $name }  # a run's copy, renamed
+#   Remove-HarnessSaves @($name)
 #
 # STATE lives in the caller's script scope, where a dot-sourced file defines
 # its functions: $proc (the process THIS run started), $hwnd (its game window)
@@ -359,4 +362,68 @@ function Start-NewGame([int]$loadTimeoutSec, [string]$PartySpec = '') {
 	if (-not (Wait-ConsoleReady)) { throw 'the console never accepted a command after the new game' }
 	Send-Key $VK_CONSOLE; Start-Sleep -Milliseconds 400
 	return $line
+}
+
+# ---------------------------------------------------------------------------
+# Saves named per worktree (tools\harness_game.py's twin)
+# ---------------------------------------------------------------------------
+
+# Documents\DungeonSaves is ONE folder that every worktree, every session and
+# Michael's own play share, so a script that saves under a fixed name is
+# overwritten - and its file deleted - by another checkout's run of the same
+# script. A harness names its saves `<base>_<tag>`: this checkout's folder name
+# plus a hash of its path, spelled EXACTLY as harness_game.worktree_tag spells it
+# (lowercased, runs of anything but a-z0-9 to '_', then the first 6 hex of the
+# SHA-1 of the lowercased full path), so both languages name a checkout's saves
+# alike. SaveSlotPath slugs a name the same way, so the file is <name>.dsav.
+function Get-WorktreeTag([string]$root) {
+	$full = [IO.Path]::GetFullPath($root).TrimEnd('\')
+	$base = ([regex]::Replace((Split-Path -Leaf $full).ToLowerInvariant(), '[^a-z0-9]+', '_')).Trim('_')
+	$sha = [Security.Cryptography.SHA1]::Create()
+	try { $hash = $sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($full.ToLowerInvariant())) }
+	finally { $sha.Dispose() }
+	return '{0}_{1}' -f $base, (-join ($hash[0..2] | ForEach-Object { $_.ToString('x2') }))
+}
+
+function Get-HarnessSaveName([string]$root, [string]$base) {
+	return '{0}_{1}' -f $base, (Get-WorktreeTag $root)
+}
+
+# Where the game keeps a save: the Documents known folder's DungeonSaves
+# (Core/Paths.cpp SaveDir), asked the way the game asks - not a guessed
+# %USERPROFILE% path, which is wrong wherever OneDrive moved Documents.
+function Get-HarnessSavePath([string]$name) {
+	return Join-Path ([Environment]::GetFolderPath('MyDocuments')) "DungeonSaves\$name.dsav"
+}
+
+# Deletes this run's saves (and a .bak beside one). Only ever pass names from
+# Get-HarnessSaveName: they are this checkout's, so nobody else's play is lost.
+function Remove-HarnessSaves([string[]]$names) {
+	foreach ($n in $names) {
+		$p = Get-HarnessSavePath $n
+		Remove-Item -LiteralPath $p, "$p.bak" -ErrorAction SilentlyContinue
+	}
+}
+
+# A copy of eval script $src for one run, written to $outDir under the SAME file
+# name (a verdict line names its script by file name), with the slot of every
+# `save` / `load` line that $saves maps renamed - harness_game.eval_script's
+# rule. Comment lines are copied as they are. A script with `include` is
+# refused: an include resolves against the script's own folder, which a copy
+# would move. Written as UTF-8 with no BOM, as the scripts are. Returns the
+# copy's path.
+function Copy-EvalScript([string]$src, [string]$outDir, [hashtable]$saves) {
+	$text = [IO.File]::ReadAllText($src, [Text.Encoding]::UTF8)
+	if ($text -match '(?m)^[ \t]*include\b') { throw "$src uses include - it cannot be copied for a run" }
+	$rename = [Text.RegularExpressions.MatchEvaluator] {
+		param($m)
+		$slot = $m.Groups[4].Value
+		if (-not $saves.ContainsKey($slot)) { return $m.Value }
+		return $m.Groups[1].Value + $m.Groups[2].Value + $m.Groups[3].Value + $saves[$slot] + $m.Groups[5].Value
+	}
+	$copied = [regex]::Replace($text, '(?m)^([ \t]*)(save|load)([ \t]+)(\S+)([ \t]*)(?=\r?$)', $rename)
+	New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+	$dst = Join-Path $outDir (Split-Path -Leaf $src)
+	[IO.File]::WriteAllText($dst, $copied, (New-Object Text.UTF8Encoding $false))
+	return $dst
 }
