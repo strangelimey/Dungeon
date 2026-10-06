@@ -134,8 +134,9 @@ void BalanceDialog::BuildFormulaTab(size_t tab) {
 		row->Row<ui::Label>(ui::Len::Fill(kLabelFill), f.key)->centerV = true;
 		const std::string_view key = f.key;
 		if (key == "skill_curve" || key == "stat_curve") {
-			const int sel = std::clamp(static_cast<int>(m_cfg.*(f.value)), 0,
-									   static_cast<int>(CurveForm::Count) - 1);
+			// The one conversion the curves read through (CurveFormOf), so the
+			// dropdown cannot show one shape while the graph draws another.
+			const int sel = static_cast<int>(CurveFormOf(m_cfg.*(f.value)));
 			row->Row<ui::DropDown>(ui::Len::Fill(kFieldFill), formNames, sel,
 								   [this, &f](int i) {
 									   m_cfg.*(f.value) = static_cast<float>(i);

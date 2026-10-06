@@ -63,6 +63,7 @@
 #include "Game/Power.h"
 #include "Game/Style.h"
 #include "Game/Carve.h"
+#include "Game/Character.h" // RecomputeMaxima({}) - header-only, so it links
 #include "Game/Generate.h"
 #include "Game/LightProfile.h"
 #include "Game/Trail.h"
@@ -98,15 +99,14 @@ constexpr const BalanceKnobs& kKnobs = kBalanceDefaults;
 
 // The shipped curves, assembled the way Balance::SkillCurve / StatCurve /
 // AvoidCurve assemble them (those are members of Balance, which this harness
-// cannot construct).
-constexpr CurveForm FormOf(float knob) {
-	return static_cast<CurveForm>(static_cast<int>(knob));
-}
-constexpr CurveRules kSkillCurve{FormOf(kKnobs.skillCurve), kKnobs.skillBonus,
+// cannot construct). The form goes through the SHIPPING conversion, CurveFormOf
+// (Game/Curve.h), which Balance::SkillForm / StatForm call - this file used to
+// carry its own copy of the unchecked cast that code-review C362 removed.
+constexpr CurveRules kSkillCurve{CurveFormOf(kKnobs.skillCurve), kKnobs.skillBonus,
 								 kKnobs.skillCap, 0.0f};
-constexpr CurveRules kStatCurve{FormOf(kKnobs.statCurve), kKnobs.statBonus,
+constexpr CurveRules kStatCurve{CurveFormOf(kKnobs.statCurve), kKnobs.statBonus,
 								kKnobs.statCap, kKnobs.statBaseline};
-constexpr CurveRules kAvoidCurve{FormOf(kKnobs.skillCurve), kKnobs.avoidSlope,
+constexpr CurveRules kAvoidCurve{CurveFormOf(kKnobs.skillCurve), kKnobs.avoidSlope,
 								 kKnobs.avoidCap, 0.0f};
 
 // One expectation. `expected` is derived, never read from the engine's own
@@ -680,6 +680,76 @@ int main(int argc, char** argv) {
 		CheckTrue("a poor stat is a penalty", CurveValue(st.baseline - 6.0f, st) < 0.0f);
 		CheckTrue("stats stay far under skill at the defaults",
 				  CurveValue(40, st) < 40.0f);
+
+		// THE FORM AS A KNOB (code-review C362). balance.cat stores a form as a
+		// FLOAT index (`skill_curve` / `stat_curve` ride the knob table), and
+		// every curve reads it through CurveFormOf - Balance::SkillForm and
+		// StatForm, and Balance::Load's clamp. The six casts it replaced sent any
+		// index past the list to PositiveHalf's `default:` branch, so a
+		// `skill_curve = 3` (or -1) made every skill, stat, avoid, resource and
+		// pace curve in the game unbounded, silently. An in-range index still
+		// TRUNCATES, as it always did, so no authored value reads differently.
+		struct FormCase {
+			const char* what;
+			float index;
+			CurveForm expect;
+		};
+		// The in-range four pin that the clamp moved nothing an author could have
+		// written. The out-of-range four each FAIL under the old raw cast
+		// (measured): -1 becomes form 255, 3 and 99 name forms past the list, and
+		// +inf converts to INT_MIN, the first form. -1 is the one that also fails
+		// with only the negative guard deleted; 3, 99 and +inf pin the top clamp.
+		const FormCase formCases[] = {
+			{"form index 0 is hyperbolic", 0.0f, CurveForm::Hyperbolic},
+			{"form index 1 is exponential", 1.0f, CurveForm::Exponential},
+			{"form index 2 is logarithmic", 2.0f, CurveForm::Logarithmic},
+			{"form index 1.7 truncates, as it always did", 1.7f, CurveForm::Exponential},
+			{"a negative form clamps to the first", -1.0f, CurveForm::Hyperbolic},
+			{"one past the forms clamps to the last", 3.0f, CurveForm::Logarithmic},
+			{"far past the forms clamps to the last", 99.0f, CurveForm::Logarithmic},
+			{"+inf clamps to the last", INFINITY, CurveForm::Logarithmic},
+		};
+		for (const FormCase& fc : formCases)
+			CheckTrue(fc.what, CurveFormOf(fc.index) == fc.expect);
+		// BE HONEST ABOUT WHAT THESE ARE: they state the contract and CANNOT
+		// fail on this compiler - under the old raw cast, with the negative guard
+		// deleted, or with it narrowed to `index < 0` so a NaN slips past it, all
+		// four still pass (measured).
+		// -0.5 truncates to 0 under any cast. -1e30, -inf and NaN reach the int
+		// conversion, which is undefined for them; MSVC x64 yields INT_MIN
+		// (cvttss2si's "integer indefinite"), and its low byte - all a u8-backed
+		// enum keeps - is 0, the first form, the very answer expected. MSVC folds
+		// a constant expression the same way without a diagnostic (measured), so
+		// a static_assert would not tell either. What pins the negative guard is
+		// -1 above and the sweep below; nothing pins its NaN half (`!(index >=
+		// 0)` rather than `index < 0`), whose job is keeping the conversion
+		// defined, not changing the answer here. Documentation, kept as checks
+		// so a compiler that converts differently would say so.
+		const FormCase contractCases[] = {
+			{"a slightly negative form reads as the first", -0.5f, CurveForm::Hyperbolic},
+			{"a far negative form reads as the first", -1.0e30f, CurveForm::Hyperbolic},
+			{"-inf reads as the first", -INFINITY, CurveForm::Hyperbolic},
+			{"NaN reads as the first", NAN, CurveForm::Hyperbolic},
+		};
+		for (const FormCase& fc : contractCases)
+			CheckTrue(fc.what, CurveFormOf(fc.index) == fc.expect);
+		// Every answer is a form that EXISTS, over a sweep well past both ends.
+		bool allValid = true;
+		for (float x = -10.0f; x <= 10.0f; x += 0.25f)
+			if (static_cast<int>(CurveFormOf(x)) >= static_cast<int>(CurveForm::Count))
+				allValid = false;
+		CheckTrue("every form index reads as a form that exists", allValid);
+		// What the clamp is FOR, and non-vacuous by pairing: a negative index
+		// through the conversion keeps the curve bounded (the first form), where
+		// the old cast of the same index made it the logarithmic one, unbounded.
+		CurveRules clamped = kSkillCurve;
+		clamped.form = CurveFormOf(-1.0f);
+		CurveRules oldCast = kSkillCurve;
+		oldCast.form = static_cast<CurveForm>(static_cast<int>(-1.0f));
+		CheckTrue("a clamped negative form keeps the curve bounded",
+				  CurveValue(100'000.0f, clamped) <= clamped.cap);
+		CheckTrue("...where the old cast of it passed the cap",
+				  CurveValue(100'000.0f, oldCast) > oldCast.cap);
 	}
 
 	// --- armor and the stance ------------------------------------------------
@@ -1870,7 +1940,7 @@ int main(int argc, char** argv) {
 
 		// The shipped HEALTH pool (kKnobs), gathered the way Balance::Resource
 		// gathers it: the shared skill form, the pool's own slopes and caps.
-		const CurveForm form = FormOf(kKnobs.skillCurve);
+		const CurveForm form = CurveFormOf(kKnobs.skillCurve);
 		Rules r;
 		r.perAptitude = kKnobs.kHealth;
 		r.skillMax = {form, kKnobs.healthSkillSlope, kKnobs.healthSkillCap, 0.0f};
@@ -1978,6 +2048,53 @@ int main(int argc, char** argv) {
 				  pools.For(Kind::Health).perAptitude == 1.0f &&
 					  pools.For(Kind::Stamina).perAptitude == 2.0f &&
 					  pools.For(Kind::Mana).perAptitude == 3.0f);
+
+		// THE INERT DEFAULTS (code-review C361). `RecomputeMaxima({})` is how a
+		// fresh party, and every member party creation builds, gets its bars
+		// before any catalog is read, and its callers call those rules INERT. They
+		// were not: CurveRules{} is a live curve (slope 5, cap 120), so a created
+		// member who picked conditioning started ~9 stamina up until the world's
+		// knobs re-derived it. Measured on a real Character, through the real
+		// RecomputeMaxima, with every practice trained deep.
+		{
+			Character c;
+			c.strength = 12;
+			c.vitality = 14;
+			c.intelligence = 9;
+			c.willpower = 15;
+			c.baseHealth = 20.0f;
+			c.baseStamina = 18.0f;
+			c.baseMana = 11.0f;
+			for (const Kind k : {Kind::Health, Kind::Stamina, Kind::Mana})
+				c.skillXp[std::string(SkillId(k))] = 400.0f; // level 20 in every practice
+			c.RecomputeMaxima({});
+			// base + aptitude x 1, and nothing from the practice.
+			Check("RecomputeMaxima({}) health: base + VIT only", c.maxHealth,
+				  20.0 + 14.0, 0.0001);
+			Check("RecomputeMaxima({}) stamina: base + (STR+VIT)/2 only", c.maxStamina,
+				  18.0 + 0.5 * (12.0 + 14.0), 0.0001);
+			Check("RecomputeMaxima({}) mana: base + (INT+WIL)/2 only", c.maxMana,
+				  11.0 + 0.5 * (9.0 + 15.0), 0.0001);
+			// Non-vacuous by pairing: the same member under the LIVE curve the
+			// old default was gains from the practice, so the checks above are
+			// not passing because level 20 happens to be worth nothing.
+			PoolRules live;
+			for (Rules* lr : {&live.health, &live.stamina, &live.mana})
+				lr->skillMax = CurveRules{};
+			Character trained = c;
+			trained.RecomputeMaxima(live);
+			CheckTrue("...the old default curve would have added to all three",
+					  trained.maxHealth > c.maxHealth + 1.0f &&
+						  trained.maxStamina > c.maxStamina + 1.0f &&
+						  trained.maxMana > c.maxMana + 1.0f);
+			// The regen and supply terms are off by default too: a default Rules
+			// regenerates nothing at any practice, and a default SupplyRules
+			// charges conditioning nothing.
+			Check("a default Rules regenerates nothing, trained or not",
+				  RegenPerSec(Rules{}, statCurve, 10.0f, 30.0f, 400.0f), 0.0, 1e-6);
+			Check("a default SupplyRules drains nothing for conditioning",
+				  DrainPerSec(SupplyRules{}, 400.0f), 0.0, 1e-6);
+		}
 
 		// --- supplies ---------------------------------------------------------
 		// The same zero-cap trap, and it is WORSE here: an unbounded conditioning

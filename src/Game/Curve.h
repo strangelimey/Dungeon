@@ -44,6 +44,26 @@ enum class CurveForm : u8 { Hyperbolic, Exponential, Logarithmic, Count };
 const char* CurveFormId(CurveForm form);
 bool ParseCurveForm(std::string_view token, CurveForm& out);
 
+// A form stored as a FLOAT index - balance.cat's `skill_curve` / `stat_curve`
+// ride the knob sheet's float table - read back as a form that EXISTS: the
+// index truncated, as it always was, and CLAMPED, so a negative one (or a NaN)
+// is the first form and one past the end is the last. THE ONE CONVERSION
+// (code-review C362): the six casts it replaced handed an index past the
+// list, or a negative one like -1, to PositiveHalf's `default:` branch, and
+// every skill, stat, avoid, resource and pace curve went logarithmic without a
+// word. constexpr so tools/RollTest builds its shipped curves through it
+// rather than a copy. The guard is `!(index >= 0)`, not `index < 0`, so a NaN
+// never reaches the int conversion, which is undefined for it as for any value
+// past int's range. No check can see that half: MSVC x64 converts every such
+// value to INT_MIN, whose low byte - all a u8 enum keeps - is the first form
+// anyway (RollTest's "the contribution curves" says so beside its cases).
+constexpr CurveForm CurveFormOf(float index) {
+	constexpr int last = static_cast<int>(CurveForm::Count) - 1;
+	if (!(index >= 0.0f)) return CurveForm::Hyperbolic; // negative, or NaN
+	if (index >= static_cast<float>(last)) return static_cast<CurveForm>(last);
+	return static_cast<CurveForm>(static_cast<int>(index));
+}
+
 struct CurveRules {
 	CurveForm form = CurveForm::Hyperbolic;
 	// The rise per point of input AT THE ORIGIN — the "+5 per level" figure,

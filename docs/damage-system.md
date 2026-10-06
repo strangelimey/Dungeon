@@ -85,6 +85,13 @@ comparable on one graph without re-tuning:
 | exponential | same start, harder shoulder, flattens almost dead |
 | logarithmic | passes the cap and keeps creeping — the unbounded one |
 
+In balance.cat a form is an INDEX - `skill_curve` / `stat_curve`, 0
+hyperbolic, 1 exponential, 2 logarithmic - and every curve reads it through
+one conversion, `CurveFormOf`: an index that names no form is clamped at load
+with a warning (a negative one or a NaN to hyperbolic, one past the end to
+logarithmic) rather than falling through to the unbounded shape unannounced
+(code-review C362).
+
 The Balance dialog **draws both curves live**, against the 41-point dice
 deviation as a dashed rule. That line is the point: a curve sitting under it
 across its useful range is decoration, however impressive its numbers look

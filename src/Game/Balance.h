@@ -115,11 +115,16 @@ struct Balance : BalanceKnobs {
 	resource::PoolRules Resources() const;
 	// One supply meter's knobs, gathered the same way.
 	resource::SupplyRules SupplyOf(resource::Supply which) const;
+	// The two curve FORMS, the only way a curve reads them (code-review C362).
+	// The knobs are floats (they ride the field table) and Load clamps them to a
+	// form that exists; these clamp again through the same CurveFormOf, so a
+	// value that reached the knob any other way - the Balance dialog's working
+	// copy, a member set in code - still cannot name a form with no shape.
+	CurveForm SkillForm() const { return CurveFormOf(skillCurve); }
+	CurveForm StatForm() const { return CurveFormOf(statCurve); }
+
 	// What conditioning adds to a move speed, as a curve in PACE UNITS.
-	CurveRules PaceCurve() const {
-		return {static_cast<CurveForm>(static_cast<int>(skillCurve)), paceSlope,
-				paceCap, 0.0f};
-	}
+	CurveRules PaceCurve() const { return {SkillForm(), paceSlope, paceCap, 0.0f}; }
 
 	// The stance's shape, assembled for Game/Defense.h (the pure TU cannot see
 	// Balance, the RollTest wall).
@@ -129,18 +134,11 @@ struct Balance : BalanceKnobs {
 	}
 
 	// The two contribution curves, assembled from the knobs (BalanceKnobs).
-	CurveRules SkillCurve() const {
-		return {static_cast<CurveForm>(static_cast<int>(skillCurve)), skillBonus,
-				skillCap, 0.0f};
-	}
+	CurveRules SkillCurve() const { return {SkillForm(), skillBonus, skillCap, 0.0f}; }
 	// The avoid skill's curve: its own slope and ceiling, the shared form.
-	CurveRules AvoidCurve() const {
-		return {static_cast<CurveForm>(static_cast<int>(skillCurve)), avoidSlope,
-				avoidCap, 0.0f};
-	}
+	CurveRules AvoidCurve() const { return {SkillForm(), avoidSlope, avoidCap, 0.0f}; }
 	CurveRules StatCurve() const {
-		return {static_cast<CurveForm>(static_cast<int>(statCurve)), statBonus,
-				statCap, statBaseline};
+		return {StatForm(), statBonus, statCap, statBaseline};
 	}
 
 	// Clamps a SUMMED resist to ±resistClamp — except an authored nature cell

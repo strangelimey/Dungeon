@@ -186,7 +186,10 @@ std::optional<Character> Game::BuildMember(const party::MemberSpec& spec,
 				return std::nullopt;
 			}
 		}
-		// What CreateDefaultParty does for each of its four.
+		// What CreateDefaultParty does for each of its four: the INERT rules, so
+		// the two starting skills add nothing yet (a picked conditioning used to
+		// add ~9 stamina here, code-review C361); the caller re-derives against
+		// the world's knobs.
 		c.RecomputeMaxima({});
 		c.health = c.maxHealth;
 		c.stamina = c.maxStamina;

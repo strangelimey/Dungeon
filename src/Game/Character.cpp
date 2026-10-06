@@ -118,9 +118,10 @@ std::vector<Character> CreateDefaultParty() {
 
 	for (size_t i = 0; i < party.size(); ++i) {
 		Character& member = party[i];
-		// Seed with the inert defaults (aptitude x1, no practice term) so a
-		// fresh party has sane bars before any catalog is read; the Game
-		// re-derives against the real knobs as soon as Balance is loaded.
+		// Seed with the inert defaults (aptitude x1, no practice term -
+		// resource::kNoPractice, which RollTest holds them to) so a fresh party
+		// has sane bars before any catalog is read; the Game re-derives against
+		// the real knobs as soon as Balance is loaded.
 		member.RecomputeMaxima({});
 		member.health = member.maxHealth;
 		member.stamina = member.maxStamina;

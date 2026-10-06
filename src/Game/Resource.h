@@ -69,9 +69,18 @@ inline constexpr const char* kConstitution = "constitution"; // health
 // The skill id that practices `kind` ("" for an out-of-range value).
 const char* SkillId(Kind kind);
 
+// A practice curve that adds NOTHING - a cap of zero is SkillTerm's "off" (and a
+// slope of zero is CurveValue's). THE DEFAULT FOR EVERY PRACTICE TERM BELOW, so a
+// default-made Rules or SupplyRules really is the inert set its callers take it
+// for (code-review C361): CurveRules{} is a LIVE curve - slope 5, cap 120 - and
+// `RecomputeMaxima({})` used to give a created member who picked conditioning
+// about 9 extra stamina until the real knobs re-derived it.
+inline constexpr CurveRules kNoPractice{CurveForm::Hyperbolic, 0.0f, 0.0f, 0.0f};
+
 // One resource's knobs, gathered so the two formulas read as one lookup rather
 // than seven loose floats at the call site (the Balance::ArmorRules pattern).
-// Assembled by Balance::Resource from the flat balance.cat knobs.
+// Assembled by Balance::Resource from the flat balance.cat knobs. A
+// default-made one is INERT: the aptitude at x1, no practice, no regeneration.
 struct Rules {
 	// MAX. `perAptitude` is the long-standing k_<r>: points of maximum per
 	// point of the driving stat, linear. `skillMax`'s slope and cap are in
@@ -79,7 +88,7 @@ struct Rules {
 	// is a number to balance around rather than a scale factor needing a second
 	// knob beside it.
 	float perAptitude = 1.0f;
-	CurveRules skillMax{};
+	CurveRules skillMax = kNoPractice;
 
 	// REGEN, all in points per second. `regenBase` is what anyone recovers;
 	// `regenPerAptitude` is per point of the STAT curve's output (so an average
@@ -90,7 +99,7 @@ struct Rules {
 	float regenBase = 0.0f;
 	float regenPerAptitude = 0.0f;
 	float regenPerMax = 0.0f;
-	CurveRules skillRegen{};
+	CurveRules skillRegen = kNoPractice;
 };
 
 // --- supplies (docs/health-and-healing.md "Food and water") -----------------
@@ -109,8 +118,8 @@ struct SupplyRules {
 	// CONDITIONING'S PRICE, in extra units per second, tapering to its cap. This
 	// is the brake on the whole design: every other loop compounds upward, and
 	// this is the one that taxes the compounding — the fitter member burns more
-	// food and water, so training is not free.
-	CurveRules condDrain{};
+	// food and water, so training is not free. Off by default, like the pools'.
+	CurveRules condDrain = kNoPractice;
 	float perExertion = 0.0f;  // drained per point of stamina SPENT
 	float starveDamage = 0.0f; // health per second once the meter is empty
 };

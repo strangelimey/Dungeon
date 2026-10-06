@@ -235,7 +235,7 @@ Balance::ArmorRules Balance::Armor(ArmorClass c) const {
 // passed separately (RegenPerSec takes it) precisely because it is the STAT's
 // curve and not this resource's.
 resource::Rules Balance::Resource(resource::Kind kind) const {
-	const auto form = static_cast<CurveForm>(static_cast<int>(skillCurve));
+	const CurveForm form = SkillForm();
 	resource::Rules r;
 	switch (kind) {
 	case resource::Kind::Health:
@@ -273,7 +273,7 @@ resource::PoolRules Balance::Resources() const {
 }
 
 resource::SupplyRules Balance::SupplyOf(resource::Supply which) const {
-	const auto form = static_cast<CurveForm>(static_cast<int>(skillCurve));
+	const CurveForm form = SkillForm();
 	if (which == resource::Supply::Water)
 		return {waterMax, waterRate,
 				{form, waterCondSlope, waterCondCap, 0.0f}, waterExertion,
@@ -311,6 +311,23 @@ void Balance::Load(const Catalog& balanceCat, const Catalog& attacksCat,
 	if (const CatalogEntry* e = balanceCat.Find("formula"))
 		for (const BalanceField& f : kBalanceFields)
 			this->*(f.value) = e->GetFloat(f.key, this->*(f.value));
+
+	// The two curve FORMS ride the float table as an index, and an index that
+	// names no form is clamped HERE, once and out loud, so the file, the dialog's
+	// dropdown and every curve agree on which shape it is (code-review C362: it
+	// used to reach the curves as a form that does not exist - every curve went
+	// logarithmic - while the dialog showed "hyperbolic" for a negative one).
+	const auto clampForm = [](const char* key, float& knob) {
+		const CurveForm form = CurveFormOf(knob);
+		const float index = static_cast<float>(form);
+		if (!(knob == index)) // NaN compares unequal to everything, itself too
+			log::Warn("balance.cat {} = {} is not a curve form (0 to {}); read as {} ({})",
+					  key, knob, static_cast<int>(CurveForm::Count) - 1,
+					  static_cast<int>(form), CurveFormId(form));
+		knob = index;
+	};
+	clampForm("skill_curve", skillCurve);
+	clampForm("stat_curve", statCurve);
 
 	// Resolve every verb's damage type against the loaded book. This is the
 	// moment the C++ identity table meets the project's vocabulary.
