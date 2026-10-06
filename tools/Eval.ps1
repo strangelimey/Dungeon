@@ -81,8 +81,12 @@
 # a smashed sconce and a burning brazier, a bleeding monster, a door, a sconce
 # and props wrecked after the save - each with its control and a check that what
 # reads whole is THERE (smashed again, or the saved wreck found) (code-review
-# C292, C293); the run takes a copy of the script whose save slot is named for
-# this worktree (HarnessGame.ps1 Copy-EvalScript).
+# C292, C293) - and three that a load, a new game and a reset END what the game
+# had running: a rest (lockstep handed back, no reason left), an undo step, a
+# throw's wait and the kindle clock, each staged and seen before (C294, C295,
+# C297); the batched run's first script must also see an ambush drop an undo
+# step taken in the dungeon it replaced. The run takes a copy of the script
+# whose save slot is named for this worktree (HarnessGame.ps1 Copy-EvalScript).
 #
 # ASCII ONLY: PS 5.1 reads a BOM-less .ps1 as ANSI.
 # ============================================================================
@@ -171,18 +175,26 @@ function Get-ResetBlocks([string[]]$lines) {
 	return @{ A = $a; B = $b }
 }
 
-# resettest.eval's repros (code-review batch 77): the `transients` readout that
-# follows a `--- repro: <name> ---` echo, as numbers - level, blasts, effects
+# resettest.eval's repros (code-review batches 77, 78): the `transients` readout
+# that follows a `--- repro: <name> ---` echo, as numbers - level, blasts, effects
 # (on monsters), the broken fixtures, decorations and doors, the pieces hurt but
-# standing and the effects riding pieces. $null when that repro printed no whole
-# readout, which a check must read as a failure, never as zeroes.
+# standing and the effects riding pieces; then the undo and redo depth, rest,
+# lockstep and why rest last ended, and the throw cooldowns (their largest) and
+# the kindle clock. $null when that repro printed no whole readout, which a
+# check must read as a failure, never as zeroes.
 function Get-ReproTransients([string[]]$lines, [string]$name) {
 	$marker = '^\[info \] console: --- repro: ' + [regex]::Escape($name) + ' ---$'
 	$at = -1
 	for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -cmatch $marker) { $at = $i; break } }
 	if ($at -lt 0) { return $null }
+	return Read-Transients $lines ($at + 1)
+}
+
+# One `transients` readout, the first at or after line $from, read as above;
+# $null when none follows before the next `--- ` echo (or the log ends).
+function Read-Transients([string[]]$lines, [int]$from) {
 	$r = @{}
-	for ($i = $at + 1; $i -lt $lines.Count; $i++) {
+	for ($i = $from; $i -lt $lines.Count; $i++) {
 		$line = $lines[$i]
 		if ($line -cmatch '^\[info \] console: --- ') { break } # the next repro: this one printed none
 		if ($line -cmatch '^\[info \] console: transients on (\S+)$') { $r.level = $Matches[1] }
@@ -190,16 +202,24 @@ function Get-ReproTransients([string[]]$lines, [string]$name) {
 			$r.blasts = [int]$Matches[1]; $r.effects = [int]$Matches[2]
 		} elseif ($line -cmatch '^\[info \] console:   broken fixtures=(\d+) decorations=(\d+) doors=(\d+)  hurt=(\d+) piece_effects=(\d+)$') {
 			$r.fixtures = [int]$Matches[1]; $r.decorations = [int]$Matches[2]; $r.doors = [int]$Matches[3]
-			$r.hurt = [int]$Matches[4]; $r.pieceEffects = [int]$Matches[5]; break
+			$r.hurt = [int]$Matches[4]; $r.pieceEffects = [int]$Matches[5]
+		} elseif ($line -cmatch '^\[info \] console:   undo=(\d+) redo=(\d+) resting=(on|off) lockstep=(on|off) rest_ended=(\S+)$') {
+			$r.undo = [int]$Matches[1]; $r.redo = [int]$Matches[2]; $r.resting = $Matches[3]
+			$r.lockstep = $Matches[4]; $r.restEnded = $Matches[5]
+		} elseif ($line -cmatch '^\[info \] console:   throw=([\d.]+),([\d.]+),([\d.]+),([\d.]+) kindle=([\d.]+)$') {
+			$r.throwWait= (@([double]$Matches[1], [double]$Matches[2], [double]$Matches[3], [double]$Matches[4]) |
+				Measure-Object -Maximum).Maximum
+			$r.kindle = $Matches[5]; break # the readout's last line
 		}
 	}
-	foreach ($k in 'level', 'blasts', 'effects', 'fixtures', 'decorations', 'doors', 'hurt', 'pieceEffects') {
+	foreach ($k in 'level', 'blasts', 'effects', 'fixtures', 'decorations', 'doors', 'hurt', 'pieceEffects',
+				   'undo', 'redo', 'resting', 'lockstep', 'restEnded', 'throwWait', 'kindle') {
 		if (-not $r.ContainsKey($k)) { return $null }
 	}
 	return $r
 }
 
-# The nine repro rows for one run's log: each repro's CONTROL (what it staged
+# The sixteen repro rows for one run's log: each repro's CONTROL (what it staged
 # is really there - a repro that staged nothing must not pass), the line that
 # must read clear, and the line that tells CLEAR from GONE. Nothing broken,
 # hurt or burning is what an empty fixture table or a missing door reads as
@@ -221,6 +241,32 @@ function Get-ReproChecks([string[]]$lines) {
 	$d0 = Get-ReproTransients $lines 'smashed after the save'
 	$d1 = Get-ReproTransients $lines 'loaded over the smash'
 	$d2 = Get-ReproTransients $lines 'smashed again after the load'
+	# Batch 78 (C294, C295, C297): what the GAME had running, staged the same way
+	# before a load, a new game and a reset - lockstep off, then an undo step, the
+	# kindle clock off its phase, a throw's wait and a rest - and ended by each.
+	# "Fresh" for the kindle clock is what baseline A reads: where a new game
+	# leaves it, not a number written here.
+	$fresh = Get-BaselineTransients $lines
+	$sayRun = { param($t) if ($null -eq $t) { 'no readout' } else {
+		"on $($t.level): undo=$($t.undo) redo=$($t.redo) resting=$($t.resting) lockstep=$($t.lockstep) " +
+		"rest_ended=$($t.restEnded) throw=$($t.throwWait) kindle=$($t.kindle)" +
+		$(if ($fresh) { " (a new game's kindle=$($fresh.kindle))" } else { ' (no baseline A readout)' }) } }
+	# Staged: resting, so lockstep forced on; an undo step; a throw's wait; the
+	# kindle clock somewhere a fresh world's is not.
+	$staged = { param($t) [bool]($t -and $fresh -and $t.resting -ceq 'on' -and $t.lockstep -ceq 'on' -and
+		$t.undo -ge 1 -and $t.throwWait-gt 0 -and $t.kindle -cne $fresh.kindle) }
+	# Ended: no rest, lockstep back OFF (what the rest found), no reason left from
+	# the game before, no history, no wait, and the clock where a new game has it.
+	$ended = { param($t) [bool]($t -and $fresh -and $t.resting -ceq 'off' -and $t.lockstep -ceq 'off' -and
+		$t.restEnded -ceq 'none' -and $t.undo -eq 0 -and $t.redo -eq 0 -and $t.throwWait-eq 0 -and
+		$t.kindle -ceq $fresh.kindle) }
+	$g0 = Get-ReproTransients $lines 'resting before the load'
+	$g1 = Get-ReproTransients $lines 'loaded mid-rest'
+	$n0 = Get-ReproTransients $lines 'resting before the new game'
+	$n1 = Get-ReproTransients $lines 'a new game mid-rest'
+	$r0 = Get-ReproTransients $lines 'resting before the reset'
+	$r1 = Get-ReproTransients $lines 'a reset mid-rest'
+	$w0 = Get-ReproTransients $lines 'wrecked, before the reset'
 	return @(
 		@{ what = 'a gas hangs, a sconce smashed, a brazier burns'
 		   ok = $s0 -and $s0.blasts -ge 1 -and $s0.fixtures -ge 1 -and $s0.hurt -ge 1 -and $s0.pieceEffects -ge 1
@@ -242,8 +288,31 @@ function Get-ReproChecks([string[]]$lines) {
 		@{ what = '...a load: all whole, none hurt or burning'
 		   ok = & $whole $d1; got = & $say $d1 },
 		@{ what = '...and all still there to smash'
-		   ok = $d2 -and $d2.doors -ge 1 -and $d2.fixtures -ge 1 -and $d2.decorations -ge 2; got = & $say $d2 }
+		   ok = $d2 -and $d2.doors -ge 1 -and $d2.fixtures -ge 1 -and $d2.decorations -ge 2; got = & $say $d2 },
+		@{ what = 'resting, an undo step, both clocks running'; ok = & $staged $g0; got = & $sayRun $g0 },
+		@{ what = '...a load ends all of it, lockstep back'; ok = & $ended $g1; got = & $sayRun $g1 },
+		@{ what = 'the same, staged again'; ok = & $staged $n0; got = & $sayRun $n0 },
+		@{ what = '...a new game ends all of it'; ok = & $ended $n1; got = & $sayRun $n1 },
+		@{ what = 'the same, staged once more'; ok = & $staged $r0; got = & $sayRun $r0 },
+		@{ what = '...a reset ends all of it'; ok = & $ended $r1; got = & $sayRun $r1 },
+		# The last reset's control: baseline B must then read as A, rest and all.
+		@{ what = 'the wrecking ends resting, undo, a throw'
+		   ok = $w0 -and $w0.resting -ceq 'on' -and $w0.undo -ge 1 -and $w0.throwWait-gt 0; got = & $sayRun $w0 }
 	)
+}
+
+# Baseline A's `transients` readout (a new game's), $null when it printed none.
+function Get-BaselineTransients([string[]]$lines) {
+	$at = -1
+	for ($i = 0; $i -lt $lines.Count; $i++) {
+		if ($lines[$i] -cmatch 'console: === BASELINE A') { $at = $i; break }
+	}
+	if ($at -lt 0) { return $null }
+	for ($i = $at + 1; $i -lt $lines.Count; $i++) {
+		if ($lines[$i] -cmatch 'console: === ') { return $null } # past the block: it printed none
+		if ($lines[$i] -cmatch '^\[info \] console: transients on \S+$') { return Read-Transients $lines $i }
+	}
+	return $null
 }
 
 # '' when two blocks match line for line, else what differs first.
@@ -613,6 +682,10 @@ if ($SelfTest) {
 	# after the save came back from the load wrecked, and the fixture table handed
 	# a smashed sconce's wreck to the next level's sconce on that square.
 	# resettest.eval's wrecking opens with a repro of each (read its header).
+	# Batch 78 (C294, C295, C297) adds three of what the GAME had running - a
+	# rest, the undo history, a throw's wait and the kindle clock - which only the
+	# harness's reset ended, and that by writing the rest flag past the lockstep
+	# hand-back: a load, a new game and a reset must each end all of it.
 	$reproOk = $resetRan
 	# The script's own verdict too: the repros SMASH what must be there and
 	# place what they wreck, and a smash or a placement that found nothing is a
@@ -648,7 +721,7 @@ if ($SelfTest) {
 		$resetScript)
 	Remove-HarnessSaves @($resetSave)
 	$al = @(ReadLog)
-	# Its repros, as in the solo run: the same nine rows must hold after the
+	# Its repros, as in the solo run: the same sixteen rows must hold after the
 	# switch back from another level.
 	$awayRepro = @(Get-ReproChecks $al)
 	$awayReproBad = @($awayRepro | Where-Object { -not $_.ok })
@@ -678,6 +751,30 @@ if ($SelfTest) {
 	}
 	$leftLevels = @()
 	if ($leftLine -cmatch ' levels=(.+)$') { $leftLevels = @($Matches[1] -split ' ') }
+	# THE AMBUSH DROPS THE UNDO HISTORY (code-review C297). The first script paints
+	# a square of crypt1 and walks out, which keeps the step (crypt1 is parked);
+	# the ambush then puts a generated level where crypt1 was, and an undo there
+	# restored crypt1's map under "~encounter". The verdict brackets the ambush
+	# ALONE: the readout just before it, on the world map (the SECOND "transients
+	# on crypt1" - the parked level is still current), must count the step, and
+	# the one just after it, inside the encounter before its own `leave` (the
+	# FIRST "transients on ~encounter"), none. Taken across the walk out and the
+	# encounter's leave as well, either of those starting to clear the history
+	# would let an ambush that stopped read ok. The readout in crypt1 itself says
+	# the paint took a step at all.
+	$cryptIdx = @(for ($i = 0; $i -lt $al.Count; $i++) {
+		if ($al[$i] -cmatch '^\[info \] console: transients on crypt1$') { $i }
+	})
+	$ambushIdx = -1
+	for ($i = 0; $i -lt $al.Count; $i++) {
+		if ($al[$i] -cmatch '^\[info \] console: transients on ~encounter$') { $ambushIdx = $i; break }
+	}
+	$cryptT = if ($cryptIdx.Count -ge 1) { Read-Transients $al $cryptIdx[0] } else { $null }
+	$worldT = if ($cryptIdx.Count -ge 2) { Read-Transients $al $cryptIdx[1] } else { $null }
+	# The ambush's readout must not be the script's last one (that is after the
+	# encounter's leave); two readouts on ~encounter, or this is not the bracket.
+	$encT = if ($ambushIdx -ge 0 -and $ambushIdx -lt $endIdx) { Read-Transients $al $ambushIdx } else { $null }
+	$sayUndo = { param($t) if ($null -eq $t) { 'no readout' } else { "on $($t.level): undo=$($t.undo) redo=$($t.redo)" } }
 	$awayChecks = @(
 		@{ what = 'the first script ended off the level'
 		   ok = [bool](@($al | Where-Object { $_ -cmatch '^\[info \] console: transients on ~encounter$' }).Count) -and
@@ -686,6 +783,13 @@ if ($SelfTest) {
 		@{ what = '...holding the harness level stashed'
 		   ok = ($ground -ne '') -and ($leftLevels -ccontains $ground)
 		   got = "harness level '$ground', $(if ($leftLine) { "'$($leftLine -replace '^\[info \] console:\s+', '')'" } else { 'no stashed line' })" },
+		@{ what = 'it took an undo step in crypt1'
+		   ok = [bool]($cryptT -and $cryptT.undo -ge 1); got = & $sayUndo $cryptT },
+		@{ what = '...the walk out kept it'
+		   ok = [bool]($worldT -and $worldT.undo -ge 1); got = & $sayUndo $worldT },
+		@{ what = '...and the ambush took the history'
+		   ok = [bool]($encT -and $encT.level -ceq '~encounter' -and $encT.undo -eq 0 -and $encT.redo -eq 0)
+		   got = & $sayUndo $encT },
 		@{ what = 'the reset after it went back by a load'
 		   ok = [bool]$switchLine.Count
 		   got = 'no "reset: switched ... from ~encounter" line' },
@@ -1068,7 +1172,7 @@ if ($SelfTest) {
 	$ok = ($p.ExitCode -eq 1) -and ($q.ExitCode -eq 2) -and $declineOk -and $gapOk -and $resetOk -and $reproOk -and $awayOk -and $batchOk -and $headOk -and $respondOk -and $guardOk -and $hiddenOk -and $lifeOk
 	Write-Host ''
 	Write-Host ("eval RESULT={0} self_test=1" -f $(if ($ok) { 'PASS' } else { 'FAIL' }))
-	if ($ok) { Write-Host 'the runner reports both failures, counts a declined line and holds a probe to its refusal, stops the clock at a wipe, counts a gap in a batch once, recycling (from any level) and headless change nothing, a load or a stair leaves no gas, wreck or burn behind, the numbers still move, a second or killed run does not count, and the load paths leave a clean device' }
+	if ($ok) { Write-Host 'the runner reports both failures, counts a declined line and holds a probe to its refusal, stops the clock at a wipe, counts a gap in a batch once, recycling (from any level) and headless change nothing, a load or a stair leaves no gas, wreck or burn behind, a load, a new game or a reset ends a rest, the undo history and the clocks, the numbers still move, a second or killed run does not count, and the load paths leave a clean device' }
 	else { Write-Host 'A RUNNER THAT CANNOT FAIL MEANS NOTHING' -ForegroundColor Red }
 	exit $(if ($ok) { 0 } else { 1 })
 }

@@ -239,7 +239,7 @@ void DungeonWorld::GrantResourceXp(Character& member, resource::Kind kind,
 //
 // The PREVIOUS mode is remembered rather than assumed: an eval run may already
 // be in lockstep, and rest must hand it back what it found.
-void DungeonWorld::SetResting(bool on) {
+void DungeonWorld::SetResting(bool on, bool quiet) {
 	if (on == m_resting) return;
 	if (on) {
 		m_restLockstep = LockstepAI();
@@ -251,7 +251,7 @@ void DungeonWorld::SetResting(bool on) {
 	// "woken" is the default reason — a plain click on the button. A caller with
 	// a better one (BreakRest) overwrites it immediately after.
 	if (!on) m_restEndReason = "woken";
-	onMessage(loc::View(on ? "log.rest_begin" : "log.rest_end"));
+	if (!quiet) onMessage(loc::View(on ? "log.rest_begin" : "log.rest_end"));
 }
 
 void DungeonWorld::BreakRest(const char* reason, const char* reasonKey) {

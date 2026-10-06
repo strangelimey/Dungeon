@@ -152,7 +152,10 @@ public:
 	// announcements (the caller clears the log right after, as before). Also the
 	// first half of a LOAD, which lays the save on top of it - so whatever it
 	// leaves standing, a load inherits: it clears the level's transients
-	// (ClearLevelTransients) and mends every door, prop and fixture (C292, C293).
+	// (ClearLevelTransients) and mends every door, prop and fixture (C292, C293),
+	// and it ends what the GAME being left had running - a rest, quietly and
+	// handing lockstep back (C295), the throw and kindle clocks (C294) and the
+	// editor's undo history (C297).
 	void ResetForNewGame();
 
 	// One frame of the world: party input, then `dt` of simulation (party
@@ -625,15 +628,15 @@ public:
 	// party stands on the harness level: a reset from anywhere else goes there by
 	// a real load instead (code-review C300).
 	void ResetForEval();
-	// The part of a reset NO LEVEL FILE PUTS BACK, and ResetForNewGame does not
-	// (yet - rest, the clocks and the undo history are code-review batch 78's):
-	// the harness's modes, rest, the throw and kindle clocks, the other levels'
-	// stashes and the undo history. ONE list, shared by both ways a reset goes -
-	// ResetForEval (the same level, re-read in place) and Game's switch to the
-	// harness level, where a staged level load does the rest - so the two cannot
-	// drift apart. (What the LEVEL had under way - a blast, the fixture damage
-	// table, a pit fall - is ClearLevelTransients', which ResetForNewGame and
-	// every level load call, so both ways get it from there; C292.)
+	// The part of a reset NO LEVEL FILE PUTS BACK and ResetForNewGame does not:
+	// the harness's modes and the other levels' stashes (a real new game keeps
+	// those - they are unsaved editor work). ONE list, shared by both ways a
+	// reset goes - ResetForEval (the same level, re-read in place) and Game's
+	// switch to the harness level, where a new game and a staged level load do
+	// the rest - so the two cannot drift apart. (What the LEVEL had under way - a
+	// blast, the fixture damage table, a pit fall - is ClearLevelTransients', and
+	// rest, the throw and kindle clocks and the undo history are ResetForNewGame's;
+	// both ways get them from there: C292, C294, C295, C297.)
 	void ResetEvalTransients();
 	// What a reset is supposed to have cleared, counted (the console's
 	// `transients`; code-review batch 12). resettest.eval prints it in both of
@@ -661,6 +664,11 @@ public:
 		std::string stashedLevels;
 		bool resting = false;
 		bool lockstep = false;     // AI driven by sim time (rest forces it on)
+		// Why rest last ended (RestEndReason), "" while it never has in this game.
+		// A new game or a load ends one quietly and clears it (C295): kept, it
+		// read "woken" for a rest nobody woke from, or the "recovered" an
+		// auto-stop wrote into the loaded game.
+		const char* restEnded = "";
 		std::array<float, 4> throwCooldown{};
 		float kindleClock = 0.0f;  // the firelight's kindling check (6d)
 	};
@@ -676,7 +684,10 @@ public:
 	// into the world dt, so every rate, timer and cooldown in the game
 	// accelerates together — which is the whole reason rest is one knob rather
 	// than a second set of resting rates that could drift.
-	void SetResting(bool on);
+	// `quiet` says nothing in the log: ResetForNewGame ends a rest that belongs
+	// to the game being left (code-review C295), and its line would read as the
+	// first thing that happened in the new one. Lockstep goes back either way.
+	void SetResting(bool on, bool quiet = false);
 	bool Resting() const { return m_resting; }
 	float RestTimeScale() const { return m_resting ? m_balance.restScale : 1.0f; }
 	// WHY rest last ended ("recovered" / "attacked" / "hungry" / "woken"), or ""
@@ -1839,7 +1850,9 @@ public:
 							   const std::string& entPath);
 	// The same install, from TEXT that was never a file: a generated random
 	// encounter (docs/world-map.md). `stem` names it for error messages and
-	// for CurrentLevel; it is never a path and never written.
+	// for CurrentLevel; it is never a path and never written. Unlike a
+	// regenerate it CLEARS the undo history first: the level it replaces is
+	// not this one, whatever the stem says (code-review C297).
 	bool InstallLevelFromText(const std::string& stem, std::string_view mapText,
 							  std::string_view entText);
 
@@ -2342,7 +2355,8 @@ public:
 	// in place — the active level respawns its dynamic layer from the records
 	// + diffs and fully rebakes its geometry (the quality-swap path). The
 	// stacks clear on a level transition: a step's active-level snapshot is
-	// only meaningful while that level is live.
+	// only meaningful while that level is live. And on a new game, a load or an
+	// ambush, all of which can leave the level's NAME standing (C297).
 	void BeginUndoStep();
 	void CommitUndoStep(bool changed);
 	bool CanUndo() const { return !m_undoStack.empty(); }
@@ -2351,11 +2365,15 @@ public:
 	void Redo();
 	// Drops both stacks. A level transition does this (a step's snapshot is
 	// only meaningful while its level is live), and so does a type RENAME:
-	// every held snapshot names the type by its old id.
+	// every held snapshot names the type by its old id. So do a new game and a
+	// load (ResetForNewGame), on the same level too - the session the steps
+	// were taken in is over - and an ambush (InstallLevelFromText), which puts
+	// a generated level where the steps' level was (code-review C297).
 	void ClearUndoHistory();
 	// A counter that moves whenever the editor changes something - the signal
 	// live validation re-runs on. Bumped by every kept undo step, undo/redo, a
-	// history clear (level transitions, renames, deletes), and by the edits that
+	// history clear (level transitions, a new game or a load, renames, deletes),
+	// and by the edits that
 	// take NO undo step but still change what the checker reads: the instance
 	// inspectors' apply (door key/name, button target, stair facing and exit)
 	// and Game's type-field writes and level creation. Over-bumping only costs a
@@ -5189,7 +5207,8 @@ private:
 	// reading like something nobody had got round to explaining.
 	Harness m_harness;
 	// REST. Transient by design — not saved, so a save made mid-rest loads
-	// standing up. `m_restLockstep` remembers the AI mode rest replaced, because
+	// standing up, and a load or a new game ENDS one (ResetForNewGame, quietly;
+	// C295). `m_restLockstep` remembers the AI mode rest replaced, because
 	// the eval harness may already have lockstep on and rest must give it back
 	// rather than assume it was off.
 	bool m_resting = false;

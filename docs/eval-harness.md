@@ -744,13 +744,14 @@ A reset now goes where a new game goes: the manifest's `eval_level`, else the
 first level (`Game::HarnessLevel`, which `StartNewGame`'s harness branch asks
 too). On that level it recycles in place as before. Anywhere else it clears what
 no level file puts back (`DungeonWorld::ResetEvalTransients`: the harness's
-modes, rest, the throw and kindle clocks) and starts a new game through the menu
+modes and the other levels' stashes) and starts a new game through the menu
 callback, whose staged load takes the party there - `reset: switched in N ms
 (from X to Y, by a level load)`. (What the LEVEL had under way - a blast, the
 fixture damage table, a fall mid-plunge, the effects on its monsters - is not
 the harness's to clear: `ClearLevelTransients` does it for a new game, a load
-and every level load alike, so both of a reset's ways get it from there; see
-below.) The
+and every level load alike, so both of a reset's ways get it from there; and
+what the GAME had running - a rest, the throw and kindle clocks, the undo
+history - is `ResetForNewGame`'s, likewise; see below.) The
 console stays gated until the load lands, so the script's next line waits for
 free. Either way it forgets every other level's stash and the undo history. A
 harness level with no file (a `~` stem, a typo in the manifest) is REFUSED with a
@@ -814,6 +815,44 @@ of the script (`HarnessGame.ps1 Copy-EvalScript`, harness_game.py's
 `eval_script` rule): the save folder is shared by every checkout, and another
 run of the same script would overwrite the save between a `save` and its `load`.
 A pit fall has no repro, since no harness level has a pit.
+
+### A new game and a load end what the game had running (code-review C294, C295, C297)
+
+The same shape one tier up. A REST is not saved, an undo step is a snapshot of
+the session it was taken in, and the throw cooldown and the firelight's kindle
+clock are clocks a fresh world starts at zero - and only the harness's reset
+ended any of them. A load mid-rest ran the loaded game at 60x under forced
+lockstep until the first blow (or, the party being full, logged a stray
+"recovered" as its first line); an undo after a same-level load or new game
+brought back the old session's fog, dead monsters and door states; and the
+reset itself dropped rest by writing the flag, past `SetResting`'s lockstep
+hand-back, so a reset mid-rest left lockstep forced on. All four are now
+`ResetForNewGame`'s - rest ended through a QUIET `SetResting(false)` (no log
+line; lockstep back to what the rest found; no end reason left over), both
+clocks zeroed, `ClearUndoHistory` - which a new game, the first half of every
+load and both of a reset's ways run. An ambush clears the history too
+(`InstallLevelFromText`, before the stem moves): it puts a generated level where
+the steps' level was, and an undo there restored crypt1's map under
+`~encounter`. A regenerate does NOT - it replaces the level in place inside an
+undo step of its own, on purpose.
+
+`transients` gained `rest_ended=` (why rest last ended, `none` in a game where it
+never has), and resettest.eval three repros, each staged the same way - lockstep
+OFF, Brand hurt so the rest cannot end itself, an undo step, the kindle clock
+stepped off its phase, a throw's wait and a rest, all seen in a control readout
+- then ended by a `load`, a `newgame` and a `reset`: no rest, lockstep OFF
+again, `rest_ended=none`, no undo or redo, no wait, and the kindle clock where
+baseline A has it. Lockstep is off for the staging because rest forces it on: a
+reset that dropped the flag without the hand-back leaves it on, which only reads
+as wrong when the mode it found was off. The wrecking before baseline B also
+ends on a rest, a throw and an undo step, under the script's own lockstep, so
+the A/B blocks see those too. And the batched run's first script
+(selftest-leavelevel.eval) paints a square of crypt1 before walking out, and
+reads `transients` on each side of the ambush ALONE: in crypt1 and again on the
+world map (the walk out kept the step) it must count one, and inside the
+encounter, before the encounter's own `leave`, none. A verdict read across the
+walk out and the encounter's leave too would let either of those, had it begun
+clearing the history, hide an ambush that stopped.
 
 ## What the harness costs the shipping code (audited 2026-08-15)
 

@@ -579,7 +579,9 @@ Key conventions (memorize, they bite):
   but a Tick, so a wall bumped into as well: `PartyTarget::Noticed`,
   code-review C34; a DoT does NOT break it, since `fx::Notice` leaves a Tick
   out, and nor does a member's own over-exertion), `hungry` (an empty meter).
-  Transient: not saved. NOTE `step` advances SIM seconds, so it cannot see the
+  Transient: not saved, and a new game or a load ENDS it (`ResetForNewGame`:
+  a quiet `SetResting(false)`, lockstep handed back, no end reason left;
+  code-review C295). NOTE `step` advances SIM seconds, so it cannot see the
   multiplier at all - rest.eval measures the STATE's rules with it. `frames <n>
   [fps] [whole]` runs PLAY frames through `WorldDt` instead (the dev timescale
   left out), so it sees the multiplier: tools\AITest.py's restpace.eval checks a
@@ -614,8 +616,8 @@ Key conventions (memorize, they bite):
   reset goes back to the HARNESS LEVEL (`eval_level`, else the first level:
   `Game::HarnessLevel`), by a real staged load when the party is anywhere else
   (a `goto`, the world map, an ambush's `~encounter`, which has no file and used
-  to assert), and forgets every other level's stash and the undo history
-  (code-review C300; the self-test batches selftest-leavelevel.eval - which
+  to assert), and forgets every other level's stash (code-review C300; the
+  self-test batches selftest-leavelevel.eval - which
   CARVES the harness level before leaving, so a kept stash would differ from
   the file - ahead of resettest.eval and demands the solo run's blocks). What a
   LEVEL has under way (shots, a queued volley, blasts, Earth lights, the fixture
@@ -625,7 +627,12 @@ Key conventions (memorize, they bite):
   game, and the first half of every load), which also mends doors, props and
   fixtures - so a NEW transient joins that list, never a call site (code-review
   C292/C293: the hand-copied lists had drifted, and a gas followed the party
-  down a stair; resettest.eval's repros check a load and a stair). TRAPS,
+  down a stair; resettest.eval's repros check a load and a stair). What the
+  GAME has running - a rest, the throw and kindle clocks, the editor's undo
+  history - ends in `ResetForNewGame` too, so a new game, a load and both of a
+  reset's ways all end it (C294/C295/C297; resettest.eval stages each under
+  lockstep OFF and ends it by a load, a newgame and a reset; an ambush drops
+  the undo history as well). TRAPS,
   all found the hard way: the first
   reset skipped the MAP and the equivalence test passed anyway (nothing it
   printed showed geometry — `mapinfo`'s walkable count is now the only readout
@@ -3821,7 +3828,8 @@ and answers: docs/transparency-notes.md; each phase's AS BUILT is in the plan.
   the level-re-entry flow with the SURFACE REBAKE DEFERRED to editor close
   behind a one-frame "Rebuilding geometry..." notice — GeometryDirty/
   FlushGeometry; </> buttons + Ctrl+Z/Y; drag stroke = one step; history
-  clears on level transitions). Instance dialogs: footer = Save (+ Delete
+  clears on level transitions, a new game, a load and an ambush - C297).
+  Instance dialogs: footer = Save (+ Delete
   on the item/decoration dialog — targeted RemoveItemById/
   RemoveDecorationByIndex, undo-bracketed), closing = top-right "x" or Esc.
   DIALOG CLOSE CONVENTION (all of them, editor AND main game): the close

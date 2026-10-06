@@ -1309,7 +1309,9 @@ bool Game::LoadGame(const std::string& path) {
 	}
 
 	// Rebuild the baseline (party home, fog cleared, monsters at spawn, palette
-	// reset), then lay the save on top.
+	// reset), then lay the save on top. A rest is not saved, so the baseline is
+	// where one under way ENDS - in there, with the clocks and the undo history,
+	// since a load on the same level never passes a level load (C294, C295, C297).
 	m_world->ResetForNewGame();
 	ResetRoster();
 	// THE PARTY'S SIZE (party creation). A save that names one cuts the default

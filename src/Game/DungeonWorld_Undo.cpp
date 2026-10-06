@@ -239,7 +239,9 @@ void DungeonWorld::ClearUndoHistory() {
 	m_undoStack.clear();
 	m_redoStack.clear();
 	m_pendingUndo.reset();
-	NoteEdit(); // a level transition, rename or delete: the checked set moved
+	// A level transition, a new game or load, an ambush, a rename or a delete:
+	// the checked set moved.
+	NoteEdit();
 }
 
 

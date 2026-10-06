@@ -24,15 +24,34 @@
 ; uncarved, the stash equals the file and that leak would read as identical.
 ; The `stashed` line of the last `transients` below names every level held, and
 ; the self-test demands the harness level among them - something to forget.
+;
+; AND AN UNDO STEP IN CRYPT1 (code-review C297). The ambush puts a generated
+; level where crypt1 was, and every undo step is a snapshot of crypt1 - an undo
+; inside the encounter used to restore crypt1's map under "~encounter". Walking
+; out onto the world map keeps the history (crypt1 is parked, not replaced), so
+; the ambush is what must drop it. A readout on EACH SIDE of the ambush, so the
+; verdict is that one transition's and no other's: on crypt1 the step is
+; counted (the paint took one), on the world map it still is (the walk out kept
+; it - "transients on crypt1" again, since the parked level is still current),
+; and inside the encounter, before its own `leave`, there is none. Read across
+; all three transitions instead, a walk out or an encounter's leave that began
+; clearing the history would hide an ambush that stopped. Two paints of one
+; square, so at least one is an edit; never saved, and the reset after this
+; script forgets crypt1's stash.
 logecho on
 reset
 seed 3
 arena open 9 9
 goto crypt1
+editor place floors floor_slabs 5 7
+editor place floors floor_temple 5 7
+mappage close
 transients
 leave
 worldpos 6 6
+transients
 encounter
+transients
 leave
 state
 ; The level this leaves behind, named - the self-test reads this line to know

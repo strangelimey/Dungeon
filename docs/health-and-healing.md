@@ -310,7 +310,10 @@ and did nothing else — waiting was always a placeholder for this. Its label
 shows the ACTION (Rest / Wake) and is pushed from the world every frame, because
 rest ends by itself as often as by a click.
 
-**Rest is transient**: not saved, so a save made mid-rest loads standing up.
+**Rest is transient**: not saved, so a save made mid-rest loads standing up -
+and a load or a new game made mid-rest ENDS it, quietly, handing back the AI mode
+it replaced (`ResetForNewGame`, code-review C295: it used to run on into the
+loaded game at 60x until the first blow).
 
 ### Rest is a STATE, not a command (settled)
 

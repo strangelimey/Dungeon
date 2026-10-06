@@ -46,6 +46,21 @@
 ; afterwards and must count it, and repro 2 must find the wreck its save holds.
 ; The save is named here `resettest`; Eval.ps1 runs a copy that names it for
 ; this worktree, since the save folder is shared by every checkout.
+;
+; THEN THREE MORE (code-review batch 78, C294 / C295 / C297): what the GAME had
+; running, which a new game and a load never ended and only `reset` did, by
+; writing the flag. Each is the same staging - lockstep OFF, Brand hurt (so a
+; rest has something to gain and cannot end itself), an undo step (the floor
+; on 10,12 painted twice, so at least one paint is an edit), the kindle clock
+; stepped off its phase (0.15 s), a throw's wait and a rest - then one way out:
+;   4. a `load` of a save taken with Brand hurt: a rest carried over reads on;
+;   5. a `newgame` (the party comes back whole, so a rest carried over stops on
+;      the next frame and writes "recovered" - `rest_ended=` shows it);
+;   6. a `reset` mid-rest: it used to drop the flag without handing lockstep
+;      back, which only shows with lockstep OFF before the rest.
+; After each: no rest, lockstep OFF again (what the rest found), no reason
+; recorded, no undo or redo step, no throw's wait and the kindle clock where
+; baseline A has it. The control before shows all five staged.
 
 logecho on
 ; FROZEN BEFORE THE LOAD, not after it. Block B's reset happens at timescale 0
@@ -173,6 +188,60 @@ smash 11 12 50
 echo --- repro: smashed again after the load ---
 transients
 
+; --- repro 4: a load mid-rest, with an undo step and both clocks running ----
+; The save with Brand HURT, so the loaded game has something to rest for too: a
+; rest the load carried over would still read on, not stop itself.
+lockstep off
+setpool 0 health 10
+save resettest
+editor place floors floor_slabs 10 12
+editor place floors floor_temple 10 12
+mappage close
+step 0.15
+throw rock
+rest on
+echo --- repro: resting before the load ---
+transients
+load resettest
+echo --- repro: loaded mid-rest ---
+transients
+
+; --- repro 5: the same, then a new game --------------------------------------
+; Lockstep off again, so each repro stands on its own: after a load that kept
+; the rest it would still be forced on.
+lockstep off
+setpool 0 health 10
+editor place floors floor_slabs 10 12
+editor place floors floor_temple 10 12
+mappage close
+step 0.15
+throw rock
+rest on
+echo --- repro: resting before the new game ---
+transients
+newgame
+echo --- repro: a new game mid-rest ---
+transients
+
+; --- repro 6: the same, then a reset ----------------------------------------
+; Its readout straight after the reset - the echo goes first, since its marker
+; is what the self-test reads from. A reset forgets `freeze` (a harness mode),
+; and the wrecking below sets it again.
+lockstep off
+setpool 0 health 10
+editor place floors floor_slabs 10 12
+editor place floors floor_temple 10 12
+mappage close
+step 0.15
+throw rock
+rest on
+echo --- repro: resting before the reset ---
+transients
+echo --- repro: a reset mid-rest ---
+reset
+transients
+lockstep on
+
 ; --- and the rest of the wrecking --------------------------------------------
 arena open 9 9
 spawn skel_warrior 14 11
@@ -194,11 +263,22 @@ forward 3
 step 8
 cast 3 fire project
 step 2
+; ...and what the GAME has running, for the reset to end (C294, C295, C297): an
+; undo step, a throw's wait and a rest - under lockstep ON this time, the
+; script's own mode, which baseline B must then read exactly as A does. 12,12
+; is the open arena's centre.
+setpool 0 health 10
+editor place floors floor_slabs 12 12
+editor place floors floor_temple 12 12
+mappage close
+throw rock
+rest on
 echo --- wrecked ---
 party
 supplies
 monsters
 tally
+echo --- repro: wrecked, before the reset ---
 transients
 
 ; --- and put it back ----------------------------------------------------------

@@ -253,8 +253,9 @@ void Game::RegisterEvalCommands() {
 							   m_heldItem ? ItemToken(*m_heldItem, m_heldItem.Charge())
 										  : std::string("none")));
 						   m_console.Print(std::format(
-							   "  undo={} redo={} resting={} lockstep={}", t.undo, t.redo,
-							   t.resting ? "on" : "off", t.lockstep ? "on" : "off"));
+							   "  undo={} redo={} resting={} lockstep={} rest_ended={}", t.undo,
+							   t.redo, t.resting ? "on" : "off", t.lockstep ? "on" : "off",
+							   *t.restEnded ? t.restEnded : "none"));
 						   // Other levels' stashes (C300: a reset forgets them).
 						   // Eval.ps1 -SelfTest reads this line BEFORE a reset too,
 						   // to know the batch left something to forget.

@@ -91,6 +91,15 @@ bool DungeonWorld::InstallLevelFromText(const std::string& stem,
 	// EXCEPT A LEVEL THE PARTY WALKED OUT OF. An ambush on the road replaces the
 	// dungeon still loaded under the world map, and that one is returned to —
 	// so it was PARKED on the way out (ParkActive), and its stash stands.
+	//
+	// THE UNDO HISTORY GOES FIRST (code-review C297). Every step in it is a
+	// snapshot of the level being replaced - the parked dungeon's, or the last
+	// ambush's under this same stem - and InstallLevel's in-place branch does not
+	// clear it (a regenerate wraps that branch in an undo step on purpose), so
+	// an undo inside the encounter restored crypt1's map under "~encounter".
+	// Before the stem moves, and whatever it was: an ambush is a new place even
+	// when the last one had its name.
+	ClearUndoHistory();
 	m_currentLevel = stem;
 	return InstallLevel(stem, std::move(map), std::move(ents));
 }

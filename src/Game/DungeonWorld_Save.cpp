@@ -81,6 +81,25 @@ void DungeonWorld::ClearLevelTransients() {
 }
 
 void DungeonWorld::ResetForNewGame() {
+	// REST ENDS WITH THE GAME IT WAS IN (code-review C295). It is not saved, so
+	// nothing in a new game or a save turns it off again: a load mid-rest ran the
+	// loaded game at 60x under forced lockstep until the first blow, or logged a
+	// stray "recovered" as its first line. Quietly, and through SetResting, so the
+	// AI mode rest replaced is handed back; and it never ENDED in this game, so
+	// the reason goes too (not the "woken" a click would leave).
+	SetResting(false, /*quiet=*/true);
+	m_restEndReason = "";
+	// The two clocks a fresh world starts at zero (C294): a throw's wait, up to a
+	// second of it, and the firelight's kindling check, which runs every frame -
+	// kept, a new game or a load began on whatever phase the last one ended on.
+	m_throwCooldown = {};
+	m_kindleClock = 0.0f;
+	// And the editor's history (C297), whose every step is a snapshot of the
+	// session this ends: an undo after a new game, a load or a `reset` on the
+	// same level brought back the old one's fog, dead monsters, collected items
+	// and door states. (A level change clears it anyway, in BeginLevelLoad.)
+	ClearUndoHistory();
+
 	m_party.Reset(m_map.StartX(), m_map.StartZ());
 	m_leader = 0; // slot 0 (Brand) leads a new game
 	for (size_t i = 0; i < m_monsters.size(); ++i) {
@@ -175,9 +194,10 @@ void DungeonWorld::ResetForNewGame() {
 // player path has any reason to touch.
 void DungeonWorld::ResetForEval() {
 	// --- 0. what no level file puts back -----------------------------------
-	// The harness's modes, rest, the clocks, other levels' stashes and the undo
-	// history. What the LEVEL had under way (a blast, the fixture damage table, a
-	// fall) is ResetForNewGame's below, as it is for a real new game (C292).
+	// The harness's modes and other levels' stashes. What the LEVEL had under way
+	// (a blast, the fixture damage table, a fall) and what the GAME had running
+	// (rest, the throw and kindle clocks, the undo history) are ResetForNewGame's
+	// below, as they are for a real new game and a load (C292, C294, C295, C297).
 	ResetEvalTransients();
 
 	// --- 1. THE STATIC LAYER, back from the project files -------------------
@@ -202,10 +222,11 @@ void DungeonWorld::ResetForEval() {
 	RespawnFromRecords(/*geometryToo=*/false);
 
 	// --- 2. the dynamic layer -----------------------------------------------
-	// Party pose, monster hp/threat/awareness, the wipe latch, the level's
-	// transients (blasts, projectiles, the fixture damage table - seeded afresh
-	// from the map just read - monster effects, a fall), items, buttons, doors
-	// and props mended, niches, fog, torch palette. AFTER the map, because it
+	// Rest, the clocks and the undo history, party pose, monster hp/threat/
+	// awareness, the wipe latch, the level's transients (blasts, projectiles, the
+	// fixture damage table - seeded afresh from the map just read - monster
+	// effects, a fall), items, buttons, doors and props mended, niches, fog,
+	// torch palette. AFTER the map, because it
 	// puts the party on the map's start cell. Damage done to the dungeon is
 	// mended in there too, for a new game and a load alike (C292, C293); it used
 	// to be mended here alone, so only the harness's reset saw it.
@@ -231,15 +252,12 @@ void DungeonWorld::ResetEvalTransients() {
 	// One member, so a field added to Harness is reset here for free — the four
 	// loose bools this replaced were four chances to forget one.
 	m_harness = {};
-	m_resting = false;
-	m_restEndReason = "";
-	// The two clocks a fresh world starts at zero (C294, brought forward from
-	// batch 78 because the `transients` readout caught the kindle clock with
-	// nothing injected: it runs every frame, so a reset handed the next test
-	// whatever phase the last one ended on - 0.100 against a new game's 0.250).
-	// C294's other half, a new game or a load doing the same, is still batch 78.
-	m_throwCooldown = {};
-	m_kindleClock = 0.0f;
+	// Rest, the throw and kindle clocks and the undo history are NOT here any
+	// more: a new game and a load owed them too (code-review C294, C295, C297),
+	// so they are ResetForNewGame's, which both of a reset's ways reach - the
+	// recycle calls it, and the switch is a new game. Rest used to be dropped
+	// here by writing the flag, which skipped the lockstep hand-back: a reset
+	// mid-rest left lockstep forced on.
 
 	// EVERY OTHER LEVEL BACK TO ITS FILE (C300). A script that walked out of a
 	// dungeon, edited a level it was browsing or travelled through an ambush left
@@ -249,11 +267,6 @@ void DungeonWorld::ResetEvalTransients() {
 	// in ResetForNewGame.)
 	m_levelMaps.clear();
 	m_levelEnts.clear();
-	// ...and the editor's history, whose every step is a snapshot of a session
-	// this reset just ended. Undo after it would restore the old one's fog, dead
-	// monsters and door states. ONE call site for C300 and C297: when C297 puts
-	// this in ResetForNewGame, which ResetForEval calls, this line goes.
-	ClearUndoHistory();
 }
 
 DungeonWorld::TransientReport DungeonWorld::Transients() const {
@@ -295,6 +308,7 @@ DungeonWorld::TransientReport DungeonWorld::Transients() const {
 	if (r.stashedLevels.empty()) r.stashedLevels = "none";
 	r.resting = m_resting;
 	r.lockstep = LockstepAI();
+	r.restEnded = m_restEndReason;
 	r.throwCooldown = m_throwCooldown;
 	r.kindleClock = m_kindleClock;
 	return r;
