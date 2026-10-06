@@ -79,7 +79,10 @@ $log = Join-Path $bin 'dungeon.log'
 # ONE RUN PER WORKTREE: this worktree's game writes one dungeon.log, truncated
 # on open, and a second run would interleave its verdict source with this one's
 # (code-review C430). Another worktree's game has its own log and is fine.
+# And never a stale exe: a measurement of yesterday's binary reads as one of
+# today's change (C426).
 . (Join-Path $PSScriptRoot 'HarnessGame.ps1')
+Assert-ExeCurrent $exe
 Assert-NotRunning $exe
 
 # EVERY REPORT LINE GOES THROUGH HERE so the run can be both coloured on screen

@@ -79,8 +79,9 @@ EXE = os.path.join(ROOT, r"build\debug\bin\Dungeon.exe")
 LOG = os.path.join(ROOT, r"build\debug\bin\dungeon.log")
 SCRIPTS = os.path.join(ROOT, r"tools\EvalScripts")
 
-# This worktree's game shares the log every phase reads: refuse beside it
-# (tools/harness_game.py).
+# Never a stale exe, and never beside this worktree's own game, which shares
+# the log every phase reads (tools/harness_game.py).
+harness_game.refuse_if_stale(EXE)
 harness_game.refuse_if_running(EXE)
 
 

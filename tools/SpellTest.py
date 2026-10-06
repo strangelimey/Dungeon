@@ -366,8 +366,10 @@ def main():
 
 
 if __name__ == "__main__":
-	# This worktree's game shares the log the run reads: refuse beside it. And
-	# muted for the run, like every other harness (tools/harness_audio.py).
+	# Never a stale exe, and never beside this worktree's own game, which shares
+	# the log the run reads. And muted for the run, like every other harness
+	# (tools/harness_audio.py).
+	harness_game.refuse_if_stale(EXE)
 	harness_game.refuse_if_running(EXE)
 	with harness_audio.muted(os.path.dirname(EXE)):
 		code = main()

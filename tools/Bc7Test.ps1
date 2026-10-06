@@ -59,6 +59,10 @@ if (-not (Test-Path $exe)) {
 	Write-Host "Build it first:  .\build.cmd $Config"
 	exit 2
 }
+# Never a stale encoder: a baseline compared against yesterday's binary says
+# nothing about today's change (code-review C426; tools\HarnessGame.ps1).
+. (Join-Path $PSScriptRoot 'HarnessGame.ps1')
+Assert-ExeCurrent $exe
 
 $bc7Args = @('--per-kind', $PerKind)
 

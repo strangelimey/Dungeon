@@ -1998,6 +1998,15 @@ Full per-phase history + gotchas live in the editor-overhaul memory.
   save; Wait-ConsoleReady counts only NEW log lines, so an echo the title
   screen already wrote cannot satisfy it; Stop-HarnessGame quits, else kills
   that process. A new harness dot-sources it rather than copying a helper.
+  EVERY HARNESS REFUSES A STALE EXE (`Assert-ExeCurrent`, Python
+  `harness_game.refuse_if_stale`): it asks ninja for a dry run - through a COPY
+  of build.ninja, because the CONFIGURE_DEPENDS globs make a plain `ninja -n`
+  stop at "Re-running CMake" every time - and exits 4 if anything is pending
+  (3 = this worktree's game is already running, 2 = no build; none of the three
+  is a FAIL). `DN_HARNESS_ALLOW_STALE=1` runs a stale exe on purpose, with a
+  warning. CheckAll builds what a selection runs on, first, whatever the
+  selection (`-Only alloc` used to judge yesterday's binary); `CheckAll -Plan`
+  prints the order without running anything. `tools\StaleTest.ps1` checks both.
 - TYPED TEXT IS ONE ORDERED STREAM (Platform/Input.h `TypedChars`): printable
   characters plus `Input::kTypedBack` / `kTypedEnter`, pushed by OnKey on the
   press, so a consumer applies Backspace and Enter WHERE THEY FELL (the console,

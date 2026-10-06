@@ -71,6 +71,7 @@ if (-not (Test-Path $exe)) {
 # One run per worktree: this worktree's game writes the one log every verdict
 # here is read from (tools\HarnessGame.ps1, code-review C430).
 . (Join-Path $PSScriptRoot 'HarnessGame.ps1')
+Assert-ExeCurrent $exe
 Assert-NotRunning $exe
 
 $checks = 0

@@ -50,6 +50,7 @@ $exe = Join-Path $bin 'Dungeon.exe'
 $log = Join-Path $bin 'dungeon.log'
 
 if (-not (Test-Path $exe)) { throw "no build at $exe - run build.cmd $Config first" }
+Assert-ExeCurrent $exe
 Assert-NotRunning $exe
 
 # The console STAYS OPEN between commands - a second toggle would close it and

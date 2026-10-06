@@ -54,6 +54,7 @@ $exe = Join-Path $bin 'Dungeon.exe'
 $log = Join-Path $bin 'dungeon.log'
 
 if (-not (Test-Path $exe)) { throw "no build at $exe - run build.cmd $Config first" }
+Assert-ExeCurrent $exe
 # ANY Dungeon.exe, not only this build's (Assert-NotRunning): a second game on
 # the GPU would be part of what this measures.
 if (Get-Process Dungeon -ErrorAction SilentlyContinue) {

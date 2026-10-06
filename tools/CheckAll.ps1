@@ -10,9 +10,19 @@
 #   .\tools\CheckAll.ps1 -SelfTest    # every checker must FAIL (~15 min)
 #   .\tools\CheckAll.ps1 -Only diag,health
 #   .\tools\CheckAll.ps1 -List
+#   .\tools\CheckAll.ps1 -Only alloc -Plan   # what would run, in order; runs nothing
 #
 # Exit code 0 = every check in the tier passed (or, under -SelfTest, every
 # checker correctly reported failure).
+#
+# A CHECK RUNS ON THE EXE ITS BUILD ROW MAKES, so whatever is selected - a
+# tier, -Only, a self-test - brings its build rows with it, FIRST (each check
+# names one in `needs`). `-Only alloc` used to skip the build and judge
+# yesterday's binary (code-review C426); and a harness run on its own now asks
+# the build system and refuses a stale exe with exit 4 (tools\HarnessGame.ps1
+# Assert-ExeCurrent), so the two cannot disagree about what was judged. Build
+# rows run as themselves under -SelfTest too: they are preparation, not checks
+# with a fail-on-purpose mode.
 #
 # WHY THE SELF-TEST TIER EXISTS. Every check here can be run in a mode where it
 # is GIVEN a failure and must report one. That is the only defence against the
@@ -30,6 +40,7 @@ param(
 	[switch]$SelfTest,
 	[string[]]$Only = @(),
 	[switch]$List,
+	[switch]$Plan,
 	[ValidateSet('debug', 'release')][string]$Config = 'debug'
 )
 
@@ -42,29 +53,30 @@ $bin = Join-Path $root "build\$Config\bin"
 # another config (ProfileTest on release-profile) mutes its own
 # (tools\HarnessAudio.ps1).
 . (Join-Path $PSScriptRoot 'HarnessAudio.ps1')
-if (-not $List -and -not (Test-HarnessMuted $bin)) { exit (Invoke-Muted $bin $PSCommandPath $PSBoundParameters) }
+if (-not $List -and -not $Plan -and -not (Test-HarnessMuted $bin)) { exit (Invoke-Muted $bin $PSCommandPath $PSBoundParameters) }
 
 # ---------------------------------------------------------------------------
 # THE SUITE. `tier` is quick or full; `selfTest` is how to ask this check to
 # fail on purpose (absent = it has no such mode, and is skipped under -SelfTest
-# rather than counted as passing).
+# rather than counted as passing). `needs` names the build row that makes the
+# exe a check runs, and `build` marks the build rows themselves.
 #
 # Kept in ONE table so adding a check is one row, and so -List can print what
 # the suite actually covers rather than what a comment claims it covers.
 # ---------------------------------------------------------------------------
 $checks = @(
 	@{
-		name = 'build-debug'; tier = 'quick'
+		name = 'build-debug'; tier = 'quick'; build = $true
 		what = 'the debug build compiles clean'
 		run  = { & cmd /c ".\build.cmd debug > `"$env:TEMP\checkall-build-debug.txt`" 2>&1"; $LASTEXITCODE }
 	},
 	@{
-		name = 'build-release'; tier = 'full'
+		name = 'build-release'; tier = 'full'; build = $true
 		what = 'the release build compiles clean (the config that rots unwatched)'
 		run  = { & cmd /c ".\build.cmd release > `"$env:TEMP\checkall-build-release.txt`" 2>&1"; $LASTEXITCODE }
 	},
 	@{
-		name = 'diag'; tier = 'quick'
+		name = 'diag'; tier = 'quick'; needs = "build-$Config"
 		what = 'the health record: ring, wrap, cross-thread writes, torn reads'
 		# Streams merged by CMD, not by PowerShell. These tools log warnings to
 		# stderr, and without merging they arrive unbuffered AFTER the suite
@@ -75,19 +87,19 @@ $checks = @(
 		run  = { & cmd /c "`"$(Join-Path $bin 'DiagTest.exe')`" 2>&1" | Out-Host; $LASTEXITCODE }
 	},
 	@{
-		name = 'threads'; tier = 'full'
+		name = 'threads'; tier = 'full'; needs = "build-$Config"
 		what = 'ThreadManager + AI buckets under load: no force-terminate, clean reboots'
 		run      = { & cmd /c "`"$(Join-Path $bin 'ThreadStress.exe')`" 2>&1" | Out-Host; $LASTEXITCODE }
 		selfTest = { & cmd /c "`"$(Join-Path $bin 'ThreadStress.exe')`" --self-test 2>&1" | Out-Host; $LASTEXITCODE }
 	},
 	@{
-		name = 'ingame'; tier = 'quick'
+		name = 'ingame'; tier = 'quick'; needs = "build-$Config"
 		what = 'level files + installed models, and a uioverlap sweep of every screen'
 		run      = { & (Join-Path $root 'tools\InGameTest.ps1') -Config $Config | Out-Host; $LASTEXITCODE }
 		selfTest = { & (Join-Path $root 'tools\InGameTest.ps1') -Config $Config -SelfTest | Out-Host; $LASTEXITCODE }
 	},
 	@{
-		name = 'pipeline'; tier = 'quick'
+		name = 'pipeline'; tier = 'quick'; needs = "build-$Config"
 		what = 'every source of damage goes through fx::Deal; nothing else writes health'
 		# QUICK despite driving the whole game: 16 seconds, because the eval
 		# harness recycles the world with `reset` instead of reloading it. It is
@@ -98,7 +110,7 @@ $checks = @(
 		selfTest = { & (Join-Path $root 'tools\PipelineTest.ps1') -Config $Config -SelfTest | Out-Host; $LASTEXITCODE }
 	},
 	@{
-		name = 'spells'; tier = 'quick'
+		name = 'spells'; tier = 'quick'; needs = 'build-debug'
 		what = 'every spell tier does what it says: hand spells, bolts, modifiers, wards'
 		# The debug build only (it reads build\debug), like LevelBuildTest. Its
 		# self-test cuts every cast and demands exactly the spell-free checks pass.
@@ -106,19 +118,19 @@ $checks = @(
 		selfTest = { python (Join-Path $root 'tools\SpellTest.py') --selftest | Out-Host; $LASTEXITCODE }
 	},
 	@{
-		name = 'alloc'; tier = 'full'
+		name = 'alloc'; tier = 'full'; needs = "build-$Config"
 		what = 'a steady-state frame allocates nothing on the heap'
 		run      = { & (Join-Path $root 'tools\AllocTest.ps1') -Config $Config -Seconds 10 | Out-Host; $LASTEXITCODE }
 		selfTest = { & (Join-Path $root 'tools\AllocTest.ps1') -Config $Config -Seconds 10 -SelfTest | Out-Host; $LASTEXITCODE }
 	},
 	@{
-		name = 'alloc-hand'; tier = 'full'
+		name = 'alloc-hand'; tier = 'full'; needs = "build-$Config"
 		what = 'the hand spells (light, douse, flare, fill, pebble) allocate nothing'
 		run      = { & (Join-Path $root 'tools\AllocTest.ps1') -Config $Config -Hand | Out-Host; $LASTEXITCODE }
 		selfTest = { & (Join-Path $root 'tools\AllocTest.ps1') -Config $Config -Hand -SelfTest | Out-Host; $LASTEXITCODE }
 	},
 	@{
-		name = 'typing'; tier = 'full'
+		name = 'typing'; tier = 'full'; needs = "build-$Config"
 		what = 'typed console text arrives whole and in order (focus loss, heavy frames)'
 		# Every harness here drives the game by typing, so a dropped character
 		# fails a run for a reason unrelated to what it measures.
@@ -126,18 +138,18 @@ $checks = @(
 		selfTest = { & (Join-Path $root 'tools\TypingTest.ps1') -Config $Config -SelfTest | Out-Host; $LASTEXITCODE }
 	},
 	@{
-		name = 'health'; tier = 'full'
+		name = 'health'; tier = 'full'; needs = "build-$Config"
 		what = 'crashes, faults and stalls are caught, recorded and explained'
 		run      = { & (Join-Path $root 'tools\HealthTest.ps1') -Config $Config | Out-Host; $LASTEXITCODE }
 		selfTest = { & (Join-Path $root 'tools\HealthTest.ps1') -Config $Config -SelfTest | Out-Host; $LASTEXITCODE }
 	},
 	@{
-		name = 'build-profile'; tier = 'full'
+		name = 'build-profile'; tier = 'full'; build = $true
 		what = 'the release-profile build compiles clean (DN_PROFILE rots unwatched too)'
 		run  = { & cmd /c ".\build.cmd release-profile > `"$env:TEMP\checkall-build-profile.txt`" 2>&1"; $LASTEXITCODE }
 	},
 	@{
-		name = 'profile'; tier = 'full'
+		name = 'profile'; tier = 'full'; needs = 'build-profile'
 		what = 'the frame budget still adds up, and the verdict still reacts to load'
 		# release-profile on purpose, and NOT $Config: the budget only exists with
 		# DN_PROFILE, and debug's D3D12 debug layer inflates command recording
@@ -146,7 +158,7 @@ $checks = @(
 		selfTest = { & (Join-Path $root 'tools\ProfileTest.ps1') -Config release-profile -SelfTest | Out-Host; $LASTEXITCODE }
 	},
 	@{
-		name = 'bc7'; tier = 'full'
+		name = 'bc7'; tier = 'full'; needs = 'build-release'
 		what = 'the BC7 encoder error estimate against an independent decoder'
 		# Release on purpose: the debug encoder is too slow to be worth the wait,
 		# and its own script defaults the same way.
@@ -164,7 +176,10 @@ if ($List) {
 	exit 0
 }
 
-# Selection: -Only wins, then the tier.
+# Selection: -Only wins, then the tier. `-Only a,b` arrives as ONE string
+# through `powershell -File` (it binds a,b to [string[]] as one element), so
+# the names are split here rather than matching nothing.
+$Only = @($Only | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 $selected = if ($Only.Count -gt 0) {
 	$hit = @($checks | Where-Object { $Only -contains $_.name })
 	$unknown = @($Only | Where-Object { $n = $_; -not ($checks | Where-Object { $_.name -eq $n }) })
@@ -176,9 +191,27 @@ if ($SelfTest) {
 	# A check with no self-test mode is NAMED and skipped, never counted as a
 	# pass. Silently dropping it would make the self-test tier claim a coverage
 	# it does not have, which is the exact failure the tier exists to prevent.
-	$noSelf = @($selected | Where-Object { -not $_.selfTest })
-	$selected = @($selected | Where-Object { $_.selfTest })
+	# A BUILD row is kept: it is not a check with a fail-on-purpose mode but the
+	# preparation the self-tests run on.
+	$noSelf = @($selected | Where-Object { -not $_.selfTest -and -not $_.build })
+	$selected = @($selected | Where-Object { $_.selfTest -or $_.build })
 	foreach ($c in $noSelf) { Write-Host "  (skipped in -SelfTest: $($c.name) has no fail-on-purpose mode)" -ForegroundColor Yellow }
+}
+
+# THE BUILDS THE SELECTION RUNS ON, first. A selected check's `needs` row joins
+# at the front unless it is already selected (a tier lists its own, in order).
+$needed = @($selected | ForEach-Object { $_.needs } | Where-Object { $_ } | Select-Object -Unique)
+$missing = @($checks | Where-Object { $b = $_; $b.build -and ($needed -contains $b.name) -and
+	-not @($selected | Where-Object { $_.name -eq $b.name }).Count })
+$selected = @($missing) + @($selected)
+
+if ($Plan) {
+	Write-Host 'this run would make, in order:'
+	foreach ($c in $selected) {
+		$mode = if ($c.build) { 'build' } elseif ($SelfTest) { 'self-test' } else { 'check' }
+		Write-Host ("  {0,-14} {1,-9} {2}" -f $c.name, $mode, $c.what)
+	}
+	exit 0
 }
 
 Push-Location $root
@@ -192,7 +225,7 @@ foreach ($c in $selected) {
 	$t0 = Get-Date
 	$code = 1
 	try {
-		$code = if ($SelfTest) { & $c.selfTest } else { & $c.run }
+		$code = if ($SelfTest -and -not $c.build) { & $c.selfTest } else { & $c.run }
 		# A script that returns extra pipeline output alongside its exit code
 		# would otherwise be read as an array; take the last value.
 		if ($code -is [array]) { $code = $code[-1] }

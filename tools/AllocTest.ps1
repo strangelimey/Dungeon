@@ -335,6 +335,7 @@ $memberCount = if ($Party) { @($Party -split '\|').Count } else { 4 }
 if ($memberCount -lt 1 -or $memberCount -gt 4) { throw "-Party names $memberCount members; a party has 1 to 4" }
 
 if (-not (Test-Path $exe)) { throw "no build at $exe - run build.cmd $Config first" }
+Assert-ExeCurrent $exe
 Assert-NotRunning $exe
 
 # A mouse message at client pixel (x, y): WM_MOUSEMOVE first, so the game's

@@ -10,7 +10,8 @@
 # echo the title screen had already written, so they never waited (C428).
 #
 #   . (Join-Path $PSScriptRoot 'HarnessGame.ps1')
-#   Assert-NotRunning $exe
+#   Assert-ExeCurrent $exe                                # exit 4 if stale
+#   Assert-NotRunning $exe                                # exit 3 if running
 #   Start-HarnessGame $exe $bin $log $LoadTimeoutSec      # sets $proc, $hwnd
 #   Start-NewGame $LoadTimeoutSec                         # console left CLOSED
 #   ...
@@ -72,22 +73,84 @@ $WM_KEYDOWN = 0x100; $WM_KEYUP = 0x101; $WM_CHAR = 0x102; $WM_KILLFOCUS = 0x0008
 $VK_RETURN = 0x0D; $VK_ESCAPE = 0x1B; $VK_CONSOLE = 0xC0
 
 # ---------------------------------------------------------------------------
+# Refusals: the exe is stale, or already running
+# ---------------------------------------------------------------------------
+
+# Exit codes the harnesses share, here and in harness_game.py: 0 PASS, 1 FAIL,
+# 2 no build, 3 refused (this worktree's game is already running), 4 refused
+# (the exe is behind its sources). A refusal is not a verdict, so it must never
+# read as one.
+$HarnessExitRunning = 3
+$HarnessExitStale = 4
+
+# How many build steps stand between $exe and its sources, asked of the build
+# system - `ninja -n`, a dry run that builds nothing - rather than worked out
+# from timestamps, which cannot see a header two includes away. -1 = cannot tell.
+#
+# THROUGH A COPY OF THE MANIFEST, because a plain `ninja -n` never answers: the
+# CONFIGURE_DEPENDS globs make the manifest's own "re-check globs" step run on
+# every build, a dry run cannot tell that it would change nothing, and so it
+# stops after "Re-running CMake..." whatever the state of the sources. A copy
+# under another name is a manifest nothing produces, so ninja goes straight to
+# the target. What that cannot see is a NEW source file the globs would pick up
+# - a real build re-runs CMake for that; this check does not.
+function Get-StaleSteps([string]$exe) {
+	$dir = Split-Path -Parent (Split-Path -Parent $exe)   # build\<cfg>\bin\X.exe -> build\<cfg>
+	$cache = Join-Path $dir 'CMakeCache.txt'
+	if (-not (Test-Path $cache) -or -not (Test-Path (Join-Path $dir 'build.ninja'))) { return -1 }
+	$hit = Select-String -Path $cache -Pattern '^CMAKE_MAKE_PROGRAM:FILEPATH=(.+)$' | Select-Object -First 1
+	if (-not $hit) { return -1 }
+	$ninja = $hit.Matches[0].Groups[1].Value.Trim()
+	$target = [IO.Path]::GetFileNameWithoutExtension($exe)
+	$copy = "harness-dryrun-$PID.ninja"
+	Copy-Item (Join-Path $dir 'build.ninja') (Join-Path $dir $copy)
+	try {
+		# Through cmd, so anything on stderr is merged text, not a PowerShell error.
+		$out = @(& cmd /c "`"$ninja`" -C `"$dir`" -f $copy -n $target 2>&1")
+		if ($LASTEXITCODE -ne 0) { return -1 }
+	} finally {
+		Remove-Item (Join-Path $dir $copy) -ErrorAction SilentlyContinue
+	}
+	if ($out -match 'no work to do') { return 0 }
+	return @($out | Where-Object { $_ -match '^\[\d+/\d+\]' }).Count
+}
+
+# Refuses (exit 4) when $exe is behind its sources: a PASS on yesterday's binary
+# reads as a PASS on today's change (code-review C426). CheckAll builds before
+# it runs anything, so this only ever stops a harness run on its own - build,
+# then run it again. $env:DN_HARNESS_ALLOW_STALE=1 runs it anyway and says so,
+# for judging a build on purpose while its sources move on. A missing exe is
+# left to the caller's own "no build" message (exit 2).
+function Assert-ExeCurrent([string]$exe) {
+	if (-not (Test-Path $exe)) { return }
+	$steps = Get-StaleSteps $exe
+	if ($steps -eq 0) { return }
+	$cfg = Split-Path -Leaf (Split-Path -Parent (Split-Path -Parent $exe))
+	$why = if ($steps -lt 0) { "the build system could not say whether $exe is current" }
+		   else { "$exe is STALE ($steps build step(s) pending)" }
+	if ($env:DN_HARNESS_ALLOW_STALE) {
+		Write-Host "WARNING: $why - running it anyway (DN_HARNESS_ALLOW_STALE)" -ForegroundColor Yellow
+		return
+	}
+	Write-Host "refused: $why - run .\build.cmd $cfg first (exit $HarnessExitStale)" -ForegroundColor Red
+	exit $HarnessExitStale
+}
+
+# ---------------------------------------------------------------------------
 # Launch and stop
 # ---------------------------------------------------------------------------
 
 # THIS build's exe only: another worktree's game is a different process with
 # its own log, but this one's writes the SAME dungeon.log - truncated on open -
 # so two runs of one build interleave each other's verdict source (C430).
-# Refuses with exit 3, harness_game.py's code for the same refusal: a refusal
-# is not a verdict, so it must not read as FAIL. (ProfileTest keeps a global
-# check on purpose - a second game on the GPU would be part of what it
-# measures.)
+# Refuses with exit 3 (above). (ProfileTest keeps a global check on purpose - a
+# second game on the GPU would be part of what it measures.)
 function Assert-NotRunning([string]$exe) {
 	$running = @(Get-Process Dungeon -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe })
 	if ($running) {
 		$pids = ($running | ForEach-Object { $_.Id }) -join ', '
 		Write-Host "refused: $exe is already running (pid $pids) - it writes the same dungeon.log; close it or wait for it" -ForegroundColor Red
-		exit 3
+		exit $HarnessExitRunning
 	}
 }
 

@@ -999,6 +999,7 @@ def main():
 
 if __name__ == "__main__":
     import harness_audio
+    harness_game.refuse_if_stale(EXE)
     harness_game.refuse_if_running(EXE)
     with harness_audio.muted(os.path.dirname(EXE)):
         code = main()

@@ -9,7 +9,8 @@
 # two runs interleave each other's verdict source.
 #
 #   import harness_game
-#   harness_game.refuse_if_running(EXE)        # once, at the start
+#   harness_game.refuse_if_stale(EXE)          # once, at the start (exit 4)
+#   harness_game.refuse_if_running(EXE)        # once, at the start (exit 3)
 #   code, log = harness_game.run_eval(EXE, ROOT, LOG, [script], ["-project", p])
 #   if not harness_game.finished(code, log): ...   # crashed / killed / hung
 #
@@ -21,11 +22,19 @@
 import ctypes
 import io
 import os
+import re
+import shutil
 import subprocess
 import sys
 from ctypes import wintypes
 
 _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+
+# Exit codes the harnesses share (tools/HarnessGame.ps1): 0 PASS, 1 FAIL,
+# 2 no build, 3 refused - this worktree's game is running, 4 refused - the exe
+# is behind its sources. A refusal is not a verdict.
+EXIT_RUNNING = 3
+EXIT_STALE = 4
 
 
 def running_copies(exe):
@@ -64,7 +73,63 @@ def refuse_if_running(exe):
     if pids:
         print(f"refused: {exe} is already running (pid {', '.join(map(str, pids))}) - "
               "it writes the same dungeon.log; close it or wait for it")
-        sys.exit(3)
+        sys.exit(EXIT_RUNNING)
+
+
+def stale_steps(exe):
+    """How many build steps stand between exe and its sources, asked of ninja
+    with a dry run (-1 = cannot tell). Through a COPY of the manifest: the
+    CONFIGURE_DEPENDS globs make a plain `ninja -n` stop at "Re-running CMake"
+    every time (tools/HarnessGame.ps1 Get-StaleSteps says why)."""
+    build = os.path.dirname(os.path.dirname(os.path.abspath(exe)))
+    cache = os.path.join(build, "CMakeCache.txt")
+    if not os.path.isfile(cache) or not os.path.isfile(os.path.join(build, "build.ninja")):
+        return -1
+    ninja = None
+    for line in io.open(cache, encoding="utf-8", errors="replace"):
+        if line.startswith("CMAKE_MAKE_PROGRAM:FILEPATH="):
+            ninja = line.split("=", 1)[1].strip()
+            break
+    if not ninja:
+        return -1
+    target = os.path.splitext(os.path.basename(exe))[0]
+    copy = os.path.join(build, f"harness-dryrun-{os.getpid()}.ninja")
+    shutil.copyfile(os.path.join(build, "build.ninja"), copy)
+    try:
+        r = subprocess.run([ninja, "-C", build, "-f", os.path.basename(copy), "-n", target],
+                           capture_output=True, text=True, errors="replace")
+    finally:
+        try:
+            os.remove(copy)
+        except OSError:
+            pass
+    if r.returncode != 0:
+        return -1
+    out = r.stdout + r.stderr
+    if "no work to do" in out:
+        return 0
+    return sum(1 for l in out.splitlines() if re.match(r"\[\d+/\d+\]", l))
+
+
+def refuse_if_stale(exe):
+    """Exit (code 4) when exe is behind its sources: a PASS on yesterday's
+    binary reads as a PASS on today's change (code-review C426). CheckAll builds
+    first, so this only stops a harness run on its own. DN_HARNESS_ALLOW_STALE=1
+    runs it anyway and says so. A missing exe is left to the caller's own "no
+    build" message."""
+    if not os.path.isfile(exe):
+        return
+    steps = stale_steps(exe)
+    if steps == 0:
+        return
+    cfg = os.path.basename(os.path.dirname(os.path.dirname(os.path.abspath(exe))))
+    why = (f"the build system could not say whether {exe} is current" if steps < 0
+           else f"{exe} is STALE ({steps} build step(s) pending)")
+    if os.environ.get("DN_HARNESS_ALLOW_STALE"):
+        print(f"WARNING: {why} - running it anyway (DN_HARNESS_ALLOW_STALE)")
+        return
+    print(f"refused: {why} - run .\\build.cmd {cfg} first (exit {EXIT_STALE})")
+    sys.exit(EXIT_STALE)
 
 
 def read_log(log):
