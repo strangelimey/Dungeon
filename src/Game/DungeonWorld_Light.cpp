@@ -35,6 +35,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <format>
 #include <iterator>
 
@@ -140,8 +141,19 @@ gfx::PointLight* DungeonWorld::PushLight(const light::Profile& profile, const ch
 										 float radiusMetres) {
 	if (brightness <= 0.0f) return nullptr;
 	// The candidate ceiling (the lists were reserved to it): past it a light is
-	// simply not considered, rather than growing a list inside a frame.
-	if (m_lights.points.size() >= kLightCandidates) return nullptr;
+	// simply not considered, rather than growing a list inside a frame - and
+	// counted by its source, so the `lights` readout says what a full list cost.
+	// In PUSH order: the last pushed is the first refused, however near it is.
+	if (m_lights.points.size() >= kLightCandidates) {
+		++m_lightRefusedTotal;
+		for (LightRefusal& r : m_lightRefusals) {
+			if (r.source && std::strcmp(r.source, source) != 0) continue;
+			r.source = source;
+			++r.count;
+			break;
+		}
+		return nullptr;
+	}
 	const light::Sample s = light::Evaluate(profile, time, phase);
 	gfx::PointLight l;
 	l.position = {pos.x + s.offset.x * kCellSize, pos.y + s.offset.y * kCellSize,
@@ -178,6 +190,13 @@ std::vector<std::string> DungeonWorld::DescribeLights() const {
 		"over budget {}, fading out {}; {} profiles",
 		m_lights.points.size(), c.candidates, m_settings.maxPointLights, c.offscreen,
 		c.unreachable, c.budget, c.fadingOut, m_lightProfiles.size()));
+	// The candidate CEILING (PushLight): what a full list refused, by source.
+	std::string refused;
+	for (const LightRefusal& r : m_lightRefusals)
+		if (r.source) refused += std::format("{}{} {}", refused.empty() ? "" : ", ", r.source, r.count);
+	out.push_back(std::format("lights: ceiling {}: refused {}{}{}{}", kLightCandidates,
+							  m_lightRefusedTotal, refused.empty() ? "" : " (", refused,
+							  refused.empty() ? "" : ")"));
 	out.push_back(std::format("lights: tiles {} ({} tile-light pairs of {} untiled)",
 							  m_renderer.LightTiling() ? "on" : "off",
 							  m_renderer.TileLightPairs(),

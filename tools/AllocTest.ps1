@@ -27,7 +27,7 @@
 #   .\tools\AllocTest.ps1 -Throw -ThrowItem torch_lit   # ...a lit torch (its light and flame)
 #   .\tools\AllocTest.ps1 -Wear moonstone_amulet       # any mode with a worn light on member 0
 #   .\tools\AllocTest.ps1 -Walk              # key turns: the party AND the pad's stones
-#   .\tools\AllocTest.ps1 -Lights            # 64 test lights; then the shadow cache's checks
+#   .\tools\AllocTest.ps1 -Lights            # 64 test lights; then the floor glows, the ceiling, the shadow cache
 #   .\tools\AllocTest.ps1 -Lights -ShadowSelfTest   # ...those checks handed a stale cache
 #   .\tools\AllocTest.ps1 -Config release    # needs -DDN_TRACK_ALLOCS=ON
 #
@@ -359,9 +359,11 @@ param(
 	# (`lightstress`, lighting-updates Phase 3), so the light budget's cull,
 	# ranking and fades - and the tile binning - run inside the window. With
 	# -Walk the turns sweep lights in and out of view. Refuses a PASS unless
-	# the load was placed. After the window it checks the SHADOW CACHE (see the
-	# note at that step): a door opened beside a still party re-renders slot 0,
-	# and a carried Firelight's cube keeps up with a walk.
+	# the load was placed. After the window it checks the CANDIDATE CEILING (a
+	# full list ahead of the fires, survived) and the SHADOW CACHE (see the notes
+	# at those steps): a door opened beside a still party re-renders slot 0, and
+	# a carried Firelight's cube keeps up with a walk. Before the game it runs
+	# floorglow.eval: an enchanted blade's floor glow is its element's colour.
 	[switch]$Lights,
 	# With -Lights: MUTATES the shadow cache (`shadows ignore both` - the change
 	# notes dropped, a wandering light's moves not counted, the rules before
@@ -578,6 +580,38 @@ function Wait-ConsoleDone {
 	if ((Wait-NewLogLines $mark $before).Count -eq 0) { throw 'the console never answered `logecho`' }
 }
 
+# Wait-ConsoleDone for a step that may KILL the game, where a death is the
+# verdict rather than a harness fault: $true once the console answered, $false
+# once the game is gone. A game still inside its crash handler (writing the
+# minidump, walking the stack) has not exited yet and answers nothing, so a
+# silent console is given 30 s to finish dying before it counts as a fault;
+# only a game alive and silent past that throws, as Wait-ConsoleDone does.
+function Wait-ConsoleOrDeath {
+	$mark = 'console: logecho on$'
+	$before = @(Select-String -Path $log -Pattern $mark).Count
+	Send-Text 'logecho'; Send-Key 0x0D
+	if ((Wait-NewLogLines $mark $before).Count -gt 0) { return $true }
+	if (-not $proc.HasExited) { $proc.WaitForExit(30000) | Out-Null }
+	if ($proc.HasExited) { return $false }
+	throw 'the console never answered `logecho` (and the game did not exit)'
+}
+
+# A dead game's own account, for a check to quote: the exit code, the crash
+# handler's CRASH line and the faulting frame (the first line under "faulting
+# stack:"), read from dungeon.log as the dead process left it. $when finishes
+# "the game DIED ...".
+function Get-CrashNotes([string]$when) {
+	$notes = @("the game DIED $when (exit $($proc.ExitCode))")
+	$lines = @(Get-Content $log -Encoding UTF8)
+	$crash = @($lines | Where-Object { $_ -match 'CRASH: ' }) | Select-Object -Last 1
+	$at = [Array]::FindLastIndex([string[]]$lines, [Predicate[string]] { param($s) $s -match 'faulting stack:' })
+	$frame = if ($at -ge 0 -and $at + 1 -lt $lines.Count) { $lines[$at + 1].Trim() -replace '^\[\w+ *\]\s+', '' } else { '' }
+	if ($crash) { $notes += ($crash -replace '^.*CRASH: ', 'CRASH: ' -replace '\s+\S\s+the process.*$', '') }
+	else { $notes += 'dungeon.log holds no CRASH line' }
+	if ($frame) { $notes += "faulting in $frame" }
+	return $notes
+}
+
 # Asks the console for the encounter tally and returns one numeric field of the
 # NEW line it prints (needs logecho on). Counting the lines first is what stops
 # it reading the previous answer back.
@@ -788,6 +822,107 @@ function Test-ShadowCache {
 	return [pscustomobject]@{ Door = $door; Fire = $fire; Notes = $notes }
 }
 
+# THE CANDIDATE CEILING (code-review C181), with the console open and logecho on,
+# on the level the window ran on (crypt1: two sconces and a brazier, all lit).
+# PushLight returns null once the frame's candidate list is full (256), and the
+# fire loop wrote through that null - latent, since it needs ~240 lit fires.
+# `lightstress fill` makes it happen: 256 test lights pushed AHEAD of the fires,
+# so every fire's push is refused. The game must live through it, the list must
+# read full (`lights`: "of 256 candidates"), and the ceiling line must count a
+# FIRE among the refused - else the fire loop never met a full list and nothing
+# was tested. Returns @{ Verdict = PASS|FAIL|UNMEASURED; Notes = ... }.
+function Test-LightCeiling {
+	$notes = @()
+	$placed = 'console: lightstress: (\d+) test lights.*\(fill\)'
+	$placedBefore = @(Select-String -Path $log -Pattern $placed).Count
+	Send-Text 'lightstress fill'; Send-Key 0x0D
+	$fill = Wait-NewLogLines $placed $placedBefore
+	Start-Sleep -Seconds 1 # frames with the list full
+	$ceiling = 'console: lights: ceiling (\d+): refused (\d+)(?: \((.*)\))?$'
+	$ceilBefore = @(Select-String -Path $log -Pattern $ceiling).Count
+	$headBefore = @(Select-String -Path $log -Pattern 'console: lights: \d+ drawn of').Count
+	Send-Text 'lights'; Send-Key 0x0D
+	$ceil = Wait-NewLogLines $ceiling $ceilBefore
+	$head = @(Select-String -Path $log -Pattern 'console: lights: \d+ drawn of') | Select-Object -Skip $headBefore
+	Send-Text 'lightstress off'; Send-Key 0x0D
+	# ONE place a death is seen, however late it lands: a game that died in the
+	# first frames, one still in its crash handler when `lights` was typed and one
+	# that went down later all reach this (the waits above return early on an
+	# exit, and typing to a dead window is a no-op), and all quote the crash
+	# handler's CRASH line and faulting frame - the fire loop, if that is the bug.
+	if (-not (Wait-ConsoleOrDeath)) {
+		$notes += Get-CrashNotes 'with the candidate list full'
+		return [pscustomobject]@{ Verdict = 'FAIL'; Notes = $notes }
+	}
+	if ($fill.Count -eq 0) {
+		$notes += '`lightstress fill` placed nothing (no answer)'
+		return [pscustomobject]@{ Verdict = 'UNMEASURED'; Notes = $notes }
+	}
+	$read = $ceil.Count -gt 0 -and $head.Count -gt 0 -and ($ceil[-1].Line -match $ceiling)
+	if (-not $read) {
+		$notes += '`lights` printed no ceiling line'
+		return [pscustomobject]@{ Verdict = 'UNMEASURED'; Notes = $notes }
+	}
+	$limit = [int]$Matches[1]; $refused = [int]$Matches[2]; $bySource = $Matches[3]
+	$candidates = if ($head[-1].Line -match 'drawn of (\d+) candidates') { [int]$Matches[1] } else { -1 }
+	$fires = if ("$bySource" -match '\bfire (\d+)') { [int]$Matches[1] } else { 0 }
+	$notes += "$($fill[-1].Line -replace '^.*console: ', ''); the list held $candidates of $limit, refused $refused ($bySource); the game lived"
+	$verdict = if ($candidates -ne $limit -or $fires -lt 1) { 'UNMEASURED' } else { 'PASS' }
+	if ($verdict -ne 'PASS') { $notes += 'no lit fire met a full list - the fire loop was not tested' }
+	return [pscustomobject]@{ Verdict = $verdict; Notes = $notes }
+}
+
+# THE FLOOR GLOWS (code-review C190): tools\EvalScripts\floorglow.eval, run
+# headless BEFORE the game this run judges (its own process truncates the one
+# dungeon.log, so after would overwrite the window's evidence). It lays the
+# flamebrand, then the frostbrand, then a plain khukri two squares ahead and
+# prints `lights` for each: an enchanted blade's floor glow must be its
+# ELEMENT'S colour (Spells.cpp ElementColor - fire 1.00 0.13 0.08, water 0.18
+# 0.42 1.00), where the category's steel grey used to overwrite it, and the plain
+# blade must have none. Exactly one glow row per blade section, or the section
+# read something else. Killed BY PID if it outlives its timeout.
+function Test-FloorGlows {
+	$notes = @()
+	$script = Join-Path $root 'tools\EvalScripts\floorglow.eval'
+	Remove-Item $log -ErrorAction SilentlyContinue
+	$p = Start-Process -FilePath $exe -WorkingDirectory $bin -PassThru `
+		-ArgumentList @('-project', 'dungeon-demo', '-headless', '-eval', $script)
+	if (-not $p.WaitForExit(240000)) {
+		$p.Kill(); $p.WaitForExit(5000) | Out-Null
+		$notes += 'floorglow.eval did not finish in 240 s (killed)'
+		return [pscustomobject]@{ Verdict = 'FAIL'; Notes = $notes }
+	}
+	$lines = if (Test-Path $log) { @(Get-Content $log -Encoding UTF8) } else { @() }
+	if (-not ($lines -match 'eval RESULT=PASS script=floorglow\.eval')) {
+		$notes += "floorglow.eval did not run clean (exit $($p.ExitCode))"
+		return [pscustomobject]@{ Verdict = 'FAIL'; Notes = $notes }
+	}
+	# Each section's glow rows, as "r g b" strings (the readout's own 2 decimals).
+	$sections = @{}
+	$current = $null
+	foreach ($line in $lines) {
+		if ($line -match 'console: --- (\w+) ---') { $current = $Matches[1]; $sections[$current] = @(); continue }
+		if ($current -and $line -match 'console:   \[\s*\d+\] glow +\S+ +rgb ([0-9.]+ [0-9.]+ [0-9.]+) ') {
+			$sections[$current] += $Matches[1]
+		}
+	}
+	$want = @{ flamebrand = '1.00 0.13 0.08'; frostbrand = '0.18 0.42 1.00' }
+	$ok = $true
+	foreach ($blade in 'flamebrand', 'frostbrand') {
+		$rows = @(if ($sections.ContainsKey($blade)) { $sections[$blade] })
+		if ($rows.Count -ne 1) {
+			$notes += "${blade}: $($rows.Count) glow rows (want 1)"; $ok = $false; continue
+		}
+		$match = $rows[0] -eq $want[$blade]
+		$notes += "${blade}: glow rgb $($rows[0]) (its element: $($want[$blade])) $(if ($match) { 'ok' } else { 'WRONG' })"
+		if (-not $match) { $ok = $false }
+	}
+	$plain = if ($sections.ContainsKey('plain')) { @($sections['plain']).Count } else { -1 }
+	$notes += "plain khukri: $plain glow rows (want 0)"
+	if ($plain -ne 0) { $ok = $false }
+	return [pscustomobject]@{ Verdict = $(if ($ok) { 'PASS' } else { 'FAIL' }); Notes = $notes }
+}
+
 # Throws unless the party stands on x,z facing north (asks `pos`; needs logecho
 # on). -Impact's whole geometry hangs on it: a `tp` or `face` swallowed by a
 # busy console leaves the party firing somewhere else, and the barrage then
@@ -962,6 +1097,18 @@ $proc = $null
 $hwnd = [IntPtr]::Zero
 $code = 1
 $shadowSelfTestFailed = $false
+
+# -Lights: the floor glows FIRST, in a headless eval of their own
+# (Test-FloorGlows) - its game writes the same dungeon.log, which the game below
+# then truncates, so the window's evidence is the log that survives the run.
+$glow = $null
+if ($Lights -and (-not $SelfTest -or $ShadowSelfTest)) {
+	Write-Host 'checking the floor glows: floorglow.eval, headless'
+	$glow = Test-FloorGlows
+	foreach ($n in $glow.Notes) { Write-Host "  $n" }
+	Write-Host "  floor glows: $($glow.Verdict)"
+}
+
 try {
 	Start-HarnessGame $exe $bin $log $LoadTimeoutSec
 	# Through the console's `newgame` (or `newparty`), never the landing page -
@@ -2517,12 +2664,39 @@ try {
 		}
 	}
 
+	# And for -Lights: the CANDIDATE CEILING (Test-LightCeiling) on the window's
+	# level, and the floor glows run before the game (Test-FloorGlows). LIGHTS
+	# when either failed, UNMEASURED when the ceiling met no fire. Not under the
+	# guard's own -SelfTest, which is about the guard; under -ShadowSelfTest they
+	# run as normal (the mutation is the cache's alone).
+	$ceilingDied = $false
+	if ($Lights -and (-not $SelfTest -or $ShadowSelfTest)) {
+		Write-Host 'checking the candidate ceiling: `lightstress fill` ahead of the fires'
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		$ceiling = Test-LightCeiling
+		$ceilingDied = $proc.HasExited
+		if (-not $ceilingDied) {
+			Send-Text 'logecho off'; Send-Key 0x0D
+			Send-Key 0xC0
+		}
+		foreach ($n in $ceiling.Notes) { Write-Host "  $n" }
+		Write-Host "  candidate ceiling: $($ceiling.Verdict); floor glows: $($glow.Verdict)"
+		if ($ceiling.Verdict -eq 'FAIL' -or $glow.Verdict -ne 'PASS') {
+			if ($result -eq 'PASS' -or $result -eq 'UNMEASURED') { $result = 'LIGHTS' }
+		} elseif ($ceiling.Verdict -ne 'PASS') {
+			Write-Host 'the ceiling check could not be set up - the fire loop was not measured' -ForegroundColor Yellow
+			if ($result -eq 'PASS') { $result = 'UNMEASURED' }
+		}
+	}
+
 	# And for -Lights: the SHADOW CACHE, after the window (Test-ShadowCache). Not
 	# under the guard's own -SelfTest, which is about the guard. Its verdict is
 	# its own: STALE when a cube missed a change it shows, UNMEASURED when the
 	# scene could not be set up to tell; -ShadowSelfTest mutates the cache and
-	# wants BOTH checks to fail.
-	if ($Lights -and (-not $SelfTest -or $ShadowSelfTest)) {
+	# wants BOTH checks to fail. Not on a game the ceiling check killed.
+	if ($Lights -and (-not $SelfTest -or $ShadowSelfTest) -and -not $ceilingDied) {
 		Write-Host 'checking the shadow cache: a door beside a still party, a walking Firelight'
 		Send-Key 0xC0
 		Start-Sleep -Milliseconds 500
@@ -2586,6 +2760,9 @@ try {
 		'UNMEASURED' { } # already explained above
 		'STALE' {
 			Write-Host 'FAIL - a shadow cube kept a change it should have shown (see above)' -ForegroundColor Red
+		}
+		'LIGHTS' {
+			Write-Host 'FAIL - a light check failed: the candidate ceiling or a floor glow (see above)' -ForegroundColor Red
 		}
 		default {
 			Write-Host "$result - the game never reached a steady frame" -ForegroundColor Yellow

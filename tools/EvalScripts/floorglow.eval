@@ -1,0 +1,43 @@
+; floorglow.eval - an enchanted blade lies on the floor lit by its own element
+; (code-review C190), read by tools\AllocTest.ps1 -Lights.
+;
+; ItemKindFor gave an enchanted weapon its element's colour, then overwrote it
+; with the category's tint (steel grey for every weapon), so the one tell that a
+; blade is the fiery one - its floor glow - was grey. Each section lays ONE item
+; two squares ahead of the party and prints `lights`; the `glow` row is that
+; item's floor light and its rgb is what the judge reads:
+;
+;   --- flamebrand ---  one glow row, fire's colour (Spells.cpp ElementColor)
+;   --- frostbrand ---  one glow row, water's colour
+;   --- plain ---       the plain khukri: no glow row at all (only enchanted
+;                       weapons and runes glow; also proves the erase between
+;                       sections took the last item away)
+;
+; One line runs per frame and `lights` reads the last frame's lights, so the
+; echoes are the wait.
+logecho on
+reset
+timescale 0
+arena open 9 9
+tp 14 14
+face n
+editor place weapons flamebrand 14 12
+mappage close
+echo frame
+echo frame
+echo --- flamebrand ---
+lights
+editor erase 14 12
+editor place weapons frostbrand 14 12
+mappage close
+echo frame
+echo frame
+echo --- frostbrand ---
+lights
+editor erase 14 12
+editor place weapons khukri 14 12
+mappage close
+echo frame
+echo frame
+echo --- plain ---
+lights

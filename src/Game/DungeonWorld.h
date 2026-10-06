@@ -134,8 +134,13 @@ public:
 	std::vector<std::string> DescribeTrails() const;
 	// `lightstress <n> [near]`: n test lights over the level the party can
 	// reach, or (`near`) within 6 steps of it (0 = none); returns how many were
-	// placed (up to 128). A measuring load for the light budget.
-	int SetStressLights(int count, bool nearby); // (`near` is a Windows macro)
+	// placed (up to kLightCandidates, 256). A measuring load for the light
+	// budget. `first` (`lightstress fill`) pushes them AHEAD of the fires, so a
+	// full load fills the candidate list before the fire loop runs and every
+	// fire's PushLight comes back null (code-review C181).
+	int SetStressLights(int count, bool nearby, bool first = false); // (`near` is a Windows macro)
+	// The candidate list's ceiling (kLightCandidates), for `lightstress fill`.
+	static int LightCandidateCeiling();
 	// The tiled light lists on or off (`lighttiles`), for measuring them.
 	void SetLightTiling(bool on) { m_renderer.SetLightTiling(on); }
 	bool LightTiling() const { return m_renderer.LightTiling(); }
@@ -4297,8 +4302,13 @@ private:
 	// Pushes one light from `profile` at `pos` (metres), its colour `color`
 	// when the profile takes its source's, scaled by `brightness` (a torch's
 	// charge) and with `radiusMetres` overriding the profile's reach when > 0
-	// (a placed fire's own Brightness). Returns the pushed light, or null when
-	// the light is out (brightness 0).
+	// (a placed fire's own Brightness). Returns the pushed light, or NULL in two
+	// cases, and a caller that adjusts the light afterwards must check for both:
+	//   - the light is out (brightness 0), and
+	//   - the frame's candidate list is already full (kLightCandidates): the
+	//     light is REFUSED, and counted in m_lightRefusals by `source`. Refusal
+	//     goes by push ORDER, not distance - whatever is pushed last is what a
+	//     full list drops (`lightstress fill` fills it ahead of the fires).
 	gfx::PointLight* PushLight(const light::Profile& profile, const char* source, u32 key,
 							   const Vec3& pos, float time, float phase,
 							   const Vec3& color = {1, 1, 1}, float brightness = 1.0f,
@@ -4357,12 +4367,26 @@ private:
 	std::vector<gfx::PointLight> m_lightScratch;
 	std::vector<LightOrigin> m_lightOriginScratch;
 	// `lightstress <n>`: n test lights scattered round the party (a measuring
-	// load for the budget and the tiles; never saved).
+	// load for the budget and the tiles; never saved). Pushed after the fires and
+	// glows, or with m_stressFirst (`lightstress fill`) AHEAD of the fires, so a
+	// load of kLightCandidates leaves every fire after it to find the list full.
 	struct StressLight {
 		Vec3 pos;
 		Vec3 color;
 	};
 	std::vector<StressLight> m_stressLights;
+	bool m_stressFirst = false;
+	void AppendStressLights(float time);
+	// The lights PushLight refused this frame because the candidate list was
+	// full, by source ("fire", "stress", ...; the `lights` readout's ceiling
+	// line). Fixed, so counting allocates nothing; a ninth source counts only in
+	// the total.
+	struct LightRefusal {
+		const char* source = nullptr;
+		u32 count = 0;
+	};
+	std::array<LightRefusal, 8> m_lightRefusals{};
+	u32 m_lightRefusedTotal = 0;
 	// The view's depth in metres (the camera's far plane), which also bounds
 	// how far away on the grid a light can still matter (LightReachable).
 	static constexpr float kFarPlane = 100.0f;

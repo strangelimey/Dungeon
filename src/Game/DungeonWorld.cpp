@@ -192,7 +192,7 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_lightCandidates.reserve(kLightCandidates);
 	m_lightScratch.reserve(kLightCandidates);
 	m_lightOriginScratch.reserve(kLightCandidates);
-	m_stressLights.reserve(gfx::kMaxPointLights * 2); // SetStressLights' ceiling
+	m_stressLights.reserve(kLightCandidates); // SetStressLights' ceiling (`lightstress fill`)
 
 	// The damage types themselves (docs/damage-system.md) — the vocabulary
 	// everything below is written in, so it is built before all of it.
@@ -849,6 +849,8 @@ bool ActiveSightSchool(const std::vector<Character>* roster, SpellSymbol& out) {
 void DungeonWorld::UpdateLights(float time) {
 	m_lights.points.clear();
 	m_lightOrigins.clear();
+	m_lightRefusals.fill(LightRefusal{});
+	m_lightRefusedTotal = 0;
 
 	// The party's own light is the lit torches it HOLDS - none, and it sees by
 	// the level's ambient alone (DungeonWorld_Light.cpp).
@@ -861,6 +863,8 @@ void DungeonWorld::UpdateLights(float time) {
 	// The Sowilo light spells on the party (DungeonWorld_SpellLight.cpp).
 	AppendSpellLights(time);
 	AppendStoneLights(time);
+	// `lightstress fill`: the test load AHEAD of the fires, filling the list.
+	if (m_stressFirst) AppendStressLights(time);
 
 	// One light per burning fire, just above its flame, from its KIND'S profile
 	// (fixtures.cat `light`: fire_sconce / fire_brazier in lights.cat). The
@@ -877,6 +881,9 @@ void DungeonWorld::UpdateLights(float time) {
 			PushLight(profile, "fire", LightKey(LightKind::Fire, static_cast<u32>(f)),
 					  {fire.flamePos.x, fire.flamePos.y + 0.15f, fire.flamePos.z}, time,
 					  fire.phase, {1, 1, 1}, 1.0f, fire.lightRadius);
+		// Null when the candidate list is already full (PushLight; code-review
+		// C181): the fire is simply not a candidate this frame.
+		if (!light) continue;
 		// Its placement's own flame colour wins over the kind's.
 		if (HasFlameColor(fire.flameColor)) light->color = fire.flameColor;
 		// A fanned fire (FlareFire) swells for a moment, brighter and further.
@@ -931,24 +938,9 @@ void DungeonWorld::UpdateLights(float time) {
 				  {c.x, 0.4f, c.z}, time, static_cast<float>(item.id), {g.x, g.y, g.z});
 	}
 
-	// `lightstress`: the measuring load, steady and shadowless (a stress light
-	// that took shadow cubes would be measuring the shadow pass instead).
-	if (!m_stressLights.empty()) {
-		// Built once: a profile holds a string, and constructing one is an
-		// allocation in a debug build.
-		static const light::Profile stress = [] {
-			light::Profile p;
-			p.id = "(stress)";
-			p.intensity = 1.6f;
-			p.radius = 2.4f;
-			p.shadow = false;
-			p.sourceColor = true;
-			return p;
-		}();
-		for (size_t s = 0; s < m_stressLights.size(); ++s)
-			PushLight(stress, "stress", LightKey(LightKind::Stress, static_cast<u32>(s)),
-					  m_stressLights[s].pos, time, 0.0f, m_stressLights[s].color);
-	}
+	// `lightstress`: the measuring load, after everything else (`lightstress
+	// fill` pushed it ahead of the fires instead).
+	if (!m_stressFirst) AppendStressLights(time);
 
 	// See-through peek (the Sight spell): recompute the ghosted wall cell from
 	// the active Sight effects. Only a SOLID cell directly ahead ghosts (an open

@@ -210,8 +210,30 @@ void DungeonWorld::SelectLights(const Vec3& eye, float time) {
 	m_lightOrigins.swap(m_lightOriginScratch);
 }
 
-int DungeonWorld::SetStressLights(int count, bool nearby) {
+int DungeonWorld::LightCandidateCeiling() { return static_cast<int>(kLightCandidates); }
+
+void DungeonWorld::AppendStressLights(float time) {
+	if (m_stressLights.empty()) return;
+	// The measuring load, steady and shadowless (a stress light that took shadow
+	// cubes would be measuring the shadow pass instead). Built once: a profile
+	// holds a string, and constructing one is an allocation in a debug build.
+	static const light::Profile stress = [] {
+		light::Profile p;
+		p.id = "(stress)";
+		p.intensity = 1.6f;
+		p.radius = 2.4f;
+		p.shadow = false;
+		p.sourceColor = true;
+		return p;
+	}();
+	for (size_t s = 0; s < m_stressLights.size(); ++s)
+		PushLight(stress, "stress", LightKey(LightKind::Stress, static_cast<u32>(s)),
+				  m_stressLights[s].pos, time, 0.0f, m_stressLights[s].color);
+}
+
+int DungeonWorld::SetStressLights(int count, bool nearby, bool first) {
 	m_stressLights.clear();
+	m_stressFirst = first;
 	count = std::clamp(count, 0, static_cast<int>(m_stressLights.capacity()));
 	if (count == 0) return 0;
 	// Scattered over the open squares the party can reach - within 6 steps

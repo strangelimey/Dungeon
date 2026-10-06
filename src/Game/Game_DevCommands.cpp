@@ -1433,17 +1433,25 @@ void Game::RegisterDevCommands() {
 	// The light budget's measuring tools (lighting-updates Phase 3): a load of
 	// test lights round the party, and the tiled light lists on or off, so the
 	// tiles' saving can be read off `profile snap` in one build.
+	// `fill` (code-review C181) is the CEILING's test: as many test lights as the
+	// candidate list holds, pushed AHEAD of the fires, so the fire loop runs with
+	// the list full and every PushLight it makes comes back null; `lights` then
+	// prints what the ceiling refused.
 	m_console.Register({.name = "lightstress",
 						.group = CmdGroup::Rendering,
-						.params = "<count> [near]\noff",
+						.params = "<count> [near]\nfill [near]\noff",
 						.summary = "scatter test lights over the level, or near the party (a load for the budget)"},
 					   [this](const std::vector<std::string>& args) {
 						   if (!Need(m_console, args, 1)) return;
-						   const int n = args[0] == "off" ? 0 : std::atoi(args[0].c_str());
+						   const bool fill = args[0] == "fill";
+						   const int n = args[0] == "off" ? 0
+										 : fill            ? DungeonWorld::LightCandidateCeiling()
+														   : std::atoi(args[0].c_str());
 						   const bool nearby = args.size() >= 2 && args[1] == "near";
-						   m_console.Print(std::format("lightstress: {} test lights{}",
-													   m_world->SetStressLights(n, nearby),
-													   nearby ? " near the party" : ""));
+						   m_console.Print(std::format("lightstress: {} test lights{}{}",
+													   m_world->SetStressLights(n, nearby, fill),
+													   nearby ? " near the party" : "",
+													   fill ? ", ahead of the fires (fill)" : ""));
 					   });
 	m_console.Register({.name = "lighttiles",
 						.group = CmdGroup::Rendering,

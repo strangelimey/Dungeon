@@ -21,7 +21,7 @@ Adds the rows marked `full` to the quick tier:
   alloc-hand     full   self-testable  the hand spells (light, douse, flare, fill, pebble) allocate nothing
   alloc-rest     full   self-testable  resting, a monster behind a shut door: its inline searches allocate nothing
   alloc-rest-reach full   self-testable  resting, a frozen monster with a way through: its inline paths allocate nothing
-  alloc-lights   full   self-testable  64 lights allocate nothing; a door or a walking Firelight re-renders its shadow cube
+  alloc-lights   full   self-testable  64 lights allocate nothing; a full light list, element floor glows; a door or a walking Firelight re-renders its shadow cube
   typing         full   self-testable  typed console text arrives whole and in order (focus loss, heavy frames)
   health         full   self-testable  crashes, faults and stalls are caught, recorded and explained
   evalrunner     full   no self-test   the eval runner: reset = new game, batched = solo, headless = windowed, knobs move numbers

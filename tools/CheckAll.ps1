@@ -234,10 +234,11 @@ $checks = @(
 	},
 	@{
 		name = 'alloc-lights'; tier = 'full'; needs = "build-$Config"
-		what = '64 lights allocate nothing; a door or a walking Firelight re-renders its shadow cube'
-		# The shadow cache's checks (code-review C178 / C187) ride -Lights. Its
-		# self-test mutates the CACHE (-ShadowSelfTest), not the guard - the
-		# 'alloc' row already hands the guard its failure.
+		what = '64 lights allocate nothing; a full light list, element floor glows; a door or a walking Firelight re-renders its shadow cube'
+		# The shadow cache's checks (code-review C178 / C187), the candidate
+		# ceiling (C181) and the floor glows (C190) ride -Lights. Its self-test
+		# mutates the CACHE (-ShadowSelfTest), not the guard - the 'alloc' row
+		# already hands the guard its failure.
 		run      = { & (Join-Path $root 'tools\AllocTest.ps1') -Config $Config -Lights | Out-Host; $LASTEXITCODE }
 		selfTest = { & (Join-Path $root 'tools\AllocTest.ps1') -Config $Config -Lights -ShadowSelfTest | Out-Host; $LASTEXITCODE }
 	},

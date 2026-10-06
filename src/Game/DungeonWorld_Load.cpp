@@ -1426,6 +1426,12 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 					  "weapons.cat [" + type + "]");
 		mishap::Parse(CatalogGet(def, "fumble_severe", ""), kind->fumbleSevere,
 					  "weapons.cat [" + type + "]");
+		// The kind's GLOW starts as its category's tint (a placeholder's look: the
+		// tablet, flat-tinted). Set HERE, before the two things that replace it -
+		// an enchanted weapon's element just below and a rune's symbol further
+		// down - since a default set after them overwrote the element: a
+		// flamebrand's floor glow came out steel grey (code-review C190).
+		kind->glow = CategoryTint(kind->category);
 		// ENCHANTMENT: `element = fire` turns the weapon elemental — every
 		// landed blow adds `element_bonus` of its damage as that element, and
 		// the element becomes the FLAVOUR its on-hit effects arrive with (so
@@ -1505,9 +1511,6 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		// A lit torch with a flame colour of its own sets alight in that colour
 		// when THROWN too, as it does when swung (FlameTintOf).
 		if (const Vec3* tint = FlameTintOf(*kind)) kind->throwPayload.tint = *tint;
-		// Placeholder look: non-rune items reuse the tablet mesh tinted by category
-		// (runes overwrite this with their element colour just below).
-		kind->glow = CategoryTint(kind->category);
 		// Authored model (catalog `model`): the item draws as this 3D model on the
 		// floor and its baked render becomes the icon/cursor. null = the tablet+tint
 		// placeholder. Items ship as embedded-texture multi-material .glb.

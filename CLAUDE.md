@@ -720,7 +720,11 @@ at launch with an on-disk cache (shadercache/, hash-invalidated) — edit
 
 THE LIGHT BUDGET (lighting-updates Phase 3, DungeonWorld_LightBudget.cpp +
 Graphics/LightTiles.h): every source PUSHES a candidate light (PushLight, with a
-stable `id` = kind << 24 | index) and SelectLights decides what is drawn - drop a
+stable `id` = kind << 24 | index) into a list capped at 256 (kLightCandidates):
+past it PushLight REFUSES the light - in push ORDER, not by distance - and
+returns null, as it does for brightness 0, so a caller that adjusts the light it
+got back must check (the fire loop did not, code-review C181; `lights` prints
+the refusals by source). SelectLights decides what is drawn - drop a
 light whose sphere reaches no pixel of the view (the renderer's own LightTiler,
 so cull and shader agree), drop one in a square the party cannot walk to (a
 BFS from its square; such a light only bled through walls), RANK the rest by
@@ -737,8 +741,11 @@ big win from tiles: a sphere that contains the eye reaches every pixel, and in
 distant lights, and Max Lights is still the real control (measured in the
 plan). The camera updates BEFORE the lights each frame for the cull. Shadow
 cubes cache by light id, not list index. Dev: `lights [profiles|reload]`,
-`lightstress <n> [near]`, `lighttiles on|off`; checked by RollTest (a light is
-never missing from a tile it reaches) and `AllocTest -Lights`.
+`lightstress <n> [near] | fill` (fill: 256 test lights pushed AHEAD of the
+fires, so every fire meets a full list), `lighttiles on|off`; checked by RollTest
+(a light is never missing from a tile it reaches) and `AllocTest -Lights` (which
+also survives `lightstress fill` with a fire refused, and runs floorglow.eval: an
+enchanted blade's floor glow is its element's colour, code-review C190).
 TRANSPARENCY (glass and the liquid in it) is a QUEUED pass: a draw whose
 material is `transparent` is not issued but queued, sorted far to near and
 FLUSHED at the end of the pass - see "Transparency and potions" below for the
