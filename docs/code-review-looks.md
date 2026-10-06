@@ -194,6 +194,16 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   delete REFUSED when only a save references the type. Today it deletes and
   warns which saves still name it (the documented design), and the warning now
   finds the saves of the world in hand. Keep the warning, or refuse?
+- **A failed write can leave a truncated file** (batch 93, 11f99ae8). The
+  baker's writes are now all checked and a failure is reported with a non-zero
+  exit, but WriteBinaryFile writes in place, so a full disk can still leave a
+  half-written file. Writing to a sibling file and renaming it over the target
+  would keep the old one - and would change saves, settings and catalogs too.
+  Want that?
+- **Walking out onto the world map keeps the undo history** (seen by batch 78,
+  f8840928). New game, load, reset and an ambush now clear it, but parking a
+  dungeon to walk the world map does not, so Ctrl+Z on the world map can still
+  restore the parked dungeon's snapshots. Clear it there too?
 - **ThreadStress can HANG under heavy load** (seen by batch 36, c7d67506).
   Twice, while another worktree built debug, release and release-profile at
   once: the AI workers run below normal priority, a starved idle bucket missed
@@ -246,6 +256,17 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   code. Keep it there, or name a different home for that check.
 
 ## Changes you will notice
+
+- **The console and the editor's pause** (batch 53, 3cd4c778). With the dev
+  console open, the world now holds while the editor is paused, while an editor
+  dialog is up and during the "Leave the crypt?" question; it now runs under the
+  character sheet, and a stair stepped onto with the console open is followed at
+  once. A bare `editor` (or any `editor ...` subcommand) no longer unpauses a
+  paused editor or closes its level drop-down - only a real Player / Editor
+  switch does.
+- **The Help line's key names** (batch 38, 7d8246d2) are cached when settings
+  load and on every rebind, so a keyboard LAYOUT switch while the game runs
+  keeps the old names until the next rebind or relaunch.
 
 - **A stale .dds is refused** (batch 92, 7795ba11). The game now draws a
   texture's PNG, with a warning, when its .dds is OLDER than the PNG, and says
@@ -354,6 +375,12 @@ raised that is yours, not a fix. Each line names the batch and its commit.
 
 ## Follow-ups the batches found (not in the plan)
 
+- **glTF names are never unescaped** (found by batch 93). cgltf never calls
+  cgltf_decode_string and Model.cpp copies node and animation names raw, so a
+  name with an escape would load as `a\"b`. No shipped name needs one; a
+  two-line decode in Model.cpp would make the round trip exact.
+- **AllocTest -Exit has no CheckAll row** (batch 38): run it by hand (about 3
+  minutes).
 - **No judge checks the baker's sRGB flag per file** (found by batch 92):
   albedo vs `_n` / `_mr` vs a model's base-colour images. The logic is small
   (IsTextureSetAlbedo, SrgbImages), but nothing decodes a baked chain to check.
