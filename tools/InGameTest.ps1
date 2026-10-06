@@ -43,51 +43,15 @@ $bin = Join-Path $root "build\$Config\bin"
 # Muted for the whole run, restored however it ends (tools\HarnessAudio.ps1).
 . (Join-Path $PSScriptRoot 'HarnessAudio.ps1')
 if (-not $env:DN_HARNESS_MUTED) { exit (Invoke-Muted $bin $PSCommandPath $PSBoundParameters) }
+# Launch, input and log waits: the one shared copy (tools\HarnessGame.ps1).
+. (Join-Path $PSScriptRoot 'HarnessGame.ps1')
 
 $exe = Join-Path $bin 'Dungeon.exe'
 $log = Join-Path $bin 'dungeon.log'
 
 if (-not (Test-Path $exe)) { throw "no build at $exe - run build.cmd $Config first" }
-# THIS build's exe only: another worktree's game is a different process with its
-# own log, and everything below addresses the instance this script launched.
-# (ProfileTest keeps the global check on purpose - a second game on the GPU
-# would be part of what it measured.)
-if (Get-Process Dungeon -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe }) {
-	throw 'Dungeon.exe is already running - close it (this test drives its own instance)'
-}
+Assert-NotRunning $exe
 
-Add-Type @'
-using System;
-using System.Runtime.InteropServices;
-public class InGameWin {
-	[DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
-}
-'@
-
-function Wait-ForLog([string]$pattern, [int]$timeoutSec, [string]$what) {
-	$deadline = (Get-Date).AddSeconds($timeoutSec)
-	while ((Get-Date) -lt $deadline) {
-		if ($proc.HasExited) { throw "the game exited early (code $($proc.ExitCode)) waiting for $what" }
-		if (Test-Path $log) {
-			$hit = Select-String -Path $log -Pattern $pattern -ErrorAction SilentlyContinue | Select-Object -Last 1
-			if ($hit) { return $hit.Line }
-		}
-		Start-Sleep -Milliseconds 400
-	}
-	throw "timed out after ${timeoutSec}s waiting for $what"
-}
-function Send-Key([int]$vk) {
-	[InGameWin]::PostMessage($hwnd, 0x100, [IntPtr]$vk, [IntPtr]1) | Out-Null
-	Start-Sleep -Milliseconds 60
-	[InGameWin]::PostMessage($hwnd, 0x101, [IntPtr]$vk, [IntPtr][int64]0xC0000001) | Out-Null
-	Start-Sleep -Milliseconds 250
-}
-function Send-Text([string]$t) {
-	foreach ($c in $t.ToCharArray()) {
-		[InGameWin]::PostMessage($hwnd, 0x102, [IntPtr][int]$c, [IntPtr]1) | Out-Null
-		Start-Sleep -Milliseconds 30
-	}
-}
 # The console STAYS OPEN between commands - a second toggle would close it and
 # send the next line to the game as movement keys.
 function Open-Console { Send-Key 0xC0; Start-Sleep -Milliseconds 600 }
@@ -260,41 +224,18 @@ $titleScreens = @(
 # bar fits inside the panel.
 $notSwept = 'settings page (needs a mouse click); the sheet''s hand-drawn bars (uioverlap sees widgets, not direct draws)'
 
-Remove-Item $log -ErrorAction SilentlyContinue
-Write-Host "launching $exe"
-$proc = Start-Process -FilePath $exe -WorkingDirectory $bin -ArgumentList '-project', 'dungeon-demo' -PassThru
+$proc = $null
 $hwnd = [IntPtr]::Zero
 try {
-	Wait-ForLog '--- load: ' $LoadTimeoutSec 'the boot load' | Out-Null
-	$deadline = (Get-Date).AddSeconds(30)
-	while ((Get-Date) -lt $deadline) {
-		$proc.Refresh(); $hwnd = $proc.MainWindowHandle
-		if ($hwnd -ne [IntPtr]::Zero) { break }
-		Start-Sleep -Milliseconds 300
-	}
-	if ($hwnd -eq [IntPtr]::Zero) { throw 'the game never showed a main window' }
+	Start-HarnessGame $exe $bin $log $LoadTimeoutSec
 
-	# START A NEW GAME THROUGH THE CONSOLE, not the landing page. Enter there is
-	# the FIRST entry, which is Continue whenever a loadable save exists - and
-	# the eval suites and other sessions leave saves behind in the one shared
-	# Documents\DungeonSaves. So the sweep audited whichever save was newest,
-	# and one whose level the world already held printed neither line waited
-	# for below. `newgame` calls the menu entry's own callback
-	# (Game_DevEval.cpp), so this is the same new game whatever the menu holds
-	# (AllocTest.ps1 made the same change). logecho first, retried, so a
-	# dropped keystroke or a console not yet taking commands cannot fail a run.
-	Open-Console
-	$started = $false
-	for ($try = 1; $try -le 10 -and -not $started; $try++) {
-		Send-Text 'logecho on'; Send-Key 0x0D
-		Start-Sleep -Milliseconds 500
-		$started = [bool](Select-String -Path $log -Pattern 'console: > logecho on' -EA SilentlyContinue)
-	}
-	if (-not $started) { throw 'the console never accepted a command on the title screen' }
 	# THE PARTY CREATION PAGE (party creation phase 3), on the title screen
 	# where it lives: a new member, the default four, and the face picker over
-	# the page. Echo off for the audits (see below); the verdict reads the
-	# page's own log line, not an echo.
+	# the page. The console must answer first (retried until a NEW echo lands);
+	# then echo off for the audits (see below) - the verdict reads the page's
+	# own log line, not an echo.
+	Open-Console
+	if (-not (Wait-ConsoleReady)) { throw 'the console never accepted a command on the title screen' }
 	Run-Cmd 'logecho off'
 	foreach ($s in $titleScreens) {
 		$label = if ($SelfTest) { 'sweep_never_emitted' } else { $s.label }
@@ -302,40 +243,23 @@ try {
 		Run-Cmd "uioverlap $label"
 	}
 	Run-Cmd 'partypage back'
-	Run-Cmd 'logecho on'
-	Send-Text 'newgame'; Send-Key 0x0D
-	Start-Sleep -Milliseconds 300
-	Send-Key 0xC0; Start-Sleep -Milliseconds 400     # closed: Open-Console below reopens it
-	# NOT 'Game loaded:' - that comes from a load TASK, before the starting
-	# level's own load has begun. A level load ends with 'Level ready:'; a new
-	# game that lands without one (a level already in memory) says 'New game
-	# started'.
-	Wait-ForLog '^\[info \] (Level ready: |New game started)' $LoadTimeoutSec 'the dungeon load' | Out-Null
-	Start-Sleep -Seconds 2
+	Send-Key $VK_CONSOLE; Start-Sleep -Milliseconds 400   # closed: Start-NewGame opens it
+
+	# Through the console's `newgame`, never the landing page (Continue on the
+	# newest shared save), waited out to the level (tools\HarnessGame.ps1).
+	Start-NewGame $LoadTimeoutSec | Out-Null
+	Start-Sleep -Seconds 1
 
 	Open-Console
 	# logecho OFF again before the sweep: echoed console output would put every
 	# `uioverlap: auditing...` line into the log, and the verdict reads any
-	# uioverlap line that is not "clean" as a finding. Not straight after
-	# `newgame` - that starts a load, and a command typed into a load is
-	# refused. Retried until its own echo lands (the line is echoed before the
-	# command turns echoing off).
-	$quiet = $false
-	for ($try = 1; $try -le 10 -and -not $quiet; $try++) {
-		Run-Cmd 'logecho off'
-		$quiet = [bool](Select-String -Path $log -Pattern 'console: > logecho off' -EA SilentlyContinue)
+	# uioverlap line that is not "clean" as a finding. Retried until its own
+	# echo lands (the line is echoed before the command turns echoing off).
+	if (-not (Wait-ConsoleReady 'logecho off' 'console: > logecho off\s*$')) {
+		throw 'the console never accepted a command after the new game'
 	}
-	if (-not $quiet) { throw 'the console never accepted a command after the new game' }
-	# RETRIED UNTIL IT ANSWERS, because the console is GATED OFF while a level
-	# load is in flight. (It was first added when Enter on the landing page
-	# could mean Continue, whose save could stage a second load after the
-	# first; the run starts with `newgame` now, but a command typed into a
-	# load is still refused, so the retry stays.)
-	$answered = $false
-	for ($try = 1; $try -le 10 -and -not $answered; $try++) {
-		Run-Cmd 'levelcheck'
-		$answered = [bool](Select-String -Path $log -Pattern 'levelcheck RESULT=' -EA SilentlyContinue)
-	}
+	# Retried until it answers, counting only a NEW report.
+	Wait-ConsoleReady 'levelcheck' 'levelcheck RESULT=' 10 4000 | Out-Null
 
 	# Invariant across the loop: the console is OPEN on entry and on exit.
 	foreach ($s in $screens) {
@@ -359,10 +283,7 @@ try {
 		}
 	}
 } finally {
-	if (-not $proc.HasExited) {
-		if ($hwnd -ne [IntPtr]::Zero) { Send-Text 'quit'; Send-Key 0x0D }
-		if (-not $proc.WaitForExit(8000)) { $proc.Kill() }
-	}
+	Stop-HarnessGame 8000
 }
 
 # --- the verdict, read from the log -----------------------------------------

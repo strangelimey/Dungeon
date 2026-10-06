@@ -40,26 +40,14 @@ $bin = Join-Path $root "build\$Config\bin"
 # Muted for the whole run, restored however it ends (tools\HarnessAudio.ps1).
 . (Join-Path $PSScriptRoot 'HarnessAudio.ps1')
 if (-not $env:DN_HARNESS_MUTED) { exit (Invoke-Muted $bin $PSCommandPath $PSBoundParameters) }
+# Launch, input and log waits: the one shared copy (tools\HarnessGame.ps1).
+. (Join-Path $PSScriptRoot 'HarnessGame.ps1')
 
 $exe = Join-Path $bin 'Dungeon.exe'
 $log = Join-Path $bin 'dungeon.log'
 
 if (-not (Test-Path $exe)) { throw "no build at $exe - run build.cmd $Config first" }
-# THIS build's exe only: another worktree's game is a different process with its
-# own log, and everything below addresses the instance this script launched.
-# (ProfileTest keeps the global check on purpose - a second game on the GPU
-# would be part of what it measured.)
-if (Get-Process Dungeon -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe }) {
-	throw 'Dungeon.exe is already running - close it (this test drives its own instance)'
-}
-
-Add-Type @'
-using System;
-using System.Runtime.InteropServices;
-public class HealthTestWin {
-	[DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
-}
-'@
+Assert-NotRunning $exe
 
 # ---------------------------------------------------------------------------
 # THE CASES. `inject` is the console line that breaks something; `expect` is
@@ -165,91 +153,35 @@ if ($Only) {
 }
 
 # ---------------------------------------------------------------------------
-function Wait-ForLog([string]$pattern, [int]$timeoutSec, [string]$what) {
-	$deadline = (Get-Date).AddSeconds($timeoutSec)
-	while ((Get-Date) -lt $deadline) {
-		if ($proc.HasExited) {
-			throw "the game exited early (code $($proc.ExitCode)) while waiting for $what"
-		}
-		if (Test-Path $log) {
-			$hit = Select-String -Path $log -Pattern $pattern -ErrorAction SilentlyContinue |
-				Select-Object -Last 1
-			if ($hit) { return $hit.Line }
-		}
-		Start-Sleep -Milliseconds 400
-	}
-	throw "timed out after ${timeoutSec}s waiting for $what"
-}
-function Send-Key([int]$vk) {
-	[HealthTestWin]::PostMessage($hwnd, 0x100, [IntPtr]$vk, [IntPtr]1) | Out-Null
-	Start-Sleep -Milliseconds 60
-	[HealthTestWin]::PostMessage($hwnd, 0x101, [IntPtr]$vk, [IntPtr][int64]0xC0000001) | Out-Null
-	Start-Sleep -Milliseconds 250
-}
-function Send-Text([string]$text) {
-	foreach ($c in $text.ToCharArray()) {
-		# WM_CHAR: the console reads typed characters, not virtual keys.
-		[HealthTestWin]::PostMessage($hwnd, 0x102, [IntPtr][int]$c, [IntPtr]1) | Out-Null
-		Start-Sleep -Milliseconds 30
-	}
-}
-
 # Runs one case in its own process (half of them kill the game) and returns
 # $true if every expectation was met.
 function Invoke-Case($case) {
 	Write-Host ''
 	Write-Host "[$($case.name)] $($case.desc)"
 
-	Remove-Item $log -ErrorAction SilentlyContinue
 	Get-ChildItem $bin -Filter *.dmp -ErrorAction SilentlyContinue | Remove-Item -Force
 
-	$script:proc = Start-Process -FilePath $exe -WorkingDirectory $bin -ArgumentList '-project', 'dungeon-demo' -PassThru
 	$script:hwnd = [IntPtr]::Zero
 	try {
-		Wait-ForLog '--- load: ' $LoadTimeoutSec 'the boot load' | Out-Null
-		# The boot-load line can beat the window handle becoming visible to the
-		# process object, so this WAITS rather than asking once - a one-shot read
-		# failed a case that passes perfectly well by hand.
-		$deadline = (Get-Date).AddSeconds(30)
-		while ((Get-Date) -lt $deadline) {
-			$proc.Refresh()
-			$script:hwnd = $proc.MainWindowHandle
-			if ($hwnd -ne [IntPtr]::Zero) { break }
-			Start-Sleep -Milliseconds 300
+		Start-HarnessGame $exe $bin $log $LoadTimeoutSec
+		# A new game by COMMAND, never Enter on the landing page (Continue
+		# whenever a save exists - all seven cases once failed on a WorldTest
+		# leftover's load). And waited out to the LEVEL, not to 'Game loaded:',
+		# which lands before the level's own load has begun while every console
+		# command is still refused (C429): on a cold cache that refused the
+		# injections, and the case failed for a harness reason.
+		Start-NewGame $LoadTimeoutSec | Out-Null
+
+		# Console OPEN for the injections, and logecho OFF: the verdict reads only
+		# what the game logs on its own, and a mirrored console line must never
+		# count as evidence. Its own echo proves the console takes commands.
+		Send-Key $VK_CONSOLE; Start-Sleep -Milliseconds 600
+		if (-not (Wait-ConsoleReady 'logecho off' 'console: > logecho off\s*$')) {
+			throw 'the console never accepted a command after the new game'
 		}
-		if ($hwnd -eq [IntPtr]::Zero) { throw 'the game never showed a main window' }
 
-		# START NEW GAME BY COMMAND, NOT BY THE MENU. This used to press Enter on
-		# the landing page, trusting the first entry to be Start New Game - which
-		# is only true with NO SAVE in Documents. With one, the first entry is
-		# Continue: the run loaded the newest save instead (a WorldTest leftover),
-		# that save's level load was still in flight when the commands were typed,
-		# the console refuses commands during a load, and all seven cases failed
-		# without injecting anything. `newgame` runs the menu entry's own callback
-		# (onStartNewGame), so it is Start New Game whatever the menu lists and
-		# wherever its highlight sits.
-		#
-		# The console opens in EVERY state and owns the input while open, so the
-		# Enters below cannot reach the menu - provided it really opened. That is
-		# checked, not assumed: `framecap` with no argument is a pure readout that
-		# log::Info's its own line (never written at boot), so seeing it proves the
-		# console is open and taking commands. NOT retried: if the backtick was
-		# dropped, that Enter went to the menu and did whatever its highlighted
-		# entry does, and a second backtick could as easily close the console as
-		# open it. A dropped key fails this ONE case, saying which step it was.
-		Send-Key 0xC0                    # ` opens the console
-		Start-Sleep -Milliseconds 600
-		Send-Text 'framecap'
-		Send-Key 0x0D
-		Wait-ForLog 'framecap enabled=' 15 'the console to answer (was the backtick dropped?)' | Out-Null
-
-		Send-Text 'newgame'
-		Send-Key 0x0D
-		Wait-ForLog 'Game loaded: ' $LoadTimeoutSec 'the dungeon load after `newgame`' | Out-Null
-		Start-Sleep -Seconds 2
-
-		# The console is still open (a command never closes it), so the case's
-		# lines go straight in - toggling it here would CLOSE it.
+		# A command never closes the console, so the case's lines go straight in
+		# - toggling it here would CLOSE it.
 		if ($SelfTest) {
 			# The injection is SKIPPED on purpose. Everything below still runs,
 			# so an expectation that is met anyway is an expectation that was
@@ -270,11 +202,8 @@ function Invoke-Case($case) {
 		# Captured BEFORE we shut it down: whether the game was still running of
 		# its own accord is the answer a `survives` case turns on, and quitting
 		# it ourselves would erase the distinction.
-		$script:diedEarly = $proc.HasExited
-		if (-not $proc.HasExited) {
-			if ($hwnd -ne [IntPtr]::Zero) { Send-Text 'quit'; Send-Key 0x0D }
-			if (-not $proc.WaitForExit(6000)) { $proc.Kill() }
-		}
+		$script:diedEarly = $proc -and $proc.HasExited
+		Stop-HarnessGame 6000
 	}
 
 	# --- the verdict, read from the log and nowhere else --------------------

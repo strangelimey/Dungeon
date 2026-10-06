@@ -24,7 +24,10 @@
 #             instant the previous Enter is posted.
 #
 # Every line must come back in the log's echo (`console: > <line>`, logecho on)
-# EXACTLY as typed, in order. Exit code 0 = PASS.
+# EXACTLY as typed, in order. And the run must neither load nor write a save:
+# it starts through the console's `newgame`, never Enter on the title screen,
+# which is Continue on whatever save is newest in the shared DungeonSaves.
+# Exit code 0 = PASS.
 #
 #   .\tools\TypingTest.ps1                 # debug build, 4 rounds of each phase
 #   .\tools\TypingTest.ps1 -Rounds 10
@@ -53,52 +56,20 @@ $bin = Join-Path $root "build\$Config\bin"
 
 . (Join-Path $PSScriptRoot 'HarnessAudio.ps1')
 if (-not $env:DN_HARNESS_MUTED) { exit (Invoke-Muted $bin $PSCommandPath $PSBoundParameters) }
+# Launch, input and log waits: the one shared copy (tools\HarnessGame.ps1).
+. (Join-Path $PSScriptRoot 'HarnessGame.ps1')
+$HarnessCharMs = 40
 
 $exe = Join-Path $bin 'Dungeon.exe'
 $log = Join-Path $bin 'dungeon.log'
 
 if (-not (Test-Path $exe)) { throw "no build at $exe - run build.cmd $Config first" }
-if (Get-Process Dungeon -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe }) {
-	throw 'Dungeon.exe is already running - close it (this test drives its own instance)'
-}
-
-Add-Type @'
-using System;
-using System.Runtime.InteropServices;
-public class TypingTestWin {
-	[DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
-}
-'@
-
-$WM_KEYDOWN = 0x100; $WM_KEYUP = 0x101; $WM_CHAR = 0x102; $WM_KILLFOCUS = 0x0008
-
-function Post([uint32]$msg, [int64]$w, [int64]$l) {
-	[TypingTestWin]::PostMessage($hwnd, $msg, [IntPtr]$w, [IntPtr]$l) | Out-Null
-}
-
-# The other harnesses' Send-Key: down, a beat, up, a pause.
-function Send-Key([int]$vk) {
-	Post $WM_KEYDOWN $vk 1
-	Start-Sleep -Milliseconds 60
-	Post $WM_KEYUP $vk 0xC0000001
-	Start-Sleep -Milliseconds 250
-}
-
-function Send-Text([string]$text, [int]$ms = 40, [int]$blurAt = -1) {
-	$i = 0
-	foreach ($c in $text.ToCharArray()) {
-		Post $WM_CHAR ([int]$c) 1
-		# Straight after the character, with no pause, so both land in one frame.
-		if ($i -eq $blurAt) { Post $WM_KILLFOCUS 0 0 }
-		Start-Sleep -Milliseconds $ms
-		$i++
-	}
-}
+Assert-NotRunning $exe
 
 # FOCUS phase: the other harnesses' pace, focus lost after the third character.
 function Send-BlurredLine([string]$text) {
-	Send-Text $text 40 2
-	Send-Key 0x0D
+	Send-Text $text 40 -BlurAt 2
+	Send-Key $VK_RETURN
 	$script:typed += $text
 }
 
@@ -106,25 +77,9 @@ function Send-BlurredLine([string]$text) {
 # so the next line's first characters share the frame with this Enter.
 function Send-RushedLine([string]$text) {
 	Send-Text $text 15
-	Post $WM_KEYDOWN 0x0D 1
-	Post $WM_KEYUP 0x0D 0xC0000001
+	Send-Message $WM_KEYDOWN $VK_RETURN 1
+	Send-Message $WM_KEYUP $VK_RETURN 0xC0000001
 	$script:typed += $text
-}
-
-function Wait-ForLog([string]$pattern, [int]$timeoutSec, [string]$what) {
-	$deadline = (Get-Date).AddSeconds($timeoutSec)
-	while ((Get-Date) -lt $deadline) {
-		if ($proc.HasExited) {
-			throw "the game exited early (code $($proc.ExitCode)) while waiting for $what"
-		}
-		if (Test-Path $log) {
-			$hit = Select-String -Path $log -Pattern $pattern -ErrorAction SilentlyContinue |
-				Select-Object -Last 1
-			if ($hit) { return $hit.Line }
-		}
-		Start-Sleep -Milliseconds 500
-	}
-	throw "timed out after ${timeoutSec}s waiting for $what"
 }
 
 # Every console echo in the log from line $from on, prefix stripped.
@@ -158,38 +113,21 @@ function Compare-Phase([string]$name, [int]$from) {
 $heavy = @('sheet 1', 'sheet status', 'sheet off', 'hudpanel layout minimal', 'hudpanel list',
 	'hudpanel layout standard', 'hudpanel list')
 
-Remove-Item $log -ErrorAction SilentlyContinue
-Write-Host "launching $exe"
-$proc = Start-Process -FilePath $exe -WorkingDirectory $bin -ArgumentList '-project', 'dungeon-demo' -PassThru
+$proc = $null
 $hwnd = [IntPtr]::Zero
 $code = 1
 try {
-	Wait-ForLog '--- load: ' $LoadTimeoutSec 'the boot load' | Out-Null
-	$proc.Refresh()
-	$hwnd = $proc.MainWindowHandle
-	if ($hwnd -eq [IntPtr]::Zero) { throw 'the game has no main window' }
-
-	Write-Host 'starting a new game'
-	Send-Key 0x0D
-	Wait-ForLog '^\[info \] (Level ready: |New game started|Loaded game from )' $LoadTimeoutSec 'the dungeon load' | Out-Null
-	Start-Sleep -Seconds 2
-
-	# Wait until the console answers (see AllocTest.ps1: a save can stage a
-	# second load, and commands are refused while it runs).
-	Send-Key 0xC0
+	Start-HarnessGame $exe $bin $log $LoadTimeoutSec
+	# Through the console's `newgame`: Enter on the title screen is Continue on
+	# the newest shared save whenever one exists. Leaves logecho on.
+	Start-NewGame $LoadTimeoutSec | Out-Null
+	Send-Key $VK_CONSOLE
 	Start-Sleep -Milliseconds 500
-	$answered = $false
-	for ($try = 1; $try -le 10 -and -not $answered; $try++) {
-		Send-Text 'logecho on'; Send-Key 0x0D
-		Start-Sleep -Seconds 2
-		$answered = [bool](Select-String -Path $log -Pattern 'console: > logecho on' -EA SilentlyContinue)
-	}
-	if (-not $answered) { throw 'the console never accepted a command' }
 
 	# Warm the sheet and both layouts once, so no measured line is the very
 	# first build of anything.
 	foreach ($l in 'sheet 1', 'sheet off', 'hudpanel layout minimal', 'hudpanel layout standard') {
-		Send-Text $l; Send-Key 0x0D
+		Send-Text $l; Send-Key $VK_RETURN
 		Start-Sleep -Milliseconds 600
 	}
 
@@ -220,7 +158,13 @@ try {
 	}
 	$badOrder = Compare-Phase 'ORDER' $from
 
-	$result = if ($badFocus -eq 0 -and $badOrder -eq 0) { 'PASS' } else { 'FAIL' }
+	# The run must not have touched a save: no Continue, no save written. Read
+	# from THIS game's log, so another session writing to the shared
+	# DungeonSaves meanwhile cannot fail it.
+	$saveLines = @(Select-String -Path $log -Pattern 'Loaded game from |Saved game to ' -EA SilentlyContinue)
+	foreach ($s in $saveLines) { Write-Host "  the run touched a save: $($s.Line)" -ForegroundColor Red }
+
+	$result = if ($badFocus -eq 0 -and $badOrder -eq 0 -and $saveLines.Count -eq 0) { 'PASS' } else { 'FAIL' }
 	if ($SelfTest) {
 		if ($result -eq 'FAIL') {
 			Write-Host 'TYPINGTEST SELFTEST PASS - the harness caught the dropped characters' -ForegroundColor Green
@@ -231,21 +175,18 @@ try {
 		}
 	} else {
 		$color = if ($result -eq 'PASS') { 'Green' } else { 'Red' }
-		Write-Host "TYPINGTEST $result focus_wrong=$badFocus order_wrong=$badOrder" -ForegroundColor $color
+		Write-Host "TYPINGTEST $result focus_wrong=$badFocus order_wrong=$badOrder saves_touched=$($saveLines.Count)" -ForegroundColor $color
 		$code = if ($result -eq 'PASS') { 0 } else { 1 }
 	}
 } finally {
-	if (-not $proc.HasExited) {
-		if ($hwnd -ne [IntPtr]::Zero) {
-			# Put the layout back however the run went: typed at the plain pace.
-			Start-Sleep -Milliseconds 800
-			Send-Text 'sheet off'; Send-Key 0x0D
-			Send-Text 'hudpanel layout standard'; Send-Key 0x0D
-			Start-Sleep -Milliseconds 800
-			Send-Text 'quit'; Send-Key 0x0D
-		}
-		if (-not $proc.WaitForExit(5000)) { $proc.Kill() }
+	if ($proc -and -not $proc.HasExited -and $hwnd -ne [IntPtr]::Zero) {
+		# Put the layout back however the run went: typed at the plain pace.
+		Start-Sleep -Milliseconds 800
+		Send-Text 'sheet off'; Send-Key $VK_RETURN
+		Send-Text 'hudpanel layout standard'; Send-Key $VK_RETURN
+		Start-Sleep -Milliseconds 800
 	}
+	Stop-HarnessGame
 	$ini = Join-Path $bin 'settings.ini'
 	if ((Test-Path $ini) -and (Select-String -Path $ini -Pattern '^hud_layout=1' -Quiet)) {
 		Write-Host 'settings.ini was left on the Minimal layout - putting it back' -ForegroundColor Yellow

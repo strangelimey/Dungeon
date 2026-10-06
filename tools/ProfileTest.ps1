@@ -47,47 +47,19 @@ $bin = Join-Path $root "build\$Config\bin"
 # Muted for the whole run, restored however it ends (tools\HarnessAudio.ps1).
 . (Join-Path $PSScriptRoot 'HarnessAudio.ps1')
 if (-not $env:DN_HARNESS_MUTED) { exit (Invoke-Muted $bin $PSCommandPath $PSBoundParameters) }
+# Launch, input and log waits: the one shared copy (tools\HarnessGame.ps1).
+. (Join-Path $PSScriptRoot 'HarnessGame.ps1')
 
 $exe = Join-Path $bin 'Dungeon.exe'
 $log = Join-Path $bin 'dungeon.log'
 
 if (-not (Test-Path $exe)) { throw "no build at $exe - run build.cmd $Config first" }
+# ANY Dungeon.exe, not only this build's (Assert-NotRunning): a second game on
+# the GPU would be part of what this measures.
 if (Get-Process Dungeon -ErrorAction SilentlyContinue) {
 	throw 'Dungeon.exe is already running - close it (this test drives its own instance)'
 }
 
-Add-Type @'
-using System;
-using System.Runtime.InteropServices;
-public class ProfWin {
-	[DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
-}
-'@
-
-function Wait-ForLog([string]$pattern, [int]$timeoutSec, [string]$what) {
-	$deadline = (Get-Date).AddSeconds($timeoutSec)
-	while ((Get-Date) -lt $deadline) {
-		if ($proc.HasExited) { throw "the game exited early (code $($proc.ExitCode)) waiting for $what" }
-		if (Test-Path $log) {
-			$hit = Select-String -Path $log -Pattern $pattern -ErrorAction SilentlyContinue | Select-Object -Last 1
-			if ($hit) { return $hit.Line }
-		}
-		Start-Sleep -Milliseconds 400
-	}
-	throw "timed out after ${timeoutSec}s waiting for $what"
-}
-function Send-Key([int]$vk) {
-	[ProfWin]::PostMessage($hwnd, 0x100, [IntPtr]$vk, [IntPtr]1) | Out-Null
-	Start-Sleep -Milliseconds 60
-	[ProfWin]::PostMessage($hwnd, 0x101, [IntPtr]$vk, [IntPtr][int64]0xC0000001) | Out-Null
-	Start-Sleep -Milliseconds 250
-}
-function Send-Text([string]$t) {
-	foreach ($c in $t.ToCharArray()) {
-		[ProfWin]::PostMessage($hwnd, 0x102, [IntPtr][int]$c, [IntPtr]1) | Out-Null
-		Start-Sleep -Milliseconds 30
-	}
-}
 # The console STAYS OPEN for the whole run (InGameTest's rule): a second toggle
 # would close it and send the next command to the game as movement keys.
 function Run-Cmd([string]$c) { Send-Text $c; Send-Key 0x0D; Start-Sleep -Milliseconds 900 }
@@ -102,59 +74,22 @@ function Take-Snap([string]$name) {
 # accident on one of them.
 $snapNames = @('lowcap', 'ultracap', 'uncapped', 'capped')
 
-Remove-Item $log -ErrorAction SilentlyContinue
-Write-Host "launching $exe"
-$proc = Start-Process -FilePath $exe -WorkingDirectory $bin -ArgumentList '-project', 'dungeon-demo' -PassThru
+$proc = $null
 $hwnd = [IntPtr]::Zero
 try {
-	Wait-ForLog '--- load: ' $LoadTimeoutSec 'the boot load' | Out-Null
-	$deadline = (Get-Date).AddSeconds(30)
-	while ((Get-Date) -lt $deadline) {
-		$proc.Refresh(); $hwnd = $proc.MainWindowHandle
-		if ($hwnd -ne [IntPtr]::Zero) { break }
-		Start-Sleep -Milliseconds 300
-	}
-	if ($hwnd -eq [IntPtr]::Zero) { throw 'the game never showed a main window' }
+	Start-HarnessGame $exe $bin $log $LoadTimeoutSec
+	# Through the console's `newgame`, never the landing page (Continue on the
+	# newest shared save), waited out to the level (tools\HarnessGame.ps1).
+	Start-NewGame $LoadTimeoutSec | Out-Null
+	Start-Sleep -Seconds 2
 
-	# START A NEW GAME THROUGH THE CONSOLE, not the landing page. Enter there is
-	# the FIRST entry, which is Continue whenever a loadable save exists - and
-	# the eval suites and other sessions leave saves behind in the one shared
-	# Documents\DungeonSaves. So the run profiled whichever save was newest,
-	# and one whose level the world already held printed neither line waited
-	# for below. `newgame` calls the menu entry's own callback
-	# (Game_DevEval.cpp), so this is the same new game whatever the menu holds
-	# (AllocTest.ps1 made the same change). logecho first, retried, so a
-	# dropped keystroke or a console not yet taking commands cannot fail a run.
-	Send-Key 0xC0; Start-Sleep -Milliseconds 500
-	$started = $false
-	for ($try = 1; $try -le 10 -and -not $started; $try++) {
-		Send-Text 'logecho on'; Send-Key 0x0D
-		Start-Sleep -Milliseconds 500
-		$started = [bool](Select-String -Path $log -Pattern 'console: > logecho on' -EA SilentlyContinue)
-	}
-	if (-not $started) { throw 'the console never accepted a command on the title screen' }
-	Send-Text 'newgame'; Send-Key 0x0D
-	Start-Sleep -Milliseconds 300
-	Send-Key 0xC0                                     # closed: reopened below
-	# NOT 'Game loaded:' - that comes from a load TASK, before the starting
-	# level's own load has begun. A level load ends with 'Level ready:'; a new
-	# game that lands without one (a level already in memory) says 'New game
-	# started'.
-	Wait-ForLog '^\[info \] (Level ready: |New game started)' $LoadTimeoutSec 'the dungeon load' | Out-Null
-	Start-Sleep -Seconds 3
-
-	Send-Key 0xC0; Start-Sleep -Milliseconds 700     # console open, and it stays open
+	Send-Key $VK_CONSOLE; Start-Sleep -Milliseconds 700     # console open, and it stays open
 	# logecho OFF again, so the log below is the one the verdict was written
-	# against and no echo lands inside a snapshot. Not straight after `newgame`
-	# - that starts a load, and a command typed into a load is refused. Retried
-	# until its own echo lands (echoed before it turns echoing off), which also
-	# proves the console is taking commands before the snapshots rely on it.
-	$quiet = $false
-	for ($try = 1; $try -le 10 -and -not $quiet; $try++) {
-		Run-Cmd 'logecho off'
-		$quiet = [bool](Select-String -Path $log -Pattern 'console: > logecho off' -EA SilentlyContinue)
+	# against and no echo lands inside a snapshot. Retried until its own echo
+	# lands (echoed before it turns echoing off).
+	if (-not (Wait-ConsoleReady 'logecho off' 'console: > logecho off\s*$')) {
+		throw 'the console never accepted a command after the new game'
 	}
-	if (-not $quiet) { throw 'the console never accepted a command after the new game' }
 	# Face down a corridor rather than into a wall a metre away: a wall is the
 	# cheapest scene in the game and would leave the quality change with almost
 	# nothing to move.
@@ -178,10 +113,7 @@ try {
 	Start-Sleep -Seconds 2
 	Take-Snap 'capped'
 } finally {
-	if (-not $proc.HasExited) {
-		if ($hwnd -ne [IntPtr]::Zero) { Send-Text 'quit'; Send-Key 0x0D }
-		if (-not $proc.WaitForExit(8000)) { $proc.Kill() }
-	}
+	Stop-HarnessGame 8000
 }
 
 # --- the verdict, read from the log -----------------------------------------

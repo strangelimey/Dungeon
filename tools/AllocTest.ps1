@@ -322,6 +322,9 @@ $bin = Join-Path $root "build\$Config\bin"
 # Muted for the whole run, restored however it ends (tools\HarnessAudio.ps1).
 . (Join-Path $PSScriptRoot 'HarnessAudio.ps1')
 if (-not $env:DN_HARNESS_MUTED) { exit (Invoke-Muted $bin $PSCommandPath $PSBoundParameters) }
+# Launch, input and log waits: the one shared copy (tools\HarnessGame.ps1).
+. (Join-Path $PSScriptRoot 'HarnessGame.ps1')
+$HarnessCharMs = 40
 
 $exe = Join-Path $bin 'Dungeon.exe'
 $log = Join-Path $bin 'dungeon.log'
@@ -332,32 +335,18 @@ $memberCount = if ($Party) { @($Party -split '\|').Count } else { 4 }
 if ($memberCount -lt 1 -or $memberCount -gt 4) { throw "-Party names $memberCount members; a party has 1 to 4" }
 
 if (-not (Test-Path $exe)) { throw "no build at $exe - run build.cmd $Config first" }
-# THIS build's exe only: another worktree's game is a different process with its
-# own log, and everything below addresses the instance this script launched.
-if (Get-Process Dungeon -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe }) {
-	throw 'Dungeon.exe is already running - close it (this test drives its own instance)'
-}
-
-Add-Type @'
-using System;
-using System.Runtime.InteropServices;
-public class AllocTestWin {
-	[DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
-	[DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr h, out RECT r);
-	public struct RECT { public int Left, Top, Right, Bottom; }
-}
-'@
+Assert-NotRunning $exe
 
 # A mouse message at client pixel (x, y): WM_MOUSEMOVE first, so the game's
 # pointer is where the button lands, then the down/up pair (none for a hover).
 function Send-Mouse([int]$x, [int]$y, [uint32]$down = 0, [uint32]$up = 0, [int]$wparam = 0) {
 	$l = [IntPtr](($y -shl 16) -bor ($x -band 0xFFFF))
-	[AllocTestWin]::PostMessage($hwnd, 0x200, [IntPtr]0, $l) | Out-Null
+	[HarnessWin]::PostMessage($hwnd, 0x200, [IntPtr]0, $l) | Out-Null
 	Start-Sleep -Milliseconds 150
 	if ($down -ne 0) {
-		[AllocTestWin]::PostMessage($hwnd, $down, [IntPtr]$wparam, $l) | Out-Null
+		[HarnessWin]::PostMessage($hwnd, $down, [IntPtr]$wparam, $l) | Out-Null
 		Start-Sleep -Milliseconds 60
-		[AllocTestWin]::PostMessage($hwnd, $up, [IntPtr]0, $l) | Out-Null
+		[HarnessWin]::PostMessage($hwnd, $up, [IntPtr]0, $l) | Out-Null
 		Start-Sleep -Milliseconds 250
 	}
 }
@@ -370,33 +359,33 @@ function Send-Mouse([int]$x, [int]$y, [uint32]$down = 0, [uint32]$up = 0, [int]$
 function Send-Drag([int]$x0, [int]$y0, [int]$x1, [int]$y1, [int]$steps = 10, [switch]$NoCtrl) {
 	$at = { param($x, $y) [IntPtr](($y -shl 16) -bor ($x -band 0xFFFF)) }
 	if (-not $NoCtrl) {
-		[AllocTestWin]::PostMessage($hwnd, 0x100, [IntPtr]0x11, [IntPtr]1) | Out-Null
+		[HarnessWin]::PostMessage($hwnd, 0x100, [IntPtr]0x11, [IntPtr]1) | Out-Null
 		Start-Sleep -Milliseconds 60
 	}
-	[AllocTestWin]::PostMessage($hwnd, 0x200, [IntPtr]0, (& $at $x0 $y0)) | Out-Null
+	[HarnessWin]::PostMessage($hwnd, 0x200, [IntPtr]0, (& $at $x0 $y0)) | Out-Null
 	Start-Sleep -Milliseconds 150
-	[AllocTestWin]::PostMessage($hwnd, 0x201, [IntPtr]1, (& $at $x0 $y0)) | Out-Null
+	[HarnessWin]::PostMessage($hwnd, 0x201, [IntPtr]1, (& $at $x0 $y0)) | Out-Null
 	Start-Sleep -Milliseconds 80
 	for ($i = 1; $i -le $steps; $i++) {
 		$x = [int]($x0 + ($x1 - $x0) * $i / $steps); $y = [int]($y0 + ($y1 - $y0) * $i / $steps)
-		[AllocTestWin]::PostMessage($hwnd, 0x200, [IntPtr]1, (& $at $x $y)) | Out-Null
+		[HarnessWin]::PostMessage($hwnd, 0x200, [IntPtr]1, (& $at $x $y)) | Out-Null
 		Start-Sleep -Milliseconds 40
 	}
 	Start-Sleep -Milliseconds 80
-	[AllocTestWin]::PostMessage($hwnd, 0x202, [IntPtr]0, (& $at $x1 $y1)) | Out-Null
+	[HarnessWin]::PostMessage($hwnd, 0x202, [IntPtr]0, (& $at $x1 $y1)) | Out-Null
 	Start-Sleep -Milliseconds 100
 	if (-not $NoCtrl) {
-		[AllocTestWin]::PostMessage($hwnd, 0x101, [IntPtr]0x11, [IntPtr][int64]0xC0000001) | Out-Null
+		[HarnessWin]::PostMessage($hwnd, 0x101, [IntPtr]0x11, [IntPtr][int64]0xC0000001) | Out-Null
 	}
 	Start-Sleep -Milliseconds 200
 }
 
 # A Ctrl+click at client pixel (x, y): what presses an arranging panel's reset.
 function Send-CtrlClick([int]$x, [int]$y) {
-	[AllocTestWin]::PostMessage($hwnd, 0x100, [IntPtr]0x11, [IntPtr]1) | Out-Null
+	[HarnessWin]::PostMessage($hwnd, 0x100, [IntPtr]0x11, [IntPtr]1) | Out-Null
 	Start-Sleep -Milliseconds 60
 	Send-Mouse $x $y 0x201 0x202 1
-	[AllocTestWin]::PostMessage($hwnd, 0x101, [IntPtr]0x11, [IntPtr][int64]0xC0000001) | Out-Null
+	[HarnessWin]::PostMessage($hwnd, 0x101, [IntPtr]0x11, [IntPtr][int64]0xC0000001) | Out-Null
 	Start-Sleep -Milliseconds 200
 }
 
@@ -469,40 +458,10 @@ function Get-DetailOpens {
 	throw 'the console never answered `itemdetails status`'
 }
 
-# Waits for a pattern to appear in the log, returning the matching line.
-function Wait-ForLog([string]$pattern, [int]$timeoutSec, [string]$what) {
-	$deadline = (Get-Date).AddSeconds($timeoutSec)
-	while ((Get-Date) -lt $deadline) {
-		if ($proc.HasExited) {
-			throw "the game exited early (code $($proc.ExitCode)) while waiting for $what"
-		}
-		if (Test-Path $log) {
-			$hit = Select-String -Path $log -Pattern $pattern -ErrorAction SilentlyContinue |
-				Select-Object -Last 1
-			if ($hit) { return $hit.Line }
-		}
-		Start-Sleep -Milliseconds 500
-	}
-	throw "timed out after ${timeoutSec}s waiting for $what"
-}
-
-# POLL FOR A CONSOLE ANSWER, NEVER SLEEP A FIXED TIME AND READ. A command's
-# output lands when the game gets round to it, and one heavy debug frame puts it
-# past any fixed sleep: 2026-10-02, -Hand read `autocast` 800 ms after typing it
-# and found 2 of its 4 rows, the other two written just after the read.
-#
-# The lines matching $pattern past the first $before, once there are at least
-# $count of them - or whatever there is when $timeoutSec runs out, so the
-# caller's own check (and its own failure message) still decides.
-function Wait-NewLogLines([string]$pattern, [int]$before, [int]$count = 1, [double]$timeoutSec = 5) {
-	$deadline = (Get-Date).AddSeconds($timeoutSec)
-	while ($true) {
-		$new = @(@(Select-String -Path $log -Pattern $pattern -ErrorAction SilentlyContinue) |
-			Select-Object -Skip $before)
-		if ($new.Count -ge $count -or (Get-Date) -gt $deadline) { return ,$new }
-		Start-Sleep -Milliseconds 200
-	}
-}
+# Wait-ForLog and Wait-NewLogLines are tools\HarnessGame.ps1's. POLL FOR A
+# CONSOLE ANSWER, NEVER SLEEP A FIXED TIME AND READ: 2026-10-02, -Hand read
+# `autocast` 800 ms after typing it and found 2 of its 4 rows, the other two
+# written just after the read.
 
 # Whether any line matches $pattern, waiting up to $timeoutSec for one to land.
 function Wait-LogMatch([string]$pattern, [double]$timeoutSec = 5) {
@@ -519,21 +478,6 @@ function Wait-ConsoleDone {
 	$before = @(Select-String -Path $log -Pattern $mark).Count
 	Send-Text 'logecho'; Send-Key 0x0D
 	if ((Wait-NewLogLines $mark $before).Count -eq 0) { throw 'the console never answered `logecho`' }
-}
-
-function Send-Key([int]$vk) {
-	[AllocTestWin]::PostMessage($hwnd, 0x100, [IntPtr]$vk, [IntPtr]1) | Out-Null
-	Start-Sleep -Milliseconds 60
-	[AllocTestWin]::PostMessage($hwnd, 0x101, [IntPtr]$vk, [IntPtr][int64]0xC0000001) | Out-Null
-	Start-Sleep -Milliseconds 250
-}
-
-function Send-Text([string]$text) {
-	foreach ($c in $text.ToCharArray()) {
-		# WM_CHAR: the console reads typed characters, not virtual keys.
-		[AllocTestWin]::PostMessage($hwnd, 0x102, [IntPtr][int]$c, [IntPtr]1) | Out-Null
-		Start-Sleep -Milliseconds 40
-	}
 }
 
 # Asks the console for the encounter tally and returns one numeric field of the
@@ -743,83 +687,27 @@ function Get-ImpactCounts {
 	}
 }
 
-Remove-Item $log -ErrorAction SilentlyContinue
-Write-Host "launching $exe"
-$proc = Start-Process -FilePath $exe -WorkingDirectory $bin -ArgumentList '-project', 'dungeon-demo' -PassThru
+$proc = $null
 $hwnd = [IntPtr]::Zero
 $code = 1
 try {
-	# The boot queue's table means the menu is up and the window exists.
-	Wait-ForLog '--- load: ' $LoadTimeoutSec 'the boot load' | Out-Null
-	$proc.Refresh()
-	$hwnd = $proc.MainWindowHandle
-	if ($hwnd -eq [IntPtr]::Zero) { throw 'the game has no main window' }
-
-	# START A NEW GAME THROUGH THE CONSOLE, not the landing page. Enter there is
-	# the FIRST entry, which is Continue whenever a loadable save exists - and
-	# the eval suites and other sessions leave saves behind in the one shared
-	# Documents\DungeonSaves. So the run measured whichever save was newest, and
-	# one whose level the world already held printed neither line waited for
-	# below, timing the run out (portraits branch, 2026-10-02). `newgame` calls
-	# the menu entry's own callback (Game_DevEval.cpp), so this is the same new
-	# game whatever the menu holds. logecho first, so the retry can see a
-	# command land.
-	Write-Host 'starting a new game'
-	Send-Key 0xC0
-	Start-Sleep -Milliseconds 500
-	$started = $false
-	for ($try = 1; $try -le 10 -and -not $started; $try++) {
-		Send-Text 'logecho on'; Send-Key 0x0D
-		Start-Sleep -Milliseconds 500
-		$started = [bool](Select-String -Path $log -Pattern 'console: > logecho on' -EA SilentlyContinue)
-	}
-	if (-not $started) { throw 'the console never accepted a command on the title screen' }
-	if ($Party) {
-		Write-Host "  with a created party of $memberCount"
-		Send-Text "newparty $Party"; Send-Key 0x0D
-	} else {
-		Send-Text 'newgame'; Send-Key 0x0D
-	}
-	Start-Sleep -Milliseconds 300
-	Send-Key 0xC0
-	# NOT 'Game loaded:' - since the world loads on demand that line comes from
-	# a load TASK, before the starting level's own load has begun, and every
-	# console command typed then is refused as "still loading". A level load
-	# ends with 'Level ready:'; a new game that lands without one (the world
-	# map, or a level already in memory) says 'New game started'. And Enter
-	# CONTINUES whenever a save exists (the eval suites leave them behind); a
-	# save of a level already in memory loads inline and says only 'Loaded game
-	# from', which this once waited past for its whole timeout.
-	$ready = Wait-ForLog '^\[info \] (Level ready: |New game started|Loaded game from )' $LoadTimeoutSec 'the dungeon load'
-	Write-Host "  $($ready -replace '^\[info \] ', '')"
-	Start-Sleep -Milliseconds 500
+	Start-HarnessGame $exe $bin $log $LoadTimeoutSec
+	# Through the console's `newgame` (or `newparty`), never the landing page -
+	# Enter there is Continue on the newest shared save - waited out to the
+	# LEVEL, not 'Game loaded:' (a load task's line, while commands are still
+	# refused), and then until the console really answers (tools\HarnessGame.ps1).
+	if ($Party) { Write-Host "  with a created party of $memberCount" }
+	Start-NewGame $LoadTimeoutSec -PartySpec $Party | Out-Null
 	# A REFUSED `newparty` still ends in a game - the default four's - so the run
 	# would measure the wrong party and PASS. The command's own line is the proof.
 	if ($Party -and -not (Select-String -Path $log -Pattern "console: new game with a party of $memberCount\b" -EA SilentlyContinue)) {
 		throw "newparty did not build the party of $memberCount (see dungeon.log)"
 	}
-
-	# AND WAIT UNTIL THE CONSOLE ANSWERS before relying on it. The first level
-	# being ready still does not mean commands are live: Enter on the landing
-	# page is Continue whenever a loadable save exists (the eval suites leave
-	# them behind), a save naming another level stages a SECOND load after the
-	# first 'Level ready:', and the console refuses commands while it runs.
-	# tools\InGameTest.ps1 learned the same thing; this is the same answer: open
-	# the console once, retry a harmless command until the log echoes it, then
-	# shut it so everything below starts from a closed console as before.
-	Start-Sleep -Seconds 2
-	Send-Key 0xC0
-	Start-Sleep -Milliseconds 500
-	$answered = $false
-	for ($try = 1; $try -le 10 -and -not $answered; $try++) {
-		Send-Text 'logecho on'; Send-Key 0x0D
-		Start-Sleep -Seconds 2
-		$answered = [bool](Select-String -Path $log -Pattern 'console: > logecho on' -EA SilentlyContinue)
-	}
-	if (-not $answered) { throw 'the console never accepted a command' }
-	Send-Text 'logecho off'; Send-Key 0x0D
+	# logecho off, and the console closed: each path below opens it for itself.
+	Send-Key $VK_CONSOLE; Start-Sleep -Milliseconds 500
+	Send-Text 'logecho off'; Send-Key $VK_RETURN
 	Start-Sleep -Milliseconds 300
-	Send-Key 0xC0 # closed again: each path below opens it for itself
+	Send-Key $VK_CONSOLE
 	Start-Sleep -Milliseconds 400
 
 	# -Minimal: the whole run under the Minimal HUD layout (the party cards).
@@ -1280,8 +1168,8 @@ try {
 		}
 		# Where the two cells are, from the window's own size (the sheet lays out
 		# in fractions of it): backpack slots 3 and 4 of the default layout.
-		$rc = New-Object AllocTestWin+RECT
-		[AllocTestWin]::GetClientRect($hwnd, [ref]$rc) | Out-Null
+		$rc = New-Object HarnessWin+RECT
+		[HarnessWin]::GetClientRect($hwnd, [ref]$rc) | Out-Null
 		$script:runeX = [int]($rc.Right * 0.6675); $script:bladeX = [int]($rc.Right * 0.72)
 		$script:slotY = [int]($rc.Bottom * 0.5033)
 	}
@@ -1360,8 +1248,8 @@ try {
 		# Movement dock slid down under a fixed grab point - cannot make the drags
 		# miss: a point in the Movement dock's title row, and just inside the
 		# Hands dock's bottom-right corner (the resize wedge).
-		$rc = New-Object AllocTestWin+RECT
-		[AllocTestWin]::GetClientRect($hwnd, [ref]$rc) | Out-Null
+		$rc = New-Object HarnessWin+RECT
+		[HarnessWin]::GetClientRect($hwnd, [ref]$rc) | Out-Null
 		$moveRect = Get-PanelRow 'move'
 		$handsRect = Get-PanelRow 'hands'
 		if ($moveRect -notmatch 'px (-?\d+),(-?\d+) (\d+)x(\d+)') { throw "no move dock rect: $moveRect" }
@@ -1447,8 +1335,8 @@ try {
 		$warmSlot = Get-PackSlot $status $member $WarmItem
 		$measureSlot = Get-PackSlot $status $member $MeasureItem
 		Write-Host "  member $member carries $WarmItem in slot $warmSlot, $MeasureItem in slot $measureSlot"
-		$rc = New-Object AllocTestWin+RECT
-		[AllocTestWin]::GetClientRect($hwnd, [ref]$rc) | Out-Null
+		$rc = New-Object HarnessWin+RECT
+		[HarnessWin]::GetClientRect($hwnd, [ref]$rc) | Out-Null
 		$script:clientW = [double]$rc.Right; $script:clientH = [double]$rc.Bottom
 		# The window opens (on its Inventory tab) and lays itself out before its
 		# slots can be asked where they are. PARKED small at the top-left: at its
@@ -1517,8 +1405,8 @@ try {
 		Send-Key 0xC0
 		Start-Sleep -Milliseconds 400
 		Assert-PartyAt 14 2
-		$rc = New-Object AllocTestWin+RECT
-		[AllocTestWin]::GetClientRect($hwnd, [ref]$rc) | Out-Null
+		$rc = New-Object HarnessWin+RECT
+		[HarnessWin]::GetClientRect($hwnd, [ref]$rc) | Out-Null
 		$script:clientW = [double]$rc.Right; $script:clientH = [double]$rc.Bottom
 		# The floor point as -Items works it out (see there), and a point well
 		# above the horizon: the ray never meets the floor, so it is a throw.
@@ -1594,8 +1482,8 @@ try {
 		Send-Key 0xC0
 		Start-Sleep -Milliseconds 500
 		Send-Text 'logecho on'; Send-Key 0x0D
-		$rc = New-Object AllocTestWin+RECT
-		[AllocTestWin]::GetClientRect($hwnd, [ref]$rc) | Out-Null
+		$rc = New-Object HarnessWin+RECT
+		[HarnessWin]::GetClientRect($hwnd, [ref]$rc) | Out-Null
 		$script:clientW = [double]$rc.Right; $script:clientH = [double]$rc.Bottom
 		# Whoever has two free slots in the pack on show takes both bags (a
 		# Continued eval save can leave any member's pack full).
@@ -2168,13 +2056,7 @@ try {
 	}
 	$code = if ($result -eq $want) { 0 } else { 1 }
 } finally {
-	if (-not $proc.HasExited) {
-		# Quit through the console so shutdown runs (it logs whole-run heap totals).
-		if ($hwnd -ne [IntPtr]::Zero) {
-			Send-Key 0xC0; Start-Sleep -Milliseconds 400
-			Send-Text 'quit'; Send-Key 0x0D
-		}
-		if (-not $proc.WaitForExit(5000)) { $proc.Kill() }
-	}
+	# Quit through the console so shutdown runs (it logs whole-run heap totals).
+	Stop-HarnessGame 5000 -OpenConsole
 }
 exit $code

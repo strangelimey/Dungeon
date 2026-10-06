@@ -21,38 +21,10 @@
 #   still captures black - restore it first.
 param([int]$GamePid = 0)
 
-if (-not ([System.Management.Automation.PSTypeName]'DriveWin').Type) {
-	Add-Type @'
-using System;
-using System.Runtime.InteropServices;
-using System.Text;
-public class DriveWin {
-	[DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
-	[DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr h, out RECT r);
-	[DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr hdc, uint flags);
-	[DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
-	[DllImport("user32.dll")] static extern bool EnumWindows(EnumProc cb, IntPtr l);
-	[DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
-	[DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder s, int n);
-	delegate bool EnumProc(IntPtr h, IntPtr l);
-	public struct RECT { public int Left, Top, Right, Bottom; }
-
-	// The top-level window of class `cls` owned by process `pid`, or zero. Not
-	// Process.MainWindowHandle: a debug build also owns a console window.
-	public static IntPtr FindByPid(uint pid, string cls) {
-		IntPtr found = IntPtr.Zero;
-		EnumWindows((h, l) => {
-			uint p; GetWindowThreadProcessId(h, out p);
-			if (p != pid) return true;
-			var sb = new StringBuilder(64); GetClassName(h, sb, sb.Capacity);
-			if (sb.ToString() != cls) return true;
-			found = h; return false;
-		}, IntPtr.Zero);
-		return found;
-	}
-}
-'@
-}
+# The window type (FindByPid, PostMessage, PrintWindow) is the harnesses' own
+# copy in tools\HarnessGame.ps1, so this driver and every harness find the
+# game's window the same way.
+. (Join-Path (Split-Path $PSScriptRoot -Parent) 'tools\HarnessGame.ps1')
 Add-Type -AssemblyName System.Drawing
 
 function Use-Game([int]$id = 0) {
@@ -65,7 +37,7 @@ function Use-Game([int]$id = 0) {
 		}
 		$id = $mine[0].Id
 	}
-	$h = [DriveWin]::FindByPid([uint32]$id, 'DungeonWindowClass')
+	$h = [HarnessWin]::FindByPid([uint32]$id, $HarnessWindowClass)
 	if ($h -eq [IntPtr]::Zero) { throw "drive.ps1: process $id has no game window (yet?)" }
 	$script:gamePid = $id
 	$script:hwnd = $h
@@ -73,12 +45,7 @@ function Use-Game([int]$id = 0) {
 
 Use-Game $GamePid
 
-function Key([int]$vk) {
-	[DriveWin]::PostMessage($script:hwnd, 0x100, [IntPtr]$vk, [IntPtr]1) | Out-Null
-	Start-Sleep -Milliseconds 60
-	[DriveWin]::PostMessage($script:hwnd, 0x101, [IntPtr]$vk, [IntPtr][int64]0xC0000001) | Out-Null
-	Start-Sleep -Milliseconds 250
-}
+function Key([int]$vk) { Send-Key $vk }
 
 # Types a string into whatever has focus (the dev console, a text field). Posts
 # WM_CHAR per character rather than key-downs, which is what Input::OnChar
@@ -90,30 +57,27 @@ function Key([int]$vk) {
 # function by that name is silently shadowed — "cast 0 fire" comes back as
 # "cannot find path .../cast 0 fire" instead of typing anything.
 function Send([string]$text) {
-	foreach ($ch in $text.ToCharArray()) {
-		[DriveWin]::PostMessage($script:hwnd, 0x102, [IntPtr][int]$ch, [IntPtr]1) | Out-Null
-		Start-Sleep -Milliseconds 30
-	}
+	Send-Text $text 30
 	Start-Sleep -Milliseconds 150
 }
 
 function Click([int]$x, [int]$y) {
 	$l = [IntPtr](($y -shl 16) -bor ($x -band 0xFFFF))
-	[DriveWin]::PostMessage($script:hwnd, 0x200, [IntPtr]0, $l) | Out-Null # WM_MOUSEMOVE
+	[HarnessWin]::PostMessage($script:hwnd, 0x200, [IntPtr]0, $l) | Out-Null # WM_MOUSEMOVE
 	Start-Sleep -Milliseconds 120
-	[DriveWin]::PostMessage($script:hwnd, 0x201, [IntPtr]1, $l) | Out-Null # WM_LBUTTONDOWN
+	[HarnessWin]::PostMessage($script:hwnd, 0x201, [IntPtr]1, $l) | Out-Null # WM_LBUTTONDOWN
 	Start-Sleep -Milliseconds 60
-	[DriveWin]::PostMessage($script:hwnd, 0x202, [IntPtr]0, $l) | Out-Null # WM_LBUTTONUP
+	[HarnessWin]::PostMessage($script:hwnd, 0x202, [IntPtr]0, $l) | Out-Null # WM_LBUTTONUP
 	Start-Sleep -Milliseconds 250
 }
 
 function Shot([string]$name) {
-	if (-not [DriveWin]::IsWindow($script:hwnd)) { throw "drive.ps1: game $script:gamePid's window is gone" }
-	$r = New-Object DriveWin+RECT; [DriveWin]::GetClientRect($script:hwnd, [ref]$r) | Out-Null
+	if (-not [HarnessWin]::IsWindow($script:hwnd)) { throw "drive.ps1: game $script:gamePid's window is gone" }
+	$r = New-Object HarnessWin+RECT; [HarnessWin]::GetClientRect($script:hwnd, [ref]$r) | Out-Null
 	$bmp = New-Object System.Drawing.Bitmap($r.Right, $r.Bottom)
 	$g = [System.Drawing.Graphics]::FromImage($bmp)
 	$hdc = $g.GetHdc()
-	$ok = [DriveWin]::PrintWindow($script:hwnd, $hdc, 3) # PW_CLIENTONLY | PW_RENDERFULLCONTENT
+	$ok = [HarnessWin]::PrintWindow($script:hwnd, $hdc, 3) # PW_CLIENTONLY | PW_RENDERFULLCONTENT
 	$g.ReleaseHdc($hdc)
 	if (-not $ok) { $g.Dispose(); $bmp.Dispose(); throw "drive.ps1: PrintWindow failed for game $script:gamePid" }
 	$bmp.Save((Join-Path $PSScriptRoot "$name.png")); $g.Dispose(); $bmp.Dispose()

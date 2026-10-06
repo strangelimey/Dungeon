@@ -1978,9 +1978,19 @@ Full per-phase history + gotchas live in the editor-overhaul memory.
   swapchain instead of black) on that HWND, NEVER CopyFromScreen or any desktop
   grab, which photographs whatever window is in front. Kill by PID too. A
   harness that refuses to run beside another game must say why (ProfileTest
-  does, on purpose: a second game on the GPU would be measured). drive.ps1 is
-  the reference; it refuses rather than guess when it cannot tell which game is
-  its own.
+  does, on purpose: a second game on the GPU would be measured). drive.ps1
+  refuses rather than guess when it cannot tell which game is its own.
+  THE ONE COPY of that plumbing is `tools\HarnessGame.ps1`, dot-sourced by
+  AllocTest, InGameTest, HealthTest, ProfileTest and TypingTest (and by
+  drive.ps1 for its window type): Start-HarnessGame finds the window by PID AND
+  window class (`Process.MainWindowHandle` can be a debug build's console
+  window) with a 30 s retry; Start-NewGame starts through the console's
+  `newgame` - never Enter on the title, which is Continue on the newest shared
+  save - waits for `Level ready:`/`New game started` (never `Game loaded:`,
+  which lands while commands are still refused) and refuses a run that loaded a
+  save; Wait-ConsoleReady counts only NEW log lines, so an echo the title
+  screen already wrote cannot satisfy it; Stop-HarnessGame quits, else kills
+  that process. A new harness dot-sources it rather than copying a helper.
 - TYPED TEXT IS ONE ORDERED STREAM (Platform/Input.h `TypedChars`): printable
   characters plus `Input::kTypedBack` / `kTypedEnter`, pushed by OnKey on the
   press, so a consumer applies Backspace and Enter WHERE THEY FELL (the console,
