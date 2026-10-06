@@ -21,8 +21,14 @@
 ; either side, exactly as a real suite would.)
 
 logecho on
-reset
+; FROZEN BEFORE THE LOAD, not after it. Block B's reset happens at timescale 0
+; (it carries over, being how the run is driven), so no simulated time passes
+; between that reset and its readouts; with the freeze after this first reset,
+; block A had one frame of it. That was invisible until `monsters` printed a
+; rising skeleton's root stray (the root-motion lock), which one frame moves:
+; root 0.019 against 0.002, and a "reset" that differed from nothing at all.
 timescale 0
+reset
 lockstep on
 
 ; --- the baseline, after a real new game -------------------------------------

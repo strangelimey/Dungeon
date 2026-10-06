@@ -638,10 +638,16 @@ try:
 
     # THE WRITERS' FIDELITY. `levels new` saves the whole project, and that
     # used to rewrite four files and delete every comment in project.ini.
-    # 29 = project.ini + 28 catalogs, shapes.cat (tool-refinement Phase 6) the
-    # newest.
-    check("catround 29 of 29 file(s) round-trip, 0 absent" in log,
-          "and saving the project leaves every file it did not change alone")
+    # Every file the game checked must round-trip with none absent, and it
+    # must check AT LEAST the 29 it did when this was written (project.ini +
+    # 28 catalogs to shapes.cat) - a floor, not an exact count: the exact 29
+    # failed this check the day lights.cat and trails.cat joined the project,
+    # though nothing had gone wrong. A drop below it is a writer gone missing.
+    m = re.search(r"catround (\d+) of (\d+) file\(s\) round-trip, (\d+) absent", log)
+    ok_files, seen_files, absent = (int(g) for g in m.groups()) if m else (0, 0, -1)
+    check(m is not None and ok_files == seen_files and absent == 0 and seen_files >= 29,
+          "and saving the project leaves every file it did not change alone",
+          m.group(0) if m else "no catround line")
 
     # --- W6: the player's map has two pages ---------------------------------
     # The drawing is not checkable from here; the STATE MACHINE is, and it is

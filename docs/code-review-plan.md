@@ -376,7 +376,7 @@ Paths are under `src/Game/` unless shown otherwise. "Judge" names the existing c
 **28. Melee target and cosmetic RNG** - C33, C73
 - Files: DungeonWorld_Combat.cpp, DungeonWorld.cpp/.h.
 - C33: PickMeleeTarget takes the front slot in the attacker's lane.
-- C73: animation clip choice draws from a cosmetic RNG stream.
+- C73: animation clip choice draws from a cosmetic RNG stream. (LANDED EARLY, before batch 2: the stream and its reseed at LoadMonsters were needed for Eval.ps1 -SelfTest's reset check to pass at all. Its ADD below still lands here.)
 - Judge: the Eval suites (smallparty and crypt2 numbers move once) and Eval.ps1 -SelfTest. ADD:
   - eval: two skel_swarm in one square; Brand, front-left, hits the front slot in his lane;
   - a seeded sweep with one extra cosmetic clip on a monster matches the sweep without it.

@@ -236,12 +236,20 @@ void Game::RegisterEvalCommands() {
 	// unwalkable or occupied cell, and so does this — reported rather than
 	// silent, because a spawn that did not happen is an encounter that is not
 	// the one the script described.
+	// `up` (any word after the cell) stands it up at once: a kit skeleton
+	// otherwise spends 9.5-14 s rising and holding still (StandLastMonster).
 	m_console.Register({.name = "spawn",
 						.group = CmdGroup::Monsters,
-						.params = "<type> <x> <z> [n|e|s|w] [strength]",
+						.params = "<type> <x> <z> [n|e|s|w] [strength] [up]",
 						.summary = "place a monster live, optionally scaling its hp and damage"},
-					   [this](const std::vector<std::string>& args) {
-						   if (!Need(m_console, args, 3)) return;
+					   [this](const std::vector<std::string>& given) {
+						   if (!Need(m_console, given, 3)) return;
+						   std::vector<std::string> args;
+						   bool up = false;
+						   for (size_t i = 0; i < given.size(); ++i) {
+							   if (i >= 3 && given[i] == "up") up = true;
+							   else args.push_back(given[i]);
+						   }
 						   const int x = std::atoi(args[1].c_str());
 						   const int z = std::atoi(args[2].c_str());
 						   Direction facing = Direction::South;
@@ -271,8 +279,9 @@ void Game::RegisterEvalCommands() {
 						   }
 						   if (strength > 0.0f && strength != 1.0f)
 						   m_world->ScaleLastMonster(strength);
-					   m_console.Print(std::format("spawned {} at {},{} x{:.2f}",
-											   args[0], x, z, strength));
+						   if (up) m_world->StandLastMonster();
+					   m_console.Print(std::format("spawned {} at {},{} x{:.2f}{}",
+											   args[0], x, z, strength, up ? " up" : ""));
 					   });
 
 	// --- measuring an encounter (docs/eval-harness.md) ----------------------

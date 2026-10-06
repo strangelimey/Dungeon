@@ -12,7 +12,7 @@
 heal
 arena open 9 9
 freeze off
-spawn skel_warrior 14 11 south 4
+spawn skel_warrior 14 11 south 4 up
 tp 14 12
 tally reset
 step 20

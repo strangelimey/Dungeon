@@ -13,11 +13,15 @@
 ; sometimes inverted. Soak is flat, so it matters least against exactly the heavy
 ; blows a self-test needs in order to be reliable. A subtle knob makes a flaky
 ; check (docs/eval-audit.md, Tier 3 item 10).
+;
+; `up`: the skeleton stands at once. Since a kit skeleton holds still for the
+; 9.5-14 s it takes to rise (spawnrise.eval), the party beat it to death before
+; it ever swung, both arms read `taken` 0, and Eval.ps1 -SelfTest failed.
 
 heal
 arena open 9 9
 freeze off
-spawn skel_warrior 14 11 south 2
+spawn skel_warrior 14 11 south 2 up
 tp 14 12
 tally reset
 step 20

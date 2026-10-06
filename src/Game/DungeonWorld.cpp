@@ -1437,7 +1437,7 @@ const std::string& DungeonWorld::PickClip(const MonsterKind& kind,
 	const auto& cands = kind.animClips[static_cast<int>(state)];
 	if (cands.empty()) return kNoClip;
 	if (cands.size() == 1) return cands.front();
-	return cands[m_combatRng() % cands.size()];
+	return cands[m_cosmeticRng() % cands.size()]; // never the combat stream (C73)
 }
 
 // Per-monster clip state machine. Resolves the desired CreatureState from live

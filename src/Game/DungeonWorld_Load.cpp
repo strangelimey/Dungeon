@@ -1087,6 +1087,11 @@ DungeonWorld::Monster DungeonWorld::MakeMonster(MonsterKind& kind, int id, int x
 }
 
 void DungeonWorld::LoadMonsters() {
+	// The cosmetic stream starts over with the level's monsters (C73), here
+	// because this is the one place both a level load and a `reset` build them
+	// (RespawnFromRecords): each then draws the same idle and rising clips, as
+	// `reset` must equal a new game line for line.
+	m_cosmeticRng.seed(kCosmeticSeed);
 	int phase = 0;
 	for (const Entity& spawn : m_entities.All()) {
 		if (spawn.kind != EntityKind::Monster) continue;

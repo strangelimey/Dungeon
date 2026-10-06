@@ -768,6 +768,18 @@ public:
 		m.strength = strength;
 		m.hp = m.MaxHp(); // spawned at full, and full has just changed
 	}
+	// Stand the MOST RECENTLY SPAWNED monster up at once (`spawn ... up`): no
+	// rise. A kit skeleton otherwise lies 9.5-14 s getting up and does nothing
+	// while it does (spawnrise.eval), so a measured fight placed beside the
+	// party is over before the monster has swung - respond.eval's defence arms
+	// read `taken` 0 on both sides. The same two fields a reload clears for a
+	// monster that was already met (ApplyState's alreadyUp).
+	void StandLastMonster() {
+		if (m_monsters.empty()) return;
+		Monster& m = m_monsters.back();
+		m.spawnReq = false;
+		m.spawnAnim = 0.0f;
+	}
 
 	// DETONATE A NAMED SPELL'S BLAST at a cell, with no caster, no mana, no
 	// skill roll and no bolt flight — the eval harness's way of asking a
@@ -4407,6 +4419,15 @@ private:
 	static std::string StashedMapText(const std::string& stem, const DungeonMap& map);
 	static std::string StashedEntText(const std::string& stem, const DungeonEntities& ents);
 	std::mt19937 m_combatRng{0xC0FFEEu};
+	// COSMETIC choices - which of a state's clips a monster plays (PickClip) -
+	// draw from their own stream (code-review C73), so authoring one more attack
+	// or hit clip cannot shift every later combat roll of a seeded sweep. Back to
+	// kCosmeticSeed whenever a level's monsters are built (LoadMonsters), so a
+	// recycled world picks the same clips a fresh load does - the `monsters`
+	// readout prints the rising clip, and `reset` must equal a new game line for
+	// line.
+	static constexpr u32 kCosmeticSeed = 0xA11CE5u;
+	std::mt19937 m_cosmeticRng{kCosmeticSeed};
 	bool m_partyWiped = false; // latches onPartyWipe so it fires once
 	bool m_partyNoticed = false; // PartyNoticed: set by UpdateMonsters, cleared by TickParty
 	// The attack formula's tuning (docs/combat.md): balance.cat knobs +
