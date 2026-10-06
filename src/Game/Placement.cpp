@@ -87,13 +87,29 @@ Placement Resolve(const DungeonMap& map, Mount mount, int cx, int cz,
 		return p;
 
 	case Mount::FloorSlot:
-		// Same floor rule, plus the sub-cell point the pointer named. Carried as
-		// a WORLD position rather than a quarter index so the editor can hand it
-		// straight to the existing nearest-free-quarter search.
+		// Over a SOLID square the only place an item can go is INTO A NICHE, and
+		// only the one on the face the pointer picked: the niche's walkable
+		// square and its wall, the record a hand-written `niche=` item carries.
+		// Any other solid square is rock, refused as the floor rule refuses it.
+		// The face must be one of THIS block's (FaceAt's answer over a block is).
 		if (!map.IsWalkable(cx, cz)) {
+			if (face.valid && face.x + DirDX(face.wall) == cx &&
+				face.z + DirDZ(face.wall) == cz &&
+				map.NicheAt(face.x, face.z, DirDX(face.wall), DirDZ(face.wall))) {
+				p.x = face.x;
+				p.z = face.z;
+				p.facing = face.wall;
+				p.facingDerived = true;
+				p.niche = true;
+				p.valid = true;
+				return p;
+			}
 			p.refusalKey = "map.place.nofloor";
 			return p;
 		}
+		// Same floor rule, plus the sub-cell point the pointer named. Carried as
+		// a WORLD position rather than a quarter index so the editor can hand it
+		// straight to the existing nearest-free-quarter search.
 		p.subX = (static_cast<float>(cx) + std::clamp(fx, 0.0f, 1.0f)) * kCellSize;
 		p.subZ = (static_cast<float>(cz) + std::clamp(fz, 0.0f, 1.0f)) * kCellSize;
 		p.valid = true;

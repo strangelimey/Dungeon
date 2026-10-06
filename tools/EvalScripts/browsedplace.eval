@@ -1,0 +1,93 @@
+; browsedplace.eval - placement on a BROWSED level, and an item into a niche
+; (code-review C310, C344, C351). Judged by tools/EditorTest.py phase 33, on its
+; scratch world.
+;
+; eval_arena (the harness level, the ACTIVE one) is open floor from 1,1 to 26,22
+; inside a one-square border, so no square of it named on crypt1 below has a
+; block to bore or a wall to hang on: a placement that reached the active level
+; instead of the browsed one is refused, never quietly made there.
+;
+;   --- bore ---      crypt1, browsed. Its block 8,2 is rock between 8,1 and 8,3:
+;                     a window bored from 8,3's north face lands in crypt1's stash
+;                     (`editor cell` reads the bore; `stashes` names crypt1's map
+;                     and leaves the active one clean). The window brush called
+;                     AddBore - the active level - whatever level was viewed.
+;   --- erase ---     the middle-click erase of 8,2 takes the bore and leaves the
+;                     block's pinned wall (crypt1 pins wall 8,2 to 1): the browsed
+;                     erase ladder had no bore rung, and fell through to the
+;                     surface reset.
+;   --- banner ---    banners hung on 3,3 north and 6,3 north, then the blocks
+;                     behind them (3,2 and 6,2) opened by a floor paint: 3,3's
+;                     re-hangs on its west wall (rock at 2,3), 6,3's has no wall
+;                     left and goes. Both used to stay hanging on open floor.
+;   --- browsedniche ---  a niche cut in 12,5's east wall, then the apple brush
+;                     named that wall: the apple goes INTO the niche (crypt1.ent's
+;                     record carries niche=east); named 12,5's west wall (rock with
+;                     no niche) it is refused; on the floor square 12,6 it is a
+;                     plain floor item. The pointer over the block 13,5 near its
+;                     west edge (`editor ghost`) picks the face 12,5 east, and the
+;                     ghost is the niche.
+;   --- ghost ---     eval_arena, active. A niche cut in 6,22's south wall, the
+;                     apple armed, then what the POINTER gets (`editor ghost`,
+;                     MapView's own hover): over the block 6,23 near its north
+;                     edge, the face 6,22 south and a ghost INTO the niche; over
+;                     9,23 likewise a face, but no niche - refused as rock; over
+;                     the floor 6,21, no face and a quarter. The click at 6,23
+;                     commits what the ghost showed, and `editor place` names the
+;                     same wall for a second apple. Named 6,21's north wall - the
+;                     floor 6,20, no block to hold a niche - it is refused: it
+;                     used to lay a floor apple on 6,20 and say it went into a
+;                     niche on 6,21.
+;   --- saved ---     savemap writes crypt1 and eval_arena.
+;   --- check ---     after `reset` (which keeps no stash: crypt1 is read from the
+;                     file just written), the Check (`validate`), a browse of
+;                     crypt1 and the live check each parse crypt1.map - where a
+;                     banner record left facing open floor is a DN_ASSERT, in
+;                     every build.
+;   --- end ---       the judge reads both levels' files.
+
+logecho on
+reset
+editor
+levels view crypt1
+echo --- bore ---
+editor cell 8 2
+editor place wallfeatures window 8 3 north
+editor cell 8 2
+stashes
+echo --- erase ---
+editor erase 8 2
+editor cell 8 2
+echo --- banner ---
+editor place decorations banner 3 3 north
+editor place decorations banner 6 3 north
+editor place floors floor_temple 3 2
+editor place floors floor_temple 6 2
+editor cell 3 2
+editor cell 6 2
+echo --- browsedniche ---
+editor place wallfeatures niche 12 5 east
+editor place items apple 12 5 east
+expect-refuse editor place items apple 12 5 west
+editor place items apple 12 6
+editor ghost 13 5 0.1 0.5
+echo --- ghost ---
+levels view eval_arena
+editor place wallfeatures niche 6 22 south
+editor arm items apple
+editor ghost 6 23 0.5 0.1
+editor ghost 9 23 0.5 0.1
+editor ghost 6 21 0.5 0.5
+editor ghost 6 23 0.5 0.1 click
+editor place items apple 6 22 south
+expect-refuse editor place items apple 6 21 north
+echo --- saved ---
+savemap
+reset
+editor
+echo --- check ---
+validate
+levels view crypt1
+editor cell 3 2
+editor issues
+echo --- end ---

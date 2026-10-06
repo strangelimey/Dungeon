@@ -958,6 +958,41 @@ bool DungeonMap::FreeNicheWall(int x, int z, Direction& out) const {
 	return false;
 }
 
+bool DungeonMap::SolidWall(int x, int z, Direction& out) const {
+	constexpr Direction kScan[4] = {Direction::North, Direction::East,
+									Direction::South, Direction::West};
+	for (const Direction d : kScan)
+		if (!IsWalkable(x + DirDX(d), z + DirDZ(d))) {
+			out = d;
+			return true;
+		}
+	return false;
+}
+
+int DungeonMap::RehomeWallDecorations(int x, int z) {
+	if (!IsWalkable(x, z)) return 0; // only an OPENED cell leaves a prop on air
+	int touched = 0;
+	for (size_t i = m_decorations.size(); i-- > 0;) {
+		Entity& e = m_decorations[i];
+		// `wall=` is the whole of "hung on a wall" for a record (LoadDecorations
+		// reads nothing else), and an unparseable one is the parser's to refuse.
+		Direction wall = Direction::North;
+		const std::string* w = e.Param("wall");
+		if (!w || !ParseDirection(*w, wall)) continue;
+		if (e.x + DirDX(wall) != x || e.z + DirDZ(wall) != z) continue;
+		Direction d;
+		if (SolidWall(e.x, e.z, d)) {
+			for (auto& [key, value] : e.params)
+				if (key == "wall") value = DirToken(d);
+			e.facing = d; // as a fresh placement on that wall writes it
+		} else {
+			m_decorations.erase(m_decorations.begin() + static_cast<ptrdiff_t>(i));
+		}
+		++touched;
+	}
+	return touched;
+}
+
 const WallNiche* DungeonMap::NicheAt(int x, int z, int dx, int dz) const {
 	for (const WallNiche& n : m_niches)
 		if (n.x == x && n.z == z && DirDX(n.wall) == dx && DirDZ(n.wall) == dz)
@@ -1107,18 +1142,6 @@ const WallBore* DungeonMap::BoreAlong(int x, int z, int axis) const {
 	for (const WallBore& b : m_bores)
 		if (b.x == x && b.z == z && b.axis == axis) return &b;
 	return nullptr;
-}
-
-bool DungeonMap::AddBore(std::string type, int x, int z) {
-	// No axis named: auto-detect. A block with floor on ALL four sides can be
-	// bored either way and silently takes X — the editor names the axis from the
-	// face pointed at instead (see the overload below).
-	if (IsWalkable(x, z)) return false; // a bore is through a SOLID wall block
-	int axis = -1;
-	if (IsWalkable(x - 1, z) && IsWalkable(x + 1, z)) axis = 0;      // floor E+W → X
-	else if (IsWalkable(x, z - 1) && IsWalkable(x, z + 1)) axis = 1; // floor N+S → Z
-	if (axis < 0) return false;                                     // not a 1-block wall
-	return AddBore(std::move(type), x, z, axis);
 }
 
 bool DungeonMap::AddBore(std::string type, int x, int z, int axis) {

@@ -84,22 +84,16 @@ void DungeonWorld::PruneEntitiesForCell(int x, int z) {
 
 	// Cell painted open: buttons and wall decorations in the neighbouring cells
 	// that mounted on it hang on air now. Re-mount each on a solid wall of its
-	// own cell, else drop it (the sconce treatment in PruneFixturesForCell).
-	auto solidWall = [&](int cx, int cz, Direction& out) {
-		constexpr Direction kScan[4] = {Direction::North, Direction::East,
-										Direction::South, Direction::West};
-		for (const Direction d : kScan)
-			if (!m_map.IsWalkable(cx + DirDX(d), cz + DirDZ(d))) {
-				out = d;
-				return true;
-			}
-		return false;
-	};
+	// own cell, else drop it (the sconce treatment in PruneFixturesForCell). The
+	// wall is DungeonMap::SolidWall's, the rule a browsed level's records are
+	// re-hung by too (RehomeWallDecorations, PruneStashRecordsForCell), so the
+	// two ways of editing a level cannot hang one prop on different walls
+	// (code-review C344).
 	for (size_t i = m_buttons.size(); i-- > 0;) {
 		Button& b = m_buttons[i];
 		if (b.x + DirDX(b.facing) != x || b.z + DirDZ(b.facing) != z) continue;
 		Direction d;
-		if (solidWall(b.x, b.z, d)) {
+		if (m_map.SolidWall(b.x, b.z, d)) {
 			b.facing = d;
 			// The writer emits buttons from their .ent record, so re-face it too.
 			if (Entity* e = m_entities.MutableById(b.id)) e->facing = d;
@@ -117,8 +111,9 @@ void DungeonWorld::PruneEntitiesForCell(int x, int z) {
 		if (deco.x + DirDX(deco.wall) != x || deco.z + DirDZ(deco.wall) != z)
 			continue;
 		Direction d;
-		if (solidWall(deco.x, deco.z, d)) {
+		if (m_map.SolidWall(deco.x, deco.z, d)) {
 			deco.wall = d;
+			deco.facing = d; // as a fresh placement on that wall has it (AddWallDecoration)
 			const WallMount m = MountOnWall(deco.x, deco.z, d);
 			XMStoreFloat4x4(&deco.world,
 							UnitScale(deco.kind->modelScale) * XMMatrixRotationY(m.yaw) *
@@ -679,12 +674,6 @@ bool DungeonWorld::AddSurfaceFeature(const std::string& type, int x, int z) {
 bool DungeonWorld::RemoveFeatureAt(int x, int z) {
 	if (!m_map.RemoveAnyFeature(x, z)) return false;
 	RebuildChunksAround(x, z); // the plain block comes back
-	return true;
-}
-
-bool DungeonWorld::AddBore(const std::string& type, int x, int z) {
-	if (!m_map.AddBore(type, x, z)) return false;
-	RebuildChunksAround(x, z); // re-stamps the two flanking floor cells' faces
 	return true;
 }
 

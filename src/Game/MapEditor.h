@@ -428,12 +428,12 @@ public:
 	// The armed brush's mount — what it attaches to (Placement.h). Data-driven:
 	// the type's own `mount` field, or its category's default.
 	Mount BrushMount() const;
-	// True when the armed brush hangs on a WALL FACE rather than occupying a
-	// square: a niche, or any catalog kind declaring `mount = wall` (the sconce
-	// today, any future wall decoration for free). MapView keys its edge-pick and
-	// hover highlight off this, so adding a wall-mounted kind is a catalog edit,
-	// not a code change.
-	bool BrushIsWallMounted() const;
+	// True when the brush's placement at square (cx, cz) of the VIEWED level
+	// reads the wall face the pointer picks: a wall-mounted brush anywhere, and
+	// an item brush over a SOLID square, where the face picked is the niche it
+	// would go into (Placement::niche, code-review C351). MapView tracks - and
+	// draws - the hovered face exactly then.
+	bool BrushTakesFaceAt(int cx, int cz) const;
 	// The face a wall-mounted brush takes at square (x, z) of the VIEWED level
 	// when nothing points at one - a script's `editor place` with no face. The
 	// first FREE solid face (N, E, S, W): a sconce's by DungeonMap::

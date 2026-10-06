@@ -74,6 +74,14 @@ struct Placement {
 	// Whether `facing` was DERIVED (a wall to hang on, a doorway axis) rather
 	// than defaulted. The ghost draws an arrow only when it means something.
 	bool facingDerived = false;
+	// FloorSlot only: the item goes INTO A NICHE rather than onto a floor
+	// quarter. The pointer is over a solid block and the face it picked holds a
+	// niche: `x`/`z` is the niche's own walkable square, `facing` the wall it is
+	// carved into (the record's `niche=`), and there is no quarter (`slot` -1).
+	// It used to be a branch of its own in the editor's commit, which the floor
+	// rule above it refused first - a niche wants a solid square, a floor quarter
+	// a walkable one - so no item could be placed in a niche (code-review C351).
+	bool niche = false;
 };
 
 // The `mount` an entry declares, or the category's default when it is silent.
@@ -86,6 +94,8 @@ Mount MountFor(std::string_view catalogKey, const CatalogEntry* entry);
 //
 // `face` may be invalid — that is itself an answer for a Wall mount (the
 // pointer is not over a floor/rock boundary, so there is nothing to hang on).
+// A FloorSlot mount reads it only over a SOLID square, where a face holding a
+// niche is the one place such a square can take an item (Placement::niche).
 // `fx`/`fz` are the pointer's FRACTIONAL position inside the cell (0..1 on each
 // axis), which is what a FloorSlot mount needs and every other mount ignores.
 Placement Resolve(const DungeonMap& map, Mount mount, int cx, int cz,

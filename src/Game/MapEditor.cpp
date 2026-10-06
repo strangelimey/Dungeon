@@ -730,7 +730,11 @@ Mount MapEditor::BrushMount() const {
 	return MountFor(key, cat ? cat->Find(items[m_sel.index].id) : nullptr);
 }
 
-bool MapEditor::BrushIsWallMounted() const { return BrushMount() == Mount::Wall; }
+bool MapEditor::BrushTakesFaceAt(int cx, int cz) const {
+	const Mount m = BrushMount();
+	return m == Mount::Wall ||
+		   (m == Mount::FloorSlot && !m_view.ViewedMap().IsWalkable(cx, cz));
+}
 
 bool MapEditor::DefaultWallFace(int x, int z, WallFace& out) const {
 	// The level the brush EDITS (ApplyBrush below), so a browsed level's own
@@ -764,8 +768,9 @@ Placement MapEditor::ResolveBrush(int cx, int cz, const WallFace& face, float fx
 	//
 	// A BROWSED level deliberately gets no quarter: its items live as records in
 	// a stash with no live instances to consult, so any answer here would be a
-	// guess, and the placement falls back to the loader's fill order.
-	if (p.valid && p.mount == Mount::FloorSlot && !m_view.Browsing())
+	// guess, and the placement falls back to the loader's fill order. Nor does an
+	// item going INTO A NICHE: the pocket holds a pile, not four quarters.
+	if (p.valid && p.mount == Mount::FloorSlot && !p.niche && !m_view.Browsing())
 		p.slot = m_world->FreeItemSlotNear(p.x, p.z, p.subX, p.subZ, -1);
 	return p;
 }
@@ -855,13 +860,16 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face,
 			// the picked face, and that face names the axis it runs along — so a
 			// free-standing block can be bored either way instead of always X.
 			// Pointing from either side works, as the block is derived from the face.
+			// The VIEWED level's block, as every other placement here: it bored the
+			// active level's whatever level was viewed (code-review C310).
 			if (CatalogBool(m_world->GetProject().wallfeatures.Find(id), "bore", false)) {
-				const int bx = face.x + DirDX(face.wall), bz = face.z + DirDZ(face.wall);
-				const int axis = (face.wall == Direction::North ||
-								  face.wall == Direction::South)
+				const int bx = px + DirDX(place.facing), bz = pz + DirDZ(place.facing);
+				const int axis = (place.facing == Direction::North ||
+								  place.facing == Direction::South)
 									 ? 1  // through a N/S face -> the bore runs along Z
 									 : 0; // through an E/W face -> along X
-				ok = m_world->AddBore(id, bx, bz, axis); // active level only for now
+				ok = remote ? m_world->AddBoreRemote(stem, id, bx, bz, axis)
+							: m_world->AddBore(id, bx, bz, axis);
 			} else
 				ok = remote ? m_world->AddNicheRemote(stem, id, px, pz, face.wall)
 							: m_world->AddNiche(id, px, pz, face.wall);
@@ -879,22 +887,21 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face,
 				 m_sel.cat == PaletteCat::Weapons ||
 				 m_sel.cat == PaletteCat::Armor) {
 			// Weapons and armor are item entities too — same placement path.
-			// A niche on the clicked WALL takes the item (piled in its pocket);
-			// a floor cell places on the floor as usual.
-			if (!remote)
-				if (auto faces = m_world->NicheFacesAt(cx, cz); !faces.empty()) {
-					ok = m_world->AddNicheItem(id, faces[0].x, faces[0].z, faces[0].wall);
-					log(loc::Format(ok ? "map.place.done" : "map.place.blocked",
-									items[m_sel.index].label));
-					changed = ok;
-					break;
-				}
+			// INTO A NICHE when the resolver said so (the pointer on a niche's
+			// face of a solid block: the niche's square and wall, piled in its
+			// pocket); otherwise onto the floor quarter the ghost drew. The niche
+			// used to be a branch of its own, reached only past the floor rule's
+			// refusal of every solid square - so never (code-review C351).
+			if (place.niche)
+				ok = remote ? m_world->AddNicheItemRemote(stem, id, px, pz, place.facing)
+							: m_world->AddNicheItem(id, px, pz, place.facing);
 			// The quarter the ghost drew. Remote placement has no live items to
 			// pick a free quarter against, so it authors none and the loader
 			// fills in order — which is why ResolveBrush leaves `slot` at -1
 			// there rather than inventing one.
-			ok = remote ? m_world->AddItemRemote(stem, id, cx, cz)
-						: m_world->AddItem(id, cx, cz, place.slot);
+			else
+				ok = remote ? m_world->AddItemRemote(stem, id, cx, cz)
+							: m_world->AddItem(id, cx, cz, place.slot);
 		}
 		else if (wallBrush) // a `mount = wall` decoration hangs on the picked face
 			ok = remote ? m_world->AddDecorationRemote(stem, id, px, pz, face.wall)

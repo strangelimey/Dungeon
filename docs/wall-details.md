@@ -147,6 +147,10 @@ Remaining niche work (follow-ons):
   per catalog `model` (type→mesh map + a resolver in the builder; the record
   carries the type). Placement/save already carry `type`.
 - **Item in a niche**: a niche-relative mount for a placed item/decoration.
+  BUILT for items: an item record's `niche=<wall>` piles it in that niche's
+  pocket, and the editor's item brush puts one there when it points at the
+  niche's face of the block (a Placement result, `Placement::niche` - code-review
+  C351; the brush's old niche branch was unreachable behind the floor rule).
 - **Secret/revealed niche**: a named, hidden-by-default niche wired to a button
   (the door pattern — `ToggleNichesNamed`, a dynamic revealed flag in the save).
 
@@ -172,9 +176,12 @@ Split into two DECOUPLED layers so a future see-through SPELL can add a
   a resolver in the builder. The spell's transient hole would be a transient
   overlay reusing these bore meshes.
 
-Editor: the Wall Features palette bore entries place on a SOLID wall (auto-detect
-axis; `AddBore(type, cell)`); middle-click removes; a cyan bar marks the bore in
-the top-down map. Pruned when the cell/flanks stop being a valid 1-block wall.
+Editor: the Wall Features palette bore entries bore the SOLID block behind the
+face pointed at, along that face's axis (`AddBore(type, x, z, axis)`; on a
+browsed level `AddBoreRemote`, into its stash - code-review C310: it bored the
+active level's block whatever level was viewed); middle-click removes, on any
+viewed level; a cyan bar marks the bore in the top-down map. Pruned when the
+cell/flanks stop being a valid 1-block wall.
 Bore mesh normals: the circular tunnel walls use RADIAL-inward normals (a fixed
 up/down normal flips hard at the circle's sides); M=40 strips for a smooth rim.
 

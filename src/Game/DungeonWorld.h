@@ -2096,11 +2096,11 @@ public:
 	bool AddSurfaceFeature(const std::string& type, int x, int z);
 	bool RemoveFeatureAt(int x, int z);
 	// Bores a see-through window (wallfeatures.cat `type`) through solid wall block
-	// (x,z) and re-stamps the two flanking faces. False if it isn't a 1-block wall
-	// between two spaces.
-	bool AddBore(const std::string& type, int x, int z);
-	// Same, along an EXPLICIT axis (0 = X, 1 = Z) — the editor derives it from
-	// the wall face pointed at, so a free-standing block can be bored either way.
+	// (x,z) along `axis` (0 = X, 1 = Z) and re-stamps the two flanking faces. The
+	// editor derives the axis from the wall face pointed at, so a free-standing
+	// block can be bored either way. False if that axis does not open into floor
+	// at both ends, or the block is bored already. (Its auto-axis twin went with
+	// code-review C310: nothing called it.)
 	bool AddBore(const std::string& type, int x, int z, int axis);
 	bool RemoveBoreAt(int x, int z);
 	// True if solid cell (x,z) can be seen/shot through along `axis` (0=X, 1=Z).
@@ -2259,7 +2259,9 @@ public:
 	// each, then a verdict line `pickprobe RESULT=PASS|FAIL|NONE ...`.
 	std::vector<std::string> ProbePicks() const;
 	// Places an item into the (x,z)/wall niche (record-backed, piles at the
-	// pocket). False if there is no niche there. Editor placement + in-game drop.
+	// pocket). False if there is no niche there. The editor's item brush lands
+	// here when its placement resolves INTO a niche (Placement::niche), and the
+	// `niche ... put` dev command; AddNicheItemRemote is a browsed level's twin.
 	bool AddNicheItem(const std::string& type, int x, int z, Direction wall);
 	// Save the (x,z)/wall niche's authored props (name / hidden / type); Delete it.
 	void SetNichePropsAt(int x, int z, Direction wall, const std::string& name,
@@ -2454,11 +2456,22 @@ public:
 						 int z);
 	bool AddItemRemote(const std::string& stem, const std::string& type, int x,
 					   int z);
+	// An item INTO the (x,z)/wall niche of a browsed level: a record with
+	// `niche=<wall>`, as AddNicheItem writes on the active one (code-review
+	// C351). False if the stash's map has no niche on that face.
+	bool AddNicheItemRemote(const std::string& stem, const std::string& type, int x,
+							int z, Direction wall);
+	// A window bored through solid block (x,z) of a browsed level, along `axis`
+	// - AddBore's twin, on the level's stash. The bore brush used to call
+	// AddBore whatever level was viewed, boring the ACTIVE level's block at the
+	// same square (code-review C310).
+	bool AddBoreRemote(const std::string& stem, const std::string& type, int x, int z,
+					   int axis);
 	// The erase ladder for a remote cell, mirroring the live tool: stair (pair
 	// removed too) → one monster/door/button/item record → one decoration
-	// record → fixture → reset the cell's surface variants, messaging what it
-	// did. Returns whether anything changed (the reset finds nothing to reset on
-	// a plain square).
+	// record → fixture → niche → bore → surface feature → reset the cell's
+	// surface variants, messaging what it did. Returns whether anything changed
+	// (the reset finds nothing to reset on a plain square).
 	bool EraseRemote(const std::string& stem, int x, int z);
 
 	// Saves every level with unsaved edits: the active one (SaveLevel) plus
@@ -5847,9 +5860,11 @@ private:
 	// The record-level twin of PruneEntitiesForCell for a STASHED level: a cell
 	// painted solid buries the records standing on it (stairs via the pair
 	// helper); one painted open re-faces neighbouring button records onto
-	// another solid wall of their cell (or drops them). Wall-mounted decoration
-	// records are left to the soft loaders (skip + warn) — they re-resolve on
-	// the next entry.
+	// another solid wall of their cell (or drops them), by DungeonMap::SolidWall.
+	// (Wall-mounted DECORATION records are the map's own: EditCellRemote re-hangs
+	// them through DungeonMap::RehomeWallDecorations before this runs. There is
+	// no soft loader for one left facing open floor - the parser asserts, and a
+	// level saved that way could never load again; code-review C344.)
 	void PruneStashRecordsForCell(const std::string& stem, int x, int z);
 	// Serializes a stashed level back to its files: the .map when its map is
 	// stashed, the .ent when its records are - each layer on its own, an

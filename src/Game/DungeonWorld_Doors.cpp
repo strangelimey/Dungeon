@@ -901,6 +901,24 @@ bool DungeonWorld::AddNicheItem(const std::string& type, int x, int z, Direction
 	return true;
 }
 
+bool DungeonWorld::AddNicheItemRemote(const std::string& stem, const std::string& type,
+									  int x, int z, Direction wall) {
+	if (!m_project.HasItem(type)) return false;
+	// The records stashed only when the item lands (C307); the niche is read off
+	// the level's own map, the one the brush's placement was resolved on.
+	return EditEntStash(stem, [&](DungeonEntities& ents, const DungeonMap& map) {
+		if (!map.NicheAt(x, z, DirDX(wall), DirDZ(wall))) return false; // no niche here
+		Entity record;
+		record.kind = EntityKind::Item;
+		record.type = type;
+		record.x = x;
+		record.z = z;
+		record.params.emplace_back("niche", DirToken(wall)); // AddNicheItem's record
+		ents.Add(std::move(record));
+		return true;
+	});
+}
+
 bool DungeonWorld::AddItemRemote(const std::string& stem,
 								 const std::string& type, int x, int z) {
 	if (!m_project.HasItem(type)) return false;

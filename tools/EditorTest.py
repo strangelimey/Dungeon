@@ -258,6 +258,22 @@
 #      a door (the erase ladder, an inspector's Delete, a wall painted over one)
 #      reports no violation, each staged so the object that slides up has other
 #      hit points than the one it replaces.
+#  33. PLACEMENT ON A BROWSED LEVEL (code-review C310, C344, C351), crypt1
+#      browsed from eval_arena: a window bored from a face of crypt1 bores
+#      crypt1's block, into its stash (the brush bored the ACTIVE level's), and
+#      the middle-click erase takes it (the browsed ladder had no bore rung).
+#      Two banners hung on crypt1, then the walls behind them opened: one
+#      re-hangs on its cell's other wall, the other has none and goes - in the
+#      saved .map, where no `wall=` record faces open floor - and after a reset
+#      the Check, a browse and the live check parse that file (a record left
+#      facing floor asserted there, every build). And an ITEM INTO A NICHE, by
+#      the brush: the pointer over a niche's block picks its face (`editor
+#      ghost`, MapView's own hover - the item brush tracked no face) and the
+#      ghost and the click put it in the niche, on eval_arena and on browsed
+#      crypt1 alike, each record carrying `niche=`; a face with no niche is
+#      refused, a floor square takes a floor item, and `editor place` naming
+#      a wall with open floor behind it is refused (it laid a floor item there
+#      and said it went into the niche).
 #  40. ONE WORLD TICK (code-review C78, C125), read off the world's own update
 #      count (`worldclock`): a paused editor stays paused through a bare
 #      `editor`, `editor pick` and `editor issues` - each asks for Editor mode,
@@ -3881,6 +3897,167 @@ try:
     left_b = brks(erased)
     check([b[1:4] for b in left_b] == [("wooden_door", 10, 5), ("crate", 20, 16)],
           "...one door and one crate left", str(left_b))
+finally:
+    drop()
+
+
+# --- phase 33: placement on a browsed level, and an item into a niche -------------
+print("33 - a browsed level's window, hung props and niche item land there; an item goes into a niche")
+CELL33 = re.compile(r"editor cell (\S+) (\d+),(\d+) (\w+) wall=(\S+)/\S+ .* bore=(\S+)$")
+
+
+def cells33(lines):
+    """(level, x, z, open|solid, wall store, bore) of each `editor cell` line."""
+    return [(m.group(1), int(m.group(2)), int(m.group(3)), m.group(4), m.group(5), m.group(6))
+            for m in map(CELL33.match, lines) if m]
+
+
+def level_text33(stem, ext):
+    return io.open(os.path.join(PROJ, "levels", stem + ext), encoding="utf-8").read()
+
+
+def grid33(text):
+    """The saved .map's grid rows (the lines between the two ';' fences that
+    hold only grid glyphs)."""
+    return [l for l in text.splitlines() if l and set(l) <= set("#.PDTF")]
+
+
+def records33(text, kind):
+    """The token lists of each `<kind> ...` record line."""
+    return [l.split() for l in text.splitlines() if l.startswith(kind + " ")]
+
+
+def hung_on_floor33(text):
+    """Every `wall=` decoration record of a saved .map whose wall is OPEN floor
+    in that map's own grid - what the parser asserts on."""
+    rows = grid33(text)
+    steps = {"north": (0, -1), "east": (1, 0), "south": (0, 1), "west": (-1, 0)}
+    bad = []
+    for r in records33(text, "decoration"):
+        wall = next((t.split("=", 1)[1] for t in r if t.startswith("wall=")), None)
+        if wall not in steps:
+            continue
+        x, z = int(r[2]) + steps[wall][0], int(r[3]) + steps[wall][1]
+        if 0 <= z < len(rows) and 0 <= x < len(rows[z]) and rows[z][x] != "#":
+            bad.append(" ".join(r))
+    return bad
+
+
+def apples33(ent_text, x, z):
+    """The `item apple <x> <z>` records of a .ent, each as its niche= ('' none)."""
+    out = []
+    for r in records33(ent_text, "item"):
+        if r[1:4] == ["apple", str(x), str(z)]:
+            out.append(next((t.split("=", 1)[1] for t in r if t.startswith("niche=")), ""))
+    return out
+
+
+fresh()
+try:
+    c1map0, ea_map0 = level_text33("crypt1", ".map"), level_text33("eval_arena", ".map")
+    c1ent0, ea_ent0 = level_text33("crypt1", ".ent"), level_text33("eval_arena", ".ent")
+    # THE CONTROL: the squares are what the script takes them for. crypt1's 8,2,
+    # 3,2 and 6,2 are rock with floor north and south; 2,3 is rock and 6,3 has no
+    # other wall; 12,5 is floor between rock east and west; no level has a bore,
+    # a banner or a niche item; eval_arena's 6,23 and 9,23 are its border rock.
+    g = grid33(c1map0)
+    check(all(g[2][x] == "#" and g[1][x] == "." and g[3][x] == "." for x in (3, 6, 8))
+          and g[3][2] == "#" and g[3][5] == "." and g[3][7] == "." and g[4][6] == "."
+          and g[5][11] == "#" and g[5][12] == "." and g[5][13] == "#" and g[6][12] == ".",
+          "THE CONTROL: crypt1's squares are as the script takes them", "\n".join(g))
+    check(not records33(c1map0, "bore") and not records33(ea_map0, "bore")
+          and not [r for r in records33(c1map0, "decoration") if r[1] == "banner"]
+          and "niche=" not in c1ent0 and "niche=" not in ea_ent0
+          and grid33(ea_map0)[23][6] == "#" and grid33(ea_map0)[23][9] == "#",
+          "THE CONTROL: no bore, no banner on crypt1 and no niche item anywhere; eval_arena's 6,23 "
+          "and 9,23 are its border rock")
+    log = run("browsedplace.eval")
+    check(passed(log), "the script ran clean (its two refusals expected, nothing else refused)")
+    sec = console_sections(log)
+    check("end" in sec, "the script ran to its end - every parse of crypt1 after the save "
+          "survived (a banner record facing open floor is a DN_ASSERT)",
+          "\n".join(harness_game.fatal_lines(log)[:5]))
+
+    # 1. THE WINDOW lands in the BROWSED level's stash, and the erase takes it.
+    bore = sec.get("bore", [])
+    cb = cells33(bore)
+    check(len(cb) == 2 and cb[0][:4] == ("crypt1", 8, 2, "solid") and cb[0][5] == "-"
+          and cb[1][5] == "window/z",
+          "a window bored from crypt1's 8,3 north face, crypt1 browsed, bores crypt1's block 8,2 "
+          "along z (the brush bored the ACTIVE level, here open floor, and refused)", str(bore))
+    check("stashes: maps=crypt1 ents=none" in " | ".join(bore)
+          and any(l.startswith("stashes: active eval_arena map=clean") for l in bore),
+          "...into crypt1's stash, map only, and the active level's map stays clean", str(bore))
+    erase = sec.get("erase", [])
+    ce = cells33(erase)
+    check("editor erase: 8,2" in erase and len(ce) == 1 and ce[0][5] == "-"
+          and ce[0][4] == cb[1][4] == "pin1",
+          "the erase of 8,2 takes the window and leaves the block's pinned wall (the browsed "
+          "ladder had no bore rung and reset the wall instead)", str(erase))
+
+    # 2. HUNG PROPS re-hang when their wall opens - in the saved file, which then loads.
+    banner = sec.get("banner", [])
+    cbn = cells33(banner)
+    check([c[:4] for c in cbn] == [("crypt1", 3, 2, "open"), ("crypt1", 6, 2, "open")]
+          and "editor place: banner at 3,3 on north" in banner
+          and "editor place: banner at 6,3 on north" in banner,
+          "two banners hung on crypt1, then the walls behind them opened by floor paint", str(banner))
+    c1map = level_text33("crypt1", ".map")
+    banners = sorted(" ".join(r) for r in records33(c1map, "decoration") if r[1] == "banner")
+    check(banners == ["decoration banner 3 3 west wall=west"],
+          "saved, 3,3's banner hangs on its west wall and 6,3's, with no wall left, is gone",
+          str(banners))
+    check(not hung_on_floor33(c1map), "no `wall=` record of the saved crypt1.map faces open floor",
+          str(hung_on_floor33(c1map)))
+    check(not records33(c1map, "bore"), "the saved crypt1.map has no bore (it was erased)",
+          str(records33(c1map, "bore")))
+    check(not records33(level_text33("eval_arena", ".map"), "bore"),
+          "...and the active level eval_arena gained none either")
+    chk = sec.get("check", [])
+    check(any(l.startswith("validate: ") for l in chk) and "viewing crypt1" in chk
+          and any(c[:4] == ("crypt1", 3, 2, "open") for c in cells33(chk))
+          and any(l.startswith("editor issues: ") for l in chk),
+          "after a reset - no stash left, crypt1 read from the file just written - the Check, a "
+          "browse of crypt1 and the live check all ran", str(chk))
+
+    # 3. AN ITEM INTO A NICHE, by the brush: on the browsed level and the active one.
+    bn = sec.get("browsedniche", [])
+    check("editor place: niche at 12,5 on east" in bn
+          and "editor place: apple at 12,5 on east" in bn
+          and "editor place: apple at 12,6" in bn,
+          "on crypt1 a niche cut in 12,5's east wall, an apple placed into it, one on the floor "
+          "of 12,6 (12,5's west wall, rock with no niche, refused - the expected refusal)", str(bn))
+    check("editor ghost: square 13,5 face 12,5 east place 12,5 niche east" in bn,
+          "the pointer over the block 13,5 by its west edge picks the face 12,5 east and the "
+          "ghost is the niche (the item brush tracked no face)", str(bn))
+    gh = sec.get("ghost", [])
+    slot = [l for l in gh if l.startswith("editor ghost: square 6,21 ")]
+    check("editor ghost: square 6,23 face 6,22 south place 6,22 niche south" in gh
+          and "editor ghost: square 9,23 face 9,22 south refused map.place.nofloor" in gh
+          and len(slot) == 1 and re.match(r"editor ghost: square 6,21 face none place 6,21 slot \d$",
+                                          slot[0]),
+          "on eval_arena the pointer over 6,23 by its north edge: the face 6,22 south, a ghost "
+          "INTO its niche; over 9,23, a face but no niche - refused as rock; over the floor 6,21, "
+          "no face and a quarter", str(gh))
+    check("editor ghost: clicked 6,23" in gh and "editor place: apple at 6,22 on south" in gh,
+          "the click at 6,23 placed what the ghost showed, and `editor place` naming the wall "
+          "a second", str(gh))
+    check(any("editor place: no wall north of 6,21 for apple to go into (6,20 is open)" in l
+              for l in gh),
+          "`editor place` naming 6,21's north wall, the floor 6,20 behind it, is refused as no "
+          "wall to go into (it laid a floor apple on 6,20 and said it went into the niche)", str(gh))
+    c1ent, ea_ent = level_text33("crypt1", ".ent"), level_text33("eval_arena", ".ent")
+    check(apples33(ea_ent0, 6, 20) == [] and apples33(ea_ent, 6, 20) == [],
+          "...and the saved eval_arena.ent has no apple on 6,20", str(records33(ea_ent, "item")))
+    check(apples33(c1ent, 12, 5) == ["east"] and apples33(c1ent, 12, 6) == [""],
+          "saved, crypt1.ent holds the apple IN 12,5's east niche (niche=east) and the floor "
+          "apple of 12,6 with none", str(records33(c1ent, "item")))
+    check(apples33(ea_ent, 6, 22) == ["south", "south"],
+          "...and eval_arena.ent the two apples in 6,22's south niche (niche=south)",
+          str(records33(ea_ent, "item")))
+    check(len(records33(c1map, "niche")) == len(records33(c1map0, "niche")) + 1
+          and ["niche", "niche", "12", "5", "east"] in records33(c1map, "niche"),
+          "crypt1.map gained exactly the niche at 12,5 east", str(records33(c1map, "niche")))
 finally:
     drop()
 

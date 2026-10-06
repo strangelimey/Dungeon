@@ -244,6 +244,7 @@ void Game::RegisterDevCommands() {
 						.group = CmdGroup::Levels,
 						.params = "[off]\n"
 								  "place <category> <id> <x> <z> [north|east|south|west]\n"
+								  "ghost <x> <z> <fx> <fz> [click]\n"
 								  "drag <category> <id> <x> <z> [<x> <z> ...]\n"
 								  "erase <x> <z>\n"
 								  "fill <category> <id> rect <x0> <z0> <x1> <z1>\n"
@@ -494,7 +495,8 @@ void Game::RegisterDevCommands() {
 						   // One square of the VIEWED level: what each surface stores
 						   // (a pinned palette index, a theme, or the default
 						   // hash) and the texture that resolves to - what the 3D
-						   // scene and the map both draw.
+						   // scene and the map both draw - then any window bored
+						   // through it.
 						   if (!args.empty() && args[0] == "cell") {
 							   if (!Need(m_console, args, 3, "usage: editor cell <x> <z>")) return;
 							   const DungeonMap& map = m_mapView.ViewedMap();
@@ -515,6 +517,13 @@ void Game::RegisterDevCommands() {
 								   line += std::format(" {}={}/{}", kName[s], stored,
 													   i < pal.size() ? pal[i] : "-");
 							   }
+							   // A window bored through the block, appended last so the
+							   // phases that parse the line keep their fields: its type
+							   // and the axis it runs along, or `-` (code-review C310).
+							   const WallBore* bore = map.BoreAlong(x, z, 0);
+							   if (!bore) bore = map.BoreAlong(x, z, 1);
+							   line += bore ? std::format(" bore={}/{}", bore->type, bore->axis == 0 ? "x" : "z")
+											: std::string(" bore=-");
 							   m_console.Print(line);
 							   return;
 						   }
@@ -655,6 +664,63 @@ void Game::RegisterDevCommands() {
 														   args[2], (args.size() - 3) / 2));
 							   return;
 						   }
+						   // THE POINTER, put where a hand would (code-review C351): the
+						   // pixel at fraction <fx> <fz> of square <x> <z> of the
+						   // viewed level, through MapView::HoverAt - the square, the
+						   // face the armed brush reads there and the ghost it
+						   // resolves to. With `click`, the press there is made as
+						   // MapView makes it (Paint with that face and that ghost,
+						   // MapView_Tools' fresh press), so a script drives the
+						   // hover a mouse gets, not a face it named itself.
+						   if (!args.empty() && args[0] == "ghost") {
+							   if (!Need(m_console, args, 5,
+										 "usage: editor ghost <x> <z> <fx> <fz> [click]"))
+								   return;
+							   if (m_mapView.IsOpen())
+								   m_mapView.SetMode(MapView::Mode::Editor);
+							   else
+								   m_mapView.Open(MapView::Mode::Editor);
+							   const gfx::Rect panel =
+								   MapPanel(static_cast<float>(m_window.Width()),
+											static_cast<float>(m_window.Height()));
+							   const Vec2 at = m_mapView.CellPoint(
+								   std::atoi(args[1].c_str()), std::atoi(args[2].c_str()),
+								   static_cast<float>(std::atof(args[3].c_str())),
+								   static_cast<float>(std::atof(args[4].c_str())), panel);
+							   const MapView::Hover h = m_mapView.HoverAt(at.x, at.y, panel);
+							   const Placement& p = h.place;
+							   std::string line = std::format("editor ghost: square {},{} face ", h.x, h.z);
+							   line += h.face.valid ? std::format("{},{} {}", h.face.x, h.face.z,
+																  DirToken(h.face.wall))
+													: std::string("none");
+							   if (p.valid)
+								   line += std::format(" place {},{}{}{}", p.x, p.z,
+													   p.niche ? std::string(" niche ") +
+																	 DirToken(p.facing)
+															   : std::string(),
+													   p.slot >= 0 ? std::format(" slot {}", p.slot)
+																   : std::string());
+							   else
+								   line += std::format(" refused {}",
+													   p.refusalKey ? p.refusalKey : "-");
+							   m_console.Print(line);
+							   if (args.size() < 6 || args[5] != "click") return;
+							   if (h.x < 0) {
+								   m_console.Refuse("editor ghost: the point is off the grid");
+								   return;
+							   }
+							   const u64 rev0 = m_world->EditRevision();
+							   m_mapEditor.BeginStroke();
+							   m_mapEditor.Paint(h.x, h.z, /*dragging*/ false, h.face, &h.place);
+							   m_mapEditor.EndStroke();
+							   m_mapView.RefreshBrowse();
+							   if (m_world->EditRevision() == rev0)
+								   m_console.Refuse(std::format(
+									   "editor ghost: the click at {},{} placed nothing", h.x, h.z));
+							   else
+								   m_console.Print(std::format("editor ghost: clicked {},{}", h.x, h.z));
+							   return;
+						   }
 						   if (!args.empty() && (args[0] == "place" || args[0] == "erase")) {
 							   const bool place = args[0] == "place";
 							   if (!Need(m_console, args, place ? 5 : 3,
@@ -701,9 +767,32 @@ void Game::RegisterDevCommands() {
 							   // command still said it had placed one; with the active
 							   // map's first solid face (C449) it refused on a browsed
 							   // level, or where that face was already taken.
+							   // AN ITEM named a wall goes INTO the niche on that wall of
+							   // <x> <z> (code-review C351): the pointer is over the block
+							   // behind it with that face picked, as MapView::HoverAt has a
+							   // hand pointing at the niche - so the square the brush is
+							   // painted at is the block, not <x> <z>.
 							   WallFace face;
 							   Direction wall = Direction::North;
-							   if (!m_mapEditor.BrushIsWallMounted()) {
+							   int px = x, pz = z;
+							   const Mount mount = m_mapEditor.BrushMount();
+							   if (mount == Mount::FloorSlot && args.size() > 5 &&
+								   ParseDirection(args[5], wall)) {
+								   face = {x, z, wall, true};
+								   px = x + DirDX(wall);
+								   pz = z + DirDZ(wall);
+								   // Only a SOLID block behind that wall can hold a niche:
+								   // over floor the mouse reads no face (BrushTakesFaceAt),
+								   // and the brush would lay a floor item on the square
+								   // beyond while this said it went into the niche.
+								   if (!m_mapEditor.BrushTakesFaceAt(px, pz)) {
+									   m_console.Refuse(std::format(
+										   "editor place: no wall {} of {},{} for {} to go into "
+										   "({},{} is open)",
+										   DirToken(wall), x, z, args[2], px, pz));
+									   return;
+								   }
+							   } else if (mount != Mount::Wall) {
 								   // a floor kind takes no face
 							   } else if (args.size() > 5 && ParseDirection(args[5], wall)) {
 								   face = {x, z, wall, true};
@@ -711,7 +800,7 @@ void Game::RegisterDevCommands() {
 								   m_mapEditor.DefaultWallFace(x, z, face); // none: refused below
 							   }
 							   const u64 rev0 = m_world->EditRevision();
-							   m_mapEditor.Paint(x, z, /*dragging*/ false, face);
+							   m_mapEditor.Paint(px, pz, /*dragging*/ false, face);
 							   // A browsed level is drawn - and its next default face
 							   // read - from a snapshot, rebuilt after each paint as a
 							   // brush's own click does (MapView::Update).

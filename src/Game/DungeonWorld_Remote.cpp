@@ -271,6 +271,12 @@ void DungeonWorld::EditCellRemote(const std::string& stem, int x, int z,
 		map.SetCell(x, z, cell);
 		if (map.Revision() == rev) return false; // unchanged / out of bounds
 		map.PruneFixturesForCell(x, z);
+		// The hung props' records are the MAP's (decoration records live in the
+		// .map): one whose wall just opened re-hangs or goes, the rule the live
+		// world's props follow (PruneEntitiesForCell). Left hanging on open floor
+		// it was written by savemap and asserted at every later parse of the
+		// level - entering it, browsing it, the Check (code-review C344).
+		map.RehomeWallDecorations(x, z);
 		return true;
 	});
 	if (changed) PruneStashRecordsForCell(stem, x, z);
@@ -386,6 +392,14 @@ bool DungeonWorld::AddSurfaceFeatureRemote(const std::string& stem,
 						[&](DungeonMap& map) { return map.AddFeature(x, z, type, ceiling); });
 }
 
+bool DungeonWorld::AddBoreRemote(const std::string& stem, const std::string& type, int x,
+								 int z, int axis) {
+	// The map stashed only when the window lands (C307), like every other
+	// map-side placement here.
+	return EditMapStash(stem,
+						[&](DungeonMap& map) { return map.AddBore(type, x, z, axis); });
+}
+
 bool DungeonWorld::EraseRemote(const std::string& stem, int x, int z) {
 	auto say = [&](const std::string& s) {
 		if (onMessage) onMessage(s);
@@ -419,9 +433,13 @@ bool DungeonWorld::EraseRemote(const std::string& stem, int x, int z) {
 		say(loc::Tr("map.erase.removed"));
 		return true;
 	}
+	// The live ladder's order (MapEditor::EraseAt): a bore after a niche, and a
+	// floor or ceiling feature last. A window had no rung here at all, so a
+	// middle-click on one fell through to the surface reset (code-review C310).
 	if (EditMapStash(stem, [&](DungeonMap& map) {
 			return map.RemoveDecorationRecordAt(x, z) || map.RemoveFixtureAt(x, z) ||
-				   map.RemoveNicheFacingWall(x, z) || map.RemoveAnyFeature(x, z);
+				   map.RemoveNicheFacingWall(x, z) || map.RemoveBoreAt(x, z) ||
+				   map.RemoveAnyFeature(x, z);
 		})) {
 		say(loc::Tr("map.erase.removed"));
 		return true;
@@ -455,25 +473,23 @@ void DungeonWorld::PruneStashRecordsForCell(const std::string& stem, int x,
 		return;
 	}
 	// Painted open: re-face button records that mounted on this cell onto
-	// another solid wall of their own cell, else drop them (the live prune's
-	// record half; wall-mounted decoration records re-resolve via the soft
-	// loader on the next entry).
+	// another solid wall of their own cell, else drop them - the live prune's
+	// record half, by its rule (DungeonMap::SolidWall). The wall-mounted
+	// decoration records went the same way in EditCellRemote: they are the
+	// map's, not the .ent's (code-review C344).
 	EditEntStash(stem, [&](DungeonEntities& ents, const DungeonMap& level) {
 		std::vector<int> dropIds;
 		bool changed = false;
 		for (const Entity& e : ents.All()) {
 			if (e.kind != EntityKind::Button) continue;
 			if (e.x + DirDX(e.facing) != x || e.z + DirDZ(e.facing) != z) continue;
-			bool refaced = false;
-			constexpr Direction kScan[4] = {Direction::North, Direction::East,
-											Direction::South, Direction::West};
-			for (const Direction d : kScan)
-				if (!level.IsWalkable(e.x + DirDX(d), e.z + DirDZ(d))) {
-					if (Entity* mut = ents.MutableById(e.id)) mut->facing = d;
-					refaced = changed = true;
-					break;
-				}
-			if (!refaced) dropIds.push_back(e.id);
+			Direction d;
+			if (level.SolidWall(e.x, e.z, d)) {
+				if (Entity* mut = ents.MutableById(e.id)) mut->facing = d;
+				changed = true;
+			} else {
+				dropIds.push_back(e.id);
+			}
 		}
 		for (const int id : dropIds) ents.RemoveById(id);
 		return changed || !dropIds.empty();

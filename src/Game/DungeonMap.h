@@ -564,14 +564,12 @@ public:
 	const WallBore* BoreAlong(int x, int z, int axis) const;
 	// True if solid cell (x,z) is bored along `axis` (LoS/projectiles).
 	bool WallBoredAlong(int x, int z, int axis) const { return BoreAlong(x, z, axis); }
-	// Bores solid cell (x,z) with `type` along whichever axis has floor on both
-	// sides (a 1-block wall between two spaces). False if it isn't such a wall /
-	// already bored. Bumps Revision().
-	bool AddBore(std::string type, int x, int z);
-	// Bores along an EXPLICIT axis (0 = X/east-west, 1 = Z/north-south) — the
-	// editor derives it from the face pointed at, so a block with floor on all
-	// four sides can be bored either way instead of always taking X. False if
-	// that axis doesn't open into floor at both ends.
+	// Bores solid cell (x,z) with `type` along an EXPLICIT axis (0 = X/east-west,
+	// 1 = Z/north-south) - the editor derives it from the face pointed at, so a
+	// block with floor on all four sides can be bored either way. False if that
+	// axis doesn't open into floor at both ends, or the block is bored already.
+	// Bumps Revision(). (The auto-axis overload had no caller and went with
+	// code-review C310; the parser adds records through AddBoreRecord.)
 	bool AddBore(std::string type, int x, int z, int axis);
 	// Adds a bore with an explicit axis (the parser). Bumps Revision().
 	void AddBoreRecord(WallBore b) {
@@ -726,6 +724,19 @@ public:
 	bool FreeSconceWall(int x, int z, Direction& out) const;
 	// First solid neighbour wall of (x,z) with no niche on it yet.
 	bool FreeNicheWall(int x, int z, Direction& out) const;
+	// First solid neighbour wall of (x,z), taken or not (N, E, S, W): where a
+	// thing that may SHARE a wall - a hung decoration, a lever - goes when the
+	// wall it hung on opens. False if the cell has none. The one rule for both
+	// the live world's props (DungeonWorld::PruneEntitiesForCell) and a browsed
+	// level's records (RehomeWallDecorations, the stash's button re-face).
+	bool SolidWall(int x, int z, Direction& out) const;
+	// Cell (x,z) was just painted OPEN: every `wall=` decoration RECORD that hung
+	// on it re-hangs on SolidWall of its own cell, or is dropped when that cell
+	// has no wall left - as the sconces and niches beside them are re-mounted in
+	// PruneFixturesForCell. The parser asserts on a record facing open floor, so
+	// a browsed level's paint that left one would write a .map that can never
+	// load again (code-review C344). Returns how many records moved or went.
+	int RehomeWallDecorations(int x, int z);
 
 private:
 	DungeonMap() = default; // FromText builds one and fills it in

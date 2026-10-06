@@ -2781,8 +2781,8 @@ level shows nothing); the selection/party/live markers are active-level only,
 and the view snaps back to live if the party arrives on the browsed level. In
 EDITOR mode the brush EDITS the browsed level too (the editor edits ANY level):
 MapEditor routes those edits to DungeonWorld's remote seam (EditCellRemote /
-EditVariantRemote / Add{Decoration,Monster,Fixture}Remote / EraseRemote /
-AddStairAt), which mutates the level's in-memory stashes — m_levelMaps (static;
+EditVariantRemote / Add{Decoration,Monster,Fixture,Niche,Bore,NicheItem,...}Remote
+/ EraseRemote / AddStairAt), which mutates the level's in-memory stashes - m_levelMaps (static;
 also stashed on a level swap when it differs from its file, so unsaved edits
 survive and a level only visited is not rewritten, live decoration placements
 synced back into records first) and m_levelEnts (.ent records, created on
@@ -2799,6 +2799,24 @@ NEVER STASH TO READ) - and MapView rebuilds the browse
 snapshot after each paint. Entering a level consumes its stashes; the
 right-click inspectors (MapEditor::InspectAt) still need the level active (no
 live instances remotely - a browsed square only reports its static base).
+EVERY BRUSH HAS ITS BROWSED TWIN, the window brush (AddBoreRemote, and a bore
+rung in EraseRemote) and the item into a niche (AddNicheItemRemote) included -
+the window brush bored the ACTIVE level's block whatever level was viewed
+(code-review C310). A paint that OPENS a wall re-hangs what hung on it by ONE
+rule, DungeonMap::SolidWall (the cell's first solid wall, N E S W): the live
+props in PruneEntitiesForCell, a stash's `wall=` decoration records in
+DungeonMap::RehomeWallDecorations, its lever records in PruneStashRecordsForCell
+- a cell with no wall left drops them. There is no soft loader: a `wall=` record
+facing open floor is a DN_ASSERT at every parse, so a browsed paint that left
+one wrote a level that could never load again (C344). AN ITEM INTO A NICHE is a
+PLACEMENT RESULT (Placement::niche): an item brush over a solid square takes the
+face the pointer picks there (MapView::HoverAt, which tracks a face for an item
+brush over rock as for a wall-mounted one) and lands in that face's niche, else
+is refused as rock (C351: it was a branch of its own behind the floor rule's
+refusal, and no item could be placed in a niche). Dev: `editor ghost <x> <z>
+<fx> <fz> [click]` puts the pointer on a square as a hand would and prints the
+face and ghost (and clicks), `editor place items <id> <x> <z> <dir>` puts one in
+the niche on that wall (refused when open floor lies behind it), and `editor cell` ends with the block's `bore=`.
 DOORS are functional (doors.cat, EntityKind::Door, .ent record `door <type>
 <x> <z> <facing> [name=] [open=1]`): a door fills a DOORWAY cell (solid walls
 flanking exactly one axis — the brush auto-detects the orientation, no facing

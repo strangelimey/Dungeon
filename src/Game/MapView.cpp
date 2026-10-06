@@ -494,6 +494,39 @@ WallFace MapView::FaceAt(float px, float py, const gfx::Rect& panel) const {
 	return face; // not over any boundary (open floor, or deep inside rock)
 }
 
+MapView::Hover MapView::HoverAt(float px, float py, const gfx::Rect& panel) const {
+	Hover h;
+	// The hovered cell (for Render highlights, e.g. the faint item icon) and the
+	// pointer's position INSIDE it - a floor item goes in one of four quarters,
+	// so for those the cell alone does not say where the click landed.
+	if (!GridArea(panel).Contains(px, py) || !CellAtF(px, py, panel, h.x, h.z, h.fx, h.fz)) {
+		h.x = h.z = -1;
+		h.fx = h.fz = 0.5f;
+		return h;
+	}
+	const bool editor = m_mode == Mode::Editor && m_editor;
+	// The wall FACE under the pointer, read only where the armed brush's target
+	// is an EDGE rather than a square: a wall-mounted brush anywhere, and an item
+	// brush over a solid square, which takes an item only into the niche on the
+	// face picked (code-review C351: the item brush tracked no face at all, so a
+	// niche could not be named). Render draws it, so the face a click takes is
+	// visible beforehand.
+	if (editor && m_editor->BrushTakesFaceAt(h.x, h.z)) h.face = FaceAt(px, py, panel);
+	// The GHOST: where the armed brush would actually land, resolved through the
+	// same call the click will make (MapEditor::ResolveBrush -> game::Resolve).
+	// Nothing here re-derives a rule - a preview computed separately from the
+	// commit is a preview that can lie, and that is worse than none.
+	if (editor && m_editor->ArmedPlaceable())
+		h.place = m_editor->ResolveBrush(h.x, h.z, h.face, h.fx, h.fz);
+	return h;
+}
+
+Vec2 MapView::CellPoint(int x, int z, float fx, float fz, const gfx::Rect& panel) const {
+	const Transform t = ComputeTransform(panel);
+	return {t.ox + (static_cast<float>(x) + fx) * t.cell,
+			t.oy + (static_cast<float>(z) + fz) * t.cell};
+}
+
 bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 	// A paint stroke ends when the left button is up, wherever the pointer is -
 	// off the grid, over a dock, or on the frame after the overlay closed - so
@@ -537,33 +570,13 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 		else if (input.WasKeyPressed('Y')) m_pendingHistory = +1;
 	}
 
-	// Track the hovered cell (for Render highlights, e.g. the faint item icon)
-	// and the pointer's position INSIDE it — a floor item goes in one of four
-	// quarters, so for those the cell alone does not say where the click landed.
-	float hfx = 0.5f, hfz = 0.5f;
-	if (int hx, hz; overGrid && CellAtF(mx, my, panel, hx, hz, hfx, hfz)) {
-		m_hoverX = hx;
-		m_hoverZ = hz;
-	} else {
-		m_hoverX = m_hoverZ = -1;
-		hfx = hfz = 0.5f;
-	}
-
-	// The wall FACE under the pointer, tracked only while a wall-mounted brush is
-	// armed — that is exactly when the target is an edge rather than a square.
-	// Render draws it, so which face a click will take is visible beforehand.
-	m_hoverFace = {};
-	if (editor && overGrid && m_editor && m_editor->BrushIsWallMounted())
-		m_hoverFace = FaceAt(mx, my, panel);
-
-	// The GHOST: where the armed brush would actually land, resolved through the
-	// same call the click will make (MapEditor::ResolveBrush -> game::Resolve).
-	// Nothing here re-derives a rule — a preview computed separately from the
-	// commit is a preview that can lie, and that is worse than none.
-	m_hoverPlace = {};
-	if (editor && overGrid && m_editor && m_hoverX >= 0 && m_editor->ArmedPlaceable())
-		m_hoverPlace =
-			m_editor->ResolveBrush(m_hoverX, m_hoverZ, m_hoverFace, hfx, hfz);
+	// The hovered cell, the face it picks and the ghost (HoverAt): Render
+	// highlights all three, and a click commits exactly the ghost.
+	const Hover hover = HoverAt(mx, my, panel);
+	m_hoverX = hover.x;
+	m_hoverZ = hover.z;
+	m_hoverFace = hover.face;
+	m_hoverPlace = hover.place;
 
 	// Track the hovered chrome button (Render styles it via the shared
 	// ui::DrawButtonFace). Mirrors the click gating: hidden/unavailable
@@ -1075,9 +1088,11 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	if (CellVisible(map.StartX(), map.StartZ()))
 		ui::DrawBorder(batch, cellRect(map.StartX(), map.StartZ()), theme.accent);
 
-	// 2b) Wall-mounted brush: a bar on the FACE the pointer resolved to. Drawn
-	// on the floor-cell side of the boundary, which is the side the thing hangs
-	// on, so the target wall of the target cell is unambiguous before clicking.
+	// 2b) A brush that reads a face (a wall mount, or an item over a solid
+	// square - HoverAt): a bar on the FACE the pointer resolved to. Drawn on the
+	// floor-cell side of the boundary, which is the side the thing hangs on (or
+	// the niche opens onto), so the target wall of the target cell is
+	// unambiguous before clicking.
 	if (m_hoverFace.valid) {
 		const gfx::Rect r = cellRect(m_hoverFace.x, m_hoverFace.z);
 		const float thick = std::max(2.0f, t.cell * 0.18f);

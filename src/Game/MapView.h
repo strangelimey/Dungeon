@@ -347,6 +347,21 @@ public:
 	// to aim at an edge the way a hand does.
 	gfx::Rect MapRect(const gfx::Rect& panel) const;
 	float HandleBand(const gfx::Rect& panel) const { return EdgeBand(panel); }
+	// THE HOVER, for the pixel (px, py) of `panel`: the square under it (-1 off
+	// the grid) and the pointer's place inside it, the wall face it picks (only
+	// where the armed brush reads one - MapEditor::BrushTakesFaceAt) and the
+	// GHOST the brush resolves to there. Update tracks the pointer through this,
+	// and `editor ghost` aims it at a square the way a hand does (CellPoint), so
+	// a harness reads the hover a mouse gets rather than a second derivation.
+	struct Hover {
+		int x = -1, z = -1;
+		float fx = 0.5f, fz = 0.5f;
+		WallFace face;
+		Placement place;
+	};
+	Hover HoverAt(float px, float py, const gfx::Rect& panel) const;
+	// The pixel at fraction (fx, fz) of square (x, z), in `panel`'s pixel space.
+	Vec2 CellPoint(int x, int z, float fx, float fz, const gfx::Rect& panel) const;
 
 private:
 	// The grid-drawing area within the panel: the whole panel in Player mode,
@@ -544,8 +559,10 @@ private:
 	// indices are resolution-independent, so this is valid across the window-pixel
 	// (Update) / device-pixel (Render) split.
 	int m_hoverX = -1, m_hoverZ = -1;
-	// The wall face under the mouse, tracked the same way but only while a
-	// wall-mounted brush is armed (niche, sconce, any `mount = wall` kind). Render
+	// The wall face under the mouse, tracked the same way but only where the armed
+	// brush reads one (MapEditor::BrushTakesFaceAt): a wall-mounted brush (niche,
+	// sconce, any `mount = wall` kind) anywhere, and an item brush over a solid
+	// square, where the face is the niche it would go into. Render
 	// draws it as a highlight bar on the target edge, so the face a click will
 	// take is visible BEFORE committing — the gesture explains itself.
 	WallFace m_hoverFace;
