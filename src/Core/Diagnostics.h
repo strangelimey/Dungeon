@@ -77,6 +77,10 @@ static_assert((kEventsPerThread & (kEventsPerThread - 1)) == 0,
 // and the count is written as one line when the next window opens or the thread
 // unregisters. Public so DiagTest checks the real numbers rather than a copy.
 inline constexpr u32 kLogBurst = 8;
+// How many WALKED stacks of one kind a thread puts in the log (see LogEvent):
+// past it one note, and past the note none is even offered to a seen-set.
+// Public for the same reason.
+inline constexpr u32 kWalkedLogged = 3;
 inline constexpr i64 kLogWindowNs = 1'000'000'000;
 
 using Slot = u32;
@@ -98,6 +102,12 @@ struct Event {
 	void* const* frames = nullptr; // a stack captured elsewhere
 	int frameCount = 0;
 	bool captureStack = true; // capture here when `frames` is null
+	// `frames` were WALKED from outside a live thread (stack::WalkThread) - the
+	// supervisor's stall, a forced kill. Shown UNFILTERED wherever they are read,
+	// as the probe shows them: for a thread stuck rather than crashed, the OS
+	// frame IS the diagnosis (NtWaitForSingleObject names the lock it waits on),
+	// and IsPlumbingFrame would drop exactly that.
+	bool walked = false;
 };
 
 // The POD a reader gets: the same event with its storage owned rather than
@@ -112,6 +122,7 @@ struct EventView {
 	char message[kMessageMax] = {};
 	void* frames[kStackDepth] = {};
 	int frameCount = 0;
+	bool walked = false; // see Event::walked: show every frame, unfiltered
 };
 
 // One thread's standing health. The ring holds recent DETAIL and wraps; these

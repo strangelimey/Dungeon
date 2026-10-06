@@ -76,7 +76,9 @@ u64 Hash(void* const* frames, int depth);
 // stack that reads differently in two places is a stack you cannot compare.
 //
 // NOT used by the live thread probe, where an OS frame is the entire diagnosis
-// (NtWaitForSingleObject names the lock it is blocked on).
+// (NtWaitForSingleObject names the lock it is blocked on) - nor for any stack
+// WALKED from outside a live thread, which is the probe's walk recorded: a
+// stall's or a forced kill's (diag::EventView::walked).
 bool IsPlumbingFrame(std::string_view frame);
 
 // A bounded set of stacks already reported. Fixed storage: a standing failure
@@ -122,6 +124,11 @@ private:
 // and stops at the entry point: a dozen frames of container internals say only
 // "something grew", and everything above wWinMain is CRT scaffolding.
 void LogStack(void* const* frames, int depth, const char* indent = "      ");
+
+// Logs EVERY frame, unfiltered, one a line at Warn - for a stack walked from
+// outside a live thread (WalkThread), where the frames IsPlumbingFrame drops
+// are the ones that say what the thread is waiting on. The probe's rule.
+void LogEveryFrame(void* const* frames, int depth, const char* indent = "      ");
 
 // --- throw-time capture -----------------------------------------------------
 

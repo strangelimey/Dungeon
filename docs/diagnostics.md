@@ -4,15 +4,16 @@
 phases are done and checked:
 
 ```
-diagtest   RESULT=PASS checks=62 failures=0     # the record, incl. torn-read detection
-healthtest RESULT=PASS cases=7  failures=0      # the real game, broken on purpose
+diagtest   RESULT=PASS checks=64 failures=0     # the record, incl. torn-read detection
+healthtest RESULT=PASS cases=10 failures=0      # the real game, broken on purpose
 healthtest RESULT=FAIL ... self_test=1          # and the harness proven able to fail
 alloctest  RESULT=PASS frames=1921 violations=0 # the symbolizer lift changed nothing
 ```
 
-Left undone deliberately: the `Killed` event kind has no scripted coverage (a
-hard kill is a panel button, not a command), and balance/tuning of the log rate
-limit is a matter of living with it.
+Left undone deliberately: balance/tuning of the log rate limit is a matter of
+living with it. (The `Killed` kind was the other: it had no scripted coverage
+until code-review batch 36 gave the panel's kill button a command,
+`threadkill`, and HealthTest a `kill` case - see phase 6.)
 
 When the game dies, it should say why. Today it does not: it disappears, and
 the log stops mid-sentence. This is the machinery that replaces that silence —
@@ -118,9 +119,10 @@ properly and to extend it to the boundaries it does not cover.
 
 - **Workers** — the existing catch records a full event and logs it once, with
   a repeat count so a per-tick thrower does not flood the log.
-- **The supervisor** — records `Stall` with the age that tripped it, and
-  `Restart` when it reboots.
-- **`Kill`** — records `Killed` before quarantining the slot.
+- **The supervisor** - records `Stall` with the age that tripped it and the
+  stack it was stuck in (walked from outside), and `Restart` when it reboots.
+- **`Kill`** - records `Killed` before quarantining the slot, with the stack
+  the wedged thread was stuck in, walked just before the terminate.
 - **The main thread** — gets a health slot of its own and the same treatment
   around the frame body, plus the repeat counter that decides when to stop.
 - **The process** — `SetUnhandledExceptionFilter` for faults, `set_terminate`,
@@ -221,6 +223,28 @@ nothing is built untested.
    OS frame is the diagnosis (`NtWaitForSingleObject` names a lock,
    `NtDelayExecution` a sleep).
 
+   **The record walks too (code-review batch 36, C387).** The probe answers only
+   while someone is there to type it, and an AI bucket is rebooted half a second
+   into a stall, which ends the thread and the evidence with it. So the
+   supervisor walks a worker the same way at the start of each stall episode,
+   and `StopOrTerminate` walks a wedged one just before the `TerminateThread`,
+   and both events carry those frames (`diag::Event::walked`). A walked stack is
+   printed WHOLE wherever it is read - the log, the timeline's click-through,
+   `health <thread>` - by the probe's rule, not filtered by `IsPlumbingFrame`.
+   The walks read the worker's thread under its `controlMx` (a timed mutex: the
+   supervisor gives up after 50 ms rather than wait on a Stop joining a wedged
+   worker forever), and a stall whose tick ended while it was walked is
+   recorded without frames, since they would show the cadence sleep instead.
+   The LOG takes only a thread's first three walked stacks of each kind, then
+   one line saying the rest are in the record: a walk lands wherever the thread
+   is at that instant, so a worker stalling inside a busy loop never repeats a
+   "site" and the once-per-site rule would let every stall through - twenty
+   lines a stall where a stall used to cost one. Walked stacks also keep a
+   `SeenSet` of their own, and one past the cap is not offered to it at all: a
+   `SeenSet` calls every stack new once it is full, so walked stacks sharing
+   the exceptions' set would fill it within a session and every later exception
+   or assert would log its whole stack on every event.
+
    Also here: `health <thread>` (that thread's events with stacks), and a health
    column on the THREADS panel. And the phase-2 gap is closed — stall DETECTION
    no longer rides the reboot path, so a stall on a worker with no `autoRestart`
@@ -241,19 +265,27 @@ nothing is built untested.
    reason the profile series keeps the max: the one event worth seeing must not
    be averaged away by the three around it. The section only exists once
    something has gone wrong — a permanently empty strip trains you to skip it.
-6. **The harness — DONE.** `tools\HealthTest.ps1`: seven cases, each breaking
-   the real game and then reading `dungeon.log`, because that is the surface a
-   crash is meant to be found on. Nothing inspects engine internals — if the
-   answer is not in the log, it does not count.
+6. **The harness - DONE.** `tools\HealthTest.ps1`: eight cases (seven when it
+   was built), each breaking the real game and then reading `dungeon.log`,
+   because that is the surface a crash is meant to be found on. Nothing
+   inspects engine internals - if the answer is not in the log, it does not
+   count.
 
    ```
-   healthtest RESULT=PASS cases=7 failures=0
+   healthtest RESULT=PASS cases=8 failures=0
    ```
 
    Cases: `throw` (recorded, game plays on) · `worker` (per-tick, keeps running)
-   · `stall` · `probe` (a live wedged worker names its own line) · `restart`
+   · `stall` (with the walked stack of where it is stuck) · `probe` (a live
+   wedged worker names its own line) · `kill` (`threadkill` force-terminates a
+   wedged worker; the Killed line carries where it was stuck) · `restart`
    (supervisor reboot) · `fault` (report + dump) · `assert` (report + dump
    before the abort).
+
+   A frame expectation is anchored UNDER its own event's line (the script's
+   `After`): a stall, a kill and a probe of one wedged worker log the same
+   frames, so a bare `DelayExecution` would be met by whichever came first - the
+   probe case's was, once the stall walked too.
 
    `-SelfTest` skips every injection and requires every case to fail on EACH
    of its expectations, so no check is vacuously satisfied by an ordinary run -
@@ -262,7 +294,7 @@ nothing is built untested.
    typed just before the injection) fails the self-test (code-review C419). It
    once passed on any failure at all, so a game that crashed at boot passed it.
 
-   Nine cases now: two more since (code-review C208, 2026-10-05), which read what a caught throw
+   Ten cases now: two read what a caught throw (code-review C208, 2026-10-05)
    leaves BEHIND rather than its record: `uiclip` throws from inside a clipping
    scroll area's walk (`crashpoke uiclip`, a scratch tree in Game/ClipPoke.cpp)
    and then clicks a button outside the area, which must land - and the throw
@@ -275,12 +307,14 @@ nothing is built untested.
    Before the fix the walk restored a clip only when the pointer changed, which
    it never did once a clip was in force: a throw left every later walk, in every
    context, cut to the area, and the click was lost. Both were seen to FAIL
-   against the old walk put back by mutation; the run is now `healthtest
-   RESULT=PASS cases=9 failures=0`, and its `-SelfTest` fails all nine.
+   against the old walk put back by mutation. And `kill` (code-review C387)
+   drives the Killed kind through `threadkill`, its frames anchored under the
+   kill's own line. The run is `healthtest RESULT=PASS cases=10 failures=0`, and
+   its `-SelfTest` fails all ten.
 
-   **Not covered, said out loud rather than quietly skipped:** the `Killed`
-   kind. A hard force-terminate is the THREADS panel's kill button, not a
-   console command, so it cannot be driven from a script.
+   The `Killed` kind was not covered until code-review batch 36: a hard
+   force-terminate was only the THREADS panel's kill button. `threadkill
+   <id|name>` is that button as a command.
 
 ## The harness
 

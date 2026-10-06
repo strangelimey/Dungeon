@@ -43,14 +43,21 @@
 // SetLockstep must return only once every worker holds at its pause point, no
 // worker may publish after it, and a worker rebooted under lockstep must come
 // back still paused.
+//
+// Phase H, RUN FIRST (see PhaseReap for why), races `threadreap` against the
+// supervisor rebooting stalled and wedged workers (code-review C386): nothing
+// may leave the registry mid-reboot. It also reads the health record for the
+// stack each stall and each forced kill was recorded with (C387).
 // ============================================================================
 #include "Common/Verdict.h"
 #include "Game/MonsterAI.h"
 #include "Core/Diagnostics.h"
 #include "Core/Log.h"
+#include "Core/StackTrace.h"
 #include "Core/ThreadManager.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -59,6 +66,7 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -489,6 +497,217 @@ static void ReportPhase(threads::Manager& mgr, ai::AsyncDirector& dir,
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Phase H - THREADREAP RACES THE SUPERVISOR'S REBOOTS (code-review C386), and
+// each stall and forced kill is recorded with the stack it was stuck in (C387).
+//
+// A Restart reads exactly like a dead slot between its join and its relaunch -
+// Dead, not joinable - and a reap that went by state alone took the worker
+// there: the reboot then launched a thread on a Worker the registry had let go
+// of, and the worker was gone for good. So: three workers whose ticks stall (2 s
+// against a 100 ms watchdog) but stop when asked - the supervisor reboots each
+// about twice a second, every reboot a clean join and one pass through that
+// window - and a fourth that ignores its stop token, which every reboot
+// force-terminates, while this thread reaps as fast as it can. Nothing may
+// leave the registry and no tick may begin on a worker it has let go of. Then
+// Reap must still take a worker stopped for good and one killed, or the race's
+// checks would pass on a Reap that never reaps.
+//
+// RUN FIRST, before the self-test plants its own wedged worker. A force-
+// terminated thread never gives its health-record slot back (its successor
+// takes a fresh one), so by the end of a self-test run the table is full and
+// this phase's stalls and kills would go unrecorded - and its record checks
+// with them.
+// ---------------------------------------------------------------------------
+
+// Ticks begun on a worker the registry no longer knows: a reaped slot rebooted.
+static std::atomic<int> g_orphanTicks{0};
+
+// H's two jobs, as NAMED functions so a recorded stack can be checked against
+// them by symbol (WorkersOwnStack). noinline: folded into its lambda, a job
+// would leave no frame of its own to find.
+static __declspec(noinline) void StallTick(threads::Manager& mgr, const threads::Tick& t) {
+	// The C386 failure seen from inside: a tick on a worker the registry has let
+	// go of is a reboot of a reaped slot.
+	if (mgr.Inspect(t.self).id != t.self) g_orphanTicks.fetch_add(1);
+	// Stalls, but stops when asked: every supervisor reboot is a clean join, the
+	// path whose window the reaper races.
+	const auto end = Clock::now() + std::chrono::milliseconds(2000);
+	while (Clock::now() < end && !t.stop.stop_requested())
+		std::this_thread::sleep_for(std::chrono::milliseconds(5));
+}
+static __declspec(noinline) void WedgeTick() {
+	while (true) std::this_thread::sleep_for(std::chrono::milliseconds(50));
+}
+
+// A frame's function: stack::Describe's "func (file:line)" without the place.
+static std::string FrameName(void* pc) {
+	std::string d = stack::Describe(pc);
+	const size_t cut = d.find(" (");
+	if (cut != std::string::npos) d.resize(cut);
+	return d;
+}
+
+// Functions that run only on the SUPERVISOR's thread or the KILLER's, never on
+// a worker. Core is a static lib, so every one of them is in this exe too: "a
+// frame in this exe" would pass the supervisor's own stack, or the stack of
+// whoever called Kill - the walk on the wrong thread, which is what these
+// checks exist to catch.
+static constexpr std::string_view kNotTheWorker[] = {
+	"dungeon::threads::Manager::SupervisorLoop", "dungeon::threads::Manager::RestartWorker",
+	"dungeon::threads::Manager::StopOrTerminate", "dungeon::threads::Manager::Kill",
+	"dungeon::threads::Manager::WalkWorker",     "PhaseReap",
+	"main",
+};
+
+// True for the WORKER's own stack: walked, passing through its job `job`, and
+// naming nothing that runs only on the supervisor or the killer.
+static bool WorkersOwnStack(const diag::EventView& ev, std::string_view job) {
+	if (!ev.walked) return false;
+	bool inJob = false;
+	for (int f = 0; f < ev.frameCount; ++f) {
+		const std::string name = FrameName(ev.frames[f]);
+		if (name == job) inJob = true;
+		for (std::string_view other : kNotTheWorker)
+			if (name == other) return false;
+	}
+	return inJob;
+}
+
+// The first recorded stack that failed WorkersOwnStack, for the failure's line.
+static std::string g_firstForeign;
+
+// The `kind` events recorded against every thread whose name starts with
+// `prefix` (a force-terminated worker's next life takes a slot of its own, so
+// one worker can own several): how many, and how many carry the worker's own
+// WALKED stack, through `job`.
+static void CountRecorded(std::string_view prefix, diag::Kind kind, std::string_view job,
+						  int& total, int& walked) {
+	diag::ThreadHealth th[diag::kMaxThreads];
+	const int tn = diag::SnapshotThreads(th, diag::kMaxThreads);
+	for (int j = 0; j < tn; ++j) {
+		if (!std::string_view(th[j].name).starts_with(prefix)) continue;
+		diag::EventView ev[diag::kEventsPerThread];
+		const int n = diag::ReadEvents(th[j].slot, ev, diag::kEventsPerThread);
+		for (int i = 0; i < n; ++i) {
+			if (ev[i].kind != kind) continue;
+			++total;
+			if (WorkersOwnStack(ev[i], job)) {
+				++walked;
+				continue;
+			}
+			if (!g_firstForeign.empty()) continue;
+			g_firstForeign = std::string(diag::KindName(kind)) + " on " + th[j].name +
+							 (ev[i].walked ? " (walked):" : " (not walked):");
+			for (int f = 0; f < ev[i].frameCount && f < 8; ++f)
+				g_firstForeign += (f ? " <- " : " ") + FrameName(ev[i].frames[f]);
+			if (ev[i].frameCount == 0) g_firstForeign += " no frames";
+		}
+	}
+}
+
+// Killed events on threads named `prefix...` - H's wedged worker is killed on
+// purpose, and the run-wide "nothing was force-terminated" check leaves its
+// kills to H's own.
+static u64 KillsOn(std::string_view prefix) {
+	diag::ThreadHealth th[diag::kMaxThreads];
+	const int tn = diag::SnapshotThreads(th, diag::kMaxThreads);
+	u64 n = 0;
+	for (int j = 0; j < tn; ++j)
+		if (std::string_view(th[j].name).starts_with(prefix)) n += th[j].Count(diag::Kind::Killed);
+	return n;
+}
+
+static void PhaseReap(threads::Manager& mgr) {
+	std::printf("--- H threadreap races the supervisor's reboots (run first) ---\n");
+	constexpr int kSlow = 3;
+	constexpr double kRaceMs = 4000.0;
+	const size_t before = mgr.Count();
+
+	threads::WorkerId slow[kSlow];
+	for (int i = 0; i < kSlow; ++i) {
+		slow[i] = mgr.Spawn([&mgr](const threads::Tick& t) { StallTick(mgr, t); },
+							{"stress.slow" + std::to_string(i), 20.0f, /*watchdogMs=*/100,
+							 /*autoRestart=*/true});
+	}
+	// Ignores its stop token, so every reboot force-terminates it. Safe for the
+	// reason the self-test's planted worker is: it only sleeps, holding no lock.
+	const threads::WorkerId wedge =
+		mgr.Spawn([](const threads::Tick&) { WedgeTick(); },
+				  {"stress.reapwedge", 20.0f, /*watchdogMs=*/100, /*autoRestart=*/true});
+	const size_t spawned = before + kSlow + 1;
+
+	// The reaper: this thread, flat out, for the whole race.
+	long long reaps = 0;
+	size_t fewest = mgr.Count();
+	const auto t0 = Clock::now();
+	while (SinceMs(t0) < kRaceMs) {
+		mgr.Reap();
+		++reaps;
+		fewest = std::min(fewest, mgr.Count());
+		std::this_thread::yield();
+	}
+
+	u32 slowRe = 0;
+	bool allKnown = true;
+	for (int i = 0; i < kSlow; ++i) {
+		const auto info = mgr.Inspect(slow[i]);
+		if (info.id != slow[i]) allKnown = false;
+		slowRe += info.restarts;
+	}
+	const auto wi = mgr.Inspect(wedge);
+	if (wi.id != wedge) allKnown = false;
+	std::printf("  %lld reaps in %.0f ms; reboots: stalled workers %u, wedged %u; registry %zu, "
+				"fewest seen %zu; ticks begun on a reaped worker %d\n",
+				reaps, kRaceMs, slowRe, wi.restarts, spawned, fewest, g_orphanTicks.load());
+	Check(reaps > 100 && slowRe >= 2 * kSlow && wi.restarts >= 2,
+		  "H: threadreap ran all through the supervisor's reboots of stalled and wedged workers");
+	Check(allKnown && fewest >= spawned && g_orphanTicks.load() == 0,
+		  "H: threadreap never took a worker the supervisor was rebooting");
+
+	// And it still reaps: a worker stopped for good, and one killed. The kill
+	// waits for the wedged worker to be IN its job, early in a tick: a life the
+	// supervisor has only just relaunched can still be short of its first tick,
+	// where it stops cooperatively and reads Dead - not the forced kill this is
+	// about - and one near the 500 ms reboot line could be rebooted under it.
+	mgr.Stop(slow[0]);
+	for (int tries = 0; tries < 200; ++tries) {
+		const auto i = mgr.Inspect(wedge);
+		const bool inJob = i.state == threads::State::Running || i.state == threads::State::Stalled;
+		if (inJob && i.heartbeatAgeMs > 20.0 && i.heartbeatAgeMs < 300.0) break;
+		std::this_thread::sleep_for(std::chrono::milliseconds(5));
+	}
+	mgr.Kill(wedge);
+	const threads::State killedState = mgr.Inspect(wedge).state;
+	mgr.Reap();
+	const bool stoppedGone = mgr.Inspect(slow[0]).id == threads::kInvalidWorker;
+	const bool killedGone = mgr.Inspect(wedge).id == threads::kInvalidWorker;
+	for (int i = 1; i < kSlow; ++i) mgr.Remove(slow[i]);
+	std::printf("  after: the stopped worker %s, the killed one (%s) %s; registry %zu (was %zu)\n",
+				stoppedGone ? "reaped" : "KEPT", threads::StateName(killedState),
+				killedGone ? "reaped" : "KEPT", mgr.Count(), before);
+	Check(stoppedGone && killedState == threads::State::Quarantined && killedGone &&
+			  mgr.Count() == before,
+		  "H: threadreap still drops a worker stopped for good, and one force-terminated");
+
+	// C387: each stall and each kill is recorded with where the thread was -
+	// walked from outside, on the WORKER's thread: through its job, and through
+	// nothing only the supervisor or the killer runs.
+	int stalls = 0, stallsWalked = 0, kills = 0, killsWalked = 0;
+	CountRecorded("stress.slow", diag::Kind::Stall, "StallTick", stalls, stallsWalked);
+	CountRecorded("stress.reapwedge", diag::Kind::Stall, "WedgeTick", stalls, stallsWalked);
+	CountRecorded("stress.reapwedge", diag::Kind::Killed, "WedgeTick", kills, killsWalked);
+	std::printf("  record: %d stalls, %d with the worker's own walked stack through its job; "
+				"%d kills, %d with one\n",
+				stalls, stallsWalked, kills, killsWalked);
+	if (!g_firstForeign.empty()) std::printf("    first other: %s\n", g_firstForeign.c_str());
+	Check(stalls >= kSlow && stallsWalked == stalls,
+		  "H: every stall was recorded with the stack it was stuck in");
+	Check(kills >= 2 && killsWalked == kills,
+		  "H: every force-terminate was recorded with the stack it was killed in");
+	std::printf("\n");
+}
+
 int main(int argc, char** argv) {
 	// This harness prints em-dashes; a console decodes bytes in its own code
 	// page unless told otherwise (Core/Log.h).
@@ -528,6 +747,10 @@ int main(int argc, char** argv) {
 	diag::Init();
 
 	threads::Manager mgr;
+
+	// Phase H first, on a registry and a health record nothing else has touched
+	// (see PhaseReap).
+	PhaseReap(mgr);
 
 	if (selfTest) {
 		// Ignores its stop token, so cooperative stop cannot end it. The
@@ -953,7 +1176,10 @@ int main(int argc, char** argv) {
 				g_wrongBucket);
 	Check(g_auditedPlans > 0 && g_wrongBucket == 0,
 		  "every audited plan came from its monster's IQ bucket");
-	const u64 killed = diag::ProcessTotals().Count(diag::Kind::Killed);
+	// Leaving out phase H's wedged worker, which is killed on purpose and judged
+	// by H's own checks.
+	const u64 killed =
+		diag::ProcessTotals().Count(diag::Kind::Killed) - KillsOn("stress.reapwedge");
 	Check(killed == 0, "nothing was force-terminated all run (from the health record)");
 	if (killed > 0) {
 		diag::EventView ev[8];
@@ -966,6 +1192,7 @@ int main(int argc, char** argv) {
 			const char* who = "?";
 			for (int j = 0; j < tn; ++j)
 				if (th[j].slot == slots[i]) who = th[j].name;
+			if (std::string_view(who).starts_with("stress.reapwedge")) continue;
 			std::printf("      killed: '%s' — %s\n", who, ev[i].message);
 		}
 	}

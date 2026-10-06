@@ -102,11 +102,15 @@ struct Manager::Worker {
 	std::atomic<bool> stallReported{false};
 	std::atomic<bool> userStopped{false}; // a kill/stop the supervisor must respect
 	std::atomic<bool> quarantined{false}; // force-terminated; slot poisoned until reboot
-	std::atomic<bool> removed{false};     // Remove took it out; never restarted again
+	std::atomic<bool> removed{false};     // Remove or Reap took it out; never restarted again
 	std::atomic<u32> restarts{0};
 	std::atomic<int> priority{0};    // OS thread priority (-2..+2)
 	std::atomic<u64> affinity{0};    // CPU affinity mask (0 = any)
-	std::mutex controlMx; // serialises lifecycle ops (Stop/Kill/Restart) on this worker
+	// Serialises lifecycle ops (Stop/Kill/Restart/Remove) on this worker, and
+	// whatever reads `thread` from another thread (the walks, Reap). TIMED so a
+	// reader can give up: Stop joins a wedged worker forever, and the supervisor
+	// waiting on that to walk a stall would be wedged with it.
+	std::timed_mutex controlMx;
 
 	std::mutex errMx;
 	std::string lastError;
@@ -312,7 +316,7 @@ std::shared_ptr<Manager::Worker> Manager::Get(WorkerId id) const {
 void Manager::RequestStop(WorkerId id) {
 	const std::shared_ptr<Worker> w = Get(id);
 	if (!w) return;
-	std::lock_guard<std::mutex> ctl(w->controlMx);
+	std::lock_guard ctl(w->controlMx);
 	w->userStopped.store(true); // intentional — the supervisor must not revive it
 	w->state.store(State::Cancelling);
 	w->thread.request_stop(); // also wakes the interruptible sleep
@@ -322,7 +326,7 @@ void Manager::Stop(WorkerId id) {
 	// Resolved under the lock, then joined WITHOUT m_mx held.
 	const std::shared_ptr<Worker> w = Get(id);
 	if (!w) return;
-	std::lock_guard<std::mutex> ctl(w->controlMx);
+	std::lock_guard ctl(w->controlMx);
 	w->userStopped.store(true);
 	w->state.store(State::Cancelling);
 	w->thread.request_stop();
@@ -334,7 +338,7 @@ void Manager::Remove(WorkerId id) {
 	const std::shared_ptr<Worker> w = Get(id);
 	if (!w) return;
 	{
-		std::lock_guard<std::mutex> ctl(w->controlMx);
+		std::lock_guard ctl(w->controlMx);
 		// Marked FIRST, under the lock every lifecycle op takes, so a Restart
 		// already waiting on it - the supervisor's, which looked this worker up
 		// before it was asked to go - finds it removed and gives up rather than
@@ -410,7 +414,7 @@ void Manager::SetRate(WorkerId id, float hz) {
 void Manager::SetPriority(WorkerId id, int priority) {
 	const std::shared_ptr<Worker> w = Get(id);
 	if (!w) return;
-	std::lock_guard<std::mutex> ctl(w->controlMx); // don't race Restart's relaunch
+	std::lock_guard ctl(w->controlMx); // don't race Restart's relaunch
 	w->priority.store(priority);
 #ifdef _WIN32
 	if (w->thread.joinable())
@@ -422,7 +426,7 @@ void Manager::SetPriority(WorkerId id, int priority) {
 void Manager::SetAffinity(WorkerId id, u64 mask) {
 	const std::shared_ptr<Worker> w = Get(id);
 	if (!w) return;
-	std::lock_guard<std::mutex> ctl(w->controlMx);
+	std::lock_guard ctl(w->controlMx);
 	w->affinity.store(mask);
 #ifdef _WIN32
 	if (mask && w->thread.joinable())
@@ -464,6 +468,12 @@ void Manager::StopOrTerminate(Worker* w) {
 		w->thread.join(); // clean exit
 		return;
 	}
+	// WHERE it is stuck, walked from outside while there is still a thread to
+	// walk: the terminate below ends the evidence, and "it would not stop" says
+	// nothing without where (code-review C387). Not the caller's own stack -
+	// that belongs to whoever called Kill, and says nothing about the victim.
+	void* frames[diag::kStackDepth];
+	const int n = WalkWorker(w, frames, diag::kStackDepth);
 	// Wedged: force-terminate. DANGEROUS last resort — TerminateThread runs no
 	// unwinding, so any lock the job held is leaked forever. If it was mid-malloc
 	// (the AI BFS allocates), the leaked lock is the CRT HEAP lock, which
@@ -472,21 +482,26 @@ void Manager::StopOrTerminate(Worker* w) {
 	// bug (an infinite loop that never checks its token). Abandon (detach) the
 	// object so nothing tries to join it.
 #ifdef _WIN32
-	TerminateThread(static_cast<HANDLE>(w->thread.native_handle()), 1);
+	const HANDLE h = static_cast<HANDLE>(w->thread.native_handle());
+	TerminateThread(h, 1);
+	// TerminateThread only STARTS the termination and returns. Wait for it to
+	// land, so that by the time the slot reads quarantined - and Reap may free
+	// the Worker - no thread is left running with a pointer to it.
+	WaitForSingleObject(h, 1000);
 #endif
 	w->thread.detach();
 	w->quarantined.store(true);
-	// On the VICTIM's timeline, not the killer's — and with no stack, because the
-	// only stack available here is the stack of whoever called Kill, which says
-	// nothing about the thread that would not stop. Walking the wedged thread's
-	// own stack is the probe in phase 4, and it has to happen BEFORE this point.
+	// On the VICTIM's timeline, not the killer's, with the victim's own frames.
 	diag::RecordFor(w->diagSlot.load(),
 					{.kind = diag::Kind::Killed,
 					 .workerId = w->id,
 					 .iteration = w->iterations.load(),
 					 .message = "force-terminated: would not stop cooperatively; any "
 								"lock it held is leaked",
-					 .captureStack = false});
+					 .frames = n > 0 ? frames : nullptr,
+					 .frameCount = n,
+					 .captureStack = false,
+					 .walked = n > 0});
 	log::Warn("thread '{}' would not stop — FORCE-TERMINATED; process may be unstable "
 			  "(leaked locks). Restart soon.",
 			  w->name);
@@ -495,20 +510,26 @@ void Manager::StopOrTerminate(Worker* w) {
 void Manager::Kill(WorkerId id) {
 	const std::shared_ptr<Worker> w = Get(id);
 	if (!w) return;
-	std::lock_guard<std::mutex> ctl(w->controlMx);
+	std::lock_guard ctl(w->controlMx);
 	w->userStopped.store(true); // intentional — the supervisor must not revive it
 	w->state.store(State::Cancelling);
 	StopOrTerminate(w.get());
 	w->state.store(w->quarantined.load() ? State::Quarantined : State::Dead);
 }
 
-void Manager::Restart(WorkerId id) {
+void Manager::Restart(WorkerId id) { RestartWorker(id, /*bySupervisor=*/false); }
+
+void Manager::RestartWorker(WorkerId id, bool bySupervisor) {
 	const std::shared_ptr<Worker> w = Get(id);
 	if (!w) return;
-	std::lock_guard<std::mutex> ctl(w->controlMx);
-	// Taken out of the registry (Remove) while this call waited for the lock:
-	// its job is gone with the client that owned it. Nothing to relaunch.
+	std::lock_guard ctl(w->controlMx);
+	// Taken out of the registry (Remove, or Reap) while this call waited for the
+	// lock: nothing may run its job again. Nothing to relaunch.
 	if (w->removed.load()) return;
+	// The supervisor chose this reboot from a look taken WITHOUT the lock. A Stop
+	// or Kill that landed since is the user's word and wins: rebooting would
+	// clear userStopped and set running again a worker just stopped on purpose.
+	if (bySupervisor && w->userStopped.load()) return;
 	// Stop the current thread (force-terminating a wedged one) so the old thread
 	// is entirely gone before the new one touches this Worker — no shared-state
 	// race, and a stuck worker can't block the reboot.
@@ -536,6 +557,11 @@ void Manager::Restart(WorkerId id) {
 	// The new thread finds the flag at the top of its loop and holds there.
 	w->quarantined.store(false);
 	w->userStopped.store(false);
+	// A new life's stall is a new episode. Left set, the supervisor cleared it
+	// only if it happened to look while the first tick was still under its
+	// watchdog - a 100 ms poll against a 100 ms watchdog - so a rebooted AI
+	// bucket that stalled again was mostly never recorded at all.
+	w->stallReported.store(false);
 	w->iterations.store(0);
 	w->lastMs.store(0.0);
 	w->avgMs.store(0.0);
@@ -591,6 +617,23 @@ void Manager::SupervisorLoop(std::stop_token st) {
 			// ring. The flag clears above, when the worker gets back under its
 			// watchdog or leaves Running.
 			if (!w->stallReported.exchange(true)) {
+				// WHERE it is stuck, walked from outside now: an autoRestart
+				// worker is rebooted at 5x its watchdog (half a second for an AI
+				// bucket), which ends the thread and the evidence with it, long
+				// before anyone could type `health probe` (code-review C387).
+				// Under the worker's lock, so no Restart swaps the thread under
+				// the walk - but only waited for briefly: a Stop joining a wedged
+				// worker holds it forever, and the record goes without frames
+				// rather than the supervisor wedging too.
+				void* frames[diag::kStackDepth];
+				int n = 0;
+				{
+					std::unique_lock ctl(w->controlMx, std::chrono::milliseconds(50));
+					if (ctl.owns_lock()) n = WalkWorker(w.get(), frames, diag::kStackDepth);
+				}
+				// A tick that ended while we looked was walked in whatever came
+				// next - the cadence sleep - which is not where it stalled.
+				if (w->beatNs.load() != beat || w->state.load() != State::Running) n = 0;
 				diag::RecordFor(w->diagSlot.load(),
 								{.kind = diag::Kind::Stall,
 								 .workerId = id,
@@ -598,13 +641,16 @@ void Manager::SupervisorLoop(std::stop_token st) {
 								 .message = std::format(
 									 "tick has run {:.0f} ms — past its {} ms watchdog",
 									 age, w->watchdogMs),
-								 .captureStack = false});
+								 .frames = n > 0 ? frames : nullptr,
+								 .frameCount = n,
+								 .captureStack = false,
+								 .walked = n > 0});
 			}
 
 			// The reboot is the separate fact, and Restart records it itself.
 			if (w->autoRestart && !w->userStopped.load() &&
 				age > static_cast<double>(w->watchdogMs) * 5.0)
-				Restart(id);
+				RestartWorker(id, /*bySupervisor=*/true);
 		}
 		// Coarse poll; checks the stop flag often so shutdown is prompt.
 		for (int i = 0; i < 10 && !st.stop_requested(); ++i)
@@ -612,17 +658,29 @@ void Manager::SupervisorLoop(std::stop_token st) {
 	}
 }
 
-int Manager::CaptureStack(WorkerId id, void** out, int max) const {
-	const std::shared_ptr<Worker> w = Get(id);
-	if (!w || !w->thread.joinable()) return 0;
+int Manager::WalkWorker(Worker* w, void** out, int max) {
+	if (!w->thread.joinable()) return 0;
 #ifdef _WIN32
 	// A quarantined slot's thread was force-terminated and detached; the handle
-	// may name nothing, or worse, something reused. Never probe one.
+	// may name nothing, or worse, something reused. Never walk one.
 	if (w->quarantined.load()) return 0;
 	return stack::WalkThread(static_cast<void*>(w->thread.native_handle()), out, max);
 #else
+	(void)out;
+	(void)max;
 	return 0;
 #endif
+}
+
+int Manager::CaptureStack(WorkerId id, void** out, int max) const {
+	const std::shared_ptr<Worker> w = Get(id);
+	if (!w) return 0;
+	// The thread object is read under the worker's lock, so a Restart cannot be
+	// swapping it mid-read. Bounded: a Stop joining a wedged worker holds the
+	// lock forever, and the probe is meant for exactly that worker.
+	std::unique_lock ctl(w->controlMx, std::chrono::milliseconds(500));
+	if (!ctl.owns_lock()) return 0;
+	return WalkWorker(w.get(), out, max);
 }
 
 WorkerInfo Manager::Inspect(WorkerId id) const {
@@ -681,9 +739,24 @@ void Manager::Reap() {
 	// Remove only fully-stopped slots: Dead = cleanly joined, Quarantined = force-
 	// terminated + detached. Either way the thread is gone (not joinable), so the
 	// Worker's destruction joins nothing and frees no in-use state.
+	//
+	// And only one NO LIFECYCLE OP HOLDS. A Restart reads exactly like a dead
+	// slot between its join and its relaunch - Dead, not joinable - and the
+	// supervisor's reboot of a stalled worker is one; reaped there, the reboot
+	// went on to launch a thread on a Worker the registry had let go of, and a
+	// stalled AI bucket left the registry for good (code-review C386). A try-lock,
+	// so a reap never waits on a 250 ms grace (lock order m_mx -> controlMx, and
+	// a try never blocks). The lock is released before the erase destroys
+	// anything, and a slot taken is marked removed under it, so a Restart that
+	// looked it up first and is queued on the lock gives up.
 	std::erase_if(m_workers, [](const std::shared_ptr<Worker>& w) {
+		std::unique_lock ctl(w->controlMx, std::try_to_lock);
+		if (!ctl.owns_lock()) return false; // mid-op: not stopped, whatever it reads
 		const State s = w->state.load();
-		return (s == State::Dead || s == State::Quarantined) && !w->thread.joinable();
+		if ((s != State::Dead && s != State::Quarantined) || w->thread.joinable())
+			return false;
+		w->removed.store(true);
+		return true;
 	});
 }
 

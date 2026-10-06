@@ -477,9 +477,9 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 			"help", "clear", "echo", "profile", "quit", "exit", "fps", "framecap",
 			"lang", "quality", "fonts", "font", "ver", "loadstats", "allocguard",
 			"allocpoke", "crashpoke", "health", "throttle", "governor",
-			"threads", "threadspawn", "threadwedge", "threadprio", "threadaffinity",
-			"threadreap", "uitree", "uioverlap", "clippoke", "logecho", "timescale",
-			"state",
+			"threads", "threadspawn", "threadwedge", "threadkill", "threadprio",
+			"threadaffinity", "threadreap", "uitree", "uioverlap", "clippoke", "logecho",
+			"timescale", "state",
 			"worlds", "newgame", "reset", "newparty", "partypage",
 		};
 		for (std::string_view n : kNoWorldNeeded)

@@ -72,15 +72,26 @@ function Send-Click([int]$x, [int]$y) {
 }
 
 # ---------------------------------------------------------------------------
+# A pattern for a log line and, within the forty lines after it, a line naming
+# `frame`. A recorded stack is logged one frame a line right under its event's
+# own line, so this is how "the stall line carries a stack that names X" reads
+# in the log. Anchored to its line on purpose: since the stall and the kill
+# records carry WALKED stacks (code-review C387), the same OS frames turn up
+# under more than one event, and a bare frame pattern would be met by
+# whichever logged first.
+function After([string]$line, [string]$frame) {
+	return "$line[^\n]*(?:\n[^\n]*){0,40}?\n[^\n]*$frame"
+}
+
+# ---------------------------------------------------------------------------
 # THE CASES. `inject` is the console line that breaks something; `expect` is
 # what must appear in dungeon.log afterwards; `survives` says whether the
 # process is supposed to still be running when it is over. An optional `after`
 # runs once the injections are in - in a self-test too, where it must find
 # nothing to act on.
 #
-# NOT COVERED, and said out loud rather than quietly skipped: the Killed kind
-# (a hard force-terminate) has no console command - it is the THREADS panel's
-# kill button - so it cannot be driven from here. Everything else is.
+# Every event kind is covered. The Killed kind is driven by `threadkill`, the
+# THREADS panel's kill button as a command - which is all it lacked before.
 # ---------------------------------------------------------------------------
 $cases = @(
 	@{
@@ -152,11 +163,20 @@ $cases = @(
 	},
 	@{
 		name = 'stall'
-		desc = 'a wedged worker is recorded as a stall, once, without a reboot'
+		desc = 'a wedged worker is recorded as a stall, once, with where it is stuck'
 		inject = @('threadwedge')
 		settle = 6
 		survives = $true
-		expect = @("stall on 'demo\.wedged'.*past its \d+ ms watchdog")
+		# The stall line, and under it the stack the supervisor WALKED when it saw
+		# the stall: the OS wait, the line the job is stuck on, and a std:: frame
+		# - which IsPlumbingFrame drops, so it shows only if the walked stack was
+		# logged WHOLE, as the probe prints one.
+		expect = @(
+			"stall on 'demo\.wedged'.*past its \d+ ms watchdog",
+			(After "stall on 'demo\.wedged'" 'DelayExecution'),
+			(After "stall on 'demo\.wedged'" 'Game_DevDiagnostics\.cpp:\d+'),
+			(After "stall on 'demo\.wedged'" 'std::this_thread::sleep_for')
+		)
 		dump = $false
 	},
 	@{
@@ -165,10 +185,26 @@ $cases = @(
 		inject = @('threadwedge', 'health probe demo.wedged')
 		settle = 4
 		survives = $true
+		# Under the PROBE's own line: the stall record logs the same frames.
 		expect = @(
 			"probe 'demo\.wedged' #\d+ \[stalled\]",
-			'DelayExecution',              # the OS frame IS the diagnosis here
-			'Game_DevDiagnostics\.cpp:\d+'    # and the line it is stuck on
+			(After "probe 'demo\.wedged' #\d+ \[stalled\]" 'DelayExecution'),
+			(After "probe 'demo\.wedged' #\d+ \[stalled\]" 'Game_DevDiagnostics\.cpp:\d+')
+		)
+		dump = $false
+	},
+	@{
+		name = 'kill'
+		desc = 'a wedged worker is force-terminated, and the kill says where it was stuck'
+		inject = @('threadwedge', 'threadkill demo.wedged')
+		settle = 4
+		survives = $true
+		expect = @(
+			"killed on 'demo\.wedged'.*force-terminated",
+			(After "killed on 'demo\.wedged'" 'DelayExecution'),
+			(After "killed on 'demo\.wedged'" 'Game_DevDiagnostics\.cpp:\d+'),
+			(After "killed on 'demo\.wedged'" 'std::this_thread::sleep_for'),
+			"thread 'demo\.wedged' would not stop"
 		)
 		dump = $false
 	},
@@ -399,7 +435,6 @@ Write-Host ''
 # failed EXACTLY as named.
 $verdict = if ($failures -eq 0) { 'PASS' } else { 'FAIL' }
 Write-Host "healthtest RESULT=$verdict cases=$($cases.Count) failures=$failures harness_errors=$harnessErrors self_test=$([int]$SelfTest.IsPresent)"
-Write-Host 'NOTE: the Killed kind is not covered here - a hard kill is a THREADS panel button, not a command.'
 if ($SelfTest) {
 	if ($notAsNamed -eq 0) {
 		Write-Host "SELF-TEST PASSED - all $($cases.Count) case(s) failed on every expectation, and for no other reason" -ForegroundColor Green

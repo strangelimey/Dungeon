@@ -4,16 +4,26 @@ argument-hint: "[selftest]"
 allowed-tools: PowerShell, Read, Grep, Glob
 ---
 
-Drive the real `ThreadManager` + AI buckets under synthetic load (~40 s).
+Drive the real `ThreadManager` + AI buckets under synthetic load (~45 s).
 
 - no argument → `.\tools\CheckAll.ps1 -Only threads`
 - `selftest` → `.\tools\CheckAll.ps1 -Only threads -SelfTest` (must FAIL)
 
-Seven phases: baseline, asymmetric per-bucket load, heavy full-BFS, a ramp into
-the supervisor's reboot zone, the global governor, cooperative kill/restart, and
-lockstep entered while bucket 0 is caught mid-tick (G, code-review C63: it must
-return only once every worker holds at its pause point, nothing may publish
-after it, and a worker rebooted under lockstep must come back still paused).
+Eight phases. RUN FIRST, phase H races `threadreap` against the supervisor
+rebooting three stalled workers and one wedged one, with this thread reaping
+flat out (code-review C386: a Restart reads Dead and not joinable between its
+join and its relaunch, and a reap there lost the worker). Nothing may leave the
+registry mid-reboot, no tick may begin on a reaped worker, and Reap must still
+take a worker stopped for good and one killed. It also reads the health record:
+every stall and every forced kill must carry the worker's own WALKED stack,
+through the job's code and not the supervisor's or the killer's (C387). It runs first because a force-terminated thread never gives
+its health-record slot back, and the self-test's planted worker fills the table
+by the end of the run. Then: baseline, asymmetric per-bucket load, heavy
+full-BFS, a ramp into the supervisor's reboot zone, the global governor,
+cooperative kill/restart, and lockstep entered while bucket 0 is caught mid-tick
+(G, code-review C63: it must return only once every worker holds at its pause
+point, nothing may publish after it, and a worker rebooted under lockstep must
+come back still paused).
 The synthetic world is built the way `DungeonWorld::BuildAISnapshot` builds the
 real one: each monster chases the party's cell, monsters crowd through `occ`
 (not `blocked`), and each bucket's IQ is derived from `Scheduler::BucketForIq`.
@@ -45,7 +55,23 @@ run (from the health record)`. The per-phase `State::Quarantined` scans are
 nearly decorative: `Restart` sets that flag via `StopOrTerminate` and then
 *clears* it before relaunching, so a force-terminated worker reads as `Running`
 moments later. Measured in the self-test: 26 force-terminates, every state scan
-still green. If the record check fires, it names the worker and the reason.
+still green. If the record check fires, it names the worker and the reason. It
+leaves out phase H's `stress.reapwedge`, which H force-terminates on purpose.
+
+**If an H check fails**, read its two lines. `threadreap never took a worker the
+supervisor was rebooting` failing, with `fewest seen` below the registry size,
+is C386 back: `Manager::Reap` reaping by state alone instead of passing over a
+slot whose `controlMx` it cannot take. `ticks begun on a reaped worker` above 0
+is the same bug seen from inside. `still drops a worker stopped for good` failing
+means Reap was made safe by never reaping. The `record:` line counts stalls and
+kills recorded with the WORKER's own walked stack: one through its job
+(`StallTick` / `WedgeTick`, symbolized) that names nothing only the supervisor
+or the killer runs (`SupervisorLoop`, `RestartWorker`, `StopOrTerminate`,
+`Kill`, `WalkWorker`, `PhaseReap`, `main`). "A frame in the exe" would not do:
+Core is a static lib, so the supervisor's own stack is in the exe too. A
+shortfall is C387 - the supervisor's stall walk or `StopOrTerminate`'s
+pre-terminate walk not attaching its frames, or attaching the wrong thread's -
+and `first other:` under it shows the first stack that failed, top 8 frames.
 
 **If `D: the ramp reached the reboot zone and the supervisor rebooted it`
 fails**, suspect the workload rather than the thread system. That is exactly how
@@ -95,3 +121,14 @@ run's. On a machine already at full CPU (another session's build), an AI bucket
 can then miss the supervisor's 250 ms grace and be force-terminated, and the
 self-test also fails F's checks. Rerun it on a quiet machine before suspecting
 the harness.
+
+**So is the ordinary run, under enough load** (measured 2026-10-06, while
+another worktree built debug, release and release-profile at once). The AI
+workers run below normal priority, so a machine saturated at normal priority
+starves them: a two-monster tick took 200 ms, F's idle bucket could not wake
+within the 250 ms grace and was force-terminated, and the run then HUNG in G - a
+thread terminated mid-wake leaves its condition variable's lock held, and the
+next Pause blocks on it forever. That is the TerminateThread hazard this harness
+exists to keep away from, reached by starvation rather than by a bug. If a run
+hangs, look for `killed on 'ai.bucket` in `build\debug\bin\threadstress.log`
+and for other builds on the machine, and kill the stuck ThreadStress by its PID.

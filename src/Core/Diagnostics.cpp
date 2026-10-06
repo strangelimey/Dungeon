@@ -51,6 +51,7 @@ struct EventSlot {
 	char message[kMessageMax] = {};
 	void* frames[kStackDepth] = {};
 	int frameCount = 0;
+	bool walked = false;
 };
 
 // One thread's record. `written` is monotonic and never wraps (a u64 of rare
@@ -86,6 +87,10 @@ struct Entry {
 	std::atomic<i64> windowStartNs{0};
 	std::atomic<u32> windowLogged{0};
 	std::atomic<u64> rateLimited{0};
+
+	// WALKED stacks logged so far, per kind - a third layer, for the stacks the
+	// site check cannot collapse (see LogEvent).
+	std::atomic<u32> walkedLogged[kKindCount]{};
 
 	// Table bookkeeping, written under g_mx. Read unlocked by Record and by the
 	// readouts: `used` only ever goes false→true, and a stale `live` costs a
@@ -193,12 +198,13 @@ void ResetEntry(Entry& e) {
 	e.windowStartNs.store(0, std::memory_order_relaxed);
 	e.windowLogged.store(0, std::memory_order_relaxed);
 	e.rateLimited.store(0, std::memory_order_relaxed);
+	for (std::atomic<u32>& w : e.walkedLogged) w.store(0, std::memory_order_relaxed);
 }
 
 // The log line. Excuses its own allocations: log::Write formats a std::string,
 // and an un-excused report inside a guarded frame would be its own violation
 // (the rule Core/AllocTrack sets out).
-void LogEvent(const Entry& e, const EventSlot& s, u64 repeat) {
+void LogEvent(Entry& e, const EventSlot& s, u64 repeat) {
 	alloc::Excused excuse;
 
 	// system_clock's own duration is not nanoseconds (100 ns ticks on MSVC), so
@@ -232,19 +238,53 @@ void LogEvent(const Entry& e, const EventSlot& s, u64 repeat) {
 	// The stack, ONCE per distinct site. A failure that repeats is the ordinary
 	// case and its stack is identical every time, so printing thirty frames on
 	// every occurrence would undo the throttling above and bury the next problem.
+	// A site is the stack AND the kind: a worker that stalls and is then killed
+	// where it stalled is two facts, and the kill's frames are not "already said"
+	// by the stall's (they are the same frames, walked twice).
 	if (s.frameCount > 0) {
-		// Function-local so the set is created on first use rather than at load,
-		// and guarded because this can be reached from any thread — unlike the
-		// RECORD above, the LOG path is allowed a lock (log::Write takes one
-		// anyway).
+		// A WALKED stack goes out whole, the way the probe prints one (see
+		// Event::walked) - and only the first few of a kind, per thread. Its top
+		// frames are wherever the thread happened to be at the instant it was
+		// looked at, so a worker stalling inside a busy loop gives a new "site"
+		// every time and the once-per-site check never sees a repeat: an AI
+		// bucket over its watchdog every tick would write twenty lines a stall
+		// where it used to write one. The record keeps every one of them.
+		std::atomic<u32>& walkedCount = e.walkedLogged[static_cast<int>(s.kind)];
+		// Past that cap it is not even offered to a seen-set below: it will not
+		// be logged, and a remembered site it would never print is a slot taken.
+		if (s.walked && walkedCount.load(std::memory_order_relaxed) > kWalkedLogged) return;
+
+		// Function-local so the sets are created on first use rather than at
+		// load, and guarded because this can be reached from any thread - unlike
+		// the RECORD above, the LOG path is allowed a lock (log::Write takes one
+		// anyway). TWO sets: a SeenSet logs no further site once it is full (it
+		// counts them and says so once - code-review C226), and walked stacks - a
+		// new hash almost every stall - would fill a shared one within a session
+		// and leave every later exception or assert site with no stack logged at
+		// all. Walked stacks fill only their own, and the cap bounds what that
+		// costs.
 		static std::mutex seenMx;
 		static stack::SeenSet seen("health record");
+		static stack::SeenSet walkedSeen("health record's walked stacks");
 		bool first = false;
 		{
 			std::lock_guard lk(seenMx);
-			first = seen.FirstSighting(stack::Hash(s.frames, s.frameCount));
+			const u64 site = stack::Hash(s.frames, s.frameCount) ^
+							 (static_cast<u64>(s.kind) + 1) * 0x9E3779B97F4A7C15ull;
+			first = (s.walked ? walkedSeen : seen).FirstSighting(site);
 		}
-		if (first) stack::LogStack(s.frames, s.frameCount);
+		if (!first) return;
+		if (!s.walked) {
+			stack::LogStack(s.frames, s.frameCount);
+			return;
+		}
+		const u32 n = walkedCount.fetch_add(1);
+		if (n < kWalkedLogged) {
+			stack::LogEveryFrame(s.frames, s.frameCount);
+		} else if (n == kWalkedLogged) {
+			log::Warn("      (further {} stacks of '{}' are in the record only: `health {}`)",
+					  KindName(s.kind), e.name, e.name);
+		}
 	}
 }
 
@@ -264,6 +304,7 @@ bool ReadSlot(const Entry& e, u64 index, EventView& out) {
 	std::memcpy(out.message, s.message, sizeof(out.message));
 	out.frameCount = s.frameCount;
 	std::memcpy(out.frames, s.frames, sizeof(out.frames));
+	out.walked = s.walked;
 
 	return s.seq.load(std::memory_order_acquire) == index + 1;
 }
@@ -416,13 +457,16 @@ void RecordFor(Slot slot, const Event& ev) {
 		const int fc = ev.frameCount < kStackDepth ? ev.frameCount : kStackDepth;
 		std::memcpy(s.frames, ev.frames, static_cast<size_t>(fc) * sizeof(void*));
 		s.frameCount = fc;
+		s.walked = ev.walked;
 	} else if (ev.captureStack) {
 		// Does not allocate, which is what makes it safe on this path. Skips
 		// this frame so the report starts at the caller.
 		s.frameCount = static_cast<int>(
 			::RtlCaptureStackBackTrace(1, kStackDepth, s.frames, nullptr));
+		s.walked = false;
 	} else {
 		s.frameCount = 0;
+		s.walked = false;
 	}
 
 	s.seq.store(at + 1, std::memory_order_release);

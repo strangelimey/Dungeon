@@ -118,11 +118,13 @@ void DevConsole::ReportHealthCell(int row, int cell) {
 		Print(std::format("'{}' #{} {} tick {}: {}", r.name, ev[i].index,
 						  diag::KindName(ev[i].kind), ev[i].iteration, ev[i].message));
 		// The same plumbing rule the log uses, so a stack reads identically
-		// wherever it is shown. `shown` counts frames that SURVIVED the filter —
+		// wherever it is shown - a WALKED one (a stall, a kill) whole, as the log
+		// and the probe print it. `shown` counts frames that SURVIVED the filter -
 		// counting raw frames would spend the budget on the dispatcher.
-		for (int f = 0, shown = 0; f < ev[i].frameCount && shown < 8; ++f) {
+		const int budget = ev[i].walked ? 12 : 8;
+		for (int f = 0, shown = 0; f < ev[i].frameCount && shown < budget; ++f) {
 			const std::string frame = stack::Describe(ev[i].frames[f]);
-			if (stack::IsPlumbingFrame(frame)) continue;
+			if (!ev[i].walked && stack::IsPlumbingFrame(frame)) continue;
 			Print("    " + frame);
 			++shown;
 		}

@@ -225,6 +225,11 @@ void LogStack(void* const* frames, int depth, const char* indent) {
 	}
 }
 
+void LogEveryFrame(void* const* frames, int depth, const char* indent) {
+	alloc::Excused excuse; // symbolizing and logging both allocate
+	for (int i = 0; i < depth; ++i) log::Warn("{}{}", indent, Describe(frames[i]));
+}
+
 void InstallThrowCapture() {
 	if (g_captureInstalled.exchange(true)) return;
 	// FIRST in the chain (1), so the stack is taken before anything else has a

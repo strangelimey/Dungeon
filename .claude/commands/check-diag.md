@@ -3,7 +3,7 @@ description: The health record's ring — wrap, cross-thread writes, torn reads
 allowed-tools: PowerShell, Read, Grep, Glob
 ---
 
-Exercise `Core/Diagnostics` directly. 62 checks, about four seconds (tests 9
+Exercise `Core/Diagnostics` directly. 64 checks, about four seconds (tests 9
 and 11 each wait one log window out).
 
 ```
@@ -34,6 +34,14 @@ allocation guard log through) past its 64: no further site may read as new,
 each offer is counted (a repeat counts again - it is a count of offers, not of
 sites), and exactly one "the stack set is full" line is written. An
 unreadable log is a `[FAIL] the log can be read back`, never a skip.
+
+**Test 10 guards the log's once-per-site rule against WALKED stacks** (a
+stall's or a forced kill's): 72 distinct walks (four stalls and four kills on
+each of nine threads - enough to FILL a set, which one kind alone, capped at
+four a thread, never does), then one exception site hit twice, whose stack
+must be logged once. Walked stacks sharing the exceptions' set fill it, and a
+full set logs no further site: a FAIL there reading `0 times` is that sharing
+back (`LogEvent`, Core/Diagnostics.cpp).
 
 ## Reading the output
 

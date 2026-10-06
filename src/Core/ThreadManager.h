@@ -146,7 +146,9 @@ public:
 	// the OS thread and mark the slot Quarantined. Force-termination can leak
 	// locks the job held — only for a genuinely stuck thread. A cooperative
 	// worker exits cleanly here instead (no termination). Restart recovers the
-	// slot. Use Stop/RequestStop for the normal cooperative path.
+	// slot. Use Stop/RequestStop for the normal cooperative path. A forced kill
+	// is recorded (diag Killed) with the stack the thread was stuck in, walked
+	// from outside just before the terminate (code-review C387).
 	void Kill(WorkerId id);
 
 	// Global throttle governor: scales EVERY worker's cadence by `scale`
@@ -159,9 +161,9 @@ public:
 
 	// Reboot a worker: cooperatively stop the current thread (request stop, let
 	// the in-flight tick finish, JOIN), reset its stats, and relaunch it on the
-	// same id with its original job. The join-before-relaunch makes it race-free,
-	// but a worker truly wedged in an infinite loop (never checking its token)
-	// will block here — that case needs the hard-quarantine kill (a later step).
+	// same id with its original job. The join-before-relaunch makes it race-free;
+	// a worker truly wedged in an infinite loop (never checking its token) is
+	// force-terminated after Kill's grace instead, and recorded as Kill records.
 	// Clears the user-stopped flag, so a killed worker booted here runs again and
 	// is supervised again. KEEPS a pause: a worker paused when it is rebooted
 	// comes back paused, so the supervisor rebooting a stalled worker cannot
@@ -175,8 +177,11 @@ public:
 	// running and has thrown nothing to record.
 	//
 	// Costs the worker a pause of microseconds. Returns 0 for an unknown, dead or
-	// self-referencing id. See stack::WalkThread for why the walk uses the PE
-	// unwind tables rather than DbgHelp.
+	// self-referencing id, and for one a lifecycle op (a Restart, a Kill) holds
+	// past half a second - its thread is being replaced. See stack::WalkThread
+	// for why the walk uses the PE unwind tables rather than DbgHelp. The
+	// supervisor walks a worker the same way at the start of each stall, so the
+	// record says where it was stuck even after the reboot has ended that thread.
 	int CaptureStack(WorkerId id, void** out, int max) const;
 
 	// Lock-free reads of live worker state. Inspect returns a Dead-stated default
@@ -187,20 +192,36 @@ public:
 
 	// Drop fully-stopped workers (Dead or Quarantined, thread gone) from the
 	// registry so it doesn't grow without bound as short-lived workers come and
-	// go. WorkerIds are stable, so survivors keep theirs. MAIN-THREAD ONLY. It
-	// drops the REGISTRY'S hold on a Worker: a Worker the supervisor is looking
-	// at lives on in its copy (Get hands out shared ownership). One window is
-	// still open - a supervisor Restart, between its join and its relaunch,
-	// leaves a slot that reads Dead and not joinable (code-review C386).
+	// go. WorkerIds are stable, so survivors keep theirs. Safe from any thread.
+	//
+	// It takes only a slot NO LIFECYCLE OP HOLDS (it try-locks each worker's
+	// controlMx and passes over one it cannot get). A Restart, between its join
+	// and its relaunch, leaves a slot that reads Dead and not joinable - and the
+	// supervisor's reboot of a stalled worker is exactly that - so a reap that
+	// went by state alone dropped a worker part-way through its reboot, which
+	// then relaunched on a slot nothing could see (code-review C386). A slot it
+	// does take is marked removed under that lock, so a Restart that looked it
+	// up first and is waiting its turn finds it gone and gives up. It drops only
+	// the REGISTRY'S hold on a Worker: one the supervisor is looking at lives on
+	// in its copy (Get hands out shared ownership).
 	void Reap();
 
 private:
 	struct Worker; // opaque (holds atomics + the jthread); defined in the .cpp
 	void Run(Worker* w, std::stop_token st);
 	void SupervisorLoop(std::stop_token st); // reboots stalled autoRestart workers
+	// Restart's body. The supervisor's reboot passes bySupervisor: it decided on
+	// the reboot from a look taken without the worker's lock, so a Stop or Kill
+	// that landed since wins and the reboot gives up. A manual Restart (`boot`)
+	// is meant to revive a stopped worker, so it does not ask.
+	void RestartWorker(WorkerId id, bool bySupervisor);
 	// Stop a worker, force-terminating it if it won't stop cooperatively. Leaves
 	// w->thread joined (clean) or detached (quarantined). Caller serialises.
 	void StopOrTerminate(Worker* w);
+	// Walks a worker's live thread from outside (stack::WalkThread). The caller
+	// holds w->controlMx, so no Restart can be swapping the thread underneath.
+	// 0 for a worker with no thread to walk.
+	static int WalkWorker(Worker* w, void** out, int max);
 	// Null if unknown. SHARED ownership, so a Worker found here outlives a Reap
 	// or a Remove that drops it from the registry while the caller still holds
 	// it - the supervisor, between its lookup and its checks, is that caller.

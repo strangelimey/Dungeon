@@ -31,6 +31,25 @@ namespace dungeon::game {
 
 using devargs::Need;
 
+namespace {
+// A worker by id ("7") or by the name the THREADS panel shows ("demo.wedged",
+// "ai.bucket2") - a name is what you remember, and what a script can know
+// before the worker exists. For a name, the newest worker of it that still has
+// a thread, else the newest of it at all. kInvalidWorker when nothing matches.
+threads::WorkerId FindWorker(const threads::Manager& mgr, const std::string& who) {
+	if (!who.empty() && std::isdigit(static_cast<unsigned char>(who[0])))
+		return static_cast<threads::WorkerId>(std::atoi(who.c_str()));
+	threads::WorkerId any = threads::kInvalidWorker, live = threads::kInvalidWorker;
+	for (const threads::WorkerInfo& w : mgr.SnapshotAll()) {
+		if (w.name != who) continue;
+		any = w.id;
+		if (w.state != threads::State::Dead && w.state != threads::State::Quarantined)
+			live = w.id;
+	}
+	return live != threads::kInvalidWorker ? live : any;
+}
+} // namespace
+
 void Game::RegisterDiagnosticCommands() {
 	m_console.Register(
 		{.name = "alloctest",
@@ -314,7 +333,27 @@ void Game::RegisterDiagnosticCommands() {
 					while (true) std::this_thread::sleep_for(std::chrono::milliseconds(50));
 				},
 				{"demo.wedged", 1.0f, /*watchdogMs=*/200});
-			m_console.Print(std::format("spawned WEDGED worker #{} (use kill)", id));
+			m_console.Print(std::format("spawned WEDGED worker #{} (use threadkill)", id));
+		});
+	// The THREADS panel's kill button as a command, so a script can reach the
+	// one failure kind nothing else drives: a forced kill (diag Killed), with
+	// the stack the victim was stuck in (code-review C387; HealthTest `kill`).
+	m_console.Register(
+		{.name = "threadkill",
+		 .group = CmdGroup::Threads,
+		 .params = "<id|name>",
+		 .summary = "hard-kill a worker: stop it, force-terminating one that will not stop"},
+		[this](const std::vector<std::string>& args) {
+			if (!Need(m_console, args, 1)) return;
+			const threads::WorkerId id = FindWorker(m_threads, args[0]);
+			if (m_threads.Inspect(id).id == threads::kInvalidWorker) {
+				m_console.Print(std::format("no worker '{}' (see `threads`)", args[0]));
+				return;
+			}
+			m_threads.Kill(id); // blocks through the 250 ms grace of a wedged one
+			const threads::WorkerInfo after = m_threads.Inspect(id);
+			m_console.Print(std::format("killed '{}' #{}: {}", after.name, id,
+										threads::StateName(after.state)));
 		});
 	m_console.Register(
 		{.name = "crashpoke",
@@ -404,16 +443,8 @@ void Game::RegisterDiagnosticCommands() {
 			if (!args.empty() && args[0] == "probe") {
 				if (!Need(m_console, args, 2, "usage: health probe <worker id|name>"))
 					return;
-				// By id or by name — a name is what the THREADS panel shows and
-				// what you actually remember ("demo.wedged", "ai.bucket2").
 				const std::string& who = args[1];
-				threads::WorkerId id = threads::kInvalidWorker;
-				if (!who.empty() && std::isdigit(static_cast<unsigned char>(who[0]))) {
-					id = static_cast<threads::WorkerId>(std::atoi(who.c_str()));
-				} else {
-					for (const threads::WorkerInfo& w : m_threads.SnapshotAll())
-						if (w.name == who) { id = w.id; break; }
-				}
+				const threads::WorkerId id = FindWorker(m_threads, who);
 				const threads::WorkerInfo info = m_threads.Inspect(id);
 				if (info.id == threads::kInvalidWorker) {
 					m_console.Refuse(std::format("no worker '{}' (see `threads`)", who));
@@ -423,7 +454,8 @@ void Game::RegisterDiagnosticCommands() {
 				const int n = m_threads.CaptureStack(id, frames, stack::kMaxFrames);
 				if (n == 0) {
 					m_console.Print(std::format(
-						"could not walk '{}' (#{}, {}) — dead, quarantined, or this thread",
+						"could not walk '{}' (#{}, {}) - dead, quarantined, mid-reboot, or this "
+						"thread",
 						info.name, id, threads::StateName(info.state)));
 					return;
 				}
@@ -471,11 +503,14 @@ void Game::RegisterDiagnosticCommands() {
 						m_console.Print(std::format("  #{} {} tick {}: {}", ev[i].index,
 													diag::KindName(ev[i].kind),
 													ev[i].iteration, ev[i].message));
-						// Same plumbing rule as the log and the timeline; `shown`
-						// counts survivors so the budget is not spent on ntdll.
-						for (int f = 0, shown = 0; f < ev[i].frameCount && shown < 6; ++f) {
+						// Same plumbing rule as the log and the timeline (a walked
+						// stack whole, with room for the OS frames on top of the
+						// job's); `shown` counts survivors so the budget is not
+						// spent on ntdll.
+						const int budget = ev[i].walked ? 12 : 6;
+						for (int f = 0, shown = 0; f < ev[i].frameCount && shown < budget; ++f) {
 							const std::string fr = stack::Describe(ev[i].frames[f]);
-							if (stack::IsPlumbingFrame(fr)) continue;
+							if (!ev[i].walked && stack::IsPlumbingFrame(fr)) continue;
 							m_console.Print("      " + fr);
 							++shown;
 						}

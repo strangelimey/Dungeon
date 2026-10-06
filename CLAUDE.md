@@ -1632,7 +1632,8 @@ grace, then TerminateThread + detach + State::Quarantined; force-termination can
 leak the CRT heap lock → process-fatal, genuine last resort), Restart (reboot a
 slot, force-terminating a wedged one so it never hangs), SetGlobalThrottle (a
 governor scaling EVERY worker's cadence; wakeNow=false for per-frame use so it
-doesn't wake everyone each frame), Reap (drop Dead/Quarantined slots). A built-in
+doesn't wake everyone each frame), Reap (drop Dead/Quarantined slots no
+lifecycle op holds - see rule 4 below). A built-in
 supervisor thread auto-reboots an autoRestart worker that stalls past 5× its
 watchdog. Watchdog "stall" is a DERIVED view in Inspect (a tick still Running
 past Options::watchdogMs), not a stored state. Lock order: m_mx (registry) →
@@ -1640,7 +1641,7 @@ per-worker sleepMx; lifecycle ops serialize on a per-worker controlMx; Inspect/
 SnapshotAll read atomics so they never block a worker. The Manager is owned by
 Game (declared BEFORE m_world so it outlives every client) and is inspected/
 controlled live from the dev console (`threads` lists the registry as text).
-THREE RULES THAT BITE (code-review batch 34): (1) PAUSE ONLY ASKS - it sets a
+FOUR RULES THAT BITE (code-review batches 34 and 36): (1) PAUSE ONLY ASKS - it sets a
 flag, and a worker mid-tick finishes and publishes that tick first;
 `WaitPaused(id, timeout)` is the other half, blocking until the worker HOLDS at
 its pause point (a pause GENERATION it acknowledges there, not the Paused state,
@@ -1651,6 +1652,17 @@ leaves it paused. (3) A CLIENT WHOSE JOB CAPTURES ITSELF REMOVES ITS WORKERS -
 run against a destroyed client; `Remove(id)` joins, drops the job and takes the
 slot out (a Restart already waiting on it gives up). Get hands out SHARED
 ownership, so a Worker the supervisor is looking at outlives a Remove or Reap.
+(4) REAP TAKES ONLY A SLOT NO LIFECYCLE OP HOLDS (code-review batch 36, C386): it
+try-locks each worker's controlMx and passes over one it cannot get, because a
+Restart reads exactly like a dead slot between its join and its relaunch (Dead,
+not joinable) - reaped there, the supervisor's reboot of a stalled worker went
+on to launch a thread nothing could see, and the worker left the registry for
+good. A slot it takes is marked removed, so a queued Restart gives up; and the
+supervisor's own reboot gives up on a worker a Stop or Kill reached first.
+controlMx is a TIMED mutex so the readers of `thread` from another thread (the
+stall walk, the probe) can give up rather than wait on a Stop joining a wedged
+worker forever. Checked by ThreadStress phase H (run first), which races a
+flat-out reaper against those reboots.
 
 The AI itself (Game/MonsterAI.h, namespace dungeon::ai) is walled off like
 MagicSystem — it knows nothing about DungeonWorld/Party/map, reaching the world
@@ -1776,7 +1788,8 @@ the button rects, next frame's Update hit-tests clicks. Commands: throttle
 background cadences when the frame's over budget, asymmetric easing so it
 recovers; opt-in, keys off whole-frame time so it's a coarse heuristic, can be
 GPU-bound), threadprio/threadaffinity <id> ..., threadspawn/threadwedge (stress
-workers — the latter ignores its token, to exercise the hard Kill), threadreap,
+workers - the latter ignores its token, to exercise the hard Kill), threadkill
+<id|name> (the panel's kill button as a command), threadreap, threads,
 and the diagnostics side: health / health probe / crashpoke.
 
 ## Diagnostics — exceptions, faults, stalls (docs/diagnostics.md is the model)
@@ -1833,8 +1846,12 @@ hang and a reboot must each leave EVIDENCE.
   separate facts, once per stall EPISODE (it polls at 100 ms; a minute-long
   wedge would otherwise write 600 identical events and flush the ring) and
   detects INDEPENDENTLY of whether it reboots, so a worker with no autoRestart
-  is covered; `Kill` (against the VICTIM's timeline, with no stack — the only
-  stack there belongs to the killer); and the main thread, which has a slot, a
+  is covered - and records the stall with the worker's own stack, WALKED from
+  outside at that moment (WalkThread), because an AI bucket's reboot comes half
+  a second later and ends the thread and the evidence with it; `Kill` (against
+  the VICTIM's timeline, with the victim's stack walked just before the
+  TerminateThread - the caller's own stack belongs to the killer; code-review
+  C387); and the main thread, which has a slot, a
   frame try/catch and a DIE-AFTER-10-CONSECUTIVE policy. Sharp edge commented at
   the site: a throw between BeginFrame and EndFrame leaves the command list
   open, so the following frame is unlikely to be sound — the counter bounds it.
@@ -1867,8 +1884,15 @@ hang and a reboot must each leave EVIDENCE.
   not part of recording. IsPlumbingFrame is ONE rule for every readout (a stack
   that reads differently in two places cannot be compared) and is deliberately
   NOT applied to the probe, where the OS frame IS the diagnosis
-  (NtWaitForSingleObject names a lock). A stack is logged ONCE per distinct
-  site, or a repeating failure would undo the rate limit.
+  (NtWaitForSingleObject names a lock) - nor to a recorded stall or kill, whose
+  frames are the probe's walk (`diag::Event::walked`; the log, the timeline and
+  `health <thread>` all print those whole). A stack is logged ONCE per distinct
+  site AND kind (a kill where the worker stalled is a second fact), or a
+  repeating failure would undo the rate limit - and a WALKED one only for a
+  thread's first three of a kind, since a walk lands wherever the thread is that
+  instant and a busy loop never repeats a site (the record keeps them all).
+  Walked stacks get their OWN SeenSet: a full set calls every stack new, and
+  stall walks filling the shared one would un-dedupe every later exception.
 - THE READOUTS — the console's HEALTH section: one strip per thread that has
   failed, on the profile graphs' x-axis (240 samples x 50 ms = 12 s), marks
   coloured by kind, oldest at the left, CLICK A MARK for the event and its
@@ -1881,7 +1905,7 @@ hang and a reboot must each leave EVIDENCE.
   threw 18 times reads `sleeping · it 18 · 2.00hz`, every column normal), and
   `health` / `health <thread>` / `health probe <id|name>`.
 - CHECKED, NOT ASSUMED. `DiagTest.exe` (tools/DiagTest) exercises the ring
-  directly - 62 checks, including the one that matters: four writers hammering
+  directly - 64 checks, including the one that matters: four writers hammering
   one slot while a reader walks it, every event self-describing so a torn read
   cannot pass (measured 16k writes, 39k live reads, 0 torn). Its LOG checks read
   the real file back through `log::FilePath()` (the path the sink opened, never
@@ -1892,15 +1916,21 @@ hang and a reboot must each leave EVIDENCE.
   window losing nothing, and a 33rd name taking a dormant slot clean. And the
   stack SeenSet both readouts log through: full at 64, it reports no further
   site, counts each offer it turns away (offers, not distinct sites) and says
-  so in one line (code-review C226). `tools\HealthTest.
-  ps1` breaks the REAL game nine ways and reads dungeon.log and nothing else -
+  so in one line (code-review C226) - which is why walked stacks keep a set of
+  their OWN (test 10: 72 walks fill theirs, and an exception site still logs
+  its stack once). `tools\HealthTest.
+  ps1` breaks the REAL game ten ways and reads dungeon.log and nothing else -
   if the answer is not in the file you open after a crash, it does not count.
   `-SelfTest` skips every injection and REQUIRES every case to fail on EACH of
   its expectations (no pattern met, no dump) and for no other reason - a harness
   error, a death with nothing injected, or a log without the control line (the
   `logecho off` echo typed just before the injection) fails the self-test. It
   used to pass on any failure, so a game that crashed at boot passed it.
-  Two of the nine (`uiclip`, `uinest`; code-review C208) read what a caught
+  Every event kind is covered: the Killed kind by the `kill` case, through
+  `threadkill` (it was a panel button only). A frame expectation is anchored
+  UNDER its own event's line (HealthTest's `After`), since a stall, a kill and a
+  probe of one wedged worker all log the same frames. Two of the ten (`uiclip`,
+  `uinest`; code-review C208) read what a caught
   throw leaves BEHIND - the UI walk's clip, which a throw used to leave in force
   in every context, so a later click outside it was lost. Each checks its own
   premise: `uiclip`'s throw names the clip in force and the button outside it
@@ -1908,9 +1938,7 @@ hang and a reboot must each leave EVIDENCE.
   the click would land under the old walk too), `uinest` refuses a tree that
   did not nest two clips.
   Dev: `crashpoke <throw|uiclip|worker|fault|assert>`, `clippoke`, `threadwedge`,
-  `threadspawn <ms>`. NOT covered: the Killed kind (a hard kill is a panel button, not a
-  command) — the harness says so on every run rather than leaving it to be
-  discovered.
+  `threadkill <id|name>`, `threadspawn <ms>`.
 
 ## Map overlay / editor (MapView)
 

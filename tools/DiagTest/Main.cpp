@@ -768,6 +768,75 @@ void TestSeenSetFull() {
 					  again, set.TurnedAway()));
 }
 
+// --------------------------------------------------------------------------
+// 10 - WALKED stacks (a stall's, a forced kill's) cannot use up the log's
+//      memory of which stacks it has already shown. That memory is a SeenSet,
+//      which once full logs no further site (test 12), and a walk lands
+//      somewhere new almost every stall: sharing the exceptions' set, a
+//      session's stall walks would fill it and every later exception site would
+//      log no stack at all (code-review batch 36's review; before batch 15 a
+//      full set called every stack new, and logged it on every event).
+
+// The frame an exception's stack is told apart by in the log. noinline, so it
+// is a frame of its own whatever the build.
+__declspec(noinline) void SiteMarkerThrows(int i) {
+	diag::Record({.kind = diag::Kind::Exception, .message = std::format("site check {}", i)});
+}
+
+void TestWalkedStacksKeepTheirOwnSet() {
+	Say("10 - walked stacks do not crowd out the exceptions' once-per-site rule");
+	// The SET must actually fill, or a walk sharing the exceptions' set would pass
+	// too. A thread offers a seen-set at most kWalkedLogged + 1 walked stacks of a
+	// KIND (past that it does not offer them), and logs at most kLogBurst lines a
+	// window: so each of nine threads walks four stalls and four kills - eight
+	// lines, eight offers, 72 in all, past the set's 64. (Nine threads and not
+	// ten: with the site thread that is ten names, and the slot table must keep
+	// one never-used slot for test 11. One kind alone offers only 36, and that
+	// version of this test passed with the walks pointed at the shared set.)
+	constexpr int kThreads = 9;
+	constexpr int kPerKind = static_cast<int>(diag::kWalkedLogged) + 1;
+	constexpr diag::Kind kKinds[] = {diag::Kind::Stall, diag::Kind::Killed};
+	constexpr int kPerThread = kPerKind * 2;
+	static_assert(kPerThread <= diag::kLogBurst, "a thread's walks must all reach the log");
+	static_assert(kThreads * kPerThread > stack::SeenSet::kCapacity,
+				  "the walks must be able to fill a seen-set");
+	for (int t = 0; t < kThreads; ++t) {
+		std::jthread([t, kKinds] {
+			diag::RegisterThread(std::format("t.walk{}", t));
+			for (int i = 0; i < kPerThread; ++i) {
+				void* frame = reinterpret_cast<void*>(0x10000ull + t * 0x100ull + i);
+				diag::Record({.kind = kKinds[i / kPerKind],
+							  .message = std::format("walked {}.{}", t, i),
+							  .frames = &frame,
+							  .frameCount = 1,
+							  .captureStack = false,
+							  .walked = true});
+			}
+		}).join();
+	}
+	// One exception site, hit twice with different messages (so the repeat
+	// collapse does not hide the second): its stack is one site, logged once.
+	std::jthread([] {
+		diag::RegisterThread("t.sites");
+		for (int i = 0; i < 2; ++i) SiteMarkerThrows(i);
+	}).join();
+
+	const int stacks = CountLogLines("SiteMarkerThrows");
+	const int notes = CountLogLines("are in the record only");
+	if (stacks < 0 || notes < 0) return;
+	Check(stacks == 1, std::format("after {} walked stacks, an exception site hit twice logged its "
+								   "stack {} times (want 1)",
+								   kThreads * kPerThread, stacks));
+	// The walked set fills too (72 offers, 64 places), and full it takes no
+	// further site (test 12): the threads that fit log three stacks of each kind
+	// and a note a kind, and the last one's walks log nothing.
+	constexpr int kFit = stack::SeenSet::kCapacity / kPerThread;
+	Check(notes == kFit * 2,
+		  std::format("each thread the walked set holds logged 3 walked stacks of each kind, "
+					  "then one note a kind ({} notes, want {})",
+					  notes, kFit * 2));
+}
+
 } // namespace
 
 int main() {
@@ -789,6 +858,9 @@ int main() {
 	TestLogThrottle();
 	TestRateLimit();
 	TestExitFlush();
+	// Ten names of its own, so it runs before the slot fill below, which leaves
+	// no slot for anyone (it needs one never-used slot of its own).
+	TestWalkedStacksKeepTheirOwnSet();
 	TestSlotReuse(); // it fills the slot table, so only slot-free tests follow
 	TestSeenSetFull();
 
