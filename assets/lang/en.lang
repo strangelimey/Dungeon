@@ -864,6 +864,16 @@ map.type.classbacked=The game's code defines this one - its entry only tunes it,
 map.cat.empty=(none defined)
 map.select.empty=Cell {}, {}: empty {}
 map.select.contents=Cell {}, {}: {}
+; the parts of map.select.contents' last {}: the square, then what stands on it
+; (a count of one takes its `.one` key), each added through map.joined
+map.select.wall=wall
+map.select.floor=floor
+map.select.monsters={} monsters
+map.select.monsters.one=1 monster
+map.select.props={} props
+map.select.props.one=1 prop
+; two parts of a list, in the language's order and punctuation
+map.joined={}, {}
 map.place.done=Placed '{}'
 map.place.blocked=Can't place '{}' there
 map.place.nowall=Nothing to hang '{}' on — point at a wall
@@ -1281,9 +1291,16 @@ map.proj.frommonster=Monster shot
 map.proj.dmgtype=Damage type
 map.proj.damage=Damage
 map.proj.accuracy=Accuracy
+map.proj.accuracy.value={} pts
 map.proj.speed=Speed
+map.proj.speed.value={} m/s
 map.proj.range=Range left
+map.proj.range.value={} m
 map.proj.payload=Leaves behind
+; a lone effect's numbers: its id, its rate per second and its seconds; then,
+; when it is not certain, that line and its chance in percent
+map.proj.payload.dot={} {}/s for {}s
+map.proj.payload.chance={} ({}%)
 map.proj.remove=Remove
 map.proj.removed=Projectile removed.
 ; damage types (shared with combat)

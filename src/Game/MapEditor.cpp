@@ -1285,23 +1285,35 @@ void MapEditor::InspectAt(int cx, int cz) {
 	auto log = [&](const std::string& s) {
 		if (m_world->onMessage) m_world->onMessage(s);
 	};
+	// EVERY WORD of the line is the language's (code-review C107): the base and
+	// the counts used to be English spliced into a localised pattern, so a German
+	// editor read "Zelle 3, 4: wall, 2 monsters". A count takes its `.one` key
+	// for one, the overview's convention (map.ov.levelmonsters), since how a
+	// count is said is the language's rule; the list joins through a key too.
+	const std::string_view base =
+		loc::View(map.At(cx, cz) == Cell::Wall ? "map.select.wall" : "map.select.floor");
 	if (remote) {
 		// No live instances on a browsed level — report the static base only;
 		// the inspectors need the level active.
-		log(loc::Format("map.select.contents", cx, cz,
-						map.At(cx, cz) == Cell::Wall ? "wall" : "floor"));
+		log(loc::Format("map.select.contents", cx, cz, base));
 		return;
 	}
-	const char* base = map.At(cx, cz) == Cell::Wall ? "wall" : "floor";
 	int props = 0;
 	for (const auto& m : m_world->DecorationMarkers())
 		if (m.x == cx && m.z == cz) ++props;
 	int mons = 0;
 	for (const auto& m : m_world->MonsterMarkers())
 		if (m.x == cx && m.z == cz) ++mons;
-	std::string details = base;
-	if (mons) details += std::format(", {} monster{}", mons, mons == 1 ? "" : "s");
-	if (props) details += std::format(", {} prop{}", props, props == 1 ? "" : "s");
+	const auto counted = [](int n, std::string_view many, std::string_view one) {
+		return n == 1 ? loc::Tr(one) : loc::Format(many, n);
+	};
+	std::string details(base);
+	if (mons)
+		details = loc::Format("map.joined", details,
+							  counted(mons, "map.select.monsters", "map.select.monsters.one"));
+	if (props)
+		details = loc::Format("map.joined", details,
+							  counted(props, "map.select.props", "map.select.props.one"));
 	log(loc::Format("map.select.contents", cx, cz, details));
 	// Select the square (highlight + patrol-route overlay) and open the
 	// inspector right away when it holds an editable object — the owner

@@ -1,0 +1,81 @@
+; celltext.eval - the editor's inspector text speaks the player's language
+; (code-review C107). Judged by tools/EditorTest.py phase 26, on its scratch world.
+;
+; A right-click on a square of the editor map (`editor inspect`) says what is on
+; it - "Cell 23, 9: floor, 1 monster" - on the editor's message line, which also
+; goes to dungeon.log as `editor: ...`. The words round the numbers were English
+; spliced into a localised pattern, so a German editor read "Zelle 23, 9: floor,
+; 1 monster"; and the projectile card's units ("pts", "m/s", "m") and its payload
+; line ("burn 1.5/s for 5.0s (25%)") were English in every language. The judge
+; rebuilds each line from the .lang file itself and demands it word for word, and
+; refuses a key a file lacks (the game shows it raw) rather than match it.
+;
+;   --- de ---       under `lang de`: a wall block; the warrior's square (one
+;                    monster); a square given a skeleton and two barrels (the
+;                    plural prop key), one given one pot (the singular) and 7,5,
+;                    where the judge authors two skeletons into the scratch
+;                    arena's .ent (the plural monster key: the editor places one
+;                    monster a square); then crypt1, BROWSED from eval_arena - the
+;                    remote branch, which says the square's base word alone, even
+;                    of crypt1's skeleton at 10,4. And `editor cell` on two of
+;                    them: the dev readout, which stays English in any language.
+;   --- de shot ---  the card of a lit torch the leader threw before the switch,
+;                    held in the air by `timescale 0`: its rows as the labels
+;                    show them (`editor projectile: <label> = <value>`).
+;   --- en ---       the same squares in English, and
+;   --- en shot ---  the same torch's card.
+;   --- ru shot ---  the card once more under `lang ru`: de.lang words the speed
+;                    and range units as English does ("m/s", "m"), so only a
+;                    language that words them otherwise ("м/с", "м") can show
+;                    those rows were not left in English.
+;
+; `lang` persists to settings.ini (it is the Settings dropdown's path), so this
+; ends on `lang en`; the judge puts the developer's settings.ini back as well.
+
+logecho on
+reset
+timescale 0
+editor
+editor place monsters skeleton 5 5
+editor place decorations barrel 5 5
+editor place decorations barrel 5 5
+editor place decorations pot 9 5
+throw torch_lit
+lang de
+echo --- de ---
+editor inspect 0 0
+editor inspect 23 9
+editor inspect 5 5
+editor inspect 9 5
+editor inspect 7 5
+editor inspect off
+editor cell 0 0
+editor cell 5 5
+levels view crypt1
+editor inspect 0 0
+editor inspect 10 4
+levels view eval_arena
+echo --- de shot ---
+editor inspect 14 12
+editor inspect off
+lang en
+echo --- en ---
+editor inspect 0 0
+editor inspect 23 9
+editor inspect 5 5
+editor inspect 9 5
+editor inspect 7 5
+editor inspect off
+levels view crypt1
+editor inspect 0 0
+editor inspect 10 4
+levels view eval_arena
+echo --- en shot ---
+editor inspect 14 12
+editor inspect off
+lang ru
+echo --- ru shot ---
+editor inspect 14 12
+editor inspect off
+lang en
+echo --- end ---

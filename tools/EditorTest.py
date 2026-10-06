@@ -176,6 +176,18 @@
 #      gives its texture set (`AssetBaker wornsets`), not the old per-kind
 #      default; a set no record lists names its kind's default; a type that
 #      sets one gets a slider and still names the set's.
+#  26. THE INSPECTORS' TEXT IN THE PLAYER'S LANGUAGE (code-review C107): a
+#      right-click's "what is on this square" line, under `lang de`, is word for
+#      word the line de.lang builds - the base, the monster and prop counts with
+#      their plural and singular keys (two skeletons authored on one square give
+#      the plural monster key; the editor places one a square), on the active
+#      level and on a browsed one (which says the base alone) - where it used to
+#      splice English words into the German pattern; a thrown torch's projectile
+#      card words its units and its burn line as de.lang does (they were English
+#      in every language), and as ru.lang does, since de.lang's "m/s" and "m"
+#      are English's own and only Russian tells those rows apart; English
+#      likewise for both; no raw key on either; and `editor cell`, the dev
+#      readout every other phase parses, stays English under German.
 #
 # NOTHING HERE EDITS THE REAL WORLD (code-review C431). Each phase starts on a
 # FRESH SCRATCH COPY of dungeon-demo, et_demo, and every run opens it with
@@ -195,7 +207,12 @@ import re
 import subprocess
 import sys
 
-ROOT =os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# A detail line may quote Russian (phase 26's card): on a console whose code
+# page cannot show it, a \u escape - not a UnicodeEncodeError in place of the
+# verdict.
+sys.stdout.reconfigure(errors="backslashreplace")
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECTS = os.path.join(ROOT, r"assets\projects")
 SCRATCH = "et_demo"
 PROJ = os.path.join(PROJECTS, SCRATCH)
@@ -2485,6 +2502,202 @@ try:
     check("end" in sec, "the script ran to its end")
 finally:
     drop()
+
+# --- phase 26: the cell message in the player's language ---------------------------
+print("26 - the cell message and the projectile card speak the player's language; `editor cell` stays the dev's")
+LANGS = os.path.join(ROOT, r"assets\lang")
+
+
+def lang_table(code):
+    """{key: text} of assets/lang/<code>.lang, read the way Core/Loc reads it."""
+    table = {}
+    for line in io.open(os.path.join(LANGS, code + ".lang"), encoding="utf-8-sig").read().splitlines():
+        s = line.strip(" \t\r")
+        if s and not s.startswith(";") and "=" in s:
+            key, text = s.split("=", 1)
+            table[key.strip(" \t")] = text.strip(" \t")
+    return table
+
+
+MISSING = "\x02no key {}\x02"  # what say() gives for a key the table lacks
+
+
+def say(table, key, *args):
+    """The line loc::Format makes of `key`: each {} filled in order. A key the
+    table lacks gives MISSING, which no game output can match: the game would
+    show the raw key there, and an expected line built from that same raw key
+    would agree with it - a pattern with no holes formats to itself - so a
+    missing key would pass as present."""
+    if key not in table:
+        return MISSING.format(key)
+    parts = table[key].split("{}")
+    return parts[0] + "".join(str(a) + p for a, p in zip(args, parts[1:]))
+
+
+# The squares the script inspects on the active level, in its order. 7,5 holds
+# two skeletons the judge authors into the scratch arena's .ent (the editor
+# places one monster a square), so the plural monster key is said as well as
+# the `.one`.
+TWO_MONSTERS = ("monster skel_swarm 7 5 south", "monster skel_swarm 7 5 south")
+
+
+def cell_lines(table):
+    """Each square's line, in the order the script inspects them."""
+    floor, wall = say(table, "map.select.floor"), say(table, "map.select.wall")
+    one = say(table, "map.select.monsters.one")
+    joined = lambda a, b: say(table, "map.joined", a, b)
+    return [say(table, "map.select.contents", 0, 0, wall),
+            say(table, "map.select.contents", 23, 9, joined(floor, one)),
+            say(table, "map.select.contents", 5, 5,
+                joined(joined(floor, one), say(table, "map.select.props", 2))),
+            say(table, "map.select.contents", 9, 5, joined(floor, say(table, "map.select.props.one"))),
+            say(table, "map.select.contents", 7, 5, joined(floor, say(table, "map.select.monsters", 2))),
+            # crypt1, browsed: the base word alone, even of its skeleton's square
+            say(table, "map.select.contents", 0, 0, wall),
+            say(table, "map.select.contents", 10, 4, floor)]
+
+
+NUM = "\x01"  # a number's place in an expected line (any decimal there)
+
+
+def shot_rows(table):
+    """The thrown torch's card as `table` words it - (label, value) a row, a
+    value with NUM where its number goes, None where any damage type's name will
+    do - and the torch's on_hit is a burn with a chance, so its payload line
+    takes both of its keys."""
+    t = lambda key, *a: say(table, key, *a)
+    return [(t("map.proj.side"), t("map.proj.fromparty")),
+            (t("map.proj.dmgtype"), None),
+            (t("map.proj.damage"), NUM),
+            (t("map.proj.accuracy"), t("map.proj.accuracy.value", NUM)),
+            (t("map.proj.speed"), t("map.proj.speed.value", NUM)),
+            (t("map.proj.range"), t("map.proj.range.value", NUM)),
+            (t("map.proj.payload"),
+             t("map.proj.payload.chance", t("map.proj.payload.dot", "burn", NUM, NUM), NUM))]
+
+
+def row_says(want, got):
+    """Whether the card's value `got` is the expected `want` (NUM = a number)."""
+    pattern = re.escape(want).replace(re.escape(NUM), r"\d+(?:\.\d+)?")
+    return re.fullmatch(pattern, got) is not None
+
+
+def card(lines):
+    """The `editor projectile: <label> = <value>` rows, as (label, value)."""
+    return [tuple(l[len("editor projectile: "):].split(" = ", 1)) for l in lines
+            if l.startswith("editor projectile: ") and " = " in l]
+
+
+def card_agrees(table, rows):
+    """Every row of the card worded as `table` words it."""
+    want = shot_rows(table)
+    names = {v for k, v in table.items() if k.startswith("dmg.")}
+    return len(rows) == len(want) and all(
+        g[0] == w[0] and (g[1] in names if w[1] is None else row_says(w[1], g[1]))
+        for g, w in zip(rows, want))
+
+
+# The keys the card's VALUES are worded by - the ones this batch moved out of
+# English. A card check tells a language's wording from English's only for the
+# keys that language words differently: de.lang's speed and range ("{} m/s",
+# "{} m") are en.lang's own, so the German card alone cannot see those rows go
+# back to English. Each key needs a checked language that words it otherwise.
+CARD_VALUE_KEYS = ("map.proj.accuracy.value", "map.proj.speed.value", "map.proj.range.value",
+                   "map.proj.payload.dot", "map.proj.payload.chance")
+
+
+def editor_said(log):
+    """The editor's message lines (`editor: ...` in the log), split on the
+    script's '--- name ---' echoes like console_sections."""
+    out, name = {}, None
+    for line in log.splitlines():
+        if "console: " in line:
+            m = re.match(r"--- (.*) ---$", line.split("console: ", 1)[1])
+            if m:
+                name = m.group(1)
+                out[name] = []
+        elif name is not None and "] editor: " in line:
+            out[name].append(line.split("] editor: ", 1)[1])
+    return out
+
+
+fresh()
+settings_before = io.open(SETTINGS, "rb").read() if os.path.isfile(SETTINGS) else None
+try:
+    # Two skeletons on one square, authored (the scratch arena's .ent): the
+    # editor places one monster a square, so this is the one way the script can
+    # inspect a square whose count takes the plural key.
+    raw_ent = io.open(ARENA + ".ent", "rb").read().decode("utf-8")
+    eol = "\r\n" if "\r\n" in raw_ent else "\n"
+    io.open(ARENA + ".ent", "wb").write(
+        eol.join([l for l in raw_ent.split(eol) if l] + list(TWO_MONSTERS) + [""]).encode("utf-8"))
+    log = run("celltext.eval")
+    check(passed(log), "the script ran clean")
+    said_in = editor_said(log)
+    de, en, ru = lang_table("de"), lang_table("en"), lang_table("ru")
+    want_de, want_en = cell_lines(de), cell_lines(en)
+    # THE CONTROL: every WORD the lines are built from differs between the two
+    # files, so a German match below is the language's, not English (or a key
+    # left raw) that happens to agree - "Zelle" alone would tell the lines apart.
+    words = [("map.select.wall",), ("map.select.floor",), ("map.select.monsters", 2),
+             ("map.select.monsters.one",), ("map.select.props", 2), ("map.select.props.one",)]
+    same = [w[0] for w in words if say(de, *w) == say(en, *w) or w[0] not in de or w[0] not in en]
+    check(not same, "THE CONTROL: de.lang words every part of the line differently from en.lang "
+          "(and both files have every key)", ", ".join(same))
+    check(said_in.get("en") == want_en,
+          "in English each square says what is on it: a wall, one monster, a monster and two props, "
+          "one prop, two monsters, and a browsed level's base word", f"{said_in.get('en')} != {want_en}")
+    check(said_in.get("de") == want_de,
+          "under `lang de` every word is German - the base, the counts and both forms of each, on the "
+          "active level and a browsed one (it used to read 'Zelle 23, 9: floor, 1 monster')",
+          f"{said_in.get('de')} != {want_de}")
+    # The dev readout is not the player's: under German it is the same English
+    # line, which every phase that parses it relies on.
+    sec = console_sections(log)
+    cells = [m.groups() for m in map(CELL.match, ("console: " + l for l in sec.get("de", []))) if m]
+    check([c[:4] for c in cells] == [("eval_arena", "0", "0", "solid"), ("eval_arena", "5", "5", "open")],
+          "`editor cell` under `lang de` still prints its English dev readout (solid / open, wall= floor= "
+          "ceiling=)", " | ".join(l for l in sec.get("de", []) if l.startswith("editor cell")))
+    raw = [l for l in said_in.get("de", []) + said_in.get("en", []) if "map.select" in l or "map.joined" in l]
+    check(not raw, "no raw key in any line", " | ".join(raw[:3]))
+
+    # THE PROJECTILE CARD: one thrown torch, read in three languages.
+    de_card, en_card = card(sec.get("de shot", [])), card(sec.get("en shot", []))
+    ru_card = card(sec.get("ru shot", []))
+    check("editor inspect: projectile" in sec.get("de shot", []) and len(de_card) == 7,
+          "THE CONTROL: the thrown torch's card opened, its seven rows read",
+          " | ".join(sec.get("de shot", [])[:3]))
+    # THE CONTROL, per key: a card matches its language's wording AND not
+    # English's only where that language words the key otherwise - so each
+    # value key the card relies on needs a checked language that does (ru.lang
+    # for speed and range, whose German is English's "m/s" and "m"), and both
+    # files must have it.
+    told = {k: [c for c, t in (("de", de), ("ru", ru)) if k in t and k in en and t[k] != en[k]]
+            for k in CARD_VALUE_KEYS}
+    check(all(told.values()),
+          "THE CONTROL: every value key of the card is worded otherwise than en.lang by de.lang or "
+          "ru.lang, so a row put back into English fails one of the matches below",
+          ", ".join(f"{k}: {', '.join(v) or 'NONE'}" for k, v in told.items()))
+    check(card_agrees(en, en_card), "in English the card reads its units and the burn as en.lang words them",
+          str(en_card))
+    check(card_agrees(de, de_card),
+          "under `lang de` the card's units and its payload line are German too (they were 'pts', "
+          "'m/s', 'm' and 'burn 1.5/s for 5.0s (25%)' in every language)", str(de_card))
+    check(card_agrees(ru, ru_card),
+          "under `lang ru` every row is Russian, the speed and range units too (Cyrillic m/s and m, "
+          "where German's read like English's)", str(ru_card))
+    # A key a language lacks shows raw on the card; say() already refuses to
+    # match one, and this names it.
+    raw_card = [r for r in de_card + en_card + ru_card
+                if any("map.proj." in s or "map.joined" in s or s.startswith("dmg.") for s in r)]
+    check(not raw_card, "no raw key on any card", str(raw_card[:3]))
+finally:
+    drop()
+    # `lang` saved the language: the developer's settings.ini goes back.
+    if settings_before is not None:
+        io.open(SETTINGS, "wb").write(settings_before)
+    elif os.path.isfile(SETTINGS):
+        os.remove(SETTINGS)
 
 # --- the real tree: LAST, after every phase --------------------------------------
 print("the real tree: dungeon-demo and the library as the run found them")

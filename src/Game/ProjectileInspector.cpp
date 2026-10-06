@@ -53,19 +53,26 @@ void ProjectileInspector::BuildUI() {
 	// Read-only info rows: label (dim) + value (bright). They used to be drawn
 	// straight to the batch from a hand-stepped y cursor, which is furniture the
 	// layout could not see — as widgets they get areas like everything else.
-	const std::array<std::pair<std::string, std::string>, 7> rows = {{
+	// A UNIT is the language's (code-review C107: "pts", "m/s" and "m" were
+	// English here): the number is formatted here, its unit and order by the
+	// row's `.value` key, so no translation has to spell a format spec. Kept
+	// (Rows()) so a harness reads what the labels show.
+	m_rows = {{
 		{loc::Tr("map.proj.side"), m_cfg.side},
 		{loc::Tr("map.proj.dmgtype"), m_cfg.dmgType},
 		{loc::Tr("map.proj.damage"), std::format("{:.1f}", m_cfg.damage)},
-		{loc::Tr("map.proj.accuracy"), std::format("{:.0f} pts", m_cfg.accuracy)},
-		{loc::Tr("map.proj.speed"), std::format("{:.1f} m/s", m_cfg.speed)},
-		{loc::Tr("map.proj.range"), std::format("{:.1f} m", m_cfg.rangeLeft)},
+		{loc::Tr("map.proj.accuracy"),
+		 loc::Format("map.proj.accuracy.value", std::format("{:.0f}", m_cfg.accuracy))},
+		{loc::Tr("map.proj.speed"),
+		 loc::Format("map.proj.speed.value", std::format("{:.1f}", m_cfg.speed))},
+		{loc::Tr("map.proj.range"),
+		 loc::Format("map.proj.range.value", std::format("{:.1f}", m_cfg.rangeLeft))},
 		// What it leaves behind when it lands or expires — a plain bolt says so
 		// with an em dash rather than a blank, which would read as a missing value.
 		{loc::Tr("map.proj.payload"),
 		 m_cfg.payload.empty() ? "—" : m_cfg.payload},
 	}};
-	for (const auto& [label, value] : rows) {
+	for (const auto& [label, value] : m_rows) {
 		ui::Stack* row = chrome.body->Row<ui::Stack>(FormRow(), true);
 		ui::Label* l = row->Row<ui::Label>(ui::Len::Fill(kLabelFill), label);
 		l->dim = true;

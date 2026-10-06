@@ -28,6 +28,7 @@ harness refuses a stale exe on its own (exit 4).
   anim           quick  self-testable  the Animator keeps Play's promises: a held clip, mid-fade too, never restarts
   docs           quick  self-testable  the /check-* commands list what CheckAll -List and Eval -List print
   verdict        quick  self-testable  the native judges' last-line reader refuses every bad or contradictory line
+  lang           quick  self-testable  every language key the code names is in every .lang file, holes matching
   threads        full   self-testable  ThreadManager + AI buckets under load: no force-terminate, clean reboots
   ingame         quick  self-testable  level files + installed models, and a uioverlap sweep of every screen
   pipeline       quick  self-testable  every source of damage goes through fx::Deal; nothing else writes health

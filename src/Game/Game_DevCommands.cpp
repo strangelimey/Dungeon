@@ -695,6 +695,7 @@ void Game::RegisterDevCommands() {
 							   // A real right-click cannot land while a dialog is up,
 							   // so none is: a leftover would read as this square's.
 							   for (InstanceInspector* ii : InstanceInspectors()) ii->Close();
+							   m_projectileInspector.Close();
 							   m_inspectPicker.Close();
 							   m_mapEditor.InspectAt(std::atoi(args[1].c_str()),
 													 std::atoi(args[2].c_str()));
@@ -702,9 +703,16 @@ void Game::RegisterDevCommands() {
 							   const std::string what = std::format(
 								   "editor inspect: {}", open == &m_stairInspector ? "stair"
 													 : open						 ? "inspector"
+													 : m_projectileInspector.IsOpen() ? "projectile"
 													 : m_inspectPicker.IsOpen() ? "chooser"
 																				 : "nothing");
 							   m_console.Print(what);
+							   // The projectile card's rows, as its labels show them
+							   // (code-review C107: their units are the language's).
+							   if (m_projectileInspector.IsOpen())
+								   for (const auto& [label, value] : m_projectileInspector.Rows())
+									   m_console.Print(std::format("editor projectile: {} = {}",
+																   label, value));
 							   // Logged too: InGameTest's sweep types this into a
 							   // console the log does not echo, and a sweep of a
 							   // dialog that never opened must not read as clean.

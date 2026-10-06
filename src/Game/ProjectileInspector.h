@@ -22,15 +22,18 @@
 #include "UI/Font.h"
 #include "UI/UIContext.h"
 
+#include <array>
 #include <functional>
 #include <string>
+#include <utility>
 
 namespace dungeon::game {
 
 class ProjectileInspector {
 public:
 	// Everything shown, resolved by the owner (Game) — side/type already
-	// localized; the numbers are formatted here.
+	// localized; the numbers are formatted here, each with its unit's key
+	// (map.proj.<row>.value).
 	struct Config {
 		u32 id = 0;
 		std::string side;    // "Party spell" / "Monster shot"
@@ -40,8 +43,8 @@ public:
 		float speed = 0.0f;    // m/s
 		float rangeLeft = 0.0f; // metres
 		// What the carrier will DELIVER when it lands or expires, as ONE line
-		// ("burn 3.0/s for 6.0s", or just the ids when it carries several). An em
-		// dash for a plain bolt. Composed by the owner, like the localized strings
+		// ("burn 3.0/s for 6.0s", or just the ids when it carries several; the
+		// words round an id are map.proj.payload.*). An em dash for a plain bolt. Composed by the owner, like the localized strings
 		// above — and one line rather than one row per effect so the card keeps a
 		// FIXED row count: a Stack shrinks its fixed rows to fit, so rows that
 		// vary with content would squeeze text drawn at an unchanged font, which
@@ -62,6 +65,12 @@ public:
 	// The Remove button: the owner dismisses the in-flight projectile.
 	std::function<void()> onRemove;
 
+	// The info rows as last built - (label, value), the very strings the card's
+	// labels show - for a harness (`editor inspect` prints them).
+	using Row = std::pair<std::string, std::string>;
+	static constexpr size_t kRows = 7;
+	const std::array<Row, kRows>& Rows() const { return m_rows; }
+
 	void Update(const Input& input, float width, float height);
 	void Render(gfx::SpriteBatch& batch, const ui::Theme& theme, float width,
 				float height);
@@ -75,6 +84,7 @@ private:
 
 	bool m_open = false;
 	Config m_cfg;
+	std::array<Row, kRows> m_rows;
 };
 
 } // namespace dungeon::game

@@ -156,6 +156,17 @@ $checks = @(
 		selfTest = { & (Join-Path $root 'tools\VerdictTest.ps1') -SelfTest | Out-Host; $LASTEXITCODE }
 	},
 	@{
+		name = 'lang'; tier = 'quick'
+		what = 'every language key the code names is in every .lang file, holes matching'
+		# Reads src\ and assets\lang and needs no build (code-review C107): a key
+		# a translation lacks shows as the raw key and fails nothing at run time.
+		# Its self-test plants a dropped key, an unknown key in a loc call and in
+		# a table, a hole short and a key defined twice, and must report exactly
+		# those - and a run over no source must be refused (exit 2), not passed.
+		run      = { python (Join-Path $root 'tools\LangTest.py') | Out-Host; $LASTEXITCODE }
+		selfTest = { python (Join-Path $root 'tools\LangTest.py') --selftest | Out-Host; $LASTEXITCODE }
+	},
+	@{
 		name = 'threads'; tier = 'full'; needs = "build-$Config"
 		what = 'ThreadManager + AI buckets under load: no force-terminate, clean reboots'
 		run      = { Invoke-NativeJudge 'ThreadStress.exe' 'threadstress' }
