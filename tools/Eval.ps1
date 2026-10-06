@@ -54,7 +54,10 @@
 # -SelfTest is the guard - it hands the runner a script containing a line that
 # is not a command and requires exit 1, and a batch where a declined setup line,
 # a probe that is not refused and a probe refused only by the no-game gate must
-# each fail on exactly its own counter while a refused probe passes.
+# each fail on exactly its own counter while a refused probe passes. A second
+# batch, with an unreadable script in the middle, must count that gap once, and
+# its two scripts must show a step stopping at a party wipe (the tally's clock
+# with it) and a console-thrown torch landing with the charge it had.
 #
 # ASCII ONLY: PS 5.1 reads a BOM-less .ps1 as ANSI.
 # ============================================================================
@@ -314,6 +317,78 @@ if ($SelfTest) {
 		if (-not $good) { $declineOk = $false }
 	}
 
+	# --- a wipe stops the clock; a gap in a batch counts once; a thrown torch -
+	# code-review batch 11. ONE batch with an unreadable script in the MIDDLE
+	# (C445): the runner must count it once and go straight on, so the batch
+	# reads scripts=3 failed=1 and each real script writes exactly one verdict -
+	# it used to write the verdict before the gap a second time and count it
+	# again. The scripts either side carry the other checks: selftest-wipe.eval
+	# steps across a party wipe, which must stop the step and say so with the
+	# TALLY's clock stopped with it (C443), and must refuse a `rest until` off
+	# the level (C444); selftest-throwcharge.eval throws a torch with 30 s left
+	# from the console, which must land with no more than that (C447).
+	Write-Host ''
+	Write-Host '=== a wipe stops the clock; a gap in a batch counts once; a thrown torch keeps its charge ==='
+	$gapRan = Invoke-EvalRun @('-eval', (Join-Path $scripts 'selftest-wipe.eval'),
+		(Join-Path $scripts 'no-such-file.eval'), (Join-Path $scripts 'selftest-throwcharge.eval'))
+	$gl = @(ReadLog)
+	$stepIdx = -1
+	for ($i = 0; $i -lt $gl.Count; $i++) {
+		if ($gl[$i] -cmatch '^\[info \] console: stepped (\d+) ticks \(([0-9.]+)s\) - stopped: the party was wiped$') { $stepIdx = $i; break }
+	}
+	$wipedSecs = if ($stepIdx -ge 0) { [double]$Matches[2] } else { -1 }
+	$tallySecs = -1
+	if ($stepIdx -ge 0) {
+		for ($i = $stepIdx + 1; $i -lt $gl.Count; $i++) {
+			if ($gl[$i] -cmatch '^\[info \] console: TALLY .* secs=([0-9.]+) ') { $tallySecs = [double]$Matches[1]; break }
+		}
+	}
+	# @() round each call: a scriptblock's output is unrolled, so a single match
+	# would come back as a bare string and [0] would be its first character.
+	$verdictsOf = { param($name) $gl | Where-Object { $_ -cmatch ('eval RESULT=\w+ script=' + [regex]::Escape($name) + ' ') } }
+	$wipeVerdicts = @(& $verdictsOf 'selftest-wipe.eval')
+	$torchVerdicts = @(& $verdictsOf 'selftest-throwcharge.eval')
+	$cursorLine = @($gl | Where-Object { $_ -cmatch '^\[info \] console:   cursor: torch_lit charge 30\.0$' })
+	$floorCharge = -1
+	foreach ($line in $gl) {
+		if ($line -cmatch '^\[info \] console:   floor torch_lit at 4,3 charge ([0-9.]+)$') { $floorCharge = [double]$Matches[1] }
+	}
+	$gapChecks = @(
+		@{ what = 'a step across a wipe stops and says so'
+		   ok = ($wipedSecs -gt 0) -and ($wipedSecs -lt 20)
+		   got = $(if ($stepIdx -ge 0) { "stopped at $($wipedSecs)s" } else { 'no "stopped: the party was wiped" line' }) },
+		@{ what = '...and the tally stops with it'
+		   ok = ($tallySecs -ge 0) -and ([Math]::Abs($tallySecs - $wipedSecs) -le 0.051)
+		   got = "tally secs=$tallySecs against $($wipedSecs)s stepped" },
+		@{ what = 'rest until off the level is refused'
+		   ok = [bool](@($gl | Where-Object { $_ -cmatch "eval: line \d+ refused, as expected: 'rest until 900'" }).Count)
+		   got = 'no expected refusal of rest until' },
+		@{ what = 'the wipe script: one verdict, PASS'
+		   ok = ($wipeVerdicts.Count -eq 1) -and ($wipeVerdicts[0] -cmatch 'RESULT=PASS ')
+		   got = "$($wipeVerdicts.Count) verdict(s): $($wipeVerdicts -join ' | ')" },
+		@{ what = 'the unreadable script counts once'
+		   ok = (@($gl | Where-Object { $_ -cmatch 'eval RESULT=FAIL script=\S*no-such-file\.eval - could not be read' }).Count -eq 1)
+		   got = 'not exactly one "could not be read" verdict' },
+		@{ what = 'the script after the gap: one verdict, PASS'
+		   ok = ($torchVerdicts.Count -eq 1) -and ($torchVerdicts[0] -cmatch 'RESULT=PASS ')
+		   got = "$($torchVerdicts.Count) verdict(s): $($torchVerdicts -join ' | ')" },
+		@{ what = 'the batch counts scripts=3 failed=1'
+		   ok = [bool](@($gl | Where-Object { $_ -cmatch 'eval BATCH RESULT=FAIL scripts=3 failed=1$' }).Count)
+		   got = "$(@($gl | Where-Object { $_ -match 'eval BATCH RESULT=' }) -join ' | ')" },
+		@{ what = 'a part-burnt torch went up on the cursor'
+		   ok = [bool]$cursorLine.Count
+		   got = 'no "cursor: torch_lit charge 30.0" line' },
+		@{ what = '...and came down with what it had'
+		   ok = ($floorCharge -gt 0) -and ($floorCharge -le 30)
+		   got = $(if ($floorCharge -ge 0) { "it lies with $floorCharge s" } else { 'no floor torch at 4,3' }) }
+	)
+	$gapOk = $gapRan
+	foreach ($c in $gapChecks) {
+		Write-Host ("  {0,-42} {1}" -f $c.what, $(if ($c.ok) { 'ok' } else { "FAIL - $($c.got)" })) `
+			-ForegroundColor $(if ($c.ok) { 'Gray' } else { 'Red' })
+		if (-not $c.ok) { $gapOk = $false }
+	}
+
 	# --- `reset` really equals a new game ------------------------------------
 	# The recycling the whole batch form rests on. resettest.eval takes a
 	# baseline after a real load, wrecks the world every way the harness can,
@@ -570,10 +645,10 @@ if ($SelfTest) {
 		else { [IO.File]::WriteAllText($ini, $iniBefore) }
 	}
 
-	$ok = ($p.ExitCode -eq 1) -and ($q.ExitCode -eq 2) -and $declineOk -and $resetOk -and $batchOk -and $headOk -and $respondOk -and $guardOk -and $hiddenOk
+	$ok = ($p.ExitCode -eq 1) -and ($q.ExitCode -eq 2) -and $declineOk -and $gapOk -and $resetOk -and $batchOk -and $headOk -and $respondOk -and $guardOk -and $hiddenOk
 	Write-Host ''
 	Write-Host ("eval RESULT={0} self_test=1" -f $(if ($ok) { 'PASS' } else { 'FAIL' }))
-	if ($ok) { Write-Host 'the runner reports both failures, counts a declined line and holds a probe to its refusal, recycling and headless change nothing, the numbers still move, and a second or killed run does not count' }
+	if ($ok) { Write-Host 'the runner reports both failures, counts a declined line and holds a probe to its refusal, stops the clock at a wipe, counts a gap in a batch once, recycling and headless change nothing, the numbers still move, and a second or killed run does not count' }
 	else { Write-Host 'A RUNNER THAT CANNOT FAIL MEANS NOTHING' -ForegroundColor Red }
 	exit $(if ($ok) { 0 } else { 1 })
 }

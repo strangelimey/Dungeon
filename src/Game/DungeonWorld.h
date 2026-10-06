@@ -1094,6 +1094,11 @@ public:
 	// gust on a fire and of a conjured item landing at the party's feet.
 	float FireAheadFlare() const;
 	std::string ItemIdsAt(int x, int z) const;
+	// Every LIT item lying in the level, one string each - "<id> at <x>,<z>
+	// charge <seconds|full>" - for the console's `torch floor`: the harness's
+	// view of a torch burning where it fell, and of a thrown one keeping what it
+	// had (code-review C447). Empty = none.
+	std::vector<std::string> FloorTorchReport() const;
 	void DropAtPartyFeet(std::string_view itemId);
 	bool ShoveAhead(int cells);
 	ProjectileSystem::Repelled RepelAhead(float power, int casterIndex);

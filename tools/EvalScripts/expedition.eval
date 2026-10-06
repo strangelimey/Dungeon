@@ -157,6 +157,14 @@ state
 ; below were printed after the run had ended and looked exactly like the three
 ; healthy rungs above (docs/eval-audit.md F19).
 ;
+; NOT SINCE SPAWN-RISE (96f7f594; measured in code-review batch 11): a kit
+; skeleton spends 9.5-14 s of each 40 s fight getting up, and at the shipped
+; numbers rung 4 ends taken=8.0 downed=0. So rung 4's `rest until` is a real
+; rest, not the refusal the code-review plan expected to probe there, and it
+; stays a plain line. Whether these spawns say `up` is Michael's call
+; (aed9b5a8); a wipe, and `rest until` refused after one, are checked by
+; Eval.ps1 -SelfTest's selftest-wipe.eval.
+;
 ; `heal` puts the app back in play so the closing readouts describe a party that
 ; exists. It restores health/stamina/mana ONLY — food and water are untouched,
 ; which is why the supply bill below is still the real one. The wipe itself

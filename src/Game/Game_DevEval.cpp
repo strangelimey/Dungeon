@@ -709,8 +709,9 @@ void Game::RegisterEvalCommands() {
 
 	// Advance the world by sim seconds, now, in fixed ticks. Reports what it
 	// actually RAN rather than what was asked for: a short answer means the run
-	// hit the ceiling or changed level, and an eval that silently measured less
-	// time than it believes is worse than one that failed outright.
+	// hit the ceiling, changed level, ended its rest or lost the party, and says
+	// which - an eval that silently measured less time than it believes is worse
+	// than one that failed outright.
 	m_console.Register({.name = "step",
 						.group = CmdGroup::Simulation,
 						.params = "<seconds>",
@@ -742,22 +743,19 @@ void Game::RegisterEvalCommands() {
 						   if (!m_world->LockstepAI())
 							   m_console.Print("warning: lockstep is OFF — monsters "
 											   "will barely think during this step");
-						   const bool wasResting = m_world->Resting();
 						   StepStop why = StepStop::Complete;
 						   const int ran = StepWorld(secs, why);
 						   const float got = static_cast<float>(ran) /
 											 kStepTicksPerSecond;
-						   // A rested step says so, and says WHY it stopped: the
-						   // seconds it ran ARE the length of the rest, which is
-						   // the number a supply measurement is after.
-						   std::string tail;
-						   if (wasResting && !m_world->Resting())
-							   tail = std::format(" — rest ended: {}",
-												  m_world->RestEndReason());
-						   else if (why == StepStop::LevelChange)
-							   tail = " — stopped: the party changed level";
-						   m_console.Print(std::format("stepped {} ticks ({:.2f}s){}",
-													   ran, got, tail));
+						   // A short run says WHY it stopped (StepStopReason, the
+						   // words `rest until` uses too): a rested step's seconds
+						   // ARE the length of the rest, which is the number a
+						   // supply measurement is after, and a wipe's are how
+						   // long the party lasted.
+						   const std::string reason = StepStopReason(why);
+						   m_console.Print(std::format("stepped {} ticks ({:.2f}s){}{}",
+													   ran, got, reason.empty() ? "" : " - ",
+													   reason));
 						   // THE CEILING IS A REFUSAL, not a footnote. This line
 						   // has always reported the truth and nothing read it:
 						   // `step 3600` runs 3333.33s, and supplies.eval and

@@ -242,7 +242,10 @@ void Game::RegisterPartyCommands() {
 							   return;
 						   }
 						   const std::string item = *m_heldItem;
-						   if (m_world->ThrowItem(item)) {
+						   // WITH ITS CHARGE, as the mouse and the hand menu throw
+						   // it (code-review C447): without it a part-burnt torch
+						   // landed fresh, its full burn_time back.
+						   if (m_world->ThrowItem(item, -1, m_heldItem.Charge())) {
 							   m_heldItem.reset();
 							   m_console.Print(std::format("{} thrown", item));
 						   } else {
@@ -560,10 +563,11 @@ void Game::RegisterPartyCommands() {
 
 	// The party's LIGHT (DungeonWorld_Light.cpp): every held item with a charge,
 	// how much is left, and the wall torch the party faces - taken off its
-	// bracket or mounted back with no click.
+	// bracket or mounted back with no click. `floor` lists the lit things lying
+	// in the level with theirs.
 	m_console.Register({.name = "torch",
 						.group = CmdGroup::Party,
-						.params = "\nstatus\ntake\nmount [item [charge]]\ncharge <member> <hand> <seconds>",
+						.params = "\nstatus\ntake\nmount [item [charge]]\ncharge <member> <hand> <seconds>\nfloor",
 						.summary = "the held torches' charge; take / mount the wall torch ahead"},
 					   [this](const std::vector<std::string>& args) {
 						   const std::string what = args.empty() ? "status" : args[0];
@@ -571,9 +575,18 @@ void Game::RegisterPartyCommands() {
 						   // used to print the status - an answer to a question
 						   // nobody asked, in place of the change that was (C442).
 						   if ((what != "status" && what != "take" && what != "mount" &&
-								what != "charge") ||
+								what != "charge" && what != "floor") ||
 							   (what == "charge" && args.size() < 4)) {
 							   m_console.RefuseUsage();
+							   return;
+						   }
+						   // What a lit torch keeps once it is out of the party's
+						   // hands: the one view of a THROWN torch's charge, so a
+						   // throw that lands it fresh shows (code-review C447).
+						   if (what == "floor") {
+							   const std::vector<std::string> lines = m_world->FloorTorchReport();
+							   if (lines.empty()) m_console.Print("  floor: no lit torch");
+							   for (const std::string& l : lines) m_console.Print("  floor " + l);
 							   return;
 						   }
 						   int x = 0, z = 0, wall = -1;
@@ -1454,17 +1467,38 @@ void Game::RegisterPartyCommands() {
 								   args.size() > 1
 									   ? static_cast<float>(std::atof(args[1].c_str()))
 									   : 3600.0f;
+							   // REFUSED BEFORE THE STATE IS ENTERED (code-review
+							   // C444). Off the level - a wipe left the app on the
+							   // title - StepWorld runs nothing, and this used to
+							   // switch rest on anyway and report "rested 0.00s -
+							   // still resting (hit the cap)", which reads as a rest
+							   // that ran; `step` already refuses the same case.
+							   if (m_state != AppState::Playing) {
+								   m_console.Refuse(std::format(
+									   "rest until: not playing (state: {}) - nothing rested",
+									   StateName()));
+								   return;
+							   }
+							   if (cap <= 0.0f) {
+								   m_console.Refuse("rest until needs a positive number of seconds");
+								   return;
+							   }
 							   m_world->SetResting(true);
-							   // A cap is an upper BOUND, not a claim about elapsed time, so
-								   // unlike `step` this does not refuse when it is
-								   // wider than one call can run.
-								   StepStop stop{};
-								   const int ran = StepWorld(cap, stop);
+							   // A cap is an upper BOUND, not a claim about elapsed
+							   // time, so unlike `step` this does not refuse when it
+							   // is wider than one call can run - but it does say
+							   // which way the clock stopped, in StepStopReason's
+							   // words, so a level change or a wipe no longer reads
+							   // as the cap.
+							   StepStop stop{};
+							   const int ran = StepWorld(cap, stop);
+							   const std::string reason = StepStopReason(stop);
+							   const bool still = m_world->Resting();
 							   m_console.Print(std::format(
-								   "rested {:.2f}s — {}",
-								   static_cast<float>(ran) / 60.0f,
-								   m_world->Resting() ? "still resting (hit the cap)"
-													 : m_world->RestEndReason()));
+								   "rested {:.2f}s - {}{}",
+								   static_cast<float>(ran) / kStepTicksPerSecond,
+								   reason.empty() ? "still resting (hit the cap)" : reason,
+								   still && !reason.empty() ? ", still resting" : ""));
 							   return;
 						   }
 						   if (!args.empty()) m_world->SetResting(args[0] != "off");

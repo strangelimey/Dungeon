@@ -118,6 +118,18 @@ int Game::StepWorld(float seconds, StepStop& why) {
 			why = StepStop::LevelChange;
 			break;
 		}
+		// THE PARTY FELL (code-review C443). A wipe inside Update sends the app to
+		// the title (onPartyWipe -> ReturnToTitle, the one way a world tick moves
+		// the app's state), and this loop used to tick on regardless: `step`
+		// printed a full-length run with no reason, and the TALLY's seconds
+		// counted time after the last member went down. The wipe itself is a
+		// measured OUTCOME (`downed=` records it, `heal` recovers it); it is the
+		// clock that must stop.
+		if (m_state != AppState::Playing) {
+			++ran;
+			why = StepStop::PartyWiped;
+			break;
+		}
 		if (restingStep && !m_world->Resting()) {
 			++ran;
 			why = StepStop::RestEnded;
@@ -125,6 +137,24 @@ int Game::StepWorld(float seconds, StepStop& why) {
 		}
 	}
 	return ran;
+}
+
+std::string Game::StepStopReason(StepStop why) const {
+	switch (why) {
+	case StepStop::Complete:
+		return {};
+	case StepStop::Ceiling:
+		return std::format("stopped at one call's ceiling ({:.2f}s)", kMaxStepSeconds);
+	case StepStop::LevelChange:
+		return "stopped: the party changed level";
+	case StepStop::RestEnded:
+		return std::format("rest ended: {}", m_world ? m_world->RestEndReason() : "?");
+	case StepStop::PartyWiped:
+		return "stopped: the party was wiped";
+	case StepStop::NotPlaying:
+		return std::format("nothing ran: not playing (state: {})", StateName());
+	}
+	return {};
 }
 
 bool Game::ReadEvalLines(const std::string& path, std::vector<std::string>& out) {
@@ -238,17 +268,22 @@ void Game::PumpEvalScript(float dt) {
 		// the batch form. Deliberately WITHOUT a reset: the script decides
 		// whether it wants a clean baseline (`reset` at the top) or to inherit
 		// what the last one left, which is how a progression series is written.
-		if (!m_evalPending.empty()) {
+		while (!m_evalPending.empty()) {
 			const std::string next = m_evalPending.front();
 			m_evalPending.erase(m_evalPending.begin());
 			if (LoadEvalScript(next)) return;
 			// Unreadable mid-batch. Counted as a failure and the run CARRIES ON:
 			// the remaining scripts are still worth measuring, and stopping here
 			// would lose them to a typo in one filename.
+			//
+			// ...IN THIS FRAME (code-review C445). The failed load has cleared the
+			// lines but left the PREVIOUS script's name and counters standing, so
+			// a "try the rest next frame" re-entered this branch, wrote that
+			// script's verdict a second time and counted it again - the batch's
+			// `scripts=` came out one high for every unreadable script.
 			++m_evalScripts;
 			++m_evalFailed;
-			log::Error("eval RESULT=FAIL script={} — could not be read", next);
-			if (!m_evalPending.empty()) return; // try the rest next frame
+			log::Error("eval RESULT=FAIL script={} - could not be read", next);
 		}
 		m_evalFinished = true;
 		log::Info("eval BATCH RESULT={} scripts={} failed={}",

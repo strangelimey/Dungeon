@@ -1,0 +1,33 @@
+; selftest-wipe.eval - handed to the runner by `Eval.ps1 -SelfTest`; must PASS,
+; and the self-test reads its `step` line, the TALLY after it and the refused
+; `rest until`.
+;
+; A WIPE STOPS THE CLOCK (code-review C443). Four bleeds far past any member's
+; health down the whole party at their first bite (a tenth of a second in), and
+; the twenty-second step must stop there and say so - `stepped N ticks (Ns) -
+; stopped: the party was wiped` - with the TALLY's seconds equal to what it
+; stepped. It used to run all twenty, the app on the title screen, and give no
+; reason.
+;
+; ...AND `rest until` OFF THE LEVEL IS REFUSED (C444), where it used to switch
+; rest on and report "rested 0.00s - still resting (hit the cap)". After the
+; heal the same line is the CONTROL: in play it rests. (expedition.eval's rung 4
+; was the plan's probe for this, but since spawn-rise its skeletons spend the
+; first 10-14 s of the fight getting up and the party survives that rung.)
+logecho on
+reset
+timescale 0
+lockstep on
+seed 5
+tally reset
+effect bleed 0 500 30
+effect bleed 1 500 30
+effect bleed 2 500 30
+effect bleed 3 500 30
+step 20
+tally
+state
+expect-refuse rest until 900
+heal
+rest until 900
+state

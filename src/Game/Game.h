@@ -150,6 +150,8 @@ public:
 	// Only steps while Playing; a level transition mid-step (a monster shoves
 	// the party onto a stair) stops the run early rather than being followed,
 	// since an eval that changed level is no longer measuring what it set up.
+	// So does a party wipe: the app has left play, and a clock ticked on past it
+	// charged the tally with seconds after the last member fell (C443).
 	//
 	// WHY it stopped, not just how far it got. The seconds actually run were
 	// always reported, and for a whole release nothing read them: `step 3600`
@@ -161,9 +163,15 @@ public:
 		Ceiling,     // hit kMaxStepTicks — the script asked for more than one call gives
 		LevelChange, // the party left the level being measured
 		RestEnded,   // a rest finished, which is the length a rest measurement wants
+		PartyWiped,  // the last member fell and the app went back to the title
 		NotPlaying,  // the app is not in play; nothing ran at all
 	};
 	int StepWorld(float seconds, StepStop& why);
+	// WHY a clocked run stopped, in words - the ONE place `step` and `rest until`
+	// both get theirs (code-review C444: `rest until` called a level change, a
+	// wipe and the ceiling all "hit the cap"). Empty for a run that went the
+	// whole way; RestEnded carries the rest's own reason.
+	std::string StepStopReason(StepStop why) const;
 
 	// The per-call ceiling, named so `step` can quote it rather than restate it.
 	// A ceiling PER CALL, not per second: a script asking for an hour by mistake

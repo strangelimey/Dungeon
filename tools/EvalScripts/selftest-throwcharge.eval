@@ -1,0 +1,27 @@
+; selftest-throwcharge.eval - handed to the runner by `Eval.ps1 -SelfTest`; must
+; PASS, and the self-test reads its two `torch` readouts.
+;
+; A THROWN TORCH KEEPS ITS CHARGE (code-review C447). The console's `throw`
+; dropped the held item's charge, so a part-burnt torch landed with its whole
+; burn_time back. Crypt1's wall torch at 4,3 (north) is the way onto the cursor:
+; Brand's bare hand takes the bracket's own torch, a torch with 30 s left goes
+; into the bare bracket, and with both his hands full the second take lands on
+; the cursor. Thrown at the wall it came off, it comes down in the party's own
+; square and must lie there with no more than the 30 s it went up with - a fresh
+; one reads close to torch_lit's 900.
+logecho on
+reset
+timescale 0
+lockstep on
+goto crypt1
+freeze on
+tp 4 3
+face n
+torch take
+torch mount torch_lit 30
+torch take
+torch
+throw
+step 2
+torch floor
+state

@@ -426,6 +426,19 @@ void DungeonWorld::TickFloorTorches(float dt) {
 	}
 }
 
+std::vector<std::string> DungeonWorld::FloorTorchReport() const {
+	std::vector<std::string> out;
+	for (const Item& it : m_items) {
+		if (it.collected || !it.kind || !it.kind->Lit()) continue;
+		// A fresh one (no charge yet) starts full on its first tick.
+		out.push_back(it.charge < 0.0f
+						  ? std::format("{} at {},{} charge full", it.kind->id, it.x, it.z)
+						  : std::format("{} at {},{} charge {:.1f}", it.kind->id, it.x, it.z,
+										it.charge));
+	}
+	return out;
+}
+
 void DungeonWorld::AppendFloorTorchLights(float time) {
 	for (size_t i = 0; i < m_items.size(); ++i) {
 		const Item& it = m_items[i];

@@ -94,6 +94,19 @@ guarantees the small dt it assumes.
 It reports what it **ran**, not what was asked for, and says *why* when it ran
 nothing. A silent zero is the worst possible output here.
 
+A run that stops SHORT says why as well, in words one helper owns
+(`Game::StepStopReason`, which `rest until` prints too): the per-call ceiling, a
+level change, the rest ending, or a PARTY WIPE - which stops the clock
+(code-review C443). A wipe sends the app to the title, and the loop used to tick
+on regardless, so `step` printed a full-length run with no reason and the
+TALLY's `secs=` counted time after the last member fell. The wipe itself is a
+measured outcome (`downed=`, and `heal` recovers it); only the clock stops.
+`rest until` REFUSES off the level (C444) - it used to switch rest on anyway and
+report `rested 0.00s - still resting (hit the cap)` - and names each stop where
+it used to call a level change and a wipe "hit the cap". `Eval.ps1 -SelfTest`
+steps across a wipe (`selftest-wipe.eval`) and demands the stop, a tally whose
+seconds match it, and the refusal.
+
 ### `seed <n>`
 
 Reseeds the combat RNG. Every roll comes off this one stream, so this is what
@@ -155,7 +168,10 @@ the one outcome a harness must not have.
 must exit **1**; if it passes, the runner's verdict means nothing. A missing
 script file must exit **2**. Both verified. (Since code-review C442 the self-test
 also runs `selftest-gate/-refuse/-unrefused/-declined.eval` - see
-`expect-refuse` under "What PASS means".)
+`expect-refuse` under "What PASS means" - and since batch 11 a second batch,
+`selftest-wipe.eval`, an unreadable script and `selftest-throwcharge.eval`: a
+step stopped by a wipe, a gap counted once, and a console-thrown torch that
+lands with the charge it had, C447.)
 
 ### Determinism, measured
 
@@ -626,6 +642,14 @@ counted and the run **carries on** — the rest are still worth measuring, and o
 typo should not cost them. A **timeout ends the batch**: something is wedged, the
 remaining scripts would inherit it, and one honest failure beats twenty plausible
 ones.
+
+The carrying on happens IN THE SAME FRAME (code-review C445): the runner tries
+the pending scripts until one loads. It used to leave the rest for the next
+frame, which re-entered the verdict branch with the PREVIOUS script's name and
+counters still standing, wrote that script's verdict a second time and counted
+it again - so `scripts=` came out one high for every unreadable script. The
+self-test's second batch has one in the middle and demands `scripts=3 failed=1`
+and exactly one verdict per script.
 
 ### Why the definition is "where a new game would leave it"
 
