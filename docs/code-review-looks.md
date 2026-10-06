@@ -211,6 +211,10 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   LAST line starts a load (a cold `reset` or `newgame`) ends mid-load and
   fails with endstate=loadinggame, since only the next line waits for a load.
   renameworld.eval got a trailing `state`; the runner was not changed.
+- **QuitTest's Alt+F4 case once timed out** (the pre-merge full run, 423bfe1b).
+  "still running 20s after Alt+F4 in Borderless", under the lanes' build load;
+  it passed alone straight after and in the same run's self-test pass. Worth
+  watching for a repeat before reading it as a real regression.
 - **Back-to-back HealthTest runs** (seen by batch 48). A HealthTest started
   while the previous run's last game (the `assert` case) is still exiting is
   refused (exit 3); a moment later it runs. The race predates the batch.
