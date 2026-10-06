@@ -81,6 +81,18 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   drop-down open in an inspector or Level settings, Esc closes only the list;
   the dialog and its edits stay. Esc closes the create dialog ("+ New..."); on
   the editor map, Esc with the level list open closes only the list.
+- **The party page** (batch 51, ae8944ea). Title -> Start New Game -> the party
+  page. Default party, select Brand, clear his name: his slot should still
+  read "Brand" (it read "New member") and Start still be offered. With the
+  page open, console `lang de`, close it: the page rebuilds in German (race
+  names and traits too) and still edits; `lang en` after (`lang` saves).
+  Otherwise it should behave exactly as before; its text now refreshes only
+  after a change, not every frame.
+- **A quality swap** (batch 64, bbf26422). Enter crypt1, Settings -> Video ->
+  Quality Low, then Ultra, then Low: props textured with a tiered set
+  (wall_stone props especially) now sharpen and soften with the walls; they
+  used to keep the tier they first loaded at. Most prop sets ship 2k only and
+  will not change. Console `textures` lists each set's tier.
 - **A long id in a dialog title** (batch 18, 61f2997b; optional). The type
   editor's and the Level dialog's title shrink a long id to fit, and cut its
   tail to `..` only past the smallest size. Open the type editor on a type
@@ -134,6 +146,19 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   spell with no thrown form, so it throws its plain shot until a bolt is
   picked. Should the Caster list (and so the default) offer only spells a
   monster can throw, such as firebolt?
+- **ThreadStress can HANG under heavy load** (seen by batch 36, c7d67506).
+  Twice, while another worktree built debug, release and release-profile at
+  once: the AI workers run below normal priority, a starved idle bucket missed
+  the 250 ms grace and was force-terminated, and the lock it leaked (a
+  condition variable's or the heap's) blocked every other thread for good. The
+  existing TerminateThread hazard, reached through starvation. Options: a
+  longer grace or a higher priority for the workers under the harness, or
+  CheckAll refusing while other builds run. Written up in check-threads.md.
+- **An AllocTest -PartyPage row in CheckAll?** (batch 51). The idle party page
+  mode is manual for now; a full-tier row would run it every full check.
+- **Translations to check** (batch 76, b102f032): twelve new keys' de / es / it
+  / ru text, written by the batch (counts, units, "for"); ru uses the existing
+  "<word>: {}" count form to avoid its three plural forms.
 - **The rest of C19** (batch 25). Warn on spells.cat keys nothing reads, and
   drop the 15 dead `effect =` / `element =` lines? Not done yet.
 - **A carried Skylight's shock and a shut door** (batch 25). The flare and the
@@ -201,6 +226,20 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   the per-kind 0.055 / 0.045 / 0.08. Every committed worn mesh re-bakes
   byte-identical, so nothing in the dungeon changed. The editor can no longer
   create a type that re-bakes a shipped set as the wrong surface kind.
+- **Throws and fumbles** (batch 27, dafd0413). A fumbled torch lands with the
+  burn time it had left; a fire or poison flask that bursts on a MONSTER
+  trains throwing (on a wall it trains nothing); saving with a flask in the
+  air no longer sets it off - on load it lies where it would have landed.
+- **`reset` after a level change is a load** (batch 12, 997868a3). A reset after
+  a script left the harness level loads back to eval_arena ("reset: switched
+  in N ms ..."), and reset now clears every level's stashed edits and the undo
+  history - typing `reset` in a dev session throws away unsaved edits to
+  other levels.
+- **Load paths** (batch 64): the model cache no longer pins CPU images (48.1 MB
+  in 13 files on crypt1, now 0); a set missing its `_n` normal map draws flat
+  with one warning, not the magenta checker, and `levelcheck` lists such sets;
+  `Dungeon.exe -warp` draws on the software rasterizer, and every Eval.ps1 run
+  now fails on a D3D12 debug-layer error.
 - **The adept's threat** (batch 25). skel_mage_adept's volley bolts now carry
   their own spells.cat burn (1 4, was firebolt's 2 4), so its threat went from
   16.92 to 15.43 (shot 5.94 -> 4.94): still band 3, now just below
@@ -258,6 +297,27 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   AllocTest mode lands a monster's burst bolt on the party, or a gust on a
   shot, inside the window. The new paths are a fixed table and two erase_ifs
   that keep capacity, so they should allocate nothing, but nothing proves it.
+- **The type editor's `texture` field and shared sets** (seen by batch 91,
+  85e5a498). "Use installed" refuses a set painted as another surface kind, but
+  the type editor's `texture` field can still point a surface type at one; its
+  restyle bake would then reshape that set (the baker refuses a shipped set, not
+  an editor-imported one). Gating onSave with Game::AdoptSurfaceSet is small.
+  Also: a same-kind "Use installed" uses the set's existing worn meshes as they
+  are (tuned ones included), and the create dialog's footer line does not wrap,
+  so a long name may overrun the Create icon (no windowed uioverlap sweep of it).
+- **A killed worker never gives its health slot back** (seen by batch 36): a
+  force-terminated worker's next life takes a new slot, so the threads
+  self-test fills the 32-slot table. A rebooted worker could keep its own.
+- **LangTest checks literal keys only** (batch 76): keys built at run time
+  (`monster.` + id, `skill.` + id) and catalog `name = item.<id>` fields are not
+  checked; a catalog-name check would follow naturally. `map.select.empty` is
+  an orphan key in all five files.
+- **Eval.ps1's other self-test runs are windowed with no timeout** (seen by
+  batch 12): a debug assert in one parks the self-test on a CRT dialog.
+- **The guard's first armed frame** (seen by batch 27): an allocation on the
+  window's very first armed frame is counted but left no stack in one
+  mutation run, though batch 15 starts capture in ArmFrame for exactly that.
+  Worth re-checking against -Swing.
 - **Esc on the Settings page and in the portrait picker** (seen by batch 75).
   Both still take an Esc meant for one of their own open lists as "leave the
   page" / "close the picker" (GameUI::CloseSettingsPage, DismissPopup). The fix
