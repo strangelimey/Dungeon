@@ -37,6 +37,27 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   flamebrand and a frostbrand in a dark spot (`editor place weapons flamebrand
   <x> <z>`, then `mappage close`, or carry one and drop it): the floor light
   should be red and blue, where both were steel grey.
+- **The world map's overlay in a world being edited** (batch 73, 2d4f0294).
+  Set a world to Editor mode (`worldedit on`, or the title's Editor entry on a
+  world that starts outside), go into a dungeon, press M and flip to the world
+  page: no toolbar, the fog kept, a left click does not paint, and
+  right-clicking a doorway opens nothing. On the travel screen (`worldmap on`)
+  the toolbar, fog-off, paint and doorway right-click all still work.
+- **Pause and the sheet over the world map** (batch 73). On the world map,
+  press Esc, and open a portrait's sheet: the world map shows behind both,
+  where the parked dungeon used to. In a level nothing changed.
+- **World settings from a doorway** (batch 73). Right-click a doorway: the
+  Doorways tab's status row is empty (it used to show the World tab's
+  "Standing on ..."), and water coordinates typed into the World tab's start
+  explain themselves on the World tab.
+- **New fade lines** (batch 25, b1d1c5ad; optional). A carried Firelight /
+  Tidelight / Skylight ends with "Maren's Firelight fades.", and a dazzled
+  monster recovering says "The skeleton can see again." The de / es / it / ru
+  wordings were written by the batch and are worth a glance.
+- **The Hagalaz flare and the Earth stone** (batch 25; optional). The flare no
+  longer reaches through a shut door, no longer scorches a monster still
+  dazzled from an earlier flare elsewhere, and no longer lights a wall torch
+  through rock; an Earth stone's mapping and tracks stop at a shut door.
 - **A long id in a dialog title** (batch 18, 61f2997b; optional). The type
   editor's and the Level dialog's title shrink a long id to fit, and cut its
   tail to `..` only past the smallest size. Open the type editor on a type
@@ -73,6 +94,11 @@ raised that is yours, not a fix. Each line names the batch and its commit.
 - **Translations to check** (batch 72). `map.type.classbacked` ("The game's
   code defines this one - its entry only tunes it, so it cannot be renamed or
   deleted.") has new de / es / it / ru text written by the batch, unchecked.
+- **The rest of C19** (batch 25). Warn on spells.cat keys nothing reads, and
+  drop the 15 dead `effect =` / `element =` lines? Not done yet.
+- **A carried Skylight's shock and a shut door** (batch 25). The flare and the
+  stone now stop at a shut door, but the Skylight's shock (CrackleNearest)
+  still uses a line of sight that passes one. Should it stop too?
 - **Monsters on an up-stair square** (batch 33). A monster may still stand on
   an UP stair's square (a flight, with a floor under it); only floor holes
   (pits, down stairwells) are refused. A monster parked there blocks the
@@ -120,6 +146,16 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   Also: a bolt that flies past a lone member and breaks behind him now leaves
   its burn on him (only reachable when the column a caster aimed at falls
   while the bolt is in flight).
+- **The adept's threat** (batch 25). skel_mage_adept's volley bolts now carry
+  their own spells.cat burn (1 4, was firebolt's 2 4), so its threat went from
+  16.92 to 15.43 (shot 5.94 -> 4.94): still band 3, now just below
+  skel_lurker (15.74). No other kind moved. Not tuned back.
+- **Every declined dev command refuses** (batch 10, 556e014f). A command that
+  declines (bad arguments, nothing to act on) now REFUSES, and an eval script
+  that meets an unexpected refusal fails, so a script cannot report on a setup
+  line the world turned down. Scripts that probe a refusal say
+  `expect-refuse`. Also: a middle-click erase with nothing to erase no longer
+  pushes an empty undo step, and `profile panel` toggles like bare `profile`.
 - **The power bands re-cut** (batch 24). skel_magus's derived threat went from
   23.14 to 30.70 (its burst now lands on the whole party). The ranking order
   is unchanged, so the generator picks the same monsters, but the palette's
@@ -167,6 +203,14 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   AllocTest mode lands a monster's burst bolt on the party, or a gust on a
   shot, inside the window. The new paths are a fixed table and two erase_ifs
   that keep capacity, so they should allocate nothing, but nothing proves it.
+- **Rear-rank members spam "no reach"** (seen by batch 15, not changed). With
+  autoattack on, a rear-rank member without a polearm takes the no-reach path
+  every frame (PartyAttack returns before setting the hand's cooldown), so the
+  HUD log fills with that line. It does not allocate.
+- **An eval script that ends on a load** (seen by batch 10). A script whose
+  LAST line starts a load (a cold `reset` or `newgame`) ends mid-load and
+  fails with endstate=loadinggame, since only the next line waits for a load.
+  renameworld.eval got a trailing `state`; the runner was not changed.
 - **Back-to-back HealthTest runs** (seen by batch 48). A HealthTest started
   while the previous run's last game (the `assert` case) is still exiting is
   refused (exit 3); a moment later it runs. The race predates the batch.
