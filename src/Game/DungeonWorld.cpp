@@ -788,6 +788,11 @@ std::vector<std::string> DungeonWorld::MonsterList() const {
 		// instruments.
 		std::string line = std::format("{} @ {},{}  hp {:.1f}",
 									   m.kind ? m.kind->name : "?", m.x, m.z, m.hp);
+		// WHICH QUARTER (ninth, sixteenth) of its square, for the sizes that share
+		// one: slot = row*dim + col, world-space (SlotGrid.h). A swing at a shared
+		// square meets the front rank in the swinger's lane (PickMeleeTarget), and
+		// without this the readout could not say which of two bone swarms that was.
+		if (m.kind && IsSubCellSize(m.kind->size)) line += std::format("  slot {}", m.slot);
 		if (!m.Alive()) line += " (dead)";
 		// Still getting up: it neither turns nor acts until this runs out.
 		else if (m.spawnAnim > 0.0f) line += std::format("  rising {:.1f}s", m.spawnAnim);
@@ -1556,6 +1561,7 @@ const std::string& DungeonWorld::PickClip(const MonsterKind& kind,
 	const auto& cands = kind.animClips[static_cast<int>(state)];
 	if (cands.empty()) return kNoClip;
 	if (cands.size() == 1) return cands.front();
+	++m_harness.tally.clipDraws; // counted, so a sweep can show it drew some
 	return cands[m_cosmeticRng() % cands.size()]; // never the combat stream (C73)
 }
 

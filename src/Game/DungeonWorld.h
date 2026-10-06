@@ -826,6 +826,11 @@ public:
 		// -Swing must show a severe one put a held item down in its window
 		// (code-review C10).
 		int severeFumbles = 0, fumbleDrops = 0;
+		// COSMETIC DRAWS: clip variations PickClip chose by drawing from the
+		// cosmetic stream - one per state entered that authors several clips.
+		// tools\CombatTest.py must show a sweep drew them, and that its combat
+		// numbers still matched the same sweep without them (code-review C73).
+		int clipDraws = 0;
 	};
 
 	// ========================================================================
@@ -1871,7 +1876,13 @@ public:
 	// into the room), non-solid so the floor stays clear, and round-trips as the
 	// record's `wall=` param. False if that neighbour isn't solid.
 	bool AddWallDecoration(const std::string& type, int x, int z, Direction wall);
-	bool AddMonster(const std::string& type, int x, int z, Direction facing);
+	// `share` joins a square monsters of the same size already hold, in its next
+	// free slot (FreeSlotInCell), as a level's records may stand a bone swarm's
+	// four in one square; the editor's brush keeps one monster a cell. Only the
+	// console's `spawn ... share` asks: tools\CombatTest.py's MELEE check needs
+	// two and four swarms in one square (code-review C33).
+	bool AddMonster(const std::string& type, int x, int z, Direction facing,
+					bool share = false);
 	// Places a fixture (sconce/brazier from fixtures.cat — `mount` decides wall vs
 	// floor) and rebuilds the fire instances + dust so it lights immediately and
 	// persists. Returns false on an invalid cell (e.g. a sconce with no wall).
@@ -3810,6 +3821,11 @@ private:
 	// standing file mate (the blocker) soaks the swing. Below the threshold:
 	// uniform-random among the reachable members.
 	int PickMeleeVictim(Monster& monster);
+	// The party's side of it: the live monster in square (tx,tz) that member
+	// `member`'s melee swing meets, or null (code-review C33). The FRONT RANK of
+	// the square's occupants first, then the one in the attacker's own lane, then
+	// list order - so a lone or Large occupant is just the monster there.
+	Monster* PickMeleeTarget(size_t member, int tx, int tz);
 	// A standing member's facing-relative sub-cell position (the quadrant the
 	// portraits read: front pair a quarter-cell toward the facing, rear away,
 	// even indices the on-screen-LEFT column, facing::SlotSide). Shared by a

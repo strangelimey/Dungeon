@@ -1498,6 +1498,44 @@ Vec3 DungeonWorld::AimAtLane(Vec3 origin, const Vec3& dir, size_t slot) const {
 	return origin;
 }
 
+// THE MONSTER A SWING MEETS (code-review C33) - the party's side of the melee
+// pick. Sub-cell monsters share a square (a bone swarm is Medium, one a
+// quarter), and a swing used to take whichever came first in the monster list:
+// Brand, front-left, could cut down a back-corner monster while the one squarely
+// in front of him stood untouched. Now the FRONT RANK first - the occupants
+// nearest the party, which stand between it and the rest (docs/movement.md:
+// melee reaches the front rank) - and among those the one in the attacker's own
+// LANE, the column his quadrant stands in (PartyMemberSubPos; a rear member's
+// is the column of the front member before him). Ties keep list order, so a
+// lone occupant, or a Large one, is simply the monster there, as it always was.
+// The square's occupants share one size class (FreeSlotInCell's homogeneous-
+// group rule), so their rows and columns line up.
+DungeonWorld::Monster* DungeonWorld::PickMeleeTarget(size_t member, int tx, int tz) {
+	const Direction faced = static_cast<Direction>(m_party.Facing());
+	const float fx = static_cast<float>(DirDX(faced));
+	const float fz = static_cast<float>(DirDZ(faced));
+	const Vec3 lane = PartyMemberSubPos(member);
+	// One row, or one column: slot centres in it agree up to rounding.
+	constexpr float kSame = kCellSize * 0.01f;
+	Monster* best = nullptr;
+	float bestDepth = 0.0f, bestSide = 0.0f;
+	for (Monster& m : m_monsters) {
+		if (!m.Alive() || m.x != tx || m.z != tz) continue;
+		const Vec3 c = SlotCenter(m.x, m.z, m.kind->size, m.slot);
+		// How far along the facing (smaller = nearer the party), and how far
+		// across it from the attacker's lane.
+		const float depth = c.x * fx + c.z * fz;
+		const float side = std::abs(fx != 0.0f ? c.z - lane.z : c.x - lane.x);
+		if (!best || depth < bestDepth - kSame ||
+			(depth < bestDepth + kSame && side < bestSide - kSame)) {
+			best = &m;
+			bestDepth = depth;
+			bestSide = side;
+		}
+	}
+	return best;
+}
+
 int DungeonWorld::PickMeleeVictim(Monster& monster) {
 	if (!m_roster) return -1;
 	// The standing members (the old candidate list).
@@ -2011,14 +2049,12 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 	Character& attacker = (*m_roster)[member];
 	if (!attacker.IsAlive() || attacker.handCooldown[hand] > 0.0f) return false;
 
-	// The cell directly ahead of the party.
+	// The cell directly ahead of the party, and the one of its occupants this
+	// member's swing meets (several sub-cell monsters can share it).
 	const Direction faced = static_cast<Direction>(m_party.Facing());
 	const int tx = m_party.GridX() + DirDX(faced);
 	const int tz = m_party.GridZ() + DirDZ(faced);
-
-	Monster* target = nullptr;
-	for (Monster& m : m_monsters)
-		if (m.Alive() && m.x == tx && m.z == tz) { target = &m; break; }
+	Monster* target = PickMeleeTarget(member, tx, tz);
 
 	// The swinging hand's weapon: catalog damage/speed/stats feed the formula
 	// below; its `skill` is the weapon class (docs/skills.md) — a bare hand

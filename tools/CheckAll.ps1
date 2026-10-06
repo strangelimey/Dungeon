@@ -201,8 +201,8 @@ $checks = @(
 		name = 'combat'; tier = 'quick'; needs = 'build-debug'
 		what = 'the combat rules the code review fixed, judged from combat.eval'
 		# The debug build only, like SpellTest. combat.eval's sections each make one
-		# claim; the self-test cuts every effect / spawn / equip / wear line and
-		# demands exactly the checks resting on one fail.
+		# claim; the self-test cuts every line that sets one up (CombatTest.py's
+		# CUT list) and demands exactly the checks resting on one fail.
 		run      = { python (Join-Path $root 'tools\CombatTest.py') | Out-Host; $LASTEXITCODE }
 		selfTest = { python (Join-Path $root 'tools\CombatTest.py') --selftest | Out-Host; $LASTEXITCODE }
 	},

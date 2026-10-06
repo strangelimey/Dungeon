@@ -475,7 +475,10 @@ Key conventions (memorize, they bite):
   queue post down a shared row/column. Projectiles fly QUADRANT LANES both
   ways: casts spawn a quarter-cell down the caster's lane and hits test
   lateral distance vs sub-cell position (kLaneHalfWidth = 0.35 cell) — an
-  opposite-quadrant body is flown past. Adding a weapon: weapons.cat
+  opposite-quadrant body is flown past. A SWING at a square several sub-cell
+  monsters share (a bone swarm: Medium, one a quarter) meets the FRONT RANK,
+  and of those the one in the swinger's lane (`PickMeleeTarget`, code-review
+  C33; `monsters` prints a sub-cell monster's `slot`). Adding a weapon: weapons.cat
   damage/speed/skill/stats/reach + `command` (its attack list) + item.<id> AND
   item.<id>.desc lang keys ×5 (the .desc is the details dialog's paragraph -
   ANY new item needs one; armor -> armor.cat with armor/resists; runes/keys/food/etc ->

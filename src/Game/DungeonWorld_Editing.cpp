@@ -450,12 +450,15 @@ bool DungeonWorld::AddWallDecoration(const std::string& type, int x, int z,
 }
 
 bool DungeonWorld::AddMonster(const std::string& type, int x, int z,
-							  Direction facing) {
+							  Direction facing, bool share) {
 	if (!m_map.IsWalkable(x, z)) return false;
 	if (!m_project.monsters.Contains(type)) return false;
-	for (const Monster& m : m_monsters)
-		if (m.x == x && m.z == z) return false; // one monster per cell
+	if (!share)
+		for (const Monster& m : m_monsters)
+			if (m.x == x && m.z == z) return false; // one monster per cell
 	MonsterKind& kind = MonsterKindFor(type);
+	// A shared square needs a free slot for this size (MakeMonster takes it).
+	if (share && FreeSlotInCell(x, z, kind.size, -1) < 0) return false;
 	// id = -1 marks an editor-placed monster (no .ent baseline); the save layer
 	// stores these whole (a "monster" row) rather than as a diff, so they
 	// round-trip — see SnapshotActive / ApplyActiveSnapshot.

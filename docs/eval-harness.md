@@ -138,6 +138,16 @@ tally's `expat=`).
 Reseeds the combat RNG. Every roll comes off this one stream, so this is what
 turns a rung into a sample rather than an anecdote.
 
+Which of a state's clips a monster plays is NOT a roll: it comes off a cosmetic
+stream of its own (`m_cosmeticRng`, back to its seed whenever a level's monsters
+are built), so authoring one more attack or hit clip cannot shift a seeded
+sweep's dice (code-review C73). TALLY's `clipdraws=` counts the picks that drew
+from it, and `monsterclips <type> [<state> <clip> ...]` reads or sets a kind's
+clip table live, unsaved - the monster config dialog's two calls, without its
+window. tools\CombatTest.py's CLIPS check sweeps a skeleton swinging at the party
+(rungs/clips-skeleton.eval) as authored and again with a second attack clip, and
+demands every other TALLY field match.
+
 ### `logecho on`, `state`, `party`
 
 The console answers in a *window*, and reading a window means a screenshot — of
@@ -224,7 +234,7 @@ so a crash in an unattended headless-ish run was a two-minute diagnosis.
 
 ```
 arena <open|corridor|deadend|tjunction> [w] [h]
-spawn <type> <x> <z> [n|e|s|w] [strength] [up] [pierce]
+spawn <type> <x> <z> [n|e|s|w] [strength] [up] [pierce] [share]
 ```
 
 `up` stands the monster up at once. A kit skeleton otherwise spends the 9.5-14 s
@@ -239,6 +249,13 @@ for such a blow - the armour it skipped learns nothing from it (code-review C11)
 - lives at a call site no pure test reaches, so combat.eval needs one to measure
 it. The tally's `struck=` / `pierced=` count the monsters' melee blows that
 landed on a member and the criticals among them a piercing edge drove under.
+
+`share` lets the monster join a square others of its size already hold, in the
+next free slot, as a level's records can (a bone swarm is Medium, four to a
+square); without it a spawn wants the square to itself, like the editor's brush.
+`monsters` prints a sub-cell monster's `slot` (row*dim + col, world-space), so a
+script can say which of a square's occupants a swing met (code-review C33:
+combat.eval's melee sections).
 
 Every attempt to verify P1 against the **showcase** level fought back: a monster
 already standing adjacent so it had nothing to walk toward, a target cell that
@@ -786,7 +803,11 @@ never is one; since code-review batch 24 an `autocast bolt` entry fires a
 spell's bolt AT the party, as `bolt` does, and may meet it with a repel of an
 exact power, as `castsvc repel` does, for `AllocTest.ps1 -Burst`), the
 shot-at-the-party counts in `ResolveMonsterProjectileHit` and `RepelAhead`
-(the tally), three lines feeding queued steps, and one test in
+(the tally), the cosmetic-draw count in `PickClip` (the tally's `clipDraws`,
+code-review batch 28: each pick of one of several authored clips for a state,
+off `m_cosmeticRng`, on every state change and from `MakeMonster`'s idle, so a
+sweep can show the variations drew without moving the combat dice), three
+lines feeding queued steps, and one test in
 `AdvanceSimulation` (`wholeSteps`: `frames ... whole` takes each frame's dt as
 one step, code-review C48). Every one of them reads `m_harness.something` and
 says what it is.

@@ -772,4 +772,152 @@ echo === flask-save-far ===
 load combat_flask_far
 flooritems all
 
+; --- A SWING MEETS THE FRONT RANK, IN THE SWINGER'S LANE (code-review C33) -----
+; Sub-cell monsters share a square: a bone swarm is Medium, four to a square, one
+; a quarter (`monsters` prints each one's `slot`, row*2 + col, world-space). A
+; party swing used to take whichever came first in the monster list, whatever
+; quarter it stood in. Now it meets the FRONT RANK - the quarters nearest the
+; party - and among those the one in the swinger's own lane: Brand, front-left,
+; the left one, Sera, front-right, the right one.
+;
+; Two sturdy swarms in the square south of the party, which faces south (`spawn
+; ... share` joins a square, as a level's records can). They take the first free
+; quarters, 0 and 1, the north pair - both front rank from here. Facing south
+; the party's left is EAST, so Brand's is quarter 1 and Sera's quarter 0: the one
+; listed first, which both of them used to hit. Brand punches four times and
+; Sera eight, to be sure of one landing (her hand 0 holds the starter dagger
+; and the other the lit torch, so her `punch` is swung unarmed with a full hand,
+; C39). `freeze on`, so nothing swings back and nothing moves; a punch is ~16
+; against a swarm, so strength 30 keeps them standing. The judge works out from
+; `pos` which quarter each should meet
+; and reads who lost hp.
+
+echo === melee-lane ===
+reset
+timescale 0
+lockstep on
+seed 28
+goto eval_arena
+arena open 9 9
+heal
+tp 14 12
+face s
+pos
+freeze on
+spawn skel_swarm 14 13 north 30 up share
+spawn skel_swarm 14 13 north 30 up share
+monsters
+tally reset
+swing 0 0 punch
+step 2
+swing 0 0 punch
+step 2
+swing 0 0 punch
+step 2
+swing 0 0 punch
+step 2
+tally
+monsters
+tally reset
+swing 1 0 punch
+step 2
+swing 1 0 punch
+step 2
+swing 1 0 punch
+step 2
+swing 1 0 punch
+step 2
+swing 1 0 punch
+step 2
+swing 1 0 punch
+step 2
+swing 1 0 punch
+step 2
+swing 1 0 punch
+step 2
+tally
+monsters
+
+; FRONT BEFORE BEHIND: four swarms fill the square north of the party, which
+; faces north, so the front rank is the south pair, quarters 2 and 3, and the
+; party's left is WEST. Brand's lane holds quarter 0 (listed first, behind) and
+; quarter 2 (in front): he meets 2. Sera meets 3. Both used to meet 0.
+
+echo === melee-front ===
+reset
+timescale 0
+lockstep on
+seed 28
+goto eval_arena
+arena open 9 9
+heal
+tp 14 14
+face n
+pos
+freeze on
+spawn skel_swarm 14 13 south 30 up share
+spawn skel_swarm 14 13 south 30 up share
+spawn skel_swarm 14 13 south 30 up share
+spawn skel_swarm 14 13 south 30 up share
+monsters
+tally reset
+swing 0 0 punch
+step 2
+swing 0 0 punch
+step 2
+swing 0 0 punch
+step 2
+swing 0 0 punch
+step 2
+tally
+monsters
+tally reset
+swing 1 0 punch
+step 2
+swing 1 0 punch
+step 2
+swing 1 0 punch
+step 2
+swing 1 0 punch
+step 2
+swing 1 0 punch
+step 2
+swing 1 0 punch
+step 2
+swing 1 0 punch
+step 2
+swing 1 0 punch
+step 2
+tally
+monsters
+
+; --- A COSMETIC CLIP MOVES NO DICE (code-review C73) ----------------------------
+; Which of a state's clips a monster plays draws from a stream of its own, never
+; the combat RNG, so authoring one more clip cannot shift a seeded sweep's rolls.
+; A skeleton swinging at the party (rungs/clips-skeleton.eval) swept over four
+; seeds as the kind is authored - it ships one clip per state, so it draws
+; nothing (TALLY `clipdraws=`) - and again with a second ATTACK clip (its walk,
+; played as a swing: the test needs a clip the model ships, not a good look),
+; which draws every time it starts a swing. Every other TALLY field must match,
+; sample for sample. While the pick drew from the combat stream, each swing's
+; draw shifted every roll after it. The table is put back at the end:
+; `monsterclips` edits the live kind, which outlives a reset.
+
+echo === clip-plain ===
+reset
+timescale 0
+lockstep on
+goto eval_arena
+monsterclips skeleton
+sweep 4 rungs/clips-skeleton.eval
+
+echo === clip-extra ===
+reset
+timescale 0
+lockstep on
+goto eval_arena
+monsterclips skeleton attack attack walk
+sweep 4 rungs/clips-skeleton.eval
+monsterclips skeleton attack attack
+
 echo === end ===

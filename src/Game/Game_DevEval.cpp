@@ -6,7 +6,7 @@
 // seed/lockstep/aiwait/step/state), getting into a world and out of it without
 // a mouse (newgame/reset/title),
 // and staging and reading an encounter (arena/forward/freeze/blast/spawn/
-// autoattack/tally).
+// monsterclips/autoattack/tally).
 // ============================================================================
 #include "Game/Game.h"
 
@@ -18,9 +18,11 @@
 #include <cstdlib>
 #include <cstring>
 #include <format>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
+#include <vector>
 
 namespace dungeon::game {
 
@@ -410,17 +412,21 @@ void Game::RegisterEvalCommands() {
 	// otherwise spends 9.5-14 s rising and holding still (StandLastMonster).
 	// `pierce` gives it a piercing edge, its criticals going under armour
 	// (PierceLastMonster) - no authored monster has one.
+	// `share` lets it join a square monsters of its size already stand in, in the
+	// next free slot, as a level's records can (a bone swarm is four a square);
+	// without it a spawn wants the square to itself, as the editor's brush does.
 	m_console.Register({.name = "spawn",
 						.group = CmdGroup::Monsters,
-						.params = "<type> <x> <z> [n|e|s|w] [strength] [up] [pierce]",
+						.params = "<type> <x> <z> [n|e|s|w] [strength] [up] [pierce] [share]",
 						.summary = "place a monster live, optionally scaling its hp and damage"},
 					   [this](const std::vector<std::string>& given) {
 						   if (!Need(m_console, given, 3)) return;
 						   std::vector<std::string> args;
-						   bool up = false, pierce = false;
+						   bool up = false, pierce = false, share = false;
 						   for (size_t i = 0; i < given.size(); ++i) {
 							   if (i >= 3 && given[i] == "up") up = true;
 							   else if (i >= 3 && given[i] == "pierce") pierce = true;
+							   else if (i >= 3 && given[i] == "share") share = true;
 							   else args.push_back(given[i]);
 						   }
 						   const int x = std::atoi(args[1].c_str());
@@ -443,21 +449,78 @@ void Game::RegisterEvalCommands() {
 							   args.size() > 4
 								   ? static_cast<float>(std::atof(args[4].c_str()))
 								   : 1.0f;
-						   if (!m_world->AddMonster(args[0], x, z, facing)) {
+						   if (!m_world->AddMonster(args[0], x, z, facing, share)) {
 							   m_console.Refuse(std::format(
 								   "spawn: refused '{}' at {},{} (unknown type, "
-								   "not walkable, or cell taken)",
-								   args[0], x, z));
+								   "not walkable, or cell taken{})",
+								   args[0], x, z, share ? " - no free slot for its size" : ""));
 							   return;
 						   }
 						   if (strength > 0.0f && strength != 1.0f)
 						   m_world->ScaleLastMonster(strength);
 						   if (up) m_world->StandLastMonster();
 						   if (pierce) m_world->PierceLastMonster();
-					   m_console.Print(std::format("spawned {} at {},{} x{:.2f}{}{}",
+					   m_console.Print(std::format("spawned {} at {},{} x{:.2f}{}{}{}",
 											   args[0], x, z, strength, up ? " up" : "",
-											   pierce ? " pierce" : ""));
+											   pierce ? " pierce" : "", share ? " share" : ""));
 					   });
+
+	// A monster kind's CLIP TABLE, read and set live - what the editor's monster
+	// config dialog does through the same two calls, without its window, and like
+	// it unsaved (the .cat is untouched). It is how a script authors one more
+	// cosmetic clip and shows a seeded sweep's combat does not move for it
+	// (code-review C73: clip picks draw from their own stream). Setting a state
+	// replaces its list and marks it supported; a clip the model does not ship is
+	// REFUSED, where the dialog's apply would drop it silently.
+	m_console.Register(
+		{.name = "monsterclips",
+		 .group = CmdGroup::Monsters,
+		 .params = "<type> [<state> <clip> ...]",
+		 .summary = "print a monster kind's clips per state, or set one state's (live, unsaved)"},
+		[this](const std::vector<std::string>& args) {
+			if (!Need(m_console, args, 1)) return;
+			const std::string& type = args[0];
+			// The force-load aborts on a missing model, so guard it as the dialog does.
+			if (!m_project.monsters.Find(type) || !m_world->MonsterModelAvailable(type)) {
+				m_console.Refuse(std::format("monsterclips: no monster type '{}' with a model", type));
+				return;
+			}
+			DungeonWorld::AnimSupport supported;
+			DungeonWorld::AnimClips clips;
+			m_world->MonsterAnimConfig(type, supported, clips);
+			const auto line = [&](int i) {
+				std::string s = std::format("  {} =", anim::StateName(static_cast<anim::CreatureState>(i)));
+				for (const std::string& c : clips[static_cast<size_t>(i)]) s += " " + c;
+				return s;
+			};
+			if (args.size() == 1) {
+				m_console.Print(std::format("monsterclips {}:", type));
+				for (int i = 0; i < anim::kCreatureStateCount; ++i)
+					if (!clips[static_cast<size_t>(i)].empty()) m_console.Print(line(i));
+				return;
+			}
+			const std::optional<anim::CreatureState> state = anim::ParseState(args[1]);
+			if (!state || args.size() < 3) {
+				m_console.RefuseUsage();
+				return;
+			}
+			const std::vector<std::string> shipped = m_world->MonsterClipNames(type);
+			std::vector<std::string> list;
+			for (size_t a = 2; a < args.size(); ++a) {
+				if (std::find(shipped.begin(), shipped.end(), args[a]) == shipped.end()) {
+					m_console.Refuse(std::format("monsterclips: {}'s model has no clip '{}'", type,
+												 args[a]));
+					return;
+				}
+				list.push_back(args[a]);
+			}
+			const int i = static_cast<int>(*state);
+			clips[static_cast<size_t>(i)] = std::move(list);
+			supported[static_cast<size_t>(i)] = true;
+			m_world->ApplyMonsterAnimConfig(type, supported, clips);
+			m_console.Print(std::format("monsterclips {} set:", type));
+			m_console.Print(line(i));
+		});
 
 	// --- measuring an encounter (docs/eval-harness.md) ----------------------
 	// Without this a measured encounter is the party STANDING STILL BEING HIT.
@@ -973,7 +1036,7 @@ std::string Game::TallyLine() const {
 		"throwstrikes={} throwlandings={} sceneryticks={} doused={} struck={} "
 		"pierced={} wallstops={} stoppedin={} partybursts={} wardturns={} "
 		"repelweakened={} repelturned={} repelspent={} mswings={} mshots={} "
-		"landat={} expat={} severefumbles={} fumbledrops={}",
+		"landat={} expat={} severefumbles={} fumbledrops={} clipdraws={}",
 		t.dealt, t.taken, swings, t.hits, t.misses, rate, t.crits, t.fumbles,
 		t.monstersSlain, t.membersDowned, t.seconds, t.boltHits, t.boltMisses,
 		t.expiries, t.blasts, t.drops, t.lifts, t.throws, t.throwStrikes,
@@ -982,7 +1045,7 @@ std::string Game::TallyLine() const {
 		t.repelTurned, t.repelSpent, t.monsterSwings, t.monsterShots,
 		t.landX < 0 ? std::string("-") : std::format("{},{}", t.landX, t.landZ),
 		t.expireX < 0 ? std::string("-") : std::format("{},{}", t.expireX, t.expireZ),
-		t.severeFumbles, t.fumbleDrops);
+		t.severeFumbles, t.fumbleDrops, t.clipDraws);
 }
 
 } // namespace dungeon::game

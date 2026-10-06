@@ -1,0 +1,22 @@
+; rungs/clips-skeleton.eval - a skeleton swinging at the party, the rung
+; tools\CombatTest.py's CLIPS check sweeps (code-review C73).
+;
+; The check is about the monster's ATTACK clip: it adds a second one and demands
+; the sweep's dice do not move. So this rung is the monster swinging, again and
+; again - a skeleton stood up beside the party, which does not swing back (the
+; novice rung's party kills its skeleton before it ever swings, so a second
+; attack clip would never be picked there). Twelve seconds is about seven
+; swings: every one rolls to hit and for damage, and every one starts an attack
+; clip. A plain skeleton cannot down the whole party in that time.
+;
+; Like every rung it assumes nothing about what ran before and sets no seed:
+; the sweep owns the seed.
+
+heal
+arena open 9 9
+spawn skeleton 14 11 south 1 up
+tp 14 12
+face n
+tally reset
+step 12
+tally

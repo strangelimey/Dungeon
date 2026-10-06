@@ -76,6 +76,19 @@
 #              a landing rule that never moved off the party would fail. Each
 #              save must have been MADE in this run ("saved: <name>"), or a
 #              stale file from an earlier run would be what loaded.
+#   MELEE      a swing at a square several bone swarms share meets the FRONT
+#              RANK, and of those the one in the swinger's own lane (C33):
+#              Brand (front-left) and Sera (front-right) each punch, and only
+#              the swarm in the quarter worked out HERE from `pos` and the
+#              rule loses hp - side by side in front, Brand's is not the one
+#              listed first, which both used to hit; four to a square, the
+#              one in front of his lane, never the one behind it.
+#   CLIPS      a cosmetic clip moves no dice (C73): a skeleton swinging at
+#              the party (rungs/clips-skeleton.eval) swept over four seeds as
+#              it is authored (one clip a state, so it draws nothing) and
+#              again with a second attack clip (`monsterclips`), which draws a
+#              variation every swing it starts (TALLY `clipdraws=`) - and
+#              every other TALLY field matches, sample for sample.
 #
 # And the script as a whole must run CLEAN - its verdict a PASS, nothing in it
 # refused or unknown - since a refused line (a save that failed, say) prints a
@@ -84,9 +97,12 @@
 # Each later combat batch adds its sections to combat.eval and its checks here.
 #
 # --selftest runs the same script with every line that SETS UP a claim cut (the
-# effects, spawns, equips, wears, casts and bolts) and demands that EXACTLY the
-# checks resting on one fail (SETUP_FREE names the rest, which must still pass),
-# so no check is satisfied by nothing happening.
+# effects, spawns, equips, wears, casts, bolts, loaded fumbles, throws and clip
+# tables - CUT below) and demands that
+# EXACTLY the checks resting on one fail (SETUP_FREE names the rest, which must
+# still pass), so no check is satisfied by nothing happening. The cut copy is
+# written beside the script, since a `sweep` path resolves against the folder of
+# the script that names it.
 import io
 import math
 import os
@@ -104,7 +120,8 @@ SCRIPT = os.path.join(ROOT, r"tools\EvalScripts\combat.eval")
 NAMES = ["Brand", "Sera", "Maren", "Tilo"]
 
 # What --selftest cuts: the lines that put a claim's cause in place.
-CUT = ("effect ", "spawn ", "equip ", "wear ", "cast ", "bolt ", "fumble ", "throw ")
+CUT = ("effect ", "spawn ", "equip ", "wear ", "cast ", "bolt ", "fumble ", "throw ",
+	   "monsterclips ")
 
 # The checks that rest on none of the cut lines: with them cut, these, and ONLY
 # these, may still pass.
@@ -232,13 +249,16 @@ def grudges(sec):
 
 def monster_rows(sec, kind):
 	"""Every `monsters` row for monsters of `kind` in the section, in order: a
-	dict per row with its cell, hp, whether it is dead, its effects
-	{id: magnitude} and each effect's school {id: school}."""
+	dict per row with its cell, hp, its slot in the square (None for a size
+	that has only one), whether it is dead, its effects {id: magnitude} and each
+	effect's school {id: school}."""
 	out = []
 	for l in sec:
 		m = re.match(r"\s+(\S+) @ (\d+),(\d+)\s+hp ([\d.-]+)(.*)$", l)
 		if m and m.group(1) == kind:
+			slot = re.match(r"\s+slot (\d+)", m.group(5))
 			out.append({"cell": (int(m.group(2)), int(m.group(3))), "hp": float(m.group(4)),
+						"slot": int(slot.group(1)) if slot else None,
 						"dead": "(dead)" in m.group(5),
 						"effects": {k: float(v) for k, v in
 									re.findall(r"\[(\w+) ([\d.-]+) ", m.group(5))},
@@ -361,6 +381,29 @@ def party_pos(sec):
 
 # A facing's step, +x east and +z south (Party's grid).
 STEP = {"north": (0, -1), "east": (1, 0), "south": (0, 1), "west": (-1, 0)}
+
+
+def front_in_lane(facing, member, slots, dim=2):
+	"""Of the occupied `slots` of the square ahead (slot = row*dim + col, row
+	along +z, col along +x), the one roster slot `member`'s swing should meet,
+	worked out here from the rule rather than read off the game: the FRONT rank
+	first (nearest the party), then the member's own lane - even members stand
+	on the party's left, odd on its right, a quarter of a square off its middle."""
+	dx, dz = STEP[facing]
+	left = (dz, -dx)  # the facing turned a quarter to its left
+	lane = 0.25 if member % 2 == 0 else -0.25
+
+	def key(s):
+		ox = ((s % dim) + 0.5) / dim - 0.5
+		oz = ((s // dim) + 0.5) / dim - 0.5
+		return (round(ox * dx + oz * dz, 6), round(abs(ox * left[0] + oz * left[1] - lane), 6))
+	return min(slots, key=key) if slots else None
+
+
+def clip_lists(sec, state):
+	"""Every list of clips the section's `monsterclips` readouts printed for
+	`state`, in order (a readout prints a line per state it lists)."""
+	return [l.split(" = ", 1)[1].split() for l in sec if l.startswith(f"  {state} = ")]
 
 
 def num(t, key):
@@ -811,6 +854,59 @@ def judge(lines, text):
 			  and (name == "near" or got[0][0] != party),
 			  f"the {name} save holds the flask, whole, on the floor of the square it was over",
 			  f"loaded={loaded} floor {floor_items(loaded_sec)} it was over {want}, party {party}")
+
+	print("MELEE - a swing meets the front rank, in the swinger's lane (C33)")
+	for name, n, setup, labels in (
+			("melee-lane", 2, "two bone swarms stand side by side in the front quarters of the square ahead",
+			 ("Brand's punches met only the front swarm in his lane, not the one listed first",
+			  "Sera's met only the front swarm in hers")),
+			("melee-front", 4, "four bone swarms fill the square ahead",
+			 ("Brand's punches met the front swarm in his lane, never the one behind it",
+			  "Sera's met the front swarm in hers"))):
+		sec = get(name)
+		at = party_pos(sec)
+		rows = monster_rows(sec, "skel_swarm")
+		ts = tallies(sec)
+		reads = [rows[i * n:(i + 1) * n] for i in range(3)] if len(rows) == 3 * n else []
+		ahead = (at[0][0] + STEP[at[1]][0], at[0][1] + STEP[at[1]][1]) if at else None
+		slots = [r["slot"] for r in reads[0]] if reads else []
+		# Each member's quarter, and every claim below, is worked out from what the
+		# square holds - so the setup must say the square holds what the section
+		# means: all n in the square ahead, each its own quarter, and (side by side)
+		# both in the front rank, Brand's not the one listed first.
+		wants = [front_in_lane(at[1], m, slots) for m in (0, 1)] if at and reads else [None, None]
+		placed = (bool(reads) and len(ts) == 2 and all(r["cell"] == ahead for r in reads[0])
+				  and None not in slots and len(set(slots)) == n and wants[0] != slots[0]
+				  and None not in wants and wants[0] != wants[1])
+		check(placed, setup, f"party {at} square ahead {ahead} swarms {rows[:n]} tallies {len(ts)} "
+							 f"quarters to meet {wants}")
+		for phase, label in ((1, labels[0]), (2, labels[1])):
+			before, after = (reads[phase - 1], reads[phase]) if placed else ([], [])
+			lost = [b["slot"] for b, a in zip(before, after) if a["hp"] < b["hp"]]
+			still = placed and [r["slot"] for r in after] == slots and not any(r["dead"] for r in after)
+			check(still and num(ts[phase - 1], "hits") >= 1 and lost == [wants[phase - 1]],
+				  f"{label} (quarter {wants[phase - 1]})",
+				  f"quarters that lost hp {lost}, hits={ts[phase - 1].get('hits') if placed else None}, "
+				  f"before {before} after {after}")
+
+	print("CLIPS - a cosmetic clip moves no dice (C73)")
+	plain_sec, extra_sec = get("clip-plain"), get("clip-extra")
+	plain, extra = tallies(plain_sec), tallies(extra_sec)
+	authored, extra_lists = clip_lists(plain_sec, "attack"), clip_lists(extra_sec, "attack")
+	drew = (authored == [["attack"]] and extra_lists[:1] == [["attack", "walk"]]
+			and len(plain) == 4 and len(extra) == 4
+			and all(num(t, "clipdraws") == 0 for t in plain)
+			and sum(num(t, "clipdraws") for t in extra) > 0)
+	check(drew, "with a second attack clip the skeleton drew clip variations; as authored it drew none",
+		  f"attack clips {authored} then {extra_lists} clipdraws {[t.get('clipdraws') for t in plain]} "
+		  f"then {[t.get('clipdraws') for t in extra]}")
+	strip = lambda t: {k: v for k, v in t.items() if k != "clipdraws"}
+	differ = [i + 1 for i, (a, b) in enumerate(zip(plain, extra)) if strip(a) != strip(b)]
+	# ...over real fights: in every sample the skeleton's blows landed.
+	check(drew and not differ and all(num(t, "struck") >= 1 for t in plain),
+		  "and every combat number of the sweep matched, sample for sample",
+		  f"seeds that differ {differ}: " +
+		  "; ".join(f"{strip(plain[i - 1])} vs {strip(extra[i - 1])}" for i in differ[:1]))
 	check("end" in s, "the script ran to its end")
 
 
@@ -823,14 +919,18 @@ def main():
 	if selftest:
 		text = io.open(SCRIPT, encoding="utf-8").read()
 		cut = "\n".join(("echo skipped" if l.startswith(CUT) else l) for l in text.splitlines())
-		fd, script = tempfile.mkstemp(suffix=".eval")
+		# Beside the script: its `sweep` names a rung relative to its own folder.
+		fd, script = tempfile.mkstemp(suffix=".eval", dir=os.path.dirname(SCRIPT))
 		with os.fdopen(fd, "w", encoding="utf-8") as fh:
 			fh.write(cut + "\n")
-	code, verdict, lines, text = run(script)
-	print(f"eval: {verdict.split('] ', 1)[-1] if verdict else '(no verdict line)'}")
-	judge(lines, text)
-	if selftest:
-		os.remove(script)
+	try:
+		code, verdict, lines, text = run(script)
+		print(f"eval: {verdict.split('] ', 1)[-1] if verdict else '(no verdict line)'}")
+		judge(lines, text)
+	finally:
+		# It sits in the source tree, so it goes however the run ends.
+		if selftest:
+			os.remove(script)
 	failed = sum(1 for _, ok in results if not ok)
 	if selftest:
 		# Every check that rests on a cut line must FAIL, and the setup-free ones
