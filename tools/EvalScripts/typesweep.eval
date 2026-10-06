@@ -1,0 +1,54 @@
+; typesweep.eval - a FEATURE type renamed takes its records with it and is not
+; deleted while any are placed; a type whose id is the CODE's (an effect, an
+; attack, a spell, the balance sheet) is refused both; and catround's cases
+; (code-review C305, C306, C323). Judged by tools/EditorTest.py phase 21.
+;
+; EditorTest writes, before this runs (into its scratch world, never the real
+; one): `floorfeature recess 7 7` and `ceilingfeature vault 7 7` on crypt1, a
+; level NOT loaded, so the sweep has to reach a level's file as well as the
+; level in hand.
+;
+; 1. The arena bare, then with two recesses and a vault: the geometry has to
+;    MOVE, or "the same after the rename" below would prove nothing.
+; 2. recess -> sunk and vault -> dome: every record follows on both levels, and
+;    the geometry is exactly what it was - the tiles are still found under
+;    their new names. A delete of either is refused while they are placed.
+;    savemap writes both levels for the judge to read.
+; 3. Renames and deletes of ids the code owns are refused, and the type editor
+;    opened on an effect answers a Delete with why, instead of arming it.
+; 4. catround: every file of the world round-trips, and its three cases pass.
+
+logecho on
+reset
+echo --- 1: features placed ---
+geomhash
+editor place surfacefeatures recess 5 5
+editor place surfacefeatures recess 6 5
+editor place surfacefeatures vault 8 5
+geomhash
+typerefs surfacefeatures recess
+typerefs surfacefeatures vault
+echo --- 2: renamed ---
+typeset rename surfacefeatures recess sunk
+typeset rename surfacefeatures vault dome
+typerefs surfacefeatures recess
+typerefs surfacefeatures sunk
+typerefs surfacefeatures dome
+geomhash
+typeset delete surfacefeatures sunk
+typeset delete surfacefeatures dome
+savemap
+echo --- 3: the code's ids ---
+typeset rename effects burn burn_x
+typeset rename attacks stab stab_x
+typeset rename spells flame flame_x
+typeset rename balance formula formula_x
+typeset delete effects burn
+typeset delete attacks stab
+typeset delete spells flame
+typeset delete balance formula
+typeset dialog effects burn
+typeset dialog delete
+typeset dialog off
+echo --- 4: catround ---
+catround

@@ -23,6 +23,9 @@ struct CatalogSlot {
 	const char* file;
 	Catalog Project::*member;
 	const char* header;
+	// The entries' IDS are C++'s (Project::IdentityInCode): set on the catalogs
+	// whose entries only tune something the code defines and looks up by name.
+	bool identityInCode = false;
 };
 const CatalogSlot kCatalogs[] = {
 	{"walls.cat", &Project::walls, "Wall surface types: texture set + worn-block height displacement."},
@@ -37,11 +40,11 @@ const CatalogSlot kCatalogs[] = {
 	{"items.cat", &Project::items, "Items: runes, keys, food, containers, ingredients (weapons/armor are their own catalogs)."},
 	{"weapons.cat", &Project::weapons, "Weapons: items with attack settings (skill/damage/speed/stats/reach/command)."},
 	{"armor.cat", &Project::armor, "Armor: worn items granting defense (armor soak + per-type resists)."},
-	{"spells.cat", &Project::spells, "Spells: symbol-sequence recipes -> effect + element + power/mana/speed/range."},
-	{"attacks.cat", &Project::attacks, "Attacks: per-melee-verb numbers (damage/accuracy/speed multipliers); identity (damage type) is C++ (Balance.h)."},
-	{"balance.cat", &Project::balance, "Balance: the attack-formula knob sheet ([formula] block; docs/combat.md)."},
+	{"spells.cat", &Project::spells, "Spells: symbol-sequence recipes -> effect + element + power/mana/speed/range.", true},
+	{"attacks.cat", &Project::attacks, "Attacks: per-melee-verb numbers (damage/accuracy/speed multipliers); identity (damage type) is C++ (Balance.h).", true},
+	{"balance.cat", &Project::balance, "Balance: the attack-formula knob sheet ([formula] block; docs/combat.md).", true},
 	{"damagetypes.cat", &Project::damagetypes, "Damage types: the vocabulary the combat maths is written in (physical flag + school); C++ names none of them."},
-	{"effects.cat", &Project::effects, "Status effects: display name/icon/stacking per effect id; identity and behaviour are C++ (Game/Effect/)."},
+	{"effects.cat", &Project::effects, "Status effects: display name/icon/stacking per effect id; identity and behaviour are C++ (Game/Effect/).", true},
 	{"terrain.cat", &Project::terrain, "Terrain kinds: what a world-map cell is (glyph + travel/difficulty/tags)."},
 	{"quests.cat", &Project::quests, "Quests: display name + ORDERED stage list; progress lives in the save, never here."},
 	{"dungeons.cat", &Project::dungeons, "Dungeons: a named group of level stems with an entry level, reached through a world-map location."},
@@ -140,7 +143,8 @@ Project Project::Load(const std::string& folder) {
 	// project folder still loads.
 	if (auto bytes = assets::ReadBinaryFile(folder + "\\project.ini")) {
 		const std::string text(bytes->begin(), bytes->end());
-		const std::vector<serialize::Block> blocks = serialize::ParseBlocks(text);
+		const std::vector<serialize::Block> blocks =
+			serialize::ParseBlocks(text, &p.manifestTrailer);
 		for (const serialize::Block& b : blocks) {
 			if (!b.id.empty()) continue; // manifest lives in the unnamed block
 			p.manifest = b; // kept whole — see the member's comment
@@ -217,13 +221,14 @@ std::string Project::ManifestText() const {
 	// THE GENERATED HEADER IS ONLY FOR A MANIFEST THAT HAD NONE. The unnamed
 	// block has no "[id]" line, so the file's opening comment rides the FIRST
 	// FIELD's lead — and it survives the round trip now. Emitting the generated
-	// line as well would stack a second header on the first, one per save.
+	// line as well would stack a second header on the first, one per save. (A
+	// manifest of comments alone reads back as its trailer: its own header.)
 	const std::string header =
-		manifest.fields.empty()
+		manifest.fields.empty() && manifestTrailer.empty()
 			? std::format("; {} — project manifest.{}{}", name, serialize::kEol,
 						  serialize::kEol)
 			: std::string();
-	return header + serialize::WriteBlocks(blocks);
+	return header + serialize::WriteBlocks(blocks, manifestTrailer);
 }
 
 bool Project::Save() const {
@@ -235,6 +240,15 @@ bool Project::Save() const {
 	for (const CatalogSlot& slot : kCatalogs)
 		ok &= (this->*(slot.member)).Save(CatalogPath(slot.file), slot.header);
 	return ok;
+}
+
+bool Project::IdentityInCode(std::string_view key) {
+	for (const CatalogSlot& slot : kCatalogs) {
+		const std::string_view file = slot.file;
+		if (file.size() == key.size() + 4 && file.starts_with(key) && file.ends_with(".cat"))
+			return slot.identityInCode;
+	}
+	return false;
 }
 
 Catalog* Project::CatalogForKey(const std::string& key) {

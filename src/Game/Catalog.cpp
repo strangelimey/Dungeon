@@ -88,11 +88,15 @@ bool CatalogMatchesTags(const CatalogEntry* e, const std::vector<std::string>& w
 
 void Catalog::Load(const std::string& path) {
 	m_entries.clear();
+	m_trailer.clear();
 	auto bytes = assets::ReadBinaryFile(path);
 	if (!bytes) return; // optional category: a missing file is just empty
+	LoadText(std::string(bytes->begin(), bytes->end()));
+}
 
-	const std::string text(bytes->begin(), bytes->end());
-	for (serialize::Block& b : serialize::ParseBlocks(text)) {
+void Catalog::LoadText(std::string_view text) {
+	m_entries.clear();
+	for (serialize::Block& b : serialize::ParseBlocks(text, &m_trailer)) {
 		if (b.id.empty()) continue; // catalogs use only [id] blocks
 		m_entries.push_back({std::move(b.id), std::move(b.lead), std::move(b.fields)});
 	}
@@ -105,22 +109,23 @@ std::string Catalog::Serialize(std::string_view headerComment) const {
 		blocks.push_back({e.id, e.lead, e.fields});
 
 	std::string text;
-	// The file's own header (the comments that introduced its first entry) wins:
-	// it is hand-written documentation of that category's fields, and prepending
-	// the generic line as well would duplicate it a little more on every write.
-	const bool hasOwnHeader = !m_entries.empty() && !m_entries.front().lead.empty();
+	// The file's own header wins: the comments that introduced its first entry,
+	// or - in a catalog with no entry yet - the comments that are the whole file
+	// (the trailer). It is hand-written documentation of that category's fields,
+	// and prepending the generic line as well would duplicate it a little more
+	// on every write.
+	const bool hasOwnHeader =
+		m_entries.empty() ? !m_trailer.empty() : !m_entries.front().lead.empty();
 	if (!headerComment.empty() && !hasOwnHeader) {
 		text += std::format("; {}{}", headerComment, serialize::kEol);
 		// The blank BELOW the header separates it from the first entry, so an
 		// EMPTY catalog does not get one — a file whose whole content is one
 		// comment line should not grow a trailing blank the first time anything
-		// saves the project. (An empty catalog also cannot keep a hand-written
-		// header of its own: with no entry to attach to, the comment is dropped
-		// at parse. The generated line stands in for it, which is why the two
-		// have to come out identical.)
+		// saves the project. (A file that is just that one line reads back as
+		// its own trailer, and then wins above; the two come out identical.)
 		if (!blocks.empty()) text += serialize::kEol;
 	}
-	text += serialize::WriteBlocks(blocks);
+	text += serialize::WriteBlocks(blocks, m_trailer);
 	return text;
 }
 
@@ -145,6 +150,15 @@ CatalogEntry& Catalog::Add(CatalogEntry entry) {
 			e = std::move(entry);
 			return e;
 		}
+	// THE FIRST ENTRY OF A HEADER-ONLY FILE takes the file's comments as its
+	// lead, so the documentation stays ABOVE it - left as the trailer it would
+	// be written under the entry, at the bottom of the file.
+	if (m_entries.empty() && !m_trailer.empty()) {
+		std::vector<std::string> lead = std::exchange(m_trailer, {});
+		if (!lead.back().empty()) lead.emplace_back(); // a blank above the [id]
+		lead.insert(lead.end(), entry.lead.begin(), entry.lead.end());
+		entry.lead = std::move(lead);
+	}
 	m_entries.push_back(std::move(entry));
 	return m_entries.back();
 }
@@ -160,11 +174,38 @@ bool Catalog::Rename(std::string_view id, std::string newId) {
 }
 
 void Catalog::Remove(std::string_view id) {
-	for (auto it = m_entries.begin(); it != m_entries.end(); ++it)
-		if (it->id == id) {
-			m_entries.erase(it);
-			return;
-		}
+	const auto it = std::find_if(m_entries.begin(), m_entries.end(),
+								 [&](const CatalogEntry& e) { return e.id == id; });
+	if (it == m_entries.end()) return;
+	// THE FIRST ENTRY'S LEAD IS THE FILE'S HEADER (code-review C323): the
+	// comments documenting the category's fields sit above the first [id], and
+	// deleting that entry deleted them. They are handed on instead - to the
+	// entry that is first now, above its own comments, or with none left to
+	// the trailer, where a header-only file keeps its documentation. The parser
+	// cannot tell where a header ends and a note on the entry itself begins, so
+	// the whole lead goes: a stale line about a deleted entry is a smaller loss
+	// than the file's documentation. Any other entry's lead goes with it, as a
+	// field's does.
+	if (it == m_entries.begin() && !it->lead.empty()) {
+		std::vector<std::string> lead = std::move(it->lead);
+		std::vector<std::string>& next =
+			m_entries.size() > 1 ? m_entries[1].lead : m_trailer;
+		if (!next.empty() && !lead.back().empty()) lead.emplace_back();
+		lead.insert(lead.end(), next.begin(), next.end());
+		next = std::move(lead);
+	}
+	m_entries.erase(it);
+}
+
+void Catalog::ClearEntries() {
+	// THE HEADER STAYS (code-review C323). A new world drops the source world's
+	// dungeons, quests and flags, and assigning a fresh Catalog there took the
+	// file's documentation too - the template's flags.cat, quests.cat and
+	// dungeons.cat are nothing BUT documentation. What goes is what describes the
+	// ENTRIES: notes on them, and comments under the last one, which are about
+	// them (the reason a new world drops its source's manifest comments).
+	if (!m_entries.empty()) m_trailer = std::move(m_entries.front().lead);
+	m_entries.clear();
 }
 
 } // namespace dungeon::game

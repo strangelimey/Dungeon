@@ -30,6 +30,35 @@ namespace dungeon::game {
 
 using devargs::Need;
 
+namespace {
+
+// Where a writer's text parts from the text it should have given - the first
+// line that differs, for a `catround` case's report. Empty when they agree.
+std::string FirstDifference(const std::string& got, const std::string& want) {
+	if (got == want) return {};
+	const auto lines = [](const std::string& s) {
+		std::vector<std::string> out;
+		for (size_t pos = 0; pos < s.size();) {
+			size_t end = s.find('\n', pos);
+			if (end == std::string::npos) end = s.size();
+			std::string line = s.substr(pos, end - pos);
+			if (!line.empty() && line.back() == '\r') line.pop_back();
+			out.push_back(std::move(line));
+			pos = end + 1;
+		}
+		return out;
+	};
+	const std::vector<std::string> a = lines(got), b = lines(want);
+	for (size_t i = 0; i < std::max(a.size(), b.size()); ++i) {
+		const std::string x = i < a.size() ? "'" + a[i] + "'" : "(the end)";
+		const std::string y = i < b.size() ? "'" + b[i] + "'" : "(the end)";
+		if (x != y) return std::format("line {} is {}, want {}", i + 1, x, y);
+	}
+	return "the line endings differ";
+}
+
+} // namespace
+
 void Game::RegisterWorldCommands() {
 	// --- travelling the overworld ---------------------------------------
 	m_console.Register(
@@ -616,6 +645,100 @@ void Game::RegisterWorldCommands() {
 			m_console.Print(std::format(
 				"catround {} of {} file(s) round-trip, {} absent",
 				checked - bad, checked, missing));
+
+			// THE CASES NO PROJECT CARRIES (code-review C323). The files above
+			// show what the writers do to the files this project happens to
+			// have, and the three ways a write still lost comments were all
+			// elsewhere: a catalog with no entry yet, the first entry deleted,
+			// and the monster dialog's Save. Each case is text handed to the
+			// REAL writer and the text it must give back - in memory, nothing
+			// written.
+			const auto crlf = [](std::string_view s) {
+				return serialize::NormalizeEol(std::string(s));
+			};
+			std::vector<std::pair<const char*, std::string>> cases;
+			{
+				// A CATALOG WITH NO ENTRY YET (the template's flags.cat): its
+				// comments are the whole file and come back whole - and the
+				// first entry added goes UNDER them, not above.
+				const std::string header =
+					crlf("; Flags: a catalog with no entry yet.\n;\n; Fields: display.\n\n");
+				Catalog c;
+				c.LoadText(header);
+				std::string why = FirstDifference(c.Serialize("Flags: generated."), header);
+				CatalogEntry first;
+				first.id = "first";
+				first.Set("display", "First");
+				c.Add(std::move(first));
+				if (why.empty())
+					why = FirstDifference(c.Serialize("Flags: generated."),
+										  header + crlf("[first]\ndisplay = First\n"));
+				cases.emplace_back("header-only", why);
+			}
+			{
+				// DELETING THE FIRST ENTRY: the file's header passes to the next
+				// one, above that entry's own note - and with nothing left, it
+				// is the file.
+				const std::string head = crlf("; Things: the file's header.\n; fields: x, y.\n\n");
+				Catalog c;
+				c.LoadText(head + crlf("[a]\nx = 1\n\n; b's own note\n[b]\ny = 2\n"));
+				c.Remove("a");
+				std::string why = FirstDifference(c.Serialize("Things: generated."),
+												  head + crlf("; b's own note\n[b]\ny = 2\n"));
+				c.Remove("b");
+				if (why.empty())
+					why = FirstDifference(c.Serialize("Things: generated."),
+										  head + crlf("; b's own note\n"));
+				cases.emplace_back("first-entry", why);
+			}
+			{
+				// THE MONSTER DIALOG'S SAVE, through the rows it owns: saved as it
+				// was opened, the entry comes back as it was - threat_threshold
+				// where it stood, its note above it - and a row set back to its
+				// default goes, note and all.
+				const std::string head = crlf("; Monsters: the file's header.\n\n"
+											  "[cr_brute]\n"
+											  "display = Round trip\n");
+				const std::string note =
+					crlf("; A single-minded brute (the note a Save used to delete).\n"
+						 "threat_threshold = 0.6\n");
+				const std::string tail = crlf("model = skel_warrior\n"
+											  "archetype = brute\n"
+											  "hp = 22\n"
+											  "states = idle walk\n"
+											  "anim_idle = Idle\n"
+											  "anim_walk = Walk Walk2\n"
+											  "size = large\n");
+				MonsterConfigDialog::Config cfg;
+				cfg.type = "cr_brute";
+				cfg.archetype = ai::Archetype::Brute;
+				cfg.threat.threshold = 0.6f;
+				const auto idle = static_cast<size_t>(anim::CreatureState::Idle);
+				const auto walk = static_cast<size_t>(anim::CreatureState::Walk);
+				cfg.supported[idle] = cfg.supported[walk] = true;
+				cfg.clips[idle] = {"Idle"};
+				cfg.clips[walk] = {"Walk", "Walk2"};
+				Catalog c;
+				c.LoadText(head + note + tail);
+				const auto save = [&] {
+					CatalogEntry e = *c.Find("cr_brute");
+					ApplyMonsterConfig(e, cfg);
+					c.Add(std::move(e));
+					return c.Serialize("Monsters: generated.");
+				};
+				std::string why = FirstDifference(save(), head + note + tail);
+				cfg.threat.threshold = 1.0f;
+				if (why.empty()) why = FirstDifference(save(), head + tail);
+				cases.emplace_back("monster-config", why);
+			}
+			int passed = 0;
+			for (const auto& [name, why] : cases) {
+				passed += why.empty() ? 1 : 0;
+				m_console.Print(std::format("catround case {}: {}", name,
+											why.empty() ? "ok" : "DIFFERS - " + why));
+			}
+			m_console.Print(
+				std::format("catround cases {} of {} pass", passed, cases.size()));
 		});
 	m_console.Register(
 		{.name = "levels",

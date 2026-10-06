@@ -677,6 +677,9 @@ void Game::OpenTypeEditor(MapEditor::PaletteCat cat, const std::string& id) {
 	// per open so a language switch reaches it.
 	m_typeDialog.typedDelete = key == "dungeons";
 	m_typeDialog.typedDeleteLabel = loc::Tr("map.dungeon.delete.confirm");
+	// An effect's (or a spell's, an attack's) id is the code's: no rename
+	// affordance and no Delete, rather than two controls that only refuse (C306).
+	m_typeDialog.fixedIdentity = Project::IdentityInCode(key);
 	m_typeDialog.Open(std::move(cfg), SchemaFor(key));
 }
 
@@ -939,6 +942,14 @@ bool Game::RenameType(const std::string& catalogKey, const std::string& id,
 					  const std::string& newId, std::string& problem) {
 	Catalog* cat = m_project.CatalogForKey(catalogKey);
 	if (!cat || !cat->Find(id)) return false;
+	// An entry that only TUNES something the code defines keeps the code's id
+	// (code-review C306). A renamed effect was ignored by EffectBook and its
+	// class fell back to its defaults - name, icon, plume, stacking - while every
+	// `on_hit = burn` still found the class, so nothing said anything was wrong.
+	if (Project::IdentityInCode(catalogKey)) {
+		problem = loc::Tr("map.type.classbacked");
+		return false;
+	}
 	if (newId.empty() || newId == id) return false;
 	if (cat->Contains(newId)) {
 		problem = loc::Format("newasset.err.dup", newId);
@@ -961,7 +972,9 @@ bool Game::RenameType(const std::string& catalogKey, const std::string& id,
 	const DungeonWorld::TypeUsage used = m_world->SweepTypeRefs(catalogKey, id, &newId);
 	// Live objects still point at kinds cached under the old id (and monsters
 	// hold their type by name), so rebuild them from the records we just wrote.
-	m_world->RespawnFromRecords(catalogKey == "wallfeatures");
+	// A FEATURE's mesh is filed by its type and stamped into the surfaces, so
+	// both kinds re-stamp - the surface ones were left out (C305).
+	m_world->RespawnFromRecords(DungeonWorld::StampedIntoSurfaces(catalogKey));
 	// The undo stack holds level snapshots taken BEFORE the rename; restoring
 	// one would bring back records naming a type that no longer exists.
 	m_world->ClearUndoHistory();
@@ -996,8 +1009,9 @@ bool Game::DeleteType(const std::string& catalogKey, const std::string& id,
 	// An effect is defined by its CLASS; the catalog entry only tunes it. So
 	// deleting the entry would not remove the effect — it would silently revert
 	// it to its class defaults, which is not what a Delete button promises.
-	// Refuse, and say why (docs/effects.md).
-	if (catalogKey == "effects") {
+	// Refuse, and say why (docs/effects.md). The same holds for every catalog
+	// whose ids are the code's: spells, attacks, the balance sheet (C306).
+	if (Project::IdentityInCode(catalogKey)) {
 		problem = loc::Tr("map.type.classbacked");
 		return false;
 	}
@@ -1224,33 +1238,26 @@ void Game::StartRestyleBake(const std::string& catalogKey, const std::string& te
 	}
 }
 
-void Game::WriteMonsterAnim(const MonsterConfigDialog::Config& cfg) {
-	// Start from the existing entry so every non-animation field (display, model,
-	// hp, ...) is preserved; a brand-new type gets a bare entry.
-	CatalogEntry entry;
-	if (const CatalogEntry* e = m_project.monsters.Find(cfg.type)) entry = *e;
-	else entry.id = cfg.type;
-	// Drop the rows this dialog owns, then rewrite them authoritatively.
-	std::erase_if(entry.fields, [](const serialize::Field& f) {
-		return f.key == "states" || f.key.starts_with("anim_") || f.key == "archetype" ||
-			   f.key == "keeprange" || f.key == "fleebelow" || f.key == "spell" ||
-			   f.key == "threat_scale" || f.key == "threat_threshold" ||
-			   f.key == "threat_switch" || f.key == "threat_decay";
-	});
-
+void Game::ApplyMonsterConfig(CatalogEntry& entry, const MonsterConfigDialog::Config& cfg) {
+	// The rows as the dialog says they should now read, in the order a NEW row
+	// is appended. Written IN PLACE (code-review C323): this used to erase every
+	// row it owns and append them all again, which moved skel_warrior's
+	// threat_threshold to the bottom of its entry and deleted the comment
+	// explaining it on every Save.
+	std::vector<std::pair<std::string, std::string>> rows;
 	// Behaviour fields (Behavior tab). archetype is always written; the params are
 	// written only when they apply / are non-default, to keep the .cat tidy.
 	static const char* kArch[] = {"brute",  "skirmisher", "caster",
 								  "swarm", "lurker",     "sentry"};
-	entry.Set("archetype", kArch[static_cast<int>(cfg.archetype)]);
+	rows.emplace_back("archetype", kArch[static_cast<int>(cfg.archetype)]);
 	if (cfg.archetype == ai::Archetype::Skirmisher || cfg.archetype == ai::Archetype::Caster)
-		entry.Set("keeprange", std::format("{:g}", cfg.keepRange));
-	if (cfg.fleeBelow > 0.0f) entry.Set("fleebelow", std::format("{:g}", cfg.fleeBelow));
+		rows.emplace_back("keeprange", std::format("{:g}", cfg.keepRange));
+	if (cfg.fleeBelow > 0.0f) rows.emplace_back("fleebelow", std::format("{:g}", cfg.fleeBelow));
 	if (cfg.archetype == ai::Archetype::Caster && !cfg.spell.empty())
-		entry.Set("spell", cfg.spell);
+		rows.emplace_back("spell", cfg.spell);
 	// Threat multipliers: write only the ones nudged off 1 (keep the .cat tidy).
 	auto setThreat = [&](const char* key, float v) {
-		if (v != 1.0f) entry.Set(key, std::format("{:g}", v));
+		if (v != 1.0f) rows.emplace_back(key, std::format("{:g}", v));
 	};
 	setThreat("threat_scale", cfg.threat.scale);
 	setThreat("threat_threshold", cfg.threat.threshold);
@@ -1266,12 +1273,36 @@ void Game::WriteMonsterAnim(const MonsterConfigDialog::Config& cfg) {
 	for (int i = 0; i < anim::kCreatureStateCount; ++i)
 		if (cfg.supported[i])
 			stateTokens.emplace_back(anim::StateName(static_cast<anim::CreatureState>(i)));
-	entry.Set("states", join(stateTokens));
+	rows.emplace_back("states", join(stateTokens));
 	for (int i = 0; i < anim::kCreatureStateCount; ++i) {
 		if (cfg.clips[i].empty()) continue;
 		const auto s = static_cast<anim::CreatureState>(i);
-		entry.Set("anim_" + std::string(anim::StateName(s)), join(cfg.clips[i]));
+		rows.emplace_back("anim_" + std::string(anim::StateName(s)), join(cfg.clips[i]));
 	}
+
+	// A row this dialog owns that it no longer writes goes, its comment with
+	// it (serialize::Remove's rule); the rest are set where they stand.
+	const auto owned = [](const std::string& key) {
+		return key == "states" || key.starts_with("anim_") || key == "archetype" ||
+			   key == "keeprange" || key == "fleebelow" || key == "spell" ||
+			   key == "threat_scale" || key == "threat_threshold" ||
+			   key == "threat_switch" || key == "threat_decay";
+	};
+	std::erase_if(entry.fields, [&](const serialize::Field& f) {
+		return owned(f.key) && std::none_of(rows.begin(), rows.end(), [&](const auto& r) {
+				   return r.first == f.key;
+			   });
+	});
+	for (auto& [key, value] : rows) entry.Set(std::move(key), std::move(value));
+}
+
+void Game::WriteMonsterAnim(const MonsterConfigDialog::Config& cfg) {
+	// Start from the existing entry so every non-animation field (display, model,
+	// hp, ...) is preserved; a brand-new type gets a bare entry.
+	CatalogEntry entry;
+	if (const CatalogEntry* e = m_project.monsters.Find(cfg.type)) entry = *e;
+	else entry.id = cfg.type;
+	ApplyMonsterConfig(entry, cfg);
 
 	m_project.monsters.Add(std::move(entry)); // add-or-replace by id
 	if (!m_project.Save())

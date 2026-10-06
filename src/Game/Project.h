@@ -68,6 +68,9 @@ struct Project {
 	// project routinely; before that it happened rarely enough to go unnoticed.)
 	// Unknown keys survive for the same reason they do in a catalog.
 	serialize::Block manifest;
+	// ...and the comments after its last line, which belong to no field
+	// (serialize::ParseBlocks' trailer; code-review C323).
+	std::vector<std::string> manifestTrailer;
 
 	// The content catalogs (see Catalog.h). Walls/floors/ceilings define the
 	// surface palette; the rest define placeable content. attacks/balance are
@@ -167,6 +170,15 @@ struct Project {
 	const Catalog* CatalogForKey(const std::string& key) const {
 		return const_cast<Project*>(this)->CatalogForKey(key);
 	}
+
+	// Does C++ own this catalog's IDS (code-review C306)? Effects, spells and
+	// attacks are classes and table rows in the code, and balance.cat's one
+	// block is the [formula] the code reads by name: an entry there only TUNES
+	// what the code defines. Renaming one strands it - EffectBook ignores an
+	// entry naming no class, and the class falls back to its defaults - and
+	// deleting one does not remove what it tunes. So the editor refuses both,
+	// and the type editor offers neither. Keyed like CatalogForKey.
+	static bool IdentityInCode(std::string_view key);
 
 	// Every CONTENT catalog, for sweeps that don't care which category a type is
 	// in — the asset picker's "does anything bind this asset" check. `imports` is

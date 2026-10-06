@@ -309,8 +309,14 @@ void EffectBook::Build(const Catalog& catalog, const DamageTypeBook& types) {
 		EffectKind* kind = nullptr;
 		for (const auto& k : m_kinds)
 			if (k->Id() == e.id) { kind = k.get(); break; }
+		// An entry's id IS its class's - the editor refuses to rename one
+		// (Project::IdentityInCode, code-review C306) - so one naming no class
+		// was misspelt or renamed by hand, and the class it meant to tune is
+		// running on its defaults. Said so, since nothing else will show it.
 		if (!kind) {
-			log::Warn("effects.cat entry '{}' has no effect class; ignored", e.id);
+			log::Warn("effects.cat entry '{}' names no effect class; ignored (an effect's id "
+					  "is its class's - the class it was meant to tune keeps its defaults)",
+					  e.id);
 			continue;
 		}
 		kind->ApplyOverrides(e, types);

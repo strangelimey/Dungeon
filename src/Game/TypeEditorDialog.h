@@ -156,6 +156,12 @@ public:
 	// out a name it will then refuse; onDelete still does the deleting.
 	bool typedDelete = false;
 	std::string typedDeleteLabel; // the confirm button ("Delete this dungeon")
+	// The entry's id is the CODE's (Project::IdentityInCode - an effect, a
+	// spell, an attack): the title is plain text rather than the rename
+	// affordance, the footer has no Delete, and a Delete that arrives anyway
+	// (the console's `typeset dialog delete`) says why instead of arming. Set
+	// per Open, like typedDelete.
+	bool fixedIdentity = false;
 	std::function<std::string(const std::string& id)> canDelete; // "" = allowed
 	std::function<std::vector<std::string>(const std::string& id)> onDescribe;
 

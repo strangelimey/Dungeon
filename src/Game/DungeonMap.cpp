@@ -1321,6 +1321,9 @@ int DungeonMap::SweepTypeRefs(TypeRecords records, std::string_view id,
 		for (WallNiche& n : m_niches) sweep(n.type);
 		for (WallBore& b : m_bores) sweep(b.type);
 		break;
+	case TypeRecords::SurfaceFeature:
+		for (SurfaceFeature& f : m_features) sweep(f.type);
+		break;
 	case TypeRecords::Stair:
 		for (StairLink& s : m_stairs) sweep(s.type);
 		break;

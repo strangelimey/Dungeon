@@ -334,9 +334,13 @@ void TypeEditorDialog::BuildUI() {
 		BuildConfirm();
 		return;
 	}
-	DialogChrome chrome = BuildDialogChrome(m_ui, kPanel, /*title*/ "", m_closeIcon,
-											[this] { Close(); });
-	if (m_editName) {
+	// An id the code owns is shown, not offered for renaming: the chrome draws it
+	// as an ordinary title and the slot stays empty.
+	DialogChrome chrome = BuildDialogChrome(
+		m_ui, kPanel,
+		fixedIdentity ? loc::Format("map.type.title", m_cfg.categoryLabel, m_cfg.id) : "",
+		m_closeIcon, [this] { Close(); });
+	if (m_editName && !fixedIdentity) {
 		// The title slot holds the rename field instead. Enter commits through
 		// onRename; Esc or losing focus cancels.
 		m_nameField =
@@ -371,7 +375,7 @@ void TypeEditorDialog::BuildUI() {
 			}
 			m_uiRebuild = true; // deferred — we are inside a widget callback
 		};
-	} else {
+	} else if (!fixedIdentity) {
 		// The category prefix, then the id as the RENAME affordance. Deferred
 		// rebuild: this fires from inside the tree walk.
 		chrome.titleSlot->Add<EditableTitle>(
@@ -611,11 +615,12 @@ void TypeEditorDialog::BuildUI() {
 			if (onExtra) onExtra(cfg);
 		});
 	// Armed, the disc lights and its name becomes the confirmation (the notice
-	// row above says what a second click does).
-	FooterIcon(*chrome.footer, m_device, "delete",
-			   loc::Tr(m_deleteArmed ? "map.type.delete.confirm" : "map.type.delete"),
-			   [this] { ClickDelete(); })
-		->active = m_deleteArmed;
+	// row above says what a second click does). None for an id the code owns.
+	if (!fixedIdentity)
+		FooterIcon(*chrome.footer, m_device, "delete",
+				   loc::Tr(m_deleteArmed ? "map.type.delete.confirm" : "map.type.delete"),
+				   [this] { ClickDelete(); })
+			->active = m_deleteArmed;
 	chrome.footer->Space(ui::Len::Fill()); // help sits at the far edge
 	FooterIcon(*chrome.footer, m_device, "help", loc::Tr("map.btn.help"),
 			   [this] { m_helpOpen = true; });
@@ -646,6 +651,13 @@ bool TypeEditorDialog::TypeStageId(size_t stage, const std::string& text) {
 // --- deleting ----------------------------------------------------------------
 
 void TypeEditorDialog::ClickDelete() {
+	if (fixedIdentity) {
+		// No button offers this; the console's step can still ask. The owner's
+		// refusal would say the same, but arming first would promise a delete.
+		m_notice = loc::Tr("map.type.classbacked");
+		m_uiRebuild = true;
+		return;
+	}
 	if (typedDelete) {
 		// ASKED BEFORE THE CONFIRMATION OPENS (the Worlds dialog's rule): a
 		// refusal after you have typed the id out wastes a deliberate act.

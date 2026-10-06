@@ -1598,10 +1598,18 @@ public:
 
 	// Rebuilds the live dynamic objects from the current records — the tail of
 	// an undo restore, reused after a type rename retypes those records.
-	// Surfaces are untouched (a rename doesn't move geometry) EXCEPT wall
-	// features, whose panels are baked into the chunks; those set the geometry
-	// dirty flag so the editor's FlushGeometry re-stamps on the way out.
+	// Surfaces are untouched (a rename doesn't move geometry) EXCEPT features,
+	// wall and surface alike, whose tiles are stamped into the chunks:
+	// `geometryToo` re-files their meshes under the catalog's ids as they are
+	// NOW (LoadFeatureMeshes - a renamed type's mesh was still filed under its
+	// old id, so the next bake drew a plain block in its place) and sets the
+	// geometry dirty flag so the editor's FlushGeometry re-stamps on the way out.
 	void RespawnFromRecords(bool geometryToo = false);
+	// The catalogs whose types are stamped INTO the surface chunks rather than
+	// placed on them - what `geometryToo` above is for.
+	static bool StampedIntoSurfaces(std::string_view catalogKey) {
+		return catalogKey == "wallfeatures" || catalogKey == "surfacefeatures";
+	}
 
 	// Live entity placement (editor). type is a catalog id (decorations.cat /
 	// monsters.cat). Each instantiates the kind (loading its model/textures on

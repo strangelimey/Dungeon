@@ -655,6 +655,11 @@ private:
 	// Save): rewrites the `states` + `anim_<state>` rows of its monsters-catalog
 	// entry (preserving every other field) and saves the project to disk.
 	void WriteMonsterAnim(const MonsterConfigDialog::Config& cfg);
+	// The rows that dialog owns (behaviour, threat, states, anim_*), written
+	// into `entry` IN PLACE: a row already there keeps its position and its
+	// comment, a new one is appended, and one the config no longer writes is
+	// removed. Pure, so `catround` can check it on an entry of its own.
+	static void ApplyMonsterConfig(CatalogEntry& entry, const MonsterConfigDialog::Config& cfg);
 
 	// Starts a mid-game level transition (P6): swaps the world to `stem`, stages
 	// its load behind the loading screen, and arrives at (x,z,facing) when done

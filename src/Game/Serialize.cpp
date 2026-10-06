@@ -79,7 +79,7 @@ std::string NormalizeEol(std::string text) {
 	return out;
 }
 
-std::vector<Block> ParseBlocks(std::string_view text) {
+std::vector<Block> ParseBlocks(std::string_view text, std::vector<std::string>* trailer) {
 	std::vector<Block> blocks;
 	blocks.push_back({}); // the leading unnamed block (manifest fields)
 
@@ -143,13 +143,23 @@ std::vector<Block> ParseBlocks(std::string_view text) {
 										std::move(lead)});
 	}
 
+	// THE TAIL: comments nothing followed (Serialize.h). Leading blanks go, as a
+	// header's do - WriteBlocks puts back the one blank line between the last
+	// block and the trailer, so keeping them would grow the gap on every save.
+	// Blanks INSIDE the run, and one closing it, are the file's shape and stay.
+	if (trailer) {
+		while (!pendingComments.empty() && pendingComments.front().empty())
+			pendingComments.erase(pendingComments.begin());
+		*trailer = std::move(pendingComments);
+	}
+
 	// Drop the leading unnamed block when it carried nothing, so catalogs (which
 	// never use it) don't grow a stray empty block on round-trip.
 	if (blocks.front().fields.empty()) blocks.erase(blocks.begin());
 	return blocks;
 }
 
-std::string WriteBlocks(const std::vector<Block>& blocks) {
+std::string WriteBlocks(const std::vector<Block>& blocks, std::span<const std::string> trailer) {
 	std::string out;
 	bool first = true;
 	for (const Block& b : blocks) {
@@ -162,6 +172,10 @@ std::string WriteBlocks(const std::vector<Block>& blocks) {
 				out += std::format("{}{}", comment, kEol);
 			out += std::format("{} = {}{}", f.key, f.value, kEol);
 		}
+	}
+	if (!trailer.empty()) {
+		if (!first) out += kEol; // the blank line between the last block and it
+		for (const std::string& line : trailer) out += std::format("{}{}", line, kEol);
 	}
 	return out;
 }

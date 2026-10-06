@@ -47,14 +47,18 @@
 #      (its UNSAVED edit written into the copy, and this world's own file left
 #      alone), and one level (its stairs replaced by one exit). Each refusal
 #      says its own reason; a half-built `.building-*` folder is never listed;
-#      and each new world opens by name and passes the checker as it stands.
+#      each new world opens by name and passes the checker as it stands; and
+#      (code-review C323) a new world's flags, quests and dungeons catalogs
+#      keep their documentation without the source's entries, while a
+#      one-level world keeps none of its source's manifest comments.
 #  10. THE NEW WORLD DIALOG: its "Copy one level" makes a one-level world of
 #      the level picked; a name in use is refused in its own words; and a world
 #      made over the Worlds dialog lands in that list ARMED.
 #  11. THE WIZARD: the template's content and one generated floor. The same
 #      knobs and seed make an identical floor, another seed a different one;
 #      the tag holds the monsters to it; the size is the map's; there
-#      is a way out; and each world opens by name and passes the checker.
+#      is a way out; the template's flags.cat documentation comes across; and
+#      each world opens by name and passes the checker.
 #  12. THE PALETTE'S CATEGORY BAR (tool-refinement Phase 1): both groupings
 #      are the designed tables, each group lists exactly its sections, effects
 #      are in none; the world sections list their entries; a filter from inside
@@ -124,6 +128,15 @@
 #      entry read back; and, in a WINDOWED run (the fault was in the drawing),
 #      a theme open on its Floors tab through two quality changes leaves no
 #      error in the log - its swatches used to be freed textures.
+#  20. CATALOG SWEEPS AND WRITES (code-review C305, C306, C323): a floor and a
+#      ceiling feature type renamed take every record with them - on the level
+#      in hand and on one not loaded, in memory and on disk - with the geometry
+#      unchanged, and a delete of either is refused while they are placed; a
+#      rename or delete of an effect, attack, spell or the balance sheet is
+#      refused and leaves their files as they were, and the type editor on an
+#      effect answers Delete with why; and catround's three cases - a catalog
+#      with no entry yet, the first entry deleted, the monster dialog's Save -
+#      keep every comment.
 #
 # NOTHING HERE EDITS THE REAL WORLD (code-review C431). Each phase starts on a
 # FRESH SCRATCH COPY of dungeon-demo, et_demo, and every run opens it with
@@ -507,13 +520,35 @@ finally:
 print("9 - a new world three ways: blank, this world whole, one level")
 MADE = ("nw_blank", "nw_copy", "nw_level", "nw_bad")
 LEFTOVER = os.path.join(PROJECTS, ".building-nw_ghost")
+
+
+def template_text(rel):
+    """A file of the template a blank or wizard world starts from."""
+    return io.open(os.path.join(ROOT, r"assets\templates\default", rel), encoding="utf-8").read()
+
+
+def catalog_header(text):
+    """The comment lines above a catalog's first [id] - its documentation."""
+    out = []
+    for line in text.splitlines():
+        if line.startswith("["):
+            break
+        out.append(line)
+    return "\n".join(out).rstrip()
+
+
 fresh()
 arena = os.path.join(PROJ, r"levels\eval_arena.map")
 arena_before = io.open(arena, "rb").read()
+# A note UNDER the manifest's last field (its trailer) is about this world: a
+# whole copy keeps it, a one-level world must not (code-review C323).
+NOTE = "; et_demo's trailer: a note about the world being copied."
 try:
     # An interrupted create leaves one of these; no world list may offer it.
     os.makedirs(LEFTOVER, exist_ok=True)
     io.open(os.path.join(LEFTOVER, "project.ini"), "w").write("name = ghost\n")
+    with io.open(os.path.join(PROJ, "project.ini"), "a", encoding="utf-8", newline="") as f:
+        f.write("\r\n" + NOTE + "\r\n")
     log = run("newworlds.eval")
     check(passed(log), "the script ran clean")
     for w in ("nw_blank", "nw_copy", "nw_level"):
@@ -554,6 +589,38 @@ try:
     check("[marble_hall]" in read("nw_blank", r"catalog\themes.cat") and
           "[crypt]" not in read("nw_blank", r"catalog\dungeons.cat"),
           "and the template's content, without dungeon-demo's places")
+
+    # THE CATALOGS' DOCUMENTATION COMES ACROSS WITHOUT THE PLACES (code-review
+    # C323). The template's flags.cat and quests.cat are comments alone, and a
+    # new world used to get one generated line in their place; its dungeons.cat
+    # is the same header with the starter dungeon under it.
+    for cat in ("flags", "quests"):
+        rel = rf"catalog\{cat}.cat"
+        check(read("nw_blank", rel) == template_text(rel),
+              f"the blank world's {cat}.cat is the template's, its documentation whole",
+              read("nw_blank", rel)[:120])
+    dungeons = read("nw_blank", r"catalog\dungeons.cat")
+    check(dungeons.startswith(template_text(r"catalog\dungeons.cat")) and "[keep]" in dungeons,
+          "its dungeons.cat keeps the template's header above the starter dungeon",
+          dungeons[:120])
+    # A one-level world drops the source's entries and keeps the HEADER, the
+    # comments above its first [id] (non-vacuous: each source has a header and
+    # the entry).
+    for cat, entry in (("flags", "[relic_lifted]"), ("quests", "[sunken_relic]"),
+                       ("dungeons", "[crypt]")):
+        rel = rf"catalog\{cat}.cat"
+        source = io.open(os.path.join(PROJ, rel), encoding="utf-8").read()
+        head = catalog_header(source)
+        made = read("nw_level", rel)
+        check(head != "" and entry in source and made.startswith(head) and entry not in made,
+              f"the one-level world's {cat}.cat keeps the header and drops {entry}", made[:120])
+    # ...and none of the manifest's comments: the note under its last field
+    # went with the rest, and the file opens on its own generated line.
+    check(NOTE in read("nw_copy", "project.ini"),
+          "a whole copy keeps the note under the manifest's last field")
+    manifest = read("nw_level", "project.ini")
+    check(NOTE not in manifest and manifest.startswith("; nw_level "),
+          "a one-level world does not, and opens on its own header line", manifest[:120])
     # Each opens BY NAME (-project) and is clean as it stands.
     for w in ("nw_blank", "nw_copy", "nw_level"):
         wlog = run("worldcheck.eval", project=w)
@@ -639,6 +706,12 @@ try:
               f"{w}'s monsters all carry '{tag}'", str(sorted(monsters)))
         check(re.search(r"^stairs stairs_exit \d+ \d+ \w+ dest=keep_gate", floor(w, "map"), re.M)
               is not None, f"{w}'s floor has a way out")
+    # The template's catalog documentation comes across, as for a blank world
+    # (phase 9; code-review C323).
+    flags = os.path.join(PROJECTS, "wz_a", r"catalog\flags.cat")
+    check(os.path.isfile(flags) and
+          io.open(flags, encoding="utf-8").read() == template_text(r"catalog\flags.cat"),
+          "a wizard world's flags.cat is the template's, its documentation whole")
     for w in WIZ:
         wlog = run("worldcheck.eval", project=w)
         check("validate: clean" in wlog, f"{w} opens and passes the checker",
@@ -1710,6 +1783,119 @@ finally:
         io.open(SETTINGS, "wb").write(settings_before)
     elif os.path.isfile(SETTINGS):
         os.remove(SETTINGS)
+
+# --- phase 21: catalog sweeps and writes -------------------------------------------
+print("21 - a feature type's rename follows its records; the code's ids stay; catround's cases")
+# The catalogs whose ids are the code's (Project::IdentityInCode), each with an
+# entry the script tries to rename and delete.
+CODE_IDS = {"effects": "burn", "attacks": "stab", "spells": "flame", "balance": "formula"}
+REFUSED = "The game's code defines this one"
+
+
+def feature_records(text):
+    """A .map's `floorfeature` / `ceilingfeature` records as sorted word tuples."""
+    return sorted(tuple(l.split()[:4]) for l in text.splitlines()
+                  if l.startswith(("floorfeature ", "ceilingfeature ")))
+
+
+def block_ids(text):
+    """A .cat file's [id] headers, in file order."""
+    return re.findall(r"^\[([^\]]+)\]", text, re.M)
+
+
+fresh()
+try:
+    # A level NOT loaded carries one of each, so the sweep must reach its file.
+    crypt1 = os.path.join(PROJ, r"levels\crypt1.map")
+    text = io.open(crypt1, encoding="utf-8", newline="").read()
+    eol = "\r\n" if "\r\n" in text else "\n"
+    io.open(crypt1, "w", encoding="utf-8", newline="").write(
+        text + ("" if text.endswith(eol) else eol) +
+        f"floorfeature recess 7 7{eol}ceilingfeature vault 7 7{eol}")
+    sfc = os.path.join(PROJ, r"catalog\surfacefeatures.cat")
+    sfc_before = io.open(sfc, encoding="utf-8", newline="").read()
+    log = run("typesweep.eval")
+    check(passed(log), "the script ran clean")
+    sec = console_sections(log)
+    placed, renamed = sec.get("1: features placed", []), sec.get("2: renamed", [])
+    code, cat = sec.get("3: the code's ids", []), sec.get("4: catround", [])
+
+    # THE CONTROL: the features really are in the geometry, or "unchanged after
+    # the rename" would be satisfied by tiles that never drew.
+    h = hashes(log)
+    check(len(h) == 3 and h[1][2] != h[0][2] and h[1][3] != h[0][3],
+          "two recesses and a vault move the arena's floor and ceiling", str(h))
+    check("surfacefeatures 'recess': 3 level record(s), 0 other reference(s)" in placed and
+          "surfacefeatures 'vault': 2 level record(s), 0 other reference(s)" in placed,
+          "the sweep counts them on both levels (two recesses + a vault here, one of "
+          "each on crypt1)", " | ".join(l for l in placed if l.startswith("surfacefeatures")))
+    check("typeset rename surfacefeatures 'recess': done" in renamed and
+          "typeset rename surfacefeatures 'vault': done" in renamed,
+          "both renames go through", " | ".join(l for l in renamed if l.startswith("typeset rename")))
+    check("surfacefeatures 'recess': 0 level record(s), 0 other reference(s)" in renamed and
+          "surfacefeatures 'sunk': 3 level record(s), 0 other reference(s)" in renamed and
+          "surfacefeatures 'dome': 2 level record(s), 0 other reference(s)" in renamed,
+          "every record follows the rename - none left naming the old id",
+          " | ".join(l for l in renamed if l.startswith("surfacefeatures")))
+    check(len(h) == 3 and h[2] == h[1],
+          "the geometry is exactly what it was - the tiles are found under their new names",
+          f"{h[1:] if len(h) == 3 else h}")
+    for new in ("sunk", "dome"):
+        line = next((l for l in renamed if l.startswith(f"typeset delete surfacefeatures '{new}'")), "")
+        check(line.startswith(f"typeset delete surfacefeatures '{new}': refused") and
+              "crypt1" in line and "eval_arena" in line,
+              f"deleting {new} is refused while it is placed, naming both levels", line)
+
+    # ON DISK, after the savemap: both levels, and the entries renamed IN PLACE.
+    arena = io.open(os.path.join(PROJ, r"levels\eval_arena.map"), encoding="utf-8").read()
+    c1 = io.open(crypt1, encoding="utf-8").read()
+    check(feature_records(c1) == [("ceilingfeature", "dome", "7", "7"),
+                                  ("floorfeature", "sunk", "7", "7")],
+          "on disk: crypt1, never loaded, names the new ids", str(feature_records(c1)))
+    check(feature_records(arena) == [("ceilingfeature", "dome", "8", "5"),
+                                     ("floorfeature", "sunk", "5", "5"),
+                                     ("floorfeature", "sunk", "6", "5")],
+          "on disk: the arena names the new ids", str(feature_records(arena)))
+    sfc_after = io.open(sfc, encoding="utf-8", newline="").read()
+    want_ids = [{"recess": "sunk", "vault": "dome"}.get(i, i) for i in block_ids(sfc_before)]
+    check(block_ids(sfc_after) == want_ids and
+          sfc_after.splitlines()[0] == sfc_before.splitlines()[0],
+          "surfacefeatures.cat: renamed where they stood, its header kept",
+          f"{block_ids(sfc_after)} vs {want_ids}")
+
+    # THE CODE'S IDS: every rename and delete refused in its own words, and
+    # the files exactly as the real world has them (the renames above saved
+    # the whole project, so a write was not missing - it would have shown).
+    for key, entry in CODE_IDS.items():
+        for verb in ("rename", "delete"):
+            line = next((l for l in code if l.startswith(f"typeset {verb} {key} '{entry}'")), "")
+            check(line.startswith(f"typeset {verb} {key} '{entry}': refused") and REFUSED in line,
+                  f"{verb} of {key} '{entry}' is refused: the code owns the id", line)
+        # (Not `real`: that is the RealTree guard the run ends on.)
+        theirs = io.open(os.path.join(PROJECTS, "dungeon-demo", "catalog", key + ".cat"), "rb").read()
+        mine = io.open(os.path.join(PROJ, "catalog", key + ".cat"), "rb").read()
+        check(mine == theirs and f"[{entry}]".encode() in mine,
+              f"{key}.cat is as it was, [{entry}] in it")
+    dialog = [l for l in code if l.startswith("typeset dialog: open effects 'burn'")]
+    # Opened with no notice, then Delete's click: the refusal, never the arming.
+    check(len(dialog) == 2 and REFUSED not in dialog[0] and REFUSED in dialog[1]
+          and "Click Delete again" not in dialog[1],
+          "the type editor on an effect answers Delete with why instead of arming it",
+          " | ".join(dialog))
+
+    # catround: the world's files, then the three cases no project carries.
+    m = next((re.match(r"catround (\d+) of (\d+) file\(s\) round-trip, (\d+) absent", l)
+              for l in cat if l.startswith("catround ") and "file(s)" in l), None)
+    check(m is not None and m.group(1) == m.group(2) and m.group(3) == "0",
+          "catround: every file of the world round-trips after the saves above",
+          m.group(0) if m else " | ".join(cat))
+    for name in ("header-only", "first-entry", "monster-config"):
+        line = next((l for l in cat if l.startswith(f"catround case {name}:")), "")
+        check(line == f"catround case {name}: ok", f"catround case {name} keeps every comment", line)
+    check("catround cases 3 of 3 pass" in cat, "...and there are exactly three",
+          " | ".join(l for l in cat if l.startswith("catround cases")))
+finally:
+    drop()
 
 # --- the real tree: LAST, after every phase --------------------------------------
 print("the real tree: dungeon-demo and the library as the run found them")

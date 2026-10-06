@@ -151,9 +151,14 @@ void DungeonWorld::RespawnFromRecords(bool geometryToo) {
 	// Fires are NOT rebuilt here: the undo path has to do it after applying its
 	// dynamic diffs (which carry each fixture's lit state), so both callers own
 	// that step themselves.
-	// Wall features are stamped INTO the surface chunks, so retyping one only
-	// shows after a re-stamp; deferred like the undo restore's.
-	if (geometryToo) m_geometryDirty = true;
+	// Features are stamped INTO the surface chunks, so retyping one only shows
+	// after a re-stamp; deferred like the undo restore's. Their meshes are filed
+	// by type first, from the catalogs as they are now - a renamed type found
+	// nothing under its new id, and the bake drew the plain block (C305).
+	if (geometryToo) {
+		LoadFeatureMeshes();
+		m_geometryDirty = true;
+	}
 	// Every monster, door and prop in the world is a different object now — the
 	// one-pipeline check's baselines point at freed storage (Game/DamageLedger.h).
 	RebaseDamageLedger();

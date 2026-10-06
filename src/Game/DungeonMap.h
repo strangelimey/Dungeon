@@ -693,6 +693,7 @@ public:
 	enum class TypeRecords {
 		WallPalette, FloorPalette, CeilingPalette,
 		Decoration, Fixture, WallFeature, Stair,
+		SurfaceFeature, // a floor or ceiling feature (`floorfeature` / `ceilingfeature`)
 		Theme, // a surface theme's slot (counted by the squares using it)
 		StairFlag // the flags.cat id a stair waits on (`flag=`)
 	};

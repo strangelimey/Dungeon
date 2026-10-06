@@ -117,6 +117,9 @@ public:
 	// Reads the .cat file at `path`; a missing file leaves the catalog empty
 	// (not an error — categories are optional). Malformed entries are skipped.
 	void Load(const std::string& path);
+	// The same from text already in hand - what `catround`'s cases build their
+	// catalogs from, so the writer is checked on files no project has to carry.
+	void LoadText(std::string_view text);
 	// The catalog as it would be WRITTEN, touching no file. Pure, so a caller
 	// can diff it against what is on disk — which is how the writer's fidelity
 	// is checked (the dev console's `catround`) rather than trusted. The same
@@ -140,9 +143,18 @@ public:
 	bool Empty() const { return m_entries.empty(); }
 
 	// Adds (or replaces, by id) an entry and returns it — the editor's create
-	// path. Returns a reference stable only until the next Add/Remove.
+	// path. Returns a reference stable only until the next Add/Remove. The first
+	// entry of a header-only file takes that header as its lead (see m_trailer).
 	CatalogEntry& Add(CatalogEntry entry);
+	// Drops an entry and its lead comments - EXCEPT the first entry's, which
+	// are the file's header and pass to whatever is first after it (or to the
+	// trailer, when nothing is left).
 	void Remove(std::string_view id);
+	// Drops EVERY entry and keeps the file's header: the first entry's lead, or
+	// in a catalog with no entry its trailer - what Serialize writes as the
+	// file's own header. Every other comment goes with the entries (a new world
+	// clearing a source world's places, Game_NewWorld.cpp ClearPlaces).
+	void ClearEntries();
 	// Renames an entry IN PLACE (the editor's type rename). Remove + Add would
 	// move it to the end of the file, taking its lead comments — including a
 	// first entry's, which is the file's header — along with it. False when
@@ -151,6 +163,11 @@ public:
 
 private:
 	std::vector<CatalogEntry> m_entries;
+	// Comment lines after the last entry (serialize::ParseBlocks' trailer). In a
+	// catalog with no entries yet - the template's flags.cat, quests.cat and
+	// dungeons.cat - that is the file's whole documentation, which every write
+	// used to drop (code-review C323).
+	std::vector<std::string> m_trailer;
 };
 
 } // namespace dungeon::game

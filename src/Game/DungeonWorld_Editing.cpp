@@ -237,7 +237,7 @@ void DungeonWorld::ReloadTypeKind(const std::string& catalogKey,
 	}
 	// Fixtures are props AND light sources, so their rebuild goes through the
 	// fire/turbidity path; everything else just re-spawns.
-	RespawnFromRecords(catalogKey == "wallfeatures");
+	RespawnFromRecords(StampedIntoSurfaces(catalogKey));
 	RebuildFiresAndDust();
 }
 
@@ -258,6 +258,10 @@ DungeonWorld::TypeUsage DungeonWorld::SweepTypeRefs(const std::string& catalogKe
 	else if (catalogKey == "decorations") statics = TR::Decoration;
 	else if (catalogKey == "fixtures") statics = TR::Fixture;
 	else if (catalogKey == "wallfeatures") statics = TR::WallFeature;
+	// Floor AND ceiling features: one catalog, one record list (C305 - they
+	// had no family, so a delete was never refused and a rename left every
+	// `floorfeature` record naming an id that resolved to no mesh).
+	else if (catalogKey == "surfacefeatures") statics = TR::SurfaceFeature;
 	else if (catalogKey == "stairs") statics = TR::Stair;
 	else if (catalogKey == "themes") statics = TR::Theme;
 	else if (catalogKey == "monsters") dynamics = EntityKind::Monster;

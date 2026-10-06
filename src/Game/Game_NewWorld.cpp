@@ -83,14 +83,19 @@ void ClearPlaces(Project& p) {
 	p.evalLevel.clear();
 	// The manifest's COMMENTS are the source world's, about its level list and
 	// opening; carrying them into a world they no longer describe is worse
-	// than having none.
+	// than having none. Those under its last field too (the trailer), or the
+	// new project.ini would keep them AND lose its generated header line.
 	p.manifest = {};
-	p.dungeons = {};
-	p.quests = {};
+	p.manifestTrailer.clear();
+	// A catalog's ENTRIES go and its HEADER stays (Catalog::ClearEntries): the
+	// header documents the category's fields, not the world, and the template's
+	// dungeons.cat, quests.cat and flags.cat are nothing else (code-review C323).
+	p.dungeons.ClearEntries();
+	p.quests.ClearEntries();
 	// FLAGS make a particular game as quests do (a relic lifted, a seal broken),
 	// so they go too - the world's as well as the dungeons': a world flag kept
 	// with nothing left to set it is dead content the checker would name.
-	p.flags = {};
+	p.flags.ClearEntries();
 	// AND THE HOOKS THAT NAME THEM (W7): an item's `quest` names a quest stage,
 	// its `reveals` a world location and its `flag` a flag, all of which just
 	// went. Content comes across; what content POINTS AT does not.

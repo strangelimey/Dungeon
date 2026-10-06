@@ -1961,9 +1961,24 @@ re-spawns the live objects from the retyped records (RespawnFromRecords) and
 CLEARS the undo history (every held snapshot names the old id). A delete REFUSES
 while anything still references the type and says which levels — a record naming
 a missing type is not a soft failure at load. `savemap` persists the touched
-levels. Catalog comments survive a write (serialize::Block::lead →
+levels. Each record family is a `DungeonMap::TypeRecords` value, and a catalog a
+.map record can name needs one (surface features had none until code-review
+C305, so a delete was never refused); a FEATURE type (wall or surface,
+`DungeonWorld::StampedIntoSurfaces`) is stamped into the chunks, so its rename
+re-files the feature meshes by id (LoadFeatureMeshes) before the re-stamp. A
+catalog whose IDS ARE THE CODE'S - effects, spells, attacks, balance
+(`Project::IdentityInCode`) - refuses both rename and delete, and its type
+editor offers neither: the entry only tunes a class or table row, and a renamed
+effect silently lost its tuning (C306). Catalog comments survive a write (serialize::Block::lead →
 CatalogEntry::lead): the .cat headers document each category's fields, and an
-editor write used to delete them. Mouse model: LEFT paints/places
+editor write used to delete them. Three more ways were closed in C323: the
+comments after the last entry are the catalog's TRAILER (a header-only file,
+the template's flags.cat, is nothing else; a new world drops a source's
+dungeons, quests and flags through `Catalog::ClearEntries`, which keeps the
+header - assigning a fresh Catalog lost it), deleting the FIRST entry hands its
+lead (the file header) to the next entry, and the monster dialog sets its rows
+IN PLACE (`Game::ApplyMonsterConfig`). `catround` checks all three on text of
+its own (`catround case ...`). Mouse model: LEFT paints/places
 the armed brush (nothing armed until a palette row is picked), a stationary
 RIGHT-CLICK inspects the cell (select + contents + the object's edit dialog
 immediately; ≤3px press-release = click) while a right-DRAG pans, and

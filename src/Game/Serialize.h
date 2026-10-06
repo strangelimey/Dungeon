@@ -20,6 +20,7 @@
 // ============================================================================
 #pragma once
 
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -100,11 +101,21 @@ std::string NormalizeEol(std::string text);
 // Parses block-format text. Fields before the first "[id]" go into a block with
 // an empty id. Whitespace around keys/values is trimmed. Malformed lines (no
 // '=', no enclosing brackets) are skipped. Tolerant of either line ending.
-std::vector<Block> ParseBlocks(std::string_view text);
+//
+// THE FILE'S TAIL: comment lines after the last field (in a file with no block
+// at all, every comment it has) belong to no block, and land in `trailer` when
+// one is given. A writer that hands it back to WriteBlocks keeps them; a
+// reader that only wants the values passes nothing. They used to be dropped,
+// which in a catalog with no entries yet is ALL of its documentation - the
+// template's flags.cat, quests.cat and dungeons.cat lost theirs in every new
+// world (code-review C323).
+std::vector<Block> ParseBlocks(std::string_view text,
+							   std::vector<std::string>* trailer = nullptr);
 
 // Serializes blocks back to text: the unnamed block's fields first, then each
-// "[id]" header with its "key = value" lines, a blank line between blocks.
-// Lines end with kEol.
-std::string WriteBlocks(const std::vector<Block>& blocks);
+// "[id]" header with its "key = value" lines, a blank line between blocks, and
+// then the trailer, a blank line below the last block. Lines end with kEol.
+std::string WriteBlocks(const std::vector<Block>& blocks,
+						std::span<const std::string> trailer = {});
 
 } // namespace dungeon::game::serialize
