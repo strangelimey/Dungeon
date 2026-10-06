@@ -97,6 +97,12 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   editor's and the Level dialog's title shrink a long id to fit, and cut its
   tail to `..` only past the smallest size. Open the type editor on a type
   with a long id.
+- **Stealth after a miss** (batch 29, 9dc818af). A missed shot or
+  swing now wakes the monster it was aimed at - an `asleep` one, or a dormant
+  lurker beyond its trigger, included - and any attack that reaches the party
+  ends a rest as `attacked`: a miss, a bolt the Wind Ward turns, a blow a water
+  veil drinks whole. A miss credits no threat, so the woken monster picks its
+  victim with no grudge. Creep up on a sleeper, miss it, and watch it wake.
 
 ## Decisions
 
@@ -158,6 +164,13 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   spawn clip it picked, so authoring another SPAWN clip still changes when that
   monster starts acting in a seeded sweep. Attack, hit and die clips are
   animation only. Fine as it is?
+- **What ends a rest as `attacked`** (batch 29). It is now every pipeline event
+  but a damage-over-time tick. Two side effects: walking into a wall while
+  resting ends the rest even when armour soaks the whole bump (it used to only
+  when the bump hurt), and a member's own over-exertion wound no longer ends a
+  rest. And "Something is attacking!" still prints before the swing's own
+  hit / miss line, because the rest breaks inside the damage pipeline. Should
+  either side effect go the other way?
 - **ThreadStress can HANG under heavy load** (seen by batch 36, c7d67506).
   Twice, while another worktree built debug, release and release-profile at
   once: the AI workers run below normal priority, a starved idle bucket missed
@@ -166,6 +179,9 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   existing TerminateThread hazard, reached through starvation. Options: a
   longer grace or a higher priority for the workers under the harness, or
   CheckAll refusing while other builds run. Written up in check-threads.md.
+  Seen again by batch 37 (one hang, one run with 7 failures, then a pass at
+  half load) and by the integration's threads -SelfTest, which failed two
+  extra checks when a bucket was force-terminated under load.
 - **An AllocTest -PartyPage row in CheckAll?** (batch 51). The idle party page
   mode is manual for now; a full-tier row would run it every full check.
 - **Translations to check** (batch 76, b102f032): twelve new keys' de / es / it
@@ -298,6 +314,15 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   "the carried torch always wins"; the behaviour was already that.
 
 ## Follow-ups the batches found (not in the plan)
+
+- **Undo can lose a broken fixture** (found by batch 77). RestoreEditorState
+  (undo) applies the level's saved dynamic state before RebuildFiresAndDust
+  re-seeds the fixture table, so if the undo step changed the map's fixtures
+  (undoing a regenerate, say), its broken or damaged fixtures are matched
+  against the OLD table's squares and some can be lost. Seeding the table
+  fresh before ApplyActiveSnapshot there would make it exact.
+- **HealthTest does not pass -unattended** (found by batch 37): its assert case
+  still flashes the debug CRT abort box before the harness kills it.
 
 - **Spell bolts fly 8 m** (found by batch 23). spells.cat `range = 8` is in
   METRES, about 3.2 squares, so a firebolt cast from 4 squares fizzles before
