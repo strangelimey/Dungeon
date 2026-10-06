@@ -153,6 +153,14 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   jambs (the rough arch's per-stone tilts and sizes changed - same seed and
   ranges); fountain_round without the reversed texture column on the spout
   shaft and basin wall; the potion corks and the rock without their seam column.
+- **Whole descriptions in German and Russian** (batch 42, 53223229). With the
+  language on de, then ru (Settings -> Game), open the details dialog on the
+  Sowilo tablet (rune_light), and the sheet's Known Spells for a member who
+  knows the lights: each description should read to its last sentence (German
+  Sowilo lost its last one, Russian texts ended on half a letter). The text is
+  whole now; the look is whether the longest - Russian Sowilo, 457 bytes - fits
+  the dialog at your resolution, since a wrapped line that falls below the box
+  is skipped without a word.
 
 ## Decisions
 
@@ -303,6 +311,9 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   with any other unsaved world edits, and a new terrain saves the catalogs at
   once - so terrain.cat and world.map on disk can never disagree (a mismatch
   aborted the next launch). A terrain delete clears the undo history. Keep?
+- **Translations to check** (batch 87). The editor's new refusal of an id a
+  related catalog already holds (`newasset.err.related`) is worded by the batch
+  in de / es / it / ru - worth a native read.
 
 ## Changes you will notice
 
@@ -450,8 +461,7 @@ raised that is yours, not a fix. Each line names the batch and its commit.
 - **Visiting or reading a level no longer stashes it** (batch 80, 6f289839), so
   `savemap` rewrites only what was edited (a level still in the old stair form
   is rewritten once after a visit; the ACTIVE level is always written from live
-  state, its monsters where they stand - batch 81's C326). Unsaved edits now
-  survive a save loaded on another level.
+  state). Unsaved edits now survive a save loaded on another level.
 - **A GPU failure explains itself** (batch 67, 684586ac). A failed D3D12 call
   logs its HRESULT by name, the device's removal reason and DRED's record (the
   command lists in flight, the op each stopped at, a page fault's address);
@@ -461,6 +471,29 @@ raised that is yours, not a fix. Each line names the batch and its commit.
 - **Terrain glyphs are checked** (batch 89): a "+ New" terrain gets an unused
   glyph, a bad or duplicate glyph and a delete of a painted terrain are refused,
   and `worldloc set <id> entry <x> <z>|none` sets both halves of an entry.
+- **Known Spells lists every spell** (batch 42, 53223229): the sheet's rows are
+  sized from the spell registry (44 today; they were warmed for 32, and the 33rd
+  row allocated in play). Each sheet and the party window's four cards keep a
+  1023-byte line for every spell and effect row, about 340 KB in all.
+- **A level saves its monsters where they were placed** (batch 81, 7b129a26).
+  An inspector's Save and `savemap` write each monster at its SPAWN square;
+  they wrote where it stood, so every save moved the authored square of any
+  patrol, chaser or corpse in the git tree. A level resize puts monsters back at
+  their spawns too. A type Save, Rename or Delete keeps the level as it is -
+  placed monsters and props, the dead, opened doors, drops, inspector overrides
+  (it rebuilt from the files and lost them all) - and gives an editor-placed
+  monster a .ent record and an id. A deleted record's id is never handed to the
+  next placement. After a type Save, monsters with nothing changed replay their
+  rise. `drop` now REFUSES when it lays nothing, so a script notices.
+- **The portcullis decoration is `portcullis_grate`** (batch 87, d5e97edb) in
+  dungeon-demo, Test-World and the template ("Portcullis Grate"; no level places
+  it). A world outside git naming `portcullis` needs the same rename. The editor
+  now refuses a new or renamed id that a related catalog already holds - the
+  three item catalogs share one namespace, as do decorations, doors, buttons and
+  stairs. A type Save of an item shows its new numbers at once (in a floor
+  item, a thing in flight, the details dialog), and an effect's icon is its
+  rune glyph straight from its symbol (the effects.cat `icon = rune_*` lines
+  are gone).
 
 ## Follow-ups the batches found (not in the plan)
 
@@ -607,6 +640,16 @@ raised that is yours, not a fix. Each line names the batch and its commit.
 - **A party ward the default casters cannot afford** (seen by batch 41): with
   the default party, Brand (8 max mana) and Sera (12) can never cast a party ward
   (20 mana). Game data, noted for the balance pass.
+- **A placed monster comes back twice after `savemap`** (found by the leash
+  fix, confirmed on code-review after batch 81). Place a monster with the
+  editor's brush, `savemap`, then leave the level and come back (or save and
+  load): there are two of it. The save writes it into the .ent, but it has no
+  record in memory, so the level's held state also carries it as a whole row,
+  and the re-entry reads both. A type Save, Rename or Delete gives a placed
+  monster a record (batch 81) and `savemap` does not. The real fix is P9's
+  record-first placement; a sync in the save alone would not hold either,
+  because a re-read file numbers its records by file order while the held state
+  keeps the old ids.
 - **Re-bake sidecars after batch 95** in your tree at the merge: the potions'
   and the rock's `.glb.0.dds` (`AssetBaker model-images assets`, release), or
   the loader reports them stale and decodes instead.
