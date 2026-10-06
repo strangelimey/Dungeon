@@ -1,6 +1,7 @@
 // ============================================================================
 // Game/Game_Inspect.cpp — split out of Game.cpp to keep files small (see Game.h).
-// The editor Select-tool inspector dispatch.
+// The editor Select-tool inspector dispatch, and the harness's hands for the
+// inspectors, the patrol route and the editor's other dialogs.
 // ============================================================================
 #include "Game/Game.h"
 
@@ -81,6 +82,20 @@ void Game::InspectorCommand(const std::vector<std::string>& args) {
 	const std::string verb = args.size() >= 2 ? args[1] : std::string("status");
 	InstanceInspector* open = ActiveInstanceInspector();
 	const bool monster = open == &m_entityInspector;
+	// A press on the dialog's n-th drop-down (opened by its next Update), or
+	// bare, whether one is open - what its Esc asks first (code-review C81).
+	if (verb == "popup") {
+		if (!open) {
+			m_console.Print("editor inspector popup: no inspector is open");
+		} else if (args.size() >= 3) {
+			open->OpenPopup(std::atoi(args[2].c_str()));
+			m_console.Print(std::format("editor inspector popup: pressing #{}", args[2]));
+		} else {
+			m_console.Print(std::format("editor inspector popup: {}",
+										open->PopupOpen() ? "open" : "shut"));
+		}
+		return;
+	}
 	if (verb != "status") {
 		if (!open) {
 			// Not a refusal: "nothing to press" is often the answer a script is
@@ -177,6 +192,131 @@ void Game::RouteCommand(const std::vector<std::string>& args) {
 	const auto* route = m_world->MonsterPatrol(id);
 	m_console.Print(std::format("editor route: laying monster {} ({} waypoint(s))", id,
 								route ? route->size() : 0));
+}
+
+void Game::EditorDialogCommand(const std::vector<std::string>& args) {
+	// args[0] names the control; its verb, if any, follows. Each ends by saying
+	// where the control stands, read between `presskey esc` lines by a check of
+	// the Esc ladders (code-review C81, tools/EvalScripts/dialogesc.eval).
+	const std::string& what = args[0];
+	const std::string verb = args.size() >= 2 ? args[1] : std::string("status");
+	const auto popupWord = [](bool open) { return open ? "open" : "shut"; };
+	// Up as the editor, as each of these is reached - WITHOUT a mode flip when
+	// it already is one, since SetMode closes the level drop-down.
+	const auto toEditor = [this] {
+		if (!m_mapView.IsOpen()) m_mapView.Open(MapView::Mode::Editor);
+		else if (m_mapView.CurrentMode() != MapView::Mode::Editor)
+			m_mapView.SetMode(MapView::Mode::Editor);
+	};
+
+	// THE LEVEL SETTINGS DIALOG: the toolbar's Level button on the viewed level,
+	// a number typed into its row, a press on its material list.
+	if (what == "levelsettings") {
+		if (verb == "open") {
+			toEditor();
+			if (m_mapView.onLevelSettings) m_mapView.onLevelSettings();
+		} else if (verb == "dust" || verb == "haze" || verb == "ambient") {
+			const size_t row = verb == "dust" ? 0 : verb == "haze" ? 1 : 2;
+			if (args.size() < 3 || !m_levelSettingsDialog.TypeNumber(row, args[2])) {
+				m_console.Refuse("editor levelsettings: the dialog is not open (or no value)");
+				return;
+			}
+		} else if (verb == "popup" && args.size() >= 3) {
+			if (!m_levelSettingsDialog.IsOpen()) {
+				m_console.Refuse("editor levelsettings: the dialog is not open");
+				return;
+			}
+			m_levelSettingsDialog.OpenPopup(std::atoi(args[2].c_str()));
+			m_console.Print(std::format("editor levelsettings popup: pressing #{}", args[2]));
+			return;
+		} else if (verb != "status" && verb != "popup") {
+			m_console.RefuseUsage();
+			return;
+		}
+		if (!m_levelSettingsDialog.IsOpen()) {
+			m_console.Print("editor levelsettings: closed");
+			return;
+		}
+		m_console.Print(std::format(
+			"editor levelsettings: open {} dust {:.3f} haze {:.3f} ambient {:.3f} popup {}",
+			m_levelSettingsDialog.Level(), m_levelSettingsDialog.Dust(),
+			m_levelSettingsDialog.Haze(), m_levelSettingsDialog.Ambient(),
+			popupWord(m_levelSettingsDialog.PopupOpen())));
+		return;
+	}
+
+	// THE CREATE DIALOG: a palette section's "+ New..." row (a catalog key), and
+	// a press on its form's lists.
+	if (what == "newasset") {
+		if (verb == "popup" && args.size() >= 3) {
+			if (!m_assetDialog.IsOpen()) {
+				m_console.Refuse("editor newasset: the dialog is not open");
+				return;
+			}
+			m_assetDialog.OpenPopup(std::atoi(args[2].c_str()));
+			m_console.Print(std::format("editor newasset popup: pressing #{}", args[2]));
+			return;
+		}
+		if (verb != "status" && verb != "popup") {
+			const MapEditor::PaletteCat cat = MapEditor::CatForCatalogKey(verb);
+			// A pure-data section's row makes a type outright (the type editor
+			// opens on it) rather than this dialog, so it is no way here.
+			if (cat == MapEditor::PaletteCat::Count || MapEditor::CategoryAuthorable(cat) ||
+				!m_mapEditor.onNewAsset) {
+				m_console.Refuse(std::format(
+					"editor newasset: '{}' is not a section that opens the create dialog", verb));
+				return;
+			}
+			toEditor();
+			m_mapEditor.onNewAsset(cat);
+		}
+		m_console.Print(m_assetDialog.IsOpen()
+							? std::format("editor newasset: open popup {}",
+										  popupWord(m_assetDialog.PopupOpen()))
+							: std::string("editor newasset: closed"));
+		return;
+	}
+
+	// THE LEVEL DROP-DOWN on the toolbar, and what an Esc would back out of
+	// after it: the armed brush, then the map.
+	if (what == "levellist") {
+		if (verb == "open") {
+			toEditor();
+			m_mapView.PressLevelPick();
+		} else if (verb != "status") {
+			m_console.RefuseUsage();
+			return;
+		}
+		const MapEditor::PaletteCat armed = m_mapEditor.ArmedCat();
+		m_console.Print(std::format(
+			"editor levellist: {} map {} armed {}", popupWord(m_mapView.LevelListOpen()),
+			!m_mapView.IsOpen()                                  ? "closed"
+			: m_mapView.CurrentMode() == MapView::Mode::Editor ? "editor"
+															   : "player",
+			armed == MapEditor::PaletteCat::Count
+				? std::string("-")
+				: std::format("{}:{}", MapEditor::CategoryCatalogKey(armed),
+							  m_mapEditor.ArmedId())));
+		return;
+	}
+
+	// A palette row's click with no square under it: arm its brush.
+	if (what == "arm") {
+		if (args.size() < 3) {
+			m_console.RefuseUsage();
+			return;
+		}
+		toEditor();
+		const MapEditor::PaletteCat cat = MapEditor::CatForCatalogKey(args[1]);
+		if (cat == MapEditor::PaletteCat::Count || !m_mapEditor.Arm(cat, args[2])) {
+			m_console.Refuse(
+				std::format("editor arm: no palette row '{}' in '{}'", args[2], args[1]));
+			return;
+		}
+		m_console.Print(std::format("editor arm: armed {}:{}", args[1], m_mapEditor.ArmedId()));
+		return;
+	}
+	m_console.RefuseUsage();
 }
 
 void Game::OpenInspectorFor(const InspectTarget& t) {

@@ -401,7 +401,8 @@ void Game::RegisterWorldCommands() {
 				   "newdialog [off|switch|create <name>]\n"
 				   "newdialog source <blank|copy|wizard|level [stem]>\n"
 				   "newdialog style <id|->\n"
-				   "newdialog wizard <tag|-> <size> <difficulty> <seed>",
+				   "newdialog wizard <tag|-> <size> <difficulty> <seed>\n"
+				   "newdialog popup [<n>]",
 		 .summary = "list worlds on disk; create, load, delete; drive the world dialogs"},
 		[this](const std::vector<std::string>& a) {
 			// A WORLD IS A PROJECT FOLDER (assets/projects/<name>): its own
@@ -537,6 +538,21 @@ void Game::RegisterWorldCommands() {
 				// The New world dialog (P4), for a harness: the same calls its
 				// buttons make. It is modal in a level and on the world screen
 				// alike, so unlike the Worlds dialog it opens from either.
+				// `popup [<n>]` presses its n-th shown drop-down (opened by its
+				// next Update), or bare says whether one is open - what its Esc
+				// asks first (C81). It never opens the dialog.
+				if (a.size() >= 2 && a[1] == "popup") {
+					if (a.size() >= 3 && m_newWorldDialog.IsOpen()) {
+						m_newWorldDialog.OpenPopup(std::atoi(a[2].c_str()));
+						m_console.Print("new world dialog popup: pressing #" + a[2]);
+					} else {
+						m_console.Print(std::format(
+							"new world dialog popup: dialog {} popup {}",
+							m_newWorldDialog.IsOpen() ? "open" : "closed",
+							m_newWorldDialog.PopupOpen() ? "open" : "shut"));
+					}
+					return;
+				}
 				if (a.size() >= 2 && a[1] == "off") {
 					m_newWorldDialog.Close();
 				} else {

@@ -75,8 +75,13 @@ public:
 
 	// Destroys every widget (e.g. to rebuild a page in a new language). Any
 	// raw pointers handed out by Add are dead; never call from inside a
-	// widget callback — the widget is still on the Update stack.
-	void Clear() { m_root.ClearChildren(); }
+	// widget callback - the widget is still on the Update stack. An open popup
+	// dies with its widget, so its claim goes too: an owner asking PopupOpen
+	// after a rebuild must not hold back the Esc for a list no longer there.
+	void Clear() {
+		m_root.ClearChildren();
+		m_popupClaimNext = false;
+	}
 
 	// The window-sized root of the tree (the inspector walks it).
 	Widget& Root() { return m_root; }
@@ -169,8 +174,19 @@ public:
 	void ClaimPopup() { m_popupClaimNext = true; }
 	// Whether a popup was open as of the last update (it renewed its claim). For
 	// an owner deciding whether an Esc belongs to the popup - which closes itself
-	// on Esc - or to the page under it.
+	// on Esc - or to the page under it. EVERY dialog that acts on Esc asks it
+	// before it does (code-review C81): an Esc meant to close a drop-down used
+	// to close the whole dialog, and in most of them revert every live edit.
 	bool PopupOpen() const { return m_popupClaimNext; }
+
+	// A HARNESS'S PRESS on a popup: the n-th widget the tree SHOWS that owns
+	// one (Widget::HasPopup; depth first, in add order) opens it at the next
+	// Update, after that Update's layout and before its walk - so a rebuild
+	// queued since the last frame is laid out first (a list measures its rows
+	// in the font the layout resolves), and the walk then finds it open exactly
+	// as a press on its face leaves it. No such widget opens nothing, which
+	// PopupOpen then says.
+	void OpenPopupNext(int n) { m_openPopupNext = n; }
 
 private:
 	// Exactly one of these backs m_font: an owned Font (legacy form) or one
@@ -192,6 +208,7 @@ private:
 	bool m_mouseConsumed = false;
 	bool m_wheelConsumed = false;
 	bool m_popupClaimNext = false; // ClaimPopup this frame -> claimed next frame
+	int m_openPopupNext = -1;      // OpenPopupNext's index, -1 = none pending
 	float m_width = 1.0f;
 	float m_height = 1.0f;
 	float m_mouseX = 0.0f;

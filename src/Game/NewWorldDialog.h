@@ -88,6 +88,11 @@ public:
 	// console command is not inside the tree walk, and `uioverlap` after one
 	// must audit the view AFTER it).
 	void ApplyPending();
+	// A press on the n-th drop-down the dialog shows (`worlds newdialog popup
+	// <n>`; opened at the next Update), and whether one is open - what Esc
+	// asks before it closes the dialog (code-review C81).
+	void OpenPopup(int n) { m_ui.OpenPopupNext(n); }
+	bool PopupOpen() const { return m_ui.PopupOpen(); }
 
 private:
 	void BuildUI();

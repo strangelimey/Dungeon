@@ -931,27 +931,29 @@ void DropDown::UpdateSelf(UIContext& ctx) {
 	m_hot = !ctx.IsMouseConsumed() && Pixel().Contains(mx, my);
 	if (m_hot) {
 		ctx.ConsumeMouse();
-		if (input->WasMousePressed(MouseButton::Left)) {
-			m_open = true;
-			ctx.ClaimPopup();
-			m_popupTextW = 0.0f;
-			for (const std::string& item : items)
-				m_popupTextW = std::max(m_popupTextW, TextFont().MeasureWidth(item));
-			// Open with the current selection in view — a long list otherwise
-			// opens at the top, nowhere near what it says it is showing.
-			// The selection's SLOT among the rows the filter shows (it may be
-			// hidden, and then the list opens at its top).
-			size_t slot = 0;
-			for (int i = 0; i < m_selected && i < static_cast<int>(items.size()); ++i)
-				if (Passes(static_cast<size_t>(i))) ++slot;
-			if (m_selected >= 0 && !Passes(static_cast<size_t>(m_selected))) slot = 0;
-			const gfx::Rect popup = PopupRect(ctx);
-			const float rowH = RowH();
-			m_scroll = std::clamp(rowH * static_cast<float>(slot) -
-									  (ListRect(popup).h - rowH) * 0.5f,
-								  0.0f, MaxScroll(popup));
-		}
+		if (input->WasMousePressed(MouseButton::Left)) OpenPopup(ctx);
 	}
+}
+
+void DropDown::OpenPopup(UIContext& ctx) {
+	m_open = true;
+	ctx.ClaimPopup();
+	m_popupTextW = 0.0f;
+	for (const std::string& item : items)
+		m_popupTextW = std::max(m_popupTextW, TextFont().MeasureWidth(item));
+	// Open with the current selection in view - a long list otherwise opens at
+	// the top, nowhere near what it says it is showing. The selection's SLOT
+	// among the rows the filter shows (it may be hidden, and then the list
+	// opens at its top).
+	size_t slot = 0;
+	for (int i = 0; i < m_selected && i < static_cast<int>(items.size()); ++i)
+		if (Passes(static_cast<size_t>(i))) ++slot;
+	if (m_selected >= 0 && !Passes(static_cast<size_t>(m_selected))) slot = 0;
+	const gfx::Rect popup = PopupRect(ctx);
+	const float rowH = RowH();
+	m_scroll = std::clamp(rowH * static_cast<float>(slot) -
+							  (ListRect(popup).h - rowH) * 0.5f,
+						  0.0f, MaxScroll(popup));
 }
 
 void DropDown::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
@@ -1542,11 +1544,13 @@ void ColorPicker::UpdateSelf(UIContext& ctx) {
 	m_hot = !ctx.IsMouseConsumed() && SwatchRect().Contains(mx, my);
 	if (m_hot) {
 		ctx.ConsumeMouse();
-		if (input->WasMousePressed(MouseButton::Left)) {
-			m_open = true;
-			ctx.ClaimPopup();
-		}
+		if (input->WasMousePressed(MouseButton::Left)) OpenPopup(ctx);
 	}
+}
+
+void ColorPicker::OpenPopup(UIContext& ctx) {
+	m_open = true;
+	ctx.ClaimPopup();
 }
 
 void ColorPicker::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {

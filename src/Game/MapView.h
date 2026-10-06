@@ -140,6 +140,7 @@ public:
 	}
 	void Close() {
 		m_open = false;
+		m_levelsOpen = false;   // the drop-down goes with the map
 		m_editorPaused = false; // "editor closed => game always un-paused"
 	}
 	// The M-key player-map toggle: open in Player mode, or close.
@@ -171,6 +172,22 @@ public:
 	// Press the pause button from outside (the landing page's Editor entry
 	// opens the editor paused). Editor mode only, like the button.
 	void SetEditorPaused(bool on) { m_editorPaused = on && m_mode == Mode::Editor; }
+
+	// The toolbar's level DROP-DOWN (Editor mode only). It is the topmost thing
+	// on the editor map, so Esc closes it before anything under it hears the
+	// key: Game's Esc ladder asks CloseLevelList first, which says whether
+	// there was a list to close (code-review C81 - the ladder skipped it, and
+	// Esc shut the whole editor round an open list). PressLevelPick is the
+	// click on its face, for a harness (`editor levellist open`).
+	bool LevelListOpen() const { return m_levelsOpen; }
+	void PressLevelPick() {
+		if (m_mode == Mode::Editor) OpenLevelList();
+	}
+	bool CloseLevelList() {
+		const bool was = m_levelsOpen;
+		m_levelsOpen = false;
+		return was;
+	}
 
 	// The editor's MESSAGE LINE. Every editor report (a placement, a refusal,
 	// an erase) goes out through DungeonWorld::onMessage to the HUD's message

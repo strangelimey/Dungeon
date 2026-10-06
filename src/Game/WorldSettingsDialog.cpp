@@ -731,7 +731,8 @@ void WorldSettingsDialog::Update(const Input& input, float w, float h) {
 		BuildUI();
 	}
 
-	if (input.WasKeyPressed(VK_ESCAPE)) {
+	// An open list or colour picker takes the Esc first (C81).
+	if (input.WasKeyPressed(VK_ESCAPE) && !m_ui.PopupOpen()) {
 		// NOTHING TO REVERT: every edit here went straight into the world as
 		// its own undo step, so Esc closes — the opposite of the Balance
 		// dialog, which holds a working copy and puts it back.

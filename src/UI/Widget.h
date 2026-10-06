@@ -232,6 +232,14 @@ public:
 	// that wraps needs it; the default says nothing (0).
 	virtual float FitExtent(float /*crossPx*/, float /*remPx*/) const { return 0.0f; }
 
+	// A widget that owns a POPUP - a drop-down's list, a colour picker's sliders
+	// - says so, and opens it the way a press on its face does. The hand a
+	// harness uses (UIContext::OpenPopupNext), since it has no pointer to press
+	// with: what it checks is what the page does with an Esc while the popup is
+	// up (code-review C81), and only a popup really open can show that.
+	virtual bool HasPopup() const { return false; }
+	virtual void OpenPopup(UIContext&) {}
+
 protected:
 	// --- what a subclass implements: itself, never its children --------------
 

@@ -341,6 +341,9 @@ public:
 	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 	// The open list, or the hovered face's tooltip when its text was trimmed.
 	void DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	// The list opens on a press on the face (Widget::OpenPopup).
+	bool HasPopup() const override { return true; }
+	void OpenPopup(UIContext& ctx) override;
 	// The face is bounded sideways (the text is trimmed) but the line is CENTRED
 	// on it at the font's height, so a row shorter than the font spills the text
 	// out of the top and bottom - a Button's rule.
@@ -452,6 +455,9 @@ public:
 	void UpdateSelf(UIContext& ctx) override;
 	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 	void DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	// The sliders open on a press on the swatch (Widget::OpenPopup).
+	bool HasPopup() const override { return true; }
+	void OpenPopup(UIContext& ctx) override;
 
 	std::string label;
 	std::function<void(const Vec4&)> onChange;

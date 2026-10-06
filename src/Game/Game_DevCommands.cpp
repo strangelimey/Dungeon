@@ -227,6 +227,12 @@ void Game::RegisterDevCommands() {
 								  "inspect off\n"
 								  "inspector [status|esc|save|tab <n>]\n"
 								  "inspector editroute|clearroute|archetype <name>\n"
+								  "inspector popup [<n>]\n"
+								  "levelsettings [status|open|popup [<n>]]\n"
+								  "levelsettings dust|haze|ambient <value>\n"
+								  "newasset [status|<category>|popup [<n>]]\n"
+								  "levellist [status|open]\n"
+								  "arm <category> <id>\n"
 								  "route [status|<x> <z>]\n"
 								  "route key enter|esc|back\n"
 								  "pick <x> <z>\n"
@@ -659,6 +665,14 @@ void Game::RegisterDevCommands() {
 							   RouteCommand(args);
 							   return;
 						   }
+						   // The editor's other dialogs, its level drop-down and a
+						   // palette row's arm, for the Esc ladders' check (C81).
+						   if (!args.empty() &&
+							   (args[0] == "levelsettings" || args[0] == "newasset" ||
+								args[0] == "levellist" || args[0] == "arm")) {
+							   EditorDialogCommand(args);
+							   return;
+						   }
 						   // The right-click, for a harness: select the square and
 						   // open its inspector (or the chooser), then say which.
 						   if (!args.empty() && args[0] == "inspect") {
@@ -783,6 +797,7 @@ void Game::RegisterDevCommands() {
 								  "dialog tab <n>\n"
 								  "dialog create|empty|populate\n"
 								  "dialog style <id|->\n"
+								  "dialog popup [<n>]\n"
 								  "preset [list]\n"
 								  "preset save|load|delete <name>\n"
 								  "play [stem]",
@@ -809,6 +824,21 @@ void Game::RegisterDevCommands() {
 							   // as it was - or open REGENERATE for a typo - and the sweep
 							   // passed over the wrong screen (code-review C427).
 							   const std::string mode = args.size() > 1 ? args[1] : "";
+							   // A press on its n-th shown drop-down (opened by the
+							   // next Update), or bare, whether one is open - what
+							   // its Esc asks first (C81). Never opens the dialog.
+							   if (mode == "popup") {
+								   if (args.size() > 2 && m_generateDialog.IsOpen()) {
+									   m_generateDialog.OpenPopup(std::atoi(args[2].c_str()));
+									   m_console.Print("generate dialog popup: pressing #" + args[2]);
+								   } else {
+									   m_console.Print(std::format(
+										   "generate dialog popup: dialog {} popup {}",
+										   m_generateDialog.IsOpen() ? "open" : "closed",
+										   m_generateDialog.PopupOpen() ? "open" : "shut"));
+								   }
+								   return;
+							   }
 							   if (mode == "off") {
 								   m_generateDialog.Close();
 							   } else if (mode == "tab") {

@@ -82,6 +82,14 @@ public:
 	// row" rule the dungeon palette has.
 	void ArmTerrain(std::string id) { m_armed = std::move(id); }
 	const std::string& ArmedTerrain() const { return m_armed; }
+	// Esc on the travel screen while Editing puts an armed brush down before it
+	// pauses - the level editor's ladder (code-review C81: it paused with the
+	// brush still armed). True = there was one to put down.
+	bool Disarm() {
+		if (!Editing() || m_armed.empty()) return false;
+		m_armed.clear();
+		return true;
+	}
 
 	// Fired when the editor paints a cell, so the owner can bracket it as ONE
 	// undo step and mark the world dirty. The view never mutates the world

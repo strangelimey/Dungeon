@@ -323,7 +323,8 @@ void GenerateDialog::Update(const Input& input, float w, float h) {
 		m_uiRebuild = false;
 		BuildUI();
 	}
-	if (input.WasKeyPressed(VK_ESCAPE)) {
+	// An open list takes the Esc first and closes itself in the walk (C81).
+	if (input.WasKeyPressed(VK_ESCAPE) && !m_ui.PopupOpen()) {
 		Close();
 		return;
 	}

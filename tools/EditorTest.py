@@ -161,6 +161,16 @@
 #      monster holds the same id; and, WINDOWED, saving the route's monster
 #      type ends the route (Enter reopens nothing) and closes an open
 #      inspector and the monster dialog, with no fault in the log.
+#  24. ESC BACKS OUT ONE LAYER (code-review C81), every Esc a real key through
+#      the frame's input (`presskey esc`): with a drop-down open in a monster
+#      inspector, in Level settings, the Generate and the New world dialogs and
+#      the create dialog, the first Esc closes only the list - each dialog
+#      stays, the inspector's Caster edit and the previewed dust kept - and the
+#      second closes the dialog (the inspector's and Level settings' putting
+#      their edits back; the create dialog had no Esc at all); on the editor
+#      map an Esc closes the level list before it puts the brush down, and
+#      only then the editor; on the travel screen it puts the terrain brush
+#      down before it pauses.
 #
 # NOTHING HERE EDITS THE REAL WORLD (code-review C431). Each phase starts on a
 # FRESH SCRATCH COPY of dungeon-demo, et_demo, and every run opens it with
@@ -2298,6 +2308,125 @@ finally:
         io.open(SETTINGS, "wb").write(settings_before)
     elif os.path.isfile(SETTINGS):
         os.remove(SETTINGS)
+
+# --- phase 24: Esc backs out one layer ----------------------------------------------
+print("24 - Esc backs out one layer: an open list before its dialog, the editor's and the world's ladders")
+DUST = re.compile(r"dust on, density ([\d.]+)$")
+LEVELSET = re.compile(r"editor levelsettings: open \S+ dust ([\d.]+) haze \S+ ambient \S+ popup (open|shut)$")
+
+
+def esc_chunks(lines, want):
+    """`lines` cut at each `presskey esc`: what stood before the first key,
+    between each two, and after the last - `want` pieces, padded empty."""
+    out = [[]]
+    for l in lines:
+        if l == "> presskey esc":
+            out.append([])
+        else:
+            out[-1].append(l)
+    return out + [[] for _ in range(want - len(out))]
+
+
+def prefixed(lines, prefix):
+    """What follows `prefix` on each line that starts with it."""
+    return [l[len(prefix):] for l in lines if l.startswith(prefix)]
+
+
+def said(lines):
+    """The game's answers, without the echoed commands and the key's own line."""
+    return [l for l in lines if not l.startswith("> ") and not l.startswith("presskey: ")]
+
+
+def dusts(lines):
+    return [float(m.group(1)) for m in map(DUST.match, lines) if m]
+
+
+def level_dialog(lines):
+    """Each open Level settings status: (dust, popup open|shut)."""
+    return [(float(m.group(1)), m.group(2)) for m in map(LEVELSET.match, lines) if m]
+
+
+fresh()
+try:
+    log = run("dialogesc.eval")
+    check(passed(log), "the script ran clean")
+    sec = console_sections(log)
+
+    # THE INSPECTOR: a live edit (the warrior made a Caster), then its Facing
+    # list opened.
+    c = esc_chunks(sec.get("inspector", []), 3)
+    ins = inspectors(c[0])
+    orig = ins[0] if ins else {}
+    check(len(ins) == 2 and orig.get("archetype") not in (None, "caster") and ins[1]["archetype"] == "caster",
+          "THE CONTROL: the warrior was made a Caster in its inspector, a live edit", str(ins))
+    check(prefixed(c[0], "editor inspector popup: ")[-1:] == ["open"],
+          "THE CONTROL: the inspector's Facing list was open when the first Esc came",
+          " | ".join(prefixed(c[0], "editor inspector popup: ")))
+    ins = inspectors(c[1])
+    check(ins[:1] and ins[0]["id"] == orig.get("id") and ins[0]["archetype"] == "caster",
+          "the first Esc left the inspector open with the Caster edit (it used to cancel the dialog)",
+          str(ins) or " | ".join(l for l in c[1] if l.startswith("editor inspector")))
+    check(prefixed(c[1], "editor inspector popup: ") == ["shut"], "...and closed the list",
+          " | ".join(prefixed(c[1], "editor inspector popup: ")))
+    tail = [l for l in c[2] if l.startswith("editor inspector")]
+    check(tail[:1] == ["editor inspector: closed"], "the second Esc cancelled the dialog", " | ".join(tail[:2]))
+    ins = inspectors(c[2])
+    check(ins[:1] and ins[0]["archetype"] == orig.get("archetype"),
+          f"...putting the edit back: reopened, the warrior is a {orig.get('archetype')} again", str(ins))
+
+    # LEVEL SETTINGS: dust typed in (previewed live), the material list opened.
+    c = esc_chunks(sec.get("level", []), 3)
+    before = dusts(c[0])[:1]
+    check(before and abs(before[0] - 0.31) > 0.005 and dusts(c[0])[1:2] == [0.31]
+          and level_dialog(c[0])[-1:] == [(0.31, "open")],
+          f"THE CONTROL: dust typed into Level settings is previewed ({before} -> 0.31), its material list open",
+          f"{dusts(c[0])} {level_dialog(c[0])}")
+    check(level_dialog(c[1]) == [(0.31, "shut")] and dusts(c[1]) == [0.31],
+          "the first Esc closed only the list: the dialog open, the dust still 0.31 (it used to revert and close)",
+          f"{level_dialog(c[1])} {dusts(c[1])} {said(c[1])}")
+    check("editor levelsettings: closed" in c[2] and dusts(c[2]) == before,
+          f"the second closed the dialog and put the dust back to {before}", " | ".join(said(c[2])))
+
+    # THE GENERATE AND NEW WORLD DIALOGS: a list open, nothing to revert.
+    for name, prefix, what in (("generate", "generate dialog popup: ", "the Generate dialog's Style list"),
+                               ("newworld", "new world dialog popup: ", "the New world dialog's level list")):
+        steps = [prefixed(ch, prefix) for ch in esc_chunks(sec.get(name, []), 3)]
+        check(steps[0][-1:] == ["dialog open popup open"], f"THE CONTROL: {what} was open", str(steps[0]))
+        check(steps[1] == ["dialog open popup shut"],
+              "the first Esc closed only the list (it used to close the dialog)", str(steps[1]))
+        check(steps[2] == ["dialog closed popup shut"], "the second closed the dialog", str(steps[2]))
+
+    # THE CREATE DIALOG (decorations' "+ New..."), which had no Esc at all.
+    steps = [prefixed(ch, "editor newasset: ") for ch in esc_chunks(sec.get("asset", []), 3)]
+    check(steps[0] == ["open popup shut", "open popup open"],
+          "THE CONTROL: the create dialog opened, then its source list", str(steps[0]))
+    check(steps[1] == ["open popup shut"], "the first Esc closed only the list", str(steps[1]))
+    check(steps[2] == ["closed"], "the second closed the dialog (no key could, before)", str(steps[2]))
+
+    # THE EDITOR'S LADDER: a brush armed, the toolbar's level list open.
+    steps = [prefixed(ch, "editor levellist: ") for ch in esc_chunks(sec.get("levellist", []), 4)]
+    armed = "armed decorations:column"
+    check(steps[0][-1:] == [f"open map editor {armed}"],
+          "THE CONTROL: a brush armed, the toolbar's level list open", str(steps[0]))
+    check(steps[1] == [f"shut map editor {armed}"],
+          "the first Esc closed only the list - brush armed, editor up (it used to put the brush down "
+          "and leave the list open)", str(steps[1]))
+    check(steps[2] == ["shut map editor armed -"], "the second put the brush down", str(steps[2]))
+    check(steps[3] == ["shut map closed armed -"], "the third closed the editor", str(steps[3]))
+
+    # THE WORLD EDITOR: a terrain brush armed on the travel screen.
+    c = [said(ch) for ch in esc_chunks(sec.get("world", []), 4)]
+    check(c[0][-3:] == ["world editing (fog off)", "on the world map", "armed: moor"],
+          "THE CONTROL: on the travel screen, editing, the moor brush armed", str(c[0]))
+    check(c[1] == ["no terrain armed", "state worldmap"],
+          "the first Esc put the brush down and stayed on the travel screen (it used to pause)", str(c[1]))
+    check(c[2] == ["state paused"], "the second paused", str(c[2]))
+    check(c[3][:1] == ["state worldmap"], "the third resumed on the travel screen", str(c[3]))
+
+    errors = [l for l in log.splitlines() if l.startswith("[ERROR]")]
+    check(not errors, "no error in the log", " | ".join(e[:140] for e in errors[:3]))
+finally:
+    drop()
 
 # --- the real tree: LAST, after every phase --------------------------------------
 print("the real tree: dungeon-demo and the library as the run found them")

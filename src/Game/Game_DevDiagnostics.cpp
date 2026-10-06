@@ -124,6 +124,40 @@ void Game::RegisterDiagnosticCommands() {
 			else
 				m_console.Print(std::format("readfile: none - {}", bytes.error()));
 		});
+	// A KEY, PRESSED AND LET GO, as the window delivers one (Input::OnKey down,
+	// then up): this frame's Update hears it like a key the player hit. A
+	// script's lines run BEFORE the frame reads its input (PumpEvalScript sits
+	// at the top of UpdateStates), so the key reaches whatever owns the input
+	// this frame - a dialog's Esc, the editor's ladder, the pause menu. A check
+	// of what those do with a key goes through here rather than calling the
+	// handler it means to reach, which would skip the very ordering under test
+	// (code-review C81: an Esc that a drop-down should take). Typed at the OPEN
+	// console, the console owns the frame and hears it first.
+	m_console.Register(
+		{.name = "presskey",
+		 .group = CmdGroup::Diagnostics,
+		 .params = "esc|enter|back|space|<letter or digit>",
+		 .summary = "press and release a key this frame, as the keyboard would"},
+		[this](const std::vector<std::string>& args) {
+			if (!Need(m_console, args, 1)) return;
+			std::string name = args[0];
+			for (char& c : name) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+			int key = -1;
+			if (name == "esc") key = vk::Escape;
+			else if (name == "enter") key = vk::Return;
+			else if (name == "back") key = vk::Back;
+			else if (name == "space") key = vk::Space;
+			else if (name.size() == 1 && std::isalnum(static_cast<unsigned char>(name[0])))
+				key = std::toupper(static_cast<unsigned char>(name[0])); // 'A'.., '0'..
+			if (key < 0) {
+				m_console.RefuseUsage();
+				return;
+			}
+			Input& input = m_window.GetInput();
+			input.OnKey(key, true);
+			input.OnKey(key, false);
+			m_console.Print("presskey: " + name);
+		});
 	// --- the one-pipeline check (Game/DamageLedger.h, docs/effects.md) --------
 	// The same three-command shape the allocation guard uses, for the same
 	// reason: a readout, an arming switch, and a way to make it FAIL on purpose.

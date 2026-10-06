@@ -436,6 +436,14 @@ void AssetDialog::Update(const Input& input, float width, float height, float dt
 		Rebuild(m_theme);
 	}
 	if (m_busy) return; // a bake is running — ignore form input until it finishes
+	// Esc is the close box, as in every other dialog (it had none, so the
+	// keyboard could not leave this one) - once an open list or colour picker
+	// has had it: those close themselves in the walk below (code-review C81).
+	// Nothing to revert: the form writes nothing until Create.
+	if (input.WasKeyPressed(vk::Escape) && !m_ui->PopupOpen()) {
+		Close();
+		return;
+	}
 	m_ui->Update(input, width, height);
 	// The refusal reason follows what is TYPED, which does not rebuild the tree.
 	if (m_problemLabel) {

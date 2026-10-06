@@ -298,7 +298,8 @@ void MonsterConfigDialog::Update(const Input& input, float w, float h) {
 	const float fh = std::clamp(h * 0.020f, 12.0f, 24.0f);
 	m_ui.UseFont(ui::FontRole::Body, fh);
 
-	if (input.WasKeyPressed(VK_ESCAPE)) {
+	// An open list takes the Esc first and closes itself in the walk (C81).
+	if (input.WasKeyPressed(VK_ESCAPE) && !m_ui.PopupOpen()) {
 		Cancel();
 		return;
 	}

@@ -3557,3 +3557,17 @@ and answers: docs/transparency-notes.md; each phase's AS BUILT is in the plan.
   Yes/No confirm modals (their explicit choice
   buttons aren't a "Close") and the full-screen menu/settings/save PAGES (Back
   is page navigation, not a dialog dismiss).
+  ESC BACKS OUT ONE LAYER, in every dialog (code-review C81): an open
+  drop-down or colour picker closes itself on Esc, so a dialog that acts on
+  Esc asks `UIContext::PopupOpen()` FIRST and leaves the key to the list - it
+  used to close the dialog round it, and in the inspectors and Level settings
+  revert every live edit too. A NEW dialog's Esc takes the same gate. The
+  create dialog (AssetDialog) closes on Esc like the rest (it had none). The
+  editor map's ladder: the level drop-down, then a drag, then the armed brush,
+  then the map; the world editor's: the terrain brush, then the pause menu.
+  CHECKED by EditorTest phase 22 (tools/EvalScripts/dialogesc.eval), whose
+  Escs are KEYS: `presskey esc` presses and releases one in the frame after
+  the line, so it goes through the frame's own input path rather than a
+  handler called by name; a list is opened by `... popup <n>` (UIContext::
+  OpenPopupNext - the n-th shown widget with a popup, opened as a press on
+  its face does, at that context's next Update).

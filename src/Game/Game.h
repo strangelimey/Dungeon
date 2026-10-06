@@ -1307,6 +1307,11 @@ private:
 	// harness - each the call its control makes.
 	void InspectorCommand(const std::vector<std::string>& args);
 	void RouteCommand(const std::vector<std::string>& args);
+	// `editor levelsettings|newasset|levellist|arm ...` (Game_Inspect.cpp): the
+	// editor's other dialogs and its level drop-down opened and pressed as their
+	// controls are, and where each stands - what a check of the Esc ladders
+	// (code-review C81, `presskey esc`) reads between keys.
+	void EditorDialogCommand(const std::vector<std::string>& args);
 	// Live animation preview for the monster dialog (and a monster inspector's,
 	// which shares the Animator): an Animator over the selected type's
 	// (borrowed) skeleton+clips, rendered into m_modelPreview and blitted into the

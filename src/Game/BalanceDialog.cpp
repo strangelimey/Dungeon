@@ -250,7 +250,9 @@ void BalanceDialog::Update(const Input& input, float w, float h) {
 		return;
 	}
 
-	if (input.WasKeyPressed(VK_ESCAPE)) { // cancel: revert live to the snapshot
+	// Cancel: revert live to the snapshot - once no open list is there to take
+	// the Esc for itself (code-review C81).
+	if (input.WasKeyPressed(VK_ESCAPE) && !m_ui.PopupOpen()) {
 		if (onApply) onApply(m_original);
 		Close();
 		return;

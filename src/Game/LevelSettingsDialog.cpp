@@ -37,9 +37,9 @@ constexpr float kLabelFill = 1.4f, kFieldFill = 1.0f;
 
 // A numeric text field: shows `value` ({:g}), and while edited writes every
 // PARSEABLE state back through `commit` (the live-apply pattern the Balance
-// dialog uses; an in-progress "" / "-" / "0." just waits).
-void AddNumericField(ui::Stack& row, ui::Len len, float value,
-					 std::function<void(float)> commit) {
+// dialog uses; an in-progress "" / "-" / "0." just waits). Returns the field.
+ui::TextField* AddNumericField(ui::Stack& row, ui::Len len, float value,
+							   std::function<void(float)> commit) {
 	auto* field = row.Row<ui::TextField>(len, std::format("{:g}", value));
 	field->fontRole = ui::FontRole::Mono; // a numeric readout, like Balance's
 	field->fontScale = 1.0f; // ...and sized to its digits, so it stays put while
@@ -52,6 +52,7 @@ void AddNumericField(ui::Stack& row, ui::Len len, float value,
 		const auto [p, ec] = std::from_chars(t.data(), t.data() + t.size(), v);
 		if (ec == std::errc() && p == t.data() + t.size()) commit(v);
 	};
+	return field;
 }
 } // namespace
 
@@ -85,10 +86,19 @@ void LevelSettingsDialog::Open(const std::string& stem, float dust, float haze,
 	BuildUI();
 }
 
+bool LevelSettingsDialog::TypeNumber(size_t row, const std::string& text) {
+	if (!m_open || row >= kNumberRows || !m_numberFields[row]) return false;
+	ui::TextField* field = m_numberFields[row];
+	field->text = text;
+	if (field->onChange) field->onChange();
+	return true;
+}
+
 void LevelSettingsDialog::BuildUI() {
 	m_ui.Clear();
 	m_nameField = nullptr;
 	m_sampleBox = nullptr;
+	m_numberFields = {};
 	// The title band is the dialog's own: either the prefix + rename affordance,
 	// or the rename field standing in for it. Either way it is a WIDGET in the
 	// band the chrome reserved, so it cannot land on the rows beneath.
@@ -140,19 +150,20 @@ void LevelSettingsDialog::BuildUI() {
 		const char* labelKey;
 		float* value;
 	};
-	const Row rows[3] = {{"map.level.dust", &m_dust},
-						 {"map.level.haze", &m_haze},
-						 {"map.level.ambient", &m_ambient}};
-	for (const Row& r : rows) {
+	const Row rows[kNumberRows] = {{"map.level.dust", &m_dust},
+								   {"map.level.haze", &m_haze},
+								   {"map.level.ambient", &m_ambient}};
+	for (size_t i = 0; i < kNumberRows; ++i) {
+		const Row& r = rows[i];
 		ui::Stack* row = chrome.body->Row<ui::Stack>(FormRow(), true);
 		row->gapRem = 0.5f;
 		row->Row<ui::Label>(ui::Len::Fill(kLabelFill), loc::Tr(r.labelKey))->centerV =
 			true;
-		AddNumericField(*row, ui::Len::Fill(kFieldFill), *r.value,
-						[this, v = r.value](float f) {
-							*v = f;
-							Apply();
-						});
+		m_numberFields[i] = AddNumericField(*row, ui::Len::Fill(kFieldFill), *r.value,
+											[this, v = r.value](float f) {
+												*v = f;
+												Apply();
+											});
 	}
 	// The tags row. A text field, not a dropdown: tags are free-form words that
 	// content joins by being tagged, so there is no closed list to offer — and
@@ -256,7 +267,9 @@ void LevelSettingsDialog::Update(const Input& input, float w, float h) {
 		BuildUI();
 	}
 
-	if (input.WasKeyPressed(VK_ESCAPE)) {
+	// An open material list takes the Esc first (it closes itself in the walk
+	// below); the dialog, and the numbers it is previewing, stay (C81).
+	if (input.WasKeyPressed(VK_ESCAPE) && !m_ui.PopupOpen()) {
 		if (m_editName) { // first Esc only cancels the name edit
 			m_editName = false;
 			m_uiRebuild = true;

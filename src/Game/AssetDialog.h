@@ -106,8 +106,14 @@ public:
 		m_busy = false;
 	}
 
-	// Modal input (the owner routes nothing else while open) + preview spin.
+	// Modal input (the owner routes nothing else while open) + preview spin. Esc
+	// closes, as the close box does, unless a list is open to take it.
 	void Update(const Input& input, float width, float height, float dt);
+	// A press on the n-th drop-down (or the colour picker) the form shows
+	// (`editor newasset popup <n>`; opened at the next Update), and whether one
+	// is open - what Esc asks before it closes the dialog (code-review C81).
+	void OpenPopup(int n) { m_ui->OpenPopupNext(n); }
+	bool PopupOpen() const { return m_ui->PopupOpen(); }
 	// Draws the dim wash, panel, and form. The owner draws the preview image at
 	// PreviewRect afterwards (it owns the ModelPreview render target).
 	void Render(gfx::SpriteBatch& batch, float width, float height);

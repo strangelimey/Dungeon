@@ -80,6 +80,11 @@ public:
 	// The tab showing, and how many there are (one per knob group + Presets).
 	int ActiveTab() const { return m_tabs ? m_tabs->ActiveTab() : m_activeTab; }
 	static int TabCount();
+	// A press on the n-th drop-down the dialog shows (`generate dialog popup
+	// <n>`; opened at the next Update), and whether one is open - what Esc
+	// asks before it closes the dialog (code-review C81).
+	void OpenPopup(int n) { m_ui.OpenPopupNext(n); }
+	bool PopupOpen() const { return m_ui.PopupOpen(); }
 
 	// The knobs, as last set. Seeded by the owner at startup from settings.ini.
 	const generate::Params& Knobs() const { return m_params; }

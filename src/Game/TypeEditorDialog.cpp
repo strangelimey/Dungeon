@@ -777,7 +777,9 @@ void TypeEditorDialog::Update(const Input& input, float w, float h) {
 			m_helpOpen = false;
 		return;
 	}
-	if (input.WasKeyPressed(VK_ESCAPE)) {
+	// An open list or colour picker takes the Esc first and closes itself in
+	// the walk below (code-review C81).
+	if (input.WasKeyPressed(VK_ESCAPE) && !m_ui.PopupOpen()) {
 		if (m_confirming) { // Esc is "no": back to the form, not out of the dialog
 			LeaveConfirm();
 			return;

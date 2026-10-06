@@ -26,6 +26,18 @@ bool StartWalkUnclipped(const char* walk) {
 	return true;
 }
 
+// The n-th widget under `w` that owns a popup, among those the passes reach
+// (Widget::ChildShown - a hidden tab page or a row scrolled out is not
+// pressable), depth first in add order; `n` counts down as they are passed.
+Widget* NthPopupOwner(const Widget& w, int& n) {
+	for (const std::unique_ptr<Widget>& child : w.Children()) {
+		if (!w.ChildShown(*child)) continue;
+		if (child->HasPopup() && n-- == 0) return child.get();
+		if (Widget* found = NthPopupOwner(*child, n)) return found;
+	}
+	return nullptr;
+}
+
 } // namespace
 
 UIContext::UIContext(gfx::GraphicsDevice& device, const std::string& fontPath,
@@ -77,6 +89,12 @@ void UIContext::Update(const Input& input, float width, float height) {
 	// Resolve the whole tree, then walk it for input (children before their
 	// parent, in reverse add order — see Widget.h).
 	m_root.Layout(window, *this);
+	// A harness's press (OpenPopupNext), on the tree just laid out.
+	if (m_openPopupNext >= 0) {
+		int n = m_openPopupNext;
+		m_openPopupNext = -1;
+		if (Widget* owner = NthPopupOwner(m_root, n)) owner->OpenPopup(*this);
+	}
 	m_root.Update(*this);
 	m_input = nullptr;
 }

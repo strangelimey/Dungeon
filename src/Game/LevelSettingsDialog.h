@@ -31,6 +31,7 @@
 #include "UI/Font.h"
 #include "UI/UIContext.h"
 
+#include <array>
 #include <functional>
 #include <string>
 #include <vector>
@@ -66,7 +67,23 @@ public:
 
 	const std::string& Level() const { return m_stem; }
 
-	// Modal input: routes to the widget tree and handles Esc (revert + close).
+	// --- the harness's hands (`editor levelsettings`) -------------------------
+	// What typing `text` into number row `row` (0 dust, 1 haze, 2 ambient) does:
+	// the field's text set and its own onChange fired, so a parseable value is
+	// previewed live. False = not open or no such row.
+	static constexpr size_t kNumberRows = 3;
+	bool TypeNumber(size_t row, const std::string& text);
+	// The working copy the rows hold (what Save would commit).
+	float Dust() const { return m_dust; }
+	float Haze() const { return m_haze; }
+	float Ambient() const { return m_ambient; }
+	// A press on the n-th drop-down the dialog shows (opened at the next
+	// Update), and whether one is open - what Esc asks first (code-review C81).
+	void OpenPopup(int n) { m_ui.OpenPopupNext(n); }
+	bool PopupOpen() const { return m_ui.PopupOpen(); }
+
+	// Modal input: routes to the widget tree and handles Esc (revert + close),
+	// once no drop-down is open to take it.
 	void Update(const Input& input, float width, float height);
 	// Dim wash + panel frame + title + the widget tree.
 	void Render(gfx::SpriteBatch& batch, const ui::Theme& theme, float width,
@@ -137,6 +154,8 @@ private:
 	}
 	// The sample strip's area (a Box row); valid until the next Clear.
 	ui::Widget* m_sampleBox = nullptr;
+	// The number rows' fields, for TypeNumber; valid until the next Clear.
+	std::array<ui::TextField*, kNumberRows> m_numberFields{};
 
 	// Inline name edit (click the stem). The rebuild after entering/leaving
 	// edit mode is DEFERRED to the next Update when triggered from a widget

@@ -1,0 +1,109 @@
+; dialogesc.eval - Esc backs out ONE layer, whatever is open (code-review C81).
+; Judged by tools/EditorTest.py phase 24, on its scratch world.
+;
+; Every Esc here is a KEY (`presskey esc`): pressed and let go in the frame
+; after the line, so it goes through the frame's own input path - the dialog's
+; Update, the editor's ladder, the travel screen's - and not a handler called
+; by name, which would skip the very ordering under test. A drop-down is opened
+; as a press on its face opens it (`... popup <n>`, at the dialog's next
+; Update); each status line between the keys reads where things stand.
+;
+;   --- inspector ---  the warrior at 23,9 made a Caster (a live edit), its
+;                      Facing list opened: the first Esc closes the list and
+;                      leaves the dialog and the edit; the second cancels the
+;                      dialog, and reopened the warrior is what it was.
+;   --- level ---      Level settings, dust typed in (previewed live), the
+;                      material list opened: the first Esc keeps the dialog and
+;                      the dust; the second closes it and puts the dust back.
+;   --- generate ---   the Generate dialog's Style list: the first Esc keeps
+;                      the dialog, the second closes it.
+;   --- newworld ---   the New world dialog's level list: the same.
+;   --- asset ---      the create dialog (decorations' "+ New..."), which had no
+;                      Esc at all: its source list takes the first, the dialog
+;                      the second.
+;   --- levellist ---  a brush armed, then the toolbar's level list: the first
+;                      Esc closes only the list, the second puts the brush
+;                      down, the third closes the editor.
+;   --- world ---      the world editor with a terrain brush armed: the first
+;                      Esc puts the brush down, the second pauses, the third
+;                      resumes on the travel screen.
+
+logecho on
+reset
+timescale 0
+echo --- inspector ---
+editor inspect 23 9
+editor inspector
+editor inspector archetype caster
+editor inspector popup 0
+editor inspector popup
+presskey esc
+editor inspector
+editor inspector popup
+presskey esc
+editor inspector
+editor inspect 23 9
+editor inspector
+editor inspector esc
+echo --- level ---
+dust
+editor levelsettings open
+editor levelsettings dust 0.31
+dust
+editor levelsettings popup 0
+editor levelsettings
+presskey esc
+editor levelsettings
+dust
+presskey esc
+editor levelsettings
+dust
+echo --- generate ---
+generate dialog
+generate dialog tab 3
+generate dialog popup 0
+generate dialog popup
+presskey esc
+generate dialog popup
+presskey esc
+generate dialog popup
+echo --- newworld ---
+worlds newdialog
+worlds newdialog popup 0
+worlds newdialog popup
+presskey esc
+worlds newdialog popup
+presskey esc
+worlds newdialog popup
+echo --- asset ---
+editor newasset decorations
+editor newasset popup 0
+editor newasset
+presskey esc
+editor newasset
+presskey esc
+editor newasset
+echo --- levellist ---
+editor arm decorations column
+editor levellist open
+editor levellist
+presskey esc
+editor levellist
+presskey esc
+editor levellist
+presskey esc
+editor levellist
+echo --- world ---
+worldedit on
+worldmap on
+terrainbrush moor
+presskey esc
+terrainbrush
+state
+presskey esc
+state
+presskey esc
+state
+worldmap off
+worldedit off
+echo --- end ---

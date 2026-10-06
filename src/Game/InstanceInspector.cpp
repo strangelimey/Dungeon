@@ -187,7 +187,9 @@ void InstanceInspector::Update(const Input& input, float w, float h) {
 	if (!m_open) return;
 	m_ui.UseFont(ui::FontRole::Body, std::clamp(h * 0.020f, 12.0f, 24.0f));
 
-	if (input.WasKeyPressed(VK_ESCAPE)) {
+	// Esc belongs to an open drop-down first: it closes itself in the walk
+	// below, and the dialog - with every live edit it holds - stays (C81).
+	if (input.WasKeyPressed(VK_ESCAPE) && !m_ui.PopupOpen()) {
 		Cancel();
 		return;
 	}

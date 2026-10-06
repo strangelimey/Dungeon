@@ -105,6 +105,11 @@ public:
 	// as its strip's click makes it.
 	int ActiveTab() const;
 	void SelectTab(int tab);
+	// A press on the n-th drop-down the dialog shows (`editor inspector popup
+	// <n>`; opened at the next Update), and whether one is open - what Esc
+	// asks before it cancels the dialog (code-review C81).
+	void OpenPopup(int n) { m_ui.OpenPopupNext(n); }
+	bool PopupOpen() const { return m_ui.PopupOpen(); }
 
 	// Optional Delete action: when the OWNER sets this before Open, the footer
 	// shows a Delete button beside Save (in the old Close slot — closing moved

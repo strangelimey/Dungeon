@@ -2256,6 +2256,9 @@ void Game::UpdateStates(float dt) {
 			return;
 		}
 		if (input.WasKeyPressed(VK_ESCAPE) && !m_console.IsOpen()) {
+			// In the world editor Esc puts an armed terrain brush down first,
+			// as the level editor's ladder does, and only then pauses (C81).
+			if (m_worldMapView.Disarm()) return;
 			m_audio.Play(m_sounds.click, 0.5f);
 			m_ui.ResetToMainPage();
 			m_ui.RebuildPauseMenu();
@@ -2489,6 +2492,11 @@ void Game::UpdateStates(float dt) {
 	// (The world view's overlay flag was derived above, before the console's
 	// early return - see SetOverlay there.)
 	if (m_mapView.IsOpen()) {
+		// The editor's level drop-down is the topmost thing on the map: an Esc
+		// while it is open closes it and nothing else - not the route under it,
+		// not the brush, not the editor (code-review C81).
+		if (!typingFilter && input.WasKeyPressed(VK_ESCAPE) && m_mapView.CloseLevelList())
+			return;
 		// While laying a patrol route (grid clicks lay waypoints), keys finish/undo
 		// it - ahead of the overlay's own Esc-to-close. On the editor map only
 		// (RouteKeyPressed says no anywhere else).
@@ -2499,9 +2507,9 @@ void Game::UpdateStates(float dt) {
 				return; // back to the inspector
 		}
 		// Esc in the editor backs out one layer at a time (the rule for Esc
-		// everywhere): a drag in progress is let go, then an armed brush is put
-		// down (play-test #2: "we'll need a way to 'disarm' the brush"), and only
-		// then does the map close.
+		// everywhere): the level drop-down above, then a drag in progress is let
+		// go, then an armed brush is put down (play-test #2: "we'll need a way to
+		// 'disarm' the brush"), and only then does the map close.
 		if (!typingFilter && input.WasKeyPressed(VK_ESCAPE) &&
 			m_mapView.CurrentMode() == MapView::Mode::Editor) {
 			if (m_mapEditor.Moving()) {
