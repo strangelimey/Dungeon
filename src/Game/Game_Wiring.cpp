@@ -186,12 +186,34 @@ void Game::WireModuleCallbacks() {
 	// Video tab Apply: a monitor/resolution/mode change rebuilds the swapchain in
 	// place; an adapter change can't (the device is bound to its GPU), so it
 	// persists the choice and relaunches.
-	m_ui.onVideoApply = [this] {
+	m_ui.onVideoApply = [this](const DisplayChoice& choice, bool persist) {
+		ApplyDisplay(choice);
+		// A script's apply (`video apply` in an eval) is applied and never
+		// saved, like its `lang`: the harnesses share the settings.ini of the
+		// build Michael plays, and a run that died mid-script must not leave
+		// his game booting in its display mode.
+		if (!persist) return;
+		m_settings.adapterLuid = choice.adapterLuid;
+		m_settings.displayOutput = choice.output;
+		m_settings.fullscreen = choice.mode;
+		// Windowed saves the size the window GOT: one its monitor's work area
+		// cannot hold is shrunk to fit (code-review C196), and the next boot
+		// should open at what is on screen now, not repeat the shrink.
+		const bool windowed = choice.mode == gfx::FullscreenMode::Windowed;
+		m_settings.displayWidth = static_cast<int>(windowed ? m_window.Width() : choice.width);
+		m_settings.displayHeight = static_cast<int>(windowed ? m_window.Height() : choice.height);
 		m_settings.Save();
-		ApplyDisplaySettings();
 	};
-	m_ui.onAdapterRestart = [this] {
+	m_ui.onAdapterRestart = [this](const DisplayChoice& choice) {
+		m_settings.adapterLuid = choice.adapterLuid;
+		m_settings.displayOutput = choice.output;
+		m_settings.displayWidth = static_cast<int>(choice.width);
+		m_settings.displayHeight = static_cast<int>(choice.height);
+		m_settings.fullscreen = choice.mode;
 		m_settings.Save();
+		// Saved first: a relaunch that does not start leaves this run going on
+		// its adapter, and the choice waits for the next launch (RestartApp says
+		// so in the log).
 		RestartApp();
 	};
 	// The sheet's defense breakdown: only the world can resolve worn items,

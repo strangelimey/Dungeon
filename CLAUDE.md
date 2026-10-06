@@ -37,7 +37,14 @@ Built collaboratively with Claude across sessions; this file is the handoff.
   Core get `assetbaker.log`, `bc7test.log`, `threadstress.log`. That matters
   because they all share `build\<cfg>\bin`: with the old hardcoded name an
   asset import silently truncated the GAME's log and wrote its own output
-  over it, which destroyed the evidence mid-debug once.
+  over it, which destroyed the evidence mid-debug once. A clean run's LAST line
+  is `Dungeon exited (code N).`, written after the game, the device and the
+  window are torn down (Main's ExitLine); a log without it was cut off. The one
+  run that does NOT truncate is a RELAUNCH (Game::RestartApp's child, given
+  `-relaunched <parent pid>`): it waits for the parent to exit before it opens
+  the file, then APPENDS, so the log reads as the parent's run whole, a
+  `relaunched by pid N` line, then the child's (code-review C398; it used to
+  truncate the parent's shutdown away).
 - A CRASH also drops a MINIDUMP beside the exe — `dungeon-<fault|fatal|
   terminate>-<pid>-<n>.dmp`, up to 3 a run, ~34 MB each (ignored by the blanket
   `build/` rule AND by an explicit `*.dmp`, since one accidental commit of one
@@ -1652,15 +1659,46 @@ mode (Windowed/Borderless/Exclusive fullscreen). The list comes from
 gfx::EnumerateAdapters (Graphics/DisplayEnum.*, a device-independent DXGI walk,
 also read by Main at boot); adapter/monitor render as a plain Label when only
 one exists, else a DropDown. The selection is STAGED (GameUI::m_selAdapter/
-Output/Res/Mode, separate from GameSettings) and committed by an Apply button —
-only Video uses Apply, every other control is live. A monitor/resolution/mode
-change applies in place (Game::ApplyDisplaySettings → Window::SetWindowed /
-SetBorderless or GraphicsDevice::SetFullscreen, all of which resize the
-swapchain through the usual onResize path). An adapter change can't be done in
-place (the device is bound to its GPU), so it pops a Yes/No confirm modal
-(GameUI::m_confirmUi, drawn over the page; Esc = No) and on confirm persists +
-relaunches the exe (Game::RestartApp via platform::Process); the new process
-binds the chosen adapter by LUID (GraphicsDevice ctor's preferredAdapterLuid).
+Output/Size/Mode, separate from GameSettings; re-seeded each time the page
+opens, GameUI::RestageVideo) and committed by an Apply button -
+only Video uses Apply, every other control is live. The staged resolution is a
+SIZE, not an index into the monitor's modes: Windowed stages the window's
+client AS IT IS, and the Resolution list shows it among the modes when no mode
+matches (code-review C196: a saved 0x0 matched nothing and staged the native
+mode, so an untouched Apply made a window taller than the screen). A
+monitor/resolution/mode change applies in place (Game::ApplyDisplay, in
+Game_Display.cpp, → Window::SetWindowed / SetBorderless or
+GraphicsDevice::SetFullscreen, all of which resize the swapchain through the
+usual onResize path); a Windowed window is centred in the CHOSEN monitor's
+WORK AREA (gfx::OutputInfo::work*, the desktop less the taskbar) and shrunk
+until its frame fits it, and the size it got is what is saved. An adapter
+change can't be done in place (the device is bound to its GPU), so it pops a
+Yes/No confirm modal (GameUI::m_confirmUi, drawn over the page; Esc = No) and
+on confirm persists + relaunches the exe (Game::RestartApp via
+platform::Process); the new process binds the chosen adapter by LUID
+(GraphicsDevice ctor's preferredAdapterLuid). The relaunch (code-review C398)
+starts THIS exe by its own path (paths::ExecutablePath) with this run's
+arguments - `-project` keeps its world - LESS any `-eval` and its scripts (the
+child would run them again, and one ending in a restart would never stop),
+plus `-relaunched <pid>`; it quits only when the child started, and the child
+waits for it to exit before touching the log or the display (see the log
+bullet up top). A child that keeps `-headless` and so loses its script has
+nothing to drive it: ANY headless run given no script quits once its boot load
+lands (Main -> Game::QuitOnceLoaded), rather than idle unseen until killed.
+The staging is seeded again from what is live whenever Settings opens
+(GameUI::RefreshSettingsPage, both menus' entry) and once after the boot's
+ApplyDisplaySettings. Dev: `video status` (a line each for STAGED, RUNNING - read off
+the device and the window, never the settings - and SAVED, then the staged
+adapter's monitors with their work areas), `video apply [windowed|borderless|
+exclusive] [<w>x<h>|native] [monitor <n>|last]` (stages as the tab's controls
+would, then the tab's own Apply; a SCRIPT's apply is applied and never saved,
+like its `lang`, and a hidden window refuses Exclusive), `video restage` (what
+opening Settings does), `video restart`. Checked by `tools\DisplayTest.py`
+(CheckAll `display`, full tier: a shown window moved over every monitor - the
+last-monitor check is SKIPPED on a one-monitor machine and the verdict line's
+`monitors=` says how many there were; it REFUSES, exit 2, a settings.ini saving
+Borderless or Exclusive - and a relaunch whose child keeps `-project`, appends
+after the parent's whole log and quits by itself).
 Changing the adapter/monitor dropdown also repopulates the dependent lists by
 rebuilding the settings page next frame (GameUI::m_videoRebuildPending →
 ApplyPendingVideoRebuild, deferred like the language switch since the rebuild
@@ -3040,7 +3078,7 @@ Full per-phase history + gotchas live in the editor-overhaul memory.
   `SELF-TEST PASS|FAIL` line never contradicts the `caught=` after it.
   WHAT THE TIERS RUN is `CheckAll.ps1 -List` (quick adds RollTest, `docs`, `verdict`, `lang`
   and `template`; full adds Eval's runner self-test, EditorTest, WorldTest,
-  LevelBuildTest, QuitTest, StaleTest and `convertmesh`), and the /check-*
+  LevelBuildTest, QuitTest, DisplayTest, StaleTest and `convertmesh`), and the /check-*
   command files carry those lists GENERATED by
   `tools\CheckDocs.ps1` - after changing a row, run it with `-Write`, or the
   quick tier's `docs` check fails.

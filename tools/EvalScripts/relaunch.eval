@@ -1,0 +1,23 @@
+; relaunch.eval - the GPU switch's relaunch (code-review C398). JUDGED by
+; tools\DisplayTest.py, which runs it with `-project <a scratch world>` and
+; reads dungeon.log - the parent's lines, then the child's, which must APPEND
+; once the parent has gone:
+;
+;   the child is this exe by its own path, with the parent's arguments
+;   (`-project` keeps the world) less this script, and `-relaunched <pid>`;
+;   it waits for the parent to EXIT before it writes a line, so the parent's
+;   log is whole - its start, the relaunch, its shutdown and its last line,
+;   "Dungeon exited", written after the game and the device are torn down -
+;   and comes first; and it opens the world the parent was given.
+;
+; A game is started first so the parent has a world to tear down: on the title
+; screen the parent is gone before a child that does not wait has written
+; anything, and the wait would go unchecked.
+;
+; The run never reaches a verdict line: `video restart` quits the game at the
+; end of its frame, which is the point. The child keeps `-headless` and loses
+; this script, so nothing can drive it: it must quit on its own once its boot
+; load lands (Game::QuitOnceLoaded). The judge kills it only if it does not.
+newgame
+video status
+video restart

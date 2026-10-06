@@ -353,6 +353,12 @@ void GraphicsDevice::SetFullscreen(bool exclusive, u32 outputIndex, u32 width,
 	RecreateSwapChainBuffers();
 }
 
+bool GraphicsDevice::IsExclusive() const {
+	BOOL fullscreen = FALSE;
+	if (m_swapchain) m_swapchain->GetFullscreenState(&fullscreen, nullptr);
+	return fullscreen != FALSE;
+}
+
 // ----------------------------------------------------------------------------
 // Frame loop. BeginFrame/EndFrame bracket all rendering for one frame:
 //   BeginFrame: throttle on the slot's fence → reset allocator/list →

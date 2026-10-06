@@ -7,6 +7,8 @@
 #include <Windows.h>
 #include <windowsx.h>
 
+#include <algorithm>
+
 namespace dungeon {
 
 namespace {
@@ -55,24 +57,67 @@ Window::~Window() {
 	UnregisterClassW(kClassName, GetModuleHandleW(nullptr));
 }
 
-void Window::SetWindowed(u32 width, u32 height) {
+void Window::SetWindowed(u32 width, u32 height, const ScreenRect* workArea) {
 	const HWND hwnd = reinterpret_cast<HWND>(m_hwnd);
 	SetWindowLongPtrW(hwnd, GWL_STYLE, WS_OVERLAPPEDWINDOW);
+	m_borderless = false;
 
-	RECT rect{0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
-	AdjustWindowRect(&rect, WS_OVERLAPPEDWINDOW, FALSE);
-	const int ww = rect.right - rect.left;
-	const int wh = rect.bottom - rect.top;
-	const int sw = GetSystemMetrics(SM_CXSCREEN);
-	const int sh = GetSystemMetrics(SM_CYSCREEN);
-	SetWindowPos(hwnd, HWND_TOP, (sw - ww) / 2, (sh - wh) / 2, ww, wh, ShowFlags());
+	// Where it goes: the chosen monitor's work area, else the one it is on now.
+	const ScreenRect work = workArea ? *workArea : MonitorWorkArea();
+
+	// The frame round a client: AdjustWindowRect grows an empty rect by exactly
+	// the border and title bar, so the outer size is the client plus this.
+	RECT frame{0, 0, 0, 0};
+	AdjustWindowRect(&frame, WS_OVERLAPPEDWINDOW, FALSE);
+	const int frameW = frame.right - frame.left;
+	const int frameH = frame.bottom - frame.top;
+
+	// SHRUNK TO FIT: a client whose frame would not fit the work area is cut
+	// down until it does, so the title bar is never off the screen and the
+	// taskbar never covered. The size is the CLIENT's (the swapchain's), and
+	// what it was cut to is what a caller reads back from Width / Height.
+	const int clientW = std::clamp(static_cast<int>(width), 1, std::max(1, work.width - frameW));
+	const int clientH = std::clamp(static_cast<int>(height), 1, std::max(1, work.height - frameH));
+	if (clientW != static_cast<int>(width) || clientH != static_cast<int>(height))
+		log::Info("windowed {}x{} does not fit the monitor's work area ({}x{} with a {}x{} "
+				  "frame) - {}x{}",
+				  width, height, work.width, work.height, frameW, frameH, clientW, clientH);
+	const int ww = clientW + frameW;
+	const int wh = clientH + frameH;
+	SetWindowPos(hwnd, HWND_TOP, work.x + (work.width - ww) / 2, work.y + (work.height - wh) / 2,
+				 ww, wh, ShowFlags());
 }
 
 void Window::SetBorderless(int x, int y, u32 width, u32 height) {
 	const HWND hwnd = reinterpret_cast<HWND>(m_hwnd);
 	SetWindowLongPtrW(hwnd, GWL_STYLE, WS_POPUP | (m_hidden ? 0 : WS_VISIBLE));
+	m_borderless = true;
 	SetWindowPos(hwnd, HWND_TOP, x, y, static_cast<int>(width),
 				 static_cast<int>(height), ShowFlags());
+}
+
+ScreenRect Window::FrameRect() const {
+	RECT r{};
+	GetWindowRect(reinterpret_cast<HWND>(m_hwnd), &r);
+	return {r.left, r.top, r.right - r.left, r.bottom - r.top};
+}
+
+void* Window::Monitor() const {
+	return MonitorFromWindow(reinterpret_cast<HWND>(m_hwnd), MONITOR_DEFAULTTONEAREST);
+}
+
+ScreenRect Window::MonitorWorkArea() const {
+	MONITORINFO info{};
+	info.cbSize = sizeof(info);
+	if (!GetMonitorInfoW(static_cast<HMONITOR>(Monitor()), &info)) {
+		// No monitor answered (there is always a nearest one, but say what the
+		// fallback is): the primary's work area.
+		RECT work{};
+		SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
+		return {work.left, work.top, work.right - work.left, work.bottom - work.top};
+	}
+	const RECT& w = info.rcWork;
+	return {w.left, w.top, w.right - w.left, w.bottom - w.top};
 }
 
 // A shown window is shown (and raised) by a mode change; a hidden one is only

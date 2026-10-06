@@ -71,6 +71,11 @@ const std::string& ExecutableName() {
 	return name;
 }
 
+const std::string& ExecutablePath() {
+	static const std::string path = Utf8(ModulePath());
+	return path;
+}
+
 const std::string& AssetsDir() {
 	static const std::string dir = [] {
 		// A dev build runs straight out of the repo's assets tree: one copy for

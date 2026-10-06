@@ -15,12 +15,14 @@
 #include "Graphics/GraphicsDevice.h"
 #include "Graphics/Renderer.h"
 #include "Graphics/SpriteBatch.h"
+#include "Platform/Process.h" // WaitForProcessExit - a relaunch's wait
 #include "Platform/Window.h"
 
 #include <Windows.h>
 
 #include <shellapi.h> // CommandLineToArgvW — the `-eval` flag
 
+#include <cwchar> // wcstoul
 #include <format>
 #include <string>
 #include <string_view>
@@ -39,6 +41,9 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 	// flight when a lifetime bug frees what they read, so the debug layer can
 	// see one; Eval.ps1 -Warp passes it.
 	bool warp = false;
+	// `-relaunched <pid>`: this run was started by Game::RestartApp in process
+	// <pid> (a GPU switch), which is still shutting down. See below.
+	u32 parentPid = 0;
 	{
 		int argc = 0;
 		LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
@@ -46,8 +51,34 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 			if (std::wstring_view(argv[i]) == L"-headless") headless = true;
 			if (std::wstring_view(argv[i]) == L"-unattended") unattended = true;
 			if (std::wstring_view(argv[i]) == L"-warp") warp = true;
+			if (std::wstring_view(argv[i]) == L"-relaunched" && i + 1 < argc)
+				parentPid = static_cast<u32>(std::wcstoul(argv[i + 1], nullptr, 10));
 		}
 		if (argv) LocalFree(argv);
+	}
+
+	// A RELAUNCH WAITS FOR ITS PARENT before anything else - before the log is
+	// opened, the window made or the device bound (code-review C398). The two
+	// share one dungeon.log, and the child used to truncate it while the parent
+	// was still writing its shutdown; and the parent still holds its display
+	// until it has gone. Once it has, the log is APPENDED to, so the file reads
+	// as the parent's run whole and then this one, the line below between them.
+	// The wait is bounded: a parent that hangs on its way out must not take the
+	// game it asked for down with it.
+	if (parentPid != 0) {
+		constexpr u32 kParentWaitMs = 20000;
+		u32 waitedMs = 0;
+		const bool gone = platform::WaitForProcessExit(parentPid, kParentWaitMs, waitedMs);
+		log::AppendToExisting();
+		if (gone)
+			log::Info("relaunched by pid {}: it exited {} ms after this run began waiting; "
+					  "its log is above, this run's below",
+					  parentPid, waitedMs);
+		else
+			log::Warn("relaunched by pid {}: it was still running after {} ms - starting "
+					  "anyway, so its last lines and this run's first may write over "
+					  "each other",
+					  parentPid, waitedMs);
 	}
 
 #ifdef _DEBUG
@@ -122,6 +153,16 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 	// want that box, to attach a debugger.
 	if (headless || unattended) crash::SetUnattended();
 
+	// The LAST line a run writes: made before the window, the device and the
+	// game, so destroyed - and written - after every one of them is torn down.
+	// It is how a log read later tells a run that EXITED from one that was cut
+	// off, and the line a relaunched child must never write before (code-review
+	// C398: its wait is checked by finding its first line after this one).
+	struct ExitLine {
+		int code = 0;
+		~ExitLine() { log::Info("Dungeon exited (code {}).", code); }
+	} exitLine;
+
 	WindowDesc desc;
 	desc.title = "Dungeon";
 	desc.hidden = headless;
@@ -176,7 +217,16 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 			}
 		}
 		if (argv) LocalFree(argv);
-		if (bad) return 2; // distinct from a FAILING script: this one never ran
+		if (bad) { // distinct from a FAILING script: this one never ran
+			exitLine.code = 2;
+			return 2;
+		}
+		// HEADLESS WITH NO SCRIPT: nothing can drive it - no window to click, no
+		// console to type in - and nothing in it ends it, so it quits once its
+		// boot load lands (Game::QuitOnceLoaded). The case that needed it is a
+		// relaunch from a headless eval run, which keeps `-headless` and drops
+		// the script; it used to sit on an invisible title screen until killed.
+		if (headless && first) game.QuitOnceLoaded();
 	}
 
 	Timer timer;
@@ -386,5 +436,6 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 	// command AND the queue emptied. A run that timed out fails even though every
 	// line it managed to run succeeded. An ordinary play session has no script,
 	// and EvalExitCode is 0 for it.
-	return game.EvalExitCode();
+	exitLine.code = game.EvalExitCode();
+	return exitLine.code;
 }

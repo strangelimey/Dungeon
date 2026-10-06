@@ -37,12 +37,22 @@ const char* Prefix(Level level) {
 // (2026-08-05), and CLAUDE.md points at dungeon.log as THE diagnostic.
 // The game's file keeps its documented name; the tools get assetbaker.log,
 // bc7test.log, threadstress.log.
+//
+// A RELAUNCHED game appends instead (AppendToExisting, set before the first
+// Write and read only at this open).
+bool g_append = false;
+
 FILE* LogFile() {
 	static const std::unique_ptr<FILE, decltype(&fclose)> file(
-		fopen(FilePath().c_str(), "w"), &fclose);
+		fopen(FilePath().c_str(), g_append ? "a" : "w"), &fclose);
 	return file.get();
 }
 } // namespace
+
+void AppendToExisting() {
+	std::lock_guard lock(g_mutex);
+	g_append = true;
+}
 
 const std::string& FilePath() {
 	static const std::string path =

@@ -418,7 +418,7 @@ void GameUI::BuildMenuList() {
 	menu->AddItem(loc::Tr("menu.settings"), [this] {
 		Click();
 		m_menuPage = MenuPage::Settings;
-		SyncMemberColorPickers();
+		RefreshSettingsPage();
 	});
 	// Exit LAST, the way the pause menu ends with it. Deliberately the only click
 	// that quits from here, since Esc no longer does.
@@ -607,8 +607,7 @@ void GameUI::BuildSettings() {
 				Click();
 				if (index == m_selAdapter) return;
 				m_selAdapter = index; // monitor/resolution lists depend on it
-				m_selOutput = 0;
-				m_selRes = 0;
+				m_selOutput = 0;      // the staged size stays (the list shows it)
 				m_videoRebuildPending = true;
 			});
 	} else {
@@ -626,26 +625,45 @@ void GameUI::BuildSettings() {
 				Click();
 				if (index == m_selOutput) return;
 				m_selOutput = index; // resolution list depends on the monitor
-				m_selRes = 0;
 				m_videoRebuildPending = true;
 			});
 	} else {
 		vf->Row<ui::Label>(ui::Len::Fixed(kSetCtrl),
 						   selOutput ? selOutput->name : std::string("—"));
 	}
-	// Resolution supported by the adapter/monitor combination.
+	// Resolution supported by the adapter/monitor combination - and the STAGED
+	// size among them even when the monitor lists no such mode (a Windowed
+	// window dragged to any size), in its place by area, so the page never shows
+	// a size that is not the one Apply would commit (code-review C196).
 	videoLabel("settings.resolution");
 	{
+		std::vector<gfx::DisplayMode> choices;
+		if (selOutput) choices = selOutput->modes;
+		const auto staged = std::find_if(choices.begin(), choices.end(), [&](const gfx::DisplayMode& m) {
+			return m.width == m_selSize.width && m.height == m_selSize.height;
+		});
+		if (staged == choices.end() && m_selSize.width > 0 && m_selSize.height > 0) {
+			const u64 area = u64{m_selSize.width} * m_selSize.height;
+			const auto at = std::find_if(choices.begin(), choices.end(), [&](const gfx::DisplayMode& m) {
+				return u64{m.width} * m.height < area;
+			});
+			choices.insert(at, m_selSize);
+		}
+		int selected = 0;
 		std::vector<std::string> resOptions;
-		if (selOutput)
-			for (const gfx::DisplayMode& m : selOutput->modes)
-				resOptions.push_back(std::format("{} x {}", m.width, m.height));
-		if (resOptions.empty()) resOptions.push_back("—");
+		for (size_t i = 0; i < choices.size(); ++i) {
+			const gfx::DisplayMode& m = choices[i];
+			if (m.width == m_selSize.width && m.height == m_selSize.height)
+				selected = static_cast<int>(i);
+			resOptions.push_back(std::format("{} x {}", m.width, m.height));
+		}
+		if (resOptions.empty()) resOptions.push_back("-");
 		vf->Row<ui::DropDown>(
 			ui::Len::Fixed(kSetCtrl), std::move(resOptions),
-			m_selRes, [this](int index) {
+			selected, [this, choices = std::move(choices)](int index) {
 				Click();
-				m_selRes = index;
+				if (index >= 0 && index < static_cast<int>(choices.size()))
+					m_selSize = choices[static_cast<size_t>(index)];
 			});
 	}
 	// Display mode: Windowed / Borderless / Exclusive full-screen.
@@ -936,7 +954,7 @@ void GameUI::BuildPauseMenu() {
 	menu->AddItem(loc::Tr("menu.settings"), [this] {
 		Click();
 		m_menuPage = MenuPage::Settings;
-		SyncMemberColorPickers();
+		RefreshSettingsPage();
 	});
 	// Out of THIS game and back to the title (Michael, 2026-09-24) — just above
 	// Exit, the other way out. The game stays loaded, as after a party wipe, so
@@ -1415,57 +1433,96 @@ void GameUI::SeedVideoStaging() {
 		m_settings.displayOutput < static_cast<int>(a->outputs.size()))
 		m_selOutput = m_settings.displayOutput;
 
-	// Resolution: match the saved size in the selected output's mode list.
-	m_selRes = 0;
-	if (a && m_selOutput < static_cast<int>(a->outputs.size())) {
-		const auto& modes = a->outputs[static_cast<size_t>(m_selOutput)].modes;
-		for (size_t i = 0; i < modes.size(); ++i)
-			if (static_cast<int>(modes[i].width) == m_settings.displayWidth &&
-				static_cast<int>(modes[i].height) == m_settings.displayHeight) {
-				m_selRes = static_cast<int>(i);
-				break;
-			}
-	}
-
 	m_selMode = m_settings.fullscreen;
+
+	// Size. WINDOWED: the window's client as it is now - what the player is
+	// looking at, whatever size they dragged it to - never "the saved size if
+	// a mode matches it, else the list's first", which staged the NATIVE
+	// resolution on a fresh install (saved 0x0 matches nothing) and made an
+	// untouched Apply a window taller than the screen (code-review C196). The
+	// full-screen modes: the saved size, else the monitor's own.
+	if (m_selMode == gfx::FullscreenMode::Windowed) {
+		m_selSize = {m_window.Width(), m_window.Height()};
+	} else if (m_settings.displayWidth > 0 && m_settings.displayHeight > 0) {
+		m_selSize = {static_cast<u32>(m_settings.displayWidth),
+					 static_cast<u32>(m_settings.displayHeight)};
+	} else if (a && m_selOutput < static_cast<int>(a->outputs.size())) {
+		const gfx::OutputInfo& o = a->outputs[static_cast<size_t>(m_selOutput)];
+		m_selSize = {static_cast<u32>(o.width), static_cast<u32>(o.height)};
+	} else {
+		m_selSize = {m_window.Width(), m_window.Height()};
+	}
 }
 
-void GameUI::OnVideoApply() {
-	if (m_adapters.empty() || m_selAdapter >= static_cast<int>(m_adapters.size()))
-		return;
-	const gfx::AdapterInfo& a = m_adapters[static_cast<size_t>(m_selAdapter)];
+// What opening the Settings page does to it - from the title and the pause menu
+// alike, and `video restage`, so a check of the one is a check of the others:
+// the Party Colors rows follow the party, and a fresh edit stages what is live.
+void GameUI::RefreshSettingsPage() {
+	SyncMemberColorPickers();
+	RestageVideo(); // the page rebuilds next frame when the staging moved
+}
 
-	// Resolve the staged resolution to a concrete width/height.
-	u32 cw = 0, ch = 0;
-	if (m_selOutput < static_cast<int>(a.outputs.size())) {
-		const auto& modes = a.outputs[static_cast<size_t>(m_selOutput)].modes;
-		if (m_selRes >= 0 && m_selRes < static_cast<int>(modes.size())) {
-			cw = modes[static_cast<size_t>(m_selRes)].width;
-			ch = modes[static_cast<size_t>(m_selRes)].height;
+void GameUI::RestageVideo() {
+	const DisplayChoice before = StagedVideo();
+	SeedVideoStaging();
+	const DisplayChoice now = StagedVideo();
+	// Only a staging that MOVED rebuilds the page (it shows the staged values),
+	// so an ordinary open costs nothing.
+	if (now.adapterLuid != before.adapterLuid || now.output != before.output ||
+		now.width != before.width || now.height != before.height || now.mode != before.mode)
+		m_videoRebuildPending = true;
+}
+
+DisplayChoice GameUI::StagedVideo() const {
+	DisplayChoice c;
+	if (m_selAdapter >= 0 && m_selAdapter < static_cast<int>(m_adapters.size()))
+		c.adapterLuid = m_adapters[static_cast<size_t>(m_selAdapter)].luid;
+	c.output = m_selOutput;
+	c.width = m_selSize.width;
+	c.height = m_selSize.height;
+	c.mode = m_selMode;
+	return c;
+}
+
+std::string GameUI::StageVideo(std::optional<gfx::FullscreenMode> mode,
+							   std::optional<gfx::DisplayMode> size, std::optional<int> output) {
+	const gfx::AdapterInfo* a =
+		(m_selAdapter >= 0 && m_selAdapter < static_cast<int>(m_adapters.size()))
+			? &m_adapters[static_cast<size_t>(m_selAdapter)]
+			: nullptr;
+	const int outputs = a ? static_cast<int>(a->outputs.size()) : 0;
+	if (output && (*output < 0 || *output >= outputs))
+		return std::format("monitor {} - the staged adapter has {}", *output, outputs);
+	if (mode) m_selMode = *mode;
+	if (output) m_selOutput = *output;
+	if (size) {
+		if (size->width > 0 && size->height > 0) {
+			m_selSize = *size;
+		} else if (m_selOutput < outputs) {
+			const gfx::OutputInfo& o = a->outputs[static_cast<size_t>(m_selOutput)];
+			m_selSize = {static_cast<u32>(o.width), static_cast<u32>(o.height)};
+		} else {
+			return "no monitor to take a native size from";
 		}
 	}
+	m_videoRebuildPending = true; // the page shows the staging
+	return {};
+}
 
-	if (a.luid != m_device.AdapterLuid()) {
+void GameUI::OnVideoApply(bool persist) {
+	if (m_adapters.empty() || m_selAdapter >= static_cast<int>(m_adapters.size()))
+		return;
+	const DisplayChoice choice = StagedVideo();
+
+	if (choice.adapterLuid != m_device.AdapterLuid()) {
 		// A GPU change can't be done in place; confirm, then persist + relaunch.
 		OpenConfirm(loc::Tr("confirm.restart.title"), loc::Tr("confirm.restart.body"),
-					[this, luid = a.luid, out = m_selOutput, cw, ch, mode = m_selMode] {
-						m_settings.adapterLuid = luid;
-						m_settings.displayOutput = out;
-						m_settings.displayWidth = static_cast<int>(cw);
-						m_settings.displayHeight = static_cast<int>(ch);
-						m_settings.fullscreen = mode;
-						onAdapterRestart();
-					});
+					[this, choice] { onAdapterRestart(choice); });
 		return;
 	}
 
 	// Same GPU: monitor / resolution / mode apply in place.
-	m_settings.adapterLuid = a.luid;
-	m_settings.displayOutput = m_selOutput;
-	m_settings.displayWidth = static_cast<int>(cw);
-	m_settings.displayHeight = static_cast<int>(ch);
-	m_settings.fullscreen = m_selMode;
-	onVideoApply();
+	onVideoApply(choice, persist);
 }
 
 void GameUI::OpenConfirm(const std::string& title, const std::string& body,

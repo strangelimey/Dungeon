@@ -134,6 +134,13 @@ public:
 	// `quit` / `exit`, a finished eval batch and RestartApp - never by Esc. The
 	// main loop polls it to leave cleanly.
 	bool QuitRequested() const { return m_quitRequested; }
+	// A `-headless` run given no script: no window, no console a key could reach
+	// and nothing to run, so nothing could ever drive it or end it. Main calls
+	// this and the run quits as soon as its boot load has landed. It is how a
+	// relaunch from a headless script run (`video restart`, which leaves the
+	// script out - see RelaunchCommandLine) ends rather than idling on a title
+	// screen nobody can see until something kills it (code-review batch 68).
+	void QuitOnceLoaded() { m_quitOnceLoaded = true; }
 
 	// THE EVAL HARNESS'S CLOCK (docs/eval-harness.md). Advance the world by
 	// `seconds` of SIM time, right now, in fixed sub-steps — no frames
@@ -277,6 +284,7 @@ private:
 	void RegisterEvalCommands(); // the eval harness's (Game_DevEval.cpp)
 	void RegisterStyleCommands(); // styles and the library (Game_Styles.cpp)
 	void RegisterMapIconCommands(); // `mapicons` and its survey (Game_MapIcons.cpp)
+	void RegisterDisplayCommands(); // `video` (Game_Display.cpp)
 	// `mapicons survey on`: every monster kind's map icon beside its model's
 	// asset-picker tile, drawn over everything but the console (Game_MapIcons.cpp).
 	bool m_mapIconSurvey = false;
@@ -1015,9 +1023,19 @@ private:
 	// every such notice reads the same.
 	void DrawBusyNotice(const std::string& text, float dw, float dh);
 	// Applies m_settings' display mode (windowed/borderless/exclusive + monitor
-	// + resolution) to the window and swapchain in place. Called at boot and by
-	// the Video tab's Apply button for non-adapter changes.
+	// + resolution) to the window and swapchain in place, at boot.
 	void ApplyDisplaySettings();
+	// Applies a display choice in place - the Video tab's Apply for anything
+	// but an adapter change, and the boot's through ApplyDisplaySettings. A
+	// Windowed one is centred in the chosen monitor's WORK AREA and shrunk to
+	// fit it (Window::SetWindowed, code-review C196); an Exclusive one is not
+	// taken at all by a hidden (`-headless`) window, which must never hold a
+	// monitor (C391).
+	void ApplyDisplay(const DisplayChoice& choice);
+	// The `video status` readout (Game_DevCommands): what the Video tab has
+	// STAGED, what is RUNNING - read off the device and the window, never the
+	// settings - and what is SAVED, a line each, plus a line per monitor.
+	void PrintVideoStatus();
 	// Resolves the UI material the PLACE asks for - the active level's
 	// `uistone` record, else its dungeon's `ui_stone`, else none - and hands it
 	// to GameUI, which applies it when the player's Material setting follows
@@ -1026,8 +1044,13 @@ private:
 	void RefreshPlaceStone();
 	// Relaunches the executable and flags this instance to quit: a fresh process
 	// binds the newly chosen adapter, the only way to switch GPUs (the Video
-	// tab's Apply). Nothing else relaunches - a world switch is in-process.
-	void RestartApp();
+	// tab's Apply; dev `video restart`). Nothing else relaunches - a world switch
+	// is in-process. The child is this exe by its own path, with this run's
+	// arguments (`-project` keeps its world) less any `-eval` scripts, plus
+	// `-relaunched <this pid>`, which makes it wait for this process to exit and
+	// then APPEND to the log they share (code-review C398). Quits only when the
+	// child started; false = it did not, and this run goes on as it was.
+	bool RestartApp();
 	// The new-game world list's pick: a new game now if it is the world
 	// running, else a switch to it (SwitchWorld) and a new game there.
 	void StartNewGameIn(const std::string& folder);
@@ -1224,6 +1247,7 @@ private:
 	// once its screen has been presented at least once.
 	u32 m_stateFrameMark = 0;
 	bool m_quitRequested = false;
+	bool m_quitOnceLoaded = false; // see QuitOnceLoaded
 	float m_time = 0.0f;
 	// Dev console `timescale`: multiplies the world's dt (1 = normal, 0 = freeze).
 	float m_timeScale = 1.0f;
@@ -1613,7 +1637,7 @@ private:
 	bool m_bakeRelease = false;
 
 	// Child process launched to restart the game on an adapter change (it
-	// outlives us; we quit right after).
+	// outlives us; we quit right after it starts, and only then).
 	platform::Process m_restart;
 
 	// The map overlay's panel in the given surface's pixel space (window pixels

@@ -32,6 +32,13 @@ struct WindowDesc {
 	bool hidden = false;
 };
 
+// A rectangle of the virtual screen, in the pixels SetWindowPos takes: a
+// monitor's desktop or work area, a window's frame.
+struct ScreenRect {
+	int x = 0, y = 0;
+	int width = 0, height = 0;
+};
+
 // Owns the Win32 window and message pump, and feeds the Input state.
 class Window {
 public:
@@ -52,13 +59,26 @@ public:
 	const Input& GetInput() const { return m_input; }
 
 	// Display-mode geometry (Settings → Video). SetWindowed restores a bordered,
-	// resizable window of the given client size, centered on the primary monitor;
+	// resizable window of the given client size, CENTRED IN `workArea` - the
+	// chosen monitor's work area (the desktop less the taskbar), or with none
+	// given the work area of the monitor the window is on - and SHRUNK to fit it
+	// when the frame round that size would not (code-review C196: it centred on
+	// the primary monitor whatever Monitor said, and a native-size client put the
+	// title bar off the top of the screen and the frame over the taskbar).
 	// SetBorderless makes a frameless window covering the given desktop rect (a
 	// monitor's virtual-screen coordinates). Both raise WM_SIZE, so the swapchain
 	// resizes through the usual onResize path. Neither SHOWS a hidden window:
 	// while IsHidden, they only resize it (code-review C391).
-	void SetWindowed(u32 width, u32 height);
+	void SetWindowed(u32 width, u32 height, const ScreenRect* workArea = nullptr);
 	void SetBorderless(int x, int y, u32 width, u32 height);
+	// Which of the two the window was last given (a new window is Windowed).
+	bool IsBorderless() const { return m_borderless; }
+	// The window's frame on the virtual screen (GetWindowRect: the client plus
+	// its border and title bar), and the monitor it is mostly on - as an opaque
+	// HMONITOR, matched against gfx::OutputInfo::monitor, and its work area.
+	ScreenRect FrameRect() const;
+	void* Monitor() const;
+	ScreenRect MonitorWorkArea() const;
 
 	// Created hidden (`-headless`) and never to be shown. Game skips applying a
 	// saved display mode while this holds - the only guard that also covers
@@ -91,6 +111,7 @@ private:
 	u32 m_height = 0;
 	bool m_closed = false;
 	bool m_hidden = false; // WindowDesc::hidden, kept: see IsHidden
+	bool m_borderless = false; // see IsBorderless
 	// True while UpdateCapture runs our own ReleaseCapture — Windows SENDS
 	// WM_CAPTURECHANGED to the releasing window synchronously, and that
 	// self-inflicted one must NOT clear the button edges (the release edge

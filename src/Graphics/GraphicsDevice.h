@@ -149,6 +149,9 @@ public:
 	// Resize). For Exclusive, width/height request a display mode; 0,0 keeps the
 	// output's current mode. No-op transitions are cheap.
 	void SetFullscreen(bool exclusive, u32 outputIndex, u32 width, u32 height);
+	// Whether the swapchain holds exclusive full-screen now (the dev console's
+	// `video status`: what is RUNNING, not what was asked).
+	bool IsExclusive() const;
 
 	void WaitIdle();
 

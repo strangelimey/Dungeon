@@ -7,6 +7,7 @@
 #include "Graphics/GraphicsDevice.h" // kBackBufferFormat
 #include "Graphics/D3DUtil.h"        // ComPtr
 
+#include <Windows.h> // GetMonitorInfoW - an output's work area
 #include <dxgi1_6.h>
 
 #include <algorithm>
@@ -46,6 +47,22 @@ std::vector<AdapterInfo> EnumerateAdapters() {
 				out.height =
 					odesc.DesktopCoordinates.bottom - odesc.DesktopCoordinates.top;
 				out.name = std::format("Display {} ({}x{})", o + 1, out.width, out.height);
+				out.monitor = odesc.Monitor;
+				// The work area, from the monitor itself; the whole desktop rect
+				// if it will not say (a window then fits the screen, at least).
+				MONITORINFO mi{};
+				mi.cbSize = sizeof(mi);
+				if (odesc.Monitor && GetMonitorInfoW(odesc.Monitor, &mi)) {
+					out.workX = mi.rcWork.left;
+					out.workY = mi.rcWork.top;
+					out.workWidth = mi.rcWork.right - mi.rcWork.left;
+					out.workHeight = mi.rcWork.bottom - mi.rcWork.top;
+				} else {
+					out.workX = out.x;
+					out.workY = out.y;
+					out.workWidth = out.width;
+					out.workHeight = out.height;
+				}
 
 				// Supported resolutions for the back-buffer format, deduped to
 				// unique (w,h) and sorted largest-first.

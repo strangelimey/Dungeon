@@ -19,6 +19,12 @@ const std::string& ExecutableDir();
 // since they all live in the same build\<cfg>\bin.
 const std::string& ExecutableName();
 
+// The running executable's full path, as GetModuleFileNameW gives it (any
+// length, case as on disk). What a relaunch starts (Game::RestartApp): the exe
+// that is running, never a name assumed - the old "Dungeon.exe" (code-review
+// C398).
+const std::string& ExecutablePath();
+
 // The one assets directory this build reads AND writes (no trailing slash).
 // A dev build resolves to the repo's source tree (DN_ASSETS_DIR), so every
 // config — debug, release, vs, any future profile build — shares a SINGLE copy

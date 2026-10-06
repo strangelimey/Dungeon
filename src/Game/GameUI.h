@@ -53,6 +53,16 @@ class StonePicker; // Game/StonePicker.h - the Material tab's grid
 class PageCard;    // Game/MenuPanel.h - the menu pages' stone card
 struct SaveSlot;   // Game/SaveGame.h - one listed save
 
+// A display selection the Video tab commits: GameSettings' display fields, as
+// one value (the Apply button hands it to Game, which applies it and - unless a
+// script asked - saves it). `output` indexes the adapter's outputs.
+struct DisplayChoice {
+	u64 adapterLuid = 0;
+	int output = 0;
+	u32 width = 0, height = 0;
+	gfx::FullscreenMode mode = gfx::FullscreenMode::Windowed;
+};
+
 class GameUI {
 public:
 	GameUI(Window& window, gfx::GraphicsDevice& device,
@@ -79,10 +89,33 @@ public:
 	// Re-point the Video tab's Max Lights dropdown at the current setting after
 	// a quality change reset the budget (Game calls this from SetQuality).
 	void SyncMaxLights();
-	// Rebuilds the settings page if a Video-tab adapter/monitor change staged one
-	// last frame (rebuilding from inside the dropdown callback would destroy it).
+	// Rebuilds the settings page if the Video tab's staging moved last frame - an
+	// adapter / monitor pick, an open that re-seeded it (RestageVideo), a `video
+	// apply` (rebuilding from inside the dropdown callback would destroy it).
 	// Game calls this at the top of Update, like the deferred language switch.
 	void ApplyPendingVideoRebuild();
+
+	// --- the Video tab's staged display choice -----------------------------------
+	// What Apply would commit, as the tab's own controls hold it, and the hardware
+	// it is picked from. The dev console's `video` reads and drives these, so a
+	// script reaches OnVideoApply - the Apply button's own path - with no click.
+	DisplayChoice StagedVideo() const;
+	int StagedAdapterIndex() const { return m_selAdapter; }
+	const std::vector<gfx::AdapterInfo>& VideoAdapters() const { return m_adapters; }
+	// Stages what is given, as picking it in the tab would (the page shows it from
+	// the next frame); a size of 0x0 is the staged monitor's own. Returns "" or
+	// why it cannot (a monitor the staged adapter does not have).
+	std::string StageVideo(std::optional<gfx::FullscreenMode> mode,
+						   std::optional<gfx::DisplayMode> size, std::optional<int> output);
+	// The Apply button. `persist` false - a script's apply - applies, never saves.
+	void ApplyVideo(bool persist) { OnVideoApply(persist); }
+	// Seeds the staging again from what is LIVE, as opening the Settings page
+	// does: the saved choice, a Windowed size taken from the window as it is now
+	// (code-review C196), and the page rebuilt next frame when that moved it.
+	void RestageVideo();
+	// What OPENING the Settings page does (both menus' entry, and `video
+	// restage`): the Party Colors rows synced, then RestageVideo.
+	void RefreshSettingsPage();
 
 	// --- per-frame updates (which page runs is the app state's call) ------------
 	// Keeps fonts in step with the window height so text scales with the
@@ -574,9 +607,12 @@ public:
 	// inside the callback (see RebuildForLanguage) — record and defer.
 	std::function<void(const std::string&)> onLanguageSelected;
 	// Video tab Apply with only monitor/resolution/mode changed: apply in place.
-	std::function<void()> onVideoApply;
+	// `persist` is false for a script's apply (`video apply` in an eval): applied,
+	// never saved, like a script's `lang` - the harnesses share the settings.ini
+	// of the build Michael plays.
+	std::function<void(const DisplayChoice&, bool persist)> onVideoApply;
 	// Video tab Apply with the adapter changed (confirmed): persist + relaunch.
-	std::function<void()> onAdapterRestart;
+	std::function<void(const DisplayChoice&)> onAdapterRestart;
 
 	// One of this UI's widget trees, by name, for the dev console's `uitree
 	// dump` (dev-facing, so the names stay English). Null for an unknown name;
@@ -600,11 +636,13 @@ private:
 	void BuildCharacterSheet();
 	// Video tab: seed the staged adapter/monitor/resolution/mode selection from
 	// the live settings + enumerated hardware (call when opening/rebuilding the
-	// page for a fresh edit, not on the deferred repopulate).
+	// page for a fresh edit, not on the deferred repopulate). A Windowed size is
+	// the window's client as it is NOW, never the saved one or the list's first.
 	void SeedVideoStaging();
 	// Commit the staged Video selection: in-place for monitor/res/mode, or open
-	// the restart-confirm dialog when the adapter changed.
-	void OnVideoApply();
+	// the restart-confirm dialog when the adapter changed. `persist` false (a
+	// script's) applies without saving.
+	void OnVideoApply(bool persist = true);
 	// Builds the centered Yes/No modal (m_confirmUi) and arms it.
 	// The button labels default to the adapter restart's own ("Restart" /
 	// "Cancel"); a question passes plain Yes / No.
@@ -1003,9 +1041,14 @@ private:
 	ui::TabControl* m_settingsTabs = nullptr;
 	int m_selAdapter = 0;
 	int m_selOutput = 0;
-	int m_selRes = 0;
+	// The staged SIZE, not an index into the monitor's mode list: a Windowed
+	// window is whatever size it was dragged to, which no mode need match. It
+	// used to be an index, and a size matching no mode staged the list's first -
+	// the native resolution - so an untouched Apply made the window native-sized
+	// (code-review C196). The Resolution dropdown lists it when the modes do not.
+	gfx::DisplayMode m_selSize;
 	gfx::FullscreenMode m_selMode = gfx::FullscreenMode::Windowed;
-	bool m_videoRebuildPending = false; // adapter/monitor changed; rebuild next frame
+	bool m_videoRebuildPending = false; // the staging moved; rebuild the page next frame
 	bool m_confirmActive = false;       // the Yes/No modal is up
 	std::function<void()> m_confirmYes, m_confirmNo; // its two answers
 	int m_confirmAnswer = 0;            // 1 yes / 2 no, set by a button, run by ResolveConfirm

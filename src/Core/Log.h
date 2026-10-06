@@ -43,6 +43,15 @@ void Write(Level level, std::string_view message);
 // opened by the first Write, so before that it may not exist yet.
 const std::string& FilePath();
 
+// Makes the file APPEND rather than truncate when it is opened - which is at
+// the first Write, so this must come before any. Only a RELAUNCHED game calls it
+// (Game::RestartApp's child, `-relaunched <pid>` in Main), and only once its
+// parent has exited: the two share one dungeon.log, and the child opening it
+// with "w" while the parent was still writing its shutdown cut the parent's log
+// off (code-review C398). Appended, the file holds the parent's run whole and
+// then the child's.
+void AppendToExisting();
+
 // Sets the attached console's output code page to UTF-8. Call once from an
 // entry point, before any logging. Deliberately NOT done inside Write: a tool
 // run from someone's shell inherits THEIR console, and a logging call quietly

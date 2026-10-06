@@ -35,6 +35,14 @@ struct OutputInfo {
 	std::string name;                 // friendly label, e.g. "Display 1 (2560x1440)"
 	int x = 0, y = 0;                 // desktop position (DesktopCoordinates)
 	int width = 0, height = 0;        // current desktop size
+	// The WORK AREA - the desktop less the taskbar and docked bars - which a
+	// Windowed window is centred in and must fit (Window::SetWindowed, code-
+	// review C196). Read with GetMonitorInfoW, in SetWindowPos's coordinates.
+	int workX = 0, workY = 0;
+	int workWidth = 0, workHeight = 0;
+	// The monitor as an opaque HMONITOR, for telling which output a window is
+	// on (Window::Monitor); valid while the display layout stands.
+	void* monitor = nullptr;
 	std::vector<DisplayMode> modes;
 };
 

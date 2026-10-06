@@ -333,6 +333,25 @@ $checks = @(
 		selfTest = { & (Join-Path $root 'tools\QuitTest.ps1') -Config $Config -SelfTest | Out-Host; $LASTEXITCODE }
 	},
 	@{
+		name = 'display'; tier = 'full'; needs = 'build-debug'
+		what = 'a Windowed Apply lands centred in the chosen monitor''s work area, unsaved from a script; a relaunch keeps -project and the parent''s log'
+		# tools\DisplayTest.py (code-review batch 68) drives the Video tab's Apply
+		# and the GPU switch's relaunch through the dev console's `video`. It
+		# shows and moves a game window (across every monitor; it refuses, exit 2,
+		# a settings.ini saving Borderless or Exclusive), and its relaunched child
+		# - headless with no script - must quit by itself once loaded (ended by
+		# id, and failed, if not). Debug only, like SpellTest. Its self-test cuts every `video apply`
+		# and `video restart` and demands exactly the checks resting on them fail.
+		run      = {
+			$l = @(python (Join-Path $root 'tools\DisplayTest.py') | ForEach-Object { Write-Host $_; $_ })
+			Confirm-Verdict $l 'displaytest' $LASTEXITCODE
+		}
+		selfTest = {
+			$l = @(python (Join-Path $root 'tools\DisplayTest.py') --selftest | ForEach-Object { Write-Host $_; $_ })
+			Confirm-Verdict $l 'displaytest' $LASTEXITCODE -SelfTest
+		}
+	},
+	@{
 		name = 'paths'; tier = 'full'; needs = "build-$Config"
 		what = 'the game and an AssetBaker import run from a folder outside ASCII (UTF-8 code page)'
 		# Copies of the two exes in %TEMP%, so nothing beside bin is touched. Its

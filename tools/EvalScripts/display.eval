@@ -1,0 +1,37 @@
+; display.eval - where a Windowed Apply puts the window (code-review C196).
+; JUDGED by tools\DisplayTest.py, which runs it in a SHOWN window (a hidden one
+; is only resized) and reads each `video status` after the line before it:
+;
+;   untouched   the staging, before anything is touched, is the window AS IT IS
+;               (its client size, Windowed) - it used to be the monitor's list's
+;               first mode, the native one - and Apply on it keeps that size.
+;   native      a client the size of the whole monitor cannot fit with its
+;               frame: it is shrunk until the frame fills the chosen monitor's
+;               WORK AREA (the desktop less the taskbar) and goes no further.
+;   restage     the staging still holds the size ASKED for; opening Settings
+;               re-seeds it (`video restage` calls the entries' own function)
+;               from the window as it is now - the shrunk size.
+;   1280x720    fits, so it is that size, centred in the work area.
+;   last        the same on the staged adapter's LAST monitor: the window is in
+;               ITS work area (on one monitor this is monitor 0 again, and the
+;               judge skips the check rather than count it).
+;
+; Every apply here is a SCRIPT's, so it is applied and never saved: the judge
+; holds settings.ini's display keys to what they were. The refusals: a monitor
+; the adapter does not have, a word `video apply` does not know, a verb `video`
+; does not have.
+newgame
+video status
+video apply
+video status
+video apply windowed native
+video status
+video restage
+video status
+video apply windowed 1280x720
+video status
+video apply windowed 1280x720 monitor last
+video status
+expect-refuse video apply monitor 99
+expect-refuse video apply fullscreen
+expect-refuse video bogus

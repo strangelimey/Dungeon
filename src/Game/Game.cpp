@@ -466,6 +466,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	RegisterEvalCommands();
 	RegisterStyleCommands();
 	RegisterMapIconCommands();
+	RegisterDisplayCommands();
 	// THE TITLE SCREEN HAS NO WORLD (docs/world-on-demand.md), and most
 	// commands reach into one. Rather than a guard in each of a hundred and
 	// twenty handlers, ONE gate: with no world loaded, only the commands listed
@@ -480,7 +481,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 			"allocpoke", "crashpoke", "dredpoke", "health", "throttle", "governor",
 			"threads", "threadspawn", "threadwedge", "threadkill", "threadprio",
 			"threadaffinity", "threadreap", "uitree", "uioverlap", "clippoke", "logecho",
-			"timescale", "state",
+			"timescale", "state", "video",
 			"worlds", "newgame", "reset", "newparty", "partypage",
 		};
 		for (std::string_view n : kNoWorldNeeded)
@@ -498,7 +499,14 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	// run's window, covered a monitor in black for Borderless and switched the
 	// display for Exclusive (code-review C391). Exclusive goes through the
 	// swapchain, not the window, so this is the guard that covers it.
-	if (!m_window.IsHidden()) ApplyDisplaySettings();
+	if (!m_window.IsHidden()) {
+		ApplyDisplaySettings();
+		// The Video tab's staging was seeded when GameUI built the page, BEFORE
+		// that apply - which may have shrunk a saved Windowed size into the work
+		// area or left Windowed altogether - so it is seeded again from the window
+		// as the apply left it (code-review batch 68).
+		m_ui.RestageVideo();
+	}
 }
 
 Game::~Game() {
@@ -1763,61 +1771,7 @@ void Game::SetQuality(Quality quality) {
 	m_world->ApplyQuality(textureResChanged);
 }
 
-void Game::ApplyDisplaySettings() {
-	// Resolve the active adapter's outputs so we can position a borderless window
-	// or target a monitor for exclusive full-screen.
-	const std::vector<gfx::AdapterInfo> adapters = gfx::EnumerateAdapters();
-	const gfx::AdapterInfo* active = nullptr;
-	for (const gfx::AdapterInfo& a : adapters)
-		if (a.luid == m_device.AdapterLuid()) {
-			active = &a;
-			break;
-		}
-	const int out = m_settings.displayOutput;
-	const gfx::OutputInfo* output =
-		(active && out >= 0 && out < static_cast<int>(active->outputs.size()))
-			? &active->outputs[static_cast<size_t>(out)]
-			: nullptr;
-
-	switch (m_settings.fullscreen) {
-	case gfx::FullscreenMode::Windowed: {
-		const u32 w = m_settings.displayWidth > 0 ? static_cast<u32>(m_settings.displayWidth)
-												  : m_window.Width();
-		const u32 h = m_settings.displayHeight > 0
-						  ? static_cast<u32>(m_settings.displayHeight)
-						  : m_window.Height();
-		m_device.SetFullscreen(false, 0, 0, 0); // drop any exclusive state first
-		m_window.SetWindowed(w, h);
-		break;
-	}
-	case gfx::FullscreenMode::Borderless: {
-		m_device.SetFullscreen(false, 0, 0, 0);
-		if (output)
-			m_window.SetBorderless(output->x, output->y,
-								   static_cast<u32>(output->width),
-								   static_cast<u32>(output->height));
-		break;
-	}
-	case gfx::FullscreenMode::Exclusive: {
-		u32 w = static_cast<u32>(m_settings.displayWidth);
-		u32 h = static_cast<u32>(m_settings.displayHeight);
-		if ((w == 0 || h == 0) && output) { // default to the monitor's native size
-			w = static_cast<u32>(output->width);
-			h = static_cast<u32>(output->height);
-		}
-		m_device.SetFullscreen(true, static_cast<u32>(out > 0 ? out : 0), w, h);
-		break;
-	}
-	}
-}
-
-void Game::RestartApp() {
-	// Leave any exclusive full-screen so the new process can claim the display.
-	m_device.SetFullscreen(false, 0, 0, 0);
-	const std::string cmd = "\"" + paths::ExecutableDir() + "\\Dungeon.exe\"";
-	if (!m_restart.Start(cmd)) log::Warn("Could not relaunch the game ({})", cmd);
-	m_quitRequested = true;
-}
+// ApplyDisplaySettings, ApplyDisplay and RestartApp live in Game_Display.cpp.
 
 // ============================================================================
 // The state machine
@@ -2326,7 +2280,14 @@ void Game::UpdateStates(float dt) {
 		// `quit`/`exit` and the window's own close button — which is independent of
 		// all of this (Window.cpp's WM_CLOSE sets m_closed), so a load can never
 		// become unquittable.
-		if (RunLoadTasks()) m_state = AppState::Menu;
+		if (RunLoadTasks()) {
+			m_state = AppState::Menu;
+			if (m_quitOnceLoaded) {
+				log::Info("headless with no script: nothing can drive this run, so it quits "
+						  "now that its boot load has landed");
+				m_quitRequested = true;
+			}
+		}
 		return;
 
 	case AppState::Menu:

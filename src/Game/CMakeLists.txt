@@ -76,6 +76,7 @@ add_library(Game STATIC
 	Game_DevParty.cpp
 	Game_Party.cpp
 	Game_DevWorld.cpp
+	Game_Display.cpp
 	Game_Editor.cpp
 	Game_Eval.cpp
 	Game_Generate.cpp

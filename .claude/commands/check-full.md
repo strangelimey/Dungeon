@@ -30,6 +30,7 @@ Adds the rows marked `full` to the quick tier:
   world          full   no self-test   the world tier: saves, worlds, dungeons, the world map (WorldTest.py)
   levelbuild     full   no self-test   the level generator, measured from the files it writes (LevelBuildTest.py)
   quit           full   self-testable  a load can always be quit: `quit` mid-load, Alt+F4 in Borderless
+  display        full   self-testable  a Windowed Apply lands centred in the chosen monitor's work area, unsaved from a script; a relaunch keeps -project and the parent's log
   paths          full   self-testable  the game and an AssetBaker import run from a folder outside ASCII (UTF-8 code page)
   baked          full   self-testable  a .dds older than its PNG, or a model sidecar missing or stale, is refused and said (once a model)
   stale          full   no self-test   a harness refuses a stale exe, and CheckAll builds what it runs (StaleTest)
