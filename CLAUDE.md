@@ -102,12 +102,16 @@ Key conventions (memorize, they bite):
   session, so the eval harness is NOT an allocation check - AllocTest is; and a
   frame that ENDS outside Playing/sheet-over-level - Esc to pause, a stair load -
   is a transition, disarmed at the end of Game::Update, `AllocTest.ps1 -Pause`),
-  and a violating frame's call stacks are
-  symbolized into dungeon.log once per unique site. Dev: `alloctest [secs]`
-  (one machine-readable verdict line), `allocguard [status|strict on|off|
-  reset]`, `allocpoke` (violate on purpose); `tools\AllocTest.ps1` is the
-  re-runnable regression run (`-SelfTest` inverts the verdict, so the harness
-  must catch a real violation to pass). THE EVENT-FRAME EXEMPTION IS GONE
+  and a violating frame's call stacks are symbolized into dungeon.log once per
+  unique site (capture starts in ArmFrame, so the first armed frame after a
+  disarm - alloctest's first - is covered; 64 sites at most, then one "set is
+  full" line and a count of the CAPTURES turned away - not of sites, since a
+  repeating one counts each time). Dev: `alloctest [secs]` (one machine-readable
+  verdict line), `allocguard [status|strict on|off|reset]`, `allocpoke
+  [secs|once]` (violate on purpose); `tools\AllocTest.ps1` is the re-runnable
+  regression run (`-SelfTest` pokes once on the window's first armed frame and
+  inverts the verdict, so the harness must catch a real violation AND find its
+  call site to pass). THE EVENT-FRAME EXEMPTION IS GONE
   (2026-08-18, docs/message-allocation.md): a bump message used to allocate —
   loc::Tr returned a COPY of text the table already owned, and MessageLog kept
   a std::string per line — and that was written up here as a POLICY, "allocation
@@ -118,8 +122,11 @@ Key conventions (memorize, they bite):
   rule needs no notion of an event and no exception list: an allocation in a
   settled frame is a bug, full stop. Something firing events every frame is a
   MESSAGE-RATE problem, visible in the log on its own terms. ONE POLICY is left:
-  anything reporting from inside a guarded frame must excuse ITSELF
-  (log::Write formats a string). Staged loading is measured too — LoadQueue
+  anything reporting from inside a guarded frame must excuse ITSELF - and
+  log::Write and its templates do that for every caller (code-review C215), so
+  what a reporter still excuses by hand is only what it builds BEFORE the call
+  (a formatted argument, a console Print; `AllocTest.ps1 -OnHitTypo` swings a
+  typo'd on_hit in the window). Staged loading is measured too - LoadQueue
   times/counts every task and dumps a table when the last lands (`loadstats`
   reprints; each Add takes an English dev name beside its localized label),
   and LoadGltf reports allocs/MB per model. TRAP when reading those numbers:
@@ -1760,7 +1767,7 @@ hang and a reboot must each leave EVIDENCE.
   threw 18 times reads `sleeping · it 18 · 2.00hz`, every column normal), and
   `health` / `health <thread>` / `health probe <id|name>`.
 - CHECKED, NOT ASSUMED. `DiagTest.exe` (tools/DiagTest) exercises the ring
-  directly — 54 checks, including the one that matters: four writers hammering
+  directly - 62 checks, including the one that matters: four writers hammering
   one slot while a reader walks it, every event self-describing so a torn read
   cannot pass (measured 16k writes, 39k live reads, 0 torn). Its LOG checks read
   the real file back through `log::FilePath()` (the path the sink opened, never
@@ -1768,7 +1775,10 @@ hang and a reboot must each leave EVIDENCE.
   swallowed-count line with the right count after a window rolls, the lines a
   thread's exit writes, runs of 57 and 150 closing with their tails (100, the
   one shape needing none, cannot be the only run tried), a run in a spent
-  window losing nothing, and a 33rd name taking a dormant slot clean. `tools\HealthTest.
+  window losing nothing, and a 33rd name taking a dormant slot clean. And the
+  stack SeenSet both readouts log through: full at 64, it reports no further
+  site, counts each offer it turns away (offers, not distinct sites) and says
+  so in one line (code-review C226). `tools\HealthTest.
   ps1` breaks the REAL game nine ways and reads dungeon.log and nothing else -
   if the answer is not in the file you open after a crash, it does not count.
   `-SelfTest` skips every injection and REQUIRES every case to fail on EACH of

@@ -205,20 +205,26 @@ bool g_strict = false;
 // Stacks already reported. The symbolizer and the seen-set both moved to
 // Core/StackTrace when the health record needed the same machinery; this keeps
 // its OWN set, so a crash site and an allocation site can never mask each other.
-stack::SeenSet g_seen;
+constinit stack::SeenSet g_seen("allocation guard");
 
 } // namespace
 
 void BeginFrame() {
 	Slot& s = Mine();
 	s.frameStart = s.counters;
-	// Last frame's verdict decides this frame's capture — see the header.
-	s.capturing = s.armed;
+	// Nothing is captured until ArmFrame says this frame counts - see the header.
+	s.capturing = false;
 	s.armed = false;
 	s.stackCount = 0;
 }
 
-void ArmFrame(bool steady) { Mine().armed = steady; }
+void ArmFrame(bool steady) {
+	Slot& s = Mine();
+	s.armed = steady;
+	// THIS frame's arming decides its capture (code-review C214), so the first
+	// armed frame after a disarm names its call sites like any other.
+	s.capturing = steady;
+}
 
 FrameResult EndFrame() {
 	Slot& s = Mine();
@@ -249,21 +255,38 @@ void ReportFrame(const FrameResult& result) {
 	for (int i = 0; i < s.stackCount; ++i) {
 		if (!g_seen.FirstSighting(stack::Hash(s.stacks[i], s.stackDepth[i]))) continue;
 		if (fresh == 0)
-			log::Warn("steady-state frame allocated {} times ({} bytes) — new call site(s):",
+			log::Warn("steady-state frame allocated {} times ({} bytes) - new call site(s):",
 					  result.violations, result.bytes);
 		++fresh;
 		++g_stats.stacksReported;
 		log::Warn("  [{}]", fresh);
 		stack::LogStack(s.stacks[i], s.stackDepth[i]);
 	}
-	// A frame whose stacks are all known stays silent: the log has said it.
+	// A frame whose stacks are all known stays silent: the log has said it. A
+	// frame with NO stack does not, or a FAIL would point at "call sites in
+	// dungeon.log" that are not there (code-review C214). Collapsed to powers of
+	// ten, the record's rule for a repeating failure, so a standing one cannot
+	// drown the log either.
+	if (s.stackCount == 0) {
+		const u64 n = ++g_stats.framesUncaptured;
+		u64 mark = 1;
+		while (mark * 10 <= n) mark *= 10;
+		if (n == mark)
+			log::Warn("steady-state frame allocated {} times ({} bytes) - no stacks captured "
+					  "(frame {} of this kind)",
+					  result.violations, result.bytes, n);
+	}
 	DN_ASSERT(!g_strict || result.violations == 0,
 			  std::format("steady-state frame allocated {} times", result.violations));
 }
 
 void SetStrict(bool strict) { g_strict = strict; }
 bool Strict() { return g_strict; }
-GuardStats Stats() { return g_stats; }
+GuardStats Stats() {
+	GuardStats s = g_stats;
+	s.stacksTurnedAway = g_seen.TurnedAway();
+	return s;
+}
 void ResetStats() {
 	g_stats = GuardStats{};
 	g_seen.Reset();

@@ -314,6 +314,15 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 					  reports[i].name, reports[i].osThreadId, c.allocs, c.excused, c.frees,
 					  static_cast<double>(c.bytes) / (1024.0 * 1024.0));
 		}
+		// The stacks the full stack set turned away, counted since it filled
+		// (code-review C226): the one line that gives the number. It counts
+		// CAPTURES - a site that kept allocating counts every time - so it must not
+		// read as a number of distinct sites.
+		if (const alloc::GuardStats g = alloc::Stats(); g.stacksTurnedAway > 0)
+			log::Warn("allocation guard: {} captured stack(s) were not logged (the stack set "
+					  "was full; a site that kept allocating counts each time, so this is "
+					  "not a count of distinct sites)",
+					  g.stacksTurnedAway);
 	}
 
 	// The LAST published period per thread, as an indented tree. A stand-in for

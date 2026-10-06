@@ -238,7 +238,7 @@ void LogEvent(const Entry& e, const EventSlot& s, u64 repeat) {
 		// RECORD above, the LOG path is allowed a lock (log::Write takes one
 		// anyway).
 		static std::mutex seenMx;
-		static stack::SeenSet seen;
+		static stack::SeenSet seen("health record");
 		bool first = false;
 		{
 			std::lock_guard lk(seenMx);

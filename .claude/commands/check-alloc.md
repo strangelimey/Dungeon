@@ -74,6 +74,11 @@ only the default):
 - `.\tools\AllocTest.ps1 -Packs` - a 4-slot and an 8-slot bag swapped in the
   sheet's pack row, so a bag GROWS inside the window. It refuses a PASS unless
   `sheet status` counts two equips made during it (`equips=`)
+- `.\tools\AllocTest.ps1 -OnHitTypo` - the party swinging clubs at a frozen
+  skeleton, the club's `on_hit` naming no effect (`onhit club brun 3 6`, in
+  memory), so every landed blow WARNS inside the window - the warning must
+  excuse its own formatting. The swinging is held (`autoattack hold`) until the
+  window's first armed frame; it refuses a PASS unless a warning landed inside
 
 Every mode also fails on an `AI pool grew:` line anywhere in `dungeon.log`. The
 AI's snapshot and walkability-grid pools are filled at level load to as many
@@ -88,7 +93,12 @@ paths - which is sized at level load (and when a monster is added) as well.
 `alloctest RESULT=FAIL` prints the violating call sites with symbolized stacks,
 also in `dungeon.log`. Each **unique** stack is reported once per session, so a
 standing violation cannot drown the log — a frame repeating a known stack stays
-silent.
+silent. Two lines say what a stack cannot: `... no stacks captured` (a
+violation with nothing to show, at 1, 10, 100... such frames), and, after 64
+distinct sites, one `allocation guard: the stack set is full` - a stack it does
+not hold is then counted (`allocguard`, the shutdown totals), not logged. That
+count is of CAPTURES, not sites: one site still allocating every frame adds one
+a frame, so a big number there is not a big number of sites.
 
 A violation during an event is a violation. There used to be a policy here that
 event frames were reported but not asserted on; it was a rationalisation of a
@@ -99,8 +109,9 @@ MESSAGE-RATE problem, visible in the log on its own terms.
 
 `alloc::Excused` is not a way out for gameplay. It is for paths that are allowed
 to allocate inside an otherwise steady frame - a dev-console command, an editor
-dialog, a first-time bake - and for reporting code, which must excuse itself
-because `log::Write` formats a string.
+dialog, a first-time bake - and for reporting code. `log::Write` and its
+templates excuse their own formatting; a reporter excuses only what it builds
+before the call (a formatted argument, a console `Print`).
 
 One thing that looks like a bug and is not:
 
@@ -108,5 +119,7 @@ One thing that looks like a bug and is not:
   makes `vector`'s move constructor allocate, so growth copies rather than
   moves. Do not compare a debug number against a release one.
 
-The self-test arms `allocpoke`, which allocates every frame on purpose, and
-requires the run to come back FAIL.
+The self-test arms `allocpoke once`, which allocates exactly once, on the
+window's first armed frame (the first after a disarm, which captured no stacks
+until code-review C214). It requires the run to come back FAIL AND
+`dungeon.log` to name the poke's call site (`Game::AllocPokeOnce`).

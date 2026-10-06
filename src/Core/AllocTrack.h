@@ -24,14 +24,19 @@
 // wraps itself in alloc::Excused. That does not stop the counting — the
 // allocation still lands in `allocs`, it also lands in `excused` — so the raw
 // number stays honest and only the VIOLATION count (allocs - excused) forgives
-// it. Reporting code must excuse itself too: log::Write formats a std::string,
-// so an un-excused report would be its own violation.
+// it. Reporting code must excuse itself too, and log:: does that for every
+// caller: log::Write and its formatting templates hold an Excused (code-review
+// C215 - a typo'd on_hit warned on every blow and failed the guard for it). A
+// reporter still excuses what it builds BEFORE the call - an argument it
+// formats, a console line - because that allocates outside log::.
 //
 // LINKER TRAP: replacing ::operator new only takes effect if the linker pulls
 // this object file in, and it will not pull an object nothing references out
 // of a static lib. alloc::Init() exists to be that reference — Main calls it
 // once at startup. Without such a call the CRT's own operator new stays and
-// every counter silently reads zero.
+// every counter silently reads zero. (log::Write's Excused references it too
+// now, so any exe that logs links the counters - a tool counts into its
+// unregistered fallback slot, and nothing reports it.)
 // ============================================================================
 #pragma once
 
@@ -92,11 +97,14 @@ int SnapshotAll(ThreadReport* out, int capacity);
 // BeginFrame latches this thread's counters, ArmFrame says whether the frame
 // now running counts as steady state, EndFrame returns the verdict.
 //
-// STACK CAPTURE is decided at BeginFrame from the PREVIOUS frame's arming, not
-// the current one: a frame is armed a few lines into Game::Update, and steady
-// state is a RUN of frames rather than a single one, so last frame's answer is
-// both available in time and correct in practice. Capture is bounded per frame
-// (kMaxFrameStacks) and only happens in a frame that is already broken.
+// STACK CAPTURE starts when ArmFrame arms the frame. It used to be decided at
+// BeginFrame from the PREVIOUS frame's arming, on the argument that steady state
+// is a run of frames - but the first armed frame always follows an unarmed one,
+// and it is exactly the frame `alloctest` opens its window on (releasing a held
+// barrage there), so a violation in it was counted and never named (code-review
+// C214). Only the pure Game::SteadyStateFrame test runs between BeginFrame and
+// ArmFrame, so starting there misses nothing. Capture is bounded per frame
+// (kMaxFrameStacks) and costs only in a frame that is already broken.
 inline constexpr int kMaxFrameStacks = 8;
 inline constexpr int kStackDepth = 24;
 
@@ -113,7 +121,12 @@ FrameResult EndFrame();
 
 // Logs a violating frame: each UNIQUE stack is symbolized once per session
 // (DbgHelp), and a frame that only repeats known stacks stays silent so a
-// standing violation cannot drown the log. Excuses its own allocations.
+// standing violation cannot drown the log. A violation with NO stack to show
+// says so ("no stacks captured", at the 1st, 10th, 100th... such frame), and
+// once 64 distinct sites have been logged the set is full: a stack it does not
+// hold is counted each time it is captured (GuardStats::stacksTurnedAway), not
+// logged, and one line says so.
+// Excuses its own allocations.
 // In strict mode a violation asserts instead — off by default, because an
 // abort in a debug build leaves a CRT dialog and a process that looks alive.
 void ReportFrame(const FrameResult& result);
@@ -126,6 +139,13 @@ struct GuardStats {
 	u64 framesViolating = 0;
 	u64 violations = 0;
 	u64 stacksReported = 0;
+	// Violating frames that had no stack to log (nothing was captured).
+	u64 framesUncaptured = 0;
+	// Captured stacks the FULL seen-set turned away instead of logging
+	// (code-review C226). CAPTURES, not distinct sites: a site offered again
+	// counts again - there was no room to remember it - so one site that keeps
+	// allocating past the 64th adds one on every violating frame.
+	u64 stacksTurnedAway = 0;
 };
 GuardStats Stats();
 void ResetStats();

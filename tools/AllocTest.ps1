@@ -29,6 +29,7 @@
 #   .\tools\AllocTest.ps1 -Walk              # key turns: the party AND the pad's stones
 #   .\tools\AllocTest.ps1 -Lights            # 64 test lights; then the floor glows, the ceiling, the shadow cache
 #   .\tools\AllocTest.ps1 -Lights -ShadowSelfTest   # ...those checks handed a stale cache
+#   .\tools\AllocTest.ps1 -OnHitTypo         # swings with a typo'd on_hit: its warning
 #   .\tools\AllocTest.ps1 -Config release    # needs -DDN_TRACK_ALLOCS=ON
 #
 # THE RULE HAS NO EXCEPTIONS: an allocation in a settled frame is a bug, and
@@ -275,6 +276,19 @@
 # All, every tab with a hover over each card, Esc, the portrait (the sheet
 # again). It refuses a PASS unless `inventory status` counts two opens inside.
 #
+# -OnHitTypo IS A WARNING INSIDE A GUARDED FRAME (code-review C215). log:: did
+# not excuse its own formatting, so every reporter had to remember to - and a
+# weapon whose on_hit names no effect (a typo in weapons.cat) warned on every
+# landed blow and FAILED the guard for it, or aborted under `allocguard strict`.
+# The excuse now lives inside log::Write and its templates. This puts a frozen,
+# toughened skeleton beside the party, puts clubs in the front rank's hands
+# (a club's severe fumble drops nothing - see the setup) and gives the club a
+# proc naming 'brun' (`onhit`, in memory - weapons.cat is not touched), lets the
+# party swing until the warning shows (a warm-up: the party's FIRST swing is not
+# what this mode measures), then HOLDS the swinging until alloctest's first
+# armed frame releases it. It refuses a PASS unless the warning was logged
+# inside the window.
+#
 # -Glass IS THE TRANSPARENT QUEUE (transparency Phase 1). A see-through draw is
 # not issued but QUEUED, then sorted and drawn after the opaque scene - and no
 # other mode ever has glass on screen, so none of that would be measured. This
@@ -395,13 +409,18 @@ param(
 	[switch]$Glass,
 	[string]$GlassCategory = 'items',
 	[string]$GlassKind = 'potion_health_greater', # glass AND a liquid (Phase 3)
+	# Swings CLUBS whose on_hit names no effect, inside the window (a club, not a
+	# dagger: a blade's severe fumble drops it, which is C212). See the note above.
+	[switch]$OnHitTypo,
 	# Starts with a CREATED party instead of the default four: a `newparty` spec
 	# (party creation, docs/party-creation-plan.md phase 2), e.g.
 	# 'premade=0 | premade=1 | premade=2' for three. Any mode runs under it; the
 	# member loops below walk only the members it builds.
 	[string]$Party = '',
-	# Checks the CHECKER: makes the game allocate every frame on purpose
-	# (`allocpoke`) and passes only if the run comes back FAIL.
+	# Checks the CHECKER: makes the game allocate ONCE, on the window's first
+	# armed frame (`allocpoke once`), and passes only if the run comes back FAIL
+	# AND dungeon.log names that allocation's call site - the first armed frame
+	# after a disarm captured no stacks until code-review C214.
 	[switch]$SelfTest
 )
 
@@ -1361,6 +1380,66 @@ try {
 		Start-Sleep -Milliseconds 400
 	}
 
+	if ($OnHitTypo) {
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		# Where the party stands, from the game (`pos`), as -Melee asks it.
+		$posPattern = 'console: (\d+),(\d+) facing (north|east|south|west)$'
+		$posBefore = Get-LogMatchCount $posPattern
+		Send-Text 'pos'; Send-Key 0x0D
+		$posLine = Wait-NewLogLines $posPattern $posBefore
+		if ($posLine.Count -eq 0 -or $posLine[-1].Line -notmatch $posPattern) {
+			throw 'the console never answered `pos` - there is no party cell to fight beside'
+		}
+		$px = [int]$Matches[1]; $pz = [int]$Matches[2]
+		# FROZEN (`freeze on`), not held: the skeleton never swings back, so the
+		# window holds the party's swings and nothing of -Melee's. x400 hp outlasts
+		# the warm-up and the window, and `up` skips its rise.
+		Send-Text 'freeze on'; Send-Key 0x0D
+		$spawnedAt = $null
+		foreach ($d in @(@(1, 0, 'w'), @(-1, 0, 'e'), @(0, 1, 'n'), @(0, -1, 's'))) {
+			$x = $px + $d[0]; $z = $pz + $d[1]
+			Send-Text "spawn skeleton $x $z $($d[2]) 400 up"; Send-Key 0x0D
+			$answer = Wait-NewLogLines "(spawned |spawn: refused ')skeleton'? at $x,$z\b" 0
+			if ($answer.Count -gt 0 -and $answer[-1].Line -match "spawned skeleton at $x,$z") {
+				$spawnedAt = "$x,$z"; break
+			}
+		}
+		if (-not $spawnedAt) { throw "no cell beside $px,$pz would take a skeleton" }
+		# CLUBS in the front rank's armed hands, not the starting daggers and torch:
+		# a severe fumble DROPS a blade or a torch (balance.cat's default severe
+		# table), and that drop still copies the item's id - code-review C212, a
+		# later batch's fix, which would fail this mode at random for a reason it
+		# does not measure. A club's severe fumble is `wild`; it drops nothing.
+		Send-Text 'equip club 0 1'; Send-Key 0x0D
+		Send-Text 'equip club 1 0'; Send-Key 0x0D
+		Send-Text 'equip club 1 1'; Send-Key 0x0D
+		# The typo: `burn` misspelt.
+		$typoId = 'brun'
+		Send-Text "onhit club $typoId 3 6"; Send-Key 0x0D
+		if (-not (Wait-LogMatch "console: onhit club: $typoId 3 6")) { throw 'the club did not take the typo''d on_hit' }
+		# WARM-UP until the warning shows: proof a landed club blow rolls the
+		# proc, and the party's first swing kept out of the window - that first
+		# time is batch 27's -Swing to measure, not this mode.
+		$typoPattern = "on-hit proc names effect '$typoId'"
+		Send-Text 'autoattack on'; Send-Key 0x0D
+		if ((Wait-NewLogLines $typoPattern 0 1 20).Count -eq 0) {
+			throw "the party swung for 20 s and no club blow warned about '$typoId'"
+		}
+		Send-Text 'autoattack hold'; Send-Key 0x0D
+		if (-not (Wait-LogMatch 'console: autoattack held until an alloctest window opens')) {
+			throw 'the autoattack was not held'
+		}
+		# Every warning past this count is the window's: the swinging is off until
+		# its first armed frame, and the verdict line ends it.
+		$script:typoBefore = Get-LogMatchCount $typoPattern
+		Write-Host "  a skeleton at $spawnedAt, the club's on_hit '$typoId 3 6'; swinging held for the window"
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0 # close the console again; alloctest reopens it below
+		Start-Sleep -Milliseconds 400
+	}
+
 	if ($Cast) {
 		Write-Host "freezing the world, casting a bolt, and opening member $CastMember's book"
 		Send-Key 0xC0
@@ -2108,18 +2187,28 @@ try {
 		Start-Sleep -Milliseconds 400
 	}
 
+	# THE SELF-TEST POKES ONCE, on the window's first armed frame - the first
+	# armed frame after a disarm, which captured no stacks until code-review C214,
+	# so a violation there was counted and its call site never logged. An
+	# every-frame poke could not show that: its second frame captured and logged
+	# the site. The console stays open from the poke to `alloctest`, so no armed
+	# frame can fall between them (at 240 Hz the warm-up is half a second).
+	$consoleOpen = $false
 	if ($SelfTest) {
-		Write-Host 'self-test: arming allocpoke, expecting the run to FAIL'
+		Write-Host 'self-test: one allocation on the first armed frame, expecting FAIL and its call site'
 		Send-Key 0xC0
 		Start-Sleep -Milliseconds 500
-		Send-Text "allocpoke $($Seconds * 4 + 60)"
+		Send-Text 'allocpoke once'
 		Send-Key 0x0D
-		Start-Sleep -Milliseconds 500
+		Start-Sleep -Milliseconds 300
+		$consoleOpen = $true
 	}
 
 	Write-Host "measuring ${Seconds}s of steady frames"
-	Send-Key 0xC0 # `~` opens the console
-	Start-Sleep -Milliseconds 500
+	if (-not $consoleOpen) {
+		Send-Key 0xC0 # `~` opens the console
+		Start-Sleep -Milliseconds 500
+	}
 	Send-Text "alloctest $Seconds"
 	Send-Key 0x0D
 
@@ -2254,7 +2343,7 @@ try {
 	# logs the harness tally, which the window's first ARMED frame restarted.
 	# (Asking `tally` afterwards used to count the console's frames, the
 	# guard's warm-up and whatever landed while the question was being typed.)
-	if ($Melee -or $Impact -or $Burst -or $Items -or $Throw) {
+	if ($Melee -or $Impact -or $Burst -or $Items -or $Throw -or $OnHitTypo) {
 		$script:lastTally = (Wait-ForLog 'alloctest window TALLY ' 10 'the window tally') -replace '^.*TALLY ', 'TALLY '
 		Write-Host "  in the window: $script:lastTally"
 	}
@@ -2271,6 +2360,20 @@ try {
 		if ((Get-LastTallyField 'repelspent') -le 0) { $missing += 'no repel spent a bolt' }
 		if ($missing.Count -gt 0 -and $result -eq 'PASS') {
 			Write-Host "$($missing -join ', ') inside the window - the shots at the party were not measured" -ForegroundColor Yellow
+			$result = 'UNMEASURED'
+		}
+	}
+
+	# -OnHitTypo counts only if a typo'd proc WARNED inside the window: the
+	# swinging was held until its first armed frame, so every warning between the
+	# hold and the verdict line was written in a window frame.
+	if ($OnHitTypo) {
+		$verdictAt = @(Select-String -Path $log -Pattern 'alloctest RESULT=')[-1].LineNumber
+		$inside = @(Select-String -Path $log -Pattern "on-hit proc names effect 'brun'" |
+			Where-Object { $_.LineNumber -lt $verdictAt }).Count - $script:typoBefore
+		Write-Host "  typo'd on-hit warnings inside the window: $inside"
+		if ($inside -lt 1 -and $result -eq 'PASS') {
+			Write-Host 'no club blow warned inside the window - the warning was not measured' -ForegroundColor Yellow
 			$result = 'UNMEASURED'
 		}
 	}
@@ -2739,8 +2842,20 @@ try {
 	}
 
 	# A self-test INVERTS the verdict: the guard is working only if the run it
-	# was asked to break comes back FAIL.
+	# was asked to break comes back FAIL - and only if dungeon.log then NAMES the
+	# poke's call site, since "call sites are in dungeon.log" is what a FAIL tells
+	# whoever reads it. A count with no site is the C214 defect.
 	$want = if ($SelfTest) { 'FAIL' } else { 'PASS' }
+	if ($SelfTest -and $result -eq 'FAIL') {
+		$site = @(Select-String -Path $log -Pattern '^\[warn \]\s+.*Game::AllocPokeOnce\b')
+		if ($site.Count -eq 0) {
+			Write-Host 'SELF-TEST FAILED - the guard counted the poke but logged no call site for it' -ForegroundColor Red
+			Select-String -Path $log -Pattern 'steady-state frame allocated' | ForEach-Object { Write-Host "  $($_.Line)" }
+			$result = 'NO-STACK'
+		} else {
+			Write-Host "  the poke's call site: $($site[0].Line.Trim())"
+		}
+	}
 	switch ($result) {
 		'PASS' {
 			if ($SelfTest) {
@@ -2749,9 +2864,10 @@ try {
 				Write-Host 'PASS - no steady-state frame allocated' -ForegroundColor Green
 			}
 		}
+		'NO-STACK' { } # already explained above
 		'FAIL' {
 			if ($SelfTest) {
-				Write-Host 'SELF-TEST PASSED - the guard caught the deliberate allocation' -ForegroundColor Green
+				Write-Host 'SELF-TEST PASSED - the guard caught the deliberate allocation and named its site' -ForegroundColor Green
 			} else {
 				Write-Host 'FAIL - call sites follow (also in dungeon.log)' -ForegroundColor Red
 				Select-String -Path $log -Pattern '^\[warn' | ForEach-Object { Write-Host "  $($_.Line)" }

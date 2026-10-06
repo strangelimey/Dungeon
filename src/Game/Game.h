@@ -711,6 +711,12 @@ private:
 	// harness's window too (the tally restarts, a held autocast is released)
 	// and its last logs the tally, so a script can prove what happened INSIDE.
 	void UpdateAllocTest(float dt, bool steady);
+	// `allocpoke once`: the one deliberate allocation. Its own function so the
+	// stack the guard logs names it (tools\AllocTest.ps1 -SelfTest looks for it),
+	// and NEVER inlined: SymFromAddr does not resolve inline frames, so an
+	// optimised build that folded it into Update would name Update instead and
+	// fail the self-test with the guard working.
+	__declspec(noinline) void AllocPokeOnce();
 	// One line per frame from the queued eval script, and the run's verdict when
 	// it empties. Called from Update.
 	void PumpEvalScript(float dt);
@@ -940,6 +946,10 @@ private:
 	// regression test that cannot fail proves nothing. m_pokeScratch holds the
 	// result so the allocation cannot be optimized away.
 	float m_allocPokeRemaining = 0.0f;
+	// `allocpoke once`: ONE allocation, on the first armed frame after a disarm -
+	// the frame whose stacks went uncaptured (code-review C214). An every-frame
+	// poke could not show that: its second frame captured, and hid the first.
+	bool m_allocPokeOnce = false;
 	std::unique_ptr<u32> m_pokeScratch;
 	// `inputpoke`: throw the typed text away unread for this many seconds - the
 	// loss tools\TypingTest.ps1 -SelfTest must be seen to catch - and then on

@@ -1802,12 +1802,17 @@ void Game::UpdateAllocTest(float dt, bool steady) {
 		// held autocast is released, so a barrage's very first cast is measured
 		// (tools\AllocTest.ps1 -Impact: a fresh monster's first burn is a cost
 		// every monster pays once, and the warm-up would have swallowed it), and a
-		// held freeze, so a fight's first notice and first blow are (-Melee).
+		// held freeze, so a fight's first notice and first blow are (-Melee), and
+		// a held autoattack, so the party's swings start inside it (-OnHitTypo).
 		if (m_allocTestFrames == 0 && m_world) {
 			DungeonWorld::Harness& h = m_world->GetHarness();
 			h.tally = {};
 			h.autoCast.held = false;
 			if (h.frozenHeld) h.frozen = h.frozenHeld = false;
+			if (h.autoAttackHeld) {
+				h.autoAttack = true;
+				h.autoAttackHeld = false;
+			}
 			MoveAction last{};
 			m_allocTestActsAt = m_world->GetParty().ActCount(last);
 		}
@@ -1847,6 +1852,11 @@ void Game::UpdateAllocTest(float dt, bool steady) {
 	m_allocTestRemaining = 0.0f;
 }
 
+// Out of line and noinline (see the declaration) on purpose: a frame of its own
+// in every build - debug, and a release with -DDN_TRACK_ALLOCS=ON - so the
+// guard's report of this violation names Game::AllocPokeOnce.
+void Game::AllocPokeOnce() { m_pokeScratch = std::make_unique<u32>(m_framesRendered + 1u); }
+
 void Game::Update(float dt) {
 	const bool steady = SteadyStateFrame();
 	alloc::ArmFrame(steady);
@@ -1855,6 +1865,12 @@ void Game::Update(float dt) {
 	if (m_allocPokeRemaining > 0.0f) {
 		m_allocPokeRemaining -= dt;
 		m_pokeScratch = std::make_unique<u32>(m_framesRendered);
+	}
+	// `allocpoke once`: set while the console is open (a disarmed frame), so the
+	// first `steady` frame after it is the first armed frame after a disarm.
+	if (m_allocPokeOnce && steady) {
+		m_allocPokeOnce = false;
+		AllocPokeOnce();
 	}
 	// `inputpoke`: before anything reads the frame's typing. It drops WHOLE
 	// LINES - a window that closes mid-line takes the rest of that line too.

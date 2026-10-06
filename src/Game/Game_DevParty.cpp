@@ -437,6 +437,27 @@ void Game::RegisterPartyCommands() {
 													   hand == 0 ? "left" : "right",
 													   args[0]));
 					   });
+	// A weapon's on-hit procs, replaced IN MEMORY (DungeonWorld::SetItemOnHit) -
+	// nothing is written to weapons.cat. tools\AllocTest.ps1 -OnHitTypo swings a
+	// club whose proc names no effect, to see the warning that follows each
+	// blow excuse its own allocations inside a guarded frame (code-review C215).
+	m_console.Register({.name = "onhit",
+						.group = CmdGroup::Combat,
+						.params = "<item> [<effect> <magnitude> <seconds> [chance], ...]",
+						.summary = "replace an item's swing on_hit in memory (none given clears it)"},
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 1)) return;
+						   std::string spec;
+						   for (size_t i = 1; i < args.size(); ++i)
+							   spec += (i > 1 ? " " : "") + args[i];
+						   if (!m_world->SetItemOnHit(args[0], spec)) {
+							   m_console.Refuse(std::format("no item '{}' in items/weapons/armor",
+															 args[0]));
+							   return;
+						   }
+						   m_console.Print(std::format("onhit {}: {}", args[0],
+													   spec.empty() ? "(none)" : spec));
+					   });
 	// Land a status effect directly, skipping the cast. Setting a ward up in a
 	// live fight is otherwise a coin toss — vocabulary, mana, and the fumble
 	// roll all have to go your way, and then a monster has to choose to hit

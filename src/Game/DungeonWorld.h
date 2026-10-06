@@ -768,6 +768,10 @@ public:
 		// hand slot — but without it a measured encounter is the party standing
 		// still being hit, which is half a fight and reads as a whole one.
 		bool autoAttack = false;
+		// A HELD autoattack (`autoattack hold`): off until `alloctest`'s first
+		// ARMED frame turns it on, so the swings it measures start inside the
+		// window (AutoCast::held's rule; tools\AllocTest.ps1 -OnHitTypo).
+		bool autoAttackHeld = false;
 		// Monster ACTION (movement and attacks) stops while everything that
 		// HAPPENS TO them keeps running — animation, effects, blasts, damage. A
 		// geometry probe needs its instruments to hold still: monsters parked on
@@ -888,6 +892,13 @@ public:
 		if (m_monsters.empty()) return;
 		m_monsters.back().piercing = true;
 	}
+	// Re-parse ONE item kind's swing `on_hit` from `spec` (the `onhit` command),
+	// in memory only: the catalog is not touched, so nothing is saved and a world
+	// reload puts the authored list back. A thrown item keeps the payload built
+	// at load. It exists so a TYPO'D proc - an id naming no effect - can be swung
+	// inside an allocation window (tools\AllocTest.ps1 -OnHitTypo): its warning
+	// must excuse itself. False when the project has no such item.
+	bool SetItemOnHit(const std::string& type, std::string_view spec);
 
 	// DETONATE A NAMED SPELL'S BLAST at a cell, with no caster, no mana, no
 	// skill roll and no bolt flight — the eval harness's way of asking a

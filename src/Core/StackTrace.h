@@ -83,16 +83,39 @@ bool IsPlumbingFrame(std::string_view frame);
 // must not grow anything, and 64 distinct sites in one session is long past the
 // point where the log has made its case. Each consumer owns its own, so the
 // allocation guard's sites and the health record's cannot mask each other.
+//
+// FULL MEANS QUIET. A set with no room left answers false for every hash it does
+// not hold - it used to answer true, so the 65th site and every one after it was
+// "new" on every offer and logged and symbolized forever (code-review C226) -
+// and counts the offer instead. The first offer it turns away writes ONE line,
+// naming the owner, saying so; Reset starts a new episode. The count is of
+// OFFERS, not of distinct sites: telling a new site from a repeat needs the room
+// the set has run out of, so one site that keeps failing adds one every time.
 class SeenSet {
 public:
-	// True the first time this hash is offered (and remembers it).
+	static constexpr int kCapacity = 64;
+
+	// `owner` names the set in its one "full" line ("allocation guard"). A
+	// literal: the set keeps the pointer.
+	constexpr explicit SeenSet(const char* owner) : m_owner(owner) {}
+
+	// True the first time this hash is offered (and remembers it). False for a
+	// hash it holds, and for any hash at all once it is full.
 	bool FirstSighting(u64 hash);
-	void Reset() { m_count = 0; }
+	// Offers the full set turned away since the last Reset. A site offered again
+	// counts again, since there was no room to remember it - so this is NOT a
+	// count of distinct sites, and no readout may call it one.
+	u64 TurnedAway() const { return m_turnedAway; }
+	void Reset() {
+		m_count = 0;
+		m_turnedAway = 0;
+	}
 
 private:
-	static constexpr int kMax = 64;
-	u64 m_hashes[kMax] = {};
+	const char* m_owner;
+	u64 m_hashes[kCapacity] = {};
 	int m_count = 0;
+	u64 m_turnedAway = 0;
 };
 
 // Logs a symbolized stack, one frame a line, at Warn. Skips the std:: plumbing

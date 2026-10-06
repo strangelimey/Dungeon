@@ -5,6 +5,7 @@
 // ============================================================================
 #include "Game/DevConsole_Panel.h"
 
+#include "Core/AllocTrack.h"
 #include "Core/Log.h"
 #include "Core/Profile.h"
 
@@ -162,6 +163,10 @@ void DevConsole::SnapAccumulate(float dt) {
 
 void DevConsole::SnapFinish() {
 	if (m_snapTarget < 0) return;
+	// REPORTING, from whatever frame the recording ends in - with the console
+	// shut that is a guarded one - and its lines are formatted and Printed before
+	// log:: is called, so it excuses itself (code-review C215).
+	const alloc::Excused excuse;
 	Snapshot& s = m_snaps[m_snapTarget];
 	m_snapTarget = -1;
 

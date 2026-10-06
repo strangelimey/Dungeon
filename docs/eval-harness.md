@@ -303,7 +303,7 @@ every ladder number means.
 ## P5: measuring an encounter
 
 ```
-autoattack on|off
+autoattack on|off|hold     ; hold: off until an alloctest window opens (code-review batch 15)
 tally [reset]
 sweep <count> <script>      ; runner-level
 ```

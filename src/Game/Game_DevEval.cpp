@@ -361,17 +361,28 @@ void Game::RegisterEvalCommands() {
 	// still looked like a complete result.
 	m_console.Register({.name = "autoattack",
 						.group = CmdGroup::Simulation,
-						.params = "[on|off]",
+						.params = "[on|off|hold]",
 						.summary = "make the party swing on its own whenever off cooldown"},
 					   [this](const std::vector<std::string>& args) {
+						   DungeonWorld::Harness& h = m_world->GetHarness();
 						   if (args.empty()) {
 							   m_console.Print(std::format(
 								   "autoattack {}",
-								   m_world->GetHarness().autoAttack ? "on" : "off"));
+								   h.autoAttackHeld ? "held" : (h.autoAttack ? "on" : "off")));
+							   return;
+						   }
+						   // Off until the next `alloctest` window opens (see
+						   // Harness::autoAttackHeld): the swings start on its
+						   // first armed frame.
+						   if (args[0] == "hold") {
+							   h.autoAttack = false;
+							   h.autoAttackHeld = true;
+							   m_console.Print("autoattack held until an alloctest window opens");
 							   return;
 						   }
 						   const bool on = args[0] == "on" || args[0] == "1";
-						   m_world->GetHarness().autoAttack = on;
+						   h.autoAttack = on;
+						   h.autoAttackHeld = false;
 						   m_console.Print(std::format("autoattack {}", on ? "on" : "off"));
 					   });
 

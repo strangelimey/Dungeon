@@ -12,6 +12,7 @@
 // by everyone remembering to. If it is not in this file, it is not checked —
 // which is why the report says how many values it looked at.
 // ============================================================================
+#include "Core/AllocTrack.h"
 #include "Core/Assert.h"
 #include "Core/Log.h"
 #include "Game/DungeonWorld.h"
@@ -66,6 +67,10 @@ void DungeonWorld::CheckDamageLedger(const char* phase) {
 	for (int i = 0; i < n; ++i) {
 		const ledger::Violation& v = found[i];
 		if (!m_damageLedger.ShouldReport(v)) continue;
+		// REPORTING, and built before log:: is called - the line and the subject's
+		// name both allocate - so it excuses itself (log::Warn excuses only its
+		// own formatting; code-review C215).
+		const alloc::Excused excuse;
 		const std::string line = std::format(
 			"one-pipeline violation: {} health moved {:+.3f} during \"{}\", of "
 			"which {:+.3f} was accounted for — {:+.3f} went around fx::Deal",

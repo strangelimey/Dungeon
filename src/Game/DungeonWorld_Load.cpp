@@ -549,6 +549,16 @@ void DungeonWorld::ParseOnHit(const CatalogEntry* def, std::vector<fx::Proc>& ou
 		fx::ParseProcs("burn " + line, out, where); // deprecated
 }
 
+// See the declaration. The same parser the catalog goes through, so a spec the
+// console accepts is one a weapons.cat line could carry.
+bool DungeonWorld::SetItemOnHit(const std::string& type, std::string_view spec) {
+	if (!m_project.HasItem(type)) return false;
+	ItemKind& kind = ItemKindFor(type);
+	kind.onHit.clear();
+	fx::ParseProcs(spec, kind.onHit, "onhit [" + type + "]");
+	return true;
+}
+
 // See the declaration. Every number here mirrors a line of MonsterAttack /
 // MonsterRangedAttack / the monster-bolt impact, and the defaults are
 // MonsterKindFor's, so a kind scores as it fights.

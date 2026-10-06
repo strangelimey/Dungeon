@@ -3,7 +3,7 @@ description: The health record's ring — wrap, cross-thread writes, torn reads
 allowed-tools: PowerShell, Read, Grep, Glob
 ---
 
-Exercise `Core/Diagnostics` directly. 54 checks, about four seconds (tests 9
+Exercise `Core/Diagnostics` directly. 62 checks, about four seconds (tests 9
 and 11 each wait one log window out).
 
 ```
@@ -28,8 +28,12 @@ through `log::FilePath()`: the exact per-window budget, one swallowed-count line
 with the right count once a window rolls, the lines a thread's exit writes, a
 repeat run of 57 and of 150 each writing one closing line for the repeats after
 its last power of ten, a run in a spent window losing none of its events, and a
-33rd thread name taking a dormant slot with a clean window. An unreadable log is
-a `[FAIL] the log can be read back`, never a skip.
+33rd thread name taking a dormant slot with a clean window. Test 12 fills a
+`stack::SeenSet` (the one-stack-per-site memory both the record and the
+allocation guard log through) past its 64: no further site may read as new,
+each offer is counted (a repeat counts again - it is a count of offers, not of
+sites), and exactly one "the stack set is full" line is written. An
+unreadable log is a `[FAIL] the log can be read back`, never a skip.
 
 ## Reading the output
 

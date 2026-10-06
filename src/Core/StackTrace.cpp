@@ -189,8 +189,16 @@ u64 Hash(void* const* frames, int depth) {
 bool SeenSet::FirstSighting(u64 hash) {
 	for (int i = 0; i < m_count; ++i)
 		if (m_hashes[i] == hash) return false;
-	if (m_count < kMax) m_hashes[m_count++] = hash;
-	return true;
+	if (m_count < kCapacity) {
+		m_hashes[m_count++] = hash;
+		return true;
+	}
+	// Full: a site it cannot remember is not reported - see the header.
+	if (m_turnedAway++ == 0)
+		log::Warn("{}: the stack set is full ({} sites logged) - a stack it does not hold "
+				  "is counted each time it is captured, not logged",
+				  m_owner, kCapacity);
+	return false;
 }
 
 bool IsPlumbingFrame(std::string_view frame) {

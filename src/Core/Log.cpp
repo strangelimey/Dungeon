@@ -53,6 +53,9 @@ const std::string& FilePath() {
 void UseUtf8Console() { SetConsoleOutputCP(CP_UTF8); }
 
 void Write(Level level, std::string_view message) {
+	// The line below, its wide copy for OutputDebugString and the file's first
+	// open all allocate; reporting is excused, here for every caller (Log.h).
+	const alloc::Excused excuse;
 	std::lock_guard lock(g_mutex);
 	std::string line = Prefix(level);
 	line.append(message);

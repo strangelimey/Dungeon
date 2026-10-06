@@ -62,9 +62,20 @@ void Game::RegisterDiagnosticCommands() {
 	m_console.Register(
 		{.name = "allocpoke",
 		 .group = CmdGroup::Diagnostics,
-		 .params = "[seconds]",
-		 .summary = "allocate every frame on purpose (proves the guard can fail)"},
+		 .params = "[seconds]\n"
+				   "once",
+		 .summary = "allocate on purpose (proves the guard can fail)"},
 		[this](const std::vector<std::string>& args) {
+			// ONCE: a single allocation on the first armed frame after this one.
+			// The console stays OPEN, so that frame is the first one after it shuts
+			// - an `alloctest` typed next makes it the window's first frame, the one
+			// whose stacks went uncaptured until code-review C214.
+			if (!args.empty() && args[0] == "once") {
+				m_allocPokeOnce = true;
+				m_console.Print("allocpoke: one allocation on the first armed frame after "
+								"the console shuts");
+				return;
+			}
 			const float seconds =
 				args.empty() ? 30.0f
 							 : std::clamp(static_cast<float>(std::atof(args[0].c_str())),
@@ -209,6 +220,14 @@ void Game::RegisterDiagnosticCommands() {
 										"{} call sites reported (strict {})",
 										g.framesArmed, g.framesViolating, g.violations,
 										g.stacksReported, alloc::Strict() ? "on" : "off"));
+			// What the log could not name: violating frames with no stack, and
+			// captures the full stack set turned away (code-review C214 / C226) -
+			// captures, not sites: a repeating site counts each time.
+			if (g.framesUncaptured > 0 || g.stacksTurnedAway > 0)
+				m_console.Print(std::format("  {} violating frame(s) with no stack captured, {} "
+											"captured stack(s) not logged (the stack set is "
+											"full; a repeating site counts each time)",
+											g.framesUncaptured, g.stacksTurnedAway));
 			m_console.Print(m_steadyFrames > 120
 								? "this frame: steady (armed)"
 								: std::format("this frame: settling ({} quiet frames)",

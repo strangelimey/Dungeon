@@ -210,7 +210,17 @@ Around that, a frame guard: `Main` brackets the whole frame, `Game::Update` arms
 it when the game is simply playing (no load, console, overlay, eval script or
 deferred rebuild, and has been so for 120 frames), and a violating frame gets its call
 stacks symbolized through DbgHelp into `dungeon.log`, each unique stack once per
-session. `alloctest [seconds]` measures a window of armed frames and prints one
+session. Capture starts when `ArmFrame` arms the frame, not from the previous
+frame's arming: the first armed frame after a disarm is the one `alloctest`
+opens its window on, and it used to capture nothing, so a violation there was
+counted and never named (code-review C214). A violation with no stack to show
+says so (`... no stacks captured`), and once 64 distinct sites have been logged
+a stack the set does not hold is counted, not logged - one line says the set is
+full, and `allocguard` and the shutdown totals give the count (C226). That count
+is of CAPTURES turned away, not of distinct sites: telling a new site from a
+repeat needs the room the set has run out of, so one site that keeps allocating
+adds one on every violating frame, and both readouts say so.
+`alloctest [seconds]` measures a window of armed frames and prints one
 machine-readable verdict line; `tools\AllocTest.ps1` drives the whole run and
 exits non-zero on failure. `allocguard` shows the running stats and per-thread
 totals; `allocguard strict on` turns a violation into an assert (off by default
@@ -238,7 +248,11 @@ Four boundaries worth stating, because they are policy and not oversight:
   frames". It was a rationalisation of a defect, retired 2026-08-18
   (docs/message-allocation.md): printing a message now allocates nothing, so an
   allocation in a settled frame is a bug whatever caused it. The one policy
-  left is that anything REPORTING from inside a guarded frame excuses itself.
+  left is that anything REPORTING from inside a guarded frame excuses itself -
+  and `log::Write` and its templates now do that for every caller (code-review
+  C215: a typo'd `on_hit` id warned on every blow and failed the guard for it).
+  What a reporter still excuses by hand is what it builds BEFORE the call: an
+  argument it formats (`LedgerSubjectName`), a console `Print`.
 - **A running eval script is a console session.** The runner executes one
   console line per frame, and a typed command only ever runs with the console
   open, which the guard never arms. A scripted line used to be held to the rule
@@ -265,8 +279,10 @@ Four boundaries worth stating, because they are policy and not oversight:
   counts a transition (`transitions=`). Opening the SHEET is not a transition
   out: it is a guarded state, and its opening frame stays checked.
 - **A test that cannot fail proves nothing.** `allocpoke` allocates every frame
-  on purpose and `AllocTest.ps1 -SelfTest` inverts the expected verdict, so the
-  harness must catch a real violation to pass.
+  on purpose, and `allocpoke once` exactly once, on the first armed frame after
+  the console shuts. `AllocTest.ps1 -SelfTest` uses the second and inverts the
+  expected verdict: the harness must catch the violation AND find its call site
+  (`Game::AllocPokeOnce`) in `dungeon.log` to pass.
 
 Not done: the counter covers the main thread's frame and each worker's totals,
 but a worker TICK is not individually guarded, and nothing runs this in CI (the

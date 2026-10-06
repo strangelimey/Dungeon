@@ -12,10 +12,12 @@
 // message encodes the very fields it arrived with). A torn read — half of one
 // event and half of the next — cannot pass that, which is the whole point.
 //
-// The LOG checks (8 to 11) read this process's real log back, from the path the
+// The LOG checks (8 to 12) read this process's real log back, from the path the
 // sink itself opened (log::FilePath), and an unreadable log FAILS them: a check
 // that skips when its evidence is missing passes on nothing. Tests 9 and 11
-// each wait one log window out, which is most of the run's few seconds.
+// each wait one log window out, which is most of the run's few seconds. Test 12
+// is the stack seen-set's (Core/StackTrace), which both the record's log path and
+// the allocation guard use to log a stack once.
 //
 // One machine-readable verdict line, the shared one (tools/Common/Verdict.h):
 //   diagtest RESULT=PASS checks=N failures=0 self_test=0
@@ -24,6 +26,7 @@
 #include "Common/Verdict.h"
 #include "Core/Diagnostics.h"
 #include "Core/Log.h"
+#include "Core/StackTrace.h"
 
 #include <atomic>
 #include <cctype>
@@ -711,6 +714,60 @@ void TestSlotReuse() {
 		  std::format("its record holds its own 2 events only (got {})", HealthOf(fresh).total));
 }
 
+// --------------------------------------------------------------------------
+// 12 - a FULL seen-set reports nothing new. The allocation guard and the health
+//      record each log a stack once, remembering it in a bounded stack::SeenSet.
+//      Once its capacity is taken, a site it cannot remember must answer "seen" -
+//      it used to answer "new" on every offer, so the guard logged and
+//      symbolized a stack on every violating frame from then on (code-review
+//      C226) - be counted instead, and say so in ONE line. The count is of
+//      OFFERS turned away, not of distinct sites (a repeat counts again), which
+//      is what every readout of it must say. It touches no slot of the record,
+//      so it can follow test 11's full table.
+void TestSeenSetFull() {
+	Say("12 - a full seen-set reports no further site, counts the offers, and says so once");
+	constexpr int kCap = stack::SeenSet::kCapacity;
+	// Distinct, non-zero, and nothing like a real stack's hash.
+	const auto site = [](int i) { return 0x9E3779B97F4A7C15ull * static_cast<u64>(i + 1); };
+	const char* kFull = "t.seenset: the stack set is full";
+	stack::SeenSet set("t.seenset");
+
+	int firsts = 0;
+	for (int i = 0; i < kCap; ++i) firsts += set.FirstSighting(site(i)) ? 1 : 0;
+	Check(firsts == kCap, std::format("{} distinct sites are each new once (got {})", kCap, firsts));
+	Check(!set.FirstSighting(site(3)) && set.TurnedAway() == 0,
+		  "a site the full set holds is seen, and is not turned away");
+
+	constexpr int kPast = 10;
+	int newPast = 0;
+	for (int i = kCap; i < kCap + kPast; ++i) newPast += set.FirstSighting(site(i)) ? 1 : 0;
+	Check(newPast == 0, std::format("{} sites past the {}th are none of them new (got {})", kPast,
+									kCap, newPast));
+	Check(set.TurnedAway() == kPast,
+		  std::format("...and each offer is counted as turned away ({}, want {})",
+					  set.TurnedAway(), kPast));
+	Check(!set.FirstSighting(site(kCap)) && set.TurnedAway() == kPast + 1,
+		  "a turned-away site offered again stays unreported, and counts again (no room "
+		  "to remember it - the count is of offers, not sites)");
+
+	const int lines = CountLogLines(kFull);
+	if (lines < 0) return;
+	Check(lines == 1, std::format("{} offers turned away wrote {} 'set is full' lines (want 1)",
+								  set.TurnedAway(), lines));
+
+	// A reset starts a new episode: forgotten sites, a fresh count, and a set that
+	// fills again says so again.
+	set.Reset();
+	Check(set.FirstSighting(site(3)) && set.TurnedAway() == 0,
+		  "after Reset a held site is new again and the count restarts");
+	for (int i = 0; i < kCap + 1; ++i) set.FirstSighting(site(100 + i));
+	const int again = CountLogLines(kFull);
+	if (again < 0) return;
+	Check(again == 2 && set.TurnedAway() == 2,
+		  std::format("refilled, it says so again: {} lines (want 2), {} turned away (want 2)",
+					  again, set.TurnedAway()));
+}
+
 } // namespace
 
 int main() {
@@ -732,7 +789,8 @@ int main() {
 	TestLogThrottle();
 	TestRateLimit();
 	TestExitFlush();
-	TestSlotReuse(); // last: it fills the slot table
+	TestSlotReuse(); // it fills the slot table, so only slot-free tests follow
+	TestSeenSetFull();
 
 	const diag::Totals t = diag::ProcessTotals();
 	std::printf("\nprocess totals: %llu events (%llu exception, %llu stall, %llu restart, "

@@ -4,7 +4,7 @@
 phases are done and checked:
 
 ```
-diagtest   RESULT=PASS checks=54 failures=0     # the record, incl. torn-read detection
+diagtest   RESULT=PASS checks=62 failures=0     # the record, incl. torn-read detection
 healthtest RESULT=PASS cases=7  failures=0      # the real game, broken on purpose
 healthtest RESULT=FAIL ... self_test=1          # and the harness proven able to fail
 alloctest  RESULT=PASS frames=1921 violations=0 # the symbolizer lift changed nothing
@@ -193,7 +193,12 @@ nothing is built untested.
    `AllocTrack`'s private symbolizer is gone (~45 lines) and it now shares this
    one, keeping its own `SeenSet` so crash sites and allocation sites cannot
    mask each other. A stack is logged ONCE per distinct site, or a repeating
-   failure would undo the rate limit.
+   failure would undo the rate limit. A set holds 64 sites; a FULL one answers
+   "seen" for any site it cannot remember, counts the offer (`TurnedAway()` -
+   offers, not distinct sites: a repeat counts again), and says so
+   in one line - it used to answer "new" on every offer, so the 65th site was
+   logged and symbolized on every violating frame (code-review C226; DiagTest
+   test 12).
 4. **The probe — DONE.** `health probe <id|name>` suspends a live worker, walks
    it and resumes — the answer to "what is it stuck on", which the record alone
    can never give because a stalled thread has thrown nothing. Measured against
