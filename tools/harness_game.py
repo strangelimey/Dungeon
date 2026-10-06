@@ -13,6 +13,7 @@
 #   harness_game.refuse_if_running(EXE)        # once, at the start (exit 3)
 #   code, log = harness_game.run_eval(EXE, ROOT, LOG, [script], ["-project", p])
 #   if not harness_game.finished(code, log): ...   # crashed / killed / hung
+#   harness_game.report_failed_script(log, script) # finished, but came back FAIL
 #
 # A run COUNTS only if it finished: exit 0, or a verdict line in its log
 # (`eval RESULT=` / `eval BATCH RESULT=` - an eval that FAILS exits non-zero
@@ -203,6 +204,25 @@ def report_unfinished(code, log_text, what):
     print(f"  [FAIL] {what}: the game {why} before writing its verdict - the run does not count")
     for f in fatal_lines(log_text):
         print(f"         game FATAL: {f}")
+    return True
+
+
+def report_failed_script(log_text, what):
+    """Prints why a script that FINISHED came back FAIL: the runner's own lines
+    for a refused, unknown or unrefused line, or the end state. Returns True if
+    any script verdict in the log is FAIL (the caller counts a failure). A
+    harness that reads only the lines it checks never sees a setup line the
+    world declined - that is code-review C442's whole finding."""
+    lines = log_text.splitlines()
+    failed = [l for l in lines if "eval RESULT=FAIL" in l]
+    if not failed:
+        return False
+    for v in failed:
+        print(f"  [FAIL] {what}: {v.split('eval ', 1)[1][:160]}")
+    for l in lines:
+        if any(k in l for k in ("REFUSED:", "matched no command", "expected to REFUSE",
+                                 "refused by the console's gate", "ended in state")):
+            print(f"         {l.split('eval: ', 1)[-1][:160]}")
     return True
 
 

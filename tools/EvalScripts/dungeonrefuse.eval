@@ -5,6 +5,8 @@
 ; each meet a different rule first — the crypt is where the game begins, the
 ; proving ground is where `reset` puts the party — and once the opening is
 ; moved to the world map, the crypt's two DOORWAYS are what stand in the way.
+; Those refusals are ANSWERS to a question, not edits declined, so they print
+; and none of these lines is an `expect-refuse` (code-review C442).
 ;
 ; It also makes the scratch world the next run opens (WorldTest removes it).
 logecho on

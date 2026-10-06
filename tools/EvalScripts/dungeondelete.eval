@@ -55,9 +55,10 @@ dungeons
 levels
 ; Must NOT write the deleted level back.
 savemap
-; The console's form: the id twice, exactly.
+; The console's form: the id twice, exactly. A mismatch is REFUSED (C442);
+; `dungeons what` above stays an answer - it is asked, never acted on.
 newtype dungeons
 levels new dungeon1
-dungeons delete dungeon1 Dungeon1
+expect-refuse dungeons delete dungeon1 Dungeon1
 dungeons delete dungeon1 dungeon1
 dungeons

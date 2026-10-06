@@ -1,0 +1,11 @@
+; selftest-gate.eval - handed to the runner by `Eval.ps1 -SelfTest`; must FAIL
+; with unrefused=1 and nothing else.
+;
+; A probe refused only by the console's GATE (no world on the title screen) has
+; not met the rule it was written for, so `expect-refuse` must not count it as
+; refused. It runs FIRST in its batch, before anything starts a game, and then
+; ends in play so the end-state rule cannot be what fails it.
+logecho on
+expect-refuse worldprops start 0 0
+reset
+state

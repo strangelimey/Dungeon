@@ -151,6 +151,7 @@ bool DevConsole::Execute(const std::string& line) {
 	// the runner reads it immediately. Clearing afterwards would race the very
 	// read it exists for.
 	m_refused = false;
+	m_gateRefused = false;
 	const std::vector<std::string> tokens = Tokenize(line);
 	if (tokens.empty()) return true; // a blank line is not a failure
 
@@ -168,6 +169,7 @@ bool DevConsole::Execute(const std::string& line) {
 	if (gate) {
 		if (std::string why = gate(name); !why.empty()) {
 			Refuse(std::move(why));
+			m_gateRefused = true;
 			return true;
 		}
 	}

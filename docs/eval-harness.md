@@ -124,8 +124,11 @@ queues it and runs **one line per frame**, then emits a verdict and exits with
 it:
 
 ```
-eval RESULT=PASS script=smoke.eval lines=16 unknown=0
+eval RESULT=PASS script=smoke.eval lines=16 unknown=0 refused=0 unrefused=0 endstate=playing
 ```
+
+(`refused=` and `unrefused=` arrived later - see "What PASS means" and
+`expect-refuse` below.)
 
 Exit codes are the harness's actual interface: **0** every line matched a command
 and the queue emptied · **1** a line matched nothing, or the run timed out · **2**
@@ -150,7 +153,9 @@ the one outcome a harness must not have.
 
 `tools/EvalScripts/selftest-bad.eval` contains one line that is not a command. It
 must exit **1**; if it passes, the runner's verdict means nothing. A missing
-script file must exit **2**. Both verified.
+script file must exit **2**. Both verified. (Since code-review C442 the self-test
+also runs `selftest-gate/-refuse/-unrefused/-declined.eval` - see
+`expect-refuse` under "What PASS means".)
 
 ### Determinism, measured
 
@@ -836,6 +841,31 @@ world and I did not". A query with nothing to say stays a `Print` — `monsters`
 answering `no monsters` is an ANSWER, not a refusal. The test is whether a
 script that carried on regardless would be measuring something other than what
 it wrote.
+
+### `expect-refuse`: a probe of a rule (code-review C442)
+
+Twenty-odd commands still declined with a `Print` after that rule was written
+(`load`, `goto`, `give` of an unknown item, `worldprops start` on water...), so
+a script whose setup line they declined measured a world it never built and
+passed. The probes that exist to SEE a refusal - an impassable world start, a
+duplicate location, a mistyped delete confirmation - passed for the same
+accidental reason. Converting the declines to `Refuse` would have failed every
+probe, so a probe now says what it is:
+
+```
+expect-refuse worldprops start 0 0   ; 0,0 is water
+```
+
+The runner runs the rest of the line as usual. Refused by the command's own
+rule: fine, logged `refused, as expected`. Run without a refusal: a FAILURE,
+counted as `unrefused=` on the RESULT line - the rule the probe checks has gone.
+Refused only by the console's GATE (no world on the title screen) is unrefused
+too: a script that never started a game would otherwise pass every probe in it.
+A query's "refused" answer (`dungeons what crypt`) stays a `Print` and is not
+probed this way; it was asked, never acted on. `Eval.ps1 -SelfTest` holds the
+directive to all four cases - a refused probe passes, an unrefused one and a
+gate-refused one fail, and a declined setup line fails - each on exactly its
+own counter.
 
 ### What it caught, immediately
 

@@ -18,7 +18,9 @@
 ;     files. The party's start is where it stands when it begins on the map;
 ;     the opening may be a dungeon instead.
 ;   - Refusals are the rules the LOADER asserts on, enforced early: a duplicate
-;     id, an occupied cell, impassable ground.
+;     id, an occupied cell, impassable ground. Each probe is an `expect-refuse`
+;     line: it must be refused, and a refusal anywhere else fails the run
+;     (code-review C442 - these used to pass only because they PRINTED).
 logecho on
 reset
 worldedit on
@@ -27,19 +29,27 @@ worldedit on
 worldprops
 
 ; --- the start refuses impassable ground (0,0 is water) ---------------------
-worldprops start 0 0
+expect-refuse worldprops start 0 0
 worldprops start 7 6
 worldprops
 
 ; --- locations: add, refuse a duplicate, move, retarget, delete -------------
+; crypt_gate stands at 10,10. It used to stand at 12,7, and when it moved the
+; two moves below swapped roles without a word: the "real" move was refused,
+; the "onto a doorway" one went through, and the occupied-cell add became a
+; second duplicate-id add - all of it printed, none of it counted, until the
+; refusals did (code-review C442).
 worldloc
 worldloc add dungeon outpost 12 6
-worldloc add dungeon outpost 13 6
-worldloc add dungeon crypt_gate 12 7
+; a duplicate id...
+expect-refuse worldloc add dungeon outpost 13 6
+; ...and a new id on an occupied cell
+expect-refuse worldloc add dungeon gatehouse 10 10
 worldloc set outpost dungeon crypt
 worldloc set outpost level crypt2
-worldloc move outpost 10 10
 worldloc move outpost 12 7
+; and a move onto another doorway
+expect-refuse worldloc move outpost 10 10
 worldloc
 
 ; --- areas: the order rule ---------------------------------------------------
@@ -65,17 +75,17 @@ worldarea
 ; MoveArea, the same calls these commands make. That is the point of moving the
 ; refusals into the map: there is one editor wearing two faces, so a rule proved
 ; here is proved for the dialog too. Three that were only in the console before:
-worldarea add lowlands 0 0 4 4
-worldarea add flat 3 3 0 4
+expect-refuse worldarea add lowlands 0 0 4 4
+expect-refuse worldarea add flat 3 3 0 4
 ; (the undo above put tiny back at row 0, so this asks for where it is)
-worldarea order tiny 0
+expect-refuse worldarea order tiny 0
 worldarea
 
 ; --- and the dialog itself opens where its button is, and nowhere else --------
 ; It is modal over the WORLD screen, the one state whose Update routes input to
 ; it; opened over a dungeon it would be a modal nothing could close.
 worldmap off
-worldsettings
+expect-refuse worldsettings
 worldmap on
 worldsettings
 worldsettings off
@@ -108,8 +118,9 @@ levels
 ; closed, the page is dungeon and the toggle is offered (there IS a world)...
 mappage
 ; ...and setting it to world while the map is shut changes nothing, because the
-; page is DERIVED from the overlay being up rather than remembered beside it.
-mappage world
+; page is DERIVED from the overlay being up rather than remembered beside it -
+; so it is refused, and still reports the page it left.
+expect-refuse mappage world
 ; opening resets the page, exactly as pressing M does: a fresh map shows
 ; where you ARE.
 mappage open

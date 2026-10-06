@@ -180,6 +180,7 @@ bool Game::LoadEvalScript(const std::string& path) {
 	m_evalIndex = 0;
 	m_evalUnknown = 0;
 	m_evalRefused = 0;
+	m_evalUnrefused = 0;
 	m_evalDeadline = kEvalScriptTimeout; // the budget is per script, not per run
 	// Mirroring is forced ON rather than left to the script: a run whose author
 	// forgot the line would produce no readable record of itself, which is the
@@ -225,14 +226,14 @@ void Game::PumpEvalScript(float dt) {
 		// emits, so one reader handles them all. ONE PER SCRIPT — a batch that
 		// reported only at the end would make a reader count lines to work out
 		// which of twenty scripts went wrong.
-		const int problems =
-			m_evalUnknown + m_evalRefused + (endedOutOfPlay ? 1 : 0);
+		const int problems = m_evalUnknown + m_evalRefused + m_evalUnrefused +
+							 (endedOutOfPlay ? 1 : 0);
 		++m_evalScripts;
 		if (problems != 0) ++m_evalFailed;
 		log::Info("eval RESULT={} script={} lines={} unknown={} refused={} "
-				  "endstate={}",
-				  problems == 0 ? "PASS" : "FAIL", m_evalName,
-				  m_evalLines.size(), m_evalUnknown, m_evalRefused, StateName());
+				  "unrefused={} endstate={}",
+				  problems == 0 ? "PASS" : "FAIL", m_evalName, m_evalLines.size(),
+				  m_evalUnknown, m_evalRefused, m_evalUnrefused, StateName());
 		// NEXT SCRIPT IN THE SAME PROCESS, if there is one — the whole point of
 		// the batch form. Deliberately WITHOUT a reset: the script decides
 		// whether it wants a clean baseline (`reset` at the top) or to inherit
@@ -340,7 +341,24 @@ void Game::PumpEvalScript(float dt) {
 		log::Info("eval: included '{}' ({} line(s))", path, nested.size());
 		return;
 	}
-	if (!m_console.RunLine(line)) {
+	// `expect-refuse <line>` - THE PROBE OF A RULE (code-review C442). Some lines
+	// exist to be refused: an impassable world start, a duplicate id, a delete
+	// whose confirmation is mistyped. While those commands declined with a Print
+	// they passed by accident, and the same accident hid every SETUP line that was
+	// declined the same way. Now a decline is a Refuse and counts, so a probe says
+	// so: the line must run, and must be refused by its own rule - a refusal it
+	// was written to see is not a failure, and a probe that stopped refusing IS
+	// one (the rule it checks has gone). A refusal by the console's GATE (no game
+	// running, docs/world-on-demand.md) does not count as the rule's: a script
+	// that never started a game would otherwise pass every probe it holds.
+	constexpr std::string_view kExpectRefuse = "expect-refuse ";
+	const bool expectRefuse = line.starts_with(kExpectRefuse);
+	std::string run = line;
+	if (expectRefuse) {
+		run = line.substr(kExpectRefuse.size());
+		run.erase(0, run.find_first_not_of(" \t"));
+	}
+	if (!m_console.RunLine(run)) {
 		++m_evalUnknown;
 		log::Error("eval: line {} matched no command: '{}'", m_evalIndex, line);
 	} else if (m_console.ConsumeRefusal()) {
@@ -349,8 +367,21 @@ void Game::PumpEvalScript(float dt) {
 		// nothing else. A `spawn` onto rock, a `tp` into a wall and a `step` past
 		// its ceiling all returned true here and the run reported PASS over an
 		// encounter it never set up (docs/eval-audit.md F11/F15).
-		++m_evalRefused;
-		log::Error("eval: line {} REFUSED: '{}'", m_evalIndex, line);
+		if (!expectRefuse) {
+			++m_evalRefused;
+			log::Error("eval: line {} REFUSED: '{}'", m_evalIndex, line);
+		} else if (m_console.RefusedByGate()) {
+			++m_evalUnrefused;
+			log::Error("eval: line {} was refused by the console's gate, not by its "
+					   "own rule - no game is running: '{}'",
+					   m_evalIndex, run);
+		} else {
+			log::Info("eval: line {} refused, as expected: '{}'", m_evalIndex, run);
+		}
+	} else if (expectRefuse) {
+		++m_evalUnrefused;
+		log::Error("eval: line {} was expected to REFUSE and did not: '{}'", m_evalIndex,
+				   run);
 	}
 }
 

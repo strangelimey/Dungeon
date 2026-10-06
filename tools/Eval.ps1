@@ -31,7 +31,10 @@
 # and every suite measured something. That is FOUR conditions, and it used to be
 # one (docs/eval-audit.md). A line now fails the run if it named no command
 # (a typo), if it named one that then REFUSED (a spawn onto rock, a tp into a
-# wall, a `step` past its per-call ceiling), if the script ended out of play (a
+# wall, a `step` past its per-call ceiling - and since code-review C442 every
+# declined command refuses rather than prints; a line written to PROBE a rule
+# says `expect-refuse <line>` and fails if it is NOT refused), if the script
+# ended out of play (a
 # party wipe returns to the title screen and every dev command keeps answering
 # from there), or if a suite's measure regex matched nothing at all.
 #
@@ -49,7 +52,9 @@
 # What IS checked is that the runner still works: a suite that silently stopped
 # measuring would otherwise read exactly like one whose numbers had not changed.
 # -SelfTest is the guard - it hands the runner a script containing a line that
-# is not a command and requires exit 1.
+# is not a command and requires exit 1, and a batch where a declined setup line,
+# a probe that is not refused and a probe refused only by the no-game gate must
+# each fail on exactly its own counter while a refused probe passes.
 #
 # ASCII ONLY: PS 5.1 reads a BOM-less .ps1 as ANSI.
 # ============================================================================
@@ -270,6 +275,44 @@ if ($SelfTest) {
 	$missing = Join-Path $scripts 'no-such-file.eval'
 	$q = Start-Process -FilePath $exe -ArgumentList '-eval', $missing -PassThru -Wait
 	Write-Host ("  missing script exited {0} (want 2)" -f $q.ExitCode)
+
+	# --- a declined line is counted; a probe must be refused -----------------
+	# code-review C442. A setup line the world declines must fail its script,
+	# and `expect-refuse` must be exactly as strict the other way: a probe that
+	# is refused passes, one that runs clean fails, and one refused only by the
+	# console's gate (no game yet) fails too. One batch, and each script must
+	# fail for ITS reason alone - the counters on its RESULT line are compared
+	# whole, so a script failing for some other cause cannot stand in.
+	Write-Host ''
+	Write-Host '=== a declined line is counted; a probe must be refused ==='
+	$declineRan = Invoke-EvalRun @('-eval',
+		(Join-Path $scripts 'selftest-gate.eval'), (Join-Path $scripts 'selftest-refuse.eval'),
+		(Join-Path $scripts 'selftest-unrefused.eval'), (Join-Path $scripts 'selftest-declined.eval'))
+	$counts = @{}
+	foreach ($line in ReadLog) {
+		if ($line -match 'eval RESULT=(\w+) script=(\S+) lines=\d+ unknown=(\d+) refused=(\d+) unrefused=(\d+) endstate=(\w+)') {
+			$counts[$Matches[2]] = '{0} unknown={1} refused={2} unrefused={3} endstate={4}' -f
+				$Matches[1], $Matches[3], $Matches[4], $Matches[5], $Matches[6]
+		}
+	}
+	$declineWant = @(
+		@{ script = 'selftest-gate.eval';      want = 'FAIL unknown=0 refused=0 unrefused=1 endstate=playing'
+		   what = 'a probe refused only by the gate fails' },
+		@{ script = 'selftest-refuse.eval';    want = 'PASS unknown=0 refused=0 unrefused=0 endstate=playing'
+		   what = 'a probe its rule refuses passes' },
+		@{ script = 'selftest-unrefused.eval'; want = 'FAIL unknown=0 refused=0 unrefused=1 endstate=playing'
+		   what = 'a probe that is not refused fails' },
+		@{ script = 'selftest-declined.eval';  want = 'FAIL unknown=0 refused=1 unrefused=0 endstate=playing'
+		   what = 'a declined setup line fails' }
+	)
+	$declineOk = $declineRan
+	foreach ($d in $declineWant) {
+		$got = if ($counts.ContainsKey($d.script)) { $counts[$d.script] } else { '(no verdict)' }
+		$good = $got -eq $d.want
+		Write-Host ("  {0,-42} {1}" -f $d.what, $(if ($good) { 'ok' } else { "FAIL - got '$got', want '$($d.want)'" })) `
+			-ForegroundColor $(if ($good) { 'Gray' } else { 'Red' })
+		if (-not $good) { $declineOk = $false }
+	}
 
 	# --- `reset` really equals a new game ------------------------------------
 	# The recycling the whole batch form rests on. resettest.eval takes a
@@ -527,10 +570,10 @@ if ($SelfTest) {
 		else { [IO.File]::WriteAllText($ini, $iniBefore) }
 	}
 
-	$ok = ($p.ExitCode -eq 1) -and ($q.ExitCode -eq 2) -and $resetOk -and $batchOk -and $headOk -and $respondOk -and $guardOk -and $hiddenOk
+	$ok = ($p.ExitCode -eq 1) -and ($q.ExitCode -eq 2) -and $declineOk -and $resetOk -and $batchOk -and $headOk -and $respondOk -and $guardOk -and $hiddenOk
 	Write-Host ''
 	Write-Host ("eval RESULT={0} self_test=1" -f $(if ($ok) { 'PASS' } else { 'FAIL' }))
-	if ($ok) { Write-Host 'the runner reports both failures, recycling and headless change nothing, the numbers still move, and a second or killed run does not count' }
+	if ($ok) { Write-Host 'the runner reports both failures, counts a declined line and holds a probe to its refusal, recycling and headless change nothing, the numbers still move, and a second or killed run does not count' }
 	else { Write-Host 'A RUNNER THAT CANNOT FAIL MEANS NOTHING' -ForegroundColor Red }
 	exit $(if ($ok) { 0 } else { 1 })
 }

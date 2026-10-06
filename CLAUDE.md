@@ -1650,7 +1650,10 @@ Tab/Enter take it, Esc shuts it first; a history recall never opens it, or the
 second Up would select instead of stepping back; after `name ` it shows that
 command's forms). An arity error goes through `devargs::Need(console, args, n)`
 / `DevConsole::RefuseUsage`, which print the REGISTERED params, so `help` and
-the error cannot drift. Code: DevConsole_Commands.cpp.
+the error cannot drift. Code: DevConsole_Commands.cpp. An eval script line
+written to PROBE a rule is `expect-refuse <line>`: it must be refused by the
+command's own rule (the no-game gate does not count) or the script fails on
+`unrefused=` (code-review C442; docs/eval-harness.md "expect-refuse").
 
 Dev console (`~`) THREADS panel (top, under the perf gauges): a live row per
 worker (name / state[colored] / iterations / last+avg ms / hz / pN priority /

@@ -131,6 +131,11 @@ def run(script, project=SCRATCH, words=None):
     code, log = harness_game.run_eval(EXE, ROOT, LOG, [path], extra)
     if harness_game.report_unfinished(code, log, script):
         failures += 1
+    # And a run that finished FAIL counts too: the checks below read only what
+    # they look for, so a declined setup line (a refused move, a missing id)
+    # used to pass straight through them (code-review C442).
+    elif harness_game.report_failed_script(log, script):
+        failures += 1
     return log
 
 

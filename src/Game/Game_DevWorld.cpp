@@ -599,7 +599,7 @@ void Game::RegisterWorldCommands() {
 			// it.
 			if (!a.empty()) {
 				if (a[0] == "world" && !m_worldMap) {
-					m_console.Print("this project has no world map");
+					m_console.Refuse("this project has no world map");
 					return;
 				}
 				// open/close are exactly what M does, page reset included.
@@ -607,8 +607,18 @@ void Game::RegisterWorldCommands() {
 					if (a[0] == "open") m_mapView.Open(MapView::Mode::Player);
 					else m_mapView.Close();
 					ShowMapPage(MapPage::Dungeon);
-				} else {
+				} else if (a[0] == "world" || a[0] == "dungeon") {
 					ShowMapPage(a[0] == "world" ? MapPage::World : MapPage::Dungeon);
+					// The page is DERIVED from the overlay, so the world page
+					// asked for with the map shut is not shown - a refusal, and
+					// the readout below still says where it stands (the line
+					// worldprops.eval reads).
+					if (a[0] == "world" && !ShowingWorldPage())
+						m_console.Refuse("mappage: the world page shows only while "
+										 "the map is open");
+				} else {
+					m_console.RefuseUsage(); // a typo used to turn to the dungeon page
+					return;
 				}
 			}
 			m_console.Print(std::format(
@@ -970,7 +980,7 @@ void Game::RegisterWorldCommands() {
 		 .summary = "show or set the world start, the game's opening and harness level"},
 		[this](const std::vector<std::string>& a) {
 			if (!m_worldMap) {
-				m_console.Print("no world map loaded");
+				m_console.Refuse("no world map loaded");
 				return;
 			}
 			if (a.empty()) {
@@ -1001,12 +1011,14 @@ void Game::RegisterWorldCommands() {
 				m_world->BeginUndoStep();
 				const bool ok = m_worldMap->SetStart(x, z);
 				m_world->CommitUndoStep(ok);
+				// A start that did not move is REFUSED, not reported: a script
+				// carrying on from it would begin somewhere it did not ask for.
 				if (ok) m_console.Print(std::format("world start {},{}", x, z));
 				else if (!m_worldMap->InBounds(x, z))
-					m_console.Print("off the world grid");
+					m_console.Refuse("off the world grid");
 				else
-					m_console.Print(std::format("{},{} is impassable ({})", x, z,
-												m_worldMap->TerrainAt(x, z).id));
+					m_console.Refuse(std::format("{},{} is impassable ({})", x, z,
+												 m_worldMap->TerrainAt(x, z).id));
 			} else if (a[0] == "opening" && a.size() >= 2 && a[1] == "world") {
 				m_project.startDungeon.clear();
 				m_project.startLevel.clear();
@@ -1023,7 +1035,8 @@ void Game::RegisterWorldCommands() {
 				m_project.evalLevel = a[1];
 				m_console.Print("harness level: " + a[1]);
 			} else {
-				m_console.Print("usage: worldprops [start|opening|eval] ...");
+				m_console.RefuseUsage(); // the registered forms, not a drifted copy
+				return;
 			}
 			// THE MANIFEST IS NOT UNDOABLE and says so rather than pretending:
 			// the editor's history snapshots the world and the levels, not
@@ -1044,7 +1057,7 @@ void Game::RegisterWorldCommands() {
 		 .summary = "list, add, remove, move or edit world locations"},
 		[this](const std::vector<std::string>& a) {
 			if (!m_worldMap) {
-				m_console.Print("no world map loaded");
+				m_console.Refuse("no world map loaded");
 				return;
 			}
 			WorldMap& w = *m_worldMap;
@@ -1062,7 +1075,12 @@ void Game::RegisterWorldCommands() {
 			// A world edit that silently did nothing is the failure mode here:
 			// the refusals (duplicate id, occupied cell, off the grid) are the
 			// rules Load asserts on, enforced early so the editor cannot author
-			// a world its own loader rejects.
+			// a world its own loader rejects - and each one is a REFUSE, so a
+			// script whose setup it stopped fails instead of measuring on (C442).
+			const auto say = [this](bool ok, const std::string& done, const char* why) {
+				if (ok) m_console.Print(done);
+				else m_console.Refuse(why);
+			};
 			const std::string& verb = a[0];
 			if (verb == "add" && a.size() >= 5) {
 				WorldMap::Location l;
@@ -1073,26 +1091,24 @@ void Game::RegisterWorldCommands() {
 				m_world->BeginUndoStep();
 				const bool ok = w.AddLocation(std::move(l));
 				m_world->CommitUndoStep(ok);
-				m_console.Print(ok ? std::format("added {} at {},{}", a[2], a[3], a[4])
-								   : "refused: duplicate id, occupied cell, or off "
-									 "the grid");
+				say(ok, std::format("added {} at {},{}", a[2], a[3], a[4]),
+					"refused: duplicate id, occupied cell, or off the grid");
 			} else if (verb == "del" && a.size() >= 2) {
 				m_world->BeginUndoStep();
 				const bool ok = w.RemoveLocation(a[1]);
 				m_world->CommitUndoStep(ok);
-				m_console.Print(ok ? "removed " + a[1] : "no such location");
+				say(ok, "removed " + a[1], "no such location");
 			} else if (verb == "move" && a.size() >= 4) {
 				m_world->BeginUndoStep();
 				const bool ok = w.MoveLocation(a[1], std::atoi(a[2].c_str()),
 											   std::atoi(a[3].c_str()));
 				m_world->CommitUndoStep(ok);
-				m_console.Print(ok ? std::format("{} -> {},{}", a[1], a[2], a[3])
-								   : "refused: unknown id, occupied cell, or off "
-									 "the grid");
+				say(ok, std::format("{} -> {},{}", a[1], a[2], a[3]),
+					"refused: unknown id, occupied cell, or off the grid");
 			} else if (verb == "set" && a.size() >= 4) {
 				WorldMap::Location* l = w.MutableLocation(a[1]);
 				if (!l) {
-					m_console.Print("no such location");
+					m_console.Refuse("no such location");
 					return;
 				}
 				m_world->BeginUndoStep();
@@ -1104,10 +1120,10 @@ void Game::RegisterWorldCommands() {
 				else if (a[2] == "kind") l->kind = a[3];
 				else ok = false;
 				m_world->CommitUndoStep(ok);
-				m_console.Print(ok ? std::format("{}.{} = {}", a[1], a[2], a[3])
-								   : "field must be kind/dungeon/level/entryx/entryz");
+				say(ok, std::format("{}.{} = {}", a[1], a[2], a[3]),
+					"field must be kind/dungeon/level/entryx/entryz");
 			} else {
-				m_console.Print("usage: worldloc [add|del|move|set] ...");
+				m_console.RefuseUsage();
 			}
 		});
 	m_console.Register(
@@ -1121,7 +1137,7 @@ void Game::RegisterWorldCommands() {
 		 .summary = "list, add, remove or reorder world areas; ask who owns a cell"},
 		[this](const std::vector<std::string>& a) {
 			if (!m_worldMap) {
-				m_console.Print("no world map loaded");
+				m_console.Refuse("no world map loaded");
 				return;
 			}
 			std::vector<WorldMap::Area>& areas = m_worldMap->MutableAreas();
@@ -1167,27 +1183,28 @@ void Game::RegisterWorldCommands() {
 				// deleted, because the extent case beside it printed the very same
 				// words. The reporting is the decision's alibi, so it has to be as
 				// specific as the decision.
+				// Each refusal a REFUSE as well (C442), counted by a script.
 				if (ok)
 					m_console.Print(std::format("added {} (row {}, wins over earlier)",
 												a[1], areas.size() - 1));
 				else if (w <= 0 || h <= 0)
-					m_console.Print("refused: an area needs a positive extent");
+					m_console.Refuse("refused: an area needs a positive extent");
 				else
-					m_console.Print(std::format(
+					m_console.Refuse(std::format(
 						"refused: an area named '{}' already exists", a[1]));
 			} else if (verb == "del" && a.size() >= 2) {
 				m_world->BeginUndoStep();
 				const bool ok = m_worldMap->RemoveArea(a[1]);
 				m_world->CommitUndoStep(ok);
-				m_console.Print(ok ? "removed " + a[1] : "no such area");
+				if (ok) m_console.Print("removed " + a[1]);
+				else m_console.Refuse("no such area");
 			} else if (verb == "order" && a.size() >= 3) {
 				const int to = std::atoi(a[2].c_str());
 				m_world->BeginUndoStep();
 				const bool ok = m_worldMap->MoveArea(a[1], to);
 				m_world->CommitUndoStep(ok);
-				m_console.Print(ok ? std::format("{} is now row {}", a[1], to)
-								   : "no such area, index out of range, or already "
-									 "there");
+				if (ok) m_console.Print(std::format("{} is now row {}", a[1], to));
+				else m_console.Refuse("no such area, index out of range, or already there");
 			} else if (verb == "at" && a.size() >= 3) {
 				// WHICH AREA OWNS THIS CELL, and what that makes it. The
 				// ordering rule is otherwise invisible: a list can show the
@@ -1200,7 +1217,7 @@ void Game::RegisterWorldCommands() {
 					owner ? owner->id : m_worldMap->TerrainAt(x, z).id +
 											 std::string(" (no area)")));
 			} else {
-				m_console.Print("usage: worldarea [add|del|order|at] ...");
+				m_console.RefuseUsage();
 			}
 		});
 	m_console.Register(
@@ -1221,21 +1238,23 @@ void Game::RegisterWorldCommands() {
 				return;
 			}
 			if (!m_worldMap) {
-				m_console.Print("no world map loaded");
+				m_console.Refuse("no world map loaded");
 				return;
 			}
 			// ON THE WORLD SCREEN ONLY, because that is the one state whose
 			// Update routes input to it. Opened over a dungeon it would draw a
 			// modal nothing could type into or close - a console command
-			// reaching further than the button it stands for.
+			// reaching further than the button it stands for. A REFUSE, so a
+			// sweep that meant to audit the dialog fails rather than auditing
+			// the dungeon under it (C442).
 			if (m_state != AppState::WorldMap) {
-				m_console.Print("world settings need the world map "
-								"(try `worldmap on`)");
+				m_console.Refuse("world settings need the world map "
+								 "(try `worldmap on`)");
 				return;
 			}
 			OpenWorldSettings(a.empty() ? std::string() : a[0]);
-			m_console.Print(m_worldSettingsDialog.IsOpen() ? "world settings open"
-														   : "could not open");
+			if (m_worldSettingsDialog.IsOpen()) m_console.Print("world settings open");
+			else m_console.Refuse("could not open");
 		});
 	// The asset pool browser without the type editor in front of it: the
 	// harness cannot click a `texture` field. It shares ThumbCache with the

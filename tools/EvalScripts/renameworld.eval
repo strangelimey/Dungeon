@@ -1,4 +1,12 @@
 ; renameworld.eval — makes the scratch world the rename checks run in (W11).
 ; WorldTest removes it afterwards.
+;
+; The `reset` is only so the script ENDS IN PLAY: a run that stops on the title
+; is a FAIL by the runner's rule, and WorldTest now reads every script's verdict
+; (code-review C442) - a setup script that always failed would teach it to be
+; skimmed. `state` after it, because a cold `reset` only STARTS the load: the
+; next line is what waits for it, and without one the run ends mid-load.
 logecho on
 worlds new wt_ren
+reset
+state

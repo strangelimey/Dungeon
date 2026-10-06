@@ -10,12 +10,15 @@
 #include "Game/Game.h"
 
 #include "Core/Log.h"
+#include "Game/DevCommandArgs.h" // Need
 
 #include <cstdlib>
 #include <format>
 #include <string>
 
 namespace dungeon::game {
+
+using devargs::Need;
 
 void Game::RegisterDungeonCommands() {
 	m_console.Register(
@@ -44,7 +47,10 @@ void Game::RegisterDungeonCommands() {
 			}
 			// What a delete WOULD do, and whether it is allowed — asked without
 			// doing it, so a harness can read the refusal before any mutation.
-			if (a[0] == "what" && a.size() >= 2) {
+			// A QUERY, so its "refused" is an ANSWER and stays a Print: nothing
+			// was asked to change (docs/eval-harness.md, "What PASS means").
+			if (a[0] == "what") {
+				if (!Need(m_console, a, 2)) return;
 				const std::string why = DungeonDeleteRefusal(a[1]);
 				m_console.Print(why.empty() ? std::format("delete '{}': allowed", a[1])
 											: std::format("delete '{}': refused - {}", a[1], why));
@@ -55,28 +61,33 @@ void Game::RegisterDungeonCommands() {
 			// The typed confirmation in its console form: the id TWICE, exact,
 			// the `worlds delete` rule — a single word is a typo away from a
 			// different dungeon.
+			// Every decline below is a REFUSE: a delete or rename that did not
+			// happen is a script measuring a world it did not build (C442).
 			if (a[0] == "delete") {
 				if (a.size() < 3 || a[1] != a[2]) {
-					m_console.Print("usage: dungeons delete <id> <id again> "
-									"(exact, case-sensitive)");
+					m_console.Refuse("usage: dungeons delete <id> <id again> "
+									 "(exact, case-sensitive)");
 					return;
 				}
 				if (const std::string why = DungeonDeleteRefusal(a[1]); !why.empty()) {
-					m_console.Print(std::format("delete '{}': refused - {}", a[1], why));
+					m_console.Refuse(std::format("delete '{}': refused - {}", a[1], why));
 					return;
 				}
-				m_console.Print(DeleteDungeon(a[1])
-									? std::format("deleted '{}'", a[1])
-									: std::format("delete '{}': FAILED - see the log", a[1]));
+				if (DeleteDungeon(a[1]))
+					m_console.Print(std::format("deleted '{}'", a[1]));
+				else
+					m_console.Refuse(std::format("delete '{}': FAILED - see the log", a[1]));
 				return;
 			}
 			// The type editor's title rename, which is where a dungeon is renamed
 			// (W11) — the same RenameType, doorways and opening included.
-			if (a[0] == "rename" && a.size() >= 3) {
+			if (a[0] == "rename") {
+				if (!Need(m_console, a, 3)) return;
 				std::string problem;
-				const bool ok = RenameType("dungeons", a[1], a[2], problem);
-				m_console.Print(ok ? std::format("renamed dungeon '{}' -> '{}'", a[1], a[2])
-								   : std::format("rename '{}': refused{}{}", a[1],
+				if (RenameType("dungeons", a[1], a[2], problem))
+					m_console.Print(std::format("renamed dungeon '{}' -> '{}'", a[1], a[2]));
+				else
+					m_console.Refuse(std::format("rename '{}': refused{}{}", a[1],
 												 problem.empty() ? "" : " - ", problem));
 				return;
 			}
@@ -106,7 +117,7 @@ void Game::RegisterDungeonCommands() {
 					open ? m_typeDialog.Notice() : std::string()));
 				return;
 			}
-			m_console.Print("unknown verb '" + a[0] + "' - help dungeons");
+			m_console.RefuseUsage();
 		});
 
 	// The Level dialog's inline rename, from the console (W11): files, stairs,

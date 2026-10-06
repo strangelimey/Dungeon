@@ -1,0 +1,9 @@
+; selftest-refuse.eval - handed to the runner by `Eval.ps1 -SelfTest`; must PASS.
+;
+; The half of `expect-refuse` that keeps a probe from failing its own run: each
+; line below is refused by the command's own rule, so none of them counts.
+; (0,0 of the demo's world map is water.)
+logecho on
+reset
+expect-refuse worldprops start 0 0
+state

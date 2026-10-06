@@ -147,6 +147,11 @@ public:
 		m_refused = false;
 		return refused;
 	}
+	// Whether the last Execute was refused by the GATE below (the title screen
+	// has no world) rather than by the command's own rule. The eval runner's
+	// `expect-refuse` asks it: a probe of a rule that "passed" because no game
+	// was running would be a check of nothing.
+	bool RefusedByGate() const { return m_gateRefused; }
 
 	// Gates command EXECUTION (typing/scrollback stay live). The Game disables
 	// commands while a staged load is mid-flight — the world is only partially
@@ -207,6 +212,7 @@ public:
 private:
 	bool Execute(const std::string& line); // false = no such command
 	bool m_refused = false;                // the running command called Refuse
+	bool m_gateRefused = false;            // ...and it was the gate that refused it
 
 	ui::FontLibrary& m_fonts;
 	// Borrowed from the library (Mono: this is a column-aligned readout).

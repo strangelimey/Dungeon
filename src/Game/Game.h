@@ -739,6 +739,10 @@ private:
 	// unknown because they are a different fault: the script is well formed and
 	// the world is not what it assumed (docs/eval-audit.md F11).
 	int m_evalRefused = 0;
+	// `expect-refuse` lines that RAN WITHOUT refusing (or were refused only by
+	// the title-screen gate): a probe of a rule that no longer holds. The mirror
+	// of m_evalRefused, and a failure for the same reason (code-review C442).
+	int m_evalUnrefused = 0;
 	bool m_evalFinished = false;          // the LAST script emptied (vs timed out)
 	std::string m_evalName;               // the script's filename, for the verdict
 	std::string m_evalDir;                // its folder — what `include` resolves against

@@ -1,0 +1,9 @@
+; selftest-unrefused.eval - handed to the runner by `Eval.ps1 -SelfTest`; must
+; FAIL with unrefused=1 and nothing else.
+;
+; A probe whose rule no longer refuses is a failure: bare `worldprops` only
+; reports, so expecting it to refuse is a rule that has gone.
+logecho on
+reset
+expect-refuse worldprops
+state

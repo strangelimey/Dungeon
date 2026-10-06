@@ -1,0 +1,10 @@
+; selftest-declined.eval - handed to the runner by `Eval.ps1 -SelfTest`; must
+; FAIL, with refused= counting every declined line below and nothing else.
+;
+; A SETUP line that is declined must fail the run (code-review C442): these used
+; to decline with a Print, so a script carried on and measured a world it never
+; built. Each line here asks for a change the world refuses.
+logecho on
+reset
+worldprops start 0 0
+state

@@ -1,9 +1,9 @@
 ; worldnosave.eval — saving inside a random encounter is REFUSED.
 ;
-; EXPECTED TO FAIL, like selftest-bad.eval: the runner counts a refused command
-; as a script failure, and this script's whole content is a command that must be
-; refused. Its verdict is therefore meaningless on its own — tools/WorldTest.py
-; reads the LOG, and checks the save file was not created either.
+; The save is an `expect-refuse` line: it must be refused, so the script PASSES
+; when the guard holds (it was written to FAIL before the runner could say a
+; refusal was the point - code-review C442). tools/WorldTest.py also reads the
+; LOG, and checks the save file was not created either.
 ;
 ; What is being guarded: an encounter level exists only in memory, so a save
 ; naming it would reload into a level that no longer exists and cannot be
@@ -17,4 +17,4 @@ seed 4
 leave
 worldpos 6 6
 encounter
-save encountertrip
+expect-refuse save encountertrip
